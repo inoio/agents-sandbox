@@ -48,7 +48,7 @@ Question: Does opencode deep-merge `OPENCODE_CONFIG_CONTENT` with `~/.config/ope
 Approach:
 1. If opencode is installed locally, run:
    ```bash
-   OPENCODE_CONFIG_CONTENT='{"provider":{"test-provider":{"name":"Test"}}}' opencode config --show
+   OPENCODE_CONFIG_CONTENT='{"provider":{"test-provider":{"name":"Test"}}}' opencode debug config
    ```
    or inspect `~/.config/opencode/opencode.jsonc` before/after.
 2. If opencode is not installed, search the opencode documentation/source for `OPENCODE_CONFIG_CONTENT` handling and summarize the observed behavior.
@@ -62,14 +62,14 @@ Expected outcome: A one-paragraph note stating whether the launcher should:
 
 - [x] **Step 2: Verify `msb --secret` works with default egress**
 
-Question: Can `msb run --secret LITELLM_API_KEY@litellm.inoio.de` be used while default network egress is allowed, or does it require `--no-net` + `--net-rule`?
+Question: Can `msb run --secret LITELLM_API_KEY@litellm.inoio.de` be used with msb's default egress policy (`deny` with an implicit `allow@public` rule), or does it require `--no-net` + `--net-rule`?
 
 Approach:
 1. If `msb` is installed and an image is loaded, run a tiny VM:
    ```bash
    msb run -e TEST=1 --secret LITELLM_API_KEY@litellm.inoio.de <image> -- env
    ```
-   and check whether the secret value appears in the VM env (it should appear as the placeholder `$MSB_LITELLM_API_KEY`).
+   and check that `LITELLM_API_KEY` is set to the placeholder `$MSB_LITELLM_API_KEY`, not the real value.
 2. If `msb` is not available, read the microsandbox CLI help/docs for `--secret` and summarize whether it depends on network rules.
 
 Expected outcome: Confirmation that the launcher can keep default egress and still use `--secret`, or a note that network rules must be added for MVP.
@@ -100,7 +100,7 @@ If any finding contradicts the current plan, edit this plan's "Open Questions / 
 Create a short research note under `docs/superpowers/notes/` or append findings to this plan, then commit:
 
 ```bash
-git add docs/superpowers/plans/2026-07-20-inoio-sandbox-implementation.md
+git add docs/superpowers/plans/2026-07-20-inoio-sandbox-implementation.md docs/superpowers/notes/2026-07-20-inoio-sandbox-open-questions.md
 git commit -m "docs: resolve open questions before implementation"
 ```
 
@@ -1259,6 +1259,6 @@ git commit -m "style: lint fixes and final test pass"
 Resolved in `docs/superpowers/notes/2026-07-20-inoio-sandbox-open-questions.md`.
 
 1. **`OPENCODE_CONFIG_CONTENT` deep-merge behavior**: **Resolved — deep-merge.** opencode merges the inline fragment with the existing config stack; the inoio provider overrides only a same-key personal provider. Pass the fragment as-is. Note: `{env:LITELLM_API_KEY}` substitution works in current opencode; older versions may need pre-substitution.
-2. **`--secret` with open egress**: **Resolved — works with default egress.** Default msb policy implicitly allows `@public`; `litellm.inoio.de` is public. No `--net-rule` flags needed for MVP. The guest sees `LITELLM_API_KEY=$MSB_LITELLM_API_KEY`, matching the provider fragment's `{env:LITELLM_API_KEY}` token.
+2. **`--secret` with default egress**: **Resolved — works with default egress.** Default msb policy is `deny` with an implicit `allow@public` rule when no other rules are present; `litellm.inoio.de` is public. No `--net-rule` flags needed for MVP. The guest sees `LITELLM_API_KEY=$MSB_LITELLM_API_KEY`, matching the provider fragment's `{env:LITELLM_API_KEY}` token.
 3. **Shell/env length**: **Resolved — safe.** Local `ARG_MAX` is 2,097,152 bytes. The spec's upper-bound estimate of ~15 KB is still negligible, and the actual example fragment is only ~590 bytes. No temp-file fallback needed.
 4. **Stale VM detection (`--force`)**: Explicitly deferred. Not implemented in MVP. May be added later without changing the core launcher interface.

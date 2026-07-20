@@ -22,15 +22,6 @@ caveat is that a user-defined provider with the same key (e.g. `litellm`) will b
 overridden by the injected inoio catalog. This is acceptable for the MVP and can
 be documented as a known limitation.
 
-### Bonus finding: `{env:...}` token substitution in `OPENCODE_CONFIG_CONTENT`
-
-Older opencode versions parsed `OPENCODE_CONFIG_CONTENT` with raw `JSON.parse`,
-which skipped `{env:VAR}` substitution. That bug was fixed; current versions route
-the inline content through the normal `load()`/`loadConfig()` path, so
-`{env:LITELLM_API_KEY}` resolves correctly. If a user is on an older build, the
-launcher may need to pre-substitute the value; for the MVP we assume a current
-opencode version.
-
 ## 2. `msb --secret` with default egress
 
 **Finding:** `msb run --secret LITELLM_API_KEY@litellm.inoio.de` works with the
