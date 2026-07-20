@@ -3,9 +3,9 @@ from pathlib import Path
 
 import click
 
-from inoio_sandbox import config, doctor as doctor_checks, image, runner, secrets, volumes
+from inoio_sandbox import config, image, runner, secrets, volumes
+from inoio_sandbox import doctor as doctor_checks
 from inoio_sandbox import worktree as worktree_mod
-
 
 DATA_DIR = Path(__file__).parent / "data"
 DEFAULT_DOCKERFILE = DATA_DIR / "Dockerfile"
