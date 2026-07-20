@@ -1,5 +1,7 @@
 import click
 
+from inoio_sandbox import doctor as doctor_checks
+
 
 @click.group()
 def cli():
@@ -10,7 +12,10 @@ def cli():
 @cli.command()
 def doctor():
     """Check prerequisites."""
-    click.echo("doctor: not implemented yet")
+    ok = doctor_checks.check_all()
+    if not ok:
+        raise click.ClickException("preflight failed")
+    click.echo("doctor: all checks passed")
 
 
 @cli.command()
