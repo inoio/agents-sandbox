@@ -21,7 +21,7 @@ def ensure_msb_volume(name: str) -> bool:
 
 
 def fallback_paths(state_dir: Path, project_slug: str) -> tuple[Path, Path]:
-    base = state_dir / project_slug
+    base = state_dir / "state" / project_slug
     return base / "local", base / "cache"
 
 

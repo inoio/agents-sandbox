@@ -8,5 +8,5 @@ def test_volume_names():
 
 def test_volume_paths(tmp_path):
     local, cache = volumes.fallback_paths(tmp_path, "p-deadbeef")
-    assert local == tmp_path / "p-deadbeef" / "local"
-    assert cache == tmp_path / "p-deadbeef" / "cache"
+    assert local == tmp_path / "state" / "p-deadbeef" / "local"
+    assert cache == tmp_path / "state" / "p-deadbeef" / "cache"
