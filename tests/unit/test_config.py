@@ -1,5 +1,4 @@
 import json
-import urllib.parse
 
 from inoio_sandbox import config
 
@@ -16,7 +15,7 @@ def test_build_config_content(tmp_path):
     f = tmp_path / "provider-config.json"
     f.write_text(json.dumps(provider))
     content = config.build_config_content(f)
-    expected = f"OPENCODE_CONFIG_CONTENT={urllib.parse.quote(json.dumps(provider))}"
+    expected = f"OPENCODE_CONFIG_CONTENT={json.dumps(provider)}"
     assert content == expected
-    decoded = json.loads(urllib.parse.unquote(content.split("=", 1)[1]))
+    decoded = json.loads(content.split("=", 1)[1])
     assert decoded == provider

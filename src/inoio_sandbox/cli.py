@@ -38,9 +38,19 @@ def run(worktree, image_rebuild, volume_fallback):
         raise click.ClickException("preflight failed")
 
     cwd = Path.cwd()
-    project = worktree_mod.project_slug()
-    branch = worktree or worktree_mod.branch_name(cwd)
-    wt = worktree_mod.ensure_worktree(cwd, STATE_DIR, project, branch)
+    try:
+        project = worktree_mod.project_slug()
+        branch = worktree or worktree_mod.branch_name(cwd)
+    except RuntimeError as exc:
+        raise click.ClickException(
+            "Unable to determine git branch. Run from inside a git repository."
+        ) from exc
+
+    current_wt = worktree_mod.current_worktree_path(cwd)
+    if current_wt:
+        wt = current_wt
+    else:
+        wt = worktree_mod.ensure_worktree(cwd, STATE_DIR, project, branch)
 
     dockerfile = (
         Path(".sandbox/Dockerfile")
