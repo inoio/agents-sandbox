@@ -19,10 +19,12 @@ def test_check_docker_missing(capsys):
         assert "docker not found" in captured.err
 
 
-def test_check_kvm_missing():
+def test_check_kvm_missing(capsys):
     with patch("os.path.exists", return_value=False):
         result = doctor.check_kvm()
         assert result is False
+        captured = capsys.readouterr()
+        assert "/dev/kvm not found" in captured.err
 
 
 def test_check_all_healthy():
