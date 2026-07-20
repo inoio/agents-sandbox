@@ -29,6 +29,19 @@ def test_ensure_msb_volume_missing_binary_raises_runtime_error(monkeypatch):
         volumes.ensure_msb_volume("foo")
 
 
+def test_ensure_msb_volume_already_exists_returns_true(monkeypatch):
+    def fake_run(*args, **kwargs):
+        return subprocess.CompletedProcess(
+            args=args,
+            returncode=1,
+            stderr=b"Error: volume already exists",
+        )
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+
+    assert volumes.ensure_msb_volume("foo") is True
+
+
 def test_ensure_volumes_fallback_true_returns_host_paths_and_skips_msb(
     monkeypatch, tmp_path
 ):
