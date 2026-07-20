@@ -41,12 +41,15 @@ def test_check_git_missing(mock_which, capsys):
     assert "Install git" in captured.err
 
 
-@patch("shutil.which", return_value="/usr/bin/msb")
+@patch("shutil.which", side_effect=lambda cmd: f"/usr/bin/{cmd}")
 @patch("os.path.exists", return_value=True)
-def test_check_all_healthy(mock_exists, mock_which):
+def test_check_all_healthy(mock_exists, mock_which, capsys):
     assert doctor.check_all() is True
+    captured = capsys.readouterr()
+    assert captured.err == ""
 
 
 @patch("shutil.which", return_value=None)
-def test_check_all_failing(mock_which):
+@patch("os.path.exists", return_value=False)
+def test_check_all_failing(mock_exists, mock_which):
     assert doctor.check_all() is False
