@@ -1,0 +1,21 @@
+# .gitlab-ci.yml
+stages:
+  - lint
+  - test
+
+variables:
+  PIP_DISABLE_PIP_VERSION_CHECK: "1"
+
+lint:
+  stage: lint
+  image: python:3.12-slim
+  script:
+    - pip install ruff
+    - ruff check .
+
+unit-tests:
+  stage: test
+  image: python:3.12-slim
+  script:
+    - pip install -e ".[test]"
+    - pytest tests/unit
