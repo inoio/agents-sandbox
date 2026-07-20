@@ -38,11 +38,14 @@ def _git_common_dir(cwd: Path) -> Path | None:
 
 def branch_name(cwd: Path | None = None) -> str:
     cwd = cwd or Path.cwd()
-    output = subprocess.check_output(
-        ["git", "rev-parse", "--abbrev-ref", "HEAD"],
-        cwd=cwd,
-        stderr=subprocess.DEVNULL,
-    )
+    try:
+        output = subprocess.check_output(
+            ["git", "rev-parse", "--abbrev-ref", "HEAD"],
+            cwd=cwd,
+            stderr=subprocess.DEVNULL,
+        )
+    except (subprocess.CalledProcessError, FileNotFoundError) as exc:
+        raise RuntimeError(f"Unable to determine current git branch from {cwd}") from exc
     return output.decode().strip()
 
 
