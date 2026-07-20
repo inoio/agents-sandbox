@@ -1258,7 +1258,7 @@ git commit -m "style: lint fixes and final test pass"
 
 Resolved in `docs/superpowers/notes/2026-07-20-inoio-sandbox-open-questions.md`.
 
-1. **`OPENCODE_CONFIG_CONTENT` deep-merge behavior**: **Resolved — deep-merge.** opencode merges the inline fragment with the existing config stack; the inoio provider overrides only a same-key personal provider. Pass the fragment as-is. Note: `{env:LITELLM_API_KEY}` substitution works in current opencode; older versions may need pre-substitution.
+1. **`OPENCODE_CONFIG_CONTENT` deep-merge behavior**: **Resolved — deep-merge.** opencode merges the inline fragment with the existing config stack; the inoio provider overrides only a same-key personal provider. Pass the fragment as-is.
 2. **`--secret` with default egress**: **Resolved — works with default egress.** Default msb policy is `deny` with an implicit `allow@public` rule when no other rules are present; `litellm.inoio.de` is public. No `--net-rule` flags needed for MVP. The guest sees `LITELLM_API_KEY=$MSB_LITELLM_API_KEY`, matching the provider fragment's `{env:LITELLM_API_KEY}` token.
 3. **Shell/env length**: **Resolved — safe.** Local `ARG_MAX` is 2,097,152 bytes. The spec's upper-bound estimate of ~15 KB is still negligible, and the actual example fragment is only ~590 bytes. No temp-file fallback needed.
 4. **Stale VM detection (`--force`)**: Explicitly deferred. Not implemented in MVP. May be added later without changing the core launcher interface.
