@@ -1,0 +1,17 @@
+{
+  "provider": {
+    "litellm": {
+      "npm": "@ai-sdk/openai-compatible",
+      "name": "LiteLLM",
+      "options": {
+        "baseURL": "https://litellm.inoio.de",
+        "apiKey": "{env:LITELLM_API_KEY}"
+      },
+      "models": [
+        { "name": "openai/gpt-4o", "label": "GPT-4o" },
+        { "name": "openai/gpt-4o-mini", "label": "GPT-4o Mini" },
+        { "name": "anthropic/claude-3-5-sonnet", "label": "Claude 3.5 Sonnet" }
+      ]
+    }
+  }
+}
