@@ -1,4 +1,5 @@
 import hashlib
+import shlex
 import subprocess
 from pathlib import Path
 
@@ -16,6 +17,7 @@ def image_exists(tag: str) -> bool:
         ["msb", "images", "--format", "{{.Tag}}"],
         capture_output=True,
         text=True,
+        check=True,
     )
     return tag in result.stdout.splitlines()
 
@@ -28,7 +30,7 @@ def build_and_load(dockerfile: Path, tag: str, force: bool = False) -> None:
         check=True,
     )
     subprocess.run(
-        f"docker save {tag} | msb load --tag {tag}",
+        f"set -o pipefail; docker save {shlex.quote(tag)} | msb load --tag {shlex.quote(tag)}",
         shell=True,
         check=True,
     )
