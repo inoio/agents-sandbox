@@ -26,11 +26,12 @@ def build_and_load(dockerfile: Path, tag: str, force: bool = False) -> None:
     if not force and image_exists(tag):
         return
     subprocess.run(
-        ["docker", "build", "-f", str(dockerfile), "-t", tag, str(dockerfile.parent)],
+        ["docker", "build", "-f", str(dockerfile), "-t", tag, str(Path.cwd())],
         check=True,
     )
     subprocess.run(
         f"set -o pipefail; docker save {shlex.quote(tag)} | msb load --tag {shlex.quote(tag)}",
         shell=True,
+        executable="/bin/bash",
         check=True,
     )
