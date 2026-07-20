@@ -49,6 +49,19 @@ def branch_name(cwd: Path | None = None) -> str:
     return output.decode().strip()
 
 
+def current_worktree_path(cwd: Path | None = None) -> Path | None:
+    cwd = cwd or Path.cwd()
+    try:
+        output = subprocess.check_output(
+            ["git", "rev-parse", "--show-toplevel"],
+            cwd=cwd,
+            stderr=subprocess.DEVNULL,
+        )
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        return None
+    return Path(output.decode().strip()).resolve()
+
+
 def worktree_path(state_dir: Path, project_slug: str, branch: str) -> Path:
     return state_dir / "worktrees" / project_slug / branch
 

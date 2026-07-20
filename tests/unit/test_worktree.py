@@ -71,6 +71,28 @@ def test_branch_name_git_not_found(tmp_path):
             raise AssertionError("Expected RuntimeError")
 
 
+def test_current_worktree_path(tmp_path):
+    top_level = tmp_path / "repo"
+    top_level.mkdir()
+    with patch(
+        "subprocess.check_output", return_value=str(top_level).encode() + b"\n"
+    ):
+        result = worktree.current_worktree_path(tmp_path)
+        assert result == top_level.resolve()
+
+
+def test_current_worktree_path_git_failure(tmp_path):
+    from subprocess import CalledProcessError
+
+    with patch("subprocess.check_output", side_effect=CalledProcessError(1, "git")):
+        assert worktree.current_worktree_path(tmp_path) is None
+
+
+def test_current_worktree_path_git_not_found(tmp_path):
+    with patch("subprocess.check_output", side_effect=FileNotFoundError("git")):
+        assert worktree.current_worktree_path(tmp_path) is None
+
+
 def test_worktree_path(tmp_path):
     state_dir = tmp_path / "state"
     slug = "p-deadbeef"
