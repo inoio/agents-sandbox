@@ -1,0 +1,6 @@
+/.venv
+/.idea/
+/output/
+/.gitlab-ci-local/
+*.egg-info/
+__pycache__/

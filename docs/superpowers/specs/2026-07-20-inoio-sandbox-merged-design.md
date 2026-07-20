@@ -180,13 +180,13 @@ of the launcher stays the same.
 
 Standalone install (tool in PATH). The launcher is installable via pipx, uv, or
 a venv managed by the bootstrap installer (`install.sh`). The installer also
-offers to add an `opencode` shell alias that points at the launcher.
+offers to add an `opencode` (sandboxed opencode) shell alias that points at the launcher.
 
 Per-project opt-in via `<repo>/.sandbox/`:
-- `Dockerfile` — overrides the default image.
+- `Dockerfile` — overrides the default Dockerfile.
 - `env` — extra `KEY=VAL` lines merged into the VM environment.
 
-Absent `.sandbox/` ⇒ use the shipped default image.
+Absent `.sandbox/` ⇒ use the shipped default Dockerfile to build an image.
 
 ## Error handling
 
@@ -262,15 +262,12 @@ Absent `.sandbox/` ⇒ use the shipped default image.
 - Default Dockerfile image
 - Provider config fragment
 - README HOWTO (minimal, concise)
-- AGENTS.md
 
 ### Out (deferred)
 
 - Network egress rules.
 - Hiding `.envrc` secrets from the VM.
 - Snapshot-based persistence.
-- Multi-key secret management UI.
-- Windows support.
 - macOS support (libkrun path documented for later).
 
 ## Open questions / risks
