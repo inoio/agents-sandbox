@@ -1,9 +1,10 @@
 import json
+import json5
 from pathlib import Path
 
 
 def load_provider_config(path: Path) -> dict:
-    return json.loads(path.read_text())
+    return json5.loads(path.read_text())
 
 
 def build_config_content(path: Path) -> str:
