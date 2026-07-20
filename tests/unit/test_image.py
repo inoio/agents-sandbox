@@ -90,13 +90,16 @@ def test_build_and_load_builds_when_image_absent(monkeypatch, tmp_path):
         str(df),
         "-t",
         "inoio-sandbox/runner:abc123",
-        str(df.parent),
+        str(Path.cwd()),
     ]
+    assert runs[0][1]["check"] is True
     assert runs[1][0] == (
         "set -o pipefail; docker save inoio-sandbox/runner:abc123 | "
         "msb load --tag inoio-sandbox/runner:abc123"
     )
     assert runs[1][1]["shell"] is True
+    assert runs[1][1]["executable"] == "/bin/bash"
+    assert runs[1][1]["check"] is True
 
 
 def test_build_and_load_quotes_tag_to_prevent_injection(monkeypatch, tmp_path):
