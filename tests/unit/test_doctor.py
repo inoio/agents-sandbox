@@ -27,8 +27,26 @@ def test_check_kvm_missing(capsys):
         assert "/dev/kvm not found" in captured.err
 
 
-def test_check_all_healthy():
-    with patch("shutil.which", return_value="/usr/bin/msb"):
-        with patch("inoio_sandbox.doctor.check_docker", return_value=True):
-            with patch("inoio_sandbox.doctor.check_kvm", return_value=True):
-                assert doctor.check_all() is True
+@patch("shutil.which", return_value="/usr/bin/git")
+def test_check_git_healthy(mock_which):
+    assert doctor.check_git() is True
+
+
+@patch("shutil.which", return_value=None)
+def test_check_git_missing(mock_which, capsys):
+    result = doctor.check_git()
+    assert result is False
+    captured = capsys.readouterr()
+    assert "git not found" in captured.err
+    assert "Install git" in captured.err
+
+
+@patch("shutil.which", return_value="/usr/bin/msb")
+@patch("os.path.exists", return_value=True)
+def test_check_all_healthy(mock_exists, mock_which):
+    assert doctor.check_all() is True
+
+
+@patch("shutil.which", return_value=None)
+def test_check_all_failing(mock_which):
+    assert doctor.check_all() is False

@@ -36,10 +36,12 @@ def check_kvm() -> bool:
 
 def check_git() -> bool:
     if shutil.which("git") is None:
-        click.echo("git not found.", err=True)
+        click.echo(
+            "git not found. Install git via your system package manager.", err=True
+        )
         return False
     return True
 
 
 def check_all() -> bool:
-    return all([check_msb(), check_docker(), check_kvm(), check_git()])
+    return all((check_msb(), check_docker(), check_kvm(), check_git()))
