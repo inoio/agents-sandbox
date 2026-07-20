@@ -2,7 +2,6 @@ import os
 
 import click
 
-
 SECRET_MAP = {
     "LITELLM_API_KEY": "litellm.inoio.de",
     "GITHUB_TOKEN": "github.com",

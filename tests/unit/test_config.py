@@ -1,6 +1,5 @@
 import json
 import urllib.parse
-from pathlib import Path
 
 from inoio_sandbox import config
 
