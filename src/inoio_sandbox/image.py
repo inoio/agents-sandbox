@@ -1,4 +1,5 @@
 import hashlib
+import json5
 import shlex
 import subprocess
 from pathlib import Path
@@ -14,12 +15,14 @@ def image_tag(hash_value: str) -> str:
 
 def image_exists(tag: str) -> bool:
     result = subprocess.run(
-        ["msb", "images", "--format", "{{.Tag}}"],
+        ["msb", "images", "--format", "json"],
         capture_output=True,
         text=True,
         check=True,
     )
-    return tag in result.stdout.splitlines()
+    # stdout, stderr
+    print(result)
+    return json5.loads(result.stdout)
 
 
 def build_and_load(dockerfile: Path, tag: str, force: bool = False) -> None:

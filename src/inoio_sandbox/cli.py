@@ -32,7 +32,9 @@ def doctor():
 @click.option("--worktree", default=None, help="Worktree name")
 @click.option("--image-rebuild", is_flag=True, help="Force image rebuild")
 @click.option("--volume-fallback", is_flag=True, help="Use host directories instead of msb volumes")
-def run(worktree, image_rebuild, volume_fallback):
+@click.option("--cpus", default=None, type=int, help="Number of CPUs (default: all)")
+@click.option("--memory", default="4G", help="Memory limit (default: 4G)")
+def run(worktree, image_rebuild, volume_fallback, cpus, memory):
     """Run opencode in a microsandbox VM."""
     if not doctor_checks.check_all():
         raise click.ClickException("preflight failed")
@@ -42,9 +44,7 @@ def run(worktree, image_rebuild, volume_fallback):
         project = worktree_mod.project_slug()
         branch = worktree or worktree_mod.branch_name(cwd)
     except RuntimeError as exc:
-        raise click.ClickException(
-            "Unable to determine git branch. Run from inside a git repository."
-        ) from exc
+        raise click.ClickException("Unable to determine git branch. Run from inside a git repository.") from exc
 
     current_wt = worktree_mod.current_worktree_path(cwd)
     if current_wt:
@@ -52,11 +52,7 @@ def run(worktree, image_rebuild, volume_fallback):
     else:
         wt = worktree_mod.ensure_worktree(cwd, STATE_DIR, project, branch)
 
-    dockerfile = (
-        Path(".sandbox/Dockerfile")
-        if Path(".sandbox/Dockerfile").exists()
-        else DEFAULT_DOCKERFILE
-    )
+    dockerfile = Path(".sandbox/Dockerfile") if Path(".sandbox/Dockerfile").exists() else DEFAULT_DOCKERFILE
     df_hash = image.dockerfile_hash(dockerfile)
     tag = image.image_tag(df_hash)
     image.build_and_load(dockerfile, tag, force=image_rebuild)
@@ -64,6 +60,8 @@ def run(worktree, image_rebuild, volume_fallback):
     local, cache = volumes.ensure_volumes(project, STATE_DIR, fallback=volume_fallback)
     config_content = config.build_config_content(DEFAULT_PROVIDER_CONFIG)
     secret_flags = secrets.secret_flags()
+    cpus = cpus or runner.available_cpus()
+    name = f"inoio-sandbox-{project}-{branch}"[:128]
 
     env_extra = []
     env_file = Path(".sandbox/env")
@@ -75,13 +73,17 @@ def run(worktree, image_rebuild, volume_fallback):
 
     cmd = runner.build_msb_run_command(
         image_tag=tag,
+        name=name,
         worktree=wt,
         local=local,
         cache=cache,
         config_content=config_content,
         secret_flags=secret_flags,
         env_extra=env_extra,
+        cpus=cpus,
+        memory=memory,
     )
+    print(cmd)
     os.execvp("msb", cmd)
 
 

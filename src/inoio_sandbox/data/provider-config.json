@@ -4,14 +4,325 @@
       "npm": "@ai-sdk/openai-compatible",
       "name": "LiteLLM",
       "options": {
-        "baseURL": "https://litellm.inoio.de",
+        "baseURL": "https://litellm.inoio.de/",
         "apiKey": "{env:LITELLM_API_KEY}"
       },
-      "models": [
-        { "name": "openai/gpt-4o", "label": "GPT-4o" },
-        { "name": "openai/gpt-4o-mini", "label": "GPT-4o Mini" },
-        { "name": "anthropic/claude-3-5-sonnet", "label": "Claude 3.5 Sonnet" }
-      ]
+      "models": {
+        "claude-sonnet-4-6": {
+          "name": "inoio sonnet 4.6",
+          "family": "claude-sonnet",
+          "reasoning": true,
+          "attachment": true,
+          "tool_call": true,
+          "modalities": {
+            "input": [
+              "text",
+              "image",
+              "pdf"
+            ],
+            "output": [
+              "text"
+            ]
+          },
+          "limit": {
+            "context": 250000, // was 1000000
+            "output": 64000
+          },
+          "cost": {
+            "input": 3.3,
+            "output": 16.5,
+            "cache_read": 0.33,
+            "cache_write": 4.125
+          },
+        },
+        "claude-opus-4-6": {
+          "name": "inoio opus 4.6",
+          "family": "claude-opus",
+          "reasoning": true,
+          "attachment": true,
+          "tool_call": true,
+          "modalities": {
+            "input": [
+              "text",
+              "image",
+              "pdf"
+            ],
+            "output": [
+              "text"
+            ]
+          },
+          "limit": {
+            "context": 250000, // was 1000000
+            "output": 128000
+          },
+          "cost": {
+            "input": 5.5,
+            "output": 27.5,
+            "cache_read": 0.55,
+            "cache_write": 6.875
+          },
+        },
+        "claude-haiku-4-5": {
+          "name": "inoio haiku 4.5",
+          "family": "claude-haiku",
+          "reasoning": true,
+          "attachment": true,
+          "tool_call": true,
+          "modalities": {
+            "input": [
+              "text",
+              "image",
+              "pdf"
+            ],
+            "output": [
+              "text"
+            ]
+          },
+          "limit": {
+            "context": 200000,
+            "output": 64000
+          },
+          "cost": {
+            "input": 1.0,
+            "output": 5.0,
+            "cache_read": 0.1,
+            "cache_write": 1.25
+          },
+        },
+        "qwen3-coder-30b-a3b": {
+          "name": "inoio qwen3 coder 30b",
+          "family": "qwen",
+          "reasoning": true,
+          "attachment": false,
+          "tool_call": true,
+          "modalities": {
+            "input": [
+              "text"
+            ],
+            "output": [
+              "text"
+            ]
+          },
+          "limit": {
+            "context": 262144,
+            "output": 131072
+          },
+          "cost": {
+            "input": 0.15,
+            "output": 0.6
+          }
+        },
+        "mistral-small-4-119b": {
+          "name": "inoio mistral small 4",
+          "family": "mistral",
+          "reasoning": true,
+          "attachment": true,
+          "tool_call": true,
+          "modalities": {
+            "input": [
+              "text",
+              "image"
+            ],
+            "output": [
+              "text"
+            ]
+          },
+          "limit": {
+            "context": 262144,
+            "output": 81920
+          },
+          "cost": {
+            "input": 0.216,
+            "output": 0.648
+          }
+        },
+        "mistral-medium-3-5-128b": {
+          "name": "inoio mistral medium 3.5",
+          "family": "mistral",
+          "reasoning": true,
+          "attachment": true,
+          "tool_call": true,
+          "modalities": {
+            "input": [
+              "text",
+              "image"
+            ],
+            "output": [
+              "text"
+            ]
+          },
+          "limit": {
+            "context": 262144,
+            "output": 32768
+          },
+          "cost": {
+            "input": 1.62,
+            "output": 8.1
+          }
+        },
+        "qwen3-6-35b-a3b": {
+          "name": "inoio qwen3.6 35b",
+          "family": "qwen",
+          "reasoning": true,
+          "attachment": false,
+          "tool_call": true,
+          "modalities": {
+            "input": [
+              "text"
+            ],
+            "output": [
+              "text"
+            ]
+          },
+          "limit": {
+            "context": 262144,
+            "output": 32768
+          },
+          "cost": {
+            "input": 0.162,
+            "output": 0.54
+          }
+        },
+        "qwen3-5-397b-a17b": {
+          "name": "inoio qwen3.5 397b",
+          "family": "qwen",
+          "reasoning": true,
+          "attachment": false,
+          "tool_call": true,
+          "modalities": {
+            "input": [
+              "text"
+            ],
+            "output": [
+              "text"
+            ]
+          },
+          "limit": {
+            "context": 262144,
+            "output": 32768
+          },
+          "cost": {
+            "input": 0.65,
+            "output": 3.9
+          }
+        },
+        "glm-5-2": {
+          "name": "inoio GLM 5.2",
+          "family": "glm",
+          "reasoning": true,
+          "attachment": false,
+          "tool_call": true,
+          "modalities": {
+            "input": [
+              "text"
+            ],
+            "output": [
+              "text"
+            ]
+          },
+          "limit": {
+            "context": 1000000,
+            "output": 128000
+          },
+          "cost": {
+            "input": 1.8,
+            "output": 5.5
+          }
+        },
+        "kimi-k2-5": {
+          "name": "inoio kimi k2.5",
+          "family": "kimi",
+          "reasoning": true,
+          "attachment": true,
+          "tool_call": true,
+          "modalities": {
+            "input": [
+              "text",
+              "image"
+            ],
+            "output": [
+              "text"
+            ]
+          },
+          "limit": {
+            "context": 262144,
+            "output": 32768
+          },
+          "cost": {
+            "input": 0.6,
+            "output": 3.0
+          }
+        },
+        "kimi-k2-7-code": {
+          "name": "inoio kimi k2.7 code",
+          "family": "kimi",
+          "reasoning": false,
+          "attachment": false,
+          "tool_call": true,
+          "modalities": {
+            "input": [
+              "text"
+            ],
+            "output": [
+              "text"
+            ]
+          },
+          "limit": {
+            "context": 262144,
+            "output": 81920
+          },
+          "cost": {
+            "input": 0.86,
+            "output": 3.0
+          }
+        },
+        "deepseek-3-2": {
+          "name": "inoio deepseek 3.2",
+          "family": "deepseek",
+          "reasoning": true,
+          "attachment": false,
+          "tool_call": true,
+          "modalities": {
+            "input": [
+              "text"
+            ],
+            "output": [
+              "text"
+            ]
+          },
+          "limit": {
+            "context": 164000,
+            "output": 8192
+          },
+          "cost": {
+            "input": 0.58,
+            "output": 1.68
+          }
+        },
+        "gpt-oss-120b": {
+          "name": "inoio GPT-OSS 120b",
+          "family": "gpt-oss",
+          "reasoning": true,
+          "attachment": false,
+          "tool_call": true,
+          "modalities": {
+            "input": [
+              "text"
+            ],
+            "output": [
+              "text"
+            ]
+          },
+          "limit": {
+            "context": 128000,
+            "output": 32768
+          },
+          "cost": {
+            "input": 0.162,
+            "output": 0.594
+          }
+        }
+      }
     }
   }
 }
