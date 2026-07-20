@@ -2,13 +2,17 @@
 name = "inoio-sandbox"
 version = "0.1.0"
 description = "Run opencode inside an ephemeral microsandbox VM"
+authors = [{ name = "Ole Langbehn", email = "ol@ino.io" }]
+readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
     "click>=8.0",
 ]
 
-[project.optional-dependencies]
-test = [
+[dependency-groups]
+dev = [
+    "ruff>=0.9.10",
+    "ty>=0.0.61",
     "pytest>=7.0",
 ]
 
@@ -23,8 +27,55 @@ build-backend = "hatchling.build"
 packages = ["src/inoio_sandbox"]
 
 [tool.ruff]
-line-length = 100
+line-length = 120
 target-version = "py310"
 
 [tool.ruff.lint]
-select = ["E", "F", "I", "W"]
+select = [
+    "F", # pyflakes https://docs.astral.sh/ruff/rules/#pyflakes-f
+    "E", # pycodestyle errors https://docs.astral.sh/ruff/rules/#error-e
+    "B", # bugbear https://docs.astral.sh/ruff/rules/#flake8-bugbear-b
+    "S", # bandit https://docs.astral.sh/ruff/rules/#flake8-bandit-s
+    "N", # pep8-naming https://docs.astral.sh/ruff/rules/#pep8-naming-n
+    "T20", # forbid print statements https://docs.astral.sh/ruff/rules/#flake8-print-t20
+    "ERA", # forbid commented out code https://docs.astral.sh/ruff/rules/#eradicate-era
+   # "ANN", # enforce type annotations https://docs.astral.sh/ruff/rules/#flake8-annotations-ann
+]
+extend-ignore = [
+    "E501", # "line too long" - only triggers in edge cases of the formatter
+    "N806", # "non-lowercase-variable-in-function" - we use that to reference model classes in functions
+    "S6", # subprocess stuff
+]
+
+[tool.ruff.lint.extend-per-file-ignores]
+# S101 use of assert - allowed in tests
+"**/test_*.py" = ["S101", "ANN"]
+"**/tests/*.py" = ["S101", "ANN"]
+
+[tool.ruff.format]
+exclude = [
+    ".docker",
+    ".docker-cache",
+    ".git",
+    ".venv",
+    "venv",
+]
+
+[tool.mypy]
+# things we explicitly allow
+#disallow_any_decorated = false  # we want to explicitly use the Any type in e.g. Dicts
+#disallow_any_explicit = false   # we want to explicitly use the Any type in e.g. Dicts
+#disallow_any_expr = false       # we want to explicitly use the Any type in e.g. Dicts
+#disallow_any_unimported = false # we have untyped imports from dependencies that we can't avoid
+# things we explicitly forbid
+disallow_any_generics = true
+disallow_subclassing_any = true
+check_untyped_defs = true
+disallow_untyped_decorators = true
+no_implicit_optional = true
+strict_optional = true
+strict_equality = true
+disallow_untyped_defs = true ###
+disallow_incomplete_defs = true
+disallow_untyped_calls = true
+exclude = "test_.*\\.py"
