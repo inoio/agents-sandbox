@@ -13,10 +13,15 @@ def cache_volume_name(project_slug: str) -> str:
 
 
 def ensure_msb_volume(name: str) -> bool:
-    result = subprocess.run(
-        ["msb", "volume", "create", name],
-        capture_output=True,
-    )
+    try:
+        result = subprocess.run(
+            ["msb", "volume", "create", name],
+            capture_output=True,
+        )
+    except FileNotFoundError as exc:
+        raise RuntimeError(
+            "msb not found. Install microsandbox: https://github.com/microsandbox/microsandbox"
+        ) from exc
     return result.returncode == 0 or b"already exists" in result.stderr
 
 
