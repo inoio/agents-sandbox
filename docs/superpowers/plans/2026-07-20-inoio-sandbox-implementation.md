@@ -78,14 +78,14 @@ Expected outcome: Confirmation that the launcher can keep default egress and sti
 
 - [x] **Step 3: Check `OPENCODE_CONFIG_CONTENT` size / env limits**
 
-Question: The provider fragment is ~15 KB. Will passing it as a single `-e` flag exceed Linux env/argv limits?
+Question: The spec estimates the provider fragment may be up to ~15 KB as an upper bound. Will passing it as a single `-e` flag exceed Linux env/argv limits?
 
 Approach:
 1. Check the local `ARG_MAX`:
    ```bash
    getconf ARG_MAX
    ```
-2. Verify the encoded fragment length is well below `ARG_MAX` (15 KB << typical 2 MB).
+2. Verify the encoded fragment length is well below `ARG_MAX` (the actual example fragment is ~590 bytes, and the spec's upper-bound estimate of ~15 KB is still far below the typical 2 MB).
 
 Expected outcome: A note that the current approach is safe, or an alternative (write to a tmp file and mount it) if limits are unexpectedly low.
 
@@ -1260,5 +1260,5 @@ Resolved in `docs/superpowers/notes/2026-07-20-inoio-sandbox-open-questions.md`.
 
 1. **`OPENCODE_CONFIG_CONTENT` deep-merge behavior**: **Resolved — deep-merge.** opencode merges the inline fragment with the existing config stack; the inoio provider overrides only a same-key personal provider. Pass the fragment as-is. Note: `{env:LITELLM_API_KEY}` substitution works in current opencode; older versions may need pre-substitution.
 2. **`--secret` with open egress**: **Resolved — works with default egress.** Default msb policy implicitly allows `@public`; `litellm.inoio.de` is public. No `--net-rule` flags needed for MVP. The guest sees `LITELLM_API_KEY=$MSB_LITELLM_API_KEY`, matching the provider fragment's `{env:LITELLM_API_KEY}` token.
-3. **Shell/env length**: **Resolved — safe.** Local `ARG_MAX` is 2,097,152 bytes; the ~15 KB URL-encoded fragment is negligible. No temp-file fallback needed.
+3. **Shell/env length**: **Resolved — safe.** Local `ARG_MAX` is 2,097,152 bytes. The spec's upper-bound estimate of ~15 KB is still negligible, and the actual example fragment is only ~590 bytes. No temp-file fallback needed.
 4. **Stale VM detection (`--force`)**: Explicitly deferred. Not implemented in MVP. May be added later without changing the core launcher interface.

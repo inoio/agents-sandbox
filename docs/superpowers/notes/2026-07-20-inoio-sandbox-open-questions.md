@@ -65,7 +65,10 @@ $ getconf ARG_MAX
 2097152
 ```
 
-The URL-encoded provider fragment is ~15 KB, which is well below the typical
-Linux `ARG_MAX` of 2 MB. Passing it as a single `-e` flag is fine.
+The spec estimates the URL-encoded provider fragment may be up to ~15 KB as an
+upper bound, not a measured value. The actual `provider-config.json` example in
+the implementation plan URL-encodes to only ~590 bytes. Either way, it is well
+below the typical Linux `ARG_MAX` of 2 MB, so passing it as a single `-e` flag
+is fine.
 
 **Launcher implication:** No temporary-file/mount fallback needed for the MVP.
