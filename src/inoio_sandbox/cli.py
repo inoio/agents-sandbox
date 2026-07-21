@@ -53,10 +53,11 @@ def doctor():
 @click.option("--worktree", default=None, help="Worktree name")
 @click.option("--image-rebuild", is_flag=True, help="Force image rebuild")
 @click.option("--volume-fallback", is_flag=True, help="Use host directories instead of msb volumes")
+@click.option("--reset-home", is_flag=True, help="Recreate the project home volume")
 @click.option("--cpus", default=None, type=int, help="Number of CPUs (default: all)")
 @click.option("--memory", default="4G", help="Memory limit (default: 4G)")
 @click.option("--timing", is_flag=True, help="Print per-phase launcher timing to stderr")
-def run(worktree, image_rebuild, volume_fallback, cpus, memory, timing):
+def run(worktree, image_rebuild, volume_fallback, reset_home, cpus, memory, timing):
     """Run opencode in a microsandbox VM."""
     tick, summary = _timing(timing)
 
@@ -87,10 +88,16 @@ def run(worktree, image_rebuild, volume_fallback, cpus, memory, timing):
     image.build_and_load(dockerfile, tag, force=image_rebuild)
     tick("image hash/check/build")
 
-    local, cache = volumes.ensure_volumes(project, STATE_DIR, fallback=volume_fallback)
+    home_volume = volumes.ensure_home_volume(
+        project, df_hash, STATE_DIR, tag, fallback=volume_fallback, reset=reset_home
+    )
     tick("volume ensure")
 
-    config_content = config.build_config_content(DEFAULT_PROVIDER_CONFIG)
+    user_config_dir = Path.home() / ".config/inoio-sandbox/opencode"
+    project_config_dir = Path(".sandbox/opencode") if Path(".sandbox/opencode").exists() else None
+    config_tmp_dir = config.build_merged_config(
+        user_config_dir, project_config_dir, DEFAULT_PROVIDER_CONFIG
+    )
     secret_flags = secrets.secret_flags()
     cpus = cpus or runner.available_cpus()
     name = f"inoio-sandbox-{project}-{worktree_mod.branch_slug(branch)}"[:128]
@@ -108,9 +115,8 @@ def run(worktree, image_rebuild, volume_fallback, cpus, memory, timing):
         image_tag=tag,
         name=name,
         worktree=wt,
-        local=local,
-        cache=cache,
-        config_content=config_content,
+        home_volume=home_volume,
+        config_tmp_dir=config_tmp_dir,
         secret_flags=secret_flags,
         env_extra=env_extra,
         cpus=cpus,
