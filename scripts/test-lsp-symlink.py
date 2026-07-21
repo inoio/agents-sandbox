@@ -21,6 +21,7 @@ DATA_DIR = Path(__file__).parent.parent / "src" / "inoio_sandbox" / "data"
 DEFAULT_DOCKERFILE = DATA_DIR / "Dockerfile"
 DEFAULT_PROVIDER_CONFIG = DATA_DIR / "provider-config.json"
 STATE_DIR = Path.home() / ".local/share/inoio-sandbox"
+image_rebuild = False
 
 INIT_OPENCODE = """
 mkdir -p /home/dev/.local/share/opencode/bin
@@ -41,6 +42,8 @@ def build_command():
     wt = current_wt if current_wt else worktree_mod.ensure_worktree(cwd, STATE_DIR, project, branch)
 
     dockerfile = Path(".sandbox/Dockerfile") if Path(".sandbox/Dockerfile").exists() else DEFAULT_DOCKERFILE
+    if image.references_base(dockerfile):
+        image.ensure_base_image(DEFAULT_DOCKERFILE, force=image_rebuild)
     df_hash = image.dockerfile_hash(dockerfile)
     tag = image.image_tag(df_hash)
     image.build_and_load(dockerfile, tag)
