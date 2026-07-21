@@ -162,8 +162,9 @@ func parseRunFlags(args []string) RunOptions {
 			opts.Timing = true
 		case arg == "--cpus" && i+1 < len(args):
 			var cpus uint8
-			fmt.Sscanf(args[i+1], "%d", &cpus)
-			opts.CPUs = cpus
+			if _, err := fmt.Sscanf(args[i+1], "%d", &cpus); err == nil {
+				opts.CPUs = cpus
+			}
 			i += 2
 			continue
 		case arg == "--memory" && i+1 < len(args):
