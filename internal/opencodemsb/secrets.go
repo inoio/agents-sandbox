@@ -3,6 +3,8 @@ package opencodemsb
 import (
 	"os"
 	"sync"
+
+	"golang.org/x/term"
 )
 
 var SecretMap = map[string]string{
@@ -12,7 +14,7 @@ var SecretMap = map[string]string{
 
 var (
 	logMu  sync.Mutex
-	logOut = newLogger(os.Stderr, false)
+	logOut = newLogger(os.Stderr, term.IsTerminal(int(os.Stderr.Fd())))
 )
 
 func warn(msg string) {

@@ -15,6 +15,12 @@ import (
 )
 
 func EnsureImage(ctx context.Context, dockerfile []byte, force bool) (imageRef, imageDigest string, err error) {
+	if ReferencesBase(dockerfile) {
+		if _, _, err := EnsureImage(ctx, EmbeddedDockerfile, force); err != nil {
+			return "", "", fmt.Errorf("ensure base image: %w", err)
+		}
+	}
+
 	cli, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
 	if err != nil {
 		return "", "", fmt.Errorf("docker client: %w", err)
