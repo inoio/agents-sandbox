@@ -74,7 +74,9 @@ func TestBuildMergedConfigMergesUserOpencodeJsonc(t *testing.T) {
 	tmp := t.TempDir()
 	userCfg := map[string]any{"theme": "dark"}
 	userBytes, _ := json.Marshal(userCfg)
-	os.WriteFile(filepath.Join(tmp, "opencode.jsonc"), userBytes, 0o644)
+	if err := os.WriteFile(filepath.Join(tmp, "opencode.jsonc"), userBytes, 0o644); err != nil {
+		t.Fatal(err)
+	}
 
 	providerCfg := map[string]any{
 		"provider": map[string]any{"litellm": map[string]any{"name": "LiteLLM"}},
@@ -85,7 +87,9 @@ func TestBuildMergedConfigMergesUserOpencodeJsonc(t *testing.T) {
 	}
 	data := files["opencode.jsonc"]
 	var parsed map[string]any
-	json.Unmarshal(data, &parsed)
+	if err := json.Unmarshal(data, &parsed); err != nil {
+		t.Fatal(err)
+	}
 	if parsed["theme"] != "dark" {
 		t.Errorf("expected theme=dark to be preserved, got %v", parsed["theme"])
 	}
@@ -96,7 +100,9 @@ func TestBuildMergedConfigMergesUserOpencodeJsonc(t *testing.T) {
 
 func TestBuildMergedConfigCopiesNonJsonFiles(t *testing.T) {
 	userDir := t.TempDir()
-	os.WriteFile(filepath.Join(userDir, "instructions.txt"), []byte("hello"), 0o644)
+	if err := os.WriteFile(filepath.Join(userDir, "instructions.txt"), []byte("hello"), 0o644); err != nil {
+		t.Fatal(err)
+	}
 
 	files, err := BuildMergedConfig(userDir, "", map[string]any{})
 	if err != nil {
@@ -112,15 +118,21 @@ func TestBuildMergedConfigProjectDirOverridesUserDir(t *testing.T) {
 	projectDir := t.TempDir()
 	userBytes, _ := json.Marshal(map[string]any{"val": "user"})
 	projBytes, _ := json.Marshal(map[string]any{"val": "project"})
-	os.WriteFile(filepath.Join(userDir, "opencode.jsonc"), userBytes, 0o644)
-	os.WriteFile(filepath.Join(projectDir, "opencode.jsonc"), projBytes, 0o644)
+	if err := os.WriteFile(filepath.Join(userDir, "opencode.jsonc"), userBytes, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(projectDir, "opencode.jsonc"), projBytes, 0o644); err != nil {
+		t.Fatal(err)
+	}
 
 	files, err := BuildMergedConfig(userDir, projectDir, map[string]any{})
 	if err != nil {
 		t.Fatalf("BuildMergedConfig failed: %v", err)
 	}
 	var parsed map[string]any
-	json.Unmarshal(files["opencode.jsonc"], &parsed)
+	if err := json.Unmarshal(files["opencode.jsonc"], &parsed); err != nil {
+		t.Fatal(err)
+	}
 	if parsed["val"] != "project" {
 		t.Errorf("expected project override, got %v", parsed["val"])
 	}
