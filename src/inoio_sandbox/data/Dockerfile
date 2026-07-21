@@ -7,6 +7,11 @@ RUN apt-get update && \
         git \
     && rm -rf /var/lib/apt/lists/*
 
+# Install Node.js 22 (LSP servers such as pyright need a Node runtime).
+RUN curl -fsSL https://deb.nodesource.com/setup_22.x | bash - && \
+    apt-get install -y --no-install-recommends nodejs && \
+    rm -rf /var/lib/apt/lists/*
+
 ARG USER_UID=1000
 ARG USER_GID=1000
 RUN groupadd -g "$USER_GID" dev && \

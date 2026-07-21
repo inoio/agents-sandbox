@@ -1,44 +1,36 @@
 import os
 import shutil
+import sys
 
-import click
+from inoio_sandbox import log
 
 
 def check_msb() -> bool:
     if shutil.which("msb") is None:
-        click.echo(
-            "msb not found. Install microsandbox: https://github.com/microsandbox/microsandbox",
-            err=True,
-        )
+        log.error("msb not found. Install microsandbox: https://github.com/microsandbox/microsandbox")
         return False
     return True
 
 
 def check_docker() -> bool:
     if shutil.which("docker") is None:
-        click.echo(
-            "docker not found. Install Docker or Podman with docker-compatible CLI.",
-            err=True,
-        )
+        log.error("docker not found. Install Docker or Podman with docker-compatible CLI.")
         return False
     return True
 
 
 def check_kvm() -> bool:
+    if sys.platform != "linux":
+        return True
     if not os.path.exists("/dev/kvm"):
-        click.echo(
-            "/dev/kvm not found. Load kvm module and ensure user is in the kvm group.",
-            err=True,
-        )
+        log.error("/dev/kvm not found. Load kvm module and ensure user is in the kvm group.")
         return False
     return True
 
 
 def check_git() -> bool:
     if shutil.which("git") is None:
-        click.echo(
-            "git not found. Install git via your system package manager.", err=True
-        )
+        log.error("git not found. Install git via your system package manager.")
         return False
     return True
 

@@ -23,11 +23,17 @@ def test_check_docker_missing(capsys):
 
 
 def test_check_kvm_missing(capsys):
-    with patch("os.path.exists", return_value=False):
+    with patch("sys.platform", "linux"), patch("os.path.exists", return_value=False):
         result = doctor.check_kvm()
         assert result is False
         captured = capsys.readouterr()
         assert "/dev/kvm not found" in captured.err
+
+
+def test_check_kvm_skipped_on_macos():
+    with patch("sys.platform", "darwin"), patch("os.path.exists", return_value=False) as mock_exists:
+        assert doctor.check_kvm() is True
+        mock_exists.assert_not_called()
 
 
 @patch("shutil.which", return_value="/usr/bin/git")
@@ -75,7 +81,7 @@ def test_check_all_fails_when_docker_missing(mock_exists, capsys):
 
 @patch("shutil.which", side_effect=lambda cmd: f"/usr/bin/{cmd}")
 def test_check_all_fails_when_kvm_missing(mock_which, capsys):
-    with patch("os.path.exists", return_value=False):
+    with patch("sys.platform", "linux"), patch("os.path.exists", return_value=False):
         assert doctor.check_all() is False
         captured = capsys.readouterr()
         assert "/dev/kvm not found" in captured.err

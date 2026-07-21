@@ -1,8 +1,9 @@
 import hashlib
+import shutil
 import subprocess
 from pathlib import Path
 
-import click
+from inoio_sandbox import log
 
 
 def project_slug() -> str:
@@ -12,13 +13,15 @@ def project_slug() -> str:
     if git_common_dir:
         key = str(git_common_dir.resolve())
     else:
-        click.echo(
-            "Warning: not inside a git repo; using CWD hash as project slug.",
-            err=True,
-        )
+        log.warn("not inside a git repo; using CWD hash as project slug.")
         key = str(cwd.resolve())
     h = hashlib.sha256(key.encode()).hexdigest()[:8]
     return f"p-{h}"
+
+
+def branch_slug(branch: str) -> str:
+    """Sanitize a branch name for use in VM names (slashes are invalid)."""
+    return branch.replace("/", "-")
 
 
 def _git_common_dir(cwd: Path) -> Path | None:
@@ -66,10 +69,24 @@ def worktree_path(state_dir: Path, project_slug: str, branch: str) -> Path:
     return state_dir / "worktrees" / project_slug / branch
 
 
+def _is_git_worktree(path: Path) -> bool:
+    try:
+        subprocess.check_output(
+            ["git", "rev-parse", "--is-inside-work-tree"],
+            cwd=path,
+            stderr=subprocess.DEVNULL,
+        )
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        return False
+    return True
+
+
 def ensure_worktree(repo_root: Path, state_dir: Path, project_slug: str, branch: str) -> Path:
     target = worktree_path(state_dir, project_slug, branch)
     if target.exists():
-        return target
+        if _is_git_worktree(target):
+            return target
+        shutil.rmtree(target)
     target.parent.mkdir(parents=True, exist_ok=True)
     subprocess.run(
         ["git", "worktree", "add", str(target), branch],

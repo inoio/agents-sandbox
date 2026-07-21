@@ -1,6 +1,6 @@
 import os
 
-import click
+from inoio_sandbox import log
 
 SECRET_MAP = {
     "LITELLM_API_KEY": "litellm.inoio.de",
@@ -15,5 +15,5 @@ def secret_flags() -> list[str]:
         if value:
             flags.extend(["--secret", f"{var}@{host}"])
         else:
-            click.echo(f"Warning: {var} not set; related provider/API may fail.", err=True)
+            log.warn(f"{var} not set; related provider/API may fail.")
     return flags
