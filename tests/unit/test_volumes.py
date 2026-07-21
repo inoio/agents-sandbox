@@ -1,6 +1,8 @@
 import subprocess
 from pathlib import Path
 
+import pytest
+
 from inoio_sandbox import volumes
 
 
@@ -11,6 +13,46 @@ def test_home_volume_name_includes_image_hash():
 def test_fallback_home_path():
     path = volumes.fallback_home_path(Path("/state"), "myproject", "abc123")
     assert path == Path("/state/state/myproject/home/abc123")
+
+
+def test_ensure_msb_volume_missing_binary_raises_runtime_error(monkeypatch):
+    def raise_not_found(*args, **kwargs):
+        raise FileNotFoundError("msb")
+
+    monkeypatch.setattr(subprocess, "run", raise_not_found)
+
+    with pytest.raises(
+        RuntimeError,
+        match="msb not found. Install microsandbox: https://github.com/microsandbox/microsandbox",
+    ):
+        volumes.ensure_msb_volume("foo")
+
+
+def test_ensure_msb_volume_already_exists_returns_false(monkeypatch):
+    def fake_run(*args, **kwargs):
+        return subprocess.CompletedProcess(
+            args=args,
+            returncode=1,
+            stderr=b"Error: volume already exists",
+        )
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+
+    assert volumes.ensure_msb_volume("foo") is False
+
+
+def test_ensure_msb_volume_unexpected_error_raises(monkeypatch):
+    def fake_run(*args, **kwargs):
+        return subprocess.CompletedProcess(
+            args=args,
+            returncode=1,
+            stderr=b"some other error",
+        )
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+
+    with pytest.raises(RuntimeError, match="some other error"):
+        volumes.ensure_msb_volume("foo")
 
 
 def test_remove_home_volume_invokes_msb(monkeypatch):
