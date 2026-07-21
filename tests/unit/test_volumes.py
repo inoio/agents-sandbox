@@ -1,88 +1,79 @@
 import subprocess
-
-import pytest
+from pathlib import Path
 
 from inoio_sandbox import volumes
 
 
-def test_volume_names():
-    assert volumes.local_volume_name("p-deadbeef") == "p-deadbeef-opencode-local"
-    assert volumes.cache_volume_name("p-deadbeef") == "p-deadbeef-opencode-cache"
+def test_home_volume_name_includes_image_hash():
+    assert volumes.home_volume_name("myproject", "abc123") == "myproject-opencode-home-abc123"
 
 
-def test_volume_paths(tmp_path):
-    local, cache = volumes.fallback_paths(tmp_path, "p-deadbeef")
-    assert local == tmp_path / "state" / "p-deadbeef" / "local"
-    assert cache == tmp_path / "state" / "p-deadbeef" / "cache"
+def test_fallback_home_path():
+    path = volumes.fallback_home_path(Path("/state"), "myproject", "abc123")
+    assert path == Path("/state/state/myproject/home/abc123")
 
 
-def test_ensure_msb_volume_missing_binary_raises_runtime_error(monkeypatch):
-    def raise_not_found(*args, **kwargs):
-        raise FileNotFoundError("msb")
+def test_remove_home_volume_invokes_msb(monkeypatch):
+    called = []
 
-    monkeypatch.setattr(subprocess, "run", raise_not_found)
-
-    with pytest.raises(
-        RuntimeError,
-        match="msb not found. Install microsandbox: https://github.com/microsandbox/microsandbox",
-    ):
-        volumes.ensure_msb_volume("foo")
-
-
-def test_ensure_msb_volume_already_exists_returns_true(monkeypatch):
-    def fake_run(*args, **kwargs):
-        return subprocess.CompletedProcess(
-            args=args,
-            returncode=1,
-            stderr=b"Error: volume already exists",
-        )
+    def fake_run(cmd, **kwargs):
+        called.append(cmd)
+        return subprocess.CompletedProcess(args=cmd, returncode=0)
 
     monkeypatch.setattr(subprocess, "run", fake_run)
+    volumes.remove_home_volume("myproject-opencode-home-abc123")
+    assert called == [["msb", "volume", "remove", "myproject-opencode-home-abc123"]]
 
-    assert volumes.ensure_msb_volume("foo") is True
 
+def test_prefill_home_volume_invokes_msb(monkeypatch):
+    called = []
 
-def test_ensure_volumes_fallback_true_returns_host_paths_and_skips_msb(
-    monkeypatch, tmp_path
-):
-    called = False
-
-    def fake_run(*args, **kwargs):
-        nonlocal called
-        called = True
-        return subprocess.CompletedProcess(args=args, returncode=0)
+    def fake_run(cmd, **kwargs):
+        called.append(cmd)
+        return subprocess.CompletedProcess(args=cmd, returncode=0)
 
     monkeypatch.setattr(subprocess, "run", fake_run)
-
-    local, cache = volumes.ensure_volumes("p-deadbeef", tmp_path, fallback=True)
-
-    assert not called
-    assert local == tmp_path / "state" / "p-deadbeef" / "local"
-    assert cache == tmp_path / "state" / "p-deadbeef" / "cache"
+    volumes.prefill_home_volume("myproject-opencode-home-abc123", "inoio-sandbox/runner:abc123")
+    assert called[0][:3] == ["msb", "run", "-v"]
+    assert called[0][3] == "myproject-opencode-home-abc123:/mnt/home"
+    assert called[0][4] == "inoio-sandbox/runner:abc123"
 
 
-def test_ensure_volumes_both_created_returns_volume_names(monkeypatch, tmp_path):
-    def fake_run(*args, **kwargs):
-        return subprocess.CompletedProcess(args=args, returncode=0)
+def test_ensure_home_volume_prefills_when_created(monkeypatch, tmp_path):
+    created = []
+    prefilled = []
 
-    monkeypatch.setattr(subprocess, "run", fake_run)
+    def fake_ensure(name):
+        created.append(name)
+        return True  # newly created
 
-    local, cache = volumes.ensure_volumes("p-deadbeef", tmp_path)
+    def fake_prefill(name, tag):
+        prefilled.append((name, tag))
 
-    assert local == "p-deadbeef-opencode-local"
-    assert cache == "p-deadbeef-opencode-cache"
+    monkeypatch.setattr(volumes, "ensure_msb_volume", fake_ensure)
+    monkeypatch.setattr(volumes, "prefill_home_volume", fake_prefill)
+
+    result = volumes.ensure_home_volume("myproject", "abc123", tmp_path, "tag:x")
+    assert result == "myproject-opencode-home-abc123"
+    assert created == ["myproject-opencode-home-abc123"]
+    assert prefilled == [("myproject-opencode-home-abc123", "tag:x")]
 
 
-def test_ensure_volumes_creation_fails_returns_fallback_paths_and_warns(
-    monkeypatch, tmp_path, capsys
-):
-    def fake_run(*args, **kwargs):
-        return subprocess.CompletedProcess(args=args, returncode=1, stderr=b"error")
+def test_ensure_home_volume_reset_removes_then_creates(monkeypatch, tmp_path):
+    removed = []
+    created = []
 
-    monkeypatch.setattr(subprocess, "run", fake_run)
+    def fake_remove(name):
+        removed.append(name)
 
-    local, cache = volumes.ensure_volumes("p-deadbeef", tmp_path)
+    def fake_ensure(name):
+        created.append(name)
+        return True
 
-    assert local == tmp_path / "state" / "p-deadbeef" / "local"
-    assert cache == tmp_path / "state" / "p-deadbeef" / "cache"
-    assert "msb volume creation failed" in capsys.readouterr().err
+    monkeypatch.setattr(volumes, "remove_home_volume", fake_remove)
+    monkeypatch.setattr(volumes, "prefill_home_volume", lambda *a: None)
+    monkeypatch.setattr(volumes, "ensure_msb_volume", fake_ensure)
+
+    volumes.ensure_home_volume("myproject", "abc123", tmp_path, "tag:x", reset=True)
+    assert removed == ["myproject-opencode-home-abc123"]
+    assert created == ["myproject-opencode-home-abc123"]
