@@ -177,7 +177,3 @@ func parseRunFlags(args []string) RunOptions {
 	}
 	return opts
 }
-
-func runCommand(opts RunOptions) error {
-	return fmt.Errorf("run command not yet implemented")
-}
