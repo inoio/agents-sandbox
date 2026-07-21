@@ -41,10 +41,14 @@ def prefill_home_volume(name_or_path: str, image_tag: str) -> None:
 
 
 def remove_home_volume(name: str) -> None:
-    subprocess.run(
+    result = subprocess.run(
         ["msb", "volume", "remove", name],
         capture_output=True,
     )
+    if result.returncode != 0:
+        raise RuntimeError(
+            f"msb volume remove failed for {name}: {result.stderr.decode()}"
+        )
 
 
 def fallback_home_path(state_dir: Path, project_slug: str, image_hash: str) -> Path:
@@ -75,7 +79,7 @@ def ensure_home_volume(
     try:
         created = ensure_msb_volume(name)
     except RuntimeError:
-        log.warn("msb volume creation failed; using host-directory fallback.")
+        log.warning("msb volume creation failed; using host-directory fallback.")
         return ensure_home_volume(
             project_slug, image_hash, state_dir, image_tag, fallback=True
         )
