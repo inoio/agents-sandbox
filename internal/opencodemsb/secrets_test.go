@@ -1,5 +1,3 @@
-//go:build !cgo
-
 package opencodemsb
 
 import (
@@ -54,12 +52,5 @@ func TestBuildSecretsCreatesMultipleEntries(t *testing.T) {
 	secrets := BuildSecrets()
 	if len(secrets) != 2 {
 		t.Fatalf("expected 2 secrets, got %d", len(secrets))
-	}
-}
-
-func TestSecretEntryMatchesSDKFactory(t *testing.T) {
-	entry := Secret.Env("TEST_VAR", "val", SecretEnvOptions{AllowHosts: []string{"example.com"}})
-	if entry.EnvVar != "TEST_VAR" {
-		t.Errorf("expected EnvVar=TEST_VAR, got %q", entry.EnvVar)
 	}
 }

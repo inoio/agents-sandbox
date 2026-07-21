@@ -5,8 +5,6 @@ import (
 	"sync"
 )
 
-// SecretMap maps environment variable names to their allowed hosts.
-// These secrets will be forwarded to the microsandbox VM.
 var SecretMap = map[string]string{
 	"LITELLM_API_KEY": "litellm.inoio.de",
 	"GITHUB_TOKEN":    "github.com",
