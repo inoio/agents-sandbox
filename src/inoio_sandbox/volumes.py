@@ -79,8 +79,8 @@ def ensure_home_volume(
     try:
         created = ensure_msb_volume(name)
     except RuntimeError:
-        log.warning("msb volume creation failed; using host-directory fallback.")
-        return ensure_home_volume(project_slug, image_hash, state_dir, image_tag, fallback=True)
+        log.warn("msb volume creation failed; using host-directory fallback.")
+        return ensure_home_volume(project_slug, image_hash, state_dir, image_tag, fallback=True, reset=reset)
 
     if created:
         prefill_home_volume(name, image_tag)
