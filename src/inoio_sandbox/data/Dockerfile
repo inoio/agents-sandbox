@@ -1,13 +1,7 @@
 FROM debian:trixie-slim
 
 RUN apt-get update && \
-    apt-get install -y --no-install-recommends \
-        ca-certificates \
-        curl \
-        git \
-        ripgrep \
-        diffutils \
-        file \
+    apt-get install -y --no-install-recommends ca-certificates curl git ripgrep file gawk jq less lz4 moreutils net-tools nmap parallel recode uuid wget xz-utils yq \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Node.js 22 (LSP servers such as pyright need a Node runtime).

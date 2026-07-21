@@ -61,9 +61,7 @@ def build_msb_run_command(
         "-v",
         f"{worktree}:/home/dev/workspace",
         "--copy-dir",
-        f"{config_tmp_dir}:/tmp/inject/opencode",
-        "--script",
-        "setup=mkdir -p /home/dev/.config/opencode && cp -r /tmp/inject/opencode/. /home/dev/.config/opencode/ && (chown -R dev:dev /home/dev/.config/opencode || true)",
+        f"{config_tmp_dir}:/sandbox-inject/opencode",
         "-w",
         "/home/dev/workspace",
     ]
@@ -72,5 +70,11 @@ def build_msb_run_command(
         cmd.extend(["-e", env])
     for envrc in _envrc_files(worktree):
         cmd.extend(["--rm", f"/home/dev/workspace/{envrc}"])
-    cmd.extend([image_tag, "--", "opencode"])
+    setup = (
+        "mkdir -p /home/dev/.config/opencode && "
+        "cp -r /sandbox-inject/opencode/. /home/dev/.config/opencode/ && "
+        "(chown -R dev:dev /home/dev/.config/opencode || true) && "
+        "exec opencode"
+    )
+    cmd.extend([image_tag, "--", "/bin/sh", "-c", setup])
     return cmd

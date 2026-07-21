@@ -18,7 +18,7 @@ boot time.
 | Config location | `/home/dev/.config/opencode` lives inside the home volume. | Opencode can write its own state and it persists. |
 | Config injection | Host user dir `~/.config/inoio-sandbox/opencode/` and project dir `.sandbox/opencode/` are merged in. | Users and projects can add plugin config without rebuilding the image. |
 | Config precedence | Image base → user injection → project injection → inoio-sandbox LiteLLM config (later wins). | Matches stated ownership: project overrides user, inoio-sandbox overrides both. |
-| Config merge mechanism | Launcher merges fragments on host, injects result via `--copy-dir`, `--script` copies into home volume at setup. | Avoids writing into msb named volumes from the host; keeps merge logic in Python. |
+| Config merge mechanism | Launcher merges fragments on host, stages them in a world-readable temp dir, `--copy-dir` carries them into the VM preserving permissions, wrapper command copies into home volume after mounts. | Avoids writing into msb named volumes from the host; keeps merge logic in Python. |
 | `OPENCODE_CONFIG_CONTENT` | Retire it; write provider config into merged `opencode.jsonc` under `provider.litellm`. | Single source of truth for opencode config inside the VM. |
 | Image update handling | New image hash → new home volume. Old volumes kept until manually pruned. | Guarantees `.opencode` matches the image; avoids complex in-place upgrades. |
 | Reset | `--reset-home` flag removes and recreates the project's home volume. | Escape hatch for stale state. |
@@ -65,7 +65,7 @@ MicroVM (one per invocation)
 | `image.py` | Build `.sandbox/Dockerfile` (or default), load into msb, compute short Dockerfile hash. |
 | `volumes.py` | Ensure the home volume exists; prefill from image when missing; handle `--reset-home`; provide host-directory fallback. |
 | `config.py` | Read user and project injection directories, merge with `provider-config.json`, write merged JSON/non-JSON files to a temporary staging directory. |
-| `runner.py` | Assemble `msb run` with home volume mount, `--copy-dir` of merged config, `--script` that copies config into place, secrets, env, worktree. |
+| `runner.py` | Assemble `msb run` with home volume mount, `--copy-dir` of world-readable merged config, wrapper command that copies config into place after mounts, secrets, env, worktree. |
 | `cli.py` | Add `--reset-home` flag; wire image hash through to volume creation. |
 
 ## Data flow
@@ -86,12 +86,17 @@ MicroVM (one per invocation)
    ```bash
    msb run \
      -v {project}-opencode-home-{hash}:/home/dev \
-     --copy-dir {config-tmp}:/tmp/inject/opencode \
-     --script setup='mkdir -p /home/dev/.config/opencode && cp -r /tmp/inject/opencode/. /home/dev/.config/opencode/ && (chown -R dev:dev /home/dev/.config/opencode || true)' \
-     ... {image} -- opencode
+     -v {worktree}:/home/dev/workspace \
+     --copy-dir {config-tmp}:/sandbox-inject/opencode \
+     ... {image} -- /bin/sh -c \
+       'mkdir -p /home/dev/.config/opencode && \
+        cp -r /sandbox-inject/opencode/. /home/dev/.config/opencode/ && \
+        (chown -R dev:dev /home/dev/.config/opencode || true) && \
+        exec opencode'
    ```
-7. MicroVM boots. The `--script` runs after volume mounts and copies the
-   injected config from the rootfs into the persistent home volume.
+7. MicroVM boots. `--copy-dir` lands the world-readable config in the rootfs;
+    then volume mounts happen; then the wrapper command copies the injected
+    config into the persistent home volume.
 8. `opencode` runs with merged config and a warm home directory.
 
 ## Volume lifecycle
@@ -186,7 +191,7 @@ while ensuring inoio-sandbox model definitions take precedence.
 | Single volume per project simplifies state management | Home volume can accumulate stale state; `--reset-home` needed |
 | Config injection supports user and project customization | Old image-hash volumes need manual pruning |
 | Opencode can persist its own config/state | Image updates briefly lose cache warmth until new volume warms |
-| Removes the 64 MB read-only host `~/.config/opencode` mount | `--script` must run after volume mounts for config injection to work |
+| Removes the 64 MB read-only host `~/.config/opencode` mount | Config injection needs a wrapper because `--script` runs before volume mounts; staging must be world-readable since `--copy-dir` owns files as root |
 
 ## Alternatives considered
 
@@ -196,9 +201,11 @@ while ensuring inoio-sandbox model definitions take precedence.
 
 ## Open questions
 
-1. Does `--script` run after volume mounts and with sufficient permissions to
-   write into `/home/dev/.config/opencode`? If not, the design must fall back
-   to a wrapper command.
+1. *(Resolved)* `--script` runs before volume mounts, so the launcher uses a
+   wrapper command (`/bin/sh -c '... && exec opencode'`). The config is staged
+   world-readable on the host because `--copy-dir` preserves permissions but
+   changes ownership to root; the wrapper copies it into
+   `/home/dev/.config/opencode` after the home volume is mounted.
 2. *(Resolved)* No auto-pruning of old image-hash home volumes for the MVP.
 3. *(Resolved)* No separate `--reset-config` flag for the MVP; `--reset-home`
    recreates the entire volume including config.
