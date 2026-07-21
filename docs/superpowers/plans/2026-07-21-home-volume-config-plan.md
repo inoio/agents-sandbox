@@ -655,10 +655,13 @@ git commit -m "feat: assemble msb run with home volume and config injection"
 
 ---
 
-### Task 4: CLI wiring
+### Task 4: CLI wiring and script updates
 
 **Files:**
 - Modify: `src/inoio_sandbox/cli.py`
+- Modify: `scripts/diagnose-startup.py`
+- Modify: `scripts/inspect-lsp-location.py`
+- Modify: `scripts/test-lsp-symlink.py`
 - Test: `tests/unit/test_sandbox_env.py`
 
 **Interfaces:**
@@ -867,17 +870,39 @@ def run(worktree, image_rebuild, volume_fallback, reset_home, cpus, memory, timi
     )
 ```
 
+4. Update the three scripts (`scripts/diagnose-startup.py`,
+   `scripts/inspect-lsp-location.py`, `scripts/test-lsp-symlink.py`) to use
+   the new API:
+   - Replace `volumes.ensure_volumes(...)` with `volumes.ensure_home_volume(...)`.
+   - Replace `config.build_config_content(...)` with `config.build_merged_config(...)`.
+   - Update `runner.build_msb_run_command(...)` to pass `home_volume` and
+     `config_tmp_dir` instead of `local`, `cache`, and `config_content`.
+   - Each script already duplicates the CLI assembly logic; mirror the CLI
+     changes above.
+
 - [ ] **Step 4: Run tests to verify they pass**
 
 Run: `.venv/bin/python -m pytest tests/unit/test_sandbox_env.py -v`
 
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 5: Smoke-check scripts**
+
+Run a syntax check on each updated script to ensure imports resolve:
 
 ```bash
-git add src/inoio_sandbox/cli.py tests/unit/test_sandbox_env.py
-git commit -m "feat: wire home volume, reset flag, and merged config through CLI"
+.venv/bin/python -m py_compile scripts/diagnose-startup.py
+.venv/bin/python -m py_compile scripts/inspect-lsp-location.py
+.venv/bin/python -m py_compile scripts/test-lsp-symlink.py
+```
+
+Expected: no output (success).
+
+- [ ] **Step 6: Commit**
+
+```bash
+git add src/inoio_sandbox/cli.py tests/unit/test_sandbox_env.py scripts/
+git commit -m "feat: wire home volume, reset flag, and merged config through CLI and scripts"
 ```
 
 ---
