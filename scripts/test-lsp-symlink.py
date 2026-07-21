@@ -53,7 +53,7 @@ def build_command():
     )
     secret_flags = secrets.secret_flags()
     cpus = runner.available_cpus()
-    name = f"inoio-sandbox-{project}-{branch}-lsp-test"[:128]
+    name = f"inoio-sandbox-{project}-{worktree_mod.branch_slug(branch)}-lsp-test"[:128]
 
     env_extra = []
     env_file = Path(".sandbox/env")

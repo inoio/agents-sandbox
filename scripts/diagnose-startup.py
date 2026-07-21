@@ -47,7 +47,7 @@ def build_command():
     )
     secret_flags = secrets.secret_flags()
     cpus = runner.available_cpus()
-    name = f"inoio-sandbox-{project}-{branch}"[:128]
+    name = f"inoio-sandbox-{project}-{worktree_mod.branch_slug(branch)}"[:128]
 
     env_extra = []
     env_file = Path(".sandbox/env")
