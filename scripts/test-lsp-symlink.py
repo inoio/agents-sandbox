@@ -46,14 +46,12 @@ def build_command():
         image.ensure_base_image(DEFAULT_DOCKERFILE, force=image_rebuild)
     df_hash = image.dockerfile_hash(dockerfile)
     tag = image.image_tag(df_hash)
-    image.build_and_load(dockerfile, tag)
+    image.build_and_load(dockerfile, tag, force=image_rebuild)
 
     home_volume = volumes.ensure_home_volume(project, df_hash, STATE_DIR, tag)
     user_config_dir = Path.home() / ".config/inoio-sandbox/opencode"
     project_config_dir = Path(".sandbox/opencode") if Path(".sandbox/opencode").exists() else None
-    config_tmp_dir = config.build_merged_config(
-        user_config_dir, project_config_dir, DEFAULT_PROVIDER_CONFIG
-    )
+    config_tmp_dir = config.build_merged_config(user_config_dir, project_config_dir, DEFAULT_PROVIDER_CONFIG)
     secret_flags = secrets.secret_flags()
     cpus = runner.available_cpus()
     name = f"inoio-sandbox-{project}-{worktree_mod.branch_slug(branch)}-lsp-test"[:128]
