@@ -1,6 +1,7 @@
 package opencodemsb
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -9,6 +10,7 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
+	"golang.org/x/term"
 )
 
 var version = "dev"
@@ -27,7 +29,11 @@ func init() {
 func setLogOutput(w io.Writer) {
 	logMu.Lock()
 	defer logMu.Unlock()
-	logOut = newLogger(w, false)
+	color := false
+	if f, ok := w.(*os.File); ok {
+		color = term.IsTerminal(int(f.Fd()))
+	}
+	logOut = newLogger(w, color)
 }
 
 func newTiming(enabled bool) (func(string), func()) {
@@ -92,7 +98,12 @@ func Execute() error {
 	args := os.Args[1:]
 	if len(args) == 0 || (args[0] != "doctor" && args[0] != "run" && args[0] != "help" && args[0] != "--help" && args[0] != "-h" && args[0] != "--version" && args[0] != "-v" && !strings.HasPrefix(args[0], "-")) {
 		opts := parseRunFlags(args)
-		return runCommand(opts)
+		err := runCommand(opts)
+		var exitErr *exitError
+		if errors.As(err, &exitErr) {
+			os.Exit(exitErr.code)
+		}
+		return err
 	}
 
 	return root.Execute()

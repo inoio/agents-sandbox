@@ -115,12 +115,18 @@ func runCommand(opts RunOptions) error {
 	}()
 
 	fs := sb.FS()
-	fs.Mkdir(ctx, "/home/dev/.config/opencode")
+	if err := fs.Mkdir(ctx, "/home/dev/.config/opencode"); err != nil {
+		return fmt.Errorf("mkdir opencode config: %w", err)
+	}
 	for fname, data := range configFiles {
-		fs.Write(ctx, "/home/dev/.config/opencode/"+fname, data)
+		if err := fs.Write(ctx, "/home/dev/.config/opencode/"+fname, data); err != nil {
+			return fmt.Errorf("write config file %s: %w", fname, err)
+		}
 	}
 	for _, envrc := range envrcFiles(wtPath) {
-		fs.Remove(ctx, "/home/dev/workspace/"+envrc)
+		if err := fs.Remove(ctx, "/home/dev/workspace/"+envrc); err != nil {
+			warn(fmt.Sprintf("failed to remove envrc %s: %v", envrc, err))
+		}
 	}
 	tick("config setup")
 
@@ -131,6 +137,5 @@ func runCommand(opts RunOptions) error {
 	if err != nil {
 		return fmt.Errorf("opencode session failed: %w", err)
 	}
-	os.Exit(exitCode)
-	return nil
+	return &exitError{code: exitCode}
 }

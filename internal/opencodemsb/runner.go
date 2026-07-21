@@ -1,10 +1,19 @@
 package opencodemsb
 
 import (
+	"fmt"
 	"os"
 	"strconv"
 	"strings"
 )
+
+type exitError struct {
+	code int
+}
+
+func (e *exitError) Error() string {
+	return fmt.Sprintf("exit code %d", e.code)
+}
 
 var vmEnv = []string{
 	"HOME=/home/dev",

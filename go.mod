@@ -9,6 +9,7 @@ require (
 	github.com/moby/moby/client v0.5.0
 	github.com/spf13/cobra v1.10.2
 	github.com/superradcompany/microsandbox/sdk/go v0.6.6
+	golang.org/x/term v0.45.0
 )
 
 require (
@@ -31,5 +32,5 @@ require (
 	go.opentelemetry.io/otel v1.35.0 // indirect
 	go.opentelemetry.io/otel/metric v1.35.0 // indirect
 	go.opentelemetry.io/otel/trace v1.35.0 // indirect
-	golang.org/x/sys v0.33.0 // indirect
+	golang.org/x/sys v0.47.0 // indirect
 )
