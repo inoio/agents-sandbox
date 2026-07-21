@@ -4,7 +4,6 @@ package opencodemsb
 
 import "os"
 
-// SecretEntry mirrors microsandbox.SecretEntry for environments without CGO.
 type SecretEntry struct {
 	EnvVar            string
 	Value             string
@@ -14,7 +13,6 @@ type SecretEntry struct {
 	RequireTLS        *bool
 }
 
-// SecretEnvOptions mirrors microsandbox.SecretEnvOptions.
 type SecretEnvOptions struct {
 	AllowHosts        []string
 	AllowHostPatterns []string
@@ -22,13 +20,10 @@ type SecretEnvOptions struct {
 	RequireTLS        *bool
 }
 
-// secretFactory mirrors microsandbox.secretFactory.
 type secretFactory struct{}
 
-// Secret mirrors microsandbox.Secret.
 var Secret secretFactory
 
-// Env creates a SecretEntry (mirrors microsandbox.Secret.Env).
 func (secretFactory) Env(envVar, value string, opts SecretEnvOptions) SecretEntry {
 	return SecretEntry{
 		EnvVar:            envVar,
@@ -40,8 +35,6 @@ func (secretFactory) Env(envVar, value string, opts SecretEnvOptions) SecretEntr
 	}
 }
 
-// BuildSecrets builds a slice of SecretEntry values from environment variables.
-// This is the non-CGO implementation that uses local types.
 func BuildSecrets() []SecretEntry {
 	var secrets []SecretEntry
 	for envVar, host := range SecretMap {
