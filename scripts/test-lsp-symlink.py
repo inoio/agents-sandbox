@@ -8,7 +8,8 @@ If LSPs now initialize when editing Python files, opencode expects packages in
 .local/share/opencode/bin/node_modules and we can make this permanent in the launcher.
 """
 
-import os
+import shutil
+import subprocess
 import sys
 from pathlib import Path
 
@@ -64,16 +65,19 @@ def build_command():
             if line and "=" in line and not line.startswith("#"):
                 env_extra.append(line)
 
-    return runner.build_msb_run_command(
-        image_tag=tag,
-        name=name,
-        worktree=wt,
-        home_volume=home_volume,
-        config_tmp_dir=config_tmp_dir,
-        secret_flags=secret_flags,
-        env_extra=env_extra,
-        cpus=cpus,
-        memory="4G",
+    return (
+        runner.build_msb_run_command(
+            image_tag=tag,
+            name=name,
+            worktree=wt,
+            home_volume=home_volume,
+            config_tmp_dir=config_tmp_dir,
+            secret_flags=secret_flags,
+            env_extra=env_extra,
+            cpus=cpus,
+            memory="4G",
+        ),
+        config_tmp_dir,
     )
 
 
@@ -87,12 +91,18 @@ def replace_command(cmd: list[str], new_command: list[str]) -> list[str]:
 
 def main():
     print("Building msb command...")
-    full_cmd = build_command()
+    full_cmd, config_tmp_dir = build_command()
     test_cmd = replace_command(full_cmd, ["sh", "-c", INIT_OPENCODE])
 
     print("\nStarting opencode with LSP cache symlink...")
     print("=" * 60)
-    os.execvp("msb", test_cmd)
+    try:
+        result = subprocess.run(test_cmd)
+    except KeyboardInterrupt:
+        result = subprocess.CompletedProcess(args=test_cmd, returncode=130)
+    finally:
+        shutil.rmtree(config_tmp_dir, ignore_errors=True)
+    sys.exit(result.returncode)
 
 
 if __name__ == "__main__":

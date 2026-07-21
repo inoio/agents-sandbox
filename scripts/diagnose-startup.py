@@ -8,6 +8,7 @@ initialization. Comparing it with the time you see for `uv run inoio-sandbox run
 tells you how much of the delay is launcher/VM overhead vs. opencode startup.
 """
 
+import shutil
 import subprocess
 import sys
 import time
@@ -58,16 +59,19 @@ def build_command():
             if line and "=" in line and not line.startswith("#"):
                 env_extra.append(line)
 
-    return runner.build_msb_run_command(
-        image_tag=tag,
-        name=name,
-        worktree=wt,
-        home_volume=home_volume,
-        config_tmp_dir=config_tmp_dir,
-        secret_flags=secret_flags,
-        env_extra=env_extra,
-        cpus=cpus,
-        memory="4G",
+    return (
+        runner.build_msb_run_command(
+            image_tag=tag,
+            name=name,
+            worktree=wt,
+            home_volume=home_volume,
+            config_tmp_dir=config_tmp_dir,
+            secret_flags=secret_flags,
+            env_extra=env_extra,
+            cpus=cpus,
+            memory="4G",
+        ),
+        config_tmp_dir,
     )
 
 
@@ -82,7 +86,7 @@ def replace_command(cmd: list[str], new_command: list[str]) -> list[str]:
 
 def main():
     print("Building msb command...")
-    full_cmd = build_command()
+    full_cmd, config_tmp_dir = build_command()
     boot_cmd = replace_command(full_cmd, ["echo", "VM_BOOTED"])
 
     print("\nCommand for VM-boot-only measurement:")
@@ -91,7 +95,12 @@ def main():
 
     print("Running VM-boot-only benchmark (exit after 'VM_BOOTED' prints)...")
     start = time.perf_counter()
-    result = subprocess.run(boot_cmd, capture_output=True, text=True)
+    try:
+        result = subprocess.run(boot_cmd, capture_output=True, text=True)
+    except KeyboardInterrupt:
+        result = subprocess.CompletedProcess(args=boot_cmd, returncode=130)
+    finally:
+        shutil.rmtree(config_tmp_dir, ignore_errors=True)
     elapsed = time.perf_counter() - start
 
     print(f"stdout: {result.stdout.strip()}")
@@ -104,6 +113,8 @@ def main():
     print("  uv run inoio-sandbox run --timing")
     print("Then exit opencode as soon as the UI appears and share the")
     print("stderr lines that start with [timing].")
+
+    sys.exit(result.returncode)
 
 
 if __name__ == "__main__":
