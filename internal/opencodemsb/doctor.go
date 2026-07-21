@@ -35,5 +35,18 @@ func CheckGit() bool {
 }
 
 func CheckAll(ctx context.Context) bool {
-	return checkMsb(ctx) && CheckDocker() && CheckKvm() && CheckGit()
+	ok := true
+	if !CheckMsb(ctx) {
+		ok = false
+	}
+	if !CheckDocker() {
+		ok = false
+	}
+	if !CheckKvm() {
+		ok = false
+	}
+	if !CheckGit() {
+		ok = false
+	}
+	return ok
 }
