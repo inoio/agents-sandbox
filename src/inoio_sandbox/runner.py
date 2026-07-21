@@ -58,6 +58,8 @@ def build_msb_run_command(
         "dev",
         "-v",
         f"{home_volume}:/home/dev",
+        "-v",
+        f"{worktree}:/home/dev/workspace",
         "--copy-dir",
         f"{config_tmp_dir}:/tmp/inject/opencode",
         "--script",
