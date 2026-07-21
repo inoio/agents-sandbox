@@ -1,7 +1,7 @@
 import subprocess
 from pathlib import Path
 
-import click
+from inoio_sandbox import log
 
 
 def local_volume_name(project_slug: str) -> str:
@@ -40,6 +40,6 @@ def ensure_volumes(
     if fallback:
         return fallback_paths(state_dir, project_slug)
     if not ensure_msb_volume(local) or not ensure_msb_volume(cache):
-        click.echo("msb volume creation failed; using host-directory fallback.", err=True)
+        log.warn("msb volume creation failed; using host-directory fallback.")
         return fallback_paths(state_dir, project_slug)
     return local, cache

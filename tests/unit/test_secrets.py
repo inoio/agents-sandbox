@@ -18,14 +18,14 @@ def test_secret_flags_all_present():
 def test_secret_flags_missing_warns():
     env = {}
     with patch("os.environ", env):
-        with patch("click.echo") as echo:
+        with patch("inoio_sandbox.log.warn") as warn:
             flags = secrets.secret_flags()
             assert flags == []
-            assert echo.call_count == len(secrets.SECRET_MAP)
+            assert warn.call_count == len(secrets.SECRET_MAP)
             for var in secrets.SECRET_MAP:
                 matching = [
                     call
-                    for call in echo.call_args_list
+                    for call in warn.call_args_list
                     if var in call.args[0] and "not set" in call.args[0]
                 ]
                 assert len(matching) == 1
