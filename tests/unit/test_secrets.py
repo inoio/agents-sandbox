@@ -23,9 +23,5 @@ def test_secret_flags_missing_warns():
             assert flags == []
             assert warn.call_count == len(secrets.SECRET_MAP)
             for var in secrets.SECRET_MAP:
-                matching = [
-                    call
-                    for call in warn.call_args_list
-                    if var in call.args[0] and "not set" in call.args[0]
-                ]
+                matching = [call for call in warn.call_args_list if var in call.args[0] and "not set" in call.args[0]]
                 assert len(matching) == 1

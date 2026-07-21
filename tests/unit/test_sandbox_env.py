@@ -6,9 +6,9 @@ from click.testing import CliRunner
 from inoio_sandbox.cli import run
 
 
-def _mock_modules(volumes_mock, config_mock):
+def _mock_modules(volumes_mock, config_mock, config_path=None):
     volumes_mock.ensure_home_volume.return_value = "p-abc-home"
-    config_mock.build_merged_config.return_value = Path("/tmp/cfg")
+    config_mock.build_merged_config.return_value = config_path or Path("/dev/null/cfg")
 
 
 def test_run_reads_sandbox_env(tmp_path):
@@ -24,7 +24,7 @@ def test_run_reads_sandbox_env(tmp_path):
     ):
         image_mock.dockerfile_hash.return_value = "abc123"
         image_mock.image_tag.return_value = "inoio-sandbox/runner:abc123"
-        _mock_modules(volumes_mock, config_mock)
+        _mock_modules(volumes_mock, config_mock, config_path=tmp_path / "cfg")
         test_runner = CliRunner()
         with test_runner.isolated_filesystem(temp_dir=tmp_path):
             Path(".sandbox").mkdir()
@@ -48,7 +48,7 @@ def test_run_passes_reset_home_to_volumes(tmp_path):
     ):
         image_mock.dockerfile_hash.return_value = "abc123"
         image_mock.image_tag.return_value = "inoio-sandbox/runner:abc123"
-        _mock_modules(volumes_mock, config_mock)
+        _mock_modules(volumes_mock, config_mock, config_path=tmp_path / "cfg")
         test_runner = CliRunner()
         with test_runner.isolated_filesystem(temp_dir=tmp_path):
             result = test_runner.invoke(run, ["--reset-home"])
@@ -70,7 +70,7 @@ def test_run_uses_image_hash_for_volume(tmp_path):
     ):
         image_mock.dockerfile_hash.return_value = "abc123"
         image_mock.image_tag.return_value = "inoio-sandbox/runner:abc123"
-        _mock_modules(volumes_mock, config_mock)
+        _mock_modules(volumes_mock, config_mock, config_path=tmp_path / "cfg")
         test_runner = CliRunner()
         with test_runner.isolated_filesystem(temp_dir=tmp_path):
             result = test_runner.invoke(run, [])
@@ -92,7 +92,7 @@ def test_run_builds_merged_config_with_project_dir(tmp_path):
     ):
         image_mock.dockerfile_hash.return_value = "abc123"
         image_mock.image_tag.return_value = "inoio-sandbox/runner:abc123"
-        _mock_modules(volumes_mock, config_mock)
+        _mock_modules(volumes_mock, config_mock, config_path=tmp_path / "cfg")
         test_runner = CliRunner()
         with test_runner.isolated_filesystem(temp_dir=tmp_path):
             Path(".sandbox").mkdir()
@@ -117,7 +117,7 @@ def test_run_timing_flag_prints_phase_durations(tmp_path):
     ):
         image_mock.dockerfile_hash.return_value = "abc123"
         image_mock.image_tag.return_value = "inoio-sandbox/runner:abc123"
-        _mock_modules(volumes_mock, config_mock)
+        _mock_modules(volumes_mock, config_mock, config_path=tmp_path / "cfg")
         test_runner = CliRunner()
         with test_runner.isolated_filesystem(temp_dir=tmp_path):
             result = test_runner.invoke(run, ["--timing"])

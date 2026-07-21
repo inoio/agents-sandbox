@@ -17,9 +17,7 @@ def ensure_msb_volume(name: str) -> bool:
             capture_output=True,
         )
     except FileNotFoundError as exc:
-        raise RuntimeError(
-            "msb not found. Install microsandbox: https://github.com/microsandbox/microsandbox"
-        ) from exc
+        raise RuntimeError("msb not found. Install microsandbox: https://github.com/microsandbox/microsandbox") from exc
     if result.returncode == 0:
         return True
     if b"already exists" in result.stderr:
@@ -30,10 +28,14 @@ def ensure_msb_volume(name: str) -> bool:
 def prefill_home_volume(name_or_path: str, image_tag: str) -> None:
     subprocess.run(
         [
-            "msb", "run",
-            "-v", f"{name_or_path}:/mnt/home",
+            "msb",
+            "run",
+            "-v",
+            f"{name_or_path}:/mnt/home",
             image_tag,
-            "--", "/bin/sh", "-c",
+            "--",
+            "/bin/sh",
+            "-c",
             "cp -a /home/dev/. /mnt/home/ && chown -R dev:dev /mnt/home",
         ],
         check=True,
@@ -46,9 +48,7 @@ def remove_home_volume(name: str) -> None:
         capture_output=True,
     )
     if result.returncode != 0:
-        raise RuntimeError(
-            f"msb volume remove failed for {name}: {result.stderr.decode()}"
-        )
+        raise RuntimeError(f"msb volume remove failed for {name}: {result.stderr.decode()}")
 
 
 def fallback_home_path(state_dir: Path, project_slug: str, image_hash: str) -> Path:
@@ -80,9 +80,7 @@ def ensure_home_volume(
         created = ensure_msb_volume(name)
     except RuntimeError:
         log.warning("msb volume creation failed; using host-directory fallback.")
-        return ensure_home_volume(
-            project_slug, image_hash, state_dir, image_tag, fallback=True
-        )
+        return ensure_home_volume(project_slug, image_hash, state_dir, image_tag, fallback=True)
 
     if created:
         prefill_home_volume(name, image_tag)
