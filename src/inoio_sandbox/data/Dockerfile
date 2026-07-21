@@ -5,6 +5,9 @@ RUN apt-get update && \
         ca-certificates \
         curl \
         git \
+        ripgrep \
+        diffutils \
+        file \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Node.js 22 (LSP servers such as pyright need a Node runtime).
