@@ -18,6 +18,7 @@ def test_build_command_uses_home_volume():
     assert cmd[0] == "msb"
     assert "run" in cmd
     assert "p-abc-home:/home/dev" in cmd
+    assert "/wt:/home/dev/workspace" in cmd
     assert "--copy-dir" in cmd
     assert "/cfg:/tmp/inject/opencode" in cmd
     assert "--script" in cmd
