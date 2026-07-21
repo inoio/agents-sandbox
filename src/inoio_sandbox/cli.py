@@ -95,9 +95,7 @@ def run(worktree, image_rebuild, volume_fallback, reset_home, cpus, memory, timi
 
     user_config_dir = Path.home() / ".config/inoio-sandbox/opencode"
     project_config_dir = Path(".sandbox/opencode") if Path(".sandbox/opencode").exists() else None
-    config_tmp_dir = config.build_merged_config(
-        user_config_dir, project_config_dir, DEFAULT_PROVIDER_CONFIG
-    )
+    config_tmp_dir = config.build_merged_config(user_config_dir, project_config_dir, DEFAULT_PROVIDER_CONFIG)
     secret_flags = secrets.secret_flags()
     cpus = cpus or runner.available_cpus()
     name = f"inoio-sandbox-{project}-{worktree_mod.branch_slug(branch)}"[:128]
