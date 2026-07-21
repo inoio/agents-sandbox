@@ -1,5 +1,6 @@
 import json
 import json5
+import os
 import tempfile
 from pathlib import Path
 
@@ -78,5 +79,12 @@ def build_merged_config(
         (tmp_dir / name).write_text(json.dumps(data, indent=2))
     for name, data in other_files.items():
         (tmp_dir / name).write_bytes(data)
+
+    # Make the staging directory readable so the unprivileged VM user can
+    # access it when it is bind-mounted into the sandbox.
+    os.chmod(tmp_dir, 0o755)
+    for path in tmp_dir.iterdir():
+        if path.is_file():
+            os.chmod(path, 0o644)
 
     return tmp_dir

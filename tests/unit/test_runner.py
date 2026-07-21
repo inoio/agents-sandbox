@@ -20,15 +20,18 @@ def test_build_command_uses_home_volume():
     assert "p-abc-home:/home/dev" in cmd
     assert "/wt:/home/dev/workspace" in cmd
     assert "--copy-dir" in cmd
-    assert "/cfg:/tmp/inject/opencode" in cmd
-    assert "--script" in cmd
+    assert "/cfg:/sandbox-inject/opencode" in cmd
+    assert "--script" not in cmd
+    assert "/bin/sh" in cmd
+    assert "-c" in cmd
     assert "mkdir -p /home/dev/.config/opencode" in " ".join(cmd)
-    assert "cp -r /tmp/inject/opencode/. /home/dev/.config/opencode/" in " ".join(cmd)
+    assert "cp -r /sandbox-inject/opencode/. /home/dev/.config/opencode/" in " ".join(cmd)
+    assert "exec opencode" in " ".join(cmd)
     assert "--secret" in cmd
     assert "LITELLM_API_KEY@litellm.inoio.de" in cmd
     assert "FOO=bar" in cmd
     assert "HOME=/home/dev" in cmd
-    assert cmd[-3:] == ["inoio-sandbox/runner:abc", "--", "opencode"]
+    assert cmd[-5:-3] == ["inoio-sandbox/runner:abc", "--"]
 
 
 def test_build_command_does_not_include_old_local_or_cache_mounts():

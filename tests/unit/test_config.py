@@ -1,4 +1,5 @@
 import json
+import stat
 
 from inoio_sandbox import config
 
@@ -72,3 +73,16 @@ def test_build_merged_config_creates_opencode_jsonc_when_missing(tmp_path):
     result_dir = config.build_merged_config(tmp_path / "user", None, provider)
     merged = json.loads((result_dir / "opencode.jsonc").read_text())
     assert merged == {"provider": {"litellm": {"models": {"m": {}}}}}
+
+
+def test_build_merged_config_makes_staging_readable_by_other_users(tmp_path):
+    user_dir = tmp_path / "user"
+    user_dir.mkdir()
+    (user_dir / "opencode.jsonc").write_text(json.dumps({"a": 1}))
+
+    provider = tmp_path / "provider-config.json"
+    provider.write_text(json.dumps({"provider": {"litellm": {}}}))
+
+    result_dir = config.build_merged_config(user_dir, None, provider)
+    assert stat.S_IMODE(result_dir.stat().st_mode) == 0o755
+    assert stat.S_IMODE((result_dir / "opencode.jsonc").stat().st_mode) == 0o644
