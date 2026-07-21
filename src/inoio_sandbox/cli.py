@@ -1,4 +1,6 @@
-import os
+import shutil
+import subprocess
+import sys
 import time
 from pathlib import Path
 
@@ -122,7 +124,13 @@ def run(worktree, image_rebuild, volume_fallback, reset_home, cpus, memory, timi
     )
     tick("command assembly")
     summary()
-    os.execvp("msb", cmd)
+    try:
+        result = subprocess.run(cmd)
+    except KeyboardInterrupt:
+        result = subprocess.CompletedProcess(args=cmd, returncode=130)
+    finally:
+        shutil.rmtree(config_tmp_dir, ignore_errors=True)
+    sys.exit(result.returncode)
 
 
 def main():

@@ -1,3 +1,5 @@
+import shutil
+import subprocess
 from pathlib import Path
 from unittest.mock import patch
 
@@ -20,11 +22,14 @@ def test_run_reads_sandbox_env(tmp_path):
         patch("inoio_sandbox.cli.config") as config_mock,
         patch("inoio_sandbox.cli.secrets"),
         patch("inoio_sandbox.cli.runner") as r,
-        patch("os.execvp"),
+        patch("inoio_sandbox.cli.subprocess.run") as sp_mock,
+        patch.object(shutil, "rmtree") as rmtree_mock,
     ):
+        sp_mock.return_value = subprocess.CompletedProcess(args=[], returncode=0)
         image_mock.dockerfile_hash.return_value = "abc123"
         image_mock.image_tag.return_value = "inoio-sandbox/runner:abc123"
-        _mock_modules(volumes_mock, config_mock, config_path=tmp_path / "cfg")
+        cfg_path = tmp_path / "cfg"
+        _mock_modules(volumes_mock, config_mock, config_path=cfg_path)
         test_runner = CliRunner()
         with test_runner.isolated_filesystem(temp_dir=tmp_path):
             Path(".sandbox").mkdir()
@@ -33,6 +38,7 @@ def test_run_reads_sandbox_env(tmp_path):
             assert result.exit_code == 0
             env_extra = r.build_msb_run_command.call_args.kwargs["env_extra"]
             assert env_extra == ["FOO=bar", "BAZ=qux"]
+            rmtree_mock.assert_called_once_with(cfg_path, ignore_errors=True)
 
 
 def test_run_passes_reset_home_to_volumes(tmp_path):
@@ -44,17 +50,21 @@ def test_run_passes_reset_home_to_volumes(tmp_path):
         patch("inoio_sandbox.cli.config") as config_mock,
         patch("inoio_sandbox.cli.secrets"),
         patch("inoio_sandbox.cli.runner"),
-        patch("os.execvp"),
+        patch("inoio_sandbox.cli.subprocess.run") as sp_mock,
+        patch.object(shutil, "rmtree") as rmtree_mock,
     ):
+        sp_mock.return_value = subprocess.CompletedProcess(args=[], returncode=0)
         image_mock.dockerfile_hash.return_value = "abc123"
         image_mock.image_tag.return_value = "inoio-sandbox/runner:abc123"
-        _mock_modules(volumes_mock, config_mock, config_path=tmp_path / "cfg")
+        cfg_path = tmp_path / "cfg"
+        _mock_modules(volumes_mock, config_mock, config_path=cfg_path)
         test_runner = CliRunner()
         with test_runner.isolated_filesystem(temp_dir=tmp_path):
             result = test_runner.invoke(run, ["--reset-home"])
             assert result.exit_code == 0
             kwargs = volumes_mock.ensure_home_volume.call_args.kwargs
             assert kwargs["reset"] is True
+            rmtree_mock.assert_called_once_with(cfg_path, ignore_errors=True)
 
 
 def test_run_uses_image_hash_for_volume(tmp_path):
@@ -66,17 +76,21 @@ def test_run_uses_image_hash_for_volume(tmp_path):
         patch("inoio_sandbox.cli.config") as config_mock,
         patch("inoio_sandbox.cli.secrets"),
         patch("inoio_sandbox.cli.runner"),
-        patch("os.execvp"),
+        patch("inoio_sandbox.cli.subprocess.run") as sp_mock,
+        patch.object(shutil, "rmtree") as rmtree_mock,
     ):
+        sp_mock.return_value = subprocess.CompletedProcess(args=[], returncode=0)
         image_mock.dockerfile_hash.return_value = "abc123"
         image_mock.image_tag.return_value = "inoio-sandbox/runner:abc123"
-        _mock_modules(volumes_mock, config_mock, config_path=tmp_path / "cfg")
+        cfg_path = tmp_path / "cfg"
+        _mock_modules(volumes_mock, config_mock, config_path=cfg_path)
         test_runner = CliRunner()
         with test_runner.isolated_filesystem(temp_dir=tmp_path):
             result = test_runner.invoke(run, [])
             assert result.exit_code == 0
             args = volumes_mock.ensure_home_volume.call_args.args
             assert args[1] == "abc123"
+            rmtree_mock.assert_called_once_with(cfg_path, ignore_errors=True)
 
 
 def test_run_builds_merged_config_with_project_dir(tmp_path):
@@ -88,11 +102,14 @@ def test_run_builds_merged_config_with_project_dir(tmp_path):
         patch("inoio_sandbox.cli.config") as config_mock,
         patch("inoio_sandbox.cli.secrets"),
         patch("inoio_sandbox.cli.runner"),
-        patch("os.execvp"),
+        patch("inoio_sandbox.cli.subprocess.run") as sp_mock,
+        patch.object(shutil, "rmtree") as rmtree_mock,
     ):
+        sp_mock.return_value = subprocess.CompletedProcess(args=[], returncode=0)
         image_mock.dockerfile_hash.return_value = "abc123"
         image_mock.image_tag.return_value = "inoio-sandbox/runner:abc123"
-        _mock_modules(volumes_mock, config_mock, config_path=tmp_path / "cfg")
+        cfg_path = tmp_path / "cfg"
+        _mock_modules(volumes_mock, config_mock, config_path=cfg_path)
         test_runner = CliRunner()
         with test_runner.isolated_filesystem(temp_dir=tmp_path):
             Path(".sandbox").mkdir()
@@ -102,6 +119,7 @@ def test_run_builds_merged_config_with_project_dir(tmp_path):
             args = config_mock.build_merged_config.call_args.args
             assert args[0] == Path.home() / ".config/inoio-sandbox/opencode"
             assert args[1] == Path(".sandbox/opencode")
+            rmtree_mock.assert_called_once_with(cfg_path, ignore_errors=True)
 
 
 def test_run_timing_flag_prints_phase_durations(tmp_path):
@@ -113,11 +131,14 @@ def test_run_timing_flag_prints_phase_durations(tmp_path):
         patch("inoio_sandbox.cli.config") as config_mock,
         patch("inoio_sandbox.cli.secrets"),
         patch("inoio_sandbox.cli.runner"),
-        patch("os.execvp"),
+        patch("inoio_sandbox.cli.subprocess.run") as sp_mock,
+        patch.object(shutil, "rmtree") as rmtree_mock,
     ):
+        sp_mock.return_value = subprocess.CompletedProcess(args=[], returncode=0)
         image_mock.dockerfile_hash.return_value = "abc123"
         image_mock.image_tag.return_value = "inoio-sandbox/runner:abc123"
-        _mock_modules(volumes_mock, config_mock, config_path=tmp_path / "cfg")
+        cfg_path = tmp_path / "cfg"
+        _mock_modules(volumes_mock, config_mock, config_path=cfg_path)
         test_runner = CliRunner()
         with test_runner.isolated_filesystem(temp_dir=tmp_path):
             result = test_runner.invoke(run, ["--timing"])
@@ -125,3 +146,4 @@ def test_run_timing_flag_prints_phase_durations(tmp_path):
             assert "[timing]" in result.output
             assert "preflight:" in result.output
             assert "total launcher overhead:" in result.output
+            rmtree_mock.assert_called_once_with(cfg_path, ignore_errors=True)

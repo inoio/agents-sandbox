@@ -18,10 +18,6 @@ def deep_merge(base: dict, override: dict) -> dict:
     return result
 
 
-def _load_jsonc(path: Path) -> dict:
-    return json5.loads(path.read_text())
-
-
 def _is_json_file(path: Path) -> bool:
     return path.suffix in (".json", ".jsonc")
 
@@ -36,10 +32,10 @@ def _merge_json_files(
         if source is None or not source.exists():
             continue
         for path in sorted(source.iterdir()):
-            if not _is_json_file(path):
+            if not path.is_file() or not _is_json_file(path):
                 continue
             name = path.name
-            data = _load_jsonc(path)
+            data = load_provider_config(path)
             files[name] = deep_merge(files.get(name, {}), data)
 
     provider_branch = {"provider": {"litellm": provider_config["provider"]["litellm"]}}
@@ -62,7 +58,7 @@ def _collect_other_files(
         if source is None or not source.exists():
             continue
         for path in sorted(source.iterdir()):
-            if _is_json_file(path):
+            if not path.is_file() or _is_json_file(path):
                 continue
             files[path.name] = path.read_bytes()
     return files
