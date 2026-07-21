@@ -8,7 +8,6 @@ VM_ENV = [
     "NODE_ENV=development",
     "SANDBOX_USER=dev",
     "SHELL=/bin/bash",
-    "PATH=/home/dev/.opencode/bin:/home/dev/.nodenv/bin:/home/dev/.local/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin",
 ]
 
 
@@ -17,7 +16,7 @@ def available_cpus() -> int:
 
 
 def available_memory_gib() -> int:
-    return psutil.virtual_memory().total // (1024**3)
+    return max(1, psutil.virtual_memory().total // (1024**3))
 
 
 def _envrc_files(worktree: Path) -> list[str]:
@@ -43,6 +42,8 @@ def build_msb_run_command(
         "msb",
         "run",
         "-t",
+        "--log-level",
+        "debug",
         "--replace",
         "--name",
         name,

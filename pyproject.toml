@@ -53,6 +53,8 @@ extend-ignore = [
 # S101 use of assert - allowed in tests
 "**/test_*.py" = ["S101", "ANN"]
 "**/tests/*.py" = ["S101", "ANN"]
+# Diagnostic scripts intentionally print to stdout
+"scripts/*.py" = ["T20"]
 
 [tool.ruff.format]
 exclude = [

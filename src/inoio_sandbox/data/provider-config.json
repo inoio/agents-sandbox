@@ -4,7 +4,7 @@
       "npm": "@ai-sdk/openai-compatible",
       "name": "LiteLLM",
       "options": {
-        "baseURL": "https://litellm.inoio.de/",
+        "baseURL": "https://litellm.inoio.de/v1",
         "apiKey": "{env:LITELLM_API_KEY}"
       },
       "models": {
