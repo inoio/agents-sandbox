@@ -7,6 +7,7 @@ lazily into the .local volume. If timestamps are always from the current run,
 they are being re-installed every time.
 """
 
+import shutil
 import subprocess
 import sys
 import time
@@ -116,16 +117,19 @@ def build_command():
             if line and "=" in line and not line.startswith("#"):
                 env_extra.append(line)
 
-    return runner.build_msb_run_command(
-        image_tag=tag,
-        name=name,
-        worktree=wt,
-        home_volume=home_volume,
-        config_tmp_dir=config_tmp_dir,
-        secret_flags=secret_flags,
-        env_extra=env_extra,
-        cpus=cpus,
-        memory="4G",
+    return (
+        runner.build_msb_run_command(
+            image_tag=tag,
+            name=name,
+            worktree=wt,
+            home_volume=home_volume,
+            config_tmp_dir=config_tmp_dir,
+            secret_flags=secret_flags,
+            env_extra=env_extra,
+            cpus=cpus,
+            memory="4G",
+        ),
+        config_tmp_dir,
     )
 
 
@@ -139,13 +143,18 @@ def replace_command(cmd: list[str], new_command: list[str]) -> list[str]:
 
 def main():
     print("Building msb command...")
-    full_cmd = build_command()
+    full_cmd, config_tmp_dir = build_command()
     inspect_cmd = replace_command(full_cmd, ["sh", "-c", INSPECT_SCRIPT])
 
     print("\nInspecting LSP locations inside fresh VM...")
     print("=" * 60)
     start = time.perf_counter()
-    result = subprocess.run(inspect_cmd, capture_output=True, text=True)
+    try:
+        result = subprocess.run(inspect_cmd, capture_output=True, text=True)
+    except KeyboardInterrupt:
+        result = subprocess.CompletedProcess(args=inspect_cmd, returncode=130)
+    finally:
+        shutil.rmtree(config_tmp_dir, ignore_errors=True)
     elapsed = time.perf_counter() - start
 
     print(result.stdout)
@@ -158,6 +167,8 @@ def main():
     print("1. Run: uv run inoio-sandbox run --timing")
     print("2. Exit opencode as soon as the UI appears.")
     print("3. Run this script again and compare pyright locations/timestamps.")
+
+    sys.exit(result.returncode)
 
 
 if __name__ == "__main__":
