@@ -40,7 +40,7 @@ Rules:
 
 - If the current checkout is already on `<branch>`, the current directory is used.
 - Otherwise the launcher creates or reuses an independent git clone under
-  `~/.local/share/opencode-msb/worktrees/<project>/<branch>`.
+  `~/.local/state/opencode-msb/isolated-workspaces/<project>/<branch>`.
 - If `<branch>` does not exist, you are prompted whether to create it. Use
   `--yes` to create it from `HEAD` without prompting.
 - When the launcher created the managed clone, it asks after the session whether to

@@ -75,7 +75,7 @@ func TestBranchSlugNoChange(t *testing.T) {
 
 func TestWorktreePathConstruction(t *testing.T) {
 	got := WorktreePath("/tmp/state", "p-abc123", "main")
-	expected := filepath.Join("/tmp/state", "worktrees", "p-abc123", "main")
+	expected := filepath.Join("/tmp/state", "isolated-workspaces", "p-abc123", "main")
 	if got != expected {
 		t.Errorf("expected %q, got %q", expected, got)
 	}
@@ -83,7 +83,7 @@ func TestWorktreePathConstruction(t *testing.T) {
 
 func TestWorktreePathWithBranchSlug(t *testing.T) {
 	got := WorktreePath("/tmp/state", "p-abc", BranchSlug("feat/x"))
-	expected := filepath.Join("/tmp/state", "worktrees", "p-abc", "feat---x")
+	expected := filepath.Join("/tmp/state", "isolated-workspaces", "p-abc", "feat---x")
 	if got != expected {
 		t.Errorf("expected %q, got %q", expected, got)
 	}
@@ -149,7 +149,7 @@ func TestFindManagedRepoMissing(t *testing.T) {
 	if ok {
 		t.Error("expected ok=false for missing repo")
 	}
-	expected := filepath.Join(stateDir, "worktrees", "p-test", "main")
+	expected := filepath.Join(stateDir, "isolated-workspaces", "p-test", "main")
 	if path != expected {
 		t.Errorf("expected path %q, got %q", expected, path)
 	}
