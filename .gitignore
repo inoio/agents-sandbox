@@ -1,7 +1,4 @@
-/.venv
+/opencode-msb
 /.idea/
-/output/
 /.gitlab-ci-local/
-*.egg-info/
-__pycache__/
-opencode-msb
+/.envrc
