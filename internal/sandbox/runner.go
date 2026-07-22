@@ -33,7 +33,6 @@ type RunOptions struct {
 	ResetHome      bool
 	CPUs           uint8
 	Memory         string
-	Timing         bool
 	Auto           bool
 	Args           []string
 }
@@ -146,13 +145,9 @@ func envrcFiles(worktreePath string) []string {
 }
 
 func Run(ctx context.Context, opts RunOptions, cfg Config, logger *log.Logger) error {
-	tick, summary := log.NewTiming(logger, opts.Timing)
-	defer summary()
-
 	if !CheckAll(ctx, logger) {
 		return fmt.Errorf("preflight failed")
 	}
-	tick("preflight")
 
 	projectSlug := git.ProjectSlug(logger)
 	branch := opts.Worktree
@@ -163,7 +158,6 @@ func Run(ctx context.Context, opts RunOptions, cfg Config, logger *log.Logger) e
 			return fmt.Errorf("unable to determine git branch: %w", err)
 		}
 	}
-	tick("project/branch resolution")
 
 	cwd, _ := os.Getwd()
 	wtPath, err := git.CurrentWorktreePath(cwd)
@@ -173,7 +167,6 @@ func Run(ctx context.Context, opts RunOptions, cfg Config, logger *log.Logger) e
 			return fmt.Errorf("worktree setup failed: %w", err)
 		}
 	}
-	tick("worktree resolution")
 
 	dockerfile := resolveDockerfile()
 	dockerCli, err := client.New(client.FromEnv)
@@ -186,14 +179,12 @@ func Run(ctx context.Context, opts RunOptions, cfg Config, logger *log.Logger) e
 	if err != nil {
 		return fmt.Errorf("image setup failed: %w", err)
 	}
-	tick("image hash/check/build")
 
 	vm := NewVolumeManager(opts.VolumeFallback, cfg.StateDir, logger)
 	homeVol, err := vm.EnsureHome(ctx, projectSlug, imageDigest, imageRef, opts.ResetHome)
 	if err != nil {
 		return fmt.Errorf("volume setup failed: %w", err)
 	}
-	tick("volume ensure")
 
 	providerCfg, err := config.LoadProviderConfig(config.EmbeddedProviderConfig)
 	if err != nil {
@@ -214,7 +205,6 @@ func Run(ctx context.Context, opts RunOptions, cfg Config, logger *log.Logger) e
 	}
 	maxMemoryGiB := sysinfo.TotalMemoryGiB()
 	name := sandboxName(projectSlug, git.BranchSlug(branch))
-	tick("config/secrets")
 
 	envExtra := readSandboxEnv()
 	envMap := buildEnvMap(envExtra)
@@ -274,12 +264,10 @@ func Run(ctx context.Context, opts RunOptions, cfg Config, logger *log.Logger) e
 			logger.Warn(fmt.Sprintf("failed to remove envrc %s: %v", envrc, err))
 		}
 	}
-	tick("config setup")
 
 	opencodeArgs := buildOpencodeArgs(opts.Args, opts.Auto)
 	setup := `exec opencode ` + strings.Join(opencodeArgs, " ")
 	exitCode, err := sb.Attach(ctx, "/bin/bash", "-c", setup)
-	tick("opencode session")
 
 	if err != nil {
 		return fmt.Errorf("opencode session failed: %w", err)
