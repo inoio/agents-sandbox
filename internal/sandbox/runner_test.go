@@ -148,7 +148,7 @@ func TestResolveWorkspaceBranchCreatesManagedRepo(t *testing.T) {
 
 	stateDir := t.TempDir()
 	projectSlug := "test-project"
-	wantPath := filepath.Join(stateDir, "worktrees", projectSlug, "feature")
+	wantPath := filepath.Join(stateDir, "isolated-workspaces", projectSlug, "feature")
 
 	repoPath, gotBranch, cwdBranch, created, err := resolveWorkspace(repo, RunOptions{Branch: "feature"}, Config{StateDir: stateDir}, projectSlug, newTestLogger(t))
 	if err != nil {

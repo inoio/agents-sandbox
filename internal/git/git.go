@@ -61,7 +61,7 @@ func BranchName(cwd string) (string, error) {
 }
 
 func WorktreePath(stateDir, projectSlug, branch string) string {
-	return filepath.Join(stateDir, "worktrees", projectSlug, branch)
+	return filepath.Join(stateDir, "isolated-workspaces", projectSlug, branch)
 }
 
 func isGitRepo(path string) bool {
