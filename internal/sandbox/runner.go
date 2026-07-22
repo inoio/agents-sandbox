@@ -162,7 +162,7 @@ func Run(ctx context.Context, opts RunOptions, cfg Config, logger *log.Logger) e
 	cwd, _ := os.Getwd()
 	wtPath, err := git.CurrentWorktreePath(cwd)
 	if err != nil || wtPath == "" {
-		wtPath, err = git.EnsureWorktree(cwd, cfg.StateDir, projectSlug, branch)
+		wtPath, _, err = git.EnsureWorktree(cwd, cfg.StateDir, projectSlug, branch)
 		if err != nil {
 			return fmt.Errorf("worktree setup failed: %w", err)
 		}
