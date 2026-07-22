@@ -3,6 +3,7 @@ package git
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -121,13 +122,15 @@ func FindManagedWorktree(stateDir, projectSlug, branch string) (path string, ok 
 	return target, false, nil
 }
 
-func branchExists(repoRoot, branch string) bool {
+func BranchExists(repoRoot, branch string) bool {
 	cmd := exec.Command("git", "show-ref", "--verify", "--quiet", "refs/heads/"+branch)
 	cmd.Dir = repoRoot
 	return cmd.Run() == nil
 }
 
-func EnsureWorktree(repoRoot, stateDir, projectSlug, branch string) (path string, created bool, err error) {
+// EnsureWorktreeFromRef creates or reuses a managed worktree for the given
+// branch. If the branch does not exist, it is created from baseRef.
+func EnsureWorktreeFromRef(repoRoot, stateDir, projectSlug, branch, baseRef string) (path string, created bool, err error) {
 	target, ok, err := FindManagedWorktree(stateDir, projectSlug, branch)
 	if err != nil {
 		return "", false, err
@@ -140,16 +143,23 @@ func EnsureWorktree(repoRoot, stateDir, projectSlug, branch string) (path string
 	}
 
 	var cmd *exec.Cmd
-	if branchExists(repoRoot, branch) {
+	if BranchExists(repoRoot, branch) {
 		cmd = exec.Command("git", "worktree", "add", target, branch)
 	} else {
-		cmd = exec.Command("git", "worktree", "add", "-b", branch, target, "HEAD")
+		if baseRef == "" {
+			baseRef = "HEAD"
+		}
+		cmd = exec.Command("git", "worktree", "add", "-b", branch, target, baseRef)
 	}
 	cmd.Dir = repoRoot
 	if out, err := cmd.CombinedOutput(); err != nil {
 		return "", false, fmt.Errorf("git worktree add failed: %w: %s", err, string(out))
 	}
 	return target, true, nil
+}
+
+func EnsureWorktree(repoRoot, stateDir, projectSlug, branch string) (path string, created bool, err error) {
+	return EnsureWorktreeFromRef(repoRoot, stateDir, projectSlug, branch, "HEAD")
 }
 
 func HasUncommittedChanges(path string) (bool, error) {
@@ -162,11 +172,17 @@ func HasUncommittedChanges(path string) (bool, error) {
 	return len(strings.TrimSpace(string(out))) > 0, nil
 }
 
+var ErrNothingToCommit = errors.New("nothing to commit")
+
 func CommitAll(path, message string) error {
 	cmd := exec.Command("git", "commit", "-a", "-m", message)
 	cmd.Dir = path
 	if out, err := cmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("git commit failed in %s: %w: %s", path, err, string(out))
+		output := string(out)
+		if strings.Contains(output, "nothing to commit") || strings.Contains(output, "no changes added to commit") {
+			return fmt.Errorf("%w: %s", ErrNothingToCommit, strings.TrimSpace(output))
+		}
+		return fmt.Errorf("git commit failed in %s: %w: %s", path, err, output)
 	}
 	return nil
 }

@@ -2,6 +2,7 @@ package sandbox
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"strconv"
@@ -145,7 +146,7 @@ func envrcFiles(worktreePath string) []string {
 	return files
 }
 
-func resolveWorkspace(cwd string, opts RunOptions, cfg Config, projectSlug string) (wtPath string, branch string, cwdBranch string, created bool, err error) {
+func resolveWorkspace(cwd string, opts RunOptions, cfg Config, projectSlug string, logger *log.Logger) (wtPath string, branch string, cwdBranch string, created bool, err error) {
 	if opts.Worktree == "" {
 		branch, err = git.BranchAt(cwd)
 		if err != nil {
@@ -163,7 +164,24 @@ func resolveWorkspace(cwd string, opts RunOptions, cfg Config, projectSlug strin
 		return cwd, branch, cwdBranch, false, nil
 	}
 
-	wtPath, created, err = git.EnsureWorktree(cwd, cfg.StateDir, projectSlug, opts.Worktree)
+	baseRef := "HEAD"
+	if !git.BranchExists(cwd, opts.Worktree) {
+		if prompt.IsInteractive() {
+			create, promptErr := prompt.ConfirmDefault(fmt.Sprintf("Branch '%s' does not exist. Create it from HEAD?", opts.Worktree), true, logger)
+			if promptErr != nil {
+				return "", "", "", false, fmt.Errorf("prompt for branch creation: %w", promptErr)
+			}
+			if !create {
+				return "", "", "", false, fmt.Errorf("branch '%s' does not exist", opts.Worktree)
+			}
+			baseRef, promptErr = prompt.Input(fmt.Sprintf("Base ref for new branch '%s'", opts.Worktree), "HEAD", logger)
+			if promptErr != nil {
+				return "", "", "", false, fmt.Errorf("prompt for base ref: %w", promptErr)
+			}
+		}
+	}
+
+	wtPath, created, err = git.EnsureWorktreeFromRef(cwd, cfg.StateDir, projectSlug, opts.Worktree, baseRef)
 	if err != nil {
 		return "", "", "", false, fmt.Errorf("worktree setup failed: %w", err)
 	}
@@ -178,7 +196,7 @@ func cleanupWorktree(wtPath, cwd, cwdBranch string, opts RunOptions, logger *log
 
 	force := false
 	if hasChanges {
-		choice, err := prompt.Select("Worktree has uncommitted changes", []prompt.Choice{
+		choice, err := prompt.Select(fmt.Sprintf("Worktree '%s' on branch '%s' has uncommitted changes", wtPath, opts.Worktree), []prompt.Choice{
 			{Label: "Keep", Key: "k", Description: "Keep the worktree with changes"},
 			{Label: "Commit", Key: "c", Description: "Commit all changes before cleanup"},
 			{Label: "Discard", Key: "d", Description: "Discard all changes"},
@@ -188,15 +206,15 @@ func cleanupWorktree(wtPath, cwd, cwdBranch string, opts RunOptions, logger *log
 		}
 		switch choice {
 		case "k":
-			logger.Warn("worktree kept with uncommitted changes")
+			logger.Warn(fmt.Sprintf("kept worktree '%s' on branch '%s' with uncommitted changes", wtPath, opts.Worktree))
 			return nil
 		case "c":
 			if err := git.CommitAll(wtPath, "opencode-msb: commit changes before cleanup"); err != nil {
-				stillHas, _ := git.HasUncommittedChanges(wtPath)
-				if stillHas {
+				if errors.Is(err, git.ErrNothingToCommit) {
+					logger.Info("no changes to commit; continuing cleanup")
+				} else {
 					return fmt.Errorf("commit all changes: %w", err)
 				}
-				logger.Info("no changes to commit; continuing cleanup")
 			}
 		case "d":
 			if err := git.DiscardAll(wtPath); err != nil {
@@ -206,7 +224,7 @@ func cleanupWorktree(wtPath, cwd, cwdBranch string, opts RunOptions, logger *log
 		}
 	}
 
-	choice, err := prompt.Select("Worktree cleanup", []prompt.Choice{
+	choice, err := prompt.Select(fmt.Sprintf("Worktree '%s' on branch '%s'", wtPath, opts.Worktree), []prompt.Choice{
 		{Label: "Keep", Key: "k", Description: "Keep the worktree"},
 		{Label: "Remove", Key: "r", Description: "Remove worktree, keep branch"},
 		{Label: "Merge", Key: "m", Description: "Merge branch into original branch and remove worktree"},
@@ -229,7 +247,9 @@ func cleanupWorktree(wtPath, cwd, cwdBranch string, opts RunOptions, logger *log
 		}
 		if err := git.MergeBranchInto(cwd, opts.Worktree, targetBranch); err != nil {
 			_ = git.AbortMerge(cwd)
-			_ = git.RemoveWorktree(wtPath, force)
+			if rmErr := git.RemoveWorktree(wtPath, force); rmErr != nil {
+				return fmt.Errorf("branch %s was not merged into %s, and worktree removal failed: %v (merge error: %w)", opts.Worktree, targetBranch, rmErr, err)
+			}
 			return fmt.Errorf("branch %s was not merged into %s: %w", opts.Worktree, targetBranch, err)
 		}
 		if err := git.RemoveWorktree(wtPath, force); err != nil {
@@ -251,7 +271,7 @@ func Run(ctx context.Context, opts RunOptions, cfg Config, logger *log.Logger) e
 		return fmt.Errorf("get current directory: %w", err)
 	}
 
-	wtPath, branch, cwdBranch, created, err := resolveWorkspace(cwd, opts, cfg, projectSlug)
+	wtPath, branch, cwdBranch, created, err := resolveWorkspace(cwd, opts, cfg, projectSlug, logger)
 	if err != nil {
 		return err
 	}
