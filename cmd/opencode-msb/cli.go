@@ -46,7 +46,7 @@ func buildDoctorCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "doctor",
 		Short: "Check prerequisites",
-		RunE: func(cmd *cobra.Command, args []string) error {
+		RunE: func(cmd *cobra.Command, _ []string) error {
 			logger := newLogger()
 			if !sandbox.CheckAll(cmd.Context(), logger) {
 				return fmt.Errorf("preflight failed")
