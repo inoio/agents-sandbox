@@ -21,7 +21,7 @@ go install gitlab.inoio.de/inoio/opencode-msb/cmd/opencode-msb@latest
 ## Usage
 
 ```bash
-opencode-msb                    # run opencode in a sandbox
+opencode-msb                    # run opencode in a microsandbox VM
 opencode-msb --worktree my-feature  # run in a named git worktree
 opencode-msb doctor             # check prerequisites
 opencode-msb run --worktree my-feature  # explicit run subcommand
@@ -41,8 +41,8 @@ opencode-msb run --worktree my-feature  # explicit run subcommand
 
 ## Project overrides
 
-Create `.sandbox/Dockerfile` to override the runner image.
-Create `.sandbox/env` to add environment variables.
+Create `.opencode-msb/Dockerfile` to override the runner image.
+Create `.opencode-msb/env` to add environment variables.
 
 ## Extending the runner image
 
@@ -53,7 +53,7 @@ The launcher builds and runs a base runner image that contains:
 - common CLI tooling: `git`, `ripgrep`, `jq`, `yq`, `curl`, `wget`, `xz-utils`, `file`, `gawk`, `less`, `lz4`, `moreutils`, `net-tools`, `nmap`, `parallel`, `recode`, `uuid`
 - a `dev` user with `HOME=/home/dev`
 
-Projects that need additional tooling can provide a `.sandbox/Dockerfile` starting from the base image:
+Projects that need additional tooling can provide a `.opencode-msb/Dockerfile` starting from the base image:
 ```dockerfile
 FROM opencode-msb/runner:base
 ...

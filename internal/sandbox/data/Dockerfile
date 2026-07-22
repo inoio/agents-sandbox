@@ -13,7 +13,7 @@ ARG USER_UID=1000
 ARG USER_GID=1000
 RUN groupadd -g "$USER_GID" dev && \
     useradd -m -u "$USER_UID" -g "$USER_GID" -s /bin/bash dev && \
-    mkdir -p /home/dev/.config /home/dev/workspace && \
+    mkdir -p /home/dev/.config && \
     chown -R dev:dev /home/dev
 
 USER dev
@@ -27,4 +27,4 @@ USER dev
 
 ENV HOME=/home/dev
 ENV PATH=/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin
-WORKDIR /home/dev/workspace
+WORKDIR /workspace
