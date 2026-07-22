@@ -104,7 +104,7 @@ func buildRunCmd() *cobra.Command {
 func newConfig() sandbox.Config {
 	home, _ := os.UserHomeDir()
 	return sandbox.Config{
-		StateDir:      filepath.Join(home, ".local", "share", "opencode-msb"),
+		StateDir:      filepath.Join(home, ".local", "state", "opencode-msb"),
 		UserConfigDir: filepath.Join(home, ".config", "opencode-msb", "opencode"),
 	}
 }
