@@ -41,8 +41,23 @@ func initRepo(t *testing.T) string {
 
 func TestBranchSlugReplacesSlashes(t *testing.T) {
 	got := BranchSlug("feature/foo/bar")
-	if got != "feature-foo-bar" {
-		t.Errorf("expected 'feature-foo-bar', got %q", got)
+	if got != "feature---foo---bar" {
+		t.Errorf("expected 'feature---foo---bar', got %q", got)
+	}
+}
+
+func TestBranchSlugEscapesDashes(t *testing.T) {
+	got := BranchSlug("feature-foo")
+	if got != "feature--foo" {
+		t.Errorf("expected 'feature--foo', got %q", got)
+	}
+}
+
+func TestBranchSlugNoCollision(t *testing.T) {
+	a := BranchSlug("feature/foo")
+	b := BranchSlug("feature-foo")
+	if a == b {
+		t.Errorf("expected different slugs, got %q and %q", a, b)
 	}
 }
 
@@ -63,7 +78,7 @@ func TestWorktreePathConstruction(t *testing.T) {
 
 func TestWorktreePathWithBranchSlug(t *testing.T) {
 	got := WorktreePath("/tmp/state", "p-abc", BranchSlug("feat/x"))
-	expected := filepath.Join("/tmp/state", "worktrees", "p-abc", "feat-x")
+	expected := filepath.Join("/tmp/state", "worktrees", "p-abc", "feat---x")
 	if got != expected {
 		t.Errorf("expected %q, got %q", expected, got)
 	}
@@ -423,6 +438,13 @@ func TestMergeBranchIntoFastForward(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(repo, "feature.txt")); err != nil {
 		t.Errorf("expected feature.txt to exist after merge: %v", err)
 	}
+	branch, err := BranchAt(repo)
+	if err != nil {
+		t.Fatalf("BranchAt: %v", err)
+	}
+	if branch != "main" {
+		t.Errorf("expected to be back on 'main', got %q", branch)
+	}
 }
 
 func TestMergeBranchIntoConflict(t *testing.T) {
@@ -439,8 +461,19 @@ func TestMergeBranchIntoConflict(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected merge conflict error")
 	}
-	if err := AbortMerge(repo); err != nil {
-		t.Fatalf("AbortMerge: %v", err)
+	branch, err := BranchAt(repo)
+	if err != nil {
+		t.Fatalf("BranchAt: %v", err)
+	}
+	if branch != "main" {
+		t.Errorf("expected to be back on 'main' after failed merge, got %q", branch)
+	}
+	has, err := HasUncommittedChanges(repo)
+	if err != nil {
+		t.Fatalf("HasUncommittedChanges: %v", err)
+	}
+	if has {
+		t.Error("expected clean repo after aborted merge")
 	}
 }
 
@@ -454,8 +487,10 @@ func TestAbortMergeResetsMergeState(t *testing.T) {
 	writeFile(t, repo, "README.md", "main")
 	runGit(t, repo, "add", "README.md")
 	runGit(t, repo, "commit", "-m", "main commit")
-	if err := MergeBranchInto(repo, "feature", "main"); err == nil {
-		t.Fatal("expected merge conflict")
+	if out, err := exec.Command("git", "-C", repo, "merge", "feature").CombinedOutput(); err == nil {
+		t.Fatal("expected manual merge conflict")
+	} else {
+		t.Logf("manual merge output: %s", out)
 	}
 	if err := AbortMerge(repo); err != nil {
 		t.Fatalf("AbortMerge: %v", err)
