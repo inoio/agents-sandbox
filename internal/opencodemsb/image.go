@@ -1,6 +1,7 @@
 package opencodemsb
 
 import (
+	"archive/tar"
 	"bufio"
 	"bytes"
 	"strings"
@@ -25,4 +26,17 @@ func ImageTag(digest string) string {
 		short = short[:12]
 	}
 	return "opencode-msb/runner:sha256-" + short
+}
+
+func dockerfileTar(dockerfile []byte) *bytes.Buffer {
+	var buf bytes.Buffer
+	tw := tar.NewWriter(&buf)
+	_ = tw.WriteHeader(&tar.Header{
+		Name: "Dockerfile",
+		Mode: 0o644,
+		Size: int64(len(dockerfile)),
+	})
+	_, _ = tw.Write(dockerfile)
+	_ = tw.Close()
+	return &buf
 }

@@ -6,7 +6,7 @@ import (
 	"context"
 )
 
-func checkMsb(ctx context.Context) bool {
+func CheckMsb(ctx context.Context) bool {
 	warn("Skipping msb check: CGO is disabled.")
 	return true
 }
