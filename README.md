@@ -37,7 +37,6 @@ opencode-msb run --worktree my-feature  # explicit run subcommand
 | `--reset-home` | `false` | wipe the opencode home volume before run |
 | `--cpus` | host CPU count | vCPUs for the sandbox |
 | `--memory` | `4G` | memory limit (e.g. `4G`, `512M`) |
-| `--timing` | `false` | print per-phase launcher timing to stderr |
 
 ## Project overrides
 
