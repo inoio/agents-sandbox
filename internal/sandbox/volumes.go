@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"gitlab.inoio.de/inoio/opencode-msb/internal/log"
@@ -12,8 +13,12 @@ import (
 	msb "github.com/superradcompany/microsandbox/sdk/go"
 )
 
+func sanitizeDigest(digest string) string {
+	return strings.ReplaceAll(digest, ":", "-")
+}
+
 func HomeVolumeName(projectSlug, imageDigest string) string {
-	return projectSlug + "-opencode-home-" + imageDigest
+	return projectSlug + "-opencode-home-" + sanitizeDigest(imageDigest)
 }
 
 type VolumeManager struct {
@@ -27,7 +32,7 @@ func NewVolumeManager(fallback bool, stateDir string, logger *log.Logger) *Volum
 }
 
 func (vm *VolumeManager) fallbackHomePath(projectSlug, imageDigest string) string {
-	return filepath.Join(vm.stateDir, "state", projectSlug, "home", imageDigest)
+	return filepath.Join(vm.stateDir, "state", projectSlug, "home", sanitizeDigest(imageDigest))
 }
 
 func (vm *VolumeManager) EnsureHome(ctx context.Context, projectSlug, imageDigest, imageTag string, reset bool) (string, error) {

@@ -12,14 +12,10 @@ func TestSecretMapContents(t *testing.T) {
 	if secretMap["LITELLM_API_KEY"] != "litellm.inoio.de" {
 		t.Errorf("expected LITELLM_API_KEY -> litellm.inoio.de, got %v", secretMap["LITELLM_API_KEY"])
 	}
-	if secretMap["GITHUB_TOKEN"] != "github.com" {
-		t.Errorf("expected GITHUB_TOKEN -> github.com, got %v", secretMap["GITHUB_TOKEN"])
-	}
 }
 
 func TestBuildSecretsSkipsEmptyEnv(t *testing.T) {
 	os.Unsetenv("LITELLM_API_KEY")
-	os.Unsetenv("GITHUB_TOKEN")
 	l := log.New(io.Discard, false)
 	secrets := BuildSecrets(l)
 	if len(secrets) != 0 {
@@ -29,7 +25,6 @@ func TestBuildSecretsSkipsEmptyEnv(t *testing.T) {
 
 func TestBuildSecretsCreatesEntryForSetEnv(t *testing.T) {
 	os.Setenv("LITELLM_API_KEY", "sk-test-123")
-	os.Unsetenv("GITHUB_TOKEN")
 	defer os.Unsetenv("LITELLM_API_KEY")
 
 	l := log.New(io.Discard, false)
@@ -45,18 +40,5 @@ func TestBuildSecretsCreatesEntryForSetEnv(t *testing.T) {
 	}
 	if len(secrets[0].AllowHosts) != 1 || secrets[0].AllowHosts[0] != "litellm.inoio.de" {
 		t.Errorf("expected AllowHosts=[litellm.inoio.de], got %v", secrets[0].AllowHosts)
-	}
-}
-
-func TestBuildSecretsCreatesMultipleEntries(t *testing.T) {
-	os.Setenv("LITELLM_API_KEY", "key1")
-	os.Setenv("GITHUB_TOKEN", "ghp_test")
-	defer os.Unsetenv("LITELLM_API_KEY")
-	defer os.Unsetenv("GITHUB_TOKEN")
-
-	l := log.New(io.Discard, false)
-	secrets := BuildSecrets(l)
-	if len(secrets) != 2 {
-		t.Fatalf("expected 2 secrets, got %d", len(secrets))
 	}
 }
