@@ -63,7 +63,7 @@ func (s *Spinner) animate() {
 		default:
 		}
 		elapsed := time.Since(s.start)
-		fmt.Fprintf(s.w, "\r\033[K%s %s %s", s.msg, spinnerChars[i%len(spinnerChars)], formatElapsedLive(elapsed))
+		fmt.Fprintf(s.w, "\r\033[K%s %s%s", s.msg, spinnerChars[i%len(spinnerChars)], formatElapsedLive(elapsed))
 		i++
 		time.Sleep(100 * time.Millisecond)
 	}
