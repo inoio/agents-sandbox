@@ -8,6 +8,7 @@
 [*] warn on VM running for project and branchSlug, ask to terminate other or exit, default/yes exit 
 [*] --test-run flag for skipping opencode execution - for validating by an agent?
 [ ] refactor cli, subcommands for image rebuilding, ...? maybe remove some flags like --reset-home?
+[ ] version based on date
 [ ] provide easy installation method
 [ ] support docker in VM
 [ ] config file for cli settings in .opencode-msb
