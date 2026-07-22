@@ -43,3 +43,31 @@ opencode-msb run --worktree my-feature  # explicit run subcommand
 
 Create `.sandbox/Dockerfile` to override the runner image.
 Create `.sandbox/env` to add environment variables.
+
+## Extending the runner image
+
+The launcher builds and runs a base runner image that contains:
+
+- `opencode` (symlinked to `/usr/local/bin/opencode`)
+- Node.js 22
+- common CLI tooling: `git`, `ripgrep`, `jq`, `yq`, `curl`, `wget`, `xz-utils`, `file`, `gawk`, `less`, `lz4`, `moreutils`, `net-tools`, `nmap`, `parallel`, `recode`, `uuid`
+- a `dev` user with `HOME=/home/dev`
+
+Projects that need additional tooling can provide a `.sandbox/Dockerfile` starting from the base image:
+```dockerfile
+FROM opencode-msb/runner:base
+...
+```
+
+The resulting image must define `USER dev`. If you need to run commands as root, use this pattern:
+
+```dockerfile
+FROM opencode-msb/runner:base
+
+USER root
+# do stuff as root
+USER dev
+# do stuff as dev
+```
+
+The launcher does not inject image-specific environment variables or run initialization commands. Anything the project image needs on `PATH` must be configured inside the image itself (for example by symlinking binaries into `/usr/local/bin` or by adding a script under `/etc/profile.d/`).

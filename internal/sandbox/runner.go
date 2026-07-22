@@ -8,6 +8,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/moby/moby/client"
+
 	"gitlab.inoio.de/inoio/opencode-msb/internal/config"
 	"gitlab.inoio.de/inoio/opencode-msb/internal/git"
 	"gitlab.inoio.de/inoio/opencode-msb/internal/log"
@@ -41,7 +43,6 @@ type Config struct {
 }
 
 var vmEnv = []string{
-	"HOME=/home/dev",
 	"SANDBOX_USER=dev",
 	"SHELL=/bin/bash",
 }
@@ -167,7 +168,13 @@ func Run(ctx context.Context, opts RunOptions, cfg Config, logger *log.Logger) e
 	tick("worktree resolution")
 
 	dockerfile := resolveDockerfile()
-	imageRef, imageDigest, err := EnsureImage(ctx, dockerfile, opts.ImageRebuild, logger)
+	dockerCli, err := client.New(client.FromEnv)
+	if err != nil {
+		return fmt.Errorf("cannot connect to Docker daemon (is dockerd running?): %w", err)
+	}
+	defer dockerCli.Close()
+
+	imageRef, imageDigest, err := EnsureImage(ctx, dockerCli, dockerfile, opts.ImageRebuild, logger)
 	if err != nil {
 		return fmt.Errorf("image setup failed: %w", err)
 	}
@@ -261,8 +268,8 @@ func Run(ctx context.Context, opts RunOptions, cfg Config, logger *log.Logger) e
 	}
 	tick("config setup")
 
-	setup := `eval "$(goenv init -)" && exec opencode ` + strings.Join(opts.Args, " ")
-	exitCode, err := sb.Attach(ctx, "/bin/bash", "-lc", setup)
+	setup := `exec opencode ` + strings.Join(opts.Args, " ")
+	exitCode, err := sb.Attach(ctx, "/bin/bash", "-c", setup)
 	tick("opencode session")
 
 	if err != nil {
