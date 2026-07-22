@@ -7,21 +7,24 @@ import (
 	"strings"
 )
 
+const (
+	maxCPUs   = 255
+	minFields = 2
+	kiB       = 1024
+)
+
 func NumCPUs() uint8 {
-	n := max(runtime.NumCPU(), 1)
-	if n > 255 {
-		n = 255
-	}
-	return uint8(n)
+	n := min(max(runtime.NumCPU(), 1), maxCPUs)
+	return uint8(n) //nolint:gosec // G115: n is bounded by min(_, maxCPUs) where maxCPUs=255
 }
 
-func parseMemInfo(data []byte) (totalKB int, ok bool) {
+func parseMemInfo(data []byte) (int, bool) {
 	for line := range strings.SplitSeq(string(data), "\n") {
 		if !strings.HasPrefix(line, "MemTotal:") {
 			continue
 		}
 		fields := strings.Fields(line)
-		if len(fields) < 2 {
+		if len(fields) < minFields {
 			return 0, false
 		}
 		kb, err := strconv.Atoi(fields[1])
@@ -42,5 +45,5 @@ func TotalMemoryGiB() int {
 	if !ok {
 		return 0
 	}
-	return totalKB / (1024 * 1024)
+	return totalKB / (kiB * kiB)
 }

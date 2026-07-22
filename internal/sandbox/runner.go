@@ -44,15 +44,23 @@ type Config struct {
 	UserConfigDir string
 }
 
-var vmEnv = []string{
+var vmEnv = []string{ //nolint:gochecknoglobals // static VM env defaults, never mutated
 	"SANDBOX_USER=dev",
 	"SHELL=/bin/bash",
 }
 
+const (
+	defaultMemoryMiB   = 4096
+	maxSandboxNameLen  = 128
+	sandboxStopTimeout = 30 * time.Second
+	envKeyValueParts   = 2
+	mibPerGib          = 1024
+)
+
 func parseMemory(spec string) uint32 {
 	spec = strings.TrimSpace(spec)
 	if spec == "" {
-		return 4096
+		return defaultMemoryMiB
 	}
 	multiplier := uint32(1)
 	last := spec[len(spec)-1]
@@ -67,15 +75,15 @@ func parseMemory(spec string) uint32 {
 	}
 	n, err := strconv.Atoi(rest)
 	if err != nil {
-		return 4096
+		return defaultMemoryMiB
 	}
-	return uint32(n) * multiplier
+	return uint32(n) * multiplier //nolint:gosec // G115: n is from Atoi on a memory spec, bounded by realistic values
 }
 
 func sandboxName(projectSlug, branchSlug string) string {
 	name := "opencode-msb-" + projectSlug + "-" + branchSlug
-	if len(name) > 128 {
-		name = name[:128]
+	if len(name) > maxSandboxNameLen {
+		name = name[:maxSandboxNameLen]
 	}
 	return name
 }
@@ -83,25 +91,27 @@ func sandboxName(projectSlug, branchSlug string) string {
 func buildEnvMap(envExtra []string) map[string]string {
 	env := make(map[string]string)
 	for _, e := range vmEnv {
-		parts := strings.SplitN(e, "=", 2)
-		if len(parts) == 2 {
+		parts := strings.SplitN(e, "=", envKeyValueParts)
+		if len(parts) == envKeyValueParts {
 			env[parts[0]] = parts[1]
 		}
 	}
 	for _, e := range envExtra {
-		parts := strings.SplitN(e, "=", 2)
-		if len(parts) == 2 {
+		parts := strings.SplitN(e, "=", envKeyValueParts)
+		if len(parts) == envKeyValueParts {
 			env[parts[0]] = parts[1]
 		}
 	}
 	return env
 }
 
+const autoFlag = "--auto"
+
 func buildOpencodeArgs(args []string, auto bool) []string {
 	if !auto {
 		return args
 	}
-	return append([]string{"--auto"}, args...)
+	return append([]string{autoFlag}, args...)
 }
 
 func readSandboxEnv() []string {
@@ -146,13 +156,42 @@ func envrcFiles(workspacePath string) []string {
 	return files
 }
 
+func promptBranchCreation(branch string, logger *log.Logger) (string, error) {
+	if !prompt.IsInteractive() {
+		return "HEAD", nil
+	}
+	create, err := prompt.ConfirmDefault(
+		fmt.Sprintf("Branch '%s' does not exist. Create it?", branch),
+		true,
+		logger,
+	)
+	if err != nil {
+		return "", fmt.Errorf("prompt for branch creation: %w", err)
+	}
+	if !create {
+		return "", fmt.Errorf("branch '%s' does not exist", branch)
+	}
+	baseRef, err := prompt.Input(fmt.Sprintf("Base ref for new branch '%s'", branch), "HEAD", logger)
+	if err != nil {
+		return "", fmt.Errorf("prompt for base ref: %w", err)
+	}
+	return baseRef, nil
+}
+
 func resolveWorkspace(
 	cwd string,
 	opts RunOptions,
 	cfg Config,
 	projectSlug string,
 	logger *log.Logger,
-) (workspacePath string, branch string, cwdBranch string, created bool, err error) {
+) (string, string, string, bool, error) {
+	var (
+		workspacePath string
+		branch        string
+		cwdBranch     string
+		created       bool
+		err           error
+	)
 	if opts.Branch == "" {
 		branch, err = git.BranchAt(cwd)
 		if err != nil {
@@ -172,22 +211,9 @@ func resolveWorkspace(
 
 	baseRef := "HEAD"
 	if !git.BranchExists(cwd, opts.Branch) {
-		if prompt.IsInteractive() {
-			create, promptErr := prompt.ConfirmDefault(
-				fmt.Sprintf("Branch '%s' does not exist. Create it?", opts.Branch),
-				true,
-				logger,
-			)
-			if promptErr != nil {
-				return "", "", "", false, fmt.Errorf("prompt for branch creation: %w", promptErr)
-			}
-			if !create {
-				return "", "", "", false, fmt.Errorf("branch '%s' does not exist", opts.Branch)
-			}
-			baseRef, promptErr = prompt.Input(fmt.Sprintf("Base ref for new branch '%s'", opts.Branch), "HEAD", logger)
-			if promptErr != nil {
-				return "", "", "", false, fmt.Errorf("prompt for base ref: %w", promptErr)
-			}
+		baseRef, err = promptBranchCreation(opts.Branch, logger)
+		if err != nil {
+			return "", "", "", false, err
 		}
 	}
 
@@ -206,41 +232,57 @@ func cleanupManagedRepo(repoPath, cwd, cwdBranch string, opts RunOptions, logger
 
 	force := false
 	if hasChanges {
-		choice, err := prompt.Select(
-			fmt.Sprintf("Managed repo '%s' on branch '%s' has uncommitted changes", repoPath, opts.Branch),
-			[]prompt.Choice{
-				{Label: "Keep", Key: "k", Description: "Keep the managed repo with changes"},
-				{Label: "Commit", Key: "c", Description: "Commit all changes before cleanup"},
-				{Label: "Discard", Key: "d", Description: "Discard all changes"},
-			},
-			"k",
-			logger,
-		)
+		var abort bool
+		force, abort, err = handleUncommittedChanges(repoPath, opts.Branch, logger)
 		if err != nil {
-			return fmt.Errorf("prompt for uncommitted changes: %w", err)
+			return err
 		}
-		switch choice {
-		case "k":
-			logger.Warn(
-				fmt.Sprintf("kept managed repo '%s' on branch '%s' with uncommitted changes", repoPath, opts.Branch),
-			)
+		if abort {
 			return nil
-		case "c":
-			if err := git.CommitAll(repoPath, "opencode-msb: commit changes before cleanup"); err != nil {
-				if errors.Is(err, git.ErrNothingToCommit) {
-					logger.Info("no changes to commit; continuing cleanup")
-				} else {
-					return fmt.Errorf("commit all changes: %w", err)
-				}
-			}
-		case "d":
-			if err := git.DiscardAll(repoPath); err != nil {
-				return fmt.Errorf("discard all changes: %w", err)
-			}
-			force = true
 		}
 	}
 
+	return handleRepoCleanup(repoPath, cwd, cwdBranch, opts, force, logger)
+}
+
+func handleUncommittedChanges(repoPath, branch string, logger *log.Logger) (bool, bool, error) {
+	choice, err := prompt.Select(
+		fmt.Sprintf("Managed repo '%s' on branch '%s' has uncommitted changes", repoPath, branch),
+		[]prompt.Choice{
+			{Label: "Keep", Key: "k", Description: "Keep the managed repo with changes"},
+			{Label: "Commit", Key: "c", Description: "Commit all changes before cleanup"},
+			{Label: "Discard", Key: "d", Description: "Discard all changes"},
+		},
+		"k",
+		logger,
+	)
+	if err != nil {
+		return false, false, fmt.Errorf("prompt for uncommitted changes: %w", err)
+	}
+	switch choice {
+	case "k":
+		logger.Warn(
+			fmt.Sprintf("kept managed repo '%s' on branch '%s' with uncommitted changes", repoPath, branch),
+		)
+		return false, true, nil
+	case "c":
+		if commitErr := git.CommitAll(repoPath, "opencode-msb: commit changes before cleanup"); commitErr != nil {
+			if errors.Is(commitErr, git.ErrNothingToCommit) {
+				logger.Info("no changes to commit; continuing cleanup")
+			} else {
+				return false, false, fmt.Errorf("commit all changes: %w", commitErr)
+			}
+		}
+	case "d":
+		if discardErr := git.DiscardAll(repoPath); discardErr != nil {
+			return false, false, fmt.Errorf("discard all changes: %w", discardErr)
+		}
+		return true, false, nil
+	}
+	return false, false, nil
+}
+
+func handleRepoCleanup(repoPath, cwd, cwdBranch string, opts RunOptions, force bool, logger *log.Logger) error {
 	choice, err := prompt.Select(
 		fmt.Sprintf("Managed repo '%s' on branch '%s'", repoPath, opts.Branch),
 		[]prompt.Choice{
@@ -322,29 +364,94 @@ func Run(ctx context.Context, opts RunOptions, cfg Config, logger *log.Logger) e
 		return fmt.Errorf("volume setup failed: %w", err)
 	}
 
-	providerCfg, err := config.LoadProviderConfig(config.EmbeddedProviderConfig)
+	configFiles, err := loadConfigFiles(cfg.UserConfigDir)
 	if err != nil {
-		return fmt.Errorf("load provider config: %w", err)
-	}
-	projectConfigDir := ""
-	if _, err := os.Stat(".opencode-msb/opencode"); err == nil {
-		projectConfigDir = ".opencode-msb/opencode"
-	}
-	configFiles, err := config.BuildMergedConfig(cfg.UserConfigDir, projectConfigDir, providerCfg)
-	if err != nil {
-		return fmt.Errorf("merge config: %w", err)
+		return err
 	}
 	secrets := BuildSecrets(logger)
+	name := sandboxName(projectSlug, git.BranchSlug(branch))
+
+	sb, err := createSandbox(ctx, name, imageRef, repoPath, homeVol, secrets, opts, logger)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		stopCtx, cancel := context.WithTimeout(context.Background(), sandboxStopTimeout)
+		defer cancel()
+		_ = sb.Stop(stopCtx)
+		_ = sb.Close()
+		_ = msb.RemoveSandbox(context.Background(), name)
+	}()
+
+	fs := sb.FS()
+	if err := provisionSandbox(ctx, fs, configFiles, repoPath, logger); err != nil {
+		return err
+	}
+
+	opencodeArgs := buildOpencodeArgs(opts.Args, opts.Auto)
+	setup := `exec opencode ` + strings.Join(opencodeArgs, " ")
+	exitCode, attachErr := sb.Attach(ctx, "/bin/bash", "-c", setup)
+
+	var cleanupErr error
+	if created {
+		cleanupErr = cleanupManagedRepo(repoPath, cwd, cwdBranch, opts, logger)
+	}
+
+	return finalizeRun(attachErr, cleanupErr, exitCode)
+}
+
+func finalizeRun(attachErr, cleanupErr error, exitCode int) error {
+	if attachErr != nil {
+		if cleanupErr != nil {
+			return errors.Join(
+				fmt.Errorf("opencode session failed: %w", attachErr),
+				fmt.Errorf("managed repo cleanup failed: %w", cleanupErr),
+			)
+		}
+		return fmt.Errorf("opencode session failed: %w", attachErr)
+	}
+	if cleanupErr != nil {
+		return fmt.Errorf("managed repo cleanup failed: %w", cleanupErr)
+	}
+	return &ExitError{Code: exitCode}
+}
+
+type sandboxFS interface {
+	Mkdir(ctx context.Context, path string) error
+	Write(ctx context.Context, path string, data []byte) error
+	Remove(ctx context.Context, path string) error
+}
+
+func loadConfigFiles(userConfigDir string) (map[string][]byte, error) {
+	providerCfg, err := config.LoadProviderConfig(config.EmbeddedProviderConfig)
+	if err != nil {
+		return nil, fmt.Errorf("load provider config: %w", err)
+	}
+	projectConfigDir := ""
+	if _, statErr := os.Stat(".opencode-msb/opencode"); statErr == nil {
+		projectConfigDir = ".opencode-msb/opencode"
+	}
+	configFiles, err := config.BuildMergedConfig(userConfigDir, projectConfigDir, providerCfg)
+	if err != nil {
+		return nil, fmt.Errorf("merge config: %w", err)
+	}
+	return configFiles, nil
+}
+
+func createSandbox(
+	ctx context.Context,
+	name, imageRef, repoPath, homeVol string,
+	secrets []msb.SecretEntry,
+	opts RunOptions,
+	logger *log.Logger,
+) (*msb.Sandbox, error) {
 	cpus := opts.CPUs
 	if cpus == 0 {
 		cpus = sysinfo.NumCPUs()
 	}
 	maxMemoryGiB := sysinfo.TotalMemoryGiB()
-	name := sandboxName(projectSlug, git.BranchSlug(branch))
-
 	envExtra := readSandboxEnv()
 	envMap := buildEnvMap(envExtra)
-
 	mounts := map[string]msb.MountConfig{
 		"/home/dev":  msb.Mount.Named(homeVol, msb.MountOptions{}),
 		"/workspace": msb.Mount.Bind(repoPath, msb.MountOptions{}),
@@ -354,7 +461,7 @@ func Run(ctx context.Context, opts RunOptions, cfg Config, logger *log.Logger) e
 	spin.Start("Checking microsandbox runtime")
 	if err := msb.EnsureInstalled(ctx); err != nil {
 		spin.StopError(err)
-		return fmt.Errorf("microsandbox runtime: %w", err)
+		return nil, fmt.Errorf("microsandbox runtime: %w", err)
 	}
 	spin.Stop()
 
@@ -370,23 +477,25 @@ func Run(ctx context.Context, opts RunOptions, cfg Config, logger *log.Logger) e
 		msb.WithCPUs(cpus),
 		msb.WithMaxCPUs(sysinfo.NumCPUs()),
 		msb.WithMemory(parseMemory(opts.Memory)),
-		msb.WithMaxMemory(uint32(maxMemoryGiB)*1024),
+		//nolint:gosec // G115: maxMemoryGiB is physical RAM in GiB, cannot overflow uint32
+		msb.WithMaxMemory(uint32(maxMemoryGiB)*mibPerGib),
 		msb.WithReplace(),
 	)
 	if err != nil {
 		spin.StopError(err)
-		return fmt.Errorf("create sandbox: %w", err)
+		return nil, fmt.Errorf("create sandbox: %w", err)
 	}
 	spin.Stop()
-	defer func() {
-		stopCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-		defer cancel()
-		_ = sb.Stop(stopCtx)
-		_ = sb.Close()
-		_ = msb.RemoveSandbox(context.Background(), name)
-	}()
+	return sb, nil
+}
 
-	fs := sb.FS()
+func provisionSandbox(
+	ctx context.Context,
+	fs sandboxFS,
+	configFiles map[string][]byte,
+	repoPath string,
+	logger *log.Logger,
+) error {
 	if err := fs.Mkdir(ctx, "/home/dev/.config/opencode"); err != nil {
 		return fmt.Errorf("mkdir opencode config: %w", err)
 	}
@@ -400,28 +509,5 @@ func Run(ctx context.Context, opts RunOptions, cfg Config, logger *log.Logger) e
 			logger.Warn(fmt.Sprintf("failed to remove envrc %s: %v", envrc, err))
 		}
 	}
-
-	opencodeArgs := buildOpencodeArgs(opts.Args, opts.Auto)
-	setup := `exec opencode ` + strings.Join(opencodeArgs, " ")
-	exitCode, attachErr := sb.Attach(ctx, "/bin/bash", "-c", setup)
-
-	var cleanupErr error
-	if created {
-		cleanupErr = cleanupManagedRepo(repoPath, cwd, cwdBranch, opts, logger)
-	}
-
-	if attachErr != nil {
-		if cleanupErr != nil {
-			return errors.Join(
-				fmt.Errorf("opencode session failed: %w", attachErr),
-				fmt.Errorf("managed repo cleanup failed: %w", cleanupErr),
-			)
-		}
-		return fmt.Errorf("opencode session failed: %w", attachErr)
-	}
-
-	if cleanupErr != nil {
-		return fmt.Errorf("managed repo cleanup failed: %w", cleanupErr)
-	}
-	return &ExitError{Code: exitCode}
+	return nil
 }
