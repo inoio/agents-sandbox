@@ -47,18 +47,5 @@ func CheckMsb(ctx context.Context, logger *log.Logger) bool {
 }
 
 func CheckAll(ctx context.Context, logger *log.Logger) bool {
-	ok := true
-	if !CheckMsb(ctx, logger) {
-		ok = false
-	}
-	if !CheckDocker(logger) {
-		ok = false
-	}
-	if !CheckKvm(logger) {
-		ok = false
-	}
-	if !CheckGit(logger) {
-		ok = false
-	}
-	return ok
+	return CheckMsb(ctx, logger) && CheckDocker(logger) && CheckKvm(logger) && CheckGit(logger)
 }

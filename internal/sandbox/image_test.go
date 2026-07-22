@@ -44,15 +44,27 @@ func TestImageTag(t *testing.T) {
 
 type failingDockerClient struct{}
 
-func (f *failingDockerClient) ImageBuild(ctx context.Context, buildContext io.Reader, options client.ImageBuildOptions) (client.ImageBuildResult, error) {
+func (f *failingDockerClient) ImageBuild(
+	_ context.Context,
+	_ io.Reader,
+	_ client.ImageBuildOptions,
+) (client.ImageBuildResult, error) {
 	return client.ImageBuildResult{}, errors.New("docker unavailable")
 }
 
-func (f *failingDockerClient) ImageInspect(ctx context.Context, imageID string, inspectOpts ...client.ImageInspectOption) (client.ImageInspectResult, error) {
+func (f *failingDockerClient) ImageInspect(
+	_ context.Context,
+	_ string,
+	_ ...client.ImageInspectOption,
+) (client.ImageInspectResult, error) {
 	return client.ImageInspectResult{}, errors.New("docker unavailable")
 }
 
-func (f *failingDockerClient) ImageSave(ctx context.Context, imageIDs []string, saveOpts ...client.ImageSaveOption) (client.ImageSaveResult, error) {
+func (f *failingDockerClient) ImageSave(
+	_ context.Context,
+	_ []string,
+	_ ...client.ImageSaveOption,
+) (client.ImageSaveResult, error) {
 	return nil, errors.New("docker unavailable")
 }
 

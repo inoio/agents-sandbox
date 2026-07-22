@@ -110,7 +110,7 @@ func readSandboxEnv() []string {
 		return nil
 	}
 	var env []string
-	for _, line := range strings.Split(string(data), "\n") {
+	for line := range strings.SplitSeq(string(data), "\n") {
 		line = strings.TrimSpace(line)
 		if line == "" || strings.HasPrefix(line, "#") {
 			continue
@@ -146,7 +146,13 @@ func envrcFiles(workspacePath string) []string {
 	return files
 }
 
-func resolveWorkspace(cwd string, opts RunOptions, cfg Config, projectSlug string, logger *log.Logger) (workspacePath string, branch string, cwdBranch string, created bool, err error) {
+func resolveWorkspace(
+	cwd string,
+	opts RunOptions,
+	cfg Config,
+	projectSlug string,
+	logger *log.Logger,
+) (workspacePath string, branch string, cwdBranch string, created bool, err error) {
 	if opts.Branch == "" {
 		branch, err = git.BranchAt(cwd)
 		if err != nil {
@@ -158,7 +164,7 @@ func resolveWorkspace(cwd string, opts RunOptions, cfg Config, projectSlug strin
 	branch = opts.Branch
 	cwdBranch, err = git.BranchAt(cwd)
 	if err != nil {
-		return "", "", "", false, fmt.Errorf("--branch requires a git repository; current directory is not inside one")
+		return "", "", "", false, errors.New("--branch requires a git repository; current directory is not inside one")
 	}
 	if cwdBranch == opts.Branch {
 		return cwd, branch, cwdBranch, false, nil
@@ -167,7 +173,11 @@ func resolveWorkspace(cwd string, opts RunOptions, cfg Config, projectSlug strin
 	baseRef := "HEAD"
 	if !git.BranchExists(cwd, opts.Branch) {
 		if prompt.IsInteractive() {
-			create, promptErr := prompt.ConfirmDefault(fmt.Sprintf("Branch '%s' does not exist. Create it?", opts.Branch), true, logger)
+			create, promptErr := prompt.ConfirmDefault(
+				fmt.Sprintf("Branch '%s' does not exist. Create it?", opts.Branch),
+				true,
+				logger,
+			)
 			if promptErr != nil {
 				return "", "", "", false, fmt.Errorf("prompt for branch creation: %w", promptErr)
 			}
@@ -196,17 +206,24 @@ func cleanupManagedRepo(repoPath, cwd, cwdBranch string, opts RunOptions, logger
 
 	force := false
 	if hasChanges {
-		choice, err := prompt.Select(fmt.Sprintf("Managed repo '%s' on branch '%s' has uncommitted changes", repoPath, opts.Branch), []prompt.Choice{
-			{Label: "Keep", Key: "k", Description: "Keep the managed repo with changes"},
-			{Label: "Commit", Key: "c", Description: "Commit all changes before cleanup"},
-			{Label: "Discard", Key: "d", Description: "Discard all changes"},
-		}, "k", logger)
+		choice, err := prompt.Select(
+			fmt.Sprintf("Managed repo '%s' on branch '%s' has uncommitted changes", repoPath, opts.Branch),
+			[]prompt.Choice{
+				{Label: "Keep", Key: "k", Description: "Keep the managed repo with changes"},
+				{Label: "Commit", Key: "c", Description: "Commit all changes before cleanup"},
+				{Label: "Discard", Key: "d", Description: "Discard all changes"},
+			},
+			"k",
+			logger,
+		)
 		if err != nil {
 			return fmt.Errorf("prompt for uncommitted changes: %w", err)
 		}
 		switch choice {
 		case "k":
-			logger.Warn(fmt.Sprintf("kept managed repo '%s' on branch '%s' with uncommitted changes", repoPath, opts.Branch))
+			logger.Warn(
+				fmt.Sprintf("kept managed repo '%s' on branch '%s' with uncommitted changes", repoPath, opts.Branch),
+			)
 			return nil
 		case "c":
 			if err := git.CommitAll(repoPath, "opencode-msb: commit changes before cleanup"); err != nil {
@@ -224,11 +241,16 @@ func cleanupManagedRepo(repoPath, cwd, cwdBranch string, opts RunOptions, logger
 		}
 	}
 
-	choice, err := prompt.Select(fmt.Sprintf("Managed repo '%s' on branch '%s'", repoPath, opts.Branch), []prompt.Choice{
-		{Label: "Keep", Key: "k", Description: "Keep the managed repo"},
-		{Label: "Remove", Key: "r", Description: "Remove managed repo, keep branch"},
-		{Label: "Merge", Key: "m", Description: "Merge branch into original branch and remove managed repo"},
-	}, "r", logger)
+	choice, err := prompt.Select(
+		fmt.Sprintf("Managed repo '%s' on branch '%s'", repoPath, opts.Branch),
+		[]prompt.Choice{
+			{Label: "Keep", Key: "k", Description: "Keep the managed repo"},
+			{Label: "Remove", Key: "r", Description: "Remove managed repo, keep branch"},
+			{Label: "Merge", Key: "m", Description: "Merge branch into original branch and remove managed repo"},
+		},
+		"r",
+		logger,
+	)
 	if err != nil {
 		return fmt.Errorf("prompt for managed repo cleanup: %w", err)
 	}
@@ -248,7 +270,13 @@ func cleanupManagedRepo(repoPath, cwd, cwdBranch string, opts RunOptions, logger
 		if err := git.MergeBranchInto(cwd, repoPath, opts.Branch, targetBranch); err != nil {
 			_ = git.AbortMerge(cwd)
 			if rmErr := git.RemoveManagedRepo(repoPath, force); rmErr != nil {
-				return fmt.Errorf("branch %s was not merged into %s, and managed repo removal failed: %v (merge error: %w)", opts.Branch, targetBranch, rmErr, err)
+				return fmt.Errorf(
+					"branch %s was not merged into %s, and managed repo removal failed: %w (merge error: %w)",
+					opts.Branch,
+					targetBranch,
+					rmErr,
+					err,
+				)
 			}
 			return fmt.Errorf("branch %s was not merged into %s: %w", opts.Branch, targetBranch, err)
 		}
@@ -261,7 +289,7 @@ func cleanupManagedRepo(repoPath, cwd, cwdBranch string, opts RunOptions, logger
 
 func Run(ctx context.Context, opts RunOptions, cfg Config, logger *log.Logger) error {
 	if !CheckAll(ctx, logger) {
-		return fmt.Errorf("preflight failed")
+		return errors.New("preflight failed")
 	}
 
 	projectSlug := git.ProjectSlug(logger)

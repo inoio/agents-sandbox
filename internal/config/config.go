@@ -2,6 +2,7 @@ package config
 
 import (
 	"encoding/json"
+	"maps"
 	"os"
 	"path/filepath"
 	"sort"
@@ -20,9 +21,7 @@ func LoadProviderConfig(data []byte) (map[string]any, error) {
 
 func DeepMerge(base, override map[string]any) map[string]any {
 	result := make(map[string]any, len(base))
-	for k, v := range base {
-		result[k] = v
-	}
+	maps.Copy(result, base)
 	for k, v := range override {
 		if existing, ok := result[k]; ok {
 			if existingMap, ok := existing.(map[string]any); ok {
@@ -136,9 +135,7 @@ func BuildMergedConfig(userDir, projectDir string, providerConfig map[string]any
 		}
 	}
 
-	for name, data := range otherFiles {
-		result[name] = data
-	}
+	maps.Copy(result, otherFiles)
 
 	return result, nil
 }

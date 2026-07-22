@@ -19,7 +19,6 @@
 - API keys are personal. The launcher forwards them via `msb --secret` so the real value never enters the VM.
 - Do not commit secrets or `.envrc` content into the working directory.
 
-
 ## Design decisions
 
 - Dockerfile-first runner image.
@@ -31,7 +30,11 @@
 
 ## Development
 
-Required tooling:
+Installed tooling:
+
+- go, gofmt, golangci-lint, gcc (for CGO). Provides `go mod`, `go run`, `go test`, `golangci-lint run`, `gofmt`, `.
+- msb (microsandbox cli)
+- shell tools like jq, yq
 
 - **Toolchain:** `go` and a C compiler (`gcc` on Linux, `clang` on macOS — required by CGO for the microsandbox SDK). One `go` install provides `go mod`, `go run`, `go test`, `go vet`, `gofmt`.
 - **Linter:** `golangci-lint` — install separately, e.g. `go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest` or `brew install golangci-lint`.

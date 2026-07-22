@@ -8,10 +8,7 @@ import (
 )
 
 func NumCPUs() uint8 {
-	n := runtime.NumCPU()
-	if n < 1 {
-		n = 1
-	}
+	n := max(runtime.NumCPU(), 1)
 	if n > 255 {
 		n = 255
 	}
@@ -19,7 +16,7 @@ func NumCPUs() uint8 {
 }
 
 func parseMemInfo(data []byte) (totalKB int, ok bool) {
-	for _, line := range strings.Split(string(data), "\n") {
+	for line := range strings.SplitSeq(string(data), "\n") {
 		if !strings.HasPrefix(line, "MemTotal:") {
 			continue
 		}
