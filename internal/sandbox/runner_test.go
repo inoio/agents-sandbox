@@ -97,12 +97,12 @@ func TestResolveWorkspaceNoBranch(t *testing.T) {
 	commitFile(t, repo, "README.md", "hello", "initial")
 	branch := currentBranch(t, repo)
 
-	wtPath, gotBranch, cwdBranch, created, err := resolveWorkspace(repo, RunOptions{}, Config{StateDir: t.TempDir()}, "test-project", newTestLogger(t))
+	repoPath, gotBranch, cwdBranch, created, err := resolveWorkspace(repo, RunOptions{}, Config{StateDir: t.TempDir()}, "test-project", newTestLogger(t))
 	if err != nil {
 		t.Fatalf("resolveWorkspace failed: %v", err)
 	}
-	if wtPath != repo {
-		t.Errorf("expected workspace %q, got %q", repo, wtPath)
+	if repoPath != repo {
+		t.Errorf("expected workspace %q, got %q", repo, repoPath)
 	}
 	if gotBranch != branch {
 		t.Errorf("expected branch %q, got %q", branch, gotBranch)
@@ -120,12 +120,12 @@ func TestResolveWorkspaceBranchMatchesCurrentBranch(t *testing.T) {
 	commitFile(t, repo, "README.md", "hello", "initial")
 	branch := currentBranch(t, repo)
 
-	wtPath, gotBranch, cwdBranch, created, err := resolveWorkspace(repo, RunOptions{Branch: branch}, Config{StateDir: t.TempDir()}, "test-project", newTestLogger(t))
+	repoPath, gotBranch, cwdBranch, created, err := resolveWorkspace(repo, RunOptions{Branch: branch}, Config{StateDir: t.TempDir()}, "test-project", newTestLogger(t))
 	if err != nil {
 		t.Fatalf("resolveWorkspace failed: %v", err)
 	}
-	if wtPath != repo {
-		t.Errorf("expected workspace %q, got %q", repo, wtPath)
+	if repoPath != repo {
+		t.Errorf("expected workspace %q, got %q", repo, repoPath)
 	}
 	if gotBranch != branch {
 		t.Errorf("expected branch %q, got %q", branch, gotBranch)
@@ -150,7 +150,7 @@ func TestResolveWorkspaceBranchCreatesManagedRepo(t *testing.T) {
 	projectSlug := "test-project"
 	wantPath := filepath.Join(stateDir, "worktrees", projectSlug, "feature")
 
-	wtPath, gotBranch, cwdBranch, created, err := resolveWorkspace(repo, RunOptions{Branch: "feature"}, Config{StateDir: stateDir}, projectSlug, newTestLogger(t))
+	repoPath, gotBranch, cwdBranch, created, err := resolveWorkspace(repo, RunOptions{Branch: "feature"}, Config{StateDir: stateDir}, projectSlug, newTestLogger(t))
 	if err != nil {
 		t.Fatalf("resolveWorkspace failed: %v", err)
 	}
@@ -163,8 +163,8 @@ func TestResolveWorkspaceBranchCreatesManagedRepo(t *testing.T) {
 	if cwdBranch != branch {
 		t.Errorf("expected cwdBranch %q, got %q", branch, cwdBranch)
 	}
-	if wtPath != wantPath {
-		t.Errorf("expected managed repo path %q, got %q", wantPath, wtPath)
+	if repoPath != wantPath {
+		t.Errorf("expected managed repo path %q, got %q", wantPath, repoPath)
 	}
 }
 
@@ -183,14 +183,14 @@ func TestCleanupManagedRepoRemovesCleanRepo(t *testing.T) {
 
 	repo := createTempRepo(t)
 	commitFile(t, repo, "README.md", "hello", "initial")
-	wtPath := createManagedRepo(t, repo, "feature")
+	repoPath := createManagedRepo(t, repo, "feature")
 
-	err := cleanupWorktree(wtPath, repo, currentBranch(t, repo), RunOptions{Branch: "feature"}, newTestLogger(t))
+	err := cleanupManagedRepo(repoPath, repo, currentBranch(t, repo), RunOptions{Branch: "feature"}, newTestLogger(t))
 	if err != nil {
-		t.Fatalf("cleanupWorktree failed: %v", err)
+		t.Fatalf("cleanupManagedRepo failed: %v", err)
 	}
-	if _, statErr := os.Stat(wtPath); !os.IsNotExist(statErr) {
-		t.Errorf("expected managed repo %q to be removed", wtPath)
+	if _, statErr := os.Stat(repoPath); !os.IsNotExist(statErr) {
+		t.Errorf("expected managed repo %q to be removed", repoPath)
 	}
 }
 
@@ -200,17 +200,17 @@ func TestCleanupManagedRepoKeepsUncommittedChanges(t *testing.T) {
 
 	repo := createTempRepo(t)
 	commitFile(t, repo, "README.md", "hello", "initial")
-	wtPath := createManagedRepo(t, repo, "feature")
-	writeFile(t, filepath.Join(wtPath, "feature.txt"), "feature work")
+	repoPath := createManagedRepo(t, repo, "feature")
+	writeFile(t, filepath.Join(repoPath, "feature.txt"), "feature work")
 
-	err := cleanupWorktree(wtPath, repo, currentBranch(t, repo), RunOptions{Branch: "feature"}, newTestLogger(t))
+	err := cleanupManagedRepo(repoPath, repo, currentBranch(t, repo), RunOptions{Branch: "feature"}, newTestLogger(t))
 	if err != nil {
-		t.Fatalf("cleanupWorktree failed: %v", err)
+		t.Fatalf("cleanupManagedRepo failed: %v", err)
 	}
-	if _, statErr := os.Stat(wtPath); os.IsNotExist(statErr) {
+	if _, statErr := os.Stat(repoPath); os.IsNotExist(statErr) {
 		t.Fatal("expected managed repo to be kept")
 	}
-	got, err := os.ReadFile(filepath.Join(wtPath, "feature.txt"))
+	got, err := os.ReadFile(filepath.Join(repoPath, "feature.txt"))
 	if err != nil {
 		t.Fatalf("reading kept file: %v", err)
 	}
@@ -225,15 +225,15 @@ func TestCleanupManagedRepoDiscardsAndRemoves(t *testing.T) {
 
 	repo := createTempRepo(t)
 	commitFile(t, repo, "README.md", "hello", "initial")
-	wtPath := createManagedRepo(t, repo, "feature")
-	writeFile(t, filepath.Join(wtPath, "feature.txt"), "feature work")
+	repoPath := createManagedRepo(t, repo, "feature")
+	writeFile(t, filepath.Join(repoPath, "feature.txt"), "feature work")
 
-	err := cleanupWorktree(wtPath, repo, currentBranch(t, repo), RunOptions{Branch: "feature"}, newTestLogger(t))
+	err := cleanupManagedRepo(repoPath, repo, currentBranch(t, repo), RunOptions{Branch: "feature"}, newTestLogger(t))
 	if err != nil {
-		t.Fatalf("cleanupWorktree failed: %v", err)
+		t.Fatalf("cleanupManagedRepo failed: %v", err)
 	}
-	if _, statErr := os.Stat(wtPath); !os.IsNotExist(statErr) {
-		t.Errorf("expected managed repo %q to be removed", wtPath)
+	if _, statErr := os.Stat(repoPath); !os.IsNotExist(statErr) {
+		t.Errorf("expected managed repo %q to be removed", repoPath)
 	}
 }
 
@@ -243,18 +243,18 @@ func TestCleanupManagedRepoMergeSuccess(t *testing.T) {
 
 	repo := createTempRepo(t)
 	commitFile(t, repo, "README.md", "hello", "initial")
-	wtPath := createManagedRepo(t, repo, "feature")
-	writeFile(t, filepath.Join(wtPath, "feature.txt"), "feature work")
-	runGit(t, wtPath, "add", ".")
-	runGit(t, wtPath, "commit", "-m", "feature commit")
+	repoPath := createManagedRepo(t, repo, "feature")
+	writeFile(t, filepath.Join(repoPath, "feature.txt"), "feature work")
+	runGit(t, repoPath, "add", ".")
+	runGit(t, repoPath, "commit", "-m", "feature commit")
 
 	targetBranch := currentBranch(t, repo)
-	err := cleanupWorktree(wtPath, repo, targetBranch, RunOptions{Branch: "feature"}, newTestLogger(t))
+	err := cleanupManagedRepo(repoPath, repo, targetBranch, RunOptions{Branch: "feature"}, newTestLogger(t))
 	if err != nil {
-		t.Fatalf("cleanupWorktree failed: %v", err)
+		t.Fatalf("cleanupManagedRepo failed: %v", err)
 	}
-	if _, statErr := os.Stat(wtPath); !os.IsNotExist(statErr) {
-		t.Errorf("expected managed repo %q to be removed", wtPath)
+	if _, statErr := os.Stat(repoPath); !os.IsNotExist(statErr) {
+		t.Errorf("expected managed repo %q to be removed", repoPath)
 	}
 	out := runGitOutput(t, repo, "log", "--oneline", targetBranch)
 	if !strings.Contains(out, "feature commit") {
@@ -268,23 +268,23 @@ func TestCleanupManagedRepoMergeConflict(t *testing.T) {
 
 	repo := createTempRepo(t)
 	commitFile(t, repo, "file.txt", "main", "initial")
-	wtPath := createManagedRepo(t, repo, "feature")
+	repoPath := createManagedRepo(t, repo, "feature")
 
-	writeFile(t, filepath.Join(wtPath, "file.txt"), "feature")
-	runGit(t, wtPath, "add", ".")
-	runGit(t, wtPath, "commit", "-m", "feature commit")
+	writeFile(t, filepath.Join(repoPath, "file.txt"), "feature")
+	runGit(t, repoPath, "add", ".")
+	runGit(t, repoPath, "commit", "-m", "feature commit")
 
 	writeFile(t, filepath.Join(repo, "file.txt"), "main conflicting")
 	runGit(t, repo, "add", ".")
 	runGit(t, repo, "commit", "-m", "main conflicting")
 
 	targetBranch := currentBranch(t, repo)
-	err := cleanupWorktree(wtPath, repo, targetBranch, RunOptions{Branch: "feature"}, newTestLogger(t))
+	err := cleanupManagedRepo(repoPath, repo, targetBranch, RunOptions{Branch: "feature"}, newTestLogger(t))
 	if err == nil {
 		t.Fatal("expected error for merge conflict")
 	}
-	if _, statErr := os.Stat(wtPath); !os.IsNotExist(statErr) {
-		t.Errorf("expected managed repo %q to be removed", wtPath)
+	if _, statErr := os.Stat(repoPath); !os.IsNotExist(statErr) {
+		t.Errorf("expected managed repo %q to be removed", repoPath)
 	}
 	mergeHead := filepath.Join(repo, ".git", "MERGE_HEAD")
 	if _, statErr := os.Stat(mergeHead); !os.IsNotExist(statErr) {
@@ -309,13 +309,13 @@ func currentBranch(t *testing.T, dir string) string {
 func createManagedRepo(t *testing.T, repo, branch string) string {
 	t.Helper()
 	stateDir := t.TempDir()
-	wtPath, _, err := git.EnsureManagedRepoFromRef(repo, stateDir, "test-project", branch, "HEAD")
+	repoPath, _, err := git.EnsureManagedRepoFromRef(repo, stateDir, "test-project", branch, "HEAD")
 	if err != nil {
 		t.Fatalf("create managed repo for %q: %v", branch, err)
 	}
-	runGit(t, wtPath, "config", "user.email", "test@example.com")
-	runGit(t, wtPath, "config", "user.name", "Test User")
-	return wtPath
+	runGit(t, repoPath, "config", "user.email", "test@example.com")
+	runGit(t, repoPath, "config", "user.name", "Test User")
+	return repoPath
 }
 
 func writeFile(t *testing.T, path, content string) {

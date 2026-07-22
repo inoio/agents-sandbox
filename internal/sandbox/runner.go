@@ -188,15 +188,15 @@ func resolveWorkspace(cwd string, opts RunOptions, cfg Config, projectSlug strin
 	return workspacePath, branch, cwdBranch, created, nil
 }
 
-func cleanupWorktree(wtPath, cwd, cwdBranch string, opts RunOptions, logger *log.Logger) error {
-	hasChanges, err := git.HasUncommittedChanges(wtPath)
+func cleanupManagedRepo(repoPath, cwd, cwdBranch string, opts RunOptions, logger *log.Logger) error {
+	hasChanges, err := git.HasUncommittedChanges(repoPath)
 	if err != nil {
 		return fmt.Errorf("check uncommitted changes: %w", err)
 	}
 
 	force := false
 	if hasChanges {
-		choice, err := prompt.Select(fmt.Sprintf("Managed repo '%s' on branch '%s' has uncommitted changes", wtPath, opts.Branch), []prompt.Choice{
+		choice, err := prompt.Select(fmt.Sprintf("Managed repo '%s' on branch '%s' has uncommitted changes", repoPath, opts.Branch), []prompt.Choice{
 			{Label: "Keep", Key: "k", Description: "Keep the managed repo with changes"},
 			{Label: "Commit", Key: "c", Description: "Commit all changes before cleanup"},
 			{Label: "Discard", Key: "d", Description: "Discard all changes"},
@@ -206,10 +206,10 @@ func cleanupWorktree(wtPath, cwd, cwdBranch string, opts RunOptions, logger *log
 		}
 		switch choice {
 		case "k":
-			logger.Warn(fmt.Sprintf("kept managed repo '%s' on branch '%s' with uncommitted changes", wtPath, opts.Branch))
+			logger.Warn(fmt.Sprintf("kept managed repo '%s' on branch '%s' with uncommitted changes", repoPath, opts.Branch))
 			return nil
 		case "c":
-			if err := git.CommitAll(wtPath, "opencode-msb: commit changes before cleanup"); err != nil {
+			if err := git.CommitAll(repoPath, "opencode-msb: commit changes before cleanup"); err != nil {
 				if errors.Is(err, git.ErrNothingToCommit) {
 					logger.Info("no changes to commit; continuing cleanup")
 				} else {
@@ -217,14 +217,14 @@ func cleanupWorktree(wtPath, cwd, cwdBranch string, opts RunOptions, logger *log
 				}
 			}
 		case "d":
-			if err := git.DiscardAll(wtPath); err != nil {
+			if err := git.DiscardAll(repoPath); err != nil {
 				return fmt.Errorf("discard all changes: %w", err)
 			}
 			force = true
 		}
 	}
 
-	choice, err := prompt.Select(fmt.Sprintf("Managed repo '%s' on branch '%s'", wtPath, opts.Branch), []prompt.Choice{
+	choice, err := prompt.Select(fmt.Sprintf("Managed repo '%s' on branch '%s'", repoPath, opts.Branch), []prompt.Choice{
 		{Label: "Keep", Key: "k", Description: "Keep the managed repo"},
 		{Label: "Remove", Key: "r", Description: "Remove managed repo, keep branch"},
 		{Label: "Merge", Key: "m", Description: "Merge branch into original branch and remove managed repo"},
@@ -237,7 +237,7 @@ func cleanupWorktree(wtPath, cwd, cwdBranch string, opts RunOptions, logger *log
 	case "k":
 		return nil
 	case "r":
-		if err := git.RemoveManagedRepo(wtPath, force); err != nil {
+		if err := git.RemoveManagedRepo(repoPath, force); err != nil {
 			return fmt.Errorf("remove managed repo: %w", err)
 		}
 	case "m":
@@ -245,14 +245,14 @@ func cleanupWorktree(wtPath, cwd, cwdBranch string, opts RunOptions, logger *log
 		if err != nil {
 			return fmt.Errorf("prompt for merge target: %w", err)
 		}
-		if err := git.MergeBranchInto(cwd, wtPath, opts.Branch, targetBranch); err != nil {
+		if err := git.MergeBranchInto(cwd, repoPath, opts.Branch, targetBranch); err != nil {
 			_ = git.AbortMerge(cwd)
-			if rmErr := git.RemoveManagedRepo(wtPath, force); rmErr != nil {
+			if rmErr := git.RemoveManagedRepo(repoPath, force); rmErr != nil {
 				return fmt.Errorf("branch %s was not merged into %s, and managed repo removal failed: %v (merge error: %w)", opts.Branch, targetBranch, rmErr, err)
 			}
 			return fmt.Errorf("branch %s was not merged into %s: %w", opts.Branch, targetBranch, err)
 		}
-		if err := git.RemoveManagedRepo(wtPath, force); err != nil {
+		if err := git.RemoveManagedRepo(repoPath, force); err != nil {
 			return fmt.Errorf("remove managed repo after merge: %w", err)
 		}
 	}
@@ -271,7 +271,7 @@ func Run(ctx context.Context, opts RunOptions, cfg Config, logger *log.Logger) e
 		return fmt.Errorf("get current directory: %w", err)
 	}
 
-	wtPath, branch, cwdBranch, created, err := resolveWorkspace(cwd, opts, cfg, projectSlug, logger)
+	repoPath, branch, cwdBranch, created, err := resolveWorkspace(cwd, opts, cfg, projectSlug, logger)
 	if err != nil {
 		return err
 	}
@@ -319,7 +319,7 @@ func Run(ctx context.Context, opts RunOptions, cfg Config, logger *log.Logger) e
 
 	mounts := map[string]msb.MountConfig{
 		"/home/dev":  msb.Mount.Named(homeVol, msb.MountOptions{}),
-		"/workspace": msb.Mount.Bind(wtPath, msb.MountOptions{}),
+		"/workspace": msb.Mount.Bind(repoPath, msb.MountOptions{}),
 	}
 
 	spin := log.NewSpinner(logger)
@@ -367,7 +367,7 @@ func Run(ctx context.Context, opts RunOptions, cfg Config, logger *log.Logger) e
 			return fmt.Errorf("write config file %s: %w", fname, err)
 		}
 	}
-	for _, envrc := range envrcFiles(wtPath) {
+	for _, envrc := range envrcFiles(repoPath) {
 		if err := fs.Remove(ctx, "/workspace/"+envrc); err != nil {
 			logger.Warn(fmt.Sprintf("failed to remove envrc %s: %v", envrc, err))
 		}
@@ -379,21 +379,21 @@ func Run(ctx context.Context, opts RunOptions, cfg Config, logger *log.Logger) e
 
 	var cleanupErr error
 	if created {
-		cleanupErr = cleanupWorktree(wtPath, cwd, cwdBranch, opts, logger)
+		cleanupErr = cleanupManagedRepo(repoPath, cwd, cwdBranch, opts, logger)
 	}
 
 	if attachErr != nil {
 		if cleanupErr != nil {
 			return errors.Join(
 				fmt.Errorf("opencode session failed: %w", attachErr),
-				fmt.Errorf("worktree cleanup failed: %w", cleanupErr),
+				fmt.Errorf("managed repo cleanup failed: %w", cleanupErr),
 			)
 		}
 		return fmt.Errorf("opencode session failed: %w", attachErr)
 	}
 
 	if cleanupErr != nil {
-		return fmt.Errorf("worktree cleanup failed: %w", cleanupErr)
+		return fmt.Errorf("managed repo cleanup failed: %w", cleanupErr)
 	}
 	return &ExitError{Code: exitCode}
 }
