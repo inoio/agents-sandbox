@@ -89,7 +89,7 @@ func buildRunCmd() *cobra.Command {
 		},
 	}
 
-	cmd.Flags().String("worktree", "", "Worktree name")
+	cmd.Flags().String("worktree", "", "Run in an isolated git worktree for the given branch")
 	cmd.Flags().Bool("image-rebuild", false, "Force image rebuild")
 	cmd.Flags().Bool("volume-fallback", false, "Use host directories instead of msb volumes")
 	cmd.Flags().Bool("reset-home", false, "Recreate the project home volume")

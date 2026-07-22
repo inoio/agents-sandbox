@@ -27,11 +27,32 @@ opencode-msb doctor             # check prerequisites
 opencode-msb run --worktree my-feature  # explicit run subcommand
 ```
 
+## Worktrees
+
+By default `opencode-msb` runs in the current directory. To start an isolated
+session for a different branch, use `--worktree <branch>`:
+
+```bash
+opencode-msb --worktree my-feature
+```
+
+Rules:
+
+- If the current checkout is already on `<branch>`, the current directory is used.
+- Otherwise the launcher creates or reuses a managed worktree under
+  `~/.local/share/opencode-msb/worktrees/<project>/<branch>`.
+- If `<branch>` does not exist, you are prompted whether to create it. Use
+  `--yes` to create it from `HEAD` without prompting.
+- When the launcher created the worktree, it asks after the session whether to
+  keep it, remove it, or merge it back into the original branch. With `--yes`,
+  the default is to remove the worktree and keep the branch.
+
 ## Flags
 
 | Flag | Default | Purpose |
 |---|---|---|
-| `--worktree` | `""` | create/use a git worktree by that name |
+| `--worktree` | `""` | run in an isolated git worktree for the given branch |
+| `--yes` / `-y` | `false` | do not prompt; use default actions |
 | `--image-rebuild` | `false` | force rebuild of the runner image |
 | `--volume-fallback` | `false` | use project-local dirs instead of msb volumes |
 | `--reset-home` | `false` | wipe the opencode home volume before run |
