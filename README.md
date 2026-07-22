@@ -22,36 +22,36 @@ go install gitlab.inoio.de/inoio/opencode-msb/cmd/opencode-msb@latest
 
 ```bash
 opencode-msb                    # run opencode in a microsandbox VM
-opencode-msb --worktree my-feature  # run in a named git worktree
+opencode-msb --branch my-feature  # run in an isolated git clone
 opencode-msb doctor             # check prerequisites
-opencode-msb run --worktree my-feature  # explicit run subcommand
+opencode-msb run --branch my-feature  # explicit run subcommand
 ```
 
-## Worktrees
+## Branch sessions
 
 By default `opencode-msb` runs in the current directory. To start an isolated
-session for a different branch, use `--worktree <branch>`:
+session for a different branch, use `--branch <branch>`:
 
 ```bash
-opencode-msb --worktree my-feature
+opencode-msb --branch my-feature
 ```
 
 Rules:
 
 - If the current checkout is already on `<branch>`, the current directory is used.
-- Otherwise the launcher creates or reuses a managed worktree under
+- Otherwise the launcher creates or reuses an independent git clone under
   `~/.local/share/opencode-msb/worktrees/<project>/<branch>`.
 - If `<branch>` does not exist, you are prompted whether to create it. Use
   `--yes` to create it from `HEAD` without prompting.
-- When the launcher created the worktree, it asks after the session whether to
+- When the launcher created the managed clone, it asks after the session whether to
   keep it, remove it, or merge it back into the original branch. With `--yes`,
-  the default is to remove the worktree and keep the branch.
+  the default is to remove the managed clone and keep the branch.
 
 ## Flags
 
 | Flag | Default | Purpose |
 |---|---|---|
-| `--worktree` | `""` | run in an isolated git worktree for the given branch |
+| `--branch` | `""` | run in an isolated git clone for the given branch |
 | `--yes` / `-y` | `false` | do not prompt; use default actions |
 | `--image-rebuild` | `false` | force rebuild of the runner image |
 | `--volume-fallback` | `false` | use project-local dirs instead of msb volumes |

@@ -74,14 +74,14 @@ func WorktreePath(stateDir, projectSlug, branch string) string {
 	return filepath.Join(stateDir, "worktrees", projectSlug, branch)
 }
 
-func isGitWorktree(path string) bool {
+func isGitRepo(path string) bool {
 	cmd := exec.Command("git", "rev-parse", "--is-inside-work-tree")
 	cmd.Dir = path
 	return cmd.Run() == nil
 }
 
-func IsWorktreeForBranch(path, branch string) bool {
-	if !isGitWorktree(path) {
+func IsRepoForBranch(path, branch string) bool {
+	if !isGitRepo(path) {
 		return false
 	}
 	b, err := BranchAt(path)
@@ -91,7 +91,7 @@ func IsWorktreeForBranch(path, branch string) bool {
 	return b == branch
 }
 
-func FindManagedWorktree(stateDir, projectSlug, branch string) (path string, ok bool, err error) {
+func FindManagedRepo(stateDir, projectSlug, branch string) (path string, ok bool, err error) {
 	target := WorktreePath(stateDir, projectSlug, BranchSlug(branch))
 	info, err := os.Stat(target)
 	if err != nil {
@@ -106,17 +106,8 @@ func FindManagedWorktree(stateDir, projectSlug, branch string) (path string, ok 
 		}
 		return target, false, nil
 	}
-	if isGitWorktree(target) {
-		if IsWorktreeForBranch(target, branch) {
-			return target, true, nil
-		}
-		if err := RemoveWorktree(target, true); err != nil {
-			return target, false, err
-		}
-		if err := os.RemoveAll(target); err != nil {
-			return target, false, err
-		}
-		return target, false, nil
+	if IsRepoForBranch(target, branch) {
+		return target, true, nil
 	}
 	if err := os.RemoveAll(target); err != nil {
 		return target, false, err
@@ -130,10 +121,10 @@ func BranchExists(repoRoot, branch string) bool {
 	return cmd.Run() == nil
 }
 
-// EnsureWorktreeFromRef creates or reuses a managed worktree for the given
-// branch. If the branch does not exist, it is created from baseRef.
-func EnsureWorktreeFromRef(repoRoot, stateDir, projectSlug, branch, baseRef string) (path string, created bool, err error) {
-	target, ok, err := FindManagedWorktree(stateDir, projectSlug, branch)
+// EnsureManagedRepoFromRef creates or reuses an independent git clone for the
+// given branch. If the branch does not exist, it is created from baseRef.
+func EnsureManagedRepoFromRef(repoRoot, stateDir, projectSlug, branch, baseRef string) (path string, created bool, err error) {
+	target, ok, err := FindManagedRepo(stateDir, projectSlug, branch)
 	if err != nil {
 		return "", false, err
 	}
@@ -141,27 +132,41 @@ func EnsureWorktreeFromRef(repoRoot, stateDir, projectSlug, branch, baseRef stri
 		return target, false, nil
 	}
 	if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
-		return "", false, fmt.Errorf("create worktree parent dir: %w", err)
+		return "", false, fmt.Errorf("create managed repo parent dir: %w", err)
 	}
 
-	var cmd *exec.Cmd
 	if BranchExists(repoRoot, branch) {
-		cmd = exec.Command("git", "worktree", "add", target, branch)
-	} else {
-		if baseRef == "" {
-			baseRef = "HEAD"
+		cmd := exec.Command("git", "clone", "--branch", branch, repoRoot, target)
+		if out, err := cmd.CombinedOutput(); err != nil {
+			return "", false, fmt.Errorf("git clone failed: %w: %s", err, string(out))
 		}
-		cmd = exec.Command("git", "worktree", "add", "-b", branch, target, baseRef)
+		return target, true, nil
 	}
-	cmd.Dir = repoRoot
+
+	if baseRef == "" {
+		baseRef = "HEAD"
+	}
+	cmd := exec.Command("git", "clone", repoRoot, target)
 	if out, err := cmd.CombinedOutput(); err != nil {
-		return "", false, fmt.Errorf("git worktree add failed: %w: %s", err, string(out))
+		return "", false, fmt.Errorf("git clone failed: %w: %s", err, string(out))
+	}
+	if err := checkoutNewBranch(target, branch, baseRef); err != nil {
+		return "", false, err
 	}
 	return target, true, nil
 }
 
-func EnsureWorktree(repoRoot, stateDir, projectSlug, branch string) (path string, created bool, err error) {
-	return EnsureWorktreeFromRef(repoRoot, stateDir, projectSlug, branch, "HEAD")
+func checkoutNewBranch(cwd, branch, baseRef string) error {
+	cmd := exec.Command("git", "checkout", "-b", branch, baseRef)
+	cmd.Dir = cwd
+	if out, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("git checkout -b %s %s failed: %w: %s", branch, baseRef, err, string(out))
+	}
+	return nil
+}
+
+func EnsureManagedRepo(repoRoot, stateDir, projectSlug, branch string) (path string, created bool, err error) {
+	return EnsureManagedRepoFromRef(repoRoot, stateDir, projectSlug, branch, "HEAD")
 }
 
 func HasUncommittedChanges(path string) (bool, error) {
@@ -207,27 +212,17 @@ func checkoutBranch(cwd, branch string) error {
 	return nil
 }
 
-func RemoveWorktree(path string, force bool) error {
-	commonDir, err := gitCommonDir(path)
-	if err != nil {
-		return fmt.Errorf("find git common dir for %s: %w", path, err)
-	}
-	repoRoot := filepath.Dir(commonDir)
-
-	args := []string{"worktree", "remove"}
-	if force {
-		args = append(args, "--force")
-	}
-	args = append(args, path)
-	cmd := exec.Command("git", args...)
-	cmd.Dir = repoRoot
-	if out, err := cmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("git worktree remove failed for %s: %w: %s", path, err, string(out))
+func RemoveManagedRepo(path string, force bool) error {
+	// force is kept for API compatibility; a directory removal does not need
+	// git's --force.
+	_ = force
+	if err := os.RemoveAll(path); err != nil {
+		return fmt.Errorf("remove managed repo %s: %w", path, err)
 	}
 	return nil
 }
 
-func MergeBranchInto(cwd, sourceBranch, targetBranch string) error {
+func MergeBranchInto(cwd, clonePath, sourceBranch, targetBranch string) error {
 	originalBranch, err := BranchAt(cwd)
 	if err != nil {
 		return fmt.Errorf("unable to determine current branch before merge: %w", err)
@@ -240,18 +235,18 @@ func MergeBranchInto(cwd, sourceBranch, targetBranch string) error {
 		return err
 	}
 
-	cmd := exec.Command("git", "merge", sourceBranch)
+	cmd := exec.Command("git", "pull", clonePath, sourceBranch)
 	cmd.Dir = cwd
 	if out, err := cmd.CombinedOutput(); err != nil {
 		_ = AbortMerge(cwd)
 		if restoreErr := checkoutBranch(cwd, originalBranch); restoreErr != nil {
-			return errors.Join(fmt.Errorf("git merge %s into %s failed: %w: %s", sourceBranch, targetBranch, err, string(out)), restoreErr)
+			return errors.Join(fmt.Errorf("git pull %s %s into %s failed: %w: %s", clonePath, sourceBranch, targetBranch, err, string(out)), restoreErr)
 		}
-		return fmt.Errorf("git merge %s into %s failed: %w: %s", sourceBranch, targetBranch, err, string(out))
+		return fmt.Errorf("git pull %s %s into %s failed: %w: %s", clonePath, sourceBranch, targetBranch, err, string(out))
 	}
 
 	if err := checkoutBranch(cwd, originalBranch); err != nil {
-		return fmt.Errorf("git merge %s into %s succeeded but restore to %s failed: %w", sourceBranch, targetBranch, originalBranch, err)
+		return fmt.Errorf("git pull %s %s into %s succeeded but restore to %s failed: %w", clonePath, sourceBranch, targetBranch, originalBranch, err)
 	}
 	return nil
 }

@@ -31,12 +31,17 @@ func initRepo(t *testing.T) string {
 	t.Helper()
 	dir := t.TempDir()
 	runGit(t, dir, "init", "-b", "main")
-	runGit(t, dir, "config", "user.email", "test@example.com")
-	runGit(t, dir, "config", "user.name", "Test User")
+	configureRepo(t, dir)
 	writeFile(t, dir, "README.md", "hello")
 	runGit(t, dir, "add", "README.md")
 	runGit(t, dir, "commit", "-m", "initial")
 	return dir
+}
+
+func configureRepo(t *testing.T, dir string) {
+	t.Helper()
+	runGit(t, dir, "config", "user.email", "test@example.com")
+	runGit(t, dir, "config", "user.name", "Test User")
 }
 
 func TestBranchSlugReplacesSlashes(t *testing.T) {
@@ -103,44 +108,46 @@ func TestBranchAtFailsOutsideGitRepo(t *testing.T) {
 	}
 }
 
-func TestIsWorktreeForBranchRootCheckout(t *testing.T) {
+func TestIsRepoForBranchRootCheckout(t *testing.T) {
 	repo := initRepo(t)
-	if !IsWorktreeForBranch(repo, "main") {
-		t.Error("expected root checkout to be worktree for main")
+	if !IsRepoForBranch(repo, "main") {
+		t.Error("expected root checkout to be a repo for main")
 	}
-	if IsWorktreeForBranch(repo, "other") {
-		t.Error("expected root checkout not to be worktree for other")
+	if IsRepoForBranch(repo, "other") {
+		t.Error("expected root checkout not to be repo for other")
 	}
 }
 
-func TestIsWorktreeForBranchLinkedWorktree(t *testing.T) {
+func TestIsRepoForBranchClonedRepo(t *testing.T) {
 	repo := initRepo(t)
-	runGit(t, repo, "branch", "feature")
-	wt := filepath.Join(t.TempDir(), "feature")
-	runGit(t, repo, "worktree", "add", wt, "feature")
-	if !IsWorktreeForBranch(wt, "feature") {
-		t.Error("expected linked worktree to be for feature")
+	runGit(t, repo, "checkout", "-b", "feature")
+	runGit(t, repo, "commit", "-m", "feature commit", "--allow-empty")
+	runGit(t, repo, "checkout", "main")
+	clone := filepath.Join(t.TempDir(), "feature")
+	runGit(t, repo, "clone", "--branch", "feature", repo, clone)
+	if !IsRepoForBranch(clone, "feature") {
+		t.Error("expected cloned repo to be for feature")
 	}
-	if IsWorktreeForBranch(wt, "main") {
-		t.Error("expected linked worktree not to be for main")
+	if IsRepoForBranch(clone, "main") {
+		t.Error("expected cloned repo not to be for main")
 	}
 }
 
-func TestIsWorktreeForBranchOutsideRepo(t *testing.T) {
+func TestIsRepoForBranchOutsideRepo(t *testing.T) {
 	dir := t.TempDir()
-	if IsWorktreeForBranch(dir, "main") {
-		t.Error("expected non-repo directory not to be a worktree")
+	if IsRepoForBranch(dir, "main") {
+		t.Error("expected non-repo directory not to be a repo")
 	}
 }
 
-func TestFindManagedWorktreeMissing(t *testing.T) {
+func TestFindManagedRepoMissing(t *testing.T) {
 	stateDir := t.TempDir()
-	path, ok, err := FindManagedWorktree(stateDir, "p-test", "main")
+	path, ok, err := FindManagedRepo(stateDir, "p-test", "main")
 	if err != nil {
-		t.Fatalf("FindManagedWorktree: %v", err)
+		t.Fatalf("FindManagedRepo: %v", err)
 	}
 	if ok {
-		t.Error("expected ok=false for missing worktree")
+		t.Error("expected ok=false for missing repo")
 	}
 	expected := filepath.Join(stateDir, "worktrees", "p-test", "main")
 	if path != expected {
@@ -148,81 +155,80 @@ func TestFindManagedWorktreeMissing(t *testing.T) {
 	}
 }
 
-func TestFindManagedWorktreeValid(t *testing.T) {
+func TestFindManagedRepoValid(t *testing.T) {
 	repo := initRepo(t)
 	runGit(t, repo, "branch", "feature")
 	stateDir := t.TempDir()
-	wt, created, err := EnsureWorktree(repo, stateDir, "p-test", "feature")
+	wt, created, err := EnsureManagedRepo(repo, stateDir, "p-test", "feature")
 	if err != nil {
-		t.Fatalf("EnsureWorktree: %v", err)
+		t.Fatalf("EnsureManagedRepo: %v", err)
 	}
 	if !created {
 		t.Error("expected created=true")
 	}
-	path, ok, err := FindManagedWorktree(stateDir, "p-test", "feature")
+	path, ok, err := FindManagedRepo(stateDir, "p-test", "feature")
 	if err != nil {
-		t.Fatalf("FindManagedWorktree: %v", err)
+		t.Fatalf("FindManagedRepo: %v", err)
 	}
 	if !ok {
-		t.Error("expected ok=true for valid worktree")
+		t.Error("expected ok=true for valid repo")
 	}
 	if path != wt {
 		t.Errorf("expected path %q, got %q", wt, path)
 	}
 }
 
-func TestFindManagedWorktreeInvalidRemoved(t *testing.T) {
+func TestFindManagedRepoInvalidRemoved(t *testing.T) {
 	stateDir := t.TempDir()
 	target := WorktreePath(stateDir, "p-test", BranchSlug("main"))
 	if err := os.MkdirAll(target, 0o755); err != nil {
 		t.Fatalf("mkdir: %v", err)
 	}
-	path, ok, err := FindManagedWorktree(stateDir, "p-test", "main")
+	path, ok, err := FindManagedRepo(stateDir, "p-test", "main")
 	if err != nil {
-		t.Fatalf("FindManagedWorktree: %v", err)
+		t.Fatalf("FindManagedRepo: %v", err)
 	}
 	if ok {
-		t.Error("expected ok=false after removing invalid worktree")
+		t.Error("expected ok=false after removing invalid repo")
 	}
 	if path != target {
 		t.Errorf("expected path %q, got %q", target, path)
 	}
 	if _, statErr := os.Stat(target); !os.IsNotExist(statErr) {
-		t.Error("expected invalid worktree directory to be removed")
+		t.Error("expected invalid repo directory to be removed")
 	}
 }
 
-func TestFindManagedWorktreeWrongBranchRemoved(t *testing.T) {
+func TestFindManagedRepoWrongBranchRemoved(t *testing.T) {
 	repo := initRepo(t)
-	runGit(t, repo, "branch", "feature")
 	stateDir := t.TempDir()
 	target := WorktreePath(stateDir, "p-test", BranchSlug("other"))
-	runGit(t, repo, "worktree", "add", target, "feature")
+	runGit(t, repo, "clone", repo, target)
 
-	path, ok, err := FindManagedWorktree(stateDir, "p-test", "other")
+	path, ok, err := FindManagedRepo(stateDir, "p-test", "other")
 	if err != nil {
-		t.Fatalf("FindManagedWorktree: %v", err)
+		t.Fatalf("FindManagedRepo: %v", err)
 	}
 	if ok {
-		t.Error("expected ok=false for wrong-branch worktree")
+		t.Error("expected ok=false for wrong-branch repo")
 	}
 	if path != target {
 		t.Errorf("expected path %q, got %q", target, path)
 	}
 	if _, statErr := os.Stat(target); !os.IsNotExist(statErr) {
-		t.Error("expected wrong-branch worktree directory to be removed")
+		t.Error("expected wrong-branch repo directory to be removed")
 	}
 }
 
-func TestEnsureWorktreeCreatesFromExistingBranch(t *testing.T) {
+func TestEnsureManagedRepoCreatesFromExistingBranch(t *testing.T) {
 	repo := initRepo(t)
 	runGit(t, repo, "checkout", "-b", "feature")
 	runGit(t, repo, "commit", "-m", "feature commit", "--allow-empty")
 	runGit(t, repo, "checkout", "main")
 	stateDir := t.TempDir()
-	wt, created, err := EnsureWorktree(repo, stateDir, "p-test", "feature")
+	wt, created, err := EnsureManagedRepo(repo, stateDir, "p-test", "feature")
 	if err != nil {
-		t.Fatalf("EnsureWorktree: %v", err)
+		t.Fatalf("EnsureManagedRepo: %v", err)
 	}
 	if !created {
 		t.Error("expected created=true")
@@ -236,12 +242,12 @@ func TestEnsureWorktreeCreatesFromExistingBranch(t *testing.T) {
 	}
 }
 
-func TestEnsureWorktreeCreatesNewBranchFromHEAD(t *testing.T) {
+func TestEnsureManagedRepoCreatesNewBranchFromHEAD(t *testing.T) {
 	repo := initRepo(t)
 	stateDir := t.TempDir()
-	wt, created, err := EnsureWorktree(repo, stateDir, "p-test", "new-branch")
+	wt, created, err := EnsureManagedRepo(repo, stateDir, "p-test", "new-branch")
 	if err != nil {
-		t.Fatalf("EnsureWorktree: %v", err)
+		t.Fatalf("EnsureManagedRepo: %v", err)
 	}
 	if !created {
 		t.Error("expected created=true")
@@ -255,20 +261,20 @@ func TestEnsureWorktreeCreatesNewBranchFromHEAD(t *testing.T) {
 	}
 }
 
-func TestEnsureWorktreeReusesExisting(t *testing.T) {
+func TestEnsureManagedRepoReusesExisting(t *testing.T) {
 	repo := initRepo(t)
 	runGit(t, repo, "branch", "feature")
 	stateDir := t.TempDir()
-	wt1, created1, err := EnsureWorktree(repo, stateDir, "p-test", "feature")
+	wt1, created1, err := EnsureManagedRepo(repo, stateDir, "p-test", "feature")
 	if err != nil {
-		t.Fatalf("EnsureWorktree first: %v", err)
+		t.Fatalf("EnsureManagedRepo first: %v", err)
 	}
 	if !created1 {
 		t.Error("expected created=true on first call")
 	}
-	wt2, created2, err := EnsureWorktree(repo, stateDir, "p-test", "feature")
+	wt2, created2, err := EnsureManagedRepo(repo, stateDir, "p-test", "feature")
 	if err != nil {
-		t.Fatalf("EnsureWorktree second: %v", err)
+		t.Fatalf("EnsureManagedRepo second: %v", err)
 	}
 	if created2 {
 		t.Error("expected created=false on second call")
@@ -278,20 +284,18 @@ func TestEnsureWorktreeReusesExisting(t *testing.T) {
 	}
 }
 
-func TestEnsureWorktreeRecreatesOnWrongBranch(t *testing.T) {
+func TestEnsureManagedRepoRecreatesOnWrongBranch(t *testing.T) {
 	repo := initRepo(t)
-	runGit(t, repo, "branch", "feature")
-	runGit(t, repo, "branch", "other")
 	stateDir := t.TempDir()
 	target := WorktreePath(stateDir, "p-test", BranchSlug("other"))
-	runGit(t, repo, "worktree", "add", target, "feature")
+	runGit(t, repo, "clone", "--branch", "main", repo, target)
 
-	wt, created, err := EnsureWorktree(repo, stateDir, "p-test", "other")
+	wt, created, err := EnsureManagedRepo(repo, stateDir, "p-test", "other")
 	if err != nil {
-		t.Fatalf("EnsureWorktree: %v", err)
+		t.Fatalf("EnsureManagedRepo: %v", err)
 	}
 	if !created {
-		t.Error("expected created=true when replacing wrong-branch worktree")
+		t.Error("expected created=true when replacing wrong-branch repo")
 	}
 	if wt != target {
 		t.Errorf("expected path %q, got %q", target, wt)
@@ -390,42 +394,43 @@ func TestDiscardAllRevertsUnstagedChanges(t *testing.T) {
 	}
 }
 
-func TestRemoveWorktreeRemovesLinkedWorktree(t *testing.T) {
+func TestRemoveManagedRepoRemovesClonedRepo(t *testing.T) {
 	repo := initRepo(t)
 	wt := filepath.Join(t.TempDir(), "feature")
-	runGit(t, repo, "worktree", "add", wt, "-b", "feature")
-	if err := RemoveWorktree(wt, false); err != nil {
-		t.Fatalf("RemoveWorktree: %v", err)
+	runGit(t, repo, "clone", repo, wt)
+	if err := RemoveManagedRepo(wt, false); err != nil {
+		t.Fatalf("RemoveManagedRepo: %v", err)
 	}
 	if _, err := os.Stat(wt); !os.IsNotExist(err) {
-		t.Error("expected worktree directory to be removed")
+		t.Error("expected repo directory to be removed")
 	}
 }
 
-func TestRemoveWorktreeForceWithUncommittedChanges(t *testing.T) {
+func TestRemoveManagedRepoRemovesWithUncommittedChanges(t *testing.T) {
 	repo := initRepo(t)
 	wt := filepath.Join(t.TempDir(), "feature")
-	runGit(t, repo, "worktree", "add", wt, "-b", "feature")
+	runGit(t, repo, "clone", repo, wt)
 	writeFile(t, wt, "README.md", "changed")
-	if err := RemoveWorktree(wt, false); err == nil {
-		t.Error("expected error removing worktree with uncommitted changes without force")
-	}
-	if err := RemoveWorktree(wt, true); err != nil {
-		t.Fatalf("RemoveWorktree force: %v", err)
+	if err := RemoveManagedRepo(wt, false); err != nil {
+		t.Fatalf("RemoveManagedRepo: %v", err)
 	}
 	if _, err := os.Stat(wt); !os.IsNotExist(err) {
-		t.Error("expected worktree directory to be removed after force")
+		t.Error("expected repo directory to be removed despite uncommitted changes")
 	}
 }
 
 func TestMergeBranchIntoFastForward(t *testing.T) {
 	repo := initRepo(t)
-	runGit(t, repo, "checkout", "-b", "feature")
-	writeFile(t, repo, "feature.txt", "feature")
-	runGit(t, repo, "add", "feature.txt")
-	runGit(t, repo, "commit", "-m", "feature commit")
-	runGit(t, repo, "checkout", "main")
-	if err := MergeBranchInto(repo, "feature", "main"); err != nil {
+	clone := filepath.Join(t.TempDir(), "clone")
+	runGit(t, repo, "clone", repo, clone)
+	configureRepo(t, clone)
+
+	runGit(t, clone, "checkout", "-b", "feature")
+	writeFile(t, clone, "feature.txt", "feature")
+	runGit(t, clone, "add", "feature.txt")
+	runGit(t, clone, "commit", "-m", "feature commit")
+
+	if err := MergeBranchInto(repo, clone, "feature", "main"); err != nil {
 		t.Fatalf("MergeBranchInto: %v", err)
 	}
 	has, err := HasUncommittedChanges(repo)
@@ -449,15 +454,20 @@ func TestMergeBranchIntoFastForward(t *testing.T) {
 
 func TestMergeBranchIntoConflict(t *testing.T) {
 	repo := initRepo(t)
-	runGit(t, repo, "checkout", "-b", "feature")
-	writeFile(t, repo, "README.md", "feature")
-	runGit(t, repo, "add", "README.md")
-	runGit(t, repo, "commit", "-m", "feature commit")
-	runGit(t, repo, "checkout", "main")
+	clone := filepath.Join(t.TempDir(), "clone")
+	runGit(t, repo, "clone", repo, clone)
+	configureRepo(t, clone)
+
+	runGit(t, clone, "checkout", "-b", "feature")
+	writeFile(t, clone, "README.md", "feature")
+	runGit(t, clone, "add", "README.md")
+	runGit(t, clone, "commit", "-m", "feature commit")
+
 	writeFile(t, repo, "README.md", "main")
 	runGit(t, repo, "add", "README.md")
 	runGit(t, repo, "commit", "-m", "main commit")
-	err := MergeBranchInto(repo, "feature", "main")
+
+	err := MergeBranchInto(repo, clone, "feature", "main")
 	if err == nil {
 		t.Fatal("expected merge conflict error")
 	}
