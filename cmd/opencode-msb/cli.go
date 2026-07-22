@@ -70,6 +70,7 @@ func buildRunCmd() *cobra.Command {
 			opts.ResetHome, _ = cmd.Flags().GetBool("reset-home")
 			opts.CPUs, _ = cmd.Flags().GetUint8("cpus")
 			opts.Memory, _ = cmd.Flags().GetString("memory")
+			opts.TestRun, _ = cmd.Flags().GetBool("test-run")
 			if noAuto, _ := cmd.Flags().GetBool("no-auto"); noAuto {
 				opts.Auto = false
 			}
@@ -96,6 +97,7 @@ func buildRunCmd() *cobra.Command {
 	cmd.Flags().Uint8("cpus", 0, "Number of CPUs (default: all)")
 	cmd.Flags().String("memory", "4G", "Memory limit (default: 4G)")
 	cmd.Flags().Bool("no-auto", false, "Do not pass --auto to opencode")
+	cmd.Flags().Bool("test-run", false, "Validate setup without running opencode")
 	cmd.Flags().BoolP("yes", "y", false, "Assume yes to all prompts")
 
 	return cmd
