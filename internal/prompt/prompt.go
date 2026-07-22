@@ -19,10 +19,38 @@ var (
 	// stdin and isTerminalFunc are overridable for testing.
 	stdin          io.Reader = os.Stdin
 	isTerminalFunc           = term.IsTerminal
+
+	// stdinReader is used by tests that drive multiple prompts in sequence;
+	// a single buffered reader prevents input from being lost between prompts.
+	stdinReader *bufio.Reader
 )
 
 func IsInteractive() bool {
 	return isTerminalFunc(int(os.Stdin.Fd())) && !AssumeYes
+}
+
+// SetStdinForTesting replaces the prompt input source and forces interactive
+// mode for the duration of a test. The returned function restores the previous
+// state and should be deferred by the caller.
+func SetStdinForTesting(r io.Reader) func() {
+	oldStdin := stdin
+	oldStdinReader := stdinReader
+	oldIsTerminal := isTerminalFunc
+	stdin = r
+	stdinReader = bufio.NewReader(r)
+	isTerminalFunc = func(int) bool { return true }
+	return func() {
+		stdin = oldStdin
+		stdinReader = oldStdinReader
+		isTerminalFunc = oldIsTerminal
+	}
+}
+
+func getStdinReader() *bufio.Reader {
+	if stdinReader != nil {
+		return stdinReader
+	}
+	return bufio.NewReader(stdin)
 }
 
 type Choice struct {
@@ -48,7 +76,7 @@ func Select(prompt string, choices []Choice, defaultKey string, logger *log.Logg
 		keys[strings.ToLower(c.Key)] = c.Key
 	}
 
-	reader := bufio.NewReader(stdin)
+	reader := getStdinReader()
 	for i := 0; i < maxRetries; i++ {
 		line, err := reader.ReadString('\n')
 		if err != nil {
@@ -83,7 +111,7 @@ func ConfirmDefault(prompt string, defaultYes bool, logger *log.Logger) (bool, e
 	}
 	fmt.Fprintf(os.Stderr, "%s [%s]: ", prompt, defaultHint)
 
-	reader := bufio.NewReader(stdin)
+	reader := getStdinReader()
 	for i := 0; i < maxRetries; i++ {
 		line, err := reader.ReadString('\n')
 		if err != nil {
@@ -113,7 +141,7 @@ func Input(prompt, defaultValue string, logger *log.Logger) (string, error) {
 
 	fmt.Fprintf(os.Stderr, "%s [%s]: ", prompt, defaultValue)
 
-	reader := bufio.NewReader(stdin)
+	reader := getStdinReader()
 	line, err := reader.ReadString('\n')
 	if err != nil {
 		return "", fmt.Errorf("read input: %w", err)
