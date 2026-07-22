@@ -7,8 +7,9 @@ import (
 	"path/filepath"
 	"time"
 
-	msb "github.com/superradcompany/microsandbox/sdk/go"
 	"gitlab.inoio.de/inoio/opencode-msb/internal/log"
+
+	msb "github.com/superradcompany/microsandbox/sdk/go"
 )
 
 func HomeVolumeName(projectSlug, imageDigest string) string {
@@ -61,7 +62,7 @@ func (vm *VolumeManager) EnsureHome(ctx context.Context, projectSlug, imageDiges
 	return name, nil
 }
 
-func (vm *VolumeManager) ensureFallbackHome(ctx context.Context, name, projectSlug, imageDigest, imageTag string, reset bool) (string, error) {
+func (vm *VolumeManager) ensureFallbackHome(ctx context.Context, _, projectSlug, imageDigest, imageTag string, reset bool) (string, error) {
 	path := vm.fallbackHomePath(projectSlug, imageDigest)
 	if reset {
 		os.RemoveAll(path)

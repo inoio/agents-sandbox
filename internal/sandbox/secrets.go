@@ -3,8 +3,9 @@ package sandbox
 import (
 	"os"
 
-	msb "github.com/superradcompany/microsandbox/sdk/go"
 	"gitlab.inoio.de/inoio/opencode-msb/internal/log"
+
+	msb "github.com/superradcompany/microsandbox/sdk/go"
 )
 
 var secretMap = map[string]string{

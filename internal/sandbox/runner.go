@@ -8,11 +8,12 @@ import (
 	"strings"
 	"time"
 
-	msb "github.com/superradcompany/microsandbox/sdk/go"
 	"gitlab.inoio.de/inoio/opencode-msb/internal/config"
 	"gitlab.inoio.de/inoio/opencode-msb/internal/git"
 	"gitlab.inoio.de/inoio/opencode-msb/internal/log"
 	"gitlab.inoio.de/inoio/opencode-msb/internal/sysinfo"
+
+	msb "github.com/superradcompany/microsandbox/sdk/go"
 )
 
 type ExitError struct {
