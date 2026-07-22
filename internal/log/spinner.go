@@ -3,6 +3,7 @@ package log
 import (
 	"fmt"
 	"io"
+	"strings"
 	"sync"
 	"time"
 )
@@ -13,6 +14,7 @@ type Spinner struct {
 	w      io.Writer
 	color  bool
 	msg    string
+	start  time.Time
 	stopCh chan struct{}
 	done   chan struct{}
 	mu     sync.Mutex
@@ -31,6 +33,7 @@ func (s *Spinner) Start(msg string) {
 	}
 	s.active = true
 	s.msg = msg
+	s.start = time.Now()
 	s.stopCh = make(chan struct{})
 	s.mu.Unlock()
 
@@ -42,6 +45,14 @@ func (s *Spinner) Start(msg string) {
 	}
 }
 
+func formatElapsedLive(elapsed time.Duration) string {
+	return fmt.Sprintf("(%ds)", int(elapsed.Seconds()))
+}
+
+func formatElapsedDone(elapsed time.Duration) string {
+	return fmt.Sprintf("(%.1fs)", elapsed.Seconds())
+}
+
 func (s *Spinner) animate() {
 	defer close(s.done)
 	i := 0
@@ -51,7 +62,8 @@ func (s *Spinner) animate() {
 			return
 		default:
 		}
-		fmt.Fprintf(s.w, "\r%s %s", s.msg, spinnerChars[i%len(spinnerChars)])
+		elapsed := time.Since(s.start)
+		fmt.Fprintf(s.w, "\r\033[K%s %s %s", s.msg, spinnerChars[i%len(spinnerChars)], formatElapsedLive(elapsed))
 		i++
 		time.Sleep(100 * time.Millisecond)
 	}
@@ -64,14 +76,26 @@ func (s *Spinner) finish(result string) {
 		return
 	}
 	s.active = false
+	elapsed := time.Since(s.start)
 	s.mu.Unlock()
+
+	suffix := formatElapsedDone(elapsed)
+	var final string
+	switch {
+	case result == "done":
+		final = "done" + suffix
+	case strings.HasPrefix(result, "failed: "):
+		final = fmt.Sprintf("failed %s: %s", suffix, strings.TrimPrefix(result, "failed: "))
+	default:
+		final = result + " " + suffix
+	}
 
 	if s.color {
 		close(s.stopCh)
 		<-s.done
-		fmt.Fprintf(s.w, "\r\033[K%s %s\n", s.msg, result)
+		fmt.Fprintf(s.w, "\r\033[K%s %s\n", s.msg, final)
 	} else {
-		fmt.Fprintf(s.w, "%s\n", result)
+		fmt.Fprintf(s.w, "%s\n", final)
 	}
 }
 
