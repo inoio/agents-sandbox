@@ -60,16 +60,6 @@ func BranchName(cwd string) (string, error) {
 	return BranchAt(cwd)
 }
 
-func CurrentWorktreePath(cwd string) (string, error) {
-	cmd := exec.Command("git", "rev-parse", "--show-toplevel")
-	cmd.Dir = cwd
-	out, err := cmd.Output()
-	if err != nil {
-		return "", err
-	}
-	return filepath.Abs(strings.TrimSpace(string(out)))
-}
-
 func WorktreePath(stateDir, projectSlug, branch string) string {
 	return filepath.Join(stateDir, "worktrees", projectSlug, branch)
 }
