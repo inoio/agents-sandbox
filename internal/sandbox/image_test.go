@@ -4,8 +4,11 @@ import (
 	"archive/tar"
 	"bytes"
 	"context"
+	"errors"
 	"io"
 	"testing"
+
+	"github.com/moby/moby/client"
 
 	"gitlab.inoio.de/inoio/opencode-msb/internal/log"
 )
@@ -39,11 +42,29 @@ func TestImageTag(t *testing.T) {
 	}
 }
 
-func TestEnsureImageReturnsErrorWithoutDocker(t *testing.T) {
+type failingDockerClient struct{}
+
+func (f *failingDockerClient) ImageBuild(ctx context.Context, buildContext io.Reader, options client.ImageBuildOptions) (client.ImageBuildResult, error) {
+	return client.ImageBuildResult{}, errors.New("docker unavailable")
+}
+
+func (f *failingDockerClient) ImageInspect(ctx context.Context, imageID string, inspectOpts ...client.ImageInspectOption) (client.ImageInspectResult, error) {
+	return client.ImageInspectResult{}, errors.New("docker unavailable")
+}
+
+func (f *failingDockerClient) ImageSave(ctx context.Context, imageIDs []string, saveOpts ...client.ImageSaveOption) (client.ImageSaveResult, error) {
+	return nil, errors.New("docker unavailable")
+}
+
+func (f *failingDockerClient) Close() error {
+	return nil
+}
+
+func TestEnsureImageReturnsErrorWhenBuildFails(t *testing.T) {
 	l := log.New(io.Discard, false)
-	_, _, err := EnsureImage(context.Background(), EmbeddedDockerfile, true, l)
+	_, _, err := EnsureImage(context.Background(), &failingDockerClient{}, EmbeddedDockerfile, true, l)
 	if err == nil {
-		t.Error("expected error when Docker is not available")
+		t.Error("expected error when Docker build fails")
 	}
 }
 

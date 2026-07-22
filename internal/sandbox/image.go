@@ -20,6 +20,13 @@ import (
 
 const BaseTag = "opencode-msb/runner:base"
 
+type dockerClient interface {
+	ImageBuild(ctx context.Context, buildContext io.Reader, options client.ImageBuildOptions) (client.ImageBuildResult, error)
+	ImageInspect(ctx context.Context, imageID string, inspectOpts ...client.ImageInspectOption) (client.ImageInspectResult, error)
+	ImageSave(ctx context.Context, imageIDs []string, saveOpts ...client.ImageSaveOption) (client.ImageSaveResult, error)
+	Close() error
+}
+
 func ReferencesBase(dockerfile []byte) bool {
 	scanner := bufio.NewScanner(bytes.NewReader(dockerfile))
 	for scanner.Scan() {
@@ -62,22 +69,16 @@ type dockerBuildMessage struct {
 
 const runnerTag = "opencode-msb/runner:latest"
 
-func EnsureImage(ctx context.Context, dockerfile []byte, force bool, logger *log.Logger) (imageRef, imageDigest string, err error) {
-	if ReferencesBase(dockerfile) {
-		if err := buildDockerImage(ctx, EmbeddedDockerfile, BaseTag, "Building base runner image", logger); err != nil {
+func EnsureImage(ctx context.Context, cli dockerClient, dockerfile []byte, force bool, logger *log.Logger) (imageRef, imageDigest string, err error) {
+	if force || ReferencesBase(dockerfile) {
+		if err := buildDockerImage(ctx, cli, EmbeddedDockerfile, BaseTag, "Building base runner image", force, logger); err != nil {
 			return "", "", fmt.Errorf("building base image: %w", err)
 		}
 	}
 
-	if err := buildDockerImage(ctx, dockerfile, runnerTag, "Building runner image", logger); err != nil {
+	if err := buildDockerImage(ctx, cli, dockerfile, runnerTag, "Building runner image", force, logger); err != nil {
 		return "", "", err
 	}
-
-	cli, err := client.New(client.FromEnv)
-	if err != nil {
-		return "", "", fmt.Errorf("cannot connect to Docker daemon (is dockerd running?): %w", err)
-	}
-	defer cli.Close()
 
 	inspect, err := cli.ImageInspect(ctx, runnerTag)
 	if err != nil {
@@ -111,20 +112,14 @@ func EnsureImage(ctx context.Context, dockerfile []byte, force bool, logger *log
 	return imageRef, imageDigest, nil
 }
 
-func buildDockerImage(ctx context.Context, dockerfile []byte, tag, label string, logger *log.Logger) error {
+func buildDockerImage(ctx context.Context, cli dockerClient, dockerfile []byte, tag, label string, force bool, logger *log.Logger) error {
 	spin := log.NewSpinner(logger)
 	spin.Start(label)
 
-	cli, err := client.New(client.FromEnv)
-	if err != nil {
-		spin.StopError(err)
-		return fmt.Errorf("cannot connect to Docker daemon (is dockerd running?): %w", err)
-	}
-	defer cli.Close()
-
 	buildResp, err := cli.ImageBuild(ctx, dockerfileTar(dockerfile), client.ImageBuildOptions{
-		Tags:   []string{tag},
-		Remove: true,
+		Tags:     []string{tag},
+		Remove:   true,
+		NoCache:  force,
 	})
 	if err != nil {
 		spin.StopError(err)

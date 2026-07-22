@@ -10,7 +10,6 @@ import (
 
 var secretMap = map[string]string{
 	"LITELLM_API_KEY": "litellm.inoio.de",
-	"GITHUB_TOKEN":    "github.com",
 }
 
 func BuildSecrets(logger *log.Logger) []msb.SecretEntry {
