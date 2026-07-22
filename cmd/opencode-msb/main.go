@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/inoio/opencode-msb/internal/opencodemsb"
+	"gitlab.inoio.de/inoio/opencode-msb/internal/opencodemsb"
 )
 
 func main() {
