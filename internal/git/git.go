@@ -113,7 +113,9 @@ func BranchExists(repoRoot, branch string) bool {
 
 // EnsureManagedRepoFromRef creates or reuses an independent git clone for the
 // given branch. If the branch does not exist, it is created from baseRef.
-func EnsureManagedRepoFromRef(repoRoot, stateDir, projectSlug, branch, baseRef string) (path string, created bool, err error) {
+func EnsureManagedRepoFromRef(
+	repoRoot, stateDir, projectSlug, branch, baseRef string,
+) (path string, created bool, err error) {
 	target, ok, err := FindManagedRepo(stateDir, projectSlug, branch)
 	if err != nil {
 		return "", false, err
@@ -230,13 +232,37 @@ func MergeBranchInto(cwd, clonePath, sourceBranch, targetBranch string) error {
 	if out, err := cmd.CombinedOutput(); err != nil {
 		_ = AbortMerge(cwd)
 		if restoreErr := checkoutBranch(cwd, originalBranch); restoreErr != nil {
-			return errors.Join(fmt.Errorf("git pull %s %s into %s failed: %w: %s", clonePath, sourceBranch, targetBranch, err, string(out)), restoreErr)
+			return errors.Join(
+				fmt.Errorf(
+					"git pull %s %s into %s failed: %w: %s",
+					clonePath,
+					sourceBranch,
+					targetBranch,
+					err,
+					string(out),
+				),
+				restoreErr,
+			)
 		}
-		return fmt.Errorf("git pull %s %s into %s failed: %w: %s", clonePath, sourceBranch, targetBranch, err, string(out))
+		return fmt.Errorf(
+			"git pull %s %s into %s failed: %w: %s",
+			clonePath,
+			sourceBranch,
+			targetBranch,
+			err,
+			string(out),
+		)
 	}
 
 	if err := checkoutBranch(cwd, originalBranch); err != nil {
-		return fmt.Errorf("git pull %s %s into %s succeeded but restore to %s failed: %w", clonePath, sourceBranch, targetBranch, originalBranch, err)
+		return fmt.Errorf(
+			"git pull %s %s into %s succeeded but restore to %s failed: %w",
+			clonePath,
+			sourceBranch,
+			targetBranch,
+			originalBranch,
+			err,
+		)
 	}
 	return nil
 }

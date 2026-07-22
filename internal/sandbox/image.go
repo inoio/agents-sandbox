@@ -21,9 +21,21 @@ import (
 const BaseTag = "opencode-msb/runner:base"
 
 type dockerClient interface {
-	ImageBuild(ctx context.Context, buildContext io.Reader, options client.ImageBuildOptions) (client.ImageBuildResult, error)
-	ImageInspect(ctx context.Context, imageID string, inspectOpts ...client.ImageInspectOption) (client.ImageInspectResult, error)
-	ImageSave(ctx context.Context, imageIDs []string, saveOpts ...client.ImageSaveOption) (client.ImageSaveResult, error)
+	ImageBuild(
+		ctx context.Context,
+		buildContext io.Reader,
+		options client.ImageBuildOptions,
+	) (client.ImageBuildResult, error)
+	ImageInspect(
+		ctx context.Context,
+		imageID string,
+		inspectOpts ...client.ImageInspectOption,
+	) (client.ImageInspectResult, error)
+	ImageSave(
+		ctx context.Context,
+		imageIDs []string,
+		saveOpts ...client.ImageSaveOption,
+	) (client.ImageSaveResult, error)
 	Close() error
 }
 
@@ -69,9 +81,23 @@ type dockerBuildMessage struct {
 
 const runnerTag = "opencode-msb/runner:latest"
 
-func EnsureImage(ctx context.Context, cli dockerClient, dockerfile []byte, force bool, logger *log.Logger) (imageRef, imageDigest string, err error) {
+func EnsureImage(
+	ctx context.Context,
+	cli dockerClient,
+	dockerfile []byte,
+	force bool,
+	logger *log.Logger,
+) (imageRef, imageDigest string, err error) {
 	if force || ReferencesBase(dockerfile) {
-		if err := buildDockerImage(ctx, cli, EmbeddedDockerfile, BaseTag, "Building base runner image", force, logger); err != nil {
+		if err := buildDockerImage(
+			ctx,
+			cli,
+			EmbeddedDockerfile,
+			BaseTag,
+			"Building base runner image",
+			force,
+			logger,
+		); err != nil {
 			return "", "", fmt.Errorf("building base image: %w", err)
 		}
 	}
@@ -112,7 +138,14 @@ func EnsureImage(ctx context.Context, cli dockerClient, dockerfile []byte, force
 	return imageRef, imageDigest, nil
 }
 
-func buildDockerImage(ctx context.Context, cli dockerClient, dockerfile []byte, tag, label string, force bool, logger *log.Logger) error {
+func buildDockerImage(
+	ctx context.Context,
+	cli dockerClient,
+	dockerfile []byte,
+	tag, label string,
+	force bool,
+	logger *log.Logger,
+) error {
 	spin := log.NewSpinner(logger)
 	spin.Start(label)
 
@@ -123,7 +156,7 @@ func buildDockerImage(ctx context.Context, cli dockerClient, dockerfile []byte, 
 	})
 	if err != nil {
 		spin.StopError(err)
-		return fmt.Errorf("Docker image build failed: %w", err)
+		return fmt.Errorf("docker image build failed: %w", err)
 	}
 
 	buildErr := scanBuildOutput(buildResp.Body)
@@ -131,9 +164,9 @@ func buildDockerImage(ctx context.Context, cli dockerClient, dockerfile []byte, 
 	if buildErr != nil {
 		spin.StopError(buildErr)
 		if strings.Contains(buildErr.Error(), "pull access denied") {
-			return fmt.Errorf("Docker image build failed (base image not found or not logged in): %w", buildErr)
+			return fmt.Errorf("docker image build failed (base image not found or not logged in): %w", buildErr)
 		}
-		return fmt.Errorf("Docker image build failed: %w", buildErr)
+		return fmt.Errorf("docker image build failed: %w", buildErr)
 	}
 
 	spin.Stop()

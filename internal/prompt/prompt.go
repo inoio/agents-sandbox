@@ -2,12 +2,14 @@ package prompt
 
 import (
 	"bufio"
+	"errors"
 	"fmt"
 	"io"
 	"os"
 	"strings"
 
 	"gitlab.inoio.de/inoio/opencode-msb/internal/log"
+
 	"golang.org/x/term"
 )
 
@@ -77,7 +79,7 @@ func Select(prompt string, choices []Choice, defaultKey string, logger *log.Logg
 	}
 
 	reader := getStdinReader()
-	for i := 0; i < maxRetries; i++ {
+	for range maxRetries {
 		line, err := reader.ReadString('\n')
 		if err != nil {
 			return "", fmt.Errorf("read selection: %w", err)
@@ -92,7 +94,7 @@ func Select(prompt string, choices []Choice, defaultKey string, logger *log.Logg
 		fmt.Fprintf(os.Stderr, "invalid input '%s', please try again: ", line)
 	}
 
-	return "", fmt.Errorf("too many invalid selections")
+	return "", errors.New("too many invalid selections")
 }
 
 func ConfirmDefault(prompt string, defaultYes bool, logger *log.Logger) (bool, error) {
@@ -112,7 +114,7 @@ func ConfirmDefault(prompt string, defaultYes bool, logger *log.Logger) (bool, e
 	fmt.Fprintf(os.Stderr, "%s [%s]: ", prompt, defaultHint)
 
 	reader := getStdinReader()
-	for i := 0; i < maxRetries; i++ {
+	for range maxRetries {
 		line, err := reader.ReadString('\n')
 		if err != nil {
 			return false, fmt.Errorf("read confirmation: %w", err)
@@ -130,7 +132,7 @@ func ConfirmDefault(prompt string, defaultYes bool, logger *log.Logger) (bool, e
 		fmt.Fprintf(os.Stderr, "please answer y or n: ")
 	}
 
-	return false, fmt.Errorf("too many invalid confirmations")
+	return false, errors.New("too many invalid confirmations")
 }
 
 func Input(prompt, defaultValue string, logger *log.Logger) (string, error) {

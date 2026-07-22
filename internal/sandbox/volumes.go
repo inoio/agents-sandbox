@@ -35,7 +35,11 @@ func (vm *VolumeManager) fallbackHomePath(projectSlug, imageDigest string) strin
 	return filepath.Join(vm.stateDir, "state", projectSlug, "home", sanitizeDigest(imageDigest))
 }
 
-func (vm *VolumeManager) EnsureHome(ctx context.Context, projectSlug, imageDigest, imageTag string, reset bool) (string, error) {
+func (vm *VolumeManager) EnsureHome(
+	ctx context.Context,
+	projectSlug, imageDigest, imageTag string,
+	reset bool,
+) (string, error) {
 	name := HomeVolumeName(projectSlug, imageDigest)
 
 	if vm.fallback {
@@ -67,7 +71,11 @@ func (vm *VolumeManager) EnsureHome(ctx context.Context, projectSlug, imageDiges
 	return name, nil
 }
 
-func (vm *VolumeManager) ensureFallbackHome(ctx context.Context, _, projectSlug, imageDigest, imageTag string, reset bool) (string, error) {
+func (vm *VolumeManager) ensureFallbackHome(
+	ctx context.Context,
+	_, projectSlug, imageDigest, imageTag string,
+	reset bool,
+) (string, error) {
 	path := vm.fallbackHomePath(projectSlug, imageDigest)
 	if reset {
 		os.RemoveAll(path)
