@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"os/exec"
+	"strings"
 
 	"github.com/moby/moby/client"
 	m "github.com/superradcompany/microsandbox/sdk/go"
@@ -21,11 +22,17 @@ type dockerBuildMessage struct {
 	Error string `json:"error"`
 }
 
+const runnerTag = "opencode-msb/runner:latest"
+
 func EnsureImage(ctx context.Context, dockerfile []byte, force bool) (imageRef, imageDigest string, err error) {
 	if ReferencesBase(dockerfile) {
-		if _, _, err := EnsureImage(ctx, EmbeddedDockerfile, force); err != nil {
-			return "", "", fmt.Errorf("ensure base image: %w", err)
+		if err := buildDockerImage(ctx, EmbeddedDockerfile, BaseTag, "Building base runner image"); err != nil {
+			return "", "", fmt.Errorf("building base image: %w", err)
 		}
+	}
+
+	if err := buildDockerImage(ctx, dockerfile, runnerTag, "Building runner image"); err != nil {
+		return "", "", err
 	}
 
 	cli, err := client.New(client.FromEnv)
@@ -34,22 +41,7 @@ func EnsureImage(ctx context.Context, dockerfile []byte, force bool) (imageRef, 
 	}
 	defer cli.Close()
 
-	buildTag := "opencode-msb/runner:latest"
-	buildResp, err := cli.ImageBuild(ctx, dockerfileTar(dockerfile), client.ImageBuildOptions{
-		Tags:   []string{buildTag},
-		Remove: true,
-	})
-	if err != nil {
-		return "", "", fmt.Errorf("Docker image build failed: %w", err)
-	}
-
-	buildErr := scanBuildOutput(buildResp.Body)
-	buildResp.Body.Close()
-	if buildErr != nil {
-		return "", "", fmt.Errorf("Docker image build failed: %w", buildErr)
-	}
-
-	inspect, err := cli.ImageInspect(ctx, buildTag)
+	inspect, err := cli.ImageInspect(ctx, runnerTag)
 	if err != nil {
 		return "", "", fmt.Errorf("cannot inspect built image: %w", err)
 	}
@@ -61,8 +53,10 @@ func EnsureImage(ctx context.Context, dockerfile []byte, force bool) (imageRef, 
 		return imageRef, imageDigest, nil
 	}
 
-	saveResult, err := cli.ImageSave(ctx, []string{buildTag})
+	spin := startSpinner("Loading image into microsandbox")
+	saveResult, err := cli.ImageSave(ctx, []string{runnerTag})
 	if err != nil {
+		spin.stopError(err)
 		return "", "", fmt.Errorf("cannot export Docker image: %w", err)
 	}
 	defer saveResult.Close()
@@ -70,10 +64,45 @@ func EnsureImage(ctx context.Context, dockerfile []byte, force bool) (imageRef, 
 	cmd := exec.CommandContext(ctx, "msb", "load", "--tag", imageRef)
 	cmd.Stdin = saveResult
 	if out, err := cmd.CombinedOutput(); err != nil {
+		spin.stopError(err)
 		return "", "", fmt.Errorf("loading image into microsandbox failed: %w: %s", err, out)
 	}
+	spin.stop()
 
 	return imageRef, imageDigest, nil
+}
+
+func buildDockerImage(ctx context.Context, dockerfile []byte, tag, label string) error {
+	spin := startSpinner(label)
+
+	cli, err := client.New(client.FromEnv)
+	if err != nil {
+		spin.stopError(err)
+		return fmt.Errorf("cannot connect to Docker daemon (is dockerd running?): %w", err)
+	}
+	defer cli.Close()
+
+	buildResp, err := cli.ImageBuild(ctx, dockerfileTar(dockerfile), client.ImageBuildOptions{
+		Tags:   []string{tag},
+		Remove: true,
+	})
+	if err != nil {
+		spin.stopError(err)
+		return fmt.Errorf("Docker image build failed: %w", err)
+	}
+
+	buildErr := scanBuildOutput(buildResp.Body)
+	buildResp.Body.Close()
+	if buildErr != nil {
+		spin.stopError(buildErr)
+		if strings.Contains(buildErr.Error(), "pull access denied") {
+			return fmt.Errorf("Docker image build failed (base image not found or not logged in): %w", buildErr)
+		}
+		return fmt.Errorf("Docker image build failed: %w", buildErr)
+	}
+
+	spin.stop()
+	return nil
 }
 
 func scanBuildOutput(r io.Reader) error {

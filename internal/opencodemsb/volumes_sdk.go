@@ -78,6 +78,7 @@ func (vm *VolumeManager) prefill(ctx context.Context, ref, imageTag string, isBi
 		mountConfig = m.Mount.Named(ref, m.MountOptions{})
 	}
 
+	spin := startSpinner("Preparing home volume")
 	sb, err := m.CreateSandbox(ctx, prefillName,
 		m.WithImage(imageTag),
 		m.WithMounts(map[string]m.MountConfig{
@@ -86,6 +87,7 @@ func (vm *VolumeManager) prefill(ctx context.Context, ref, imageTag string, isBi
 		m.WithReplace(),
 	)
 	if err != nil {
+		spin.stopError(err)
 		return fmt.Errorf("create prefill sandbox: %w", err)
 	}
 	defer func() {
@@ -98,10 +100,14 @@ func (vm *VolumeManager) prefill(ctx context.Context, ref, imageTag string, isBi
 
 	out, err := sb.Exec(ctx, "sh", []string{"-c", "cp -a /home/dev/. /mnt/home/ && chown -R dev:dev /mnt/home"})
 	if err != nil {
+		spin.stopError(err)
 		return fmt.Errorf("prefill cp: %w", err)
 	}
 	if !out.Success() {
-		return fmt.Errorf("prefill cp failed (exit %d): %s", out.ExitCode(), out.Stderr())
+		err := fmt.Errorf("prefill cp failed (exit %d): %s", out.ExitCode(), out.Stderr())
+		spin.stopError(err)
+		return err
 	}
+	spin.stop()
 	return nil
 }
