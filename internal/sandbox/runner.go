@@ -13,6 +13,7 @@ import (
 	"gitlab.inoio.de/inoio/opencode-msb/internal/config"
 	"gitlab.inoio.de/inoio/opencode-msb/internal/git"
 	"gitlab.inoio.de/inoio/opencode-msb/internal/log"
+	"gitlab.inoio.de/inoio/opencode-msb/internal/prompt"
 	"gitlab.inoio.de/inoio/opencode-msb/internal/sysinfo"
 
 	msb "github.com/superradcompany/microsandbox/sdk/go"
@@ -144,28 +145,115 @@ func envrcFiles(worktreePath string) []string {
 	return files
 }
 
+func resolveWorkspace(cwd string, opts RunOptions, cfg Config, projectSlug string) (wtPath string, branch string, cwdBranch string, created bool, err error) {
+	if opts.Worktree == "" {
+		branch, err = git.BranchAt(cwd)
+		if err != nil {
+			return "", "", "", false, fmt.Errorf("unable to determine git branch: %w", err)
+		}
+		return cwd, branch, "", false, nil
+	}
+
+	branch = opts.Worktree
+	cwdBranch, err = git.BranchAt(cwd)
+	if err != nil {
+		return "", "", "", false, fmt.Errorf("--worktree requires a git repository; current directory is not inside one")
+	}
+	if cwdBranch == opts.Worktree {
+		return cwd, branch, cwdBranch, false, nil
+	}
+
+	wtPath, created, err = git.EnsureWorktree(cwd, cfg.StateDir, projectSlug, opts.Worktree)
+	if err != nil {
+		return "", "", "", false, fmt.Errorf("worktree setup failed: %w", err)
+	}
+	return wtPath, branch, cwdBranch, created, nil
+}
+
+func cleanupWorktree(wtPath, cwd, cwdBranch string, opts RunOptions, logger *log.Logger) error {
+	hasChanges, err := git.HasUncommittedChanges(wtPath)
+	if err != nil {
+		return fmt.Errorf("check uncommitted changes: %w", err)
+	}
+
+	force := false
+	if hasChanges {
+		choice, err := prompt.Select("Worktree has uncommitted changes", []prompt.Choice{
+			{Label: "Keep", Key: "k", Description: "Keep the worktree with changes"},
+			{Label: "Commit", Key: "c", Description: "Commit all changes before cleanup"},
+			{Label: "Discard", Key: "d", Description: "Discard all changes"},
+		}, "k", logger)
+		if err != nil {
+			return fmt.Errorf("prompt for uncommitted changes: %w", err)
+		}
+		switch choice {
+		case "k":
+			logger.Warn("worktree kept with uncommitted changes")
+			return nil
+		case "c":
+			if err := git.CommitAll(wtPath, "opencode-msb: commit changes before cleanup"); err != nil {
+				stillHas, _ := git.HasUncommittedChanges(wtPath)
+				if stillHas {
+					return fmt.Errorf("commit all changes: %w", err)
+				}
+				logger.Info("no changes to commit; continuing cleanup")
+			}
+		case "d":
+			if err := git.DiscardAll(wtPath); err != nil {
+				return fmt.Errorf("discard all changes: %w", err)
+			}
+			force = true
+		}
+	}
+
+	choice, err := prompt.Select("Worktree cleanup", []prompt.Choice{
+		{Label: "Keep", Key: "k", Description: "Keep the worktree"},
+		{Label: "Remove", Key: "r", Description: "Remove worktree, keep branch"},
+		{Label: "Merge", Key: "m", Description: "Merge branch into original branch and remove worktree"},
+	}, "r", logger)
+	if err != nil {
+		return fmt.Errorf("prompt for worktree cleanup: %w", err)
+	}
+
+	switch choice {
+	case "k":
+		return nil
+	case "r":
+		if err := git.RemoveWorktree(wtPath, force); err != nil {
+			return fmt.Errorf("remove worktree: %w", err)
+		}
+	case "m":
+		targetBranch, err := prompt.Input("Merge target branch", cwdBranch, logger)
+		if err != nil {
+			return fmt.Errorf("prompt for merge target: %w", err)
+		}
+		if err := git.MergeBranchInto(cwd, opts.Worktree, targetBranch); err != nil {
+			_ = git.AbortMerge(cwd)
+			_ = git.RemoveWorktree(wtPath, force)
+			return fmt.Errorf("branch %s was not merged into %s: %w", opts.Worktree, targetBranch, err)
+		}
+		if err := git.RemoveWorktree(wtPath, force); err != nil {
+			return fmt.Errorf("remove worktree after merge: %w", err)
+		}
+	}
+	return nil
+}
+
 func Run(ctx context.Context, opts RunOptions, cfg Config, logger *log.Logger) error {
 	if !CheckAll(ctx, logger) {
 		return fmt.Errorf("preflight failed")
 	}
 
 	projectSlug := git.ProjectSlug(logger)
-	branch := opts.Worktree
-	if branch == "" {
-		var err error
-		branch, err = git.BranchName(".")
-		if err != nil {
-			return fmt.Errorf("unable to determine git branch: %w", err)
-		}
+
+	cwd, err := os.Getwd()
+	if err != nil {
+		return fmt.Errorf("get current directory: %w", err)
 	}
 
-	cwd, _ := os.Getwd()
-	wtPath, err := git.CurrentWorktreePath(cwd)
-	if err != nil || wtPath == "" {
-		wtPath, _, err = git.EnsureWorktree(cwd, cfg.StateDir, projectSlug, branch)
-		if err != nil {
-			return fmt.Errorf("worktree setup failed: %w", err)
-		}
+	wtPath, branch, cwdBranch, created, err := resolveWorkspace(cwd, opts, cfg, projectSlug)
+	if err != nil {
+		return err
 	}
 
 	dockerfile := resolveDockerfile()
@@ -267,10 +355,16 @@ func Run(ctx context.Context, opts RunOptions, cfg Config, logger *log.Logger) e
 
 	opencodeArgs := buildOpencodeArgs(opts.Args, opts.Auto)
 	setup := `exec opencode ` + strings.Join(opencodeArgs, " ")
-	exitCode, err := sb.Attach(ctx, "/bin/bash", "-c", setup)
+	exitCode, attachErr := sb.Attach(ctx, "/bin/bash", "-c", setup)
 
-	if err != nil {
-		return fmt.Errorf("opencode session failed: %w", err)
+	if created {
+		if cleanupErr := cleanupWorktree(wtPath, cwd, cwdBranch, opts, logger); cleanupErr != nil {
+			return cleanupErr
+		}
+	}
+
+	if attachErr != nil {
+		return fmt.Errorf("opencode session failed: %w", attachErr)
 	}
 	return &ExitError{Code: exitCode}
 }
