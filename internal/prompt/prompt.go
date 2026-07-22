@@ -16,15 +16,15 @@ import (
 const maxRetries = 5
 
 var (
-	AssumeYes bool
+	AssumeYes bool //nolint:gochecknoglobals // CLI flag override, set once at startup
 
 	// stdin and isTerminalFunc are overridable for testing.
-	stdin          io.Reader = os.Stdin
-	isTerminalFunc           = term.IsTerminal
+	stdin          io.Reader = os.Stdin        //nolint:gochecknoglobals // test seam, swapped via SetStdinForTesting
+	isTerminalFunc           = term.IsTerminal //nolint:gochecknoglobals // test seam, swapped via SetStdinForTesting
 
 	// stdinReader is used by tests that drive multiple prompts in sequence;
 	// a single buffered reader prevents input from being lost between prompts.
-	stdinReader *bufio.Reader
+	stdinReader *bufio.Reader //nolint:gochecknoglobals // test seam, swapped via SetStdinForTesting
 )
 
 func IsInteractive() bool {

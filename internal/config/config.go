@@ -11,6 +11,8 @@ import (
 	json5 "github.com/titanous/json5"
 )
 
+const providerKey = "provider"
+
 func LoadProviderConfig(data []byte) (map[string]any, error) {
 	var cfg map[string]any
 	if err := json5.Unmarshal(data, &cfg); err != nil {
@@ -107,7 +109,7 @@ func BuildMergedConfig(userDir, projectDir string, providerConfig map[string]any
 	otherFiles := scanOtherFiles(userDir, projectDir)
 
 	providerBranch := map[string]any{
-		"provider": providerConfig["provider"],
+		providerKey: providerConfig[providerKey],
 	}
 
 	result := make(map[string][]byte)

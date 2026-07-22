@@ -8,8 +8,10 @@ import (
 	msb "github.com/superradcompany/microsandbox/sdk/go"
 )
 
-var secretMap = map[string]string{
-	"LITELLM_API_KEY": "litellm.inoio.de",
+const litellmHost = "litellm.inoio.de"
+
+var secretMap = map[string]string{ //nolint:gochecknoglobals // static env-to-host mapping, never mutated
+	"LITELLM_API_KEY": litellmHost,
 }
 
 func BuildSecrets(logger *log.Logger) []msb.SecretEntry {

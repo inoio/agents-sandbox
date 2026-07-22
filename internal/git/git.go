@@ -81,7 +81,7 @@ func IsRepoForBranch(path, branch string) bool {
 	return b == branch
 }
 
-func FindManagedRepo(stateDir, projectSlug, branch string) (path string, ok bool, err error) {
+func FindManagedRepo(stateDir, projectSlug, branch string) (string, bool, error) {
 	target := WorktreePath(stateDir, projectSlug, BranchSlug(branch))
 	info, err := os.Stat(target)
 	if err != nil {
@@ -106,6 +106,7 @@ func FindManagedRepo(stateDir, projectSlug, branch string) (path string, ok bool
 }
 
 func BranchExists(repoRoot, branch string) bool {
+	//nolint:gosec // G204: exec.Command doesn't use a shell; branch is a git ref, not injectable
 	cmd := exec.Command("git", "show-ref", "--verify", "--quiet", "refs/heads/"+branch)
 	cmd.Dir = repoRoot
 	return cmd.Run() == nil
@@ -115,7 +116,7 @@ func BranchExists(repoRoot, branch string) bool {
 // given branch. If the branch does not exist, it is created from baseRef.
 func EnsureManagedRepoFromRef(
 	repoRoot, stateDir, projectSlug, branch, baseRef string,
-) (path string, created bool, err error) {
+) (string, bool, error) {
 	target, ok, err := FindManagedRepo(stateDir, projectSlug, branch)
 	if err != nil {
 		return "", false, err
@@ -123,7 +124,7 @@ func EnsureManagedRepoFromRef(
 	if ok {
 		return target, false, nil
 	}
-	if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(target), 0o750); err != nil {
 		return "", false, fmt.Errorf("create managed repo parent dir: %w", err)
 	}
 
@@ -157,7 +158,7 @@ func checkoutNewBranch(cwd, branch, baseRef string) error {
 	return nil
 }
 
-func EnsureManagedRepo(repoRoot, stateDir, projectSlug, branch string) (path string, created bool, err error) {
+func EnsureManagedRepo(repoRoot, stateDir, projectSlug, branch string) (string, bool, error) {
 	return EnsureManagedRepoFromRef(repoRoot, stateDir, projectSlug, branch, "HEAD")
 }
 
