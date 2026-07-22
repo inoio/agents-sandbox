@@ -43,16 +43,6 @@ func gitCommonDir(cwd string) (string, error) {
 	return filepath.Abs(p)
 }
 
-func BranchName(cwd string) (string, error) {
-	cmd := exec.Command("git", "rev-parse", "--abbrev-ref", "HEAD")
-	cmd.Dir = cwd
-	out, err := cmd.Output()
-	if err != nil {
-		return "", fmt.Errorf("unable to determine current git branch from %s: %w", cwd, err)
-	}
-	return strings.TrimSpace(string(out)), nil
-}
-
 func BranchAt(path string) (string, error) {
 	cmd := exec.Command("git", "rev-parse", "--abbrev-ref", "HEAD")
 	cmd.Dir = path
@@ -61,6 +51,10 @@ func BranchAt(path string) (string, error) {
 		return "", fmt.Errorf("unable to determine current git branch from %s: %w", path, err)
 	}
 	return strings.TrimSpace(string(out)), nil
+}
+
+func BranchName(cwd string) (string, error) {
+	return BranchAt(cwd)
 }
 
 func CurrentWorktreePath(cwd string) (string, error) {
@@ -110,7 +104,16 @@ func FindManagedWorktree(stateDir, projectSlug, branch string) (path string, ok 
 		return target, false, nil
 	}
 	if isGitWorktree(target) {
-		return target, true, nil
+		if IsWorktreeForBranch(target, branch) {
+			return target, true, nil
+		}
+		if err := RemoveWorktree(target, true); err != nil {
+			return target, false, err
+		}
+		if err := os.RemoveAll(target); err != nil {
+			return target, false, err
+		}
+		return target, false, nil
 	}
 	if err := os.RemoveAll(target); err != nil {
 		return target, false, err
@@ -178,13 +181,19 @@ func DiscardAll(path string) error {
 }
 
 func RemoveWorktree(path string, force bool) error {
+	commonDir, err := gitCommonDir(path)
+	if err != nil {
+		return fmt.Errorf("find git common dir for %s: %w", path, err)
+	}
+	repoRoot := filepath.Dir(commonDir)
+
 	args := []string{"worktree", "remove"}
 	if force {
 		args = append(args, "--force")
 	}
-	args = append(args, ".")
+	args = append(args, path)
 	cmd := exec.Command("git", args...)
-	cmd.Dir = path
+	cmd.Dir = repoRoot
 	if out, err := cmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("git worktree remove failed for %s: %w: %s", path, err, string(out))
 	}
