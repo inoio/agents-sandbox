@@ -97,7 +97,13 @@ func TestResolveWorkspaceNoBranch(t *testing.T) {
 	commitFile(t, repo, "README.md", "hello", "initial")
 	branch := currentBranch(t, repo)
 
-	repoPath, gotBranch, cwdBranch, created, err := resolveWorkspace(repo, RunOptions{}, Config{StateDir: t.TempDir()}, "test-project", newTestLogger(t))
+	repoPath, gotBranch, cwdBranch, created, err := resolveWorkspace(
+		repo,
+		RunOptions{},
+		Config{StateDir: t.TempDir()},
+		"test-project",
+		newTestLogger(t),
+	)
 	if err != nil {
 		t.Fatalf("resolveWorkspace failed: %v", err)
 	}
@@ -120,7 +126,13 @@ func TestResolveWorkspaceBranchMatchesCurrentBranch(t *testing.T) {
 	commitFile(t, repo, "README.md", "hello", "initial")
 	branch := currentBranch(t, repo)
 
-	repoPath, gotBranch, cwdBranch, created, err := resolveWorkspace(repo, RunOptions{Branch: branch}, Config{StateDir: t.TempDir()}, "test-project", newTestLogger(t))
+	repoPath, gotBranch, cwdBranch, created, err := resolveWorkspace(
+		repo,
+		RunOptions{Branch: branch},
+		Config{StateDir: t.TempDir()},
+		"test-project",
+		newTestLogger(t),
+	)
 	if err != nil {
 		t.Fatalf("resolveWorkspace failed: %v", err)
 	}
@@ -150,7 +162,13 @@ func TestResolveWorkspaceBranchCreatesManagedRepo(t *testing.T) {
 	projectSlug := "test-project"
 	wantPath := filepath.Join(stateDir, "isolated-workspaces", projectSlug, "feature")
 
-	repoPath, gotBranch, cwdBranch, created, err := resolveWorkspace(repo, RunOptions{Branch: "feature"}, Config{StateDir: stateDir}, projectSlug, newTestLogger(t))
+	repoPath, gotBranch, cwdBranch, created, err := resolveWorkspace(
+		repo,
+		RunOptions{Branch: "feature"},
+		Config{StateDir: stateDir},
+		projectSlug,
+		newTestLogger(t),
+	)
 	if err != nil {
 		t.Fatalf("resolveWorkspace failed: %v", err)
 	}
@@ -171,7 +189,13 @@ func TestResolveWorkspaceBranchCreatesManagedRepo(t *testing.T) {
 func TestResolveWorkspaceBranchOutsideRepo(t *testing.T) {
 	tmp := t.TempDir()
 
-	_, _, _, _, err := resolveWorkspace(tmp, RunOptions{Branch: "feature"}, Config{StateDir: t.TempDir()}, "test-project", newTestLogger(t))
+	_, _, _, _, err := resolveWorkspace(
+		tmp,
+		RunOptions{Branch: "feature"},
+		Config{StateDir: t.TempDir()},
+		"test-project",
+		newTestLogger(t),
+	)
 	if err == nil {
 		t.Fatal("expected error when --branch is used outside a git repo")
 	}

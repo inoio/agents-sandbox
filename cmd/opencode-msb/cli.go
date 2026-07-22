@@ -50,7 +50,7 @@ func buildDoctorCmd() *cobra.Command {
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			logger := newLogger()
 			if !sandbox.CheckAll(cmd.Context(), logger) {
-				return fmt.Errorf("preflight failed")
+				return errors.New("preflight failed")
 			}
 			fmt.Fprintln(os.Stderr, "doctor: all checks passed")
 			return nil

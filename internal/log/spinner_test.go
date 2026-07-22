@@ -2,7 +2,7 @@ package log
 
 import (
 	"bytes"
-	"fmt"
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -62,7 +62,7 @@ func TestSpinnerNonTerminalError(t *testing.T) {
 	var buf bytes.Buffer
 	s := NewSpinner(New(&buf, false))
 	s.Start("Building image")
-	s.StopError(fmt.Errorf("build failed"))
+	s.StopError(errors.New("build failed"))
 
 	output := buf.String()
 	if !strings.Contains(output, "Building image... ") {
@@ -79,5 +79,5 @@ func TestSpinnerStopTwiceNoPanic(_ *testing.T) {
 	s.Start("Building image")
 	s.Stop()
 	s.Stop()
-	s.StopError(fmt.Errorf("err"))
+	s.StopError(errors.New("err"))
 }
