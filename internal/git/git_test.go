@@ -177,6 +177,28 @@ func TestFindManagedWorktreeInvalidRemoved(t *testing.T) {
 	}
 }
 
+func TestFindManagedWorktreeWrongBranchRemoved(t *testing.T) {
+	repo := initRepo(t)
+	runGit(t, repo, "branch", "feature")
+	stateDir := t.TempDir()
+	target := WorktreePath(stateDir, "p-test", BranchSlug("other"))
+	runGit(t, repo, "worktree", "add", target, "feature")
+
+	path, ok, err := FindManagedWorktree(stateDir, "p-test", "other")
+	if err != nil {
+		t.Fatalf("FindManagedWorktree: %v", err)
+	}
+	if ok {
+		t.Error("expected ok=false for wrong-branch worktree")
+	}
+	if path != target {
+		t.Errorf("expected path %q, got %q", target, path)
+	}
+	if _, statErr := os.Stat(target); !os.IsNotExist(statErr) {
+		t.Error("expected wrong-branch worktree directory to be removed")
+	}
+}
+
 func TestEnsureWorktreeCreatesFromExistingBranch(t *testing.T) {
 	repo := initRepo(t)
 	runGit(t, repo, "checkout", "-b", "feature")
@@ -238,6 +260,33 @@ func TestEnsureWorktreeReusesExisting(t *testing.T) {
 	}
 	if wt1 != wt2 {
 		t.Errorf("expected same path, got %q and %q", wt1, wt2)
+	}
+}
+
+func TestEnsureWorktreeRecreatesOnWrongBranch(t *testing.T) {
+	repo := initRepo(t)
+	runGit(t, repo, "branch", "feature")
+	runGit(t, repo, "branch", "other")
+	stateDir := t.TempDir()
+	target := WorktreePath(stateDir, "p-test", BranchSlug("other"))
+	runGit(t, repo, "worktree", "add", target, "feature")
+
+	wt, created, err := EnsureWorktree(repo, stateDir, "p-test", "other")
+	if err != nil {
+		t.Fatalf("EnsureWorktree: %v", err)
+	}
+	if !created {
+		t.Error("expected created=true when replacing wrong-branch worktree")
+	}
+	if wt != target {
+		t.Errorf("expected path %q, got %q", target, wt)
+	}
+	branch, err := BranchAt(wt)
+	if err != nil {
+		t.Fatalf("BranchAt: %v", err)
+	}
+	if branch != "other" {
+		t.Errorf("expected branch 'other', got %q", branch)
 	}
 }
 
@@ -390,7 +439,9 @@ func TestMergeBranchIntoConflict(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected merge conflict error")
 	}
-	runGit(t, repo, "merge", "--abort")
+	if err := AbortMerge(repo); err != nil {
+		t.Fatalf("AbortMerge: %v", err)
+	}
 }
 
 func TestAbortMergeResetsMergeState(t *testing.T) {
