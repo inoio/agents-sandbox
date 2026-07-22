@@ -64,7 +64,7 @@ func buildRunCmd() *cobra.Command {
 		Short: "Run opencode in a microsandbox VM",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			opts := sandbox.RunOptions{Args: args, Auto: true}
-			opts.Worktree, _ = cmd.Flags().GetString("worktree")
+			opts.Branch, _ = cmd.Flags().GetString("branch")
 			opts.ImageRebuild, _ = cmd.Flags().GetBool("image-rebuild")
 			opts.VolumeFallback, _ = cmd.Flags().GetBool("volume-fallback")
 			opts.ResetHome, _ = cmd.Flags().GetBool("reset-home")
@@ -89,7 +89,7 @@ func buildRunCmd() *cobra.Command {
 		},
 	}
 
-	cmd.Flags().String("worktree", "", "Run in an isolated git worktree for the given branch")
+	cmd.Flags().String("branch", "", "Run in an isolated git clone for the given branch")
 	cmd.Flags().Bool("image-rebuild", false, "Force image rebuild")
 	cmd.Flags().Bool("volume-fallback", false, "Use host directories instead of msb volumes")
 	cmd.Flags().Bool("reset-home", false, "Recreate the project home volume")
