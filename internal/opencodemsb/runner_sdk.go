@@ -86,10 +86,14 @@ func runCommand(opts RunOptions) error {
 		"/home/dev/workspace": m.Mount.Bind(wtPath, m.MountOptions{}),
 	}
 
+	spin := startSpinner("Checking microsandbox runtime")
 	if err := m.EnsureInstalled(ctx); err != nil {
+		spin.stopError(err)
 		return fmt.Errorf("microsandbox runtime: %w", err)
 	}
+	spin.stop()
 
+	spin = startSpinner("Starting sandbox VM")
 	sb, err := m.CreateSandbox(ctx, name,
 		m.WithImage(imageRef),
 		m.WithMounts(mounts),
@@ -104,8 +108,10 @@ func runCommand(opts RunOptions) error {
 		m.WithReplace(),
 	)
 	if err != nil {
+		spin.stopError(err)
 		return fmt.Errorf("create sandbox: %w", err)
 	}
+	spin.stop()
 	defer func() {
 		stopCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
