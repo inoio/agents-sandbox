@@ -2,7 +2,7 @@
 
 ## Project
 
-`opencode-msb`: a minimal launcher that runs opencode inside a microsandbox VM, binding the current project directory as a git worktree and persisting opencode state in msb volumes.
+`opencode-msb`: a minimal launcher that runs opencode inside a microsandbox VM, binding the current project directory (or an independent git clone for a selected branch) as `/workspace` and persisting opencode state in msb volumes.
 
 ## Code style (MVP)
 
@@ -24,7 +24,8 @@
 
 - Dockerfile-first runner image.
 - One ephemeral microsandbox VM per `opencode` invocation.
-- The project is exposed as a git worktree, so concurrent isolated sessions are possible.
+- The project is exposed as an independent git clone when a different branch is
+  requested, so concurrent isolated sessions are possible.
 - opencode state is stored in msb named volumes per project; if msb volumes are not viable, fall back to project-local host directories.
 - Shared inoio LiteLLM provider/model definitions are shipped as a repo JSON fragment and passed into opencode via `OPENCODE_CONFIG_CONTENT`.
 
