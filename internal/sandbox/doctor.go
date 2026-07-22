@@ -6,8 +6,9 @@ import (
 	"os/exec"
 	"runtime"
 
-	msb "github.com/superradcompany/microsandbox/sdk/go"
 	"gitlab.inoio.de/inoio/opencode-msb/internal/log"
+
+	msb "github.com/superradcompany/microsandbox/sdk/go"
 )
 
 func CheckDocker(logger *log.Logger) bool {

@@ -37,7 +37,7 @@ func TestSpinnerNonTerminalError(t *testing.T) {
 	}
 }
 
-func TestSpinnerStopTwiceNoPanic(t *testing.T) {
+func TestSpinnerStopTwiceNoPanic(_ *testing.T) {
 	var buf bytes.Buffer
 	s := NewSpinner(New(&buf, false))
 	s.Start("Building image")

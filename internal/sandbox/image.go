@@ -12,8 +12,10 @@ import (
 	"strings"
 
 	"github.com/moby/moby/client"
-	msb "github.com/superradcompany/microsandbox/sdk/go"
+
 	"gitlab.inoio.de/inoio/opencode-msb/internal/log"
+
+	msb "github.com/superradcompany/microsandbox/sdk/go"
 )
 
 const BaseTag = "opencode-msb/runner:base"

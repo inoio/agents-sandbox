@@ -127,7 +127,7 @@ func BuildMergedConfig(userDir, projectDir string, providerConfig map[string]any
 	}
 
 	if _, hasJsonc := result["opencode.jsonc"]; !hasJsonc {
-		if _, hasJson := result["opencode.json"]; !hasJson {
+		if _, hasJSON := result["opencode.json"]; !hasJSON {
 			data, err := json.MarshalIndent(providerBranch, "", "  ")
 			if err != nil {
 				return nil, err
