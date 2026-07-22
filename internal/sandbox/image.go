@@ -117,9 +117,9 @@ func buildDockerImage(ctx context.Context, cli dockerClient, dockerfile []byte, 
 	spin.Start(label)
 
 	buildResp, err := cli.ImageBuild(ctx, dockerfileTar(dockerfile), client.ImageBuildOptions{
-		Tags:     []string{tag},
-		Remove:   true,
-		NoCache:  force,
+		Tags:    []string{tag},
+		Remove:  true,
+		NoCache: force,
 	})
 	if err != nil {
 		spin.StopError(err)

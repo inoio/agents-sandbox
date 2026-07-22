@@ -34,6 +34,7 @@ type RunOptions struct {
 	CPUs           uint8
 	Memory         string
 	Timing         bool
+	Auto           bool
 	Args           []string
 }
 
@@ -93,6 +94,13 @@ func buildEnvMap(envExtra []string) map[string]string {
 		}
 	}
 	return env
+}
+
+func buildOpencodeArgs(args []string, auto bool) []string {
+	if !auto {
+		return args
+	}
+	return append([]string{"--auto"}, args...)
 }
 
 func readSandboxEnv() []string {
@@ -268,7 +276,8 @@ func Run(ctx context.Context, opts RunOptions, cfg Config, logger *log.Logger) e
 	}
 	tick("config setup")
 
-	setup := `exec opencode ` + strings.Join(opts.Args, " ")
+	opencodeArgs := buildOpencodeArgs(opts.Args, opts.Auto)
+	setup := `exec opencode ` + strings.Join(opencodeArgs, " ")
 	exitCode, err := sb.Attach(ctx, "/bin/bash", "-c", setup)
 	tick("opencode session")
 
