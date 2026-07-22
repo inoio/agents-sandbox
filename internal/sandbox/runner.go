@@ -96,7 +96,7 @@ func buildEnvMap(envExtra []string) map[string]string {
 }
 
 func readSandboxEnv() []string {
-	data, err := os.ReadFile(".sandbox/env")
+	data, err := os.ReadFile(".opencode-msb/env")
 	if err != nil {
 		return nil
 	}
@@ -114,7 +114,7 @@ func readSandboxEnv() []string {
 }
 
 func resolveDockerfile() []byte {
-	if data, err := os.ReadFile(".sandbox/Dockerfile"); err == nil {
+	if data, err := os.ReadFile(".opencode-msb/Dockerfile"); err == nil {
 		return data
 	}
 	return EmbeddedDockerfile
@@ -192,8 +192,8 @@ func Run(ctx context.Context, opts RunOptions, cfg Config, logger *log.Logger) e
 		return fmt.Errorf("load provider config: %w", err)
 	}
 	projectConfigDir := ""
-	if _, err := os.Stat(".sandbox/opencode"); err == nil {
-		projectConfigDir = ".sandbox/opencode"
+	if _, err := os.Stat(".opencode-msb/opencode"); err == nil {
+		projectConfigDir = ".opencode-msb/opencode"
 	}
 	configFiles, err := config.BuildMergedConfig(cfg.UserConfigDir, projectConfigDir, providerCfg)
 	if err != nil {
@@ -212,8 +212,8 @@ func Run(ctx context.Context, opts RunOptions, cfg Config, logger *log.Logger) e
 	envMap := buildEnvMap(envExtra)
 
 	mounts := map[string]msb.MountConfig{
-		"/home/dev":           msb.Mount.Named(homeVol, msb.MountOptions{}),
-		"/home/dev/workspace": msb.Mount.Bind(wtPath, msb.MountOptions{}),
+		"/home/dev":  msb.Mount.Named(homeVol, msb.MountOptions{}),
+		"/workspace": msb.Mount.Bind(wtPath, msb.MountOptions{}),
 	}
 
 	spin := log.NewSpinner(logger)
@@ -232,7 +232,7 @@ func Run(ctx context.Context, opts RunOptions, cfg Config, logger *log.Logger) e
 		msb.WithSecrets(secrets...),
 		msb.WithEnv(envMap),
 		msb.WithUser("dev"),
-		msb.WithWorkdir("/home/dev/workspace"),
+		msb.WithWorkdir("/workspace"),
 		msb.WithCPUs(cpus),
 		msb.WithMaxCPUs(sysinfo.NumCPUs()),
 		msb.WithMemory(parseMemory(opts.Memory)),
@@ -262,7 +262,7 @@ func Run(ctx context.Context, opts RunOptions, cfg Config, logger *log.Logger) e
 		}
 	}
 	for _, envrc := range envrcFiles(wtPath) {
-		if err := fs.Remove(ctx, "/home/dev/workspace/"+envrc); err != nil {
+		if err := fs.Remove(ctx, "/workspace/"+envrc); err != nil {
 			logger.Warn(fmt.Sprintf("failed to remove envrc %s: %v", envrc, err))
 		}
 	}
