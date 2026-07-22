@@ -3,3 +3,4 @@
 /.gitlab-ci-local/
 /.envrc
 /.opencode-msb
+/.worktrees/
