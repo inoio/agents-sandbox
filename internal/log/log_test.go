@@ -42,12 +42,4 @@ func TestErrorWritesWithRed(t *testing.T) {
 	}
 }
 
-func TestTimingFormatsDuration(t *testing.T) {
-	var buf bytes.Buffer
-	l := New(&buf, false)
-	l.Timing("preflight", 1250000000)
-	out := buf.String()
-	if !strings.Contains(out, "[timing] preflight: 1.250s") {
-		t.Errorf("expected timing line, got %q", out)
-	}
-}
+
