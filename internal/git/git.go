@@ -27,7 +27,9 @@ func ProjectSlug(logger *log.Logger) string {
 }
 
 func BranchSlug(branch string) string {
-	return strings.ReplaceAll(branch, "/", "-")
+	slug := strings.ReplaceAll(branch, "-", "--")
+	slug = strings.ReplaceAll(slug, "/", "---")
+	return slug
 }
 
 func gitCommonDir(cwd string) (string, error) {
@@ -196,6 +198,15 @@ func DiscardAll(path string) error {
 	return nil
 }
 
+func checkoutBranch(cwd, branch string) error {
+	cmd := exec.Command("git", "checkout", branch)
+	cmd.Dir = cwd
+	if out, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("git checkout %s failed: %w: %s", branch, err, string(out))
+	}
+	return nil
+}
+
 func RemoveWorktree(path string, force bool) error {
 	commonDir, err := gitCommonDir(path)
 	if err != nil {
@@ -217,15 +228,30 @@ func RemoveWorktree(path string, force bool) error {
 }
 
 func MergeBranchInto(cwd, sourceBranch, targetBranch string) error {
-	cmd := exec.Command("git", "checkout", targetBranch)
-	cmd.Dir = cwd
-	if out, err := cmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("git checkout %s failed: %w: %s", targetBranch, err, string(out))
+	originalBranch, err := BranchAt(cwd)
+	if err != nil {
+		return fmt.Errorf("unable to determine current branch before merge: %w", err)
 	}
-	cmd = exec.Command("git", "merge", sourceBranch)
+
+	if err := checkoutBranch(cwd, targetBranch); err != nil {
+		if restoreErr := checkoutBranch(cwd, originalBranch); restoreErr != nil {
+			return errors.Join(err, restoreErr)
+		}
+		return err
+	}
+
+	cmd := exec.Command("git", "merge", sourceBranch)
 	cmd.Dir = cwd
 	if out, err := cmd.CombinedOutput(); err != nil {
+		_ = AbortMerge(cwd)
+		if restoreErr := checkoutBranch(cwd, originalBranch); restoreErr != nil {
+			return errors.Join(fmt.Errorf("git merge %s into %s failed: %w: %s", sourceBranch, targetBranch, err, string(out)), restoreErr)
+		}
 		return fmt.Errorf("git merge %s into %s failed: %w: %s", sourceBranch, targetBranch, err, string(out))
+	}
+
+	if err := checkoutBranch(cwd, originalBranch); err != nil {
+		return fmt.Errorf("git merge %s into %s succeeded but restore to %s failed: %w", sourceBranch, targetBranch, originalBranch, err)
 	}
 	return nil
 }

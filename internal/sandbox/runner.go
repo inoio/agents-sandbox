@@ -377,14 +377,23 @@ func Run(ctx context.Context, opts RunOptions, cfg Config, logger *log.Logger) e
 	setup := `exec opencode ` + strings.Join(opencodeArgs, " ")
 	exitCode, attachErr := sb.Attach(ctx, "/bin/bash", "-c", setup)
 
+	var cleanupErr error
 	if created {
-		if cleanupErr := cleanupWorktree(wtPath, cwd, cwdBranch, opts, logger); cleanupErr != nil {
-			return cleanupErr
-		}
+		cleanupErr = cleanupWorktree(wtPath, cwd, cwdBranch, opts, logger)
 	}
 
 	if attachErr != nil {
+		if cleanupErr != nil {
+			return errors.Join(
+				fmt.Errorf("opencode session failed: %w", attachErr),
+				fmt.Errorf("worktree cleanup failed: %w", cleanupErr),
+			)
+		}
 		return fmt.Errorf("opencode session failed: %w", attachErr)
+	}
+
+	if cleanupErr != nil {
+		return fmt.Errorf("worktree cleanup failed: %w", cleanupErr)
 	}
 	return &ExitError{Code: exitCode}
 }
