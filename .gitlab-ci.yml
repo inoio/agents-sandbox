@@ -1,45 +1,49 @@
-# .gitlab-ci.yml
 stages:
   - lint
   - test
   - build
+  - release
 
 variables:
-  PIP_DISABLE_PIP_VERSION_CHECK: "1"
   CGO_ENABLED: "1"
 
 lint:
-  stage: lint
-  image: python:3.12-slim
-  script:
-    - pip install ruff
-    - ruff check .
-
-go-lint:
   stage: lint
   image: golang:1.26
   script:
     - go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest
     - golangci-lint run ./...
 
-unit-tests:
-  stage: test
-  image: python:3.12-slim
-  script:
-    - pip install -e ".[test]"
-    - pytest tests/unit
-
-go-test:
+test:
   stage: test
   image: golang:1.26
   script:
     - go mod download
     - go test ./... -v
 
-go-build:
+build:
   stage: build
   image: golang:1.26
   script:
     - go mod download
-    - go build ./cmd/opencode-msb
+    - go build -o opencode-msb ./cmd/opencode-msb
     - ./opencode-msb --version
+  artifacts:
+    paths:
+      - opencode-msb
+
+release:
+  stage: release
+  image: golang:1.26
+  rules:
+    - if: $CI_COMMIT_TAG
+  script:
+    - go build -o opencode-msb-linux-amd64 ./cmd/opencode-msb
+  release:
+    name: "opencode-msb $CI_COMMIT_TAG"
+    description: "Release $CI_COMMIT_TAG"
+    tag_name: "$CI_COMMIT_TAG"
+    assets:
+      links:
+        - name: "opencode-msb-linux-amd64"
+          url: "${CI_PROJECT_URL}/-/jobs/${CI_JOB_ID}/artifacts/file/opencode-msb-linux-amd64"
