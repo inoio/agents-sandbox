@@ -32,6 +32,7 @@ func TestFormatElapsedDone(t *testing.T) {
 	}{
 		{0, "(0.0s)"},
 		{3_640 * time.Millisecond, "(3.6s)"},
+		// 1260 ms is used instead of 1250 ms because Go's %.1f rounds half to even.
 		{1_260 * time.Millisecond, "(1.3s)"},
 	}
 	for _, c := range cases {
