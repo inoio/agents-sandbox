@@ -62,7 +62,7 @@ func buildRunCmd() *cobra.Command {
 		Use:   "run [flags] [ARGS...]",
 		Short: "Run opencode in a microsandbox VM",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			opts := sandbox.RunOptions{Args: args}
+			opts := sandbox.RunOptions{Args: args, Auto: true}
 			opts.Worktree, _ = cmd.Flags().GetString("worktree")
 			opts.ImageRebuild, _ = cmd.Flags().GetBool("image-rebuild")
 			opts.VolumeFallback, _ = cmd.Flags().GetBool("volume-fallback")
@@ -70,6 +70,9 @@ func buildRunCmd() *cobra.Command {
 			opts.CPUs, _ = cmd.Flags().GetUint8("cpus")
 			opts.Memory, _ = cmd.Flags().GetString("memory")
 			opts.Timing, _ = cmd.Flags().GetBool("timing")
+			if noAuto, _ := cmd.Flags().GetBool("no-auto"); noAuto {
+				opts.Auto = false
+			}
 
 			cfg := newConfig()
 			logger := newLogger()
@@ -90,6 +93,7 @@ func buildRunCmd() *cobra.Command {
 	cmd.Flags().Uint8("cpus", 0, "Number of CPUs (default: all)")
 	cmd.Flags().String("memory", "4G", "Memory limit (default: 4G)")
 	cmd.Flags().Bool("timing", false, "Print per-phase launcher timing to stderr")
+	cmd.Flags().Bool("no-auto", false, "Do not pass --auto to opencode")
 
 	return cmd
 }

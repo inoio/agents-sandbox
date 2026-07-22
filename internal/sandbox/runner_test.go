@@ -1,6 +1,7 @@
 package sandbox
 
 import (
+	"reflect"
 	"testing"
 )
 
@@ -57,5 +58,27 @@ func TestReadSandboxEnvMissing(t *testing.T) {
 	env := readSandboxEnv()
 	if len(env) != 0 {
 		t.Errorf("expected 0 env vars when .opencode-msb/env missing, got %d", len(env))
+	}
+}
+
+func TestBuildOpencodeArgs(t *testing.T) {
+	tests := []struct {
+		name string
+		args []string
+		auto bool
+		want []string
+	}{
+		{"auto default", nil, true, []string{"--auto"}},
+		{"auto with forwarded args", []string{"foo", "bar"}, true, []string{"--auto", "foo", "bar"}},
+		{"no-auto", []string{"foo"}, false, []string{"foo"}},
+		{"no-auto empty args", nil, false, nil},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := buildOpencodeArgs(tt.args, tt.auto)
+			if !reflect.DeepEqual(got, tt.want) {
+				t.Errorf("buildOpencodeArgs(%v, %v) = %v, want %v", tt.args, tt.auto, got, tt.want)
+			}
+		})
 	}
 }
