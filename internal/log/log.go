@@ -3,7 +3,6 @@ package log
 import (
 	"fmt"
 	"io"
-	"time"
 )
 
 const (
@@ -32,7 +31,3 @@ func (l *Logger) write(color, msg string) {
 func (l *Logger) Info(msg string)  { l.write("", msg) }
 func (l *Logger) Warn(msg string)  { l.write(ansiYellow, msg) }
 func (l *Logger) Error(msg string) { l.write(ansiRed, msg) }
-
-func (l *Logger) Timing(label string, elapsed time.Duration) {
-	fmt.Fprintf(l.w, "[timing] %s: %.3fs\n", label, elapsed.Seconds())
-}
