@@ -1,11 +1,11 @@
 FROM debian:trixie-slim
 
 RUN apt-get update && \
-    apt-get install -y --no-install-recommends ca-certificates curl git ripgrep file gawk jq less lz4 moreutils net-tools nmap parallel recode uuid wget xz-utils yq \
+    apt-get install -y --no-install-recommends ca-certificates curl file gawk git jq less lz4 moreutils net-tools nmap parallel recode ripgrep uuid wget xz-utils yq \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Node.js 22 (LSP servers such as pyright need a Node runtime).
-RUN curl -fsSL https://deb.nodesource.com/setup_22.x | bash - && \
+RUN curl -fsSL https://deb.nodesource.com/setup_26.x | bash - && \
     apt-get install -y --no-install-recommends nodejs && \
     rm -rf /var/lib/apt/lists/*
 

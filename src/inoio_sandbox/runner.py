@@ -74,7 +74,8 @@ def build_msb_run_command(
         "mkdir -p /home/dev/.config/opencode && "
         "cp -r /sandbox-inject/opencode/. /home/dev/.config/opencode/ && "
         "(chown -R dev:dev /home/dev/.config/opencode || true) && "
+        "eval \"$(goenv init -)\" && "
         "exec opencode"
     )
-    cmd.extend([image_tag, "--", "/bin/sh", "-c", setup])
+    cmd.extend([image_tag, "--", "/bin/bash", "-c", setup])
     return cmd

@@ -8,5 +8,5 @@ import (
 )
 
 func EnsureImage(ctx context.Context, dockerfile []byte, force bool) (imageRef, imageDigest string, err error) {
-	return "", "", errors.New("docker build not available: CGO disabled and Docker client requires full implementation")
+	return "", "", errors.New("image build requires CGO-enabled build with microsandbox SDK")
 }
