@@ -10,6 +10,7 @@ import (
 	"golang.org/x/term"
 
 	"gitlab.inoio.de/inoio/opencode-msb/internal/log"
+	"gitlab.inoio.de/inoio/opencode-msb/internal/prompt"
 	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox"
 )
 
@@ -72,6 +73,9 @@ func buildRunCmd() *cobra.Command {
 			if noAuto, _ := cmd.Flags().GetBool("no-auto"); noAuto {
 				opts.Auto = false
 			}
+			if yes, _ := cmd.Flags().GetBool("yes"); yes {
+				prompt.AssumeYes = true
+			}
 
 			cfg := newConfig()
 			logger := newLogger()
@@ -92,6 +96,7 @@ func buildRunCmd() *cobra.Command {
 	cmd.Flags().Uint8("cpus", 0, "Number of CPUs (default: all)")
 	cmd.Flags().String("memory", "4G", "Memory limit (default: 4G)")
 	cmd.Flags().Bool("no-auto", false, "Do not pass --auto to opencode")
+	cmd.Flags().BoolP("yes", "y", false, "Assume yes to all prompts")
 
 	return cmd
 }
