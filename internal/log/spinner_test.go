@@ -5,7 +5,42 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"time"
 )
+
+func TestFormatElapsedLive(t *testing.T) {
+	cases := []struct {
+		in   time.Duration
+		want string
+	}{
+		{0, "(0s)"},
+		{1500 * time.Millisecond, "(1s)"},
+		{59_900 * time.Millisecond, "(59s)"},
+	}
+	for _, c := range cases {
+		got := formatElapsedLive(c.in)
+		if got != c.want {
+			t.Errorf("formatElapsedLive(%v) = %q, want %q", c.in, got, c.want)
+		}
+	}
+}
+
+func TestFormatElapsedDone(t *testing.T) {
+	cases := []struct {
+		in   time.Duration
+		want string
+	}{
+		{0, "(0.0s)"},
+		{3_640 * time.Millisecond, "(3.6s)"},
+		{1_260 * time.Millisecond, "(1.3s)"},
+	}
+	for _, c := range cases {
+		got := formatElapsedDone(c.in)
+		if got != c.want {
+			t.Errorf("formatElapsedDone(%v) = %q, want %q", c.in, got, c.want)
+		}
+	}
+}
 
 func TestSpinnerNonTerminalStop(t *testing.T) {
 	var buf bytes.Buffer
@@ -17,8 +52,8 @@ func TestSpinnerNonTerminalStop(t *testing.T) {
 	if !strings.Contains(output, "Building image... ") {
 		t.Errorf("expected start message, got %q", output)
 	}
-	if !strings.Contains(output, "done\n") {
-		t.Errorf("expected done, got %q", output)
+	if !strings.Contains(output, "done(") {
+		t.Errorf("expected timed done suffix, got %q", output)
 	}
 }
 
@@ -32,8 +67,8 @@ func TestSpinnerNonTerminalError(t *testing.T) {
 	if !strings.Contains(output, "Building image... ") {
 		t.Errorf("expected start message, got %q", output)
 	}
-	if !strings.Contains(output, "failed: build failed\n") {
-		t.Errorf("expected error message, got %q", output)
+	if !strings.Contains(output, "failed (") || !strings.Contains(output, ": build failed") {
+		t.Errorf("expected timed failed suffix, got %q", output)
 	}
 }
 
