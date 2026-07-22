@@ -27,9 +27,9 @@ func Execute() error {
 
 	args := os.Args[1:]
 	if len(args) == 0 || !isKnownSubcommand(args[0]) {
-		os.Args = append([]string{os.Args[0], "run"}, args...)
+		args = append([]string{"run"}, args...)
 	}
-
+	root.SetArgs(args)
 	return root.Execute()
 }
 

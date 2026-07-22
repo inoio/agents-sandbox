@@ -1,10 +1,10 @@
 .PHONY: build test lint vet fmt clean
 
 build:
-	go build -o opencode-msb ./cmd/opencode-msb
+	CGO_ENABLED=1 go build -o opencode-msb ./cmd/opencode-msb
 
 test:
-	go test ./...
+	CGO_ENABLED=1 go test ./...
 
 lint:
 	golangci-lint run ./...
