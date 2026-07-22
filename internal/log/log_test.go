@@ -41,5 +41,3 @@ func TestErrorWritesWithRed(t *testing.T) {
 		t.Errorf("expected red ANSI code, got %q", out)
 	}
 }
-
-
