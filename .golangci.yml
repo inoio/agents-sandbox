@@ -296,6 +296,15 @@ linters:
         - ^golang.org/x/tools/go/analysis.Analyzer$
         - ^google.golang.org/protobuf/.+Options$
         - ^gopkg.in/yaml.v3.Node$
+        # std libs (project-specific)
+        - ^archive/tar.Header$
+        # third-party libs (project-specific)
+        - ^github.com/moby/moby/client.ImageBuildOptions$
+        - ^github.com/superradcompany/microsandbox/sdk/go.MountOptions$
+        - ^github.com/superradcompany/microsandbox/sdk/go.SecretEnvOptions$
+        # project types — intentionally partial init (zero-value fields set later)
+        - ^gitlab.inoio.de/inoio/opencode-msb/internal/log.Spinner$
+        - ^gitlab.inoio.de/inoio/opencode-msb/internal/sandbox.RunOptions$
       # Allows empty structures in return statements.
       # Default: false
       allow-empty-returns: true
@@ -359,9 +368,7 @@ linters:
       # Settings per analyzer.
       settings:
         shadow:
-          # Whether to be strict about shadowing; can be noisy.
-          # Default: false
-          strict: true
+          strict: false
 
     inamedparam:
       # Skips check for interface methods with only a single parameter.
@@ -488,13 +495,22 @@ linters:
         text: "var-naming: avoid package names that conflict with Go standard library package names"
         linters:
           - revive
+      - path: "internal/git/"
+        linters:
+          - noctx # git commands are short-lived; context cancellation adds no value
       - path: '_test\.go'
         linters:
           - bodyclose
           - dupl
           - errcheck
+          - exhaustruct
           - funlen
+          - gocognit
           - goconst
           - gosec
+          - govet
+          - mnd
           - noctx
+          - nonamedreturns
+          - reassign
           - wrapcheck

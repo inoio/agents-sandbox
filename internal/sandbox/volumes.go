@@ -78,9 +78,9 @@ func (vm *VolumeManager) ensureFallbackHome(
 ) (string, error) {
 	path := vm.fallbackHomePath(projectSlug, imageDigest)
 	if reset {
-		os.RemoveAll(path)
+		_ = os.RemoveAll(path)
 	}
-	if err := os.MkdirAll(path, 0o755); err != nil {
+	if err := os.MkdirAll(path, 0o750); err != nil {
 		return "", fmt.Errorf("create fallback home dir: %w", err)
 	}
 	entries, _ := os.ReadDir(path)
@@ -124,7 +124,7 @@ func (vm *VolumeManager) prefill(ctx context.Context, ref, imageTag string, isBi
 		return fmt.Errorf("create prefill sandbox: %w", err)
 	}
 	defer func() {
-		stopCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		stopCtx, cancel := context.WithTimeout(context.Background(), sandboxStopTimeout)
 		defer cancel()
 		_ = sb.Stop(stopCtx)
 		_ = sb.Close()

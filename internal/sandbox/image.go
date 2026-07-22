@@ -18,7 +18,11 @@ import (
 	msb "github.com/superradcompany/microsandbox/sdk/go"
 )
 
-const BaseTag = "opencode-msb/runner:base"
+const (
+	BaseTag        = "opencode-msb/runner:base"
+	shortDigestLen = 12
+	dockerfileMode = 0o644
+)
 
 type dockerClient interface {
 	ImageBuild(
@@ -52,8 +56,8 @@ func ReferencesBase(dockerfile []byte) bool {
 
 func ImageTag(digest string) string {
 	short := strings.TrimPrefix(digest, "sha256:")
-	if len(short) > 12 {
-		short = short[:12]
+	if len(short) > shortDigestLen {
+		short = short[:shortDigestLen]
 	}
 	return "opencode-msb/runner:sha256-" + short
 }
@@ -63,7 +67,7 @@ func dockerfileTar(dockerfile []byte) *bytes.Buffer {
 	tw := tar.NewWriter(&buf)
 	_ = tw.WriteHeader(&tar.Header{
 		Name: "Dockerfile",
-		Mode: 0o644,
+		Mode: dockerfileMode,
 		Size: int64(len(dockerfile)),
 	})
 	_, _ = tw.Write(dockerfile)
@@ -87,7 +91,7 @@ func EnsureImage(
 	dockerfile []byte,
 	force bool,
 	logger *log.Logger,
-) (imageRef, imageDigest string, err error) {
+) (string, string, error) {
 	if force || ReferencesBase(dockerfile) {
 		if err := buildDockerImage(
 			ctx,
@@ -110,8 +114,8 @@ func EnsureImage(
 	if err != nil {
 		return "", "", fmt.Errorf("cannot inspect built image: %w", err)
 	}
-	imageDigest = inspect.ID
-	imageRef = ImageTag(imageDigest)
+	imageDigest := inspect.ID
+	imageRef := ImageTag(imageDigest)
 
 	_, cacheErr := msb.Image.Get(ctx, imageRef)
 	if cacheErr == nil && !force {
@@ -160,7 +164,7 @@ func buildDockerImage(
 	}
 
 	buildErr := scanBuildOutput(buildResp.Body)
-	buildResp.Body.Close()
+	_ = buildResp.Body.Close()
 	if buildErr != nil {
 		spin.StopError(buildErr)
 		if strings.Contains(buildErr.Error(), "pull access denied") {

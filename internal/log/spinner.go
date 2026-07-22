@@ -8,7 +8,10 @@ import (
 	"time"
 )
 
+//nolint:gochecknoglobals // static lookup table, never mutated
 var spinnerChars = []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
+
+const spinnerInterval = 100 * time.Millisecond
 
 type Spinner struct {
 	w      io.Writer
@@ -65,7 +68,7 @@ func (s *Spinner) animate() {
 		elapsed := time.Since(s.start)
 		fmt.Fprintf(s.w, "\r\033[K%s %s%s", s.msg, spinnerChars[i%len(spinnerChars)], formatElapsedLive(elapsed))
 		i++
-		time.Sleep(100 * time.Millisecond)
+		time.Sleep(spinnerInterval)
 	}
 }
 

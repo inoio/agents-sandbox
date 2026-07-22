@@ -77,8 +77,8 @@ func TestBuildOpencodeArgs(t *testing.T) {
 		auto bool
 		want []string
 	}{
-		{"auto default", nil, true, []string{"--auto"}},
-		{"auto with forwarded args", []string{"foo", "bar"}, true, []string{"--auto", "foo", "bar"}},
+		{"auto default", nil, true, []string{autoFlag}},
+		{"auto with forwarded args", []string{"foo", "bar"}, true, []string{autoFlag, "foo", "bar"}},
 		{"no-auto", []string{"foo"}, false, []string{"foo"}},
 		{"no-auto empty args", nil, false, nil},
 	}
@@ -94,7 +94,7 @@ func TestBuildOpencodeArgs(t *testing.T) {
 
 func TestResolveWorkspaceNoBranch(t *testing.T) {
 	repo := createTempRepo(t)
-	commitFile(t, repo, "README.md", "hello", "initial")
+	commitFile(t, repo, "README.md", "hello")
 	branch := currentBranch(t, repo)
 
 	repoPath, gotBranch, cwdBranch, created, err := resolveWorkspace(
@@ -123,7 +123,7 @@ func TestResolveWorkspaceNoBranch(t *testing.T) {
 
 func TestResolveWorkspaceBranchMatchesCurrentBranch(t *testing.T) {
 	repo := createTempRepo(t)
-	commitFile(t, repo, "README.md", "hello", "initial")
+	commitFile(t, repo, "README.md", "hello")
 	branch := currentBranch(t, repo)
 
 	repoPath, gotBranch, cwdBranch, created, err := resolveWorkspace(
@@ -155,7 +155,7 @@ func TestResolveWorkspaceBranchCreatesManagedRepo(t *testing.T) {
 	defer func() { prompt.AssumeYes = false }()
 
 	repo := createTempRepo(t)
-	commitFile(t, repo, "README.md", "hello", "initial")
+	commitFile(t, repo, "README.md", "hello")
 	branch := currentBranch(t, repo)
 
 	stateDir := t.TempDir()
@@ -206,8 +206,8 @@ func TestCleanupManagedRepoRemovesCleanRepo(t *testing.T) {
 	defer func() { prompt.AssumeYes = false }()
 
 	repo := createTempRepo(t)
-	commitFile(t, repo, "README.md", "hello", "initial")
-	repoPath := createManagedRepo(t, repo, "feature")
+	commitFile(t, repo, "README.md", "hello")
+	repoPath := createManagedRepo(t, repo)
 
 	err := cleanupManagedRepo(repoPath, repo, currentBranch(t, repo), RunOptions{Branch: "feature"}, newTestLogger(t))
 	if err != nil {
@@ -223,8 +223,8 @@ func TestCleanupManagedRepoKeepsUncommittedChanges(t *testing.T) {
 	defer func() { prompt.AssumeYes = false }()
 
 	repo := createTempRepo(t)
-	commitFile(t, repo, "README.md", "hello", "initial")
-	repoPath := createManagedRepo(t, repo, "feature")
+	commitFile(t, repo, "README.md", "hello")
+	repoPath := createManagedRepo(t, repo)
 	writeFile(t, filepath.Join(repoPath, "feature.txt"), "feature work")
 
 	err := cleanupManagedRepo(repoPath, repo, currentBranch(t, repo), RunOptions{Branch: "feature"}, newTestLogger(t))
@@ -248,8 +248,8 @@ func TestCleanupManagedRepoDiscardsAndRemoves(t *testing.T) {
 	defer cleanup()
 
 	repo := createTempRepo(t)
-	commitFile(t, repo, "README.md", "hello", "initial")
-	repoPath := createManagedRepo(t, repo, "feature")
+	commitFile(t, repo, "README.md", "hello")
+	repoPath := createManagedRepo(t, repo)
 	writeFile(t, filepath.Join(repoPath, "feature.txt"), "feature work")
 
 	err := cleanupManagedRepo(repoPath, repo, currentBranch(t, repo), RunOptions{Branch: "feature"}, newTestLogger(t))
@@ -266,8 +266,8 @@ func TestCleanupManagedRepoMergeSuccess(t *testing.T) {
 	defer cleanup()
 
 	repo := createTempRepo(t)
-	commitFile(t, repo, "README.md", "hello", "initial")
-	repoPath := createManagedRepo(t, repo, "feature")
+	commitFile(t, repo, "README.md", "hello")
+	repoPath := createManagedRepo(t, repo)
 	writeFile(t, filepath.Join(repoPath, "feature.txt"), "feature work")
 	runGit(t, repoPath, "add", ".")
 	runGit(t, repoPath, "commit", "-m", "feature commit")
@@ -291,8 +291,8 @@ func TestCleanupManagedRepoMergeConflict(t *testing.T) {
 	defer cleanup()
 
 	repo := createTempRepo(t)
-	commitFile(t, repo, "file.txt", "main", "initial")
-	repoPath := createManagedRepo(t, repo, "feature")
+	commitFile(t, repo, "file.txt", "main")
+	repoPath := createManagedRepo(t, repo)
 
 	writeFile(t, filepath.Join(repoPath, "file.txt"), "feature")
 	runGit(t, repoPath, "add", ".")
@@ -330,12 +330,12 @@ func currentBranch(t *testing.T, dir string) string {
 	return strings.TrimSpace(runGitOutput(t, dir, "rev-parse", "--abbrev-ref", "HEAD"))
 }
 
-func createManagedRepo(t *testing.T, repo, branch string) string {
+func createManagedRepo(t *testing.T, repo string) string {
 	t.Helper()
 	stateDir := t.TempDir()
-	repoPath, _, err := git.EnsureManagedRepoFromRef(repo, stateDir, "test-project", branch, "HEAD")
+	repoPath, _, err := git.EnsureManagedRepoFromRef(repo, stateDir, "test-project", "feature", "HEAD")
 	if err != nil {
-		t.Fatalf("create managed repo for %q: %v", branch, err)
+		t.Fatalf("create managed repo: %v", err)
 	}
 	runGit(t, repoPath, "config", "user.email", "test@example.com")
 	runGit(t, repoPath, "config", "user.name", "Test User")
@@ -349,11 +349,11 @@ func writeFile(t *testing.T, path, content string) {
 	}
 }
 
-func commitFile(t *testing.T, dir, relPath, content, msg string) {
+func commitFile(t *testing.T, dir, relPath, content string) {
 	t.Helper()
 	writeFile(t, filepath.Join(dir, relPath), content)
 	runGit(t, dir, "add", relPath)
-	runGit(t, dir, "commit", "-m", msg)
+	runGit(t, dir, "commit", "-m", "initial")
 }
 
 func runGit(t *testing.T, dir string, args ...string) {

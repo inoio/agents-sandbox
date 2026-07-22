@@ -74,7 +74,7 @@ func buildRunCmd() *cobra.Command {
 				opts.Auto = false
 			}
 			if yes, _ := cmd.Flags().GetBool("yes"); yes {
-				prompt.AssumeYes = true
+				prompt.AssumeYes = true //nolint:reassign // CLI flag override, set once at startup
 			}
 
 			cfg := newConfig()

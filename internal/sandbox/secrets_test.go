@@ -9,8 +9,8 @@ import (
 )
 
 func TestSecretMapContents(t *testing.T) {
-	if secretMap["LITELLM_API_KEY"] != "litellm.inoio.de" {
-		t.Errorf("expected LITELLM_API_KEY -> litellm.inoio.de, got %v", secretMap["LITELLM_API_KEY"])
+	if secretMap["LITELLM_API_KEY"] != litellmHost {
+		t.Errorf("expected LITELLM_API_KEY -> %s, got %v", litellmHost, secretMap["LITELLM_API_KEY"])
 	}
 }
 
@@ -24,8 +24,7 @@ func TestBuildSecretsSkipsEmptyEnv(t *testing.T) {
 }
 
 func TestBuildSecretsCreatesEntryForSetEnv(t *testing.T) {
-	os.Setenv("LITELLM_API_KEY", "sk-test-123")
-	defer os.Unsetenv("LITELLM_API_KEY")
+	t.Setenv("LITELLM_API_KEY", "sk-test-123")
 
 	l := log.New(io.Discard, false)
 	secrets := BuildSecrets(l)
@@ -38,7 +37,7 @@ func TestBuildSecretsCreatesEntryForSetEnv(t *testing.T) {
 	if secrets[0].Value != "sk-test-123" {
 		t.Errorf("expected Value=sk-test-123, got %q", secrets[0].Value)
 	}
-	if len(secrets[0].AllowHosts) != 1 || secrets[0].AllowHosts[0] != "litellm.inoio.de" {
-		t.Errorf("expected AllowHosts=[litellm.inoio.de], got %v", secrets[0].AllowHosts)
+	if len(secrets[0].AllowHosts) != 1 || secrets[0].AllowHosts[0] != litellmHost {
+		t.Errorf("expected AllowHosts=[%s], got %v", litellmHost, secrets[0].AllowHosts)
 	}
 }
