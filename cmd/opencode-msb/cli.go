@@ -69,7 +69,6 @@ func buildRunCmd() *cobra.Command {
 			opts.ResetHome, _ = cmd.Flags().GetBool("reset-home")
 			opts.CPUs, _ = cmd.Flags().GetUint8("cpus")
 			opts.Memory, _ = cmd.Flags().GetString("memory")
-			opts.Timing, _ = cmd.Flags().GetBool("timing")
 			if noAuto, _ := cmd.Flags().GetBool("no-auto"); noAuto {
 				opts.Auto = false
 			}
@@ -92,7 +91,6 @@ func buildRunCmd() *cobra.Command {
 	cmd.Flags().Bool("reset-home", false, "Recreate the project home volume")
 	cmd.Flags().Uint8("cpus", 0, "Number of CPUs (default: all)")
 	cmd.Flags().String("memory", "4G", "Memory limit (default: 4G)")
-	cmd.Flags().Bool("timing", false, "Print per-phase launcher timing to stderr")
 	cmd.Flags().Bool("no-auto", false, "Do not pass --auto to opencode")
 
 	return cmd
