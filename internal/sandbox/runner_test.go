@@ -9,6 +9,8 @@ import (
 	"strings"
 	"testing"
 
+	msb "github.com/superradcompany/microsandbox/sdk/go"
+
 	"gitlab.inoio.de/inoio/opencode-msb/internal/git"
 	"gitlab.inoio.de/inoio/opencode-msb/internal/log"
 	"gitlab.inoio.de/inoio/opencode-msb/internal/prompt"
@@ -313,6 +315,66 @@ func TestCleanupManagedRepoMergeConflict(t *testing.T) {
 	mergeHead := filepath.Join(repo, ".git", "MERGE_HEAD")
 	if _, statErr := os.Stat(mergeHead); !os.IsNotExist(statErr) {
 		t.Error("expected merge to be aborted")
+	}
+}
+
+func TestIsSandboxActive(t *testing.T) {
+	tests := []struct {
+		name   string
+		status msb.SandboxStatus
+		want   bool
+	}{
+		{"running", msb.SandboxStatusRunning, true},
+		{"draining", msb.SandboxStatusDraining, true},
+		{"paused", msb.SandboxStatusPaused, true},
+		{"stopped", msb.SandboxStatusStopped, false},
+		{"crashed", msb.SandboxStatusCrashed, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := isSandboxActive(tt.status); got != tt.want {
+				t.Errorf("isSandboxActive(%q) = %v, want %v", tt.status, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestPromptExistingSessionTerminate(t *testing.T) {
+	cleanup := prompt.SetStdinForTesting(strings.NewReader("t\n"))
+	defer cleanup()
+
+	got, err := promptExistingSession("opencode-msb-proj-main", newTestLogger(t))
+	if err != nil {
+		t.Fatalf("promptExistingSession failed: %v", err)
+	}
+	if !got {
+		t.Error("expected terminate=true when user picks 't'")
+	}
+}
+
+func TestPromptExistingSessionExitDefault(t *testing.T) {
+	cleanup := prompt.SetStdinForTesting(strings.NewReader("\n"))
+	defer cleanup()
+
+	got, err := promptExistingSession("opencode-msb-proj-main", newTestLogger(t))
+	if err != nil {
+		t.Fatalf("promptExistingSession failed: %v", err)
+	}
+	if got {
+		t.Error("expected terminate=false (exit) when user accepts the default")
+	}
+}
+
+func TestPromptExistingSessionNonInteractiveExits(t *testing.T) {
+	prompt.AssumeYes = true
+	defer func() { prompt.AssumeYes = false }()
+
+	got, err := promptExistingSession("opencode-msb-proj-main", newTestLogger(t))
+	if err != nil {
+		t.Fatalf("promptExistingSession failed: %v", err)
+	}
+	if got {
+		t.Error("expected terminate=false (exit) in non-interactive mode")
 	}
 }
 

@@ -36,6 +36,7 @@ type RunOptions struct {
 	CPUs           uint8
 	Memory         string
 	Auto           bool
+	TestRun        bool
 	Args           []string
 }
 
@@ -86,6 +87,76 @@ func sandboxName(projectSlug, branchSlug string) string {
 		name = name[:maxSandboxNameLen]
 	}
 	return name
+}
+
+// isSandboxActive reports whether a sandbox status represents a live VM that
+// WithReplace would terminate. Stopped or crashed sandboxes are stale state
+// that can be replaced silently.
+func isSandboxActive(status msb.SandboxStatus) bool {
+	switch status {
+	case msb.SandboxStatusRunning, msb.SandboxStatusDraining, msb.SandboxStatusPaused:
+		return true
+	case msb.SandboxStatusStopped, msb.SandboxStatusCrashed:
+		return false
+	}
+	return false
+}
+
+// runningSandboxExists reports whether a sandbox with the given name exists and
+// is in an active state (running, draining, or paused).
+func runningSandboxExists(ctx context.Context, name string) (bool, error) {
+	handle, err := msb.GetSandbox(ctx, name)
+	if err != nil {
+		if msb.IsKind(err, msb.ErrSandboxNotFound) {
+			return false, nil
+		}
+		return false, fmt.Errorf("check existing sandbox %q: %w", name, err)
+	}
+	return isSandboxActive(handle.Status()), nil
+}
+
+// promptExistingSession asks whether to terminate an already-running session or
+// exit the current one. Returns true when the user chooses to terminate.
+func promptExistingSession(name string, logger *log.Logger) (bool, error) {
+	choice, err := prompt.Select(
+		fmt.Sprintf("A session is already running for this project and branch (sandbox %q)", name),
+		[]prompt.Choice{
+			{Label: "Exit", Key: "e", Description: "Keep the running session and exit"},
+			{Label: "Terminate", Key: "t", Description: "Terminate the running session and continue"},
+		},
+		"e",
+		logger,
+	)
+	if err != nil {
+		return false, fmt.Errorf("prompt for existing session: %w", err)
+	}
+	return choice == "t", nil
+}
+
+// ensureNoConflictingSession aborts the run when a live VM for the same sandbox
+// name already exists and the user does not choose to terminate it. Stale
+// (stopped/crashed) sandboxes are left for createSandbox's WithReplace to clean
+// up; only an active session prompts.
+func ensureNoConflictingSession(
+	ctx context.Context,
+	name, projectSlug, branch string,
+	logger *log.Logger,
+) error {
+	running, err := runningSandboxExists(ctx, name)
+	if err != nil {
+		return err
+	}
+	if !running {
+		return nil
+	}
+	terminate, err := promptExistingSession(name, logger)
+	if err != nil {
+		return err
+	}
+	if !terminate {
+		return fmt.Errorf("a session is already running for %q on branch %q", projectSlug, branch)
+	}
+	return nil
 }
 
 func buildEnvMap(envExtra []string) map[string]string {
@@ -371,6 +442,10 @@ func Run(ctx context.Context, opts RunOptions, cfg Config, logger *log.Logger) e
 	secrets := BuildSecrets(logger)
 	name := sandboxName(projectSlug, git.BranchSlug(branch))
 
+	if err = ensureNoConflictingSession(ctx, name, projectSlug, branch, logger); err != nil {
+		return err
+	}
+
 	sb, err := createSandbox(ctx, name, imageRef, repoPath, homeVol, secrets, opts, logger)
 	if err != nil {
 		return err
@@ -388,9 +463,15 @@ func Run(ctx context.Context, opts RunOptions, cfg Config, logger *log.Logger) e
 		return err
 	}
 
-	opencodeArgs := buildOpencodeArgs(opts.Args, opts.Auto)
-	setup := `exec opencode ` + strings.Join(opencodeArgs, " ")
-	exitCode, attachErr := sb.Attach(ctx, "/bin/bash", "-c", setup)
+	var exitCode int
+	var attachErr error
+	if opts.TestRun {
+		logger.Info("test run: setup validated, skipping opencode execution")
+	} else {
+		opencodeArgs := buildOpencodeArgs(opts.Args, opts.Auto)
+		setup := `exec opencode ` + strings.Join(opencodeArgs, " ")
+		exitCode, attachErr = sb.Attach(ctx, "/bin/bash", "-c", setup)
+	}
 
 	var cleanupErr error
 	if created {
