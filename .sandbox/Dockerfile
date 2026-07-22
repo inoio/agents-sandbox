@@ -1,7 +1,5 @@
-# inoio-sandbox runner with shellcheck layered on top of the default runner image.
-# The base image is built and tagged inoio-sandbox/runner:base by the launcher
-# (see image.ensure_base_image) before this image is built.
-FROM inoio-sandbox/runner:base
+# Custom runner with shellcheck, uv, goenv, and golangci-lint layered on top of the default runner image.
+FROM opencode-msb/runner:base
 
 USER root
 RUN apt-get update && \
