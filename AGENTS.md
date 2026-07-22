@@ -33,6 +33,22 @@
 - Use `uv` for dependency management and virtual environment operations (e.g. `uv add <package>`, `uv run`).
 - The project venv is at `.venv`; run tests with `.venv/bin/python -m pytest tests/unit`.
 
+### Go development
+
+The Go CLI lives alongside the Python implementation. Required tooling:
+
+- **Toolchain:** `go` and a C compiler (`gcc` on Linux, `clang` on macOS — required by CGO for the microsandbox SDK). One `go` install provides `go mod`, `go run`, `go test`, `go vet`, `gofmt`.
+- **Linter:** `golangci-lint` — install separately, e.g. `go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest` or `brew install golangci-lint`.
+
+Common commands (run from the Go module root):
+
+- `go mod tidy` — sync `go.mod`/`go.sum` (run after adding/removing imports).
+- `go run ./cmd/opencode-msb` — build and run locally without producing a binary.
+- `go test ./...` — run all tests.
+- `go vet ./...` — basic static checks (part of the toolchain).
+- `gofmt -l .` — list files that need formatting (`-w` to write).
+- `golangci-lint run` — run the full linter suite (replaces `ruff` for Go).
+
 ## Documentation
 
 - Keep docs minimal and concise. A short README with a HOWTO is enough for this phase.

@@ -2,9 +2,11 @@
 stages:
   - lint
   - test
+  - build
 
 variables:
   PIP_DISABLE_PIP_VERSION_CHECK: "1"
+  CGO_ENABLED: "1"
 
 lint:
   stage: lint
@@ -13,9 +15,31 @@ lint:
     - pip install ruff
     - ruff check .
 
+go-lint:
+  stage: lint
+  image: golang:1.26
+  script:
+    - go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest
+    - golangci-lint run ./...
+
 unit-tests:
   stage: test
   image: python:3.12-slim
   script:
     - pip install -e ".[test]"
     - pytest tests/unit
+
+go-test:
+  stage: test
+  image: golang:1.26
+  script:
+    - go mod download
+    - go test ./... -v
+
+go-build:
+  stage: build
+  image: golang:1.26
+  script:
+    - go mod download
+    - go build ./cmd/opencode-msb
+    - ./opencode-msb --version
