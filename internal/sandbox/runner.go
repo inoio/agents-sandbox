@@ -43,11 +43,6 @@ type Config struct {
 	UserConfigDir string
 }
 
-var vmEnv = []string{ //nolint:gochecknoglobals // static VM env defaults, never mutated
-	"SANDBOX_USER=dev",
-	"SHELL=/bin/bash",
-}
-
 const (
 	defaultMemoryMiB   = 4096
 	maxSandboxNameLen  = 128
@@ -157,18 +152,22 @@ func ensureNoConflictingSession(
 	return nil
 }
 
-func buildEnvMap(envExtra []string) map[string]string {
-	env := make(map[string]string)
-	for _, e := range vmEnv {
-		parts := strings.SplitN(e, "=", envKeyValueParts)
-		if len(parts) == envKeyValueParts {
-			env[parts[0]] = parts[1]
-		}
+func buildEnvMap(filename string) map[string]string {
+	data, err := os.ReadFile(filename)
+	if err != nil {
+		return nil
 	}
-	for _, e := range envExtra {
-		parts := strings.SplitN(e, "=", envKeyValueParts)
-		if len(parts) == envKeyValueParts {
-			env[parts[0]] = parts[1]
+	env := make(map[string]string)
+	for line := range strings.SplitSeq(string(data), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		if strings.Contains(line, "=") {
+			parts := strings.SplitN(line, "=", envKeyValueParts)
+			if len(parts) == envKeyValueParts {
+				env[parts[0]] = parts[1]
+			}
 		}
 	}
 	return env
@@ -181,24 +180,6 @@ func buildOpencodeArgs(args []string, auto bool) []string {
 		return args
 	}
 	return append([]string{autoFlag}, args...)
-}
-
-func readSandboxEnv() []string {
-	data, err := os.ReadFile(".opencode-msb/env")
-	if err != nil {
-		return nil
-	}
-	var env []string
-	for line := range strings.SplitSeq(string(data), "\n") {
-		line = strings.TrimSpace(line)
-		if line == "" || strings.HasPrefix(line, "#") {
-			continue
-		}
-		if strings.Contains(line, "=") {
-			env = append(env, line)
-		}
-	}
-	return env
 }
 
 func resolveDockerfile() []byte {
@@ -463,7 +444,6 @@ func prepareSandbox(
 	if err != nil {
 		return nil, err
 	}
-	secrets := BuildSecrets(logger)
 	name := sandboxName(projectSlug, git.BranchSlug(branch))
 
 	if err = ensureNoConflictingSession(ctx, name, projectSlug, branch, logger); err != nil {
@@ -471,7 +451,7 @@ func prepareSandbox(
 	}
 
 	logger.Debug(fmt.Sprintf("sandbox: %s (cpus=%d, memory=%s)", name, opts.CPUs, opts.Memory))
-	sb, err := createSandbox(ctx, name, imageRef, repoPath, homeVol, secrets, opts, logger)
+	sb, err := createSandbox(ctx, name, imageRef, repoPath, homeVol, opts, logger)
 	if err != nil {
 		return nil, err
 	}
@@ -505,7 +485,7 @@ func Run(ctx context.Context, opts RunOptions, cfg Config, logger *log.Logger) e
 		logger.Debug("dry run: setup validated, skipping opencode execution")
 	} else {
 		opencodeArgs := buildOpencodeArgs(opts.Args, opts.Auto)
-		setup := `exec opencode ` + strings.Join(opencodeArgs, " ")
+		setup := `opencode ` + strings.Join(opencodeArgs, " ")
 		exitCode, attachErr = session.sb.Attach(ctx, "/bin/bash", "-c", setup)
 	}
 
@@ -515,6 +495,17 @@ func Run(ctx context.Context, opts RunOptions, cfg Config, logger *log.Logger) e
 	}
 
 	return finalizeRun(attachErr, cleanupErr, exitCode)
+}
+
+func Shell(ctx context.Context, opts RunOptions, cfg Config, logger *log.Logger) error {
+	session, err := prepareSandbox(ctx, opts, cfg, logger)
+	if err != nil {
+		return err
+	}
+	defer session.cleanup()
+
+	exitCode, attachErr := session.sb.Attach(ctx, "/bin/bash")
+	return finalizeRun(attachErr, nil, exitCode)
 }
 
 func BuildImage(ctx context.Context, force bool, logger *log.Logger) error {
@@ -530,17 +521,6 @@ func BuildImage(ctx context.Context, force bool, logger *log.Logger) error {
 
 	_, _, err = EnsureImage(ctx, dockerCli, dockerfile, force, logger)
 	return err
-}
-
-func Shell(ctx context.Context, opts RunOptions, cfg Config, logger *log.Logger) error {
-	session, err := prepareSandbox(ctx, opts, cfg, logger)
-	if err != nil {
-		return err
-	}
-	defer session.cleanup()
-
-	exitCode, attachErr := session.sb.Attach(ctx, "/bin/bash")
-	return finalizeRun(attachErr, nil, exitCode)
 }
 
 func finalizeRun(attachErr, cleanupErr error, exitCode int) error {
@@ -584,7 +564,6 @@ func loadConfigFiles(userConfigDir string) (map[string][]byte, error) {
 func createSandbox(
 	ctx context.Context,
 	name, imageRef, repoPath, homeVol string,
-	secrets []msb.SecretEntry,
 	opts RunOptions,
 	logger *log.Logger,
 ) (*msb.Sandbox, error) {
@@ -593,8 +572,9 @@ func createSandbox(
 		cpus = sysinfo.NumCPUs()
 	}
 	maxMemoryGiB := sysinfo.TotalMemoryGiB()
-	envExtra := readSandboxEnv()
-	envMap := buildEnvMap(envExtra)
+	envMap := buildEnvMap(".opencode-msb/env")
+	secrets := BuildSecrets(buildEnvMap(".opencode-msb/env.secret"), logger)
+
 	mounts := map[string]msb.MountConfig{
 		"/home/dev":  msb.Mount.Named(homeVol, msb.MountOptions{}),
 		"/workspace": msb.Mount.Bind(repoPath, msb.MountOptions{}),
