@@ -437,6 +437,7 @@ func prepareSandbox(
 	if err != nil {
 		return nil, err
 	}
+	logger.Debug(fmt.Sprintf("workspace: %s (branch=%s, managed=%v)", repoPath, branch, created))
 
 	dockerfile := resolveDockerfile()
 	dockerCli, err := client.New(client.FromEnv)
@@ -449,12 +450,14 @@ func prepareSandbox(
 	if err != nil {
 		return nil, fmt.Errorf("image setup failed: %w", err)
 	}
+	logger.Debug(fmt.Sprintf("image: %s (digest=%s)", imageRef, imageDigest))
 
 	vm := NewVolumeManager(logger)
 	homeVol, err := vm.EnsureHome(ctx, projectSlug, imageDigest, imageRef)
 	if err != nil {
 		return nil, fmt.Errorf("volume setup failed: %w", err)
 	}
+	logger.Debug(fmt.Sprintf("home volume: %s", homeVol))
 
 	configFiles, err := loadConfigFiles(cfg.UserConfigDir)
 	if err != nil {
@@ -467,6 +470,7 @@ func prepareSandbox(
 		return nil, err
 	}
 
+	logger.Debug(fmt.Sprintf("sandbox: %s (cpus=%d, memory=%s)", name, opts.CPUs, opts.Memory))
 	sb, err := createSandbox(ctx, name, imageRef, repoPath, homeVol, secrets, opts, logger)
 	if err != nil {
 		return nil, err
