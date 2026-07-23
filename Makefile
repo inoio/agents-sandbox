@@ -1,7 +1,9 @@
 .PHONY: build test lint vet fmt clean
 
+VERSION ?= dev
+
 build:
-	CGO_ENABLED=1 go build -o opencode-msb ./cmd/opencode-msb
+	CGO_ENABLED=1 go build -ldflags "-X main.version=$(VERSION)" -o opencode-msb ./cmd/opencode-msb
 
 test:
 	CGO_ENABLED=1 go test ./...

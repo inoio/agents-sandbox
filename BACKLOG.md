@@ -8,7 +8,7 @@
 [*] warn on VM running for project and branchSlug, ask to terminate other or exit, default/yes exit 
 [*] --test-run flag for skipping opencode execution - for validating by an agent?
 [*] refactor cli, subcommands for image rebuilding, ...? maybe remove some flags like --reset-home?
-[ ] version based on date
+[*] version based on date
 [ ] provide easy installation method
 [ ] support docker in VM
 [ ] config file for cli settings in .opencode-msb
@@ -17,4 +17,4 @@
 
 [ ] clean commands for volumes, sandboxes, images - with filters, best same ones. Also readable list output (project name, not number)
 [ ] think about lifecycle of home volume - it would be nice to keep history, but not across projects. Maybe clean option is enough - fancy: option to interactively edit the home volume.
-
+[ ] rework --tree, more explanations, root command
