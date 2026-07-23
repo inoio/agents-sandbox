@@ -528,6 +528,17 @@ func BuildImage(ctx context.Context, force bool, logger *log.Logger) error {
 	return err
 }
 
+func Shell(ctx context.Context, opts RunOptions, cfg Config, logger *log.Logger) error {
+	session, err := prepareSandbox(ctx, opts, cfg, logger)
+	if err != nil {
+		return err
+	}
+	defer session.cleanup()
+
+	exitCode, attachErr := session.sb.Attach(ctx, "/bin/bash")
+	return finalizeRun(attachErr, nil, exitCode)
+}
+
 func finalizeRun(attachErr, cleanupErr error, exitCode int) error {
 	if attachErr != nil {
 		if cleanupErr != nil {

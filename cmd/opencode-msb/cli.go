@@ -16,7 +16,7 @@ import (
 	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox"
 )
 
-var version = "dev"
+var version = "dev" //nolint:gochecknoglobals // set at link time
 
 func Execute() error {
 	root := buildRootCmd()
@@ -24,6 +24,9 @@ func Execute() error {
 	args := os.Args[1:]
 
 	for _, a := range args {
+		if a == "--" {
+			break
+		}
 		switch a {
 		case "--tree":
 			printTree(os.Stdout, root, "")
