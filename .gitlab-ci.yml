@@ -9,9 +9,8 @@ variables:
 
 lint:
   stage: lint
-  image: golang:1.26
+  image: golangci/golangci-lint:v2.12
   script:
-    - go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest
     - golangci-lint run ./...
 
 test:

@@ -52,21 +52,24 @@ func TestSandboxNameTruncation(t *testing.T) {
 }
 
 func TestBuildEnvMap(t *testing.T) {
-	envExtra := []string{"FOO=bar", "BAZ=qux"}
-	got := buildEnvMap(envExtra)
-	if got["SANDBOX_USER"] != "dev" {
-		t.Errorf("expected SANDBOX_USER=dev, got %q", got["SANDBOX_USER"])
-	}
-	if got["SHELL"] != "/bin/bash" {
-		t.Errorf("expected SHELL=/bin/bash, got %q", got["SHELL"])
+	envFile := filepath.Join(t.TempDir(), "env")
+	writeFile(t, envFile, "FOO=bar\n# comment\n\nBAZ=qux\n")
+
+	got := buildEnvMap(envFile)
+
+	if len(got) != 2 {
+		t.Fatalf("expected 2 env vars, got %d: %v", len(got), got)
 	}
 	if got["FOO"] != "bar" {
 		t.Errorf("expected FOO=bar, got %q", got["FOO"])
 	}
+	if got["BAZ"] != "qux" {
+		t.Errorf("expected BAZ=qux, got %q", got["BAZ"])
+	}
 }
 
 func TestReadSandboxEnvMissing(t *testing.T) {
-	env := readSandboxEnv()
+	env := buildEnvMap("missing")
 	if len(env) != 0 {
 		t.Errorf("expected 0 env vars when .opencode-msb/env missing, got %d", len(env))
 	}
