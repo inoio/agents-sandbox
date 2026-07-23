@@ -7,6 +7,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+
 	"time"
 
 	"github.com/moby/moby/client"
@@ -39,8 +40,9 @@ type RunOptions struct {
 }
 
 type Config struct {
-	StateDir      string
-	UserConfigDir string
+	StateDir        string
+	UserConfigDir   string
+	UserLauncherDir string
 }
 
 const (
