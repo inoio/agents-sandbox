@@ -13,4 +13,8 @@
 [ ] support docker in VM
 [ ] config file for cli settings in .opencode-msb
 [ ] make cli output pretty and UX'd
-[ ] think about lifecycle of home volume - it would be nice to keep history, but not across projects
+
+
+[ ] clean commands for volumes, sandboxes, images - with filters, best same ones. Also readable list output (project name, not number)
+[ ] think about lifecycle of home volume - it would be nice to keep history, but not across projects. Maybe clean option is enough - fancy: option to interactively edit the home volume.
+
