@@ -22,18 +22,34 @@ go install gitlab.inoio.de/inoio/opencode-msb/cmd/opencode-msb@latest
 
 ```bash
 opencode-msb                    # run opencode in a microsandbox VM
-opencode-msb --branch my-feature  # run in an isolated git clone
+opencode-msb -b my-feature      # run in an isolated git clone
 opencode-msb doctor             # check prerequisites
-opencode-msb run --branch my-feature  # explicit run subcommand
+opencode-msb build -r           # rebuild the runner image
+opencode-msb list               # list running sandboxes
 ```
+
+## Commands
+
+| Command | Aliases | Purpose |
+|---|---|---|
+| `run` (default) | `sandbox run` | Run opencode in the sandbox VM |
+| `doctor` | — | Check host prerequisites (docker, kvm, git, msb) |
+| `build` | `image build` | Build or rebuild the runner image |
+| `list` | `ls`, `sandbox list` | List sandboxes for this host |
+| `shell` | `sandbox shell` | Start sandbox and open a shell (debug) |
+| `config show` | — | Print merged opencode config (debug) |
+| `image list` | `image ls` | List cached runner images |
+| `volume list` | `volume ls` | List managed volumes |
+
+Bare `opencode-msb` (or flags-only invocation) implicitly runs `run`.
 
 ## Branch sessions
 
 By default `opencode-msb` runs in the current directory. To start an isolated
-session for a different branch, use `--branch <branch>`:
+session for a different branch, use `-b`/`--branch <branch>`:
 
 ```bash
-opencode-msb --branch my-feature
+opencode-msb -b my-feature
 ```
 
 Rules:
@@ -42,22 +58,44 @@ Rules:
 - Otherwise the launcher creates or reuses an independent git clone under
   `~/.local/state/opencode-msb/isolated-workspaces/<project>/<branch>`.
 - If `<branch>` does not exist, you are prompted whether to create it. Use
-  `--yes` to create it from `HEAD` without prompting.
+  `--yes`/`-y` to create it from `HEAD` without prompting.
 - When the launcher created the managed clone, it asks after the session whether to
   keep it, remove it, or merge it back into the original branch. With `--yes`,
   the default is to remove the managed clone and keep the branch.
 
 ## Flags
 
-| Flag | Default | Purpose |
-|---|---|---|
-| `--branch` | `""` | run in an isolated git clone for the given branch |
-| `--yes` / `-y` | `false` | do not prompt; use default actions |
-| `--image-rebuild` | `false` | force rebuild of the runner image |
-| `--volume-fallback` | `false` | use project-local dirs instead of msb volumes |
-| `--reset-home` | `false` | wipe the opencode home volume before run |
-| `--cpus` | host CPU count | vCPUs for the sandbox |
-| `--memory` | `4G` | memory limit (e.g. `4G`, `512M`) |
+### Global
+
+| Flag | Short | Default | Purpose |
+|---|---|---|---|
+| `--yes` | `-y` | `false` | Assume yes to all prompts |
+| `--verbose` | `-v` | `false` | Show debug-level output |
+| `--quiet` | `-q` | `false` | Suppress non-error output |
+| `--tree` | — | `false` | Print the full command tree and exit |
+| `--version` | `-V` | `false` | Print version and exit |
+
+### Run / Shell
+
+| Flag | Short | Default | Purpose |
+|---|---|---|---|
+| `--branch` | `-b` | `""` | Isolated git clone for the given branch |
+| `--cpus` | `-c` | `0` (all) | vCPUs for the sandbox |
+| `--memory` | `-m` | `4G` | Memory limit (e.g. `4G`, `512M`) |
+| `--rebuild` | `-r` | `false` | Rebuild the runner image before starting |
+
+### Run only
+
+| Flag | Short | Default | Purpose |
+|---|---|---|---|
+| `--dry-run` | `-n` | `false` | Validate setup without running opencode |
+| `--no-auto` | — | `false` | Do not pass `--auto` to opencode |
+
+### Build
+
+| Flag | Short | Default | Purpose |
+|---|---|---|---|
+| `--rebuild` | `-r` | `false` | Force a clean rebuild |
 
 ## Project overrides
 
