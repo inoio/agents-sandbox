@@ -81,3 +81,14 @@ func TestSpinnerStopTwiceNoPanic(_ *testing.T) {
 	s.Stop()
 	s.StopError(errors.New("err"))
 }
+
+func TestSpinnerHiddenAtQuietLevel(t *testing.T) {
+	var buf bytes.Buffer
+	l := NewWithLevel(&buf, false, LevelQuiet)
+	s := NewSpinner(l)
+	s.Start("Building image")
+	s.Stop()
+	if buf.String() != "" {
+		t.Errorf("expected no spinner output at quiet level, got %q", buf.String())
+	}
+}
