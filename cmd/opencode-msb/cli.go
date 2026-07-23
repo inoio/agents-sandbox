@@ -79,7 +79,7 @@ func buildRootCmd() *cobra.Command {
 
 func isKnownSubcommand(arg string, root *cobra.Command) bool {
 	switch arg {
-	case "help", "--help", "-h", "--tree", "--version", "-V":
+	case "help", "--help", "-h", "--tree", "--version", "-V", "completion":
 		return true
 	default:
 	}
@@ -127,7 +127,7 @@ func buildDoctorCmd() *cobra.Command {
 			if !sandbox.CheckAll(cmd.Context(), logger) {
 				return errors.New("preflight failed")
 			}
-			fmt.Fprintln(os.Stderr, "doctor: all checks passed")
+			logger.Info("doctor: all checks passed")
 			return nil
 		},
 	}
@@ -203,7 +203,8 @@ func buildListCmd() *cobra.Command {
 				return err
 			}
 			if len(sandboxes) == 0 {
-				fmt.Fprintln(os.Stderr, "No sandboxes found.")
+				logger := newLogger(cmd)
+				logger.Info("No sandboxes found.")
 				return nil
 			}
 			for _, s := range sandboxes {
@@ -308,7 +309,8 @@ func buildImageCmd() *cobra.Command {
 				return err
 			}
 			if len(images) == 0 {
-				fmt.Fprintln(os.Stderr, "No images found.")
+				logger := newLogger(cmd)
+				logger.Info("No images found.")
 				return nil
 			}
 			for _, img := range images {
@@ -336,7 +338,8 @@ func buildVolumeCmd() *cobra.Command {
 				return err
 			}
 			if len(volumes) == 0 {
-				fmt.Fprintln(os.Stderr, "No volumes found.")
+				logger := newLogger(cmd)
+				logger.Info("No volumes found.")
 				return nil
 			}
 			for _, vol := range volumes {
@@ -355,6 +358,7 @@ func buildSandboxCmd() *cobra.Command {
 	}
 	cmd.AddCommand(buildListCmd())
 	cmd.AddCommand(buildShellCmd())
+	cmd.AddCommand(buildRunCmd())
 	return cmd
 }
 

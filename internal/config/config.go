@@ -163,6 +163,10 @@ func DescribeConfig(userDir, projectDir string, providerConfig map[string]any) (
 		result = append(result, ConfigFileDesc{Name: name, Sources: sources})
 	}
 
+	sort.Slice(result, func(i, j int) bool {
+		return result[i].Name < result[j].Name
+	})
+
 	return result, nil
 }
 
