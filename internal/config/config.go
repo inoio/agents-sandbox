@@ -104,6 +104,68 @@ func scanOtherFiles(dirs ...string) map[string][]byte {
 	return files
 }
 
+type ConfigFileDesc struct {
+	Name    string
+	Sources []string
+}
+
+func DescribeConfig(userDir, projectDir string, providerConfig map[string]any) ([]ConfigFileDesc, error) {
+	var result []ConfigFileDesc
+
+	jsonFiles := scanJSONFiles(userDir, projectDir)
+	for name := range jsonFiles {
+		var sources []string
+		if userDir != "" {
+			if entries, err := os.ReadDir(userDir); err == nil {
+				for _, e := range entries {
+					if e.Name() == name {
+						sources = append(sources, filepath.Join(userDir, name))
+					}
+				}
+			}
+		}
+		if projectDir != "" {
+			if entries, err := os.ReadDir(projectDir); err == nil {
+				for _, e := range entries {
+					if e.Name() == name {
+						sources = append(sources, filepath.Join(projectDir, name))
+					}
+				}
+			}
+		}
+		if name == "opencode.jsonc" || name == "opencode.json" {
+			sources = append(sources, "embedded provider config")
+		}
+		result = append(result, ConfigFileDesc{Name: name, Sources: sources})
+	}
+
+	otherFiles := scanOtherFiles(userDir, projectDir)
+	for name := range otherFiles {
+		var sources []string
+		if userDir != "" {
+			if entries, err := os.ReadDir(userDir); err == nil {
+				for _, e := range entries {
+					if e.Name() == name {
+						sources = append(sources, filepath.Join(userDir, name))
+					}
+				}
+			}
+		}
+		if projectDir != "" {
+			if entries, err := os.ReadDir(projectDir); err == nil {
+				for _, e := range entries {
+					if e.Name() == name {
+						sources = append(sources, filepath.Join(projectDir, name))
+					}
+				}
+			}
+		}
+		result = append(result, ConfigFileDesc{Name: name, Sources: sources})
+	}
+
+	return result, nil
+}
+
 func BuildMergedConfig(userDir, projectDir string, providerConfig map[string]any) (map[string][]byte, error) {
 	jsonFiles := scanJSONFiles(userDir, projectDir)
 	otherFiles := scanOtherFiles(userDir, projectDir)
