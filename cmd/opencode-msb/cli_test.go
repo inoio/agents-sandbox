@@ -14,6 +14,13 @@ func TestIsKnownSubcommandRecognizesRegisteredCommands(t *testing.T) {
 		{"run", true},
 		{"doctor", true},
 		{"build", true},
+		{"list", true},
+		{"ls", true},
+		{"shell", true},
+		{"config", true},
+		{"image", true},
+		{"volume", true},
+		{"sandbox", true},
 		{"help", true},
 		{"--help", true},
 		{"-h", true},
@@ -38,7 +45,7 @@ func TestPrintTreeContainsAllCommands(t *testing.T) {
 	var sb strings.Builder
 	printTree(&sb, root, "")
 	out := sb.String()
-	expected := []string{"run", "doctor", "build"}
+	expected := []string{"run", "doctor", "build", "list", "shell", "config", "image", "volume"}
 	for _, cmd := range expected {
 		if !strings.Contains(out, cmd) {
 			t.Errorf("expected tree to contain %q, got:\n%s", cmd, out)
@@ -89,5 +96,17 @@ func TestRunCommandFlagShortcuts(t *testing.T) {
 		if f == nil {
 			t.Errorf("expected shorthand -%s for --%s", short, long)
 		}
+	}
+}
+
+func TestImageBuildNounFormExists(t *testing.T) {
+	root := buildRootCmd()
+	imageCmd, _, _ := root.Find([]string{"image"})
+	if imageCmd == nil {
+		t.Fatal("expected image command")
+	}
+	buildCmd, _, _ := imageCmd.Find([]string{"build"})
+	if buildCmd == nil {
+		t.Fatal("expected image build subcommand")
 	}
 }

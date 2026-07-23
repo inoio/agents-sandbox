@@ -11,6 +11,7 @@ import (
 	"github.com/spf13/cobra"
 	"golang.org/x/term"
 
+	"gitlab.inoio.de/inoio/opencode-msb/internal/config"
 	"gitlab.inoio.de/inoio/opencode-msb/internal/log"
 	"gitlab.inoio.de/inoio/opencode-msb/internal/prompt"
 	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox"
@@ -66,6 +67,12 @@ func buildRootCmd() *cobra.Command {
 	root.AddCommand(buildRunCmd())
 	root.AddCommand(buildDoctorCmd())
 	root.AddCommand(buildBuildCmd())
+	root.AddCommand(buildListCmd())
+	root.AddCommand(buildShellCmd())
+	root.AddCommand(buildConfigCmd())
+	root.AddCommand(buildImageCmd())
+	root.AddCommand(buildVolumeCmd())
+	root.AddCommand(buildSandboxCmd())
 
 	return root
 }
@@ -183,6 +190,172 @@ func newConfig() sandbox.Config {
 		StateDir:      filepath.Join(home, ".local", "state", "opencode-msb"),
 		UserConfigDir: filepath.Join(home, ".config", "opencode-msb", "opencode"),
 	}
+}
+
+func buildListCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:     "list",
+		Aliases: []string{"ls"},
+		Short:   "List sandboxes for this host",
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			sandboxes, err := sandbox.ListSandboxes(cmd.Context())
+			if err != nil {
+				return err
+			}
+			if len(sandboxes) == 0 {
+				fmt.Fprintln(os.Stderr, "No sandboxes found.")
+				return nil
+			}
+			for _, s := range sandboxes {
+				fmt.Fprintf(os.Stdout, "%-40s %s\n", s.Name, s.Status)
+			}
+			return nil
+		},
+	}
+	return cmd
+}
+
+func buildShellCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "shell [flags]",
+		Short: "Start sandbox and open a shell (debug)",
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			opts := sandbox.RunOptions{Auto: false}
+			opts.Branch, _ = cmd.Flags().GetString("branch")
+			opts.Rebuild, _ = cmd.Flags().GetBool("rebuild")
+			opts.CPUs, _ = cmd.Flags().GetUint8("cpus")
+			opts.Memory, _ = cmd.Flags().GetString("memory")
+
+			cfg := newConfig()
+			logger := newLogger(cmd)
+
+			err := sandbox.Shell(cmd.Context(), opts, cfg, logger)
+			var exitErr *sandbox.ExitError
+			if errors.As(err, &exitErr) {
+				os.Exit(exitErr.Code)
+			}
+			return err
+		},
+	}
+
+	cmd.Flags().StringP("branch", "b", "", "Run in an isolated git clone for the given branch")
+	cmd.Flags().BoolP("rebuild", "r", false, "Rebuild the runner image before starting")
+	cmd.Flags().Uint8P("cpus", "c", 0, "Number of CPUs (default: all)")
+	cmd.Flags().StringP("memory", "m", "4G", "Memory limit (default: 4G)")
+
+	return cmd
+}
+
+func buildConfigCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "config",
+		Short: "Inspect opencode configuration",
+	}
+	cmd.AddCommand(&cobra.Command{
+		Use:   "show",
+		Short: "Print merged opencode config with source paths",
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			cfg := newConfig()
+			projectConfigDir := ""
+			if _, statErr := os.Stat(".opencode-msb/opencode"); statErr == nil {
+				projectConfigDir = ".opencode-msb/opencode"
+			}
+			providerCfg, err := config.LoadProviderConfig(config.EmbeddedProviderConfig)
+			if err != nil {
+				return fmt.Errorf("load provider config: %w", err)
+			}
+
+			descs, err := config.DescribeConfig(cfg.UserConfigDir, projectConfigDir, providerCfg)
+			if err != nil {
+				return err
+			}
+			files, err := config.BuildMergedConfig(cfg.UserConfigDir, projectConfigDir, providerCfg)
+			if err != nil {
+				return err
+			}
+
+			for _, desc := range descs {
+				fmt.Fprintf(os.Stdout, "=== %s ===\n", desc.Name)
+				for _, src := range desc.Sources {
+					fmt.Fprintf(os.Stdout, "  source: %s\n", src)
+				}
+				if data, ok := files[desc.Name]; ok {
+					fmt.Fprintln(os.Stdout, "  merged content:")
+					for _, line := range strings.Split(string(data), "\n") {
+						fmt.Fprintf(os.Stdout, "    %s\n", line)
+					}
+				}
+				fmt.Fprintln(os.Stdout)
+			}
+			return nil
+		},
+	})
+	return cmd
+}
+
+func buildImageCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "image",
+		Short: "Manage runner images",
+	}
+	cmd.AddCommand(&cobra.Command{
+		Use:     "list",
+		Aliases: []string{"ls"},
+		Short:   "List cached runner images",
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			images, err := sandbox.ListImages(cmd.Context())
+			if err != nil {
+				return err
+			}
+			if len(images) == 0 {
+				fmt.Fprintln(os.Stderr, "No images found.")
+				return nil
+			}
+			for _, img := range images {
+				fmt.Fprintf(os.Stdout, "%-50s %s\n", img.Reference, img.Digest)
+			}
+			return nil
+		},
+	})
+	cmd.AddCommand(buildBuildCmd())
+	return cmd
+}
+
+func buildVolumeCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "volume",
+		Short: "Manage volumes",
+	}
+	cmd.AddCommand(&cobra.Command{
+		Use:     "list",
+		Aliases: []string{"ls"},
+		Short:   "List managed volumes",
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			volumes, err := sandbox.ListVolumes(cmd.Context())
+			if err != nil {
+				return err
+			}
+			if len(volumes) == 0 {
+				fmt.Fprintln(os.Stderr, "No volumes found.")
+				return nil
+			}
+			for _, vol := range volumes {
+				fmt.Fprintf(os.Stdout, "%-50s %s\n", vol.Name, vol.Path)
+			}
+			return nil
+		},
+	})
+	return cmd
+}
+
+func buildSandboxCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "sandbox",
+		Short: "Manage sandboxes",
+	}
+	cmd.AddCommand(buildListCmd())
+	cmd.AddCommand(buildShellCmd())
+	return cmd
 }
 
 func newLogger(cmd *cobra.Command) *log.Logger {
