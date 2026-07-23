@@ -99,8 +99,25 @@ Rules:
 
 ## Project overrides
 
-Create `.opencode-msb/Dockerfile` to override the runner image.
-Create `.opencode-msb/env` to add environment variables.
+### Make project specific tools / toolchains available to OpenCode
+
+In your project directory, you can create `.opencode-msb/Dockerfile`. opencode-msb will execute OpenCode in a VM initialized with the built Docker image.
+
+In order for opencode to have the commands installed in the image available, extend PATH:
+
+* for tools installed via dev user (default), via `/home/dev/.profile`, e.g. in Dockerfile, add `RUN echo 'export PATH="$PATH:/home/dev/.tool/bin"' >> /home/dev/.profile`
+* for tools installed via root user, via `/etc/profile`, e.g. in Dockerfile, add `RUN echo 'export PATH="$PATH:/path/to/tool/bin"' >> /etc/profile`
+
+### Extend VM environment
+
+Create `.opencode-msb/env` to add environment variables, e.g.
+
+```shell
+FOO=bar
+BAZ=qoox
+```
+
+These are available to opencode.
 
 ## Extending the runner image
 
