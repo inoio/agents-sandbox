@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -17,7 +18,20 @@ import (
 	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox"
 )
 
-var version = "dev" //nolint:gochecknoglobals // set at link time
+const (
+	flagTree    = "--tree"
+	flagVersion = "--version"
+
+	cmdRun    = "run"
+	cmdDoctor = "doctor"
+	cmdBuild  = "build"
+	cmdList   = "list"
+	cmdConfig = "config"
+	cmdImage  = "image"
+	cmdVolume = "volume"
+)
+
+var version = "dev"
 
 func Execute() error {
 	root := buildRootCmd()
@@ -29,17 +43,17 @@ func Execute() error {
 			break
 		}
 		switch a {
-		case "--tree":
+		case flagTree:
 			printTree(os.Stdout, root, "")
 			return nil
-		case "--version", "-V":
+		case flagVersion, "-V":
 			fmt.Fprintf(os.Stdout, "opencode-msb version %s\n", version)
 			return nil
 		}
 	}
 
 	if len(args) == 0 || !isKnownSubcommand(args[0], root) {
-		args = append([]string{"run"}, args...)
+		args = append([]string{cmdRun}, args...)
 	}
 	root.SetArgs(args)
 	return root.Execute()
@@ -79,7 +93,7 @@ func buildRootCmd() *cobra.Command {
 
 func isKnownSubcommand(arg string, root *cobra.Command) bool {
 	switch arg {
-	case "help", "--help", "-h", "--tree", "--version", "-V", "completion":
+	case "help", "--help", "-h", flagTree, flagVersion, "-V", "completion":
 		return true
 	default:
 	}
@@ -88,10 +102,8 @@ func isKnownSubcommand(arg string, root *cobra.Command) bool {
 		if cmd.Name() == arg {
 			return true
 		}
-		for _, alias := range cmd.Aliases {
-			if alias == arg {
-				return true
-			}
+		if slices.Contains(cmd.Aliases, arg) {
+			return true
 		}
 	}
 	return false
@@ -120,7 +132,7 @@ func printTree(w io.Writer, cmd *cobra.Command, prefix string) {
 
 func buildDoctorCmd() *cobra.Command {
 	return &cobra.Command{
-		Use:   "doctor",
+		Use:   cmdDoctor,
 		Short: "Check prerequisites",
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			logger := newLogger(cmd)
@@ -135,7 +147,7 @@ func buildDoctorCmd() *cobra.Command {
 
 func buildBuildCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "build",
+		Use:   cmdBuild,
 		Short: "Build or rebuild the runner image",
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			force, _ := cmd.Flags().GetBool("rebuild")
@@ -194,7 +206,7 @@ func newConfig() sandbox.Config {
 
 func buildListCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:     "list",
+		Use:     cmdList,
 		Aliases: []string{"ls"},
 		Short:   "List sandboxes for this host",
 		RunE: func(cmd *cobra.Command, _ []string) error {
@@ -249,13 +261,13 @@ func buildShellCmd() *cobra.Command {
 
 func buildConfigCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "config",
+		Use:   cmdConfig,
 		Short: "Inspect opencode configuration",
 	}
 	cmd.AddCommand(&cobra.Command{
 		Use:   "show",
 		Short: "Print merged opencode config with source paths",
-		RunE: func(cmd *cobra.Command, _ []string) error {
+		RunE: func(_ *cobra.Command, _ []string) error {
 			cfg := newConfig()
 			projectConfigDir := ""
 			if _, statErr := os.Stat(".opencode-msb/opencode"); statErr == nil {
@@ -282,7 +294,7 @@ func buildConfigCmd() *cobra.Command {
 				}
 				if data, ok := files[desc.Name]; ok {
 					fmt.Fprintln(os.Stdout, "  merged content:")
-					for _, line := range strings.Split(string(data), "\n") {
+					for line := range strings.SplitSeq(string(data), "\n") {
 						fmt.Fprintf(os.Stdout, "    %s\n", line)
 					}
 				}
@@ -296,11 +308,11 @@ func buildConfigCmd() *cobra.Command {
 
 func buildImageCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "image",
+		Use:   cmdImage,
 		Short: "Manage runner images",
 	}
 	cmd.AddCommand(&cobra.Command{
-		Use:     "list",
+		Use:     cmdList,
 		Aliases: []string{"ls"},
 		Short:   "List cached runner images",
 		RunE: func(cmd *cobra.Command, _ []string) error {
@@ -325,11 +337,11 @@ func buildImageCmd() *cobra.Command {
 
 func buildVolumeCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "volume",
+		Use:   cmdVolume,
 		Short: "Manage volumes",
 	}
 	cmd.AddCommand(&cobra.Command{
-		Use:     "list",
+		Use:     cmdList,
 		Aliases: []string{"ls"},
 		Short:   "List managed volumes",
 		RunE: func(cmd *cobra.Command, _ []string) error {
