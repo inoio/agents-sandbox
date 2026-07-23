@@ -93,11 +93,7 @@ release:
     name: "opencode-msb $VERSION"
     description: "Release $VERSION"
     tag_name: "$VERSION"
-    ref: '$CI_COMMIT_SHA'                                            # in the pipeline. For example, in the
-    milestones:                                                      # prepare_job
-      - 'm1'
-      - 'm2'
-      - 'm3'
+    ref: '$CI_COMMIT_SHA'
     assets:
       links:
         - name: "opencode-msb-linux-amd64"
