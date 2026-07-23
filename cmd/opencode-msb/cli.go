@@ -7,12 +7,14 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 
 	"github.com/spf13/cobra"
 	"golang.org/x/term"
 
 	"gitlab.inoio.de/inoio/opencode-msb/internal/config"
+	"gitlab.inoio.de/inoio/opencode-msb/internal/launcherconfig"
 	"gitlab.inoio.de/inoio/opencode-msb/internal/log"
 	"gitlab.inoio.de/inoio/opencode-msb/internal/prompt"
 	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox"
@@ -29,6 +31,13 @@ const (
 	cmdConfig = "config"
 	cmdImage  = "image"
 	cmdVolume = "volume"
+
+	flagYes     = "yes"
+	flagVerbose = "verbose"
+	flagQuiet   = "quiet"
+	flagRebuild = "rebuild"
+	flagCpus    = "cpus"
+	flagMemory  = "memory"
 )
 
 var version = "dev"
@@ -72,6 +81,14 @@ func buildRootCmd() *cobra.Command {
 	root.PersistentFlags().BoolP("version", "V", false, "Print version and exit")
 
 	root.PersistentPreRunE = func(cmd *cobra.Command, _ []string) error {
+		cfg := newConfig()
+		lc, keys, err := launcherconfig.Load(cfg.UserLauncherDir, projectLauncherDir)
+		if err != nil {
+			return err
+		}
+		if err := applyLauncherConfig(cmd, lc, keys); err != nil {
+			return err
+		}
 		if yes, _ := cmd.Flags().GetBool("yes"); yes {
 			prompt.AssumeYes = true //nolint:reassign // CLI flag override, set once at startup
 		}
@@ -199,9 +216,67 @@ func buildRunCmd() *cobra.Command {
 func newConfig() sandbox.Config {
 	home, _ := os.UserHomeDir()
 	return sandbox.Config{
-		StateDir:      filepath.Join(home, ".local", "state", "opencode-msb"),
-		UserConfigDir: filepath.Join(home, ".config", "opencode-msb", "opencode"),
+		StateDir:        filepath.Join(home, ".local", "state", "opencode-msb"),
+		UserConfigDir:   filepath.Join(home, ".config", "opencode-msb", "opencode"),
+		UserLauncherDir: filepath.Join(home, ".config", "opencode-msb"),
 	}
+}
+
+const projectLauncherDir = ".opencode-msb"
+
+func applyLauncherConfig(cmd *cobra.Command, lc launcherconfig.Config, keys map[string]bool) error {
+	apply := []struct {
+		key string
+		fn  func() error
+	}{
+		{flagYes, func() error { return setBoolFlag(cmd, flagYes, lc.Yes) }},
+		{flagVerbose, func() error { return setBoolFlag(cmd, flagVerbose, lc.Verbose) }},
+		{flagQuiet, func() error { return setBoolFlag(cmd, flagQuiet, lc.Quiet) }},
+		{flagRebuild, func() error { return setBoolFlag(cmd, flagRebuild, lc.Rebuild) }},
+		{flagCpus, func() error { return setUint8Flag(cmd, flagCpus, lc.CPUs) }},
+		{flagMemory, func() error { return setStringFlag(cmd, flagMemory, lc.Memory) }},
+	}
+	for _, item := range apply {
+		if keys[item.key] {
+			if err := item.fn(); err != nil {
+				return fmt.Errorf("apply launcher config %q: %w", item.key, err)
+			}
+		}
+	}
+	return nil
+}
+
+func setBoolFlag(cmd *cobra.Command, name string, val bool) error {
+	f := cmd.Flags().Lookup(name)
+	if f == nil {
+		f = cmd.InheritedFlags().Lookup(name)
+	}
+	if f == nil || f.Changed {
+		return nil
+	}
+	return f.Value.Set(strconv.FormatBool(val))
+}
+
+func setUint8Flag(cmd *cobra.Command, name string, val uint8) error {
+	f := cmd.Flags().Lookup(name)
+	if f == nil {
+		f = cmd.InheritedFlags().Lookup(name)
+	}
+	if f == nil || f.Changed {
+		return nil
+	}
+	return f.Value.Set(strconv.FormatUint(uint64(val), 10))
+}
+
+func setStringFlag(cmd *cobra.Command, name string, val string) error {
+	f := cmd.Flags().Lookup(name)
+	if f == nil {
+		f = cmd.InheritedFlags().Lookup(name)
+	}
+	if f == nil || f.Changed || val == "" {
+		return nil
+	}
+	return f.Value.Set(val)
 }
 
 func buildListCmd() *cobra.Command {
