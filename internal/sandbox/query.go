@@ -8,7 +8,7 @@ import (
 	msb "github.com/superradcompany/microsandbox/sdk/go"
 )
 
-type SandboxInfo struct {
+type Info struct {
 	Name   string
 	Status string
 }
@@ -25,19 +25,15 @@ type ImageInfo struct {
 }
 
 type sandboxHandle struct {
-	name   string
-	status msb.SandboxStatus
+	name string
 }
 
 type volumeHandle struct {
 	name string
-	path string
-	kind msb.VolumeKind
 }
 
 type imageHandle struct {
-	reference      string
-	manifestDigest string
+	reference string
 }
 
 func filterSandboxes(handles []sandboxHandle) []string {
@@ -70,18 +66,18 @@ func filterImages(handles []imageHandle) []string {
 	return result
 }
 
-func ListSandboxes(ctx context.Context) ([]SandboxInfo, error) {
+func ListSandboxes(ctx context.Context) ([]Info, error) {
 	handles, err := msb.ListSandboxes(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("list sandboxes: %w", err)
 	}
-	var result []SandboxInfo
+	var result []Info
 	for _, h := range handles {
 		name := h.Name()
 		if !strings.HasPrefix(name, "opencode-msb-") {
 			continue
 		}
-		result = append(result, SandboxInfo{
+		result = append(result, Info{
 			Name:   name,
 			Status: string(h.Status()),
 		})

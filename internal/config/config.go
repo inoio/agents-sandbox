@@ -104,63 +104,46 @@ func scanOtherFiles(dirs ...string) map[string][]byte {
 	return files
 }
 
-type ConfigFileDesc struct {
+type FileDesc struct {
 	Name    string
 	Sources []string
 }
 
-func DescribeConfig(userDir, projectDir string, providerConfig map[string]any) ([]ConfigFileDesc, error) {
-	var result []ConfigFileDesc
+func findSources(name string, dirs ...string) []string {
+	var sources []string
+	for _, dir := range dirs {
+		if dir == "" {
+			continue
+		}
+		entries, err := os.ReadDir(dir)
+		if err != nil {
+			continue
+		}
+		for _, e := range entries {
+			if e.Name() == name {
+				sources = append(sources, filepath.Join(dir, name))
+			}
+		}
+	}
+	return sources
+}
 
-	jsonFiles := scanJSONFiles(userDir, projectDir)
+func DescribeConfig(userDir, projectDir string, _ map[string]any) ([]FileDesc, error) {
+	dirs := []string{userDir, projectDir}
+	var result []FileDesc
+
+	jsonFiles := scanJSONFiles(dirs...)
 	for name := range jsonFiles {
-		var sources []string
-		if userDir != "" {
-			if entries, err := os.ReadDir(userDir); err == nil {
-				for _, e := range entries {
-					if e.Name() == name {
-						sources = append(sources, filepath.Join(userDir, name))
-					}
-				}
-			}
-		}
-		if projectDir != "" {
-			if entries, err := os.ReadDir(projectDir); err == nil {
-				for _, e := range entries {
-					if e.Name() == name {
-						sources = append(sources, filepath.Join(projectDir, name))
-					}
-				}
-			}
-		}
+		sources := findSources(name, dirs...)
 		if name == "opencode.jsonc" || name == "opencode.json" {
 			sources = append(sources, "embedded provider config")
 		}
-		result = append(result, ConfigFileDesc{Name: name, Sources: sources})
+		result = append(result, FileDesc{Name: name, Sources: sources})
 	}
 
-	otherFiles := scanOtherFiles(userDir, projectDir)
+	otherFiles := scanOtherFiles(dirs...)
 	for name := range otherFiles {
-		var sources []string
-		if userDir != "" {
-			if entries, err := os.ReadDir(userDir); err == nil {
-				for _, e := range entries {
-					if e.Name() == name {
-						sources = append(sources, filepath.Join(userDir, name))
-					}
-				}
-			}
-		}
-		if projectDir != "" {
-			if entries, err := os.ReadDir(projectDir); err == nil {
-				for _, e := range entries {
-					if e.Name() == name {
-						sources = append(sources, filepath.Join(projectDir, name))
-					}
-				}
-			}
-		}
-		result = append(result, ConfigFileDesc{Name: name, Sources: sources})
+		result = append(result, FileDesc{Name: name, Sources: findSources(name, dirs...)})
 	}
 
 	sort.Slice(result, func(i, j int) bool {
