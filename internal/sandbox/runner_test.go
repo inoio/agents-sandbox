@@ -443,3 +443,16 @@ func newTestLogger(t *testing.T) *log.Logger {
 	t.Helper()
 	return log.New(io.Discard, false)
 }
+
+func TestMergeEnvMapsProjectOverridesUser(t *testing.T) {
+	userFile := filepath.Join(t.TempDir(), "env")
+	writeFile(t, userFile, "FOO=user\nBAR=user\n")
+	projectFile := filepath.Join(t.TempDir(), "env")
+	writeFile(t, projectFile, "FOO=project\n")
+
+	got := mergeEnvMaps(buildEnvMap(userFile), buildEnvMap(projectFile))
+	want := map[string]string{"FOO": "project", "BAR": "user"}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("got %v, want %v", got, want)
+	}
+}

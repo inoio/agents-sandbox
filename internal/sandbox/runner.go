@@ -4,7 +4,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 
@@ -173,6 +175,14 @@ func buildEnvMap(filename string) map[string]string {
 		}
 	}
 	return env
+}
+
+func mergeEnvMaps(mapsToMerge ...map[string]string) map[string]string {
+	result := make(map[string]string)
+	for _, m := range mapsToMerge {
+		maps.Copy(result, m)
+	}
+	return result
 }
 
 const autoFlag = "--auto"
@@ -453,7 +463,7 @@ func prepareSandbox(
 	}
 
 	logger.Debug(fmt.Sprintf("sandbox: %s (cpus=%d, memory=%s)", name, opts.CPUs, opts.Memory))
-	sb, err := createSandbox(ctx, name, imageRef, repoPath, homeVol, opts, logger)
+	sb, err := createSandbox(ctx, name, imageRef, repoPath, homeVol, opts, cfg, logger)
 	if err != nil {
 		return nil, err
 	}
@@ -571,6 +581,7 @@ func createSandbox(
 	ctx context.Context,
 	name, imageRef, repoPath, homeVol string,
 	opts RunOptions,
+	cfg Config,
 	logger *log.Logger,
 ) (*msb.Sandbox, error) {
 	cpus := opts.CPUs
@@ -578,8 +589,14 @@ func createSandbox(
 		cpus = sysinfo.NumCPUs()
 	}
 	maxMemoryGiB := sysinfo.TotalMemoryGiB()
-	envMap := buildEnvMap(".opencode-msb/env")
-	secrets := BuildSecrets(buildEnvMap(".opencode-msb/env.secret"), logger)
+	envMap := mergeEnvMaps(
+		buildEnvMap(filepath.Join(cfg.UserLauncherDir, "env")),
+		buildEnvMap(".opencode-msb/env"),
+	)
+	secrets := BuildSecrets(mergeEnvMaps(
+		buildEnvMap(filepath.Join(cfg.UserLauncherDir, "env.secret")),
+		buildEnvMap(".opencode-msb/env.secret"),
+	), logger)
 
 	mounts := map[string]msb.MountConfig{
 		"/home/dev":  msb.Mount.Named(homeVol, msb.MountOptions{}),
