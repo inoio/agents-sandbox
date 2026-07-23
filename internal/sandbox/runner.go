@@ -486,7 +486,10 @@ func Run(ctx context.Context, opts RunOptions, cfg Config, logger *log.Logger) e
 	} else {
 		opencodeArgs := buildOpencodeArgs(opts.Args, opts.Auto)
 		setup := `opencode ` + strings.Join(opencodeArgs, " ")
-		exitCode, attachErr = session.sb.Attach(ctx, "/bin/bash", "-c", setup)
+		// Run as a login shell so /etc/profile and ~/.profile are sourced,
+		// putting tools installed under /usr/local/go/bin, ~/go/bin and
+		// ~/.microsandbox/bin on PATH for opencode and its child shells.
+		exitCode, attachErr = session.sb.Attach(ctx, "/bin/bash", "-l", "-c", setup)
 	}
 
 	var cleanupErr error
@@ -504,7 +507,8 @@ func Shell(ctx context.Context, opts RunOptions, cfg Config, logger *log.Logger)
 	}
 	defer session.cleanup()
 
-	exitCode, attachErr := session.sb.Attach(ctx, "/bin/bash")
+	// Login shell so the interactive shell inherits PATH from /etc/profile and ~/.profile.
+	exitCode, attachErr := session.sb.Attach(ctx, "/bin/bash", "-l")
 	return finalizeRun(attachErr, nil, exitCode)
 }
 
