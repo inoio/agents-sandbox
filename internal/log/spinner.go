@@ -16,6 +16,7 @@ const spinnerInterval = 100 * time.Millisecond
 type Spinner struct {
 	w      io.Writer
 	color  bool
+	level  Level
 	msg    string
 	start  time.Time
 	stopCh chan struct{}
@@ -25,12 +26,12 @@ type Spinner struct {
 }
 
 func NewSpinner(l *Logger) *Spinner {
-	return &Spinner{w: l.w, color: l.color}
+	return &Spinner{w: l.w, color: l.color, level: l.level}
 }
 
 func (s *Spinner) Start(msg string) {
 	s.mu.Lock()
-	if s.active {
+	if s.active || s.level >= LevelQuiet {
 		s.mu.Unlock()
 		return
 	}
@@ -81,6 +82,10 @@ func (s *Spinner) finish(result string) {
 	s.active = false
 	elapsed := time.Since(s.start)
 	s.mu.Unlock()
+
+	if s.level >= LevelQuiet {
+		return
+	}
 
 	suffix := formatElapsedDone(elapsed)
 	var final string
