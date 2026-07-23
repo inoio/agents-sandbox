@@ -119,6 +119,43 @@ BAZ=qoox
 
 These are available to opencode.
 
+### User-level defaults
+
+You can also put defaults in `~/.config/opencode-msb/` so they apply to every
+project unless overridden:
+
+- `~/.config/opencode-msb/env` — environment variables forwarded to every sandbox.
+- `~/.config/opencode-msb/env.secret` — secret environment variables in
+  `value@host` format.
+- `~/.config/opencode-msb/config.*` — launcher defaults for CLI flags.
+
+Supported config names are `config.yaml`, `config.yml`, `config.json`,
+`config.jsonc`, and `config.json5`. The first one found in the directory is
+used.
+
+Example `~/.config/opencode-msb/config.yaml`:
+
+```yaml
+verbose: true
+cpus: 4
+memory: 8G
+```
+
+Example `.opencode-msb/config.yaml` that overrides the user default only for
+this project:
+
+```yaml
+memory: 16G
+rebuild: true
+```
+
+Precedence for both env files and launcher config is:
+
+1. Built-in defaults
+2. `~/.config/opencode-msb/`
+3. `.opencode-msb/` — project-level values win
+4. CLI flags — always win
+
 ## Extending the runner image
 
 The launcher builds and runs a base runner image that contains:
