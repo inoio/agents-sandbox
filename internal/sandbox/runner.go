@@ -29,15 +29,13 @@ func (e *ExitError) Error() string {
 }
 
 type RunOptions struct {
-	Branch         string
-	ImageRebuild   bool
-	VolumeFallback bool
-	ResetHome      bool
-	CPUs           uint8
-	Memory         string
-	Auto           bool
-	TestRun        bool
-	Args           []string
+	Branch  string
+	Rebuild bool
+	DryRun  bool
+	CPUs    uint8
+	Memory  string
+	Auto    bool
+	Args    []string
 }
 
 type Config struct {
@@ -400,23 +398,125 @@ func handleRepoCleanup(repoPath, cwd, cwdBranch string, opts RunOptions, force b
 	return nil
 }
 
-func Run(ctx context.Context, opts RunOptions, cfg Config, logger *log.Logger) error {
+type sandboxSession struct {
+	sb        *msb.Sandbox
+	name      string
+	repoPath  string
+	cwd       string
+	cwdBranch string
+	created   bool
+	branch    string
+}
+
+func (s *sandboxSession) cleanup() {
+	stopCtx, cancel := context.WithTimeout(context.Background(), sandboxStopTimeout)
+	defer cancel()
+	_ = s.sb.Stop(stopCtx)
+	_ = s.sb.Close()
+	_ = msb.RemoveSandbox(context.Background(), s.name)
+}
+
+func prepareSandbox(
+	ctx context.Context,
+	opts RunOptions,
+	cfg Config,
+	logger *log.Logger,
+) (*sandboxSession, error) {
 	if !CheckAll(ctx, logger) {
-		return errors.New("preflight failed")
+		return nil, errors.New("preflight failed")
 	}
 
 	projectSlug := git.ProjectSlug(logger)
 
 	cwd, err := os.Getwd()
 	if err != nil {
-		return fmt.Errorf("get current directory: %w", err)
+		return nil, fmt.Errorf("get current directory: %w", err)
 	}
 
 	repoPath, branch, cwdBranch, created, err := resolveWorkspace(cwd, opts, cfg, projectSlug, logger)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
+	dockerfile := resolveDockerfile()
+	dockerCli, err := client.New(client.FromEnv)
+	if err != nil {
+		return nil, fmt.Errorf("cannot connect to Docker daemon (is dockerd running?): %w", err)
+	}
+	defer dockerCli.Close()
+
+	imageRef, imageDigest, err := EnsureImage(ctx, dockerCli, dockerfile, opts.Rebuild, logger)
+	if err != nil {
+		return nil, fmt.Errorf("image setup failed: %w", err)
+	}
+
+	vm := NewVolumeManager(logger)
+	homeVol, err := vm.EnsureHome(ctx, projectSlug, imageDigest, imageRef)
+	if err != nil {
+		return nil, fmt.Errorf("volume setup failed: %w", err)
+	}
+
+	configFiles, err := loadConfigFiles(cfg.UserConfigDir)
+	if err != nil {
+		return nil, err
+	}
+	secrets := BuildSecrets(logger)
+	name := sandboxName(projectSlug, git.BranchSlug(branch))
+
+	if err = ensureNoConflictingSession(ctx, name, projectSlug, branch, logger); err != nil {
+		return nil, err
+	}
+
+	sb, err := createSandbox(ctx, name, imageRef, repoPath, homeVol, secrets, opts, logger)
+	if err != nil {
+		return nil, err
+	}
+
+	fs := sb.FS()
+	if err := provisionSandbox(ctx, fs, configFiles, repoPath, logger); err != nil {
+		return nil, err
+	}
+
+	return &sandboxSession{
+		sb:        sb,
+		name:      name,
+		repoPath:  repoPath,
+		cwd:       cwd,
+		cwdBranch: cwdBranch,
+		created:   created,
+		branch:    branch,
+	}, nil
+}
+
+func Run(ctx context.Context, opts RunOptions, cfg Config, logger *log.Logger) error {
+	session, err := prepareSandbox(ctx, opts, cfg, logger)
+	if err != nil {
+		return err
+	}
+	defer session.cleanup()
+
+	var exitCode int
+	var attachErr error
+	if opts.DryRun {
+		logger.Debug("dry run: setup validated, skipping opencode execution")
+	} else {
+		opencodeArgs := buildOpencodeArgs(opts.Args, opts.Auto)
+		setup := `exec opencode ` + strings.Join(opencodeArgs, " ")
+		exitCode, attachErr = session.sb.Attach(ctx, "/bin/bash", "-c", setup)
+	}
+
+	var cleanupErr error
+	if session.created {
+		cleanupErr = cleanupManagedRepo(session.repoPath, session.cwd, session.cwdBranch, opts, logger)
+	}
+
+	return finalizeRun(attachErr, cleanupErr, exitCode)
+}
+
+func BuildImage(ctx context.Context, force bool, logger *log.Logger) error {
+	if !CheckDocker(logger) {
+		return errors.New("docker not available")
+	}
 	dockerfile := resolveDockerfile()
 	dockerCli, err := client.New(client.FromEnv)
 	if err != nil {
@@ -424,61 +524,8 @@ func Run(ctx context.Context, opts RunOptions, cfg Config, logger *log.Logger) e
 	}
 	defer dockerCli.Close()
 
-	imageRef, imageDigest, err := EnsureImage(ctx, dockerCli, dockerfile, opts.ImageRebuild, logger)
-	if err != nil {
-		return fmt.Errorf("image setup failed: %w", err)
-	}
-
-	vm := NewVolumeManager(logger)
-	homeVol, err := vm.EnsureHome(ctx, projectSlug, imageDigest, imageRef)
-	if err != nil {
-		return fmt.Errorf("volume setup failed: %w", err)
-	}
-
-	configFiles, err := loadConfigFiles(cfg.UserConfigDir)
-	if err != nil {
-		return err
-	}
-	secrets := BuildSecrets(logger)
-	name := sandboxName(projectSlug, git.BranchSlug(branch))
-
-	if err = ensureNoConflictingSession(ctx, name, projectSlug, branch, logger); err != nil {
-		return err
-	}
-
-	sb, err := createSandbox(ctx, name, imageRef, repoPath, homeVol, secrets, opts, logger)
-	if err != nil {
-		return err
-	}
-	defer func() {
-		stopCtx, cancel := context.WithTimeout(context.Background(), sandboxStopTimeout)
-		defer cancel()
-		_ = sb.Stop(stopCtx)
-		_ = sb.Close()
-		_ = msb.RemoveSandbox(context.Background(), name)
-	}()
-
-	fs := sb.FS()
-	if err := provisionSandbox(ctx, fs, configFiles, repoPath, logger); err != nil {
-		return err
-	}
-
-	var exitCode int
-	var attachErr error
-	if opts.TestRun {
-		logger.Info("test run: setup validated, skipping opencode execution")
-	} else {
-		opencodeArgs := buildOpencodeArgs(opts.Args, opts.Auto)
-		setup := `exec opencode ` + strings.Join(opencodeArgs, " ")
-		exitCode, attachErr = sb.Attach(ctx, "/bin/bash", "-c", setup)
-	}
-
-	var cleanupErr error
-	if created {
-		cleanupErr = cleanupManagedRepo(repoPath, cwd, cwdBranch, opts, logger)
-	}
-
-	return finalizeRun(attachErr, cleanupErr, exitCode)
+	_, _, err = EnsureImage(ctx, dockerCli, dockerfile, force, logger)
+	return err
 }
 
 func finalizeRun(attachErr, cleanupErr error, exitCode int) error {
