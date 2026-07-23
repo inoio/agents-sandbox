@@ -1,11 +1,25 @@
 stages:
   - lint
+  - deps
   - test
   - build
   - release
 
 variables:
   CGO_ENABLED: "1"
+
+.go-image:
+  image: golang:1.26
+
+.go-cache:
+  extends: .go-image
+  variables:
+    GOPATH: $CI_PROJECT_DIR/.go
+  before_script:
+    - mkdir -p .go
+  cache:
+    paths:
+      - .go/pkg/mod/
 
 lint:
   stage: lint
@@ -15,16 +29,18 @@ lint:
 
 test:
   stage: test
-  image: golang:1.26
+  extends: .go-cache
   script:
-    - go mod download
-    - go test ./... -v
+    - go test ./... -v -short
 
 build:
   stage: build
-  image: golang:1.26
+  extends: .go-cache
+  rules:
+    - if: $CI_COMMIT_TAG
+      when: never
+    - if: $CI_COMMIT_BRANCH != "release"
   script:
-    - go mod download
     - go build -o opencode-msb ./cmd/opencode-msb
     - ./opencode-msb --version
   artifacts:
@@ -33,8 +49,10 @@ build:
 
 prepare-release:
   stage: build
-  image: golang:1.26
+  extends: .go-cache
   rules:
+    - if: $CI_COMMIT_TAG
+      when: never
     - if: $CI_COMMIT_BRANCH == "release"
   script:
     - VERSION="0.$(date -u +%Y.%-m.%-d)+${CI_COMMIT_SHORT_SHA}"
@@ -43,26 +61,45 @@ prepare-release:
     reports:
       dotenv: version.env
 
-release:
-  stage: release
-  image: golang:1.26
+build-release:
+  extends: build
   needs:
     - prepare-release
-    - build
   rules:
+    - if: $CI_COMMIT_TAG
+      when: never
     - if: $CI_COMMIT_BRANCH == "release"
   script:
-    - go mod download
     - go build -ldflags "-X main.version=$VERSION" -o opencode-msb-linux-amd64 ./cmd/opencode-msb
     - ./opencode-msb-linux-amd64 --version
   artifacts:
     paths:
       - opencode-msb-linux-amd64
+
+release:
+  stage: release
+  image: registry.gitlab.com/gitlab-org/cli:latest
+  needs:
+    - job: build-release
+    - job: prepare-release
+      artifacts: true
+  rules:
+    - if: $CI_COMMIT_TAG
+      when: never
+    - if: $CI_COMMIT_BRANCH == "release"
+  script:
+    - echo "running release_job for $TAG"
   release:
     name: "opencode-msb $VERSION"
     description: "Release $VERSION"
     tag_name: "$VERSION"
+    ref: '$CI_COMMIT_SHA'                                            # in the pipeline. For example, in the
+    milestones:                                                      # prepare_job
+      - 'm1'
+      - 'm2'
+      - 'm3'
     assets:
       links:
         - name: "opencode-msb-linux-amd64"
           url: "${CI_PROJECT_URL}/-/jobs/${CI_JOB_ID}/artifacts/file/opencode-msb-linux-amd64"
+
