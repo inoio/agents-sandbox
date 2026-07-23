@@ -66,8 +66,6 @@ func buildRunCmd() *cobra.Command {
 			opts := sandbox.RunOptions{Args: args, Auto: true}
 			opts.Branch, _ = cmd.Flags().GetString("branch")
 			opts.ImageRebuild, _ = cmd.Flags().GetBool("image-rebuild")
-			opts.VolumeFallback, _ = cmd.Flags().GetBool("volume-fallback")
-			opts.ResetHome, _ = cmd.Flags().GetBool("reset-home")
 			opts.CPUs, _ = cmd.Flags().GetUint8("cpus")
 			opts.Memory, _ = cmd.Flags().GetString("memory")
 			opts.TestRun, _ = cmd.Flags().GetBool("test-run")
@@ -92,8 +90,6 @@ func buildRunCmd() *cobra.Command {
 
 	cmd.Flags().String("branch", "", "Run in an isolated git clone for the given branch")
 	cmd.Flags().Bool("image-rebuild", false, "Force image rebuild")
-	cmd.Flags().Bool("volume-fallback", false, "Use host directories instead of msb volumes")
-	cmd.Flags().Bool("reset-home", false, "Recreate the project home volume")
 	cmd.Flags().Uint8("cpus", 0, "Number of CPUs (default: all)")
 	cmd.Flags().String("memory", "4G", "Memory limit (default: 4G)")
 	cmd.Flags().Bool("no-auto", false, "Do not pass --auto to opencode")

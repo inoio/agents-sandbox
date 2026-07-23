@@ -429,8 +429,8 @@ func Run(ctx context.Context, opts RunOptions, cfg Config, logger *log.Logger) e
 		return fmt.Errorf("image setup failed: %w", err)
 	}
 
-	vm := NewVolumeManager(opts.VolumeFallback, cfg.StateDir, logger)
-	homeVol, err := vm.EnsureHome(ctx, projectSlug, imageDigest, imageRef, opts.ResetHome)
+	vm := NewVolumeManager(logger)
+	homeVol, err := vm.EnsureHome(ctx, projectSlug, imageDigest, imageRef)
 	if err != nil {
 		return fmt.Errorf("volume setup failed: %w", err)
 	}
