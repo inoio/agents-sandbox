@@ -47,9 +47,8 @@ build:
     paths:
       - opencode-msb
 
-prepare-release:
-  stage: build
-  extends: .go-cache
+build-release:
+  extends: build
   rules:
     - if: $CI_COMMIT_TAG
       when: never
@@ -57,31 +56,20 @@ prepare-release:
   script:
     - VERSION="0.$(date -u +%Y.%-m.%-d)+${CI_COMMIT_SHORT_SHA}"
     - echo "VERSION=$VERSION" >> version.env
-  artifacts:
-    reports:
-      dotenv: version.env
-
-build-release:
-  extends: build
-  needs:
-    - prepare-release
-  rules:
-    - if: $CI_COMMIT_TAG
-      when: never
-    - if: $CI_COMMIT_BRANCH == "release"
-  script:
+    - echo "BUILD_JOB_ID=${CI_JOB_ID}" >> version.env
     - go build -ldflags "-X main.version=$VERSION" -o opencode-msb-linux-amd64 ./cmd/opencode-msb
     - ./opencode-msb-linux-amd64 --version
   artifacts:
     paths:
       - opencode-msb-linux-amd64
+    reports:
+      dotenv: version.env
 
 release:
   stage: release
   image: registry.gitlab.com/gitlab-org/cli:latest
   needs:
     - job: build-release
-    - job: prepare-release
       artifacts: true
   rules:
     - if: $CI_COMMIT_TAG
@@ -97,5 +85,5 @@ release:
     assets:
       links:
         - name: "opencode-msb-linux-amd64"
-          url: "${CI_PROJECT_URL}/-/jobs/${CI_JOB_ID}/artifacts/file/opencode-msb-linux-amd64"
+          url: "${CI_PROJECT_URL}/-/jobs/${BUILD_JOB_ID}/artifacts/file/opencode-msb-linux-amd64"
 
