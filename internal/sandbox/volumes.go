@@ -3,8 +3,6 @@ package sandbox
 import (
 	"context"
 	"fmt"
-	"os"
-	"path/filepath"
 	"strings"
 	"time"
 
@@ -22,33 +20,18 @@ func HomeVolumeName(projectSlug, imageDigest string) string {
 }
 
 type VolumeManager struct {
-	fallback bool
-	stateDir string
-	logger   *log.Logger
+	logger *log.Logger
 }
 
-func NewVolumeManager(fallback bool, stateDir string, logger *log.Logger) *VolumeManager {
-	return &VolumeManager{fallback: fallback, stateDir: stateDir, logger: logger}
-}
-
-func (vm *VolumeManager) fallbackHomePath(projectSlug, imageDigest string) string {
-	return filepath.Join(vm.stateDir, "state", projectSlug, "home", sanitizeDigest(imageDigest))
+func NewVolumeManager(logger *log.Logger) *VolumeManager {
+	return &VolumeManager{logger: logger}
 }
 
 func (vm *VolumeManager) EnsureHome(
 	ctx context.Context,
 	projectSlug, imageDigest, imageTag string,
-	reset bool,
 ) (string, error) {
 	name := HomeVolumeName(projectSlug, imageDigest)
-
-	if vm.fallback {
-		return vm.ensureFallbackHome(ctx, name, projectSlug, imageDigest, imageTag, reset)
-	}
-
-	if reset {
-		_ = msb.RemoveVolume(ctx, name)
-	}
 
 	_, err := msb.GetVolume(ctx, name)
 	if err == nil {
@@ -59,9 +42,7 @@ func (vm *VolumeManager) EnsureHome(
 		msb.WithVolumeKind(msb.VolumeKindDir),
 	)
 	if err != nil {
-		vm.logger.Warn("msb volume creation failed; using host-directory fallback.")
-		vm.fallback = true
-		return vm.ensureFallbackHome(ctx, name, projectSlug, imageDigest, imageTag, reset)
+		return "", fmt.Errorf("create volume %s: %w", name, err)
 	}
 
 	if err := vm.prefillVolume(ctx, vol.Name(), imageTag); err != nil {
@@ -71,44 +52,10 @@ func (vm *VolumeManager) EnsureHome(
 	return name, nil
 }
 
-func (vm *VolumeManager) ensureFallbackHome(
-	ctx context.Context,
-	_, projectSlug, imageDigest, imageTag string,
-	reset bool,
-) (string, error) {
-	path := vm.fallbackHomePath(projectSlug, imageDigest)
-	if reset {
-		_ = os.RemoveAll(path)
-	}
-	if err := os.MkdirAll(path, 0o750); err != nil {
-		return "", fmt.Errorf("create fallback home dir: %w", err)
-	}
-	entries, _ := os.ReadDir(path)
-	if len(entries) == 0 {
-		if err := vm.prefillFallback(ctx, path, imageTag); err != nil {
-			return "", fmt.Errorf("prefill fallback home: %w", err)
-		}
-	}
-	return path, nil
-}
-
 func (vm *VolumeManager) prefillVolume(ctx context.Context, volumeName, imageTag string) error {
-	return vm.prefill(ctx, volumeName, imageTag, false)
-}
-
-func (vm *VolumeManager) prefillFallback(ctx context.Context, hostPath, imageTag string) error {
-	return vm.prefill(ctx, hostPath, imageTag, true)
-}
-
-func (vm *VolumeManager) prefill(ctx context.Context, ref, imageTag string, isBind bool) error {
 	prefillName := fmt.Sprintf("opencode-msb-prefill-%d", time.Now().UnixNano())
 
-	var mountConfig msb.MountConfig
-	if isBind {
-		mountConfig = msb.Mount.Bind(ref, msb.MountOptions{})
-	} else {
-		mountConfig = msb.Mount.Named(ref, msb.MountOptions{})
-	}
+	mountConfig := msb.Mount.Named(volumeName, msb.MountOptions{})
 
 	spin := log.NewSpinner(vm.logger)
 	spin.Start("Preparing home volume")
