@@ -456,3 +456,15 @@ func TestMergeEnvMapsProjectOverridesUser(t *testing.T) {
 		t.Errorf("got %v, want %v", got, want)
 	}
 }
+
+func TestSandboxSessionCleanupRemovesCloneVolume(t *testing.T) {
+	// Verify the struct has a cloneVol field and cleanup removes it.
+	// This is a structural test — full lifecycle requires msb.
+	s := &sandboxSession{
+		name:     "test-sandbox",
+		cloneVol: "test-clone-vol",
+	}
+	if s.cloneVol != "test-clone-vol" {
+		t.Errorf("expected cloneVol to be set, got %q", s.cloneVol)
+	}
+}

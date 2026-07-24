@@ -156,7 +156,6 @@ func ensureNoSameBranchSession(
 	return nil
 }
 
-//nolint:unused // called by prepareSandbox in Task 5 and by integration tests behind the build tag
 func ensureNoSameHomeSession(
 	ctx context.Context,
 	vm *VolumeManager,
@@ -439,6 +438,7 @@ type sandboxSession struct {
 	cwdBranch string
 	created   bool
 	branch    string
+	cloneVol  string
 }
 
 func (s *sandboxSession) cleanup() {
@@ -447,6 +447,9 @@ func (s *sandboxSession) cleanup() {
 	_ = s.sb.Stop(stopCtx)
 	_ = s.sb.Close()
 	_ = msb.RemoveSandbox(context.Background(), s.name)
+	if s.cloneVol != "" {
+		_ = msb.RemoveVolume(context.Background(), s.cloneVol)
+	}
 }
 
 func prepareSandbox(
@@ -502,6 +505,16 @@ func prepareSandbox(
 		return nil, err
 	}
 
+	originalVol := homeVol
+	homeVol, err = ensureNoSameHomeSession(ctx, vm, homeVol, name, imageRef, logger)
+	if err != nil {
+		return nil, err
+	}
+	cloneVol := ""
+	if homeVol != originalVol {
+		cloneVol = homeVol
+	}
+
 	logger.Debug(fmt.Sprintf("sandbox: %s (cpus=%d, memory=%s)", name, opts.CPUs, opts.Memory))
 	sb, err := createSandbox(ctx, name, imageRef, repoPath, homeVol, opts.User, opts, cfg, logger)
 	if err != nil {
@@ -521,6 +534,7 @@ func prepareSandbox(
 		cwdBranch: cwdBranch,
 		created:   created,
 		branch:    branch,
+		cloneVol:  cloneVol,
 	}, nil
 }
 
