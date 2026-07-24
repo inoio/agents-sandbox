@@ -156,6 +156,7 @@ func ensureNoSameBranchSession(
 	return nil
 }
 
+//nolint:unused // called by prepareSandbox in Task 5 and by integration tests behind the build tag
 func ensureNoSameHomeSession(
 	ctx context.Context,
 	vm *VolumeManager,
