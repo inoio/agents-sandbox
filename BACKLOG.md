@@ -36,6 +36,7 @@
 
 [ ] clean commands for volumes, sandboxes, images. docker images/cache/... - with filters, best same ones. Also readable list output (project name, not number) (labels an docker images für cleanup?)
 [ ] think about lifecycle of home volume - it would be nice to keep history, but not across projects. Maybe clean option is enough - fancy: option to interactively edit the home volume.
+[ ] !!! NEVER mount a home volume twice. For 2 sessions in 1 repo, warn the user that it'll be an ephemeral session, not recording opencode session history. Start from a fresh home copy from root
 [ ] rework --tree, more explanations, root command
 
 [ ] git library einbinden?
@@ -43,3 +44,4 @@
 [ ] git doctor nach install dokumentieren/aufrufen
 [ ] neben docker auch buildah, podman, ??? supporten?
 [ ] user uid,gid aus System bestimmen und setzen bei image build.
+
