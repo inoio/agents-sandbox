@@ -2,44 +2,57 @@
 
 Run opencode inside an ephemeral microsandbox VM.
 
-## Install
+## Installation
 
-Download the latest Linux binary from [GitLab Releases](https://gitlab.inoio.de/inoio/opencode-msb/-/releases):
+(Currently, MacOS is not supported, since we can't compile for the platform).
 
-```bash
-curl -fsSL -o opencode-msb "https://gitlab.inoio.de/inoio/opencode-msb/-/releases/latest/download/opencode-msb-linux-amd64"
-chmod +x opencode-msb && sudo mv opencode-msb /usr/local/bin/
+Download the latest Linux
+binary from [GitLab Releases](https://gitlab.inoio.de/inoio/opencode-msb/-/releases/permalink/latest) and put it
+in a directory in your path, e.g.:
+
+```shell
+# if you don't already have ~/.local/bin included in your PATH
+#mkdir -p ~/.local/bin
+#echo 'export PATH=$PATH:~/.local/bin' >> .bashrc
+mv ~/Downloads/opencode-msb-linux-amd64 ~/.local/bin
 ```
 
-Or install from source (requires Go + CGO toolchain):
+Check the installation and it's prerequisites via the doctor subcommand:
 
-```bash
-export GOPRIVATE=gitlab.inoio.de
-go install gitlab.inoio.de/inoio/opencode-msb/cmd/opencode-msb@latest
+```shell
+opencode-msb doctor
 ```
 
 ## Usage
 
+Here's some useful examples:
 ```bash
 opencode-msb                    # run opencode in a microsandbox VM
-opencode-msb -b my-feature      # run in an isolated git clone
-opencode-msb doctor             # check prerequisites
-opencode-msb build -r           # rebuild the runner image
+opencode-msb -b my-feature      # run in an isolated git clone on branch my-feature (creates branch if needed)
+opencode-msb build -r           # force-rebuild the runner image
 opencode-msb list               # list running sandboxes
+```
+
+Explore the full set of commands and flags using `--help` and `--tree`:
+
+```shell
+opencode-msb --help 
+opencode-msb run --help # show help for a specific subcommand
+opencode-msb --tree # show a compact overview of all commands and flags
 ```
 
 ## Commands
 
-| Command | Aliases | Purpose |
-|---|---|---|
-| `run` (default) | `sandbox run` | Run opencode in the sandbox VM |
-| `doctor` | — | Check host prerequisites (docker, kvm, git, msb) |
-| `build` | `image build` | Build or rebuild the runner image |
-| `list` | `ls`, `sandbox list` | List sandboxes for this host |
-| `shell` | `sandbox shell` | Start sandbox and open a shell (debug) |
-| `config show` | — | Print merged opencode config (debug) |
-| `image list` | `image ls` | List cached runner images |
-| `volume list` | `volume ls` | List managed volumes |
+| Command         | Aliases              | Purpose                                          |
+|-----------------|----------------------|--------------------------------------------------|
+| `run` (default) | `sandbox run`        | Run opencode in the sandbox VM                   |
+| `doctor`        | —                    | Check host prerequisites (docker, kvm, git, msb) |
+| `build`         | `image build`        | Build or rebuild the runner image                |
+| `list`          | `ls`, `sandbox list` | List sandboxes for this host                     |
+| `shell`         | `sandbox shell`      | Start sandbox and open a shell (debug)           |
+| `config show`   | —                    | Print merged opencode config (debug)             |
+| `image list`    | `image ls`           | List cached runner images                        |
+| `volume list`   | `volume ls`          | List managed volumes                             |
 
 Bare `opencode-msb` (or flags-only invocation) implicitly runs `run`.
 
@@ -67,46 +80,50 @@ Rules:
 
 ### Global
 
-| Flag | Short | Default | Purpose |
-|---|---|---|---|
-| `--yes` | `-y` | `false` | Assume yes to all prompts |
-| `--verbose` | `-v` | `false` | Show debug-level output |
-| `--quiet` | `-q` | `false` | Suppress non-error output |
-| `--tree` | — | `false` | Print the full command tree and exit |
-| `--version` | `-V` | `false` | Print version and exit |
+| Flag        | Short | Default | Purpose                              |
+|-------------|-------|---------|--------------------------------------|
+| `--yes`     | `-y`  | `false` | Assume yes to all prompts            |
+| `--verbose` | `-v`  | `false` | Show debug-level output              |
+| `--quiet`   | `-q`  | `false` | Suppress non-error output            |
+| `--help`    | `-h`  | -       | Print help and exit                  |
+| `--tree`    | -     | `false` | Print the full command tree and exit |
+| `--version` | `-V`  | `false` | Print version and exit               |
 
 ### Run / Shell
 
-| Flag | Short | Default | Purpose |
-|---|---|---|---|
-| `--branch` | `-b` | `""` | Isolated git clone for the given branch |
-| `--cpus` | `-c` | `0` (all) | vCPUs for the sandbox |
-| `--memory` | `-m` | `4G` | Memory limit (e.g. `4G`, `512M`) |
-| `--rebuild` | `-r` | `false` | Rebuild the runner image before starting |
+| Flag        | Short | Default   | Purpose                                  |
+|-------------|-------|-----------|------------------------------------------|
+| `--branch`  | `-b`  | `""`      | Isolated git clone for the given branch  |
+| `--cpus`    | `-c`  | `0` (all) | vCPUs for the sandbox                    |
+| `--memory`  | `-m`  | `4G`      | Memory limit (e.g. `4G`, `512M`)         |
+| `--rebuild` | `-r`  | `false`   | Rebuild the runner image before starting |
 
 ### Run only
 
-| Flag | Short | Default | Purpose |
-|---|---|---|---|
-| `--dry-run` | `-n` | `false` | Validate setup without running opencode |
-| `--no-auto` | — | `false` | Do not pass `--auto` to opencode |
+| Flag        | Short | Default | Purpose                                 |
+|-------------|-------|---------|-----------------------------------------|
+| `--dry-run` | `-n`  | `false` | Validate setup without running opencode |
+| `--no-auto` | —     | `false` | Do not pass `--auto` to opencode        |
 
 ### Build
 
-| Flag | Short | Default | Purpose |
-|---|---|---|---|
-| `--rebuild` | `-r` | `false` | Force a clean rebuild |
+| Flag        | Short | Default | Purpose               |
+|-------------|-------|---------|-----------------------|
+| `--rebuild` | `-r`  | `false` | Force a clean rebuild |
 
 ## Project overrides
 
 ### Make project specific tools / toolchains available to OpenCode
 
-In your project directory, you can create `.opencode-msb/Dockerfile`. opencode-msb will execute OpenCode in a VM initialized with the built Docker image.
+In your project directory, you can create `.opencode-msb/Dockerfile`. opencode-msb will execute OpenCode in a VM
+initialized with the built Docker image.
 
 In order for opencode to have the commands installed in the image available, extend PATH:
 
-* for tools installed via dev user (default), via `/home/dev/.profile`, e.g. in Dockerfile, add `RUN echo 'export PATH="$PATH:/home/dev/.tool/bin"' >> /home/dev/.profile`
-* for tools installed via root user, via `/etc/profile`, e.g. in Dockerfile, add `RUN echo 'export PATH="$PATH:/path/to/tool/bin"' >> /etc/profile`
+* for tools installed via dev user (default), via `/home/dev/.profile`, e.g. in Dockerfile, add
+  `RUN echo 'export PATH="$PATH:/home/dev/.tool/bin"' >> /home/dev/.profile`
+* for tools installed via root user, via `/etc/profile`, e.g. in Dockerfile, add
+  `RUN echo 'export PATH="$PATH:/path/to/tool/bin"' >> /etc/profile`
 
 ### Extend VM environment
 
@@ -162,10 +179,12 @@ The launcher builds and runs a base runner image that contains:
 
 - `opencode` (symlinked to `/usr/local/bin/opencode`)
 - Node.js 22
-- common CLI tooling: `git`, `ripgrep`, `jq`, `yq`, `curl`, `wget`, `xz-utils`, `file`, `gawk`, `less`, `lz4`, `moreutils`, `net-tools`, `nmap`, `parallel`, `recode`, `uuid`
+- common CLI tooling: `git`, `ripgrep`, `jq`, `yq`, `curl`, `wget`, `xz-utils`, `file`, `gawk`, `less`, `lz4`,
+  `moreutils`, `net-tools`, `nmap`, `parallel`, `recode`, `uuid`
 - a `dev` user with `HOME=/home/dev`
 
 Projects that need additional tooling can provide a `.opencode-msb/Dockerfile` starting from the base image:
+
 ```dockerfile
 FROM opencode-msb/runner:base
 ...
@@ -182,4 +201,10 @@ USER dev
 # do stuff as dev
 ```
 
-The launcher does not inject image-specific environment variables or run initialization commands. Anything the project image needs on `PATH` must be configured inside the image itself (for example by symlinking binaries into `/usr/local/bin` or by adding a script under `/etc/profile.d/`).
+The launcher does not inject image-specific environment variables or run initialization commands. Anything the project
+image needs on `PATH` must be configured inside the image itself (for example by symlinking binaries into
+`/usr/local/bin` or by adding a script under `/etc/profile.d/`).
+
+# TO DOCUMENT:
+
+* host git worktrees don't work in msb vms.
