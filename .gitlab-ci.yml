@@ -33,6 +33,7 @@ build-builder-image:
     - changes:
         - ci/builder/Dockerfile
     - when: manual
+      allow_failure: true
   script:
     - mkdir -p /kaniko/.docker
     - echo "{\"auths\":{\"$CI_REGISTRY\":{\"username\":\"$CI_REGISTRY_USER\",\"password\":\"$CI_REGISTRY_PASSWORD\"}}}" > /kaniko/.docker/config.json

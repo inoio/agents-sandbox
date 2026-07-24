@@ -17,16 +17,15 @@ HEADER_SIZE = 32  # mach_header_64
 def check(path: str) -> str:
     with open(path, "rb") as f:
         data = f.read(HEADER_SIZE)
-    if len(data) < HEADER_SIZE:
-        return f"{path}: too small to be a Mach-O ({len(data)} bytes)"
-    magic, cputype, _cpusubtype, _filetype, ncmds, sizeofcmds, _flags, _reserved = (
-        struct.unpack_from("<8I", data, 0)
-    )
-    if magic != MH_MAGIC_64:
-        return f"{path}: not a 64-bit Mach-O (magic=0x{magic:08X})"
-    if cputype != CPU_TYPE_ARM64:
-        return f"{path}: not arm64 (cputype=0x{cputype:08X})"
-    with open(path, "rb") as f:
+        if len(data) < HEADER_SIZE:
+            return f"{path}: too small to be a Mach-O ({len(data)} bytes)"
+        magic, cputype, _cpusubtype, _filetype, ncmds, sizeofcmds, _flags, _reserved = (
+            struct.unpack_from("<8I", data, 0)
+        )
+        if magic != MH_MAGIC_64:
+            return f"{path}: not a 64-bit Mach-O (magic=0x{magic:08X})"
+        if cputype != CPU_TYPE_ARM64:
+            return f"{path}: not arm64 (cputype=0x{cputype:08X})"
         f.seek(HEADER_SIZE)
         body = f.read(sizeofcmds)
     off = 0
