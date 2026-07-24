@@ -1,7 +1,8 @@
-/opencode-msb
+/opencode-msb*
 /.idea/
 /.gitlab-ci-local/
 /.envrc
 /.opencode-msb
 /.worktrees/
 /.superpowers/
+version.env
