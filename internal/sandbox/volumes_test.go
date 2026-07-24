@@ -1,6 +1,7 @@
 package sandbox
 
 import (
+	"strings"
 	"testing"
 
 	"gitlab.inoio.de/inoio/opencode-msb/internal/log"
@@ -59,5 +60,12 @@ func TestExtractNamedVolumesInvalidJSON(t *testing.T) {
 	got := extractNamedVolumes("not json")
 	if len(got) != 0 {
 		t.Fatalf("expected 0 named volumes for invalid JSON, got %d", len(got))
+	}
+}
+
+func TestCloneVolumeName(t *testing.T) {
+	name := cloneVolumeName("my-source-vol")
+	if !strings.HasPrefix(name, "my-source-vol-clone-") {
+		t.Errorf("expected clone name to start with 'my-source-vol-clone-', got %q", name)
 	}
 }

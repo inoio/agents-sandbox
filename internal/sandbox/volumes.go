@@ -116,6 +116,65 @@ func extractNamedVolumes(configJSON string) []string {
 	return names
 }
 
+func cloneVolumeName(sourceVol string) string {
+	return fmt.Sprintf("%s-clone-%d", sourceVol, time.Now().UnixNano())
+}
+
+func (vm *VolumeManager) CloneVolume(
+	ctx context.Context,
+	sourceVol, imageTag string,
+) (string, error) {
+	cloneName := cloneVolumeName(sourceVol)
+
+	vol, err := msb.CreateVolume(ctx, cloneName,
+		msb.WithVolumeKind(msb.VolumeKindDir),
+	)
+	if err != nil {
+		return "", fmt.Errorf("create clone volume %s: %w", cloneName, err)
+	}
+
+	prefillName := fmt.Sprintf("opencode-msb-clone-%d", time.Now().UnixNano())
+
+	mounts := map[string]msb.MountConfig{
+		"/mnt/src": msb.Mount.Named(sourceVol, msb.MountOptions{Readonly: true}),
+		"/mnt/dst": msb.Mount.Named(vol.Name(), msb.MountOptions{}),
+	}
+
+	spin := log.NewSpinner(vm.logger)
+	spin.Start("Cloning home volume")
+	sb, err := msb.CreateSandbox(ctx, prefillName,
+		msb.WithImage(imageTag),
+		msb.WithMounts(mounts),
+		msb.WithReplace(),
+	)
+	if err != nil {
+		spin.StopError(err)
+		return "", fmt.Errorf("create clone sandbox: %w", err)
+	}
+	defer func() {
+		stopCtx, cancel := context.WithTimeout(context.Background(), sandboxStopTimeout)
+		defer cancel()
+		_ = sb.Stop(stopCtx)
+		_ = sb.Close()
+		_ = msb.RemoveSandbox(context.Background(), prefillName)
+	}()
+
+	out, err := sb.Exec(ctx, "sh", []string{"-c",
+		"cp -a /mnt/src/. /mnt/dst/ && chown -R dev:dev /mnt/dst && find /mnt/dst -name '*.shm' -delete",
+	})
+	if err != nil {
+		spin.StopError(err)
+		return "", fmt.Errorf("clone cp: %w", err)
+	}
+	if !out.Success() {
+		err := fmt.Errorf("clone cp failed (exit %d): %s", out.ExitCode(), out.Stderr())
+		spin.StopError(err)
+		return "", err
+	}
+	spin.Stop()
+	return cloneName, nil
+}
+
 //nolint:unused // Will be called from non-test code in a later task.
 func sameHomeVolumeInUse(
 	ctx context.Context,
