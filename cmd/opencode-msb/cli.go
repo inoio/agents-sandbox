@@ -209,7 +209,8 @@ func buildRunCmd() *cobra.Command {
 	cmd.Flags().BoolP("dry-run", "n", false, "Validate setup without running opencode")
 	cmd.Flags().Uint8P("cpus", "c", 0, "Number of CPUs (default: all)")
 	cmd.Flags().StringP("memory", "m", "4G", "Memory limit (default: 4G)")
-	cmd.Flags().StringP("user", "u", "", "Username or UID to run opencode inside the sandbox (format: <name|uid>[:<group|gid>])")
+	cmd.Flags().
+		StringP("user", "u", "", "Username or UID to run opencode inside the sandbox (format: <name|uid>[:<group|gid>])")
 	cmd.Flags().Bool("no-auto", false, "Do not pass --auto to opencode")
 
 	return cmd
