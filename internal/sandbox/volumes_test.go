@@ -29,3 +29,35 @@ func TestNewVolumeManager(t *testing.T) {
 		t.Error("expected logger to be set")
 	}
 }
+
+func TestExtractNamedVolumes(t *testing.T) {
+	configJSON := `{
+		"name": "test-sandbox",
+		"volumes": {
+			"/home/dev": {"named": "my-home-vol"},
+			"/workspace": {"bind": "/host/path"}
+		}
+	}`
+	got := extractNamedVolumes(configJSON)
+	if len(got) != 1 {
+		t.Fatalf("expected 1 named volume, got %d", len(got))
+	}
+	if got[0] != "my-home-vol" {
+		t.Errorf("expected 'my-home-vol', got %q", got[0])
+	}
+}
+
+func TestExtractNamedVolumesEmpty(t *testing.T) {
+	configJSON := `{"name": "test"}`
+	got := extractNamedVolumes(configJSON)
+	if len(got) != 0 {
+		t.Fatalf("expected 0 named volumes, got %d", len(got))
+	}
+}
+
+func TestExtractNamedVolumesInvalidJSON(t *testing.T) {
+	got := extractNamedVolumes("not json")
+	if len(got) != 0 {
+		t.Fatalf("expected 0 named volumes for invalid JSON, got %d", len(got))
+	}
+}
