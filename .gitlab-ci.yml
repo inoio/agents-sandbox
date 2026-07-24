@@ -35,7 +35,8 @@ build-builder-image:
       when: on_success
     - if: $CI_PIPELINE_SOURCE == "schedule"
       when: manual
-    - changes:
+    - if: $CI_COMMIT_BRANCH == "release"
+      changes:
         - ci/builder/Dockerfile
   script:
     - mkdir -p /kaniko/.docker
