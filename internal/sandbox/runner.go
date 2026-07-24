@@ -99,9 +99,9 @@ func isSandboxActive(status msb.SandboxStatus) bool {
 	return false
 }
 
-// runningSandboxExists reports whether a sandbox with the given name exists and
+// sameBranchSessionExists reports whether a sandbox with the given name exists and
 // is in an active state (running, draining, or paused).
-func runningSandboxExists(ctx context.Context, name string) (bool, error) {
+func sameBranchSessionExists(ctx context.Context, name string) (bool, error) {
 	handle, err := msb.GetSandbox(ctx, name)
 	if err != nil {
 		if msb.IsKind(err, msb.ErrSandboxNotFound) {
@@ -130,16 +130,16 @@ func promptExistingSession(name string, logger *log.Logger) (bool, error) {
 	return choice == "t", nil
 }
 
-// ensureNoConflictingSession aborts the run when a live VM for the same sandbox
+// ensureNoSameBranchSession aborts the run when a live VM for the same sandbox
 // name already exists and the user does not choose to terminate it. Stale
 // (stopped/crashed) sandboxes are left for createSandbox's WithReplace to clean
 // up; only an active session prompts.
-func ensureNoConflictingSession(
+func ensureNoSameBranchSession(
 	ctx context.Context,
 	name, projectSlug, branch string,
 	logger *log.Logger,
 ) error {
-	running, err := runningSandboxExists(ctx, name)
+	running, err := sameBranchSessionExists(ctx, name)
 	if err != nil {
 		return err
 	}
@@ -458,7 +458,7 @@ func prepareSandbox(
 	}
 	name := sandboxName(projectSlug, git.BranchSlug(branch))
 
-	if err = ensureNoConflictingSession(ctx, name, projectSlug, branch, logger); err != nil {
+	if err = ensureNoSameBranchSession(ctx, name, projectSlug, branch, logger); err != nil {
 		return nil, err
 	}
 
