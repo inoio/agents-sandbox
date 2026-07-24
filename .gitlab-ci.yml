@@ -9,6 +9,9 @@ stages:
 variables:
   CGO_ENABLED: "1"
 
+default:
+  interruptible: true
+
 .go-image:
   image: golang:1.26
 
@@ -161,6 +164,7 @@ validate-releases:
 
 release:
   stage: release
+  interruptible: false
   image: registry.gitlab.com/gitlab-org/cli:latest
   needs:
     - job: version
