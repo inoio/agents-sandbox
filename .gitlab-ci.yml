@@ -58,6 +58,20 @@ test:
   script:
     - go test ./... -v -short
 
+version:
+  stage: build
+  extends: .go-image
+  rules:
+    - if: $CI_COMMIT_TAG
+      when: never
+    - if: $CI_COMMIT_BRANCH == "release"
+  script:
+    - VERSION="0.$(date -u +%Y.%-m.%-d)+${CI_COMMIT_SHORT_SHA}"
+    - echo "VERSION=$VERSION" >> version.env
+  artifacts:
+    reports:
+      dotenv: version.env
+
 build:
   stage: build
   extends: .go-cache
