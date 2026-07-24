@@ -164,7 +164,7 @@ validate-releases:
       when: never
     - if: $CI_COMMIT_BRANCH == "release"
   script:
-    - apt update && apt install file
+    - apt update && apt install y --no-install-recommends file
     - ./opencode-msb-linux-amd64 --version
     - file opencode-msb-linux-arm64 | grep -q "ELF.*ARM.*aarch64"
     - file opencode-msb-darwin-arm64 | grep -q "Mach-O.*arm64"
