@@ -9,14 +9,15 @@
 [*] --test-run flag for skipping opencode execution - for validating by an agent?
 [*] refactor cli, subcommands for image rebuilding, ...? maybe remove some flags like --reset-home?
 [*] version based on date
-[ ] provide easy installation method
-  [ ] Download via curl (without auth?) -> https://gitlab.inoio.de/inoio/opencode-msb/-/releases/permalink/latest
+[*] provide easy installation method
+  [*] Download via curl (without auth?) -> https://gitlab.inoio.de/inoio/opencode-msb/-/releases/permalink/latest
+[*] config file for cli settings in .opencode-msb
 [ ] README überarbeiten
-  * Installation ins Userverzeichnis ([~/bin,] ~/.local/bin)
-  * config file(s) übersicht, beispiele
-  * Bedeutungen z.B. env.secret sieht der Agent nicht
-  * Flags an opencode übergeben (--) dokumentieren
-  * Dependencies (z.B. git, docker)
+  [ ] Installation ins Userverzeichnis ([~/bin,] ~/.local/bin)
+  [ ] config file(s) übersicht, beispiele
+  [ ] Bedeutungen z.B. env.secret sieht der Agent nicht
+  [ ] Flags an opencode übergeben (--) dokumentieren
+  [ ] Dependencies (z.B. git, docker)
     
 [ ] opencode config dir & merging nach alphabet
 [ ] inoio providers ausbauen, anders zur Verfügung stellen.
@@ -29,7 +30,6 @@
 
 [ ] dev doku, design principles usw. (z.B. CLI design aligned with docker,msb)
 [ ] support docker in VM
-[*] config file for cli settings in .opencode-msb
 [ ] make cli output pretty and UX'd
 
 [ ] after docker image import, remove docker built image?
