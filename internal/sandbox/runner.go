@@ -156,6 +156,45 @@ func ensureNoSameBranchSession(
 	return nil
 }
 
+func ensureNoSameHomeSession(
+	ctx context.Context,
+	vm *VolumeManager,
+	homeVol, excludeSandbox, imageRef string,
+	logger *log.Logger,
+) (string, error) {
+	inUseBy, inUse, err := sameHomeVolumeInUse(ctx, homeVol, excludeSandbox)
+	if err != nil {
+		return "", err
+	}
+	if !inUse {
+		return homeVol, nil
+	}
+
+	logger.Warn(fmt.Sprintf(
+		"Another opencode session (%q) is using the same project state.\n"+
+			"Starting with a snapshot copy of the current home directory.\n"+
+			"Opencode sessions and history from this run will NOT be persisted.",
+		inUseBy,
+	))
+
+	if !prompt.AssumeYes {
+		confirmed, confirmErr := prompt.ConfirmDefault("Proceed with snapshot copy?", false, logger)
+		if confirmErr != nil {
+			return "", fmt.Errorf("prompt for clone: %w", confirmErr)
+		}
+		if !confirmed {
+			return "", fmt.Errorf("aborted: another session (%q) is using the project state", inUseBy)
+		}
+	}
+
+	cloneVol, err := vm.CloneVolume(ctx, homeVol, imageRef)
+	if err != nil {
+		return "", err
+	}
+	logger.Info(fmt.Sprintf("Cloned home volume: %s", cloneVol))
+	return cloneVol, nil
+}
+
 func buildEnvMap(filename string) map[string]string {
 	data, err := os.ReadFile(filename)
 	if err != nil {
