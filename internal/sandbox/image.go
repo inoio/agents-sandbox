@@ -163,7 +163,7 @@ func buildDockerImage(
 		return fmt.Errorf("docker image build failed: %w", err)
 	}
 
-	buildErr := scanBuildOutput(buildResp.Body)
+	buildErr := scanBuildOutput(buildResp.Body, logger)
 	_ = buildResp.Body.Close()
 	if buildErr != nil {
 		spin.StopError(buildErr)
@@ -177,7 +177,7 @@ func buildDockerImage(
 	return nil
 }
 
-func scanBuildOutput(r io.Reader) error {
+func scanBuildOutput(r io.Reader, logger *log.Logger) error {
 	dec := json.NewDecoder(r)
 	for {
 		var msg dockerBuildMessage
@@ -192,6 +192,9 @@ func scanBuildOutput(r io.Reader) error {
 		}
 		if msg.ErrorDetail.Message != "" {
 			return fmt.Errorf("%s", msg.ErrorDetail.Message)
+		}
+		if msg.Stream != "" {
+			logger.Debug(strings.TrimSuffix(msg.Stream, "\n"))
 		}
 	}
 }

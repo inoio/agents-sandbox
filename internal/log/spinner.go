@@ -31,7 +31,7 @@ func NewSpinner(l *Logger) *Spinner {
 
 func (s *Spinner) Start(msg string) {
 	s.mu.Lock()
-	if s.active || s.level >= LevelQuiet {
+	if s.active || s.level == LevelQuiet {
 		s.mu.Unlock()
 		return
 	}
@@ -41,6 +41,12 @@ func (s *Spinner) Start(msg string) {
 	s.stopCh = make(chan struct{})
 	s.mu.Unlock()
 
+	// In verbose mode the streaming build output provides live progress, so
+	// only the final summary line is printed on Stop. Animating here would
+	// clobber the streaming lines that are written to the same writer.
+	if s.level == LevelVerbose {
+		return
+	}
 	if s.color {
 		s.done = make(chan struct{})
 		go s.animate()
@@ -83,7 +89,7 @@ func (s *Spinner) finish(result string) {
 	elapsed := time.Since(s.start)
 	s.mu.Unlock()
 
-	if s.level >= LevelQuiet {
+	if s.level == LevelQuiet {
 		return
 	}
 
@@ -98,13 +104,19 @@ func (s *Spinner) finish(result string) {
 		final = result + " " + suffix
 	}
 
-	if s.color {
+	if s.color && s.level == LevelNormal {
 		close(s.stopCh)
 		<-s.done
 		fmt.Fprintf(s.w, "\r\033[K%s %s\n", s.msg, final)
-	} else {
-		fmt.Fprintf(s.w, "%s\n", final)
+		return
 	}
+	if s.level == LevelVerbose {
+		// Start printed no prefix, so emit the full message and result.
+		fmt.Fprintf(s.w, "%s %s\n", s.msg, final)
+		return
+	}
+	// Non-color normal: Start printed "msg... ", join with the result.
+	fmt.Fprintf(s.w, "%s\n", final)
 }
 
 func (s *Spinner) Stop() {

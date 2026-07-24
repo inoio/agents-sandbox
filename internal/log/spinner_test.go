@@ -92,3 +92,35 @@ func TestSpinnerHiddenAtQuietLevel(t *testing.T) {
 		t.Errorf("expected no spinner output at quiet level, got %q", buf.String())
 	}
 }
+
+func TestSpinnerVerbosePrintsDoneLine(t *testing.T) {
+	var buf bytes.Buffer
+	l := NewWithLevel(&buf, false, LevelVerbose)
+	s := NewSpinner(l)
+	s.Start("Building image")
+	s.Stop()
+
+	output := buf.String()
+	if strings.Contains(output, "Building image... ") {
+		t.Errorf("expected no live prefix at verbose level, got %q", output)
+	}
+	if !strings.Contains(output, "Building image done(") {
+		t.Errorf("expected full done line at verbose level, got %q", output)
+	}
+}
+
+func TestSpinnerVerboseNoAnimation(t *testing.T) {
+	var buf bytes.Buffer
+	l := NewWithLevel(&buf, true, LevelVerbose)
+	s := NewSpinner(l)
+	s.Start("Building image")
+	s.Stop()
+
+	output := buf.String()
+	if strings.ContainsAny(output, "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏") {
+		t.Errorf("expected no spinner animation at verbose level, got %q", output)
+	}
+	if !strings.Contains(output, "Building image done(") {
+		t.Errorf("expected full done line at verbose level, got %q", output)
+	}
+}
