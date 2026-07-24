@@ -184,8 +184,11 @@ release:
     assets:
       links:
         - name: "opencode-msb-linux-amd64"
-          url: "${CI_PROJECT_URL}/-/jobs/${LINUX_AMD64_JOB_ID}/artifacts/file/opencode-msb-linux-amd64"
+          url: "${CI_PROJECT_URL}/-/jobs/${JOB_ID_linux_amd64}/artifacts/file/opencode-msb-linux-amd64"
           filepath: "/opencode-msb-linux-amd64"
+        - name: "opencode-msb-linux-arm64"
+          url: "${CI_PROJECT_URL}/-/jobs/${JOB_ID_linux_arm64}/artifacts/file/opencode-msb-linux-amd64"
+          filepath: "/opencode-msb-linux-arm64"
         - name: "opencode-msb-darwin-arm64"
-          url: "${CI_PROJECT_URL}/-/jobs/${DARWIN_ARM64_JOB_ID}/artifacts/file/opencode-msb-darwin-arm64"
+          url: "${CI_PROJECT_URL}/-/jobs/${JOB_ID_darwin_arm64}/artifacts/file/opencode-msb-darwin-arm64"
           filepath: "/opencode-msb-darwin-arm64"
