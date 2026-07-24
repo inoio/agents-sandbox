@@ -12,36 +12,48 @@
 [*] provide easy installation method
   [*] Download via curl (without auth?) -> https://gitlab.inoio.de/inoio/opencode-msb/-/releases/permalink/latest
 [*] config file for cli settings in .opencode-msb
+[*] git doctor nach install dokumentieren/aufrufen
+    
+
+
+
+
+
+
+
+## 1st prio
+
+[ ] think about lifecycle of home volume - it would be nice to keep history, but not across projects. Maybe clean option is enough - fancy: option to interactively edit the home volume.
+[ ] !!! NEVER mount a home volume twice. For 2 sessions in 1 repo, warn the user that it'll be an ephemeral session, not recording opencode session history. Start from a fresh home copy from root
+[ ] msb is not callable / not in path -> after EnsureInstalled, create symlink to ~/.local/bin
+[ ] secrets containing @ kann nicht funktionieren -> yaml. Keine CLI-Params...
 [ ] README überarbeiten
   [ ] Installation ins Userverzeichnis ([~/bin,] ~/.local/bin)
   [ ] config file(s) übersicht, beispiele
   [ ] Bedeutungen z.B. env.secret sieht der Agent nicht
   [ ] Flags an opencode übergeben (--) dokumentieren
   [ ] Dependencies (z.B. git, docker)
-    
-[ ] opencode config dir & merging nach alphabet
-[ ] inoio providers ausbauen, anders zur Verfügung stellen.
-[ ] shell subcommand user flag (other flags from msb)
-[ ] secrets containing @ kann nicht funktionieren -> yaml. Keine CLI-Params...
-[ ] msb is not callable / not in path -> after EnsureInstalled, create symlink to ~/.local/bin
-[ ] optionale Versionierung von dependencies (opencode, node.js)
-[ ] was ist mit den LSP-Servern wenn ein Projekt node braucht?
 [ ] docker images mit projekt-slug im namen bauen
-
-[ ] dev doku, design principles usw. (z.B. CLI design aligned with docker,msb)
 [ ] support docker in VM
-[ ] make cli output pretty and UX'd
-
-[ ] after docker image import, remove docker built image?
-
-[ ] clean commands for volumes, sandboxes, images. docker images/cache/... - with filters, best same ones. Also readable list output (project name, not number) (labels an docker images für cleanup?)
-[ ] think about lifecycle of home volume - it would be nice to keep history, but not across projects. Maybe clean option is enough - fancy: option to interactively edit the home volume.
-[ ] !!! NEVER mount a home volume twice. For 2 sessions in 1 repo, warn the user that it'll be an ephemeral session, not recording opencode session history. Start from a fresh home copy from root
 [ ] rework --tree, more explanations, root command
-
-[ ] git library einbinden?
-[ ] cli interaction library instead of prompt.go?
-[ ] git doctor nach install dokumentieren/aufrufen
-[ ] neben docker auch buildah, podman, ??? supporten?
+[ ] make cli output pretty and UX'd
 [ ] user uid,gid aus System bestimmen und setzen bei image build.
 
+
+## 2nd prio
+
+[ ] after docker image import, remove docker built image?
+[ ] inoio providers ausbauen, anders zur Verfügung stellen.
+[ ] clean commands for volumes, sandboxes, images. docker images/cache/... - with filters, best same ones. Also readable list output (project name, not number) (labels an docker images für cleanup?)
+[ ] shell subcommand user flag (other flags from msb)
+[ ] optionale Versionierung von dependencies (opencode, node.js)
+[ ] dev doku, design principles usw. (z.B. CLI design aligned with docker,msb)
+
+
+## 3rd prio
+
+[ ] neben docker auch buildah, podman, ??? supporten?
+[ ] opencode config dir & merging nach alphabet
+[ ] was ist mit den LSP-Servern wenn ein Projekt node braucht?
+[ ] git library einbinden?
+[ ] cli interaction library instead of prompt.go?
