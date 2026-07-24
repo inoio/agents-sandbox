@@ -53,7 +53,7 @@ func TestSpinnerNonTerminalStop(t *testing.T) {
 	if !strings.Contains(output, "Building image... ") {
 		t.Errorf("expected start message, got %q", output)
 	}
-	if !strings.Contains(output, "done(") {
+	if !strings.Contains(output, "✅(") {
 		t.Errorf("expected timed done suffix, got %q", output)
 	}
 }
@@ -104,7 +104,7 @@ func TestSpinnerVerbosePrintsDoneLine(t *testing.T) {
 	if strings.Contains(output, "Building image... ") {
 		t.Errorf("expected no live prefix at verbose level, got %q", output)
 	}
-	if !strings.Contains(output, "Building image done(") {
+	if !strings.Contains(output, "Building image ✅(") {
 		t.Errorf("expected full done line at verbose level, got %q", output)
 	}
 }
@@ -120,7 +120,7 @@ func TestSpinnerVerboseNoAnimation(t *testing.T) {
 	if strings.ContainsAny(output, "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏") {
 		t.Errorf("expected no spinner animation at verbose level, got %q", output)
 	}
-	if !strings.Contains(output, "Building image done(") {
+	if !strings.Contains(output, "Building image ✅(") {
 		t.Errorf("expected full done line at verbose level, got %q", output)
 	}
 }

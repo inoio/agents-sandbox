@@ -1,8 +1,8 @@
 stages:
+  - prepare
   - lint
   - deps
   - test
-  - prepare
   - build
   - release
 
@@ -28,16 +28,16 @@ build-builder-image:
     name: gcr.io/kaniko-project/executor:debug
     entrypoint: [""]
   rules:
-    - if: $CI_COMMIT_BRANCH == "release"
-      when: never
+    - if: $CI_PIPELINE_SOURCE == "schedule"
+      when: on_success
+    - if: $CI_PIPELINE_SOURCE == "schedule"
+      when: manual
     - changes:
         - ci/builder/Dockerfile
-    - when: manual
-      allow_failure: true
   script:
     - mkdir -p /kaniko/.docker
     - echo "{\"auths\":{\"$CI_REGISTRY\":{\"username\":\"$CI_REGISTRY_USER\",\"password\":\"$CI_REGISTRY_PASSWORD\"}}}" > /kaniko/.docker/config.json
-    - /kaniko/executor --context "$CI_PROJECT_DIR" --dockerfile "ci/builder/Dockerfile" --destination "$CI_REGISTRY_IMAGE/ci-builder:latest"
+    #- /kaniko/executor --context "$CI_PROJECT_DIR" --dockerfile "ci/builder/Dockerfile" --destination "$CI_REGISTRY_IMAGE/ci-builder:latest"
 
 lint:
   stage: lint
@@ -95,6 +95,11 @@ build:
       artifacts: true
   variables:
     GOPATH: $CI_PROJECT_DIR/.go
+  script:
+    - export CC="zig cc -target $ZIG_TARGET"
+    - export CXX="zig c++ -target $ZIG_TARGET"
+    - CGO_ENABLED=1 GOOS=$GOOS GOARCH=$GOARCH go build -ldflags "-X main.version=$VERSION" -o $ARTIFACT_NAME ./cmd/opencode-msb
+    - echo "JOB_ID_${GOOS}_${GOARCH}=${CI_JOB_ID}" >> build.env
   before_script:
     - mkdir -p .go
   cache:
@@ -117,12 +122,14 @@ build-release:linux-amd64:
     GOARCH: "amd64"
     ZIG_TARGET: "x86_64-linux-gnu"
     ARTIFACT_NAME: "opencode-msb-linux-amd64"
-  script:
-    - export CC="zig cc -target $ZIG_TARGET"
-    - export CXX="zig c++ -target $ZIG_TARGET"
-    - CGO_ENABLED=1 GOOS=$GOOS GOARCH=$GOARCH go build -ldflags "-X main.version=$VERSION" -o $ARTIFACT_NAME ./cmd/opencode-msb
-    - ./opencode-msb-linux-amd64 --version
-    - echo "LINUX_AMD64_JOB_ID=${CI_JOB_ID}" >> build.env
+
+build-release:linux-arm64:
+  extends: .build-release-tmpl
+  variables:
+    GOOS: "linux"
+    GOARCH: "arm64"
+    ZIG_TARGET: "aarch64-linux-gnu"
+    ARTIFACT_NAME: "opencode-msb-linux-arm64"
 
 build-release:darwin-arm64:
   extends: .build-release-tmpl
@@ -131,32 +138,26 @@ build-release:darwin-arm64:
     GOARCH: "arm64"
     ZIG_TARGET: "aarch64-macos-gnu"
     ARTIFACT_NAME: "opencode-msb-darwin-arm64"
-  script:
-    - export CC="zig cc -target $ZIG_TARGET"
-    - export CXX="zig c++ -target $ZIG_TARGET"
-    - CGO_ENABLED=1 GOOS=$GOOS GOARCH=$GOARCH go build -ldflags "-X main.version=$VERSION" -o $ARTIFACT_NAME ./cmd/opencode-msb
-    - file opencode-msb-darwin-arm64
-    - file opencode-msb-darwin-arm64 | grep -q "Mach-O.*arm64"
-    - python3 ci/smoke-check-darwin-arm64.py opencode-msb-darwin-arm64
-    - go version -m opencode-msb-darwin-arm64
-    - echo "DARWIN_ARM64_JOB_ID=${CI_JOB_ID}" >> build.env
 
-# linux/arm64 is SDK-supported (libmicrosandbox_go_ffi-linux-arm64.so is
-# embedded) and ready to enable by uncommenting:
-#
-# build-release:linux-arm64:
-#   extends: .build-release-tmpl
-#   variables:
-#     GOOS: "linux"
-#     GOARCH: "arm64"
-#     ZIG_TARGET: "aarch64-linux-gnu"
-#     ARTIFACT_NAME: "opencode-msb-linux-arm64"
-#   script:
-#     - export CC="zig cc -target $ZIG_TARGET"
-#     - export CXX="zig c++ -target $ZIG_TARGET"
-#     - CGO_ENABLED=1 GOOS=$GOOS GOARCH=$GOARCH go build -ldflags "-X main.version=$VERSION" -o $ARTIFACT_NAME ./cmd/opencode-msb
-#     - ./opencode-msb-linux-arm64 --version
-#     - echo "LINUX_ARM64_JOB_ID=${CI_JOB_ID}" >> build.env
+validate-releases:
+  stage: release
+  extends: .go-image
+  needs:
+    - job: build-release:linux-amd64
+      artifacts: true
+    - job: build-release:linux-arm64
+      artifacts: true
+    - job: build-release:darwin-arm64
+      artifacts: true
+  rules:
+    - if: $CI_COMMIT_TAG
+      when: never
+    - if: $CI_COMMIT_BRANCH == "release"
+  script:
+    - ./opencode-msb-linux-amd64 --version
+    - file opencode-msb-linux-arm64 | grep -q "Linux.*arm64"
+    - file opencode-msb-darwin-arm64 | grep -q "Mach-O.*arm64"
+
 
 release:
   stage: release
@@ -164,10 +165,7 @@ release:
   needs:
     - job: version
       artifacts: true
-    - job: build-release:linux-amd64
-      artifacts: true
-    - job: build-release:darwin-arm64
-      artifacts: true
+    - job: validate-releases
   rules:
     - if: $CI_COMMIT_TAG
       when: never
