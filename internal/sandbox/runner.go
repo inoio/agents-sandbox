@@ -36,6 +36,7 @@ type RunOptions struct {
 	DryRun  bool
 	CPUs    uint8
 	Memory  string
+	User    string
 	Auto    bool
 	Args    []string
 }
@@ -462,7 +463,7 @@ func prepareSandbox(
 	}
 
 	logger.Debug(fmt.Sprintf("sandbox: %s (cpus=%d, memory=%s)", name, opts.CPUs, opts.Memory))
-	sb, err := createSandbox(ctx, name, imageRef, repoPath, homeVol, opts, cfg, logger)
+	sb, err := createSandbox(ctx, name, imageRef, repoPath, homeVol, opts.User, opts, cfg, logger)
 	if err != nil {
 		return nil, err
 	}
@@ -578,11 +579,14 @@ func loadConfigFiles(userConfigDir string) (map[string][]byte, error) {
 
 func createSandbox(
 	ctx context.Context,
-	name, imageRef, repoPath, homeVol string,
+	name, imageRef, repoPath, homeVol, user string,
 	opts RunOptions,
 	cfg Config,
 	logger *log.Logger,
 ) (*msb.Sandbox, error) {
+	if user == "" {
+		user = "dev"
+	}
 	cpus := opts.CPUs
 	if cpus == 0 {
 		cpus = sysinfo.NumCPUs()
@@ -617,7 +621,7 @@ func createSandbox(
 		msb.WithMounts(mounts),
 		msb.WithSecrets(secrets...),
 		msb.WithEnv(envMap),
-		msb.WithUser("dev"),
+		msb.WithUser(user),
 		msb.WithWorkdir("/workspace"),
 		msb.WithCPUs(cpus),
 		msb.WithMaxCPUs(sysinfo.NumCPUs()),

@@ -187,6 +187,7 @@ func buildRunCmd() *cobra.Command {
 			opts.DryRun, _ = cmd.Flags().GetBool("dry-run")
 			opts.CPUs, _ = cmd.Flags().GetUint8("cpus")
 			opts.Memory, _ = cmd.Flags().GetString("memory")
+			opts.User, _ = cmd.Flags().GetString("user")
 			if noAuto, _ := cmd.Flags().GetBool("no-auto"); noAuto {
 				opts.Auto = false
 			}
@@ -208,6 +209,7 @@ func buildRunCmd() *cobra.Command {
 	cmd.Flags().BoolP("dry-run", "n", false, "Validate setup without running opencode")
 	cmd.Flags().Uint8P("cpus", "c", 0, "Number of CPUs (default: all)")
 	cmd.Flags().StringP("memory", "m", "4G", "Memory limit (default: 4G)")
+	cmd.Flags().StringP("user", "u", "", "Username or UID to run opencode inside the sandbox (format: <name|uid>[:<group|gid>])")
 	cmd.Flags().Bool("no-auto", false, "Do not pass --auto to opencode")
 
 	return cmd
@@ -313,6 +315,7 @@ func buildShellCmd() *cobra.Command {
 			opts.Rebuild, _ = cmd.Flags().GetBool("rebuild")
 			opts.CPUs, _ = cmd.Flags().GetUint8("cpus")
 			opts.Memory, _ = cmd.Flags().GetString("memory")
+			opts.User, _ = cmd.Flags().GetString("user")
 
 			cfg := newConfig()
 			logger := newLogger(cmd)
@@ -330,6 +333,7 @@ func buildShellCmd() *cobra.Command {
 	cmd.Flags().BoolP("rebuild", "r", false, "Rebuild the runner image before starting")
 	cmd.Flags().Uint8P("cpus", "c", 0, "Number of CPUs (default: all)")
 	cmd.Flags().StringP("memory", "m", "4G", "Memory limit (default: 4G)")
+	cmd.Flags().StringP("user", "u", "", "Username or UID to use inside the sandbox (format: <name|uid>[:<group|gid>])")
 
 	return cmd
 }
