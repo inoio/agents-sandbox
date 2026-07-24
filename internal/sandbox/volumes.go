@@ -175,7 +175,6 @@ func (vm *VolumeManager) CloneVolume(
 	return cloneName, nil
 }
 
-//nolint:unused // Will be called from non-test code in a later task.
 func sameHomeVolumeInUse(
 	ctx context.Context,
 	volumeName, excludeSandbox string,
