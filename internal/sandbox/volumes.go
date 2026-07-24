@@ -2,6 +2,7 @@ package sandbox
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
@@ -90,4 +91,50 @@ func (vm *VolumeManager) prefillVolume(ctx context.Context, volumeName, imageTag
 	}
 	spin.Stop()
 	return nil
+}
+
+type rawMountSpec struct {
+	Named string `json:"named,omitempty"`
+}
+
+type rawSandboxConfig struct {
+	Volumes map[string]rawMountSpec `json:"volumes,omitempty"`
+}
+
+func extractNamedVolumes(configJSON string) []string {
+	var raw rawSandboxConfig
+	if err := json.Unmarshal([]byte(configJSON), &raw); err != nil {
+		return nil
+	}
+	var names []string
+	for _, spec := range raw.Volumes {
+		if spec.Named != "" {
+			names = append(names, spec.Named)
+		}
+	}
+	return names
+}
+
+func sameHomeVolumeInUse(
+	ctx context.Context,
+	volumeName, excludeSandbox string,
+) (string, bool, error) {
+	handles, err := msb.ListSandboxes(ctx)
+	if err != nil {
+		return "", false, fmt.Errorf("list sandboxes: %w", err)
+	}
+	for _, h := range handles {
+		if h.Name() == excludeSandbox {
+			continue
+		}
+		if !isSandboxActive(h.Status()) {
+			continue
+		}
+		for _, name := range extractNamedVolumes(h.ConfigJSON()) {
+			if name == volumeName {
+				return h.Name(), true, nil
+			}
+		}
+	}
+	return "", false, nil
 }
