@@ -97,7 +97,7 @@ func (s *Spinner) finish(result string) {
 	var final string
 	switch {
 	case result == "done":
-		final = "done" + suffix
+		final = "✅" + suffix
 	case strings.HasPrefix(result, "failed: "):
 		final = fmt.Sprintf("failed %s: %s", suffix, strings.TrimPrefix(result, "failed: "))
 	default:
