@@ -101,7 +101,13 @@ build:
   script:
     - export CC="zig cc -target $ZIG_TARGET"
     - export CXX="zig c++ -target $ZIG_TARGET"
-    - CGO_ENABLED=1 GOOS=$GOOS GOARCH=$GOARCH go build -ldflags "-X main.version=$VERSION" -o $ARTIFACT_NAME ./cmd/opencode-msb
+    - |
+      if [ "$GOOS" = "darwin" ]; then
+        ZIG_LIB_DIR="$(dirname "$(which zig)")/lib"
+        export CGO_CFLAGS="-isystem ${ZIG_LIB_DIR}/libc/include/any-darwin-any"
+        export CGO_LDFLAGS="-F ${ZIG_LIB_DIR}/libc/darwin/System/Library/Frameworks -L ${ZIG_LIB_DIR}/libc/darwin/usr/lib -Wl,-undefined,dynamic_lookup"
+      fi
+    - CGO_ENABLED=1 GOOS=$GOOS GOARCH=$GOARCH go build -ldflags "-s -w -X main.version=$VERSION" -o $ARTIFACT_NAME ./cmd/opencode-msb
     - echo "JOB_ID_${GOOS}_${GOARCH}=${CI_JOB_ID}" >> build.env
   before_script:
     - mkdir -p .go
@@ -139,7 +145,7 @@ build-release:darwin-arm64:
   variables:
     GOOS: "darwin"
     GOARCH: "arm64"
-    ZIG_TARGET: "aarch64-macos-gnu"
+    ZIG_TARGET: "aarch64-macos.11.0-none"
     ARTIFACT_NAME: "opencode-msb-darwin-arm64"
 
 validate-releases:
