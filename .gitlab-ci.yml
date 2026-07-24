@@ -63,7 +63,7 @@ build-release:
     - if: $CI_COMMIT_BRANCH == "release"
   script:
     - VERSION="0.$(date -u +%Y.%-m.%-d)+${CI_COMMIT_SHORT_SHA}"
-    - echo "VERSION=$VERSION" >> version.env
+    - echo "VERSION=$VERSION" >>version.env
     - echo "BUILD_JOB_ID=${CI_JOB_ID}" >> version.env
     - go build -ldflags "-X main.version=$VERSION" -o opencode-msb-linux-amd64 ./cmd/opencode-msb
     - ./opencode-msb-linux-amd64 --version
@@ -94,4 +94,4 @@ release:
       links:
         - name: "opencode-msb-linux-amd64"
           url: "${CI_PROJECT_URL}/-/jobs/${BUILD_JOB_ID}/artifacts/file/opencode-msb-linux-amd64"
-
+          filepath: "/opencode-msb-linux-amd64"
