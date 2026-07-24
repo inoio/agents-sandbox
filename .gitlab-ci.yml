@@ -2,6 +2,7 @@ stages:
   - lint
   - deps
   - test
+  - prepare
   - build
   - release
 
@@ -20,6 +21,22 @@ variables:
   cache:
     paths:
       - .go/pkg/mod/
+
+build-builder-image:
+  stage: prepare
+  image:
+    name: gcr.io/kaniko-project/executor:debug
+    entrypoint: [""]
+  rules:
+    - if: $CI_COMMIT_BRANCH == "release"
+      when: never
+    - changes:
+        - ci/builder/Dockerfile
+    - when: manual
+  script:
+    - mkdir -p /kaniko/.docker
+    - echo "{\"auths\":{\"$CI_REGISTRY\":{\"username\":\"$CI_REGISTRY_USER\",\"password\":\"$CI_REGISTRY_PASSWORD\"}}}" > /kaniko/.docker/config.json
+    - /kaniko/executor --context "$CI_PROJECT_DIR" --dockerfile "ci/builder/Dockerfile" --destination "$CI_REGISTRY_IMAGE/ci-builder:latest"
 
 lint:
   stage: lint
