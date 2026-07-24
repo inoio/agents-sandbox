@@ -3,8 +3,7 @@ FROM opencode-msb/runner:base
 
 USER root
 # Go
-RUN curl -fsSL https://go.dev/dl/go1.26.5.linux-amd64.tar.gz | tar -C /usr/local -xzf -
-RUN echo 'export PATH="$PATH:/usr/local/go/bin"' >> /etc/profile
+RUN curl -fsSL https://go.dev/dl/go1.26.5.linux-amd64.tar.gz | tar -C /usr/local -xzf - && echo 'export PATH="$PATH:/usr/local/go/bin"' >> /etc/profile
 # build-essential for CGO, shellcheck for shell script linting
 RUN apt-get update && \
     apt-get install -y --no-install-recommends build-essential shellcheck && \
