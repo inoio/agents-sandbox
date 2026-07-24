@@ -161,14 +161,18 @@ release:
   stage: release
   image: registry.gitlab.com/gitlab-org/cli:latest
   needs:
-    - job: build-release
+    - job: version
+      artifacts: true
+    - job: build-release:linux-amd64
+      artifacts: true
+    - job: build-release:darwin-arm64
       artifacts: true
   rules:
     - if: $CI_COMMIT_TAG
       when: never
     - if: $CI_COMMIT_BRANCH == "release"
   script:
-    - echo "running release_job for $TAG"
+    - echo "running release_job for $VERSION"
   release:
     name: "opencode-msb $VERSION"
     description: "Release $VERSION"
@@ -177,5 +181,8 @@ release:
     assets:
       links:
         - name: "opencode-msb-linux-amd64"
-          url: "${CI_PROJECT_URL}/-/jobs/${BUILD_JOB_ID}/artifacts/file/opencode-msb-linux-amd64"
+          url: "${CI_PROJECT_URL}/-/jobs/${LINUX_AMD64_JOB_ID}/artifacts/file/opencode-msb-linux-amd64"
           filepath: "/opencode-msb-linux-amd64"
+        - name: "opencode-msb-darwin-arm64"
+          url: "${CI_PROJECT_URL}/-/jobs/${DARWIN_ARM64_JOB_ID}/artifacts/file/opencode-msb-darwin-arm64"
+          filepath: "/opencode-msb-darwin-arm64"
