@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
@@ -115,6 +116,7 @@ func extractNamedVolumes(configJSON string) []string {
 	return names
 }
 
+//nolint:unused // Will be called from non-test code in a later task.
 func sameHomeVolumeInUse(
 	ctx context.Context,
 	volumeName, excludeSandbox string,
@@ -130,10 +132,8 @@ func sameHomeVolumeInUse(
 		if !isSandboxActive(h.Status()) {
 			continue
 		}
-		for _, name := range extractNamedVolumes(h.ConfigJSON()) {
-			if name == volumeName {
-				return h.Name(), true, nil
-			}
+		if slices.Contains(extractNamedVolumes(h.ConfigJSON()), volumeName) {
+			return h.Name(), true, nil
 		}
 	}
 	return "", false, nil
