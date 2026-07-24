@@ -18,3 +18,13 @@ func TestSameHomeVolumeInUseNoSandboxes(t *testing.T) {
 		t.Errorf("expected empty sandbox name, got %q", got)
 	}
 }
+
+func TestSameBranchSessionExistsNoSandbox(t *testing.T) {
+	exists, err := sameBranchSessionExists(t.Context(), "nonexistent-sandbox")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if exists {
+		t.Error("expected false for nonexistent sandbox")
+	}
+}
