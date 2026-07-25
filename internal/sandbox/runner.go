@@ -452,6 +452,7 @@ func (s *sandboxSession) cleanup() {
 	}
 }
 
+//nolint:funlen // Contains multiple deferred cleanup handlers for resource management.
 func prepareSandbox(
 	ctx context.Context,
 	opts RunOptions,
@@ -525,6 +526,17 @@ func prepareSandbox(
 	if err != nil {
 		return nil, err
 	}
+
+	// Clean up the sandbox if provisioning fails.
+	defer func() {
+		if err != nil {
+			stopCtx, cancel := context.WithTimeout(context.Background(), sandboxStopTimeout)
+			defer cancel()
+			_ = sb.Stop(stopCtx)
+			_ = sb.Close()
+			_ = msb.RemoveSandbox(context.Background(), name)
+		}
+	}()
 
 	fs := sb.FS()
 	err = provisionSandbox(ctx, fs, configFiles, repoPath, logger)
