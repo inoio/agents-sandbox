@@ -514,6 +514,11 @@ func prepareSandbox(
 	if homeVol != originalVol {
 		cloneVol = homeVol
 	}
+	defer func() {
+		if err != nil && cloneVol != "" {
+			_ = msb.RemoveVolume(context.Background(), cloneVol)
+		}
+	}()
 
 	logger.Debug(fmt.Sprintf("sandbox: %s (cpus=%d, memory=%s)", name, opts.CPUs, opts.Memory))
 	sb, err := createSandbox(ctx, name, imageRef, repoPath, homeVol, opts.User, opts, cfg, logger)

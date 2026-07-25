@@ -457,8 +457,8 @@ func TestMergeEnvMapsProjectOverridesUser(t *testing.T) {
 	}
 }
 
-func TestSandboxSessionCleanupRemovesCloneVolume(t *testing.T) {
-	// Verify the struct has a cloneVol field and cleanup removes it.
+func TestSandboxSessionHasCloneVolumeField(t *testing.T) {
+	// Verify the struct has a cloneVol field.
 	// This is a structural test — full lifecycle requires msb.
 	s := &sandboxSession{
 		name:     "test-sandbox",
