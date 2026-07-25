@@ -527,7 +527,8 @@ func prepareSandbox(
 	}
 
 	fs := sb.FS()
-	if err := provisionSandbox(ctx, fs, configFiles, repoPath, logger); err != nil {
+	err = provisionSandbox(ctx, fs, configFiles, repoPath, logger)
+	if err != nil {
 		return nil, err
 	}
 
