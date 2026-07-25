@@ -174,7 +174,7 @@ func (vm *VolumeManager) CloneVolume(
 		return "", fmt.Errorf("clone cp: %w", err)
 	}
 	if !out.Success() {
-		err := fmt.Errorf("clone cp failed (exit %d): %s", out.ExitCode(), out.Stderr())
+		err = fmt.Errorf("clone cp failed (exit %d): %s", out.ExitCode(), out.Stderr())
 		spin.StopError(err)
 		return "", err
 	}
