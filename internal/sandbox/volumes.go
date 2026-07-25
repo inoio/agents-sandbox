@@ -133,6 +133,13 @@ func (vm *VolumeManager) CloneVolume(
 		return "", fmt.Errorf("create clone volume %s: %w", cloneName, err)
 	}
 
+	// Clean up the clone volume if any subsequent step fails.
+	defer func() {
+		if err != nil {
+			_ = msb.RemoveVolume(context.Background(), cloneName)
+		}
+	}()
+
 	prefillName := fmt.Sprintf("opencode-msb-clone-%d", time.Now().UnixNano())
 
 	mounts := map[string]msb.MountConfig{
