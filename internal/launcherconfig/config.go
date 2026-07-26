@@ -20,6 +20,7 @@ type Config struct {
 	Quiet   bool   `mapstructure:"quiet"`
 	CPUs    uint8  `mapstructure:"cpus"`
 	Memory  string `mapstructure:"memory"`
+	TmpSize string `mapstructure:"tmp-size"`
 	Rebuild bool   `mapstructure:"rebuild"`
 }
 
