@@ -19,10 +19,10 @@
 [*] make tmpfs size configurable and raise from 512m to 2GB (go builds broke with "no space left on device")
 [*] think about lifecycle of home volume - it would be nice to keep history, but not across projects. Maybe clean option is enough - fancy: option to interactively edit the home volume.
 [*] !!! NEVER mount a home volume twice. For 2 sessions in 1 repo, warn the user that it'll be an ephemeral session, not recording opencode session history. Start from a fresh home copy from root
+[*] msb is not callable / not in path -> after EnsureInstalled, create symlink to ~/.local/bin
 
 ## 1st prio
 
-[ ] msb is not callable / not in path -> after EnsureInstalled, create symlink to ~/.local/bin
 [ ] user uid,gid aus System bestimmen und setzen bei image build.
 [ ] rework --tree, more explanations, root command
 [ ] README überarbeiten
