@@ -88,7 +88,7 @@ func resolveTmpSizeMiB(spec string) uint32 {
 }
 
 func sandboxName(projectSlug, branchSlug string) string {
-	name := "opencode-msb-" + projectSlug + "-" + branchSlug
+	name := "opencode-msb-sb-" + projectSlug + "-" + branchSlug
 	if len(name) > maxSandboxNameLen {
 		name = name[:maxSandboxNameLen]
 	}

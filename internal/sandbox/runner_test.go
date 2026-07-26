@@ -44,6 +44,14 @@ func TestParseMemoryLowercase(t *testing.T) {
 	}
 }
 
+func TestSandboxNameFormat(t *testing.T) {
+	got := sandboxName("myproj-aBc1234D", "main")
+	expected := "opencode-msb-sb-myproj-aBc1234D-main"
+	if got != expected {
+		t.Errorf("expected %q, got %q", expected, got)
+	}
+}
+
 func TestSandboxNameTruncation(t *testing.T) {
 	got := sandboxName("p-abcdef", "feat-very-long-branch-name-that-exceeds-the-limit-and-more")
 	if len(got) > 128 {
