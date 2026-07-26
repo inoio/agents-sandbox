@@ -1,4 +1,4 @@
-package log
+package output
 
 import (
 	"fmt"
@@ -25,7 +25,7 @@ type Spinner struct {
 	active bool
 }
 
-func NewSpinner(l *Logger) *Spinner {
+func NewSpinner(l *Printer) *Spinner {
 	return &Spinner{w: l.w, color: l.color, level: l.level}
 }
 

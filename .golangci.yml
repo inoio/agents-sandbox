@@ -303,7 +303,7 @@ linters:
         - ^github.com/superradcompany/microsandbox/sdk/go.MountOptions$
         - ^github.com/superradcompany/microsandbox/sdk/go.SecretEnvOptions$
         # project types — intentionally partial init (zero-value fields set later)
-        - ^gitlab.inoio.de/inoio/opencode-msb/internal/log.Spinner$
+        - ^gitlab.inoio.de/inoio/opencode-msb/internal/output.Spinner$
         - ^gitlab.inoio.de/inoio/opencode-msb/internal/sandbox.RunOptions$
       # Allows empty structures in return statements.
       # Default: false

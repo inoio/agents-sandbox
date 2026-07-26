@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"gitlab.inoio.de/inoio/opencode-msb/internal/log"
+	"gitlab.inoio.de/inoio/opencode-msb/internal/output"
 )
 
 func TestIsInteractive(t *testing.T) {
@@ -43,7 +43,7 @@ func TestSelect(t *testing.T) {
 		{Label: "Keep", Key: "k", Description: "Keep the worktree"},
 		{Label: "Remove", Key: "r", Description: "Remove the worktree"},
 	}
-	logger := log.New(io.Discard, false)
+	logger := output.NewPrinter(io.Discard, false)
 
 	t.Run("returns default in non-interactive mode", func(t *testing.T) {
 		isTerminalFunc = func(int) bool { return false }
@@ -139,7 +139,7 @@ func TestSelect(t *testing.T) {
 }
 
 func TestConfirmDefault(t *testing.T) {
-	logger := log.New(io.Discard, false)
+	logger := output.NewPrinter(io.Discard, false)
 
 	t.Run("returns default yes in non-interactive mode", func(t *testing.T) {
 		isTerminalFunc = func(int) bool { return false }
@@ -250,7 +250,7 @@ func TestConfirmDefault(t *testing.T) {
 }
 
 func TestInput(t *testing.T) {
-	logger := log.New(io.Discard, false)
+	logger := output.NewPrinter(io.Discard, false)
 
 	t.Run("returns default in non-interactive mode", func(t *testing.T) {
 		isTerminalFunc = func(int) bool { return false }

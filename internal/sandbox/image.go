@@ -13,7 +13,7 @@ import (
 
 	"github.com/moby/moby/client"
 
-	"gitlab.inoio.de/inoio/opencode-msb/internal/log"
+	"gitlab.inoio.de/inoio/opencode-msb/internal/output"
 
 	msb "github.com/superradcompany/microsandbox/sdk/go"
 )
@@ -90,7 +90,7 @@ func EnsureImage(
 	cli dockerClient,
 	dockerfile []byte,
 	force bool,
-	logger *log.Logger,
+	logger *output.Printer,
 ) (string, string, error) {
 	if force || ReferencesBase(dockerfile) {
 		if err := buildDockerImage(
@@ -122,7 +122,7 @@ func EnsureImage(
 		return imageRef, imageDigest, nil
 	}
 
-	spin := log.NewSpinner(logger)
+	spin := output.NewSpinner(logger)
 	spin.Start("Loading image into microsandbox")
 	saveResult, err := cli.ImageSave(ctx, []string{runnerTag})
 	if err != nil {
@@ -148,9 +148,9 @@ func buildDockerImage(
 	dockerfile []byte,
 	tag, label string,
 	force bool,
-	logger *log.Logger,
+	logger *output.Printer,
 ) error {
-	spin := log.NewSpinner(logger)
+	spin := output.NewSpinner(logger)
 	spin.Start(label)
 
 	buildResp, err := cli.ImageBuild(ctx, dockerfileTar(dockerfile), client.ImageBuildOptions{
@@ -177,7 +177,7 @@ func buildDockerImage(
 	return nil
 }
 
-func scanBuildOutput(r io.Reader, logger *log.Logger) error {
+func scanBuildOutput(r io.Reader, logger *output.Printer) error {
 	dec := json.NewDecoder(r)
 	for {
 		var msg dockerBuildMessage
@@ -194,7 +194,7 @@ func scanBuildOutput(r io.Reader, logger *log.Logger) error {
 			return fmt.Errorf("%s", msg.ErrorDetail.Message)
 		}
 		if msg.Stream != "" {
-			logger.Debug(strings.TrimSuffix(msg.Stream, "\n"))
+			logger.Debugf("%s", strings.TrimSuffix(msg.Stream, "\n"))
 		}
 	}
 }

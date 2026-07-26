@@ -10,14 +10,14 @@ import (
 	"path/filepath"
 	"strings"
 
-	"gitlab.inoio.de/inoio/opencode-msb/internal/log"
+	"gitlab.inoio.de/inoio/opencode-msb/internal/output"
 )
 
-func ProjectSlug(logger *log.Logger) string {
+func ProjectSlug(logger *output.Printer) string {
 	commonDir, err := gitCommonDir(".")
 	if err != nil || commonDir == "" {
 		cwd, _ := filepath.Abs(".")
-		logger.Warn("not inside a git repo; using CWD hash as project slug.")
+		logger.Warnf("not inside a git repo; using CWD hash as project slug.")
 		h := sha256.Sum256([]byte(cwd))
 		return "p-" + hex.EncodeToString(h[:])[:8]
 	}
