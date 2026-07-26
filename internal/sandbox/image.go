@@ -15,14 +15,14 @@ import (
 
 	"github.com/moby/moby/client"
 
+	"gitlab.inoio.de/inoio/opencode-msb/internal/git"
 	"gitlab.inoio.de/inoio/opencode-msb/internal/output"
 
 	msb "github.com/superradcompany/microsandbox/sdk/go"
 )
 
 const (
-	BaseTag        = "opencode-msb/runner:base"
-	shortDigestLen = 12
+	BaseTag        = "opencode-msb/runner-base:latest"
 	dockerfileMode = 0o644
 )
 
@@ -56,12 +56,8 @@ func ReferencesBase(dockerfile []byte) bool {
 	return false
 }
 
-func ImageTag(digest string) string {
-	short := strings.TrimPrefix(digest, "sha256:")
-	if len(short) > shortDigestLen {
-		short = short[:shortDigestLen]
-	}
-	return "opencode-msb/runner:sha256-" + short
+func ImageTag(projectSlug, imageDigest string) string {
+	return "opencode-msb/runner-" + projectSlug + ":" + git.HashID(imageDigest)
 }
 
 func dockerfileTar(dockerfile []byte) *bytes.Buffer {
@@ -97,12 +93,15 @@ func userBuildArgs(uid, gid int) map[string]*string {
 	}
 }
 
-const runnerTag = "opencode-msb/runner:latest"
+func runnerTag(projectSlug string) string {
+	return "opencode-msb/runner-" + projectSlug + ":latest"
+}
 
 func EnsureImage(
 	ctx context.Context,
 	cli dockerClient,
 	dockerfile []byte,
+	projectSlug string,
 	force bool,
 	logger *output.Printer,
 ) (string, string, error) {
@@ -120,16 +119,17 @@ func EnsureImage(
 		}
 	}
 
-	if err := buildDockerImage(ctx, cli, dockerfile, runnerTag, "Building runner image", force, logger); err != nil {
+	rTag := runnerTag(projectSlug)
+	if err := buildDockerImage(ctx, cli, dockerfile, rTag, "Building runner image", force, logger); err != nil {
 		return "", "", err
 	}
 
-	inspect, err := cli.ImageInspect(ctx, runnerTag)
+	inspect, err := cli.ImageInspect(ctx, rTag)
 	if err != nil {
 		return "", "", fmt.Errorf("cannot inspect built image: %w", err)
 	}
 	imageDigest := inspect.ID
-	imageRef := ImageTag(imageDigest)
+	imageRef := ImageTag(projectSlug, imageDigest)
 
 	_, cacheErr := msb.Image.Get(ctx, imageRef)
 	if cacheErr == nil && !force {
@@ -138,7 +138,7 @@ func EnsureImage(
 
 	spin := output.NewSpinner(logger)
 	spin.Start("Loading image into microsandbox")
-	saveResult, err := cli.ImageSave(ctx, []string{runnerTag})
+	saveResult, err := cli.ImageSave(ctx, []string{rTag})
 	if err != nil {
 		spin.StopError(err)
 		return "", "", fmt.Errorf("cannot export Docker image: %w", err)

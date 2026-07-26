@@ -490,7 +490,7 @@ func prepareSandbox(
 	}
 	defer dockerCli.Close()
 
-	imageRef, imageDigest, err := EnsureImage(ctx, dockerCli, dockerfile, opts.Rebuild, logger)
+	imageRef, imageDigest, err := EnsureImage(ctx, dockerCli, dockerfile, projectSlug, opts.Rebuild, logger)
 	if err != nil {
 		return nil, fmt.Errorf("image setup failed: %w", err)
 	}
@@ -607,6 +607,7 @@ func BuildImage(ctx context.Context, force bool, logger *output.Printer) error {
 	if !CheckDocker(logger) {
 		return errors.New("docker not available")
 	}
+	projectSlug := git.ProjectSlug(logger)
 	dockerfile := resolveDockerfile()
 	dockerCli, err := client.New(client.FromEnv)
 	if err != nil {
@@ -614,7 +615,7 @@ func BuildImage(ctx context.Context, force bool, logger *output.Printer) error {
 	}
 	defer dockerCli.Close()
 
-	_, _, err = EnsureImage(ctx, dockerCli, dockerfile, force, logger)
+	_, _, err = EnsureImage(ctx, dockerCli, dockerfile, projectSlug, force, logger)
 	return err
 }
 
