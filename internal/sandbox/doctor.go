@@ -40,7 +40,6 @@ func CheckGit(logger *log.Logger) bool {
 
 func CheckMsb(ctx context.Context, logger *log.Logger) bool {
 	if err := msb.EnsureInstalled(ctx); err != nil {
-
 		logger.Error("msb not found. Install microsandbox: https://github.com/microsandbox/microsandbox")
 		return false
 	}
