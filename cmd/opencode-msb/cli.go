@@ -9,8 +9,10 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/spf13/cobra"
+	"github.com/spf13/pflag"
 	"golang.org/x/term"
 
 	"gitlab.inoio.de/inoio/opencode-msb/internal/config"
@@ -39,6 +41,8 @@ const (
 	flagCpus    = "cpus"
 	flagMemory  = "memory"
 	flagTmpSize = "tmp-size"
+
+	annotationArgsDesc = "opencode-msb/args-description"
 )
 
 var version = "dev"
@@ -54,7 +58,7 @@ func Execute() error {
 		}
 		switch a {
 		case flagTree:
-			printTree(os.Stdout, root, "")
+			printTree(os.Stdout, root)
 			return nil
 		case flagVersion, "-V":
 			fmt.Fprintf(os.Stdout, "opencode-msb version %s\n", version)
@@ -73,6 +77,8 @@ func buildRootCmd() *cobra.Command {
 	root := &cobra.Command{
 		Use:   "opencode-msb",
 		Short: "Run opencode inside an ephemeral microsandbox VM",
+		Long: "Run opencode inside an ephemeral microsandbox VM.\n\n" +
+			"When invoked without a subcommand, the \"run\" command is implied.",
 	}
 
 	root.PersistentFlags().BoolP("yes", "y", false, "Assume yes to all prompts")
@@ -127,10 +133,60 @@ func isKnownSubcommand(arg string, root *cobra.Command) bool {
 	return false
 }
 
-func printTree(w io.Writer, cmd *cobra.Command, prefix string) {
-	subs := cmd.Commands()
-	for i, sub := range subs {
-		isLast := i == len(subs)-1
+type treeEntry struct {
+	prefix string
+	name   string
+	desc   string
+}
+
+func printTree(w io.Writer, root *cobra.Command) {
+	var entries []treeEntry
+	collectTreeEntries(&entries, root, "")
+
+	maxWidth := 0
+	for _, e := range entries {
+		width := utf8.RuneCountInString(e.prefix) + utf8.RuneCountInString(e.name)
+		if width > maxWidth {
+			maxWidth = width
+		}
+	}
+
+	fmt.Fprintln(w, root.Name())
+	const descPadding = 2
+	descCol := maxWidth + descPadding
+	for _, e := range entries {
+		nameWidth := utf8.RuneCountInString(e.prefix) + utf8.RuneCountInString(e.name)
+		padding := descCol - nameWidth
+		fmt.Fprintf(w, "%s%s%s%s\n", e.prefix, e.name, strings.Repeat(" ", padding), e.desc)
+	}
+	fmt.Fprintln(w)
+	fmt.Fprintln(w, "When invoked without a subcommand, the \"run\" command is implied.")
+}
+
+func collectTreeEntries(entries *[]treeEntry, cmd *cobra.Command, prefix string) {
+	type item struct {
+		name string
+		desc string
+		sub  *cobra.Command
+	}
+
+	var items []item
+
+	cmd.LocalFlags().VisitAll(func(f *pflag.Flag) {
+		items = append(items, item{name: formatFlagName(f), desc: f.Usage, sub: nil})
+	})
+
+	for _, sub := range cmd.Commands() {
+		items = append(items, item{name: formatCommandName(sub), desc: sub.Short, sub: sub})
+	}
+
+	argsDesc := cmd.Annotations[annotationArgsDesc]
+	for _, arg := range positionalArgsFromUse(cmd.Use) {
+		items = append(items, item{name: arg, desc: argsDesc, sub: nil})
+	}
+
+	for i, it := range items {
+		isLast := i == len(items)-1
 		var connector, childPrefix string
 		if isLast {
 			connector = "└── "
@@ -139,13 +195,56 @@ func printTree(w io.Writer, cmd *cobra.Command, prefix string) {
 			connector = "├── "
 			childPrefix = prefix + "│   "
 		}
-		fmt.Fprintf(w, "%s%s%s", prefix, connector, sub.Name())
-		if len(sub.Aliases) > 0 {
-			fmt.Fprintf(w, " (aliases: %s)", strings.Join(sub.Aliases, ", "))
+		*entries = append(*entries, treeEntry{
+			prefix: prefix + connector,
+			name:   it.name,
+			desc:   it.desc,
+		})
+		if it.sub != nil {
+			collectTreeEntries(entries, it.sub, childPrefix)
 		}
-		fmt.Fprintln(w)
-		printTree(w, sub, childPrefix)
 	}
+}
+
+func formatFlagName(f *pflag.Flag) string {
+	var b strings.Builder
+	if f.Shorthand != "" {
+		b.WriteString("-")
+		b.WriteString(f.Shorthand)
+		b.WriteString(", --")
+	} else {
+		b.WriteString("--")
+	}
+	b.WriteString(f.Name)
+	if f.Value.Type() != "bool" {
+		b.WriteString(" <")
+		b.WriteString(strings.ToUpper(strings.ReplaceAll(f.Name, "-", "_")))
+		b.WriteString(">")
+	}
+	return b.String()
+}
+
+func positionalArgsFromUse(use string) []string {
+	parts := strings.Fields(use)
+	if len(parts) <= 1 {
+		return nil
+	}
+	var args []string
+	for _, p := range parts[1:] {
+		if p == "[flags]" {
+			continue
+		}
+		args = append(args, p)
+	}
+	return args
+}
+
+func formatCommandName(cmd *cobra.Command) string {
+	name := cmd.Name()
+	if len(cmd.Aliases) > 0 {
+		name += " (aliases: " + strings.Join(cmd.Aliases, ", ") + ")"
+	}
+	return name
 }
 
 func buildDoctorCmd() *cobra.Command {
@@ -181,6 +280,9 @@ func buildRunCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "run [flags] [ARGS...]",
 		Short: "Run opencode in a microsandbox VM",
+		Annotations: map[string]string{
+			annotationArgsDesc: "Arguments forwarded to opencode (use -- to separate from launcher flags)",
+		},
 		RunE: func(cmd *cobra.Command, args []string) error {
 			opts := sandbox.RunOptions{Args: args, Auto: true}
 			opts.Branch, _ = cmd.Flags().GetString("branch")

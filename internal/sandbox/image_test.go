@@ -6,6 +6,8 @@ import (
 	"context"
 	"errors"
 	"io"
+	"os"
+	"strconv"
 	"testing"
 
 	"github.com/moby/moby/client"
@@ -70,6 +72,71 @@ func (f *failingDockerClient) ImageSave(
 
 func (f *failingDockerClient) Close() error {
 	return nil
+}
+
+// recordingDockerClient captures the ImageBuild options so tests can assert
+// on the build args actually forwarded to Docker. The build body is empty,
+// which scanBuildOutput treats as a successful (EOF-terminated) build.
+type recordingDockerClient struct {
+	buildArgs map[string]*string
+}
+
+func (r *recordingDockerClient) ImageBuild(
+	_ context.Context,
+	_ io.Reader,
+	opts client.ImageBuildOptions,
+) (client.ImageBuildResult, error) {
+	r.buildArgs = opts.BuildArgs
+	return client.ImageBuildResult{Body: io.NopCloser(bytes.NewReader(nil))}, nil
+}
+
+func (r *recordingDockerClient) ImageInspect(
+	context.Context,
+	string,
+	...client.ImageInspectOption,
+) (client.ImageInspectResult, error) {
+	return client.ImageInspectResult{}, errors.New("not implemented")
+}
+
+func (r *recordingDockerClient) ImageSave(
+	context.Context,
+	[]string,
+	...client.ImageSaveOption,
+) (client.ImageSaveResult, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (r *recordingDockerClient) Close() error {
+	return nil
+}
+
+func TestUserBuildArgs(t *testing.T) {
+	got := userBuildArgs(1001, 20)
+	if v := got["USER_UID"]; v == nil || *v != "1001" {
+		t.Errorf("USER_UID: want %q, got %v", "1001", v)
+	}
+	if v := got["USER_GID"]; v == nil || *v != "20" {
+		t.Errorf("USER_GID: want %q, got %v", "20", v)
+	}
+}
+
+func TestBuildDockerImageSetsHostUserBuildArgs(t *testing.T) {
+	l := output.NewPrinter(io.Discard, false)
+	rc := &recordingDockerClient{}
+	dockerfile := []byte("FROM debian:trixie-slim\nRUN echo hi\n")
+
+	if err := buildDockerImage(context.Background(), rc, dockerfile, "tag", "label", false, l); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	wantUID := strconv.Itoa(os.Getuid())
+	wantGID := strconv.Itoa(os.Getgid())
+	if v := rc.buildArgs["USER_UID"]; v == nil || *v != wantUID {
+		t.Errorf("USER_UID: want %q, got %v", wantUID, v)
+	}
+	if v := rc.buildArgs["USER_GID"]; v == nil || *v != wantGID {
+		t.Errorf("USER_GID: want %q, got %v", wantGID, v)
+	}
 }
 
 func TestEnsureImageReturnsErrorWhenBuildFails(t *testing.T) {
