@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"math/big"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -12,6 +13,37 @@ import (
 
 	"gitlab.inoio.de/inoio/opencode-msb/internal/output"
 )
+
+const (
+	base62Alphabet = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
+	base62         = 62
+	hashIDLen      = 8
+)
+
+func HashID(input string) string {
+	sum := sha256.Sum256([]byte(input))
+	num := new(big.Int).SetBytes(sum[:])
+	if num.Sign() == 0 {
+		return "00000000"
+	}
+	var encoded []byte
+	base := big.NewInt(base62)
+	mod := new(big.Int)
+	for num.Sign() > 0 {
+		num.DivMod(num, base, mod)
+		encoded = append(encoded, base62Alphabet[mod.Int64()])
+	}
+	for len(encoded) < hashIDLen {
+		encoded = append(encoded, '0')
+	}
+	for i, j := 0, len(encoded)-1; i < j; i, j = i+1, j-1 {
+		encoded[i], encoded[j] = encoded[j], encoded[i]
+	}
+	if len(encoded) > hashIDLen {
+		encoded = encoded[:hashIDLen]
+	}
+	return string(encoded)
+}
 
 func ProjectSlug(logger *output.Printer) string {
 	commonDir, err := gitCommonDir(".")
