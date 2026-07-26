@@ -36,7 +36,7 @@ func TestSameBranchSessionExistsNoSandbox(t *testing.T) {
 
 func TestEnsureNoSameHomeSessionNoConflict(t *testing.T) {
 	vm := NewVolumeManager(newTestLogger(t))
-	got, err := ensureNoSameHomeSession(t.Context(), vm, "nonexistent-vol", "my-sandbox", "my-image", newTestLogger(t))
+	got, err := ensureNoSameHomeSession(t.Context(), vm, "test-project", "nonexistent-vol", "my-sandbox", "my-image", newTestLogger(t))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -106,7 +106,7 @@ func TestSameHomeVolumeInUseConflict(t *testing.T) {
 	// Test ensureNoSameHomeSession returns a clone volume when there's a conflict.
 	// This requires an image that exists in msb; we'll skip if the image doesn't exist.
 	vm := NewVolumeManager(logger)
-	gotVol, err := ensureNoSameHomeSession(ctx, vm, volName, "new-sandbox", "alpine:latest", logger)
+	gotVol, err := ensureNoSameHomeSession(ctx, vm, "test-project", volName, "new-sandbox", "alpine:latest", logger)
 	if err != nil {
 		// If the image doesn't exist, that's acceptable for this test.
 		// The key assertion is that we tried to clone (not returning the original).

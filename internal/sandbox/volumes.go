@@ -44,15 +44,15 @@ func (vm *VolumeManager) EnsureHome(
 		return "", fmt.Errorf("create volume %s: %w", name, err)
 	}
 
-	if err := vm.prefillVolume(ctx, vol.Name(), imageTag); err != nil {
+	if err := vm.prefillVolume(ctx, projectSlug, vol.Name(), imageTag); err != nil {
 		return "", fmt.Errorf("prefill volume %s: %w", name, err)
 	}
 
 	return name, nil
 }
 
-func (vm *VolumeManager) prefillVolume(ctx context.Context, volumeName, imageTag string) error {
-	prefillName := fmt.Sprintf("opencode-msb-prefill-%d", time.Now().UnixNano())
+func (vm *VolumeManager) prefillVolume(ctx context.Context, projectSlug, volumeName, imageTag string) error {
+	prefillName := fmt.Sprintf("opencode-msb-task-prefill-%s-%d", projectSlug, time.Now().UnixNano())
 
 	mountConfig := msb.Mount.Named(volumeName, msb.MountOptions{})
 
@@ -120,7 +120,7 @@ func cloneVolumeName(sourceVol string) string {
 
 func (vm *VolumeManager) CloneVolume(
 	ctx context.Context,
-	sourceVol, imageTag string,
+	projectSlug, sourceVol, imageTag string,
 ) (string, error) {
 	cloneName := cloneVolumeName(sourceVol)
 
@@ -131,14 +131,13 @@ func (vm *VolumeManager) CloneVolume(
 		return "", fmt.Errorf("create clone volume %s: %w", cloneName, err)
 	}
 
-	// Clean up the clone volume if any subsequent step fails.
 	defer func() {
 		if err != nil {
 			_ = msb.RemoveVolume(context.Background(), cloneName)
 		}
 	}()
 
-	prefillName := fmt.Sprintf("opencode-msb-clone-%d", time.Now().UnixNano())
+	taskName := fmt.Sprintf("opencode-msb-task-clone-%s-%d", projectSlug, time.Now().UnixNano())
 
 	mounts := map[string]msb.MountConfig{
 		"/mnt/src": msb.Mount.Named(sourceVol, msb.MountOptions{Readonly: true}),
@@ -147,7 +146,7 @@ func (vm *VolumeManager) CloneVolume(
 
 	spin := output.NewSpinner(vm.logger)
 	spin.Start("Cloning home volume")
-	sb, err := msb.CreateSandbox(ctx, prefillName,
+	sb, err := msb.CreateSandbox(ctx, taskName,
 		msb.WithImage(imageTag),
 		msb.WithMounts(mounts),
 		msb.WithReplace(),
@@ -161,7 +160,7 @@ func (vm *VolumeManager) CloneVolume(
 		defer cancel()
 		_ = sb.Stop(stopCtx)
 		_ = sb.Close()
-		_ = msb.RemoveSandbox(context.Background(), prefillName)
+		_ = msb.RemoveSandbox(context.Background(), taskName)
 	}()
 
 	out, err := sb.Exec(ctx, "sh", []string{"-c",
