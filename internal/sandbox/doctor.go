@@ -6,46 +6,46 @@ import (
 	"os/exec"
 	"runtime"
 
-	"gitlab.inoio.de/inoio/opencode-msb/internal/log"
+	"gitlab.inoio.de/inoio/opencode-msb/internal/output"
 
 	msb "github.com/superradcompany/microsandbox/sdk/go"
 )
 
-func CheckDocker(logger *log.Logger) bool {
+func CheckDocker(logger *output.Printer) bool {
 	if _, err := exec.LookPath("docker"); err != nil {
-		logger.Error("docker not found. Install Docker or Podman with docker-compatible CLI.")
+		logger.Errorf("docker not found. Install Docker or Podman with docker-compatible CLI: %v", err)
 		return false
 	}
 	return true
 }
 
-func CheckKvm(logger *log.Logger) bool {
+func CheckKvm(logger *output.Printer) bool {
 	if runtime.GOOS != "linux" {
 		return true
 	}
 	if _, err := os.Stat("/dev/kvm"); err != nil {
-		logger.Error("/dev/kvm not found. Load kvm module and ensure user is in the kvm group.")
+		logger.Errorf("/dev/kvm not found. Load kvm module and ensure user is in the kvm group: %v", err)
 		return false
 	}
 	return true
 }
 
-func CheckGit(logger *log.Logger) bool {
+func CheckGit(logger *output.Printer) bool {
 	if _, err := exec.LookPath("git"); err != nil {
-		logger.Error("git not found. Install git via your system package manager.")
+		logger.Errorf("git not found. Install git via your system package manager: %v", err)
 		return false
 	}
 	return true
 }
 
-func CheckMsb(ctx context.Context, logger *log.Logger) bool {
+func CheckMsb(ctx context.Context, logger *output.Printer) bool {
 	if err := msb.EnsureInstalled(ctx); err != nil {
-		logger.Error("msb not found. Install microsandbox: https://github.com/microsandbox/microsandbox")
+		logger.Errorf("msb not found. Install microsandbox (https://github.com/microsandbox/microsandbox): %v", err)
 		return false
 	}
 	return true
 }
 
-func CheckAll(ctx context.Context, logger *log.Logger) bool {
+func CheckAll(ctx context.Context, logger *output.Printer) bool {
 	return CheckMsb(ctx, logger) && CheckDocker(logger) && CheckKvm(logger) && CheckGit(logger)
 }

@@ -1,4 +1,4 @@
-package log
+package output
 
 import (
 	"bytes"
@@ -45,7 +45,7 @@ func TestFormatElapsedDone(t *testing.T) {
 
 func TestSpinnerNonTerminalStop(t *testing.T) {
 	var buf bytes.Buffer
-	s := NewSpinner(New(&buf, false))
+	s := NewSpinner(NewPrinter(&buf, false))
 	s.Start("Building image")
 	s.Stop()
 
@@ -60,7 +60,7 @@ func TestSpinnerNonTerminalStop(t *testing.T) {
 
 func TestSpinnerNonTerminalError(t *testing.T) {
 	var buf bytes.Buffer
-	s := NewSpinner(New(&buf, false))
+	s := NewSpinner(NewPrinter(&buf, false))
 	s.Start("Building image")
 	s.StopError(errors.New("build failed"))
 
@@ -75,7 +75,7 @@ func TestSpinnerNonTerminalError(t *testing.T) {
 
 func TestSpinnerStopTwiceNoPanic(_ *testing.T) {
 	var buf bytes.Buffer
-	s := NewSpinner(New(&buf, false))
+	s := NewSpinner(NewPrinter(&buf, false))
 	s.Start("Building image")
 	s.Stop()
 	s.Stop()
@@ -84,7 +84,7 @@ func TestSpinnerStopTwiceNoPanic(_ *testing.T) {
 
 func TestSpinnerHiddenAtQuietLevel(t *testing.T) {
 	var buf bytes.Buffer
-	l := NewWithLevel(&buf, false, LevelQuiet)
+	l := NewPrinterWithLevel(&buf, false, LevelQuiet)
 	s := NewSpinner(l)
 	s.Start("Building image")
 	s.Stop()
@@ -95,7 +95,7 @@ func TestSpinnerHiddenAtQuietLevel(t *testing.T) {
 
 func TestSpinnerVerbosePrintsDoneLine(t *testing.T) {
 	var buf bytes.Buffer
-	l := NewWithLevel(&buf, false, LevelVerbose)
+	l := NewPrinterWithLevel(&buf, false, LevelVerbose)
 	s := NewSpinner(l)
 	s.Start("Building image")
 	s.Stop()
@@ -111,7 +111,7 @@ func TestSpinnerVerbosePrintsDoneLine(t *testing.T) {
 
 func TestSpinnerVerboseNoAnimation(t *testing.T) {
 	var buf bytes.Buffer
-	l := NewWithLevel(&buf, true, LevelVerbose)
+	l := NewPrinterWithLevel(&buf, true, LevelVerbose)
 	s := NewSpinner(l)
 	s.Start("Building image")
 	s.Stop()

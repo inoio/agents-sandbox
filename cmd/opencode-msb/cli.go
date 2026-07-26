@@ -15,7 +15,7 @@ import (
 
 	"gitlab.inoio.de/inoio/opencode-msb/internal/config"
 	"gitlab.inoio.de/inoio/opencode-msb/internal/launcherconfig"
-	"gitlab.inoio.de/inoio/opencode-msb/internal/log"
+	"gitlab.inoio.de/inoio/opencode-msb/internal/output"
 	"gitlab.inoio.de/inoio/opencode-msb/internal/prompt"
 	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox"
 )
@@ -157,7 +157,7 @@ func buildDoctorCmd() *cobra.Command {
 			if !sandbox.CheckAll(cmd.Context(), logger) {
 				return errors.New("preflight failed")
 			}
-			logger.Info("doctor: all checks passed")
+			logger.Infof("doctor: all checks passed")
 			return nil
 		},
 	}
@@ -298,7 +298,7 @@ func buildListCmd() *cobra.Command {
 			}
 			if len(sandboxes) == 0 {
 				logger := newLogger(cmd)
-				logger.Info("No sandboxes found.")
+				logger.Infof("No sandboxes found.")
 				return nil
 			}
 			for _, s := range sandboxes {
@@ -408,7 +408,7 @@ func buildImageCmd() *cobra.Command {
 			}
 			if len(images) == 0 {
 				logger := newLogger(cmd)
-				logger.Info("No images found.")
+				logger.Infof("No images found.")
 				return nil
 			}
 			for _, img := range images {
@@ -437,7 +437,7 @@ func buildVolumeCmd() *cobra.Command {
 			}
 			if len(volumes) == 0 {
 				logger := newLogger(cmd)
-				logger.Info("No volumes found.")
+				logger.Infof("No volumes found.")
 				return nil
 			}
 			for _, vol := range volumes {
@@ -460,16 +460,16 @@ func buildSandboxCmd() *cobra.Command {
 	return cmd
 }
 
-func newLogger(cmd *cobra.Command) *log.Logger {
+func newLogger(cmd *cobra.Command) *output.Printer {
 	verbose, _ := cmd.Flags().GetBool("verbose")
 	quiet, _ := cmd.Flags().GetBool("quiet")
 
-	level := log.LevelNormal
+	level := output.LevelNormal
 	if quiet {
-		level = log.LevelQuiet
+		level = output.LevelQuiet
 	} else if verbose {
-		level = log.LevelVerbose
+		level = output.LevelVerbose
 	}
 
-	return log.NewWithLevel(os.Stderr, term.IsTerminal(int(os.Stderr.Fd())), level)
+	return output.NewPrinterWithLevel(os.Stderr, term.IsTerminal(int(os.Stderr.Fd())), level)
 }

@@ -12,7 +12,7 @@ import (
 	msb "github.com/superradcompany/microsandbox/sdk/go"
 
 	"gitlab.inoio.de/inoio/opencode-msb/internal/git"
-	"gitlab.inoio.de/inoio/opencode-msb/internal/log"
+	"gitlab.inoio.de/inoio/opencode-msb/internal/output"
 	"gitlab.inoio.de/inoio/opencode-msb/internal/prompt"
 )
 
@@ -480,9 +480,9 @@ func runGitOutput(t *testing.T, dir string, args ...string) string {
 	return string(out)
 }
 
-func newTestLogger(t *testing.T) *log.Logger {
+func newTestLogger(t *testing.T) *output.Printer {
 	t.Helper()
-	return log.New(io.Discard, false)
+	return output.NewPrinter(io.Discard, false)
 }
 
 func TestMergeEnvMapsProjectOverridesUser(t *testing.T) {

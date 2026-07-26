@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"gitlab.inoio.de/inoio/opencode-msb/internal/log"
+	"gitlab.inoio.de/inoio/opencode-msb/internal/output"
 )
 
 func TestHomeVolumeName(t *testing.T) {
@@ -24,7 +24,7 @@ func TestHomeVolumeNameSanitizesColon(t *testing.T) {
 }
 
 func TestNewVolumeManager(t *testing.T) {
-	l := log.New(nil, false)
+	l := output.NewPrinter(nil, false)
 	vm := NewVolumeManager(l)
 	if vm.logger == nil {
 		t.Error("expected logger to be set")
