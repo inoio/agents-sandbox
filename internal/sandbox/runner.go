@@ -168,7 +168,7 @@ func ensureNoSameBranchSession(
 func ensureNoSameHomeSession(
 	ctx context.Context,
 	vm *VolumeManager,
-	homeVol, excludeSandbox, imageRef string,
+	projectSlug, homeVol, excludeSandbox, imageRef string,
 	logger *output.Printer,
 ) (string, error) {
 	inUseBy, inUse, err := sameHomeVolumeInUse(ctx, homeVol, excludeSandbox)
@@ -196,7 +196,7 @@ func ensureNoSameHomeSession(
 		}
 	}
 
-	cloneVol, err := vm.CloneVolume(ctx, homeVol, imageRef)
+	cloneVol, err := vm.CloneVolume(ctx, projectSlug, homeVol, imageRef)
 	if err != nil {
 		return "", err
 	}
@@ -514,7 +514,7 @@ func prepareSandbox(
 	}
 
 	originalVol := homeVol
-	homeVol, err = ensureNoSameHomeSession(ctx, vm, homeVol, name, imageRef, logger)
+	homeVol, err = ensureNoSameHomeSession(ctx, vm, projectSlug, homeVol, name, imageRef, logger)
 	if err != nil {
 		return nil, err
 	}
