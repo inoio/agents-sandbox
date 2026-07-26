@@ -51,6 +51,47 @@ func TestSandboxNameTruncation(t *testing.T) {
 	}
 }
 
+func TestResolveTmpSizeDefaultsWhenEmpty(t *testing.T) {
+	got := resolveTmpSizeMiB("")
+	if got != defaultTmpSizeMiB {
+		t.Errorf("expected default %d, got %d", defaultTmpSizeMiB, got)
+	}
+}
+
+func TestResolveTmpSizeParsesSpec(t *testing.T) {
+	got := resolveTmpSizeMiB("4G")
+	if got != 4096 {
+		t.Errorf("expected 4096, got %d", got)
+	}
+}
+
+func TestBuildMountsIncludesTmpfsAtTmp(t *testing.T) {
+	mounts := buildMounts("test-home-vol", "/repo/path", defaultTmpSizeMiB)
+
+	tmpMount, ok := mounts["/tmp"]
+	if !ok {
+		t.Fatal("expected /tmp mount, not found in mounts map")
+	}
+	if tmpMount.Kind() != msb.MountKindTmpfs {
+		t.Errorf("expected /tmp to be a tmpfs mount, got kind %d", tmpMount.Kind())
+	}
+	if tmpMount.SizeMiB == 0 {
+		t.Error("expected /tmp tmpfs to have a nonzero size cap")
+	}
+	if tmpMount.SizeMiB < 1024 {
+		t.Errorf("expected /tmp tmpfs to be at least 1 GiB, got %d MiB", tmpMount.SizeMiB)
+	}
+}
+
+func TestBuildMountsRespectsCustomTmpSize(t *testing.T) {
+	mounts := buildMounts("test-home-vol", "/repo/path", 4096)
+
+	tmpMount := mounts["/tmp"]
+	if tmpMount.SizeMiB != 4096 {
+		t.Errorf("expected /tmp tmpfs size 4096 MiB, got %d", tmpMount.SizeMiB)
+	}
+}
+
 func TestBuildEnvMap(t *testing.T) {
 	envFile := filepath.Join(t.TempDir(), "env")
 	writeFile(t, envFile, "FOO=bar\n# comment\n\nBAZ=qux\n")
