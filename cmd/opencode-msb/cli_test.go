@@ -44,10 +44,33 @@ func TestIsKnownSubcommandRecognizesRegisteredCommands(t *testing.T) {
 	}
 }
 
+func TestPrintTreeStartsWithRootCommandName(t *testing.T) {
+	root := buildRootCmd()
+	var sb strings.Builder
+	printTree(&sb, root)
+	lines := strings.Split(strings.TrimRight(sb.String(), "\n"), "\n")
+	if len(lines) == 0 {
+		t.Fatal("expected at least one line in tree output")
+	}
+	if lines[0] != "opencode-msb" {
+		t.Errorf("expected first line to be %q, got %q", "opencode-msb", lines[0])
+	}
+}
+
+func TestPrintTreeDocumentsImplicitRun(t *testing.T) {
+	root := buildRootCmd()
+	var sb strings.Builder
+	printTree(&sb, root)
+	out := sb.String()
+	if !strings.Contains(out, "When invoked without a subcommand, the \"run\" command is implied.") {
+		t.Errorf("expected implicit run note in tree output:\n%s", out)
+	}
+}
+
 func TestPrintTreeContainsAllCommands(t *testing.T) {
 	root := buildRootCmd()
 	var sb strings.Builder
-	printTree(&sb, root, "")
+	printTree(&sb, root)
 	out := sb.String()
 	expected := []string{"run", "doctor", "build", "list", "shell", "config", "image", "volume"}
 	for _, cmd := range expected {
@@ -55,6 +78,227 @@ func TestPrintTreeContainsAllCommands(t *testing.T) {
 			t.Errorf("expected tree to contain %q, got:\n%s", cmd, out)
 		}
 	}
+}
+
+func TestPrintTreeContainsCommandDescriptions(t *testing.T) {
+	root := buildRootCmd()
+	var sb strings.Builder
+	printTree(&sb, root)
+	out := sb.String()
+	descs := []string{
+		"Run opencode in a microsandbox VM",
+		"Check prerequisites",
+		"Build or rebuild the runner image",
+		"List sandboxes for this host",
+		"Start sandbox and open a shell (debug)",
+		"Inspect opencode configuration",
+		"Manage runner images",
+		"Manage volumes",
+		"Manage sandboxes",
+		"Print merged opencode config with source paths",
+		"List cached runner images",
+		"List managed volumes",
+	}
+	for _, d := range descs {
+		if !strings.Contains(out, d) {
+			t.Errorf("expected description %q in tree output:\n%s", d, out)
+		}
+	}
+}
+
+func TestPrintTreeContainsFlagDescriptions(t *testing.T) {
+	root := buildRootCmd()
+	var sb strings.Builder
+	printTree(&sb, root)
+	out := sb.String()
+	flagDescs := []string{
+		"Assume yes to all prompts",
+		"Show debug-level output",
+		"Suppress non-error output",
+		"Print the full command tree and exit",
+		"Print version and exit",
+		"Run in an isolated git clone for the given branch",
+		"Rebuild the runner image before starting",
+		"Validate setup without running opencode",
+		"Number of CPUs (default: all)",
+		"Memory limit",
+		"Size of the /tmp tmpfs in the sandbox",
+		"Do not pass --auto to opencode",
+	}
+	for _, d := range flagDescs {
+		if !strings.Contains(out, d) {
+			t.Errorf("expected flag description %q in tree output:\n%s", d, out)
+		}
+	}
+}
+
+func TestPrintTreeStringFlagsHaveValuePlaceholders(t *testing.T) {
+	root := buildRootCmd()
+	var sb strings.Builder
+	printTree(&sb, root)
+	out := sb.String()
+	expected := []string{
+		"--branch <BRANCH>",
+		"--cpus <CPUS>",
+		"--memory <MEMORY>",
+		"--tmp-size <TMP_SIZE>",
+		"--user <USER>",
+	}
+	for _, s := range expected {
+		if !strings.Contains(out, s) {
+			t.Errorf("expected %q in tree output:\n%s", s, out)
+		}
+	}
+}
+
+func TestPrintTreeBoolFlagsHaveNoValuePlaceholders(t *testing.T) {
+	root := buildRootCmd()
+	var sb strings.Builder
+	printTree(&sb, root)
+	out := sb.String()
+	notExpected := []string{
+		"--yes <YES>",
+		"--verbose <VERBOSE>",
+		"--quiet <QUIET>",
+		"--tree <TREE>",
+		"--version <VERSION>",
+		"--rebuild <REBUILD>",
+		"--dry-run <DRY_RUN>",
+		"--no-auto <NO_AUTO>",
+	}
+	for _, s := range notExpected {
+		if strings.Contains(out, s) {
+			t.Errorf("did not expect %q in tree output:\n%s", s, out)
+		}
+	}
+}
+
+func TestPrintTreeFlagShortcuts(t *testing.T) {
+	root := buildRootCmd()
+	var sb strings.Builder
+	printTree(&sb, root)
+	out := sb.String()
+	expected := []string{
+		"-y, --yes",
+		"-v, --verbose",
+		"-q, --quiet",
+		"-V, --version",
+		"-b, --branch <BRANCH>",
+		"-r, --rebuild",
+		"-n, --dry-run",
+		"-c, --cpus <CPUS>",
+		"-m, --memory <MEMORY>",
+		"-u, --user <USER>",
+	}
+	for _, s := range expected {
+		if !strings.Contains(out, s) {
+			t.Errorf("expected %q in tree output:\n%s", s, out)
+		}
+	}
+}
+
+func TestPrintTreeDescriptionsGloballyAligned(t *testing.T) {
+	root := buildRootCmd()
+	var sb strings.Builder
+	printTree(&sb, root)
+	lines := strings.Split(strings.TrimRight(sb.String(), "\n"), "\n")
+
+	colCounts := map[int]int{}
+	for _, line := range lines[1:] {
+		col := descriptionStartCol(line)
+		if col > 0 {
+			colCounts[col]++
+		}
+	}
+	if len(colCounts) == 0 {
+		t.Fatal("expected at least some lines with descriptions in tree output")
+	}
+	if len(colCounts) > 1 {
+		t.Errorf("expected all descriptions at the same column, got: %v\n%s", colCounts, sb.String())
+	}
+}
+
+func TestPrintTreeContainsAliases(t *testing.T) {
+	root := buildRootCmd()
+	var sb strings.Builder
+	printTree(&sb, root)
+	out := sb.String()
+	if !strings.Contains(out, "list (aliases: ls)") {
+		t.Errorf("expected alias annotation in tree output:\n%s", out)
+	}
+}
+
+func TestPrintTreePositionalArgsHaveDescription(t *testing.T) {
+	root := buildRootCmd()
+	var sb strings.Builder
+	printTree(&sb, root)
+	out := sb.String()
+	for line := range strings.SplitSeq(out, "\n") {
+		if strings.Contains(line, "[ARGS...]") {
+			desc := strings.TrimSpace(extractDescription(line))
+			if desc == "" {
+				t.Errorf("expected [ARGS...] to have a description, got empty in line:\n%s", line)
+			}
+			if !strings.Contains(desc, "--") {
+				t.Errorf("expected [ARGS...] description to mention --, got:\n%s", desc)
+			}
+			if !strings.Contains(desc, "opencode") {
+				t.Errorf("expected [ARGS...] description to mention opencode, got:\n%s", desc)
+			}
+		}
+	}
+}
+
+func extractDescription(line string) string {
+	runes := []rune(line)
+	i := 0
+	for i < len(runes) && isTreeChar(runes[i]) {
+		i++
+	}
+	if i >= len(runes) {
+		return ""
+	}
+	for ; i < len(runes)-1; i++ {
+		if runes[i] == ' ' && runes[i+1] == ' ' {
+			j := i
+			for j < len(runes) && runes[j] == ' ' {
+				j++
+			}
+			return string(runes[j:])
+		}
+	}
+	return ""
+}
+
+func descriptionStartCol(line string) int {
+	line = strings.TrimRight(line, " ")
+	runes := []rune(line)
+
+	i := 0
+	for i < len(runes) && isTreeChar(runes[i]) {
+		i++
+	}
+	if i >= len(runes) {
+		return -1
+	}
+
+	for ; i < len(runes)-1; i++ {
+		if runes[i] == ' ' && runes[i+1] == ' ' {
+			j := i
+			for j < len(runes) && runes[j] == ' ' {
+				j++
+			}
+			if j < len(runes) {
+				return j
+			}
+			return -1
+		}
+	}
+	return -1
+}
+
+func isTreeChar(r rune) bool {
+	return r == '│' || r == '├' || r == '└' || r == '─' || r == ' '
 }
 
 func TestRootHasGlobalFlags(t *testing.T) {

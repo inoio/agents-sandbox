@@ -8,7 +8,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"os"
 	"os/exec"
+	"strconv"
 	"strings"
 
 	"github.com/moby/moby/client"
@@ -83,6 +85,18 @@ type dockerBuildMessage struct {
 	Error string `json:"error"`
 }
 
+// userBuildArgs returns Docker build arguments that align the in-image dev user
+// (see data/Dockerfile's USER_UID/USER_GID) with the host user that owns the
+// bind-mounted /workspace, avoiding permission mismatches inside the VM.
+func userBuildArgs(uid, gid int) map[string]*string {
+	u := strconv.Itoa(uid)
+	g := strconv.Itoa(gid)
+	return map[string]*string{
+		"USER_UID": &u,
+		"USER_GID": &g,
+	}
+}
+
 const runnerTag = "opencode-msb/runner:latest"
 
 func EnsureImage(
@@ -154,9 +168,10 @@ func buildDockerImage(
 	spin.Start(label)
 
 	buildResp, err := cli.ImageBuild(ctx, dockerfileTar(dockerfile), client.ImageBuildOptions{
-		Tags:    []string{tag},
-		Remove:  true,
-		NoCache: force,
+		Tags:      []string{tag},
+		Remove:    true,
+		NoCache:   force,
+		BuildArgs: userBuildArgs(os.Getuid(), os.Getgid()),
 	})
 	if err != nil {
 		spin.StopError(err)
