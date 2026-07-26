@@ -43,6 +43,7 @@ const (
 	flagTmpSize = "tmp-size"
 
 	annotationArgsDesc = "opencode-msb/args-description"
+	annotationAlsoAs   = "opencode-msb/also-as"
 )
 
 var version = "dev"
@@ -141,7 +142,7 @@ type treeEntry struct {
 
 func printTree(w io.Writer, root *cobra.Command) {
 	var entries []treeEntry
-	collectTreeEntries(&entries, root, "")
+	collectTreeEntries(&entries, root, root, "")
 
 	maxWidth := 0
 	for _, e := range entries {
@@ -163,7 +164,7 @@ func printTree(w io.Writer, root *cobra.Command) {
 	fmt.Fprintln(w, "When invoked without a subcommand, the \"run\" command is implied.")
 }
 
-func collectTreeEntries(entries *[]treeEntry, cmd *cobra.Command, prefix string) {
+func collectTreeEntries(entries *[]treeEntry, root *cobra.Command, cmd *cobra.Command, prefix string) {
 	type item struct {
 		name string
 		desc string
@@ -177,7 +178,7 @@ func collectTreeEntries(entries *[]treeEntry, cmd *cobra.Command, prefix string)
 	})
 
 	for _, sub := range cmd.Commands() {
-		items = append(items, item{name: formatCommandName(sub), desc: sub.Short, sub: sub})
+		items = append(items, item{name: formatCommandName(sub, sub.Parent() == root), desc: sub.Short, sub: sub})
 	}
 
 	argsDesc := cmd.Annotations[annotationArgsDesc]
@@ -201,7 +202,7 @@ func collectTreeEntries(entries *[]treeEntry, cmd *cobra.Command, prefix string)
 			desc:   it.desc,
 		})
 		if it.sub != nil {
-			collectTreeEntries(entries, it.sub, childPrefix)
+			collectTreeEntries(entries, root, it.sub, childPrefix)
 		}
 	}
 }
@@ -239,10 +240,16 @@ func positionalArgsFromUse(use string) []string {
 	return args
 }
 
-func formatCommandName(cmd *cobra.Command) string {
+func formatCommandName(cmd *cobra.Command, isTopLevel bool) string {
 	name := cmd.Name()
 	if len(cmd.Aliases) > 0 {
-		name += " (aliases: " + strings.Join(cmd.Aliases, ", ") + ")"
+		name += " (aliases: " + strings.Join(cmd.Aliases, ", ")
+		if alsoAs, ok := cmd.Annotations[annotationAlsoAs]; ok && isTopLevel {
+			name += ", also: " + alsoAs
+		}
+		name += ")"
+	} else if alsoAs, ok := cmd.Annotations[annotationAlsoAs]; ok && isTopLevel {
+		name += " (also: " + alsoAs + ")"
 	}
 	return name
 }
@@ -282,6 +289,7 @@ func buildRunCmd() *cobra.Command {
 		Short: "Run opencode in a microsandbox VM",
 		Annotations: map[string]string{
 			annotationArgsDesc: "Arguments forwarded to opencode (use -- to separate from launcher flags)",
+			annotationAlsoAs:   "sandbox run",
 		},
 		RunE: func(cmd *cobra.Command, args []string) error {
 			opts := sandbox.RunOptions{Args: args, Auto: true}
@@ -393,6 +401,9 @@ func buildListCmd() *cobra.Command {
 		Use:     cmdList,
 		Aliases: []string{"ls"},
 		Short:   "List sandboxes for this host",
+		Annotations: map[string]string{
+			annotationAlsoAs: "sandbox list",
+		},
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			sandboxes, err := sandbox.ListSandboxes(cmd.Context())
 			if err != nil {
@@ -416,6 +427,9 @@ func buildShellCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "shell [flags]",
 		Short: "Start sandbox and open a shell (debug)",
+		Annotations: map[string]string{
+			annotationAlsoAs: "sandbox shell",
+		},
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			opts := sandbox.RunOptions{Auto: false}
 			opts.Branch, _ = cmd.Flags().GetString("branch")

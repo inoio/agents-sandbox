@@ -228,6 +228,23 @@ func TestPrintTreeContainsAliases(t *testing.T) {
 	}
 }
 
+func TestPrintTreeShowsSandboxShorthands(t *testing.T) {
+	root := buildRootCmd()
+	var sb strings.Builder
+	printTree(&sb, root)
+	out := sb.String()
+	shortcuts := []string{
+		"run (also: sandbox run)",
+		"list (aliases: ls, also: sandbox list)",
+		"shell (also: sandbox shell)",
+	}
+	for _, s := range shortcuts {
+		if !strings.Contains(out, s) {
+			t.Errorf("expected %q in tree output:\n%s", s, out)
+		}
+	}
+}
+
 func TestPrintTreePositionalArgsHaveDescription(t *testing.T) {
 	root := buildRootCmd()
 	var sb strings.Builder
