@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"gitlab.inoio.de/inoio/opencode-msb/internal/log"
+	"gitlab.inoio.de/inoio/opencode-msb/internal/output"
 
 	msb "github.com/superradcompany/microsandbox/sdk/go"
 )
@@ -22,10 +22,10 @@ func HomeVolumeName(projectSlug, imageDigest string) string {
 }
 
 type VolumeManager struct {
-	logger *log.Logger
+	logger *output.Printer
 }
 
-func NewVolumeManager(logger *log.Logger) *VolumeManager {
+func NewVolumeManager(logger *output.Printer) *VolumeManager {
 	return &VolumeManager{logger: logger}
 }
 
@@ -59,7 +59,7 @@ func (vm *VolumeManager) prefillVolume(ctx context.Context, volumeName, imageTag
 
 	mountConfig := msb.Mount.Named(volumeName, msb.MountOptions{})
 
-	spin := log.NewSpinner(vm.logger)
+	spin := output.NewSpinner(vm.logger)
 	spin.Start("Preparing home volume")
 	sb, err := msb.CreateSandbox(ctx, prefillName,
 		msb.WithImage(imageTag),
@@ -147,7 +147,7 @@ func (vm *VolumeManager) CloneVolume(
 		"/mnt/dst": msb.Mount.Named(vol.Name(), msb.MountOptions{}),
 	}
 
-	spin := log.NewSpinner(vm.logger)
+	spin := output.NewSpinner(vm.logger)
 	spin.Start("Cloning home volume")
 	sb, err := msb.CreateSandbox(ctx, prefillName,
 		msb.WithImage(imageTag),

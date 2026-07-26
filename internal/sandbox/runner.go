@@ -15,7 +15,7 @@ import (
 
 	"gitlab.inoio.de/inoio/opencode-msb/internal/config"
 	"gitlab.inoio.de/inoio/opencode-msb/internal/git"
-	"gitlab.inoio.de/inoio/opencode-msb/internal/log"
+	"gitlab.inoio.de/inoio/opencode-msb/internal/output"
 	"gitlab.inoio.de/inoio/opencode-msb/internal/prompt"
 	"gitlab.inoio.de/inoio/opencode-msb/internal/sysinfo"
 
@@ -123,7 +123,7 @@ func sameBranchSessionExists(ctx context.Context, name string) (bool, error) {
 
 // promptExistingSession asks whether to terminate an already-running session or
 // exit the current one. Returns true when the user chooses to terminate.
-func promptExistingSession(name string, logger *log.Logger) (bool, error) {
+func promptExistingSession(name string, logger *output.Printer) (bool, error) {
 	choice, err := prompt.Select(
 		fmt.Sprintf("A session is already running for this project and branch (sandbox %q)", name),
 		[]prompt.Choice{
@@ -146,7 +146,7 @@ func promptExistingSession(name string, logger *log.Logger) (bool, error) {
 func ensureNoSameBranchSession(
 	ctx context.Context,
 	name, projectSlug, branch string,
-	logger *log.Logger,
+	logger *output.Printer,
 ) error {
 	running, err := sameBranchSessionExists(ctx, name)
 	if err != nil {
@@ -169,7 +169,7 @@ func ensureNoSameHomeSession(
 	ctx context.Context,
 	vm *VolumeManager,
 	homeVol, excludeSandbox, imageRef string,
-	logger *log.Logger,
+	logger *output.Printer,
 ) (string, error) {
 	inUseBy, inUse, err := sameHomeVolumeInUse(ctx, homeVol, excludeSandbox)
 	if err != nil {
@@ -179,12 +179,12 @@ func ensureNoSameHomeSession(
 		return homeVol, nil
 	}
 
-	logger.Warn(fmt.Sprintf(
+	logger.Warnf(
 		"Another opencode session (%q) is using the same project state.\n"+
 			"Starting with a snapshot copy of the current home directory.\n"+
 			"Opencode sessions and history from this run will NOT be persisted.",
 		inUseBy,
-	))
+	)
 
 	if !prompt.AssumeYes {
 		confirmed, confirmErr := prompt.ConfirmDefault("Proceed with snapshot copy?", false, logger)
@@ -200,7 +200,7 @@ func ensureNoSameHomeSession(
 	if err != nil {
 		return "", err
 	}
-	logger.Info(fmt.Sprintf("Cloned home volume: %s", cloneVol))
+	logger.Infof("Cloned home volume: %s", cloneVol)
 	return cloneVol, nil
 }
 
@@ -266,7 +266,7 @@ func envrcFiles(workspacePath string) []string {
 	return files
 }
 
-func promptBranchCreation(branch string, logger *log.Logger) (string, error) {
+func promptBranchCreation(branch string, logger *output.Printer) (string, error) {
 	if !prompt.IsInteractive() {
 		return "HEAD", nil
 	}
@@ -293,7 +293,7 @@ func resolveWorkspace(
 	opts RunOptions,
 	cfg Config,
 	projectSlug string,
-	logger *log.Logger,
+	logger *output.Printer,
 ) (string, string, string, bool, error) {
 	var (
 		workspacePath string
@@ -334,7 +334,7 @@ func resolveWorkspace(
 	return workspacePath, branch, cwdBranch, created, nil
 }
 
-func cleanupManagedRepo(repoPath, cwd, cwdBranch string, opts RunOptions, logger *log.Logger) error {
+func cleanupManagedRepo(repoPath, cwd, cwdBranch string, opts RunOptions, logger *output.Printer) error {
 	hasChanges, err := git.HasUncommittedChanges(repoPath)
 	if err != nil {
 		return fmt.Errorf("check uncommitted changes: %w", err)
@@ -355,7 +355,7 @@ func cleanupManagedRepo(repoPath, cwd, cwdBranch string, opts RunOptions, logger
 	return handleRepoCleanup(repoPath, cwd, cwdBranch, opts, force, logger)
 }
 
-func handleUncommittedChanges(repoPath, branch string, logger *log.Logger) (bool, bool, error) {
+func handleUncommittedChanges(repoPath, branch string, logger *output.Printer) (bool, bool, error) {
 	choice, err := prompt.Select(
 		fmt.Sprintf("Managed repo '%s' on branch '%s' has uncommitted changes", repoPath, branch),
 		[]prompt.Choice{
@@ -371,14 +371,12 @@ func handleUncommittedChanges(repoPath, branch string, logger *log.Logger) (bool
 	}
 	switch choice {
 	case "k":
-		logger.Warn(
-			fmt.Sprintf("kept managed repo '%s' on branch '%s' with uncommitted changes", repoPath, branch),
-		)
+		logger.Warnf("kept managed repo '%s' on branch '%s' with uncommitted changes", repoPath, branch)
 		return false, true, nil
 	case "c":
 		if commitErr := git.CommitAll(repoPath, "opencode-msb: commit changes before cleanup"); commitErr != nil {
 			if errors.Is(commitErr, git.ErrNothingToCommit) {
-				logger.Info("no changes to commit; continuing cleanup")
+				logger.Infof("no changes to commit; continuing cleanup")
 			} else {
 				return false, false, fmt.Errorf("commit all changes: %w", commitErr)
 			}
@@ -392,7 +390,7 @@ func handleUncommittedChanges(repoPath, branch string, logger *log.Logger) (bool
 	return false, false, nil
 }
 
-func handleRepoCleanup(repoPath, cwd, cwdBranch string, opts RunOptions, force bool, logger *log.Logger) error {
+func handleRepoCleanup(repoPath, cwd, cwdBranch string, opts RunOptions, force bool, logger *output.Printer) error {
 	choice, err := prompt.Select(
 		fmt.Sprintf("Managed repo '%s' on branch '%s'", repoPath, opts.Branch),
 		[]prompt.Choice{
@@ -466,7 +464,7 @@ func prepareSandbox(
 	ctx context.Context,
 	opts RunOptions,
 	cfg Config,
-	logger *log.Logger,
+	logger *output.Printer,
 ) (*sandboxSession, error) {
 	if !CheckAll(ctx, logger) {
 		return nil, errors.New("preflight failed")
@@ -483,7 +481,7 @@ func prepareSandbox(
 	if err != nil {
 		return nil, err
 	}
-	logger.Debug(fmt.Sprintf("workspace: %s (branch=%s, managed=%v)", repoPath, branch, created))
+	logger.Debugf("workspace: %s (branch=%s, managed=%v)", repoPath, branch, created)
 
 	dockerfile := resolveDockerfile()
 	dockerCli, err := client.New(client.FromEnv)
@@ -496,14 +494,14 @@ func prepareSandbox(
 	if err != nil {
 		return nil, fmt.Errorf("image setup failed: %w", err)
 	}
-	logger.Debug(fmt.Sprintf("image: %s (digest=%s)", imageRef, imageDigest))
+	logger.Debugf("image: %s (digest=%s)", imageRef, imageDigest)
 
 	vm := NewVolumeManager(logger)
 	homeVol, err := vm.EnsureHome(ctx, projectSlug, imageDigest, imageRef)
 	if err != nil {
 		return nil, fmt.Errorf("volume setup failed: %w", err)
 	}
-	logger.Debug(fmt.Sprintf("home volume: %s", homeVol))
+	logger.Debugf("home volume: %s", homeVol)
 
 	configFiles, err := loadConfigFiles(cfg.UserConfigDir)
 	if err != nil {
@@ -530,7 +528,7 @@ func prepareSandbox(
 		}
 	}()
 
-	logger.Debug(fmt.Sprintf("sandbox: %s (cpus=%d, memory=%s)", name, opts.CPUs, opts.Memory))
+	logger.Debugf("sandbox: %s (cpus=%d, memory=%s)", name, opts.CPUs, opts.Memory)
 	sb, err := createSandbox(ctx, name, imageRef, repoPath, homeVol, opts.User, opts, cfg, logger)
 	if err != nil {
 		return nil, err
@@ -565,7 +563,7 @@ func prepareSandbox(
 	}, nil
 }
 
-func Run(ctx context.Context, opts RunOptions, cfg Config, logger *log.Logger) error {
+func Run(ctx context.Context, opts RunOptions, cfg Config, logger *output.Printer) error {
 	session, err := prepareSandbox(ctx, opts, cfg, logger)
 	if err != nil {
 		return err
@@ -575,7 +573,7 @@ func Run(ctx context.Context, opts RunOptions, cfg Config, logger *log.Logger) e
 	var exitCode int
 	var attachErr error
 	if opts.DryRun {
-		logger.Debug("dry run: setup validated, skipping opencode execution")
+		logger.Debugf("dry run: setup validated, skipping opencode execution")
 	} else {
 		opencodeArgs := buildOpencodeArgs(opts.Args, opts.Auto)
 		setup := `opencode ` + strings.Join(opencodeArgs, " ")
@@ -593,7 +591,7 @@ func Run(ctx context.Context, opts RunOptions, cfg Config, logger *log.Logger) e
 	return finalizeRun(attachErr, cleanupErr, exitCode)
 }
 
-func Shell(ctx context.Context, opts RunOptions, cfg Config, logger *log.Logger) error {
+func Shell(ctx context.Context, opts RunOptions, cfg Config, logger *output.Printer) error {
 	session, err := prepareSandbox(ctx, opts, cfg, logger)
 	if err != nil {
 		return err
@@ -605,7 +603,7 @@ func Shell(ctx context.Context, opts RunOptions, cfg Config, logger *log.Logger)
 	return finalizeRun(attachErr, nil, exitCode)
 }
 
-func BuildImage(ctx context.Context, force bool, logger *log.Logger) error {
+func BuildImage(ctx context.Context, force bool, logger *output.Printer) error {
 	if !CheckDocker(logger) {
 		return errors.New("docker not available")
 	}
@@ -677,7 +675,7 @@ func createSandbox(
 	name, imageRef, repoPath, homeVol, user string,
 	opts RunOptions,
 	cfg Config,
-	logger *log.Logger,
+	logger *output.Printer,
 ) (*msb.Sandbox, error) {
 	if user == "" {
 		user = "dev"
@@ -698,7 +696,7 @@ func createSandbox(
 
 	mounts := buildMounts(homeVol, repoPath, resolveTmpSizeMiB(opts.TmpSize))
 
-	spin := log.NewSpinner(logger)
+	spin := output.NewSpinner(logger)
 	spin.Start("Checking microsandbox runtime")
 	if err := msb.EnsureInstalled(ctx); err != nil {
 		spin.StopError(err)
@@ -706,7 +704,7 @@ func createSandbox(
 	}
 	spin.Stop()
 
-	spin = log.NewSpinner(logger)
+	spin = output.NewSpinner(logger)
 	spin.Start("Starting sandbox VM")
 	sb, err := msb.CreateSandbox(ctx, name,
 		msb.WithImage(imageRef),
@@ -735,7 +733,7 @@ func provisionSandbox(
 	fs sandboxFS,
 	configFiles map[string][]byte,
 	repoPath string,
-	logger *log.Logger,
+	logger *output.Printer,
 ) error {
 	if err := fs.Mkdir(ctx, "/home/dev/.config/opencode"); err != nil {
 		return fmt.Errorf("mkdir opencode config: %w", err)
@@ -747,7 +745,7 @@ func provisionSandbox(
 	}
 	for _, envrc := range envrcFiles(repoPath) {
 		if err := fs.Remove(ctx, "/workspace/"+envrc); err != nil {
-			logger.Warn(fmt.Sprintf("failed to remove envrc %s: %v", envrc, err))
+			logger.Warnf("failed to remove envrc %s: %v", envrc, err)
 		}
 	}
 	return nil

@@ -10,7 +10,7 @@ import (
 
 	"github.com/moby/moby/client"
 
-	"gitlab.inoio.de/inoio/opencode-msb/internal/log"
+	"gitlab.inoio.de/inoio/opencode-msb/internal/output"
 )
 
 func TestReferencesBaseDetectsBaseImage(t *testing.T) {
@@ -73,7 +73,7 @@ func (f *failingDockerClient) Close() error {
 }
 
 func TestEnsureImageReturnsErrorWhenBuildFails(t *testing.T) {
-	l := log.New(io.Discard, false)
+	l := output.NewPrinter(io.Discard, false)
 	_, _, err := EnsureImage(context.Background(), &failingDockerClient{}, EmbeddedDockerfile, true, l)
 	if err == nil {
 		t.Error("expected error when Docker build fails")

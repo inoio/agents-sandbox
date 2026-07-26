@@ -8,7 +8,7 @@ import (
 	"os"
 	"strings"
 
-	"gitlab.inoio.de/inoio/opencode-msb/internal/log"
+	"gitlab.inoio.de/inoio/opencode-msb/internal/output"
 
 	"golang.org/x/term"
 )
@@ -61,9 +61,9 @@ type Choice struct {
 	Description string
 }
 
-func Select(prompt string, choices []Choice, defaultKey string, logger *log.Logger) (string, error) {
+func Select(prompt string, choices []Choice, defaultKey string, logger *output.Printer) (string, error) {
 	if !IsInteractive() {
-		logger.Info(fmt.Sprintf("%s: using default '%s'", prompt, defaultKey))
+		logger.Infof("%s: using default '%s'", prompt, defaultKey)
 		return defaultKey, nil
 	}
 
@@ -97,13 +97,13 @@ func Select(prompt string, choices []Choice, defaultKey string, logger *log.Logg
 	return "", errors.New("too many invalid selections")
 }
 
-func ConfirmDefault(prompt string, defaultYes bool, logger *log.Logger) (bool, error) {
+func ConfirmDefault(prompt string, defaultYes bool, logger *output.Printer) (bool, error) {
 	if !IsInteractive() {
 		defaultValue := "n"
 		if defaultYes {
 			defaultValue = "y"
 		}
-		logger.Info(fmt.Sprintf("%s: using default '%s'", prompt, defaultValue))
+		logger.Infof("%s: using default '%s'", prompt, defaultValue)
 		return defaultYes, nil
 	}
 
@@ -135,9 +135,9 @@ func ConfirmDefault(prompt string, defaultYes bool, logger *log.Logger) (bool, e
 	return false, errors.New("too many invalid confirmations")
 }
 
-func Input(prompt, defaultValue string, logger *log.Logger) (string, error) {
+func Input(prompt, defaultValue string, logger *output.Printer) (string, error) {
 	if !IsInteractive() {
-		logger.Info(fmt.Sprintf("%s: using default '%s'", prompt, defaultValue))
+		logger.Infof("%s: using default '%s'", prompt, defaultValue)
 		return defaultValue, nil
 	}
 
