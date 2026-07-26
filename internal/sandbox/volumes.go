@@ -8,17 +8,14 @@ import (
 	"strings"
 	"time"
 
+	"gitlab.inoio.de/inoio/opencode-msb/internal/git"
 	"gitlab.inoio.de/inoio/opencode-msb/internal/output"
 
 	msb "github.com/superradcompany/microsandbox/sdk/go"
 )
 
-func sanitizeDigest(digest string) string {
-	return strings.ReplaceAll(digest, ":", "-")
-}
-
 func HomeVolumeName(projectSlug, imageDigest string) string {
-	return projectSlug + "-opencode-home-" + sanitizeDigest(imageDigest)
+	return "opencode-msb-home-" + projectSlug + "-" + git.HashID(imageDigest)
 }
 
 type VolumeManager struct {
@@ -117,7 +114,8 @@ func extractNamedVolumes(configJSON string) []string {
 }
 
 func cloneVolumeName(sourceVol string) string {
-	return fmt.Sprintf("%s-clone-%d", sourceVol, time.Now().UnixNano())
+	stripped := strings.TrimPrefix(sourceVol, "opencode-msb-home-")
+	return fmt.Sprintf("opencode-msb-clone-%s-%d", stripped, time.Now().UnixNano())
 }
 
 func (vm *VolumeManager) CloneVolume(
