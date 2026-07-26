@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"gitlab.inoio.de/inoio/opencode-msb/internal/output"
 )
 
 func runGit(t *testing.T, dir string, args ...string) string {
@@ -562,5 +564,82 @@ func TestAbortMergeResetsMergeState(t *testing.T) {
 	}
 	if has {
 		t.Error("expected clean repo after abort")
+	}
+}
+
+func TestSanitizeFolderNameLowercases(t *testing.T) {
+	got := sanitizeFolderName("MyApp")
+	if got != "myapp" {
+		t.Errorf("expected %q, got %q", "myapp", got)
+	}
+}
+
+func TestSanitizeFolderNameReplacesNonAlnum(t *testing.T) {
+	got := sanitizeFolderName("My App")
+	if got != "my-app" {
+		t.Errorf("expected %q, got %q", "my-app", got)
+	}
+}
+
+func TestSanitizeFolderNameCollapsesDashes(t *testing.T) {
+	got := sanitizeFolderName("My---App!!!")
+	if got != "my-app" {
+		t.Errorf("expected %q, got %q", "my-app", got)
+	}
+}
+
+func TestSanitizeFolderNameTrimsLeadingTrailingDashes(t *testing.T) {
+	got := sanitizeFolderName("---leading-and-trailing---")
+	if got != "leading-and-trailing" {
+		t.Errorf("expected %q, got %q", "leading-and-trailing", got)
+	}
+}
+
+func TestSanitizeFolderNameCapsAt20(t *testing.T) {
+	got := sanitizeFolderName("abcdefghijklmnopqrstuvwxyz")
+	if len(got) > 20 {
+		t.Errorf("expected <= 20 chars, got %d (%q)", len(got), got)
+	}
+}
+
+func TestSanitizeFolderNameEmptyInput(t *testing.T) {
+	got := sanitizeFolderName("")
+	if got != "" {
+		t.Errorf("expected empty string, got %q", got)
+	}
+}
+
+func TestProjectSlugFormat(t *testing.T) {
+	repo := initRepo(t)
+	// ProjectSlug uses the working directory, so chdir into the repo.
+	t.Chdir(repo)
+	l := output.NewPrinter(os.Stderr, false)
+	got := ProjectSlug(l)
+	// Expected format: <sanitized-folder>-<8 base62 chars>.
+	// The folder name is filepath.Base(repo), sanitized.
+	folderName := sanitizeFolderName(filepath.Base(repo))
+	if !strings.HasPrefix(got, folderName+"-") {
+		t.Errorf("expected slug to start with %q, got %q", folderName+"-", got)
+	}
+	hashPart := got[len(folderName)+1:]
+	if len(hashPart) != 8 {
+		t.Errorf("expected 8-char hash suffix, got %d chars (%q)", len(hashPart), hashPart)
+	}
+	for _, r := range hashPart {
+		isAlnum := (r >= '0' && r <= '9') || (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z')
+		if !isAlnum {
+			t.Errorf("expected base62 hash, found %q in %q", r, hashPart)
+		}
+	}
+}
+
+func TestProjectSlugDeterministic(t *testing.T) {
+	repo := initRepo(t)
+	t.Chdir(repo)
+	l := output.NewPrinter(os.Stderr, false)
+	a := ProjectSlug(l)
+	b := ProjectSlug(l)
+	if a != b {
+		t.Errorf("expected deterministic slug, got %q and %q", a, b)
 	}
 }

@@ -2,7 +2,6 @@ package git
 
 import (
 	"crypto/sha256"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"math/big"
@@ -15,10 +14,23 @@ import (
 )
 
 const (
-	base62Alphabet = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
-	base62         = 62
-	hashIDLen      = 8
+	base62Alphabet   = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
+	base62           = 62
+	hashIDLen        = 8
+	maxFolderNameLen = 20
 )
+
+func sanitizeFolderName(name string) string {
+	name = strings.ToLower(name)
+	fields := strings.FieldsFunc(name, func(r rune) bool {
+		return r < '0' || (r > '9' && r < 'a') || r > 'z'
+	})
+	s := strings.Join(fields, "-")
+	if len(s) > maxFolderNameLen {
+		s = s[:maxFolderNameLen]
+	}
+	return strings.Trim(s, "-")
+}
 
 func HashID(input string) string {
 	sum := sha256.Sum256([]byte(input))
@@ -50,12 +62,11 @@ func ProjectSlug(logger *output.Printer) string {
 	if err != nil || commonDir == "" {
 		cwd, _ := filepath.Abs(".")
 		logger.Warnf("not inside a git repo; using CWD hash as project slug.")
-		h := sha256.Sum256([]byte(cwd))
-		return "p-" + hex.EncodeToString(h[:])[:8]
+		return sanitizeFolderName(filepath.Base(cwd)) + "-" + HashID(cwd)
 	}
 	abs, _ := filepath.Abs(commonDir)
-	h := sha256.Sum256([]byte(abs))
-	return "p-" + hex.EncodeToString(h[:])[:8]
+	folderName := sanitizeFolderName(filepath.Base(filepath.Dir(abs)))
+	return folderName + "-" + HashID(abs)
 }
 
 func BranchSlug(branch string) string {
