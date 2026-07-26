@@ -487,6 +487,57 @@ func TestMergeBranchIntoConflict(t *testing.T) {
 	}
 }
 
+func TestHashIDReturns8Chars(t *testing.T) {
+	got := HashID("test-input")
+	if len(got) != 8 {
+		t.Errorf("expected 8 chars, got %d (%q)", len(got), got)
+	}
+}
+
+func TestHashIDDeterministic(t *testing.T) {
+	a := HashID("sha256:abc123def456")
+	b := HashID("sha256:abc123def456")
+	if a != b {
+		t.Errorf("expected deterministic output, got %q and %q", a, b)
+	}
+}
+
+func TestHashIDDifferentInputs(t *testing.T) {
+	a := HashID("hello")
+	b := HashID("world")
+	if a == b {
+		t.Errorf("expected different hashes for different inputs, got %q for both", a)
+	}
+}
+
+func TestHashIDBase62AlphabetOnly(t *testing.T) {
+	got := HashID("sha256:fce5c4a3b2d1e0f9a8b7c6d5e4f3a2b1c0d9e8f7a6b5c4d3e2f1a0b9c8d7e6f5")
+	for _, r := range got {
+		isAlnum := (r >= '0' && r <= '9') || (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z')
+		if !isAlnum {
+			t.Errorf("expected base62 alphabet only, found %q in %q", r, got)
+		}
+	}
+}
+
+func TestHashIDKnownValues(t *testing.T) {
+	tests := []struct {
+		input string
+		want  string
+	}{
+		{"", "RZwTDmWj"},
+		{"sha256:abc123def456", "xRX898Gl"},
+		{"hello", "aEO7hBt3"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.input, func(t *testing.T) {
+			if got := HashID(tt.input); got != tt.want {
+				t.Errorf("HashID(%q) = %q, want %q", tt.input, got, tt.want)
+			}
+		})
+	}
+}
+
 func TestAbortMergeResetsMergeState(t *testing.T) {
 	repo := initRepo(t)
 	runGit(t, repo, "checkout", "-b", "feature")
