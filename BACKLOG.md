@@ -1,5 +1,7 @@
 # Backlog / Ideas
 
+## Done
+
 [*] test and dogfood the go binary
 [*] enable --auto in opencode invocation
 [*] Provide runtime per step in cli output, print elapsed duration for current/active step[ ] add test-run subcommand that ensures all steps until invocation of opencode
@@ -13,32 +15,26 @@
   [*] Download via curl (without auth?) -> https://gitlab.inoio.de/inoio/opencode-msb/-/releases/permalink/latest
 [*] config file for cli settings in .opencode-msb
 [*] git doctor nach install dokumentieren/aufrufen
-    
-
-
-
-
-
-
+[*] install golangci-lint globally instead of to user home dir
+[*] make tmpfs size configurable and raise from 512m to 2GB (go builds broke with "no space left on device")
+[*] think about lifecycle of home volume - it would be nice to keep history, but not across projects. Maybe clean option is enough - fancy: option to interactively edit the home volume.
+[*] !!! NEVER mount a home volume twice. For 2 sessions in 1 repo, warn the user that it'll be an ephemeral session, not recording opencode session history. Start from a fresh home copy from root
 
 ## 1st prio
 
-[ ] think about lifecycle of home volume - it would be nice to keep history, but not across projects. Maybe clean option is enough - fancy: option to interactively edit the home volume.
-[ ] !!! NEVER mount a home volume twice. For 2 sessions in 1 repo, warn the user that it'll be an ephemeral session, not recording opencode session history. Start from a fresh home copy from root
 [ ] msb is not callable / not in path -> after EnsureInstalled, create symlink to ~/.local/bin
-[ ] secrets containing @ kann nicht funktionieren -> yaml. Keine CLI-Params...
+[ ] user uid,gid aus System bestimmen und setzen bei image build.
+[ ] rework --tree, more explanations, root command
 [ ] README überarbeiten
   [ ] Installation ins Userverzeichnis ([~/bin,] ~/.local/bin)
   [ ] config file(s) übersicht, beispiele
   [ ] Bedeutungen z.B. env.secret sieht der Agent nicht
   [ ] Flags an opencode übergeben (--) dokumentieren
   [ ] Dependencies (z.B. git, docker)
+[ ] make cli output pretty and UX'd
+[ ] secrets containing @ kann nicht funktionieren -> yaml. Keine CLI-Params...
 [ ] docker images mit projekt-slug im namen bauen
 [ ] support docker in VM
-[ ] rework --tree, more explanations, root command
-[ ] make cli output pretty and UX'd
-[ ] user uid,gid aus System bestimmen und setzen bei image build.
-
 
 ## 2nd prio
 
