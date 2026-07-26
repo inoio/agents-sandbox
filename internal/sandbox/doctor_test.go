@@ -2,6 +2,10 @@ package sandbox
 
 import (
 	"bytes"
+	"context"
+	"errors"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -23,5 +27,133 @@ func TestCheckDockerLogsUnderlyingError(t *testing.T) {
 	}
 	if !strings.Contains(out, "executable file not found") {
 		t.Errorf("expected log to contain the underlying LookPath error, got %q", out)
+	}
+}
+
+func TestShellRcFile(t *testing.T) {
+	home := "/home/test"
+	tests := []struct {
+		name  string
+		shell string
+		want  string
+	}{
+		{"bash", "/bin/bash", filepath.Join(home, ".bashrc")},
+		{"zsh", "/bin/zsh", filepath.Join(home, ".zshrc")},
+		{"fish", "/usr/bin/fish", filepath.Join(home, ".config", "fish", "config.fish")},
+		{"empty shell falls back to bashrc", "", filepath.Join(home, ".bashrc")},
+		{"unknown shell falls back to bashrc", "/bin/sh", filepath.Join(home, ".bashrc")},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := shellRcFile(home, tc.shell); got != tc.want {
+				t.Errorf("shellRcFile(%q, %q) = %q, want %q", home, tc.shell, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestCheckMsbEnsureInstalledErrorSurfacesErrorWithoutInstallHint(t *testing.T) {
+	var buf bytes.Buffer
+	l := output.NewPrinter(&buf, false)
+
+	prev := ensureInstalled
+	t.Cleanup(func() { ensureInstalled = prev })
+	ensureInstalled = func(context.Context) error { return errors.New("network unreachable") }
+
+	if CheckMsb(context.Background(), l) {
+		t.Fatal("expected CheckMsb to return false when ensureInstalled fails")
+	}
+	out := buf.String()
+	if !strings.Contains(out, "msb runtime setup failed") {
+		t.Errorf("expected log to mention 'msb runtime setup failed', got %q", out)
+	}
+	if !strings.Contains(out, "network unreachable") {
+		t.Errorf("expected log to contain the underlying error, got %q", out)
+	}
+	if strings.Contains(out, "Install microsandbox") || strings.Contains(out, "github.com/microsandbox") {
+		t.Errorf("expected no 'install msb' instruction, got %q", out)
+	}
+}
+
+func TestCheckMsbOnPathReturnsTrueSilently(t *testing.T) {
+	var buf bytes.Buffer
+	l := output.NewPrinter(&buf, false)
+
+	prev := ensureInstalled
+	t.Cleanup(func() { ensureInstalled = prev })
+	ensureInstalled = func(context.Context) error { return nil }
+
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "msb"), []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", dir)
+
+	if !CheckMsb(context.Background(), l) {
+		t.Fatal("expected CheckMsb to return true when msb is on PATH")
+	}
+	if buf.Len() != 0 {
+		t.Errorf("expected no output when msb is on PATH, got %q", buf.String())
+	}
+}
+
+func TestCheckMsbNotOnPathExtendsPathAndReturnsTrue(t *testing.T) {
+	var buf bytes.Buffer
+	l := output.NewPrinter(&buf, false)
+
+	prev := ensureInstalled
+	t.Cleanup(func() { ensureInstalled = prev })
+	ensureInstalled = func(context.Context) error { return nil }
+
+	home := t.TempDir()
+	binDir := filepath.Join(home, ".microsandbox", "bin")
+	if err := os.MkdirAll(binDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	binPath := filepath.Join(binDir, "msb")
+	if err := os.WriteFile(binPath, []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	t.Setenv("HOME", home)
+	t.Setenv("SHELL", "/bin/zsh")
+	t.Setenv("PATH", "/nonexistent")
+
+	if !CheckMsb(context.Background(), l) {
+		t.Fatal("expected CheckMsb to return true when msb is installed but not on PATH")
+	}
+	out := buf.String()
+	if !strings.Contains(out, "not on your PATH") {
+		t.Errorf("expected a warning that msb is not on PATH, got %q", out)
+	}
+	if !strings.Contains(out, ".zshrc") {
+		t.Errorf("expected hint to mention .zshrc for a zsh shell, got %q", out)
+	}
+	if !strings.Contains(out, "ln -s") {
+		t.Errorf("expected hint to include a symlink alternative, got %q", out)
+	}
+	got := os.Getenv("PATH")
+	if !strings.HasPrefix(got, binDir) {
+		t.Errorf("expected PATH to start with %q, got %q", binDir, got)
+	}
+}
+
+func TestCheckMsbNotOnPathAndBinaryMissingReturnsFalse(t *testing.T) {
+	var buf bytes.Buffer
+	l := output.NewPrinter(&buf, false)
+
+	prev := ensureInstalled
+	t.Cleanup(func() { ensureInstalled = prev })
+	ensureInstalled = func(context.Context) error { return nil }
+
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("PATH", "/nonexistent")
+
+	if CheckMsb(context.Background(), l) {
+		t.Fatal("expected CheckMsb to return false when msb binary is missing")
+	}
+	out := buf.String()
+	if !strings.Contains(out, "binary missing") {
+		t.Errorf("expected 'binary missing' in output, got %q", out)
 	}
 }
