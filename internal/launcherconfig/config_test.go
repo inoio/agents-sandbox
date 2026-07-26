@@ -16,7 +16,7 @@ func TestLoadMissingFilesReturnsDefaults(t *testing.T) {
 	if len(keys) != 0 {
 		t.Errorf("expected no keys, got %v", keys)
 	}
-	if cfg.CPUs != 0 || cfg.Memory != "" || cfg.Yes || cfg.Verbose || cfg.Quiet || cfg.Rebuild {
+	if cfg.CPUs != 0 || cfg.Memory != "" || cfg.TmpSize != "" || cfg.Yes || cfg.Verbose || cfg.Quiet || cfg.Rebuild {
 		t.Errorf("expected zero defaults, got %+v", cfg)
 	}
 }
@@ -24,10 +24,11 @@ func TestLoadMissingFilesReturnsDefaults(t *testing.T) {
 func TestLoadYAMLConfig(t *testing.T) {
 	dir := t.TempDir()
 	writeYAML(t, dir, "config.yaml", map[string]any{
-		"cpus":    4,
-		"memory":  "8G",
-		"rebuild": true,
-		"verbose": true,
+		"cpus":     4,
+		"memory":   "8G",
+		"tmp-size": "4G",
+		"rebuild":  true,
+		"verbose":  true,
 	})
 
 	cfg, keys, err := Load(dir, "")
@@ -40,11 +41,14 @@ func TestLoadYAMLConfig(t *testing.T) {
 	if cfg.Memory != "8G" {
 		t.Errorf("expected memory 8G, got %q", cfg.Memory)
 	}
+	if cfg.TmpSize != "4G" {
+		t.Errorf("expected tmp-size 4G, got %q", cfg.TmpSize)
+	}
 	if !cfg.Rebuild || !cfg.Verbose {
 		t.Errorf("expected rebuild and verbose true, got %+v", cfg)
 	}
-	if !keys["cpus"] || !keys["memory"] {
-		t.Errorf("expected cpus and memory keys, got %v", keys)
+	if !keys["cpus"] || !keys["memory"] || !keys["tmp-size"] {
+		t.Errorf("expected cpus, memory, and tmp-size keys, got %v", keys)
 	}
 }
 

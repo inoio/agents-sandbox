@@ -73,7 +73,7 @@ func TestRunCommandHasExpectedFlags(t *testing.T) {
 	if runCmd == nil {
 		t.Fatal("expected run command")
 	}
-	flags := []string{"branch", "cpus", "memory", "rebuild", "dry-run", "no-auto", "user"}
+	flags := []string{"branch", "cpus", "memory", "tmp-size", "rebuild", "dry-run", "no-auto", "user"}
 	for _, f := range flags {
 		if runCmd.Flags().Lookup(f) == nil {
 			t.Errorf("expected flag --%s on run command", f)
@@ -121,8 +121,8 @@ func TestApplyLauncherConfigSetsUnsetFlags(t *testing.T) {
 	if runCmd == nil {
 		t.Fatal("expected run command")
 	}
-	lc := launcherconfig.Config{CPUs: 4, Memory: "8G", Yes: true, Verbose: true}
-	keys := map[string]bool{"cpus": true, "memory": true, "yes": true, "verbose": true}
+	lc := launcherconfig.Config{CPUs: 4, Memory: "8G", TmpSize: "4G", Yes: true, Verbose: true}
+	keys := map[string]bool{"cpus": true, "memory": true, "tmp-size": true, "yes": true, "verbose": true}
 
 	if err := applyLauncherConfig(runCmd, lc, keys); err != nil {
 		t.Fatalf("applyLauncherConfig failed: %v", err)
@@ -135,6 +135,10 @@ func TestApplyLauncherConfigSetsUnsetFlags(t *testing.T) {
 	mem, _ := runCmd.Flags().GetString("memory")
 	if mem != "8G" {
 		t.Errorf("expected memory 8G, got %q", mem)
+	}
+	tmp, _ := runCmd.Flags().GetString("tmp-size")
+	if tmp != "4G" {
+		t.Errorf("expected tmp-size 4G, got %q", tmp)
 	}
 	yes, _ := root.PersistentFlags().GetBool("yes")
 	if !yes {
@@ -152,12 +156,14 @@ func TestApplyLauncherConfigRespectsCLIOverrides(t *testing.T) {
 	if runCmd == nil {
 		t.Fatal("expected run command")
 	}
-	if err := runCmd.ParseFlags([]string{"--cpus", "2", "--memory", "1G", "--yes=false"}); err != nil {
+	if err := runCmd.ParseFlags(
+		[]string{"--cpus", "2", "--memory", "1G", "--tmp-size", "512M", "--yes=false"},
+	); err != nil {
 		t.Fatalf("ParseFlags failed: %v", err)
 	}
 
-	lc := launcherconfig.Config{CPUs: 8, Memory: "16G", Yes: true, Verbose: true}
-	keys := map[string]bool{"cpus": true, "memory": true, "yes": true, "verbose": true}
+	lc := launcherconfig.Config{CPUs: 8, Memory: "16G", TmpSize: "8G", Yes: true, Verbose: true}
+	keys := map[string]bool{"cpus": true, "memory": true, "tmp-size": true, "yes": true, "verbose": true}
 
 	if err := applyLauncherConfig(runCmd, lc, keys); err != nil {
 		t.Fatalf("applyLauncherConfig failed: %v", err)
@@ -170,6 +176,10 @@ func TestApplyLauncherConfigRespectsCLIOverrides(t *testing.T) {
 	mem, _ := runCmd.Flags().GetString("memory")
 	if mem != "1G" {
 		t.Errorf("expected memory 1G (CLI override), got %q", mem)
+	}
+	tmp, _ := runCmd.Flags().GetString("tmp-size")
+	if tmp != "512M" {
+		t.Errorf("expected tmp-size 512M (CLI override), got %q", tmp)
 	}
 	yes, _ := runCmd.Flags().GetBool("yes")
 	if yes {
