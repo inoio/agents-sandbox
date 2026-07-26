@@ -38,6 +38,7 @@ const (
 	flagRebuild = "rebuild"
 	flagCpus    = "cpus"
 	flagMemory  = "memory"
+	flagTmpSize = "tmp-size"
 )
 
 var version = "dev"
@@ -187,6 +188,7 @@ func buildRunCmd() *cobra.Command {
 			opts.DryRun, _ = cmd.Flags().GetBool("dry-run")
 			opts.CPUs, _ = cmd.Flags().GetUint8("cpus")
 			opts.Memory, _ = cmd.Flags().GetString("memory")
+			opts.TmpSize, _ = cmd.Flags().GetString("tmp-size")
 			opts.User, _ = cmd.Flags().GetString("user")
 			if noAuto, _ := cmd.Flags().GetBool("no-auto"); noAuto {
 				opts.Auto = false
@@ -208,7 +210,8 @@ func buildRunCmd() *cobra.Command {
 	cmd.Flags().BoolP("rebuild", "r", false, "Rebuild the runner image before starting")
 	cmd.Flags().BoolP("dry-run", "n", false, "Validate setup without running opencode")
 	cmd.Flags().Uint8P("cpus", "c", 0, "Number of CPUs (default: all)")
-	cmd.Flags().StringP("memory", "m", "4G", "Memory limit (default: 4G)")
+	cmd.Flags().StringP("memory", "m", "4G", "Memory limit")
+	cmd.Flags().String("tmp-size", "2G", "Size of the /tmp tmpfs in the sandbox")
 	cmd.Flags().
 		StringP("user", "u", "", "Username or UID to run opencode inside the sandbox (format: <name|uid>[:<group|gid>])")
 	cmd.Flags().Bool("no-auto", false, "Do not pass --auto to opencode")
@@ -238,6 +241,7 @@ func applyLauncherConfig(cmd *cobra.Command, lc launcherconfig.Config, keys map[
 		{flagRebuild, func() error { return setBoolFlag(cmd, flagRebuild, lc.Rebuild) }},
 		{flagCpus, func() error { return setUint8Flag(cmd, flagCpus, lc.CPUs) }},
 		{flagMemory, func() error { return setStringFlag(cmd, flagMemory, lc.Memory) }},
+		{flagTmpSize, func() error { return setStringFlag(cmd, flagTmpSize, lc.TmpSize) }},
 	}
 	for _, item := range apply {
 		if keys[item.key] {
@@ -316,6 +320,7 @@ func buildShellCmd() *cobra.Command {
 			opts.Rebuild, _ = cmd.Flags().GetBool("rebuild")
 			opts.CPUs, _ = cmd.Flags().GetUint8("cpus")
 			opts.Memory, _ = cmd.Flags().GetString("memory")
+			opts.TmpSize, _ = cmd.Flags().GetString("tmp-size")
 			opts.User, _ = cmd.Flags().GetString("user")
 
 			cfg := newConfig()
@@ -333,7 +338,8 @@ func buildShellCmd() *cobra.Command {
 	cmd.Flags().StringP("branch", "b", "", "Run in an isolated git clone for the given branch")
 	cmd.Flags().BoolP("rebuild", "r", false, "Rebuild the runner image before starting")
 	cmd.Flags().Uint8P("cpus", "c", 0, "Number of CPUs (default: all)")
-	cmd.Flags().StringP("memory", "m", "4G", "Memory limit (default: 4G)")
+	cmd.Flags().StringP("memory", "m", "4G", "Memory limit")
+	cmd.Flags().String("tmp-size", "2G", "Size of the /tmp tmpfs in the sandbox")
 	cmd.Flags().StringP("user", "u", "", "Username or UID to use inside the sandbox (format: <name|uid>[:<group|gid>])")
 
 	return cmd

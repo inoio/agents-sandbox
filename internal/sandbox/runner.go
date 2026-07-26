@@ -36,6 +36,7 @@ type RunOptions struct {
 	DryRun  bool
 	CPUs    uint8
 	Memory  string
+	TmpSize string
 	User    string
 	Auto    bool
 	Args    []string
@@ -49,6 +50,7 @@ type Config struct {
 
 const (
 	defaultMemoryMiB   = 4096
+	defaultTmpSizeMiB  = 2048
 	maxSandboxNameLen  = 128
 	sandboxStopTimeout = 30 * time.Second
 	envKeyValueParts   = 2
@@ -76,6 +78,13 @@ func parseMemory(spec string) uint32 {
 		return defaultMemoryMiB
 	}
 	return uint32(n) * multiplier //nolint:gosec // G115: n is from Atoi on a memory spec, bounded by realistic values
+}
+
+func resolveTmpSizeMiB(spec string) uint32 {
+	if spec == "" {
+		return defaultTmpSizeMiB
+	}
+	return parseMemory(spec)
 }
 
 func sandboxName(projectSlug, branchSlug string) string {
@@ -649,6 +658,20 @@ func loadConfigFiles(userConfigDir string) (map[string][]byte, error) {
 	return configFiles, nil
 }
 
+func buildMounts(homeVol, repoPath string, tmpSizeMiB uint32) map[string]msb.MountConfig {
+	return map[string]msb.MountConfig{
+		"/home/dev":  msb.Mount.Named(homeVol, msb.MountOptions{}),
+		"/workspace": msb.Mount.Bind(repoPath, msb.MountOptions{}),
+		"/tmp": msb.Mount.Tmpfs(msb.TmpfsOptions{
+			SizeMiB:  tmpSizeMiB,
+			Readonly: false,
+			Noexec:   false,
+			Nosuid:   false,
+			Nodev:    false,
+		}),
+	}
+}
+
 func createSandbox(
 	ctx context.Context,
 	name, imageRef, repoPath, homeVol, user string,
@@ -673,10 +696,7 @@ func createSandbox(
 		buildEnvMap(".opencode-msb/env.secret"),
 	), logger)
 
-	mounts := map[string]msb.MountConfig{
-		"/home/dev":  msb.Mount.Named(homeVol, msb.MountOptions{}),
-		"/workspace": msb.Mount.Bind(repoPath, msb.MountOptions{}),
-	}
+	mounts := buildMounts(homeVol, repoPath, resolveTmpSizeMiB(opts.TmpSize))
 
 	spin := log.NewSpinner(logger)
 	spin.Start("Checking microsandbox runtime")
