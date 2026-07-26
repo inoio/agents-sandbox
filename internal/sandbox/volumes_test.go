@@ -8,18 +8,19 @@ import (
 )
 
 func TestHomeVolumeName(t *testing.T) {
-	got := HomeVolumeName("p-abc123", "sha256-def456")
-	expected := "p-abc123-opencode-home-sha256-def456"
+	got := HomeVolumeName("myproj-aBc1234D", "sha256:abc123def456")
+	expected := "opencode-msb-home-myproj-aBc1234D-xRX898Gl"
 	if got != expected {
 		t.Errorf("expected %q, got %q", expected, got)
 	}
 }
 
-func TestHomeVolumeNameSanitizesColon(t *testing.T) {
-	got := HomeVolumeName("p-abc123", "sha256:def456")
-	expected := "p-abc123-opencode-home-sha256-def456"
-	if got != expected {
-		t.Errorf("expected %q, got %q", expected, got)
+func TestHomeVolumeNameDifferentInputs(t *testing.T) {
+	// HashID hashes the full input string, so different inputs produce different hashes
+	got := HomeVolumeName("myproj-aBc1234D", "sha256:abc123def456")
+	got2 := HomeVolumeName("myproj-aBc1234D", "abc123def456")
+	if got == got2 {
+		t.Errorf("expected different hashes for different inputs, got %q and %q", got, got2)
 	}
 }
 
@@ -64,8 +65,9 @@ func TestExtractNamedVolumesInvalidJSON(t *testing.T) {
 }
 
 func TestCloneVolumeName(t *testing.T) {
-	name := cloneVolumeName("my-source-vol")
-	if !strings.HasPrefix(name, "my-source-vol-clone-") {
-		t.Errorf("expected clone name to start with 'my-source-vol-clone-', got %q", name)
+	source := "opencode-msb-home-myproj-aBc1234D-xRX898Gl"
+	got := cloneVolumeName(source)
+	if !strings.HasPrefix(got, "opencode-msb-clone-myproj-aBc1234D-xRX898Gl-") {
+		t.Errorf("expected clone name to start with 'opencode-msb-clone-myproj-aBc1234D-xRX898Gl-', got %q", got)
 	}
 }
