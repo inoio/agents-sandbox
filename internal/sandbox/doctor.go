@@ -6,6 +6,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strings"
 
 	"gitlab.inoio.de/inoio/opencode-msb/internal/output"
 
@@ -92,4 +93,19 @@ func CheckMsb(ctx context.Context, logger *output.Printer) bool {
 
 func CheckAll(ctx context.Context, logger *output.Printer) bool {
 	return CheckMsb(ctx, logger) && CheckDocker(logger) && CheckKvm(logger) && CheckGit(logger)
+}
+
+func isOrphanedSandbox(name string) bool {
+	if !strings.HasPrefix(name, "opencode-msb-") {
+		return false
+	}
+	return !strings.HasPrefix(name, "opencode-msb-sb-") &&
+		!strings.HasPrefix(name, "opencode-msb-task-")
+}
+
+func isOrphanedVolume(name string) bool {
+	if strings.HasPrefix(name, "opencode-msb-home-") || strings.HasPrefix(name, "opencode-msb-clone-") {
+		return false
+	}
+	return strings.Contains(name, "-opencode-home-")
 }
