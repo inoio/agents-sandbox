@@ -25,10 +25,15 @@
 
 ## 1st prio
 
+[ ] use less tokens for dev
 [ ] single VM per project with multiple workspaces to work around sqlite's fcntl() locking home dir?
 [ ] --branch merge deletes repo with changes
+[ ] stop vm when no clients connected
 [ ] support docker in VM
-[ ] use less tokens for dev
+
+
+
+
 [ ] README überarbeiten
   [ ] Installation ins Userverzeichnis ([~/bin,] ~/.local/bin)
   [ ] config file(s) übersicht, beispiele
