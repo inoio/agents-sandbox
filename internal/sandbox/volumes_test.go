@@ -9,7 +9,7 @@ import (
 
 func TestHomeVolumeName(t *testing.T) {
 	got := HomeVolumeName("myproj-aBc1234D", "sha256:abc123def456")
-	expected := "opencode-msb-home-myproj-aBc1234D-xRX898Gl"
+	expected := "opencode-msb-home-myproj-aBc1234D-3k5q07ywpibwp5"
 	if got != expected {
 		t.Errorf("expected %q, got %q", expected, got)
 	}
@@ -65,9 +65,9 @@ func TestExtractNamedVolumesInvalidJSON(t *testing.T) {
 }
 
 func TestCloneVolumeName(t *testing.T) {
-	source := "opencode-msb-home-myproj-aBc1234D-xRX898Gl"
+	source := "opencode-msb-home-myproj-aBc1234D-xRX898Gl7cq4jh"
 	got := cloneVolumeName(source)
-	if !strings.HasPrefix(got, "opencode-msb-clone-myproj-aBc1234D-xRX898Gl-") {
-		t.Errorf("expected clone name to start with 'opencode-msb-clone-myproj-aBc1234D-xRX898Gl-', got %q", got)
+	if !strings.HasPrefix(got, "opencode-msb-clone-myproj-aBc1234D-xRX898Gl7cq4jh-") {
+		t.Errorf("expected clone name to start with 'opencode-msb-clone-myproj-aBc1234D-xRX898Gl7cq4jh-', got %q", got)
 	}
 }
