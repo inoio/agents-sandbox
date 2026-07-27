@@ -33,6 +33,8 @@ const (
 	cmdConfig = "config"
 	cmdImage  = "image"
 	cmdVolume = "volume"
+	cmdStop   = "stop"
+	cmdKill   = "kill"
 
 	flagYes     = "yes"
 	flagVerbose = "verbose"
@@ -112,6 +114,8 @@ func buildRootCmd() *cobra.Command {
 	root.AddCommand(buildImageCmd())
 	root.AddCommand(buildVolumeCmd())
 	root.AddCommand(buildSandboxCmd())
+	root.AddCommand(buildStopCmd())
+	root.AddCommand(buildKillCmd())
 
 	return root
 }
@@ -316,7 +320,7 @@ func buildRunCmd() *cobra.Command {
 		},
 	}
 
-	cmd.Flags().StringP("branch", "b", "", "Run in an isolated git clone for the given branch")
+	cmd.Flags().StringP("branch", "b", "", "Run in an opencode worktree for the given branch name")
 	cmd.Flags().BoolP("rebuild", "r", false, "Rebuild the runner image before starting")
 	cmd.Flags().BoolP("dry-run", "n", false, "Validate setup without running opencode")
 	cmd.Flags().Uint8P("cpus", "c", 0, "Number of CPUs (default: all)")
@@ -451,7 +455,7 @@ func buildShellCmd() *cobra.Command {
 		},
 	}
 
-	cmd.Flags().StringP("branch", "b", "", "Run in an isolated git clone for the given branch")
+	cmd.Flags().StringP("branch", "b", "", "Run in an opencode worktree for the given branch name")
 	cmd.Flags().BoolP("rebuild", "r", false, "Rebuild the runner image before starting")
 	cmd.Flags().Uint8P("cpus", "c", 0, "Number of CPUs (default: all)")
 	cmd.Flags().StringP("memory", "m", "4G", "Memory limit")
@@ -573,6 +577,42 @@ func buildSandboxCmd() *cobra.Command {
 	cmd.AddCommand(buildListCmd())
 	cmd.AddCommand(buildShellCmd())
 	cmd.AddCommand(buildRunCmd())
+	cmd.AddCommand(buildStopCmd())
+	cmd.AddCommand(buildKillCmd())
+	return cmd
+}
+
+func buildStopCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   cmdStop,
+		Short: "Stop the project VM",
+		Annotations: map[string]string{
+			annotationAlsoAs: "sandbox stop",
+		},
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			force, _ := cmd.Flags().GetBool("force")
+			logger := newLogger(cmd)
+			return sandbox.StopProjectVM(cmd.Context(), force, logger)
+		},
+	}
+	cmd.Flags().BoolP("force", "f", false, "Remove the VM's persisted state after stopping")
+	return cmd
+}
+
+func buildKillCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   cmdKill,
+		Short: "Force-kill the project VM",
+		Annotations: map[string]string{
+			annotationAlsoAs: "sandbox kill",
+		},
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			force, _ := cmd.Flags().GetBool("force")
+			logger := newLogger(cmd)
+			return sandbox.KillProjectVM(cmd.Context(), force, logger)
+		},
+	}
+	cmd.Flags().BoolP("force", "f", false, "Remove the VM's persisted state after killing")
 	return cmd
 }
 
