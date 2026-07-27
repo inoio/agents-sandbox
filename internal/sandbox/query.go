@@ -39,7 +39,7 @@ type imageHandle struct {
 func filterSandboxes(handles []sandboxHandle) []string {
 	var result []string
 	for _, h := range handles {
-		if strings.HasPrefix(h.name, "opencode-msb-") {
+		if strings.HasPrefix(h.name, "opencode-msb-sb-") {
 			result = append(result, h.name)
 		}
 	}
@@ -49,7 +49,7 @@ func filterSandboxes(handles []sandboxHandle) []string {
 func filterVolumes(handles []volumeHandle) []string {
 	var result []string
 	for _, h := range handles {
-		if strings.Contains(h.name, "-opencode-home-") {
+		if strings.HasPrefix(h.name, "opencode-msb-home-") {
 			result = append(result, h.name)
 		}
 	}
@@ -59,7 +59,7 @@ func filterVolumes(handles []volumeHandle) []string {
 func filterImages(handles []imageHandle) []string {
 	var result []string
 	for _, h := range handles {
-		if strings.HasPrefix(h.reference, "opencode-msb/runner") {
+		if strings.HasPrefix(h.reference, "opencode-msb/runner-") {
 			result = append(result, h.reference)
 		}
 	}
@@ -74,7 +74,7 @@ func ListSandboxes(ctx context.Context) ([]Info, error) {
 	var result []Info
 	for _, h := range handles {
 		name := h.Name()
-		if !strings.HasPrefix(name, "opencode-msb-") {
+		if !strings.HasPrefix(name, "opencode-msb-sb-") {
 			continue
 		}
 		result = append(result, Info{
@@ -93,7 +93,7 @@ func ListVolumes(ctx context.Context) ([]VolumeInfo, error) {
 	var result []VolumeInfo
 	for _, h := range handles {
 		name := h.Name()
-		if !strings.Contains(name, "-opencode-home-") {
+		if !strings.HasPrefix(name, "opencode-msb-home-") {
 			continue
 		}
 		result = append(result, VolumeInfo{
@@ -113,7 +113,7 @@ func ListImages(ctx context.Context) ([]ImageInfo, error) {
 	var result []ImageInfo
 	for _, h := range handles {
 		ref := h.Reference()
-		if !strings.HasPrefix(ref, "opencode-msb/runner") {
+		if !strings.HasPrefix(ref, "opencode-msb/runner-") {
 			continue
 		}
 		result = append(result, ImageInfo{
