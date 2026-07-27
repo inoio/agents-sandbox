@@ -173,3 +173,38 @@ func TestDockerfileTarContainsDockerfile(t *testing.T) {
 		t.Errorf("tar content does not match dockerfile")
 	}
 }
+
+func TestReferencesDindBaseDetectsDindImage(t *testing.T) {
+	dockerfile := []byte("FROM opencode-msb/runner-base-dind:latest\nRUN echo hi\n")
+	if !ReferencesDindBase(dockerfile) {
+		t.Error("expected ReferencesDindBase=true for Dockerfile with dind FROM")
+	}
+}
+
+func TestReferencesDindBaseReturnsFalseForPlainBase(t *testing.T) {
+	dockerfile := []byte("FROM opencode-msb/runner-base:latest\nRUN echo hi\n")
+	if ReferencesDindBase(dockerfile) {
+		t.Error("expected ReferencesDindBase=false for plain base Dockerfile")
+	}
+}
+
+func TestReferencesDindBaseReturnsFalseForOtherImage(t *testing.T) {
+	dockerfile := []byte("FROM debian:trixie-slim\nRUN echo hi\n")
+	if ReferencesDindBase(dockerfile) {
+		t.Error("expected ReferencesDindBase=false for non-base Dockerfile")
+	}
+}
+
+func TestReferencesDindBaseIgnoresComments(t *testing.T) {
+	dockerfile := []byte("# FROM opencode-msb/runner-base-dind:latest\nFROM debian:trixie-slim\n")
+	if ReferencesDindBase(dockerfile) {
+		t.Error("expected ReferencesDindBase=false for commented FROM")
+	}
+}
+
+func TestReferencesBaseReturnsFalseForDindImage(t *testing.T) {
+	dockerfile := []byte("FROM opencode-msb/runner-base-dind:latest\nRUN echo hi\n")
+	if ReferencesBase(dockerfile) {
+		t.Error("expected ReferencesBase=false for dind Dockerfile (no false positive)")
+	}
+}
