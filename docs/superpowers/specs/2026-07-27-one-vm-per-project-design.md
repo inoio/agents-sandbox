@@ -116,6 +116,36 @@ If shared-history or bind-mount compatibility fails, fall back to Approach 3
 (per-invocation, no daemon) or revisit. **The spike is sequenced first in the
 implementation plan.**
 
+### Spike results (completed 2026-07-27)
+
+**Verdict: GO WITH CAVEATS.** Full findings:
+`docs/superpowers/notes/2026-07-27-workspaces-spike-findings.md`.
+
+1. **opencode version + workspaces support:** Confirmed. The
+   `OPENCODE_EXPERIMENTAL_WORKSPACES=true` flag is recognized by the serve
+   daemon (opencode 1.18.5). Not surfaced in CLI help, but active behind the
+   API.
+2. **Worktree control surface:** `POST /experimental/worktree` (HTTP API only,
+   no CLI worktree subcommand). Worktree list/reset also via API. Branches are
+   created in the `opencode/<name>` namespace, not by checking out existing
+   host branches.
+3. **Shared history:** Confirmed. Both worktrees resolve to the same
+   `project_id` (`56a2ecd18a6610ce515c91f45114dcb65edfb70a`). Sessions created
+   in each worktree share that `project_id`. Note: the `/session` API returns
+   `null` for `project_id` in this version; use `opencode db` for reliable
+   session/project correlation.
+4. **SQLite safety:** Confirmed. `PRAGMA integrity_check` returns `ok` after
+   concurrent worktree use.
+5. **Bind-mount compatibility:** Confirmed with a caveat. Linked worktrees
+   function inside the VM, but they **pollute the host repo's
+   `.git/worktrees/`** with entries referencing VM-internal paths. After the VM
+   stops, these are `prunable` on the host. The launcher must run
+   `git worktree prune` on cleanup. Worktree directories live in the home
+   volume (`/home/dev/.local/share/opencode/worktree/<project-id>/`), not under
+   `/workspace`.
+6. **Control surface:** `POST /experimental/worktree` to create; attach a TUI
+   via `opencode attach http://127.0.0.1:4096 --dir <worktree-path>`.
+
 ## Section 2 — Architecture
 
 **One long-lived VM per project**, named `opencode-msb-vm-<slug>` (new `-vm-`
@@ -159,7 +189,8 @@ sessions); worktree instances managed by the daemon's control-plane.
 | **A. Project VM lifecycle** | new `internal/sandbox/projectvm.go` (or fold into `runner.go`) | `EnsureProjectVM`: `GetSandbox`→ NotFound=`CreateSandbox(WithDetached,WithIdleTimeout,mounts,env)` / Running=`Connect` / Stopped=`Start`. Returns live `*Sandbox`; does **not** stop on exit. `projectVMName(slug)="opencode-msb-vm-"+slug`. |
 | **B. Daemon supervisor** | new `internal/sandbox/daemon.go` | `EnsureDaemon`: healthcheck via `sb.Exec("curl",…,"http://127.0.0.1:4096/global/health")`; if down, start `opencode serve --hostname 127.0.0.1 --port 4096` detached (nohup or msb `WithInit`/`Scripts`) and poll. Healthcheck runs curl **inside** the VM — no host↔VM networking. |
 | **C. Invocation flow** | `runner.go` (`Run`,`Shell`,`prepareSandbox`,`sandboxSession`) | `Run`→ EnsureProjectVM+EnsureDaemon → `Attach(bash -lc 'opencode attach http://127.0.0.1:4096 --dir <target>')`. `cleanup` stops removing the VM — only `Close`/`Detach`. Drop `cloneVol`. |
-| **D. Branch→worktree mapping** | new `internal/sandbox/worktree.go` | `ResolveTarget(sb,branch)`: no branch→`/workspace`; `-b <branch>`→ create/open an opencode worktree via the daemon, return its dir. Replaces `resolveWorkspace`+`EnsureManagedRepoFromRef`. |
+| **D. Branch→worktree mapping** | new `internal/sandbox/worktree.go` | `ResolveTarget(sb,branch)`: no branch→`/workspace`; `-b <branch>`→ create/open a worktree via `POST /experimental/worktree` (HTTP API inside the VM, no CLI subcommand exists), return its dir. Replaces `resolveWorkspace`+`EnsureManagedRepoFromRef`. Note: API creates branches in `opencode/<name>` namespace. |
+| **H. Host worktree cleanup** | `runner.go` (cleanup) or `internal/git/git.go` | Run `git worktree prune` on the host repo after session/VM cleanup to remove stale `.git/worktrees/` entries left by opencode's linked worktrees (they reference VM-internal paths that don't exist on the host). |
 | **E. Config provisioning** | `runner.go` (`createSandbox`,`provisionSandbox`) | Add `OPENCODE_EXPERIMENTAL_WORKSPACES=true` to env. Keep config files, `.envrc` removal, secrets, `startDockerdIfPresent`. |
 | **F. Naming & filters** | `query.go`, naming strategy | Session filter `opencode-msb-sb-`→project-VM filter `opencode-msb-vm-`. `list` shows VMs. |
 | **G. Lifecycle commands** | `cmd/opencode-msb` | New `stop`/`kill`; `list` filter; `run`/`shell` new flow; `-b`→Component D. |
@@ -197,10 +228,16 @@ sessions); worktree instances managed by the daemon's control-plane.
   a clear error (e.g. opencode version lacks workspaces — spike territory).
 - **Worktree creation failure:** surface error; MVP aborts with a clear message.
   Exact failure modes come from the spike.
-- **Bind-mount `.git` incompatibility (spike #5):** if opencode can't make
-  linked worktrees from a bind-mounted `/workspace`, fall back to cloning
-  `/workspace` into `/home/dev` as the primary worktree (so `.git` is fully
-  in-VM). Spike-gated.
+- **Host `.git/worktrees/` pollution (confirmed in spike):** opencode's linked
+  worktrees created from the bind-mounted `/workspace` write metadata into the
+  host repo's `.git/worktrees/<name>/` directory. These reference VM-internal
+  paths (`/home/dev/.local/share/opencode/worktree/...`) that don't exist on
+  the host, so `git worktree list` on the host shows them as `prunable`. The
+  launcher must run `git worktree prune` on the host repo as part of session/VM
+  cleanup to avoid stale entries accumulating. If this proves too noisy, the
+  fallback is to clone `/workspace` into `/home/dev` as the primary worktree
+  (so `.git` is fully in-VM, no host pollution) at the cost of host edit
+  visibility.
 - **First-boot race:** per-project host-side flock in `StateDir` around
   ensure-create (Section 4).
 - **Idle-timeout race (VM auto-stops mid-`EnsureDaemon`):** retry the
@@ -234,12 +271,16 @@ sessions); worktree instances managed by the daemon's control-plane.
   `StateDir`. `doctor` warns about orphans; no auto-migration.
 - **Naming strategy:** document the new `-vm-` infix; update the
   naming-strategy spec's table.
-- **`-b` UX:** keep `-b <branch>` as a thin wrapper over opencode worktree
-  create/open (familiar); branch removal via opencode's `worktree remove`;
-  merge-back is a git op the user does (opencode-msb stops doing managed-clone
-  merge). Optional `opencode-msb worktree remove` later (out of MVP).
-- **Open risks (spike-gated):** experimental workspaces stability; workspaces
-  runtime model (one server vs multiple); worktree-with-bind-mount (#5); pin an
-  opencode version that ships the workspaces feature in the runner image.
+- **`-b` UX:** keep `-b <branch>` as a thin wrapper over the worktree API
+  (`POST /experimental/worktree`); branch removal via API; merge-back is a git
+  op the user does (opencode-msb stops doing managed-clone merge). The API
+  creates branches in the `opencode/<name>` namespace — the `-b <branch>` flag
+  maps to a worktree name, not a host branch checkout. Optional
+  `opencode-msb worktree remove` later (out of MVP).
+- **Resolved risks (from spike):** workspaces feature is stable enough for
+  this design; runtime model is one `opencode serve` daemon owning the db +
+  control-plane; worktree-with-bind-mount works but pollutes host
+  `.git/worktrees/` (cleanup via `git worktree prune`). Pin opencode 1.18.5+
+  in the runner image.
 - **Unchanged limitations:** `.envrc` not hidden from VM; network egress
   unrestricted.

@@ -15,7 +15,7 @@
 2. **Worktree control surface:** Worktrees are controllable programmatically via the HTTP API at `POST /experimental/worktree`; no CLI `worktree` subcommand exists.
 3. **Shared project_id:** Both worktrees resolve to the same `project_id`, and sessions created in each worktree share that `project_id`.
 4. **SQLite integrity:** The database remains intact (`PRAGMA integrity_check` returns `ok`) after concurrent worktree use.
-5. **Bind-mount compatibility:** Linked worktrees function inside the VM; worktree directories live in the persistent home volume and the host repo's `.git/worktrees/` is not polluted.
+5. **Bind-mount compatibility:** Linked worktrees function inside the VM, but they **pollute the host repo's `.git/worktrees/`** directory with entries referencing VM-internal paths. After the VM stops, these entries become `prunable` (stale) on the host. This is manageable with `git worktree prune` cleanup but is a real side effect of bind-mounting the host repo as `/workspace`.
 
 **Blockers found:** `none`
 
@@ -26,6 +26,7 @@
 - The API creates branches in the `opencode/<name>` namespace rather than checking out existing host branches.
 - Worktree directories are created under `/home/dev/.local/share/opencode/worktree/<project-id>/` in the home volume, not under `/workspace`.
 - The `/session` API returns `null` for `project_id` in this version; use `opencode db` for reliable session/project correlation.
+- **Host `.git/worktrees/` pollution:** opencode's linked worktrees created from the bind-mounted `/workspace` write metadata into the host repo's `.git/worktrees/<name>/` directory. These reference VM-internal paths (`/home/dev/.local/share/opencode/worktree/...`) that don't exist on the host, so `git worktree list` on the host shows them as `prunable`. The launcher must run `git worktree prune` on the host repo as part of session/VM cleanup to avoid stale entries accumulating. Alternatively, the spec's fallback (clone `/workspace` into `/home/dev` as the primary worktree so `.git` is fully in-VM) avoids this entirely at the cost of host edit visibility.
 
 **Recommendation for next steps:** Proceed to the full implementation plan for one-VM-per-project, incorporating the API-only worktree control surface and the home-volume worktree directory layout into the design.
 
@@ -67,8 +68,22 @@
 
 - Integrity check: `{"integrity_check": "ok"}`
 - Database path: `/home/dev/.local/share/opencode/opencode.db`
-- Worktree .git metadata location: `/workspace/.git/worktrees/` inside the VM contains `spike-a` and `spike-b`; the host repo's `.git/worktrees/` does not exist (no host pollution)
+- Worktree .git metadata location: `/workspace/.git/worktrees/` inside the VM contains `spike-a` and `spike-b`. Since `/workspace` is a bind mount of the host repo, these entries **also appear in the host repo's `.git/worktrees/`**.
 - Git operations in worktree: `success` — `git status` shows clean working tree on branch `opencode/spike-a`; `git log` works
-- Host .git modified: `no`
+- Host .git modified: `yes` — host `git worktree list` shows both opencode worktrees as `prunable` (paths reference VM-internal `/home/dev/.local/share/opencode/worktree/...` which don't exist on the host); host `.git/worktrees/` contains `spike-a` and `spike-b` directories
 
-**Assessment:** SQLite integrity is `intact`. Bind-mount compatibility is `confirmed with a caveat`: linked worktrees function inside the VM, but the `.git/worktrees/` metadata visible inside the VM does not persist to the host, and the actual worktree directories live in the home volume (`/home/dev/.local/share/opencode/worktree/...`).
+**Revised host worktree output (post-VM):**
+```
+=== host git worktree list ===
+/home/ole/projects/inoio/inoio/saife2                                                      66dc9c32b1 [main]
+/home/dev/.local/share/opencode/worktree/56a2ecd18a6610ce515c91f45114dcb65edfb70a/spike-a  66dc9c32b1 [opencode/spike-a] prunable
+/home/dev/.local/share/opencode/worktree/56a2ecd18a6610ce515c91f45114dcb65edfb70a/spike-b  66dc9c32b1 [opencode/spike-b] prunable
+=== host .git/worktrees ===
+total 0
+drwx------ 1 ole ole  28 Jul 27 13:18 .
+drwxrwxr-x 1 ole ole 276 Jul 27 13:18 ..
+drwx------ 1 ole ole  82 Jul 27 13:22 spike-a
+drwx------ 1 ole ole  82 Jul 27 13:18 spike-b
+```
+
+**Assessment:** SQLite integrity is `intact`. Bind-mount compatibility is `confirmed with a caveat`: linked worktrees function inside the VM, but the host repo's `.git/worktrees/` is polluted with entries referencing VM-internal paths. After the VM stops, these entries are `prunable` on the host and require `git worktree prune` cleanup. The launcher should handle this cleanup automatically.
