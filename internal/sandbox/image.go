@@ -23,6 +23,7 @@ import (
 
 const (
 	BaseTag        = "opencode-msb/runner-base:latest"
+	DindBaseTag    = "opencode-msb/runner-base-dind:latest"
 	dockerfileMode = 0o644
 )
 
@@ -50,6 +51,17 @@ func ReferencesBase(dockerfile []byte) bool {
 	for scanner.Scan() {
 		line := strings.TrimLeft(scanner.Text(), " \t")
 		if strings.HasPrefix(line, "FROM") && strings.Contains(line, BaseTag) {
+			return true
+		}
+	}
+	return false
+}
+
+func ReferencesDindBase(dockerfile []byte) bool {
+	scanner := bufio.NewScanner(bytes.NewReader(dockerfile))
+	for scanner.Scan() {
+		line := strings.TrimLeft(scanner.Text(), " \t")
+		if strings.HasPrefix(line, "FROM") && strings.Contains(line, DindBaseTag) {
 			return true
 		}
 	}
@@ -105,7 +117,7 @@ func EnsureImage(
 	force bool,
 	logger *output.Printer,
 ) (string, string, error) {
-	if force || ReferencesBase(dockerfile) {
+	if force || ReferencesBase(dockerfile) || ReferencesDindBase(dockerfile) {
 		if err := buildDockerImage(
 			ctx,
 			cli,
@@ -116,6 +128,20 @@ func EnsureImage(
 			logger,
 		); err != nil {
 			return "", "", fmt.Errorf("building base image: %w", err)
+		}
+	}
+
+	if ReferencesDindBase(dockerfile) {
+		if err := buildDockerImage(
+			ctx,
+			cli,
+			EmbeddedDindDockerfile,
+			DindBaseTag,
+			"Building Docker-in-Docker base image",
+			force,
+			logger,
+		); err != nil {
+			return "", "", fmt.Errorf("building dind base image: %w", err)
 		}
 	}
 

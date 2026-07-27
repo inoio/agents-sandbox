@@ -25,6 +25,7 @@
 
 ## 1st prio
 
+[ ] --branch merge deletes repo with changes
 [ ] README überarbeiten
   [ ] Installation ins Userverzeichnis ([~/bin,] ~/.local/bin)
   [ ] config file(s) übersicht, beispiele
@@ -35,6 +36,8 @@
 [ ] secrets containing @ kann nicht funktionieren -> yaml. Keine CLI-Params...
 [ ] docker images mit projekt-slug im namen bauen
 [ ] support docker in VM
+[ ] single VM per project with multiple workspaces to work around sqlite's fcntl() locking home dir?
+[ ] Deliver example AGENTS.md file with instructions for workflow, especially git (don't merge, tool does) 
 
 ## 2nd prio
 
@@ -44,7 +47,6 @@
 [ ] shell subcommand user flag (other flags from msb)
 [ ] optionale Versionierung von dependencies (opencode, node.js)
 [ ] dev doku, design principles usw. (z.B. CLI design aligned with docker,msb)
-
 
 ## 3rd prio
 
