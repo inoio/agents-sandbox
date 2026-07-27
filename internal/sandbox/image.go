@@ -117,7 +117,7 @@ func EnsureImage(
 	force bool,
 	logger *output.Printer,
 ) (string, string, error) {
-	if force || ReferencesBase(dockerfile) {
+	if force || ReferencesBase(dockerfile) || ReferencesDindBase(dockerfile) {
 		if err := buildDockerImage(
 			ctx,
 			cli,
@@ -128,6 +128,20 @@ func EnsureImage(
 			logger,
 		); err != nil {
 			return "", "", fmt.Errorf("building base image: %w", err)
+		}
+	}
+
+	if ReferencesDindBase(dockerfile) {
+		if err := buildDockerImage(
+			ctx,
+			cli,
+			EmbeddedDindDockerfile,
+			DindBaseTag,
+			"Building Docker-in-Docker base image",
+			force,
+			logger,
+		); err != nil {
+			return "", "", fmt.Errorf("building dind base image: %w", err)
 		}
 	}
 

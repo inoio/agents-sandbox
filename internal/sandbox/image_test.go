@@ -7,6 +7,7 @@ import (
 	"errors"
 	"io"
 	"os"
+	"reflect"
 	"strconv"
 	"testing"
 
@@ -206,5 +207,77 @@ func TestReferencesBaseReturnsFalseForDindImage(t *testing.T) {
 	dockerfile := []byte("FROM opencode-msb/runner-base-dind:latest\nRUN echo hi\n")
 	if ReferencesBase(dockerfile) {
 		t.Error("expected ReferencesBase=false for dind Dockerfile (no false positive)")
+	}
+}
+
+type tagTrackingDockerClient struct {
+	builtTags []string
+}
+
+func (t *tagTrackingDockerClient) ImageBuild(
+	_ context.Context,
+	_ io.Reader,
+	opts client.ImageBuildOptions,
+) (client.ImageBuildResult, error) {
+	t.builtTags = append(t.builtTags, opts.Tags...)
+	return client.ImageBuildResult{Body: io.NopCloser(bytes.NewReader(nil))}, nil
+}
+
+func (t *tagTrackingDockerClient) ImageInspect(
+	context.Context,
+	string,
+	...client.ImageInspectOption,
+) (client.ImageInspectResult, error) {
+	return client.ImageInspectResult{}, errors.New("not implemented")
+}
+
+func (t *tagTrackingDockerClient) ImageSave(
+	context.Context,
+	[]string,
+	...client.ImageSaveOption,
+) (client.ImageSaveResult, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (t *tagTrackingDockerClient) Close() error {
+	return nil
+}
+
+func TestEnsureImageBuildsDindBaseWhenDockerfileReferencesDind(t *testing.T) {
+	cli := &tagTrackingDockerClient{}
+	dockerfile := []byte("FROM opencode-msb/runner-base-dind:latest\nRUN echo hi\n")
+	_, _, err := EnsureImage(context.Background(), cli, dockerfile, "test-project", false, newTestLogger(t))
+	if err == nil {
+		t.Fatal("expected error from ImageInspect, got nil")
+	}
+	wantTags := []string{BaseTag, DindBaseTag, "opencode-msb/runner-test-project:latest"}
+	if !reflect.DeepEqual(cli.builtTags, wantTags) {
+		t.Errorf("built tags:\n  got:  %v\n  want: %v", cli.builtTags, wantTags)
+	}
+}
+
+func TestEnsureImageDoesNotBuildDindForPlainBase(t *testing.T) {
+	cli := &tagTrackingDockerClient{}
+	dockerfile := []byte("FROM opencode-msb/runner-base:latest\nRUN echo hi\n")
+	_, _, err := EnsureImage(context.Background(), cli, dockerfile, "test-project", false, newTestLogger(t))
+	if err == nil {
+		t.Fatal("expected error from ImageInspect, got nil")
+	}
+	wantTags := []string{BaseTag, "opencode-msb/runner-test-project:latest"}
+	if !reflect.DeepEqual(cli.builtTags, wantTags) {
+		t.Errorf("built tags:\n  got:  %v\n  want: %v", cli.builtTags, wantTags)
+	}
+}
+
+func TestEnsureImageDoesNotBuildDindOnForceWithoutReference(t *testing.T) {
+	cli := &tagTrackingDockerClient{}
+	dockerfile := []byte("FROM debian:trixie-slim\nRUN echo hi\n")
+	_, _, err := EnsureImage(context.Background(), cli, dockerfile, "test-project", true, newTestLogger(t))
+	if err == nil {
+		t.Fatal("expected error from ImageInspect, got nil")
+	}
+	wantTags := []string{BaseTag, "opencode-msb/runner-test-project:latest"}
+	if !reflect.DeepEqual(cli.builtTags, wantTags) {
+		t.Errorf("built tags:\n  got:  %v\n  want: %v", cli.builtTags, wantTags)
 	}
 }
