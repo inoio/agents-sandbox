@@ -104,13 +104,18 @@ func isOrphanedSandbox(name string) bool {
 	if !strings.HasPrefix(name, "opencode-msb-") {
 		return false
 	}
-	return !strings.HasPrefix(name, "opencode-msb-sb-") &&
+	// vm- sandboxes are the current model; task- sandboxes are operational (prefill).
+	return !strings.HasPrefix(name, projectVMPrefix) &&
 		!strings.HasPrefix(name, "opencode-msb-task-")
 }
 
 func isOrphanedVolume(name string) bool {
-	if strings.HasPrefix(name, "opencode-msb-home-") || strings.HasPrefix(name, "opencode-msb-clone-") {
+	if strings.HasPrefix(name, "opencode-msb-home-") {
 		return false
+	}
+	// clone- volumes are obsolete (clone-on-use removed) → orphaned.
+	if strings.HasPrefix(name, "opencode-msb-clone-") {
+		return true
 	}
 	return strings.Contains(name, "-opencode-home-")
 }
