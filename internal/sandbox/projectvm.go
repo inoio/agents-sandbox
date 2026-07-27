@@ -268,3 +268,55 @@ func acquireProjectFlock(path string) (func(), error) {
 		_ = f.Close()
 	}, nil
 }
+
+// stopOrKillProjectVM is the shared implementation for StopProjectVM and KillProjectVM.
+// action is "stop" or "kill", actionVerb is used in user-facing messages.
+func stopOrKillProjectVM(
+	ctx context.Context,
+	remove bool,
+	logger *output.Printer,
+	action, actionVerb string,
+	stopFn func(*msb.SandboxHandle, context.Context) error,
+) error {
+	slug := git.ProjectSlug(logger)
+	name := projectVMName(slug)
+
+	handle, err := msb.GetSandbox(ctx, name)
+	if err != nil {
+		if msb.IsKind(err, msb.ErrSandboxNotFound) {
+			logger.Infof("no project VM found: %s", name)
+			return nil
+		}
+		return fmt.Errorf("get sandbox %q: %w", name, err)
+	}
+
+	spin := output.NewSpinner(logger)
+	spin.Start(actionVerb + " project VM")
+	if err := stopFn(handle, ctx); err != nil {
+		spin.StopError(err)
+		return fmt.Errorf("%s sandbox %q: %w", action, name, err)
+	}
+	spin.Stop()
+	logger.Infof("%s project VM: %s", action+"ed", name)
+
+	if remove {
+		if err := handle.Remove(ctx); err != nil {
+			logger.Warnf("failed to remove sandbox state: %v", err)
+		}
+	}
+	return nil
+}
+
+// StopProjectVM gracefully stops the project VM for the current directory.
+// If remove is true, it also removes the VM's persisted state after stopping.
+func StopProjectVM(ctx context.Context, remove bool, logger *output.Printer) error {
+	return stopOrKillProjectVM(ctx, remove, logger, "stop", "Stopping",
+		func(h *msb.SandboxHandle, c context.Context) error { return h.Stop(c) })
+}
+
+// KillProjectVM force-kills the project VM for the current directory.
+// If remove is true, it also removes the VM's persisted state after killing.
+func KillProjectVM(ctx context.Context, remove bool, logger *output.Printer) error {
+	return stopOrKillProjectVM(ctx, remove, logger, "kill", "Force-killing",
+		func(h *msb.SandboxHandle, c context.Context) error { return h.Kill(c) })
+}
