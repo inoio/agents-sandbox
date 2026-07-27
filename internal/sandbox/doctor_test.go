@@ -157,3 +157,33 @@ func TestCheckMsbNotOnPathAndBinaryMissingReturnsFalse(t *testing.T) {
 		t.Errorf("expected 'binary missing' in output, got %q", out)
 	}
 }
+
+func TestIsOrphanedSandboxOldPrefix(t *testing.T) {
+	if !isOrphanedSandbox("opencode-msb-proj-main") {
+		t.Error("expected old-prefix sandbox to be orphaned")
+	}
+	if isOrphanedSandbox("opencode-msb-sb-proj-main") {
+		t.Error("expected new-prefix sandbox to not be orphaned")
+	}
+	if isOrphanedSandbox("opencode-msb-task-prefill-proj-123") {
+		t.Error("expected task sandbox to not be orphaned")
+	}
+	if isOrphanedSandbox("someone-elses-sandbox") {
+		t.Error("expected foreign sandbox to not be orphaned")
+	}
+}
+
+func TestIsOrphanedVolumeOldPattern(t *testing.T) {
+	if !isOrphanedVolume("proj-opencode-home-sha256-abc") {
+		t.Error("expected old-pattern volume to be orphaned")
+	}
+	if isOrphanedVolume("opencode-msb-home-proj-aBc1234D") {
+		t.Error("expected new-prefix volume to not be orphaned")
+	}
+	if isOrphanedVolume("opencode-msb-clone-proj-aBc1234D-123") {
+		t.Error("expected clone volume to not be orphaned")
+	}
+	if isOrphanedVolume("random-volume") {
+		t.Error("expected foreign volume to not be orphaned")
+	}
+}
