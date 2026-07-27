@@ -95,6 +95,15 @@ func sandboxName(projectSlug, branchSlug string) string {
 	return name
 }
 
+func buildAttachCommand(target string, auto bool, args []string) string {
+	parts := []string{"opencode", "attach", "http://127.0.0.1:4096", "--dir", target}
+	if auto {
+		parts = append(parts, autoFlag)
+	}
+	parts = append(parts, args...)
+	return strings.Join(parts, " ")
+}
+
 // isSandboxActive reports whether a sandbox status represents a live VM that
 // WithReplace would terminate. Stopped or crashed sandboxes are stale state
 // that can be replaced silently.
@@ -438,28 +447,22 @@ func handleRepoCleanup(repoPath, cwd, cwdBranch string, opts RunOptions, force b
 }
 
 type sandboxSession struct {
-	sb        *msb.Sandbox
-	name      string
-	repoPath  string
-	cwd       string
-	cwdBranch string
-	created   bool
-	branch    string
-	cloneVol  string
+	sb     *msb.Sandbox
+	name   string
+	target string
+	cwd    string
 }
 
 func (s *sandboxSession) cleanup() {
-	stopCtx, cancel := context.WithTimeout(context.Background(), sandboxStopTimeout)
-	defer cancel()
-	_ = s.sb.Stop(stopCtx)
-	_ = s.sb.Close()
-	_ = msb.RemoveSandbox(context.Background(), s.name)
-	if s.cloneVol != "" {
-		_ = msb.RemoveVolume(context.Background(), s.cloneVol)
+	if s.sb != nil {
+		_ = s.sb.Detach(context.Background())
+	}
+	// Run git worktree prune on the host repo to clean up stale entries.
+	if s.cwd != "" {
+		_ = git.PruneWorktrees(s.cwd)
 	}
 }
 
-//nolint:funlen // Contains multiple deferred cleanup handlers for resource management.
 func prepareSandbox(
 	ctx context.Context,
 	opts RunOptions,
@@ -476,12 +479,6 @@ func prepareSandbox(
 	if err != nil {
 		return nil, fmt.Errorf("get current directory: %w", err)
 	}
-
-	repoPath, branch, cwdBranch, created, err := resolveWorkspace(cwd, opts, cfg, projectSlug, logger)
-	if err != nil {
-		return nil, err
-	}
-	logger.Debugf("workspace: %s (branch=%s, managed=%v)", repoPath, branch, created)
 
 	dockerfile := resolveDockerfile()
 	dockerCli, err := client.New(client.FromEnv)
@@ -503,67 +500,41 @@ func prepareSandbox(
 	}
 	logger.Debugf("home volume: %s", homeVol)
 
-	configFiles, err := loadConfigFiles(cfg.UserConfigDir)
+	sb, created, err := EnsureProjectVM(ctx, opts, cfg, imageRef, homeVol, cwd, logger)
 	if err != nil {
 		return nil, err
 	}
-	name := sandboxName(projectSlug, git.BranchSlug(branch))
+	name := projectVMName(projectSlug)
 
-	if err = ensureNoSameBranchSession(ctx, name, projectSlug, branch, logger); err != nil {
-		return nil, err
-	}
-
-	originalVol := homeVol
-	homeVol, err = ensureNoSameHomeSession(ctx, vm, projectSlug, homeVol, name, imageRef, logger)
-	if err != nil {
-		return nil, err
-	}
-	cloneVol := ""
-	if homeVol != originalVol {
-		cloneVol = homeVol
-	}
-	defer func() {
-		if err != nil && cloneVol != "" {
-			_ = msb.RemoveVolume(context.Background(), cloneVol)
-		}
-	}()
-
-	logger.Debugf("sandbox: %s (cpus=%d, memory=%s)", name, opts.CPUs, opts.Memory)
-	sb, err := createSandbox(ctx, name, imageRef, repoPath, homeVol, opts.User, opts, cfg, logger)
-	if err != nil {
-		return nil, err
-	}
-
-	// Clean up the sandbox if provisioning fails.
-	defer func() {
+	if created {
+		configFiles, err := loadConfigFiles(cfg.UserConfigDir)
 		if err != nil {
-			stopCtx, cancel := context.WithTimeout(context.Background(), sandboxStopTimeout)
-			defer cancel()
-			_ = sb.Stop(stopCtx)
-			_ = sb.Close()
-			_ = msb.RemoveSandbox(context.Background(), name)
+			return nil, err
 		}
-	}()
+		fs := sb.FS()
+		if err = provisionSandbox(ctx, fs, configFiles, cwd, logger); err != nil {
+			return nil, err
+		}
+		if err := startDockerdIfPresent(ctx, sb, logger); err != nil {
+			return nil, fmt.Errorf("docker startup: %w", err)
+		}
+	}
 
-	fs := sb.FS()
-	err = provisionSandbox(ctx, fs, configFiles, repoPath, logger)
-	if err != nil {
+	if err := EnsureDaemon(ctx, sb, logger); err != nil {
 		return nil, err
 	}
 
-	if err := startDockerdIfPresent(ctx, sb, logger); err != nil {
-		return nil, fmt.Errorf("docker startup: %w", err)
+	target, err := ResolveTarget(ctx, sb, opts.Branch, logger)
+	if err != nil {
+		return nil, err
 	}
+	logger.Debugf("attach target: %s", target)
 
 	return &sandboxSession{
-		sb:        sb,
-		name:      name,
-		repoPath:  repoPath,
-		cwd:       cwd,
-		cwdBranch: cwdBranch,
-		created:   created,
-		branch:    branch,
-		cloneVol:  cloneVol,
+		sb:     sb,
+		name:   name,
+		target: target,
+		cwd:    cwd,
 	}, nil
 }
 
@@ -577,22 +548,16 @@ func Run(ctx context.Context, opts RunOptions, cfg Config, logger *output.Printe
 	var exitCode int
 	var attachErr error
 	if opts.DryRun {
-		logger.Debugf("dry run: setup validated, skipping opencode execution")
+		logger.Infof("dry run: VM and daemon validated, skipping opencode execution")
 	} else {
-		opencodeArgs := buildOpencodeArgs(opts.Args, opts.Auto)
-		setup := `opencode ` + strings.Join(opencodeArgs, " ")
+		setup := buildAttachCommand(session.target, opts.Auto, opts.Args)
 		// Run as a login shell so /etc/profile and ~/.profile are sourced,
 		// putting tools installed under /usr/local/go/bin, ~/go/bin and
 		// ~/.microsandbox/bin on PATH for opencode and its child shells.
 		exitCode, attachErr = session.sb.Attach(ctx, "/bin/bash", "-l", "-c", setup)
 	}
 
-	var cleanupErr error
-	if session.created {
-		cleanupErr = cleanupManagedRepo(session.repoPath, session.cwd, session.cwdBranch, opts, logger)
-	}
-
-	return finalizeRun(attachErr, cleanupErr, exitCode)
+	return finalizeRun(attachErr, nil, exitCode)
 }
 
 func Shell(ctx context.Context, opts RunOptions, cfg Config, logger *output.Printer) error {
