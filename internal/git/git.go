@@ -13,10 +13,13 @@ import (
 	"gitlab.inoio.de/inoio/opencode-msb/internal/output"
 )
 
+// Configuration for slug names/hashes.
+// Names and hashes are shortened to fit the limits (image name/tag: 255/128, sandbox name: 128).
 const (
-	base62Alphabet   = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
-	base62           = 62
-	hashIDLen        = 8
+	// Lowercase letters are required by docker, therefore base36 was chosen to achieve max entropy per hash length.
+	base = 36
+	// Length of 14 -> ~72 bits entropy, collision probability is below 1e-9 for millions of inputs. Enough for naming.
+	hashIDLen        = 14
 	maxFolderNameLen = 20
 )
 
@@ -35,26 +38,14 @@ func sanitizeFolderName(name string) string {
 func HashID(input string) string {
 	sum := sha256.Sum256([]byte(input))
 	num := new(big.Int).SetBytes(sum[:])
-	if num.Sign() == 0 {
-		return "00000000"
-	}
-	var encoded []byte
-	base := big.NewInt(base62)
-	mod := new(big.Int)
-	for num.Sign() > 0 {
-		num.DivMod(num, base, mod)
-		encoded = append(encoded, base62Alphabet[mod.Int64()])
-	}
-	for len(encoded) < hashIDLen {
-		encoded = append(encoded, '0')
-	}
-	for i, j := 0, len(encoded)-1; i < j; i, j = i+1, j-1 {
-		encoded[i], encoded[j] = encoded[j], encoded[i]
+	encoded := num.Text(base)
+	if len(encoded) < hashIDLen {
+		encoded = strings.Repeat("0", hashIDLen-len(encoded)) + encoded
 	}
 	if len(encoded) > hashIDLen {
 		encoded = encoded[:hashIDLen]
 	}
-	return string(encoded)
+	return encoded
 }
 
 func ProjectSlug(logger *output.Printer) string {
