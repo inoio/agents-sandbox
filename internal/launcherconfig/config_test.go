@@ -3,7 +3,9 @@ package launcherconfig
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
+	"time"
 
 	"gopkg.in/yaml.v3"
 )
@@ -16,7 +18,8 @@ func TestLoadMissingFilesReturnsDefaults(t *testing.T) {
 	if len(keys) != 0 {
 		t.Errorf("expected no keys, got %v", keys)
 	}
-	if cfg.CPUs != 0 || cfg.Memory != "" || cfg.TmpSize != "" || cfg.Yes || cfg.Verbose || cfg.Quiet || cfg.Rebuild {
+	if cfg.CPUs != 0 || cfg.Memory != "" || cfg.TmpSize != "" || cfg.Yes || cfg.Verbose ||
+		cfg.Quiet || cfg.Rebuild || cfg.AutoPruneAge != 0 || cfg.ManualPruneAge != 0 {
 		t.Errorf("expected zero defaults, got %+v", cfg)
 	}
 }
@@ -121,6 +124,81 @@ func TestLoadMalformedConfig(t *testing.T) {
 	_, _, err := Load(dir, "")
 	if err == nil {
 		t.Fatal("expected error for malformed config")
+	}
+}
+
+func TestLoadPruneAgeConfig(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		json       string
+		wantAuto   time.Duration
+		wantManual time.Duration
+	}{
+		{
+			name:       "7d and 14d",
+			json:       `{"auto-prune-age": "7d", "manual-prune-age": "14d"}`,
+			wantAuto:   7 * 24 * time.Hour,
+			wantManual: 14 * 24 * time.Hour,
+		},
+		{
+			name:       "hours",
+			json:       `{"auto-prune-age": "48h"}`,
+			wantAuto:   48 * time.Hour,
+			wantManual: 0,
+		},
+		{
+			name:       "minutes",
+			json:       `{"manual-prune-age": "60m"}`,
+			wantAuto:   0,
+			wantManual: time.Hour,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := t.TempDir()
+			writeFile(t, filepath.Join(dir, "config.json"), tc.json)
+
+			cfg, keys, err := Load(dir, "")
+			if err != nil {
+				t.Fatalf("Load failed: %v", err)
+			}
+			if cfg.AutoPruneAge != tc.wantAuto {
+				t.Errorf("AutoPruneAge: got %v, want %v", cfg.AutoPruneAge, tc.wantAuto)
+			}
+			if cfg.ManualPruneAge != tc.wantManual {
+				t.Errorf("ManualPruneAge: got %v, want %v", cfg.ManualPruneAge, tc.wantManual)
+			}
+			if tc.wantAuto != 0 && !keys["auto-prune-age"] {
+				t.Error("expected auto-prune-age in keys")
+			}
+			if tc.wantManual != 0 && !keys["manual-prune-age"] {
+				t.Error("expected manual-prune-age in keys")
+			}
+		})
+	}
+}
+
+func TestLoadInvalidPruneAge(t *testing.T) {
+	for _, tc := range []struct {
+		key       string
+		value     string
+		errSuffix string
+	}{
+		{key: "auto-prune-age", value: "0", errSuffix: "auto-prune-age must be > 0"},
+		{key: "manual-prune-age", value: "-1d", errSuffix: "manual-prune-age must be > 0"},
+		{key: "auto-prune-age", value: "-10h", errSuffix: "auto-prune-age must be > 0"},
+	} {
+		t.Run(tc.key, func(t *testing.T) {
+			dir := t.TempDir()
+			writeYAML(t, dir, "config.yaml", map[string]any{tc.key: tc.value})
+
+			_, _, err := Load(dir, "")
+			if err == nil {
+				t.Fatalf("expected error for %s=%s", tc.key, tc.value)
+			}
+			if !strings.Contains(err.Error(), tc.errSuffix) {
+				t.Errorf("error %q does not contain %q", err.Error(), tc.errSuffix)
+			}
+		})
 	}
 }
 
