@@ -643,3 +643,31 @@ func TestProjectSlugDeterministic(t *testing.T) {
 		t.Errorf("expected deterministic slug, got %q and %q", a, b)
 	}
 }
+
+func TestPruneWorktreesCleansStaleEntries(t *testing.T) {
+	repo := initRepo(t)
+	wtDir := filepath.Join(t.TempDir(), "stale-wt")
+	runGit(t, repo, "worktree", "add", "--detach", wtDir)
+	if err := os.RemoveAll(wtDir); err != nil {
+		t.Fatalf("remove worktree dir: %v", err)
+	}
+	out := runGit(t, repo, "worktree", "list")
+	if !strings.Contains(out, "prunable") {
+		t.Fatalf("expected prunable entry, got: %s", out)
+	}
+	if err := PruneWorktrees(repo); err != nil {
+		t.Fatalf("PruneWorktrees: %v", err)
+	}
+	out = runGit(t, repo, "worktree", "list")
+	if strings.Contains(out, "prunable") {
+		t.Errorf("expected no prunable entries after prune, got: %s", out)
+	}
+}
+
+func TestPruneWorktreesNoRepo(t *testing.T) {
+	dir := t.TempDir()
+	err := PruneWorktrees(dir)
+	if err == nil {
+		t.Error("expected error when not in a git repo")
+	}
+}
