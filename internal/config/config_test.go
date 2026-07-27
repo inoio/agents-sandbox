@@ -137,3 +137,68 @@ func TestBuildMergedConfigProjectDirOverridesUserDir(t *testing.T) {
 		t.Errorf("expected project override, got %v", parsed["val"])
 	}
 }
+
+func TestBuildMergedConfigPreservesEmbeddedNonProviderFields(t *testing.T) {
+	embeddedCfg := map[string]any{
+		"permission": map[string]any{"read": map[string]any{"*": "allow"}},
+		"provider":   map[string]any{"litellm": map[string]any{"name": "LiteLLM"}},
+	}
+
+	files, err := BuildMergedConfig("", "", embeddedCfg)
+	if err != nil {
+		t.Fatalf("BuildMergedConfig failed: %v", err)
+	}
+	data := files["opencode.jsonc"]
+	var parsed map[string]any
+	if err := json.Unmarshal(data, &parsed); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, ok := parsed["permission"]; !ok {
+		t.Error("expected permission from embedded config, missing from output")
+	}
+
+	permMap, ok := parsed["permission"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected permission to be a map, got %T", parsed["permission"])
+	}
+	readMap := permMap["read"].(map[string]any)
+	if readMap["*"] != "allow" {
+		t.Errorf("expected permission.read.*=allow, got %v", readMap["*"])
+	}
+}
+
+func TestBuildMergedConfigUserOverridesEmbedded(t *testing.T) {
+	tmp := t.TempDir()
+	embeddedCfg := map[string]any{
+		"model":      "base-model",
+		"permission": map[string]any{"read": map[string]any{"*": "deny"}},
+		"provider":   map[string]any{"litellm": map[string]any{"name": "base"}},
+	}
+	userCfg := map[string]any{"model": "user-model", "theme": "dark"}
+	userBytes, _ := json.Marshal(userCfg)
+	if err := os.WriteFile(filepath.Join(tmp, "opencode.jsonc"), userBytes, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	files, err := BuildMergedConfig(tmp, "", embeddedCfg)
+	if err != nil {
+		t.Fatalf("BuildMergedConfig failed: %v", err)
+	}
+	var parsed map[string]any
+	if err := json.Unmarshal(files["opencode.jsonc"], &parsed); err != nil {
+		t.Fatal(err)
+	}
+
+	if parsed["model"] != "user-model" {
+		t.Errorf("expected model=user-model (user override), got %v", parsed["model"])
+	}
+	if parsed["theme"] != "dark" {
+		t.Errorf("expected theme=dark, got %v", parsed["theme"])
+	}
+
+	permMap := parsed["permission"].(map[string]any)
+	if readMap := permMap["read"].(map[string]any); readMap["*"] != "deny" {
+		t.Errorf("expected permission.read.*=deny (from embedded), got %v", readMap["*"])
+	}
+}
