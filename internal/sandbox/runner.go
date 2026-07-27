@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"maps"
 	"os"
-	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -16,8 +15,6 @@ import (
 	"gitlab.inoio.de/inoio/opencode-msb/internal/config"
 	"gitlab.inoio.de/inoio/opencode-msb/internal/git"
 	"gitlab.inoio.de/inoio/opencode-msb/internal/output"
-	"gitlab.inoio.de/inoio/opencode-msb/internal/prompt"
-	"gitlab.inoio.de/inoio/opencode-msb/internal/sysinfo"
 
 	msb "github.com/superradcompany/microsandbox/sdk/go"
 )
@@ -87,23 +84,6 @@ func resolveTmpSizeMiB(spec string) uint32 {
 	return parseMemory(spec)
 }
 
-func sandboxName(projectSlug, branchSlug string) string {
-	name := "opencode-msb-sb-" + projectSlug + "-" + branchSlug
-	if len(name) > maxSandboxNameLen {
-		name = name[:maxSandboxNameLen]
-	}
-	return name
-}
-
-func buildAttachCommand(target string, auto bool, args []string) string {
-	parts := []string{"opencode", "attach", "http://127.0.0.1:4096", "--dir", target}
-	if auto {
-		parts = append(parts, autoFlag)
-	}
-	parts = append(parts, args...)
-	return strings.Join(parts, " ")
-}
-
 // isSandboxActive reports whether a sandbox status represents a live VM that
 // WithReplace would terminate. Stopped or crashed sandboxes are stale state
 // that can be replaced silently.
@@ -117,100 +97,13 @@ func isSandboxActive(status msb.SandboxStatus) bool {
 	return false
 }
 
-// sameBranchSessionExists reports whether a sandbox with the given name exists and
-// is in an active state (running, draining, or paused).
-func sameBranchSessionExists(ctx context.Context, name string) (bool, error) {
-	handle, err := msb.GetSandbox(ctx, name)
-	if err != nil {
-		if msb.IsKind(err, msb.ErrSandboxNotFound) {
-			return false, nil
-		}
-		return false, fmt.Errorf("check existing sandbox %q: %w", name, err)
+func buildAttachCommand(target string, auto bool, args []string) string {
+	parts := []string{"opencode", "attach", "http://127.0.0.1:4096", "--dir", target}
+	if auto {
+		parts = append(parts, autoFlag)
 	}
-	return isSandboxActive(handle.Status()), nil
-}
-
-// promptExistingSession asks whether to terminate an already-running session or
-// exit the current one. Returns true when the user chooses to terminate.
-func promptExistingSession(name string, logger *output.Printer) (bool, error) {
-	choice, err := prompt.Select(
-		fmt.Sprintf("A session is already running for this project and branch (sandbox %q)", name),
-		[]prompt.Choice{
-			{Label: "Exit", Key: "e", Description: "Keep the running session and exit"},
-			{Label: "Terminate", Key: "t", Description: "Terminate the running session and continue"},
-		},
-		"e",
-		logger,
-	)
-	if err != nil {
-		return false, fmt.Errorf("prompt for existing session: %w", err)
-	}
-	return choice == "t", nil
-}
-
-// ensureNoSameBranchSession aborts the run when a live VM for the same sandbox
-// name already exists and the user does not choose to terminate it. Stale
-// (stopped/crashed) sandboxes are left for createSandbox's WithReplace to clean
-// up; only an active session prompts.
-func ensureNoSameBranchSession(
-	ctx context.Context,
-	name, projectSlug, branch string,
-	logger *output.Printer,
-) error {
-	running, err := sameBranchSessionExists(ctx, name)
-	if err != nil {
-		return err
-	}
-	if !running {
-		return nil
-	}
-	terminate, err := promptExistingSession(name, logger)
-	if err != nil {
-		return err
-	}
-	if !terminate {
-		return fmt.Errorf("a session is already running for %q on branch %q", projectSlug, branch)
-	}
-	return nil
-}
-
-func ensureNoSameHomeSession(
-	ctx context.Context,
-	vm *VolumeManager,
-	projectSlug, homeVol, excludeSandbox, imageRef string,
-	logger *output.Printer,
-) (string, error) {
-	inUseBy, inUse, err := sameHomeVolumeInUse(ctx, homeVol, excludeSandbox)
-	if err != nil {
-		return "", err
-	}
-	if !inUse {
-		return homeVol, nil
-	}
-
-	logger.Warnf(
-		"Another opencode session (%q) is using the same project state.\n"+
-			"Starting with a snapshot copy of the current home directory.\n"+
-			"Opencode sessions and history from this run will NOT be persisted.",
-		inUseBy,
-	)
-
-	if !prompt.AssumeYes {
-		confirmed, confirmErr := prompt.ConfirmDefault("Proceed with snapshot copy?", false, logger)
-		if confirmErr != nil {
-			return "", fmt.Errorf("prompt for clone: %w", confirmErr)
-		}
-		if !confirmed {
-			return "", fmt.Errorf("aborted: another session (%q) is using the project state", inUseBy)
-		}
-	}
-
-	cloneVol, err := vm.CloneVolume(ctx, projectSlug, homeVol, imageRef)
-	if err != nil {
-		return "", err
-	}
-	logger.Infof("Cloned home volume: %s", cloneVol)
-	return cloneVol, nil
+	parts = append(parts, args...)
+	return strings.Join(parts, " ")
 }
 
 func buildEnvMap(filename string) map[string]string {
@@ -273,177 +166,6 @@ func envrcFiles(workspacePath string) []string {
 		}
 	}
 	return files
-}
-
-func promptBranchCreation(branch string, logger *output.Printer) (string, error) {
-	if !prompt.IsInteractive() {
-		return "HEAD", nil
-	}
-	create, err := prompt.ConfirmDefault(
-		fmt.Sprintf("Branch '%s' does not exist. Create it?", branch),
-		true,
-		logger,
-	)
-	if err != nil {
-		return "", fmt.Errorf("prompt for branch creation: %w", err)
-	}
-	if !create {
-		return "", fmt.Errorf("branch '%s' does not exist", branch)
-	}
-	baseRef, err := prompt.Input(fmt.Sprintf("Base ref for new branch '%s'", branch), "HEAD", logger)
-	if err != nil {
-		return "", fmt.Errorf("prompt for base ref: %w", err)
-	}
-	return baseRef, nil
-}
-
-func resolveWorkspace(
-	cwd string,
-	opts RunOptions,
-	cfg Config,
-	projectSlug string,
-	logger *output.Printer,
-) (string, string, string, bool, error) {
-	var (
-		workspacePath string
-		branch        string
-		cwdBranch     string
-		created       bool
-		err           error
-	)
-	if opts.Branch == "" {
-		branch, err = git.BranchAt(cwd)
-		if err != nil {
-			return "", "", "", false, fmt.Errorf("unable to determine git branch: %w", err)
-		}
-		return cwd, branch, "", false, nil
-	}
-
-	branch = opts.Branch
-	cwdBranch, err = git.BranchAt(cwd)
-	if err != nil {
-		return "", "", "", false, errors.New("--branch requires a git repository; current directory is not inside one")
-	}
-	if cwdBranch == opts.Branch {
-		return cwd, branch, cwdBranch, false, nil
-	}
-
-	baseRef := "HEAD"
-	if !git.BranchExists(cwd, opts.Branch) {
-		baseRef, err = promptBranchCreation(opts.Branch, logger)
-		if err != nil {
-			return "", "", "", false, err
-		}
-	}
-
-	workspacePath, created, err = git.EnsureManagedRepoFromRef(cwd, cfg.StateDir, projectSlug, opts.Branch, baseRef)
-	if err != nil {
-		return "", "", "", false, fmt.Errorf("managed repo setup failed: %w", err)
-	}
-	return workspacePath, branch, cwdBranch, created, nil
-}
-
-func cleanupManagedRepo(repoPath, cwd, cwdBranch string, opts RunOptions, logger *output.Printer) error {
-	hasChanges, err := git.HasUncommittedChanges(repoPath)
-	if err != nil {
-		return fmt.Errorf("check uncommitted changes: %w", err)
-	}
-
-	force := false
-	if hasChanges {
-		var abort bool
-		force, abort, err = handleUncommittedChanges(repoPath, opts.Branch, logger)
-		if err != nil {
-			return err
-		}
-		if abort {
-			return nil
-		}
-	}
-
-	return handleRepoCleanup(repoPath, cwd, cwdBranch, opts, force, logger)
-}
-
-func handleUncommittedChanges(repoPath, branch string, logger *output.Printer) (bool, bool, error) {
-	choice, err := prompt.Select(
-		fmt.Sprintf("Managed repo '%s' on branch '%s' has uncommitted changes", repoPath, branch),
-		[]prompt.Choice{
-			{Label: "Keep", Key: "k", Description: "Keep the managed repo with changes"},
-			{Label: "Commit", Key: "c", Description: "Commit all changes before cleanup"},
-			{Label: "Discard", Key: "d", Description: "Discard all changes"},
-		},
-		"k",
-		logger,
-	)
-	if err != nil {
-		return false, false, fmt.Errorf("prompt for uncommitted changes: %w", err)
-	}
-	switch choice {
-	case "k":
-		logger.Warnf("kept managed repo '%s' on branch '%s' with uncommitted changes", repoPath, branch)
-		return false, true, nil
-	case "c":
-		if commitErr := git.CommitAll(repoPath, "opencode-msb: commit changes before cleanup"); commitErr != nil {
-			if errors.Is(commitErr, git.ErrNothingToCommit) {
-				logger.Infof("no changes to commit; continuing cleanup")
-			} else {
-				return false, false, fmt.Errorf("commit all changes: %w", commitErr)
-			}
-		}
-	case "d":
-		if discardErr := git.DiscardAll(repoPath); discardErr != nil {
-			return false, false, fmt.Errorf("discard all changes: %w", discardErr)
-		}
-		return true, false, nil
-	}
-	return false, false, nil
-}
-
-func handleRepoCleanup(repoPath, cwd, cwdBranch string, opts RunOptions, force bool, logger *output.Printer) error {
-	choice, err := prompt.Select(
-		fmt.Sprintf("Managed repo '%s' on branch '%s'", repoPath, opts.Branch),
-		[]prompt.Choice{
-			{Label: "Keep", Key: "k", Description: "Keep the managed repo"},
-			{Label: "Remove", Key: "r", Description: "Remove managed repo, keep branch"},
-			{Label: "Merge", Key: "m", Description: "Merge branch into original branch and remove managed repo"},
-		},
-		"r",
-		logger,
-	)
-	if err != nil {
-		return fmt.Errorf("prompt for managed repo cleanup: %w", err)
-	}
-
-	switch choice {
-	case "k":
-		return nil
-	case "r":
-		if err := git.RemoveManagedRepo(repoPath, force); err != nil {
-			return fmt.Errorf("remove managed repo: %w", err)
-		}
-	case "m":
-		targetBranch, err := prompt.Input("Merge target branch", cwdBranch, logger)
-		if err != nil {
-			return fmt.Errorf("prompt for merge target: %w", err)
-		}
-		if err := git.MergeBranchInto(cwd, repoPath, opts.Branch, targetBranch); err != nil {
-			_ = git.AbortMerge(cwd)
-			if rmErr := git.RemoveManagedRepo(repoPath, force); rmErr != nil {
-				return fmt.Errorf(
-					"branch %s was not merged into %s, and managed repo removal failed: %w (merge error: %w)",
-					opts.Branch,
-					targetBranch,
-					rmErr,
-					err,
-				)
-			}
-			return fmt.Errorf("branch %s was not merged into %s: %w", opts.Branch, targetBranch, err)
-		}
-		if err := git.RemoveManagedRepo(repoPath, force); err != nil {
-			return fmt.Errorf("remove managed repo after merge: %w", err)
-		}
-	}
-	return nil
 }
 
 type sandboxSession struct {
@@ -638,64 +360,6 @@ func buildMounts(homeVol, repoPath string, tmpSizeMiB uint32) map[string]msb.Mou
 			Nodev:    false,
 		}),
 	}
-}
-
-func createSandbox(
-	ctx context.Context,
-	name, imageRef, repoPath, homeVol, user string,
-	opts RunOptions,
-	cfg Config,
-	logger *output.Printer,
-) (*msb.Sandbox, error) {
-	if user == "" {
-		user = "dev"
-	}
-	cpus := opts.CPUs
-	if cpus == 0 {
-		cpus = sysinfo.NumCPUs()
-	}
-	maxMemoryGiB := sysinfo.TotalMemoryGiB()
-	envMap := mergeEnvMaps(
-		buildEnvMap(filepath.Join(cfg.UserLauncherDir, "env")),
-		buildEnvMap(".opencode-msb/env"),
-	)
-	secrets := BuildSecrets(mergeEnvMaps(
-		buildEnvMap(filepath.Join(cfg.UserLauncherDir, "env.secret")),
-		buildEnvMap(".opencode-msb/env.secret"),
-	), logger)
-
-	mounts := buildMounts(homeVol, repoPath, resolveTmpSizeMiB(opts.TmpSize))
-
-	spin := output.NewSpinner(logger)
-	spin.Start("Checking microsandbox runtime")
-	if err := msb.EnsureInstalled(ctx); err != nil {
-		spin.StopError(err)
-		return nil, fmt.Errorf("microsandbox runtime: %w", err)
-	}
-	spin.Stop()
-
-	spin = output.NewSpinner(logger)
-	spin.Start("Starting sandbox VM")
-	sb, err := msb.CreateSandbox(ctx, name,
-		msb.WithImage(imageRef),
-		msb.WithMounts(mounts),
-		msb.WithSecrets(secrets...),
-		msb.WithEnv(envMap),
-		msb.WithUser(user),
-		msb.WithWorkdir("/workspace"),
-		msb.WithCPUs(cpus),
-		msb.WithMaxCPUs(sysinfo.NumCPUs()),
-		msb.WithMemory(parseMemory(opts.Memory)),
-		//nolint:gosec // G115: maxMemoryGiB is physical RAM in GiB, cannot overflow uint32
-		msb.WithMaxMemory(uint32(maxMemoryGiB)*mibPerGib),
-		msb.WithReplace(),
-	)
-	if err != nil {
-		spin.StopError(err)
-		return nil, fmt.Errorf("create sandbox: %w", err)
-	}
-	spin.Stop()
-	return sb, nil
 }
 
 func provisionSandbox(
