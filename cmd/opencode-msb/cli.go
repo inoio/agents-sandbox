@@ -9,6 +9,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"time"
 	"unicode/utf8"
 
 	"github.com/spf13/cobra"
@@ -102,6 +103,16 @@ func buildRootCmd() *cobra.Command {
 		if yes, _ := cmd.Flags().GetBool("yes"); yes {
 			prompt.AssumeYes = true //nolint:reassign // CLI flag override, set once at startup
 		}
+		verbose, _ := cmd.Flags().GetBool("verbose")
+		quiet, _ := cmd.Flags().GetBool("quiet")
+		level := output.LevelNormal
+		if quiet {
+			level = output.LevelQuiet
+		} else if verbose {
+			level = output.LevelVerbose
+		}
+		logger := output.NewPrinterWithLevel(os.Stderr, term.IsTerminal(int(os.Stderr.Fd())), level)
+		sandbox.AutoPrune(cmd.Context(), 0, logger)
 		return nil
 	}
 
@@ -116,6 +127,7 @@ func buildRootCmd() *cobra.Command {
 	root.AddCommand(buildSandboxCmd())
 	root.AddCommand(buildStopCmd())
 	root.AddCommand(buildKillCmd())
+	root.AddCommand(buildPruneCmd())
 
 	return root
 }
@@ -356,6 +368,7 @@ func applyLauncherConfig(cmd *cobra.Command, lc launcherconfig.Config, keys map[
 		{flagCpus, func() error { return setUint8Flag(cmd, flagCpus, lc.CPUs) }},
 		{flagMemory, func() error { return setStringFlag(cmd, flagMemory, lc.Memory) }},
 		{flagTmpSize, func() error { return setStringFlag(cmd, flagTmpSize, lc.TmpSize) }},
+		{"manual-prune-age", func() error { return setDurationFlag(cmd, "age", lc.ManualPruneAge) }},
 	}
 	for _, item := range apply {
 		if keys[item.key] {
@@ -398,6 +411,17 @@ func setStringFlag(cmd *cobra.Command, name string, val string) error {
 		return nil
 	}
 	return f.Value.Set(val)
+}
+
+func setDurationFlag(cmd *cobra.Command, name string, val time.Duration) error {
+	f := cmd.Flags().Lookup(name)
+	if f == nil {
+		f = cmd.InheritedFlags().Lookup(name)
+	}
+	if f == nil || f.Changed || val == 0 {
+		return nil
+	}
+	return f.Value.Set(val.String())
 }
 
 func buildListCmd() *cobra.Command {
@@ -628,4 +652,62 @@ func newLogger(cmd *cobra.Command) *output.Printer {
 	}
 
 	return output.NewPrinterWithLevel(os.Stderr, term.IsTerminal(int(os.Stderr.Fd())), level)
+}
+
+func buildPruneCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "prune [flags]",
+		Short: "Prune stale VMs, volumes, and images",
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			age, _ := cmd.Flags().GetDuration("age")
+			if age == 0 {
+				age = 7 * 24 * time.Hour
+			}
+			dryRun, _ := cmd.Flags().GetBool("dry-run")
+			force, _ := cmd.Flags().GetBool("force")
+			logger := newLogger(cmd)
+			report, err := sandbox.Prune(cmd.Context(), age, dryRun, force, logger)
+			if err != nil {
+				return err
+			}
+			if report != nil && report.HasAnything() {
+				printPruneSummary(report, dryRun)
+			}
+			return nil
+		},
+	}
+	cmd.Flags().DurationP("age", "a", 0, "Prune threshold (default: manualPruneAge from config)")
+	cmd.Flags().BoolP("dry-run", "n", false, "Show what would be pruned without deleting")
+	cmd.Flags().BoolP("force", "f", false, "Skip confirmation prompt")
+	return cmd
+}
+
+func printPruneSummary(report *sandbox.StaleReport, dryRun bool) {
+	action := "Pruned"
+	if dryRun {
+		action = "Would prune"
+	}
+
+	var parts []string
+	parts = append(parts, action)
+	if report.PrunedVMs > 0 {
+		parts = append(parts, fmt.Sprintf("%d VMs", report.PrunedVMs))
+	}
+	if report.PrunedVolumes > 0 {
+		parts = append(parts, fmt.Sprintf("%d home volumes", report.PrunedVolumes))
+	}
+	if report.PrunedDockerImages > 0 {
+		parts = append(parts, fmt.Sprintf("%d docker images", report.PrunedDockerImages))
+	}
+	if report.PrunedMSBImages > 0 {
+		parts = append(parts, fmt.Sprintf("%d msb images", report.PrunedMSBImages))
+	}
+	if report.PrunedTaskSandboxes > 0 {
+		parts = append(parts, fmt.Sprintf("%d task sandboxes", report.PrunedTaskSandboxes))
+	}
+	if report.PrunedCloneVolumes > 0 {
+		parts = append(parts, fmt.Sprintf("%d clone volumes", report.PrunedCloneVolumes))
+	}
+
+	fmt.Println(strings.Join(parts, ", "))
 }
