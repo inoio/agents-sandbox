@@ -34,7 +34,7 @@ const (
 	vmActionStart
 )
 
-const defaultVMIdleTimeout = 30 * time.Minute
+const defaultVMIdleTimeout = 30 * time.Second
 
 func buildProjectVMEnv(envMap map[string]string) {
 	envMap["OPENCODE_EXPERIMENTAL_WORKSPACES"] = "true"

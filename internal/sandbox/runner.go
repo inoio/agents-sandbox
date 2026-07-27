@@ -99,10 +99,11 @@ func isSandboxActive(status msb.SandboxStatus) bool {
 
 func buildAttachCommand(target string, auto bool, args []string) string {
 	parts := []string{"opencode", "attach", "http://127.0.0.1:4096", "--dir", target}
-	if auto {
-		parts = append(parts, autoFlag)
-	}
+	//if auto {
+	//	parts = append(parts, autoFlag)
+	//}
 	parts = append(parts, args...)
+
 	return strings.Join(parts, " ")
 }
 
@@ -228,15 +229,15 @@ func prepareSandbox(
 	}
 	name := projectVMName(projectSlug)
 
+	configFiles, loadErr := loadConfigFiles(cfg.UserConfigDir)
+	if loadErr != nil {
+		return nil, loadErr
+	}
+	if provisionErr := provisionSandbox(ctx, sb.FS(), configFiles, cwd, logger); provisionErr != nil {
+		return nil, provisionErr
+	}
+
 	if created {
-		configFiles, loadErr := loadConfigFiles(cfg.UserConfigDir)
-		if loadErr != nil {
-			return nil, loadErr
-		}
-		fs := sb.FS()
-		if provisionErr := provisionSandbox(ctx, fs, configFiles, cwd, logger); provisionErr != nil {
-			return nil, provisionErr
-		}
 		if dockerErr := startDockerdIfPresent(ctx, sb, logger); dockerErr != nil {
 			return nil, fmt.Errorf("docker startup: %w", dockerErr)
 		}
@@ -273,6 +274,7 @@ func Run(ctx context.Context, opts RunOptions, cfg Config, logger *output.Printe
 		logger.Infof("dry run: VM and daemon validated, skipping opencode execution")
 	} else {
 		setup := buildAttachCommand(session.target, opts.Auto, opts.Args)
+		logger.Debugf(setup)
 		// Run as a login shell so /etc/profile and ~/.profile are sourced,
 		// putting tools installed under /usr/local/go/bin, ~/go/bin and
 		// ~/.microsandbox/bin on PATH for opencode and its child shells.
