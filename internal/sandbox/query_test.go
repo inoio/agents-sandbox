@@ -43,7 +43,7 @@ func TestFilterVolumesByPrefix(t *testing.T) {
 
 func TestFilterImagesByPrefix(t *testing.T) {
 	handles := []imageHandle{
-		{reference: "opencode-msb/runner-proj-aBc1234D:xRX898Gl"},
+		{reference: "opencode-msb/runner-proj-aBc1234D:xRX898Gl7cq4jh"},
 		{reference: "opencode-msb/runner-otherproj-eFg5678I:abc12345"},
 		{reference: "python:3.12"},
 	}
@@ -51,7 +51,7 @@ func TestFilterImagesByPrefix(t *testing.T) {
 	if len(got) != 2 {
 		t.Fatalf("expected 2 project images, got %d", len(got))
 	}
-	if got[0] != "opencode-msb/runner-proj-aBc1234D:xRX898Gl" {
+	if got[0] != "opencode-msb/runner-proj-aBc1234D:xRX898Gl7cq4jh" {
 		t.Errorf("expected first match, got %q", got[0])
 	}
 }
