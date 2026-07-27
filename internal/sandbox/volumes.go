@@ -2,10 +2,7 @@ package sandbox
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
-	"slices"
-	"strings"
 	"time"
 
 	"gitlab.inoio.de/inoio/opencode-msb/internal/git"
@@ -89,114 +86,4 @@ func (vm *VolumeManager) prefillVolume(ctx context.Context, projectSlug, volumeN
 	}
 	spin.Stop()
 	return nil
-}
-
-type rawMountSpec struct {
-	Named string `json:"named,omitempty"`
-}
-
-type rawSandboxConfig struct {
-	Volumes map[string]rawMountSpec `json:"volumes,omitempty"`
-}
-
-func extractNamedVolumes(configJSON string) []string {
-	var raw rawSandboxConfig
-	if err := json.Unmarshal([]byte(configJSON), &raw); err != nil {
-		return nil
-	}
-	var names []string
-	for _, spec := range raw.Volumes {
-		if spec.Named != "" {
-			names = append(names, spec.Named)
-		}
-	}
-	return names
-}
-
-func cloneVolumeName(sourceVol string) string {
-	stripped := strings.TrimPrefix(sourceVol, "opencode-msb-home-")
-	return fmt.Sprintf("opencode-msb-clone-%s-%d", stripped, time.Now().UnixNano())
-}
-
-func (vm *VolumeManager) CloneVolume(
-	ctx context.Context,
-	projectSlug, sourceVol, imageTag string,
-) (string, error) {
-	cloneName := cloneVolumeName(sourceVol)
-
-	vol, err := msb.CreateVolume(ctx, cloneName,
-		msb.WithVolumeKind(msb.VolumeKindDir),
-	)
-	if err != nil {
-		return "", fmt.Errorf("create clone volume %s: %w", cloneName, err)
-	}
-
-	defer func() {
-		if err != nil {
-			_ = msb.RemoveVolume(context.Background(), cloneName)
-		}
-	}()
-
-	taskName := fmt.Sprintf("opencode-msb-task-clone-%s-%d", projectSlug, time.Now().UnixNano())
-
-	mounts := map[string]msb.MountConfig{
-		"/mnt/src": msb.Mount.Named(sourceVol, msb.MountOptions{Readonly: true}),
-		"/mnt/dst": msb.Mount.Named(vol.Name(), msb.MountOptions{}),
-	}
-
-	spin := output.NewSpinner(vm.logger)
-	spin.Start("Cloning home volume")
-	sb, err := msb.CreateSandbox(ctx, taskName,
-		msb.WithImage(imageTag),
-		msb.WithMounts(mounts),
-		msb.WithReplace(),
-	)
-	if err != nil {
-		spin.StopError(err)
-		return "", fmt.Errorf("create clone sandbox: %w", err)
-	}
-	defer func() {
-		stopCtx, cancel := context.WithTimeout(context.Background(), sandboxStopTimeout)
-		defer cancel()
-		_ = sb.Stop(stopCtx)
-		_ = sb.Close()
-		_ = msb.RemoveSandbox(context.Background(), taskName)
-	}()
-
-	out, err := sb.Exec(ctx, "sh", []string{"-c",
-		"cp -a /mnt/src/. /mnt/dst/ && chown -R dev:dev /mnt/dst && find /mnt/dst -name '*.shm' -delete",
-	})
-	if err != nil {
-		spin.StopError(err)
-		return "", fmt.Errorf("clone cp: %w", err)
-	}
-	if !out.Success() {
-		err = fmt.Errorf("clone cp failed (exit %d): %s", out.ExitCode(), out.Stderr())
-		spin.StopError(err)
-		return "", err
-	}
-	spin.Stop()
-	return cloneName, nil
-}
-
-func sameHomeVolumeInUse(
-	ctx context.Context,
-	volumeName, excludeSandbox string,
-) (string, bool, error) {
-	handles, err := msb.ListSandboxes(ctx)
-	if err != nil {
-		return "", false, fmt.Errorf("list sandboxes: %w", err)
-	}
-	for _, h := range handles {
-		if h.Name() == excludeSandbox {
-			continue
-		}
-		if !isSandboxActive(h.Status()) {
-			continue
-		}
-		if slices.Contains(extractNamedVolumes(h.ConfigJSON()), volumeName) {
-			return h.Name(), true, nil
-		}
-	}
-	return "", false, nil
 }
