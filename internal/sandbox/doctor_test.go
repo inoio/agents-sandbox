@@ -187,3 +187,24 @@ func TestIsOrphanedVolumeOldPattern(t *testing.T) {
 		t.Error("expected foreign volume to not be orphaned")
 	}
 }
+
+func TestIsOrphanedImageOldPatterns(t *testing.T) {
+	if !isOrphanedImage("opencode-msb/runner:base") {
+		t.Error("expected :base image to be orphaned")
+	}
+	if !isOrphanedImage("opencode-msb/runner:latest") {
+		t.Error("expected :latest image to be orphaned")
+	}
+	if !isOrphanedImage("opencode-msb/runner:sha256-abc123") {
+		t.Error("expected sha256-prefixed image to be orphaned")
+	}
+	if isOrphanedImage("opencode-msb/runner-base:latest") {
+		t.Error("expected new runner-base image to not be orphaned")
+	}
+	if isOrphanedImage("opencode-msb/runner-proj:latest") {
+		t.Error("expected project-specific runner image to not be orphaned")
+	}
+	if isOrphanedImage("some-other-image:latest") {
+		t.Error("expected foreign image to not be orphaned")
+	}
+}
