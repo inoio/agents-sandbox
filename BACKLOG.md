@@ -28,6 +28,7 @@
 [ ] single VM per project with multiple workspaces to work around sqlite's fcntl() locking home dir?
 [ ] --branch merge deletes repo with changes
 [ ] support docker in VM
+[ ] use less tokens for dev
 [ ] README überarbeiten
   [ ] Installation ins Userverzeichnis ([~/bin,] ~/.local/bin)
   [ ] config file(s) übersicht, beispiele
@@ -42,7 +43,7 @@
 
 ## 2nd prio
 
-[ ] after docker image import, remove docker built image?
+[ ] after docker image import, remove docker built image? Or delete docker layers when deleting msb images? Regular auto-cleanup for this?
 [ ] inoio providers ausbauen, anders zur Verfügung stellen.
 [ ] clean commands for volumes, sandboxes, images. docker images/cache/... - with filters, best same ones. Also readable list output (project name, not number) (labels an docker images für cleanup?)
 [ ] shell subcommand user flag (other flags from msb)
