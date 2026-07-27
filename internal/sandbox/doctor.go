@@ -92,7 +92,12 @@ func CheckMsb(ctx context.Context, logger *output.Printer) bool {
 }
 
 func CheckAll(ctx context.Context, logger *output.Printer) bool {
-	return CheckMsb(ctx, logger) && CheckDocker(logger) && CheckKvm(logger) && CheckGit(logger)
+	basicChecks := CheckMsb(ctx, logger) && CheckDocker(logger) && CheckKvm(logger) && CheckGit(logger)
+	if !basicChecks {
+		return false
+	}
+	CheckOrphans(ctx, logger)
+	return true
 }
 
 func isOrphanedSandbox(name string) bool {
@@ -108,4 +113,59 @@ func isOrphanedVolume(name string) bool {
 		return false
 	}
 	return strings.Contains(name, "-opencode-home-")
+}
+
+func isOrphanedImage(ref string) bool {
+	if ref == "opencode-msb/runner:base" || ref == "opencode-msb/runner:latest" {
+		return true
+	}
+	if strings.HasPrefix(ref, "opencode-msb/runner:sha256-") {
+		return true
+	}
+	return false
+}
+
+func CheckOrphans(ctx context.Context, logger *output.Printer) bool {
+	hasOrphans := false
+
+	sandboxHandles, err := msb.ListSandboxes(ctx)
+	if err != nil {
+		logger.Warnf("Failed to list sandboxes for orphan check: %v", err)
+	} else {
+		for _, h := range sandboxHandles {
+			name := h.Name()
+			if isOrphanedSandbox(name) {
+				logger.Warnf("Found orphaned sandbox: %s", name)
+				hasOrphans = true
+			}
+		}
+	}
+
+	volumeHandles, err := msb.ListVolumes(ctx)
+	if err != nil {
+		logger.Warnf("Failed to list volumes for orphan check: %v", err)
+	} else {
+		for _, h := range volumeHandles {
+			name := h.Name()
+			if isOrphanedVolume(name) {
+				logger.Warnf("Found orphaned volume: %s", name)
+				hasOrphans = true
+			}
+		}
+	}
+
+	imageHandles, err := msb.Image.List(ctx)
+	if err != nil {
+		logger.Warnf("Failed to list images for orphan check: %v", err)
+	} else {
+		for _, h := range imageHandles {
+			ref := h.Reference()
+			if isOrphanedImage(ref) {
+				logger.Warnf("Found orphaned image: %s", ref)
+				hasOrphans = true
+			}
+		}
+	}
+
+	return !hasOrphans
 }
