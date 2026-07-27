@@ -310,3 +310,12 @@ func AbortMerge(cwd string) error {
 	}
 	return nil
 }
+
+func PruneWorktrees(cwd string) error {
+	cmd := exec.Command("git", "worktree", "prune")
+	cmd.Dir = cwd
+	if out, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("git worktree prune failed in %s: %w: %s", cwd, err, out)
+	}
+	return nil
+}
