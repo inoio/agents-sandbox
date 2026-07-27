@@ -11,8 +11,6 @@ import (
 	json5 "github.com/titanous/json5"
 )
 
-const providerKey = "provider"
-
 func LoadProviderConfig(data []byte) (map[string]any, error) {
 	var cfg map[string]any
 	if err := json5.Unmarshal(data, &cfg); err != nil {
@@ -157,15 +155,12 @@ func BuildMergedConfig(userDir, projectDir string, providerConfig map[string]any
 	jsonFiles := scanJSONFiles(userDir, projectDir)
 	otherFiles := scanOtherFiles(userDir, projectDir)
 
-	providerBranch := map[string]any{
-		providerKey: providerConfig[providerKey],
-	}
-
 	result := make(map[string][]byte)
 	for name, cfg := range jsonFiles {
 		var merged map[string]any
 		if name == "opencode.jsonc" || name == "opencode.json" {
-			merged = DeepMerge(cfg, providerBranch)
+			// embedded provider config is the base; user/project config overrides
+			merged = DeepMerge(providerConfig, cfg)
 		} else {
 			merged = cfg
 		}
@@ -178,7 +173,7 @@ func BuildMergedConfig(userDir, projectDir string, providerConfig map[string]any
 
 	if _, hasJsonc := result["opencode.jsonc"]; !hasJsonc {
 		if _, hasJSON := result["opencode.json"]; !hasJSON {
-			data, err := json.MarshalIndent(providerBranch, "", "  ")
+			data, err := json.MarshalIndent(providerConfig, "", "  ")
 			if err != nil {
 				return nil, err
 			}
