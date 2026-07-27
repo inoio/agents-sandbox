@@ -1,5 +1,11 @@
 # Unified Artifact Naming Strategy Implementation Plan
 
+> **Note:** The actual implementation diverges from this plan in one respect:
+> `HashID` uses **base36** (`0-9a-z`) and a **14-character** hash length to
+> improve the birthday-problem collision margin, rather than the base62/8-char
+> design described below. See `docs/superpowers/specs/2026-07-26-naming-strategy-design.md`
+> for the current design.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Replace the inconsistent artifact naming (hex hashes, substring-matching volume filters, leaky prefixes) with a unified base62-based naming scheme using one prefix stem (`opencode-msb`), typed infixes, and clean prefix-based filtering.

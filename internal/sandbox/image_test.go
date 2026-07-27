@@ -39,7 +39,7 @@ func TestReferencesBaseIgnoresComments(t *testing.T) {
 
 func TestImageTag(t *testing.T) {
 	got := ImageTag("myproj-aBc1234D", "sha256:abc123def456")
-	expected := "opencode-msb/runner-myproj-aBc1234D:xRX898Gl"
+	expected := "opencode-msb/runner-myproj-aBc1234D:3k5q07ywpibwp5"
 	if got != expected {
 		t.Errorf("expected %q, got %q", expected, got)
 	}

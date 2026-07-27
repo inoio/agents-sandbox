@@ -36,43 +36,42 @@ volumes. Their naming evolved independently, producing three problems:
 
 ## Decisions
 
-### Base62 encoding, 8 characters
+### Base36 encoding, 14 characters
 
-All hashes use base62 (`0-9a-zA-Z`) at 8 characters (47.6 bits of entropy).
+All hashes use base36 (`0-9a-z`) at 14 characters (~72.4 bits of entropy).
 
-- **Why base62:** 5.95 bits/char vs hex's 4.0 — 49% more entropy per character,
-  no special characters that conflict with the `-` delimiter scheme.
-- **Why 8 chars:** Same collision resistance as the current 12-hex (48 bits),
-  but 4 characters shorter. Birthday-collision threshold is ~17M builds —
-  negligible for a personal tool. At 1,000 builds (realistic upper bound) the
-  collision probability is ~0.000003%.
+- **Why base36:** Lowercase letters and digits are safe for Docker names/tags
+  and msb identifiers, and no special characters conflict with the `-`
+  delimiter scheme.
+- **Why 14 chars:** Keeps the birthday-problem collision probability below
+  1e-9 for millions of distinct inputs (~3.5M at p = 1e-9). The resulting
+  slugs still fit comfortably within the 128-character sandbox name limit.
 - **Why not base64url:** Uses `-` and `_`, which collide with our delimiters.
 
-A single `hashID(input string) string` function replaces all hex hashing. It
+A single `HashID(input string) string` function replaces all hex hashing. It
 takes an arbitrary string, computes `sha256.Sum256([]byte(input))`, converts
-the 32-byte digest to a `big.Int`, encodes it in base62 via repeated
-division, and returns the first 8 characters. This works uniformly for both
-the project slug hash (`hashID(absPath)`) and the image digest hash
-(`hashID(dockerImageID)`).
+the 32-byte digest to a `big.Int`, encodes it in base36, and returns the
+first 14 characters. This works uniformly for both the project slug hash
+(`HashID(absPath)`) and the image digest hash (`HashID(dockerImageID)`).
 
 ### No type-marker letters
 
-Hashes are bare — no `p`, `v`, `d` prefix on the 8-char token. The project
-hash is parseable as the last 8 chars of the slug (after the final `-`); the
+Hashes are bare — no `p`, `v`, `d` prefix on the 14-char token. The project
+hash is parseable as the last 14 chars of the slug (after the final `-`); the
 image digest is always the terminal token in both image tag and volume name.
 Positional parsing is trivial; no visual marker is needed.
 
 ### Project slug
 
-**Format:** `<sanitized-folder-name>-<8b62>`
+**Format:** `<sanitized-folder-name>-<14b36>`
 
 | Component | Source | Rule |
 |-----------|--------|------|
 | Folder name | `filepath.Base(git-common-dir)`, or CWD if not a repo | — |
 | Sanitized | lowercase, non-alphanumeric → `-`, collapse consecutive `-`, trim leading/trailing `-`, cap at 20 chars | `My App` → `my-app` |
-| Hash | SHA-256 of absolute git-common-dir path → 8 base62 chars | `3f9a2b1c` |
+| Hash | SHA-256 of absolute git-common-dir path → 14 base36 chars | `3f9a2b1c4d5e6f7` |
 
-**Result:** `opencode-msb-3f9a2b1c`
+**Result:** `opencode-msb-3f9a2b1c4d5e6f7`
 
 The folder name provides human readability; the hash disambiguates projects
 that happen to share a folder name (e.g. two repos both cloned as `app`).
@@ -81,11 +80,11 @@ that happen to share a folder name (e.g. two repos both cloned as `app`).
 
 | Entity | Docker tags | msb reference | Example |
 |--------|-------------|---------------|---------|
-| Base image | `opencode-msb/runner-base:{latest,<8b62>}` | not loaded into msb | `opencode-msb/runner-base:latest` |
-| Project runner image | `opencode-msb/runner-<slug>:{latest,<8b62>}` | `opencode-msb/runner-<slug>:<8b62>` | `opencode-msb/runner-opencode-msb-3f9a2b1c:3f9a2b1c` |
+| Base image | `opencode-msb/runner-base:{latest,<14b36>}` | not loaded into msb | `opencode-msb/runner-base:latest` |
+| Project runner image | `opencode-msb/runner-<slug>:{latest,<14b36>}` | `opencode-msb/runner-<slug>:<14b36>` | `opencode-msb/runner-opencode-msb-3f9a2b1c4d5e6f7:3f9a2b1c4d5e6f7` |
 
 **Docker ↔ msb alignment:** The msb reference is the exact same string as the
-Docker digest tag. `msb load --tag opencode-msb/runner-<slug>:<8b62>`. The
+Docker digest tag. `msb load --tag opencode-msb/runner-<slug>:<14b36>`. The
 `:latest` alias exists only in Docker for human inspection; msb stores only
 the digest-tagged form.
 
@@ -99,9 +98,9 @@ Only project runner images are `msb load`-ed, tagged with their digest.
 
 | Entity | Pattern | Example |
 |--------|---------|---------|
-| Session sandbox | `opencode-msb-sb-<slug>-<branchSlug>` | `opencode-msb-sb-opencode-msb-3f9a2b1c-main` |
-| Task sandbox (prefill) | `opencode-msb-task-prefill-<slug>-<ts>` | `opencode-msb-task-prefill-opencode-msb-3f9a2b1c-1719432000` |
-| Task sandbox (clone) | `opencode-msb-task-clone-<slug>-<ts>` | `opencode-msb-task-clone-opencode-msb-3f9a2b1c-1719432000` |
+| Session sandbox | `opencode-msb-sb-<slug>-<branchSlug>` | `opencode-msb-sb-opencode-msb-3f9a2b1c4d5e6f7-main` |
+| Task sandbox (prefill) | `opencode-msb-task-prefill-<slug>-<ts>` | `opencode-msb-task-prefill-opencode-msb-3f9a2b1c4d5e6f7-1719432000` |
+| Task sandbox (clone) | `opencode-msb-task-clone-<slug>-<ts>` | `opencode-msb-task-clone-opencode-msb-3f9a2b1c4d5e6f7-1719432000` |
 
 Typed infixes (`-sb-` for sessions, `-task-` for ephemeral) cleanly separate
 real sessions from transient provisioning sandboxes in the same
@@ -115,18 +114,18 @@ slashes.
 
 | Entity | Pattern | Example |
 |--------|---------|---------|
-| Main home volume | `opencode-msb-home-<slug>-<8b62>` | `opencode-msb-home-opencode-msb-3f9a2b1c-3f9a2b1c` |
-| Clone home volume | `opencode-msb-clone-<slug>-<8b62>-<ts>` | `opencode-msb-clone-opencode-msb-3f9a2b1c-3f9a2b1c-1719432000` |
+| Main home volume | `opencode-msb-home-<slug>-<14b36>` | `opencode-msb-home-opencode-msb-3f9a2b1c4d5e6f7-3f9a2b1c4d5e6f7` |
+| Clone home volume | `opencode-msb-clone-<slug>-<14b36>-<ts>` | `opencode-msb-clone-opencode-msb-3f9a2b1c4d5e6f7-3f9a2b1c4d5e6f7-1719432000` |
 
-The `<8b62>` in the volume name is the **image digest hash** — the same token
+The `<14b36>` in the volume name is the **image digest hash** — the same token
 as the msb image tag. So
-`opencode-msb/runner-<slug>:3f9a2b1c` ↔ `opencode-msb-home-<slug>-3f9a2b1c`
+`opencode-msb/runner-<slug>:3f9a2b1c4d5e6f7` ↔ `opencode-msb-home-<slug>-3f9a2b1c4d5e6f7`
 is greppable correlation. A new image build produces a new digest → new volume
 → fresh prefill. Correct and visible.
 
 The clone volume inherits the source volume's slug and digest, plus a
-timestamp. You can trace `opencode-msb-clone-<slug>-3f9a2b1c-<ts>` back to its
-source `opencode-msb-home-<slug>-3f9a2b1c`.
+timestamp. You can trace `opencode-msb-clone-<slug>-3f9a2b1c4d5e6f7-<ts>` back to its
+source `opencode-msb-home-<slug>-3f9a2b1c4d5e6f7`.
 
 ### Filter strategy
 
@@ -159,23 +158,23 @@ migration; users manually clean up old artifacts once.
 
 | Entity | Pattern | Example |
 |--------|---------|---------|
-| Project slug | `<folder>-<8b62>` | `opencode-msb-3f9a2b1c` |
-| Base image (Docker only) | `opencode-msb/runner-base:{latest,<8b62>}` | `opencode-msb/runner-base:latest` |
-| Project runner image (Docker + msb) | `opencode-msb/runner-<slug>:{latest,<8b62>}` | `opencode-msb/runner-opencode-msb-3f9a2b1c:3f9a2b1c` |
-| Session sandbox | `opencode-msb-sb-<slug>-<branchSlug>` | `opencode-msb-sb-opencode-msb-3f9a2b1c-main` |
-| Task sandbox (prefill) | `opencode-msb-task-prefill-<slug>-<ts>` | `opencode-msb-task-prefill-opencode-msb-3f9a2b1c-1719432000` |
-| Task sandbox (clone) | `opencode-msb-task-clone-<slug>-<ts>` | `opencode-msb-task-clone-opencode-msb-3f9a2b1c-1719432000` |
-| Main home volume | `opencode-msb-home-<slug>-<8b62>` | `opencode-msb-home-opencode-msb-3f9a2b1c-3f9a2b1c` |
-| Clone home volume | `opencode-msb-clone-<slug>-<8b62>-<ts>` | `opencode-msb-clone-opencode-msb-3f9a2b1c-3f9a2b1c-1719432000` |
+| Project slug | `<folder>-<14b36>` | `opencode-msb-3f9a2b1c4d5e6f7` |
+| Base image (Docker only) | `opencode-msb/runner-base:{latest,<14b36>}` | `opencode-msb/runner-base:latest` |
+| Project runner image (Docker + msb) | `opencode-msb/runner-<slug>:{latest,<14b36>}` | `opencode-msb/runner-opencode-msb-3f9a2b1c4d5e6f7:3f9a2b1c4d5e6f7` |
+| Session sandbox | `opencode-msb-sb-<slug>-<branchSlug>` | `opencode-msb-sb-opencode-msb-3f9a2b1c4d5e6f7-main` |
+| Task sandbox (prefill) | `opencode-msb-task-prefill-<slug>-<ts>` | `opencode-msb-task-prefill-opencode-msb-3f9a2b1c4d5e6f7-1719432000` |
+| Task sandbox (clone) | `opencode-msb-task-clone-<slug>-<ts>` | `opencode-msb-task-clone-opencode-msb-3f9a2b1c4d5e6f7-1719432000` |
+| Main home volume | `opencode-msb-home-<slug>-<14b36>` | `opencode-msb-home-opencode-msb-3f9a2b1c4d5e6f7-3f9a2b1c4d5e6f7` |
+| Clone home volume | `opencode-msb-clone-<slug>-<14b36>-<ts>` | `opencode-msb-clone-opencode-msb-3f9a2b1c4d5e6f7-3f9a2b1c4d5e6f7-1719432000` |
 
 ## Affected files
 
 | File | Changes |
 |------|---------|
-| `internal/git/git.go` | `ProjectSlug` returns `<folder>-<8b62>`; new `hashID` base62 function; folder name sanitization |
-| `internal/sandbox/image.go` | `BaseTag` → `opencode-msb/runner-base`; `ImageTag` returns `opencode-msb/runner-<slug>:<8b62>`; `runnerTag` becomes per-project `opencode-msb/runner-<slug>:latest`; `ReferencesBase` checks for `runner-base` |
+| `internal/git/git.go` | `ProjectSlug` returns `<folder>-<14b36>`; new `hashID` base36 function; folder name sanitization |
+| `internal/sandbox/image.go` | `BaseTag` → `opencode-msb/runner-base`; `ImageTag` returns `opencode-msb/runner-<slug>:<14b36>`; `runnerTag` becomes per-project `opencode-msb/runner-<slug>:latest`; `ReferencesBase` checks for `runner-base` |
 | `internal/sandbox/runner.go` | `sandboxName` produces `opencode-msb-sb-<slug>-<branchSlug>` |
-| `internal/sandbox/volumes.go` | `HomeVolumeName` produces `opencode-msb-home-<slug>-<8b62>`; prefill/clone sandbox names use `-task-` infix |
+| `internal/sandbox/volumes.go` | `HomeVolumeName` produces `opencode-msb-home-<slug>-<14b36>`; prefill/clone sandbox names use `-task-` infix |
 | `internal/sandbox/query.go` | All filters updated to new prefixes: `opencode-msb-sb-`, `opencode-msb-home-`, `opencode-msb/runner-` |
 | `internal/sandbox/image_test.go` | Test expectations updated for new image tags |
 | `internal/sandbox/runner_test.go` | Test expectations updated for new sandbox names |
@@ -187,8 +186,8 @@ migration; users manually clean up old artifacts once.
 
 - Sandbox names are capped at 128 chars by msb; the `sandboxName` function
   truncates if needed (unchanged from current behavior).
-- Base62 alphabet must be ordered consistently (`0-9a-zA-Z`) to ensure
+- Base36 alphabet must be ordered consistently (`0-9a-z`) to ensure
   deterministic encoding.
-- The `hashID` function takes a string, hashes it with SHA-256, and encodes
-  the full 256-bit result in base62 (43 chars), taking the first 8. It must
+- The `HashID` function takes a string, hashes it with SHA-256, and encodes
+  the full 256-bit result in base36 (~50 chars), taking the first 14. It must
   use `math/big.Int` to avoid overflow.
