@@ -72,7 +72,7 @@ func TestPrintTreeContainsAllCommands(t *testing.T) {
 	var sb strings.Builder
 	printTree(&sb, root)
 	out := sb.String()
-	expected := []string{"run", "doctor", "build", "list", "shell", "config", "image", "volume"}
+	expected := []string{"run", "doctor", "build", "list", "shell", "config", "image", "volume", "stop", "kill"}
 	for _, cmd := range expected {
 		if !strings.Contains(out, cmd) {
 			t.Errorf("expected tree to contain %q, got:\n%s", cmd, out)
@@ -98,6 +98,8 @@ func TestPrintTreeContainsCommandDescriptions(t *testing.T) {
 		"Print merged opencode config with source paths",
 		"List cached runner images",
 		"List managed volumes",
+		"Stop the project VM",
+		"Force-kill the project VM",
 	}
 	for _, d := range descs {
 		if !strings.Contains(out, d) {
@@ -117,7 +119,7 @@ func TestPrintTreeContainsFlagDescriptions(t *testing.T) {
 		"Suppress non-error output",
 		"Print the full command tree and exit",
 		"Print version and exit",
-		"Run in an isolated git clone for the given branch",
+		"Run in an opencode worktree for the given branch name",
 		"Rebuild the runner image before starting",
 		"Validate setup without running opencode",
 		"Number of CPUs (default: all)",
@@ -501,5 +503,43 @@ func TestRunAndGetShellUserFlag(t *testing.T) {
 				t.Errorf("user=%q, want %q", got, tt.want)
 			}
 		})
+	}
+}
+
+func TestStopCommandExists(t *testing.T) {
+	root := buildRootCmd()
+	stopCmd, _, _ := root.Find([]string{"stop"})
+	if stopCmd == nil {
+		t.Fatal("expected stop command")
+	}
+}
+
+func TestKillCommandExists(t *testing.T) {
+	root := buildRootCmd()
+	killCmd, _, _ := root.Find([]string{"kill"})
+	if killCmd == nil {
+		t.Fatal("expected kill command")
+	}
+}
+
+func TestStopCommandHasForceFlag(t *testing.T) {
+	root := buildRootCmd()
+	stopCmd, _, _ := root.Find([]string{"stop"})
+	if stopCmd == nil {
+		t.Fatal("expected stop command")
+	}
+	if stopCmd.Flags().Lookup("force") == nil {
+		t.Error("expected --force flag on stop command")
+	}
+}
+
+func TestKillCommandHasForceFlag(t *testing.T) {
+	root := buildRootCmd()
+	killCmd, _, _ := root.Find([]string{"kill"})
+	if killCmd == nil {
+		t.Fatal("expected kill command")
+	}
+	if killCmd.Flags().Lookup("force") == nil {
+		t.Error("expected --force flag on kill command")
 	}
 }
