@@ -38,6 +38,7 @@
 [ ] secrets containing @ kann nicht funktionieren -> yaml. Keine CLI-Params...
 [ ] docker images mit projekt-slug im namen bauen
 [ ] Deliver example AGENTS.md file with instructions for workflow, especially git (don't merge, tool does) 
+[ ] OPENCODE_DISABLE_AUTOUPDATE, OPENCODE_EXPERIMENTAL_EXA, OPENCODE_EXPERIMENTAL_BACKGROUND_SUBAGENTS, OPENCODE_EXPERIMENTAL_PARALLEL, OPENCODE_EXPERIMENTAL_SCOUT? 
 
 ## 2nd prio
 
