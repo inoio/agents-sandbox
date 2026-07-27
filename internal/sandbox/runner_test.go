@@ -176,7 +176,6 @@ func TestMergeEnvMapsProjectOverridesUser(t *testing.T) {
 
 func TestBuildAttachCommand(t *testing.T) {
 	got := buildAttachCommand("/workspace", true, []string{"foo"})
-	// Should be: opencode attach http://127.0.0.1:4096 --dir /workspace --auto foo
 	if !strings.Contains(got, "opencode attach") {
 		t.Errorf("expected 'opencode attach' in command, got %q", got)
 	}
@@ -186,8 +185,11 @@ func TestBuildAttachCommand(t *testing.T) {
 	if !strings.Contains(got, "--dir /workspace") {
 		t.Errorf("expected --dir /workspace in command, got %q", got)
 	}
-	if !strings.Contains(got, "--auto") {
-		t.Errorf("expected --auto flag, got %q", got)
+	if strings.Contains(got, "--auto") {
+		t.Errorf("did not expect --auto flag (removed by human), got %q", got)
+	}
+	if !strings.Contains(got, "foo") {
+		t.Errorf("expected forwarded args in command, got %q", got)
 	}
 }
 
