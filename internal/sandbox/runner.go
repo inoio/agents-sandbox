@@ -274,7 +274,7 @@ func Run(ctx context.Context, opts RunOptions, cfg Config, logger *output.Printe
 		logger.Infof("dry run: VM and daemon validated, skipping opencode execution")
 	} else {
 		setup := buildAttachCommand(session.target, opts.Auto, opts.Args)
-		logger.Debugf(setup)
+		logger.Debugf("%s", setup)
 		// Run as a login shell so /etc/profile and ~/.profile are sourced,
 		// putting tools installed under /usr/local/go/bin, ~/go/bin and
 		// ~/.microsandbox/bin on PATH for opencode and its child shells.
