@@ -147,6 +147,12 @@ func TestEnsureImageReturnsErrorWhenBuildFails(t *testing.T) {
 	}
 }
 
+func TestEmbeddedDindDockerfileIsNonEmpty(t *testing.T) {
+	if len(EmbeddedDindDockerfile) == 0 {
+		t.Error("expected EmbeddedDindDockerfile to be non-empty")
+	}
+}
+
 func TestDockerfileTarContainsDockerfile(t *testing.T) {
 	dockerfile := []byte("FROM debian:trixie-slim\nRUN echo hi\n")
 	tarBuf := dockerfileTar(dockerfile)
