@@ -39,7 +39,7 @@ type imageHandle struct {
 func filterSandboxes(handles []sandboxHandle) []string {
 	var result []string
 	for _, h := range handles {
-		if strings.HasPrefix(h.name, "opencode-msb-sb-") {
+		if strings.HasPrefix(h.name, projectVMPrefix) {
 			result = append(result, h.name)
 		}
 	}
@@ -74,7 +74,7 @@ func ListSandboxes(ctx context.Context) ([]Info, error) {
 	var result []Info
 	for _, h := range handles {
 		name := h.Name()
-		if !strings.HasPrefix(name, "opencode-msb-sb-") {
+		if !strings.HasPrefix(name, projectVMPrefix) {
 			continue
 		}
 		result = append(result, Info{
