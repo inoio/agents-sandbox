@@ -104,7 +104,7 @@ Base images (`opencode-msb/runner-base`) are **not** pruned — shared across al
 
 ```
 opencode prune [flags]
-  --days DURATION    Manual prune threshold (default: value of manualPruneAge config, 7d)
+  --age DURATION     Manual prune threshold (default: value of manualPruneAge config, 7d)
   --dry-run          Show what would be deleted without deleting
   --force            Skip confirmation prompt
 ```
