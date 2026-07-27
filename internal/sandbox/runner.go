@@ -551,6 +551,10 @@ func prepareSandbox(
 		return nil, err
 	}
 
+	if err := startDockerdIfPresent(ctx, sb, logger); err != nil {
+		return nil, fmt.Errorf("docker startup: %w", err)
+	}
+
 	return &sandboxSession{
 		sb:        sb,
 		name:      name,
