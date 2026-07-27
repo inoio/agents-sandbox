@@ -154,12 +154,28 @@ func TestStartDockerdIfPresentWithDindImage(t *testing.T) {
 	defer dockerCli.Close()
 
 	// Build the plain base image first (dind extends it).
-	if err := buildDockerImage(ctx, dockerCli, EmbeddedDockerfile, BaseTag, "Building base", false, logger); err != nil {
+	if err := buildDockerImage(
+		ctx,
+		dockerCli,
+		EmbeddedDockerfile,
+		BaseTag,
+		"Building base",
+		false,
+		logger,
+	); err != nil {
 		t.Skipf("cannot build base image: %v", err)
 	}
 
 	// Build the dind base image.
-	if err := buildDockerImage(ctx, dockerCli, EmbeddedDindDockerfile, DindBaseTag, "Building dind base", false, logger); err != nil {
+	if err := buildDockerImage(
+		ctx,
+		dockerCli,
+		EmbeddedDindDockerfile,
+		DindBaseTag,
+		"Building dind base",
+		false,
+		logger,
+	); err != nil {
 		t.Skipf("cannot build dind image: %v", err)
 	}
 
@@ -226,7 +242,15 @@ func TestStartDockerdIfPresentWithPlainBaseImage(t *testing.T) {
 	}
 	defer dockerCli.Close()
 
-	if err := buildDockerImage(ctx, dockerCli, EmbeddedDockerfile, BaseTag, "Building base", false, logger); err != nil {
+	if err := buildDockerImage(
+		ctx,
+		dockerCli,
+		EmbeddedDockerfile,
+		BaseTag,
+		"Building base",
+		false,
+		logger,
+	); err != nil {
 		t.Skipf("cannot build base image: %v", err)
 	}
 

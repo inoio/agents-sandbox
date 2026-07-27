@@ -16,6 +16,8 @@ import (
 
 const projectVMPrefix = "opencode-msb-vm-"
 
+// projectVMName generates the VM name from the project slug.
+// Note: truncation by bytes is safe because ProjectSlug sanitizes to ASCII.
 func projectVMName(slug string) string {
 	name := projectVMPrefix + slug
 	if len(name) > maxSandboxNameLen {
@@ -103,6 +105,7 @@ func EnsureProjectVM(
 				logger.Debugf("connect failed (%v), retrying via Start", connErr)
 				handle2, refreshErr := handle.Refresh(ctx)
 				if refreshErr != nil {
+					spin.StopError(refreshErr)
 					return nil, false, fmt.Errorf(
 						"connect sandbox %q (refresh after connect failure): %w",
 						name,
@@ -112,6 +115,7 @@ func EnsureProjectVM(
 				if isSandboxActive(handle2.Status()) {
 					sb2, connErr2 := handle2.Connect(ctx)
 					if connErr2 != nil {
+						spin.StopError(connErr2)
 						return nil, false, fmt.Errorf("connect sandbox %q: %w", name, connErr2)
 					}
 					spin.Stop()
@@ -119,6 +123,7 @@ func EnsureProjectVM(
 				}
 				sb2, startErr := handle2.Start(ctx)
 				if startErr != nil {
+					spin.StopError(startErr)
 					return nil, false, fmt.Errorf("start sandbox %q: %w", name, startErr)
 				}
 				spin.Stop()
@@ -132,6 +137,7 @@ func EnsureProjectVM(
 		// Stopped/crashed → start (no flock needed, Start is idempotent enough).
 		sb, startErr := handle.Start(ctx)
 		if startErr != nil {
+			spin.StopError(startErr)
 			return nil, false, fmt.Errorf("start sandbox %q: %w", name, startErr)
 		}
 		logger.Debugf("started existing project VM: %s", name)
@@ -139,6 +145,11 @@ func EnsureProjectVM(
 	}
 
 	spin.Stop()
+
+	// Ensure runtime is available before acquiring the flock to reduce contention.
+	if ensureErr := msb.EnsureInstalled(ctx); ensureErr != nil {
+		return nil, false, fmt.Errorf("microsandbox runtime: %w", ensureErr)
+	}
 
 	// Slow path: VM doesn't exist → create. Hold a flock so concurrent
 	// invocations don't both create (and clobber via WithReplace).
@@ -158,7 +169,10 @@ func EnsureProjectVM(
 			return nil, false, actionErr
 		}
 		if action == vmActionConnect {
-			sb, _ := handle.Connect(ctx)
+			sb, connErr := handle.Connect(ctx)
+			if connErr != nil {
+				logger.Debugf("post-lock connect failed: %v", connErr)
+			}
 			if sb != nil {
 				return sb, false, nil
 			}
@@ -192,8 +206,9 @@ func createProjectVM(
 		user = "dev"
 	}
 	cpus := opts.CPUs
+	numCPUs := sysinfo.NumCPUs()
 	if cpus == 0 {
-		cpus = sysinfo.NumCPUs()
+		cpus = numCPUs
 	}
 	maxMemoryGiB := sysinfo.TotalMemoryGiB()
 
@@ -211,14 +226,6 @@ func createProjectVM(
 	mounts := buildMounts(homeVol, repoPath, resolveTmpSizeMiB(opts.TmpSize))
 
 	spin := output.NewSpinner(logger)
-	spin.Start("Checking microsandbox runtime")
-	if err := msb.EnsureInstalled(ctx); err != nil {
-		spin.StopError(err)
-		return nil, false, fmt.Errorf("microsandbox runtime: %w", err)
-	}
-	spin.Stop()
-
-	spin = output.NewSpinner(logger)
 	spin.Start("Starting project VM")
 	sb, err := msb.CreateSandbox(ctx, name,
 		msb.WithImage(imageRef),
@@ -228,7 +235,7 @@ func createProjectVM(
 		msb.WithUser(user),
 		msb.WithWorkdir("/workspace"),
 		msb.WithCPUs(cpus),
-		msb.WithMaxCPUs(sysinfo.NumCPUs()),
+		msb.WithMaxCPUs(numCPUs),
 		msb.WithMemory(parseMemory(opts.Memory)),
 		//nolint:gosec // G115: maxMemoryGiB is physical RAM in GiB, cannot overflow uint32
 		msb.WithMaxMemory(uint32(maxMemoryGiB)*mibPerGib),
