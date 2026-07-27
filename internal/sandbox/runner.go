@@ -229,21 +229,21 @@ func prepareSandbox(
 	name := projectVMName(projectSlug)
 
 	if created {
-		configFiles, err := loadConfigFiles(cfg.UserConfigDir)
-		if err != nil {
-			return nil, err
+		configFiles, loadErr := loadConfigFiles(cfg.UserConfigDir)
+		if loadErr != nil {
+			return nil, loadErr
 		}
 		fs := sb.FS()
-		if err = provisionSandbox(ctx, fs, configFiles, cwd, logger); err != nil {
-			return nil, err
+		if provisionErr := provisionSandbox(ctx, fs, configFiles, cwd, logger); provisionErr != nil {
+			return nil, provisionErr
 		}
-		if err := startDockerdIfPresent(ctx, sb, logger); err != nil {
-			return nil, fmt.Errorf("docker startup: %w", err)
+		if dockerErr := startDockerdIfPresent(ctx, sb, logger); dockerErr != nil {
+			return nil, fmt.Errorf("docker startup: %w", dockerErr)
 		}
 	}
 
-	if err := EnsureDaemon(ctx, sb, logger); err != nil {
-		return nil, err
+	if daemonErr := EnsureDaemon(ctx, sb, logger); daemonErr != nil {
+		return nil, daemonErr
 	}
 
 	target, err := ResolveTarget(ctx, sb, opts.Branch, logger)
