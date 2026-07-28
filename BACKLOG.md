@@ -23,23 +23,23 @@
 [*] user uid,gid aus System bestimmen und setzen bei image build.
 [*] rework --tree, more explanations, root command
 
-## 1st prio
+## In Progress
 
 [ ] use less tokens for dev
 [ ] single VM per project with multiple workspaces to work around sqlite's fcntl() locking home dir?
 [ ] --branch merge deletes repo with changes
-[ ] stop vm when no clients connected
 [ ] support docker in VM
 
+### README überarbeiten
 
+[ ] Installation ins Userverzeichnis ([~/bin,] ~/.local/bin)
+[ ] config file(s) übersicht, beispiele
+[ ] Bedeutungen z.B. env.secret sieht der Agent nicht
+[ ] Flags an opencode übergeben (--) dokumentieren
+[ ] Dependencies (z.B. git, docker)
 
+## 1st prio
 
-[ ] README überarbeiten
-  [ ] Installation ins Userverzeichnis ([~/bin,] ~/.local/bin)
-  [ ] config file(s) übersicht, beispiele
-  [ ] Bedeutungen z.B. env.secret sieht der Agent nicht
-  [ ] Flags an opencode übergeben (--) dokumentieren
-  [ ] Dependencies (z.B. git, docker)
 [ ] make cli output pretty and UX'd
 [ ] secrets containing @ kann nicht funktionieren -> yaml. Keine CLI-Params...
 [ ] docker images mit projekt-slug im namen bauen
