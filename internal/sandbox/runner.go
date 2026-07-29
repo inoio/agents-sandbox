@@ -210,7 +210,7 @@ func prepareSandbox(
 	}
 	defer dockerCli.Close()
 
-	imageRef, imageDigest, err := EnsureImage(ctx, dockerCli, dockerfile, projectSlug, opts.Rebuild, logger)
+	imageRef, imageDigest, imageEnvs, err := EnsureImage(ctx, dockerCli, dockerfile, projectSlug, opts.Rebuild, logger)
 	if err != nil {
 		return nil, fmt.Errorf("image setup failed: %w", err)
 	}
@@ -223,7 +223,7 @@ func prepareSandbox(
 	}
 	logger.Debugf("home volume: %s", homeVol)
 
-	sb, created, err := EnsureProjectVM(ctx, opts, cfg, imageRef, homeVol, cwd, logger)
+	sb, created, err := EnsureProjectVM(ctx, opts, cfg, imageRef, homeVol, cwd, imageEnvs, logger)
 	if err != nil {
 		return nil, err
 	}
@@ -308,7 +308,7 @@ func BuildImage(ctx context.Context, force bool, logger *output.Printer) error {
 	}
 	defer dockerCli.Close()
 
-	_, _, err = EnsureImage(ctx, dockerCli, dockerfile, projectSlug, force, logger)
+	_, _, _, err = EnsureImage(ctx, dockerCli, dockerfile, projectSlug, force, logger)
 	return err
 }
 

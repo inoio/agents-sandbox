@@ -8,6 +8,7 @@ import (
 	"time"
 
 	msb "github.com/superradcompany/microsandbox/sdk/go"
+
 	"gitlab.inoio.de/inoio/opencode-msb/internal/output"
 )
 
@@ -146,7 +147,12 @@ func (r *StaleReport) HasAnything() bool {
 // dryRun=true collects artifacts without deleting.
 // force skips confirmation (used for auto-prune).
 // Logger is used for per-artifact warnings on non-fatal deletion errors.
-func Prune(ctx context.Context, threshold time.Duration, dryRun, force bool, logger *output.Printer) (*StaleReport, error) {
+func Prune(
+	ctx context.Context,
+	threshold time.Duration,
+	dryRun, force bool,
+	logger *output.Printer,
+) (*StaleReport, error) {
 	report := &StaleReport{}
 
 	// Step 1: list all sandboxes.
