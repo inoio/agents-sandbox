@@ -339,7 +339,7 @@ func buildRunCmd() *cobra.Command {
 	cmd.Flags().StringP("memory", "m", "4G", "Memory limit")
 	cmd.Flags().String("tmp-size", "2G", "Size of the /tmp tmpfs in the sandbox")
 	cmd.Flags().
-		StringP("user", "u", "", "Username or UID to run opencode inside the sandbox (format: <name|uid>[:<group|gid>])")
+		StringP("user", "u", "", "Username or UID for the runtime user (format: <name|uid>[:<group|gid>])")
 	cmd.Flags().Bool("no-auto", false, "Do not pass --auto to opencode")
 
 	return cmd
@@ -659,7 +659,13 @@ func buildPruneCmd() *cobra.Command {
 		Use:   "prune [flags]",
 		Short: "Prune stale VMs, volumes, and images",
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			age, _ := cmd.Flags().GetDuration("age")
+			ageStr, _ := cmd.Flags().GetString("age")
+			var age time.Duration
+			if ageStr != "" {
+				if d, ok := launcherconfig.ParseHumanDuration(ageStr); ok {
+					age = d
+				}
+			}
 			if age == 0 {
 				age = 7 * 24 * time.Hour
 			}
@@ -676,7 +682,7 @@ func buildPruneCmd() *cobra.Command {
 			return nil
 		},
 	}
-	cmd.Flags().DurationP("age", "a", 0, "Prune threshold (default: manualPruneAge from config)")
+	cmd.Flags().StringP("age", "a", "", "Prune threshold (default: manualPruneAge from config)")
 	cmd.Flags().BoolP("dry-run", "n", false, "Show what would be pruned without deleting")
 	cmd.Flags().BoolP("force", "f", false, "Skip confirmation prompt")
 	return cmd

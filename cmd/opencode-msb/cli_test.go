@@ -4,8 +4,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/spf13/cobra"
-
 	"gitlab.inoio.de/inoio/opencode-msb/internal/launcherconfig"
 )
 
@@ -336,7 +334,7 @@ func TestRunCommandHasExpectedFlags(t *testing.T) {
 	if runCmd == nil {
 		t.Fatal("expected run command")
 	}
-	flags := []string{"branch", "cpus", "memory", "tmp-size", "rebuild", "dry-run", "no-auto", "user"}
+	flags := []string{"branch", "cpus", "memory", "tmp-size", "rebuild", "dry-run", "no-auto"}
 	for _, f := range flags {
 		if runCmd.Flags().Lookup(f) == nil {
 			t.Errorf("expected flag --%s on run command", f)
@@ -353,7 +351,7 @@ func TestRunCommandFlagShortcuts(t *testing.T) {
 	shortcuts := map[string]string{
 		"b": "branch", "c": "cpus", "m": "memory",
 		"r": "rebuild", "n": "dry-run", "y": "yes",
-		"v": "verbose", "q": "quiet", "u": "user",
+		"v": "verbose", "q": "quiet",
 	}
 	for short, long := range shortcuts {
 		f := runCmd.Flags().ShorthandLookup(short)
@@ -470,28 +468,19 @@ func TestNewConfigSetsUserLauncherDir(t *testing.T) {
 
 func TestRunAndGetShellUserFlag(t *testing.T) {
 	tests := []struct {
-		name  string
-		args  []string
-		want  string
-		isRun bool
+		name string
+		args []string
+		want string
 	}{
-		{"run default empty", []string{}, "", true},
-		{"run --user alice", []string{"--user", "alice"}, "alice", true},
-		{"run -u alice", []string{"-u", "alice"}, "alice", true},
-		{"shell default empty", []string{}, "", false},
-		{"shell --user bob", []string{"--user", "bob"}, "bob", false},
-		{"shell -u bob", []string{"-u", "bob"}, "bob", false},
+		{"shell default empty", []string{}, ""},
+		{"shell --user bob", []string{"--user", "bob"}, "bob"},
+		{"shell -u bob", []string{"-u", "bob"}, "bob"},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			root := buildRootCmd()
-			var cmd *cobra.Command
-			if tt.isRun {
-				cmd, _, _ = root.Find([]string{"run"})
-			} else {
-				cmd, _, _ = root.Find([]string{"shell"})
-			}
+			cmd, _, _ := root.Find([]string{"shell"})
 			if cmd == nil {
 				t.Fatal("expected command")
 			}
