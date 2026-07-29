@@ -1,11 +1,15 @@
 package sandbox
 
 import (
+	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"maps"
 	"os"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -15,9 +19,16 @@ import (
 	"gitlab.inoio.de/inoio/opencode-msb/internal/config"
 	"gitlab.inoio.de/inoio/opencode-msb/internal/git"
 	"gitlab.inoio.de/inoio/opencode-msb/internal/output"
+	"gitlab.inoio.de/inoio/opencode-msb/internal/prompt"
 
 	msb "github.com/superradcompany/microsandbox/sdk/go"
 )
+
+// configFiles holds the merged configuration and its SHA-256 hash.
+type configFiles struct {
+	files map[string][]byte
+	hash  string
+}
 
 type ExitError struct {
 	Code int
@@ -52,6 +63,7 @@ const (
 	sandboxStopTimeout = 30 * time.Second
 	envKeyValueParts   = 2
 	mibPerGib          = 1024
+	provisionTimeout   = 15 * time.Second
 )
 
 func parseMemory(spec string) uint32 {
@@ -97,11 +109,8 @@ func isSandboxActive(status msb.SandboxStatus) bool {
 	return false
 }
 
-func buildAttachCommand(target string, auto bool, args []string) string {
+func buildAttachCommand(target string, _ bool, args []string) string {
 	parts := []string{"opencode", "attach", "http://127.0.0.1:4096", "--dir", target}
-	//if auto {
-	//	parts = append(parts, autoFlag)
-	//}
 	parts = append(parts, args...)
 
 	return strings.Join(parts, " ")
@@ -229,22 +238,62 @@ func prepareSandbox(
 	}
 	name := projectVMName(projectSlug)
 
-	configFiles, loadErr := loadConfigFiles(cfg.UserConfigDir)
-	if loadErr != nil {
-		return nil, loadErr
-	}
-	if provisionErr := provisionSandbox(ctx, sb.FS(), configFiles, cwd, logger); provisionErr != nil {
-		return nil, provisionErr
+	// Build the merged config and compute its hash.
+	cfs, err := loadConfigFiles(cfg.UserConfigDir)
+	if err != nil {
+		return nil, err
 	}
 
-	if created {
-		if dockerErr := startDockerdIfPresent(ctx, sb, logger); dockerErr != nil {
+	// Read the config currently in the VM and compute its hash so we can
+	// detect whether it differs from the one we are about to provision.
+	vmHash, readErr := readConfigFromVM(ctx, sb)
+	if readErr != nil {
+		logger.Warnf("failed to read VM config: %v (proceeding without comparison)", readErr)
+	}
+
+	// Decide whether we need to provision and restart.
+	if vmHash != "" && vmHash != cfs.hash {
+		// Config changed — prompt only if the daemon is currently healthy.
+		if daemonIsHealthy(ctx, sb) {
+			action, promptErr := promptConfigChange(cfs.hash, logger)
+			if promptErr != nil {
+				return nil, promptErr
+			}
+			if action == "restart" {
+				provisionCtx, cancel := context.WithTimeout(ctx, provisionTimeout)
+				if provErr := provisionSandbox(provisionCtx, sb.FS(), cfs.files, cwd, logger); provErr != nil {
+					cancel()
+					return nil, provErr
+				}
+				cancel()
+				if restartErr := EnsureDaemon(ctx, sb, logger); restartErr != nil {
+					return nil, restartErr
+				}
+				logger.Infof("opencode serve restarting…")
+			} else {
+				logger.Infof("config change detected; proceeding without restart")
+			}
+		} else {
+			logger.Infof("config change detected; restarting (daemon was not healthy)")
+			provisionCtx, cancel := context.WithTimeout(ctx, provisionTimeout)
+			if provErr := provisionSandbox(provisionCtx, sb.FS(), cfs.files, cwd, logger); provErr != nil {
+				cancel()
+				return nil, provErr
+			}
+			cancel()
+			if restartErr := EnsureDaemon(ctx, sb, logger); restartErr != nil {
+				return nil, restartErr
+			}
+		}
+	} else {
+		// Either no config on disk (fresh VM), config matches, or VM read
+		// failed — use the normal flow: always provision and ensure daemon.
+		if dockerErr := ensureDockerdIfPresent(ctx, sb, logger, created); dockerErr != nil {
 			return nil, fmt.Errorf("docker startup: %w", dockerErr)
 		}
-	}
-
-	if daemonErr := EnsureDaemon(ctx, sb, logger); daemonErr != nil {
-		return nil, daemonErr
+		if daemonErr := EnsureDaemon(ctx, sb, logger); daemonErr != nil {
+			return nil, daemonErr
+		}
 	}
 
 	target, err := ResolveTarget(ctx, sb, opts.Branch, logger)
@@ -261,6 +310,19 @@ func prepareSandbox(
 	}, nil
 }
 
+// ensureDockerdIfPresent ensures dockerd is running inside the VM when the
+// sandbox was freshly created and Docker-in-Docker support is requested.
+func ensureDockerdIfPresent(ctx context.Context, sb *msb.Sandbox, logger *output.Printer, created bool) error {
+	if created {
+		return startDockerdIfPresent(ctx, sb, logger)
+	}
+	return nil
+}
+
+// Run creates (or reuses) the project VM, provisions config, starts opencode
+// serve, and attaches a TUI client.
+//
+// Note: Run is called from cli.go after all flags are resolved.
 func Run(ctx context.Context, opts RunOptions, cfg Config, logger *output.Printer) error {
 	session, err := prepareSandbox(ctx, opts, cfg, logger)
 	if err != nil {
@@ -284,6 +346,8 @@ func Run(ctx context.Context, opts RunOptions, cfg Config, logger *output.Printe
 	return finalizeRun(attachErr, nil, exitCode)
 }
 
+// Shell creates (or reuses) the project VM and drops the user into an
+// interactive shell session, without starting opencode serve.
 func Shell(ctx context.Context, opts RunOptions, cfg Config, logger *output.Printer) error {
 	session, err := prepareSandbox(ctx, opts, cfg, logger)
 	if err != nil {
@@ -296,6 +360,7 @@ func Shell(ctx context.Context, opts RunOptions, cfg Config, logger *output.Prin
 	return finalizeRun(attachErr, nil, exitCode)
 }
 
+// BuildImage builds (or updates) the runner image for Docker-in-Docker support.
 func BuildImage(ctx context.Context, force bool, logger *output.Printer) error {
 	if !CheckDocker(logger) {
 		return errors.New("docker not available")
@@ -328,13 +393,63 @@ func finalizeRun(attachErr, cleanupErr error, exitCode int) error {
 	return &ExitError{Code: exitCode}
 }
 
-type sandboxFS interface {
-	Mkdir(ctx context.Context, path string) error
-	Write(ctx context.Context, path string, data []byte) error
-	Remove(ctx context.Context, path string) error
+func promptConfigChange(_ string, logger *output.Printer) (string, error) {
+	selection, err := prompt.Select(
+		"opencode provider config has changed. Restart the daemon to apply the new config?",
+		[]prompt.Choice{
+			{
+				Label: "Proceed without changes (keep current config)", Key: "proceed",
+				Description: "Daemon continues with the existing config",
+			},
+			{
+				Label: "Restart opencode serve (apply new config)", Key: "restart",
+				Description: "Daemon restarts with new config; active clients disconnect",
+			},
+		},
+		"proceed",
+		logger,
+	)
+	if err != nil {
+		return "", fmt.Errorf("prompt config change: %w", err)
+	}
+	return selection, nil
 }
 
-func loadConfigFiles(userConfigDir string) (map[string][]byte, error) {
+// readConfigFromVM reads all JSON files inside /home/dev/.config/opencode/
+// from the VM, computes a deterministic SHA-256 hash, and returns the hex
+// string. Returns an empty string if the directory or its files do not exist.
+func readConfigFromVM(ctx context.Context, sb *msb.Sandbox) (string, error) {
+	cmd := "(cd /home/dev/.config/opencode && for f in */* */.* * .*; do [ -f \"$f\" ] && printf '\\0%s\\0' \"$f\" && cat \"$f\"; done)"
+	out, err := sb.Shell(ctx, cmd)
+	if err != nil {
+		return "", fmt.Errorf("read vm config: %w", err)
+	}
+	if out == nil || out.Stdout() == "" {
+		return "", nil // no config directory or no files (fresh VM)
+	}
+	return hashHex(out.StdoutBytes()), nil
+}
+
+// hashHex returns the hex-encoded SHA-256 digest of data.
+func hashHex(data []byte) string {
+	h := sha256.Sum256(data)
+	return hex.EncodeToString(h[:])
+}
+
+// daemonIsHealthy returns true when the opencode serve daemon reports healthy.
+func daemonIsHealthy(ctx context.Context, sb *msb.Sandbox) bool {
+	out, err := sb.Shell(ctx, "curl -sf "+daemonHealthURL)
+	if err != nil || out == nil || !out.Success() {
+		return false
+	}
+	h, _ := parseHealthResponse(out.Stdout())
+	return h
+}
+
+// loadConfigFiles builds the merged opencode configuration from the user's
+// config directory, any project-specific config in .opencode-msb/opencode,
+// and the embedded provider config. Returns the files and a SHA-256 hash.
+func loadConfigFiles(userConfigDir string) (*configFiles, error) {
 	providerCfg, err := config.LoadProviderConfig(config.EmbeddedProviderConfig)
 	if err != nil {
 		return nil, fmt.Errorf("load provider config: %w", err)
@@ -343,11 +458,45 @@ func loadConfigFiles(userConfigDir string) (map[string][]byte, error) {
 	if _, statErr := os.Stat(".opencode-msb/opencode"); statErr == nil {
 		projectConfigDir = ".opencode-msb/opencode"
 	}
-	configFiles, err := config.BuildMergedConfig(userConfigDir, projectConfigDir, providerCfg)
+	files, err := config.BuildMergedConfig(userConfigDir, projectConfigDir, providerCfg)
 	if err != nil {
 		return nil, fmt.Errorf("merge config: %w", err)
 	}
-	return configFiles, nil
+
+	// Compute a deterministic hash over the files so we can compare across runs.
+	hash := configHash(files)
+	return &configFiles{
+		files: files,
+		hash:  hash,
+	}, nil
+}
+
+// configHash produces a deterministic SHA-256 hash over all config files.
+// It concatenates the sorted set of file names and contents, separated by NUL
+// bytes, so the hash is stable regardless of map iteration order.
+func configHash(files map[string][]byte) string {
+	names := make([]string, 0, len(files))
+	for name := range files {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+
+	n := 0
+	for _, name := range names {
+		// NUL separator + filename + NUL separator + file content
+		n += 1 + len(name) + 1 + len(files[name])
+	}
+
+	var buf bytes.Buffer
+	buf.Grow(n)
+	for _, name := range names {
+		buf.WriteByte(0)
+		buf.WriteString(name)
+		buf.WriteByte(0)
+		buf.Write(files[name])
+	}
+	h := sha256.Sum256(buf.Bytes())
+	return hex.EncodeToString(h[:])
 }
 
 func buildMounts(homeVol, repoPath string, tmpSizeMiB uint32) map[string]msb.MountConfig {
@@ -362,6 +511,12 @@ func buildMounts(homeVol, repoPath string, tmpSizeMiB uint32) map[string]msb.Mou
 			Nodev:    false,
 		}),
 	}
+}
+
+type sandboxFS interface {
+	Mkdir(ctx context.Context, path string) error
+	Write(ctx context.Context, path string, data []byte) error
+	Remove(ctx context.Context, path string) error
 }
 
 func provisionSandbox(
