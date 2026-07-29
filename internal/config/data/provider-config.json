@@ -333,29 +333,29 @@
             "input": 0.162,
             "output": 0.594
           },
-          "Qwen3.6 35B A3B Hetzner": {
-            "name": "inoio qwen3.6 35b hetzner",
-            "family": "qwen",
-            "reasoning": true,
-            "attachment": true,
-            "tool_call": true,
-            "modalities": {
-              "input": [
-                "text",
-                "image"
-              ],
-              "output": [
-                "text"
-              ]
-            },
-            "limit": {
-              "context": 262144,
-              "output": 32768
-            },
-            "cost": {
-              "input": 0.162,
-              "output": 0.54
-            }
+        },
+        "Qwen3.6 35B A3B Hetzner": {
+          "name": "inoio qwen3.6 35b hetzner",
+          "family": "qwen",
+          "reasoning": true,
+          "attachment": true,
+          "tool_call": true,
+          "modalities": {
+            "input": [
+              "text",
+              "image"
+            ],
+            "output": [
+              "text"
+            ]
+          },
+          "limit": {
+            "context": 262144,
+            "output": 32768
+          },
+          "cost": {
+            "input": 0.162,
+            "output": 0.54
           }
         }
       }

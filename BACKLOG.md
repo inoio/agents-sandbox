@@ -23,10 +23,10 @@
 [*] user uid,gid aus System bestimmen und setzen bei image build.
 [*] rework --tree, more explanations, root command
 [*] support docker in VM
+[*] use less tokens for dev
 
 ## In Progress
 
-[ ] use less tokens for dev
 [ ] single VM per project with multiple workspaces to work around sqlite's fcntl() locking home dir?
 [ ] --branch merge deletes repo with changes
 
