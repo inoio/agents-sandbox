@@ -235,7 +235,7 @@ func TestProjectVMLifecycle(t *testing.T) {
 	}
 
 	// Step 1: EnsureProjectVM creates the VM.
-	sb, created, err := EnsureProjectVM(ctx, opts, cfg, imageRef, homeVolName, tmpRepo, logger)
+	sb, created, err := EnsureProjectVM(ctx, opts, cfg, imageRef, homeVolName, tmpRepo, nil, logger)
 	if err != nil {
 		t.Fatalf("EnsureProjectVM (create): %v", err)
 	}
@@ -277,7 +277,7 @@ func TestProjectVMLifecycle(t *testing.T) {
 		t.Fatalf("detach failed: %v", err)
 	}
 
-	sb2, created2, err := EnsureProjectVM(ctx, opts, cfg, imageRef, homeVolName, tmpRepo, logger)
+	sb2, created2, err := EnsureProjectVM(ctx, opts, cfg, imageRef, homeVolName, tmpRepo, nil, logger)
 	if err != nil {
 		t.Fatalf("EnsureProjectVM (reconnect): %v", err)
 	}

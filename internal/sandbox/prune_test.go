@@ -10,57 +10,57 @@ import (
 
 func TestExtractProjectSlugAndDigest_ImageReferences(t *testing.T) {
 	tests := []struct {
-		name            string
-		input           string
-		wantSlug        string
-		wantDigest      string
+		name       string
+		input      string
+		wantSlug   string
+		wantDigest string
 	}{
 		{
-			name:     "runner with digest tag",
-			input:    "opencode-msb/runner-myproject:xYz1234AbCdEfGh",
-			wantSlug: "myproject",
+			name:       "runner with digest tag",
+			input:      "opencode-msb/runner-myproject:xYz1234AbCdEfGh",
+			wantSlug:   "myproject",
 			wantDigest: "xYz1234AbCdEfGh",
 		},
 		{
-			name:     "runner with latest tag",
-			input:    "opencode-msb/runner-myproject:latest",
-			wantSlug: "myproject",
+			name:       "runner with latest tag",
+			input:      "opencode-msb/runner-myproject:latest",
+			wantSlug:   "myproject",
 			wantDigest: "",
 		},
 		{
-			name:     "runner with empty tag",
-			input:    "opencode-msb/runner-myproject:",
-			wantSlug: "myproject",
+			name:       "runner with empty tag",
+			input:      "opencode-msb/runner-myproject:",
+			wantSlug:   "myproject",
 			wantDigest: "",
 		},
 		{
-			name:     "runner no tag at all",
-			input:    "opencode-msb/runner-myproject",
-			wantSlug: "myproject",
+			name:       "runner no tag at all",
+			input:      "opencode-msb/runner-myproject",
+			wantSlug:   "myproject",
 			wantDigest: "",
 		},
 		{
-			name:     "runner with complex slug",
-			input:    "opencode-msb/runner-my-project-name:xYz1234AbCdEfGh",
-			wantSlug: "my-project-name",
+			name:       "runner with complex slug",
+			input:      "opencode-msb/runner-my-project-name:xYz1234AbCdEfGh",
+			wantSlug:   "my-project-name",
 			wantDigest: "xYz1234AbCdEfGh",
 		},
 		{
-			name:     "runner with multiple colons in tag (uses LastIndex)",
-			input:    "opencode-msb/runner-myproject:sha256:abc123",
-			wantSlug: "myproject:sha256",
+			name:       "runner with multiple colons in tag (uses LastIndex)",
+			input:      "opencode-msb/runner-myproject:sha256:abc123",
+			wantSlug:   "myproject:sha256",
 			wantDigest: "abc123",
 		},
 		{
-			name:     "base image excluded-like prefix still parsed",
-			input:    "opencode-msb/runner-base",
-			wantSlug: "base",
+			name:       "base image excluded-like prefix still parsed",
+			input:      "opencode-msb/runner-base",
+			wantSlug:   "base",
 			wantDigest: "",
 		},
 		{
-			name:     "base image with tag",
-			input:    "opencode-msb/runner-base:latest",
-			wantSlug: "base",
+			name:       "base image with tag",
+			input:      "opencode-msb/runner-base:latest",
+			wantSlug:   "base",
 			wantDigest: "",
 		},
 	}
@@ -80,27 +80,27 @@ func TestExtractProjectSlugAndDigest_ImageReferences(t *testing.T) {
 
 func TestExtractProjectSlugAndDigest_VMNames(t *testing.T) {
 	tests := []struct {
-		name     string
-		input    string
-		wantSlug string
+		name       string
+		input      string
+		wantSlug   string
 		wantDigest string
 	}{
 		{
-			name:     "simple vm name",
-			input:    "opencode-msb-vm-projectname-main",
-			wantSlug: "projectname",
+			name:       "simple vm name",
+			input:      "opencode-msb-vm-projectname-main",
+			wantSlug:   "projectname",
 			wantDigest: "",
 		},
 		{
-			name:     "slug with dash and branch with dash",
-			input:    "opencode-msb-vm-my-project-feature-branch",
-			wantSlug: "my-project-feature",
+			name:       "slug with dash and branch with dash",
+			input:      "opencode-msb-vm-my-project-feature-branch",
+			wantSlug:   "my-project-feature",
 			wantDigest: "",
 		},
 		{
-			name:     "single word slug with single word branch",
-			input:    "opencode-msb-vm-myproject-main",
-			wantSlug: "myproject",
+			name:       "single word slug with single word branch",
+			input:      "opencode-msb-vm-myproject-main",
+			wantSlug:   "myproject",
 			wantDigest: "",
 		},
 	}
@@ -120,33 +120,33 @@ func TestExtractProjectSlugAndDigest_VMNames(t *testing.T) {
 
 func TestExtractProjectSlugAndDigest_HomeVolumes(t *testing.T) {
 	tests := []struct {
-		name     string
-		input    string
-		wantSlug string
+		name       string
+		input      string
+		wantSlug   string
 		wantDigest string
 	}{
 		{
-			name:     "home volume with slug and digest",
-			input:    "opencode-msb-home-myproject-aB3cDe4fGhIjKl-xYz1234AbCdEfGh",
-			wantSlug: "myproject-aB3cDe4fGhIjKl",
+			name:       "home volume with slug and digest",
+			input:      "opencode-msb-home-myproject-aB3cDe4fGhIjKl-xYz1234AbCdEfGh",
+			wantSlug:   "myproject-aB3cDe4fGhIjKl",
 			wantDigest: "xYz1234AbCdEfGh",
 		},
 		{
-			name:     "home volume slug with dashes",
-			input:    "opencode-msb-home-my-project-aB3cDe4fGhIjKl",
-			wantSlug: "my-project",
+			name:       "home volume slug with dashes",
+			input:      "opencode-msb-home-my-project-aB3cDe4fGhIjKl",
+			wantSlug:   "my-project",
 			wantDigest: "aB3cDe4fGhIjKl",
 		},
 		{
-			name:     "home volume single part slug",
-			input:    "opencode-msb-home-myproject-xYz1234",
-			wantSlug: "myproject",
+			name:       "home volume single part slug",
+			input:      "opencode-msb-home-myproject-xYz1234",
+			wantSlug:   "myproject",
 			wantDigest: "xYz1234",
 		},
 		{
-			name:     "home volume only two parts (slug-digest)",
-			input:    "opencode-msb-home-proj-abc123",
-			wantSlug: "proj",
+			name:       "home volume only two parts (slug-digest)",
+			input:      "opencode-msb-home-proj-abc123",
+			wantSlug:   "proj",
 			wantDigest: "abc123",
 		},
 	}
@@ -166,23 +166,23 @@ func TestExtractProjectSlugAndDigest_HomeVolumes(t *testing.T) {
 
 func TestExtractProjectSlugAndDigest_TaskSandboxes(t *testing.T) {
 	tests := []struct {
-		name     string
-		input    string
-		wantSlug string
+		name       string
+		input      string
+		wantSlug   string
 		wantDigest string
 	}{
-			{
-				name:     "task sandbox",
-				input:    "opencode-msb-task-prefill-proj-1719432000",
-				wantSlug: "prefill-proj",
-				wantDigest: "",
-			},
-			{
-				name:     "task sandbox single slug part before dash",
-				input:    "opencode-msb-task-fill-proj",
-				wantSlug: "fill",
-				wantDigest: "",
-			},
+		{
+			name:       "task sandbox",
+			input:      "opencode-msb-task-prefill-proj-1719432000",
+			wantSlug:   "prefill-proj",
+			wantDigest: "",
+		},
+		{
+			name:       "task sandbox single slug part before dash",
+			input:      "opencode-msb-task-fill-proj",
+			wantSlug:   "fill",
+			wantDigest: "",
+		},
 	}
 
 	for _, tt := range tests {
@@ -200,21 +200,21 @@ func TestExtractProjectSlugAndDigest_TaskSandboxes(t *testing.T) {
 
 func TestExtractProjectSlugAndDigest_CloneVolumes(t *testing.T) {
 	tests := []struct {
-		name     string
-		input    string
-		wantSlug string
+		name       string
+		input      string
+		wantSlug   string
 		wantDigest string
 	}{
-			{
-				name:     "clone volume",
-				input:    "opencode-msb-clone-proj-aBc1234D-1719432000",
-				wantSlug: "proj-aBc1234D",
-				wantDigest: "",
-			},
 		{
-			name:     "clone volume minimal",
-			input:    "opencode-msb-clone-work-a1b2c3d4",
-			wantSlug: "work",
+			name:       "clone volume",
+			input:      "opencode-msb-clone-proj-aBc1234D-1719432000",
+			wantSlug:   "proj-aBc1234D",
+			wantDigest: "",
+		},
+		{
+			name:       "clone volume minimal",
+			input:      "opencode-msb-clone-work-a1b2c3d4",
+			wantSlug:   "work",
 			wantDigest: "",
 		},
 	}
@@ -234,39 +234,39 @@ func TestExtractProjectSlugAndDigest_CloneVolumes(t *testing.T) {
 
 func TestExtractProjectSlugAndDigest_UnrecognizedPrefixes(t *testing.T) {
 	tests := []struct {
-		name     string
-		input    string
-		wantSlug string
+		name       string
+		input      string
+		wantSlug   string
 		wantDigest string
 	}{
 		{
-			name:     "random string",
-			input:    "some-random-name",
-			wantSlug: "",
+			name:       "random string",
+			input:      "some-random-name",
+			wantSlug:   "",
 			wantDigest: "",
 		},
 		{
-			name:     "empty string",
-			input:    "",
-			wantSlug: "",
+			name:       "empty string",
+			input:      "",
+			wantSlug:   "",
 			wantDigest: "",
 		},
 		{
-			name:     "similar but wrong prefix",
-			input:    "opencode-msb-other-myslug",
-			wantSlug: "",
+			name:       "similar but wrong prefix",
+			input:      "opencode-msb-other-myslug",
+			wantSlug:   "",
 			wantDigest: "",
 		},
 		{
-			name:     "just the prefix no remainder for vm",
-			input:    "opencode-msb-vm-",
-			wantSlug: "",
+			name:       "just the prefix no remainder for vm",
+			input:      "opencode-msb-vm-",
+			wantSlug:   "",
 			wantDigest: "",
 		},
 		{
-			name:     "just the prefix home with single part after",
-			input:    "opencode-msb-home-",
-			wantSlug: "",
+			name:       "just the prefix home with single part after",
+			input:      "opencode-msb-home-",
+			wantSlug:   "",
 			wantDigest: "",
 		},
 	}
@@ -521,21 +521,21 @@ func TestStaleReport(t *testing.T) {
 
 func TestExtractProjectSlugAndDigest_ComplexSlugNames(t *testing.T) {
 	tests := []struct {
-		name     string
-		input    string
-		wantSlug string
+		name       string
+		input      string
+		wantSlug   string
 		wantDigest string
 	}{
 		{
-			name:     "home with long slug containing hashes",
-			input:    "opencode-msb-home-abcdef-gH1234AB5678CD-eF9012gH3456iJ",
-			wantSlug: "abcdef-gH1234AB5678CD",
+			name:       "home with long slug containing hashes",
+			input:      "opencode-msb-home-abcdef-gH1234AB5678CD-eF9012gH3456iJ",
+			wantSlug:   "abcdef-gH1234AB5678CD",
 			wantDigest: "eF9012gH3456iJ",
 		},
 		{
-			name:     "vm with single-part project name",
-			input:    "opencode-msb-vm-acme-corp",
-			wantSlug: "acme",
+			name:       "vm with single-part project name",
+			input:      "opencode-msb-vm-acme-corp",
+			wantSlug:   "acme",
 			wantDigest: "",
 		},
 	}
