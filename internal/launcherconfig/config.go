@@ -40,18 +40,30 @@ const (
 //nolint:gochecknoglobals // package-level constant slice
 var supportedExts = []string{".yaml", ".yml", ".json", extJSONC, extJSON5}
 
-// daysToHours parses duration strings like "7d" into time.Duration.
-// Go's time.ParseDuration supports ns/us/ms/s/m/h but not "d" (days).
-func daysToHours(s string) (time.Duration, bool) {
+// ParseHumanDuration parses duration strings like "7d", "2w", "6h", "30m"
+// into time.Duration. Go's time.ParseDuration supports ns/us/ms/s/m/h
+// but not "d" (days) or "w" (weeks).
+func ParseHumanDuration(s string) (time.Duration, bool) {
 	s = strings.TrimSpace(s)
-	if !strings.HasSuffix(s, "d") {
-		return 0, false
+	switch {
+	case strings.HasSuffix(s, "w"):
+		num, err := strconv.ParseInt(s[:len(s)-1], 10, 64)
+		if err != nil {
+			return 0, false
+		}
+		return time.Duration(num) * 7 * 24 * time.Hour, true
+	case strings.HasSuffix(s, "d"):
+		num, err := strconv.ParseInt(s[:len(s)-1], 10, 64)
+		if err != nil {
+			return 0, false
+		}
+		return time.Duration(num) * 24 * time.Hour, true
 	}
-	num, err := strconv.ParseInt(s[:len(s)-1], 10, 64)
-	if err != nil {
-		return 0, false
+	d, err := time.ParseDuration(s)
+	if err == nil {
+		return d, true
 	}
-	return time.Duration(num) * 24 * time.Hour, true
+	return 0, false
 }
 
 func durationDecodeHook() mapstructure.DecodeHookFunc {
@@ -66,7 +78,7 @@ func durationDecodeHook() mapstructure.DecodeHookFunc {
 		if !ok {
 			return data, nil
 		}
-		if d, ok := daysToHours(str); ok {
+		if d, ok := ParseHumanDuration(str); ok {
 			return d, nil
 		}
 		if d, err := time.ParseDuration(str); err == nil {
@@ -185,7 +197,7 @@ func validatePruneAges(v *viper.Viper) error {
 		// viper's GetDuration returned 0 — check if the raw value is a
 		// "7d"-style string that the decode hook failed to convert.
 		if s, ok := v.Get(key).(string); ok {
-			if parsed, ok := daysToHours(s); ok {
+			if parsed, ok := ParseHumanDuration(s); ok {
 				d = parsed
 			}
 		}

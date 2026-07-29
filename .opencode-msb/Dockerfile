@@ -11,7 +11,7 @@ RUN apt-get update && \
     rm -rf /var/lib/apt/lists/*
 
 USER dev
-# microsandbox so the agent can check --help, sources.
+# microsandbox so the agent can check --help, sources. Running VMs doesn't work because /dev/kvm is missing.
 RUN curl -fsSL https://github.com/superradcompany/microsandbox/releases/download/v0.6.7/install.sh | sh
 
 USER root
