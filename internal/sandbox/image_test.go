@@ -142,7 +142,14 @@ func TestBuildDockerImageSetsHostUserBuildArgs(t *testing.T) {
 
 func TestEnsureImageReturnsErrorWhenBuildFails(t *testing.T) {
 	l := output.NewPrinter(io.Discard, false)
-	_, _, err := EnsureImage(context.Background(), &failingDockerClient{}, EmbeddedDockerfile, "test-project", true, l)
+	_, _, _, err := EnsureImage(
+		context.Background(),
+		&failingDockerClient{},
+		EmbeddedDockerfile,
+		"test-project",
+		true,
+		l,
+	)
 	if err == nil {
 		t.Error("expected error when Docker build fails")
 	}
@@ -246,7 +253,7 @@ func (t *tagTrackingDockerClient) Close() error {
 func TestEnsureImageBuildsDindBaseWhenDockerfileReferencesDind(t *testing.T) {
 	cli := &tagTrackingDockerClient{}
 	dockerfile := []byte("FROM opencode-msb/runner-base-dind:latest\nRUN echo hi\n")
-	_, _, err := EnsureImage(context.Background(), cli, dockerfile, "test-project", false, newTestLogger(t))
+	_, _, _, err := EnsureImage(context.Background(), cli, dockerfile, "test-project", false, newTestLogger(t))
 	if err == nil {
 		t.Fatal("expected error from ImageInspect, got nil")
 	}
@@ -259,7 +266,7 @@ func TestEnsureImageBuildsDindBaseWhenDockerfileReferencesDind(t *testing.T) {
 func TestEnsureImageDoesNotBuildDindForPlainBase(t *testing.T) {
 	cli := &tagTrackingDockerClient{}
 	dockerfile := []byte("FROM opencode-msb/runner-base:latest\nRUN echo hi\n")
-	_, _, err := EnsureImage(context.Background(), cli, dockerfile, "test-project", false, newTestLogger(t))
+	_, _, _, err := EnsureImage(context.Background(), cli, dockerfile, "test-project", false, newTestLogger(t))
 	if err == nil {
 		t.Fatal("expected error from ImageInspect, got nil")
 	}
@@ -272,7 +279,7 @@ func TestEnsureImageDoesNotBuildDindForPlainBase(t *testing.T) {
 func TestEnsureImageDoesNotBuildDindOnForceWithoutReference(t *testing.T) {
 	cli := &tagTrackingDockerClient{}
 	dockerfile := []byte("FROM debian:trixie-slim\nRUN echo hi\n")
-	_, _, err := EnsureImage(context.Background(), cli, dockerfile, "test-project", true, newTestLogger(t))
+	_, _, _, err := EnsureImage(context.Background(), cli, dockerfile, "test-project", true, newTestLogger(t))
 	if err == nil {
 		t.Fatal("expected error from ImageInspect, got nil")
 	}

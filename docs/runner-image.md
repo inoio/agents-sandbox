@@ -68,19 +68,32 @@ RUN pip3 install ...
 
 ### PATH configuration
 
-Tools installed to a path not already in `PATH` must be explicitly added. The `dev` user's `PATH` is derived from `/etc/profile` and `/home/dev/.profile`.
+To add tools to the VM's `PATH`, set `ENV PATH=...:` in your Dockerfile. The launcher reads the image's `Config.Env` at VM creation time and passes these to the sandbox via `msb.WithEnv()`, making them available to all processes including the init process (PID 1, which runs `opencode serve`).
 
-For root-installed tools:
-
-```dockerfile
-RUN echo 'export PATH="$PATH:/usr/local/go/bin"' >> /etc/profile
-```
-
-For user-installed tools:
+For root-installed tools (Go, etc.):
 
 ```dockerfile
-RUN echo 'export PATH="$PATH:/home/dev/.local/bin"' >> /home/dev/.profile
+FROM opencode-msb/runner:base
+
+USER root
+ENV PATH="/usr/local/go/bin:$PATH"
+# Install Go binaries
+RUN curl -fsSL https://go.dev/dl/go1.23.0.linux-amd64.tar.gz | tar -C /usr/local -xzf -
+
+USER dev
 ```
+
+For user-installed tools (msb CLI, Node.js binaries):
+
+```dockerfile
+USER dev
+RUN curl -fsSL https://github.com/superradcompany/microsandbox/releases/download/v0.6.7/install.sh | sh
+
+USER root
+ENV PATH="/home/dev/.microsandbox/bin:$PATH"
+```
+
+The `ENV` directives from all layers (base image + project overrides) are collected from the final image's OCI config and merged into the sandbox environment.
 
 ## Building and Managing Images
 

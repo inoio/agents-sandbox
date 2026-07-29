@@ -10,6 +10,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strconv"
 	"strings"
 
@@ -109,6 +110,108 @@ func runnerTag(projectSlug string) string {
 	return "opencode-msb/runner-" + projectSlug + ":latest"
 }
 
+// envDir returns the project-local metadata directory for image env info.
+func envDir() string {
+	return ".opencode-msb"
+}
+
+// envMetaFile returns the JSON file path for image env metadata, keyed by the
+// stable tag so the data survives image rebuilds and docker prune.
+func envMetaFile(tag string) string {
+	return filepath.Join(envDir(), "image-env-"+tag+".json")
+}
+
+// storeImageEnv writes image env vars to a JSON file.
+// Survives docker prune and image rebuilds.
+func storeImageEnv(tag string, envs map[string]string) {
+	if tag == "" || len(envs) == 0 {
+		return
+	}
+	dir := envDir()
+	if err := os.MkdirAll(dir, 0o750); err != nil {
+		return
+	}
+	data, _ := json.Marshal(envs)
+	_ = os.WriteFile(envMetaFile(tag), data, 0o600)
+}
+
+// loadImageEnv reads a previously stored image env map from the cached JSON
+// file keyed by tag. Returns nil if no file exists.
+func loadImageEnv(tag string) map[string]string {
+	path := envMetaFile(tag)
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil
+	}
+	out := make(map[string]string)
+	if err := json.Unmarshal(data, &out); err != nil {
+		return nil
+	}
+	return out
+}
+
+// ensureRunnerImage checks the runner Docker image on disk, loads stored env
+// metadata as fallback when the image has been pruned, builds it if needed,
+// and returns the tag, digest, and image env map.
+func ensureRunnerImage(
+	ctx context.Context,
+	cli dockerClient,
+	dockerfile []byte,
+	projectSlug string,
+	force bool,
+	logger *output.Printer,
+) (string, string, map[string]string, error) {
+	rTag := runnerTag(projectSlug)
+	mustBuild := force
+	imageEnv := make(map[string]string)
+	var imageDigest string
+
+	if !force {
+		_, inspectErr := cli.ImageInspect(ctx, rTag)
+		if inspectErr != nil {
+			logger.Debugf("image inspect failed (might be pruned): %v", inspectErr)
+			if cached := loadImageEnv(rTag); cached != nil {
+				imageEnv = cached
+				logger.Debugf("using stored image env metadata for %s", rTag)
+			}
+			mustBuild = true
+		} else {
+			inspect, err := cli.ImageInspect(ctx, rTag)
+			if err == nil {
+				imageDigest = inspect.ID
+				imageEnv = parseImageEnv(inspect.Config.Env)
+				storeImageEnv(rTag, imageEnv)
+				logger.Debugf("inspected image %s with %d env vars", rTag, len(imageEnv))
+			}
+		}
+	}
+
+	if mustBuild {
+		if err := buildDockerImage(ctx, cli, dockerfile, rTag, "Building runner image", force, logger); err != nil {
+			if len(imageEnv) > 0 {
+				logger.Warnf("build succeeded but inspect failed; using stored env metadata")
+				return rTag, imageDigest, imageEnv, nil
+			}
+			return "", "", nil, err
+		}
+		inspect, err := cli.ImageInspect(ctx, rTag)
+		if err != nil {
+			return "", "", nil, fmt.Errorf("cannot inspect built image: %w", err)
+		}
+		imageDigest = inspect.ID
+		imageEnv = parseImageEnv(inspect.Config.Env)
+		storeImageEnv(rTag, imageEnv)
+		logger.Debugf("rebuilt image %s with %d env vars", rTag, len(imageEnv))
+	}
+
+	return rTag, imageDigest, imageEnv, nil
+}
+
+// EnsureImage builds/inspects the runner Docker image and returns its tag,
+// digest, and the Dockerfile ENV directives baked into the image config as a
+// map. The env map is derived from cli.ImageInspect; if the image is no
+// longer on disk (e.g. after `docker prune`), it falls back to stored JSON
+// metadata written by a previous invokation.
 func EnsureImage(
 	ctx context.Context,
 	cli dockerClient,
@@ -116,7 +219,7 @@ func EnsureImage(
 	projectSlug string,
 	force bool,
 	logger *output.Printer,
-) (string, string, error) {
+) (string, string, map[string]string, error) {
 	if force || ReferencesBase(dockerfile) || ReferencesDindBase(dockerfile) {
 		if err := buildDockerImage(
 			ctx,
@@ -127,7 +230,7 @@ func EnsureImage(
 			force,
 			logger,
 		); err != nil {
-			return "", "", fmt.Errorf("building base image: %w", err)
+			return "", "", nil, fmt.Errorf("building base image: %w", err)
 		}
 	}
 
@@ -137,29 +240,24 @@ func EnsureImage(
 			cli,
 			EmbeddedDindDockerfile,
 			DindBaseTag,
-			"Building Docker-in-Docker base image",
+			"Building Docker-in-Docker base runner image",
 			force,
 			logger,
 		); err != nil {
-			return "", "", fmt.Errorf("building dind base image: %w", err)
+			return "", "", nil, fmt.Errorf("building dind base image: %w", err)
 		}
 	}
 
-	rTag := runnerTag(projectSlug)
-	if err := buildDockerImage(ctx, cli, dockerfile, rTag, "Building runner image", force, logger); err != nil {
-		return "", "", err
+	rTag, imageDigest, imageEnv, err := ensureRunnerImage(ctx, cli, dockerfile, projectSlug, force, logger)
+	if err != nil {
+		return "", "", nil, err
 	}
 
-	inspect, err := cli.ImageInspect(ctx, rTag)
-	if err != nil {
-		return "", "", fmt.Errorf("cannot inspect built image: %w", err)
-	}
-	imageDigest := inspect.ID
 	imageRef := ImageTag(projectSlug, imageDigest)
 
 	_, cacheErr := msb.Image.Get(ctx, imageRef)
 	if cacheErr == nil && !force {
-		return imageRef, imageDigest, nil
+		return imageRef, imageDigest, imageEnv, nil
 	}
 
 	spin := output.NewSpinner(logger)
@@ -167,7 +265,7 @@ func EnsureImage(
 	saveResult, err := cli.ImageSave(ctx, []string{rTag})
 	if err != nil {
 		spin.StopError(err)
-		return "", "", fmt.Errorf("cannot export Docker image: %w", err)
+		return "", "", nil, fmt.Errorf("cannot export Docker image: %w", err)
 	}
 	defer saveResult.Close()
 
@@ -175,11 +273,21 @@ func EnsureImage(
 	cmd.Stdin = saveResult
 	if out, err := cmd.CombinedOutput(); err != nil {
 		spin.StopError(err)
-		return "", "", fmt.Errorf("loading image into microsandbox failed: %w: %s", err, out)
+		return "", "", nil, fmt.Errorf("loading image into microsandbox failed: %w: %s", err, out)
 	}
 	spin.Stop()
 
-	return imageRef, imageDigest, nil
+	return imageRef, imageDigest, imageEnv, nil
+}
+
+func parseImageEnv(envs []string) map[string]string {
+	out := make(map[string]string, len(envs))
+	for _, e := range envs {
+		if i := strings.Index(e, "="); i > 0 {
+			out[e[:i]] = e[i+1:]
+		}
+	}
+	return out
 }
 
 func buildDockerImage(

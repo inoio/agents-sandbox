@@ -3,8 +3,10 @@ package sandbox
 import (
 	"context"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"gitlab.inoio.de/inoio/opencode-msb/internal/git"
@@ -36,7 +38,24 @@ const (
 
 const defaultVMIdleTimeout = 30 * time.Second
 
-func buildProjectVMEnv(envMap map[string]string) {
+func buildProjectVMEnv(envMap map[string]string, imageEnvs map[string]string) {
+	// Merge env vars baked into the Docker image (set via Dockerfile ENV directives).
+	// These are parsed by docker.ImageInspect at build time and include everything
+	// from base images (debian defaults) through custom Dockerfile ENVs.
+	maps.Copy(envMap, imageEnvs)
+	if _, ok := envMap["PATH"]; !ok {
+		// Fallback: if image env does not provide a PATH, inherit from the
+		// host. This covers the case where the Dockerfile has no ENV
+		// directives OR the image was pruned with no stored metadata.
+		for _, e := range os.Environ() {
+			if i := strings.Index(e, "="); i > 0 {
+				key := e[:i]
+				if _, exist := envMap[key]; !exist {
+					envMap[key] = e[i+1:]
+				}
+			}
+		}
+	}
 	envMap["OPENCODE_EXPERIMENTAL_WORKSPACES"] = "true"
 }
 
@@ -69,6 +88,7 @@ func EnsureProjectVM(
 	opts RunOptions,
 	cfg Config,
 	imageRef, homeVol, repoPath string,
+	imageEnvs map[string]string,
 	logger *output.Printer,
 ) (*msb.Sandbox, bool, error) {
 	slug := git.ProjectSlug(logger)
@@ -187,7 +207,7 @@ func EnsureProjectVM(
 		return nil, false, fmt.Errorf("re-check sandbox %q: %w", name, err)
 	}
 
-	sb, created, err := createProjectVM(ctx, name, imageRef, homeVol, repoPath, opts, cfg, logger)
+	sb, created, err := createProjectVM(ctx, name, imageRef, homeVol, repoPath, opts, cfg, imageEnvs, logger)
 	if err != nil {
 		return nil, false, err
 	}
@@ -199,6 +219,7 @@ func createProjectVM(
 	name, imageRef, homeVol, repoPath string,
 	opts RunOptions,
 	cfg Config,
+	imageEnvs map[string]string,
 	logger *output.Printer,
 ) (*msb.Sandbox, bool, error) {
 	user := opts.User
@@ -216,7 +237,8 @@ func createProjectVM(
 		buildEnvMap(filepath.Join(cfg.UserLauncherDir, "env")),
 		buildEnvMap(".opencode-msb/env"),
 	)
-	buildProjectVMEnv(envMap)
+	logger.Debugf("adding docker env definitions to project VM environment: %s", imageEnvs)
+	buildProjectVMEnv(envMap, imageEnvs)
 
 	secrets := BuildSecrets(mergeEnvMaps(
 		buildEnvMap(filepath.Join(cfg.UserLauncherDir, "env.secret")),
