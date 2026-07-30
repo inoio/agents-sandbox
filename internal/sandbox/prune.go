@@ -273,10 +273,10 @@ func Prune(
 			if !dryRun {
 				if removeErr := msb.RemoveSandbox(ctx, name); removeErr != nil {
 					logger.Warnf("failed to remove task sandbox %s: %v", name, removeErr)
-				} else {
-					report.PrunedTaskSandboxes++
+					continue
 				}
 			}
+			report.PrunedTaskSandboxes++
 		}
 	}
 
@@ -360,20 +360,20 @@ func Prune(
 		if !dryRun {
 			if err := msb.RemoveSandbox(ctx, entry.Name); err != nil {
 				logger.Warnf("failed to remove stale VM %s: %v", entry.Name, err)
-			} else {
-				report.PrunedVMs++
+				continue
 			}
 		}
+		report.PrunedVMs++
 		// Cascade-delete all home volumes for this slug.
 		if vols, ok := homeBySlugDigest[slug]; ok {
 			for _, volName := range vols {
 				if !dryRun {
 					if err := msb.RemoveVolume(ctx, volName); err != nil {
 						logger.Warnf("failed to remove home volume %s: %v", volName, err)
-					} else {
-						report.PrunedVolumes++
+						continue
 					}
 				}
+				report.PrunedVolumes++
 			}
 		}
 		// Cascade-delete all images.
@@ -381,10 +381,10 @@ func Prune(
 			if !dryRun {
 				if err := msb.Image.Remove(ctx, img.ref, true); err != nil {
 					logger.Warnf("failed to remove msb image %s: %v", img.ref, err)
-				} else {
-					report.PrunedMSBImages++
+					continue
 				}
 			}
+			report.PrunedMSBImages++
 		}
 		for _, img := range msbImagesBySlug[slug] {
 			if !dryRun {
@@ -392,10 +392,10 @@ func Prune(
 				cmd := exec.CommandContext(ctx, "docker", "rmi", dockerRef)
 				if out, err := cmd.CombinedOutput(); err != nil {
 					logger.Warnf("failed to remove docker image %s: %v: %s", dockerRef, err, string(out))
-				} else {
-					report.PrunedDockerImages++
+					continue
 				}
 			}
+			report.PrunedDockerImages++
 		}
 	}
 
@@ -424,10 +424,10 @@ func Prune(
 				if !dryRun {
 					if err := msb.RemoveVolume(ctx, volName); err != nil {
 						logger.Warnf("failed to remove home volume %s: %v", volName, err)
-					} else {
-						report.PrunedVolumes++
+						continue
 					}
 				}
+				report.PrunedVolumes++
 			}
 		}
 		// Images: delete unused ones, keep :latest, keep matching digest.
@@ -442,10 +442,10 @@ func Prune(
 			if !dryRun {
 				if err := msb.Image.Remove(ctx, img.ref, true); err != nil {
 					logger.Warnf("failed to remove msb image %s: %v", img.ref, err)
-				} else {
-					report.PrunedMSBImages++
+					continue
 				}
 			}
+			report.PrunedMSBImages++
 		}
 		// Docker: same.
 		for _, img := range msbImagesBySlug[slug] {
@@ -460,10 +460,10 @@ func Prune(
 				cmd := exec.CommandContext(ctx, "docker", "rmi", dockerRef)
 				if out, err := cmd.CombinedOutput(); err != nil {
 					logger.Warnf("failed to remove docker image %s: %v: %s", dockerRef, err, string(out))
-				} else {
-					report.PrunedDockerImages++
+					continue
 				}
 			}
+			report.PrunedDockerImages++
 		}
 	}
 
@@ -484,20 +484,20 @@ func Prune(
 					if !dryRun {
 						if err := msb.RemoveVolume(ctx, volName); err != nil {
 							logger.Warnf("failed to remove home volume %s: %v", volName, err)
-						} else {
-							report.PrunedVolumes++
+							continue
 						}
 					}
+					report.PrunedVolumes++
 				}
 			}
 			for _, img := range msbImagesBySlug[slug] {
 				if !dryRun {
 					if err := msb.Image.Remove(ctx, img.ref, true); err != nil {
 						logger.Warnf("failed to remove msb image %s: %v", img.ref, err)
-					} else {
-						report.PrunedMSBImages++
+						continue
 					}
 				}
+				report.PrunedMSBImages++
 			}
 			for _, img := range msbImagesBySlug[slug] {
 				if !dryRun {
@@ -505,10 +505,10 @@ func Prune(
 					cmd := exec.CommandContext(ctx, "docker", "rmi", dockerRef)
 					if out, err := cmd.CombinedOutput(); err != nil {
 						logger.Warnf("failed to remove docker image %s: %v: %s", dockerRef, err, string(out))
-					} else {
-						report.PrunedDockerImages++
+						continue
 					}
 				}
+				report.PrunedDockerImages++
 			}
 		}
 	}
@@ -530,20 +530,20 @@ func Prune(
 			if !dryRun {
 				if err := msb.RemoveVolume(ctx, cv); err != nil {
 					logger.Warnf("failed to remove clone volume %s: %v", cv, err)
-				} else {
-					report.PrunedCloneVolumes++
+					continue
 				}
 			}
+			report.PrunedCloneVolumes++
 			continue
 		}
 		// Already a stale VM with this slug. Delete orphaned clones.
 		if !dryRun {
 			if err := msb.RemoveVolume(ctx, cv); err != nil {
 				logger.Warnf("failed to remove clone volume %s: %v", cv, err)
-			} else {
-				report.PrunedCloneVolumes++
+				continue
 			}
 		}
+		report.PrunedCloneVolumes++
 	}
 
 	return report, nil
