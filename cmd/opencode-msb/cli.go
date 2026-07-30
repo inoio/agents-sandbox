@@ -689,10 +689,9 @@ func buildPruneCmd() *cobra.Command {
 				age = 7 * 24 * time.Hour
 			}
 			dryRun, _ := cmd.Flags().GetBool("dry-run")
-			dryRunVM, _ := cmd.Flags().GetBool("dry-run-vm")
 			force, _ := cmd.Flags().GetBool("force")
 			logger := newLogger(cmd)
-			report, err := sandbox.Prune(cmd.Context(), age, dryRun, dryRunVM, force, logger)
+			report, err := sandbox.Prune(cmd.Context(), age, dryRun, force, logger)
 			if err != nil {
 				return err
 			}
