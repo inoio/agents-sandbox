@@ -78,6 +78,8 @@ func findHashSuffix(name string) int {
 //	"opencode-msb-vm-projectname-main" → slug="projectname", digest=""
 //	"opencode-msb-home-myproject-aB3cDe4fGhIjKl-xYz1234AbCdEfGh" → slug="myproject-aB3cDe4fGhIjKl", digest="xYz1234AbCdEfGh"
 //	"opencode-msb/runner-myproject:xYz1234AbCdEfGh" → slug="myproject", digest="xYz1234AbCdEfGh"
+//
+//nolint:nonamedreturns // named returns simplify the many return paths in this parser
 func extractProjectSlugAndDigest(name string) (slug, digest string) {
 	// Handle image references: opencode-msb/runner-{slug}:{tag}
 	if strings.HasPrefix(name, "opencode-msb/runner-") {
@@ -176,6 +178,8 @@ func findStaleVMs(sandboxes []staleVM, threshold time.Duration) []StaleEntry {
 				Type:     "vm",
 				Name:     s.name,
 				StaleFor: elapsed,
+				Slug:     "",
+				Digest:   "",
 			})
 		}
 	}
@@ -202,10 +206,18 @@ func (r *StaleReport) HasAnything() bool {
 func Prune(
 	ctx context.Context,
 	threshold time.Duration,
-	dryRun, force bool,
+	dryRun, _ bool,
 	logger *output.Printer,
 ) (*StaleReport, error) {
-	report := &StaleReport{}
+	report := &StaleReport{
+		PrunedVMs:           0,
+		PrunedVolumes:       0,
+		PrunedDockerImages:  0,
+		PrunedMSBImages:     0,
+		PrunedTaskSandboxes: 0,
+		PrunedCloneVolumes:  0,
+		Details:             nil,
+	}
 
 	// Step 1: list all sandboxes.
 	sandboxHandles, err := msb.ListSandboxes(ctx)
@@ -230,12 +242,13 @@ func Prune(
 					name:      name,
 					status:    status,
 					updatedAt: h.UpdatedAt(),
+					image:     "",
 				})
 				continue
 			}
 			// Active VM: extract image ref.
-			cfg, err := h.Config()
-			if err != nil {
+			cfg, configErr := h.Config()
+			if configErr != nil {
 				continue // best-effort: skip if config unreadable
 			}
 			staleVMs = append(staleVMs, staleVM{
@@ -255,6 +268,7 @@ func Prune(
 				Name:     name,
 				StaleFor: elapsed,
 				Slug:     slug,
+				Digest:   "",
 			})
 			if !dryRun {
 				if removeErr := msb.RemoveSandbox(ctx, name); removeErr != nil {
@@ -387,7 +401,7 @@ func Prune(
 
 	// --- Case 2: Active VM exists (delete unused artifacts) ---
 	// Collect active VM slugs -> digest.
-	activeVmDigests := make(map[string]string)
+	activeVMDigests := make(map[string]string)
 	for _, vm := range staleVMs {
 		slug, _ := extractProjectSlugAndDigest(vm.name)
 		// Already-stale VMs: handled in Case 1 above. Skip here.
@@ -396,10 +410,10 @@ func Prune(
 		}
 		if vm.image != "" {
 			_, digest := extractProjectSlugAndDigest(vm.image)
-			activeVmDigests[slug] = digest
+			activeVMDigests[slug] = digest
 		}
 	}
-	for slug, digest := range activeVmDigests {
+	for slug, digest := range activeVMDigests {
 		// Home volumes: delete those NOT matching the VM's digest.
 		if vols, ok := homeBySlugDigest[slug]; ok {
 			for volDigest, volName := range vols {
@@ -455,15 +469,15 @@ func Prune(
 
 	// --- Case 3: No VM for slug (delete everything, no age threshold) ---
 	// Collect all VM slugs.
-	allVmSlugs := make(map[string]bool)
+	allVMSlugs := make(map[string]bool)
 	for _, entry := range staleEntries {
-		allVmSlugs[entry.Slug] = true
+		allVMSlugs[entry.Slug] = true
 	}
-	for slug := range activeVmDigests {
-		allVmSlugs[slug] = true
+	for slug := range activeVMDigests {
+		allVMSlugs[slug] = true
 	}
 	for slug := range msbImagesBySlug {
-		if !allVmSlugs[slug] {
+		if !allVMSlugs[slug] {
 			// No VM for this slug → delete everything.
 			if vols, ok := homeBySlugDigest[slug]; ok {
 				for _, volName := range vols {
@@ -502,7 +516,7 @@ func Prune(
 	// Delete orphaned clone volumes (not associated with any active VM).
 	// Also delete clone volumes for stale VM slugs (cascade) and orphan slugs.
 	activeVMSlugs := make(map[string]bool)
-	for slug := range activeVmDigests {
+	for slug := range activeVMDigests {
 		activeVMSlugs[slug] = true
 	}
 	for _, cv := range cloneVolumes {
@@ -511,16 +525,7 @@ func Prune(
 			continue
 		}
 		// Clone volumes for stale OR orphan slugs → delete.
-		if vmSlugs[slug] {
-			// Already a stale VM with this slug. Delete orphaned clones.
-			if !dryRun {
-				if err := msb.RemoveVolume(ctx, cv); err != nil {
-					logger.Warnf("failed to remove clone volume %s: %v", cv, err)
-				} else {
-					report.PrunedCloneVolumes++
-				}
-			}
-		} else {
+		if !vmSlugs[slug] {
 			// Orphan slug: no VM at all → delete clone volume.
 			if !dryRun {
 				if err := msb.RemoveVolume(ctx, cv); err != nil {
@@ -528,6 +533,15 @@ func Prune(
 				} else {
 					report.PrunedCloneVolumes++
 				}
+			}
+			continue
+		}
+		// Already a stale VM with this slug. Delete orphaned clones.
+		if !dryRun {
+			if err := msb.RemoveVolume(ctx, cv); err != nil {
+				logger.Warnf("failed to remove clone volume %s: %v", cv, err)
+			} else {
+				report.PrunedCloneVolumes++
 			}
 		}
 	}
