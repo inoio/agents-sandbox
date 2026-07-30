@@ -24,9 +24,6 @@ import (
 )
 
 const (
-	flagTree    = "--tree"
-	flagVersion = "--version"
-
 	cmdRun    = "run"
 	cmdDoctor = "doctor"
 	cmdBuild  = "build"
@@ -37,6 +34,8 @@ const (
 	cmdStop   = "stop"
 	cmdKill   = "kill"
 
+	flagTree    = "--tree"
+	flagVersion = "--version"
 	flagYes     = "yes"
 	flagVerbose = "verbose"
 	flagQuiet   = "quiet"
@@ -103,7 +102,7 @@ func buildRootCmd() *cobra.Command {
 		if yes, _ := cmd.Flags().GetBool("yes"); yes {
 			prompt.AssumeYes = true //nolint:reassign // CLI flag override, set once at startup
 		}
-		verbose, _ := cmd.Flags().GetBool("verbose")
+/*		verbose, _ := cmd.Flags().GetBool("verbose")
 		quiet, _ := cmd.Flags().GetBool("quiet")
 		level := output.LevelNormal
 		if quiet {
@@ -111,8 +110,10 @@ func buildRootCmd() *cobra.Command {
 		} else if verbose {
 			level = output.LevelVerbose
 		}
-		logger := output.NewPrinterWithLevel(os.Stderr, term.IsTerminal(int(os.Stderr.Fd())), level)
-		sandbox.AutoPrune(cmd.Context(), 0, logger)
+		//logger := output.NewPrinterWithLevel(os.Stderr, term.IsTerminal(int(os.Stderr.Fd())), level)
+		//sandbox.AutoPrune(cmd.Context(), 0, logger)
+
+ */
 		return nil
 	}
 
@@ -689,9 +690,8 @@ func buildPruneCmd() *cobra.Command {
 				age = 7 * 24 * time.Hour
 			}
 			dryRun, _ := cmd.Flags().GetBool("dry-run")
-			force, _ := cmd.Flags().GetBool("force")
 			logger := newLogger(cmd)
-			report, err := sandbox.Prune(cmd.Context(), age, dryRun, force, logger)
+			report, err := sandbox.Prune(cmd.Context(), age, dryRun, logger)
 			if err != nil {
 				return err
 			}
