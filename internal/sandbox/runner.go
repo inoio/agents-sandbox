@@ -337,11 +337,11 @@ func Run(ctx context.Context, opts RunOptions, cfg Config, logger *output.Printe
 	defer session.cleanup()
 
 	if opts.DryRun {
-		logger.Infof("dry run: would run opencode")
+		logger.Infof("dry-run: Would run opencode")
 		return nil
 	}
 	if opts.DryRunVM && session.sb == nil {
-		logger.Infof("dry run: would start opencode in VM")
+		logger.Infof("dry-run: Would start opencode in VM")
 		return nil
 	}
 
@@ -367,11 +367,11 @@ func Shell(ctx context.Context, opts RunOptions, cfg Config, logger *output.Prin
 	defer session.cleanup()
 
 	if opts.DryRun {
-		logger.Infof("dry run: would start interactive shell session")
+		logger.Infof("dry-run: Would start interactive shell session")
 		return nil
 	}
 	if opts.DryRunVM && session.sb == nil {
-		logger.Infof("dry run: would start interactive shell session")
+		logger.Infof("dry-run: Would start interactive shell session")
 		return nil
 	}
 

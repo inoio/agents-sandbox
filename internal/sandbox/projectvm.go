@@ -92,7 +92,7 @@ func EnsureProjectVM(
 	logger *output.Printer,
 ) (*msb.Sandbox, bool, error) {
 	if opts.DryRunVM {
-		logger.Debugf("dry run: VM lifecycle skipped (--dry-run-vm)")
+		logger.Debugf("dry-run: VM lifecycle skipped")
 		return nil, false, nil
 	}
 
