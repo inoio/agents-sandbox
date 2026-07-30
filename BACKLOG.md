@@ -27,6 +27,7 @@
 
 ## In Progress
 
+[ ] prune does not seem to work
 [ ] single VM per project with multiple workspaces to work around sqlite's fcntl() locking home dir?
 [ ] --branch merge deletes repo with changes
 
