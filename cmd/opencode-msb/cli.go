@@ -676,7 +676,7 @@ func buildPruneCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			if report != nil && report.HasAnything() {
+			if report != nil {
 				printPruneSummary(report, dryRun)
 			}
 			return nil
@@ -694,25 +694,14 @@ func printPruneSummary(report *sandbox.StaleReport, dryRun bool) {
 		action = "Would prune"
 	}
 
-	var parts []string
-	parts = append(parts, action)
-	if report.PrunedVMs > 0 {
-		parts = append(parts, fmt.Sprintf("%d VMs", report.PrunedVMs))
-	}
-	if report.PrunedVolumes > 0 {
-		parts = append(parts, fmt.Sprintf("%d home volumes", report.PrunedVolumes))
-	}
-	if report.PrunedDockerImages > 0 {
-		parts = append(parts, fmt.Sprintf("%d docker images", report.PrunedDockerImages))
-	}
-	if report.PrunedMSBImages > 0 {
-		parts = append(parts, fmt.Sprintf("%d msb images", report.PrunedMSBImages))
-	}
-	if report.PrunedTaskSandboxes > 0 {
-		parts = append(parts, fmt.Sprintf("%d task sandboxes", report.PrunedTaskSandboxes))
-	}
-	if report.PrunedCloneVolumes > 0 {
-		parts = append(parts, fmt.Sprintf("%d clone volumes", report.PrunedCloneVolumes))
+	parts := []string{
+		action,
+		fmt.Sprintf("%d VMs", report.PrunedVMs),
+		fmt.Sprintf("%d home volumes", report.PrunedVolumes),
+		fmt.Sprintf("%d docker images", report.PrunedDockerImages),
+		fmt.Sprintf("%d msb images", report.PrunedMSBImages),
+		fmt.Sprintf("%d task sandboxes", report.PrunedTaskSandboxes),
+		fmt.Sprintf("%d clone volumes", report.PrunedCloneVolumes),
 	}
 
 	fmt.Println(strings.Join(parts, ", "))
