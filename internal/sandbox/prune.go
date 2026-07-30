@@ -206,7 +206,7 @@ func (r *StaleReport) HasAnything() bool {
 func Prune(
 	ctx context.Context,
 	threshold time.Duration,
-	dryRun, force bool,
+	dryRun bool,
 	logger *output.Printer,
 ) (*StaleReport, error) {
 	report := &StaleReport{
