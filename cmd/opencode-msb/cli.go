@@ -631,14 +631,12 @@ func buildStopCmd() *cobra.Command {
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			force, _ := cmd.Flags().GetBool("force")
 			dryRun, _ := cmd.Flags().GetBool("dry-run")
-			dryRunVM, _ := cmd.Flags().GetBool("dry-run-vm")
 			logger := newLogger(cmd)
-			return sandbox.StopProjectVM(cmd.Context(), force, dryRun, dryRunVM, logger)
+			return sandbox.StopProjectVM(cmd.Context(), force, dryRun, logger)
 		},
 	}
 	cmd.Flags().BoolP("force", "f", false, "Remove the VM's persisted state after stopping")
 	cmd.Flags().BoolP("dry-run", "n", false, "Show what would be stopped without stopping")
-	cmd.Flags().Bool("dry-run-vm", false, "Show what would be stopped without stopping")
 	return cmd
 }
 
@@ -652,14 +650,12 @@ func buildKillCmd() *cobra.Command {
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			force, _ := cmd.Flags().GetBool("force")
 			dryRun, _ := cmd.Flags().GetBool("dry-run")
-			dryRunVM, _ := cmd.Flags().GetBool("dry-run-vm")
 			logger := newLogger(cmd)
-			return sandbox.KillProjectVM(cmd.Context(), force, dryRun, dryRunVM, logger)
+			return sandbox.KillProjectVM(cmd.Context(), force, dryRun, logger)
 		},
 	}
 	cmd.Flags().BoolP("force", "f", false, "Remove the VM's persisted state after killing")
 	cmd.Flags().BoolP("dry-run", "n", false, "Show what would be killed without killing")
-	cmd.Flags().Bool("dry-run-vm", false, "Show what would be killed without killing")
 	return cmd
 }
 
