@@ -39,15 +39,16 @@ func (e *ExitError) Error() string {
 }
 
 type RunOptions struct {
-	Branch  string
-	Rebuild bool
-	DryRun  bool
-	CPUs    uint8
-	Memory  string
-	TmpSize string
-	User    string
-	Auto    bool
-	Args    []string
+	Branch   string
+	Rebuild  bool
+	DryRun   bool
+	DryRunVM bool
+	CPUs     uint8
+	Memory   string
+	TmpSize  string
+	User     string
+	Auto     bool
+	Args     []string
 }
 
 type Config struct {
@@ -226,7 +227,7 @@ func prepareSandbox(
 	logger.Debugf("image: %s (digest=%s)", imageRef, imageDigest)
 
 	vm := NewVolumeManager(logger)
-	homeVol, err := vm.EnsureHome(ctx, projectSlug, imageDigest, imageRef)
+	homeVol, err := vm.EnsureHome(ctx, projectSlug, imageDigest, imageRef, opts)
 	if err != nil {
 		return nil, fmt.Errorf("volume setup failed: %w", err)
 	}
@@ -238,28 +239,47 @@ func prepareSandbox(
 	}
 	name := projectVMName(projectSlug)
 
-	// Build the merged config and compute its hash.
-	cfs, err := loadConfigFiles(cfg.UserConfigDir)
-	if err != nil {
-		return nil, err
-	}
+	var sandboxTarget string
+	if sb == nil {
+		logger.Infof("VM lifecycle skipped (--dry-run-vm)")
+		sandboxTarget = resolveTargetNoBranch()
+	} else {
+		// Build the merged config and compute its hash.
+		cfs, err := loadConfigFiles(cfg.UserConfigDir)
+		if err != nil {
+			return nil, err
+		}
 
-	// Read the config currently in the VM and compute its hash so we can
-	// detect whether it differs from the one we are about to provision.
-	vmHash, readErr := readConfigFromVM(ctx, sb)
-	if readErr != nil {
-		logger.Warnf("failed to read VM config: %v (proceeding without comparison)", readErr)
-	}
+		// Read the config currently in the VM and compute its hash so we can
+		// detect whether it differs from the one we are about to provision.
+		vmHash, readErr := readConfigFromVM(ctx, sb)
+		if readErr != nil {
+			logger.Warnf("failed to read VM config: %v (proceeding without comparison)", readErr)
+		}
 
-	// Decide whether we need to provision and restart.
-	if vmHash != "" && vmHash != cfs.hash {
-		// Config changed — prompt only if the daemon is currently healthy.
-		if daemonIsHealthy(ctx, sb) {
-			action, promptErr := promptConfigChange(cfs.hash, logger)
-			if promptErr != nil {
-				return nil, promptErr
-			}
-			if action == "restart" {
+		// Decide whether we need to provision and restart.
+		if vmHash != "" && vmHash != cfs.hash {
+			if daemonIsHealthy(ctx, sb) {
+				action, promptErr := promptConfigChange(cfs.hash, logger)
+				if promptErr != nil {
+					return nil, promptErr
+				}
+				if action == "restart" {
+					provisionCtx, cancel := context.WithTimeout(ctx, provisionTimeout)
+					if provErr := provisionSandbox(provisionCtx, sb.FS(), cfs.files, cwd, logger); provErr != nil {
+						cancel()
+						return nil, provErr
+					}
+					cancel()
+					if restartErr := EnsureDaemon(ctx, sb, logger); restartErr != nil {
+						return nil, restartErr
+					}
+					logger.Infof("opencode serve restarting…")
+				} else {
+					logger.Infof("config change detected; proceeding without restart")
+				}
+			} else {
+				logger.Infof("config change detected; restarting (daemon was not healthy)")
 				provisionCtx, cancel := context.WithTimeout(ctx, provisionTimeout)
 				if provErr := provisionSandbox(provisionCtx, sb.FS(), cfs.files, cwd, logger); provErr != nil {
 					cancel()
@@ -269,43 +289,29 @@ func prepareSandbox(
 				if restartErr := EnsureDaemon(ctx, sb, logger); restartErr != nil {
 					return nil, restartErr
 				}
-				logger.Infof("opencode serve restarting…")
-			} else {
-				logger.Infof("config change detected; proceeding without restart")
 			}
 		} else {
-			logger.Infof("config change detected; restarting (daemon was not healthy)")
-			provisionCtx, cancel := context.WithTimeout(ctx, provisionTimeout)
-			if provErr := provisionSandbox(provisionCtx, sb.FS(), cfs.files, cwd, logger); provErr != nil {
-				cancel()
-				return nil, provErr
+			if dockerErr := ensureDockerdIfPresent(ctx, sb, logger, created); dockerErr != nil {
+				return nil, fmt.Errorf("docker startup: %w", dockerErr)
 			}
-			cancel()
-			if restartErr := EnsureDaemon(ctx, sb, logger); restartErr != nil {
-				return nil, restartErr
+			if daemonErr := EnsureDaemon(ctx, sb, logger); daemonErr != nil {
+				return nil, daemonErr
 			}
 		}
-	} else {
-		// Either no config on disk (fresh VM), config matches, or VM read
-		// failed — use the normal flow: always provision and ensure daemon.
-		if dockerErr := ensureDockerdIfPresent(ctx, sb, logger, created); dockerErr != nil {
-			return nil, fmt.Errorf("docker startup: %w", dockerErr)
+
+		target, err := ResolveTarget(ctx, sb, opts.Branch, logger)
+		if err != nil {
+			return nil, err
 		}
-		if daemonErr := EnsureDaemon(ctx, sb, logger); daemonErr != nil {
-			return nil, daemonErr
-		}
+		sandboxTarget = target
 	}
 
-	target, err := ResolveTarget(ctx, sb, opts.Branch, logger)
-	if err != nil {
-		return nil, err
-	}
-	logger.Debugf("attach target: %s", target)
+	logger.Debugf("attach target: %s", sandboxTarget)
 
 	return &sandboxSession{
 		sb:     sb,
 		name:   name,
-		target: target,
+		target: sandboxTarget,
 		cwd:    cwd,
 	}, nil
 }
@@ -330,18 +336,23 @@ func Run(ctx context.Context, opts RunOptions, cfg Config, logger *output.Printe
 	}
 	defer session.cleanup()
 
+	if opts.DryRun {
+		logger.Infof("dry run: would run opencode")
+		return nil
+	}
+	if opts.DryRunVM && session.sb == nil {
+		logger.Infof("dry run: would start opencode in VM")
+		return nil
+	}
+
 	var exitCode int
 	var attachErr error
-	if opts.DryRun {
-		logger.Infof("dry run: VM and daemon validated, skipping opencode execution")
-	} else {
-		setup := buildAttachCommand(session.target, opts.Auto, opts.Args)
-		logger.Debugf("%s", setup)
-		// Run as a login shell so /etc/profile and ~/.profile are sourced,
-		// putting tools installed under /usr/local/go/bin, ~/go/bin and
-		// ~/.microsandbox/bin on PATH for opencode and its child shells.
-		exitCode, attachErr = session.sb.Attach(ctx, "/bin/bash", "-l", "-c", setup)
-	}
+	setup := buildAttachCommand(session.target, opts.Auto, opts.Args)
+	logger.Debugf("%s", setup)
+	// Run as a login shell so /etc/profile and ~/.profile are sourced,
+	// putting tools installed under /usr/local/go/bin, ~/go/bin and
+	// ~/.microsandbox/bin on PATH for opencode and its child shells.
+	exitCode, attachErr = session.sb.Attach(ctx, "/bin/bash", "-l", "-c", setup)
 
 	return finalizeRun(attachErr, nil, exitCode)
 }
@@ -355,13 +366,27 @@ func Shell(ctx context.Context, opts RunOptions, cfg Config, logger *output.Prin
 	}
 	defer session.cleanup()
 
+	if opts.DryRun {
+		logger.Infof("dry run: would start interactive shell session")
+		return nil
+	}
+	if opts.DryRunVM && session.sb == nil {
+		logger.Infof("dry run: would start interactive shell session")
+		return nil
+	}
+
 	// Login shell so the interactive shell inherits PATH from /etc/profile and ~/.profile.
 	exitCode, attachErr := session.sb.Attach(ctx, "/bin/bash", "-l")
 	return finalizeRun(attachErr, nil, exitCode)
 }
 
 // BuildImage builds (or updates) the runner image for Docker-in-Docker support.
-func BuildImage(ctx context.Context, force bool, logger *output.Printer) error {
+func BuildImage(ctx context.Context, force, dryRun bool, logger *output.Printer) error {
+	if dryRun {
+		logger.Infof("dry-run: Would build runner image")
+		return nil
+	}
+
 	if !CheckDocker(logger) {
 		return errors.New("docker not available")
 	}
