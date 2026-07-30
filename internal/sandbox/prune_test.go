@@ -86,21 +86,21 @@ func TestExtractProjectSlugAndDigest_VMNames(t *testing.T) {
 		wantDigest string
 	}{
 		{
-			name:       "simple vm name",
+			name:       "simple vm name without hash suffix",
 			input:      "opencode-msb-vm-projectname-main",
-			wantSlug:   "projectname",
+			wantSlug:   "projectname-main",
 			wantDigest: "",
 		},
 		{
 			name:       "slug with dash and branch with dash",
 			input:      "opencode-msb-vm-my-project-feature-branch",
-			wantSlug:   "my-project-feature",
+			wantSlug:   "my-project-feature-branch",
 			wantDigest: "",
 		},
 		{
 			name:       "single word slug with single word branch",
 			input:      "opencode-msb-vm-myproject-main",
-			wantSlug:   "myproject",
+			wantSlug:   "myproject-main",
 			wantDigest: "",
 		},
 	}
@@ -232,6 +232,95 @@ func TestExtractProjectSlugAndDigest_CloneVolumes(t *testing.T) {
 	}
 }
 
+func TestExtractProjectSlugAndDigest_VMWithHashSuffix(t *testing.T) {
+	tests := []struct {
+		name       string
+		input      string
+		wantSlug   string
+		wantDigest string
+	}{
+		{
+			name:       "vm with 14-char hash suffix (no branch)",
+			input:      "opencode-msb-vm-saife-1mjusbm3wikhb0",
+			wantSlug:   "saife-1mjusbm3wikhb0",
+			wantDigest: "",
+		},
+		{
+			name:       "vm with 14-char hash and branch",
+			input:      "opencode-msb-vm-saife-1mjusbm3wikhb0-main",
+			wantSlug:   "saife-1mjusbm3wikhb0",
+			wantDigest: "main",
+		},
+		{
+			name:       "vm with 14-char hash, slug with dash, and branch",
+			input:      "opencode-msb-vm-my-project-1mjusbm3wikhb0-develop",
+			wantSlug:   "my-project-1mjusbm3wikhb0",
+			wantDigest: "develop",
+		},
+		{
+			name:       "user's case: VM without branch matches image slug",
+			input:      "opencode-msb-vm-saife-1mjusbm3wikhb0",
+			wantSlug:   "saife-1mjusbm3wikhb0",
+			wantDigest: "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			slug, digest := extractProjectSlugAndDigest(tt.input)
+			if slug != tt.wantSlug {
+				t.Errorf("extractProjectSlugAndDigest(%q) slug = %q, want %q", tt.input, slug, tt.wantSlug)
+			}
+			if digest != tt.wantDigest {
+				t.Errorf("extractProjectSlugAndDigest(%q) digest = %q, want %q", tt.input, digest, tt.wantDigest)
+			}
+		})
+	}
+}
+
+func TestFindHashSuffix(t *testing.T) {
+	tests := []struct {
+		name  string
+		input string
+		want  int
+	}{
+		{
+			name:  "no hash - simple name",
+			input: "projectname-main",
+			want:  -1,
+		},
+		{
+			name:  "hash at hyphen position 5",
+			input: "saife-1mjusbm3wikhb0",
+			want:  6,
+		},
+		{
+			name:  "hash followed by branch",
+			input: "saife-1mjusbm3wikhb0-main",
+			want:  6,
+		},
+		{
+			name:  "hash embedded in multi-dash slug",
+			input: "my-project-1mjusbm3wikhb0-develop",
+			want:  11,
+		},
+		{
+			name:  "no hash - short string",
+			input: "abc-def",
+			want:  -1,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := findHashSuffix(tt.input)
+			if got != tt.want {
+				t.Errorf("findHashSuffix(%q) = %d, want %d", tt.input, got, tt.want)
+			}
+		})
+	}
+}
+
 func TestExtractProjectSlugAndDigest_UnrecognizedPrefixes(t *testing.T) {
 	tests := []struct {
 		name       string
@@ -295,7 +384,7 @@ func TestExtractProjectSlugAndDigest_VMOnlyTwoParts(t *testing.T) {
 		{
 			name:     "two parts vm",
 			input:    "opencode-msb-vm-proj-main",
-			wantSlug: "proj",
+			wantSlug: "proj-main",
 		},
 	}
 	for _, tt := range tests {
@@ -533,9 +622,9 @@ func TestExtractProjectSlugAndDigest_ComplexSlugNames(t *testing.T) {
 			wantDigest: "eF9012gH3456iJ",
 		},
 		{
-			name:       "vm with single-part project name",
+			name:       "vm with two-part name",
 			input:      "opencode-msb-vm-acme-corp",
-			wantSlug:   "acme",
+			wantSlug:   "acme-corp",
 			wantDigest: "",
 		},
 	}
