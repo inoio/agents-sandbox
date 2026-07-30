@@ -334,7 +334,7 @@
             "output": 0.594
           },
         },
-        "qwen3-6-35b-a3b-hetzner": {
+        "Qwen3.6 35B A3B Hetzner": {
           "name": "inoio qwen3.6 35b hetzner",
           "family": "qwen",
           "reasoning": true,
