@@ -292,14 +292,12 @@ func buildBuildCmd() *cobra.Command {
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			force, _ := cmd.Flags().GetBool("rebuild")
 			dryRun, _ := cmd.Flags().GetBool("dry-run")
-			dryRunVM, _ := cmd.Flags().GetBool("dry-run-vm")
 			logger := newLogger(cmd)
-			return sandbox.BuildImage(cmd.Context(), force, dryRun, dryRunVM, logger)
+			return sandbox.BuildImage(cmd.Context(), force, dryRun, logger)
 		},
 	}
 	cmd.Flags().BoolP("rebuild", "r", false, "Force a clean rebuild")
 	cmd.Flags().BoolP("dry-run", "n", false, "Dry run without building")
-	cmd.Flags().Bool("dry-run-vm", false, "Skip VM lifecycle (no effect on build)")
 	return cmd
 }
 
