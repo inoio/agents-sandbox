@@ -79,13 +79,15 @@ Both default to 7 days. Added to `internal/launcherconfig.Config` struct with `m
 
 ### MSB Images (`opencode-msb/runner-{slug}:*`)
 
-- **Condition:** no VM exists for the project `{slug}`
+- **Condition:** No VM exists for the project `{slug}` (Case 3 - orphan cleanup), or unused digest when VM exists (Case 2 - active VM cleanup), or cascade from stale VM (Case 1 - stale VM cascade)
 - **Action:** `msb.Image.Remove(ctx, ref)`, fallback: `msb.Image.Remove(ctx, ref+"@"+digest)`
+- **:latest behavior:** Kept when any VM exists for the slug; deleted when no VM exists for the slug
 
 ### Docker Images (`opencode-msb/runner-{slug}:*`)
 
-- **Condition:** no VM exists for the project `{slug}`
+- **Condition:** No VM exists for the project `{slug}` (Case 3 - orphan cleanup), or unused digest when VM exists (Case 2 - active VM cleanup), or cascade from stale VM (Case 1 - stale VM cascade)
 - **Action:** `docker image rm -f` for both `:latest` and `:{digest}` tags (only delete `:latest` if it still tags the same image reference)
+- **:latest behavior:** Kept when any VM exists for the slug; deleted when no VM exists for the slug
 
 ### Excluded
 
@@ -93,9 +95,31 @@ Base images (`opencode-msb/runner-base`) are **not** pruned — shared across al
 
 ## Deletion Order
 
-1. First pass: identify all stale VMs
-2. For each stale VM, mark associated home volumes, MSB images, Docker images
-3. Delete in order: VMs → volumes → MSB images → Docker images
+1. First pass: identify all stale VMs and collect active VM image refs
+2. Group artifacts by project slug and digest:
+   - `homeBySlugDigest`: home volumes grouped by slug → digest
+   - `msbImagesBySlug`: MSB images grouped by slug → digest
+3. Delete in three distinct cases:
+
+### Case 1: Stale VM exists (cascade)
+- Delete the stale VM
+- Cascade-delete all its home volumes for this slug
+- Delete all MSB images for this slug (including :latest)
+- Delete all Docker images for this slug
+
+### Case 2: Active VM exists (delete unused artifacts only)
+- Extract active VM slugs → digest mappings
+- For each active VM:
+  - Home volumes: delete those NOT matching the VM's digest
+  - MSB images: delete unused ones; keep :latest and matching digest
+  - Docker images: same as MSB images
+
+### Case 3: No VM for slug (orphan cleanup, no age threshold)
+- For slugs with no VM at all:
+  - Delete all home volumes
+  - Delete all MSB images (including :latest)
+  - Delete all Docker images
+
 4. Task sandboxes and clone volumes deleted independently of VM cascade
 
 ## Command Interface
@@ -170,8 +194,9 @@ func AutoPrune(ctx context.Context, threshold time.Duration, logger *output.Prin
 
 ```go
 func extractProjectSlugAndDigest(name string) (slug, digest string)
-// "opencode-msb-vm-project-aB3cDe4fGhIjKl-main" → slug="project-aB3cDe4fGhIjKl"
-// "opencode-msb/home-project-aB3cDe4fGhIjKl-xYz1234AbCdEfGh" → slug="project-", digest="xYz1234AbCdEfGh"
+// "opencode-msb-vm-project-aB3cDe4fGhIjKl-main" → slug="project-aB3cDe4fGhIjKl", digest="main"
+// "opencode-msb-vm-saife-1mjusbm3wikhb0" → slug="saife-1mjusbm3wikhb0", digest=""
+// "opencode-msb/home-myproject-aB3cDe4fGhIjKl-xYz1234AbCdEfGh" → slug="myproject-aB3cDe4fGhIjKl", digest="xYz1234AbCdEfGh"
 // "opencode-msb/runner-project-aB3cDe4fGhIjKl:xYz1234AbCdEfGh" → slug="project-aB3cDe4fGhIjKl", digest="xYz1234AbCdEfGh"
 ```
 
