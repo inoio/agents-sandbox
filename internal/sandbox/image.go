@@ -202,6 +202,17 @@ func ensureRunnerImage(
 		imageEnv = parseImageEnv(inspect.Config.Env)
 		storeImageEnv(rTag, imageEnv)
 		logger.Debugf("rebuilt image %s with %d env vars", rTag, len(imageEnv))
+
+		// Also tag with digest for proper cleanup during prune
+		digestTag := ImageTag(projectSlug, imageDigest)
+		if digestTag != rTag {
+			cmd := exec.CommandContext(ctx, "docker", "tag", rTag, digestTag)
+			if out, err := cmd.CombinedOutput(); err != nil {
+				logger.Warnf("failed to tag image with digest: %v: %s", err, string(out))
+			} else {
+				logger.Debugf("tagged image with digest: %s", digestTag)
+			}
+		}
 	}
 
 	return rTag, imageDigest, imageEnv, nil
