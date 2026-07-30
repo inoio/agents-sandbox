@@ -291,11 +291,15 @@ func buildBuildCmd() *cobra.Command {
 		Short: "Build or rebuild the runner image",
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			force, _ := cmd.Flags().GetBool("rebuild")
+			dryRun, _ := cmd.Flags().GetBool("dry-run")
+			dryRunVM, _ := cmd.Flags().GetBool("dry-run-vm")
 			logger := newLogger(cmd)
-			return sandbox.BuildImage(cmd.Context(), force, logger)
+			return sandbox.BuildImage(cmd.Context(), force, dryRun, dryRunVM, logger)
 		},
 	}
 	cmd.Flags().BoolP("rebuild", "r", false, "Force a clean rebuild")
+	cmd.Flags().BoolP("dry-run", "n", false, "Dry run without building")
+	cmd.Flags().Bool("dry-run-vm", false, "Skip VM lifecycle (no effect on build)")
 	return cmd
 }
 
@@ -312,6 +316,11 @@ func buildRunCmd() *cobra.Command {
 			opts.Branch, _ = cmd.Flags().GetString("branch")
 			opts.Rebuild, _ = cmd.Flags().GetBool("rebuild")
 			opts.DryRun, _ = cmd.Flags().GetBool("dry-run")
+			opts.DryRunVM, _ = cmd.Flags().GetBool("dry-run-vm")
+			// --dry-run implies --dry-run-vm
+			if opts.DryRun {
+				opts.DryRunVM = true
+			}
 			opts.CPUs, _ = cmd.Flags().GetUint8("cpus")
 			opts.Memory, _ = cmd.Flags().GetString("memory")
 			opts.TmpSize, _ = cmd.Flags().GetString("tmp-size")
@@ -335,6 +344,7 @@ func buildRunCmd() *cobra.Command {
 	cmd.Flags().StringP("branch", "b", "", "Run in an opencode worktree for the given branch name")
 	cmd.Flags().BoolP("rebuild", "r", false, "Rebuild the runner image before starting")
 	cmd.Flags().BoolP("dry-run", "n", false, "Validate setup without running opencode")
+	cmd.Flags().Bool("dry-run-vm", false, "Skip VM lifecycle but prepare everything else")
 	cmd.Flags().Uint8P("cpus", "c", 0, "Number of CPUs (default: all)")
 	cmd.Flags().StringP("memory", "m", "4G", "Memory limit")
 	cmd.Flags().String("tmp-size", "2G", "Size of the /tmp tmpfs in the sandbox")
@@ -462,6 +472,11 @@ func buildShellCmd() *cobra.Command {
 			opts := sandbox.RunOptions{Auto: false}
 			opts.Branch, _ = cmd.Flags().GetString("branch")
 			opts.Rebuild, _ = cmd.Flags().GetBool("rebuild")
+			opts.DryRun, _ = cmd.Flags().GetBool("dry-run")
+			opts.DryRunVM, _ = cmd.Flags().GetBool("dry-run-vm")
+			if opts.DryRun {
+				opts.DryRunVM = true
+			}
 			opts.CPUs, _ = cmd.Flags().GetUint8("cpus")
 			opts.Memory, _ = cmd.Flags().GetString("memory")
 			opts.TmpSize, _ = cmd.Flags().GetString("tmp-size")
@@ -481,6 +496,8 @@ func buildShellCmd() *cobra.Command {
 
 	cmd.Flags().StringP("branch", "b", "", "Run in an opencode worktree for the given branch name")
 	cmd.Flags().BoolP("rebuild", "r", false, "Rebuild the runner image before starting")
+	cmd.Flags().BoolP("dry-run", "n", false, "Dry run without starting anything")
+	cmd.Flags().Bool("dry-run-vm", false, "Skip VM lifecycle but prepare everything else")
 	cmd.Flags().Uint8P("cpus", "c", 0, "Number of CPUs (default: all)")
 	cmd.Flags().StringP("memory", "m", "4G", "Memory limit")
 	cmd.Flags().String("tmp-size", "2G", "Size of the /tmp tmpfs in the sandbox")
@@ -615,11 +632,15 @@ func buildStopCmd() *cobra.Command {
 		},
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			force, _ := cmd.Flags().GetBool("force")
+			dryRun, _ := cmd.Flags().GetBool("dry-run")
+			dryRunVM, _ := cmd.Flags().GetBool("dry-run-vm")
 			logger := newLogger(cmd)
-			return sandbox.StopProjectVM(cmd.Context(), force, logger)
+			return sandbox.StopProjectVM(cmd.Context(), force, dryRun, dryRunVM, logger)
 		},
 	}
 	cmd.Flags().BoolP("force", "f", false, "Remove the VM's persisted state after stopping")
+	cmd.Flags().BoolP("dry-run", "n", false, "Show what would be stopped without stopping")
+	cmd.Flags().Bool("dry-run-vm", false, "Show what would be stopped without stopping")
 	return cmd
 }
 
@@ -632,11 +653,15 @@ func buildKillCmd() *cobra.Command {
 		},
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			force, _ := cmd.Flags().GetBool("force")
+			dryRun, _ := cmd.Flags().GetBool("dry-run")
+			dryRunVM, _ := cmd.Flags().GetBool("dry-run-vm")
 			logger := newLogger(cmd)
-			return sandbox.KillProjectVM(cmd.Context(), force, logger)
+			return sandbox.KillProjectVM(cmd.Context(), force, dryRun, dryRunVM, logger)
 		},
 	}
 	cmd.Flags().BoolP("force", "f", false, "Remove the VM's persisted state after killing")
+	cmd.Flags().BoolP("dry-run", "n", false, "Show what would be killed without killing")
+	cmd.Flags().Bool("dry-run-vm", false, "Show what would be killed without killing")
 	return cmd
 }
 
@@ -670,9 +695,10 @@ func buildPruneCmd() *cobra.Command {
 				age = 7 * 24 * time.Hour
 			}
 			dryRun, _ := cmd.Flags().GetBool("dry-run")
+			dryRunVM, _ := cmd.Flags().GetBool("dry-run-vm")
 			force, _ := cmd.Flags().GetBool("force")
 			logger := newLogger(cmd)
-			report, err := sandbox.Prune(cmd.Context(), age, dryRun, force, logger)
+			report, err := sandbox.Prune(cmd.Context(), age, dryRun, dryRunVM, force, logger)
 			if err != nil {
 				return err
 			}
@@ -684,6 +710,7 @@ func buildPruneCmd() *cobra.Command {
 	}
 	cmd.Flags().StringP("age", "a", "", "Prune threshold (default: manualPruneAge from config)")
 	cmd.Flags().BoolP("dry-run", "n", false, "Show what would be pruned without deleting")
+	cmd.Flags().Bool("dry-run-vm", false, "Suppress VM deletion during prune")
 	cmd.Flags().BoolP("force", "f", false, "Skip confirmation prompt")
 	return cmd
 }
