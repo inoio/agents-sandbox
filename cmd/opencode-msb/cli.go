@@ -711,7 +711,7 @@ func buildPruneCmd() *cobra.Command {
 func printPruneSummary(report *sandbox.StaleReport, dryRun bool) {
 	action := "Pruned"
 	if dryRun {
-		action = "Would prune"
+		action = "dry-run: Would prune"
 	}
 
 	parts := []string{

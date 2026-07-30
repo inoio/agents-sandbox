@@ -26,6 +26,7 @@ func NewVolumeManager(logger *output.Printer) *VolumeManager {
 func (vm *VolumeManager) EnsureHome(
 	ctx context.Context,
 	projectSlug, imageDigest, imageTag string,
+	opts RunOptions,
 ) (string, error) {
 	name := HomeVolumeName(projectSlug, imageDigest)
 
@@ -41,8 +42,12 @@ func (vm *VolumeManager) EnsureHome(
 		return "", fmt.Errorf("create volume %s: %w", name, err)
 	}
 
-	if err := vm.prefillVolume(ctx, projectSlug, vol.Name(), imageTag); err != nil {
-		return "", fmt.Errorf("prefill volume %s: %w", name, err)
+	if !opts.DryRunVM {
+		if err := vm.prefillVolume(ctx, projectSlug, vol.Name(), imageTag); err != nil {
+			return "", err
+		}
+	} else {
+		vm.logger.Infof("dry-run: Would prefill home volume")
 	}
 
 	return name, nil
@@ -50,7 +55,6 @@ func (vm *VolumeManager) EnsureHome(
 
 func (vm *VolumeManager) prefillVolume(ctx context.Context, projectSlug, volumeName, imageTag string) error {
 	prefillName := fmt.Sprintf("opencode-msb-task-prefill-%s-%d", projectSlug, time.Now().UnixNano())
-
 	mountConfig := msb.Mount.Named(volumeName, msb.MountOptions{})
 
 	spin := output.NewSpinner(vm.logger)
