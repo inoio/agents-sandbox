@@ -91,6 +91,11 @@ func EnsureProjectVM(
 	imageEnvs map[string]string,
 	logger *output.Printer,
 ) (*msb.Sandbox, bool, error) {
+	if opts.DryRunVM {
+		logger.Debugf("dry run: VM lifecycle skipped (--dry-run-vm)")
+		return nil, false, nil
+	}
+
 	slug := git.ProjectSlug(logger)
 	name := projectVMName(slug)
 
@@ -296,6 +301,7 @@ func acquireProjectFlock(path string) (func(), error) {
 func stopOrKillProjectVM(
 	ctx context.Context,
 	remove bool,
+	dryRun bool,
 	logger *output.Printer,
 	action, actionVerb string,
 	stopFn func(*msb.SandboxHandle, context.Context) error,
@@ -310,6 +316,19 @@ func stopOrKillProjectVM(
 			return nil
 		}
 		return fmt.Errorf("get sandbox %q: %w", name, err)
+	}
+
+	if dryRun {
+		actionWord := "Would stop"
+		if action == "kill" {
+			actionWord = "Would kill"
+		}
+		if remove {
+			logger.Infof("dry-run: %s project VM: %s (also would remove persisted state)", actionWord, name)
+		} else {
+			logger.Infof("dry-run: %s project VM: %s", actionWord, name)
+		}
+		return nil
 	}
 
 	spin := output.NewSpinner(logger)
@@ -331,14 +350,14 @@ func stopOrKillProjectVM(
 
 // StopProjectVM gracefully stops the project VM for the current directory.
 // If remove is true, it also removes the VM's persisted state after stopping.
-func StopProjectVM(ctx context.Context, remove bool, logger *output.Printer) error {
-	return stopOrKillProjectVM(ctx, remove, logger, "stop", "Stopping",
+func StopProjectVM(ctx context.Context, remove, dryRun bool, logger *output.Printer) error {
+	return stopOrKillProjectVM(ctx, remove, dryRun, logger, "stop", "Stopping",
 		func(h *msb.SandboxHandle, c context.Context) error { return h.Stop(c) })
 }
 
 // KillProjectVM force-kills the project VM for the current directory.
 // If remove is true, it also removes the VM's persisted state after killing.
-func KillProjectVM(ctx context.Context, remove bool, logger *output.Printer) error {
-	return stopOrKillProjectVM(ctx, remove, logger, "kill", "Force-killing",
+func KillProjectVM(ctx context.Context, remove, dryRun bool, logger *output.Printer) error {
+	return stopOrKillProjectVM(ctx, remove, dryRun, logger, "kill", "Force-killing",
 		func(h *msb.SandboxHandle, c context.Context) error { return h.Kill(c) })
 }
