@@ -53,6 +53,12 @@ Common development commands (run from the Go module root):
 - `golangci-lint fmt` — format all files
 - `golangci-lint run` — run the full linter suite.
 
+Use the linter as a guide for code style: Run it after every major edit, for smaller edits run it after 3 at latest.N
+
+### Superpowers
+
+Always use your superpowers for appropriate tasks, never skip defined user approval.
+
 ### Testing
 
 - prefer unit tests on pure functions with mocks over integration tests
