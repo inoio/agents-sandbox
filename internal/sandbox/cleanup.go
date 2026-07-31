@@ -10,6 +10,7 @@ import (
 	"gitlab.inoio.de/inoio/opencode-msb/internal/stdio"
 )
 
+//nolint:gochecknoglobals // once-per-process singleton is the right pattern
 var autoPruneOnce sync.Once
 
 // AutoPrune runs the prune logic once per process with the given threshold.

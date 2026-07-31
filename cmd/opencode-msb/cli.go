@@ -199,7 +199,7 @@ func newConfig() sandbox.Config {
 
 const projectLauncherDir = ".opencode-msb"
 
-func applyLauncherConfig(cmd *cobra.Command, lc launcherconfig.Config, keys map[string]bool, ui stdio.UI) error {
+func applyLauncherConfig(cmd *cobra.Command, lc launcherconfig.Config, keys map[string]bool, _ stdio.UI) error {
 	apply := []struct {
 		key string
 		fn  func() error
