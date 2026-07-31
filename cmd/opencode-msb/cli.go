@@ -18,9 +18,8 @@ import (
 
 	"gitlab.inoio.de/inoio/opencode-msb/internal/config"
 	"gitlab.inoio.de/inoio/opencode-msb/internal/launcherconfig"
-	"gitlab.inoio.de/inoio/opencode-msb/internal/output"
-	"gitlab.inoio.de/inoio/opencode-msb/internal/prompt"
 	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox"
+	"gitlab.inoio.de/inoio/opencode-msb/internal/stdio"
 )
 
 const (
@@ -99,21 +98,6 @@ func buildRootCmd() *cobra.Command {
 		if err := applyLauncherConfig(cmd, lc, keys); err != nil {
 			return err
 		}
-		if yes, _ := cmd.Flags().GetBool("yes"); yes {
-			prompt.AssumeYes = true //nolint:reassign // CLI flag override, set once at startup
-		}
-/*		verbose, _ := cmd.Flags().GetBool("verbose")
-		quiet, _ := cmd.Flags().GetBool("quiet")
-		level := output.LevelNormal
-		if quiet {
-			level = output.LevelQuiet
-		} else if verbose {
-			level = output.LevelVerbose
-		}
-		//logger := output.NewPrinterWithLevel(os.Stderr, term.IsTerminal(int(os.Stderr.Fd())), level)
-		//sandbox.AutoPrune(cmd.Context(), 0, logger)
-
- */
 		return nil
 	}
 
@@ -276,11 +260,11 @@ func buildDoctorCmd() *cobra.Command {
 		Use:   cmdDoctor,
 		Short: "Check prerequisites",
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			logger := newLogger(cmd)
-			if !sandbox.CheckAll(cmd.Context(), logger) {
+			stdioIO := newIO(cmd)
+			if !sandbox.CheckAll(cmd.Context(), stdioIO) {
 				return errors.New("preflight failed")
 			}
-			logger.Infof("doctor: all checks passed")
+			stdioIO.Success("doctor: all checks passed")
 			return nil
 		},
 	}
@@ -293,8 +277,8 @@ func buildBuildCmd() *cobra.Command {
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			force, _ := cmd.Flags().GetBool("rebuild")
 			dryRun, _ := cmd.Flags().GetBool("dry-run")
-			logger := newLogger(cmd)
-			return sandbox.BuildImage(cmd.Context(), force, dryRun, logger)
+			stdioIO := newIO(cmd)
+			return sandbox.BuildImage(cmd.Context(), force, dryRun, stdioIO)
 		},
 	}
 	cmd.Flags().BoolP("rebuild", "r", false, "Force a clean rebuild")
@@ -329,9 +313,9 @@ func buildRunCmd() *cobra.Command {
 			}
 
 			cfg := newConfig()
-			logger := newLogger(cmd)
+			stdioIO := newIO(cmd)
 
-			err := sandbox.Run(cmd.Context(), opts, cfg, logger)
+			err := sandbox.Run(cmd.Context(), opts, cfg, stdioIO)
 			var exitErr *sandbox.ExitError
 			if errors.As(err, &exitErr) {
 				os.Exit(exitErr.Code)
@@ -446,13 +430,13 @@ func buildListCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			stdioIO := newIO(cmd)
 			if len(sandboxes) == 0 {
-				logger := newLogger(cmd)
-				logger.Infof("No sandboxes found.")
+				stdioIO.Success("No sandboxes found.")
 				return nil
 			}
 			for _, s := range sandboxes {
-				fmt.Fprintf(os.Stdout, "%-40s %s\n", s.Name, s.Status)
+				stdioIO.Outf("%-40s %s", s.Name, s.Status)
 			}
 			return nil
 		},
@@ -482,9 +466,9 @@ func buildShellCmd() *cobra.Command {
 			opts.User, _ = cmd.Flags().GetString("user")
 
 			cfg := newConfig()
-			logger := newLogger(cmd)
+			stdioIO := newIO(cmd)
 
-			err := sandbox.Shell(cmd.Context(), opts, cfg, logger)
+			err := sandbox.Shell(cmd.Context(), opts, cfg, stdioIO)
 			var exitErr *sandbox.ExitError
 			if errors.As(err, &exitErr) {
 				os.Exit(exitErr.Code)
@@ -513,7 +497,7 @@ func buildConfigCmd() *cobra.Command {
 	cmd.AddCommand(&cobra.Command{
 		Use:   "show",
 		Short: "Print merged opencode config with source paths",
-		RunE: func(_ *cobra.Command, _ []string) error {
+		RunE: func(cmd *cobra.Command, _ []string) error {
 			cfg := newConfig()
 			projectConfigDir := ""
 			if _, statErr := os.Stat(".opencode-msb/opencode"); statErr == nil {
@@ -533,18 +517,19 @@ func buildConfigCmd() *cobra.Command {
 				return err
 			}
 
+			stdioIO := newIO(cmd)
 			for _, desc := range descs {
-				fmt.Fprintf(os.Stdout, "=== %s ===\n", desc.Name)
+				stdioIO.Outf("=== %s ===", desc.Name)
 				for _, src := range desc.Sources {
-					fmt.Fprintf(os.Stdout, "  source: %s\n", src)
+					stdioIO.Outf("  source: %s", src)
 				}
 				if data, ok := files[desc.Name]; ok {
-					fmt.Fprintln(os.Stdout, "  merged content:")
+					stdioIO.Out("  merged content:")
 					for line := range strings.SplitSeq(string(data), "\n") {
-						fmt.Fprintf(os.Stdout, "    %s\n", line)
+						stdioIO.Outf("    %s", line)
 					}
 				}
-				fmt.Fprintln(os.Stdout)
+				stdioIO.Out("")
 			}
 			return nil
 		},
@@ -566,13 +551,13 @@ func buildImageCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			stdioIO := newIO(cmd)
 			if len(images) == 0 {
-				logger := newLogger(cmd)
-				logger.Infof("No images found.")
+				stdioIO.Success("No images found.")
 				return nil
 			}
 			for _, img := range images {
-				fmt.Fprintf(os.Stdout, "%-50s %s\n", img.Reference, img.Digest)
+				stdioIO.Outf("%-50s %s", img.Reference, img.Digest)
 			}
 			return nil
 		},
@@ -595,13 +580,13 @@ func buildVolumeCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			stdioIO := newIO(cmd)
 			if len(volumes) == 0 {
-				logger := newLogger(cmd)
-				logger.Infof("No volumes found.")
+				stdioIO.Success("No volumes found.")
 				return nil
 			}
 			for _, vol := range volumes {
-				fmt.Fprintf(os.Stdout, "%-50s %s\n", vol.Name, vol.Path)
+				stdioIO.Outf("%-50s %s", vol.Name, vol.Path)
 			}
 			return nil
 		},
@@ -632,8 +617,8 @@ func buildStopCmd() *cobra.Command {
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			force, _ := cmd.Flags().GetBool("force")
 			dryRun, _ := cmd.Flags().GetBool("dry-run")
-			logger := newLogger(cmd)
-			return sandbox.StopProjectVM(cmd.Context(), force, dryRun, logger)
+			stdioIO := newIO(cmd)
+			return sandbox.StopProjectVM(cmd.Context(), force, dryRun, stdioIO)
 		},
 	}
 	cmd.Flags().BoolP("force", "f", false, "Remove the VM's persisted state after stopping")
@@ -651,8 +636,8 @@ func buildKillCmd() *cobra.Command {
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			force, _ := cmd.Flags().GetBool("force")
 			dryRun, _ := cmd.Flags().GetBool("dry-run")
-			logger := newLogger(cmd)
-			return sandbox.KillProjectVM(cmd.Context(), force, dryRun, logger)
+			stdioIO := newIO(cmd)
+			return sandbox.KillProjectVM(cmd.Context(), force, dryRun, stdioIO)
 		},
 	}
 	cmd.Flags().BoolP("force", "f", false, "Remove the VM's persisted state after killing")
@@ -660,18 +645,20 @@ func buildKillCmd() *cobra.Command {
 	return cmd
 }
 
-func newLogger(cmd *cobra.Command) *output.Printer {
+func newIO(cmd *cobra.Command) stdio.IO {
 	verbose, _ := cmd.Flags().GetBool("verbose")
 	quiet, _ := cmd.Flags().GetBool("quiet")
+	yes, _ := cmd.Flags().GetBool("yes")
 
-	level := output.LevelNormal
+	level := stdio.LevelNormal
 	if quiet {
-		level = output.LevelQuiet
+		level = stdio.LevelQuiet
 	} else if verbose {
-		level = output.LevelVerbose
+		level = stdio.LevelVerbose
 	}
 
-	return output.NewPrinterWithLevel(os.Stderr, term.IsTerminal(int(os.Stderr.Fd())), level)
+	return stdio.New(os.Stdin, os.Stdout, os.Stderr,
+		term.IsTerminal(int(os.Stderr.Fd())), level, yes)
 }
 
 func buildPruneCmd() *cobra.Command {
@@ -690,13 +677,13 @@ func buildPruneCmd() *cobra.Command {
 				age = 7 * 24 * time.Hour
 			}
 			dryRun, _ := cmd.Flags().GetBool("dry-run")
-			logger := newLogger(cmd)
-			report, err := sandbox.Prune(cmd.Context(), age, dryRun, logger)
+			stdioIO := newIO(cmd)
+			report, err := sandbox.Prune(cmd.Context(), age, dryRun, stdioIO)
 			if err != nil {
 				return err
 			}
 			if report != nil {
-				printPruneSummary(report, dryRun)
+				printPruneSummary(stdioIO, report, dryRun)
 			}
 			return nil
 		},
@@ -708,7 +695,7 @@ func buildPruneCmd() *cobra.Command {
 	return cmd
 }
 
-func printPruneSummary(report *sandbox.StaleReport, dryRun bool) {
+func printPruneSummary(stdioIO stdio.IO, report *sandbox.StaleReport, dryRun bool) {
 	action := "Pruned"
 	if dryRun {
 		action = "dry-run: Would prune"
@@ -724,5 +711,5 @@ func printPruneSummary(report *sandbox.StaleReport, dryRun bool) {
 		fmt.Sprintf("%d clone volumes", report.PrunedCloneVolumes),
 	}
 
-	fmt.Println(strings.Join(parts, ", "))
+	stdioIO.Out(strings.Join(parts, ", "))
 }
