@@ -93,6 +93,7 @@ func durationDecodeHook() mapstructure.DecodeHookFunc {
 // the top-level keys that were explicitly set in either file.
 func Load(userDir, projectDir string) (Config, map[string]bool, error) {
 	v := viper.New()
+
 	if err := mergeDir(v, userDir); err != nil {
 		return Config{}, nil, err
 	}

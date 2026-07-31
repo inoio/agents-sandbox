@@ -14,8 +14,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/moby/moby/client"
-
 	"gitlab.inoio.de/inoio/opencode-msb/internal/stdio"
 
 	"gitlab.inoio.de/inoio/opencode-msb/internal/config"
@@ -162,23 +160,6 @@ func resolveDockerfile() []byte {
 	return EmbeddedDockerfile
 }
 
-func envrcFiles(workspacePath string) []string {
-	entries, err := os.ReadDir(workspacePath)
-	if err != nil {
-		return nil
-	}
-	var files []string
-	for _, entry := range entries {
-		if entry.IsDir() {
-			continue
-		}
-		if strings.HasPrefix(entry.Name(), ".envrc") {
-			files = append(files, entry.Name())
-		}
-	}
-	return files
-}
-
 type sandboxSession struct {
 	sb     *msb.Sandbox
 	name   string
@@ -208,23 +189,11 @@ func prepareSandbox(
 
 	projectSlug := git.ProjectSlug(ui)
 
-	cwd, err := os.Getwd()
-	if err != nil {
-		return nil, fmt.Errorf("get current directory: %w", err)
-	}
-
-	dockerfile := resolveDockerfile()
-	dockerCli, err := client.New(client.FromEnv)
-	if err != nil {
-		return nil, fmt.Errorf("cannot connect to Docker daemon (is dockerd running?): %w", err)
-	}
-	defer dockerCli.Close()
-
-	imageRef, imageDigest, imageEnvs, err := EnsureImage(ctx, dockerCli, dockerfile, projectSlug, opts.Rebuild, ui)
+	imageRef, imageDigest, imageEnvs, err := EnsureImage(ctx, projectSlug, opts.Rebuild, ui)
 	if err != nil {
 		return nil, fmt.Errorf("image setup failed: %w", err)
 	}
-	ui.Verbosef("image: %s (digest=%s)", imageRef, imageDigest)
+	ui.Verbosef("Using image '%s' (digest=%s)", imageRef, imageDigest)
 
 	vm := NewVolumeManager(ui)
 	homeVol, err := vm.EnsureHome(ctx, projectSlug, imageDigest, imageRef, opts, ui)
@@ -233,6 +202,10 @@ func prepareSandbox(
 	}
 	ui.Verbosef("home volume: %s", homeVol)
 
+	cwd, err := os.Getwd()
+	if err != nil {
+		return nil, fmt.Errorf("get current directory: %w", err)
+	}
 	sb, created, err := EnsureProjectVM(ctx, opts, cfg, imageRef, homeVol, cwd, imageEnvs, ui)
 	if err != nil {
 		return nil, err
@@ -266,7 +239,7 @@ func prepareSandbox(
 				}
 				if action == "restart" {
 					provisionCtx, cancel := context.WithTimeout(ctx, provisionTimeout)
-					if provErr := provisionSandbox(provisionCtx, sb.FS(), cfs.files, cwd, ui); provErr != nil {
+					if provErr := provisionSandbox(provisionCtx, sb.FS(), cfs.files); provErr != nil {
 						cancel()
 						return nil, provErr
 					}
@@ -281,7 +254,7 @@ func prepareSandbox(
 			} else {
 				ui.Infof("config change detected; restarting (daemon was not healthy)")
 				provisionCtx, cancel := context.WithTimeout(ctx, provisionTimeout)
-				if provErr := provisionSandbox(provisionCtx, sb.FS(), cfs.files, cwd, ui); provErr != nil {
+				if provErr := provisionSandbox(provisionCtx, sb.FS(), cfs.files); provErr != nil {
 					cancel()
 					return nil, provErr
 				}
@@ -391,14 +364,8 @@ func BuildImage(ctx context.Context, force, dryRun bool, ui stdio.UI) error {
 		return errors.New("docker not available")
 	}
 	projectSlug := git.ProjectSlug(ui)
-	dockerfile := resolveDockerfile()
-	dockerCli, err := client.New(client.FromEnv)
-	if err != nil {
-		return fmt.Errorf("cannot connect to Docker daemon (is dockerd running?): %w", err)
-	}
-	defer dockerCli.Close()
 
-	_, _, _, err = EnsureImage(ctx, dockerCli, dockerfile, projectSlug, force, ui)
+	_, _, _, err := EnsureImage(ctx, projectSlug, force, ui)
 	return err
 }
 
@@ -547,8 +514,6 @@ func provisionSandbox(
 	ctx context.Context,
 	fs sandboxFS,
 	configFiles map[string][]byte,
-	repoPath string,
-	ui stdio.UI,
 ) error {
 	if err := fs.Mkdir(ctx, "/home/dev/.config/opencode"); err != nil {
 		return fmt.Errorf("mkdir opencode config: %w", err)
@@ -556,11 +521,6 @@ func provisionSandbox(
 	for fname, data := range configFiles {
 		if err := fs.Write(ctx, "/home/dev/.config/opencode/"+fname, data); err != nil {
 			return fmt.Errorf("write config file %s: %w", fname, err)
-		}
-	}
-	for _, envrc := range envrcFiles(repoPath) {
-		if err := fs.Remove(ctx, "/workspace/"+envrc); err != nil {
-			ui.Warnf("failed to remove envrc %s: %v", envrc, err)
 		}
 	}
 	return nil

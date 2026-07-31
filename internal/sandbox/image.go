@@ -234,16 +234,21 @@ func ensureRunnerImage(
 // metadata written by a previous invokation.
 func EnsureImage(
 	ctx context.Context,
-	cli dockerClient,
-	dockerfile []byte,
 	projectSlug string,
 	force bool,
 	ui stdio.UI,
 ) (string, string, map[string]string, error) {
+	dockerfile := resolveDockerfile()
+	dockerClient, err := client.New(client.FromEnv)
+	if err != nil {
+		return "", "", nil, fmt.Errorf("cannot connect to Docker daemon (is dockerd running?): %w", err)
+	}
+	defer dockerClient.Close()
+
 	if force || ReferencesBase(dockerfile) || ReferencesDindBase(dockerfile) {
 		if err := buildDockerImage(
 			ctx,
-			cli,
+			dockerClient,
 			EmbeddedDockerfile,
 			BaseTag,
 			"Building base runner image",
@@ -257,7 +262,7 @@ func EnsureImage(
 	if ReferencesDindBase(dockerfile) {
 		if err := buildDockerImage(
 			ctx,
-			cli,
+			dockerClient,
 			EmbeddedDindDockerfile,
 			DindBaseTag,
 			"Building Docker-in-Docker base runner image",
@@ -268,7 +273,7 @@ func EnsureImage(
 		}
 	}
 
-	rTag, imageDigest, imageEnv, err := ensureRunnerImage(ctx, cli, dockerfile, projectSlug, force, ui)
+	rTag, imageDigest, imageEnv, err := ensureRunnerImage(ctx, dockerClient, dockerfile, projectSlug, force, ui)
 	if err != nil {
 		return "", "", nil, err
 	}
@@ -281,7 +286,7 @@ func EnsureImage(
 	}
 
 	spin := ui.Spinner("Loading image into microsandbox")
-	saveResult, err := cli.ImageSave(ctx, []string{rTag})
+	saveResult, err := dockerClient.ImageSave(ctx, []string{rTag})
 	if err != nil {
 		spin.StopError(err)
 		return "", "", nil, fmt.Errorf("cannot export Docker image: %w", err)
@@ -360,8 +365,9 @@ func scanBuildOutput(r sysio.Reader, ui stdio.UI) error {
 		if msg.ErrorDetail.Message != "" {
 			return fmt.Errorf("%s", msg.ErrorDetail.Message)
 		}
-		if msg.Stream != "" {
-			ui.Verbosef("%s", strings.TrimSuffix(msg.Stream, "\n"))
+		trimmedMsg := strings.Trim(msg.Stream, " \n")
+		if trimmedMsg != "" {
+			ui.Verbose(trimmedMsg)
 		}
 	}
 }

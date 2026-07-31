@@ -2,13 +2,17 @@ package git
 
 import (
 	"crypto/sha256"
+	"errors"
 	"fmt"
 	"math/big"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 
 	"gitlab.inoio.de/inoio/opencode-msb/internal/stdio"
+
+	git "github.com/go-git/go-git/v5"
 )
 
 // Configuration for slug names/hashes.
@@ -54,8 +58,10 @@ func ProjectSlug(ui stdio.UI) string {
 		return sanitizeFolderName(filepath.Base(cwd)) + "-" + HashID(cwd)
 	}
 	abs, _ := filepath.Abs(commonDir)
-	folderName := sanitizeFolderName(filepath.Base(filepath.Dir(abs)))
-	return folderName + "-" + HashID(abs)
+	folderName := sanitizeFolderName(filepath.Base(commonDir))
+	projectSlug := folderName + "-" + HashID(abs)
+	ui.Verbosef("Using project slug '%s'", projectSlug)
+	return projectSlug
 }
 
 func BranchSlug(branch string) string {
@@ -65,27 +71,40 @@ func BranchSlug(branch string) string {
 }
 
 func gitCommonDir(cwd string) (string, error) {
-	cmd := exec.Command("git", "rev-parse", "--git-common-dir")
-	cmd.Dir = cwd
-	out, err := cmd.Output()
+	opts := &git.PlainOpenOptions{ //nolint:exhaustruct // DetectDotGit only
+		DetectDotGit: true,
+	}
+	repo, err := git.PlainOpenWithOptions(cwd, opts)
+	if err != nil {
+		return "", errors.New("not inside a git repository")
+	}
+	worktree, err := repo.Worktree()
 	if err != nil {
 		return "", err
 	}
-	p := strings.TrimSpace(string(out))
-	if !filepath.IsAbs(p) {
-		p = filepath.Join(cwd, p)
+	dir := worktree.Filesystem.Root()
+	for {
+		if _, err := os.Stat(filepath.Join(dir, ".git")); err == nil {
+			return dir, nil
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			return "", errors.New("not inside a git repository")
+		}
+		dir = parent
 	}
-	return filepath.Abs(p)
 }
 
 func BranchAt(path string) (string, error) {
-	cmd := exec.Command("git", "rev-parse", "--abbrev-ref", "HEAD")
-	cmd.Dir = path
-	out, err := cmd.Output()
+	repo, err := git.PlainOpen(path)
 	if err != nil {
 		return "", fmt.Errorf("unable to determine current git branch from %s: %w", path, err)
 	}
-	return strings.TrimSpace(string(out)), nil
+	head, err := repo.Head()
+	if err != nil {
+		return "", fmt.Errorf("unable to determine current git branch from %s: %w", path, err)
+	}
+	return head.Name().Short(), nil
 }
 
 func PruneWorktrees(cwd string) error {
