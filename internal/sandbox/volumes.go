@@ -54,7 +54,11 @@ func (vm *VolumeManager) EnsureHome(
 	return name, nil
 }
 
-func (vm *VolumeManager) prefillVolume(ctx context.Context, projectSlug, volumeName, imageTag string, ui stdio.UI) error {
+func (vm *VolumeManager) prefillVolume(
+	ctx context.Context,
+	projectSlug, volumeName, imageTag string,
+	ui stdio.UI,
+) error {
 	prefillName := fmt.Sprintf("opencode-msb-task-prefill-%s-%d", projectSlug, time.Now().UnixNano())
 	mountConfig := msb.Mount.Named(volumeName, msb.MountOptions{})
 

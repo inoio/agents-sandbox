@@ -2,47 +2,13 @@ package git
 
 import (
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"gitlab.inoio.de/inoio/opencode-msb/internal/stdio"
+	"gitlab.inoio.de/inoio/opencode-msb/internal/testhelpers"
 )
-
-func runGit(t *testing.T, dir string, args ...string) string {
-	t.Helper()
-	cmd := exec.Command("git", args...)
-	cmd.Dir = dir
-	out, err := cmd.CombinedOutput()
-	if err != nil {
-		t.Fatalf("git %v in %s failed: %v\n%s", args, dir, err, out)
-	}
-	return string(out)
-}
-
-func writeFile(t *testing.T, dir, name, content string) {
-	t.Helper()
-	path := filepath.Join(dir, name)
-	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
-		t.Fatalf("write %s: %v", path, err)
-	}
-}
-
-func initRepo(t *testing.T) string {
-	t.Helper()
-	dir := t.TempDir()
-	runGit(t, dir, "init", "-b", "main")
-	configureRepo(t, dir)
-	writeFile(t, dir, "README.md", "hello")
-	runGit(t, dir, "add", "README.md")
-	runGit(t, dir, "commit", "-m", "initial")
-	return dir
-}
-
-func configureRepo(t *testing.T, dir string) {
-	t.Helper()
-	runGit(t, dir, "config", "user.email", "test@example.com")
-	runGit(t, dir, "config", "user.name", "Test User")
-}
 
 func TestBranchSlugReplacesSlashes(t *testing.T) {
 	got := BranchSlug("feature/foo/bar")
@@ -74,7 +40,7 @@ func TestBranchSlugNoChange(t *testing.T) {
 }
 
 func TestBranchAtReturnsCurrentBranch(t *testing.T) {
-	repo := initRepo(t)
+	repo := testhelpers.InitRepo(t)
 	branch, err := BranchAt(repo)
 	if err != nil {
 		t.Fatalf("BranchAt: %v", err)
@@ -186,11 +152,10 @@ func TestSanitizeFolderNameEmptyInput(t *testing.T) {
 }
 
 func TestProjectSlugFormat(t *testing.T) {
-	repo := initRepo(t)
+	repo := testhelpers.InitRepo(t)
 	// ProjectSlug uses the working directory, so chdir into the repo.
 	t.Chdir(repo)
-	l := output.NewPrinter(os.Stderr, false)
-	got := ProjectSlug(l)
+	got := ProjectSlug(&stdio.Mock{})
 	// Expected format: <sanitized-folder>-<14 base36 chars>.
 	// The folder name is filepath.Base(repo), sanitized.
 	folderName := sanitizeFolderName(filepath.Base(repo))
@@ -210,9 +175,9 @@ func TestProjectSlugFormat(t *testing.T) {
 }
 
 func TestProjectSlugDeterministic(t *testing.T) {
-	repo := initRepo(t)
+	repo := testhelpers.InitRepo(t)
 	t.Chdir(repo)
-	l := output.NewPrinter(os.Stderr, false)
+	l := &stdio.Mock{}
 	a := ProjectSlug(l)
 	b := ProjectSlug(l)
 	if a != b {
@@ -221,20 +186,20 @@ func TestProjectSlugDeterministic(t *testing.T) {
 }
 
 func TestPruneWorktreesCleansStaleEntries(t *testing.T) {
-	repo := initRepo(t)
+	repo := testhelpers.InitRepo(t)
 	wtDir := filepath.Join(t.TempDir(), "stale-wt")
-	runGit(t, repo, "worktree", "add", "--detach", wtDir)
+	testhelpers.RunGit(t, repo, "worktree", "add", "--detach", wtDir)
 	if err := os.RemoveAll(wtDir); err != nil {
 		t.Fatalf("remove worktree dir: %v", err)
 	}
-	out := runGit(t, repo, "worktree", "list")
+	out := testhelpers.RunGit(t, repo, "worktree", "list")
 	if !strings.Contains(out, "prunable") {
 		t.Fatalf("expected prunable entry, got: %s", out)
 	}
 	if err := PruneWorktrees(repo); err != nil {
 		t.Fatalf("PruneWorktrees: %v", err)
 	}
-	out = runGit(t, repo, "worktree", "list")
+	out = testhelpers.RunGit(t, repo, "worktree", "list")
 	if strings.Contains(out, "prunable") {
 		t.Errorf("expected no prunable entries after prune, got: %s", out)
 	}

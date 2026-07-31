@@ -8,14 +8,16 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"gitlab.inoio.de/inoio/opencode-msb/internal/testhelpers"
 )
 
 func TestCheckDockerLogsUnderlyingError(t *testing.T) {
 	var buf bytes.Buffer
-	l := output.NewPrinter(&buf, false)
+	testUI := testhelpers.NewTestio(t)
 
 	t.Setenv("PATH", "/nonexistent")
-	if CheckDocker(l) {
+	if CheckDocker(&testUI) {
 		t.Fatal("expected CheckDocker to return false when docker is not on PATH")
 	}
 
@@ -52,13 +54,13 @@ func TestShellRcFile(t *testing.T) {
 
 func TestCheckMsbEnsureInstalledErrorSurfacesErrorWithoutInstallHint(t *testing.T) {
 	var buf bytes.Buffer
-	l := output.NewPrinter(&buf, false)
+	testUI := testhelpers.NewTestio(t)
 
 	prev := ensureInstalled
 	t.Cleanup(func() { ensureInstalled = prev })
 	ensureInstalled = func(context.Context) error { return errors.New("network unreachable") }
 
-	if CheckMsb(context.Background(), l) {
+	if CheckMsb(context.Background(), &testUI) {
 		t.Fatal("expected CheckMsb to return false when ensureInstalled fails")
 	}
 	out := buf.String()
@@ -75,7 +77,7 @@ func TestCheckMsbEnsureInstalledErrorSurfacesErrorWithoutInstallHint(t *testing.
 
 func TestCheckMsbOnPathReturnsTrueSilently(t *testing.T) {
 	var buf bytes.Buffer
-	l := output.NewPrinter(&buf, false)
+	testUI := testhelpers.NewTestio(t)
 
 	prev := ensureInstalled
 	t.Cleanup(func() { ensureInstalled = prev })
@@ -87,7 +89,7 @@ func TestCheckMsbOnPathReturnsTrueSilently(t *testing.T) {
 	}
 	t.Setenv("PATH", dir)
 
-	if !CheckMsb(context.Background(), l) {
+	if !CheckMsb(context.Background(), &testUI) {
 		t.Fatal("expected CheckMsb to return true when msb is on PATH")
 	}
 	if buf.Len() != 0 {
@@ -97,7 +99,7 @@ func TestCheckMsbOnPathReturnsTrueSilently(t *testing.T) {
 
 func TestCheckMsbNotOnPathExtendsPathAndReturnsTrue(t *testing.T) {
 	var buf bytes.Buffer
-	l := output.NewPrinter(&buf, false)
+	testUI := testhelpers.NewTestio(t)
 
 	prev := ensureInstalled
 	t.Cleanup(func() { ensureInstalled = prev })
@@ -117,7 +119,7 @@ func TestCheckMsbNotOnPathExtendsPathAndReturnsTrue(t *testing.T) {
 	t.Setenv("SHELL", "/bin/zsh")
 	t.Setenv("PATH", "/nonexistent")
 
-	if !CheckMsb(context.Background(), l) {
+	if !CheckMsb(context.Background(), &testUI) {
 		t.Fatal("expected CheckMsb to return true when msb is installed but not on PATH")
 	}
 	out := buf.String()
@@ -138,7 +140,7 @@ func TestCheckMsbNotOnPathExtendsPathAndReturnsTrue(t *testing.T) {
 
 func TestCheckMsbNotOnPathAndBinaryMissingReturnsFalse(t *testing.T) {
 	var buf bytes.Buffer
-	l := output.NewPrinter(&buf, false)
+	testUI := testhelpers.NewTestio(t)
 
 	prev := ensureInstalled
 	t.Cleanup(func() { ensureInstalled = prev })
@@ -147,7 +149,7 @@ func TestCheckMsbNotOnPathAndBinaryMissingReturnsFalse(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	t.Setenv("PATH", "/nonexistent")
 
-	if CheckMsb(context.Background(), l) {
+	if CheckMsb(context.Background(), &testUI) {
 		t.Fatal("expected CheckMsb to return false when msb binary is missing")
 	}
 	out := buf.String()

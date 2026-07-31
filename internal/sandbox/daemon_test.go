@@ -6,6 +6,8 @@ import (
 	"testing"
 
 	msb "github.com/superradcompany/microsandbox/sdk/go"
+
+	"gitlab.inoio.de/inoio/opencode-msb/internal/testhelpers"
 )
 
 func TestParseHealthResponseHealthy(t *testing.T) {
@@ -35,7 +37,7 @@ func TestParseHealthResponseInvalidJSON(t *testing.T) {
 	}
 }
 
-// mockDaemonShell overrides daemonShellFunc for testing. It returns queued
+// mockDaemonShell overrides daemonShellFunc for testhelpers. It returns queued
 // (stdout, exitCode) pairs.
 type mockDaemonShell struct {
 	responses []mockShellResp
@@ -58,7 +60,7 @@ func (m *mockDaemonShell) run(_ context.Context, _ *msb.Sandbox, _ string) (stri
 }
 
 func TestEnsureDaemonStartsWhenUnhealthy(t *testing.T) {
-	ui := newTestio(t)
+	testUI := testhelpers.NewTestio(t)
 	mock := &mockDaemonShell{
 		responses: []mockShellResp{
 			// First healthcheck: unhealthy (daemon not running).
@@ -75,14 +77,14 @@ func TestEnsureDaemonStartsWhenUnhealthy(t *testing.T) {
 	t.Cleanup(func() { daemonShellFunc = prev })
 	daemonShellFunc = mock.run
 
-	err := EnsureDaemon(context.Background(), nil, io)
+	err := EnsureDaemon(context.Background(), nil, &testUI)
 	if err != nil {
 		t.Fatalf("EnsureDaemon failed: %v", err)
 	}
 }
 
 func TestEnsureDaemonFailsAfterTimeout(t *testing.T) {
-	ui := newTestio(t)
+	testUI := testhelpers.NewTestio(t)
 	mock := &mockDaemonShell{
 		responses: []mockShellResp{
 			// Always unhealthy.
@@ -99,7 +101,7 @@ func TestEnsureDaemonFailsAfterTimeout(t *testing.T) {
 	t.Cleanup(func() { daemonShellFunc = prev })
 	daemonShellFunc = mock.run
 
-	err := EnsureDaemon(context.Background(), nil, io)
+	err := EnsureDaemon(context.Background(), nil, &testUI)
 	if err == nil {
 		t.Fatal("expected error after timeout")
 	}

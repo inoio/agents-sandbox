@@ -12,6 +12,8 @@ import (
 	"testing"
 
 	"github.com/moby/moby/client"
+
+	"gitlab.inoio.de/inoio/opencode-msb/internal/stdio"
 )
 
 func TestReferencesBaseDetectsBaseImage(t *testing.T) {
@@ -47,7 +49,7 @@ type failingDockerClient struct{}
 
 func (f *failingDockerClient) ImageBuild(
 	_ context.Context,
-	_ ui.Reader,
+	_ io.Reader,
 	_ client.ImageBuildOptions,
 ) (client.ImageBuildResult, error) {
 	return client.ImageBuildResult{}, errors.New("docker unavailable")
@@ -82,11 +84,11 @@ type recordingDockerClient struct {
 
 func (r *recordingDockerClient) ImageBuild(
 	_ context.Context,
-	_ ui.Reader,
+	_ io.Reader,
 	opts client.ImageBuildOptions,
 ) (client.ImageBuildResult, error) {
 	r.buildArgs = opts.BuildArgs
-	return client.ImageBuildResult{Body: ui.NopCloser(bytes.NewReader(nil))}, nil
+	return client.ImageBuildResult{Body: io.NopCloser(bytes.NewReader(nil))}, nil
 }
 
 func (r *recordingDockerClient) ImageInspect(
@@ -120,7 +122,7 @@ func TestUserBuildArgs(t *testing.T) {
 }
 
 func TestBuildDockerImageSetsHostUserBuildArgs(t *testing.T) {
-	l := output.NewPrinter(ui.Discard, false)
+	l := &stdio.Mock{}
 	rc := &recordingDockerClient{}
 	dockerfile := []byte("FROM debian:trixie-slim\nRUN echo hi\n")
 
@@ -139,7 +141,7 @@ func TestBuildDockerImageSetsHostUserBuildArgs(t *testing.T) {
 }
 
 func TestEnsureImageReturnsErrorWhenBuildFails(t *testing.T) {
-	l := output.NewPrinter(ui.Discard, false)
+	l := &stdio.Mock{}
 	_, _, _, err := EnsureImage(
 		context.Background(),
 		&failingDockerClient{},
@@ -171,7 +173,7 @@ func TestDockerfileTarContainsDockerfile(t *testing.T) {
 	if header.Name != "Dockerfile" {
 		t.Errorf("expected tar entry 'Dockerfile', got %q", header.Name)
 	}
-	content, err := ui.ReadAll(tr)
+	content, err := io.ReadAll(tr)
 	if err != nil {
 		t.Fatalf("unexpected error reading tar content: %v", err)
 	}
@@ -221,11 +223,11 @@ type tagTrackingDockerClient struct {
 
 func (t *tagTrackingDockerClient) ImageBuild(
 	_ context.Context,
-	_ ui.Reader,
+	_ io.Reader,
 	opts client.ImageBuildOptions,
 ) (client.ImageBuildResult, error) {
 	t.builtTags = append(t.builtTags, opts.Tags...)
-	return client.ImageBuildResult{Body: ui.NopCloser(bytes.NewReader(nil))}, nil
+	return client.ImageBuildResult{Body: io.NopCloser(bytes.NewReader(nil))}, nil
 }
 
 func (t *tagTrackingDockerClient) ImageInspect(
@@ -251,7 +253,7 @@ func (t *tagTrackingDockerClient) Close() error {
 func TestEnsureImageBuildsDindBaseWhenDockerfileReferencesDind(t *testing.T) {
 	cli := &tagTrackingDockerClient{}
 	dockerfile := []byte("FROM opencode-msb/runner-base-dind:latest\nRUN echo hi\n")
-	_, _, _, err := EnsureImage(context.Background(), cli, dockerfile, "test-project", false, newTestio(t))
+	_, _, _, err := EnsureImage(context.Background(), cli, dockerfile, "test-project", false, &stdio.Mock{})
 	if err == nil {
 		t.Fatal("expected error from ImageInspect, got nil")
 	}
@@ -264,7 +266,7 @@ func TestEnsureImageBuildsDindBaseWhenDockerfileReferencesDind(t *testing.T) {
 func TestEnsureImageDoesNotBuildDindForPlainBase(t *testing.T) {
 	cli := &tagTrackingDockerClient{}
 	dockerfile := []byte("FROM opencode-msb/runner-base:latest\nRUN echo hi\n")
-	_, _, _, err := EnsureImage(context.Background(), cli, dockerfile, "test-project", false, newTestio(t))
+	_, _, _, err := EnsureImage(context.Background(), cli, dockerfile, "test-project", false, &stdio.Mock{})
 	if err == nil {
 		t.Fatal("expected error from ImageInspect, got nil")
 	}
@@ -277,7 +279,7 @@ func TestEnsureImageDoesNotBuildDindForPlainBase(t *testing.T) {
 func TestEnsureImageDoesNotBuildDindOnForceWithoutReference(t *testing.T) {
 	cli := &tagTrackingDockerClient{}
 	dockerfile := []byte("FROM debian:trixie-slim\nRUN echo hi\n")
-	_, _, _, err := EnsureImage(context.Background(), cli, dockerfile, "test-project", true, newTestio(t))
+	_, _, _, err := EnsureImage(context.Background(), cli, dockerfile, "test-project", true, &stdio.Mock{})
 	if err == nil {
 		t.Fatal("expected error from ImageInspect, got nil")
 	}
