@@ -16,10 +16,10 @@ func (p *printer) getStdinReader() *bufio.Reader {
 }
 
 func (p *printer) IsInteractive() bool {
-	if _, ok := p.stdin.(*os.File); !ok {
-		return false
+	if p.stdin == nil {
+		return p.isTerminal(int(os.Stdin.Fd())) && !p.assumeYes
 	}
-	return p.isTerminal(int(os.Stdin.Fd())) && !p.assumeYes
+	return p.isTerminal(0) && !p.assumeYes
 }
 
 const maxRetries = 5
