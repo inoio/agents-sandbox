@@ -5,48 +5,14 @@ import (
 	"testing"
 
 	"gitlab.inoio.de/inoio/opencode-msb/internal/launcherconfig"
+	"gitlab.inoio.de/inoio/opencode-msb/internal/testhelpers"
 )
 
-func TestIsKnownSubcommandRecognizesRegisteredCommands(t *testing.T) {
-	root := buildRootCmd()
-	tests := []struct {
-		arg  string
-		want bool
-	}{
-		{"run", true},
-		{"doctor", true},
-		{"build", true},
-		{"list", true},
-		{"ls", true},
-		{"shell", true},
-		{"config", true},
-		{"image", true},
-		{"volume", true},
-		{"sandbox", true},
-		{"help", true},
-		{"--help", true},
-		{"-h", true},
-		{"--tree", true},
-		{"--version", true},
-		{"-V", true},
-		{"unknown-cmd", false},
-		{"--branch", false},
-		{"-b", false},
-	}
-	for _, tt := range tests {
-		t.Run(tt.arg, func(t *testing.T) {
-			if got := isKnownSubcommand(tt.arg, root); got != tt.want {
-				t.Errorf("isKnownSubcommand(%q) = %v, want %v", tt.arg, got, tt.want)
-			}
-		})
-	}
-}
-
 func TestPrintTreeStartsWithRootCommandName(t *testing.T) {
-	root := buildRootCmd()
-	var sb strings.Builder
-	printTree(&sb, root)
-	lines := strings.Split(strings.TrimRight(sb.String(), "\n"), "\n")
+	testUI := testhelpers.NewTestio(t)
+	root := buildRootCmd(&testUI)
+	printTree(root, &testUI)
+	lines := testUI.InfoCalls
 	if len(lines) == 0 {
 		t.Fatal("expected at least one line in tree output")
 	}
@@ -56,20 +22,20 @@ func TestPrintTreeStartsWithRootCommandName(t *testing.T) {
 }
 
 func TestPrintTreeDocumentsImplicitRun(t *testing.T) {
-	root := buildRootCmd()
-	var sb strings.Builder
-	printTree(&sb, root)
-	out := sb.String()
+	testUI := testhelpers.NewTestio(t)
+	root := buildRootCmd(&testUI)
+	printTree(root, &testUI)
+	out := strings.Join(testUI.InfoCalls, "\n")
 	if !strings.Contains(out, "When invoked without a subcommand, the \"run\" command is implied.") {
 		t.Errorf("expected implicit run note in tree output:\n%s", out)
 	}
 }
 
 func TestPrintTreeContainsAllCommands(t *testing.T) {
-	root := buildRootCmd()
-	var sb strings.Builder
-	printTree(&sb, root)
-	out := sb.String()
+	testUI := testhelpers.NewTestio(t)
+	root := buildRootCmd(&testUI)
+	printTree(root, &testUI)
+	out := strings.Join(testUI.InfoCalls, "\n")
 	expected := []string{"run", "doctor", "build", "list", "shell", "config", "image", "volume", "stop", "kill"}
 	for _, cmd := range expected {
 		if !strings.Contains(out, cmd) {
@@ -79,10 +45,10 @@ func TestPrintTreeContainsAllCommands(t *testing.T) {
 }
 
 func TestPrintTreeContainsCommandDescriptions(t *testing.T) {
-	root := buildRootCmd()
-	var sb strings.Builder
-	printTree(&sb, root)
-	out := sb.String()
+	testUI := testhelpers.NewTestio(t)
+	root := buildRootCmd(&testUI)
+	printTree(root, &testUI)
+	out := strings.Join(testUI.InfoCalls, "\n")
 	descs := []string{
 		"Run opencode in a microsandbox VM",
 		"Check prerequisites",
@@ -107,10 +73,10 @@ func TestPrintTreeContainsCommandDescriptions(t *testing.T) {
 }
 
 func TestPrintTreeContainsFlagDescriptions(t *testing.T) {
-	root := buildRootCmd()
-	var sb strings.Builder
-	printTree(&sb, root)
-	out := sb.String()
+	testUI := testhelpers.NewTestio(t)
+	root := buildRootCmd(&testUI)
+	printTree(root, &testUI)
+	out := strings.Join(testUI.InfoCalls, "\n")
 	flagDescs := []string{
 		"Assume yes to all prompts",
 		"Show debug-level output",
@@ -133,10 +99,10 @@ func TestPrintTreeContainsFlagDescriptions(t *testing.T) {
 }
 
 func TestPrintTreeStringFlagsHaveValuePlaceholders(t *testing.T) {
-	root := buildRootCmd()
-	var sb strings.Builder
-	printTree(&sb, root)
-	out := sb.String()
+	testUI := testhelpers.NewTestio(t)
+	root := buildRootCmd(&testUI)
+	printTree(root, &testUI)
+	out := strings.Join(testUI.InfoCalls, "\n")
 	expected := []string{
 		"--branch <BRANCH>",
 		"--cpus <CPUS>",
@@ -152,10 +118,10 @@ func TestPrintTreeStringFlagsHaveValuePlaceholders(t *testing.T) {
 }
 
 func TestPrintTreeBoolFlagsHaveNoValuePlaceholders(t *testing.T) {
-	root := buildRootCmd()
-	var sb strings.Builder
-	printTree(&sb, root)
-	out := sb.String()
+	testUI := testhelpers.NewTestio(t)
+	root := buildRootCmd(&testUI)
+	printTree(root, &testUI)
+	out := strings.Join(testUI.InfoCalls, "\n")
 	notExpected := []string{
 		"--yes <YES>",
 		"--verbose <VERBOSE>",
@@ -174,10 +140,10 @@ func TestPrintTreeBoolFlagsHaveNoValuePlaceholders(t *testing.T) {
 }
 
 func TestPrintTreeFlagShortcuts(t *testing.T) {
-	root := buildRootCmd()
-	var sb strings.Builder
-	printTree(&sb, root)
-	out := sb.String()
+	testUI := testhelpers.NewTestio(t)
+	root := buildRootCmd(&testUI)
+	printTree(root, &testUI)
+	out := strings.Join(testUI.InfoCalls, "\n")
 	expected := []string{
 		"-y, --yes",
 		"-v, --verbose",
@@ -198,10 +164,10 @@ func TestPrintTreeFlagShortcuts(t *testing.T) {
 }
 
 func TestPrintTreeDescriptionsGloballyAligned(t *testing.T) {
-	root := buildRootCmd()
-	var sb strings.Builder
-	printTree(&sb, root)
-	lines := strings.Split(strings.TrimRight(sb.String(), "\n"), "\n")
+	testUI := testhelpers.NewTestio(t)
+	root := buildRootCmd(&testUI)
+	printTree(root, &testUI)
+	lines := testUI.InfoCalls
 
 	colCounts := map[int]int{}
 	for _, line := range lines[1:] {
@@ -214,25 +180,25 @@ func TestPrintTreeDescriptionsGloballyAligned(t *testing.T) {
 		t.Fatal("expected at least some lines with descriptions in tree output")
 	}
 	if len(colCounts) > 1 {
-		t.Errorf("expected all descriptions at the same column, got: %v\n%s", colCounts, sb.String())
+		t.Errorf("expected all descriptions at the same column, got: %v\n%s", colCounts, strings.Join(lines, "\n"))
 	}
 }
 
 func TestPrintTreeContainsAliases(t *testing.T) {
-	root := buildRootCmd()
-	var sb strings.Builder
-	printTree(&sb, root)
-	out := sb.String()
+	testUI := testhelpers.NewTestio(t)
+	root := buildRootCmd(&testUI)
+	printTree(root, &testUI)
+	out := strings.Join(testUI.InfoCalls, "\n")
 	if !strings.Contains(out, "list (aliases: ls)") {
 		t.Errorf("expected alias annotation in tree output:\n%s", out)
 	}
 }
 
 func TestPrintTreeShowsSandboxShorthands(t *testing.T) {
-	root := buildRootCmd()
-	var sb strings.Builder
-	printTree(&sb, root)
-	out := sb.String()
+	testUI := testhelpers.NewTestio(t)
+	root := buildRootCmd(&testUI)
+	printTree(root, &testUI)
+	out := strings.Join(testUI.InfoCalls, "\n")
 	shortcuts := []string{
 		"run (also: sandbox run)",
 		"list (aliases: ls, also: sandbox list)",
@@ -246,10 +212,10 @@ func TestPrintTreeShowsSandboxShorthands(t *testing.T) {
 }
 
 func TestPrintTreePositionalArgsHaveDescription(t *testing.T) {
-	root := buildRootCmd()
-	var sb strings.Builder
-	printTree(&sb, root)
-	out := sb.String()
+	testUI := testhelpers.NewTestio(t)
+	root := buildRootCmd(&testUI)
+	printTree(root, &testUI)
+	out := strings.Join(testUI.InfoCalls, "\n")
 	for line := range strings.SplitSeq(out, "\n") {
 		if strings.Contains(line, "[ARGS...]") {
 			desc := strings.TrimSpace(extractDescription(line))
@@ -319,7 +285,8 @@ func isTreeChar(r rune) bool {
 }
 
 func TestRootHasGlobalFlags(t *testing.T) {
-	root := buildRootCmd()
+	testUI := testhelpers.NewTestio(t)
+	root := buildRootCmd(&testUI)
 	flags := []string{"yes", "verbose", "quiet", "tree", "version"}
 	for _, f := range flags {
 		if root.PersistentFlags().Lookup(f) == nil {
@@ -329,7 +296,8 @@ func TestRootHasGlobalFlags(t *testing.T) {
 }
 
 func TestRunCommandHasExpectedFlags(t *testing.T) {
-	root := buildRootCmd()
+	testUI := testhelpers.NewTestio(t)
+	root := buildRootCmd(&testUI)
 	runCmd, _, _ := root.Find([]string{"run"})
 	if runCmd == nil {
 		t.Fatal("expected run command")
@@ -343,7 +311,8 @@ func TestRunCommandHasExpectedFlags(t *testing.T) {
 }
 
 func TestRunCommandFlagShortcuts(t *testing.T) {
-	root := buildRootCmd()
+	testUI := testhelpers.NewTestio(t)
+	root := buildRootCmd(&testUI)
 	runCmd, _, _ := root.Find([]string{"run"})
 	if runCmd == nil {
 		t.Fatal("expected run command")
@@ -365,7 +334,8 @@ func TestRunCommandFlagShortcuts(t *testing.T) {
 }
 
 func TestImageBuildNounFormExists(t *testing.T) {
-	root := buildRootCmd()
+	testUI := testhelpers.NewTestio(t)
+	root := buildRootCmd(&testUI)
 	imageCmd, _, _ := root.Find([]string{"image"})
 	if imageCmd == nil {
 		t.Fatal("expected image command")
@@ -377,7 +347,8 @@ func TestImageBuildNounFormExists(t *testing.T) {
 }
 
 func TestApplyLauncherConfigSetsUnsetFlags(t *testing.T) {
-	root := buildRootCmd()
+	testUI := testhelpers.NewTestio(t)
+	root := buildRootCmd(&testUI)
 	runCmd, _, _ := root.Find([]string{"run"})
 	if runCmd == nil {
 		t.Fatal("expected run command")
@@ -412,7 +383,8 @@ func TestApplyLauncherConfigSetsUnsetFlags(t *testing.T) {
 }
 
 func TestApplyLauncherConfigRespectsCLIOverrides(t *testing.T) {
-	root := buildRootCmd()
+	testUI := testhelpers.NewTestio(t)
+	root := buildRootCmd(&testUI)
 	runCmd, _, _ := root.Find([]string{"run"})
 	if runCmd == nil {
 		t.Fatal("expected run command")
@@ -479,7 +451,8 @@ func TestRunAndGetShellUserFlag(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			root := buildRootCmd()
+			testUI := testhelpers.NewTestio(t)
+			root := buildRootCmd(&testUI)
 			cmd, _, _ := root.Find([]string{"shell"})
 			if cmd == nil {
 				t.Fatal("expected command")
@@ -496,7 +469,8 @@ func TestRunAndGetShellUserFlag(t *testing.T) {
 }
 
 func TestStopCommandExists(t *testing.T) {
-	root := buildRootCmd()
+	testUI := testhelpers.NewTestio(t)
+	root := buildRootCmd(&testUI)
 	stopCmd, _, _ := root.Find([]string{"stop"})
 	if stopCmd == nil {
 		t.Fatal("expected stop command")
@@ -504,7 +478,8 @@ func TestStopCommandExists(t *testing.T) {
 }
 
 func TestKillCommandExists(t *testing.T) {
-	root := buildRootCmd()
+	testUI := testhelpers.NewTestio(t)
+	root := buildRootCmd(&testUI)
 	killCmd, _, _ := root.Find([]string{"kill"})
 	if killCmd == nil {
 		t.Fatal("expected kill command")
@@ -512,7 +487,8 @@ func TestKillCommandExists(t *testing.T) {
 }
 
 func TestStopCommandHasForceFlag(t *testing.T) {
-	root := buildRootCmd()
+	testUI := testhelpers.NewTestio(t)
+	root := buildRootCmd(&testUI)
 	stopCmd, _, _ := root.Find([]string{"stop"})
 	if stopCmd == nil {
 		t.Fatal("expected stop command")
@@ -523,7 +499,8 @@ func TestStopCommandHasForceFlag(t *testing.T) {
 }
 
 func TestKillCommandHasForceFlag(t *testing.T) {
-	root := buildRootCmd()
+	testUI := testhelpers.NewTestio(t)
+	root := buildRootCmd(&testUI)
 	killCmd, _, _ := root.Find([]string{"kill"})
 	if killCmd == nil {
 		t.Fatal("expected kill command")

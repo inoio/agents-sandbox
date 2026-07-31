@@ -5,7 +5,6 @@ package sandbox
 import (
 	"context"
 	"fmt"
-	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
@@ -21,7 +20,7 @@ import (
 
 func TestStartDockerdIfPresentWithDindImage(t *testing.T) {
 	ctx := t.Context()
-	ui := newTestio(t)
+	ui := testing2.newTestio(t)
 
 	// Build the dind base image requires Docker on the host.
 	if testing.Short() {
@@ -111,7 +110,7 @@ func TestStartDockerdIfPresentWithDindImage(t *testing.T) {
 
 func TestStartDockerdIfPresentWithPlainBaseImage(t *testing.T) {
 	ctx := t.Context()
-	ui := newTestio(t)
+	ui := testing2.newTestio(t)
 
 	if testing.Short() {
 		t.Skip("skipping integration test in short mode")
@@ -175,7 +174,7 @@ func TestStartDockerdIfPresentWithPlainBaseImage(t *testing.T) {
 
 func TestProjectVMLifecycle(t *testing.T) {
 	ctx := t.Context()
-	ui := newTestio(t)
+	ui := testing2.newTestio(t)
 
 	if testing.Short() {
 		t.Skip("skipping integration test in short mode")
@@ -208,12 +207,12 @@ func TestProjectVMLifecycle(t *testing.T) {
 	// Use a unique project slug derived from the test temp dir.
 	tmpRepo := t.TempDir()
 	t.Chdir(tmpRepo)
-	runGitInTest(t, tmpRepo, "init", "-b", "main")
-	runGitInTest(t, tmpRepo, "config", "user.email", "test@example.com")
-	runGitInTest(t, tmpRepo, "config", "user.name", "Test User")
-	writeFileInTest(t, tmpRepo, "README.md", "hello")
-	runGitInTest(t, tmpRepo, "add", "README.md")
-	runGitInTest(t, tmpRepo, "commit", "-m", "initial")
+	testing2.runGitInTest(t, tmpRepo, "init", "-b", "main")
+	testing2.runGitInTest(t, tmpRepo, "config", "user.email", "test@example.com")
+	testing2.runGitInTest(t, tmpRepo, "config", "user.name", "Test User")
+	testing2.writeFileInTest(t, tmpRepo, "README.md", "hello")
+	testing2.runGitInTest(t, tmpRepo, "add", "README.md")
+	testing2.runGitInTest(t, tmpRepo, "commit", "-m", "initial")
 
 	projectSlug := git.ProjectSlug(io)
 	imageRef := BaseTag
@@ -285,19 +284,4 @@ func TestProjectVMLifecycle(t *testing.T) {
 		t.Error("expected created=false on second call (VM should exist)")
 	}
 	_ = sb2.Detach(ctx)
-}
-
-func runGitInTest(t *testing.T, dir string, args ...string) {
-	t.Helper()
-	cmd := exec.Command("git", append([]string{"-C", dir}, args...)...)
-	if out, err := cmd.CombinedOutput(); err != nil {
-		t.Fatalf("git %v in %s failed: %v: %s", args, dir, err, out)
-	}
-}
-
-func writeFileInTest(t *testing.T, dir, name, content string) {
-	t.Helper()
-	if err := os.WriteFile(filepath.Join(dir, name), []byte(content), 0o644); err != nil {
-		t.Fatalf("write %s: %v", name, err)
-	}
 }
