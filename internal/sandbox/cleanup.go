@@ -21,16 +21,13 @@ func AutoPrune(ctx context.Context, threshold time.Duration, ui stdio.UI) {
 	autoPruneOnce.Do(func() {
 		report, err := Prune(ctx, threshold, true, ui)
 		if report != nil {
-			printPruneSummary(report, err)
+			printPruneSummary(ui, report, err)
 		}
 	})
 }
 
-func printPruneSummary(report *StaleReport, error error) {
-	action := "Pruned"
-
+func printPruneSummary(ui stdio.UI, report *StaleReport, err error) {
 	parts := []string{
-		action,
 		fmt.Sprintf("%d VMs", report.PrunedVMs),
 		fmt.Sprintf("%d home volumes", report.PrunedVolumes),
 		fmt.Sprintf("%d docker images", report.PrunedDockerImages),
@@ -38,9 +35,8 @@ func printPruneSummary(report *StaleReport, error error) {
 		fmt.Sprintf("%d task sandboxes", report.PrunedTaskSandboxes),
 		fmt.Sprintf("%d clone volumes", report.PrunedCloneVolumes),
 	}
-
-	fmt.Println(strings.Join(parts, ", "))
-	if error != nil {
-		fmt.Printf("error occured: %s", error)
+	ui.Infof("Pruned %s", strings.Join(parts, ", "))
+	if err != nil {
+		ui.Errorf("error occurred: %s", err)
 	}
 }
