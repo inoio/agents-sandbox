@@ -231,7 +231,7 @@ func EnsureProjectVM(
 	opts RunOptions,
 	cfg Config,
 	imageRef, homeVol, repoPath string,
-	logger *output.Printer,
+	ui *stdio.IO,
 ) (*msb.Sandbox, bool, error) {
 	slug := git.ProjectSlug(logger)
 	name := projectVMName(slug)
@@ -343,7 +343,7 @@ func createProjectVM(
 	name, imageRef, homeVol, repoPath string,
 	opts RunOptions,
 	cfg Config,
-	logger *output.Printer,
+	ui *stdio.IO,
 ) (*msb.Sandbox, bool, error) {
 	user := opts.User
 	if user == "" {
@@ -721,7 +721,7 @@ func parseHealthResponse(stdout string) (bool, error) {
 // EnsureDaemon guarantees the opencode serve daemon is healthy inside the VM.
 // It healthchecks via curl inside the VM; if unhealthy, it kills any stale
 // daemon process, starts a fresh one, and polls until healthy or timeout.
-func EnsureDaemon(ctx context.Context, sb *msb.Sandbox, logger *output.Printer) error {
+func EnsureDaemon(ctx context.Context, sb *msb.Sandbox, ui *stdio.IO) error {
 	if healthy := checkDaemonHealth(ctx, sb); healthy {
 		logger.Debugf("opencode daemon already healthy")
 		return nil
@@ -928,7 +928,7 @@ func ResolveTarget(
 	ctx context.Context,
 	sb *msb.Sandbox,
 	branch string,
-	logger *output.Printer,
+	ui *stdio.IO,
 ) (string, error) {
 	if branch == "" {
 		return resolveTargetNoBranch(), nil
@@ -1130,7 +1130,7 @@ func prepareSandbox(
 	ctx context.Context,
 	opts RunOptions,
 	cfg Config,
-	logger *output.Printer,
+	ui *stdio.IO,
 ) (*sandboxSession, error) {
 	if !CheckAll(ctx, logger) {
 		return nil, errors.New("preflight failed")
@@ -1201,7 +1201,7 @@ func prepareSandbox(
 	}, nil
 }
 
-func Run(ctx context.Context, opts RunOptions, cfg Config, logger *output.Printer) error {
+func Run(ctx context.Context, opts RunOptions, cfg Config, ui *stdio.IO) error {
 	session, err := prepareSandbox(ctx, opts, cfg, logger)
 	if err != nil {
 		return err
@@ -1223,7 +1223,7 @@ func Run(ctx context.Context, opts RunOptions, cfg Config, logger *output.Printe
 	return finalizeRun(attachErr, nil, exitCode)
 }
 
-func Shell(ctx context.Context, opts RunOptions, cfg Config, logger *output.Printer) error {
+func Shell(ctx context.Context, opts RunOptions, cfg Config, ui *stdio.IO) error {
 	session, err := prepareSandbox(ctx, opts, cfg, logger)
 	if err != nil {
 		return err
@@ -1569,7 +1569,7 @@ Add `StopProjectVM` and `KillProjectVM` to the sandbox package:
 ```go
 // internal/sandbox/projectvm.go — append
 
-func StopProjectVM(ctx context.Context, remove bool, logger *output.Printer) error {
+func StopProjectVM(ctx context.Context, remove bool, ui *stdio.IO) error {
 	slug := git.ProjectSlug(logger)
 	name := projectVMName(slug)
 
@@ -1599,7 +1599,7 @@ func StopProjectVM(ctx context.Context, remove bool, logger *output.Printer) err
 	return nil
 }
 
-func KillProjectVM(ctx context.Context, remove bool, logger *output.Printer) error {
+func KillProjectVM(ctx context.Context, remove bool, ui *stdio.IO) error {
 	slug := git.ProjectSlug(logger)
 	name := projectVMName(slug)
 

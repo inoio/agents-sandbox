@@ -8,7 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"gitlab.inoio.de/inoio/opencode-msb/internal/output"
+	"gitlab.inoio.de/inoio/opencode-msb/internal/stdio"
 )
 
 // Configuration for slug names/hashes.
@@ -46,11 +46,11 @@ func HashID(input string) string {
 	return encoded
 }
 
-func ProjectSlug(logger *output.Printer) string {
+func ProjectSlug(ui stdio.UI) string {
 	commonDir, err := gitCommonDir(".")
 	if err != nil || commonDir == "" {
 		cwd, _ := filepath.Abs(".")
-		logger.Warnf("not inside a git repo; using CWD hash as project slug.")
+		ui.Warnf("not inside a git repo; using CWD hash as project slug.")
 		return sanitizeFolderName(filepath.Base(cwd)) + "-" + HashID(cwd)
 	}
 	abs, _ := filepath.Abs(commonDir)
@@ -86,10 +86,6 @@ func BranchAt(path string) (string, error) {
 		return "", fmt.Errorf("unable to determine current git branch from %s: %w", path, err)
 	}
 	return strings.TrimSpace(string(out)), nil
-}
-
-func BranchName(cwd string) (string, error) {
-	return BranchAt(cwd)
 }
 
 func PruneWorktrees(cwd string) error {

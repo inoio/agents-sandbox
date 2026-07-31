@@ -65,7 +65,7 @@ func TestBuildProjectVMEnvMergesImageEnvs(t *testing.T) {
 
 func TestEnsureProjectVMCreatesWhenNotFound(t *testing.T) {
 	notFoundErr := &msb.Error{Kind: msb.ErrSandboxNotFound, Message: "not found"}
-	decision, err := decideVMAction(notFoundErr, msb.SandboxStatus(""))
+	decision, err := decideVMAction(notFoundErr, "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}

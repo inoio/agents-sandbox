@@ -262,11 +262,11 @@ type tagTrackingDockerClient struct {
 
 func (t *tagTrackingDockerClient) ImageBuild(
 	_ context.Context,
-	_ io.Reader,
+	_ ui.Reader,
 	opts client.ImageBuildOptions,
 ) (client.ImageBuildResult, error) {
 	t.builtTags = append(t.builtTags, opts.Tags...)
-	return client.ImageBuildResult{Body: io.NopCloser(bytes.NewReader(nil))}, nil
+	return client.ImageBuildResult{Body: ui.NopCloser(bytes.NewReader(nil))}, nil
 }
 
 func (t *tagTrackingDockerClient) ImageInspect(
@@ -345,7 +345,7 @@ func EnsureImage(
 	dockerfile []byte,
 	projectSlug string,
 	force bool,
-	logger *output.Printer,
+	ui *stdio.IO,
 ) (string, string, error) {
 	if force || ReferencesBase(dockerfile) {
 		if err := buildDockerImage(
@@ -373,7 +373,7 @@ func EnsureImage(
 	dockerfile []byte,
 	projectSlug string,
 	force bool,
-	logger *output.Printer,
+	ui *stdio.IO,
 ) (string, string, error) {
 	if force || ReferencesBase(dockerfile) || ReferencesDindBase(dockerfile) {
 		if err := buildDockerImage(
@@ -433,7 +433,7 @@ git commit -m "feat: extend EnsureImage to build dind base when project referenc
 
 **Interfaces:**
 - Consumes: `*msb.Sandbox` (for `Shell` with `WithExecUser`), `*output.Printer` (for logging)
-- Produces: `startDockerdIfPresent(ctx context.Context, sb *msb.Sandbox, logger *output.Printer) error` — checks for `dockerd` binary, starts it as root with `vfs` config, polls for socket readiness. Called by Task 5 from `prepareSandbox`.
+- Produces: `startDockerdIfPresent(ctx context.Context, sb *msb.Sandbox, ui *stdio.IO) error` — checks for `dockerd` binary, starts it as root with `vfs` config, polls for socket readiness. Called by Task 5 from `prepareSandbox`.
 
 **Background:** After the VM starts, the launcher needs to start `dockerd` if the image has Docker installed. The `vfs` storage driver is pre-configured in `/etc/docker/daemon.json` baked into the dind image, so the launcher only starts `dockerd` and polls. The check uses `test -x /usr/bin/dockerd` as root. If the binary is absent (plain base image), the function returns nil (no-op). If present, dockerd starts in the background, and the launcher polls `docker info` as `dev` until it succeeds or times out.
 
@@ -518,7 +518,7 @@ const (
 	dockerdPollInterval  = time.Second
 )
 
-func startDockerdIfPresent(ctx context.Context, sb *msb.Sandbox, logger *output.Printer) error {
+func startDockerdIfPresent(ctx context.Context, sb *msb.Sandbox, ui *stdio.IO) error {
 	out, err := sb.Shell(ctx, dockerdCheckCmd, msb.WithExecUser("root"))
 	if err != nil {
 		return fmt.Errorf("check dockerd binary: %w", err)
@@ -874,5 +874,5 @@ git commit -m "test: add integration tests for dockerd startup with dind and pla
 - `EmbeddedDindDockerfile` ([]byte) — defined Task 1, used Task 3 ✓
 - `DindBaseTag` (string const) — defined Task 2, used Task 3 ✓
 - `ReferencesDindBase(dockerfile []byte) bool` — defined Task 2, used Task 3 ✓
-- `startDockerdIfPresent(ctx context.Context, sb *msb.Sandbox, logger *output.Printer) error` — defined Task 4, used Task 5 ✓
+- `startDockerdIfPresent(ctx context.Context, sb *msb.Sandbox, ui *stdio.IO) error` — defined Task 4, used Task 5 ✓
 - `dockerdCheckCmd`, `dockerdStartCmd`, `dockerdReadyCmd`, `dockerdReadyTimeout`, `dockerdPollInterval` — defined Task 4, tested Task 4 ✓

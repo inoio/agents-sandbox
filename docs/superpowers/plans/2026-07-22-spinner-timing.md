@@ -124,7 +124,7 @@ import (
 var spinnerChars = []string{"�", "⠙", "⠹", "⠸", "�", "⠴", "⠦", "⠧", "�", "⠏"}
 
 type Spinner struct {
-	w      io.Writer
+	w      ui.Writer
 	color  bool
 	msg    string
 	start  time.Time
@@ -272,11 +272,11 @@ const (
 )
 
 type Logger struct {
-	w     io.Writer
+	w     ui.Writer
 	color bool
 }
 
-func New(w io.Writer, color bool) *Logger {
+func New(w ui.Writer, color bool) *Logger {
 	return &Logger{w: w, color: color}
 }
 

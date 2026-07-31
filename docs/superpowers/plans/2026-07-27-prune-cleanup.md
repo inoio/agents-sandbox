@@ -363,7 +363,7 @@ var autoPruneOnce sync.Once
 
 // AutoPrune runs the prune logic once per process with the given threshold.
 // Threshold of 0 defaults to 7 days.
-func AutoPrune(ctx context.Context, threshold time.Duration, logger *output.Printer) {
+func AutoPrune(ctx context.Context, threshold time.Duration, ui *stdio.IO) {
     if threshold == 0 {
         threshold = 7 * 24 * time.Hour
     }

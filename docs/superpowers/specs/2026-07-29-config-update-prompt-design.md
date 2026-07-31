@@ -12,7 +12,7 @@
 
 ### Problem
 
-Opencode-msb embeds a provider config (`provider-config.json`) into the binary via `//go:embed`. On every run, `loadConfigFiles` merges this with user/project configs and `provisionSandbox` writes the merged config to `/home/dev/.config/opencode/` inside the VM. However, the opencode serve daemon inside the VM only reads config on startup — if the daemon is already running, the new config sits on disk but is never applied.
+Opencode-msb embeds a provider config (`provider-config.json5`) into the binary via `//go:embed`. On every run, `loadConfigFiles` merges this with user/project configs and `provisionSandbox` writes the merged config to `/home/dev/.config/opencode/` inside the VM. However, the opencode serve daemon inside the VM only reads config on startup — if the daemon is already running, the new config sits on disk but is never applied.
 
 The opencode server has no reload endpoint or signal handler. The only way to apply a new config is to kill and restart the daemon, which severs all connected WebSocket clients.
 

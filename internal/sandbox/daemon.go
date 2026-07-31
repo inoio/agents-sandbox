@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"time"
 
-	"gitlab.inoio.de/inoio/opencode-msb/internal/output"
+	"gitlab.inoio.de/inoio/opencode-msb/internal/stdio"
 
 	msb "github.com/superradcompany/microsandbox/sdk/go"
 )
@@ -45,15 +45,15 @@ func parseHealthResponse(stdout string) (bool, error) {
 // EnsureDaemon guarantees the opencode serve daemon is healthy inside the VM.
 // It healthchecks via curl inside the VM; if unhealthy, it kills any stale
 // daemon process, starts a fresh one, and polls until healthy or timeout.
-func EnsureDaemon(ctx context.Context, sb *msb.Sandbox, logger *output.Printer) error {
+func EnsureDaemon(ctx context.Context, sb *msb.Sandbox, ui stdio.UI) error {
 	if healthy := checkDaemonHealth(ctx, sb); healthy {
-		logger.Debugf("opencode daemon already healthy")
+		ui.Verbosef("opencode daemon already healthy")
 		return nil
 	}
 
-	logger.Debugf("starting opencode serve daemon")
+	ui.Verbosef("starting opencode serve daemon")
 	if _, _, err := daemonShellFunc(ctx, sb, daemonKillCmd); err != nil {
-		logger.Warnf("kill stale daemon failed (continuing): %v", err)
+		ui.Warnf("kill stale daemon failed (continuing): %v", err)
 	}
 	if _, _, err := daemonShellFunc(ctx, sb, daemonStartCmd); err != nil {
 		return fmt.Errorf("start opencode serve: %w", err)
@@ -67,7 +67,7 @@ func EnsureDaemon(ctx context.Context, sb *msb.Sandbox, logger *output.Printer) 
 		case <-time.After(daemonPollInterval):
 		}
 		if healthy := checkDaemonHealth(ctx, sb); healthy {
-			logger.Debugf("opencode daemon is healthy")
+			ui.Verbosef("opencode daemon is healthy")
 			return nil
 		}
 	}

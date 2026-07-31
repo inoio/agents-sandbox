@@ -181,13 +181,13 @@ type StaleEntry struct {
     StaleFor time.Duration
 }
 
-func Prune(ctx context.Context, threshold time.Duration, dryRun, force bool, logger *output.Printer) (*StaleReport, error)
+func Prune(ctx context.Context, threshold time.Duration, dryRun, force bool, ui *stdio.IO) (*StaleReport, error)
 ```
 
 ### `cleanup.go` exported API
 
 ```go
-func AutoPrune(ctx context.Context, threshold time.Duration, logger *output.Printer)
+func AutoPrune(ctx context.Context, threshold time.Duration, ui *stdio.IO)
 ```
 
 ### Helper Functions

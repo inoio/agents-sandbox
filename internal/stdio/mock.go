@@ -8,7 +8,7 @@ type ErrorCall struct {
 }
 
 type Mock struct {
-	SuccessCalls []string
+	InfoCalls    []string
 	WarnCalls    []string
 	ErrorCalls   []ErrorCall
 	VerboseCalls []string
@@ -28,12 +28,12 @@ func (m *mockSpinner) Stop() {}
 
 func (m *mockSpinner) StopError(error) {}
 
-func (m *Mock) Success(msg string) {
-	m.SuccessCalls = append(m.SuccessCalls, msg)
+func (m *Mock) Info(msg string) {
+	m.InfoCalls = append(m.InfoCalls, msg)
 }
 
-func (m *Mock) Successf(format string, args ...any) {
-	m.SuccessCalls = append(m.SuccessCalls, fmt.Sprintf(format, args...))
+func (m *Mock) Infof(format string, args ...any) {
+	m.InfoCalls = append(m.InfoCalls, fmt.Sprintf(format, args...))
 }
 
 func (m *Mock) Warn(msg string) {
@@ -71,6 +71,10 @@ func (m *Mock) Outf(format string, args ...any) {
 
 func (m *Mock) Spinner(msg string) Spinner {
 	m.SpinnerCalls = append(m.SpinnerCalls, msg)
+	return &mockSpinner{}
+}
+func (m *Mock) Spinnerf(format string, args ...any) Spinner {
+	m.SpinnerCalls = append(m.SpinnerCalls, fmt.Sprintf(format, args...))
 	return &mockSpinner{}
 }
 

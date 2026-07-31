@@ -15,11 +15,10 @@ import (
 	"time"
 
 	"github.com/moby/moby/client"
+	"gitlab.inoio.de/inoio/opencode-msb/internal/stdio"
 
 	"gitlab.inoio.de/inoio/opencode-msb/internal/config"
 	"gitlab.inoio.de/inoio/opencode-msb/internal/git"
-	"gitlab.inoio.de/inoio/opencode-msb/internal/output"
-	"gitlab.inoio.de/inoio/opencode-msb/internal/prompt"
 
 	msb "github.com/superradcompany/microsandbox/sdk/go"
 )
@@ -200,13 +199,13 @@ func prepareSandbox(
 	ctx context.Context,
 	opts RunOptions,
 	cfg Config,
-	logger *output.Printer,
+	ui stdio.UI,
 ) (*sandboxSession, error) {
-	if !CheckAll(ctx, logger) {
+	if !CheckAll(ctx, ui) {
 		return nil, errors.New("preflight failed")
 	}
 
-	projectSlug := git.ProjectSlug(logger)
+	projectSlug := git.ProjectSlug(ui)
 
 	cwd, err := os.Getwd()
 	if err != nil {
@@ -220,20 +219,20 @@ func prepareSandbox(
 	}
 	defer dockerCli.Close()
 
-	imageRef, imageDigest, imageEnvs, err := EnsureImage(ctx, dockerCli, dockerfile, projectSlug, opts.Rebuild, logger)
+	imageRef, imageDigest, imageEnvs, err := EnsureImage(ctx, dockerCli, dockerfile, projectSlug, opts.Rebuild, ui)
 	if err != nil {
 		return nil, fmt.Errorf("image setup failed: %w", err)
 	}
-	logger.Debugf("image: %s (digest=%s)", imageRef, imageDigest)
+	ui.Verbosef("image: %s (digest=%s)", imageRef, imageDigest)
 
-	vm := NewVolumeManager(logger)
-	homeVol, err := vm.EnsureHome(ctx, projectSlug, imageDigest, imageRef, opts)
+	vm := NewVolumeManager(ui)
+	homeVol, err := vm.EnsureHome(ctx, projectSlug, imageDigest, imageRef, opts, ui)
 	if err != nil {
 		return nil, fmt.Errorf("volume setup failed: %w", err)
 	}
-	logger.Debugf("home volume: %s", homeVol)
+	ui.Verbosef("home volume: %s", homeVol)
 
-	sb, created, err := EnsureProjectVM(ctx, opts, cfg, imageRef, homeVol, cwd, imageEnvs, logger)
+	sb, created, err := EnsureProjectVM(ctx, opts, cfg, imageRef, homeVol, cwd, imageEnvs, ui)
 	if err != nil {
 		return nil, err
 	}
@@ -241,7 +240,7 @@ func prepareSandbox(
 
 	var sandboxTarget string
 	if sb == nil {
-		logger.Infof("VM lifecycle skipped (--dry-run-vm)")
+		ui.Infof("VM lifecycle skipped (--dry-run-vm)")
 		sandboxTarget = resolveTargetNoBranch()
 	} else {
 		// Build the merged config and compute its hash.
@@ -254,59 +253,59 @@ func prepareSandbox(
 		// detect whether it differs from the one we are about to provision.
 		vmHash, readErr := readConfigFromVM(ctx, sb)
 		if readErr != nil {
-			logger.Warnf("failed to read VM config: %v (proceeding without comparison)", readErr)
+			ui.Warnf("failed to read VM config: %v (proceeding without comparison)", readErr)
 		}
 
 		// Decide whether we need to provision and restart.
 		if vmHash != "" && vmHash != cfs.hash {
 			if daemonIsHealthy(ctx, sb) {
-				action, promptErr := promptConfigChange(cfs.hash, logger)
+				action, promptErr := promptConfigChange(cfs.hash, ui)
 				if promptErr != nil {
 					return nil, promptErr
 				}
 				if action == "restart" {
 					provisionCtx, cancel := context.WithTimeout(ctx, provisionTimeout)
-					if provErr := provisionSandbox(provisionCtx, sb.FS(), cfs.files, cwd, logger); provErr != nil {
+					if provErr := provisionSandbox(provisionCtx, sb.FS(), cfs.files, cwd, ui); provErr != nil {
 						cancel()
 						return nil, provErr
 					}
 					cancel()
-					if restartErr := EnsureDaemon(ctx, sb, logger); restartErr != nil {
+					if restartErr := EnsureDaemon(ctx, sb, ui); restartErr != nil {
 						return nil, restartErr
 					}
-					logger.Infof("opencode serve restarting…")
+					ui.Infof("opencode serve restarting…")
 				} else {
-					logger.Infof("config change detected; proceeding without restart")
+					ui.Infof("config change detected; proceeding without restart")
 				}
 			} else {
-				logger.Infof("config change detected; restarting (daemon was not healthy)")
+				ui.Infof("config change detected; restarting (daemon was not healthy)")
 				provisionCtx, cancel := context.WithTimeout(ctx, provisionTimeout)
-				if provErr := provisionSandbox(provisionCtx, sb.FS(), cfs.files, cwd, logger); provErr != nil {
+				if provErr := provisionSandbox(provisionCtx, sb.FS(), cfs.files, cwd, ui); provErr != nil {
 					cancel()
 					return nil, provErr
 				}
 				cancel()
-				if restartErr := EnsureDaemon(ctx, sb, logger); restartErr != nil {
+				if restartErr := EnsureDaemon(ctx, sb, ui); restartErr != nil {
 					return nil, restartErr
 				}
 			}
 		} else {
-			if dockerErr := ensureDockerdIfPresent(ctx, sb, logger, created); dockerErr != nil {
+			if dockerErr := ensureDockerdIfPresent(ctx, sb, ui, created); dockerErr != nil {
 				return nil, fmt.Errorf("docker startup: %w", dockerErr)
 			}
-			if daemonErr := EnsureDaemon(ctx, sb, logger); daemonErr != nil {
+			if daemonErr := EnsureDaemon(ctx, sb, ui); daemonErr != nil {
 				return nil, daemonErr
 			}
 		}
 
-		target, err := ResolveTarget(ctx, sb, opts.Branch, logger)
+		target, err := ResolveTarget(ctx, sb, opts.Branch, ui)
 		if err != nil {
 			return nil, err
 		}
 		sandboxTarget = target
 	}
 
-	logger.Debugf("attach target: %s", sandboxTarget)
+	ui.Verbosef("attach target: %s", sandboxTarget)
 
 	return &sandboxSession{
 		sb:     sb,
@@ -318,9 +317,9 @@ func prepareSandbox(
 
 // ensureDockerdIfPresent ensures dockerd is running inside the VM when the
 // sandbox was freshly created and Docker-in-Docker support is requested.
-func ensureDockerdIfPresent(ctx context.Context, sb *msb.Sandbox, logger *output.Printer, created bool) error {
+func ensureDockerdIfPresent(ctx context.Context, sb *msb.Sandbox, ui stdio.UI, created bool) error {
 	if created {
-		return startDockerdIfPresent(ctx, sb, logger)
+		return startDockerdIfPresent(ctx, sb, ui)
 	}
 	return nil
 }
@@ -329,26 +328,26 @@ func ensureDockerdIfPresent(ctx context.Context, sb *msb.Sandbox, logger *output
 // serve, and attaches a TUI client.
 //
 // Note: Run is called from cli.go after all flags are resolved.
-func Run(ctx context.Context, opts RunOptions, cfg Config, logger *output.Printer) error {
-	session, err := prepareSandbox(ctx, opts, cfg, logger)
+func Run(ctx context.Context, opts RunOptions, cfg Config, ui stdio.UI) error {
+	session, err := prepareSandbox(ctx, opts, cfg, ui)
 	if err != nil {
 		return err
 	}
 	defer session.cleanup()
 
 	if opts.DryRun {
-		logger.Infof("dry-run: Would run opencode")
+		ui.Infof("dry-run: Would run opencode")
 		return nil
 	}
 	if opts.DryRunVM && session.sb == nil {
-		logger.Infof("dry-run: Would start opencode in VM")
+		ui.Infof("dry-run: Would start opencode in VM")
 		return nil
 	}
 
 	var exitCode int
 	var attachErr error
 	setup := buildAttachCommand(session.target, opts.Auto, opts.Args)
-	logger.Debugf("%s", setup)
+	ui.Verbosef("%s", setup)
 	// Run as a login shell so /etc/profile and ~/.profile are sourced,
 	// putting tools installed under /usr/local/go/bin, ~/go/bin and
 	// ~/.microsandbox/bin on PATH for opencode and its child shells.
@@ -359,19 +358,19 @@ func Run(ctx context.Context, opts RunOptions, cfg Config, logger *output.Printe
 
 // Shell creates (or reuses) the project VM and drops the user into an
 // interactive shell session, without starting opencode serve.
-func Shell(ctx context.Context, opts RunOptions, cfg Config, logger *output.Printer) error {
-	session, err := prepareSandbox(ctx, opts, cfg, logger)
+func Shell(ctx context.Context, opts RunOptions, cfg Config, ui stdio.UI) error {
+	session, err := prepareSandbox(ctx, opts, cfg, ui)
 	if err != nil {
 		return err
 	}
 	defer session.cleanup()
 
 	if opts.DryRun {
-		logger.Infof("dry-run: Would start interactive shell session")
+		ui.Infof("dry-run: Would start interactive shell session")
 		return nil
 	}
 	if opts.DryRunVM && session.sb == nil {
-		logger.Infof("dry-run: Would start interactive shell session")
+		ui.Infof("dry-run: Would start interactive shell session")
 		return nil
 	}
 
@@ -381,16 +380,16 @@ func Shell(ctx context.Context, opts RunOptions, cfg Config, logger *output.Prin
 }
 
 // BuildImage builds (or updates) the runner image for Docker-in-Docker support.
-func BuildImage(ctx context.Context, force, dryRun bool, logger *output.Printer) error {
+func BuildImage(ctx context.Context, force, dryRun bool, ui stdio.UI) error {
 	if dryRun {
-		logger.Infof("dry-run: Would build runner image")
+		ui.Infof("dry-run: Would build runner image")
 		return nil
 	}
 
-	if !CheckDocker(logger) {
+	if !CheckDocker(ui) {
 		return errors.New("docker not available")
 	}
-	projectSlug := git.ProjectSlug(logger)
+	projectSlug := git.ProjectSlug(ui)
 	dockerfile := resolveDockerfile()
 	dockerCli, err := client.New(client.FromEnv)
 	if err != nil {
@@ -398,7 +397,7 @@ func BuildImage(ctx context.Context, force, dryRun bool, logger *output.Printer)
 	}
 	defer dockerCli.Close()
 
-	_, _, _, err = EnsureImage(ctx, dockerCli, dockerfile, projectSlug, force, logger)
+	_, _, _, err = EnsureImage(ctx, dockerCli, dockerfile, projectSlug, force, ui)
 	return err
 }
 
@@ -418,21 +417,20 @@ func finalizeRun(attachErr, cleanupErr error, exitCode int) error {
 	return &ExitError{Code: exitCode}
 }
 
-func promptConfigChange(_ string, logger *output.Printer) (string, error) {
-	selection, err := prompt.Select(
+func promptConfigChange(_ string, ui stdio.UI) (string, error) {
+	selection, err := ui.Select(
 		"opencode provider config has changed. Restart the daemon to apply the new config?",
-		[]prompt.Choice{
+		[]stdio.Choice{
 			{
-				Label: "Proceed without changes (keep current config)", Key: "proceed",
+				Label: "Proceed without changes (keep current config)", Key: "p",
 				Description: "Daemon continues with the existing config",
 			},
 			{
-				Label: "Restart opencode serve (apply new config)", Key: "restart",
+				Label: "Restart opencode serve (apply new config)", Key: "r",
 				Description: "Daemon restarts with new config; active clients disconnect",
 			},
 		},
 		"proceed",
-		logger,
 	)
 	if err != nil {
 		return "", fmt.Errorf("prompt config change: %w", err)
@@ -549,7 +547,7 @@ func provisionSandbox(
 	fs sandboxFS,
 	configFiles map[string][]byte,
 	repoPath string,
-	logger *output.Printer,
+	ui stdio.UI,
 ) error {
 	if err := fs.Mkdir(ctx, "/home/dev/.config/opencode"); err != nil {
 		return fmt.Errorf("mkdir opencode config: %w", err)
@@ -561,7 +559,7 @@ func provisionSandbox(
 	}
 	for _, envrc := range envrcFiles(repoPath) {
 		if err := fs.Remove(ctx, "/workspace/"+envrc); err != nil {
-			logger.Warnf("failed to remove envrc %s: %v", envrc, err)
+			ui.Warnf("failed to remove envrc %s: %v", envrc, err)
 		}
 	}
 	return nil

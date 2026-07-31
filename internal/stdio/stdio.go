@@ -31,9 +31,9 @@ type Spinner interface {
 	StopError(err error)
 }
 
-type IO interface {
-	Success(msg string)
-	Successf(format string, args ...any)
+type UI interface {
+	Info(msg string)
+	Infof(format string, args ...any)
 	Warn(msg string)
 	Warnf(format string, args ...any)
 	Error(msg string, err error)
@@ -44,6 +44,7 @@ type IO interface {
 	Outf(format string, args ...any)
 
 	Spinner(msg string) Spinner
+	Spinnerf(format string, args ...any) Spinner
 
 	IsInteractive() bool
 	Select(prompt string, choices []Choice, defaultKey string) (string, error)
@@ -51,8 +52,8 @@ type IO interface {
 	Input(prompt, defaultValue string) (string, error)
 }
 
-// New creates a production IO backed by the given streams.
-func New(stdin io.Reader, stdout, stderr io.Writer, color bool, level Level, assumeYes bool) IO {
+// New creates a production ui backed by the given streams.
+func New(stdin io.Reader, stdout, stderr io.Writer, color bool, level Level, assumeYes bool) UI {
 	return &printer{
 		stdin:      stdin,
 		stdout:     stdout,

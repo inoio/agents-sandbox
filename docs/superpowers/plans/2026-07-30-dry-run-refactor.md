@@ -105,10 +105,10 @@ In `internal/sandbox/runner.go`, line 384:
 
 ```go
 // BEFORE:
-func BuildImage(ctx context.Context, force, dryRun, dryRunVM bool, logger *output.Printer) error
+func BuildImage(ctx context.Context, force, dryRun, dryRunVM bool, ui *stdio.IO) error
 
 // AFTER:
-func BuildImage(ctx context.Context, force, dryRun bool, logger *output.Printer) error
+func BuildImage(ctx context.Context, force, dryRun bool, ui *stdio.IO) error
 ```
 
 Update the dry-run check (lines 385-388):
@@ -208,7 +208,7 @@ func stopOrKillProjectVM(
     ctx context.Context,
     remove bool,
     dryRun, dryRunVM bool,
-    logger *output.Printer,
+    ui *stdio.IO,
     action, actionVerb string,
     stopFn func(*msb.SandboxHandle, context.Context) error,
 ) error
@@ -218,7 +218,7 @@ func stopOrKillProjectVM(
     ctx context.Context,
     remove bool,
     dryRun bool,
-    logger *output.Printer,
+    ui *stdio.IO,
     action, actionVerb string,
     stopFn func(*msb.SandboxHandle, context.Context) error,
 ) error
@@ -276,12 +276,12 @@ In `internal/sandbox/projectvm.go`, lines 365 and 372:
 
 ```go
 // BEFORE:
-func StopProjectVM(ctx context.Context, remove, dryRun, dryRunVM bool, logger *output.Printer) error
-func KillProjectVM(ctx context.Context, remove, dryRun, dryRunVM bool, logger *output.Printer) error
+func StopProjectVM(ctx context.Context, remove, dryRun, dryRunVM bool, ui *stdio.IO) error
+func KillProjectVM(ctx context.Context, remove, dryRun, dryRunVM bool, ui *stdio.IO) error
 
 // AFTER:
-func StopProjectVM(ctx context.Context, remove, dryRun bool, logger *output.Printer) error
-func KillProjectVM(ctx context.Context, remove, dryRun bool, logger *output.Printer) error
+func StopProjectVM(ctx context.Context, remove, dryRun bool, ui *stdio.IO) error
+func KillProjectVM(ctx context.Context, remove, dryRun bool, ui *stdio.IO) error
 ```
 
 Update the calls within these functions:
@@ -363,7 +363,7 @@ func Prune(
     ctx context.Context,
     threshold time.Duration,
     dryRun, dryRunVM, force bool,
-    logger *output.Printer,
+    ui *stdio.IO,
 ) (*StaleReport, error)
 
 // AFTER:
@@ -371,7 +371,7 @@ func Prune(
     ctx context.Context,
     threshold time.Duration,
     dryRun, force bool,
-    logger *output.Printer,
+    ui *stdio.IO,
 ) (*StaleReport, error)
 ```
 
