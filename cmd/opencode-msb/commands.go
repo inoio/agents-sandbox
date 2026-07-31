@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/moby/moby/client"
 	"github.com/spf13/cobra"
 
 	"gitlab.inoio.de/inoio/opencode-msb/internal/config"
@@ -39,7 +40,7 @@ func buildRootCmd(ui stdio.UI) *cobra.Command {
 		if err != nil {
 			return err
 		}
-		if err := applyLauncherConfig(cmd, lc, keys); err != nil {
+		if err := applyLauncherConfig(cmd, lc, keys, ui); err != nil {
 			return err
 		}
 		return nil
@@ -370,7 +371,12 @@ func buildPruneCmd(ui stdio.UI) *cobra.Command {
 				age = 7 * 24 * time.Hour
 			}
 			dryRun, _ := cmd.Flags().GetBool("dry-run")
-			report, err := sandbox.Prune(cmd.Context(), age, dryRun, ui)
+			dockerCli, err := client.New(client.FromEnv)
+			if err != nil {
+				return fmt.Errorf("cannot connect to Docker daemon (is dockerd running?): %w", err)
+			}
+			report, err := sandbox.Prune(cmd.Context(), dockerCli, age, dryRun, ui)
+			_ = dockerCli.Close()
 			if err != nil {
 				return err
 			}
