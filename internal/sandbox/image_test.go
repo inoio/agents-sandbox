@@ -71,6 +71,21 @@ func (f *failingDockerClient) ImageSave(
 	return nil, errors.New("docker unavailable")
 }
 
+func (f *failingDockerClient) ImageRemove(
+	_ context.Context,
+	_ string,
+	_ client.ImageRemoveOptions,
+) (client.ImageRemoveResult, error) {
+	return client.ImageRemoveResult{}, errors.New("docker unavailable")
+}
+
+func (f *failingDockerClient) ImageTag(
+	_ context.Context,
+	_ client.ImageTagOptions,
+) (client.ImageTagResult, error) {
+	return client.ImageTagResult{}, errors.New("docker unavailable")
+}
+
 func (f *failingDockerClient) Close() error {
 	return nil
 }
@@ -105,6 +120,21 @@ func (r *recordingDockerClient) ImageSave(
 	...client.ImageSaveOption,
 ) (client.ImageSaveResult, error) {
 	return nil, errors.New("not implemented")
+}
+
+func (r *recordingDockerClient) ImageRemove(
+	_ context.Context,
+	_ string,
+	_ client.ImageRemoveOptions,
+) (client.ImageRemoveResult, error) {
+	return client.ImageRemoveResult{}, nil
+}
+
+func (r *recordingDockerClient) ImageTag(
+	_ context.Context,
+	_ client.ImageTagOptions,
+) (client.ImageTagResult, error) {
+	return client.ImageTagResult{}, nil
 }
 
 func (r *recordingDockerClient) Close() error {
@@ -244,6 +274,21 @@ func (t *tagTrackingDockerClient) ImageSave(
 	...client.ImageSaveOption,
 ) (client.ImageSaveResult, error) {
 	return nil, errors.New("not implemented")
+}
+
+func (t *tagTrackingDockerClient) ImageRemove(
+	_ context.Context,
+	_ string,
+	_ client.ImageRemoveOptions,
+) (client.ImageRemoveResult, error) {
+	return client.ImageRemoveResult{}, nil
+}
+
+func (t *tagTrackingDockerClient) ImageTag(
+	_ context.Context,
+	_ client.ImageTagOptions,
+) (client.ImageTagResult, error) {
+	return client.ImageTagResult{}, nil
 }
 
 func (t *tagTrackingDockerClient) Close() error {

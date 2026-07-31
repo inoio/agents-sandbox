@@ -356,7 +356,7 @@ func TestApplyLauncherConfigSetsUnsetFlags(t *testing.T) {
 	lc := launcherconfig.Config{CPUs: 4, Memory: "8G", TmpSize: "4G", Yes: true, Verbose: true}
 	keys := map[string]bool{"cpus": true, "memory": true, "tmp-size": true, "yes": true, "verbose": true}
 
-	if err := applyLauncherConfig(runCmd, lc, keys); err != nil {
+	if err := applyLauncherConfig(runCmd, lc, keys, &testUI); err != nil {
 		t.Fatalf("applyLauncherConfig failed: %v", err)
 	}
 
@@ -398,7 +398,7 @@ func TestApplyLauncherConfigRespectsCLIOverrides(t *testing.T) {
 	lc := launcherconfig.Config{CPUs: 8, Memory: "16G", TmpSize: "8G", Yes: true, Verbose: true}
 	keys := map[string]bool{"cpus": true, "memory": true, "tmp-size": true, "yes": true, "verbose": true}
 
-	if err := applyLauncherConfig(runCmd, lc, keys); err != nil {
+	if err := applyLauncherConfig(runCmd, lc, keys, &testUI); err != nil {
 		t.Fatalf("applyLauncherConfig failed: %v", err)
 	}
 

@@ -45,6 +45,15 @@ type dockerClient interface {
 		imageIDs []string,
 		saveOpts ...client.ImageSaveOption,
 	) (client.ImageSaveResult, error)
+	ImageRemove(
+		ctx context.Context,
+		imageID string,
+		opts client.ImageRemoveOptions,
+	) (client.ImageRemoveResult, error)
+	ImageTag(
+		ctx context.Context,
+		opts client.ImageTagOptions,
+	) (client.ImageTagResult, error)
 	Close() error
 }
 
@@ -207,9 +216,8 @@ func ensureRunnerImage(
 		// Also tag with digest for proper cleanup during prune
 		digestTag := ImageTag(projectSlug, imageDigest)
 		if digestTag != rTag {
-			cmd := exec.CommandContext(ctx, "docker", "tag", rTag, digestTag)
-			if out, err := cmd.CombinedOutput(); err != nil {
-				ui.Warnf("failed to tag image with digest: %v: %s", err, string(out))
+			if _, err := cli.ImageTag(ctx, client.ImageTagOptions{Source: rTag, Target: digestTag}); err != nil {
+				ui.Warnf("failed to tag image with digest: %v", err)
 			} else {
 				ui.Verbosef("tagged image with digest: %s", digestTag)
 			}
