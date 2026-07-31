@@ -48,6 +48,8 @@ type imageWithDigest struct {
 	isLatest bool
 }
 
+const baseSlug = "base"
+
 // findHashSuffix finds the start index of a 14-character base36 hash suffix
 // in the name remainder (e.g. "saife-1mjusbm3wikhb0" -> returns 6, pointing
 // at the '1' in the 14-char hash). Returns -1 when no such suffix is found.
@@ -334,7 +336,7 @@ func Prune(
 			continue
 		}
 		slug, digest := extractProjectSlugAndDigest(ref)
-		if slug == "base" {
+		if slug == baseSlug {
 			continue
 		}
 		if seenMSB[ref] {

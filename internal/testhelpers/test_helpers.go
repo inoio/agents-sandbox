@@ -1,6 +1,7 @@
 package testhelpers
 
 import (
+	"context"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -23,7 +24,7 @@ func WriteFile(t *testing.T, dir, name, content string) {
 
 func WritePath(t *testing.T, path, content string) {
 	t.Helper()
-	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
 		t.Fatalf("write %s: %v", path, err)
 	}
 }
@@ -38,7 +39,7 @@ func WriteYAML(t *testing.T, dir, name string, v map[string]any) {
 }
 func RunGit(t *testing.T, dir string, args ...string) string {
 	t.Helper()
-	cmd := exec.Command("git", args...)
+	cmd := exec.CommandContext(context.Background(), "git", args...)
 	cmd.Dir = dir
 	out, err := cmd.CombinedOutput()
 	if err != nil {
