@@ -45,8 +45,8 @@ func TestFormatElapsedDone(t *testing.T) {
 
 func TestSpinnerNonTerminalStop(t *testing.T) {
 	var stderr bytes.Buffer
-	io := New(nil, &bytes.Buffer{}, &stderr, false, LevelNormal, false)
-	spin := io.Spinner("Building image")
+	ui := New(nil, &bytes.Buffer{}, &stderr, false, LevelNormal, false)
+	spin := ui.Spinner("Building image")
 	spin.Stop()
 
 	output := stderr.String()
@@ -60,8 +60,8 @@ func TestSpinnerNonTerminalStop(t *testing.T) {
 
 func TestSpinnerNonTerminalError(t *testing.T) {
 	var stderr bytes.Buffer
-	io := New(nil, &bytes.Buffer{}, &stderr, false, LevelNormal, false)
-	spin := io.Spinner("Building image")
+	ui := New(nil, &bytes.Buffer{}, &stderr, false, LevelNormal, false)
+	spin := ui.Spinner("Building image")
 	spin.StopError(errors.New("build failed"))
 
 	output := stderr.String()
@@ -75,8 +75,8 @@ func TestSpinnerNonTerminalError(t *testing.T) {
 
 func TestSpinnerStopTwiceNoPanic(_ *testing.T) {
 	var stderr bytes.Buffer
-	io := New(nil, &bytes.Buffer{}, &stderr, false, LevelNormal, false)
-	spin := io.Spinner("Building image")
+	ui := New(nil, &bytes.Buffer{}, &stderr, false, LevelNormal, false)
+	spin := ui.Spinner("Building image")
 	spin.Stop()
 	spin.Stop()
 	spin.StopError(errors.New("err"))
@@ -84,8 +84,8 @@ func TestSpinnerStopTwiceNoPanic(_ *testing.T) {
 
 func TestSpinnerHiddenAtQuietLevel(t *testing.T) {
 	var stderr bytes.Buffer
-	io := New(nil, &bytes.Buffer{}, &stderr, false, LevelQuiet, false)
-	spin := io.Spinner("Building image")
+	ui := New(nil, &bytes.Buffer{}, &stderr, false, LevelQuiet, false)
+	spin := ui.Spinner("Building image")
 	spin.Stop()
 	if stderr.String() != "" {
 		t.Errorf("expected no spinner output at quiet level, got %q", stderr.String())
@@ -94,8 +94,8 @@ func TestSpinnerHiddenAtQuietLevel(t *testing.T) {
 
 func TestSpinnerVerboseSameAsNormal(t *testing.T) {
 	var stderr bytes.Buffer
-	io := New(nil, &bytes.Buffer{}, &stderr, false, LevelVerbose, false)
-	spin := io.Spinner("Building image")
+	ui := New(nil, &bytes.Buffer{}, &stderr, false, LevelVerbose, false)
+	spin := ui.Spinner("Building image")
 	spin.Stop()
 
 	output := stderr.String()

@@ -21,7 +21,7 @@ import (
 
 func TestStartDockerdIfPresentWithDindImage(t *testing.T) {
 	ctx := t.Context()
-	logger := newTestLogger(t)
+	ui := newTestio(t)
 
 	// Build the dind base image requires Docker on the host.
 	if testing.Short() {
@@ -42,7 +42,7 @@ func TestStartDockerdIfPresentWithDindImage(t *testing.T) {
 		BaseTag,
 		"Building base",
 		false,
-		logger,
+		io,
 	); err != nil {
 		t.Skipf("cannot build base image: %v", err)
 	}
@@ -55,7 +55,7 @@ func TestStartDockerdIfPresentWithDindImage(t *testing.T) {
 		DindBaseTag,
 		"Building dind base",
 		false,
-		logger,
+		io,
 	); err != nil {
 		t.Skipf("cannot build dind image: %v", err)
 	}
@@ -93,7 +93,7 @@ func TestStartDockerdIfPresentWithDindImage(t *testing.T) {
 		_ = msb.RemoveSandbox(context.Background(), sandboxName)
 	}()
 
-	if err := startDockerdIfPresent(ctx, sb, logger); err != nil {
+	if err := startDockerdIfPresent(ctx, sb, io); err != nil {
 		t.Fatalf("startDockerdIfPresent failed: %v", err)
 	}
 
@@ -111,7 +111,7 @@ func TestStartDockerdIfPresentWithDindImage(t *testing.T) {
 
 func TestStartDockerdIfPresentWithPlainBaseImage(t *testing.T) {
 	ctx := t.Context()
-	logger := newTestLogger(t)
+	ui := newTestio(t)
 
 	if testing.Short() {
 		t.Skip("skipping integration test in short mode")
@@ -130,7 +130,7 @@ func TestStartDockerdIfPresentWithPlainBaseImage(t *testing.T) {
 		BaseTag,
 		"Building base",
 		false,
-		logger,
+		io,
 	); err != nil {
 		t.Skipf("cannot build base image: %v", err)
 	}
@@ -168,14 +168,14 @@ func TestStartDockerdIfPresentWithPlainBaseImage(t *testing.T) {
 	}()
 
 	// Should be a no-op on plain base (no dockerd binary).
-	if err := startDockerdIfPresent(ctx, sb, logger); err != nil {
+	if err := startDockerdIfPresent(ctx, sb, io); err != nil {
 		t.Fatalf("startDockerdIfPresent should be no-op on plain base, got: %v", err)
 	}
 }
 
 func TestProjectVMLifecycle(t *testing.T) {
 	ctx := t.Context()
-	logger := newTestLogger(t)
+	ui := newTestio(t)
 
 	if testing.Short() {
 		t.Skip("skipping integration test in short mode")
@@ -200,7 +200,7 @@ func TestProjectVMLifecycle(t *testing.T) {
 		BaseTag,
 		"Building base",
 		false,
-		logger,
+		io,
 	); err != nil {
 		t.Skipf("cannot build base image: %v", err)
 	}
@@ -215,7 +215,7 @@ func TestProjectVMLifecycle(t *testing.T) {
 	runGitInTest(t, tmpRepo, "add", "README.md")
 	runGitInTest(t, tmpRepo, "commit", "-m", "initial")
 
-	projectSlug := git.ProjectSlug(logger)
+	projectSlug := git.ProjectSlug(io)
 	imageRef := BaseTag
 	homeVolName := HomeVolumeName(projectSlug, "sha256:integration-test")
 	// Ensure the home volume exists.
@@ -235,7 +235,7 @@ func TestProjectVMLifecycle(t *testing.T) {
 	}
 
 	// Step 1: EnsureProjectVM creates the VM.
-	sb, created, err := EnsureProjectVM(ctx, opts, cfg, imageRef, homeVolName, tmpRepo, nil, logger)
+	sb, created, err := EnsureProjectVM(ctx, opts, cfg, imageRef, homeVolName, tmpRepo, nil, io)
 	if err != nil {
 		t.Fatalf("EnsureProjectVM (create): %v", err)
 	}
@@ -246,16 +246,16 @@ func TestProjectVMLifecycle(t *testing.T) {
 		stopCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
 		_ = sb.Detach(stopCtx)
-		_ = StopProjectVM(context.Background(), true, logger)
+		_ = StopProjectVM(context.Background(), true, io)
 	}()
 
 	// Step 2: EnsureDaemon is healthy.
-	if err := EnsureDaemon(ctx, sb, logger); err != nil {
+	if err := EnsureDaemon(ctx, sb, io); err != nil {
 		t.Fatalf("EnsureDaemon: %v", err)
 	}
 
 	// Step 3: ResolveTarget with no branch returns /workspace.
-	target, err := ResolveTarget(ctx, sb, "", logger)
+	target, err := ResolveTarget(ctx, sb, "", io)
 	if err != nil {
 		t.Fatalf("ResolveTarget (no branch): %v", err)
 	}
@@ -277,7 +277,7 @@ func TestProjectVMLifecycle(t *testing.T) {
 		t.Fatalf("detach failed: %v", err)
 	}
 
-	sb2, created2, err := EnsureProjectVM(ctx, opts, cfg, imageRef, homeVolName, tmpRepo, nil, logger)
+	sb2, created2, err := EnsureProjectVM(ctx, opts, cfg, imageRef, homeVolName, tmpRepo, nil, io)
 	if err != nil {
 		t.Fatalf("EnsureProjectVM (reconnect): %v", err)
 	}

@@ -9,8 +9,8 @@ import (
 
 func TestIsInteractive(t *testing.T) {
 	t.Run("returns false when stdin is not a terminal", func(t *testing.T) {
-		io := New(nil, &bytes.Buffer{}, &bytes.Buffer{}, false, LevelNormal, false)
-		p := io.(*printer)
+		ui := New(nil, &bytes.Buffer{}, &bytes.Buffer{}, false, LevelNormal, false)
+		p := ui.(*printer)
 		p.isTerminal = func(int) bool { return false }
 		if p.IsInteractive() {
 			t.Fatal("expected false when stdin is not a terminal")
@@ -18,8 +18,8 @@ func TestIsInteractive(t *testing.T) {
 	})
 
 	t.Run("returns false when yes flag is set", func(t *testing.T) {
-		io := New(nil, &bytes.Buffer{}, &bytes.Buffer{}, false, LevelNormal, true)
-		p := io.(*printer)
+		ui := New(nil, &bytes.Buffer{}, &bytes.Buffer{}, false, LevelNormal, true)
+		p := ui.(*printer)
 		p.isTerminal = func(int) bool { return true }
 		if p.IsInteractive() {
 			t.Fatal("expected false when yes flag is set")
@@ -27,8 +27,8 @@ func TestIsInteractive(t *testing.T) {
 	})
 
 	t.Run("returns true when stdin is a terminal and yes flag is not set", func(t *testing.T) {
-		io := New(nil, &bytes.Buffer{}, &bytes.Buffer{}, false, LevelNormal, false)
-		p := io.(*printer)
+		ui := New(nil, &bytes.Buffer{}, &bytes.Buffer{}, false, LevelNormal, false)
+		p := ui.(*printer)
 		p.isTerminal = func(int) bool { return true }
 		if !p.IsInteractive() {
 			t.Fatal("expected true when stdin is a terminal and yes flag is not set")
@@ -44,11 +44,11 @@ func TestSelect(t *testing.T) {
 
 	t.Run("returns default in non-interactive mode", func(t *testing.T) {
 		var stderr bytes.Buffer
-		io := New(strings.NewReader("r\n"), &bytes.Buffer{}, &stderr, false, LevelNormal, false)
-		p := io.(*printer)
+		ui := New(strings.NewReader("r\n"), &bytes.Buffer{}, &stderr, false, LevelNormal, false)
+		p := ui.(*printer)
 		p.isTerminal = func(int) bool { return false }
 
-		got, err := io.Select("What to do?", choices, "k")
+		got, err := ui.Select("What to do?", choices, "k")
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -61,11 +61,11 @@ func TestSelect(t *testing.T) {
 	})
 
 	t.Run("returns matched key in interactive mode", func(t *testing.T) {
-		io := New(strings.NewReader("r\n"), &bytes.Buffer{}, &bytes.Buffer{}, false, LevelNormal, false)
-		p := io.(*printer)
+		ui := New(strings.NewReader("r\n"), &bytes.Buffer{}, &bytes.Buffer{}, false, LevelNormal, false)
+		p := ui.(*printer)
 		p.isTerminal = func(int) bool { return true }
 
-		got, err := io.Select("What to do?", choices, "k")
+		got, err := ui.Select("What to do?", choices, "k")
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -75,11 +75,11 @@ func TestSelect(t *testing.T) {
 	})
 
 	t.Run("matches keys case-insensitively", func(t *testing.T) {
-		io := New(strings.NewReader("R\n"), &bytes.Buffer{}, &bytes.Buffer{}, false, LevelNormal, false)
-		p := io.(*printer)
+		ui := New(strings.NewReader("R\n"), &bytes.Buffer{}, &bytes.Buffer{}, false, LevelNormal, false)
+		p := ui.(*printer)
 		p.isTerminal = func(int) bool { return true }
 
-		got, err := io.Select("What to do?", choices, "k")
+		got, err := ui.Select("What to do?", choices, "k")
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -89,11 +89,11 @@ func TestSelect(t *testing.T) {
 	})
 
 	t.Run("uses default when user presses enter", func(t *testing.T) {
-		io := New(strings.NewReader("\n"), &bytes.Buffer{}, &bytes.Buffer{}, false, LevelNormal, false)
-		p := io.(*printer)
+		ui := New(strings.NewReader("\n"), &bytes.Buffer{}, &bytes.Buffer{}, false, LevelNormal, false)
+		p := ui.(*printer)
 		p.isTerminal = func(int) bool { return true }
 
-		got, err := io.Select("What to do?", choices, "k")
+		got, err := ui.Select("What to do?", choices, "k")
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -103,11 +103,11 @@ func TestSelect(t *testing.T) {
 	})
 
 	t.Run("retries on invalid input", func(t *testing.T) {
-		io := New(strings.NewReader("x\nfoo\nr\n"), &bytes.Buffer{}, &bytes.Buffer{}, false, LevelNormal, false)
-		p := io.(*printer)
+		ui := New(strings.NewReader("x\nfoo\nr\n"), &bytes.Buffer{}, &bytes.Buffer{}, false, LevelNormal, false)
+		p := ui.(*printer)
 		p.isTerminal = func(int) bool { return true }
 
-		got, err := io.Select("What to do?", choices, "k")
+		got, err := ui.Select("What to do?", choices, "k")
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -117,22 +117,22 @@ func TestSelect(t *testing.T) {
 	})
 
 	t.Run("returns error after too many retries", func(t *testing.T) {
-		io := New(strings.NewReader("x\nx\nx\nx\nx\nx\n"), &bytes.Buffer{}, &bytes.Buffer{}, false, LevelNormal, false)
-		p := io.(*printer)
+		ui := New(strings.NewReader("x\nx\nx\nx\nx\nx\n"), &bytes.Buffer{}, &bytes.Buffer{}, false, LevelNormal, false)
+		p := ui.(*printer)
 		p.isTerminal = func(int) bool { return true }
 
-		_, err := io.Select("What to do?", choices, "k")
+		_, err := ui.Select("What to do?", choices, "k")
 		if err == nil {
 			t.Fatal("expected error after max retries")
 		}
 	})
 
 	t.Run("returns error when reading fails", func(t *testing.T) {
-		io := New(&failingReader{}, &bytes.Buffer{}, &bytes.Buffer{}, false, LevelNormal, false)
-		p := io.(*printer)
+		ui := New(&failingReader{}, &bytes.Buffer{}, &bytes.Buffer{}, false, LevelNormal, false)
+		p := ui.(*printer)
 		p.isTerminal = func(int) bool { return true }
 
-		_, err := io.Select("What to do?", choices, "k")
+		_, err := ui.Select("What to do?", choices, "k")
 		if err == nil {
 			t.Fatal("expected error when reading fails")
 		}
@@ -141,11 +141,11 @@ func TestSelect(t *testing.T) {
 
 func TestConfirmDefault(t *testing.T) {
 	t.Run("returns default yes in non-interactive mode", func(t *testing.T) {
-		io := New(nil, &bytes.Buffer{}, &bytes.Buffer{}, false, LevelNormal, false)
-		p := io.(*printer)
+		ui := New(nil, &bytes.Buffer{}, &bytes.Buffer{}, false, LevelNormal, false)
+		p := ui.(*printer)
 		p.isTerminal = func(int) bool { return false }
 
-		got, err := io.ConfirmDefault("Proceed?", true)
+		got, err := ui.ConfirmDefault("Proceed?", true)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -155,11 +155,11 @@ func TestConfirmDefault(t *testing.T) {
 	})
 
 	t.Run("returns default no in non-interactive mode", func(t *testing.T) {
-		io := New(nil, &bytes.Buffer{}, &bytes.Buffer{}, false, LevelNormal, false)
-		p := io.(*printer)
+		ui := New(nil, &bytes.Buffer{}, &bytes.Buffer{}, false, LevelNormal, false)
+		p := ui.(*printer)
 		p.isTerminal = func(int) bool { return false }
 
-		got, err := io.ConfirmDefault("Proceed?", false)
+		got, err := ui.ConfirmDefault("Proceed?", false)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -169,11 +169,11 @@ func TestConfirmDefault(t *testing.T) {
 	})
 
 	t.Run("accepts yes input", func(t *testing.T) {
-		io := New(strings.NewReader("y\n"), &bytes.Buffer{}, &bytes.Buffer{}, false, LevelNormal, false)
-		p := io.(*printer)
+		ui := New(strings.NewReader("y\n"), &bytes.Buffer{}, &bytes.Buffer{}, false, LevelNormal, false)
+		p := ui.(*printer)
 		p.isTerminal = func(int) bool { return true }
 
-		got, err := io.ConfirmDefault("Proceed?", false)
+		got, err := ui.ConfirmDefault("Proceed?", false)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -183,11 +183,11 @@ func TestConfirmDefault(t *testing.T) {
 	})
 
 	t.Run("accepts no input", func(t *testing.T) {
-		io := New(strings.NewReader("n\n"), &bytes.Buffer{}, &bytes.Buffer{}, false, LevelNormal, false)
-		p := io.(*printer)
+		ui := New(strings.NewReader("n\n"), &bytes.Buffer{}, &bytes.Buffer{}, false, LevelNormal, false)
+		p := ui.(*printer)
 		p.isTerminal = func(int) bool { return true }
 
-		got, err := io.ConfirmDefault("Proceed?", true)
+		got, err := ui.ConfirmDefault("Proceed?", true)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -197,11 +197,11 @@ func TestConfirmDefault(t *testing.T) {
 	})
 
 	t.Run("empty input uses default yes", func(t *testing.T) {
-		io := New(strings.NewReader("\n"), &bytes.Buffer{}, &bytes.Buffer{}, false, LevelNormal, false)
-		p := io.(*printer)
+		ui := New(strings.NewReader("\n"), &bytes.Buffer{}, &bytes.Buffer{}, false, LevelNormal, false)
+		p := ui.(*printer)
 		p.isTerminal = func(int) bool { return true }
 
-		got, err := io.ConfirmDefault("Proceed?", true)
+		got, err := ui.ConfirmDefault("Proceed?", true)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -211,11 +211,11 @@ func TestConfirmDefault(t *testing.T) {
 	})
 
 	t.Run("retries on invalid input", func(t *testing.T) {
-		io := New(strings.NewReader("x\ny\n"), &bytes.Buffer{}, &bytes.Buffer{}, false, LevelNormal, false)
-		p := io.(*printer)
+		ui := New(strings.NewReader("x\ny\n"), &bytes.Buffer{}, &bytes.Buffer{}, false, LevelNormal, false)
+		p := ui.(*printer)
 		p.isTerminal = func(int) bool { return true }
 
-		got, err := io.ConfirmDefault("Proceed?", false)
+		got, err := ui.ConfirmDefault("Proceed?", false)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -225,11 +225,11 @@ func TestConfirmDefault(t *testing.T) {
 	})
 
 	t.Run("returns error after too many retries", func(t *testing.T) {
-		io := New(strings.NewReader("x\nx\nx\nx\nx\nx\n"), &bytes.Buffer{}, &bytes.Buffer{}, false, LevelNormal, false)
-		p := io.(*printer)
+		ui := New(strings.NewReader("x\nx\nx\nx\nx\nx\n"), &bytes.Buffer{}, &bytes.Buffer{}, false, LevelNormal, false)
+		p := ui.(*printer)
 		p.isTerminal = func(int) bool { return true }
 
-		_, err := io.ConfirmDefault("Proceed?", false)
+		_, err := ui.ConfirmDefault("Proceed?", false)
 		if err == nil {
 			t.Fatal("expected error after max retries")
 		}
@@ -238,11 +238,11 @@ func TestConfirmDefault(t *testing.T) {
 
 func TestInput(t *testing.T) {
 	t.Run("returns default in non-interactive mode", func(t *testing.T) {
-		io := New(nil, &bytes.Buffer{}, &bytes.Buffer{}, false, LevelNormal, false)
-		p := io.(*printer)
+		ui := New(nil, &bytes.Buffer{}, &bytes.Buffer{}, false, LevelNormal, false)
+		p := ui.(*printer)
 		p.isTerminal = func(int) bool { return false }
 
-		got, err := io.Input("Branch name:", "main")
+		got, err := ui.Input("Branch name:", "main")
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -252,11 +252,11 @@ func TestInput(t *testing.T) {
 	})
 
 	t.Run("returns user input", func(t *testing.T) {
-		io := New(strings.NewReader("feature\n"), &bytes.Buffer{}, &bytes.Buffer{}, false, LevelNormal, false)
-		p := io.(*printer)
+		ui := New(strings.NewReader("feature\n"), &bytes.Buffer{}, &bytes.Buffer{}, false, LevelNormal, false)
+		p := ui.(*printer)
 		p.isTerminal = func(int) bool { return true }
 
-		got, err := io.Input("Branch name:", "main")
+		got, err := ui.Input("Branch name:", "main")
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -266,11 +266,11 @@ func TestInput(t *testing.T) {
 	})
 
 	t.Run("returns default on empty input", func(t *testing.T) {
-		io := New(strings.NewReader("\n"), &bytes.Buffer{}, &bytes.Buffer{}, false, LevelNormal, false)
-		p := io.(*printer)
+		ui := New(strings.NewReader("\n"), &bytes.Buffer{}, &bytes.Buffer{}, false, LevelNormal, false)
+		p := ui.(*printer)
 		p.isTerminal = func(int) bool { return true }
 
-		got, err := io.Input("Branch name:", "main")
+		got, err := ui.Input("Branch name:", "main")
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -280,11 +280,11 @@ func TestInput(t *testing.T) {
 	})
 
 	t.Run("returns error when reading fails", func(t *testing.T) {
-		io := New(&failingReader{}, &bytes.Buffer{}, &bytes.Buffer{}, false, LevelNormal, false)
-		p := io.(*printer)
+		ui := New(&failingReader{}, &bytes.Buffer{}, &bytes.Buffer{}, false, LevelNormal, false)
+		p := ui.(*printer)
 		p.isTerminal = func(int) bool { return true }
 
-		_, err := io.Input("Branch name:", "main")
+		_, err := ui.Input("Branch name:", "main")
 		if err == nil {
 			t.Fatal("expected error when reading fails")
 		}

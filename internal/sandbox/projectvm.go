@@ -10,7 +10,7 @@ import (
 	"time"
 
 	"gitlab.inoio.de/inoio/opencode-msb/internal/git"
-	"gitlab.inoio.de/inoio/opencode-msb/internal/output"
+	"gitlab.inoio.de/inoio/opencode-msb/internal/stdio"
 	"gitlab.inoio.de/inoio/opencode-msb/internal/sysinfo"
 
 	msb "github.com/superradcompany/microsandbox/sdk/go"
@@ -89,14 +89,14 @@ func EnsureProjectVM(
 	cfg Config,
 	imageRef, homeVol, repoPath string,
 	imageEnvs map[string]string,
-	logger *output.Printer,
+	ui stdio.UI,
 ) (*msb.Sandbox, bool, error) {
 	if opts.DryRunVM {
-		logger.Debugf("dry-run: VM lifecycle skipped")
+		ui.Verbosef("dry-run: VM lifecycle skipped")
 		return nil, false, nil
 	}
 
-	slug := git.ProjectSlug(logger)
+	slug := git.ProjectSlug(ui)
 	name := projectVMName(slug)
 
 	flockPath := filepath.Join(cfg.StateDir, "vm-ensure", slug+".lock")
@@ -104,8 +104,7 @@ func EnsureProjectVM(
 		return nil, false, fmt.Errorf("create flock dir: %w", err)
 	}
 
-	spin := output.NewSpinner(logger)
-	spin.Start("Checking project VM")
+	spin := ui.Spinner("Checking project VM")
 
 	handle, err := msb.GetSandbox(ctx, name)
 	notFound := err != nil && msb.IsKind(err, msb.ErrSandboxNotFound)
@@ -127,7 +126,7 @@ func EnsureProjectVM(
 			if connErr != nil {
 				// Idle-timeout race: the VM may have auto-stopped between
 				// GetSandbox and Connect. Retry once via Start.
-				logger.Debugf("connect failed (%v), retrying via Start", connErr)
+				ui.Verbosef("connect failed (%v), retrying via Start", connErr)
 				handle2, refreshErr := handle.Refresh(ctx)
 				if refreshErr != nil {
 					spin.StopError(refreshErr)
@@ -155,7 +154,7 @@ func EnsureProjectVM(
 				return sb2, false, nil
 			}
 			spin.Stop()
-			logger.Debugf("connected to existing project VM: %s", name)
+			ui.Verbosef("connected to existing project VM: %s", name)
 			return sb, false, nil
 		}
 		spin.Stop()
@@ -165,7 +164,7 @@ func EnsureProjectVM(
 			spin.StopError(startErr)
 			return nil, false, fmt.Errorf("start sandbox %q: %w", name, startErr)
 		}
-		logger.Debugf("started existing project VM: %s", name)
+		ui.Verbosef("started existing project VM: %s", name)
 		return sb, false, nil
 	}
 
@@ -196,7 +195,7 @@ func EnsureProjectVM(
 		if action == vmActionConnect {
 			sb, connErr := handle.Connect(ctx)
 			if connErr != nil {
-				logger.Debugf("post-lock connect failed: %v", connErr)
+				ui.Verbosef("post-lock connect failed: %v", connErr)
 			}
 			if sb != nil {
 				return sb, false, nil
@@ -212,7 +211,7 @@ func EnsureProjectVM(
 		return nil, false, fmt.Errorf("re-check sandbox %q: %w", name, err)
 	}
 
-	sb, created, err := createProjectVM(ctx, name, imageRef, homeVol, repoPath, opts, cfg, imageEnvs, logger)
+	sb, created, err := createProjectVM(ctx, name, imageRef, homeVol, repoPath, opts, cfg, imageEnvs, ui)
 	if err != nil {
 		return nil, false, err
 	}
@@ -225,7 +224,7 @@ func createProjectVM(
 	opts RunOptions,
 	cfg Config,
 	imageEnvs map[string]string,
-	logger *output.Printer,
+	ui stdio.UI,
 ) (*msb.Sandbox, bool, error) {
 	user := opts.User
 	if user == "" {
@@ -242,18 +241,17 @@ func createProjectVM(
 		buildEnvMap(filepath.Join(cfg.UserLauncherDir, "env")),
 		buildEnvMap(".opencode-msb/env"),
 	)
-	logger.Debugf("adding docker env definitions to project VM environment: %s", imageEnvs)
+	ui.Verbosef("adding docker env definitions to project VM environment: %s", imageEnvs)
 	buildProjectVMEnv(envMap, imageEnvs)
 
 	secrets := BuildSecrets(mergeEnvMaps(
 		buildEnvMap(filepath.Join(cfg.UserLauncherDir, "env.secret")),
 		buildEnvMap(".opencode-msb/env.secret"),
-	), logger)
+	), ui)
 
 	mounts := buildMounts(homeVol, repoPath, resolveTmpSizeMiB(opts.TmpSize))
 
-	spin := output.NewSpinner(logger)
-	spin.Start("Starting project VM")
+	spin := ui.Spinner("Starting project VM")
 	sb, err := msb.CreateSandbox(ctx, name,
 		msb.WithImage(imageRef),
 		msb.WithMounts(mounts),
@@ -275,7 +273,7 @@ func createProjectVM(
 		return nil, false, fmt.Errorf("create sandbox: %w", err)
 	}
 	spin.Stop()
-	logger.Debugf("created new project VM: %s", name)
+	ui.Verbosef("created new project VM: %s", name)
 	return sb, true, nil
 }
 
@@ -302,17 +300,17 @@ func stopOrKillProjectVM(
 	ctx context.Context,
 	remove bool,
 	dryRun bool,
-	logger *output.Printer,
+	ui stdio.UI,
 	action, actionVerb string,
 	stopFn func(*msb.SandboxHandle, context.Context) error,
 ) error {
-	slug := git.ProjectSlug(logger)
+	slug := git.ProjectSlug(ui)
 	name := projectVMName(slug)
 
 	handle, err := msb.GetSandbox(ctx, name)
 	if err != nil {
 		if msb.IsKind(err, msb.ErrSandboxNotFound) {
-			logger.Infof("no project VM found: %s", name)
+			ui.Infof("no project VM found: %s", name)
 			return nil
 		}
 		return fmt.Errorf("get sandbox %q: %w", name, err)
@@ -324,25 +322,24 @@ func stopOrKillProjectVM(
 			actionWord = "Would kill"
 		}
 		if remove {
-			logger.Infof("dry-run: %s project VM: %s (also would remove persisted state)", actionWord, name)
+			ui.Infof("dry-run: %s project VM: %s (also would remove persisted state)", actionWord, name)
 		} else {
-			logger.Infof("dry-run: %s project VM: %s", actionWord, name)
+			ui.Infof("dry-run: %s project VM: %s", actionWord, name)
 		}
 		return nil
 	}
 
-	spin := output.NewSpinner(logger)
-	spin.Start(actionVerb + " project VM")
+	spin := ui.Spinnerf("%s project VM", actionVerb)
 	if err := stopFn(handle, ctx); err != nil {
 		spin.StopError(err)
 		return fmt.Errorf("%s sandbox %q: %w", action, name, err)
 	}
 	spin.Stop()
-	logger.Infof("%s project VM: %s", action+"ed", name)
+	ui.Infof("%s project VM: %s", action+"ed", name)
 
 	if remove {
 		if err := handle.Remove(ctx); err != nil {
-			logger.Warnf("failed to remove sandbox state: %v", err)
+			ui.Warnf("failed to remove sandbox state: %v", err)
 		}
 	}
 	return nil
@@ -350,14 +347,14 @@ func stopOrKillProjectVM(
 
 // StopProjectVM gracefully stops the project VM for the current directory.
 // If remove is true, it also removes the VM's persisted state after stopping.
-func StopProjectVM(ctx context.Context, remove, dryRun bool, logger *output.Printer) error {
-	return stopOrKillProjectVM(ctx, remove, dryRun, logger, "stop", "Stopping",
+func StopProjectVM(ctx context.Context, remove, dryRun bool, ui stdio.UI) error {
+	return stopOrKillProjectVM(ctx, remove, dryRun, ui, "stop", "Stopping",
 		func(h *msb.SandboxHandle, c context.Context) error { return h.Stop(c) })
 }
 
 // KillProjectVM force-kills the project VM for the current directory.
 // If remove is true, it also removes the VM's persisted state after killing.
-func KillProjectVM(ctx context.Context, remove, dryRun bool, logger *output.Printer) error {
-	return stopOrKillProjectVM(ctx, remove, dryRun, logger, "kill", "Force-killing",
+func KillProjectVM(ctx context.Context, remove, dryRun bool, ui stdio.UI) error {
+	return stopOrKillProjectVM(ctx, remove, dryRun, ui, "kill", "Force-killing",
 		func(h *msb.SandboxHandle, c context.Context) error { return h.Kill(c) })
 }

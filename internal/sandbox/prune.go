@@ -8,8 +8,7 @@ import (
 	"time"
 
 	msb "github.com/superradcompany/microsandbox/sdk/go"
-
-	"gitlab.inoio.de/inoio/opencode-msb/internal/output"
+	"gitlab.inoio.de/inoio/opencode-msb/internal/stdio"
 )
 
 // StaleReport describes the result of a prune operation.
@@ -202,12 +201,12 @@ func (r *StaleReport) HasAnything() bool {
 // Prune finds stale VMs, volumes, and images and removes them.
 // dryRun=true collects artifacts without deleting.
 // force skips confirmation (used for auto-prune).
-// Logger is used for per-artifact warnings on non-fatal deletion errors.
+// ui is used for per-artifact warnings on non-fatal deletion errors.
 func Prune(
 	ctx context.Context,
 	threshold time.Duration,
 	dryRun bool,
-	logger *output.Printer,
+	ui stdio.UI,
 ) (*StaleReport, error) {
 	report := &StaleReport{
 		PrunedVMs:           0,
@@ -272,7 +271,7 @@ func Prune(
 			})
 			if !dryRun {
 				if removeErr := msb.RemoveSandbox(ctx, name); removeErr != nil {
-					logger.Warnf("failed to remove task sandbox %s: %v", name, removeErr)
+					ui.Warnf("failed to remove task sandbox %s: %v", name, removeErr)
 					continue
 				}
 			}
@@ -359,7 +358,7 @@ func Prune(
 		slug := entry.Slug
 		if !dryRun {
 			if err := msb.RemoveSandbox(ctx, entry.Name); err != nil {
-				logger.Warnf("failed to remove stale VM %s: %v", entry.Name, err)
+				ui.Warnf("failed to remove stale VM %s: %v", entry.Name, err)
 				continue
 			}
 		}
@@ -369,7 +368,7 @@ func Prune(
 			for _, volName := range vols {
 				if !dryRun {
 					if err := msb.RemoveVolume(ctx, volName); err != nil {
-						logger.Warnf("failed to remove home volume %s: %v", volName, err)
+						ui.Warnf("failed to remove home volume %s: %v", volName, err)
 						continue
 					}
 				}
@@ -380,7 +379,7 @@ func Prune(
 		for _, img := range msbImagesBySlug[slug] {
 			if !dryRun {
 				if err := msb.Image.Remove(ctx, img.ref, true); err != nil {
-					logger.Warnf("failed to remove msb image %s: %v", img.ref, err)
+					ui.Warnf("failed to remove msb image %s: %v", img.ref, err)
 					continue
 				}
 			}
@@ -391,7 +390,7 @@ func Prune(
 				dockerRef := stripDockerHostPrefix(img.ref)
 				cmd := exec.CommandContext(ctx, "docker", "rmi", dockerRef)
 				if out, err := cmd.CombinedOutput(); err != nil {
-					logger.Warnf("failed to remove docker image %s: %v: %s", dockerRef, err, string(out))
+					ui.Warnf("failed to remove docker image %s: %v: %s", dockerRef, err, string(out))
 					continue
 				}
 			}
@@ -423,7 +422,7 @@ func Prune(
 				// Unused digest volume.
 				if !dryRun {
 					if err := msb.RemoveVolume(ctx, volName); err != nil {
-						logger.Warnf("failed to remove home volume %s: %v", volName, err)
+						ui.Warnf("failed to remove home volume %s: %v", volName, err)
 						continue
 					}
 				}
@@ -441,7 +440,7 @@ func Prune(
 			// Delete unused digest image.
 			if !dryRun {
 				if err := msb.Image.Remove(ctx, img.ref, true); err != nil {
-					logger.Warnf("failed to remove msb image %s: %v", img.ref, err)
+					ui.Warnf("failed to remove msb image %s: %v", img.ref, err)
 					continue
 				}
 			}
@@ -459,7 +458,7 @@ func Prune(
 				dockerRef := stripDockerHostPrefix(img.ref)
 				cmd := exec.CommandContext(ctx, "docker", "rmi", dockerRef)
 				if out, err := cmd.CombinedOutput(); err != nil {
-					logger.Warnf("failed to remove docker image %s: %v: %s", dockerRef, err, string(out))
+					ui.Warnf("failed to remove docker image %s: %v: %s", dockerRef, err, string(out))
 					continue
 				}
 			}
@@ -483,7 +482,7 @@ func Prune(
 				for _, volName := range vols {
 					if !dryRun {
 						if err := msb.RemoveVolume(ctx, volName); err != nil {
-							logger.Warnf("failed to remove home volume %s: %v", volName, err)
+							ui.Warnf("failed to remove home volume %s: %v", volName, err)
 							continue
 						}
 					}
@@ -493,7 +492,7 @@ func Prune(
 			for _, img := range msbImagesBySlug[slug] {
 				if !dryRun {
 					if err := msb.Image.Remove(ctx, img.ref, true); err != nil {
-						logger.Warnf("failed to remove msb image %s: %v", img.ref, err)
+						ui.Warnf("failed to remove msb image %s: %v", img.ref, err)
 						continue
 					}
 				}
@@ -504,7 +503,7 @@ func Prune(
 					dockerRef := stripDockerHostPrefix(img.ref)
 					cmd := exec.CommandContext(ctx, "docker", "rmi", dockerRef)
 					if out, err := cmd.CombinedOutput(); err != nil {
-						logger.Warnf("failed to remove docker image %s: %v: %s", dockerRef, err, string(out))
+						ui.Warnf("failed to remove docker image %s: %v: %s", dockerRef, err, string(out))
 						continue
 					}
 				}
@@ -529,7 +528,7 @@ func Prune(
 			// Orphan slug: no VM at all → delete clone volume.
 			if !dryRun {
 				if err := msb.RemoveVolume(ctx, cv); err != nil {
-					logger.Warnf("failed to remove clone volume %s: %v", cv, err)
+					ui.Warnf("failed to remove clone volume %s: %v", cv, err)
 					continue
 				}
 			}
@@ -539,7 +538,7 @@ func Prune(
 		// Already a stale VM with this slug. Delete orphaned clones.
 		if !dryRun {
 			if err := msb.RemoveVolume(ctx, cv); err != nil {
-				logger.Warnf("failed to remove clone volume %s: %v", cv, err)
+				ui.Warnf("failed to remove clone volume %s: %v", cv, err)
 				continue
 			}
 		}

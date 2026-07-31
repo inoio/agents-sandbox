@@ -13,7 +13,7 @@ import (
 
 	"github.com/go-viper/mapstructure/v2"
 	"github.com/spf13/viper"
-	json5 "github.com/titanous/json5"
+	"github.com/titanous/json5"
 )
 
 // Config holds launcher-level defaults that can be set in

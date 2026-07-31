@@ -1,12 +1,9 @@
 package main
 
 import (
-	"errors"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
-	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -16,28 +13,28 @@ import (
 	"github.com/spf13/pflag"
 	"golang.org/x/term"
 
-	"gitlab.inoio.de/inoio/opencode-msb/internal/config"
 	"gitlab.inoio.de/inoio/opencode-msb/internal/launcherconfig"
 	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox"
 	"gitlab.inoio.de/inoio/opencode-msb/internal/stdio"
 )
 
 const (
-	cmdRun    = "run"
-	cmdDoctor = "doctor"
-	cmdBuild  = "build"
-	cmdList   = "list"
-	cmdConfig = "config"
-	cmdImage  = "image"
-	cmdVolume = "volume"
-	cmdStop   = "stop"
-	cmdKill   = "kill"
+	pFlagYes     = "yes"
+	pFlagVerbose = "verbose"
+	pFlagQuiet   = "quiet"
 
-	flagTree    = "--tree"
-	flagVersion = "--version"
-	flagYes     = "yes"
-	flagVerbose = "verbose"
-	flagQuiet   = "quiet"
+	cmdRun     = "run"
+	cmdDoctor  = "doctor"
+	cmdBuild   = "build"
+	cmdList    = "list"
+	cmdTree    = "tree"
+	cmdVersion = "version"
+	cmdConfig  = "config"
+	cmdImage   = "image"
+	cmdVolume  = "volume"
+	cmdStop    = "stop"
+	cmdKill    = "kill"
+
 	flagRebuild = "rebuild"
 	flagCpus    = "cpus"
 	flagMemory  = "memory"
@@ -49,90 +46,26 @@ const (
 
 var version = "dev"
 
-func Execute() error {
-	root := buildRootCmd()
-
-	args := os.Args[1:]
-
-	for _, a := range args {
-		if a == "--" {
-			break
-		}
-		switch a {
-		case flagTree:
-			printTree(os.Stdout, root)
-			return nil
-		case flagVersion, "-V":
-			fmt.Fprintf(os.Stdout, "opencode-msb version %s\n", version)
-			return nil
-		}
-	}
-
-	if len(args) == 0 || !isKnownSubcommand(args[0], root) {
+func Execute(args []string, ui stdio.UI) error {
+	rootCmd := buildRootCmd(ui)
+	/*if len(args) == 0 || !containsSubcommand(args, rootCmd) {
+		ui.Verbose("adding implicit run command to args")
 		args = append([]string{cmdRun}, args...)
-	}
-	root.SetArgs(args)
-	return root.Execute()
+	}*/
+	rootCmd.SetArgs(args)
+	return rootCmd.Execute()
 }
 
-func buildRootCmd() *cobra.Command {
-	root := &cobra.Command{
-		Use:   "opencode-msb",
-		Short: "Run opencode inside an ephemeral microsandbox VM",
-		Long: "Run opencode inside an ephemeral microsandbox VM.\n\n" +
-			"When invoked without a subcommand, the \"run\" command is implied.",
+func getIOLevel(root *cobra.Command) stdio.Level {
+	verbose, _ := root.Flags().GetBool("verbose")
+	quiet, _ := root.Flags().GetBool("quiet")
+	level := stdio.LevelNormal
+	if quiet {
+		level = stdio.LevelQuiet
+	} else if verbose {
+		level = stdio.LevelVerbose
 	}
-
-	root.PersistentFlags().BoolP("yes", "y", false, "Assume yes to all prompts")
-	root.PersistentFlags().BoolP("verbose", "v", false, "Show debug-level output")
-	root.PersistentFlags().BoolP("quiet", "q", false, "Suppress non-error output")
-	root.PersistentFlags().Bool("tree", false, "Print the full command tree and exit")
-	root.PersistentFlags().BoolP("version", "V", false, "Print version and exit")
-
-	root.PersistentPreRunE = func(cmd *cobra.Command, _ []string) error {
-		cfg := newConfig()
-		lc, keys, err := launcherconfig.Load(cfg.UserLauncherDir, projectLauncherDir)
-		if err != nil {
-			return err
-		}
-		if err := applyLauncherConfig(cmd, lc, keys); err != nil {
-			return err
-		}
-		return nil
-	}
-
-	root.AddCommand(buildRunCmd())
-	root.AddCommand(buildDoctorCmd())
-	root.AddCommand(buildBuildCmd())
-	root.AddCommand(buildListCmd())
-	root.AddCommand(buildShellCmd())
-	root.AddCommand(buildConfigCmd())
-	root.AddCommand(buildImageCmd())
-	root.AddCommand(buildVolumeCmd())
-	root.AddCommand(buildSandboxCmd())
-	root.AddCommand(buildStopCmd())
-	root.AddCommand(buildKillCmd())
-	root.AddCommand(buildPruneCmd())
-
-	return root
-}
-
-func isKnownSubcommand(arg string, root *cobra.Command) bool {
-	switch arg {
-	case "help", "--help", "-h", flagTree, flagVersion, "-V", "completion":
-		return true
-	default:
-	}
-
-	for _, cmd := range root.Commands() {
-		if cmd.Name() == arg {
-			return true
-		}
-		if slices.Contains(cmd.Aliases, arg) {
-			return true
-		}
-	}
-	return false
+	return level
 }
 
 type treeEntry struct {
@@ -141,9 +74,9 @@ type treeEntry struct {
 	desc   string
 }
 
-func printTree(w io.Writer, root *cobra.Command) {
+func printTree(rootCmd *cobra.Command, ui stdio.UI) {
 	var entries []treeEntry
-	collectTreeEntries(&entries, root, root, "")
+	collectTreeEntries(&entries, rootCmd, rootCmd, "")
 
 	maxWidth := 0
 	for _, e := range entries {
@@ -153,16 +86,16 @@ func printTree(w io.Writer, root *cobra.Command) {
 		}
 	}
 
-	fmt.Fprintln(w, root.Name())
+	ui.Info(rootCmd.Name())
 	const descPadding = 2
 	descCol := maxWidth + descPadding
 	for _, e := range entries {
 		nameWidth := utf8.RuneCountInString(e.prefix) + utf8.RuneCountInString(e.name)
 		padding := descCol - nameWidth
-		fmt.Fprintf(w, "%s%s%s%s\n", e.prefix, e.name, strings.Repeat(" ", padding), e.desc)
+		ui.Infof("%s%s%s%s", e.prefix, e.name, strings.Repeat(" ", padding), e.desc)
 	}
-	fmt.Fprintln(w)
-	fmt.Fprintln(w, "When invoked without a subcommand, the \"run\" command is implied.")
+	ui.Info("")
+	ui.Info("When invoked without a subcommand, the \"run\" command is implied.")
 }
 
 func collectTreeEntries(entries *[]treeEntry, root *cobra.Command, cmd *cobra.Command, prefix string) {
@@ -255,89 +188,6 @@ func formatCommandName(cmd *cobra.Command, isTopLevel bool) string {
 	return name
 }
 
-func buildDoctorCmd() *cobra.Command {
-	return &cobra.Command{
-		Use:   cmdDoctor,
-		Short: "Check prerequisites",
-		RunE: func(cmd *cobra.Command, _ []string) error {
-			stdioIO := newIO(cmd)
-			if !sandbox.CheckAll(cmd.Context(), stdioIO) {
-				return errors.New("preflight failed")
-			}
-			stdioIO.Success("doctor: all checks passed")
-			return nil
-		},
-	}
-}
-
-func buildBuildCmd() *cobra.Command {
-	cmd := &cobra.Command{
-		Use:   cmdBuild,
-		Short: "Build or rebuild the runner image",
-		RunE: func(cmd *cobra.Command, _ []string) error {
-			force, _ := cmd.Flags().GetBool("rebuild")
-			dryRun, _ := cmd.Flags().GetBool("dry-run")
-			stdioIO := newIO(cmd)
-			return sandbox.BuildImage(cmd.Context(), force, dryRun, stdioIO)
-		},
-	}
-	cmd.Flags().BoolP("rebuild", "r", false, "Force a clean rebuild")
-	cmd.Flags().BoolP("dry-run", "n", false, "Dry run without building")
-	return cmd
-}
-
-func buildRunCmd() *cobra.Command {
-	cmd := &cobra.Command{
-		Use:   "run [flags] [ARGS...]",
-		Short: "Run opencode in a microsandbox VM",
-		Annotations: map[string]string{
-			annotationArgsDesc: "Arguments forwarded to opencode (use -- to separate from launcher flags)",
-			annotationAlsoAs:   "sandbox run",
-		},
-		RunE: func(cmd *cobra.Command, args []string) error {
-			opts := sandbox.RunOptions{Args: args, Auto: true}
-			opts.Branch, _ = cmd.Flags().GetString("branch")
-			opts.Rebuild, _ = cmd.Flags().GetBool("rebuild")
-			opts.DryRun, _ = cmd.Flags().GetBool("dry-run")
-			opts.DryRunVM, _ = cmd.Flags().GetBool("dry-run-vm")
-			// --dry-run implies --dry-run-vm
-			if opts.DryRun {
-				opts.DryRunVM = true
-			}
-			opts.CPUs, _ = cmd.Flags().GetUint8("cpus")
-			opts.Memory, _ = cmd.Flags().GetString("memory")
-			opts.TmpSize, _ = cmd.Flags().GetString("tmp-size")
-			opts.User, _ = cmd.Flags().GetString("user")
-			if noAuto, _ := cmd.Flags().GetBool("no-auto"); noAuto {
-				opts.Auto = false
-			}
-
-			cfg := newConfig()
-			stdioIO := newIO(cmd)
-
-			err := sandbox.Run(cmd.Context(), opts, cfg, stdioIO)
-			var exitErr *sandbox.ExitError
-			if errors.As(err, &exitErr) {
-				os.Exit(exitErr.Code)
-			}
-			return err
-		},
-	}
-
-	cmd.Flags().StringP("branch", "b", "", "Run in an opencode worktree for the given branch name")
-	cmd.Flags().BoolP("rebuild", "r", false, "Rebuild the runner image before starting")
-	cmd.Flags().BoolP("dry-run", "n", false, "Validate setup without running opencode")
-	cmd.Flags().Bool("dry-run-vm", false, "Skip VM lifecycle but prepare everything else")
-	cmd.Flags().Uint8P("cpus", "c", 0, "Number of CPUs (default: all)")
-	cmd.Flags().StringP("memory", "m", "4G", "Memory limit")
-	cmd.Flags().String("tmp-size", "2G", "Size of the /tmp tmpfs in the sandbox")
-	cmd.Flags().
-		StringP("user", "u", "", "Username or UID for the runtime user (format: <name|uid>[:<group|gid>])")
-	cmd.Flags().Bool("no-auto", false, "Do not pass --auto to opencode")
-
-	return cmd
-}
-
 func newConfig() sandbox.Config {
 	home, _ := os.UserHomeDir()
 	return sandbox.Config{
@@ -354,9 +204,9 @@ func applyLauncherConfig(cmd *cobra.Command, lc launcherconfig.Config, keys map[
 		key string
 		fn  func() error
 	}{
-		{flagYes, func() error { return setBoolFlag(cmd, flagYes, lc.Yes) }},
-		{flagVerbose, func() error { return setBoolFlag(cmd, flagVerbose, lc.Verbose) }},
-		{flagQuiet, func() error { return setBoolFlag(cmd, flagQuiet, lc.Quiet) }},
+		{pFlagYes, func() error { return setBoolFlag(cmd, pFlagYes, lc.Yes) }},
+		{pFlagVerbose, func() error { return setBoolFlag(cmd, pFlagVerbose, lc.Verbose) }},
+		{pFlagQuiet, func() error { return setBoolFlag(cmd, pFlagQuiet, lc.Quiet) }},
 		{flagRebuild, func() error { return setBoolFlag(cmd, flagRebuild, lc.Rebuild) }},
 		{flagCpus, func() error { return setUint8Flag(cmd, flagCpus, lc.CPUs) }},
 		{flagMemory, func() error { return setStringFlag(cmd, flagMemory, lc.Memory) }},
@@ -417,299 +267,31 @@ func setDurationFlag(cmd *cobra.Command, name string, val time.Duration) error {
 	return f.Value.Set(val.String())
 }
 
-func buildListCmd() *cobra.Command {
-	cmd := &cobra.Command{
-		Use:     cmdList,
-		Aliases: []string{"ls"},
-		Short:   "List sandboxes for this host",
-		Annotations: map[string]string{
-			annotationAlsoAs: "sandbox list",
-		},
-		RunE: func(cmd *cobra.Command, _ []string) error {
-			sandboxes, err := sandbox.ListSandboxes(cmd.Context())
-			if err != nil {
-				return err
-			}
-			stdioIO := newIO(cmd)
-			if len(sandboxes) == 0 {
-				stdioIO.Success("No sandboxes found.")
-				return nil
-			}
-			for _, s := range sandboxes {
-				stdioIO.Outf("%-40s %s", s.Name, s.Status)
-			}
-			return nil
-		},
-	}
-	return cmd
-}
-
-func buildShellCmd() *cobra.Command {
-	cmd := &cobra.Command{
-		Use:   "shell [flags]",
-		Short: "Start sandbox and open a shell (debug)",
-		Annotations: map[string]string{
-			annotationAlsoAs: "sandbox shell",
-		},
-		RunE: func(cmd *cobra.Command, _ []string) error {
-			opts := sandbox.RunOptions{Auto: false}
-			opts.Branch, _ = cmd.Flags().GetString("branch")
-			opts.Rebuild, _ = cmd.Flags().GetBool("rebuild")
-			opts.DryRun, _ = cmd.Flags().GetBool("dry-run")
-			opts.DryRunVM, _ = cmd.Flags().GetBool("dry-run-vm")
-			if opts.DryRun {
-				opts.DryRunVM = true
-			}
-			opts.CPUs, _ = cmd.Flags().GetUint8("cpus")
-			opts.Memory, _ = cmd.Flags().GetString("memory")
-			opts.TmpSize, _ = cmd.Flags().GetString("tmp-size")
-			opts.User, _ = cmd.Flags().GetString("user")
-
-			cfg := newConfig()
-			stdioIO := newIO(cmd)
-
-			err := sandbox.Shell(cmd.Context(), opts, cfg, stdioIO)
-			var exitErr *sandbox.ExitError
-			if errors.As(err, &exitErr) {
-				os.Exit(exitErr.Code)
-			}
-			return err
-		},
-	}
-
-	cmd.Flags().StringP("branch", "b", "", "Run in an opencode worktree for the given branch name")
-	cmd.Flags().BoolP("rebuild", "r", false, "Rebuild the runner image before starting")
-	cmd.Flags().BoolP("dry-run", "n", false, "Dry run without starting anything")
-	cmd.Flags().Bool("dry-run-vm", false, "Skip VM lifecycle but prepare everything else")
-	cmd.Flags().Uint8P("cpus", "c", 0, "Number of CPUs (default: all)")
-	cmd.Flags().StringP("memory", "m", "4G", "Memory limit")
-	cmd.Flags().String("tmp-size", "2G", "Size of the /tmp tmpfs in the sandbox")
-	cmd.Flags().StringP("user", "u", "", "Username or UID to use inside the sandbox (format: <name|uid>[:<group|gid>])")
-
-	return cmd
-}
-
-func buildConfigCmd() *cobra.Command {
-	cmd := &cobra.Command{
-		Use:   cmdConfig,
-		Short: "Inspect opencode configuration",
-	}
-	cmd.AddCommand(&cobra.Command{
-		Use:   "show",
-		Short: "Print merged opencode config with source paths",
-		RunE: func(cmd *cobra.Command, _ []string) error {
-			cfg := newConfig()
-			projectConfigDir := ""
-			if _, statErr := os.Stat(".opencode-msb/opencode"); statErr == nil {
-				projectConfigDir = ".opencode-msb/opencode"
-			}
-			providerCfg, err := config.LoadProviderConfig(config.EmbeddedProviderConfig)
-			if err != nil {
-				return fmt.Errorf("load provider config: %w", err)
-			}
-
-			descs, err := config.DescribeConfig(cfg.UserConfigDir, projectConfigDir, providerCfg)
-			if err != nil {
-				return err
-			}
-			files, err := config.BuildMergedConfig(cfg.UserConfigDir, projectConfigDir, providerCfg)
-			if err != nil {
-				return err
-			}
-
-			stdioIO := newIO(cmd)
-			for _, desc := range descs {
-				stdioIO.Outf("=== %s ===", desc.Name)
-				for _, src := range desc.Sources {
-					stdioIO.Outf("  source: %s", src)
-				}
-				if data, ok := files[desc.Name]; ok {
-					stdioIO.Out("  merged content:")
-					for line := range strings.SplitSeq(string(data), "\n") {
-						stdioIO.Outf("    %s", line)
-					}
-				}
-				stdioIO.Out("")
-			}
-			return nil
-		},
-	})
-	return cmd
-}
-
-func buildImageCmd() *cobra.Command {
-	cmd := &cobra.Command{
-		Use:   cmdImage,
-		Short: "Manage runner images",
-	}
-	cmd.AddCommand(&cobra.Command{
-		Use:     cmdList,
-		Aliases: []string{"ls"},
-		Short:   "List cached runner images",
-		RunE: func(cmd *cobra.Command, _ []string) error {
-			images, err := sandbox.ListImages(cmd.Context())
-			if err != nil {
-				return err
-			}
-			stdioIO := newIO(cmd)
-			if len(images) == 0 {
-				stdioIO.Success("No images found.")
-				return nil
-			}
-			for _, img := range images {
-				stdioIO.Outf("%-50s %s", img.Reference, img.Digest)
-			}
-			return nil
-		},
-	})
-	cmd.AddCommand(buildBuildCmd())
-	return cmd
-}
-
-func buildVolumeCmd() *cobra.Command {
-	cmd := &cobra.Command{
-		Use:   cmdVolume,
-		Short: "Manage volumes",
-	}
-	cmd.AddCommand(&cobra.Command{
-		Use:     cmdList,
-		Aliases: []string{"ls"},
-		Short:   "List managed volumes",
-		RunE: func(cmd *cobra.Command, _ []string) error {
-			volumes, err := sandbox.ListVolumes(cmd.Context())
-			if err != nil {
-				return err
-			}
-			stdioIO := newIO(cmd)
-			if len(volumes) == 0 {
-				stdioIO.Success("No volumes found.")
-				return nil
-			}
-			for _, vol := range volumes {
-				stdioIO.Outf("%-50s %s", vol.Name, vol.Path)
-			}
-			return nil
-		},
-	})
-	return cmd
-}
-
-func buildSandboxCmd() *cobra.Command {
-	cmd := &cobra.Command{
-		Use:   "sandbox",
-		Short: "Manage sandboxes",
-	}
-	cmd.AddCommand(buildListCmd())
-	cmd.AddCommand(buildShellCmd())
-	cmd.AddCommand(buildRunCmd())
-	cmd.AddCommand(buildStopCmd())
-	cmd.AddCommand(buildKillCmd())
-	return cmd
-}
-
-func buildStopCmd() *cobra.Command {
-	cmd := &cobra.Command{
-		Use:   cmdStop,
-		Short: "Stop the project VM",
-		Annotations: map[string]string{
-			annotationAlsoAs: "sandbox stop",
-		},
-		RunE: func(cmd *cobra.Command, _ []string) error {
-			force, _ := cmd.Flags().GetBool("force")
-			dryRun, _ := cmd.Flags().GetBool("dry-run")
-			stdioIO := newIO(cmd)
-			return sandbox.StopProjectVM(cmd.Context(), force, dryRun, stdioIO)
-		},
-	}
-	cmd.Flags().BoolP("force", "f", false, "Remove the VM's persisted state after stopping")
-	cmd.Flags().BoolP("dry-run", "n", false, "Show what would be stopped without stopping")
-	return cmd
-}
-
-func buildKillCmd() *cobra.Command {
-	cmd := &cobra.Command{
-		Use:   cmdKill,
-		Short: "Force-kill the project VM",
-		Annotations: map[string]string{
-			annotationAlsoAs: "sandbox kill",
-		},
-		RunE: func(cmd *cobra.Command, _ []string) error {
-			force, _ := cmd.Flags().GetBool("force")
-			dryRun, _ := cmd.Flags().GetBool("dry-run")
-			stdioIO := newIO(cmd)
-			return sandbox.KillProjectVM(cmd.Context(), force, dryRun, stdioIO)
-		},
-	}
-	cmd.Flags().BoolP("force", "f", false, "Remove the VM's persisted state after killing")
-	cmd.Flags().BoolP("dry-run", "n", false, "Show what would be killed without killing")
-	return cmd
-}
-
-func newIO(cmd *cobra.Command) stdio.IO {
-	verbose, _ := cmd.Flags().GetBool("verbose")
-	quiet, _ := cmd.Flags().GetBool("quiet")
-	yes, _ := cmd.Flags().GetBool("yes")
-
-	level := stdio.LevelNormal
-	if quiet {
-		level = stdio.LevelQuiet
-	} else if verbose {
-		level = stdio.LevelVerbose
-	}
+func newUI(args []string) stdio.UI {
+	minimalCmd := buildMinimalRootFlagsCmd()
+	// We don't care about errors, just parse the minimal flags for UI initialization
+	_ = minimalCmd.ParseFlags(args)
+	yes, _ := minimalCmd.Flags().GetBool("yes")
+	level := getIOLevel(minimalCmd)
 
 	return stdio.New(os.Stdin, os.Stdout, os.Stderr,
 		term.IsTerminal(int(os.Stderr.Fd())), level, yes)
 }
 
-func buildPruneCmd() *cobra.Command {
-	cmd := &cobra.Command{
-		Use:   "prune [flags]",
-		Short: "Prune stale VMs, volumes, and images",
-		RunE: func(cmd *cobra.Command, _ []string) error {
-			ageStr, _ := cmd.Flags().GetString("age")
-			var age time.Duration
-			if ageStr != "" {
-				if d, ok := launcherconfig.ParseHumanDuration(ageStr); ok {
-					age = d
-				}
-			}
-			if age == 0 {
-				age = 7 * 24 * time.Hour
-			}
-			dryRun, _ := cmd.Flags().GetBool("dry-run")
-			stdioIO := newIO(cmd)
-			report, err := sandbox.Prune(cmd.Context(), age, dryRun, stdioIO)
-			if err != nil {
-				return err
-			}
-			if report != nil {
-				printPruneSummary(stdioIO, report, dryRun)
-			}
-			return nil
-		},
-	}
-	cmd.Flags().StringP("age", "a", "", "Prune threshold (default: manualPruneAge from config)")
-	cmd.Flags().BoolP("dry-run", "n", false, "Show what would be pruned without deleting")
-	cmd.Flags().Bool("dry-run-vm", false, "Suppress VM deletion during prune")
-	cmd.Flags().BoolP("force", "f", false, "Skip confirmation prompt")
-	return cmd
-}
-
-func printPruneSummary(stdioIO stdio.IO, report *sandbox.StaleReport, dryRun bool) {
+func printPruneSummary(ui stdio.UI, report *sandbox.StaleReport, dryRun bool) {
 	action := "Pruned"
 	if dryRun {
 		action = "dry-run: Would prune"
 	}
 
-	parts := []string{
+	ui.Outf(
+		"%s %d VMs, %d home volumes, %d docker images, %d msb images, %d task sandboxes, %d clone volumes",
 		action,
-		fmt.Sprintf("%d VMs", report.PrunedVMs),
-		fmt.Sprintf("%d home volumes", report.PrunedVolumes),
-		fmt.Sprintf("%d docker images", report.PrunedDockerImages),
-		fmt.Sprintf("%d msb images", report.PrunedMSBImages),
-		fmt.Sprintf("%d task sandboxes", report.PrunedTaskSandboxes),
-		fmt.Sprintf("%d clone volumes", report.PrunedCloneVolumes),
-	}
-
-	stdioIO.Out(strings.Join(parts, ", "))
+		report.PrunedVMs,
+		report.PrunedVolumes,
+		report.PrunedDockerImages,
+		report.PrunedMSBImages,
+		report.PrunedTaskSandboxes,
+		report.PrunedCloneVolumes,
+	)
 }
