@@ -1,13 +1,15 @@
 package main
 
 import (
-	"fmt"
 	"os"
 )
 
 func main() {
-	if err := Execute(); err != nil {
-		fmt.Fprintln(os.Stderr, err)
+	args := os.Args[1:]
+	ui := newUI(args)
+
+	if err := Execute(args, ui); err != nil {
+		ui.Error("Failed: ", err)
 		os.Exit(1)
 	}
 }

@@ -32,14 +32,14 @@ func (p *printer) format(format string, args ...any) string {
 	return fmt.Sprintf(format, args...)
 }
 
-func (p *printer) Success(msg string) {
+func (p *printer) Info(msg string) {
 	if p.level == LevelQuiet {
 		return
 	}
 	p.write(p.stderr, "", msg)
 }
 
-func (p *printer) Successf(format string, args ...any) {
+func (p *printer) Infof(format string, args ...any) {
 	if p.level == LevelQuiet {
 		return
 	}
@@ -92,4 +92,8 @@ func (p *printer) Outf(format string, args ...any) {
 
 func (p *printer) Spinner(msg string) Spinner {
 	return newSpinner(p.stderr, p.color, p.level, msg)
+}
+
+func (p *printer) Spinnerf(format string, args ...any) Spinner {
+	return newSpinner(p.stderr, p.color, p.level, p.format(format, args...))
 }

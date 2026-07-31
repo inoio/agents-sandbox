@@ -8,8 +8,6 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-
-	"gitlab.inoio.de/inoio/opencode-msb/internal/output"
 )
 
 func TestCheckDockerLogsUnderlyingError(t *testing.T) {

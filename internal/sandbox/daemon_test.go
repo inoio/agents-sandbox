@@ -58,7 +58,7 @@ func (m *mockDaemonShell) run(_ context.Context, _ *msb.Sandbox, _ string) (stri
 }
 
 func TestEnsureDaemonStartsWhenUnhealthy(t *testing.T) {
-	logger := newTestLogger(t)
+	ui := newTestio(t)
 	mock := &mockDaemonShell{
 		responses: []mockShellResp{
 			// First healthcheck: unhealthy (daemon not running).
@@ -75,14 +75,14 @@ func TestEnsureDaemonStartsWhenUnhealthy(t *testing.T) {
 	t.Cleanup(func() { daemonShellFunc = prev })
 	daemonShellFunc = mock.run
 
-	err := EnsureDaemon(context.Background(), nil, logger)
+	err := EnsureDaemon(context.Background(), nil, io)
 	if err != nil {
 		t.Fatalf("EnsureDaemon failed: %v", err)
 	}
 }
 
 func TestEnsureDaemonFailsAfterTimeout(t *testing.T) {
-	logger := newTestLogger(t)
+	ui := newTestio(t)
 	mock := &mockDaemonShell{
 		responses: []mockShellResp{
 			// Always unhealthy.
@@ -99,7 +99,7 @@ func TestEnsureDaemonFailsAfterTimeout(t *testing.T) {
 	t.Cleanup(func() { daemonShellFunc = prev })
 	daemonShellFunc = mock.run
 
-	err := EnsureDaemon(context.Background(), nil, logger)
+	err := EnsureDaemon(context.Background(), nil, io)
 	if err == nil {
 		t.Fatal("expected error after timeout")
 	}

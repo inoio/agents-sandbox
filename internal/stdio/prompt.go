@@ -28,7 +28,7 @@ var errTooManyInvalidInputs = errors.New("too many invalid inputs")
 
 func (p *printer) Select(prompt string, choices []Choice, defaultKey string) (string, error) {
 	if !p.IsInteractive() {
-		p.Successf("%s: using default '%s'", prompt, defaultKey)
+		p.Infof("%s: using default '%s'", prompt, defaultKey)
 		return defaultKey, nil
 	}
 
@@ -40,7 +40,7 @@ func (p *printer) Select(prompt string, choices []Choice, defaultKey string) (st
 		}
 		fmt.Fprintf(p.stderr, "  %s) %s - %s\n", c.Key, c.Label, desc)
 	}
-	p.Successf("  default [%s]", defaultKey)
+	p.Infof("  default [%s]", defaultKey)
 
 	keys := make(map[string]string, len(choices))
 	for _, c := range choices {
@@ -68,7 +68,7 @@ func (p *printer) Select(prompt string, choices []Choice, defaultKey string) (st
 
 func (p *printer) ConfirmDefault(prompt string, defaultYes bool) (bool, error) {
 	if !p.IsInteractive() {
-		p.Successf("%s: using default '%t'", prompt, defaultYes)
+		p.Infof("%s: using default '%t'", prompt, defaultYes)
 		return defaultYes, nil
 	}
 
@@ -76,7 +76,7 @@ func (p *printer) ConfirmDefault(prompt string, defaultYes bool) (bool, error) {
 	if defaultYes {
 		defaultHint = "Y/n"
 	}
-	p.Successf("%s [%s]", prompt, defaultHint)
+	p.Infof("%s [%s]", prompt, defaultHint)
 
 	reader := p.getStdinReader()
 	for range maxRetries {
@@ -102,7 +102,7 @@ func (p *printer) ConfirmDefault(prompt string, defaultYes bool) (bool, error) {
 
 func (p *printer) Input(prompt, defaultValue string) (string, error) {
 	if !p.IsInteractive() {
-		p.Successf("%s: using default '%s'", prompt, defaultValue)
+		p.Infof("%s: using default '%s'", prompt, defaultValue)
 		return defaultValue, nil
 	}
 

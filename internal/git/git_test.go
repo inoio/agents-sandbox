@@ -6,8 +6,6 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-
-	"gitlab.inoio.de/inoio/opencode-msb/internal/output"
 )
 
 func runGit(t *testing.T, dir string, args ...string) string {

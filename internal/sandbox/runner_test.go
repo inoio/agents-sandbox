@@ -9,8 +9,6 @@ import (
 	"testing"
 
 	msb "github.com/superradcompany/microsandbox/sdk/go"
-
-	"gitlab.inoio.de/inoio/opencode-msb/internal/output"
 )
 
 func TestParseMemoryGigabytes(t *testing.T) {
@@ -156,9 +154,9 @@ func writeFile(t *testing.T, path, content string) {
 	}
 }
 
-func newTestLogger(t *testing.T) *output.Printer {
+func newTestio(t *testing.T) *output.Printer {
 	t.Helper()
-	return output.NewPrinter(io.Discard, false)
+	return output.NewPrinter(ui.Discard, false)
 }
 
 func TestMergeEnvMapsProjectOverridesUser(t *testing.T) {

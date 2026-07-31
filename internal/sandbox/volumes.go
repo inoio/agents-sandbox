@@ -6,7 +6,7 @@ import (
 	"time"
 
 	"gitlab.inoio.de/inoio/opencode-msb/internal/git"
-	"gitlab.inoio.de/inoio/opencode-msb/internal/output"
+	"gitlab.inoio.de/inoio/opencode-msb/internal/stdio"
 
 	msb "github.com/superradcompany/microsandbox/sdk/go"
 )
@@ -16,17 +16,18 @@ func HomeVolumeName(projectSlug, imageDigest string) string {
 }
 
 type VolumeManager struct {
-	logger *output.Printer
+	ui stdio.UI
 }
 
-func NewVolumeManager(logger *output.Printer) *VolumeManager {
-	return &VolumeManager{logger: logger}
+func NewVolumeManager(ui stdio.UI) *VolumeManager {
+	return &VolumeManager{ui: ui}
 }
 
 func (vm *VolumeManager) EnsureHome(
 	ctx context.Context,
 	projectSlug, imageDigest, imageTag string,
 	opts RunOptions,
+	ui stdio.UI,
 ) (string, error) {
 	name := HomeVolumeName(projectSlug, imageDigest)
 
@@ -43,22 +44,21 @@ func (vm *VolumeManager) EnsureHome(
 	}
 
 	if !opts.DryRunVM {
-		if err := vm.prefillVolume(ctx, projectSlug, vol.Name(), imageTag); err != nil {
+		if err := vm.prefillVolume(ctx, projectSlug, vol.Name(), imageTag, ui); err != nil {
 			return "", err
 		}
 	} else {
-		vm.logger.Infof("dry-run: Would prefill home volume")
+		vm.ui.Infof("dry-run: Would prefill home volume")
 	}
 
 	return name, nil
 }
 
-func (vm *VolumeManager) prefillVolume(ctx context.Context, projectSlug, volumeName, imageTag string) error {
+func (vm *VolumeManager) prefillVolume(ctx context.Context, projectSlug, volumeName, imageTag string, ui stdio.UI) error {
 	prefillName := fmt.Sprintf("opencode-msb-task-prefill-%s-%d", projectSlug, time.Now().UnixNano())
 	mountConfig := msb.Mount.Named(volumeName, msb.MountOptions{})
 
-	spin := output.NewSpinner(vm.logger)
-	spin.Start("Preparing home volume")
+	spin := ui.Spinner("Preparing home volume")
 	sb, err := msb.CreateSandbox(ctx, prefillName,
 		msb.WithImage(imageTag),
 		msb.WithMounts(map[string]msb.MountConfig{

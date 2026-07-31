@@ -8,7 +8,7 @@ import (
 	"sort"
 	"strings"
 
-	json5 "github.com/titanous/json5"
+	"github.com/titanous/json5"
 )
 
 func LoadProviderConfig(data []byte) (map[string]any, error) {

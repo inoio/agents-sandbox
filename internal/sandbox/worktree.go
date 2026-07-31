@@ -5,9 +5,8 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"gitlab.inoio.de/inoio/opencode-msb/internal/output"
-
 	msb "github.com/superradcompany/microsandbox/sdk/go"
+	"gitlab.inoio.de/inoio/opencode-msb/internal/stdio"
 )
 
 const defaultTargetDir = "/workspace"
@@ -53,7 +52,7 @@ func ResolveTarget(
 	ctx context.Context,
 	sb *msb.Sandbox,
 	branch string,
-	logger *output.Printer,
+	ui stdio.UI,
 ) (string, error) {
 	if branch == "" {
 		return resolveTargetNoBranch(), nil
@@ -61,7 +60,7 @@ func ResolveTarget(
 
 	// Try to create the worktree. The API is idempotent enough: if it already
 	// exists, the response returns the existing directory.
-	logger.Debugf("creating/reusing worktree for branch %q", branch)
+	ui.Verbosef("creating/reusing worktree for branch %q", branch)
 	out, err := sb.Shell(ctx, buildWorktreeCreateCmd(branch))
 	if err != nil {
 		return "", fmt.Errorf("create worktree %q: %w", branch, err)
@@ -74,6 +73,6 @@ func ResolveTarget(
 	if err != nil {
 		return "", fmt.Errorf("parse worktree response for %q: %w", branch, err)
 	}
-	logger.Debugf("worktree for %q: %s", branch, dir)
+	ui.Verbosef("worktree for %q: %s", branch, dir)
 	return dir, nil
 }

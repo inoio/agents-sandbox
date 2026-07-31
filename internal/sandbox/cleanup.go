@@ -7,19 +7,19 @@ import (
 	"sync"
 	"time"
 
-	"gitlab.inoio.de/inoio/opencode-msb/internal/output"
+	"gitlab.inoio.de/inoio/opencode-msb/internal/stdio"
 )
 
 var autoPruneOnce sync.Once
 
 // AutoPrune runs the prune logic once per process with the given threshold.
 // Threshold of 0 defaults to 30 days.
-func AutoPrune(ctx context.Context, threshold time.Duration, logger *output.Printer) {
+func AutoPrune(ctx context.Context, threshold time.Duration, ui stdio.UI) {
 	if threshold == 0 {
 		threshold = 30 * 24 * time.Hour
 	}
 	autoPruneOnce.Do(func() {
-		report, err := Prune(ctx, threshold, true, logger)
+		report, err := Prune(ctx, threshold, true, ui)
 		if report != nil {
 			printPruneSummary(report, err)
 		}
