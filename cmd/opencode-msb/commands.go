@@ -69,7 +69,7 @@ func buildTreeCmd(rootCmd *cobra.Command, ui stdio.UI) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   cmdTree,
 		Short: "Print the full command tree",
-		Run: func(cmd *cobra.Command, _ []string) {
+		Run: func(_ *cobra.Command, _ []string) {
 			printTree(rootCmd, ui)
 		},
 	}
@@ -80,7 +80,7 @@ func buildVersionCmd(rootCmd *cobra.Command, ui stdio.UI) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   cmdVersion,
 		Short: "Print version",
-		Run: func(cmd *cobra.Command, _ []string) {
+		Run: func(_ *cobra.Command, _ []string) {
 			ui.Outf("%s %s\n", rootCmd.Name(), version)
 		},
 	}
@@ -165,7 +165,7 @@ func buildConfigCmd(ui stdio.UI) *cobra.Command {
 	cmd.AddCommand(&cobra.Command{
 		Use:   "show",
 		Short: "Print merged opencode config with source paths",
-		RunE: func(cmd *cobra.Command, _ []string) error {
+		RunE: func(_ *cobra.Command, _ []string) error {
 			cfg := newConfig()
 			projectConfigDir := ""
 			if _, statErr := os.Stat(".opencode-msb/opencode"); statErr == nil {

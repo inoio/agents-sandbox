@@ -18,6 +18,8 @@ import (
 
 const projectVMPrefix = "opencode-msb-vm-"
 
+const experimentalWorkspacesValue = "true"
+
 // projectVMName generates the VM name from the project slug.
 // Note: truncation by bytes is safe because ProjectSlug sanitizes to ASCII.
 func projectVMName(slug string) string {
@@ -56,7 +58,7 @@ func buildProjectVMEnv(envMap map[string]string, imageEnvs map[string]string) {
 			}
 		}
 	}
-	envMap["OPENCODE_EXPERIMENTAL_WORKSPACES"] = "true"
+	envMap["OPENCODE_EXPERIMENTAL_WORKSPACES"] = experimentalWorkspacesValue
 }
 
 // decideVMAction maps a GetSandbox result to the lifecycle action.
