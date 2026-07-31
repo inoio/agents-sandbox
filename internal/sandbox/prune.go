@@ -3,9 +3,10 @@ package sandbox
 import (
 	"context"
 	"fmt"
-	"os/exec"
 	"strings"
 	"time"
+
+	"github.com/moby/moby/client"
 
 	msb "github.com/superradcompany/microsandbox/sdk/go"
 
@@ -205,6 +206,7 @@ func (r *StaleReport) HasAnything() bool {
 // ui is used for per-artifact warnings on non-fatal deletion errors.
 func Prune(
 	ctx context.Context,
+	cli dockerClient,
 	threshold time.Duration,
 	dryRun bool,
 	ui stdio.UI,
@@ -389,9 +391,12 @@ func Prune(
 		for _, img := range msbImagesBySlug[slug] {
 			if !dryRun {
 				dockerRef := stripDockerHostPrefix(img.ref)
-				cmd := exec.CommandContext(ctx, "docker", "rmi", dockerRef)
-				if out, err := cmd.CombinedOutput(); err != nil {
-					ui.Warnf("failed to remove docker image %s: %v: %s", dockerRef, err, string(out))
+				_, err := cli.ImageRemove(
+					ctx, dockerRef,
+					client.ImageRemoveOptions{PruneChildren: true},
+				)
+				if err != nil {
+					ui.Warnf("failed to remove docker image %s: %v", dockerRef, err)
 					continue
 				}
 			}
@@ -457,9 +462,12 @@ func Prune(
 			}
 			if !dryRun {
 				dockerRef := stripDockerHostPrefix(img.ref)
-				cmd := exec.CommandContext(ctx, "docker", "rmi", dockerRef)
-				if out, err := cmd.CombinedOutput(); err != nil {
-					ui.Warnf("failed to remove docker image %s: %v: %s", dockerRef, err, string(out))
+				_, err := cli.ImageRemove(
+					ctx, dockerRef,
+					client.ImageRemoveOptions{PruneChildren: true},
+				)
+				if err != nil {
+					ui.Warnf("failed to remove docker image %s: %v", dockerRef, err)
 					continue
 				}
 			}
@@ -502,9 +510,12 @@ func Prune(
 			for _, img := range msbImagesBySlug[slug] {
 				if !dryRun {
 					dockerRef := stripDockerHostPrefix(img.ref)
-					cmd := exec.CommandContext(ctx, "docker", "rmi", dockerRef)
-					if out, err := cmd.CombinedOutput(); err != nil {
-						ui.Warnf("failed to remove docker image %s: %v: %s", dockerRef, err, string(out))
+					_, err := cli.ImageRemove(
+						ctx, dockerRef,
+						client.ImageRemoveOptions{PruneChildren: true},
+					)
+					if err != nil {
+						ui.Warnf("failed to remove docker image %s: %v", dockerRef, err)
 						continue
 					}
 				}
