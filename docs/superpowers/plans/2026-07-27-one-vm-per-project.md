@@ -591,7 +591,7 @@ var daemonShellFunc = func(ctx context.Context, sb *msb.Sandbox, command string)
 	return out.Stdout(), out.ExitCode(), nil
 }
 
-// mockDaemonShell overrides daemonShellFunc for testing. It returns queued
+// mockDaemonShell overrides daemonShellFunc for testhelpers. It returns queued
 // (stdout, exitCode) pairs.
 type mockDaemonShell struct {
 	responses []mockShellResp

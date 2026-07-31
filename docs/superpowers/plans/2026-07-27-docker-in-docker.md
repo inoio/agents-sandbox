@@ -815,7 +815,7 @@ import (
 	"fmt"
 	"os/exec"
 	"strings"
-	"testing"
+	"testhelpers"
 	"time"
 
 	"github.com/moby/moby/client"

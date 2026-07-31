@@ -1,14 +1,14 @@
 package sandbox
 
 import (
-	"io"
-	"os"
 	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
 
 	msb "github.com/superradcompany/microsandbox/sdk/go"
+
+	"gitlab.inoio.de/inoio/opencode-msb/internal/testhelpers"
 )
 
 func TestParseMemoryGigabytes(t *testing.T) {
@@ -82,8 +82,7 @@ func TestBuildMountsRespectsCustomTmpSize(t *testing.T) {
 
 func TestBuildEnvMap(t *testing.T) {
 	envFile := filepath.Join(t.TempDir(), "env")
-	writeFile(t, envFile, "FOO=bar\n# comment\n\nBAZ=qux\n")
-
+	testhelpers.WritePath(t, envFile, "FOO=bar\n# comment\n\nBAZ=qux\n")
 	got := buildEnvMap(envFile)
 
 	if len(got) != 2 {
@@ -147,23 +146,11 @@ func TestIsSandboxActive(t *testing.T) {
 	}
 }
 
-func writeFile(t *testing.T, path, content string) {
-	t.Helper()
-	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
-		t.Fatalf("write %q: %v", path, err)
-	}
-}
-
-func newTestio(t *testing.T) *output.Printer {
-	t.Helper()
-	return output.NewPrinter(ui.Discard, false)
-}
-
 func TestMergeEnvMapsProjectOverridesUser(t *testing.T) {
 	userFile := filepath.Join(t.TempDir(), "env")
-	writeFile(t, userFile, "FOO=user\nBAR=user\n")
+	testhelpers.WritePath(t, userFile, "FOO=user\nBAR=user\n")
 	projectFile := filepath.Join(t.TempDir(), "env")
-	writeFile(t, projectFile, "FOO=project\n")
+	testhelpers.WritePath(t, projectFile, "FOO=project\n")
 
 	got := mergeEnvMaps(buildEnvMap(userFile), buildEnvMap(projectFile))
 	want := map[string]string{"FOO": "project", "BAR": "user"}

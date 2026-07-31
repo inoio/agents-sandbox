@@ -7,8 +7,8 @@ import (
 
 func TestMockRecordsOutputCalls(t *testing.T) {
 	m := &Mock{}
-	m.Success("ok")
-	m.Successf("hello %s", "world")
+	m.Info("ok")
+	m.Infof("hello %s", "world")
 	m.Warn("careful")
 	m.Warnf("%s", "danger")
 	m.Error("boom", errors.New("nope"))
@@ -18,8 +18,8 @@ func TestMockRecordsOutputCalls(t *testing.T) {
 	m.Out("data")
 	m.Outf("row %d", 1)
 
-	if len(m.SuccessCalls) != 2 {
-		t.Errorf("expected 2 success calls, got %d", len(m.SuccessCalls))
+	if len(m.InfoCalls) != 2 {
+		t.Errorf("expected 2 success calls, got %d", len(m.InfoCalls))
 	}
 	if len(m.WarnCalls) != 2 {
 		t.Errorf("expected 2 warn calls, got %d", len(m.WarnCalls))

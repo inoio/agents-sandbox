@@ -4,27 +4,29 @@ import (
 	"context"
 	"testing"
 	"time"
+
+	"gitlab.inoio.de/inoio/opencode-msb/internal/testhelpers"
 )
 
 func TestAutoPruneDoesNotPanic(t *testing.T) {
-	ui := output.NewPrinter(nil, false)
-	AutoPrune(context.Background(), time.Hour, io)
+	testUI := testhelpers.NewTestio(t)
+	AutoPrune(context.Background(), time.Hour, &testUI)
 }
 
 func TestAutoPruneIsIdempotent(t *testing.T) {
 	// AutoPrune uses sync.Once, so calling it twice should be safe.
 	// We can't easily test that it only runs once via Prune (which calls real SDK),
 	// but we can verify no panic on repeated calls.
-	ui := output.NewPrinter(nil, false)
-	AutoPrune(context.Background(), time.Hour, io)
-	AutoPrune(context.Background(), time.Hour, io)
+	testUI := testhelpers.NewTestio(t)
+	AutoPrune(context.Background(), time.Hour, &testUI)
+	AutoPrune(context.Background(), time.Hour, &testUI)
 }
 
 func TestAutoPruneDefaultsToSevenDays(t *testing.T) {
 	// When threshold is 0, AutoPrune should default to 7 days.
 	// We can't directly assert the threshold used, but we verify zero doesn't panic.
-	ui := output.NewPrinter(nil, false)
-	AutoPrune(context.Background(), 0, io)
+	testUI := testhelpers.NewTestio(t)
+	AutoPrune(context.Background(), 0, &testUI)
 }
 
 func TestStaleReportHasAnything(t *testing.T) {

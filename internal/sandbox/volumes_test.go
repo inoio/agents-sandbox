@@ -2,6 +2,8 @@ package sandbox
 
 import (
 	"testing"
+
+	"gitlab.inoio.de/inoio/opencode-msb/internal/testhelpers"
 )
 
 func TestHomeVolumeName(t *testing.T) {
@@ -22,8 +24,8 @@ func TestHomeVolumeNameDifferentInputs(t *testing.T) {
 }
 
 func TestNewVolumeManager(t *testing.T) {
-	l := output.NewPrinter(nil, false)
-	vm := NewVolumeManager(l)
+	testUI := testhelpers.NewTestio(t)
+	vm := NewVolumeManager(&testUI)
 	if vm.ui == nil {
 		t.Error("expected ui to be set")
 	}
