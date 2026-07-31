@@ -12,12 +12,14 @@ import (
 )
 
 const (
-	daemonHealthURL    = "http://127.0.0.1:4096/global/health"
-	daemonStartCmd     = "nohup opencode serve --hostname 127.0.0.1 --port 4096 > /tmp/opencode-serve.log 2>&1 &"
-	daemonKillCmd      = "pkill -f 'opencode serve' || true"
-	daemonReadyTimeout = 60 * time.Second
-	daemonPollInterval = 2 * time.Second
+	daemonHealthURL = "http://127.0.0.1:4096/global/health"
+	daemonStartCmd  = "nohup opencode serve --hostname 127.0.0.1 --port 4096 > /tmp/opencode-serve.log 2>&1 &"
+	daemonKillCmd   = "pkill -f 'opencode serve' || true"
 )
+
+var daemonReadyTimeout = 60 * time.Second //nolint:gochecknoglobals // test seam, swapped in tests
+
+var daemonPollInterval = 2 * time.Second //nolint:gochecknoglobals // test seam, swapped in tests
 
 // daemonShellFunc is the test seam for sb.Shell, matching the ensureInstalled
 // pattern in doctor.go. Tests override this; production code leaves the default.
