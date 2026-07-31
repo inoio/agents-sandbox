@@ -227,28 +227,20 @@ func ensureRunnerImage(
 	return rTag, imageDigest, imageEnv, nil
 }
 
-// EnsureImage builds/inspects the runner Docker image and returns its tag,
-// digest, and the Dockerfile ENV directives baked into the image config as a
-// map. The env map is derived from cli.ImageInspect; if the image is no
-// longer on disk (e.g. after `docker prune`), it falls back to stored JSON
-// metadata written by a previous invokation.
-func EnsureImage(
+// ensureImageWithClient builds/inspects the runner Docker image using the
+// provided client. Tests inject a mock client to verify build behavior.
+func ensureImageWithClient(
 	ctx context.Context,
+	cli dockerClient,
+	dockerfile []byte,
 	projectSlug string,
 	force bool,
 	ui stdio.UI,
 ) (string, string, map[string]string, error) {
-	dockerfile := resolveDockerfile()
-	dockerClient, err := client.New(client.FromEnv)
-	if err != nil {
-		return "", "", nil, fmt.Errorf("cannot connect to Docker daemon (is dockerd running?): %w", err)
-	}
-	defer dockerClient.Close()
-
 	if force || ReferencesBase(dockerfile) || ReferencesDindBase(dockerfile) {
 		if err := buildDockerImage(
 			ctx,
-			dockerClient,
+			cli,
 			EmbeddedDockerfile,
 			BaseTag,
 			"Building base runner image",
@@ -262,7 +254,7 @@ func EnsureImage(
 	if ReferencesDindBase(dockerfile) {
 		if err := buildDockerImage(
 			ctx,
-			dockerClient,
+			cli,
 			EmbeddedDindDockerfile,
 			DindBaseTag,
 			"Building Docker-in-Docker base runner image",
@@ -273,7 +265,7 @@ func EnsureImage(
 		}
 	}
 
-	rTag, imageDigest, imageEnv, err := ensureRunnerImage(ctx, dockerClient, dockerfile, projectSlug, force, ui)
+	rTag, imageDigest, imageEnv, err := ensureRunnerImage(ctx, cli, dockerfile, projectSlug, force, ui)
 	if err != nil {
 		return "", "", nil, err
 	}
@@ -286,7 +278,7 @@ func EnsureImage(
 	}
 
 	spin := ui.Spinner("Loading image into microsandbox")
-	saveResult, err := dockerClient.ImageSave(ctx, []string{rTag})
+	saveResult, err := cli.ImageSave(ctx, []string{rTag})
 	if err != nil {
 		spin.StopError(err)
 		return "", "", nil, fmt.Errorf("cannot export Docker image: %w", err)
@@ -302,6 +294,27 @@ func EnsureImage(
 	spin.Stop()
 
 	return imageRef, imageDigest, imageEnv, nil
+}
+
+// EnsureImage builds/inspects the runner Docker image and returns its tag,
+// digest, and the Dockerfile ENV directives baked into the image config as a
+// map. The env map is derived from cli.ImageInspect; if the image is no
+// longer on disk (e.g. after `docker prune`), it falls back to stored JSON
+// metadata written by a previous invokation.
+func EnsureImage(
+	ctx context.Context,
+	projectSlug string,
+	force bool,
+	ui stdio.UI,
+) (string, string, map[string]string, error) {
+	dockerfile := resolveDockerfile()
+	dockerCli, err := client.New(client.FromEnv)
+	if err != nil {
+		return "", "", nil, fmt.Errorf("cannot connect to Docker daemon (is dockerd running?): %w", err)
+	}
+	defer dockerCli.Close()
+
+	return ensureImageWithClient(ctx, dockerCli, dockerfile, projectSlug, force, ui)
 }
 
 func parseImageEnv(envs []string) map[string]string {
