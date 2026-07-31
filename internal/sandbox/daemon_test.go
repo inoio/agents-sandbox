@@ -4,6 +4,7 @@ import (
 	"context"
 	"strings"
 	"testing"
+	"time"
 
 	msb "github.com/superradcompany/microsandbox/sdk/go"
 
@@ -77,6 +78,9 @@ func TestEnsureDaemonStartsWhenUnhealthy(t *testing.T) {
 	t.Cleanup(func() { daemonShellFunc = prev })
 	daemonShellFunc = mock.run
 
+	t.Cleanup(func() { daemonPollInterval = 2 * time.Second })
+	daemonPollInterval = 10 * time.Millisecond
+
 	err := EnsureDaemon(context.Background(), nil, &testUI)
 	if err != nil {
 		t.Fatalf("EnsureDaemon failed: %v", err)
@@ -100,6 +104,12 @@ func TestEnsureDaemonFailsAfterTimeout(t *testing.T) {
 	prev := daemonShellFunc
 	t.Cleanup(func() { daemonShellFunc = prev })
 	daemonShellFunc = mock.run
+
+	t.Cleanup(func() { daemonReadyTimeout = 60 * time.Second })
+	daemonReadyTimeout = 100 * time.Millisecond
+
+	t.Cleanup(func() { daemonPollInterval = 2 * time.Second })
+	daemonPollInterval = 10 * time.Millisecond
 
 	err := EnsureDaemon(context.Background(), nil, &testUI)
 	if err == nil {

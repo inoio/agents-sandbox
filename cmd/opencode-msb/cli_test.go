@@ -81,8 +81,6 @@ func TestPrintTreeContainsFlagDescriptions(t *testing.T) {
 		"Assume yes to all prompts",
 		"Show debug-level output",
 		"Suppress non-error output",
-		"Print the full command tree and exit",
-		"Print version and exit",
 		"Run in an opencode worktree for the given branch name",
 		"Rebuild the runner image before starting",
 		"Validate setup without running opencode",
@@ -148,7 +146,6 @@ func TestPrintTreeFlagShortcuts(t *testing.T) {
 		"-y, --yes",
 		"-v, --verbose",
 		"-q, --quiet",
-		"-V, --version",
 		"-b, --branch <BRANCH>",
 		"-r, --rebuild",
 		"-n, --dry-run",
@@ -287,7 +284,7 @@ func isTreeChar(r rune) bool {
 func TestRootHasGlobalFlags(t *testing.T) {
 	testUI := testhelpers.NewTestio(t)
 	root := buildRootCmd(&testUI)
-	flags := []string{"yes", "verbose", "quiet", "tree", "version"}
+	flags := []string{"yes", "verbose", "quiet"}
 	for _, f := range flags {
 		if root.PersistentFlags().Lookup(f) == nil {
 			t.Errorf("expected persistent flag --%s on root", f)
