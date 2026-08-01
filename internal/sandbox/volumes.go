@@ -29,14 +29,15 @@ func (vm *VolumeManager) EnsureHome(
 	opts RunOptions,
 	ui stdio.UI,
 ) (string, error) {
+	client := newMsbClient()
 	name := HomeVolumeName(projectSlug, imageDigest)
 
-	_, err := msb.GetVolume(ctx, name)
+	_, err := client.GetVolume(ctx, name)
 	if err == nil {
 		return name, nil
 	}
 
-	vol, err := msb.CreateVolume(ctx, name,
+	vol, err := client.CreateVolume(ctx, name,
 		msb.WithVolumeKind(msb.VolumeKindDir),
 	)
 	if err != nil {
@@ -44,7 +45,7 @@ func (vm *VolumeManager) EnsureHome(
 	}
 
 	if !opts.DryRunVM {
-		if err := vm.prefillVolume(ctx, projectSlug, vol.Name(), imageTag, ui); err != nil {
+		if err := vm.prefillVolume(ctx, client, projectSlug, vol.Name(), imageTag, ui); err != nil {
 			return "", err
 		}
 	} else {
@@ -56,6 +57,7 @@ func (vm *VolumeManager) EnsureHome(
 
 func (vm *VolumeManager) prefillVolume(
 	ctx context.Context,
+	client msbClient,
 	projectSlug, volumeName, imageTag string,
 	ui stdio.UI,
 ) error {
@@ -63,7 +65,7 @@ func (vm *VolumeManager) prefillVolume(
 	mountConfig := msb.Mount.Named(volumeName, msb.MountOptions{})
 
 	spin := ui.Spinner("Preparing home volume")
-	sb, err := msb.CreateSandbox(ctx, prefillName,
+	sb, err := client.CreateSandbox(ctx, prefillName,
 		msb.WithImage(imageTag),
 		msb.WithMounts(map[string]msb.MountConfig{
 			"/mnt/home": mountConfig,
@@ -79,7 +81,7 @@ func (vm *VolumeManager) prefillVolume(
 		defer cancel()
 		_ = sb.Stop(stopCtx)
 		_ = sb.Close()
-		_ = msb.RemoveSandbox(context.Background(), prefillName)
+		_ = client.RemoveSandbox(context.Background(), prefillName)
 	}()
 
 	out, err := sb.Exec(ctx, "sh", []string{"-c", "cp -a /home/dev/. /mnt/home/ && chown -R dev:dev /mnt/home"})

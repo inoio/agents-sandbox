@@ -5,8 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 
-	msb "github.com/superradcompany/microsandbox/sdk/go"
-
 	"gitlab.inoio.de/inoio/opencode-msb/internal/stdio"
 )
 
@@ -51,7 +49,7 @@ func buildWorktreeListCmd() string {
 // daemon's HTTP API and return its directory path.
 func ResolveTarget(
 	ctx context.Context,
-	sb *msb.Sandbox,
+	sb msbSandbox,
 	branch string,
 	ui stdio.UI,
 ) (string, error) {

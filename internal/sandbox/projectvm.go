@@ -92,11 +92,13 @@ func EnsureProjectVM(
 	imageRef, homeVol, repoPath string,
 	imageEnvs map[string]string,
 	ui stdio.UI,
-) (*msb.Sandbox, bool, error) {
+) (msbSandbox, bool, error) {
 	if opts.DryRunVM {
 		ui.Verbosef("dry-run: VM lifecycle skipped")
 		return nil, false, nil
 	}
+
+	client := newMsbClient()
 
 	slug := git.ProjectSlug(ui)
 	name := projectVMName(slug)
@@ -108,7 +110,7 @@ func EnsureProjectVM(
 
 	spin := ui.Spinner("Checking project VM")
 
-	handle, err := msb.GetSandbox(ctx, name)
+	handle, err := client.GetSandbox(ctx, name)
 	notFound := err != nil && msb.IsKind(err, msb.ErrSandboxNotFound)
 	if err != nil && !notFound {
 		spin.StopError(err)
@@ -173,7 +175,7 @@ func EnsureProjectVM(
 	spin.Stop()
 
 	// Ensure runtime is available before acquiring the flock to reduce contention.
-	if ensureErr := msb.EnsureInstalled(ctx); ensureErr != nil {
+	if ensureErr := client.EnsureInstalled(ctx); ensureErr != nil {
 		return nil, false, fmt.Errorf("microsandbox runtime: %w", ensureErr)
 	}
 
@@ -186,7 +188,7 @@ func EnsureProjectVM(
 	defer release()
 
 	// Re-check after acquiring the flock — another invocation may have created it.
-	handle, err = msb.GetSandbox(ctx, name)
+	handle, err = client.GetSandbox(ctx, name)
 	//nolint:nestif // Nested logic for handling post-lock connect/start is necessary
 	if err == nil {
 		// Someone else created it while we waited for the lock.
@@ -213,7 +215,7 @@ func EnsureProjectVM(
 		return nil, false, fmt.Errorf("re-check sandbox %q: %w", name, err)
 	}
 
-	sb, created, err := createProjectVM(ctx, name, imageRef, homeVol, repoPath, opts, cfg, imageEnvs, ui)
+	sb, created, err := createProjectVM(ctx, client, name, imageRef, homeVol, repoPath, opts, cfg, imageEnvs, ui)
 	if err != nil {
 		return nil, false, err
 	}
@@ -222,12 +224,13 @@ func EnsureProjectVM(
 
 func createProjectVM(
 	ctx context.Context,
+	client msbClient,
 	name, imageRef, homeVol, repoPath string,
 	opts RunOptions,
 	cfg Config,
 	imageEnvs map[string]string,
 	ui stdio.UI,
-) (*msb.Sandbox, bool, error) {
+) (msbSandbox, bool, error) {
 	user := opts.User
 	if user == "" {
 		user = "dev"
@@ -254,7 +257,7 @@ func createProjectVM(
 	mounts := buildMounts(homeVol, repoPath, resolveTmpSizeMiB(opts.TmpSize))
 
 	spin := ui.Spinner("Starting project VM")
-	sb, err := msb.CreateSandbox(ctx, name,
+	sb, err := client.CreateSandbox(ctx, name,
 		msb.WithImage(imageRef),
 		msb.WithMounts(mounts),
 		msb.WithSecrets(secrets...),
@@ -304,12 +307,13 @@ func stopOrKillProjectVM(
 	dryRun bool,
 	ui stdio.UI,
 	action, actionVerb string,
-	stopFn func(*msb.SandboxHandle, context.Context) error,
+	client msbClient,
+	stopFn func(msbSandboxHandle, context.Context) error,
 ) error {
 	slug := git.ProjectSlug(ui)
 	name := projectVMName(slug)
 
-	handle, err := msb.GetSandbox(ctx, name)
+	handle, err := client.GetSandbox(ctx, name)
 	if err != nil {
 		if msb.IsKind(err, msb.ErrSandboxNotFound) {
 			ui.Infof("no project VM found: %s", name)
@@ -350,13 +354,13 @@ func stopOrKillProjectVM(
 // StopProjectVM gracefully stops the project VM for the current directory.
 // If remove is true, it also removes the VM's persisted state after stopping.
 func StopProjectVM(ctx context.Context, remove, dryRun bool, ui stdio.UI) error {
-	return stopOrKillProjectVM(ctx, remove, dryRun, ui, "stop", "Stopping",
-		func(h *msb.SandboxHandle, c context.Context) error { return h.Stop(c) })
+	return stopOrKillProjectVM(ctx, remove, dryRun, ui, "stop", "Stopping", newMsbClient(),
+		func(h msbSandboxHandle, c context.Context) error { return h.Stop(c) })
 }
 
 // KillProjectVM force-kills the project VM for the current directory.
 // If remove is true, it also removes the VM's persisted state after killing.
 func KillProjectVM(ctx context.Context, remove, dryRun bool, ui stdio.UI) error {
-	return stopOrKillProjectVM(ctx, remove, dryRun, ui, "kill", "Force-killing",
-		func(h *msb.SandboxHandle, c context.Context) error { return h.Kill(c) })
+	return stopOrKillProjectVM(ctx, remove, dryRun, ui, "kill", "Force-killing", newMsbClient(),
+		func(h msbSandboxHandle, c context.Context) error { return h.Kill(c) })
 }

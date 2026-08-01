@@ -1,6 +1,7 @@
 package git
 
 import (
+	"context"
 	"crypto/sha256"
 	"errors"
 	"fmt"
@@ -107,8 +108,8 @@ func BranchAt(path string) (string, error) {
 	return head.Name().Short(), nil
 }
 
-func PruneWorktrees(cwd string) error {
-	cmd := exec.Command("git", "worktree", "prune")
+func PruneWorktrees(ctx context.Context, cwd string) error {
+	cmd := exec.CommandContext(ctx, "git", "worktree", "prune")
 	cmd.Dir = cwd
 	if out, err := cmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("git worktree prune failed in %s: %w: %s", cwd, err, out)

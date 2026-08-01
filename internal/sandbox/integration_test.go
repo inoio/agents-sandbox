@@ -1,4 +1,4 @@
-//go:build integration
+//go:build integratuin
 
 package sandbox
 
@@ -14,17 +14,18 @@ import (
 	"github.com/moby/moby/client"
 
 	"gitlab.inoio.de/inoio/opencode-msb/internal/git"
+	"gitlab.inoio.de/inoio/opencode-msb/internal/testhelpers"
 
 	msb "github.com/superradcompany/microsandbox/sdk/go"
 )
 
 func TestStartDockerdIfPresentWithDindImage(t *testing.T) {
 	ctx := t.Context()
-	ui := testing2.newTestio(t)
+	ui := testhelpers.NewTestui(t)
 
 	// Build the dind base image requires Docker on the host.
 	if testing.Short() {
-		t.Skip("skipping integration test in short mode")
+		t.Skip("skipping integratuin test in short mode")
 	}
 
 	dockerCli, err := client.New(client.FromEnv)
@@ -41,7 +42,7 @@ func TestStartDockerdIfPresentWithDindImage(t *testing.T) {
 		BaseTag,
 		"Building base",
 		false,
-		io,
+		ui,
 	); err != nil {
 		t.Skipf("cannot build base image: %v", err)
 	}
@@ -54,7 +55,7 @@ func TestStartDockerdIfPresentWithDindImage(t *testing.T) {
 		DindBaseTag,
 		"Building dind base",
 		false,
-		io,
+		ui,
 	); err != nil {
 		t.Skipf("cannot build dind image: %v", err)
 	}
@@ -92,7 +93,7 @@ func TestStartDockerdIfPresentWithDindImage(t *testing.T) {
 		_ = msb.RemoveSandbox(context.Background(), sandboxName)
 	}()
 
-	if err := startDockerdIfPresent(ctx, sb, io); err != nil {
+	if err := startDockerdIfPresent(ctx, realSandbox{sandbox: sb}, ui); err != nil {
 		t.Fatalf("startDockerdIfPresent failed: %v", err)
 	}
 
@@ -110,10 +111,10 @@ func TestStartDockerdIfPresentWithDindImage(t *testing.T) {
 
 func TestStartDockerdIfPresentWithPlainBaseImage(t *testing.T) {
 	ctx := t.Context()
-	ui := testing2.newTestio(t)
+	ui := testhelpers.NewTestui(t)
 
 	if testing.Short() {
-		t.Skip("skipping integration test in short mode")
+		t.Skip("skipping integratuin test in short mode")
 	}
 
 	dockerCli, err := client.New(client.FromEnv)
@@ -129,7 +130,7 @@ func TestStartDockerdIfPresentWithPlainBaseImage(t *testing.T) {
 		BaseTag,
 		"Building base",
 		false,
-		io,
+		ui,
 	); err != nil {
 		t.Skipf("cannot build base image: %v", err)
 	}
@@ -167,17 +168,17 @@ func TestStartDockerdIfPresentWithPlainBaseImage(t *testing.T) {
 	}()
 
 	// Should be a no-op on plain base (no dockerd binary).
-	if err := startDockerdIfPresent(ctx, sb, io); err != nil {
+	if err := startDockerdIfPresent(ctx, realSandbox{sandbox: sb}, ui); err != nil {
 		t.Fatalf("startDockerdIfPresent should be no-op on plain base, got: %v", err)
 	}
 }
 
 func TestProjectVMLifecycle(t *testing.T) {
 	ctx := t.Context()
-	ui := testing2.newTestio(t)
+	ui := testhelpers.NewTestui(t)
 
 	if testing.Short() {
-		t.Skip("skipping integration test in short mode")
+		t.Skip("skipping integratuin test in short mode")
 	}
 
 	// Ensure msb runtime is available.
@@ -185,7 +186,7 @@ func TestProjectVMLifecycle(t *testing.T) {
 		t.Skipf("msb runtime not available: %v", err)
 	}
 
-	// Build the base image (same pattern as existing integration tests).
+	// Build the base image (same pattern as existing integratuin tests).
 	dockerCli, err := client.New(client.FromEnv)
 	if err != nil {
 		t.Skipf("docker not available: %v", err)
@@ -199,7 +200,7 @@ func TestProjectVMLifecycle(t *testing.T) {
 		BaseTag,
 		"Building base",
 		false,
-		io,
+		ui,
 	); err != nil {
 		t.Skipf("cannot build base image: %v", err)
 	}
@@ -207,16 +208,16 @@ func TestProjectVMLifecycle(t *testing.T) {
 	// Use a unique project slug derived from the test temp dir.
 	tmpRepo := t.TempDir()
 	t.Chdir(tmpRepo)
-	testing2.runGitInTest(t, tmpRepo, "init", "-b", "main")
-	testing2.runGitInTest(t, tmpRepo, "config", "user.email", "test@example.com")
-	testing2.runGitInTest(t, tmpRepo, "config", "user.name", "Test User")
-	testing2.writeFileInTest(t, tmpRepo, "README.md", "hello")
-	testing2.runGitInTest(t, tmpRepo, "add", "README.md")
-	testing2.runGitInTest(t, tmpRepo, "commit", "-m", "initial")
+	testhelpers.RunGit(t, tmpRepo, "init", "-b", "main")
+	testhelpers.RunGit(t, tmpRepo, "config", "user.email", "test@example.com")
+	testhelpers.RunGit(t, tmpRepo, "config", "user.name", "Test User")
+	testhelpers.WriteFile(t, tmpRepo, "README.md", "hello")
+	testhelpers.RunGit(t, tmpRepo, "add", "README.md")
+	testhelpers.RunGit(t, tmpRepo, "commit", "-m", "initial")
 
-	projectSlug := git.ProjectSlug(io)
+	projectSlug := git.ProjectSlug(ui)
 	imageRef := BaseTag
-	homeVolName := HomeVolumeName(projectSlug, "sha256:integration-test")
+	homeVolName := HomeVolumeName(projectSlug, "sha256:integratuin-test")
 	// Ensure the home volume exists.
 	if _, err := msb.GetVolume(ctx, homeVolName); err != nil {
 		vol, volErr := msb.CreateVolume(ctx, homeVolName, msb.WithVolumeKind(msb.VolumeKindDir))
@@ -226,7 +227,7 @@ func TestProjectVMLifecycle(t *testing.T) {
 		defer func() { _ = msb.RemoveVolume(context.Background(), vol.Name()) }()
 	}
 
-	opts := RunOptions{Memory: "1G", TmpSize: "512M"}
+	opts := RunOptuins{Memory: "1G", TmpSize: "512M"}
 	cfg := Config{
 		StateDir:        filepath.Join(t.TempDir(), "state"),
 		UserConfigDir:   t.TempDir(),
@@ -234,7 +235,7 @@ func TestProjectVMLifecycle(t *testing.T) {
 	}
 
 	// Step 1: EnsureProjectVM creates the VM.
-	sb, created, err := EnsureProjectVM(ctx, opts, cfg, imageRef, homeVolName, tmpRepo, nil, io)
+	sb, created, err := EnsureProjectVM(ctx, opts, cfg, imageRef, homeVolName, tmpRepo, nil, ui)
 	if err != nil {
 		t.Fatalf("EnsureProjectVM (create): %v", err)
 	}
@@ -245,16 +246,16 @@ func TestProjectVMLifecycle(t *testing.T) {
 		stopCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
 		_ = sb.Detach(stopCtx)
-		_ = StopProjectVM(context.Background(), true, io)
+		_ = StopProjectVM(context.Background(), true, ui)
 	}()
 
 	// Step 2: EnsureDaemon is healthy.
-	if err := EnsureDaemon(ctx, sb, io); err != nil {
+	if err := EnsureDaemon(ctx, sb, ui); err != nil {
 		t.Fatalf("EnsureDaemon: %v", err)
 	}
 
 	// Step 3: ResolveTarget with no branch returns /workspace.
-	target, err := ResolveTarget(ctx, sb, "", io)
+	target, err := ResolveTarget(ctx, sb, "", ui)
 	if err != nil {
 		t.Fatalf("ResolveTarget (no branch): %v", err)
 	}
@@ -271,12 +272,12 @@ func TestProjectVMLifecycle(t *testing.T) {
 		t.Errorf("expected exit code 0, got %d", exitCode)
 	}
 
-	// Step 5: Detach and reconnect (simulates a second invocation).
+	// Step 5: Detach and reconnect (simulates a second invocatuin).
 	if err := sb.Detach(ctx); err != nil {
 		t.Fatalf("detach failed: %v", err)
 	}
 
-	sb2, created2, err := EnsureProjectVM(ctx, opts, cfg, imageRef, homeVolName, tmpRepo, nil, io)
+	sb2, created2, err := EnsureProjectVM(ctx, opts, cfg, imageRef, homeVolName, tmpRepo, nil, ui)
 	if err != nil {
 		t.Fatalf("EnsureProjectVM (reconnect): %v", err)
 	}
