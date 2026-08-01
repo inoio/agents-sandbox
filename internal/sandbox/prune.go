@@ -321,7 +321,7 @@ func Prune(
 	}
 
 	// Step 5: list all MSB images.
-	imageHandles, err := client.ListImages(ctx)
+	imageHandles, err := client.ImageList(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("list msb images: %w", err)
 	}
@@ -491,7 +491,7 @@ func pruneActiveVMMSBImages(
 			continue
 		}
 		if !dryRun {
-			if err := client.RemoveImage(ctx, img.ref, true); err != nil {
+			if err := client.ImageRemove(ctx, img.ref, true); err != nil {
 				ui.Warnf("failed to remove msb image %s: %v", img.ref, err)
 				continue
 			}
@@ -611,7 +611,7 @@ func removeMSBImages(
 ) {
 	for _, img := range msbImagesBySlug[slug] {
 		if !dryRun {
-			if err := client.RemoveImage(ctx, img.ref, true); err != nil {
+			if err := client.ImageRemove(ctx, img.ref, true); err != nil {
 				ui.Warnf("failed to remove msb image %s: %v", img.ref, err)
 				continue
 			}

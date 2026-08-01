@@ -131,9 +131,10 @@ func isOrphanedImage(ref string) bool {
 }
 
 func CheckOrphans(ctx context.Context, ui stdio.UI) bool {
+	client := newMsbClient()
 	hasOrphans := false
 
-	sandboxHandles, err := msb.ListSandboxes(ctx)
+	sandboxHandles, err := client.ListSandboxes(ctx)
 	if err != nil {
 		ui.Warnf("Failed to list sandboxes for orphan check: %v", err)
 	} else {
@@ -146,7 +147,7 @@ func CheckOrphans(ctx context.Context, ui stdio.UI) bool {
 		}
 	}
 
-	volumeHandles, err := msb.ListVolumes(ctx)
+	volumeHandles, err := client.ListVolumes(ctx)
 	if err != nil {
 		ui.Warnf("Failed to list volumes for orphan check: %v", err)
 	} else {
@@ -159,7 +160,7 @@ func CheckOrphans(ctx context.Context, ui stdio.UI) bool {
 		}
 	}
 
-	imageHandles, err := msb.Image.List(ctx)
+	imageHandles, err := client.ImageList(ctx)
 	if err != nil {
 		ui.Warnf("Failed to list images for orphan check: %v", err)
 	} else {

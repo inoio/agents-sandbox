@@ -6,8 +6,6 @@ import (
 	"testing"
 	"time"
 
-	msb "github.com/superradcompany/microsandbox/sdk/go"
-
 	"gitlab.inoio.de/inoio/opencode-msb/internal/testhelpers"
 )
 
@@ -51,7 +49,7 @@ type mockShellResp struct {
 	err      error
 }
 
-func (m *mockDaemonShell) run(_ context.Context, _ *msb.Sandbox, _ string) (string, int, error) {
+func (m *mockDaemonShell) run(_ context.Context, _ msbSandbox, _ string) (string, int, error) {
 	if m.calls >= len(m.responses) {
 		return "", 0, nil
 	}

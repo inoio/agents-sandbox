@@ -1,6 +1,7 @@
 package sandbox
 
 import (
+	"context"
 	"testing"
 
 	"gitlab.inoio.de/inoio/opencode-msb/internal/testhelpers"
@@ -28,5 +29,30 @@ func TestNewVolumeManager(t *testing.T) {
 	vm := NewVolumeManager(&testUI)
 	if vm.ui == nil {
 		t.Error("expected ui to be set")
+	}
+}
+
+func TestPrefillVolumeRunsCopyCommand(t *testing.T) {
+	testUI := testhelpers.NewTestio(t)
+	ui := &testUI
+	client := &mockMsbClient{}
+	vm := NewVolumeManager(ui)
+
+	err := vm.prefillVolume(
+		context.Background(),
+		client,
+		"myproject",
+		"test-home-vol",
+		"opencode-msb/runner-test:latest",
+		ui,
+	)
+	if err != nil {
+		t.Fatalf("prefillVolume failed: %v", err)
+	}
+	if len(client.createdSandboxes) != 1 {
+		t.Fatalf("expected 1 created prefill sandbox, got %d", len(client.createdSandboxes))
+	}
+	if len(client.removedSandboxes) != 1 {
+		t.Fatalf("expected 1 removed prefill sandbox, got %d", len(client.removedSandboxes))
 	}
 }

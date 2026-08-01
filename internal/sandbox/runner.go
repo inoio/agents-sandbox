@@ -161,7 +161,7 @@ func resolveDockerfile() []byte {
 }
 
 type sandboxSession struct {
-	sb     *msb.Sandbox
+	sb     msbSandbox
 	name   string
 	target string
 	cwd    string
@@ -173,7 +173,7 @@ func (s *sandboxSession) cleanup() {
 	}
 	// Run git worktree prune on the host repo to clean up stale entries.
 	if s.cwd != "" {
-		_ = git.PruneWorktrees(s.cwd)
+		_ = git.PruneWorktrees(context.Background(), s.cwd)
 	}
 }
 
@@ -236,7 +236,7 @@ func prepareSandbox(
 
 // ensureDockerdIfPresent ensures dockerd is running inside the VM when the
 // sandbox was freshly created and Docker-in-Docker support is requested.
-func ensureDockerdIfPresent(ctx context.Context, sb *msb.Sandbox, ui stdio.UI, created bool) error {
+func ensureDockerdIfPresent(ctx context.Context, sb msbSandbox, ui stdio.UI, created bool) error {
 	if created {
 		return startDockerdIfPresent(ctx, sb, ui)
 	}
@@ -354,7 +354,7 @@ func promptConfigChange(_ string, ui stdio.UI) (string, error) {
 // readConfigFromVM reads all JSON files inside /home/dev/.config/opencode/
 // from the VM, computes a deterministic SHA-256 hash, and returns the hex
 // string. Returns an empty string if the directory or its files do not exist.
-func readConfigFromVM(ctx context.Context, sb *msb.Sandbox) (string, error) {
+func readConfigFromVM(ctx context.Context, sb msbSandbox) (string, error) {
 	cmd := "(cd /home/dev/.config/opencode && for f in */* */.* * .*; do [ -f \"$f\" ] && printf '\\0%s\\0' \"$f\" && cat \"$f\"; done)"
 	out, err := sb.Shell(ctx, cmd)
 	if err != nil {
@@ -373,7 +373,7 @@ func hashHex(data []byte) string {
 }
 
 // daemonIsHealthy returns true when the opencode serve daemon reports healthy.
-func daemonIsHealthy(ctx context.Context, sb *msb.Sandbox) bool {
+func daemonIsHealthy(ctx context.Context, sb msbSandbox) bool {
 	out, err := sb.Shell(ctx, "curl -sf "+daemonHealthURL)
 	if err != nil || out == nil || !out.Success() {
 		return false
@@ -474,7 +474,7 @@ func provisionSandbox(
 // setUpSandbox handles all sandbox setup after the VM is running.
 func setUpSandbox(
 	ctx context.Context,
-	sb *msb.Sandbox,
+	sb msbSandbox,
 	opts RunOptions,
 	cfg Config,
 	_ string,
@@ -510,7 +510,7 @@ func setUpSandbox(
 }
 
 // handleConfigChange provisions the sandbox and restarts the daemon if required.
-func handleConfigChange(ctx context.Context, sb *msb.Sandbox, cfs *configFiles, ui stdio.UI) {
+func handleConfigChange(ctx context.Context, sb msbSandbox, cfs *configFiles, ui stdio.UI) {
 	daemonHealthy := daemonIsHealthy(ctx, sb)
 	if daemonHealthy {
 		action, promptErr := promptConfigChange(cfs.hash, ui)
@@ -532,7 +532,7 @@ func ensureProvisionedAndRunning(
 	ctx context.Context,
 	fs sandboxFS,
 	files map[string][]byte,
-	sb *msb.Sandbox,
+	sb msbSandbox,
 	ui stdio.UI,
 ) {
 	if provErr := provisionSandbox(ctx, fs, files); provErr != nil {
@@ -545,7 +545,7 @@ func ensureProvisionedAndRunning(
 	}
 }
 
-func restartUnhealthyDaemon(ctx context.Context, sb *msb.Sandbox, files map[string][]byte, ui stdio.UI) {
+func restartUnhealthyDaemon(ctx context.Context, sb msbSandbox, files map[string][]byte, ui stdio.UI) {
 	provisionCtx, cancel := context.WithTimeout(ctx, provisionTimeout)
 	defer cancel()
 

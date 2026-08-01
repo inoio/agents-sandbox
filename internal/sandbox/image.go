@@ -9,18 +9,14 @@ import (
 	"fmt"
 	sysio "io"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
 
 	"github.com/moby/moby/client"
 
-	"gitlab.inoio.de/inoio/opencode-msb/internal/stdio"
-
 	"gitlab.inoio.de/inoio/opencode-msb/internal/git"
-
-	msb "github.com/superradcompany/microsandbox/sdk/go"
+	"gitlab.inoio.de/inoio/opencode-msb/internal/stdio"
 )
 
 const (
@@ -258,9 +254,10 @@ func buildRunnerImage(
 }
 
 // ensureImageWithClient builds/inspects the runner Docker image using the
-// provided client. Tests inject a mock client to verify build behavior.
+// provided clients. Tests inject mock clients to verify build behavior.
 func ensureImageWithClient(
 	ctx context.Context,
+	client msbClient,
 	cli dockerClient,
 	dockerfile []byte,
 	projectSlug string,
@@ -302,7 +299,7 @@ func ensureImageWithClient(
 
 	imageRef := ImageTag(projectSlug, imageDigest)
 
-	_, cacheErr := msb.Image.Get(ctx, imageRef)
+	cacheErr := client.ImageGet(ctx, imageRef)
 	if cacheErr == nil && !force {
 		return imageRef, imageDigest, imageEnv, nil
 	}
@@ -315,11 +312,9 @@ func ensureImageWithClient(
 	}
 	defer saveResult.Close()
 
-	cmd := exec.CommandContext(ctx, "msb", "load", "--tag", imageRef)
-	cmd.Stdin = saveResult
-	if out, err := cmd.CombinedOutput(); err != nil {
+	if err := client.ImageLoad(ctx, imageRef, saveResult); err != nil {
 		spin.StopError(err)
-		return "", "", nil, fmt.Errorf("loading image into microsandbox failed: %w: %s", err, out)
+		return "", "", nil, err
 	}
 	spin.Stop()
 
@@ -344,7 +339,7 @@ func EnsureImage(
 	}
 	defer dockerCli.Close()
 
-	return ensureImageWithClient(ctx, dockerCli, dockerfile, projectSlug, force, ui)
+	return ensureImageWithClient(ctx, newMsbClient(), dockerCli, dockerfile, projectSlug, force, ui)
 }
 
 func parseImageEnv(envs []string) map[string]string {
