@@ -172,55 +172,85 @@ func ensureRunnerImage(
 	ui stdio.UI,
 ) (string, string, map[string]string, error) {
 	rTag := runnerTag(projectSlug)
-	mustBuild := force
+	var imageEnv map[string]string
+	var imageDigest string
+
+	if force {
+		imageEnv = make(map[string]string)
+	} else {
+		imageEnv, imageDigest = inspectExistingImage(ctx, cli, rTag, ui)
+	}
+
+	if imageEnv == nil {
+		imageEnv = make(map[string]string)
+	}
+
+	return buildRunnerImage(ctx, cli, rTag, imageEnv, imageDigest, dockerfile, force, projectSlug, ui)
+}
+
+// inspectExistingImage attempts to inspect the image on disk. If the image is
+// missing it falls back to stored env metadata. Returns (imageEnvs, digest).
+func inspectExistingImage(ctx context.Context, cli dockerClient, rTag string, ui stdio.UI) (map[string]string, string) {
 	imageEnv := make(map[string]string)
 	var imageDigest string
 
-	if !force {
-		_, inspectErr := cli.ImageInspect(ctx, rTag)
-		if inspectErr != nil {
-			ui.Verbosef("image inspect failed (might be pruned): %v", inspectErr)
-			if cached := loadImageEnv(rTag); cached != nil {
-				imageEnv = cached
-				ui.Verbosef("using stored image env metadata for %s", rTag)
-			}
-			mustBuild = true
-		} else {
-			inspect, err := cli.ImageInspect(ctx, rTag)
-			if err == nil {
-				imageDigest = inspect.ID
-				imageEnv = parseImageEnv(inspect.Config.Env)
-				storeImageEnv(rTag, imageEnv)
-				ui.Verbosef("inspected image %s with %d env vars", rTag, len(imageEnv))
-			}
+	_, inspectErr := cli.ImageInspect(ctx, rTag)
+	if inspectErr != nil {
+		ui.Verbosef("image inspect failed (might be pruned): %v", inspectErr)
+		if cached := loadImageEnv(rTag); cached != nil {
+			imageEnv = cached
+			ui.Verbosef("using stored image env metadata for %s", rTag)
 		}
+		return imageEnv, imageDigest
 	}
-
-	if mustBuild {
-		if err := buildDockerImage(ctx, cli, dockerfile, rTag, "Building runner image", force, ui); err != nil {
-			if len(imageEnv) > 0 {
-				ui.Warnf("build succeeded but inspect failed; using stored env metadata")
-				return rTag, imageDigest, imageEnv, nil
-			}
-			return "", "", nil, err
-		}
-		inspect, err := cli.ImageInspect(ctx, rTag)
-		if err != nil {
-			return "", "", nil, fmt.Errorf("cannot inspect built image: %w", err)
-		}
+	inspect, err := cli.ImageInspect(ctx, rTag)
+	if err == nil {
 		imageDigest = inspect.ID
 		imageEnv = parseImageEnv(inspect.Config.Env)
 		storeImageEnv(rTag, imageEnv)
-		ui.Verbosef("rebuilt image %s with %d env vars", rTag, len(imageEnv))
+		ui.Verbosef("inspected image %s with %d env vars", rTag, len(imageEnv))
+	}
+	return imageEnv, imageDigest
+}
 
-		// Also tag with digest for proper cleanup during prune
-		digestTag := ImageTag(projectSlug, imageDigest)
-		if digestTag != rTag {
-			if _, err := cli.ImageTag(ctx, client.ImageTagOptions{Source: rTag, Target: digestTag}); err != nil {
-				ui.Warnf("failed to tag image with digest: %v", err)
-			} else {
-				ui.Verbosef("tagged image with digest: %s", digestTag)
-			}
+// buildRunnerImage builds the runner image and returns the rTag, digest, env map.
+func buildRunnerImage(
+	ctx context.Context,
+	cli dockerClient,
+	rTag string,
+	imageEnv map[string]string,
+	imageDigest string,
+	dockerfile []byte,
+	force bool,
+	projectSlug string,
+	ui stdio.UI,
+) (string, string, map[string]string, error) {
+	if len(imageEnv) == 0 {
+		imageEnv = make(map[string]string)
+	}
+
+	if err := buildDockerImage(ctx, cli, dockerfile, rTag, "Building runner image", force, ui); err != nil {
+		if len(imageEnv) > 0 {
+			ui.Warnf("build succeeded but inspect failed; using stored env metadata")
+			return rTag, imageDigest, imageEnv, nil
+		}
+		return "", "", nil, err
+	}
+	inspect, err := cli.ImageInspect(ctx, rTag)
+	if err != nil {
+		return "", "", nil, fmt.Errorf("cannot inspect built image: %w", err)
+	}
+	imageDigest = inspect.ID
+	imageEnv = parseImageEnv(inspect.Config.Env)
+	storeImageEnv(rTag, imageEnv)
+	ui.Verbosef("rebuilt image %s with %d env vars", rTag, len(imageEnv))
+
+	digestTag := ImageTag(projectSlug, imageDigest)
+	if digestTag != rTag {
+		if _, err := cli.ImageTag(ctx, client.ImageTagOptions{Source: rTag, Target: digestTag}); err != nil {
+			ui.Warnf("failed to tag image with digest: %v", err)
+		} else {
+			ui.Verbosef("tagged image with digest: %s", digestTag)
 		}
 	}
 
