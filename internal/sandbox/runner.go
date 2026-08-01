@@ -213,70 +213,15 @@ func prepareSandbox(
 	name := projectVMName(projectSlug)
 
 	var sandboxTarget string
+	var sandboxErr error
 	if sb == nil {
 		ui.Infof("VM lifecycle skipped (--dry-run-vm)")
 		sandboxTarget = resolveTargetNoBranch()
 	} else {
-		// Build the merged config and compute its hash.
-		cfs, err := loadConfigFiles(cfg.UserConfigDir)
-		if err != nil {
-			return nil, err
+		sandboxTarget, sandboxErr = setUpSandbox(ctx, sb, opts, cfg, cwd, created, ui)
+		if sandboxErr != nil {
+			return nil, sandboxErr
 		}
-
-		// Read the config currently in the VM and compute its hash so we can
-		// detect whether it differs from the one we are about to provision.
-		vmHash, readErr := readConfigFromVM(ctx, sb)
-		if readErr != nil {
-			ui.Warnf("failed to read VM config: %v (proceeding without comparison)", readErr)
-		}
-
-		// Decide whether we need to provision and restart.
-		if vmHash != "" && vmHash != cfs.hash {
-			if daemonIsHealthy(ctx, sb) {
-				action, promptErr := promptConfigChange(cfs.hash, ui)
-				if promptErr != nil {
-					return nil, promptErr
-				}
-				if action == "restart" {
-					provisionCtx, cancel := context.WithTimeout(ctx, provisionTimeout)
-					if provErr := provisionSandbox(provisionCtx, sb.FS(), cfs.files); provErr != nil {
-						cancel()
-						return nil, provErr
-					}
-					cancel()
-					if restartErr := EnsureDaemon(ctx, sb, ui); restartErr != nil {
-						return nil, restartErr
-					}
-					ui.Infof("opencode serve restarting…")
-				} else {
-					ui.Infof("config change detected; proceeding without restart")
-				}
-			} else {
-				ui.Infof("config change detected; restarting (daemon was not healthy)")
-				provisionCtx, cancel := context.WithTimeout(ctx, provisionTimeout)
-				if provErr := provisionSandbox(provisionCtx, sb.FS(), cfs.files); provErr != nil {
-					cancel()
-					return nil, provErr
-				}
-				cancel()
-				if restartErr := EnsureDaemon(ctx, sb, ui); restartErr != nil {
-					return nil, restartErr
-				}
-			}
-		} else {
-			if dockerErr := ensureDockerdIfPresent(ctx, sb, ui, created); dockerErr != nil {
-				return nil, fmt.Errorf("docker startup: %w", dockerErr)
-			}
-			if daemonErr := EnsureDaemon(ctx, sb, ui); daemonErr != nil {
-				return nil, daemonErr
-			}
-		}
-
-		target, err := ResolveTarget(ctx, sb, opts.Branch, ui)
-		if err != nil {
-			return nil, err
-		}
-		sandboxTarget = target
 	}
 
 	ui.Verbosef("attach target: %s", sandboxTarget)
@@ -524,4 +469,92 @@ func provisionSandbox(
 		}
 	}
 	return nil
+}
+
+// setUpSandbox handles all sandbox setup after the VM is running.
+func setUpSandbox(
+	ctx context.Context,
+	sb *msb.Sandbox,
+	opts RunOptions,
+	cfg Config,
+	_ string,
+	created bool,
+	ui stdio.UI,
+) (string, error) {
+	cfs, err := loadConfigFiles(cfg.UserConfigDir)
+	if err != nil {
+		return "", err
+	}
+
+	vmHash, readErr := readConfigFromVM(ctx, sb)
+	if readErr != nil {
+		ui.Warnf("failed to read VM config: %v (proceeding without comparison)", readErr)
+	}
+
+	if vmHash != "" && vmHash != cfs.hash {
+		handleConfigChange(ctx, sb, cfs, ui)
+	} else {
+		if dockerErr := ensureDockerdIfPresent(ctx, sb, ui, created); dockerErr != nil {
+			return "", fmt.Errorf("docker startup: %w", dockerErr)
+		}
+		if daemonErr := EnsureDaemon(ctx, sb, ui); daemonErr != nil {
+			return "", daemonErr
+		}
+	}
+
+	target, targetErr := ResolveTarget(ctx, sb, opts.Branch, ui)
+	if targetErr != nil {
+		return "", targetErr
+	}
+	return target, nil
+}
+
+// handleConfigChange provisions the sandbox and restarts the daemon if required.
+func handleConfigChange(ctx context.Context, sb *msb.Sandbox, cfs *configFiles, ui stdio.UI) {
+	daemonHealthy := daemonIsHealthy(ctx, sb)
+	if daemonHealthy {
+		action, promptErr := promptConfigChange(cfs.hash, ui)
+		if promptErr != nil {
+			_ = promptErr
+			return
+		}
+		if action == "restart" {
+			ensureProvisionedAndRunning(ctx, sb.FS(), cfs.files, sb, ui)
+			return
+		}
+		ui.Infof("config change detected; proceeding without restart")
+		return
+	}
+	restartUnhealthyDaemon(ctx, sb, cfs.files, ui)
+}
+
+func ensureProvisionedAndRunning(
+	ctx context.Context,
+	fs sandboxFS,
+	files map[string][]byte,
+	sb *msb.Sandbox,
+	ui stdio.UI,
+) {
+	if provErr := provisionSandbox(ctx, fs, files); provErr != nil {
+		ui.Warnf("provision failed: %v (keeping existing daemon)", provErr)
+		return
+	}
+	ui.Infof("opencode serve restarting…")
+	if restartErr := EnsureDaemon(ctx, sb, ui); restartErr != nil {
+		ui.Warnf("daemon restart failed: %v (keeping existing)", restartErr)
+	}
+}
+
+func restartUnhealthyDaemon(ctx context.Context, sb *msb.Sandbox, files map[string][]byte, ui stdio.UI) {
+	provisionCtx, cancel := context.WithTimeout(ctx, provisionTimeout)
+	defer cancel()
+
+	ui.Infof("config change detected; restarting (daemon was not healthy)")
+	if provErr := provisionSandbox(provisionCtx, sb.FS(), files); provErr != nil {
+		ui.Warnf("provision failed: %v (using existing config)", provErr)
+		return
+	}
+	if restartErr := EnsureDaemon(ctx, sb, ui); restartErr != nil {
+		ui.Warnf("daemon restart failed: %v (using existing)", restartErr)
+	}
 }

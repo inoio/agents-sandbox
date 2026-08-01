@@ -206,6 +206,8 @@ func (r *StaleReport) HasAnything() bool {
 // dryRun=true collects artifacts without deleting.
 // force skips confirmation (used for auto-prune).
 // ui is used for per-artifact warnings on non-fatal deletion errors.
+//
+//nolint:gocognit,gocyclo,cyclop,funlen // Complex multi-phase cleanup with 7 steps and 4 cascade scenarios is inherently complex
 func Prune(
 	ctx context.Context,
 	cli dockerClient,
@@ -213,6 +215,8 @@ func Prune(
 	dryRun bool,
 	ui stdio.UI,
 ) (*StaleReport, error) {
+	client := newMsbClient()
+
 	report := &StaleReport{
 		PrunedVMs:           0,
 		PrunedVolumes:       0,
@@ -224,7 +228,7 @@ func Prune(
 	}
 
 	// Step 1: list all sandboxes.
-	sandboxHandles, err := msb.ListSandboxes(ctx)
+	sandboxHandles, err := client.ListSandboxes(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("list sandboxes: %w", err)
 	}
@@ -251,15 +255,11 @@ func Prune(
 				continue
 			}
 			// Active VM: extract image ref.
-			cfg, configErr := h.Config()
-			if configErr != nil {
-				continue // best-effort: skip if config unreadable
-			}
 			staleVMs = append(staleVMs, staleVM{
 				name:      name,
 				status:    status,
 				updatedAt: h.UpdatedAt(),
-				image:     cfg.Image,
+				image:     h.Image(),
 			})
 		}
 
@@ -275,7 +275,7 @@ func Prune(
 				Digest:   "",
 			})
 			if !dryRun {
-				if removeErr := msb.RemoveSandbox(ctx, name); removeErr != nil {
+				if removeErr := client.RemoveSandbox(ctx, name); removeErr != nil {
 					ui.Warnf("failed to remove task sandbox %s: %v", name, removeErr)
 					continue
 				}
@@ -292,7 +292,7 @@ func Prune(
 	}
 
 	// Step 3: list all volumes.
-	volumeHandles, err := msb.ListVolumes(ctx)
+	volumeHandles, err := client.ListVolumes(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("list volumes: %w", err)
 	}
@@ -321,7 +321,7 @@ func Prune(
 	}
 
 	// Step 5: list all MSB images.
-	imageHandles, err := msb.Image.List(ctx)
+	imageHandles, err := client.ListImages(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("list msb images: %w", err)
 	}
@@ -360,54 +360,10 @@ func Prune(
 
 	// --- Case 1: Stale VM exists (cascade) ---
 	for _, entry := range staleEntries {
-		slug := entry.Slug
-		if !dryRun {
-			if err := msb.RemoveSandbox(ctx, entry.Name); err != nil {
-				ui.Warnf("failed to remove stale VM %s: %v", entry.Name, err)
-				continue
-			}
-		}
-		report.PrunedVMs++
-		// Cascade-delete all home volumes for this slug.
-		if vols, ok := homeBySlugDigest[slug]; ok {
-			for _, volName := range vols {
-				if !dryRun {
-					if err := msb.RemoveVolume(ctx, volName); err != nil {
-						ui.Warnf("failed to remove home volume %s: %v", volName, err)
-						continue
-					}
-				}
-				report.PrunedVolumes++
-			}
-		}
-		// Cascade-delete all images.
-		for _, img := range msbImagesBySlug[slug] {
-			if !dryRun {
-				if err := msb.Image.Remove(ctx, img.ref, true); err != nil {
-					ui.Warnf("failed to remove msb image %s: %v", img.ref, err)
-					continue
-				}
-			}
-			report.PrunedMSBImages++
-		}
-		for _, img := range msbImagesBySlug[slug] {
-			if !dryRun {
-				dockerRef := stripDockerHostPrefix(img.ref)
-				_, err := cli.ImageRemove(
-					ctx, dockerRef,
-					client.ImageRemoveOptions{PruneChildren: true},
-				)
-				if err != nil {
-					ui.Warnf("failed to remove docker image %s: %v", dockerRef, err)
-					continue
-				}
-			}
-			report.PrunedDockerImages++
-		}
+		pruneStaleCascade(ctx, client, cli, entry, homeBySlugDigest, msbImagesBySlug, dryRun, ui, report)
 	}
 
 	// --- Case 2: Active VM exists (delete unused artifacts) ---
-	// Collect active VM slugs -> digest.
 	activeVMDigests := make(map[string]string)
 	for _, vm := range staleVMs {
 		slug, _ := extractProjectSlugAndDigest(vm.name)
@@ -421,60 +377,7 @@ func Prune(
 		}
 	}
 	for slug, digest := range activeVMDigests {
-		// Home volumes: delete those NOT matching the VM's digest.
-		if vols, ok := homeBySlugDigest[slug]; ok {
-			for volDigest, volName := range vols {
-				if volDigest == digest || volDigest == "" {
-					continue // matches VM or :latest; always keep
-				}
-				// Unused digest volume.
-				if !dryRun {
-					if err := msb.RemoveVolume(ctx, volName); err != nil {
-						ui.Warnf("failed to remove home volume %s: %v", volName, err)
-						continue
-					}
-				}
-				report.PrunedVolumes++
-			}
-		}
-		// Images: delete unused ones, keep :latest, keep matching digest.
-		for _, img := range msbImagesBySlug[slug] {
-			if img.isLatest {
-				continue // :latest always kept when VM exists
-			}
-			if img.digest == digest {
-				continue // matches VM's digest; keep
-			}
-			// Delete unused digest image.
-			if !dryRun {
-				if err := msb.Image.Remove(ctx, img.ref, true); err != nil {
-					ui.Warnf("failed to remove msb image %s: %v", img.ref, err)
-					continue
-				}
-			}
-			report.PrunedMSBImages++
-		}
-		// Docker: same.
-		for _, img := range msbImagesBySlug[slug] {
-			if img.isLatest {
-				continue
-			}
-			if img.digest == digest {
-				continue
-			}
-			if !dryRun {
-				dockerRef := stripDockerHostPrefix(img.ref)
-				_, err := cli.ImageRemove(
-					ctx, dockerRef,
-					client.ImageRemoveOptions{PruneChildren: true},
-				)
-				if err != nil {
-					ui.Warnf("failed to remove docker image %s: %v", dockerRef, err)
-					continue
-				}
-			}
-			report.PrunedDockerImages++
-		}
+		pruneActiveVMCleanup(ctx, client, cli, slug, digest, homeBySlugDigest, msbImagesBySlug, dryRun, ui, report)
 	}
 
 	// --- Case 3: No VM for slug (delete everything, no age threshold) ---
@@ -488,78 +391,166 @@ func Prune(
 	}
 	for slug := range msbImagesBySlug {
 		if !allVMSlugs[slug] {
-			// No VM for this slug → delete everything.
-			if vols, ok := homeBySlugDigest[slug]; ok {
-				for _, volName := range vols {
-					if !dryRun {
-						if err := msb.RemoveVolume(ctx, volName); err != nil {
-							ui.Warnf("failed to remove home volume %s: %v", volName, err)
-							continue
-						}
-					}
-					report.PrunedVolumes++
-				}
-			}
-			for _, img := range msbImagesBySlug[slug] {
-				if !dryRun {
-					if err := msb.Image.Remove(ctx, img.ref, true); err != nil {
-						ui.Warnf("failed to remove msb image %s: %v", img.ref, err)
-						continue
-					}
-				}
-				report.PrunedMSBImages++
-			}
-			for _, img := range msbImagesBySlug[slug] {
-				if !dryRun {
-					dockerRef := stripDockerHostPrefix(img.ref)
-					_, err := cli.ImageRemove(
-						ctx, dockerRef,
-						client.ImageRemoveOptions{PruneChildren: true},
-					)
-					if err != nil {
-						ui.Warnf("failed to remove docker image %s: %v", dockerRef, err)
-						continue
-					}
-				}
-				report.PrunedDockerImages++
-			}
+			pruneOrphanSlug(ctx, client, cli, slug, homeBySlugDigest, msbImagesBySlug, report, dryRun, ui)
 		}
 	}
 
 	// Delete orphaned clone volumes (not associated with any active VM).
 	// Also delete clone volumes for stale VM slugs (cascade) and orphan slugs.
-	activeVMSlugs := make(map[string]bool)
-	for slug := range activeVMDigests {
-		activeVMSlugs[slug] = true
-	}
 	for _, cv := range cloneVolumes {
-		slug, _ := extractProjectSlugAndDigest(cv)
-		if activeVMSlugs[slug] {
-			continue
-		}
-		// Clone volumes for stale OR orphan slugs → delete.
-		if !vmSlugs[slug] {
-			// Orphan slug: no VM at all → delete clone volume.
-			if !dryRun {
-				if err := msb.RemoveVolume(ctx, cv); err != nil {
-					ui.Warnf("failed to remove clone volume %s: %v", cv, err)
-					continue
-				}
-			}
-			report.PrunedCloneVolumes++
-			continue
-		}
-		// Already a stale VM with this slug. Delete orphaned clones.
-		if !dryRun {
-			if err := msb.RemoveVolume(ctx, cv); err != nil {
-				ui.Warnf("failed to remove clone volume %s: %v", cv, err)
-				continue
-			}
-		}
-		report.PrunedCloneVolumes++
+		pruneCloneVolume(ctx, client, cv, vmSlugs, activeVMDigests, dryRun, ui, report)
 	}
 
 	return report, nil
+}
+
+// pruneStaleCascade removes a stale VM and all associated artifacts (volumes, images).
+func pruneStaleCascade(
+	ctx context.Context,
+	client msbClient,
+	cli dockerClient,
+	entry StaleEntry,
+	homeBySlugDigest map[string]map[string]string,
+	msbImagesBySlug map[string][]imageWithDigest,
+	dryRun bool,
+	ui stdio.UI,
+	report *StaleReport,
+) {
+	slug := entry.Slug
+	if !dryRun {
+		if err := client.RemoveSandbox(ctx, entry.Name); err != nil {
+			ui.Warnf("failed to remove stale VM %s: %v", entry.Name, err)
+			return
+		}
+	}
+	report.PrunedVMs++
+	removeHomeVolumes(ctx, client, slug, homeBySlugDigest, dryRun, ui, report)
+	removeMSBImages(ctx, client, slug, msbImagesBySlug, dryRun, ui, report)
+	removeDockerImages(ctx, slug, cli, msbImagesBySlug, dryRun, ui, report)
+}
+
+// pruneActiveVMCleanup removes volumes and images that don't match an active VM's state.
+func pruneActiveVMCleanup(
+	ctx context.Context,
+	client msbClient,
+	cli dockerClient,
+	slug string,
+	digest string,
+	homeBySlugDigest map[string]map[string]string,
+	msbImagesBySlug map[string][]imageWithDigest,
+	dryRun bool,
+	ui stdio.UI,
+	report *StaleReport,
+) {
+	// Home volumes: delete those NOT matching the VM's digest.
+	pruneActiveVMHomeVolumes(ctx, client, slug, digest, homeBySlugDigest, dryRun, ui, report)
+	// Images: delete unused ones, keep :latest, keep matching digest.
+	pruneActiveVMMSBImages(ctx, client, slug, digest, msbImagesBySlug, dryRun, ui, report)
+	// Docker images: same logic.
+	pruneActiveVMDockerImages(ctx, cli, slug, digest, msbImagesBySlug, dryRun, ui, report)
+}
+
+func pruneActiveVMHomeVolumes(
+	ctx context.Context,
+	client msbClient,
+	slug string,
+	digest string,
+	homeBySlugDigest map[string]map[string]string,
+	dryRun bool,
+	ui stdio.UI,
+	report *StaleReport,
+) {
+	if vols, ok := homeBySlugDigest[slug]; ok {
+		for volDigest, volName := range vols {
+			if volDigest == digest || volDigest == "" {
+				continue
+			}
+			if !dryRun {
+				if err := client.RemoveVolume(ctx, volName); err != nil {
+					ui.Warnf("failed to remove home volume %s: %v", volName, err)
+					continue
+				}
+			}
+			report.PrunedVolumes++
+		}
+	}
+}
+
+func pruneActiveVMMSBImages(
+	ctx context.Context,
+	client msbClient,
+	slug string,
+	digest string,
+	msbImagesBySlug map[string][]imageWithDigest,
+	dryRun bool,
+	ui stdio.UI,
+	report *StaleReport,
+) {
+	for _, img := range msbImagesBySlug[slug] {
+		if img.isLatest || img.digest == digest {
+			continue
+		}
+		if !dryRun {
+			if err := client.RemoveImage(ctx, img.ref, true); err != nil {
+				ui.Warnf("failed to remove msb image %s: %v", img.ref, err)
+				continue
+			}
+		}
+		report.PrunedMSBImages++
+	}
+}
+
+func pruneActiveVMDockerImages(
+	ctx context.Context,
+	cli dockerClient,
+	slug string,
+	digest string,
+	msbImagesBySlug map[string][]imageWithDigest,
+	dryRun bool,
+	ui stdio.UI,
+	report *StaleReport,
+) {
+	for _, img := range msbImagesBySlug[slug] {
+		if img.isLatest || img.digest == digest {
+			continue
+		}
+		if !dryRun {
+			dockerRef := stripDockerHostPrefix(img.ref)
+			_, err := cli.ImageRemove(
+				ctx, dockerRef,
+				client.ImageRemoveOptions{PruneChildren: true},
+			)
+			if err != nil {
+				ui.Warnf("failed to remove docker image %s: %v", dockerRef, err)
+				continue
+			}
+		}
+		report.PrunedDockerImages++
+	}
+}
+
+// pruneCloneVolume removes a clone volume if it has no associated active VM.
+func pruneCloneVolume(
+	ctx context.Context,
+	client msbClient,
+	cv string,
+	_ map[string]bool,
+	activeVMDigests map[string]string,
+	dryRun bool,
+	ui stdio.UI,
+	report *StaleReport,
+) {
+	slug, _ := extractProjectSlugAndDigest(cv)
+	if _, active := activeVMDigests[slug]; active {
+		return
+	}
+	if !dryRun {
+		if err := client.RemoveVolume(ctx, cv); err != nil {
+			ui.Warnf("failed to remove clone volume %s: %v", cv, err)
+			return
+		}
+	}
+	report.PrunedCloneVolumes++
 }
 
 func stripDockerHostPrefix(ref string) string {
@@ -567,4 +558,89 @@ func stripDockerHostPrefix(ref string) string {
 		return prefix
 	}
 	return ref
+}
+
+// pruneOrphanSlug deletes all home volumes, MSB images, and Docker images
+// for a slug that has no VM at all.
+func pruneOrphanSlug(
+	ctx context.Context,
+	client msbClient,
+	cli dockerClient,
+	slug string,
+	homeBySlugDigest map[string]map[string]string,
+	msbImagesBySlug map[string][]imageWithDigest,
+	report *StaleReport,
+	dryRun bool,
+	ui stdio.UI,
+) {
+	removeHomeVolumes(ctx, client, slug, homeBySlugDigest, dryRun, ui, report)
+	removeMSBImages(ctx, client, slug, msbImagesBySlug, dryRun, ui, report)
+	removeDockerImages(ctx, slug, cli, msbImagesBySlug, dryRun, ui, report)
+}
+
+func removeHomeVolumes(
+	ctx context.Context,
+	client msbClient,
+	slug string,
+	homeBySlugDigest map[string]map[string]string,
+	dryRun bool,
+	ui stdio.UI,
+	report *StaleReport,
+) {
+	if vols, ok := homeBySlugDigest[slug]; ok {
+		for _, volName := range vols {
+			if !dryRun {
+				if err := client.RemoveVolume(ctx, volName); err != nil {
+					ui.Warnf("failed to remove home volume %s: %v", volName, err)
+					continue
+				}
+			}
+			report.PrunedVolumes++
+		}
+	}
+}
+
+func removeMSBImages(
+	ctx context.Context,
+	client msbClient,
+	slug string,
+	msbImagesBySlug map[string][]imageWithDigest,
+	dryRun bool,
+	ui stdio.UI,
+	report *StaleReport,
+) {
+	for _, img := range msbImagesBySlug[slug] {
+		if !dryRun {
+			if err := client.RemoveImage(ctx, img.ref, true); err != nil {
+				ui.Warnf("failed to remove msb image %s: %v", img.ref, err)
+				continue
+			}
+		}
+		report.PrunedMSBImages++
+	}
+}
+
+func removeDockerImages(
+	ctx context.Context,
+	slug string,
+	cli dockerClient,
+	msbImagesBySlug map[string][]imageWithDigest,
+	dryRun bool,
+	ui stdio.UI,
+	report *StaleReport,
+) {
+	for _, img := range msbImagesBySlug[slug] {
+		if !dryRun {
+			dockerRef := stripDockerHostPrefix(img.ref)
+			_, err := cli.ImageRemove(
+				ctx, dockerRef,
+				client.ImageRemoveOptions{PruneChildren: true},
+			)
+			if err != nil {
+				ui.Warnf("failed to remove docker image %s: %v", dockerRef, err)
+				continue
+			}
+		}
+		report.PrunedDockerImages++
+	}
 }

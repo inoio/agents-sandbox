@@ -492,9 +492,6 @@ linters:
       #- text: 'comment on exported \S+ \S+ should be of the form ".+"'
       #  source: "// ?(nolint|TODO)"
       #  linters: [revive, staticcheck]
-      - path: "internal/git/"
-        linters:
-          - noctx # git commands are short-lived; context cancellation adds no value
       - path: '_test\.go'
         linters:
           - bodyclose
