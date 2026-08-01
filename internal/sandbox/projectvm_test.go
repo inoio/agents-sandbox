@@ -1,7 +1,10 @@
 package sandbox
 
 import (
+	"context"
 	"testing"
+
+	"gitlab.inoio.de/inoio/opencode-msb/internal/testhelpers"
 
 	msb "github.com/superradcompany/microsandbox/sdk/go"
 )
@@ -101,5 +104,72 @@ func TestEnsureProjectVMStartsWhenCrashed(t *testing.T) {
 	}
 	if decision != vmActionStart {
 		t.Errorf("expected vmActionStart for crashed, got %v", decision)
+	}
+}
+
+func TestCreateProjectVMCallsClientCreateSandbox(t *testing.T) {
+	client := &mockMsbClient{}
+	testUI := testhelpers.NewTestio(t)
+	ui := &testUI
+	cfg := Config{
+		StateDir:        t.TempDir(),
+		UserConfigDir:   t.TempDir(),
+		UserLauncherDir: t.TempDir(),
+	}
+
+	sb, created, err := createProjectVM(
+		context.Background(),
+		client,
+		"opencode-msb-vm-test",
+		"opencode-msb/runner-test:latest",
+		"test-home-vol",
+		t.TempDir(),
+		RunOptions{Memory: "1G"},
+		cfg,
+		nil,
+		ui,
+	)
+	if err != nil {
+		t.Fatalf("createProjectVM failed: %v", err)
+	}
+	if !created {
+		t.Error("expected created=true")
+	}
+	if sb == nil {
+		t.Fatal("expected non-nil sandbox")
+	}
+	if len(client.createdSandboxes) != 1 {
+		t.Fatalf("expected 1 created sandbox, got %d", len(client.createdSandboxes))
+	}
+	if client.createdSandboxes[0] != "opencode-msb-vm-test" {
+		t.Errorf("expected sandbox name %q, got %q", "opencode-msb-vm-test", client.createdSandboxes[0])
+	}
+}
+
+func TestStopProjectVMUsesClient(t *testing.T) {
+	testUI := testhelpers.NewTestio(t)
+	ui := &testUI
+	client := &mockMsbClient{
+		gotSandbox: mockSandboxHandle{
+			name:   "opencode-msb-vm-test",
+			status: msb.SandboxStatusRunning,
+		},
+	}
+	oldNewMsbClient := newMsbClient
+	newMsbClient = func() msbClient { return client }
+	defer func() { newMsbClient = oldNewMsbClient }()
+
+	// ProjectSlug depends on the current directory, so use a temp repo.
+	tmpRepo := t.TempDir()
+	t.Chdir(tmpRepo)
+	testhelpers.RunGit(t, tmpRepo, "init", "-b", "main")
+	testhelpers.RunGit(t, tmpRepo, "config", "user.email", "test@example.com")
+	testhelpers.RunGit(t, tmpRepo, "config", "user.name", "Test User")
+	testhelpers.WriteFile(t, tmpRepo, "README.md", "hello")
+	testhelpers.RunGit(t, tmpRepo, "add", "README.md")
+	testhelpers.RunGit(t, tmpRepo, "commit", "-m", "initial")
+
+	if err := StopProjectVM(context.Background(), false, false, ui); err != nil {
+		t.Fatalf("StopProjectVM failed: %v", err)
 	}
 }

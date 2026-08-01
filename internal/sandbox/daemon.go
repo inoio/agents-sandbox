@@ -7,8 +7,6 @@ import (
 	"time"
 
 	"gitlab.inoio.de/inoio/opencode-msb/internal/stdio"
-
-	msb "github.com/superradcompany/microsandbox/sdk/go"
 )
 
 const (
@@ -23,7 +21,7 @@ var daemonPollInterval = 2 * time.Second //nolint:gochecknoglobals // test seam,
 
 // daemonShellFunc is the test seam for sb.Shell, matching the ensureInstalled
 // pattern in doctor.go. Tests override this; production code leaves the default.
-var daemonShellFunc = func(ctx context.Context, sb *msb.Sandbox, command string) (string, int, error) { //nolint:gochecknoglobals // test seam, swapped in tests
+var daemonShellFunc = func(ctx context.Context, sb msbSandbox, command string) (string, int, error) { //nolint:gochecknoglobals // test seam, swapped in tests
 	out, err := sb.Shell(ctx, command)
 	if err != nil {
 		return "", -1, err
@@ -47,7 +45,7 @@ func parseHealthResponse(stdout string) (bool, error) {
 // EnsureDaemon guarantees the opencode serve daemon is healthy inside the VM.
 // It healthchecks via curl inside the VM; if unhealthy, it kills any stale
 // daemon process, starts a fresh one, and polls until healthy or timeout.
-func EnsureDaemon(ctx context.Context, sb *msb.Sandbox, ui stdio.UI) error {
+func EnsureDaemon(ctx context.Context, sb msbSandbox, ui stdio.UI) error {
 	if healthy := checkDaemonHealth(ctx, sb); healthy {
 		ui.Verbosef("opencode daemon already healthy")
 		return nil
@@ -76,7 +74,7 @@ func EnsureDaemon(ctx context.Context, sb *msb.Sandbox, ui stdio.UI) error {
 	return fmt.Errorf("opencode daemon did not become healthy within %s", daemonReadyTimeout)
 }
 
-func checkDaemonHealth(ctx context.Context, sb *msb.Sandbox) bool {
+func checkDaemonHealth(ctx context.Context, sb msbSandbox) bool {
 	stdout, exitCode, err := daemonShellFunc(ctx, sb, "curl -sf "+daemonHealthURL)
 	if err != nil || exitCode != 0 {
 		return false

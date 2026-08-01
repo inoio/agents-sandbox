@@ -1,6 +1,7 @@
 package git
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"strings"
@@ -196,7 +197,7 @@ func TestPruneWorktreesCleansStaleEntries(t *testing.T) {
 	if !strings.Contains(out, "prunable") {
 		t.Fatalf("expected prunable entry, got: %s", out)
 	}
-	if err := PruneWorktrees(repo); err != nil {
+	if err := PruneWorktrees(context.Background(), repo); err != nil {
 		t.Fatalf("PruneWorktrees: %v", err)
 	}
 	out = testhelpers.RunGit(t, repo, "worktree", "list")
@@ -207,7 +208,7 @@ func TestPruneWorktreesCleansStaleEntries(t *testing.T) {
 
 func TestPruneWorktreesNoRepo(t *testing.T) {
 	dir := t.TempDir()
-	err := PruneWorktrees(dir)
+	err := PruneWorktrees(context.Background(), dir)
 	if err == nil {
 		t.Error("expected error when not in a git repo")
 	}
