@@ -33,6 +33,17 @@ type StaleEntry struct {
 	Digest   string // for images/volumes: the identifying digest tag; empty for :latest or VMs
 }
 
+// PruningCatalog holds all collected artifact data for a single prune run.
+// buildCatalog creates it by inspecting sandboxes, volumes, and images.
+type PruningCatalog struct {
+	StaleVMs       []StaleEntry
+	TaskSandboxes  []StaleEntry
+	ActiveVMDigest map[string]string // slug -> digest of the running VM
+	HomeVolumes    map[string]map[string]string
+	CloneVolumes   []string
+	MSBImages      map[string][]imageWithDigest
+}
+
 // staleVM is an internal type used by findStaleVMs.
 type staleVM struct {
 	name      string
@@ -202,49 +213,46 @@ func (r *StaleReport) HasAnything() bool {
 		r.PrunedCloneVolumes > 0
 }
 
-// Prune finds stale VMs, volumes, and images and removes them.
-// dryRun=true collects artifacts without deleting.
-// force skips confirmation (used for auto-prune).
-// ui is used for per-artifact warnings on non-fatal deletion errors.
+// buildCatalog collects all artifacts from the system and returns a
+// PruningCatalog. It lists sandboxes, volumes, and MSB images, then
+// categorizes them by type and groups them by project slug.
 //
-//nolint:gocognit,gocyclo,cyclop,funlen // Complex multi-phase cleanup with 7 steps and 4 cascade scenarios is inherently complex
-func Prune(
-	ctx context.Context,
-	cli dockerClient,
-	threshold time.Duration,
-	dryRun bool,
-	ui stdio.UI,
-) (*StaleReport, error) {
-	client := newMsbClient()
-
-	report := &StaleReport{
-		PrunedVMs:           0,
-		PrunedVolumes:       0,
-		PrunedDockerImages:  0,
-		PrunedMSBImages:     0,
-		PrunedTaskSandboxes: 0,
-		PrunedCloneVolumes:  0,
-		Details:             nil,
-	}
-
-	// Step 1: list all sandboxes.
+//nolint:gocognit,funlen // Data collection involves multiple independent list operations with filtering
+func buildCatalog(ctx context.Context, client msbClient, threshold time.Duration) (*PruningCatalog, error) {
 	sandboxHandles, err := client.ListSandboxes(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("list sandboxes: %w", err)
 	}
 
-	// Step 2: collect stale VMs, task sandboxes.
-	var staleVMs []staleVM
+	volumeHandles, err := client.ListVolumes(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("list volumes: %w", err)
+	}
+
+	imageHandles, err := client.ImageList(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("list msb images: %w", err)
+	}
+
+	//nolint:exhaustruct // Only populating fields needed for the prune pipeline
+	catalog := &PruningCatalog{
+		HomeVolumes:    make(map[string]map[string]string),
+		CloneVolumes:   make([]string, 0),
+		MSBImages:      make(map[string][]imageWithDigest),
+		ActiveVMDigest: make(map[string]string),
+	}
+
+	staleVMs := make([]staleVM, 0)
+
+	// Process sandboxes: collect stale VMs, task sandboxes, and active VMs.
 	for _, h := range sandboxHandles {
 		name := h.Name()
-		status := h.Status()
-
-		// Skip non-opencode sandboxes.
 		if !strings.HasPrefix(name, "opencode-msb-") {
 			continue
 		}
 
 		if strings.HasPrefix(name, projectVMPrefix) {
+			status := h.Status()
 			if isStoppedStatus(status) {
 				staleVMs = append(staleVMs, staleVM{
 					name:      name,
@@ -254,7 +262,7 @@ func Prune(
 				})
 				continue
 			}
-			// Active VM: extract image ref.
+			// Active VM: extract image ref for digest tracking.
 			staleVMs = append(staleVMs, staleVM{
 				name:      name,
 				status:    status,
@@ -264,23 +272,16 @@ func Prune(
 		}
 
 		if strings.HasPrefix(name, "opencode-msb-task-") {
-			// Task sandboxes are always pruned.
+			// Task sandboxes are always pruned immediately.
 			elapsed := time.Since(h.UpdatedAt())
 			slug, _ := extractProjectSlugAndDigest(name)
-			report.Details = append(report.Details, StaleEntry{
+			catalog.TaskSandboxes = append(catalog.TaskSandboxes, StaleEntry{
 				Type:     "task-sandbox",
 				Name:     name,
 				StaleFor: elapsed,
 				Slug:     slug,
 				Digest:   "",
 			})
-			if !dryRun {
-				if removeErr := client.RemoveSandbox(ctx, name); removeErr != nil {
-					ui.Warnf("failed to remove task sandbox %s: %v", name, removeErr)
-					continue
-				}
-			}
-			report.PrunedTaskSandboxes++
 		}
 	}
 
@@ -288,19 +289,9 @@ func Prune(
 	for i, e := range staleEntries {
 		slug, _ := extractProjectSlugAndDigest(e.Name)
 		staleEntries[i].Slug = slug
-		report.Details = append(report.Details, e)
 	}
 
-	// Step 3: list all volumes.
-	volumeHandles, err := client.ListVolumes(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("list volumes: %w", err)
-	}
-
-	// Step 4: collect home volumes and clone volumes.
-	homeBySlugDigest := make(map[string]map[string]string) // slug -> digest -> volume name
-	cloneVolumes := make([]string, 0)
-
+	// Process volumes: home volumes (slug/digest) and clone volumes.
 	for _, h := range volumeHandles {
 		name := h.Name()
 		if !strings.HasPrefix(name, "opencode-msb-") {
@@ -309,27 +300,19 @@ func Prune(
 
 		if strings.HasPrefix(name, "opencode-msb-home-") {
 			slug, digest := extractProjectSlugAndDigest(name)
-			if homeBySlugDigest[slug] == nil {
-				homeBySlugDigest[slug] = make(map[string]string)
+			if catalog.HomeVolumes[slug] == nil {
+				catalog.HomeVolumes[slug] = make(map[string]string)
 			}
-			homeBySlugDigest[slug][digest] = name
+			catalog.HomeVolumes[slug][digest] = name
 		}
 
 		if strings.HasPrefix(name, "opencode-msb-clone-") {
-			cloneVolumes = append(cloneVolumes, name)
+			catalog.CloneVolumes = append(catalog.CloneVolumes, name)
 		}
 	}
 
-	// Step 5: list all MSB images.
-	imageHandles, err := client.ImageList(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("list msb images: %w", err)
-	}
-
-	// Step 6: group artifacts by slug.
-	msbImagesBySlug := make(map[string][]imageWithDigest)
+	// Group MSB images by slug, excluding the base image.
 	seenMSB := make(map[string]bool)
-
 	for _, h := range imageHandles {
 		ref := h.Reference()
 		if !strings.HasPrefix(ref, "opencode-msb/runner-") {
@@ -343,65 +326,167 @@ func Prune(
 			continue
 		}
 		seenMSB[ref] = true
-		msbImagesBySlug[slug] = append(msbImagesBySlug[slug], imageWithDigest{
+		catalog.MSBImages[slug] = append(catalog.MSBImages[slug], imageWithDigest{
 			ref:      ref,
 			digest:   digest,
 			isLatest: digest == "",
 		})
 	}
 
-	// Collect stale VM slugs.
-	vmSlugs := make(map[string]bool)
-	for _, entry := range staleEntries {
-		vmSlugs[entry.Slug] = true
-	}
+	// Collect stale VMs and active VM digests for later reference in prune phases.
+	catalog.StaleVMs = append(catalog.StaleVMs, staleEntries...)
 
-	// Step 7: delete in order: VMs → volumes → MSB images → Docker images.
-
-	// --- Case 1: Stale VM exists (cascade) ---
-	for _, entry := range staleEntries {
-		pruneStaleCascade(ctx, client, cli, entry, homeBySlugDigest, msbImagesBySlug, dryRun, ui, report)
-	}
-
-	// --- Case 2: Active VM exists (delete unused artifacts) ---
-	activeVMDigests := make(map[string]string)
+	// Collect active VM digests (non-stale VMs with a digest).
 	for _, vm := range staleVMs {
 		slug, _ := extractProjectSlugAndDigest(vm.name)
-		// Already-stale VMs: handled in Case 1 above. Skip here.
-		if vmSlugs[slug] {
+		// Already-stale VMs: skip here to avoid collision with stale slugs.
+		if isStaleSlug(staleEntries, slug) {
 			continue
 		}
 		if vm.image != "" {
 			_, digest := extractProjectSlugAndDigest(vm.image)
-			activeVMDigests[slug] = digest
-		}
-	}
-	for slug, digest := range activeVMDigests {
-		pruneActiveVMCleanup(ctx, client, cli, slug, digest, homeBySlugDigest, msbImagesBySlug, dryRun, ui, report)
-	}
-
-	// --- Case 3: No VM for slug (delete everything, no age threshold) ---
-	// Collect all VM slugs.
-	allVMSlugs := make(map[string]bool)
-	for _, entry := range staleEntries {
-		allVMSlugs[entry.Slug] = true
-	}
-	for slug := range activeVMDigests {
-		allVMSlugs[slug] = true
-	}
-	for slug := range msbImagesBySlug {
-		if !allVMSlugs[slug] {
-			pruneOrphanSlug(ctx, client, cli, slug, homeBySlugDigest, msbImagesBySlug, report, dryRun, ui)
+			if digest != "" {
+				catalog.ActiveVMDigest[slug] = digest
+			}
 		}
 	}
 
-	// Delete orphaned clone volumes (not associated with any active VM).
-	// Also delete clone volumes for stale VM slugs (cascade) and orphan slugs.
-	for _, cv := range cloneVolumes {
-		pruneCloneVolume(ctx, client, cv, vmSlugs, activeVMDigests, dryRun, ui, report)
+	return catalog, nil
+}
+
+// isStaleSlug checks if a slug matches any stale entry's slug.
+func isStaleSlug(entries []StaleEntry, slug string) bool {
+	for _, e := range entries {
+		if e.Slug == slug {
+			return true
+		}
+	}
+	return false
+}
+
+// Prune orchestrates a three-phase cleanup pipeline: collecting all artifacts
+// into a catalog, then pruning stale VMs, active VM artifacts, orphans, and
+// orphaned clone volumes in sequence.
+func Prune(
+	ctx context.Context,
+	cli dockerClient,
+	threshold time.Duration,
+	dryRun bool,
+	ui stdio.UI,
+) (*StaleReport, error) {
+	client := newMsbClient()
+	report := &StaleReport{} //nolint:exhaustruct // Counts initialized to zero, populated during pruning
+
+	catalog, err := buildCatalog(ctx, client, threshold)
+	if err != nil {
+		return nil, err
+	}
+
+	report, _ = pruneStaleVMs(ctx, client, cli, catalog, dryRun, ui, report)
+	report, _ = pruneActiveVMArtifacts(ctx, client, cli, catalog, dryRun, ui, report)
+	report, _ = pruneOrphanArtifacts(ctx, client, cli, catalog, dryRun, ui, report)
+	report, _ = pruneCloneVolumes(ctx, client, catalog, dryRun, ui, report)
+
+	// Prune task sandboxes (collected during catalog build, pruned here).
+	for _, entry := range catalog.TaskSandboxes {
+		if !dryRun {
+			if removeErr := client.RemoveSandbox(ctx, entry.Name); removeErr != nil {
+				ui.Warnf("failed to remove task sandbox %s: %v", entry.Name, removeErr)
+				continue
+			}
+		}
+		report.PrunedTaskSandboxes++
 	}
 
 	return report, nil
+}
+
+// pruneStaleVMs removes each stale VM and cascades deletion of all
+// associated artifacts (home volumes, MSB images, Docker images).
+func pruneStaleVMs(
+	ctx context.Context,
+	client msbClient,
+	cli dockerClient,
+	catalog *PruningCatalog,
+	dryRun bool,
+	ui stdio.UI,
+	report *StaleReport,
+) (*StaleReport, bool) {
+	for _, entry := range catalog.StaleVMs {
+		pruneStaleCascade(ctx, client, cli, entry, catalog.HomeVolumes, catalog.MSBImages, dryRun, ui, report)
+	}
+	return report, true
+}
+
+// pruneActiveVMArtifacts removes home volumes, MSB images, and Docker
+// images that don't match an active VM's state.
+func pruneActiveVMArtifacts(
+	ctx context.Context,
+	client msbClient,
+	cli dockerClient,
+	catalog *PruningCatalog,
+	dryRun bool,
+	ui stdio.UI,
+	report *StaleReport,
+) (*StaleReport, bool) {
+	for slug, digest := range catalog.ActiveVMDigest {
+		pruneActiveVMCleanup(ctx, client, cli, slug, digest, catalog.HomeVolumes, catalog.MSBImages, dryRun, ui, report)
+	}
+	return report, true
+}
+
+// pruneOrphanArtifacts removes all home volumes, MSB images, and Docker
+// images for project slugs that have no VM at all.
+func pruneOrphanArtifacts(
+	ctx context.Context,
+	client msbClient,
+	cli dockerClient,
+	catalog *PruningCatalog,
+	dryRun bool,
+	ui stdio.UI,
+	report *StaleReport,
+) (*StaleReport, bool) {
+	staleVMs := make(map[string]bool)
+	for _, entry := range catalog.StaleVMs {
+		staleVMs[entry.Slug] = true
+	}
+
+	for slug := range catalog.MSBImages {
+		if staleVMs[slug] {
+			continue
+		}
+		if _, active := catalog.ActiveVMDigest[slug]; active {
+			continue
+		}
+		pruneOrphanSlug(ctx, client, cli, slug, catalog.HomeVolumes, catalog.MSBImages, report, dryRun, ui)
+	}
+	return report, true
+}
+
+// pruneCloneVolumes removes clone volumes whose project slug has no
+// associated active VM.
+func pruneCloneVolumes(
+	ctx context.Context,
+	client msbClient,
+	catalog *PruningCatalog,
+	dryRun bool,
+	ui stdio.UI,
+	report *StaleReport,
+) (*StaleReport, bool) {
+	for _, cv := range catalog.CloneVolumes {
+		slug, _ := extractProjectSlugAndDigest(cv)
+		if _, active := catalog.ActiveVMDigest[slug]; active {
+			continue
+		}
+		if !dryRun {
+			if err := client.RemoveVolume(ctx, cv); err != nil {
+				ui.Warnf("failed to remove clone volume %s: %v", cv, err)
+				continue
+			}
+		}
+		report.PrunedCloneVolumes++
+	}
+	return report, true
 }
 
 // pruneStaleCascade removes a stale VM and all associated artifacts (volumes, images).
@@ -530,17 +615,22 @@ func pruneActiveVMDockerImages(
 }
 
 // pruneCloneVolume removes a clone volume if it has no associated active VM.
+// The staleVMs map is optional: when populated, clone volumes for stale VMs
+// (cascade) are also pruned.
 func pruneCloneVolume(
 	ctx context.Context,
 	client msbClient,
 	cv string,
-	_ map[string]bool,
+	staleVMs map[string]bool,
 	activeVMDigests map[string]string,
 	dryRun bool,
 	ui stdio.UI,
 	report *StaleReport,
 ) {
 	slug, _ := extractProjectSlugAndDigest(cv)
+	if staleVMs != nil && staleVMs[slug] {
+		return
+	}
 	if _, active := activeVMDigests[slug]; active {
 		return
 	}
