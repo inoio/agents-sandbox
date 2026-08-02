@@ -1,6 +1,7 @@
 package config
 
 import (
+	"bytes"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -200,5 +201,62 @@ func TestBuildMergedConfigUserOverridesEmbedded(t *testing.T) {
 	permMap := parsed["permission"].(map[string]any)
 	if readMap := permMap["read"].(map[string]any); readMap["*"] != "deny" {
 		t.Errorf("expected permission.read.*=deny (from embedded), got %v", readMap["*"])
+	}
+}
+
+func TestBuildMergedConfigDeterministic(t *testing.T) {
+	providerCfg := map[string]any{
+		"permission": map[string]any{"read": map[string]any{"*": "allow", "*.env": "deny"}},
+		"provider": map[string]any{
+			"litellm": map[string]any{
+				"name": "LiteLLM",
+				"models": map[string]any{
+					"gpt-4": map[string]any{"name": "GPT 4"},
+				},
+			},
+		},
+		"model": "base-model",
+	}
+	tmp := t.TempDir()
+	userCfg := map[string]any{"theme": "dark", "instructions": "talk concise"}
+	userBytes, _ := json.Marshal(userCfg)
+	_ = os.WriteFile(filepath.Join(tmp, "opencode.jsonc"), userBytes, 0o644)
+	_ = os.WriteFile(filepath.Join(tmp, "instructions.md"), []byte("be nice"), 0o644)
+
+	for _, scenario := range []struct {
+		name    string
+		userDir string
+		projDir string
+		cfg     map[string]any
+	}{
+		{"no user, no project", "", "", providerCfg},
+		{"user only", tmp, "", providerCfg},
+		{"project only", "", tmp, map[string]any{}},
+		{"user + project", tmp, tmp, providerCfg},
+	} {
+		t.Run(scenario.name, func(t *testing.T) {
+			// Map[file_key][]iteration_index_in_first_results
+			firstResults := make(map[string][][]byte)
+			for range 5 {
+				files, err := BuildMergedConfig(scenario.userDir, scenario.projDir, scenario.cfg)
+				if err != nil {
+					t.Fatalf("BuildMergedConfig failed: %v", err)
+				}
+				for fname, data := range files {
+					if _, ok := firstResults[fname]; !ok {
+						firstResults[fname] = [][]byte{data}
+					} else {
+						firstResults[fname] = append(firstResults[fname], data)
+					}
+				}
+			}
+			for fname, iterations := range firstResults {
+				for i := 1; i < len(iterations); i++ {
+					if !bytes.Equal(iterations[0], iterations[i]) {
+						t.Errorf("file %q: iteration 0 and %d differ (non-deterministic)", fname, i)
+					}
+				}
+			}
+		})
 	}
 }

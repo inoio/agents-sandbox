@@ -51,6 +51,7 @@ type msbSandboxHandle interface {
 // msbSandbox is the subset of *msb.Sandbox used by the launcher.
 type msbSandbox interface {
 	FS() sandboxFS
+	Fs() fsLister
 	Shell(ctx context.Context, command string, opts ...msb.ExecOption) (shellResult, error)
 	Exec(ctx context.Context, command string, args []string, opts ...msb.ExecOption) (shellResult, error)
 	Attach(ctx context.Context, command string, args ...string) (int, error)
@@ -270,6 +271,10 @@ type realSandbox struct {
 }
 
 func (s realSandbox) FS() sandboxFS {
+	return s.sandbox.FS()
+}
+
+func (s realSandbox) Fs() fsLister {
 	return s.sandbox.FS()
 }
 

@@ -159,7 +159,6 @@ func BuildMergedConfig(userDir, projectDir string, providerConfig map[string]any
 	for name, cfg := range jsonFiles {
 		var merged map[string]any
 		if name == "opencode.jsonc" || name == "opencode.json" {
-			// embedded provider config is the base; user/project config overrides
 			merged = DeepMerge(providerConfig, cfg)
 		} else {
 			merged = cfg
@@ -168,7 +167,7 @@ func BuildMergedConfig(userDir, projectDir string, providerConfig map[string]any
 		if err != nil {
 			return nil, err
 		}
-		result[name] = data
+		result[name] = append(data, '\n')
 	}
 
 	if _, hasJsonc := result["opencode.jsonc"]; !hasJsonc {
@@ -177,7 +176,7 @@ func BuildMergedConfig(userDir, projectDir string, providerConfig map[string]any
 			if err != nil {
 				return nil, err
 			}
-			result["opencode.jsonc"] = data
+			result["opencode.jsonc"] = append(data, '\n')
 		}
 	}
 
