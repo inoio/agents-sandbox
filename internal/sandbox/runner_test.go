@@ -1,6 +1,7 @@
 package sandbox
 
 import (
+	"context"
 	"path/filepath"
 	"reflect"
 	"strings"
@@ -8,8 +9,113 @@ import (
 
 	msb "github.com/superradcompany/microsandbox/sdk/go"
 
+	"gitlab.inoio.de/inoio/opencode-msb/internal/stdio"
 	"gitlab.inoio.de/inoio/opencode-msb/internal/testhelpers"
 )
+
+func TestConfigEqualIgnoresExtraFilesOnVM(t *testing.T) {
+	// BuildMergedConfig produces only opencode.jsonc, but the VM has
+	// extra pre-installed npm files from the Docker image.
+	// configEqual should only compare the expected JSON files.
+	vmData := map[string][]byte{
+		"opencode.jsonc":    []byte(`{"provider":{"litellm":{"name":"LiteLLM"}}}`),
+		".gitignore":        []byte("node_modules/\n"),
+		"package.json":      []byte(`{"name":"opencode"}`),
+		"package-lock.json": []byte(`{"lockfileVersion":2}`),
+	}
+	goSide := map[string]map[string]any{
+		"opencode.jsonc": {"provider": map[string]any{"litellm": map[string]any{"name": "LiteLLM"}}},
+	}
+	keys := []string{"opencode.jsonc"}
+
+	got := configEqual(goSide, keys, vmData)
+	if !got {
+		t.Error("expected equality: extra VM files should be ignored")
+	}
+}
+
+func TestConfigEqualJSONMismatch(t *testing.T) {
+	goSideKeys := []string{"opencode.jsonc"}
+	goSide := map[string]map[string]any{
+		"opencode.jsonc": {"provider": map[string]any{"litellm": map[string]any{"name": "LiteLLM"}}},
+	}
+	vmData := map[string][]byte{
+		"opencode.jsonc": []byte(`{"provider":{"litellm":{"name":"other"}}}`),
+	}
+
+	got := configEqual(goSide, goSideKeys, vmData)
+	if got {
+		t.Error("expected mismatch: different provider names")
+	}
+}
+
+func TestConfigEqualVMKeyMissing(t *testing.T) {
+	goSideKeys := []string{"opencode.jsonc"}
+	goSide := map[string]map[string]any{
+		"opencode.jsonc": {"provider": map[string]any{"litellm": map[string]any{"name": "LiteLLM"}}},
+	}
+	vmData := map[string][]byte{}
+
+	got := configEqual(goSide, goSideKeys, vmData)
+	if got {
+		t.Error("expected mismatch: VM missing expected file")
+	}
+}
+
+func TestConfigEqualNonJSONByteMatch(t *testing.T) {
+	goSideKeys := []string{".gitignore"}
+	goSide := map[string]map[string]any{
+		".gitignore": nil, // not a JSON file
+	}
+	vmData := map[string][]byte{
+		".gitignore": []byte("node_modules/\n"),
+	}
+
+	got := configEqual(goSide, goSideKeys, vmData)
+	if !got {
+		t.Error("expected equality: non-JSON files should match byte-for-byte")
+	}
+}
+
+func TestConfigEqualKeyMismatch(t *testing.T) {
+	goSideKeys := []string{"opencode.jsonc", ".gitignore"}
+	goSide := map[string]map[string]any{
+		"opencode.jsonc": {},
+		".gitignore":     nil,
+	}
+	vmData := map[string][]byte{
+		"opencode.jsonc": []byte(`{}`),
+	}
+
+	got := configEqual(goSide, goSideKeys, vmData)
+	if got {
+		t.Error("expected mismatch: different file keys")
+	}
+}
+
+func TestConfigEqualJSONEquivalent(t *testing.T) {
+	// Different JSON representations (key order) should be semantically equal.
+	goSideKeys := []string{"opencode.jsonc"}
+	goSide := map[string]map[string]any{
+		"opencode.jsonc": {"a": 1, "b": "hello", "c": []any{1, 2}},
+	}
+	vmData := map[string][]byte{
+		"opencode.jsonc": []byte(`{"c":[1,2],"a":1,"b":"hello"}`),
+	}
+
+	got := configEqual(goSide, goSideKeys, vmData)
+	if !got {
+		t.Error("expected equality: semantically equivalent JSON despite key order")
+	}
+}
+
+func TestEqualJSONFilesEmptyMaps(t *testing.T) {
+	goSide := map[string]map[string]any{}
+	vmData := map[string][]byte{}
+	if !equalJSONFiles(goSide, nil, vmData) {
+		t.Error("expected equality for empty maps")
+	}
+}
 
 func TestParseMemoryGigabytes(t *testing.T) {
 	got := parseMemory("4G")
@@ -189,5 +295,67 @@ func TestBuildAttachCommandWorktreeTarget(t *testing.T) {
 	got := buildAttachCommand("/home/dev/.local/share/opencode/worktree/abc/feat", true, nil)
 	if !strings.Contains(got, "--dir /home/dev/.local/share/opencode/worktree/abc/feat") {
 		t.Errorf("expected worktree dir in command, got %q", got)
+	}
+}
+
+func TestReadVMFilesUsesSDKFs(t *testing.T) {
+	data := []byte("test-config-data")
+	gitignore := []byte("node_modules/\n")
+	sb := &mockSandbox{
+		name: "test-vm",
+		fsValue: &mockFs{
+			files: map[string][]byte{
+				"/home/dev/.config/opencode/thing.json": data,
+				"/home/dev/.config/opencode/.gitignore": gitignore,
+			},
+			list: []msb.FsEntry{
+				{Path: "/home/dev/.config/opencode/thing.json", Kind: msb.FsEntryKindFile},
+				{Path: "/home/dev/.config/opencode/.gitignore", Kind: msb.FsEntryKindFile},
+			},
+		},
+	}
+	want := map[string][]byte{
+		"thing.json": data,
+		".gitignore": gitignore,
+	}
+	got := readVMFiles(context.Background(), sb, "/home/dev/.config/opencode", &stdio.Mock{})
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("readVMFiles(%q) = %v, want %v", "/home/dev/.config/opencode", got, want)
+	}
+}
+
+func TestReadVMFilesSkipsDirectories(t *testing.T) {
+	sb := &mockSandbox{
+		name: "test-vm",
+		fsValue: &mockFs{
+			files: map[string][]byte{
+				"/home/dev/.config/opencode/file.txt": []byte("hello"),
+			},
+			list: []msb.FsEntry{
+				{Path: "/home/dev/.config/opencode/file.txt", Kind: msb.FsEntryKindFile},
+				{Path: "/home/dev/.config/opencode/dir1", Kind: msb.FsEntryKindDirectory},
+				{Path: "/home/dev/.config/opencode/dir2", Kind: msb.FsEntryKindDirectory},
+			},
+		},
+	}
+	want := map[string][]byte{
+		"file.txt": []byte("hello"),
+	}
+	got := readVMFiles(context.Background(), sb, "/home/dev/.config/opencode", &stdio.Mock{})
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("readVMFiles(%q) = %v, want %v", "/home/dev/.config/opencode", got, want)
+	}
+}
+
+func TestReadVMFilesEmptyDir(t *testing.T) {
+	sb := &mockSandbox{
+		name: "test-vm",
+		fsValue: &mockFs{
+			list: nil,
+		},
+	}
+	got := readVMFiles(context.Background(), sb, "/home/dev/.config/opencode", &stdio.Mock{})
+	if len(got) != 0 {
+		t.Errorf("expected empty result for empty dir, got %v", got)
 	}
 }

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"strings"
 	"testing"
@@ -227,7 +228,7 @@ func (m mockSandboxHandle) Remove(_ context.Context) error {
 // mockSandbox implements msbSandbox for tests.
 type mockSandbox struct {
 	name       string
-	fs         sandboxFS
+	fsValue    any
 	shellOut   map[string]shellResult
 	shellErr   error
 	execOut    map[string]shellResult
@@ -240,7 +241,17 @@ type mockSandbox struct {
 }
 
 func (m *mockSandbox) FS() sandboxFS {
-	return m.fs
+	if f, ok := m.fsValue.(sandboxFS); ok {
+		return f
+	}
+	return nil
+}
+
+func (m *mockSandbox) Fs() fsLister {
+	if f, ok := m.fsValue.(fsLister); ok {
+		return f
+	}
+	return nil
 }
 
 func (m *mockSandbox) Shell(_ context.Context, command string, _ ...msb.ExecOption) (shellResult, error) {
@@ -310,6 +321,39 @@ func (m *mockShellResult) StdoutBytes() []byte {
 		return m.stdoutBytes
 	}
 	return []byte(m.stdout)
+}
+
+// mockFs implements sandboxFS for tests.
+type mockFs struct {
+	files   map[string][]byte
+	list    []msb.FsEntry
+	readErr error
+	listErr error
+}
+
+func (f *mockFs) Mkdir(_ context.Context, _ string) error           { return nil }
+func (f *mockFs) Write(_ context.Context, _ string, _ []byte) error { return nil }
+func (f *mockFs) Read(
+	_ context.Context,
+	path string,
+) ([]byte, error) {
+	if f.readErr != nil {
+		return nil, f.readErr
+	}
+	if data, ok := f.files[path]; ok {
+		return data, nil
+	}
+	return nil, fmt.Errorf("file not found: %s", path)
+}
+func (f *mockFs) List(ctx context.Context, _ string) ([]msb.FsEntry, error) {
+	if f.listErr != nil {
+		return nil, f.listErr
+	}
+	_ = ctx
+	return f.list, nil
+}
+func (f *mockFs) Remove(_ context.Context, _ string) error {
+	return nil
 }
 
 // mockVolumeHandle implements msbVolumeHandle for tests.

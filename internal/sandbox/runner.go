@@ -1,14 +1,14 @@
 package sandbox
 
 import (
-	"bytes"
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"maps"
 	"os"
+	"path/filepath"
+	"reflect"
 	"sort"
 	"strconv"
 	"strings"
@@ -22,10 +22,11 @@ import (
 	msb "github.com/superradcompany/microsandbox/sdk/go"
 )
 
-// configFiles holds the merged configuration and its SHA-256 hash.
+// configFiles holds the merged configuration and parsed structures for comparison.
 type configFiles struct {
-	files map[string][]byte
-	hash  string
+	files  map[string][]byte
+	parsed map[string]map[string]any
+	keys   []string // sorted file names for VM comparison
 }
 
 type ExitError struct {
@@ -330,7 +331,7 @@ func finalizeRun(attachErr, cleanupErr error, exitCode int) error {
 	return &ExitError{Code: exitCode}
 }
 
-func promptConfigChange(_ string, ui stdio.UI) (string, error) {
+func promptConfigChange(ui stdio.UI) (string, error) {
 	selection, err := ui.Select(
 		"opencode provider config has changed. Restart the daemon to apply the new config?",
 		[]stdio.Choice{
@@ -343,33 +344,12 @@ func promptConfigChange(_ string, ui stdio.UI) (string, error) {
 				Description: "Daemon restarts with new config; active clients disconnect",
 			},
 		},
-		"proceed",
+		"p",
 	)
 	if err != nil {
 		return "", fmt.Errorf("prompt config change: %w", err)
 	}
 	return selection, nil
-}
-
-// readConfigFromVM reads all JSON files inside /home/dev/.config/opencode/
-// from the VM, computes a deterministic SHA-256 hash, and returns the hex
-// string. Returns an empty string if the directory or its files do not exist.
-func readConfigFromVM(ctx context.Context, sb msbSandbox) (string, error) {
-	cmd := "(cd /home/dev/.config/opencode && for f in */* */.* * .*; do [ -f \"$f\" ] && printf '\\0%s\\0' \"$f\" && cat \"$f\"; done)"
-	out, err := sb.Shell(ctx, cmd)
-	if err != nil {
-		return "", fmt.Errorf("read vm config: %w", err)
-	}
-	if out == nil || out.Stdout() == "" {
-		return "", nil // no config directory or no files (fresh VM)
-	}
-	return hashHex(out.StdoutBytes()), nil
-}
-
-// hashHex returns the hex-encoded SHA-256 digest of data.
-func hashHex(data []byte) string {
-	h := sha256.Sum256(data)
-	return hex.EncodeToString(h[:])
 }
 
 // daemonIsHealthy returns true when the opencode serve daemon reports healthy.
@@ -384,7 +364,8 @@ func daemonIsHealthy(ctx context.Context, sb msbSandbox) bool {
 
 // loadConfigFiles builds the merged opencode configuration from the user's
 // config directory, any project-specific config in .opencode-msb/opencode,
-// and the embedded provider config. Returns the files and a SHA-256 hash.
+// and the embedded provider config. Returns the marshaled files, parsed
+// structures, and sorted file keys.
 func loadConfigFiles(userConfigDir string) (*configFiles, error) {
 	providerCfg, err := config.LoadProviderConfig(config.EmbeddedProviderConfig)
 	if err != nil {
@@ -399,40 +380,108 @@ func loadConfigFiles(userConfigDir string) (*configFiles, error) {
 		return nil, fmt.Errorf("merge config: %w", err)
 	}
 
-	// Compute a deterministic hash over the files so we can compare across runs.
-	hash := configHash(files)
+	parsed := make(map[string]map[string]any)
+	for name, data := range files {
+		var cfg map[string]any
+		if err := json.Unmarshal(data, &cfg); err == nil {
+			parsed[name] = cfg
+		}
+	}
+
+	fileKeys := make([]string, 0, len(files))
+	for k := range files {
+		fileKeys = append(fileKeys, k)
+	}
+	sort.Strings(fileKeys)
 	return &configFiles{
-		files: files,
-		hash:  hash,
+		files:  files,
+		parsed: parsed,
+		keys:   fileKeys,
 	}, nil
 }
 
-// configHash produces a deterministic SHA-256 hash over all config files.
-// It concatenates the sorted set of file names and contents, separated by NUL
-// bytes, so the hash is stable regardless of map iteration order.
-func configHash(files map[string][]byte) string {
-	names := make([]string, 0, len(files))
-	for name := range files {
-		names = append(names, name)
+// readVMFiles reads all files from the given directory on the VM.
+//
+//nolint:unparam // general utility
+func readVMFiles(
+	ctx context.Context,
+	sb msbSandbox,
+	dir string,
+	ui stdio.UI,
+) map[string][]byte {
+	l, err := sb.Fs().List(ctx, dir)
+	if err != nil {
+		ui.Verbosef("  list failed: %v", err)
+		return nil
 	}
-	sort.Strings(names)
+	if len(l) == 0 {
+		ui.Verbosef("  directory %q is empty or does not exist", dir)
+		return nil
+	}
+	ui.Verbosef("  found %d entries in %s", len(l), dir)
+	result := make(map[string][]byte)
+	for _, e := range l {
+		if e.Kind != msb.FsEntryKindFile {
+			ui.Verbosef("    skipping %s (kind=%s)", e.Path, e.Kind)
+			continue
+		}
+		data, err := sb.Fs().Read(ctx, e.Path)
+		if err != nil {
+			ui.Verbosef("    read %s failed: %v", e.Path, err)
+			continue
+		}
+		result[filepath.Base(e.Path)] = data
+		ui.Verbosef("    OK: %s (%d bytes)", e.Path, len(data))
+	}
+	return result
+}
 
-	n := 0
-	for _, name := range names {
-		// NUL separator + filename + NUL separator + file content
-		n += 1 + len(name) + 1 + len(files[name])
-	}
+// fsLister is the minimal interface for listing and reading files in the sandbox.
+type fsLister interface {
+	List(ctx context.Context, path string) ([]msb.FsEntry, error)
+	Read(ctx context.Context, path string) ([]byte, error)
+}
 
-	var buf bytes.Buffer
-	buf.Grow(n)
-	for _, name := range names {
-		buf.WriteByte(0)
-		buf.WriteString(name)
-		buf.WriteByte(0)
-		buf.Write(files[name])
+// configEqual compares Go-side parsed config against VM-side files.
+func configEqual(goSide map[string]map[string]any, keys []string, vmData map[string][]byte) bool {
+	return equalJSONFiles(goSide, keys, vmData)
+}
+
+// equalJSONFiles compares JSON files semantically (key order, number types) and
+// compares non-JSON contents as raw bytes.
+func equalJSONFiles(goSide map[string]map[string]any, keys []string, vmData map[string][]byte) bool {
+	for _, name := range keys {
+		goVal, hasGoVal := goSide[name]
+		vmBytes, hasVM := vmData[name]
+		if !hasVM {
+			return false
+		}
+		if !hasGoVal || goVal == nil {
+			continue
+		}
+		goJSON, _ := json.Marshal(goVal)
+		va, err := parseJSON(goJSON)
+		if err != nil {
+			return false
+		}
+		vb, err := parseJSON(vmBytes)
+		if err != nil {
+			return false
+		}
+		if !reflect.DeepEqual(va, vb) {
+			return false
+		}
 	}
-	h := sha256.Sum256(buf.Bytes())
-	return hex.EncodeToString(h[:])
+	return true
+}
+
+// parseJSON unmarshals data into map[string]any for deep equality comparison.
+func parseJSON(data []byte) (any, error) {
+	var v any
+	if err := json.Unmarshal(data, &v); err != nil {
+		return nil, err
+	}
+	return v, nil
 }
 
 func buildMounts(homeVol, repoPath string, tmpSizeMiB uint32) map[string]msb.MountConfig {
@@ -450,8 +499,14 @@ func buildMounts(homeVol, repoPath string, tmpSizeMiB uint32) map[string]msb.Mou
 }
 
 type sandboxFS interface {
+	Exists(ctx context.Context, path string) (bool, error)
+	Stat(ctx context.Context, path string) (*msb.FsStat, error)
+	List(ctx context.Context, path string) ([]msb.FsEntry, error)
+	ReadString(ctx context.Context, path string) (string, error)
+	ReadStream(ctx context.Context, path string) (*msb.FsReadStream, error)
 	Mkdir(ctx context.Context, path string) error
 	Write(ctx context.Context, path string, data []byte) error
+	Read(ctx context.Context, path string) ([]byte, error)
 	Remove(ctx context.Context, path string) error
 }
 
@@ -486,39 +541,39 @@ func setUpSandbox(
 		return "", err
 	}
 
-	vmHash, readErr := readConfigFromVM(ctx, sb)
-	if readErr != nil {
-		ui.Warnf("failed to read VM config: %v (proceeding without comparison)", readErr)
-	}
+	ui.Verbosef("expected config files: %v", cfs.keys)
 
-	if vmHash != "" && vmHash != cfs.hash {
-		handleConfigChange(ctx, sb, cfs, ui)
+	vmData := readVMFiles(ctx, sb, "/home/dev/.config/opencode", ui)
+
+	if len(vmData) > 0 {
+		if !configEqual(cfs.parsed, cfs.keys, vmData) {
+			handleConfigChange(ctx, sb, cfs, ui)
+			return ResolveTarget(ctx, sb, opts.Branch, ui)
+		}
 	} else {
-		if dockerErr := ensureDockerdIfPresent(ctx, sb, ui, created); dockerErr != nil {
-			return "", fmt.Errorf("docker startup: %w", dockerErr)
-		}
-		if daemonErr := EnsureDaemon(ctx, sb, ui); daemonErr != nil {
-			return "", daemonErr
-		}
+		ui.Verbosef("no VM config found (fresh setup)")
 	}
 
-	target, targetErr := ResolveTarget(ctx, sb, opts.Branch, ui)
-	if targetErr != nil {
-		return "", targetErr
+	if dockerErr := ensureDockerdIfPresent(ctx, sb, ui, created); dockerErr != nil {
+		return "", fmt.Errorf("docker startup: %w", dockerErr)
 	}
-	return target, nil
+	if daemonErr := EnsureDaemon(ctx, sb, ui); daemonErr != nil {
+		return "", daemonErr
+	}
+
+	return ResolveTarget(ctx, sb, opts.Branch, ui)
 }
 
 // handleConfigChange provisions the sandbox and restarts the daemon if required.
 func handleConfigChange(ctx context.Context, sb msbSandbox, cfs *configFiles, ui stdio.UI) {
 	daemonHealthy := daemonIsHealthy(ctx, sb)
 	if daemonHealthy {
-		action, promptErr := promptConfigChange(cfs.hash, ui)
+		action, promptErr := promptConfigChange(ui)
 		if promptErr != nil {
 			_ = promptErr
 			return
 		}
-		if action == "restart" {
+		if action == "r" {
 			ensureProvisionedAndRunning(ctx, sb.FS(), cfs.files, sb, ui)
 			return
 		}
@@ -540,6 +595,9 @@ func ensureProvisionedAndRunning(
 		return
 	}
 	ui.Infof("opencode serve restarting…")
+	if _, _, err := daemonShellFunc(ctx, sb, daemonKillCmd); err != nil {
+		ui.Warnf("kill stale daemon failed (continuing): %v", err)
+	}
 	if restartErr := EnsureDaemon(ctx, sb, ui); restartErr != nil {
 		ui.Warnf("daemon restart failed: %v (keeping existing)", restartErr)
 	}

@@ -66,6 +66,7 @@ func EnsureDaemon(ctx context.Context, sb msbSandbox, ui stdio.UI) error {
 			return ctx.Err()
 		case <-time.After(daemonPollInterval):
 		}
+		ui.Verbose("Polling for daemon health")
 		if healthy := checkDaemonHealth(ctx, sb); healthy {
 			ui.Verbosef("opencode daemon is healthy")
 			return nil
