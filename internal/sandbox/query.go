@@ -4,8 +4,6 @@ import (
 	"context"
 	"fmt"
 	"strings"
-
-	msb "github.com/superradcompany/microsandbox/sdk/go"
 )
 
 type Info struct {
@@ -39,7 +37,7 @@ type imageHandle struct {
 func filterSandboxes(handles []sandboxHandle) []string {
 	var result []string
 	for _, h := range handles {
-		if strings.HasPrefix(h.name, "opencode-msb-sb-") {
+		if strings.HasPrefix(h.name, projectVMPrefix) {
 			result = append(result, h.name)
 		}
 	}
@@ -67,14 +65,14 @@ func filterImages(handles []imageHandle) []string {
 }
 
 func ListSandboxes(ctx context.Context) ([]Info, error) {
-	handles, err := msb.ListSandboxes(ctx)
+	handles, err := newMsbClient().ListSandboxes(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("list sandboxes: %w", err)
 	}
 	var result []Info
 	for _, h := range handles {
 		name := h.Name()
-		if !strings.HasPrefix(name, "opencode-msb-sb-") {
+		if !strings.HasPrefix(name, projectVMPrefix) {
 			continue
 		}
 		result = append(result, Info{
@@ -86,7 +84,7 @@ func ListSandboxes(ctx context.Context) ([]Info, error) {
 }
 
 func ListVolumes(ctx context.Context) ([]VolumeInfo, error) {
-	handles, err := msb.ListVolumes(ctx)
+	handles, err := newMsbClient().ListVolumes(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("list volumes: %w", err)
 	}
@@ -106,7 +104,7 @@ func ListVolumes(ctx context.Context) ([]VolumeInfo, error) {
 }
 
 func ListImages(ctx context.Context) ([]ImageInfo, error) {
-	handles, err := msb.Image.List(ctx)
+	handles, err := newMsbClient().ImageList(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("list images: %w", err)
 	}

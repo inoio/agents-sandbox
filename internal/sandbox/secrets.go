@@ -3,12 +3,12 @@ package sandbox
 import (
 	"strings"
 
-	"gitlab.inoio.de/inoio/opencode-msb/internal/output"
+	"gitlab.inoio.de/inoio/opencode-msb/internal/stdio"
 
 	msb "github.com/superradcompany/microsandbox/sdk/go"
 )
 
-func BuildSecrets(secretLines map[string]string, logger *output.Printer) []msb.SecretEntry {
+func BuildSecrets(secretLines map[string]string, ui stdio.UI) []msb.SecretEntry {
 	var secrets []msb.SecretEntry
 	for envVar, valueAndHost := range secretLines {
 		parts := strings.SplitN(valueAndHost, "@", envKeyValueParts)
@@ -21,7 +21,7 @@ func BuildSecrets(secretLines map[string]string, logger *output.Printer) []msb.S
 				msb.SecretEnvOptions{AllowHosts: []string{host}},
 			))
 		} else {
-			logger.Warnf("Value of secret '%s' not defined in format 'value@host': '%s'", envVar, valueAndHost)
+			ui.Warnf("Value of secret '%s' not defined in format 'value@host': '%s'", envVar, valueAndHost)
 		}
 	}
 	return secrets

@@ -2,25 +2,32 @@ package sandbox
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"maps"
 	"os"
 	"path/filepath"
+	"reflect"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
 
-	"github.com/moby/moby/client"
+	"gitlab.inoio.de/inoio/opencode-msb/internal/stdio"
 
 	"gitlab.inoio.de/inoio/opencode-msb/internal/config"
 	"gitlab.inoio.de/inoio/opencode-msb/internal/git"
-	"gitlab.inoio.de/inoio/opencode-msb/internal/output"
-	"gitlab.inoio.de/inoio/opencode-msb/internal/prompt"
-	"gitlab.inoio.de/inoio/opencode-msb/internal/sysinfo"
 
 	msb "github.com/superradcompany/microsandbox/sdk/go"
 )
+
+// configFiles holds the merged configuration and parsed structures for comparison.
+type configFiles struct {
+	files  map[string][]byte
+	parsed map[string]map[string]any
+	keys   []string // sorted file names for VM comparison
+}
 
 type ExitError struct {
 	Code int
@@ -31,15 +38,16 @@ func (e *ExitError) Error() string {
 }
 
 type RunOptions struct {
-	Branch  string
-	Rebuild bool
-	DryRun  bool
-	CPUs    uint8
-	Memory  string
-	TmpSize string
-	User    string
-	Auto    bool
-	Args    []string
+	Branch   string
+	Rebuild  bool
+	DryRun   bool
+	DryRunVM bool
+	CPUs     uint8
+	Memory   string
+	TmpSize  string
+	User     string
+	Auto     bool
+	Args     []string
 }
 
 type Config struct {
@@ -55,6 +63,7 @@ const (
 	sandboxStopTimeout = 30 * time.Second
 	envKeyValueParts   = 2
 	mibPerGib          = 1024
+	provisionTimeout   = 15 * time.Second
 )
 
 func parseMemory(spec string) uint32 {
@@ -87,14 +96,6 @@ func resolveTmpSizeMiB(spec string) uint32 {
 	return parseMemory(spec)
 }
 
-func sandboxName(projectSlug, branchSlug string) string {
-	name := "opencode-msb-sb-" + projectSlug + "-" + branchSlug
-	if len(name) > maxSandboxNameLen {
-		name = name[:maxSandboxNameLen]
-	}
-	return name
-}
-
 // isSandboxActive reports whether a sandbox status represents a live VM that
 // WithReplace would terminate. Stopped or crashed sandboxes are stale state
 // that can be replaced silently.
@@ -108,100 +109,11 @@ func isSandboxActive(status msb.SandboxStatus) bool {
 	return false
 }
 
-// sameBranchSessionExists reports whether a sandbox with the given name exists and
-// is in an active state (running, draining, or paused).
-func sameBranchSessionExists(ctx context.Context, name string) (bool, error) {
-	handle, err := msb.GetSandbox(ctx, name)
-	if err != nil {
-		if msb.IsKind(err, msb.ErrSandboxNotFound) {
-			return false, nil
-		}
-		return false, fmt.Errorf("check existing sandbox %q: %w", name, err)
-	}
-	return isSandboxActive(handle.Status()), nil
-}
+func buildAttachCommand(target string, _ bool, args []string) string {
+	parts := []string{"opencode", "attach", "http://127.0.0.1:4096", "--dir", target}
+	parts = append(parts, args...)
 
-// promptExistingSession asks whether to terminate an already-running session or
-// exit the current one. Returns true when the user chooses to terminate.
-func promptExistingSession(name string, logger *output.Printer) (bool, error) {
-	choice, err := prompt.Select(
-		fmt.Sprintf("A session is already running for this project and branch (sandbox %q)", name),
-		[]prompt.Choice{
-			{Label: "Exit", Key: "e", Description: "Keep the running session and exit"},
-			{Label: "Terminate", Key: "t", Description: "Terminate the running session and continue"},
-		},
-		"e",
-		logger,
-	)
-	if err != nil {
-		return false, fmt.Errorf("prompt for existing session: %w", err)
-	}
-	return choice == "t", nil
-}
-
-// ensureNoSameBranchSession aborts the run when a live VM for the same sandbox
-// name already exists and the user does not choose to terminate it. Stale
-// (stopped/crashed) sandboxes are left for createSandbox's WithReplace to clean
-// up; only an active session prompts.
-func ensureNoSameBranchSession(
-	ctx context.Context,
-	name, projectSlug, branch string,
-	logger *output.Printer,
-) error {
-	running, err := sameBranchSessionExists(ctx, name)
-	if err != nil {
-		return err
-	}
-	if !running {
-		return nil
-	}
-	terminate, err := promptExistingSession(name, logger)
-	if err != nil {
-		return err
-	}
-	if !terminate {
-		return fmt.Errorf("a session is already running for %q on branch %q", projectSlug, branch)
-	}
-	return nil
-}
-
-func ensureNoSameHomeSession(
-	ctx context.Context,
-	vm *VolumeManager,
-	projectSlug, homeVol, excludeSandbox, imageRef string,
-	logger *output.Printer,
-) (string, error) {
-	inUseBy, inUse, err := sameHomeVolumeInUse(ctx, homeVol, excludeSandbox)
-	if err != nil {
-		return "", err
-	}
-	if !inUse {
-		return homeVol, nil
-	}
-
-	logger.Warnf(
-		"Another opencode session (%q) is using the same project state.\n"+
-			"Starting with a snapshot copy of the current home directory.\n"+
-			"Opencode sessions and history from this run will NOT be persisted.",
-		inUseBy,
-	)
-
-	if !prompt.AssumeYes {
-		confirmed, confirmErr := prompt.ConfirmDefault("Proceed with snapshot copy?", false, logger)
-		if confirmErr != nil {
-			return "", fmt.Errorf("prompt for clone: %w", confirmErr)
-		}
-		if !confirmed {
-			return "", fmt.Errorf("aborted: another session (%q) is using the project state", inUseBy)
-		}
-	}
-
-	cloneVol, err := vm.CloneVolume(ctx, projectSlug, homeVol, imageRef)
-	if err != nil {
-		return "", err
-	}
-	logger.Infof("Cloned home volume: %s", cloneVol)
-	return cloneVol, nil
+	return strings.Join(parts, " ")
 }
 
 func buildEnvMap(filename string) map[string]string {
@@ -249,377 +161,157 @@ func resolveDockerfile() []byte {
 	return EmbeddedDockerfile
 }
 
-func envrcFiles(workspacePath string) []string {
-	entries, err := os.ReadDir(workspacePath)
-	if err != nil {
-		return nil
-	}
-	var files []string
-	for _, entry := range entries {
-		if entry.IsDir() {
-			continue
-		}
-		if strings.HasPrefix(entry.Name(), ".envrc") {
-			files = append(files, entry.Name())
-		}
-	}
-	return files
-}
-
-func promptBranchCreation(branch string, logger *output.Printer) (string, error) {
-	if !prompt.IsInteractive() {
-		return "HEAD", nil
-	}
-	create, err := prompt.ConfirmDefault(
-		fmt.Sprintf("Branch '%s' does not exist. Create it?", branch),
-		true,
-		logger,
-	)
-	if err != nil {
-		return "", fmt.Errorf("prompt for branch creation: %w", err)
-	}
-	if !create {
-		return "", fmt.Errorf("branch '%s' does not exist", branch)
-	}
-	baseRef, err := prompt.Input(fmt.Sprintf("Base ref for new branch '%s'", branch), "HEAD", logger)
-	if err != nil {
-		return "", fmt.Errorf("prompt for base ref: %w", err)
-	}
-	return baseRef, nil
-}
-
-func resolveWorkspace(
-	cwd string,
-	opts RunOptions,
-	cfg Config,
-	projectSlug string,
-	logger *output.Printer,
-) (string, string, string, bool, error) {
-	var (
-		workspacePath string
-		branch        string
-		cwdBranch     string
-		created       bool
-		err           error
-	)
-	if opts.Branch == "" {
-		branch, err = git.BranchAt(cwd)
-		if err != nil {
-			return "", "", "", false, fmt.Errorf("unable to determine git branch: %w", err)
-		}
-		return cwd, branch, "", false, nil
-	}
-
-	branch = opts.Branch
-	cwdBranch, err = git.BranchAt(cwd)
-	if err != nil {
-		return "", "", "", false, errors.New("--branch requires a git repository; current directory is not inside one")
-	}
-	if cwdBranch == opts.Branch {
-		return cwd, branch, cwdBranch, false, nil
-	}
-
-	baseRef := "HEAD"
-	if !git.BranchExists(cwd, opts.Branch) {
-		baseRef, err = promptBranchCreation(opts.Branch, logger)
-		if err != nil {
-			return "", "", "", false, err
-		}
-	}
-
-	workspacePath, created, err = git.EnsureManagedRepoFromRef(cwd, cfg.StateDir, projectSlug, opts.Branch, baseRef)
-	if err != nil {
-		return "", "", "", false, fmt.Errorf("managed repo setup failed: %w", err)
-	}
-	return workspacePath, branch, cwdBranch, created, nil
-}
-
-func cleanupManagedRepo(repoPath, cwd, cwdBranch string, opts RunOptions, logger *output.Printer) error {
-	hasChanges, err := git.HasUncommittedChanges(repoPath)
-	if err != nil {
-		return fmt.Errorf("check uncommitted changes: %w", err)
-	}
-
-	force := false
-	if hasChanges {
-		var abort bool
-		force, abort, err = handleUncommittedChanges(repoPath, opts.Branch, logger)
-		if err != nil {
-			return err
-		}
-		if abort {
-			return nil
-		}
-	}
-
-	return handleRepoCleanup(repoPath, cwd, cwdBranch, opts, force, logger)
-}
-
-func handleUncommittedChanges(repoPath, branch string, logger *output.Printer) (bool, bool, error) {
-	choice, err := prompt.Select(
-		fmt.Sprintf("Managed repo '%s' on branch '%s' has uncommitted changes", repoPath, branch),
-		[]prompt.Choice{
-			{Label: "Keep", Key: "k", Description: "Keep the managed repo with changes"},
-			{Label: "Commit", Key: "c", Description: "Commit all changes before cleanup"},
-			{Label: "Discard", Key: "d", Description: "Discard all changes"},
-		},
-		"k",
-		logger,
-	)
-	if err != nil {
-		return false, false, fmt.Errorf("prompt for uncommitted changes: %w", err)
-	}
-	switch choice {
-	case "k":
-		logger.Warnf("kept managed repo '%s' on branch '%s' with uncommitted changes", repoPath, branch)
-		return false, true, nil
-	case "c":
-		if commitErr := git.CommitAll(repoPath, "opencode-msb: commit changes before cleanup"); commitErr != nil {
-			if errors.Is(commitErr, git.ErrNothingToCommit) {
-				logger.Infof("no changes to commit; continuing cleanup")
-			} else {
-				return false, false, fmt.Errorf("commit all changes: %w", commitErr)
-			}
-		}
-	case "d":
-		if discardErr := git.DiscardAll(repoPath); discardErr != nil {
-			return false, false, fmt.Errorf("discard all changes: %w", discardErr)
-		}
-		return true, false, nil
-	}
-	return false, false, nil
-}
-
-func handleRepoCleanup(repoPath, cwd, cwdBranch string, opts RunOptions, force bool, logger *output.Printer) error {
-	choice, err := prompt.Select(
-		fmt.Sprintf("Managed repo '%s' on branch '%s'", repoPath, opts.Branch),
-		[]prompt.Choice{
-			{Label: "Keep", Key: "k", Description: "Keep the managed repo"},
-			{Label: "Remove", Key: "r", Description: "Remove managed repo, keep branch"},
-			{Label: "Merge", Key: "m", Description: "Merge branch into original branch and remove managed repo"},
-		},
-		"r",
-		logger,
-	)
-	if err != nil {
-		return fmt.Errorf("prompt for managed repo cleanup: %w", err)
-	}
-
-	switch choice {
-	case "k":
-		return nil
-	case "r":
-		if err := git.RemoveManagedRepo(repoPath, force); err != nil {
-			return fmt.Errorf("remove managed repo: %w", err)
-		}
-	case "m":
-		targetBranch, err := prompt.Input("Merge target branch", cwdBranch, logger)
-		if err != nil {
-			return fmt.Errorf("prompt for merge target: %w", err)
-		}
-		if err := git.MergeBranchInto(cwd, repoPath, opts.Branch, targetBranch); err != nil {
-			_ = git.AbortMerge(cwd)
-			if rmErr := git.RemoveManagedRepo(repoPath, force); rmErr != nil {
-				return fmt.Errorf(
-					"branch %s was not merged into %s, and managed repo removal failed: %w (merge error: %w)",
-					opts.Branch,
-					targetBranch,
-					rmErr,
-					err,
-				)
-			}
-			return fmt.Errorf("branch %s was not merged into %s: %w", opts.Branch, targetBranch, err)
-		}
-		if err := git.RemoveManagedRepo(repoPath, force); err != nil {
-			return fmt.Errorf("remove managed repo after merge: %w", err)
-		}
-	}
-	return nil
-}
-
 type sandboxSession struct {
-	sb        *msb.Sandbox
-	name      string
-	repoPath  string
-	cwd       string
-	cwdBranch string
-	created   bool
-	branch    string
-	cloneVol  string
+	sb     msbSandbox
+	name   string
+	target string
+	cwd    string
 }
 
 func (s *sandboxSession) cleanup() {
-	stopCtx, cancel := context.WithTimeout(context.Background(), sandboxStopTimeout)
-	defer cancel()
-	_ = s.sb.Stop(stopCtx)
-	_ = s.sb.Close()
-	_ = msb.RemoveSandbox(context.Background(), s.name)
-	if s.cloneVol != "" {
-		_ = msb.RemoveVolume(context.Background(), s.cloneVol)
+	if s.sb != nil {
+		_ = s.sb.Detach(context.Background())
+	}
+	// Run git worktree prune on the host repo to clean up stale entries.
+	if s.cwd != "" {
+		_ = git.PruneWorktrees(context.Background(), s.cwd)
 	}
 }
 
-//nolint:funlen // Contains multiple deferred cleanup handlers for resource management.
 func prepareSandbox(
 	ctx context.Context,
 	opts RunOptions,
 	cfg Config,
-	logger *output.Printer,
+	ui stdio.UI,
 ) (*sandboxSession, error) {
-	if !CheckAll(ctx, logger) {
+	if !CheckAll(ctx, ui) {
 		return nil, errors.New("preflight failed")
 	}
 
-	projectSlug := git.ProjectSlug(logger)
+	projectSlug := git.ProjectSlug(ui)
+
+	imageRef, imageDigest, imageEnvs, err := EnsureImage(ctx, projectSlug, opts.Rebuild, ui)
+	if err != nil {
+		return nil, fmt.Errorf("image setup failed: %w", err)
+	}
+	ui.Verbosef("Using image '%s' (digest=%s)", imageRef, imageDigest)
+
+	vm := NewVolumeManager(ui)
+	homeVol, err := vm.EnsureHome(ctx, projectSlug, imageDigest, imageRef, opts, ui)
+	if err != nil {
+		return nil, fmt.Errorf("volume setup failed: %w", err)
+	}
+	ui.Verbosef("home volume: %s", homeVol)
 
 	cwd, err := os.Getwd()
 	if err != nil {
 		return nil, fmt.Errorf("get current directory: %w", err)
 	}
-
-	repoPath, branch, cwdBranch, created, err := resolveWorkspace(cwd, opts, cfg, projectSlug, logger)
+	sb, created, err := EnsureProjectVM(ctx, opts, cfg, imageRef, homeVol, cwd, imageEnvs, ui)
 	if err != nil {
 		return nil, err
 	}
-	logger.Debugf("workspace: %s (branch=%s, managed=%v)", repoPath, branch, created)
+	name := projectVMName(projectSlug)
 
-	dockerfile := resolveDockerfile()
-	dockerCli, err := client.New(client.FromEnv)
-	if err != nil {
-		return nil, fmt.Errorf("cannot connect to Docker daemon (is dockerd running?): %w", err)
-	}
-	defer dockerCli.Close()
-
-	imageRef, imageDigest, err := EnsureImage(ctx, dockerCli, dockerfile, projectSlug, opts.Rebuild, logger)
-	if err != nil {
-		return nil, fmt.Errorf("image setup failed: %w", err)
-	}
-	logger.Debugf("image: %s (digest=%s)", imageRef, imageDigest)
-
-	vm := NewVolumeManager(logger)
-	homeVol, err := vm.EnsureHome(ctx, projectSlug, imageDigest, imageRef)
-	if err != nil {
-		return nil, fmt.Errorf("volume setup failed: %w", err)
-	}
-	logger.Debugf("home volume: %s", homeVol)
-
-	configFiles, err := loadConfigFiles(cfg.UserConfigDir)
-	if err != nil {
-		return nil, err
-	}
-	name := sandboxName(projectSlug, git.BranchSlug(branch))
-
-	if err = ensureNoSameBranchSession(ctx, name, projectSlug, branch, logger); err != nil {
-		return nil, err
-	}
-
-	originalVol := homeVol
-	homeVol, err = ensureNoSameHomeSession(ctx, vm, projectSlug, homeVol, name, imageRef, logger)
-	if err != nil {
-		return nil, err
-	}
-	cloneVol := ""
-	if homeVol != originalVol {
-		cloneVol = homeVol
-	}
-	defer func() {
-		if err != nil && cloneVol != "" {
-			_ = msb.RemoveVolume(context.Background(), cloneVol)
+	var sandboxTarget string
+	var sandboxErr error
+	if sb == nil {
+		ui.Infof("VM lifecycle skipped (--dry-run-vm)")
+		sandboxTarget = resolveTargetNoBranch()
+	} else {
+		sandboxTarget, sandboxErr = setUpSandbox(ctx, sb, opts, cfg, cwd, created, ui)
+		if sandboxErr != nil {
+			return nil, sandboxErr
 		}
-	}()
-
-	logger.Debugf("sandbox: %s (cpus=%d, memory=%s)", name, opts.CPUs, opts.Memory)
-	sb, err := createSandbox(ctx, name, imageRef, repoPath, homeVol, opts.User, opts, cfg, logger)
-	if err != nil {
-		return nil, err
 	}
 
-	// Clean up the sandbox if provisioning fails.
-	defer func() {
-		if err != nil {
-			stopCtx, cancel := context.WithTimeout(context.Background(), sandboxStopTimeout)
-			defer cancel()
-			_ = sb.Stop(stopCtx)
-			_ = sb.Close()
-			_ = msb.RemoveSandbox(context.Background(), name)
-		}
-	}()
-
-	fs := sb.FS()
-	err = provisionSandbox(ctx, fs, configFiles, repoPath, logger)
-	if err != nil {
-		return nil, err
-	}
-
-	if err := startDockerdIfPresent(ctx, sb, logger); err != nil {
-		return nil, fmt.Errorf("docker startup: %w", err)
-	}
+	ui.Verbosef("attach target: %s", sandboxTarget)
 
 	return &sandboxSession{
-		sb:        sb,
-		name:      name,
-		repoPath:  repoPath,
-		cwd:       cwd,
-		cwdBranch: cwdBranch,
-		created:   created,
-		branch:    branch,
-		cloneVol:  cloneVol,
+		sb:     sb,
+		name:   name,
+		target: sandboxTarget,
+		cwd:    cwd,
 	}, nil
 }
 
-func Run(ctx context.Context, opts RunOptions, cfg Config, logger *output.Printer) error {
-	session, err := prepareSandbox(ctx, opts, cfg, logger)
+// ensureDockerdIfPresent ensures dockerd is running inside the VM when the
+// sandbox was freshly created and Docker-in-Docker support is requested.
+func ensureDockerdIfPresent(ctx context.Context, sb msbSandbox, ui stdio.UI, created bool) error {
+	if created {
+		return startDockerdIfPresent(ctx, sb, ui)
+	}
+	return nil
+}
+
+// Run creates (or reuses) the project VM, provisions config, starts opencode
+// serve, and attaches a TUI client.
+//
+// Note: Run is called from cli.go after all flags are resolved.
+func Run(ctx context.Context, opts RunOptions, cfg Config, ui stdio.UI) error {
+	session, err := prepareSandbox(ctx, opts, cfg, ui)
 	if err != nil {
 		return err
 	}
 	defer session.cleanup()
+
+	if opts.DryRun {
+		ui.Infof("dry-run: Would run opencode")
+		return nil
+	}
+	if opts.DryRunVM && session.sb == nil {
+		ui.Infof("dry-run: Would start opencode in VM")
+		return nil
+	}
 
 	var exitCode int
 	var attachErr error
-	if opts.DryRun {
-		logger.Debugf("dry run: setup validated, skipping opencode execution")
-	} else {
-		opencodeArgs := buildOpencodeArgs(opts.Args, opts.Auto)
-		setup := `opencode ` + strings.Join(opencodeArgs, " ")
-		// Run as a login shell so /etc/profile and ~/.profile are sourced,
-		// putting tools installed under /usr/local/go/bin, ~/go/bin and
-		// ~/.microsandbox/bin on PATH for opencode and its child shells.
-		exitCode, attachErr = session.sb.Attach(ctx, "/bin/bash", "-l", "-c", setup)
-	}
+	setup := buildAttachCommand(session.target, opts.Auto, opts.Args)
+	ui.Verbosef("%s", setup)
+	// Run as a login shell so /etc/profile and ~/.profile are sourced,
+	// putting tools installed under /usr/local/go/bin, ~/go/bin and
+	// ~/.microsandbox/bin on PATH for opencode and its child shells.
+	exitCode, attachErr = session.sb.Attach(ctx, "/bin/bash", "-l", "-c", setup)
 
-	var cleanupErr error
-	if session.created {
-		cleanupErr = cleanupManagedRepo(session.repoPath, session.cwd, session.cwdBranch, opts, logger)
-	}
-
-	return finalizeRun(attachErr, cleanupErr, exitCode)
+	return finalizeRun(attachErr, nil, exitCode)
 }
 
-func Shell(ctx context.Context, opts RunOptions, cfg Config, logger *output.Printer) error {
-	session, err := prepareSandbox(ctx, opts, cfg, logger)
+// Shell creates (or reuses) the project VM and drops the user into an
+// interactive shell session, without starting opencode serve.
+func Shell(ctx context.Context, opts RunOptions, cfg Config, ui stdio.UI) error {
+	session, err := prepareSandbox(ctx, opts, cfg, ui)
 	if err != nil {
 		return err
 	}
 	defer session.cleanup()
+
+	if opts.DryRun {
+		ui.Infof("dry-run: Would start interactive shell session")
+		return nil
+	}
+	if opts.DryRunVM && session.sb == nil {
+		ui.Infof("dry-run: Would start interactive shell session")
+		return nil
+	}
 
 	// Login shell so the interactive shell inherits PATH from /etc/profile and ~/.profile.
 	exitCode, attachErr := session.sb.Attach(ctx, "/bin/bash", "-l")
 	return finalizeRun(attachErr, nil, exitCode)
 }
 
-func BuildImage(ctx context.Context, force bool, logger *output.Printer) error {
-	if !CheckDocker(logger) {
+// BuildImage builds (or updates) the runner image for Docker-in-Docker support.
+func BuildImage(ctx context.Context, force, dryRun bool, ui stdio.UI) error {
+	if dryRun {
+		ui.Infof("dry-run: Would build runner image")
+		return nil
+	}
+
+	if !CheckDocker(ui) {
 		return errors.New("docker not available")
 	}
-	projectSlug := git.ProjectSlug(logger)
-	dockerfile := resolveDockerfile()
-	dockerCli, err := client.New(client.FromEnv)
-	if err != nil {
-		return fmt.Errorf("cannot connect to Docker daemon (is dockerd running?): %w", err)
-	}
-	defer dockerCli.Close()
+	projectSlug := git.ProjectSlug(ui)
 
-	_, _, err = EnsureImage(ctx, dockerCli, dockerfile, projectSlug, force, logger)
+	_, _, _, err := EnsureImage(ctx, projectSlug, force, ui)
 	return err
 }
 
@@ -639,13 +331,42 @@ func finalizeRun(attachErr, cleanupErr error, exitCode int) error {
 	return &ExitError{Code: exitCode}
 }
 
-type sandboxFS interface {
-	Mkdir(ctx context.Context, path string) error
-	Write(ctx context.Context, path string, data []byte) error
-	Remove(ctx context.Context, path string) error
+func promptConfigChange(ui stdio.UI) (string, error) {
+	selection, err := ui.Select(
+		"opencode provider config has changed. Restart the daemon to apply the new config?",
+		[]stdio.Choice{
+			{
+				Label: "Proceed without changes (keep current config)", Key: "p",
+				Description: "Daemon continues with the existing config",
+			},
+			{
+				Label: "Restart opencode serve (apply new config)", Key: "r",
+				Description: "Daemon restarts with new config; active clients disconnect",
+			},
+		},
+		"p",
+	)
+	if err != nil {
+		return "", fmt.Errorf("prompt config change: %w", err)
+	}
+	return selection, nil
 }
 
-func loadConfigFiles(userConfigDir string) (map[string][]byte, error) {
+// daemonIsHealthy returns true when the opencode serve daemon reports healthy.
+func daemonIsHealthy(ctx context.Context, sb msbSandbox) bool {
+	out, err := sb.Shell(ctx, "curl -sf "+daemonHealthURL)
+	if err != nil || out == nil || !out.Success() {
+		return false
+	}
+	h, _ := parseHealthResponse(out.Stdout())
+	return h
+}
+
+// loadConfigFiles builds the merged opencode configuration from the user's
+// config directory, any project-specific config in .opencode-msb/opencode,
+// and the embedded provider config. Returns the marshaled files, parsed
+// structures, and sorted file keys.
+func loadConfigFiles(userConfigDir string) (*configFiles, error) {
 	providerCfg, err := config.LoadProviderConfig(config.EmbeddedProviderConfig)
 	if err != nil {
 		return nil, fmt.Errorf("load provider config: %w", err)
@@ -654,11 +375,113 @@ func loadConfigFiles(userConfigDir string) (map[string][]byte, error) {
 	if _, statErr := os.Stat(".opencode-msb/opencode"); statErr == nil {
 		projectConfigDir = ".opencode-msb/opencode"
 	}
-	configFiles, err := config.BuildMergedConfig(userConfigDir, projectConfigDir, providerCfg)
+	files, err := config.BuildMergedConfig(userConfigDir, projectConfigDir, providerCfg)
 	if err != nil {
 		return nil, fmt.Errorf("merge config: %w", err)
 	}
-	return configFiles, nil
+
+	parsed := make(map[string]map[string]any)
+	for name, data := range files {
+		var cfg map[string]any
+		if err := json.Unmarshal(data, &cfg); err == nil {
+			parsed[name] = cfg
+		}
+	}
+
+	fileKeys := make([]string, 0, len(files))
+	for k := range files {
+		fileKeys = append(fileKeys, k)
+	}
+	sort.Strings(fileKeys)
+	return &configFiles{
+		files:  files,
+		parsed: parsed,
+		keys:   fileKeys,
+	}, nil
+}
+
+// readVMFiles reads all files from the given directory on the VM.
+//
+//nolint:unparam // general utility
+func readVMFiles(
+	ctx context.Context,
+	sb msbSandbox,
+	dir string,
+	ui stdio.UI,
+) map[string][]byte {
+	l, err := sb.Fs().List(ctx, dir)
+	if err != nil {
+		ui.Verbosef("  list failed: %v", err)
+		return nil
+	}
+	if len(l) == 0 {
+		ui.Verbosef("  directory %q is empty or does not exist", dir)
+		return nil
+	}
+	ui.Verbosef("  found %d entries in %s", len(l), dir)
+	result := make(map[string][]byte)
+	for _, e := range l {
+		if e.Kind != msb.FsEntryKindFile {
+			ui.Verbosef("    skipping %s (kind=%s)", e.Path, e.Kind)
+			continue
+		}
+		data, err := sb.Fs().Read(ctx, e.Path)
+		if err != nil {
+			ui.Verbosef("    read %s failed: %v", e.Path, err)
+			continue
+		}
+		result[filepath.Base(e.Path)] = data
+		ui.Verbosef("    OK: %s (%d bytes)", e.Path, len(data))
+	}
+	return result
+}
+
+// fsLister is the minimal interface for listing and reading files in the sandbox.
+type fsLister interface {
+	List(ctx context.Context, path string) ([]msb.FsEntry, error)
+	Read(ctx context.Context, path string) ([]byte, error)
+}
+
+// configEqual compares Go-side parsed config against VM-side files.
+func configEqual(goSide map[string]map[string]any, keys []string, vmData map[string][]byte) bool {
+	return equalJSONFiles(goSide, keys, vmData)
+}
+
+// equalJSONFiles compares JSON files semantically (key order, number types) and
+// compares non-JSON contents as raw bytes.
+func equalJSONFiles(goSide map[string]map[string]any, keys []string, vmData map[string][]byte) bool {
+	for _, name := range keys {
+		goVal, hasGoVal := goSide[name]
+		vmBytes, hasVM := vmData[name]
+		if !hasVM {
+			return false
+		}
+		if !hasGoVal || goVal == nil {
+			continue
+		}
+		goJSON, _ := json.Marshal(goVal)
+		va, err := parseJSON(goJSON)
+		if err != nil {
+			return false
+		}
+		vb, err := parseJSON(vmBytes)
+		if err != nil {
+			return false
+		}
+		if !reflect.DeepEqual(va, vb) {
+			return false
+		}
+	}
+	return true
+}
+
+// parseJSON unmarshals data into map[string]any for deep equality comparison.
+func parseJSON(data []byte) (any, error) {
+	var v any
+	if err := json.Unmarshal(data, &v); err != nil {
+		return nil, err
+	}
+	return v, nil
 }
 
 func buildMounts(homeVol, repoPath string, tmpSizeMiB uint32) map[string]msb.MountConfig {
@@ -675,70 +498,22 @@ func buildMounts(homeVol, repoPath string, tmpSizeMiB uint32) map[string]msb.Mou
 	}
 }
 
-func createSandbox(
-	ctx context.Context,
-	name, imageRef, repoPath, homeVol, user string,
-	opts RunOptions,
-	cfg Config,
-	logger *output.Printer,
-) (*msb.Sandbox, error) {
-	if user == "" {
-		user = "dev"
-	}
-	cpus := opts.CPUs
-	if cpus == 0 {
-		cpus = sysinfo.NumCPUs()
-	}
-	maxMemoryGiB := sysinfo.TotalMemoryGiB()
-	envMap := mergeEnvMaps(
-		buildEnvMap(filepath.Join(cfg.UserLauncherDir, "env")),
-		buildEnvMap(".opencode-msb/env"),
-	)
-	secrets := BuildSecrets(mergeEnvMaps(
-		buildEnvMap(filepath.Join(cfg.UserLauncherDir, "env.secret")),
-		buildEnvMap(".opencode-msb/env.secret"),
-	), logger)
-
-	mounts := buildMounts(homeVol, repoPath, resolveTmpSizeMiB(opts.TmpSize))
-
-	spin := output.NewSpinner(logger)
-	spin.Start("Checking microsandbox runtime")
-	if err := msb.EnsureInstalled(ctx); err != nil {
-		spin.StopError(err)
-		return nil, fmt.Errorf("microsandbox runtime: %w", err)
-	}
-	spin.Stop()
-
-	spin = output.NewSpinner(logger)
-	spin.Start("Starting sandbox VM")
-	sb, err := msb.CreateSandbox(ctx, name,
-		msb.WithImage(imageRef),
-		msb.WithMounts(mounts),
-		msb.WithSecrets(secrets...),
-		msb.WithEnv(envMap),
-		msb.WithUser(user),
-		msb.WithWorkdir("/workspace"),
-		msb.WithCPUs(cpus),
-		msb.WithMaxCPUs(sysinfo.NumCPUs()),
-		msb.WithMemory(parseMemory(opts.Memory)),
-		//nolint:gosec // G115: maxMemoryGiB is physical RAM in GiB, cannot overflow uint32
-		msb.WithMaxMemory(uint32(maxMemoryGiB)*mibPerGib),
-		msb.WithReplace(),
-	)
-	if err != nil {
-		spin.StopError(err)
-		return nil, fmt.Errorf("create sandbox: %w", err)
-	}
-	spin.Stop()
-	return sb, nil
+type sandboxFS interface {
+	Exists(ctx context.Context, path string) (bool, error)
+	Stat(ctx context.Context, path string) (*msb.FsStat, error)
+	List(ctx context.Context, path string) ([]msb.FsEntry, error)
+	ReadString(ctx context.Context, path string) (string, error)
+	ReadStream(ctx context.Context, path string) (*msb.FsReadStream, error)
+	Mkdir(ctx context.Context, path string) error
+	Write(ctx context.Context, path string, data []byte) error
+	Read(ctx context.Context, path string) ([]byte, error)
+	Remove(ctx context.Context, path string) error
 }
 
 func provisionSandbox(
 	ctx context.Context,
 	fs sandboxFS,
 	configFiles map[string][]byte,
-	repoPath string,
-	logger *output.Printer,
 ) error {
 	if err := fs.Mkdir(ctx, "/home/dev/.config/opencode"); err != nil {
 		return fmt.Errorf("mkdir opencode config: %w", err)
@@ -748,10 +523,96 @@ func provisionSandbox(
 			return fmt.Errorf("write config file %s: %w", fname, err)
 		}
 	}
-	for _, envrc := range envrcFiles(repoPath) {
-		if err := fs.Remove(ctx, "/workspace/"+envrc); err != nil {
-			logger.Warnf("failed to remove envrc %s: %v", envrc, err)
-		}
-	}
 	return nil
+}
+
+// setUpSandbox handles all sandbox setup after the VM is running.
+func setUpSandbox(
+	ctx context.Context,
+	sb msbSandbox,
+	opts RunOptions,
+	cfg Config,
+	_ string,
+	created bool,
+	ui stdio.UI,
+) (string, error) {
+	cfs, err := loadConfigFiles(cfg.UserConfigDir)
+	if err != nil {
+		return "", err
+	}
+
+	ui.Verbosef("expected config files: %v", cfs.keys)
+
+	vmData := readVMFiles(ctx, sb, "/home/dev/.config/opencode", ui)
+
+	if len(vmData) > 0 {
+		if !configEqual(cfs.parsed, cfs.keys, vmData) {
+			handleConfigChange(ctx, sb, cfs, ui)
+			return ResolveTarget(ctx, sb, opts.Branch, ui)
+		}
+	} else {
+		ui.Verbosef("no VM config found (fresh setup)")
+	}
+
+	if dockerErr := ensureDockerdIfPresent(ctx, sb, ui, created); dockerErr != nil {
+		return "", fmt.Errorf("docker startup: %w", dockerErr)
+	}
+	if daemonErr := EnsureDaemon(ctx, sb, ui); daemonErr != nil {
+		return "", daemonErr
+	}
+
+	return ResolveTarget(ctx, sb, opts.Branch, ui)
+}
+
+// handleConfigChange provisions the sandbox and restarts the daemon if required.
+func handleConfigChange(ctx context.Context, sb msbSandbox, cfs *configFiles, ui stdio.UI) {
+	daemonHealthy := daemonIsHealthy(ctx, sb)
+	if daemonHealthy {
+		action, promptErr := promptConfigChange(ui)
+		if promptErr != nil {
+			_ = promptErr
+			return
+		}
+		if action == "r" {
+			ensureProvisionedAndRunning(ctx, sb.FS(), cfs.files, sb, ui)
+			return
+		}
+		ui.Infof("config change detected; proceeding without restart")
+		return
+	}
+	restartUnhealthyDaemon(ctx, sb, cfs.files, ui)
+}
+
+func ensureProvisionedAndRunning(
+	ctx context.Context,
+	fs sandboxFS,
+	files map[string][]byte,
+	sb msbSandbox,
+	ui stdio.UI,
+) {
+	if provErr := provisionSandbox(ctx, fs, files); provErr != nil {
+		ui.Warnf("provision failed: %v (keeping existing daemon)", provErr)
+		return
+	}
+	ui.Infof("opencode serve restarting…")
+	if _, _, err := daemonShellFunc(ctx, sb, daemonKillCmd); err != nil {
+		ui.Warnf("kill stale daemon failed (continuing): %v", err)
+	}
+	if restartErr := EnsureDaemon(ctx, sb, ui); restartErr != nil {
+		ui.Warnf("daemon restart failed: %v (keeping existing)", restartErr)
+	}
+}
+
+func restartUnhealthyDaemon(ctx context.Context, sb msbSandbox, files map[string][]byte, ui stdio.UI) {
+	provisionCtx, cancel := context.WithTimeout(ctx, provisionTimeout)
+	defer cancel()
+
+	ui.Infof("config change detected; restarting (daemon was not healthy)")
+	if provErr := provisionSandbox(provisionCtx, sb.FS(), files); provErr != nil {
+		ui.Warnf("provision failed: %v (using existing config)", provErr)
+		return
+	}
+	if restartErr := EnsureDaemon(ctx, sb, ui); restartErr != nil {
+		ui.Warnf("daemon restart failed: %v (using existing)", restartErr)
+	}
 }

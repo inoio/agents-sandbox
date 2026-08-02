@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"time"
 
-	"gitlab.inoio.de/inoio/opencode-msb/internal/output"
+	"gitlab.inoio.de/inoio/opencode-msb/internal/stdio"
 
 	msb "github.com/superradcompany/microsandbox/sdk/go"
 )
@@ -19,17 +19,17 @@ const (
 	dockerdPollInterval = time.Second
 )
 
-func startDockerdIfPresent(ctx context.Context, sb *msb.Sandbox, logger *output.Printer) error {
+func startDockerdIfPresent(ctx context.Context, sb msbSandbox, ui stdio.UI) error {
 	out, err := sb.Shell(ctx, dockerdCheckCmd, msb.WithExecUser("root"))
 	if err != nil {
 		return fmt.Errorf("check dockerd binary: %w", err)
 	}
 	if !out.Success() {
-		logger.Debugf("dockerd not present, skipping Docker startup")
+		ui.Verbosef("dockerd not present, skipping Docker startup")
 		return nil
 	}
 
-	logger.Debugf("starting dockerd with vfs storage driver")
+	ui.Verbosef("starting dockerd with vfs storage driver")
 	if _, err := sb.Shell(ctx, dockerdStartCmd, msb.WithExecUser("root")); err != nil {
 		return fmt.Errorf("start dockerd: %w", err)
 	}
@@ -38,7 +38,7 @@ func startDockerdIfPresent(ctx context.Context, sb *msb.Sandbox, logger *output.
 	for time.Now().Before(deadline) {
 		out, err := sb.Shell(ctx, dockerdReadyCmd, msb.WithExecUser("dev"))
 		if err == nil && out.Success() {
-			logger.Debugf("dockerd is ready")
+			ui.Verbosef("dockerd is ready")
 			return nil
 		}
 		select {

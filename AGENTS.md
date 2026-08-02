@@ -8,7 +8,7 @@
 
 - Write self-explanatory code.
 - Keep abstractions minimal; do not introduce layers until they are clearly needed.
-- Add inline comments only when the code is not self-explanatory.
+- Before adding inline comments, try to make the code self-explanatory.
 - Prefer small, focused files with one clear responsibility.
 - Apply the following principles
   * SOLID
@@ -29,19 +29,21 @@
 
 ## Design decisions
 
-- One ephemeral microsandbox VM per `opencode` invocation.
+- One ephemeral microsandbox VM per project serving an opencode server, multiple clients can attach to the vm & connect to the server.
 - The project is exposed as an independent git clone when a different branch is
   requested, so concurrent isolated sessions are possible.
-- opencode state is stored in msb named volumes per project; if msb volumes are not viable, fall back to project-local host directories.
 - Shared inoio LiteLLM provider/model definitions are shipped as a repo JSON fragment and passed into opencode via `OPENCODE_CONFIG_CONTENT`.
 
 ## Development
 
-Installed tooling:
+You are dogfooding the project, you are not on the host, but in an opencode-msb VM.
+
+Installed tooling (see .opencode-msb/Dockerfile):
 
 - go, gofmt, golangci-lint, gcc (for CGO)
-- msb (microsandbox cli)
+- msb (microsandbox cli) - since /dev/kvm is not functional in the VM, you can't actually start VMs yourself. Must be tested manually by the user
 - shell tools like jq, yq
+- docker
 
 Common development commands (run from the Go module root):
 
@@ -51,15 +53,22 @@ Common development commands (run from the Go module root):
 - `golangci-lint fmt` — format all files
 - `golangci-lint run` — run the full linter suite.
 
+Use the linter as a guide for code style: Run it after every major edit, for smaller edits run it after 3 at latest.N
+
+### Superpowers
+
+Always use your superpowers for appropriate tasks, never skip defined user approval.
+
 ### Testing
 
 - prefer unit tests on pure functions with mocks over integration tests
 
 ## Documentation
 
-
+- When changing or adding behavior, keep `README.md` and `docs` directory (except `docs/superpowers`) in sync and current.
+- When you struggled with something non-obvious, propose to the user to document it in `AGENTS.md`.
 
 ## Current limitations
 
-- `.envrc` secrets in the project directory are not hidden from the VM yet.
+- `.env(rc)` secrets in the project directory are not hidden from the VM yet.
 - Network egress is unrestricted.
