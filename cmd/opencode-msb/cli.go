@@ -294,4 +294,8 @@ func printPruneSummary(ui stdio.UI, report *sandbox.StaleReport, dryRun bool) {
 		report.PrunedTaskSandboxes,
 		report.PrunedCloneVolumes,
 	)
+	ui.Verbosef("details %d", len(report.Details))
+	for _, entry := range report.Details {
+		ui.Verbosef("x  %s", entry)
+	}
 }
