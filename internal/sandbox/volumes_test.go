@@ -1,10 +1,10 @@
 package sandbox
 
 import (
-	"strings"
+	"context"
 	"testing"
 
-	"gitlab.inoio.de/inoio/opencode-msb/internal/output"
+	"gitlab.inoio.de/inoio/opencode-msb/internal/testhelpers"
 )
 
 func TestHomeVolumeName(t *testing.T) {
@@ -25,49 +25,34 @@ func TestHomeVolumeNameDifferentInputs(t *testing.T) {
 }
 
 func TestNewVolumeManager(t *testing.T) {
-	l := output.NewPrinter(nil, false)
-	vm := NewVolumeManager(l)
-	if vm.logger == nil {
-		t.Error("expected logger to be set")
+	testUI := testhelpers.NewTestio(t)
+	vm := NewVolumeManager(&testUI)
+	if vm.ui == nil {
+		t.Error("expected ui to be set")
 	}
 }
 
-func TestExtractNamedVolumes(t *testing.T) {
-	configJSON := `{
-		"name": "test-sandbox",
-		"volumes": {
-			"/home/dev": {"named": "my-home-vol"},
-			"/workspace": {"bind": "/host/path"}
-		}
-	}`
-	got := extractNamedVolumes(configJSON)
-	if len(got) != 1 {
-		t.Fatalf("expected 1 named volume, got %d", len(got))
-	}
-	if got[0] != "my-home-vol" {
-		t.Errorf("expected 'my-home-vol', got %q", got[0])
-	}
-}
+func TestPrefillVolumeRunsCopyCommand(t *testing.T) {
+	testUI := testhelpers.NewTestio(t)
+	ui := &testUI
+	client := &mockMsbClient{}
+	vm := NewVolumeManager(ui)
 
-func TestExtractNamedVolumesEmpty(t *testing.T) {
-	configJSON := `{"name": "test"}`
-	got := extractNamedVolumes(configJSON)
-	if len(got) != 0 {
-		t.Fatalf("expected 0 named volumes, got %d", len(got))
+	err := vm.prefillVolume(
+		context.Background(),
+		client,
+		"myproject",
+		"test-home-vol",
+		"opencode-msb/runner-test:latest",
+		ui,
+	)
+	if err != nil {
+		t.Fatalf("prefillVolume failed: %v", err)
 	}
-}
-
-func TestExtractNamedVolumesInvalidJSON(t *testing.T) {
-	got := extractNamedVolumes("not json")
-	if len(got) != 0 {
-		t.Fatalf("expected 0 named volumes for invalid JSON, got %d", len(got))
+	if len(client.createdSandboxes) != 1 {
+		t.Fatalf("expected 1 created prefill sandbox, got %d", len(client.createdSandboxes))
 	}
-}
-
-func TestCloneVolumeName(t *testing.T) {
-	source := "opencode-msb-home-myproj-aBc1234D-xRX898Gl7cq4jh"
-	got := cloneVolumeName(source)
-	if !strings.HasPrefix(got, "opencode-msb-clone-myproj-aBc1234D-xRX898Gl7cq4jh-") {
-		t.Errorf("expected clone name to start with 'opencode-msb-clone-myproj-aBc1234D-xRX898Gl7cq4jh-', got %q", got)
+	if len(client.removedSandboxes) != 1 {
+		t.Fatalf("expected 1 removed prefill sandbox, got %d", len(client.removedSandboxes))
 	}
 }
