@@ -1,7 +1,6 @@
 package sandbox
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"os"
@@ -9,24 +8,27 @@ import (
 	"strings"
 	"testing"
 
-	"gitlab.inoio.de/inoio/opencode-msb/internal/output"
+	"gitlab.inoio.de/inoio/opencode-msb/internal/testhelpers"
 )
 
 func TestCheckDockerLogsUnderlyingError(t *testing.T) {
-	var buf bytes.Buffer
-	l := output.NewPrinter(&buf, false)
+	testUI := testhelpers.NewTestio(t)
 
 	t.Setenv("PATH", "/nonexistent")
-	if CheckDocker(l) {
+	if CheckDocker(&testUI) {
 		t.Fatal("expected CheckDocker to return false when docker is not on PATH")
 	}
 
-	out := buf.String()
-	if !strings.Contains(out, "docker not found") {
-		t.Errorf("expected log to contain 'docker not found', got %q", out)
+	var out []string
+	for _, e := range testUI.ErrorCalls {
+		out = append(out, e.Msg)
 	}
-	if !strings.Contains(out, "executable file not found") {
-		t.Errorf("expected log to contain the underlying LookPath error, got %q", out)
+	outStr := strings.Join(out, " ")
+	if !strings.Contains(outStr, "docker not found") {
+		t.Errorf("expected log to contain 'docker not found', got %q", outStr)
+	}
+	if !strings.Contains(outStr, "executable file not found") {
+		t.Errorf("expected log to contain the underlying LookPath error, got %q", outStr)
 	}
 }
 
@@ -53,31 +55,33 @@ func TestShellRcFile(t *testing.T) {
 }
 
 func TestCheckMsbEnsureInstalledErrorSurfacesErrorWithoutInstallHint(t *testing.T) {
-	var buf bytes.Buffer
-	l := output.NewPrinter(&buf, false)
+	testUI := testhelpers.NewTestio(t)
 
 	prev := ensureInstalled
 	t.Cleanup(func() { ensureInstalled = prev })
 	ensureInstalled = func(context.Context) error { return errors.New("network unreachable") }
 
-	if CheckMsb(context.Background(), l) {
+	if CheckMsb(context.Background(), &testUI) {
 		t.Fatal("expected CheckMsb to return false when ensureInstalled fails")
 	}
-	out := buf.String()
-	if !strings.Contains(out, "msb runtime setup failed") {
-		t.Errorf("expected log to mention 'msb runtime setup failed', got %q", out)
+	var out []string
+	for _, e := range testUI.ErrorCalls {
+		out = append(out, e.Msg)
 	}
-	if !strings.Contains(out, "network unreachable") {
-		t.Errorf("expected log to contain the underlying error, got %q", out)
+	outStr := strings.Join(out, " ")
+	if !strings.Contains(outStr, "msb runtime setup failed") {
+		t.Errorf("expected log to mention 'msb runtime setup failed', got %q", outStr)
 	}
-	if strings.Contains(out, "Install microsandbox") || strings.Contains(out, "github.com/microsandbox") {
-		t.Errorf("expected no 'install msb' instruction, got %q", out)
+	if !strings.Contains(outStr, "network unreachable") {
+		t.Errorf("expected log to contain the underlying error, got %q", outStr)
+	}
+	if strings.Contains(outStr, "Install microsandbox") || strings.Contains(outStr, "github.com/microsandbox") {
+		t.Errorf("expected no 'install msb' instruction, got %q", outStr)
 	}
 }
 
 func TestCheckMsbOnPathReturnsTrueSilently(t *testing.T) {
-	var buf bytes.Buffer
-	l := output.NewPrinter(&buf, false)
+	testUI := testhelpers.NewTestio(t)
 
 	prev := ensureInstalled
 	t.Cleanup(func() { ensureInstalled = prev })
@@ -89,17 +93,17 @@ func TestCheckMsbOnPathReturnsTrueSilently(t *testing.T) {
 	}
 	t.Setenv("PATH", dir)
 
-	if !CheckMsb(context.Background(), l) {
+	if !CheckMsb(context.Background(), &testUI) {
 		t.Fatal("expected CheckMsb to return true when msb is on PATH")
 	}
-	if buf.Len() != 0 {
-		t.Errorf("expected no output when msb is on PATH, got %q", buf.String())
+	if len(testUI.ErrorCalls)+len(testUI.WarnCalls)+len(testUI.InfoCalls) != 0 {
+		t.Errorf("expected no output when msb is on PATH, got errors=%d warns=%d infos=%d",
+			len(testUI.ErrorCalls), len(testUI.WarnCalls), len(testUI.InfoCalls))
 	}
 }
 
 func TestCheckMsbNotOnPathExtendsPathAndReturnsTrue(t *testing.T) {
-	var buf bytes.Buffer
-	l := output.NewPrinter(&buf, false)
+	testUI := testhelpers.NewTestio(t)
 
 	prev := ensureInstalled
 	t.Cleanup(func() { ensureInstalled = prev })
@@ -119,18 +123,21 @@ func TestCheckMsbNotOnPathExtendsPathAndReturnsTrue(t *testing.T) {
 	t.Setenv("SHELL", "/bin/zsh")
 	t.Setenv("PATH", "/nonexistent")
 
-	if !CheckMsb(context.Background(), l) {
+	if !CheckMsb(context.Background(), &testUI) {
 		t.Fatal("expected CheckMsb to return true when msb is installed but not on PATH")
 	}
-	out := buf.String()
-	if !strings.Contains(out, "not on your PATH") {
-		t.Errorf("expected a warning that msb is not on PATH, got %q", out)
+	out := make([]string, 0, len(testUI.WarnCalls)+len(testUI.InfoCalls))
+	out = append(out, testUI.WarnCalls...)
+	out = append(out, testUI.InfoCalls...)
+	outStr := strings.Join(out, " ")
+	if !strings.Contains(outStr, "not on your PATH") {
+		t.Errorf("expected a warning that msb is not on PATH, got %q", outStr)
 	}
-	if !strings.Contains(out, ".zshrc") {
-		t.Errorf("expected hint to mention .zshrc for a zsh shell, got %q", out)
+	if !strings.Contains(outStr, ".zshrc") {
+		t.Errorf("expected hint to mention .zshrc for a zsh shell, got %q", outStr)
 	}
-	if !strings.Contains(out, "ln -s") {
-		t.Errorf("expected hint to include a symlink alternative, got %q", out)
+	if !strings.Contains(outStr, "ln -s") {
+		t.Errorf("expected hint to include a symlink alternative, got %q", outStr)
 	}
 	got := os.Getenv("PATH")
 	if !strings.HasPrefix(got, binDir) {
@@ -139,8 +146,7 @@ func TestCheckMsbNotOnPathExtendsPathAndReturnsTrue(t *testing.T) {
 }
 
 func TestCheckMsbNotOnPathAndBinaryMissingReturnsFalse(t *testing.T) {
-	var buf bytes.Buffer
-	l := output.NewPrinter(&buf, false)
+	testUI := testhelpers.NewTestio(t)
 
 	prev := ensureInstalled
 	t.Cleanup(func() { ensureInstalled = prev })
@@ -149,27 +155,52 @@ func TestCheckMsbNotOnPathAndBinaryMissingReturnsFalse(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	t.Setenv("PATH", "/nonexistent")
 
-	if CheckMsb(context.Background(), l) {
+	if CheckMsb(context.Background(), &testUI) {
 		t.Fatal("expected CheckMsb to return false when msb binary is missing")
 	}
-	out := buf.String()
-	if !strings.Contains(out, "binary missing") {
-		t.Errorf("expected 'binary missing' in output, got %q", out)
+	var out []string
+	for _, e := range testUI.ErrorCalls {
+		out = append(out, e.Msg)
+	}
+	outStr := strings.Join(out, " ")
+	if !strings.Contains(outStr, "binary missing") {
+		t.Errorf("expected 'binary missing' in output, got %q", outStr)
 	}
 }
 
-func TestIsOrphanedSandboxOldPrefix(t *testing.T) {
-	if !isOrphanedSandbox("opencode-msb-proj-main") {
-		t.Error("expected old-prefix sandbox to be orphaned")
+func TestIsOrphanedSandboxVM(t *testing.T) {
+	if isOrphanedSandbox("opencode-msb-vm-proj-main") {
+		t.Error("expected vm- sandbox to NOT be orphaned")
 	}
-	if isOrphanedSandbox("opencode-msb-sb-proj-main") {
-		t.Error("expected new-prefix sandbox to not be orphaned")
+}
+
+func TestIsOrphanedSandboxOldSBPrefix(t *testing.T) {
+	if !isOrphanedSandbox("opencode-msb-sb-proj-main") {
+		t.Error("expected old sb- sandbox to be orphaned")
 	}
+}
+
+func TestIsOrphanedSandboxTaskPrefix(t *testing.T) {
 	if isOrphanedSandbox("opencode-msb-task-prefill-proj-123") {
-		t.Error("expected task sandbox to not be orphaned")
+		t.Error("expected task sandbox to NOT be orphaned")
 	}
+}
+
+func TestIsOrphanedSandboxForeign(t *testing.T) {
 	if isOrphanedSandbox("someone-elses-sandbox") {
-		t.Error("expected foreign sandbox to not be orphaned")
+		t.Error("expected foreign sandbox to NOT be orphaned")
+	}
+}
+
+func TestIsOrphanedVolumeHome(t *testing.T) {
+	if isOrphanedVolume("opencode-msb-home-proj-aBc1234D") {
+		t.Error("expected home volume to NOT be orphaned")
+	}
+}
+
+func TestIsOrphanedVolumeClone(t *testing.T) {
+	if !isOrphanedVolume("opencode-msb-clone-proj-aBc1234D-123") {
+		t.Error("expected clone volume to be orphaned (clone-on-use removed)")
 	}
 }
 
@@ -177,14 +208,11 @@ func TestIsOrphanedVolumeOldPattern(t *testing.T) {
 	if !isOrphanedVolume("proj-opencode-home-sha256-abc") {
 		t.Error("expected old-pattern volume to be orphaned")
 	}
-	if isOrphanedVolume("opencode-msb-home-proj-aBc1234D") {
-		t.Error("expected new-prefix volume to not be orphaned")
-	}
-	if isOrphanedVolume("opencode-msb-clone-proj-aBc1234D-123") {
-		t.Error("expected clone volume to not be orphaned")
-	}
+}
+
+func TestIsOrphanedVolumeForeign(t *testing.T) {
 	if isOrphanedVolume("random-volume") {
-		t.Error("expected foreign volume to not be orphaned")
+		t.Error("expected foreign volume to NOT be orphaned")
 	}
 }
 

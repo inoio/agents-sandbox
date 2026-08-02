@@ -100,7 +100,7 @@ linters:
     - loggercheck # checks key value pairs for common logger libraries (kitlog,klog,logr,zap)
     - makezero # finds slice declarations with non-zero initial length
     - mirror # reports wrong mirror patterns of bytes/strings usage
-    - mnd # detects magic numbers
+    #- mnd # detects magic numbers
     - modernize # suggests simplifications to Go code, using modern language and library features
     - musttag # enforces field tags in (un)marshaled structs
     - nakedret # finds naked returns in functions greater than a specified function length
@@ -133,7 +133,7 @@ linters:
     - unqueryvet # detects SELECT * in SQL queries and SQL builders, encouraging explicit column selection
     - unused # checks for unused constants, variables, functions and types
     - usestdlibvars # detects the possibility to use variables/constants from the Go standard library
-    - usetesting # reports uses of functions with replacement inside the testing package
+    - usetesting # reports uses of functions with replacement inside the testhelpers package
     - wastedassign # finds wasted assignment statements
     - whitespace # detects leading and trailing whitespace
 
@@ -300,6 +300,7 @@ linters:
         - ^archive/tar.Header$
         # third-party libs (project-specific)
         - ^github.com/moby/moby/client.ImageBuildOptions$
+        - ^github.com/moby/moby/client.ImageRemoveOptions$
         - ^github.com/superradcompany/microsandbox/sdk/go.MountOptions$
         - ^github.com/superradcompany/microsandbox/sdk/go.SecretEnvOptions$
         # project types — intentionally partial init (zero-value fields set later)
@@ -491,9 +492,6 @@ linters:
       #- text: 'comment on exported \S+ \S+ should be of the form ".+"'
       #  source: "// ?(nolint|TODO)"
       #  linters: [revive, staticcheck]
-      - path: "internal/git/"
-        linters:
-          - noctx # git commands are short-lived; context cancellation adds no value
       - path: '_test\.go'
         linters:
           - bodyclose

@@ -1,4 +1,4 @@
-package output
+package stdio
 
 import (
 	"fmt"
@@ -11,9 +11,7 @@ import (
 //nolint:gochecknoglobals // static lookup table, never mutated
 var spinnerChars = []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
 
-const spinnerInterval = 100 * time.Millisecond
-
-type Spinner struct {
+type spinner struct {
 	w      io.Writer
 	color  bool
 	level  Level
@@ -25,11 +23,14 @@ type Spinner struct {
 	active bool
 }
 
-func NewSpinner(l *Printer) *Spinner {
-	return &Spinner{w: l.w, color: l.color, level: l.level}
+func newSpinner(w io.Writer, color bool, level Level, msg string) *spinner {
+	//nolint:exhaustruct // fields are lazily initialized by Start()
+	s := &spinner{w: w, color: color, level: level}
+	s.Start(msg)
+	return s
 }
 
-func (s *Spinner) Start(msg string) {
+func (s *spinner) Start(msg string) {
 	s.mu.Lock()
 	if s.active || s.level == LevelQuiet {
 		s.mu.Unlock()
@@ -41,18 +42,12 @@ func (s *Spinner) Start(msg string) {
 	s.stopCh = make(chan struct{})
 	s.mu.Unlock()
 
-	// In verbose mode the streaming build output provides live progress, so
-	// only the final summary line is printed on Stop. Animating here would
-	// clobber the streaming lines that are written to the same writer.
-	if s.level == LevelVerbose {
-		return
-	}
 	if s.color {
 		s.done = make(chan struct{})
 		go s.animate()
-	} else {
-		fmt.Fprintf(s.w, "%s... ", s.msg)
+		return
 	}
+	fmt.Fprintf(s.w, "%s... ", s.msg)
 }
 
 func formatElapsedLive(elapsed time.Duration) string {
@@ -63,7 +58,7 @@ func formatElapsedDone(elapsed time.Duration) string {
 	return fmt.Sprintf("(%.1fs)", elapsed.Seconds())
 }
 
-func (s *Spinner) animate() {
+func (s *spinner) animate() {
 	defer close(s.done)
 	i := 0
 	for {
@@ -79,7 +74,7 @@ func (s *Spinner) animate() {
 	}
 }
 
-func (s *Spinner) finish(result string) {
+func (s *spinner) finish(result string) {
 	s.mu.Lock()
 	if !s.active {
 		s.mu.Unlock()
@@ -104,25 +99,19 @@ func (s *Spinner) finish(result string) {
 		final = result + " " + suffix
 	}
 
-	if s.color && s.level == LevelNormal {
+	if s.color {
 		close(s.stopCh)
 		<-s.done
 		fmt.Fprintf(s.w, "\r\033[K%s %s\n", s.msg, final)
 		return
 	}
-	if s.level == LevelVerbose {
-		// Start printed no prefix, so emit the full message and result.
-		fmt.Fprintf(s.w, "%s %s\n", s.msg, final)
-		return
-	}
-	// Non-color normal: Start printed "msg... ", join with the result.
 	fmt.Fprintf(s.w, "%s\n", final)
 }
 
-func (s *Spinner) Stop() {
+func (s *spinner) Stop() {
 	s.finish("done")
 }
 
-func (s *Spinner) StopError(err error) {
+func (s *spinner) StopError(err error) {
 	s.finish(fmt.Sprintf("failed: %v", err))
 }

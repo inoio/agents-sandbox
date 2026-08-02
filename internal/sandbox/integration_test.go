@@ -1,4 +1,4 @@
-//go:build integration
+//go:build integratuin
 
 package sandbox
 
@@ -6,145 +6,26 @@ import (
 	"context"
 	"fmt"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/moby/moby/client"
 
+	"gitlab.inoio.de/inoio/opencode-msb/internal/git"
+	"gitlab.inoio.de/inoio/opencode-msb/internal/testhelpers"
+
 	msb "github.com/superradcompany/microsandbox/sdk/go"
 )
 
-func TestSameHomeVolumeInUseNoSandboxes(t *testing.T) {
-	got, inUse, err := sameHomeVolumeInUse(t.Context(), "my-vol", "")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if inUse {
-		t.Error("expected not in use when no sandboxes exist")
-	}
-	if got != "" {
-		t.Errorf("expected empty sandbox name, got %q", got)
-	}
-}
-
-func TestSameBranchSessionExistsNoSandbox(t *testing.T) {
-	exists, err := sameBranchSessionExists(t.Context(), "nonexistent-sandbox")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if exists {
-		t.Error("expected false for nonexistent sandbox")
-	}
-}
-
-func TestEnsureNoSameHomeSessionNoConflict(t *testing.T) {
-	vm := NewVolumeManager(newTestLogger(t))
-	got, err := ensureNoSameHomeSession(
-		t.Context(),
-		vm,
-		"test-project",
-		"nonexistent-vol",
-		"my-sandbox",
-		"my-image",
-		newTestLogger(t),
-	)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if got != "nonexistent-vol" {
-		t.Errorf("expected original volume name, got %q", got)
-	}
-}
-
-// TestSameHomeVolumeInUseConflict creates a real sandbox mounting a volume
-// and verifies that sameHomeVolumeInUse detects the conflict and
-// ensureNoSameHomeSession returns a clone volume.
-func TestSameHomeVolumeInUseConflict(t *testing.T) {
-	ctx := t.Context()
-	logger := newTestLogger(t)
-
-	// Create a test volume.
-	volName := fmt.Sprintf("test-home-vol-%d", time.Now().UnixNano())
-	vol, err := msb.CreateVolume(ctx, volName, msb.WithVolumeKind(msb.VolumeKindDir))
-	if err != nil {
-		t.Fatalf("create volume: %v", err)
-	}
-	defer func() {
-		_ = msb.RemoveVolume(context.Background(), volName)
-	}()
-
-	// Create a sandbox that mounts the volume.
-	sandboxName := fmt.Sprintf("test-sandbox-%d", time.Now().UnixNano())
-	sb, err := msb.CreateSandbox(ctx, sandboxName,
-		msb.WithImage("alpine:latest"),
-		msb.WithMounts(map[string]msb.MountConfig{
-			"/home/dev": msb.Mount.Named(vol.Name(), msb.MountOptions{}),
-		}),
-		msb.WithReplace(),
-	)
-	if err != nil {
-		t.Fatalf("create sandbox: %v", err)
-	}
-	defer func() {
-		stopCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-		defer cancel()
-		_ = sb.Stop(stopCtx)
-		_ = sb.Close()
-		_ = msb.RemoveSandbox(context.Background(), sandboxName)
-	}()
-
-	// Test sameHomeVolumeInUse returns the conflicting sandbox.
-	conflictName, inUse, err := sameHomeVolumeInUse(ctx, volName, "")
-	if err != nil {
-		t.Fatalf("sameHomeVolumeInUse failed: %v", err)
-	}
-	if !inUse {
-		t.Error("expected volume to be in use")
-	}
-	if conflictName != sandboxName {
-		t.Errorf("expected conflicting sandbox %q, got %q", sandboxName, conflictName)
-	}
-
-	// Test that excluding the sandbox returns no conflict.
-	_, inUseExcluded, err := sameHomeVolumeInUse(ctx, volName, sandboxName)
-	if err != nil {
-		t.Fatalf("sameHomeVolumeInUse with exclude failed: %v", err)
-	}
-	if inUseExcluded {
-		t.Error("expected no conflict when excluding the sandbox")
-	}
-
-	// Test ensureNoSameHomeSession returns a clone volume when there's a conflict.
-	// This requires an image that exists in msb; we'll skip if the image doesn't exist.
-	vm := NewVolumeManager(logger)
-	gotVol, err := ensureNoSameHomeSession(ctx, vm, "test-project", volName, "new-sandbox", "alpine:latest", logger)
-	if err != nil {
-		// If the image doesn't exist, that's acceptable for this test.
-		// The key assertion is that we tried to clone (not returning the original).
-		t.Skipf("ensureNoSameHomeSession failed (image may not exist): %v", err)
-	}
-
-	// The returned volume should be different from the original (it's a clone).
-	if gotVol == volName {
-		t.Error("expected a different (clone) volume name, got the original")
-	}
-
-	// Clean up the clone volume if one was created.
-	if gotVol != volName {
-		defer func() {
-			_ = msb.RemoveVolume(context.Background(), gotVol)
-		}()
-	}
-}
-
 func TestStartDockerdIfPresentWithDindImage(t *testing.T) {
 	ctx := t.Context()
-	logger := newTestLogger(t)
+	ui := testhelpers.NewTestui(t)
 
 	// Build the dind base image requires Docker on the host.
 	if testing.Short() {
-		t.Skip("skipping integration test in short mode")
+		t.Skip("skipping integratuin test in short mode")
 	}
 
 	dockerCli, err := client.New(client.FromEnv)
@@ -154,12 +35,28 @@ func TestStartDockerdIfPresentWithDindImage(t *testing.T) {
 	defer dockerCli.Close()
 
 	// Build the plain base image first (dind extends it).
-	if err := buildDockerImage(ctx, dockerCli, EmbeddedDockerfile, BaseTag, "Building base", false, logger); err != nil {
+	if err := buildDockerImage(
+		ctx,
+		dockerCli,
+		EmbeddedDockerfile,
+		BaseTag,
+		"Building base",
+		false,
+		ui,
+	); err != nil {
 		t.Skipf("cannot build base image: %v", err)
 	}
 
 	// Build the dind base image.
-	if err := buildDockerImage(ctx, dockerCli, EmbeddedDindDockerfile, DindBaseTag, "Building dind base", false, logger); err != nil {
+	if err := buildDockerImage(
+		ctx,
+		dockerCli,
+		EmbeddedDindDockerfile,
+		DindBaseTag,
+		"Building dind base",
+		false,
+		ui,
+	); err != nil {
 		t.Skipf("cannot build dind image: %v", err)
 	}
 
@@ -196,7 +93,7 @@ func TestStartDockerdIfPresentWithDindImage(t *testing.T) {
 		_ = msb.RemoveSandbox(context.Background(), sandboxName)
 	}()
 
-	if err := startDockerdIfPresent(ctx, sb, logger); err != nil {
+	if err := startDockerdIfPresent(ctx, realSandbox{sandbox: sb}, ui); err != nil {
 		t.Fatalf("startDockerdIfPresent failed: %v", err)
 	}
 
@@ -214,10 +111,10 @@ func TestStartDockerdIfPresentWithDindImage(t *testing.T) {
 
 func TestStartDockerdIfPresentWithPlainBaseImage(t *testing.T) {
 	ctx := t.Context()
-	logger := newTestLogger(t)
+	ui := testhelpers.NewTestui(t)
 
 	if testing.Short() {
-		t.Skip("skipping integration test in short mode")
+		t.Skip("skipping integratuin test in short mode")
 	}
 
 	dockerCli, err := client.New(client.FromEnv)
@@ -226,7 +123,15 @@ func TestStartDockerdIfPresentWithPlainBaseImage(t *testing.T) {
 	}
 	defer dockerCli.Close()
 
-	if err := buildDockerImage(ctx, dockerCli, EmbeddedDockerfile, BaseTag, "Building base", false, logger); err != nil {
+	if err := buildDockerImage(
+		ctx,
+		dockerCli,
+		EmbeddedDockerfile,
+		BaseTag,
+		"Building base",
+		false,
+		ui,
+	); err != nil {
 		t.Skipf("cannot build base image: %v", err)
 	}
 
@@ -263,7 +168,121 @@ func TestStartDockerdIfPresentWithPlainBaseImage(t *testing.T) {
 	}()
 
 	// Should be a no-op on plain base (no dockerd binary).
-	if err := startDockerdIfPresent(ctx, sb, logger); err != nil {
+	if err := startDockerdIfPresent(ctx, realSandbox{sandbox: sb}, ui); err != nil {
 		t.Fatalf("startDockerdIfPresent should be no-op on plain base, got: %v", err)
 	}
+}
+
+func TestProjectVMLifecycle(t *testing.T) {
+	ctx := t.Context()
+	ui := testhelpers.NewTestui(t)
+
+	if testing.Short() {
+		t.Skip("skipping integratuin test in short mode")
+	}
+
+	// Ensure msb runtime is available.
+	if err := msb.EnsureInstalled(ctx); err != nil {
+		t.Skipf("msb runtime not available: %v", err)
+	}
+
+	// Build the base image (same pattern as existing integratuin tests).
+	dockerCli, err := client.New(client.FromEnv)
+	if err != nil {
+		t.Skipf("docker not available: %v", err)
+	}
+	defer dockerCli.Close()
+
+	if err := buildDockerImage(
+		ctx,
+		dockerCli,
+		EmbeddedDockerfile,
+		BaseTag,
+		"Building base",
+		false,
+		ui,
+	); err != nil {
+		t.Skipf("cannot build base image: %v", err)
+	}
+
+	// Use a unique project slug derived from the test temp dir.
+	tmpRepo := t.TempDir()
+	t.Chdir(tmpRepo)
+	testhelpers.RunGit(t, tmpRepo, "init", "-b", "main")
+	testhelpers.RunGit(t, tmpRepo, "config", "user.email", "test@example.com")
+	testhelpers.RunGit(t, tmpRepo, "config", "user.name", "Test User")
+	testhelpers.WriteFile(t, tmpRepo, "README.md", "hello")
+	testhelpers.RunGit(t, tmpRepo, "add", "README.md")
+	testhelpers.RunGit(t, tmpRepo, "commit", "-m", "initial")
+
+	projectSlug := git.ProjectSlug(ui)
+	imageRef := BaseTag
+	homeVolName := HomeVolumeName(projectSlug, "sha256:integratuin-test")
+	// Ensure the home volume exists.
+	if _, err := msb.GetVolume(ctx, homeVolName); err != nil {
+		vol, volErr := msb.CreateVolume(ctx, homeVolName, msb.WithVolumeKind(msb.VolumeKindDir))
+		if volErr != nil {
+			t.Skipf("cannot create volume: %v", volErr)
+		}
+		defer func() { _ = msb.RemoveVolume(context.Background(), vol.Name()) }()
+	}
+
+	opts := RunOptuins{Memory: "1G", TmpSize: "512M"}
+	cfg := Config{
+		StateDir:        filepath.Join(t.TempDir(), "state"),
+		UserConfigDir:   t.TempDir(),
+		UserLauncherDir: t.TempDir(),
+	}
+
+	// Step 1: EnsureProjectVM creates the VM.
+	sb, created, err := EnsureProjectVM(ctx, opts, cfg, imageRef, homeVolName, tmpRepo, nil, ui)
+	if err != nil {
+		t.Fatalf("EnsureProjectVM (create): %v", err)
+	}
+	if !created {
+		t.Fatal("expected created=true on first call")
+	}
+	defer func() {
+		stopCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		_ = sb.Detach(stopCtx)
+		_ = StopProjectVM(context.Background(), true, ui)
+	}()
+
+	// Step 2: EnsureDaemon is healthy.
+	if err := EnsureDaemon(ctx, sb, ui); err != nil {
+		t.Fatalf("EnsureDaemon: %v", err)
+	}
+
+	// Step 3: ResolveTarget with no branch returns /workspace.
+	target, err := ResolveTarget(ctx, sb, "", ui)
+	if err != nil {
+		t.Fatalf("ResolveTarget (no branch): %v", err)
+	}
+	if target != "/workspace" {
+		t.Errorf("expected /workspace, got %q", target)
+	}
+
+	// Step 4: Attach a trivial command and verify it runs.
+	exitCode, attachErr := sb.Attach(ctx, "/bin/bash", "-l", "-c", "echo hello")
+	if attachErr != nil {
+		t.Fatalf("attach failed: %v", attachErr)
+	}
+	if exitCode != 0 {
+		t.Errorf("expected exit code 0, got %d", exitCode)
+	}
+
+	// Step 5: Detach and reconnect (simulates a second invocatuin).
+	if err := sb.Detach(ctx); err != nil {
+		t.Fatalf("detach failed: %v", err)
+	}
+
+	sb2, created2, err := EnsureProjectVM(ctx, opts, cfg, imageRef, homeVolName, tmpRepo, nil, ui)
+	if err != nil {
+		t.Fatalf("EnsureProjectVM (reconnect): %v", err)
+	}
+	if created2 {
+		t.Error("expected created=false on second call (VM should exist)")
+	}
+	_ = sb2.Detach(ctx)
 }

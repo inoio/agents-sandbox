@@ -7,18 +7,16 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
+	sysio "io"
 	"os"
-	"os/exec"
+	"path/filepath"
 	"strconv"
 	"strings"
 
 	"github.com/moby/moby/client"
 
 	"gitlab.inoio.de/inoio/opencode-msb/internal/git"
-	"gitlab.inoio.de/inoio/opencode-msb/internal/output"
-
-	msb "github.com/superradcompany/microsandbox/sdk/go"
+	"gitlab.inoio.de/inoio/opencode-msb/internal/stdio"
 )
 
 const (
@@ -30,7 +28,7 @@ const (
 type dockerClient interface {
 	ImageBuild(
 		ctx context.Context,
-		buildContext io.Reader,
+		buildContext sysio.Reader,
 		options client.ImageBuildOptions,
 	) (client.ImageBuildResult, error)
 	ImageInspect(
@@ -43,6 +41,15 @@ type dockerClient interface {
 		imageIDs []string,
 		saveOpts ...client.ImageSaveOption,
 	) (client.ImageSaveResult, error)
+	ImageRemove(
+		ctx context.Context,
+		imageID string,
+		opts client.ImageRemoveOptions,
+	) (client.ImageRemoveResult, error)
+	ImageTag(
+		ctx context.Context,
+		opts client.ImageTagOptions,
+	) (client.ImageTagResult, error)
 	Close() error
 }
 
@@ -109,14 +116,154 @@ func runnerTag(projectSlug string) string {
 	return "opencode-msb/runner-" + projectSlug + ":latest"
 }
 
-func EnsureImage(
+// envDir returns the project-local metadata directory for image env info.
+func envDir() string {
+	return ".opencode-msb"
+}
+
+// envMetaFile returns the JSON file path for image env metadata, keyed by the
+// stable tag so the data survives image rebuilds and docker prune.
+func envMetaFile(tag string) string {
+	return filepath.Join(envDir(), "image-env-"+tag+".json")
+}
+
+// storeImageEnv writes image env vars to a JSON file.
+// Survives docker prune and image rebuilds.
+func storeImageEnv(tag string, envs map[string]string) {
+	if tag == "" || len(envs) == 0 {
+		return
+	}
+	dir := envDir()
+	if err := os.MkdirAll(dir, 0o750); err != nil {
+		return
+	}
+	data, _ := json.Marshal(envs)
+	_ = os.WriteFile(envMetaFile(tag), data, 0o600)
+}
+
+// loadImageEnv reads a previously stored image env map from the cached JSON
+// file keyed by tag. Returns nil if no file exists.
+func loadImageEnv(tag string) map[string]string {
+	path := envMetaFile(tag)
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil
+	}
+	out := make(map[string]string)
+	if err := json.Unmarshal(data, &out); err != nil {
+		return nil
+	}
+	return out
+}
+
+// ensureRunnerImage checks the runner Docker image on disk, loads stored env
+// metadata as fallback when the image has been pruned, builds it if needed,
+// and returns the tag, digest, and image env map.
+func ensureRunnerImage(
 	ctx context.Context,
 	cli dockerClient,
 	dockerfile []byte,
 	projectSlug string,
 	force bool,
-	logger *output.Printer,
-) (string, string, error) {
+	ui stdio.UI,
+) (string, string, map[string]string, error) {
+	rTag := runnerTag(projectSlug)
+	var imageEnv map[string]string
+	var imageDigest string
+
+	if force {
+		imageEnv = make(map[string]string)
+	} else {
+		imageEnv, imageDigest = inspectExistingImage(ctx, cli, rTag, ui)
+	}
+
+	if imageEnv == nil {
+		imageEnv = make(map[string]string)
+	}
+
+	return buildRunnerImage(ctx, cli, rTag, imageEnv, imageDigest, dockerfile, force, projectSlug, ui)
+}
+
+// inspectExistingImage attempts to inspect the image on disk. If the image is
+// missing it falls back to stored env metadata. Returns (imageEnvs, digest).
+func inspectExistingImage(ctx context.Context, cli dockerClient, rTag string, ui stdio.UI) (map[string]string, string) {
+	imageEnv := make(map[string]string)
+	var imageDigest string
+
+	_, inspectErr := cli.ImageInspect(ctx, rTag)
+	if inspectErr != nil {
+		ui.Verbosef("image inspect failed (might be pruned): %v", inspectErr)
+		if cached := loadImageEnv(rTag); cached != nil {
+			imageEnv = cached
+			ui.Verbosef("using stored image env metadata for %s", rTag)
+		}
+		return imageEnv, imageDigest
+	}
+	inspect, err := cli.ImageInspect(ctx, rTag)
+	if err == nil {
+		imageDigest = inspect.ID
+		imageEnv = parseImageEnv(inspect.Config.Env)
+		storeImageEnv(rTag, imageEnv)
+		ui.Verbosef("inspected image %s with %d env vars", rTag, len(imageEnv))
+	}
+	return imageEnv, imageDigest
+}
+
+// buildRunnerImage builds the runner image and returns the rTag, digest, env map.
+func buildRunnerImage(
+	ctx context.Context,
+	cli dockerClient,
+	rTag string,
+	imageEnv map[string]string,
+	imageDigest string,
+	dockerfile []byte,
+	force bool,
+	projectSlug string,
+	ui stdio.UI,
+) (string, string, map[string]string, error) {
+	if len(imageEnv) == 0 {
+		imageEnv = make(map[string]string)
+	}
+
+	if err := buildDockerImage(ctx, cli, dockerfile, rTag, "Building runner image", force, ui); err != nil {
+		if len(imageEnv) > 0 {
+			ui.Warnf("build succeeded but inspect failed; using stored env metadata")
+			return rTag, imageDigest, imageEnv, nil
+		}
+		return "", "", nil, err
+	}
+	inspect, err := cli.ImageInspect(ctx, rTag)
+	if err != nil {
+		return "", "", nil, fmt.Errorf("cannot inspect built image: %w", err)
+	}
+	imageDigest = inspect.ID
+	imageEnv = parseImageEnv(inspect.Config.Env)
+	storeImageEnv(rTag, imageEnv)
+	ui.Verbosef("rebuilt image %s with %d env vars", rTag, len(imageEnv))
+
+	digestTag := ImageTag(projectSlug, imageDigest)
+	if digestTag != rTag {
+		if _, err := cli.ImageTag(ctx, client.ImageTagOptions{Source: rTag, Target: digestTag}); err != nil {
+			ui.Warnf("failed to tag image with digest: %v", err)
+		} else {
+			ui.Verbosef("tagged image with digest: %s", digestTag)
+		}
+	}
+
+	return rTag, imageDigest, imageEnv, nil
+}
+
+// ensureImageWithClient builds/inspects the runner Docker image using the
+// provided clients. Tests inject mock clients to verify build behavior.
+func ensureImageWithClient(
+	ctx context.Context,
+	client msbClient,
+	cli dockerClient,
+	dockerfile []byte,
+	projectSlug string,
+	force bool,
+	ui stdio.UI,
+) (string, string, map[string]string, error) {
 	if force || ReferencesBase(dockerfile) || ReferencesDindBase(dockerfile) {
 		if err := buildDockerImage(
 			ctx,
@@ -125,9 +272,9 @@ func EnsureImage(
 			BaseTag,
 			"Building base runner image",
 			force,
-			logger,
+			ui,
 		); err != nil {
-			return "", "", fmt.Errorf("building base image: %w", err)
+			return "", "", nil, fmt.Errorf("building base image: %w", err)
 		}
 	}
 
@@ -137,49 +284,72 @@ func EnsureImage(
 			cli,
 			EmbeddedDindDockerfile,
 			DindBaseTag,
-			"Building Docker-in-Docker base image",
+			"Building Docker-in-Docker base runner image",
 			force,
-			logger,
+			ui,
 		); err != nil {
-			return "", "", fmt.Errorf("building dind base image: %w", err)
+			return "", "", nil, fmt.Errorf("building dind base image: %w", err)
 		}
 	}
 
-	rTag := runnerTag(projectSlug)
-	if err := buildDockerImage(ctx, cli, dockerfile, rTag, "Building runner image", force, logger); err != nil {
-		return "", "", err
+	rTag, imageDigest, imageEnv, err := ensureRunnerImage(ctx, cli, dockerfile, projectSlug, force, ui)
+	if err != nil {
+		return "", "", nil, err
 	}
 
-	inspect, err := cli.ImageInspect(ctx, rTag)
-	if err != nil {
-		return "", "", fmt.Errorf("cannot inspect built image: %w", err)
-	}
-	imageDigest := inspect.ID
 	imageRef := ImageTag(projectSlug, imageDigest)
 
-	_, cacheErr := msb.Image.Get(ctx, imageRef)
+	cacheErr := client.ImageGet(ctx, imageRef)
 	if cacheErr == nil && !force {
-		return imageRef, imageDigest, nil
+		return imageRef, imageDigest, imageEnv, nil
 	}
 
-	spin := output.NewSpinner(logger)
-	spin.Start("Loading image into microsandbox")
+	spin := ui.Spinner("Loading image into microsandbox")
 	saveResult, err := cli.ImageSave(ctx, []string{rTag})
 	if err != nil {
 		spin.StopError(err)
-		return "", "", fmt.Errorf("cannot export Docker image: %w", err)
+		return "", "", nil, fmt.Errorf("cannot export Docker image: %w", err)
 	}
 	defer saveResult.Close()
 
-	cmd := exec.CommandContext(ctx, "msb", "load", "--tag", imageRef)
-	cmd.Stdin = saveResult
-	if out, err := cmd.CombinedOutput(); err != nil {
+	if err := client.ImageLoad(ctx, imageRef, saveResult); err != nil {
 		spin.StopError(err)
-		return "", "", fmt.Errorf("loading image into microsandbox failed: %w: %s", err, out)
+		return "", "", nil, err
 	}
 	spin.Stop()
 
-	return imageRef, imageDigest, nil
+	return imageRef, imageDigest, imageEnv, nil
+}
+
+// EnsureImage builds/inspects the runner Docker image and returns its tag,
+// digest, and the Dockerfile ENV directives baked into the image config as a
+// map. The env map is derived from cli.ImageInspect; if the image is no
+// longer on disk (e.g. after `docker prune`), it falls back to stored JSON
+// metadata written by a previous invokation.
+func EnsureImage(
+	ctx context.Context,
+	projectSlug string,
+	force bool,
+	ui stdio.UI,
+) (string, string, map[string]string, error) {
+	dockerfile := resolveDockerfile()
+	dockerCli, err := client.New(client.FromEnv)
+	if err != nil {
+		return "", "", nil, fmt.Errorf("cannot connect to Docker daemon (is dockerd running?): %w", err)
+	}
+	defer dockerCli.Close()
+
+	return ensureImageWithClient(ctx, newMsbClient(), dockerCli, dockerfile, projectSlug, force, ui)
+}
+
+func parseImageEnv(envs []string) map[string]string {
+	out := make(map[string]string, len(envs))
+	for _, e := range envs {
+		if i := strings.Index(e, "="); i > 0 {
+			out[e[:i]] = e[i+1:]
+		}
+	}
+	return out
 }
 
 func buildDockerImage(
@@ -188,10 +358,9 @@ func buildDockerImage(
 	dockerfile []byte,
 	tag, label string,
 	force bool,
-	logger *output.Printer,
+	ui stdio.UI,
 ) error {
-	spin := output.NewSpinner(logger)
-	spin.Start(label)
+	spin := ui.Spinner(label)
 
 	buildResp, err := cli.ImageBuild(ctx, dockerfileTar(dockerfile), client.ImageBuildOptions{
 		Tags:      []string{tag},
@@ -204,7 +373,7 @@ func buildDockerImage(
 		return fmt.Errorf("docker image build failed: %w", err)
 	}
 
-	buildErr := scanBuildOutput(buildResp.Body, logger)
+	buildErr := scanBuildOutput(buildResp.Body, ui)
 	_ = buildResp.Body.Close()
 	if buildErr != nil {
 		spin.StopError(buildErr)
@@ -218,12 +387,12 @@ func buildDockerImage(
 	return nil
 }
 
-func scanBuildOutput(r io.Reader, logger *output.Printer) error {
+func scanBuildOutput(r sysio.Reader, ui stdio.UI) error {
 	dec := json.NewDecoder(r)
 	for {
 		var msg dockerBuildMessage
 		if err := dec.Decode(&msg); err != nil {
-			if err == io.EOF {
+			if err == sysio.EOF {
 				return nil
 			}
 			return fmt.Errorf("unexpected Docker build output: %w", err)
@@ -234,8 +403,9 @@ func scanBuildOutput(r io.Reader, logger *output.Printer) error {
 		if msg.ErrorDetail.Message != "" {
 			return fmt.Errorf("%s", msg.ErrorDetail.Message)
 		}
-		if msg.Stream != "" {
-			logger.Debugf("%s", strings.TrimSuffix(msg.Stream, "\n"))
+		trimmedMsg := strings.Trim(msg.Stream, " \n")
+		if trimmedMsg != "" {
+			ui.Verbose(trimmedMsg)
 		}
 	}
 }

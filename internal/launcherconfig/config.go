@@ -6,37 +6,94 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
+	"strconv"
 	"strings"
+	"time"
 
+	"github.com/go-viper/mapstructure/v2"
 	"github.com/spf13/viper"
-	json5 "github.com/titanous/json5"
+	"github.com/titanous/json5"
 )
 
 // Config holds launcher-level defaults that can be set in
 // ~/.config/opencode-msb/config.* and .opencode-msb/config.*.
 type Config struct {
-	Yes     bool   `mapstructure:"yes"`
-	Verbose bool   `mapstructure:"verbose"`
-	Quiet   bool   `mapstructure:"quiet"`
-	CPUs    uint8  `mapstructure:"cpus"`
-	Memory  string `mapstructure:"memory"`
-	TmpSize string `mapstructure:"tmp-size"`
-	Rebuild bool   `mapstructure:"rebuild"`
+	Yes            bool          `mapstructure:"yes"`
+	Verbose        bool          `mapstructure:"verbose"`
+	Quiet          bool          `mapstructure:"quiet"`
+	CPUs           uint8         `mapstructure:"cpus"`
+	Memory         string        `mapstructure:"memory"`
+	TmpSize        string        `mapstructure:"tmp-size"`
+	Rebuild        bool          `mapstructure:"rebuild"`
+	AutoPruneAge   time.Duration `mapstructure:"auto-prune-age"`
+	ManualPruneAge time.Duration `mapstructure:"manual-prune-age"`
 }
 
 const (
-	extJSON5 = ".json5"
-	extJSONC = ".jsonc"
+	extJSON5          = ".json5"
+	extJSONC          = ".jsonc"
+	keyAutoPruneAge   = "auto-prune-age"
+	keyManualPruneAge = "manual-prune-age"
 )
 
 //nolint:gochecknoglobals // package-level constant slice
 var supportedExts = []string{".yaml", ".yml", ".json", extJSONC, extJSON5}
+
+// ParseHumanDuration parses duration strings like "7d", "2w", "6h", "30m"
+// into time.Duration. Go's time.ParseDuration supports ns/us/ms/s/m/h
+// but not "d" (days) or "w" (weeks).
+func ParseHumanDuration(s string) (time.Duration, bool) {
+	s = strings.TrimSpace(s)
+	switch {
+	case strings.HasSuffix(s, "w"):
+		num, err := strconv.ParseInt(s[:len(s)-1], 10, 64)
+		if err != nil {
+			return 0, false
+		}
+		return time.Duration(num) * 7 * 24 * time.Hour, true
+	case strings.HasSuffix(s, "d"):
+		num, err := strconv.ParseInt(s[:len(s)-1], 10, 64)
+		if err != nil {
+			return 0, false
+		}
+		return time.Duration(num) * 24 * time.Hour, true
+	}
+	d, err := time.ParseDuration(s)
+	if err == nil {
+		return d, true
+	}
+	return 0, false
+}
+
+func durationDecodeHook() mapstructure.DecodeHookFunc {
+	return func(f reflect.Type, t reflect.Type, data any) (any, error) {
+		if f.Kind() != reflect.String {
+			return data, nil
+		}
+		if t.Kind() != reflect.Interface && t != reflect.TypeFor[time.Duration]() {
+			return data, nil
+		}
+		str, ok := data.(string)
+		if !ok {
+			return data, nil
+		}
+		if d, ok := ParseHumanDuration(str); ok {
+			return d, nil
+		}
+		if d, err := time.ParseDuration(str); err == nil {
+			return d, nil
+		}
+		return data, nil
+	}
+}
 
 // Load reads launcher config files from userDir and projectDir. Missing files
 // are ignored. Project values override user values. The returned map contains
 // the top-level keys that were explicitly set in either file.
 func Load(userDir, projectDir string) (Config, map[string]bool, error) {
 	v := viper.New()
+
 	if err := mergeDir(v, userDir); err != nil {
 		return Config{}, nil, err
 	}
@@ -47,7 +104,12 @@ func Load(userDir, projectDir string) (Config, map[string]bool, error) {
 		return Config{}, nil, err
 	}
 	var cfg Config
-	if err := v.Unmarshal(&cfg); err != nil {
+	if err := v.Unmarshal(&cfg, viper.DecodeHook(
+		mapstructure.ComposeDecodeHookFunc(
+			durationDecodeHook(),
+			mapstructure.StringToTimeDurationHookFunc(),
+		),
+	)); err != nil {
 		return Config{}, nil, fmt.Errorf("decode launcher config: %w", err)
 	}
 	keys := make(map[string]bool, len(v.AllSettings()))
@@ -109,12 +171,40 @@ func configType(ext string) string {
 }
 
 func validate(v *viper.Viper) error {
+	// prune-age validation does not gate on cpus being set, so run it
+	// before the cpus early-exit below.
+	if err := validatePruneAges(v); err != nil {
+		return err
+	}
 	if !v.IsSet("cpus") {
 		return nil
 	}
 	cpus := v.GetInt("cpus")
 	if cpus < 0 || cpus > 255 {
 		return fmt.Errorf("launcher config cpus must be between 0 and 255, got %d", cpus)
+	}
+	return nil
+}
+
+func validatePruneAges(v *viper.Viper) error {
+	for _, key := range []string{keyAutoPruneAge, keyManualPruneAge} {
+		if !v.IsSet(key) {
+			continue
+		}
+		d := v.GetDuration(key)
+		if d > 0 {
+			continue
+		}
+		// viper's GetDuration returned 0 — check if the raw value is a
+		// "7d"-style string that the decode hook failed to convert.
+		if s, ok := v.Get(key).(string); ok {
+			if parsed, ok := ParseHumanDuration(s); ok {
+				d = parsed
+			}
+		}
+		if d <= 0 {
+			return fmt.Errorf("launcher config %s must be > 0, got %v", key, d)
+		}
 	}
 	return nil
 }

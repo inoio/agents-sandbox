@@ -34,7 +34,7 @@ Add log levels (Normal, Verbose, Quiet) to the logger, including a new `Debug` m
 - Modify: `internal/log/spinner_test.go`
 
 **Interfaces:**
-- Produces: `log.Level` type, `log.NewWithLevel(w io.Writer, color bool, level Level) *Logger`, `(*Logger).Debug(msg string)`, `(*Logger).Level() Level`
+- Produces: `log.Level` type, `log.NewWithLevel(w ui.Writer, color bool, level Level) *Logger`, `(*Logger).Debug(msg string)`, `(*Logger).Level() Level`
 
 - [ ] **Step 1: Write failing tests for Debug method and level filtering**
 
@@ -166,16 +166,16 @@ const (
 )
 
 type Logger struct {
-	w     io.Writer
+	w     ui.Writer
 	color bool
 	level Level
 }
 
-func New(w io.Writer, color bool) *Logger {
+func New(w ui.Writer, color bool) *Logger {
 	return &Logger{w: w, color: color, level: LevelNormal}
 }
 
-func NewWithLevel(w io.Writer, color bool, level Level) *Logger {
+func NewWithLevel(w ui.Writer, color bool, level Level) *Logger {
 	return &Logger{w: w, color: color, level: level}
 }
 
@@ -246,7 +246,7 @@ In `internal/log/spinner.go`, add `level Level` field to the `Spinner` struct (a
 
 ```go
 type Spinner struct {
-	w      io.Writer
+	w      ui.Writer
 	color  bool
 	level  Level
 	msg    string
@@ -579,7 +579,7 @@ Update `RunOptions` struct (remove `ImageRebuild`, `TestRun`; rename `ImageRebui
 - Produces: `sandbox.Shell(ctx context.Context, opts RunOptions, cfg Config, logger *log.Logger) error` (stub, implemented in Task 5)
 - Produces: `buildRootCmd() *cobra.Command` — testable root command construction
 - Produces: `isKnownSubcommand(arg string, root *cobra.Command) bool` — uses cobra registry
-- Produces: `printTree(w io.Writer, cmd *cobra.Command, prefix string)` — tree printer for `--tree`
+- Produces: `printTree(w ui.Writer, cmd *cobra.Command, prefix string)` — tree printer for `--tree`
 
 - [ ] **Step 1: Write failing tests for CLI helpers**
 
@@ -938,7 +938,7 @@ func isKnownSubcommand(arg string, root *cobra.Command) bool {
 	return false
 }
 
-func printTree(w io.Writer, cmd *cobra.Command, prefix string) {
+func printTree(w ui.Writer, cmd *cobra.Command, prefix string) {
 	subs := cmd.Commands()
 	for i, sub := range subs {
 		isLast := i == len(subs)-1

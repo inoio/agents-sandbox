@@ -199,7 +199,7 @@ git commit -m "feat: add HashID base62 hash function"
 
 **Interfaces:**
 - Consumes: `HashID(input string) string` from Task 1, `gitCommonDir(cwd string) (string, error)` (existing)
-- Produces: `ProjectSlug(logger *output.Printer) string` — returns `<sanitized-folder-name>-<8b62>` (was `p-<8hex>`). The folder name comes from the repo root directory (`filepath.Base(filepath.Dir(commonDir))`), or CWD basename if not a repo. The hash is `HashID(absCommonDir)`.
+- Produces: `ProjectSlug(ui *stdio.IO) string` — returns `<sanitized-folder-name>-<8b62>` (was `p-<8hex>`). The folder name comes from the repo root directory (`filepath.Base(filepath.Dir(commonDir))`), or CWD basename if not a repo. The hash is `HashID(absCommonDir)`.
 
 **Background:** The current `ProjectSlug` returns `p-<8hex>` — a bare hash with no project name. The new format embeds a human-readable folder name for readability, with the hash disambiguating projects that share a folder name. `sanitizeFolderName` lowercases, replaces non-alphanumeric with `-`, collapses consecutive `-`, trims leading/trailing `-`, and caps at 20 chars.
 
@@ -326,7 +326,7 @@ func sanitizeFolderName(name string) string {
 Replace the existing `ProjectSlug` function:
 
 ```go
-func ProjectSlug(logger *output.Printer) string {
+func ProjectSlug(ui *stdio.IO) string {
 	commonDir, err := gitCommonDir(".")
 	if err != nil || commonDir == "" {
 		cwd, _ := filepath.Abs(".")
@@ -471,7 +471,7 @@ func EnsureImage(
 	dockerfile []byte,
 	projectSlug string,
 	force bool,
-	logger *output.Printer,
+	ui *stdio.IO,
 ) (string, string, error) {
 	if force || ReferencesBase(dockerfile) {
 		if err := buildDockerImage(
@@ -561,7 +561,7 @@ imageRef, imageDigest, err := EnsureImage(ctx, dockerCli, dockerfile, projectSlu
 Update `BuildImage` to compute `projectSlug` and pass it:
 
 ```go
-func BuildImage(ctx context.Context, force bool, logger *output.Printer) error {
+func BuildImage(ctx context.Context, force bool, ui *stdio.IO) error {
 	if !CheckDocker(logger) {
 		return errors.New("docker not available")
 	}
@@ -944,7 +944,7 @@ func ensureNoSameHomeSession(
 	ctx context.Context,
 	vm *VolumeManager,
 	projectSlug, homeVol, excludeSandbox, imageRef string,
-	logger *output.Printer,
+	ui *stdio.IO,
 ) (string, error) {
 	inUseBy, inUse, err := sameHomeVolumeInUse(ctx, homeVol, excludeSandbox)
 	if err != nil {
