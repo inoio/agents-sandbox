@@ -396,6 +396,7 @@ func Prune(
 			}
 		}
 		report.PrunedTaskSandboxes++
+		report.Details = append(report.Details, entry)
 	}
 
 	return report, nil
@@ -485,6 +486,13 @@ func pruneCloneVolumes(
 			}
 		}
 		report.PrunedCloneVolumes++
+		report.Details = append(report.Details, StaleEntry{
+			Type:     "clone-volume",
+			Name:     cv,
+			Slug:     slug,
+			StaleFor: time.Duration(10),
+			Digest:   "???",
+		})
 	}
 	return report, true
 }
@@ -509,6 +517,7 @@ func pruneStaleCascade(
 		}
 	}
 	report.PrunedVMs++
+	report.Details = append(report.Details, entry)
 	removeHomeVolumes(ctx, client, slug, homeBySlugDigest, dryRun, ui, report)
 	removeMSBImages(ctx, client, slug, msbImagesBySlug, dryRun, ui, report)
 	removeDockerImages(ctx, slug, cli, msbImagesBySlug, dryRun, ui, report)
@@ -557,6 +566,13 @@ func pruneActiveVMHomeVolumes(
 				}
 			}
 			report.PrunedVolumes++
+			report.Details = append(report.Details, StaleEntry{
+				Type:     "volume",
+				Name:     volName,
+				Slug:     slug,
+				StaleFor: time.Duration(10),
+				Digest:   digest,
+			})
 		}
 	}
 }
@@ -582,6 +598,13 @@ func pruneActiveVMMSBImages(
 			}
 		}
 		report.PrunedMSBImages++
+		report.Details = append(report.Details, StaleEntry{
+			Type:     "msb-image",
+			Name:     img.ref,
+			Slug:     slug,
+			StaleFor: time.Duration(10),
+			Digest:   img.digest,
+		})
 	}
 }
 
@@ -606,11 +629,18 @@ func pruneActiveVMDockerImages(
 				client.ImageRemoveOptions{PruneChildren: true},
 			)
 			if err != nil {
-				ui.Warnf("failed to remove docker image %s: %v", dockerRef, err)
+				ui.Verbosef("failed to remove docker image %s: %v", dockerRef, err)
 				continue
 			}
 		}
 		report.PrunedDockerImages++
+		report.Details = append(report.Details, StaleEntry{
+			Type:     "docker-image",
+			Name:     img.ref,
+			Slug:     slug,
+			StaleFor: time.Duration(10),
+			Digest:   img.digest,
+		})
 	}
 }
 
@@ -627,7 +657,7 @@ func pruneCloneVolume(
 	ui stdio.UI,
 	report *StaleReport,
 ) {
-	slug, _ := extractProjectSlugAndDigest(cv)
+	slug, digest := extractProjectSlugAndDigest(cv)
 	if staleVMs != nil && staleVMs[slug] {
 		return
 	}
@@ -641,6 +671,13 @@ func pruneCloneVolume(
 		}
 	}
 	report.PrunedCloneVolumes++
+	report.Details = append(report.Details, StaleEntry{
+		Type:     "clone-volume",
+		Name:     cv,
+		Slug:     slug,
+		StaleFor: time.Duration(10),
+		Digest:   digest,
+	})
 }
 
 func stripDockerHostPrefix(ref string) string {
@@ -678,7 +715,7 @@ func removeHomeVolumes(
 	report *StaleReport,
 ) {
 	if vols, ok := homeBySlugDigest[slug]; ok {
-		for _, volName := range vols {
+		for digest, volName := range vols {
 			if !dryRun {
 				if err := client.RemoveVolume(ctx, volName); err != nil {
 					ui.Warnf("failed to remove home volume %s: %v", volName, err)
@@ -686,6 +723,13 @@ func removeHomeVolumes(
 				}
 			}
 			report.PrunedVolumes++
+			report.Details = append(report.Details, StaleEntry{
+				Type:     "volume",
+				Name:     volName,
+				Slug:     slug,
+				StaleFor: time.Duration(10),
+				Digest:   digest,
+			})
 		}
 	}
 }
@@ -707,6 +751,13 @@ func removeMSBImages(
 			}
 		}
 		report.PrunedMSBImages++
+		report.Details = append(report.Details, StaleEntry{
+			Type:     "msb-image",
+			Name:     img.ref,
+			Slug:     slug,
+			StaleFor: time.Duration(10),
+			Digest:   img.digest,
+		})
 	}
 }
 
@@ -727,10 +778,17 @@ func removeDockerImages(
 				client.ImageRemoveOptions{PruneChildren: true},
 			)
 			if err != nil {
-				ui.Warnf("failed to remove docker image %s: %v", dockerRef, err)
+				ui.Verbosef("failed to remove docker image %s: %v", dockerRef, err)
 				continue
 			}
 		}
 		report.PrunedDockerImages++
+		report.Details = append(report.Details, StaleEntry{
+			Type:     "docker-image",
+			Name:     img.ref,
+			Slug:     slug,
+			StaleFor: time.Duration(10),
+			Digest:   img.digest,
+		})
 	}
 }
