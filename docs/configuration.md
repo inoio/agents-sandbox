@@ -6,11 +6,11 @@ opencode-msb supports configuration at two levels: user-level defaults and proje
 
 Place files under `~/.config/opencode-msb/` to set defaults for all projects:
 
-| File                           | Purpose                                           |
-|--------------------------------|---------------------------------------------------|
-| `~/.config/opencode-msb/env`            | Environment variables forwarded to every sandbox  |
-| `~/.config/opencode-msb/env.secret`     | Secret environment variables (see [Secrets](#secrets)) |
-| `~/.config/opencode-msb/config.*`       | Launcher defaults for CLI flags                   |
+| File                                | Purpose                                                |
+|-------------------------------------|--------------------------------------------------------|
+| `~/.config/opencode-msb/env`        | Environment variables forwarded to every sandbox       |
+| `~/.config/opencode-msb/env.secret` | Secret environment variables (see [Secrets](#secrets)) |
+| `~/.config/opencode-msb/config.*`   | Launcher defaults for CLI flags                        |
 
 `env` and `env.secret` use `KEY=value` format (see [Environment Variables](#environment-variables) and [Secrets](#secrets) below).
 
@@ -18,17 +18,17 @@ Supported launcher config filenames: `config.yaml`, `config.yml`, `config.json`,
 
 ### Launcher config fields
 
-| Field              | CLI flag        | Description                                    |
-|--------------------|-----------------|------------------------------------------------|
-| `yes`              | `--yes` / `-y`  | Assume yes to all prompts                      |
-| `verbose`          | `--verbose` / `-v` | Show debug-level output                    |
-| `quiet`            | `--quiet` / `-q`  | Suppress non-error output                  |
-| `rebuild`          | `--rebuild` / `-r` | Rebuild runner image before starting       |
-| `cpus`             | `--cpus` / `-c`  | Number of vCPUs for the VM                  |
-| `memory`           | `--memory` / `-m` | Memory limit (e.g. `8G`)                   |
-| `tmp-size`         | `--tmp-size`     | Size of `/tmp` tmpfs in the sandbox          |
-| `auto-prune-age`   | —               | Accepted but unused (hardcoded 7-day default) |
-| `manual-prune-age` | `--age`          | Default prune age threshold for `prune` cmd   |
+| Field              | CLI flag           | Description                                   |
+|--------------------|--------------------|-----------------------------------------------|
+| `yes`              | `--yes` / `-y`     | Assume yes to all prompts                     |
+| `verbose`          | `--verbose` / `-v` | Show debug-level output                       |
+| `quiet`            | `--quiet` / `-q`   | Suppress non-error output                     |
+| `rebuild`          | `--rebuild` / `-r` | Rebuild runner image before starting          |
+| `cpus`             | `--cpus` / `-c`    | Number of vCPUs for the VM                    |
+| `memory`           | `--memory` / `-m`  | Memory limit (e.g. `8G`)                      |
+| `tmp-size`         | `--tmp-size`       | Size of `/tmp` tmpfs in the sandbox           |
+| `auto-prune-age`   | —                  | Accepted but unused (hardcoded 7-day default) |
+| `manual-prune-age` | `--age`            | Default prune age threshold for `prune` cmd   |
 
 Example `~/.config/opencode-msb/config.yaml`:
 
