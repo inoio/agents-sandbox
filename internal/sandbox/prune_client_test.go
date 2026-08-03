@@ -247,13 +247,6 @@ func (m *mockSandbox) FS() sandboxFS {
 	return nil
 }
 
-func (m *mockSandbox) Fs() fsLister {
-	if f, ok := m.fsValue.(fsLister); ok {
-		return f
-	}
-	return nil
-}
-
 func (m *mockSandbox) Shell(_ context.Context, command string, _ ...msb.ExecOption) (shellResult, error) {
 	if m.shellErr != nil {
 		return nil, m.shellErr
@@ -333,10 +326,7 @@ type mockFs struct {
 
 func (f *mockFs) Mkdir(_ context.Context, _ string) error           { return nil }
 func (f *mockFs) Write(_ context.Context, _ string, _ []byte) error { return nil }
-func (f *mockFs) Read(
-	_ context.Context,
-	path string,
-) ([]byte, error) {
+func (f *mockFs) Read(_ context.Context, path string) ([]byte, error) {
 	if f.readErr != nil {
 		return nil, f.readErr
 	}
@@ -345,15 +335,26 @@ func (f *mockFs) Read(
 	}
 	return nil, fmt.Errorf("file not found: %s", path)
 }
-func (f *mockFs) List(ctx context.Context, _ string) ([]msb.FsEntry, error) {
+func (f *mockFs) List(_ context.Context, _ string) ([]msb.FsEntry, error) {
 	if f.listErr != nil {
 		return nil, f.listErr
 	}
-	_ = ctx
 	return f.list, nil
 }
-func (f *mockFs) Remove(_ context.Context, _ string) error {
-	return nil
+func (f *mockFs) Remove(_ context.Context, _ string) error { return nil }
+func (f *mockFs) Exists(_ context.Context, path string) (bool, error) {
+	_, ok := f.files[path]
+	return ok, nil
+}
+func (f *mockFs) Stat(_ context.Context, _ string) (*msb.FsStat, error) { return nil, nil }
+func (f *mockFs) ReadString(_ context.Context, path string) (string, error) {
+	if d, ok := f.files[path]; ok {
+		return string(d), nil
+	}
+	return "", fmt.Errorf("file not found: %s", path)
+}
+func (f *mockFs) ReadStream(_ context.Context, _ string) (*msb.FsReadStream, error) {
+	return nil, nil
 }
 
 // mockVolumeHandle implements msbVolumeHandle for tests.
