@@ -346,6 +346,8 @@ func stopOrKillProjectVM(
 	if remove {
 		if err := handle.Remove(ctx); err != nil {
 			ui.Warnf("failed to remove sandbox state: %v", err)
+		} else {
+			ui.Verbosef("persisted state removed: %s", name)
 		}
 	}
 	return nil
