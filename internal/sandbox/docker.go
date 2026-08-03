@@ -45,6 +45,12 @@ func startDockerdIfPresent(ctx context.Context, sb msbSandbox, ui stdio.UI) erro
 		case <-ctx.Done():
 			return ctx.Err()
 		case <-time.After(dockerdPollInterval):
+			if out != nil {
+				ui.Verbosef("dockerd readiness: err=%v, exit=%d, stdout=%q, stderr=%q",
+					err, out.ExitCode(), out.Stdout(), out.Stderr())
+			} else {
+				ui.Verbosef("dockerd readiness: err=%v", err)
+			}
 		}
 	}
 	return errors.New("dockerd did not become ready within " + dockerdReadyTimeout.String())
