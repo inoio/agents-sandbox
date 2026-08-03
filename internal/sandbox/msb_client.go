@@ -2,6 +2,7 @@ package sandbox
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os/exec"
@@ -638,8 +639,10 @@ func (m *mockFsLister) Exists(_ context.Context, _ string) (bool, error) {
 	return false, nil
 }
 
+var ErrMockFsListerStat = errors.New("stat not implemented")
+
 func (m *mockFsLister) Stat(_ context.Context, _ string) (*msb.FsStat, error) {
-	return nil, nil
+	return nil, ErrMockFsListerStat
 }
 
 func (m *mockFsLister) Mkdir(_ context.Context, _ string) error {
