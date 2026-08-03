@@ -1,14 +1,10 @@
 package main
 
 import (
-	"context"
 	"errors"
-	"io"
 	"os/exec"
 	"slices"
 	"testing"
-
-	"github.com/moby/moby/client"
 
 	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox"
 	"gitlab.inoio.de/inoio/opencode-msb/internal/stdio"
@@ -64,7 +60,12 @@ func TestBuildBuildCmd(t *testing.T) {
 		}
 
 		ui := &stdio.Mock{}
-		errClient := &dockerErrorClient{}
+		errClient := newErrorDockerClient(
+			errors.New("simulated build failure"),
+			errors.New("simulated build failure"),
+			errors.New("simulated build failure"),
+			nil,
+		)
 
 		origFactory := sandbox.SetBuildImageDockerClient(
 			func() (sandbox.DockerClient, error) { return errClient, nil },
@@ -124,50 +125,4 @@ func TestBuildBuildCmd(t *testing.T) {
 			t.Errorf("dry-run should not spawn spinner; got: %v", ui.SpinnerCalls)
 		}
 	})
-}
-
-var _ sandbox.DockerClient = (*dockerErrorClient)(nil)
-
-// dockerErrorClient implements sandbox.DockerClient, always returning errors
-// from ImageBuild to simulate a build failure for testing.
-type dockerErrorClient struct{}
-
-func (d *dockerErrorClient) ImageBuild(
-	_ context.Context,
-	_ io.Reader,
-	_ client.ImageBuildOptions,
-) (client.ImageBuildResult, error) {
-	return client.ImageBuildResult{}, errors.New("simulated build failure")
-}
-
-func (d *dockerErrorClient) ImageInspect(
-	_ context.Context,
-	_ string,
-	_ ...client.ImageInspectOption,
-) (client.ImageInspectResult, error) {
-	return client.ImageInspectResult{}, errors.New("simulated build failure")
-}
-
-func (d *dockerErrorClient) ImageSave(
-	_ context.Context,
-	_ []string,
-	_ ...client.ImageSaveOption,
-) (client.ImageSaveResult, error) {
-	return nil, errors.New("simulated build failure")
-}
-
-func (d *dockerErrorClient) ImageRemove(
-	_ context.Context,
-	_ string,
-	_ client.ImageRemoveOptions,
-) (client.ImageRemoveResult, error) {
-	return client.ImageRemoveResult{}, nil
-}
-
-func (d *dockerErrorClient) ImageTag(_ context.Context, _ client.ImageTagOptions) (client.ImageTagResult, error) {
-	return client.ImageTagResult{}, nil
-}
-
-func (d *dockerErrorClient) Close() error {
-	return nil
 }
