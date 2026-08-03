@@ -65,7 +65,7 @@ func filterImages(handles []imageHandle) []string {
 }
 
 func ListSandboxes(ctx context.Context) ([]Info, error) {
-	handles, err := newMsbClient().ListSandboxes(ctx)
+	handles, err := NewMsbClient().ListSandboxes(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("list sandboxes: %w", err)
 	}
@@ -84,7 +84,7 @@ func ListSandboxes(ctx context.Context) ([]Info, error) {
 }
 
 func ListVolumes(ctx context.Context) ([]VolumeInfo, error) {
-	handles, err := newMsbClient().ListVolumes(ctx)
+	handles, err := NewMsbClient().ListVolumes(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("list volumes: %w", err)
 	}
@@ -104,7 +104,7 @@ func ListVolumes(ctx context.Context) ([]VolumeInfo, error) {
 }
 
 func ListImages(ctx context.Context) ([]ImageInfo, error) {
-	handles, err := newMsbClient().ImageList(ctx)
+	handles, err := NewMsbClient().ImageList(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("list images: %w", err)
 	}
