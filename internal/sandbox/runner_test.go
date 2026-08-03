@@ -301,9 +301,9 @@ func TestBuildAttachCommandWorktreeTarget(t *testing.T) {
 func TestReadVMFilesUsesSDKFs(t *testing.T) {
 	data := []byte("test-config-data")
 	gitignore := []byte("node_modules/\n")
-	sb := &mockSandbox{
-		name: "test-vm",
-		fsValue: &mockFs{
+	sb := &MockSandbox{
+		Name_: "test-vm",
+		FSValue_: &mockFs{
 			files: map[string][]byte{
 				"/home/dev/.config/opencode/thing.json": data,
 				"/home/dev/.config/opencode/.gitignore": gitignore,
@@ -325,9 +325,9 @@ func TestReadVMFilesUsesSDKFs(t *testing.T) {
 }
 
 func TestReadVMFilesSkipsDirectories(t *testing.T) {
-	sb := &mockSandbox{
-		name: "test-vm",
-		fsValue: &mockFs{
+	sb := &MockSandbox{
+		Name_: "test-vm",
+		FSValue_: &mockFs{
 			files: map[string][]byte{
 				"/home/dev/.config/opencode/file.txt": []byte("hello"),
 			},
@@ -348,9 +348,9 @@ func TestReadVMFilesSkipsDirectories(t *testing.T) {
 }
 
 func TestReadVMFilesEmptyDir(t *testing.T) {
-	sb := &mockSandbox{
-		name: "test-vm",
-		fsValue: &mockFs{
+	sb := &MockSandbox{
+		Name_: "test-vm",
+		FSValue_: &mockFs{
 			list: nil,
 		},
 	}

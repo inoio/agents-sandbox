@@ -35,7 +35,7 @@ func TestNewVolumeManager(t *testing.T) {
 func TestPrefillVolumeRunsCopyCommand(t *testing.T) {
 	testUI := testutil.NewTestio(t)
 	ui := &testUI
-	client := &mockMsbClient{}
+	client := &MockMsbClient{}
 	vm := NewVolumeManager(ui)
 
 	err := vm.prefillVolume(
