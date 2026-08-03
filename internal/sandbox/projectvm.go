@@ -341,7 +341,11 @@ func stopOrKillProjectVM(
 		return fmt.Errorf("%s sandbox %q: %w", action, name, err)
 	}
 	spin.Stop()
-	ui.Infof("%s project VM: %s", action+"ed", name)
+	pastTense := action + "ed"
+	if action == "stop" {
+		pastTense = "stopped" //nolint:goconst // singular English spelling fix
+	}
+	ui.Infof("%s project VM: %s", pastTense, name)
 
 	if remove {
 		if err := handle.Remove(ctx); err != nil {
