@@ -516,6 +516,16 @@ func (m *MockMsbClient) ImageLoad(_ context.Context, ref string, _ io.Reader) er
 	return m.imageLoadErr
 }
 
+// SetGetSandboxErr sets the error returned by MockMsbClient.GetSandbox.
+func (m *MockMsbClient) SetGetSandboxErr(err error) {
+	m.getSandboxErr = err
+}
+
+// SetGotSandbox sets the sandbox handle returned by MockMsbClient.GetSandbox.
+func (m *MockMsbClient) SetGotSandbox(h SandboxHandle) {
+	m.gotSandbox = h
+}
+
 // MockSandboxHandle is a test double for SandboxHandle.
 //
 //nolint:revive // underscore suffix avoids Go field/method name conflicts (e.g. Status/Status())
