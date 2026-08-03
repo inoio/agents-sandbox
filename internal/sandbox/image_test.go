@@ -178,7 +178,7 @@ func TestEnsureImageReturnsErrorWhenBuildFails(t *testing.T) {
 	l := &stdio.Mock{}
 	_, _, _, err := ensureImageWithClient(
 		context.Background(),
-		&mockMsbClient{},
+		&MockMsbClient{},
 		&failingDockerClient{},
 		EmbeddedDockerfile,
 		"test-project",
@@ -359,7 +359,7 @@ func TestEnsureImageBuildsDindBaseWhenDockerfileReferencesDind(t *testing.T) {
 	dockerfile := []byte("FROM opencode-msb/runner-base-dind:latest\nRUN echo hi\n")
 	_, _, _, err := ensureImageWithClient(
 		context.Background(),
-		&mockMsbClient{},
+		&MockMsbClient{},
 		cli,
 		dockerfile,
 		"test-project",
@@ -380,7 +380,7 @@ func TestEnsureImageDoesNotBuildDindForPlainBase(t *testing.T) {
 	dockerfile := []byte("FROM opencode-msb/runner-base:latest\nRUN echo hi\n")
 	_, _, _, err := ensureImageWithClient(
 		context.Background(),
-		&mockMsbClient{},
+		&MockMsbClient{},
 		cli,
 		dockerfile,
 		"test-project",
@@ -401,7 +401,7 @@ func TestEnsureImageDoesNotBuildDindOnForceWithoutReference(t *testing.T) {
 	dockerfile := []byte("FROM debian:trixie-slim\nRUN echo hi\n")
 	_, _, _, err := ensureImageWithClient(
 		context.Background(),
-		&mockMsbClient{},
+		&MockMsbClient{},
 		cli,
 		dockerfile,
 		"test-project",
@@ -419,7 +419,7 @@ func TestEnsureImageDoesNotBuildDindOnForceWithoutReference(t *testing.T) {
 
 func TestEnsureImageLoadsIntoMSBWhenNotCached(t *testing.T) {
 	cli := &imageInspectDockerClient{inspectID: "sha256:abc123"}
-	msbClient := &mockMsbClient{
+	msbClient := &MockMsbClient{
 		imageGetErr: errors.New("image not in cache"),
 	}
 	dockerfile := []byte("FROM opencode-msb/runner-base:latest\nRUN echo hi\n")

@@ -4,9 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
-	"fmt"
 	"io"
-	"strings"
 	"testing"
 	"time"
 
@@ -16,382 +14,6 @@ import (
 
 	"gitlab.inoio.de/inoio/opencode-msb/internal/stdio"
 )
-
-// mockMsbClient is a test double for msbClient.
-type mockMsbClient struct {
-	sandboxes []msbSandboxHandle
-	volumes   []msbVolumeHandle
-	images    []msbImageHandle
-
-	createdSandboxes []string
-	removedSandboxes []string
-	removedVolumes   []string
-	removedImages    []struct {
-		ref   string
-		force bool
-	}
-	loadedImages []string
-
-	ensureInstalledErr error
-	getSandboxErr      error
-	createSandboxErr   error
-	listSandboxesErr   error
-	getVolumeErr       error
-	createVolumeErr    error
-	listVolumesErr     error
-	listImagesErr      error
-	removeSandboxErr   error
-	removeVolumeErr    error
-	removeImageErr     error
-	imageGetErr        error
-	imageLoadErr       error
-
-	createdSandbox msbSandbox
-	gotSandbox     msbSandboxHandle
-	gotVolume      msbVolumeHandle
-}
-
-func (m *mockMsbClient) EnsureInstalled(_ context.Context) error {
-	return m.ensureInstalledErr
-}
-
-func (m *mockMsbClient) GetSandbox(_ context.Context, name string) (msbSandboxHandle, error) {
-	if m.getSandboxErr != nil {
-		return nil, m.getSandboxErr
-	}
-	if m.gotSandbox != nil {
-		return m.gotSandbox, nil
-	}
-	return nil, &msb.Error{Kind: msb.ErrSandboxNotFound, Message: name}
-}
-
-func (m *mockMsbClient) CreateSandbox(_ context.Context, name string, _ ...msb.SandboxOption) (msbSandbox, error) {
-	m.createdSandboxes = append(m.createdSandboxes, name)
-	if m.createSandboxErr != nil {
-		return nil, m.createSandboxErr
-	}
-	if m.createdSandbox != nil {
-		return m.createdSandbox, nil
-	}
-	return &mockSandbox{name: name}, nil
-}
-
-func (m *mockMsbClient) ListSandboxes(_ context.Context) ([]msbSandboxHandle, error) {
-	if m.listSandboxesErr != nil {
-		return nil, m.listSandboxesErr
-	}
-	return m.sandboxes, nil
-}
-
-func (m *mockMsbClient) RemoveSandbox(_ context.Context, name string) error {
-	if m.removeSandboxErr != nil {
-		return m.removeSandboxErr
-	}
-	m.removedSandboxes = append(m.removedSandboxes, name)
-	return nil
-}
-
-func (m *mockMsbClient) GetVolume(_ context.Context, name string) (msbVolumeHandle, error) {
-	if m.getVolumeErr != nil {
-		return nil, m.getVolumeErr
-	}
-	if m.gotVolume != nil {
-		return m.gotVolume, nil
-	}
-	return nil, &msb.Error{Kind: msb.ErrVolumeNotFound, Message: name}
-}
-
-func (m *mockMsbClient) CreateVolume(_ context.Context, name string, _ ...msb.VolumeOption) (msbVolumeHandle, error) {
-	if m.createVolumeErr != nil {
-		return nil, m.createVolumeErr
-	}
-	return mockVolumeHandle{name: name}, nil
-}
-
-func (m *mockMsbClient) ListVolumes(_ context.Context) ([]msbVolumeHandle, error) {
-	if m.listVolumesErr != nil {
-		return nil, m.listVolumesErr
-	}
-	return m.volumes, nil
-}
-
-func (m *mockMsbClient) RemoveVolume(_ context.Context, name string) error {
-	if m.removeVolumeErr != nil {
-		return m.removeVolumeErr
-	}
-	m.removedVolumes = append(m.removedVolumes, name)
-	return nil
-}
-
-func (m *mockMsbClient) ImageGet(_ context.Context, _ string) error {
-	return m.imageGetErr
-}
-
-func (m *mockMsbClient) ImageList(_ context.Context) ([]msbImageHandle, error) {
-	if m.listImagesErr != nil {
-		return nil, m.listImagesErr
-	}
-	return m.images, nil
-}
-
-func (m *mockMsbClient) ImageRemove(_ context.Context, ref string, force bool) error {
-	if m.removeImageErr != nil {
-		return m.removeImageErr
-	}
-	m.removedImages = append(m.removedImages, struct {
-		ref   string
-		force bool
-	}{ref: ref, force: force})
-	return nil
-}
-
-func (m *mockMsbClient) ImageLoad(_ context.Context, ref string, _ io.Reader) error {
-	m.loadedImages = append(m.loadedImages, ref)
-	return m.imageLoadErr
-}
-
-// mockSandboxHandle implements msbSandboxHandle for tests.
-type mockSandboxHandle struct {
-	name       string
-	status     msb.SandboxStatus
-	updatedAt  time.Time
-	image      string
-	connect    msbSandbox
-	start      msbSandbox
-	refresh    msbSandboxHandle
-	connectErr error
-	startErr   error
-	stopErr    error
-	killErr    error
-	removeErr  error
-	refreshErr error
-}
-
-func (m mockSandboxHandle) Name() string {
-	return m.name
-}
-
-func (m mockSandboxHandle) Status() msb.SandboxStatus {
-	return m.status
-}
-
-func (m mockSandboxHandle) UpdatedAt() time.Time {
-	return m.updatedAt
-}
-
-func (m mockSandboxHandle) Image() string {
-	return m.image
-}
-
-func (m mockSandboxHandle) Connect(_ context.Context) (msbSandbox, error) {
-	if m.connectErr != nil {
-		return nil, m.connectErr
-	}
-	if m.connect != nil {
-		return m.connect, nil
-	}
-	return &mockSandbox{name: m.name}, nil
-}
-
-func (m mockSandboxHandle) Refresh(_ context.Context) (msbSandboxHandle, error) {
-	if m.refreshErr != nil {
-		return nil, m.refreshErr
-	}
-	if m.refresh != nil {
-		return m.refresh, nil
-	}
-	return m, nil
-}
-
-func (m mockSandboxHandle) Start(_ context.Context) (msbSandbox, error) {
-	if m.startErr != nil {
-		return nil, m.startErr
-	}
-	if m.start != nil {
-		return m.start, nil
-	}
-	return &mockSandbox{name: m.name}, nil
-}
-
-func (m mockSandboxHandle) Stop(_ context.Context, _ ...msb.StopOption) error {
-	return m.stopErr
-}
-
-func (m mockSandboxHandle) Kill(_ context.Context, _ ...msb.KillOption) error {
-	return m.killErr
-}
-
-func (m mockSandboxHandle) Remove(_ context.Context) error {
-	return m.removeErr
-}
-
-// mockSandbox implements msbSandbox for tests.
-type mockSandbox struct {
-	name       string
-	fsValue    any
-	shellOut   map[string]shellResult
-	shellErr   error
-	execOut    map[string]shellResult
-	execErr    error
-	attachCode int
-	attachErr  error
-	detachErr  error
-	stopErr    error
-	closeErr   error
-}
-
-func (m *mockSandbox) FS() sandboxFS {
-	if f, ok := m.fsValue.(sandboxFS); ok {
-		return f
-	}
-	return nil
-}
-
-func (m *mockSandbox) Shell(_ context.Context, command string, _ ...msb.ExecOption) (shellResult, error) {
-	if m.shellErr != nil {
-		return nil, m.shellErr
-	}
-	if out, ok := m.shellOut[command]; ok {
-		return out, nil
-	}
-	return &mockShellResult{success: true}, nil
-}
-
-func (m *mockSandbox) Exec(_ context.Context, command string, args []string, _ ...msb.ExecOption) (shellResult, error) {
-	if m.execErr != nil {
-		return nil, m.execErr
-	}
-	key := command + " " + strings.Join(args, " ")
-	if out, ok := m.execOut[key]; ok {
-		return out, nil
-	}
-	return &mockShellResult{success: true}, nil
-}
-
-func (m *mockSandbox) Attach(_ context.Context, _ string, _ ...string) (int, error) {
-	return m.attachCode, m.attachErr
-}
-
-func (m *mockSandbox) Detach(_ context.Context) error {
-	return m.detachErr
-}
-
-func (m *mockSandbox) Stop(_ context.Context, _ ...msb.StopOption) error {
-	return m.stopErr
-}
-
-func (m *mockSandbox) Close() error {
-	return m.closeErr
-}
-
-// mockShellResult implements shellResult for tests.
-type mockShellResult struct {
-	success     bool
-	exitCode    int
-	stdout      string
-	stderr      string
-	stdoutBytes []byte
-}
-
-func (m *mockShellResult) Success() bool {
-	return m.success
-}
-
-func (m *mockShellResult) ExitCode() int {
-	return m.exitCode
-}
-
-func (m *mockShellResult) Stdout() string {
-	return m.stdout
-}
-
-func (m *mockShellResult) Stderr() string {
-	return m.stderr
-}
-
-func (m *mockShellResult) StdoutBytes() []byte {
-	if m.stdoutBytes != nil {
-		return m.stdoutBytes
-	}
-	return []byte(m.stdout)
-}
-
-// mockFs implements sandboxFS for tests.
-type mockFs struct {
-	files   map[string][]byte
-	list    []msb.FsEntry
-	readErr error
-	listErr error
-}
-
-func (f *mockFs) Mkdir(_ context.Context, _ string) error           { return nil }
-func (f *mockFs) Write(_ context.Context, _ string, _ []byte) error { return nil }
-func (f *mockFs) Read(_ context.Context, path string) ([]byte, error) {
-	if f.readErr != nil {
-		return nil, f.readErr
-	}
-	if data, ok := f.files[path]; ok {
-		return data, nil
-	}
-	return nil, fmt.Errorf("file not found: %s", path)
-}
-func (f *mockFs) List(_ context.Context, _ string) ([]msb.FsEntry, error) {
-	if f.listErr != nil {
-		return nil, f.listErr
-	}
-	return f.list, nil
-}
-func (f *mockFs) Remove(_ context.Context, _ string) error { return nil }
-func (f *mockFs) Exists(_ context.Context, path string) (bool, error) {
-	_, ok := f.files[path]
-	return ok, nil
-}
-func (f *mockFs) Stat(_ context.Context, _ string) (*msb.FsStat, error) { return &msb.FsStat{}, nil }
-func (f *mockFs) ReadString(_ context.Context, path string) (string, error) {
-	if d, ok := f.files[path]; ok {
-		return string(d), nil
-	}
-	return "", fmt.Errorf("file not found: %s", path)
-}
-func (f *mockFs) ReadStream(_ context.Context, _ string) (*msb.FsReadStream, error) {
-	return &msb.FsReadStream{}, nil
-}
-
-// mockVolumeHandle implements msbVolumeHandle for tests.
-type mockVolumeHandle struct {
-	name string
-	path string
-	kind msb.VolumeKind
-}
-
-func (m mockVolumeHandle) Name() string {
-	return m.name
-}
-
-func (m mockVolumeHandle) Path() string {
-	return m.path
-}
-
-func (m mockVolumeHandle) Kind() msb.VolumeKind {
-	if m.kind == "" {
-		return msb.VolumeKindDir
-	}
-	return m.kind
-}
-
-// mockImageHandle implements msbImageHandle for tests.
-type mockImageHandle struct {
-	ref            string
-	manifestDigest string
-}
-
-func (m mockImageHandle) Reference() string {
-	return m.ref
-}
-
-func (m mockImageHandle) ManifestDigest() string {
-	return m.manifestDigest
-}
 
 // mockDockerClient implements dockerClient for tests.
 type mockDockerClient struct {
@@ -464,7 +86,7 @@ func newMockUI() *stdio.Mock {
 }
 
 func TestPruneStaleCascade_RemovesVMAndAllArtifacts(t *testing.T) {
-	client := &mockMsbClient{}
+	client := &MockMsbClient{}
 	docker := &mockDockerClient{}
 	ui := newMockUI()
 	report := &StaleReport{}
@@ -521,7 +143,7 @@ func TestPruneStaleCascade_RemovesVMAndAllArtifacts(t *testing.T) {
 }
 
 func TestPruneStaleCascade_DryRunDoesNotDelete(t *testing.T) {
-	client := &mockMsbClient{}
+	client := &MockMsbClient{}
 	docker := &mockDockerClient{}
 	ui := newMockUI()
 	report := &StaleReport{}
@@ -559,7 +181,7 @@ func TestPruneStaleCascade_DryRunDoesNotDelete(t *testing.T) {
 }
 
 func TestPruneStaleCascade_RemoveErrorWarnsAndStopsCascade(t *testing.T) {
-	client := &mockMsbClient{removeSandboxErr: errors.New("sandbox locked")}
+	client := &MockMsbClient{removeSandboxErr: errors.New("sandbox locked")}
 	docker := &mockDockerClient{}
 	ui := newMockUI()
 	report := &StaleReport{}
@@ -587,7 +209,7 @@ func TestPruneStaleCascade_RemoveErrorWarnsAndStopsCascade(t *testing.T) {
 }
 
 func TestPruneActiveVMCleanup_KeepsMatchingDigestAndLatest(t *testing.T) {
-	client := &mockMsbClient{}
+	client := &MockMsbClient{}
 	docker := &mockDockerClient{}
 	ui := newMockUI()
 	report := &StaleReport{}
@@ -628,7 +250,7 @@ func TestPruneActiveVMCleanup_KeepsMatchingDigestAndLatest(t *testing.T) {
 		t.Errorf("removed volumes = %v, want [opencode-msb-home-myproject-digest1]", client.removedVolumes)
 	}
 
-	if len(client.removedImages) != 1 || client.removedImages[0].ref != "opencode-msb/runner-myproject:digest1" {
+	if len(client.removedImages) != 1 || client.removedImages[0].Ref != "opencode-msb/runner-myproject:digest1" {
 		t.Errorf("removed msb images = %v, want [opencode-msb/runner-myproject:digest1]", client.removedImages)
 	}
 
@@ -638,7 +260,7 @@ func TestPruneActiveVMCleanup_KeepsMatchingDigestAndLatest(t *testing.T) {
 }
 
 func TestPruneActiveVMCleanup_DryRunCountsButDoesNotDelete(t *testing.T) {
-	client := &mockMsbClient{}
+	client := &MockMsbClient{}
 	docker := &mockDockerClient{}
 	ui := newMockUI()
 	report := &StaleReport{}
@@ -672,7 +294,7 @@ func TestPruneActiveVMCleanup_DryRunCountsButDoesNotDelete(t *testing.T) {
 }
 
 func TestPruneOrphanSlug_RemovesEverything(t *testing.T) {
-	client := &mockMsbClient{}
+	client := &MockMsbClient{}
 	docker := &mockDockerClient{}
 	ui := newMockUI()
 	report := &StaleReport{}
@@ -715,7 +337,7 @@ func TestPruneOrphanSlug_RemovesEverything(t *testing.T) {
 }
 
 func TestPruneCloneVolume_RemovesWhenNoActiveVM(t *testing.T) {
-	client := &mockMsbClient{}
+	client := &MockMsbClient{}
 	ui := newMockUI()
 	report := &StaleReport{}
 
@@ -733,7 +355,7 @@ func TestPruneCloneVolume_RemovesWhenNoActiveVM(t *testing.T) {
 }
 
 func TestPruneCloneVolume_KeepsWhenActiveVMExists(t *testing.T) {
-	client := &mockMsbClient{}
+	client := &MockMsbClient{}
 	ui := newMockUI()
 	report := &StaleReport{}
 
@@ -751,7 +373,7 @@ func TestPruneCloneVolume_KeepsWhenActiveVMExists(t *testing.T) {
 }
 
 func TestPruneCloneVolume_DryRunDoesNotDelete(t *testing.T) {
-	client := &mockMsbClient{}
+	client := &MockMsbClient{}
 	ui := newMockUI()
 	report := &StaleReport{}
 
@@ -770,40 +392,40 @@ func TestPrune_WithMocks_CoversAllCases(t *testing.T) {
 	oldTime := time.Now().Add(-2 * time.Hour)
 	recentTime := time.Now().Add(-5 * time.Minute)
 
-	client := &mockMsbClient{
-		sandboxes: []msbSandboxHandle{
-			// Stale VM for myproject → cascade removes everything.
-			mockSandboxHandle{
-				name:      "opencode-msb-vm-myproject-1mjusbm3wikhb0",
-				status:    msb.SandboxStatusStopped,
-				updatedAt: oldTime,
+	client := &MockMsbClient{
+		Sandboxes: []SandboxHandle{
+			// Stale VM for myproject -> cascade removes everything.
+			&MockSandboxHandle{
+				Name_:      "opencode-msb-vm-myproject-1mjusbm3wikhb0",
+				Status_:    msb.SandboxStatusStopped,
+				UpdatedAt_: oldTime,
 			},
-			// Active VM for activeproject → cleanup non-matching digests.
-			mockSandboxHandle{
-				name:      "opencode-msb-vm-activeproject-1mjusbm3wikhb0-main",
-				status:    msb.SandboxStatusRunning,
-				updatedAt: recentTime,
-				image:     "opencode-msb/runner-activeproject-1mjusbm3wikhb0:digest2",
+			// Active VM for activeproject -> cleanup non-matching digests.
+			&MockSandboxHandle{
+				Name_:      "opencode-msb-vm-activeproject-1mjusbm3wikhb0-main",
+				Status_:    msb.SandboxStatusRunning,
+				UpdatedAt_: recentTime,
+				Image_:     "opencode-msb/runner-activeproject-1mjusbm3wikhb0:digest2",
 			},
-			// Task sandbox → always pruned.
-			mockSandboxHandle{
-				name:      "opencode-msb-task-fill-proj",
-				status:    msb.SandboxStatusStopped,
-				updatedAt: oldTime,
+			// Task sandbox -> always pruned.
+			&MockSandboxHandle{
+				Name_:      "opencode-msb-task-fill-proj",
+				Status_:    msb.SandboxStatusStopped,
+				UpdatedAt_: oldTime,
 			},
 		},
-		volumes: []msbVolumeHandle{
-			mockVolumeHandle{name: "opencode-msb-home-myproject-1mjusbm3wikhb0-digest1"},
-			mockVolumeHandle{name: "opencode-msb-home-activeproject-1mjusbm3wikhb0-digest1"},
-			mockVolumeHandle{name: "opencode-msb-home-activeproject-1mjusbm3wikhb0-digest2"},
-			mockVolumeHandle{name: "opencode-msb-clone-myproject-1mjusbm3wikhb0-abc123"},
-			mockVolumeHandle{name: "opencode-msb-clone-activeproject-1mjusbm3wikhb0-def456"},
+		Volumes: []VolumeHandle{
+			&MockVolumeHandle{Name_: "opencode-msb-home-myproject-1mjusbm3wikhb0-digest1"},
+			&MockVolumeHandle{Name_: "opencode-msb-home-activeproject-1mjusbm3wikhb0-digest1"},
+			&MockVolumeHandle{Name_: "opencode-msb-home-activeproject-1mjusbm3wikhb0-digest2"},
+			&MockVolumeHandle{Name_: "opencode-msb-clone-myproject-1mjusbm3wikhb0-abc123"},
+			&MockVolumeHandle{Name_: "opencode-msb-clone-activeproject-1mjusbm3wikhb0-def456"},
 		},
-		images: []msbImageHandle{
-			mockImageHandle{ref: "opencode-msb/runner-myproject-1mjusbm3wikhb0:digest1"},
-			mockImageHandle{ref: "opencode-msb/runner-activeproject-1mjusbm3wikhb0:digest1"},
-			mockImageHandle{ref: "opencode-msb/runner-activeproject-1mjusbm3wikhb0:digest2"},
-			mockImageHandle{ref: "opencode-msb/runner-orphan:latest"},
+		Images: []ImageHandle{
+			&MockImageHandle{Reference_: "opencode-msb/runner-myproject-1mjusbm3wikhb0:digest1"},
+			&MockImageHandle{Reference_: "opencode-msb/runner-activeproject-1mjusbm3wikhb0:digest1"},
+			&MockImageHandle{Reference_: "opencode-msb/runner-activeproject-1mjusbm3wikhb0:digest2"},
+			&MockImageHandle{Reference_: "opencode-msb/runner-orphan:latest"},
 		},
 	}
 	docker := &mockDockerClient{}
@@ -906,7 +528,7 @@ func TestPruneActiveVMDockerImages_PartialFailure(t *testing.T) {
 // fails during a stale VM cascade, MSB image removal and volume removal still
 // succeed, and the docker failure only affects the docker pruned count.
 func TestPruneStaleCascade_DockerRemoveFails_DependentOpsSucceed(t *testing.T) {
-	client := &mockMsbClient{}
+	client := &MockMsbClient{}
 	docker := &mockDockerClient{
 		// First Docker removal succeeds, second fails.
 		perCallErrs: []error{nil, errors.New("image not found")},
@@ -940,7 +562,7 @@ func TestPruneStaleCascade_DockerRemoveFails_DependentOpsSucceed(t *testing.T) {
 	if report.PrunedMSBImages != 2 {
 		t.Errorf("PrunedMSBImages = %d, want 2", report.PrunedMSBImages)
 	}
-	// Docker: first image succeeds, second fails → only 1 pruned.
+	// Docker: first image succeeds, second fails -> only 1 pruned.
 	if report.PrunedDockerImages != 1 {
 		t.Errorf("PrunedDockerImages = %d, want 1 (partial docker failure)", report.PrunedDockerImages)
 	}
@@ -964,21 +586,21 @@ func TestPruneStaleCascade_DockerRemoveFails_DependentOpsSucceed(t *testing.T) {
 func TestPrune_DockerRemoveFails_PartialReport(t *testing.T) {
 	oldTime := time.Now().Add(-2 * time.Hour)
 
-	client := &mockMsbClient{
-		sandboxes: []msbSandboxHandle{
-			// Stale VM for myproject → cascade removes everything.
-			mockSandboxHandle{
-				name:      "opencode-msb-vm-myproject-1mjusbm3wikhb0",
-				status:    msb.SandboxStatusStopped,
-				updatedAt: oldTime,
+	client := &MockMsbClient{
+		Sandboxes: []SandboxHandle{
+			// Stale VM for myproject -> cascade removes everything.
+			&MockSandboxHandle{
+				Name_:      "opencode-msb-vm-myproject-1mjusbm3wikhb0",
+				Status_:    msb.SandboxStatusStopped,
+				UpdatedAt_: oldTime,
 			},
 		},
-		volumes: []msbVolumeHandle{
-			mockVolumeHandle{name: "opencode-msb-home-myproject-1mjusbm3wikhb0-digest1"},
+		Volumes: []VolumeHandle{
+			&MockVolumeHandle{Name_: "opencode-msb-home-myproject-1mjusbm3wikhb0-digest1"},
 		},
-		images: []msbImageHandle{
-			mockImageHandle{ref: "opencode-msb/runner-myproject-1mjusbm3wikhb0:digest1"},
-			mockImageHandle{ref: "opencode-msb/runner-myproject-1mjusbm3wikhb0:latest"},
+		Images: []ImageHandle{
+			&MockImageHandle{Reference_: "opencode-msb/runner-myproject-1mjusbm3wikhb0:digest1"},
+			&MockImageHandle{Reference_: "opencode-msb/runner-myproject-1mjusbm3wikhb0:latest"},
 		},
 	}
 	docker := &mockDockerClient{
@@ -1008,7 +630,7 @@ func TestPrune_DockerRemoveFails_PartialReport(t *testing.T) {
 	if report.PrunedMSBImages != 2 {
 		t.Errorf("PrunedMSBImages = %d, want 2", report.PrunedMSBImages)
 	}
-	// Docker: first image succeeds, second fails → only 1 pruned.
+	// Docker: first image succeeds, second fails -> only 1 pruned.
 	if report.PrunedDockerImages != 1 {
 		t.Errorf("PrunedDockerImages = %d, want 1 (partial docker failure)", report.PrunedDockerImages)
 	}
