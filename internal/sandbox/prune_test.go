@@ -640,3 +640,102 @@ func TestExtractProjectSlugAndDigest_ComplexSlugNames(t *testing.T) {
 		})
 	}
 }
+
+func TestParseImageTag(t *testing.T) {
+	tests := []struct {
+		input      string
+		wantSlug   string
+		wantDigest string
+	}{
+		{"opencode-msb/runner-myproject:xYz1234AbCdEfGh", "myproject", "xYz1234AbCdEfGh"},
+		{"opencode-msb/runner-myproject:latest", "myproject", ""},
+		{"opencode-msb/runner-myproject:", "myproject", ""},
+		{"opencode-msb/runner-myproject", "myproject", ""},
+		{"opencode-msb/runner-my-project-name:xYz1234AbCdEfGh", "my-project-name", "xYz1234AbCdEfGh"},
+		{"opencode-msb/runner-myproject:sha256:abc123", "myproject:sha256", "abc123"},
+		{"other-image/myproject:tag", "", ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.input, func(t *testing.T) {
+			slug, digest := parseImageTag(tt.input)
+			if slug != tt.wantSlug {
+				t.Errorf("parseImageTag(%q) slug = %q, want %q", tt.input, slug, tt.wantSlug)
+			}
+			if digest != tt.wantDigest {
+				t.Errorf("parseImageTag(%q) digest = %q, want %q", tt.input, digest, tt.wantDigest)
+			}
+		})
+	}
+}
+
+func TestParseVMName(t *testing.T) {
+	tests := []struct {
+		input      string
+		wantSlug   string
+		wantDigest string
+	}{
+		{"opencode-msb-vm-saife-1mjusbm3wikhb0", "saife-1mjusbm3wikhb0", ""},
+		{"opencode-msb-vm-saife-1mjusbm3wikhb0-main", "saife-1mjusbm3wikhb0", "main"},
+		{"opencode-msb-vm-my-project-1mjusbm3wikhb0-develop", "my-project-1mjusbm3wikhb0", "develop"},
+		{"opencode-msb-vm-projectname-main", "projectname-main", ""},
+		{"opencode-msb-vm-myproject-abc1234567890", "myproject-abc1234567890", ""},
+		{"opencode-msb-vm-noHash", "noHash", ""},
+		{"opencode-msb-home-test", "", ""},
+		{"opencode-msb-vm-projectname-aB3cDe4fGhIjKl", "projectname-aB3cDe4fGhIjKl", ""},
+		{"opencode-msb-vm-projectname-aB3cDe4fGhIjKl-feature", "projectname-aB3cDe4fGhIjKl-feature", ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.input, func(t *testing.T) {
+			slug, digest := parseVMName(tt.input)
+			if slug != tt.wantSlug {
+				t.Errorf("parseVMName(%q) slug = %q, want %q", tt.input, slug, tt.wantSlug)
+			}
+			if digest != tt.wantDigest {
+				t.Errorf("parseVMName(%q) digest = %q, want %q", tt.input, digest, tt.wantDigest)
+			}
+		})
+	}
+}
+
+func TestParseHomeVolumeName(t *testing.T) {
+	tests := []struct {
+		input      string
+		wantSlug   string
+		wantDigest string
+	}{
+		{"opencode-msb-home-myproject-aB3cDe4fGhIjKl-xYz1234AbCdEfGh", "myproject-aB3cDe4fGhIjKl", "xYz1234AbCdEfGh"},
+		{"opencode-msb-home-myproject-abc1234567890", "myproject", "abc1234567890"},
+		{"opencode-msb-home-abc-def-gh", "abc-def", "gh"},
+		{"opencode-msb-vm-something", "", ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.input, func(t *testing.T) {
+			slug, digest := parseHomeVolumeName(tt.input)
+			if slug != tt.wantSlug {
+				t.Errorf("parseHomeVolumeName(%q) slug = %q, want %q", tt.input, slug, tt.wantSlug)
+			}
+			if digest != tt.wantDigest {
+				t.Errorf("parseHomeVolumeName(%q) digest = %q, want %q", tt.input, digest, tt.wantDigest)
+			}
+		})
+	}
+}
+
+func TestParseCloneVolumeName(t *testing.T) {
+	tests := []struct {
+		input    string
+		wantSlug string
+	}{
+		{"opencode-msb-clone-proj-aBc1234D-1719432000", "proj-aBc1234D"},
+		{"opencode-msb-clone-my-project-something", "my-project"},
+		{"opencode-msb-home-foo", ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.input, func(t *testing.T) {
+			slug := parseCloneVolumeName(tt.input)
+			if slug != tt.wantSlug {
+				t.Errorf("parseCloneVolumeName(%q) = %q, want %q", tt.input, slug, tt.wantSlug)
+			}
+		})
+	}
+}
