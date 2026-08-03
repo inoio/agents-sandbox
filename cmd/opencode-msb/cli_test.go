@@ -88,7 +88,7 @@ func TestPrintTreeContainsFlagDescriptions(t *testing.T) {
 		"Suppress non-error output",
 		"Run in an opencode worktree for the given branch name",
 		"Rebuild the runner image before starting",
-		"Validate setup without running opencode",
+		"Dry run without starting anything",
 		"Number of CPUs (default: all)",
 		"Memory limit",
 		"Size of the /tmp tmpfs in the sandbox",
