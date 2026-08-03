@@ -91,6 +91,22 @@ func CheckMsb(ctx context.Context, ui stdio.UI) bool {
 	return true
 }
 
+// SetEnsureInstalled replaces the ensureInstalled factory used by the
+// sandbox package. The original factory is returned so callers can restore
+// it after their test.
+//
+// Usage from an external test package:
+//
+//	orig := sandbox.SetEnsureInstalled(func(ctx context.Context) error {
+//	    return nil // succeed
+//	})
+//	t.Cleanup(func() { sandbox.SetEnsureInstalled(orig) })
+func SetEnsureInstalled(f func(ctx context.Context) error) func(ctx context.Context) error {
+	orig := ensureInstalled
+	ensureInstalled = f
+	return orig
+}
+
 // CheckAllFunc is an overridable CheckAll function for testing.
 // Tests override it and restore via t.Cleanup.
 //
