@@ -414,7 +414,7 @@ func readVMFiles(
 	dir string,
 	ui stdio.UI,
 ) map[string][]byte {
-	l, err := sb.Fs().List(ctx, dir)
+	l, err := sb.FS().List(ctx, dir)
 	if err != nil {
 		ui.Verbosef("  list failed: %v", err)
 		return nil
@@ -430,7 +430,7 @@ func readVMFiles(
 			ui.Verbosef("    skipping %s (kind=%s)", e.Path, e.Kind)
 			continue
 		}
-		data, err := sb.Fs().Read(ctx, e.Path)
+		data, err := sb.FS().Read(ctx, e.Path)
 		if err != nil {
 			ui.Verbosef("    read %s failed: %v", e.Path, err)
 			continue
@@ -439,12 +439,6 @@ func readVMFiles(
 		ui.Verbosef("    OK: %s (%d bytes)", e.Path, len(data))
 	}
 	return result
-}
-
-// fsLister is the minimal interface for listing and reading files in the sandbox.
-type fsLister interface {
-	List(ctx context.Context, path string) ([]msb.FsEntry, error)
-	Read(ctx context.Context, path string) ([]byte, error)
 }
 
 // configEqual compares Go-side parsed config against VM-side files.

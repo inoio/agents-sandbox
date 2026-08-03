@@ -43,7 +43,7 @@ func parseHealthResponse(stdout string) (bool, error) {
 }
 
 // EnsureDaemon guarantees the opencode serve daemon is healthy inside the VM.
-// It healthchecks via curl inside the VM; if unhealthy, it kills any stale
+// It health checks via curl inside the VM; if unhealthy, it kills any stale
 // daemon process, starts a fresh one, and polls until healthy or timeout.
 func EnsureDaemon(ctx context.Context, sb msbSandbox, ui stdio.UI) error {
 	if healthy := checkDaemonHealth(ctx, sb); healthy {
