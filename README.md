@@ -40,19 +40,19 @@ See [Getting Started](/docs/getting-started.md) for prerequisites and a full set
 
 ## Usage
 
-| Command      | Aliases              | Purpose                      |
-|--------------|----------------------|------------------------------|
-| `run`        | `sandbox run`        | Run opencode in a sandbox    |
-| `shell`      | `sandbox shell`      | Open a debug shell           |
-| `build`      | `image build`        | Build / rebuild the runner   |
-| `list` / `ls`| `sandbox list`       | List sandboxes               |
-| `stop`       | `sandbox stop`       | Stop the project VM          |
-| `kill`       | `sandbox kill`       | Force-kill the project VM    |
-| `prune`      | —                    | Prune stale resources        |
-| `doctor`     | —                    | Check prerequisites          |
-| `config show`| —                    | Inspect merged config        |
-| `image list` | `image ls`           | List cached images           |
-| `volume list`| `volume ls`          | List managed volumes         |
+| Command       | Aliases            | Purpose                    |
+|---------------|--------------------|----------------------------|
+| `run`         | `sandbox run`      | Run opencode in a sandbox  |
+| `shell`       | `sandbox shell`    | Open a debug shell         |
+| `build`       | `image build`      | Build / rebuild the runner |
+| `list` / `ls` | `sandbox list`     | List sandboxes             |
+| `stop`        | `sandbox stop`     | Stop the project VM        |
+| `kill`        | `sandbox kill`     | Force-kill the project VM  |
+| `prune`       | —                  | Prune stale resources      |
+| `doctor`      | —                  | Check prerequisites        |
+| `config show` | —                  | Inspect merged config      |
+| `image list`  | `image ls`         | List cached images         |
+| `volume list` | `volume ls`        | List managed volumes       |
 
 `opencode-msb` with no subcommand runs `run`. Arguments after `--` are forwarded to opencode.
 
@@ -60,15 +60,15 @@ Full [Commands Reference](/docs/commands.md).
 
 ## Documentation
 
-| Topic                          | Description                              |
-|--------------------------------|------------------------------------------|
+| Topic                                       | Description                            |
+|---------------------------------------------|----------------------------------------|
 | [Getting Started](/docs/getting-started.md) | Installation, prerequisites, first run |
-| [Commands](/docs/commands.md)  | Complete CLI reference                    |
-| [Configuration](/docs/configuration.md) | Launcher config, env, secrets |
-| [Runner Image](/docs/runner-image.md)    | Base image, custom tooling |
-| [Branch Sessions](/docs/branch-sessions.md) | Isolated workflow for branches |
-| [Sandboxes](/docs/sandboxes.md)          | VM lifecycle, volumes, pruning |
-| [Troubleshooting](/docs/troubleshooting.md) | Common issues and fixes |
+| [Commands](/docs/commands.md)               | Complete CLI reference                 |
+| [Configuration](/docs/configuration.md)     | Launcher config, env, secrets          |
+| [Runner Image](/docs/runner-image.md)       | Base image, custom tooling             |
+| [Branch Sessions](/docs/branch-sessions.md) | Isolated workflow for branches         |
+| [Sandboxes](/docs/sandboxes.md)             | VM lifecycle, volumes, pruning         |
+| [Troubleshooting](/docs/troubleshooting.md) | Common issues and fixes                |
 
 ## Key Concepts
 
