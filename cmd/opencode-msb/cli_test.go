@@ -4,14 +4,33 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/spf13/cobra"
+
 	"gitlab.inoio.de/inoio/opencode-msb/internal/launcherconfig"
+	"gitlab.inoio.de/inoio/opencode-msb/internal/stdio"
 	"gitlab.inoio.de/inoio/opencode-msb/internal/testhelpers"
 )
 
+// buildTree sets up a test UI, builds the root command, renders the tree,
+// and returns both for use in test assertions.
+func buildTree(t *testing.T) (*stdio.Mock, *cobra.Command) {
+	t.Helper()
+	ui := testhelpers.NewTestio(t)
+	root := buildRootCmd(&ui)
+	printTree(root, &ui)
+	return &ui, root
+}
+
+// buildCmd finds and returns the named subcommand under root.
+// Returns nil if the command is not found.
+func buildCmd(t *testing.T, root *cobra.Command, name string) *cobra.Command {
+	t.Helper()
+	cmd, _, _ := root.Find(strings.Split(name, " "))
+	return cmd
+}
+
 func TestPrintTreeStartsWithRootCommandName(t *testing.T) {
-	testUI := testhelpers.NewTestio(t)
-	root := buildRootCmd(&testUI)
-	printTree(root, &testUI)
+	testUI, _ := buildTree(t)
 	lines := testUI.InfoCalls
 	if len(lines) == 0 {
 		t.Fatal("expected at least one line in tree output")
@@ -23,9 +42,7 @@ func TestPrintTreeStartsWithRootCommandName(t *testing.T) {
 
 // skipcheck: canonical tree/version tests moved to cli_tree_test.go
 func TestPrintTreeDocumentsImplicitRun(t *testing.T) {
-	testUI := testhelpers.NewTestio(t)
-	root := buildRootCmd(&testUI)
-	printTree(root, &testUI)
+	testUI, _ := buildTree(t)
 	out := strings.Join(testUI.InfoCalls, "\n")
 	if !strings.Contains(out, "When invoked without a subcommand, the \"run\" command is implied.") {
 		t.Errorf("expected implicit run note in tree output:\n%s", out)
@@ -34,9 +51,7 @@ func TestPrintTreeDocumentsImplicitRun(t *testing.T) {
 
 // skipcheck: canonical tree/version tests moved to cli_tree_test.go
 func TestPrintTreeContainsAllCommands(t *testing.T) {
-	testUI := testhelpers.NewTestio(t)
-	root := buildRootCmd(&testUI)
-	printTree(root, &testUI)
+	testUI, _ := buildTree(t)
 	out := strings.Join(testUI.InfoCalls, "\n")
 	expected := []string{"run", "doctor", "build", "list", "shell", "config", "image", "volume", "stop", "kill"}
 	for _, cmd := range expected {
@@ -48,9 +63,7 @@ func TestPrintTreeContainsAllCommands(t *testing.T) {
 
 // skipcheck: canonical tree/version tests moved to cli_tree_test.go
 func TestPrintTreeContainsCommandDescriptions(t *testing.T) {
-	testUI := testhelpers.NewTestio(t)
-	root := buildRootCmd(&testUI)
-	printTree(root, &testUI)
+	testUI, _ := buildTree(t)
 	out := strings.Join(testUI.InfoCalls, "\n")
 	descs := []string{
 		"Run opencode in a microsandbox VM",
@@ -77,9 +90,7 @@ func TestPrintTreeContainsCommandDescriptions(t *testing.T) {
 
 // skipcheck: canonical tree/version tests moved to cli_tree_test.go
 func TestPrintTreeContainsFlagDescriptions(t *testing.T) {
-	testUI := testhelpers.NewTestio(t)
-	root := buildRootCmd(&testUI)
-	printTree(root, &testUI)
+	testUI, _ := buildTree(t)
 	out := strings.Join(testUI.InfoCalls, "\n")
 	flagDescs := []string{
 		"Assume yes to all prompts",
@@ -102,9 +113,7 @@ func TestPrintTreeContainsFlagDescriptions(t *testing.T) {
 
 // skipcheck: canonical tree/version tests moved to cli_tree_test.go
 func TestPrintTreeStringFlagsHaveValuePlaceholders(t *testing.T) {
-	testUI := testhelpers.NewTestio(t)
-	root := buildRootCmd(&testUI)
-	printTree(root, &testUI)
+	testUI, _ := buildTree(t)
 	out := strings.Join(testUI.InfoCalls, "\n")
 	expected := []string{
 		"--branch <BRANCH>",
@@ -122,9 +131,7 @@ func TestPrintTreeStringFlagsHaveValuePlaceholders(t *testing.T) {
 
 // skipcheck: canonical tree/version tests moved to cli_tree_test.go
 func TestPrintTreeBoolFlagsHaveNoValuePlaceholders(t *testing.T) {
-	testUI := testhelpers.NewTestio(t)
-	root := buildRootCmd(&testUI)
-	printTree(root, &testUI)
+	testUI, _ := buildTree(t)
 	out := strings.Join(testUI.InfoCalls, "\n")
 	notExpected := []string{
 		"--yes <YES>",
@@ -145,9 +152,7 @@ func TestPrintTreeBoolFlagsHaveNoValuePlaceholders(t *testing.T) {
 
 // skipcheck: canonical tree/version tests moved to cli_tree_test.go
 func TestPrintTreeFlagShortcuts(t *testing.T) {
-	testUI := testhelpers.NewTestio(t)
-	root := buildRootCmd(&testUI)
-	printTree(root, &testUI)
+	testUI, _ := buildTree(t)
 	out := strings.Join(testUI.InfoCalls, "\n")
 	expected := []string{
 		"-y, --yes",
@@ -169,9 +174,7 @@ func TestPrintTreeFlagShortcuts(t *testing.T) {
 
 // skipcheck: canonical tree/version tests moved to cli_tree_test.go
 func TestPrintTreeDescriptionsGloballyAligned(t *testing.T) {
-	testUI := testhelpers.NewTestio(t)
-	root := buildRootCmd(&testUI)
-	printTree(root, &testUI)
+	testUI, _ := buildTree(t)
 	lines := testUI.InfoCalls
 
 	colCounts := map[int]int{}
@@ -190,9 +193,7 @@ func TestPrintTreeDescriptionsGloballyAligned(t *testing.T) {
 }
 
 func TestPrintTreeContainsAliases(t *testing.T) {
-	testUI := testhelpers.NewTestio(t)
-	root := buildRootCmd(&testUI)
-	printTree(root, &testUI)
+	testUI, _ := buildTree(t)
 	out := strings.Join(testUI.InfoCalls, "\n")
 	if !strings.Contains(out, "list (aliases: ls)") {
 		t.Errorf("expected alias annotation in tree output:\n%s", out)
@@ -200,9 +201,7 @@ func TestPrintTreeContainsAliases(t *testing.T) {
 }
 
 func TestPrintTreeShowsSandboxShorthands(t *testing.T) {
-	testUI := testhelpers.NewTestio(t)
-	root := buildRootCmd(&testUI)
-	printTree(root, &testUI)
+	testUI, _ := buildTree(t)
 	out := strings.Join(testUI.InfoCalls, "\n")
 	shortcuts := []string{
 		"run (also: sandbox run)",
@@ -217,9 +216,7 @@ func TestPrintTreeShowsSandboxShorthands(t *testing.T) {
 }
 
 func TestPrintTreePositionalArgsHaveDescription(t *testing.T) {
-	testUI := testhelpers.NewTestio(t)
-	root := buildRootCmd(&testUI)
-	printTree(root, &testUI)
+	testUI, _ := buildTree(t)
 	out := strings.Join(testUI.InfoCalls, "\n")
 	for line := range strings.SplitSeq(out, "\n") {
 		if strings.Contains(line, "[ARGS...]") {
