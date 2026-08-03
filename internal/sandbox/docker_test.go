@@ -7,15 +7,15 @@ import (
 
 func TestDockerdCheckCmdChecksBinaryPresence(t *testing.T) {
 	want := "test -x /usr/bin/dockerd"
-	if dockerdCheckCmd != want {
-		t.Errorf("dockerdCheckCmd:\n  got:  %q\n  want: %q", dockerdCheckCmd, want)
+	if dockerdBinaryCheckCmd != want {
+		t.Errorf("dockerdCheckCmd:\n  got:  %q\n  want: %q", dockerdBinaryCheckCmd, want)
 	}
 }
 
 func TestDockerdStartCmdUsesUnixSocketAndVfsConfig(t *testing.T) {
-	want := "find /run /var/run -iname 'docker*.pid' -delete 2>/dev/null || : && dockerd -H unix:///var/run/docker.sock > /var/log/dockerd.log 2>&1 &"
-	if dockerdStartCmd != want {
-		t.Errorf("dockerdStartCmd:\n  got:  %q\n  want: %q", dockerdStartCmd, want)
+	want := "pkill dockerd 2>/dev/null || : && find /run /var/run -iname 'docker*.pid' -delete 2>/dev/null && sleep 1 && dockerd -H unix:///var/run/docker.sock > /var/log/dockerd.log 2>&1 &"
+	if dockerdRestartCmd != want {
+		t.Errorf("dockerdRestartCmd:\n  got:  %q\n  want: %q", dockerdRestartCmd, want)
 	}
 }
 
@@ -26,8 +26,8 @@ func TestDockerdReadyCmdRunsDockerInfo(t *testing.T) {
 	}
 }
 
-func TestDockerdReadyTimeoutIs30Seconds(t *testing.T) {
-	if dockerdReadyTimeout != 30*time.Second {
+func TestDockerdReadyTimeoutIs10Seconds(t *testing.T) {
+	if dockerdReadyTimeout != 10*time.Second {
 		t.Errorf("dockerdReadyTimeout:\n  got:  %v\n  want: 30s", dockerdReadyTimeout)
 	}
 }

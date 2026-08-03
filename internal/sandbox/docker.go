@@ -12,25 +12,31 @@ import (
 )
 
 const (
-	dockerdCheckCmd     = "test -x /usr/bin/dockerd"
-	dockerdStartCmd     = "find /run /var/run -iname 'docker*.pid' -delete 2>/dev/null || : && dockerd -H unix:///var/run/docker.sock > /var/log/dockerd.log 2>&1 &"
-	dockerdReadyCmd     = "docker info"
-	dockerdReadyTimeout = 30 * time.Second
-	dockerdPollInterval = time.Second
+	dockerdBinaryCheckCmd = "test -x /usr/bin/dockerd"
+	dockerdReadyCmd       = "docker info"
+	dockerdRestartCmd     = "pkill dockerd 2>/dev/null || : && find /run /var/run -iname 'docker*.pid' -delete 2>/dev/null && sleep 1 && dockerd -H unix:///var/run/docker.sock > /var/log/dockerd.log 2>&1 &"
+	dockerdReadyTimeout   = 10 * time.Second
+	dockerdPollInterval   = time.Second
 )
 
 func startDockerdIfPresent(ctx context.Context, sb msbSandbox, ui stdio.UI) error {
-	out, err := sb.Shell(ctx, dockerdCheckCmd, msb.WithExecUser("root"))
+	out, err := sb.Shell(ctx, dockerdBinaryCheckCmd, msb.WithExecUser("root"))
 	if err != nil {
-		return fmt.Errorf("check dockerd binary: %w", err)
+		return fmt.Errorf("while checking dockerd binary: %w", err)
 	}
 	if !out.Success() {
-		ui.Verbosef("dockerd not present, skipping Docker startup")
+		ui.Verbosef("/usr/bin/dockerd not present, skipping Docker startup")
+		return nil
+	}
+
+	// Check if an existing dockerd is already healthy
+	if infoOut, err := sb.Shell(ctx, dockerdReadyCmd, msb.WithExecUser("dev")); err == nil && infoOut.Success() {
+		ui.Verbose("using already running dockerd")
 		return nil
 	}
 
 	ui.Verbosef("starting dockerd with vfs storage driver")
-	if _, err := sb.Shell(ctx, dockerdStartCmd, msb.WithExecUser("root")); err != nil {
+	if _, err := sb.Shell(ctx, dockerdRestartCmd, msb.WithExecUser("root")); err != nil {
 		return fmt.Errorf("start dockerd: %w", err)
 	}
 
@@ -53,5 +59,10 @@ func startDockerdIfPresent(ctx context.Context, sb msbSandbox, ui stdio.UI) erro
 			}
 		}
 	}
+	data, err := sb.FS().ReadString(ctx, "/var/log/dockerd.log")
+	if err != nil {
+		return err
+	}
+	ui.Verbosef("dockerd log:\n%s", data)
 	return errors.New("dockerd did not become ready within " + dockerdReadyTimeout.String())
 }

@@ -2,7 +2,6 @@ package sandbox
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"io"
 	"os/exec"
@@ -75,13 +74,26 @@ func (realMsbClient) CreateSandbox(ctx context.Context, name string, opts ...msb
 }
 
 func (realMsbClient) ListSandboxes(ctx context.Context) ([]SandboxHandle, error) {
-	handles, err := msb.ListSandboxes(ctx)
-	if err != nil {
-		return nil, err
-	}
-	result := make([]SandboxHandle, len(handles))
-	for i, h := range handles {
-		result[i] = &realSandboxHandle{handle: h}
+	var result []SandboxHandle
+	var cursor *string
+	for {
+		var page *msb.SandboxPage
+		var err error
+		if cursor == nil {
+			page, err = msb.ListSandboxes(ctx)
+		} else {
+			page, err = msb.ListSandboxesWith(ctx, msb.WithListCursor(*cursor))
+		}
+		if err != nil {
+			return nil, err
+		}
+		for _, h := range page.Sandboxes {
+			result = append(result, &realSandboxHandle{handle: h})
+		}
+		cursor = page.NextCursor
+		if cursor == nil {
+			break
+		}
 	}
 	return result, nil
 }
@@ -159,9 +171,9 @@ type realVolumeHandle struct {
 
 func (v realVolumeHandle) Name() string {
 	switch t := v.val.(type) {
-	case *msb.Volume:
-		return t.Name()
 	case *msb.VolumeHandle:
+		return t.Name()
+	case *msb.Volume:
 		return t.Name()
 	}
 	return ""
@@ -169,20 +181,17 @@ func (v realVolumeHandle) Name() string {
 
 func (v realVolumeHandle) Path() string {
 	switch t := v.val.(type) {
-	case *msb.Volume:
-		return t.Path()
 	case *msb.VolumeHandle:
+		return t.Path()
+	case *msb.Volume:
 		return t.Path()
 	}
 	return ""
 }
 
 func (v realVolumeHandle) Kind() msb.VolumeKind {
-	switch t := v.val.(type) {
-	case *msb.Volume:
-		return msb.VolumeKindDir
-	case *msb.VolumeHandle:
-		return t.Kind()
+	if h, ok := v.val.(*msb.VolumeHandle); ok {
+		return h.Kind()
 	}
 	return msb.VolumeKindDir
 }
@@ -254,10 +263,6 @@ type realSandbox struct {
 }
 
 func (s realSandbox) FS() sandboxFS {
-	return s.sandbox.FS()
-}
-
-func (s realSandbox) Fs() fsLister {
 	return s.sandbox.FS()
 }
 
@@ -333,7 +338,6 @@ type SandboxHandle interface {
 // Sandbox is the subset of *msb.Sandbox used by the launcher.
 type Sandbox interface {
 	FS() sandboxFS
-	Fs() fsLister
 	Shell(ctx context.Context, command string, opts ...msb.ExecOption) (ShellResult, error)
 	Exec(ctx context.Context, command string, args []string, opts ...msb.ExecOption) (ShellResult, error)
 	Attach(ctx context.Context, command string, args ...string) (int, error)
@@ -610,52 +614,34 @@ func (m *MockSandbox) FS() sandboxFS {
 	if f, ok := m.FSValue_.(sandboxFS); ok {
 		return f
 	}
-	return nil
+	return &minimalSandboxFS{}
 }
 
-func (m *MockSandbox) Fs() fsLister {
-	if f, ok := m.FSValue_.(fsLister); ok {
-		return f
-	}
-	return &mockFsLister{}
+// minimalSandboxFS is a no-op fs implementation for MockSandbox.FS() when
+// no FSValue_ is set, preventing nil pointer panics.
+type minimalSandboxFS struct{}
+
+func (minimalSandboxFS) Exists(_ context.Context, _ string) (bool, error) { return false, nil }
+func (minimalSandboxFS) Stat(_ context.Context, _ string) (*msb.FsStat, error) {
+	return &msb.FsStat{}, nil
 }
-
-// mockFsLister is a no-op fsLister that always returns an empty list.
-type mockFsLister struct{}
-
-func (m *mockFsLister) List(_ context.Context, _ string) ([]msb.FsEntry, error) {
+func (minimalSandboxFS) List(_ context.Context, _ string) ([]msb.FsEntry, error) {
 	return nil, nil
 }
-
-func (m *mockFsLister) Read(_ context.Context, _ string) ([]byte, error) {
-	return nil, nil
-}
-
-func (m *mockFsLister) ReadString(_ context.Context, _ string) (string, error) {
+func (minimalSandboxFS) ReadString(_ context.Context, _ string) (string, error) {
 	return "", nil
 }
-
-func (m *mockFsLister) Exists(_ context.Context, _ string) (bool, error) {
-	return false, nil
+func (minimalSandboxFS) ReadStream(_ context.Context, _ string) (*msb.FsReadStream, error) {
+	return &msb.FsReadStream{}, nil
 }
-
-var ErrMockFsListerStat = errors.New("stat not implemented")
-
-func (m *mockFsLister) Stat(_ context.Context, _ string) (*msb.FsStat, error) {
-	return nil, ErrMockFsListerStat
-}
-
-func (m *mockFsLister) Mkdir(_ context.Context, _ string) error {
+func (minimalSandboxFS) Mkdir(_ context.Context, _ string) error { return nil }
+func (minimalSandboxFS) Write(_ context.Context, _ string, _ []byte) error {
 	return nil
 }
-
-func (m *mockFsLister) Write(_ context.Context, _ string, _ []byte) error {
-	return nil
+func (minimalSandboxFS) Read(_ context.Context, _ string) ([]byte, error) {
+	return nil, nil
 }
-
-func (m *mockFsLister) Remove(_ context.Context, _ string) error {
-	return nil
-}
+func (minimalSandboxFS) Remove(_ context.Context, _ string) error { return nil }
 
 func (m *MockSandbox) Shell(_ context.Context, command string, _ ...msb.ExecOption) (ShellResult, error) {
 	if m.ShellErr != nil {
