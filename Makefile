@@ -1,4 +1,4 @@
-.PHONY: build test lint vet fmt clean
+.PHONY: build test lint vet fmt clean completion
 
 VERSION ?= dev
 
@@ -19,3 +19,7 @@ fmt:
 
 clean:
 	rm -f opencode-msb
+
+completion:
+	mkdir -p ~/.local/share/bash-completion/completions
+	go run ./cmd/opencode-msb completion bash > ~/.local/share/bash-completion/completions/opencode-msb
