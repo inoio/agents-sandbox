@@ -21,6 +21,7 @@ func TestPrintTreeStartsWithRootCommandName(t *testing.T) {
 	}
 }
 
+// skipcheck: canonical tree/version tests moved to cli_tree_test.go
 func TestPrintTreeDocumentsImplicitRun(t *testing.T) {
 	testUI := testhelpers.NewTestio(t)
 	root := buildRootCmd(&testUI)
@@ -31,6 +32,7 @@ func TestPrintTreeDocumentsImplicitRun(t *testing.T) {
 	}
 }
 
+// skipcheck: canonical tree/version tests moved to cli_tree_test.go
 func TestPrintTreeContainsAllCommands(t *testing.T) {
 	testUI := testhelpers.NewTestio(t)
 	root := buildRootCmd(&testUI)
@@ -44,6 +46,7 @@ func TestPrintTreeContainsAllCommands(t *testing.T) {
 	}
 }
 
+// skipcheck: canonical tree/version tests moved to cli_tree_test.go
 func TestPrintTreeContainsCommandDescriptions(t *testing.T) {
 	testUI := testhelpers.NewTestio(t)
 	root := buildRootCmd(&testUI)
@@ -72,6 +75,7 @@ func TestPrintTreeContainsCommandDescriptions(t *testing.T) {
 	}
 }
 
+// skipcheck: canonical tree/version tests moved to cli_tree_test.go
 func TestPrintTreeContainsFlagDescriptions(t *testing.T) {
 	testUI := testhelpers.NewTestio(t)
 	root := buildRootCmd(&testUI)
@@ -96,6 +100,7 @@ func TestPrintTreeContainsFlagDescriptions(t *testing.T) {
 	}
 }
 
+// skipcheck: canonical tree/version tests moved to cli_tree_test.go
 func TestPrintTreeStringFlagsHaveValuePlaceholders(t *testing.T) {
 	testUI := testhelpers.NewTestio(t)
 	root := buildRootCmd(&testUI)
@@ -115,6 +120,7 @@ func TestPrintTreeStringFlagsHaveValuePlaceholders(t *testing.T) {
 	}
 }
 
+// skipcheck: canonical tree/version tests moved to cli_tree_test.go
 func TestPrintTreeBoolFlagsHaveNoValuePlaceholders(t *testing.T) {
 	testUI := testhelpers.NewTestio(t)
 	root := buildRootCmd(&testUI)
@@ -137,6 +143,7 @@ func TestPrintTreeBoolFlagsHaveNoValuePlaceholders(t *testing.T) {
 	}
 }
 
+// skipcheck: canonical tree/version tests moved to cli_tree_test.go
 func TestPrintTreeFlagShortcuts(t *testing.T) {
 	testUI := testhelpers.NewTestio(t)
 	root := buildRootCmd(&testUI)
@@ -160,6 +167,7 @@ func TestPrintTreeFlagShortcuts(t *testing.T) {
 	}
 }
 
+// skipcheck: canonical tree/version tests moved to cli_tree_test.go
 func TestPrintTreeDescriptionsGloballyAligned(t *testing.T) {
 	testUI := testhelpers.NewTestio(t)
 	root := buildRootCmd(&testUI)
