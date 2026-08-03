@@ -863,8 +863,8 @@ func TestPruneActiveVMDockerImages_AllFail_LogWarnings(t *testing.T) {
 	if len(docker.removedImages) != 0 {
 		t.Errorf("removedImages = %v, want [] (all calls failed)", docker.removedImages)
 	}
-	// A warning should be logged for the failed removal.
-	if len(ui.WarnCalls) != 1 {
+	// There should be a verbose message about the failed docker image.
+	if len(ui.VerboseCalls) != 1 {
 		t.Errorf("WarnCalls = %d, want 1, got %v", len(ui.WarnCalls), ui.WarnCalls)
 	}
 }
@@ -954,8 +954,8 @@ func TestPruneStaleCascade_DockerRemoveFails_DependentOpsSucceed(t *testing.T) {
 	if len(docker.removedImages) != 1 {
 		t.Errorf("removed docker images = %v, want 1", docker.removedImages)
 	}
-	// One warning for the failed docker removal.
-	if len(ui.WarnCalls) != 1 {
+	// There should be a verbose message about the failed docker image.
+	if len(ui.VerboseCalls) != 1 {
 		t.Errorf("WarnCalls = %d, want 1, got %v", len(ui.WarnCalls), ui.WarnCalls)
 	}
 }
@@ -1011,8 +1011,8 @@ func TestPrune_DockerRemoveFails_PartialReport(t *testing.T) {
 	if report.PrunedDockerImages != 1 {
 		t.Errorf("PrunedDockerImages = %d, want 1 (partial docker failure)", report.PrunedDockerImages)
 	}
-	// There should be a warning about the failed docker image.
-	if len(ui.WarnCalls) != 1 {
+	// There should be a verbose message about the failed docker image.
+	if len(ui.VerboseCalls) != 1 {
 		t.Errorf("WarnCalls = %d, want 1, got %v", len(ui.WarnCalls), ui.WarnCalls)
 	}
 }

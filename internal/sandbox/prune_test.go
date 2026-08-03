@@ -1,7 +1,6 @@
 package sandbox
 
 import (
-	"strings"
 	"testing"
 	"time"
 
@@ -534,7 +533,7 @@ func TestFindStaleVMs(t *testing.T) {
 				if got[i].Name != name {
 					t.Errorf("entry[%d] name = %q, want %q", i, got[i].Name, name)
 				}
-				if got[i].Type != "vm" {
+				if got[i].Type != StaleTypeVM {
 					t.Errorf("entry[%d] type = %q, want %q", i, got[i].Type, "vm")
 				}
 				if got[i].StaleFor <= 0 {
@@ -558,7 +557,7 @@ func TestFindStaleVMs_StaleEntryFields(t *testing.T) {
 	}
 
 	entry := got[0]
-	if entry.Type != "vm" {
+	if entry.Type != StaleTypeVM {
 		t.Errorf("Type = %q, want %q", entry.Type, "vm")
 	}
 	if entry.Name != "test-vm" {
@@ -585,8 +584,8 @@ func TestStaleReport(t *testing.T) {
 		PrunedTaskSandboxes: 1,
 		PrunedCloneVolumes:  0,
 		Details: []StaleEntry{
-			{Type: "vm", Name: "vm1", StaleFor: 2 * time.Hour},
-			{Type: "volume", Name: "vol1", StaleFor: 3 * time.Hour},
+			{Type: StaleTypeVM, Name: "vm1", StaleFor: 2 * time.Hour},
+			{Type: StaleTypeVolume, Name: "vol1", StaleFor: 3 * time.Hour},
 		},
 	}
 
@@ -603,7 +602,7 @@ func TestStaleReport(t *testing.T) {
 		t.Errorf("Details length = %d, want 2", len(report.Details))
 	}
 
-	if !strings.Contains(report.Details[0].Type, "vm") {
+	if report.Details[0].Type != StaleTypeVM {
 		t.Errorf("Details[0].Type = %q, expected vm", report.Details[0].Type)
 	}
 }
