@@ -140,6 +140,7 @@ func buildShellCmd(ui stdio.UI) *cobra.Command {
 			opts.DryRunVM, _ = cmd.Flags().GetBool("dry-run-vm")
 			if opts.DryRun {
 				opts.DryRunVM = true
+				ui.Verbosef("dry-run-vm: auto-enabled (--dry-run)")
 			}
 			opts.CPUs, _ = cmd.Flags().GetUint8("cpus")
 			opts.Memory, _ = cmd.Flags().GetString("memory")
@@ -343,6 +344,7 @@ func runFunc(ui stdio.UI) func(cmd *cobra.Command, args []string) error {
 		// --dry-run implies --dry-run-vm
 		if opts.DryRun {
 			opts.DryRunVM = true
+			ui.Verbosef("dry-run-vm: auto-enabled (--dry-run)")
 		}
 		opts.CPUs, _ = cmd.Flags().GetUint8("cpus")
 		opts.Memory, _ = cmd.Flags().GetString("memory")
@@ -365,9 +367,11 @@ func buildPruneCmd(ui stdio.UI) *cobra.Command {
 			ageStr, _ := cmd.Flags().GetString("age")
 			var age time.Duration
 			if ageStr != "" {
-				if d, ok := launcherconfig.ParseHumanDuration(ageStr); ok {
-					age = d
+				d, ok := launcherconfig.ParseHumanDuration(ageStr)
+				if !ok {
+					return fmt.Errorf("invalid age %q: use a Go duration or suffix d/w (e.g. 7d, 2w)", ageStr)
 				}
+				age = d
 			}
 			if age == 0 {
 				age = 7 * 24 * time.Hour

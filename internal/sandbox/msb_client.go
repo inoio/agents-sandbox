@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"os/exec"
+	"strings"
 	"time"
 
 	msb "github.com/superradcompany/microsandbox/sdk/go"
@@ -14,6 +15,8 @@ import (
 // sandbox package. It covers discovery, creation, and deletion of sandboxes,
 // volumes, and images, plus runtime setup. Production code uses realMsbClient;
 // tests replace newMsbClient to inject mocks.
+//
+//nolint:dupl // internal interface duplicates public MsbClient shape for internal use
 type msbClient interface {
 	EnsureInstalled(ctx context.Context) error
 
@@ -61,6 +64,8 @@ type msbSandbox interface {
 }
 
 // shellResult is the subset of the MSB shell/exec result type used by the launcher.
+//
+//nolint:iface // identical to exported ShellResult for internal use
 type shellResult interface {
 	Success() bool
 	ExitCode() int
@@ -70,6 +75,8 @@ type shellResult interface {
 }
 
 // msbVolumeHandle is the subset of *msb.VolumeHandle that the launcher needs.
+//
+//nolint:iface // identical to exported VolumeHandle for internal use
 type msbVolumeHandle interface {
 	Name() string
 	Path() string
@@ -77,6 +84,8 @@ type msbVolumeHandle interface {
 }
 
 // msbImageHandle is the subset of *msb.ImageHandle that the launcher needs.
+//
+//nolint:iface // identical to exported ImageHandle for internal use
 type msbImageHandle interface {
 	Reference() string
 	ManifestDigest() string
@@ -306,3 +315,401 @@ func (s realSandbox) Stop(ctx context.Context, opts ...msb.StopOption) error {
 func (s realSandbox) Close() error {
 	return s.sandbox.Close()
 }
+
+// MsbClient is the public abstraction over the microsandbox SDK used by the
+// sandbox package. It covers discovery, creation, and deletion of sandboxes,
+// volumes, and images, plus runtime setup. Production code uses *MsbClientAdapter;
+// tests replace NewMockMsbClient to inject mocks.
+//
+//nolint:dupl // public interface duplicates internal msbClient shape for package-level export
+type MsbClient interface {
+	EnsureInstalled(ctx context.Context) error
+
+	GetSandbox(ctx context.Context, name string) (SandboxHandle, error)
+	CreateSandbox(ctx context.Context, name string, opts ...msb.SandboxOption) (Sandbox, error)
+	ListSandboxes(ctx context.Context) ([]SandboxHandle, error)
+	RemoveSandbox(ctx context.Context, name string) error
+
+	GetVolume(ctx context.Context, name string) (VolumeHandle, error)
+	CreateVolume(ctx context.Context, name string, opts ...msb.VolumeOption) (VolumeHandle, error)
+	ListVolumes(ctx context.Context) ([]VolumeHandle, error)
+	RemoveVolume(ctx context.Context, name string) error
+
+	ImageGet(ctx context.Context, ref string) error
+	ImageList(ctx context.Context) ([]ImageHandle, error)
+	ImageRemove(ctx context.Context, ref string, force bool) error
+	ImageLoad(ctx context.Context, ref string, r io.Reader) error
+}
+
+// SandboxHandle is the subset of *msb.SandboxHandle used by the launcher.
+//
+//nolint:revive // SandboxHandle is the standard MSB naming convention
+type SandboxHandle interface {
+	Name() string
+	Status() msb.SandboxStatus
+	UpdatedAt() time.Time
+	Image() string
+
+	Connect(ctx context.Context) (Sandbox, error)
+	Refresh(ctx context.Context) (SandboxHandle, error)
+	Start(ctx context.Context) (Sandbox, error)
+	Stop(ctx context.Context, opts ...msb.StopOption) error
+	Kill(ctx context.Context, opts ...msb.KillOption) error
+	Remove(ctx context.Context) error
+}
+
+// Sandbox is the subset of *msb.Sandbox used by the launcher.
+type Sandbox interface {
+	FS() sandboxFS
+	Fs() fsLister
+	Shell(ctx context.Context, command string, opts ...msb.ExecOption) (ShellResult, error)
+	Exec(ctx context.Context, command string, args []string, opts ...msb.ExecOption) (ShellResult, error)
+	Attach(ctx context.Context, command string, args ...string) (int, error)
+	Detach(ctx context.Context) error
+	Stop(ctx context.Context, opts ...msb.StopOption) error
+	Close() error
+}
+
+// ShellResult is the subset of the MSB shell/exec result type used by the launcher.
+//
+//nolint:iface // identical to internal shellResult
+type ShellResult interface {
+	Success() bool
+	ExitCode() int
+	Stdout() string
+	Stderr() string
+	StdoutBytes() []byte
+}
+
+// VolumeHandle is the subset of *msb.VolumeHandle that the launcher needs.
+//
+//nolint:iface // identical to internal msbVolumeHandle
+type VolumeHandle interface {
+	Name() string
+	Path() string
+	Kind() msb.VolumeKind
+}
+
+// ImageHandle is the subset of *msb.ImageHandle that the launcher needs.
+//
+//nolint:iface // identical to internal msbImageHandle
+type ImageHandle interface {
+	Reference() string
+	ManifestDigest() string
+}
+
+// MockCreateSandboxCall tracks a CreateSandbox call made on MockMsbClient.
+type MockCreateSandboxCall struct {
+	Name string
+	Opts []msb.SandboxOption
+}
+
+// MockRemoveImageCall tracks an ImageRemove call made on MockMsbClient.
+type MockRemoveImageCall struct {
+	Ref   string
+	Force bool
+}
+
+// MockMsbClient is a test double for MsbClient.
+type MockMsbClient struct {
+	Sandboxes []SandboxHandle
+	Volumes   []VolumeHandle
+	Images    []ImageHandle
+
+	createdSandboxes []string
+	removedSandboxes []string
+	removedVolumes   []string
+	removedImages    []MockRemoveImageCall
+
+	ensureInstalledErr error
+	getSandboxErr      error
+	createSandboxErr   error
+	listSandboxesErr   error
+	getVolumeErr       error
+	createVolumeErr    error
+	listVolumesErr     error
+	listImagesErr      error
+	removeSandboxErr   error
+	removeVolumeErr    error
+	removeImageErr     error
+	imageGetErr        error
+	imageLoadErr       error
+
+	createdSandbox      Sandbox
+	gotSandbox          SandboxHandle
+	gotVolume           VolumeHandle
+	CreatedSandboxCalls []MockCreateSandboxCall
+}
+
+// EnsureInstalled implements MsbClient.
+func (m *MockMsbClient) EnsureInstalled(_ context.Context) error {
+	return m.ensureInstalledErr
+}
+
+// GetSandbox implements MsbClient.
+func (m *MockMsbClient) GetSandbox(_ context.Context, name string) (SandboxHandle, error) {
+	if m.getSandboxErr != nil {
+		return nil, m.getSandboxErr
+	}
+	if m.gotSandbox != nil {
+		return m.gotSandbox, nil
+	}
+	return nil, fmt.Errorf("sandbox not found: %s", name)
+}
+
+// CreateSandbox implements MsbClient.
+func (m *MockMsbClient) CreateSandbox(_ context.Context, name string, opts ...msb.SandboxOption) (Sandbox, error) {
+	m.createdSandboxes = append(m.createdSandboxes, name)
+	m.CreatedSandboxCalls = append(m.CreatedSandboxCalls, MockCreateSandboxCall{Name: name, Opts: opts})
+	if m.createSandboxErr != nil {
+		return nil, m.createSandboxErr
+	}
+	if m.createdSandbox != nil {
+		return m.createdSandbox, nil
+	}
+	return &MockSandbox{Name_: name}, nil //nolint:exhaustruct // mock fields are intentionally optional
+}
+
+// ListSandboxes implements MsbClient.
+func (m *MockMsbClient) ListSandboxes(_ context.Context) ([]SandboxHandle, error) {
+	if m.listSandboxesErr != nil {
+		return nil, m.listSandboxesErr
+	}
+	return m.Sandboxes, nil
+}
+
+// RemoveSandbox implements MsbClient.
+func (m *MockMsbClient) RemoveSandbox(_ context.Context, name string) error {
+	if m.removeSandboxErr != nil {
+		return m.removeSandboxErr
+	}
+	m.removedSandboxes = append(m.removedSandboxes, name)
+	return nil
+}
+
+// GetVolume implements MsbClient.
+func (m *MockMsbClient) GetVolume(_ context.Context, name string) (VolumeHandle, error) {
+	if m.getVolumeErr != nil {
+		return nil, m.getVolumeErr
+	}
+	if m.gotVolume != nil {
+		return m.gotVolume, nil
+	}
+	return nil, fmt.Errorf("volume not found: %s", name)
+}
+
+// CreateVolume implements MsbClient.
+func (m *MockMsbClient) CreateVolume(_ context.Context, name string, _ ...msb.VolumeOption) (VolumeHandle, error) {
+	if m.createVolumeErr != nil {
+		return nil, m.createVolumeErr
+	}
+	return &MockVolumeHandle{Name_: name}, nil //nolint:exhaustruct // mock fields are intentionally optional
+}
+
+// ListVolumes implements MsbClient.
+func (m *MockMsbClient) ListVolumes(_ context.Context) ([]VolumeHandle, error) {
+	if m.listVolumesErr != nil {
+		return nil, m.listVolumesErr
+	}
+	return m.Volumes, nil
+}
+
+// RemoveVolume implements MsbClient.
+func (m *MockMsbClient) RemoveVolume(_ context.Context, name string) error {
+	if m.removeVolumeErr != nil {
+		return m.removeVolumeErr
+	}
+	m.removedVolumes = append(m.removedVolumes, name)
+	return nil
+}
+
+// ImageGet implements MsbClient.
+func (m *MockMsbClient) ImageGet(_ context.Context, _ string) error {
+	return m.imageGetErr
+}
+
+// ImageList implements MsbClient.
+func (m *MockMsbClient) ImageList(_ context.Context) ([]ImageHandle, error) {
+	if m.listImagesErr != nil {
+		return nil, m.listImagesErr
+	}
+	return m.Images, nil
+}
+
+// ImageRemove implements MsbClient.
+func (m *MockMsbClient) ImageRemove(_ context.Context, ref string, force bool) error {
+	if m.removeImageErr != nil {
+		return m.removeImageErr
+	}
+	m.removedImages = append(m.removedImages, MockRemoveImageCall{Ref: ref, Force: force})
+	return nil
+}
+
+// ImageLoad implements MsbClient.
+func (m *MockMsbClient) ImageLoad(_ context.Context, ref string, _ io.Reader) error {
+	_ = ref
+	return m.imageLoadErr
+}
+
+// MockSandboxHandle is a test double for SandboxHandle.
+//
+//nolint:revive // underscore suffix avoids Go field/method name conflicts (e.g. Status/Status())
+type MockSandboxHandle struct {
+	Name_      string
+	Status_    msb.SandboxStatus
+	UpdatedAt_ time.Time
+	Image_     string
+	ConnectSb  Sandbox
+	StartSb    Sandbox
+	DidRmv     bool
+	ConnectErr error
+	StartErr   error
+	StopErr    error
+	KillErr    error
+	RemoveErr  error
+}
+
+func (m *MockSandboxHandle) Name() string              { return m.Name_ }
+func (m *MockSandboxHandle) Status() msb.SandboxStatus { return m.Status_ }
+func (m *MockSandboxHandle) UpdatedAt() time.Time      { return m.UpdatedAt_ }
+func (m *MockSandboxHandle) Image() string             { return m.Image_ }
+func (m *MockSandboxHandle) Connect(_ context.Context) (Sandbox, error) {
+	if m.ConnectErr != nil {
+		return nil, m.ConnectErr
+	}
+	if m.ConnectSb != nil {
+		return m.ConnectSb, nil
+	}
+	return &MockSandbox{Name_: m.Name_}, nil //nolint:exhaustruct // mock fields are intentionally optional
+}
+func (m *MockSandboxHandle) Refresh(_ context.Context) (SandboxHandle, error) {
+	return m, nil
+}
+func (m *MockSandboxHandle) Start(_ context.Context) (Sandbox, error) {
+	if m.StartErr != nil {
+		return nil, m.StartErr
+	}
+	if m.StartSb != nil {
+		return m.StartSb, nil
+	}
+	return &MockSandbox{Name_: m.Name_}, nil //nolint:exhaustruct // mock fields are intentionally optional
+}
+func (m *MockSandboxHandle) Stop(_ context.Context, _ ...msb.StopOption) error { return m.StopErr }
+func (m *MockSandboxHandle) Kill(_ context.Context, _ ...msb.KillOption) error { return m.KillErr }
+func (m *MockSandboxHandle) Remove(_ context.Context) error {
+	if m.RemoveErr != nil {
+		return m.RemoveErr
+	}
+	m.DidRmv = true
+	return nil
+}
+func (m *MockSandboxHandle) DidRemove() bool { return m.DidRmv }
+
+// MockSandbox is a test double for Sandbox.
+//
+//nolint:revive // underscore suffix avoids Go field/method name conflicts
+type MockSandbox struct {
+	Name_      string
+	FSValue_   any
+	ShellOut   map[string]ShellResult
+	ShellErr   error
+	ExecOut    map[string]ShellResult
+	ExecErr    error
+	AttachCode int
+	AttachErr  error
+	DetachErr  error
+	StopErr    error
+	CloseErr   error
+}
+
+func (m *MockSandbox) FS() sandboxFS {
+	if f, ok := m.FSValue_.(sandboxFS); ok {
+		return f
+	}
+	return nil
+}
+
+func (m *MockSandbox) Fs() fsLister {
+	if f, ok := m.FSValue_.(fsLister); ok {
+		return f
+	}
+	return nil
+}
+
+func (m *MockSandbox) Shell(_ context.Context, command string, _ ...msb.ExecOption) (ShellResult, error) {
+	if m.ShellErr != nil {
+		return nil, m.ShellErr
+	}
+	if out, ok := m.ShellOut[command]; ok {
+		return out, nil
+	}
+	return &mockShellResultImpl{success: true}, nil //nolint:exhaustruct // mock fields are intentionally optional
+}
+
+func (m *MockSandbox) Exec(_ context.Context, command string, args []string, _ ...msb.ExecOption) (ShellResult, error) {
+	if m.ExecErr != nil {
+		return nil, m.ExecErr
+	}
+	key := command + " " + strings.Join(args, " ")
+	if out, ok := m.ExecOut[key]; ok {
+		return out, nil
+	}
+	return &mockShellResultImpl{success: true}, nil //nolint:exhaustruct // mock fields are intentionally optional
+}
+
+func (m *MockSandbox) Attach(_ context.Context, _ string, _ ...string) (int, error) {
+	return m.AttachCode, m.AttachErr
+}
+
+func (m *MockSandbox) Detach(_ context.Context) error                    { return m.DetachErr }
+func (m *MockSandbox) Stop(_ context.Context, _ ...msb.StopOption) error { return m.StopErr }
+func (m *MockSandbox) Close() error                                      { return m.CloseErr }
+
+// mockShellResultImpl implements ShellResult for tests.
+type mockShellResultImpl struct {
+	success     bool
+	exitCode    int
+	stdout      string
+	stderr      string
+	stdoutBytes []byte
+}
+
+func (m *mockShellResultImpl) Success() bool  { return m.success }
+func (m *mockShellResultImpl) ExitCode() int  { return m.exitCode }
+func (m *mockShellResultImpl) Stdout() string { return m.stdout }
+func (m *mockShellResultImpl) Stderr() string { return m.stderr }
+func (m *mockShellResultImpl) StdoutBytes() []byte {
+	if m.stdoutBytes != nil {
+		return m.stdoutBytes
+	}
+	return []byte(m.stdout)
+}
+
+// MockVolumeHandle is a test double for VolumeHandle.
+//
+//nolint:revive // underscore suffix avoids Go field/method name conflicts
+type MockVolumeHandle struct {
+	Name_ string
+	Path_ string
+	Kind_ msb.VolumeKind
+}
+
+func (m MockVolumeHandle) Name() string { return m.Name_ }
+func (m MockVolumeHandle) Path() string { return m.Path_ }
+func (m MockVolumeHandle) Kind() msb.VolumeKind {
+	if m.Kind_ == "" {
+		return msb.VolumeKindDir
+	}
+	return m.Kind_
+}
+
+// MockImageHandle is a test double for ImageHandle.
+//
+//nolint:revive // underscore suffix avoids Go field/method name conflicts
+type MockImageHandle struct {
+	Reference_      string
+	ManifestDigest_ string
+}
+
+func (m MockImageHandle) Reference() string      { return m.Reference_ }
+func (m MockImageHandle) ManifestDigest() string { return m.ManifestDigest_ }
