@@ -310,7 +310,13 @@ func BuildImage(ctx context.Context, force, dryRun bool, ui stdio.UI) error {
 	}
 	projectSlug := git.ProjectSlug(ui)
 
-	_, _, _, err := EnsureImage(ctx, projectSlug, force, ui)
+	dockerCli, err := ensureImageDockerClient()
+	if err != nil {
+		return fmt.Errorf("cannot connect to Docker daemon (is dockerd running?): %w", err)
+	}
+	defer dockerCli.Close()
+
+	_, _, _, err = ensureImageWithClient(ctx, newMsbClient(), dockerCli, resolveDockerfile(), projectSlug, force, ui)
 	return err
 }
 

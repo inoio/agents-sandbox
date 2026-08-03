@@ -19,21 +19,11 @@ import (
 	"gitlab.inoio.de/inoio/opencode-msb/internal/stdio"
 )
 
-// DockerClient is the exported interface for Docker API operations needed by
-// the prune command. It lets CLI code create and pass a Docker client for
-// pruning without depending directly on the moby client package.
+// DockerClient is the exported interface for Docker API operations needed
+// by both the prune and build commands. It lets CLI code create and pass a
+// Docker client for pruning or building without depending directly on the
+// moby client package.
 type DockerClient interface {
-	ImageRemove(ctx context.Context, imageID string, opts client.ImageRemoveOptions) (client.ImageRemoveResult, error)
-	Close() error
-}
-
-const (
-	BaseTag        = "opencode-msb/runner-base:latest"
-	DindBaseTag    = "opencode-msb/runner-base-dind:latest"
-	dockerfileMode = 0o644
-)
-
-type dockerClient interface {
 	ImageBuild(
 		ctx context.Context,
 		buildContext sysio.Reader,
@@ -59,6 +49,22 @@ type dockerClient interface {
 		opts client.ImageTagOptions,
 	) (client.ImageTagResult, error)
 	Close() error
+}
+
+const (
+	BaseTag        = "opencode-msb/runner-base:latest"
+	DindBaseTag    = "opencode-msb/runner-base-dind:latest"
+	dockerfileMode = 0o644
+)
+
+type dockerClient DockerClient
+
+// ensureImageDockerClient is the factory used by EnsureImage to create a Docker
+// client. It can be overridden in tests to inject a mock client.
+//
+//nolint:gochecknoglobals // factory variable for test injection
+var ensureImageDockerClient = func() (DockerClient, error) {
+	return client.New(client.FromEnv)
 }
 
 func ReferencesBase(dockerfile []byte) bool {
@@ -341,7 +347,7 @@ func EnsureImage(
 	ui stdio.UI,
 ) (string, string, map[string]string, error) {
 	dockerfile := resolveDockerfile()
-	dockerCli, err := client.New(client.FromEnv)
+	dockerCli, err := ensureImageDockerClient()
 	if err != nil {
 		return "", "", nil, fmt.Errorf("cannot connect to Docker daemon (is dockerd running?): %w", err)
 	}
