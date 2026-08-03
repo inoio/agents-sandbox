@@ -16,6 +16,18 @@ import (
 	"gitlab.inoio.de/inoio/opencode-msb/internal/stdio"
 )
 
+// newDockerClient creates a new Docker client for the prune command.
+// Tests override this to inject stub clients.
+//
+//nolint:gochecknoglobals // factory variable for test injection
+var newDockerClient = func() (sandbox.DockerClient, error) {
+	cli, err := client.New(client.FromEnv)
+	if err != nil {
+		return nil, err
+	}
+	return cli, nil
+}
+
 func buildMinimalRootFlagsCmd() *cobra.Command {
 	rootFlagsCmd := &cobra.Command{
 		Use:   "opencode-msb",
@@ -371,7 +383,7 @@ func buildPruneCmd(ui stdio.UI) *cobra.Command {
 				age = 7 * 24 * time.Hour
 			}
 			dryRun, _ := cmd.Flags().GetBool("dry-run")
-			dockerCli, err := client.New(client.FromEnv)
+			dockerCli, err := newDockerClient()
 			if err != nil {
 				return fmt.Errorf("cannot connect to Docker daemon (is dockerd running?): %w", err)
 			}

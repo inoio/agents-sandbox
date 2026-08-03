@@ -390,7 +390,7 @@ func isStaleSlug(entries []StaleEntry, slug string) bool {
 // orphaned clone volumes in sequence.
 func Prune(
 	ctx context.Context,
-	cli dockerClient,
+	cli DockerClient,
 	threshold time.Duration,
 	dryRun bool,
 	ui stdio.UI,
@@ -428,7 +428,7 @@ func Prune(
 func pruneStaleVMs(
 	ctx context.Context,
 	client msbClient,
-	cli dockerClient,
+	cli DockerClient,
 	catalog *PruningCatalog,
 	dryRun bool,
 	ui stdio.UI,
@@ -445,7 +445,7 @@ func pruneStaleVMs(
 func pruneActiveVMArtifacts(
 	ctx context.Context,
 	client msbClient,
-	cli dockerClient,
+	cli DockerClient,
 	catalog *PruningCatalog,
 	dryRun bool,
 	ui stdio.UI,
@@ -462,7 +462,7 @@ func pruneActiveVMArtifacts(
 func pruneOrphanArtifacts(
 	ctx context.Context,
 	client msbClient,
-	cli dockerClient,
+	cli DockerClient,
 	catalog *PruningCatalog,
 	dryRun bool,
 	ui stdio.UI,
@@ -522,7 +522,7 @@ func pruneCloneVolumes(
 func pruneStaleCascade(
 	ctx context.Context,
 	client msbClient,
-	cli dockerClient,
+	cli DockerClient,
 	entry StaleEntry,
 	homeBySlugDigest map[string]map[string]string,
 	msbImagesBySlug map[string][]imageWithDigest,
@@ -548,7 +548,7 @@ func pruneStaleCascade(
 func pruneActiveVMCleanup(
 	ctx context.Context,
 	client msbClient,
-	cli dockerClient,
+	cli DockerClient,
 	slug string,
 	digest string,
 	homeBySlugDigest map[string]map[string]string,
@@ -631,7 +631,7 @@ func pruneActiveVMMSBImages(
 
 func pruneActiveVMDockerImages(
 	ctx context.Context,
-	cli dockerClient,
+	cli DockerClient,
 	slug string,
 	digest string,
 	msbImagesBySlug map[string][]imageWithDigest,
@@ -713,7 +713,7 @@ func stripDockerHostPrefix(ref string) string {
 func pruneOrphanSlug(
 	ctx context.Context,
 	client msbClient,
-	cli dockerClient,
+	cli DockerClient,
 	slug string,
 	homeBySlugDigest map[string]map[string]string,
 	msbImagesBySlug map[string][]imageWithDigest,
@@ -785,7 +785,7 @@ func removeMSBImages(
 func removeDockerImages(
 	ctx context.Context,
 	slug string,
-	cli dockerClient,
+	cli DockerClient,
 	msbImagesBySlug map[string][]imageWithDigest,
 	dryRun bool,
 	ui stdio.UI,
