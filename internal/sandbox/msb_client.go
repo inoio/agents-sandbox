@@ -388,9 +388,9 @@ type MockMsbClient struct {
 
 	ensureInstalledErr error
 	getSandboxErr      error
-	createSandboxErr   error
+	CreateSandboxErr   error
 	ListSandboxesErr   error
-	getVolumeErr       error
+	GetVolumeErr       error
 	createVolumeErr    error
 	ListVolumesErr     error
 	ListImagesErr      error
@@ -404,6 +404,11 @@ type MockMsbClient struct {
 	gotSandbox          SandboxHandle
 	gotVolume           VolumeHandle
 	CreatedSandboxCalls []MockCreateSandboxCall
+
+	// CreatedSandbox is returned by MockMsbClient.CreateSandbox instead of the
+	// default MockSandbox{Name_: name}. External test packages use this to
+	// configure sandbox behavior (e.g. AttachErr, AttachCode).
+	CreatedSandbox Sandbox
 }
 
 // EnsureInstalled implements MsbClient.
@@ -426,8 +431,11 @@ func (m *MockMsbClient) GetSandbox(_ context.Context, name string) (SandboxHandl
 func (m *MockMsbClient) CreateSandbox(_ context.Context, name string, opts ...msb.SandboxOption) (Sandbox, error) {
 	m.createdSandboxes = append(m.createdSandboxes, name)
 	m.CreatedSandboxCalls = append(m.CreatedSandboxCalls, MockCreateSandboxCall{Name: name, Opts: opts})
-	if m.createSandboxErr != nil {
-		return nil, m.createSandboxErr
+	if m.CreateSandboxErr != nil {
+		return nil, m.CreateSandboxErr
+	}
+	if m.CreatedSandbox != nil {
+		return m.CreatedSandbox, nil
 	}
 	if m.createdSandbox != nil {
 		return m.createdSandbox, nil
@@ -454,8 +462,8 @@ func (m *MockMsbClient) RemoveSandbox(_ context.Context, name string) error {
 
 // GetVolume implements MsbClient.
 func (m *MockMsbClient) GetVolume(_ context.Context, name string) (VolumeHandle, error) {
-	if m.getVolumeErr != nil {
-		return nil, m.getVolumeErr
+	if m.GetVolumeErr != nil {
+		return nil, m.GetVolumeErr
 	}
 	if m.gotVolume != nil {
 		return m.gotVolume, nil
@@ -608,6 +616,41 @@ func (m *MockSandbox) Fs() fsLister {
 	if f, ok := m.FSValue_.(fsLister); ok {
 		return f
 	}
+	return &mockFsLister{}
+}
+
+// mockFsLister is a no-op fsLister that always returns an empty list.
+type mockFsLister struct{}
+
+func (m *mockFsLister) List(_ context.Context, _ string) ([]msb.FsEntry, error) {
+	return nil, nil
+}
+
+func (m *mockFsLister) Read(_ context.Context, _ string) ([]byte, error) {
+	return nil, nil
+}
+
+func (m *mockFsLister) ReadString(_ context.Context, _ string) (string, error) {
+	return "", nil
+}
+
+func (m *mockFsLister) Exists(_ context.Context, _ string) (bool, error) {
+	return false, nil
+}
+
+func (m *mockFsLister) Stat(_ context.Context, _ string) (*msb.FsStat, error) {
+	return nil, nil
+}
+
+func (m *mockFsLister) Mkdir(_ context.Context, _ string) error {
+	return nil
+}
+
+func (m *mockFsLister) Write(_ context.Context, _ string, _ []byte) error {
+	return nil
+}
+
+func (m *mockFsLister) Remove(_ context.Context, _ string) error {
 	return nil
 }
 
