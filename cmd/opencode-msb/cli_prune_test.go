@@ -1,15 +1,11 @@
 package main
 
 import (
-	"context"
 	"errors"
-	"io"
 	"slices"
 	"strings"
 	"testing"
 	"time"
-
-	"github.com/moby/moby/client"
 
 	msb "github.com/superradcompany/microsandbox/sdk/go"
 
@@ -54,54 +50,6 @@ func msbImg(ref string) sandbox.ImageHandle {
 	return sandbox.MockImageHandle{Reference_: ref}
 }
 
-// testDockerClient implements sandbox.DockerClient for prune command tests.
-type testDockerClient struct {
-	removeErr error
-}
-
-func (t *testDockerClient) ImageBuild(
-	_ context.Context,
-	_ io.Reader,
-	_ client.ImageBuildOptions,
-) (client.ImageBuildResult, error) {
-	return client.ImageBuildResult{}, nil
-}
-
-func (t *testDockerClient) ImageInspect(
-	_ context.Context,
-	_ string,
-	_ ...client.ImageInspectOption,
-) (client.ImageInspectResult, error) {
-	return client.ImageInspectResult{}, nil
-}
-
-func (t *testDockerClient) ImageSave(
-	_ context.Context,
-	_ []string,
-	_ ...client.ImageSaveOption,
-) (client.ImageSaveResult, error) {
-	return io.NopCloser(nil), nil
-}
-
-func (t *testDockerClient) ImageRemove(
-	_ context.Context,
-	_ string,
-	_ client.ImageRemoveOptions,
-) (client.ImageRemoveResult, error) {
-	if t.removeErr != nil {
-		return client.ImageRemoveResult{}, t.removeErr
-	}
-	return client.ImageRemoveResult{}, nil
-}
-
-func (t *testDockerClient) ImageTag(_ context.Context, _ client.ImageTagOptions) (client.ImageTagResult, error) {
-	return client.ImageTagResult{}, nil
-}
-
-func (t *testDockerClient) Close() error { return nil }
-
-var _ sandbox.DockerClient = (*testDockerClient)(nil)
-
 func TestPrune(t *testing.T) {
 	t.Run("P1_no_stale_items", func(t *testing.T) {
 		for _, flags := range pruneAgeFlags {
@@ -110,7 +58,7 @@ func TestPrune(t *testing.T) {
 				mock := &sandbox.MockMsbClient{}
 				origMSB := sandbox.SetNewMsbClient(func() sandbox.MsbClient { return mock })
 				t.Cleanup(func() { sandbox.SetNewMsbClient(origMSB) })
-				overrideDockerClient(t, &testDockerClient{})
+				overrideDockerClient(t, newDefaultDockerClient())
 
 				root := buildRootCmd(ui)
 				root.SetArgs(append([]string{"prune"}, flags...))
@@ -141,7 +89,7 @@ func TestPrune(t *testing.T) {
 
 				origMSB := sandbox.SetNewMsbClient(func() sandbox.MsbClient { return mock })
 				t.Cleanup(func() { sandbox.SetNewMsbClient(origMSB) })
-				overrideDockerClient(t, &testDockerClient{})
+				overrideDockerClient(t, newDefaultDockerClient())
 
 				ui := &stdio.Mock{}
 				root := buildRootCmd(ui)
@@ -187,7 +135,7 @@ func TestPrune(t *testing.T) {
 
 				origMSB := sandbox.SetNewMsbClient(func() sandbox.MsbClient { return mock })
 				t.Cleanup(func() { sandbox.SetNewMsbClient(origMSB) })
-				overrideDockerClient(t, &testDockerClient{})
+				overrideDockerClient(t, newDefaultDockerClient())
 
 				root := buildRootCmd(ui)
 				root.SetArgs(append([]string{"prune"}, flags...))
@@ -218,7 +166,7 @@ func TestPrune(t *testing.T) {
 			cloneVol("opencode-msb-clone-staleproject-abc123"))
 		origMSB := sandbox.SetNewMsbClient(func() sandbox.MsbClient { return mock })
 		t.Cleanup(func() { sandbox.SetNewMsbClient(origMSB) })
-		overrideDockerClient(t, &testDockerClient{})
+		overrideDockerClient(t, newDefaultDockerClient())
 
 		root := buildRootCmd(ui)
 		root.SetArgs([]string{"prune", "--age", "2w"})
@@ -246,7 +194,7 @@ func TestPrune(t *testing.T) {
 			cloneVol("opencode-msb-clone-staleproject-abc123"))
 		origMSB := sandbox.SetNewMsbClient(func() sandbox.MsbClient { return mock })
 		t.Cleanup(func() { sandbox.SetNewMsbClient(origMSB) })
-		overrideDockerClient(t, &testDockerClient{})
+		overrideDockerClient(t, newDefaultDockerClient())
 
 		root := buildRootCmd(ui)
 		root.SetArgs([]string{"prune", "--age", "14d"})
@@ -318,7 +266,7 @@ func TestPrune(t *testing.T) {
 
 				origMSB := sandbox.SetNewMsbClient(func() sandbox.MsbClient { return mock })
 				t.Cleanup(func() { sandbox.SetNewMsbClient(origMSB) })
-				overrideDockerClient(t, &testDockerClient{})
+				overrideDockerClient(t, newDefaultDockerClient())
 
 				ui := &stdio.Mock{}
 				root := buildRootCmd(ui)
@@ -353,7 +301,7 @@ func TestPrune(t *testing.T) {
 
 				origMSB := sandbox.SetNewMsbClient(func() sandbox.MsbClient { return mock })
 				t.Cleanup(func() { sandbox.SetNewMsbClient(origMSB) })
-				overrideDockerClient(t, &testDockerClient{})
+				overrideDockerClient(t, newDefaultDockerClient())
 
 				ui := &stdio.Mock{}
 				root := buildRootCmd(ui)
@@ -388,7 +336,7 @@ func TestPrune(t *testing.T) {
 
 				origMSB := sandbox.SetNewMsbClient(func() sandbox.MsbClient { return mock })
 				t.Cleanup(func() { sandbox.SetNewMsbClient(origMSB) })
-				overrideDockerClient(t, &testDockerClient{})
+				overrideDockerClient(t, newDefaultDockerClient())
 
 				ui := &stdio.Mock{}
 				root := buildRootCmd(ui)

@@ -3,60 +3,14 @@ package main
 import (
 	"context"
 	"errors"
-	"io"
 	"strings"
 	"testing"
 
-	dockerspec "github.com/moby/docker-image-spec/specs-go/v1"
-	"github.com/moby/moby/client"
 	msb "github.com/superradcompany/microsandbox/sdk/go"
 
 	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox"
 	"gitlab.inoio.de/inoio/opencode-msb/internal/stdio"
 )
-
-// mockDockerClient is a minimal DockerClient for tests.
-type mockDockerClient struct{}
-
-func (m *mockDockerClient) ImageBuild(
-	_ context.Context,
-	_ io.Reader,
-	_ client.ImageBuildOptions,
-) (client.ImageBuildResult, error) {
-	return client.ImageBuildResult{Body: io.NopCloser(strings.NewReader(""))}, nil
-}
-
-func (m *mockDockerClient) ImageInspect(
-	_ context.Context,
-	_ string,
-	_ ...client.ImageInspectOption,
-) (client.ImageInspectResult, error) {
-	result := client.ImageInspectResult{}
-	result.Config = &dockerspec.DockerOCIImageConfig{}
-	return result, nil
-}
-
-func (m *mockDockerClient) ImageSave(
-	_ context.Context,
-	_ []string,
-	_ ...client.ImageSaveOption,
-) (client.ImageSaveResult, error) {
-	return nil, nil //nolint:nilnil // ImageSaveResult is an interface; nil is the correct zero value
-}
-
-func (m *mockDockerClient) ImageRemove(
-	_ context.Context,
-	_ string,
-	_ client.ImageRemoveOptions,
-) (client.ImageRemoveResult, error) {
-	return client.ImageRemoveResult{}, nil
-}
-
-func (m *mockDockerClient) ImageTag(_ context.Context, _ client.ImageTagOptions) (client.ImageTagResult, error) {
-	return client.ImageTagResult{}, nil
-}
-
-func (m *mockDockerClient) Close() error { return nil }
 
 // setupRunMocks configures all mock dependencies needed for run/shell tests.
 // It always returns the given mock so callers can inspect its call history, and
@@ -73,7 +27,7 @@ func setupRunMocks(t *testing.T, mock *sandbox.MockMsbClient, sandboxToReturn sa
 	t.Cleanup(func() { sandbox.SetNewMsbClient(origMSB) })
 
 	origDocker := sandbox.SetBuildImageDockerClient(func() (sandbox.DockerClient, error) {
-		return &mockDockerClient{}, nil
+		return newDefaultDockerClient(), nil
 	})
 	t.Cleanup(func() { sandbox.SetBuildImageDockerClient(origDocker) })
 
