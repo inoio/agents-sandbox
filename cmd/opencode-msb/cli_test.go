@@ -8,14 +8,14 @@ import (
 
 	"gitlab.inoio.de/inoio/opencode-msb/internal/launcherconfig"
 	"gitlab.inoio.de/inoio/opencode-msb/internal/stdio"
-	"gitlab.inoio.de/inoio/opencode-msb/internal/testhelpers"
+	"gitlab.inoio.de/inoio/opencode-msb/internal/testutil"
 )
 
 // buildTree sets up a test UI, builds the root command, renders the tree,
 // and returns both for use in test assertions.
 func buildTree(t *testing.T) (*stdio.Mock, *cobra.Command) {
 	t.Helper()
-	ui := testhelpers.NewTestio(t)
+	ui := testutil.NewTestio(t)
 	root := buildRootCmd(&ui)
 	printTree(root, &ui)
 	return &ui, root
@@ -287,7 +287,7 @@ func isTreeChar(r rune) bool {
 }
 
 func TestRootHasGlobalFlags(t *testing.T) {
-	testUI := testhelpers.NewTestio(t)
+	testUI := testutil.NewTestio(t)
 	root := buildRootCmd(&testUI)
 	flags := []string{"yes", "verbose", "quiet"}
 	for _, f := range flags {
@@ -298,7 +298,7 @@ func TestRootHasGlobalFlags(t *testing.T) {
 }
 
 func TestRunCommandHasExpectedFlags(t *testing.T) {
-	testUI := testhelpers.NewTestio(t)
+	testUI := testutil.NewTestio(t)
 	root := buildRootCmd(&testUI)
 	runCmd, _, _ := root.Find([]string{"run"})
 	if runCmd == nil {
@@ -313,7 +313,7 @@ func TestRunCommandHasExpectedFlags(t *testing.T) {
 }
 
 func TestRunCommandFlagShortcuts(t *testing.T) {
-	testUI := testhelpers.NewTestio(t)
+	testUI := testutil.NewTestio(t)
 	root := buildRootCmd(&testUI)
 	runCmd, _, _ := root.Find([]string{"run"})
 	if runCmd == nil {
@@ -336,7 +336,7 @@ func TestRunCommandFlagShortcuts(t *testing.T) {
 }
 
 func TestImageBuildNounFormExists(t *testing.T) {
-	testUI := testhelpers.NewTestio(t)
+	testUI := testutil.NewTestio(t)
 	root := buildRootCmd(&testUI)
 	imageCmd, _, _ := root.Find([]string{"image"})
 	if imageCmd == nil {
@@ -349,7 +349,7 @@ func TestImageBuildNounFormExists(t *testing.T) {
 }
 
 func TestApplyLauncherConfigSetsUnsetFlags(t *testing.T) {
-	testUI := testhelpers.NewTestio(t)
+	testUI := testutil.NewTestio(t)
 	root := buildRootCmd(&testUI)
 	runCmd, _, _ := root.Find([]string{"run"})
 	if runCmd == nil {
@@ -385,7 +385,7 @@ func TestApplyLauncherConfigSetsUnsetFlags(t *testing.T) {
 }
 
 func TestApplyLauncherConfigRespectsCLIOverrides(t *testing.T) {
-	testUI := testhelpers.NewTestio(t)
+	testUI := testutil.NewTestio(t)
 	root := buildRootCmd(&testUI)
 	runCmd, _, _ := root.Find([]string{"run"})
 	if runCmd == nil {
@@ -453,7 +453,7 @@ func TestRunAndGetShellUserFlag(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			testUI := testhelpers.NewTestio(t)
+			testUI := testutil.NewTestio(t)
 			root := buildRootCmd(&testUI)
 			cmd, _, _ := root.Find([]string{"shell"})
 			if cmd == nil {
@@ -471,7 +471,7 @@ func TestRunAndGetShellUserFlag(t *testing.T) {
 }
 
 func TestStopCommandExists(t *testing.T) {
-	testUI := testhelpers.NewTestio(t)
+	testUI := testutil.NewTestio(t)
 	root := buildRootCmd(&testUI)
 	stopCmd, _, _ := root.Find([]string{"stop"})
 	if stopCmd == nil {
@@ -480,7 +480,7 @@ func TestStopCommandExists(t *testing.T) {
 }
 
 func TestKillCommandExists(t *testing.T) {
-	testUI := testhelpers.NewTestio(t)
+	testUI := testutil.NewTestio(t)
 	root := buildRootCmd(&testUI)
 	killCmd, _, _ := root.Find([]string{"kill"})
 	if killCmd == nil {
@@ -489,7 +489,7 @@ func TestKillCommandExists(t *testing.T) {
 }
 
 func TestStopCommandHasForceFlag(t *testing.T) {
-	testUI := testhelpers.NewTestio(t)
+	testUI := testutil.NewTestio(t)
 	root := buildRootCmd(&testUI)
 	stopCmd, _, _ := root.Find([]string{"stop"})
 	if stopCmd == nil {
@@ -501,7 +501,7 @@ func TestStopCommandHasForceFlag(t *testing.T) {
 }
 
 func TestKillCommandHasForceFlag(t *testing.T) {
-	testUI := testhelpers.NewTestio(t)
+	testUI := testutil.NewTestio(t)
 	root := buildRootCmd(&testUI)
 	killCmd, _, _ := root.Find([]string{"kill"})
 	if killCmd == nil {

@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"gitlab.inoio.de/inoio/opencode-msb/internal/testhelpers"
+	"gitlab.inoio.de/inoio/opencode-msb/internal/testutil"
 
 	msb "github.com/superradcompany/microsandbox/sdk/go"
 )
@@ -109,7 +109,7 @@ func TestEnsureProjectVMStartsWhenCrashed(t *testing.T) {
 
 func TestCreateProjectVMCallsClientCreateSandbox(t *testing.T) {
 	client := &mockMsbClient{}
-	testUI := testhelpers.NewTestio(t)
+	testUI := testutil.NewTestio(t)
 	ui := &testUI
 	cfg := Config{
 		StateDir:        t.TempDir(),
@@ -147,7 +147,7 @@ func TestCreateProjectVMCallsClientCreateSandbox(t *testing.T) {
 }
 
 func TestStopProjectVMUsesClient(t *testing.T) {
-	testUI := testhelpers.NewTestio(t)
+	testUI := testutil.NewTestio(t)
 	ui := &testUI
 	client := &mockMsbClient{
 		gotSandbox: mockSandboxHandle{
@@ -160,14 +160,8 @@ func TestStopProjectVMUsesClient(t *testing.T) {
 	defer func() { newMsbClient = oldNewMsbClient }()
 
 	// ProjectSlug depends on the current directory, so use a temp repo.
-	tmpRepo := t.TempDir()
+	tmpRepo := testutil.InitRepo(t)
 	t.Chdir(tmpRepo)
-	testhelpers.RunGit(t, tmpRepo, "init", "-b", "main")
-	testhelpers.RunGit(t, tmpRepo, "config", "user.email", "test@example.com")
-	testhelpers.RunGit(t, tmpRepo, "config", "user.name", "Test User")
-	testhelpers.WriteFile(t, tmpRepo, "README.md", "hello")
-	testhelpers.RunGit(t, tmpRepo, "add", "README.md")
-	testhelpers.RunGit(t, tmpRepo, "commit", "-m", "initial")
 
 	if err := StopProjectVM(context.Background(), false, false, ui); err != nil {
 		t.Fatalf("StopProjectVM failed: %v", err)

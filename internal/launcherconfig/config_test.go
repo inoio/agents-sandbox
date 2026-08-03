@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"gitlab.inoio.de/inoio/opencode-msb/internal/testhelpers"
+	"gitlab.inoio.de/inoio/opencode-msb/internal/testutil"
 )
 
 func TestLoadMissingFilesReturnsDefaults(t *testing.T) {
@@ -25,7 +25,7 @@ func TestLoadMissingFilesReturnsDefaults(t *testing.T) {
 
 func TestLoadYAMLConfig(t *testing.T) {
 	dir := t.TempDir()
-	testhelpers.WriteYAML(t, dir, "config.yaml", map[string]any{
+	testutil.WriteYAML(t, dir, "config.yaml", map[string]any{
 		"cpus":     4,
 		"memory":   "8G",
 		"tmp-size": "4G",
@@ -56,7 +56,7 @@ func TestLoadYAMLConfig(t *testing.T) {
 
 func TestLoadJSON5Config(t *testing.T) {
 	dir := t.TempDir()
-	testhelpers.WritePath(t, filepath.Join(dir, "config.json5"), `{
+	testutil.WritePath(t, filepath.Join(dir, "config.json5"), `{
 		// a comment
 		"cpus": 2,
 		"memory": "512M",
@@ -78,12 +78,12 @@ func TestLoadJSON5Config(t *testing.T) {
 func TestLoadProjectOverridesUser(t *testing.T) {
 	user := t.TempDir()
 	project := t.TempDir()
-	testhelpers.WriteYAML(t, user, "config.yaml", map[string]any{
+	testutil.WriteYAML(t, user, "config.yaml", map[string]any{
 		"cpus":   2,
 		"memory": "4G",
 		"yes":    true,
 	})
-	testhelpers.WriteYAML(t, project, "config.yaml", map[string]any{
+	testutil.WriteYAML(t, project, "config.yaml", map[string]any{
 		"memory": "8G",
 		"yes":    false,
 	})
@@ -108,7 +108,7 @@ func TestLoadProjectOverridesUser(t *testing.T) {
 
 func TestLoadInvalidCPUs(t *testing.T) {
 	dir := t.TempDir()
-	testhelpers.WriteYAML(t, dir, "config.yaml", map[string]any{"cpus": 300})
+	testutil.WriteYAML(t, dir, "config.yaml", map[string]any{"cpus": 300})
 
 	_, _, err := Load(dir, "")
 	if err == nil {
@@ -118,7 +118,7 @@ func TestLoadInvalidCPUs(t *testing.T) {
 
 func TestLoadMalformedConfig(t *testing.T) {
 	dir := t.TempDir()
-	testhelpers.WritePath(t, filepath.Join(dir, "config.json5"), "{")
+	testutil.WritePath(t, filepath.Join(dir, "config.json5"), "{")
 
 	_, _, err := Load(dir, "")
 	if err == nil {
@@ -154,7 +154,7 @@ func TestLoadPruneAgeConfig(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			dir := t.TempDir()
-			testhelpers.WritePath(t, filepath.Join(dir, "config.json"), tc.json)
+			testutil.WritePath(t, filepath.Join(dir, "config.json"), tc.json)
 
 			cfg, keys, err := Load(dir, "")
 			if err != nil {
@@ -188,7 +188,7 @@ func TestLoadInvalidPruneAge(t *testing.T) {
 	} {
 		t.Run(tc.key, func(t *testing.T) {
 			dir := t.TempDir()
-			testhelpers.WriteYAML(t, dir, "config.yaml", map[string]any{tc.key: tc.value})
+			testutil.WriteYAML(t, dir, "config.yaml", map[string]any{tc.key: tc.value})
 
 			_, _, err := Load(dir, "")
 			if err == nil {

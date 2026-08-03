@@ -10,7 +10,7 @@ import (
 	msb "github.com/superradcompany/microsandbox/sdk/go"
 
 	"gitlab.inoio.de/inoio/opencode-msb/internal/stdio"
-	"gitlab.inoio.de/inoio/opencode-msb/internal/testhelpers"
+	"gitlab.inoio.de/inoio/opencode-msb/internal/testutil"
 )
 
 func TestConfigEqualIgnoresExtraFilesOnVM(t *testing.T) {
@@ -188,7 +188,7 @@ func TestBuildMountsRespectsCustomTmpSize(t *testing.T) {
 
 func TestBuildEnvMap(t *testing.T) {
 	envFile := filepath.Join(t.TempDir(), "env")
-	testhelpers.WritePath(t, envFile, "FOO=bar\n# comment\n\nBAZ=qux\n")
+	testutil.WritePath(t, envFile, "FOO=bar\n# comment\n\nBAZ=qux\n")
 	got := buildEnvMap(envFile)
 
 	if len(got) != 2 {
@@ -254,9 +254,9 @@ func TestIsSandboxActive(t *testing.T) {
 
 func TestMergeEnvMapsProjectOverridesUser(t *testing.T) {
 	userFile := filepath.Join(t.TempDir(), "env")
-	testhelpers.WritePath(t, userFile, "FOO=user\nBAR=user\n")
+	testutil.WritePath(t, userFile, "FOO=user\nBAR=user\n")
 	projectFile := filepath.Join(t.TempDir(), "env")
-	testhelpers.WritePath(t, projectFile, "FOO=project\n")
+	testutil.WritePath(t, projectFile, "FOO=project\n")
 
 	got := mergeEnvMaps(buildEnvMap(userFile), buildEnvMap(projectFile))
 	want := map[string]string{"FOO": "project", "BAR": "user"}
