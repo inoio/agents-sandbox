@@ -217,7 +217,7 @@ func TestLifecycle(t *testing.T) {
 
 		foundStop := false
 		for _, call := range ui.InfoCalls {
-			if strings.HasPrefix(call, "stoped project VM: ") {
+			if strings.HasPrefix(call, "stopped project VM: ") {
 				foundStop = true
 			}
 		}
@@ -243,7 +243,7 @@ func TestLifecycle(t *testing.T) {
 
 		foundStop := false
 		for _, call := range ui.InfoCalls {
-			if strings.HasPrefix(call, "stoped project VM: ") {
+			if strings.HasPrefix(call, "stopped project VM: ") {
 				foundStop = true
 			}
 		}
@@ -436,4 +436,61 @@ func TestLifecycle(t *testing.T) {
 			}
 		})
 	}
+
+	// S10 non-dry-run remove fails - verify Warn when RemoveErr is set
+	t.Run("S10_non_dry_run_stop_remove_fail", func(t *testing.T) {
+		initTestRepo(t)
+
+		ui := &stdio.Mock{}
+		mock := &sandbox.MockMsbClient{}
+		mock.SetGotSandbox(&sandbox.MockSandboxHandle{
+			RemoveErr: errBoom,
+		})
+		overrideMsbClient(t, mock)
+
+		root := buildRootCmd(ui)
+		root.SetArgs([]string{cmdStop, "--force"})
+
+		if err := root.Execute(); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		foundWarn := false
+		for _, call := range ui.WarnCalls {
+			if strings.Contains(call, "failed to remove sandbox state") {
+				foundWarn = true
+			}
+		}
+		if !foundWarn {
+			t.Errorf("expected warn 'failed to remove sandbox state'; got: %v", ui.WarnCalls)
+		}
+	})
+
+	t.Run("S10_non_dry_run_kill_remove_fail", func(t *testing.T) {
+		initTestRepo(t)
+
+		ui := &stdio.Mock{}
+		mock := &sandbox.MockMsbClient{}
+		mock.SetGotSandbox(&sandbox.MockSandboxHandle{
+			RemoveErr: errBoom,
+		})
+		overrideMsbClient(t, mock)
+
+		root := buildRootCmd(ui)
+		root.SetArgs([]string{cmdKill, "--force"})
+
+		if err := root.Execute(); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		foundWarn := false
+		for _, call := range ui.WarnCalls {
+			if strings.Contains(call, "failed to remove sandbox state") {
+				foundWarn = true
+			}
+		}
+		if !foundWarn {
+			t.Errorf("expected warn 'failed to remove sandbox state'; got: %v", ui.WarnCalls)
+		}
+	})
 }
