@@ -19,6 +19,14 @@ import (
 	"gitlab.inoio.de/inoio/opencode-msb/internal/stdio"
 )
 
+// DockerClient is the exported interface for Docker API operations needed by
+// the prune command. It lets CLI code create and pass a Docker client for
+// pruning without depending directly on the moby client package.
+type DockerClient interface {
+	ImageRemove(ctx context.Context, imageID string, opts client.ImageRemoveOptions) (client.ImageRemoveResult, error)
+	Close() error
+}
+
 const (
 	BaseTag        = "opencode-msb/runner-base:latest"
 	DindBaseTag    = "opencode-msb/runner-base-dind:latest"
