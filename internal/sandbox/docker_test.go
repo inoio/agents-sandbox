@@ -13,7 +13,7 @@ func TestDockerdCheckCmdChecksBinaryPresence(t *testing.T) {
 }
 
 func TestDockerdStartCmdUsesUnixSocketAndVfsConfig(t *testing.T) {
-	want := "dockerd -H unix:///var/run/docker.sock > /var/log/dockerd.log 2>&1 &"
+	want := "find /run /var/run -iname 'docker*.pid' -delete 2>/dev/null || : && dockerd -H unix:///var/run/docker.sock > /var/log/dockerd.log 2>&1 &"
 	if dockerdStartCmd != want {
 		t.Errorf("dockerdStartCmd:\n  got:  %q\n  want: %q", dockerdStartCmd, want)
 	}
