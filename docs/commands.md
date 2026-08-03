@@ -32,16 +32,16 @@ Arguments after `--` are forwarded to opencode. Arguments before `--` that don't
 
 **Flags:**
 
-| Flag            | Short | Default  | Purpose                                       |
-|-----------------|-------|----------|-----------------------------------------------|
-| `--branch`      | `-b`  | `""`     | Isolated git worktree for the given branch    |
-| `--rebuild`     | `-r`  | `false`  | Rebuild runner image before starting          |
-| `--dry-run`     | `-n`  | `false`  | Validate setup without running opencode       |
-| `--cpus`        | `-c`  | `0`      | vCPUs for the sandbox (0 = all)               |
-| `--memory`      | `-m`  | `4G`     | Memory limit, e.g. `4G`, `512M`              |
-| `--tmp-size`    | —     | `2G`     | Size of `/tmp` tmpfs in the sandbox           |
-| `--user`        | `-u`  | `dev`*   | Username or UID inside the sandbox          |
-| `--no-auto`     | —     | `false`  | Do not pass `--auto` to opencode              |
+| Flag            | Short | Default  | Purpose                                    |
+|-----------------|-------|----------|--------------------------------------------|
+| `--branch`      | `-b`  | `""`     | Isolated git worktree for the given branch |
+| `--rebuild`     | `-r`  | `false`  | Rebuild runner image before starting       |
+| `--dry-run`     | `-n`  | `false`  | Validate setup without running opencode    |
+| `--cpus`        | `-c`  | `0`      | vCPUs for the sandbox (0 = all)            |
+| `--memory`      | `-m`  | `4G`     | Memory limit, e.g. `4G`, `512M`            |
+| `--tmp-size`    | —     | `2G`     | Size of `/tmp` tmpfs in the sandbox        |
+| `--user`        | `-u`  | `dev`*   | Username or UID inside the sandbox         |
+| `--no-auto`     | —     | `false`  | Do not pass `--auto` to opencode           |
 
 <!-- markdownlint-disable-next-line no-trailing-punctuation -->
 * Effective default: `dev`. The CLI flag defaults to empty string, but the launcher applies `dev` when blank.
@@ -135,9 +135,9 @@ opencode-msb prune --force               # skip confirmation
 
 | Flag          | Short | Default | Purpose                               |
 |---------------|-------|---------|---------------------------------------|
-| `--age`       | `-a`  | `7d`    | Prune threshold (e.g. `24h`, `7d`)      |
-| `--dry-run`   | `-n`  | `false` | Preview what would be pruned           |
-| `--force`     | `-f`  | `false` | Skip confirmation prompt               |
+| `--age`       | `-a`  | `7d`    | Prune threshold (e.g. `24h`, `7d`)    |
+| `--dry-run`   | `-n`  | `false` | Preview what would be pruned          |
+| `--force`     | `-f`  | `false` | Skip confirmation prompt              |
 
 ---
 
