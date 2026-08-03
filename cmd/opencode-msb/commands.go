@@ -138,6 +138,20 @@ func buildVersionCmd(rootCmd *cobra.Command, ui stdio.UI) *cobra.Command {
 	return cmd
 }
 
+func buildDoctorCmd(ui stdio.UI) *cobra.Command {
+	return &cobra.Command{
+		Use:   cmdDoctor,
+		Short: "Check prerequisites",
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			if !sandbox.CheckAll(cmd.Context(), ui) {
+				return errors.New("preflight failed")
+			}
+			ui.Info("doctor: all checks passed")
+			return nil
+		},
+	}
+}
+
 func buildListCmd(ui stdio.UI) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:     cmdList,
@@ -158,34 +172,6 @@ func buildListCmd(ui stdio.UI) *cobra.Command {
 			return nil
 		},
 	}
-	return cmd
-}
-
-func buildShellCmd(ui stdio.UI) *cobra.Command {
-	cmd := &cobra.Command{
-		Use:   "shell [flags]",
-		Short: "Start sandbox and open a shell (debug)",
-		Annotations: map[string]string{
-			annotationAlsoAs: "sandbox shell",
-		},
-		RunE: func(cmd *cobra.Command, _ []string) error {
-			opts := extractRunOptions(cmd, false, ui)
-
-			cfg := newConfig()
-
-			return sandbox.Shell(cmd.Context(), opts, cfg, ui)
-		},
-	}
-
-	cmd.Flags().StringP("branch", "b", "", "Run in an opencode worktree for the given branch name")
-	cmd.Flags().BoolP("rebuild", "r", false, "Rebuild the runner image before starting")
-	cmd.Flags().BoolP("dry-run", "n", false, "Dry run without starting anything")
-	cmd.Flags().Bool("dry-run-vm", false, "Skip VM lifecycle but prepare everything else")
-	cmd.Flags().Uint8P("cpus", "c", 0, "Number of CPUs (default: all)")
-	cmd.Flags().StringP("memory", "m", "4G", "Memory limit")
-	cmd.Flags().String("tmp-size", "2G", "Size of the /tmp tmpfs in the sandbox")
-	cmd.Flags().StringP("user", "u", "", "Username or UID to use inside the sandbox (format: <name|uid>[:<group|gid>])")
-
 	return cmd
 }
 
@@ -233,6 +219,147 @@ func buildConfigCmd(ui stdio.UI) *cobra.Command {
 			return nil
 		},
 	})
+	return cmd
+}
+
+func buildBuildCmd(ui stdio.UI) *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   cmdBuild,
+		Short: "Build or rebuild the runner image",
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			force, _ := cmd.Flags().GetBool("rebuild")
+			dryRun, _ := cmd.Flags().GetBool("dry-run")
+			return sandbox.BuildImage(cmd.Context(), force, dryRun, ui)
+		},
+	}
+	cmd.Flags().BoolP("rebuild", "r", false, "Force a clean rebuild")
+	cmd.Flags().BoolP("dry-run", "n", false, "Dry run without building")
+	return cmd
+}
+
+// registerRunFlags adds the shared run/shell flags to the given command.
+func registerRunFlags(cmd *cobra.Command) {
+	cmd.Flags().StringP("branch", "b", "", "Run in an opencode worktree for the given branch name")
+	cmd.Flags().BoolP("rebuild", "r", false, "Rebuild the runner image before starting")
+	cmd.Flags().BoolP("dry-run", "n", false, "Dry run without starting anything")
+	cmd.Flags().Bool("dry-run-vm", false, "Skip VM lifecycle but prepare everything else")
+	cmd.Flags().Uint8P("cpus", "c", 0, "Number of CPUs (default: all)")
+	cmd.Flags().StringP("memory", "m", "4G", "Memory limit")
+	cmd.Flags().String("tmp-size", "2G", "Size of the /tmp tmpfs in the sandbox")
+	cmd.Flags().StringP("user", "u", "", "Username or UID for the runtime user (format: <name|uid>[:<group|gid>])")
+}
+
+func buildRunCmd(ui stdio.UI) *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "run [flags] [ARGS...]",
+		Short: "Run opencode in a microsandbox VM",
+		Annotations: map[string]string{
+			annotationArgsDesc: "Arguments forwarded to opencode (use -- to separate from launcher flags)",
+			annotationAlsoAs:   "sandbox run",
+		},
+		RunE: runFunc(ui),
+	}
+
+	registerRunFlags(cmd)
+	cmd.Flags().Bool("no-auto", false, "Do not pass --auto to opencode")
+
+	return cmd
+}
+
+func buildStopCmd(ui stdio.UI) *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   cmdStop,
+		Short: "Stop the project VM",
+		Annotations: map[string]string{
+			annotationAlsoAs: "sandbox stop",
+		},
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			force, _ := cmd.Flags().GetBool("force")
+			dryRun, _ := cmd.Flags().GetBool("dry-run")
+			return sandbox.StopProjectVM(cmd.Context(), force, dryRun, ui)
+		},
+	}
+	cmd.Flags().BoolP("force", "f", false, "Remove the VM's persisted state after stopping")
+	cmd.Flags().BoolP("dry-run", "n", false, "Show what would be stopped without stopping")
+	return cmd
+}
+
+func buildKillCmd(ui stdio.UI) *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   cmdKill,
+		Short: "Force-kill the project VM",
+		Annotations: map[string]string{
+			annotationAlsoAs: "sandbox kill",
+		},
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			force, _ := cmd.Flags().GetBool("force")
+			dryRun, _ := cmd.Flags().GetBool("dry-run")
+			return sandbox.KillProjectVM(cmd.Context(), force, dryRun, ui)
+		},
+	}
+	cmd.Flags().BoolP("force", "f", false, "Remove the VM's persisted state after killing")
+	cmd.Flags().BoolP("dry-run", "n", false, "Show what would be killed without killing")
+	return cmd
+}
+
+func buildPruneCmd(ui stdio.UI) *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "prune [flags]",
+		Short: "Prune stale VMs, volumes, and images",
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			ageStr, _ := cmd.Flags().GetString("age")
+			var age time.Duration
+			if ageStr != "" {
+				d, ok := launcherconfig.ParseHumanDuration(ageStr)
+				if !ok {
+					return fmt.Errorf("invalid age %q: use a Go duration or suffix d/w (e.g. 7d, 2w)", ageStr)
+				}
+				age = d
+			}
+			if age == 0 {
+				age = 7 * 24 * time.Hour
+			}
+			dryRun, _ := cmd.Flags().GetBool("dry-run")
+			dockerCli, err := newDockerClient()
+			if err != nil {
+				return fmt.Errorf("cannot connect to Docker daemon (is dockerd running?): %w", err)
+			}
+			report, err := sandbox.Prune(cmd.Context(), dockerCli, age, dryRun, ui)
+			_ = dockerCli.Close()
+			if err != nil {
+				return err
+			}
+			if report != nil {
+				printPruneSummary(ui, report, dryRun)
+			}
+			return nil
+		},
+	}
+	cmd.Flags().StringP("age", "a", "", "Prune threshold (default: manualPruneAge from config)")
+	cmd.Flags().BoolP("dry-run", "n", false, "Show what would be pruned without deleting")
+	cmd.Flags().Bool("dry-run-vm", false, "Suppress VM deletion during prune")
+	cmd.Flags().BoolP("force", "f", false, "Skip confirmation prompt")
+	return cmd
+}
+
+func buildShellCmd(ui stdio.UI) *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "shell [flags]",
+		Short: "Start sandbox and open a shell (debug)",
+		Annotations: map[string]string{
+			annotationAlsoAs: "sandbox shell",
+		},
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			opts := extractRunOptions(cmd, false, ui)
+
+			cfg := newConfig()
+
+			return sandbox.Shell(cmd.Context(), opts, cfg, ui)
+		},
+	}
+
+	registerRunFlags(cmd)
+
 	return cmd
 }
 
@@ -298,60 +425,6 @@ func buildSandboxCmd(ui stdio.UI) *cobra.Command {
 	return cmd
 }
 
-func buildDoctorCmd(ui stdio.UI) *cobra.Command {
-	return &cobra.Command{
-		Use:   cmdDoctor,
-		Short: "Check prerequisites",
-		RunE: func(cmd *cobra.Command, _ []string) error {
-			if !sandbox.CheckAll(cmd.Context(), ui) {
-				return errors.New("preflight failed")
-			}
-			ui.Info("doctor: all checks passed")
-			return nil
-		},
-	}
-}
-
-func buildBuildCmd(ui stdio.UI) *cobra.Command {
-	cmd := &cobra.Command{
-		Use:   cmdBuild,
-		Short: "Build or rebuild the runner image",
-		RunE: func(cmd *cobra.Command, _ []string) error {
-			force, _ := cmd.Flags().GetBool("rebuild")
-			dryRun, _ := cmd.Flags().GetBool("dry-run")
-			return sandbox.BuildImage(cmd.Context(), force, dryRun, ui)
-		},
-	}
-	cmd.Flags().BoolP("rebuild", "r", false, "Force a clean rebuild")
-	cmd.Flags().BoolP("dry-run", "n", false, "Dry run without building")
-	return cmd
-}
-
-func buildRunCmd(ui stdio.UI) *cobra.Command {
-	cmd := &cobra.Command{
-		Use:   "run [flags] [ARGS...]",
-		Short: "Run opencode in a microsandbox VM",
-		Annotations: map[string]string{
-			annotationArgsDesc: "Arguments forwarded to opencode (use -- to separate from launcher flags)",
-			annotationAlsoAs:   "sandbox run",
-		},
-		RunE: runFunc(ui),
-	}
-
-	cmd.Flags().StringP("branch", "b", "", "Run in an opencode worktree for the given branch name")
-	cmd.Flags().BoolP("rebuild", "r", false, "Rebuild the runner image before starting")
-	cmd.Flags().BoolP("dry-run", "n", false, "Validate setup without running opencode")
-	cmd.Flags().Bool("dry-run-vm", false, "Skip VM lifecycle but prepare everything else")
-	cmd.Flags().Uint8P("cpus", "c", 0, "Number of CPUs (default: all)")
-	cmd.Flags().StringP("memory", "m", "4G", "Memory limit")
-	cmd.Flags().String("tmp-size", "2G", "Size of the /tmp tmpfs in the sandbox")
-	cmd.Flags().
-		StringP("user", "u", "", "Username or UID for the runtime user (format: <name|uid>[:<group|gid>])")
-	cmd.Flags().Bool("no-auto", false, "Do not pass --auto to opencode")
-
-	return cmd
-}
-
 func runFunc(ui stdio.UI) func(cmd *cobra.Command, args []string) error {
 	return func(cmd *cobra.Command, args []string) error {
 		opts := extractRunOptions(cmd, true, ui)
@@ -368,78 +441,24 @@ func runFunc(ui stdio.UI) func(cmd *cobra.Command, args []string) error {
 	}
 }
 
-func buildPruneCmd(ui stdio.UI) *cobra.Command {
-	cmd := &cobra.Command{
-		Use:   "prune [flags]",
-		Short: "Prune stale VMs, volumes, and images",
-		RunE: func(cmd *cobra.Command, _ []string) error {
-			ageStr, _ := cmd.Flags().GetString("age")
-			var age time.Duration
-			if ageStr != "" {
-				d, ok := launcherconfig.ParseHumanDuration(ageStr)
-				if !ok {
-					return fmt.Errorf("invalid age %q: use a Go duration or suffix d/w (e.g. 7d, 2w)", ageStr)
-				}
-				age = d
-			}
-			if age == 0 {
-				age = 7 * 24 * time.Hour
-			}
-			dryRun, _ := cmd.Flags().GetBool("dry-run")
-			dockerCli, err := newDockerClient()
-			if err != nil {
-				return fmt.Errorf("cannot connect to Docker daemon (is dockerd running?): %w", err)
-			}
-			report, err := sandbox.Prune(cmd.Context(), dockerCli, age, dryRun, ui)
-			_ = dockerCli.Close()
-			if err != nil {
-				return err
-			}
-			if report != nil {
-				printPruneSummary(ui, report, dryRun)
-			}
-			return nil
-		},
+func printPruneSummary(ui stdio.UI, report *sandbox.StaleReport, dryRun bool) {
+	action := "Pruned"
+	if dryRun {
+		action = "dry-run: Would prune"
 	}
-	cmd.Flags().StringP("age", "a", "", "Prune threshold (default: manualPruneAge from config)")
-	cmd.Flags().BoolP("dry-run", "n", false, "Show what would be pruned without deleting")
-	cmd.Flags().Bool("dry-run-vm", false, "Suppress VM deletion during prune")
-	cmd.Flags().BoolP("force", "f", false, "Skip confirmation prompt")
-	return cmd
-}
 
-func buildKillCmd(ui stdio.UI) *cobra.Command {
-	cmd := &cobra.Command{
-		Use:   cmdKill,
-		Short: "Force-kill the project VM",
-		Annotations: map[string]string{
-			annotationAlsoAs: "sandbox kill",
-		},
-		RunE: func(cmd *cobra.Command, _ []string) error {
-			force, _ := cmd.Flags().GetBool("force")
-			dryRun, _ := cmd.Flags().GetBool("dry-run")
-			return sandbox.KillProjectVM(cmd.Context(), force, dryRun, ui)
-		},
+	ui.Outf(
+		"%s %d VMs, %d home volumes, %d docker images, %d msb images, %d task sandboxes, %d clone volumes",
+		action,
+		report.PrunedVMs,
+		report.PrunedVolumes,
+		report.PrunedDockerImages,
+		report.PrunedMSBImages,
+		report.PrunedTaskSandboxes,
+		report.PrunedCloneVolumes,
+	)
+	ui.Verbosef("details %d", len(report.Details))
+	for _, entry := range report.Details {
+		ui.Verbosef("x  %s", entry)
 	}
-	cmd.Flags().BoolP("force", "f", false, "Remove the VM's persisted state after killing")
-	cmd.Flags().BoolP("dry-run", "n", false, "Show what would be killed without killing")
-	return cmd
-}
-
-func buildStopCmd(ui stdio.UI) *cobra.Command {
-	cmd := &cobra.Command{
-		Use:   cmdStop,
-		Short: "Stop the project VM",
-		Annotations: map[string]string{
-			annotationAlsoAs: "sandbox stop",
-		},
-		RunE: func(cmd *cobra.Command, _ []string) error {
-			force, _ := cmd.Flags().GetBool("force")
-			dryRun, _ := cmd.Flags().GetBool("dry-run")
-			return sandbox.StopProjectVM(cmd.Context(), force, dryRun, ui)
-		},
-	}
-	cmd.Flags().BoolP("force", "f", false, "Remove the VM's persisted state after stopping")
-	cmd.Flags().BoolP("dry-run", "n", false, "Show what would be stopped without stopping")
-	return cmd
 }
