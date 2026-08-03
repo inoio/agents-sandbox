@@ -82,6 +82,16 @@ type imageWithDigest struct {
 
 const baseSlug = "base"
 
+const (
+	sbPrefix        = "opencode-msb-"
+	vmPrefix        = "opencode-msb-vm-"
+	homePrefix      = "opencode-msb-home-"
+	clonePrefix     = "opencode-msb-clone-"
+	taskPrefix      = "opencode-msb-task-"
+	imagePrefix     = "opencode-msb/runner-"
+	baseImagePrefix = "opencode-msb/runner-base"
+)
+
 // findHashSuffix finds the start index of a 14-character base36 hash suffix
 // in the name remainder (e.g. "saife-1mjusbm3wikhb0" -> returns 6, pointing
 // at the '1' in the 14-char hash). Returns -1 when no such suffix is found.
@@ -105,6 +115,101 @@ func findHashSuffix(name string) int {
 	return -1
 }
 
+// parseImageTag extracts the slug and digest from a Docker image reference.
+// Examples: "opencode-msb/runner-myproject:xYz1234AbCdEfGh"
+//
+//	→ slug="myproject", digest="xYz1234AbCdEfGh"
+//
+//	"opencode-msb/runner-myproject:latest"
+//	→ slug="myproject", digest=""
+//
+//	"opencode-msb/runner-myproject"
+//	→ slug="myproject", digest=""
+//
+//nolint:nonamedreturns // named returns simplify return paths in this parser
+func parseImageTag(name string) (slug, digest string) {
+	if !strings.HasPrefix(name, imagePrefix) {
+		return "", ""
+	}
+	afterPrefix := name[len(imagePrefix):]
+	lastColon := strings.LastIndex(afterPrefix, ":")
+	if lastColon == -1 {
+		return afterPrefix, ""
+	}
+	tag := afterPrefix[lastColon+1:]
+	slug = afterPrefix[:lastColon]
+	if tag != "" && tag != "latest" {
+		digest = tag
+	}
+	return slug, digest
+}
+
+// parseVMName extracts the slug and optional branch (digest) from a sandbox name.
+// Examples: "opencode-msb-vm-projectname-aB3cDe4fGhIjKl"
+//
+//	→ slug="projectname-aB3cDe4fGhIjKl", digest=""
+//
+//	"opencode-msb-vm-projectname-aB3cDe4fGhIjKl-feature"
+//	→ slug="projectname-aB3cDe4fGhIjKl", digest="feature"
+//
+//nolint:nonamedreturns // named returns simplify return paths in this parser
+func parseVMName(name string) (slug, digest string) {
+	if !strings.HasPrefix(name, vmPrefix) {
+		return "", ""
+	}
+	remainder := name[len(vmPrefix):]
+	hashStart := findHashSuffix(remainder)
+	if hashStart == -1 {
+		return remainder, ""
+	}
+	folderName := remainder[:hashStart-1]
+	hash := remainder[hashStart : hashStart+14]
+	slug = folderName + "-" + hash
+	if hashStart+14 < len(remainder) {
+		rest := remainder[hashStart+14:]
+		if len(rest) > 1 && rest[0] == '-' {
+			digest = rest[1:]
+		}
+	}
+	return slug, digest
+}
+
+// parseHomeVolumeName extracts the slug and digest from a home volume name.
+// Examples: "opencode-msb-home-myproject-aB3cDe4fGhIjKl-xYz1234AbCdEfGh"
+//
+//	→ slug="myproject-aB3cDe4fGhIjKl", digest="xYz1234AbCdEfGh"
+//
+//nolint:nonamedreturns // named returns simplify return paths in this parser
+func parseHomeVolumeName(name string) (slug, digest string) {
+	if !strings.HasPrefix(name, homePrefix) {
+		return "", ""
+	}
+	remainder := name[len(homePrefix):]
+	parts := strings.Split(remainder, "-")
+	if len(parts) < 2 {
+		return remainder, ""
+	}
+	digest = parts[len(parts)-1]
+	slug = strings.Join(parts[:len(parts)-1], "-")
+	return slug, digest
+}
+
+// parseCloneVolumeName extracts the slug from a clone volume name.
+// Clone volumes have no digest component.
+//
+//nolint:nonamedreturns // named returns simplify return paths in this parser
+func parseCloneVolumeName(name string) (slug string) {
+	if !strings.HasPrefix(name, clonePrefix) {
+		return ""
+	}
+	remainder := name[len(clonePrefix):]
+	parts := strings.Split(remainder, "-")
+	if len(parts) < 2 {
+		return remainder
+	}
+	return strings.Join(parts[:len(parts)-1], "-")
+}
+
 // extractProjectSlugAndDigest extracts the project slug and optional digest
 // from an artifact name (sandbox/volume/Docker image/MSB image).
 //
@@ -116,81 +221,24 @@ func findHashSuffix(name string) int {
 //
 //nolint:nonamedreturns // named returns simplify the many return paths in this parser
 func extractProjectSlugAndDigest(name string) (slug, digest string) {
-	// Handle image references: opencode-msb/runner-{slug}:{tag}
-	if strings.HasPrefix(name, "opencode-msb/runner-") {
-		afterPrefix := name[len("opencode-msb/runner-"):]
-		lastColon := strings.LastIndex(afterPrefix, ":")
-		if lastColon == -1 {
-			return afterPrefix, ""
-		}
-		tag := afterPrefix[lastColon+1:]
-		slug = afterPrefix[:lastColon]
-		if tag != "" && tag != "latest" {
-			digest = tag
-		}
-		return slug, digest
-	}
-
-	// For sandbox and volume names, strip prefix and parse remainder.
-	var prefixLen int
-	var kind string
 	switch {
-	case strings.HasPrefix(name, "opencode-msb-vm-"):
-		prefixLen = len("opencode-msb-vm-")
-		kind = "vm"
-	case strings.HasPrefix(name, "opencode-msb-home-"):
-		prefixLen = len("opencode-msb-home-")
-		kind = "home"
-	case strings.HasPrefix(name, "opencode-msb-clone-"):
-		prefixLen = len("opencode-msb-clone-")
-		kind = "clone"
-	case strings.HasPrefix(name, "opencode-msb-task-"):
-		prefixLen = len("opencode-msb-task-")
-		kind = "task"
-	default:
-		return "", ""
-	}
-
-	remainder := name[prefixLen:]
-	parts := strings.Split(remainder, "-")
-
-	if len(parts) < 2 {
-		return remainder, ""
-	}
-
-	switch kind {
-	case "vm":
-		// VM: "folderName-hash14" or "folderName-hash14-branch"
-		// Find the 14-char base36 hash that is part of the project slug,
-		// then split everything before it as the folder name and the rest (if a branch follows) as the digest.
-		hashStart := findHashSuffix(remainder)
-		if hashStart == -1 {
-			// No 14-char hash suffix found; the entire remainder is the slug.
+	case strings.HasPrefix(name, imagePrefix):
+		return parseImageTag(name)
+	case strings.HasPrefix(name, taskPrefix):
+		remainder := name[len(taskPrefix):]
+		parts := strings.Split(remainder, "-")
+		if len(parts) < 2 {
 			return remainder, ""
 		}
-		// hashStart is the index of the 14-char hash within the remainder.
-		// The folder name is remainder[:hashStart-1] (everything before the hyphen).
-		// The hash is remainder[hashStart:hashStart+14].
-		// Everything after the hash (starting at hashStart+14) is the branch (digest).
-		folderName := remainder[:hashStart-1]
-		hash := remainder[hashStart : hashStart+14]
-		slug = folderName + "-" + hash
-		if hashStart+14 < len(remainder) {
-			rest := remainder[hashStart+14:]
-			if len(rest) > 1 && rest[0] == '-' {
-				digest = rest[1:]
-			}
-		}
-		return slug, digest
-	case "home":
-		// Home volume: "slug-digest" → digest is last part, rest is slug.
-		digest = parts[len(parts)-1]
-		slug = strings.Join(parts[:len(parts)-1], "-")
-		return slug, digest
-	default:
-		// Clone volumes and task sandboxes: no digest, just slug.
 		return strings.Join(parts[:len(parts)-1], "-"), ""
+	case strings.HasPrefix(name, vmPrefix):
+		return parseVMName(name)
+	case strings.HasPrefix(name, homePrefix):
+		return parseHomeVolumeName(name)
+	case strings.HasPrefix(name, clonePrefix):
+		return parseCloneVolumeName(name), ""
 	}
+	return "", ""
 }
 
 // isStoppedStatus returns true if the status indicates the sandbox is not
@@ -268,7 +316,7 @@ func buildCatalog(ctx context.Context, client msbClient, threshold time.Duration
 	// Process sandboxes: collect stale VMs, task sandboxes, and active VMs.
 	for _, h := range sandboxHandles {
 		name := h.Name()
-		if !strings.HasPrefix(name, "opencode-msb-") {
+		if !strings.HasPrefix(name, sbPrefix) {
 			continue
 		}
 
@@ -292,7 +340,7 @@ func buildCatalog(ctx context.Context, client msbClient, threshold time.Duration
 			})
 		}
 
-		if strings.HasPrefix(name, "opencode-msb-task-") {
+		if strings.HasPrefix(name, taskPrefix) {
 			// Task sandboxes are always pruned immediately.
 			elapsed := time.Since(h.UpdatedAt())
 			slug, _ := extractProjectSlugAndDigest(name)
@@ -315,11 +363,11 @@ func buildCatalog(ctx context.Context, client msbClient, threshold time.Duration
 	// Process volumes: home volumes (slug/digest) and clone volumes.
 	for _, h := range volumeHandles {
 		name := h.Name()
-		if !strings.HasPrefix(name, "opencode-msb-") {
+		if !strings.HasPrefix(name, sbPrefix) {
 			continue
 		}
 
-		if strings.HasPrefix(name, "opencode-msb-home-") {
+		if strings.HasPrefix(name, homePrefix) {
 			slug, digest := extractProjectSlugAndDigest(name)
 			if catalog.HomeVolumes[slug] == nil {
 				catalog.HomeVolumes[slug] = make(map[string]string)
@@ -327,7 +375,7 @@ func buildCatalog(ctx context.Context, client msbClient, threshold time.Duration
 			catalog.HomeVolumes[slug][digest] = name
 		}
 
-		if strings.HasPrefix(name, "opencode-msb-clone-") {
+		if strings.HasPrefix(name, clonePrefix) {
 			catalog.CloneVolumes = append(catalog.CloneVolumes, name)
 		}
 	}
@@ -336,7 +384,7 @@ func buildCatalog(ctx context.Context, client msbClient, threshold time.Duration
 	seenMSB := make(map[string]bool)
 	for _, h := range imageHandles {
 		ref := h.Reference()
-		if !strings.HasPrefix(ref, "opencode-msb/runner-") {
+		if !strings.HasPrefix(ref, imagePrefix) {
 			continue
 		}
 		slug, digest := extractProjectSlugAndDigest(ref)
@@ -403,10 +451,22 @@ func Prune(
 		return nil, err
 	}
 
-	report, _ = pruneStaleVMs(ctx, client, cli, catalog, dryRun, ui, report)
-	report, _ = pruneActiveVMArtifacts(ctx, client, cli, catalog, dryRun, ui, report)
-	report, _ = pruneOrphanArtifacts(ctx, client, cli, catalog, dryRun, ui, report)
-	report, _ = pruneCloneVolumes(ctx, client, catalog, dryRun, ui, report)
+	report, err = pruneStaleVMs(ctx, client, cli, catalog, dryRun, ui, report)
+	if err != nil {
+		return report, err
+	}
+	report, err = pruneActiveVMArtifacts(ctx, client, cli, catalog, dryRun, ui, report)
+	if err != nil {
+		return report, err
+	}
+	report, err = pruneOrphanArtifacts(ctx, client, cli, catalog, dryRun, ui, report)
+	if err != nil {
+		return report, err
+	}
+	report, err = pruneCloneVolumes(ctx, client, catalog, dryRun, ui, report)
+	if err != nil {
+		return report, err
+	}
 
 	// Prune task sandboxes (collected during catalog build, pruned here).
 	for _, entry := range catalog.TaskSandboxes {
@@ -425,6 +485,8 @@ func Prune(
 
 // pruneStaleVMs removes each stale VM and cascades deletion of all
 // associated artifacts (home volumes, MSB images, Docker images).
+//
+//nolint:unparam // Error return is always nil; kept for uniform phase signature across callers
 func pruneStaleVMs(
 	ctx context.Context,
 	client msbClient,
@@ -433,15 +495,17 @@ func pruneStaleVMs(
 	dryRun bool,
 	ui stdio.UI,
 	report *StaleReport,
-) (*StaleReport, bool) {
+) (*StaleReport, error) {
 	for _, entry := range catalog.StaleVMs {
 		pruneStaleCascade(ctx, client, cli, entry, catalog.HomeVolumes, catalog.MSBImages, dryRun, ui, report)
 	}
-	return report, true
+	return report, nil
 }
 
 // pruneActiveVMArtifacts removes home volumes, MSB images, and Docker
 // images that don't match an active VM's state.
+//
+//nolint:unparam // Error return is always nil; kept for uniform phase signature across callers
 func pruneActiveVMArtifacts(
 	ctx context.Context,
 	client msbClient,
@@ -450,15 +514,17 @@ func pruneActiveVMArtifacts(
 	dryRun bool,
 	ui stdio.UI,
 	report *StaleReport,
-) (*StaleReport, bool) {
+) (*StaleReport, error) {
 	for slug, digest := range catalog.ActiveVMDigest {
 		pruneActiveVMCleanup(ctx, client, cli, slug, digest, catalog.HomeVolumes, catalog.MSBImages, dryRun, ui, report)
 	}
-	return report, true
+	return report, nil
 }
 
 // pruneOrphanArtifacts removes all home volumes, MSB images, and Docker
 // images for project slugs that have no VM at all.
+//
+//nolint:unparam // Error return is always nil; kept for uniform phase signature across callers
 func pruneOrphanArtifacts(
 	ctx context.Context,
 	client msbClient,
@@ -467,7 +533,7 @@ func pruneOrphanArtifacts(
 	dryRun bool,
 	ui stdio.UI,
 	report *StaleReport,
-) (*StaleReport, bool) {
+) (*StaleReport, error) {
 	staleVMs := make(map[string]bool)
 	for _, entry := range catalog.StaleVMs {
 		staleVMs[entry.Slug] = true
@@ -482,11 +548,13 @@ func pruneOrphanArtifacts(
 		}
 		pruneOrphanSlug(ctx, client, cli, slug, catalog.HomeVolumes, catalog.MSBImages, report, dryRun, ui)
 	}
-	return report, true
+	return report, nil
 }
 
 // pruneCloneVolumes removes clone volumes whose project slug has no
 // associated active VM.
+//
+//nolint:unparam // Error return is always nil; kept for uniform phase signature across callers
 func pruneCloneVolumes(
 	ctx context.Context,
 	client msbClient,
@@ -494,7 +562,7 @@ func pruneCloneVolumes(
 	dryRun bool,
 	ui stdio.UI,
 	report *StaleReport,
-) (*StaleReport, bool) {
+) (*StaleReport, error) {
 	for _, cv := range catalog.CloneVolumes {
 		slug, _ := extractProjectSlugAndDigest(cv)
 		if _, active := catalog.ActiveVMDigest[slug]; active {
@@ -511,11 +579,11 @@ func pruneCloneVolumes(
 			Type:     StaleTypeVolume,
 			Name:     cv,
 			Slug:     slug,
-			StaleFor: time.Duration(10),
+			StaleFor: 0,
 			Digest:   "???",
 		})
 	}
-	return report, true
+	return report, nil
 }
 
 // pruneStaleCascade removes a stale VM and all associated artifacts (volumes, images).
@@ -591,7 +659,7 @@ func pruneActiveVMHomeVolumes(
 				Type:     StaleTypeVolume,
 				Name:     volName,
 				Slug:     slug,
-				StaleFor: time.Duration(10),
+				StaleFor: 0,
 				Digest:   digest,
 			})
 		}
@@ -623,7 +691,7 @@ func pruneActiveVMMSBImages(
 			Type:     StaleTypeMsbImage,
 			Name:     img.ref,
 			Slug:     slug,
-			StaleFor: time.Duration(10),
+			StaleFor: 0,
 			Digest:   img.digest,
 		})
 	}
@@ -659,7 +727,7 @@ func pruneActiveVMDockerImages(
 			Type:     StaleTypeDockerImage,
 			Name:     img.ref,
 			Slug:     slug,
-			StaleFor: time.Duration(10),
+			StaleFor: 0,
 			Digest:   img.digest,
 		})
 	}
@@ -696,7 +764,7 @@ func pruneCloneVolume(
 		Type:     StaleTypeVolume,
 		Name:     cv,
 		Slug:     slug,
-		StaleFor: time.Duration(10),
+		StaleFor: 0,
 		Digest:   digest,
 	})
 }
@@ -748,7 +816,7 @@ func removeHomeVolumes(
 				Type:     StaleTypeVolume,
 				Name:     volName,
 				Slug:     slug,
-				StaleFor: time.Duration(10),
+				StaleFor: 0,
 				Digest:   digest,
 			})
 		}
@@ -776,7 +844,7 @@ func removeMSBImages(
 			Type:     StaleTypeMsbImage,
 			Name:     img.ref,
 			Slug:     slug,
-			StaleFor: time.Duration(10),
+			StaleFor: 0,
 			Digest:   img.digest,
 		})
 	}
@@ -808,7 +876,7 @@ func removeDockerImages(
 			Type:     StaleTypeDockerImage,
 			Name:     img.ref,
 			Slug:     slug,
-			StaleFor: time.Duration(10),
+			StaleFor: 0,
 			Digest:   img.digest,
 		})
 	}
