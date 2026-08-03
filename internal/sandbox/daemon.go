@@ -83,3 +83,21 @@ func checkDaemonHealth(ctx context.Context, sb msbSandbox) bool {
 	healthy, err := parseHealthResponse(stdout)
 	return err == nil && healthy
 }
+
+// SetDaemonShellFunc replaces the daemonShellFunc factory used by EnsureDaemon
+// with one that returns the provided function. The original factory is
+// returned so callers can restore it after their test.
+//
+// Usage from an external test package:
+//
+//	orig := sandbox.SetDaemonShellFunc(func(ctx context.Context, sb sandbox.Sandbox, command string) (string, int, error) {
+//	    return "", 0, nil
+//	})
+//	t.Cleanup(func() { sandbox.SetDaemonShellFunc(orig) })
+func SetDaemonShellFunc(
+	f func(ctx context.Context, sb Sandbox, command string) (string, int, error),
+) func(ctx context.Context, sb Sandbox, command string) (string, int, error) {
+	orig := daemonShellFunc
+	daemonShellFunc = f
+	return orig
+}
