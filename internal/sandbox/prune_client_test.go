@@ -346,7 +346,7 @@ func (f *mockFs) Exists(_ context.Context, path string) (bool, error) {
 	_, ok := f.files[path]
 	return ok, nil
 }
-func (f *mockFs) Stat(_ context.Context, _ string) (*msb.FsStat, error) { return nil, nil }
+func (f *mockFs) Stat(_ context.Context, _ string) (*msb.FsStat, error) { return &msb.FsStat{}, nil }
 func (f *mockFs) ReadString(_ context.Context, path string) (string, error) {
 	if d, ok := f.files[path]; ok {
 		return string(d), nil
@@ -354,7 +354,7 @@ func (f *mockFs) ReadString(_ context.Context, path string) (string, error) {
 	return "", fmt.Errorf("file not found: %s", path)
 }
 func (f *mockFs) ReadStream(_ context.Context, _ string) (*msb.FsReadStream, error) {
-	return nil, nil
+	return &msb.FsReadStream{}, nil
 }
 
 // mockVolumeHandle implements msbVolumeHandle for tests.
