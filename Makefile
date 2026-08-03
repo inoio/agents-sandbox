@@ -1,4 +1,4 @@
-.PHONY: build test lint vet fmt clean completion
+.PHONY: build test lint vet fmt clean completion user-install
 
 VERSION ?= dev
 
@@ -23,3 +23,7 @@ clean:
 completion:
 	mkdir -p ~/.local/share/bash-completion/completions
 	go run ./cmd/opencode-msb completion bash > ~/.local/share/bash-completion/completions/opencode-msb
+
+user-install: build
+	mkdir -p ~/.local/bin
+	cp opencode-msb ~/.local/bin
