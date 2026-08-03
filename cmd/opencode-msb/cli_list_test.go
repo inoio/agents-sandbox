@@ -2,7 +2,7 @@ package main
 
 import (
 	"errors"
-
+	"slices"
 	"strings"
 	"testing"
 
@@ -103,28 +103,12 @@ func TestListSandboxes(t *testing.T) {
 			}
 
 			for _, want := range tt.wantOut {
-				found := false
-				// existing codebase pattern
-				for _, got := range ui.OutCalls {
-					if got == want {
-						found = true
-						break
-					}
-				}
-				if !found {
+				if !slices.Contains(ui.OutCalls, want) {
 					t.Errorf("OutCalls missing %q; got: %v", want, ui.OutCalls)
 				}
 			}
 			for _, want := range tt.wantInfo {
-				found := false
-				// existing codebase pattern
-				for _, got := range ui.InfoCalls {
-					if got == want {
-						found = true
-						break
-					}
-				}
-				if !found {
+				if !slices.Contains(ui.InfoCalls, want) {
 					t.Errorf("InfoCalls missing %q; got: %v", want, ui.InfoCalls)
 				}
 			}
@@ -223,28 +207,12 @@ func TestListImages(t *testing.T) {
 			}
 
 			for _, want := range tt.wantOut {
-				found := false
-				// existing codebase pattern
-				for _, got := range ui.OutCalls {
-					if got == want {
-						found = true
-						break
-					}
-				}
-				if !found {
+				if !slices.Contains(ui.OutCalls, want) {
 					t.Errorf("OutCalls missing %q; got: %v", want, ui.OutCalls)
 				}
 			}
 			for _, want := range tt.wantInfo {
-				found := false
-				// existing codebase pattern
-				for _, got := range ui.InfoCalls {
-					if got == want {
-						found = true
-						break
-					}
-				}
-				if !found {
+				if !slices.Contains(ui.InfoCalls, want) {
 					t.Errorf("InfoCalls missing %q; got: %v", want, ui.InfoCalls)
 				}
 			}
@@ -338,28 +306,12 @@ func TestListVolumes(t *testing.T) {
 			}
 
 			for _, want := range tt.wantOut {
-				found := false
-				// existing codebase pattern
-				for _, got := range ui.OutCalls {
-					if got == want {
-						found = true
-						break
-					}
-				}
-				if !found {
+				if !slices.Contains(ui.OutCalls, want) {
 					t.Errorf("OutCalls missing %q; got: %v", want, ui.OutCalls)
 				}
 			}
 			for _, want := range tt.wantInfo {
-				found := false
-				// existing codebase pattern
-				for _, got := range ui.InfoCalls {
-					if got == want {
-						found = true
-						break
-					}
-				}
-				if !found {
+				if !slices.Contains(ui.InfoCalls, want) {
 					t.Errorf("InfoCalls missing %q; got: %v", want, ui.InfoCalls)
 				}
 			}

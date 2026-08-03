@@ -508,5 +508,3 @@ linters:
           - nonamedreturns
           - reassign
           - wrapcheck
-      - text: 'Loop can be simplified using slices.Contains'
-        linters: [modernize]
