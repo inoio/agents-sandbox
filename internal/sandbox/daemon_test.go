@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"gitlab.inoio.de/inoio/opencode-msb/internal/testhelpers"
+	"gitlab.inoio.de/inoio/opencode-msb/internal/testutil"
 )
 
 func TestParseHealthResponseHealthy(t *testing.T) {
@@ -36,7 +36,7 @@ func TestParseHealthResponseInvalidJSON(t *testing.T) {
 	}
 }
 
-// mockDaemonShell overrides daemonShellFunc for testhelpers. It returns queued
+// mockDaemonShell overrides daemonShellFunc for testutil. It returns queued
 // (stdout, exitCode) pairs.
 type mockDaemonShell struct {
 	responses []mockShellResp
@@ -59,7 +59,7 @@ func (m *mockDaemonShell) run(_ context.Context, _ msbSandbox, _ string) (string
 }
 
 func TestEnsureDaemonStartsWhenUnhealthy(t *testing.T) {
-	testUI := testhelpers.NewTestio(t)
+	testUI := testutil.NewTestio(t)
 	mock := &mockDaemonShell{
 		responses: []mockShellResp{
 			// First healthcheck: unhealthy (daemon not running).
@@ -86,7 +86,7 @@ func TestEnsureDaemonStartsWhenUnhealthy(t *testing.T) {
 }
 
 func TestEnsureDaemonFailsAfterTimeout(t *testing.T) {
-	testUI := testhelpers.NewTestio(t)
+	testUI := testutil.NewTestio(t)
 	mock := &mockDaemonShell{
 		responses: []mockShellResp{
 			// Always unhealthy.

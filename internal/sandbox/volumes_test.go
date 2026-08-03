@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"gitlab.inoio.de/inoio/opencode-msb/internal/testhelpers"
+	"gitlab.inoio.de/inoio/opencode-msb/internal/testutil"
 )
 
 func TestHomeVolumeName(t *testing.T) {
@@ -25,7 +25,7 @@ func TestHomeVolumeNameDifferentInputs(t *testing.T) {
 }
 
 func TestNewVolumeManager(t *testing.T) {
-	testUI := testhelpers.NewTestio(t)
+	testUI := testutil.NewTestio(t)
 	vm := NewVolumeManager(&testUI)
 	if vm.ui == nil {
 		t.Error("expected ui to be set")
@@ -33,7 +33,7 @@ func TestNewVolumeManager(t *testing.T) {
 }
 
 func TestPrefillVolumeRunsCopyCommand(t *testing.T) {
-	testUI := testhelpers.NewTestio(t)
+	testUI := testutil.NewTestio(t)
 	ui := &testUI
 	client := &mockMsbClient{}
 	vm := NewVolumeManager(ui)
