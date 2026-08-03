@@ -24,9 +24,30 @@ type StaleReport struct {
 	Details             []StaleEntry
 }
 
+type StaleType int
+
+const (
+	StaleTypeVM StaleType = iota
+	StaleTypeVolume
+	StaleTypeDockerImage
+	StaleTypeMsbImage
+)
+
+//nolint:gochecknoglobals // fmt.stringer pattern for StaleType type / consts
+var stateName = map[StaleType]string{
+	StaleTypeVM:          "vm",
+	StaleTypeVolume:      "volume",
+	StaleTypeDockerImage: "docker-image",
+	StaleTypeMsbImage:    "msb-image",
+}
+
+func (ss StaleType) String() string {
+	return stateName[ss]
+}
+
 // StaleEntry describes a single artifact that was pruned or would be pruned.
 type StaleEntry struct {
-	Type     string // "vm", "volume", "docker-image", "msb-image", "task-sandbox", "clone-volume"
+	Type     StaleType
 	Name     string
 	StaleFor time.Duration
 	Slug     string // project slug, for grouping related artifacts
@@ -189,7 +210,7 @@ func findStaleVMs(sandboxes []staleVM, threshold time.Duration) []StaleEntry {
 		elapsed := time.Since(s.updatedAt)
 		if elapsed > threshold {
 			stale = append(stale, StaleEntry{
-				Type:     "vm",
+				Type:     StaleTypeVM,
 				Name:     s.name,
 				StaleFor: elapsed,
 				Slug:     "",
@@ -276,7 +297,7 @@ func buildCatalog(ctx context.Context, client msbClient, threshold time.Duration
 			elapsed := time.Since(h.UpdatedAt())
 			slug, _ := extractProjectSlugAndDigest(name)
 			catalog.TaskSandboxes = append(catalog.TaskSandboxes, StaleEntry{
-				Type:     "task-sandbox",
+				Type:     StaleTypeVM,
 				Name:     name,
 				StaleFor: elapsed,
 				Slug:     slug,
@@ -487,7 +508,7 @@ func pruneCloneVolumes(
 		}
 		report.PrunedCloneVolumes++
 		report.Details = append(report.Details, StaleEntry{
-			Type:     "clone-volume",
+			Type:     StaleTypeVolume,
 			Name:     cv,
 			Slug:     slug,
 			StaleFor: time.Duration(10),
@@ -567,7 +588,7 @@ func pruneActiveVMHomeVolumes(
 			}
 			report.PrunedVolumes++
 			report.Details = append(report.Details, StaleEntry{
-				Type:     "volume",
+				Type:     StaleTypeVolume,
 				Name:     volName,
 				Slug:     slug,
 				StaleFor: time.Duration(10),
@@ -599,7 +620,7 @@ func pruneActiveVMMSBImages(
 		}
 		report.PrunedMSBImages++
 		report.Details = append(report.Details, StaleEntry{
-			Type:     "msb-image",
+			Type:     StaleTypeMsbImage,
 			Name:     img.ref,
 			Slug:     slug,
 			StaleFor: time.Duration(10),
@@ -635,7 +656,7 @@ func pruneActiveVMDockerImages(
 		}
 		report.PrunedDockerImages++
 		report.Details = append(report.Details, StaleEntry{
-			Type:     "docker-image",
+			Type:     StaleTypeDockerImage,
 			Name:     img.ref,
 			Slug:     slug,
 			StaleFor: time.Duration(10),
@@ -672,7 +693,7 @@ func pruneCloneVolume(
 	}
 	report.PrunedCloneVolumes++
 	report.Details = append(report.Details, StaleEntry{
-		Type:     "clone-volume",
+		Type:     StaleTypeVolume,
 		Name:     cv,
 		Slug:     slug,
 		StaleFor: time.Duration(10),
@@ -724,7 +745,7 @@ func removeHomeVolumes(
 			}
 			report.PrunedVolumes++
 			report.Details = append(report.Details, StaleEntry{
-				Type:     "volume",
+				Type:     StaleTypeVolume,
 				Name:     volName,
 				Slug:     slug,
 				StaleFor: time.Duration(10),
@@ -752,7 +773,7 @@ func removeMSBImages(
 		}
 		report.PrunedMSBImages++
 		report.Details = append(report.Details, StaleEntry{
-			Type:     "msb-image",
+			Type:     StaleTypeMsbImage,
 			Name:     img.ref,
 			Slug:     slug,
 			StaleFor: time.Duration(10),
@@ -784,7 +805,7 @@ func removeDockerImages(
 		}
 		report.PrunedDockerImages++
 		report.Details = append(report.Details, StaleEntry{
-			Type:     "docker-image",
+			Type:     StaleTypeDockerImage,
 			Name:     img.ref,
 			Slug:     slug,
 			StaleFor: time.Duration(10),
