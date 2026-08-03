@@ -148,12 +148,7 @@ func buildShellCmd(ui stdio.UI) *cobra.Command {
 
 			cfg := newConfig()
 
-			err := sandbox.Shell(cmd.Context(), opts, cfg, ui)
-			var exitErr *sandbox.ExitError
-			if errors.As(err, &exitErr) {
-				os.Exit(exitErr.Code)
-			}
-			return err
+			return sandbox.Shell(cmd.Context(), opts, cfg, ui)
 		},
 	}
 
