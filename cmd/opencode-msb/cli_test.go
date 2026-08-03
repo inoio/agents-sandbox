@@ -21,14 +21,6 @@ func buildTree(t *testing.T) (*stdio.Mock, *cobra.Command) {
 	return &ui, root
 }
 
-// buildCmd finds and returns the named subcommand under root.
-// Returns nil if the command is not found.
-func buildCmd(t *testing.T, root *cobra.Command, name string) *cobra.Command {
-	t.Helper()
-	cmd, _, _ := root.Find(strings.Split(name, " "))
-	return cmd
-}
-
 func TestPrintTreeStartsWithRootCommandName(t *testing.T) {
 	testUI, _ := buildTree(t)
 	lines := testUI.InfoCalls
