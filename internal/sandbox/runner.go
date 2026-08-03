@@ -207,7 +207,7 @@ func prepareSandbox(
 	if err != nil {
 		return nil, fmt.Errorf("get current directory: %w", err)
 	}
-	sb, created, err := EnsureProjectVM(ctx, opts, cfg, imageRef, homeVol, cwd, imageEnvs, ui)
+	sb, _, err := EnsureProjectVM(ctx, opts, cfg, imageRef, homeVol, cwd, imageEnvs, ui)
 	if err != nil {
 		return nil, err
 	}
@@ -219,7 +219,7 @@ func prepareSandbox(
 		ui.Infof("VM lifecycle skipped (--dry-run-vm)")
 		sandboxTarget = resolveTargetNoBranch()
 	} else {
-		sandboxTarget, sandboxErr = setUpSandbox(ctx, sb, opts, cfg, cwd, created, ui)
+		sandboxTarget, sandboxErr = setUpSandbox(ctx, sb, opts, cfg, cwd, ui)
 		if sandboxErr != nil {
 			return nil, sandboxErr
 		}
@@ -235,13 +235,12 @@ func prepareSandbox(
 	}, nil
 }
 
-// ensureDockerdIfPresent ensures dockerd is running inside the VM when the
-// sandbox was freshly created and Docker-in-Docker support is requested.
-func ensureDockerdIfPresent(ctx context.Context, sb msbSandbox, ui stdio.UI, created bool) error {
-	if created {
-		return startDockerdIfPresent(ctx, sb, ui)
-	}
-	return nil
+// ensureDockerdIfPresent starts dockerd inside the VM if the dind image is in
+// use, or does nothing otherwise. It is safe to call on every VM bootstrap
+// because startDockerdIfPresent checks for binary presence and handles the
+// case where dockerd is already running.
+func ensureDockerdIfPresent(ctx context.Context, sb msbSandbox, ui stdio.UI) error {
+	return startDockerdIfPresent(ctx, sb, ui)
 }
 
 // Run creates (or reuses) the project VM, provisions config, starts opencode
@@ -533,7 +532,6 @@ func setUpSandbox(
 	opts RunOptions,
 	cfg Config,
 	_ string,
-	created bool,
 	ui stdio.UI,
 ) (string, error) {
 	cfs, err := loadConfigFiles(cfg.UserConfigDir)
@@ -554,7 +552,7 @@ func setUpSandbox(
 		ui.Verbosef("no VM config found (fresh setup)")
 	}
 
-	if dockerErr := ensureDockerdIfPresent(ctx, sb, ui, created); dockerErr != nil {
+	if dockerErr := ensureDockerdIfPresent(ctx, sb, ui); dockerErr != nil {
 		return "", fmt.Errorf("docker startup: %w", dockerErr)
 	}
 	if daemonErr := EnsureDaemon(ctx, sb, ui); daemonErr != nil {
