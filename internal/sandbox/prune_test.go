@@ -657,12 +657,12 @@ func TestParseImageTag(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.input, func(t *testing.T) {
-			slug, digest := parseImageTag(tt.input)
-			if slug != tt.wantSlug {
-				t.Errorf("parseImageTag(%q) slug = %q, want %q", tt.input, slug, tt.wantSlug)
+			info := parseImageTag(tt.input)
+			if info.slug != tt.wantSlug {
+				t.Errorf("parseImageTag(%q) slug = %q, want %q", tt.input, info.slug, tt.wantSlug)
 			}
-			if digest != tt.wantDigest {
-				t.Errorf("parseImageTag(%q) digest = %q, want %q", tt.input, digest, tt.wantDigest)
+			if info.digest != tt.wantDigest {
+				t.Errorf("parseImageTag(%q) digest = %q, want %q", tt.input, info.digest, tt.wantDigest)
 			}
 		})
 	}
@@ -686,12 +686,12 @@ func TestParseVMName(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.input, func(t *testing.T) {
-			slug, digest := parseVMName(tt.input)
-			if slug != tt.wantSlug {
-				t.Errorf("parseVMName(%q) slug = %q, want %q", tt.input, slug, tt.wantSlug)
+			info := parseVMName(tt.input)
+			if info.slug != tt.wantSlug {
+				t.Errorf("parseVMName(%q) slug = %q, want %q", tt.input, info.slug, tt.wantSlug)
 			}
-			if digest != tt.wantDigest {
-				t.Errorf("parseVMName(%q) digest = %q, want %q", tt.input, digest, tt.wantDigest)
+			if info.digest != tt.wantDigest {
+				t.Errorf("parseVMName(%q) digest = %q, want %q", tt.input, info.digest, tt.wantDigest)
 			}
 		})
 	}
@@ -710,12 +710,12 @@ func TestParseHomeVolumeName(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.input, func(t *testing.T) {
-			slug, digest := parseHomeVolumeName(tt.input)
-			if slug != tt.wantSlug {
-				t.Errorf("parseHomeVolumeName(%q) slug = %q, want %q", tt.input, slug, tt.wantSlug)
+			info := parseHomeVolumeName(tt.input)
+			if info.slug != tt.wantSlug {
+				t.Errorf("parseHomeVolumeName(%q) slug = %q, want %q", tt.input, info.slug, tt.wantSlug)
 			}
-			if digest != tt.wantDigest {
-				t.Errorf("parseHomeVolumeName(%q) digest = %q, want %q", tt.input, digest, tt.wantDigest)
+			if info.digest != tt.wantDigest {
+				t.Errorf("parseHomeVolumeName(%q) digest = %q, want %q", tt.input, info.digest, tt.wantDigest)
 			}
 		})
 	}

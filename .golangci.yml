@@ -303,9 +303,12 @@ linters:
         - ^github.com/moby/moby/client.ImageRemoveOptions$
         - ^github.com/superradcompany/microsandbox/sdk/go.MountOptions$
         - ^github.com/superradcompany/microsandbox/sdk/go.SecretEnvOptions$
+        # microsandbox SDK errors — Cause is nil for SDK-originated errors
+        - ^github.com/superradcompany/microsandbox/sdk/go.Error$
         # project types — intentionally partial init (zero-value fields set later)
         - ^gitlab.inoio.de/inoio/opencode-msb/internal/output.Spinner$
         - ^gitlab.inoio.de/inoio/opencode-msb/internal/sandbox.RunOptions$
+        - ^gitlab.inoio.de/inoio/opencode-msb/internal/sandbox.artifactInfo$
       # Allows empty structures in return statements.
       # Default: false
       allow-empty-returns: true

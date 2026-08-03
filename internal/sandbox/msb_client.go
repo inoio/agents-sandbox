@@ -429,7 +429,7 @@ func (m *MockMsbClient) GetSandbox(_ context.Context, name string) (SandboxHandl
 	if m.gotSandbox != nil {
 		return m.gotSandbox, nil
 	}
-	return nil, fmt.Errorf("sandbox not found: %s", name)
+	return nil, &msb.Error{Kind: msb.ErrSandboxNotFound, Message: name}
 }
 
 // CreateSandbox implements MsbClient.
@@ -473,7 +473,7 @@ func (m *MockMsbClient) GetVolume(_ context.Context, name string) (VolumeHandle,
 	if m.gotVolume != nil {
 		return m.gotVolume, nil
 	}
-	return nil, fmt.Errorf("volume not found: %s", name)
+	return nil, &msb.Error{Kind: msb.ErrVolumeNotFound, Message: name}
 }
 
 // CreateVolume implements MsbClient.
