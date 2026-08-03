@@ -91,13 +91,25 @@ func CheckMsb(ctx context.Context, ui stdio.UI) bool {
 	return true
 }
 
-func CheckAll(ctx context.Context, ui stdio.UI) bool {
+// CheckAllFunc is an overridable CheckAll function for testing.
+// Tests override it and restore via t.Cleanup.
+//
+//nolint:gochecknoglobals // test seam, swapped in external test packages
+var CheckAllFunc = checkAllReal
+
+// checkAllReal contains the actual CheckAll logic. This allows the exported
+// CheckAllFunc to be reassigned in tests without redefining the checks.
+func checkAllReal(ctx context.Context, ui stdio.UI) bool {
 	basicChecks := CheckMsb(ctx, ui) && CheckDocker(ui) && CheckKvm(ui) && CheckGit(ui)
 	if !basicChecks {
 		return false
 	}
-	CheckOrphans(ctx, ui)
-	return true
+	return CheckOrphans(ctx, ui)
+}
+
+// CheckAll runs all prerequisite checks and reports orphaned VMs.
+func CheckAll(ctx context.Context, ui stdio.UI) bool {
+	return CheckAllFunc(ctx, ui)
 }
 
 func isOrphanedSandbox(name string) bool {
