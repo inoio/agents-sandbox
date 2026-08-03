@@ -14,90 +14,41 @@ import (
 // msbClient is the unified abstraction over the microsandbox SDK used by the
 // sandbox package. It covers discovery, creation, and deletion of sandboxes,
 // volumes, and images, plus runtime setup. Production code uses realMsbClient;
-// tests replace newMsbClient to inject mocks.
-//
-//nolint:dupl // internal interface duplicates public MsbClient shape for internal use
-type msbClient interface {
-	EnsureInstalled(ctx context.Context) error
+// tests replace NewMsbClient to inject mocks.
+type msbClient = MsbClient
 
-	GetSandbox(ctx context.Context, name string) (msbSandboxHandle, error)
-	CreateSandbox(ctx context.Context, name string, opts ...msb.SandboxOption) (msbSandbox, error)
-	ListSandboxes(ctx context.Context) ([]msbSandboxHandle, error)
-	RemoveSandbox(ctx context.Context, name string) error
+// Deprecated: use SandboxHandle.
 
-	GetVolume(ctx context.Context, name string) (msbVolumeHandle, error)
-	CreateVolume(ctx context.Context, name string, opts ...msb.VolumeOption) (msbVolumeHandle, error)
-	ListVolumes(ctx context.Context) ([]msbVolumeHandle, error)
-	RemoveVolume(ctx context.Context, name string) error
+type msbSandboxHandle = SandboxHandle
 
-	ImageGet(ctx context.Context, ref string) error
-	ImageList(ctx context.Context) ([]msbImageHandle, error)
-	ImageRemove(ctx context.Context, ref string, force bool) error
-	ImageLoad(ctx context.Context, ref string, r io.Reader) error
-}
+// Deprecated: use Sandbox.
 
-// msbSandboxHandle is the subset of *msb.SandboxHandle used by the launcher.
-type msbSandboxHandle interface {
-	Name() string
-	Status() msb.SandboxStatus
-	UpdatedAt() time.Time
-	Image() string
+type msbSandbox = Sandbox
 
-	Connect(ctx context.Context) (msbSandbox, error)
-	Refresh(ctx context.Context) (msbSandboxHandle, error)
-	Start(ctx context.Context) (msbSandbox, error)
-	Stop(ctx context.Context, opts ...msb.StopOption) error
-	Kill(ctx context.Context, opts ...msb.KillOption) error
-	Remove(ctx context.Context) error
-}
+// Deprecated: use ShellResult.
 
-// msbSandbox is the subset of *msb.Sandbox used by the launcher.
-type msbSandbox interface {
-	FS() sandboxFS
-	Fs() fsLister
-	Shell(ctx context.Context, command string, opts ...msb.ExecOption) (shellResult, error)
-	Exec(ctx context.Context, command string, args []string, opts ...msb.ExecOption) (shellResult, error)
-	Attach(ctx context.Context, command string, args ...string) (int, error)
-	Detach(ctx context.Context) error
-	Stop(ctx context.Context, opts ...msb.StopOption) error
-	Close() error
-}
+type shellResult = ShellResult
 
-// shellResult is the subset of the MSB shell/exec result type used by the launcher.
-//
-//nolint:iface // identical to exported ShellResult for internal use
-type shellResult interface {
-	Success() bool
-	ExitCode() int
-	Stdout() string
-	Stderr() string
-	StdoutBytes() []byte
-}
+// Deprecated: use VolumeHandle.
 
-// msbVolumeHandle is the subset of *msb.VolumeHandle that the launcher needs.
-//
-//nolint:iface // identical to exported VolumeHandle for internal use
-type msbVolumeHandle interface {
-	Name() string
-	Path() string
-	Kind() msb.VolumeKind
-}
+type msbVolumeHandle = VolumeHandle
 
-// msbImageHandle is the subset of *msb.ImageHandle that the launcher needs.
-//
-//nolint:iface // identical to exported ImageHandle for internal use
-type msbImageHandle interface {
-	Reference() string
-	ManifestDigest() string
-}
+// Deprecated: use ImageHandle.
 
-// newMsbClient is the factory the sandbox package uses to obtain an msbClient.
-// Tests override it to inject mocks without changing public APIs.
+type msbImageHandle = ImageHandle
+
+// newMsbClient is the factory the sandbox package uses to obtain an MsbClient.
+// Tests override NewMsbClient to inject mocks.
 //
 //nolint:gochecknoglobals // test hook for the otherwise unmockable SDK
-var newMsbClient = func() msbClient {
+var newMsbClient = func() MsbClient {
 	return &realMsbClient{}
 }
+
+// NewMsbClient is an exported alias for tests to override with mocks.
+//
+//nolint:gochecknoglobals // test hook for the otherwise unmockable SDK
+var NewMsbClient = newMsbClient
 
 // realMsbClient delegates to the actual microsandbox SDK.
 type realMsbClient struct{}
@@ -106,30 +57,30 @@ func (realMsbClient) EnsureInstalled(ctx context.Context) error {
 	return msb.EnsureInstalled(ctx)
 }
 
-func (realMsbClient) GetSandbox(ctx context.Context, name string) (msbSandboxHandle, error) {
+func (realMsbClient) GetSandbox(ctx context.Context, name string) (SandboxHandle, error) {
 	h, err := msb.GetSandbox(ctx, name)
 	if err != nil {
 		return nil, err
 	}
-	return realSandboxHandle{handle: h}, nil
+	return &realSandboxHandle{handle: h}, nil
 }
 
-func (realMsbClient) CreateSandbox(ctx context.Context, name string, opts ...msb.SandboxOption) (msbSandbox, error) {
+func (realMsbClient) CreateSandbox(ctx context.Context, name string, opts ...msb.SandboxOption) (Sandbox, error) {
 	sb, err := msb.CreateSandbox(ctx, name, opts...)
 	if err != nil {
 		return nil, err
 	}
-	return realSandbox{sandbox: sb}, nil
+	return &realSandbox{sandbox: sb}, nil
 }
 
-func (realMsbClient) ListSandboxes(ctx context.Context) ([]msbSandboxHandle, error) {
+func (realMsbClient) ListSandboxes(ctx context.Context) ([]SandboxHandle, error) {
 	handles, err := msb.ListSandboxes(ctx)
 	if err != nil {
 		return nil, err
 	}
-	result := make([]msbSandboxHandle, len(handles))
+	result := make([]SandboxHandle, len(handles))
 	for i, h := range handles {
-		result[i] = realSandboxHandle{handle: h}
+		result[i] = &realSandboxHandle{handle: h}
 	}
 	return result, nil
 }
@@ -138,26 +89,30 @@ func (realMsbClient) RemoveSandbox(ctx context.Context, name string) error {
 	return msb.RemoveSandbox(ctx, name)
 }
 
-func (realMsbClient) GetVolume(ctx context.Context, name string) (msbVolumeHandle, error) {
-	return msb.GetVolume(ctx, name)
+func (realMsbClient) GetVolume(ctx context.Context, name string) (VolumeHandle, error) {
+	v, err := msb.GetVolume(ctx, name)
+	if err != nil {
+		return nil, err
+	}
+	return &realVolumeHandle{val: v}, nil
 }
 
-func (realMsbClient) CreateVolume(ctx context.Context, name string, opts ...msb.VolumeOption) (msbVolumeHandle, error) {
+func (realMsbClient) CreateVolume(ctx context.Context, name string, opts ...msb.VolumeOption) (VolumeHandle, error) {
 	vol, err := msb.CreateVolume(ctx, name, opts...)
 	if err != nil {
 		return nil, err
 	}
-	return realVolumeHandle{vol: vol}, nil
+	return &realVolumeHandle{val: vol}, nil
 }
 
-func (realMsbClient) ListVolumes(ctx context.Context) ([]msbVolumeHandle, error) {
+func (realMsbClient) ListVolumes(ctx context.Context) ([]VolumeHandle, error) {
 	handles, err := msb.ListVolumes(ctx)
 	if err != nil {
 		return nil, err
 	}
-	result := make([]msbVolumeHandle, len(handles))
+	result := make([]VolumeHandle, len(handles))
 	for i, h := range handles {
-		result[i] = h
+		result[i] = &realVolumeHandle{val: h}
 	}
 	return result, nil
 }
@@ -171,12 +126,12 @@ func (realMsbClient) ImageGet(ctx context.Context, ref string) error {
 	return err
 }
 
-func (realMsbClient) ImageList(ctx context.Context) ([]msbImageHandle, error) {
+func (realMsbClient) ImageList(ctx context.Context) ([]ImageHandle, error) {
 	handles, err := msb.Image.List(ctx)
 	if err != nil {
 		return nil, err
 	}
-	result := make([]msbImageHandle, len(handles))
+	result := make([]ImageHandle, len(handles))
 	for i, h := range handles {
 		result[i] = h
 	}
@@ -196,20 +151,38 @@ func (realMsbClient) ImageLoad(ctx context.Context, ref string, r io.Reader) err
 	return nil
 }
 
-// realVolumeHandle adapts *msb.Volume to msbVolumeHandle.
+// realVolumeHandle adapts *msb.Volume or *msb.VolumeHandle to VolumeHandle.
 type realVolumeHandle struct {
-	vol *msb.Volume
+	val any
 }
 
 func (v realVolumeHandle) Name() string {
-	return v.vol.Name()
+	switch t := v.val.(type) {
+	case *msb.Volume:
+		return t.Name()
+	case *msb.VolumeHandle:
+		return t.Name()
+	}
+	return ""
 }
 
 func (v realVolumeHandle) Path() string {
-	return v.vol.Path()
+	switch t := v.val.(type) {
+	case *msb.Volume:
+		return t.Path()
+	case *msb.VolumeHandle:
+		return t.Path()
+	}
+	return ""
 }
 
 func (v realVolumeHandle) Kind() msb.VolumeKind {
+	switch t := v.val.(type) {
+	case *msb.Volume:
+		return msb.VolumeKindDir
+	case *msb.VolumeHandle:
+		return t.Kind()
+	}
 	return msb.VolumeKindDir
 }
 
@@ -238,12 +211,12 @@ func (w realSandboxHandle) Image() string {
 	return cfg.Image
 }
 
-func (w realSandboxHandle) Connect(ctx context.Context) (msbSandbox, error) {
+func (w realSandboxHandle) Connect(ctx context.Context) (Sandbox, error) {
 	sb, err := w.handle.Connect(ctx)
 	if err != nil {
 		return nil, err
 	}
-	return realSandbox{sandbox: sb}, nil
+	return &realSandbox{sandbox: sb}, nil
 }
 
 func (w realSandboxHandle) Refresh(ctx context.Context) (msbSandboxHandle, error) {
@@ -320,8 +293,6 @@ func (s realSandbox) Close() error {
 // sandbox package. It covers discovery, creation, and deletion of sandboxes,
 // volumes, and images, plus runtime setup. Production code uses realMsbClient;
 // tests construct MockMsbClient directly.
-//
-//nolint:dupl // public interface duplicates internal msbClient shape for package-level export
 type MsbClient interface {
 	EnsureInstalled(ctx context.Context) error
 
@@ -371,8 +342,6 @@ type Sandbox interface {
 }
 
 // ShellResult is the subset of the MSB shell/exec result type used by the launcher.
-//
-//nolint:iface // identical to internal shellResult
 type ShellResult interface {
 	Success() bool
 	ExitCode() int
@@ -382,8 +351,6 @@ type ShellResult interface {
 }
 
 // VolumeHandle is the subset of *msb.VolumeHandle that the launcher needs.
-//
-//nolint:iface // identical to internal msbVolumeHandle
 type VolumeHandle interface {
 	Name() string
 	Path() string
@@ -391,8 +358,6 @@ type VolumeHandle interface {
 }
 
 // ImageHandle is the subset of *msb.ImageHandle that the launcher needs.
-//
-//nolint:iface // identical to internal msbImageHandle
 type ImageHandle interface {
 	Reference() string
 	ManifestDigest() string
