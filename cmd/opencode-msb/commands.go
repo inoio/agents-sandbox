@@ -359,12 +359,7 @@ func runFunc(ui stdio.UI) func(cmd *cobra.Command, args []string) error {
 
 		cfg := newConfig()
 
-		err := sandbox.Run(cmd.Context(), opts, cfg, ui)
-		var exitErr *sandbox.ExitError
-		if errors.As(err, &exitErr) {
-			os.Exit(exitErr.Code)
-		}
-		return err
+		return sandbox.Run(cmd.Context(), opts, cfg, ui)
 	}
 }
 func buildPruneCmd(ui stdio.UI) *cobra.Command {
