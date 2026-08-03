@@ -389,11 +389,11 @@ type MockMsbClient struct {
 	ensureInstalledErr error
 	getSandboxErr      error
 	createSandboxErr   error
-	listSandboxesErr   error
+	ListSandboxesErr   error
 	getVolumeErr       error
 	createVolumeErr    error
-	listVolumesErr     error
-	listImagesErr      error
+	ListVolumesErr     error
+	ListImagesErr      error
 	removeSandboxErr   error
 	removeVolumeErr    error
 	removeImageErr     error
@@ -437,8 +437,8 @@ func (m *MockMsbClient) CreateSandbox(_ context.Context, name string, opts ...ms
 
 // ListSandboxes implements MsbClient.
 func (m *MockMsbClient) ListSandboxes(_ context.Context) ([]SandboxHandle, error) {
-	if m.listSandboxesErr != nil {
-		return nil, m.listSandboxesErr
+	if m.ListSandboxesErr != nil {
+		return nil, m.ListSandboxesErr
 	}
 	return m.Sandboxes, nil
 }
@@ -473,8 +473,8 @@ func (m *MockMsbClient) CreateVolume(_ context.Context, name string, _ ...msb.Vo
 
 // ListVolumes implements MsbClient.
 func (m *MockMsbClient) ListVolumes(_ context.Context) ([]VolumeHandle, error) {
-	if m.listVolumesErr != nil {
-		return nil, m.listVolumesErr
+	if m.ListVolumesErr != nil {
+		return nil, m.ListVolumesErr
 	}
 	return m.Volumes, nil
 }
@@ -495,8 +495,8 @@ func (m *MockMsbClient) ImageGet(_ context.Context, _ string) error {
 
 // ImageList implements MsbClient.
 func (m *MockMsbClient) ImageList(_ context.Context) ([]ImageHandle, error) {
-	if m.listImagesErr != nil {
-		return nil, m.listImagesErr
+	if m.ListImagesErr != nil {
+		return nil, m.ListImagesErr
 	}
 	return m.Images, nil
 }
