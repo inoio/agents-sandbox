@@ -1,13 +1,11 @@
 package sandbox
 
 import (
-	"archive/tar"
 	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
-	sysio "io"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -19,45 +17,11 @@ import (
 	"gitlab.inoio.de/inoio/opencode-msb/internal/stdio"
 )
 
-// DockerClient is the exported interface for Docker API operations needed
-// by both the prune and build commands. It lets CLI code create and pass a
-// Docker client for pruning or building without depending directly on the
-// moby client package.
-type DockerClient interface {
-	ImageBuild(
-		ctx context.Context,
-		buildContext sysio.Reader,
-		options client.ImageBuildOptions,
-	) (client.ImageBuildResult, error)
-	ImageInspect(
-		ctx context.Context,
-		imageID string,
-		inspectOpts ...client.ImageInspectOption,
-	) (client.ImageInspectResult, error)
-	ImageSave(
-		ctx context.Context,
-		imageIDs []string,
-		saveOpts ...client.ImageSaveOption,
-	) (client.ImageSaveResult, error)
-	ImageRemove(
-		ctx context.Context,
-		imageID string,
-		opts client.ImageRemoveOptions,
-	) (client.ImageRemoveResult, error)
-	ImageTag(
-		ctx context.Context,
-		opts client.ImageTagOptions,
-	) (client.ImageTagResult, error)
-	Close() error
-}
-
 const (
 	BaseTag        = "opencode-msb/runner-base:latest"
 	DindBaseTag    = "opencode-msb/runner-base-dind:latest"
 	dockerfileMode = 0o644
 )
-
-type dockerClient DockerClient
 
 // ensureImageDockerClient is the factory used by EnsureImage to create a Docker
 // client. It can be overridden in tests to inject a mock client.
@@ -67,6 +31,7 @@ var ensureImageDockerClient = func() (DockerClient, error) {
 	return client.New(client.FromEnv)
 }
 
+// ReferencesBase reports whether the given Dockerfile references the base image.
 func ReferencesBase(dockerfile []byte) bool {
 	scanner := bufio.NewScanner(bytes.NewReader(dockerfile))
 	for scanner.Scan() {
@@ -78,6 +43,7 @@ func ReferencesBase(dockerfile []byte) bool {
 	return false
 }
 
+// ReferencesDindBase reports whether the given Dockerfile references the dind base image.
 func ReferencesDindBase(dockerfile []byte) bool {
 	scanner := bufio.NewScanner(bytes.NewReader(dockerfile))
 	for scanner.Scan() {
@@ -89,34 +55,11 @@ func ReferencesDindBase(dockerfile []byte) bool {
 	return false
 }
 
+// ImageTag returns the stable tag derived from a project slug and image digest.
 func ImageTag(projectSlug, imageDigest string) string {
 	return "opencode-msb/runner-" + projectSlug + ":" + git.HashID(imageDigest)
 }
 
-func dockerfileTar(dockerfile []byte) *bytes.Buffer {
-	var buf bytes.Buffer
-	tw := tar.NewWriter(&buf)
-	_ = tw.WriteHeader(&tar.Header{
-		Name: "Dockerfile",
-		Mode: dockerfileMode,
-		Size: int64(len(dockerfile)),
-	})
-	_, _ = tw.Write(dockerfile)
-	_ = tw.Close()
-	return &buf
-}
-
-type dockerBuildMessage struct {
-	Stream      string `json:"stream"`
-	ErrorDetail struct {
-		Message string `json:"message"`
-	} `json:"errorDetail"`
-	Error string `json:"error"`
-}
-
-// userBuildArgs returns Docker build arguments that align the in-image dev user
-// (see data/Dockerfile's USER_UID/USER_GID) with the host user that owns the
-// bind-mounted /workspace, avoiding permission mismatches inside the VM.
 func userBuildArgs(uid, gid int) map[string]*string {
 	u := strconv.Itoa(uid)
 	g := strconv.Itoa(gid)
@@ -130,19 +73,14 @@ func runnerTag(projectSlug string) string {
 	return "opencode-msb/runner-" + projectSlug + ":latest"
 }
 
-// envDir returns the project-local metadata directory for image env info.
 func envDir() string {
 	return ".opencode-msb"
 }
 
-// envMetaFile returns the JSON file path for image env metadata, keyed by the
-// stable tag so the data survives image rebuilds and docker prune.
 func envMetaFile(tag string) string {
 	return filepath.Join(envDir(), "image-env-"+tag+".json")
 }
 
-// storeImageEnv writes image env vars to a JSON file.
-// Survives docker prune and image rebuilds.
 func storeImageEnv(tag string, envs map[string]string) {
 	if tag == "" || len(envs) == 0 {
 		return
@@ -155,8 +93,6 @@ func storeImageEnv(tag string, envs map[string]string) {
 	_ = os.WriteFile(envMetaFile(tag), data, 0o600)
 }
 
-// loadImageEnv reads a previously stored image env map from the cached JSON
-// file keyed by tag. Returns nil if no file exists.
 func loadImageEnv(tag string) map[string]string {
 	path := envMetaFile(tag)
 	data, err := os.ReadFile(path)
@@ -170,9 +106,6 @@ func loadImageEnv(tag string) map[string]string {
 	return out
 }
 
-// ensureRunnerImage checks the runner Docker image on disk, loads stored env
-// metadata as fallback when the image has been pruned, builds it if needed,
-// and returns the tag, digest, and image env map.
 func ensureRunnerImage(
 	ctx context.Context,
 	cli dockerClient,
@@ -198,8 +131,6 @@ func ensureRunnerImage(
 	return buildRunnerImage(ctx, cli, rTag, imageEnv, imageDigest, dockerfile, force, projectSlug, ui)
 }
 
-// inspectExistingImage attempts to inspect the image on disk. If the image is
-// missing it falls back to stored env metadata. Returns (imageEnvs, digest).
 func inspectExistingImage(ctx context.Context, cli dockerClient, rTag string, ui stdio.UI) (map[string]string, string) {
 	imageEnv := make(map[string]string)
 	var imageDigest string
@@ -223,7 +154,6 @@ func inspectExistingImage(ctx context.Context, cli dockerClient, rTag string, ui
 	return imageEnv, imageDigest
 }
 
-// buildRunnerImage builds the runner image and returns the rTag, digest, env map.
 func buildRunnerImage(
 	ctx context.Context,
 	cli dockerClient,
@@ -364,62 +294,4 @@ func parseImageEnv(envs []string) map[string]string {
 		}
 	}
 	return out
-}
-
-func buildDockerImage(
-	ctx context.Context,
-	cli dockerClient,
-	dockerfile []byte,
-	tag, label string,
-	force bool,
-	ui stdio.UI,
-) error {
-	spin := ui.Spinner(label)
-
-	buildResp, err := cli.ImageBuild(ctx, dockerfileTar(dockerfile), client.ImageBuildOptions{
-		Tags:      []string{tag},
-		Remove:    true,
-		NoCache:   force,
-		BuildArgs: userBuildArgs(os.Getuid(), os.Getgid()),
-	})
-	if err != nil {
-		spin.StopError(err)
-		return fmt.Errorf("docker image build failed: %w", err)
-	}
-
-	buildErr := scanBuildOutput(buildResp.Body, ui)
-	_ = buildResp.Body.Close()
-	if buildErr != nil {
-		spin.StopError(buildErr)
-		if strings.Contains(buildErr.Error(), "pull access denied") {
-			return fmt.Errorf("docker image build failed (base image not found or not logged in): %w", buildErr)
-		}
-		return fmt.Errorf("docker image build failed: %w", buildErr)
-	}
-
-	spin.Stop()
-	return nil
-}
-
-func scanBuildOutput(r sysio.Reader, ui stdio.UI) error {
-	dec := json.NewDecoder(r)
-	for {
-		var msg dockerBuildMessage
-		if err := dec.Decode(&msg); err != nil {
-			if err == sysio.EOF {
-				return nil
-			}
-			return fmt.Errorf("unexpected Docker build output: %w", err)
-		}
-		if msg.Error != "" {
-			return fmt.Errorf("%s", msg.Error)
-		}
-		if msg.ErrorDetail.Message != "" {
-			return fmt.Errorf("%s", msg.ErrorDetail.Message)
-		}
-		trimmedMsg := strings.Trim(msg.Stream, " \n")
-		if trimmedMsg != "" {
-			ui.Verbose(trimmedMsg)
-		}
-	}
 }
