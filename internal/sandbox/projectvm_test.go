@@ -108,7 +108,7 @@ func TestEnsureProjectVMStartsWhenCrashed(t *testing.T) {
 }
 
 func TestCreateProjectVMCallsClientCreateSandbox(t *testing.T) {
-	client := &mockMsbClient{}
+	client := &MockMsbClient{}
 	testUI := testutil.NewTestio(t)
 	ui := &testUI
 	cfg := Config{
@@ -149,10 +149,10 @@ func TestCreateProjectVMCallsClientCreateSandbox(t *testing.T) {
 func TestStopProjectVMUsesClient(t *testing.T) {
 	testUI := testutil.NewTestio(t)
 	ui := &testUI
-	client := &mockMsbClient{
-		gotSandbox: mockSandboxHandle{
-			name:   "opencode-msb-vm-test",
-			status: msb.SandboxStatusRunning,
+	client := &MockMsbClient{
+		gotSandbox: &MockSandboxHandle{
+			Name_:   "opencode-msb-vm-test",
+			Status_: msb.SandboxStatusRunning,
 		},
 	}
 	oldNewMsbClient := newMsbClient

@@ -29,13 +29,7 @@ type msbSandbox = Sandbox
 
 type shellResult = ShellResult
 
-// Deprecated: use VolumeHandle.
-
-type msbVolumeHandle = VolumeHandle
-
-// Deprecated: use ImageHandle.
-
-type msbImageHandle = ImageHandle
+// Deprecated: use SandboxHandle.
 
 // newMsbClient is the factory the sandbox package uses to obtain an MsbClient.
 // Tests override NewMsbClient to inject mocks.
@@ -390,6 +384,7 @@ type MockMsbClient struct {
 	removedSandboxes []string
 	removedVolumes   []string
 	removedImages    []MockRemoveImageCall
+	loadedImages     []string
 
 	ensureInstalledErr error
 	getSandboxErr      error
@@ -525,7 +520,7 @@ func (m *MockMsbClient) ImageRemove(_ context.Context, ref string, force bool) e
 
 // ImageLoad implements MsbClient.
 func (m *MockMsbClient) ImageLoad(_ context.Context, ref string, _ io.Reader) error {
-	_ = ref
+	m.loadedImages = append(m.loadedImages, ref)
 	return m.imageLoadErr
 }
 
@@ -537,6 +532,11 @@ func (m *MockMsbClient) SetGetSandboxErr(err error) {
 // SetGotSandbox sets the sandbox handle returned by MockMsbClient.GetSandbox.
 func (m *MockMsbClient) SetGotSandbox(h SandboxHandle) {
 	m.gotSandbox = h
+}
+
+// SetGetVolumeErr sets the error returned by MockMsbClient.GetVolume.
+func (m *MockMsbClient) SetGetVolumeErr(err error) {
+	m.GetVolumeErr = err
 }
 
 // MockSandboxHandle is a test double for SandboxHandle.
@@ -642,6 +642,47 @@ func (minimalSandboxFS) Read(_ context.Context, _ string) ([]byte, error) {
 	return nil, nil
 }
 func (minimalSandboxFS) Remove(_ context.Context, _ string) error { return nil }
+
+// mockFs implements sandboxFS for tests.
+type mockFs struct {
+	files   map[string][]byte
+	list    []msb.FsEntry
+	readErr error
+	listErr error
+}
+
+func (f *mockFs) Mkdir(_ context.Context, _ string) error           { return nil }
+func (f *mockFs) Write(_ context.Context, _ string, _ []byte) error { return nil }
+func (f *mockFs) Read(_ context.Context, path string) ([]byte, error) {
+	if f.readErr != nil {
+		return nil, f.readErr
+	}
+	if data, ok := f.files[path]; ok {
+		return data, nil
+	}
+	return nil, fmt.Errorf("file not found: %s", path)
+}
+func (f *mockFs) List(_ context.Context, _ string) ([]msb.FsEntry, error) {
+	if f.listErr != nil {
+		return nil, f.listErr
+	}
+	return f.list, nil
+}
+func (f *mockFs) Remove(_ context.Context, _ string) error { return nil }
+func (f *mockFs) Exists(_ context.Context, path string) (bool, error) {
+	_, ok := f.files[path]
+	return ok, nil
+}
+func (f *mockFs) Stat(_ context.Context, _ string) (*msb.FsStat, error) { return &msb.FsStat{}, nil }
+func (f *mockFs) ReadString(_ context.Context, path string) (string, error) {
+	if d, ok := f.files[path]; ok {
+		return string(d), nil
+	}
+	return "", fmt.Errorf("file not found: %s", path)
+}
+func (f *mockFs) ReadStream(_ context.Context, _ string) (*msb.FsReadStream, error) {
+	return &msb.FsReadStream{}, nil
+}
 
 func (m *MockSandbox) Shell(_ context.Context, command string, _ ...msb.ExecOption) (ShellResult, error) {
 	if m.ShellErr != nil {
