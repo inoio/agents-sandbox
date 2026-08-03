@@ -1,10 +1,16 @@
 package main
 
 import (
+	"context"
+	"errors"
+	"io"
 	"os/exec"
 	"slices"
 	"testing"
 
+	"github.com/moby/moby/client"
+
+	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox"
 	"gitlab.inoio.de/inoio/opencode-msb/internal/stdio"
 )
 
@@ -52,17 +58,30 @@ func TestBuildBuildCmd(t *testing.T) {
 	})
 
 	t.Run("B3_no_dry_run_spinner", func(t *testing.T) {
-		// build (no flags, docker available) → spinner "Building runner image"
+		// build (no flags) with docker client error → spinner "Building runner image"; non-nil error
 		if _, err := exec.LookPath("docker"); err != nil {
 			t.Skip("docker not in PATH; cannot test build path")
 		}
 
 		ui := &stdio.Mock{}
+		errClient := &dockerErrorClient{}
+
+		origFactory := sandbox.SetBuildImageDockerClient(
+			func() (sandbox.DockerClient, error) { return errClient, nil },
+		)
+
+		t.Cleanup(func() {
+			sandbox.SetBuildImageDockerClient(origFactory)
+		})
 
 		root := buildRootCmd(ui)
 		root.SetArgs([]string{cmdBuild})
 
-		_ = root.Execute() // build may fail (e.g. image build error); we only check spinner
+		err := root.Execute()
+
+		if err == nil {
+			t.Error("expected non-nil error from build image failure")
+		}
 
 		if !slices.Contains(ui.SpinnerCalls, "Building runner image") {
 			t.Errorf("expected spinner 'Building runner image'; got: %v", ui.SpinnerCalls)
@@ -105,4 +124,50 @@ func TestBuildBuildCmd(t *testing.T) {
 			t.Errorf("dry-run should not spawn spinner; got: %v", ui.SpinnerCalls)
 		}
 	})
+}
+
+var _ sandbox.DockerClient = (*dockerErrorClient)(nil)
+
+// dockerErrorClient implements sandbox.DockerClient, always returning errors
+// from ImageBuild to simulate a build failure for testing.
+type dockerErrorClient struct{}
+
+func (d *dockerErrorClient) ImageBuild(
+	_ context.Context,
+	_ io.Reader,
+	_ client.ImageBuildOptions,
+) (client.ImageBuildResult, error) {
+	return client.ImageBuildResult{}, errors.New("simulated build failure")
+}
+
+func (d *dockerErrorClient) ImageInspect(
+	_ context.Context,
+	_ string,
+	_ ...client.ImageInspectOption,
+) (client.ImageInspectResult, error) {
+	return client.ImageInspectResult{}, errors.New("simulated build failure")
+}
+
+func (d *dockerErrorClient) ImageSave(
+	_ context.Context,
+	_ []string,
+	_ ...client.ImageSaveOption,
+) (client.ImageSaveResult, error) {
+	return nil, errors.New("simulated build failure")
+}
+
+func (d *dockerErrorClient) ImageRemove(
+	_ context.Context,
+	_ string,
+	_ client.ImageRemoveOptions,
+) (client.ImageRemoveResult, error) {
+	return client.ImageRemoveResult{}, nil
+}
+
+func (d *dockerErrorClient) ImageTag(_ context.Context, _ client.ImageTagOptions) (client.ImageTagResult, error) {
+	return client.ImageTagResult{}, nil
+}
+
+func (d *dockerErrorClient) Close() error {
+	return nil
 }

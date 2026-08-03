@@ -15,7 +15,7 @@ var autoPruneOnce sync.Once
 
 // AutoPrune runs the prune logic once per process with the given threshold.
 // Threshold of 0 defaults to 30 days.
-func AutoPrune(ctx context.Context, cli dockerClient, threshold time.Duration, ui stdio.UI) {
+func AutoPrune(ctx context.Context, cli DockerClient, threshold time.Duration, ui stdio.UI) {
 	if cli == nil {
 		return
 	}
