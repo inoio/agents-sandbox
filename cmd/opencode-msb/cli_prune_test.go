@@ -151,9 +151,10 @@ func TestPrune(t *testing.T) {
 					t.Fatalf("unexpected error: %v", err)
 				}
 
-				// Stale VM pruned via cascade (home volume + MSB image).
-				// Active VM's digest doesn't match MSB image digest → docker
-				// image also pruned. Clone pruned (slug mismatch).
+				// Stale VM cascade: 1 VM + 1 home vol (no MSB in cascade; MSB
+				// slug "activeproject" doesn't match stale VM slug). Orphan
+				// artifacts pruned for unmatched "projectname" slug (1 MSB + 1
+				// docker). Clone pruned (no active VM for slug).
 				expected := "dry-run: Would prune 1 VMs, 1 home volumes, 1 docker images, 1 msb images, 0 task sandboxes, 1 clone volumes"
 				checkSummary(t, ui.OutCalls, expected)
 			})
@@ -195,7 +196,10 @@ func TestPrune(t *testing.T) {
 					t.Fatalf("unexpected error: %v", err)
 				}
 
-				// Both stale VMs pruned (cascade removes MSB + docker images).
+				// Both stale VMs pruned (cascade finds no matching artifacts
+				// due to hash-suffix mismatch between stale VM and home volume
+				// slugs). MSB + docker pruned by orphan artifact phase for
+				// unmatched slug.
 				expected := "Pruned 2 VMs, 0 home volumes, 1 docker images, 1 msb images, 0 task sandboxes, 0 clone volumes"
 				checkSummary(t, ui.OutCalls, expected)
 			})
@@ -223,8 +227,9 @@ func TestPrune(t *testing.T) {
 			t.Fatalf("unexpected error: %v", err)
 		}
 
-		// time.Now().Add(-15 * 24 * time.Hour) exceeds 2w (14d). Clone kept if active VM, pruned if not.
-		// No active VM for staleproject, so clone is pruned as orphan.
+		// 15d exceeds 2w (14d), stale VM pruned. Clone kept only if an
+		// active VM matches its slug; otherwise pruned. No active VM for
+		// "staleproject" → clone pruned.
 		expected := "Pruned 1 VMs, 0 home volumes, 0 docker images, 0 msb images, 0 task sandboxes, 1 clone volumes"
 		checkSummary(t, ui.OutCalls, expected)
 	})
@@ -250,7 +255,7 @@ func TestPrune(t *testing.T) {
 			t.Fatalf("unexpected error: %v", err)
 		}
 
-		// Same as P4 but with explicit --age "14d".
+		// 15d exceeds --age 14d, stale VM pruned. Same counts as P4.
 		expected := "Pruned 1 VMs, 0 home volumes, 0 docker images, 0 msb images, 0 task sandboxes, 1 clone volumes"
 		checkSummary(t, ui.OutCalls, expected)
 	})
@@ -323,10 +328,9 @@ func TestPrune(t *testing.T) {
 					t.Fatalf("unexpected error: %v", err)
 				}
 
-				// Stale cascade: 1 VM + 1 home vol + 1 MSB img.
-				// Docker image pruned (digest mismatch).
-				// Clone pruned (no active VM for projectname slug).
-				// Task sandbox always pruned.
+				// Stale cascade: 1 VM + 1 home vol. Orphan artifacts for
+				// "projectname" slug pruned (1 MSB + 1 docker; no active VM
+				// to match). Clone pruned (no active VM). Task always pruned.
 				expected := "Pruned 1 VMs, 1 home volumes, 1 docker images, 1 msb images, 1 task sandboxes, 1 clone volumes"
 				checkSummary(t, ui.OutCalls, expected)
 			})
