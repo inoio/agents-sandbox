@@ -28,6 +28,45 @@ var newDockerClient = func() (sandbox.DockerClient, error) {
 	return cli, nil
 }
 
+// extractRunOptions extracts shared run/shell flags from the given command
+// and returns a populated sandbox.RunOptions. The auto parameter controls
+// whether the Auto field is set on RunOptions.
+func extractRunOptions(cmd *cobra.Command, auto bool, ui stdio.UI) sandbox.RunOptions {
+	opts := sandbox.RunOptions{Auto: auto}
+	opts.Branch, _ = cmd.Flags().GetString("branch")
+	opts.Rebuild, _ = cmd.Flags().GetBool("rebuild")
+	opts.DryRun, _ = cmd.Flags().GetBool("dry-run")
+	opts.DryRunVM, _ = cmd.Flags().GetBool("dry-run-vm")
+	if opts.DryRun {
+		opts.DryRunVM = true
+		ui.Verbosef("dry-run-vm: auto-enabled (--dry-run)")
+	}
+	opts.CPUs, _ = cmd.Flags().GetUint8("cpus")
+	opts.Memory, _ = cmd.Flags().GetString("memory")
+	opts.TmpSize, _ = cmd.Flags().GetString("tmp-size")
+	opts.User, _ = cmd.Flags().GetString("user")
+	return opts
+}
+
+// printItems renders a list of items using the given format, item type,
+// and type-specific accessors for name and value strings.
+func printItems[T any](
+	items []T,
+	emptyMsg string,
+	format string,
+	nameFunc func(T) string,
+	valueFunc func(T) string,
+	ui stdio.UI,
+) {
+	if len(items) == 0 {
+		ui.Info(emptyMsg)
+		return
+	}
+	for _, item := range items {
+		ui.Outf(format, nameFunc(item), valueFunc(item))
+	}
+}
+
 func buildMinimalRootFlagsCmd() *cobra.Command {
 	rootFlagsCmd := &cobra.Command{
 		Use:   "opencode-msb",
@@ -112,13 +151,10 @@ func buildListCmd(ui stdio.UI) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			if len(sandboxes) == 0 {
-				ui.Info("No sandboxes found.")
-				return nil
-			}
-			for _, s := range sandboxes {
-				ui.Outf("%-40s %s", s.Name, s.Status)
-			}
+			printItems(sandboxes, "No sandboxes found.", "%-40s %s",
+				func(s sandbox.Info) string { return s.Name },
+				func(s sandbox.Info) string { return s.Status },
+				ui)
 			return nil
 		},
 	}
@@ -133,19 +169,7 @@ func buildShellCmd(ui stdio.UI) *cobra.Command {
 			annotationAlsoAs: "sandbox shell",
 		},
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			opts := sandbox.RunOptions{Auto: false}
-			opts.Branch, _ = cmd.Flags().GetString("branch")
-			opts.Rebuild, _ = cmd.Flags().GetBool("rebuild")
-			opts.DryRun, _ = cmd.Flags().GetBool("dry-run")
-			opts.DryRunVM, _ = cmd.Flags().GetBool("dry-run-vm")
-			if opts.DryRun {
-				opts.DryRunVM = true
-				ui.Verbosef("dry-run-vm: auto-enabled (--dry-run)")
-			}
-			opts.CPUs, _ = cmd.Flags().GetUint8("cpus")
-			opts.Memory, _ = cmd.Flags().GetString("memory")
-			opts.TmpSize, _ = cmd.Flags().GetString("tmp-size")
-			opts.User, _ = cmd.Flags().GetString("user")
+			opts := extractRunOptions(cmd, false, ui)
 
 			cfg := newConfig()
 
@@ -226,13 +250,10 @@ func buildImageCmd(ui stdio.UI) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			if len(images) == 0 {
-				ui.Info("No images found.")
-				return nil
-			}
-			for _, img := range images {
-				ui.Outf("%-50s %s", img.Reference, img.Digest)
-			}
+			printItems(images, "No images found.", "%-50s %s",
+				func(i sandbox.ImageInfo) string { return i.Reference },
+				func(i sandbox.ImageInfo) string { return i.Digest },
+				ui)
 			return nil
 		},
 	})
@@ -254,13 +275,10 @@ func buildVolumeCmd(ui stdio.UI) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			if len(volumes) == 0 {
-				ui.Info("No volumes found.")
-				return nil
-			}
-			for _, vol := range volumes {
-				ui.Outf("%-50s %s", vol.Name, vol.Path)
-			}
+			printItems(volumes, "No volumes found.", "%-50s %s",
+				func(v sandbox.VolumeInfo) string { return v.Name },
+				func(v sandbox.VolumeInfo) string { return v.Path },
+				ui)
 			return nil
 		},
 	})
@@ -336,20 +354,10 @@ func buildRunCmd(ui stdio.UI) *cobra.Command {
 
 func runFunc(ui stdio.UI) func(cmd *cobra.Command, args []string) error {
 	return func(cmd *cobra.Command, args []string) error {
-		opts := sandbox.RunOptions{Args: args, Auto: true}
-		opts.Branch, _ = cmd.Flags().GetString("branch")
-		opts.Rebuild, _ = cmd.Flags().GetBool("rebuild")
-		opts.DryRun, _ = cmd.Flags().GetBool("dry-run")
-		opts.DryRunVM, _ = cmd.Flags().GetBool("dry-run-vm")
-		// --dry-run implies --dry-run-vm
-		if opts.DryRun {
-			opts.DryRunVM = true
-			ui.Verbosef("dry-run-vm: auto-enabled (--dry-run)")
-		}
-		opts.CPUs, _ = cmd.Flags().GetUint8("cpus")
-		opts.Memory, _ = cmd.Flags().GetString("memory")
-		opts.TmpSize, _ = cmd.Flags().GetString("tmp-size")
-		opts.User, _ = cmd.Flags().GetString("user")
+		opts := extractRunOptions(cmd, true, ui)
+		opts.Args = args
+
+		// Handle the --no-auto flag specific to the run command
 		if noAuto, _ := cmd.Flags().GetBool("no-auto"); noAuto {
 			opts.Auto = false
 		}
@@ -359,6 +367,7 @@ func runFunc(ui stdio.UI) func(cmd *cobra.Command, args []string) error {
 		return sandbox.Run(cmd.Context(), opts, cfg, ui)
 	}
 }
+
 func buildPruneCmd(ui stdio.UI) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "prune [flags]",
