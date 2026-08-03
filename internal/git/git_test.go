@@ -8,7 +8,7 @@ import (
 	"testing"
 
 	"gitlab.inoio.de/inoio/opencode-msb/internal/stdio"
-	"gitlab.inoio.de/inoio/opencode-msb/internal/testhelpers"
+	"gitlab.inoio.de/inoio/opencode-msb/internal/testutil"
 )
 
 func TestBranchSlugReplacesSlashes(t *testing.T) {
@@ -41,7 +41,7 @@ func TestBranchSlugNoChange(t *testing.T) {
 }
 
 func TestBranchAtReturnsCurrentBranch(t *testing.T) {
-	repo := testhelpers.InitRepo(t)
+	repo := testutil.InitRepo(t)
 	branch, err := BranchAt(repo)
 	if err != nil {
 		t.Fatalf("BranchAt: %v", err)
@@ -153,7 +153,7 @@ func TestSanitizeFolderNameEmptyInput(t *testing.T) {
 }
 
 func TestProjectSlugFormat(t *testing.T) {
-	repo := testhelpers.InitRepo(t)
+	repo := testutil.InitRepo(t)
 	// ProjectSlug uses the working directory, so chdir into the repo.
 	t.Chdir(repo)
 	got := ProjectSlug(&stdio.Mock{})
@@ -176,7 +176,7 @@ func TestProjectSlugFormat(t *testing.T) {
 }
 
 func TestProjectSlugDeterministic(t *testing.T) {
-	repo := testhelpers.InitRepo(t)
+	repo := testutil.InitRepo(t)
 	t.Chdir(repo)
 	l := &stdio.Mock{}
 	a := ProjectSlug(l)
@@ -187,20 +187,20 @@ func TestProjectSlugDeterministic(t *testing.T) {
 }
 
 func TestPruneWorktreesCleansStaleEntries(t *testing.T) {
-	repo := testhelpers.InitRepo(t)
+	repo := testutil.InitRepo(t)
 	wtDir := filepath.Join(t.TempDir(), "stale-wt")
-	testhelpers.RunGit(t, repo, "worktree", "add", "--detach", wtDir)
+	testutil.RunGit(t, repo, "worktree", "add", "--detach", wtDir)
 	if err := os.RemoveAll(wtDir); err != nil {
 		t.Fatalf("remove worktree dir: %v", err)
 	}
-	out := testhelpers.RunGit(t, repo, "worktree", "list")
+	out := testutil.RunGit(t, repo, "worktree", "list")
 	if !strings.Contains(out, "prunable") {
 		t.Fatalf("expected prunable entry, got: %s", out)
 	}
 	if err := PruneWorktrees(context.Background(), repo); err != nil {
 		t.Fatalf("PruneWorktrees: %v", err)
 	}
-	out = testhelpers.RunGit(t, repo, "worktree", "list")
+	out = testutil.RunGit(t, repo, "worktree", "list")
 	if strings.Contains(out, "prunable") {
 		t.Errorf("expected no prunable entries after prune, got: %s", out)
 	}

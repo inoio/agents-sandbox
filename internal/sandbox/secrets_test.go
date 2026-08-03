@@ -3,11 +3,11 @@ package sandbox
 import (
 	"testing"
 
-	"gitlab.inoio.de/inoio/opencode-msb/internal/testhelpers"
+	"gitlab.inoio.de/inoio/opencode-msb/internal/testutil"
 )
 
 func TestBuildSecretsSkipsEmptyEnv(t *testing.T) {
-	testUI := testhelpers.NewTestio(t)
+	testUI := testutil.NewTestio(t)
 	secrets := BuildSecrets(make(map[string]string), &testUI)
 	if len(secrets) != 0 {
 		t.Errorf("expected 0 secrets when no env vars set, got %d", len(secrets))
@@ -19,7 +19,7 @@ func TestBuildSecretsCreatesEntryForSetEnv(t *testing.T) {
 
 	env["FOO"] = "bar@example.org"
 
-	testUI := testhelpers.NewTestio(t)
+	testUI := testutil.NewTestio(t)
 	secrets := BuildSecrets(env, &testUI)
 	if len(secrets) != 1 {
 		t.Fatalf("expected 1 secret, got %d", len(secrets))

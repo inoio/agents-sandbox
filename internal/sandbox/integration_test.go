@@ -1,4 +1,4 @@
-//go:build integratuin
+//go:build integration
 
 package sandbox
 
@@ -14,18 +14,18 @@ import (
 	"github.com/moby/moby/client"
 
 	"gitlab.inoio.de/inoio/opencode-msb/internal/git"
-	"gitlab.inoio.de/inoio/opencode-msb/internal/testhelpers"
+	"gitlab.inoio.de/inoio/opencode-msb/internal/testutil"
 
 	msb "github.com/superradcompany/microsandbox/sdk/go"
 )
 
 func TestStartDockerdIfPresentWithDindImage(t *testing.T) {
 	ctx := t.Context()
-	ui := testhelpers.NewTestui(t)
+	ui := testutil.NewTestio(t)
 
 	// Build the dind base image requires Docker on the host.
 	if testing.Short() {
-		t.Skip("skipping integratuin test in short mode")
+		t.Skip("skipping integration test in short mode")
 	}
 
 	dockerCli, err := client.New(client.FromEnv)
@@ -111,10 +111,10 @@ func TestStartDockerdIfPresentWithDindImage(t *testing.T) {
 
 func TestStartDockerdIfPresentWithPlainBaseImage(t *testing.T) {
 	ctx := t.Context()
-	ui := testhelpers.NewTestui(t)
+	ui := testutil.NewTestio(t)
 
 	if testing.Short() {
-		t.Skip("skipping integratuin test in short mode")
+		t.Skip("skipping integration test in short mode")
 	}
 
 	dockerCli, err := client.New(client.FromEnv)
@@ -175,10 +175,10 @@ func TestStartDockerdIfPresentWithPlainBaseImage(t *testing.T) {
 
 func TestProjectVMLifecycle(t *testing.T) {
 	ctx := t.Context()
-	ui := testhelpers.NewTestui(t)
+	ui := testutil.NewTestio(t)
 
 	if testing.Short() {
-		t.Skip("skipping integratuin test in short mode")
+		t.Skip("skipping integration test in short mode")
 	}
 
 	// Ensure msb runtime is available.
@@ -186,7 +186,7 @@ func TestProjectVMLifecycle(t *testing.T) {
 		t.Skipf("msb runtime not available: %v", err)
 	}
 
-	// Build the base image (same pattern as existing integratuin tests).
+	// Build the base image (same pattern as existing integration tests).
 	dockerCli, err := client.New(client.FromEnv)
 	if err != nil {
 		t.Skipf("docker not available: %v", err)
@@ -206,18 +206,12 @@ func TestProjectVMLifecycle(t *testing.T) {
 	}
 
 	// Use a unique project slug derived from the test temp dir.
-	tmpRepo := t.TempDir()
+	tmpRepo := testutil.InitRepo(t)
 	t.Chdir(tmpRepo)
-	testhelpers.RunGit(t, tmpRepo, "init", "-b", "main")
-	testhelpers.RunGit(t, tmpRepo, "config", "user.email", "test@example.com")
-	testhelpers.RunGit(t, tmpRepo, "config", "user.name", "Test User")
-	testhelpers.WriteFile(t, tmpRepo, "README.md", "hello")
-	testhelpers.RunGit(t, tmpRepo, "add", "README.md")
-	testhelpers.RunGit(t, tmpRepo, "commit", "-m", "initial")
 
 	projectSlug := git.ProjectSlug(ui)
 	imageRef := BaseTag
-	homeVolName := HomeVolumeName(projectSlug, "sha256:integratuin-test")
+	homeVolName := HomeVolumeName(projectSlug, "sha256:integration-test")
 	// Ensure the home volume exists.
 	if _, err := msb.GetVolume(ctx, homeVolName); err != nil {
 		vol, volErr := msb.CreateVolume(ctx, homeVolName, msb.WithVolumeKind(msb.VolumeKindDir))

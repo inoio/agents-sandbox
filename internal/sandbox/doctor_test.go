@@ -8,11 +8,11 @@ import (
 	"strings"
 	"testing"
 
-	"gitlab.inoio.de/inoio/opencode-msb/internal/testhelpers"
+	"gitlab.inoio.de/inoio/opencode-msb/internal/testutil"
 )
 
 func TestCheckDockerLogsUnderlyingError(t *testing.T) {
-	testUI := testhelpers.NewTestio(t)
+	testUI := testutil.NewTestio(t)
 
 	t.Setenv("PATH", "/nonexistent")
 	if CheckDocker(&testUI) {
@@ -55,7 +55,7 @@ func TestShellRcFile(t *testing.T) {
 }
 
 func TestCheckMsbEnsureInstalledErrorSurfacesErrorWithoutInstallHint(t *testing.T) {
-	testUI := testhelpers.NewTestio(t)
+	testUI := testutil.NewTestio(t)
 
 	prev := ensureInstalled
 	t.Cleanup(func() { ensureInstalled = prev })
@@ -81,7 +81,7 @@ func TestCheckMsbEnsureInstalledErrorSurfacesErrorWithoutInstallHint(t *testing.
 }
 
 func TestCheckMsbOnPathReturnsTrueSilently(t *testing.T) {
-	testUI := testhelpers.NewTestio(t)
+	testUI := testutil.NewTestio(t)
 
 	prev := ensureInstalled
 	t.Cleanup(func() { ensureInstalled = prev })
@@ -103,7 +103,7 @@ func TestCheckMsbOnPathReturnsTrueSilently(t *testing.T) {
 }
 
 func TestCheckMsbNotOnPathExtendsPathAndReturnsTrue(t *testing.T) {
-	testUI := testhelpers.NewTestio(t)
+	testUI := testutil.NewTestio(t)
 
 	prev := ensureInstalled
 	t.Cleanup(func() { ensureInstalled = prev })
@@ -146,7 +146,7 @@ func TestCheckMsbNotOnPathExtendsPathAndReturnsTrue(t *testing.T) {
 }
 
 func TestCheckMsbNotOnPathAndBinaryMissingReturnsFalse(t *testing.T) {
-	testUI := testhelpers.NewTestio(t)
+	testUI := testutil.NewTestio(t)
 
 	prev := ensureInstalled
 	t.Cleanup(func() { ensureInstalled = prev })

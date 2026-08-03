@@ -9,12 +9,12 @@ import (
 
 	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox"
 	"gitlab.inoio.de/inoio/opencode-msb/internal/stdio"
-	"gitlab.inoio.de/inoio/opencode-msb/internal/testhelpers"
+	"gitlab.inoio.de/inoio/opencode-msb/internal/testutil"
 )
 
 func initTestRepo(t *testing.T) {
 	t.Helper()
-	dir := testhelpers.InitRepo(t)
+	dir := testutil.InitRepo(t)
 	t.Chdir(dir)
 }
 func notFoundErr() error {
