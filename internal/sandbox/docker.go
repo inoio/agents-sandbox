@@ -13,7 +13,7 @@ import (
 
 const (
 	dockerdCheckCmd     = "test -x /usr/bin/dockerd"
-	dockerdStartCmd     = "dockerd -H unix:///var/run/docker.sock > /var/log/dockerd.log 2>&1 &"
+	dockerdStartCmd     = "find /run /var/run -iname 'docker*.pid' -delete 2>/dev/null || : && dockerd -H unix:///var/run/docker.sock > /var/log/dockerd.log 2>&1 &"
 	dockerdReadyCmd     = "docker info"
 	dockerdReadyTimeout = 30 * time.Second
 	dockerdPollInterval = time.Second
