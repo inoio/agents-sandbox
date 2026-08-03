@@ -318,8 +318,8 @@ func (s realSandbox) Close() error {
 
 // MsbClient is the public abstraction over the microsandbox SDK used by the
 // sandbox package. It covers discovery, creation, and deletion of sandboxes,
-// volumes, and images, plus runtime setup. Production code uses *MsbClientAdapter;
-// tests replace NewMockMsbClient to inject mocks.
+// volumes, and images, plus runtime setup. Production code uses realMsbClient;
+// tests construct MockMsbClient directly.
 //
 //nolint:dupl // public interface duplicates internal msbClient shape for package-level export
 type MsbClient interface {
