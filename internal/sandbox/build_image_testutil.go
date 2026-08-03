@@ -97,3 +97,20 @@ func SetBuildImageDockerClient(f func() (DockerClient, error)) func() (DockerCli
 	ensureImageDockerClient = f
 	return orig
 }
+
+// SetNewMsbClient replaces the internal msb client factory used by Prune
+// with one that returns the provided mock MsbClient. The original factory
+// is returned so callers can restore it after their test. This function
+// is test only and should not be called from production code.
+//
+// Usage from an external test package:
+//
+//	mock := &sandbox.MockMsbClient{}
+//	mock.Sandboxes = []sandbox.SandboxHandle{&sandbox.MockSandboxHandle{Name_: "test-vm"}}
+//	orig := sandbox.SetNewMsbClient(func() sandbox.MsbClient { return mock })
+//	t.Cleanup(func() { sandbox.SetNewMsbClient(orig) })
+func SetNewMsbClient(f func() MsbClient) func() MsbClient {
+	orig := newMsbClient
+	newMsbClient = f
+	return orig
+}
