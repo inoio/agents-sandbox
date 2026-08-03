@@ -82,6 +82,11 @@ type imageWithDigest struct {
 
 const baseSlug = "base"
 
+type artifactInfo struct {
+	slug   string
+	digest string
+}
+
 const (
 	sbPrefix        = "opencode-msb-"
 	vmPrefix        = "opencode-msb-vm-"
@@ -125,23 +130,21 @@ func findHashSuffix(name string) int {
 //
 //	"opencode-msb/runner-myproject"
 //	→ slug="myproject", digest=""
-//
-//nolint:nonamedreturns // named returns simplify return paths in this parser
-func parseImageTag(name string) (slug, digest string) {
+func parseImageTag(name string) artifactInfo {
 	if !strings.HasPrefix(name, imagePrefix) {
-		return "", ""
+		return artifactInfo{}
 	}
 	afterPrefix := name[len(imagePrefix):]
 	lastColon := strings.LastIndex(afterPrefix, ":")
 	if lastColon == -1 {
-		return afterPrefix, ""
+		return artifactInfo{slug: afterPrefix}
 	}
 	tag := afterPrefix[lastColon+1:]
-	slug = afterPrefix[:lastColon]
+	slug := afterPrefix[:lastColon]
 	if tag != "" && tag != "latest" {
-		digest = tag
+		return artifactInfo{slug: slug, digest: tag}
 	}
-	return slug, digest
+	return artifactInfo{slug: slug}
 }
 
 // parseVMName extracts the slug and optional branch (digest) from a sandbox name.
@@ -151,54 +154,49 @@ func parseImageTag(name string) (slug, digest string) {
 //
 //	"opencode-msb-vm-projectname-aB3cDe4fGhIjKl-feature"
 //	→ slug="projectname-aB3cDe4fGhIjKl", digest="feature"
-//
-//nolint:nonamedreturns // named returns simplify return paths in this parser
-func parseVMName(name string) (slug, digest string) {
+func parseVMName(name string) artifactInfo {
 	if !strings.HasPrefix(name, vmPrefix) {
-		return "", ""
+		return artifactInfo{}
 	}
 	remainder := name[len(vmPrefix):]
 	hashStart := findHashSuffix(remainder)
 	if hashStart == -1 {
-		return remainder, ""
+		return artifactInfo{slug: remainder}
 	}
 	folderName := remainder[:hashStart-1]
 	hash := remainder[hashStart : hashStart+14]
-	slug = folderName + "-" + hash
+	slug := folderName + "-" + hash
 	if hashStart+14 < len(remainder) {
 		rest := remainder[hashStart+14:]
 		if len(rest) > 1 && rest[0] == '-' {
-			digest = rest[1:]
+			return artifactInfo{slug: slug, digest: rest[1:]}
 		}
 	}
-	return slug, digest
+	return artifactInfo{slug: slug}
 }
 
 // parseHomeVolumeName extracts the slug and digest from a home volume name.
 // Examples: "opencode-msb-home-myproject-aB3cDe4fGhIjKl-xYz1234AbCdEfGh"
 //
 //	→ slug="myproject-aB3cDe4fGhIjKl", digest="xYz1234AbCdEfGh"
-//
-//nolint:nonamedreturns // named returns simplify return paths in this parser
-func parseHomeVolumeName(name string) (slug, digest string) {
+func parseHomeVolumeName(name string) artifactInfo {
 	if !strings.HasPrefix(name, homePrefix) {
-		return "", ""
+		return artifactInfo{}
 	}
 	remainder := name[len(homePrefix):]
 	parts := strings.Split(remainder, "-")
 	if len(parts) < 2 {
-		return remainder, ""
+		return artifactInfo{slug: remainder}
 	}
-	digest = parts[len(parts)-1]
-	slug = strings.Join(parts[:len(parts)-1], "-")
-	return slug, digest
+	return artifactInfo{
+		slug:   strings.Join(parts[:len(parts)-1], "-"),
+		digest: parts[len(parts)-1],
+	}
 }
 
 // parseCloneVolumeName extracts the slug from a clone volume name.
 // Clone volumes have no digest component.
-//
-//nolint:nonamedreturns // named returns simplify return paths in this parser
-func parseCloneVolumeName(name string) (slug string) {
+func parseCloneVolumeName(name string) string {
 	if !strings.HasPrefix(name, clonePrefix) {
 		return ""
 	}
@@ -218,9 +216,13 @@ func parseCloneVolumeName(name string) (slug string) {
 //	"opencode-msb-vm-projectname-main" → slug="projectname", digest=""
 //	"opencode-msb-home-myproject-aB3cDe4fGhIjKl-xYz1234AbCdEfGh" → slug="myproject-aB3cDe4fGhIjKl", digest="xYz1234AbCdEfGh"
 //	"opencode-msb/runner-myproject:xYz1234AbCdEfGh" → slug="myproject", digest="xYz1234AbCdEfGh"
-//
-//nolint:nonamedreturns // named returns simplify the many return paths in this parser
-func extractProjectSlugAndDigest(name string) (slug, digest string) {
+func extractProjectSlugAndDigest(name string) (string, string) {
+	info := artifactFor(name)
+	return info.slug, info.digest
+}
+
+// artifactFor dispatches to the appropriate parser based on the name prefix.
+func artifactFor(name string) artifactInfo {
 	switch {
 	case strings.HasPrefix(name, imagePrefix):
 		return parseImageTag(name)
@@ -228,17 +230,17 @@ func extractProjectSlugAndDigest(name string) (slug, digest string) {
 		remainder := name[len(taskPrefix):]
 		parts := strings.Split(remainder, "-")
 		if len(parts) < 2 {
-			return remainder, ""
+			return artifactInfo{slug: remainder}
 		}
-		return strings.Join(parts[:len(parts)-1], "-"), ""
+		return artifactInfo{slug: strings.Join(parts[:len(parts)-1], "-")}
 	case strings.HasPrefix(name, vmPrefix):
 		return parseVMName(name)
 	case strings.HasPrefix(name, homePrefix):
 		return parseHomeVolumeName(name)
 	case strings.HasPrefix(name, clonePrefix):
-		return parseCloneVolumeName(name), ""
+		return artifactInfo{slug: parseCloneVolumeName(name)}
 	}
-	return "", ""
+	return artifactInfo{}
 }
 
 // isStoppedStatus returns true if the status indicates the sandbox is not

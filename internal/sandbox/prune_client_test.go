@@ -62,7 +62,7 @@ func (m *mockMsbClient) GetSandbox(_ context.Context, name string) (msbSandboxHa
 	if m.gotSandbox != nil {
 		return m.gotSandbox, nil
 	}
-	return nil, errors.New("sandbox not found: " + name)
+	return nil, &msb.Error{Kind: msb.ErrSandboxNotFound, Message: name}
 }
 
 func (m *mockMsbClient) CreateSandbox(_ context.Context, name string, _ ...msb.SandboxOption) (msbSandbox, error) {
@@ -98,7 +98,7 @@ func (m *mockMsbClient) GetVolume(_ context.Context, name string) (msbVolumeHand
 	if m.gotVolume != nil {
 		return m.gotVolume, nil
 	}
-	return nil, errors.New("volume not found: " + name)
+	return nil, &msb.Error{Kind: msb.ErrVolumeNotFound, Message: name}
 }
 
 func (m *mockMsbClient) CreateVolume(_ context.Context, name string, _ ...msb.VolumeOption) (msbVolumeHandle, error) {
