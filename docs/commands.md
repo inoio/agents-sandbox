@@ -31,16 +31,16 @@ Arguments after `--` are forwarded to opencode. Arguments before `--` that don't
 
 **Flags:**
 
-| Flag            | Short | Default  | Purpose                                    |
-|-----------------|-------|----------|--------------------------------------------|
-| `--branch`      | `-b`  | `""`     | Isolated git worktree for the given branch |
-| `--rebuild`     | `-r`  | `false`  | Rebuild runner image before starting       |
-| `--dry-run`     | `-n`  | `false`  | Validate setup without running opencode    |
-| `--cpus`        | `-c`  | `0`      | vCPUs for the sandbox (0 = all)            |
-| `--memory`      | `-m`  | `4G`     | Memory limit, e.g. `4G`, `512M`            |
-| `--tmp-size`    | —     | `2G`     | Size of `/tmp` tmpfs in the sandbox        |
-| `--user`        | `-u`  | `dev`*   | Username or UID inside the sandbox         |
-| `--no-auto`     | —     | `false`  | Do not pass `--auto` to opencode           |
+| Flag            | Short | Default  | Purpose                                       |
+|-----------------|-------|----------|-----------------------------------------------|
+| `--branch`      | `-b`  | `""`     | Isolated git worktree for the given branch    |
+| `--rebuild`     | `-r`  | `false`  | Rebuild runner image before starting          |
+| `--dry-run`     | `-n`  | `false`  | Validate setup without running opencode       |
+| `--cpus`        | `-c`  | `0`      | vCPUs for the sandbox (0 = all)               |
+| `--memory`      | `-m`  | `4G`     | Memory limit, e.g. `4G`, `512M`               |
+| `--tmp-size`    | —     | `2G`     | Size of `/tmp` tmpfs in the sandbox           |
+| `--user`        | `-u`  | `dev`*   | Username or UID inside the sandbox            |
+| `--no-auto`     | —     | `false`  | Do not pass `--auto` to opencode              |
 | `--dry-run-vm`  | —     | `false`  | Skip VM lifecycle but prepare everything else |
 
 <!-- markdownlint-disable-next-line no-trailing-punctuation -->
@@ -74,10 +74,10 @@ opencode-msb build -r     # force clean rebuild
 
 **Flags:**
 
-| Flag            | Short | Default | Purpose                      |
-|-----------------|-------|---------|------------------------------|
-| `--rebuild`     | `-r`  | `false`  | Force a clean rebuild        |
-| `--dry-run`     | `-n`  | `false`  | Dry run without building     |
+| Flag            | Short | Default  | Purpose                  |
+|-----------------|-------|----------|--------------------------|
+| `--rebuild`     | `-r`  | `false`  | Force a clean rebuild    |
+| `--dry-run`     | `-n`  | `false`  | Dry run without building |
 
 **Aliases:** `image build`
 
@@ -96,9 +96,9 @@ opencode-msb stop -f     # stop and remove VM state
 
 **Flags:**
 
-| Flag        | Short | Default | Purpose                        |
-|-------------|-------|---------|--------------------------------|
-| `--force`   | `-f`  | `false` | Remove VM's persisted state    |
+| Flag        | Short | Default | Purpose                                     |
+|-------------|-------|---------|---------------------------------------------|
+| `--force`   | `-f`  | `false` | Remove VM's persisted state                 |
 | `--dry-run` | `-n`  | `false` | Show what would be stopped without stopping |
 
 ---
@@ -116,9 +116,9 @@ opencode-msb kill -f     # kill and remove VM state
 
 **Flags:**
 
-| Flag        | Short | Default | Purpose                        |
-|-------------|-------|---------|--------------------------------|
-| `--force`   | `-f`  | `false` | Remove VM's persisted state    |
+| Flag        | Short | Default | Purpose                                   |
+|-------------|-------|---------|-------------------------------------------|
+| `--force`   | `-f`  | `false` | Remove VM's persisted state               |
 | `--dry-run` | `-n`  | `false` | Show what would be killed without killing |
 
 ---
@@ -136,12 +136,12 @@ opencode-msb prune --force               # skip confirmation
 
 **Flags:**
 
-| Flag          | Short | Default | Purpose                               |
-|---------------|-------|---------|---------------------------------------|
-| `--age`       | `-a`  | `7d`    | Prune threshold (e.g. `24h`, `7d`)    |
-| `--dry-run`   | `-n`  | `false` | Preview what would be pruned          |
-| `--force`     | `-f`  | `false` | Skip confirmation prompt              |
-| `--dry-run-vm`| —     | `false` | Suppress VM deletion during prune     |
+| Flag           | Short | Default | Purpose                            |
+|----------------|-------|---------|------------------------------------|
+| `--age`        | `-a`  | `7d`    | Prune threshold (e.g. `24h`, `7d`) |
+| `--dry-run`    | `-n`  | `false` | Preview what would be pruned       |
+| `--force`      | `-f`  | `false` | Skip confirmation prompt           |
+| `--dry-run-vm` | —     | `false` | Suppress VM deletion during prune  |
 
 ---
 
