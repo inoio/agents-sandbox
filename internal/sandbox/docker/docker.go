@@ -43,6 +43,7 @@ type Client interface {
 		ctx context.Context,
 		opts client.ImageTagOptions,
 	) (client.ImageTagResult, error)
+	Ping(ctx context.Context, opts client.PingOptions) (client.PingResult, error)
 }
 
 //nolint:gochecknoglobals // test hook for the otherwise unmockable docker client
@@ -147,6 +148,19 @@ func scanBuildOutput(r io.Reader, ui stdio.UI) error {
 	}
 }
 
+// CheckDockerAPI pings the Docker daemon and reports reachability via the UI.
+// Returns true if the daemon responds, false otherwise with error/info messages.
+func CheckDockerAPI(ctx context.Context, ui stdio.UI) bool {
+	moby := Get()
+	_, err := moby.Ping(ctx, client.PingOptions{})
+	if err != nil {
+		ui.Errorf("Docker API unreachable: %v", err)
+		ui.Infof("Ensure Docker Desktop or colima is running, or verify DOCKER_HOST.")
+		return false
+	}
+	return true
+}
+
 //nolint:gochecknoglobals // needed for lazy, thread-safe Docker client init
 var (
 	mobyClient     *client.Client
@@ -215,6 +229,16 @@ func (realDockerClient) ImageTag(
 		return client.ImageTagResult{}, err
 	}
 	return mobyClient.ImageTag(ctx, options)
+}
+
+func (realDockerClient) Ping(
+	ctx context.Context,
+	opts client.PingOptions,
+) (client.PingResult, error) {
+	if err := ensureMobyClient(); err != nil {
+		return client.PingResult{}, err
+	}
+	return mobyClient.Ping(ctx, opts)
 }
 
 // dockerBuildMessage represents a single line from the Docker build API

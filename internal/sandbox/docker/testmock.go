@@ -73,6 +73,9 @@ func newErrorDockerClient(mockErrs mockErrors) *MockDockerClient {
 			return client.ImageRemoveResult{}, removeErr
 		},
 		ImageTagFn: nil,
+		PingFn: func(ctx context.Context, opts client.PingOptions) (client.PingResult, error) {
+			return client.PingResult{}, errors.New("cannot connect to Docker daemon")
+		},
 	}
 }
 
@@ -85,6 +88,7 @@ type MockDockerClient struct {
 	ImageSaveFn    func(ctx context.Context, refs []string, saveOpts ...client.ImageSaveOption) (client.ImageSaveResult, error)
 	ImageRemoveFn  func(ctx context.Context, ref string, options client.ImageRemoveOptions) (client.ImageRemoveResult, error)
 	ImageTagFn     func(ctx context.Context, opts client.ImageTagOptions) (client.ImageTagResult, error)
+	PingFn         func(ctx context.Context, opts client.PingOptions) (client.PingResult, error)
 }
 
 // Compile time check Client interface conformity of MockDockerClient.
@@ -143,4 +147,14 @@ func (m *MockDockerClient) ImageTag(ctx context.Context, opts client.ImageTagOpt
 		return m.ImageTagFn(ctx, opts)
 	}
 	return client.ImageTagResult{}, nil
+}
+
+func (m *MockDockerClient) Ping(
+	ctx context.Context,
+	opts client.PingOptions,
+) (client.PingResult, error) {
+	if m.PingFn != nil {
+		return m.PingFn(ctx, opts)
+	}
+	return client.PingResult{APIVersion: "1.44", OSType: "linux"}, nil
 }
