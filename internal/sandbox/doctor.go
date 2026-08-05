@@ -20,20 +20,6 @@ var ensureInstalled = func(ctx context.Context) error { //nolint:gochecknoglobal
 	return msb.EnsureInstalled(ctx)
 }
 
-// shellRcFile returns the rc file a PATH export should be appended to, chosen by
-// the basename of the login shell (e.g. "/bin/zsh" -> "~/.zshrc"). Unknown or
-// empty shells fall back to ~/.bashrc, the most common default on Linux.
-func shellRcFile(home, shell string) string {
-	switch filepath.Base(shell) {
-	case "zsh":
-		return filepath.Join(home, ".zshrc")
-	case "fish":
-		return filepath.Join(home, ".config", "fish", "config.fish")
-	default:
-		return filepath.Join(home, ".bashrc")
-	}
-}
-
 func CheckDocker(ui stdio.UI) bool {
 	if _, err := exec.LookPath("docker"); err != nil {
 		ui.Errorf("docker not found. Install Docker or Podman with docker-compatible CLI: %v", err)

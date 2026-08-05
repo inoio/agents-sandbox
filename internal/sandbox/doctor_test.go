@@ -42,8 +42,8 @@ func TestShellRcFile(t *testing.T) {
 		{"bash", "/bin/bash", filepath.Join(home, ".bashrc")},
 		{"zsh", "/bin/zsh", filepath.Join(home, ".zshrc")},
 		{"fish", "/usr/bin/fish", filepath.Join(home, ".config", "fish", "config.fish")},
-		{"empty shell falls back to bashrc", "", filepath.Join(home, ".bashrc")},
-		{"unknown shell falls back to bashrc", "/bin/sh", filepath.Join(home, ".bashrc")},
+		{"empty shell falls back to default rc", "", filepath.Join(home, shellRcDefault)},
+		{"unknown shell falls back to default rc", "/bin/sh", filepath.Join(home, shellRcDefault)},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
