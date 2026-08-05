@@ -229,6 +229,12 @@ func TestPrune(t *testing.T) {
 		for _, flags := range pruneAgeFlags {
 			t.Run("f"+strings.Join(flags, "_"), func(t *testing.T) {
 				ui := &stdio.Mock{}
+				mock := &sandbox.MockMsbClient{}
+				mock.Images = append(mock.Images,
+					msbImg("opencode-msb/runner-projectname:v2"))
+
+				origMSB := sandbox.SetNewMsbClient(func() sandbox.MsbClient { return mock })
+				t.Cleanup(func() { sandbox.SetNewMsbClient(origMSB) })
 				docker.WithDefaultErrorDockerMock(t)
 				root := buildRootCmd(ui)
 				root.SetArgs(append([]string{"prune"}, flags...))
@@ -238,7 +244,6 @@ func TestPrune(t *testing.T) {
 				if err != nil {
 					t.Fatalf("expected no error; got %s", err)
 				}
-
 				assert.True(t, slices.ContainsFunc(ui.VerboseCalls, func(s string) bool {
 					return strings.Contains(s, "cannot connect to Docker daemon")
 				}), "No 'cannot connect to Docker daemon' found in verbose messages")
