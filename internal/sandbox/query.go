@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"strings"
+
+	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/msb"
 )
 
 type Info struct {
@@ -65,7 +67,7 @@ func filterImages(handles []imageHandle) []string {
 }
 
 func ListSandboxes(ctx context.Context) ([]Info, error) {
-	handles, err := NewMsbClient().ListSandboxes(ctx)
+	handles, err := msb.Get().ListSandboxes(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("list sandboxes: %w", err)
 	}
@@ -84,7 +86,7 @@ func ListSandboxes(ctx context.Context) ([]Info, error) {
 }
 
 func ListVolumes(ctx context.Context) ([]VolumeInfo, error) {
-	handles, err := NewMsbClient().ListVolumes(ctx)
+	handles, err := msb.Get().ListVolumes(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("list volumes: %w", err)
 	}
@@ -104,7 +106,7 @@ func ListVolumes(ctx context.Context) ([]VolumeInfo, error) {
 }
 
 func ListImages(ctx context.Context) ([]ImageInfo, error) {
-	handles, err := NewMsbClient().ImageList(ctx)
+	handles, err := msb.Get().ImageList(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("list images: %w", err)
 	}

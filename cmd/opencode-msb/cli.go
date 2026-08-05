@@ -20,15 +20,14 @@ var version = "dev"
 // Execute runs the CLI with the given arguments and UI.
 //
 // For integration testing, override factory variables:
-//   - sandbox packages: sandbox.NewMsbClient (same pattern as prune_client_test.go)
+//   - sandbox: sandbox.SetNewMsbClient (replaces Get factory via ResetGetFn)
 //   - this package: newDockerClient (for prune command mock injection)
 //
 // Example:
 //
 //	func TestListSandboxCommand(t *testing.T) {
-//	    old := sandbox.NewMsbClient
-//	    sandbox.NewMsbClient = func() sandbox.MsbClient { return mock }
-//	    t.Cleanup(func() sandbox.NewMsbClient = old )
+//	    orig := sandbox.SetNewMsbClient(func() sandbox.MsbClient { return mock })
+//	    t.Cleanup(func() { sandbox.SetNewMsbClient(orig) })
 //
 //	    ui := stdio.NewMock(t)
 //	    err := Execute([]string{"list"}, ui)

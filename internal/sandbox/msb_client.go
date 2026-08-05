@@ -57,10 +57,3 @@ func SetNewMsbClient(f func() MsbClient) func() MsbClient {
 //
 //nolint:gochecknoglobals // backward compat re-export
 var NewMsbClient = msb.Get
-
-// newMsbClient is for internal use only (backward compat with existing callers).
-//
-//nolint:unused // backward compat wrapper, may be used by external callers
-func newMsbClient() MsbClient {
-	return msb.Get()
-}
