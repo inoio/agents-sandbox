@@ -20,12 +20,22 @@ opencode-msb -b feature/my-feature
 
 ## Installation
 
-Requires **Linux (KVM)**. macOS is not yet supported.
+Requires **Linux (KVM) or macOS (Apple Silicon)**.
 
 1. Download the latest binary:
 
+   **Linux (x86_64):**
+
    ```console
    curl -L -o opencode-msb https://gitlab.inoio.de/inoio/opencode-msb/-/releases/permalink/latest/downloads/opencode-msb-linux-amd64
+   chmod +x opencode-msb
+   mv opencode-msb ~/.local/bin/
+   ```
+
+   **macOS (Apple Silicon):**
+
+   ```console
+   curl -L -o opencode-msb https://gitlab.inoio.de/inoio/opencode-msb/-/releases/permalink/latest/downloads/opencode-msb-darwin-arm64
    chmod +x opencode-msb
    mv opencode-msb ~/.local/bin/
    ```

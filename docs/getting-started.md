@@ -6,12 +6,20 @@ opencode-msb is a launcher that runs [opencode](https://github.com/anthropics/op
 
 ## Prerequisites
 
-opencode-msb requires:
+opencode-msb requires platform-specific prerequisites depending on your operating system:
 
-- **Linux (KVM)** — macOS is not yet supported for hosting
+### Linux (KVM)
+
 - **Docker** running with rootless or rootful daemon
 - **KVM** available (check with `kvm-ok` or `/dev/kvm` existence)
 - **`msb`** CLI — the microsandbox runtime, installed via the [microsandbox install script](https://github.com/superradcompany/microsandbox)
+- **Git** — for branch sessions and worktrees
+
+### macOS (Apple Silicon)
+
+- **Apple Silicon (arm64)** — macOS support requires a native ARM64 binary. Intel (x86_64) Macs are not supported.
+- **Docker Desktop** or **colima** — ensure the Docker socket is accessible (`docker info` should succeed)
+- **`msb`** CLI — the microsandbox runtime
 - **Git** — for branch sessions and worktrees
 
 Verify your setup:
@@ -22,10 +30,20 @@ opencode-msb doctor
 
 ## Installation
 
-1. Download the latest Linux binary:
+1. Download the latest binary:
+
+   **Linux (x86_64):**
 
    ```shell
    curl -L -o opencode-msb https://gitlab.inoio.de/inoio/opencode-msb/-/releases/permalink/latest/downloads/opencode-msb-linux-amd64
+   chmod +x opencode-msb
+   mv opencode-msb ~/.local/bin/
+   ```
+
+   **macOS (Apple Silicon):**
+
+   ```shell
+   curl -L -o opencode-msb https://gitlab.inoio.de/inoio/opencode-msb/-/releases/permalink/latest/downloads/opencode-msb-darwin-arm64
    chmod +x opencode-msb
    mv opencode-msb ~/.local/bin/
    ```
