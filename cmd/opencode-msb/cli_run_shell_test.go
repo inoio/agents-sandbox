@@ -23,10 +23,7 @@ func setupRunMocks(t *testing.T, mock *sandbox.MockMsbClient, sandboxToReturn sa
 
 	// The default GetSandbox error must be an msb.Error with ErrSandboxNotFound
 	// so EnsureProjectVM treats it as "not found → create" rather than a real error.
-	mock.SetGetSandboxErr(&msb.Error{Kind: msb.ErrSandboxNotFound, Message: "not found"})
-
-	origMSB := sandbox.SetNewMsbClient(func() sandbox.MsbClient { return mock })
-	t.Cleanup(func() { sandbox.SetNewMsbClient(origMSB) })
+	sandbox.WithMsbMock(t, mock.SetGetSandboxErr(&msb.Error{Kind: msb.ErrSandboxNotFound, Message: "not found"}))
 
 	docker.WithNoopDockerMock(t)
 	origCheck := sandbox.SetEnsureInstalled(func(_ context.Context) error { return nil })
