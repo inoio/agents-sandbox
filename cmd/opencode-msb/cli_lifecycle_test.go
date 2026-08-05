@@ -88,7 +88,7 @@ func TestLifecycle(t *testing.T) {
 					ui := &stdio.Mock{}
 					mock := &sandbox.MockMsbClient{}
 					mock.SetGetSandboxErr(notFoundErr())
-					overrideMsbClient(t, mock)
+					sandbox.WithMsbMock(t, mock)
 
 					root := buildRootCmd(ui)
 					root.SetArgs(append([]string{tc.cmd}, flags...))
@@ -109,7 +109,7 @@ func TestLifecycle(t *testing.T) {
 			ui := &stdio.Mock{}
 			mock := &sandbox.MockMsbClient{}
 			mock.SetGotSandbox(&sandbox.MockSandboxHandle{})
-			overrideMsbClient(t, mock)
+			sandbox.WithMsbMock(t, mock)
 
 			root := buildRootCmd(ui)
 			root.SetArgs(append([]string{cmdStop}, flags...))
@@ -125,7 +125,7 @@ func TestLifecycle(t *testing.T) {
 			ui := &stdio.Mock{}
 			mock := &sandbox.MockMsbClient{}
 			mock.SetGotSandbox(&sandbox.MockSandboxHandle{})
-			overrideMsbClient(t, mock)
+			sandbox.WithMsbMock(t, mock)
 
 			root := buildRootCmd(ui)
 			root.SetArgs(append([]string{cmdKill}, flags...))
@@ -141,7 +141,7 @@ func TestLifecycle(t *testing.T) {
 			ui := &stdio.Mock{}
 			mock := &sandbox.MockMsbClient{}
 			mock.SetGotSandbox(&sandbox.MockSandboxHandle{})
-			overrideMsbClient(t, mock)
+			sandbox.WithMsbMock(t, mock)
 
 			root := buildRootCmd(ui)
 			root.SetArgs(append([]string{cmdStop}, flags...))
@@ -158,7 +158,7 @@ func TestLifecycle(t *testing.T) {
 			ui := &stdio.Mock{}
 			mock := &sandbox.MockMsbClient{}
 			mock.SetGotSandbox(&sandbox.MockSandboxHandle{})
-			overrideMsbClient(t, mock)
+			sandbox.WithMsbMock(t, mock)
 
 			root := buildRootCmd(ui)
 			root.SetArgs(append([]string{cmdKill}, flags...))
@@ -183,7 +183,7 @@ func TestLifecycle(t *testing.T) {
 			ui := &stdio.Mock{}
 			mock := &sandbox.MockMsbClient{}
 			mock.SetGotSandbox(&sandbox.MockSandboxHandle{})
-			overrideMsbClient(t, mock)
+			sandbox.WithMsbMock(t, mock)
 
 			root := buildRootCmd(ui)
 			root.SetArgs([]string{tc.cmd, "--force"})
@@ -201,7 +201,7 @@ func TestLifecycle(t *testing.T) {
 			ui := &stdio.Mock{}
 			mock := &sandbox.MockMsbClient{}
 			mock.SetGotSandbox(&sandbox.MockSandboxHandle{})
-			overrideMsbClient(t, mock)
+			sandbox.WithMsbMock(t, mock)
 
 			root := buildRootCmd(ui)
 			root.SetArgs([]string{tc.cmd, "-f"})
@@ -220,7 +220,7 @@ func TestLifecycle(t *testing.T) {
 			ui := &stdio.Mock{}
 			mock := &sandbox.MockMsbClient{}
 			mock.SetGotSandbox(&sandbox.MockSandboxHandle{})
-			overrideMsbClient(t, mock)
+			sandbox.WithMsbMock(t, mock)
 
 			root := buildRootCmd(ui)
 			root.SetArgs([]string{cmd, "--force"})
@@ -246,7 +246,7 @@ func TestLifecycle(t *testing.T) {
 				ui := &stdio.Mock{}
 				mock := &sandbox.MockMsbClient{}
 				mock.SetGotSandbox(&sandbox.MockSandboxHandle{RemoveErr: errBoom})
-				overrideMsbClient(t, mock)
+				sandbox.WithMsbMock(t, mock)
 
 				root := buildRootCmd(ui)
 				root.SetArgs(append([]string{tc.cmd}, flags...))
@@ -268,7 +268,7 @@ func TestLifecycle(t *testing.T) {
 			ui := &stdio.Mock{}
 			mock := &sandbox.MockMsbClient{}
 			mock.SetGotSandbox(&sandbox.MockSandboxHandle{RemoveErr: errBoom})
-			overrideMsbClient(t, mock)
+			sandbox.WithMsbMock(t, mock)
 
 			root := buildRootCmd(ui)
 			root.SetArgs([]string{cmd, "--force"})
