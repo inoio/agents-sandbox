@@ -3,7 +3,6 @@ package main
 import (
 	"errors"
 	"fmt"
-	"os"
 	"strings"
 	"time"
 
@@ -65,10 +64,6 @@ func buildConfigCmd(ui stdio.UI) *cobra.Command {
 		Short: "Print merged opencode config with source paths",
 		RunE: func(_ *cobra.Command, _ []string) error {
 			cfg := newConfig()
-			projectConfigDir := ""
-			if _, statErr := os.Stat(".opencode-msb/opencode"); statErr == nil {
-				projectConfigDir = ".opencode-msb/opencode"
-			}
 			providerCfg, err := config.LoadProviderConfig(config.EmbeddedProviderConfig)
 			if err != nil {
 				return fmt.Errorf("load provider config: %w", err)

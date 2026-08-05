@@ -17,14 +17,12 @@ import (
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 )
 
-const projectVMPrefix = "opencode-msb-vm-"
-
 const experimentalWorkspacesValue = "true"
 
 // projectVMName generates the VM name from the project slug.
 // Note: truncation by bytes is safe because ProjectSlug sanitizes to ASCII.
 func projectVMName(slug string) string {
-	name := projectVMPrefix + slug
+	name := vmPrefix + slug
 	if len(name) > maxSandboxNameLen {
 		name = name[:maxSandboxNameLen]
 	}
@@ -245,14 +243,14 @@ func createProjectVM(
 
 	envMap := mergeEnvMaps(
 		buildEnvMap(filepath.Join(cfg.UserLauncherDir, "env")),
-		buildEnvMap(".opencode-msb/env"),
+		buildEnvMap(projEnvFile),
 	)
 	ui.Verbosef("adding docker env definitions to project VM environment: %s", imageEnvs)
 	buildProjectVMEnv(envMap, imageEnvs)
 
 	secrets := BuildSecrets(mergeEnvMaps(
 		buildEnvMap(filepath.Join(cfg.UserLauncherDir, "env.secret")),
-		buildEnvMap(".opencode-msb/env.secret"),
+		buildEnvMap(projEnvSecretFile),
 	), ui)
 
 	mounts := buildMounts(homeVol, repoPath, resolveTmpSizeMiB(opts.TmpSize))

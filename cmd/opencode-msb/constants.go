@@ -1,5 +1,7 @@
 package main
 
+import "gitlab.inoio.de/inoio/opencode-msb/internal/sandbox"
+
 const (
 	pFlagYes     = "yes"
 	pFlagVerbose = "verbose"
@@ -23,9 +25,8 @@ const (
 	flagMemory  = "memory"
 	flagTmpSize = "tmp-size"
 
-	annotationArgsDesc = "opencode-msb/args-description"
-	annotationAlsoAs   = "opencode-msb/also-as"
-	annotationArgs     = "opencode-msb/args"
+	annotationAlsoAs = sandbox.Prefix + "/also-as"
+	annotationArgs   = sandbox.Prefix + "/args"
 )
 
 // NamedArg represents a named positional argument for display in usage and tree output.
@@ -34,4 +35,4 @@ type NamedArg struct {
 	Help string `json:"help"`
 }
 
-const projectLauncherDir = ".opencode-msb"
+const projectConfigDir = sandbox.ProjectDir

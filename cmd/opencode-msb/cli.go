@@ -68,9 +68,9 @@ func newUI(args []string) stdio.UI {
 func newConfig() sandbox.Config {
 	home, _ := os.UserHomeDir()
 	return sandbox.Config{
-		StateDir:        filepath.Join(home, ".local", "state", "opencode-msb"),
-		UserConfigDir:   filepath.Join(home, ".config", "opencode-msb", "opencode"),
-		UserLauncherDir: filepath.Join(home, ".config", "opencode-msb"),
+		StateDir:        filepath.Join(home, sandbox.XdgStateSuffix),
+		UserConfigDir:   filepath.Join(home, sandbox.XdgConfigSuffix, "opencode"),
+		UserLauncherDir: filepath.Join(home, sandbox.XdgConfigSuffix),
 	}
 }
 
