@@ -53,6 +53,34 @@ func newMockUI() *stdio.Mock {
 	return &stdio.Mock{}
 }
 
+// prunedCounts holds the expected pruned counts for all resource types.
+type prunedCounts struct {
+	vms, volumes, dockerImages, msbImages, taskSandboxes, cloneVolumes int
+}
+
+// assertReport checks that all pruned counts match expected values.
+func assertReport(t *testing.T, report *StaleReport, want prunedCounts) {
+	t.Helper()
+	if report.PrunedVMs != want.vms {
+		t.Errorf("PrunedVMs = %d, want %d", report.PrunedVMs, want.vms)
+	}
+	if report.PrunedVolumes != want.volumes {
+		t.Errorf("PrunedVolumes = %d, want %d", report.PrunedVolumes, want.volumes)
+	}
+	if report.PrunedDockerImages != want.dockerImages {
+		t.Errorf("PrunedDockerImages = %d, want %d", report.PrunedDockerImages, want.dockerImages)
+	}
+	if report.PrunedMSBImages != want.msbImages {
+		t.Errorf("PrunedMSBImages = %d, want %d", report.PrunedMSBImages, want.msbImages)
+	}
+	if report.PrunedTaskSandboxes != want.taskSandboxes {
+		t.Errorf("PrunedTaskSandboxes = %d, want %d", report.PrunedTaskSandboxes, want.taskSandboxes)
+	}
+	if report.PrunedCloneVolumes != want.cloneVolumes {
+		t.Errorf("PrunedCloneVolumes = %d, want %d", report.PrunedCloneVolumes, want.cloneVolumes)
+	}
+}
+
 func TestPruneStaleCascade_RemovesVMAndAllArtifacts(t *testing.T) {
 	client := &MockMsbClient{}
 	dockerMock := &mockDockerClient{}
@@ -77,18 +105,7 @@ func TestPruneStaleCascade_RemovesVMAndAllArtifacts(t *testing.T) {
 
 	pruneStaleCascade(context.Background(), client, entry, homeBySlugDigest, msbImagesBySlug, false, ui, report)
 
-	if report.PrunedVMs != 1 {
-		t.Errorf("PrunedVMs = %d, want 1", report.PrunedVMs)
-	}
-	if report.PrunedVolumes != 2 {
-		t.Errorf("PrunedVolumes = %d, want 2", report.PrunedVolumes)
-	}
-	if report.PrunedMSBImages != 2 {
-		t.Errorf("PrunedMSBImages = %d, want 2", report.PrunedMSBImages)
-	}
-	if report.PrunedDockerImages != 2 {
-		t.Errorf("PrunedDockerImages = %d, want 2", report.PrunedDockerImages)
-	}
+	assertReport(t, report, prunedCounts{vms: 1, volumes: 2, msbImages: 2, dockerImages: 2})
 
 	wantRemoved := []string{entry.Name}
 	if len(client.removedSandboxes) != 1 || client.removedSandboxes[0] != entry.Name {
@@ -129,18 +146,7 @@ func TestPruneStaleCascade_DryRunDoesNotDelete(t *testing.T) {
 
 	pruneStaleCascade(context.Background(), client, entry, homeBySlugDigest, msbImagesBySlug, true, ui, report)
 
-	if report.PrunedVMs != 1 {
-		t.Errorf("PrunedVMs = %d, want 1", report.PrunedVMs)
-	}
-	if report.PrunedVolumes != 1 {
-		t.Errorf("PrunedVolumes = %d, want 1", report.PrunedVolumes)
-	}
-	if report.PrunedMSBImages != 1 {
-		t.Errorf("PrunedMSBImages = %d, want 1", report.PrunedMSBImages)
-	}
-	if report.PrunedDockerImages != 1 {
-		t.Errorf("PrunedDockerImages = %d, want 1", report.PrunedDockerImages)
-	}
+	assertReport(t, report, prunedCounts{vms: 1, volumes: 1, msbImages: 1, dockerImages: 1})
 
 	total := len(client.removedSandboxes) + len(client.removedVolumes) +
 		len(client.removedImages) + len(dockerMock.removedImages)
@@ -208,15 +214,7 @@ func TestPruneActiveVMCleanup_KeepsMatchingDigestAndLatest(t *testing.T) {
 		homeBySlugDigest, msbImagesBySlug, false, ui, report,
 	)
 
-	if report.PrunedVolumes != 1 {
-		t.Errorf("PrunedVolumes = %d, want 1", report.PrunedVolumes)
-	}
-	if report.PrunedMSBImages != 1 {
-		t.Errorf("PrunedMSBImages = %d, want 1", report.PrunedMSBImages)
-	}
-	if report.PrunedDockerImages != 1 {
-		t.Errorf("PrunedDockerImages = %d, want 1", report.PrunedDockerImages)
-	}
+	assertReport(t, report, prunedCounts{volumes: 1, msbImages: 1, dockerImages: 1})
 
 	if len(client.removedVolumes) != 1 || client.removedVolumes[0] != "opencode-msb-home-myproject-digest1" {
 		t.Errorf("removed volumes = %v, want [opencode-msb-home-myproject-digest1]", client.removedVolumes)
@@ -289,15 +287,7 @@ func TestPruneOrphanSlug_RemovesEverything(t *testing.T) {
 
 	pruneOrphanSlug(context.Background(), client, slug, homeBySlugDigest, msbImagesBySlug, report, false, ui)
 
-	if report.PrunedVolumes != 2 {
-		t.Errorf("PrunedVolumes = %d, want 2", report.PrunedVolumes)
-	}
-	if report.PrunedMSBImages != 2 {
-		t.Errorf("PrunedMSBImages = %d, want 2", report.PrunedMSBImages)
-	}
-	if report.PrunedDockerImages != 2 {
-		t.Errorf("PrunedDockerImages = %d, want 2", report.PrunedDockerImages)
-	}
+	assertReport(t, report, prunedCounts{volumes: 2, msbImages: 2, dockerImages: 2})
 
 	if len(client.removedVolumes) != 2 {
 		t.Errorf("removed volumes = %v, want 2", client.removedVolumes)
@@ -414,24 +404,11 @@ func TestPrune_WithMocks_CoversAllCases(t *testing.T) {
 		t.Fatalf("Prune returned error: %v", err)
 	}
 
-	if report.PrunedVMs != 1 {
-		t.Errorf("PrunedVMs = %d, want 1", report.PrunedVMs)
-	}
-	if report.PrunedTaskSandboxes != 1 {
-		t.Errorf("PrunedTaskSandboxes = %d, want 1", report.PrunedTaskSandboxes)
-	}
-	if report.PrunedVolumes != 2 {
-		t.Errorf("PrunedVolumes = %d, want 2 (1 stale home + 1 active mismatch)", report.PrunedVolumes)
-	}
-	if report.PrunedCloneVolumes != 1 {
-		t.Errorf("PrunedCloneVolumes = %d, want 1", report.PrunedCloneVolumes)
-	}
-	if report.PrunedMSBImages != 3 {
-		t.Errorf("PrunedMSBImages = %d, want 3 (1 stale + 1 active mismatch + 1 orphan)", report.PrunedMSBImages)
-	}
-	if report.PrunedDockerImages != 3 {
-		t.Errorf("PrunedDockerImages = %d, want 3", report.PrunedDockerImages)
-	}
+	assertReport(
+		t,
+		report,
+		prunedCounts{vms: 1, taskSandboxes: 1, volumes: 2, cloneVolumes: 1, msbImages: 3, dockerImages: 3},
+	)
 }
 
 func TestPruneActiveVMDockerImages_AllFail_LogWarnings(t *testing.T) {
@@ -527,22 +504,7 @@ func TestPruneStaleCascade_DockerRemoveFails_DependentOpsSucceed(t *testing.T) {
 
 	pruneStaleCascade(context.Background(), client, entry, homeBySlugDigest, msbImagesBySlug, false, ui, report)
 
-	// VM is pruned.
-	if report.PrunedVMs != 1 {
-		t.Errorf("PrunedVMs = %d, want 1", report.PrunedVMs)
-	}
-	// Home volumes are removed.
-	if report.PrunedVolumes != 1 {
-		t.Errorf("PrunedVolumes = %d, want 1", report.PrunedVolumes)
-	}
-	// Both MSB images are removed.
-	if report.PrunedMSBImages != 2 {
-		t.Errorf("PrunedMSBImages = %d, want 2", report.PrunedMSBImages)
-	}
-	// Docker: first image succeeds, second fails -> only 1 pruned.
-	if report.PrunedDockerImages != 1 {
-		t.Errorf("PrunedDockerImages = %d, want 1 (partial docker failure)", report.PrunedDockerImages)
-	}
+	assertReport(t, report, prunedCounts{vms: 1, volumes: 1, msbImages: 2, dockerImages: 1})
 	// Verify MSB removals.
 	if len(client.removedVolumes) != 1 {
 		t.Errorf("removed volumes = %v, want [opencode-msb-home-myproject-digest1]", client.removedVolumes)
@@ -598,21 +560,7 @@ func TestPrune_DockerRemoveFails_PartialReport(t *testing.T) {
 	}
 
 	// 1 stale VM is pruned.
-	if report.PrunedVMs != 1 {
-		t.Errorf("PrunedVMs = %d, want 1", report.PrunedVMs)
-	}
-	// Stale cascade removes all home volumes.
-	if report.PrunedVolumes != 1 {
-		t.Errorf("PrunedVolumes = %d, want 1", report.PrunedVolumes)
-	}
-	// Both MSB images are removed by cascade.
-	if report.PrunedMSBImages != 2 {
-		t.Errorf("PrunedMSBImages = %d, want 2", report.PrunedMSBImages)
-	}
-	// Docker: first image succeeds, second fails -> only 1 pruned.
-	if report.PrunedDockerImages != 1 {
-		t.Errorf("PrunedDockerImages = %d, want 1 (partial docker failure)", report.PrunedDockerImages)
-	}
+	assertReport(t, report, prunedCounts{vms: 1, volumes: 1, msbImages: 2, dockerImages: 1})
 	// There should be a verbose message about the failed docker image.
 	if len(ui.VerboseCalls) != 1 {
 		t.Errorf("WarnCalls = %d, want 1, got %v", len(ui.WarnCalls), ui.WarnCalls)
