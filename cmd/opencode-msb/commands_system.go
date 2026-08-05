@@ -11,10 +11,10 @@ import (
 	"gitlab.inoio.de/inoio/opencode-msb/internal/config"
 	"gitlab.inoio.de/inoio/opencode-msb/internal/launcherconfig"
 	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox"
-	"gitlab.inoio.de/inoio/opencode-msb/internal/stdio"
+	"gitlab.inoio.de/inoio/opencode-msb/internal/termio"
 )
 
-func buildDoctorCmd(ui stdio.UI) *cobra.Command {
+func buildDoctorCmd(ui termio.UI) *cobra.Command {
 	return &cobra.Command{
 		Use:   cmdDoctor,
 		Args:  cobra.NoArgs,
@@ -29,7 +29,7 @@ func buildDoctorCmd(ui stdio.UI) *cobra.Command {
 	}
 }
 
-func buildListCmd(ui stdio.UI) *cobra.Command {
+func buildListCmd(ui termio.UI) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:     cmdList,
 		Aliases: []string{"ls"},
@@ -53,7 +53,7 @@ func buildListCmd(ui stdio.UI) *cobra.Command {
 	return cmd
 }
 
-func buildConfigCmd(ui stdio.UI) *cobra.Command {
+func buildConfigCmd(ui termio.UI) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   cmdConfig,
 		Short: "Inspect opencode configuration",
@@ -97,7 +97,7 @@ func buildConfigCmd(ui stdio.UI) *cobra.Command {
 	return cmd
 }
 
-func buildBuildCmd(ui stdio.UI) *cobra.Command {
+func buildBuildCmd(ui termio.UI) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   cmdBuild,
 		Args:  cobra.NoArgs,
@@ -113,7 +113,7 @@ func buildBuildCmd(ui stdio.UI) *cobra.Command {
 	return cmd
 }
 
-func buildImageCmd(ui stdio.UI) *cobra.Command {
+func buildImageCmd(ui termio.UI) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   cmdImage,
 		Args:  cobra.NoArgs,
@@ -140,7 +140,7 @@ func buildImageCmd(ui stdio.UI) *cobra.Command {
 	return cmd
 }
 
-func buildVolumeCmd(ui stdio.UI) *cobra.Command {
+func buildVolumeCmd(ui termio.UI) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   cmdVolume,
 		Short: "Manage volumes",
@@ -165,7 +165,7 @@ func buildVolumeCmd(ui stdio.UI) *cobra.Command {
 	return cmd
 }
 
-func buildSandboxCmd(ui stdio.UI) *cobra.Command {
+func buildSandboxCmd(ui termio.UI) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "sandbox",
 		Args:  cobra.NoArgs,
@@ -179,7 +179,7 @@ func buildSandboxCmd(ui stdio.UI) *cobra.Command {
 	return cmd
 }
 
-func buildPruneCmd(ui stdio.UI) *cobra.Command {
+func buildPruneCmd(ui termio.UI) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "prune [flags]",
 		Args:  cobra.NoArgs,

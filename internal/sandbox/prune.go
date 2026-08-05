@@ -14,7 +14,7 @@ import (
 
 	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/msb"
 
-	"gitlab.inoio.de/inoio/opencode-msb/internal/stdio"
+	"gitlab.inoio.de/inoio/opencode-msb/internal/termio"
 )
 
 // StaleReport describes the result of a prune operation.
@@ -274,7 +274,7 @@ func Prune(
 	ctx context.Context,
 	threshold time.Duration,
 	dryRun bool,
-	ui stdio.UI,
+	ui termio.UI,
 ) (*StaleReport, error) {
 	client := msb.Get()
 	report := &StaleReport{} //nolint:exhaustruct // Counts initialized to zero, populated during pruning
@@ -325,7 +325,7 @@ func pruneStaleVMs(
 	client MsbClient,
 	catalog *PruningCatalog,
 	dryRun bool,
-	ui stdio.UI,
+	ui termio.UI,
 	report *StaleReport,
 ) (*StaleReport, error) {
 	for _, entry := range catalog.StaleVMs {
@@ -343,7 +343,7 @@ func pruneActiveVMArtifacts(
 	client MsbClient,
 	catalog *PruningCatalog,
 	dryRun bool,
-	ui stdio.UI,
+	ui termio.UI,
 	report *StaleReport,
 ) (*StaleReport, error) {
 	for slug, digest := range catalog.ActiveVMDigest {
@@ -361,7 +361,7 @@ func pruneOrphanArtifacts(
 	client MsbClient,
 	catalog *PruningCatalog,
 	dryRun bool,
-	ui stdio.UI,
+	ui termio.UI,
 	report *StaleReport,
 ) (*StaleReport, error) {
 	staleVMs := make(map[string]bool)
@@ -390,7 +390,7 @@ func pruneCloneVolumes(
 	client MsbClient,
 	catalog *PruningCatalog,
 	dryRun bool,
-	ui stdio.UI,
+	ui termio.UI,
 	report *StaleReport,
 ) (*StaleReport, error) {
 	for _, cv := range catalog.CloneVolumes {
@@ -424,7 +424,7 @@ func pruneStaleCascade(
 	homeBySlugDigest map[string]map[string]string,
 	msbImagesBySlug map[string][]imageWithDigest,
 	dryRun bool,
-	ui stdio.UI,
+	ui termio.UI,
 	report *StaleReport,
 ) {
 	slug := entry.Slug
@@ -450,7 +450,7 @@ func pruneActiveVMCleanup(
 	homeBySlugDigest map[string]map[string]string,
 	msbImagesBySlug map[string][]imageWithDigest,
 	dryRun bool,
-	ui stdio.UI,
+	ui termio.UI,
 	report *StaleReport,
 ) {
 	// Home volumes: delete those NOT matching the VM's digest.
@@ -468,7 +468,7 @@ func pruneActiveVMHomeVolumes(
 	digest string,
 	homeBySlugDigest map[string]map[string]string,
 	dryRun bool,
-	ui stdio.UI,
+	ui termio.UI,
 	report *StaleReport,
 ) {
 	if vols, ok := homeBySlugDigest[slug]; ok {
@@ -501,7 +501,7 @@ func pruneActiveVMMSBImages(
 	digest string,
 	msbImagesBySlug map[string][]imageWithDigest,
 	dryRun bool,
-	ui stdio.UI,
+	ui termio.UI,
 	report *StaleReport,
 ) {
 	for _, img := range msbImagesBySlug[slug] {
@@ -531,7 +531,7 @@ func pruneActiveVMDockerImages(
 	digest string,
 	msbImagesBySlug map[string][]imageWithDigest,
 	dryRun bool,
-	ui stdio.UI,
+	ui termio.UI,
 	report *StaleReport,
 ) {
 	for _, img := range msbImagesBySlug[slug] {
@@ -570,7 +570,7 @@ func pruneCloneVolume(
 	staleVMs map[string]bool,
 	activeVMDigests map[string]string,
 	dryRun bool,
-	ui stdio.UI,
+	ui termio.UI,
 	report *StaleReport,
 ) {
 	slug, digest := extractProjectSlugAndDigest(cv)
@@ -613,7 +613,7 @@ func pruneOrphanSlug(
 	msbImagesBySlug map[string][]imageWithDigest,
 	report *StaleReport,
 	dryRun bool,
-	ui stdio.UI,
+	ui termio.UI,
 ) {
 	removeHomeVolumes(ctx, client, slug, homeBySlugDigest, dryRun, ui, report)
 	removeMSBImages(ctx, client, slug, msbImagesBySlug, dryRun, ui, report)
@@ -626,7 +626,7 @@ func removeHomeVolumes(
 	slug string,
 	homeBySlugDigest map[string]map[string]string,
 	dryRun bool,
-	ui stdio.UI,
+	ui termio.UI,
 	report *StaleReport,
 ) {
 	if vols, ok := homeBySlugDigest[slug]; ok {
@@ -655,7 +655,7 @@ func removeMSBImages(
 	slug string,
 	msbImagesBySlug map[string][]imageWithDigest,
 	dryRun bool,
-	ui stdio.UI,
+	ui termio.UI,
 	report *StaleReport,
 ) {
 	for _, img := range msbImagesBySlug[slug] {
@@ -681,7 +681,7 @@ func removeDockerImages(
 	slug string,
 	msbImagesBySlug map[string][]imageWithDigest,
 	dryRun bool,
-	ui stdio.UI,
+	ui termio.UI,
 	report *StaleReport,
 ) {
 	for _, img := range msbImagesBySlug[slug] {

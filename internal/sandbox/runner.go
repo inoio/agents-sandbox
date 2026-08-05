@@ -10,7 +10,7 @@ import (
 	"time"
 
 	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/msb"
-	"gitlab.inoio.de/inoio/opencode-msb/internal/stdio"
+	"gitlab.inoio.de/inoio/opencode-msb/internal/termio"
 
 	"gitlab.inoio.de/inoio/opencode-msb/internal/git"
 
@@ -139,7 +139,7 @@ func prepareSandbox(
 	ctx context.Context,
 	opts RunOptions,
 	cfg Config,
-	ui stdio.UI,
+	ui termio.UI,
 ) (*sandboxSession, error) {
 	if !CheckAll(ctx, ui) {
 		return nil, errors.New("preflight failed")
@@ -196,7 +196,7 @@ func prepareSandbox(
 // use, or does nothing otherwise. It is safe to call on every VM bootstrap
 // because startDockerdIfPresent checks for binary presence and handles the
 // case where dockerd is already running.
-func ensureDockerdIfPresent(ctx context.Context, sb Sandbox, ui stdio.UI) error {
+func ensureDockerdIfPresent(ctx context.Context, sb Sandbox, ui termio.UI) error {
 	return startDockerdIfPresent(ctx, sb, ui)
 }
 
@@ -204,7 +204,7 @@ func ensureDockerdIfPresent(ctx context.Context, sb Sandbox, ui stdio.UI) error 
 // serve, and attaches a TUI client.
 //
 // Note: Run is called from cli.go after all flags are resolved.
-func Run(ctx context.Context, opts RunOptions, cfg Config, ui stdio.UI) error {
+func Run(ctx context.Context, opts RunOptions, cfg Config, ui termio.UI) error {
 	session, err := prepareSandbox(ctx, opts, cfg, ui)
 	if err != nil {
 		return err
@@ -234,7 +234,7 @@ func Run(ctx context.Context, opts RunOptions, cfg Config, ui stdio.UI) error {
 
 // Shell creates (or reuses) the project VM and drops the user into an
 // interactive shell session, without starting opencode serve.
-func Shell(ctx context.Context, opts RunOptions, cfg Config, ui stdio.UI) error {
+func Shell(ctx context.Context, opts RunOptions, cfg Config, ui termio.UI) error {
 	session, err := prepareSandbox(ctx, opts, cfg, ui)
 	if err != nil {
 		return err
@@ -256,7 +256,7 @@ func Shell(ctx context.Context, opts RunOptions, cfg Config, ui stdio.UI) error 
 }
 
 // BuildImage builds (or updates) the runner image for Docker-in-Docker support.
-func BuildImage(ctx context.Context, force, dryRun bool, ui stdio.UI) error {
+func BuildImage(ctx context.Context, force, dryRun bool, ui termio.UI) error {
 	if dryRun {
 		ui.Infof("dry-run: Would build runner image")
 		return nil
@@ -324,7 +324,7 @@ func setUpSandbox(
 	opts RunOptions,
 	cfg Config,
 	_ string,
-	ui stdio.UI,
+	ui termio.UI,
 ) (string, error) {
 	cfs, err := loadConfigFiles(cfg.UserConfigDir)
 	if err != nil {
@@ -355,7 +355,7 @@ func setUpSandbox(
 }
 
 // handleConfigChange provisions the sandbox and restarts the daemon if required.
-func handleConfigChange(ctx context.Context, sb Sandbox, cfs *configFiles, ui stdio.UI) {
+func handleConfigChange(ctx context.Context, sb Sandbox, cfs *configFiles, ui termio.UI) {
 	daemonHealthy := daemonIsHealthy(ctx, sb)
 	if daemonHealthy {
 		action, promptErr := promptConfigChange(ui)
@@ -378,7 +378,7 @@ func ensureProvisionedAndRunning(
 	fs SandboxFS,
 	files map[string][]byte,
 	sb Sandbox,
-	ui stdio.UI,
+	ui termio.UI,
 ) {
 	if provErr := provisionSandbox(ctx, fs, files); provErr != nil {
 		ui.Warnf("provision failed: %v (keeping existing daemon)", provErr)
@@ -393,7 +393,7 @@ func ensureProvisionedAndRunning(
 	}
 }
 
-func restartUnhealthyDaemon(ctx context.Context, sb Sandbox, files map[string][]byte, ui stdio.UI) {
+func restartUnhealthyDaemon(ctx context.Context, sb Sandbox, files map[string][]byte, ui termio.UI) {
 	provisionCtx, cancel := context.WithTimeout(ctx, provisionTimeout)
 	defer cancel()
 

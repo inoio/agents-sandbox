@@ -6,13 +6,13 @@ import (
 	"testing"
 
 	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/docker"
-	"gitlab.inoio.de/inoio/opencode-msb/internal/stdio"
+	"gitlab.inoio.de/inoio/opencode-msb/internal/termio"
 )
 
 func TestBuildBuildCmd(t *testing.T) {
 	t.Run("B1_dry_run", func(t *testing.T) {
 		// build --dry-run → info "dry-run: Would build runner image"
-		ui := &stdio.Mock{}
+		ui := &termio.Mock{}
 
 		root := buildRootCmd(ui)
 		root.SetArgs([]string{cmdBuild, "--dry-run"})
@@ -33,7 +33,7 @@ func TestBuildBuildCmd(t *testing.T) {
 
 	t.Run("B2_dry_run_with_rebuild", func(t *testing.T) {
 		// build --dry-run --rebuild → same info (force ignored in dry-run)
-		ui := &stdio.Mock{}
+		ui := &termio.Mock{}
 
 		root := buildRootCmd(ui)
 		root.SetArgs([]string{cmdBuild, "--dry-run", "--rebuild"})
@@ -58,7 +58,7 @@ func TestBuildBuildCmd(t *testing.T) {
 			t.Skip("docker not in PATH; cannot test build path")
 		}
 
-		ui := &stdio.Mock{}
+		ui := &termio.Mock{}
 		docker.WithDefaultErrorDockerMock(t)
 
 		root := buildRootCmd(ui)
@@ -77,7 +77,7 @@ func TestBuildBuildCmd(t *testing.T) {
 
 	t.Run("B4_image_build_dry_run", func(t *testing.T) {
 		// image build --dry-run → same behavior as build --dry-run (shared buildBuildCmd)
-		ui := &stdio.Mock{}
+		ui := &termio.Mock{}
 
 		root := buildRootCmd(ui)
 		root.SetArgs([]string{cmdImage, cmdBuild, "--dry-run"})
@@ -93,7 +93,7 @@ func TestBuildBuildCmd(t *testing.T) {
 
 	t.Run("B5_image_build_with_dry_run_and_rebuild", func(t *testing.T) {
 		// image build --dry-run --rebuild → same dry-run info (shared buildBuildCmd)
-		ui := &stdio.Mock{}
+		ui := &termio.Mock{}
 
 		root := buildRootCmd(ui)
 		root.SetArgs([]string{cmdImage, cmdBuild, "--dry-run", "-r"})

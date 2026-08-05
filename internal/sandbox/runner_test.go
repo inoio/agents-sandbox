@@ -9,8 +9,8 @@ import (
 
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 
-	msb "gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/msb"
-	"gitlab.inoio.de/inoio/opencode-msb/internal/stdio"
+	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/msb"
+	"gitlab.inoio.de/inoio/opencode-msb/internal/termio"
 
 	"gitlab.inoio.de/inoio/opencode-msb/internal/testutil"
 )
@@ -320,7 +320,7 @@ func TestReadVMFilesUsesSDKFs(t *testing.T) {
 		"thing.json": data,
 		".gitignore": gitignore,
 	}
-	got := readVMFiles(context.Background(), sb, "/home/dev/.config/opencode", &stdio.Mock{})
+	got := readVMFiles(context.Background(), sb, "/home/dev/.config/opencode", &termio.Mock{})
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("readVMFiles(%q) = %v, want %v", "/home/dev/.config/opencode", got, want)
 	}
@@ -343,7 +343,7 @@ func TestReadVMFilesSkipsDirectories(t *testing.T) {
 	want := map[string][]byte{
 		"file.txt": []byte("hello"),
 	}
-	got := readVMFiles(context.Background(), sb, "/home/dev/.config/opencode", &stdio.Mock{})
+	got := readVMFiles(context.Background(), sb, "/home/dev/.config/opencode", &termio.Mock{})
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("readVMFiles(%q) = %v, want %v", "/home/dev/.config/opencode", got, want)
 	}
@@ -354,7 +354,7 @@ func TestReadVMFilesEmptyDir(t *testing.T) {
 		Name_:    "test-vm",
 		FSValue_: msb.NewTestFS(nil, nil),
 	}
-	got := readVMFiles(context.Background(), sb, "/home/dev/.config/opencode", &stdio.Mock{})
+	got := readVMFiles(context.Background(), sb, "/home/dev/.config/opencode", &termio.Mock{})
 	if len(got) != 0 {
 		t.Errorf("expected empty result for empty dir, got %v", got)
 	}

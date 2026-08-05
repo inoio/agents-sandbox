@@ -8,12 +8,12 @@ import (
 	"github.com/spf13/cobra"
 
 	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox"
-	"gitlab.inoio.de/inoio/opencode-msb/internal/stdio"
+	"gitlab.inoio.de/inoio/opencode-msb/internal/termio"
 )
 
 const minUsagePadding = 25
 
-func buildRunCmd(ui stdio.UI) *cobra.Command {
+func buildRunCmd(ui termio.UI) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   cmdRun,
 		Args:  cobra.ArbitraryArgs,
@@ -88,7 +88,7 @@ func rpad(s string, padding int) string {
 	return s + strings.Repeat(" ", padding-len(s))
 }
 
-func runFunc(ui stdio.UI) func(cmd *cobra.Command, args []string) error {
+func runFunc(ui termio.UI) func(cmd *cobra.Command, args []string) error {
 	return func(cmd *cobra.Command, args []string) error {
 		opts := extractRunOptions(cmd, true, ui)
 		opts.Args = args
@@ -104,7 +104,7 @@ func runFunc(ui stdio.UI) func(cmd *cobra.Command, args []string) error {
 	}
 }
 
-func buildShellCmd(ui stdio.UI) *cobra.Command {
+func buildShellCmd(ui termio.UI) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   cmdShell,
 		Short: "Start sandbox and open a shell (debug)",
@@ -137,7 +137,7 @@ func registerRunFlags(cmd *cobra.Command) {
 	cmd.Flags().StringP("user", "u", "", "Username or UID for the runtime user (format: <name|uid>[:<group|gid>])")
 }
 
-func buildStopCmd(ui stdio.UI) *cobra.Command {
+func buildStopCmd(ui termio.UI) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   cmdStop,
 		Args:  cobra.NoArgs,
@@ -156,7 +156,7 @@ func buildStopCmd(ui stdio.UI) *cobra.Command {
 	return cmd
 }
 
-func buildKillCmd(ui stdio.UI) *cobra.Command {
+func buildKillCmd(ui termio.UI) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   cmdKill,
 		Args:  cobra.NoArgs,

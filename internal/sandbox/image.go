@@ -17,7 +17,7 @@ import (
 	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/msb"
 
 	"gitlab.inoio.de/inoio/opencode-msb/internal/git"
-	"gitlab.inoio.de/inoio/opencode-msb/internal/stdio"
+	"gitlab.inoio.de/inoio/opencode-msb/internal/termio"
 )
 
 func ReferencesBase(dockerfile []byte) bool {
@@ -98,7 +98,7 @@ func ensureRunnerImage(
 	dockerfile []byte,
 	projectSlug string,
 	force bool,
-	ui stdio.UI,
+	ui termio.UI,
 ) (string, string, map[string]string, error) {
 	rTag := runnerTag(projectSlug)
 	var imageEnv map[string]string
@@ -119,7 +119,7 @@ func ensureRunnerImage(
 
 // inspectExistingImage attempts to inspect the image on disk. If the image is
 // missing it falls back to stored env metadata. Returns (imageEnvs, digest).
-func inspectExistingImage(ctx context.Context, rTag string, ui stdio.UI) (map[string]string, string) {
+func inspectExistingImage(ctx context.Context, rTag string, ui termio.UI) (map[string]string, string) {
 	imageEnv := make(map[string]string)
 	var imageDigest string
 
@@ -148,7 +148,7 @@ func buildRunnerImage(
 	dockerfile []byte,
 	force bool,
 	projectSlug string,
-	ui stdio.UI,
+	ui termio.UI,
 ) (string, string, map[string]string, error) {
 	if len(imageEnv) == 0 {
 		imageEnv = make(map[string]string)
@@ -191,7 +191,7 @@ func ensureImageWithClient(
 	dockerfile []byte,
 	projectSlug string,
 	force bool,
-	ui stdio.UI,
+	ui termio.UI,
 ) (string, string, map[string]string, error) {
 	if force || ReferencesBase(dockerfile) || ReferencesDindBase(dockerfile) {
 		if err := docker.BuildDockerImage(
@@ -257,7 +257,7 @@ func EnsureImage(
 	ctx context.Context,
 	projectSlug string,
 	force bool,
-	ui stdio.UI,
+	ui termio.UI,
 ) (string, string, map[string]string, error) {
 	dockerfile := resolveDockerfile()
 	return ensureImageWithClient(ctx, msb.Get(), dockerfile, projectSlug, force, ui)
