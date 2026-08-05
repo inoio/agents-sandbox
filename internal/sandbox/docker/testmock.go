@@ -156,5 +156,9 @@ func (m *MockDockerClient) Ping(
 	if m.PingFn != nil {
 		return m.PingFn(ctx, opts)
 	}
-	return client.PingResult{APIVersion: "1.44", OSType: "linux"}, nil
+	//nolint:exhaustruct // Experimental/BuilderVersion/SwarmStatus are set from HTTP headers, not struct literals
+	return client.PingResult{
+		APIVersion: "1.44",
+		OSType:     "linux",
+	}, nil
 }
