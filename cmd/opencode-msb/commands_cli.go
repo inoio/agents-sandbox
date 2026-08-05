@@ -1,22 +1,30 @@
 package main
 
 import (
+	"fmt"
+	"io"
+	"strings"
+
 	"github.com/spf13/cobra"
 
 	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox"
 	"gitlab.inoio.de/inoio/opencode-msb/internal/stdio"
 )
 
+const minUsagePadding = 25
+
 func buildRunCmd(ui stdio.UI) *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "run [flags] [ARGS...]",
+		Use:   cmdRun,
+		Args:  cobra.ArbitraryArgs,
 		Short: "Run opencode in a microsandbox VM",
 		Annotations: map[string]string{
-			annotationArgsDesc: "Arguments forwarded to opencode (use -- to separate from launcher flags)",
-			annotationAlsoAs:   "sandbox run",
+			annotationArgs:   `[{"name":"[-- OPENCODE_ARG...]","help":"Arguments forwarded to opencode (use -- to separate from launcher flags)"}]`,
+			annotationAlsoAs: "sandbox run",
 		},
 		RunE: runFunc(ui),
 	}
+	cmd.SetUsageFunc(runUsageFunc)
 
 	registerRunFlags(cmd)
 	cmd.Flags().Bool("no-auto", false, "Do not pass --auto to opencode")
@@ -24,9 +32,81 @@ func buildRunCmd(ui stdio.UI) *cobra.Command {
 	return cmd
 }
 
+func runUsageFunc(cmd *cobra.Command) error {
+	var out strings.Builder
+
+	out.WriteString("Usage:\n  ")
+	out.WriteString(cmd.UseLine())
+
+	// Compute max width for alignment.
+	maxLen := minUsagePadding
+	args := argsFromAnnotations(cmd)
+	for _, a := range args {
+		//nolint:staticcheck // using strings.Builder, false positive
+		out.WriteString(fmt.Sprintf(" %s", a.Name))
+		if len(a.Name) > maxLen {
+			maxLen = len(a.Name)
+		}
+	}
+	out.WriteString("\n")
+
+	for _, a := range args {
+		out.WriteString("\n  ")
+		out.WriteString(a.Name)
+		out.WriteString(strings.Repeat(" ", maxLen-len(a.Name)+2))
+		out.WriteString(a.Help)
+	}
+
+	if cmd.Flags().HasFlags() {
+		out.WriteString("\n\nFlags:\n")
+		out.WriteString(cmd.Flags().FlagUsages())
+	}
+
+	// Additional help topics.
+	for _, subcmd := range cmd.Commands() {
+		if subcmd.IsAdditionalHelpTopicCommand() {
+			out.WriteString("\n\nAdditional help topics:")
+			out.WriteString("\n  ")
+			out.WriteString(rpad(subcmd.CommandPath(), minUsagePadding))
+			out.WriteString(" ")
+			out.WriteString(subcmd.Short)
+		}
+	}
+
+	if cmd.HasAvailableSubCommands() {
+		out.WriteString("\n\nUse \"")
+		out.WriteString(cmd.CommandPath())
+		out.WriteString("[command] --help\" for more information about a command.")
+	}
+	out.WriteString("\n")
+
+	_, err := io.WriteString(cmd.OutOrStdout(), out.String())
+	return err
+}
+
+func rpad(s string, padding int) string {
+	return s + strings.Repeat(" ", padding-len(s))
+}
+
+func runFunc(ui stdio.UI) func(cmd *cobra.Command, args []string) error {
+	return func(cmd *cobra.Command, args []string) error {
+		opts := extractRunOptions(cmd, true, ui)
+		opts.Args = args
+
+		// Handle the --no-auto flag specific to the run command
+		if noAuto, _ := cmd.Flags().GetBool("no-auto"); noAuto {
+			opts.Auto = false
+		}
+
+		cfg := newConfig()
+
+		return sandbox.Run(cmd.Context(), opts, cfg, ui)
+	}
+}
+
 func buildShellCmd(ui stdio.UI) *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "shell [flags]",
+		Use:   cmdShell,
 		Short: "Start sandbox and open a shell (debug)",
 		Annotations: map[string]string{
 			annotationAlsoAs: "sandbox shell",
@@ -45,9 +125,22 @@ func buildShellCmd(ui stdio.UI) *cobra.Command {
 	return cmd
 }
 
+// registerRunFlags adds the shared run/shell flags to the given command.
+func registerRunFlags(cmd *cobra.Command) {
+	cmd.Flags().StringP("branch", "b", "", "Run in an opencode worktree for the given branch name")
+	cmd.Flags().BoolP("rebuild", "r", false, "Rebuild the runner image before starting")
+	cmd.Flags().BoolP("dry-run", "n", false, "Dry run without starting anything")
+	cmd.Flags().Bool("dry-run-vm", false, "Skip VM lifecycle but prepare everything else")
+	cmd.Flags().Uint8P("cpus", "c", 0, "Number of CPUs (default: all)")
+	cmd.Flags().StringP("memory", "m", "4G", "Memory limit")
+	cmd.Flags().String("tmp-size", "2G", "Size of the /tmp tmpfs in the sandbox")
+	cmd.Flags().StringP("user", "u", "", "Username or UID for the runtime user (format: <name|uid>[:<group|gid>])")
+}
+
 func buildStopCmd(ui stdio.UI) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   cmdStop,
+		Args:  cobra.NoArgs,
 		Short: "Stop the project VM",
 		Annotations: map[string]string{
 			annotationAlsoAs: "sandbox stop",
@@ -66,6 +159,7 @@ func buildStopCmd(ui stdio.UI) *cobra.Command {
 func buildKillCmd(ui stdio.UI) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   cmdKill,
+		Args:  cobra.NoArgs,
 		Short: "Force-kill the project VM",
 		Annotations: map[string]string{
 			annotationAlsoAs: "sandbox kill",
