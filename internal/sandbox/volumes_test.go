@@ -49,10 +49,10 @@ func TestPrefillVolumeRunsCopyCommand(t *testing.T) {
 	if err != nil {
 		t.Fatalf("prefillVolume failed: %v", err)
 	}
-	if len(client.createdSandboxes) != 1 {
-		t.Fatalf("expected 1 created prefill sandbox, got %d", len(client.createdSandboxes))
+	if len(client.CreatedSandboxes) != 1 {
+		t.Fatalf("expected 1 created prefill sandbox, got %d", len(client.CreatedSandboxes))
 	}
-	if len(client.removedSandboxes) != 1 {
-		t.Fatalf("expected 1 removed prefill sandbox, got %d", len(client.removedSandboxes))
+	if len(client.RemovedSandboxes) != 1 {
+		t.Fatalf("expected 1 removed prefill sandbox, got %d", len(client.RemovedSandboxes))
 	}
 }

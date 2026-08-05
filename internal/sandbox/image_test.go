@@ -190,7 +190,9 @@ func TestEnsureImageLoadsIntoMSBWhenNotCached(t *testing.T) {
 		},
 	})
 	msbClient := &MockMsbClient{
-		imageGetErr: errors.New("image not in cache"),
+		ImageGetFn: func(_ context.Context, _ string) error {
+			return errors.New("image not in cache")
+		},
 	}
 	dockerfile := []byte("FROM opencode-msb/runner-base:latest\nRUN echo hi\n")
 	_, _, _, err := ensureImageWithClient(
@@ -204,10 +206,10 @@ func TestEnsureImageLoadsIntoMSBWhenNotCached(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if len(msbClient.loadedImages) != 1 {
-		t.Fatalf("expected 1 image load, got %d", len(msbClient.loadedImages))
+	if len(msbClient.LoadedImages) != 1 {
+		t.Fatalf("expected 1 image load, got %d", len(msbClient.LoadedImages))
 	}
-	if !strings.HasPrefix(msbClient.loadedImages[0], "opencode-msb/runner-test-project:") {
-		t.Errorf("unexpected loaded image ref: %s", msbClient.loadedImages[0])
+	if !strings.HasPrefix(msbClient.LoadedImages[0], "opencode-msb/runner-test-project:") {
+		t.Errorf("unexpected loaded image ref: %s", msbClient.LoadedImages[0])
 	}
 }

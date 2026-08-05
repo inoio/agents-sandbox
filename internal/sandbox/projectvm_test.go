@@ -4,9 +4,10 @@ import (
 	"context"
 	"testing"
 
-	"gitlab.inoio.de/inoio/opencode-msb/internal/testutil"
+	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 
-	msb "github.com/superradcompany/microsandbox/sdk/go"
+	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/msb"
+	"gitlab.inoio.de/inoio/opencode-msb/internal/testutil"
 )
 
 func TestProjectVMName(t *testing.T) {
@@ -67,7 +68,7 @@ func TestBuildProjectVMEnvMergesImageEnvs(t *testing.T) {
 }
 
 func TestEnsureProjectVMCreatesWhenNotFound(t *testing.T) {
-	notFoundErr := &msb.Error{Kind: msb.ErrSandboxNotFound, Message: "not found"}
+	notFoundErr := &msbSdk.Error{Kind: msbSdk.ErrSandboxNotFound, Message: "not found"}
 	decision, err := decideVMAction(notFoundErr, "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -78,7 +79,7 @@ func TestEnsureProjectVMCreatesWhenNotFound(t *testing.T) {
 }
 
 func TestEnsureProjectVMConnectsWhenRunning(t *testing.T) {
-	decision, err := decideVMAction(nil, msb.SandboxStatusRunning)
+	decision, err := decideVMAction(nil, msbSdk.SandboxStatusRunning)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -88,7 +89,7 @@ func TestEnsureProjectVMConnectsWhenRunning(t *testing.T) {
 }
 
 func TestEnsureProjectVMStartsWhenStopped(t *testing.T) {
-	decision, err := decideVMAction(nil, msb.SandboxStatusStopped)
+	decision, err := decideVMAction(nil, msbSdk.SandboxStatusStopped)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -98,7 +99,7 @@ func TestEnsureProjectVMStartsWhenStopped(t *testing.T) {
 }
 
 func TestEnsureProjectVMStartsWhenCrashed(t *testing.T) {
-	decision, err := decideVMAction(nil, msb.SandboxStatusCrashed)
+	decision, err := decideVMAction(nil, msbSdk.SandboxStatusCrashed)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -138,26 +139,25 @@ func TestCreateProjectVMCallsClientCreateSandbox(t *testing.T) {
 	if sb == nil {
 		t.Fatal("expected non-nil sandbox")
 	}
-	if len(client.createdSandboxes) != 1 {
-		t.Fatalf("expected 1 created sandbox, got %d", len(client.createdSandboxes))
+	if len(client.CreatedSandboxes) != 1 {
+		t.Fatalf("expected 1 created sandbox, got %d", len(client.CreatedSandboxes))
 	}
-	if client.createdSandboxes[0] != "opencode-msb-vm-test" {
-		t.Errorf("expected sandbox name %q, got %q", "opencode-msb-vm-test", client.createdSandboxes[0])
+	if client.CreatedSandboxes[0] != "opencode-msb-vm-test" {
+		t.Errorf("expected sandbox name %q, got %q", "opencode-msb-vm-test", client.CreatedSandboxes[0])
 	}
 }
 
 func TestStopProjectVMUsesClient(t *testing.T) {
 	testUI := testutil.NewTestio(t)
 	ui := &testUI
-	client := &MockMsbClient{
-		gotSandbox: &MockSandboxHandle{
-			Name_:   "opencode-msb-vm-test",
-			Status_: msb.SandboxStatusRunning,
-		},
-	}
-	oldNewMsbClient := newMsbClient
-	newMsbClient = func() MsbClient { return client }
-	defer func() { newMsbClient = oldNewMsbClient }()
+	client := &MockMsbClient{}
+	client.SetGotSandbox(&MockSandboxHandle{
+		Name_:   "opencode-msb-vm-test",
+		Status_: msbSdk.SandboxStatusRunning,
+	})
+	oldGet := msb.Get
+	msb.Get = func() MsbClient { return client }
+	defer func() { msb.Get = oldGet }()
 
 	// ProjectSlug depends on the current directory, so use a temp repo.
 	tmpRepo := testutil.InitRepo(t)

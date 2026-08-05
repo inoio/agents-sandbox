@@ -10,10 +10,11 @@ import (
 	"time"
 
 	"gitlab.inoio.de/inoio/opencode-msb/internal/git"
+	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/msb"
 	"gitlab.inoio.de/inoio/opencode-msb/internal/stdio"
 	"gitlab.inoio.de/inoio/opencode-msb/internal/sysinfo"
 
-	msb "github.com/superradcompany/microsandbox/sdk/go"
+	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 )
 
 const projectVMPrefix = "opencode-msb-vm-"
@@ -66,14 +67,14 @@ func buildProjectVMEnv(envMap map[string]string, imageEnvs map[string]string) {
 // Otherwise the status determines connect (running) vs start (stopped/crashed).
 //
 //nolint:nilerr // Returning nil error for notFoundErr is expected behavior - not found means create
-func decideVMAction(notFoundErr error, status msb.SandboxStatus) (vmAction, error) {
+func decideVMAction(notFoundErr error, status msbSdk.SandboxStatus) (vmAction, error) {
 	if notFoundErr != nil {
 		return vmActionCreate, nil
 	}
 	switch status {
-	case msb.SandboxStatusRunning, msb.SandboxStatusDraining, msb.SandboxStatusPaused:
+	case msbSdk.SandboxStatusRunning, msbSdk.SandboxStatusDraining, msbSdk.SandboxStatusPaused:
 		return vmActionConnect, nil
-	case msb.SandboxStatusStopped, msb.SandboxStatusCrashed:
+	case msbSdk.SandboxStatusStopped, msbSdk.SandboxStatusCrashed:
 		return vmActionStart, nil
 	}
 	return vmActionCreate, fmt.Errorf("unexpected sandbox status: %s", status)
@@ -98,7 +99,7 @@ func EnsureProjectVM(
 		return nil, false, nil
 	}
 
-	client := newMsbClient()
+	client := msb.Get()
 
 	slug := git.ProjectSlug(ui)
 	name := projectVMName(slug)
@@ -111,7 +112,7 @@ func EnsureProjectVM(
 	spin := ui.Spinner("Checking project VM")
 
 	handle, err := client.GetSandbox(ctx, name)
-	notFound := err != nil && msb.IsKind(err, msb.ErrSandboxNotFound)
+	notFound := err != nil && msbSdk.IsKind(err, msbSdk.ErrSandboxNotFound)
 	if err != nil && !notFound {
 		spin.StopError(err)
 		return nil, false, fmt.Errorf("check sandbox %q: %w", name, err)
@@ -211,7 +212,7 @@ func EnsureProjectVM(
 		}
 		return sb, false, nil
 	}
-	if !msb.IsKind(err, msb.ErrSandboxNotFound) {
+	if !msbSdk.IsKind(err, msbSdk.ErrSandboxNotFound) {
 		return nil, false, fmt.Errorf("re-check sandbox %q: %w", name, err)
 	}
 
@@ -258,20 +259,20 @@ func createProjectVM(
 
 	spin := ui.Spinner("Starting project VM")
 	sb, err := client.CreateSandbox(ctx, name,
-		msb.WithImage(imageRef),
-		msb.WithMounts(mounts),
-		msb.WithSecrets(secrets...),
-		msb.WithEnv(envMap),
-		msb.WithUser(user),
-		msb.WithWorkdir("/workspace"),
-		msb.WithCPUs(cpus),
-		msb.WithMaxCPUs(numCPUs),
-		msb.WithMemory(parseMemory(opts.Memory)),
+		msbSdk.WithImage(imageRef),
+		msbSdk.WithMounts(mounts),
+		msbSdk.WithSecrets(secrets...),
+		msbSdk.WithEnv(envMap),
+		msbSdk.WithUser(user),
+		msbSdk.WithWorkdir("/workspace"),
+		msbSdk.WithCPUs(cpus),
+		msbSdk.WithMaxCPUs(numCPUs),
+		msbSdk.WithMemory(parseMemory(opts.Memory)),
 		//nolint:gosec // G115: maxMemoryGiB is physical RAM in GiB, cannot overflow uint32
-		msb.WithMaxMemory(uint32(maxMemoryGiB)*mibPerGib),
-		msb.WithDetached(),
-		msb.WithIdleTimeout(defaultVMIdleTimeout),
-		msb.WithReplace(),
+		msbSdk.WithMaxMemory(uint32(maxMemoryGiB)*mibPerGib),
+		msbSdk.WithDetached(),
+		msbSdk.WithIdleTimeout(defaultVMIdleTimeout),
+		msbSdk.WithReplace(),
 	)
 	if err != nil {
 		spin.StopError(err)
@@ -315,7 +316,7 @@ func stopOrKillProjectVM(
 
 	handle, err := client.GetSandbox(ctx, name)
 	if err != nil {
-		if msb.IsKind(err, msb.ErrSandboxNotFound) {
+		if msbSdk.IsKind(err, msbSdk.ErrSandboxNotFound) {
 			ui.Infof("no project VM found: %s", name)
 			return nil
 		}
