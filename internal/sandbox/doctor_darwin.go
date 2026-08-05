@@ -21,7 +21,9 @@ func checkDoctor(ctx context.Context, ui stdio.UI) bool {
 // are unsupported.
 func CheckDarwin(ui stdio.UI) bool {
 	if runtime.GOARCH != "arm64" {
-		ui.Errorf("macOS support requires Apple Silicon (arm64). You are running the x86_64 binary under Rosetta 2. Download the darwin-arm64 binary instead.")
+		ui.Errorf(
+			"macOS support requires Apple Silicon (arm64). You are running the x86_64 binary under Rosetta 2. Download the darwin-arm64 binary instead.",
+		)
 		return false
 	}
 	return true
