@@ -18,6 +18,7 @@ import (
 func buildDoctorCmd(ui stdio.UI) *cobra.Command {
 	return &cobra.Command{
 		Use:   cmdDoctor,
+		Args:  cobra.NoArgs,
 		Short: "Check prerequisites",
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			if !sandbox.CheckAll(cmd.Context(), ui) {
@@ -33,6 +34,7 @@ func buildListCmd(ui stdio.UI) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:     cmdList,
 		Aliases: []string{"ls"},
+		Args:    cobra.NoArgs,
 		Short:   "List sandboxes for this host",
 		Annotations: map[string]string{
 			annotationAlsoAs: "sandbox list",
@@ -59,6 +61,7 @@ func buildConfigCmd(ui stdio.UI) *cobra.Command {
 	}
 	cmd.AddCommand(&cobra.Command{
 		Use:   "show",
+		Args:  cobra.NoArgs,
 		Short: "Print merged opencode config with source paths",
 		RunE: func(_ *cobra.Command, _ []string) error {
 			cfg := newConfig()
@@ -102,6 +105,7 @@ func buildConfigCmd(ui stdio.UI) *cobra.Command {
 func buildBuildCmd(ui stdio.UI) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   cmdBuild,
+		Args:  cobra.NoArgs,
 		Short: "Build or rebuild the runner image",
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			force, _ := cmd.Flags().GetBool("rebuild")
@@ -117,10 +121,12 @@ func buildBuildCmd(ui stdio.UI) *cobra.Command {
 func buildImageCmd(ui stdio.UI) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   cmdImage,
+		Args:  cobra.NoArgs,
 		Short: "Manage runner images",
 	}
 	cmd.AddCommand(&cobra.Command{
 		Use:     cmdList,
+		Args:    cobra.NoArgs,
 		Aliases: []string{"ls"},
 		Short:   "List cached runner images",
 		RunE: func(cmd *cobra.Command, _ []string) error {
@@ -147,6 +153,7 @@ func buildVolumeCmd(ui stdio.UI) *cobra.Command {
 	cmd.AddCommand(&cobra.Command{
 		Use:     cmdList,
 		Aliases: []string{"ls"},
+		Args:    cobra.NoArgs,
 		Short:   "List managed volumes",
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			volumes, err := sandbox.ListVolumes(cmd.Context())
@@ -166,6 +173,7 @@ func buildVolumeCmd(ui stdio.UI) *cobra.Command {
 func buildSandboxCmd(ui stdio.UI) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "sandbox",
+		Args:  cobra.NoArgs,
 		Short: "Manage sandboxes",
 	}
 	cmd.AddCommand(buildListCmd(ui))
@@ -179,6 +187,7 @@ func buildSandboxCmd(ui stdio.UI) *cobra.Command {
 func buildPruneCmd(ui stdio.UI) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "prune [flags]",
+		Args:  cobra.NoArgs,
 		Short: "Prune stale VMs, volumes, and images",
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			ageStr, _ := cmd.Flags().GetString("age")
