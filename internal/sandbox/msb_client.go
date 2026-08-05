@@ -72,3 +72,13 @@ type TestResult = msb.TestResult
 func NewTestResult(success bool, exitCode int, stdout, stderr string, stdoutBytes []byte) ShellResult {
 	return msb.NewTestResult(success, exitCode, stdout, stderr, stdoutBytes)
 }
+
+// SandboxOpts is a re-export of msb.SandboxOpts for tests.
+//
+//nolint:revive // re-export of msb type name for tests
+type SandboxOpts = msb.SandboxOpts
+
+// NewMockSandbox creates a MockSandbox configured by opts.
+func NewMockSandbox(opts SandboxOpts) Sandbox {
+	return msb.NewMockSandbox(opts)
+}

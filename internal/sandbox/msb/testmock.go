@@ -407,6 +407,39 @@ func (m *MockSandbox) Detach(_ context.Context) error                       { re
 func (m *MockSandbox) Stop(_ context.Context, _ ...msbSdk.StopOption) error { return m.StopErr }
 func (m *MockSandbox) Close() error                                         { return m.CloseErr }
 
+// SandboxOpts configures a MockSandbox via NewMockSandbox.
+// Zero/unset values produce sensible defaults.
+type SandboxOpts struct {
+	FSValue    any
+	ShellOut   map[string]ShellResult
+	ShellErr   error
+	ExecOut    map[string]ShellResult
+	ExecErr    error
+	AttachCode int
+	AttachErr  error
+	DetachErr  error
+	StopErr    error
+	CloseErr   error
+}
+
+// NewMockSandbox returns a Sandbox configured by opts. Zero/unset values produce
+// sensible defaults so callers only name the fields they care about.
+func NewMockSandbox(opts SandboxOpts) Sandbox {
+	//nolint:exhaustruct // Name_ is optional for mock construction
+	return &MockSandbox{
+		FSValue_:   opts.FSValue,
+		ShellOut:   opts.ShellOut,
+		ShellErr:   opts.ShellErr,
+		ExecOut:    opts.ExecOut,
+		ExecErr:    opts.ExecErr,
+		AttachCode: opts.AttachCode,
+		AttachErr:  opts.AttachErr,
+		DetachErr:  opts.DetachErr,
+		StopErr:    opts.StopErr,
+		CloseErr:   opts.CloseErr,
+	}
+}
+
 // minimalSandboxFS is a no-op fs implementation for MockSandbox.FS() when
 // no FSValue_ is set, preventing nil pointer panics.
 type minimalSandboxFS struct{}
