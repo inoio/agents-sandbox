@@ -221,8 +221,7 @@ func runPruneTest(t *testing.T, flags []string, setupMock func(m *sandbox.MockMs
 	if setupMock != nil {
 		setupMock(mock)
 	}
-	origMSB := sandbox.SetNewMsbClient(func() sandbox.MsbClient { return mock })
-	t.Cleanup(func() { sandbox.SetNewMsbClient(origMSB) })
+	sandbox.WithMsbMock(t, mock)
 	docker.WithNoopDockerMock(t)
 
 	root := buildRootCmd(ui)
@@ -239,8 +238,7 @@ func runPruneTestWithAge(t *testing.T, age string, setupMock func(m *sandbox.Moc
 	ui := &stdio.Mock{}
 	mock := &sandbox.MockMsbClient{}
 	setupMock(mock)
-	origMSB := sandbox.SetNewMsbClient(func() sandbox.MsbClient { return mock })
-	t.Cleanup(func() { sandbox.SetNewMsbClient(origMSB) })
+	sandbox.WithMsbMock(t, mock)
 	docker.WithNoopDockerMock(t)
 
 	root := buildRootCmd(ui)
