@@ -159,7 +159,9 @@ func TestPruneStaleCascade_DryRunDoesNotDelete(t *testing.T) {
 }
 
 func TestPruneStaleCascade_RemoveErrorWarnsAndStopsCascade(t *testing.T) {
-	client := &MockMsbClient{RemoveSandboxFn: func(_ context.Context, _ string) error { return errors.New("sandbox locked") }}
+	client := &MockMsbClient{
+		RemoveSandboxFn: func(_ context.Context, _ string) error { return errors.New("sandbox locked") },
+	}
 	dockerMock := &mockDockerClient{}
 	docker.WithDockerMock(t, dockerMock)
 	ui := newMockUI()
