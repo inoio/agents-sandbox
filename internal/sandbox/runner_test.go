@@ -2,7 +2,6 @@ package sandbox
 
 import (
 	"context"
-	"fmt"
 	"path/filepath"
 	"reflect"
 	"strings"
@@ -10,7 +9,9 @@ import (
 
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 
+	msb "gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/msb"
 	"gitlab.inoio.de/inoio/opencode-msb/internal/stdio"
+
 	"gitlab.inoio.de/inoio/opencode-msb/internal/testutil"
 )
 
@@ -304,16 +305,16 @@ func TestReadVMFilesUsesSDKFs(t *testing.T) {
 	gitignore := []byte("node_modules/\n")
 	sb := &MockSandbox{
 		Name_: "test-vm",
-		FSValue_: &mockFs{
-			files: map[string][]byte{
+		FSValue_: msb.NewTestFS(
+			map[string][]byte{
 				"/home/dev/.config/opencode/thing.json": data,
 				"/home/dev/.config/opencode/.gitignore": gitignore,
 			},
-			list: []msbSdk.FsEntry{
+			[]msbSdk.FsEntry{
 				{Path: "/home/dev/.config/opencode/thing.json", Kind: msbSdk.FsEntryKindFile},
 				{Path: "/home/dev/.config/opencode/.gitignore", Kind: msbSdk.FsEntryKindFile},
 			},
-		},
+		),
 	}
 	want := map[string][]byte{
 		"thing.json": data,
@@ -328,16 +329,16 @@ func TestReadVMFilesUsesSDKFs(t *testing.T) {
 func TestReadVMFilesSkipsDirectories(t *testing.T) {
 	sb := &MockSandbox{
 		Name_: "test-vm",
-		FSValue_: &mockFs{
-			files: map[string][]byte{
+		FSValue_: msb.NewTestFS(
+			map[string][]byte{
 				"/home/dev/.config/opencode/file.txt": []byte("hello"),
 			},
-			list: []msbSdk.FsEntry{
+			[]msbSdk.FsEntry{
 				{Path: "/home/dev/.config/opencode/file.txt", Kind: msbSdk.FsEntryKindFile},
 				{Path: "/home/dev/.config/opencode/dir1", Kind: msbSdk.FsEntryKindDirectory},
 				{Path: "/home/dev/.config/opencode/dir2", Kind: msbSdk.FsEntryKindDirectory},
 			},
-		},
+		),
 	}
 	want := map[string][]byte{
 		"file.txt": []byte("hello"),
@@ -350,58 +351,11 @@ func TestReadVMFilesSkipsDirectories(t *testing.T) {
 
 func TestReadVMFilesEmptyDir(t *testing.T) {
 	sb := &MockSandbox{
-		Name_: "test-vm",
-		FSValue_: &mockFs{
-			list: nil,
-		},
+		Name_:    "test-vm",
+		FSValue_: msb.NewTestFS(nil, nil),
 	}
 	got := readVMFiles(context.Background(), sb, "/home/dev/.config/opencode", &stdio.Mock{})
 	if len(got) != 0 {
 		t.Errorf("expected empty result for empty dir, got %v", got)
 	}
-}
-
-// mockFs implements SandboxFS for tests with file content.
-// It satisfies SandboxFS (re-exported from msb.SandboxFS) so internal tests
-// can use it when the old mockFs defined in msb_client.go is no longer accessible.
-type mockFs struct {
-	files   map[string][]byte
-	list    []msbSdk.FsEntry
-	readErr error
-	listErr error
-}
-
-func (f *mockFs) Mkdir(_ context.Context, _ string) error           { return nil }
-func (f *mockFs) Write(_ context.Context, _ string, _ []byte) error { return nil }
-func (f *mockFs) Read(_ context.Context, path string) ([]byte, error) {
-	if f.readErr != nil {
-		return nil, f.readErr
-	}
-	if data, ok := f.files[path]; ok {
-		return data, nil
-	}
-	return nil, fmt.Errorf("file not found: %s", path)
-}
-func (f *mockFs) List(_ context.Context, _ string) ([]msbSdk.FsEntry, error) {
-	if f.listErr != nil {
-		return nil, f.listErr
-	}
-	return f.list, nil
-}
-func (f *mockFs) Remove(_ context.Context, _ string) error { return nil }
-func (f *mockFs) Exists(_ context.Context, path string) (bool, error) {
-	_, ok := f.files[path]
-	return ok, nil
-}
-func (f *mockFs) Stat(_ context.Context, _ string) (*msbSdk.FsStat, error) {
-	return &msbSdk.FsStat{}, nil
-}
-func (f *mockFs) ReadString(_ context.Context, path string) (string, error) {
-	if d, ok := f.files[path]; ok {
-		return string(d), nil
-	}
-	return "", fmt.Errorf("file not found: %s", path)
-}
-func (f *mockFs) ReadStream(_ context.Context, _ string) (*msbSdk.FsReadStream, error) {
-	return &msbSdk.FsReadStream{}, nil
 }
