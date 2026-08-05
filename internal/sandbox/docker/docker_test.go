@@ -1,32 +1,51 @@
 package docker
 
 import (
-	"archive/tar"
-	"bytes"
-	"io"
+	"context"
+	"errors"
+	"strings"
 	"testing"
+
+	"github.com/moby/moby/client"
+
+	"gitlab.inoio.de/inoio/opencode-msb/internal/testutil"
 )
 
-func TestDockerfileTarContainsDockerfile(t *testing.T) {
-	dockerfile := []byte("FROM debian:trixie-slim\nRUN echo hi\n")
-	tarBuf, err := dockerfileTar(dockerfile)
-	if err != nil {
-		t.Fatalf("dockerfileTar failed: %v", err)
-	}
+func TestCheckDockerAPIReturnsTrueWhenPingSucceeds(t *testing.T) {
+	testUI := testutil.NewTestio(t)
 
-	tr := tar.NewReader(tarBuf)
-	header, err := tr.Next()
-	if err != nil {
-		t.Fatalf("unexpected error reading tar: %v", err)
+	WithDockerMock(t, &MockDockerClient{
+		PingFn: func(ctx context.Context, opts client.PingOptions) (client.PingResult, error) {
+			return client.PingResult{APIVersion: "1.44"}, nil
+		},
+	})
+
+	if !CheckDockerAPI(context.Background(), &testUI) {
+		t.Fatal("expected CheckDockerAPI to return true when ping succeeds")
 	}
-	if header.Name != "Dockerfile" {
-		t.Errorf("expected tar entry 'Dockerfile', got %q", header.Name)
+}
+
+func TestCheckDockerAPIReturnsFalseWhenPingFails(t *testing.T) {
+	testUI := testutil.NewTestio(t)
+
+	WithDockerMock(t, &MockDockerClient{
+		PingFn: func(ctx context.Context, opts client.PingOptions) (client.PingResult, error) {
+			return client.PingResult{}, errors.New("connection refused")
+		},
+	})
+
+	if CheckDockerAPI(context.Background(), &testUI) {
+		t.Fatal("expected CheckDockerAPI to return false when ping fails")
 	}
-	content, err := io.ReadAll(tr)
-	if err != nil {
-		t.Fatalf("unexpected error reading tar content: %v", err)
+	var out []string
+	for _, e := range testUI.ErrorCalls {
+		out = append(out, e.Msg)
 	}
-	if !bytes.Equal(content, dockerfile) {
-		t.Errorf("tar content does not match dockerfile")
+	outStr := strings.Join(out, " ")
+	if !strings.Contains(outStr, "Docker API unreachable") {
+		t.Errorf("expected log to contain 'Docker API unreachable', got %q", outStr)
+	}
+	if !strings.Contains(outStr, "connection refused") {
+		t.Errorf("expected log to contain the underlying error, got %q", outStr)
 	}
 }
