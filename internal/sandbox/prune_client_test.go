@@ -1,10 +1,8 @@
 package sandbox
 
 import (
-	"bytes"
 	"context"
 	"errors"
-	"io"
 	"testing"
 	"time"
 
@@ -17,36 +15,15 @@ import (
 	"gitlab.inoio.de/inoio/opencode-msb/internal/stdio"
 )
 
-// mockDockerClient implements dockerClient for tests.
+// mockDockerClient provides per-call error injection for ImageRemove while
+// delegating all other methods to the embedded MockDockerClient.
 type mockDockerClient struct {
+	docker.MockDockerClient
+
 	removedImages []string
 	removeErr     error
 	perCallErrs   []error
 	callCounter   int
-}
-
-func (m *mockDockerClient) ImageBuild(
-	_ context.Context,
-	_ io.Reader,
-	_ client.ImageBuildOptions,
-) (client.ImageBuildResult, error) {
-	return client.ImageBuildResult{}, nil
-}
-
-func (m *mockDockerClient) ImageInspect(
-	_ context.Context,
-	_ string,
-	_ ...client.ImageInspectOption,
-) (client.ImageInspectResult, error) {
-	return client.ImageInspectResult{}, nil
-}
-
-func (m *mockDockerClient) ImageSave(
-	_ context.Context,
-	_ []string,
-	_ ...client.ImageSaveOption,
-) (client.ImageSaveResult, error) {
-	return io.NopCloser(bytes.NewReader(nil)), nil
 }
 
 func (m *mockDockerClient) ImageRemove(
@@ -70,17 +47,6 @@ func (m *mockDockerClient) ImageRemove(
 	}
 	m.removedImages = append(m.removedImages, imageID)
 	return client.ImageRemoveResult{}, nil
-}
-
-func (m *mockDockerClient) ImageTag(
-	_ context.Context,
-	_ client.ImageTagOptions,
-) (client.ImageTagResult, error) {
-	return client.ImageTagResult{}, nil
-}
-
-func (m *mockDockerClient) Close() error {
-	return nil
 }
 
 func newMockUI() *stdio.Mock {
