@@ -9,11 +9,12 @@ import (
 	"strings"
 	"time"
 
+	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/msb"
 	"gitlab.inoio.de/inoio/opencode-msb/internal/stdio"
 
 	"gitlab.inoio.de/inoio/opencode-msb/internal/git"
 
-	msb "github.com/superradcompany/microsandbox/sdk/go"
+	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 )
 
 type ExitError struct {
@@ -86,11 +87,11 @@ func resolveTmpSizeMiB(spec string) uint32 {
 // isSandboxActive reports whether a sandbox status represents a live VM that
 // WithReplace would terminate. Stopped or crashed sandboxes are stale state
 // that can be replaced silently.
-func isSandboxActive(status msb.SandboxStatus) bool {
+func isSandboxActive(status msbSdk.SandboxStatus) bool {
 	switch status {
-	case msb.SandboxStatusRunning, msb.SandboxStatusDraining, msb.SandboxStatusPaused:
+	case msbSdk.SandboxStatusRunning, msbSdk.SandboxStatusDraining, msbSdk.SandboxStatusPaused:
 		return true
-	case msb.SandboxStatusStopped, msb.SandboxStatusCrashed:
+	case msbSdk.SandboxStatusStopped, msbSdk.SandboxStatusCrashed:
 		return false
 	}
 	return false
@@ -266,7 +267,7 @@ func BuildImage(ctx context.Context, force, dryRun bool, ui stdio.UI) error {
 	}
 	projectSlug := git.ProjectSlug(ui)
 
-	_, _, _, err := ensureImageWithClient(ctx, newMsbClient(), resolveDockerfile(), projectSlug, force, ui)
+	_, _, _, err := ensureImageWithClient(ctx, msb.Get(), resolveDockerfile(), projectSlug, force, ui)
 	return err
 }
 
@@ -286,11 +287,11 @@ func finalizeRun(attachErr, cleanupErr error, exitCode int) error {
 	return &ExitError{Code: exitCode}
 }
 
-func buildMounts(homeVol, repoPath string, tmpSizeMiB uint32) map[string]msb.MountConfig {
-	return map[string]msb.MountConfig{
-		"/home/dev":  msb.Mount.Named(homeVol, msb.MountOptions{}),
-		"/workspace": msb.Mount.Bind(repoPath, msb.MountOptions{}),
-		"/tmp": msb.Mount.Tmpfs(msb.TmpfsOptions{
+func buildMounts(homeVol, repoPath string, tmpSizeMiB uint32) map[string]msbSdk.MountConfig {
+	return map[string]msbSdk.MountConfig{
+		"/home/dev":  msbSdk.Mount.Named(homeVol, msbSdk.MountOptions{}),
+		"/workspace": msbSdk.Mount.Bind(repoPath, msbSdk.MountOptions{}),
+		"/tmp": msbSdk.Mount.Tmpfs(msbSdk.TmpfsOptions{
 			SizeMiB:  tmpSizeMiB,
 			Readonly: false,
 			Noexec:   false,
@@ -300,21 +301,9 @@ func buildMounts(homeVol, repoPath string, tmpSizeMiB uint32) map[string]msb.Mou
 	}
 }
 
-type sandboxFS interface {
-	Exists(ctx context.Context, path string) (bool, error)
-	Stat(ctx context.Context, path string) (*msb.FsStat, error)
-	List(ctx context.Context, path string) ([]msb.FsEntry, error)
-	ReadString(ctx context.Context, path string) (string, error)
-	ReadStream(ctx context.Context, path string) (*msb.FsReadStream, error)
-	Mkdir(ctx context.Context, path string) error
-	Write(ctx context.Context, path string, data []byte) error
-	Read(ctx context.Context, path string) ([]byte, error)
-	Remove(ctx context.Context, path string) error
-}
-
 func provisionSandbox(
 	ctx context.Context,
-	fs sandboxFS,
+	fs SandboxFS,
 	configFiles map[string][]byte,
 ) error {
 	if err := fs.Mkdir(ctx, "/home/dev/.config/opencode"); err != nil {
@@ -386,7 +375,7 @@ func handleConfigChange(ctx context.Context, sb Sandbox, cfs *configFiles, ui st
 
 func ensureProvisionedAndRunning(
 	ctx context.Context,
-	fs sandboxFS,
+	fs SandboxFS,
 	files map[string][]byte,
 	sb Sandbox,
 	ui stdio.UI,

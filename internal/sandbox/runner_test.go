@@ -2,12 +2,13 @@ package sandbox
 
 import (
 	"context"
+	"fmt"
 	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
 
-	msb "github.com/superradcompany/microsandbox/sdk/go"
+	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 
 	"gitlab.inoio.de/inoio/opencode-msb/internal/stdio"
 	"gitlab.inoio.de/inoio/opencode-msb/internal/testutil"
@@ -166,7 +167,7 @@ func TestBuildMountsIncludesTmpfsAtTmp(t *testing.T) {
 	if !ok {
 		t.Fatal("expected /tmp mount, not found in mounts map")
 	}
-	if tmpMount.Kind() != msb.MountKindTmpfs {
+	if tmpMount.Kind() != msbSdk.MountKindTmpfs {
 		t.Errorf("expected /tmp to be a tmpfs mount, got kind %d", tmpMount.Kind())
 	}
 	if tmpMount.SizeMiB == 0 {
@@ -234,14 +235,14 @@ func TestBuildOpencodeArgs(t *testing.T) {
 func TestIsSandboxActive(t *testing.T) {
 	tests := []struct {
 		name   string
-		status msb.SandboxStatus
+		status msbSdk.SandboxStatus
 		want   bool
 	}{
-		{"running", msb.SandboxStatusRunning, true},
-		{"draining", msb.SandboxStatusDraining, true},
-		{"paused", msb.SandboxStatusPaused, true},
-		{"stopped", msb.SandboxStatusStopped, false},
-		{"crashed", msb.SandboxStatusCrashed, false},
+		{"running", msbSdk.SandboxStatusRunning, true},
+		{"draining", msbSdk.SandboxStatusDraining, true},
+		{"paused", msbSdk.SandboxStatusPaused, true},
+		{"stopped", msbSdk.SandboxStatusStopped, false},
+		{"crashed", msbSdk.SandboxStatusCrashed, false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -308,9 +309,9 @@ func TestReadVMFilesUsesSDKFs(t *testing.T) {
 				"/home/dev/.config/opencode/thing.json": data,
 				"/home/dev/.config/opencode/.gitignore": gitignore,
 			},
-			list: []msb.FsEntry{
-				{Path: "/home/dev/.config/opencode/thing.json", Kind: msb.FsEntryKindFile},
-				{Path: "/home/dev/.config/opencode/.gitignore", Kind: msb.FsEntryKindFile},
+			list: []msbSdk.FsEntry{
+				{Path: "/home/dev/.config/opencode/thing.json", Kind: msbSdk.FsEntryKindFile},
+				{Path: "/home/dev/.config/opencode/.gitignore", Kind: msbSdk.FsEntryKindFile},
 			},
 		},
 	}
@@ -331,10 +332,10 @@ func TestReadVMFilesSkipsDirectories(t *testing.T) {
 			files: map[string][]byte{
 				"/home/dev/.config/opencode/file.txt": []byte("hello"),
 			},
-			list: []msb.FsEntry{
-				{Path: "/home/dev/.config/opencode/file.txt", Kind: msb.FsEntryKindFile},
-				{Path: "/home/dev/.config/opencode/dir1", Kind: msb.FsEntryKindDirectory},
-				{Path: "/home/dev/.config/opencode/dir2", Kind: msb.FsEntryKindDirectory},
+			list: []msbSdk.FsEntry{
+				{Path: "/home/dev/.config/opencode/file.txt", Kind: msbSdk.FsEntryKindFile},
+				{Path: "/home/dev/.config/opencode/dir1", Kind: msbSdk.FsEntryKindDirectory},
+				{Path: "/home/dev/.config/opencode/dir2", Kind: msbSdk.FsEntryKindDirectory},
 			},
 		},
 	}
@@ -358,4 +359,49 @@ func TestReadVMFilesEmptyDir(t *testing.T) {
 	if len(got) != 0 {
 		t.Errorf("expected empty result for empty dir, got %v", got)
 	}
+}
+
+// mockFs implements SandboxFS for tests with file content.
+// It satisfies SandboxFS (re-exported from msb.SandboxFS) so internal tests
+// can use it when the old mockFs defined in msb_client.go is no longer accessible.
+type mockFs struct {
+	files   map[string][]byte
+	list    []msbSdk.FsEntry
+	readErr error
+	listErr error
+}
+
+func (f *mockFs) Mkdir(_ context.Context, _ string) error           { return nil }
+func (f *mockFs) Write(_ context.Context, _ string, _ []byte) error { return nil }
+func (f *mockFs) Read(_ context.Context, path string) ([]byte, error) {
+	if f.readErr != nil {
+		return nil, f.readErr
+	}
+	if data, ok := f.files[path]; ok {
+		return data, nil
+	}
+	return nil, fmt.Errorf("file not found: %s", path)
+}
+func (f *mockFs) List(_ context.Context, _ string) ([]msbSdk.FsEntry, error) {
+	if f.listErr != nil {
+		return nil, f.listErr
+	}
+	return f.list, nil
+}
+func (f *mockFs) Remove(_ context.Context, _ string) error                  { return nil }
+func (f *mockFs) Exists(_ context.Context, path string) (bool, error) {
+	_, ok := f.files[path]
+	return ok, nil
+}
+func (f *mockFs) Stat(_ context.Context, _ string) (*msbSdk.FsStat, error) {
+	return &msbSdk.FsStat{}, nil
+}
+func (f *mockFs) ReadString(_ context.Context, path string) (string, error) {
+	if d, ok := f.files[path]; ok {
+		return string(d), nil
+	}
+	return "", fmt.Errorf("file not found: %s", path)
+}
+func (f *mockFs) ReadStream(_ context.Context, _ string) (*msbSdk.FsReadStream, error) {
+	return &msbSdk.FsReadStream{}, nil
 }

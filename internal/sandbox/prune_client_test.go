@@ -10,7 +10,9 @@ import (
 
 	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/docker"
 
-	msb "github.com/superradcompany/microsandbox/sdk/go"
+	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
+
+	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/msb"
 
 	"gitlab.inoio.de/inoio/opencode-msb/internal/stdio"
 )
@@ -108,18 +110,18 @@ func TestPruneStaleCascade_RemovesVMAndAllArtifacts(t *testing.T) {
 	assertReport(t, report, prunedCounts{vms: 1, volumes: 2, msbImages: 2, dockerImages: 2})
 
 	wantRemoved := []string{entry.Name}
-	if len(client.removedSandboxes) != 1 || client.removedSandboxes[0] != entry.Name {
-		t.Errorf("removed sandboxes = %v, want %v", client.removedSandboxes, wantRemoved)
+	if len(client.RemovedSandboxes) != 1 || client.RemovedSandboxes[0] != entry.Name {
+		t.Errorf("removed sandboxes = %v, want %v", client.RemovedSandboxes, wantRemoved)
 	}
 
 	wantVolumes := []string{"opencode-msb-home-myproject-digest1", "opencode-msb-home-myproject"}
-	if len(client.removedVolumes) != len(wantVolumes) {
-		t.Errorf("removed volumes = %v, want %v", client.removedVolumes, wantVolumes)
+	if len(client.RemovedVolumes) != len(wantVolumes) {
+		t.Errorf("removed volumes = %v, want %v", client.RemovedVolumes, wantVolumes)
 	}
 
 	wantMSBImages := []string{"opencode-msb/runner-myproject:digest1", "opencode-msb/runner-myproject:latest"}
-	if len(client.removedImages) != len(wantMSBImages) {
-		t.Errorf("removed msb images count = %d, want %d", len(client.removedImages), len(wantMSBImages))
+	if len(client.RemovedImages) != len(wantMSBImages) {
+		t.Errorf("removed msb images count = %d, want %d", len(client.RemovedImages), len(wantMSBImages))
 	}
 
 	wantDockerImages := []string{"opencode-msb/runner-myproject:digest1", "opencode-msb/runner-myproject:latest"}
@@ -148,16 +150,16 @@ func TestPruneStaleCascade_DryRunDoesNotDelete(t *testing.T) {
 
 	assertReport(t, report, prunedCounts{vms: 1, volumes: 1, msbImages: 1, dockerImages: 1})
 
-	total := len(client.removedSandboxes) + len(client.removedVolumes) +
-		len(client.removedImages) + len(dockerMock.removedImages)
+	total := len(client.RemovedSandboxes) + len(client.RemovedVolumes) +
+		len(client.RemovedImages) + len(dockerMock.removedImages)
 	if total != 0 {
 		t.Errorf("expected no deletion calls in dry run, got sandboxes=%v volumes=%v images=%v docker=%v",
-			client.removedSandboxes, client.removedVolumes, client.removedImages, dockerMock.removedImages)
+			client.RemovedSandboxes, client.RemovedVolumes, client.RemovedImages, dockerMock.removedImages)
 	}
 }
 
 func TestPruneStaleCascade_RemoveErrorWarnsAndStopsCascade(t *testing.T) {
-	client := &MockMsbClient{removeSandboxErr: errors.New("sandbox locked")}
+	client := &MockMsbClient{RemoveSandboxFn: func(_ context.Context, _ string) error { return errors.New("sandbox locked") }}
 	dockerMock := &mockDockerClient{}
 	docker.WithDockerMock(t, dockerMock)
 	ui := newMockUI()
@@ -180,7 +182,7 @@ func TestPruneStaleCascade_RemoveErrorWarnsAndStopsCascade(t *testing.T) {
 	if len(ui.WarnCalls) == 0 {
 		t.Error("expected a warning on sandbox removal error")
 	}
-	if len(client.removedVolumes)+len(client.removedImages)+len(dockerMock.removedImages) != 0 {
+	if len(client.RemovedVolumes)+len(client.RemovedImages)+len(dockerMock.removedImages) != 0 {
 		t.Error("expected cascade to stop after sandbox removal failure")
 	}
 }
@@ -216,12 +218,12 @@ func TestPruneActiveVMCleanup_KeepsMatchingDigestAndLatest(t *testing.T) {
 
 	assertReport(t, report, prunedCounts{volumes: 1, msbImages: 1, dockerImages: 1})
 
-	if len(client.removedVolumes) != 1 || client.removedVolumes[0] != "opencode-msb-home-myproject-digest1" {
-		t.Errorf("removed volumes = %v, want [opencode-msb-home-myproject-digest1]", client.removedVolumes)
+	if len(client.RemovedVolumes) != 1 || client.RemovedVolumes[0] != "opencode-msb-home-myproject-digest1" {
+		t.Errorf("removed volumes = %v, want [opencode-msb-home-myproject-digest1]", client.RemovedVolumes)
 	}
 
-	if len(client.removedImages) != 1 || client.removedImages[0].Ref != "opencode-msb/runner-myproject:digest1" {
-		t.Errorf("removed msb images = %v, want [opencode-msb/runner-myproject:digest1]", client.removedImages)
+	if len(client.RemovedImages) != 1 || client.RemovedImages[0].Ref != "opencode-msb/runner-myproject:digest1" {
+		t.Errorf("removed msb images = %v, want [opencode-msb/runner-myproject:digest1]", client.RemovedImages)
 	}
 
 	if len(dockerMock.removedImages) != 1 || dockerMock.removedImages[0] != "opencode-msb/runner-myproject:digest1" {
@@ -259,7 +261,7 @@ func TestPruneActiveVMCleanup_DryRunCountsButDoesNotDelete(t *testing.T) {
 		t.Errorf("unexpected report counts: volumes=%d msb=%d docker=%d",
 			report.PrunedVolumes, report.PrunedMSBImages, report.PrunedDockerImages)
 	}
-	if len(client.removedVolumes)+len(client.removedImages)+len(dockerMock.removedImages) != 0 {
+	if len(client.RemovedVolumes)+len(client.RemovedImages)+len(dockerMock.removedImages) != 0 {
 		t.Error("expected no deletion calls in dry run")
 	}
 }
@@ -289,11 +291,11 @@ func TestPruneOrphanSlug_RemovesEverything(t *testing.T) {
 
 	assertReport(t, report, prunedCounts{volumes: 2, msbImages: 2, dockerImages: 2})
 
-	if len(client.removedVolumes) != 2 {
-		t.Errorf("removed volumes = %v, want 2", client.removedVolumes)
+	if len(client.RemovedVolumes) != 2 {
+		t.Errorf("removed volumes = %v, want 2", client.RemovedVolumes)
 	}
-	if len(client.removedImages) != 2 {
-		t.Errorf("removed msb images = %v, want 2", client.removedImages)
+	if len(client.RemovedImages) != 2 {
+		t.Errorf("removed msb images = %v, want 2", client.RemovedImages)
 	}
 	if len(dockerMock.removedImages) != 2 {
 		t.Errorf("removed docker images = %v, want 2", dockerMock.removedImages)
@@ -313,8 +315,8 @@ func TestPruneCloneVolume_RemovesWhenNoActiveVM(t *testing.T) {
 	if report.PrunedCloneVolumes != 1 {
 		t.Errorf("PrunedCloneVolumes = %d, want 1", report.PrunedCloneVolumes)
 	}
-	if len(client.removedVolumes) != 1 || client.removedVolumes[0] != cv {
-		t.Errorf("removed volumes = %v, want [%s]", client.removedVolumes, cv)
+	if len(client.RemovedVolumes) != 1 || client.RemovedVolumes[0] != cv {
+		t.Errorf("removed volumes = %v, want [%s]", client.RemovedVolumes, cv)
 	}
 }
 
@@ -331,8 +333,8 @@ func TestPruneCloneVolume_KeepsWhenActiveVMExists(t *testing.T) {
 	if report.PrunedCloneVolumes != 0 {
 		t.Errorf("PrunedCloneVolumes = %d, want 0", report.PrunedCloneVolumes)
 	}
-	if len(client.removedVolumes) != 0 {
-		t.Errorf("expected no volume removal, got %v", client.removedVolumes)
+	if len(client.RemovedVolumes) != 0 {
+		t.Errorf("expected no volume removal, got %v", client.RemovedVolumes)
 	}
 }
 
@@ -347,7 +349,7 @@ func TestPruneCloneVolume_DryRunDoesNotDelete(t *testing.T) {
 	if report.PrunedCloneVolumes != 1 {
 		t.Errorf("PrunedCloneVolumes = %d, want 1", report.PrunedCloneVolumes)
 	}
-	if len(client.removedVolumes) != 0 {
+	if len(client.RemovedVolumes) != 0 {
 		t.Error("expected no deletion in dry run")
 	}
 }
@@ -361,20 +363,20 @@ func TestPrune_WithMocks_CoversAllCases(t *testing.T) {
 			// Stale VM for myproject -> cascade removes everything.
 			&MockSandboxHandle{
 				Name_:      "opencode-msb-vm-myproject-1mjusbm3wikhb0",
-				Status_:    msb.SandboxStatusStopped,
+				Status_:    msbSdk.SandboxStatusStopped,
 				UpdatedAt_: oldTime,
 			},
 			// Active VM for activeproject -> cleanup non-matching digests.
 			&MockSandboxHandle{
 				Name_:      "opencode-msb-vm-activeproject-1mjusbm3wikhb0-main",
-				Status_:    msb.SandboxStatusRunning,
+				Status_:    msbSdk.SandboxStatusRunning,
 				UpdatedAt_: recentTime,
 				Image_:     "opencode-msb/runner-activeproject-1mjusbm3wikhb0:digest2",
 			},
 			// Task sandbox -> always pruned.
 			&MockSandboxHandle{
 				Name_:      "opencode-msb-task-fill-proj",
-				Status_:    msb.SandboxStatusStopped,
+				Status_:    msbSdk.SandboxStatusStopped,
 				UpdatedAt_: oldTime,
 			},
 		},
@@ -395,9 +397,9 @@ func TestPrune_WithMocks_CoversAllCases(t *testing.T) {
 	docker.WithNoopDockerMock(t)
 	ui := newMockUI()
 
-	oldNewMsbClient := newMsbClient
-	newMsbClient = func() MsbClient { return client }
-	defer func() { newMsbClient = oldNewMsbClient }()
+	oldGet := msb.Get
+	msb.Get = func() MsbClient { return client }
+	defer func() { msb.Get = oldGet }()
 
 	report, err := Prune(context.Background(), 30*time.Minute, false, ui)
 	if err != nil {
@@ -506,11 +508,11 @@ func TestPruneStaleCascade_DockerRemoveFails_DependentOpsSucceed(t *testing.T) {
 
 	assertReport(t, report, prunedCounts{vms: 1, volumes: 1, msbImages: 2, dockerImages: 1})
 	// Verify MSB removals.
-	if len(client.removedVolumes) != 1 {
-		t.Errorf("removed volumes = %v, want [opencode-msb-home-myproject-digest1]", client.removedVolumes)
+	if len(client.RemovedVolumes) != 1 {
+		t.Errorf("removed volumes = %v, want [opencode-msb-home-myproject-digest1]", client.RemovedVolumes)
 	}
-	if len(client.removedImages) != 2 {
-		t.Errorf("removed MSB images count = %d, want 2", len(client.removedImages))
+	if len(client.RemovedImages) != 2 {
+		t.Errorf("removed MSB images count = %d, want 2", len(client.RemovedImages))
 	}
 	// Docker: only the first image removed (second fails, doesn't count).
 	if len(dockerMock.removedImages) != 1 {
@@ -530,7 +532,7 @@ func TestPrune_DockerRemoveFails_PartialReport(t *testing.T) {
 			// Stale VM for myproject -> cascade removes everything.
 			&MockSandboxHandle{
 				Name_:      "opencode-msb-vm-myproject-1mjusbm3wikhb0",
-				Status_:    msb.SandboxStatusStopped,
+				Status_:    msbSdk.SandboxStatusStopped,
 				UpdatedAt_: oldTime,
 			},
 		},
@@ -550,9 +552,9 @@ func TestPrune_DockerRemoveFails_PartialReport(t *testing.T) {
 	docker.WithDockerMock(t, dockerMock)
 	ui := newMockUI()
 
-	oldNewMsbClient := newMsbClient
-	newMsbClient = func() MsbClient { return client }
-	defer func() { newMsbClient = oldNewMsbClient }()
+	oldGet := msb.Get
+	msb.Get = func() MsbClient { return client }
+	defer func() { msb.Get = oldGet }()
 
 	report, err := Prune(context.Background(), 30*time.Minute, false, ui)
 	if err != nil {
