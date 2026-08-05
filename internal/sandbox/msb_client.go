@@ -5,6 +5,8 @@
 package sandbox
 
 import (
+	"testing"
+
 	msb "gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/msb"
 )
 
@@ -57,3 +59,8 @@ func SetNewMsbClient(f func() MsbClient) func() MsbClient {
 //
 //nolint:gochecknoglobals // backward compat re-export
 var NewMsbClient = msb.Get
+
+// WithMsbMock re-exports msb.WithMsbMock for backward compatibility.
+func WithMsbMock(t *testing.T, mock MsbClient) {
+	msb.WithMsbMock(t, mock)
+}
