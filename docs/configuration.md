@@ -27,7 +27,7 @@ Supported launcher config filenames: `config.yaml`, `config.yml`, `config.json`,
 | `cpus`             | `--cpus` / `-c`    | Number of vCPUs for the VM                    |
 | `memory`           | `--memory` / `-m`  | Memory limit (e.g. `8G`)                      |
 | `tmp-size`         | `--tmp-size`       | Size of `/tmp` tmpfs in the sandbox           |
-| `auto-prune-age`   | —                  | Accepted but unused (hardcoded 7-day default) |
+| `auto-prune-age`   | — | Auto-prune threshold, runs before every command (default: 30d, only in config) |
 | `manual-prune-age` | `--age`            | Default prune age threshold for `prune` cmd   |
 
 Example `~/.config/opencode-msb/config.yaml`:
@@ -36,7 +36,7 @@ Example `~/.config/opencode-msb/config.yaml`:
 verbose: true
 cpus: 4
 memory: 8G
-auto-prune-age: "24h"           # currently not used
+auto-prune-age: "7d"
 manual-prune-age: "7d"
 ```
 
@@ -115,7 +115,7 @@ Once set as a secret, the variable is available like any environment variable:
 echo $GITHUB_TOKEN
 ```
 
-Note: `.envrc` files in the project directory are automatically removed from the VM workspace before opencode runs. Secrets from `.envrc` must be migrated to `.opencode-msb/env.secret`.
+Note: `.envrc` files in the project directory are denied by opencode's provider config and will not be processed or surfaced. Secrets from `.envrc` must be migrated to `.opencode-msb/env.secret`.
 
 ## Launcher config
 
@@ -135,7 +135,7 @@ config.json5
 
 ### Duration fields
 
-The `auto-prune-age` and `manual-prune-age` fields accept:
+The `auto-prune-age` field (for `run`/`shell` auto-pruning) and `manual-prune-age` field (for `prune` default) accept:
 
 - Go duration: `"7200000000000ns"`, `"2h"`, `"24h"`
 - Days shorthand: `"7d"`, `"14d"`
@@ -144,7 +144,6 @@ The `auto-prune-age` and `manual-prune-age` fields accept:
 
 The launcher validates:
 - `cpus` must be between 0 and 255
-- `auto-prune-age` and `manual-prune-age` must be > 0
 
 Invalid config files prevent the launcher from starting.
 
@@ -156,6 +155,6 @@ opencode-msb provisions opencode config into the VM at `/home/dev/.config/openco
 2. **User config** — files in `~/.config/opencode-msb/opencode/`
 3. **Project config** — files in `.opencode-msb/opencode/`
 
-The user and project config are deep-merged. JSON files are merged by filename; other files (like `settings.json`) are taken from the project directory if present, otherwise the user directory.
+The user and project config are deep-merged by filename.
 
 See `opencode-msb config show` to inspect the merged config with source paths.

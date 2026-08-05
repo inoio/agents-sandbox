@@ -12,7 +12,6 @@ These flags are available on every command.
 | `--verbose`  | `-v`  | `false` | Show debug-level output        |
 | `--quiet`    | `-q`  | `false` | Suppress non-error output      |
 | `--tree`     | —     | `false` | Print the full command tree    |
-| `--version`  | `-V`  | `false` | Print version and exit         |
 
 ## Commands
 
@@ -42,6 +41,7 @@ Arguments after `--` are forwarded to opencode. Arguments before `--` that don't
 | `--tmp-size`    | —     | `2G`     | Size of `/tmp` tmpfs in the sandbox        |
 | `--user`        | `-u`  | `dev`*   | Username or UID inside the sandbox         |
 | `--no-auto`     | —     | `false`  | Do not pass `--auto` to opencode           |
+| `--dry-run-vm`  | —     | `false`  | Skip VM lifecycle but prepare everything else |
 
 <!-- markdownlint-disable-next-line no-trailing-punctuation -->
 * Effective default: `dev`. The CLI flag defaults to empty string, but the launcher applies `dev` when blank.
@@ -76,7 +76,8 @@ opencode-msb build -r     # force clean rebuild
 
 | Flag            | Short | Default | Purpose                      |
 |-----------------|-------|---------|------------------------------|
-| `--rebuild`     | `-r`  | `false` | Force a clean rebuild        |
+| `--rebuild`     | `-r`  | `false`  | Force a clean rebuild        |
+| `--dry-run`     | `-n`  | `false`  | Dry run without building     |
 
 **Aliases:** `image build`
 
@@ -98,6 +99,7 @@ opencode-msb stop -f     # stop and remove VM state
 | Flag        | Short | Default | Purpose                        |
 |-------------|-------|---------|--------------------------------|
 | `--force`   | `-f`  | `false` | Remove VM's persisted state    |
+| `--dry-run` | `-n`  | `false` | Show what would be stopped without stopping |
 
 ---
 
@@ -117,6 +119,7 @@ opencode-msb kill -f     # kill and remove VM state
 | Flag        | Short | Default | Purpose                        |
 |-------------|-------|---------|--------------------------------|
 | `--force`   | `-f`  | `false` | Remove VM's persisted state    |
+| `--dry-run` | `-n`  | `false` | Show what would be killed without killing |
 
 ---
 
@@ -138,6 +141,7 @@ opencode-msb prune --force               # skip confirmation
 | `--age`       | `-a`  | `7d`    | Prune threshold (e.g. `24h`, `7d`)    |
 | `--dry-run`   | `-n`  | `false` | Preview what would be pruned          |
 | `--force`     | `-f`  | `false` | Skip confirmation prompt              |
+| `--dry-run-vm`| —     | `false` | Suppress VM deletion during prune     |
 
 ---
 

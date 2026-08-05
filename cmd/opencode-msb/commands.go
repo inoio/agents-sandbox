@@ -71,6 +71,7 @@ func buildRootCmd(ui stdio.UI) *cobra.Command {
 		if err != nil {
 			return err
 		}
+		sandbox.AutoPrune(cmd.Context(), lc.AutoPruneAge, ui)
 		if err := applyLauncherConfig(cmd, lc, keys, ui); err != nil {
 			return err
 		}

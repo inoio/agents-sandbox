@@ -99,4 +99,4 @@ Pruning removes:
 - Unused msb images
 - Stale clone volumes
 
-Auto-pruning runs once per CLI invocation via `sync.Once`. It uses a fixed default threshold of 7 days (currently not configurable — the `auto-prune-age` config field is accepted but not yet wired into the prune logic).
+Auto-pruning runs before every command via `sync.Once`. It uses a fixed default threshold of 30 days unless `auto-prune-age` is set in config.
