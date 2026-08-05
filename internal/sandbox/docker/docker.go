@@ -152,6 +152,7 @@ func scanBuildOutput(r io.Reader, ui stdio.UI) error {
 // Returns true if the daemon responds, false otherwise with error/info messages.
 func CheckDockerAPI(ctx context.Context, ui stdio.UI) bool {
 	moby := Get()
+	//nolint:exhaustruct // NegotiateAPIVersion/ForceNegotiate not needed for a simple ping check
 	_, err := moby.Ping(ctx, client.PingOptions{})
 	if err != nil {
 		ui.Errorf("Docker API unreachable: %v", err)
