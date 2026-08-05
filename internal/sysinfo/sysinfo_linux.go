@@ -6,8 +6,6 @@ import (
 	"os"
 )
 
-const totalMemoryKiB = 1024 * 1024
-
 func TotalMemoryGiB() int {
 	data, err := os.ReadFile("/proc/meminfo")
 	if err != nil {
@@ -17,5 +15,5 @@ func TotalMemoryGiB() int {
 	if !ok {
 		return 0
 	}
-	return totalKB / totalMemoryKiB
+	return totalKB / (kiB * kiB)
 }
