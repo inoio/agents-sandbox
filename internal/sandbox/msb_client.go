@@ -11,28 +11,10 @@ import (
 	msb "github.com/superradcompany/microsandbox/sdk/go"
 )
 
-// msbClient is the unified abstraction over the microsandbox SDK used by the
-// sandbox package. It covers discovery, creation, and deletion of sandboxes,
-// volumes, and images, plus runtime setup. Production code uses realMsbClient;
-// tests replace NewMsbClient to inject mocks.
-type msbClient = MsbClient
-
-// Deprecated: use SandboxHandle.
-
-type msbSandboxHandle = SandboxHandle
-
-// Deprecated: use Sandbox.
-
-type msbSandbox = Sandbox
-
-// Deprecated: use ShellResult.
-
-type shellResult = ShellResult
-
-// Deprecated: use SandboxHandle.
-
-// newMsbClient is the factory the sandbox package uses to obtain an MsbClient.
+// newMsbClient is the factory clients can use to obtain an MsbClient.
 // Tests override NewMsbClient to inject mocks.
+//
+// TODO: unify with NewMsbClient?
 //
 //nolint:gochecknoglobals // test hook for the otherwise unmockable SDK
 var newMsbClient = func() MsbClient {
@@ -45,6 +27,7 @@ var newMsbClient = func() MsbClient {
 var NewMsbClient = newMsbClient
 
 // realMsbClient delegates to the actual microsandbox SDK.
+// TODO: rename to sth. with proxy?
 type realMsbClient struct{}
 
 func (realMsbClient) EnsureInstalled(ctx context.Context) error {
@@ -190,7 +173,7 @@ func (v realVolumeHandle) Kind() msb.VolumeKind {
 	return msb.VolumeKindDir
 }
 
-// realSandboxHandle adapts *msb.SandboxHandle to msbSandboxHandle.
+// realSandboxHandle adapts *msb.SandboxHandle to SandboxHandle.
 type realSandboxHandle struct {
 	handle *msb.SandboxHandle
 }
@@ -223,7 +206,7 @@ func (w realSandboxHandle) Connect(ctx context.Context) (Sandbox, error) {
 	return &realSandbox{sandbox: sb}, nil
 }
 
-func (w realSandboxHandle) Refresh(ctx context.Context) (msbSandboxHandle, error) {
+func (w realSandboxHandle) Refresh(ctx context.Context) (SandboxHandle, error) {
 	h, err := w.handle.Refresh(ctx)
 	if err != nil {
 		return nil, err
@@ -231,7 +214,7 @@ func (w realSandboxHandle) Refresh(ctx context.Context) (msbSandboxHandle, error
 	return realSandboxHandle{handle: h}, nil
 }
 
-func (w realSandboxHandle) Start(ctx context.Context) (msbSandbox, error) {
+func (w realSandboxHandle) Start(ctx context.Context) (Sandbox, error) {
 	sb, err := w.handle.Start(ctx)
 	if err != nil {
 		return nil, err
@@ -251,7 +234,7 @@ func (w realSandboxHandle) Remove(ctx context.Context) error {
 	return w.handle.Remove(ctx)
 }
 
-// realSandbox adapts *msb.Sandbox to msbSandbox.
+// realSandbox adapts *msb.Sandbox to Sandbox.
 type realSandbox struct {
 	sandbox *msb.Sandbox
 }
@@ -260,7 +243,7 @@ func (s realSandbox) FS() sandboxFS {
 	return s.sandbox.FS()
 }
 
-func (s realSandbox) Shell(ctx context.Context, command string, opts ...msb.ExecOption) (shellResult, error) {
+func (s realSandbox) Shell(ctx context.Context, command string, opts ...msb.ExecOption) (ShellResult, error) {
 	return s.sandbox.Shell(ctx, command, opts...)
 }
 
@@ -269,7 +252,7 @@ func (s realSandbox) Exec(
 	command string,
 	args []string,
 	opts ...msb.ExecOption,
-) (shellResult, error) {
+) (ShellResult, error) {
 	return s.sandbox.Exec(ctx, command, args, opts...)
 }
 

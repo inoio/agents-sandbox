@@ -156,7 +156,7 @@ func TestStopProjectVMUsesClient(t *testing.T) {
 		},
 	}
 	oldNewMsbClient := newMsbClient
-	newMsbClient = func() msbClient { return client }
+	newMsbClient = func() MsbClient { return client }
 	defer func() { newMsbClient = oldNewMsbClient }()
 
 	// ProjectSlug depends on the current directory, so use a temp repo.

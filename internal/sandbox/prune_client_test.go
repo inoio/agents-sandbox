@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/moby/moby/client"
+	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/docker"
 
 	msb "github.com/superradcompany/microsandbox/sdk/go"
 
@@ -87,7 +88,8 @@ func newMockUI() *stdio.Mock {
 
 func TestPruneStaleCascade_RemovesVMAndAllArtifacts(t *testing.T) {
 	client := &MockMsbClient{}
-	docker := &mockDockerClient{}
+	dockerMock := &mockDockerClient{}
+	docker.TestWithDockerMock(t, dockerMock)
 	ui := newMockUI()
 	report := &StaleReport{}
 
@@ -106,7 +108,7 @@ func TestPruneStaleCascade_RemovesVMAndAllArtifacts(t *testing.T) {
 		},
 	}
 
-	pruneStaleCascade(context.Background(), client, docker, entry, homeBySlugDigest, msbImagesBySlug, false, ui, report)
+	pruneStaleCascade(context.Background(), client, entry, homeBySlugDigest, msbImagesBySlug, false, ui, report)
 
 	if report.PrunedVMs != 1 {
 		t.Errorf("PrunedVMs = %d, want 1", report.PrunedVMs)
@@ -137,14 +139,15 @@ func TestPruneStaleCascade_RemovesVMAndAllArtifacts(t *testing.T) {
 	}
 
 	wantDockerImages := []string{"opencode-msb/runner-myproject:digest1", "opencode-msb/runner-myproject:latest"}
-	if len(docker.removedImages) != len(wantDockerImages) {
-		t.Errorf("removed docker images = %v, want %v", docker.removedImages, wantDockerImages)
+	if len(dockerMock.removedImages) != len(wantDockerImages) {
+		t.Errorf("removed docker images = %v, want %v", dockerMock.removedImages, wantDockerImages)
 	}
 }
 
 func TestPruneStaleCascade_DryRunDoesNotDelete(t *testing.T) {
 	client := &MockMsbClient{}
-	docker := &mockDockerClient{}
+	dockerMock := &mockDockerClient{}
+	docker.TestWithDockerMock(t, dockerMock)
 	ui := newMockUI()
 	report := &StaleReport{}
 
@@ -157,7 +160,7 @@ func TestPruneStaleCascade_DryRunDoesNotDelete(t *testing.T) {
 		slug: {{ref: "opencode-msb/runner-myproject:digest1", digest: "digest1", isLatest: false}},
 	}
 
-	pruneStaleCascade(context.Background(), client, docker, entry, homeBySlugDigest, msbImagesBySlug, true, ui, report)
+	pruneStaleCascade(context.Background(), client, entry, homeBySlugDigest, msbImagesBySlug, true, ui, report)
 
 	if report.PrunedVMs != 1 {
 		t.Errorf("PrunedVMs = %d, want 1", report.PrunedVMs)
@@ -173,16 +176,17 @@ func TestPruneStaleCascade_DryRunDoesNotDelete(t *testing.T) {
 	}
 
 	total := len(client.removedSandboxes) + len(client.removedVolumes) +
-		len(client.removedImages) + len(docker.removedImages)
+		len(client.removedImages) + len(dockerMock.removedImages)
 	if total != 0 {
 		t.Errorf("expected no deletion calls in dry run, got sandboxes=%v volumes=%v images=%v docker=%v",
-			client.removedSandboxes, client.removedVolumes, client.removedImages, docker.removedImages)
+			client.removedSandboxes, client.removedVolumes, client.removedImages, dockerMock.removedImages)
 	}
 }
 
 func TestPruneStaleCascade_RemoveErrorWarnsAndStopsCascade(t *testing.T) {
 	client := &MockMsbClient{removeSandboxErr: errors.New("sandbox locked")}
-	docker := &mockDockerClient{}
+	dockerMock := &mockDockerClient{}
+	docker.TestWithDockerMock(t, dockerMock)
 	ui := newMockUI()
 	report := &StaleReport{}
 
@@ -195,7 +199,7 @@ func TestPruneStaleCascade_RemoveErrorWarnsAndStopsCascade(t *testing.T) {
 		slug: {{ref: "opencode-msb/runner-myproject:digest1", digest: "digest1", isLatest: false}},
 	}
 
-	pruneStaleCascade(context.Background(), client, docker, entry, homeBySlugDigest, msbImagesBySlug, false, ui, report)
+	pruneStaleCascade(context.Background(), client, entry, homeBySlugDigest, msbImagesBySlug, false, ui, report)
 
 	if report.PrunedVMs != 0 {
 		t.Errorf("PrunedVMs = %d, want 0", report.PrunedVMs)
@@ -203,14 +207,15 @@ func TestPruneStaleCascade_RemoveErrorWarnsAndStopsCascade(t *testing.T) {
 	if len(ui.WarnCalls) == 0 {
 		t.Error("expected a warning on sandbox removal error")
 	}
-	if len(client.removedVolumes)+len(client.removedImages)+len(docker.removedImages) != 0 {
+	if len(client.removedVolumes)+len(client.removedImages)+len(dockerMock.removedImages) != 0 {
 		t.Error("expected cascade to stop after sandbox removal failure")
 	}
 }
 
 func TestPruneActiveVMCleanup_KeepsMatchingDigestAndLatest(t *testing.T) {
 	client := &MockMsbClient{}
-	docker := &mockDockerClient{}
+	dockerMock := &mockDockerClient{}
+	docker.TestWithDockerMock(t, dockerMock)
 	ui := newMockUI()
 	report := &StaleReport{}
 
@@ -232,7 +237,7 @@ func TestPruneActiveVMCleanup_KeepsMatchingDigestAndLatest(t *testing.T) {
 	}
 
 	pruneActiveVMCleanup(
-		context.Background(), client, docker, slug, activeDigest,
+		context.Background(), client, slug, activeDigest,
 		homeBySlugDigest, msbImagesBySlug, false, ui, report,
 	)
 
@@ -254,14 +259,15 @@ func TestPruneActiveVMCleanup_KeepsMatchingDigestAndLatest(t *testing.T) {
 		t.Errorf("removed msb images = %v, want [opencode-msb/runner-myproject:digest1]", client.removedImages)
 	}
 
-	if len(docker.removedImages) != 1 || docker.removedImages[0] != "opencode-msb/runner-myproject:digest1" {
-		t.Errorf("removed docker images = %v, want [opencode-msb/runner-myproject:digest1]", docker.removedImages)
+	if len(dockerMock.removedImages) != 1 || dockerMock.removedImages[0] != "opencode-msb/runner-myproject:digest1" {
+		t.Errorf("removed docker images = %v, want [opencode-msb/runner-myproject:digest1]", dockerMock.removedImages)
 	}
 }
 
 func TestPruneActiveVMCleanup_DryRunCountsButDoesNotDelete(t *testing.T) {
 	client := &MockMsbClient{}
-	docker := &mockDockerClient{}
+	dockerMock := &mockDockerClient{}
+	docker.TestWithDockerMock(t, dockerMock)
 	ui := newMockUI()
 	report := &StaleReport{}
 
@@ -280,7 +286,7 @@ func TestPruneActiveVMCleanup_DryRunCountsButDoesNotDelete(t *testing.T) {
 	}
 
 	pruneActiveVMCleanup(
-		context.Background(), client, docker, slug, "digest2",
+		context.Background(), client, slug, "digest2",
 		homeBySlugDigest, msbImagesBySlug, true, ui, report,
 	)
 
@@ -288,14 +294,15 @@ func TestPruneActiveVMCleanup_DryRunCountsButDoesNotDelete(t *testing.T) {
 		t.Errorf("unexpected report counts: volumes=%d msb=%d docker=%d",
 			report.PrunedVolumes, report.PrunedMSBImages, report.PrunedDockerImages)
 	}
-	if len(client.removedVolumes)+len(client.removedImages)+len(docker.removedImages) != 0 {
+	if len(client.removedVolumes)+len(client.removedImages)+len(dockerMock.removedImages) != 0 {
 		t.Error("expected no deletion calls in dry run")
 	}
 }
 
 func TestPruneOrphanSlug_RemovesEverything(t *testing.T) {
 	client := &MockMsbClient{}
-	docker := &mockDockerClient{}
+	dockerMock := &mockDockerClient{}
+	docker.TestWithDockerMock(t, dockerMock)
 	ui := newMockUI()
 	report := &StaleReport{}
 
@@ -313,7 +320,7 @@ func TestPruneOrphanSlug_RemovesEverything(t *testing.T) {
 		},
 	}
 
-	pruneOrphanSlug(context.Background(), client, docker, slug, homeBySlugDigest, msbImagesBySlug, report, false, ui)
+	pruneOrphanSlug(context.Background(), client, slug, homeBySlugDigest, msbImagesBySlug, report, false, ui)
 
 	if report.PrunedVolumes != 2 {
 		t.Errorf("PrunedVolumes = %d, want 2", report.PrunedVolumes)
@@ -331,8 +338,8 @@ func TestPruneOrphanSlug_RemovesEverything(t *testing.T) {
 	if len(client.removedImages) != 2 {
 		t.Errorf("removed msb images = %v, want 2", client.removedImages)
 	}
-	if len(docker.removedImages) != 2 {
-		t.Errorf("removed docker images = %v, want 2", docker.removedImages)
+	if len(dockerMock.removedImages) != 2 {
+		t.Errorf("removed docker images = %v, want 2", dockerMock.removedImages)
 	}
 }
 
@@ -428,14 +435,14 @@ func TestPrune_WithMocks_CoversAllCases(t *testing.T) {
 			&MockImageHandle{Reference_: "opencode-msb/runner-orphan:latest"},
 		},
 	}
-	docker := &mockDockerClient{}
+	docker.TestWithNoopDockerMock(t)
 	ui := newMockUI()
 
 	oldNewMsbClient := newMsbClient
-	newMsbClient = func() msbClient { return client }
+	newMsbClient = func() MsbClient { return client }
 	defer func() { newMsbClient = oldNewMsbClient }()
 
-	report, err := Prune(context.Background(), docker, 30*time.Minute, false, ui)
+	report, err := Prune(context.Background(), 30*time.Minute, false, ui)
 	if err != nil {
 		t.Fatalf("Prune returned error: %v", err)
 	}
@@ -461,9 +468,11 @@ func TestPrune_WithMocks_CoversAllCases(t *testing.T) {
 }
 
 func TestPruneActiveVMDockerImages_AllFail_LogWarnings(t *testing.T) {
-	docker := &mockDockerClient{
+
+	dockerMock := &mockDockerClient{
 		removeErr: errors.New("image does not exist"),
 	}
+	docker.TestWithDockerMock(t, dockerMock)
 	report := &StaleReport{}
 	ui := newMockUI()
 
@@ -476,15 +485,15 @@ func TestPruneActiveVMDockerImages_AllFail_LogWarnings(t *testing.T) {
 		},
 	}
 
-	pruneActiveVMDockerImages(context.Background(), docker, slug, "digest2", msbImagesBySlug, false, ui, report)
+	pruneActiveVMDockerImages(context.Background(), slug, "digest2", msbImagesBySlug, false, ui, report)
 
 	// No images should be counted as pruned when Docker removal always fails.
 	if report.PrunedDockerImages != 0 {
 		t.Errorf("PrunedDockerImages = %d, want 0", report.PrunedDockerImages)
 	}
 	// No images should appear in the removed list (all calls failed).
-	if len(docker.removedImages) != 0 {
-		t.Errorf("removedImages = %v, want [] (all calls failed)", docker.removedImages)
+	if len(dockerMock.removedImages) != 0 {
+		t.Errorf("removedImages = %v, want [] (all calls failed)", dockerMock.removedImages)
 	}
 	// There should be a verbose message about the failed docker image.
 	if len(ui.VerboseCalls) != 1 {
@@ -493,13 +502,14 @@ func TestPruneActiveVMDockerImages_AllFail_LogWarnings(t *testing.T) {
 }
 
 func TestPruneActiveVMDockerImages_PartialFailure(t *testing.T) {
-	docker := &mockDockerClient{
+	dockerMock := &mockDockerClient{
 		// First call succeeds, second call fails (if a second call is made).
 		perCallErrs: []error{
 			nil,
 			errors.New("image does not exist"),
 		},
 	}
+	docker.TestWithDockerMock(t, dockerMock)
 	report := &StaleReport{}
 	ui := newMockUI()
 
@@ -512,15 +522,15 @@ func TestPruneActiveVMDockerImages_PartialFailure(t *testing.T) {
 		},
 	}
 
-	pruneActiveVMDockerImages(context.Background(), docker, slug, "digest2", msbImagesBySlug, false, ui, report)
+	pruneActiveVMDockerImages(context.Background(), slug, "digest2", msbImagesBySlug, false, ui, report)
 
 	// The first (and only non-latest) image should be pruned successfully.
 	if report.PrunedDockerImages != 1 {
 		t.Errorf("PrunedDockerImages = %d, want 1", report.PrunedDockerImages)
 	}
 	// Only the first image should be in the removed list.
-	if len(docker.removedImages) != 1 || docker.removedImages[0] != "opencode-msb/runner-myproject:digest1" {
-		t.Errorf("removedImages = %v, want [opencode-msb/runner-myproject:digest1]", docker.removedImages)
+	if len(dockerMock.removedImages) != 1 || dockerMock.removedImages[0] != "opencode-msb/runner-myproject:digest1" {
+		t.Errorf("removedImages = %v, want [opencode-msb/runner-myproject:digest1]", dockerMock.removedImages)
 	}
 }
 
@@ -529,10 +539,11 @@ func TestPruneActiveVMDockerImages_PartialFailure(t *testing.T) {
 // succeed, and the docker failure only affects the docker pruned count.
 func TestPruneStaleCascade_DockerRemoveFails_DependentOpsSucceed(t *testing.T) {
 	client := &MockMsbClient{}
-	docker := &mockDockerClient{
+	dockerMock := &mockDockerClient{
 		// First Docker removal succeeds, second fails.
 		perCallErrs: []error{nil, errors.New("image not found")},
 	}
+	docker.TestWithDockerMock(t, dockerMock)
 	ui := newMockUI()
 	report := &StaleReport{}
 
@@ -548,7 +559,7 @@ func TestPruneStaleCascade_DockerRemoveFails_DependentOpsSucceed(t *testing.T) {
 		},
 	}
 
-	pruneStaleCascade(context.Background(), client, docker, entry, homeBySlugDigest, msbImagesBySlug, false, ui, report)
+	pruneStaleCascade(context.Background(), client, entry, homeBySlugDigest, msbImagesBySlug, false, ui, report)
 
 	// VM is pruned.
 	if report.PrunedVMs != 1 {
@@ -574,8 +585,8 @@ func TestPruneStaleCascade_DockerRemoveFails_DependentOpsSucceed(t *testing.T) {
 		t.Errorf("removed MSB images count = %d, want 2", len(client.removedImages))
 	}
 	// Docker: only the first image removed (second fails, doesn't count).
-	if len(docker.removedImages) != 1 {
-		t.Errorf("removed docker images = %v, want 1", docker.removedImages)
+	if len(dockerMock.removedImages) != 1 {
+		t.Errorf("removed docker images = %v, want 1", dockerMock.removedImages)
 	}
 	// There should be a verbose message about the failed docker image.
 	if len(ui.VerboseCalls) != 1 {
@@ -603,17 +614,19 @@ func TestPrune_DockerRemoveFails_PartialReport(t *testing.T) {
 			&MockImageHandle{Reference_: "opencode-msb/runner-myproject-1mjusbm3wikhb0:latest"},
 		},
 	}
-	docker := &mockDockerClient{
+
+	dockerMock := &mockDockerClient{
 		// First succeeds, second fails.
 		perCallErrs: []error{nil, errors.New("image not found")},
 	}
+	docker.TestWithDockerMock(t, dockerMock)
 	ui := newMockUI()
 
 	oldNewMsbClient := newMsbClient
-	newMsbClient = func() msbClient { return client }
+	newMsbClient = func() MsbClient { return client }
 	defer func() { newMsbClient = oldNewMsbClient }()
 
-	report, err := Prune(context.Background(), docker, 30*time.Minute, false, ui)
+	report, err := Prune(context.Background(), 30*time.Minute, false, ui)
 	if err != nil {
 		t.Fatalf("Prune returned error: %v", err)
 	}

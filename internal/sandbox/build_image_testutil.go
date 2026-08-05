@@ -80,24 +80,6 @@ func (m *BuildImageDockerClient) Close() error {
 	return nil
 }
 
-// SetBuildImageDockerClient replaces the docker client factory used by BuildImage
-// (and EnsureImage) with one that returns the provided client. The original
-// factory is returned so callers can restore it after their test. This function
-// is test only and should not be called from production code.
-//
-// Usage from an external test package:
-//
-//	client := &sandbox.BuildImageDockerClient{}
-//	orig := sandbox.SetBuildImageDockerClient(func() (sandbox.DockerClient, error) {
-//	    return client, nil
-//	})
-//	t.Cleanup(func() { sandbox.SetBuildImageDockerClient(orig) })
-func SetBuildImageDockerClient(f func() (DockerClient, error)) func() (DockerClient, error) {
-	orig := ensureImageDockerClient
-	ensureImageDockerClient = f
-	return orig
-}
-
 // SetNewMsbClient replaces the internal msb client factory used by Prune
 // with one that returns the provided mock MsbClient. The original factory
 // is returned so callers can restore it after their test. This function

@@ -97,3 +97,11 @@ func (p *printer) Spinner(msg string) Spinner {
 func (p *printer) Spinnerf(format string, args ...any) Spinner {
 	return newSpinner(p.stderr, p.color, p.level, p.format(format, args...))
 }
+
+func (p *printer) StdOut() io.Writer {
+	return p.stdout
+}
+
+func (p *printer) StdErr() io.Writer {
+	return p.stderr
+}

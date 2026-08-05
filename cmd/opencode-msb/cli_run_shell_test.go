@@ -8,6 +8,8 @@ import (
 
 	msb "github.com/superradcompany/microsandbox/sdk/go"
 
+	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/docker"
+
 	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox"
 	"gitlab.inoio.de/inoio/opencode-msb/internal/stdio"
 )
@@ -26,11 +28,7 @@ func setupRunMocks(t *testing.T, mock *sandbox.MockMsbClient, sandboxToReturn sa
 	origMSB := sandbox.SetNewMsbClient(func() sandbox.MsbClient { return mock })
 	t.Cleanup(func() { sandbox.SetNewMsbClient(origMSB) })
 
-	origDocker := sandbox.SetBuildImageDockerClient(func() (sandbox.DockerClient, error) {
-		return newDefaultDockerClient(), nil
-	})
-	t.Cleanup(func() { sandbox.SetBuildImageDockerClient(origDocker) })
-
+	docker.TestWithNoopDockerMock(t)
 	origCheck := sandbox.SetEnsureInstalled(func(_ context.Context) error { return nil })
 	t.Cleanup(func() { sandbox.SetEnsureInstalled(origCheck) })
 

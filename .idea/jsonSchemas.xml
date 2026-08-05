@@ -3,6 +3,22 @@
   <component name="JsonSchemaMappingsProjectConfiguration">
     <state>
       <map>
+        <entry key="Golangci-lint Configuration">
+          <value>
+            <SchemaInfo>
+              <option name="name" value="Golangci-lint Configuration" />
+              <option name="relativePathToSchema" value="https://golangci-lint.run/jsonschema/golangci.jsonschema.json" />
+              <option name="applicationDefined" value="true" />
+              <option name="patterns">
+                <list>
+                  <Item>
+                    <option name="path" value=".golangci.yml" />
+                  </Item>
+                </list>
+              </option>
+            </SchemaInfo>
+          </value>
+        </entry>
         <entry key="gitlab-ci">
           <value>
             <SchemaInfo>

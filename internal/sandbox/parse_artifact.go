@@ -16,7 +16,6 @@ func (ss StaleType) String() string {
 	return stateName[ss]
 }
 
-
 // artifactInfo holds the parsed slug and digest from an artifact name.
 type artifactInfo struct {
 	slug   string

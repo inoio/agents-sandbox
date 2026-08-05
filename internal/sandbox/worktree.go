@@ -49,7 +49,7 @@ func buildWorktreeListCmd() string {
 // daemon's HTTP API and return its directory path.
 func ResolveTarget(
 	ctx context.Context,
-	sb msbSandbox,
+	sb Sandbox,
 	branch string,
 	ui stdio.UI,
 ) (string, error) {

@@ -1,6 +1,10 @@
 package stdio
 
-import "fmt"
+import (
+	"bytes"
+	"fmt"
+	"io"
+)
 
 type ErrorCall struct {
 	Msg string
@@ -14,6 +18,8 @@ type Mock struct {
 	VerboseCalls []string
 	OutCalls     []string
 	SpinnerCalls []string
+	StdOutBuffer bytes.Buffer
+	StdErrBuffer bytes.Buffer
 
 	IsInteractiveResult bool
 
@@ -101,4 +107,12 @@ func (m *Mock) Input(prompt, defaultValue string) (string, error) {
 		return m.InputFn(prompt, defaultValue)
 	}
 	return defaultValue, nil
+}
+
+func (m *Mock) StdOut() io.Writer {
+	return &m.StdOutBuffer
+}
+
+func (m *Mock) StdErr() io.Writer {
+	return &m.StdErrBuffer
 }
