@@ -103,6 +103,7 @@ func buildRootCmd(ui stdio.UI) *cobra.Command {
 func buildTreeCmd(rootCmd *cobra.Command, ui stdio.UI) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   cmdTree,
+		Args:  cobra.NoArgs,
 		Short: "Print the full command tree",
 		Run: func(_ *cobra.Command, _ []string) {
 			printTree(rootCmd, ui)
@@ -114,40 +115,13 @@ func buildTreeCmd(rootCmd *cobra.Command, ui stdio.UI) *cobra.Command {
 func buildVersionCmd(rootCmd *cobra.Command, ui stdio.UI) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   cmdVersion,
+		Args:  cobra.NoArgs,
 		Short: "Print version",
 		Run: func(_ *cobra.Command, _ []string) {
 			ui.Outf("%s %s\n", rootCmd.Name(), version)
 		},
 	}
 	return cmd
-}
-
-// registerRunFlags adds the shared run/shell flags to the given command.
-func registerRunFlags(cmd *cobra.Command) {
-	cmd.Flags().StringP("branch", "b", "", "Run in an opencode worktree for the given branch name")
-	cmd.Flags().BoolP("rebuild", "r", false, "Rebuild the runner image before starting")
-	cmd.Flags().BoolP("dry-run", "n", false, "Dry run without starting anything")
-	cmd.Flags().Bool("dry-run-vm", false, "Skip VM lifecycle but prepare everything else")
-	cmd.Flags().Uint8P("cpus", "c", 0, "Number of CPUs (default: all)")
-	cmd.Flags().StringP("memory", "m", "4G", "Memory limit")
-	cmd.Flags().String("tmp-size", "2G", "Size of the /tmp tmpfs in the sandbox")
-	cmd.Flags().StringP("user", "u", "", "Username or UID for the runtime user (format: <name|uid>[:<group|gid>])")
-}
-
-func runFunc(ui stdio.UI) func(cmd *cobra.Command, args []string) error {
-	return func(cmd *cobra.Command, args []string) error {
-		opts := extractRunOptions(cmd, true, ui)
-		opts.Args = args
-
-		// Handle the --no-auto flag specific to the run command
-		if noAuto, _ := cmd.Flags().GetBool("no-auto"); noAuto {
-			opts.Auto = false
-		}
-
-		cfg := newConfig()
-
-		return sandbox.Run(cmd.Context(), opts, cfg, ui)
-	}
 }
 
 func printPruneSummary(ui stdio.UI, report *sandbox.StaleReport, dryRun bool) {

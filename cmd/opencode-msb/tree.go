@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"strings"
 	"unicode/utf8"
 
@@ -57,9 +58,8 @@ func collectTreeEntries(entries *[]treeEntry, root *cobra.Command, cmd *cobra.Co
 		items = append(items, item{name: formatCommandName(sub, sub.Parent() == root), desc: sub.Short, sub: sub})
 	}
 
-	argsDesc := cmd.Annotations[annotationArgsDesc]
-	for _, arg := range positionalArgsFromUse(cmd.Use) {
-		items = append(items, item{name: arg, desc: argsDesc, sub: nil})
+	for _, arg := range argsFromAnnotations(cmd) {
+		items = append(items, item{name: arg.Name, desc: arg.Help, sub: nil})
 	}
 
 	for i, it := range items {
@@ -101,17 +101,14 @@ func formatFlagName(f *pflag.Flag) string {
 	return b.String()
 }
 
-func positionalArgsFromUse(use string) []string {
-	parts := strings.Fields(use)
-	if len(parts) <= 1 {
+func argsFromAnnotations(cmd *cobra.Command) []NamedArg {
+	raw, ok := cmd.Annotations[annotationArgs]
+	if !ok || raw == "" {
 		return nil
 	}
-	var args []string
-	for _, p := range parts[1:] {
-		if p == "[flags]" {
-			continue
-		}
-		args = append(args, p)
+	var args []NamedArg
+	if err := json.Unmarshal([]byte(raw), &args); err != nil {
+		return nil
 	}
 	return args
 }
