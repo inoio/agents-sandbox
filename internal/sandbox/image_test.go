@@ -134,59 +134,24 @@ func TestReferencesBaseReturnsFalseForDindImage(t *testing.T) {
 
 func TestEnsureImageBuildsDindBaseWhenDockerfileReferencesDind(t *testing.T) {
 	dockerfile := []byte("FROM opencode-msb/runner-base-dind:latest\nRUN echo hi\n")
-	m := &docker.MockDockerClient{}
-	var builtTags []string
-	m.ImageBuildFn = func(_ context.Context, _ io.Reader, opts client.ImageBuildOptions) (client.ImageBuildResult, error) {
-		builtTags = append(builtTags, opts.Tags...)
-		return client.ImageBuildResult{Body: io.NopCloser(bytes.NewReader(nil))}, nil
-	}
-	docker.WithDockerMock(t, m)
-	_, _, _, err := ensureImageWithClient(
-		context.Background(),
-		&MockMsbClient{},
-		dockerfile,
-		"test-project",
-		false,
-		&stdio.Mock{},
-	)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
 	wantTags := []string{BaseTag, DindBaseTag, "opencode-msb/runner-test-project:latest"}
-	if !reflect.DeepEqual(builtTags, wantTags) {
-		t.Errorf("built tags:\n  got:  %v\n  want: %v", builtTags, wantTags)
-	}
+	runEnsureImageTagTest(t, dockerfile, false, wantTags)
 }
 
 func TestEnsureImageDoesNotBuildDindForPlainBase(t *testing.T) {
 	dockerfile := []byte("FROM opencode-msb/runner-base:latest\nRUN echo hi\n")
-	m := &docker.MockDockerClient{}
-	var builtTags []string
-	m.ImageBuildFn = func(_ context.Context, _ io.Reader, opts client.ImageBuildOptions) (client.ImageBuildResult, error) {
-		builtTags = append(builtTags, opts.Tags...)
-		return client.ImageBuildResult{Body: io.NopCloser(bytes.NewReader(nil))}, nil
-	}
-	docker.WithDockerMock(t, m)
-
-	_, _, _, err := ensureImageWithClient(
-		context.Background(),
-		&MockMsbClient{},
-		dockerfile,
-		"test-project",
-		false,
-		&stdio.Mock{},
-	)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
 	wantTags := []string{BaseTag, "opencode-msb/runner-test-project:latest"}
-	if !reflect.DeepEqual(builtTags, wantTags) {
-		t.Errorf("built tags:\n  got:  %v\n  want: %v", builtTags, wantTags)
-	}
+	runEnsureImageTagTest(t, dockerfile, false, wantTags)
 }
 
 func TestEnsureImageDoesNotBuildDindOnForceWithoutReference(t *testing.T) {
 	dockerfile := []byte("FROM debian:trixie-slim\nRUN echo hi\n")
+	wantTags := []string{BaseTag, "opencode-msb/runner-test-project:latest"}
+	runEnsureImageTagTest(t, dockerfile, true, wantTags)
+}
+
+func runEnsureImageTagTest(t *testing.T, dockerfile []byte, force bool, wantTags []string) {
+	t.Helper()
 	m := &docker.MockDockerClient{}
 	var builtTags []string
 	m.ImageBuildFn = func(_ context.Context, _ io.Reader, opts client.ImageBuildOptions) (client.ImageBuildResult, error) {
@@ -200,13 +165,12 @@ func TestEnsureImageDoesNotBuildDindOnForceWithoutReference(t *testing.T) {
 		&MockMsbClient{},
 		dockerfile,
 		"test-project",
-		true,
+		force,
 		&stdio.Mock{},
 	)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	wantTags := []string{BaseTag, "opencode-msb/runner-test-project:latest"}
 	if !reflect.DeepEqual(builtTags, wantTags) {
 		t.Errorf("built tags:\n  got:  %v\n  want: %v", builtTags, wantTags)
 	}
