@@ -15,6 +15,7 @@ import (
 	"github.com/moby/moby/api/types/image"
 	"github.com/moby/moby/client"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
+
 	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/docker"
 
 	"gitlab.inoio.de/inoio/opencode-msb/internal/stdio"
@@ -47,51 +48,6 @@ func TestImageTag(t *testing.T) {
 	if got != expected {
 		t.Errorf("expected %q, got %q", expected, got)
 	}
-}
-
-type failingDockerClient struct{}
-
-func (f *failingDockerClient) ImageBuild(
-	_ context.Context,
-	_ io.Reader,
-	_ client.ImageBuildOptions,
-) (client.ImageBuildResult, error) {
-	return client.ImageBuildResult{}, errors.New("docker unavailable")
-}
-
-func (f *failingDockerClient) ImageInspect(
-	_ context.Context,
-	_ string,
-	_ ...client.ImageInspectOption,
-) (client.ImageInspectResult, error) {
-	return client.ImageInspectResult{}, errors.New("docker unavailable")
-}
-
-func (f *failingDockerClient) ImageSave(
-	_ context.Context,
-	_ []string,
-	_ ...client.ImageSaveOption,
-) (client.ImageSaveResult, error) {
-	return nil, errors.New("docker unavailable")
-}
-
-func (f *failingDockerClient) ImageRemove(
-	_ context.Context,
-	_ string,
-	_ client.ImageRemoveOptions,
-) (client.ImageRemoveResult, error) {
-	return client.ImageRemoveResult{}, errors.New("docker unavailable")
-}
-
-func (f *failingDockerClient) ImageTag(
-	_ context.Context,
-	_ client.ImageTagOptions,
-) (client.ImageTagResult, error) {
-	return client.ImageTagResult{}, errors.New("docker unavailable")
-}
-
-func (f *failingDockerClient) Close() error {
-	return nil
 }
 
 // recordingDockerClient captures the ImageBuild options so tests can assert
@@ -145,20 +101,10 @@ func (r *recordingDockerClient) Close() error {
 	return nil
 }
 
-func TestUserBuildArgs(t *testing.T) {
-	got := userBuildArgs(1001, 20)
-	if v := got["USER_UID"]; v == nil || *v != "1001" {
-		t.Errorf("USER_UID: want %q, got %v", "1001", v)
-	}
-	if v := got["USER_GID"]; v == nil || *v != "20" {
-		t.Errorf("USER_GID: want %q, got %v", "20", v)
-	}
-}
-
 func TestBuildDockerImageSetsHostUserBuildArgs(t *testing.T) {
 	l := &stdio.Mock{}
 	dockerMock := &recordingDockerClient{}
-	docker.TestWithDockerMock(t, dockerMock)
+	docker.WithDockerMock(t, dockerMock)
 	dockerfile := []byte("FROM debian:trixie-slim\nRUN echo hi\n")
 
 	if err := docker.BuildDockerImage(context.Background(), dockerfile, "tag", "label", false, l); err != nil {
@@ -177,7 +123,7 @@ func TestBuildDockerImageSetsHostUserBuildArgs(t *testing.T) {
 
 func TestEnsureImageReturnsErrorWhenBuildFails(t *testing.T) {
 	l := &stdio.Mock{}
-	docker.TestWithDefaultErrorDockerMock(t)
+	docker.WithDefaultErrorDockerMock(t)
 	_, _, _, err := ensureImageWithClient(
 		context.Background(),
 		&MockMsbClient{},
@@ -336,7 +282,7 @@ func (t *tagTrackingDockerClient) Close() error {
 
 func TestEnsureImageBuildsDindBaseWhenDockerfileReferencesDind(t *testing.T) {
 	dockerMock := &tagTrackingDockerClient{}
-	docker.TestWithDockerMock(t, dockerMock)
+	docker.WithDockerMock(t, dockerMock)
 	dockerfile := []byte("FROM opencode-msb/runner-base-dind:latest\nRUN echo hi\n")
 	_, _, _, err := ensureImageWithClient(
 		context.Background(),
@@ -357,7 +303,7 @@ func TestEnsureImageBuildsDindBaseWhenDockerfileReferencesDind(t *testing.T) {
 
 func TestEnsureImageDoesNotBuildDindForPlainBase(t *testing.T) {
 	dockerMock := &tagTrackingDockerClient{}
-	docker.TestWithDockerMock(t, dockerMock)
+	docker.WithDockerMock(t, dockerMock)
 	dockerfile := []byte("FROM opencode-msb/runner-base:latest\nRUN echo hi\n")
 	_, _, _, err := ensureImageWithClient(
 		context.Background(),
@@ -378,7 +324,7 @@ func TestEnsureImageDoesNotBuildDindForPlainBase(t *testing.T) {
 
 func TestEnsureImageDoesNotBuildDindOnForceWithoutReference(t *testing.T) {
 	dockerMock := &tagTrackingDockerClient{}
-	docker.TestWithDockerMock(t, dockerMock)
+	docker.WithDockerMock(t, dockerMock)
 	dockerfile := []byte("FROM debian:trixie-slim\nRUN echo hi\n")
 	_, _, _, err := ensureImageWithClient(
 		context.Background(),
@@ -399,14 +345,14 @@ func TestEnsureImageDoesNotBuildDindOnForceWithoutReference(t *testing.T) {
 
 func TestEnsureImageLoadsIntoMSBWhenNotCached(t *testing.T) {
 	dockerMock := &imageInspectDockerClient{inspectID: "sha256:abc123"}
-	docker.TestWithDockerMock(t, dockerMock)
-	MsbClient := &MockMsbClient{
+	docker.WithDockerMock(t, dockerMock)
+	msbClient := &MockMsbClient{
 		imageGetErr: errors.New("image not in cache"),
 	}
 	dockerfile := []byte("FROM opencode-msb/runner-base:latest\nRUN echo hi\n")
 	_, _, _, err := ensureImageWithClient(
 		context.Background(),
-		MsbClient,
+		msbClient,
 		dockerfile,
 		"test-project",
 		false,
@@ -415,10 +361,10 @@ func TestEnsureImageLoadsIntoMSBWhenNotCached(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if len(MsbClient.loadedImages) != 1 {
-		t.Fatalf("expected 1 image load, got %d", len(MsbClient.loadedImages))
+	if len(msbClient.loadedImages) != 1 {
+		t.Fatalf("expected 1 image load, got %d", len(msbClient.loadedImages))
 	}
-	if !strings.HasPrefix(MsbClient.loadedImages[0], "opencode-msb/runner-test-project:") {
-		t.Errorf("unexpected loaded image ref: %s", MsbClient.loadedImages[0])
+	if !strings.HasPrefix(msbClient.loadedImages[0], "opencode-msb/runner-test-project:") {
+		t.Errorf("unexpected loaded image ref: %s", msbClient.loadedImages[0])
 	}
 }

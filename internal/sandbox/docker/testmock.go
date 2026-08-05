@@ -11,7 +11,7 @@ import (
 	"github.com/moby/moby/client"
 )
 
-func TestWithDockerMock(t *testing.T, mock Client) {
+func WithDockerMock(t *testing.T, mock Client) {
 	t.Helper()
 
 	orig := Get
@@ -21,15 +21,14 @@ func TestWithDockerMock(t *testing.T, mock Client) {
 	t.Cleanup(func() {
 		Get = orig
 	})
-
 }
 
-func TestWithNoopDockerMock(t *testing.T) {
-	TestWithDockerMock(t, newDefaultDockerClient())
+func WithNoopDockerMock(t *testing.T) {
+	WithDockerMock(t, newDefaultDockerClient())
 }
 
-func TestWithDefaultErrorDockerMock(t *testing.T) {
-	TestWithDockerMock(t, newDefaultErrorDockerClient())
+func WithDefaultErrorDockerMock(t *testing.T) {
+	WithDockerMock(t, newDefaultErrorDockerClient())
 }
 
 func newDefaultDockerClient() *MockDockerClient {
@@ -53,11 +52,9 @@ func newErrorDockerClient(mockErrs mockErrors) *MockDockerClient {
 	}
 	if mockErrs.inspectErr != nil {
 		inspectErr = mockErrs.inspectErr
-
 	}
 	if mockErrs.saveErr != nil {
 		saveErr = mockErrs.saveErr
-
 	}
 	if mockErrs.removeErr != nil {
 		removeErr = mockErrs.removeErr
@@ -75,6 +72,7 @@ func newErrorDockerClient(mockErrs mockErrors) *MockDockerClient {
 		ImageRemoveFn: func(_ context.Context, _ string, options client.ImageRemoveOptions) (client.ImageRemoveResult, error) {
 			return client.ImageRemoveResult{}, removeErr
 		},
+		ImageTagFn: nil,
 	}
 }
 
@@ -89,7 +87,7 @@ type MockDockerClient struct {
 	ImageTagFn     func(ctx context.Context, opts client.ImageTagOptions) (client.ImageTagResult, error)
 }
 
-// Compile time check Client interface conformity of MockDockerClient
+// Compile time check Client interface conformity of MockDockerClient.
 var _ Client = (*MockDockerClient)(nil)
 
 func (m *MockDockerClient) ImageBuild(
@@ -111,7 +109,9 @@ func (m *MockDockerClient) ImageInspect(
 	if m.ImageInspectFn != nil {
 		return m.ImageInspectFn(ctx, ref, opts...)
 	}
+	//nolint:exhaustruct // DockerOCIImageConfig has unexported fields
 	result := client.ImageInspectResult{}
+	//nolint:exhaustruct // DockerOCIImageConfig has unexported fields
 	result.Config = &dockerspec.DockerOCIImageConfig{}
 	return result, nil
 }

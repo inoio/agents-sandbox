@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
 
 	"github.com/moby/moby/client"
@@ -52,18 +51,6 @@ func ImageTag(projectSlug, imageDigest string) string {
 
 func runnerTag(projectSlug string) string {
 	return "opencode-msb/runner-" + projectSlug + ":latest"
-}
-
-// userBuildArgs returns Docker build arguments that align the in-image dev user
-// (see data/Dockerfile's USER_UID/USER_GID) with the host user that owns the
-// bind-mounted /workspace, avoiding permission mismatches inside the VM.
-func userBuildArgs(uid, gid int) map[string]*string {
-	u := strconv.Itoa(uid)
-	g := strconv.Itoa(gid)
-	return map[string]*string{
-		"USER_UID": &u,
-		"USER_GID": &g,
-	}
 }
 
 // envDir returns the project-local metadata directory for image env info.
@@ -139,7 +126,7 @@ func inspectExistingImage(ctx context.Context, rTag string, ui stdio.UI) (map[st
 	imageEnv := make(map[string]string)
 	var imageDigest string
 
-	_, inspectErr := docker.Get().ImageInspect(ctx, rTag)
+	inspect, inspectErr := docker.Get().ImageInspect(ctx, rTag)
 	if inspectErr != nil {
 		ui.Verbosef("image inspect failed (might be pruned): %v", inspectErr)
 		if cached := loadImageEnv(rTag); cached != nil {
@@ -148,13 +135,10 @@ func inspectExistingImage(ctx context.Context, rTag string, ui stdio.UI) (map[st
 		}
 		return imageEnv, imageDigest
 	}
-	inspect, err := docker.Get().ImageInspect(ctx, rTag)
-	if err == nil {
-		imageDigest = inspect.ID
-		imageEnv = parseImageEnv(inspect.Config.Env)
-		storeImageEnv(rTag, imageEnv)
-		ui.Verbosef("inspected image %s with %d env vars", rTag, len(imageEnv))
-	}
+	imageDigest = inspect.ID
+	imageEnv = parseImageEnv(inspect.Config.Env)
+	storeImageEnv(rTag, imageEnv)
+	ui.Verbosef("inspected image %s with %d env vars", rTag, len(imageEnv))
 	return imageEnv, imageDigest
 }
 
