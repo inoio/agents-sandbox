@@ -24,14 +24,8 @@ func TestProjectVMNameTruncation(t *testing.T) {
 	if len(got) > maxSandboxNameLen {
 		t.Errorf("expected name <= %d bytes, got %d", maxSandboxNameLen, len(got))
 	}
-	if len(got) < len(projectVMPrefix) {
+	if len(got) < len(vmPrefix) {
 		t.Errorf("name too short: %q", got)
-	}
-}
-
-func TestProjectVMPrefixConstant(t *testing.T) {
-	if projectVMPrefix != "opencode-msb-vm-" {
-		t.Errorf("expected prefix %q, got %q", "opencode-msb-vm-", projectVMPrefix)
 	}
 }
 
