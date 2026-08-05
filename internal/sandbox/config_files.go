@@ -14,7 +14,7 @@ import (
 	msb "github.com/superradcompany/microsandbox/sdk/go"
 
 	"gitlab.inoio.de/inoio/opencode-msb/internal/config"
-	"gitlab.inoio.de/inoio/opencode-msb/internal/stdio"
+	"gitlab.inoio.de/inoio/opencode-msb/internal/termio"
 )
 
 // configFiles holds the merged configuration and parsed structures for comparison.
@@ -28,10 +28,10 @@ const autoFlag = "--auto"
 
 // promptConfigChange asks the user whether to restart the daemon after a
 // provider config change.
-func promptConfigChange(ui stdio.UI) (string, error) {
+func promptConfigChange(ui termio.UI) (string, error) {
 	selection, err := ui.Select(
 		"opencode provider config has changed. Restart the daemon to apply the new config?",
-		[]stdio.Choice{
+		[]termio.Choice{
 			{
 				Label: "Proceed without changes (keep current config)", Key: "p",
 				Description: "Daemon continues with the existing config",
@@ -104,7 +104,7 @@ func readVMFiles(
 	ctx context.Context,
 	sb Sandbox,
 	dir string,
-	ui stdio.UI,
+	ui termio.UI,
 ) map[string][]byte {
 	l, err := sb.FS().List(ctx, dir)
 	if err != nil {

@@ -11,7 +11,7 @@ import (
 
 	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox"
 	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/docker"
-	"gitlab.inoio.de/inoio/opencode-msb/internal/stdio"
+	"gitlab.inoio.de/inoio/opencode-msb/internal/termio"
 )
 
 func mkStaleVM(staleTime time.Time) sandbox.SandboxHandle {
@@ -138,7 +138,7 @@ func TestPrune(t *testing.T) {
 	t.Run("P7_docker_client_error", func(t *testing.T) {
 		for _, flags := range pruneAgeFlags {
 			t.Run("f"+strings.Join(flags, "_"), func(t *testing.T) {
-				ui := &stdio.Mock{}
+				ui := &termio.Mock{}
 				mock := &sandbox.MockMsbClient{}
 				mock.Images = append(mock.Images,
 					msbImg("opencode-msb/runner-projectname:v2"))
@@ -216,7 +216,7 @@ func TestPrune(t *testing.T) {
 
 func runPruneTest(t *testing.T, flags []string, setupMock func(m *sandbox.MockMsbClient), expected string) {
 	t.Helper()
-	ui := &stdio.Mock{}
+	ui := &termio.Mock{}
 	mock := &sandbox.MockMsbClient{}
 	if setupMock != nil {
 		setupMock(mock)
@@ -235,7 +235,7 @@ func runPruneTest(t *testing.T, flags []string, setupMock func(m *sandbox.MockMs
 
 func runPruneTestWithAge(t *testing.T, age string, setupMock func(m *sandbox.MockMsbClient), expected string) {
 	t.Helper()
-	ui := &stdio.Mock{}
+	ui := &termio.Mock{}
 	mock := &sandbox.MockMsbClient{}
 	setupMock(mock)
 	sandbox.WithMsbMock(t, mock)
@@ -252,7 +252,7 @@ func runPruneTestWithAge(t *testing.T, age string, setupMock func(m *sandbox.Moc
 
 func runPruneTestError(t *testing.T, args []string, wantErrContains string) {
 	t.Helper()
-	ui := &stdio.Mock{}
+	ui := &termio.Mock{}
 	root := buildRootCmd(ui)
 	root.SetArgs(args)
 	err := root.Execute()

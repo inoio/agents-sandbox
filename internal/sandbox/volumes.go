@@ -8,7 +8,7 @@ import (
 
 	"gitlab.inoio.de/inoio/opencode-msb/internal/git"
 	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/msb"
-	"gitlab.inoio.de/inoio/opencode-msb/internal/stdio"
+	"gitlab.inoio.de/inoio/opencode-msb/internal/termio"
 
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 )
@@ -18,10 +18,10 @@ func HomeVolumeName(projectSlug, imageDigest string) string {
 }
 
 type VolumeManager struct {
-	ui stdio.UI
+	ui termio.UI
 }
 
-func NewVolumeManager(ui stdio.UI) *VolumeManager {
+func NewVolumeManager(ui termio.UI) *VolumeManager {
 	return &VolumeManager{ui: ui}
 }
 
@@ -29,7 +29,7 @@ func (vm *VolumeManager) EnsureHome(
 	ctx context.Context,
 	projectSlug, imageDigest, imageTag string,
 	opts RunOptions,
-	ui stdio.UI,
+	ui termio.UI,
 ) (string, error) {
 	client := msb.Get()
 	name := HomeVolumeName(projectSlug, imageDigest)
@@ -61,7 +61,7 @@ func (vm *VolumeManager) prefillVolume(
 	ctx context.Context,
 	client MsbClient,
 	projectSlug, volumeName, imageTag string,
-	ui stdio.UI,
+	ui termio.UI,
 ) error {
 	prefillName := taskPrefix + projectSlug + "-" + strconv.FormatInt(time.Now().UnixNano(), 10)
 	mountConfig := msbSdk.Mount.Named(volumeName, msbSdk.MountOptions{})

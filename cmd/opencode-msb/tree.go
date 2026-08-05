@@ -8,7 +8,7 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 
-	"gitlab.inoio.de/inoio/opencode-msb/internal/stdio"
+	"gitlab.inoio.de/inoio/opencode-msb/internal/termio"
 )
 
 type treeEntry struct {
@@ -17,7 +17,7 @@ type treeEntry struct {
 	desc   string
 }
 
-func printTree(rootCmd *cobra.Command, ui stdio.UI) {
+func printTree(rootCmd *cobra.Command, ui termio.UI) {
 	var entries []treeEntry
 	collectTreeEntries(&entries, rootCmd, rootCmd, "")
 

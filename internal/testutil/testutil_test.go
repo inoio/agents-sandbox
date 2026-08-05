@@ -7,7 +7,7 @@ import (
 
 	"gopkg.in/yaml.v3"
 
-	"gitlab.inoio.de/inoio/opencode-msb/internal/stdio"
+	"gitlab.inoio.de/inoio/opencode-msb/internal/termio"
 )
 
 func TestNewTestio_ReturnsEmptyMock(t *testing.T) {
@@ -34,7 +34,7 @@ func TestNewTestio_MockRecordsCalls(t *testing.T) {
 	mock.Out("output")
 	mock.Spinner("spin")
 	mock.Spinnerf("spin %s", "1")
-	_, _ = mock.Select("choose", []stdio.Choice{{Key: "a"}}, "a")
+	_, _ = mock.Select("choose", []termio.Choice{{Key: "a"}}, "a")
 	_, _ = mock.ConfirmDefault("yes?", true)
 	_, _ = mock.Input("type?", "default")
 
@@ -89,7 +89,7 @@ func TestNewTestio_StdoutStderrAreWriters(t *testing.T) {
 
 func TestNewTestio_SelectReturnsDefault(t *testing.T) {
 	mock := NewTestio(t)
-	got, err := mock.Select("prompt", []stdio.Choice{{Key: "a"}, {Key: "b"}}, "b")
+	got, err := mock.Select("prompt", []termio.Choice{{Key: "a"}, {Key: "b"}}, "b")
 	if err != nil {
 		t.Fatalf("Select: %v", err)
 	}
@@ -123,7 +123,7 @@ func TestNewTestio_InputReturnsDefault(t *testing.T) {
 func TestNewTestio_CustomFnOverrides(t *testing.T) {
 	mock := NewTestio(t)
 
-	mock.SelectFn = func(_ string, _ []stdio.Choice, _ string) (string, error) {
+	mock.SelectFn = func(_ string, _ []termio.Choice, _ string) (string, error) {
 		return "custom", nil
 	}
 	got, _ := mock.Select("", nil, "")

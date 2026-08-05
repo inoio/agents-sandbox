@@ -11,7 +11,7 @@ import (
 	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/docker"
 
 	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox"
-	"gitlab.inoio.de/inoio/opencode-msb/internal/stdio"
+	"gitlab.inoio.de/inoio/opencode-msb/internal/termio"
 )
 
 // setupRunMocks configures all mock dependencies needed for run/shell tests.
@@ -30,7 +30,7 @@ func setupRunMocks(t *testing.T, mock *sandbox.MockMsbClient, sandboxToReturn sa
 	t.Cleanup(func() { sandbox.SetEnsureInstalled(origCheck) })
 
 	origCheckAll := sandbox.CheckAllFunc
-	sandbox.CheckAllFunc = func(context.Context, stdio.UI) bool { return true }
+	sandbox.CheckAllFunc = func(context.Context, termio.UI) bool { return true }
 	t.Cleanup(func() { sandbox.CheckAllFunc = origCheckAll })
 
 	origShell := sandbox.SetDaemonShellFunc(
@@ -84,7 +84,7 @@ func setupShellRunMocks(t *testing.T, mock *sandbox.MockMsbClient, sandboxToRetu
 func TestRunShell_R1_dryRunRun(t *testing.T) {
 	initTestRepo(t)
 
-	ui := &stdio.Mock{}
+	ui := &termio.Mock{}
 	mock := &sandbox.MockMsbClient{}
 	setupRunMocks(t, mock, &sandbox.MockSandbox{})
 
@@ -122,7 +122,7 @@ func TestRunShell_R1_dryRunRun(t *testing.T) {
 func TestRunShell_R2_dryRunShell(t *testing.T) {
 	initTestRepo(t)
 
-	ui := &stdio.Mock{}
+	ui := &termio.Mock{}
 	mock := &sandbox.MockMsbClient{}
 	setupRunMocks(t, mock, &sandbox.MockSandbox{})
 
@@ -149,7 +149,7 @@ func TestRunShell_R2_dryRunShell(t *testing.T) {
 func TestRunShell_R3_dryRunWithVmRun(t *testing.T) {
 	initTestRepo(t)
 
-	ui := &stdio.Mock{}
+	ui := &termio.Mock{}
 	mock := &sandbox.MockMsbClient{}
 	setupRunMocks(t, mock, &sandbox.MockSandbox{})
 
@@ -176,7 +176,7 @@ func TestRunShell_R3_dryRunWithVmRun(t *testing.T) {
 func TestRunShell_R4_dryRunWithVmShell(t *testing.T) {
 	initTestRepo(t)
 
-	ui := &stdio.Mock{}
+	ui := &termio.Mock{}
 	mock := &sandbox.MockMsbClient{}
 	setupRunMocks(t, mock, &sandbox.MockSandbox{})
 
@@ -203,7 +203,7 @@ func TestRunShell_R4_dryRunWithVmShell(t *testing.T) {
 func TestRunShell_R5_runDefaultAttachError(t *testing.T) {
 	initTestRepo(t)
 
-	ui := &stdio.Mock{}
+	ui := &termio.Mock{}
 	mock := &sandbox.MockMsbClient{}
 	setupRunMocks(t, mock, &sandbox.MockSandbox{AttachErr: errors.New("connection refused")})
 
@@ -223,7 +223,7 @@ func TestRunShell_R5_runDefaultAttachError(t *testing.T) {
 func TestRunShell_R6_shellDefaultAttachError(t *testing.T) {
 	initTestRepo(t)
 
-	ui := &stdio.Mock{}
+	ui := &termio.Mock{}
 	mock := &sandbox.MockMsbClient{}
 	setupRunMocks(t, mock, &sandbox.MockSandbox{AttachErr: errors.New("shell error")})
 
@@ -243,7 +243,7 @@ func TestRunShell_R6_shellDefaultAttachError(t *testing.T) {
 func TestRunShell_R7_dryRunNoAuto(t *testing.T) {
 	initTestRepo(t)
 
-	ui := &stdio.Mock{}
+	ui := &termio.Mock{}
 	mock := &sandbox.MockMsbClient{}
 	setupRunMocks(t, mock, &sandbox.MockSandbox{})
 
@@ -270,7 +270,7 @@ func TestRunShell_R7_dryRunNoAuto(t *testing.T) {
 func TestRunShell_R8_shellNoAuto(t *testing.T) {
 	initTestRepo(t)
 
-	ui := &stdio.Mock{}
+	ui := &termio.Mock{}
 	mock := &sandbox.MockMsbClient{}
 	setupRunMocks(t, mock, &sandbox.MockSandbox{AttachErr: errors.New("fail")})
 
@@ -287,7 +287,7 @@ func TestRunShell_R8_shellNoAuto(t *testing.T) {
 func TestRunShell_R9_runWithAllFlags(t *testing.T) {
 	initTestRepo(t)
 
-	ui := &stdio.Mock{}
+	ui := &termio.Mock{}
 	mock := &sandbox.MockMsbClient{}
 	setupShellRunMocks(t, mock, &sandbox.MockSandbox{AttachErr: errors.New("fail")})
 
@@ -305,7 +305,7 @@ func TestRunShell_R9_runWithAllFlags(t *testing.T) {
 func TestRunShell_R10_runWithShortFlags(t *testing.T) {
 	initTestRepo(t)
 
-	ui := &stdio.Mock{}
+	ui := &termio.Mock{}
 	mock := &sandbox.MockMsbClient{}
 	setupShellRunMocks(t, mock, &sandbox.MockSandbox{AttachErr: errors.New("fail")})
 
@@ -323,7 +323,7 @@ func TestRunShell_R10_runWithShortFlags(t *testing.T) {
 func TestRunShell_R11_runSuccessDetachOk(t *testing.T) {
 	initTestRepo(t)
 
-	ui := &stdio.Mock{}
+	ui := &termio.Mock{}
 	mock := &sandbox.MockMsbClient{}
 	setupRunMocks(t, mock, &sandbox.MockSandbox{AttachCode: 0, AttachErr: nil})
 
@@ -344,7 +344,7 @@ func TestRunShell_R11_runSuccessDetachOk(t *testing.T) {
 func TestRunShell_R12_shellWithBranchCpus(t *testing.T) {
 	initTestRepo(t)
 
-	ui := &stdio.Mock{}
+	ui := &termio.Mock{}
 	mock := &sandbox.MockMsbClient{}
 	setupShellRunMocks(t, mock, &sandbox.MockSandbox{AttachErr: errors.New("fail")})
 

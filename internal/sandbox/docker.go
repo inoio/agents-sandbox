@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"time"
 
-	"gitlab.inoio.de/inoio/opencode-msb/internal/stdio"
+	"gitlab.inoio.de/inoio/opencode-msb/internal/termio"
 
 	msb "github.com/superradcompany/microsandbox/sdk/go"
 )
@@ -19,7 +19,7 @@ const (
 	dockerdPollInterval   = time.Second
 )
 
-func startDockerdIfPresent(ctx context.Context, sb Sandbox, ui stdio.UI) error {
+func startDockerdIfPresent(ctx context.Context, sb Sandbox, ui termio.UI) error {
 	out, checkErr := sb.Shell(ctx, dockerdBinaryCheckCmd, msb.WithExecUser("root"))
 	if checkErr != nil {
 		return fmt.Errorf("while checking dockerd binary: %w", checkErr)

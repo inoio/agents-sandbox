@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"gitlab.inoio.de/inoio/opencode-msb/internal/stdio"
+	"gitlab.inoio.de/inoio/opencode-msb/internal/termio"
 	"gitlab.inoio.de/inoio/opencode-msb/internal/testutil"
 )
 
@@ -156,7 +156,7 @@ func TestProjectSlugFormat(t *testing.T) {
 	repo := testutil.InitRepo(t)
 	// ProjectSlug uses the working directory, so chdir into the repo.
 	t.Chdir(repo)
-	got := ProjectSlug(&stdio.Mock{})
+	got := ProjectSlug(&termio.Mock{})
 	// Expected format: <sanitized-folder>-<14 base36 chars>.
 	// The folder name is filepath.Base(repo), sanitized.
 	folderName := sanitizeFolderName(filepath.Base(repo))
@@ -178,7 +178,7 @@ func TestProjectSlugFormat(t *testing.T) {
 func TestProjectSlugDeterministic(t *testing.T) {
 	repo := testutil.InitRepo(t)
 	t.Chdir(repo)
-	l := &stdio.Mock{}
+	l := &termio.Mock{}
 	a := ProjectSlug(l)
 	b := ProjectSlug(l)
 	if a != b {

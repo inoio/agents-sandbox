@@ -20,7 +20,7 @@ import (
 	"github.com/moby/moby/client"
 
 	"gitlab.inoio.de/inoio/opencode-msb/internal/git"
-	"gitlab.inoio.de/inoio/opencode-msb/internal/stdio"
+	"gitlab.inoio.de/inoio/opencode-msb/internal/termio"
 	"gitlab.inoio.de/inoio/opencode-msb/internal/testutil"
 
 	msb "github.com/superradcompany/microsandbox/sdk/go"
@@ -204,7 +204,7 @@ func setupTestSandbox(
 	t *testing.T,
 	ctx context.Context,
 	dockerCli *client.Client,
-	ui *stdio.Mock,
+	ui *termio.Mock,
 	imageRef, sbNameFmt string,
 ) (*msb.Sandbox, func(), error) {
 	t.Helper()
@@ -255,7 +255,7 @@ func buildDockerImage(
 	tag string,
 	label string,
 	force bool,
-	ui stdio.UI,
+	ui termio.UI,
 ) error {
 	spinner := ui.Spinner(label)
 	tarBuf, err := dockerfileTar(dockerfile)
@@ -330,7 +330,7 @@ type dockerError struct {
 	Message string `json:"message"`
 }
 
-func scanBuildOutput(r io.Reader, ui stdio.UI) error {
+func scanBuildOutput(r io.Reader, ui termio.UI) error {
 	dec := json.NewDecoder(r)
 	for {
 		var msg dockerBuildMessage

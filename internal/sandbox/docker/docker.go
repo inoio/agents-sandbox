@@ -14,7 +14,7 @@ import (
 
 	"github.com/moby/moby/client"
 
-	"gitlab.inoio.de/inoio/opencode-msb/internal/stdio"
+	"gitlab.inoio.de/inoio/opencode-msb/internal/termio"
 )
 
 // Client is the exported interface for Docker API operations.
@@ -57,7 +57,7 @@ func BuildDockerImage(
 	dockerfile []byte,
 	tag, label string,
 	force bool,
-	ui stdio.UI,
+	ui termio.UI,
 ) error {
 	spinner := ui.Spinner(label)
 	tarBuf, err := dockerfileTar(dockerfile)
@@ -125,7 +125,7 @@ func userBuildArgs(uid, gid int) map[string]*string {
 }
 
 // scanBuildOutput decodes the Docker build API stream and returns errors.
-func scanBuildOutput(r io.Reader, ui stdio.UI) error {
+func scanBuildOutput(r io.Reader, ui termio.UI) error {
 	dec := json.NewDecoder(r)
 	for {
 		var msg dockerBuildMessage
@@ -150,7 +150,7 @@ func scanBuildOutput(r io.Reader, ui stdio.UI) error {
 
 // CheckDockerAPI pings the Docker daemon and reports reachability via the UI.
 // Returns true if the daemon responds, false otherwise with error/info messages.
-func CheckDockerAPI(ctx context.Context, ui stdio.UI) bool {
+func CheckDockerAPI(ctx context.Context, ui termio.UI) bool {
 	moby := Get()
 	//nolint:exhaustruct // NegotiateAPIVersion/ForceNegotiate not needed for a simple ping check
 	_, err := moby.Ping(ctx, client.PingOptions{})

@@ -9,7 +9,7 @@ import (
 	"strings"
 
 	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/msb"
-	"gitlab.inoio.de/inoio/opencode-msb/internal/stdio"
+	"gitlab.inoio.de/inoio/opencode-msb/internal/termio"
 )
 
 // ensureInstalled is indirected so tests can stub the SDK runtime download.
@@ -19,7 +19,7 @@ var ensureInstalled = func(ctx context.Context) error { //nolint:gochecknoglobal
 	return msb.Get().EnsureInstalled(ctx)
 }
 
-func CheckDocker(ui stdio.UI) bool {
+func CheckDocker(ui termio.UI) bool {
 	if _, err := exec.LookPath("docker"); err != nil {
 		ui.Errorf("docker not found. Install Docker or Podman with docker-compatible CLI: %v", err)
 		return false
@@ -27,7 +27,7 @@ func CheckDocker(ui stdio.UI) bool {
 	return true
 }
 
-func CheckKvm(ui stdio.UI) bool {
+func CheckKvm(ui termio.UI) bool {
 	if runtime.GOOS != "linux" {
 		return true
 	}
@@ -38,7 +38,7 @@ func CheckKvm(ui stdio.UI) bool {
 	return true
 }
 
-func CheckGit(ui stdio.UI) bool {
+func CheckGit(ui termio.UI) bool {
 	if _, err := exec.LookPath("git"); err != nil {
 		ui.Errorf("git not found. Install git via your system package manager: %v", err)
 		return false
@@ -46,7 +46,7 @@ func CheckGit(ui stdio.UI) bool {
 	return true
 }
 
-func CheckMsb(ctx context.Context, ui stdio.UI) bool {
+func CheckMsb(ctx context.Context, ui termio.UI) bool {
 	if err := ensureInstalled(ctx); err != nil {
 		ui.Errorf("msb runtime setup failed: %v", err)
 		return false
@@ -100,7 +100,7 @@ var CheckAllFunc = checkAllReal
 
 // checkAllReal contains the actual CheckAll logic. This allows the exported
 // CheckAllFunc to be reassigned in tests without redefining the checks.
-func checkAllReal(ctx context.Context, ui stdio.UI) bool {
+func checkAllReal(ctx context.Context, ui termio.UI) bool {
 	if !checkDoctor(ctx, ui) {
 		return false
 	}
@@ -108,7 +108,7 @@ func checkAllReal(ctx context.Context, ui stdio.UI) bool {
 }
 
 // CheckAll runs all prerequisite checks and reports orphaned VMs.
-func CheckAll(ctx context.Context, ui stdio.UI) bool {
+func CheckAll(ctx context.Context, ui termio.UI) bool {
 	return CheckAllFunc(ctx, ui)
 }
 
@@ -138,7 +138,7 @@ func isOrphanedImage(ref string) bool {
 	return strings.HasPrefix(ref, Prefix+"/runner:")
 }
 
-func CheckOrphans(ctx context.Context, ui stdio.UI) bool {
+func CheckOrphans(ctx context.Context, ui termio.UI) bool {
 	client := msb.Get()
 	hasOrphans := false
 

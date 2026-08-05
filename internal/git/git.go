@@ -11,7 +11,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"gitlab.inoio.de/inoio/opencode-msb/internal/stdio"
+	"gitlab.inoio.de/inoio/opencode-msb/internal/termio"
 
 	"github.com/go-git/go-git/v5"
 )
@@ -51,7 +51,7 @@ func HashID(input string) string {
 	return encoded
 }
 
-func ProjectSlug(ui stdio.UI) string {
+func ProjectSlug(ui termio.UI) string {
 	commonDir, err := gitCommonDir(".")
 	if err != nil || commonDir == "" {
 		cwd, _ := filepath.Abs(".")

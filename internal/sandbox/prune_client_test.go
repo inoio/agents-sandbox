@@ -14,7 +14,7 @@ import (
 
 	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/msb"
 
-	"gitlab.inoio.de/inoio/opencode-msb/internal/stdio"
+	"gitlab.inoio.de/inoio/opencode-msb/internal/termio"
 )
 
 // mockDockerClient provides per-call error injection for ImageRemove while
@@ -51,8 +51,8 @@ func (m *mockDockerClient) ImageRemove(
 	return client.ImageRemoveResult{}, nil
 }
 
-func newMockUI() *stdio.Mock {
-	return &stdio.Mock{}
+func newMockUI() *termio.Mock {
+	return &termio.Mock{}
 }
 
 // prunedCounts holds the expected pruned counts for all resource types.
