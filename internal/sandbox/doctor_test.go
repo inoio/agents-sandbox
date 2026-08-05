@@ -39,7 +39,7 @@ func TestShellRcFile(t *testing.T) {
 		shell string
 		want  string
 	}{
-		{"bash", "/bin/bash", filepath.Join(home, ".bashrc")},
+		{"bash defaults to platform rc", "/bin/bash", filepath.Join(home, shellRcDefault)},
 		{"zsh", "/bin/zsh", filepath.Join(home, ".zshrc")},
 		{"fish", "/usr/bin/fish", filepath.Join(home, ".config", "fish", "config.fish")},
 		{"empty shell falls back to default rc", "", filepath.Join(home, shellRcDefault)},
