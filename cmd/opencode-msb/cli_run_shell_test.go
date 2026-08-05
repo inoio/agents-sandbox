@@ -57,30 +57,31 @@ func setupShellRunMocks(t *testing.T, mock *sandbox.MockMsbClient, sandboxToRetu
 		if sb.ShellOut == nil {
 			sb.ShellOut = make(map[string]sandbox.ShellResult)
 		}
-		sb.ShellOut["curl -sf -X POST http://127.0.0.1:4096/experimental/worktree -H 'Content-Type: application/json' -d '{\"name\":\"x\"}'"] = &workspaceResult{
-			dir: "/workspace/worktrees/x",
-		}
-		sb.ShellOut["curl -sf -X POST http://127.0.0.1:4096/experimental/worktree -H 'Content-Type: application/json' -d '{\"name\":\"main\"}'"] = &workspaceResult{
-			dir: "/workspace/worktrees/main",
-		}
-		sb.ShellOut["curl -sf -X POST http://127.0.0.1:4096/experimental/worktree -H 'Content-Type: application/json' -d '{\"name\":\"foo\"}'"] = &workspaceResult{
-			dir: "/workspace/worktrees/foo",
-		}
+		sb.ShellOut["curl -sf -X POST http://127.0.0.1:4096/experimental/worktree -H 'Content-Type: application/json' -d '{\"name\":\"x\"}'"] = sandbox.NewTestResult(
+			true,
+			0,
+			`{"directory":"/workspace/worktrees/x"}`,
+			"",
+			nil,
+		)
+		sb.ShellOut["curl -sf -X POST http://127.0.0.1:4096/experimental/worktree -H 'Content-Type: application/json' -d '{\"name\":\"main\"}'"] = sandbox.NewTestResult(
+			true,
+			0,
+			`{"directory":"/workspace/worktrees/main"}`,
+			"",
+			nil,
+		)
+		sb.ShellOut["curl -sf -X POST http://127.0.0.1:4096/experimental/worktree -H 'Content-Type: application/json' -d '{\"name\":\"foo\"}'"] = sandbox.NewTestResult(
+			true,
+			0,
+			`{"directory":"/workspace/worktrees/foo"}`,
+			"",
+			nil,
+		)
 	}
 
 	setupRunMocks(t, mock, sandboxToReturn)
 }
-
-// workspaceResult implements sandbox.ShellResult for worktree responses.
-type workspaceResult struct {
-	dir string
-}
-
-func (w *workspaceResult) Success() bool       { return true }
-func (w *workspaceResult) ExitCode() int       { return 0 }
-func (w *workspaceResult) Stdout() string      { return `{"directory":"` + w.dir + `"}` }
-func (w *workspaceResult) Stderr() string      { return "" }
-func (w *workspaceResult) StdoutBytes() []byte { return []byte(w.Stdout()) }
 
 // R1: run --dry-run.
 func TestRunShell_R1_dryRunRun(t *testing.T) {
