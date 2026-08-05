@@ -2,7 +2,6 @@ package msb
 
 import (
 	"context"
-	"fmt"
 	"io"
 	"strings"
 	"sync"
@@ -133,6 +132,7 @@ func (m *MockMsbClient) CreateSandbox(ctx context.Context, name string, opts ...
 	if m.createdSandbox != nil {
 		return m.createdSandbox, nil
 	}
+	//nolint:exhaustruct // tests set only Name_
 	return &MockSandbox{Name_: name}, nil
 }
 
@@ -182,13 +182,18 @@ func (m *MockMsbClient) GetVolume(ctx context.Context, name string) (VolumeHandl
 }
 
 // CreateVolume implements MsbClient.
-func (m *MockMsbClient) CreateVolume(ctx context.Context, name string, opts ...msbSdk.VolumeOption) (VolumeHandle, error) {
+func (m *MockMsbClient) CreateVolume(
+	ctx context.Context,
+	name string,
+	opts ...msbSdk.VolumeOption,
+) (VolumeHandle, error) {
 	if m.CreateVolumeFn != nil {
 		return m.CreateVolumeFn(ctx, name, opts...)
 	}
 	if m.createVolumeErr != nil {
 		return nil, m.createVolumeErr
 	}
+	//nolint:exhaustruct // tests set only Name_
 	return &MockVolumeHandle{Name_: name}, nil
 }
 
@@ -300,6 +305,8 @@ func (m *MockMsbClient) SetGetVolumeErr(err error) {
 // -- Domain mocks --
 
 // MockSandboxHandle is a test double for SandboxHandle.
+//
+//nolint:revive // underscore names avoid conflicts with interface methods like Status()
 type MockSandboxHandle struct {
 	Name_      string
 	Status_    msbSdk.SandboxStatus
@@ -326,6 +333,7 @@ func (m *MockSandboxHandle) Connect(_ context.Context) (Sandbox, error) {
 	if m.ConnectSb != nil {
 		return m.ConnectSb, nil
 	}
+	//nolint:exhaustruct // only Name_ needed
 	return &MockSandbox{Name_: m.Name_}, nil
 }
 func (m *MockSandboxHandle) Refresh(_ context.Context) (SandboxHandle, error) { return m, nil }
@@ -336,6 +344,7 @@ func (m *MockSandboxHandle) Start(_ context.Context) (Sandbox, error) {
 	if m.StartSb != nil {
 		return m.StartSb, nil
 	}
+	//nolint:exhaustruct // only Name_ needed
 	return &MockSandbox{Name_: m.Name_}, nil
 }
 func (m *MockSandboxHandle) Stop(_ context.Context, _ ...msbSdk.StopOption) error { return m.StopErr }
@@ -350,6 +359,8 @@ func (m *MockSandboxHandle) Remove(_ context.Context) error {
 func (m *MockSandboxHandle) DidRemove() bool { return m.DidRmv }
 
 // MockSandbox is a test double for Sandbox.
+//
+//nolint:revive // underscore names avoid conflicts with interface methods
 type MockSandbox struct {
 	Name_      string
 	FSValue_   any
@@ -378,10 +389,16 @@ func (m *MockSandbox) Shell(_ context.Context, command string, _ ...msbSdk.ExecO
 	if out, ok := m.ShellOut[command]; ok {
 		return out, nil
 	}
+	// Return successful result when no override is configured.
+	//nolint:exhaustruct // success-only default
 	return &mockShellResultImpl{success: true}, nil
 }
-
-func (m *MockSandbox) Exec(_ context.Context, command string, args []string, _ ...msbSdk.ExecOption) (ShellResult, error) {
+func (m *MockSandbox) Exec(
+	_ context.Context,
+	command string,
+	args []string,
+	_ ...msbSdk.ExecOption,
+) (ShellResult, error) {
 	if m.ExecErr != nil {
 		return nil, m.ExecErr
 	}
@@ -389,6 +406,8 @@ func (m *MockSandbox) Exec(_ context.Context, command string, args []string, _ .
 	if out, ok := m.ExecOut[key]; ok {
 		return out, nil
 	}
+	// Return successful result when no override is configured.
+	//nolint:exhaustruct // success-only default
 	return &mockShellResultImpl{success: true}, nil
 }
 
@@ -418,49 +437,6 @@ func (minimalSandboxFS) Write(_ context.Context, _ string, _ []byte) error { ret
 func (minimalSandboxFS) Read(_ context.Context, _ string) ([]byte, error)  { return nil, nil }
 func (minimalSandboxFS) Remove(_ context.Context, _ string) error          { return nil }
 
-// mockFs implements SandboxFS for tests with file content.
-type mockFs struct {
-	files   map[string][]byte
-	list    []msbSdk.FsEntry
-	readErr error
-	listErr error
-}
-
-func (f *mockFs) Mkdir(_ context.Context, _ string) error           { return nil }
-func (f *mockFs) Write(_ context.Context, _ string, _ []byte) error { return nil }
-func (f *mockFs) Read(_ context.Context, path string) ([]byte, error) {
-	if f.readErr != nil {
-		return nil, f.readErr
-	}
-	if data, ok := f.files[path]; ok {
-		return data, nil
-	}
-	return nil, fmt.Errorf("file not found: %s", path)
-}
-func (f *mockFs) List(_ context.Context, _ string) ([]msbSdk.FsEntry, error) {
-	if f.listErr != nil {
-		return nil, f.listErr
-	}
-	return f.list, nil
-}
-func (f *mockFs) Remove(_ context.Context, _ string) error { return nil }
-func (f *mockFs) Exists(_ context.Context, path string) (bool, error) {
-	_, ok := f.files[path]
-	return ok, nil
-}
-func (f *mockFs) Stat(_ context.Context, _ string) (*msbSdk.FsStat, error) {
-	return &msbSdk.FsStat{}, nil
-}
-func (f *mockFs) ReadString(_ context.Context, path string) (string, error) {
-	if d, ok := f.files[path]; ok {
-		return string(d), nil
-	}
-	return "", fmt.Errorf("file not found: %s", path)
-}
-func (f *mockFs) ReadStream(_ context.Context, _ string) (*msbSdk.FsReadStream, error) {
-	return &msbSdk.FsReadStream{}, nil
-}
-
 // mockShellResultImpl implements ShellResult for tests.
 type mockShellResultImpl struct {
 	success     bool
@@ -481,7 +457,7 @@ func (m *mockShellResultImpl) StdoutBytes() []byte {
 	return []byte(m.stdout)
 }
 
-// MockVolumeHandle is a test double for VolumeHandle.
+//nolint:revive // underscore names avoid conflicts with interface methods
 type MockVolumeHandle struct {
 	Name_ string
 	Path_ string
@@ -497,7 +473,7 @@ func (m MockVolumeHandle) Kind() msbSdk.VolumeKind {
 	return m.Kind_
 }
 
-// MockImageHandle is a test double for ImageHandle.
+//nolint:revive // underscore names avoid conflicts with interface methods
 type MockImageHandle struct {
 	Reference_      string
 	ManifestDigest_ string
@@ -524,5 +500,6 @@ func ResetGetFn(f func() MsbClient) func() MsbClient {
 
 // WithNoopMsbMock replaces Get with a MockMsbClient where every method succeeds.
 func WithNoopMsbMock(t *testing.T) {
+	//nolint:exhaustruct // zero value is intentionally minimal
 	WithMsbMock(t, &MockMsbClient{})
 }

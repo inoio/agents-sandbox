@@ -8,7 +8,7 @@ import (
 	msb "gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/msb"
 )
 
-// SandboxFS is a re-export of msb.SandboxFS for backward compatibility.
+//nolint:revive // 'SandboxFS' stutters as 'sandbox.SandboxFS'
 type SandboxFS = msb.SandboxFS
 
 // MsbClient is a re-export of msb.MsbClient for backward compatibility.
@@ -20,7 +20,7 @@ type MockMsbClient = msb.MockMsbClient
 // MockRemoveImageCall is a re-export for backward compatibility.
 type MockRemoveImageCall = msb.MockRemoveImageCall
 
-// SandboxHandle is a re-export of msb.SandboxHandle for backward compatibility.
+//nolint:revive // 'SandboxHandle' stutters as 'sandbox.SandboxHandle'
 type SandboxHandle = msb.SandboxHandle
 
 // Sandbox is a re-export of msb.Sandbox for backward compatibility.
@@ -54,9 +54,13 @@ func SetNewMsbClient(f func() MsbClient) func() MsbClient {
 }
 
 // NewMsbClient is a re-export of msb.Get for backward compatibility.
+//
+//nolint:gochecknoglobals // backward compat re-export
 var NewMsbClient = msb.Get
 
 // newMsbClient is for internal use only (backward compat with existing callers).
+//
+//nolint:unused // backward compat wrapper, may be used by external callers
 func newMsbClient() MsbClient {
 	return msb.Get()
 }
