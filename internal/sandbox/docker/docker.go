@@ -10,6 +10,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"sync"
 
 	"github.com/moby/moby/client"
 
@@ -44,7 +45,6 @@ type Client interface {
 	) (client.ImageTagResult, error)
 }
 
-
 //nolint:gochecknoglobals // test hook for the otherwise unmockable docker client
 var Get = func() Client {
 	return &realDockerClient{}
@@ -59,8 +59,12 @@ func BuildDockerImage(
 	ui stdio.UI,
 ) error {
 	spinner := ui.Spinner(label)
+	tarBuf, err := dockerfileTar(dockerfile)
+	if err != nil {
+		return fmt.Errorf("create build context: %w", err)
+	}
 	moby := Get()
-	buildResp, err := moby.ImageBuild(ctx, dockerfileTar(dockerfile), client.ImageBuildOptions{
+	buildResp, err := moby.ImageBuild(ctx, tarBuf, client.ImageBuildOptions{
 		Tags:      []string{tag},
 		Remove:    true,
 		NoCache:   force,
@@ -87,17 +91,24 @@ func BuildDockerImage(
 
 const dockerfileMode = 0o644
 
-func dockerfileTar(dockerfile []byte) *bytes.Buffer {
+func dockerfileTar(dockerfile []byte) (*bytes.Buffer, error) {
 	var buf bytes.Buffer
 	tw := tar.NewWriter(&buf)
-	_ = tw.WriteHeader(&tar.Header{
+	if err := tw.WriteHeader(&tar.Header{
 		Name: "Dockerfile",
 		Mode: dockerfileMode,
 		Size: int64(len(dockerfile)),
-	})
-	_, _ = tw.Write(dockerfile)
-	_ = tw.Close()
-	return &buf
+	}); err != nil {
+		return nil, fmt.Errorf("tar write header: %w", err)
+	}
+	if _, err := io.Copy(tw, bytes.NewReader(dockerfile)); err != nil {
+		_ = tw.Close()
+		return nil, fmt.Errorf("tar write dockerfile: %w", err)
+	}
+	if err := tw.Close(); err != nil {
+		return nil, fmt.Errorf("tar close: %w", err)
+	}
+	return &buf, nil
 }
 
 // userBuildArgs returns Docker build arguments that align the in-image dev user
@@ -136,20 +147,18 @@ func scanBuildOutput(r io.Reader, ui stdio.UI) error {
 	}
 }
 
-//nolint:gochecknoglobals // test hook for the otherwise unmockable docker client
-var mobyClient *client.Client
+//nolint:gochecknoglobals // needed for lazy, thread-safe Docker client init
+var (
+	mobyClient     *client.Client
+	mobyClientOnce sync.Once
+	errMobyClient  error
+)
 
 func ensureMobyClient() error {
-	if mobyClient == nil {
-		if mobyClient == nil {
-			newMobyClient, err := client.New(client.FromEnv)
-			if err != nil {
-				return err
-			}
-			mobyClient = newMobyClient
-		}
-	}
-	return nil
+	mobyClientOnce.Do(func() {
+		mobyClient, errMobyClient = client.New(client.FromEnv)
+	})
+	return errMobyClient
 }
 
 type realDockerClient struct{}
@@ -208,9 +217,9 @@ func (realDockerClient) ImageTag(
 	return mobyClient.ImageTag(ctx, options)
 }
 
-
 // dockerBuildMessage represents a single line from the Docker build API
 // streaming response, decoding both progress and error output.
+// Docker returns either an ErrorDetail with a Message or an Error.
 type dockerBuildMessage struct {
 	ErrorDetail struct {
 		Message string `json:"message"`

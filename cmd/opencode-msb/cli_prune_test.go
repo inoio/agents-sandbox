@@ -59,7 +59,7 @@ func TestPrune(t *testing.T) {
 				mock := &sandbox.MockMsbClient{}
 				origMSB := sandbox.SetNewMsbClient(func() sandbox.MsbClient { return mock })
 				t.Cleanup(func() { sandbox.SetNewMsbClient(origMSB) })
-				docker.TestWithNoopDockerMock(t)
+				docker.WithNoopDockerMock(t)
 
 				root := buildRootCmd(ui)
 				root.SetArgs(append([]string{"prune"}, flags...))
@@ -90,7 +90,7 @@ func TestPrune(t *testing.T) {
 
 				origMSB := sandbox.SetNewMsbClient(func() sandbox.MsbClient { return mock })
 				t.Cleanup(func() { sandbox.SetNewMsbClient(origMSB) })
-				docker.TestWithNoopDockerMock(t)
+				docker.WithNoopDockerMock(t)
 
 				ui := &stdio.Mock{}
 				root := buildRootCmd(ui)
@@ -136,7 +136,7 @@ func TestPrune(t *testing.T) {
 
 				origMSB := sandbox.SetNewMsbClient(func() sandbox.MsbClient { return mock })
 				t.Cleanup(func() { sandbox.SetNewMsbClient(origMSB) })
-				docker.TestWithNoopDockerMock(t)
+				docker.WithNoopDockerMock(t)
 
 				root := buildRootCmd(ui)
 				root.SetArgs(append([]string{"prune"}, flags...))
@@ -167,7 +167,7 @@ func TestPrune(t *testing.T) {
 			cloneVol("opencode-msb-clone-staleproject-abc123"))
 		origMSB := sandbox.SetNewMsbClient(func() sandbox.MsbClient { return mock })
 		t.Cleanup(func() { sandbox.SetNewMsbClient(origMSB) })
-		docker.TestWithNoopDockerMock(t)
+		docker.WithNoopDockerMock(t)
 
 		root := buildRootCmd(ui)
 		root.SetArgs([]string{"prune", "--age", "2w"})
@@ -195,7 +195,7 @@ func TestPrune(t *testing.T) {
 			cloneVol("opencode-msb-clone-staleproject-abc123"))
 		origMSB := sandbox.SetNewMsbClient(func() sandbox.MsbClient { return mock })
 		t.Cleanup(func() { sandbox.SetNewMsbClient(origMSB) })
-		docker.TestWithNoopDockerMock(t)
+		docker.WithNoopDockerMock(t)
 
 		root := buildRootCmd(ui)
 		root.SetArgs([]string{"prune", "--age", "14d"})
@@ -229,7 +229,7 @@ func TestPrune(t *testing.T) {
 		for _, flags := range pruneAgeFlags {
 			t.Run("f"+strings.Join(flags, "_"), func(t *testing.T) {
 				ui := &stdio.Mock{}
-				docker.TestWithDefaultErrorDockerMock(t)
+				docker.WithDefaultErrorDockerMock(t)
 				root := buildRootCmd(ui)
 				root.SetArgs(append([]string{"prune"}, flags...))
 
@@ -261,7 +261,7 @@ func TestPrune(t *testing.T) {
 
 				origMSB := sandbox.SetNewMsbClient(func() sandbox.MsbClient { return mock })
 				t.Cleanup(func() { sandbox.SetNewMsbClient(origMSB) })
-				docker.TestWithNoopDockerMock(t)
+				docker.WithNoopDockerMock(t)
 
 				ui := &stdio.Mock{}
 				root := buildRootCmd(ui)
@@ -296,7 +296,7 @@ func TestPrune(t *testing.T) {
 
 				origMSB := sandbox.SetNewMsbClient(func() sandbox.MsbClient { return mock })
 				t.Cleanup(func() { sandbox.SetNewMsbClient(origMSB) })
-				docker.TestWithNoopDockerMock(t)
+				docker.WithNoopDockerMock(t)
 
 				ui := &stdio.Mock{}
 				root := buildRootCmd(ui)
@@ -331,7 +331,7 @@ func TestPrune(t *testing.T) {
 
 				origMSB := sandbox.SetNewMsbClient(func() sandbox.MsbClient { return mock })
 				t.Cleanup(func() { sandbox.SetNewMsbClient(origMSB) })
-				docker.TestWithNoopDockerMock(t)
+				docker.WithNoopDockerMock(t)
 
 				ui := &stdio.Mock{}
 				root := buildRootCmd(ui)

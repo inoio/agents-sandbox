@@ -59,7 +59,7 @@ func TestBuildBuildCmd(t *testing.T) {
 		}
 
 		ui := &stdio.Mock{}
-		docker.TestWithDefaultErrorDockerMock(t)
+		docker.WithDefaultErrorDockerMock(t)
 
 		root := buildRootCmd(ui)
 		root.SetArgs([]string{cmdBuild})

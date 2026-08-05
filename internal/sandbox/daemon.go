@@ -76,7 +76,7 @@ func EnsureDaemon(ctx context.Context, sb Sandbox, ui stdio.UI) error {
 }
 
 func checkDaemonHealth(ctx context.Context, sb Sandbox) bool {
-	stdout, exitCode, err := daemonShellFunc(ctx, sb, "curl -sf "+daemonHealthURL)
+	stdout, exitCode, err := daemonShellFunc(ctx, sb, "curl -sfm2 "+daemonHealthURL)
 	if err != nil || exitCode != 0 {
 		return false
 	}

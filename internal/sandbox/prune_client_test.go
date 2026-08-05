@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/moby/moby/client"
+
 	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/docker"
 
 	msb "github.com/superradcompany/microsandbox/sdk/go"
@@ -89,7 +90,7 @@ func newMockUI() *stdio.Mock {
 func TestPruneStaleCascade_RemovesVMAndAllArtifacts(t *testing.T) {
 	client := &MockMsbClient{}
 	dockerMock := &mockDockerClient{}
-	docker.TestWithDockerMock(t, dockerMock)
+	docker.WithDockerMock(t, dockerMock)
 	ui := newMockUI()
 	report := &StaleReport{}
 
@@ -147,7 +148,7 @@ func TestPruneStaleCascade_RemovesVMAndAllArtifacts(t *testing.T) {
 func TestPruneStaleCascade_DryRunDoesNotDelete(t *testing.T) {
 	client := &MockMsbClient{}
 	dockerMock := &mockDockerClient{}
-	docker.TestWithDockerMock(t, dockerMock)
+	docker.WithDockerMock(t, dockerMock)
 	ui := newMockUI()
 	report := &StaleReport{}
 
@@ -186,7 +187,7 @@ func TestPruneStaleCascade_DryRunDoesNotDelete(t *testing.T) {
 func TestPruneStaleCascade_RemoveErrorWarnsAndStopsCascade(t *testing.T) {
 	client := &MockMsbClient{removeSandboxErr: errors.New("sandbox locked")}
 	dockerMock := &mockDockerClient{}
-	docker.TestWithDockerMock(t, dockerMock)
+	docker.WithDockerMock(t, dockerMock)
 	ui := newMockUI()
 	report := &StaleReport{}
 
@@ -215,7 +216,7 @@ func TestPruneStaleCascade_RemoveErrorWarnsAndStopsCascade(t *testing.T) {
 func TestPruneActiveVMCleanup_KeepsMatchingDigestAndLatest(t *testing.T) {
 	client := &MockMsbClient{}
 	dockerMock := &mockDockerClient{}
-	docker.TestWithDockerMock(t, dockerMock)
+	docker.WithDockerMock(t, dockerMock)
 	ui := newMockUI()
 	report := &StaleReport{}
 
@@ -267,7 +268,7 @@ func TestPruneActiveVMCleanup_KeepsMatchingDigestAndLatest(t *testing.T) {
 func TestPruneActiveVMCleanup_DryRunCountsButDoesNotDelete(t *testing.T) {
 	client := &MockMsbClient{}
 	dockerMock := &mockDockerClient{}
-	docker.TestWithDockerMock(t, dockerMock)
+	docker.WithDockerMock(t, dockerMock)
 	ui := newMockUI()
 	report := &StaleReport{}
 
@@ -302,7 +303,7 @@ func TestPruneActiveVMCleanup_DryRunCountsButDoesNotDelete(t *testing.T) {
 func TestPruneOrphanSlug_RemovesEverything(t *testing.T) {
 	client := &MockMsbClient{}
 	dockerMock := &mockDockerClient{}
-	docker.TestWithDockerMock(t, dockerMock)
+	docker.WithDockerMock(t, dockerMock)
 	ui := newMockUI()
 	report := &StaleReport{}
 
@@ -435,7 +436,7 @@ func TestPrune_WithMocks_CoversAllCases(t *testing.T) {
 			&MockImageHandle{Reference_: "opencode-msb/runner-orphan:latest"},
 		},
 	}
-	docker.TestWithNoopDockerMock(t)
+	docker.WithNoopDockerMock(t)
 	ui := newMockUI()
 
 	oldNewMsbClient := newMsbClient
@@ -468,11 +469,10 @@ func TestPrune_WithMocks_CoversAllCases(t *testing.T) {
 }
 
 func TestPruneActiveVMDockerImages_AllFail_LogWarnings(t *testing.T) {
-
 	dockerMock := &mockDockerClient{
 		removeErr: errors.New("image does not exist"),
 	}
-	docker.TestWithDockerMock(t, dockerMock)
+	docker.WithDockerMock(t, dockerMock)
 	report := &StaleReport{}
 	ui := newMockUI()
 
@@ -509,7 +509,7 @@ func TestPruneActiveVMDockerImages_PartialFailure(t *testing.T) {
 			errors.New("image does not exist"),
 		},
 	}
-	docker.TestWithDockerMock(t, dockerMock)
+	docker.WithDockerMock(t, dockerMock)
 	report := &StaleReport{}
 	ui := newMockUI()
 
@@ -543,7 +543,7 @@ func TestPruneStaleCascade_DockerRemoveFails_DependentOpsSucceed(t *testing.T) {
 		// First Docker removal succeeds, second fails.
 		perCallErrs: []error{nil, errors.New("image not found")},
 	}
-	docker.TestWithDockerMock(t, dockerMock)
+	docker.WithDockerMock(t, dockerMock)
 	ui := newMockUI()
 	report := &StaleReport{}
 
@@ -619,7 +619,7 @@ func TestPrune_DockerRemoveFails_PartialReport(t *testing.T) {
 		// First succeeds, second fails.
 		perCallErrs: []error{nil, errors.New("image not found")},
 	}
-	docker.TestWithDockerMock(t, dockerMock)
+	docker.WithDockerMock(t, dockerMock)
 	ui := newMockUI()
 
 	oldNewMsbClient := newMsbClient
