@@ -42,7 +42,7 @@ func TestCheckDockerAPIReturnsTrueWhenPingSucceeds(t *testing.T) {
 	testUI := testutil.NewTestio(t)
 
 	WithDockerMock(t, &MockDockerClient{
-		PingFn: func(ctx context.Context, opts client.PingOptions) (client.PingResult, error) {
+		PingFn: func(_ context.Context, _ client.PingOptions) (client.PingResult, error) {
 			return client.PingResult{APIVersion: "1.44"}, nil
 		},
 	})
@@ -56,7 +56,7 @@ func TestCheckDockerAPIReturnsFalseWhenPingFails(t *testing.T) {
 	testUI := testutil.NewTestio(t)
 
 	WithDockerMock(t, &MockDockerClient{
-		PingFn: func(ctx context.Context, opts client.PingOptions) (client.PingResult, error) {
+		PingFn: func(_ context.Context, _ client.PingOptions) (client.PingResult, error) {
 			return client.PingResult{}, errors.New("connection refused")
 		},
 	})
