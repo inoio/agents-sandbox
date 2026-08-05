@@ -31,6 +31,36 @@ sudo usermod -aG $USER kvm
 
 Log out and back in for the group change to take effect.
 
+## macOS-specific issues
+
+### Not Apple Silicon
+
+The doctor command will exit with an error if you are running the x86_64 binary under Rosetta 2. Download the `darwin-arm64` binary instead. To check your current architecture:
+
+```
+uname -m
+```
+
+Expected output on supported hardware: `arm64`.
+
+### Docker socket not found
+
+On macOS, the Docker socket is managed by Docker Desktop or colima. Verify it is running:
+
+```
+docker info
+```
+
+If Docker Desktop is installed but not running, launch it from Applications. If using colima:
+
+```
+colima start
+```
+
+### KVM not available
+
+KVM is a Linux-only feature. On macOS, the microsandbox runtime uses the Hypervisor.framework instead. The doctor command skips the KVM check on macOS — this is expected.
+
 ### msb not found
 
 ```console
