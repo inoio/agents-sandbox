@@ -28,7 +28,7 @@ func setupRunMocks(t *testing.T, mock *sandbox.MockMsbClient, sandboxToReturn sa
 	origMSB := sandbox.SetNewMsbClient(func() sandbox.MsbClient { return mock })
 	t.Cleanup(func() { sandbox.SetNewMsbClient(origMSB) })
 
-	docker.TestWithNoopDockerMock(t)
+	docker.WithNoopDockerMock(t)
 	origCheck := sandbox.SetEnsureInstalled(func(_ context.Context) error { return nil })
 	t.Cleanup(func() { sandbox.SetEnsureInstalled(origCheck) })
 

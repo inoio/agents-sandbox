@@ -9,7 +9,10 @@ import (
 
 func TestDockerfileTarContainsDockerfile(t *testing.T) {
 	dockerfile := []byte("FROM debian:trixie-slim\nRUN echo hi\n")
-	tarBuf := dockerfileTar(dockerfile)
+	tarBuf, err := dockerfileTar(dockerfile)
+	if err != nil {
+		t.Fatalf("dockerfileTar failed: %v", err)
+	}
 
 	tr := tar.NewReader(tarBuf)
 	header, err := tr.Next()
