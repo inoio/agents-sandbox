@@ -3,10 +3,16 @@
 package sandbox
 
 import (
+	"archive/tar"
+	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
+	"io"
+	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -14,6 +20,7 @@ import (
 	"github.com/moby/moby/client"
 
 	"gitlab.inoio.de/inoio/opencode-msb/internal/git"
+	"gitlab.inoio.de/inoio/opencode-msb/internal/stdio"
 	"gitlab.inoio.de/inoio/opencode-msb/internal/testutil"
 
 	msb "github.com/superradcompany/microsandbox/sdk/go"
@@ -23,7 +30,6 @@ func TestStartDockerdIfPresentWithDindImage(t *testing.T) {
 	ctx := t.Context()
 	ui := testutil.NewTestio(t)
 
-	// Build the dind base image requires Docker on the host.
 	if testing.Short() {
 		t.Skip("skipping integration test in short mode")
 	}
@@ -34,66 +40,13 @@ func TestStartDockerdIfPresentWithDindImage(t *testing.T) {
 	}
 	defer dockerCli.Close()
 
-	// Build the plain base image first (dind extends it).
-	if err := buildDockerImage(
-		ctx,
-		dockerCli,
-		EmbeddedDockerfile,
-		BaseTag,
-		"Building base",
-		false,
-		ui,
-	); err != nil {
-		t.Skipf("cannot build base image: %v", err)
-	}
-
-	// Build the dind base image.
-	if err := buildDockerImage(
-		ctx,
-		dockerCli,
-		EmbeddedDindDockerfile,
-		DindBaseTag,
-		"Building dind base",
-		false,
-		ui,
-	); err != nil {
-		t.Skipf("cannot build dind image: %v", err)
-	}
-
-	// Load into msb.
-	imageRef := DindBaseTag
-	if _, err := msb.Image.Get(ctx, imageRef); err != nil {
-		saveResult, err := dockerCli.ImageSave(ctx, []string{DindBaseTag})
-		if err != nil {
-			t.Skipf("cannot export dind image: %v", err)
-		}
-		defer saveResult.Close()
-		cmd := exec.CommandContext(ctx, "msb", "load", "--tag", imageRef)
-		cmd.Stdin = saveResult
-		if out, err := cmd.CombinedOutput(); err != nil {
-			t.Skipf("cannot load dind image into msb: %v: %s", err, out)
-		}
-	}
-
-	sandboxName := fmt.Sprintf("test-dind-%d", time.Now().UnixNano())
-	sb, err := msb.CreateSandbox(ctx, sandboxName,
-		msb.WithImage(imageRef),
-		msb.WithUser("dev"),
-		msb.WithWorkdir("/workspace"),
-		msb.WithReplace(),
-	)
+	sb, cleanup, err := setupTestSandbox(t, ctx, dockerCli, &ui, DindBaseTag, "dind")
 	if err != nil {
-		t.Skipf("cannot create sandbox: %v", err)
+		t.Skipf("setup failed: %v", err)
 	}
-	defer func() {
-		stopCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-		defer cancel()
-		_ = sb.Stop(stopCtx)
-		_ = sb.Close()
-		_ = msb.RemoveSandbox(context.Background(), sandboxName)
-	}()
+	defer cleanup()
 
-	if err := startDockerdIfPresent(ctx, realSandbox{sandbox: sb}, ui); err != nil {
+	if err := startDockerdIfPresent(ctx, realSandbox{sandbox: sb}, &ui); err != nil {
 		t.Fatalf("startDockerdIfPresent failed: %v", err)
 	}
 
@@ -123,59 +76,22 @@ func TestStartDockerdIfPresentWithPlainBaseImage(t *testing.T) {
 	}
 	defer dockerCli.Close()
 
-	if err := buildDockerImage(
-		ctx,
-		dockerCli,
-		EmbeddedDockerfile,
-		BaseTag,
-		"Building base",
-		false,
-		ui,
-	); err != nil {
-		t.Skipf("cannot build base image: %v", err)
-	}
-
-	imageRef := BaseTag
-	if _, err := msb.Image.Get(ctx, imageRef); err != nil {
-		saveResult, err := dockerCli.ImageSave(ctx, []string{BaseTag})
-		if err != nil {
-			t.Skipf("cannot export base image: %v", err)
-		}
-		defer saveResult.Close()
-		cmd := exec.CommandContext(ctx, "msb", "load", "--tag", imageRef)
-		cmd.Stdin = saveResult
-		if out, err := cmd.CombinedOutput(); err != nil {
-			t.Skipf("cannot load base image into msb: %v: %s", err, out)
-		}
-	}
-
-	sandboxName := fmt.Sprintf("test-plain-%d", time.Now().UnixNano())
-	sb, err := msb.CreateSandbox(ctx, sandboxName,
-		msb.WithImage(imageRef),
-		msb.WithUser("dev"),
-		msb.WithWorkdir("/workspace"),
-		msb.WithReplace(),
-	)
+	sb, cleanup, err := setupTestSandbox(t, ctx, dockerCli, &ui, BaseTag, "plain")
 	if err != nil {
-		t.Skipf("cannot create sandbox: %v", err)
+		t.Skipf("setup failed: %v", err)
 	}
-	defer func() {
-		stopCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-		defer cancel()
-		_ = sb.Stop(stopCtx)
-		_ = sb.Close()
-		_ = msb.RemoveSandbox(context.Background(), sandboxName)
-	}()
+	defer cleanup()
 
 	// Should be a no-op on plain base (no dockerd binary).
-	if err := startDockerdIfPresent(ctx, realSandbox{sandbox: sb}, ui); err != nil {
+	if err := startDockerdIfPresent(ctx, realSandbox{sandbox: sb}, &ui); err != nil {
 		t.Fatalf("startDockerdIfPresent should be no-op on plain base, got: %v", err)
 	}
 }
 
 func TestProjectVMLifecycle(t *testing.T) {
 	ctx := t.Context()
-	ui := testutil.NewTestio(t)
+	testUI := testutil.NewTestio(t)
+	ui := &testUI
 
 	if testing.Short() {
 		t.Skip("skipping integration test in short mode")
@@ -221,7 +137,7 @@ func TestProjectVMLifecycle(t *testing.T) {
 		defer func() { _ = msb.RemoveVolume(context.Background(), vol.Name()) }()
 	}
 
-	opts := RunOptuins{Memory: "1G", TmpSize: "512M"}
+	opts := RunOptions{Memory: "1G", TmpSize: "512M"}
 	cfg := Config{
 		StateDir:        filepath.Join(t.TempDir(), "state"),
 		UserConfigDir:   t.TempDir(),
@@ -240,7 +156,7 @@ func TestProjectVMLifecycle(t *testing.T) {
 		stopCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
 		_ = sb.Detach(stopCtx)
-		_ = StopProjectVM(context.Background(), true, ui)
+		_ = StopProjectVM(context.Background(), true, false, ui)
 	}()
 
 	// Step 2: EnsureDaemon is healthy.
@@ -279,4 +195,154 @@ func TestProjectVMLifecycle(t *testing.T) {
 		t.Error("expected created=false on second call (VM should exist)")
 	}
 	_ = sb2.Detach(ctx)
+}
+
+// setupTestSandbox handles shared setup: skip, ensure base image, ensure image
+// loaded, and create a sandbox. Returns the sandbox, a cleanup function, and
+// any error encountered.
+func setupTestSandbox(t *testing.T, ctx context.Context, dockerCli *client.Client, ui *stdio.Mock, imageRef, sbNameFmt string) (*msb.Sandbox, func(), error) {
+	t.Helper()
+
+	if err := buildDockerImage(ctx, dockerCli, EmbeddedDockerfile, BaseTag, "Building base", false, ui); err != nil {
+		return nil, nil, fmt.Errorf("base image: %w", err)
+	}
+
+	if _, err := msb.Image.Get(ctx, imageRef); err != nil {
+		saveResult, err := dockerCli.ImageSave(ctx, []string{imageRef})
+		if err != nil {
+			return nil, nil, fmt.Errorf("export: %w", err)
+		}
+		defer saveResult.Close()
+		cmd := exec.CommandContext(ctx, "msb", "load", "--tag", imageRef)
+		cmd.Stdin = saveResult
+		if out, err := cmd.CombinedOutput(); err != nil {
+			return nil, nil, fmt.Errorf("load: %w: %s", err, out)
+		}
+	}
+
+	sbName := fmt.Sprintf(sbNameFmt, time.Now().UnixNano())
+	sb, err := msb.CreateSandbox(ctx, sbName,
+		msb.WithImage(imageRef),
+		msb.WithUser("dev"),
+		msb.WithWorkdir("/workspace"),
+		msb.WithReplace(),
+	)
+	if err != nil {
+		return nil, nil, fmt.Errorf("create: %w", err)
+	}
+
+	cleanup := func() {
+		ctx2, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		_ = sb.Stop(ctx2)
+		_ = sb.Close()
+		_ = msb.RemoveSandbox(context.Background(), sbName)
+	}
+	return sb, cleanup, nil
+}
+
+// buildDockerImage builds a Docker image using the provided client.
+func buildDockerImage(
+	ctx context.Context,
+	dockerCli *client.Client,
+	dockerfile []byte,
+	tag string,
+	label string,
+	force bool,
+	ui stdio.UI,
+) error {
+	spinner := ui.Spinner(label)
+	tarBuf, err := dockerfileTar(dockerfile)
+	if err != nil {
+		return fmt.Errorf("create build context: %w", err)
+	}
+	buildResp, err := dockerCli.ImageBuild(
+		ctx, tarBuf,
+		client.ImageBuildOptions{
+			Tags:      []string{tag},
+			Remove:    true,
+			NoCache:   force,
+			BuildArgs: userBuildArgs(),
+		},
+	)
+	if err != nil {
+		spinner.StopError(err)
+		return fmt.Errorf("docker image build failed: %w", err)
+	}
+	buildErr := scanBuildOutput(buildResp.Body, ui)
+	_ = buildResp.Body.Close()
+	if buildErr != nil {
+		spinner.StopError(buildErr)
+		if strings.Contains(buildErr.Error(), "pull access denied") {
+			return fmt.Errorf("docker image build failed (base image not found or not logged in): %w", buildErr)
+		}
+		return fmt.Errorf("docker image build failed: %w", buildErr)
+	}
+	spinner.Stop()
+	return nil
+}
+
+// dockerfileTar creates a minimal Docker build context tar from a Dockerfile.
+func dockerfileTar(dockerfile []byte) (*bytes.Buffer, error) {
+	var buf bytes.Buffer
+	tw := tar.NewWriter(&buf)
+	if err := tw.WriteHeader(&tar.Header{
+		Name: "Dockerfile",
+		Mode: 0o644,
+		Size: int64(len(dockerfile)),
+	}); err != nil {
+		return nil, fmt.Errorf("tar write header: %w", err)
+	}
+	if _, err := io.Copy(tw, bytes.NewReader(dockerfile)); err != nil {
+		_ = tw.Close()
+		return nil, fmt.Errorf("tar write dockerfile: %w", err)
+	}
+	if err := tw.Close(); err != nil {
+		return nil, fmt.Errorf("tar close: %w", err)
+	}
+	return &buf, nil
+}
+
+// userBuildArgs returns Docker build arguments that align the in-image dev user
+// with the host user that owns the bind-mounted /workspace.
+func userBuildArgs() map[string]*string {
+	u := strconv.Itoa(os.Getuid())
+	g := strconv.Itoa(os.Getgid())
+	return map[string]*string{
+		"USER_UID": &u,
+		"USER_GID": &g,
+	}
+}
+
+type dockerBuildMessage struct {
+	Stream      string      `json:"stream,omitempty"`
+	Error       string      `json:"error,omitempty"`
+	ErrorDetail dockerError `json:"errorDetail,omitempty"`
+}
+
+type dockerError struct {
+	Message string `json:"message"`
+}
+
+func scanBuildOutput(r io.Reader, ui stdio.UI) error {
+	dec := json.NewDecoder(r)
+	for {
+		var msg dockerBuildMessage
+		if err := dec.Decode(&msg); err != nil {
+			if err == io.EOF {
+				return nil
+			}
+			return fmt.Errorf("unexpected Docker build output: %w", err)
+		}
+		if msg.Error != "" {
+			return fmt.Errorf("%s", msg.Error)
+		}
+		if msg.ErrorDetail.Message != "" {
+			return fmt.Errorf("%s", msg.ErrorDetail.Message)
+		}
+		trimmedMsg := strings.Trim(msg.Stream, " \n")
+		if trimmedMsg != "" {
+			ui.Verbose(trimmedMsg)
+		}
+	}
 }
