@@ -379,7 +379,7 @@ func (m *MockSandbox) Shell(_ context.Context, command string, _ ...msbSdk.ExecO
 	}
 	// Return successful result when no override is configured.
 	//nolint:exhaustruct // success-only default
-	return &mockShellResultImpl{success: true}, nil
+	return &TestResult{success: true}, nil
 }
 func (m *MockSandbox) Exec(
 	_ context.Context,
@@ -396,7 +396,7 @@ func (m *MockSandbox) Exec(
 	}
 	// Return successful result when no override is configured.
 	//nolint:exhaustruct // success-only default
-	return &mockShellResultImpl{success: true}, nil
+	return &TestResult{success: true}, nil
 }
 
 func (m *MockSandbox) Attach(_ context.Context, _ string, _ ...string) (int, error) {
@@ -425,8 +425,8 @@ func (minimalSandboxFS) Write(_ context.Context, _ string, _ []byte) error { ret
 func (minimalSandboxFS) Read(_ context.Context, _ string) ([]byte, error)  { return nil, nil }
 func (minimalSandboxFS) Remove(_ context.Context, _ string) error          { return nil }
 
-// mockShellResultImpl implements ShellResult for tests.
-type mockShellResultImpl struct {
+// TestResult implements ShellResult for tests.
+type TestResult struct {
 	success     bool
 	exitCode    int
 	stdout      string
@@ -434,15 +434,20 @@ type mockShellResultImpl struct {
 	stdoutBytes []byte
 }
 
-func (m *mockShellResultImpl) Success() bool  { return m.success }
-func (m *mockShellResultImpl) ExitCode() int  { return m.exitCode }
-func (m *mockShellResultImpl) Stdout() string { return m.stdout }
-func (m *mockShellResultImpl) Stderr() string { return m.stderr }
-func (m *mockShellResultImpl) StdoutBytes() []byte {
-	if m.stdoutBytes != nil {
-		return m.stdoutBytes
+// NewTestResult creates a ShellResult for tests.
+func NewTestResult(success bool, exitCode int, stdout, stderr string, stdoutBytes []byte) ShellResult {
+	return &TestResult{success: success, exitCode: exitCode, stdout: stdout, stderr: stderr, stdoutBytes: stdoutBytes}
+}
+
+func (t *TestResult) Success() bool  { return t.success }
+func (t *TestResult) ExitCode() int  { return t.exitCode }
+func (t *TestResult) Stdout() string { return t.stdout }
+func (t *TestResult) Stderr() string { return t.stderr }
+func (t *TestResult) StdoutBytes() []byte {
+	if t.stdoutBytes != nil {
+		return t.stdoutBytes
 	}
-	return []byte(m.stdout)
+	return []byte(t.stdout)
 }
 
 //nolint:revive // underscore names avoid conflicts with interface methods

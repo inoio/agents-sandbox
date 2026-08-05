@@ -64,3 +64,11 @@ var NewMsbClient = msb.Get
 func WithMsbMock(t *testing.T, mock MsbClient) {
 	msb.WithMsbMock(t, mock)
 }
+
+// TestResult is a re-export of msb.TestResult for tests.
+type TestResult = msb.TestResult
+
+// NewTestResult creates a ShellResult for tests.
+func NewTestResult(success bool, exitCode int, stdout, stderr string, stdoutBytes []byte) ShellResult {
+	return msb.NewTestResult(success, exitCode, stdout, stderr, stdoutBytes)
+}
