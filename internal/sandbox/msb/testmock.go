@@ -255,7 +255,7 @@ func (m *MockMsbClient) ImageLoad(ctx context.Context, ref string, r io.Reader) 
 }
 
 // SetGetSandboxErr sets the error returned by MockMsbClient.GetSandbox.
-func (m *MockMsbClient) SetGetSandboxErr(err error) {
+func (m *MockMsbClient) SetGetSandboxErr(err error) *MockMsbClient {
 	if err != nil {
 		m.GetSandboxFn = func(_ context.Context, _ string) (SandboxHandle, error) {
 			return nil, err
@@ -263,10 +263,11 @@ func (m *MockMsbClient) SetGetSandboxErr(err error) {
 	} else {
 		m.GetSandboxFn = nil
 	}
+	return m
 }
 
 // SetGotSandbox sets the sandbox handle returned by MockMsbClient.GetSandbox.
-func (m *MockMsbClient) SetGotSandbox(h SandboxHandle) {
+func (m *MockMsbClient) SetGotSandbox(h SandboxHandle) *MockMsbClient {
 	if h != nil {
 		m.GetSandboxFn = func(_ context.Context, _ string) (SandboxHandle, error) {
 			return h, nil
@@ -274,10 +275,11 @@ func (m *MockMsbClient) SetGotSandbox(h SandboxHandle) {
 	} else {
 		m.GetSandboxFn = nil
 	}
+	return m
 }
 
 // SetGetVolumeErr sets the error returned by MockMsbClient.GetVolume.
-func (m *MockMsbClient) SetGetVolumeErr(err error) {
+func (m *MockMsbClient) SetGetVolumeErr(err error) *MockMsbClient {
 	if err != nil {
 		m.GetVolumeFn = func(_ context.Context, _ string) (VolumeHandle, error) {
 			return nil, err
@@ -285,6 +287,7 @@ func (m *MockMsbClient) SetGetVolumeErr(err error) {
 	} else {
 		m.GetVolumeFn = nil
 	}
+	return m
 }
 
 // -- Domain mocks --
