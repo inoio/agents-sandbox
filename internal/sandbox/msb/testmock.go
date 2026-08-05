@@ -2,6 +2,7 @@ package msb
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"strings"
 	"sync"
@@ -367,7 +368,7 @@ func (m *MockSandbox) FS() SandboxFS {
 	if f, ok := m.FSValue_.(SandboxFS); ok {
 		return f
 	}
-	return &minimalSandboxFS{}
+	return &TestFS{}
 }
 
 func (m *MockSandbox) Shell(_ context.Context, command string, _ ...msbSdk.ExecOption) (ShellResult, error) {
@@ -440,23 +441,75 @@ func NewMockSandbox(opts SandboxOpts) Sandbox {
 	}
 }
 
-// minimalSandboxFS is a no-op fs implementation for MockSandbox.FS() when
-// no FSValue_ is set, preventing nil pointer panics.
-type minimalSandboxFS struct{}
+// TestFS is a test double for SandboxFS that supports configurable file contents,
+// listing, and error injection.
+type TestFS struct {
+	Contents map[string][]byte
+	LS       []msbSdk.FsEntry
+	ReadErr  error
+	ListErr  error
+}
 
-func (minimalSandboxFS) Exists(_ context.Context, _ string) (bool, error) { return false, nil }
-func (minimalSandboxFS) Stat(_ context.Context, _ string) (*msbSdk.FsStat, error) {
+// NewTestFS creates a SandboxFS backed by the given files. Files is a map from
+// path to file content; ls is the return value for List. Nil map values
+// produce sensible defaults.
+//
+//nolint:exhaustruct // tests set only Contents and LS
+func NewTestFS(files map[string][]byte, ls []msbSdk.FsEntry) *TestFS {
+	return &TestFS{Contents: files, LS: ls}
+}
+
+// SetReadErr configures Read/ReadStream/String to return the given error.
+func (t *TestFS) SetReadErr(err error) { t.ReadErr = err }
+
+// SetListErr configures List to return the given error.
+func (t *TestFS) SetListErr(err error) { t.ListErr = err }
+
+func (t *TestFS) Exists(_ context.Context, path string) (bool, error) {
+	_, ok := t.Contents[path]
+	return ok, nil
+}
+
+func (t *TestFS) Stat(_ context.Context, _ string) (*msbSdk.FsStat, error) {
 	return &msbSdk.FsStat{}, nil
 }
-func (minimalSandboxFS) List(_ context.Context, _ string) ([]msbSdk.FsEntry, error) { return nil, nil }
-func (minimalSandboxFS) ReadString(_ context.Context, _ string) (string, error)     { return "", nil }
-func (minimalSandboxFS) ReadStream(_ context.Context, _ string) (*msbSdk.FsReadStream, error) {
+
+func (t *TestFS) List(_ context.Context, _ string) ([]msbSdk.FsEntry, error) {
+	if t.ListErr != nil {
+		return nil, t.ListErr
+	}
+	return t.LS, nil
+}
+
+func (t *TestFS) ReadString(_ context.Context, path string) (string, error) {
+	if t.ReadErr != nil {
+		return "", t.ReadErr
+	}
+	if d, ok := t.Contents[path]; ok {
+		return string(d), nil
+	}
+	return "", fmt.Errorf("file not found: %s", path)
+}
+
+func (t *TestFS) ReadStream(_ context.Context, _ string) (*msbSdk.FsReadStream, error) {
+	if t.ReadErr != nil {
+		return nil, t.ReadErr
+	}
 	return &msbSdk.FsReadStream{}, nil
 }
-func (minimalSandboxFS) Mkdir(_ context.Context, _ string) error           { return nil }
-func (minimalSandboxFS) Write(_ context.Context, _ string, _ []byte) error { return nil }
-func (minimalSandboxFS) Read(_ context.Context, _ string) ([]byte, error)  { return nil, nil }
-func (minimalSandboxFS) Remove(_ context.Context, _ string) error          { return nil }
+
+func (t *TestFS) Mkdir(_ context.Context, _ string) error           { return nil }
+func (t *TestFS) Write(_ context.Context, _ string, _ []byte) error { return nil }
+func (t *TestFS) Read(_ context.Context, path string) ([]byte, error) {
+	if t.ReadErr != nil {
+		return nil, t.ReadErr
+	}
+	if d, ok := t.Contents[path]; ok {
+		return d, nil
+	}
+	return nil, fmt.Errorf("file not found: %s", path)
+}
+func (t *TestFS) Remove(_ context.Context, _ string) error { return nil }
 
 // TestResult implements ShellResult for tests.
 type TestResult struct {
