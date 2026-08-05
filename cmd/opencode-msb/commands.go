@@ -1,25 +1,12 @@
 package main
 
 import (
-	"github.com/moby/moby/client"
 	"github.com/spf13/cobra"
 
 	"gitlab.inoio.de/inoio/opencode-msb/internal/launcherconfig"
 	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox"
 	"gitlab.inoio.de/inoio/opencode-msb/internal/stdio"
 )
-
-// newDockerClient creates a new Docker client for the prune command.
-// Tests override this to inject stub clients.
-//
-//nolint:gochecknoglobals // factory variable for test injection
-var newDockerClient = func() (sandbox.DockerClient, error) {
-	cli, err := client.New(client.FromEnv)
-	if err != nil {
-		return nil, err
-	}
-	return cli, nil
-}
 
 // extractRunOptions extracts shared run/shell flags from the given command
 // and returns a populated sandbox.RunOptions. The auto parameter controls
@@ -106,6 +93,9 @@ func buildRootCmd(ui stdio.UI) *cobra.Command {
 	rootCmd.AddCommand(buildKillCmd(ui))
 	rootCmd.AddCommand(buildPruneCmd(ui))
 
+	rootCmd.SetOut(ui.StdOut())
+	rootCmd.SetErr(ui.StdErr())
+
 	return rootCmd
 }
 
@@ -177,6 +167,6 @@ func printPruneSummary(ui stdio.UI, report *sandbox.StaleReport, dryRun bool) {
 	)
 	ui.Verbosef("details %d", len(report.Details))
 	for _, entry := range report.Details {
-		ui.Verbosef("x  %s", entry)
+		ui.Verbosef("x  %s (%s, digest=%s, type=%s)", entry.Name, entry.Slug, entry.Digest, entry.Type)
 	}
 }

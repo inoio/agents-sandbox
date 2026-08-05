@@ -118,7 +118,7 @@ func resolveDockerfile() []byte {
 }
 
 type sandboxSession struct {
-	sb     msbSandbox
+	sb     Sandbox
 	name   string
 	target string
 	cwd    string
@@ -195,7 +195,7 @@ func prepareSandbox(
 // use, or does nothing otherwise. It is safe to call on every VM bootstrap
 // because startDockerdIfPresent checks for binary presence and handles the
 // case where dockerd is already running.
-func ensureDockerdIfPresent(ctx context.Context, sb msbSandbox, ui stdio.UI) error {
+func ensureDockerdIfPresent(ctx context.Context, sb Sandbox, ui stdio.UI) error {
 	return startDockerdIfPresent(ctx, sb, ui)
 }
 
@@ -266,13 +266,7 @@ func BuildImage(ctx context.Context, force, dryRun bool, ui stdio.UI) error {
 	}
 	projectSlug := git.ProjectSlug(ui)
 
-	dockerCli, err := ensureImageDockerClient()
-	if err != nil {
-		return fmt.Errorf("cannot connect to Docker daemon (is dockerd running?): %w", err)
-	}
-	defer dockerCli.Close()
-
-	_, _, _, err = ensureImageWithClient(ctx, newMsbClient(), dockerCli, resolveDockerfile(), projectSlug, force, ui)
+	_, _, _, err := ensureImageWithClient(ctx, newMsbClient(), resolveDockerfile(), projectSlug, force, ui)
 	return err
 }
 
@@ -337,7 +331,7 @@ func provisionSandbox(
 // setUpSandbox handles all sandbox setup after the VM is running.
 func setUpSandbox(
 	ctx context.Context,
-	sb msbSandbox,
+	sb Sandbox,
 	opts RunOptions,
 	cfg Config,
 	_ string,
@@ -372,7 +366,7 @@ func setUpSandbox(
 }
 
 // handleConfigChange provisions the sandbox and restarts the daemon if required.
-func handleConfigChange(ctx context.Context, sb msbSandbox, cfs *configFiles, ui stdio.UI) {
+func handleConfigChange(ctx context.Context, sb Sandbox, cfs *configFiles, ui stdio.UI) {
 	daemonHealthy := daemonIsHealthy(ctx, sb)
 	if daemonHealthy {
 		action, promptErr := promptConfigChange(ui)
@@ -394,7 +388,7 @@ func ensureProvisionedAndRunning(
 	ctx context.Context,
 	fs sandboxFS,
 	files map[string][]byte,
-	sb msbSandbox,
+	sb Sandbox,
 	ui stdio.UI,
 ) {
 	if provErr := provisionSandbox(ctx, fs, files); provErr != nil {
@@ -410,7 +404,7 @@ func ensureProvisionedAndRunning(
 	}
 }
 
-func restartUnhealthyDaemon(ctx context.Context, sb msbSandbox, files map[string][]byte, ui stdio.UI) {
+func restartUnhealthyDaemon(ctx context.Context, sb Sandbox, files map[string][]byte, ui stdio.UI) {
 	provisionCtx, cancel := context.WithTimeout(ctx, provisionTimeout)
 	defer cancel()
 

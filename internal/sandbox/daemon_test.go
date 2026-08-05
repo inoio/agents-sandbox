@@ -49,7 +49,7 @@ type mockShellResp struct {
 	err      error
 }
 
-func (m *mockDaemonShell) run(_ context.Context, _ msbSandbox, _ string) (string, int, error) {
+func (m *mockDaemonShell) run(_ context.Context, _ Sandbox, _ string) (string, int, error) {
 	if m.calls >= len(m.responses) {
 		return "", 0, nil
 	}

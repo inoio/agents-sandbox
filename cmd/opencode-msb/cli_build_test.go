@@ -1,12 +1,11 @@
 package main
 
 import (
-	"errors"
 	"os/exec"
 	"slices"
 	"testing"
 
-	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox"
+	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/docker"
 	"gitlab.inoio.de/inoio/opencode-msb/internal/stdio"
 )
 
@@ -60,20 +59,7 @@ func TestBuildBuildCmd(t *testing.T) {
 		}
 
 		ui := &stdio.Mock{}
-		errClient := newErrorDockerClient(
-			errors.New("simulated build failure"),
-			errors.New("simulated build failure"),
-			errors.New("simulated build failure"),
-			nil,
-		)
-
-		origFactory := sandbox.SetBuildImageDockerClient(
-			func() (sandbox.DockerClient, error) { return errClient, nil },
-		)
-
-		t.Cleanup(func() {
-			sandbox.SetBuildImageDockerClient(origFactory)
-		})
+		docker.TestWithDefaultErrorDockerMock(t)
 
 		root := buildRootCmd(ui)
 		root.SetArgs([]string{cmdBuild})

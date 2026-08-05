@@ -19,7 +19,7 @@ const (
 	dockerdPollInterval   = time.Second
 )
 
-func startDockerdIfPresent(ctx context.Context, sb msbSandbox, ui stdio.UI) error {
+func startDockerdIfPresent(ctx context.Context, sb Sandbox, ui stdio.UI) error {
 	out, checkErr := sb.Shell(ctx, dockerdBinaryCheckCmd, msb.WithExecUser("root"))
 	if checkErr != nil {
 		return fmt.Errorf("while checking dockerd binary: %w", checkErr)

@@ -92,7 +92,7 @@ func EnsureProjectVM(
 	imageRef, homeVol, repoPath string,
 	imageEnvs map[string]string,
 	ui stdio.UI,
-) (msbSandbox, bool, error) {
+) (Sandbox, bool, error) {
 	if opts.DryRunVM {
 		ui.Verbosef("dry-run: VM lifecycle skipped")
 		return nil, false, nil
@@ -224,13 +224,13 @@ func EnsureProjectVM(
 
 func createProjectVM(
 	ctx context.Context,
-	client msbClient,
+	client MsbClient,
 	name, imageRef, homeVol, repoPath string,
 	opts RunOptions,
 	cfg Config,
 	imageEnvs map[string]string,
 	ui stdio.UI,
-) (msbSandbox, bool, error) {
+) (Sandbox, bool, error) {
 	user := opts.User
 	if user == "" {
 		user = "dev"
@@ -307,8 +307,8 @@ func stopOrKillProjectVM(
 	dryRun bool,
 	ui stdio.UI,
 	action, actionVerb string,
-	client msbClient,
-	stopFn func(msbSandboxHandle, context.Context) error,
+	client MsbClient,
+	stopFn func(SandboxHandle, context.Context) error,
 ) error {
 	slug := git.ProjectSlug(ui)
 	name := projectVMName(slug)
@@ -361,12 +361,12 @@ func stopOrKillProjectVM(
 // If remove is true, it also removes the VM's persisted state after stopping.
 func StopProjectVM(ctx context.Context, remove, dryRun bool, ui stdio.UI) error {
 	return stopOrKillProjectVM(ctx, remove, dryRun, ui, "stop", "Stopping", NewMsbClient(),
-		func(h msbSandboxHandle, c context.Context) error { return h.Stop(c) })
+		func(h SandboxHandle, c context.Context) error { return h.Stop(c) })
 }
 
 // KillProjectVM force-kills the project VM for the current directory.
 // If remove is true, it also removes the VM's persisted state after killing.
 func KillProjectVM(ctx context.Context, remove, dryRun bool, ui stdio.UI) error {
 	return stopOrKillProjectVM(ctx, remove, dryRun, ui, "kill", "Force-killing", NewMsbClient(),
-		func(h msbSandboxHandle, c context.Context) error { return h.Kill(c) })
+		func(h SandboxHandle, c context.Context) error { return h.Kill(c) })
 }

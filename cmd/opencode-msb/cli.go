@@ -37,6 +37,9 @@ var version = "dev"
 func Execute(args []string, ui stdio.UI) error {
 	rootCmd := buildRootCmd(ui)
 	rootCmd.SetArgs(args)
+	rootCmd.SetOut(ui.StdOut())
+	rootCmd.SetErr(ui.StdErr())
+
 	return rootCmd.Execute()
 }
 

@@ -1,7 +1,6 @@
 package sandbox
 
 import (
-	"archive/tar"
 	"bytes"
 	"context"
 	"errors"
@@ -16,6 +15,7 @@ import (
 	"github.com/moby/moby/api/types/image"
 	"github.com/moby/moby/client"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
+	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/docker"
 
 	"gitlab.inoio.de/inoio/opencode-msb/internal/stdio"
 )
@@ -157,29 +157,30 @@ func TestUserBuildArgs(t *testing.T) {
 
 func TestBuildDockerImageSetsHostUserBuildArgs(t *testing.T) {
 	l := &stdio.Mock{}
-	rc := &recordingDockerClient{}
+	dockerMock := &recordingDockerClient{}
+	docker.TestWithDockerMock(t, dockerMock)
 	dockerfile := []byte("FROM debian:trixie-slim\nRUN echo hi\n")
 
-	if err := buildDockerImage(context.Background(), rc, dockerfile, "tag", "label", false, l); err != nil {
+	if err := docker.BuildDockerImage(context.Background(), dockerfile, "tag", "label", false, l); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
 	wantUID := strconv.Itoa(os.Getuid())
 	wantGID := strconv.Itoa(os.Getgid())
-	if v := rc.buildArgs["USER_UID"]; v == nil || *v != wantUID {
+	if v := dockerMock.buildArgs["USER_UID"]; v == nil || *v != wantUID {
 		t.Errorf("USER_UID: want %q, got %v", wantUID, v)
 	}
-	if v := rc.buildArgs["USER_GID"]; v == nil || *v != wantGID {
+	if v := dockerMock.buildArgs["USER_GID"]; v == nil || *v != wantGID {
 		t.Errorf("USER_GID: want %q, got %v", wantGID, v)
 	}
 }
 
 func TestEnsureImageReturnsErrorWhenBuildFails(t *testing.T) {
 	l := &stdio.Mock{}
+	docker.TestWithDefaultErrorDockerMock(t)
 	_, _, _, err := ensureImageWithClient(
 		context.Background(),
 		&MockMsbClient{},
-		&failingDockerClient{},
 		EmbeddedDockerfile,
 		"test-project",
 		true,
@@ -193,27 +194,6 @@ func TestEnsureImageReturnsErrorWhenBuildFails(t *testing.T) {
 func TestEmbeddedDindDockerfileIsNonEmpty(t *testing.T) {
 	if len(EmbeddedDindDockerfile) == 0 {
 		t.Error("expected EmbeddedDindDockerfile to be non-empty")
-	}
-}
-
-func TestDockerfileTarContainsDockerfile(t *testing.T) {
-	dockerfile := []byte("FROM debian:trixie-slim\nRUN echo hi\n")
-	tarBuf := dockerfileTar(dockerfile)
-
-	tr := tar.NewReader(tarBuf)
-	header, err := tr.Next()
-	if err != nil {
-		t.Fatalf("unexpected error reading tar: %v", err)
-	}
-	if header.Name != "Dockerfile" {
-		t.Errorf("expected tar entry 'Dockerfile', got %q", header.Name)
-	}
-	content, err := io.ReadAll(tr)
-	if err != nil {
-		t.Fatalf("unexpected error reading tar content: %v", err)
-	}
-	if !bytes.Equal(content, dockerfile) {
-		t.Errorf("tar content does not match dockerfile")
 	}
 }
 
@@ -355,12 +335,12 @@ func (t *tagTrackingDockerClient) Close() error {
 }
 
 func TestEnsureImageBuildsDindBaseWhenDockerfileReferencesDind(t *testing.T) {
-	cli := &tagTrackingDockerClient{}
+	dockerMock := &tagTrackingDockerClient{}
+	docker.TestWithDockerMock(t, dockerMock)
 	dockerfile := []byte("FROM opencode-msb/runner-base-dind:latest\nRUN echo hi\n")
 	_, _, _, err := ensureImageWithClient(
 		context.Background(),
 		&MockMsbClient{},
-		cli,
 		dockerfile,
 		"test-project",
 		false,
@@ -370,18 +350,18 @@ func TestEnsureImageBuildsDindBaseWhenDockerfileReferencesDind(t *testing.T) {
 		t.Fatal("expected error from ImageInspect, got nil")
 	}
 	wantTags := []string{BaseTag, DindBaseTag, "opencode-msb/runner-test-project:latest"}
-	if !reflect.DeepEqual(cli.builtTags, wantTags) {
-		t.Errorf("built tags:\n  got:  %v\n  want: %v", cli.builtTags, wantTags)
+	if !reflect.DeepEqual(dockerMock.builtTags, wantTags) {
+		t.Errorf("built tags:\n  got:  %v\n  want: %v", dockerMock.builtTags, wantTags)
 	}
 }
 
 func TestEnsureImageDoesNotBuildDindForPlainBase(t *testing.T) {
-	cli := &tagTrackingDockerClient{}
+	dockerMock := &tagTrackingDockerClient{}
+	docker.TestWithDockerMock(t, dockerMock)
 	dockerfile := []byte("FROM opencode-msb/runner-base:latest\nRUN echo hi\n")
 	_, _, _, err := ensureImageWithClient(
 		context.Background(),
 		&MockMsbClient{},
-		cli,
 		dockerfile,
 		"test-project",
 		false,
@@ -391,18 +371,18 @@ func TestEnsureImageDoesNotBuildDindForPlainBase(t *testing.T) {
 		t.Fatal("expected error from ImageInspect, got nil")
 	}
 	wantTags := []string{BaseTag, "opencode-msb/runner-test-project:latest"}
-	if !reflect.DeepEqual(cli.builtTags, wantTags) {
-		t.Errorf("built tags:\n  got:  %v\n  want: %v", cli.builtTags, wantTags)
+	if !reflect.DeepEqual(dockerMock.builtTags, wantTags) {
+		t.Errorf("built tags:\n  got:  %v\n  want: %v", dockerMock.builtTags, wantTags)
 	}
 }
 
 func TestEnsureImageDoesNotBuildDindOnForceWithoutReference(t *testing.T) {
-	cli := &tagTrackingDockerClient{}
+	dockerMock := &tagTrackingDockerClient{}
+	docker.TestWithDockerMock(t, dockerMock)
 	dockerfile := []byte("FROM debian:trixie-slim\nRUN echo hi\n")
 	_, _, _, err := ensureImageWithClient(
 		context.Background(),
 		&MockMsbClient{},
-		cli,
 		dockerfile,
 		"test-project",
 		true,
@@ -412,21 +392,21 @@ func TestEnsureImageDoesNotBuildDindOnForceWithoutReference(t *testing.T) {
 		t.Fatal("expected error from ImageInspect, got nil")
 	}
 	wantTags := []string{BaseTag, "opencode-msb/runner-test-project:latest"}
-	if !reflect.DeepEqual(cli.builtTags, wantTags) {
-		t.Errorf("built tags:\n  got:  %v\n  want: %v", cli.builtTags, wantTags)
+	if !reflect.DeepEqual(dockerMock.builtTags, wantTags) {
+		t.Errorf("built tags:\n  got:  %v\n  want: %v", dockerMock.builtTags, wantTags)
 	}
 }
 
 func TestEnsureImageLoadsIntoMSBWhenNotCached(t *testing.T) {
-	cli := &imageInspectDockerClient{inspectID: "sha256:abc123"}
-	msbClient := &MockMsbClient{
+	dockerMock := &imageInspectDockerClient{inspectID: "sha256:abc123"}
+	docker.TestWithDockerMock(t, dockerMock)
+	MsbClient := &MockMsbClient{
 		imageGetErr: errors.New("image not in cache"),
 	}
 	dockerfile := []byte("FROM opencode-msb/runner-base:latest\nRUN echo hi\n")
 	_, _, _, err := ensureImageWithClient(
 		context.Background(),
-		msbClient,
-		cli,
+		MsbClient,
 		dockerfile,
 		"test-project",
 		false,
@@ -435,10 +415,10 @@ func TestEnsureImageLoadsIntoMSBWhenNotCached(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if len(msbClient.loadedImages) != 1 {
-		t.Fatalf("expected 1 image load, got %d", len(msbClient.loadedImages))
+	if len(MsbClient.loadedImages) != 1 {
+		t.Fatalf("expected 1 image load, got %d", len(MsbClient.loadedImages))
 	}
-	if !strings.HasPrefix(msbClient.loadedImages[0], "opencode-msb/runner-test-project:") {
-		t.Errorf("unexpected loaded image ref: %s", msbClient.loadedImages[0])
+	if !strings.HasPrefix(MsbClient.loadedImages[0], "opencode-msb/runner-test-project:") {
+		t.Errorf("unexpected loaded image ref: %s", MsbClient.loadedImages[0])
 	}
 }
