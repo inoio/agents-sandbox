@@ -1,7 +1,6 @@
 package sysinfo
 
 import (
-	"os"
 	"runtime"
 	"strconv"
 	"strings"
@@ -34,16 +33,4 @@ func parseMemInfo(data []byte) (int, bool) {
 		return kb, true
 	}
 	return 0, false
-}
-
-func TotalMemoryGiB() int {
-	data, err := os.ReadFile("/proc/meminfo")
-	if err != nil {
-		return 0
-	}
-	totalKB, ok := parseMemInfo(data)
-	if !ok {
-		return 0
-	}
-	return totalKB / (kiB * kiB)
 }
