@@ -200,7 +200,13 @@ func TestProjectVMLifecycle(t *testing.T) {
 // setupTestSandbox handles shared setup: skip, ensure base image, ensure image
 // loaded, and create a sandbox. Returns the sandbox, a cleanup function, and
 // any error encountered.
-func setupTestSandbox(t *testing.T, ctx context.Context, dockerCli *client.Client, ui *stdio.Mock, imageRef, sbNameFmt string) (*msb.Sandbox, func(), error) {
+func setupTestSandbox(
+	t *testing.T,
+	ctx context.Context,
+	dockerCli *client.Client,
+	ui *stdio.Mock,
+	imageRef, sbNameFmt string,
+) (*msb.Sandbox, func(), error) {
 	t.Helper()
 
 	if err := buildDockerImage(ctx, dockerCli, EmbeddedDockerfile, BaseTag, "Building base", false, ui); err != nil {

@@ -13,7 +13,7 @@ import (
 
 	"gitlab.inoio.de/inoio/opencode-msb/internal/stdio"
 
-	git "github.com/go-git/go-git/v5"
+	"github.com/go-git/go-git/v5"
 )
 
 // Configuration for slug names/hashes.
