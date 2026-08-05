@@ -42,9 +42,11 @@ type UI interface {
 	Verbosef(format string, args ...any)
 	Out(msg string)
 	Outf(format string, args ...any)
-
 	Spinner(msg string) Spinner
 	Spinnerf(format string, args ...any) Spinner
+
+	StdOut() io.Writer
+	StdErr() io.Writer
 
 	IsInteractive() bool
 	Select(prompt string, choices []Choice, defaultKey string) (string, error)

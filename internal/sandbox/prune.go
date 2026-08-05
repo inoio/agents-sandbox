@@ -8,6 +8,8 @@ import (
 
 	"github.com/moby/moby/client"
 
+	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/docker"
+
 	msb "github.com/superradcompany/microsandbox/sdk/go"
 
 	"gitlab.inoio.de/inoio/opencode-msb/internal/stdio"
@@ -129,7 +131,7 @@ func (r *StaleReport) HasAnything() bool {
 // categorizes them by type and groups them by project slug.
 //
 //nolint:gocognit,funlen // Data collection involves multiple independent list operations with filtering
-func buildCatalog(ctx context.Context, client msbClient, threshold time.Duration) (*PruningCatalog, error) {
+func buildCatalog(ctx context.Context, client MsbClient, threshold time.Duration) (*PruningCatalog, error) {
 	sandboxHandles, err := client.ListSandboxes(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("list sandboxes: %w", err)
@@ -280,7 +282,6 @@ func isStaleSlug(entries []StaleEntry, slug string) bool {
 // orphaned clone volumes in sequence.
 func Prune(
 	ctx context.Context,
-	cli DockerClient,
 	threshold time.Duration,
 	dryRun bool,
 	ui stdio.UI,
@@ -293,15 +294,15 @@ func Prune(
 		return nil, err
 	}
 
-	report, err = pruneStaleVMs(ctx, client, cli, catalog, dryRun, ui, report)
+	report, err = pruneStaleVMs(ctx, client, catalog, dryRun, ui, report)
 	if err != nil {
 		return report, err
 	}
-	report, err = pruneActiveVMArtifacts(ctx, client, cli, catalog, dryRun, ui, report)
+	report, err = pruneActiveVMArtifacts(ctx, client, catalog, dryRun, ui, report)
 	if err != nil {
 		return report, err
 	}
-	report, err = pruneOrphanArtifacts(ctx, client, cli, catalog, dryRun, ui, report)
+	report, err = pruneOrphanArtifacts(ctx, client, catalog, dryRun, ui, report)
 	if err != nil {
 		return report, err
 	}
@@ -331,15 +332,14 @@ func Prune(
 //nolint:unparam // Error return is always nil; kept for uniform phase signature across callers
 func pruneStaleVMs(
 	ctx context.Context,
-	client msbClient,
-	cli DockerClient,
+	client MsbClient,
 	catalog *PruningCatalog,
 	dryRun bool,
 	ui stdio.UI,
 	report *StaleReport,
 ) (*StaleReport, error) {
 	for _, entry := range catalog.StaleVMs {
-		pruneStaleCascade(ctx, client, cli, entry, catalog.HomeVolumes, catalog.MSBImages, dryRun, ui, report)
+		pruneStaleCascade(ctx, client, entry, catalog.HomeVolumes, catalog.MSBImages, dryRun, ui, report)
 	}
 	return report, nil
 }
@@ -350,15 +350,14 @@ func pruneStaleVMs(
 //nolint:unparam // Error return is always nil; kept for uniform phase signature across callers
 func pruneActiveVMArtifacts(
 	ctx context.Context,
-	client msbClient,
-	cli DockerClient,
+	client MsbClient,
 	catalog *PruningCatalog,
 	dryRun bool,
 	ui stdio.UI,
 	report *StaleReport,
 ) (*StaleReport, error) {
 	for slug, digest := range catalog.ActiveVMDigest {
-		pruneActiveVMCleanup(ctx, client, cli, slug, digest, catalog.HomeVolumes, catalog.MSBImages, dryRun, ui, report)
+		pruneActiveVMCleanup(ctx, client, slug, digest, catalog.HomeVolumes, catalog.MSBImages, dryRun, ui, report)
 	}
 	return report, nil
 }
@@ -369,8 +368,7 @@ func pruneActiveVMArtifacts(
 //nolint:unparam // Error return is always nil; kept for uniform phase signature across callers
 func pruneOrphanArtifacts(
 	ctx context.Context,
-	client msbClient,
-	cli DockerClient,
+	client MsbClient,
 	catalog *PruningCatalog,
 	dryRun bool,
 	ui stdio.UI,
@@ -388,7 +386,7 @@ func pruneOrphanArtifacts(
 		if _, active := catalog.ActiveVMDigest[slug]; active {
 			continue
 		}
-		pruneOrphanSlug(ctx, client, cli, slug, catalog.HomeVolumes, catalog.MSBImages, report, dryRun, ui)
+		pruneOrphanSlug(ctx, client, slug, catalog.HomeVolumes, catalog.MSBImages, report, dryRun, ui)
 	}
 	return report, nil
 }
@@ -399,7 +397,7 @@ func pruneOrphanArtifacts(
 //nolint:unparam // Error return is always nil; kept for uniform phase signature across callers
 func pruneCloneVolumes(
 	ctx context.Context,
-	client msbClient,
+	client MsbClient,
 	catalog *PruningCatalog,
 	dryRun bool,
 	ui stdio.UI,
@@ -431,8 +429,7 @@ func pruneCloneVolumes(
 // pruneStaleCascade removes a stale VM and all associated artifacts (volumes, images).
 func pruneStaleCascade(
 	ctx context.Context,
-	client msbClient,
-	cli DockerClient,
+	client MsbClient,
 	entry StaleEntry,
 	homeBySlugDigest map[string]map[string]string,
 	msbImagesBySlug map[string][]imageWithDigest,
@@ -451,14 +448,13 @@ func pruneStaleCascade(
 	report.Details = append(report.Details, entry)
 	removeHomeVolumes(ctx, client, slug, homeBySlugDigest, dryRun, ui, report)
 	removeMSBImages(ctx, client, slug, msbImagesBySlug, dryRun, ui, report)
-	removeDockerImages(ctx, slug, cli, msbImagesBySlug, dryRun, ui, report)
+	removeDockerImages(ctx, slug, msbImagesBySlug, dryRun, ui, report)
 }
 
 // pruneActiveVMCleanup removes volumes and images that don't match an active VM's state.
 func pruneActiveVMCleanup(
 	ctx context.Context,
-	client msbClient,
-	cli DockerClient,
+	client MsbClient,
 	slug string,
 	digest string,
 	homeBySlugDigest map[string]map[string]string,
@@ -472,12 +468,12 @@ func pruneActiveVMCleanup(
 	// Images: delete unused ones, keep :latest, keep matching digest.
 	pruneActiveVMMSBImages(ctx, client, slug, digest, msbImagesBySlug, dryRun, ui, report)
 	// Docker images: same logic.
-	pruneActiveVMDockerImages(ctx, cli, slug, digest, msbImagesBySlug, dryRun, ui, report)
+	pruneActiveVMDockerImages(ctx, slug, digest, msbImagesBySlug, dryRun, ui, report)
 }
 
 func pruneActiveVMHomeVolumes(
 	ctx context.Context,
-	client msbClient,
+	client MsbClient,
 	slug string,
 	digest string,
 	homeBySlugDigest map[string]map[string]string,
@@ -510,7 +506,7 @@ func pruneActiveVMHomeVolumes(
 
 func pruneActiveVMMSBImages(
 	ctx context.Context,
-	client msbClient,
+	client MsbClient,
 	slug string,
 	digest string,
 	msbImagesBySlug map[string][]imageWithDigest,
@@ -541,7 +537,6 @@ func pruneActiveVMMSBImages(
 
 func pruneActiveVMDockerImages(
 	ctx context.Context,
-	cli DockerClient,
 	slug string,
 	digest string,
 	msbImagesBySlug map[string][]imageWithDigest,
@@ -555,7 +550,7 @@ func pruneActiveVMDockerImages(
 		}
 		if !dryRun {
 			dockerRef := stripDockerHostPrefix(img.ref)
-			_, err := cli.ImageRemove(
+			_, err := docker.Get().ImageRemove(
 				ctx, dockerRef,
 				client.ImageRemoveOptions{PruneChildren: true},
 			)
@@ -580,7 +575,7 @@ func pruneActiveVMDockerImages(
 // (cascade) are also pruned.
 func pruneCloneVolume(
 	ctx context.Context,
-	client msbClient,
+	client MsbClient,
 	cv string,
 	staleVMs map[string]bool,
 	activeVMDigests map[string]string,
@@ -622,8 +617,7 @@ func stripDockerHostPrefix(ref string) string {
 // for a slug that has no VM at all.
 func pruneOrphanSlug(
 	ctx context.Context,
-	client msbClient,
-	cli DockerClient,
+	client MsbClient,
 	slug string,
 	homeBySlugDigest map[string]map[string]string,
 	msbImagesBySlug map[string][]imageWithDigest,
@@ -633,12 +627,12 @@ func pruneOrphanSlug(
 ) {
 	removeHomeVolumes(ctx, client, slug, homeBySlugDigest, dryRun, ui, report)
 	removeMSBImages(ctx, client, slug, msbImagesBySlug, dryRun, ui, report)
-	removeDockerImages(ctx, slug, cli, msbImagesBySlug, dryRun, ui, report)
+	removeDockerImages(ctx, slug, msbImagesBySlug, dryRun, ui, report)
 }
 
 func removeHomeVolumes(
 	ctx context.Context,
-	client msbClient,
+	client MsbClient,
 	slug string,
 	homeBySlugDigest map[string]map[string]string,
 	dryRun bool,
@@ -667,7 +661,7 @@ func removeHomeVolumes(
 
 func removeMSBImages(
 	ctx context.Context,
-	client msbClient,
+	client MsbClient,
 	slug string,
 	msbImagesBySlug map[string][]imageWithDigest,
 	dryRun bool,
@@ -695,7 +689,6 @@ func removeMSBImages(
 func removeDockerImages(
 	ctx context.Context,
 	slug string,
-	cli DockerClient,
 	msbImagesBySlug map[string][]imageWithDigest,
 	dryRun bool,
 	ui stdio.UI,
@@ -704,7 +697,7 @@ func removeDockerImages(
 	for _, img := range msbImagesBySlug[slug] {
 		if !dryRun {
 			dockerRef := stripDockerHostPrefix(img.ref)
-			_, err := cli.ImageRemove(
+			_, err := docker.Get().ImageRemove(
 				ctx, dockerRef,
 				client.ImageRemoveOptions{PruneChildren: true},
 			)

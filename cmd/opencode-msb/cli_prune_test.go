@@ -1,15 +1,16 @@
 package main
 
 import (
-	"errors"
 	"slices"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/assert"
 	msb "github.com/superradcompany/microsandbox/sdk/go"
 
 	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox"
+	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/docker"
 	"gitlab.inoio.de/inoio/opencode-msb/internal/stdio"
 )
 
@@ -58,7 +59,7 @@ func TestPrune(t *testing.T) {
 				mock := &sandbox.MockMsbClient{}
 				origMSB := sandbox.SetNewMsbClient(func() sandbox.MsbClient { return mock })
 				t.Cleanup(func() { sandbox.SetNewMsbClient(origMSB) })
-				overrideDockerClient(t, newDefaultDockerClient())
+				docker.TestWithNoopDockerMock(t)
 
 				root := buildRootCmd(ui)
 				root.SetArgs(append([]string{"prune"}, flags...))
@@ -89,7 +90,7 @@ func TestPrune(t *testing.T) {
 
 				origMSB := sandbox.SetNewMsbClient(func() sandbox.MsbClient { return mock })
 				t.Cleanup(func() { sandbox.SetNewMsbClient(origMSB) })
-				overrideDockerClient(t, newDefaultDockerClient())
+				docker.TestWithNoopDockerMock(t)
 
 				ui := &stdio.Mock{}
 				root := buildRootCmd(ui)
@@ -135,7 +136,7 @@ func TestPrune(t *testing.T) {
 
 				origMSB := sandbox.SetNewMsbClient(func() sandbox.MsbClient { return mock })
 				t.Cleanup(func() { sandbox.SetNewMsbClient(origMSB) })
-				overrideDockerClient(t, newDefaultDockerClient())
+				docker.TestWithNoopDockerMock(t)
 
 				root := buildRootCmd(ui)
 				root.SetArgs(append([]string{"prune"}, flags...))
@@ -166,7 +167,7 @@ func TestPrune(t *testing.T) {
 			cloneVol("opencode-msb-clone-staleproject-abc123"))
 		origMSB := sandbox.SetNewMsbClient(func() sandbox.MsbClient { return mock })
 		t.Cleanup(func() { sandbox.SetNewMsbClient(origMSB) })
-		overrideDockerClient(t, newDefaultDockerClient())
+		docker.TestWithNoopDockerMock(t)
 
 		root := buildRootCmd(ui)
 		root.SetArgs([]string{"prune", "--age", "2w"})
@@ -194,7 +195,7 @@ func TestPrune(t *testing.T) {
 			cloneVol("opencode-msb-clone-staleproject-abc123"))
 		origMSB := sandbox.SetNewMsbClient(func() sandbox.MsbClient { return mock })
 		t.Cleanup(func() { sandbox.SetNewMsbClient(origMSB) })
-		overrideDockerClient(t, newDefaultDockerClient())
+		docker.TestWithNoopDockerMock(t)
 
 		root := buildRootCmd(ui)
 		root.SetArgs([]string{"prune", "--age", "14d"})
@@ -228,25 +229,19 @@ func TestPrune(t *testing.T) {
 		for _, flags := range pruneAgeFlags {
 			t.Run("f"+strings.Join(flags, "_"), func(t *testing.T) {
 				ui := &stdio.Mock{}
-				origNewDockerClient := newDockerClient
-				newDockerClient = func() (sandbox.DockerClient, error) {
-					return nil, errors.New("Cannot connect to the docker daemon")
-				}
-				t.Cleanup(func() {
-					newDockerClient = origNewDockerClient
-				})
-
+				docker.TestWithDefaultErrorDockerMock(t)
 				root := buildRootCmd(ui)
 				root.SetArgs(append([]string{"prune"}, flags...))
 
 				err := root.Execute()
 
-				if err == nil {
-					t.Fatal("expected error for Docker failure; got nil")
+				if err != nil {
+					t.Fatalf("expected no error; got %s", err)
 				}
-				if !strings.Contains(err.Error(), "cannot connect to Docker daemon") {
-					t.Errorf("expected error containing 'cannot connect to Docker daemon'; got: %v", err)
-				}
+
+				assert.True(t, slices.ContainsFunc(ui.VerboseCalls, func(s string) bool {
+					return strings.Contains(s, "cannot connect to Docker daemon")
+				}), "No 'cannot connect to Docker daemon' found in verbose messages")
 			})
 		}
 	})
@@ -266,7 +261,7 @@ func TestPrune(t *testing.T) {
 
 				origMSB := sandbox.SetNewMsbClient(func() sandbox.MsbClient { return mock })
 				t.Cleanup(func() { sandbox.SetNewMsbClient(origMSB) })
-				overrideDockerClient(t, newDefaultDockerClient())
+				docker.TestWithNoopDockerMock(t)
 
 				ui := &stdio.Mock{}
 				root := buildRootCmd(ui)
@@ -301,7 +296,7 @@ func TestPrune(t *testing.T) {
 
 				origMSB := sandbox.SetNewMsbClient(func() sandbox.MsbClient { return mock })
 				t.Cleanup(func() { sandbox.SetNewMsbClient(origMSB) })
-				overrideDockerClient(t, newDefaultDockerClient())
+				docker.TestWithNoopDockerMock(t)
 
 				ui := &stdio.Mock{}
 				root := buildRootCmd(ui)
@@ -336,7 +331,7 @@ func TestPrune(t *testing.T) {
 
 				origMSB := sandbox.SetNewMsbClient(func() sandbox.MsbClient { return mock })
 				t.Cleanup(func() { sandbox.SetNewMsbClient(origMSB) })
-				overrideDockerClient(t, newDefaultDockerClient())
+				docker.TestWithNoopDockerMock(t)
 
 				ui := &stdio.Mock{}
 				root := buildRootCmd(ui)

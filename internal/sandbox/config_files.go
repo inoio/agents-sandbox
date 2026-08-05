@@ -50,7 +50,7 @@ func promptConfigChange(ui stdio.UI) (string, error) {
 }
 
 // daemonIsHealthy returns true when the opencode serve daemon reports healthy.
-func daemonIsHealthy(ctx context.Context, sb msbSandbox) bool {
+func daemonIsHealthy(ctx context.Context, sb Sandbox) bool {
 	out, err := sb.Shell(ctx, "curl -sf "+daemonHealthURL)
 	if err != nil || out == nil || !out.Success() {
 		return false
@@ -102,7 +102,7 @@ func loadConfigFiles(userConfigDir string) (*configFiles, error) {
 //nolint:unparam // general utility
 func readVMFiles(
 	ctx context.Context,
-	sb msbSandbox,
+	sb Sandbox,
 	dir string,
 	ui stdio.UI,
 ) map[string][]byte {

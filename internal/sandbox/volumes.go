@@ -57,7 +57,7 @@ func (vm *VolumeManager) EnsureHome(
 
 func (vm *VolumeManager) prefillVolume(
 	ctx context.Context,
-	client msbClient,
+	client MsbClient,
 	projectSlug, volumeName, imageTag string,
 	ui stdio.UI,
 ) error {

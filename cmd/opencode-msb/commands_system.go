@@ -194,12 +194,7 @@ func buildPruneCmd(ui stdio.UI) *cobra.Command {
 				age = 7 * 24 * time.Hour
 			}
 			dryRun, _ := cmd.Flags().GetBool("dry-run")
-			dockerCli, err := newDockerClient()
-			if err != nil {
-				return fmt.Errorf("cannot connect to Docker daemon (is dockerd running?): %w", err)
-			}
-			report, err := sandbox.Prune(cmd.Context(), dockerCli, age, dryRun, ui)
-			_ = dockerCli.Close()
+			report, err := sandbox.Prune(cmd.Context(), age, dryRun, ui)
 			if err != nil {
 				return err
 			}
