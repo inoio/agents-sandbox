@@ -14,6 +14,41 @@ import (
 
 var errBoom = errors.New("boom")
 
+func runListCmdTest(t *testing.T, ui *stdio.Mock, mock *sandbox.MockMsbClient, cmdArgs []string,
+	mockSetup func(m *sandbox.MockMsbClient), wantOut, wantInfo []string,
+	wantErr bool, wantErrContains string) {
+	t.Helper()
+	mockSetup(mock)
+	overrideMsbClient(t, mock)
+
+	root := buildRootCmd(ui)
+	root.SetArgs(cmdArgs)
+
+	if err := root.Execute(); err != nil {
+		if !wantErr {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if wantErrContains != "" && !strings.Contains(err.Error(), wantErrContains) {
+			t.Errorf("error %q should contain %q", err.Error(), wantErrContains)
+		}
+		return
+	}
+	if wantErr {
+		t.Error("expected error, got none")
+		return
+	}
+	for _, want := range wantOut {
+		if !slices.Contains(ui.OutCalls, want) {
+			t.Errorf("OutCalls missing %q; got: %v", want, ui.OutCalls)
+		}
+	}
+	for _, want := range wantInfo {
+		if !slices.Contains(ui.InfoCalls, want) {
+			t.Errorf("InfoCalls missing %q; got: %v", want, ui.InfoCalls)
+		}
+	}
+}
+
 func TestListSandboxes(t *testing.T) {
 	type testCase struct {
 		name            string
@@ -79,39 +114,19 @@ func TestListSandboxes(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			// t.Parallel() - disabled due to shared global test hook
-
 			ui := &stdio.Mock{}
 			mock := &sandbox.MockMsbClient{}
-			tt.mockSetup(mock)
-			overrideMsbClient(t, mock)
-
-			root := buildRootCmd(ui)
-			root.SetArgs([]string{cmdList})
-
-			if err := root.Execute(); err != nil {
-				if !tt.wantErr {
-					t.Fatalf("unexpected error: %v", err)
-				}
-				if tt.wantErrContains != "" && !strings.Contains(err.Error(), tt.wantErrContains) {
-					t.Errorf("error %q should contain %q", err.Error(), tt.wantErrContains)
-				}
-				return
-			}
-			if tt.wantErr {
-				t.Error("expected error, got none")
-				return
-			}
-
-			for _, want := range tt.wantOut {
-				if !slices.Contains(ui.OutCalls, want) {
-					t.Errorf("OutCalls missing %q; got: %v", want, ui.OutCalls)
-				}
-			}
-			for _, want := range tt.wantInfo {
-				if !slices.Contains(ui.InfoCalls, want) {
-					t.Errorf("InfoCalls missing %q; got: %v", want, ui.InfoCalls)
-				}
-			}
+			runListCmdTest(
+				t,
+				ui,
+				mock,
+				[]string{cmdList},
+				tt.mockSetup,
+				tt.wantOut,
+				tt.wantInfo,
+				tt.wantErr,
+				tt.wantErrContains,
+			)
 		})
 	}
 }
@@ -183,39 +198,19 @@ func TestListImages(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			// t.Parallel() - disabled due to shared global test hook
-
 			ui := &stdio.Mock{}
 			mock := &sandbox.MockMsbClient{}
-			tt.mockSetup(mock)
-			overrideMsbClient(t, mock)
-
-			root := buildRootCmd(ui)
-			root.SetArgs([]string{cmdImage, cmdList})
-
-			if err := root.Execute(); err != nil {
-				if !tt.wantErr {
-					t.Fatalf("unexpected error: %v", err)
-				}
-				if tt.wantErrContains != "" && !strings.Contains(err.Error(), tt.wantErrContains) {
-					t.Errorf("error %q should contain %q", err.Error(), tt.wantErrContains)
-				}
-				return
-			}
-			if tt.wantErr {
-				t.Error("expected error, got none")
-				return
-			}
-
-			for _, want := range tt.wantOut {
-				if !slices.Contains(ui.OutCalls, want) {
-					t.Errorf("OutCalls missing %q; got: %v", want, ui.OutCalls)
-				}
-			}
-			for _, want := range tt.wantInfo {
-				if !slices.Contains(ui.InfoCalls, want) {
-					t.Errorf("InfoCalls missing %q; got: %v", want, ui.InfoCalls)
-				}
-			}
+			runListCmdTest(
+				t,
+				ui,
+				mock,
+				[]string{cmdImage, cmdList},
+				tt.mockSetup,
+				tt.wantOut,
+				tt.wantInfo,
+				tt.wantErr,
+				tt.wantErrContains,
+			)
 		})
 	}
 }
@@ -282,39 +277,19 @@ func TestListVolumes(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			// t.Parallel() - disabled due to shared global test hook
-
 			ui := &stdio.Mock{}
 			mock := &sandbox.MockMsbClient{}
-			tt.mockSetup(mock)
-			overrideMsbClient(t, mock)
-
-			root := buildRootCmd(ui)
-			root.SetArgs([]string{cmdVolume, cmdList})
-
-			if err := root.Execute(); err != nil {
-				if !tt.wantErr {
-					t.Fatalf("unexpected error: %v", err)
-				}
-				if tt.wantErrContains != "" && !strings.Contains(err.Error(), tt.wantErrContains) {
-					t.Errorf("error %q should contain %q", err.Error(), tt.wantErrContains)
-				}
-				return
-			}
-			if tt.wantErr {
-				t.Error("expected error, got none")
-				return
-			}
-
-			for _, want := range tt.wantOut {
-				if !slices.Contains(ui.OutCalls, want) {
-					t.Errorf("OutCalls missing %q; got: %v", want, ui.OutCalls)
-				}
-			}
-			for _, want := range tt.wantInfo {
-				if !slices.Contains(ui.InfoCalls, want) {
-					t.Errorf("InfoCalls missing %q; got: %v", want, ui.InfoCalls)
-				}
-			}
+			runListCmdTest(
+				t,
+				ui,
+				mock,
+				[]string{cmdVolume, cmdList},
+				tt.mockSetup,
+				tt.wantOut,
+				tt.wantInfo,
+				tt.wantErr,
+				tt.wantErrContains,
+			)
 		})
 	}
 }
