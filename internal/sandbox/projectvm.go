@@ -361,13 +361,13 @@ func stopOrKillProjectVM(
 // StopProjectVM gracefully stops the project VM for the current directory.
 // If remove is true, it also removes the VM's persisted state after stopping.
 func StopProjectVM(ctx context.Context, remove, dryRun bool, ui stdio.UI) error {
-	return stopOrKillProjectVM(ctx, remove, dryRun, ui, "stop", "Stopping", NewMsbClient(),
+	return stopOrKillProjectVM(ctx, remove, dryRun, ui, "stop", "Stopping", msb.Get(),
 		func(h SandboxHandle, c context.Context) error { return h.Stop(c) })
 }
 
 // KillProjectVM force-kills the project VM for the current directory.
 // If remove is true, it also removes the VM's persisted state after killing.
 func KillProjectVM(ctx context.Context, remove, dryRun bool, ui stdio.UI) error {
-	return stopOrKillProjectVM(ctx, remove, dryRun, ui, "kill", "Force-killing", NewMsbClient(),
+	return stopOrKillProjectVM(ctx, remove, dryRun, ui, "kill", "Force-killing", msb.Get(),
 		func(h SandboxHandle, c context.Context) error { return h.Kill(c) })
 }

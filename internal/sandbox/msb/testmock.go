@@ -57,13 +57,6 @@ type MockMsbClient struct {
 	// Default return values when no error and no callback/got* is set.
 	gotSandbox SandboxHandle
 	gotVolume  VolumeHandle
-	// Internal tracking (mimics old field names for backward compat).
-	createdSandboxes []string
-	removedSandboxes []string
-	removedVolumes   []string
-	removedImages    []MockRemoveImageCall
-	loadedImages     []string
-	createdSandbox   Sandbox
 
 	// Error fields.
 	ensureInstalledErr error
@@ -116,7 +109,6 @@ func (m *MockMsbClient) GetSandbox(ctx context.Context, name string) (SandboxHan
 func (m *MockMsbClient) CreateSandbox(ctx context.Context, name string, opts ...msbSdk.SandboxOption) (Sandbox, error) {
 	m.mu.Lock()
 	m.CreatedSandboxes = append(m.CreatedSandboxes, name)
-	m.createdSandboxes = append(m.createdSandboxes, name)
 	m.CreatedSandboxCalls = append(m.CreatedSandboxCalls, MockCreateSandboxCall{Name: name, Opts: opts})
 	m.mu.Unlock()
 
@@ -128,9 +120,6 @@ func (m *MockMsbClient) CreateSandbox(ctx context.Context, name string, opts ...
 	}
 	if m.CreatedSandbox != nil {
 		return m.CreatedSandbox, nil
-	}
-	if m.createdSandbox != nil {
-		return m.createdSandbox, nil
 	}
 	//nolint:exhaustruct // tests set only Name_
 	return &MockSandbox{Name_: name}, nil
@@ -151,7 +140,6 @@ func (m *MockMsbClient) ListSandboxes(ctx context.Context) ([]SandboxHandle, err
 func (m *MockMsbClient) RemoveSandbox(ctx context.Context, name string) error {
 	m.mu.Lock()
 	m.RemovedSandboxes = append(m.RemovedSandboxes, name)
-	m.removedSandboxes = append(m.removedSandboxes, name)
 	m.mu.Unlock()
 	if m.RemoveSandboxFn != nil {
 		return m.RemoveSandboxFn(ctx, name)
@@ -212,7 +200,6 @@ func (m *MockMsbClient) ListVolumes(ctx context.Context) ([]VolumeHandle, error)
 func (m *MockMsbClient) RemoveVolume(ctx context.Context, name string) error {
 	m.mu.Lock()
 	m.RemovedVolumes = append(m.RemovedVolumes, name)
-	m.removedVolumes = append(m.removedVolumes, name)
 	m.mu.Unlock()
 	if m.RemoveVolumeFn != nil {
 		return m.RemoveVolumeFn(ctx, name)
@@ -246,7 +233,6 @@ func (m *MockMsbClient) ImageList(ctx context.Context) ([]ImageHandle, error) {
 func (m *MockMsbClient) ImageRemove(ctx context.Context, ref string, force bool) error {
 	m.mu.Lock()
 	m.RemovedImages = append(m.RemovedImages, MockRemoveImageCall{Ref: ref, Force: force})
-	m.removedImages = append(m.removedImages, MockRemoveImageCall{Ref: ref, Force: force})
 	m.mu.Unlock()
 	if m.ImageRemoveFn != nil {
 		return m.ImageRemoveFn(ctx, ref, force)
@@ -261,7 +247,6 @@ func (m *MockMsbClient) ImageRemove(ctx context.Context, ref string, force bool)
 func (m *MockMsbClient) ImageLoad(ctx context.Context, ref string, r io.Reader) error {
 	m.mu.Lock()
 	m.LoadedImages = append(m.LoadedImages, ref)
-	m.loadedImages = append(m.loadedImages, ref)
 	m.mu.Unlock()
 	if m.ImageLoadFn != nil {
 		return m.ImageLoadFn(ctx, ref, r)

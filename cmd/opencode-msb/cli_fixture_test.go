@@ -30,22 +30,15 @@ var pruneAgeFlags = []FlagSet{
 	{"--age", "14d"},
 }
 
-// overrideMsbClient saves the original sandbox.NewMsbClient factory, replaces
-// it with one that returns the provided mock, and restores the original on test
-// cleanup. Callers should pass sandbox.NewMockMsbClient() as the mock argument.
-//
-// This is a t.Helper so its callsite is the one shown in stack traces.
+// overrideMsbClient saves the original factory, replaces it with one that
+// returns the provided mock, and restores the original on test cleanup.
 func overrideMsbClient(t *testing.T, mock sandbox.MsbClient) {
 	t.Helper()
-
-	orig := sandbox.NewMsbClient
-
-	sandbox.NewMsbClient = func() sandbox.MsbClient {
+	orig := sandbox.SetNewMsbClient(func() sandbox.MsbClient {
 		return mock
-	}
-
+	})
 	t.Cleanup(func() {
-		sandbox.NewMsbClient = orig
+		sandbox.SetNewMsbClient(orig)
 	})
 }
 
