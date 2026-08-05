@@ -102,8 +102,7 @@ var CheckAllFunc = checkAllReal
 // checkAllReal contains the actual CheckAll logic. This allows the exported
 // CheckAllFunc to be reassigned in tests without redefining the checks.
 func checkAllReal(ctx context.Context, ui stdio.UI) bool {
-	basicChecks := CheckMsb(ctx, ui) && CheckDocker(ui) && CheckKvm(ui) && CheckGit(ui)
-	if !basicChecks {
+	if !checkDoctor(ctx, ui) {
 		return false
 	}
 	return CheckOrphans(ctx, ui)
