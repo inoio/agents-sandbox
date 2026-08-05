@@ -3,6 +3,7 @@ package sandbox
 import (
 	"context"
 	"fmt"
+	"strconv"
 	"time"
 
 	"gitlab.inoio.de/inoio/opencode-msb/internal/git"
@@ -13,7 +14,7 @@ import (
 )
 
 func HomeVolumeName(projectSlug, imageDigest string) string {
-	return "opencode-msb-home-" + projectSlug + "-" + git.HashID(imageDigest)
+	return homePrefix + projectSlug + "-" + git.HashID(imageDigest)
 }
 
 type VolumeManager struct {
@@ -62,7 +63,7 @@ func (vm *VolumeManager) prefillVolume(
 	projectSlug, volumeName, imageTag string,
 	ui stdio.UI,
 ) error {
-	prefillName := fmt.Sprintf("opencode-msb-task-prefill-%s-%d", projectSlug, time.Now().UnixNano())
+	prefillName := taskPrefix + projectSlug + "-" + strconv.FormatInt(time.Now().UnixNano(), 10)
 	mountConfig := msbSdk.Mount.Named(volumeName, msbSdk.MountOptions{})
 
 	spin := ui.Spinner("Preparing home volume")

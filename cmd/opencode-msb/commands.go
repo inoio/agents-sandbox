@@ -49,7 +49,7 @@ func printItems[T any](
 
 func buildMinimalRootFlagsCmd() *cobra.Command {
 	rootFlagsCmd := &cobra.Command{
-		Use:   "opencode-msb",
+		Use:   sandbox.Prefix,
 		Short: "Run opencode inside an ephemeral microsandbox VM",
 		Long: "Run opencode inside an ephemeral microsandbox VM.\n\n" +
 			"When invoked without a subcommand, the \"run\" command is implied.",
@@ -67,7 +67,7 @@ func buildRootCmd(ui stdio.UI) *cobra.Command {
 
 	rootCmd.PersistentPreRunE = func(cmd *cobra.Command, _ []string) error {
 		cfg := newConfig()
-		lc, keys, err := launcherconfig.Load(cfg.UserLauncherDir, projectLauncherDir)
+		lc, keys, err := launcherconfig.Load(cfg.UserLauncherDir, projectConfigDir)
 		if err != nil {
 			return err
 		}

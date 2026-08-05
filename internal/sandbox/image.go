@@ -20,11 +20,6 @@ import (
 	"gitlab.inoio.de/inoio/opencode-msb/internal/stdio"
 )
 
-const (
-	BaseTag     = "opencode-msb/runner-base:latest"
-	DindBaseTag = "opencode-msb/runner-base-dind:latest"
-)
-
 func ReferencesBase(dockerfile []byte) bool {
 	scanner := bufio.NewScanner(bytes.NewReader(dockerfile))
 	for scanner.Scan() {
@@ -48,16 +43,16 @@ func ReferencesDindBase(dockerfile []byte) bool {
 }
 
 func ImageTag(projectSlug, imageDigest string) string {
-	return "opencode-msb/runner-" + projectSlug + ":" + git.HashID(imageDigest)
+	return imagePrefix + projectSlug + ":" + git.HashID(imageDigest)
 }
 
 func runnerTag(projectSlug string) string {
-	return "opencode-msb/runner-" + projectSlug + ":latest"
+	return imagePrefix + projectSlug + ":latest"
 }
 
 // envDir returns the project-local metadata directory for image env info.
 func envDir() string {
-	return ".opencode-msb"
+	return ProjectDir
 }
 
 // envMetaFile returns the JSON file path for image env metadata, keyed by the

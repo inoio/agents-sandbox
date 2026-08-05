@@ -113,33 +113,29 @@ func CheckAll(ctx context.Context, ui stdio.UI) bool {
 }
 
 func isOrphanedSandbox(name string) bool {
-	if !strings.HasPrefix(name, "opencode-msb-") {
+	if !strings.HasPrefix(name, sbPrefix) {
 		return false
 	}
 	// vm- sandboxes are the current model; task- sandboxes are operational (prefill).
-	return !strings.HasPrefix(name, projectVMPrefix) &&
-		!strings.HasPrefix(name, "opencode-msb-task-")
+	return !strings.HasPrefix(name, vmPrefix) &&
+		!strings.HasPrefix(name, taskPrefix)
 }
 
 func isOrphanedVolume(name string) bool {
-	if strings.HasPrefix(name, "opencode-msb-home-") {
+	if strings.HasPrefix(name, homePrefix) {
 		return false
 	}
 	// clone- volumes are obsolete (clone-on-use removed) → orphaned.
-	if strings.HasPrefix(name, "opencode-msb-clone-") {
+	if strings.HasPrefix(name, clonePrefix) {
 		return true
 	}
 	return strings.Contains(name, "-opencode-home-")
 }
 
 func isOrphanedImage(ref string) bool {
-	if ref == "opencode-msb/runner:base" || ref == "opencode-msb/runner:latest" {
-		return true
-	}
-	if strings.HasPrefix(ref, "opencode-msb/runner:sha256-") {
-		return true
-	}
-	return false
+	// Old format images used ":" directly after the namespace (e.g. "opencode-msb/runner:base").
+	// These predate the current naming and are always orphaned.
+	return strings.HasPrefix(ref, Prefix+"/runner:")
 }
 
 func CheckOrphans(ctx context.Context, ui stdio.UI) bool {

@@ -112,7 +112,7 @@ func buildOpencodeArgs(args []string, auto bool) []string {
 }
 
 func resolveDockerfile() []byte {
-	if data, err := os.ReadFile(".opencode-msb/Dockerfile"); err == nil {
+	if data, err := os.ReadFile(projDockerfile); err == nil {
 		return data
 	}
 	return EmbeddedDockerfile

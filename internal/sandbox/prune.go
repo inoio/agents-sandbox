@@ -72,18 +72,6 @@ type imageWithDigest struct {
 	isLatest bool
 }
 
-const baseSlug = "base"
-
-const (
-	sbPrefix        = "opencode-msb-"
-	vmPrefix        = "opencode-msb-vm-"
-	homePrefix      = "opencode-msb-home-"
-	clonePrefix     = "opencode-msb-clone-"
-	taskPrefix      = "opencode-msb-task-"
-	imagePrefix     = "opencode-msb/runner-"
-	baseImagePrefix = "opencode-msb/runner-base"
-)
-
 // findHashSuffix finds the start index of a 14-character base36 hash suffix
 // in the name remainder (e.g. "saife-1mjusbm3wikhb0" -> returns 6, pointing
 // at the '1' in the 14-char hash). Returns -1 when no such suffix is found.
@@ -166,7 +154,7 @@ func buildCatalog(ctx context.Context, client MsbClient, threshold time.Duration
 			continue
 		}
 
-		if strings.HasPrefix(name, projectVMPrefix) {
+		if strings.HasPrefix(name, vmPrefix) {
 			status := h.Status()
 			if isStoppedStatus(status) {
 				staleVMs = append(staleVMs, staleVM{
