@@ -453,17 +453,16 @@ type TestFS struct {
 // NewTestFS creates a SandboxFS backed by the given files. Files is a map from
 // path to file content; ls is the return value for List. Nil map values
 // produce sensible defaults.
-//
-//nolint:exhaustruct // tests set only Contents and LS
 func NewTestFS(files map[string][]byte, ls []msbSdk.FsEntry) *TestFS {
+	//nolint:exhaustruct // ReadErr and ListErr default to zero value (nil)
 	return &TestFS{Contents: files, LS: ls}
 }
 
 // SetReadErr configures Read/ReadStream/String to return the given error.
-func (t *TestFS) SetReadErr(err error) { t.ReadErr = err }
+func (t *TestFS) SetReadErr(err error) *TestFS { t.ReadErr = err; return t }
 
 // SetListErr configures List to return the given error.
-func (t *TestFS) SetListErr(err error) { t.ListErr = err }
+func (t *TestFS) SetListErr(err error) *TestFS { t.ListErr = err; return t }
 
 func (t *TestFS) Exists(_ context.Context, path string) (bool, error) {
 	_, ok := t.Contents[path]
