@@ -7,13 +7,29 @@ import (
 	msb "github.com/superradcompany/microsandbox/sdk/go"
 )
 
+type slugDigestTest struct {
+	name       string
+	input      string
+	wantSlug   string
+	wantDigest string
+}
+
+func runSlugDigestTests(t *testing.T, tests []slugDigestTest) {
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			slug, digest := extractProjectSlugAndDigest(tt.input)
+			if slug != tt.wantSlug {
+				t.Errorf("extractProjectSlugAndDigest(%q) slug = %q, want %q", tt.input, slug, tt.wantSlug)
+			}
+			if digest != tt.wantDigest {
+				t.Errorf("extractProjectSlugAndDigest(%q) digest = %q, want %q", tt.input, digest, tt.wantDigest)
+			}
+		})
+	}
+}
+
 func TestExtractProjectSlugAndDigest_ImageReferences(t *testing.T) {
-	tests := []struct {
-		name       string
-		input      string
-		wantSlug   string
-		wantDigest string
-	}{
+	tests := []slugDigestTest{
 		{
 			name:       "runner with digest tag",
 			input:      "opencode-msb/runner-myproject:xYz1234AbCdEfGh",
@@ -26,18 +42,8 @@ func TestExtractProjectSlugAndDigest_ImageReferences(t *testing.T) {
 			wantSlug:   "myproject",
 			wantDigest: "",
 		},
-		{
-			name:       "runner with empty tag",
-			input:      "opencode-msb/runner-myproject:",
-			wantSlug:   "myproject",
-			wantDigest: "",
-		},
-		{
-			name:       "runner no tag at all",
-			input:      "opencode-msb/runner-myproject",
-			wantSlug:   "myproject",
-			wantDigest: "",
-		},
+		{name: "runner with empty tag", input: "opencode-msb/runner-myproject:", wantSlug: "myproject", wantDigest: ""},
+		{name: "runner no tag at all", input: "opencode-msb/runner-myproject", wantSlug: "myproject", wantDigest: ""},
 		{
 			name:       "runner with complex slug",
 			input:      "opencode-msb/runner-my-project-name:xYz1234AbCdEfGh",
@@ -56,34 +62,13 @@ func TestExtractProjectSlugAndDigest_ImageReferences(t *testing.T) {
 			wantSlug:   "base",
 			wantDigest: "",
 		},
-		{
-			name:       "base image with tag",
-			input:      "opencode-msb/runner-base:latest",
-			wantSlug:   "base",
-			wantDigest: "",
-		},
+		{name: "base image with tag", input: "opencode-msb/runner-base:latest", wantSlug: "base", wantDigest: ""},
 	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			slug, digest := extractProjectSlugAndDigest(tt.input)
-			if slug != tt.wantSlug {
-				t.Errorf("extractProjectSlugAndDigest(%q) slug = %q, want %q", tt.input, slug, tt.wantSlug)
-			}
-			if digest != tt.wantDigest {
-				t.Errorf("extractProjectSlugAndDigest(%q) digest = %q, want %q", tt.input, digest, tt.wantDigest)
-			}
-		})
-	}
+	runSlugDigestTests(t, tests)
 }
 
 func TestExtractProjectSlugAndDigest_VMNames(t *testing.T) {
-	tests := []struct {
-		name       string
-		input      string
-		wantSlug   string
-		wantDigest string
-	}{
+	tests := []slugDigestTest{
 		{
 			name:       "simple vm name without hash suffix",
 			input:      "opencode-msb-vm-projectname-main",
@@ -103,27 +88,11 @@ func TestExtractProjectSlugAndDigest_VMNames(t *testing.T) {
 			wantDigest: "",
 		},
 	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			slug, digest := extractProjectSlugAndDigest(tt.input)
-			if slug != tt.wantSlug {
-				t.Errorf("extractProjectSlugAndDigest(%q) slug = %q, want %q", tt.input, slug, tt.wantSlug)
-			}
-			if digest != tt.wantDigest {
-				t.Errorf("extractProjectSlugAndDigest(%q) digest = %q, want %q", tt.input, digest, tt.wantDigest)
-			}
-		})
-	}
+	runSlugDigestTests(t, tests)
 }
 
 func TestExtractProjectSlugAndDigest_HomeVolumes(t *testing.T) {
-	tests := []struct {
-		name       string
-		input      string
-		wantSlug   string
-		wantDigest string
-	}{
+	tests := []slugDigestTest{
 		{
 			name:       "home volume with slug and digest",
 			input:      "opencode-msb-home-myproject-aB3cDe4fGhIjKl-xYz1234AbCdEfGh",
@@ -149,27 +118,11 @@ func TestExtractProjectSlugAndDigest_HomeVolumes(t *testing.T) {
 			wantDigest: "abc123",
 		},
 	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			slug, digest := extractProjectSlugAndDigest(tt.input)
-			if slug != tt.wantSlug {
-				t.Errorf("extractProjectSlugAndDigest(%q) slug = %q, want %q", tt.input, slug, tt.wantSlug)
-			}
-			if digest != tt.wantDigest {
-				t.Errorf("extractProjectSlugAndDigest(%q) digest = %q, want %q", tt.input, digest, tt.wantDigest)
-			}
-		})
-	}
+	runSlugDigestTests(t, tests)
 }
 
 func TestExtractProjectSlugAndDigest_TaskSandboxes(t *testing.T) {
-	tests := []struct {
-		name       string
-		input      string
-		wantSlug   string
-		wantDigest string
-	}{
+	tests := []slugDigestTest{
 		{
 			name:       "task sandbox",
 			input:      "opencode-msb-task-prefill-proj-1719432000",
@@ -183,61 +136,24 @@ func TestExtractProjectSlugAndDigest_TaskSandboxes(t *testing.T) {
 			wantDigest: "",
 		},
 	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			slug, digest := extractProjectSlugAndDigest(tt.input)
-			if slug != tt.wantSlug {
-				t.Errorf("extractProjectSlugAndDigest(%q) slug = %q, want %q", tt.input, slug, tt.wantSlug)
-			}
-			if digest != tt.wantDigest {
-				t.Errorf("extractProjectSlugAndDigest(%q) digest = %q, want %q", tt.input, digest, tt.wantDigest)
-			}
-		})
-	}
+	runSlugDigestTests(t, tests)
 }
 
 func TestExtractProjectSlugAndDigest_CloneVolumes(t *testing.T) {
-	tests := []struct {
-		name       string
-		input      string
-		wantSlug   string
-		wantDigest string
-	}{
+	tests := []slugDigestTest{
 		{
 			name:       "clone volume",
 			input:      "opencode-msb-clone-proj-aBc1234D-1719432000",
 			wantSlug:   "proj-aBc1234D",
 			wantDigest: "",
 		},
-		{
-			name:       "clone volume minimal",
-			input:      "opencode-msb-clone-work-a1b2c3d4",
-			wantSlug:   "work",
-			wantDigest: "",
-		},
+		{name: "clone volume minimal", input: "opencode-msb-clone-work-a1b2c3d4", wantSlug: "work", wantDigest: ""},
 	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			slug, digest := extractProjectSlugAndDigest(tt.input)
-			if slug != tt.wantSlug {
-				t.Errorf("extractProjectSlugAndDigest(%q) slug = %q, want %q", tt.input, slug, tt.wantSlug)
-			}
-			if digest != tt.wantDigest {
-				t.Errorf("extractProjectSlugAndDigest(%q) digest = %q, want %q", tt.input, digest, tt.wantDigest)
-			}
-		})
-	}
+	runSlugDigestTests(t, tests)
 }
 
 func TestExtractProjectSlugAndDigest_VMWithHashSuffix(t *testing.T) {
-	tests := []struct {
-		name       string
-		input      string
-		wantSlug   string
-		wantDigest string
-	}{
+	tests := []slugDigestTest{
 		{
 			name:       "vm with 14-char hash suffix (no branch)",
 			input:      "opencode-msb-vm-saife-1mjusbm3wikhb0",
@@ -263,18 +179,7 @@ func TestExtractProjectSlugAndDigest_VMWithHashSuffix(t *testing.T) {
 			wantDigest: "",
 		},
 	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			slug, digest := extractProjectSlugAndDigest(tt.input)
-			if slug != tt.wantSlug {
-				t.Errorf("extractProjectSlugAndDigest(%q) slug = %q, want %q", tt.input, slug, tt.wantSlug)
-			}
-			if digest != tt.wantDigest {
-				t.Errorf("extractProjectSlugAndDigest(%q) digest = %q, want %q", tt.input, digest, tt.wantDigest)
-			}
-		})
-	}
+	runSlugDigestTests(t, tests)
 }
 
 func TestFindHashSuffix(t *testing.T) {
@@ -283,31 +188,11 @@ func TestFindHashSuffix(t *testing.T) {
 		input string
 		want  int
 	}{
-		{
-			name:  "no hash - simple name",
-			input: "projectname-main",
-			want:  -1,
-		},
-		{
-			name:  "hash at hyphen position 5",
-			input: "saife-1mjusbm3wikhb0",
-			want:  6,
-		},
-		{
-			name:  "hash followed by branch",
-			input: "saife-1mjusbm3wikhb0-main",
-			want:  6,
-		},
-		{
-			name:  "hash embedded in multi-dash slug",
-			input: "my-project-1mjusbm3wikhb0-develop",
-			want:  11,
-		},
-		{
-			name:  "no hash - short string",
-			input: "abc-def",
-			want:  -1,
-		},
+		{name: "no hash - simple name", input: "projectname-main", want: -1},
+		{name: "hash at hyphen position 5", input: "saife-1mjusbm3wikhb0", want: 6},
+		{name: "hash followed by branch", input: "saife-1mjusbm3wikhb0-main", want: 6},
+		{name: "hash embedded in multi-dash slug", input: "my-project-1mjusbm3wikhb0-develop", want: 11},
+		{name: "no hash - short string", input: "abc-def", want: -1},
 	}
 
 	for _, tt := range tests {
@@ -321,36 +206,11 @@ func TestFindHashSuffix(t *testing.T) {
 }
 
 func TestExtractProjectSlugAndDigest_UnrecognizedPrefixes(t *testing.T) {
-	tests := []struct {
-		name       string
-		input      string
-		wantSlug   string
-		wantDigest string
-	}{
-		{
-			name:       "random string",
-			input:      "some-random-name",
-			wantSlug:   "",
-			wantDigest: "",
-		},
-		{
-			name:       "empty string",
-			input:      "",
-			wantSlug:   "",
-			wantDigest: "",
-		},
-		{
-			name:       "similar but wrong prefix",
-			input:      "opencode-msb-other-myslug",
-			wantSlug:   "",
-			wantDigest: "",
-		},
-		{
-			name:       "just the prefix no remainder for vm",
-			input:      "opencode-msb-vm-",
-			wantSlug:   "",
-			wantDigest: "",
-		},
+	tests := []slugDigestTest{
+		{name: "random string", input: "some-random-name", wantSlug: "", wantDigest: ""},
+		{name: "empty string", input: "", wantSlug: "", wantDigest: ""},
+		{name: "similar but wrong prefix", input: "opencode-msb-other-myslug", wantSlug: "", wantDigest: ""},
+		{name: "just the prefix no remainder for vm", input: "opencode-msb-vm-", wantSlug: "", wantDigest: ""},
 		{
 			name:       "just the prefix home with single part after",
 			input:      "opencode-msb-home-",
@@ -358,18 +218,7 @@ func TestExtractProjectSlugAndDigest_UnrecognizedPrefixes(t *testing.T) {
 			wantDigest: "",
 		},
 	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			slug, digest := extractProjectSlugAndDigest(tt.input)
-			if slug != tt.wantSlug {
-				t.Errorf("extractProjectSlugAndDigest(%q) slug = %q, want %q", tt.input, slug, tt.wantSlug)
-			}
-			if digest != tt.wantDigest {
-				t.Errorf("extractProjectSlugAndDigest(%q) digest = %q, want %q", tt.input, digest, tt.wantDigest)
-			}
-		})
-	}
+	runSlugDigestTests(t, tests)
 }
 
 func TestExtractProjectSlugAndDigest_VMOnlyTwoParts(t *testing.T) {
