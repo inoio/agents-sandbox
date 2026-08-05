@@ -22,6 +22,8 @@ var Get = func() MsbClient {
 // sandbox package. It covers discovery, creation, and deletion of sandboxes,
 // volumes, and images, plus runtime setup. Production code uses realMsbClient;
 // tests construct MockMsbClient directly.
+//
+//nolint:revive // 'Client' stutters as 'msb.Client' - MsbClient is intentional
 type MsbClient interface {
 	EnsureInstalled(ctx context.Context) error
 	GetSandbox(ctx context.Context, name string) (SandboxHandle, error)

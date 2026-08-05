@@ -388,7 +388,7 @@ func (f *mockFs) List(_ context.Context, _ string) ([]msbSdk.FsEntry, error) {
 	}
 	return f.list, nil
 }
-func (f *mockFs) Remove(_ context.Context, _ string) error                  { return nil }
+func (f *mockFs) Remove(_ context.Context, _ string) error { return nil }
 func (f *mockFs) Exists(_ context.Context, path string) (bool, error) {
 	_, ok := f.files[path]
 	return ok, nil
