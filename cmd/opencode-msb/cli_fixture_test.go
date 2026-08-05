@@ -2,8 +2,6 @@ package main
 
 import (
 	"testing"
-
-	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox"
 )
 
 // FlagSet is a permutation of CLI flag arguments (one variation per test run).
@@ -30,24 +28,11 @@ var pruneAgeFlags = []FlagSet{
 	{"--age", "14d"},
 }
 
-// overrideMsbClient saves the original factory, replaces it with one that
-// returns the provided mock, and restores the original on test cleanup.
-func overrideMsbClient(t *testing.T, mock sandbox.MsbClient) {
-	t.Helper()
-	orig := sandbox.SetNewMsbClient(func() sandbox.MsbClient {
-		return mock
-	})
-	t.Cleanup(func() {
-		sandbox.SetNewMsbClient(orig)
-	})
-}
-
 // TestFixtureHelpers compiles-check that all fixture helpers and flags are
 // accessible from a test context. No assertions are performed.
 func TestFixtureHelpers(t *testing.T) {
 	_ = FlagSet(nil)
 	_ = stopKillFlags
 	_ = pruneAgeFlags
-	_ = overrideMsbClient
 	t.Log("fixture helpers compile-ok")
 }

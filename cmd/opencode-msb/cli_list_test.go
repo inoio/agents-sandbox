@@ -19,7 +19,7 @@ func runListCmdTest(t *testing.T, ui *stdio.Mock, mock *sandbox.MockMsbClient, c
 	wantErr bool, wantErrContains string) {
 	t.Helper()
 	mockSetup(mock)
-	overrideMsbClient(t, mock)
+	sandbox.WithMsbMock(t, mock)
 
 	root := buildRootCmd(ui)
 	root.SetArgs(cmdArgs)
