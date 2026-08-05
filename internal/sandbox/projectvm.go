@@ -11,8 +11,8 @@ import (
 
 	"gitlab.inoio.de/inoio/opencode-msb/internal/git"
 	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/msb"
-	"gitlab.inoio.de/inoio/opencode-msb/internal/stdio"
 	"gitlab.inoio.de/inoio/opencode-msb/internal/sysinfo"
+	"gitlab.inoio.de/inoio/opencode-msb/internal/termio"
 
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 )
@@ -90,7 +90,7 @@ func EnsureProjectVM(
 	cfg Config,
 	imageRef, homeVol, repoPath string,
 	imageEnvs map[string]string,
-	ui stdio.UI,
+	ui termio.UI,
 ) (Sandbox, bool, error) {
 	if opts.DryRunVM {
 		ui.Verbosef("dry-run: VM lifecycle skipped")
@@ -228,7 +228,7 @@ func createProjectVM(
 	opts RunOptions,
 	cfg Config,
 	imageEnvs map[string]string,
-	ui stdio.UI,
+	ui termio.UI,
 ) (Sandbox, bool, error) {
 	user := opts.User
 	if user == "" {
@@ -304,7 +304,7 @@ func stopOrKillProjectVM(
 	ctx context.Context,
 	remove bool,
 	dryRun bool,
-	ui stdio.UI,
+	ui termio.UI,
 	action, actionVerb string,
 	client MsbClient,
 	stopFn func(SandboxHandle, context.Context) error,
@@ -358,14 +358,14 @@ func stopOrKillProjectVM(
 
 // StopProjectVM gracefully stops the project VM for the current directory.
 // If remove is true, it also removes the VM's persisted state after stopping.
-func StopProjectVM(ctx context.Context, remove, dryRun bool, ui stdio.UI) error {
+func StopProjectVM(ctx context.Context, remove, dryRun bool, ui termio.UI) error {
 	return stopOrKillProjectVM(ctx, remove, dryRun, ui, "stop", "Stopping", msb.Get(),
 		func(h SandboxHandle, c context.Context) error { return h.Stop(c) })
 }
 
 // KillProjectVM force-kills the project VM for the current directory.
 // If remove is true, it also removes the VM's persisted state after killing.
-func KillProjectVM(ctx context.Context, remove, dryRun bool, ui stdio.UI) error {
+func KillProjectVM(ctx context.Context, remove, dryRun bool, ui termio.UI) error {
 	return stopOrKillProjectVM(ctx, remove, dryRun, ui, "kill", "Force-killing", msb.Get(),
 		func(h SandboxHandle, c context.Context) error { return h.Kill(c) })
 }

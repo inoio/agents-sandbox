@@ -9,12 +9,12 @@ import (
 	msb "github.com/superradcompany/microsandbox/sdk/go"
 
 	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox"
-	"gitlab.inoio.de/inoio/opencode-msb/internal/stdio"
+	"gitlab.inoio.de/inoio/opencode-msb/internal/termio"
 )
 
 var errBoom = errors.New("boom")
 
-func runListCmdTest(t *testing.T, ui *stdio.Mock, mock *sandbox.MockMsbClient, cmdArgs []string,
+func runListCmdTest(t *testing.T, ui *termio.Mock, mock *sandbox.MockMsbClient, cmdArgs []string,
 	mockSetup func(m *sandbox.MockMsbClient), wantOut, wantInfo []string,
 	wantErr bool, wantErrContains string) {
 	t.Helper()
@@ -114,7 +114,7 @@ func TestListSandboxes(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			// t.Parallel() - disabled due to shared global test hook
-			ui := &stdio.Mock{}
+			ui := &termio.Mock{}
 			mock := &sandbox.MockMsbClient{}
 			runListCmdTest(
 				t,
@@ -198,7 +198,7 @@ func TestListImages(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			// t.Parallel() - disabled due to shared global test hook
-			ui := &stdio.Mock{}
+			ui := &termio.Mock{}
 			mock := &sandbox.MockMsbClient{}
 			runListCmdTest(
 				t,
@@ -277,7 +277,7 @@ func TestListVolumes(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			// t.Parallel() - disabled due to shared global test hook
-			ui := &stdio.Mock{}
+			ui := &termio.Mock{}
 			mock := &sandbox.MockMsbClient{}
 			runListCmdTest(
 				t,

@@ -12,7 +12,7 @@ import (
 
 	"gitlab.inoio.de/inoio/opencode-msb/internal/launcherconfig"
 	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox"
-	"gitlab.inoio.de/inoio/opencode-msb/internal/stdio"
+	"gitlab.inoio.de/inoio/opencode-msb/internal/termio"
 )
 
 var version = "dev"
@@ -33,7 +33,7 @@ var version = "dev"
 //	    err := Execute([]string{"list"}, ui)
 //	    // ...assert...
 //	}
-func Execute(args []string, ui stdio.UI) error {
+func Execute(args []string, ui termio.UI) error {
 	rootCmd := buildRootCmd(ui)
 	rootCmd.SetArgs(args)
 	rootCmd.SetOut(ui.StdOut())
@@ -42,26 +42,26 @@ func Execute(args []string, ui stdio.UI) error {
 	return rootCmd.Execute()
 }
 
-func getIOLevel(root *cobra.Command) stdio.Level {
+func getIOLevel(root *cobra.Command) termio.Level {
 	verbose, _ := root.Flags().GetBool(pFlagVerbose)
 	quiet, _ := root.Flags().GetBool(pFlagQuiet)
-	level := stdio.LevelNormal
+	level := termio.LevelNormal
 	if quiet {
-		level = stdio.LevelQuiet
+		level = termio.LevelQuiet
 	} else if verbose {
-		level = stdio.LevelVerbose
+		level = termio.LevelVerbose
 	}
 	return level
 }
 
-func newUI(args []string) stdio.UI {
+func newUI(args []string) termio.UI {
 	minimalCmd := buildMinimalRootFlagsCmd()
 	// We don't care about errors, just parse the minimal flags for UI initialization
 	_ = minimalCmd.ParseFlags(args)
 	yes, _ := minimalCmd.Flags().GetBool(pFlagYes)
 	level := getIOLevel(minimalCmd)
 
-	return stdio.New(os.Stdin, os.Stdout, os.Stderr,
+	return termio.New(os.Stdin, os.Stdout, os.Stderr,
 		term.IsTerminal(int(os.Stderr.Fd())), level, yes)
 }
 
@@ -74,7 +74,7 @@ func newConfig() sandbox.Config {
 	}
 }
 
-func applyLauncherConfig(cmd *cobra.Command, lc launcherconfig.Config, keys map[string]bool, _ stdio.UI) error {
+func applyLauncherConfig(cmd *cobra.Command, lc launcherconfig.Config, keys map[string]bool, _ termio.UI) error {
 	apply := []struct {
 		key string
 		fn  func() error

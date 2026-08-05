@@ -18,7 +18,7 @@ import (
 
 	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/docker"
 
-	"gitlab.inoio.de/inoio/opencode-msb/internal/stdio"
+	"gitlab.inoio.de/inoio/opencode-msb/internal/termio"
 )
 
 func TestReferencesBaseDetectsBaseImage(t *testing.T) {
@@ -59,7 +59,7 @@ func TestBuildDockerImageSetsHostUserBuildArgs(t *testing.T) {
 		return client.ImageBuildResult{Body: io.NopCloser(bytes.NewReader(nil))}, nil
 	}
 	docker.WithDockerMock(t, m)
-	l := &stdio.Mock{}
+	l := &termio.Mock{}
 
 	if err := docker.BuildDockerImage(context.Background(), dockerfile, "tag", "label", false, l); err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -76,7 +76,7 @@ func TestBuildDockerImageSetsHostUserBuildArgs(t *testing.T) {
 }
 
 func TestEnsureImageReturnsErrorWhenBuildFails(t *testing.T) {
-	l := &stdio.Mock{}
+	l := &termio.Mock{}
 	docker.WithDefaultErrorDockerMock(t)
 	_, _, _, err := ensureImageWithClient(
 		context.Background(),
@@ -166,7 +166,7 @@ func runEnsureImageTagTest(t *testing.T, dockerfile []byte, force bool, wantTags
 		dockerfile,
 		"test-project",
 		force,
-		&stdio.Mock{},
+		&termio.Mock{},
 	)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -201,7 +201,7 @@ func TestEnsureImageLoadsIntoMSBWhenNotCached(t *testing.T) {
 		dockerfile,
 		"test-project",
 		false,
-		&stdio.Mock{},
+		&termio.Mock{},
 	)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)

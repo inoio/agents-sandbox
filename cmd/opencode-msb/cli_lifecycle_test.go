@@ -8,7 +8,7 @@ import (
 	msb "github.com/superradcompany/microsandbox/sdk/go"
 
 	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox"
-	"gitlab.inoio.de/inoio/opencode-msb/internal/stdio"
+	"gitlab.inoio.de/inoio/opencode-msb/internal/termio"
 	"gitlab.inoio.de/inoio/opencode-msb/internal/testutil"
 )
 
@@ -23,7 +23,7 @@ func notFoundErr() error {
 
 // assertInfoHasPrefix checks that ui.InfoCalls contains at least one entry
 // containing prefix. Calls t.Errorf and returns false on failure.
-func assertInfoHasPrefix(t *testing.T, ui *stdio.Mock, prefix string) {
+func assertInfoHasPrefix(t *testing.T, ui *termio.Mock, prefix string) {
 	t.Helper()
 	for _, call := range ui.InfoCalls {
 		if strings.Contains(call, prefix) {
@@ -35,7 +35,7 @@ func assertInfoHasPrefix(t *testing.T, ui *stdio.Mock, prefix string) {
 
 // assertVerboseHasPrefix checks that ui.VerboseCalls contains at least
 // one entry starting with prefix.
-func assertVerboseHasPrefix(t *testing.T, ui *stdio.Mock, prefix string) {
+func assertVerboseHasPrefix(t *testing.T, ui *termio.Mock, prefix string) {
 	t.Helper()
 	for _, call := range ui.VerboseCalls {
 		if strings.HasPrefix(call, prefix) {
@@ -47,7 +47,7 @@ func assertVerboseHasPrefix(t *testing.T, ui *stdio.Mock, prefix string) {
 
 // assertWarnContains checks that ui.WarnCalls contains at least one entry
 // containing needle.
-func assertWarnContains(t *testing.T, ui *stdio.Mock, needle string) {
+func assertWarnContains(t *testing.T, ui *termio.Mock, needle string) {
 	t.Helper()
 	for _, call := range ui.WarnCalls {
 		if strings.Contains(call, needle) {
@@ -58,7 +58,7 @@ func assertWarnContains(t *testing.T, ui *stdio.Mock, needle string) {
 }
 
 // assertNoWarn calls t.Errorf if ui.WarnCalls is non-empty.
-func assertNoWarn(t *testing.T, ui *stdio.Mock) {
+func assertNoWarn(t *testing.T, ui *termio.Mock) {
 	t.Helper()
 	if len(ui.WarnCalls) > 0 {
 		t.Errorf("expected no WarnCalls; got: %v", ui.WarnCalls)
@@ -66,7 +66,7 @@ func assertNoWarn(t *testing.T, ui *stdio.Mock) {
 }
 
 // assertSpinnerHas calls t.Errorf if ui.SpinnerCalls does not contain msg.
-func assertSpinnerHas(t *testing.T, ui *stdio.Mock, msg string) {
+func assertSpinnerHas(t *testing.T, ui *termio.Mock, msg string) {
 	t.Helper()
 	if slices.Contains(ui.SpinnerCalls, msg) {
 		return
@@ -85,7 +85,7 @@ func TestLifecycle(t *testing.T) {
 		} {
 			for _, flags := range stopKillFlags {
 				t.Run(tc.cmd+strings.Join(flags, "_"), func(t *testing.T) {
-					ui := &stdio.Mock{}
+					ui := &termio.Mock{}
 					mock := &sandbox.MockMsbClient{}
 					mock.SetGetSandboxErr(notFoundErr())
 					sandbox.WithMsbMock(t, mock)
@@ -106,7 +106,7 @@ func TestLifecycle(t *testing.T) {
 	for _, flags := range stopKillFlags {
 		t.Run("S2_dry_run_stop"+flags[0], func(t *testing.T) {
 			initTestRepo(t)
-			ui := &stdio.Mock{}
+			ui := &termio.Mock{}
 			mock := &sandbox.MockMsbClient{}
 			mock.SetGotSandbox(&sandbox.MockSandboxHandle{})
 			sandbox.WithMsbMock(t, mock)
@@ -122,7 +122,7 @@ func TestLifecycle(t *testing.T) {
 
 		t.Run("S3_dry_run_kill"+flags[0], func(t *testing.T) {
 			initTestRepo(t)
-			ui := &stdio.Mock{}
+			ui := &termio.Mock{}
 			mock := &sandbox.MockMsbClient{}
 			mock.SetGotSandbox(&sandbox.MockSandboxHandle{})
 			sandbox.WithMsbMock(t, mock)
@@ -138,7 +138,7 @@ func TestLifecycle(t *testing.T) {
 
 		t.Run("S4_dry_run_force_stop"+flags[0], func(t *testing.T) {
 			initTestRepo(t)
-			ui := &stdio.Mock{}
+			ui := &termio.Mock{}
 			mock := &sandbox.MockMsbClient{}
 			mock.SetGotSandbox(&sandbox.MockSandboxHandle{})
 			sandbox.WithMsbMock(t, mock)
@@ -155,7 +155,7 @@ func TestLifecycle(t *testing.T) {
 
 		t.Run("S5_dry_run_force_kill"+flags[0], func(t *testing.T) {
 			initTestRepo(t)
-			ui := &stdio.Mock{}
+			ui := &termio.Mock{}
 			mock := &sandbox.MockMsbClient{}
 			mock.SetGotSandbox(&sandbox.MockSandboxHandle{})
 			sandbox.WithMsbMock(t, mock)
@@ -180,7 +180,7 @@ func TestLifecycle(t *testing.T) {
 	} {
 		t.Run("S6"+tc.cmd+"--force", func(t *testing.T) {
 			initTestRepo(t)
-			ui := &stdio.Mock{}
+			ui := &termio.Mock{}
 			mock := &sandbox.MockMsbClient{}
 			mock.SetGotSandbox(&sandbox.MockSandboxHandle{})
 			sandbox.WithMsbMock(t, mock)
@@ -198,7 +198,7 @@ func TestLifecycle(t *testing.T) {
 
 		t.Run("S6"+tc.cmd+"--force-short", func(t *testing.T) {
 			initTestRepo(t)
-			ui := &stdio.Mock{}
+			ui := &termio.Mock{}
 			mock := &sandbox.MockMsbClient{}
 			mock.SetGotSandbox(&sandbox.MockSandboxHandle{})
 			sandbox.WithMsbMock(t, mock)
@@ -217,7 +217,7 @@ func TestLifecycle(t *testing.T) {
 	for _, cmd := range []string{cmdStop, cmdKill} {
 		t.Run("S9_force_remove_"+cmd, func(t *testing.T) {
 			initTestRepo(t)
-			ui := &stdio.Mock{}
+			ui := &termio.Mock{}
 			mock := &sandbox.MockMsbClient{}
 			mock.SetGotSandbox(&sandbox.MockSandboxHandle{})
 			sandbox.WithMsbMock(t, mock)
@@ -243,7 +243,7 @@ func TestLifecycle(t *testing.T) {
 		for _, flags := range stopKillFlags {
 			t.Run("S10_remove_fail_"+tc.cmd+strings.Join(flags, "_"), func(t *testing.T) {
 				initTestRepo(t)
-				ui := &stdio.Mock{}
+				ui := &termio.Mock{}
 				mock := &sandbox.MockMsbClient{}
 				mock.SetGotSandbox(&sandbox.MockSandboxHandle{RemoveErr: errBoom})
 				sandbox.WithMsbMock(t, mock)
@@ -265,7 +265,7 @@ func TestLifecycle(t *testing.T) {
 	for _, cmd := range []string{cmdStop, cmdKill} {
 		t.Run("S10_non_dry_run_"+cmd+"_remove_fail", func(t *testing.T) {
 			initTestRepo(t)
-			ui := &stdio.Mock{}
+			ui := &termio.Mock{}
 			mock := &sandbox.MockMsbClient{}
 			mock.SetGotSandbox(&sandbox.MockSandboxHandle{RemoveErr: errBoom})
 			sandbox.WithMsbMock(t, mock)

@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"time"
 
-	"gitlab.inoio.de/inoio/opencode-msb/internal/stdio"
+	"gitlab.inoio.de/inoio/opencode-msb/internal/termio"
 )
 
 const (
@@ -45,7 +45,7 @@ func parseHealthResponse(stdout string) (bool, error) {
 // EnsureDaemon guarantees the opencode serve daemon is healthy inside the VM.
 // It health checks via curl inside the VM; if unhealthy, it kills any stale
 // daemon process, starts a fresh one, and polls until healthy or timeout.
-func EnsureDaemon(ctx context.Context, sb Sandbox, ui stdio.UI) error {
+func EnsureDaemon(ctx context.Context, sb Sandbox, ui termio.UI) error {
 	if healthy := checkDaemonHealth(ctx, sb); healthy {
 		ui.Verbosef("opencode daemon already healthy")
 		return nil

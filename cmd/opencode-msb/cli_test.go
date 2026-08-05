@@ -5,13 +5,13 @@ import (
 	"testing"
 
 	"gitlab.inoio.de/inoio/opencode-msb/internal/launcherconfig"
-	"gitlab.inoio.de/inoio/opencode-msb/internal/stdio"
+	"gitlab.inoio.de/inoio/opencode-msb/internal/termio"
 	"gitlab.inoio.de/inoio/opencode-msb/internal/testutil"
 )
 
 // buildTree sets up a test UI, builds the root command, renders the tree,
 // and returns the UI for use in test assertions.
-func buildTree(t *testing.T) *stdio.Mock {
+func buildTree(t *testing.T) *termio.Mock {
 	t.Helper()
 	ui := testutil.NewTestio(t)
 	root := buildRootCmd(&ui)

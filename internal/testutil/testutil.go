@@ -7,13 +7,13 @@ import (
 
 	"gopkg.in/yaml.v3"
 
-	"gitlab.inoio.de/inoio/opencode-msb/internal/stdio"
+	"gitlab.inoio.de/inoio/opencode-msb/internal/termio"
 )
 
-// NewTestio returns an empty stdio.Mock for tests.
-func NewTestio(tb testing.TB) stdio.Mock {
+// NewTestio returns an empty termio.Mock for tests.
+func NewTestio(tb testing.TB) termio.Mock {
 	tb.Helper()
-	return stdio.Mock{}
+	return termio.Mock{}
 }
 
 // WriteFile writes content to a file under dir.

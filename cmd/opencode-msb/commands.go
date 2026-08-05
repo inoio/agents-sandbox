@@ -5,13 +5,13 @@ import (
 
 	"gitlab.inoio.de/inoio/opencode-msb/internal/launcherconfig"
 	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox"
-	"gitlab.inoio.de/inoio/opencode-msb/internal/stdio"
+	"gitlab.inoio.de/inoio/opencode-msb/internal/termio"
 )
 
 // extractRunOptions extracts shared run/shell flags from the given command
 // and returns a populated sandbox.RunOptions. The auto parameter controls
 // whether the Auto field is set on RunOptions.
-func extractRunOptions(cmd *cobra.Command, auto bool, ui stdio.UI) sandbox.RunOptions {
+func extractRunOptions(cmd *cobra.Command, auto bool, ui termio.UI) sandbox.RunOptions {
 	opts := sandbox.RunOptions{Auto: auto}
 	opts.Branch, _ = cmd.Flags().GetString("branch")
 	opts.Rebuild, _ = cmd.Flags().GetBool("rebuild")
@@ -36,7 +36,7 @@ func printItems[T any](
 	format string,
 	nameFunc func(T) string,
 	valueFunc func(T) string,
-	ui stdio.UI,
+	ui termio.UI,
 ) {
 	if len(items) == 0 {
 		ui.Info(emptyMsg)
@@ -62,7 +62,7 @@ func buildMinimalRootFlagsCmd() *cobra.Command {
 	return rootFlagsCmd
 }
 
-func buildRootCmd(ui stdio.UI) *cobra.Command {
+func buildRootCmd(ui termio.UI) *cobra.Command {
 	rootCmd := buildMinimalRootFlagsCmd()
 
 	rootCmd.PersistentPreRunE = func(cmd *cobra.Command, _ []string) error {
@@ -100,7 +100,7 @@ func buildRootCmd(ui stdio.UI) *cobra.Command {
 	return rootCmd
 }
 
-func buildTreeCmd(rootCmd *cobra.Command, ui stdio.UI) *cobra.Command {
+func buildTreeCmd(rootCmd *cobra.Command, ui termio.UI) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   cmdTree,
 		Args:  cobra.NoArgs,
@@ -112,7 +112,7 @@ func buildTreeCmd(rootCmd *cobra.Command, ui stdio.UI) *cobra.Command {
 	return cmd
 }
 
-func buildVersionCmd(rootCmd *cobra.Command, ui stdio.UI) *cobra.Command {
+func buildVersionCmd(rootCmd *cobra.Command, ui termio.UI) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   cmdVersion,
 		Args:  cobra.NoArgs,
@@ -124,7 +124,7 @@ func buildVersionCmd(rootCmd *cobra.Command, ui stdio.UI) *cobra.Command {
 	return cmd
 }
 
-func printPruneSummary(ui stdio.UI, report *sandbox.StaleReport, dryRun bool) {
+func printPruneSummary(ui termio.UI, report *sandbox.StaleReport, dryRun bool) {
 	action := "Pruned"
 	if dryRun {
 		action = "dry-run: Would prune"

@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"gitlab.inoio.de/inoio/opencode-msb/internal/stdio"
+	"gitlab.inoio.de/inoio/opencode-msb/internal/termio"
 )
 
 const defaultTargetDir = "/workspace"
@@ -51,7 +51,7 @@ func ResolveTarget(
 	ctx context.Context,
 	sb Sandbox,
 	branch string,
-	ui stdio.UI,
+	ui termio.UI,
 ) (string, error) {
 	if branch == "" {
 		return resolveTargetNoBranch(), nil
