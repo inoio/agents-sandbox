@@ -14,6 +14,8 @@ import (
 
 	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/docker"
 
+	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/msb"
+
 	"gitlab.inoio.de/inoio/opencode-msb/internal/git"
 	"gitlab.inoio.de/inoio/opencode-msb/internal/stdio"
 )
@@ -263,7 +265,7 @@ func EnsureImage(
 	ui stdio.UI,
 ) (string, string, map[string]string, error) {
 	dockerfile := resolveDockerfile()
-	return ensureImageWithClient(ctx, newMsbClient(), dockerfile, projectSlug, force, ui)
+	return ensureImageWithClient(ctx, msb.Get(), dockerfile, projectSlug, force, ui)
 }
 
 func parseImageEnv(envs []string) map[string]string {

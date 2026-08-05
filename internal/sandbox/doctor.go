@@ -8,16 +8,15 @@ import (
 	"runtime"
 	"strings"
 
+	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/msb"
 	"gitlab.inoio.de/inoio/opencode-msb/internal/stdio"
-
-	msb "github.com/superradcompany/microsandbox/sdk/go"
 )
 
 // ensureInstalled is indirected so tests can stub the SDK runtime download.
 // It defaults to the real EnsureInstalled; tests reassign it and restore via
 // t.Cleanup.
 var ensureInstalled = func(ctx context.Context) error { //nolint:gochecknoglobals // test seam, swapped in tests
-	return msb.EnsureInstalled(ctx)
+	return msb.Get().EnsureInstalled(ctx)
 }
 
 func CheckDocker(ui stdio.UI) bool {
@@ -144,7 +143,7 @@ func isOrphanedImage(ref string) bool {
 }
 
 func CheckOrphans(ctx context.Context, ui stdio.UI) bool {
-	client := newMsbClient()
+	client := msb.Get()
 	hasOrphans := false
 
 	sandboxHandles, err := client.ListSandboxes(ctx)

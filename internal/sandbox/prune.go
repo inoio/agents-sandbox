@@ -10,7 +10,9 @@ import (
 
 	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/docker"
 
-	msb "github.com/superradcompany/microsandbox/sdk/go"
+	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
+
+	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/msb"
 
 	"gitlab.inoio.de/inoio/opencode-msb/internal/stdio"
 )
@@ -58,7 +60,7 @@ type PruningCatalog struct {
 // staleVM is an internal type used by findStaleVMs.
 type staleVM struct {
 	name      string
-	status    msb.SandboxStatus
+	status    msbSdk.SandboxStatus
 	updatedAt time.Time
 	image     string // image ref for active VMs, empty for stale
 }
@@ -87,8 +89,8 @@ const (
 // at the '1' in the 14-char hash). Returns -1 when no such suffix is found.
 // isStoppedStatus returns true if the status indicates the sandbox is not
 // actively running (stopped or crashed).
-func isStoppedStatus(status msb.SandboxStatus) bool {
-	return status == msb.SandboxStatusStopped || status == msb.SandboxStatusCrashed
+func isStoppedStatus(status msbSdk.SandboxStatus) bool {
+	return status == msbSdk.SandboxStatusStopped || status == msbSdk.SandboxStatusCrashed
 }
 
 // findStaleVMs filters sandboxes to only those that are stopped/crashed and
@@ -286,7 +288,7 @@ func Prune(
 	dryRun bool,
 	ui stdio.UI,
 ) (*StaleReport, error) {
-	client := newMsbClient()
+	client := msb.Get()
 	report := &StaleReport{} //nolint:exhaustruct // Counts initialized to zero, populated during pruning
 
 	catalog, err := buildCatalog(ctx, client, threshold)

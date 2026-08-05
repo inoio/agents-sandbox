@@ -2,174 +2,527 @@ package msb
 
 import (
 	"context"
+	"fmt"
 	"io"
+	"strings"
+	"sync"
+	"testing"
 	"time"
 
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 )
 
-// MockSandboxHandle is a mock implementation of SandboxHandle for tests.
+// MockMsbClient is a test double for MsbClient with callback-style fields
+// and collection fields for convenient test setup. Nil callbacks mean no-op/succeed.
+// Existing callers that set Sandboxes/Volumes/Images/List*Err fields work without change.
+type MockMsbClient struct {
+	mu sync.Mutex
+
+	// Callback-style fields (granular control). Nil = no-op/succeed.
+	EnsureInstalledFn func(ctx context.Context) error
+	GetSandboxFn      func(ctx context.Context, name string) (SandboxHandle, error)
+	CreateSandboxFn   func(ctx context.Context, name string, opts ...msbSdk.SandboxOption) (Sandbox, error)
+	ListSandboxesFn   func(ctx context.Context) ([]SandboxHandle, error)
+	RemoveSandboxFn   func(ctx context.Context, name string) error
+	GetVolumeFn       func(ctx context.Context, name string) (VolumeHandle, error)
+	CreateVolumeFn    func(ctx context.Context, name string, opts ...msbSdk.VolumeOption) (VolumeHandle, error)
+	ListVolumesFn     func(ctx context.Context) ([]VolumeHandle, error)
+	RemoveVolumeFn    func(ctx context.Context, name string) error
+	ImageGetFn        func(ctx context.Context, ref string) error
+	ImageListFn       func(ctx context.Context) ([]ImageHandle, error)
+	ImageRemoveFn     func(ctx context.Context, ref string, force bool) error
+	ImageLoadFn       func(ctx context.Context, ref string, r io.Reader) error
+
+	// Pre-populated collections — List* methods return these when the callback is nil.
+	// Tests can append to these fields freely.
+	Sandboxes []SandboxHandle
+	Volumes   []VolumeHandle
+	Images    []ImageHandle
+
+	// CreatedSandbox is returned by CreateSandbox instead of the default MockSandbox.
+	CreatedSandbox Sandbox
+
+	// CreatedSandboxes holds names passed to CreateSandbox calls.
+	CreatedSandboxes []string
+	// CreatedSandboxCalls holds full details of CreateSandbox calls.
+	CreatedSandboxCalls []MockCreateSandboxCall
+	// RemovedSandboxes holds names passed to RemoveSandbox calls.
+	RemovedSandboxes []string
+	// RemovedVolumes holds names passed to RemoveVolume calls.
+	RemovedVolumes []string
+	// RemovedImages holds arguments passed to ImageRemove calls.
+	RemovedImages []MockRemoveImageCall
+	// LoadedImages holds refs passed to ImageLoad calls.
+	LoadedImages []string
+
+	// Default return values when no error and no callback/got* is set.
+	gotSandbox SandboxHandle
+	gotVolume  VolumeHandle
+	// Internal tracking (mimics old field names for backward compat).
+	createdSandboxes []string
+	removedSandboxes []string
+	removedVolumes   []string
+	removedImages    []MockRemoveImageCall
+	loadedImages     []string
+	createdSandbox   Sandbox
+
+	// Error fields.
+	ensureInstalledErr error
+	getSandboxErr      error
+	CreateSandboxErr   error
+	ListSandboxesErr   error
+	GetVolumeErr       error
+	createVolumeErr    error
+	ListVolumesErr     error
+	ListImagesErr      error
+	removeSandboxErr   error
+	removeVolumeErr    error
+	removeImageErr     error
+	imageGetErr        error
+	imageLoadErr       error
+}
+
+// Compile-time check.
+var _ MsbClient = (*MockMsbClient)(nil)
+
+// EnsureInstalled implements MsbClient.
+func (m *MockMsbClient) EnsureInstalled(ctx context.Context) error {
+	if m.EnsureInstalledFn != nil {
+		return m.EnsureInstalledFn(ctx)
+	}
+	return m.ensureInstalledErr
+}
+
+// GetSandbox implements MsbClient.
+func (m *MockMsbClient) GetSandbox(ctx context.Context, name string) (SandboxHandle, error) {
+	if m.GetSandboxFn != nil {
+		return m.GetSandboxFn(ctx, name)
+	}
+	if m.getSandboxErr != nil {
+		return nil, m.getSandboxErr
+	}
+	if m.gotSandbox != nil {
+		return m.gotSandbox, nil
+	}
+	// Fall back to sandbox handles from Sandboxes collection.
+	for _, h := range m.Sandboxes {
+		if h.Name() == name {
+			return h, nil
+		}
+	}
+	return nil, &msbSdk.Error{Kind: msbSdk.ErrSandboxNotFound, Message: name}
+}
+
+// CreateSandbox implements MsbClient.
+func (m *MockMsbClient) CreateSandbox(ctx context.Context, name string, opts ...msbSdk.SandboxOption) (Sandbox, error) {
+	m.mu.Lock()
+	m.CreatedSandboxes = append(m.CreatedSandboxes, name)
+	m.createdSandboxes = append(m.createdSandboxes, name)
+	m.CreatedSandboxCalls = append(m.CreatedSandboxCalls, MockCreateSandboxCall{Name: name, Opts: opts})
+	m.mu.Unlock()
+
+	if m.CreateSandboxFn != nil {
+		return m.CreateSandboxFn(ctx, name, opts...)
+	}
+	if m.CreateSandboxErr != nil {
+		return nil, m.CreateSandboxErr
+	}
+	if m.CreatedSandbox != nil {
+		return m.CreatedSandbox, nil
+	}
+	if m.createdSandbox != nil {
+		return m.createdSandbox, nil
+	}
+	return &MockSandbox{Name_: name}, nil
+}
+
+// ListSandboxes implements MsbClient.
+func (m *MockMsbClient) ListSandboxes(ctx context.Context) ([]SandboxHandle, error) {
+	if m.ListSandboxesFn != nil {
+		return m.ListSandboxesFn(ctx)
+	}
+	if m.ListSandboxesErr != nil {
+		return nil, m.ListSandboxesErr
+	}
+	return m.Sandboxes, nil
+}
+
+// RemoveSandbox implements MsbClient.
+func (m *MockMsbClient) RemoveSandbox(ctx context.Context, name string) error {
+	m.mu.Lock()
+	m.RemovedSandboxes = append(m.RemovedSandboxes, name)
+	m.removedSandboxes = append(m.removedSandboxes, name)
+	m.mu.Unlock()
+	if m.RemoveSandboxFn != nil {
+		return m.RemoveSandboxFn(ctx, name)
+	}
+	if m.removeSandboxErr != nil {
+		return m.removeSandboxErr
+	}
+	return nil
+}
+
+// GetVolume implements MsbClient.
+func (m *MockMsbClient) GetVolume(ctx context.Context, name string) (VolumeHandle, error) {
+	if m.GetVolumeFn != nil {
+		return m.GetVolumeFn(ctx, name)
+	}
+	if m.GetVolumeErr != nil {
+		return nil, m.GetVolumeErr
+	}
+	if m.gotVolume != nil {
+		return m.gotVolume, nil
+	}
+	for _, h := range m.Volumes {
+		if h.Name() == name {
+			return h, nil
+		}
+	}
+	return nil, &msbSdk.Error{Kind: msbSdk.ErrVolumeNotFound, Message: name}
+}
+
+// CreateVolume implements MsbClient.
+func (m *MockMsbClient) CreateVolume(ctx context.Context, name string, opts ...msbSdk.VolumeOption) (VolumeHandle, error) {
+	if m.CreateVolumeFn != nil {
+		return m.CreateVolumeFn(ctx, name, opts...)
+	}
+	if m.createVolumeErr != nil {
+		return nil, m.createVolumeErr
+	}
+	return &MockVolumeHandle{Name_: name}, nil
+}
+
+// ListVolumes implements MsbClient.
+func (m *MockMsbClient) ListVolumes(ctx context.Context) ([]VolumeHandle, error) {
+	if m.ListVolumesFn != nil {
+		return m.ListVolumesFn(ctx)
+	}
+	if m.ListVolumesErr != nil {
+		return nil, m.ListVolumesErr
+	}
+	return m.Volumes, nil
+}
+
+// RemoveVolume implements MsbClient.
+func (m *MockMsbClient) RemoveVolume(ctx context.Context, name string) error {
+	m.mu.Lock()
+	m.RemovedVolumes = append(m.RemovedVolumes, name)
+	m.removedVolumes = append(m.removedVolumes, name)
+	m.mu.Unlock()
+	if m.RemoveVolumeFn != nil {
+		return m.RemoveVolumeFn(ctx, name)
+	}
+	if m.removeVolumeErr != nil {
+		return m.removeVolumeErr
+	}
+	return nil
+}
+
+// ImageGet implements MsbClient.
+func (m *MockMsbClient) ImageGet(ctx context.Context, ref string) error {
+	if m.ImageGetFn != nil {
+		return m.ImageGetFn(ctx, ref)
+	}
+	return m.imageGetErr
+}
+
+// ImageList implements MsbClient.
+func (m *MockMsbClient) ImageList(ctx context.Context) ([]ImageHandle, error) {
+	if m.ImageListFn != nil {
+		return m.ImageListFn(ctx)
+	}
+	if m.ListImagesErr != nil {
+		return nil, m.ListImagesErr
+	}
+	return m.Images, nil
+}
+
+// ImageRemove implements MsbClient.
+func (m *MockMsbClient) ImageRemove(ctx context.Context, ref string, force bool) error {
+	m.mu.Lock()
+	m.RemovedImages = append(m.RemovedImages, MockRemoveImageCall{Ref: ref, Force: force})
+	m.removedImages = append(m.removedImages, MockRemoveImageCall{Ref: ref, Force: force})
+	m.mu.Unlock()
+	if m.ImageRemoveFn != nil {
+		return m.ImageRemoveFn(ctx, ref, force)
+	}
+	if m.removeImageErr != nil {
+		return m.removeImageErr
+	}
+	return nil
+}
+
+// ImageLoad implements MsbClient.
+func (m *MockMsbClient) ImageLoad(ctx context.Context, ref string, r io.Reader) error {
+	m.mu.Lock()
+	m.LoadedImages = append(m.LoadedImages, ref)
+	m.loadedImages = append(m.loadedImages, ref)
+	m.mu.Unlock()
+	if m.ImageLoadFn != nil {
+		return m.ImageLoadFn(ctx, ref, r)
+	}
+	return m.imageLoadErr
+}
+
+// SetGetSandboxErr sets the error returned by MockMsbClient.GetSandbox.
+func (m *MockMsbClient) SetGetSandboxErr(err error) {
+	if err != nil {
+		m.GetSandboxFn = func(_ context.Context, _ string) (SandboxHandle, error) {
+			return nil, err
+		}
+	} else {
+		m.GetSandboxFn = nil
+	}
+}
+
+// SetGotSandbox sets the sandbox handle returned by MockMsbClient.GetSandbox.
+func (m *MockMsbClient) SetGotSandbox(h SandboxHandle) {
+	if h != nil {
+		m.GetSandboxFn = func(_ context.Context, _ string) (SandboxHandle, error) {
+			return h, nil
+		}
+	} else {
+		m.GetSandboxFn = nil
+	}
+}
+
+// SetGetVolumeErr sets the error returned by MockMsbClient.GetVolume.
+func (m *MockMsbClient) SetGetVolumeErr(err error) {
+	if err != nil {
+		m.GetVolumeFn = func(_ context.Context, _ string) (VolumeHandle, error) {
+			return nil, err
+		}
+	} else {
+		m.GetVolumeFn = nil
+	}
+}
+
+// -- Domain mocks --
+
+// MockSandboxHandle is a test double for SandboxHandle.
 type MockSandboxHandle struct {
-	NameFunc      func() string
-	StatusFunc    func() msbSdk.SandboxStatus
-	UpdatedAtFunc func() time.Time
-	ImageFunc     func() string
-	ConnectFunc   func(ctx context.Context) (Sandbox, error)
-	RefreshFunc   func(ctx context.Context) (SandboxHandle, error)
-	StartFunc     func(ctx context.Context) (Sandbox, error)
-	StopFunc      func(ctx context.Context, opts ...msbSdk.StopOption) error
-	KillFunc      func(ctx context.Context, opts ...msbSdk.KillOption) error
-	RemoveFunc    func(ctx context.Context) error
-	Context       context.Context
+	Name_      string
+	Status_    msbSdk.SandboxStatus
+	UpdatedAt_ time.Time
+	Image_     string
+	ConnectSb  Sandbox
+	StartSb    Sandbox
+	DidRmv     bool
+	ConnectErr error
+	StartErr   error
+	StopErr    error
+	KillErr    error
+	RemoveErr  error
 }
 
-func (m *MockSandboxHandle) Name() string {
-	if m.NameFunc != nil {
-		return m.NameFunc()
+func (m *MockSandboxHandle) Name() string                 { return m.Name_ }
+func (m *MockSandboxHandle) Status() msbSdk.SandboxStatus { return m.Status_ }
+func (m *MockSandboxHandle) UpdatedAt() time.Time         { return m.UpdatedAt_ }
+func (m *MockSandboxHandle) Image() string                { return m.Image_ }
+func (m *MockSandboxHandle) Connect(_ context.Context) (Sandbox, error) {
+	if m.ConnectErr != nil {
+		return nil, m.ConnectErr
 	}
-	return ""
+	if m.ConnectSb != nil {
+		return m.ConnectSb, nil
+	}
+	return &MockSandbox{Name_: m.Name_}, nil
 }
-
-func (m *MockSandboxHandle) Status() msbSdk.SandboxStatus {
-	if m.StatusFunc != nil {
-		return m.StatusFunc()
+func (m *MockSandboxHandle) Refresh(_ context.Context) (SandboxHandle, error) { return m, nil }
+func (m *MockSandboxHandle) Start(_ context.Context) (Sandbox, error) {
+	if m.StartErr != nil {
+		return nil, m.StartErr
 	}
-	return msbSdk.SandboxStatusStopped
+	if m.StartSb != nil {
+		return m.StartSb, nil
+	}
+	return &MockSandbox{Name_: m.Name_}, nil
 }
-
-func (m *MockSandboxHandle) UpdatedAt() time.Time {
-	if m.UpdatedAtFunc != nil {
-		return m.UpdatedAtFunc()
+func (m *MockSandboxHandle) Stop(_ context.Context, _ ...msbSdk.StopOption) error { return m.StopErr }
+func (m *MockSandboxHandle) Kill(_ context.Context, _ ...msbSdk.KillOption) error { return m.KillErr }
+func (m *MockSandboxHandle) Remove(_ context.Context) error {
+	if m.RemoveErr != nil {
+		return m.RemoveErr
 	}
-	return time.Time{}
-}
-
-func (m *MockSandboxHandle) Image() string {
-	if m.ImageFunc != nil {
-		return m.ImageFunc()
-	}
-	return ""
-}
-
-func (m *MockSandboxHandle) Connect(ctx context.Context) (Sandbox, error) {
-	if m.ConnectFunc != nil {
-		return m.ConnectFunc(ctx)
-	}
-	return nil, nil
-}
-
-func (m *MockSandboxHandle) Refresh(ctx context.Context) (SandboxHandle, error) {
-	if m.RefreshFunc != nil {
-		return m.RefreshFunc(ctx)
-	}
-	return m, nil
-}
-
-func (m *MockSandboxHandle) Start(ctx context.Context) (Sandbox, error) {
-	if m.StartFunc != nil {
-		return m.StartFunc(ctx)
-	}
-	return nil, nil
-}
-
-func (m *MockSandboxHandle) Stop(ctx context.Context, opts ...msbSdk.StopOption) error {
-	if m.StopFunc != nil {
-		return m.StopFunc(ctx, opts...)
-	}
+	m.DidRmv = true
 	return nil
 }
+func (m *MockSandboxHandle) DidRemove() bool { return m.DidRmv }
 
-func (m *MockSandboxHandle) Kill(ctx context.Context, opts ...msbSdk.KillOption) error {
-	if m.KillFunc != nil {
-		return m.KillFunc(ctx, opts...)
-	}
-	return nil
-}
-
-func (m *MockSandboxHandle) Remove(ctx context.Context) error {
-	if m.RemoveFunc != nil {
-		return m.RemoveFunc(ctx)
-	}
-	return nil
-}
-
-// MockSandbox is a mock implementation of Sandbox for tests.
+// MockSandbox is a test double for Sandbox.
 type MockSandbox struct {
-	FSFunc     func() SandboxFS
-	ShellFunc  func(ctx context.Context, command string, opts ...msbSdk.ExecOption) (ShellResult, error)
-	ExecFunc   func(ctx context.Context, command string, args []string, opts ...msbSdk.ExecOption) (ShellResult, error)
-	AttachFunc func(ctx context.Context, command string, args ...string) (int, error)
-	DetachFunc func(ctx context.Context) error
-	StopFunc   func(ctx context.Context, opts ...msbSdk.StopOption) error
-	CloseFunc  func() error
+	Name_      string
+	FSValue_   any
+	ShellOut   map[string]ShellResult
+	ShellErr   error
+	ExecOut    map[string]ShellResult
+	ExecErr    error
+	AttachCode int
+	AttachErr  error
+	DetachErr  error
+	StopErr    error
+	CloseErr   error
 }
 
 func (m *MockSandbox) FS() SandboxFS {
-	if m.FSFunc != nil {
-		return m.FSFunc()
+	if f, ok := m.FSValue_.(SandboxFS); ok {
+		return f
 	}
-	return nil
+	return &minimalSandboxFS{}
 }
 
-func (m *MockSandbox) Shell(ctx context.Context, command string, opts ...msbSdk.ExecOption) (ShellResult, error) {
-	if m.ShellFunc != nil {
-		return m.ShellFunc(ctx, command, opts...)
+func (m *MockSandbox) Shell(_ context.Context, command string, _ ...msbSdk.ExecOption) (ShellResult, error) {
+	if m.ShellErr != nil {
+		return nil, m.ShellErr
 	}
-	return nil, nil
+	if out, ok := m.ShellOut[command]; ok {
+		return out, nil
+	}
+	return &mockShellResultImpl{success: true}, nil
 }
 
-func (m *MockSandbox) Exec(ctx context.Context, command string, args []string, opts ...msbSdk.ExecOption) (ShellResult, error) {
-	if m.ExecFunc != nil {
-		return m.ExecFunc(ctx, command, args, opts...)
+func (m *MockSandbox) Exec(_ context.Context, command string, args []string, _ ...msbSdk.ExecOption) (ShellResult, error) {
+	if m.ExecErr != nil {
+		return nil, m.ExecErr
 	}
-	return nil, nil
+	key := command + " " + strings.Join(args, " ")
+	if out, ok := m.ExecOut[key]; ok {
+		return out, nil
+	}
+	return &mockShellResultImpl{success: true}, nil
 }
 
-func (m *MockSandbox) Attach(ctx context.Context, command string, args ...string) (int, error) {
-	if m.AttachFunc != nil {
-		return m.AttachFunc(ctx, command, args...)
-	}
-	return 0, nil
+func (m *MockSandbox) Attach(_ context.Context, _ string, _ ...string) (int, error) {
+	return m.AttachCode, m.AttachErr
 }
 
-func (m *MockSandbox) Detach(ctx context.Context) error {
-	if m.DetachFunc != nil {
-		return m.DetachFunc(ctx)
-	}
-	return nil
+func (m *MockSandbox) Detach(_ context.Context) error                       { return m.DetachErr }
+func (m *MockSandbox) Stop(_ context.Context, _ ...msbSdk.StopOption) error { return m.StopErr }
+func (m *MockSandbox) Close() error                                         { return m.CloseErr }
+
+// minimalSandboxFS is a no-op fs implementation for MockSandbox.FS() when
+// no FSValue_ is set, preventing nil pointer panics.
+type minimalSandboxFS struct{}
+
+func (minimalSandboxFS) Exists(_ context.Context, _ string) (bool, error) { return false, nil }
+func (minimalSandboxFS) Stat(_ context.Context, _ string) (*msbSdk.FsStat, error) {
+	return &msbSdk.FsStat{}, nil
+}
+func (minimalSandboxFS) List(_ context.Context, _ string) ([]msbSdk.FsEntry, error) { return nil, nil }
+func (minimalSandboxFS) ReadString(_ context.Context, _ string) (string, error)     { return "", nil }
+func (minimalSandboxFS) ReadStream(_ context.Context, _ string) (*msbSdk.FsReadStream, error) {
+	return &msbSdk.FsReadStream{}, nil
+}
+func (minimalSandboxFS) Mkdir(_ context.Context, _ string) error           { return nil }
+func (minimalSandboxFS) Write(_ context.Context, _ string, _ []byte) error { return nil }
+func (minimalSandboxFS) Read(_ context.Context, _ string) ([]byte, error)  { return nil, nil }
+func (minimalSandboxFS) Remove(_ context.Context, _ string) error          { return nil }
+
+// mockFs implements SandboxFS for tests with file content.
+type mockFs struct {
+	files   map[string][]byte
+	list    []msbSdk.FsEntry
+	readErr error
+	listErr error
 }
 
-func (m *MockSandbox) Stop(ctx context.Context, opts ...msbSdk.StopOption) error {
-	if m.StopFunc != nil {
-		return m.StopFunc(ctx, opts...)
+func (f *mockFs) Mkdir(_ context.Context, _ string) error           { return nil }
+func (f *mockFs) Write(_ context.Context, _ string, _ []byte) error { return nil }
+func (f *mockFs) Read(_ context.Context, path string) ([]byte, error) {
+	if f.readErr != nil {
+		return nil, f.readErr
 	}
-	return nil
+	if data, ok := f.files[path]; ok {
+		return data, nil
+	}
+	return nil, fmt.Errorf("file not found: %s", path)
+}
+func (f *mockFs) List(_ context.Context, _ string) ([]msbSdk.FsEntry, error) {
+	if f.listErr != nil {
+		return nil, f.listErr
+	}
+	return f.list, nil
+}
+func (f *mockFs) Remove(_ context.Context, _ string) error { return nil }
+func (f *mockFs) Exists(_ context.Context, path string) (bool, error) {
+	_, ok := f.files[path]
+	return ok, nil
+}
+func (f *mockFs) Stat(_ context.Context, _ string) (*msbSdk.FsStat, error) {
+	return &msbSdk.FsStat{}, nil
+}
+func (f *mockFs) ReadString(_ context.Context, path string) (string, error) {
+	if d, ok := f.files[path]; ok {
+		return string(d), nil
+	}
+	return "", fmt.Errorf("file not found: %s", path)
+}
+func (f *mockFs) ReadStream(_ context.Context, _ string) (*msbSdk.FsReadStream, error) {
+	return &msbSdk.FsReadStream{}, nil
 }
 
-func (m *MockSandbox) Close() error {
-	if m.CloseFunc != nil {
-		return m.CloseFunc()
-	}
-	return nil
+// mockShellResultImpl implements ShellResult for tests.
+type mockShellResultImpl struct {
+	success     bool
+	exitCode    int
+	stdout      string
+	stderr      string
+	stdoutBytes []byte
 }
 
-// MockMsbClient is a mock implementation of MsbClient for tests.
-type MockMsbClient struct {
-	EnsureInstalledFunc func(ctx context.Context) error
-	GetSandboxFunc      func(ctx context.Context, name string) (SandboxHandle, error)
-	CreateSandboxFunc   func(ctx context.Context, name string, opts ...msbSdk.SandboxOption) (Sandbox, error)
-	ListSandboxesFunc   func(ctx context.Context) ([]SandboxHandle, error)
-	RemoveSandboxFunc   func(ctx context.Context, name string) error
-	GetVolumeFunc       func(ctx context.Context, name string) (VolumeHandle, error)
-	CreateVolumeFunc    func(ctx context.Context, name string, opts ...msbSdk.VolumeOption) (VolumeHandle, error)
-	ListVolumesFunc     func(ctx context.Context) ([]VolumeHandle, error)
-	RemoveVolumeFunc    func(ctx context.Context, name string) error
-	ImageGetFunc        func(ctx context.Context, ref string) error
-	ImageListFunc       func(ctx context.Context) ([]ImageHandle, error)
-	ImageRemoveFunc     func(ctx context.Context, ref string, force bool) error
-	ImageLoadFunc       func(ctx context.Context, ref string, r io.Reader) error
+func (m *mockShellResultImpl) Success() bool  { return m.success }
+func (m *mockShellResultImpl) ExitCode() int  { return m.exitCode }
+func (m *mockShellResultImpl) Stdout() string { return m.stdout }
+func (m *mockShellResultImpl) Stderr() string { return m.stderr }
+func (m *mockShellResultImpl) StdoutBytes() []byte {
+	if m.stdoutBytes != nil {
+		return m.stdoutBytes
+	}
+	return []byte(m.stdout)
+}
 
-	// Calls tracks the calls made to this mock.
-	CreateCall      MockCreateSandboxCall
-	RemoveImageCall MockRemoveImageCall
+// MockVolumeHandle is a test double for VolumeHandle.
+type MockVolumeHandle struct {
+	Name_ string
+	Path_ string
+	Kind_ msbSdk.VolumeKind
+}
+
+func (m MockVolumeHandle) Name() string { return m.Name_ }
+func (m MockVolumeHandle) Path() string { return m.Path_ }
+func (m MockVolumeHandle) Kind() msbSdk.VolumeKind {
+	if m.Kind_ == "" {
+		return msbSdk.VolumeKindDir
+	}
+	return m.Kind_
+}
+
+// MockImageHandle is a test double for ImageHandle.
+type MockImageHandle struct {
+	Reference_      string
+	ManifestDigest_ string
+}
+
+func (m MockImageHandle) Reference() string      { return m.Reference_ }
+func (m MockImageHandle) ManifestDigest() string { return m.ManifestDigest_ }
+
+// WithMsbMock replaces the global Get factory with the provided mock.
+// It restores the original factory when the test ends.
+func WithMsbMock(t *testing.T, mock MsbClient) {
+	t.Helper()
+	orig := Get
+	Get = func() MsbClient { return mock }
+	t.Cleanup(func() { Get = orig })
+}
+
+// ResetGetFn replaces the global Get factory, returning the previous factory for restoration.
+func ResetGetFn(f func() MsbClient) func() MsbClient {
+	old := Get
+	Get = f
+	return old
+}
+
+// WithNoopMsbMock replaces Get with a MockMsbClient where every method succeeds.
+func WithNoopMsbMock(t *testing.T) {
+	WithMsbMock(t, &MockMsbClient{})
 }

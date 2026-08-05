@@ -6,9 +6,10 @@ import (
 	"time"
 
 	"gitlab.inoio.de/inoio/opencode-msb/internal/git"
+	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/msb"
 	"gitlab.inoio.de/inoio/opencode-msb/internal/stdio"
 
-	msb "github.com/superradcompany/microsandbox/sdk/go"
+	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 )
 
 func HomeVolumeName(projectSlug, imageDigest string) string {
@@ -29,7 +30,7 @@ func (vm *VolumeManager) EnsureHome(
 	opts RunOptions,
 	ui stdio.UI,
 ) (string, error) {
-	client := newMsbClient()
+	client := msb.Get()
 	name := HomeVolumeName(projectSlug, imageDigest)
 
 	_, err := client.GetVolume(ctx, name)
@@ -38,7 +39,7 @@ func (vm *VolumeManager) EnsureHome(
 	}
 
 	vol, err := client.CreateVolume(ctx, name,
-		msb.WithVolumeKind(msb.VolumeKindDir),
+		msbSdk.WithVolumeKind(msbSdk.VolumeKindDir),
 	)
 	if err != nil {
 		return "", fmt.Errorf("create volume %s: %w", name, err)
@@ -62,15 +63,15 @@ func (vm *VolumeManager) prefillVolume(
 	ui stdio.UI,
 ) error {
 	prefillName := fmt.Sprintf("opencode-msb-task-prefill-%s-%d", projectSlug, time.Now().UnixNano())
-	mountConfig := msb.Mount.Named(volumeName, msb.MountOptions{})
+	mountConfig := msbSdk.Mount.Named(volumeName, msbSdk.MountOptions{})
 
 	spin := ui.Spinner("Preparing home volume")
 	sb, err := client.CreateSandbox(ctx, prefillName,
-		msb.WithImage(imageTag),
-		msb.WithMounts(map[string]msb.MountConfig{
+		msbSdk.WithImage(imageTag),
+		msbSdk.WithMounts(map[string]msbSdk.MountConfig{
 			"/mnt/home": mountConfig,
 		}),
-		msb.WithReplace(),
+		msbSdk.WithReplace(),
 	)
 	if err != nil {
 		spin.StopError(err)
