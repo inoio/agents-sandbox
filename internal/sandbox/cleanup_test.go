@@ -23,7 +23,7 @@ func TestAutoPruneIsIdempotent(t *testing.T) {
 }
 
 func TestAutoPruneDefaultsToSevenDays(t *testing.T) {
-	// When threshold is 0, AutoPrune should default to 7 days.
+	// When threshold is 0, AutoPrune should default to 30 days.
 	// We can't directly assert the threshold used, but we verify zero doesn't panic.
 	testUI := testutil.NewTestio(t)
 	AutoPrune(context.Background(), 0, &testUI)
