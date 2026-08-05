@@ -1,8 +1,11 @@
 package docker
 
 import (
+	"archive/tar"
+	"bytes"
 	"context"
 	"errors"
+	"io"
 	"strings"
 	"testing"
 
@@ -10,6 +13,30 @@ import (
 
 	"gitlab.inoio.de/inoio/opencode-msb/internal/testutil"
 )
+
+func TestDockerfileTarContainsDockerfile(t *testing.T) {
+	dockerfile := []byte("FROM debian:trixie-slim\nRUN echo hi\n")
+	tarBuf, err := dockerfileTar(dockerfile)
+	if err != nil {
+		t.Fatalf("dockerfileTar failed: %v", err)
+	}
+
+	tr := tar.NewReader(tarBuf)
+	header, err := tr.Next()
+	if err != nil {
+		t.Fatalf("unexpected error reading tar: %v", err)
+	}
+	if header.Name != "Dockerfile" {
+		t.Errorf("expected tar entry 'Dockerfile', got %q", header.Name)
+	}
+	content, err := io.ReadAll(tr)
+	if err != nil {
+		t.Fatalf("unexpected error reading tar content: %v", err)
+	}
+	if !bytes.Equal(content, dockerfile) {
+		t.Errorf("tar content does not match dockerfile")
+	}
+}
 
 func TestCheckDockerAPIReturnsTrueWhenPingSucceeds(t *testing.T) {
 	testUI := testutil.NewTestio(t)
@@ -37,11 +64,11 @@ func TestCheckDockerAPIReturnsFalseWhenPingFails(t *testing.T) {
 	if CheckDockerAPI(context.Background(), &testUI) {
 		t.Fatal("expected CheckDockerAPI to return false when ping fails")
 	}
-	var out []string
+	var errorMsgs []string
 	for _, e := range testUI.ErrorCalls {
-		out = append(out, e.Msg)
+		errorMsgs = append(errorMsgs, e.Msg)
 	}
-	outStr := strings.Join(out, " ")
+	outStr := strings.Join(errorMsgs, " ")
 	if !strings.Contains(outStr, "Docker API unreachable") {
 		t.Errorf("expected log to contain 'Docker API unreachable', got %q", outStr)
 	}
