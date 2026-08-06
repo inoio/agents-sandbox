@@ -154,11 +154,26 @@ func prepareSandbox(
 	ui.Verbosef("Using image '%s' (digest=%s)", imageRef, imageDigest)
 
 	vm := NewVolumeManager(ui)
-	homeVol, err := vm.EnsureHome(ctx, projectSlug, imageDigest, imageRef, opts, ui)
+	client := msb.Get()
+	homeVol, state, err := vm.ResolveHomeVolume(ctx, client, projectSlug, imageDigest, imageRef, opts, ui)
 	if err != nil {
 		return nil, fmt.Errorf("volume setup failed: %w", err)
 	}
 	ui.Verbosef("home volume: %s", homeVol)
+
+	action := vm.ResolveHomeAction(ui, state.ImageDigest, imageDigest)
+	if action == actionQuit {
+		ui.Infof("exiting as requested by user")
+		return nil, &ExitError{Code: 1}
+	}
+	if action == actionMigrate || action == actionReset {
+		ui.Infof("image changed — to apply your choice, run:")
+		if action == actionMigrate {
+			ui.Infof("  opencode-msb volume migrate")
+		} else {
+			ui.Infof("  opencode-msb volume reset")
+		}
+	}
 
 	cwd, err := os.Getwd()
 	if err != nil {
