@@ -2,10 +2,14 @@ package sandbox
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
 
+	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
+
+	"gitlab.inoio.de/inoio/opencode-msb/internal/termio"
 	"gitlab.inoio.de/inoio/opencode-msb/internal/testutil"
 )
 
@@ -94,5 +98,140 @@ func TestPrefillVolumeRunsCopyCommand(t *testing.T) {
 	}
 	if len(client.RemovedSandboxes) != 1 {
 		t.Fatalf("expected 1 removed prefill sandbox, got %d", len(client.RemovedSandboxes))
+	}
+}
+
+func TestResolveHomeAction_SameDigestReturnsKeep(t *testing.T) {
+	ui := testutil.TermUIMock(t)
+	vm := NewVolumeManager(&ui)
+	action := vm.ResolveHomeAction(&ui, "same-digest", "same-digest")
+	if action != actionKeep {
+		t.Errorf("expected actionKeep for matching digests, got %q", action)
+	}
+}
+
+func TestResolveHomeAction_DifferentDigestInNonInteractiveReturnsKeep(t *testing.T) {
+	ui := testutil.TermUIMock(t)
+	ui.IsInteractiveResult = false
+	vm := NewVolumeManager(&ui)
+	action := vm.ResolveHomeAction(&ui, "old", "new")
+	if action != actionKeep {
+		t.Errorf("expected actionKeep in non-interactive mode, got %q", action)
+	}
+}
+
+func TestResolveHomeAction_DifferentDigestInInteractivePrompt(t *testing.T) {
+	ui := &termio.Mock{
+		IsInteractiveResult: true,
+		SelectFn: func(prompt string, choices []termio.Choice, _ string) (string, error) {
+			if !strings.Contains(prompt, "Docker image changed") {
+				return "", fmt.Errorf("unexpected prompt: %q", prompt)
+			}
+			if len(choices) != 4 {
+				return "", fmt.Errorf("expected 4 choices, got %d", len(choices))
+			}
+			return actionMigrate, nil
+		},
+	}
+	vm := NewVolumeManager(ui)
+	action := vm.ResolveHomeAction(ui, "old", "new")
+	if action != actionMigrate {
+		t.Errorf("expected actionMigrate, got %q", action)
+	}
+}
+
+func TestResolveHomeAction_ActionQuitReturnsQuit(t *testing.T) {
+	ui := &termio.Mock{
+		IsInteractiveResult: true,
+		SelectFn: func(_ string, _ []termio.Choice, _ string) (string, error) {
+			return actionQuit, nil
+		},
+	}
+	vm := NewVolumeManager(ui)
+	action := vm.ResolveHomeAction(ui, "old", "new")
+	if action != actionQuit {
+		t.Errorf("expected actionQuit, got %q", action)
+	}
+}
+
+func TestActionConstantsHaveCorrectKeys(t *testing.T) {
+	if actionKeep != "1" {
+		t.Errorf("actionKeep = %q, want %q", actionKeep, "1")
+	}
+	if actionMigrate != "2" {
+		t.Errorf("actionMigrate = %q, want %q", actionMigrate, "2")
+	}
+	if actionReset != "3" {
+		t.Errorf("actionReset = %q, want %q", actionReset, "3")
+	}
+	if actionQuit != "4" {
+		t.Errorf("actionQuit = %q, want %q", actionQuit, "4")
+	}
+}
+
+func TestResolveHomeVolume_FoundInState(t *testing.T) {
+	old := stateDirSuffix
+	defer func() { stateDirSuffix = old }()
+	stateDirSuffix = t.TempDir() + "/opencode-msb"
+
+	mock := &MockMsbClient{}
+	mock.GetVolumeFn = func(_ context.Context, name string) (VolumeHandle, error) {
+		return MockVolumeHandle{Name_: name}, nil
+	}
+
+	WriteState("myproj", HomeState{
+		HomeVolume:  "opencode-msb-home-myproj-20260806T143022",
+		ImageDigest: "sha256:abc",
+	})
+
+	vm := NewVolumeManager(&termio.Mock{})
+	volName, state, err := vm.ResolveHomeVolume(
+		context.Background(),
+		mock,
+		"myproj",
+		"sha256:abc",
+		"",
+		RunOptions{},
+		&termio.Mock{},
+	)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if volName != "opencode-msb-home-myproj-20260806T143022" {
+		t.Errorf("volume = %q, want %q", volName, "opencode-msb-home-myproj-20260806T143022")
+	}
+	if state.ImageDigest != "sha256:abc" {
+		t.Errorf("digest = %q, want %q", state.ImageDigest, "sha256:abc")
+	}
+}
+
+func TestResolveHomeVolume_NoStateFile(t *testing.T) {
+	old := stateDirSuffix
+	defer func() { stateDirSuffix = old }()
+	stateDirSuffix = t.TempDir() + "/opencode-msb"
+
+	mock := &MockMsbClient{}
+	mock.CreateVolumeFn = func(_ context.Context, name string, _ ...msbSdk.VolumeOption) (VolumeHandle, error) {
+		return MockVolumeHandle{Name_: name}, nil
+	}
+
+	vm := NewVolumeManager(&termio.Mock{})
+	volName, state, err := vm.ResolveHomeVolume(
+		context.Background(),
+		mock,
+		"testproj",
+		"sha256:def",
+		"",
+		RunOptions{},
+		&termio.Mock{},
+	)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !strings.HasPrefix(volName, "opencode-msb-home-testproj-") {
+		t.Errorf("volume = %q, expected prefix %q", volName, "opencode-msb-home-testproj-")
+	}
+	if state.ImageDigest != "sha256:def" {
+		t.Errorf("digest = %q, want %q", state.ImageDigest, "sha256:def")
 	}
 }
