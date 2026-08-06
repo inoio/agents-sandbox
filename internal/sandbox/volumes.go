@@ -6,15 +6,15 @@ import (
 	"strconv"
 	"time"
 
-	"gitlab.inoio.de/inoio/opencode-msb/internal/git"
 	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/msb"
 	"gitlab.inoio.de/inoio/opencode-msb/internal/termio"
 
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 )
 
-func HomeVolumeName(projectSlug, imageDigest string) string {
-	return homePrefix + projectSlug + "-" + git.HashID(imageDigest)
+func HomeVolumeName(projectSlug string, digest string) string { //nolint:revive // digest retained for API compatibility
+	ts := time.Now().UTC().Format("20060102T150405")
+	return homePrefix + projectSlug + "-" + ts
 }
 
 type VolumeManager struct {
