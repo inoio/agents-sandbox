@@ -2,6 +2,7 @@ package sandbox
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -274,46 +275,89 @@ func Prune(
 	ctx context.Context,
 	threshold time.Duration,
 	dryRun bool,
+	autoPrune bool,
 	ui termio.UI,
-) (*StaleReport, error) {
-	client := msb.Get()
+) error {
+	report, err := catalogAndPrune(ctx, threshold, dryRun, ui)
+	printPruneSummary(ui, report, dryRun, autoPrune)
+	return err
+}
+
+func printPruneSummary(ui termio.UI, report *StaleReport, dryRun bool, autoPrune bool) {
+	if report == nil || !report.HasAnything() {
+		return
+	}
+	var out func(string, ...any)
+	var action string
+	if autoPrune {
+		out = ui.Verbosef
+		action = "auto-prune: Pruned"
+		if dryRun {
+			action = "auto-prune: Would prune"
+		}
+	} else {
+		out = ui.Outf
+		action = "Pruned"
+		if dryRun {
+			action = "dry-run: Would prune"
+		}
+	}
+	out(
+		"%s %d VMs, %d home volumes, %d docker images, %d msb images, %d task sandboxes, %d clone volumes",
+		action,
+		report.PrunedVMs,
+		report.PrunedVolumes,
+		report.PrunedDockerImages,
+		report.PrunedMSBImages,
+		report.PrunedTaskSandboxes,
+		report.PrunedCloneVolumes,
+	)
+	ui.Verbosef("details %d", len(report.Details))
+	for _, entry := range report.Details {
+		ui.Verbosef("x  %s (%s, digest=%s, type=%s)", entry.Name, entry.Slug, entry.Digest, entry.Type)
+	}
+}
+
+func catalogAndPrune(ctx context.Context, threshold time.Duration, dryRun bool, ui termio.UI) (*StaleReport, error) {
 	report := &StaleReport{} //nolint:exhaustruct // Counts initialized to zero, populated during pruning
+	msbClient := msb.Get()
 
-	catalog, err := buildCatalog(ctx, client, threshold)
-	if err != nil {
-		return nil, err
+	catalog, catalogErr := buildCatalog(ctx, msbClient, threshold)
+	if catalogErr != nil {
+		return report, catalogErr
 	}
 
-	report, err = pruneStaleVMs(ctx, client, catalog, dryRun, ui, report)
-	if err != nil {
-		return report, err
-	}
-	report, err = pruneActiveVMArtifacts(ctx, client, catalog, dryRun, ui, report)
-	if err != nil {
-		return report, err
-	}
-	report, err = pruneOrphanArtifacts(ctx, client, catalog, dryRun, ui, report)
-	if err != nil {
-		return report, err
-	}
-	report, err = pruneCloneVolumes(ctx, client, catalog, dryRun, ui, report)
-	if err != nil {
-		return report, err
-	}
+	report, staleVMErr := pruneStaleVMs(ctx, msbClient, catalog, dryRun, ui, report)
+	report, activeVMErr := pruneActiveVMArtifacts(ctx, msbClient, catalog, dryRun, ui, report)
+	report, orphanErr := pruneOrphanArtifacts(ctx, msbClient, catalog, dryRun, ui, report)
+	report, cloneVolErr := pruneCloneVolumes(ctx, msbClient, catalog, dryRun, ui, report)
 
 	// Prune task sandboxes (collected during catalog build, pruned here).
+	report, sandboxErrs := pruneTaskSandboxes(ctx, catalog, dryRun, msbClient, ui, report)
+	return report, errors.Join(catalogErr, staleVMErr, activeVMErr, orphanErr, cloneVolErr, errors.Join(sandboxErrs...))
+}
+
+func pruneTaskSandboxes(
+	ctx context.Context,
+	catalog *PruningCatalog,
+	dryRun bool,
+	msbClient msb.MsbClient,
+	ui termio.UI,
+	report *StaleReport,
+) (*StaleReport, []error) {
+	var sandboxErrs []error
 	for _, entry := range catalog.TaskSandboxes {
 		if !dryRun {
-			if removeErr := client.RemoveSandbox(ctx, entry.Name); removeErr != nil {
+			if removeErr := msbClient.RemoveSandbox(ctx, entry.Name); removeErr != nil {
 				ui.Warnf("failed to remove task sandbox %s: %v", entry.Name, removeErr)
+				sandboxErrs = append(sandboxErrs, removeErr)
 				continue
 			}
 		}
 		report.PrunedTaskSandboxes++
 		report.Details = append(report.Details, entry)
 	}
-
-	return report, nil
+	return report, sandboxErrs
 }
 
 // pruneStaleVMs removes each stale VM and cascades deletion of all

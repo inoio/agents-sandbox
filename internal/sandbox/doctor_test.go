@@ -12,7 +12,7 @@ import (
 )
 
 func TestCheckDockerLogsUnderlyingError(t *testing.T) {
-	testUI := testutil.NewTestio(t)
+	testUI := testutil.TermUIMock(t)
 
 	t.Setenv("PATH", "/nonexistent")
 	if CheckDocker(&testUI) {
@@ -55,7 +55,7 @@ func TestShellRcFile(t *testing.T) {
 }
 
 func TestCheckMsbEnsureInstalledErrorSurfacesErrorWithoutInstallHint(t *testing.T) {
-	testUI := testutil.NewTestio(t)
+	testUI := testutil.TermUIMock(t)
 
 	prev := ensureInstalled
 	t.Cleanup(func() { ensureInstalled = prev })
@@ -81,7 +81,7 @@ func TestCheckMsbEnsureInstalledErrorSurfacesErrorWithoutInstallHint(t *testing.
 }
 
 func TestCheckMsbOnPathReturnsTrueSilently(t *testing.T) {
-	testUI := testutil.NewTestio(t)
+	testUI := testutil.TermUIMock(t)
 
 	prev := ensureInstalled
 	t.Cleanup(func() { ensureInstalled = prev })
@@ -103,7 +103,7 @@ func TestCheckMsbOnPathReturnsTrueSilently(t *testing.T) {
 }
 
 func TestCheckMsbNotOnPathExtendsPathAndReturnsTrue(t *testing.T) {
-	testUI := testutil.NewTestio(t)
+	testUI := testutil.TermUIMock(t)
 
 	prev := ensureInstalled
 	t.Cleanup(func() { ensureInstalled = prev })
@@ -146,7 +146,7 @@ func TestCheckMsbNotOnPathExtendsPathAndReturnsTrue(t *testing.T) {
 }
 
 func TestCheckMsbNotOnPathAndBinaryMissingReturnsFalse(t *testing.T) {
-	testUI := testutil.NewTestio(t)
+	testUI := testutil.TermUIMock(t)
 
 	prev := ensureInstalled
 	t.Cleanup(func() { ensureInstalled = prev })

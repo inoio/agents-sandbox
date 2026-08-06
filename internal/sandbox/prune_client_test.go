@@ -403,7 +403,7 @@ func TestPrune_WithMocks_CoversAllCases(t *testing.T) {
 	msb.Get = func() MsbClient { return client }
 	defer func() { msb.Get = oldGet }()
 
-	report, err := Prune(context.Background(), 30*time.Minute, false, ui)
+	report, err := catalogAndPrune(context.Background(), 30*time.Minute, false, ui)
 	if err != nil {
 		t.Fatalf("Prune returned error: %v", err)
 	}
@@ -558,7 +558,7 @@ func TestPrune_DockerRemoveFails_PartialReport(t *testing.T) {
 	msb.Get = func() MsbClient { return client }
 	defer func() { msb.Get = oldGet }()
 
-	report, err := Prune(context.Background(), 30*time.Minute, false, ui)
+	report, err := catalogAndPrune(context.Background(), 30*time.Minute, false, ui)
 	if err != nil {
 		t.Fatalf("Prune returned error: %v", err)
 	}

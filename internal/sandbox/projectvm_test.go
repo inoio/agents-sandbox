@@ -104,7 +104,7 @@ func TestEnsureProjectVMStartsWhenCrashed(t *testing.T) {
 
 func TestCreateProjectVMCallsClientCreateSandbox(t *testing.T) {
 	client := &MockMsbClient{}
-	testUI := testutil.NewTestio(t)
+	testUI := testutil.TermUIMock(t)
 	ui := &testUI
 	cfg := Config{
 		StateDir:        t.TempDir(),
@@ -142,7 +142,7 @@ func TestCreateProjectVMCallsClientCreateSandbox(t *testing.T) {
 }
 
 func TestStopProjectVMUsesClient(t *testing.T) {
-	testUI := testutil.NewTestio(t)
+	testUI := testutil.TermUIMock(t)
 	ui := &testUI
 	client := &MockMsbClient{}
 	client.SetGotSandbox(&MockSandboxHandle{

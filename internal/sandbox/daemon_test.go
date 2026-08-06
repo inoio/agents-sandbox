@@ -59,7 +59,7 @@ func (m *mockDaemonShell) run(_ context.Context, _ Sandbox, _ string) (string, i
 }
 
 func TestEnsureDaemonStartsWhenUnhealthy(t *testing.T) {
-	testUI := testutil.NewTestio(t)
+	testUI := testutil.TermUIMock(t)
 	mock := &mockDaemonShell{
 		responses: []mockShellResp{
 			// First healthcheck: unhealthy (daemon not running).
@@ -86,7 +86,7 @@ func TestEnsureDaemonStartsWhenUnhealthy(t *testing.T) {
 }
 
 func TestEnsureDaemonFailsAfterTimeout(t *testing.T) {
-	testUI := testutil.NewTestio(t)
+	testUI := testutil.TermUIMock(t)
 	mock := &mockDaemonShell{
 		responses: []mockShellResp{
 			// Always unhealthy.

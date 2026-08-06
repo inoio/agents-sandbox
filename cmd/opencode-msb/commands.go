@@ -77,7 +77,7 @@ func buildRootCmd(ui termio.UI) *cobra.Command {
 		}
 		return nil
 	}
-	rootCmd.RunE = runFunc(ui)
+	extendRunCmd(ui, rootCmd)
 
 	rootCmd.AddCommand(buildRunCmd(ui))
 	rootCmd.AddCommand(buildTreeCmd(rootCmd, ui))
@@ -122,26 +122,4 @@ func buildVersionCmd(rootCmd *cobra.Command, ui termio.UI) *cobra.Command {
 		},
 	}
 	return cmd
-}
-
-func printPruneSummary(ui termio.UI, report *sandbox.StaleReport, dryRun bool) {
-	action := "Pruned"
-	if dryRun {
-		action = "dry-run: Would prune"
-	}
-
-	ui.Outf(
-		"%s %d VMs, %d home volumes, %d docker images, %d msb images, %d task sandboxes, %d clone volumes",
-		action,
-		report.PrunedVMs,
-		report.PrunedVolumes,
-		report.PrunedDockerImages,
-		report.PrunedMSBImages,
-		report.PrunedTaskSandboxes,
-		report.PrunedCloneVolumes,
-	)
-	ui.Verbosef("details %d", len(report.Details))
-	for _, entry := range report.Details {
-		ui.Verbosef("x  %s (%s, digest=%s, type=%s)", entry.Name, entry.Slug, entry.Digest, entry.Type)
-	}
 }
