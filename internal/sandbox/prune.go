@@ -497,45 +497,12 @@ func pruneActiveVMCleanup(
 	ui termio.UI,
 	report *StaleReport,
 ) {
-	// Home volumes: delete those NOT matching the VM's digest.
-	pruneActiveVMHomeVolumes(ctx, client, slug, digest, homeBySlugDigest, dryRun, ui, report)
+	// Home volumes: no longer removed by digest matching.
+	_ = homeBySlugDigest
 	// Images: delete unused ones, keep :latest, keep matching digest.
 	pruneActiveVMMSBImages(ctx, client, slug, digest, msbImagesBySlug, dryRun, ui, report)
 	// Docker images: same logic.
 	pruneActiveVMDockerImages(ctx, slug, digest, msbImagesBySlug, dryRun, ui, report)
-}
-
-func pruneActiveVMHomeVolumes(
-	ctx context.Context,
-	client MsbClient,
-	slug string,
-	digest string,
-	homeBySlugDigest map[string]map[string]string,
-	dryRun bool,
-	ui termio.UI,
-	report *StaleReport,
-) {
-	if vols, ok := homeBySlugDigest[slug]; ok {
-		for volDigest, volName := range vols {
-			if volDigest == digest || volDigest == "" {
-				continue
-			}
-			if !dryRun {
-				if err := client.RemoveVolume(ctx, volName); err != nil {
-					ui.Warnf("failed to remove home volume %s: %v", volName, err)
-					continue
-				}
-			}
-			report.PrunedVolumes++
-			report.Details = append(report.Details, StaleEntry{
-				Type:     StaleTypeVolume,
-				Name:     volName,
-				Slug:     slug,
-				StaleFor: 0,
-				Digest:   digest,
-			})
-		}
-	}
 }
 
 func pruneActiveVMMSBImages(
@@ -673,22 +640,28 @@ func removeHomeVolumes(
 	ui termio.UI,
 	report *StaleReport,
 ) {
-	if vols, ok := homeBySlugDigest[slug]; ok {
-		for digest, volName := range vols {
-			if !dryRun {
-				if err := client.RemoveVolume(ctx, volName); err != nil {
-					ui.Warnf("failed to remove home volume %s: %v", volName, err)
-					continue
-				}
+	vols, ok := homeBySlugDigest[slug]
+	if !ok || len(vols) == 0 {
+		return
+	}
+	for _, volName := range vols {
+		if !dryRun {
+			if err := client.RemoveVolume(ctx, volName); err != nil {
+				ui.Warnf("failed to remove home volume %s: %v", volName, err)
 			}
-			report.PrunedVolumes++
-			report.Details = append(report.Details, StaleEntry{
-				Type:     StaleTypeVolume,
-				Name:     volName,
-				Slug:     slug,
-				StaleFor: 0,
-				Digest:   digest,
-			})
+		}
+		report.PrunedVolumes++
+		report.Details = append(report.Details, StaleEntry{
+			Type:     StaleTypeVolume,
+			Name:     volName,
+			Slug:     slug,
+			StaleFor: 0,
+			Digest:   "",
+		})
+	}
+	if !dryRun {
+		if err := RemoveState(slug); err != nil {
+			ui.Warnf("failed to remove state file for slug %s: %v", slug, err)
 		}
 	}
 }
