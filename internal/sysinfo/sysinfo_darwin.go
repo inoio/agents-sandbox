@@ -20,5 +20,5 @@ func TotalMemoryGiB() int {
 	if err != nil {
 		return 0
 	}
-	return int(size / (1024 * 1024 * 1024))
+	return int(size / (kiB * kiB * kiB))
 }

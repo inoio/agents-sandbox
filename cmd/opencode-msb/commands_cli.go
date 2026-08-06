@@ -31,7 +31,7 @@ func extendRunCmd(ui termio.UI, cmd *cobra.Command) *cobra.Command {
 	cmd.SetUsageFunc(runUsageFunc)
 
 	registerRunFlags(cmd)
-	cmd.Flags().Bool("no-auto", false, "Do not pass --auto to opencode")
+	cmd.Flags().Bool(flagNoAuto, false, "Do not pass --auto to opencode")
 
 	return cmd
 }
@@ -98,7 +98,7 @@ func runFunc(ui termio.UI) func(cmd *cobra.Command, args []string) error {
 		opts.Args = args
 
 		// Handle the --no-auto flag specific to the run command
-		if noAuto, _ := cmd.Flags().GetBool("no-auto"); noAuto {
+		if noAuto, _ := cmd.Flags().GetBool(flagNoAuto); noAuto {
 			opts.Auto = false
 		}
 
@@ -132,14 +132,15 @@ func buildShellCmd(ui termio.UI) *cobra.Command {
 
 // registerRunFlags adds the shared run/shell flags to the given command.
 func registerRunFlags(cmd *cobra.Command) {
-	cmd.Flags().StringP("branch", "b", "", "Run in an opencode worktree for the given branch name")
-	cmd.Flags().BoolP("rebuild", "r", false, "Rebuild the runner image before starting")
-	cmd.Flags().BoolP("dry-run", "n", false, "Dry run without starting anything")
-	cmd.Flags().Bool("dry-run-vm", false, "Skip VM lifecycle but prepare everything else")
-	cmd.Flags().Uint8P("cpus", "c", 0, "Number of CPUs (default: all)")
-	cmd.Flags().StringP("memory", "m", "4G", "Memory limit")
-	cmd.Flags().String("tmp-size", "2G", "Size of the /tmp tmpfs in the sandbox")
-	cmd.Flags().StringP("user", "u", "", "Username or UID for the runtime user (format: <name|uid>[:<group|gid>])")
+	cmd.Flags().StringP(flagBranch, flagBranch[:1], "", "Run in an opencode worktree for the given branch name")
+	cmd.Flags().BoolP(flagRebuild, flagRebuild[:1], false, "Rebuild the runner image before starting")
+	cmd.Flags().BoolP(flagDryRun, flagDryRunShort, false, "Dry run without starting anything")
+	cmd.Flags().Bool(flagDryRunVM, false, "Skip VM lifecycle but prepare everything else")
+	cmd.Flags().Uint8P(flagCpus, flagCpus[:1], 0, "Number of CPUs (default: all)")
+	cmd.Flags().StringP(flagMemory, flagMemory[:1], "4G", "Memory limit")
+	cmd.Flags().String(flagTmpSize, "2G", "Size of the /tmp tmpfs in the sandbox")
+	cmd.Flags().
+		StringP(flagUser, flagUser[:1], "", "Username or UID for the runtime user (format: <name|uid>[:<group|gid>])")
 }
 
 func buildStopCmd(ui termio.UI) *cobra.Command {
@@ -151,13 +152,13 @@ func buildStopCmd(ui termio.UI) *cobra.Command {
 			annotationAlsoAs: "sandbox stop",
 		},
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			force, _ := cmd.Flags().GetBool("force")
-			dryRun, _ := cmd.Flags().GetBool("dry-run")
+			force, _ := cmd.Flags().GetBool(flagForce)
+			dryRun, _ := cmd.Flags().GetBool(flagDryRun)
 			return sandbox.StopProjectVM(cmd.Context(), force, dryRun, ui)
 		},
 	}
-	cmd.Flags().BoolP("force", "f", false, "Remove the VM's persisted state after stopping")
-	cmd.Flags().BoolP("dry-run", "n", false, "Show what would be stopped without stopping")
+	cmd.Flags().BoolP(flagForce, flagForce[:1], false, "Remove the VM's persisted state after stopping")
+	cmd.Flags().BoolP(flagDryRun, flagDryRunShort, false, "Show what would be stopped without stopping")
 	return cmd
 }
 
@@ -170,12 +171,12 @@ func buildKillCmd(ui termio.UI) *cobra.Command {
 			annotationAlsoAs: "sandbox kill",
 		},
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			force, _ := cmd.Flags().GetBool("force")
-			dryRun, _ := cmd.Flags().GetBool("dry-run")
+			force, _ := cmd.Flags().GetBool(flagForce)
+			dryRun, _ := cmd.Flags().GetBool(flagDryRun)
 			return sandbox.KillProjectVM(cmd.Context(), force, dryRun, ui)
 		},
 	}
-	cmd.Flags().BoolP("force", "f", false, "Remove the VM's persisted state after killing")
-	cmd.Flags().BoolP("dry-run", "n", false, "Show what would be killed without killing")
+	cmd.Flags().BoolP(flagForce, flagForce[:1], false, "Remove the VM's persisted state after killing")
+	cmd.Flags().BoolP(flagDryRun, flagDryRunShort, false, "Show what would be killed without killing")
 	return cmd
 }

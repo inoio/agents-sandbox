@@ -13,18 +13,18 @@ import (
 // whether the Auto field is set on RunOptions.
 func extractRunOptions(cmd *cobra.Command, auto bool, ui termio.UI) sandbox.RunOptions {
 	opts := sandbox.RunOptions{Auto: auto}
-	opts.Branch, _ = cmd.Flags().GetString("branch")
-	opts.Rebuild, _ = cmd.Flags().GetBool("rebuild")
-	opts.DryRun, _ = cmd.Flags().GetBool("dry-run")
-	opts.DryRunVM, _ = cmd.Flags().GetBool("dry-run-vm")
+	opts.Branch, _ = cmd.Flags().GetString(flagBranch)
+	opts.Rebuild, _ = cmd.Flags().GetBool(flagRebuild)
+	opts.DryRun, _ = cmd.Flags().GetBool(flagDryRun)
+	opts.DryRunVM, _ = cmd.Flags().GetBool(flagDryRunVM)
 	if opts.DryRun {
 		opts.DryRunVM = true
 		ui.Verbosef("dry-run-vm: auto-enabled (--dry-run)")
 	}
-	opts.CPUs, _ = cmd.Flags().GetUint8("cpus")
-	opts.Memory, _ = cmd.Flags().GetString("memory")
-	opts.TmpSize, _ = cmd.Flags().GetString("tmp-size")
-	opts.User, _ = cmd.Flags().GetString("user")
+	opts.CPUs, _ = cmd.Flags().GetUint8(flagCpus)
+	opts.Memory, _ = cmd.Flags().GetString(flagMemory)
+	opts.TmpSize, _ = cmd.Flags().GetString(flagTmpSize)
+	opts.User, _ = cmd.Flags().GetString(flagUser)
 	return opts
 }
 
@@ -72,7 +72,7 @@ func buildRootCmd(ui termio.UI) *cobra.Command {
 			return err
 		}
 		sandbox.AutoPrune(cmd.Context(), lc.AutoPruneAge, ui)
-		if err := applyLauncherConfig(cmd, lc, keys, ui); err != nil {
+		if err := applyLauncherConfig(cmd, lc, keys); err != nil {
 			return err
 		}
 		return nil

@@ -300,6 +300,41 @@ func TestBuildAttachCommandWorktreeTarget(t *testing.T) {
 	}
 }
 
+func TestSetUpSandboxProvisionsConfigOnFreshSetup(t *testing.T) {
+	origDaemon := SetDaemonShellFunc(func(_ context.Context, _ Sandbox, command string) (string, int, error) {
+		if command == "curl -sfm2 "+daemonHealthURL {
+			return `{"healthy":true,"version":"test"}`, 0, nil
+		}
+		return "", 0, nil
+	})
+	defer SetDaemonShellFunc(origDaemon)
+
+	fs := NewTestFS(nil, nil)
+	sb := &MockSandbox{Name_: "test-vm", FSValue_: fs}
+
+	userDir := t.TempDir()
+	ui := &termio.Mock{}
+	target, err := setUpSandbox(
+		context.Background(),
+		sb,
+		RunOptions{},
+		Config{UserConfigDir: userDir},
+		"",
+		ui,
+	)
+	if err != nil {
+		t.Fatalf("setUpSandbox: %v", err)
+	}
+	if target != defaultTargetDir {
+		t.Errorf("target = %q, want %q", target, defaultTargetDir)
+	}
+
+	wroteConfig := fs.Writes != nil && fs.Writes["/home/dev/.config/opencode/opencode.jsonc"] != nil
+	if !wroteConfig {
+		t.Error("expected config to be provisioned on fresh setup, but opencode.jsonc was never written")
+	}
+}
+
 func TestReadVMFilesUsesSDKFs(t *testing.T) {
 	data := []byte("test-config-data")
 	gitignore := []byte("node_modules/\n")

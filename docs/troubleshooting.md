@@ -8,13 +8,9 @@ If the doctor command reports missing prerequisites:
 
 ### Docker not running
 
-```console
-# Start the Docker daemon
-sudo systemctl start docker        # rootful
- dockerd &                          # rootless (current user)
-```
+Start the Docker daemon. How to start it depends on your environment. When using Docker Desktop, start it. With Docker installed as system wide package on Linux, the normal startup procedure is to execute `sudo systemctl start docker`
 
-Verify: `docker info` should show a healthy daemon.
+You can verify afterwards by running `docker info`. It should show a healthy daemon.
 
 ### KVM unavailable
 
@@ -23,7 +19,7 @@ Verify: `docker info` should show a healthy daemon.
 ls -la /dev/kvm
 ```
 
-If missing, enable KVM in your system BIOS/UEFI or ensure your user is in the `kvm` group:
+If missing, enable virtualization in your system BIOS/UEFI (INTEL-VT, AMD-V or similar) and ensure your user is in the `kvm` group:
 
 ```console
 sudo usermod -aG $USER kvm
@@ -57,32 +53,9 @@ If Docker Desktop is installed but not running, launch it from Applications. If 
 colima start
 ```
 
-### KVM not available
-
-KVM is a Linux-only feature. On macOS, the microsandbox runtime uses the Hypervisor.framework instead. The doctor command skips the KVM check on macOS — this is expected.
-
-### msb not found
-
-```console
-# Install microsandbox CLI
-curl -fsSL https://github.com/superradcompany/microsandbox/releases/latest/download/install.sh | sh
-```
-
-This installs msb to `~/.microsandbox/bin`. Add it to your PATH if needed:
-
-```console
-echo 'export PATH="$PATH:$HOME/.microsandbox/bin"' >> ~/.bashrc
-```
-
 ## VM won't start
 
-### "cannot connect to Docker daemon"
-
-Ensure Docker is running and your user has access:
-
-```console
-docker run --rm hello-world
-```
+When a VM won't start, check the general troubleshooting steps first.
 
 ### "create sandbox: ..." errors
 
@@ -93,8 +66,7 @@ opencode-msb run --verbose
 ```
 
 Common causes:
-- Not enough memory — reduce with `-m 2G` or `-c 2`
-- Port conflicts — the sandbox uses internal networking, usually not an issue
+- Not enough system memory — reduce with `-m 2G`
 
 ## Stale sandboxes consume resources
 
@@ -149,40 +121,11 @@ git remote add origin https://example.com/repo.git
 
 ## Missing tools inside the sandbox
 
-If you need a tool that isn't in the base image (e.g., `go`, `rustc`, `python3`), add it to your project's custom Dockerfile:
-
-```dockerfile
-# .opencode-msb/Dockerfile
-FROM opencode-msb/runner:base
-
-USER root
-RUN apt-get update && apt-get install -y python3 && rm -rf /var/lib/apt/lists/*
-USER dev
-```
-
-Then rebuild:
-
-```console
-opencode-msb build -r
-```
+If you need a tool that isn't in the base image (e.g., `go`, `rustc`, `python3`), add it to your project's custom Dockerfile, see [Runner Image](/docs/runner-image.md) documentation.
 
 ## Secrets not available
 
-Verify the secret is set in `env.secret` with the correct format:
-
-```shell
-# .opencode-msb/env.secret
-MY_SECRET=secretvalue@microsandbox
-```
-
-Format is `KEY=value@host`. If the `@host` part is missing, the secret won't be set. To debug:
-
-```console
-# Check env.secret syntax
-cat .opencode-msb/env.secret
-```
-
-Note: `.envrc` files in the project directory are automatically removed from the VM. Migrate any secrets from `.envrc` to `.opencode-msb/env.secret`.
+Verify the secret is set in `env.secret` with the correct format of `KEY=value@host`. If the `@host` part is missing, the secret won't be set.
 
 ## Memory or CPU limits too low
 
@@ -202,7 +145,7 @@ memory: 8G
 
 ## Config not applying
 
-If your config file isn't being picked up:
+If your config files aren't being picked up:
 
 1. Verify the file exists in the right location:
 
@@ -250,20 +193,3 @@ Docker build failures are usually due to:
     ```console
     docker build -f .opencode-msb/Dockerfile -t test-image .
     ```
-
-## Corrupted state file
-
-If the state file at `~/.local/state/opencode-msb/{slug}/state.yaml` is corrupted
-or missing, opencode-msb will warn and create a fresh home volume.
-
-To recover: manually remove the state directory:
-
-    rm -rf ~/.local/state/opencode-msb/{slug}/
-
-The next `opencode-msb run` will create a fresh home volume.
-
-## No home volume found
-
-If you see errors about an existing home volume not being found, the volume may have
-been deleted externally. The next `opencode-msb run` will create a fresh volume and
-warn you about it.

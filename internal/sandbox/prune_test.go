@@ -630,9 +630,7 @@ func TestParseCloneVolumeName(t *testing.T) {
 }
 
 func TestRemoveHomeVolumes_CleansStateFile(t *testing.T) {
-	fix := saveStateDirTest()
-	defer fix()
-	stateDirSuffix = t.TempDir() + "/opencode-msb"
+	SetStateDirForTest(t, t.TempDir()+"/opencode-msb")
 
 	client := &MockMsbClient{}
 	ui := &termio.Mock{}
@@ -640,8 +638,8 @@ func TestRemoveHomeVolumes_CleansStateFile(t *testing.T) {
 	report := &StaleReport{}
 
 	slug := "myproject"
-	homeBySlugDigest := map[string]map[string]string{
-		slug: {"": "opencode-msb-home-myproject-20260806T143022"},
+	homeBySlugDigest := map[string][]string{
+		slug: {"opencode-msb-home-myproject-20260806T143022"},
 	}
 
 	statePath := filepath.Join(stateDirSuffix, slug, "state.yaml")
@@ -663,17 +661,15 @@ func TestRemoveHomeVolumes_CleansStateFile(t *testing.T) {
 }
 
 func TestRemoveHomeVolumes_DryRunDoesNotRemoveState(t *testing.T) {
-	fix := saveStateDirTest()
-	defer fix()
-	stateDirSuffix = t.TempDir() + "/opencode-msb"
+	SetStateDirForTest(t, t.TempDir()+"/opencode-msb")
 
 	client := &MockMsbClient{}
 	ui := &termio.Mock{}
 	report := &StaleReport{}
 
 	slug := "myproject"
-	homeBySlugDigest := map[string]map[string]string{
-		slug: {"": "opencode-msb-home-myproject-20260806T143022"},
+	homeBySlugDigest := map[string][]string{
+		slug: {"opencode-msb-home-myproject-20260806T143022"},
 	}
 
 	statePath := filepath.Join(stateDirSuffix, slug, "state.yaml")
@@ -694,203 +690,151 @@ func TestRemoveHomeVolumes_DryRunDoesNotRemoveState(t *testing.T) {
 	}
 }
 
-// saveStateDirTest saves and restores the stateDirSuffix global for test isolation.
-func saveStateDirTest() func() {
-	old := stateDirSuffix
-	return func() { stateDirSuffix = old }
-}
-
-func TestPruneActiveVMHomeVolume_SkipsWhenVolumeExists(t *testing.T) {
-	client := &MockMsbClient{
-		Volumes: []VolumeHandle{
-			&MockVolumeHandle{Name_: "opencode-msb-home-testslug-now"},
-		},
-	}
+func TestPruneActiveVMHomeVolumes_KeepsStateVolume(t *testing.T) {
+	client := &MockMsbClient{}
 	ui := &termio.Mock{}
 	report := &StaleReport{}
 
 	slug := "testslug"
-	catalog := &PruningCatalog{
-		ActiveVMDigest: map[string]string{slug: "sha256:deadbeef"},
+	homesBySlug := map[string][]string{
+		slug: {"opencode-msb-home-testslug-current", "opencode-msb-home-testslug-old"},
 	}
 
-	fix := saveStateDirTest()
-	defer fix()
-	stateDirSuffix = t.TempDir() + "/opencode-msb"
+	SetStateDirForTest(t, t.TempDir()+"/opencode-msb")
 
 	stateDir := filepath.Join(stateDirSuffix, slug)
 	os.MkdirAll(stateDir, 0o700)
-	yamlData := "home_volume: opencode-msb-home-testslug-now\nimage_digest: sha256:deadbeef\n"
+	yamlData := "home_volume: opencode-msb-home-testslug-current\nimage_digest: sha256:deadbeef\n"
 	os.WriteFile(filepath.Join(stateDir, "state.yaml"), []byte(yamlData), 0o600)
 
-	newReport, err := pruneActiveVMHomeVolume(
-		context.Background(),
-		client,
-		catalog,
-		false,
-		ui,
-		report,
+	err := pruneActiveVMHomeVolumes(
+		context.Background(), client, slug, "sha256:deadbeef", homesBySlug, false, ui, report,
 	)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if newReport.PrunedVolumes != 0 {
-		t.Errorf("expected 0 pruned volumes (volume exists), got %d", newReport.PrunedVolumes)
+	if report.PrunedVolumes != 1 {
+		t.Errorf("expected 1 pruned volume, got %d", report.PrunedVolumes)
+	}
+	if len(client.RemovedVolumes) != 1 || client.RemovedVolumes[0] != "opencode-msb-home-testslug-old" {
+		t.Errorf("removed volumes = %v, want [opencode-msb-home-testslug-old]", client.RemovedVolumes)
 	}
 }
 
-func TestPruneActiveVMHomeVolume_CreatesReplacementWhenMissing(t *testing.T) {
+func TestPruneActiveVMHomeVolumes_RemovesAllWhenStateVolumeAbsent(t *testing.T) {
 	client := &MockMsbClient{}
 	ui := &termio.Mock{}
 	report := &StaleReport{}
 
 	slug := "testslug"
-	catalog := &PruningCatalog{
-		ActiveVMDigest: map[string]string{slug: "sha256:deadbeef"},
+	homesBySlug := map[string][]string{
+		slug: {"opencode-msb-home-testslug-old1", "opencode-msb-home-testslug-old2"},
 	}
 
-	fix := saveStateDirTest()
-	defer fix()
-	stateDirSuffix = t.TempDir() + "/opencode-msb"
+	SetStateDirForTest(t, t.TempDir()+"/opencode-msb")
 
 	stateDir := filepath.Join(stateDirSuffix, slug)
 	os.MkdirAll(stateDir, 0o700)
-	yamlData := "home_volume: opencode-msb-home-testslug-old\nimage_digest: sha256:deadbeef\n"
+	yamlData := "home_volume: opencode-msb-home-testslug-current\nimage_digest: sha256:deadbeef\n"
 	os.WriteFile(filepath.Join(stateDir, "state.yaml"), []byte(yamlData), 0o600)
 
-	newReport, err := pruneActiveVMHomeVolume(context.Background(), client, catalog, false, ui, report)
+	err := pruneActiveVMHomeVolumes(
+		context.Background(), client, slug, "sha256:deadbeef", homesBySlug, false, ui, report,
+	)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if len(client.CreatedSandboxes) != 0 {
-		t.Errorf("expected no sandbox creation, got %v", client.CreatedSandboxes)
+	if report.PrunedVolumes != 2 {
+		t.Errorf("expected 2 pruned volumes, got %d", report.PrunedVolumes)
 	}
-	if len(ui.WarnCalls) != 0 {
-		t.Errorf("expected no warnings, got %v", ui.WarnCalls)
-	}
-	if newReport == nil {
-		t.Fatal("report is nil")
-	}
-	// Verify state was updated with new volume name
-	newState, err := ReadState(slug)
-	if err != nil {
-		t.Fatalf("failed to read state: %v", err)
-	}
-	if newState.HomeVolume == "" {
-		t.Error("expected home volume to be created")
+	if len(client.RemovedVolumes) != 2 {
+		t.Errorf("removed volumes = %v, want 2 removals", client.RemovedVolumes)
 	}
 }
 
-func TestPruneActiveVMHomeVolume_DryRunSkipsCreation(t *testing.T) {
+func TestPruneActiveVMHomeVolumes_DryRunCountsButDoesNotDelete(t *testing.T) {
 	client := &MockMsbClient{}
 	ui := &termio.Mock{}
 	report := &StaleReport{}
 
 	slug := "testslug"
-	catalog := &PruningCatalog{
-		ActiveVMDigest: map[string]string{slug: "sha256:deadbeef"},
+	homesBySlug := map[string][]string{
+		slug: {"opencode-msb-home-testslug-current", "opencode-msb-home-testslug-old"},
 	}
 
-	fix := saveStateDirTest()
-	defer fix()
-	stateDirSuffix = t.TempDir() + "/opencode-msb"
+	SetStateDirForTest(t, t.TempDir()+"/opencode-msb")
 
 	stateDir := filepath.Join(stateDirSuffix, slug)
 	os.MkdirAll(stateDir, 0o700)
-	yamlData := "home_volume: opencode-msb-home-testslug-old\nimage_digest: sha256:deadbeef\n"
+	yamlData := "home_volume: opencode-msb-home-testslug-current\nimage_digest: sha256:deadbeef\n"
 	os.WriteFile(filepath.Join(stateDir, "state.yaml"), []byte(yamlData), 0o600)
 
-	_, err := pruneActiveVMHomeVolume(context.Background(), client, catalog, true, ui, report)
+	err := pruneActiveVMHomeVolumes(
+		context.Background(), client, slug, "sha256:deadbeef", homesBySlug, true, ui, report,
+	)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if len(ui.InfoCalls) != 1 {
-		t.Errorf("expected 1 info call in dry-run, got %d: %v", len(ui.InfoCalls), ui.InfoCalls)
+	if report.PrunedVolumes != 1 {
+		t.Errorf("expected 1 pruned volume in dry-run, got %d", report.PrunedVolumes)
 	}
-	if len(ui.WarnCalls) != 0 {
-		t.Errorf("expected no warnings in dry-run, got %v", ui.WarnCalls)
+	if len(client.RemovedVolumes) != 0 {
+		t.Errorf("expected no volume removals in dry-run, got %v", client.RemovedVolumes)
 	}
 }
 
-func TestPruneActiveVMHomeVolume_SkipsMissingStateFile(t *testing.T) {
+func TestPruneActiveVMHomeVolumes_MissingStateFileReturnsError(t *testing.T) {
 	client := &MockMsbClient{}
 	ui := &termio.Mock{}
 	report := &StaleReport{}
 
 	slug := "testslug"
-	catalog := &PruningCatalog{
-		ActiveVMDigest: map[string]string{slug: "sha256:deadbeef"},
+	homesBySlug := map[string][]string{
+		slug: {"opencode-msb-home-testslug-old"},
 	}
 
-	fix := saveStateDirTest()
-	defer fix()
-	stateDirSuffix = t.TempDir() + "/opencode-msb"
+	SetStateDirForTest(t, t.TempDir()+"/opencode-msb")
 
-	_, err := pruneActiveVMHomeVolume(context.Background(), client, catalog, false, ui, report)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+	err := pruneActiveVMHomeVolumes(
+		context.Background(), client, slug, "sha256:deadbeef", homesBySlug, false, ui, report,
+	)
+	if err == nil {
+		t.Fatal("expected error for missing state file, got nil")
 	}
-	if len(ui.WarnCalls) != 0 {
-		t.Errorf("expected no warnings when state file missing, got %v", ui.WarnCalls)
-	}
-}
-
-func TestPruneActiveVMHomeVolume_SkipsEmptyVolume(t *testing.T) {
-	client := &MockMsbClient{}
-	ui := &termio.Mock{}
-	report := &StaleReport{}
-
-	slug := "testslug"
-	catalog := &PruningCatalog{
-		ActiveVMDigest: map[string]string{slug: "sha256:deadbeef"},
-	}
-
-	fix := saveStateDirTest()
-	defer fix()
-	stateDirSuffix = t.TempDir() + "/opencode-msb"
-
-	stateDir := filepath.Join(stateDirSuffix, slug)
-	os.MkdirAll(stateDir, 0o700)
-	yamlData := "image_digest: sha256:deadbeef\n"
-	os.WriteFile(filepath.Join(stateDir, "state.yaml"), []byte(yamlData), 0o600)
-
-	_, err := pruneActiveVMHomeVolume(context.Background(), client, catalog, false, ui, report)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if len(ui.WarnCalls) != 0 {
-		t.Errorf("expected no warnings when volume empty, got %v", ui.WarnCalls)
+	if report.PrunedVolumes != 0 {
+		t.Errorf("expected no pruned volumes when state missing, got %d", report.PrunedVolumes)
 	}
 }
 
-func TestPruneActiveVMHomeVolume_FailedCreateWarns(t *testing.T) {
+func TestPruneActiveVMHomeVolumes_RemoveErrorWarns(t *testing.T) {
 	client := &MockMsbClient{
-		CreateVolumeFn: func(_ context.Context, _ string, _ ...msbSdk.VolumeOption) (VolumeHandle, error) {
-			return nil, errors.New("volume already exists")
-		},
+		RemoveVolumeFn: func(_ context.Context, _ string) error { return errors.New("volume busy") },
 	}
 	ui := &termio.Mock{}
 	report := &StaleReport{}
 
 	slug := "testslug"
-	catalog := &PruningCatalog{
-		ActiveVMDigest: map[string]string{slug: "sha256:deadbeef"},
+	homesBySlug := map[string][]string{
+		slug: {"opencode-msb-home-testslug-current", "opencode-msb-home-testslug-old"},
 	}
 
-	fix := saveStateDirTest()
-	defer fix()
-	stateDirSuffix = t.TempDir() + "/opencode-msb"
+	SetStateDirForTest(t, t.TempDir()+"/opencode-msb")
 
 	stateDir := filepath.Join(stateDirSuffix, slug)
 	os.MkdirAll(stateDir, 0o700)
-	yamlData := "home_volume: opencode-msb-home-testslug-old\nimage_digest: sha256:deadbeef\n"
+	yamlData := "home_volume: opencode-msb-home-testslug-current\nimage_digest: sha256:deadbeef\n"
 	os.WriteFile(filepath.Join(stateDir, "state.yaml"), []byte(yamlData), 0o600)
 
-	_, err := pruneActiveVMHomeVolume(context.Background(), client, catalog, false, ui, report)
+	err := pruneActiveVMHomeVolumes(
+		context.Background(), client, slug, "sha256:deadbeef", homesBySlug, false, ui, report,
+	)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if len(ui.WarnCalls) != 1 {
-		t.Fatalf("expected 1 warning on create failure, got %d: %v", len(ui.WarnCalls), ui.WarnCalls)
+		t.Fatalf("expected 1 warning on volume removal failure, got %d: %v", len(ui.WarnCalls), ui.WarnCalls)
+	}
+	if report.PrunedVolumes != 0 {
+		t.Errorf("expected no pruned volumes on removal failure, got %d", report.PrunedVolumes)
 	}
 }

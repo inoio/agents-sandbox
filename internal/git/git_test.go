@@ -213,3 +213,115 @@ func TestPruneWorktreesNoRepo(t *testing.T) {
 		t.Error("expected error when not in a git repo")
 	}
 }
+
+func TestProjectSlugFallsBackWhenFolderNameEmpty(t *testing.T) {
+	got := projectSlug("", "some-id")
+	if !strings.HasPrefix(got, "project-") {
+		t.Errorf("expected slug to start with 'project-', got %q", got)
+	}
+	if len(got) != len("project-")+14 {
+		t.Errorf("expected slug of %d chars, got %d (%q)", len("project-")+14, len(got), got)
+	}
+}
+
+func TestProjectSlugUsesSanitizedFolderName(t *testing.T) {
+	got := projectSlug("my-app", "some-id")
+	if !strings.HasPrefix(got, "my-app-") {
+		t.Errorf("expected slug to start with 'my-app-', got %q", got)
+	}
+	if len(got) != len("my-app-")+14 {
+		t.Errorf("expected slug of %d chars, got %d (%q)", len("my-app-")+14, len(got), got)
+	}
+}
+
+func TestLastPathSegment(t *testing.T) {
+	tests := []struct {
+		name string
+		url  string
+		want string
+	}{
+		{"https with .git", "https://gitlab.example.com/org/repo.git", "repo"},
+		{"https no .git", "https://gitlab.example.com/org/my-repo", "my-repo"},
+		{"ssh scp-like with namespace", "git@gitlab.inoio.de:inoio/opencode-msb.git", "opencode-msb"},
+		{"ssh scp-like no namespace", "git@gitlab.example.com:tool.git", "tool"},
+		{"git protocol", "git://gitlab.example.com/org/repo.git", "repo"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := lastPathSegment(tt.url); got != tt.want {
+				t.Errorf("lastPathSegment(%q) = %q, want %q", tt.url, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestProjectSlugUsesOriginRepoName(t *testing.T) {
+	const origin = "git@gitlab.inoio.de:inoio/opencode-msb.git"
+	repo := testutil.InitRepo(t)
+	testutil.RunGit(t, repo, "remote", "add", "origin", origin)
+	t.Chdir(repo)
+	got := ProjectSlug(&termio.Mock{})
+	if !strings.HasPrefix(got, "opencode-msb-") {
+		t.Errorf("expected slug to start with 'opencode-msb-', got %q", got)
+	}
+	if len(got) != len("opencode-msb-")+14 {
+		t.Errorf("expected slug of %d chars, got %d (%q)", len("opencode-msb-")+14, len(got), got)
+	}
+}
+
+func TestProjectSlugStableForSameOrigin(t *testing.T) {
+	// Two clones of the same origin at different paths must share one slug,
+	// so worktrees/checkouts of the same project are not treated as distinct.
+	const origin = "git@gitlab.inoio.de:inoio/opencode-msb.git"
+	a := testutil.InitRepo(t)
+	testutil.RunGit(t, a, "remote", "add", "origin", origin)
+	b := testutil.InitRepo(t)
+	testutil.RunGit(t, b, "remote", "add", "origin", origin)
+
+	t.Chdir(a)
+	slugA := ProjectSlug(&termio.Mock{})
+	t.Chdir(b)
+	slugB := ProjectSlug(&termio.Mock{})
+	if slugA != slugB {
+		t.Errorf("expected identical slug for same origin across checkouts, got %q and %q", slugA, slugB)
+	}
+}
+
+func TestProjectSlugDiffersForDifferentOrigins(t *testing.T) {
+	a := testutil.InitRepo(t)
+	testutil.RunGit(t, a, "remote", "add", "origin", "git@gitlab.inoio.de:inoio/opencode-msb.git")
+	b := testutil.InitRepo(t)
+	testutil.RunGit(t, b, "remote", "add", "origin", "git@github.com:someone/opencode-msb.git")
+
+	t.Chdir(a)
+	slugA := ProjectSlug(&termio.Mock{})
+	t.Chdir(b)
+	slugB := ProjectSlug(&termio.Mock{})
+	if slugA == slugB {
+		t.Errorf("expected distinct slugs for different origins, both %q", slugA)
+	}
+}
+
+func TestProjectSlugWorktreeSharesOriginSlug(t *testing.T) {
+	const origin = "git@gitlab.inoio.de:inoio/opencode-msb.git"
+	repo := testutil.InitRepo(t)
+	testutil.RunGit(t, repo, "remote", "add", "origin", origin)
+	mainSlug := projectSlugAt(repo, &termio.Mock{})
+
+	wtDir := filepath.Join(t.TempDir(), "wt")
+	testutil.RunGit(t, repo, "worktree", "add", "--detach", wtDir)
+	wtSlug := projectSlugAt(wtDir, &termio.Mock{})
+	if wtSlug != mainSlug {
+		t.Errorf("expected worktree to share the main checkout's slug, got %q and %q", mainSlug, wtSlug)
+	}
+}
+
+func TestProjectSlugFallsBackWithoutOrigin(t *testing.T) {
+	repo := testutil.InitRepo(t)
+	t.Chdir(repo)
+	got := ProjectSlug(&termio.Mock{})
+	folderName := sanitizeFolderName(filepath.Base(repo))
+	if !strings.HasPrefix(got, folderName+"-") {
+		t.Errorf("expected slug to start with %q, got %q", folderName+"-", got)
+	}
+}
