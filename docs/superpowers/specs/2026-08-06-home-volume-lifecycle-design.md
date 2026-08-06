@@ -20,7 +20,10 @@ Home volumes are now owned by the project slug, not by the image digest. When th
 
 ### State file
 
-A per-project state file lives in `~/.local/state/opencode-msb/{project-slug}/home-volume` and contains one line: the name of the current home volume.
+A per-project state directory lives at `~/.local/state/opencode-msb/{project-slug}/` and contains two files:
+
+- `home-volume` — one line: the name of the current home volume
+- `image-digest` — one line: the Docker image digest that was current when the state was written
 
 The state directory is created on first run and removed during prune when its volume is deleted.
 
@@ -34,7 +37,7 @@ Volume names remain `opencode-msb-home-{slug}-{digestHash}`. They are differenti
 
 1. On `run`, compute new image digest and call `ResolveHomeVolume()`.
 2. `ResolveHomeVolume()` loads the state file. If found, it references the existing volume. If not found, it calls `EnsureNewHome()` which creates a new volume from the image and writes the state file.
-3. `ResolveHomeAction()` runs the prompt when the image digest differs from the one stored at the time the state file was written:
+3. `ResolveHomeAction()` compares the stored image digest with the current one. If they match, no prompt — continue with existing volume. If they differ, run the prompt:
    - **1) keep** — continue with existing volume, no state change
    - **2) migrate** — create new volume from image, copy all files from old volume
    - **3) reset** — create new volume from image, discard old volume contents
@@ -108,23 +111,19 @@ When a home volume is deleted by any prune phase, also delete:
 2. The state directory `~/.local/state/opencode-msb/{slug}/`
 3. The parent `~/.local/state/opencode-msb/` if empty
 
-No orphan state files.
+No orphan state files after prune.
 
 ### Active VM cleanup
 
-Each active VM tracks its own home volume. On prune, check if the active VM's home volume exists. If not (e.g. user ran `volume reset` externally), create a new one. Do not touch other home volumes for the same slug.
-
-### Prune catalog
-
-Extend `PruningCatalog` to also include stale volumes whose associated VMs have all been removed.
+Each active VM tracks its own home volume. On prune, check if the active VM's home volume exists. If not (e.g. user ran `volume reset` externally), create a new one. Do not touch other home volumes for the same slug — they are legitimate and owned by the project, not by a specific image.
 
 ---
 
 ## Active session check
 
-When the user chooses migrate/reset, or runs the `volume migrate/reset/edit` CLI, check for active or stale VMs using that project slug. If any exist: block with an error and hint to quit all sessions. No `--yes` bypass for this — safety matters.
+When the user chooses migrate/reset during a `run` prompt, or runs the `volume migrate/reset/edit` CLI, check for active or stale VMs using that project slug. If any exist: block with an error and hint to quit all sessions. No `--yes` bypass for this — safety matters.
 
-This check reuses `prune.listActiveVMs()` and `prune.listStaleVMs()` (or equivalent).
+This check reuses existing helpers for listing active and stale VMs by slug.
 
 ---
 
