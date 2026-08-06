@@ -24,20 +24,20 @@
 [*] rework --tree, more explanations, root command
 [*] support docker in VM
 [*] use less tokens for dev
+[*] prune does not seem to work
+[*] single VM per project with multiple workspaces to work around sqlite's fcntl() locking home dir?
+[*] --branch merge deletes repo with changes
+[*] Installation ins Userverzeichnis ([~/bin,] ~/.local/bin)
 
 ## In Progress
 
-[ ] prune does not seem to work
-[ ] single VM per project with multiple workspaces to work around sqlite's fcntl() locking home dir?
-[ ] --branch merge deletes repo with changes
 
 ### README überarbeiten
 
-[ ] Installation ins Userverzeichnis ([~/bin,] ~/.local/bin)
 [ ] config file(s) übersicht, beispiele
-[ ] Bedeutungen z.B. env.secret sieht der Agent nicht
-[ ] Flags an opencode übergeben (--) dokumentieren
+[ ] Bedeutungen z.B. env.secret sieht der Agent nicht (BUG, doch)
 [ ] Dependencies (z.B. git, docker)
+[ ] Flags an opencode übergeben (--) dokumentieren
 
 ## 1st prio
 

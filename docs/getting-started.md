@@ -2,7 +2,10 @@
 
 ## What is opencode-msb?
 
-opencode-msb is a launcher that runs [opencode](https://github.com/anthropics/opencode) inside an isolated microsandbox VM powered by [microsandbox](https://github.com/superradcompany/microsandbox). Each project gets a persistent VM identified by its git remote URL — first boot creates a fresh VM, subsequent runs connect to or start the existing one. The VM has your project bound as `/workspace`, a persistent home directory volume, and access to a curated toolchain.
+opencode-msb is a launcher that runs [opencode](https://github.com/anthropics/opencode) inside an isolated microsandbox
+VM powered by [microsandbox](https://github.com/superradcompany/microsandbox). Each project gets a persistent VM
+identified by its git remote URL — first boot creates a fresh VM, subsequent runs connect to or start the existing one.
+The VM has your project bound as `/workspace`, a persistent home directory volume, and access to a curated toolchain.
 
 ## Prerequisites
 
@@ -12,17 +15,19 @@ opencode-msb requires platform-specific prerequisites depending on your operatin
 
 - **Docker** running with rootless or rootful daemon
 - **KVM** available (check with `kvm-ok` or `/dev/kvm` existence)
-- **`msb`** CLI — the microsandbox runtime, installed via the [microsandbox install script](https://github.com/superradcompany/microsandbox)
-- **Git** — for branch sessions and worktrees
+
 
 ### macOS (Apple Silicon)
 
-- **Apple Silicon (arm64)** — macOS support requires a native ARM64 binary. Intel (x86_64) Macs are not supported.
-- **Docker Desktop** or **colima** — ensure the Docker socket is accessible (`docker info` should succeed)
-- **`msb`** CLI — the microsandbox runtime
-- **Git** — for branch sessions and worktrees
+- **Apple Silicon (arm64)** — Intel (x86_64) Macs are not supported.
+- **Docker Desktop** or **colima** — ensure the Docker socket is accessible (`docker info` succeeds)
 
-Verify your setup:
+### OS independent
+
+- **`msb`** CLI — the [microsandbox](https://github.com/superradcompany/microsandbox) runtime — opencode-msb tries to install it automatically
+- **Git** — for branch sessions
+
+If you're unsure your system fulfills the prerequisites, you can verify your setup:
 
 ```shell
 opencode-msb doctor
@@ -30,47 +35,43 @@ opencode-msb doctor
 
 ## Installation
 
-1. Download the latest binary:
+* Download the latest binary:
 
-   **Linux (x86_64):**
+  **Linux (x86_64):**
 
-   ```shell
-   curl -L -o opencode-msb https://gitlab.inoio.de/inoio/opencode-msb/-/releases/permalink/latest/downloads/opencode-msb-linux-amd64
-   chmod +x opencode-msb
-   mv opencode-msb ~/.local/bin/
-   ```
+  ```console
+  curl -L -o opencode-msb https://gitlab.inoio.de/inoio/opencode-msb/-/releases/permalink/latest/downloads/opencode-msb-linux-amd64
+  ```
 
-   **macOS (Apple Silicon):**
+  **macOS (Apple Silicon):**
 
-   ```shell
-   curl -L -o opencode-msb https://gitlab.inoio.de/inoio/opencode-msb/-/releases/permalink/latest/downloads/opencode-msb-darwin-arm64
-   chmod +x opencode-msb
-   mv opencode-msb ~/.local/bin/
-   ```
+  ```console
+  curl -L -o opencode-msb https://gitlab.inoio.de/inoio/opencode-msb/-/releases/permalink/latest/downloads/opencode-msb-darwin-arm64
+  ```
 
-2. Verify:
+  **Linux (arm64):**
 
-   ```shell
-   opencode-msb --version
-   ```
-
-3. Run the doctor to check prerequisites:
-
-   ```shell
-   opencode-msb doctor
-   ```
+  ```console
+  curl -L -o opencode-msb https://gitlab.inoio.de/inoio/opencode-msb/-/releases/permalink/latest/downloads/opencode-msb-linux-arm64
+  ```
+* Install:
+  ```console
+  chmod u+x opencode-msb
+  mv opencode-msb ~/.local/bin # or any other directory in your PATH 
+  ```
 
 ## Quick Start
 
-Navigate to any git repository and run:
+Navigate to any directory and run:
 
 ```shell
 opencode-msb
 ```
 
-This starts a microsandbox VM (or connects to the existing project VM), mounts your project at `/workspace`, and launches opencode. When the session ends, the VM remains for 30 seconds if no other session connects.
+This starts a microsandbox VM (or connects to the existing project VM), mounts the working directory into the VM , and
+launches opencode.
 
-To start an isolated session for a different branch:
+To start an isolated session for a different branch (only works in git repositories):
 
 ```shell
 opencode-msb -b feature/my-branch
@@ -78,14 +79,18 @@ opencode-msb -b feature/my-branch
 
 ## How It Works
 
-1. **Image build** — Builds a Docker image from `.opencode-msb/Dockerfile` if present, or uses the base image. The image contains opencode, Node.js 26, and common CLI tools.
-2. **Volume setup** — Creates a persistent home volume (managed by msb, name: `opencode-msb-home-<slug>-<hash>`) for the project, preserving editor state, caches, and config across sessions.
-3. **VM creation or reuse** — Creates a new project VM on first boot; subsequent runs connect to the existing VM (or start it if it stopped after the 30s idle timeout).
-4. **Provisioning** — Provisions opencode config files into the VM and removes `.envrc` files.
-5. **Opencode** — Runs `opencode attach` inside the VM, forwarding any arguments to the AI agent.
+1. **Image build** — Builds a Docker image from `.opencode-msb/Dockerfile` if present, or uses the base image. The image
+   contains opencode, Node.js 26, and common CLI tools.
+2. **Volume setup** — Creates a persistent home volume (managed by msb, name: `opencode-msb-home-<project-slug>-<docker-image-hash>`) for the
+   project, preserving editor state, caches, and config across sessions.
+3. **VM creation or reuse** — Creates a new project VM on first boot; subsequent runs connect to the existing VM (or
+   restart it if it stopped).
+4. **Provisioning** — Provisions the VM filesystem, syncs opencode config files into the VM.
+5. **Opencode** — Runs `opencode attach` inside the VM, forwarding any arguments after `--` to the AI agent.
 6. **Cleanup** — On exit, the session cleans up worktrees and prunes stale state.
 
-See the [Commands](/docs/commands.md) reference for the full API and [Configuration](/docs/configuration.md) for tuning behavior.
+See the [Commands](/docs/commands.md) reference for the full API and [Configuration](/docs/configuration.md) for tuning
+behavior.
 
 ## Next Steps
 

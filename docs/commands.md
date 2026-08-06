@@ -39,7 +39,7 @@ Arguments after `--` are forwarded to opencode. Arguments before `--` that don't
 | `--cpus`        | `-c`  | `0`      | vCPUs for the sandbox (0 = all)               |
 | `--memory`      | `-m`  | `4G`     | Memory limit, e.g. `4G`, `512M`               |
 | `--tmp-size`    | —     | `2G`     | Size of `/tmp` tmpfs in the sandbox           |
-| `--user`        | `-u`  | `dev`*   | Username or UID inside the sandbox            |
+| `--user`        | `-u`  | `dev`*   | Username or UID for the runtime user (format: `<name|uid>[:<group|gid>]`) |
 | `--no-auto`     | —     | `false`  | Do not pass `--auto` to opencode              |
 | `--dry-run-vm`  | —     | `false`  | Skip VM lifecycle but prepare everything else |
 
@@ -159,17 +159,18 @@ opencode-msb sandbox list
 
 ---
 
-### doctor
+### config
 
-Check that all host prerequisites are met (Docker, KVM, Git, msb CLI).
+Inspect opencode configuration.
 
 ```console
-opencode-msb doctor
+opencode-msb config
+opencode-msb cfg
 ```
 
----
+**Aliases:** `cfg`
 
-### config show
+#### config show
 
 Print the merged opencode configuration with source file paths.
 
@@ -179,7 +180,31 @@ opencode-msb config show
 
 ---
 
-### image list
+### completion
+
+Generate the autocompletion script for the specified shell.
+
+```console
+opencode-msb completion bash
+opencode-msb completion fish
+opencode-msb completion powershell
+opencode-msb completion zsh
+```
+
+---
+
+### image
+
+Manage runner images.
+
+```console
+opencode-msb image
+opencode-msb img
+```
+
+**Aliases:** `img`
+
+#### image list
 
 List cached runner Docker images with references and digests.
 
@@ -189,19 +214,6 @@ opencode-msb image ls
 ```
 
 **Aliases:** `image ls`
-
----
-
-### volume list
-
-List managed home volumes with names and paths.
-
-```console
-opencode-msb volume list
-opencode-msb volume ls
-```
-
-**Aliases:** `volume ls`
 
 ---
 
@@ -216,3 +228,72 @@ opencode-msb sandbox shell
 opencode-msb sandbox stop
 opencode-msb sandbox kill
 ```
+
+**Aliases:** `sb`
+
+---
+
+### shell
+
+Start a sandbox VM and open an interactive shell. Useful for debugging the sandbox environment. Same flags as `run` but without `--dry-run` and `--no-auto`.
+
+```console
+opencode-msb shell
+opencode-msb shell -b my-feature
+```
+
+**Aliases:** `sh`, `sandbox shell`
+
+---
+
+### stop
+
+Gracefully stop the project VM. State remains for future reuse.
+
+```console
+opencode-msb stop
+opencode-msb stop -f     # stop and remove VM state
+```
+
+**Aliases:** `sandbox stop`
+
+**Flags:**
+
+| Flag        | Short | Default | Purpose                                     |
+|-------------|-------|---------|---------------------------------------------|
+| `--force`   | `-f`  | `false` | Remove VM's persisted state                 |
+| `--dry-run` | `-n`  | `false` | Show what would be stopped without stopping |
+
+---
+
+### version
+
+Print version.
+
+```console
+opencode-msb version
+```
+
+---
+
+### volume
+
+Manage volumes.
+
+```console
+opencode-msb volume
+opencode-msb vol
+```
+
+**Aliases:** `vol`
+
+#### volume list
+
+List managed home volumes with names and paths.
+
+```console
+opencode-msb volume list
+opencode-msb volume ls
+```
+
+**Aliases:** `volume ls`

@@ -1,34 +1,37 @@
 # Configuration
 
-opencode-msb supports configuration at two levels: user-level defaults and project-level overrides. Both can set CLI flags and environment variables.
+opencode-msb supports configuration at two levels: user-level defaults and project-level overrides. Both can set CLI
+flags and environment variables.
 
 ## User-level defaults
 
 Place files under `~/.config/opencode-msb/` to set defaults for all projects:
 
-| File                                | Purpose                                                |
-|-------------------------------------|--------------------------------------------------------|
-| `~/.config/opencode-msb/env`        | Environment variables forwarded to every sandbox       |
-| `~/.config/opencode-msb/env.secret` | Secret environment variables (see [Secrets](#secrets)) |
-| `~/.config/opencode-msb/config.*`   | Launcher defaults for CLI flags                        |
+| File                                                   | Purpose                                                |
+|--------------------------------------------------------|--------------------------------------------------------|
+| `~/.config/opencode-msb/env`                           | Environment variables forwarded to every sandbox       |
+| `~/.config/opencode-msb/env.secret`                    | Secret environment variables (see [Secrets](#secrets)) |
+| `~/.config/opencode-msb/config.(y[a]ml\|json[(c\|5)])` | Launcher defaults for CLI flags                        |
 
-`env` and `env.secret` use `KEY=value` format (see [Environment Variables](#environment-variables) and [Secrets](#secrets) below).
+`env` and `env.secret` use `KEY=value` format (see [Environment Variables](#environment-variables)
+and [Secrets](#secrets) below).
 
-Supported launcher config filenames: `config.yaml`, `config.yml`, `config.json`, `config.jsonc`, `config.json5`. The first one found is used.
+Supported launcher config filenames: `config.yaml`, `config.yml`, `config.json`, `config.jsonc`, `config.json5`. The
+first one found is used.
 
 ### Launcher config fields
 
-| Field              | CLI flag           | Description                                                                    |
-|--------------------|--------------------|--------------------------------------------------------------------------------|
-| `yes`              | `--yes` / `-y`     | Assume yes to all prompts                                                      |
-| `verbose`          | `--verbose` / `-v` | Show debug-level output                                                        |
-| `quiet`            | `--quiet` / `-q`   | Suppress non-error output                                                      |
-| `rebuild`          | `--rebuild` / `-r` | Rebuild runner image before starting                                           |
-| `cpus`             | `--cpus` / `-c`    | Number of vCPUs for the VM                                                     |
-| `memory`           | `--memory` / `-m`  | Memory limit (e.g. `8G`)                                                       |
-| `tmp-size`         | `--tmp-size`       | Size of `/tmp` tmpfs in the sandbox                                            |
-| `auto-prune-age`   | —                  | Auto-prune threshold, runs before every command (default: 30d, only in config) |
-| `manual-prune-age` | `--age`            | Default prune age threshold for `prune` cmd                                    |
+| Field              | Corresponding CLI flag | Description                                                                    |
+|--------------------|------------------------|--------------------------------------------------------------------------------|
+| `yes`              | `--yes` / `-y`         | Assume yes to all prompts                                                      |
+| `verbose`          | `--verbose` / `-v`     | Show debug-level output                                                        |
+| `quiet`            | `--quiet` / `-q`       | Suppress non-error output                                                      |
+| `rebuild`          | `--rebuild` / `-r`     | Rebuild runner image before starting                                           |
+| `cpus`             | `--cpus` / `-c`        | Number of vCPUs for the VM                                                     |
+| `memory`           | `--memory` / `-m`      | Memory limit (e.g. `8G`)                                                       |
+| `tmp-size`         | `--tmp-size`           | Size of `/tmp` tmpfs in the sandbox                                            |
+| `auto-prune-age`   | —                      | Auto-prune threshold, runs before every command (default: 30d, only in config) |
+| `manual-prune-age` | `--age`                | Default prune age threshold for `prune` cmd                                    |
 
 Example `~/.config/opencode-msb/config.yaml`:
 
@@ -44,20 +47,14 @@ manual-prune-age: "7d"
 
 Place files under `.opencode-msb/` in your project directory. These override user-level defaults.
 
-| File                           | Purpose                                           |
-|--------------------------------|---------------------------------------------------|
-| `.opencode-msb/Dockerfile`     | Custom runner image layers                        |
-| `.opencode-msb/env`            | Project-specific environment variables            |
-| `.opencode-msb/env.secret`     | Project-specific secrets                          |
-| `.opencode-msb/config.*`       | Project-specific launcher defaults                |
-| `.opencode-msb/opencode/`      | Project-specific opencode config files            |
+| File                                          | Purpose                                |
+|-----------------------------------------------|----------------------------------------|
+| `.opencode-msb/Dockerfile`                    | Custom runner image layers             |
+| `.opencode-msb/env`                           | Project-specific environment variables |
+| `.opencode-msb/env.secret`                    | Project-specific secrets               |
+| `.opencode-msb/config.(y[a]ml\|json[(c\|5)])` | Project-specific launcher defaults     |
+| `.opencode-msb/opencode/*`                    | Project-specific opencode config files |
 
-Example `.opencode-msb/config.yaml`:
-
-```yaml
-memory: 16G
-rebuild: true
-```
 
 ## Precedence
 
@@ -87,7 +84,8 @@ These are available to opencode and any child processes inside the sandbox.
 
 ## Secrets
 
-Secrets are environment variables whose values are stored host-side only and delivered to the VM via the microsandbox secret mechanism. They never appear in Docker images or environment dumps inside the VM.
+Secrets are environment variables whose values are stored host-side only and delivered to the VM via the microsandbox
+secret mechanism. They never appear in Docker images or environment dumps inside the VM.
 
 ### Format
 
@@ -99,7 +97,8 @@ GITHUB_TOKEN=ghp_xxxxxxxxxxxx@microsandbox
 ANTHROPIC_API_KEY=sk-ant-xxxxxxxxxxxx@microsandbox
 ```
 
-The `@host` part is a policy tag that restricts which microsandbox runtime hosts can access the secret. Use `@microsandbox` by default.
+The `@host` part is a policy tag that restricts which microsandbox runtime hosts can access the secret. Use
+`@microsandbox` by default.
 
 Secret files:
 
@@ -115,11 +114,13 @@ Once set as a secret, the variable is available like any environment variable:
 echo $GITHUB_TOKEN
 ```
 
-Note: `.envrc` files in the project directory are denied by opencode's provider config and will not be processed or surfaced. Secrets from `.envrc` must be migrated to `.opencode-msb/env.secret`.
+Note: `.envrc` files in the project directory are denied by opencode's provider config and will not be processed or
+surfaced. Secrets from `.envrc` must be migrated to `.opencode-msb/env.secret`.
 
 ## Launcher config
 
-The launcher config file (YAML, JSON, JSONC, or JSON5) sets defaults for CLI flags. It is loaded from the user config directory and project config directory.
+The launcher config file (YAML, JSON, JSONC, or JSON5) sets defaults for CLI flags. It is loaded from the user config
+directory and project config directory.
 
 ### Supported formats
 
@@ -143,6 +144,7 @@ The `auto-prune-age` field (for `run`/`shell` auto-pruning) and `manual-prune-ag
 ### Validation
 
 The launcher validates:
+
 - `cpus` must be between 0 and 255
 
 Invalid config files prevent the launcher from starting.
