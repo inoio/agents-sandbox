@@ -245,6 +245,10 @@ import (
 )
 
 func TestStateFile(t *testing.T) {
+    old := stateDirSuffix
+    defer func() { stateDirSuffix = old }()
+    stateDirSuffix = t.TempDir() + "/opencode-msb"
+
     slug := "testproj-aBc1234D"
     f := StateFile(slug)
     if filepath.Base(f) != "state.yaml" {
@@ -995,9 +999,9 @@ func volumeOp(
             return fmt.Errorf("create copy sandbox: %w", copyErr)
         }
         defer func() {
-            _, ctx2 := context.WithTimeout(context.Background(), sandboxStopTimeout)
-            defer ctx2.Done()
-            _ = copySb.Detach(ctx2)
+            stopCtx, cancel := context.WithTimeout(context.Background(), sandboxStopTimeout)
+            defer cancel()
+            _ = copySb.Detach(stopCtx)
             _ = copySb.Close()
             _ = client.RemoveSandbox(context.Background(), copySbName)
         }()
@@ -1042,7 +1046,7 @@ func volumeOp(
         }
         // Best-effort cleanup
         stopCtx, cancel := context.WithTimeout(context.Background(), sandboxStopTimeout)
-        cancel()
+        defer cancel()
         _ = editSb.Stop(stopCtx)
         _ = editSb.Close()
         _ = client.RemoveSandbox(context.Background(), editSandboxName)
@@ -1064,7 +1068,6 @@ func volumeOp(
             ui.Warnf("failed to remove old volume %q: %v", oldVolume, err)
         } else {
             ui.Infof("removed old volume %q", oldVolume)
-            RemoveState(projectSlug)
         }
     }
 
@@ -1357,7 +1360,8 @@ func TestRemoveHomeVolumes_CleansStateFile(t *testing.T) {
     stateDirSuffix = t.TempDir() + "/opencode-msb"
 
     client := &MockMsbClient{}
-    ui := newMockUI()
+    ui := &termio.Mock{}
+
     report := &StaleReport{}
 
     slug := "myproject"
@@ -1389,7 +1393,7 @@ func TestRemoveHomeVolumes_DryRunDoesNotRemoveState(t *testing.T) {
     stateDirSuffix = t.TempDir() + "/opencode-msb"
 
     client := &MockMsbClient{}
-    ui := newMockUI()
+    ui := &termio.Mock{}
     report := &StaleReport{}
 
     slug := "myproject"
@@ -1520,7 +1524,7 @@ func TestPruneActiveVMHomeVolume_SkipsWhenVolumeExists(t *testing.T) {
             MockVolumeHandle{Name_: "opencode-msb-home-testslug-now"},
         },
     }
-    ui := newMockUI()
+    ui := &termio.Mock{}
     report := &StaleReport{}
 
     slug := "testslug"
