@@ -448,6 +448,7 @@ type TestFS struct {
 	LS       []msbSdk.FsEntry
 	ReadErr  error
 	ListErr  error
+	Writes   map[string][]byte
 }
 
 // NewTestFS creates a SandboxFS backed by the given files. Files is a map from
@@ -497,8 +498,14 @@ func (t *TestFS) ReadStream(_ context.Context, _ string) (*msbSdk.FsReadStream, 
 	return &msbSdk.FsReadStream{}, nil
 }
 
-func (t *TestFS) Mkdir(_ context.Context, _ string) error           { return nil }
-func (t *TestFS) Write(_ context.Context, _ string, _ []byte) error { return nil }
+func (t *TestFS) Mkdir(_ context.Context, _ string) error { return nil }
+func (t *TestFS) Write(_ context.Context, path string, data []byte) error {
+	if t.Writes == nil {
+		t.Writes = make(map[string][]byte)
+	}
+	t.Writes[path] = data
+	return nil
+}
 func (t *TestFS) Read(_ context.Context, path string) ([]byte, error) {
 	if t.ReadErr != nil {
 		return nil, t.ReadErr

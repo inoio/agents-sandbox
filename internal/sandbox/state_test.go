@@ -1,6 +1,7 @@
 package sandbox
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
@@ -21,7 +22,7 @@ func TestStateFile(t *testing.T) {
 	}
 }
 
-func TestReadState_NoFileReturnsNil(t *testing.T) {
+func TestReadState_NoFileReturnsErrStateNotFound(t *testing.T) {
 	old := stateDirSuffix
 	defer func() { stateDirSuffix = old }()
 
@@ -29,8 +30,8 @@ func TestReadState_NoFileReturnsNil(t *testing.T) {
 
 	slug := "nonexistentproj-xyz"
 	result, err := ReadState(slug)
-	if err != nil {
-		t.Fatalf("expected nil for missing file, got: %v", err)
+	if !errors.Is(err, ErrStateNotFound) {
+		t.Fatalf("expected ErrStateNotFound for missing file, got: %v", err)
 	}
 	if result != nil {
 		t.Fatalf("expected nil result for missing file, got: %v", result)

@@ -7,9 +7,8 @@ import (
 )
 
 const (
-	maxCPUs   = 255
-	minFields = 2
-	kiB       = 1024
+	maxCPUs = 255
+	kiB     = 1024
 )
 
 func NumCPUs() uint8 {
@@ -23,7 +22,7 @@ func parseMemInfo(data []byte) (int, bool) {
 			continue
 		}
 		fields := strings.Fields(line)
-		if len(fields) < minFields {
+		if len(fields) < 2 {
 			return 0, false
 		}
 		kb, err := strconv.Atoi(fields[1])

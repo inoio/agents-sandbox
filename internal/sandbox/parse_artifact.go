@@ -100,14 +100,10 @@ func parseVMName(name string) artifactInfo {
 	return artifactInfo{slug: slug}
 }
 
-// parseHomeVolumeName extracts the slug and digest from a home volume name.
-// Examples: "opencode-msb-home-myproject-aB3cDe4fGhIjKl-xYz1234AbCdEfGh"
+// parseHomeVolumeName extracts the slug and timestamp from a home volume name.
+// Examples: "opencode-msb-home-myproject-aB3cDe4fGhIjKl-20260812T123456"
 //
-//	→ slug="myproject-aB3cDe4fGhIjKl", digest="xYz1234AbCdEfGh"
-//
-// New format: "opencode-msb-home-myproj-20260806T143022"
-//
-//	→ slug="myproj", digest=""
+//	→ slug="myproject-aB3cDe4fGhIjKl", digest="20260812T123456"
 func parseHomeVolumeName(name string) artifactInfo {
 	if !strings.HasPrefix(name, homePrefix) {
 		return artifactInfo{}

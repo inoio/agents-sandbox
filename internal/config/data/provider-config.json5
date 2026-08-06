@@ -357,6 +357,30 @@
             "input": 0.162,
             "output": 0.54
           }
+        },
+        "deepseek-v4-flash-0731": {
+          "name": "inoio deepseekv4flash",
+          "family": "deepseek",
+          "reasoning": true,
+          "attachment": false,
+          "tool_call": true,
+          "modalities": {
+            "input": [
+              "text"
+            ],
+            "output": [
+              "text"
+            ]
+          },
+          "limit": {
+            "context": 1048576,
+            "output": 65536
+          },
+          "cost": {
+            "input": 0.25,
+            "output": 0.3,
+            "cache_read": 0.06
+          }
         }
       }
     }

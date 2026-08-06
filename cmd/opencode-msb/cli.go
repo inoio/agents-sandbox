@@ -19,9 +19,9 @@ var version = "dev"
 
 // Execute runs the CLI with the given arguments and UI.
 //
-// For integration testing, override factory variables:
-//   - sandbox: sandbox.SetNewMsbClient (replaces Get factory via ResetGetFn)
-//   - this package: newDockerClient (for prune command mock injection)
+// For integration testing, override the injection seams using:
+//   - sandbox: sandbox.SetNewMsbClient (replaces the MsbClient factory)
+//   - docker:  docker.WithNoopDockerMock / docker.WithDefaultErrorDockerMock / docker.WithDockerMock
 //
 // Example:
 //
@@ -29,7 +29,7 @@ var version = "dev"
 //	    orig := sandbox.SetNewMsbClient(func() sandbox.MsbClient { return mock })
 //	    t.Cleanup(func() { sandbox.SetNewMsbClient(orig) })
 //
-//	    ui := termio.NewMock(t)
+//	    ui := &termio.Mock{}
 //	    err := Execute([]string{"list"}, ui)
 //	    // ...assert...
 //	}
@@ -74,7 +74,7 @@ func newConfig() sandbox.Config {
 	}
 }
 
-func applyLauncherConfig(cmd *cobra.Command, lc launcherconfig.Config, keys map[string]bool, _ termio.UI) error {
+func applyLauncherConfig(cmd *cobra.Command, lc launcherconfig.Config, keys map[string]bool) error {
 	apply := []struct {
 		key string
 		fn  func() error

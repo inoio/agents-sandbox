@@ -180,6 +180,12 @@ func TestPrune(t *testing.T) {
 	t.Run("P9_task_sandboxes_pruned", func(t *testing.T) {
 		for _, flags := range pruneAgeFlags {
 			t.Run("f"+strings.Join(flags, "_"), func(t *testing.T) {
+				sandbox.SetStateDirForTest(t, t.TempDir()+"/opencode-msb")
+				if err := sandbox.WriteState("activeproject-1mjusbm3wikhb0", sandbox.HomeState{
+					HomeVolume: "opencode-msb-home-activeproject-1mjusbm3wikhb0-abc123",
+				}); err != nil {
+					t.Fatalf("WriteState: %v", err)
+				}
 				runPruneTest(t, flags, func(m *sandbox.MockMsbClient) {
 					m.Sandboxes = append(m.Sandboxes,
 						mkActiveVM("opencode-msb/runner-activeproject-1mjusbm3wikhb0:xyz789"))

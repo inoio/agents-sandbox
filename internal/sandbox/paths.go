@@ -18,3 +18,9 @@ const (
 	XdgStateSuffix  = ".local/state/" + Prefix
 	XdgConfigSuffix = ".config/" + Prefix
 )
+
+// Mount point constants used by volume operations (prefill, copy, edit).
+const (
+	srcMount = "/src"
+	dstMount = "/dst"
+)

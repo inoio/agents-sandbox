@@ -28,10 +28,18 @@ const (
 
 	flagRemove = "rm"
 
-	flagRebuild = "rebuild"
-	flagCpus    = "cpus"
-	flagMemory  = "memory"
-	flagTmpSize = "tmp-size"
+	flagRebuild     = "rebuild"
+	flagCpus        = "cpus"
+	flagMemory      = "memory"
+	flagTmpSize     = "tmp-size"
+	flagDryRun      = "dry-run"
+	flagDryRunShort = "n"
+	flagDryRunVM    = "dry-run-vm"
+	flagForce       = "force"
+	flagAge         = "age"
+	flagBranch      = "branch"
+	flagUser        = "user"
+	flagNoAuto      = "no-auto"
 
 	annotationAlsoAs = sandbox.Prefix + "/also-as"
 	annotationArgs   = sandbox.Prefix + "/args"

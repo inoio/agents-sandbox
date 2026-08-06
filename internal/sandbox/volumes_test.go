@@ -2,6 +2,7 @@ package sandbox
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"testing"
@@ -9,6 +10,7 @@ import (
 
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 
+	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/msb"
 	"gitlab.inoio.de/inoio/opencode-msb/internal/termio"
 	"gitlab.inoio.de/inoio/opencode-msb/internal/testutil"
 )
@@ -154,6 +156,312 @@ func TestResolveHomeAction_ActionQuitReturnsQuit(t *testing.T) {
 	}
 }
 
+func TestRecordHomeImage_UpdatesDigestInState(t *testing.T) {
+	SetStateDirForTest(t, t.TempDir()+"/opencode-msb")
+
+	WriteState("myproj", HomeState{
+		HomeVolume:  "opencode-msb-home-myproj-20260806T143022",
+		ImageDigest: "sha256:old",
+	})
+
+	vm := NewVolumeManager(&termio.Mock{})
+	if err := vm.RecordHomeImage("myproj", "sha256:new", &termio.Mock{}); err != nil {
+		t.Fatalf("RecordHomeImage: %v", err)
+	}
+
+	state, err := ReadState("myproj")
+	if err != nil {
+		t.Fatalf("ReadState: %v", err)
+	}
+	if state.ImageDigest != "sha256:new" {
+		t.Errorf("ImageDigest = %q, want %q", state.ImageDigest, "sha256:new")
+	}
+	if state.HomeVolume != "opencode-msb-home-myproj-20260806T143022" {
+		t.Errorf("HomeVolume changed to %q, want unchanged", state.HomeVolume)
+	}
+}
+
+func TestRecordHomeImage_MissingStateIsNoop(t *testing.T) {
+	SetStateDirForTest(t, t.TempDir()+"/opencode-msb")
+
+	vm := NewVolumeManager(&termio.Mock{})
+	if err := vm.RecordHomeImage("nosuchproj", "sha256:new", &termio.Mock{}); err != nil {
+		t.Fatalf("RecordHomeImage should not error on missing state, got: %v", err)
+	}
+}
+
+func TestApplyHomeAction_KeepReturnsOldVolume(t *testing.T) {
+	SetStateDirForTest(t, t.TempDir()+"/opencode-msb")
+
+	mock := &msb.MockMsbClient{}
+	vm := NewVolumeManager(&termio.Mock{})
+
+	var createdVols int
+	mock.CreateVolumeFn = func(_ context.Context, _ string, _ ...msbSdk.VolumeOption) (msb.VolumeHandle, error) {
+		createdVols++
+		return &msb.MockVolumeHandle{}, nil
+	}
+
+	vol, err := vm.ApplyHomeAction(
+		context.Background(),
+		mock,
+		"myproj",
+		"opencode-msb-home-myproj-old",
+		"img-tag",
+		"sha256:new",
+		actionKeep,
+		RunOptions{},
+		&termio.Mock{},
+	)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if vol != "opencode-msb-home-myproj-old" {
+		t.Errorf("volume = %q, want old volume", vol)
+	}
+	if len(mock.CreatedSandboxes) != 0 {
+		t.Errorf("expected no sandboxes created for keep, got %v", mock.CreatedSandboxes)
+	}
+	if createdVols != 0 {
+		t.Errorf("expected no volumes created for keep, got %d", createdVols)
+	}
+}
+
+func TestApplyHomeAction_Reset_ExecutesAndKeepsOld(t *testing.T) {
+	SetStateDirForTest(t, t.TempDir()+"/opencode-msb")
+
+	slug := "myproj"
+	oldVol := "opencode-msb-home-myproj-old"
+	WriteState(slug, HomeState{HomeVolume: oldVol, ImageDigest: "sha256:old"})
+
+	mock := &msb.MockMsbClient{}
+	vm := NewVolumeManager(&termio.Mock{})
+
+	newVol, err := vm.ApplyHomeAction(
+		context.Background(),
+		mock,
+		slug,
+		oldVol,
+		"img-tag",
+		"sha256:new",
+		actionReset,
+		RunOptions{},
+		&termio.Mock{},
+	)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if newVol == oldVol {
+		t.Errorf("reset should produce a new volume, got %q", newVol)
+	}
+	if len(mock.CreatedSandboxes) != 1 {
+		t.Errorf("expected 1 prefill sandbox for reset, got %d", len(mock.CreatedSandboxes))
+	}
+	if len(mock.RemovedVolumes) != 0 {
+		t.Errorf("expected old volume to be kept, removed=%v", mock.RemovedVolumes)
+	}
+
+	st, err := ReadState(slug)
+	if err != nil {
+		t.Fatalf("ReadState: %v", err)
+	}
+	if st.HomeVolume != newVol {
+		t.Errorf("state HomeVolume = %q, want %q", st.HomeVolume, newVol)
+	}
+	if st.ImageDigest != "sha256:new" {
+		t.Errorf("state ImageDigest = %q, want %q", st.ImageDigest, "sha256:new")
+	}
+}
+
+func TestApplyHomeAction_Migrate_CopiesFilesAndKeepsOld(t *testing.T) {
+	SetStateDirForTest(t, t.TempDir()+"/opencode-msb")
+
+	slug := "myproj"
+	oldVol := "opencode-msb-home-myproj-old"
+	WriteState(slug, HomeState{HomeVolume: oldVol, ImageDigest: "sha256:old"})
+
+	mock := &msb.MockMsbClient{}
+	vm := NewVolumeManager(&termio.Mock{})
+
+	newVol, err := vm.ApplyHomeAction(
+		context.Background(),
+		mock,
+		slug,
+		oldVol,
+		"img-tag",
+		"sha256:new",
+		actionMigrate,
+		RunOptions{},
+		&termio.Mock{},
+	)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if newVol == oldVol {
+		t.Errorf("migrate should produce a new volume, got %q", newVol)
+	}
+	if len(mock.CreatedSandboxes) != 2 {
+		t.Errorf("expected prefill + copy sandboxes for migrate, got %d", len(mock.CreatedSandboxes))
+	}
+	if len(mock.RemovedVolumes) != 0 {
+		t.Errorf("expected old volume to be kept, removed=%v", mock.RemovedVolumes)
+	}
+
+	st, err := ReadState(slug)
+	if err != nil {
+		t.Fatalf("ReadState: %v", err)
+	}
+	if st.HomeVolume != newVol {
+		t.Errorf("state HomeVolume = %q, want %q", st.HomeVolume, newVol)
+	}
+	if st.ImageDigest != "sha256:new" {
+		t.Errorf("state ImageDigest = %q, want %q", st.ImageDigest, "sha256:new")
+	}
+}
+
+func TestApplyHomeAction_Reset_DryRun_NoWrites(t *testing.T) {
+	SetStateDirForTest(t, t.TempDir()+"/opencode-msb")
+
+	slug := "myproj"
+	oldVol := "opencode-msb-home-myproj-old"
+	WriteState(slug, HomeState{HomeVolume: oldVol, ImageDigest: "sha256:old"})
+
+	mock := &msb.MockMsbClient{}
+	vm := NewVolumeManager(&termio.Mock{})
+
+	var createdVols int
+	mock.CreateVolumeFn = func(_ context.Context, _ string, _ ...msbSdk.VolumeOption) (msb.VolumeHandle, error) {
+		createdVols++
+		return &msb.MockVolumeHandle{}, nil
+	}
+
+	newVol, err := vm.ApplyHomeAction(
+		context.Background(),
+		mock,
+		slug,
+		oldVol,
+		"img-tag",
+		"sha256:new",
+		actionReset,
+		RunOptions{DryRun: true},
+		&termio.Mock{},
+	)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if newVol != oldVol {
+		t.Errorf("dry-run should keep old volume, got %q", newVol)
+	}
+	if createdVols != 0 {
+		t.Errorf("dry-run should not create volumes, got %d", createdVols)
+	}
+
+	st, err := ReadState(slug)
+	if err != nil {
+		t.Fatalf("ReadState: %v", err)
+	}
+	if st.HomeVolume != oldVol {
+		t.Errorf("dry-run should not change state HomeVolume, got %q", st.HomeVolume)
+	}
+	if st.ImageDigest != "sha256:old" {
+		t.Errorf("dry-run should not change state ImageDigest, got %q", st.ImageDigest)
+	}
+}
+
+func TestApplyHomeAction_Migrate_DryRunVM_NoStateWrite(t *testing.T) {
+	SetStateDirForTest(t, t.TempDir()+"/opencode-msb")
+
+	slug := "myproj"
+	oldVol := "opencode-msb-home-myproj-old"
+	WriteState(slug, HomeState{HomeVolume: oldVol, ImageDigest: "sha256:old"})
+
+	mock := &msb.MockMsbClient{}
+	vm := NewVolumeManager(&termio.Mock{})
+
+	newVol, err := vm.ApplyHomeAction(
+		context.Background(),
+		mock,
+		slug,
+		oldVol,
+		"img-tag",
+		"sha256:new",
+		actionMigrate,
+		RunOptions{DryRunVM: true},
+		&termio.Mock{},
+	)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if newVol != oldVol {
+		t.Errorf("dry-run-vm should keep old volume, got %q", newVol)
+	}
+	if len(mock.CreatedSandboxes) != 0 {
+		t.Errorf("dry-run-vm should not spawn VMs, got %v", mock.CreatedSandboxes)
+	}
+
+	st, err := ReadState(slug)
+	if err != nil {
+		t.Fatalf("ReadState: %v", err)
+	}
+	if st.HomeVolume != oldVol {
+		t.Errorf("dry-run-vm should not write state HomeVolume, got %q", st.HomeVolume)
+	}
+	if st.ImageDigest != "sha256:old" {
+		t.Errorf("dry-run-vm should not write state ImageDigest, got %q", st.ImageDigest)
+	}
+}
+
+func TestApplyHomeAction_Migrate_CopyFails_RemovesNewVolume(t *testing.T) {
+	SetStateDirForTest(t, t.TempDir()+"/opencode-msb")
+
+	slug := "myproj"
+	oldVol := "opencode-msb-home-myproj-old"
+	WriteState(slug, HomeState{HomeVolume: oldVol, ImageDigest: "sha256:old"})
+
+	mock := &msb.MockMsbClient{}
+	var createdVol string
+	sandboxCount := 0
+	mock.CreateSandboxFn = func(_ context.Context, _ string, _ ...msbSdk.SandboxOption) (msb.Sandbox, error) {
+		sandboxCount++
+		if sandboxCount == 2 {
+			return nil, errors.New("create copy sandbox failed")
+		}
+		return msb.NewMockSandbox(msb.SandboxOpts{}), nil
+	}
+	mock.CreateVolumeFn = func(_ context.Context, name string, _ ...msbSdk.VolumeOption) (msb.VolumeHandle, error) {
+		createdVol = name
+		return &msb.MockVolumeHandle{Name_: name}, nil
+	}
+	vm := NewVolumeManager(&termio.Mock{})
+
+	_, err := vm.ApplyHomeAction(
+		context.Background(),
+		mock,
+		slug,
+		oldVol,
+		"img-tag",
+		"sha256:new",
+		actionMigrate,
+		RunOptions{},
+		&termio.Mock{},
+	)
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	if !strings.Contains(err.Error(), "create copy sandbox") {
+		t.Errorf("unexpected error: %v", err)
+	}
+	var cleanedUp bool
+	for _, v := range mock.RemovedVolumes {
+		if v == createdVol {
+			cleanedUp = true
+		}
+	}
+	if !cleanedUp {
+		t.Errorf("expected new volume %q to be removed on copy failure; removed=%v", createdVol, mock.RemovedVolumes)
+	}
+}
+
 func TestActionConstantsHaveCorrectKeys(t *testing.T) {
 	if actionKeep != "1" {
 		t.Errorf("actionKeep = %q, want %q", actionKeep, "1")
@@ -170,9 +478,7 @@ func TestActionConstantsHaveCorrectKeys(t *testing.T) {
 }
 
 func TestResolveHomeVolume_FoundInState(t *testing.T) {
-	old := stateDirSuffix
-	defer func() { stateDirSuffix = old }()
-	stateDirSuffix = t.TempDir() + "/opencode-msb"
+	SetStateDirForTest(t, t.TempDir()+"/opencode-msb")
 
 	mock := &MockMsbClient{}
 	mock.GetVolumeFn = func(_ context.Context, name string) (VolumeHandle, error) {
@@ -206,9 +512,7 @@ func TestResolveHomeVolume_FoundInState(t *testing.T) {
 }
 
 func TestResolveHomeVolume_NoStateFile(t *testing.T) {
-	old := stateDirSuffix
-	defer func() { stateDirSuffix = old }()
-	stateDirSuffix = t.TempDir() + "/opencode-msb"
+	SetStateDirForTest(t, t.TempDir()+"/opencode-msb")
 
 	mock := &MockMsbClient{}
 	mock.CreateVolumeFn = func(_ context.Context, name string, _ ...msbSdk.VolumeOption) (VolumeHandle, error) {
@@ -237,16 +541,14 @@ func TestResolveHomeVolume_NoStateFile(t *testing.T) {
 }
 
 func TestResolveHomeVolume_VolumeNotFoundInSandbox(t *testing.T) {
-	old := stateDirSuffix
-	defer func() { stateDirSuffix = old }()
-	stateDirSuffix = t.TempDir() + "/opencode-msb"
+	SetStateDirForTest(t, t.TempDir()+"/opencode-msb")
 
 	mock := &MockMsbClient{}
 	mock.GetVolumeFn = func(_ context.Context, name string) (VolumeHandle, error) {
 		var vh VolumeHandle
 		return vh, fmt.Errorf("volume %s not found", name)
 	}
-	mock.CreateVolumeFn = func(_ context.Context, name string, opts ...msbSdk.VolumeOption) (VolumeHandle, error) {
+	mock.CreateVolumeFn = func(_ context.Context, name string, _ ...msbSdk.VolumeOption) (VolumeHandle, error) {
 		return MockVolumeHandle{Name_: name}, nil
 	}
 

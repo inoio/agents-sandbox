@@ -166,14 +166,11 @@ func prepareSandbox(
 		ui.Infof("exiting as requested by user")
 		return nil, &ExitError{Code: 1}
 	}
-	if action == actionMigrate || action == actionReset {
-		ui.Infof("image changed — to apply your choice, run:")
-		if action == actionMigrate {
-			ui.Infof("  opencode-msb volume migrate")
-		} else {
-			ui.Infof("  opencode-msb volume reset")
-		}
+	homeVol, err = vm.ApplyHomeAction(ctx, client, projectSlug, homeVol, imageRef, imageDigest, action, opts, ui)
+	if err != nil {
+		return nil, fmt.Errorf("apply home volume action: %w", err)
 	}
+	ui.Verbosef("home volume after action: %s", homeVol)
 
 	cwd, err := os.Getwd()
 	if err != nil {
@@ -207,14 +204,6 @@ func prepareSandbox(
 	}, nil
 }
 
-// ensureDockerdIfPresent starts dockerd inside the VM if the dind image is in
-// use, or does nothing otherwise. It is safe to call on every VM bootstrap
-// because startDockerdIfPresent checks for binary presence and handles the
-// case where dockerd is already running.
-func ensureDockerdIfPresent(ctx context.Context, sb Sandbox, ui termio.UI) error {
-	return startDockerdIfPresent(ctx, sb, ui)
-}
-
 // Run creates (or reuses) the project VM, provisions config, starts opencode
 // serve, and attaches a TUI client.
 //
@@ -244,7 +233,7 @@ func Run(ctx context.Context, opts RunOptions, cfg Config, ui termio.UI) error {
 	// ~/.microsandbox/bin on PATH for opencode and its child shells.
 	exitCode, attachErr = session.sb.Attach(ctx, "/bin/bash", "-l", "-c", setup)
 
-	return finalizeRun(attachErr, nil, exitCode)
+	return finalizeRun(attachErr, exitCode)
 }
 
 // Shell creates (or reuses) the project VM and drops the user into an
@@ -267,7 +256,7 @@ func Shell(ctx context.Context, opts RunOptions, cfg Config, ui termio.UI) error
 
 	// Login shell so the interactive shell inherits PATH from /etc/profile and ~/.profile.
 	exitCode, attachErr := session.sb.Attach(ctx, "/bin/bash", "-l")
-	return finalizeRun(attachErr, nil, exitCode)
+	return finalizeRun(attachErr, exitCode)
 }
 
 // BuildImage builds (or updates) the runner image for Docker-in-Docker support.
@@ -286,18 +275,9 @@ func BuildImage(ctx context.Context, force, dryRun bool, ui termio.UI) error {
 	return err
 }
 
-func finalizeRun(attachErr, cleanupErr error, exitCode int) error {
+func finalizeRun(attachErr error, exitCode int) error {
 	if attachErr != nil {
-		if cleanupErr != nil {
-			return errors.Join(
-				fmt.Errorf("opencode session failed: %w", attachErr),
-				fmt.Errorf("managed repo cleanup failed: %w", cleanupErr),
-			)
-		}
 		return fmt.Errorf("opencode session failed: %w", attachErr)
-	}
-	if cleanupErr != nil {
-		return fmt.Errorf("managed repo cleanup failed: %w", cleanupErr)
 	}
 	return &ExitError{Code: exitCode}
 }
@@ -357,9 +337,12 @@ func setUpSandbox(
 		}
 	} else {
 		ui.Verbosef("no VM config found (fresh setup)")
+		if provErr := provisionSandbox(ctx, sb.FS(), cfs.files); provErr != nil {
+			ui.Warnf("provision failed: %v (continuing)", provErr)
+		}
 	}
 
-	if dockerErr := ensureDockerdIfPresent(ctx, sb, ui); dockerErr != nil {
+	if dockerErr := startDockerdIfPresent(ctx, sb, ui); dockerErr != nil {
 		return "", fmt.Errorf("docker startup: %w", dockerErr)
 	}
 	if daemonErr := EnsureDaemon(ctx, sb, ui); daemonErr != nil {

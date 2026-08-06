@@ -49,8 +49,8 @@ Common development commands (run from the Go module root):
 
 - `go mod tidy` — sync `go.mod`/`go.sum` (run after adding/removing imports).
 - `go run ./cmd/opencode-msb --dry-run` — build and run locally without producing a binary or starting interactively (skips launching opencode)
-- `make fmt`/`golangci-lint fmt` — format all files. Always use this command for formatting files correctly, don't rewrite files yourself.
-- `make lint`/`golangci-lint run` — run the linter.
+- `make fmt`/`golangci-lint fmt` — format all files. ALWAYS use! DON'T manually rewrite / use `go fmt`!
+- `make lint`/`golangci-lint run` — run the linter. ALWAYS use! DON'T use `go vet`!
 - `make test`/`go test ./...` — run all tests.
 - `make check` — run fmt, lint, test targets. Execute this when finalizing work.
 - `make build` - build binary to `./opencode-msb`

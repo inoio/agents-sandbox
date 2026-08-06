@@ -92,11 +92,8 @@ func TestPruneStaleCascade_RemovesVMAndAllArtifacts(t *testing.T) {
 
 	slug := "myproject"
 	entry := StaleEntry{Name: "opencode-msb-vm-myproject-digest1", Slug: slug}
-	homeBySlugDigest := map[string]map[string]string{
-		slug: {
-			"digest1": "opencode-msb-home-myproject-digest1",
-			"":        "opencode-msb-home-myproject",
-		},
+	homeBySlugDigest := map[string][]string{
+		slug: {"opencode-msb-home-myproject-digest1", "opencode-msb-home-myproject"},
 	}
 	msbImagesBySlug := map[string][]imageWithDigest{
 		slug: {
@@ -139,8 +136,8 @@ func TestPruneStaleCascade_DryRunDoesNotDelete(t *testing.T) {
 
 	slug := "myproject"
 	entry := StaleEntry{Name: "opencode-msb-vm-myproject-digest1", Slug: slug}
-	homeBySlugDigest := map[string]map[string]string{
-		slug: {"digest1": "opencode-msb-home-myproject-digest1"},
+	homeBySlugDigest := map[string][]string{
+		slug: {"opencode-msb-home-myproject-digest1"},
 	}
 	msbImagesBySlug := map[string][]imageWithDigest{
 		slug: {{ref: "opencode-msb/runner-myproject:digest1", digest: "digest1", isLatest: false}},
@@ -169,8 +166,8 @@ func TestPruneStaleCascade_RemoveErrorWarnsAndStopsCascade(t *testing.T) {
 
 	slug := "myproject"
 	entry := StaleEntry{Name: "opencode-msb-vm-myproject-digest1", Slug: slug}
-	homeBySlugDigest := map[string]map[string]string{
-		slug: {"digest1": "opencode-msb-home-myproject-digest1"},
+	homeBySlugDigest := map[string][]string{
+		slug: {"opencode-msb-home-myproject-digest1"},
 	}
 	msbImagesBySlug := map[string][]imageWithDigest{
 		slug: {{ref: "opencode-msb/runner-myproject:digest1", digest: "digest1", isLatest: false}},
@@ -198,11 +195,11 @@ func TestPruneActiveVMCleanup_KeepsMatchingDigestAndLatest(t *testing.T) {
 
 	slug := "myproject"
 	activeDigest := "digest2"
-	homeBySlugDigest := map[string]map[string]string{
+	homeBySlugDigest := map[string][]string{
 		slug: {
-			"digest1": "opencode-msb-home-myproject-digest1",
-			"digest2": "opencode-msb-home-myproject-digest2",
-			"":        "opencode-msb-home-myproject",
+			"opencode-msb-home-myproject-digest1",
+			"opencode-msb-home-myproject-digest2",
+			"opencode-msb-home-myproject",
 		},
 	}
 	msbImagesBySlug := map[string][]imageWithDigest{
@@ -237,11 +234,8 @@ func TestPruneActiveVMCleanup_DryRunCountsButDoesNotDelete(t *testing.T) {
 	report := &StaleReport{}
 
 	slug := "myproject"
-	homeBySlugDigest := map[string]map[string]string{
-		slug: {
-			"digest1": "opencode-msb-home-myproject-digest1",
-			"digest2": "opencode-msb-home-myproject-digest2",
-		},
+	homeBySlugDigest := map[string][]string{
+		slug: {"opencode-msb-home-myproject-digest1", "opencode-msb-home-myproject-digest2"},
 	}
 	msbImagesBySlug := map[string][]imageWithDigest{
 		slug: {
@@ -272,11 +266,8 @@ func TestPruneOrphanSlug_RemovesEverything(t *testing.T) {
 	report := &StaleReport{}
 
 	slug := "orphan"
-	homeBySlugDigest := map[string]map[string]string{
-		slug: {
-			"digest1": "opencode-msb-home-orphan-digest1",
-			"":        "opencode-msb-home-orphan",
-		},
+	homeBySlugDigest := map[string][]string{
+		slug: {"opencode-msb-home-orphan-digest1", "opencode-msb-home-orphan"},
 	}
 	msbImagesBySlug := map[string][]imageWithDigest{
 		slug: {
@@ -395,6 +386,13 @@ func TestPrune_WithMocks_CoversAllCases(t *testing.T) {
 	docker.WithNoopDockerMock(t)
 	ui := newMockUI()
 
+	SetStateDirForTest(t, t.TempDir()+"/opencode-msb")
+	if err := WriteState("activeproject-1mjusbm3wikhb0", HomeState{
+		HomeVolume: "opencode-msb-home-activeproject-1mjusbm3wikhb0-digest2",
+	}); err != nil {
+		t.Fatalf("WriteState: %v", err)
+	}
+
 	oldGet := msb.Get
 	msb.Get = func() MsbClient { return client }
 	defer func() { msb.Get = oldGet }()
@@ -407,7 +405,7 @@ func TestPrune_WithMocks_CoversAllCases(t *testing.T) {
 	assertReport(
 		t,
 		report,
-		prunedCounts{vms: 1, taskSandboxes: 1, volumes: 1, cloneVolumes: 1, msbImages: 3, dockerImages: 3},
+		prunedCounts{vms: 1, taskSandboxes: 1, volumes: 2, cloneVolumes: 1, msbImages: 3, dockerImages: 3},
 	)
 }
 
@@ -492,8 +490,8 @@ func TestPruneStaleCascade_DockerRemoveFails_DependentOpsSucceed(t *testing.T) {
 
 	slug := "myproject"
 	entry := StaleEntry{Name: "opencode-msb-vm-myproject-abc123", Slug: slug}
-	homeBySlugDigest := map[string]map[string]string{
-		slug: {"digest1": "opencode-msb-home-myproject-digest1"},
+	homeBySlugDigest := map[string][]string{
+		slug: {"opencode-msb-home-myproject-digest1"},
 	}
 	msbImagesBySlug := map[string][]imageWithDigest{
 		slug: {
