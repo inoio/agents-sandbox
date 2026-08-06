@@ -227,11 +227,7 @@ func WriteState(slug string, state HomeState) error {
 // RemoveState removes the state file and its parent directory.
 func RemoveState(slug string) error {
     stateDir := filepath.Join(stateDirSuffix, slug)
-    if _, err := os.Stat(StateFile(slug)); err == nil {
-        os.Remove(StateFile(slug))
-    }
-    os.Remove(stateDir)
-    return nil
+    return os.RemoveAll(stateDir)
 }
 ```
 
@@ -492,7 +488,10 @@ func TestParseHomeVolumeNameLegacyFormat(t *testing.T) {
 - [ ] **Step 2: Run test to verify it fails**
 
 Run: `go test ./internal/sandbox -run "TestParseHomeVolumeNameNewFormat" -v`
-Expected: FAIL — existing implementation parses last segment as digest for all names
+Expected: FAIL — new-format names are currently treated as having a digest suffix
+
+Run: `go test ./internal/sandbox -run "TestParseHomeVolumeNameLegacyFormat" -v`
+Expected: PASS — legacy format parsing already works correctly (this test verifies no regression)
 
 - [ ] **Step 3: Write the implementation**
 
@@ -774,7 +773,12 @@ if action == actionQuit {
     return nil, &ExitError{Code: 1}
 }
 if action == actionMigrate || action == actionReset {
-    ui.Infof("image changed - use 'volume migrate' or 'volume reset' for new volume")
+    ui.Infof("image changed — to apply your choice, run:")
+    if action == actionMigrate {
+        ui.Infof("  opencode-msb volume migrate")
+    } else {
+        ui.Infof("  opencode-msb volume reset")
+    }
 }
 ```
 
