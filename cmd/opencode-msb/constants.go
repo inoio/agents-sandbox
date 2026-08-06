@@ -22,6 +22,11 @@ const (
 	cmdPrune   = "prune"
 	cmdStop    = "stop"
 	cmdKill    = "kill"
+	cmdMigrate = "migrate"
+	cmdReset   = "reset"
+	cmdEdit    = "edit"
+
+	flagRemove = "rm"
 
 	flagRebuild = "rebuild"
 	flagCpus    = "cpus"

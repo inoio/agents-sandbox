@@ -9,6 +9,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"gitlab.inoio.de/inoio/opencode-msb/internal/config"
+	"gitlab.inoio.de/inoio/opencode-msb/internal/git"
 	"gitlab.inoio.de/inoio/opencode-msb/internal/launcherconfig"
 	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox"
 	"gitlab.inoio.de/inoio/opencode-msb/internal/termio"
@@ -142,11 +143,12 @@ func buildImageCmd(ui termio.UI) *cobra.Command {
 	return cmd
 }
 
+//nolint:funlen // Multiple subcommand definitions for volume management
 func buildVolumeCmd(ui termio.UI) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:     cmdVolume,
 		Aliases: cmdVolumeAliases,
-		Short:   "Manage volumes",
+		Short:   "Manage home volumes",
 	}
 	cmd.AddCommand(&cobra.Command{
 		Use:     cmdList,
@@ -165,6 +167,89 @@ func buildVolumeCmd(ui termio.UI) *cobra.Command {
 			return nil
 		},
 	})
+
+	var migrateRmOld bool
+	migrateCmd := &cobra.Command{
+		Use:   cmdMigrate,
+		Args:  cobra.MaximumNArgs(1),
+		Short: "Migrate: create new volume, copy old files on top",
+		RunE: func(c *cobra.Command, args []string) error {
+			if !sandbox.CheckAll(c.Context(), ui) {
+				return errors.New("preflight failed")
+			}
+			projectSlug := git.ProjectSlug(ui)
+			dryRun, _ := c.Flags().GetBool("dry-run")
+			rebuild, _ := c.Flags().GetBool("rebuild")
+			imageTag, _, _, err := sandbox.EnsureImage(c.Context(), projectSlug, rebuild, ui)
+			if err != nil {
+				return fmt.Errorf("ensure image: %w", err)
+			}
+			var volName string
+			if len(args) > 0 {
+				volName = args[0]
+			}
+			return sandbox.CmdMigrate(c.Context(), projectSlug, volName, imageTag, migrateRmOld, dryRun, ui)
+		},
+	}
+	migrateCmd.Flags().BoolVar(&migrateRmOld, flagRemove, false, "Remove old volume after migration")
+	migrateCmd.Flags().Bool("dry-run", false, "Show what would be done")
+	migrateCmd.Flags().Bool("rebuild", false, "Rebuild runner image first")
+	cmd.AddCommand(migrateCmd)
+
+	var resetRmOld bool
+	resetCmd := &cobra.Command{
+		Use:   cmdReset,
+		Args:  cobra.MaximumNArgs(1),
+		Short: "Reset: create new volume from image, discard old files",
+		RunE: func(c *cobra.Command, args []string) error {
+			if !sandbox.CheckAll(c.Context(), ui) {
+				return errors.New("preflight failed")
+			}
+			projectSlug := git.ProjectSlug(ui)
+			dryRun, _ := c.Flags().GetBool("dry-run")
+			rebuild, _ := c.Flags().GetBool("rebuild")
+			imageTag, _, _, err := sandbox.EnsureImage(c.Context(), projectSlug, rebuild, ui)
+			if err != nil {
+				return fmt.Errorf("ensure image: %w", err)
+			}
+			var volName string
+			if len(args) > 0 {
+				volName = args[0]
+			}
+			return sandbox.CmdReset(c.Context(), projectSlug, volName, imageTag, resetRmOld, dryRun, ui)
+		},
+	}
+	resetCmd.Flags().BoolVar(&resetRmOld, flagRemove, false, "Remove old volume after reset")
+	resetCmd.Flags().Bool("dry-run", false, "Show what would be done")
+	resetCmd.Flags().Bool("rebuild", false, "Rebuild runner image first")
+	cmd.AddCommand(resetCmd)
+
+	var editRmOld bool
+	editCmd := &cobra.Command{
+		Use:   cmdEdit,
+		Args:  cobra.MaximumNArgs(1),
+		Short: "Edit: create new volume alongside old one for manual transfer",
+		RunE: func(c *cobra.Command, args []string) error {
+			if !sandbox.CheckAll(c.Context(), ui) {
+				return errors.New("preflight failed")
+			}
+			projectSlug := git.ProjectSlug(ui)
+			dryRun, _ := c.Flags().GetBool("dry-run")
+			imageTag, _, _, err := sandbox.EnsureImage(c.Context(), projectSlug, false, ui)
+			if err != nil {
+				return fmt.Errorf("ensure image: %w", err)
+			}
+			var volName string
+			if len(args) > 0 {
+				volName = args[0]
+			}
+			return sandbox.CmdEdit(c.Context(), projectSlug, volName, imageTag, editRmOld, dryRun, ui)
+		},
+	}
+	editCmd.Flags().BoolVar(&editRmOld, flagRemove, false, "Remove old volume after editing")
+	editCmd.Flags().Bool("dry-run", false, "Show what would be done")
+	cmd.AddCommand(editCmd)
+
 	return cmd
 }
 

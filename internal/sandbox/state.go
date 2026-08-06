@@ -1,7 +1,6 @@
 package sandbox
 
 import (
-	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -26,17 +25,15 @@ func StateFile(slug string) string {
 	return filepath.Join(stateDirSuffix, slug, "state.yaml")
 }
 
-// ErrStateNotFound is returned when a state file does not exist.
-var ErrStateNotFound = errors.New("state not found")
-
-// ReadState loads and parses the state file. Returns nil, ErrStateNotFound if no file exists.
+// ReadState loads and parses the state file.
+// Returns nil, nil if no file exists.
 // Returns error for parse failures or non-"not found" I/O errors.
 func ReadState(slug string) (*HomeState, error) {
 	path := StateFile(slug)
 	data, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return nil, ErrStateNotFound
+			return nil, nil
 		}
 		return nil, fmt.Errorf("read state file %s: %w", path, err)
 	}
@@ -62,6 +59,7 @@ func WriteState(slug string, state HomeState) error {
 		return fmt.Errorf("write state temp: %w", err)
 	}
 	if err := os.Rename(tmpFile, StateFile(slug)); err != nil {
+		// best-effort cleanup of temp file if rename failed
 		_ = os.Remove(tmpFile)
 		return fmt.Errorf("rename state file: %w", err)
 	}
