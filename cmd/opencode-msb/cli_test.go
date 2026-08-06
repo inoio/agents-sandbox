@@ -63,7 +63,7 @@ func TestPrintTreeContainsCommandDescriptions(t *testing.T) {
 		"Start sandbox and open a shell (debug)",
 		"Inspect opencode configuration",
 		"Manage runner images",
-		"Manage volumes",
+		"Manage home volumes",
 		"Manage sandboxes",
 		"Print merged opencode config with source paths",
 		"List cached runner images",
