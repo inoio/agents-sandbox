@@ -235,3 +235,35 @@ func TestResolveHomeVolume_NoStateFile(t *testing.T) {
 		t.Errorf("digest = %q, want %q", state.ImageDigest, "sha256:def")
 	}
 }
+
+func TestResolveHomeVolume_VolumeNotFoundInSandbox(t *testing.T) {
+	old := stateDirSuffix
+	defer func() { stateDirSuffix = old }()
+	stateDirSuffix = t.TempDir() + "/opencode-msb"
+
+	mock := &MockMsbClient{}
+	mock.GetVolumeFn = func(_ context.Context, name string) (VolumeHandle, error) {
+		var vh VolumeHandle
+		return vh, fmt.Errorf("volume %s not found", name)
+	}
+	mock.CreateVolumeFn = func(_ context.Context, name string, opts ...msbSdk.VolumeOption) (VolumeHandle, error) {
+		return MockVolumeHandle{Name_: name}, nil
+	}
+
+	WriteState("orphanproj", HomeState{
+		HomeVolume:  "opencode-msb-home-orphanproj-20260806T143022",
+		ImageDigest: "sha256:abc",
+	})
+
+	vm := NewVolumeManager(&termio.Mock{})
+	volName, state, err := vm.ResolveHomeVolume(context.Background(), mock, "orphanproj", "sha256:def", "latest-docker-image", RunOptions{}, &termio.Mock{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !strings.HasPrefix(volName, "opencode-msb-home-orphanproj-") {
+		t.Errorf("volume = %q, expected prefix %q", volName, "opencode-msb-home-orphanproj-")
+	}
+	if state.ImageDigest != "sha256:def" {
+		t.Errorf("digest = %q, want %q", state.ImageDigest, "sha256:def")
+	}
+}
