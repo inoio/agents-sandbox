@@ -172,7 +172,7 @@ func buildVolumeCmd(ui termio.UI) *cobra.Command {
 	migrateCmd := &cobra.Command{
 		Use:   cmdMigrate,
 		Args:  cobra.MaximumNArgs(1),
-		Short: "Migrate: create new volume, copy old files on top",
+		Short: "Migrate: create new volume, copy files from existing volume on top",
 		RunE: func(c *cobra.Command, args []string) error {
 			if !sandbox.CheckAll(c.Context(), ui) {
 				return errors.New("preflight failed")
@@ -200,7 +200,7 @@ func buildVolumeCmd(ui termio.UI) *cobra.Command {
 	resetCmd := &cobra.Command{
 		Use:   cmdReset,
 		Args:  cobra.MaximumNArgs(1),
-		Short: "Reset: create new volume from image, discard old files",
+		Short: "Reset: create new volume from image, ",
 		RunE: func(c *cobra.Command, args []string) error {
 			if !sandbox.CheckAll(c.Context(), ui) {
 				return errors.New("preflight failed")
@@ -235,7 +235,8 @@ func buildVolumeCmd(ui termio.UI) *cobra.Command {
 			}
 			projectSlug := git.ProjectSlug(ui)
 			dryRun, _ := c.Flags().GetBool("dry-run")
-			imageTag, _, _, err := sandbox.EnsureImage(c.Context(), projectSlug, false, ui)
+			rebuild, _ := c.Flags().GetBool("rebuild")
+			imageTag, _, _, err := sandbox.EnsureImage(c.Context(), projectSlug, rebuild, ui)
 			if err != nil {
 				return fmt.Errorf("ensure image: %w", err)
 			}
@@ -248,6 +249,7 @@ func buildVolumeCmd(ui termio.UI) *cobra.Command {
 	}
 	editCmd.Flags().BoolVar(&editRmOld, flagRemove, false, "Remove old volume after editing")
 	editCmd.Flags().Bool("dry-run", false, "Show what would be done")
+	editCmd.Flags().Bool("rebuild", false, "Rebuild runner image before editing")
 	cmd.AddCommand(editCmd)
 
 	return cmd

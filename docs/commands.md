@@ -311,3 +311,4 @@ Create a new volume alongside the old one, for manual data transfer.
 - **Flags:**
   - `--rm` — remove old volume after you exit (you are responsible for confirming)
   - `--dry-run` — show what would be done
+  - `--rebuild` — rebuild runner image before editing
