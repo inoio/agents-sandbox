@@ -1,7 +1,6 @@
 package sandbox
 
 import (
-	"errors"
 	"os"
 	"path/filepath"
 	"testing"
@@ -29,9 +28,12 @@ func TestReadState_NoFileReturnsNil(t *testing.T) {
 	stateDirSuffix = t.TempDir() + "/opencode-msb"
 
 	slug := "nonexistentproj-xyz"
-	_, err := ReadState(slug)
-	if !errors.Is(err, ErrStateNotFound) {
-		t.Fatalf("expected ErrStateNotFound for missing file, got: %v", err)
+	result, err := ReadState(slug)
+	if err != nil {
+		t.Fatalf("expected nil for missing file, got: %v", err)
+	}
+	if result != nil {
+		t.Fatalf("expected nil result for missing file, got: %v", result)
 	}
 }
 
