@@ -2,6 +2,7 @@ package sandbox
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
@@ -697,4 +698,199 @@ func TestRemoveHomeVolumes_DryRunDoesNotRemoveState(t *testing.T) {
 func saveStateDirTest() func() {
 	old := stateDirSuffix
 	return func() { stateDirSuffix = old }
+}
+
+func TestPruneActiveVMHomeVolume_SkipsWhenVolumeExists(t *testing.T) {
+	client := &MockMsbClient{
+		Volumes: []VolumeHandle{
+			&MockVolumeHandle{Name_: "opencode-msb-home-testslug-now"},
+		},
+	}
+	ui := &termio.Mock{}
+	report := &StaleReport{}
+
+	slug := "testslug"
+	catalog := &PruningCatalog{
+		ActiveVMDigest: map[string]string{slug: "sha256:deadbeef"},
+	}
+
+	fix := saveStateDirTest()
+	defer fix()
+	stateDirSuffix = t.TempDir() + "/opencode-msb"
+
+	stateDir := filepath.Join(stateDirSuffix, slug)
+	os.MkdirAll(stateDir, 0o700)
+	yamlData := "home_volume: opencode-msb-home-testslug-now\nimage_digest: sha256:deadbeef\n"
+	os.WriteFile(filepath.Join(stateDir, "state.yaml"), []byte(yamlData), 0o600)
+
+	newReport, err := pruneActiveVMHomeVolume(
+		context.Background(),
+		client,
+		catalog,
+		false,
+		ui,
+		report,
+	)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if newReport.PrunedVolumes != 0 {
+		t.Errorf("expected 0 pruned volumes (volume exists), got %d", newReport.PrunedVolumes)
+	}
+}
+
+func TestPruneActiveVMHomeVolume_CreatesReplacementWhenMissing(t *testing.T) {
+	client := &MockMsbClient{}
+	ui := &termio.Mock{}
+	report := &StaleReport{}
+
+	slug := "testslug"
+	catalog := &PruningCatalog{
+		ActiveVMDigest: map[string]string{slug: "sha256:deadbeef"},
+	}
+
+	fix := saveStateDirTest()
+	defer fix()
+	stateDirSuffix = t.TempDir() + "/opencode-msb"
+
+	stateDir := filepath.Join(stateDirSuffix, slug)
+	os.MkdirAll(stateDir, 0o700)
+	yamlData := "home_volume: opencode-msb-home-testslug-old\nimage_digest: sha256:deadbeef\n"
+	os.WriteFile(filepath.Join(stateDir, "state.yaml"), []byte(yamlData), 0o600)
+
+	newReport, err := pruneActiveVMHomeVolume(context.Background(), client, catalog, false, ui, report)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(client.CreatedSandboxes) != 0 {
+		t.Errorf("expected no sandbox creation, got %v", client.CreatedSandboxes)
+	}
+	if len(ui.WarnCalls) != 0 {
+		t.Errorf("expected no warnings, got %v", ui.WarnCalls)
+	}
+	if newReport == nil {
+		t.Fatal("report is nil")
+	}
+	// Verify state was updated with new volume name
+	newState, err := ReadState(slug)
+	if err != nil {
+		t.Fatalf("failed to read state: %v", err)
+	}
+	if newState.HomeVolume == "" {
+		t.Error("expected home volume to be created")
+	}
+}
+
+func TestPruneActiveVMHomeVolume_DryRunSkipsCreation(t *testing.T) {
+	client := &MockMsbClient{}
+	ui := &termio.Mock{}
+	report := &StaleReport{}
+
+	slug := "testslug"
+	catalog := &PruningCatalog{
+		ActiveVMDigest: map[string]string{slug: "sha256:deadbeef"},
+	}
+
+	fix := saveStateDirTest()
+	defer fix()
+	stateDirSuffix = t.TempDir() + "/opencode-msb"
+
+	stateDir := filepath.Join(stateDirSuffix, slug)
+	os.MkdirAll(stateDir, 0o700)
+	yamlData := "home_volume: opencode-msb-home-testslug-old\nimage_digest: sha256:deadbeef\n"
+	os.WriteFile(filepath.Join(stateDir, "state.yaml"), []byte(yamlData), 0o600)
+
+	_, err := pruneActiveVMHomeVolume(context.Background(), client, catalog, true, ui, report)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(ui.InfoCalls) != 1 {
+		t.Errorf("expected 1 info call in dry-run, got %d: %v", len(ui.InfoCalls), ui.InfoCalls)
+	}
+	if len(ui.WarnCalls) != 0 {
+		t.Errorf("expected no warnings in dry-run, got %v", ui.WarnCalls)
+	}
+}
+
+func TestPruneActiveVMHomeVolume_SkipsMissingStateFile(t *testing.T) {
+	client := &MockMsbClient{}
+	ui := &termio.Mock{}
+	report := &StaleReport{}
+
+	slug := "testslug"
+	catalog := &PruningCatalog{
+		ActiveVMDigest: map[string]string{slug: "sha256:deadbeef"},
+	}
+
+	fix := saveStateDirTest()
+	defer fix()
+	stateDirSuffix = t.TempDir() + "/opencode-msb"
+
+	_, err := pruneActiveVMHomeVolume(context.Background(), client, catalog, false, ui, report)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(ui.WarnCalls) != 0 {
+		t.Errorf("expected no warnings when state file missing, got %v", ui.WarnCalls)
+	}
+}
+
+func TestPruneActiveVMHomeVolume_SkipsEmptyVolume(t *testing.T) {
+	client := &MockMsbClient{}
+	ui := &termio.Mock{}
+	report := &StaleReport{}
+
+	slug := "testslug"
+	catalog := &PruningCatalog{
+		ActiveVMDigest: map[string]string{slug: "sha256:deadbeef"},
+	}
+
+	fix := saveStateDirTest()
+	defer fix()
+	stateDirSuffix = t.TempDir() + "/opencode-msb"
+
+	stateDir := filepath.Join(stateDirSuffix, slug)
+	os.MkdirAll(stateDir, 0o700)
+	yamlData := "image_digest: sha256:deadbeef\n"
+	os.WriteFile(filepath.Join(stateDir, "state.yaml"), []byte(yamlData), 0o600)
+
+	_, err := pruneActiveVMHomeVolume(context.Background(), client, catalog, false, ui, report)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(ui.WarnCalls) != 0 {
+		t.Errorf("expected no warnings when volume empty, got %v", ui.WarnCalls)
+	}
+}
+
+func TestPruneActiveVMHomeVolume_FailedCreateWarns(t *testing.T) {
+	client := &MockMsbClient{
+		CreateVolumeFn: func(_ context.Context, _ string, _ ...msbSdk.VolumeOption) (VolumeHandle, error) {
+			return nil, errors.New("volume already exists")
+		},
+	}
+	ui := &termio.Mock{}
+	report := &StaleReport{}
+
+	slug := "testslug"
+	catalog := &PruningCatalog{
+		ActiveVMDigest: map[string]string{slug: "sha256:deadbeef"},
+	}
+
+	fix := saveStateDirTest()
+	defer fix()
+	stateDirSuffix = t.TempDir() + "/opencode-msb"
+
+	stateDir := filepath.Join(stateDirSuffix, slug)
+	os.MkdirAll(stateDir, 0o700)
+	yamlData := "home_volume: opencode-msb-home-testslug-old\nimage_digest: sha256:deadbeef\n"
+	os.WriteFile(filepath.Join(stateDir, "state.yaml"), []byte(yamlData), 0o600)
+
+	_, err := pruneActiveVMHomeVolume(context.Background(), client, catalog, false, ui, report)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(ui.WarnCalls) != 1 {
+		t.Fatalf("expected 1 warning on create failure, got %d: %v", len(ui.WarnCalls), ui.WarnCalls)
+	}
 }
