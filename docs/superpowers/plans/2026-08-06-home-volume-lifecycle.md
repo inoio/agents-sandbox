@@ -172,7 +172,7 @@ import (
 
 // stateDirSuffix is the base directory for state files.
 // Derived from XdgStateSuffix to allow override in tests.
-const stateDirSuffix = XdgStateSuffix
+var stateDirSuffix = XdgStateSuffix
 
 // HomeState represents the per-project state file contents.
 type HomeState struct {
@@ -425,10 +425,22 @@ func parseHomeVolumeName(name string) artifactInfo {
     }
     // Check if last part looks like a timestamp (YYYYMMDDTHHmmss = 15 chars with 'T' at pos 8)
     last := parts[len(parts)-1]
-    if len(last) == 15 && len(last) > 8 && last[8] == 'T' &&
-        last[0] >= '2' && last[0] <= '3' {
-        // Likely a new-format timestamp — treat as slug suffix, not digest
-        return artifactInfo{slug: strings.Join(parts[:len(parts)-1], "-")}
+    if len(last) == 15 && last[8] == 'T' && last[0] >= '2' && last[0] <= '3' {
+        // Validate all other chars are digits
+        valid := true
+        for i, c := range last {
+            if i == 8 {
+                continue
+            }
+            if c < '0' || c > '9' {
+                valid = false
+                break
+            }
+        }
+        if valid {
+            // Likely a new-format timestamp — treat as slug suffix, not digest
+            return artifactInfo{slug: strings.Join(parts[:len(parts)-1], "-")}
+        }
     }
     // Legacy format — last part is a 14-char base36 digest hash
     return artifactInfo{
@@ -621,7 +633,21 @@ func (vm *VolumeManager) ResolveHomeAction(
 
 - [ ] **Step 1: Write failing tests**
 
-Add to `internal/sandbox/volumes_test.go`:
+First, add these imports to `internal/sandbox/volumes_test.go`:
+
+```go
+import (
+    "fmt"
+    "strings"
+    "testing"
+    "time"
+
+    "gitlab.inoio.de/inoio/opencode-msb/internal/testutil"
+    "gitlab.inoio.de/inoio/opencode-msb/internal/termio"
+)
+```
+
+Then add the following test functions:
 
 ```go
 func TestResolveHomeAction_SameDigestReturnsKeep(t *testing.T) {
@@ -841,6 +867,7 @@ import (
     "time"
 
     msbSdk "github.com/superradcompany/microsandbox/sdk/go"
+    "gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/msb"
     "gitlab.inoio.de/inoio/opencode-msb/internal/termio"
 )
 
@@ -969,8 +996,8 @@ func volumeOp(
         }
         copyOut, copyExecErr := copySb.Exec(ctx, "sh", []string{"-c", "cp -a /mnt/home/. /mnt/new/ && chown -R dev:dev /mnt/new"})
         defer func() {
-            _, stopCtx := context.WithTimeout(context.Background(), sandboxStopTimeout)
-            defer stopCtx.Done()
+            stopCtx, cancel := context.WithTimeout(context.Background(), sandboxStopTimeout)
+            defer cancel()
             _ = copySb.Stop(stopCtx)
             _ = copySb.Close()
             _ = client.RemoveSandbox(context.Background(), copySandboxName)
@@ -1012,9 +1039,9 @@ func volumeOp(
             ui.Warnf("shell exited with error: %v", shellErr)
         }
         // Best-effort cleanup
-        _, cancel := context.WithTimeout(context.Background(), sandboxStopTimeout)
-        defer cancel()
-        _ = editSb.Stop(cancel)
+        stopCtx, cancel := context.WithTimeout(context.Background(), sandboxStopTimeout)
+        cancel()
+        _ = editSb.Stop(stopCtx)
         _ = editSb.Close()
         _ = client.RemoveSandbox(context.Background(), editSandboxName)
         ui.Infof("exited interactive session, new volume: %q", newVolumeName)
@@ -1044,6 +1071,8 @@ func volumeOp(
 ```
 
 Now update `buildVolumeCmd` in `commands_system.go`:
+
+Note: Add `"gitlab.inoio.de/inoio/opencode-msb/internal/git"` to the import block in `commands_system.go` since `git.ProjectSlug(ui)` is used in the migrate, reset, and edit command handlers.
 
 ```go
 func buildVolumeCmd(ui termio.UI) *cobra.Command {
@@ -1081,18 +1110,13 @@ func buildVolumeCmd(ui termio.UI) *cobra.Command {
             }
             projectSlug := git.ProjectSlug(ui)
             dryRun, _ := c.Flags().GetBool("dry-run")
-            imageTag := "opencode-msb/runner-" + projectSlug + ":latest"
+            imageTag, _, _, err := sandbox.EnsureImage(c.Context(), projectSlug, false, ui)
+            if err != nil {
+                return fmt.Errorf("ensure image: %w", err)
+            }
             var volName string
             if len(args) > 0 {
                 volName = args[0]
-            }
-            if !dryRun {
-                rebuild, _ := c.Flags().GetBool("rebuild")
-                if rebuild {
-                    if err := sandbox.BuildImage(c.Context(), true, false, ui); err != nil {
-                        return fmt.Errorf("rebuild image: %w", err)
-                    }
-                }
             }
             return sandbox.CmdMigrate(c.Context(), projectSlug, volName, imageTag, migrateRmOld, dryRun, ui)
         },
@@ -1113,18 +1137,13 @@ func buildVolumeCmd(ui termio.UI) *cobra.Command {
             }
             projectSlug := git.ProjectSlug(ui)
             dryRun, _ := c.Flags().GetBool("dry-run")
-            imageTag := "opencode-msb/runner-" + projectSlug + ":latest"
+            imageTag, _, _, err := sandbox.EnsureImage(c.Context(), projectSlug, false, ui)
+            if err != nil {
+                return fmt.Errorf("ensure image: %w", err)
+            }
             var volName string
             if len(args) > 0 {
                 volName = args[0]
-            }
-            if !dryRun {
-                rebuild, _ := c.Flags().GetBool("rebuild")
-                if rebuild {
-                    if err := sandbox.BuildImage(c.Context(), true, false, ui); err != nil {
-                        return fmt.Errorf("rebuild image: %w", err)
-                    }
-                }
             }
             return sandbox.CmdReset(c.Context(), projectSlug, volName, imageTag, resetRmOld, dryRun, ui)
         },
@@ -1145,7 +1164,10 @@ func buildVolumeCmd(ui termio.UI) *cobra.Command {
             }
             projectSlug := git.ProjectSlug(ui)
             dryRun, _ := c.Flags().GetBool("dry-run")
-            imageTag := "opencode-msb/runner-" + projectSlug + ":latest"
+            imageTag, _, _, err := sandbox.EnsureImage(c.Context(), projectSlug, false, ui)
+            if err != nil {
+                return fmt.Errorf("ensure image: %w", err)
+            }
             var volName string
             if len(args) > 0 {
                 volName = args[0]
@@ -1304,6 +1326,26 @@ func removeHomeVolumes(
 
 - [ ] **Step 1: Write tests for state file cleanup in prune**
 
+Add the following imports to `internal/sandbox/prune_test.go` if not already present:
+```go
+import (
+    "context"
+    "os"
+    "path/filepath"
+    "testing"
+    "time"
+
+    msb "github.com/superradcompany/microsandbox/sdk/go"
+
+    "gitlab.inoio.de/inoio/opencode-msb/internal/testutil"
+
+    "gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/docker"
+    "gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/msb"
+
+    "gitlab.inoio.de/inoio/opencode-msb/internal/termio"
+)
+```
+
 Add to `internal/sandbox/prune_test.go`:
 
 ```go
@@ -1323,7 +1365,7 @@ func TestRemoveHomeVolumes_CleansStateFile(t *testing.T) {
 
     statePath := filepath.Join(stateDirSuffix, slug, "state.yaml")
     os.MkdirAll(filepath.Dir(statePath), 0o700)
-    testutil.WritePath(t, filepath.Dir(statePath), "state.yaml",
+    testutil.WritePath(t, statePath,
         "home_volume: opencode-msb-home-myproject-20260806T143022\nimage_digest: sha256:abc\n")
 
     removeHomeVolumes(context.Background(), client, slug, homeBySlugDigest, false, ui, report)
@@ -1355,7 +1397,7 @@ func TestRemoveHomeVolumes_DryRunDoesNotRemoveState(t *testing.T) {
 
     statePath := filepath.Join(stateDirSuffix, slug, "state.yaml")
     os.MkdirAll(filepath.Dir(statePath), 0o700)
-    testutil.WritePath(t, filepath.Dir(statePath), "state.yaml",
+    testutil.WritePath(t, statePath,
         "home_volume: opencode-msb-home-myproject-20260806T143022\n")
 
     removeHomeVolumes(context.Background(), client, slug, homeBySlugDigest, true, ui, report)
@@ -1372,14 +1414,6 @@ func TestRemoveHomeVolumes_DryRunDoesNotRemoveState(t *testing.T) {
 }
 
 // Helper to save/restore stateDirSuffix for tests.
-func saveStateDirTest() (prev string) {
-    return
-}
-```
-
-Oops, need to fix the helper function. Let me include it properly:
-
-```go
 func saveStateDirTest() func() {
     old := stateDirSuffix
     return func() { stateDirSuffix = old }
@@ -1451,7 +1485,7 @@ func pruneActiveVMHomeVolume(
             if _, err := client.CreateVolume(ctx, newVolName, msbSdk.WithVolumeKind(msbSdk.VolumeKindDir)); err != nil {
                 ui.Warnf("failed to create replacement volume for slug %q: %v", slug, err)
             } else {
-                newState := HomeState{HomeVolume: newVolName, ImageDigest: digest}
+                newState := HomeState{HomeVolume: newVolName, ImageDigest: state.ImageDigest}
                 if writeErr := WriteState(slug, newState); writeErr != nil {
                     ui.Warnf("failed to write state for slug %q: %v", slug, writeErr)
                 }
