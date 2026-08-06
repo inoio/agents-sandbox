@@ -1,9 +1,11 @@
 package sandbox
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
+	"testing"
 
 	"gopkg.in/yaml.v3"
 )
@@ -25,15 +27,26 @@ func StateFile(slug string) string {
 	return filepath.Join(stateDirSuffix, slug, "state.yaml")
 }
 
+// SetStateDirForTest overrides the state directory root for the given test.
+// The original value is restored via t.Cleanup.
+func SetStateDirForTest(t *testing.T, dir string) {
+	old := stateDirSuffix
+	stateDirSuffix = dir
+	t.Cleanup(func() { stateDirSuffix = old })
+}
+
+// ErrStateNotFound is returned by ReadState when no state file exists yet.
+var ErrStateNotFound = errors.New("state file not found")
+
 // ReadState loads and parses the state file.
-// Returns nil, nil if no file exists.
-// Returns error for parse failures or non-"not found" I/O errors.
+// Returns ErrStateNotFound with a nil state if no file exists.
+// Returns an error for parse failures or non-"not found" I/O errors.
 func ReadState(slug string) (*HomeState, error) {
 	path := StateFile(slug)
 	data, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return nil, nil
+			return nil, ErrStateNotFound
 		}
 		return nil, fmt.Errorf("read state file %s: %w", path, err)
 	}

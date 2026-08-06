@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"strings"
@@ -14,6 +15,46 @@ import (
 	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox"
 	"gitlab.inoio.de/inoio/opencode-msb/internal/termio"
 )
+
+type volumeOpFunc func(context.Context, string, string, string, bool, bool, termio.UI) error
+
+func buildVolumeOpsCmd(
+	ui termio.UI,
+	name string,
+	fn volumeOpFunc,
+	short, rmFlag, rmHelp string,
+	rmVar *bool,
+	buildImage bool,
+) *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   name,
+		Args:  cobra.MaximumNArgs(1),
+		Short: short,
+		RunE: func(c *cobra.Command, args []string) error {
+			if !sandbox.CheckAll(c.Context(), ui) {
+				return errors.New("preflight failed")
+			}
+			projectSlug := git.ProjectSlug(ui)
+			dryRun, _ := c.Flags().GetBool(flagDryRun)
+			rebuild, _ := c.Flags().GetBool(flagRebuild)
+			imageTag, _, _, err := sandbox.EnsureImage(c.Context(), projectSlug, rebuild, ui)
+			if err != nil {
+				return fmt.Errorf("ensure image: %w", err)
+			}
+			var volName string
+			if len(args) > 0 {
+				volName = args[0]
+			}
+			return fn(c.Context(), projectSlug, volName, imageTag, *rmVar, dryRun, ui)
+		},
+	}
+	cmd.Flags().BoolVar(rmVar, rmFlag, false, rmHelp)
+	cmd.Flags().Bool(flagDryRun, false, "Show what would be done")
+	if buildImage {
+		cmd.Flags().Bool(flagRebuild, false, "Rebuild runner image first")
+	}
+	return cmd
+}
 
 func buildDoctorCmd(ui termio.UI) *cobra.Command {
 	return &cobra.Command{
@@ -105,13 +146,13 @@ func buildBuildCmd(ui termio.UI) *cobra.Command {
 		Args:  cobra.NoArgs,
 		Short: "Build or rebuild the runner image",
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			force, _ := cmd.Flags().GetBool("rebuild")
-			dryRun, _ := cmd.Flags().GetBool("dry-run")
+			force, _ := cmd.Flags().GetBool(flagRebuild)
+			dryRun, _ := cmd.Flags().GetBool(flagDryRun)
 			return sandbox.BuildImage(cmd.Context(), force, dryRun, ui)
 		},
 	}
-	cmd.Flags().BoolP("rebuild", "r", false, "Force a clean rebuild")
-	cmd.Flags().BoolP("dry-run", "n", false, "Dry run without building")
+	cmd.Flags().BoolP(flagRebuild, flagRebuild[:1], false, "Force a clean rebuild")
+	cmd.Flags().BoolP(flagDryRun, flagDryRunShort, false, "Dry run without building")
 	return cmd
 }
 
@@ -143,7 +184,6 @@ func buildImageCmd(ui termio.UI) *cobra.Command {
 	return cmd
 }
 
-//nolint:funlen // Multiple subcommand definitions for volume management
 func buildVolumeCmd(ui termio.UI) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:     cmdVolume,
@@ -169,88 +209,46 @@ func buildVolumeCmd(ui termio.UI) *cobra.Command {
 	})
 
 	var migrateRmOld bool
-	migrateCmd := &cobra.Command{
-		Use:   cmdMigrate,
-		Args:  cobra.MaximumNArgs(1),
-		Short: "Migrate: create new volume, copy files from existing volume on top",
-		RunE: func(c *cobra.Command, args []string) error {
-			if !sandbox.CheckAll(c.Context(), ui) {
-				return errors.New("preflight failed")
-			}
-			projectSlug := git.ProjectSlug(ui)
-			dryRun, _ := c.Flags().GetBool("dry-run")
-			rebuild, _ := c.Flags().GetBool("rebuild")
-			imageTag, _, _, err := sandbox.EnsureImage(c.Context(), projectSlug, rebuild, ui)
-			if err != nil {
-				return fmt.Errorf("ensure image: %w", err)
-			}
-			var volName string
-			if len(args) > 0 {
-				volName = args[0]
-			}
-			return sandbox.CmdMigrate(c.Context(), projectSlug, volName, imageTag, migrateRmOld, dryRun, ui)
-		},
-	}
-	migrateCmd.Flags().BoolVar(&migrateRmOld, flagRemove, false, "Remove old volume after migration")
-	migrateCmd.Flags().Bool("dry-run", false, "Show what would be done")
-	migrateCmd.Flags().Bool("rebuild", false, "Rebuild runner image first")
-	cmd.AddCommand(migrateCmd)
+	cmd.AddCommand(
+		buildVolumeOpsCmd(
+			ui,
+			cmdMigrate,
+			sandbox.CmdMigrate,
+			"Migrate: create new volume, copy files from existing volume on top",
+			flagRemove,
+			"Remove the old home volume after migration",
+			&migrateRmOld,
+			true,
+		),
+	)
 
 	var resetRmOld bool
-	resetCmd := &cobra.Command{
-		Use:   cmdReset,
-		Args:  cobra.MaximumNArgs(1),
-		Short: "Reset: create new volume from image, ",
-		RunE: func(c *cobra.Command, args []string) error {
-			if !sandbox.CheckAll(c.Context(), ui) {
-				return errors.New("preflight failed")
-			}
-			projectSlug := git.ProjectSlug(ui)
-			dryRun, _ := c.Flags().GetBool("dry-run")
-			rebuild, _ := c.Flags().GetBool("rebuild")
-			imageTag, _, _, err := sandbox.EnsureImage(c.Context(), projectSlug, rebuild, ui)
-			if err != nil {
-				return fmt.Errorf("ensure image: %w", err)
-			}
-			var volName string
-			if len(args) > 0 {
-				volName = args[0]
-			}
-			return sandbox.CmdReset(c.Context(), projectSlug, volName, imageTag, resetRmOld, dryRun, ui)
-		},
-	}
-	resetCmd.Flags().BoolVar(&resetRmOld, flagRemove, false, "Remove old volume after reset")
-	resetCmd.Flags().Bool("dry-run", false, "Show what would be done")
-	resetCmd.Flags().Bool("rebuild", false, "Rebuild runner image first")
-	cmd.AddCommand(resetCmd)
+	cmd.AddCommand(
+		buildVolumeOpsCmd(
+			ui,
+			cmdReset,
+			sandbox.CmdReset,
+			"Reset: create new volume from image, ",
+			flagRemove,
+			"Remove the old home volume after reset",
+			&resetRmOld,
+			true,
+		),
+	)
 
 	var editRmOld bool
-	editCmd := &cobra.Command{
-		Use:   cmdEdit,
-		Args:  cobra.MaximumNArgs(1),
-		Short: "Edit: create new volume alongside old one for manual transfer",
-		RunE: func(c *cobra.Command, args []string) error {
-			if !sandbox.CheckAll(c.Context(), ui) {
-				return errors.New("preflight failed")
-			}
-			projectSlug := git.ProjectSlug(ui)
-			dryRun, _ := c.Flags().GetBool("dry-run")
-			rebuild, _ := c.Flags().GetBool("rebuild")
-			imageTag, _, _, err := sandbox.EnsureImage(c.Context(), projectSlug, rebuild, ui)
-			if err != nil {
-				return fmt.Errorf("ensure image: %w", err)
-			}
-			var volName string
-			if len(args) > 0 {
-				volName = args[0]
-			}
-			return sandbox.CmdEdit(c.Context(), projectSlug, volName, imageTag, editRmOld, dryRun, ui)
-		},
-	}
-	editCmd.Flags().BoolVar(&editRmOld, flagRemove, false, "Remove old volume after editing")
-	editCmd.Flags().Bool("dry-run", false, "Show what would be done")
-	editCmd.Flags().Bool("rebuild", false, "Rebuild runner image before editing")
-	cmd.AddCommand(editCmd)
+	cmd.AddCommand(
+		buildVolumeOpsCmd(
+			ui,
+			cmdEdit,
+			sandbox.CmdEdit,
+			"Edit: create new volume alongside old one for manual transfer",
+			flagRemove,
+			"Remove the old home volume after editing",
+			&editRmOld,
+			false,
+		),
+	)
 
 	return cmd
 }
@@ -276,7 +274,7 @@ func buildPruneCmd(ui termio.UI) *cobra.Command {
 		Args:  cobra.NoArgs,
 		Short: "Prune stale VMs, volumes, and images",
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			ageStr, _ := cmd.Flags().GetString("age")
+			ageStr, _ := cmd.Flags().GetString(flagAge)
 			var age time.Duration
 			if ageStr != "" {
 				d, ok := launcherconfig.ParseHumanDuration(ageStr)
@@ -288,13 +286,13 @@ func buildPruneCmd(ui termio.UI) *cobra.Command {
 			if age == 0 {
 				age = 7 * 24 * time.Hour
 			}
-			dryRun, _ := cmd.Flags().GetBool("dry-run")
+			dryRun, _ := cmd.Flags().GetBool(flagDryRun)
 			return sandbox.Prune(cmd.Context(), age, dryRun, false, ui)
 		},
 	}
-	cmd.Flags().StringP("age", "a", "", "Prune threshold (default: manualPruneAge from config)")
-	cmd.Flags().BoolP("dry-run", "n", false, "Show what would be pruned without deleting")
-	cmd.Flags().Bool("dry-run-vm", false, "Suppress VM deletion during prune")
-	cmd.Flags().BoolP("force", "f", false, "Skip confirmation prompt")
+	cmd.Flags().StringP(flagAge, flagAge[:1], "", "Prune threshold (default: manualPruneAge from config)")
+	cmd.Flags().BoolP(flagDryRun, flagDryRunShort, false, "Show what would be pruned without deleting")
+	cmd.Flags().Bool(flagDryRunVM, false, "Suppress VM deletion during prune")
+	cmd.Flags().BoolP(flagForce, flagForce[:1], false, "Skip confirmation prompt")
 	return cmd
 }

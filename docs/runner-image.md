@@ -5,16 +5,12 @@ Projects can extend the image with their own tooling.
 
 ## Home directory
 
-The runner image provides default files under `/home/dev/` — shell configs,
-default prompts, and pre-installed tools. When opencode-msb first starts, it
-copies these defaults into your home volume.
+When rebuilding an image, all state in the VM's home directory (`/home/dev/`) would get lost. Therefore, the home
+directory is copied to a volume and mounted to the running VM.
 
-Subsequent runs reuse your existing home volume, preserving your installed tools,
-config files, and session history. Your home directory survives Dockerfile changes.
-
-If the image changes between runs, you will be presented with a prompt to keep,
-migrate, or reset your home volume. See `volume migrate` and `volume reset` for
-manual management.
+If the image changes between runs, you will be presented with a prompt to keep, migrate, or reset your home volume. The
+chosen action is applied automatically and the old volume is always kept. The state file is only updated once the action
+has actually executed. `volume migrate`, `volume reset` and `volume edit` remain available for manual management.
 
 ## Base Image
 

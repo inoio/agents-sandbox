@@ -348,27 +348,27 @@ func TestApplyLauncherConfigSetsUnsetFlags(t *testing.T) {
 	lc := launcherconfig.Config{CPUs: 4, Memory: "8G", TmpSize: "4G", Yes: true, Verbose: true}
 	keys := map[string]bool{"cpus": true, "memory": true, "tmp-size": true, "yes": true, "verbose": true}
 
-	if err := applyLauncherConfig(runCmd, lc, keys, &testUI); err != nil {
+	if err := applyLauncherConfig(runCmd, lc, keys); err != nil {
 		t.Fatalf("applyLauncherConfig failed: %v", err)
 	}
 
-	cpus, _ := runCmd.Flags().GetUint8("cpus")
+	cpus, _ := runCmd.Flags().GetUint8(flagCpus)
 	if cpus != 4 {
 		t.Errorf("expected cpus 4, got %d", cpus)
 	}
-	mem, _ := runCmd.Flags().GetString("memory")
+	mem, _ := runCmd.Flags().GetString(flagMemory)
 	if mem != "8G" {
 		t.Errorf("expected memory 8G, got %q", mem)
 	}
-	tmp, _ := runCmd.Flags().GetString("tmp-size")
+	tmp, _ := runCmd.Flags().GetString(flagTmpSize)
 	if tmp != "4G" {
 		t.Errorf("expected tmp-size 4G, got %q", tmp)
 	}
-	yes, _ := root.PersistentFlags().GetBool("yes")
+	yes, _ := root.PersistentFlags().GetBool(pFlagYes)
 	if !yes {
 		t.Error("expected yes=true")
 	}
-	verbose, _ := root.PersistentFlags().GetBool("verbose")
+	verbose, _ := root.PersistentFlags().GetBool(pFlagVerbose)
 	if !verbose {
 		t.Error("expected verbose=true")
 	}
@@ -390,27 +390,27 @@ func TestApplyLauncherConfigRespectsCLIOverrides(t *testing.T) {
 	lc := launcherconfig.Config{CPUs: 8, Memory: "16G", TmpSize: "8G", Yes: true, Verbose: true}
 	keys := map[string]bool{"cpus": true, "memory": true, "tmp-size": true, "yes": true, "verbose": true}
 
-	if err := applyLauncherConfig(runCmd, lc, keys, &testUI); err != nil {
+	if err := applyLauncherConfig(runCmd, lc, keys); err != nil {
 		t.Fatalf("applyLauncherConfig failed: %v", err)
 	}
 
-	cpus, _ := runCmd.Flags().GetUint8("cpus")
+	cpus, _ := runCmd.Flags().GetUint8(flagCpus)
 	if cpus != 2 {
 		t.Errorf("expected cpus 2 (CLI override), got %d", cpus)
 	}
-	mem, _ := runCmd.Flags().GetString("memory")
+	mem, _ := runCmd.Flags().GetString(flagMemory)
 	if mem != "1G" {
 		t.Errorf("expected memory 1G (CLI override), got %q", mem)
 	}
-	tmp, _ := runCmd.Flags().GetString("tmp-size")
+	tmp, _ := runCmd.Flags().GetString(flagTmpSize)
 	if tmp != "512M" {
 		t.Errorf("expected tmp-size 512M (CLI override), got %q", tmp)
 	}
-	yes, _ := runCmd.Flags().GetBool("yes")
+	yes, _ := runCmd.Flags().GetBool(pFlagYes)
 	if yes {
 		t.Error("expected yes=false (CLI override)")
 	}
-	verbose, _ := runCmd.Flags().GetBool("verbose")
+	verbose, _ := runCmd.Flags().GetBool(pFlagVerbose)
 	if !verbose {
 		t.Error("expected verbose=true from config")
 	}
@@ -452,7 +452,7 @@ func TestRunAndGetShellUserFlag(t *testing.T) {
 			if err := cmd.ParseFlags(tt.args); err != nil {
 				t.Fatalf("ParseFlags failed: %v", err)
 			}
-			got, _ := cmd.Flags().GetString("user")
+			got, _ := cmd.Flags().GetString(flagUser)
 			if got != tt.want {
 				t.Errorf("user=%q, want %q", got, tt.want)
 			}

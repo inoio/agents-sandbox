@@ -28,6 +28,8 @@
 [*] single VM per project with multiple workspaces to work around sqlite's fcntl() locking home dir?
 [*] --branch merge deletes repo with changes
 [*] Installation ins Userverzeichnis ([~/bin,] ~/.local/bin)
+[*] docker images mit projekt-slug im namen bauen
+[*] git library einbinden?
 
 ## In Progress
 
@@ -43,9 +45,10 @@
 
 [ ] make cli output pretty and UX'd
 [ ] secrets containing @ kann nicht funktionieren -> yaml. Keine CLI-Params...
-[ ] docker images mit projekt-slug im namen bauen
 [ ] Deliver example AGENTS.md file with instructions for workflow, especially git (don't merge, tool does) 
 [ ] OPENCODE_DISABLE_AUTOUPDATE, OPENCODE_EXPERIMENTAL_EXA, OPENCODE_EXPERIMENTAL_BACKGROUND_SUBAGENTS, OPENCODE_EXPERIMENTAL_PARALLEL, OPENCODE_EXPERIMENTAL_SCOUT? 
+[ ] config show: list all files that would apply to a VM startup.
+[ ] default pattern for hiding project files, configurable (*.secret), not checked in? 
 
 ## 2nd prio
 
@@ -61,5 +64,5 @@
 [ ] neben docker auch buildah, podman, ??? supporten?
 [ ] opencode config dir & merging nach alphabet
 [ ] was ist mit den LSP-Servern wenn ein Projekt node braucht?
-[ ] git library einbinden?
 [ ] cli interaction library instead of prompt.go?
+[ ] testify/mock & mockery statt manuell?

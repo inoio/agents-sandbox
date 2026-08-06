@@ -53,7 +53,7 @@ type PruningCatalog struct {
 	StaleVMs       []StaleEntry
 	TaskSandboxes  []StaleEntry
 	ActiveVMDigest map[string]string // slug -> digest of the running VM
-	HomeVolumes    map[string]map[string]string
+	HomeVolumes    map[string][]string
 	CloneVolumes   []string
 	MSBImages      map[string][]imageWithDigest
 }
@@ -140,7 +140,7 @@ func buildCatalog(ctx context.Context, client MsbClient, threshold time.Duration
 
 	//nolint:exhaustruct // Only populating fields needed for the prune pipeline
 	catalog := &PruningCatalog{
-		HomeVolumes:    make(map[string]map[string]string),
+		HomeVolumes:    make(map[string][]string),
 		CloneVolumes:   make([]string, 0),
 		MSBImages:      make(map[string][]imageWithDigest),
 		ActiveVMDigest: make(map[string]string),
@@ -203,11 +203,11 @@ func buildCatalog(ctx context.Context, client MsbClient, threshold time.Duration
 		}
 
 		if strings.HasPrefix(name, homePrefix) {
-			slug, digest := extractProjectSlugAndDigest(name)
+			slug, _ := extractProjectSlugAndDigest(name)
 			if catalog.HomeVolumes[slug] == nil {
-				catalog.HomeVolumes[slug] = make(map[string]string)
+				catalog.HomeVolumes[slug] = []string{}
 			}
-			catalog.HomeVolumes[slug][digest] = name
+			catalog.HomeVolumes[slug] = append(catalog.HomeVolumes[slug], name)
 		}
 
 		if strings.HasPrefix(name, clonePrefix) {
@@ -329,7 +329,6 @@ func catalogAndPrune(ctx context.Context, threshold time.Duration, dryRun bool, 
 
 	report, staleVMErr := pruneStaleVMs(ctx, msbClient, catalog, dryRun, ui, report)
 	report, activeVMErr := pruneActiveVMArtifacts(ctx, msbClient, catalog, dryRun, ui, report)
-	report, activeHomeVolErr := pruneActiveVMHomeVolume(ctx, msbClient, catalog, dryRun, ui, report)
 	report, orphanErr := pruneOrphanArtifacts(ctx, msbClient, catalog, dryRun, ui, report)
 	report, cloneVolErr := pruneCloneVolumes(ctx, msbClient, catalog, dryRun, ui, report)
 
@@ -339,7 +338,6 @@ func catalogAndPrune(ctx context.Context, threshold time.Duration, dryRun bool, 
 		catalogErr,
 		staleVMErr,
 		activeVMErr,
-		activeHomeVolErr,
 		orphanErr,
 		cloneVolErr,
 		errors.Join(sandboxErrs...),
@@ -389,8 +387,6 @@ func pruneStaleVMs(
 
 // pruneActiveVMArtifacts removes home volumes, MSB images, and Docker
 // images that don't match an active VM's state.
-//
-//nolint:unparam // Error return is always nil; kept for uniform phase signature across callers
 func pruneActiveVMArtifacts(
 	ctx context.Context,
 	client MsbClient,
@@ -399,52 +395,24 @@ func pruneActiveVMArtifacts(
 	ui termio.UI,
 	report *StaleReport,
 ) (*StaleReport, error) {
+	var errs []error
 	for slug, digest := range catalog.ActiveVMDigest {
-		pruneActiveVMCleanup(ctx, client, slug, digest, catalog.HomeVolumes, catalog.MSBImages, dryRun, ui, report)
-	}
-	return report, nil
-}
-
-// pruneActiveVMHomeVolume checks if the volume tracked in the state file for
-// each active VM still exists. If not (e.g., user ran `volume reset` externally),
-// it creates a fresh replacement.
-//
-//nolint:unparam // Error return is always nil; kept for uniform phase signature across callers
-func pruneActiveVMHomeVolume(
-	ctx context.Context,
-	client MsbClient,
-	catalog *PruningCatalog,
-	dryRun bool,
-	ui termio.UI,
-	report *StaleReport,
-) (*StaleReport, error) {
-	for slug := range catalog.ActiveVMDigest {
-		state, err := ReadState(slug)
+		err := pruneActiveVMCleanup(
+			ctx,
+			client,
+			slug,
+			digest,
+			catalog.HomeVolumes,
+			catalog.MSBImages,
+			dryRun,
+			ui,
+			report,
+		)
 		if err != nil {
-			ui.Warnf("corrupted state for slug %q, skipping: %v", slug, err)
-			continue
-		}
-		if state == nil || state.HomeVolume == "" {
-			continue
-		}
-
-		if _, err := client.GetVolume(ctx, state.HomeVolume); err != nil {
-			if dryRun {
-				ui.Infof("would create replacement volume for %q (slug %s)", state.HomeVolume, slug)
-				continue
-			}
-			newVolName := HomeVolumeName(slug, "")
-			if _, err := client.CreateVolume(ctx, newVolName, msbSdk.WithVolumeKind(msbSdk.VolumeKindDir)); err != nil {
-				ui.Warnf("failed to create replacement volume for slug %q: %v", slug, err)
-			} else {
-				newState := HomeState{HomeVolume: newVolName, ImageDigest: state.ImageDigest}
-				if writeErr := WriteState(slug, newState); writeErr != nil {
-					ui.Warnf("failed to write state for slug %q: %v", slug, writeErr)
-				}
-			}
+			errs = append(errs, err)
 		}
 	}
-	return report, nil
+	return report, errors.Join(errs...)
 }
 
 // pruneOrphanArtifacts removes all home volumes, MSB images, and Docker
@@ -516,7 +484,7 @@ func pruneStaleCascade(
 	ctx context.Context,
 	client MsbClient,
 	entry StaleEntry,
-	homeBySlugDigest map[string]map[string]string,
+	homesBySlug map[string][]string,
 	msbImagesBySlug map[string][]imageWithDigest,
 	dryRun bool,
 	ui termio.UI,
@@ -531,7 +499,7 @@ func pruneStaleCascade(
 	}
 	report.PrunedVMs++
 	report.Details = append(report.Details, entry)
-	removeHomeVolumes(ctx, client, slug, homeBySlugDigest, dryRun, ui, report)
+	removeHomeVolumes(ctx, client, slug, homesBySlug, dryRun, ui, report)
 	removeMSBImages(ctx, client, slug, msbImagesBySlug, dryRun, ui, report)
 	removeDockerImages(ctx, slug, msbImagesBySlug, dryRun, ui, report)
 }
@@ -542,18 +510,65 @@ func pruneActiveVMCleanup(
 	client MsbClient,
 	slug string,
 	digest string,
-	homeBySlugDigest map[string]map[string]string,
+	homesBySlug map[string][]string,
 	msbImagesBySlug map[string][]imageWithDigest,
 	dryRun bool,
 	ui termio.UI,
 	report *StaleReport,
-) {
-	// Home volumes: no longer removed by digest matching.
-	_ = homeBySlugDigest
+) error {
+	homeErr := pruneActiveVMHomeVolumes(ctx, client, slug, digest, homesBySlug, dryRun, ui, report)
 	// Images: delete unused ones, keep :latest, keep matching digest.
 	pruneActiveVMMSBImages(ctx, client, slug, digest, msbImagesBySlug, dryRun, ui, report)
 	// Docker images: same logic.
 	pruneActiveVMDockerImages(ctx, slug, digest, msbImagesBySlug, dryRun, ui, report)
+	return homeErr
+}
+
+func pruneActiveVMHomeVolumes(
+	ctx context.Context,
+	client MsbClient,
+	slug string,
+	digest string,
+	homesBySlug map[string][]string,
+	dryRun bool,
+	ui termio.UI,
+	report *StaleReport,
+) error {
+	vols, ok := homesBySlug[slug]
+	if !ok {
+		return nil
+	}
+
+	state, err := ReadState(slug)
+	if err != nil {
+		if errors.Is(err, ErrStateNotFound) {
+			return fmt.Errorf("no state file found for project %q", slug)
+		}
+		return err
+	}
+	if state == nil || state.HomeVolume == "" {
+		return nil
+	}
+	for _, volName := range vols {
+		if volName == state.HomeVolume {
+			continue
+		}
+		if !dryRun {
+			if err := client.RemoveVolume(ctx, volName); err != nil {
+				ui.Warnf("failed to remove home volume %s: %v", volName, err)
+				continue
+			}
+		}
+		report.PrunedVolumes++
+		report.Details = append(report.Details, StaleEntry{
+			Type:     StaleTypeVolume,
+			Name:     volName,
+			Slug:     slug,
+			StaleFor: 0,
+			Digest:   digest,
+		})
+	}
+	return nil
 }
 
 func pruneActiveVMMSBImages(
@@ -671,13 +686,13 @@ func pruneOrphanSlug(
 	ctx context.Context,
 	client MsbClient,
 	slug string,
-	homeBySlugDigest map[string]map[string]string,
+	homesBySlug map[string][]string,
 	msbImagesBySlug map[string][]imageWithDigest,
 	report *StaleReport,
 	dryRun bool,
 	ui termio.UI,
 ) {
-	removeHomeVolumes(ctx, client, slug, homeBySlugDigest, dryRun, ui, report)
+	removeHomeVolumes(ctx, client, slug, homesBySlug, dryRun, ui, report)
 	removeMSBImages(ctx, client, slug, msbImagesBySlug, dryRun, ui, report)
 	removeDockerImages(ctx, slug, msbImagesBySlug, dryRun, ui, report)
 }
@@ -686,12 +701,12 @@ func removeHomeVolumes(
 	ctx context.Context,
 	client MsbClient,
 	slug string,
-	homeBySlugDigest map[string]map[string]string,
+	homesBySlug map[string][]string,
 	dryRun bool,
 	ui termio.UI,
 	report *StaleReport,
 ) {
-	vols, ok := homeBySlugDigest[slug]
+	vols, ok := homesBySlug[slug]
 	if !ok || len(vols) == 0 {
 		return
 	}

@@ -28,22 +28,35 @@ Each project gets a singular VM identified by the project slug (derived from the
 opencode-msb-vm-<project-slug>
 ```
 
-For example, a repo at `https://gitlab.inoio.de/inoio/myproject.git` gets:
+For example, a repo cloned from `git@gitlab.inoio.de:inoio/myproject.git` gets:
 
 ```
-opencode-msb-vm-myproject-<full-path-hash>
+opencode-msb-vm-myproject-<full-origin-url-hash>
 ```
+
+The slug base is the human-readable repo name taken from the origin remote's URL, and the hash is over the full origin
+URL, so every clone and linked worktree of the same remote shares the same project (and therefore the same VM, volume,
+and image names).
 
 The VM is **per-project/-directory, not per-invocation**. Subsequent runs connect to the existing VM (or start it if
 stopped) rather than creating a new one.
 
-## Volume Lifecycle
+## Volumes
+
+### Volume Lifecycle
 
 Home volumes are persistent storage for the VM's `$HOME` directory. They survive VM destruction and Dockerfile changes.
 
-Home volumes are named `opencode-msb-home-<slug>-<timestamp>`.
+Home volumes are named `opencode-msb-home-<slug>-<timestamp>`. Information which home volume is the current one is
+stored in a state file.
 
-When the Dockerfile changes (new image digest), the next run prompts you to keep, migrate, or reset your home volume. Migrate copies files from the old volume; reset creates a fresh volume from the image.
+When the Dockerfile changes (new image digest), the next run prompts you to keep, migrate, or reset your home volume.
+Migrate copies files from the old volume on top of the runner image's home directory, reset creates a fresh volume from
+the image. The chosen action is applied automatically during that run, and the old volume is always kept. The state file
+is updated only after the chosen action actually executes, so the prompt only reappears after the next image change.
+Dry runs never change the home volume or the state file.
+
+### Volume Management
 
 List all volumes:
 
@@ -54,9 +67,9 @@ opencode-msb volume list
 Manual management:
 
 ```console
-opencode-msb volume migrate   # new volume, copy files on top
+opencode-msb volume migrate   # new volume, copy old volume files on top
 opencode-msb volume reset     # fresh volume from image
-opencode-msb volume edit      # new volume alongside old, manual transfer
+opencode-msb volume edit      # new volume alongside old, manual transfer in a shell environment
 ```
 
 Home volumes are pruned when:

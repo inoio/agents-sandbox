@@ -19,6 +19,10 @@ const (
 	dockerdPollInterval   = time.Second
 )
 
+// startDockerdIfPresent starts dockerd inside the VM if the dind image is in
+// use, or does nothing otherwise. It is safe to call on every VM bootstrap
+// because it checks for the dockerd binary and handles the case where dockerd
+// is already running.
 func startDockerdIfPresent(ctx context.Context, sb Sandbox, ui termio.UI) error {
 	out, checkErr := sb.Shell(ctx, dockerdBinaryCheckCmd, msb.WithExecUser("root"))
 	if checkErr != nil {
