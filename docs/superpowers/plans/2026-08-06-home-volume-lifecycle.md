@@ -640,10 +640,13 @@ First, add these imports to `internal/sandbox/volumes_test.go`:
 
 ```go
 import (
+    "context"
     "fmt"
     "strings"
     "testing"
     "time"
+
+    msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 
     "gitlab.inoio.de/inoio/opencode-msb/internal/testutil"
     "gitlab.inoio.de/inoio/opencode-msb/internal/termio"
@@ -720,11 +723,62 @@ func TestActionConstantsHaveCorrectKeys(t *testing.T) {
         t.Errorf("actionQuit = %q, want %q", actionQuit, "4")
     }
 }
+
+func TestResolveHomeVolume_FoundInState(t *testing.T) {
+    old := stateDirSuffix
+    defer func() { stateDirSuffix = old }()
+    stateDirSuffix = t.TempDir() + "/opencode-msb"
+
+    mock := &MockMsbClient{}
+    mock.GetVolumeFn = func(_ context.Context, name string) (VolumeHandle, error) {
+        return MockVolumeHandle{Name_: name}, nil
+    }
+
+    WriteState("myproj", HomeState{
+        HomeVolume:  "opencode-msb-home-myproj-20260806T143022",
+        ImageDigest: "sha256:abc",
+    })
+
+    vm := NewVolumeManager(&termio.Mock{})
+    volName, state, err := vm.ResolveHomeVolume(context.Background(), mock, "myproj", "sha256:abc", "", RunOptions{}, &termio.Mock{})
+    if err != nil {
+        t.Fatalf("unexpected error: %v", err)
+    }
+    if volName != "opencode-msb-home-myproj-20260806T143022" {
+        t.Errorf("volume = %q, want %q", volName, "opencode-msb-home-myproj-20260806T143022")
+    }
+    if state.ImageDigest != "sha256:abc" {
+        t.Errorf("digest = %q, want %q", state.ImageDigest, "sha256:abc")
+    }
+}
+
+func TestResolveHomeVolume_NoStateFile(t *testing.T) {
+    old := stateDirSuffix
+    defer func() { stateDirSuffix = old }()
+    stateDirSuffix = t.TempDir() + "/opencode-msb"
+
+    mock := &MockMsbClient{}
+    mock.CreateVolumeFn = func(_ context.Context, name string, opts ...msbSdk.VolumeOption) (VolumeHandle, error) {
+        return MockVolumeHandle{Name_: name}, nil
+    }
+
+    vm := NewVolumeManager(&termio.Mock{})
+    volName, state, err := vm.ResolveHomeVolume(context.Background(), mock, "testproj", "sha256:def", "", RunOptions{}, &termio.Mock{})
+    if err != nil {
+        t.Fatalf("unexpected error: %v", err)
+    }
+    if volName != "opencode-msb-home-testproj-20260806T143022" {
+        t.Errorf("volume = %q, want %q", volName, "opencode-msb-home-testproj-20260806T143022")
+    }
+    if state.ImageDigest != "sha256:def" {
+        t.Errorf("digest = %q, want %q", state.ImageDigest, "sha256:def")
+    }
+}
 ```
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `go test ./internal/sandbox -run "TestResolveHomeAction|TestActionConstants" -v`
+Run: `go test ./internal/sandbox -run "TestResolveHomeAction|TestActionConstants|TestResolveHomeVolume" -v`
 Expected: FAIL — functions `ResolveHomeAction`, `ResolveHomeVolume`, constants `actionKeep` etc. don't exist
 
 - [ ] **Step 3: Write implementation**
@@ -733,7 +787,7 @@ Add the functions from the Interfaces section to `internal/sandbox/volumes.go`.
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `go test ./internal/sandbox -run "TestResolveHomeAction|TestActionConstants" -v`
+Run: `go test ./internal/sandbox -run "TestResolveHomeAction|TestActionConstants|TestResolveHomeVolume" -v`
 Expected: PASS
 
 - [ ] **Step 5: Commit**
