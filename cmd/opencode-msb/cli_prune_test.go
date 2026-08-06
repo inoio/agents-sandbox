@@ -190,7 +190,7 @@ func TestPrune(t *testing.T) {
 						cloneVol("opencode-msb-clone-activeproject-abc123"))
 					m.Images = append(m.Images,
 						msbImg("opencode-msb/runner-activeproject-1mjusbm3wikhb0:xyz789"))
-				}, "Pruned 0 VMs, 1 home volumes, 0 docker images, 0 msb images, 1 task sandboxes, 1 clone volumes")
+				}, "Pruned 0 VMs, 0 home volumes, 0 docker images, 0 msb images, 1 task sandboxes, 1 clone volumes")
 			})
 		}
 	})
