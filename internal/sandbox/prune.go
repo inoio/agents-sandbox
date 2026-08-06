@@ -329,12 +329,21 @@ func catalogAndPrune(ctx context.Context, threshold time.Duration, dryRun bool, 
 
 	report, staleVMErr := pruneStaleVMs(ctx, msbClient, catalog, dryRun, ui, report)
 	report, activeVMErr := pruneActiveVMArtifacts(ctx, msbClient, catalog, dryRun, ui, report)
+	report, activeHomeVolErr := pruneActiveVMHomeVolume(ctx, msbClient, catalog, dryRun, ui, report)
 	report, orphanErr := pruneOrphanArtifacts(ctx, msbClient, catalog, dryRun, ui, report)
 	report, cloneVolErr := pruneCloneVolumes(ctx, msbClient, catalog, dryRun, ui, report)
 
 	// Prune task sandboxes (collected during catalog build, pruned here).
 	report, sandboxErrs := pruneTaskSandboxes(ctx, catalog, dryRun, msbClient, ui, report)
-	return report, errors.Join(catalogErr, staleVMErr, activeVMErr, orphanErr, cloneVolErr, errors.Join(sandboxErrs...))
+	return report, errors.Join(
+		catalogErr,
+		staleVMErr,
+		activeVMErr,
+		activeHomeVolErr,
+		orphanErr,
+		cloneVolErr,
+		errors.Join(sandboxErrs...),
+	)
 }
 
 func pruneTaskSandboxes(
@@ -392,6 +401,48 @@ func pruneActiveVMArtifacts(
 ) (*StaleReport, error) {
 	for slug, digest := range catalog.ActiveVMDigest {
 		pruneActiveVMCleanup(ctx, client, slug, digest, catalog.HomeVolumes, catalog.MSBImages, dryRun, ui, report)
+	}
+	return report, nil
+}
+
+// pruneActiveVMHomeVolume checks if the volume tracked in the state file for
+// each active VM still exists. If not (e.g., user ran `volume reset` externally),
+// it creates a fresh replacement.
+//
+//nolint:unparam // Error return is always nil; kept for uniform phase signature across callers
+func pruneActiveVMHomeVolume(
+	ctx context.Context,
+	client MsbClient,
+	catalog *PruningCatalog,
+	dryRun bool,
+	ui termio.UI,
+	report *StaleReport,
+) (*StaleReport, error) {
+	for slug := range catalog.ActiveVMDigest {
+		state, err := ReadState(slug)
+		if err != nil {
+			ui.Warnf("corrupted state for slug %q, skipping: %v", slug, err)
+			continue
+		}
+		if state == nil || state.HomeVolume == "" {
+			continue
+		}
+
+		if _, err := client.GetVolume(ctx, state.HomeVolume); err != nil {
+			if dryRun {
+				ui.Infof("would create replacement volume for %q (slug %s)", state.HomeVolume, slug)
+				continue
+			}
+			newVolName := HomeVolumeName(slug, "")
+			if _, err := client.CreateVolume(ctx, newVolName, msbSdk.WithVolumeKind(msbSdk.VolumeKindDir)); err != nil {
+				ui.Warnf("failed to create replacement volume for slug %q: %v", slug, err)
+			} else {
+				newState := HomeState{HomeVolume: newVolName, ImageDigest: state.ImageDigest}
+				if writeErr := WriteState(slug, newState); writeErr != nil {
+					ui.Warnf("failed to write state for slug %q: %v", slug, writeErr)
+				}
+			}
+		}
 	}
 	return report, nil
 }
