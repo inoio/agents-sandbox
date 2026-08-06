@@ -28,7 +28,7 @@ import (
 
 func TestStartDockerdIfPresentWithDindImage(t *testing.T) {
 	ctx := t.Context()
-	ui := testutil.NewTestio(t)
+	ui := testutil.TermUIMock(t)
 
 	if testing.Short() {
 		t.Skip("skipping integration test in short mode")
@@ -64,7 +64,7 @@ func TestStartDockerdIfPresentWithDindImage(t *testing.T) {
 
 func TestStartDockerdIfPresentWithPlainBaseImage(t *testing.T) {
 	ctx := t.Context()
-	ui := testutil.NewTestio(t)
+	ui := testutil.TermUIMock(t)
 
 	if testing.Short() {
 		t.Skip("skipping integration test in short mode")
@@ -90,7 +90,7 @@ func TestStartDockerdIfPresentWithPlainBaseImage(t *testing.T) {
 
 func TestProjectVMLifecycle(t *testing.T) {
 	ctx := t.Context()
-	testUI := testutil.NewTestio(t)
+	testUI := testutil.TermUIMock(t)
 	ui := &testUI
 
 	if testing.Short() {

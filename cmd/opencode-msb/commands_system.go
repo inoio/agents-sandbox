@@ -32,7 +32,7 @@ func buildDoctorCmd(ui termio.UI) *cobra.Command {
 func buildListCmd(ui termio.UI) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:     cmdList,
-		Aliases: []string{"ls"},
+		Aliases: cmdListAliases,
 		Args:    cobra.NoArgs,
 		Short:   "List sandboxes for this host",
 		Annotations: map[string]string{
@@ -55,11 +55,12 @@ func buildListCmd(ui termio.UI) *cobra.Command {
 
 func buildConfigCmd(ui termio.UI) *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   cmdConfig,
-		Short: "Inspect opencode configuration",
+		Use:     cmdConfig,
+		Aliases: cmdConfigAliases,
+		Short:   "Inspect opencode configuration",
 	}
 	cmd.AddCommand(&cobra.Command{
-		Use:   "show",
+		Use:   cmdShow,
 		Args:  cobra.NoArgs,
 		Short: "Print merged opencode config with source paths",
 		RunE: func(_ *cobra.Command, _ []string) error {
@@ -115,14 +116,15 @@ func buildBuildCmd(ui termio.UI) *cobra.Command {
 
 func buildImageCmd(ui termio.UI) *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   cmdImage,
-		Args:  cobra.NoArgs,
-		Short: "Manage runner images",
+		Use:     cmdImage,
+		Aliases: cmdImageAliases,
+		Args:    cobra.NoArgs,
+		Short:   "Manage runner images",
 	}
 	cmd.AddCommand(&cobra.Command{
 		Use:     cmdList,
 		Args:    cobra.NoArgs,
-		Aliases: []string{"ls"},
+		Aliases: cmdListAliases,
 		Short:   "List cached runner images",
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			images, err := sandbox.ListImages(cmd.Context())
@@ -142,12 +144,13 @@ func buildImageCmd(ui termio.UI) *cobra.Command {
 
 func buildVolumeCmd(ui termio.UI) *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   cmdVolume,
-		Short: "Manage volumes",
+		Use:     cmdVolume,
+		Aliases: cmdVolumeAliases,
+		Short:   "Manage volumes",
 	}
 	cmd.AddCommand(&cobra.Command{
 		Use:     cmdList,
-		Aliases: []string{"ls"},
+		Aliases: cmdListAliases,
 		Args:    cobra.NoArgs,
 		Short:   "List managed volumes",
 		RunE: func(cmd *cobra.Command, _ []string) error {
@@ -167,9 +170,10 @@ func buildVolumeCmd(ui termio.UI) *cobra.Command {
 
 func buildSandboxCmd(ui termio.UI) *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "sandbox",
-		Args:  cobra.NoArgs,
-		Short: "Manage sandboxes",
+		Use:     cmdSandbox,
+		Aliases: cmdSandboxAliases,
+		Args:    cobra.NoArgs,
+		Short:   "Manage sandboxes",
 	}
 	cmd.AddCommand(buildListCmd(ui))
 	cmd.AddCommand(buildShellCmd(ui))
@@ -181,7 +185,7 @@ func buildSandboxCmd(ui termio.UI) *cobra.Command {
 
 func buildPruneCmd(ui termio.UI) *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "prune [flags]",
+		Use:   cmdPrune,
 		Args:  cobra.NoArgs,
 		Short: "Prune stale VMs, volumes, and images",
 		RunE: func(cmd *cobra.Command, _ []string) error {
@@ -198,14 +202,7 @@ func buildPruneCmd(ui termio.UI) *cobra.Command {
 				age = 7 * 24 * time.Hour
 			}
 			dryRun, _ := cmd.Flags().GetBool("dry-run")
-			report, err := sandbox.Prune(cmd.Context(), age, dryRun, ui)
-			if err != nil {
-				return err
-			}
-			if report != nil {
-				printPruneSummary(ui, report, dryRun)
-			}
-			return nil
+			return sandbox.Prune(cmd.Context(), age, dryRun, false, ui)
 		},
 	}
 	cmd.Flags().StringP("age", "a", "", "Prune threshold (default: manualPruneAge from config)")

@@ -16,14 +16,18 @@ const minUsagePadding = 25
 func buildRunCmd(ui termio.UI) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   cmdRun,
-		Args:  cobra.ArbitraryArgs,
 		Short: "Run opencode in a microsandbox VM",
-		Annotations: map[string]string{
-			annotationArgs:   `[{"name":"[-- OPENCODE_ARG...]","help":"Arguments forwarded to opencode (use -- to separate from launcher flags)"}]`,
-			annotationAlsoAs: "sandbox run",
-		},
-		RunE: runFunc(ui),
 	}
+	return extendRunCmd(ui, cmd)
+}
+
+func extendRunCmd(ui termio.UI, cmd *cobra.Command) *cobra.Command {
+	cmd.Args = cobra.ArbitraryArgs
+	cmd.Annotations = map[string]string{
+		annotationArgs:   `[{"name":"[-- OPENCODE_ARG...]","help":"Arguments forwarded to opencode (use -- to separate from launcher flags)"}]`,
+		annotationAlsoAs: "sandbox run",
+	}
+	cmd.RunE = runFunc(ui)
 	cmd.SetUsageFunc(runUsageFunc)
 
 	registerRunFlags(cmd)
@@ -106,8 +110,9 @@ func runFunc(ui termio.UI) func(cmd *cobra.Command, args []string) error {
 
 func buildShellCmd(ui termio.UI) *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   cmdShell,
-		Short: "Start sandbox and open a shell (debug)",
+		Use:     cmdShell,
+		Aliases: cmdShellAliases,
+		Short:   "Start sandbox and open a shell (debug)",
 		Annotations: map[string]string{
 			annotationAlsoAs: "sandbox shell",
 		},

@@ -29,7 +29,7 @@ var version = "dev"
 //	    orig := sandbox.SetNewMsbClient(func() sandbox.MsbClient { return mock })
 //	    t.Cleanup(func() { sandbox.SetNewMsbClient(orig) })
 //
-//	    ui := stdio.NewMock(t)
+//	    ui := termio.NewMock(t)
 //	    err := Execute([]string{"list"}, ui)
 //	    // ...assert...
 //	}

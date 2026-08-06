@@ -55,8 +55,7 @@ func TestPrune(t *testing.T) {
 	t.Run("P1_no_stale_items", func(t *testing.T) {
 		for _, flags := range pruneAgeFlags {
 			t.Run("f"+strings.Join(flags, "_"), func(t *testing.T) {
-				runPruneTest(t, flags, nil,
-					"Pruned 0 VMs, 0 home volumes, 0 docker images, 0 msb images, 0 task sandboxes, 0 clone volumes")
+				runPruneTest(t, flags, nil, "")
 			})
 		}
 	})
@@ -266,7 +265,13 @@ func runPruneTestError(t *testing.T, args []string, wantErrContains string) {
 
 func checkSummary(t *testing.T, outCalls []string, expected string) {
 	t.Helper()
-	if !slices.Contains(outCalls, expected) {
-		t.Errorf("expected %q; got: %v", expected, outCalls)
+	if expected == "" {
+		if len(outCalls) > 0 {
+			t.Errorf("expected no output; got: %v", outCalls)
+		}
+	} else {
+		if !slices.Contains(outCalls, expected) {
+			t.Errorf("expected %q; got: %v", expected, outCalls)
+		}
 	}
 }

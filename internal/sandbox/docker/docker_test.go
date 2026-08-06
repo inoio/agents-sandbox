@@ -39,7 +39,7 @@ func TestDockerfileTarContainsDockerfile(t *testing.T) {
 }
 
 func TestCheckDockerAPIReturnsTrueWhenPingSucceeds(t *testing.T) {
-	testUI := testutil.NewTestio(t)
+	testUI := testutil.TermUIMock(t)
 
 	WithDockerMock(t, &MockDockerClient{
 		PingFn: func(_ context.Context, _ client.PingOptions) (client.PingResult, error) {
@@ -53,7 +53,7 @@ func TestCheckDockerAPIReturnsTrueWhenPingSucceeds(t *testing.T) {
 }
 
 func TestCheckDockerAPIReturnsFalseWhenPingFails(t *testing.T) {
-	testUI := testutil.NewTestio(t)
+	testUI := testutil.TermUIMock(t)
 
 	WithDockerMock(t, &MockDockerClient{
 		PingFn: func(_ context.Context, _ client.PingOptions) (client.PingResult, error) {

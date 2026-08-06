@@ -1,4 +1,4 @@
-.PHONY: build test lint vet fmt clean completion user-install all
+.PHONY: build test lint fmt clean completion user-install check all
 
 VERSION ?= dev
 
@@ -11,13 +11,12 @@ test:
 lint:
 	golangci-lint run ./...
 
-vet:
-	go vet ./...
-
 fmt:
 	golangci-lint fmt ./...
 
-all: fmt vet lint test build
+check: fmt lint test
+
+all: fmt lint test build
 
 clean:
 	rm -f opencode-msb

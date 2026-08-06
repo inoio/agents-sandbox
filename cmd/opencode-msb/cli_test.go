@@ -13,7 +13,7 @@ import (
 // and returns the UI for use in test assertions.
 func buildTree(t *testing.T) *termio.Mock {
 	t.Helper()
-	ui := testutil.NewTestio(t)
+	ui := testutil.TermUIMock(t)
 	root := buildRootCmd(&ui)
 	printTree(root, &ui)
 	return &ui
@@ -196,7 +196,7 @@ func TestPrintTreeShowsSandboxShorthands(t *testing.T) {
 	shortcuts := []string{
 		"run (also: sandbox run)",
 		"list (aliases: ls, also: sandbox list)",
-		"shell (also: sandbox shell)",
+		"shell (aliases: sh, also: sandbox shell)",
 	}
 	for _, s := range shortcuts {
 		if !strings.Contains(out, s) {
@@ -277,7 +277,7 @@ func isTreeChar(r rune) bool {
 }
 
 func TestRootHasGlobalFlags(t *testing.T) {
-	testUI := testutil.NewTestio(t)
+	testUI := testutil.TermUIMock(t)
 	root := buildRootCmd(&testUI)
 	flags := []string{"yes", "verbose", "quiet"}
 	for _, f := range flags {
@@ -288,7 +288,7 @@ func TestRootHasGlobalFlags(t *testing.T) {
 }
 
 func TestRunCommandHasExpectedFlags(t *testing.T) {
-	testUI := testutil.NewTestio(t)
+	testUI := testutil.TermUIMock(t)
 	root := buildRootCmd(&testUI)
 	runCmd, _, _ := root.Find([]string{"run"})
 	if runCmd == nil {
@@ -303,7 +303,7 @@ func TestRunCommandHasExpectedFlags(t *testing.T) {
 }
 
 func TestRunCommandFlagShortcuts(t *testing.T) {
-	testUI := testutil.NewTestio(t)
+	testUI := testutil.TermUIMock(t)
 	root := buildRootCmd(&testUI)
 	runCmd, _, _ := root.Find([]string{"run"})
 	if runCmd == nil {
@@ -326,7 +326,7 @@ func TestRunCommandFlagShortcuts(t *testing.T) {
 }
 
 func TestImageBuildNounFormExists(t *testing.T) {
-	testUI := testutil.NewTestio(t)
+	testUI := testutil.TermUIMock(t)
 	root := buildRootCmd(&testUI)
 	imageCmd, _, _ := root.Find([]string{"image"})
 	if imageCmd == nil {
@@ -339,7 +339,7 @@ func TestImageBuildNounFormExists(t *testing.T) {
 }
 
 func TestApplyLauncherConfigSetsUnsetFlags(t *testing.T) {
-	testUI := testutil.NewTestio(t)
+	testUI := testutil.TermUIMock(t)
 	root := buildRootCmd(&testUI)
 	runCmd, _, _ := root.Find([]string{"run"})
 	if runCmd == nil {
@@ -375,7 +375,7 @@ func TestApplyLauncherConfigSetsUnsetFlags(t *testing.T) {
 }
 
 func TestApplyLauncherConfigRespectsCLIOverrides(t *testing.T) {
-	testUI := testutil.NewTestio(t)
+	testUI := testutil.TermUIMock(t)
 	root := buildRootCmd(&testUI)
 	runCmd, _, _ := root.Find([]string{"run"})
 	if runCmd == nil {
@@ -443,7 +443,7 @@ func TestRunAndGetShellUserFlag(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			testUI := testutil.NewTestio(t)
+			testUI := testutil.TermUIMock(t)
 			root := buildRootCmd(&testUI)
 			cmd, _, _ := root.Find([]string{"shell"})
 			if cmd == nil {
@@ -461,7 +461,7 @@ func TestRunAndGetShellUserFlag(t *testing.T) {
 }
 
 func TestStopCommandExists(t *testing.T) {
-	testUI := testutil.NewTestio(t)
+	testUI := testutil.TermUIMock(t)
 	root := buildRootCmd(&testUI)
 	stopCmd, _, _ := root.Find([]string{"stop"})
 	if stopCmd == nil {
@@ -470,7 +470,7 @@ func TestStopCommandExists(t *testing.T) {
 }
 
 func TestKillCommandExists(t *testing.T) {
-	testUI := testutil.NewTestio(t)
+	testUI := testutil.TermUIMock(t)
 	root := buildRootCmd(&testUI)
 	killCmd, _, _ := root.Find([]string{"kill"})
 	if killCmd == nil {
@@ -479,7 +479,7 @@ func TestKillCommandExists(t *testing.T) {
 }
 
 func TestStopCommandHasForceFlag(t *testing.T) {
-	testUI := testutil.NewTestio(t)
+	testUI := testutil.TermUIMock(t)
 	root := buildRootCmd(&testUI)
 	stopCmd, _, _ := root.Find([]string{"stop"})
 	if stopCmd == nil {
@@ -491,7 +491,7 @@ func TestStopCommandHasForceFlag(t *testing.T) {
 }
 
 func TestKillCommandHasForceFlag(t *testing.T) {
-	testUI := testutil.NewTestio(t)
+	testUI := testutil.TermUIMock(t)
 	root := buildRootCmd(&testUI)
 	killCmd, _, _ := root.Find([]string{"kill"})
 	if killCmd == nil {

@@ -2,8 +2,6 @@ package sandbox
 
 import (
 	"context"
-	"fmt"
-	"strings"
 	"sync"
 	"time"
 
@@ -20,24 +18,9 @@ func AutoPrune(ctx context.Context, threshold time.Duration, ui termio.UI) {
 		threshold = 30 * 24 * time.Hour
 	}
 	autoPruneOnce.Do(func() {
-		report, err := Prune(ctx, threshold, true, ui)
-		if report != nil {
-			printPruneSummary(ui, report, err)
+		err := Prune(ctx, threshold, true, true, ui)
+		if err != nil {
+			ui.Warnf("auto-prune failed: %s", err)
 		}
 	})
-}
-
-func printPruneSummary(ui termio.UI, report *StaleReport, err error) {
-	parts := []string{
-		fmt.Sprintf("%d VMs", report.PrunedVMs),
-		fmt.Sprintf("%d home volumes", report.PrunedVolumes),
-		fmt.Sprintf("%d docker images", report.PrunedDockerImages),
-		fmt.Sprintf("%d msb images", report.PrunedMSBImages),
-		fmt.Sprintf("%d task sandboxes", report.PrunedTaskSandboxes),
-		fmt.Sprintf("%d clone volumes", report.PrunedCloneVolumes),
-	}
-	ui.Infof("Pruned %s", strings.Join(parts, ", "))
-	if err != nil {
-		ui.Errorf("error occurred: %s", err)
-	}
 }
