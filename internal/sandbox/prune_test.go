@@ -570,6 +570,39 @@ func TestParseHomeVolumeName(t *testing.T) {
 	}
 }
 
+func TestParseHomeVolumeNameNewFormat(t *testing.T) {
+	tests := []struct {
+		input      string
+		wantSlug   string
+		wantDigest string
+	}{
+		{"opencode-msb-home-myproj-20260806T143022", "myproj", ""},
+		{"opencode-msb-home-abc-def-20260806T143022", "abc-def", ""},
+		{"opencode-msb-home-proj-20261231T235959", "proj", ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.input, func(t *testing.T) {
+			info := parseHomeVolumeName(tt.input)
+			if info.slug != tt.wantSlug {
+				t.Errorf("slug = %q, want %q", info.slug, tt.wantSlug)
+			}
+			if info.digest != tt.wantDigest {
+				t.Errorf("digest = %q, want %q", info.digest, tt.wantDigest)
+			}
+		})
+	}
+}
+
+func TestParseHomeVolumeNameLegacyFormat(t *testing.T) {
+	info := parseHomeVolumeName("opencode-msb-home-myproject-aB3cDe4fGhIjKl-xYz1234AbCdEfGh")
+	if info.slug != "myproject-aB3cDe4fGhIjKl" {
+		t.Errorf("slug = %q, want %q", info.slug, "myproject-aB3cDe4fGhIjKl")
+	}
+	if info.digest != "xYz1234AbCdEfGh" {
+		t.Errorf("digest = %q, want %q", info.digest, "xYz1234AbCdEfGh")
+	}
+}
+
 func TestParseCloneVolumeName(t *testing.T) {
 	tests := []struct {
 		input    string
