@@ -104,6 +104,10 @@ func parseVMName(name string) artifactInfo {
 // Examples: "opencode-msb-home-myproject-aB3cDe4fGhIjKl-xYz1234AbCdEfGh"
 //
 //	→ slug="myproject-aB3cDe4fGhIjKl", digest="xYz1234AbCdEfGh"
+//
+// New format: "opencode-msb-home-myproj-20260806T143022"
+//
+//	→ slug="myproj", digest=""
 func parseHomeVolumeName(name string) artifactInfo {
 	if !strings.HasPrefix(name, homePrefix) {
 		return artifactInfo{}
@@ -113,6 +117,26 @@ func parseHomeVolumeName(name string) artifactInfo {
 	if len(parts) < 2 {
 		return artifactInfo{slug: remainder}
 	}
+	// Check if last part looks like a timestamp (YYYYMMDDTHHmmss = 15 chars with 'T' at pos 8)
+	last := parts[len(parts)-1]
+	if len(last) == 15 && last[8] == 'T' && last[0] >= '2' && last[0] <= '3' {
+		// Validate all other chars are digits
+		valid := true
+		for i, c := range last {
+			if i == 8 {
+				continue
+			}
+			if c < '0' || c > '9' {
+				valid = false
+				break
+			}
+		}
+		if valid {
+			// Likely a new-format timestamp — treat as slug suffix, not digest
+			return artifactInfo{slug: strings.Join(parts[:len(parts)-1], "-")}
+		}
+	}
+	// Legacy format — last part is a 14-char base36 digest hash
 	return artifactInfo{
 		slug:   strings.Join(parts[:len(parts)-1], "-"),
 		digest: parts[len(parts)-1],
