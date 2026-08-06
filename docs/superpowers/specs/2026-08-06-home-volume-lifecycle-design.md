@@ -6,7 +6,7 @@ The home volume is no longer tied to the Docker image digest. It is independent,
 
 ## Problem
 
-The home volume name is constructed from the project slug and the Docker image digest (`opencode-msb-home-{slug}-{digestHash}`). When the image changes (Dockerfile update, base image change), a new volume is created and the old volume — which may contain tools, configs, and history the user installed — becomes obsolete.
+The home volume name is constructed from the project slug and the Docker image digest (`opencode-msb-home-{slug}-{digestHash}`). When the image changes (Dockerfile update, base image change), a new volume is created using the new digest and the old volume — which may contain tools, configs, and session history the user installed — becomes obsolete.
 
 This is wasteful and disruptive. Users expect their home directory to survive image updates.
 
@@ -20,16 +20,20 @@ Home volumes are now owned by the project slug, not by the image digest. When th
 
 ### State file
 
-A per-project state directory lives at `~/.local/state/opencode-msb/{project-slug}/` and contains two files:
+A per-project state file lives at `~/.local/state/opencode-msb/{project-slug}/state.yaml` and contains:
 
-- `home-volume` — one line: the name of the current home volume
-- `image-digest` — one line: the Docker image digest that was current when the state was written
+```yaml
+home_volume: opencode-msb-home-myproj-20260806-143022
+image_digest: sha256:deadbeef1234...
+```
 
-The state directory is created on first run and removed during prune when its volume is deleted.
+The file is created on first run and removed during prune when its volume is deleted. The YAML format supports atomic writes (write to temp file, then rename), simple error handling, and is trivially editable for recovery.
 
 ### Volume naming
 
-Volume names remain `opencode-msb-home-{slug}-{digestHash}`. They are differentiated by slug, not by digest. The digest hash in the name is informational (tells which image was current at creation time). Multiple volumes per slug can exist, each from a different image build.
+New volumes are named `opencode-msb-home-{slug}-{timestamp}` where timestamp is the UTC creation time in ISO-8601 without separators (`YYYYMMDDTHHmmss`, e.g. `20260806T143022`).
+
+Timestamps avoid all collision concerns. The image digest is stored in the state file for change detection but is no longer part of the volume name.
 
 ---
 
@@ -57,6 +61,17 @@ Docker image changed for project. The image's home directory is different from y
   default [1]:
 ```
 
+### Example volume list
+
+```
+$ opencode-msb volume list
+NAME                                PATH                               KIND
+opencode-msb-home-myproj-20260806    /var/lib/opencode-msb/volumes/...   dir
+opencode-msb-home-myproj-20260728    /var/lib/opencode-msb/volumes/...   dir
+```
+
+Older volumes (e.g. `20260728-150122`) are cleaned by `opencode-msb prune` when no VM references them.
+
 ---
 
 ## New CLI: `opencode-msb volume`
@@ -66,15 +81,15 @@ A subcommand group for manual home volume operations.
 ### `volume migrate [volume-name]`
 
 1. If no volume-name given, load from state file and warn if missing.
-2. Create new home volume: name = `opencode-msb-home-{slug}-{newDigestHash}`, contents = image's `/home/dev` + all files from old volume copied on top (user files win).
-3. Update state file to point to new volume.
+2. Create new home volume: name = `opencode-msb-home-{slug}-{currentTimestamp}`, contents = vm image's `/home/dev` + all files from old volume copied on top (user files win).
+3. Update state file with new volume name and current image digest.
 4. `--rm` flag: delete old volume after successful migration.
 
 ### `volume reset [volume-name]`
 
 1. If no volume-name given, load from state file and warn if missing.
-2. Create new home volume: name = `opencode-msb-home-{slug}-{newDigestHash}`, contents = image's `/home/dev` only.
-3. Update state file to point to new volume.
+2. Create new home volume: name = `opencode-msb-home-{slug}-{currentTimestamp}`, contents = vm image's `/home/dev` only.
+3. Update state file with new volume name and current image digest.
 4. `--rm` flag: delete old volume after reset.
 
 ### `volume edit [volume-name]`
@@ -107,7 +122,7 @@ Remove `pruneActiveVMHomeVolumes()`. It no longer prunes non-matching-digest vol
 ### State file cleanup
 
 When a home volume is deleted by any prune phase, also delete:
-1. The state file at `~/.local/state/opencode-msb/{slug}/home-volume`
+1. The state file at `~/.local/state/opencode-msb/{slug}/state.yaml`
 2. The state directory `~/.local/state/opencode-msb/{slug}/`
 3. The parent `~/.local/state/opencode-msb/` if empty
 
@@ -176,14 +191,32 @@ Recovery: corrupted state can always be fixed by manually removing `~/.local/sta
 
 ---
 
+## Documentation updates
+
+Update the following docs to reflect the new home volume behavior:
+
+- **`README.md`** — Home volumes now persist across image changes. Update the "how it works" section to explain that the user's home directory survives Dockerfile changes.
+- **`docs/runner-image.md`** — Update the "home directory" section: explain that the image provides defaults, but user-installed tools and config persist. Mention the prompt shown when the image changes.
+- **`docs/commands.md`** — Add `opencode-msb volume migrate`, `volume reset`, `volume edit` commands with `--rm` flag documentation.
+- **`docs/sandboxes.md`** — If it mentions home volume lifecycle, update to reflect the new slug-based ownership and timestamp naming.
+- **`docs/troubleshooting.md`** — Add troubleshooting section for "corrupted state file" recovery and "no home volume found" scenarios.
+
+---
+
 ## Files changed
 
 | File | Change |
 |---|---|
-| `internal/sandbox/volumes.go` | Home volume resolution, create, state file management, migrate/reset/edit logic |
+| `internal/sandbox/volumes.go` | Home volume resolution, create, state file (YAML), timestamp naming, migrate/reset/edit logic |
 | `internal/sandbox/prune.go` | Remove digest-matching cleanup, add state file cleanup |
+| `internal/git/names.go` | Volume naming: use timestamp instead of digest hash |
 | `cmd/opencode-msb/volume.go` | CLI subcommands wiring |
 | `cmd/opencode-msb/cli_lifecycle_test.go` | CLI tests for new volume subcommands |
 | `internal/termio/prompt.go` | No changes, `Select()` is already suitable |
 | `internal/sandbox/runner.go` | Wire prompt call into `prepareSandbox()` |
+| `README.md` | Home volume persist across image changes |
+| `docs/runner-image.md` | Home directory defaults vs persistence |
+| `docs/commands.md` | `volume migrate|reset|edit` commands |
+| `docs/sandboxes.md` | If applicable, update volume lifecycle |
+| `docs/troubleshooting.md` | State file recovery scenarios |
 | `docs/superpowers/specs/` | This design doc |
