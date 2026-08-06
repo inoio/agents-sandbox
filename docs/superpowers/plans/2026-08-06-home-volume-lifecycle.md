@@ -978,30 +978,28 @@ func volumeOp(
     }
 
     if doCopy {
-        // Pre-fill the sandbox with the old volume mounted at /src,
-        // then copy all files from /src to /home preserving ownership.
-        spin := ui.Spinner("Copying files from existing home volume")
-        oldMount := msbSdk.Mount.Named(oldVolume, msbSdk.MountOptions{})
-        copySandboxName := taskPrefix + projectSlug + "-" + strconv.FormatInt(time.Now().UnixNano(), 10)
-        copySb, copyErr := client.CreateSandbox(ctx, copySandboxName,
+        copySbName := taskPrefix + projectSlug + "-" + strconv.FormatInt(time.Now().UnixNano(), 10)
+        copySb, copyErr := client.CreateSandbox(ctx, copySbName,
             msbSdk.WithImage(imageTag),
             msbSdk.WithMounts(map[string]msbSdk.MountConfig{
-                "/mnt/home": oldMount,
-                "/mnt/new":  msbSdk.Mount.Named(newVolumeName, msbSdk.MountOptions{}),
+                "/src":  msbSdk.Mount.Named(oldVolume, msbSdk.MountOptions{}),
+                "/dst":  msbSdk.Mount.Named(newVolumeName, msbSdk.MountOptions{}),
             }),
             msbSdk.WithReplace(),
         )
         if copyErr != nil {
             return fmt.Errorf("create copy sandbox: %w", copyErr)
         }
-        copyOut, copyExecErr := copySb.Exec(ctx, "sh", []string{"-c", "cp -a /mnt/home/. /mnt/new/ && chown -R dev:dev /mnt/new"})
         defer func() {
-            stopCtx, cancel := context.WithTimeout(context.Background(), sandboxStopTimeout)
-            defer cancel()
-            _ = copySb.Stop(stopCtx)
+            _, ctx2 := context.WithTimeout(context.Background(), sandboxStopTimeout)
+            defer ctx2.Done()
+            _ = copySb.Detach(ctx2)
             _ = copySb.Close()
-            _ = client.RemoveSandbox(context.Background(), copySandboxName)
+            _ = client.RemoveSandbox(context.Background(), copySbName)
         }()
+
+        spin := ui.Spinner("Copying files from existing home volume")
+        copyOut, copyExecErr := copySb.Exec(ctx, "sh", []string{"-c", "cp -a /src/. /dst/ && chown -R dev:dev /dst"})
         if copyExecErr != nil {
             spin.StopError(copyExecErr)
             return fmt.Errorf("copy files: %w", copyExecErr)
