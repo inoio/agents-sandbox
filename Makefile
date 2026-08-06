@@ -14,6 +14,9 @@ lint:
 fmt:
 	golangci-lint fmt ./...
 
+run:
+	go run ./cmd/opencode-msb
+
 check: fmt lint test
 
 all: fmt lint test build
