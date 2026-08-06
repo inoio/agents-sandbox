@@ -276,24 +276,38 @@ opencode-msb version
 
 ---
 
-### volume
+### `opencode-msb volume <subcommand>`
 
-Manage volumes.
+The volume group provides manual home volume management.
 
-```console
-opencode-msb volume
-opencode-msb vol
-```
+#### `opencode-msb volume migrate [volume-name]`
 
-**Aliases:** `vol`
+Create a new home volume and copy files from the old volume on top of it.
 
-#### volume list
+- **Args:**
+  - `[volume-name]` — optional; defaults to volume in state file
+- **Flags:**
+  - `--rm` — remove old volume after successful migration
+  - `--dry-run` — show what would be done
+  - `--rebuild` — rebuild runner image before migrating
 
-List managed home volumes with names and paths.
+#### `opencode-msb volume reset [volume-name]`
 
-```console
-opencode-msb volume list
-opencode-msb volume ls
-```
+Create a new home volume from the image contents only (fresh, no copy).
 
-**Aliases:** `volume ls`
+- **Args:**
+  - `[volume-name]` — optional; defaults to volume in state file
+- **Flags:**
+  - `--rm` — remove old volume after reset
+  - `--dry-run` — show what would be done
+  - `--rebuild` — rebuild runner image before resetting
+
+#### `opencode-msb volume edit [volume-name]`
+
+Create a new volume alongside the old one, for manual data transfer.
+
+- **Args:**
+  - `[volume-name]` — optional; defaults to volume in state file
+- **Flags:**
+  - `--rm` — remove old volume after you exit (you are responsible for confirming)
+  - `--dry-run` — show what would be done
