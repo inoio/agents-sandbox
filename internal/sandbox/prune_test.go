@@ -1,10 +1,16 @@
 package sandbox
 
 import (
+	"context"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
-	msb "github.com/superradcompany/microsandbox/sdk/go"
+	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
+
+	"gitlab.inoio.de/inoio/opencode-msb/internal/termio"
+	"gitlab.inoio.de/inoio/opencode-msb/internal/testutil"
 )
 
 type slugDigestTest struct {
@@ -248,15 +254,15 @@ func TestExtractProjectSlugAndDigest_VMOnlyTwoParts(t *testing.T) {
 func TestIsStoppedStatus(t *testing.T) {
 	tests := []struct {
 		name   string
-		status msb.SandboxStatus
+		status msbSdk.SandboxStatus
 		want   bool
 	}{
-		{"stopped", msb.SandboxStatusStopped, true},
-		{"crashed", msb.SandboxStatusCrashed, true},
-		{"running", msb.SandboxStatusRunning, false},
-		{"draining", msb.SandboxStatusDraining, false},
-		{"paused", msb.SandboxStatusPaused, false},
-		{"empty string", msb.SandboxStatus(""), false},
+		{"stopped", msbSdk.SandboxStatusStopped, true},
+		{"crashed", msbSdk.SandboxStatusCrashed, true},
+		{"running", msbSdk.SandboxStatusRunning, false},
+		{"draining", msbSdk.SandboxStatusDraining, false},
+		{"paused", msbSdk.SandboxStatusPaused, false},
+		{"empty string", msbSdk.SandboxStatus(""), false},
 	}
 
 	for _, tt := range tests {
@@ -292,7 +298,7 @@ func TestFindStaleVMs(t *testing.T) {
 		{
 			name: "stopped VM past threshold",
 			sandboxes: []staleVM{
-				{name: "opencode-msb-vm-old-stale", status: msb.SandboxStatusStopped, updatedAt: oldTime},
+				{name: "opencode-msb-vm-old-stale", status: msbSdk.SandboxStatusStopped, updatedAt: oldTime},
 			},
 			threshold: threshold,
 			wantCount: 1,
@@ -301,7 +307,7 @@ func TestFindStaleVMs(t *testing.T) {
 		{
 			name: "stopped VM not past threshold",
 			sandboxes: []staleVM{
-				{name: "opencode-msb-vm-recent", status: msb.SandboxStatusStopped, updatedAt: recentTime},
+				{name: "opencode-msb-vm-recent", status: msbSdk.SandboxStatusStopped, updatedAt: recentTime},
 			},
 			threshold: threshold,
 			wantCount: 0,
@@ -310,7 +316,7 @@ func TestFindStaleVMs(t *testing.T) {
 		{
 			name: "crashed VM past threshold",
 			sandboxes: []staleVM{
-				{name: "opencode-msb-vm-crashed-old", status: msb.SandboxStatusCrashed, updatedAt: oldTime},
+				{name: "opencode-msb-vm-crashed-old", status: msbSdk.SandboxStatusCrashed, updatedAt: oldTime},
 			},
 			threshold: threshold,
 			wantCount: 1,
@@ -319,7 +325,7 @@ func TestFindStaleVMs(t *testing.T) {
 		{
 			name: "running VM ignored even if old",
 			sandboxes: []staleVM{
-				{name: "opencode-msb-vm-running-old", status: msb.SandboxStatusRunning, updatedAt: oldTime},
+				{name: "opencode-msb-vm-running-old", status: msbSdk.SandboxStatusRunning, updatedAt: oldTime},
 			},
 			threshold: threshold,
 			wantCount: 0,
@@ -328,7 +334,7 @@ func TestFindStaleVMs(t *testing.T) {
 		{
 			name: "draining VM ignored",
 			sandboxes: []staleVM{
-				{name: "opencode-msb-vm-draining", status: msb.SandboxStatusDraining, updatedAt: oldTime},
+				{name: "opencode-msb-vm-draining", status: msbSdk.SandboxStatusDraining, updatedAt: oldTime},
 			},
 			threshold: threshold,
 			wantCount: 0,
@@ -337,7 +343,7 @@ func TestFindStaleVMs(t *testing.T) {
 		{
 			name: "paused VM ignored",
 			sandboxes: []staleVM{
-				{name: "opencode-msb-vm-paused", status: msb.SandboxStatusPaused, updatedAt: oldTime},
+				{name: "opencode-msb-vm-paused", status: msbSdk.SandboxStatusPaused, updatedAt: oldTime},
 			},
 			threshold: threshold,
 			wantCount: 0,
@@ -346,10 +352,10 @@ func TestFindStaleVMs(t *testing.T) {
 		{
 			name: "mixed statuses",
 			sandboxes: []staleVM{
-				{name: "opencode-msb-vm-old-stopped", status: msb.SandboxStatusStopped, updatedAt: oldTime},
-				{name: "opencode-msb-vm-recent-stopped", status: msb.SandboxStatusStopped, updatedAt: recentTime},
-				{name: "opencode-msb-vm-old-running", status: msb.SandboxStatusRunning, updatedAt: oldTime},
-				{name: "opencode-msb-vm-old-crashed", status: msb.SandboxStatusCrashed, updatedAt: oldTime},
+				{name: "opencode-msb-vm-old-stopped", status: msbSdk.SandboxStatusStopped, updatedAt: oldTime},
+				{name: "opencode-msb-vm-recent-stopped", status: msbSdk.SandboxStatusStopped, updatedAt: recentTime},
+				{name: "opencode-msb-vm-old-running", status: msbSdk.SandboxStatusRunning, updatedAt: oldTime},
+				{name: "opencode-msb-vm-old-crashed", status: msbSdk.SandboxStatusCrashed, updatedAt: oldTime},
 			},
 			threshold: threshold,
 			wantCount: 2,
@@ -358,7 +364,7 @@ func TestFindStaleVMs(t *testing.T) {
 		{
 			name: "zero threshold stops everything stopped",
 			sandboxes: []staleVM{
-				{name: "opencode-msb-vm-recent", status: msb.SandboxStatusStopped, updatedAt: recentTime},
+				{name: "opencode-msb-vm-recent", status: msbSdk.SandboxStatusStopped, updatedAt: recentTime},
 			},
 			threshold: 0,
 			wantCount: 1,
@@ -396,7 +402,7 @@ func TestFindStaleVMs(t *testing.T) {
 func TestFindStaleVMs_StaleEntryFields(t *testing.T) {
 	now := time.Now()
 	sandboxes := []staleVM{
-		{name: "test-vm", status: msb.SandboxStatusStopped, updatedAt: now.Add(-1 * time.Hour)},
+		{name: "test-vm", status: msbSdk.SandboxStatusStopped, updatedAt: now.Add(-1 * time.Hour)},
 	}
 	threshold := 30 * time.Minute
 
@@ -620,4 +626,75 @@ func TestParseCloneVolumeName(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestRemoveHomeVolumes_CleansStateFile(t *testing.T) {
+	fix := saveStateDirTest()
+	defer fix()
+	stateDirSuffix = t.TempDir() + "/opencode-msb"
+
+	client := &MockMsbClient{}
+	ui := &termio.Mock{}
+
+	report := &StaleReport{}
+
+	slug := "myproject"
+	homeBySlugDigest := map[string]map[string]string{
+		slug: {"": "opencode-msb-home-myproject-20260806T143022"},
+	}
+
+	statePath := filepath.Join(stateDirSuffix, slug, "state.yaml")
+	os.MkdirAll(filepath.Dir(statePath), 0o700)
+	testutil.WritePath(t, statePath,
+		"home_volume: opencode-msb-home-myproject-20260806T143022\nimage_digest: sha256:abc\n")
+
+	removeHomeVolumes(context.Background(), client, slug, homeBySlugDigest, false, ui, report)
+
+	if report.PrunedVolumes != 1 {
+		t.Errorf("expected 1 pruned volume, got %d", report.PrunedVolumes)
+	}
+	if len(client.RemovedVolumes) != 1 {
+		t.Errorf("expected 1 volume removal, got %d", len(client.RemovedVolumes))
+	}
+	if _, err := os.Stat(statePath); !os.IsNotExist(err) {
+		t.Errorf("state file should be removed, still exists at %s", statePath)
+	}
+}
+
+func TestRemoveHomeVolumes_DryRunDoesNotRemoveState(t *testing.T) {
+	fix := saveStateDirTest()
+	defer fix()
+	stateDirSuffix = t.TempDir() + "/opencode-msb"
+
+	client := &MockMsbClient{}
+	ui := &termio.Mock{}
+	report := &StaleReport{}
+
+	slug := "myproject"
+	homeBySlugDigest := map[string]map[string]string{
+		slug: {"": "opencode-msb-home-myproject-20260806T143022"},
+	}
+
+	statePath := filepath.Join(stateDirSuffix, slug, "state.yaml")
+	os.MkdirAll(filepath.Dir(statePath), 0o700)
+	testutil.WritePath(t, statePath,
+		"home_volume: opencode-msb-home-myproject-20260806T143022\n")
+
+	removeHomeVolumes(context.Background(), client, slug, homeBySlugDigest, true, ui, report)
+
+	if report.PrunedVolumes != 1 {
+		t.Errorf("expected 1 pruned volume in dry-run, got %d", report.PrunedVolumes)
+	}
+	if len(client.RemovedVolumes) != 0 {
+		t.Errorf("expected no volume removals in dry-run, got %d", len(client.RemovedVolumes))
+	}
+	if _, err := os.Stat(statePath); os.IsNotExist(err) {
+		t.Errorf("state file should still exist in dry-run")
+	}
+}
+
+// saveStateDirTest saves and restores the stateDirSuffix global for test isolation.
+func saveStateDirTest() func() {
+	old := stateDirSuffix
+	return func() { stateDirSuffix = old }
 }

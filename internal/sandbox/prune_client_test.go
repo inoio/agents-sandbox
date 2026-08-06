@@ -218,11 +218,7 @@ func TestPruneActiveVMCleanup_KeepsMatchingDigestAndLatest(t *testing.T) {
 		homeBySlugDigest, msbImagesBySlug, false, ui, report,
 	)
 
-	assertReport(t, report, prunedCounts{volumes: 1, msbImages: 1, dockerImages: 1})
-
-	if len(client.RemovedVolumes) != 1 || client.RemovedVolumes[0] != "opencode-msb-home-myproject-digest1" {
-		t.Errorf("removed volumes = %v, want [opencode-msb-home-myproject-digest1]", client.RemovedVolumes)
-	}
+	assertReport(t, report, prunedCounts{msbImages: 1, dockerImages: 1})
 
 	if len(client.RemovedImages) != 1 || client.RemovedImages[0].Ref != "opencode-msb/runner-myproject:digest1" {
 		t.Errorf("removed msb images = %v, want [opencode-msb/runner-myproject:digest1]", client.RemovedImages)
@@ -259,7 +255,7 @@ func TestPruneActiveVMCleanup_DryRunCountsButDoesNotDelete(t *testing.T) {
 		homeBySlugDigest, msbImagesBySlug, true, ui, report,
 	)
 
-	if report.PrunedVolumes != 1 || report.PrunedMSBImages != 1 || report.PrunedDockerImages != 1 {
+	if report.PrunedVolumes != 0 || report.PrunedMSBImages != 1 || report.PrunedDockerImages != 1 {
 		t.Errorf("unexpected report counts: volumes=%d msb=%d docker=%d",
 			report.PrunedVolumes, report.PrunedMSBImages, report.PrunedDockerImages)
 	}
@@ -411,7 +407,7 @@ func TestPrune_WithMocks_CoversAllCases(t *testing.T) {
 	assertReport(
 		t,
 		report,
-		prunedCounts{vms: 1, taskSandboxes: 1, volumes: 2, cloneVolumes: 1, msbImages: 3, dockerImages: 3},
+		prunedCounts{vms: 1, taskSandboxes: 1, volumes: 1, cloneVolumes: 1, msbImages: 3, dockerImages: 3},
 	)
 }
 

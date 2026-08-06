@@ -256,7 +256,15 @@ func TestResolveHomeVolume_VolumeNotFoundInSandbox(t *testing.T) {
 	})
 
 	vm := NewVolumeManager(&termio.Mock{})
-	volName, state, err := vm.ResolveHomeVolume(context.Background(), mock, "orphanproj", "sha256:def", "latest-docker-image", RunOptions{}, &termio.Mock{})
+	volName, state, err := vm.ResolveHomeVolume(
+		context.Background(),
+		mock,
+		"orphanproj",
+		"sha256:def",
+		"latest-docker-image",
+		RunOptions{},
+		&termio.Mock{},
+	)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
