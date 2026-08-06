@@ -10,8 +10,8 @@ import (
 	"gitlab.inoio.de/inoio/opencode-msb/internal/termio"
 )
 
-func TestNewTestio_ReturnsEmptyMock(t *testing.T) {
-	mock := NewTestio(t)
+func TestTermUIMock_ReturnsEmptyMock(t *testing.T) {
+	mock := TermUIMock(t)
 	if mock.InfoCalls != nil {
 		t.Error("InfoCalls should be nil for empty mock")
 	}
@@ -23,8 +23,8 @@ func TestNewTestio_ReturnsEmptyMock(t *testing.T) {
 	}
 }
 
-func TestNewTestio_MockRecordsCalls(t *testing.T) {
-	mock := NewTestio(t)
+func TestTermUIMock_MockRecordsCalls(t *testing.T) {
+	mock := TermUIMock(t)
 
 	mock.Info("hello")
 	mock.Infof("fmt %s", "args")
@@ -61,8 +61,8 @@ func TestNewTestio_MockRecordsCalls(t *testing.T) {
 	}
 }
 
-func TestNewTestio_StdoutStderrAreWriters(t *testing.T) {
-	mock := NewTestio(t)
+func TestTermUIMock_StdoutStderrAreWriters(t *testing.T) {
+	mock := TermUIMock(t)
 
 	n, err := mock.StdOut().Write([]byte("out"))
 	if err != nil {
@@ -87,8 +87,8 @@ func TestNewTestio_StdoutStderrAreWriters(t *testing.T) {
 	}
 }
 
-func TestNewTestio_SelectReturnsDefault(t *testing.T) {
-	mock := NewTestio(t)
+func TestTermUIMock_SelectReturnsDefault(t *testing.T) {
+	mock := TermUIMock(t)
 	got, err := mock.Select("prompt", []termio.Choice{{Key: "a"}, {Key: "b"}}, "b")
 	if err != nil {
 		t.Fatalf("Select: %v", err)
@@ -98,8 +98,8 @@ func TestNewTestio_SelectReturnsDefault(t *testing.T) {
 	}
 }
 
-func TestNewTestio_ConfirmDefaultReturnsDefault(t *testing.T) {
-	mock := NewTestio(t)
+func TestTermUIMock_ConfirmDefaultReturnsDefault(t *testing.T) {
+	mock := TermUIMock(t)
 	got, err := mock.ConfirmDefault("prompt", true)
 	if err != nil {
 		t.Fatalf("ConfirmDefault: %v", err)
@@ -109,8 +109,8 @@ func TestNewTestio_ConfirmDefaultReturnsDefault(t *testing.T) {
 	}
 }
 
-func TestNewTestio_InputReturnsDefault(t *testing.T) {
-	mock := NewTestio(t)
+func TestTermUIMock_InputReturnsDefault(t *testing.T) {
+	mock := TermUIMock(t)
 	got, err := mock.Input("prompt", "hello")
 	if err != nil {
 		t.Fatalf("Input: %v", err)
@@ -120,8 +120,8 @@ func TestNewTestio_InputReturnsDefault(t *testing.T) {
 	}
 }
 
-func TestNewTestio_CustomFnOverrides(t *testing.T) {
-	mock := NewTestio(t)
+func TestTermUIMock_CustomFnOverrides(t *testing.T) {
+	mock := TermUIMock(t)
 
 	mock.SelectFn = func(_ string, _ []termio.Choice, _ string) (string, error) {
 		return "custom", nil

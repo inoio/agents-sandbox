@@ -9,7 +9,7 @@ import (
 )
 
 func TestAutoPruneDoesNotPanic(t *testing.T) {
-	testUI := testutil.NewTestio(t)
+	testUI := testutil.TermUIMock(t)
 	AutoPrune(context.Background(), time.Hour, &testUI)
 }
 
@@ -17,7 +17,7 @@ func TestAutoPruneIsIdempotent(t *testing.T) {
 	// AutoPrune uses sync.Once, so calling it twice should be safe.
 	// We can't easily test that it only runs once via Prune (which calls real SDK),
 	// but we can verify no panic on repeated calls.
-	testUI := testutil.NewTestio(t)
+	testUI := testutil.TermUIMock(t)
 	AutoPrune(context.Background(), time.Hour, &testUI)
 	AutoPrune(context.Background(), time.Hour, &testUI)
 }
@@ -25,7 +25,7 @@ func TestAutoPruneIsIdempotent(t *testing.T) {
 func TestAutoPruneDefaultsToSevenDays(t *testing.T) {
 	// When threshold is 0, AutoPrune should default to 30 days.
 	// We can't directly assert the threshold used, but we verify zero doesn't panic.
-	testUI := testutil.NewTestio(t)
+	testUI := testutil.TermUIMock(t)
 	AutoPrune(context.Background(), 0, &testUI)
 }
 

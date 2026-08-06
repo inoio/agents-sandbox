@@ -25,7 +25,7 @@ func TestHomeVolumeNameDifferentInputs(t *testing.T) {
 }
 
 func TestNewVolumeManager(t *testing.T) {
-	testUI := testutil.NewTestio(t)
+	testUI := testutil.TermUIMock(t)
 	vm := NewVolumeManager(&testUI)
 	if vm.ui == nil {
 		t.Error("expected ui to be set")
@@ -33,7 +33,7 @@ func TestNewVolumeManager(t *testing.T) {
 }
 
 func TestPrefillVolumeRunsCopyCommand(t *testing.T) {
-	testUI := testutil.NewTestio(t)
+	testUI := testutil.TermUIMock(t)
 	ui := &testUI
 	client := &MockMsbClient{}
 	vm := NewVolumeManager(ui)

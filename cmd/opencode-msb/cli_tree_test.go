@@ -10,7 +10,7 @@ import (
 func TestTree(t *testing.T) {
 	t.Run("T1", func(t *testing.T) {
 		// Tree root name is printed as first line of InfoCalls
-		testUI := testutil.NewTestio(t)
+		testUI := testutil.TermUIMock(t)
 		root := buildRootCmd(&testUI)
 		printTree(root, &testUI)
 		if len(testUI.InfoCalls) == 0 {
@@ -23,7 +23,7 @@ func TestTree(t *testing.T) {
 
 	t.Run("T2", func(t *testing.T) {
 		// Tree lists all subcommands
-		testUI := testutil.NewTestio(t)
+		testUI := testutil.TermUIMock(t)
 		root := buildRootCmd(&testUI)
 		printTree(root, &testUI)
 		out := strings.Join(testUI.InfoCalls, "\n")
@@ -37,7 +37,7 @@ func TestTree(t *testing.T) {
 
 	t.Run("T3", func(t *testing.T) {
 		// Tree shows flag descriptions from persistent and local flags
-		testUI := testutil.NewTestio(t)
+		testUI := testutil.TermUIMock(t)
 		root := buildRootCmd(&testUI)
 		printTree(root, &testUI)
 		out := strings.Join(testUI.InfoCalls, "\n")
@@ -58,7 +58,7 @@ func TestTree(t *testing.T) {
 		defer func() { version = orig }()
 		version = "dev"
 
-		testUI := testutil.NewTestio(t)
+		testUI := testutil.TermUIMock(t)
 		root := buildRootCmd(&testUI)
 		treeCmd, _, _ := root.Find([]string{"tree"})
 		versionCmd, _, _ := root.Find([]string{"version"})
@@ -84,7 +84,7 @@ func TestTree(t *testing.T) {
 		defer func() { version = orig }()
 		version = "1.2.3"
 
-		testUI := testutil.NewTestio(t)
+		testUI := testutil.TermUIMock(t)
 		root := buildRootCmd(&testUI)
 		versionCmd, _, _ := root.Find([]string{"version"})
 

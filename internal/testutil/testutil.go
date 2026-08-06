@@ -10,8 +10,8 @@ import (
 	"gitlab.inoio.de/inoio/opencode-msb/internal/termio"
 )
 
-// NewTestio returns an empty termio.Mock for tests.
-func NewTestio(tb testing.TB) termio.Mock {
+// TermUIMock returns an empty termio.Mock for tests.
+func TermUIMock(tb testing.TB) termio.Mock {
 	tb.Helper()
 	return termio.Mock{}
 }
