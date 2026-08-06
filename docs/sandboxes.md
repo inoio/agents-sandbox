@@ -37,22 +37,13 @@ opencode-msb-vm-myproject-<full-path-hash>
 The VM is **per-project/-directory, not per-invocation**. Subsequent runs connect to the existing VM (or start it if
 stopped) rather than creating a new one.
 
-## Image Hashing
+## Volume Lifecycle
 
-The home volume name and image tag include a hash of the Docker image digest:
+Home volumes are persistent storage for the VM's `$HOME` directory. They survive VM destruction and Dockerfile changes.
 
-```
-opencode-msb-home-<project-slug>-<image-hash>
-```
+Home volumes are named `opencode-msb-home-<slug>-<timestamp>`.
 
-This means:
-
-- Changing the Dockerfile → new image digest → new home volume (fresh state)
-- Not changing the Dockerfile → same digest → reuse existing home volume (preserved state)
-
-## Volume Management
-
-Home volumes are persistent storage for the VM's `$HOME` directory. They survive VM destruction.
+When the Dockerfile changes (new image digest), the next run prompts you to keep, migrate, or reset your home volume. Migrate copies files from the old volume; reset creates a fresh volume from the image.
 
 List all volumes:
 
@@ -60,10 +51,19 @@ List all volumes:
 opencode-msb volume list
 ```
 
-Home volumes are managed automatically. They are pruned when:
+Manual management:
 
-- The project's Dockerfile is modified (old volumes become orphaned)
+```console
+opencode-msb volume migrate   # new volume, copy files on top
+opencode-msb volume reset     # fresh volume from image
+opencode-msb volume edit      # new volume alongside old, manual transfer
+```
+
+Home volumes are pruned when:
+
+- You run `volume migrate|reset` with `--rm` (removes the old volume)
 - `prune` is run with an age threshold older than the volume's last use
+- The state file is missing and a fresh volume is created (old volumes become orphaned)
 
 ## Idle Timeout
 

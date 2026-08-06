@@ -235,18 +235,35 @@ Docker build failures are usually due to:
 
 1. **Network issues** — The base image downloads packages from the internet. Ensure outbound access:
 
-   ```console
-   curl -fsSL https://debian.org | head -c 100
-   ```
+    ```console
+    curl -fsSL https://debian.org | head -c 100
+    ```
 
 2. **Docker daemon memory** — Large builds may need more memory:
 
-   ```console
-   docker info | grep "Total Memory"
-   ```
+    ```console
+    docker info | grep "Total Memory"
+    ```
 
 3. **Custom Dockerfile errors** — If using a project Dockerfile, build it manually to isolate the issue:
 
-   ```console
-   docker build -f .opencode-msb/Dockerfile -t test-image .
-   ```
+    ```console
+    docker build -f .opencode-msb/Dockerfile -t test-image .
+    ```
+
+## Corrupted state file
+
+If the state file at `~/.local/state/opencode-msb/{slug}/state.yaml` is corrupted
+or missing, opencode-msb will warn and create a fresh home volume.
+
+To recover: manually remove the state directory:
+
+    rm -rf ~/.local/state/opencode-msb/{slug}/
+
+The next `opencode-msb run` will create a fresh home volume.
+
+## No home volume found
+
+If you see errors about an existing home volume not being found, the volume may have
+been deleted externally. The next `opencode-msb run` will create a fresh volume and
+warn you about it.

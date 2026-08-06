@@ -3,6 +3,19 @@
 opencode-msb builds a Docker image for each sandbox. The image contains opencode, Node.js, and common CLI tools.
 Projects can extend the image with their own tooling.
 
+## Home directory
+
+The runner image provides default files under `/home/dev/` — shell configs,
+default prompts, and pre-installed tools. When opencode-msb first starts, it
+copies these defaults into your home volume.
+
+Subsequent runs reuse your existing home volume, preserving your installed tools,
+config files, and session history. Your home directory survives Dockerfile changes.
+
+If the image changes between runs, you will be presented with a prompt to keep,
+migrate, or reset your home volume. See `volume migrate` and `volume reset` for
+manual management.
+
 ## Base Image
 
 The default runner image `opencode-msb/runner-base` is built from `debian:trixie-slim` and includes:

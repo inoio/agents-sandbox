@@ -59,6 +59,23 @@ Requires **Linux (KVM) or macOS (Apple Silicon)**.
 
 See [Getting Started](/docs/getting-started.md) for prerequisites and a full setup guide.
 
+## Home volumes
+
+Home volumes now persist across image changes. When you update your Dockerfile,
+one home volume is created per project and reused. The tool tracks the active
+volume in `~/.local/state/opencode-msb/{slug}/state.yaml`.
+
+When you run `opencode-msb run` and detect an image change, you'll be prompted:
+
+  1) keep      - continue with existing home volume
+  2) migrate   - create fresh volume, copy all files on top
+  3) reset     - replace with fresh volume from image (lose local changes)
+  4) quit      - exit without starting a session
+
+Use `opencode-msb volume migrate|reset|edit` for manual management.
+
+Home volumes are named `opencode-msb-home-{slug}-{timestamp}`.
+
 ## Usage
 
 Full [Commands Reference](/docs/commands.md).
