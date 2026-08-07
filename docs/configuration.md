@@ -7,6 +7,10 @@ flags and environment variables.
 
 Place files under `~/.config/opencode-msb/` to set defaults for all projects:
 
+The tool follows the [XDG base directory spec](https://specifications.freedesktop.org/basedir-spec/basedir-spec-latest.html):
+`~/.config/opencode-msb`, `~/.cache/opencode-msb`, and `~/.local/state/opencode-msb` are the defaults, but the
+`XDG_CONFIG_HOME`, `XDG_CACHE_HOME`, and `XDG_STATE_HOME` environment variables override them when set (and absolute).
+
 | File                                                   | Purpose                                                |
 |--------------------------------------------------------|--------------------------------------------------------|
 | `~/.config/opencode-msb/env`                           | Environment variables forwarded to every sandbox       |

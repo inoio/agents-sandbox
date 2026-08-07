@@ -10,11 +10,22 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// stateDirSuffix is the base directory for state files.
-// Derived from XdgStateSuffix to allow override in tests.
+// stateDirSuffix overrides the state directory root for tests when set to a
+// non-empty value. An empty value resolves to the XDG state directory at call
+// time (see stateRoot).
 //
 //nolint:gochecknoglobals // Required for testable state directory path override
-var stateDirSuffix = XdgStateSuffix
+var stateDirSuffix = ""
+
+// stateRoot returns the base directory for state files. Tests override it via
+// stateDirSuffix/SetStateDirForTest; otherwise it is the XDG state directory,
+// resolved fresh so environment changes are honored.
+func stateRoot() string {
+	if stateDirSuffix != "" {
+		return stateDirSuffix
+	}
+	return XdgStateDir()
+}
 
 // HomeState represents the per-project state file contents.
 type HomeState struct {
@@ -24,7 +35,7 @@ type HomeState struct {
 
 // StateFile returns the path to the state file for a project slug.
 func StateFile(slug string) string {
-	return filepath.Join(stateDirSuffix, slug, "state.yaml")
+	return filepath.Join(stateRoot(), slug, "state.yaml")
 }
 
 // SetStateDirForTest overrides the state directory root for the given test.
@@ -81,6 +92,6 @@ func WriteState(slug string, state HomeState) error {
 
 // RemoveState removes the state file and its parent directory.
 func RemoveState(slug string) error {
-	stateDir := filepath.Join(stateDirSuffix, slug)
+	stateDir := filepath.Join(stateRoot(), slug)
 	return os.RemoveAll(stateDir)
 }

@@ -66,11 +66,11 @@ func newUI(args []string) termio.UI {
 }
 
 func newConfig() sandbox.Config {
-	home, _ := os.UserHomeDir()
 	return sandbox.Config{
-		StateDir:        filepath.Join(home, sandbox.XdgStateSuffix),
-		UserConfigDir:   filepath.Join(home, sandbox.XdgConfigSuffix, "opencode"),
-		UserLauncherDir: filepath.Join(home, sandbox.XdgConfigSuffix),
+		StateDir:        sandbox.XdgStateDir(),
+		UserConfigDir:   filepath.Join(sandbox.XdgConfigDir(), "opencode"),
+		UserLauncherDir: sandbox.XdgConfigDir(),
+		CacheDir:        sandbox.XdgCacheDir(),
 	}
 }
 
