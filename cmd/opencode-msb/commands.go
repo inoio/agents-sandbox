@@ -67,7 +67,7 @@ func buildRootCmd(ui termio.UI) *cobra.Command {
 
 	rootCmd.PersistentPreRunE = func(cmd *cobra.Command, _ []string) error {
 		cfg := newConfig()
-		lc, keys, err := launcherconfig.Load(cfg.UserLauncherDir, projectConfigDir)
+		lc, keys, err := launcherconfig.Load(cfg.UserConfigDir, projectConfigDir)
 		if err != nil {
 			return err
 		}

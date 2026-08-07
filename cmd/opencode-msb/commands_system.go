@@ -112,11 +112,11 @@ func buildConfigCmd(ui termio.UI) *cobra.Command {
 				return fmt.Errorf("load provider config: %w", err)
 			}
 
-			descs, err := config.DescribeConfig(cfg.UserConfigDir, projectConfigDir, providerCfg)
+			descs, err := config.DescribeConfig(cfg.UserOpenCodeConfigDir(), projectConfigDir, providerCfg)
 			if err != nil {
 				return err
 			}
-			files, err := config.BuildMergedConfig(cfg.UserConfigDir, projectConfigDir, providerCfg)
+			files, err := config.BuildMergedConfig(cfg.UserOpenCodeConfigDir(), projectConfigDir, providerCfg)
 			if err != nil {
 				return err
 			}

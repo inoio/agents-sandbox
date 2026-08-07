@@ -107,9 +107,8 @@ func TestCreateProjectVMCallsClientCreateSandbox(t *testing.T) {
 	testUI := testutil.TermUIMock(t)
 	ui := &testUI
 	cfg := Config{
-		StateDir:        t.TempDir(),
-		UserConfigDir:   t.TempDir(),
-		UserLauncherDir: t.TempDir(),
+		UserStateDir:  t.TempDir(),
+		UserConfigDir: t.TempDir(),
 	}
 
 	sb, created, err := createProjectVM(

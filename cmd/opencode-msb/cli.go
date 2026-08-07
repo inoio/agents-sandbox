@@ -3,7 +3,6 @@ package main
 import (
 	"fmt"
 	"os"
-	"path/filepath"
 	"strconv"
 	"time"
 
@@ -67,10 +66,9 @@ func newUI(args []string) termio.UI {
 
 func newConfig() sandbox.Config {
 	return sandbox.Config{
-		StateDir:        sandbox.XdgStateDir(),
-		UserConfigDir:   filepath.Join(sandbox.XdgConfigDir(), "opencode"),
-		UserLauncherDir: sandbox.XdgConfigDir(),
-		CacheDir:        sandbox.XdgCacheDir(),
+		UserStateDir:  sandbox.XdgStateDir(),
+		UserConfigDir: sandbox.XdgConfigDir(),
+		UserCacheDir:  sandbox.XdgCacheDir(),
 	}
 }
 

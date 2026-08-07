@@ -416,23 +416,23 @@ func TestApplyLauncherConfigRespectsCLIOverrides(t *testing.T) {
 	}
 }
 
-func TestNewConfigSetsUserLauncherDir(t *testing.T) {
+func TestNewConfigSetsUserDirs(t *testing.T) {
 	t.Setenv("HOME", "/testhome")
 	t.Setenv("XDG_CONFIG_HOME", "")
 	t.Setenv("XDG_CACHE_HOME", "")
 	t.Setenv("XDG_STATE_HOME", "")
 	cfg := newConfig()
-	if cfg.StateDir != "/testhome/.local/state/opencode-msb" {
-		t.Errorf("unexpected state dir: %q", cfg.StateDir)
+	if cfg.UserStateDir != "/testhome/.local/state/opencode-msb" {
+		t.Errorf("unexpected state dir: %q", cfg.UserStateDir)
 	}
-	if cfg.UserConfigDir != "/testhome/.config/opencode-msb/opencode" {
+	if cfg.UserConfigDir != "/testhome/.config/opencode-msb" {
 		t.Errorf("unexpected user config dir: %q", cfg.UserConfigDir)
 	}
-	if cfg.UserLauncherDir != "/testhome/.config/opencode-msb" {
-		t.Errorf("unexpected user launcher dir: %q", cfg.UserLauncherDir)
+	if cfg.UserOpenCodeConfigDir() != "/testhome/.config/opencode-msb/opencode" {
+		t.Errorf("unexpected opencode config dir: %q", cfg.UserOpenCodeConfigDir())
 	}
-	if cfg.CacheDir != "/testhome/.cache/opencode-msb" {
-		t.Errorf("unexpected cache dir: %q", cfg.CacheDir)
+	if cfg.UserCacheDir != "/testhome/.cache/opencode-msb" {
+		t.Errorf("unexpected cache dir: %q", cfg.UserCacheDir)
 	}
 }
 
@@ -442,17 +442,17 @@ func TestNewConfigHonorsXdgEnv(t *testing.T) {
 	t.Setenv("XDG_CACHE_HOME", "/xdg/cache")
 	t.Setenv("XDG_STATE_HOME", "/xdg/state")
 	cfg := newConfig()
-	if cfg.StateDir != "/xdg/state/opencode-msb" {
-		t.Errorf("unexpected state dir: %q", cfg.StateDir)
+	if cfg.UserStateDir != "/xdg/state/opencode-msb" {
+		t.Errorf("unexpected state dir: %q", cfg.UserStateDir)
 	}
-	if cfg.UserConfigDir != "/xdg/config/opencode-msb/opencode" {
+	if cfg.UserConfigDir != "/xdg/config/opencode-msb" {
 		t.Errorf("unexpected user config dir: %q", cfg.UserConfigDir)
 	}
-	if cfg.UserLauncherDir != "/xdg/config/opencode-msb" {
-		t.Errorf("unexpected user launcher dir: %q", cfg.UserLauncherDir)
+	if cfg.UserOpenCodeConfigDir() != "/xdg/config/opencode-msb/opencode" {
+		t.Errorf("unexpected opencode config dir: %q", cfg.UserOpenCodeConfigDir())
 	}
-	if cfg.CacheDir != "/xdg/cache/opencode-msb" {
-		t.Errorf("unexpected cache dir: %q", cfg.CacheDir)
+	if cfg.UserCacheDir != "/xdg/cache/opencode-msb" {
+		t.Errorf("unexpected cache dir: %q", cfg.UserCacheDir)
 	}
 }
 
