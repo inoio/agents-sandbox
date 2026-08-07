@@ -69,8 +69,8 @@ func loadConfigFiles(userConfigDir string) (*configFiles, error) {
 		return nil, fmt.Errorf("load provider config: %w", err)
 	}
 	projectConfigDir := ""
-	if _, statErr := os.Stat(projConfigDir); statErr == nil {
-		projectConfigDir = projConfigDir
+	if _, statErr := os.Stat(ProjectOpencodeConfigDir()); statErr == nil {
+		projectConfigDir = ProjectOpencodeConfigDir()
 	}
 	files, err := config.BuildMergedConfig(userConfigDir, projectConfigDir, providerCfg)
 	if err != nil {

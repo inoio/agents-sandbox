@@ -19,15 +19,15 @@ import (
 // Config holds launcher-level defaults that can be set in
 // ~/.config/opencode-msb/config.* and .opencode-msb/config.*.
 type Config struct {
+	AutoPruneAge   time.Duration `mapstructure:"auto-prune-age"`
+	ManualPruneAge time.Duration `mapstructure:"manual-prune-age"`
+	Memory         string        `mapstructure:"memory"`
+	TmpSize        string        `mapstructure:"tmp-size"`
 	Yes            bool          `mapstructure:"yes"`
 	Verbose        bool          `mapstructure:"verbose"`
 	Quiet          bool          `mapstructure:"quiet"`
-	CPUs           uint8         `mapstructure:"cpus"`
-	Memory         string        `mapstructure:"memory"`
-	TmpSize        string        `mapstructure:"tmp-size"`
 	Rebuild        bool          `mapstructure:"rebuild"`
-	AutoPruneAge   time.Duration `mapstructure:"auto-prune-age"`
-	ManualPruneAge time.Duration `mapstructure:"manual-prune-age"`
+	CPUs           uint8         `mapstructure:"cpus"`
 }
 
 const (

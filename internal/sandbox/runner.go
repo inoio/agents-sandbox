@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -39,10 +40,25 @@ type RunOptions struct {
 }
 
 type Config struct {
-	StateDir        string
-	UserConfigDir   string
-	UserLauncherDir string
-	CacheDir        string
+	UserStateDir  string
+	UserConfigDir string
+	UserCacheDir  string
+}
+
+// UserOpenCodeConfigDir returns the directory of the opencode server's own
+// user config, nested under the tool's user config base.
+func (c Config) UserOpenCodeConfigDir() string {
+	return filepath.Join(c.UserConfigDir, configDirName)
+}
+
+// UserEnvFile returns the user-level environment definitions file.
+func (c Config) UserEnvFile() string {
+	return filepath.Join(c.UserConfigDir, envFileName)
+}
+
+// UserEnvSecretFile returns the user-level secret environment definitions file.
+func (c Config) UserEnvSecretFile() string {
+	return filepath.Join(c.UserConfigDir, envSecretFileName)
 }
 
 const (
@@ -113,7 +129,7 @@ func buildOpencodeArgs(args []string, auto bool) []string {
 }
 
 func resolveDockerfile() []byte {
-	if data, err := os.ReadFile(projDockerfile); err == nil {
+	if data, err := os.ReadFile(projectDockerfile()); err == nil {
 		return data
 	}
 	return EmbeddedDockerfile
@@ -322,7 +338,7 @@ func setUpSandbox(
 	_ string,
 	ui termio.UI,
 ) (string, error) {
-	cfs, err := loadConfigFiles(cfg.UserConfigDir)
+	cfs, err := loadConfigFiles(cfg.UserOpenCodeConfigDir())
 	if err != nil {
 		return "", err
 	}
