@@ -42,6 +42,7 @@ type Config struct {
 	StateDir        string
 	UserConfigDir   string
 	UserLauncherDir string
+	CacheDir        string
 }
 
 const (

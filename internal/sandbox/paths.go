@@ -13,12 +13,6 @@ const (
 	projEnvSecretFile = ProjectDir + "/env.secret"
 )
 
-// XDG path suffixes used in newConfig().
-const (
-	XdgStateSuffix  = ".local/state/" + Prefix
-	XdgConfigSuffix = ".config/" + Prefix
-)
-
 // Mount point constants used by volume operations (prefill, copy, edit).
 const (
 	srcMount = "/src"

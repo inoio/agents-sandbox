@@ -418,6 +418,9 @@ func TestApplyLauncherConfigRespectsCLIOverrides(t *testing.T) {
 
 func TestNewConfigSetsUserLauncherDir(t *testing.T) {
 	t.Setenv("HOME", "/testhome")
+	t.Setenv("XDG_CONFIG_HOME", "")
+	t.Setenv("XDG_CACHE_HOME", "")
+	t.Setenv("XDG_STATE_HOME", "")
 	cfg := newConfig()
 	if cfg.StateDir != "/testhome/.local/state/opencode-msb" {
 		t.Errorf("unexpected state dir: %q", cfg.StateDir)
@@ -427,6 +430,29 @@ func TestNewConfigSetsUserLauncherDir(t *testing.T) {
 	}
 	if cfg.UserLauncherDir != "/testhome/.config/opencode-msb" {
 		t.Errorf("unexpected user launcher dir: %q", cfg.UserLauncherDir)
+	}
+	if cfg.CacheDir != "/testhome/.cache/opencode-msb" {
+		t.Errorf("unexpected cache dir: %q", cfg.CacheDir)
+	}
+}
+
+func TestNewConfigHonorsXdgEnv(t *testing.T) {
+	t.Setenv("HOME", "/testhome")
+	t.Setenv("XDG_CONFIG_HOME", "/xdg/config")
+	t.Setenv("XDG_CACHE_HOME", "/xdg/cache")
+	t.Setenv("XDG_STATE_HOME", "/xdg/state")
+	cfg := newConfig()
+	if cfg.StateDir != "/xdg/state/opencode-msb" {
+		t.Errorf("unexpected state dir: %q", cfg.StateDir)
+	}
+	if cfg.UserConfigDir != "/xdg/config/opencode-msb/opencode" {
+		t.Errorf("unexpected user config dir: %q", cfg.UserConfigDir)
+	}
+	if cfg.UserLauncherDir != "/xdg/config/opencode-msb" {
+		t.Errorf("unexpected user launcher dir: %q", cfg.UserLauncherDir)
+	}
+	if cfg.CacheDir != "/xdg/cache/opencode-msb" {
+		t.Errorf("unexpected cache dir: %q", cfg.CacheDir)
 	}
 }
 

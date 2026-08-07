@@ -50,9 +50,9 @@ func runnerTag(projectSlug string) string {
 	return imagePrefix + projectSlug + ":latest"
 }
 
-// envDir returns the project-local metadata directory for image env info.
+// envDir returns the user cache directory for image env info.
 func envDir() string {
-	return ProjectDir
+	return XdgCacheDir()
 }
 
 // envMetaFile returns the JSON file path for image env metadata, keyed by the
