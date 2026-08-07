@@ -15,8 +15,11 @@ const (
 	dockerdBinaryCheckCmd = "test -x /usr/bin/dockerd"
 	dockerdReadyCmd       = "docker info"
 	dockerdRestartCmd     = "pkill dockerd 2>/dev/null || : && find /run /var/run -iname 'docker*.pid' -delete 2>/dev/null && sleep 1 && dockerd -H unix:///var/run/docker.sock > /var/log/dockerd.log 2>&1 &"
-	dockerdReadyTimeout   = 10 * time.Second
-	dockerdPollInterval   = time.Second
+)
+
+var (
+	dockerdReadyTimeout = 10 * time.Second //nolint:gochecknoglobals // test seam, swapped in tests
+	dockerdPollInterval = time.Second      //nolint:gochecknoglobals // test seam, swapped in tests
 )
 
 // startDockerdIfPresent starts dockerd inside the VM if the dind image is in

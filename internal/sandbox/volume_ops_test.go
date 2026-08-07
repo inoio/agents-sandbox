@@ -12,78 +12,59 @@ import (
 	"gitlab.inoio.de/inoio/opencode-msb/internal/termio"
 )
 
-func TestCmdMigrate_DryRun(t *testing.T) {
-	SetStateDirForTest(t, t.TempDir()+"/opencode-msb")
-
-	slug := "testproj-aBc1234D"
-	WriteState(slug, HomeState{HomeVolume: "old-vol", ImageDigest: "sha256:abc"})
-
-	mock := &msb.MockMsbClient{}
-	msb.WithMsbMock(t, mock)
-
-	ui := &termio.Mock{}
-	err := CmdMigrate(context.Background(), slug, "", "img-tag", false, true, ui)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+func TestVolumeOps_DryRun(t *testing.T) {
+	tests := []struct {
+		name string
+		run  func(ctx context.Context, slug, imageTag string, rmOld, dryRun bool, ui *termio.Mock) error
+		want []string
+	}{
+		{
+			name: "migrate",
+			run: func(ctx context.Context, slug, imageTag string, rmOld, dryRun bool, ui *termio.Mock) error {
+				return CmdMigrate(ctx, slug, "", imageTag, rmOld, dryRun, ui)
+			},
+			want: []string{"dry-run: Would create volume", "old-vol"},
+		},
+		{
+			name: "reset",
+			run: func(ctx context.Context, slug, imageTag string, rmOld, dryRun bool, ui *termio.Mock) error {
+				return CmdReset(ctx, slug, "", imageTag, rmOld, dryRun, ui)
+			},
+			want: []string{"dry-run: Would create fresh volume", "old-vol"},
+		},
+		{
+			name: "edit",
+			run: func(ctx context.Context, slug, imageTag string, rmOld, dryRun bool, ui *termio.Mock) error {
+				return CmdEdit(ctx, slug, "", imageTag, rmOld, dryRun, ui)
+			},
+			want: []string{"dry-run: Would create volume", "alongside", "old-vol"},
+		},
 	}
-	if len(ui.InfoCalls) != 1 {
-		t.Fatalf("expected 1 Info call, got %d: %v", len(ui.InfoCalls), ui.InfoCalls)
-	}
-	if !strings.Contains(ui.InfoCalls[0], "dry-run: Would create volume") {
-		t.Errorf("unexpected message: %q", ui.InfoCalls[0])
-	}
-	if !strings.Contains(ui.InfoCalls[0], "old-vol") {
-		t.Errorf("expected message to contain old volume name: %q", ui.InfoCalls[0])
-	}
-}
 
-func TestCmdReset_DryRun(t *testing.T) {
-	SetStateDirForTest(t, t.TempDir()+"/opencode-msb")
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			SetStateDirForTest(t, t.TempDir()+"/opencode-msb")
 
-	slug := "testproj-aBc1234D"
-	WriteState(slug, HomeState{HomeVolume: "old-vol", ImageDigest: "sha256:abc"})
+			slug := "testproj-aBc1234D"
+			WriteState(slug, HomeState{HomeVolume: "old-vol", ImageDigest: "sha256:abc"})
 
-	mock := &msb.MockMsbClient{}
-	msb.WithMsbMock(t, mock)
+			mock := &msb.MockMsbClient{}
+			msb.WithMsbMock(t, mock)
 
-	ui := &termio.Mock{}
-	err := CmdReset(context.Background(), slug, "", "img-tag", false, true, ui)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if len(ui.InfoCalls) != 1 {
-		t.Fatalf("expected 1 Info call, got %d: %v", len(ui.InfoCalls), ui.InfoCalls)
-	}
-	if !strings.Contains(ui.InfoCalls[0], "dry-run: Would create fresh volume") {
-		t.Errorf("unexpected message: %q", ui.InfoCalls[0])
-	}
-	if !strings.Contains(ui.InfoCalls[0], "old-vol") {
-		t.Errorf("expected message to contain old volume name: %q", ui.InfoCalls[0])
-	}
-}
-
-func TestCmdEdit_DryRun(t *testing.T) {
-	SetStateDirForTest(t, t.TempDir()+"/opencode-msb")
-
-	slug := "testproj-aBc1234D"
-	WriteState(slug, HomeState{HomeVolume: "old-vol", ImageDigest: "sha256:abc"})
-
-	mock := &msb.MockMsbClient{}
-	msb.WithMsbMock(t, mock)
-
-	ui := &termio.Mock{}
-	err := CmdEdit(context.Background(), slug, "", "img-tag", false, true, ui)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if len(ui.InfoCalls) != 1 {
-		t.Fatalf("expected 1 Info call, got %d: %v", len(ui.InfoCalls), ui.InfoCalls)
-	}
-	if !strings.Contains(ui.InfoCalls[0], "dry-run: Would create volume") {
-		t.Errorf("unexpected message: %q", ui.InfoCalls[0])
-	}
-	if !strings.Contains(ui.InfoCalls[0], "alongside") {
-		t.Errorf("expected message to contain alongside: %q", ui.InfoCalls[0])
+			ui := &termio.Mock{}
+			err := tt.run(context.Background(), slug, "img-tag", false, true, ui)
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if len(ui.InfoCalls) != 1 {
+				t.Fatalf("expected 1 Info call, got %d: %v", len(ui.InfoCalls), ui.InfoCalls)
+			}
+			for _, frag := range tt.want {
+				if !strings.Contains(ui.InfoCalls[0], frag) {
+					t.Errorf("message %q missing %q", ui.InfoCalls[0], frag)
+				}
+			}
+		})
 	}
 }
 

@@ -73,42 +73,11 @@ func CmdMigrate(
 			)
 		},
 		main: func(oldVolume, newVolumeName string) error {
-			client := msb.Get()
-			copySbName := taskPrefix + projectSlug + "-" + strconv.FormatInt(time.Now().UnixNano(), 10)
-			copySb, copyErr := client.CreateSandbox(ctx, copySbName,
-				msbSdk.WithImage(imageTag),
-				msbSdk.WithMounts(map[string]msbSdk.MountConfig{
-					srcMount: msbSdk.Mount.Named(oldVolume, msbSdk.MountOptions{}),
-					dstMount: msbSdk.Mount.Named(newVolumeName, msbSdk.MountOptions{}),
-				}),
-				msbSdk.WithReplace(),
-			)
-			if copyErr != nil {
-				return fmt.Errorf("create copy sandbox: %w", copyErr)
+			if err := NewVolumeManager(ui).copyVolume(
+				ctx, msb.Get(), projectSlug, oldVolume, newVolumeName, imageTag, ui,
+			); err != nil {
+				return err
 			}
-			defer func() {
-				stopCtx, cancel := context.WithTimeout(context.Background(), sandboxStopTimeout)
-				defer cancel()
-				_ = copySb.Detach(stopCtx)
-				_ = copySb.Close()
-				_ = client.RemoveSandbox(context.Background(), copySbName)
-			}()
-
-			spin := ui.Spinner("Copying files from existing home volume")
-			copyOut, copyExecErr := copySb.Exec(
-				ctx,
-				"sh",
-				[]string{"-c", "cp -a /src/. /dst/ && chown -R dev:dev /dst"},
-			)
-			if copyExecErr != nil {
-				spin.StopError(copyExecErr)
-				return fmt.Errorf("copy files: %w", copyExecErr)
-			}
-			if copyOut != nil && !copyOut.Success() {
-				spin.StopError(fmt.Errorf("copy failed (exit %d): %s", copyOut.ExitCode(), copyOut.Stderr()))
-				return fmt.Errorf("copy files (exit %d): %s", copyOut.ExitCode(), copyOut.Stderr())
-			}
-			spin.Stop()
 			ui.Infof("migrated to new home volume %q (files copied from %q)", newVolumeName, oldVolume)
 			return nil
 		},
