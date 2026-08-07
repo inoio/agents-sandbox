@@ -19,6 +19,9 @@ const (
 	actionMigrate = "2"
 	actionReset   = "3"
 	actionQuit    = "4"
+
+	actionMigrateLabel = "migrate"
+	actionResetLabel   = "reset"
 )
 
 func HomeVolumeName(projectSlug string, digest string) string { //nolint:revive // digest retained for API compatibility
@@ -193,10 +196,10 @@ func (vm *VolumeManager) RecordHomeImage(projectSlug, currentDigest string, ui t
 // actionLabel returns a human-friendly label for a home volume action.
 func actionLabel(action string) string {
 	if action == actionReset {
-		return "reset"
+		return actionResetLabel
 	}
 	if action == actionMigrate {
-		return "migrate"
+		return actionMigrateLabel
 	}
 	return "keep"
 }
@@ -339,8 +342,12 @@ func (vm *VolumeManager) ResolveHomeAction(
 	prompt := "Docker image changed for project. The image's home directory is different from your current one."
 	choices := []termio.Choice{
 		{Key: actionKeep, Label: "keep", Description: "continue with existing home volume"},
-		{Key: actionMigrate, Label: "migrate", Description: "create fresh volume, copy all files on top"},
-		{Key: actionReset, Label: "reset", Description: "replace with fresh volume from image (lose local changes)"},
+		{Key: actionMigrate, Label: actionMigrateLabel, Description: "create fresh volume, copy all files on top"},
+		{
+			Key:         actionReset,
+			Label:       actionResetLabel,
+			Description: "replace with fresh volume from image (lose local changes)",
+		},
 		{Key: actionQuit, Label: "quit", Description: "exit without starting a session"},
 	}
 	selected, err := ui.Select(prompt, choices, actionKeep)

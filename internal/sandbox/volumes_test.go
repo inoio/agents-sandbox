@@ -227,95 +227,67 @@ func TestApplyHomeAction_KeepReturnsOldVolume(t *testing.T) {
 	}
 }
 
-func TestApplyHomeAction_Reset_ExecutesAndKeepsOld(t *testing.T) {
-	SetStateDirForTest(t, t.TempDir()+"/opencode-msb")
-
-	slug := "myproj"
-	oldVol := "opencode-msb-home-myproj-old"
-	WriteState(slug, HomeState{HomeVolume: oldVol, ImageDigest: "sha256:old"})
-
-	mock := &msb.MockMsbClient{}
-	vm := NewVolumeManager(&termio.Mock{})
-
-	newVol, err := vm.ApplyHomeAction(
-		context.Background(),
-		mock,
-		slug,
-		oldVol,
-		"img-tag",
-		"sha256:new",
-		actionReset,
-		RunOptions{},
-		&termio.Mock{},
-	)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if newVol == oldVol {
-		t.Errorf("reset should produce a new volume, got %q", newVol)
-	}
-	if len(mock.CreatedSandboxes) != 1 {
-		t.Errorf("expected 1 prefill sandbox for reset, got %d", len(mock.CreatedSandboxes))
-	}
-	if len(mock.RemovedVolumes) != 0 {
-		t.Errorf("expected old volume to be kept, removed=%v", mock.RemovedVolumes)
+func TestApplyHomeAction_ExecutesAndKeepsOld(t *testing.T) {
+	tests := []struct {
+		name          string
+		action        string
+		wantSandboxes int
+	}{
+		{name: "reset", action: actionReset, wantSandboxes: 1},
+		{name: "migrate", action: actionMigrate, wantSandboxes: 2},
 	}
 
-	st, err := ReadState(slug)
-	if err != nil {
-		t.Fatalf("ReadState: %v", err)
-	}
-	if st.HomeVolume != newVol {
-		t.Errorf("state HomeVolume = %q, want %q", st.HomeVolume, newVol)
-	}
-	if st.ImageDigest != "sha256:new" {
-		t.Errorf("state ImageDigest = %q, want %q", st.ImageDigest, "sha256:new")
-	}
-}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			SetStateDirForTest(t, t.TempDir()+"/opencode-msb")
 
-func TestApplyHomeAction_Migrate_CopiesFilesAndKeepsOld(t *testing.T) {
-	SetStateDirForTest(t, t.TempDir()+"/opencode-msb")
+			slug := "myproj"
+			oldVol := "opencode-msb-home-myproj-old"
+			WriteState(slug, HomeState{HomeVolume: oldVol, ImageDigest: "sha256:old"})
 
-	slug := "myproj"
-	oldVol := "opencode-msb-home-myproj-old"
-	WriteState(slug, HomeState{HomeVolume: oldVol, ImageDigest: "sha256:old"})
+			mock := &msb.MockMsbClient{}
+			vm := NewVolumeManager(&termio.Mock{})
 
-	mock := &msb.MockMsbClient{}
-	vm := NewVolumeManager(&termio.Mock{})
+			newVol, err := vm.ApplyHomeAction(
+				context.Background(),
+				mock,
+				slug,
+				oldVol,
+				"img-tag",
+				"sha256:new",
+				tt.action,
+				RunOptions{},
+				&termio.Mock{},
+			)
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if newVol == oldVol {
+				t.Errorf("%s should produce a new volume, got %q", tt.action, newVol)
+			}
+			if len(mock.CreatedSandboxes) != tt.wantSandboxes {
+				t.Errorf(
+					"expected %d sandboxes for %s, got %d",
+					tt.wantSandboxes,
+					tt.action,
+					len(mock.CreatedSandboxes),
+				)
+			}
+			if len(mock.RemovedVolumes) != 0 {
+				t.Errorf("expected old volume to be kept, removed=%v", mock.RemovedVolumes)
+			}
 
-	newVol, err := vm.ApplyHomeAction(
-		context.Background(),
-		mock,
-		slug,
-		oldVol,
-		"img-tag",
-		"sha256:new",
-		actionMigrate,
-		RunOptions{},
-		&termio.Mock{},
-	)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if newVol == oldVol {
-		t.Errorf("migrate should produce a new volume, got %q", newVol)
-	}
-	if len(mock.CreatedSandboxes) != 2 {
-		t.Errorf("expected prefill + copy sandboxes for migrate, got %d", len(mock.CreatedSandboxes))
-	}
-	if len(mock.RemovedVolumes) != 0 {
-		t.Errorf("expected old volume to be kept, removed=%v", mock.RemovedVolumes)
-	}
-
-	st, err := ReadState(slug)
-	if err != nil {
-		t.Fatalf("ReadState: %v", err)
-	}
-	if st.HomeVolume != newVol {
-		t.Errorf("state HomeVolume = %q, want %q", st.HomeVolume, newVol)
-	}
-	if st.ImageDigest != "sha256:new" {
-		t.Errorf("state ImageDigest = %q, want %q", st.ImageDigest, "sha256:new")
+			st, err := ReadState(slug)
+			if err != nil {
+				t.Fatalf("ReadState: %v", err)
+			}
+			if st.HomeVolume != newVol {
+				t.Errorf("state HomeVolume = %q, want %q", st.HomeVolume, newVol)
+			}
+			if st.ImageDigest != "sha256:new" {
+				t.Errorf("state ImageDigest = %q, want %q", st.ImageDigest, "sha256:new")
+			}
+		})
 	}
 }
 

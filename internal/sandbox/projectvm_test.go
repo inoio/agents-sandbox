@@ -2,6 +2,8 @@ package sandbox
 
 import (
 	"context"
+	"errors"
+	"path/filepath"
 	"testing"
 
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
@@ -158,5 +160,98 @@ func TestStopProjectVMUsesClient(t *testing.T) {
 
 	if err := StopProjectVM(context.Background(), false, false, ui); err != nil {
 		t.Fatalf("StopProjectVM failed: %v", err)
+	}
+}
+
+func TestEnsureProjectVM_CreatePath(t *testing.T) {
+	testUI := testutil.TermUIMock(t)
+	ui := &testUI
+
+	notFoundErr := &msbSdk.Error{Kind: msbSdk.ErrSandboxNotFound, Message: "not found"}
+	client := &msb.MockMsbClient{}
+	client.GetSandboxFn = func(_ context.Context, _ string) (msb.SandboxHandle, error) {
+		return nil, notFoundErr
+	}
+	client.CreateSandboxFn = func(_ context.Context, _ string, _ ...msbSdk.SandboxOption) (msb.Sandbox, error) {
+		return msb.NewMockSandbox(msb.SandboxOpts{}), nil
+	}
+	msb.WithMsbMock(t, client)
+
+	cfg := Config{
+		UserStateDir:  filepath.Join(t.TempDir(), "state"),
+		UserConfigDir: t.TempDir(),
+	}
+
+	// ProjectSlug depends on the current directory, so use a temp repo.
+	tmpRepo := testutil.InitRepo(t)
+	t.Chdir(tmpRepo)
+
+	sb, created, err := EnsureProjectVM(
+		context.Background(),
+		RunOptions{Memory: "1G", TmpSize: "512M"},
+		cfg,
+		"opencode-msb/runner-test:latest",
+		"test-home-vol",
+		tmpRepo,
+		nil,
+		ui,
+	)
+	if err != nil {
+		t.Fatalf("EnsureProjectVM (create): %v", err)
+	}
+	if !created {
+		t.Error("expected created=true on create path")
+	}
+	if sb == nil {
+		t.Fatal("expected non-nil sandbox")
+	}
+	if len(client.CreatedSandboxes) != 1 {
+		t.Fatalf("expected 1 created sandbox, got %d: %v", len(client.CreatedSandboxes), client.CreatedSandboxes)
+	}
+}
+
+func TestEnsureProjectVM_ReconnectPath(t *testing.T) {
+	testUI := testutil.TermUIMock(t)
+	ui := &testUI
+
+	client := &msb.MockMsbClient{}
+	client.SetGotSandbox(&msb.MockSandboxHandle{
+		Name_:   "opencode-msb-vm-test",
+		Status_: msbSdk.SandboxStatusRunning,
+	})
+	client.CreateSandboxFn = func(_ context.Context, _ string, _ ...msbSdk.SandboxOption) (msb.Sandbox, error) {
+		return nil, errors.New("reconnect path must not create a sandbox")
+	}
+	msb.WithMsbMock(t, client)
+
+	cfg := Config{
+		UserStateDir:  filepath.Join(t.TempDir(), "state"),
+		UserConfigDir: t.TempDir(),
+	}
+
+	tmpRepo := testutil.InitRepo(t)
+	t.Chdir(tmpRepo)
+
+	sb, created, err := EnsureProjectVM(
+		context.Background(),
+		RunOptions{Memory: "1G", TmpSize: "512M"},
+		cfg,
+		"opencode-msb/runner-test:latest",
+		"test-home-vol",
+		tmpRepo,
+		nil,
+		ui,
+	)
+	if err != nil {
+		t.Fatalf("EnsureProjectVM (reconnect): %v", err)
+	}
+	if created {
+		t.Error("expected created=false on reconnect path")
+	}
+	if sb == nil {
+		t.Fatal("expected non-nil sandbox")
+	}
+	if len(client.CreatedSandboxes) != 0 {
+		t.Fatalf("expected no sandbox created on reconnect, got %v", client.CreatedSandboxes)
 	}
 }
