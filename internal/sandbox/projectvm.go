@@ -102,7 +102,7 @@ func EnsureProjectVM(
 	slug := git.ProjectSlug(ui)
 	name := projectVMName(slug)
 
-	flockPath := filepath.Join(cfg.StateDir, "vm-ensure", slug+".lock")
+	flockPath := filepath.Join(cfg.UserStateDir, "vm-ensure", slug+".lock")
 	if err := os.MkdirAll(filepath.Dir(flockPath), 0o750); err != nil {
 		return nil, false, fmt.Errorf("create flock dir: %w", err)
 	}
@@ -242,15 +242,15 @@ func createProjectVM(
 	maxMemoryGiB := sysinfo.TotalMemoryGiB()
 
 	envMap := mergeEnvMaps(
-		buildEnvMap(filepath.Join(cfg.UserLauncherDir, "env")),
-		buildEnvMap(projEnvFile),
+		buildEnvMap(cfg.UserEnvFile()),
+		buildEnvMap(ProjectEnvFile()),
 	)
 	ui.Verbosef("adding docker env definitions to project VM environment: %s", imageEnvs)
 	buildProjectVMEnv(envMap, imageEnvs)
 
 	secrets := BuildSecrets(mergeEnvMaps(
-		buildEnvMap(filepath.Join(cfg.UserLauncherDir, "env.secret")),
-		buildEnvMap(projEnvSecretFile),
+		buildEnvMap(cfg.UserEnvSecretFile()),
+		buildEnvMap(ProjectEnvSecretFile()),
 	), ui)
 
 	mounts := buildMounts(homeVol, repoPath, resolveTmpSizeMiB(opts.TmpSize))

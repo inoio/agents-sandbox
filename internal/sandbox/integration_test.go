@@ -139,9 +139,8 @@ func TestProjectVMLifecycle(t *testing.T) {
 
 	opts := RunOptions{Memory: "1G", TmpSize: "512M"}
 	cfg := Config{
-		StateDir:        filepath.Join(t.TempDir(), "state"),
-		UserConfigDir:   t.TempDir(),
-		UserLauncherDir: t.TempDir(),
+		UserStateDir:  filepath.Join(t.TempDir(), "state"),
+		UserConfigDir: t.TempDir(),
 	}
 
 	// Step 1: EnsureProjectVM creates the VM.
