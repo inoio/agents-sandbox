@@ -29,6 +29,8 @@ func (e *ExitError) Error() string {
 type RunOptions struct {
 	ReapPolicy ReapPolicy
 
+	IdleTimeout time.Duration
+
 	Branch   string
 	Rebuild  bool
 	DryRun   bool
