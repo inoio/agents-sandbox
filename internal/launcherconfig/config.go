@@ -23,6 +23,7 @@ type Config struct {
 	ManualPruneAge time.Duration `mapstructure:"manual-prune-age"`
 	Memory         string        `mapstructure:"memory"`
 	TmpSize        string        `mapstructure:"tmp-size"`
+	DiskSize       string        `mapstructure:"disk-size"`
 	Yes            bool          `mapstructure:"yes"`
 	Verbose        bool          `mapstructure:"verbose"`
 	Quiet          bool          `mapstructure:"quiet"`
