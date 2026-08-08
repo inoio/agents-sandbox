@@ -89,9 +89,10 @@ By default, `auto-stop-timeout` is set to 10s. When the last opencode client det
 **not immediately stopped**. Instead, the launcher evaluates the `auto-stop-on-active-sessions` setting:
 
 - **Default** (`auto-stop-on-active-sessions: false`) — wait-for-quiescence mode. The VM is held while in-flight opencode
-  sessions are active. A session is considered quiescent when no session is `busy` and no session is stuck in `retry`
-  beyond `auto-stop-max-session-retries` (default 10). Once all sessions are quiescent, the VM is allowed to stop via
-  the idle timeout. Graceful stop preserves the VM and home volume for a fast (<1s) restart.
+  sessions are active. A session is considered quiescent when no session is stuck in `retry` beyond
+  `auto-stop-max-session-retries` (default 10). `busy` sessions are never cut off by the reaper (they block the stop).
+  Once all sessions are quiescent, the VM is allowed to stop via the idle timeout. Graceful stop preserves the VM and
+  home volume for a fast (<1s) restart.
 
 - **`auto-stop-on-active-sessions: true`** — stop immediately mode. The VM is not held for in-flight agent work; it
   stops promptly via the idle timeout even while sessions are busy.
