@@ -320,6 +320,7 @@ func TestSetUpSandboxProvisionsConfigOnFreshSetup(t *testing.T) {
 		RunOptions{},
 		Config{UserConfigDir: userDir},
 		"",
+		false,
 		ui,
 	)
 	if err != nil {
