@@ -349,6 +349,15 @@ func setUpSandbox(
 
 	vmData := readVMFiles(ctx, sb, "/home/dev/.config/opencode", ui)
 
+	// Env/secret reconciliation must run on ALL reuse paths (not just the
+	// config-matched path). If moved after the config-change early return it
+	// would never execute when the opencode config differs, skipping env/
+	// secret updates entirely for reused sandboxes.
+	if !created {
+		configChanged := len(vmData) > 0 && !configEqual(cfs.parsed, cfs.keys, vmData)
+		applyEnvReconcile(ctx, sb, cfg, cfs, ui, configChanged)
+	}
+
 	if len(vmData) > 0 {
 		if !configEqual(cfs.parsed, cfs.keys, vmData) {
 			handleConfigChange(ctx, sb, cfs, ui)
@@ -363,10 +372,6 @@ func setUpSandbox(
 
 	if dockerErr := startDockerdIfPresent(ctx, sb, ui); dockerErr != nil {
 		return "", fmt.Errorf("docker startup: %w", dockerErr)
-	}
-
-	if !created {
-		applyEnvReconcile(ctx, sb, cfg, cfs, ui)
 	}
 
 	if daemonErr := EnsureDaemon(ctx, sb, ui); daemonErr != nil {
@@ -401,6 +406,7 @@ func applyEnvReconcile(
 	cfg Config,
 	cfs *configFiles,
 	ui termio.UI,
+	configChanged bool,
 ) {
 	handle, err := msb.Get().GetSandbox(ctx, projectVMName(git.ProjectSlug(ui)))
 	if err != nil {
@@ -415,7 +421,10 @@ func applyEnvReconcile(
 	if changed, recErr := reconcileEnvAndSecrets(ctx, handle, desiredEnv, desiredSecrets); recErr != nil {
 		ui.Warnf("env reconciliation failed: %v (continuing)", recErr)
 	} else if changed {
-		if action, promptErr := promptConfigChange(ui); promptErr == nil && action == "r" {
+		if configChanged {
+			// Config change handles restart; env changes will be picked up after.
+			ui.Infof("env/secret changes applied; restart daemon to apply to the running serve process")
+		} else if action, promptErr := promptConfigChange(ui); promptErr == nil && action == "r" {
 			ensureProvisionedAndRunning(ctx, sb.FS(), cfs.files, sb, ui)
 		} else {
 			ui.Infof("env/secret changes applied; restart daemon to apply to the running serve process")
