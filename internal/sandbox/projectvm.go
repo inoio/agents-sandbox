@@ -384,6 +384,10 @@ func createProjectVM(
 	mounts := buildMounts(homeVol, repoPath, resolveTmpSizeMiB(opts.TmpSize))
 
 	spin := ui.Spinner("Starting project VM")
+	idleTimeout := opts.IdleTimeout
+	if idleTimeout <= 0 {
+		idleTimeout = defaultVMIdleTimeout
+	}
 	optsList := []msbSdk.SandboxOption{
 		msbSdk.WithImage(imageRef),
 		msbSdk.WithMounts(mounts),
@@ -397,7 +401,7 @@ func createProjectVM(
 		//nolint:gosec // G115: maxMemoryGiB is physical RAM in GiB, cannot overflow uint32
 		msbSdk.WithMaxMemory(uint32(maxMemoryGiB) * mibPerGib),
 		msbSdk.WithDetached(),
-		msbSdk.WithIdleTimeout(defaultVMIdleTimeout),
+		msbSdk.WithIdleTimeout(idleTimeout),
 		msbSdk.WithReplace(),
 	}
 	if opts.DiskSize != "" {
