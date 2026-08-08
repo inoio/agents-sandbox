@@ -60,17 +60,36 @@ func buildProjectVMEnv(envMap map[string]string, imageEnvs map[string]string) {
 	envMap["OPENCODE_EXPERIMENTAL_WORKSPACES"] = experimentalWorkspacesValue
 }
 
-// handleNeedsReplacement reports whether an existing project VM should be
-// recreated because its image differs from the newly built imageRef. A VM
-// must be recreated after an image rebuild so sessions boot from the new
-// image. Returns false when either image is unknown (e.g. the handle's image
-// config is unavailable), so we never churn a VM without certainty.
-func handleNeedsReplacement(handle SandboxHandle, imageRef string) bool {
+// needsRecreation reports whether the existing project VM must be recreated
+// because its image, /tmp tmpfs size, or root-disk size differ from the
+// desired configuration. Recreate preserves the home volume, so no user state
+// is lost. Unlike CPUs/memory/env/secrets (handled via live Modify), these
+// cannot be changed on an existing VM.
+func needsRecreation(handle SandboxHandle, imageRef string, opts RunOptions) bool {
 	if handle == nil {
 		return false
 	}
-	existing := handle.Image()
-	return existing != "" && imageRef != "" && existing != imageRef
+	if existing := handle.Image(); existing != "" && imageRef != "" && existing != imageRef {
+		return true
+	}
+	// TODO: cache SandboxConfig on realSandboxHandle to avoid the double
+	// Config() round-trip (here vs Image()).
+	cfg, err := handle.Config()
+	if err != nil || cfg == nil {
+		return false
+	}
+	if wantTmp := resolveTmpSizeMiB(opts.TmpSize); cfg.Volumes != nil {
+		if tmp, ok := cfg.Volumes["/tmp"]; ok && tmp.SizeMiB != wantTmp {
+			return true
+		}
+	}
+	if opts.DiskSize != "" {
+		wantDisk := parseMemory(opts.DiskSize)
+		if cfg.RootDisk == nil || cfg.RootDisk.SizeMiB != wantDisk {
+			return true
+		}
+	}
+	return false
 }
 
 // decideVMAction maps a GetSandbox result to the lifecycle action.
@@ -133,11 +152,13 @@ func EnsureProjectVM(
 	// Fast path: VM is already running → connect without flock.
 	//nolint:nestif // Complex nested logic for handling connect/start/retry is necessary for lifecycle management
 	if !notFound {
-		if handleNeedsReplacement(handle, imageRef) {
-			// An image rebuild produced a new digest, so the existing VM is
-			// running a stale image. Replace it with one booted from the new
-			// image; the home volume persists, so no user state is lost.
-			ui.Verbosef("image changed; replacing project VM %s (%s → %s)", name, handle.Image(), imageRef)
+		if needsRecreation(handle, imageRef, opts) {
+			// An image rebuild produced a new digest, or the desired resource
+			// configuration (/tmp size, root disk size) differs from the
+			// existing VM. Replace it with one booted from the new image and/or
+			// resource settings; the home volume persists, so no user state is
+			// lost.
+			ui.Verbosef("image or resource config changed; replacing project VM %s (%s)", name, handle.Image())
 			if stopErr := handle.Stop(context.Background()); stopErr != nil {
 				ui.Verbosef("stop old VM on image change failed (continuing): %v", stopErr)
 			}
