@@ -297,18 +297,22 @@ func (m *MockMsbClient) SetGetVolumeErr(err error) *MockMsbClient {
 //
 //nolint:revive // underscore names avoid conflicts with interface methods like Status()
 type MockSandboxHandle struct {
-	Name_      string
-	Status_    msbSdk.SandboxStatus
-	UpdatedAt_ time.Time
-	Image_     string
-	ConnectSb  Sandbox
-	StartSb    Sandbox
-	DidRmv     bool
-	ConnectErr error
-	StartErr   error
-	StopErr    error
-	KillErr    error
-	RemoveErr  error
+	Name_           string
+	Status_         msbSdk.SandboxStatus
+	UpdatedAt_      time.Time
+	Image_          string
+	ConnectSb       Sandbox
+	StartSb         Sandbox
+	DidRmv          bool
+	ConnectErr      error
+	StartErr        error
+	StopErr         error
+	KillErr         error
+	RemoveErr       error
+	Cfg             *msbSdk.SandboxConfig
+	ModifyErr       error
+	Plan            *msbSdk.SandboxModificationPlan
+	ModifiedOptions []msbSdk.ModifyOptions
 }
 
 func (m *MockSandboxHandle) Name() string                 { return m.Name_ }
@@ -346,6 +350,18 @@ func (m *MockSandboxHandle) Remove(_ context.Context) error {
 	return nil
 }
 func (m *MockSandboxHandle) DidRemove() bool { return m.DidRmv }
+
+func (m *MockSandboxHandle) Config() (*msbSdk.SandboxConfig, error) {
+	return m.Cfg, nil
+}
+
+func (m *MockSandboxHandle) Modify(
+	_ context.Context,
+	opts msbSdk.ModifyOptions,
+) (*msbSdk.SandboxModificationPlan, error) {
+	m.ModifiedOptions = append(m.ModifiedOptions, opts)
+	return m.Plan, m.ModifyErr
+}
 
 // MockSandbox is a test double for Sandbox.
 //

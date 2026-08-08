@@ -15,3 +15,11 @@ func TestRealVolumeHandle_Kind_UnknownValue(t *testing.T) {
 		t.Errorf("Name() for unknown type = %q, want %q", got, "")
 	}
 }
+
+func TestRealSandboxHandleConfigAndModify(t *testing.T) {
+	var h SandboxHandle = &realSandboxHandle{handle: &msbSdk.SandboxHandle{}}
+	cfg, err := h.Config()
+	if err == nil || cfg != nil {
+		t.Errorf("expected Config error on handle without config, got cfg=%v err=%v", cfg, err)
+	}
+}
