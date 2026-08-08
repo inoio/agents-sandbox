@@ -2,7 +2,8 @@
 
 ## Project
 
-`opencode-msb`: a launcher that runs opencode inside a microsandbox VM, binding a host directory as `/workspace` and persisting user state via a home directory volume.
+`opencode-msb`: a launcher that runs opencode inside a microsandbox VM, binding a host directory as `/workspace` and
+persisting user state via a home directory volume.
 
 ## Code style (MVP)
 
@@ -11,16 +12,16 @@
 - Before adding inline comments, try to make the code self-explanatory.
 - Prefer small, focused files with one clear responsibility.
 - Apply the following principles
-  * SOLID
-  * DRY
-  * KISS
-  * YAGNI
-  * Convention over Configuration
-  * Composition over Inheritance
-  * Law of Demeter
-  * Go Style
-  * Effective Go
-  * Go Proverbs
+    * SOLID
+    * DRY
+    * KISS
+    * YAGNI
+    * Convention over Configuration
+    * Composition over Inheritance
+    * Law of Demeter
+    * Go Style
+    * Effective Go
+    * Go Proverbs
 
 ## Constraints
 
@@ -29,10 +30,12 @@
 
 ## Design decisions
 
-- One ephemeral microsandbox VM per project serving an opencode server, multiple clients can attach to the vm & connect to the server.
-- The project is exposed as an independent git clone when a different branch is
-  requested, so concurrent isolated sessions are possible.
-- Shared inoio LiteLLM provider/model definitions are shipped as a repo JSON fragment and passed into opencode via `OPENCODE_CONFIG_CONTENT`.
+- One ephemeral microsandbox VM per project serving an opencode server, multiple clients can attach to the vm & connect
+  to the server.
+- The project is exposed as an independent git clone when a different branch is requested, so concurrent isolated
+  sessions are possible.
+- Shared inoio LiteLLM provider/model definitions are shipped as a repo JSON fragment and passed into opencode via
+  `OPENCODE_CONFIG_CONTENT`.
 
 ## Development
 
@@ -41,14 +44,16 @@ You are dogfooding the project, you are not on the host, but in an opencode-msb 
 Installed tooling (see .opencode-msb/Dockerfile):
 
 - go, gofmt, golangci-lint, gcc (for CGO)
-- msb (microsandbox cli) - since /dev/kvm is not functional in the VM, you can't actually start VMs yourself. Must be tested manually by the user
+- msb (microsandbox cli) - since /dev/kvm is not functional in the VM, you can't actually start VMs yourself. Must be
+  tested manually by the user
 - shell tools like jq, yq
 - docker
 
 Common development commands (run from the Go module root):
 
 - `go mod tidy` — sync `go.mod`/`go.sum` (run after adding/removing imports).
-- `go run ./cmd/opencode-msb --dry-run` — build and run locally without producing a binary or starting interactively (skips launching opencode)
+- `go run ./cmd/opencode-msb --dry-run` — build and run locally without producing a binary or starting interactively
+  (skips launching opencode)
 - `make fmt`/`golangci-lint fmt` — format all files. ALWAYS use! DON'T manually rewrite / use `go fmt`!
 - `make lint`/`golangci-lint run` — run the linter. ALWAYS use! DON'T use `go vet`!
 - `make test`/`go test ./...` — run all tests.
@@ -69,10 +74,28 @@ Always use your superpowers for appropriate tasks, never skip defined user appro
 
 ## Documentation
 
-- When changing or adding behavior, keep `README.md` and `docs` directory (except `docs/superpowers`) in sync and current.
+- When changing or adding behavior, keep `README.md` and `docs` directory (except `docs/superpowers`) in sync and
+  current.
 - When you struggled with something non-obvious, propose to the user to document it in `AGENTS.md`.
 
 ## Current limitations
 
 - `.env(rc)` secrets in the project directory are not hidden from the VM yet.
-- Network egress is unrestricted.
+- microsandbox injects a tls cert into the VM for egress inspection. This can cause docker image builds to fail with
+  self-signed cert errors. Workaround (example base image):
+
+  ```
+  # 1. Build a CA-trusting replacement for debian:trixie-slim.
+  mkdir -p /tmp/cabase && cd /tmp/cabase
+  cp /usr/local/share/ca-certificates/microsandbox-ca.crt ./
+  cat > Dockerfile <<'EOF'
+  FROM debian:trixie-slim
+  COPY microsandbox-ca.crt /usr/local/share/ca-certificates/microsandbox-ca.crt
+  RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates && \
+  update-ca-certificates && rm -rf /var/lib/apt/lists/*
+  EOF
+  docker build -t debian:trixie-slim .
+  
+  # 2. Build the runner image as usual.
+  go run ./cmd/opencode-msb build -y
+  ```
