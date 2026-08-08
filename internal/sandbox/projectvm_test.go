@@ -255,3 +255,214 @@ func TestEnsureProjectVM_ReconnectPath(t *testing.T) {
 		t.Fatalf("expected no sandbox created on reconnect, got %v", client.CreatedSandboxes)
 	}
 }
+
+func TestEnsureProjectVM_ReconnectWhenImageUnchanged(t *testing.T) {
+	testUI := testutil.TermUIMock(t)
+	ui := &testUI
+
+	oldHandle := &msb.MockSandboxHandle{
+		Name_:   "opencode-msb-vm-test",
+		Status_: msbSdk.SandboxStatusRunning,
+		Image_:  "opencode-msb/runner-test:abc123",
+	}
+	client := &msb.MockMsbClient{}
+	client.SetGotSandbox(oldHandle)
+	client.CreateSandboxFn = func(_ context.Context, _ string, _ ...msbSdk.SandboxOption) (msb.Sandbox, error) {
+		return nil, errors.New("unchanged image must not create a sandbox")
+	}
+	msb.WithMsbMock(t, client)
+
+	cfg := Config{
+		UserStateDir:  filepath.Join(t.TempDir(), "state"),
+		UserConfigDir: t.TempDir(),
+	}
+
+	tmpRepo := testutil.InitRepo(t)
+	t.Chdir(tmpRepo)
+
+	sb, created, err := EnsureProjectVM(
+		context.Background(),
+		RunOptions{Memory: "1G", TmpSize: "512M"},
+		cfg,
+		"opencode-msb/runner-test:abc123",
+		"test-home-vol",
+		tmpRepo,
+		nil,
+		ui,
+	)
+	if err != nil {
+		t.Fatalf("EnsureProjectVM (unchanged image): %v", err)
+	}
+	if created {
+		t.Error("expected created=false when image is unchanged")
+	}
+	if sb == nil {
+		t.Fatal("expected non-nil sandbox")
+	}
+	if len(client.CreatedSandboxes) != 0 {
+		t.Fatalf("expected no sandbox created, got %v", client.CreatedSandboxes)
+	}
+	if oldHandle.DidRemove() {
+		t.Error("expected existing VM not to be removed when image is unchanged")
+	}
+}
+
+func TestEnsureProjectVM_RecreatesWhenImageChangedRunning(t *testing.T) {
+	testUI := testutil.TermUIMock(t)
+	ui := &testUI
+
+	oldHandle := &msb.MockSandboxHandle{
+		Name_:   "opencode-msb-vm-test",
+		Status_: msbSdk.SandboxStatusRunning,
+		Image_:  "opencode-msb/runner-test:oldDigest",
+	}
+	client := &msb.MockMsbClient{}
+	client.GetSandboxFn = func(_ context.Context, _ string) (msb.SandboxHandle, error) {
+		if oldHandle.DidRemove() {
+			return nil, &msbSdk.Error{Kind: msbSdk.ErrSandboxNotFound, Message: "not found"}
+		}
+		return oldHandle, nil
+	}
+	client.CreateSandboxFn = func(_ context.Context, _ string, _ ...msbSdk.SandboxOption) (msb.Sandbox, error) {
+		return msb.NewMockSandbox(msb.SandboxOpts{}), nil
+	}
+	msb.WithMsbMock(t, client)
+
+	cfg := Config{
+		UserStateDir:  filepath.Join(t.TempDir(), "state"),
+		UserConfigDir: t.TempDir(),
+	}
+
+	tmpRepo := testutil.InitRepo(t)
+	t.Chdir(tmpRepo)
+
+	sb, created, err := EnsureProjectVM(
+		context.Background(),
+		RunOptions{Memory: "1G", TmpSize: "512M"},
+		cfg,
+		"opencode-msb/runner-test:newDigest",
+		"test-home-vol",
+		tmpRepo,
+		nil,
+		ui,
+	)
+	if err != nil {
+		t.Fatalf("EnsureProjectVM (image changed): %v", err)
+	}
+	if !created {
+		t.Error("expected created=true when image changed")
+	}
+	if sb == nil {
+		t.Fatal("expected non-nil sandbox")
+	}
+	if !oldHandle.DidRemove() {
+		t.Error("expected old VM to be removed when image changed")
+	}
+	if len(client.CreatedSandboxes) != 1 {
+		t.Fatalf("expected 1 recreated sandbox, got %v", client.CreatedSandboxes)
+	}
+}
+
+func TestEnsureProjectVM_RecreatesWhenImageChangedStopped(t *testing.T) {
+	testUI := testutil.TermUIMock(t)
+	ui := &testUI
+
+	oldHandle := &msb.MockSandboxHandle{
+		Name_:   "opencode-msb-vm-test",
+		Status_: msbSdk.SandboxStatusStopped,
+		Image_:  "opencode-msb/runner-test:oldDigest",
+	}
+	client := &msb.MockMsbClient{}
+	client.GetSandboxFn = func(_ context.Context, _ string) (msb.SandboxHandle, error) {
+		if oldHandle.DidRemove() {
+			return nil, &msbSdk.Error{Kind: msbSdk.ErrSandboxNotFound, Message: "not found"}
+		}
+		return oldHandle, nil
+	}
+	client.CreateSandboxFn = func(_ context.Context, _ string, _ ...msbSdk.SandboxOption) (msb.Sandbox, error) {
+		return msb.NewMockSandbox(msb.SandboxOpts{}), nil
+	}
+	msb.WithMsbMock(t, client)
+
+	cfg := Config{
+		UserStateDir:  filepath.Join(t.TempDir(), "state"),
+		UserConfigDir: t.TempDir(),
+	}
+
+	tmpRepo := testutil.InitRepo(t)
+	t.Chdir(tmpRepo)
+
+	sb, created, err := EnsureProjectVM(
+		context.Background(),
+		RunOptions{Memory: "1G", TmpSize: "512M"},
+		cfg,
+		"opencode-msb/runner-test:newDigest",
+		"test-home-vol",
+		tmpRepo,
+		nil,
+		ui,
+	)
+	if err != nil {
+		t.Fatalf("EnsureProjectVM (image changed, stopped): %v", err)
+	}
+	if !created {
+		t.Error("expected created=true when image changed on a stopped VM")
+	}
+	if sb == nil {
+		t.Fatal("expected non-nil sandbox")
+	}
+	if !oldHandle.DidRemove() {
+		t.Error("expected old VM to be removed when image changed")
+	}
+	if len(client.CreatedSandboxes) != 1 {
+		t.Fatalf("expected 1 recreated sandbox, got %v", client.CreatedSandboxes)
+	}
+}
+
+func TestEnsureProjectVM_NoReplacementWhenExistingImageUnknown(t *testing.T) {
+	testUI := testutil.TermUIMock(t)
+	ui := &testUI
+
+	oldHandle := &msb.MockSandboxHandle{
+		Name_:   "opencode-msb-vm-test",
+		Status_: msbSdk.SandboxStatusRunning,
+		Image_:  "",
+	}
+	client := &msb.MockMsbClient{}
+	client.SetGotSandbox(oldHandle)
+	client.CreateSandboxFn = func(_ context.Context, _ string, _ ...msbSdk.SandboxOption) (msb.Sandbox, error) {
+		return nil, errors.New("unknown image must not create a sandbox")
+	}
+	msb.WithMsbMock(t, client)
+
+	cfg := Config{
+		UserStateDir:  filepath.Join(t.TempDir(), "state"),
+		UserConfigDir: t.TempDir(),
+	}
+
+	tmpRepo := testutil.InitRepo(t)
+	t.Chdir(tmpRepo)
+
+	sb, created, err := EnsureProjectVM(
+		context.Background(),
+		RunOptions{Memory: "1G", TmpSize: "512M"},
+		cfg,
+		"opencode-msb/runner-test:newDigest",
+		"test-home-vol",
+		tmpRepo,
+		nil,
+		ui,
+	)
+	if err != nil {
+		t.Fatalf("EnsureProjectVM (unknown existing image): %v", err)
+	}
+	if created {
+		t.Error("expected created=false when existing image is unknown")
+	}
+	if sb == nil {
+		t.Fatal("expected non-nil sandbox")
+	}
+	if len(client.CreatedSandboxes) != 0 {
+		t.Fatalf("expected no sandbox created, got %v", client.CreatedSandboxes)
+	}
+}
