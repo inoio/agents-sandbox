@@ -26,10 +26,10 @@ ifeq ($(GOOS),darwin)
 	CGO_ENABLED=1 GOOS=$(GOOS) GOARCH=$(GOARCH) \
 	    CGO_CFLAGS="-isystem $(shell dirname $(shell which zig))/lib/libc/include/any-darwin-any" \
 	    CGO_LDFLAGS="-F $(shell dirname $(shell which zig))/lib/libc/darwin/System/Library/Frameworks -L $(shell dirname $(shell which zig))/lib/libc/darwin/usr/lib -Wl,-undefined,dynamic_lookup" \
-	    go build -ldflags "-s -w -X main.version=$(VERSION)" -o $(ARTIFACT) ./cmd/opencode-msb
+	    go build -trimpath -buildvcs=false -ldflags "-s -w -X main.version=$(VERSION)" -o $(ARTIFACT) ./cmd/opencode-msb
 else
 	CGO_ENABLED=1 GOOS=$(GOOS) GOARCH=$(GOARCH) \
-	    go build -ldflags "-s -w -X main.version=$(VERSION)" -o $(ARTIFACT) ./cmd/opencode-msb
+	    go build -trimpath -buildvcs=false -ldflags "-s -w -X main.version=$(VERSION)" -o $(ARTIFACT) ./cmd/opencode-msb
 endif
 
 build-release-all: export VERSION=$(VERSION)
