@@ -77,7 +77,8 @@ opencode-msb image list
 ```
 
 The image name includes the project slug and Docker image hash, so changes to the Dockerfile automatically trigger a
-rebuild.
+rebuild. When the resulting image digest differs from the image the existing project VM was booted from, the VM is
+recreated on the next run so it uses the new image (the home volume is preserved).
 
 ## Image Lifecycle
 

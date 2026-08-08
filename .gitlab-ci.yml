@@ -51,7 +51,7 @@ lint:
       when: never
     - if: $CI_COMMIT_BRANCH
   script:
-    - golangci-lint run ./...
+    - make lint
 
 test:
   stage: test
@@ -61,7 +61,7 @@ test:
       when: never
     - if: $CI_COMMIT_BRANCH
   script:
-    - go test ./... -v -short
+    - make test
 
 version:
   stage: build
@@ -100,15 +100,7 @@ build:
   variables:
     GOPATH: $CI_PROJECT_DIR/.go
   script:
-    - export CC="zig cc -target $ZIG_TARGET"
-    - export CXX="zig c++ -target $ZIG_TARGET"
-    - |
-      if [ "$GOOS" = "darwin" ]; then
-        ZIG_LIB_DIR="$(dirname "$(which zig)")/lib"
-        export CGO_CFLAGS="-isystem ${ZIG_LIB_DIR}/libc/include/any-darwin-any"
-        export CGO_LDFLAGS="-F ${ZIG_LIB_DIR}/libc/darwin/System/Library/Frameworks -L ${ZIG_LIB_DIR}/libc/darwin/usr/lib -Wl,-undefined,dynamic_lookup"
-      fi
-    - CGO_ENABLED=1 GOOS=$GOOS GOARCH=$GOARCH go build -ldflags "-s -w -X main.version=$VERSION" -o $ARTIFACT_NAME ./cmd/opencode-msb
+    - make build-release GOOS=$GOOS GOARCH=$GOARCH ZIG_TARGET=$ZIG_TARGET VERSION=$VERSION
     - echo "JOB_ID_${GOOS}_${GOARCH}=${CI_JOB_ID}" >> build.env
   before_script:
     - mkdir -p .go
@@ -121,7 +113,7 @@ build:
     - if: $CI_COMMIT_BRANCH == "release"
   artifacts:
     paths:
-      - $ARTIFACT_NAME
+      - opencode-msb-$GOOS-$GOARCH
     reports:
       dotenv: build.env
 
@@ -131,7 +123,6 @@ build-release:linux-amd64:
     GOOS: "linux"
     GOARCH: "amd64"
     ZIG_TARGET: "x86_64-linux-gnu"
-    ARTIFACT_NAME: "opencode-msb-linux-amd64"
 
 build-release:linux-arm64:
   extends: .build-release-tmpl
@@ -139,7 +130,6 @@ build-release:linux-arm64:
     GOOS: "linux"
     GOARCH: "arm64"
     ZIG_TARGET: "aarch64-linux-gnu"
-    ARTIFACT_NAME: "opencode-msb-linux-arm64"
 
 build-release:darwin-arm64:
   extends: .build-release-tmpl
@@ -147,7 +137,6 @@ build-release:darwin-arm64:
     GOOS: "darwin"
     GOARCH: "arm64"
     ZIG_TARGET: "aarch64-macos.11.0-none"
-    ARTIFACT_NAME: "opencode-msb-darwin-arm64"
 
 validate-releases:
   stage: release
