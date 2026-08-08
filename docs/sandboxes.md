@@ -39,7 +39,9 @@ URL, so every clone and linked worktree of the same remote shares the same proje
 and image names).
 
 The VM is **per-project/-directory, not per-invocation**. Subsequent runs connect to the existing VM (or start it if
-stopped) rather than creating a new one.
+stopped) rather than creating a new one. When the Docker image is rebuilt and its digest changes, the existing VM is
+recreated instead — it is stopped, removed, and re-provisioned from the new image. The home volume is untouched, so no
+user state is lost (see [Volumes](#volumes)).
 
 ## Volumes
 
@@ -55,6 +57,9 @@ Migrate copies files from the old volume on top of the runner image's home direc
 the image. The chosen action is applied automatically during that run, and the old volume is always kept. The state file
 is updated only after the chosen action actually executes, so the prompt only reappears after the next image change.
 Dry runs never change the home volume or the state file.
+
+The project VM itself is also recreated on an image change so it boots from the new image; this happens automatically
+and independently of the home-volume choice, and never affects the home volume.
 
 ### Volume Management
 

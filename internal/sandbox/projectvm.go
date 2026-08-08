@@ -60,6 +60,19 @@ func buildProjectVMEnv(envMap map[string]string, imageEnvs map[string]string) {
 	envMap["OPENCODE_EXPERIMENTAL_WORKSPACES"] = experimentalWorkspacesValue
 }
 
+// handleNeedsReplacement reports whether an existing project VM should be
+// recreated because its image differs from the newly built imageRef. A VM
+// must be recreated after an image rebuild so sessions boot from the new
+// image. Returns false when either image is unknown (e.g. the handle's image
+// config is unavailable), so we never churn a VM without certainty.
+func handleNeedsReplacement(handle SandboxHandle, imageRef string) bool {
+	if handle == nil {
+		return false
+	}
+	existing := handle.Image()
+	return existing != "" && imageRef != "" && existing != imageRef
+}
+
 // decideVMAction maps a GetSandbox result to the lifecycle action.
 // notFound=true means the sandbox doesn't exist → create.
 // Otherwise the status determines connect (running) vs start (stopped/crashed).
@@ -79,9 +92,10 @@ func decideVMAction(notFoundErr error, status msbSdk.SandboxStatus) (vmAction, e
 }
 
 // EnsureProjectVM returns a live *Sandbox for the project VM. The boolean
-// return is true when the VM was created fresh (first boot); false when an
-// existing VM was reused (connect or start). A per-project host-side flock
-// guards the first-boot race between concurrent invocations.
+// return is true when the VM was created fresh (first boot or recreation
+// after an image change); false when an existing VM was reused (connect or
+// start). A per-project host-side flock guards the first-boot race between
+// concurrent invocations.
 //
 //nolint:gocognit,funlen // Complex lifecycle logic with multiple paths (connect, start, create) is inherently complex
 func EnsureProjectVM(
@@ -117,6 +131,26 @@ func EnsureProjectVM(
 	}
 
 	// Fast path: VM is already running → connect without flock.
+	//nolint:nestif // Complex nested logic for handling connect/start/retry is necessary for lifecycle management
+	if !notFound {
+		if handleNeedsReplacement(handle, imageRef) {
+			// An image rebuild produced a new digest, so the existing VM is
+			// running a stale image. Replace it with one booted from the new
+			// image; the home volume persists, so no user state is lost.
+			ui.Verbosef("image changed; replacing project VM %s (%s → %s)", name, handle.Image(), imageRef)
+			if stopErr := handle.Stop(context.Background()); stopErr != nil {
+				ui.Verbosef("stop old VM on image change failed (continuing): %v", stopErr)
+			}
+			if removeErr := handle.Remove(context.Background()); removeErr != nil {
+				spin.StopError(removeErr)
+				return nil, false, fmt.Errorf("remove old project VM %q: %w", name, removeErr)
+			}
+			ui.Verbosef("replaced project VM %s; recreating from new image", name)
+			notFound = true
+			handle = nil
+		}
+	}
+
 	//nolint:nestif // Complex nested logic for handling connect/start/retry is necessary for lifecycle management
 	if !notFound {
 		action, actionErr := decideVMAction(nil, handle.Status())
