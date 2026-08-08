@@ -103,71 +103,35 @@ func TestLifecycle(t *testing.T) {
 		}
 	})
 
-	for _, flags := range stopKillFlags {
-		t.Run("S2_dry_run_stop"+flags[0], func(t *testing.T) {
-			initTestRepo(t)
-			ui := &termio.Mock{}
-			mock := &sandbox.MockMsbClient{}
-			mock.SetGotSandbox(&sandbox.MockSandboxHandle{})
-			sandbox.WithMsbMock(t, mock)
+	// S2/S4: dry-run stop/kill
+	// S3/S5: dry-run force stop/kill
+	for _, tc := range []struct {
+		sNum       string
+		cmd        string
+		infoPrefix string
+	}{
+		{"S2", cmdStop, "dry-run: Would stop"},
+		{"S3", cmdKill, "dry-run: Would kill "},
+		{"S4", cmdStop, "(also would remove persisted state)"},
+		{"S5", cmdKill, "(also would remove persisted state)"},
+	} {
+		for _, flags := range stopKillFlags {
+			t.Run(tc.sNum+"_dry_run_"+tc.cmd+"_flags"+strings.Join(flags, "_"), func(t *testing.T) {
+				initTestRepo(t)
+				ui := &termio.Mock{}
+				mock := &sandbox.MockMsbClient{}
+				mock.SetGotSandbox(&sandbox.MockSandboxHandle{})
+				sandbox.WithMsbMock(t, mock)
 
-			root := buildRootCmd(ui)
-			root.SetArgs(append([]string{cmdStop}, flags...))
+				root := buildRootCmd(ui)
+				root.SetArgs(append([]string{tc.cmd}, flags...))
 
-			if err := root.Execute(); err != nil {
-				t.Fatalf("unexpected error: %v", err)
-			}
-			assertInfoHasPrefix(t, ui, "dry-run: Would stop")
-		})
-
-		t.Run("S3_dry_run_kill"+flags[0], func(t *testing.T) {
-			initTestRepo(t)
-			ui := &termio.Mock{}
-			mock := &sandbox.MockMsbClient{}
-			mock.SetGotSandbox(&sandbox.MockSandboxHandle{})
-			sandbox.WithMsbMock(t, mock)
-
-			root := buildRootCmd(ui)
-			root.SetArgs(append([]string{cmdKill}, flags...))
-
-			if err := root.Execute(); err != nil {
-				t.Fatalf("unexpected error: %v", err)
-			}
-			assertInfoHasPrefix(t, ui, "dry-run: Would kill ")
-		})
-
-		t.Run("S4_dry_run_force_stop"+flags[0], func(t *testing.T) {
-			initTestRepo(t)
-			ui := &termio.Mock{}
-			mock := &sandbox.MockMsbClient{}
-			mock.SetGotSandbox(&sandbox.MockSandboxHandle{})
-			sandbox.WithMsbMock(t, mock)
-
-			root := buildRootCmd(ui)
-			root.SetArgs(append([]string{cmdStop}, flags...))
-
-			if err := root.Execute(); err != nil {
-				t.Fatalf("unexpected error: %v", err)
-			}
-			assertInfoHasPrefix(t, ui, "dry-run: ")
-			assertInfoHasPrefix(t, ui, "(also would remove persisted state)")
-		})
-
-		t.Run("S5_dry_run_force_kill"+flags[0], func(t *testing.T) {
-			initTestRepo(t)
-			ui := &termio.Mock{}
-			mock := &sandbox.MockMsbClient{}
-			mock.SetGotSandbox(&sandbox.MockSandboxHandle{})
-			sandbox.WithMsbMock(t, mock)
-
-			root := buildRootCmd(ui)
-			root.SetArgs(append([]string{cmdKill}, flags...))
-
-			if err := root.Execute(); err != nil {
-				t.Fatalf("unexpected error: %v", err)
-			}
-			assertInfoHasPrefix(t, ui, "(also would remove persisted state)")
-		})
+				if err := root.Execute(); err != nil {
+					t.Fatalf("unexpected error: %v", err)
+				}
+				assertInfoHasPrefix(t, ui, tc.infoPrefix)
+			})
+		}
 	}
 
 	for _, tc := range []struct {

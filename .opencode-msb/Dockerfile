@@ -24,7 +24,8 @@ ENV PATH="/usr/local/zig-x86_64-linux-${ZIG_VERSION}:${PATH}"
 # linker needs (-framework CoreFoundation, -framework Security, -lresolv).
 # These empty stubs satisfy the linker; symbols resolve at runtime on macOS.
 # The build context here contains only the Dockerfile, so the stubs are inlined
-# as printf(1) output (works on legacy and BuildKit builders alike).
+# as printf(1) output (works on legacy and BuildKit builders alike) instead of
+# heredoc syntax (fails on legacy builder).
 RUN ZIG_DARWIN="$(dirname "$(which zig)")/lib/libc/darwin" \
  && mkdir -p "$ZIG_DARWIN/System/Library/Frameworks/CoreFoundation.framework" \
     "$ZIG_DARWIN/System/Library/Frameworks/Security.framework" \
