@@ -93,6 +93,30 @@ func TestExtractRunOptions_L5_NoConfigInContext(t *testing.T) {
 	}
 }
 
+// L6: shell command path — buildShellCmd with launcher config injected.
+func TestExtractRunOptions_L6_ShellCommandPath(t *testing.T) {
+	ui := &termio.Mock{}
+	lc := launcherconfig.Config{
+		AutoStopOnActiveSessions:  true,
+		AutoStopMaxSessionRetries: 7,
+		AutoStopTimeout:           25 * time.Second,
+	}
+	cmd := buildShellCommandWithLauncherConfig(ui, lc)
+
+	opts := extractRunOptions(cmd, false, ui)
+
+	expectedPolicy := sandbox.ReapPolicy{
+		AutoStopOnActiveSessions: true,
+		MaxSessionRetries:        7,
+	}
+	if opts.ReapPolicy != expectedPolicy {
+		t.Errorf("ReapPolicy = %+v; want %+v", opts.ReapPolicy, expectedPolicy)
+	}
+	if opts.IdleTimeout != 25*time.Second {
+		t.Errorf("IdleTimeout = %v; want 25s", opts.IdleTimeout)
+	}
+}
+
 // buildCommandWithLauncherConfig builds a "run" command and injects
 // a launcherconfig.Config into the context, mimicking what
 // PersistentPreRunE does in production.
@@ -102,6 +126,16 @@ func buildCommandWithLauncherConfig(ui termio.UI, lc launcherconfig.Config) *cob
 	rootCtx = context.WithValue(rootCtx, (*launcherConfigKey)(nil), lc)
 	cmd.SetContext(rootCtx)
 	return cmd
+}
+
+// buildShellCommandWithLauncherConfig builds a "shell" command and injects
+// a launcherconfig.Config into the context, verifying the shell path.
+func buildShellCommandWithLauncherConfig(ui termio.UI, lc launcherconfig.Config) *cobra.Command {
+	pet := buildShellCmd(ui)
+	petCtx := context.Background()
+	petCtx = context.WithValue(petCtx, (*launcherConfigKey)(nil), lc)
+	pet.SetContext(petCtx)
+	return pet
 }
 
 // buildCommandWithoutLauncherConfig builds a "run" command with no
