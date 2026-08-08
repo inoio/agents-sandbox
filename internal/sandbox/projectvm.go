@@ -290,7 +290,7 @@ func createProjectVM(
 	mounts := buildMounts(homeVol, repoPath, resolveTmpSizeMiB(opts.TmpSize))
 
 	spin := ui.Spinner("Starting project VM")
-	sb, err := client.CreateSandbox(ctx, name,
+	optsList := []msbSdk.SandboxOption{
 		msbSdk.WithImage(imageRef),
 		msbSdk.WithMounts(mounts),
 		msbSdk.WithSecrets(secrets...),
@@ -301,11 +301,15 @@ func createProjectVM(
 		msbSdk.WithMaxCPUs(numCPUs),
 		msbSdk.WithMemory(parseMemory(opts.Memory)),
 		//nolint:gosec // G115: maxMemoryGiB is physical RAM in GiB, cannot overflow uint32
-		msbSdk.WithMaxMemory(uint32(maxMemoryGiB)*mibPerGib),
+		msbSdk.WithMaxMemory(uint32(maxMemoryGiB) * mibPerGib),
 		msbSdk.WithDetached(),
 		msbSdk.WithIdleTimeout(defaultVMIdleTimeout),
 		msbSdk.WithReplace(),
-	)
+	}
+	if opts.DiskSize != "" {
+		optsList = append(optsList, msbSdk.WithRootDisk(msbSdk.RootDisk.Managed(parseMemory(opts.DiskSize))))
+	}
+	sb, err := client.CreateSandbox(ctx, name, optsList...)
 	if err != nil {
 		spin.StopError(err)
 		return nil, false, fmt.Errorf("create sandbox: %w", err)

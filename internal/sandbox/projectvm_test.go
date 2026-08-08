@@ -419,6 +419,45 @@ func TestEnsureProjectVM_RecreatesWhenImageChangedStopped(t *testing.T) {
 	}
 }
 
+// applySandboxOpts applies captured functional options to a fresh SandboxConfig
+// so tests can assert what createProjectVM configured.
+func applySandboxOpts(cfg *msbSdk.SandboxConfig, opts []msbSdk.SandboxOption) {
+	for _, o := range opts {
+		o(cfg)
+	}
+}
+
+func TestCreateProjectVMAppliesRootDiskWhenDiskSizeSet(t *testing.T) {
+	client := &MockMsbClient{}
+	testUI := testutil.TermUIMock(t)
+	ui := &testUI
+	cfg := Config{UserStateDir: t.TempDir(), UserConfigDir: t.TempDir()}
+
+	if _, _, err := createProjectVM(
+		context.Background(), client, "opencode-msb-vm-test",
+		"opencode-msb/runner-test:latest", "test-home-vol", t.TempDir(),
+		RunOptions{Memory: "1G", DiskSize: "16G"}, cfg, nil, ui,
+	); err != nil {
+		t.Fatalf("createProjectVM failed: %v", err)
+	}
+
+	if len(client.CreatedSandboxCalls) != 1 {
+		t.Fatalf("expected 1 create call, got %d", len(client.CreatedSandboxCalls))
+	}
+	opts := client.CreatedSandboxCalls[0].Opts
+	// Re-apply the captured functional options to a fresh SandboxConfig to
+	// verify what createProjectVM actually set.
+	var sbCfg msbSdk.SandboxConfig
+	applySandboxOpts(&sbCfg, opts)
+	if sbCfg.RootDisk == nil || sbCfg.RootDisk.Kind() != msbSdk.RootDiskKindManaged {
+		t.Fatalf("expected managed RootDisk, got %+v", sbCfg.RootDisk)
+	}
+	// RootDisk.Managed(16384) — parseMemory("16G") returns 16*1024.
+	if sbCfg.RootDisk.SizeMiB != 16*1024 {
+		t.Errorf("expected root disk SizeMiB 16384, got %d", sbCfg.RootDisk.SizeMiB)
+	}
+}
+
 func TestEnsureProjectVM_NoReplacementWhenExistingImageUnknown(t *testing.T) {
 	testUI := testutil.TermUIMock(t)
 	ui := &testUI
