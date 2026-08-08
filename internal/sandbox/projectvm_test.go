@@ -505,3 +505,75 @@ func TestEnsureProjectVM_NoReplacementWhenExistingImageUnknown(t *testing.T) {
 		t.Fatalf("expected no sandbox created, got %v", client.CreatedSandboxes)
 	}
 }
+
+func TestNeedsRecreation(t *testing.T) {
+	mkConfig := func(cpus uint8, mem uint32, diskMiB uint32, tmpMiB uint32) *msbSdk.SandboxConfig {
+		var rootDisk *msbSdk.RootDiskConfig
+		if diskMiB > 0 {
+			d := msbSdk.RootDisk.Managed(diskMiB)
+			rootDisk = &d
+		}
+		return &msbSdk.SandboxConfig{
+			CPUs:      cpus,
+			MemoryMiB: mem,
+			RootDisk:  rootDisk,
+			Volumes: map[string]msbSdk.MountConfig{
+				"/tmp": {SizeMiB: tmpMiB},
+			},
+		}
+	}
+	mkHandle := func(cfg *msbSdk.SandboxConfig, image string) SandboxHandle {
+		return &MockSandboxHandle{Image_: image, Cfg: cfg}
+	}
+
+	cases := []struct {
+		name   string
+		handle SandboxHandle
+		image  string
+		opts   RunOptions
+		want   bool
+	}{
+		{
+			name:   "image change",
+			handle: mkHandle(mkConfig(4, 4096, 0, 2048), "image-a"),
+			image:  "image-b",
+			opts:   RunOptions{},
+			want:   true,
+		},
+		{
+			name:   "tmpsize mismatch",
+			handle: mkHandle(mkConfig(4, 4096, 0, 2048), "image-a"),
+			image:  "image-a",
+			opts:   RunOptions{TmpSize: "1G"},
+			want:   true,
+		},
+		{
+			name:   "disk mismatch (explicit)",
+			handle: mkHandle(mkConfig(4, 4096, 8192, 2048), "image-a"),
+			image:  "image-a",
+			opts:   RunOptions{DiskSize: "16G"},
+			want:   true,
+		},
+		{
+			name:   "disk unset ignores disk",
+			handle: mkHandle(mkConfig(4, 4096, 8192, 2048), "image-a"),
+			image:  "image-a",
+			opts:   RunOptions{},
+			want:   false,
+		},
+		{
+			name:   "no change",
+			handle: mkHandle(mkConfig(4, 4096, 16384, 2048), "image-a"),
+			image:  "image-a",
+			opts:   RunOptions{TmpSize: "2G", DiskSize: "16G"},
+			want:   false,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := needsRecreation(tc.handle, tc.image, tc.opts); got != tc.want {
+				t.Errorf("needsRecreation = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
