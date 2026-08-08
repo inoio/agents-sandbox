@@ -27,7 +27,7 @@ func (e *ExitError) Error() string {
 }
 
 type RunOptions struct {
-	ReapPolicy
+	ReapPolicy ReapPolicy
 
 	Branch   string
 	Rebuild  bool
