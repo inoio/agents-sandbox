@@ -11,6 +11,8 @@ import (
 	"strings"
 	"time"
 
+	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox"
+
 	"github.com/go-viper/mapstructure/v2"
 	"github.com/spf13/viper"
 	"github.com/titanous/json5"
@@ -29,13 +31,20 @@ type Config struct {
 	Quiet          bool          `mapstructure:"quiet"`
 	Rebuild        bool          `mapstructure:"rebuild"`
 	CPUs           uint8         `mapstructure:"cpus"`
+
+	AutoStopOnActiveSessions  bool          `mapstructure:"auto-stop-on-active-sessions"`
+	AutoStopTimeout           time.Duration `mapstructure:"auto-stop-timeout"`
+	AutoStopMaxSessionRetries int           `mapstructure:"auto-stop-max-session-retries"`
 }
 
 const (
-	extJSON5          = ".json5"
-	extJSONC          = ".jsonc"
-	keyAutoPruneAge   = "auto-prune-age"
-	keyManualPruneAge = "manual-prune-age"
+	extJSON5                     = ".json5"
+	extJSONC                     = ".jsonc"
+	keyAutoPruneAge              = "auto-prune-age"
+	keyManualPruneAge            = "manual-prune-age"
+	keyAutoStopOnActiveSessions  = "auto-stop-on-active-sessions"
+	keyAutoStopTimeout           = "auto-stop-timeout"
+	keyAutoStopMaxSessionRetries = "auto-stop-max-session-retries"
 )
 
 //nolint:gochecknoglobals // package-level constant slice
@@ -177,6 +186,12 @@ func validate(v *viper.Viper) error {
 	if err := validatePruneAges(v); err != nil {
 		return err
 	}
+	if err := validateAutoStop(v); err != nil {
+		return err
+	}
+	if err := validateAutoStopTimeout(v); err != nil {
+		return err
+	}
 	if !v.IsSet("cpus") {
 		return nil
 	}
@@ -208,4 +223,52 @@ func validatePruneAges(v *viper.Viper) error {
 		}
 	}
 	return nil
+}
+
+func validateAutoStop(v *viper.Viper) error {
+	if !v.IsSet(keyAutoStopMaxSessionRetries) {
+		return nil
+	}
+	retries := v.GetInt(keyAutoStopMaxSessionRetries)
+	if retries >= 0 {
+		return nil
+	}
+	return fmt.Errorf("launcher config %s must be >= 0, got %d", keyAutoStopMaxSessionRetries, retries)
+}
+
+func validateAutoStopTimeout(v *viper.Viper) error {
+	if !v.IsSet(keyAutoStopTimeout) {
+		return nil
+	}
+	d := v.GetDuration(keyAutoStopTimeout)
+	if d > 0 {
+		return nil
+	}
+	if s, ok := v.Get(keyAutoStopTimeout).(string); ok {
+		if parsed, ok := ParseHumanDuration(s); ok {
+			d = parsed
+		}
+	}
+	if d <= 0 {
+		return fmt.Errorf("launcher config %s must be > 0, got %v", keyAutoStopTimeout, d)
+	}
+	return nil
+}
+
+func (c Config) IdleTimeout() time.Duration {
+	if c.AutoStopTimeout > 0 {
+		return c.AutoStopTimeout
+	}
+	return 10 * time.Second
+}
+
+func (c Config) ReapPolicy() sandbox.ReapPolicy {
+	maxRetries := c.AutoStopMaxSessionRetries
+	if maxRetries <= 0 {
+		maxRetries = 10
+	}
+	return sandbox.ReapPolicy{
+		AutoStopOnActiveSessions: c.AutoStopOnActiveSessions,
+		MaxSessionRetries:        maxRetries,
+	}
 }

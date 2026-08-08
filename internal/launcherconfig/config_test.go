@@ -218,3 +218,152 @@ func TestLoadInvalidPruneAge(t *testing.T) {
 		})
 	}
 }
+
+func TestConfigReapPolicyDefaults(t *testing.T) {
+	cfg, _, err := Load("", "")
+	if err != nil {
+		t.Fatalf("Load failed: %v", err)
+	}
+
+	rp := cfg.ReapPolicy()
+	if rp.AutoStopOnActiveSessions {
+		t.Error("expected AutoStopOnActiveSessions false by default")
+	}
+	if rp.MaxSessionRetries != 10 {
+		t.Errorf("expected MaxSessionRetries 10 by default, got %d", rp.MaxSessionRetries)
+	}
+}
+
+func TestConfigIdleTimeoutDefault(t *testing.T) {
+	cfg, _, err := Load("", "")
+	if err != nil {
+		t.Fatalf("Load failed: %v", err)
+	}
+
+	want := 10 * time.Second
+	if cfg.IdleTimeout() != want {
+		t.Errorf("expected IdleTimeout %v by default, got %v", want, cfg.IdleTimeout())
+	}
+}
+
+func TestConfigAutoStopOnActiveSessions(t *testing.T) {
+	dir := t.TempDir()
+	testutil.WriteYAML(t, dir, "config.yaml", map[string]any{
+		"auto-stop-on-active-sessions": true,
+	})
+
+	cfg, _, err := Load(dir, "")
+	if err != nil {
+		t.Fatalf("Load failed: %v", err)
+	}
+	if !cfg.AutoStopOnActiveSessions {
+		t.Error("expected AutoStopOnActiveSessions true")
+	}
+
+	rp := cfg.ReapPolicy()
+	if !rp.AutoStopOnActiveSessions {
+		t.Error("expected ReapPolicy.AutoStopOnActiveSessions true")
+	}
+}
+
+func TestConfigAutoStopTimeoutParsing(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		json string
+		want time.Duration
+	}{
+		{
+			name: "60s",
+			json: `{"auto-stop-timeout": "60s"}`,
+			want: 60 * time.Second,
+		},
+		{
+			name: "2m",
+			json: `{"auto-stop-timeout": "2m"}`,
+			want: 2 * time.Minute,
+		},
+		{
+			name: "1h30m",
+			json: `{"auto-stop-timeout": "1h30m"}`,
+			want: 90 * time.Minute,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := t.TempDir()
+			testutil.WritePath(t, filepath.Join(dir, "config.json"), tc.json)
+
+			cfg, _, err := Load(dir, "")
+			if err != nil {
+				t.Fatalf("Load failed: %v", err)
+			}
+			if cfg.AutoStopTimeout != tc.want {
+				t.Errorf("AutoStopTimeout: got %v, want %v", cfg.AutoStopTimeout, tc.want)
+			}
+			if cfg.IdleTimeout() != tc.want {
+				t.Errorf("IdleTimeout: got %v, want %v", cfg.IdleTimeout(), tc.want)
+			}
+		})
+	}
+}
+
+func TestConfigAutoStopMaxSessionRetries(t *testing.T) {
+	dir := t.TempDir()
+	testutil.WriteYAML(t, dir, "config.yaml", map[string]any{
+		"auto-stop-max-session-retries": 5,
+	})
+
+	cfg, _, err := Load(dir, "")
+	if err != nil {
+		t.Fatalf("Load failed: %v", err)
+	}
+	if cfg.AutoStopMaxSessionRetries != 5 {
+		t.Errorf("AutoStopMaxSessionRetries: got %d, want 5", cfg.AutoStopMaxSessionRetries)
+	}
+
+	rp := cfg.ReapPolicy()
+	if rp.MaxSessionRetries != 5 {
+		t.Errorf("ReapPolicy.MaxSessionRetries: got %d, want 5", rp.MaxSessionRetries)
+	}
+}
+
+func TestConfigAutoStopNegativeMaxSessionRetries(t *testing.T) {
+	dir := t.TempDir()
+	testutil.WriteYAML(t, dir, "config.yaml", map[string]any{
+		"auto-stop-max-session-retries": -1,
+	})
+
+	_, _, err := Load(dir, "")
+	if err == nil {
+		t.Fatal("expected error for negative auto-stop-max-session-retries")
+	}
+	if !strings.Contains(err.Error(), "auto-stop-max-session-retries") {
+		t.Errorf("error %q does not mention auto-stop-max-session-retries", err.Error())
+	}
+}
+
+func TestConfigAutoStopNegativeTimeout(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		value  any
+		errSfx string
+	}{
+		{name: "negative seconds", value: "-5s", errSfx: "auto-stop-timeout"},
+		{name: "negative hours", value: "-1h", errSfx: "auto-stop-timeout"},
+		{name: "negative complex", value: "-1h30m", errSfx: "auto-stop-timeout"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := t.TempDir()
+			testutil.WriteYAML(t, dir, "config.yaml", map[string]any{
+				"auto-stop-timeout": tc.value,
+			})
+
+			_, _, err := Load(dir, "")
+			if err == nil {
+				t.Fatalf("expected error for auto-stop-timeout=%v", tc.value)
+			}
+			if !strings.Contains(err.Error(), tc.errSfx) {
+				t.Errorf("error %q does not contain %q", err.Error(), tc.errSfx)
+			}
+		})
+	}
+}
