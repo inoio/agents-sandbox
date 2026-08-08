@@ -103,6 +103,8 @@ func TestReapOnLastClient_WaitMode_IdleFromStart(t *testing.T) {
 			"",
 			nil,
 		),
+	}
+	sb.ExecOut = map[string]msb.ShellResult{
 		"sleep 1h": msb.NewTestResult(true, 0, "", "", nil),
 	}
 
@@ -123,6 +125,8 @@ func TestReapOnLastClient_WaitMode_EmptyStatus(t *testing.T) {
 	sb := &msb.MockSandbox{Name_: "test-vm"}
 	sb.ShellOut = map[string]msb.ShellResult{
 		"curl -sf http://127.0.0.1:4096/session/status": msb.NewTestResult(true, 0, `{}`, "", nil),
+	}
+	sb.ExecOut = map[string]msb.ShellResult{
 		"sleep 1h": msb.NewTestResult(true, 0, "", "", nil),
 	}
 
