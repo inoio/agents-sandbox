@@ -32,8 +32,9 @@ first one found is used.
 | `quiet`            | `--quiet` / `-q`       | Suppress non-error output                                                      |
 | `rebuild`          | `--rebuild` / `-r`     | Rebuild runner image before starting                                           |
 | `cpus`             | `--cpus` / `-c`        | Number of vCPUs for the VM                                                     |
-| `memory`           | `--memory` / `-m`      | Memory limit (e.g. `8G`)                                                       |
-| `tmp-size`         | `--tmp-size`           | Size of `/tmp` tmpfs in the sandbox                                            |
+| `memory`         | `--memory` / `-m`      | Memory limit (e.g. `8G`)                                                        |
+| `disk-size`      | `--disk-size`          | Project VM root disk size (e.g. `16G`). Empty = microsandbox runtime default (~4 GiB). Applied at VM creation; a change triggers recreation. |
+| `tmp-size`       | `--tmp-size`           | Size of `/tmp` tmpfs in the sandbox                                             |
 | `auto-prune-age`   | —                      | Auto-prune threshold, runs before every command (default: 30d, only in config) |
 | `manual-prune-age` | `--age`                | Default prune age threshold for `prune` cmd                                    |
 
@@ -43,6 +44,7 @@ Example `~/.config/opencode-msb/config.yaml`:
 verbose: true
 cpus: 4
 memory: 8G
+disk-size: 16G
 auto-prune-age: "7d"
 manual-prune-age: "7d"
 ```
@@ -152,6 +154,22 @@ The launcher validates:
 - `cpus` must be between 0 and 255
 
 Invalid config files prevent the launcher from starting.
+
+## Reused VM
+
+When a stopped VM is reused, resource changes are handled differently depending on the setting:
+
+| Resource | Behavior on reused VM                                          |
+|----------|----------------------------------------------------------------|
+| `cpus`   | Applied live via hotplug (SDK Modify)                          |
+| `memory` | Applied live via hotplug (SDK Modify)                          |
+| `env`    | Applied to future `exec` calls; prompts for opencode daemon restart before next run |
+| `secrets`| Applied to future `exec` calls; prompts for opencode daemon restart before next run |
+| `tmp-size` | Recreates the VM (preserves home volume)                     |
+| `disk-size` | Recreates the VM (preserves home volume)                    |
+
+Resource changes applied at VM creation time (`tmp-size`, `disk-size`) **always recreate the VM**, preserving the home
+volume. The VM must be stopped before these changes take effect.
 
 ## Opencode configuration
 
