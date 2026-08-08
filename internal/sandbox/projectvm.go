@@ -158,7 +158,16 @@ func EnsureProjectVM(
 			// existing VM. Replace it with one booted from the new image and/or
 			// resource settings; the home volume persists, so no user state is
 			// lost.
-			ui.Verbosef("image or resource config changed; replacing project VM %s (%s)", name, handle.Image())
+			if handle.Image() != imageRef {
+				ui.Verbosef(
+					"image or resource config changed; replacing project VM %s (%s → %s)",
+					name,
+					handle.Image(),
+					imageRef,
+				)
+			} else {
+				ui.Verbosef("image or resource config changed; replacing project VM %s", name)
+			}
 			if stopErr := handle.Stop(context.Background()); stopErr != nil {
 				ui.Verbosef("stop old VM on image change failed (continuing): %v", stopErr)
 			}
