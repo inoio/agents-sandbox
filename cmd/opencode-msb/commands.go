@@ -1,12 +1,18 @@
 package main
 
 import (
+	"context"
+
 	"github.com/spf13/cobra"
 
 	"gitlab.inoio.de/inoio/opencode-msb/internal/launcherconfig"
 	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox"
 	"gitlab.inoio.de/inoio/opencode-msb/internal/termio"
 )
+
+// launcherConfigKey is the context key type for storing the loaded
+// launcherconfig.Config between PersistentPreRunE and extractRunOptions.
+type launcherConfigKey struct{}
 
 // extractRunOptions extracts shared run/shell flags from the given command
 // and returns a populated sandbox.RunOptions. The auto parameter controls
@@ -26,6 +32,13 @@ func extractRunOptions(cmd *cobra.Command, auto bool, ui termio.UI) sandbox.RunO
 	opts.TmpSize, _ = cmd.Flags().GetString(flagTmpSize)
 	opts.DiskSize, _ = cmd.Flags().GetString(flagDiskSize)
 	opts.User, _ = cmd.Flags().GetString(flagUser)
+	ctx := cmd.Context()
+	if ctx != nil {
+		if lc, ok := ctx.Value((*launcherConfigKey)(nil)).(launcherconfig.Config); ok {
+			opts.ReapPolicy = lc.ReapPolicy()
+			opts.IdleTimeout = lc.IdleTimeout()
+		}
+	}
 	return opts
 }
 
@@ -73,6 +86,7 @@ func buildRootCmd(ui termio.UI) *cobra.Command {
 			return err
 		}
 		sandbox.AutoPrune(cmd.Context(), lc.AutoPruneAge, ui)
+		cmd.SetContext(context.WithValue(cmd.Context(), (*launcherConfigKey)(nil), lc))
 		if err := applyLauncherConfig(cmd, lc, keys); err != nil {
 			return err
 		}
