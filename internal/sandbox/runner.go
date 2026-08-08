@@ -27,6 +27,8 @@ func (e *ExitError) Error() string {
 }
 
 type RunOptions struct {
+	ReapPolicy
+
 	Branch   string
 	Rebuild  bool
 	DryRun   bool
@@ -242,6 +244,17 @@ func Run(ctx context.Context, opts RunOptions, cfg Config, ui termio.UI) error {
 		return nil
 	}
 
+	projectSlug := git.ProjectSlug(ui)
+	release, acquireErr := AcquireClientLease(projectSlug)
+	if acquireErr != nil {
+		ui.Warnf("client lease failed: %v", acquireErr)
+	}
+	defer func() {
+		if acquireErr == nil && release != nil {
+			release()
+		}
+	}()
+
 	var exitCode int
 	var attachErr error
 	setup := buildAttachCommand(session.target, opts.Auto, opts.Args)
@@ -250,6 +263,18 @@ func Run(ctx context.Context, opts RunOptions, cfg Config, ui termio.UI) error {
 	// putting tools installed under /usr/local/go/bin, ~/go/bin and
 	// ~/.microsandbox/bin on PATH for opencode and its child shells.
 	exitCode, attachErr = session.sb.Attach(ctx, "/bin/bash", "-l", "-c", setup)
+
+	// Explicitly release the lease after attach returns, before reaping.
+	// This ensures CountActiveClients reflects only OTHER live clients.
+	// The deferred release above is a safety net.
+	if acquireErr == nil {
+		release()
+		release = nil
+	}
+
+	if err := ReapOnLastClient(ctx, projectSlug, session.sb, opts.ReapPolicy, ui); err != nil {
+		ui.Warnf("reap failed: %v", err)
+	}
 
 	return finalizeRun(attachErr, exitCode)
 }
@@ -272,8 +297,32 @@ func Shell(ctx context.Context, opts RunOptions, cfg Config, ui termio.UI) error
 		return nil
 	}
 
+	projectSlug := git.ProjectSlug(ui)
+	release, acquireErr := AcquireClientLease(projectSlug)
+	if acquireErr != nil {
+		ui.Warnf("client lease failed: %v", acquireErr)
+	}
+	defer func() {
+		if acquireErr == nil && release != nil {
+			release()
+		}
+	}()
+
 	// Login shell so the interactive shell inherits PATH from /etc/profile and ~/.profile.
 	exitCode, attachErr := session.sb.Attach(ctx, "/bin/bash", "-l")
+
+	// Explicitly release the lease after attach returns, before reaping.
+	// This ensures CountActiveClients reflects only OTHER live clients.
+	// The deferred release above is a safety net.
+	if acquireErr == nil {
+		release()
+		release = nil
+	}
+
+	if err := ReapOnLastClient(ctx, projectSlug, session.sb, opts.ReapPolicy, ui); err != nil {
+		ui.Warnf("reap failed: %v", err)
+	}
+
 	return finalizeRun(attachErr, exitCode)
 }
 
