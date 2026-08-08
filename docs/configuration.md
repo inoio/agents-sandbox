@@ -32,9 +32,9 @@ first one found is used.
 | `quiet`            | `--quiet` / `-q`       | Suppress non-error output                                                      |
 | `rebuild`          | `--rebuild` / `-r`     | Rebuild runner image before starting                                           |
 | `cpus`             | `--cpus` / `-c`        | Number of vCPUs for the VM                                                     |
-| `memory`         | `--memory` / `-m`      | Memory limit (e.g. `8G`)                                                        |
-| `disk-size`      | `--disk-size`          | Project VM root disk size (e.g. `16G`). Empty = microsandbox runtime default (~4 GiB). Applied at VM creation; a change triggers recreation. |
-| `tmp-size`       | `--tmp-size`           | Size of `/tmp` tmpfs in the sandbox                                             |
+| `memory`           | `--memory` / `-m`      | Memory limit (e.g. `8G`)                                                        |
+| `disk-size`        | `--disk-size`          | Project VM root disk size (e.g. `16G`). Empty = microsandbox runtime default (~4 GiB). Applied at VM creation; a change triggers recreation. |
+| `tmp-size`         | `--tmp-size`           | Size of `/tmp` tmpfs in the sandbox                                             |
 | `auto-prune-age`   | —                      | Auto-prune threshold, runs before every command (default: 30d, only in config) |
 | `manual-prune-age` | `--age`                | Default prune age threshold for `prune` cmd                                    |
 
