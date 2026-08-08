@@ -24,6 +24,7 @@ func extractRunOptions(cmd *cobra.Command, auto bool, ui termio.UI) sandbox.RunO
 	opts.CPUs, _ = cmd.Flags().GetUint8(flagCpus)
 	opts.Memory, _ = cmd.Flags().GetString(flagMemory)
 	opts.TmpSize, _ = cmd.Flags().GetString(flagTmpSize)
+	opts.DiskSize, _ = cmd.Flags().GetString(flagDiskSize)
 	opts.User, _ = cmd.Flags().GetString(flagUser)
 	return opts
 }

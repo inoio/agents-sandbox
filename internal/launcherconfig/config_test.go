@@ -17,7 +17,7 @@ func TestLoadMissingFilesReturnsDefaults(t *testing.T) {
 	if len(keys) != 0 {
 		t.Errorf("expected no keys, got %v", keys)
 	}
-	if cfg.CPUs != 0 || cfg.Memory != "" || cfg.TmpSize != "" || cfg.Yes || cfg.Verbose ||
+	if cfg.CPUs != 0 || cfg.Memory != "" || cfg.TmpSize != "" || cfg.DiskSize != "" || cfg.Yes || cfg.Verbose ||
 		cfg.Quiet || cfg.Rebuild || cfg.AutoPruneAge != 0 || cfg.ManualPruneAge != 0 {
 		t.Errorf("expected zero defaults, got %+v", cfg)
 	}
@@ -173,6 +173,24 @@ func TestLoadPruneAgeConfig(t *testing.T) {
 				t.Error("expected manual-prune-age in keys")
 			}
 		})
+	}
+}
+
+func TestLoadDiskSizeConfig(t *testing.T) {
+	dir := t.TempDir()
+	testutil.WriteYAML(t, dir, "config.yaml", map[string]any{
+		"disk-size": "24G",
+	})
+
+	cfg, keys, err := Load(dir, "")
+	if err != nil {
+		t.Fatalf("Load failed: %v", err)
+	}
+	if cfg.DiskSize != "24G" {
+		t.Errorf("expected disk-size 24G, got %q", cfg.DiskSize)
+	}
+	if !keys["disk-size"] {
+		t.Error("expected disk-size key")
 	}
 }
 

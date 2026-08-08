@@ -92,6 +92,7 @@ func TestPrintTreeContainsFlagDescriptions(t *testing.T) {
 		"Number of CPUs (default: all)",
 		"Memory limit",
 		"Size of the /tmp tmpfs in the sandbox",
+		"Size of the project VM root disk (e.g. 16G)",
 		"Do not pass --auto to opencode",
 	}
 	for _, d := range flagDescs {
@@ -110,6 +111,7 @@ func TestPrintTreeStringFlagsHaveValuePlaceholders(t *testing.T) {
 		"--cpus <CPUS>",
 		"--memory <MEMORY>",
 		"--tmp-size <TMP_SIZE>",
+		"--disk-size <DISK_SIZE>",
 		"--user <USER>",
 	}
 	for _, s := range expected {
@@ -294,7 +296,7 @@ func TestRunCommandHasExpectedFlags(t *testing.T) {
 	if runCmd == nil {
 		t.Fatal("expected run command")
 	}
-	flags := []string{"branch", "cpus", "memory", "tmp-size", "rebuild", "dry-run", "no-auto"}
+	flags := []string{"branch", "cpus", "memory", "tmp-size", "disk-size", "rebuild", "dry-run", "no-auto"}
 	for _, f := range flags {
 		if runCmd.Flags().Lookup(f) == nil {
 			t.Errorf("expected flag --%s on run command", f)
@@ -345,8 +347,15 @@ func TestApplyLauncherConfigSetsUnsetFlags(t *testing.T) {
 	if runCmd == nil {
 		t.Fatal("expected run command")
 	}
-	lc := launcherconfig.Config{CPUs: 4, Memory: "8G", TmpSize: "4G", Yes: true, Verbose: true}
-	keys := map[string]bool{"cpus": true, "memory": true, "tmp-size": true, "yes": true, "verbose": true}
+	lc := launcherconfig.Config{CPUs: 4, Memory: "8G", TmpSize: "4G", DiskSize: "32G", Yes: true, Verbose: true}
+	keys := map[string]bool{
+		"cpus":      true,
+		"memory":    true,
+		"tmp-size":  true,
+		"disk-size": true,
+		"yes":       true,
+		"verbose":   true,
+	}
 
 	if err := applyLauncherConfig(runCmd, lc, keys); err != nil {
 		t.Fatalf("applyLauncherConfig failed: %v", err)
@@ -363,6 +372,10 @@ func TestApplyLauncherConfigSetsUnsetFlags(t *testing.T) {
 	tmp, _ := runCmd.Flags().GetString(flagTmpSize)
 	if tmp != "4G" {
 		t.Errorf("expected tmp-size 4G, got %q", tmp)
+	}
+	disk, _ := runCmd.Flags().GetString(flagDiskSize)
+	if disk != "32G" {
+		t.Errorf("expected disk-size 32G, got %q", disk)
 	}
 	yes, _ := root.PersistentFlags().GetBool(pFlagYes)
 	if !yes {
@@ -382,13 +395,20 @@ func TestApplyLauncherConfigRespectsCLIOverrides(t *testing.T) {
 		t.Fatal("expected run command")
 	}
 	if err := runCmd.ParseFlags(
-		[]string{"--cpus", "2", "--memory", "1G", "--tmp-size", "512M", "--yes=false"},
+		[]string{"--cpus", "2", "--memory", "1G", "--tmp-size", "512M", "--disk-size", "16G", "--yes=false"},
 	); err != nil {
 		t.Fatalf("ParseFlags failed: %v", err)
 	}
 
-	lc := launcherconfig.Config{CPUs: 8, Memory: "16G", TmpSize: "8G", Yes: true, Verbose: true}
-	keys := map[string]bool{"cpus": true, "memory": true, "tmp-size": true, "yes": true, "verbose": true}
+	lc := launcherconfig.Config{CPUs: 8, Memory: "16G", TmpSize: "8G", DiskSize: "64G", Yes: true, Verbose: true}
+	keys := map[string]bool{
+		"cpus":      true,
+		"memory":    true,
+		"tmp-size":  true,
+		"disk-size": true,
+		"yes":       true,
+		"verbose":   true,
+	}
 
 	if err := applyLauncherConfig(runCmd, lc, keys); err != nil {
 		t.Fatalf("applyLauncherConfig failed: %v", err)
@@ -405,6 +425,10 @@ func TestApplyLauncherConfigRespectsCLIOverrides(t *testing.T) {
 	tmp, _ := runCmd.Flags().GetString(flagTmpSize)
 	if tmp != "512M" {
 		t.Errorf("expected tmp-size 512M (CLI override), got %q", tmp)
+	}
+	disk, _ := runCmd.Flags().GetString(flagDiskSize)
+	if disk != "16G" {
+		t.Errorf("expected disk-size 16G (CLI override), got %q", disk)
 	}
 	yes, _ := runCmd.Flags().GetBool(pFlagYes)
 	if yes {
@@ -501,6 +525,24 @@ func TestKillCommandExists(t *testing.T) {
 	killCmd, _, _ := root.Find([]string{"kill"})
 	if killCmd == nil {
 		t.Fatal("expected kill command")
+	}
+}
+
+func TestApplyLauncherConfigSetsDiskSize(t *testing.T) {
+	testUI := testutil.TermUIMock(t)
+	root := buildRootCmd(&testUI)
+	runCmd, _, _ := root.Find([]string{"run"})
+	if runCmd == nil {
+		t.Fatal("expected run command")
+	}
+	keys := map[string]bool{"disk-size": true}
+	lc := launcherconfig.Config{DiskSize: "32G"}
+	if err := applyLauncherConfig(runCmd, lc, keys); err != nil {
+		t.Fatalf("applyLauncherConfig failed: %v", err)
+	}
+	got, _ := runCmd.Flags().GetString(flagDiskSize)
+	if got != "32G" {
+		t.Errorf("disk-size = %q, want 32G", got)
 	}
 }
 
