@@ -37,7 +37,7 @@ first one found is used.
 | `tmp-size`                     | `--tmp-size`           | Size of `/tmp` tmpfs in the sandbox                                             |
 | `auto-prune-age`               | —                      | Auto-prune threshold, runs before every command (default: 30d, only in config) |
 | `manual-prune-age`             | `--age`                | Default prune age threshold for `prune` cmd                                    |
-| `auto-stop-on-active-sessions` | —                      | Stop VM immediately on client detach without waiting for active sessions (default: false, only in config) |
+| `auto-stop-on-active-sessions` | —                      | Stop VM immediately on client detach without waiting for active sessions (default: false, only in config; `busy` sessions are never cut off) |
 | `auto-stop-timeout`            | —                      | Idle timeout after last client detaches (default: 10s, only in config)         |
 | `auto-stop-max-session-retries`| —                      | Retries to tolerate for a session stuck in `retry` before stopping (default: 10, only in config) |
 
