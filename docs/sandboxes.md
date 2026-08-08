@@ -85,8 +85,22 @@ Home volumes are pruned when:
 
 ## Idle Timeout
 
-VMs have a 30-second idle timeout by default. If no opencode session is attached, the VM transitions to a stopped state.
-When you run opencode-msb again, the launcher detects the stopped VM and starts it.
+By default, `auto-stop-timeout` is set to 10s. When the last opencode client detaches from a project VM, the VM is
+**not immediately stopped**. Instead, the launcher evaluates the `auto-stop-on-active-sessions` setting:
+
+- **Default** (`auto-stop-on-active-sessions: false`) — wait-for-quiescence mode. The VM is held while in-flight opencode
+  sessions are active. A session is considered quiescent when no session is `busy` and no session is stuck in `retry`
+  beyond `auto-stop-max-session-retries` (default 10). Once all sessions are quiescent, the VM is allowed to stop via
+  the idle timeout. Graceful stop preserves the VM and home volume for a fast (<1s) restart.
+
+- **`auto-stop-on-active-sessions: true`** — stop immediately mode. The VM is not held for in-flight agent work; it
+  stops promptly via the idle timeout even while sessions are busy.
+
+The idle timeout is configured via `auto-stop-timeout` in launcher config (no CLI flag). See [Configuration](./configuration.md)
+for field details.
+
+A `busy` session blocked on a permission prompt with no client connected waits indefinitely under wait mode (consistent
+with "don't interrupt"). Clean up such stale VMs via `prune` or a manual `stop`.
 
 To stop a VM immediately:
 

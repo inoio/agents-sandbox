@@ -4,7 +4,8 @@
 
 opencode-msb launches [opencode](https://github.com/anthropics/opencode) inside an isolated Linux VM backed
 by [microsandbox](https://github.com/superradcompany/microsandbox). Each project gets a persistent project VM — shared
-across sessions with a 30s idle timeout. The VM has your project mounted as `/workspace`, a persistent home directory
+across sessions with a configurable auto-stop policy (see [Configuration](/docs/configuration.md) and
+[Sandboxes](/docs/sandboxes.md)). The VM has your project mounted as `/workspace`, a persistent home directory
 volume, and access to a curated toolchain (Node.js, ripgrep, jq, yq, curl, etc.).
 
 ## Quick Start

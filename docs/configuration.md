@@ -25,18 +25,21 @@ first one found is used.
 
 ### Launcher config fields
 
-| Field              | Corresponding CLI flag | Description                                                                    |
-|--------------------|------------------------|--------------------------------------------------------------------------------|
-| `yes`              | `--yes` / `-y`         | Assume yes to all prompts                                                      |
-| `verbose`          | `--verbose` / `-v`     | Show debug-level output                                                        |
-| `quiet`            | `--quiet` / `-q`       | Suppress non-error output                                                      |
-| `rebuild`          | `--rebuild` / `-r`     | Rebuild runner image before starting                                           |
-| `cpus`             | `--cpus` / `-c`        | Number of vCPUs for the VM                                                     |
-| `memory`           | `--memory` / `-m`      | Memory limit (e.g. `8G`)                                                        |
-| `disk-size`        | `--disk-size`          | Project VM root disk size (e.g. `16G`). Empty = microsandbox runtime default (~4 GiB). Applied at VM creation; a change triggers recreation. |
-| `tmp-size`         | `--tmp-size`           | Size of `/tmp` tmpfs in the sandbox                                             |
-| `auto-prune-age`   | —                      | Auto-prune threshold, runs before every command (default: 30d, only in config) |
-| `manual-prune-age` | `--age`                | Default prune age threshold for `prune` cmd                                    |
+| Field                          | Corresponding CLI flag | Description                                                                    |
+|--------------------------------|------------------------|--------------------------------------------------------------------------------|
+| `yes`                          | `--yes` / `-y`         | Assume yes to all prompts                                                      |
+| `verbose`                      | `--verbose` / `-v`     | Show debug-level output                                                        |
+| `quiet`                        | `--quiet` / `-q`       | Suppress non-error output                                                      |
+| `rebuild`                      | `--rebuild` / `-r`     | Rebuild runner image before starting                                           |
+| `cpus`                         | `--cpus` / `-c`        | Number of vCPUs for the VM                                                     |
+| `memory`                       | `--memory` / `-m`      | Memory limit (e.g. `8G`)                                                       |
+| `disk-size`                    | `--disk-size`          | Project VM root disk size (e.g. `16G`). Empty = microsandbox runtime default (~4 GiB). Applied at VM creation; a change triggers recreation. |
+| `tmp-size`                     | `--tmp-size`           | Size of `/tmp` tmpfs in the sandbox                                             |
+| `auto-prune-age`               | —                      | Auto-prune threshold, runs before every command (default: 30d, only in config) |
+| `manual-prune-age`             | `--age`                | Default prune age threshold for `prune` cmd                                    |
+| `auto-stop-on-active-sessions` | —                      | Stop VM immediately on client detach without waiting for active sessions (default: false, only in config) |
+| `auto-stop-timeout`            | —                      | Idle timeout after last client detaches (default: 10s, only in config)         |
+| `auto-stop-max-session-retries`| —                      | Retries to tolerate for a session stuck in `retry` before stopping (default: 10, only in config) |
 
 Example `~/.config/opencode-msb/config.yaml`:
 
@@ -47,6 +50,9 @@ memory: 8G
 disk-size: 16G
 auto-prune-age: "7d"
 manual-prune-age: "7d"
+auto-stop-on-active-sessions: false
+auto-stop-timeout: "10s"
+auto-stop-max-session-retries: 10
 ```
 
 ## Project-level configuration
@@ -142,7 +148,8 @@ config.json5
 
 ### Duration fields
 
-The `auto-prune-age` field (for `run`/`shell` auto-pruning) and `manual-prune-age` field (for `prune` default) accept:
+The `auto-prune-age` field (for `run`/`shell` auto-pruning), `manual-prune-age` field (for `prune` default), and
+`auto-stop-timeout` field (for post-detach idle timeout) accept:
 
 - Go duration: `"7200000000000ns"`, `"2h"`, `"24h"`
 - Days shorthand: `"7d"`, `"14d"`
