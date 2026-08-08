@@ -34,6 +34,7 @@ type RunOptions struct {
 	CPUs     uint8
 	Memory   string
 	TmpSize  string
+	DiskSize string
 	User     string
 	Auto     bool
 	Args     []string

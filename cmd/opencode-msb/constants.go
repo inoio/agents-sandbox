@@ -32,6 +32,7 @@ const (
 	flagCpus        = "cpus"
 	flagMemory      = "memory"
 	flagTmpSize     = "tmp-size"
+	flagDiskSize    = "disk-size"
 	flagDryRun      = "dry-run"
 	flagDryRunShort = "n"
 	flagDryRunVM    = "dry-run-vm"

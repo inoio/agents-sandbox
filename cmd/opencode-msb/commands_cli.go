@@ -139,6 +139,7 @@ func registerRunFlags(cmd *cobra.Command) {
 	cmd.Flags().Uint8P(flagCpus, flagCpus[:1], 0, "Number of CPUs (default: all)")
 	cmd.Flags().StringP(flagMemory, flagMemory[:1], "4G", "Memory limit")
 	cmd.Flags().String(flagTmpSize, "2G", "Size of the /tmp tmpfs in the sandbox")
+	cmd.Flags().String(flagDiskSize, "", "Size of the project VM root disk (e.g. 16G)")
 	cmd.Flags().
 		StringP(flagUser, flagUser[:1], "", "Username or UID for the runtime user (format: <name|uid>[:<group|gid>])")
 }

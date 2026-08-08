@@ -84,6 +84,7 @@ func applyLauncherConfig(cmd *cobra.Command, lc launcherconfig.Config, keys map[
 		{flagCpus, func() error { return setUint8Flag(cmd, flagCpus, lc.CPUs) }},
 		{flagMemory, func() error { return setStringFlag(cmd, flagMemory, lc.Memory) }},
 		{flagTmpSize, func() error { return setStringFlag(cmd, flagTmpSize, lc.TmpSize) }},
+		{flagDiskSize, func() error { return setStringFlag(cmd, flagDiskSize, lc.DiskSize) }},
 		{"manual-prune-age", func() error { return setDurationFlag(cmd, "age", lc.ManualPruneAge) }},
 	}
 	for _, item := range apply {
