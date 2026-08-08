@@ -194,7 +194,7 @@ func prepareSandbox(
 	if err != nil {
 		return nil, fmt.Errorf("get current directory: %w", err)
 	}
-	sb, _, err := EnsureProjectVM(ctx, opts, cfg, imageRef, homeVol, cwd, imageEnvs, ui)
+	sb, created, err := EnsureProjectVM(ctx, opts, cfg, imageRef, homeVol, cwd, imageEnvs, ui)
 	if err != nil {
 		return nil, err
 	}
@@ -206,7 +206,7 @@ func prepareSandbox(
 		ui.Infof("VM lifecycle skipped (--dry-run-vm)")
 		sandboxTarget = resolveTargetNoBranch()
 	} else {
-		sandboxTarget, sandboxErr = setUpSandbox(ctx, sb, opts, cfg, cwd, ui)
+		sandboxTarget, sandboxErr = setUpSandbox(ctx, sb, opts, cfg, cwd, created, ui)
 		if sandboxErr != nil {
 			return nil, sandboxErr
 		}
@@ -337,6 +337,7 @@ func setUpSandbox(
 	opts RunOptions,
 	cfg Config,
 	_ string,
+	created bool,
 	ui termio.UI,
 ) (string, error) {
 	cfs, err := loadConfigFiles(cfg.UserOpenCodeConfigDir())
@@ -363,6 +364,11 @@ func setUpSandbox(
 	if dockerErr := startDockerdIfPresent(ctx, sb, ui); dockerErr != nil {
 		return "", fmt.Errorf("docker startup: %w", dockerErr)
 	}
+
+	if !created {
+		applyEnvReconcile(ctx, sb, cfg, cfs, ui)
+	}
+
 	if daemonErr := EnsureDaemon(ctx, sb, ui); daemonErr != nil {
 		return "", daemonErr
 	}
@@ -387,6 +393,34 @@ func handleConfigChange(ctx context.Context, sb Sandbox, cfs *configFiles, ui te
 		return
 	}
 	restartUnhealthyDaemon(ctx, sb, cfs.files, ui)
+}
+
+func applyEnvReconcile(
+	ctx context.Context,
+	sb Sandbox,
+	cfg Config,
+	cfs *configFiles,
+	ui termio.UI,
+) {
+	handle, err := msb.Get().GetSandbox(ctx, projectVMName(git.ProjectSlug(ui)))
+	if err != nil {
+		ui.Warnf("could not re-fetch project VM handle for env reconciliation: %v (continuing)", err)
+		return
+	}
+	desiredEnv := mergeEnvMaps(buildEnvMap(cfg.UserEnvFile()), buildEnvMap(ProjectEnvFile()))
+	desiredSecrets := BuildSecrets(mergeEnvMaps(
+		buildEnvMap(cfg.UserEnvSecretFile()),
+		buildEnvMap(ProjectEnvSecretFile()),
+	), ui)
+	if changed, recErr := reconcileEnvAndSecrets(ctx, handle, desiredEnv, desiredSecrets); recErr != nil {
+		ui.Warnf("env reconciliation failed: %v (continuing)", recErr)
+	} else if changed {
+		if action, promptErr := promptConfigChange(ui); promptErr == nil && action == "r" {
+			ensureProvisionedAndRunning(ctx, sb.FS(), cfs.files, sb, ui)
+		} else {
+			ui.Infof("env/secret changes applied; restart daemon to apply to the running serve process")
+		}
+	}
 }
 
 func ensureProvisionedAndRunning(
