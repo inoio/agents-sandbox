@@ -153,6 +153,9 @@ func TestReapOnLastClient_ContextCancelled(t *testing.T) {
 			nil,
 		),
 	}
+	sb.ExecOut = map[string]msb.ShellResult{
+		"sleep 1h": msb.NewTestResult(true, 0, "", "", nil),
+	}
 
 	err := ReapOnLastClient(shortCtx, "ctxproj", sb, ReapPolicy{}, ui)
 	if err == nil {
