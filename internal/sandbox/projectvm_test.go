@@ -421,6 +421,38 @@ func TestEnsureProjectVM_RecreatesWhenImageChangedStopped(t *testing.T) {
 
 // applySandboxOpts applies captured functional options to a fresh SandboxConfig
 // so tests can assert what createProjectVM configured.
+func TestReconcileResourceConfigAppliesCPUsAndMemory(t *testing.T) {
+	handle := &MockSandboxHandle{
+		Cfg:  &msbSdk.SandboxConfig{CPUs: 2, MemoryMiB: 2048},
+		Plan: &msbSdk.SandboxModificationPlan{Applied: true},
+	}
+	ctx := context.Background()
+
+	if err := reconcileResourceConfig(ctx, handle, RunOptions{CPUs: 8, Memory: "4G"}); err != nil {
+		t.Fatalf("reconcileResourceConfig failed: %v", err)
+	}
+	if len(handle.ModifiedOptions) != 1 {
+		t.Fatalf("expected 1 Modify call, got %d", len(handle.ModifiedOptions))
+	}
+	mo := handle.ModifiedOptions[0]
+	if mo.CPUs != 8 || mo.MemoryMiB != 4096 {
+		t.Errorf("ModifyOptions = CPUs=%d Mem=%d, want 8 / 4096", mo.CPUs, mo.MemoryMiB)
+	}
+}
+
+func TestReconcileResourceConfigNoopWhenSame(t *testing.T) {
+	handle := &MockSandboxHandle{
+		Cfg:  &msbSdk.SandboxConfig{CPUs: 8, MemoryMiB: 4096},
+		Plan: &msbSdk.SandboxModificationPlan{Applied: true},
+	}
+	if err := reconcileResourceConfig(context.Background(), handle, RunOptions{CPUs: 8, Memory: "4G"}); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(handle.ModifiedOptions) != 0 {
+		t.Errorf("expected no Modify call, got %d", len(handle.ModifiedOptions))
+	}
+}
+
 func applySandboxOpts(cfg *msbSdk.SandboxConfig, opts []msbSdk.SandboxOption) {
 	for _, o := range opts {
 		o(cfg)
