@@ -11,7 +11,7 @@ import (
 
 func TestPlanReconfigRecreateOnTmpMismatch(t *testing.T) {
 	cfg := &msbSdk.SandboxConfig{
-		Volumes: map[string]msbSdk.MountConfig{"/tmp": {SizeMiB: 2048}},
+		Volumes: map[string]msbSdk.MountConfig{tmpMountPath: {SizeMiB: 2048}},
 	}
 	d := planReconfig(cfg, "img:tag", RunOptions{TmpSize: "4G"},
 		false, false, false)

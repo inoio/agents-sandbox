@@ -364,7 +364,7 @@ func buildMounts(homeVol, repoPath string, tmpSizeMiB uint32) map[string]msbSdk.
 	return map[string]msbSdk.MountConfig{
 		"/home/dev":  msbSdk.Mount.Named(homeVol, msbSdk.MountOptions{}),
 		"/workspace": msbSdk.Mount.Bind(repoPath, msbSdk.MountOptions{}),
-		"/tmp": msbSdk.Mount.Tmpfs(msbSdk.TmpfsOptions{
+		tmpMountPath: msbSdk.Mount.Tmpfs(msbSdk.TmpfsOptions{
 			SizeMiB:  tmpSizeMiB,
 			Readonly: false,
 			Noexec:   false,
