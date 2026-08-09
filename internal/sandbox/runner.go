@@ -186,21 +186,27 @@ func prepareSandbox(
 	}
 	ui.Verbosef("home volume: %s", homeVol)
 
-	action := vm.ResolveHomeAction(ui, state.ImageDigest, imageDigest)
-	if action == actionQuit {
-		ui.Infof("exiting as requested by user")
-		return nil, &ExitError{Code: 1}
-	}
-	homeVol, err = vm.ApplyHomeAction(ctx, client, projectSlug, homeVol, imageRef, imageDigest, action, opts, ui)
-	if err != nil {
-		return nil, fmt.Errorf("apply home volume action: %w", err)
-	}
-	ui.Verbosef("home volume after action: %s", homeVol)
-
 	cwd, err := os.Getwd()
 	if err != nil {
 		return nil, fmt.Errorf("get current directory: %w", err)
 	}
+	recreate, restart, restartDockerd, homeVol, err := decideReconfig(
+		ctx,
+		client,
+		vm,
+		opts,
+		cfg,
+		imageRef,
+		imageDigest,
+		homeVol,
+		state,
+		ui,
+	)
+	if err != nil {
+		return nil, err
+	}
+	ui.Verbosef("recreate: %v, restart: %v, restartDockerd: %v", recreate, restart, restartDockerd)
+	opts.Recreate = recreate
 	sb, created, err := EnsureProjectVM(ctx, opts, cfg, imageRef, homeVol, cwd, imageEnvs, ui)
 	if err != nil {
 		return nil, err
@@ -213,7 +219,7 @@ func prepareSandbox(
 		ui.Infof("VM lifecycle skipped (--dry-run-vm)")
 		sandboxTarget = resolveTargetNoBranch()
 	} else {
-		sandboxTarget, sandboxErr = setUpSandbox(ctx, sb, opts, cfg, cwd, created, ui, false, false)
+		sandboxTarget, sandboxErr = setUpSandbox(ctx, sb, opts, cfg, cwd, created, ui, restart, restartDockerd)
 		if sandboxErr != nil {
 			return nil, sandboxErr
 		}
@@ -422,6 +428,75 @@ func setUpSandbox(
 	}
 
 	return ResolveTarget(ctx, sb, opts.Branch, ui)
+}
+
+// decideReconfig centralizes all reconfiguration decisions: the image-change
+// home-volume prompt, the VM recreate decision, the daemon-restart decision,
+// and cpu/memory staging. It re-fetches the existing sandbox handle to read
+// live VM files (no passed-in Sandbox is available at the call site).
+//
+// Note: the plan's literal signature included an sb Sandbox parameter, but
+// this is never available to decideReconfig in prepareSandbox (it runs
+// before EnsureProjectVM, before any sandbox exists). The function re-fetches
+// and Connect()s its own sandbox for file reads.
+func decideReconfig(
+	ctx context.Context,
+	client MsbClient,
+	vm *VolumeManager,
+	opts RunOptions, cfg Config,
+	imageRef, imageDigest, homeVol string, state HomeState,
+	ui termio.UI,
+) (bool, bool, bool, string, error) {
+	slug := git.ProjectSlug(ui)
+	handle, _ := client.GetSandbox(ctx, projectVMName(slug))
+
+	var curCfg *msbSdk.SandboxConfig
+	var liveSb Sandbox
+	if handle != nil {
+		curCfg, _ = handle.Config()
+		liveSb, _ = handle.Connect(ctx)
+	}
+
+	// image-change home-volume prompt runs before the rebuild decision.
+	if state.ImageDigest != imageDigest {
+		action := vm.ResolveHomeAction(ui, state.ImageDigest, imageDigest)
+		if action == actionQuit {
+			return false, false, false, homeVol, &ExitError{Code: 1}
+		}
+		newVol, err := vm.ApplyHomeAction(ctx, client, slug, homeVol, imageRef, imageDigest, action, opts, ui)
+		if err != nil {
+			return false, false, false, homeVol, fmt.Errorf("apply home action: %w", err)
+		}
+		homeVol = newVol
+	}
+
+	cfs, err := loadConfigFiles(cfg.UserOpenCodeConfigDir())
+	if err != nil {
+		return false, false, false, homeVol, err
+	}
+
+	var opencfgChanged bool
+	if liveSb != nil {
+		vmData := readVMFiles(ctx, liveSb, "/home/dev/.config/opencode", ui)
+		opencfgChanged = len(vmData) > 0 && !configEqual(cfs.parsed, cfs.keys, vmData)
+	}
+
+	desiredEnv := mergeEnvMaps(buildEnvMap(cfg.UserEnvFile()), buildEnvMap(ProjectEnvFile()))
+	desiredSecrets := BuildSecrets(mergeEnvMaps(
+		buildEnvMap(cfg.UserEnvSecretFile()),
+		buildEnvMap(ProjectEnvSecretFile()),
+	), ui)
+	envChanged, secretsChanged := envOrSecretsChanged(curCfg, desiredEnv, desiredSecrets)
+
+	plan := planReconfig(curCfg, imageRef, opts, envChanged, secretsChanged, opencfgChanged)
+	otherClients := CountActiveClients(slug)
+	applyRecreate, applyRestart, err := resolveReconfig(ctx, ui, plan, otherClients, plan.changes)
+	if err != nil {
+		return false, false, false, homeVol, err
+	}
+	recreate := applyRecreate
+	restart := applyRestart && !recreate && !plan.recreate
+	return recreate, restart, restart && plan.restartDockerd, homeVol, nil
 }
 
 // restartDaemons provisions config files and restarts the daemons a config
