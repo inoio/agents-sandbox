@@ -307,118 +307,6 @@ func TestEnsureProjectVM_ReconnectWhenImageUnchanged(t *testing.T) {
 	}
 }
 
-func TestEnsureProjectVM_RecreatesWhenImageChangedRunning(t *testing.T) {
-	testUI := testutil.TermUIMock(t)
-	ui := &testUI
-
-	oldHandle := &msb.MockSandboxHandle{
-		Name_:   "opencode-msb-vm-test",
-		Status_: msbSdk.SandboxStatusRunning,
-		Image_:  "opencode-msb/runner-test:oldDigest",
-	}
-	client := &msb.MockMsbClient{}
-	client.GetSandboxFn = func(_ context.Context, _ string) (msb.SandboxHandle, error) {
-		if oldHandle.DidRemove() {
-			return nil, &msbSdk.Error{Kind: msbSdk.ErrSandboxNotFound, Message: "not found"}
-		}
-		return oldHandle, nil
-	}
-	client.CreateSandboxFn = func(_ context.Context, _ string, _ ...msbSdk.SandboxOption) (msb.Sandbox, error) {
-		return msb.NewMockSandbox(msb.SandboxOpts{}), nil
-	}
-	msb.WithMsbMock(t, client)
-
-	cfg := Config{
-		UserStateDir:  filepath.Join(t.TempDir(), "state"),
-		UserConfigDir: t.TempDir(),
-	}
-
-	tmpRepo := testutil.InitRepo(t)
-	t.Chdir(tmpRepo)
-
-	sb, created, err := EnsureProjectVM(
-		context.Background(),
-		RunOptions{Memory: "1G", TmpSize: "512M"},
-		cfg,
-		"opencode-msb/runner-test:newDigest",
-		"test-home-vol",
-		tmpRepo,
-		nil,
-		ui,
-	)
-	if err != nil {
-		t.Fatalf("EnsureProjectVM (image changed): %v", err)
-	}
-	if !created {
-		t.Error("expected created=true when image changed")
-	}
-	if sb == nil {
-		t.Fatal("expected non-nil sandbox")
-	}
-	if !oldHandle.DidRemove() {
-		t.Error("expected old VM to be removed when image changed")
-	}
-	if len(client.CreatedSandboxes) != 1 {
-		t.Fatalf("expected 1 recreated sandbox, got %v", client.CreatedSandboxes)
-	}
-}
-
-func TestEnsureProjectVM_RecreatesWhenImageChangedStopped(t *testing.T) {
-	testUI := testutil.TermUIMock(t)
-	ui := &testUI
-
-	oldHandle := &msb.MockSandboxHandle{
-		Name_:   "opencode-msb-vm-test",
-		Status_: msbSdk.SandboxStatusStopped,
-		Image_:  "opencode-msb/runner-test:oldDigest",
-	}
-	client := &msb.MockMsbClient{}
-	client.GetSandboxFn = func(_ context.Context, _ string) (msb.SandboxHandle, error) {
-		if oldHandle.DidRemove() {
-			return nil, &msbSdk.Error{Kind: msbSdk.ErrSandboxNotFound, Message: "not found"}
-		}
-		return oldHandle, nil
-	}
-	client.CreateSandboxFn = func(_ context.Context, _ string, _ ...msbSdk.SandboxOption) (msb.Sandbox, error) {
-		return msb.NewMockSandbox(msb.SandboxOpts{}), nil
-	}
-	msb.WithMsbMock(t, client)
-
-	cfg := Config{
-		UserStateDir:  filepath.Join(t.TempDir(), "state"),
-		UserConfigDir: t.TempDir(),
-	}
-
-	tmpRepo := testutil.InitRepo(t)
-	t.Chdir(tmpRepo)
-
-	sb, created, err := EnsureProjectVM(
-		context.Background(),
-		RunOptions{Memory: "1G", TmpSize: "512M"},
-		cfg,
-		"opencode-msb/runner-test:newDigest",
-		"test-home-vol",
-		tmpRepo,
-		nil,
-		ui,
-	)
-	if err != nil {
-		t.Fatalf("EnsureProjectVM (image changed, stopped): %v", err)
-	}
-	if !created {
-		t.Error("expected created=true when image changed on a stopped VM")
-	}
-	if sb == nil {
-		t.Fatal("expected non-nil sandbox")
-	}
-	if !oldHandle.DidRemove() {
-		t.Error("expected old VM to be removed when image changed")
-	}
-	if len(client.CreatedSandboxes) != 1 {
-		t.Fatalf("expected 1 recreated sandbox, got %v", client.CreatedSandboxes)
-	}
-}
-
 // TestReconcileResourceConfigClampsCpusToMax verifies that CPU/memory requests
 // above the boot-time maximum are clamped (not rejected).
 func TestReconcileResourceConfigClampsCpusToMax(t *testing.T) {
@@ -568,7 +456,7 @@ func TestEnsureProjectVM_NoReplacementWhenExistingImageUnknown(t *testing.T) {
 	}
 }
 
-func TestNeedsRecreation(t *testing.T) {
+func TestPlanReconfigDecidesRecreate(t *testing.T) {
 	mkConfig := func(cpus uint8, mem uint32, diskMiB uint32, tmpMiB uint32) *msbSdk.SandboxConfig {
 		var rootDisk *msbSdk.RootDiskConfig
 		if diskMiB > 0 {
@@ -579,63 +467,146 @@ func TestNeedsRecreation(t *testing.T) {
 			CPUs:      cpus,
 			MemoryMiB: mem,
 			RootDisk:  rootDisk,
+			Image:     "image-a",
 			Volumes: map[string]msbSdk.MountConfig{
 				"/tmp": {SizeMiB: tmpMiB},
 			},
 		}
 	}
-	mkHandle := func(cfg *msbSdk.SandboxConfig, image string) SandboxHandle {
-		return &MockSandboxHandle{Image_: image, Cfg: cfg}
-	}
 
 	cases := []struct {
-		name   string
-		handle SandboxHandle
-		image  string
-		opts   RunOptions
-		want   bool
+		name     string
+		cfg      *msbSdk.SandboxConfig
+		imageRef string
+		opts     RunOptions
+		want     bool
 	}{
 		{
-			name:   "image change",
-			handle: mkHandle(mkConfig(4, 4096, 0, 2048), "image-a"),
-			image:  "image-b",
-			opts:   RunOptions{},
-			want:   true,
+			name:     "image mismatch",
+			cfg:      mkConfig(4, 4096, 0, 2048),
+			imageRef: "image-b",
+			opts:     RunOptions{},
+			want:     true,
 		},
 		{
-			name:   "tmpsize mismatch",
-			handle: mkHandle(mkConfig(4, 4096, 0, 2048), "image-a"),
-			image:  "image-a",
-			opts:   RunOptions{TmpSize: "1G"},
-			want:   true,
+			name:     "tmpfs mismatch",
+			cfg:      mkConfig(4, 4096, 0, 2048),
+			imageRef: "image-a",
+			opts:     RunOptions{TmpSize: "1G"},
+			want:     true,
 		},
 		{
-			name:   "disk mismatch (explicit)",
-			handle: mkHandle(mkConfig(4, 4096, 8192, 2048), "image-a"),
-			image:  "image-a",
-			opts:   RunOptions{DiskSize: "16G"},
-			want:   true,
+			name:     "disk mismatch (explicit)",
+			cfg:      mkConfig(4, 4096, 8192, 2048),
+			imageRef: "image-a",
+			opts:     RunOptions{DiskSize: "16G"},
+			want:     true,
 		},
 		{
-			name:   "disk unset ignores disk",
-			handle: mkHandle(mkConfig(4, 4096, 8192, 2048), "image-a"),
-			image:  "image-a",
-			opts:   RunOptions{},
-			want:   false,
+			name:     "disk unset ignores disk",
+			cfg:      mkConfig(4, 4096, 8192, 2048),
+			imageRef: "image-a",
+			opts:     RunOptions{},
+			want:     false,
 		},
 		{
-			name:   "no change",
-			handle: mkHandle(mkConfig(4, 4096, 16384, 2048), "image-a"),
-			image:  "image-a",
-			opts:   RunOptions{TmpSize: "2G", DiskSize: "16G"},
-			want:   false,
+			name:     "no change",
+			cfg:      mkConfig(4, 4096, 16384, 2048),
+			imageRef: "image-a",
+			opts:     RunOptions{TmpSize: "2G", DiskSize: "16G"},
+			want:     false,
 		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			if got := needsRecreation(tc.handle, tc.image, tc.opts); got != tc.want {
-				t.Errorf("needsRecreation = %v, want %v", got, tc.want)
+			got := planReconfig(tc.cfg, tc.imageRef, tc.opts, false, false, false).recreate
+			if got != tc.want {
+				t.Errorf("planReconfig().recreate = %v, want %v", got, tc.want)
 			}
 		})
+	}
+}
+
+func TestEnsureProjectVMRecreatesWhenFlagged(t *testing.T) {
+	testUI := testutil.TermUIMock(t)
+	ui := &testUI
+
+	oldHandle := &msb.MockSandboxHandle{
+		Name_:   "opencode-msb-vm-test",
+		Status_: msbSdk.SandboxStatusRunning,
+		Image_:  "old:tag",
+		Cfg:     &msbSdk.SandboxConfig{Image: "old:tag"},
+	}
+	callCount := 0
+	client := &msb.MockMsbClient{}
+	client.GetSandboxFn = func(_ context.Context, _ string) (msb.SandboxHandle, error) {
+		if callCount == 0 {
+			callCount++
+			return oldHandle, nil
+		}
+		return nil, &msbSdk.Error{Kind: msbSdk.ErrSandboxNotFound, Message: "gone"}
+	}
+	client.CreateSandboxFn = func(_ context.Context, name string, _ ...msbSdk.SandboxOption) (msb.Sandbox, error) {
+		return &msb.MockSandbox{Name_: name}, nil
+	}
+	msb.WithMsbMock(t, client)
+
+	cfg := Config{UserStateDir: t.TempDir(), UserConfigDir: t.TempDir()}
+
+	opts := RunOptions{ReapPolicy: ReapPolicy{}, Recreate: true, CPUs: 1, Memory: "2G"}
+	sb, created, err := EnsureProjectVM(
+		context.Background(), opts, cfg,
+		"new:tag", "homevol", "/workspace",
+		map[string]string{}, ui,
+	)
+	if err != nil {
+		t.Fatalf("EnsureProjectVM: %v", err)
+	}
+	if !created {
+		t.Error("expected created=true after recreate")
+	}
+	if sb == nil {
+		t.Error("expected a sandbox after recreate")
+	}
+	if !oldHandle.DidRemove() {
+		t.Error("expected old VM handle.Remove to be called")
+	}
+}
+
+func TestEnsureProjectVMReusesWhenNotFlagged(t *testing.T) {
+	testUI := testutil.TermUIMock(t)
+	ui := &testUI
+
+	handle := &msb.MockSandboxHandle{
+		Name_:   "opencode-msb-vm-test",
+		Status_: msbSdk.SandboxStatusRunning,
+		Image_:  "old:tag",
+		Cfg:     &msbSdk.SandboxConfig{Image: "old:tag"},
+	}
+	client := &msb.MockMsbClient{}
+	client.SetGotSandbox(handle)
+	client.CreateSandboxFn = func(_ context.Context, _ string, _ ...msbSdk.SandboxOption) (msb.Sandbox, error) {
+		return nil, errors.New("CreateSandbox must not be called when reusing")
+	}
+	msb.WithMsbMock(t, client)
+
+	cfg := Config{UserStateDir: t.TempDir(), UserConfigDir: t.TempDir()}
+
+	sb, created, err := EnsureProjectVM(
+		context.Background(), RunOptions{}, cfg,
+		"old:tag", "homevol", "/workspace",
+		map[string]string{}, ui,
+	)
+	if err != nil {
+		t.Fatalf("EnsureProjectVM: %v", err)
+	}
+	if created {
+		t.Error("expected created=false on reuse")
+	}
+	if sb == nil {
+		t.Error("expected a sandbox on reuse")
+	}
+	if handle.DidRemove() {
+		t.Error("did not expect Remove on reuse")
 	}
 }
