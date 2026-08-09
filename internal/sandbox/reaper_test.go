@@ -167,6 +167,55 @@ func TestReapOnLastClient_ContextCancelled(t *testing.T) {
 	}
 }
 
+func TestReapOnLastClient_WaitMode_BusyWithQuestionReaps(t *testing.T) {
+	SetStateDirForTest(t, t.TempDir()+"/opencode")
+	slug := "qproj"
+	ui := &termio.Mock{}
+	sb := &msb.MockSandbox{
+		Name_: "test-vm",
+		ShellOut: map[string]msb.ShellResult{
+			"curl -sf http://127.0.0.1:4096/session/status": msb.NewTestResult(
+				true, 0, `{"s1":{"type":"busy","attempt":0}}`, "", nil,
+			),
+			"curl -sf http://127.0.0.1:4096/question": msb.NewTestResult(
+				true, 0, `[{"id":"que_1","sessionID":"s1","questions":[]}]`, "", nil,
+			),
+		},
+	}
+	sb.ExecOut = map[string]msb.ShellResult{
+		"sleep 1h": msb.NewTestResult(true, 0, "", "", nil),
+	}
+	err := ReapOnLastClient(context.Background(), slug, sb, ReapPolicy{}, ui)
+	if err != nil {
+		t.Fatalf("ReapOnLastClient: expected no error, got %v", err)
+	}
+}
+
+func TestReapOnLastClient_WaitMode_BusyWithQuestionErrorKeepsPolling(t *testing.T) {
+	SetStateDirForTest(t, t.TempDir()+"/opencode")
+	slug := "qerrproj"
+	shortCtx, shortCancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer shortCancel()
+	ui := &termio.Mock{}
+	sb := &msb.MockSandbox{
+		Name_: "test-vm",
+		ShellOut: map[string]msb.ShellResult{
+			"curl -sf http://127.0.0.1:4096/session/status": msb.NewTestResult(
+				true, 0, `{"s1":{"type":"busy","attempt":0}}`, "", nil,
+			),
+			// /question returns a non-success (curl) so the session stays busy.
+			"curl -sf http://127.0.0.1:4096/question": msb.NewTestResult(false, 7, "", "curl error", nil),
+		},
+	}
+	sb.ExecOut = map[string]msb.ShellResult{
+		"sleep 1h": msb.NewTestResult(true, 0, "", "", nil),
+	}
+	err := ReapOnLastClient(shortCtx, slug, sb, ReapPolicy{}, ui)
+	if err == nil {
+		t.Fatal("expected error when context times out (session stays busy)")
+	}
+}
+
 // --- ReapOnLastClient: nil sandbox ---
 
 func TestReapOnLastClient_NilSandbox_AllModes(t *testing.T) {

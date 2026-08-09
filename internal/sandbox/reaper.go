@@ -109,6 +109,13 @@ func waitQuiescent(ctx context.Context, slug string, sb msb.Sandbox, maxRetry in
 		}
 
 		busy, stuckRetry := quiescenceOf(states, nil, maxRetry)
+		if busy > 0 {
+			pending, pendingErr := pendingQuestionSessionIDs(ctx, sb)
+			if pendingErr != nil {
+				ui.Verbosef("question status poll failed: %v", pendingErr)
+			}
+			busy, stuckRetry = quiescenceOf(states, pending, maxRetry)
+		}
 		ui.Verbosef("waiting: busy=%d stuckRetry=%v", busy, stuckRetry)
 
 		if busy == 0 && !stuckRetry {
