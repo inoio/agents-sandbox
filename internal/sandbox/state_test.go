@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -136,5 +137,87 @@ func TestRemoveState(t *testing.T) {
 	stateDir := filepath.Join(stateDirSuffix, slug)
 	if _, err := os.Stat(stateDir); !os.IsNotExist(err) {
 		t.Errorf("state dir should be removed, but still exists")
+	}
+}
+
+func TestWriteAndReadState_EnvSecretRoundTrip(t *testing.T) {
+	old := stateDirSuffix
+	defer func() { stateDirSuffix = old }()
+
+	stateDirSuffix = t.TempDir() + "/opencode-msb"
+	slug := "myproj-abc123"
+
+	input := HomeState{
+		HomeVolume:  "opencode-msb-home-myproj",
+		ImageDigest: "sha256:feedface",
+		EnvState: EnvState{
+			Hash:  "sha256:envhash",
+			Names: []string{"DB_URL", "API_KEY"},
+		},
+		SecretState: SecretState{
+			Hash:  "sha256:secrethash",
+			Names: []string{"db_password", "api_secret"},
+		},
+	}
+
+	if err := WriteState(slug, input); err != nil {
+		t.Fatalf("WriteState: %v", err)
+	}
+
+	result, err := ReadState(slug)
+	if err != nil {
+		t.Fatalf("ReadState: %v", err)
+	}
+
+	if result.EnvState.Hash != input.EnvState.Hash {
+		t.Errorf("EnvState.Hash = %q, want %q", result.EnvState.Hash, input.EnvState.Hash)
+	}
+	if len(result.EnvState.Names) != len(input.EnvState.Names) {
+		t.Fatalf("EnvState.Names length = %d, want %d", len(result.EnvState.Names), len(input.EnvState.Names))
+	}
+	for i, want := range input.EnvState.Names {
+		if result.EnvState.Names[i] != want {
+			t.Errorf("EnvState.Names[%d] = %q, want %q", i, result.EnvState.Names[i], want)
+		}
+	}
+	if result.SecretState.Hash != input.SecretState.Hash {
+		t.Errorf("SecretState.Hash = %q, want %q", result.SecretState.Hash, input.SecretState.Hash)
+	}
+	if len(result.SecretState.Names) != len(input.SecretState.Names) {
+		t.Fatalf("SecretState.Names length = %d, want %d", len(result.SecretState.Names), len(input.SecretState.Names))
+	}
+	for i, want := range input.SecretState.Names {
+		if result.SecretState.Names[i] != want {
+			t.Errorf("SecretState.Names[%d] = %q, want %q", i, result.SecretState.Names[i], want)
+		}
+	}
+}
+
+func TestHomeState_ZeroEnvSecretOmitted(t *testing.T) {
+	old := stateDirSuffix
+	defer func() { stateDirSuffix = old }()
+
+	stateDirSuffix = t.TempDir() + "/opencode-msb"
+	slug := "emptyproj"
+
+	err := WriteState(slug, HomeState{
+		HomeVolume:  "vol",
+		ImageDigest: "d1",
+	})
+	if err != nil {
+		t.Fatalf("WriteState: %v", err)
+	}
+
+	data, err := os.ReadFile(filepath.Join(stateDirSuffix, slug, "state.yaml"))
+	if err != nil {
+		t.Fatalf("read state file: %v", err)
+	}
+
+	content := string(data)
+	if strings.Contains(content, "env_state") {
+		t.Error("expected env_state to be omitted from YAML when zero")
+	}
+	if strings.Contains(content, "secret_state") {
+		t.Error("expected secret_state to be omitted from YAML when zero")
 	}
 }
