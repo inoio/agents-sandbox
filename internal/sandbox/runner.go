@@ -409,6 +409,9 @@ func setUpSandbox(
 	ui.Verbosef("expected config files: %v", cfs.keys)
 
 	if restart {
+		if restartDockerd {
+			applyEnvAndSecrets(ctx, cfg, ui)
+		}
 		restartDaemons(ctx, sb, cfs.files, restartDockerd, ui)
 		return ResolveTarget(ctx, sb, opts.Branch, ui)
 	}
@@ -428,6 +431,28 @@ func setUpSandbox(
 	}
 
 	return ResolveTarget(ctx, sb, opts.Branch, ui)
+}
+
+// applyEnvAndSecrets fetches the live VM handle and applies the current
+// desire env/secret configuration via the SDK Modify API. It is called on the
+// reuse+restart path so that a daemon restart picks up the new values.
+func applyEnvAndSecrets(ctx context.Context, cfg Config, ui termio.UI) {
+	slug := git.ProjectSlug(ui)
+	handle, err := msb.Get().GetSandbox(ctx, projectVMName(slug))
+	if err != nil {
+		ui.Warnf("could not fetch VM handle to apply env/secrets: %v (continuing)", err)
+		return
+	}
+
+	desiredEnv := mergeEnvMaps(buildEnvMap(cfg.UserEnvFile()), buildEnvMap(ProjectEnvFile()))
+	desiredSecrets := BuildSecrets(mergeEnvMaps(
+		buildEnvMap(cfg.UserEnvSecretFile()),
+		buildEnvMap(ProjectEnvSecretFile()),
+	), ui)
+
+	if _, err := reconcileEnvAndSecrets(ctx, handle, desiredEnv, desiredSecrets); err != nil {
+		ui.Warnf("env/secret application failed: %v (continuing)", err)
+	}
 }
 
 // decideReconfig centralizes all reconfiguration decisions: the image-change
