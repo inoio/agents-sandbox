@@ -18,7 +18,8 @@ func envMapsEqual(have, want map[string]string) bool {
 
 // reconcileEnvAndSecrets diffs the desired env and secrets against the VM's
 // current config and applies the changes via the SDK Modify API (for future
-// execs).
+// execs). It returns whether anything changed and was applied. Callers must
+// decide/handle the opencode daemon restart separately.
 //
 // desiredSecrets must be the output of BuildSecrets ([]msbSdk.SecretEntry) so
 // the diff and the Modify specs are derived from exactly the same parsed
@@ -28,14 +29,15 @@ func reconcileEnvAndSecrets(
 	handle SandboxHandle,
 	desiredEnv map[string]string,
 	desiredSecrets []msbSdk.SecretEntry,
-) error {
+) (bool, error) {
 	if handle == nil {
-		return nil
+		return false, nil
 	}
 	cfg, err := handle.Config()
 	if err != nil || cfg == nil {
-		return nil //nolint:nilerr // config read failure treated as no-op
+		return false, nil //nolint:nilerr // config read failure treated as no-op
 	}
+	changed := false
 	var mo msbSdk.ModifyOptions
 	mo.Policy = msbSdk.ModificationPolicyNoRestart
 
@@ -46,6 +48,7 @@ func reconcileEnvAndSecrets(
 				mo.EnvRemove = append(mo.EnvRemove, k)
 			}
 		}
+		changed = true
 	}
 
 	wantSecrets := parseSecretEntries(desiredSecrets)
@@ -56,15 +59,16 @@ func reconcileEnvAndSecrets(
 				mo.SecretsRemove = append(mo.SecretsRemove, s.EnvVar)
 			}
 		}
+		changed = true
 	}
 
-	if mo.Env == nil && mo.Secrets == nil && mo.EnvRemove == nil && mo.SecretsRemove == nil {
-		return nil
+	if !changed {
+		return false, nil
 	}
 	if _, err := handle.Modify(ctx, mo); err != nil {
-		return fmt.Errorf("modify env/secrets: %w", err)
+		return false, fmt.Errorf("modify env/secrets: %w", err)
 	}
-	return nil
+	return true, nil
 }
 
 // parseSecretEntries indexes SecretEntry values by their EnvVar name, which is
