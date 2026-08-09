@@ -387,6 +387,104 @@ func TestReapPolicy_DefaultZeroValue(t *testing.T) {
 	}
 }
 
+func TestDecodeQuestionRequests_ValidArray(t *testing.T) {
+	input := `[{"id":"que_1","sessionID":"ses_a","questions":[{"question":"q"}]},{"id":"que_2","sessionID":"ses_b","questions":[{"question":"r"}]}]`
+	got, err := decodeQuestionRequests(input)
+	if err != nil {
+		t.Fatalf("decodeQuestionRequests: %v", err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("expected 2 entries, got %d", len(got))
+	}
+	if got[0].SessionID != "ses_a" || got[1].SessionID != "ses_b" {
+		t.Errorf("unexpected sessionIDs: %+v", got)
+	}
+}
+
+func TestDecodeQuestionRequests_EmptyArray(t *testing.T) {
+	got, err := decodeQuestionRequests(`[]`)
+	if err != nil {
+		t.Fatalf("decodeQuestionRequests: %v", err)
+	}
+	if len(got) != 0 {
+		t.Errorf("expected 0 entries, got %d", len(got))
+	}
+}
+
+func TestDecodeQuestionRequests_EmptyString(t *testing.T) {
+	got, err := decodeQuestionRequests("")
+	if err != nil {
+		t.Fatalf("decodeQuestionRequests: %v", err)
+	}
+	if len(got) != 0 {
+		t.Errorf("expected 0 entries, got %d", len(got))
+	}
+}
+
+func TestDecodeQuestionRequests_MalformedJSON(t *testing.T) {
+	if _, err := decodeQuestionRequests(`{invalid`); err == nil {
+		t.Fatal("expected error for malformed JSON")
+	}
+}
+
+func TestDecodeQuestionRequests_NonArray(t *testing.T) {
+	if _, err := decodeQuestionRequests(`{}`); err == nil {
+		t.Fatal("expected error for non-array JSON")
+	}
+}
+
+func TestPendingQuestionSessionIDs_PopulatesSet(t *testing.T) {
+	sb := &msb.MockSandbox{
+		Name_: "test-vm",
+		ShellOut: map[string]msb.ShellResult{
+			"curl -sf http://127.0.0.1:4096/question": msb.NewTestResult(
+				true, 0,
+				`[{"id":"que_1","sessionID":"ses_a","questions":[]},{"id":"que_2","sessionID":"ses_b","questions":[]}]`,
+				"", nil,
+			),
+		},
+	}
+	got, err := pendingQuestionSessionIDs(context.Background(), sb)
+	if err != nil {
+		t.Fatalf("pendingQuestionSessionIDs: %v", err)
+	}
+	if !got["ses_a"] || !got["ses_b"] {
+		t.Errorf("expected both sessions in set, got %v", got)
+	}
+	if len(got) != 2 {
+		t.Errorf("expected 2 entries, got %d", len(got))
+	}
+}
+
+func TestPendingQuestionSessionIDs_Empty(t *testing.T) {
+	sb := &msb.MockSandbox{
+		Name_: "test-vm",
+		ShellOut: map[string]msb.ShellResult{
+			"curl -sf http://127.0.0.1:4096/question": msb.NewTestResult(true, 0, `[]`, "", nil),
+		},
+	}
+	got, err := pendingQuestionSessionIDs(context.Background(), sb)
+	if err != nil {
+		t.Fatalf("pendingQuestionSessionIDs: %v", err)
+	}
+	if len(got) != 0 {
+		t.Errorf("expected empty set, got %v", got)
+	}
+}
+
+func TestPendingQuestionSessionIDs_CurlFailure(t *testing.T) {
+	sb := &msb.MockSandbox{
+		Name_: "test-vm",
+		ShellOut: map[string]msb.ShellResult{
+			"curl -sf http://127.0.0.1:4096/question": msb.NewTestResult(false, 7, "", "curl error", nil),
+		},
+	}
+	_, err := pendingQuestionSessionIDs(context.Background(), sb)
+	if err == nil {
+		t.Fatal("expected error on curl failure")
+	}
+}
+
 func checkQuiescence(t *testing.T, name string, busy int, stuck bool, wantBusy int, wantStuck bool) {
 	t.Helper()
 	if busy != wantBusy {

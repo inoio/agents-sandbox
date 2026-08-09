@@ -39,6 +39,14 @@ type SessionStatus struct {
 	Attempt int    `json:"attempt"`
 }
 
+// QuestionRequest is a decoded entry of GET /question. Only sessionID is needed
+// to map a pending question back to the session awaiting an answer.
+type QuestionRequest struct {
+	SessionID string `json:"sessionID"`
+}
+
+const questionListURL = "http://127.0.0.1:4096/question"
+
 // ReapOnLastClient runs after a client detaches. If this was not the last client it
 // is a no-op. If it was, per policy it either returns immediately (auto-stop-on-active
 // mode, so the idle timeout stops the VM) or holds the VM until sessions quiesce.
@@ -122,6 +130,29 @@ func sessionStates(ctx context.Context, sb msb.Sandbox) (map[string]SessionStatu
 	return decodeSessionStates(res.Stdout())
 }
 
+// pendingQuestionSessionIDs reads GET /question once via an in-VM curl and
+// returns the set of sessionIDs that have at least one pending, unanswered
+// question. On any failure it returns an error and a nil set; the caller keeps
+// those sessions busy (never risks cutting off real work).
+func pendingQuestionSessionIDs(ctx context.Context, sb msb.Sandbox) (map[string]bool, error) {
+	res, err := sb.Shell(ctx, "curl -sf "+questionListURL)
+	if err != nil {
+		return nil, err
+	}
+	if !res.Success() {
+		return nil, fmt.Errorf("question curl failed (exit %d): %s", res.ExitCode(), res.Stderr())
+	}
+	reqs, err := decodeQuestionRequests(res.Stdout())
+	if err != nil {
+		return nil, err
+	}
+	pending := make(map[string]bool, len(reqs))
+	for _, req := range reqs {
+		pending[req.SessionID] = true
+	}
+	return pending, nil
+}
+
 // decodeSessionStates decodes the JSON response from /session/status into
 // a map of sessionID to SessionStatus. Returns an empty map for empty input.
 func decodeSessionStates(data string) (map[string]SessionStatus, error) {
@@ -133,6 +164,17 @@ func decodeSessionStates(data string) (map[string]SessionStatus, error) {
 		return nil, fmt.Errorf("decode session status: %w", err)
 	}
 	return states, nil
+}
+
+func decodeQuestionRequests(data string) ([]QuestionRequest, error) {
+	if data == "" {
+		return []QuestionRequest{}, nil
+	}
+	var reqs []QuestionRequest
+	if err := json.Unmarshal([]byte(data), &reqs); err != nil {
+		return nil, fmt.Errorf("decode question requests: %w", err)
+	}
+	return reqs, nil
 }
 
 // quiescenceOf reports how many sessions are busy and whether any retry
