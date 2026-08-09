@@ -215,13 +215,29 @@ func secretsContentHash(entries []msbSdk.SecretEntry) string {
 
 // envChanged reports whether the applied env state differs from the desired
 // env map, comparing content hashes for a stable order-independent result.
+// A zero-value appliedEnv indicates "no persisted state yet" (first run),
+// which is only considered "changed" when the desired map is non-empty.
 func envChanged(applied EnvState, desired map[string]string) bool {
+	if applied.Hash == "" {
+		if desired == nil {
+			return false
+		}
+		return len(desired) > 0
+	}
 	return applied.Hash != envContentHash(desired)
 }
 
 // secretsChanged reports whether the applied secret state differs from the
 // desired secret entries, comparing content hashes.
+// A zero-value appliedSecrets indicates "no persisted state yet" (first run),
+// which is only considered "changed" when the desired slice is non-empty.
 func secretsChanged(applied SecretState, desired []msbSdk.SecretEntry) bool {
+	if applied.Hash == "" {
+		if desired == nil {
+			return false
+		}
+		return len(desired) > 0
+	}
 	return applied.Hash != secretsContentHash(desired)
 }
 
