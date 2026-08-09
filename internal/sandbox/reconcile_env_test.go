@@ -2,74 +2,13 @@ package sandbox
 
 import (
 	"context"
+	"errors"
+	"slices"
+	"strings"
 	"testing"
 
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 )
-
-func TestEnvMapsEqual(t *testing.T) {
-	if !envMapsEqual(nil, map[string]string{}) {
-		t.Error("nil vs empty should be equal")
-	}
-	if envMapsEqual(map[string]string{"A": "1"}, map[string]string{"A": "2"}) {
-		t.Error("different values should not be equal")
-	}
-	if envMapsEqual(map[string]string{"A": "1"}, map[string]string{"A": "1", "B": "2"}) {
-		t.Error("extra key should not be equal")
-	}
-}
-
-func TestReconcileEnvAndSecretsAppliesModify(t *testing.T) {
-	handle := &MockSandboxHandle{
-		Cfg:  &msbSdk.SandboxConfig{Env: map[string]string{"OLD": "1"}},
-		Plan: &msbSdk.SandboxModificationPlan{Applied: true},
-	}
-	// Build the desired secret exactly as BuildSecrets does (Secret.Env).
-	desired := []msbSdk.SecretEntry{
-		msbSdk.Secret.Env("SECRET", "v", msbSdk.SecretEnvOptions{AllowHosts: []string{"host"}}),
-	}
-	if _, err := reconcileEnvAndSecrets(
-		context.Background(), handle,
-		map[string]string{"NEW": "2"},
-		desired,
-	); err != nil {
-		t.Fatalf("reconcile failed: %v", err)
-	}
-	if len(handle.ModifiedOptions) != 1 {
-		t.Fatalf("expected 1 Modify call, got %d", len(handle.ModifiedOptions))
-	}
-	mo := handle.ModifiedOptions[0]
-	if mo.Env["NEW"] != "2" {
-		t.Errorf("expected Env to include NEW=2, got %+v", mo.Env)
-	}
-	//nolint:staticcheck // nil check before len is defensive; brief-mandated test
-	if mo.EnvRemove == nil || len(mo.EnvRemove) == 0 {
-		t.Errorf("expected EnvRemove for stale OLD, got %+v", mo.EnvRemove)
-	}
-	spec, ok := mo.Secrets["SECRET"]
-	if !ok {
-		t.Fatalf("expected Secrets to include SECRET, got %+v", mo.Secrets)
-	}
-	if spec.Value != "v" || len(spec.AllowedHosts) != 1 || spec.AllowedHosts[0] != "host" {
-		t.Errorf("expected secret spec Value=v AllowedHosts=[host], got %+v", spec)
-	}
-}
-
-func TestReconcileEnvAndSecretsNoopWhenSame(t *testing.T) {
-	handle := &MockSandboxHandle{
-		Cfg: &msbSdk.SandboxConfig{Env: map[string]string{"A": "1"}},
-	}
-	// Note: deciding "same env" needs a stable comparator; if buildEnvMap
-	// adds defaults, this test uses exact equality.
-	if _, err := reconcileEnvAndSecrets(
-		context.Background(), handle, map[string]string{"A": "1"}, nil,
-	); err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if len(handle.ModifiedOptions) != 0 {
-		t.Errorf("expected no Modify call, got %d", len(handle.ModifiedOptions))
-	}
-}
 
 // --- Tests for Task 2: content-hash + change-detection helpers ---
 
@@ -278,5 +217,371 @@ func TestSecretsContentHashOrderStableAcrossBuildSecretState(t *testing.T) {
 	hb := buildSecretState(b).Hash
 	if ha != hb {
 		t.Errorf("order-independence via buildSecretState: got %x vs %x", ha, hb)
+	}
+}
+
+// --- Tests for Task 3: apply spec helpers ---
+
+func TestApplyEnvSpecEnvSetCorrectly(t *testing.T) {
+	applied := buildEnvState(map[string]string{"A": "1", "B": "2"})
+	desired := map[string]string{"B": "5", "C": "3"}
+
+	var mo msbSdk.ModifyOptions
+	applyEnvSpec(applied, desired, &mo)
+
+	if len(mo.Env) != 2 {
+		t.Fatalf("expected 2 env entries, got %d", len(mo.Env))
+	}
+	if mo.Env["B"] != "5" {
+		t.Errorf("expected Env[B]=5, got %q", mo.Env["B"])
+	}
+	if mo.Env["C"] != "3" {
+		t.Errorf("expected Env[C]=3, got %q", mo.Env["C"])
+	}
+	if !slices.Contains(mo.EnvRemove, "A") {
+		t.Errorf("expected EnvRemove to contain stale A, got %v", mo.EnvRemove)
+	}
+}
+
+func TestApplyEnvSpecNoRemoveWhenAllStay(t *testing.T) {
+	applied := buildEnvState(map[string]string{"A": "1", "B": "2"})
+	desired := map[string]string{"A": "1", "B": "2"}
+
+	var mo msbSdk.ModifyOptions
+	applyEnvSpec(applied, desired, &mo)
+
+	if len(mo.EnvRemove) != 0 {
+		t.Errorf("expected no EnvRemove entries, got %v", mo.EnvRemove)
+	}
+}
+
+func TestApplyEnvSpecNilDesiredNoChange(t *testing.T) {
+	applied := buildEnvState(map[string]string{"A": "1", "B": "2"})
+
+	var mo msbSdk.ModifyOptions
+	applyEnvSpec(applied, nil, &mo)
+
+	if mo.Env != nil {
+		t.Errorf("expected Env to be nil for nil desired, got %v", mo.Env)
+	}
+	if len(mo.EnvRemove) != 0 {
+		t.Errorf("expected no EnvRemove for nil desired, got %v", mo.EnvRemove)
+	}
+}
+
+func TestApplyEnvSpecEmptyMap(t *testing.T) {
+	applied := buildEnvState(map[string]string{"A": "1"})
+	desired := map[string]string{}
+
+	var mo msbSdk.ModifyOptions
+	applyEnvSpec(applied, desired, &mo)
+
+	// Empty map means "no env vars" — Env set to empty
+	if len(mo.Env) != 0 {
+		t.Errorf("expected empty Env, got %v", mo.Env)
+	}
+	// All applied names removed since not in desired
+	if !slices.Contains(mo.EnvRemove, "A") {
+		t.Errorf("expected EnvRemove=[A], got %v", mo.EnvRemove)
+	}
+}
+
+func TestApplySecretSpecSecretsSetCorrectly(t *testing.T) {
+	applied := buildSecretState([]msbSdk.SecretEntry{{EnvVar: "S"}})
+	desired := []msbSdk.SecretEntry{
+		msbSdk.Secret.Env("NEW", "v", msbSdk.SecretEnvOptions{AllowHosts: []string{"host"}}),
+	}
+
+	var mo msbSdk.ModifyOptions
+	applySecretSpec(applied, desired, &mo)
+
+	spec, ok := mo.Secrets["NEW"]
+	if !ok {
+		t.Fatalf("expected Secrets to include NEW, got %+v", mo.Secrets)
+	}
+	if spec.Value != "v" {
+		t.Errorf("expected secret spec Value=v, got %q", spec.Value)
+	}
+	if !slices.Contains(mo.SecretsRemove, "S") {
+		t.Errorf("expected SecretsRemove=[S], got %v", mo.SecretsRemove)
+	}
+}
+
+func TestApplySecretSpecNoRemoveWhenAllStay(t *testing.T) {
+	applied := buildSecretState([]msbSdk.SecretEntry{{EnvVar: "S"}})
+	desired := []msbSdk.SecretEntry{{EnvVar: "S", Value: "val"}}
+
+	var mo msbSdk.ModifyOptions
+	applySecretSpec(applied, desired, &mo)
+
+	if len(mo.SecretsRemove) != 0 {
+		t.Errorf("expected no SecretsRemove, got %v", mo.SecretsRemove)
+	}
+}
+
+func TestApplySecretSpecAllRemoved(t *testing.T) {
+	applied := buildSecretState([]msbSdk.SecretEntry{{EnvVar: "OLD"}})
+	desired := []msbSdk.SecretEntry{}
+
+	var mo msbSdk.ModifyOptions
+	applySecretSpec(applied, desired, &mo)
+
+	if mo.Secrets == nil {
+		t.Error("expected Secrets to be non-nil empty map, got nil")
+	}
+	if len(mo.SecretsRemove) != 1 || mo.SecretsRemove[0] != "OLD" {
+		t.Errorf("expected SecretsRemove=[OLD], got %v", mo.SecretsRemove)
+	}
+}
+
+func TestMultiChangeEnvRemovedAddedChanged(t *testing.T) {
+	// applied: {A=1, B=2}, desired: {B=5, C=3} → A removed, B changed, C added
+	appliedEnv := buildEnvState(map[string]string{"A": "1", "B": "2"})
+	appliedSecrets := buildSecretState([]msbSdk.SecretEntry{{EnvVar: "S"}})
+	desiredEnv := map[string]string{"B": "5", "C": "3"}
+	desiredSecrets := []msbSdk.SecretEntry{}
+
+	mock := &MockSandboxHandle{Plan: &msbSdk.SandboxModificationPlan{Applied: true}}
+	changed, envSt, secretSt, err := reconcileEnvAndSecrets(
+		context.Background(), mock, desiredEnv, desiredSecrets, appliedEnv, appliedSecrets,
+	)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !changed {
+		t.Error("expected changed=true")
+	}
+
+	mo := mock.ModifiedOptions[0]
+
+	// Env: B=5, C=3 present
+	if mo.Env["B"] != "5" {
+		t.Errorf("expected Env[B]=5, got %q", mo.Env["B"])
+	}
+	if mo.Env["C"] != "3" {
+		t.Errorf("expected Env[C]=3, got %q", mo.Env["C"])
+	}
+	// EnvRemove: contains stale A
+	if !slices.Contains(mo.EnvRemove, "A") {
+		t.Errorf("expected EnvRemove to contain stale A, got %v", mo.EnvRemove)
+	}
+
+	// Secrets: specs set (empty map), SecretsRemove for stale S
+	if len(mo.SecretsRemove) != 1 || mo.SecretsRemove[0] != "S" {
+		t.Errorf("expected SecretsRemove=[S], got %v", mo.SecretsRemove)
+	}
+	if len(mo.Secrets) != 0 {
+		t.Errorf("expected empty Secrets, got %+v", mo.Secrets)
+	}
+
+	// Returned states match build env/secret state
+	wantEnv := buildEnvState(desiredEnv)
+	wantSecret := buildSecretState(desiredSecrets)
+	if envSt.Hash != wantEnv.Hash {
+		t.Errorf("returned envState hash mismatch: got %q, want %q", envSt.Hash, wantEnv.Hash)
+	}
+	if !slices.Equal(envSt.Names, wantEnv.Names) {
+		t.Errorf("returned envState names mismatch: got %v, want %v", envSt.Names, wantEnv.Names)
+	}
+	if secretSt.Hash != wantSecret.Hash {
+		t.Errorf("returned secretState hash mismatch: got %q, want %q", secretSt.Hash, wantSecret.Hash)
+	}
+	if !slices.Equal(secretSt.Names, wantSecret.Names) {
+		t.Errorf("returned secretState names mismatch: got %v, want %v", secretSt.Names, wantSecret.Names)
+	}
+}
+
+func TestReconcileChangedTriggersOneModify(t *testing.T) {
+	desiredEnv := map[string]string{"NEW": "val"}
+	desiredSecrets := []msbSdk.SecretEntry{
+		msbSdk.Secret.Env("S", "v", msbSdk.SecretEnvOptions{AllowHosts: []string{"h"}}),
+	}
+
+	mock := &MockSandboxHandle{Plan: &msbSdk.SandboxModificationPlan{Applied: true}}
+	changed, envState, secretState, err := reconcileEnvAndSecrets(
+		context.Background(), mock, desiredEnv, desiredSecrets,
+		EnvState{}, SecretState{}, // zero applied state
+	)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !changed {
+		t.Error("expected changed=true")
+	}
+	if len(mock.ModifiedOptions) != 1 {
+		t.Fatalf("expected 1 Modify call, got %d", len(mock.ModifiedOptions))
+	}
+
+	mo := mock.ModifiedOptions[0]
+	if mo.Env["NEW"] != "val" {
+		t.Errorf("expected Env[NEW]=val, got %+v", mo.Env)
+	}
+	if len(mo.EnvRemove) != 0 {
+		t.Errorf("expected no EnvRemove for zero applied state, got %v", mo.EnvRemove)
+	}
+
+	spec, ok := mo.Secrets["S"]
+	if !ok {
+		t.Fatalf("expected Secrets[S], got %+v", mo.Secrets)
+	}
+	if spec.Value != "v" {
+		t.Errorf("expected secret spec Value=v, got %q", spec.Value)
+	}
+
+	wantEnv := buildEnvState(desiredEnv)
+	wantSecret := buildSecretState(desiredSecrets)
+	if envState.Hash != wantEnv.Hash {
+		t.Errorf("returned envState hash: got %q, want %q", envState.Hash, wantEnv.Hash)
+	}
+	if secretState.Hash != wantSecret.Hash {
+		t.Errorf("returned secretState hash: got %q, want %q", secretState.Hash, wantSecret.Hash)
+	}
+}
+
+func TestReconcileNoopWhenSame(t *testing.T) {
+	desiredEnv := map[string]string{"A": "1", "B": "2"}
+	desiredSecrets := []msbSdk.SecretEntry{{EnvVar: "S", Value: "v"}}
+	appliedEnv := buildEnvState(desiredEnv)
+	appliedSecrets := buildSecretState(desiredSecrets)
+
+	mock := &MockSandboxHandle{}
+	changed, envSt, secretSt, err := reconcileEnvAndSecrets(
+		context.Background(), mock, desiredEnv, desiredSecrets,
+		appliedEnv, appliedSecrets,
+	)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if changed {
+		t.Error("expected changed=false")
+	}
+	if len(mock.ModifiedOptions) != 0 {
+		t.Errorf("expected no Modify call, got %d", len(mock.ModifiedOptions))
+	}
+	if envSt.Hash != appliedEnv.Hash {
+		t.Errorf("returned envState != applied envState: got %q, want %q", envSt.Hash, appliedEnv.Hash)
+	}
+	if secretSt.Hash != appliedSecrets.Hash {
+		t.Errorf("returned secretState != applied secretState: got %q, want %q", secretSt.Hash, appliedSecrets.Hash)
+	}
+}
+
+func TestReconcileNilHandleNoop(t *testing.T) {
+	changed, envSt, secretSt, err := reconcileEnvAndSecrets(
+		context.Background(), nil,
+		map[string]string{"X": "1"},
+		[]msbSdk.SecretEntry{{EnvVar: "S", Value: "v"}},
+		EnvState{}, SecretState{},
+	)
+	if changed {
+		t.Error("expected changed=false with nil handle")
+	}
+	if envSt.Hash != "" {
+		t.Error("expected zero envState with nil handle")
+	}
+	if secretSt.Hash != "" {
+		t.Error("expected zero secretState with nil handle")
+	}
+	if err != nil {
+		t.Errorf("expected nil error, got %v", err)
+	}
+}
+
+func TestReconcileEnvOnly(t *testing.T) {
+	desiredEnv := map[string]string{"NEW": "val"}
+	appliedEnv := buildEnvState(map[string]string{"OLD": "old"})
+
+	mock := &MockSandboxHandle{Plan: &msbSdk.SandboxModificationPlan{Applied: true}}
+	changed, envState, secretState, err := reconcileEnvAndSecrets(
+		context.Background(), mock, desiredEnv, nil, appliedEnv, SecretState{},
+	)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !changed {
+		t.Error("expected changed=true")
+	}
+	if len(mock.ModifiedOptions) != 1 {
+		t.Fatalf("expected 1 Modify call, got %d", len(mock.ModifiedOptions))
+	}
+
+	mo := mock.ModifiedOptions[0]
+	if mo.Env["NEW"] != "val" {
+		t.Errorf("expected Env[NEW]=val, got %+v", mo.Env)
+	}
+	if !slices.Contains(mo.EnvRemove, "OLD") {
+		t.Errorf("expected EnvRemove=[OLD], got %v", mo.EnvRemove)
+	}
+	if len(mo.Secrets) != 0 {
+		t.Errorf("expected nil/empty Secrets, got %+v", mo.Secrets)
+	}
+	wantEnv := buildEnvState(desiredEnv)
+	if envState.Hash != wantEnv.Hash {
+		t.Errorf("hash mismatch: got %q, want %q", envState.Hash, wantEnv.Hash)
+	}
+	if secretState.Hash != "" {
+		t.Error("expected zero secretState")
+	}
+}
+
+func TestReconcileSecretsOnly(t *testing.T) {
+	desiredSecrets := []msbSdk.SecretEntry{{EnvVar: "NEW", Value: "v"}}
+	appliedSecrets := buildSecretState([]msbSdk.SecretEntry{{EnvVar: "OLD", Value: "x"}})
+
+	mock := &MockSandboxHandle{Plan: &msbSdk.SandboxModificationPlan{Applied: true}}
+	changed, envState, secretState, err := reconcileEnvAndSecrets(
+		context.Background(), mock, nil, desiredSecrets, EnvState{}, appliedSecrets,
+	)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !changed {
+		t.Error("expected changed=true")
+	}
+	if len(mock.ModifiedOptions) != 1 {
+		t.Fatalf("expected 1 Modify call, got %d", len(mock.ModifiedOptions))
+	}
+
+	mo := mock.ModifiedOptions[0]
+	if mo.Secrets == nil || len(mo.Secrets) != 1 {
+		t.Fatalf("expected Secrets[NEW], got %+v", mo.Secrets)
+	}
+	spec := mo.Secrets["NEW"]
+	if spec.Value != "v" {
+		t.Errorf("expected Value=v, got %q", spec.Value)
+	}
+	if !slices.Contains(mo.SecretsRemove, "OLD") {
+		t.Errorf("expected SecretsRemove=[OLD], got %v", mo.SecretsRemove)
+	}
+	// mo.Env is nil since applyEnvSpec returns early for nil desired
+	if mo.Env != nil {
+		t.Errorf("expected nil Env (no change requested), got %v", mo.Env)
+	}
+	// secretState is rebuilt, envState is unchanged (zero-value applied)
+	wantSecret := buildSecretState(desiredSecrets)
+	if secretState.Hash != wantSecret.Hash {
+		t.Errorf("secretState hash: got %q, want %q", secretState.Hash, wantSecret.Hash)
+	}
+	// envState preserved as applied (zero value, unchanged)
+	if envState.Hash != "" {
+		t.Errorf("envState should be unchanged (zero): got %q", envState.Hash)
+	}
+}
+
+func TestReconcileErrorsWrapped(t *testing.T) {
+	mock := &MockSandboxHandle{
+		ModifyErr: errors.New("sdk error"),
+	}
+	_, _, _, err := reconcileEnvAndSecrets(
+		context.Background(), mock,
+		map[string]string{"X": "1"},
+		[]msbSdk.SecretEntry{},
+		EnvState{}, SecretState{},
+	)
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	if !strings.Contains(err.Error(), "modify env/secrets") {
+		t.Errorf("expected wrapped error, got %v", err)
 	}
 }
