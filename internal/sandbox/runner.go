@@ -77,7 +77,6 @@ const (
 	sandboxStopTimeout = 30 * time.Second
 	envKeyValueParts   = 2
 	mibPerGib          = 1024
-	provisionTimeout   = 15 * time.Second
 )
 
 func parseMemory(spec string) uint32 {
