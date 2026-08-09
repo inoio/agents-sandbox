@@ -443,6 +443,46 @@ func TestRestartDaemonsRestartsServeAndDockerd(t *testing.T) {
 	}
 }
 
+func TestSetUpSandboxRestartsDaemonsOnReuseDecision(t *testing.T) {
+	commands := []string{}
+	orig := SetDaemonShellFunc(func(_ context.Context, _ Sandbox, command string) (string, int, error) {
+		commands = append(commands, command)
+		if command == "curl -sfm2 "+daemonHealthURL {
+			return `{"healthy":true,"version":"x"}`, 0, nil
+		}
+		return "", 0, nil
+	})
+	defer SetDaemonShellFunc(orig)
+
+	fs := msb.NewTestFS(nil, nil)
+	sb := &MockSandbox{Name_: "test-vm", FSValue_: fs}
+	userDir := t.TempDir()
+	ui := testutil.TermUIMock(t)
+
+	// setUpSandbox's signature is
+	//   (ctx, sb, opts, cfg, cwd, created, ui, restart, restartDockerd).
+	// Pass restart=true, restartDockerd=true to force the daemon-restart path on a reused VM.
+	commands = commands[:0]
+	target, err := setUpSandbox(
+		context.Background(), sb, RunOptions{}, Config{UserConfigDir: userDir},
+		filepath.Join(userDir, "unused"), false, &ui, true, true,
+	)
+	if err != nil {
+		t.Fatalf("setUpSandbox: %v", err)
+	}
+	if target == "" {
+		t.Error("expected a resolved target")
+	}
+	joinedParts := make([]string, 0, len(commands))
+	for _, c := range commands {
+		joinedParts = append(joinedParts, c, "|")
+	}
+	joined := strings.Join(joinedParts, "")
+	if len(commands) == 0 || !containsSubstring(joined, daemonKillCmd) {
+		t.Errorf("expected opencode serve restart on restartDaemons=true, got %q", joined)
+	}
+}
+
 func containsSubstring(hay, needle string) bool {
 	return len(hay) >= len(needle) && contains(hay, needle)
 }
