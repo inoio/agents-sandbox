@@ -6,6 +6,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 
@@ -399,6 +400,13 @@ func TestReadVMFilesEmptyDir(t *testing.T) {
 }
 
 func TestRestartDaemonsRestartsServeAndDockerd(t *testing.T) {
+	dockerdReadyTimeout = 50 * time.Millisecond
+	dockerdPollInterval = 10 * time.Millisecond
+	t.Cleanup(func() {
+		dockerdReadyTimeout = 10 * time.Second
+		dockerdPollInterval = time.Second
+	})
+
 	var cmdCalls []string
 	savedShell := SetDaemonShellFunc(func(_ context.Context, _ Sandbox, command string) (string, int, error) {
 		cmdCalls = append(cmdCalls, command)
@@ -410,20 +418,28 @@ func TestRestartDaemonsRestartsServeAndDockerd(t *testing.T) {
 	defer SetDaemonShellFunc(savedShell)
 
 	fs := NewTestFS(nil, nil)
-	sb := &MockSandbox{Name_: "vm", FSValue_: fs, ShellCalls: &cmdCalls}
+	sb := &MockSandbox{
+		Name_:      "vm",
+		FSValue_:   fs,
+		ShellCalls: &cmdCalls,
+		ShellOut: map[string]msb.ShellResult{
+			dockerdBinaryCheckCmd: msb.NewTestResult(true, 0, "", "", nil),
+			dockerdReadyCmd:       msb.NewTestResult(false, 1, "", "", nil),
+		},
+	}
 	ui := testutil.TermUIMock(t)
 	restartDaemons(context.Background(), sb, map[string][]byte{"opencode.jsonc": []byte("{}")}, true, &ui)
 
-	joined := strings.Builder{}
+	var joined strings.Builder
 	for _, c := range cmdCalls {
 		joined.WriteString(c)
 		joined.WriteByte('|')
 	}
 	if !containsSubstring(joined.String(), daemonKillCmd) {
-		t.Errorf("expected serve kill command, got %s", joined.String())
+		t.Errorf("expected serve kill command, got %q", joined.String())
 	}
-	if !containsSubstring(joined.String(), "dockerd") {
-		t.Errorf("expected dockerd restart when restartDockerd=true, got %s", joined.String())
+	if !containsSubstring(joined.String(), dockerdRestartCmd) {
+		t.Errorf("expected dockerd restart command, got %q", joined.String())
 	}
 }
 
