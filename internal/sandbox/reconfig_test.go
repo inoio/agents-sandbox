@@ -91,3 +91,80 @@ func TestResolveReconfigPromptBKeepReturnsNoRestart(t *testing.T) {
 		t.Error("keep must not restart daemons")
 	}
 }
+
+func TestPlanReconfigEnvChangeRestartsAllDaemons(t *testing.T) {
+	cfg := &msbSdk.SandboxConfig{Image: "a", CPUs: 4, MemoryMiB: 4096}
+	d := planReconfig(cfg, "a", RunOptions{}, true, false, false) // envChanged=true
+	if !d.restartDaemons {
+		t.Error("expected restartDaemons on env change")
+	}
+	if !d.restartDockerd {
+		t.Error("expected restartDockerd on env change")
+	}
+	if d.recreate {
+		t.Error("unexpected recreate for env-only change")
+	}
+}
+
+func TestPlanReconfigOpenCodeConfigChangeNoDockerdRestart(t *testing.T) {
+	cfg := &msbSdk.SandboxConfig{Image: "a", CPUs: 4, MemoryMiB: 4096}
+	d := planReconfig(cfg, "a", RunOptions{}, false, false, true) // opencodeConfigChanged=true
+	if !d.restartDaemons {
+		t.Error("expected restartDaemons on opencode config change")
+	}
+	if d.restartDockerd {
+		t.Error("expected dockerd NOT restarted for opencode-config-only change")
+	}
+}
+
+func TestPlanReconfigSecretsChangeRestartsAllDaemons(t *testing.T) {
+	cfg := &msbSdk.SandboxConfig{Image: "a", CPUs: 4, MemoryMiB: 4096}
+	d := planReconfig(cfg, "a", RunOptions{}, false, true, false) // secretsChanged=true
+	if !d.restartDaemons {
+		t.Error("expected restartDaemons on secrets change")
+	}
+	if !d.restartDockerd {
+		t.Error("expected restartDockerd on secrets change")
+	}
+}
+
+func TestPlanReconfigEnvWithRecreateNoRestartFlag(t *testing.T) {
+	cfg := &msbSdk.SandboxConfig{Image: "old", CPUs: 4, MemoryMiB: 4096, Volumes: map[string]msbSdk.MountConfig{
+		"/tmp": {SizeMiB: 2048},
+	}}
+	// image mismatch triggers recreate, env change would add restartDaemons
+	d := planReconfig(cfg, "new:tag", RunOptions{TmpSize: "4G"}, true, false, false)
+	if !d.recreate {
+		t.Error("expected recreate on image mismatch")
+	}
+	if d.restartDaemons {
+		t.Error("expected restartDaemons=false when recreate is set (folded into recreate)")
+	}
+}
+
+func TestPlanReconfigMemoryClampToMax(t *testing.T) {
+	cfg := &msbSdk.SandboxConfig{Image: "a", MemoryMiB: 4096, MaxMemoryMiB: 8192}
+	d := planReconfig(cfg, "a", RunOptions{Memory: "16G"}, false, false, false)
+	if d.resources == nil {
+		t.Fatal("expected resources set for memory change")
+	}
+	if d.resources.MemoryMiB != 8192 {
+		t.Errorf("expected memory clamped to 8192, got %d", d.resources.MemoryMiB)
+	}
+}
+
+func TestResolveReconfigPromptBRestart(t *testing.T) {
+	plan := &reconfigDecision{restartDaemons: true, restartDockerd: true}
+	ui := &termio.Mock{}
+	ui.SelectFn = func(_ string, _ []termio.Choice, _ string) (string, error) { return "r", nil }
+	applyRecreate, applyRestart, err := resolveReconfig(context.Background(), ui, plan, 1, plan.changes)
+	if err != nil {
+		t.Fatalf("restart should not error: %v", err)
+	}
+	if applyRecreate {
+		t.Error("restart must not apply recreate")
+	}
+	if !applyRestart {
+		t.Error("expected applyRestart=true for restart selection")
+	}
+}
