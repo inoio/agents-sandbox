@@ -11,7 +11,7 @@ import (
 	"sort"
 	"strings"
 
-	msb "github.com/superradcompany/microsandbox/sdk/go"
+	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 
 	"gitlab.inoio.de/inoio/opencode-msb/internal/config"
 	"gitlab.inoio.de/inoio/opencode-msb/internal/termio"
@@ -118,7 +118,7 @@ func readVMFiles(
 	ui.Verbosef("  found %d entries in %s", len(l), dir)
 	result := make(map[string][]byte)
 	for _, e := range l {
-		if e.Kind != msb.FsEntryKindFile {
+		if e.Kind != msbSdk.FsEntryKindFile {
 			ui.Verbosef("    skipping %s (kind=%s)", e.Path, e.Kind)
 			continue
 		}
@@ -204,4 +204,24 @@ func mergeEnvMaps(mapsToMerge ...map[string]string) map[string]string {
 		maps.Copy(result, m)
 	}
 	return result
+}
+
+// envOrSecretsChanged reports whether desired env/secrets differ from the VM's
+// current config, using the same diff rules as reconcileEnvAndSecrets.
+func envOrSecretsChanged( //nolint:unused // called by runner at production call-site
+	cfg *msbSdk.SandboxConfig,
+	desiredEnv map[string]string,
+	desiredSecrets []msbSdk.SecretEntry,
+) (bool, bool) {
+	var envChanged, secretsChanged bool
+	if cfg == nil {
+		return desiredEnv != nil || len(desiredSecrets) > 0, len(desiredSecrets) > 0
+	}
+	if !envMapsEqual(cfg.Env, desiredEnv) {
+		envChanged = true
+	}
+	if !secretsNameSetEqual(cfg.Secrets, parseSecretEntries(desiredSecrets)) {
+		secretsChanged = true
+	}
+	return envChanged, secretsChanged
 }
