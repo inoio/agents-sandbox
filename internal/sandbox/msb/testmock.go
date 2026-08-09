@@ -371,6 +371,7 @@ type MockSandbox struct {
 	FSValue_   any
 	ShellOut   map[string]ShellResult
 	ShellErr   error
+	ShellCalls *[]string
 	ExecOut    map[string]ShellResult
 	ExecErr    error
 	AttachCode int
@@ -388,6 +389,9 @@ func (m *MockSandbox) FS() SandboxFS {
 }
 
 func (m *MockSandbox) Shell(_ context.Context, command string, _ ...msbSdk.ExecOption) (ShellResult, error) {
+	if m.ShellCalls != nil {
+		*m.ShellCalls = append(*m.ShellCalls, command)
+	}
 	if m.ShellErr != nil {
 		return nil, m.ShellErr
 	}

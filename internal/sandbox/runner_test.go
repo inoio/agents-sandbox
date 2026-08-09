@@ -320,8 +320,10 @@ func TestSetUpSandboxProvisionsConfigOnFreshSetup(t *testing.T) {
 		RunOptions{},
 		Config{UserConfigDir: userDir},
 		"",
-		false,
+		true,
 		ui,
+		false,
+		false,
 	)
 	if err != nil {
 		t.Fatalf("setUpSandbox: %v", err)
@@ -394,4 +396,46 @@ func TestReadVMFilesEmptyDir(t *testing.T) {
 	if len(got) != 0 {
 		t.Errorf("expected empty result for empty dir, got %v", got)
 	}
+}
+
+func TestRestartDaemonsRestartsServeAndDockerd(t *testing.T) {
+	var cmdCalls []string
+	savedShell := SetDaemonShellFunc(func(_ context.Context, _ Sandbox, command string) (string, int, error) {
+		cmdCalls = append(cmdCalls, command)
+		if command == "curl -sfm2 "+daemonHealthURL {
+			return `{"healthy":true,"version":"x"}`, 0, nil
+		}
+		return "", 0, nil
+	})
+	defer SetDaemonShellFunc(savedShell)
+
+	fs := NewTestFS(nil, nil)
+	sb := &MockSandbox{Name_: "vm", FSValue_: fs, ShellCalls: &cmdCalls}
+	ui := testutil.TermUIMock(t)
+	restartDaemons(context.Background(), sb, map[string][]byte{"opencode.jsonc": []byte("{}")}, true, &ui)
+
+	joined := strings.Builder{}
+	for _, c := range cmdCalls {
+		joined.WriteString(c)
+		joined.WriteByte('|')
+	}
+	if !containsSubstring(joined.String(), daemonKillCmd) {
+		t.Errorf("expected serve kill command, got %s", joined.String())
+	}
+	if !containsSubstring(joined.String(), "dockerd") {
+		t.Errorf("expected dockerd restart when restartDockerd=true, got %s", joined.String())
+	}
+}
+
+func containsSubstring(hay, needle string) bool {
+	return len(hay) >= len(needle) && contains(hay, needle)
+}
+
+func contains(s, sub string) bool {
+	for i := 0; i+len(sub) <= len(s); i++ {
+		if s[i:i+len(sub)] == sub {
+			return true
+		}
+	}
+	return false
 }
