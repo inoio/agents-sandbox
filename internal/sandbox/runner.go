@@ -451,7 +451,14 @@ func applyEnvAndSecrets(ctx context.Context, cfg Config, ui termio.UI) {
 		buildEnvMap(ProjectEnvSecretFile()),
 	), ui)
 
-	if _, err := reconcileEnvAndSecrets(ctx, handle, desiredEnv, desiredSecrets); err != nil {
+	if _, _, _, err := reconcileEnvAndSecrets(
+		ctx,
+		handle,
+		desiredEnv,
+		desiredSecrets,
+		//nolint:exhaustruct // zero-value applied state; real current-state read lands in Task 4
+		EnvState{}, SecretState{},
+	); err != nil {
 		ui.Warnf("env/secret application failed: %v (continuing)", err)
 	}
 }

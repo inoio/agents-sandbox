@@ -3,102 +3,105 @@ package sandbox
 import (
 	"context"
 	"fmt"
-	"maps"
 
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 )
 
-// envMapsEqual reports whether two env maps hold the same key/value pairs.
-func envMapsEqual(have, want map[string]string) bool {
-	if have == nil {
-		have = map[string]string{}
-	}
-	return maps.Equal(have, want)
-}
-
-// reconcileEnvAndSecrets diffs the desired env and secrets against the VM's
-// current config and applies the changes via the SDK Modify API (for future
-// execs). It returns whether anything changed and was applied. Callers must
-// decide/handle the opencode daemon restart separately.
+// reconcileEnvAndSecrets diffs the desired env and secrets against the applied
+// (applied) fingerprint state and applies the changes via the SDK Modify API.
+// It returns whether anything changed and was applied, plus the new fingerprint
+// state for env and secrets. Callers must decide/handle the opencode daemon
+// restart separately.
 //
 // desiredSecrets must be the output of BuildSecrets ([]msbSdk.SecretEntry) so
 // the diff and the Modify specs are derived from exactly the same parsed
 // entries — never re-parse the raw "VAR=value@host" strings here.
-func reconcileEnvAndSecrets(
+//
+// Zero values of appliedEnv/appliedSecrets signal "no persisted state yet"
+// (first run or state not yet loaded).
+func reconcileEnvAndSecrets( //nolint:nonamedreturns // readability: clearer return documentation
 	ctx context.Context,
 	handle SandboxHandle,
 	desiredEnv map[string]string,
 	desiredSecrets []msbSdk.SecretEntry,
-) (bool, error) { //nolint:unparam // bool return kept for SDK-diff API contract while callers decide restart
+	appliedEnv EnvState,
+	appliedSecrets SecretState,
+) (changed bool, envState EnvState, secretState SecretState, err error) {
 	if handle == nil {
-		return false, nil
+		return false, envState, secretState, nil
 	}
-	cfg, err := handle.Config()
-	if err != nil || cfg == nil {
-		return false, nil //nolint:nilerr // config read failure treated as no-op
+
+	envChanged := envChanged(appliedEnv, desiredEnv)
+	secretChanged := secretsChanged(appliedSecrets, desiredSecrets)
+
+	if !envChanged && !secretChanged {
+		return false, appliedEnv, appliedSecrets, nil
 	}
-	changed := false
+
 	var mo msbSdk.ModifyOptions
 	mo.Policy = msbSdk.ModificationPolicyNoRestart
 
-	if desiredEnv != nil && !envMapsEqual(cfg.Env, desiredEnv) {
-		mo.Env = desiredEnv
-		for k := range cfg.Env {
-			if _, ok := desiredEnv[k]; !ok {
-				mo.EnvRemove = append(mo.EnvRemove, k)
-			}
-		}
-		changed = true
+	if envChanged {
+		applyEnvSpec(appliedEnv, desiredEnv, &mo)
 	}
 
-	wantSecrets := parseSecretEntries(desiredSecrets)
-	if !secretsNameSetEqual(cfg.Secrets, wantSecrets) {
-		mo.Secrets = secretModifySpecsFromEntries(desiredSecrets)
-		for _, s := range cfg.Secrets {
-			if _, ok := wantSecrets[s.EnvVar]; !ok {
-				mo.SecretsRemove = append(mo.SecretsRemove, s.EnvVar)
-			}
-		}
-		changed = true
+	if secretChanged {
+		applySecretSpec(appliedSecrets, desiredSecrets, &mo)
 	}
 
-	if !changed {
-		return false, nil
-	}
 	if _, err := handle.Modify(ctx, mo); err != nil {
-		return false, fmt.Errorf("modify env/secrets: %w", err)
+		return false, envState, secretState, fmt.Errorf(
+			"modify env/secrets: %w", err,
+		)
 	}
-	return true, nil
+
+	newEnv := appliedEnv
+	if envChanged {
+		newEnv = buildEnvState(desiredEnv)
+	}
+	newSecret := appliedSecrets
+	if secretChanged {
+		newSecret = buildSecretState(desiredSecrets)
+	}
+	return true, newEnv, newSecret, nil
 }
 
-// parseSecretEntries indexes SecretEntry values by their EnvVar name, which is
-// the sandbox-visible env-variable name (mirrors BuildSecrets, which keys
-// secrets by env var name).
-func parseSecretEntries(entries []msbSdk.SecretEntry) map[string]msbSdk.SecretEntry {
-	byName := make(map[string]msbSdk.SecretEntry, len(entries))
-	for _, s := range entries {
-		byName[s.EnvVar] = s
+// applyEnvSpec populates a ModifyOptions for the env portion: sets mo.Env to
+// the desired map (nil means no env — no change) and appends to mo.EnvRemove
+// each name from applied.Names that is not present in desired.
+func applyEnvSpec(applied EnvState, desired map[string]string, mo *msbSdk.ModifyOptions) {
+	// nil desired means "no env at all" (not "no change") — only apply if
+	// the caller explicitly passes an empty map.  This avoids clobbering
+	// existing env vars when the caller has no desired-env state yet.
+	if desired == nil {
+		return
 	}
-	return byName
-}
+	mo.Env = desired
 
-// secretsNameSetEqual reports whether the env-var names configured in the VM
-// (have) equal the env-var names of the desired secrets (want). Values are
-// compared by presence only, matching BuildSecrets which keys secrets by env
-// var name.
-func secretsNameSetEqual(have []msbSdk.SecretEntry, want map[string]msbSdk.SecretEntry) bool {
-	if len(want) == 0 {
-		return len(have) == 0
-	}
-	if len(have) != len(want) {
-		return false
-	}
-	for _, s := range have {
-		if _, ok := want[s.EnvVar]; !ok {
-			return false
+	for _, name := range applied.Names {
+		if _, ok := desired[name]; !ok {
+			mo.EnvRemove = append(mo.EnvRemove, name)
 		}
 	}
-	return true
+}
+
+// applySecretSpec populates a ModifyOptions for the secrets portion: sets
+// mo.Secrets to the secret modify specs derived from the desired entries, and
+// appends to mo.SecretsRemove each name from applied.Names not present in the
+// desired secret name set.
+func applySecretSpec(applied SecretState, desired []msbSdk.SecretEntry, mo *msbSdk.ModifyOptions) {
+	mo.Secrets = secretModifySpecsFromEntries(desired)
+
+	wantNames := make(map[string]struct{}, len(desired))
+	for _, e := range desired {
+		wantNames[e.EnvVar] = struct{}{}
+	}
+
+	for _, name := range applied.Names {
+		if _, ok := wantNames[name]; !ok {
+			mo.SecretsRemove = append(mo.SecretsRemove, name)
+		}
+	}
 }
 
 // secretModifySpecsFromEntries converts the desired secrets (as built by
