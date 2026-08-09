@@ -110,25 +110,36 @@ func decideVMAction(notFoundErr error, status msbSdk.SandboxStatus) (vmAction, e
 	return vmActionCreate, fmt.Errorf("unexpected sandbox status: %s", status)
 }
 
-// reconcileResourceConfig applies requested CPUs/memory changes to an
-// existing (reused) VM via the SDK Modify API. Changes within the boot-time
-// hotplug maximum apply live without a restart (policy NoRestart). CPU = 0 in
-// opts means "all CPUs" and is left unchanged. Plan conflicts/warnings are
-// summarized into the returned error (non-fatal to the session).
+// reconcileResourceConfig applies requested CPUs/memory changes to an existing
+// (reused) VM via the SDK Modify API. Requests above the boot-time maximum are
+// clamped to that maximum with a warning. Changes within the maximum apply live
+// (policy NoRestart); CPU = 0 means "all CPUs" (left unchanged).
 //
 //nolint:nilerr // Returning nil when config read fails is intentional — treat as no-op
-func reconcileResourceConfig(ctx context.Context, handle SandboxHandle, opts RunOptions) error {
+func reconcileResourceConfig(ctx context.Context, handle SandboxHandle, opts RunOptions, ui termio.UI) error {
 	cfg, err := handle.Config()
 	if err != nil || cfg == nil {
 		return nil
 	}
 	var mo msbSdk.ModifyOptions
-	if opts.CPUs != 0 && opts.CPUs != cfg.CPUs {
-		mo.CPUs = opts.CPUs
+	if opts.CPUs != 0 {
+		want := opts.CPUs
+		if cfg.MaxCPUs > 0 && want > cfg.MaxCPUs {
+			ui.Warnf("cpus limited to %d (boot maximum); requested %d", cfg.MaxCPUs, opts.CPUs)
+			want = cfg.MaxCPUs
+		}
+		if want != cfg.CPUs {
+			mo.CPUs = want
+		}
 	}
 	if opts.Memory != "" {
-		if wantMem := parseMemory(opts.Memory); wantMem != cfg.MemoryMiB {
-			mo.MemoryMiB = wantMem
+		want := parseMemory(opts.Memory)
+		if cfg.MaxMemoryMiB > 0 && want > cfg.MaxMemoryMiB {
+			ui.Warnf("memory limited to %d MiB (boot maximum); requested %d MiB", cfg.MaxMemoryMiB, want)
+			want = cfg.MaxMemoryMiB
+		}
+		if want != cfg.MemoryMiB {
+			mo.MemoryMiB = want
 		}
 	}
 	if mo.CPUs == 0 && mo.MemoryMiB == 0 {
@@ -141,9 +152,6 @@ func reconcileResourceConfig(ctx context.Context, handle SandboxHandle, opts Run
 	}
 	if len(plan.Conflicts) > 0 {
 		return fmt.Errorf("resource change not applied: %s", summarizeConflicts(plan.Conflicts))
-	}
-	for _, w := range plan.Warnings {
-		_ = w // Logged by caller; surfaced as info only.
 	}
 	return nil
 }
@@ -256,7 +264,7 @@ func EnsureProjectVM(
 						return nil, false, fmt.Errorf("connect sandbox %q: %w", name, connErr2)
 					}
 					spin.Stop()
-					if recErr := reconcileResourceConfig(ctx, handle2, opts); recErr != nil {
+					if recErr := reconcileResourceConfig(ctx, handle2, opts, ui); recErr != nil {
 						ui.Warnf("could not reconcile VM resources: %v", recErr)
 					}
 					return sb2, false, nil
@@ -267,14 +275,14 @@ func EnsureProjectVM(
 					return nil, false, fmt.Errorf("start sandbox %q: %w", name, startErr)
 				}
 				spin.Stop()
-				if recErr := reconcileResourceConfig(ctx, handle2, opts); recErr != nil {
+				if recErr := reconcileResourceConfig(ctx, handle2, opts, ui); recErr != nil {
 					ui.Warnf("could not reconcile VM resources: %v", recErr)
 				}
 				return sb2, false, nil
 			}
 			spin.Stop()
 			ui.Verbosef("connected to existing project VM: %s", name)
-			if recErr := reconcileResourceConfig(ctx, handle, opts); recErr != nil {
+			if recErr := reconcileResourceConfig(ctx, handle, opts, ui); recErr != nil {
 				ui.Warnf("could not reconcile VM resources: %v", recErr)
 			}
 			return sb, false, nil
@@ -287,7 +295,7 @@ func EnsureProjectVM(
 			return nil, false, fmt.Errorf("start sandbox %q: %w", name, startErr)
 		}
 		ui.Verbosef("started existing project VM: %s", name)
-		if recErr := reconcileResourceConfig(ctx, handle, opts); recErr != nil {
+		if recErr := reconcileResourceConfig(ctx, handle, opts, ui); recErr != nil {
 			ui.Warnf("could not reconcile VM resources: %v", recErr)
 		}
 		return sb, false, nil
@@ -323,7 +331,7 @@ func EnsureProjectVM(
 				ui.Verbosef("post-lock connect failed: %v", connErr)
 			}
 			if sb != nil {
-				if recErr := reconcileResourceConfig(ctx, handle, opts); recErr != nil {
+				if recErr := reconcileResourceConfig(ctx, handle, opts, ui); recErr != nil {
 					ui.Warnf("could not reconcile VM resources: %v", recErr)
 				}
 				return sb, false, nil
@@ -333,7 +341,7 @@ func EnsureProjectVM(
 		if startErr != nil {
 			return nil, false, fmt.Errorf("start sandbox %q: %w", name, startErr)
 		}
-		if recErr := reconcileResourceConfig(ctx, handle, opts); recErr != nil {
+		if recErr := reconcileResourceConfig(ctx, handle, opts, ui); recErr != nil {
 			ui.Warnf("could not reconcile VM resources: %v", recErr)
 		}
 		return sb, false, nil
