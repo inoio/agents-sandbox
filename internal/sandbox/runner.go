@@ -416,7 +416,8 @@ func setUpSandbox(
 		return ResolveTarget(ctx, sb, opts.Branch, ui)
 	}
 
-	if len(cfs.files) > 0 && created {
+	vmData := readVMFiles(ctx, sb, "/home/dev/.config/opencode", ui)
+	if len(cfs.files) > 0 && (created || len(vmData) == 0) {
 		if provErr := provisionSandbox(ctx, sb.FS(), cfs.files); provErr != nil {
 			ui.Warnf("provision failed: %v (continuing)", provErr)
 		}
@@ -478,14 +479,23 @@ func decideReconfig(
 	var curCfg *msbSdk.SandboxConfig
 	var liveSb Sandbox
 	if handle != nil {
-		curCfg, _ = handle.Config()
-		liveSb, _ = handle.Connect(ctx)
+		var cfgErr error
+		curCfg, cfgErr = handle.Config()
+		if cfgErr != nil {
+			ui.Verbosef("reading existing VM config failed: %v (continuing)", cfgErr)
+		}
+		var connectErr error
+		liveSb, connectErr = handle.Connect(ctx)
+		if connectErr != nil {
+			ui.Verbosef("connecting to existing VM failed: %v (continuing)", connectErr)
+		}
 	}
 
 	// image-change home-volume prompt runs before the rebuild decision.
 	if state.ImageDigest != imageDigest {
 		action := vm.ResolveHomeAction(ui, state.ImageDigest, imageDigest)
 		if action == actionQuit {
+			ui.Infof("exiting as requested by user")
 			return false, false, false, homeVol, &ExitError{Code: 1}
 		}
 		newVol, err := vm.ApplyHomeAction(ctx, client, slug, homeVol, imageRef, imageDigest, action, opts, ui)
@@ -504,6 +514,9 @@ func decideReconfig(
 	if liveSb != nil {
 		vmData := readVMFiles(ctx, liveSb, "/home/dev/.config/opencode", ui)
 		opencfgChanged = len(vmData) > 0 && !configEqual(cfs.parsed, cfs.keys, vmData)
+		if detachErr := liveSb.Detach(context.Background()); detachErr != nil {
+			ui.Verbosef("failed to detach live sandbox handle: %v", detachErr)
+		}
 	}
 
 	desiredEnv := mergeEnvMaps(buildEnvMap(cfg.UserEnvFile()), buildEnvMap(ProjectEnvFile()))
