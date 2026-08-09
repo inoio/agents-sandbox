@@ -443,6 +443,52 @@ func TestRestartDaemonsRestartsServeAndDockerd(t *testing.T) {
 	}
 }
 
+func TestSetUpSandboxAppliesEnvSecretsOnReuseRestart(t *testing.T) {
+	var commands []string
+	orig := SetDaemonShellFunc(func(_ context.Context, _ Sandbox, command string) (string, int, error) {
+		commands = append(commands, command)
+		if command == "curl -sfm2 "+daemonHealthURL {
+			return `{"healthy":true,"version":"x"}`, 0, nil
+		}
+		return "", 0, nil
+	})
+	defer SetDaemonShellFunc(orig)
+
+	userDir := t.TempDir()
+	testutil.WritePath(t, filepath.Join(userDir, envFileName), "NEW=2\n")
+
+	// The env file provides the new desired env ("NEW=2").
+	// MockSandboxHandle provides the old env ("OLD=1") so there is a diff.
+	sh := msb.MockSandboxHandle{
+		Cfg: &msbSdk.SandboxConfig{
+			Env: map[string]string{"OLD": "1"},
+		},
+	}
+	sb := &MockSandbox{Name_: "test-vm"}
+	sh.ConnectSb = sb
+
+	mockClient := &msb.MockMsbClient{}
+	mockClient.GetSandboxFn = func(_ context.Context, _ string) (msb.SandboxHandle, error) {
+		return &sh, nil
+	}
+
+	msb.WithMsbMock(t, mockClient)
+	commands = commands[:0]
+	ui := testutil.TermUIMock(t)
+
+	_, err := setUpSandbox(
+		context.Background(), &MockSandbox{Name_: "test-vm", FSValue_: msb.NewTestFS(nil, nil)},
+		RunOptions{}, Config{UserConfigDir: userDir}, filepath.Join(userDir, "unused"), false, &ui, true, true,
+	)
+	if err != nil {
+		t.Fatalf("setUpSandbox: %v", err)
+	}
+
+	if len(sh.ModifiedOptions) == 0 {
+		t.Fatal("expected env/secret Modify to be called on the VM handle")
+	}
+}
+
 func TestSetUpSandboxRestartsDaemonsOnReuseDecision(t *testing.T) {
 	commands := []string{}
 	orig := SetDaemonShellFunc(func(_ context.Context, _ Sandbox, command string) (string, int, error) {
