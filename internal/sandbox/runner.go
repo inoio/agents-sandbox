@@ -214,7 +214,7 @@ func prepareSandbox(
 		ui.Infof("VM lifecycle skipped (--dry-run-vm)")
 		sandboxTarget = resolveTargetNoBranch()
 	} else {
-		sandboxTarget, sandboxErr = setUpSandbox(ctx, sb, opts, cfg, cwd, created, ui)
+		sandboxTarget, sandboxErr = setUpSandbox(ctx, sb, opts, cfg, cwd, created, ui, false, false)
 		if sandboxErr != nil {
 			return nil, sandboxErr
 		}
@@ -385,7 +385,6 @@ func provisionSandbox(
 	return nil
 }
 
-// setUpSandbox handles all sandbox setup after the VM is running.
 func setUpSandbox(
 	ctx context.Context,
 	sb Sandbox,
@@ -394,6 +393,8 @@ func setUpSandbox(
 	_ string,
 	created bool,
 	ui termio.UI,
+	restart bool,
+	restartDockerd bool,
 ) (string, error) {
 	cfs, err := loadConfigFiles(cfg.UserOpenCodeConfigDir())
 	if err != nil {
@@ -402,24 +403,12 @@ func setUpSandbox(
 
 	ui.Verbosef("expected config files: %v", cfs.keys)
 
-	vmData := readVMFiles(ctx, sb, "/home/dev/.config/opencode", ui)
-
-	// Env/secret reconciliation must run on ALL reuse paths (not just the
-	// config-matched path). If moved after the config-change early return it
-	// would never execute when the opencode config differs, skipping env/
-	// secret updates entirely for reused sandboxes.
-	if !created {
-		configChanged := len(vmData) > 0 && !configEqual(cfs.parsed, cfs.keys, vmData)
-		applyEnvReconcile(ctx, sb, cfg, cfs, ui, configChanged)
+	if restart {
+		restartDaemons(ctx, sb, cfs.files, restartDockerd, ui)
+		return ResolveTarget(ctx, sb, opts.Branch, ui)
 	}
 
-	if len(vmData) > 0 {
-		if !configEqual(cfs.parsed, cfs.keys, vmData) {
-			handleConfigChange(ctx, sb, cfs, ui)
-			return ResolveTarget(ctx, sb, opts.Branch, ui)
-		}
-	} else {
-		ui.Verbosef("no VM config found (fresh setup)")
+	if len(cfs.files) > 0 && created {
 		if provErr := provisionSandbox(ctx, sb.FS(), cfs.files); provErr != nil {
 			ui.Warnf("provision failed: %v (continuing)", provErr)
 		}
@@ -436,87 +425,25 @@ func setUpSandbox(
 	return ResolveTarget(ctx, sb, opts.Branch, ui)
 }
 
-// handleConfigChange provisions the sandbox and restarts the daemon if required.
-func handleConfigChange(ctx context.Context, sb Sandbox, cfs *configFiles, ui termio.UI) {
-	daemonHealthy := daemonIsHealthy(ctx, sb)
-	if daemonHealthy {
-		action, promptErr := promptConfigChange(ui)
-		if promptErr != nil {
-			_ = promptErr
-			return
-		}
-		if action == "r" {
-			ensureProvisionedAndRunning(ctx, sb.FS(), cfs.files, sb, ui)
-			return
-		}
-		ui.Infof("config change detected; proceeding without restart")
+// restartDaemons provisions config files and restarts the daemons a config
+// change requires. restartDockerd additionally restarts dockerd (for env/secret
+// changes) so newly applied process env/settings take effect.
+func restartDaemons(ctx context.Context, sb Sandbox, files map[string][]byte, restartDockerd bool, ui termio.UI) {
+	if err := provisionSandbox(ctx, sb.FS(), files); err != nil {
+		ui.Warnf("provision failed: %v (keeping existing daemon)", err)
 		return
 	}
-	restartUnhealthyDaemon(ctx, sb, cfs.files, ui)
-}
-
-func applyEnvReconcile(
-	ctx context.Context,
-	sb Sandbox,
-	cfg Config,
-	cfs *configFiles,
-	ui termio.UI,
-	configChanged bool,
-) {
-	handle, err := msb.Get().GetSandbox(ctx, projectVMName(git.ProjectSlug(ui)))
-	if err != nil {
-		ui.Warnf("could not re-fetch project VM handle for env reconciliation: %v (continuing)", err)
-		return
-	}
-	desiredEnv := mergeEnvMaps(buildEnvMap(cfg.UserEnvFile()), buildEnvMap(ProjectEnvFile()))
-	desiredSecrets := BuildSecrets(mergeEnvMaps(
-		buildEnvMap(cfg.UserEnvSecretFile()),
-		buildEnvMap(ProjectEnvSecretFile()),
-	), ui)
-	if changed, recErr := reconcileEnvAndSecrets(ctx, handle, desiredEnv, desiredSecrets); recErr != nil {
-		ui.Warnf("env reconciliation failed: %v (continuing)", recErr)
-	} else if changed {
-		if configChanged {
-			// Config change handles restart; env changes will be picked up after.
-			ui.Infof("env/secret changes applied; restart daemon to apply to the running serve process")
-		} else if action, promptErr := promptConfigChange(ui); promptErr == nil && action == "r" {
-			ensureProvisionedAndRunning(ctx, sb.FS(), cfs.files, sb, ui)
-		} else {
-			ui.Infof("env/secret changes applied; restart daemon to apply to the running serve process")
+	if restartDockerd {
+		ui.Infof("restarting dockerd for env/secret change…")
+		if err := startDockerdIfPresent(ctx, sb, ui); err != nil {
+			ui.Warnf("dockerd restart failed (continuing): %v", err)
 		}
-	}
-}
-
-func ensureProvisionedAndRunning(
-	ctx context.Context,
-	fs SandboxFS,
-	files map[string][]byte,
-	sb Sandbox,
-	ui termio.UI,
-) {
-	if provErr := provisionSandbox(ctx, fs, files); provErr != nil {
-		ui.Warnf("provision failed: %v (keeping existing daemon)", provErr)
-		return
 	}
 	ui.Infof("opencode serve restarting…")
 	if _, _, err := daemonShellFunc(ctx, sb, daemonKillCmd); err != nil {
 		ui.Warnf("kill stale daemon failed (continuing): %v", err)
 	}
-	if restartErr := EnsureDaemon(ctx, sb, ui); restartErr != nil {
-		ui.Warnf("daemon restart failed: %v (keeping existing)", restartErr)
-	}
-}
-
-func restartUnhealthyDaemon(ctx context.Context, sb Sandbox, files map[string][]byte, ui termio.UI) {
-	provisionCtx, cancel := context.WithTimeout(ctx, provisionTimeout)
-	defer cancel()
-
-	ui.Infof("config change detected; restarting (daemon was not healthy)")
-	if provErr := provisionSandbox(provisionCtx, sb.FS(), files); provErr != nil {
-		ui.Warnf("provision failed: %v (using existing config)", provErr)
-		return
-	}
-	if restartErr := EnsureDaemon(ctx, sb, ui); restartErr != nil {
-		ui.Warnf("daemon restart failed: %v (using existing)", restartErr)
+	if err := EnsureDaemon(ctx, sb, ui); err != nil {
+		ui.Warnf("daemon restart failed: %v (using existing)", err)
 	}
 }

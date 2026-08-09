@@ -26,39 +26,6 @@ type configFiles struct {
 
 const autoFlag = "--auto"
 
-// promptConfigChange asks the user whether to restart the daemon after a
-// provider config change.
-func promptConfigChange(ui termio.UI) (string, error) {
-	selection, err := ui.Select(
-		"opencode provider config has changed. Restart the daemon to apply the new config?",
-		[]termio.Choice{
-			{
-				Label: "Proceed without changes (keep current config)", Key: "p",
-				Description: "Daemon continues with the existing config",
-			},
-			{
-				Label: "Restart opencode serve (apply new config)", Key: "r",
-				Description: "Daemon restarts with new config; active clients disconnect",
-			},
-		},
-		"p",
-	)
-	if err != nil {
-		return "", fmt.Errorf("prompt config change: %w", err)
-	}
-	return selection, nil
-}
-
-// daemonIsHealthy returns true when the opencode serve daemon reports healthy.
-func daemonIsHealthy(ctx context.Context, sb Sandbox) bool {
-	out, err := sb.Shell(ctx, "curl -sf "+daemonHealthURL)
-	if err != nil || out == nil || !out.Success() {
-		return false
-	}
-	h, _ := parseHealthResponse(out.Stdout())
-	return h
-}
-
 // loadConfigFiles builds the merged opencode configuration from the user's
 // config directory, any project-specific config in .opencode-msb/opencode,
 // and the embedded provider config. Returns the marshaled files, parsed
@@ -98,8 +65,6 @@ func loadConfigFiles(userConfigDir string) (*configFiles, error) {
 }
 
 // readVMFiles reads all files from the given directory on the VM.
-//
-//nolint:unparam // general utility
 func readVMFiles(
 	ctx context.Context,
 	sb Sandbox,
