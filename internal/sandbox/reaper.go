@@ -108,7 +108,7 @@ func waitQuiescent(ctx context.Context, slug string, sb msb.Sandbox, maxRetry in
 			continue
 		}
 
-		busy, stuckRetry := quiescenceOf(states, maxRetry)
+		busy, stuckRetry := quiescenceOf(states, nil, maxRetry)
 		ui.Verbosef("waiting: busy=%d stuckRetry=%v", busy, stuckRetry)
 
 		if busy == 0 && !stuckRetry {
@@ -178,14 +178,17 @@ func decodeQuestionRequests(data string) ([]QuestionRequest, error) {
 }
 
 // quiescenceOf reports how many sessions are busy and whether any retry
-// session has exceeded the retry cap.
-func quiescenceOf(states map[string]SessionStatus, maxRetry int) (int, bool) {
+// session has exceeded the retry cap. Sessions present in pending (awaiting an
+// answer to a surfaced question) are not counted as busy.
+func quiescenceOf(states map[string]SessionStatus, pending map[string]bool, maxRetry int) (int, bool) {
 	busy := 0
 	stuckRetry := false
-	for _, st := range states {
+	for id, st := range states {
 		switch st.Type {
 		case sessionTypeBusy:
-			busy++
+			if !pending[id] {
+				busy++
+			}
 		case sessionTypeRetry:
 			if st.Attempt >= maxRetry {
 				stuckRetry = true

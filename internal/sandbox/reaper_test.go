@@ -231,21 +231,21 @@ func TestReapDoesNotFailSuccessfulAttach(t *testing.T) {
 func TestQuiescenceOf_AllIdle(t *testing.T) {
 	busy, stuck := quiescenceOf(map[string]SessionStatus{
 		"s1": {Type: "idle", Attempt: 0},
-	}, 10)
+	}, map[string]bool{}, 10)
 	checkQuiescence(t, "all idle", busy, stuck, 0, false)
 }
 
 func TestQuiescenceOf_AllRetryUnderCap(t *testing.T) {
 	busy, stuck := quiescenceOf(map[string]SessionStatus{
 		"s1": {Type: "retry", Attempt: 5},
-	}, 10)
+	}, map[string]bool{}, 10)
 	checkQuiescence(t, "all retry under cap", busy, stuck, 0, false)
 }
 
 func TestQuiescenceOf_OneBusy(t *testing.T) {
 	busy, stuck := quiescenceOf(map[string]SessionStatus{
 		"s1": {Type: "busy", Attempt: 0},
-	}, 10)
+	}, map[string]bool{}, 10)
 	checkQuiescence(t, "one busy", busy, stuck, 1, false)
 }
 
@@ -253,21 +253,21 @@ func TestQuiescenceOf_MultipleBusy(t *testing.T) {
 	busy, stuck := quiescenceOf(map[string]SessionStatus{
 		"s1": {Type: "busy", Attempt: 0},
 		"s2": {Type: "busy", Attempt: 0},
-	}, 10)
+	}, map[string]bool{}, 10)
 	checkQuiescence(t, "multiple busy", busy, stuck, 2, false)
 }
 
 func TestQuiescenceOf_RetryAtCap(t *testing.T) {
 	busy, stuck := quiescenceOf(map[string]SessionStatus{
 		"s1": {Type: "retry", Attempt: 10},
-	}, 10)
+	}, map[string]bool{}, 10)
 	checkQuiescence(t, "retry at cap", busy, stuck, 0, true)
 }
 
 func TestQuiescenceOf_RetryOverCap(t *testing.T) {
 	busy, stuck := quiescenceOf(map[string]SessionStatus{
 		"s1": {Type: "retry", Attempt: 11},
-	}, 10)
+	}, map[string]bool{}, 10)
 	checkQuiescence(t, "retry over cap", busy, stuck, 0, true)
 }
 
@@ -275,12 +275,12 @@ func TestQuiescenceOf_MixedBusyAndRetry(t *testing.T) {
 	busy, stuck := quiescenceOf(map[string]SessionStatus{
 		"s1": {Type: "busy", Attempt: 0},
 		"s2": {Type: "retry", Attempt: 12},
-	}, 10)
+	}, map[string]bool{}, 10)
 	checkQuiescence(t, "mixed busy and retry", busy, stuck, 1, true)
 }
 
 func TestQuiescenceOf_Empty(t *testing.T) {
-	busy, stuck := quiescenceOf(map[string]SessionStatus{}, 10)
+	busy, stuck := quiescenceOf(map[string]SessionStatus{}, map[string]bool{}, 10)
 	checkQuiescence(t, "empty", busy, stuck, 0, false)
 }
 
@@ -289,7 +289,7 @@ func TestQuiescenceOf_MixedAllStates(t *testing.T) {
 		"s1": {Type: "idle", Attempt: 0},
 		"s2": {Type: "busy", Attempt: 1},
 		"s3": {Type: "retry", Attempt: 5},
-	}, 10)
+	}, map[string]bool{}, 10)
 	checkQuiescence(t, "mixed all", busy, stuck, 1, false)
 }
 
@@ -297,16 +297,49 @@ func TestQuiescenceOf_RetryRetryBoundary(t *testing.T) {
 	// attempt = cap - 1 → not stuck
 	busy, stuck := quiescenceOf(map[string]SessionStatus{
 		"s1": {Type: "retry", Attempt: 9},
-	}, 10)
+	}, map[string]bool{}, 10)
 	checkQuiescence(t, "retry one below cap", busy, stuck, 0, false)
 
 	// attempt = cap → stuck
 	_, stuck = quiescenceOf(map[string]SessionStatus{
 		"s1": {Type: "retry", Attempt: 10},
-	}, 10)
+	}, map[string]bool{}, 10)
 	if !stuck {
 		t.Error("attempt 10 == cap 10 should be stuck")
 	}
+}
+
+func TestQuiescenceOf_BusyWithQuestionNotCounted(t *testing.T) {
+	pending := map[string]bool{"s1": true}
+	busy, stuck := quiescenceOf(map[string]SessionStatus{
+		"s1": {Type: "busy", Attempt: 0},
+	}, pending, 10)
+	checkQuiescence(t, "busy with question", busy, stuck, 0, false)
+}
+
+func TestQuiescenceOf_BusyWithoutQuestionCounted(t *testing.T) {
+	pending := map[string]bool{}
+	busy, stuck := quiescenceOf(map[string]SessionStatus{
+		"s1": {Type: "busy", Attempt: 0},
+	}, pending, 10)
+	checkQuiescence(t, "busy no question", busy, stuck, 1, false)
+}
+
+func TestQuiescenceOf_MixedQuestionAndWork(t *testing.T) {
+	pending := map[string]bool{"s1": true}
+	busy, stuck := quiescenceOf(map[string]SessionStatus{
+		"s1": {Type: "busy", Attempt: 0},
+		"s2": {Type: "busy", Attempt: 0},
+	}, pending, 10)
+	checkQuiescence(t, "mixed", busy, stuck, 1, false)
+}
+
+func TestQuiescenceOf_PendingDoesNotAffectRetry(t *testing.T) {
+	pending := map[string]bool{"s1": true}
+	busy, stuck := quiescenceOf(map[string]SessionStatus{
+		"s1": {Type: "retry", Attempt: 12},
+	}, pending, 10)
+	checkQuiescence(t, "retry unaffected", busy, stuck, 0, true)
 }
 
 // --- decodeSessionStates unit tests ---
