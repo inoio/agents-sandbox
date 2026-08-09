@@ -162,21 +162,45 @@ The launcher validates:
 
 Invalid config files prevent the launcher from starting.
 
+## Resource Config Application
+
+When a running or stopped VM is started (reused or newly created), resource config changes are applied per invocation.
+The change type determines the mechanism used to apply the new settings:
+
+| Resource | Change type | Behavior |
+|----------|-------------|----------|
+| `cpus`   | Live Modify | Applied live via SDK Modify (hotplug), clamped to boot-time maximum with a warning if a larger value is requested |
+| `memory` | Live Modify | Applied live via SDK Modify (hotplug), clamped to boot-time maximum with a warning if a larger value is requested |
+| `env`    | Daemon restart | Modified variables are applied to the VM via the SDK Modify API; the opencode serve daemon and dockerd restart in-place so the new process picks them up |
+| `secrets`| Daemon restart | New secrets are injected into the VM; the opencode serve daemon and dockerd restart in-place |
+| Opencode config | Daemon restart | Changes are provisioned into the VM; the opencode serve daemon and dockerd restart in-place |
+| `tmp-size` | VM recreate | VM is stopped, removed, and rebuilt with the new tmpfs size. The home volume is preserved. |
+| `disk-size` | VM recreate | VM is stopped, removed, and rebuilt with the new disk size. The home volume is preserved. |
+| `image` | VM recreate | VM is rebuilt from the new image digest. The home volume is preserved. |
+
+Resource changes applied at VM creation time (`tmp-size`, `disk-size`, `image`) **always recreate the VM** (stop, remove,
+rebuild), preserving the home volume.
+
+### Client-count awareness
+
+Applying a resource change may disrupt active sessions. When **no other client** is attached, config changes apply
+silently. When **another client is attached**, the launcher prompts before applying:
+
+- **VM recreate** — a prompt asks whether to keep the current VM (defer) or recreate. The default is to keep/defer.
+- **Daemon restart** — a prompt asks whether to keep the current server (defer) or restart. The default is to keep/defer.
+
+The launcher never cuts off existing sessions without confirmation.
+
+### Reconnect semantics
+
+- **Daemon restart** — attached clients reconnect automatically once the daemon comes back up.
+- **VM recreate** — sessions attached inside the VM are dropped. Re-run `opencode attach http://127.0.0.1:4096 --continue`
+  (or `opencode attach … --dir <target>`) to reconnect to the rebuilt VM.
+
 ## Reused VM
 
-When a stopped VM is reused, resource changes are handled differently depending on the setting:
-
-| Resource | Behavior on reused VM                                          |
-|----------|----------------------------------------------------------------|
-| `cpus`   | Applied live via hotplug (SDK Modify)                          |
-| `memory` | Applied live via hotplug (SDK Modify)                          |
-| `env`    | Applied to future `exec` calls; prompts for opencode daemon restart before next run |
-| `secrets`| Applied to future `exec` calls; prompts for opencode daemon restart before next run |
-| `tmp-size` | Recreates the VM (preserves home volume)                     |
-| `disk-size` | Recreates the VM (preserves home volume)                    |
-
-Resource changes applied at VM creation time (`tmp-size`, `disk-size`) **always recreate the VM**, preserving the home
-volume. The VM must be stopped before these changes take effect.
+When a stopped VM is reused, the behaviors above still apply — resource changes trigger the mechanism described in the
+table based on the change type, subject to client-count awareness.
 
 ## Opencode configuration
 
