@@ -419,6 +419,30 @@ func TestEnsureProjectVM_RecreatesWhenImageChangedStopped(t *testing.T) {
 	}
 }
 
+// TestReconcileResourceConfigClampsCpusToMax verifies that CPU/memory requests
+// above the boot-time maximum are clamped (not rejected).
+func TestReconcileResourceConfigClampsCpusToMax(t *testing.T) {
+	handle := &MockSandboxHandle{
+		Cfg:  &msbSdk.SandboxConfig{CPUs: 2, MaxCPUs: 8, MemoryMiB: 4096, MaxMemoryMiB: 8192},
+		Plan: &msbSdk.SandboxModificationPlan{Applied: true},
+	}
+	ui := testutil.TermUIMock(t)
+	err := reconcileResourceConfig(context.Background(), handle, RunOptions{CPUs: 16, Memory: "4G"}, &ui)
+	if err != nil {
+		t.Fatalf("reconcile: %v", err)
+	}
+	if len(handle.ModifiedOptions) != 1 {
+		t.Fatalf("expected 1 Modify, got %d", len(handle.ModifiedOptions))
+	}
+	mo := handle.ModifiedOptions[0]
+	if mo.CPUs != 8 {
+		t.Errorf("expected clamped CPUs=8, got %d", mo.CPUs)
+	}
+	if mo.MemoryMiB != 0 {
+		t.Errorf("expected no memory change (already 4G), got %d", mo.MemoryMiB)
+	}
+}
+
 // applySandboxOpts applies captured functional options to a fresh SandboxConfig
 // so tests can assert what createProjectVM configured.
 func TestReconcileResourceConfigAppliesCPUsAndMemory(t *testing.T) {
@@ -427,8 +451,8 @@ func TestReconcileResourceConfigAppliesCPUsAndMemory(t *testing.T) {
 		Plan: &msbSdk.SandboxModificationPlan{Applied: true},
 	}
 	ctx := context.Background()
-
-	if err := reconcileResourceConfig(ctx, handle, RunOptions{CPUs: 8, Memory: "4G"}); err != nil {
+	ui := testutil.TermUIMock(t)
+	if err := reconcileResourceConfig(ctx, handle, RunOptions{CPUs: 8, Memory: "4G"}, &ui); err != nil {
 		t.Fatalf("reconcileResourceConfig failed: %v", err)
 	}
 	if len(handle.ModifiedOptions) != 1 {
@@ -445,7 +469,13 @@ func TestReconcileResourceConfigNoopWhenSame(t *testing.T) {
 		Cfg:  &msbSdk.SandboxConfig{CPUs: 8, MemoryMiB: 4096},
 		Plan: &msbSdk.SandboxModificationPlan{Applied: true},
 	}
-	if err := reconcileResourceConfig(context.Background(), handle, RunOptions{CPUs: 8, Memory: "4G"}); err != nil {
+	ui := testutil.TermUIMock(t)
+	if err := reconcileResourceConfig(
+		context.Background(),
+		handle,
+		RunOptions{CPUs: 8, Memory: "4G"},
+		&ui,
+	); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if len(handle.ModifiedOptions) != 0 {
