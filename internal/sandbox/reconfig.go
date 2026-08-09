@@ -106,7 +106,7 @@ func planReconfig( //nolint:gocognit,gocyclo,cyclop // core planner, complexity 
 	cfg *msbSdk.SandboxConfig,
 	imageRef string,
 	opts RunOptions,
-	envChanged, secretsChanged, opencodeConfigChanged bool, //nolint:unparam // precomputed by resolver in production
+	envChanged, secretsChanged, opencodeConfigChanged bool,
 ) *reconfigDecision {
 	d := &reconfigDecision{} //nolint:exhaustruct // fields zeroed intentionally
 	if cfg == nil && imageRef == "" {
