@@ -125,7 +125,7 @@ func planReconfig( //nolint:gocognit,gocyclo,cyclop // core planner, complexity 
 		)
 	}
 	if wantTmp, ok := parseSizeSpec(opts.TmpSize); ok {
-		if tmp, ok := cfg.Volumes["/tmp"]; ok && tmp.SizeMiB != wantTmp {
+		if tmp, ok := cfg.Volumes[tmpMountPath]; ok && tmp.SizeMiB != wantTmp {
 			d.recreate = true
 			oldRaw := formatSizeSpec(tmp.SizeMiB, "")
 			d.changes = append(d.changes, sizeChange("/tmp tmpfs size", tmp.SizeMiB, wantTmp, oldRaw, opts.TmpSize))

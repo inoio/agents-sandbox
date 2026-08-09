@@ -37,6 +37,7 @@ func ProjectEnvSecretFile() string {
 
 // Mount point constants used by volume operations (prefill, copy, edit).
 const (
-	srcMount = "/src"
-	dstMount = "/dst"
+	srcMount     = "/src"
+	dstMount     = "/dst"
+	tmpMountPath = "/tmp"
 )

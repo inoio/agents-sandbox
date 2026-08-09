@@ -469,7 +469,7 @@ func TestPlanReconfigDecidesRecreate(t *testing.T) {
 			RootDisk:  rootDisk,
 			Image:     "image-a",
 			Volumes: map[string]msbSdk.MountConfig{
-				"/tmp": {SizeMiB: tmpMiB},
+				tmpMountPath: {SizeMiB: tmpMiB},
 			},
 		}
 	}
