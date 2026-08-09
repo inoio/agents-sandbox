@@ -77,6 +77,10 @@ The choice is applied automatically and the old volume is always kept. The state
 after the chosen action actually executes, so you are only prompted again after the next image change. `volume
 migrate|reset|edit` remain available for manual management.
 
+When the VM is recreated (e.g. image change), sessions attached inside the VM are dropped; reconnect with
+`opencode attach http://127.0.0.1:4096 --continue`. Reconnect semantics depend on the change type — daemon restarts
+trigger automatic reconnection (see [Configuration](/docs/configuration.md)).
+
 Home volumes are named `opencode-msb-home-{slug}-{timestamp}`.
 
 ## Usage
