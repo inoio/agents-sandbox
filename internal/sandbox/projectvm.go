@@ -60,38 +60,6 @@ func buildProjectVMEnv(envMap map[string]string, imageEnvs map[string]string) {
 	envMap["OPENCODE_EXPERIMENTAL_WORKSPACES"] = experimentalWorkspacesValue
 }
 
-// needsRecreation reports whether the existing project VM must be recreated
-// because its image, /tmp tmpfs size, or root-disk size differ from the
-// desired configuration. Recreate preserves the home volume, so no user state
-// is lost. Unlike CPUs/memory/env/secrets (handled via live Modify), these
-// cannot be changed on an existing VM.
-func needsRecreation(handle SandboxHandle, imageRef string, opts RunOptions) bool {
-	if handle == nil {
-		return false
-	}
-	if existing := handle.Image(); existing != "" && imageRef != "" && existing != imageRef {
-		return true
-	}
-	// TODO: cache SandboxConfig on realSandboxHandle to avoid the double
-	// Config() round-trip (here vs Image()).
-	cfg, err := handle.Config()
-	if err != nil || cfg == nil {
-		return false
-	}
-	if wantTmp := resolveTmpSizeMiB(opts.TmpSize); cfg.Volumes != nil {
-		if tmp, ok := cfg.Volumes["/tmp"]; ok && tmp.SizeMiB != wantTmp {
-			return true
-		}
-	}
-	if opts.DiskSize != "" {
-		wantDisk := parseMemory(opts.DiskSize)
-		if cfg.RootDisk == nil || cfg.RootDisk.SizeMiB != wantDisk {
-			return true
-		}
-	}
-	return false
-}
-
 // decideVMAction maps a GetSandbox result to the lifecycle action.
 // notFound=true means the sandbox doesn't exist → create.
 // Otherwise the status determines connect (running) vs start (stopped/crashed).
@@ -206,30 +174,16 @@ func EnsureProjectVM(
 	// Fast path: VM is already running → connect without flock.
 	//nolint:nestif // Complex nested logic for handling connect/start/retry is necessary for lifecycle management
 	if !notFound {
-		if needsRecreation(handle, imageRef, opts) {
-			// An image rebuild produced a new digest, or the desired resource
-			// configuration (/tmp size, root disk size) differs from the
-			// existing VM. Replace it with one booted from the new image and/or
-			// resource settings; the home volume persists, so no user state is
-			// lost.
-			if handle.Image() != imageRef {
-				ui.Verbosef(
-					"image or resource config changed; replacing project VM %s (%s → %s)",
-					name,
-					handle.Image(),
-					imageRef,
-				)
-			} else {
-				ui.Verbosef("image or resource config changed; replacing project VM %s", name)
-			}
+		if opts.Recreate {
+			ui.Verbosef("config changed; replacing project VM %s", name)
 			if stopErr := handle.Stop(context.Background()); stopErr != nil {
-				ui.Verbosef("stop old VM on image change failed (continuing): %v", stopErr)
+				ui.Verbosef("stop old VM on reconfig failed (continuing): %v", stopErr)
 			}
 			if removeErr := handle.Remove(context.Background()); removeErr != nil {
 				spin.StopError(removeErr)
 				return nil, false, fmt.Errorf("remove old project VM %q: %w", name, removeErr)
 			}
-			ui.Verbosef("replaced project VM %s; recreating from new image", name)
+			ui.Verbosef("replaced project VM %s; recreating from new config", name)
 			notFound = true
 			handle = nil
 		}
