@@ -165,7 +165,7 @@ func TestResolveTmpSizeParsesSpec(t *testing.T) {
 func TestBuildMountsIncludesTmpfsAtTmp(t *testing.T) {
 	mounts := buildMounts("test-home-vol", "/repo/path", defaultTmpSizeMiB)
 
-	tmpMount, ok := mounts["/tmp"]
+	tmpMount, ok := mounts[tmpMountPath]
 	if !ok {
 		t.Fatal("expected /tmp mount, not found in mounts map")
 	}
@@ -183,7 +183,7 @@ func TestBuildMountsIncludesTmpfsAtTmp(t *testing.T) {
 func TestBuildMountsRespectsCustomTmpSize(t *testing.T) {
 	mounts := buildMounts("test-home-vol", "/repo/path", 4096)
 
-	tmpMount := mounts["/tmp"]
+	tmpMount := mounts[tmpMountPath]
 	if tmpMount.SizeMiB != 4096 {
 		t.Errorf("expected /tmp tmpfs size 4096 MiB, got %d", tmpMount.SizeMiB)
 	}
