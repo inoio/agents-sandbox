@@ -17,13 +17,6 @@ const (
 	restartKey = "r"
 )
 
-// opencodeConfigChanged reuses configEqual to compare Go-side parsed config vs VM files.
-func opencodeConfigChanged( //nolint:unused // called by runner at production call-site
-	cfs *configFiles, vmData map[string][]byte,
-) bool {
-	return configEqual(cfs.parsed, cfs.keys, vmData)
-}
-
 func configChangeList(changes []reconfigChange) string {
 	lines := []string{"Project VM config changed:"}
 	for _, c := range changes {
