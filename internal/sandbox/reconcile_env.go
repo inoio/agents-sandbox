@@ -29,7 +29,7 @@ func reconcileEnvAndSecrets(
 	handle SandboxHandle,
 	desiredEnv map[string]string,
 	desiredSecrets []msbSdk.SecretEntry,
-) (bool, error) {
+) (bool, error) { //nolint:unparam // bool return kept for SDK-diff API contract while callers decide restart
 	if handle == nil {
 		return false, nil
 	}
