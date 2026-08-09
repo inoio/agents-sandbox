@@ -524,7 +524,10 @@ func decideReconfig(
 		buildEnvMap(cfg.UserEnvSecretFile()),
 		buildEnvMap(ProjectEnvSecretFile()),
 	), ui)
-	envChanged, secretsChanged := envOrSecretsChanged(curCfg, desiredEnv, desiredSecrets)
+	//nolint:exhaustruct // zero-value applied state; real current-state read lands in Task 4
+	envChanged := envChanged(EnvState{}, desiredEnv)
+	//nolint:exhaustruct // zero-value applied state; real current-state read lands in Task 4
+	secretsChanged := secretsChanged(SecretState{}, desiredSecrets)
 
 	plan := planReconfig(curCfg, imageRef, opts, envChanged, secretsChanged, opencfgChanged)
 	otherClients := CountActiveClients(slug)
