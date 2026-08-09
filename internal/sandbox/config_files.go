@@ -216,12 +216,9 @@ func secretsContentHash(entries []msbSdk.SecretEntry) string {
 // envChanged reports whether the applied env state differs from the desired
 // env map, comparing content hashes for a stable order-independent result.
 // A zero-value appliedEnv indicates "no persisted state yet" (first run),
-// which is only considered "changed" when the desired map is non-empty.
+// which is considered "changed" only when the desired map is non-empty.
 func envChanged(applied EnvState, desired map[string]string) bool {
 	if applied.Hash == "" {
-		if desired == nil {
-			return false
-		}
 		return len(desired) > 0
 	}
 	return applied.Hash != envContentHash(desired)
