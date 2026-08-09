@@ -65,6 +65,8 @@ func loadConfigFiles(userConfigDir string) (*configFiles, error) {
 }
 
 // readVMFiles reads all files from the given directory on the VM.
+//
+//nolint:unparam // kept general: dir param passed from decideReconfig only at "/home/dev/.config/opencode"
 func readVMFiles(
 	ctx context.Context,
 	sb Sandbox,
@@ -173,7 +175,7 @@ func mergeEnvMaps(mapsToMerge ...map[string]string) map[string]string {
 
 // envOrSecretsChanged reports whether desired env/secrets differ from the VM's
 // current config, using the same diff rules as reconcileEnvAndSecrets.
-func envOrSecretsChanged( //nolint:unused // called by runner at production call-site
+func envOrSecretsChanged(
 	cfg *msbSdk.SandboxConfig,
 	desiredEnv map[string]string,
 	desiredSecrets []msbSdk.SecretEntry,
