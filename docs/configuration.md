@@ -173,7 +173,7 @@ The change type determines the mechanism used to apply the new settings:
 | `memory` | Live Modify | Applied live via SDK Modify (hotplug), clamped to boot-time maximum with a warning if a larger value is requested |
 | `env`    | Daemon restart | Modified variables are applied to the VM via the SDK Modify API; the opencode serve daemon and dockerd restart in-place so the new process picks them up |
 | `secrets`| Daemon restart | New secrets are injected into the VM; the opencode serve daemon and dockerd restart in-place |
-| Opencode config | Daemon restart | Changes are provisioned into the VM; the opencode serve daemon and dockerd restart in-place |
+| `opencode config` | Daemon restart | Changes are provisioned into the VM; the opencode serve daemon restarts (dockerd restarts are limited to env/secret changes) |
 | `tmp-size` | VM recreate | VM is stopped, removed, and rebuilt with the new tmpfs size. The home volume is preserved. |
 | `disk-size` | VM recreate | VM is stopped, removed, and rebuilt with the new disk size. The home volume is preserved. |
 | `image` | VM recreate | VM is rebuilt from the new image digest. The home volume is preserved. |
