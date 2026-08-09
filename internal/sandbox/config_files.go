@@ -2,6 +2,8 @@ package sandbox
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"maps"
@@ -173,22 +175,82 @@ func mergeEnvMaps(mapsToMerge ...map[string]string) map[string]string {
 	return result
 }
 
-// envOrSecretsChanged reports whether desired env/secrets differ from the VM's
-// current config, using the same diff rules as reconcileEnvAndSecrets.
-func envOrSecretsChanged(
-	cfg *msbSdk.SandboxConfig,
-	desiredEnv map[string]string,
-	desiredSecrets []msbSdk.SecretEntry,
-) (bool, bool) {
-	var envChanged, secretsChanged bool
-	if cfg == nil {
-		return desiredEnv != nil || len(desiredSecrets) > 0, len(desiredSecrets) > 0
+// envContentHash returns a SHA-256 hex digest of the env map contents.
+// Keys are sorted and hashed as "K=V" lines for order-independence.
+func envContentHash(env map[string]string) string {
+	if env == nil {
+		env = map[string]string{}
 	}
-	if !envMapsEqual(cfg.Env, desiredEnv) {
-		envChanged = true
+	lines := make([]string, 0, len(env))
+	for k, v := range env {
+		lines = append(lines, k+"="+v)
 	}
-	if !secretsNameSetEqual(cfg.Secrets, parseSecretEntries(desiredSecrets)) {
-		secretsChanged = true
+	sort.Strings(lines)
+	h := sha256.Sum256([]byte(strings.Join(lines, "\n")))
+	return hex.EncodeToString(h[:])
+}
+
+// secretsContentHash returns a SHA-256 hex digest of the secret entries.
+// Entries are sorted by EnvVar and hashed as "ENVVAR=VALUE" lines.
+func secretsContentHash(entries []msbSdk.SecretEntry) string {
+	if entries == nil {
+		entries = []msbSdk.SecretEntry{}
 	}
-	return envChanged, secretsChanged
+	byEnv := make(map[string]msbSdk.SecretEntry, len(entries))
+	for _, e := range entries {
+		byEnv[e.EnvVar] = e
+	}
+	envVars := make([]string, 0, len(byEnv))
+	for k := range byEnv {
+		envVars = append(envVars, k)
+	}
+	sort.Strings(envVars)
+	var b strings.Builder
+	for _, k := range envVars {
+		fmt.Fprintf(&b, "%s=%s\n", k, byEnv[k].Value)
+	}
+	h := sha256.Sum256([]byte(b.String()))
+	return hex.EncodeToString(h[:])
+}
+
+// envChanged reports whether the applied env state differs from the desired
+// env map, comparing content hashes for a stable order-independent result.
+func envChanged(applied EnvState, desired map[string]string) bool {
+	return applied.Hash != envContentHash(desired)
+}
+
+// secretsChanged reports whether the applied secret state differs from the
+// desired secret entries, comparing content hashes.
+func secretsChanged(applied SecretState, desired []msbSdk.SecretEntry) bool {
+	return applied.Hash != secretsContentHash(desired)
+}
+
+// buildEnvState computes the content hash and sorted name list for the env map.
+func buildEnvState(desired map[string]string) EnvState {
+	names := make([]string, 0, len(desired))
+	for k := range desired {
+		names = append(names, k)
+	}
+	sort.Strings(names)
+	return EnvState{
+		Hash:  envContentHash(desired),
+		Names: names,
+	}
+}
+
+// buildSecretState computes the content hash and sorted name list for the secret entries.
+func buildSecretState(desired []msbSdk.SecretEntry) SecretState {
+	byEnv := make(map[string]msbSdk.SecretEntry, len(desired))
+	for _, e := range desired {
+		byEnv[e.EnvVar] = e
+	}
+	names := make([]string, 0, len(byEnv))
+	for k := range byEnv {
+		names = append(names, k)
+	}
+	sort.Strings(names)
+	return SecretState{
+		Hash:  secretsContentHash(desired),
+		Names: names,
+	}
 }
