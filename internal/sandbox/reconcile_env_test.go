@@ -255,20 +255,6 @@ func TestApplyEnvSpecNoRemoveWhenAllStay(t *testing.T) {
 	}
 }
 
-func TestApplyEnvSpecNilDesiredNoChange(t *testing.T) {
-	applied := buildEnvState(map[string]string{"A": "1", "B": "2"})
-
-	var mo msbSdk.ModifyOptions
-	applyEnvSpec(applied, nil, &mo)
-
-	if mo.Env != nil {
-		t.Errorf("expected Env to be nil for nil desired, got %v", mo.Env)
-	}
-	if len(mo.EnvRemove) != 0 {
-		t.Errorf("expected no EnvRemove for nil desired, got %v", mo.EnvRemove)
-	}
-}
-
 func TestApplyEnvSpecEmptyMap(t *testing.T) {
 	applied := buildEnvState(map[string]string{"A": "1"})
 	desired := map[string]string{}
@@ -438,6 +424,83 @@ func TestReconcileChangedTriggersOneModify(t *testing.T) {
 	}
 }
 
+func TestReconcileEnvNormalizedEmptyRemovesStale(t *testing.T) {
+	// Tests the nil→empty normalization boundary: applied env has names but
+	// desired is nil. Reconcile should detect change and remove all stale keys.
+	appliedEnv := buildEnvState(map[string]string{"A": "1", "B": "2", "C": "3"})
+
+	mock := &MockSandboxHandle{Plan: &msbSdk.SandboxModificationPlan{Applied: true}}
+	changed, envSt, _, err := reconcileEnvAndSecrets(
+		context.Background(), mock, nil, nil, appliedEnv, SecretState{},
+	)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !changed {
+		t.Error("expected changed=true (stale keys should be removed)")
+	}
+	if len(mock.ModifiedOptions) != 1 {
+		t.Fatalf("expected 1 Modify call, got %d", len(mock.ModifiedOptions))
+	}
+
+	mo := mock.ModifiedOptions[0]
+	// Env should be set to empty map
+	if mo.Env == nil {
+		t.Fatal("expected mo.Env to be set to empty map, got nil")
+	}
+	if len(mo.Env) != 0 {
+		t.Errorf("expected Env to be empty, got %v", mo.Env)
+	}
+	// All applied names should be in EnvRemove
+	for _, name := range appliedEnv.Names {
+		if !slices.Contains(mo.EnvRemove, name) {
+			t.Errorf("expected EnvRemove to contain %q, got %v", name, mo.EnvRemove)
+		}
+	}
+	// Returned envState should be buildEnvState(nil) (empty)
+	wantEnv := buildEnvState(nil)
+	if envSt.Hash != wantEnv.Hash {
+		t.Errorf("returned envState hash: got %q, want %q", envSt.Hash, wantEnv.Hash)
+	}
+	if len(envSt.Names) != 0 {
+		t.Errorf("expected zero names, got %v", envSt.Names)
+	}
+	// SecretState is zero (unchanged)
+}
+
+func TestReconcileEmptyMapDesiredRemovesStale(t *testing.T) {
+	// Same scenario as above but with explicit empty map instead of nil.
+	appliedEnv := buildEnvState(map[string]string{"A": "1", "B": "2"})
+
+	mock := &MockSandboxHandle{Plan: &msbSdk.SandboxModificationPlan{Applied: true}}
+	changed, envSt, _, err := reconcileEnvAndSecrets(
+		context.Background(), mock, map[string]string{}, nil, appliedEnv, SecretState{},
+	)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !changed {
+		t.Error("expected changed=true")
+	}
+	if len(mock.ModifiedOptions) != 1 {
+		t.Fatalf("expected 1 Modify, got %d", len(mock.ModifiedOptions))
+	}
+
+	mo := mock.ModifiedOptions[0]
+	if mo.Env == nil {
+		t.Fatal("expected mo.Env to be set, got nil")
+	}
+	for _, name := range appliedEnv.Names {
+		if !slices.Contains(mo.EnvRemove, name) {
+			t.Errorf("expected EnvRemove to contain %q, got %v", name, mo.EnvRemove)
+		}
+	}
+	wantEnv := buildEnvState(map[string]string{})
+	if envSt.Hash != wantEnv.Hash {
+		t.Errorf("hash mismatch: got %q, want %q", envSt.Hash, wantEnv.Hash)
+	}
+}
+
 func TestReconcileNoopWhenSame(t *testing.T) {
 	desiredEnv := map[string]string{"A": "1", "B": "2"}
 	desiredSecrets := []msbSdk.SecretEntry{{EnvVar: "S", Value: "v"}}
@@ -553,7 +616,7 @@ func TestReconcileSecretsOnly(t *testing.T) {
 	if !slices.Contains(mo.SecretsRemove, "OLD") {
 		t.Errorf("expected SecretsRemove=[OLD], got %v", mo.SecretsRemove)
 	}
-	// mo.Env is nil since applyEnvSpec returns early for nil desired
+	// mo.Env is nil because envChanged=false (applyEnvSpec not called)
 	if mo.Env != nil {
 		t.Errorf("expected nil Env (no change requested), got %v", mo.Env)
 	}

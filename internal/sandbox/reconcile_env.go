@@ -19,7 +19,10 @@ import (
 //
 // Zero values of appliedEnv/appliedSecrets signal "no persisted state yet"
 // (first run or state not yet loaded).
-func reconcileEnvAndSecrets( //nolint:nonamedreturns // readability: clearer return documentation
+//
+// Normalization: nil desiredEnv is treated as an empty map so that stale/env
+// removal always happens correctly regardless of caller nil-safety.
+func reconcileEnvAndSecrets( //nolint:nonamedreturns // 4-return signature
 	ctx context.Context,
 	handle SandboxHandle,
 	desiredEnv map[string]string,
@@ -29,6 +32,12 @@ func reconcileEnvAndSecrets( //nolint:nonamedreturns // readability: clearer ret
 ) (changed bool, envState EnvState, secretState SecretState, err error) {
 	if handle == nil {
 		return false, envState, secretState, nil
+	}
+
+	// Normalize nil → empty to avoid nil/unset-env mismatches that would
+	// prevent stale-env-key removal.
+	if desiredEnv == nil {
+		desiredEnv = map[string]string{}
 	}
 
 	envChanged := envChanged(appliedEnv, desiredEnv)
@@ -50,9 +59,7 @@ func reconcileEnvAndSecrets( //nolint:nonamedreturns // readability: clearer ret
 	}
 
 	if _, err := handle.Modify(ctx, mo); err != nil {
-		return false, envState, secretState, fmt.Errorf(
-			"modify env/secrets: %w", err,
-		)
+		return false, envState, secretState, fmt.Errorf("modify env/secrets: %w", err)
 	}
 
 	newEnv := appliedEnv
@@ -67,15 +74,9 @@ func reconcileEnvAndSecrets( //nolint:nonamedreturns // readability: clearer ret
 }
 
 // applyEnvSpec populates a ModifyOptions for the env portion: sets mo.Env to
-// the desired map (nil means no env — no change) and appends to mo.EnvRemove
-// each name from applied.Names that is not present in desired.
+// the desired map (empty means "no env vars") and appends to mo.EnvRemove each
+// name from applied.Names that is not present in desired.
 func applyEnvSpec(applied EnvState, desired map[string]string, mo *msbSdk.ModifyOptions) {
-	// nil desired means "no env at all" (not "no change") — only apply if
-	// the caller explicitly passes an empty map.  This avoids clobbering
-	// existing env vars when the caller has no desired-env state yet.
-	if desired == nil {
-		return
-	}
 	mo.Env = desired
 
 	for _, name := range applied.Names {
