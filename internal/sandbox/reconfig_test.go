@@ -1,9 +1,12 @@
 package sandbox
 
 import (
+	"context"
 	"testing"
 
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
+
+	"gitlab.inoio.de/inoio/opencode-msb/internal/termio"
 )
 
 func TestPlanReconfigRecreateOnTmpMismatch(t *testing.T) {
@@ -46,5 +49,45 @@ func TestPlanReconfigNoActionsWhenUnchanged(t *testing.T) {
 		false, false, false)
 	if d.recreate || d.restartDaemons || d.resources != nil {
 		t.Errorf("expected no actions, got %+v", d)
+	}
+}
+
+func TestResolveReconfigSilentWhenAlone(t *testing.T) {
+	plan := &reconfigDecision{recreate: true}
+	ui := &termio.Mock{}
+	applyRecreate, _, err := resolveReconfig(context.Background(), ui, plan, 0, nil)
+	if err != nil || !applyRecreate {
+		t.Errorf("alone recreate should apply silently, got %v %v", applyRecreate, err)
+	}
+	if len(ui.InfoCalls) == 0 {
+		t.Error("expected at least an informational line when recreating silently")
+	}
+}
+
+func TestResolveReconfigPromptAKeep(t *testing.T) {
+	plan := &reconfigDecision{recreate: true, changes: []reconfigChange{{label: "root disk size"}}}
+	ui := &termio.Mock{}
+	ui.SelectFn = func(_ string, _ []termio.Choice, _ string) (string, error) {
+		return "q", nil // quit
+	}
+	applyRecreate, _, err := resolveReconfig(context.Background(), ui, plan, 1, plan.changes)
+	if err == nil {
+		t.Error("expected quit to abort (return an error)")
+	}
+	if applyRecreate {
+		t.Error("quit must not apply recreate")
+	}
+}
+
+func TestResolveReconfigPromptBKeepReturnsNoRestart(t *testing.T) {
+	plan := &reconfigDecision{restartDaemons: true, restartDockerd: true}
+	ui := &termio.Mock{}
+	ui.SelectFn = func(_ string, _ []termio.Choice, _ string) (string, error) { return "k", nil }
+	_, applyRestart, err := resolveReconfig(context.Background(), ui, plan, 1, plan.changes)
+	if err != nil {
+		t.Fatalf("keep should not error: %v", err)
+	}
+	if applyRestart {
+		t.Error("keep must not restart daemons")
 	}
 }
