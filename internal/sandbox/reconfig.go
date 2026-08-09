@@ -102,16 +102,13 @@ type reconfigDecision struct {
 	changes        []reconfigChange
 }
 
-func planReconfig( //nolint:gocognit,gocyclo,cyclop // core planner, complexity acceptable for now
+func planReconfig( //nolint:gocognit // core planner, cognitive complexity acceptable for now
 	cfg *msbSdk.SandboxConfig,
 	imageRef string,
 	opts RunOptions,
 	envChanged, secretsChanged, opencodeConfigChanged bool,
 ) *reconfigDecision {
 	d := &reconfigDecision{} //nolint:exhaustruct // fields zeroed intentionally
-	if cfg == nil && imageRef == "" {
-		return d
-	}
 	if cfg == nil {
 		return d
 	}
