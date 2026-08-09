@@ -27,10 +27,24 @@ func stateRoot() string {
 	return XdgStateDir()
 }
 
+// EnvState tracks environment-variable fingerprint data for a project.
+type EnvState struct {
+	Hash  string   `yaml:"hash,omitempty"`
+	Names []string `yaml:"names,omitempty"`
+}
+
+// SecretState tracks secret fingerprint data for a project.
+type SecretState struct {
+	Hash  string   `yaml:"hash,omitempty"`
+	Names []string `yaml:"names,omitempty"`
+}
+
 // HomeState represents the per-project state file contents.
 type HomeState struct {
-	HomeVolume  string `yaml:"home_volume"`
-	ImageDigest string `yaml:"image_digest"`
+	HomeVolume  string      `yaml:"home_volume"`
+	ImageDigest string      `yaml:"image_digest"`
+	EnvState    EnvState    `yaml:"env_state,omitempty"`
+	SecretState SecretState `yaml:"secret_state,omitempty"`
 }
 
 // StateFile returns the path to the state file for a project slug.

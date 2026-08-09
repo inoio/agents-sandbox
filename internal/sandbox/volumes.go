@@ -166,6 +166,8 @@ func (vm *VolumeManager) ensureNewHome(
 	state := HomeState{
 		HomeVolume:  volName,
 		ImageDigest: imageDigest,
+		EnvState:    EnvState{},    //nolint:exhaustruct // zero value, populated later
+		SecretState: SecretState{}, //nolint:exhaustruct // zero value, populated later
 	}
 	if err := WriteState(projectSlug, state); err != nil {
 		ui.Warnf("failed to write state file: %v", err)
@@ -263,6 +265,8 @@ func (vm *VolumeManager) ApplyHomeAction(
 	newState := HomeState{
 		HomeVolume:  newName,
 		ImageDigest: currentDigest,
+		EnvState:    EnvState{},    //nolint:exhaustruct // zero value, populated later
+		SecretState: SecretState{}, //nolint:exhaustruct // zero value, populated later
 	}
 	if err := WriteState(projectSlug, newState); err != nil {
 		ui.Warnf("failed to write state file: %v", err)
