@@ -302,44 +302,15 @@ func TestBuildAttachCommandWorktreeTarget(t *testing.T) {
 }
 
 func TestSetUpSandboxProvisionsConfigOnFreshSetup(t *testing.T) {
-	origDaemon := SetDaemonShellFunc(func(_ context.Context, _ Sandbox, command string) (string, int, error) {
-		if command == "curl -sfm2 "+daemonHealthURL {
-			return `{"healthy":true,"version":"test"}`, 0, nil
-		}
-		return "", 0, nil
-	})
-	defer SetDaemonShellFunc(origDaemon)
-
-	fs := newTestFS(nil, nil)
-	sb := &MockSandbox{Name_: "test-vm", FSValue_: fs}
-
-	userDir := t.TempDir()
-	ui := &termio.Mock{}
-	target, err := setUpSandbox(
-		context.Background(),
-		sb,
-		RunOptions{},
-		Config{UserConfigDir: userDir},
-		"",
-		true,
-		ui,
-		false,
-		false,
-	)
-	if err != nil {
-		t.Fatalf("setUpSandbox: %v", err)
-	}
-	if target != defaultTargetDir {
-		t.Errorf("target = %q, want %q", target, defaultTargetDir)
-	}
-
-	wroteConfig := fs.Writes != nil && fs.Writes["/home/dev/.config/opencode/opencode.jsonc"] != nil
-	if !wroteConfig {
-		t.Error("expected config to be provisioned on fresh setup, but opencode.jsonc was never written")
-	}
+	setUpSandboxProvisionsConfig(t, true, "fresh setup")
 }
 
 func TestSetUpSandboxProvisionsConfigOnReuseWithEmptyDir(t *testing.T) {
+	setUpSandboxProvisionsConfig(t, false, "reused VM with empty config dir")
+}
+
+func setUpSandboxProvisionsConfig(t *testing.T, created bool, provisionMsg string) {
+	t.Helper()
 	origDaemon := SetDaemonShellFunc(func(_ context.Context, _ Sandbox, command string) (string, int, error) {
 		if command == "curl -sfm2 "+daemonHealthURL {
 			return `{"healthy":true,"version":"test"}`, 0, nil
@@ -348,7 +319,7 @@ func TestSetUpSandboxProvisionsConfigOnReuseWithEmptyDir(t *testing.T) {
 	})
 	defer SetDaemonShellFunc(origDaemon)
 
-	fs := newTestFS(nil, nil) // empty FS simulates reused VM with empty config dir
+	fs := newTestFS(nil, nil) // empty FS simulates a VM with empty config dir
 	sb := &MockSandbox{Name_: "test-vm", FSValue_: fs}
 
 	userDir := t.TempDir()
@@ -359,7 +330,7 @@ func TestSetUpSandboxProvisionsConfigOnReuseWithEmptyDir(t *testing.T) {
 		RunOptions{},
 		Config{UserConfigDir: userDir},
 		"",
-		false, // !created — reused VM
+		created,
 		ui,
 		false,
 		false,
@@ -373,8 +344,9 @@ func TestSetUpSandboxProvisionsConfigOnReuseWithEmptyDir(t *testing.T) {
 
 	wroteConfig := fs.Writes != nil && fs.Writes["/home/dev/.config/opencode/opencode.jsonc"] != nil
 	if !wroteConfig {
-		t.Error(
-			"expected config to be provisioned on reused VM with empty config dir, but opencode.jsonc was never written",
+		t.Errorf(
+			"expected config to be provisioned on %s, but opencode.jsonc was never written",
+			provisionMsg,
 		)
 	}
 }

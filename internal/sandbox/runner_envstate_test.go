@@ -244,7 +244,8 @@ func TestDecideReconfig_EnvChangedWithPersistedState(t *testing.T) {
 	SetStateDirForTest(t, t.TempDir()+"/opencode-msb")
 	userDir := t.TempDir()
 
-	mock := &msb.MockMsbClient{}
+	// Set up handle so planReconfig gets a non-nil cfg
+	mock := reconfigMockClient()
 	msb.WithMsbMock(t, mock)
 
 	vm := newVolumeManager(&termio.Mock{})
@@ -258,15 +259,6 @@ func TestDecideReconfig_EnvChangedWithPersistedState(t *testing.T) {
 			Hash:  "sha256:differenthash",
 			Names: []string{"OLD_KEY"},
 		},
-	}
-
-	// Set up handle so planReconfig gets a non-nil cfg
-	sh := msb.MockSandboxHandle{Cfg: &msbSdk.SandboxConfig{
-		Image: "img:tag", CPUs: 4, MemoryMiB: 4096,
-	}}
-	sh.ConnectSb = &MockSandbox{}
-	mock.GetSandboxFn = func(_ context.Context, _ string) (msb.SandboxHandle, error) {
-		return &sh, nil
 	}
 
 	ui := testutil.TermUIMock(t)
@@ -346,7 +338,7 @@ func TestDecideReconfig_SecretsChangedWithPersistedState(t *testing.T) {
 	SetStateDirForTest(t, t.TempDir()+"/opencode-msb")
 	userDir := t.TempDir()
 
-	mock := &msb.MockMsbClient{}
+	mock := reconfigMockClient()
 	msb.WithMsbMock(t, mock)
 
 	vm := newVolumeManager(&termio.Mock{})
@@ -360,15 +352,6 @@ func TestDecideReconfig_SecretsChangedWithPersistedState(t *testing.T) {
 			Hash:  "sha256:oldsecrethash",
 			Names: []string{"DB_PASS"},
 		},
-	}
-
-	// Set up handle so planReconfig gets a non-nil cfg
-	sh := msb.MockSandboxHandle{Cfg: &msbSdk.SandboxConfig{
-		Image: "img:tag", CPUs: 4, MemoryMiB: 4096,
-	}}
-	sh.ConnectSb = &MockSandbox{}
-	mock.GetSandboxFn = func(_ context.Context, _ string) (msb.SandboxHandle, error) {
-		return &sh, nil
 	}
 
 	ui := testutil.TermUIMock(t)
@@ -635,6 +618,18 @@ func TestDecideReconfig_PersistedSecretsMatchDesired(t *testing.T) {
 }
 
 // Test helpers
+
+func reconfigMockClient() *msb.MockMsbClient {
+	mock := &msb.MockMsbClient{}
+	sh := &msb.MockSandboxHandle{Cfg: &msbSdk.SandboxConfig{
+		Image: "img:tag", CPUs: 4, MemoryMiB: 4096,
+	}}
+	sh.ConnectSb = &MockSandbox{}
+	mock.GetSandboxFn = func(_ context.Context, _ string) (msb.SandboxHandle, error) {
+		return sh, nil
+	}
+	return mock
+}
 
 func computeEnvHash(envFile string) string {
 	env := buildEnvMap(envFile)
