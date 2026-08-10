@@ -191,7 +191,6 @@ func TestPersistEnvSecrets_OverwritesExistingState(t *testing.T) {
 	slug := "existingstateproj"
 
 	// Pre-write state with env_state already set but different hash
-	_ = "sha256:olddata" // oldHash placeholder
 	oldState := HomeState{
 		HomeVolume: "vol", ImageDigest: "d1",
 		EnvState:    EnvState{Hash: "sha256:olddata", Names: nil},
