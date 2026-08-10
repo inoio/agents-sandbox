@@ -107,7 +107,7 @@ func TestCreateProjectVMCallsClientCreateSandbox(t *testing.T) {
 	client := &MockMsbClient{}
 	testUI := testutil.TermUIMock(t)
 	ui := &testUI
-	withMockConfigPaths(t)
+	WithMockConfigPaths(t)
 	sb, created, err := createProjectVM(
 		context.Background(),
 		client,
@@ -170,7 +170,7 @@ func TestEnsureProjectVM_CreatePath(t *testing.T) {
 		return msb.NewMockSandbox(msb.SandboxOpts{}), nil
 	}
 	msb.WithMsbMock(t, client)
-	withMockConfigPaths(t)
+	WithMockConfigPaths(t)
 
 	// ProjectSlug depends on the current directory, so use a temp repo.
 	tmpRepo := testutil.InitRepo(t)
@@ -212,7 +212,7 @@ func TestEnsureProjectVM_ReconnectPath(t *testing.T) {
 		return nil, errors.New("reconnect path must not create a sandbox")
 	}
 	msb.WithMsbMock(t, client)
-	withMockConfigPaths(t)
+	WithMockConfigPaths(t)
 
 	tmpRepo := testutil.InitRepo(t)
 	t.Chdir(tmpRepo)
@@ -255,7 +255,7 @@ func TestEnsureProjectVM_ReconnectWhenImageUnchanged(t *testing.T) {
 		return nil, errors.New("unchanged image must not create a sandbox")
 	}
 	msb.WithMsbMock(t, client)
-	withMockConfigPaths(t)
+	WithMockConfigPaths(t)
 
 	tmpRepo := testutil.InitRepo(t)
 	t.Chdir(tmpRepo)
@@ -360,7 +360,7 @@ func TestCreateProjectVMAppliesRootDiskWhenDiskSizeSet(t *testing.T) {
 	client := &MockMsbClient{}
 	testUI := testutil.TermUIMock(t)
 	ui := &testUI
-	withMockConfigPaths(t)
+	WithMockConfigPaths(t)
 
 	if _, _, err := createProjectVM(
 		context.Background(), client, "opencode-msb-vm-test",
@@ -402,7 +402,7 @@ func TestEnsureProjectVM_NoReplacementWhenExistingImageUnknown(t *testing.T) {
 		return nil, errors.New("unknown image must not create a sandbox")
 	}
 	msb.WithMsbMock(t, client)
-	withMockConfigPaths(t)
+	WithMockConfigPaths(t)
 
 	tmpRepo := testutil.InitRepo(t)
 	t.Chdir(tmpRepo)
@@ -524,7 +524,7 @@ func TestEnsureProjectVMRecreatesWhenFlagged(t *testing.T) {
 		return &msb.MockSandbox{Name_: name}, nil
 	}
 	msb.WithMsbMock(t, client)
-	withMockConfigPaths(t)
+	WithMockConfigPaths(t)
 
 	opts := RunOptions{ReapPolicy: ReapPolicy{}, Recreate: true, CPUs: 1, Memory: "2G"}
 	sb, created, err := ensureProjectVM(
@@ -562,7 +562,7 @@ func TestEnsureProjectVMReusesWhenNotFlagged(t *testing.T) {
 		return nil, errors.New("CreateSandbox must not be called when reusing")
 	}
 	msb.WithMsbMock(t, client)
-	withMockConfigPaths(t)
+	WithMockConfigPaths(t)
 
 	sb, created, err := ensureProjectVM(
 		context.Background(), RunOptions{},
