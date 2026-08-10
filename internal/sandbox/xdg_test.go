@@ -68,7 +68,7 @@ func TestStateFileAbsoluteUnderXdgStateDir(t *testing.T) {
 	state := t.TempDir()
 	t.Setenv("XDG_STATE_HOME", state)
 	t.Setenv("HOME", t.TempDir())
-	got := StateFile("proj")
+	got := stateFile("proj")
 	want := filepath.Join(state, "opencode-msb", "proj", "state.yaml")
 	if got != want {
 		t.Errorf("StateFile() = %q, want %q", got, want)

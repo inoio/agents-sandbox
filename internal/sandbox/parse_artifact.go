@@ -6,10 +6,10 @@ import (
 
 //nolint:gochecknoglobals // fmt.stringer pattern for StaleType type / consts
 var stateName = map[StaleType]string{
-	StaleTypeVM:          "vm",
-	StaleTypeVolume:      "volume",
-	StaleTypeDockerImage: "docker-image",
-	StaleTypeMsbImage:    "msb-image",
+	staleTypeVM:          "vm",
+	staleTypeVolume:      "volume",
+	staleTypeDockerImage: "docker-image",
+	staleTypeMsbImage:    "msb-image",
 }
 
 func (ss StaleType) String() string {

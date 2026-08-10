@@ -57,11 +57,6 @@ func SetNewMsbClient(f func() MsbClient) func() MsbClient {
 	return msb.ResetGetFn(f)
 }
 
-// NewMsbClient is a re-export of msb.Get for backward compatibility.
-//
-//nolint:gochecknoglobals // backward compat re-export
-var NewMsbClient = msb.Get
-
 // WithMsbMock re-exports msb.WithMsbMock for backward compatibility.
 func WithMsbMock(t *testing.T, mock MsbClient) {
 	msb.WithMsbMock(t, mock)
@@ -80,15 +75,10 @@ func NewTestResult(success bool, exitCode int, stdout, stderr string, stdoutByte
 //nolint:revive // re-export of msb type name for tests
 type SandboxOpts = msb.SandboxOpts
 
-// NewMockSandbox creates a MockSandbox configured by opts.
-func NewMockSandbox(opts SandboxOpts) Sandbox {
-	return msb.NewMockSandbox(opts)
-}
-
 // TestFS is a re-export of msb.TestFS for tests.
 type TestFS = msb.TestFS
 
-// NewTestFS creates a SandboxFS backed by the given files.
-func NewTestFS(files map[string][]byte, ls []msbSdk.FsEntry) *TestFS {
+// newTestFS creates a SandboxFS backed by the given files.
+func newTestFS(files map[string][]byte, ls []msbSdk.FsEntry) *TestFS {
 	return msb.NewTestFS(files, ls)
 }

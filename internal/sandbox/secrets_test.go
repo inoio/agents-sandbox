@@ -8,7 +8,7 @@ import (
 
 func TestBuildSecretsSkipsEmptyEnv(t *testing.T) {
 	testUI := testutil.TermUIMock(t)
-	secrets := BuildSecrets(make(map[string]string), &testUI)
+	secrets := buildSecrets(make(map[string]string), &testUI)
 	if len(secrets) != 0 {
 		t.Errorf("expected 0 secrets when no env vars set, got %d", len(secrets))
 	}
@@ -20,7 +20,7 @@ func TestBuildSecretsCreatesEntryForSetEnv(t *testing.T) {
 	env["FOO"] = "bar@example.org"
 
 	testUI := testutil.TermUIMock(t)
-	secrets := BuildSecrets(env, &testUI)
+	secrets := buildSecrets(env, &testUI)
 	if len(secrets) != 1 {
 		t.Fatalf("expected 1 secret, got %d", len(secrets))
 	}

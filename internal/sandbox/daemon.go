@@ -42,10 +42,10 @@ func parseHealthResponse(stdout string) (bool, error) {
 	return resp.Healthy, nil
 }
 
-// EnsureDaemon guarantees the opencode serve daemon is healthy inside the VM.
+// ensureDaemon guarantees the opencode serve daemon is healthy inside the VM.
 // It health checks via curl inside the VM; if unhealthy, it kills any stale
 // daemon process, starts a fresh one, and polls until healthy or timeout.
-func EnsureDaemon(ctx context.Context, sb Sandbox, ui termio.UI) error {
+func ensureDaemon(ctx context.Context, sb Sandbox, ui termio.UI) error {
 	if healthy := checkDaemonHealth(ctx, sb); healthy {
 		ui.Verbosef("opencode daemon already healthy")
 		return nil
@@ -84,7 +84,7 @@ func checkDaemonHealth(ctx context.Context, sb Sandbox) bool {
 	return err == nil && healthy
 }
 
-// SetDaemonShellFunc replaces the daemonShellFunc factory used by EnsureDaemon
+// SetDaemonShellFunc replaces the daemonShellFunc factory used by ensureDaemon
 // with one that returns the provided function. The original factory is
 // returned so callers can restore it after their test.
 //

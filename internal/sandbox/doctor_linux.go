@@ -12,5 +12,5 @@ import (
 // checkDoctor runs Linux-specific prerequisite checks.
 // On Linux, this includes the KVM availability check.
 func checkDoctor(ctx context.Context, ui termio.UI) bool {
-	return CheckKvm(ui) && docker.CheckDockerAPI(ctx, ui) && CheckDocker(ui) && CheckGit(ui) && CheckMsb(ctx, ui)
+	return checkKvm(ui) && docker.CheckDockerAPI(ctx, ui) && checkDocker(ui) && checkGit(ui) && checkMsb(ctx, ui)
 }

@@ -56,8 +56,8 @@ var (
 	cmdSandboxAliases = []string{"sb"}
 )
 
-// NamedArg represents a named positional argument for display in usage and tree output.
-type NamedArg struct {
+// namedArg represents a named positional argument for display in usage and tree output.
+type namedArg struct {
 	Name string `json:"name"`
 	Help string `json:"help"`
 }

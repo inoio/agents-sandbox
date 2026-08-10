@@ -7,12 +7,12 @@ import (
 	"time"
 )
 
-// AcquireClientLease creates a unique lock file for the current client under the
+// acquireClientLease creates a unique lock file for the current client under the
 // project slug's client state dir and holds an exclusive flock on it. It returns
 // a release function. The flock is auto-released if the process exits or crashes,
-// so a dead client never pins the VM. CountActiveClients derives the live client
+// so a dead client never pins the VM. countActiveClients derives the live client
 // count from held locks, avoiding stale persisted counters.
-func AcquireClientLease(slug string) (func(), error) {
+func acquireClientLease(slug string) (func(), error) {
 	dir := filepath.Join(stateRoot(), slug, "clients")
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return nil, fmt.Errorf("create client lock dir: %w", err)
@@ -33,11 +33,11 @@ func AcquireClientLease(slug string) (func(), error) {
 	}, nil
 }
 
-// CountActiveClients returns the number of live client leases for a slug. A lock
+// countActiveClients returns the number of live client leases for a slug. A lock
 // file whose lock can be acquired immediately is abandoned (no live holder) and is
 // removed. Files that fail a non-blocking exclusive lock are held by a live client
 // and counted.
-func CountActiveClients(slug string) int {
+func countActiveClients(slug string) int {
 	dir := filepath.Join(stateRoot(), slug, "clients")
 	entries, err := os.ReadDir(dir)
 	if err != nil {

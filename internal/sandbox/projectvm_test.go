@@ -186,7 +186,7 @@ func TestEnsureProjectVM_CreatePath(t *testing.T) {
 	tmpRepo := testutil.InitRepo(t)
 	t.Chdir(tmpRepo)
 
-	sb, created, err := EnsureProjectVM(
+	sb, created, err := ensureProjectVM(
 		context.Background(),
 		RunOptions{Memory: "1G", TmpSize: "512M"},
 		cfg,
@@ -232,7 +232,7 @@ func TestEnsureProjectVM_ReconnectPath(t *testing.T) {
 	tmpRepo := testutil.InitRepo(t)
 	t.Chdir(tmpRepo)
 
-	sb, created, err := EnsureProjectVM(
+	sb, created, err := ensureProjectVM(
 		context.Background(),
 		RunOptions{Memory: "1G", TmpSize: "512M"},
 		cfg,
@@ -280,7 +280,7 @@ func TestEnsureProjectVM_ReconnectWhenImageUnchanged(t *testing.T) {
 	tmpRepo := testutil.InitRepo(t)
 	t.Chdir(tmpRepo)
 
-	sb, created, err := EnsureProjectVM(
+	sb, created, err := ensureProjectVM(
 		context.Background(),
 		RunOptions{Memory: "1G", TmpSize: "512M"},
 		cfg,
@@ -432,7 +432,7 @@ func TestEnsureProjectVM_NoReplacementWhenExistingImageUnknown(t *testing.T) {
 	tmpRepo := testutil.InitRepo(t)
 	t.Chdir(tmpRepo)
 
-	sb, created, err := EnsureProjectVM(
+	sb, created, err := ensureProjectVM(
 		context.Background(),
 		RunOptions{Memory: "1G", TmpSize: "512M"},
 		cfg,
@@ -554,7 +554,7 @@ func TestEnsureProjectVMRecreatesWhenFlagged(t *testing.T) {
 	cfg := Config{UserStateDir: t.TempDir(), UserConfigDir: t.TempDir()}
 
 	opts := RunOptions{ReapPolicy: ReapPolicy{}, Recreate: true, CPUs: 1, Memory: "2G"}
-	sb, created, err := EnsureProjectVM(
+	sb, created, err := ensureProjectVM(
 		context.Background(), opts, cfg,
 		"new:tag", "homevol", "/workspace",
 		map[string]string{}, ui,
@@ -592,7 +592,7 @@ func TestEnsureProjectVMReusesWhenNotFlagged(t *testing.T) {
 
 	cfg := Config{UserStateDir: t.TempDir(), UserConfigDir: t.TempDir()}
 
-	sb, created, err := EnsureProjectVM(
+	sb, created, err := ensureProjectVM(
 		context.Background(), RunOptions{}, cfg,
 		"old:tag", "homevol", "/workspace",
 		map[string]string{}, ui,

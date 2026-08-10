@@ -20,29 +20,29 @@ import (
 	"gitlab.inoio.de/inoio/opencode-msb/internal/termio"
 )
 
-func ReferencesBase(dockerfile []byte) bool {
+func referencesBase(dockerfile []byte) bool {
 	scanner := bufio.NewScanner(bytes.NewReader(dockerfile))
 	for scanner.Scan() {
 		line := strings.TrimLeft(scanner.Text(), " \t")
-		if strings.HasPrefix(line, "FROM") && strings.Contains(line, BaseTag) {
+		if strings.HasPrefix(line, "FROM") && strings.Contains(line, baseTag) {
 			return true
 		}
 	}
 	return false
 }
 
-func ReferencesDindBase(dockerfile []byte) bool {
+func referencesDindBase(dockerfile []byte) bool {
 	scanner := bufio.NewScanner(bytes.NewReader(dockerfile))
 	for scanner.Scan() {
 		line := strings.TrimLeft(scanner.Text(), " \t")
-		if strings.HasPrefix(line, "FROM") && strings.Contains(line, DindBaseTag) {
+		if strings.HasPrefix(line, "FROM") && strings.Contains(line, dindBaseTag) {
 			return true
 		}
 	}
 	return false
 }
 
-func ImageTag(projectSlug, imageDigest string) string {
+func imageTag(projectSlug, imageDigest string) string {
 	return imagePrefix + projectSlug + ":" + git.HashID(imageDigest)
 }
 
@@ -170,7 +170,7 @@ func buildRunnerImage(
 	storeImageEnv(rTag, imageEnv)
 	ui.Verbosef("rebuilt image %s with %d env vars", rTag, len(imageEnv))
 
-	digestTag := ImageTag(projectSlug, imageDigest)
+	digestTag := imageTag(projectSlug, imageDigest)
 	if digestTag != rTag {
 		if _, err := docker.Get().
 			ImageTag(ctx, client.ImageTagOptions{Source: rTag, Target: digestTag}); err != nil {
@@ -193,11 +193,11 @@ func ensureImageWithClient(
 	force bool,
 	ui termio.UI,
 ) (string, string, map[string]string, error) {
-	if force || ReferencesBase(dockerfile) || ReferencesDindBase(dockerfile) {
+	if force || referencesBase(dockerfile) || referencesDindBase(dockerfile) {
 		if err := docker.BuildDockerImage(
 			ctx,
-			EmbeddedDockerfile,
-			BaseTag,
+			embeddedDockerfile,
+			baseTag,
 			"Building base runner image",
 			force,
 			ui,
@@ -206,11 +206,11 @@ func ensureImageWithClient(
 		}
 	}
 
-	if ReferencesDindBase(dockerfile) {
+	if referencesDindBase(dockerfile) {
 		if err := docker.BuildDockerImage(
 			ctx,
-			EmbeddedDindDockerfile,
-			DindBaseTag,
+			embeddedDindDockerfile,
+			dindBaseTag,
 			"Building Docker-in-Docker base runner image",
 			force,
 			ui,
@@ -224,7 +224,7 @@ func ensureImageWithClient(
 		return "", "", nil, err
 	}
 
-	imageRef := ImageTag(projectSlug, imageDigest)
+	imageRef := imageTag(projectSlug, imageDigest)
 
 	cacheErr := mclient.ImageGet(ctx, imageRef)
 	if cacheErr == nil && !force {
