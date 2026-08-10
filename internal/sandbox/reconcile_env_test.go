@@ -10,6 +10,32 @@ import (
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 )
 
+func assertNamesSorted(t *testing.T, names []string) {
+	t.Helper()
+	if len(names) == 0 {
+		t.Fatal("names should not be empty")
+	}
+	for i := 1; i < len(names); i++ {
+		if names[i-1] >= names[i] {
+			t.Errorf("names not sorted at index %d: %q >= %q", i, names[i-1], names[i])
+		}
+	}
+}
+
+func assertModifyEnv(t *testing.T, mo *msbSdk.ModifyOptions, wantEnv map[string]string, wantRemove []string) {
+	t.Helper()
+	for name, want := range wantEnv {
+		if got := mo.Env[name]; got != want {
+			t.Errorf("expected Env[%s]=%q, got %q", name, want, got)
+		}
+	}
+	for _, name := range wantRemove {
+		if !slices.Contains(mo.EnvRemove, name) {
+			t.Errorf("expected EnvRemove to contain %q, got %v", name, mo.EnvRemove)
+		}
+	}
+}
+
 // --- Tests for Task 2: content-hash + change-detection helpers ---
 
 func TestEnvContentHashOrderIndependence(t *testing.T) {
@@ -149,14 +175,7 @@ func TestSecretsChangedTrueOnRemove(t *testing.T) {
 func TestBuildEnvStateSortedNames(t *testing.T) {
 	desired := map[string]string{"Z": "1", "A": "2", "M": "3"}
 	state := buildEnvState(desired)
-	if len(state.Names) == 0 {
-		t.Fatal("Names should not be empty")
-	}
-	for i := 1; i < len(state.Names); i++ {
-		if state.Names[i-1] >= state.Names[i] {
-			t.Errorf("Names not sorted at index %d: %q >= %q", i, state.Names[i-1], state.Names[i])
-		}
-	}
+	assertNamesSorted(t, state.Names)
 }
 
 func TestBuildEnvStateHashMatchesContentHash(t *testing.T) {
@@ -171,14 +190,7 @@ func TestBuildEnvStateHashMatchesContentHash(t *testing.T) {
 func TestBuildSecretStateSortedNames(t *testing.T) {
 	entries := []msbSdk.SecretEntry{{EnvVar: "Z", Value: "1"}, {EnvVar: "A", Value: "2"}}
 	state := buildSecretState(entries)
-	if len(state.Names) == 0 {
-		t.Fatal("Names should not be empty")
-	}
-	for i := 1; i < len(state.Names); i++ {
-		if state.Names[i-1] >= state.Names[i] {
-			t.Errorf("Names not sorted at index %d: %q >= %q", i, state.Names[i-1], state.Names[i])
-		}
-	}
+	assertNamesSorted(t, state.Names)
 }
 
 func TestBuildSecretStateHashMatchesContentHash(t *testing.T) {
@@ -232,15 +244,7 @@ func TestApplyEnvSpecEnvSetCorrectly(t *testing.T) {
 	if len(mo.Env) != 2 {
 		t.Fatalf("expected 2 env entries, got %d", len(mo.Env))
 	}
-	if mo.Env["B"] != "5" {
-		t.Errorf("expected Env[B]=5, got %q", mo.Env["B"])
-	}
-	if mo.Env["C"] != "3" {
-		t.Errorf("expected Env[C]=3, got %q", mo.Env["C"])
-	}
-	if !slices.Contains(mo.EnvRemove, "A") {
-		t.Errorf("expected EnvRemove to contain stale A, got %v", mo.EnvRemove)
-	}
+	assertModifyEnv(t, &mo, map[string]string{"B": "5", "C": "3"}, []string{"A"})
 }
 
 func TestApplyEnvSpecNoRemoveWhenAllStay(t *testing.T) {
@@ -340,17 +344,7 @@ func TestMultiChangeEnvRemovedAddedChanged(t *testing.T) {
 
 	mo := mock.ModifiedOptions[0]
 
-	// Env: B=5, C=3 present
-	if mo.Env["B"] != "5" {
-		t.Errorf("expected Env[B]=5, got %q", mo.Env["B"])
-	}
-	if mo.Env["C"] != "3" {
-		t.Errorf("expected Env[C]=3, got %q", mo.Env["C"])
-	}
-	// EnvRemove: contains stale A
-	if !slices.Contains(mo.EnvRemove, "A") {
-		t.Errorf("expected EnvRemove to contain stale A, got %v", mo.EnvRemove)
-	}
+	assertModifyEnv(t, &mo, map[string]string{"B": "5", "C": "3"}, []string{"A"})
 
 	// Secrets: specs set (empty map), SecretsRemove for stale S
 	if len(mo.SecretsRemove) != 1 || mo.SecretsRemove[0] != "S" {
