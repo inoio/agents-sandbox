@@ -162,3 +162,60 @@ func (m *MockDockerClient) Ping(
 		OSType:     "linux",
 	}, nil
 }
+
+func InstallFailFastGet() { Get = func() Client { return &failFastDockerClient{} } }
+
+// failFastDockerClient is installed by InstallFailFastGet under tests; any method
+// call panics to signal a test reached the real docker client without opting in.
+type failFastDockerClient struct{}
+
+func (f *failFastDockerClient) mustMock() {
+	panic("docker.Get reached the real Docker client; install docker.WithDockerMock(t, ...) in the test")
+}
+
+func (f *failFastDockerClient) ImageBuild(
+	_ context.Context,
+	_ io.Reader,
+	_ client.ImageBuildOptions,
+) (client.ImageBuildResult, error) {
+	f.mustMock()
+	return client.ImageBuildResult{}, nil
+}
+
+func (f *failFastDockerClient) ImageInspect(
+	_ context.Context,
+	_ string,
+	_ ...client.ImageInspectOption,
+) (client.ImageInspectResult, error) {
+	f.mustMock()
+	return client.ImageInspectResult{}, nil
+}
+
+func (f *failFastDockerClient) ImageSave(
+	_ context.Context,
+	_ []string,
+	_ ...client.ImageSaveOption,
+) (client.ImageSaveResult, error) {
+	f.mustMock()
+	//nolint:nilnil // panics before returning; keeps failFastDockerClient interface-conformant
+	return nil, nil
+}
+
+func (f *failFastDockerClient) ImageRemove(
+	_ context.Context,
+	_ string,
+	_ client.ImageRemoveOptions,
+) (client.ImageRemoveResult, error) {
+	f.mustMock()
+	return client.ImageRemoveResult{}, nil
+}
+
+func (f *failFastDockerClient) ImageTag(_ context.Context, _ client.ImageTagOptions) (client.ImageTagResult, error) {
+	f.mustMock()
+	return client.ImageTagResult{}, nil
+}
+
+func (f *failFastDockerClient) Ping(_ context.Context, _ client.PingOptions) (client.PingResult, error) {
+	f.mustMock()
+	return client.PingResult{}, nil
+}
