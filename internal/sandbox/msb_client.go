@@ -9,14 +9,14 @@ import (
 
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 
-	msb "gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/msb"
+	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/msb"
 )
 
 //nolint:revive // 'SandboxFS' stutters as 'sandbox.SandboxFS'
 type SandboxFS = msb.SandboxFS
 
-// MsbClient is a re-export of msb.MsbClient for backward compatibility.
-type MsbClient = msb.MsbClient
+// MsbClient is a re-export of msb.Client for backward compatibility.
+type MsbClient = msb.Client
 
 // MockMsbClient is a re-export of msb.MockMsbClient for backward compatibility.
 type MockMsbClient = msb.MockMsbClient
