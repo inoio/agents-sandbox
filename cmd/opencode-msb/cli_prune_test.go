@@ -137,11 +137,13 @@ func TestPrune(t *testing.T) {
 	t.Run("P7_docker_client_error", func(t *testing.T) {
 		for _, flags := range pruneAgeFlags {
 			t.Run("f"+strings.Join(flags, "_"), func(t *testing.T) {
+				sandbox.WithMockConfigPaths(t)
 				ui := &termio.Mock{}
 				mock := &sandbox.MockMsbClient{}
 				mock.Images = append(mock.Images,
 					msbImg("opencode-msb/runner-projectname:v2"))
 
+				sandbox.WithMsbMock(t, mock)
 				origMSB := sandbox.SetNewMsbClient(func() sandbox.MsbClient { return mock })
 				t.Cleanup(func() { sandbox.SetNewMsbClient(origMSB) })
 				docker.WithDefaultErrorDockerMock(t)
@@ -221,6 +223,7 @@ func TestPrune(t *testing.T) {
 
 func runPruneTest(t *testing.T, flags []string, setupMock func(m *sandbox.MockMsbClient), expected string) {
 	t.Helper()
+	sandbox.WithMockConfigPaths(t)
 	ui := &termio.Mock{}
 	mock := &sandbox.MockMsbClient{}
 	if setupMock != nil {
@@ -240,6 +243,7 @@ func runPruneTest(t *testing.T, flags []string, setupMock func(m *sandbox.MockMs
 
 func runPruneTestWithAge(t *testing.T, age string, setupMock func(m *sandbox.MockMsbClient), expected string) {
 	t.Helper()
+	sandbox.WithMockConfigPaths(t)
 	ui := &termio.Mock{}
 	mock := &sandbox.MockMsbClient{}
 	setupMock(mock)
@@ -257,6 +261,9 @@ func runPruneTestWithAge(t *testing.T, age string, setupMock func(m *sandbox.Moc
 
 func runPruneTestError(t *testing.T, args []string, wantErrContains string) {
 	t.Helper()
+	sandbox.WithMockConfigPaths(t)
+	sandbox.WithMsbMock(t, &sandbox.MockMsbClient{})
+	docker.WithNoopDockerMock(t)
 	ui := &termio.Mock{}
 	root := buildRootCmd(ui)
 	root.SetArgs(args)

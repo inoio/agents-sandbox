@@ -8,6 +8,7 @@ import (
 	msb "github.com/superradcompany/microsandbox/sdk/go"
 
 	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox"
+	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/docker"
 	"gitlab.inoio.de/inoio/opencode-msb/internal/termio"
 	"gitlab.inoio.de/inoio/opencode-msb/internal/testutil"
 )
@@ -88,6 +89,8 @@ func TestLifecycle(t *testing.T) {
 					ui := &termio.Mock{}
 					mock := &sandbox.MockMsbClient{}
 					mock.SetGetSandboxErr(notFoundErr())
+					sandbox.WithMockConfigPaths(t)
+					docker.WithNoopDockerMock(t)
 					sandbox.WithMsbMock(t, mock)
 
 					root := buildRootCmd(ui)
@@ -121,6 +124,8 @@ func TestLifecycle(t *testing.T) {
 				ui := &termio.Mock{}
 				mock := &sandbox.MockMsbClient{}
 				mock.SetGotSandbox(&sandbox.MockSandboxHandle{})
+				sandbox.WithMockConfigPaths(t)
+				docker.WithNoopDockerMock(t)
 				sandbox.WithMsbMock(t, mock)
 
 				root := buildRootCmd(ui)
@@ -147,6 +152,8 @@ func TestLifecycle(t *testing.T) {
 			ui := &termio.Mock{}
 			mock := &sandbox.MockMsbClient{}
 			mock.SetGotSandbox(&sandbox.MockSandboxHandle{})
+			sandbox.WithMockConfigPaths(t)
+			docker.WithNoopDockerMock(t)
 			sandbox.WithMsbMock(t, mock)
 
 			root := buildRootCmd(ui)
@@ -165,6 +172,8 @@ func TestLifecycle(t *testing.T) {
 			ui := &termio.Mock{}
 			mock := &sandbox.MockMsbClient{}
 			mock.SetGotSandbox(&sandbox.MockSandboxHandle{})
+			sandbox.WithMockConfigPaths(t)
+			docker.WithNoopDockerMock(t)
 			sandbox.WithMsbMock(t, mock)
 
 			root := buildRootCmd(ui)
@@ -184,6 +193,8 @@ func TestLifecycle(t *testing.T) {
 			ui := &termio.Mock{}
 			mock := &sandbox.MockMsbClient{}
 			mock.SetGotSandbox(&sandbox.MockSandboxHandle{})
+			sandbox.WithMockConfigPaths(t)
+			docker.WithNoopDockerMock(t)
 			sandbox.WithMsbMock(t, mock)
 
 			root := buildRootCmd(ui)
@@ -210,6 +221,8 @@ func TestLifecycle(t *testing.T) {
 				ui := &termio.Mock{}
 				mock := &sandbox.MockMsbClient{}
 				mock.SetGotSandbox(&sandbox.MockSandboxHandle{RemoveErr: errBoom})
+				sandbox.WithMockConfigPaths(t)
+				docker.WithNoopDockerMock(t)
 				sandbox.WithMsbMock(t, mock)
 
 				root := buildRootCmd(ui)
@@ -232,6 +245,8 @@ func TestLifecycle(t *testing.T) {
 			ui := &termio.Mock{}
 			mock := &sandbox.MockMsbClient{}
 			mock.SetGotSandbox(&sandbox.MockSandboxHandle{RemoveErr: errBoom})
+			sandbox.WithMockConfigPaths(t)
+			docker.WithNoopDockerMock(t)
 			sandbox.WithMsbMock(t, mock)
 
 			root := buildRootCmd(ui)
