@@ -388,8 +388,8 @@ func persistEnvSecrets(slug string, envState EnvState, secretState SecretState) 
 
 func buildMounts(homeVol, repoPath string, tmpSizeMiB uint32) map[string]msbSdk.MountConfig {
 	return map[string]msbSdk.MountConfig{
-		"/home/dev":  msbSdk.Mount.Named(homeVol, msbSdk.MountOptions{}),
-		"/workspace": msbSdk.Mount.Bind(repoPath, msbSdk.MountOptions{}),
+		"/home/dev":      msbSdk.Mount.Named(homeVol, msbSdk.MountOptions{}),
+		defaultTargetDir: msbSdk.Mount.Bind(repoPath, msbSdk.MountOptions{}),
 		tmpMountPath: msbSdk.Mount.Tmpfs(msbSdk.TmpfsOptions{
 			SizeMiB:  tmpSizeMiB,
 			Readonly: false,
