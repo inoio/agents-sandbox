@@ -68,7 +68,7 @@ func CmdMigrate(
 		dryRun: func(oldVolume string) string {
 			return fmt.Sprintf(
 				"dry-run: Would create volume %q, copy files from %q",
-				homeVolumeName(projectSlug, ""),
+				homeVolumeName(projectSlug),
 				oldVolume,
 			)
 		},
@@ -95,7 +95,7 @@ func CmdReset(
 		dryRun: func(oldVolume string) string {
 			return fmt.Sprintf(
 				"dry-run: Would create fresh volume %q, remove %q",
-				homeVolumeName(projectSlug, ""),
+				homeVolumeName(projectSlug),
 				oldVolume,
 			)
 		},
@@ -117,7 +117,7 @@ func CmdEdit(
 		dryRun: func(oldVolume string) string {
 			return fmt.Sprintf(
 				"dry-run: Would create volume %q alongside %q for manual transfer",
-				homeVolumeName(projectSlug, ""),
+				homeVolumeName(projectSlug),
 				oldVolume,
 			)
 		},
@@ -194,7 +194,7 @@ func volumeOp(
 		return nil
 	}
 
-	newVolumeName := homeVolumeName(projectSlug, "")
+	newVolumeName := homeVolumeName(projectSlug)
 	newVol, err := client.CreateVolume(ctx, newVolumeName,
 		msbSdk.WithVolumeKind(msbSdk.VolumeKindDir),
 	)

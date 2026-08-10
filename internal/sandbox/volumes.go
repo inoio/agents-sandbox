@@ -23,7 +23,7 @@ const (
 	actionResetLabel   = "reset"
 )
 
-func homeVolumeName(projectSlug string, _ string) string {
+func homeVolumeName(projectSlug string) string {
 	ts := time.Now().UTC().Format("20060102T150405")
 	return homePrefix + projectSlug + "-" + ts
 }
@@ -114,7 +114,7 @@ func (vm *VolumeManager) ensureNewHome(
 	opts RunOptions,
 	ui termio.UI,
 ) (string, HomeState, error) {
-	volName := homeVolumeName(projectSlug, "")
+	volName := homeVolumeName(projectSlug)
 	vol, err := client.CreateVolume(ctx, volName,
 		msbSdk.WithVolumeKind(msbSdk.VolumeKindDir),
 	)
@@ -209,7 +209,7 @@ func (vm *VolumeManager) applyHomeAction(
 		return oldVolume, nil
 	}
 
-	newVol, err := client.CreateVolume(ctx, homeVolumeName(projectSlug, ""),
+	newVol, err := client.CreateVolume(ctx, homeVolumeName(projectSlug),
 		msbSdk.WithVolumeKind(msbSdk.VolumeKindDir),
 	)
 	if err != nil {

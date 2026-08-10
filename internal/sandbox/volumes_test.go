@@ -16,7 +16,7 @@ import (
 )
 
 func TestHomeVolumeName(t *testing.T) {
-	got := homeVolumeName("myproj-aBc1234D", "")
+	got := homeVolumeName("myproj-aBc1234D")
 	expectedPrefix := "opencode-msb-home-myproj-aBc1234D-"
 	if !strings.HasPrefix(got, expectedPrefix) {
 		t.Errorf("expected prefix %q, got %q", expectedPrefix, got)
@@ -28,7 +28,7 @@ func TestHomeVolumeName(t *testing.T) {
 }
 
 func TestHomeVolumeNameDifferentInputs(t *testing.T) {
-	got := homeVolumeName("myproj-aBc1234D", "sha256:abc123def456")
+	got := homeVolumeName("myproj-aBc1234D")
 	if !strings.HasPrefix(got, "opencode-msb-home-myproj-aBc1234D-") {
 		t.Errorf("unexpected name format: %q", got)
 	}
@@ -36,7 +36,7 @@ func TestHomeVolumeNameDifferentInputs(t *testing.T) {
 
 func TestHomeVolumeNameTimestamp(t *testing.T) {
 	before := time.Now().UTC().Add(-time.Second)
-	got := homeVolumeName("myproject", "")
+	got := homeVolumeName("myproject")
 	after := time.Now().UTC().Add(time.Second)
 
 	if !strings.HasPrefix(got, "opencode-msb-home-myproject-") {
@@ -52,21 +52,6 @@ func TestHomeVolumeNameTimestamp(t *testing.T) {
 	}
 	if ts.Before(before) || ts.After(after) {
 		t.Errorf("timestamp %v not within expected range", ts)
-	}
-}
-
-func TestHomeVolumeNameDigestIgnored(t *testing.T) {
-	got1 := homeVolumeName("proj", "sha256:abc123")
-	got2 := homeVolumeName("proj", "")
-	got3 := homeVolumeName("proj", "different")
-	if !strings.HasPrefix(got1, "opencode-msb-home-proj-") {
-		t.Errorf("got1 prefix wrong: %q", got1)
-	}
-	if !strings.HasPrefix(got2, "opencode-msb-home-proj-") {
-		t.Errorf("got2 prefix wrong: %q", got2)
-	}
-	if !strings.HasPrefix(got3, "opencode-msb-home-proj-") {
-		t.Errorf("got3 prefix wrong: %q", got3)
 	}
 }
 
