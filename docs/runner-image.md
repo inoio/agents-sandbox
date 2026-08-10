@@ -46,7 +46,7 @@ RUN curl -fsSL https://pyenv.run | bash
 The project image **must** end with `USER dev` active. If you need to run commands as root, switch back:
 
 ```dockerfile
-FROM opencode-msb/runner:base
+FROM opencode-msb/runner-base
 
 USER root
 # Install your project's toolchain as root, e.g. via apt install
