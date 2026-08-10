@@ -97,5 +97,5 @@ behavior.
 - Read the [Commands](/docs/commands.md) reference for the complete CLI API.
 - Learn about [Configuration](/docs/configuration.md) for setting defaults and secrets.
 - See how to [Extend the Runner Image](/docs/runner-image.md) with project-specific tooling.
-- Explore [Branch Sessions](/docs/branch-sessions.md) for isolated development workflows.
+- Explore [Worktree Sessions](/docs/branch-sessions.md) for isolated worktree sessions.
 - Check [Troubleshooting](/docs/troubleshooting.md) for common issues.
