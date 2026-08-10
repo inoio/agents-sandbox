@@ -409,6 +409,55 @@ func TestPrune_WithMocks_CoversAllCases(t *testing.T) {
 	)
 }
 
+// TestPrune_StoppedRecentVM_PreservesImage verifies that a stopped-but-not-yet
+// stale VM is not misclassified as an orphan: its currently used image digest
+// and the :latest tag must survive, and only surplus digests are pruned.
+func TestPrune_StoppedRecentVM_PreservesImage(t *testing.T) {
+	recentTime := time.Now().Add(-5 * time.Minute)
+	slug := "commonproj-1mjusbm3wikhb0"
+
+	client := &MockMsbClient{
+		Sandboxes: []SandboxHandle{
+			// Stopped but recent: within threshold, must be preserved.
+			&MockSandboxHandle{
+				Name_:      "opencode-msb-vm-commonproj-1mjusbm3wikhb0",
+				Status_:    msbSdk.SandboxStatusStopped,
+				UpdatedAt_: recentTime,
+				Image_:     "opencode-msb/runner-commonproj-1mjusbm3wikhb0:digestCur",
+			},
+		},
+		Volumes: []VolumeHandle{
+			&MockVolumeHandle{Name_: "opencode-msb-home-commonproj-1mjusbm3wikhb0-20260810T120000"},
+		},
+		Images: []ImageHandle{
+			&MockImageHandle{Reference_: "opencode-msb/runner-commonproj-1mjusbm3wikhb0:digestCur"},
+			&MockImageHandle{Reference_: "opencode-msb/runner-commonproj-1mjusbm3wikhb0:digestOld"},
+			&MockImageHandle{Reference_: "opencode-msb/runner-commonproj-1mjusbm3wikhb0:latest"},
+		},
+	}
+	docker.WithNoopDockerMock(t)
+	ui := newMockUI()
+
+	SetStateDirForTest(t, t.TempDir()+"/opencode-msb")
+	if err := WriteState(slug, HomeState{
+		HomeVolume: "opencode-msb-home-commonproj-1mjusbm3wikhb0-20260810T120000",
+	}); err != nil {
+		t.Fatalf("WriteState: %v", err)
+	}
+
+	oldGet := msb.Get
+	msb.Get = func() MsbClient { return client }
+	defer func() { msb.Get = oldGet }()
+
+	report, err := catalogAndPrune(context.Background(), 30*time.Minute, false, ui)
+	if err != nil {
+		t.Fatalf("Prune returned error: %v", err)
+	}
+
+	// Surplus digestOld is pruned (msb + docker); digestCur and :latest survive.
+	assertReport(t, report, prunedCounts{volumes: 0, msbImages: 1, dockerImages: 1})
+}
+
 func TestPruneActiveVMDockerImages_AllFail_LogWarnings(t *testing.T) {
 	dockerMock := &mockDockerClient{
 		removeErr: errors.New("image does not exist"),

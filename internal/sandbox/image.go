@@ -154,7 +154,7 @@ func buildRunnerImage(
 		imageEnv = make(map[string]string)
 	}
 
-	if err := docker.BuildDockerImage(ctx, dockerfile, rTag, "Building runner image", force, ui); err != nil {
+	if err := docker.BuildDockerImage(ctx, dockerfile, rTag, "Ensuring runner image", force, ui); err != nil {
 		if len(imageEnv) > 0 {
 			ui.Warnf("build succeeded but inspect failed; using stored env metadata")
 			return rTag, imageDigest, imageEnv, nil
@@ -198,7 +198,7 @@ func ensureImageWithClient(
 			ctx,
 			embeddedDockerfile,
 			baseTag,
-			"Building base runner image",
+			"Ensuring base runner image",
 			force,
 			ui,
 		); err != nil {
@@ -211,7 +211,7 @@ func ensureImageWithClient(
 			ctx,
 			embeddedDindDockerfile,
 			dindBaseTag,
-			"Building Docker-in-Docker base runner image",
+			"Ensuring Docker-in-Docker base runner image",
 			force,
 			ui,
 		); err != nil {
