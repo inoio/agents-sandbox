@@ -282,7 +282,7 @@ func Run(ctx context.Context, opts RunOptions, ui termio.UI) error {
 
 // Shell creates (or reuses) the project VM and drops the user into an
 // interactive shell session, without starting opencode serve.
-func Shell(ctx context.Context, opts RunOptions, cfg ConfigPaths, ui termio.UI) error {
+func Shell(ctx context.Context, opts RunOptions, ui termio.UI) error {
 	session, err := prepareSandbox(ctx, opts, ui)
 	if err != nil {
 		return err

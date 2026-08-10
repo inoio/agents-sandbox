@@ -33,7 +33,7 @@ const autoFlag = "--auto"
 // and the embedded provider config. Returns the marshaled files, parsed
 // structures, and sorted file keys.
 func loadConfigFiles(userConfigDir string) (*configFiles, error) {
-	providerCfg, err := config.LoadProviderConfig(config.EmbeddedProviderConfig)
+	providerCfg, err := config.LoadProviderConfig()
 	if err != nil {
 		return nil, fmt.Errorf("load provider config: %w", err)
 	}

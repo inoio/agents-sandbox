@@ -11,9 +11,9 @@ import (
 	"github.com/titanous/json5"
 )
 
-func LoadProviderConfig(data []byte) (map[string]any, error) {
+func LoadProviderConfig() (map[string]any, error) {
 	var cfg map[string]any
-	if err := json5.Unmarshal(data, &cfg); err != nil {
+	if err := json5.Unmarshal(embeddedProviderConfig, &cfg); err != nil {
 		return nil, err
 	}
 	return cfg, nil

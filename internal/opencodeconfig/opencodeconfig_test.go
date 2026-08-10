@@ -9,7 +9,7 @@ import (
 )
 
 func TestLoadProviderConfigParsesJSON5(t *testing.T) {
-	cfg, err := LoadProviderConfig(EmbeddedProviderConfig)
+	cfg, err := LoadProviderConfig()
 	if err != nil {
 		t.Fatalf("LoadProviderConfig failed: %v", err)
 	}

@@ -1,4 +1,4 @@
-package launcherconfig
+package viperconfig
 
 import (
 	"bytes"
@@ -101,13 +101,13 @@ func durationDecodeHook() mapstructure.DecodeHookFunc {
 // Load reads launcher config files from userDir and projectDir. Missing files
 // are ignored. Project values override user values. The returned map contains
 // the top-level keys that were explicitly set in either file.
-func Load(userDir, projectDir string) (Config, map[string]bool, error) {
+func Load() (Config, map[string]bool, error) {
 	v := viper.New()
 
-	if err := mergeDir(v, userDir); err != nil {
+	if err := mergeDir(v, sandbox.GetConfigPaths().UserConfigDir()); err != nil {
 		return Config{}, nil, err
 	}
-	if err := mergeDir(v, projectDir); err != nil {
+	if err := mergeDir(v, sandbox.GetConfigPaths().ProjectConfigDir()); err != nil {
 		return Config{}, nil, err
 	}
 	if err := validate(v); err != nil {
