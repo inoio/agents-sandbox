@@ -15,9 +15,9 @@ Each opencode-msb invocation follows this lifecycle:
 - VM creation or reuse: New or existing project-specific VM
 - Provisioning: Copy opencode config etc. (updated configs are re-provisioned).
 - Daemon verify/start: Ensure/start microsandbox internal services
-- Branch resolve: If `-b` specified, reuse or create an opencode VM-internal worktree via daemon API
+- Branch resolve: If `--worktree` (`-w`) specified, reuse or create an opencode VM-internal worktree via daemon API
 - Opencode run: Execute `opencode attach` against the worktree inside the sandbox
-- Cleanup: Detach, prune host worktrees
+- Cleanup: Detach
 ```
 
 ## VM Identity
