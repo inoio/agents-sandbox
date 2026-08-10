@@ -6,7 +6,6 @@ import (
 	"reflect"
 	"strings"
 	"testing"
-	"time"
 
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 
@@ -331,7 +330,6 @@ func setUpSandboxProvisionsConfig(t *testing.T, created bool, provisionMsg strin
 		created,
 		ui,
 		false,
-		false,
 	)
 	if err != nil {
 		t.Fatalf("setUpSandbox: %v", err)
@@ -409,14 +407,7 @@ func TestReadVMFilesEmptyDir(t *testing.T) {
 	}
 }
 
-func TestRestartDaemonsRestartsServeAndDockerd(t *testing.T) {
-	dockerdReadyTimeout = 50 * time.Millisecond
-	dockerdPollInterval = 10 * time.Millisecond
-	t.Cleanup(func() {
-		dockerdReadyTimeout = 10 * time.Second
-		dockerdPollInterval = time.Second
-	})
-
+func TestRestartDaemonsRestartsServe(t *testing.T) {
 	var cmdCalls []string
 	savedShell := SetDaemonShellFunc(func(_ context.Context, _ Sandbox, command string) (string, int, error) {
 		cmdCalls = append(cmdCalls, command)
@@ -438,7 +429,7 @@ func TestRestartDaemonsRestartsServeAndDockerd(t *testing.T) {
 		},
 	}
 	ui := testutil.TermUIMock(t)
-	restartDaemons(context.Background(), sb, map[string][]byte{"opencode.jsonc": []byte("{}")}, true, &ui)
+	restartDaemons(context.Background(), sb, map[string][]byte{"opencode.jsonc": []byte("{}")}, &ui)
 
 	var joined strings.Builder
 	for _, c := range cmdCalls {
@@ -448,53 +439,11 @@ func TestRestartDaemonsRestartsServeAndDockerd(t *testing.T) {
 	if !containsSubstring(joined.String(), daemonKillCmd) {
 		t.Errorf("expected serve kill command, got %q", joined.String())
 	}
-	if !containsSubstring(joined.String(), dockerdRestartCmd) {
-		t.Errorf("expected dockerd restart command, got %q", joined.String())
-	}
-}
-
-func TestSetUpSandboxAppliesEnvSecretsOnReuseRestart(t *testing.T) {
-	var commands []string
-	orig := SetDaemonShellFunc(func(_ context.Context, _ Sandbox, command string) (string, int, error) {
-		commands = append(commands, command)
-		if command == "curl -sfm2 "+daemonHealthURL {
-			return `{"healthy":true,"version":"x"}`, 0, nil
-		}
-		return "", 0, nil
-	})
-	defer SetDaemonShellFunc(orig)
-
-	// The env file provides the new desired env ("NEW=2").
-	// MockSandboxHandle provides the old env ("OLD=1") so there is a diff.
-	sh := msb.MockSandboxHandle{
-		Cfg: &msbSdk.SandboxConfig{
-			Env: map[string]string{"OLD": "1"},
-		},
-	}
-	sb := &MockSandbox{Name_: "test-vm"}
-	sh.ConnectSb = sb
-	WithMockConfigPaths(t)
-	testutil.WritePath(t, GetConfigPaths().userEnvFile(), "NEW=2\n")
-
-	mockClient := &msb.MockMsbClient{}
-	mockClient.GetSandboxFn = func(_ context.Context, _ string) (msb.SandboxHandle, error) {
-		return &sh, nil
-	}
-
-	msb.WithMsbMock(t, mockClient)
-	commands = commands[:0]
-	ui := testutil.TermUIMock(t)
-
-	_, err := setUpSandbox(
-		context.Background(), &MockSandbox{Name_: "test-vm", FSValue_: msb.NewTestFS(nil, nil)},
-		RunOptions{}, false, &ui, true, true,
-	)
-	if err != nil {
-		t.Fatalf("setUpSandbox: %v", err)
-	}
-
-	if len(sh.ModifiedOptions) == 0 {
-		t.Fatal("expected env/secret Modify to be called on the VM handle")
+	if containsSubstring(joined.String(), dockerdRestartCmd) {
+		t.Errorf(
+			"restartDaemons must NOT restart dockerd (env/secret changes go through the recreate path), got %q",
+			joined.String(),
+		)
 	}
 }
 
@@ -513,21 +462,15 @@ func TestSetUpSandboxRestartsDaemonsOnReuseDecision(t *testing.T) {
 	sb := &MockSandbox{Name_: "test-vm", FSValue_: fs}
 	ui := testutil.TermUIMock(t)
 
-	// Install a mock msb client so applyEnvAndSecrets doesn't hit the real SDK.
-	mockClient := &msb.MockMsbClient{}
-	mockClient.GetSandboxFn = func(_ context.Context, _ string) (msb.SandboxHandle, error) {
-		return &msb.MockSandboxHandle{Cfg: &msbSdk.SandboxConfig{}}, nil
-	}
-	msb.WithMsbMock(t, mockClient)
 	WithMockConfigPaths(t)
 
 	// setUpSandbox's signature is
-	//   (ctx, sb, opts, cfg, cwd, created, ui, restart, restartDockerd).
-	// Pass restart=true, restartDockerd=true to force the daemon-restart path on a reused VM.
+	//   (ctx, sb, opts, created, ui, restart).
+	// Pass restart=true to force the daemon-restart path on a reused VM.
 	commands = commands[:0]
 	target, err := setUpSandbox(
 		context.Background(), sb, RunOptions{},
-		false, &ui, true, true,
+		false, &ui, true,
 	)
 	if err != nil {
 		t.Fatalf("setUpSandbox: %v", err)

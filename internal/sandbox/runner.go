@@ -163,7 +163,7 @@ func prepareSandbox(
 	if err != nil {
 		return nil, fmt.Errorf("get current directory: %w", err)
 	}
-	recreate, restart, restartDockerd, homeVol, err := decideReconfig(
+	recreate, restart, homeVol, err := decideReconfig(
 		ctx,
 		client,
 		vm,
@@ -178,7 +178,7 @@ func prepareSandbox(
 	if err != nil {
 		return nil, err
 	}
-	ui.Verbosef("recreate: %v, restart: %v, restartDockerd: %v", recreate, restart, restartDockerd)
+	ui.Verbosef("recreate: %v, restart: %v", recreate, restart)
 	opts.Recreate = recreate
 	sb, created, err := ensureProjectVM(ctx, opts, imageRef, homeVol, cwd, imageEnvs, ui)
 	if err != nil {
@@ -209,7 +209,7 @@ func prepareSandbox(
 		ui.Infof("VM lifecycle skipped (--dry-run-vm)")
 		sandboxTarget = resolveTargetNoBranch()
 	} else {
-		sandboxTarget, sandboxErr = setUpSandbox(ctx, sb, opts, created, ui, restart, restartDockerd)
+		sandboxTarget, sandboxErr = setUpSandbox(ctx, sb, opts, created, ui, restart)
 		if sandboxErr != nil {
 			return nil, sandboxErr
 		}
@@ -423,7 +423,6 @@ func setUpSandbox(
 	created bool,
 	ui termio.UI,
 	restart bool,
-	restartDockerd bool,
 ) (string, error) {
 	cfs, err := loadConfigFiles(GetConfigPaths().UserOpencodeConfigDir())
 	if err != nil {
@@ -433,10 +432,7 @@ func setUpSandbox(
 	ui.Verbosef("expected config files: %v", cfs.keys)
 
 	if restart {
-		if restartDockerd {
-			applyEnvAndSecrets(ctx, ui)
-		}
-		restartDaemons(ctx, sb, cfs.files, restartDockerd, ui)
+		restartDaemons(ctx, sb, cfs.files, ui)
 		return ResolveTarget(ctx, sb, opts.Branch, ui)
 	}
 
@@ -458,49 +454,6 @@ func setUpSandbox(
 	return ResolveTarget(ctx, sb, opts.Branch, ui)
 }
 
-// applyEnvAndSecrets fetches the live VM handle and applies the current
-// desire env/secret configuration via the SDK Modify API. It is called on the
-// reuse+restart path so that a daemon restart picks up the new values.
-func applyEnvAndSecrets(ctx context.Context,
-	ui termio.UI) {
-	slug := git.ProjectSlug(ui)
-	handle, err := msb.Get().GetSandbox(ctx, projectVMName(slug))
-	if err != nil {
-		ui.Warnf("could not fetch VM handle to apply env/secrets: %v (continuing)", err)
-		return
-	}
-
-	desiredEnv := mergeEnvMaps(
-		buildEnvMap(GetConfigPaths().userEnvFile()),
-		buildEnvMap(GetConfigPaths().projectEnvFile()),
-	)
-	desiredSecrets := buildSecrets(mergeEnvMaps(
-		buildEnvMap(GetConfigPaths().userEnvSecretFile()),
-		buildEnvMap(GetConfigPaths().projectEnvSecretFile()),
-	), ui)
-
-	currentEnv := currentEnvState(slug, ui)
-	currentSecret := currentSecretState(slug, ui)
-
-	changed, envState, secretState, err := reconcileEnvAndSecrets(
-		ctx,
-		handle,
-		desiredEnv,
-		desiredSecrets,
-		currentEnv,
-		currentSecret,
-	)
-	if err != nil {
-		ui.Warnf("env/secret application failed: %v (continuing)", err)
-		return
-	}
-	if changed {
-		if err := persistEnvSecrets(slug, envState, secretState); err != nil {
-			ui.Warnf("persisting env/secret fingerprints: %v (continuing)", err)
-		}
-	}
-}
-
 // decideReconfig centralizes all reconfiguration decisions: the image-change
 // home-volume prompt, the VM recreate decision, the daemon-restart decision,
 // and cpu/memory staging. It re-fetches the existing sandbox handle to read
@@ -517,7 +470,7 @@ func decideReconfig(
 	opts RunOptions,
 	imageRef, imageDigest, homeVol string, state HomeState,
 	ui termio.UI,
-) (bool, bool, bool, string, error) {
+) (bool, bool, string, error) {
 	slug := git.ProjectSlug(ui)
 	handle, _ := client.GetSandbox(ctx, projectVMName(slug))
 
@@ -541,18 +494,18 @@ func decideReconfig(
 		action := vm.resolveHomeAction(ui, state.ImageDigest, imageDigest)
 		if action == actionQuit {
 			ui.Infof("exiting as requested by user")
-			return false, false, false, homeVol, &ExitError{Code: 1}
+			return false, false, homeVol, &ExitError{Code: 1}
 		}
 		newVol, err := vm.applyHomeAction(ctx, client, slug, homeVol, imageRef, imageDigest, action, opts, ui)
 		if err != nil {
-			return false, false, false, homeVol, fmt.Errorf("apply home action: %w", err)
+			return false, false, homeVol, fmt.Errorf("apply home action: %w", err)
 		}
 		homeVol = newVol
 	}
 
 	cfs, err := loadConfigFiles(GetConfigPaths().UserOpencodeConfigDir())
 	if err != nil {
-		return false, false, false, homeVol, err
+		return false, false, homeVol, err
 	}
 
 	var opencfgChanged bool
@@ -579,26 +532,20 @@ func decideReconfig(
 	otherClients := countActiveClients(slug)
 	applyRecreate, applyRestart, err := resolveReconfig(ctx, ui, plan, otherClients, plan.changes)
 	if err != nil {
-		return false, false, false, homeVol, err
+		return false, false, homeVol, err
 	}
 	recreate := applyRecreate
 	restart := applyRestart && !recreate && !plan.recreate
-	return recreate, restart, restart && plan.restartDockerd, homeVol, nil
+	return recreate, restart, homeVol, nil
 }
 
-// restartDaemons provisions config files and restarts the daemons a config
-// change requires. restartDockerd additionally restarts dockerd (for env/secret
-// changes) so newly applied process env/settings take effect.
-func restartDaemons(ctx context.Context, sb Sandbox, files map[string][]byte, restartDockerd bool, ui termio.UI) {
+// restartDaemons provisions config files and restarts the opencode daemon so
+// an opencode-config change is picked up. Env/secret changes are never routed
+// here: they require a VM rebuild and are handled by the recreate path instead.
+func restartDaemons(ctx context.Context, sb Sandbox, files map[string][]byte, ui termio.UI) {
 	if err := provisionSandbox(ctx, sb.FS(), files); err != nil {
 		ui.Warnf("provision failed: %v (keeping existing daemon)", err)
 		return
-	}
-	if restartDockerd {
-		ui.Infof("restarting dockerd for env/secret change…")
-		if err := startDockerdIfPresent(ctx, sb, ui); err != nil {
-			ui.Warnf("dockerd restart failed (continuing): %v", err)
-		}
 	}
 	ui.Infof("opencode serve restarting…")
 	if _, _, err := daemonShellFunc(ctx, sb, daemonKillCmd); err != nil {
