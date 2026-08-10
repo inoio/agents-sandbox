@@ -13,13 +13,13 @@ var spinnerChars = []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "�
 
 type spinner struct {
 	w      io.Writer
-	color  bool
 	level  Level
 	msg    string
 	start  time.Time
 	stopCh chan struct{}
 	done   chan struct{}
 	mu     sync.Mutex
+	color  bool
 	active bool
 }
 

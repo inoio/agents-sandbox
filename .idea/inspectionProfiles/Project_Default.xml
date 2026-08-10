@@ -4,6 +4,7 @@
     <inspection_tool class="GoContextTodo" enabled="true" level="WEAK WARNING" enabled_by_default="true" />
     <inspection_tool class="GoLinter" enabled="true" level="WARNING" enabled_by_default="true" />
     <inspection_tool class="GoStructLayout" enabled="true" level="WEAK WARNING" enabled_by_default="true" />
+    <inspection_tool class="GoUnhandledErrorResult" enabled="false" level="WARNING" enabled_by_default="false" />
     <inspection_tool class="GoUnnecessarilyExportedIdentifiers" enabled="true" level="WEAK WARNING" enabled_by_default="true" />
     <inspection_tool class="SpellCheckingInspection" enabled="false" level="TYPO" enabled_by_default="false">
       <option name="processCode" value="true" />
