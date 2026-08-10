@@ -1,12 +1,20 @@
 package sandbox
 
-import "testing"
+import (
+	"testing"
 
-// TestMain installs a fail-fast default for GetConfigPaths so that no sandbox
-// test can silently touch real user/project config directories. Tests that need
-// isolated config paths call WithMockConfigPaths(t); tests that deliberately
-// exercise the real path resolution call WithRealConfigPaths(t).
+	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/docker"
+	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/msb"
+	"gitlab.inoio.de/inoio/opencode-msb/internal/testutil"
+)
+
+// TestMain installs the fail-fast defaults for the sandbox factories so no
+// sandbox test can silently touch real config paths, Docker, or microsandbox.
+// Tests opt in via WithMockConfigPaths / docker.WithDockerMock / msb.WithMsbMock.
 func TestMain(m *testing.M) {
-	GetConfigPaths = FailFastConfigPaths
-	m.Run()
+	testutil.InitMocks(m,
+		InstallFailFastConfigPaths,
+		docker.InstallFailFastGet,
+		msb.InstallFailFastGet,
+	)
 }
