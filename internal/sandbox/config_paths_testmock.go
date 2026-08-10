@@ -19,6 +19,17 @@ func withMockConfigPaths(t *testing.T) {
 	t.Cleanup(func() { GetConfigPaths = orig })
 }
 
+// withRealConfigPaths opts a test into the real XDG path resolution instead of
+// the fail-fast default installed by TestMain. Only use it when a test
+// deliberately exercises the real resolver and isolates its directories via
+// t.Setenv, as config_paths_test.go does.
+func withRealConfigPaths(t *testing.T) {
+	t.Helper()
+	orig := GetConfigPaths
+	GetConfigPaths = func() ConfigPaths { return &realConfigPaths{} }
+	t.Cleanup(func() { GetConfigPaths = orig })
+}
+
 func ensureMockConfigDirectory(path string) string {
 	err := os.MkdirAll(path, 0o750)
 	if err != nil {

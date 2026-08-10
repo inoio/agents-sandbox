@@ -1,4 +1,4 @@
-package launcherconfig
+package viperconfig
 
 import (
 	"path/filepath"
@@ -10,7 +10,7 @@ import (
 )
 
 func TestLoadMissingFilesReturnsDefaults(t *testing.T) {
-	cfg, keys, err := Load("", "")
+	cfg, keys, err := Load()
 	if err != nil {
 		t.Fatalf("Load failed: %v", err)
 	}
@@ -33,7 +33,7 @@ func TestLoadYAMLConfig(t *testing.T) {
 		"verbose":  true,
 	})
 
-	cfg, keys, err := Load(dir, "")
+	cfg, keys, err := Load()
 	if err != nil {
 		t.Fatalf("Load failed: %v", err)
 	}
@@ -63,7 +63,7 @@ func TestLoadJSON5Config(t *testing.T) {
 		"yes": true
 	}`)
 
-	cfg, keys, err := Load(dir, "")
+	cfg, keys, err := Load()
 	if err != nil {
 		t.Fatalf("Load failed: %v", err)
 	}
@@ -88,7 +88,7 @@ func TestLoadProjectOverridesUser(t *testing.T) {
 		"yes":    false,
 	})
 
-	cfg, keys, err := Load(user, project)
+	cfg, keys, err := Load()
 	if err != nil {
 		t.Fatalf("Load failed: %v", err)
 	}
@@ -110,7 +110,7 @@ func TestLoadInvalidCPUs(t *testing.T) {
 	dir := t.TempDir()
 	testutil.WriteYAML(t, dir, "config.yaml", map[string]any{"cpus": 300})
 
-	_, _, err := Load(dir, "")
+	_, _, err := Load()
 	if err == nil {
 		t.Fatal("expected error for cpus > 255")
 	}
@@ -120,7 +120,7 @@ func TestLoadMalformedConfig(t *testing.T) {
 	dir := t.TempDir()
 	testutil.WritePath(t, filepath.Join(dir, "config.json5"), "{")
 
-	_, _, err := Load(dir, "")
+	_, _, err := Load()
 	if err == nil {
 		t.Fatal("expected error for malformed config")
 	}
@@ -156,7 +156,7 @@ func TestLoadPruneAgeConfig(t *testing.T) {
 			dir := t.TempDir()
 			testutil.WritePath(t, filepath.Join(dir, "config.json"), tc.json)
 
-			cfg, keys, err := Load(dir, "")
+			cfg, keys, err := Load()
 			if err != nil {
 				t.Fatalf("Load failed: %v", err)
 			}
@@ -182,7 +182,7 @@ func TestLoadDiskSizeConfig(t *testing.T) {
 		"disk-size": "24G",
 	})
 
-	cfg, keys, err := Load(dir, "")
+	cfg, keys, err := Load()
 	if err != nil {
 		t.Fatalf("Load failed: %v", err)
 	}
@@ -208,7 +208,7 @@ func TestLoadInvalidPruneAge(t *testing.T) {
 			dir := t.TempDir()
 			testutil.WriteYAML(t, dir, "config.yaml", map[string]any{tc.key: tc.value})
 
-			_, _, err := Load(dir, "")
+			_, _, err := Load()
 			if err == nil {
 				t.Fatalf("expected error for %s=%s", tc.key, tc.value)
 			}
@@ -220,7 +220,7 @@ func TestLoadInvalidPruneAge(t *testing.T) {
 }
 
 func TestConfigReapPolicyDefaults(t *testing.T) {
-	cfg, _, err := Load("", "")
+	cfg, _, err := Load()
 	if err != nil {
 		t.Fatalf("Load failed: %v", err)
 	}
@@ -235,7 +235,7 @@ func TestConfigReapPolicyDefaults(t *testing.T) {
 }
 
 func TestConfigIdleTimeoutDefault(t *testing.T) {
-	cfg, _, err := Load("", "")
+	cfg, _, err := Load()
 	if err != nil {
 		t.Fatalf("Load failed: %v", err)
 	}
@@ -252,7 +252,7 @@ func TestConfigAutoStopOnActiveSessions(t *testing.T) {
 		"auto-stop-on-active-sessions": true,
 	})
 
-	cfg, _, err := Load(dir, "")
+	cfg, _, err := Load()
 	if err != nil {
 		t.Fatalf("Load failed: %v", err)
 	}
@@ -292,7 +292,7 @@ func TestConfigAutoStopTimeoutParsing(t *testing.T) {
 			dir := t.TempDir()
 			testutil.WritePath(t, filepath.Join(dir, "config.json"), tc.json)
 
-			cfg, _, err := Load(dir, "")
+			cfg, _, err := Load()
 			if err != nil {
 				t.Fatalf("Load failed: %v", err)
 			}
@@ -312,7 +312,7 @@ func TestConfigAutoStopMaxSessionRetries(t *testing.T) {
 		"auto-stop-max-session-retries": 5,
 	})
 
-	cfg, _, err := Load(dir, "")
+	cfg, _, err := Load()
 	if err != nil {
 		t.Fatalf("Load failed: %v", err)
 	}
@@ -332,7 +332,7 @@ func TestConfigAutoStopNegativeMaxSessionRetries(t *testing.T) {
 		"auto-stop-max-session-retries": -1,
 	})
 
-	_, _, err := Load(dir, "")
+	_, _, err := Load()
 	if err == nil {
 		t.Fatal("expected error for negative auto-stop-max-session-retries")
 	}
@@ -357,7 +357,7 @@ func TestConfigAutoStopNegativeTimeout(t *testing.T) {
 				"auto-stop-timeout": tc.value,
 			})
 
-			_, _, err := Load(dir, "")
+			_, _, err := Load()
 			if err == nil {
 				t.Fatalf("expected error for auto-stop-timeout=%v", tc.value)
 			}

@@ -116,10 +116,7 @@ func buildShellCmd(ui termio.UI) *cobra.Command {
 		},
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			opts := extractRunOptions(cmd, false, ui)
-
-			cfg := newConfig()
-
-			return sandbox.Shell(cmd.Context(), opts, cfg, ui)
+			return sandbox.Shell(cmd.Context(), opts, ui)
 		},
 	}
 

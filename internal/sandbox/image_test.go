@@ -152,6 +152,7 @@ func TestEnsureImageDoesNotBuildDindOnForceWithoutReference(t *testing.T) {
 
 func runEnsureImageTagTest(t *testing.T, dockerfile []byte, force bool, wantTags []string) {
 	t.Helper()
+	withMockConfigPaths(t)
 	m := &docker.MockDockerClient{}
 	var builtTags []string
 	m.ImageBuildFn = func(_ context.Context, _ io.Reader, opts client.ImageBuildOptions) (client.ImageBuildResult, error) {
@@ -177,6 +178,7 @@ func runEnsureImageTagTest(t *testing.T, dockerfile []byte, force bool, wantTags
 }
 
 func TestEnsureImageLoadsIntoMSBWhenNotCached(t *testing.T) {
+	withMockConfigPaths(t)
 	docker.WithDockerMock(t, &docker.MockDockerClient{
 		ImageInspectFn: func(_ context.Context, _ string, _ ...client.ImageInspectOption) (client.ImageInspectResult, error) {
 			return client.ImageInspectResult{

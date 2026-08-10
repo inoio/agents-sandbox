@@ -80,9 +80,7 @@ func buildRootCmd(ui termio.UI) *cobra.Command {
 	rootCmd := buildMinimalRootFlagsCmd()
 
 	rootCmd.PersistentPreRunE = func(cmd *cobra.Command, _ []string) error {
-
-		cfg := newConfig()
-		lc, keys, err := launcherconfig.Load(cfg.UserConfigDir(), cfg.ProjectConfigDir())
+		lc, keys, err := launcherconfig.Load()
 		if err != nil {
 			return err
 		}
