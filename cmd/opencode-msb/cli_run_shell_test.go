@@ -350,7 +350,7 @@ func TestRunShell_R12_shellWithBranchCpus(t *testing.T) {
 	setupShellRunMocks(t, mock, &sandbox.MockSandbox{AttachErr: errors.New("fail")})
 
 	root := buildRootCmd(ui)
-	root.SetArgs([]string{"shell", "--branch", "foo", "--cpus", "2"})
+	root.SetArgs([]string{"shell", "--cpus", "2"})
 
 	_ = root.Execute()
 

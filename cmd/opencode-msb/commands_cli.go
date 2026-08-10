@@ -119,15 +119,17 @@ func buildShellCmd(ui termio.UI) *cobra.Command {
 			return sandbox.Shell(cmd.Context(), opts, ui)
 		},
 	}
-
-	registerRunFlags(cmd)
-
+	registerSharedRunShellFlags(cmd)
 	return cmd
 }
 
 // registerRunFlags adds the shared run/shell flags to the given command.
 func registerRunFlags(cmd *cobra.Command) {
 	cmd.Flags().StringP(flagBranch, flagBranch[:1], "", "Run in an opencode worktree for the given branch name")
+	registerSharedRunShellFlags(cmd)
+}
+
+func registerSharedRunShellFlags(cmd *cobra.Command) {
 	cmd.Flags().BoolP(flagRebuild, flagRebuild[:1], false, "Rebuild the runner image before starting")
 	cmd.Flags().BoolP(flagDryRun, flagDryRunShort, false, "Dry run without starting anything")
 	cmd.Flags().Bool(flagDryRunVM, false, "Skip VM lifecycle but prepare everything else")
