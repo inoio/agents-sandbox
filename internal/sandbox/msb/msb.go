@@ -10,21 +10,19 @@ import (
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 )
 
-// Get is the factory clients can use to obtain an MsbClient.
+// Get is the factory clients can use to obtain an Client.
 // Tests override Get to inject mocks.
 //
 //nolint:gochecknoglobals // test hook for the otherwise unmockable SDK
-var Get = func() MsbClient {
+var Get = func() Client {
 	return &realMsbClient{}
 }
 
-// MsbClient is the public abstraction over the microsandbox SDK used by the
+// Client is the public abstraction over the microsandbox SDK used by the
 // sandbox package. It covers discovery, creation, and deletion of sandboxes,
 // volumes, and images, plus runtime setup. Production code uses realMsbClient;
 // tests construct MockMsbClient directly.
-//
-//nolint:revive // 'Client' stutters as 'msb.Client' - MsbClient is intentional
-type MsbClient interface {
+type Client interface {
 	EnsureInstalled(ctx context.Context) error
 	GetSandbox(ctx context.Context, name string) (SandboxHandle, error)
 	CreateSandbox(ctx context.Context, name string, opts ...msbSdk.SandboxOption) (Sandbox, error)

@@ -348,7 +348,7 @@ func pruneTaskSandboxes(
 	ctx context.Context,
 	catalog *PruningCatalog,
 	dryRun bool,
-	msbClient msb.MsbClient,
+	msbClient msb.Client,
 	ui termio.UI,
 	report *StaleReport,
 ) (*StaleReport, []error) {
