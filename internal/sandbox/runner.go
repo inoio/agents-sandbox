@@ -26,7 +26,7 @@ func (e *ExitError) Error() string {
 }
 
 type RunOptions struct {
-	Branch      string
+	Worktree    WorktreeSpec
 	Memory      string
 	TmpSize     string
 	DiskSize    string
@@ -388,8 +388,8 @@ func persistEnvSecrets(slug string, envState EnvState, secretState SecretState) 
 
 func buildMounts(homeVol, repoPath string, tmpSizeMiB uint32) map[string]msbSdk.MountConfig {
 	return map[string]msbSdk.MountConfig{
-		"/home/dev":  msbSdk.Mount.Named(homeVol, msbSdk.MountOptions{}),
-		"/workspace": msbSdk.Mount.Bind(repoPath, msbSdk.MountOptions{}),
+		"/home/dev":      msbSdk.Mount.Named(homeVol, msbSdk.MountOptions{}),
+		defaultTargetDir: msbSdk.Mount.Bind(repoPath, msbSdk.MountOptions{}),
 		tmpMountPath: msbSdk.Mount.Tmpfs(msbSdk.TmpfsOptions{
 			SizeMiB:  tmpSizeMiB,
 			Readonly: false,
@@ -433,7 +433,7 @@ func setUpSandbox(
 
 	if restart {
 		restartDaemons(ctx, sb, cfs.files, ui)
-		return ResolveTarget(ctx, sb, opts.Branch, ui)
+		return ResolveTarget(ctx, sb, opts.Worktree, ui)
 	}
 
 	vmData := readVMFiles(ctx, sb, "/home/dev/.config/opencode", ui)
@@ -451,7 +451,7 @@ func setUpSandbox(
 		return "", daemonErr
 	}
 
-	return ResolveTarget(ctx, sb, opts.Branch, ui)
+	return ResolveTarget(ctx, sb, opts.Worktree, ui)
 }
 
 // decideReconfig centralizes all reconfiguration decisions: the image-change

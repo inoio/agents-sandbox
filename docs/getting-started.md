@@ -74,7 +74,7 @@ launches opencode.
 To start an isolated session for a different branch (only works in git repositories):
 
 ```shell
-opencode-msb -b feature/my-branch
+opencode-msb -w bugfix-my-fix
 ```
 
 ## How It Works
@@ -87,7 +87,7 @@ opencode-msb -b feature/my-branch
    restart it if it stopped).
 4. **Provisioning** — Provisions the VM filesystem, syncs opencode config files into the VM.
 5. **Opencode** — Runs `opencode attach` inside the VM, forwarding any arguments after `--` to the AI agent.
-6. **Cleanup** — On exit, the session cleans up worktrees and prunes stale state.
+6. **Cleanup** — On exit, the session detaches. The VM-internal worktree is managed by opencode; on subsequent runs it is reused. The host repo is untouched.
 
 See the [Commands](/docs/commands.md) reference for the full API and [Configuration](/docs/configuration.md) for tuning
 behavior.
@@ -97,5 +97,5 @@ behavior.
 - Read the [Commands](/docs/commands.md) reference for the complete CLI API.
 - Learn about [Configuration](/docs/configuration.md) for setting defaults and secrets.
 - See how to [Extend the Runner Image](/docs/runner-image.md) with project-specific tooling.
-- Explore [Branch Sessions](/docs/branch-sessions.md) for isolated development workflows.
+- Explore [Worktree Sessions](/docs/branch-sessions.md) for isolated worktree sessions.
 - Check [Troubleshooting](/docs/troubleshooting.md) for common issues.
