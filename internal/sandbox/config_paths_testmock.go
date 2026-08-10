@@ -11,7 +11,11 @@ type mockConfigPaths struct {
 	baseDir string
 }
 
-func withMockConfigPaths(t *testing.T) {
+// FailFastConfigPaths is the ConfigPaths installed by default under tests: any
+// method call panics to signal a test reached real path resolution without opting in.
+func FailFastConfigPaths() ConfigPaths { return &failFastConfigPaths{} }
+
+func WithMockConfigPaths(t *testing.T) {
 	t.Helper()
 	orig := GetConfigPaths
 	tempDir := t.TempDir()
@@ -19,11 +23,11 @@ func withMockConfigPaths(t *testing.T) {
 	t.Cleanup(func() { GetConfigPaths = orig })
 }
 
-// withRealConfigPaths opts a test into the real XDG path resolution instead of
+// WithRealConfigPaths opts a test into the real XDG path resolution instead of
 // the fail-fast default installed by TestMain. Only use it when a test
 // deliberately exercises the real resolver and isolates its directories via
 // t.Setenv, as config_paths_test.go does.
-func withRealConfigPaths(t *testing.T) {
+func WithRealConfigPaths(t *testing.T) {
 	t.Helper()
 	orig := GetConfigPaths
 	GetConfigPaths = func() ConfigPaths { return &realConfigPaths{} }
@@ -81,3 +85,35 @@ func (m *mockConfigPaths) projectEnvSecretFile() string {
 func (m *mockConfigPaths) projectDockerfile() string {
 	return filepath.Join(m.ProjectConfigDir(), dockerfileName)
 }
+
+// failFastConfigPaths is the default ConfigPaths installed for tests. Any of
+// its methods panicking signals that a test called production code without
+// installing an isolated or explicit config-paths implementation.
+type failFastConfigPaths struct{}
+
+func (f *failFastConfigPaths) mustMock() {
+	panic(
+		"GetConfigPaths reached real path resolution; install WithMockConfigPaths(t) or WithRealConfigPaths(t) in the test",
+	)
+}
+
+func (f *failFastConfigPaths) UserConfigDir() string { f.mustMock(); return "" }
+func (f *failFastConfigPaths) UserCacheDir() string  { f.mustMock(); return "" }
+func (f *failFastConfigPaths) UserStateDir() string  { f.mustMock(); return "" }
+
+func (f *failFastConfigPaths) UserOpencodeConfigDir() string {
+	f.mustMock()
+	return ""
+}
+
+func (f *failFastConfigPaths) userEnvFile() string       { f.mustMock(); return "" }
+func (f *failFastConfigPaths) userEnvSecretFile() string { f.mustMock(); return "" }
+func (f *failFastConfigPaths) ProjectConfigDir() string  { f.mustMock(); return "" }
+func (f *failFastConfigPaths) projectOpencodeConfigDir() string {
+	f.mustMock()
+	return ""
+}
+
+func (f *failFastConfigPaths) projectEnvFile() string       { f.mustMock(); return "" }
+func (f *failFastConfigPaths) projectEnvSecretFile() string { f.mustMock(); return "" }
+func (f *failFastConfigPaths) projectDockerfile() string    { f.mustMock(); return "" }

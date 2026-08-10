@@ -6,7 +6,7 @@ import (
 )
 
 func TestUserDirEnvOverride(t *testing.T) {
-	withRealConfigPaths(t)
+	WithRealConfigPaths(t)
 	cfgPaths := GetConfigPaths()
 	state := t.TempDir()
 	t.Setenv("XDG_STATE_HOME", state)
@@ -16,7 +16,7 @@ func TestUserDirEnvOverride(t *testing.T) {
 }
 
 func TestUserDirsDefaultToHome(t *testing.T) {
-	withRealConfigPaths(t)
+	WithRealConfigPaths(t)
 	cfgPaths := GetConfigPaths()
 	home := t.TempDir()
 	t.Setenv("HOME", home)
@@ -40,7 +40,7 @@ func TestUserDirsDefaultToHome(t *testing.T) {
 }
 
 func TestUserDirsUsesSeparateEnvVars(t *testing.T) {
-	withRealConfigPaths(t)
+	WithRealConfigPaths(t)
 	cfgPaths := GetConfigPaths()
 	config := t.TempDir()
 	cache := t.TempDir()
@@ -61,7 +61,7 @@ func TestUserDirsUsesSeparateEnvVars(t *testing.T) {
 }
 
 func TestUserDirIgnoresRelativeEnv(t *testing.T) {
-	withRealConfigPaths(t)
+	WithRealConfigPaths(t)
 	cfgPaths := GetConfigPaths()
 	home := t.TempDir()
 	t.Setenv("HOME", home)
@@ -73,7 +73,7 @@ func TestUserDirIgnoresRelativeEnv(t *testing.T) {
 }
 
 func TestStateFileAbsoluteUnderUserStateDir(t *testing.T) {
-	withRealConfigPaths(t)
+	WithRealConfigPaths(t)
 	state := t.TempDir()
 	t.Setenv("XDG_STATE_HOME", state)
 	t.Setenv("HOME", t.TempDir())
@@ -85,7 +85,7 @@ func TestStateFileAbsoluteUnderUserStateDir(t *testing.T) {
 }
 
 func TestEnvDirUsesCache(t *testing.T) {
-	withRealConfigPaths(t)
+	WithRealConfigPaths(t)
 	cache := t.TempDir()
 	t.Setenv("XDG_CACHE_HOME", cache)
 	t.Setenv("HOME", t.TempDir())

@@ -246,7 +246,7 @@ func TestDecideReconfig_EnvChangedWithPersistedState(t *testing.T) {
 	// Set up handle so planReconfig gets a non-nil cfg
 	mock := reconfigMockClient()
 	msb.WithMsbMock(t, mock)
-	withMockConfigPaths(t)
+	WithMockConfigPaths(t)
 
 	vm := newVolumeManager(&termio.Mock{})
 
@@ -291,7 +291,7 @@ func TestDecideReconfig_EnvUnchangedWithPersistedState(t *testing.T) {
 
 	mock := &msb.MockMsbClient{}
 	msb.WithMsbMock(t, mock)
-	withMockConfigPaths(t)
+	WithMockConfigPaths(t)
 
 	vm := newVolumeManager(&termio.Mock{})
 
@@ -338,7 +338,7 @@ func TestDecideReconfig_SecretsChangedWithPersistedState(t *testing.T) {
 
 	mock := reconfigMockClient()
 	msb.WithMsbMock(t, mock)
-	withMockConfigPaths(t)
+	WithMockConfigPaths(t)
 
 	vm := newVolumeManager(&termio.Mock{})
 
@@ -380,7 +380,7 @@ func TestDecideReconfig_ZeroPersistedStateNoSpuriousChange(t *testing.T) {
 
 	mock := &msb.MockMsbClient{}
 	msb.WithMsbMock(t, mock)
-	withMockConfigPaths(t)
+	WithMockConfigPaths(t)
 
 	vm := newVolumeManager(&termio.Mock{})
 
@@ -574,7 +574,7 @@ func TestDecideReconfig_PersistedSecretsMatchDesired(t *testing.T) {
 
 	mock := &msb.MockMsbClient{}
 	msb.WithMsbMock(t, mock)
-	withMockConfigPaths(t)
+	WithMockConfigPaths(t)
 
 	vm := newVolumeManager(&termio.Mock{})
 

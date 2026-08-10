@@ -321,7 +321,7 @@ func setUpSandboxProvisionsConfig(t *testing.T, created bool, provisionMsg strin
 
 	fs := newTestFS(nil, nil) // empty FS simulates a VM with empty config dir
 	sb := &MockSandbox{Name_: "test-vm", FSValue_: fs}
-	withMockConfigPaths(t)
+	WithMockConfigPaths(t)
 
 	ui := &termio.Mock{}
 	target, err := setUpSandbox(
@@ -473,7 +473,7 @@ func TestSetUpSandboxAppliesEnvSecretsOnReuseRestart(t *testing.T) {
 	}
 	sb := &MockSandbox{Name_: "test-vm"}
 	sh.ConnectSb = sb
-	withMockConfigPaths(t)
+	WithMockConfigPaths(t)
 	testutil.WritePath(t, GetConfigPaths().userEnvFile(), "NEW=2\n")
 
 	mockClient := &msb.MockMsbClient{}
@@ -519,7 +519,7 @@ func TestSetUpSandboxRestartsDaemonsOnReuseDecision(t *testing.T) {
 		return &msb.MockSandboxHandle{Cfg: &msbSdk.SandboxConfig{}}, nil
 	}
 	msb.WithMsbMock(t, mockClient)
-	withMockConfigPaths(t)
+	WithMockConfigPaths(t)
 
 	// setUpSandbox's signature is
 	//   (ctx, sb, opts, cfg, cwd, created, ui, restart, restartDockerd).
