@@ -9,6 +9,7 @@ import (
 	msb "github.com/superradcompany/microsandbox/sdk/go"
 
 	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox"
+	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/docker"
 	"gitlab.inoio.de/inoio/opencode-msb/internal/termio"
 )
 
@@ -18,6 +19,8 @@ func runListCmdTest(t *testing.T, ui *termio.Mock, mock *sandbox.MockMsbClient, 
 	mockSetup func(m *sandbox.MockMsbClient), wantOut, wantInfo []string,
 	wantErr bool, wantErrContains string) {
 	t.Helper()
+	sandbox.WithMockConfigPaths(t)
+	docker.WithNoopDockerMock(t)
 	mockSetup(mock)
 	sandbox.WithMsbMock(t, mock)
 
