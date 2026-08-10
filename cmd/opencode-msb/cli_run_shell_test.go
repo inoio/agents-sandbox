@@ -374,7 +374,7 @@ func TestRunShell_R12b_branchReusesExistingWorktree(t *testing.T) {
 
 	found := false
 	for _, call := range ui.VerboseCalls {
-		if strings.Contains(call, "reusing existing worktree for \"bugfix/exit-zero\"") {
+		if strings.Contains(call, "reusing existing worktree \"bugfix-exit-zero\"") {
 			found = true
 			break
 		}

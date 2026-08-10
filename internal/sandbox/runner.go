@@ -433,7 +433,7 @@ func setUpSandbox(
 
 	if restart {
 		restartDaemons(ctx, sb, cfs.files, ui)
-		return ResolveTarget(ctx, sb, opts.Branch, ui)
+		return ResolveTarget(ctx, sb, WorktreeSpec{Name: slugify(opts.Branch), Base: ""}, ui)
 	}
 
 	vmData := readVMFiles(ctx, sb, "/home/dev/.config/opencode", ui)
@@ -451,7 +451,7 @@ func setUpSandbox(
 		return "", daemonErr
 	}
 
-	return ResolveTarget(ctx, sb, opts.Branch, ui)
+	return ResolveTarget(ctx, sb, WorktreeSpec{Name: slugify(opts.Branch), Base: ""}, ui)
 }
 
 // decideReconfig centralizes all reconfiguration decisions: the image-change

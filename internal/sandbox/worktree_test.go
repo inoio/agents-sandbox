@@ -8,10 +8,160 @@ import (
 	"gitlab.inoio.de/inoio/opencode-msb/internal/termio"
 )
 
-func TestResolveTargetNoBranchReturnsWorkspace(t *testing.T) {
+func TestResolveTargetNoWorktreeReturnsWorkspace(t *testing.T) {
 	got := resolveTargetNoBranch()
 	if got != "/workspace" {
 		t.Errorf("expected /workspace, got %q", got)
+	}
+}
+
+func TestResolveTargetEmptySpecReturnsWorkspace(t *testing.T) {
+	ui := &termio.Mock{}
+	sb := &MockSandbox{ShellCalls: &[]string{}}
+	dir, err := ResolveTarget(context.Background(), sb, WorktreeSpec{}, ui)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if dir != "/workspace" {
+		t.Errorf("expected /workspace, got %q", dir)
+	}
+	if len(*sb.ShellCalls) != 0 {
+		t.Errorf("expected no shell calls for empty spec, got %v", *sb.ShellCalls)
+	}
+}
+
+func TestResolveTargetReusesExistingWorktree(t *testing.T) {
+	ui := &termio.Mock{}
+	sb := &MockSandbox{
+		ShellOut: map[string]ShellResult{
+			buildWorktreeListCmd(): NewTestResult(true, 0,
+				`["/home/dev/.local/share/opencode/worktree/abc/bugfix-exit-zero"]`, "", nil),
+		},
+		ShellCalls: &[]string{},
+	}
+	dir, err := ResolveTarget(context.Background(), sb, WorktreeSpec{Name: "bugfix-exit-zero"}, ui)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if want := "/home/dev/.local/share/opencode/worktree/abc/bugfix-exit-zero"; dir != want {
+		t.Errorf("got dir %q, want %q", dir, want)
+	}
+	for _, call := range *sb.ShellCalls {
+		if strings.Contains(call, "POST") {
+			t.Errorf("expected reuse without create, but created a new worktree: %q", call)
+		}
+	}
+}
+
+func TestResolveTargetReuseWarnsIgnoredBase(t *testing.T) {
+	ui := &termio.Mock{}
+	sb := &MockSandbox{
+		ShellOut: map[string]ShellResult{
+			buildWorktreeListCmd(): NewTestResult(true, 0,
+				`["/home/dev/.local/share/opencode/worktree/abc/foo"]`, "", nil),
+		},
+		ShellCalls: &[]string{},
+	}
+	_, err := ResolveTarget(context.Background(), sb, WorktreeSpec{Name: "foo", Base: "main"}, ui)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	found := false
+	for _, w := range ui.WarnCalls {
+		if strings.Contains(w, "ignoring base") {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("expected warning that base is ignored on reuse; got: %v", ui.WarnCalls)
+	}
+	for _, call := range *sb.ShellCalls {
+		if strings.Contains(call, "POST") {
+			t.Errorf("expected reuse without create, but created a new worktree: %q", call)
+		}
+	}
+}
+
+func TestResolveTargetCreatesWithoutBase(t *testing.T) {
+	ui := &termio.Mock{}
+	sb := &MockSandbox{
+		ShellOut: map[string]ShellResult{
+			buildWorktreeListCmd(): NewTestResult(true, 0, `[]`, "", nil),
+			buildWorktreeCreateCmd(WorktreeSpec{Name: "feat-x"}): NewTestResult(true, 0,
+				`{"directory":"/workspace/worktrees/feat-x"}`, "", nil),
+		},
+		ShellCalls: &[]string{},
+	}
+	dir, err := ResolveTarget(context.Background(), sb, WorktreeSpec{Name: "feat-x"}, ui)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if want := "/workspace/worktrees/feat-x"; dir != want {
+		t.Errorf("got dir %q, want %q", dir, want)
+	}
+}
+
+func TestResolveTargetCreatesWithBaseValidatesAndSendsStartCommand(t *testing.T) {
+	ui := &termio.Mock{}
+	createCmd := buildWorktreeCreateCmd(WorktreeSpec{Name: "feat-x", Base: "main"})
+	sb := &MockSandbox{
+		ShellOut: map[string]ShellResult{
+			buildWorktreeListCmd(): NewTestResult(true, 0, `[]`, "", nil),
+			createCmd: NewTestResult(true, 0,
+				`{"directory":"/workspace/worktrees/feat-x"}`, "", nil),
+		},
+		ExecOut: map[string]ShellResult{
+			"git -C /workspace/worktrees/feat-x rev-parse --verify main^{commit}": NewTestResult(
+				true,
+				0,
+				"abc123",
+				"",
+				nil,
+			),
+		},
+		ShellCalls: &[]string{},
+	}
+	dir, err := ResolveTarget(context.Background(), sb, WorktreeSpec{Name: "feat-x", Base: "main"}, ui)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if want := "/workspace/worktrees/feat-x"; dir != want {
+		t.Errorf("got dir %q, want %q", dir, want)
+	}
+	found := false
+	for _, call := range *sb.ShellCalls {
+		if strings.Contains(call, `git reset --hard main`) {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("expected create body to carry startCommand reset; got: %v", *sb.ShellCalls)
+	}
+}
+
+func TestResolveTargetCreateFailsOnUnresolvableBase(t *testing.T) {
+	ui := &termio.Mock{}
+	createCmd := buildWorktreeCreateCmd(WorktreeSpec{Name: "feat-x", Base: "nope"})
+	sb := &MockSandbox{
+		ShellOut: map[string]ShellResult{
+			buildWorktreeListCmd(): NewTestResult(true, 0, `[]`, "", nil),
+			createCmd:              NewTestResult(true, 0, `{"directory":"/workspace/worktrees/feat-x"}`, "", nil),
+		},
+		ExecOut: map[string]ShellResult{
+			"git -C /workspace/worktrees/feat-x rev-parse --verify nope^{commit}": NewTestResult(
+				false,
+				128,
+				"",
+				"unknown revision",
+				nil,
+			),
+		},
+		ShellCalls: &[]string{},
+	}
+	if _, err := ResolveTarget(context.Background(), sb, WorktreeSpec{Name: "feat-x", Base: "nope"}, ui); err == nil {
+		t.Error("expected error for unresolvable base")
 	}
 }
 
@@ -149,50 +299,6 @@ func TestFindWorktreeDirNoMatch(t *testing.T) {
 func TestFindWorktreeDirEmptyList(t *testing.T) {
 	if _, ok := findWorktreeDir("", "bugfix-exit-zero"); ok {
 		t.Error("expected no match for an empty list response")
-	}
-}
-
-func TestResolveTargetReusesExistingWorktree(t *testing.T) {
-	ui := &termio.Mock{}
-	sb := &MockSandbox{
-		ShellOut: map[string]ShellResult{
-			buildWorktreeListCmd(): NewTestResult(true, 0,
-				`["/home/dev/.local/share/opencode/worktree/abc/bugfix-exit-zero"]`, "", nil),
-		},
-		ShellCalls: &[]string{},
-	}
-
-	dir, err := ResolveTarget(context.Background(), sb, "bugfix/exit-zero", ui)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if want := "/home/dev/.local/share/opencode/worktree/abc/bugfix-exit-zero"; dir != want {
-		t.Errorf("got dir %q, want %q", dir, want)
-	}
-	for _, call := range *sb.ShellCalls {
-		if strings.Contains(call, "POST") {
-			t.Errorf("expected reuse without create, but created a new worktree: %q", call)
-		}
-	}
-}
-
-func TestResolveTargetCreatesWhenNotListed(t *testing.T) {
-	ui := &termio.Mock{}
-	sb := &MockSandbox{
-		ShellOut: map[string]ShellResult{
-			buildWorktreeListCmd(): NewTestResult(true, 0, `[]`, "", nil),
-			buildWorktreeCreateCmd(WorktreeSpec{Name: "feat-x"}): NewTestResult(true, 0,
-				`{"directory":"/workspace/worktrees/feat-x"}`, "", nil),
-		},
-		ShellCalls: &[]string{},
-	}
-
-	dir, err := ResolveTarget(context.Background(), sb, "feat-x", ui)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if want := "/workspace/worktrees/feat-x"; dir != want {
-		t.Errorf("got dir %q, want %q", dir, want)
 	}
 }
 
