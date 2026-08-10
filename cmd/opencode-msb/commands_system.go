@@ -10,10 +10,10 @@ import (
 	"github.com/spf13/cobra"
 
 	"gitlab.inoio.de/inoio/opencode-msb/internal/git"
-	config "gitlab.inoio.de/inoio/opencode-msb/internal/opencodeconfig"
+	opencodeconfig "gitlab.inoio.de/inoio/opencode-msb/internal/opencodeconfig"
 	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox"
 	"gitlab.inoio.de/inoio/opencode-msb/internal/termio"
-	launcherconfig "gitlab.inoio.de/inoio/opencode-msb/internal/viperconfig"
+	viperconfig "gitlab.inoio.de/inoio/opencode-msb/internal/viperconfig"
 )
 
 type volumeOpFunc func(context.Context, string, string, string, bool, bool, termio.UI) error
@@ -106,17 +106,24 @@ func buildConfigCmd(ui termio.UI) *cobra.Command {
 		Args:  cobra.NoArgs,
 		Short: "Print merged opencode config with source paths",
 		RunE: func(_ *cobra.Command, _ []string) error {
-			cfg := newConfig()
-			providerCfg, err := config.LoadProviderConfig(config.EmbeddedProviderConfig)
+			providerCfg, err := opencodeconfig.LoadProviderConfig()
 			if err != nil {
 				return fmt.Errorf("load provider config: %w", err)
 			}
 
-			descs, err := config.DescribeConfig(cfg.UserOpencodeConfigDir(), cfg.ProjectConfigDir(), providerCfg)
+			descs, err := opencodeconfig.DescribeConfig(
+				sandbox.GetConfigPaths().UserOpencodeConfigDir(),
+				sandbox.GetConfigPaths().ProjectConfigDir(),
+				providerCfg,
+			)
 			if err != nil {
 				return err
 			}
-			files, err := config.BuildMergedConfig(cfg.UserOpencodeConfigDir(), cfg.ProjectConfigDir(), providerCfg)
+			files, err := opencodeconfig.BuildMergedConfig(
+				sandbox.GetConfigPaths().UserOpencodeConfigDir(),
+				sandbox.GetConfigPaths().ProjectConfigDir(),
+				providerCfg,
+			)
 			if err != nil {
 				return err
 			}
@@ -277,7 +284,7 @@ func buildPruneCmd(ui termio.UI) *cobra.Command {
 			ageStr, _ := cmd.Flags().GetString(flagAge)
 			var age time.Duration
 			if ageStr != "" {
-				d, ok := launcherconfig.ParseHumanDuration(ageStr)
+				d, ok := viperconfig.ParseHumanDuration(ageStr)
 				if !ok {
 					return fmt.Errorf("invalid age %q: use a Go duration or suffix d/w (e.g. 7d, 2w)", ageStr)
 				}

@@ -84,6 +84,7 @@ func assertReport(t *testing.T, report *StaleReport, want prunedCounts) {
 }
 
 func TestPruneStaleCascade_RemovesVMAndAllArtifacts(t *testing.T) {
+	withMockConfigPaths(t)
 	client := &MockMsbClient{}
 	dockerMock := &mockDockerClient{}
 	docker.WithDockerMock(t, dockerMock)
@@ -187,6 +188,7 @@ func TestPruneStaleCascade_RemoveErrorWarnsAndStopsCascade(t *testing.T) {
 }
 
 func TestPruneActiveVMCleanup_KeepsMatchingDigestAndLatest(t *testing.T) {
+	withMockConfigPaths(t)
 	client := &MockMsbClient{}
 	dockerMock := &mockDockerClient{}
 	docker.WithDockerMock(t, dockerMock)
@@ -227,6 +229,7 @@ func TestPruneActiveVMCleanup_KeepsMatchingDigestAndLatest(t *testing.T) {
 }
 
 func TestPruneActiveVMCleanup_DryRunCountsButDoesNotDelete(t *testing.T) {
+	withMockConfigPaths(t)
 	client := &MockMsbClient{}
 	dockerMock := &mockDockerClient{}
 	docker.WithDockerMock(t, dockerMock)
@@ -259,6 +262,7 @@ func TestPruneActiveVMCleanup_DryRunCountsButDoesNotDelete(t *testing.T) {
 }
 
 func TestPruneOrphanSlug_RemovesEverything(t *testing.T) {
+	withMockConfigPaths(t)
 	client := &MockMsbClient{}
 	dockerMock := &mockDockerClient{}
 	docker.WithDockerMock(t, dockerMock)
@@ -292,6 +296,7 @@ func TestPruneOrphanSlug_RemovesEverything(t *testing.T) {
 }
 
 func TestPruneCloneVolume_RemovesWhenNoActiveVM(t *testing.T) {
+	withMockConfigPaths(t)
 	client := &MockMsbClient{}
 	ui := newMockUI()
 	report := &StaleReport{}
@@ -310,6 +315,7 @@ func TestPruneCloneVolume_RemovesWhenNoActiveVM(t *testing.T) {
 }
 
 func TestPruneCloneVolume_KeepsWhenActiveVMExists(t *testing.T) {
+	withMockConfigPaths(t)
 	client := &MockMsbClient{}
 	ui := newMockUI()
 	report := &StaleReport{}
@@ -328,6 +334,7 @@ func TestPruneCloneVolume_KeepsWhenActiveVMExists(t *testing.T) {
 }
 
 func TestPruneCloneVolume_DryRunDoesNotDelete(t *testing.T) {
+	withMockConfigPaths(t)
 	client := &MockMsbClient{}
 	ui := newMockUI()
 	report := &StaleReport{}
@@ -344,6 +351,7 @@ func TestPruneCloneVolume_DryRunDoesNotDelete(t *testing.T) {
 }
 
 func TestPrune_WithMocks_CoversAllCases(t *testing.T) {
+	withMockConfigPaths(t)
 	oldTime := time.Now().Add(-2 * time.Hour)
 	recentTime := time.Now().Add(-5 * time.Minute)
 
@@ -528,6 +536,7 @@ func TestPruneActiveVMDockerImages_PartialFailure(t *testing.T) {
 // fails during a stale VM cascade, MSB image removal and volume removal still
 // succeed, and the docker failure only affects the docker pruned count.
 func TestPruneStaleCascade_DockerRemoveFails_DependentOpsSucceed(t *testing.T) {
+	withMockConfigPaths(t)
 	client := &MockMsbClient{}
 	dockerMock := &mockDockerClient{
 		// First Docker removal succeeds, second fails.
@@ -570,6 +579,7 @@ func TestPruneStaleCascade_DockerRemoveFails_DependentOpsSucceed(t *testing.T) {
 }
 
 func TestPrune_DockerRemoveFails_PartialReport(t *testing.T) {
+	withMockConfigPaths(t)
 	oldTime := time.Now().Add(-2 * time.Hour)
 
 	client := &MockMsbClient{
