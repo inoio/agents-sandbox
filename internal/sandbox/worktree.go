@@ -17,6 +17,30 @@ type worktreeResponse struct {
 	Directory string `json:"directory"`
 }
 
+// WorktreeSpec is a parsed --worktree flag value: a required name (which must
+// already be a slug) and an optional base ref to point a fresh worktree at.
+type WorktreeSpec struct {
+	Name string
+	Base string
+}
+
+// ResolveWorktreeSpec parses a --worktree value of the form <name>[:<base>]
+// and validates that the name is already a slug (slugify(name) == name).
+func ResolveWorktreeSpec(value string) (WorktreeSpec, error) {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return WorktreeSpec{}, nil
+	}
+	name, base, _ := strings.Cut(value, ":")
+	if name == "" || slugify(name) != name {
+		return WorktreeSpec{}, fmt.Errorf(
+			"worktree name %q is not a valid slug (use lowercase letters, digits, and single hyphens)",
+			name,
+		)
+	}
+	return WorktreeSpec{Name: name, Base: base}, nil
+}
+
 // slugify mirrors the opencode daemon's worktree name normalisation so we can
 // match an existing worktree directory back to the requested --branch. See the
 // daemon's slugify: lowercase, collapse non-alphanumerics to "-", trim dashes.
