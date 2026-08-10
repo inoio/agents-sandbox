@@ -17,9 +17,14 @@ type launcherConfigKey struct{}
 // extractRunOptions extracts shared run/shell flags from the given command
 // and returns a populated sandbox.RunOptions. The auto parameter controls
 // whether the Auto field is set on RunOptions.
-func extractRunOptions(cmd *cobra.Command, auto bool, ui termio.UI) sandbox.RunOptions {
+func extractRunOptions(cmd *cobra.Command, auto bool, ui termio.UI) (sandbox.RunOptions, error) {
 	opts := sandbox.RunOptions{Auto: auto}
-	opts.Branch, _ = cmd.Flags().GetString(flagBranch)
+	rawWorktree, _ := cmd.Flags().GetString(flagWorktree)
+	worktree, err := sandbox.ResolveWorktreeSpec(rawWorktree)
+	if err != nil {
+		return sandbox.RunOptions{}, err
+	}
+	opts.Worktree = worktree
 	opts.Rebuild, _ = cmd.Flags().GetBool(flagRebuild)
 	opts.DryRun, _ = cmd.Flags().GetBool(flagDryRun)
 	opts.DryRunVM, _ = cmd.Flags().GetBool(flagDryRunVM)
@@ -39,7 +44,7 @@ func extractRunOptions(cmd *cobra.Command, auto bool, ui termio.UI) sandbox.RunO
 			opts.IdleTimeout = lc.IdleTimeout()
 		}
 	}
-	return opts
+	return opts, nil
 }
 
 // printItems renders a list of items using the given format, item type,
