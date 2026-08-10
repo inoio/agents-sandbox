@@ -17,7 +17,7 @@ When you pass `--worktree <name>`:
 1. The launcher passes the name to the opencode daemon inside the running VM via its worktree API.
 2. The daemon creates or reuses a worktree inside the VM at `<opencode-data>/opencode/<name>`. The host repository is **unaffected**.
 3. `opencode attach` is invoked with `--dir` pointing to the worktree directory. This is where opencode reads source files and writes edits.
-4. On session exit, the launcher runs `git worktree prune` on the host to clean up stale entries (does not affect the in-VM worktree).
+4. The host repository is left untouched — no host-side worktrees are created or managed.
 
 ## Name and Base Semantics
 
