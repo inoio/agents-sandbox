@@ -1,38 +1,37 @@
-# Branch Sessions
+# Worktree Sessions
 
-By default, opencode-msb runs in the current directory (`/workspace`). To start an isolated development session with an isolated opencode-managed worktree, use `--worktree <name>[:<base>]` (`-w`). This creates an isolated worktree **inside the VM**, leaving the host repository untouched.
+By default, opencode-msb runs in the current directory (`/workspace`). To start an isolated development session in its own worktree, use `--worktree <name>[:<base>]` (`-w`). This creates an isolated git worktree **inside the VM**, leaving the host repository untouched.
 
 ## Basic Usage
 
 ```console
-opencode-msb                             # run in the current branch
+opencode-msb                             # run in /workspace
 opencode-msb -w bugfix-fix-thing         # run in an isolated worktree
-opencode-msb -w bugfix-fix-thing:main -y # worktree from base ref
+opencode-msb -w bugfix-fix-thing:main -y # worktree from local base ref
 ```
 
 ## How It Works
 
 When you pass `--worktree <name>`:
 
-1. The launcher passes the branch name to the opencode daemon inside the running VM via its experimental worktree API.
-2. The daemon creates or reuses a worktree at an internal path (e.g., `/workspace/branch-<name>`). If a worktree for the branch already exists in the running VM, it is reused rather than duplicated.
+1. The launcher passes the name to the opencode daemon inside the running VM via its worktree API.
+2. The daemon creates or reuses a worktree inside the VM at `<opencode-data>/opencode/<name>`. The host repository is **unaffected**.
 3. `opencode attach` is invoked with `--dir` pointing to the worktree directory. This is where opencode reads source files and writes edits.
-4. Your project's directory on the host (`/workspace` on the host) is **unaffected**.
+4. On session exit, the launcher runs `git worktree prune` on the host to clean up stale entries (does not affect the in-VM worktree).
 
-If no branch is specified, opencode runs in `/workspace` (the host project directory).
+## Name and Base Semantics
 
-## Host Cleanup
+- `--worktree <name>`: opens opencode in an isolated worktree named `<name>`, reusing it if it already exists or creating it otherwise.
+- `--worktree <name>:<base>`: on a **fresh create**, starts the worktree checked out at the local base ref `<base>`; on **reuse**, the base is ignored and a warning is printed. The worktree is reset to the base ref after boot via the daemon's `startCommand`.
 
-On session exit, the launcher runs `git worktree prune` on the host repository to clean up any stale worktree entries. This is a host-side safety measure and does not affect the in-VM worktree (which is managed by opencode).
+## Validation
 
-## Limitations
-
-- Host-side git worktrees don't work reliably with microsandbox VMs. Branch sessions use the VM-internal opencode worktree mechanism instead, bypassing this limitation.
-- Branch sessions require opencode's experimental workspaces feature to be enabled.
-- The worktree path inside the VM is managed by opencode — you can't control the exact pathname.
+- **`<name>` must be a slug**: only lowercase letters, digits, and single hyphens. Names like `feature/foo` are rejected immediately.
+- **`<base>` must already exist as a local ref**: msb never fetches from remotes.
+- The worktree stays on its own `opencode/<name>` branch.
 
 ## When to Use
 
 - **Feature isolation**: Develop a feature without touching the main branch's files
 - **Experimentation**: Try changes in an isolated path
-- **Parallel sessions**: Run multiple branches simultaneously in different VMs
+- **Parallel sessions**: Run multiple branches simultaneously in different worktrees
