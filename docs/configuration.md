@@ -7,7 +7,8 @@ flags and environment variables.
 
 Place files under `~/.config/opencode-msb/` to set defaults for all projects:
 
-The tool follows the [XDG base directory spec](https://specifications.freedesktop.org/basedir-spec/basedir-spec-latest.html):
+The tool follows
+the [XDG base directory spec](https://specifications.freedesktop.org/basedir-spec/basedir-spec-latest.html):
 `~/.config/opencode-msb`, `~/.cache/opencode-msb`, and `~/.local/state/opencode-msb` are the defaults, but the
 `XDG_CONFIG_HOME`, `XDG_CACHE_HOME`, and `XDG_STATE_HOME` environment variables override them when set (and absolute).
 
@@ -25,21 +26,21 @@ first one found is used.
 
 ### Launcher config fields
 
-| Field                          | Corresponding CLI flag | Description                                                                    |
-|--------------------------------|------------------------|--------------------------------------------------------------------------------|
-| `yes`                          | `--yes` / `-y`         | Assume yes to all prompts                                                      |
-| `verbose`                      | `--verbose` / `-v`     | Show debug-level output                                                        |
-| `quiet`                        | `--quiet` / `-q`       | Suppress non-error output                                                      |
-| `rebuild`                      | `--rebuild` / `-r`     | Rebuild runner image before starting                                           |
-| `cpus`                         | `--cpus` / `-c`        | Number of vCPUs for the VM                                                     |
-| `memory`                       | `--memory` / `-m`      | Memory limit (e.g. `8G`)                                                       |
-| `disk-size`                    | `--disk-size`          | Project VM root disk size (e.g. `16G`). Empty = microsandbox runtime default (~4 GiB). Applied at VM creation; a change triggers recreation. |
-| `tmp-size`                     | `--tmp-size`           | Size of `/tmp` tmpfs in the sandbox                                             |
-| `auto-prune-age`               | —                      | Auto-prune threshold, runs before every command (default: 30d, only in config) |
-| `manual-prune-age`             | `--age`                | Default prune age threshold for `prune` cmd                                    |
-| `auto-stop-on-active-sessions` | —                      | Stop VM immediately on client detach without waiting for active sessions (default: false, only in config; `busy` sessions are never cut off) |
-| `auto-stop-timeout`            | —                      | Idle timeout after last client detaches (default: 10s, only in config)         |
-| `auto-stop-max-session-retries`| —                      | Retries to tolerate for a session stuck in `retry` before stopping (default: 10, only in config) |
+| Field                           | Corresponding CLI flag | Description                                                                                                                                  |
+|---------------------------------|------------------------|----------------------------------------------------------------------------------------------------------------------------------------------|
+| `yes`                           | `--yes` / `-y`         | Assume yes to all prompts                                                                                                                    |
+| `verbose`                       | `--verbose` / `-v`     | Show debug-level output                                                                                                                      |
+| `quiet`                         | `--quiet` / `-q`       | Suppress non-error output                                                                                                                    |
+| `rebuild`                       | `--rebuild` / `-r`     | Rebuild runner image before starting                                                                                                         |
+| `cpus`                          | `--cpus` / `-c`        | Number of vCPUs for the VM                                                                                                                   |
+| `memory`                        | `--memory` / `-m`      | Memory limit (e.g. `8G`)                                                                                                                     |
+| `disk-size`                     | `--disk-size`          | Project VM root disk size (e.g. `16G`). Empty = microsandbox runtime default (~4 GiB). Applied at VM creation; a change triggers recreation. |
+| `tmp-size`                      | `--tmp-size`           | Size of `/tmp` tmpfs in the sandbox                                                                                                          |
+| `auto-prune-age`                | —                      | Auto-prune threshold, runs before every command (default: 30d, only in config)                                                               |
+| `manual-prune-age`              | `--age`                | Default prune age threshold for `prune` cmd                                                                                                  |
+| `auto-stop-on-active-sessions`  | —                      | Stop VM immediately on client detach without waiting for active sessions (default: false, only in config; `busy` sessions are never cut off) |
+| `auto-stop-timeout`             | —                      | Idle timeout after last client detaches (default: 10s, only in config)                                                                       |
+| `auto-stop-max-session-retries` | —                      | Retries to tolerate for a session stuck in `retry` before stopping (default: 10, only in config)                                             |
 
 Example `~/.config/opencode-msb/config.yaml`:
 
@@ -66,7 +67,6 @@ Place files under `.opencode-msb/` in your project directory. These override use
 | `.opencode-msb/env.secret`                    | Project-specific secrets               |
 | `.opencode-msb/config.(y[a]ml\|json[(c\|5)])` | Project-specific launcher defaults     |
 | `.opencode-msb/opencode/*`                    | Project-specific opencode config files |
-
 
 ## Precedence
 
@@ -164,43 +164,27 @@ Invalid config files prevent the launcher from starting.
 
 ## Resource Config Application
 
-When a running or stopped VM is started (reused or newly created), resource config changes are applied per invocation.
-The change type determines the mechanism used to apply the new settings:
+When a session is started against a VM, resource config changes need to be applied before taking effect in the new
+session. The change type determines the mechanism used to apply the new settings:
 
-| Resource | Change type | Behavior |
-|----------|-------------|----------|
-| `cpus`   | Live Modify | Applied live via SDK Modify (hotplug), clamped to boot-time maximum with a warning if a larger value is requested |
-| `memory` | Live Modify | Applied live via SDK Modify (hotplug), clamped to boot-time maximum with a warning if a larger value is requested |
-| `env`    | Daemon restart | Modified variables are applied to the VM via the SDK Modify API; the opencode serve daemon and dockerd restart in-place so the new process picks them up |
-| `secrets`| Daemon restart | New secrets are injected into the VM; the opencode serve daemon and dockerd restart in-place |
-| `opencode config` | Daemon restart | Changes are provisioned into the VM; the opencode serve daemon restarts (dockerd restarts are limited to env/secret changes) |
-| `tmp-size` | VM recreate | VM is stopped, removed, and rebuilt with the new tmpfs size. The home volume is preserved. |
-| `disk-size` | VM recreate | VM is stopped, removed, and rebuilt with the new disk size. The home volume is preserved. |
-| `image` | VM recreate | VM is rebuilt from the new image digest. The home volume is preserved. |
+| Resource          | Change type    | Behavior                                                                                                 |
+|-------------------|----------------|----------------------------------------------------------------------------------------------------------|
+| `cpus`            | Live Modify    | Applied live via SDK Modify (hotplug)                                                                    |
+| `memory`          | Live Modify    | Applied live via SDK Modify (hotplug)                                                                    |
+| `env`             | Daemon restart | Applied live via SDK Modify; opencode and dockerd daemons are restarted in-place, picking up the changes |
+| `secrets`         | Daemon restart | Applied live via SDK Modify; opencode and dockerd daemons are restarted in-place, picking up the changes |
+| `opencode config` | Daemon restart | Applied live via copy commands; opencode daemon is restarted in-place, picking up the changes            |
+| `tmp-size`        | VM recreate    | VM is stopped, removed, and rebuilt with new tmpfs size. Home volume is preserved.                       |
+| `disk-size`       | VM recreate    | VM is stopped, removed, and rebuilt with new disk size. Home volume is preserved.                        |
+| `image`           | VM recreate    | VM is recreated with the new root image. Home volume is preserved.                                       |
 
-Resource changes applied at VM creation time (`tmp-size`, `disk-size`, `image`) **always recreate the VM** (stop, remove,
-rebuild), preserving the home volume.
+When **no other client** is attached, config changes apply immediately.
 
-### Client-count awareness
+### Parallel Sessions
 
-Applying a resource change may disrupt active sessions. When **no other client** is attached, config changes apply
-silently. When **another client is attached**, the launcher prompts before applying:
-
-- **VM recreate** — a prompt asks whether to keep the current VM (defer) or recreate. The default is to keep/defer.
-- **Daemon restart** — a prompt asks whether to keep the current server (defer) or restart. The default is to keep/defer.
-
-The launcher never cuts off existing sessions without confirmation.
-
-### Reconnect semantics
-
-- **Daemon restart** — attached clients reconnect automatically once the daemon comes back up.
-- **VM recreate** — sessions attached inside the VM are dropped. Re-run `opencode attach http://127.0.0.1:4096 --continue`
-  (or `opencode attach … --dir <target>`) to reconnect to the rebuilt VM.
-
-## Reused VM
-
-When a stopped VM is reused, the behaviors above still apply — resource changes trigger the mechanism described in the
-table based on the change type, subject to client-count awareness.
+When multiple `opencode-msb` sessions are actively connected to a VM, applying a resource change by recreating the VM
+may disrupt active sessions. In this case, the launcher will prompt you whether to keep the current VM (defer) or
+recreate. The default is to keep/defer.
 
 ## Opencode configuration
 
