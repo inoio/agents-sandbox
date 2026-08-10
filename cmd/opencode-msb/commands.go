@@ -85,7 +85,8 @@ func buildRootCmd(ui termio.UI) *cobra.Command {
 		if err != nil {
 			return err
 		}
-		sandbox.AutoPrune(cmd.Context(), lc.AutoPruneAge, ui)
+		isDryRun, _ := cmd.Flags().GetBool(flagDryRun)
+		sandbox.AutoPrune(cmd.Context(), lc.AutoPruneAge, isDryRun, ui)
 		cmd.SetContext(context.WithValue(cmd.Context(), (*launcherConfigKey)(nil), lc))
 		if err := applyLauncherConfig(cmd, lc, keys); err != nil {
 			return err
