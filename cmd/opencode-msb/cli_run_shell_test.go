@@ -19,6 +19,7 @@ import (
 // also returns a cleanup function that restores the original factory.
 func setupRunMocks(t *testing.T, mock *sandbox.MockMsbClient, sandboxToReturn sandbox.Sandbox) {
 	t.Helper()
+	sandbox.WithMockConfigPaths(t)
 	mock.CreatedSandbox = sandboxToReturn
 
 	// The default GetSandbox error must be an msb.Error with ErrSandboxNotFound

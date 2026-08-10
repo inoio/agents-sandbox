@@ -4,11 +4,14 @@ import (
 	"testing"
 
 	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox"
+	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/docker"
 	"gitlab.inoio.de/inoio/opencode-msb/internal/termio"
 )
 
 func TestVolumeMigrateHelp(t *testing.T) {
 	initTestRepo(t)
+	sandbox.WithMockConfigPaths(t)
+	docker.WithNoopDockerMock(t)
 	ui := &termio.Mock{}
 	mock := &sandbox.MockMsbClient{}
 	sandbox.WithMsbMock(t, mock)
@@ -20,6 +23,8 @@ func TestVolumeMigrateHelp(t *testing.T) {
 
 func TestVolumeResetHelp(t *testing.T) {
 	initTestRepo(t)
+	sandbox.WithMockConfigPaths(t)
+	docker.WithNoopDockerMock(t)
 	ui := &termio.Mock{}
 	mock := &sandbox.MockMsbClient{}
 	sandbox.WithMsbMock(t, mock)
@@ -31,6 +36,8 @@ func TestVolumeResetHelp(t *testing.T) {
 
 func TestVolumeEditHelp(t *testing.T) {
 	initTestRepo(t)
+	sandbox.WithMockConfigPaths(t)
+	docker.WithNoopDockerMock(t)
 	ui := &termio.Mock{}
 	mock := &sandbox.MockMsbClient{}
 	sandbox.WithMsbMock(t, mock)
