@@ -15,7 +15,7 @@ opencode-msb -b hotfix-123 -y            # skip prompts (if any)
 When you pass `--branch <name>`:
 
 1. The launcher passes the branch name to the opencode daemon inside the running VM via its experimental worktree API.
-2. The daemon creates or reuses a worktree at an internal path (e.g., `/workspace/branch-<name>`).
+2. The daemon creates or reuses a worktree at an internal path (e.g., `/workspace/branch-<name>`). If a worktree for the branch already exists in the running VM, it is reused rather than duplicated.
 3. `opencode attach` is invoked with `--dir` pointing to the worktree directory. This is where opencode reads source files and writes edits.
 4. Your project's directory on the host (`/workspace` on the host) is **unaffected**.
 
