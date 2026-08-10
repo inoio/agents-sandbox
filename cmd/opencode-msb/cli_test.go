@@ -88,7 +88,7 @@ func TestPrintTreeContainsFlagDescriptions(t *testing.T) {
 		"Assume yes to all prompts",
 		"Show debug-level output",
 		"Suppress non-error output",
-		"Run in an opencode worktree for the given branch name",
+		"Run in an isolated opencode worktree named <name>, optionally starting from the local base ref <name>:<base>",
 		"Rebuild the runner image before starting",
 		"Dry run without starting anything",
 		"Number of CPUs (default: all)",
@@ -109,7 +109,7 @@ func TestPrintTreeStringFlagsHaveValuePlaceholders(t *testing.T) {
 	testUI := buildTree(t)
 	out := strings.Join(testUI.InfoCalls, "\n")
 	expected := []string{
-		"--branch <BRANCH>",
+		"--worktree <WORKTREE>",
 		"--cpus <CPUS>",
 		"--memory <MEMORY>",
 		"--tmp-size <TMP_SIZE>",
@@ -152,7 +152,7 @@ func TestPrintTreeFlagShortcuts(t *testing.T) {
 		"-y, --yes",
 		"-v, --verbose",
 		"-q, --quiet",
-		"-b, --branch <BRANCH>",
+		"-w, --worktree <WORKTREE>",
 		"-r, --rebuild",
 		"-n, --dry-run",
 		"-c, --cpus <CPUS>",
@@ -298,7 +298,7 @@ func TestRunCommandHasExpectedFlags(t *testing.T) {
 	if runCmd == nil {
 		t.Fatal("expected run command")
 	}
-	flags := []string{"branch", "cpus", "memory", "tmp-size", "disk-size", "rebuild", "dry-run", "no-auto"}
+	flags := []string{"worktree", "cpus", "memory", "tmp-size", "disk-size", "rebuild", "dry-run", "no-auto"}
 	for _, f := range flags {
 		if runCmd.Flags().Lookup(f) == nil {
 			t.Errorf("expected flag --%s on run command", f)
@@ -314,7 +314,7 @@ func TestRunCommandFlagShortcuts(t *testing.T) {
 		t.Fatal("expected run command")
 	}
 	shortcuts := map[string]string{
-		"b": "branch", "c": "cpus", "m": "memory",
+		"w": "worktree", "c": "cpus", "m": "memory",
 		"r": "rebuild", "n": "dry-run", "y": "yes",
 		"v": "verbose", "q": "quiet",
 	}

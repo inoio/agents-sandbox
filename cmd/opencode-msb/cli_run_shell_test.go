@@ -46,7 +46,7 @@ func setupRunMocks(t *testing.T, mock *sandbox.MockMsbClient, sandboxToReturn sa
 }
 
 // setupShellRunMocks is like setupRunMocks but adds shell output for worktree creation.
-// Branch scenarios need the mock sandbox to return valid JSON for the worktree curl commands.
+// Worktree scenarios need the mock sandbox to return valid JSON for the worktree curl commands.
 func setupShellRunMocks(t *testing.T, mock *sandbox.MockMsbClient, sandboxToReturn sandbox.Sandbox) {
 	t.Helper()
 
@@ -291,7 +291,7 @@ func TestRunShell_R8_shellNoAuto(t *testing.T) {
 	}
 }
 
-// R9: run with --branch --cpus --memory --user.
+// R9: run with --worktree --cpus --memory --user.
 func TestRunShell_R9_runWithAllFlags(t *testing.T) {
 	initTestRepo(t)
 
@@ -300,7 +300,7 @@ func TestRunShell_R9_runWithAllFlags(t *testing.T) {
 	setupShellRunMocks(t, mock, &sandbox.MockSandbox{AttachErr: errors.New("fail")})
 
 	root := buildRootCmd(ui)
-	root.SetArgs([]string{"run", "--branch", "x", "--cpus", "2", "--memory", "8G", "--user", "alice"})
+	root.SetArgs([]string{"run", "--worktree", "x", "--cpus", "2", "--memory", "8G", "--user", "alice"})
 
 	_ = root.Execute()
 
@@ -318,7 +318,7 @@ func TestRunShell_R10_runWithShortFlags(t *testing.T) {
 	setupShellRunMocks(t, mock, &sandbox.MockSandbox{AttachErr: errors.New("fail")})
 
 	root := buildRootCmd(ui)
-	root.SetArgs([]string{"run", "--branch", "main", "-c", "4", "-m", "16G", "-u", "root"})
+	root.SetArgs([]string{"run", "--worktree", "main", "-c", "4", "-m", "16G", "-u", "root"})
 
 	_ = root.Execute()
 
@@ -348,8 +348,8 @@ func TestRunShell_R11_runSuccessDetachOk(t *testing.T) {
 	}
 }
 
-// R12b: run --branch reuses an existing worktree instead of creating a new one.
-func TestRunShell_R12b_branchReusesExistingWorktree(t *testing.T) {
+// R12b: run --worktree reuses an existing worktree instead of creating a new one.
+func TestRunShell_R12b_worktreeReusesExistingWorktree(t *testing.T) {
 	initTestRepo(t)
 
 	ui := &termio.Mock{}
@@ -369,7 +369,7 @@ func TestRunShell_R12b_branchReusesExistingWorktree(t *testing.T) {
 	setupRunMocks(t, mock, sb)
 
 	root := buildRootCmd(ui)
-	root.SetArgs([]string{"run", "--branch", "bugfix/exit-zero"})
+	root.SetArgs([]string{"run", "--worktree", "bugfix-exit-zero"})
 	_ = root.Execute()
 
 	found := false
@@ -389,7 +389,7 @@ func TestRunShell_R12b_branchReusesExistingWorktree(t *testing.T) {
 	}
 }
 
-// R12: shell with --branch --cpus.
+// R12: shell with --cpus.
 func TestRunShell_R12_shellWithBranchCpus(t *testing.T) {
 	initTestRepo(t)
 
@@ -404,5 +404,52 @@ func TestRunShell_R12_shellWithBranchCpus(t *testing.T) {
 
 	if len(mock.CreatedSandboxCalls) < 1 {
 		t.Fatalf("expected at least 1 CreateSandbox call, got %d", len(mock.CreatedSandboxCalls))
+	}
+}
+
+// W1: run --worktree with a valid slug reuses an existing worktree.
+func TestRunShell_W1_worktreeReusesExisting(t *testing.T) {
+	initTestRepo(t)
+	ui := &termio.Mock{}
+	mock := &sandbox.MockMsbClient{}
+	sb := &sandbox.MockSandbox{
+		AttachErr:  errors.New("fail"),
+		ShellOut:   map[string]sandbox.ShellResult{},
+		ShellCalls: &[]string{},
+	}
+	sb.ShellOut["curl -sf http://127.0.0.1:4096/experimental/worktree"] = sandbox.NewTestResult(
+		true, 0, `["/home/dev/.local/share/opencode/worktree/abc/bugfix-exit-zero"]`, "", nil,
+	)
+	setupRunMocks(t, mock, sb)
+
+	root := buildRootCmd(ui)
+	root.SetArgs([]string{"run", "--worktree", "bugfix-exit-zero"})
+	_ = root.Execute()
+
+	found := false
+	for _, call := range ui.VerboseCalls {
+		if strings.Contains(call, "reusing existing worktree") {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("expected verbose 'reusing existing worktree'; got: %v", ui.VerboseCalls)
+	}
+}
+
+// W2: run --worktree with a non-slug name fails fast.
+func TestRunShell_W2_worktreeRejectsNonSlug(t *testing.T) {
+	initTestRepo(t)
+	ui := &termio.Mock{}
+	mock := &sandbox.MockMsbClient{}
+	sb := &sandbox.MockSandbox{AttachErr: errors.New("fail")}
+	setupRunMocks(t, mock, sb)
+
+	root := buildRootCmd(ui)
+	root.SetArgs([]string{"run", "--worktree", "feature/foo"})
+	err := root.Execute()
+	if err == nil {
+		t.Fatal("expected an error for a non-slug worktree name")
 	}
 }

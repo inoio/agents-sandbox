@@ -94,7 +94,10 @@ func rpad(s string, padding int) string {
 
 func runFunc(ui termio.UI) func(cmd *cobra.Command, args []string) error {
 	return func(cmd *cobra.Command, args []string) error {
-		opts := extractRunOptions(cmd, true, ui)
+		opts, err := extractRunOptions(cmd, true, ui)
+		if err != nil {
+			return err
+		}
 		opts.Args = args
 
 		// Handle the --no-auto flag specific to the run command
@@ -115,7 +118,10 @@ func buildShellCmd(ui termio.UI) *cobra.Command {
 			annotationAlsoAs: "sandbox shell",
 		},
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			opts := extractRunOptions(cmd, false, ui)
+			opts, err := extractRunOptions(cmd, false, ui)
+			if err != nil {
+				return err
+			}
 			return sandbox.Shell(cmd.Context(), opts, ui)
 		},
 	}
@@ -125,7 +131,8 @@ func buildShellCmd(ui termio.UI) *cobra.Command {
 
 // registerRunFlags adds the shared run/shell flags to the given command.
 func registerRunFlags(cmd *cobra.Command) {
-	cmd.Flags().StringP(flagBranch, flagBranch[:1], "", "Run in an opencode worktree for the given branch name")
+	cmd.Flags().
+		StringP(flagWorktree, "w", "", "Run in an isolated opencode worktree named <name>, optionally starting from the local base ref <name>:<base>")
 	registerSharedRunShellFlags(cmd)
 }
 

@@ -22,7 +22,10 @@ func TestExtractRunOptions_L1_DefaultValues(t *testing.T) {
 	lc := launcherconfig.Config{} // zero value
 	cmd := buildCommandWithLauncherConfig(ui, lc)
 
-	opts := extractRunOptions(cmd, true, ui)
+	opts, err := extractRunOptions(cmd, true, ui)
+	if err != nil {
+		t.Fatalf("extractRunOptions: %v", err)
+	}
 
 	expectedPolicy := sandbox.ReapPolicy{
 		AutoStopOnActiveSessions: false,
@@ -42,7 +45,10 @@ func TestExtractRunOptions_L2_AutoStopOnActiveSessions(t *testing.T) {
 	lc := launcherconfig.Config{AutoStopOnActiveSessions: true}
 	cmd := buildCommandWithLauncherConfig(ui, lc)
 
-	opts := extractRunOptions(cmd, true, ui)
+	opts, err := extractRunOptions(cmd, true, ui)
+	if err != nil {
+		t.Fatalf("extractRunOptions: %v", err)
+	}
 
 	if !opts.ReapPolicy.AutoStopOnActiveSessions {
 		t.Errorf("ReapPolicy.AutoStopOnActiveSessions = false; want true")
@@ -55,7 +61,10 @@ func TestExtractRunOptions_L3_CustomMaxSessionRetries(t *testing.T) {
 	lc := launcherconfig.Config{AutoStopMaxSessionRetries: 5}
 	cmd := buildCommandWithLauncherConfig(ui, lc)
 
-	opts := extractRunOptions(cmd, true, ui)
+	opts, err := extractRunOptions(cmd, true, ui)
+	if err != nil {
+		t.Fatalf("extractRunOptions: %v", err)
+	}
 
 	if opts.ReapPolicy.MaxSessionRetries != 5 {
 		t.Errorf("ReapPolicy.MaxSessionRetries = %d; want 5", opts.ReapPolicy.MaxSessionRetries)
@@ -68,7 +77,10 @@ func TestExtractRunOptions_L4_AutoStopTimeout(t *testing.T) {
 	lc := launcherconfig.Config{AutoStopTimeout: 30 * time.Second}
 	cmd := buildCommandWithLauncherConfig(ui, lc)
 
-	opts := extractRunOptions(cmd, true, ui)
+	opts, err := extractRunOptions(cmd, true, ui)
+	if err != nil {
+		t.Fatalf("extractRunOptions: %v", err)
+	}
 
 	if opts.IdleTimeout != 30*time.Second {
 		t.Errorf("IdleTimeout = %v; want 30s", opts.IdleTimeout)
@@ -80,7 +92,10 @@ func TestExtractRunOptions_L5_NoConfigInContext(t *testing.T) {
 	ui := &termio.Mock{}
 	cmd := buildCommandWithoutLauncherConfig(ui)
 
-	opts := extractRunOptions(cmd, true, ui)
+	opts, err := extractRunOptions(cmd, true, ui)
+	if err != nil {
+		t.Fatalf("extractRunOptions: %v", err)
+	}
 
 	if opts.ReapPolicy.AutoStopOnActiveSessions {
 		t.Error("unexpected ReapPolicy.AutoStopOnActiveSessions without config")
@@ -103,7 +118,10 @@ func TestExtractRunOptions_L6_ShellCommandPath(t *testing.T) {
 	}
 	cmd := buildShellCommandWithLauncherConfig(ui, lc)
 
-	opts := extractRunOptions(cmd, false, ui)
+	opts, err := extractRunOptions(cmd, false, ui)
+	if err != nil {
+		t.Fatalf("extractRunOptions: %v", err)
+	}
 
 	expectedPolicy := sandbox.ReapPolicy{
 		AutoStopOnActiveSessions: true,

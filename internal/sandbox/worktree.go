@@ -42,7 +42,7 @@ func ResolveWorktreeSpec(value string) (WorktreeSpec, error) {
 }
 
 // slugify mirrors the opencode daemon's worktree name normalisation so we can
-// match an existing worktree directory back to the requested --branch. See the
+// match an existing worktree directory back to the requested --worktree. See the
 // daemon's slugify: lowercase, collapse non-alphanumerics to "-", trim dashes.
 var slugifyPattern = regexp.MustCompile(`[^a-z0-9]+`)
 
