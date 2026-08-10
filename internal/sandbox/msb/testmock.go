@@ -12,7 +12,7 @@ import (
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 )
 
-// MockMsbClient is a test double for MsbClient with callback-style fields
+// MockMsbClient is a test double for Client with callback-style fields
 // and collection fields for convenient test setup. Nil callbacks mean no-op/succeed.
 // Existing callers that set Sandboxes/Volumes/Images/List*Err fields work without change.
 type MockMsbClient struct {
@@ -76,9 +76,9 @@ type MockMsbClient struct {
 }
 
 // Compile-time check.
-var _ MsbClient = (*MockMsbClient)(nil)
+var _ Client = (*MockMsbClient)(nil)
 
-// EnsureInstalled implements MsbClient.
+// EnsureInstalled implements Client.
 func (m *MockMsbClient) EnsureInstalled(ctx context.Context) error {
 	if m.EnsureInstalledFn != nil {
 		return m.EnsureInstalledFn(ctx)
@@ -86,7 +86,7 @@ func (m *MockMsbClient) EnsureInstalled(ctx context.Context) error {
 	return m.ensureInstalledErr
 }
 
-// GetSandbox implements MsbClient.
+// GetSandbox implements Client.
 func (m *MockMsbClient) GetSandbox(ctx context.Context, name string) (SandboxHandle, error) {
 	if m.GetSandboxFn != nil {
 		return m.GetSandboxFn(ctx, name)
@@ -106,7 +106,7 @@ func (m *MockMsbClient) GetSandbox(ctx context.Context, name string) (SandboxHan
 	return nil, &msbSdk.Error{Kind: msbSdk.ErrSandboxNotFound, Message: name}
 }
 
-// CreateSandbox implements MsbClient.
+// CreateSandbox implements Client.
 func (m *MockMsbClient) CreateSandbox(ctx context.Context, name string, opts ...msbSdk.SandboxOption) (Sandbox, error) {
 	m.mu.Lock()
 	m.CreatedSandboxes = append(m.CreatedSandboxes, name)
@@ -126,7 +126,7 @@ func (m *MockMsbClient) CreateSandbox(ctx context.Context, name string, opts ...
 	return &MockSandbox{Name_: name}, nil
 }
 
-// ListSandboxes implements MsbClient.
+// ListSandboxes implements Client.
 func (m *MockMsbClient) ListSandboxes(ctx context.Context) ([]SandboxHandle, error) {
 	if m.ListSandboxesFn != nil {
 		return m.ListSandboxesFn(ctx)
@@ -137,7 +137,7 @@ func (m *MockMsbClient) ListSandboxes(ctx context.Context) ([]SandboxHandle, err
 	return m.Sandboxes, nil
 }
 
-// RemoveSandbox implements MsbClient.
+// RemoveSandbox implements Client.
 func (m *MockMsbClient) RemoveSandbox(ctx context.Context, name string) error {
 	m.mu.Lock()
 	m.RemovedSandboxes = append(m.RemovedSandboxes, name)
@@ -151,7 +151,7 @@ func (m *MockMsbClient) RemoveSandbox(ctx context.Context, name string) error {
 	return nil
 }
 
-// GetVolume implements MsbClient.
+// GetVolume implements Client.
 func (m *MockMsbClient) GetVolume(ctx context.Context, name string) (VolumeHandle, error) {
 	if m.GetVolumeFn != nil {
 		return m.GetVolumeFn(ctx, name)
@@ -170,7 +170,7 @@ func (m *MockMsbClient) GetVolume(ctx context.Context, name string) (VolumeHandl
 	return nil, &msbSdk.Error{Kind: msbSdk.ErrVolumeNotFound, Message: name}
 }
 
-// CreateVolume implements MsbClient.
+// CreateVolume implements Client.
 func (m *MockMsbClient) CreateVolume(
 	ctx context.Context,
 	name string,
@@ -186,7 +186,7 @@ func (m *MockMsbClient) CreateVolume(
 	return &MockVolumeHandle{Name_: name}, nil
 }
 
-// ListVolumes implements MsbClient.
+// ListVolumes implements Client.
 func (m *MockMsbClient) ListVolumes(ctx context.Context) ([]VolumeHandle, error) {
 	if m.ListVolumesFn != nil {
 		return m.ListVolumesFn(ctx)
@@ -197,7 +197,7 @@ func (m *MockMsbClient) ListVolumes(ctx context.Context) ([]VolumeHandle, error)
 	return m.Volumes, nil
 }
 
-// RemoveVolume implements MsbClient.
+// RemoveVolume implements Client.
 func (m *MockMsbClient) RemoveVolume(ctx context.Context, name string) error {
 	m.mu.Lock()
 	m.RemovedVolumes = append(m.RemovedVolumes, name)
@@ -211,7 +211,7 @@ func (m *MockMsbClient) RemoveVolume(ctx context.Context, name string) error {
 	return nil
 }
 
-// ImageGet implements MsbClient.
+// ImageGet implements Client.
 func (m *MockMsbClient) ImageGet(ctx context.Context, ref string) error {
 	if m.ImageGetFn != nil {
 		return m.ImageGetFn(ctx, ref)
@@ -219,7 +219,7 @@ func (m *MockMsbClient) ImageGet(ctx context.Context, ref string) error {
 	return m.imageGetErr
 }
 
-// ImageList implements MsbClient.
+// ImageList implements Client.
 func (m *MockMsbClient) ImageList(ctx context.Context) ([]ImageHandle, error) {
 	if m.ImageListFn != nil {
 		return m.ImageListFn(ctx)
@@ -230,7 +230,7 @@ func (m *MockMsbClient) ImageList(ctx context.Context) ([]ImageHandle, error) {
 	return m.Images, nil
 }
 
-// ImageRemove implements MsbClient.
+// ImageRemove implements Client.
 func (m *MockMsbClient) ImageRemove(ctx context.Context, ref string, force bool) error {
 	m.mu.Lock()
 	m.RemovedImages = append(m.RemovedImages, MockRemoveImageCall{Ref: ref, Force: force})
@@ -244,7 +244,7 @@ func (m *MockMsbClient) ImageRemove(ctx context.Context, ref string, force bool)
 	return nil
 }
 
-// ImageLoad implements MsbClient.
+// ImageLoad implements Client.
 func (m *MockMsbClient) ImageLoad(ctx context.Context, ref string, r io.Reader) error {
 	m.mu.Lock()
 	m.LoadedImages = append(m.LoadedImages, ref)
@@ -589,15 +589,15 @@ func (m MockImageHandle) ManifestDigest() string { return m.ManifestDigest_ }
 
 // WithMsbMock replaces the global Get factory with the provided mock.
 // It restores the original factory when the test ends.
-func WithMsbMock(t *testing.T, mock MsbClient) {
+func WithMsbMock(t *testing.T, mock Client) {
 	t.Helper()
 	orig := Get
-	Get = func() MsbClient { return mock }
+	Get = func() Client { return mock }
 	t.Cleanup(func() { Get = orig })
 }
 
 // ResetGetFn replaces the global Get factory, returning the previous factory for restoration.
-func ResetGetFn(f func() MsbClient) func() MsbClient {
+func ResetGetFn(f func() Client) func() Client {
 	old := Get
 	Get = f
 	return old
