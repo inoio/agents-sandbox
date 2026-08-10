@@ -13,12 +13,12 @@ var autoPruneOnce sync.Once
 
 // AutoPrune runs the prune logic once per process with the given threshold.
 // Threshold of 0 defaults to 30 days.
-func AutoPrune(ctx context.Context, threshold time.Duration, ui termio.UI) {
+func AutoPrune(ctx context.Context, threshold time.Duration, dryRun bool, ui termio.UI) {
 	if threshold == 0 {
 		threshold = 30 * 24 * time.Hour
 	}
 	autoPruneOnce.Do(func() {
-		err := Prune(ctx, threshold, false, true, ui)
+		err := Prune(ctx, threshold, dryRun, true, ui)
 		if err != nil {
 			ui.Warnf("auto-prune failed: %s", err)
 		}
