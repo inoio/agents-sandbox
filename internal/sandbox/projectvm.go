@@ -354,7 +354,7 @@ func createProjectVM(
 		msbSdk.WithSecrets(secrets...),
 		msbSdk.WithEnv(envMap),
 		msbSdk.WithUser(user),
-		msbSdk.WithWorkdir("/workspace"),
+		msbSdk.WithWorkdir(defaultTargetDir),
 		msbSdk.WithCPUs(cpus),
 		msbSdk.WithMaxCPUs(numCPUs),
 		msbSdk.WithMemory(parseMemory(opts.Memory)),
