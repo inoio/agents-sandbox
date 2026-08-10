@@ -25,6 +25,7 @@ func WriteFile(tb testing.TB, dir, name, content string) {
 // WritePath writes content to an absolute path.
 func WritePath(tb testing.TB, path, content string) {
 	tb.Helper()
+
 	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
 		tb.Fatalf("write %s: %v", path, err)
 	}

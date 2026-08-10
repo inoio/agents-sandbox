@@ -142,7 +142,6 @@ func summarizeConflicts(cs []msbSdk.ModificationConflict) string {
 func ensureProjectVM(
 	ctx context.Context,
 	opts RunOptions,
-	cfg Config,
 	imageRef, homeVol, repoPath string,
 	imageEnvs map[string]string,
 	ui termio.UI,
@@ -157,7 +156,7 @@ func ensureProjectVM(
 	slug := git.ProjectSlug(ui)
 	name := projectVMName(slug)
 
-	flockPath := filepath.Join(cfg.UserStateDir, "vm-ensure", slug+".lock")
+	flockPath := filepath.Join(GetConfigPaths().UserStateDir(), "vm-ensure", slug+".lock")
 	if err := os.MkdirAll(filepath.Dir(flockPath), 0o750); err != nil {
 		return nil, false, fmt.Errorf("create flock dir: %w", err)
 	}
@@ -304,7 +303,7 @@ func ensureProjectVM(
 		return nil, false, fmt.Errorf("re-check sandbox %q: %w", name, err)
 	}
 
-	sb, created, err := createProjectVM(ctx, client, name, imageRef, homeVol, repoPath, opts, cfg, imageEnvs, ui)
+	sb, created, err := createProjectVM(ctx, client, name, imageRef, homeVol, repoPath, opts, imageEnvs, ui)
 	if err != nil {
 		return nil, false, err
 	}
@@ -316,7 +315,6 @@ func createProjectVM(
 	client MsbClient,
 	name, imageRef, homeVol, repoPath string,
 	opts RunOptions,
-	cfg Config,
 	imageEnvs map[string]string,
 	ui termio.UI,
 ) (Sandbox, bool, error) {
@@ -332,15 +330,15 @@ func createProjectVM(
 	maxMemoryGiB := sysinfo.TotalMemoryGiB()
 
 	envMap := mergeEnvMaps(
-		buildEnvMap(cfg.userEnvFile()),
-		buildEnvMap(projectEnvFile()),
+		buildEnvMap(GetConfigPaths().userEnvFile()),
+		buildEnvMap(GetConfigPaths().projectEnvFile()),
 	)
 	ui.Verbosef("adding docker env definitions to project VM environment: %s", imageEnvs)
 	buildProjectVMEnv(envMap, imageEnvs)
 
 	secrets := buildSecrets(mergeEnvMaps(
-		buildEnvMap(cfg.userEnvSecretFile()),
-		buildEnvMap(projectEnvSecretFile()),
+		buildEnvMap(GetConfigPaths().userEnvSecretFile()),
+		buildEnvMap(GetConfigPaths().projectEnvSecretFile()),
 	), ui)
 
 	mounts := buildMounts(homeVol, repoPath, resolveTmpSizeMiB(opts.TmpSize))

@@ -242,11 +242,11 @@ func TestPersistEnvSecrets_ReadFailsReturnsError(t *testing.T) {
 
 func TestDecideReconfig_EnvChangedWithPersistedState(t *testing.T) {
 	SetStateDirForTest(t, t.TempDir()+"/opencode-msb")
-	userDir := t.TempDir()
 
 	// Set up handle so planReconfig gets a non-nil cfg
 	mock := reconfigMockClient()
 	msb.WithMsbMock(t, mock)
+	withMockConfigPaths(t)
 
 	vm := newVolumeManager(&termio.Mock{})
 
@@ -267,7 +267,6 @@ func TestDecideReconfig_EnvChangedWithPersistedState(t *testing.T) {
 		mock,
 		vm,
 		RunOptions{},
-		Config{UserConfigDir: userDir},
 		"img:tag",
 		"sha256:samedigest",
 		"vol",
@@ -292,6 +291,7 @@ func TestDecideReconfig_EnvUnchangedWithPersistedState(t *testing.T) {
 
 	mock := &msb.MockMsbClient{}
 	msb.WithMsbMock(t, mock)
+	withMockConfigPaths(t)
 
 	vm := newVolumeManager(&termio.Mock{})
 
@@ -315,7 +315,6 @@ func TestDecideReconfig_EnvUnchangedWithPersistedState(t *testing.T) {
 		mock,
 		vm,
 		RunOptions{},
-		Config{UserConfigDir: userDir},
 		"img:tag",
 		"sha256:samedigest",
 		"vol",
@@ -336,10 +335,10 @@ func TestDecideReconfig_EnvUnchangedWithPersistedState(t *testing.T) {
 
 func TestDecideReconfig_SecretsChangedWithPersistedState(t *testing.T) {
 	SetStateDirForTest(t, t.TempDir()+"/opencode-msb")
-	userDir := t.TempDir()
 
 	mock := reconfigMockClient()
 	msb.WithMsbMock(t, mock)
+	withMockConfigPaths(t)
 
 	vm := newVolumeManager(&termio.Mock{})
 
@@ -360,7 +359,6 @@ func TestDecideReconfig_SecretsChangedWithPersistedState(t *testing.T) {
 		mock,
 		vm,
 		RunOptions{},
-		Config{UserConfigDir: userDir},
 		"img:tag",
 		"sha256:samedigest",
 		"vol",
@@ -382,6 +380,7 @@ func TestDecideReconfig_ZeroPersistedStateNoSpuriousChange(t *testing.T) {
 
 	mock := &msb.MockMsbClient{}
 	msb.WithMsbMock(t, mock)
+	withMockConfigPaths(t)
 
 	vm := newVolumeManager(&termio.Mock{})
 
@@ -396,7 +395,6 @@ func TestDecideReconfig_ZeroPersistedStateNoSpuriousChange(t *testing.T) {
 		mock,
 		vm,
 		RunOptions{},
-		Config{UserConfigDir: userDir},
 		"img:tag",
 		"sha256:d1",
 		"vol",
@@ -576,6 +574,7 @@ func TestDecideReconfig_PersistedSecretsMatchDesired(t *testing.T) {
 
 	mock := &msb.MockMsbClient{}
 	msb.WithMsbMock(t, mock)
+	withMockConfigPaths(t)
 
 	vm := newVolumeManager(&termio.Mock{})
 
@@ -601,7 +600,6 @@ func TestDecideReconfig_PersistedSecretsMatchDesired(t *testing.T) {
 		mock,
 		vm,
 		RunOptions{},
-		Config{UserConfigDir: userDir},
 		"img", "sha256:img", "vol",
 		persistedState,
 		&ui,

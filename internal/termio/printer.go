@@ -90,6 +90,14 @@ func (p *printer) Outf(format string, args ...any) {
 	p.write(p.stdout, "", p.format(format, args...))
 }
 
+func (p *printer) SetLevel(level Level) {
+	p.level = level
+}
+
+func (p *printer) SetAssumeYes(assumeYes bool) {
+	p.assumeYes = assumeYes
+}
+
 func (p *printer) Spinner(msg string) Spinner {
 	return newSpinner(p.stderr, p.color, p.level, msg)
 }
