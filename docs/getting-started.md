@@ -81,7 +81,7 @@ opencode-msb -b feature/my-branch
 
 1. **Image build** — Builds a Docker image from `.opencode-msb/Dockerfile` if present, or uses the base image. The image
    contains opencode, Node.js 26, and common CLI tools.
-2. **Volume setup** — Creates a persistent home volume (managed by msb, name: `opencode-msb-home-<project-slug>-<docker-image-hash>`) for the
+2. **Volume setup** — Creates a persistent home volume (managed by msb, name: `opencode-msb-home-<project-slug>-<timestamp>`) for the
    project, preserving editor state, caches, and config across sessions.
 3. **VM creation or reuse** — Creates a new project VM on first boot; subsequent runs connect to the existing VM (or
    restart it if it stopped).
