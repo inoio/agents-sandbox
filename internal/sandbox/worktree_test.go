@@ -48,26 +48,36 @@ func TestParseWorktreeResponseEmptyDirectory(t *testing.T) {
 	}
 }
 
-func TestBuildWorktreeCreateBody(t *testing.T) {
-	got := buildWorktreeCreateBody("feat-x")
-	if !strings.Contains(got, `"name"`) {
-		t.Errorf("expected body to contain 'name', got %q", got)
+func TestBuildWorktreeCreateBodyNameOnly(t *testing.T) {
+	got := buildWorktreeCreateBody(WorktreeSpec{Name: "feat-x"})
+	if !strings.Contains(got, `"name":"feat-x"`) {
+		t.Errorf("expected name field, got %q", got)
 	}
-	if !strings.Contains(got, "feat-x") {
-		t.Errorf("expected body to contain branch name, got %q", got)
+	if strings.Contains(got, "startCommand") {
+		t.Errorf("expected no startCommand without a base, got %q", got)
+	}
+}
+
+func TestBuildWorktreeCreateBodyWithBase(t *testing.T) {
+	got := buildWorktreeCreateBody(WorktreeSpec{Name: "feat-x", Base: "main"})
+	if !strings.Contains(got, `"name":"feat-x"`) {
+		t.Errorf("expected name field, got %q", got)
+	}
+	if !strings.Contains(got, `"startCommand":"git reset --hard main"`) {
+		t.Errorf("expected startCommand reset, got %q", got)
 	}
 }
 
 func TestBuildWorktreeCreateCmd(t *testing.T) {
-	cmd := buildWorktreeCreateCmd("feat-x")
+	cmd := buildWorktreeCreateCmd(WorktreeSpec{Name: "feat-x"})
 	if !strings.Contains(cmd, "POST") {
 		t.Errorf("expected POST in command, got %q", cmd)
 	}
 	if !strings.Contains(cmd, "/experimental/worktree") {
 		t.Errorf("expected API path in command, got %q", cmd)
 	}
-	if !strings.Contains(cmd, "127.0.0.1:4096") {
-		t.Errorf("expected daemon address in command, got %q", cmd)
+	if !strings.Contains(cmd, `'{"name":"feat-x"}'`) {
+		t.Errorf("expected create body in command, got %q", cmd)
 	}
 }
 
@@ -171,7 +181,7 @@ func TestResolveTargetCreatesWhenNotListed(t *testing.T) {
 	sb := &MockSandbox{
 		ShellOut: map[string]ShellResult{
 			buildWorktreeListCmd(): NewTestResult(true, 0, `[]`, "", nil),
-			buildWorktreeCreateCmd("feat-x"): NewTestResult(true, 0,
+			buildWorktreeCreateCmd(WorktreeSpec{Name: "feat-x"}): NewTestResult(true, 0,
 				`{"directory":"/workspace/worktrees/feat-x"}`, "", nil),
 		},
 		ShellCalls: &[]string{},

@@ -65,14 +65,17 @@ func parseWorktreeResponse(stdout string) (string, error) {
 	return resp.Directory, nil
 }
 
-func buildWorktreeCreateBody(name string) string {
-	return fmt.Sprintf(`{"name":%q}`, name)
+func buildWorktreeCreateBody(spec WorktreeSpec) string {
+	if spec.Base == "" {
+		return fmt.Sprintf(`{"name":%q}`, spec.Name)
+	}
+	return fmt.Sprintf(`{"name":%q,"startCommand":"git reset --hard %s"}`, spec.Name, spec.Base)
 }
 
-func buildWorktreeCreateCmd(name string) string {
+func buildWorktreeCreateCmd(spec WorktreeSpec) string {
 	return fmt.Sprintf(
 		`curl -sf -X POST http://127.0.0.1:4096/experimental/worktree -H 'Content-Type: application/json' -d '%s'`,
-		buildWorktreeCreateBody(name),
+		buildWorktreeCreateBody(spec),
 	)
 }
 
@@ -148,7 +151,7 @@ func ResolveTarget(
 	}
 
 	ui.Verbosef("creating worktree for branch %q", branch)
-	out, err := sb.Shell(ctx, buildWorktreeCreateCmd(branch))
+	out, err := sb.Shell(ctx, buildWorktreeCreateCmd(WorktreeSpec{Name: branch, Base: ""}))
 	if err != nil {
 		return "", fmt.Errorf("create worktree %q: %w", branch, err)
 	}
