@@ -80,7 +80,7 @@ func runUsageFunc(cmd *cobra.Command) error {
 	if cmd.HasAvailableSubCommands() {
 		out.WriteString("\n\nUse \"")
 		out.WriteString(cmd.CommandPath())
-		out.WriteString("[command] --help\" for more information about a command.")
+		out.WriteString(" [command] --help\" for more information about a command.")
 	}
 	out.WriteString("\n")
 
