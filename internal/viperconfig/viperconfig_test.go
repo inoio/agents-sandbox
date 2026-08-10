@@ -6,10 +6,12 @@ import (
 	"testing"
 	"time"
 
+	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox"
 	"gitlab.inoio.de/inoio/opencode-msb/internal/testutil"
 )
 
 func TestLoadMissingFilesReturnsDefaults(t *testing.T) {
+	sandbox.WithMockConfigPaths(t)
 	cfg, keys, err := Load()
 	if err != nil {
 		t.Fatalf("Load failed: %v", err)
@@ -24,8 +26,9 @@ func TestLoadMissingFilesReturnsDefaults(t *testing.T) {
 }
 
 func TestLoadYAMLConfig(t *testing.T) {
-	dir := t.TempDir()
-	testutil.WriteYAML(t, dir, "config.yaml", map[string]any{
+	sandbox.WithMockConfigPaths(t)
+	cp := sandbox.GetConfigPaths()
+	testutil.WriteYAML(t, cp.UserConfigDir(), "config.yaml", map[string]any{
 		"cpus":     4,
 		"memory":   "8G",
 		"tmp-size": "4G",
@@ -55,8 +58,9 @@ func TestLoadYAMLConfig(t *testing.T) {
 }
 
 func TestLoadJSON5Config(t *testing.T) {
-	dir := t.TempDir()
-	testutil.WritePath(t, filepath.Join(dir, "config.json5"), `{
+	sandbox.WithMockConfigPaths(t)
+	cp := sandbox.GetConfigPaths()
+	testutil.WritePath(t, filepath.Join(cp.UserConfigDir(), "config.json5"), `{
 		// a comment
 		"cpus": 2,
 		"memory": "512M",
@@ -76,14 +80,14 @@ func TestLoadJSON5Config(t *testing.T) {
 }
 
 func TestLoadProjectOverridesUser(t *testing.T) {
-	user := t.TempDir()
-	project := t.TempDir()
-	testutil.WriteYAML(t, user, "config.yaml", map[string]any{
+	sandbox.WithMockConfigPaths(t)
+	cp := sandbox.GetConfigPaths()
+	testutil.WriteYAML(t, cp.UserConfigDir(), "config.yaml", map[string]any{
 		"cpus":   2,
 		"memory": "4G",
 		"yes":    true,
 	})
-	testutil.WriteYAML(t, project, "config.yaml", map[string]any{
+	testutil.WriteYAML(t, cp.ProjectConfigDir(), "config.yaml", map[string]any{
 		"memory": "8G",
 		"yes":    false,
 	})
@@ -107,8 +111,9 @@ func TestLoadProjectOverridesUser(t *testing.T) {
 }
 
 func TestLoadInvalidCPUs(t *testing.T) {
-	dir := t.TempDir()
-	testutil.WriteYAML(t, dir, "config.yaml", map[string]any{"cpus": 300})
+	sandbox.WithMockConfigPaths(t)
+	cp := sandbox.GetConfigPaths()
+	testutil.WriteYAML(t, cp.UserConfigDir(), "config.yaml", map[string]any{"cpus": 300})
 
 	_, _, err := Load()
 	if err == nil {
@@ -117,8 +122,9 @@ func TestLoadInvalidCPUs(t *testing.T) {
 }
 
 func TestLoadMalformedConfig(t *testing.T) {
-	dir := t.TempDir()
-	testutil.WritePath(t, filepath.Join(dir, "config.json5"), "{")
+	sandbox.WithMockConfigPaths(t)
+	cp := sandbox.GetConfigPaths()
+	testutil.WritePath(t, filepath.Join(cp.UserConfigDir(), "config.json5"), "{")
 
 	_, _, err := Load()
 	if err == nil {
@@ -127,6 +133,7 @@ func TestLoadMalformedConfig(t *testing.T) {
 }
 
 func TestLoadPruneAgeConfig(t *testing.T) {
+	sandbox.WithMockConfigPaths(t)
 	for _, tc := range []struct {
 		name       string
 		json       string
@@ -153,8 +160,8 @@ func TestLoadPruneAgeConfig(t *testing.T) {
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			dir := t.TempDir()
-			testutil.WritePath(t, filepath.Join(dir, "config.json"), tc.json)
+			cp := sandbox.GetConfigPaths()
+			testutil.WritePath(t, filepath.Join(cp.UserConfigDir(), "config.json"), tc.json)
 
 			cfg, keys, err := Load()
 			if err != nil {
@@ -177,8 +184,9 @@ func TestLoadPruneAgeConfig(t *testing.T) {
 }
 
 func TestLoadDiskSizeConfig(t *testing.T) {
-	dir := t.TempDir()
-	testutil.WriteYAML(t, dir, "config.yaml", map[string]any{
+	sandbox.WithMockConfigPaths(t)
+	cp := sandbox.GetConfigPaths()
+	testutil.WriteYAML(t, cp.UserConfigDir(), "config.yaml", map[string]any{
 		"disk-size": "24G",
 	})
 
@@ -195,6 +203,7 @@ func TestLoadDiskSizeConfig(t *testing.T) {
 }
 
 func TestLoadInvalidPruneAge(t *testing.T) {
+	sandbox.WithMockConfigPaths(t)
 	for _, tc := range []struct {
 		key       string
 		value     string
@@ -205,8 +214,8 @@ func TestLoadInvalidPruneAge(t *testing.T) {
 		{key: "auto-prune-age", value: "-10h", errSuffix: "auto-prune-age must be > 0"},
 	} {
 		t.Run(tc.key, func(t *testing.T) {
-			dir := t.TempDir()
-			testutil.WriteYAML(t, dir, "config.yaml", map[string]any{tc.key: tc.value})
+			cp := sandbox.GetConfigPaths()
+			testutil.WriteYAML(t, cp.UserConfigDir(), "config.yaml", map[string]any{tc.key: tc.value})
 
 			_, _, err := Load()
 			if err == nil {
@@ -220,6 +229,7 @@ func TestLoadInvalidPruneAge(t *testing.T) {
 }
 
 func TestConfigReapPolicyDefaults(t *testing.T) {
+	sandbox.WithMockConfigPaths(t)
 	cfg, _, err := Load()
 	if err != nil {
 		t.Fatalf("Load failed: %v", err)
@@ -235,6 +245,7 @@ func TestConfigReapPolicyDefaults(t *testing.T) {
 }
 
 func TestConfigIdleTimeoutDefault(t *testing.T) {
+	sandbox.WithMockConfigPaths(t)
 	cfg, _, err := Load()
 	if err != nil {
 		t.Fatalf("Load failed: %v", err)
@@ -247,8 +258,9 @@ func TestConfigIdleTimeoutDefault(t *testing.T) {
 }
 
 func TestConfigAutoStopOnActiveSessions(t *testing.T) {
-	dir := t.TempDir()
-	testutil.WriteYAML(t, dir, "config.yaml", map[string]any{
+	sandbox.WithMockConfigPaths(t)
+	cp := sandbox.GetConfigPaths()
+	testutil.WriteYAML(t, cp.UserConfigDir(), "config.yaml", map[string]any{
 		"auto-stop-on-active-sessions": true,
 	})
 
@@ -267,6 +279,7 @@ func TestConfigAutoStopOnActiveSessions(t *testing.T) {
 }
 
 func TestConfigAutoStopTimeoutParsing(t *testing.T) {
+	sandbox.WithMockConfigPaths(t)
 	for _, tc := range []struct {
 		name string
 		json string
@@ -289,8 +302,8 @@ func TestConfigAutoStopTimeoutParsing(t *testing.T) {
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			dir := t.TempDir()
-			testutil.WritePath(t, filepath.Join(dir, "config.json"), tc.json)
+			cp := sandbox.GetConfigPaths()
+			testutil.WritePath(t, filepath.Join(cp.UserConfigDir(), "config.json"), tc.json)
 
 			cfg, _, err := Load()
 			if err != nil {
@@ -307,8 +320,9 @@ func TestConfigAutoStopTimeoutParsing(t *testing.T) {
 }
 
 func TestConfigAutoStopMaxSessionRetries(t *testing.T) {
-	dir := t.TempDir()
-	testutil.WriteYAML(t, dir, "config.yaml", map[string]any{
+	sandbox.WithMockConfigPaths(t)
+	cp := sandbox.GetConfigPaths()
+	testutil.WriteYAML(t, cp.UserConfigDir(), "config.yaml", map[string]any{
 		"auto-stop-max-session-retries": 5,
 	})
 
@@ -327,8 +341,9 @@ func TestConfigAutoStopMaxSessionRetries(t *testing.T) {
 }
 
 func TestConfigAutoStopNegativeMaxSessionRetries(t *testing.T) {
-	dir := t.TempDir()
-	testutil.WriteYAML(t, dir, "config.yaml", map[string]any{
+	sandbox.WithMockConfigPaths(t)
+	cp := sandbox.GetConfigPaths()
+	testutil.WriteYAML(t, cp.UserConfigDir(), "config.yaml", map[string]any{
 		"auto-stop-max-session-retries": -1,
 	})
 
@@ -342,6 +357,7 @@ func TestConfigAutoStopNegativeMaxSessionRetries(t *testing.T) {
 }
 
 func TestConfigAutoStopNegativeTimeout(t *testing.T) {
+	sandbox.WithMockConfigPaths(t)
 	for _, tc := range []struct {
 		name   string
 		value  any
@@ -352,8 +368,8 @@ func TestConfigAutoStopNegativeTimeout(t *testing.T) {
 		{name: "negative complex", value: "-1h30m", errSfx: "auto-stop-timeout"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			dir := t.TempDir()
-			testutil.WriteYAML(t, dir, "config.yaml", map[string]any{
+			cp := sandbox.GetConfigPaths()
+			testutil.WriteYAML(t, cp.UserConfigDir(), "config.yaml", map[string]any{
 				"auto-stop-timeout": tc.value,
 			})
 
