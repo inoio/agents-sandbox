@@ -14,8 +14,8 @@ type printer struct {
 	stdinReader *bufio.Reader
 	stdout      io.Writer
 	stderr      io.Writer
-	color       bool
 	level       Level
+	color       bool
 	assumeYes   bool
 	isTerminal  func(int) bool
 }

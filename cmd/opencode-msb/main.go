@@ -12,7 +12,7 @@ func main() {
 	ui := newUI(args)
 	ui.Verbose("Initialized terminal output")
 
-	if err := Execute(args, ui); err != nil {
+	if err := execute(args, ui); err != nil {
 		var exitErr *sandbox.ExitError
 		if errors.As(err, &exitErr) {
 			os.Exit(exitErr.Code)

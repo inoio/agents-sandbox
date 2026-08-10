@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/moby/moby/client"
+	moby "github.com/moby/moby/client"
 
 	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/docker"
 
@@ -31,24 +31,24 @@ type mockDockerClient struct {
 func (m *mockDockerClient) ImageRemove(
 	_ context.Context,
 	imageID string,
-	_ client.ImageRemoveOptions,
-) (client.ImageRemoveResult, error) {
+	_ moby.ImageRemoveOptions,
+) (moby.ImageRemoveResult, error) {
 	// Check per-call errors first.
 	if m.callCounter < len(m.perCallErrs) {
 		err := m.perCallErrs[m.callCounter]
 		m.callCounter++
 		if err != nil {
-			return client.ImageRemoveResult{}, err
+			return moby.ImageRemoveResult{}, err
 		}
 		m.removedImages = append(m.removedImages, imageID)
-		return client.ImageRemoveResult{}, nil
+		return moby.ImageRemoveResult{}, nil
 	}
 	// Fall back to global removeErr (checked first to maintain legacy behavior).
 	if m.removeErr != nil {
-		return client.ImageRemoveResult{}, m.removeErr
+		return moby.ImageRemoveResult{}, m.removeErr
 	}
 	m.removedImages = append(m.removedImages, imageID)
-	return client.ImageRemoveResult{}, nil
+	return moby.ImageRemoveResult{}, nil
 }
 
 func newMockUI() *termio.Mock {
