@@ -211,6 +211,20 @@ func prepareSandbox(
 	if err != nil {
 		return nil, err
 	}
+	if created {
+		desiredEnv := mergeEnvMaps(buildEnvMap(cfg.UserEnvFile()), buildEnvMap(ProjectEnvFile()))
+		desiredSecrets := BuildSecrets(mergeEnvMaps(
+			buildEnvMap(cfg.UserEnvSecretFile()),
+			buildEnvMap(ProjectEnvSecretFile()),
+		), ui)
+		if err := persistEnvSecrets(
+			projectSlug,
+			buildEnvState(desiredEnv),
+			buildSecretState(desiredSecrets),
+		); err != nil {
+			ui.Warnf("persisting env/secret fingerprints on VM creation: %v (continuing)", err)
+		}
+	}
 	name := projectVMName(projectSlug)
 
 	var sandboxTarget string
@@ -360,6 +374,42 @@ func finalizeRun(attachErr error, exitCode int) error {
 	return &ExitError{Code: exitCode}
 }
 
+func currentEnvState(slug string, ui termio.UI) EnvState {
+	state, err := ReadState(slug)
+	if err != nil {
+		if !errors.Is(err, ErrStateNotFound) {
+			ui.Warnf("reading state for env fingerprint: %v (continuing)", err)
+		}
+		return EnvState{}
+	}
+	return state.EnvState
+}
+
+func currentSecretState(slug string, ui termio.UI) SecretState {
+	state, err := ReadState(slug)
+	if err != nil {
+		if !errors.Is(err, ErrStateNotFound) {
+			ui.Warnf("reading state for secret fingerprint: %v (continuing)", err)
+		}
+		return SecretState{}
+	}
+	return state.SecretState
+}
+
+func persistEnvSecrets(slug string, envState EnvState, secretState SecretState) error {
+	state, err := ReadState(slug)
+	if err != nil {
+		if errors.Is(err, ErrStateNotFound) {
+			state = new(HomeState)
+		} else {
+			return fmt.Errorf("read state for persistence: %w", err)
+		}
+	}
+	state.EnvState = envState
+	state.SecretState = secretState
+	return WriteState(slug, *state)
+}
+
 func buildMounts(homeVol, repoPath string, tmpSizeMiB uint32) map[string]msbSdk.MountConfig {
 	return map[string]msbSdk.MountConfig{
 		"/home/dev":  msbSdk.Mount.Named(homeVol, msbSdk.MountOptions{}),
@@ -451,15 +501,25 @@ func applyEnvAndSecrets(ctx context.Context, cfg Config, ui termio.UI) {
 		buildEnvMap(ProjectEnvSecretFile()),
 	), ui)
 
-	if _, _, _, err := reconcileEnvAndSecrets(
+	currentEnv := currentEnvState(slug, ui)
+	currentSecret := currentSecretState(slug, ui)
+
+	changed, envState, secretState, err := reconcileEnvAndSecrets(
 		ctx,
 		handle,
 		desiredEnv,
 		desiredSecrets,
-		//nolint:exhaustruct // zero-value applied state; real current-state read lands in Task 4
-		EnvState{}, SecretState{},
-	); err != nil {
+		currentEnv,
+		currentSecret,
+	)
+	if err != nil {
 		ui.Warnf("env/secret application failed: %v (continuing)", err)
+		return
+	}
+	if changed {
+		if err := persistEnvSecrets(slug, envState, secretState); err != nil {
+			ui.Warnf("persisting env/secret fingerprints: %v (continuing)", err)
+		}
 	}
 }
 
@@ -531,12 +591,10 @@ func decideReconfig(
 		buildEnvMap(cfg.UserEnvSecretFile()),
 		buildEnvMap(ProjectEnvSecretFile()),
 	), ui)
-	//nolint:exhaustruct // zero-value applied state; real current-state read lands in Task 4
-	envChanged := envChanged(EnvState{}, desiredEnv)
-	//nolint:exhaustruct // zero-value applied state; real current-state read lands in Task 4
-	secretsChanged := secretsChanged(SecretState{}, desiredSecrets)
+	envHasChanged := envChanged(state.EnvState, desiredEnv)
+	secretsHasChanged := secretsChanged(state.SecretState, desiredSecrets)
 
-	plan := planReconfig(curCfg, imageRef, opts, envChanged, secretsChanged, opencfgChanged)
+	plan := planReconfig(curCfg, imageRef, opts, envHasChanged, secretsHasChanged, opencfgChanged)
 	otherClients := CountActiveClients(slug)
 	applyRecreate, applyRestart, err := resolveReconfig(ctx, ui, plan, otherClients, plan.changes)
 	if err != nil {
