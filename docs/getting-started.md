@@ -74,7 +74,7 @@ launches opencode.
 To start an isolated session for a different branch (only works in git repositories):
 
 ```shell
-opencode-msb -b feature/my-branch
+opencode-msb -w bugfix-my-fix
 ```
 
 ## How It Works
