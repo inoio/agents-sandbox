@@ -119,7 +119,7 @@ func TestPersistEnvSecrets_RoundTrip(t *testing.T) {
 		t.Fatalf("persistEnvSecrets: %v", err)
 	}
 
-	got, err := ReadState(slug)
+	got, err := readState(slug)
 	if err != nil {
 		t.Fatalf("ReadState after persist: %v", err)
 	}
@@ -142,7 +142,7 @@ func TestPersistEnvSecrets_CreatesMissingStateDir(t *testing.T) {
 		t.Fatalf("persistEnvSecrets: %v", err)
 	}
 
-	got, err := ReadState(slug)
+	got, err := readState(slug)
 	if err != nil {
 		t.Fatalf("ReadState: %v", err)
 	}
@@ -168,7 +168,7 @@ func TestPersistEnvSecrets_MergesExistingState(t *testing.T) {
 		t.Fatalf("persistEnvSecrets: %v", err)
 	}
 
-	got, err := ReadState(slug)
+	got, err := readState(slug)
 	if err != nil {
 		t.Fatalf("ReadState: %v", err)
 	}
@@ -205,7 +205,7 @@ func TestPersistEnvSecrets_OverwritesExistingState(t *testing.T) {
 		t.Fatalf("persistEnvSecrets: %v", err)
 	}
 
-	got, err := ReadState(slug)
+	got, err := readState(slug)
 	if err != nil {
 		t.Fatalf("ReadState: %v", err)
 	}
@@ -247,7 +247,7 @@ func TestDecideReconfig_EnvChangedWithPersistedState(t *testing.T) {
 	mock := &msb.MockMsbClient{}
 	msb.WithMsbMock(t, mock)
 
-	vm := NewVolumeManager(&termio.Mock{})
+	vm := newVolumeManager(&termio.Mock{})
 
 	// Write state with env hash that differs from desired (nil desired = empty env)
 	// Use matching imageDigest to skip home-volume path
@@ -301,7 +301,7 @@ func TestDecideReconfig_EnvUnchangedWithPersistedState(t *testing.T) {
 	mock := &msb.MockMsbClient{}
 	msb.WithMsbMock(t, mock)
 
-	vm := NewVolumeManager(&termio.Mock{})
+	vm := newVolumeManager(&termio.Mock{})
 
 	// Write env file and state with matching hash
 	testutil.WritePath(t, filepath.Join(userDir, envFileName), "FOO=bar\n")
@@ -349,7 +349,7 @@ func TestDecideReconfig_SecretsChangedWithPersistedState(t *testing.T) {
 	mock := &msb.MockMsbClient{}
 	msb.WithMsbMock(t, mock)
 
-	vm := NewVolumeManager(&termio.Mock{})
+	vm := newVolumeManager(&termio.Mock{})
 
 	// Write state with different secret hash than desired (nil desired = no secrets)
 	// Use matching imageDigest to skip home-volume path
@@ -400,7 +400,7 @@ func TestDecideReconfig_ZeroPersistedStateNoSpuriousChange(t *testing.T) {
 	mock := &msb.MockMsbClient{}
 	msb.WithMsbMock(t, mock)
 
-	vm := NewVolumeManager(&termio.Mock{})
+	vm := newVolumeManager(&termio.Mock{})
 
 	// Write empty env file → desired is empty.
 	// State has no env_state → zero value (first run).
@@ -498,7 +498,7 @@ func TestPersistEnvSecrets_NilStateOnNotFound(t *testing.T) {
 		t.Fatalf("persistEnvSecrets: %v", err)
 	}
 
-	got, err := ReadState(slug)
+	got, err := readState(slug)
 	if err != nil {
 		t.Fatalf("ReadState: %v", err)
 	}
@@ -572,7 +572,7 @@ func TestPersistEnvSecrets_ZeroStateOverwritesOnlyFields(t *testing.T) {
 		t.Fatalf("persistEnvSecrets: %v", err)
 	}
 
-	got, err := ReadState(slug)
+	got, err := readState(slug)
 	if err != nil {
 		t.Fatalf("ReadState: %v", err)
 	}
@@ -594,7 +594,7 @@ func TestDecideReconfig_PersistedSecretsMatchDesired(t *testing.T) {
 	mock := &msb.MockMsbClient{}
 	msb.WithMsbMock(t, mock)
 
-	vm := NewVolumeManager(&termio.Mock{})
+	vm := newVolumeManager(&termio.Mock{})
 
 	testutil.WritePath(t, filepath.Join(userDir, envFileName), "K=V\n")
 	desiredEnv := mergeEnvMaps(buildEnvMap(filepath.Join(userDir, envFileName)))

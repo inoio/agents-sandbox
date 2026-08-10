@@ -184,13 +184,13 @@ func projectSlug(folderName, id string) string {
 	return folderName + "-" + HashID(id)
 }
 
-func BranchSlug(branch string) string {
+func branchSlug(branch string) string {
 	slug := strings.ReplaceAll(branch, "-", "--")
 	slug = strings.ReplaceAll(slug, "/", "---")
 	return slug
 }
 
-func BranchAt(path string) (string, error) {
+func branchAt(path string) (string, error) {
 	repo, err := git.PlainOpen(path)
 	if err != nil {
 		return "", fmt.Errorf("unable to determine current git branch from %s: %w", path, err)

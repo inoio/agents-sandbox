@@ -21,6 +21,6 @@ const (
 
 // Fully-qualified image references derived from Prefix.
 const (
-	BaseTag     = baseImagePrefix + ":latest"
-	DindBaseTag = baseImagePrefix + "-dind:latest"
+	baseTag     = baseImagePrefix + ":latest"
+	dindBaseTag = baseImagePrefix + "-dind:latest"
 )

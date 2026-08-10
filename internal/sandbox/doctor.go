@@ -19,7 +19,7 @@ var ensureInstalled = func(ctx context.Context) error { //nolint:gochecknoglobal
 	return msb.Get().EnsureInstalled(ctx)
 }
 
-func CheckDocker(ui termio.UI) bool {
+func checkDocker(ui termio.UI) bool {
 	if _, err := exec.LookPath("docker"); err != nil {
 		ui.Errorf("docker not found. Install Docker or Podman with docker-compatible CLI: %v", err)
 		return false
@@ -27,7 +27,7 @@ func CheckDocker(ui termio.UI) bool {
 	return true
 }
 
-func CheckKvm(ui termio.UI) bool {
+func checkKvm(ui termio.UI) bool {
 	if runtime.GOOS != "linux" {
 		return true
 	}
@@ -38,7 +38,7 @@ func CheckKvm(ui termio.UI) bool {
 	return true
 }
 
-func CheckGit(ui termio.UI) bool {
+func checkGit(ui termio.UI) bool {
 	if _, err := exec.LookPath("git"); err != nil {
 		ui.Errorf("git not found. Install git via your system package manager: %v", err)
 		return false
@@ -46,7 +46,7 @@ func CheckGit(ui termio.UI) bool {
 	return true
 }
 
-func CheckMsb(ctx context.Context, ui termio.UI) bool {
+func checkMsb(ctx context.Context, ui termio.UI) bool {
 	if err := ensureInstalled(ctx); err != nil {
 		ui.Errorf("msb runtime setup failed: %v", err)
 		return false
@@ -104,7 +104,7 @@ func checkAllReal(ctx context.Context, ui termio.UI) bool {
 	if !checkDoctor(ctx, ui) {
 		return false
 	}
-	return CheckOrphans(ctx, ui)
+	return checkOrphans(ctx, ui)
 }
 
 // CheckAll runs all prerequisite checks and reports orphaned VMs.
@@ -138,7 +138,7 @@ func isOrphanedImage(ref string) bool {
 	return strings.HasPrefix(ref, Prefix+"/runner:")
 }
 
-func CheckOrphans(ctx context.Context, ui termio.UI) bool {
+func checkOrphans(ctx context.Context, ui termio.UI) bool {
 	client := msb.Get()
 	hasOrphans := false
 

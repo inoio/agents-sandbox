@@ -307,7 +307,7 @@ func TestApplySecretSpecNoRemoveWhenAllStay(t *testing.T) {
 
 func TestApplySecretSpecAllRemoved(t *testing.T) {
 	applied := buildSecretState([]msbSdk.SecretEntry{{EnvVar: "OLD"}})
-	var desired []msbSdk.SecretEntry{}
+	var desired []msbSdk.SecretEntry
 
 	var mo msbSdk.ModifyOptions
 	applySecretSpec(applied, desired, &mo)
@@ -325,7 +325,7 @@ func TestMultiChangeEnvRemovedAddedChanged(t *testing.T) {
 	appliedEnv := buildEnvState(map[string]string{"A": "1", "B": "2"})
 	appliedSecrets := buildSecretState([]msbSdk.SecretEntry{{EnvVar: "S"}})
 	desiredEnv := map[string]string{"B": "5", "C": "3"}
-	var desiredSecrets []msbSdk.SecretEntry{}
+	var desiredSecrets []msbSdk.SecretEntry
 
 	mock := &MockSandboxHandle{Plan: &msbSdk.SandboxModificationPlan{Applied: true}}
 	changed, envSt, secretSt, err := reconcileEnvAndSecrets(

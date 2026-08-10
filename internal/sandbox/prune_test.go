@@ -45,7 +45,7 @@ func runPruneActiveVMTest(
 	SetStateDirForTest(t, t.TempDir()+"/opencode-msb")
 
 	if yaml != "" {
-		stateDir := filepath.Join(stateDirSuffix, pruneTestSlug)
+		stateDir := filepath.Join(stateDir, pruneTestSlug)
 		os.MkdirAll(stateDir, 0o700)
 		os.WriteFile(filepath.Join(stateDir, "state.yaml"), []byte(yaml), 0o600)
 	}
@@ -424,7 +424,7 @@ func TestFindStaleVMs(t *testing.T) {
 				if got[i].Name != name {
 					t.Errorf("entry[%d] name = %q, want %q", i, got[i].Name, name)
 				}
-				if got[i].Type != StaleTypeVM {
+				if got[i].Type != staleTypeVM {
 					t.Errorf("entry[%d] type = %q, want %q", i, got[i].Type, "vm")
 				}
 				if got[i].StaleFor <= 0 {
@@ -448,7 +448,7 @@ func TestFindStaleVMs_StaleEntryFields(t *testing.T) {
 	}
 
 	entry := got[0]
-	if entry.Type != StaleTypeVM {
+	if entry.Type != staleTypeVM {
 		t.Errorf("Type = %q, want %q", entry.Type, "vm")
 	}
 	if entry.Name != "test-vm" {
@@ -475,8 +475,8 @@ func TestStaleReport(t *testing.T) {
 		PrunedTaskSandboxes: 1,
 		PrunedCloneVolumes:  0,
 		Details: []StaleEntry{
-			{Type: StaleTypeVM, Name: "vm1", StaleFor: 2 * time.Hour},
-			{Type: StaleTypeVolume, Name: "vol1", StaleFor: 3 * time.Hour},
+			{Type: staleTypeVM, Name: "vm1", StaleFor: 2 * time.Hour},
+			{Type: staleTypeVolume, Name: "vol1", StaleFor: 3 * time.Hour},
 		},
 	}
 
@@ -493,7 +493,7 @@ func TestStaleReport(t *testing.T) {
 		t.Errorf("Details length = %d, want 2", len(report.Details))
 	}
 
-	if report.Details[0].Type != StaleTypeVM {
+	if report.Details[0].Type != staleTypeVM {
 		t.Errorf("Details[0].Type = %q, expected vm", report.Details[0].Type)
 	}
 }
@@ -662,7 +662,7 @@ func TestRemoveHomeVolumes_CleansStateFile(t *testing.T) {
 		slug: {"opencode-msb-home-myproject-20260806T143022"},
 	}
 
-	statePath := filepath.Join(stateDirSuffix, slug, "state.yaml")
+	statePath := filepath.Join(stateDir, slug, "state.yaml")
 	os.MkdirAll(filepath.Dir(statePath), 0o700)
 	testutil.WritePath(t, statePath,
 		"home_volume: opencode-msb-home-myproject-20260806T143022\nimage_digest: sha256:abc\n")
@@ -692,7 +692,7 @@ func TestRemoveHomeVolumes_DryRunDoesNotRemoveState(t *testing.T) {
 		slug: {"opencode-msb-home-myproject-20260806T143022"},
 	}
 
-	statePath := filepath.Join(stateDirSuffix, slug, "state.yaml")
+	statePath := filepath.Join(stateDir, slug, "state.yaml")
 	os.MkdirAll(filepath.Dir(statePath), 0o700)
 	testutil.WritePath(t, statePath,
 		"home_volume: opencode-msb-home-myproject-20260806T143022\n")

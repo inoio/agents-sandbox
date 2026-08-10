@@ -79,7 +79,7 @@ func TestStaleReportHasAnything(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := tt.report.HasAnything()
+			got := tt.report.hasAnything()
 			if got != tt.want {
 				t.Errorf("HasAnything() = %v, want %v", got, tt.want)
 			}

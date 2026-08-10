@@ -22,16 +22,16 @@ func projectDockerfile() string {
 	return filepath.Join(ProjectConfigDir, dockerfileName)
 }
 
-// ProjectOpencodeConfigDir is the project-local opencode config directory.
-func ProjectOpencodeConfigDir() string {
+// projectOpencodeConfigDir is the project-local opencode config directory.
+func projectOpencodeConfigDir() string {
 	return filepath.Join(ProjectConfigDir, configDirName)
 }
 
-func ProjectEnvFile() string {
+func projectEnvFile() string {
 	return filepath.Join(ProjectConfigDir, envFileName)
 }
 
-func ProjectEnvSecretFile() string {
+func projectEnvSecretFile() string {
 	return filepath.Join(ProjectConfigDir, envSecretFileName)
 }
 

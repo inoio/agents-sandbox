@@ -12,7 +12,7 @@ func TestAcquireClientLease(t *testing.T) {
 	slug := "testproj-aBc1234D"
 
 	// Acquire first lease.
-	release, err := AcquireClientLease(slug)
+	release, err := acquireClientLease(slug)
 	if err != nil {
 		t.Fatalf("AcquireClientLease: %v", err)
 	}
@@ -28,12 +28,12 @@ func TestAcquireClientLease(t *testing.T) {
 	}
 
 	// CountActiveClients should report 1.
-	if got := CountActiveClients(slug); got != 1 {
+	if got := countActiveClients(slug); got != 1 {
 		t.Errorf("CountActiveClients = %d, want 1", got)
 	}
 
 	// Counting twice still returns 1 (idempotent).
-	if got := CountActiveClients(slug); got != 1 {
+	if got := countActiveClients(slug); got != 1 {
 		t.Errorf("second CountActiveClients = %d, want 1", got)
 	}
 
@@ -50,7 +50,7 @@ func TestAcquireClientLease(t *testing.T) {
 	}
 
 	// CountActiveClients should report 0 after release.
-	if got := CountActiveClients(slug); got != 0 {
+	if got := countActiveClients(slug); got != 0 {
 		t.Errorf("CountActiveClients after release = %d, want 0", got)
 	}
 }
@@ -66,7 +66,7 @@ func TestAcquireClientLease_DirectoriesCreated(t *testing.T) {
 		t.Fatalf("slug dir should not exist yet")
 	}
 
-	release, err := AcquireClientLease(slug)
+	release, err := acquireClientLease(slug)
 	if err != nil {
 		t.Fatalf("AcquireClientLease: %v", err)
 	}
@@ -87,38 +87,38 @@ func TestAcquireClientLease_MultipleClients(t *testing.T) {
 
 	slug := "multiproj-a"
 
-	r1, err := AcquireClientLease(slug)
+	r1, err := acquireClientLease(slug)
 	if err != nil {
 		t.Fatalf("AcquireClientLease #1: %v", err)
 	}
-	r2, err := AcquireClientLease(slug)
+	r2, err := acquireClientLease(slug)
 	if err != nil {
 		t.Fatalf("AcquireClientLease #2: %v", err)
 	}
-	r3, err := AcquireClientLease(slug)
+	r3, err := acquireClientLease(slug)
 	if err != nil {
 		t.Fatalf("AcquireClientLease #3: %v", err)
 	}
 
-	if got := CountActiveClients(slug); got != 3 {
+	if got := countActiveClients(slug); got != 3 {
 		t.Fatalf("CountActiveClients = %d, want 3", got)
 	}
 
 	// Release one.
 	r1()
-	if got := CountActiveClients(slug); got != 2 {
+	if got := countActiveClients(slug); got != 2 {
 		t.Fatalf("after 1 release: CountActiveClients = %d, want 2", got)
 	}
 
 	// Release another.
 	r2()
-	if got := CountActiveClients(slug); got != 1 {
+	if got := countActiveClients(slug); got != 1 {
 		t.Fatalf("after 2 releases: CountActiveClients = %d, want 1", got)
 	}
 
 	// Release last.
 	r3()
-	if got := CountActiveClients(slug); got != 0 {
+	if got := countActiveClients(slug); got != 0 {
 		t.Fatalf("after 3 releases: CountActiveClients = %d, want 0", got)
 	}
 }
@@ -141,7 +141,7 @@ func TestCountActiveClients_CleansStaleLockFiles(t *testing.T) {
 	}
 
 	// CountActiveClients should clean up the stale file.
-	count := CountActiveClients(slug)
+	count := countActiveClients(slug)
 	if count != 0 {
 		t.Fatalf("CountActiveClients = %d, want 0 for stale-only dir", count)
 	}
@@ -156,7 +156,7 @@ func TestAcquireClientLease_NonExistentSlug(t *testing.T) {
 	SetStateDirForTest(t, t.TempDir()+"/opencode-msb")
 
 	slug := "nonexistent-slug-xyz"
-	release, err := AcquireClientLease(slug)
+	release, err := acquireClientLease(slug)
 	if err != nil {
 		t.Fatalf("AcquireClientLease should succeed for non-existent slug: %v", err)
 	}
@@ -168,26 +168,26 @@ func TestAcquireClientLease_MultipleFromSameProcess(t *testing.T) {
 
 	slug := "testproj-z"
 
-	r1, err := AcquireClientLease(slug)
+	r1, err := acquireClientLease(slug)
 	if err != nil {
 		t.Fatalf("AcquireClientLease #1: %v", err)
 	}
 
 	// We should be able to acquire a second one (paths are unique).
-	r2, err := AcquireClientLease(slug)
+	r2, err := acquireClientLease(slug)
 	if err != nil {
 		t.Fatalf("AcquireClientLease #2: %v", err)
 	}
 
 	// Both active.
-	if got := CountActiveClients(slug); got != 2 {
+	if got := countActiveClients(slug); got != 2 {
 		t.Fatalf("CountActiveClients = %d, want 2", got)
 	}
 
 	r1()
 	r2()
 
-	if got := CountActiveClients(slug); got != 0 {
+	if got := countActiveClients(slug); got != 0 {
 		t.Fatalf("after both releases: CountActiveClients = %d, want 0", got)
 	}
 }

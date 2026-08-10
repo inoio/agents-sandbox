@@ -60,13 +60,13 @@ func (c Config) UserOpenCodeConfigDir() string {
 	return filepath.Join(c.UserConfigDir, configDirName)
 }
 
-// UserEnvFile returns the user-level environment definitions file.
-func (c Config) UserEnvFile() string {
+// userEnvFile returns the user-level environment definitions file.
+func (c Config) userEnvFile() string {
 	return filepath.Join(c.UserConfigDir, envFileName)
 }
 
-// UserEnvSecretFile returns the user-level secret environment definitions file.
-func (c Config) UserEnvSecretFile() string {
+// userEnvSecretFile returns the user-level secret environment definitions file.
+func (c Config) userEnvSecretFile() string {
 	return filepath.Join(c.UserConfigDir, envSecretFileName)
 }
 
@@ -140,7 +140,7 @@ func resolveDockerfile() []byte {
 	if data, err := os.ReadFile(projectDockerfile()); err == nil {
 		return data
 	}
-	return EmbeddedDockerfile
+	return embeddedDockerfile
 }
 
 type sandboxSession struct {
@@ -178,9 +178,9 @@ func prepareSandbox(
 	}
 	ui.Verbosef("Using image '%s' (digest=%s)", imageRef, imageDigest)
 
-	vm := NewVolumeManager(ui)
+	vm := newVolumeManager(ui)
 	client := msb.Get()
-	homeVol, state, err := vm.ResolveHomeVolume(ctx, client, projectSlug, imageDigest, imageRef, opts, ui)
+	homeVol, state, err := vm.resolveHomeVolume(ctx, client, projectSlug, imageDigest, imageRef, opts, ui)
 	if err != nil {
 		return nil, fmt.Errorf("volume setup failed: %w", err)
 	}
@@ -207,15 +207,15 @@ func prepareSandbox(
 	}
 	ui.Verbosef("recreate: %v, restart: %v, restartDockerd: %v", recreate, restart, restartDockerd)
 	opts.Recreate = recreate
-	sb, created, err := EnsureProjectVM(ctx, opts, cfg, imageRef, homeVol, cwd, imageEnvs, ui)
+	sb, created, err := ensureProjectVM(ctx, opts, cfg, imageRef, homeVol, cwd, imageEnvs, ui)
 	if err != nil {
 		return nil, err
 	}
 	if created {
-		desiredEnv := mergeEnvMaps(buildEnvMap(cfg.UserEnvFile()), buildEnvMap(ProjectEnvFile()))
-		desiredSecrets := BuildSecrets(mergeEnvMaps(
-			buildEnvMap(cfg.UserEnvSecretFile()),
-			buildEnvMap(ProjectEnvSecretFile()),
+		desiredEnv := mergeEnvMaps(buildEnvMap(cfg.userEnvFile()), buildEnvMap(projectEnvFile()))
+		desiredSecrets := buildSecrets(mergeEnvMaps(
+			buildEnvMap(cfg.userEnvSecretFile()),
+			buildEnvMap(projectEnvSecretFile()),
 		), ui)
 		if err := persistEnvSecrets(
 			projectSlug,
@@ -270,7 +270,7 @@ func Run(ctx context.Context, opts RunOptions, cfg Config, ui termio.UI) error {
 	}
 
 	projectSlug := git.ProjectSlug(ui)
-	release, acquireErr := AcquireClientLease(projectSlug)
+	release, acquireErr := acquireClientLease(projectSlug)
 	if acquireErr != nil {
 		ui.Warnf("client lease failed: %v", acquireErr)
 	}
@@ -297,7 +297,7 @@ func Run(ctx context.Context, opts RunOptions, cfg Config, ui termio.UI) error {
 		release = nil
 	}
 
-	if err := ReapOnLastClient(ctx, projectSlug, session.sb, opts.ReapPolicy, ui); err != nil {
+	if err := reapOnLastClient(ctx, projectSlug, session.sb, opts.ReapPolicy, ui); err != nil {
 		ui.Warnf("reap failed: %v", err)
 	}
 
@@ -323,7 +323,7 @@ func Shell(ctx context.Context, opts RunOptions, cfg Config, ui termio.UI) error
 	}
 
 	projectSlug := git.ProjectSlug(ui)
-	release, acquireErr := AcquireClientLease(projectSlug)
+	release, acquireErr := acquireClientLease(projectSlug)
 	if acquireErr != nil {
 		ui.Warnf("client lease failed: %v", acquireErr)
 	}
@@ -344,7 +344,7 @@ func Shell(ctx context.Context, opts RunOptions, cfg Config, ui termio.UI) error
 		release = nil
 	}
 
-	if err := ReapOnLastClient(ctx, projectSlug, session.sb, opts.ReapPolicy, ui); err != nil {
+	if err := reapOnLastClient(ctx, projectSlug, session.sb, opts.ReapPolicy, ui); err != nil {
 		ui.Warnf("reap failed: %v", err)
 	}
 
@@ -358,7 +358,7 @@ func BuildImage(ctx context.Context, force, dryRun bool, ui termio.UI) error {
 		return nil
 	}
 
-	if !CheckDocker(ui) {
+	if !checkDocker(ui) {
 		return errors.New("docker not available")
 	}
 	projectSlug := git.ProjectSlug(ui)
@@ -375,7 +375,7 @@ func finalizeRun(attachErr error, exitCode int) error {
 }
 
 func currentEnvState(slug string, ui termio.UI) EnvState {
-	state, err := ReadState(slug)
+	state, err := readState(slug)
 	if err != nil {
 		if !errors.Is(err, ErrStateNotFound) {
 			ui.Warnf("reading state for env fingerprint: %v (continuing)", err)
@@ -386,7 +386,7 @@ func currentEnvState(slug string, ui termio.UI) EnvState {
 }
 
 func currentSecretState(slug string, ui termio.UI) SecretState {
-	state, err := ReadState(slug)
+	state, err := readState(slug)
 	if err != nil {
 		if !errors.Is(err, ErrStateNotFound) {
 			ui.Warnf("reading state for secret fingerprint: %v (continuing)", err)
@@ -397,7 +397,7 @@ func currentSecretState(slug string, ui termio.UI) SecretState {
 }
 
 func persistEnvSecrets(slug string, envState EnvState, secretState SecretState) error {
-	state, err := ReadState(slug)
+	state, err := readState(slug)
 	if err != nil {
 		if errors.Is(err, ErrStateNotFound) {
 			state = new(HomeState)
@@ -477,7 +477,7 @@ func setUpSandbox(
 		return "", fmt.Errorf("docker startup: %w", dockerErr)
 	}
 
-	if daemonErr := EnsureDaemon(ctx, sb, ui); daemonErr != nil {
+	if daemonErr := ensureDaemon(ctx, sb, ui); daemonErr != nil {
 		return "", daemonErr
 	}
 
@@ -495,10 +495,10 @@ func applyEnvAndSecrets(ctx context.Context, cfg Config, ui termio.UI) {
 		return
 	}
 
-	desiredEnv := mergeEnvMaps(buildEnvMap(cfg.UserEnvFile()), buildEnvMap(ProjectEnvFile()))
-	desiredSecrets := BuildSecrets(mergeEnvMaps(
-		buildEnvMap(cfg.UserEnvSecretFile()),
-		buildEnvMap(ProjectEnvSecretFile()),
+	desiredEnv := mergeEnvMaps(buildEnvMap(cfg.userEnvFile()), buildEnvMap(projectEnvFile()))
+	desiredSecrets := buildSecrets(mergeEnvMaps(
+		buildEnvMap(cfg.userEnvSecretFile()),
+		buildEnvMap(projectEnvSecretFile()),
 	), ui)
 
 	currentEnv := currentEnvState(slug, ui)
@@ -530,7 +530,7 @@ func applyEnvAndSecrets(ctx context.Context, cfg Config, ui termio.UI) {
 //
 // Note: the plan's literal signature included an sb Sandbox parameter, but
 // this is never available to decideReconfig in prepareSandbox (it runs
-// before EnsureProjectVM, before any sandbox exists). The function re-fetches
+// before ensureProjectVM, before any sandbox exists). The function re-fetches
 // and Connect()s its own sandbox for file reads.
 func decideReconfig(
 	ctx context.Context,
@@ -560,12 +560,12 @@ func decideReconfig(
 
 	// image-change home-volume prompt runs before the rebuild decision.
 	if state.ImageDigest != imageDigest {
-		action := vm.ResolveHomeAction(ui, state.ImageDigest, imageDigest)
+		action := vm.resolveHomeAction(ui, state.ImageDigest, imageDigest)
 		if action == actionQuit {
 			ui.Infof("exiting as requested by user")
 			return false, false, false, homeVol, &ExitError{Code: 1}
 		}
-		newVol, err := vm.ApplyHomeAction(ctx, client, slug, homeVol, imageRef, imageDigest, action, opts, ui)
+		newVol, err := vm.applyHomeAction(ctx, client, slug, homeVol, imageRef, imageDigest, action, opts, ui)
 		if err != nil {
 			return false, false, false, homeVol, fmt.Errorf("apply home action: %w", err)
 		}
@@ -586,16 +586,16 @@ func decideReconfig(
 		}
 	}
 
-	desiredEnv := mergeEnvMaps(buildEnvMap(cfg.UserEnvFile()), buildEnvMap(ProjectEnvFile()))
-	desiredSecrets := BuildSecrets(mergeEnvMaps(
-		buildEnvMap(cfg.UserEnvSecretFile()),
-		buildEnvMap(ProjectEnvSecretFile()),
+	desiredEnv := mergeEnvMaps(buildEnvMap(cfg.userEnvFile()), buildEnvMap(projectEnvFile()))
+	desiredSecrets := buildSecrets(mergeEnvMaps(
+		buildEnvMap(cfg.userEnvSecretFile()),
+		buildEnvMap(projectEnvSecretFile()),
 	), ui)
 	envHasChanged := envChanged(state.EnvState, desiredEnv)
 	secretsHasChanged := secretsChanged(state.SecretState, desiredSecrets)
 
 	plan := planReconfig(curCfg, imageRef, opts, envHasChanged, secretsHasChanged, opencfgChanged)
-	otherClients := CountActiveClients(slug)
+	otherClients := countActiveClients(slug)
 	applyRecreate, applyRestart, err := resolveReconfig(ctx, ui, plan, otherClients, plan.changes)
 	if err != nil {
 		return false, false, false, homeVol, err
@@ -623,7 +623,7 @@ func restartDaemons(ctx context.Context, sb Sandbox, files map[string][]byte, re
 	if _, _, err := daemonShellFunc(ctx, sb, daemonKillCmd); err != nil {
 		ui.Warnf("kill stale daemon failed (continuing): %v", err)
 	}
-	if err := EnsureDaemon(ctx, sb, ui); err != nil {
+	if err := ensureDaemon(ctx, sb, ui); err != nil {
 		ui.Warnf("daemon restart failed: %v (using existing)", err)
 	}
 }

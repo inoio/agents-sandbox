@@ -47,11 +47,11 @@ type QuestionRequest struct {
 
 const questionListURL = "http://127.0.0.1:4096/question"
 
-// ReapOnLastClient runs after a client detaches. If this was not the last client it
+// reapOnLastClient runs after a client detaches. If this was not the last client it
 // is a no-op. If it was, per policy it either returns immediately (auto-stop-on-active
 // mode, so the idle timeout stops the VM) or holds the VM until sessions quiesce.
-func ReapOnLastClient(ctx context.Context, slug string, sb msb.Sandbox, policy ReapPolicy, ui termio.UI) error {
-	if CountActiveClients(slug) > 0 {
+func reapOnLastClient(ctx context.Context, slug string, sb msb.Sandbox, policy ReapPolicy, ui termio.UI) error {
+	if countActiveClients(slug) > 0 {
 		return nil
 	}
 	if policy.AutoStopOnActiveSessions {
@@ -97,7 +97,7 @@ func waitQuiescent(ctx context.Context, slug string, sb msb.Sandbox, maxRetry in
 			}
 		}
 
-		if CountActiveClients(slug) > 0 {
+		if countActiveClients(slug) > 0 {
 			ui.Verbosef("client reattached during wait; aborting reaper")
 			return nil
 		}

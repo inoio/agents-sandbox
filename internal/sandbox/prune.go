@@ -32,10 +32,10 @@ type StaleReport struct {
 type StaleType int
 
 const (
-	StaleTypeVM StaleType = iota
-	StaleTypeVolume
-	StaleTypeDockerImage
-	StaleTypeMsbImage
+	staleTypeVM StaleType = iota
+	staleTypeVolume
+	staleTypeDockerImage
+	staleTypeMsbImage
 )
 
 // StaleEntry describes a single artifact that was pruned or would be pruned.
@@ -93,7 +93,7 @@ func findStaleVMs(sandboxes []staleVM, threshold time.Duration) []StaleEntry {
 		elapsed := time.Since(s.updatedAt)
 		if elapsed > threshold {
 			stale = append(stale, StaleEntry{
-				Type:     StaleTypeVM,
+				Type:     staleTypeVM,
 				Name:     s.name,
 				StaleFor: elapsed,
 				Slug:     "",
@@ -104,8 +104,8 @@ func findStaleVMs(sandboxes []staleVM, threshold time.Duration) []StaleEntry {
 	return stale
 }
 
-// HasAnything reports whether the report contains any pruned items.
-func (r *StaleReport) HasAnything() bool {
+// hasAnything reports whether the report contains any pruned items.
+func (r *StaleReport) hasAnything() bool {
 	if r == nil {
 		return false
 	}
@@ -180,7 +180,7 @@ func buildCatalog(ctx context.Context, client MsbClient, threshold time.Duration
 			elapsed := time.Since(h.UpdatedAt())
 			slug, _ := extractProjectSlugAndDigest(name)
 			catalog.TaskSandboxes = append(catalog.TaskSandboxes, StaleEntry{
-				Type:     StaleTypeVM,
+				Type:     staleTypeVM,
 				Name:     name,
 				StaleFor: elapsed,
 				Slug:     slug,
@@ -284,7 +284,7 @@ func Prune(
 }
 
 func printPruneSummary(ui termio.UI, report *StaleReport, dryRun bool, autoPrune bool) {
-	if report == nil || !report.HasAnything() {
+	if report == nil || !report.hasAnything() {
 		return
 	}
 	var out func(string, ...any)
@@ -469,7 +469,7 @@ func pruneCloneVolumes(
 		}
 		report.PrunedCloneVolumes++
 		report.Details = append(report.Details, StaleEntry{
-			Type:     StaleTypeVolume,
+			Type:     staleTypeVolume,
 			Name:     cv,
 			Slug:     slug,
 			StaleFor: 0,
@@ -539,7 +539,7 @@ func pruneActiveVMHomeVolumes(
 		return nil
 	}
 
-	state, err := ReadState(slug)
+	state, err := readState(slug)
 	if err != nil {
 		if errors.Is(err, ErrStateNotFound) {
 			return fmt.Errorf("no state file found for project %q", slug)
@@ -561,7 +561,7 @@ func pruneActiveVMHomeVolumes(
 		}
 		report.PrunedVolumes++
 		report.Details = append(report.Details, StaleEntry{
-			Type:     StaleTypeVolume,
+			Type:     staleTypeVolume,
 			Name:     volName,
 			Slug:     slug,
 			StaleFor: 0,
@@ -593,7 +593,7 @@ func pruneActiveVMMSBImages(
 		}
 		report.PrunedMSBImages++
 		report.Details = append(report.Details, StaleEntry{
-			Type:     StaleTypeMsbImage,
+			Type:     staleTypeMsbImage,
 			Name:     img.ref,
 			Slug:     slug,
 			StaleFor: 0,
@@ -628,7 +628,7 @@ func pruneActiveVMDockerImages(
 		}
 		report.PrunedDockerImages++
 		report.Details = append(report.Details, StaleEntry{
-			Type:     StaleTypeDockerImage,
+			Type:     staleTypeDockerImage,
 			Name:     img.ref,
 			Slug:     slug,
 			StaleFor: 0,
@@ -665,7 +665,7 @@ func pruneCloneVolume(
 	}
 	report.PrunedCloneVolumes++
 	report.Details = append(report.Details, StaleEntry{
-		Type:     StaleTypeVolume,
+		Type:     staleTypeVolume,
 		Name:     cv,
 		Slug:     slug,
 		StaleFor: 0,
@@ -718,7 +718,7 @@ func removeHomeVolumes(
 		}
 		report.PrunedVolumes++
 		report.Details = append(report.Details, StaleEntry{
-			Type:     StaleTypeVolume,
+			Type:     staleTypeVolume,
 			Name:     volName,
 			Slug:     slug,
 			StaleFor: 0,
@@ -726,7 +726,7 @@ func removeHomeVolumes(
 		})
 	}
 	if !dryRun {
-		if err := RemoveState(slug); err != nil {
+		if err := removeState(slug); err != nil {
 			ui.Warnf("failed to remove state file for slug %s: %v", slug, err)
 		}
 	}
@@ -750,7 +750,7 @@ func removeMSBImages(
 		}
 		report.PrunedMSBImages++
 		report.Details = append(report.Details, StaleEntry{
-			Type:     StaleTypeMsbImage,
+			Type:     staleTypeMsbImage,
 			Name:     img.ref,
 			Slug:     slug,
 			StaleFor: 0,
@@ -781,7 +781,7 @@ func removeDockerImages(
 		}
 		report.PrunedDockerImages++
 		report.Details = append(report.Details, StaleEntry{
-			Type:     StaleTypeDockerImage,
+			Type:     staleTypeDockerImage,
 			Name:     img.ref,
 			Slug:     slug,
 			StaleFor: 0,

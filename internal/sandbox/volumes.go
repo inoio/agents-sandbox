@@ -7,7 +7,6 @@ import (
 	"strconv"
 	"time"
 
-	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/msb"
 	"gitlab.inoio.de/inoio/opencode-msb/internal/termio"
 
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
@@ -24,7 +23,7 @@ const (
 	actionResetLabel   = "reset"
 )
 
-func HomeVolumeName(projectSlug string, digest string) string { //nolint:revive // digest retained for API compatibility
+func homeVolumeName(projectSlug string, _ string) string {
 	ts := time.Now().UTC().Format("20060102T150405")
 	return homePrefix + projectSlug + "-" + ts
 }
@@ -33,40 +32,8 @@ type VolumeManager struct {
 	ui termio.UI
 }
 
-func NewVolumeManager(ui termio.UI) *VolumeManager {
+func newVolumeManager(ui termio.UI) *VolumeManager {
 	return &VolumeManager{ui: ui}
-}
-
-func (vm *VolumeManager) EnsureHome(
-	ctx context.Context,
-	projectSlug, imageDigest, imageTag string,
-	opts RunOptions,
-	ui termio.UI,
-) (string, error) {
-	client := msb.Get()
-	name := HomeVolumeName(projectSlug, imageDigest)
-
-	_, err := client.GetVolume(ctx, name)
-	if err == nil {
-		return name, nil
-	}
-
-	vol, err := client.CreateVolume(ctx, name,
-		msbSdk.WithVolumeKind(msbSdk.VolumeKindDir),
-	)
-	if err != nil {
-		return "", fmt.Errorf("create volume %s: %w", name, err)
-	}
-
-	if !opts.DryRunVM {
-		if err := vm.prefillVolume(ctx, client, projectSlug, vol.Name(), imageTag, ui); err != nil {
-			return "", err
-		}
-	} else {
-		vm.ui.Infof("dry-run: Would prefill home volume")
-	}
-
-	return name, nil
 }
 
 func (vm *VolumeManager) prefillVolume(
@@ -112,17 +79,17 @@ func (vm *VolumeManager) prefillVolume(
 	return nil
 }
 
-// ResolveHomeVolume checks the state file for an existing volume reference.
+// resolveHomeVolume checks the state file for an existing volume reference.
 // If found and the volume still exists, returns the volume name and state.
 // If not found or the volume does not exist, falls through to ensureNewHome.
-func (vm *VolumeManager) ResolveHomeVolume(
+func (vm *VolumeManager) resolveHomeVolume(
 	ctx context.Context,
 	client MsbClient,
 	projectSlug, imageDigest, imageTag string,
 	opts RunOptions,
 	ui termio.UI,
 ) (string, HomeState, error) {
-	state, err := ReadState(projectSlug)
+	state, err := readState(projectSlug)
 	if err != nil {
 		if !errors.Is(err, ErrStateNotFound) {
 			ui.Warnf("corrupted state file, creating fresh home volume")
@@ -147,7 +114,7 @@ func (vm *VolumeManager) ensureNewHome(
 	opts RunOptions,
 	ui termio.UI,
 ) (string, HomeState, error) {
-	volName := HomeVolumeName(projectSlug, "")
+	volName := homeVolumeName(projectSlug, "")
 	vol, err := client.CreateVolume(ctx, volName,
 		msbSdk.WithVolumeKind(msbSdk.VolumeKindDir),
 	)
@@ -175,12 +142,12 @@ func (vm *VolumeManager) ensureNewHome(
 	return volName, state, nil
 }
 
-// RecordHomeImage updates the stored image digest for a project to the
+// recordHomeImage updates the stored image digest for a project to the
 // current digest, preserving the tracked home volume. It is called after the
 // image-change prompt so subsequent runs no longer detect a mismatch and do
 // not re-prompt. Missing state is a no-op.
-func (vm *VolumeManager) RecordHomeImage(projectSlug, currentDigest string, ui termio.UI) error {
-	state, err := ReadState(projectSlug)
+func (vm *VolumeManager) recordHomeImage(projectSlug, currentDigest string, ui termio.UI) error {
+	state, err := readState(projectSlug)
 	if err != nil {
 		if errors.Is(err, ErrStateNotFound) {
 			return nil
@@ -206,7 +173,7 @@ func actionLabel(action string) string {
 	return "keep"
 }
 
-// ApplyHomeAction executes the migrate/reset action the user chose, always
+// applyHomeAction executes the migrate/reset action the user chose, always
 // keeping the old volume. It returns the home volume to mount for this run.
 //
 // State is only written when the action actually executes successfully; a real
@@ -215,7 +182,7 @@ func actionLabel(action string) string {
 // digest. Both --dry-run and --dry-run-vm simulate the action without changing
 // state: --dry-run performs no writes at all, and --dry-run-vm additionally
 // never spawns a VM, so the chosen action is left uncommitted.
-func (vm *VolumeManager) ApplyHomeAction(
+func (vm *VolumeManager) applyHomeAction(
 	ctx context.Context,
 	client MsbClient,
 	projectSlug, oldVolume, imageTag, currentDigest, action string,
@@ -226,7 +193,7 @@ func (vm *VolumeManager) ApplyHomeAction(
 		if opts.DryRun {
 			return oldVolume, nil
 		}
-		if err := vm.RecordHomeImage(projectSlug, currentDigest, ui); err != nil {
+		if err := vm.recordHomeImage(projectSlug, currentDigest, ui); err != nil {
 			ui.Warnf("failed to record image digest: %v", err)
 		}
 		return oldVolume, nil
@@ -242,7 +209,7 @@ func (vm *VolumeManager) ApplyHomeAction(
 		return oldVolume, nil
 	}
 
-	newVol, err := client.CreateVolume(ctx, HomeVolumeName(projectSlug, ""),
+	newVol, err := client.CreateVolume(ctx, homeVolumeName(projectSlug, ""),
 		msbSdk.WithVolumeKind(msbSdk.VolumeKindDir),
 	)
 	if err != nil {
@@ -326,11 +293,11 @@ func (vm *VolumeManager) copyVolume(
 	return nil
 }
 
-// ResolveHomeAction compares the stored image digest with the current one.
+// resolveHomeAction compares the stored image digest with the current one.
 // If they match, returns actionKeep immediately.
 // If they differ, presents a prompt: keep/migrate/reset/quit.
 // In non-interactive mode or with --yes, defaults to actionKeep.
-func (vm *VolumeManager) ResolveHomeAction(
+func (vm *VolumeManager) resolveHomeAction(
 	ui termio.UI,
 	storedDigest, currentDigest string,
 ) string {

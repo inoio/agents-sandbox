@@ -31,7 +31,7 @@ func TestDeepMergeNested(t *testing.T) {
 		"a": map[string]any{"y": 99, "z": 3},
 		"c": "new",
 	}
-	result := DeepMerge(base, override)
+	result := deepMerge(base, override)
 	a := result["a"].(map[string]any)
 	if a["x"] != 1 {
 		t.Errorf("expected x=1 (from base), got %v", a["x"])

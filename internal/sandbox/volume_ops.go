@@ -68,12 +68,12 @@ func CmdMigrate(
 		dryRun: func(oldVolume string) string {
 			return fmt.Sprintf(
 				"dry-run: Would create volume %q, copy files from %q",
-				HomeVolumeName(projectSlug, ""),
+				homeVolumeName(projectSlug, ""),
 				oldVolume,
 			)
 		},
 		main: func(oldVolume, newVolumeName string) error {
-			if err := NewVolumeManager(ui).copyVolume(
+			if err := newVolumeManager(ui).copyVolume(
 				ctx, msb.Get(), projectSlug, oldVolume, newVolumeName, imageTag, ui,
 			); err != nil {
 				return err
@@ -95,7 +95,7 @@ func CmdReset(
 		dryRun: func(oldVolume string) string {
 			return fmt.Sprintf(
 				"dry-run: Would create fresh volume %q, remove %q",
-				HomeVolumeName(projectSlug, ""),
+				homeVolumeName(projectSlug, ""),
 				oldVolume,
 			)
 		},
@@ -117,7 +117,7 @@ func CmdEdit(
 		dryRun: func(oldVolume string) string {
 			return fmt.Sprintf(
 				"dry-run: Would create volume %q alongside %q for manual transfer",
-				HomeVolumeName(projectSlug, ""),
+				homeVolumeName(projectSlug, ""),
 				oldVolume,
 			)
 		},
@@ -169,7 +169,7 @@ func volumeOp(
 ) error {
 	client := msb.Get()
 
-	state, err := ReadState(projectSlug)
+	state, err := readState(projectSlug)
 	if err != nil {
 		if errors.Is(err, ErrStateNotFound) {
 			return fmt.Errorf("no state file found for project %q", projectSlug)
@@ -194,7 +194,7 @@ func volumeOp(
 		return nil
 	}
 
-	newVolumeName := HomeVolumeName(projectSlug, "")
+	newVolumeName := homeVolumeName(projectSlug, "")
 	newVol, err := client.CreateVolume(ctx, newVolumeName,
 		msbSdk.WithVolumeKind(msbSdk.VolumeKindDir),
 	)
@@ -202,7 +202,7 @@ func volumeOp(
 		return fmt.Errorf("create volume %s: %w", newVolumeName, err)
 	}
 
-	vm := NewVolumeManager(ui)
+	vm := newVolumeManager(ui)
 	if err := vm.prefillVolume(ctx, client, projectSlug, newVol.Name(), imageTag, ui); err != nil {
 		return fmt.Errorf("prefill new volume: %w", err)
 	}
