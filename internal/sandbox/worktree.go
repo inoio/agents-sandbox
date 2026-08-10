@@ -132,51 +132,59 @@ func findWorktreeDir(listStdout string, slug string) (string, bool) {
 	return "", false
 }
 
-// ResolveTarget returns the --dir target for opencode attach. No branch →
-// /workspace. With a branch → reuse an opencode worktree via the daemon's HTTP
-// API when one already exists for the branch, otherwise create a new one, and
-// return its directory path.
+// ResolveTarget returns the --dir target for opencode attach. An empty spec →
+// /workspace. With a name → reuse an existing opencode worktree via the
+// daemon's HTTP API when one already exists for that name, otherwise create
+// a new one and return its directory path. When a base is present on an
+// existing (reused) worktree the base is silently ignored with a warning.
+// When a base is present on a fresh create the base is validated
+// (no fetch) and the create body carries a `git reset --hard <base>`
+// startCommand via the buildWorktreeCreateBody helper.
 func ResolveTarget(
 	ctx context.Context,
 	sb Sandbox,
-	branch string,
+	spec WorktreeSpec,
 	ui termio.UI,
 ) (string, error) {
-	if branch == "" {
+	if spec.Name == "" {
 		return resolveTargetNoBranch(), nil
 	}
 
-	slug := slugify(branch)
-
-	// Reuse an existing worktree for this branch, if any. The create endpoint
-	// is NOT idempotent by name: it always mints a fresh worktree (appending a
-	// random suffix on collision), so re-issuing create would leak new
-	// worktrees on every run.
-	ui.Verbosef("checking for an existing worktree for branch %q", branch)
+	ui.Verbosef("checking for an existing worktree %q", spec.Name)
 	listOut, err := sb.Shell(ctx, buildWorktreeListCmd())
 	if err != nil {
-		return "", fmt.Errorf("list worktrees for %q: %w", branch, err)
+		return "", fmt.Errorf("list worktrees for %q: %w", spec.Name, err)
 	}
 	if listOut.Success() {
-		if dir, ok := findWorktreeDir(listOut.Stdout(), slug); ok {
-			ui.Verbosef("reusing existing worktree for %q: %s", branch, dir)
+		if dir, ok := findWorktreeDir(listOut.Stdout(), spec.Name); ok {
+			if spec.Base != "" {
+				ui.Warnf("worktree %q already exists; ignoring base %q", spec.Name, spec.Base)
+			}
+			ui.Verbosef("reusing existing worktree %q: %s", spec.Name, dir)
 			return dir, nil
 		}
 	}
 
-	ui.Verbosef("creating worktree for branch %q", branch)
-	out, err := sb.Shell(ctx, buildWorktreeCreateCmd(WorktreeSpec{Name: branch, Base: ""}))
+	ui.Verbosef("creating worktree %q", spec.Name)
+	out, err := sb.Shell(ctx, buildWorktreeCreateCmd(spec))
 	if err != nil {
-		return "", fmt.Errorf("create worktree %q: %w", branch, err)
+		return "", fmt.Errorf("create worktree %q: %w", spec.Name, err)
 	}
 	if !out.Success() {
-		return "", fmt.Errorf("create worktree %q failed (exit %d): %s", branch, out.ExitCode(), out.Stderr())
+		return "", fmt.Errorf("create worktree %q failed (exit %d): %s", spec.Name, out.ExitCode(), out.Stderr())
 	}
 
 	dir, err := parseWorktreeResponse(out.Stdout())
 	if err != nil {
-		return "", fmt.Errorf("parse worktree response for %q: %w", branch, err)
+		return "", fmt.Errorf("parse worktree response for %q: %w", spec.Name, err)
 	}
-	ui.Verbosef("worktree for %q: %s", branch, dir)
+
+	if spec.Base != "" {
+		if err := validateWorktreeBase(ctx, sb, dir, spec.Base); err != nil {
+			return "", fmt.Errorf("worktree %q: %w", spec.Name, err)
+		}
+	}
+
+	ui.Verbosef("worktree for %q: %s", spec.Name, dir)
 	return dir, nil
 }
