@@ -141,10 +141,9 @@ opencode-msb prune --force               # skip confirmation
 
 Pruning removes:
 
-- Stale VMs (stopped/crashed beyond the age threshold)
-- Orphaned home volumes
-- Unused Docker images
-- Unused msb images
+- Stale VMs (stopped/crashed beyond the age threshold) and everything they reference
+- Orphaned artifacts: home volumes, msb images, and Docker images whose project has no VM at all
+- Surplus images for a project that still has a VM: digests other than the VM's current image and `:latest`
 - Stale clone volumes
 
 Auto-pruning runs before every command via `sync.Once`. It uses a fixed default threshold of 30 days unless

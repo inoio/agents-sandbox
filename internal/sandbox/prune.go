@@ -156,20 +156,9 @@ func buildCatalog(ctx context.Context, client MsbClient, threshold time.Duration
 		}
 
 		if strings.HasPrefix(name, vmPrefix) {
-			status := h.Status()
-			if isStoppedStatus(status) {
-				staleVMs = append(staleVMs, staleVM{
-					name:      name,
-					status:    status,
-					updatedAt: h.UpdatedAt(),
-					image:     "",
-				})
-				continue
-			}
-			// Active VM: extract image ref for digest tracking.
 			staleVMs = append(staleVMs, staleVM{
 				name:      name,
-				status:    status,
+				status:    h.Status(),
 				updatedAt: h.UpdatedAt(),
 				image:     h.Image(),
 			})
@@ -240,7 +229,9 @@ func buildCatalog(ctx context.Context, client MsbClient, threshold time.Duration
 	// Collect stale VMs and active VM digests for later reference in prune phases.
 	catalog.StaleVMs = append(catalog.StaleVMs, staleEntries...)
 
-	// Collect active VM digests (non-stale VMs with a digest).
+	// Collect active VM digests (non-stale VMs with a digest). Stopped-but-not
+	// stale VMs are included so their artifact directories are cascaded before
+	// they age into staleness; this keeps the running image around for quick restarts.
 	for _, vm := range staleVMs {
 		slug, _ := extractProjectSlugAndDigest(vm.name)
 		// Already-stale VMs: skip here to avoid collision with stale slugs.
