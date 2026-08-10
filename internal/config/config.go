@@ -19,14 +19,14 @@ func LoadProviderConfig(data []byte) (map[string]any, error) {
 	return cfg, nil
 }
 
-func DeepMerge(base, override map[string]any) map[string]any {
+func deepMerge(base, override map[string]any) map[string]any {
 	result := make(map[string]any, len(base))
 	maps.Copy(result, base)
 	for k, v := range override {
 		if existing, ok := result[k]; ok {
 			if existingMap, ok := existing.(map[string]any); ok {
 				if overrideMap, ok := v.(map[string]any); ok {
-					result[k] = DeepMerge(existingMap, overrideMap)
+					result[k] = deepMerge(existingMap, overrideMap)
 					continue
 				}
 			}
@@ -68,7 +68,7 @@ func scanJSONFiles(dirs ...string) map[string]map[string]any {
 				continue
 			}
 			name := entry.Name()
-			files[name] = DeepMerge(files[name], cfg)
+			files[name] = deepMerge(files[name], cfg)
 		}
 	}
 	return files
@@ -159,7 +159,7 @@ func BuildMergedConfig(userDir, projectDir string, providerConfig map[string]any
 	for name, cfg := range jsonFiles {
 		var merged map[string]any
 		if name == "opencode.jsonc" || name == "opencode.json" {
-			merged = DeepMerge(providerConfig, cfg)
+			merged = deepMerge(providerConfig, cfg)
 		} else {
 			merged = cfg
 		}

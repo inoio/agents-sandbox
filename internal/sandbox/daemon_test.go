@@ -79,7 +79,7 @@ func TestEnsureDaemonStartsWhenUnhealthy(t *testing.T) {
 	t.Cleanup(func() { daemonPollInterval = 2 * time.Second })
 	daemonPollInterval = 10 * time.Millisecond
 
-	err := EnsureDaemon(context.Background(), nil, &testUI)
+	err := ensureDaemon(context.Background(), nil, &testUI)
 	if err != nil {
 		t.Fatalf("EnsureDaemon failed: %v", err)
 	}
@@ -109,7 +109,7 @@ func TestEnsureDaemonFailsAfterTimeout(t *testing.T) {
 	t.Cleanup(func() { daemonPollInterval = 2 * time.Second })
 	daemonPollInterval = 1 * time.Millisecond
 
-	err := EnsureDaemon(context.Background(), nil, &testUI)
+	err := ensureDaemon(context.Background(), nil, &testUI)
 	if err == nil {
 		t.Fatal("expected error after timeout")
 	}

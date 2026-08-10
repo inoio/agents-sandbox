@@ -23,27 +23,27 @@ import (
 
 func TestReferencesBaseDetectsBaseImage(t *testing.T) {
 	dockerfile := []byte("FROM opencode-msb/runner-base:latest\nRUN echo hi\n")
-	if !ReferencesBase(dockerfile) {
+	if !referencesBase(dockerfile) {
 		t.Error("expected ReferencesBase=true for Dockerfile with base FROM")
 	}
 }
 
 func TestReferencesBaseReturnsFalseForOtherImage(t *testing.T) {
 	dockerfile := []byte("FROM debian:trixie-slim\nRUN echo hi\n")
-	if ReferencesBase(dockerfile) {
+	if referencesBase(dockerfile) {
 		t.Error("expected ReferencesBase=false for non-base Dockerfile")
 	}
 }
 
 func TestReferencesBaseIgnoresComments(t *testing.T) {
 	dockerfile := []byte("# FROM opencode-msb/runner-base:latest\nFROM debian:trixie-slim\n")
-	if ReferencesBase(dockerfile) {
+	if referencesBase(dockerfile) {
 		t.Error("expected ReferencesBase=false for commented FROM")
 	}
 }
 
 func TestImageTag(t *testing.T) {
-	got := ImageTag("myproj-aBc1234D", "sha256:abc123def456")
+	got := imageTag("myproj-aBc1234D", "sha256:abc123def456")
 	expected := "opencode-msb/runner-myproj-aBc1234D:3k5q07ywpibwp5"
 	if got != expected {
 		t.Errorf("expected %q, got %q", expected, got)
@@ -81,7 +81,7 @@ func TestEnsureImageReturnsErrorWhenBuildFails(t *testing.T) {
 	_, _, _, err := ensureImageWithClient(
 		context.Background(),
 		&MockMsbClient{},
-		EmbeddedDockerfile,
+		embeddedDockerfile,
 		"test-project",
 		true,
 		l,
@@ -92,61 +92,61 @@ func TestEnsureImageReturnsErrorWhenBuildFails(t *testing.T) {
 }
 
 func TestEmbeddedDindDockerfileIsNonEmpty(t *testing.T) {
-	if len(EmbeddedDindDockerfile) == 0 {
+	if len(embeddedDindDockerfile) == 0 {
 		t.Error("expected EmbeddedDindDockerfile to be non-empty")
 	}
 }
 
 func TestReferencesDindBaseDetectsDindImage(t *testing.T) {
 	dockerfile := []byte("FROM opencode-msb/runner-base-dind:latest\nRUN echo hi\n")
-	if !ReferencesDindBase(dockerfile) {
+	if !referencesDindBase(dockerfile) {
 		t.Error("expected ReferencesDindBase=true for Dockerfile with dind FROM")
 	}
 }
 
 func TestReferencesDindBaseReturnsFalseForPlainBase(t *testing.T) {
 	dockerfile := []byte("FROM opencode-msb/runner-base:latest\nRUN echo hi\n")
-	if ReferencesDindBase(dockerfile) {
+	if referencesDindBase(dockerfile) {
 		t.Error("expected ReferencesDindBase=false for plain base Dockerfile")
 	}
 }
 
 func TestReferencesDindBaseReturnsFalseForOtherImage(t *testing.T) {
 	dockerfile := []byte("FROM debian:trixie-slim\nRUN echo hi\n")
-	if ReferencesDindBase(dockerfile) {
+	if referencesDindBase(dockerfile) {
 		t.Error("expected ReferencesDindBase=false for non-base Dockerfile")
 	}
 }
 
 func TestReferencesDindBaseIgnoresComments(t *testing.T) {
 	dockerfile := []byte("# FROM opencode-msb/runner-base-dind:latest\nFROM debian:trixie-slim\n")
-	if ReferencesDindBase(dockerfile) {
+	if referencesDindBase(dockerfile) {
 		t.Error("expected ReferencesDindBase=false for commented FROM")
 	}
 }
 
 func TestReferencesBaseReturnsFalseForDindImage(t *testing.T) {
 	dockerfile := []byte("FROM opencode-msb/runner-base-dind:latest\nRUN echo hi\n")
-	if ReferencesBase(dockerfile) {
+	if referencesBase(dockerfile) {
 		t.Error("expected ReferencesBase=false for dind Dockerfile (no false positive)")
 	}
 }
 
 func TestEnsureImageBuildsDindBaseWhenDockerfileReferencesDind(t *testing.T) {
 	dockerfile := []byte("FROM opencode-msb/runner-base-dind:latest\nRUN echo hi\n")
-	wantTags := []string{BaseTag, DindBaseTag, "opencode-msb/runner-test-project:latest"}
+	wantTags := []string{baseTag, dindBaseTag, "opencode-msb/runner-test-project:latest"}
 	runEnsureImageTagTest(t, dockerfile, false, wantTags)
 }
 
 func TestEnsureImageDoesNotBuildDindForPlainBase(t *testing.T) {
 	dockerfile := []byte("FROM opencode-msb/runner-base:latest\nRUN echo hi\n")
-	wantTags := []string{BaseTag, "opencode-msb/runner-test-project:latest"}
+	wantTags := []string{baseTag, "opencode-msb/runner-test-project:latest"}
 	runEnsureImageTagTest(t, dockerfile, false, wantTags)
 }
 
 func TestEnsureImageDoesNotBuildDindOnForceWithoutReference(t *testing.T) {
 	dockerfile := []byte("FROM debian:trixie-slim\nRUN echo hi\n")
-	wantTags := []string{BaseTag, "opencode-msb/runner-test-project:latest"}
+	wantTags := []string{baseTag, "opencode-msb/runner-test-project:latest"}
 	runEnsureImageTagTest(t, dockerfile, true, wantTags)
 }
 

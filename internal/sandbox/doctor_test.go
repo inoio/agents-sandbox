@@ -15,7 +15,7 @@ func TestCheckDockerLogsUnderlyingError(t *testing.T) {
 	testUI := testutil.TermUIMock(t)
 
 	t.Setenv("PATH", "/nonexistent")
-	if CheckDocker(&testUI) {
+	if checkDocker(&testUI) {
 		t.Fatal("expected CheckDocker to return false when docker is not on PATH")
 	}
 
@@ -61,7 +61,7 @@ func TestCheckMsbEnsureInstalledErrorSurfacesErrorWithoutInstallHint(t *testing.
 	t.Cleanup(func() { ensureInstalled = prev })
 	ensureInstalled = func(context.Context) error { return errors.New("network unreachable") }
 
-	if CheckMsb(context.Background(), &testUI) {
+	if checkMsb(context.Background(), &testUI) {
 		t.Fatal("expected CheckMsb to return false when ensureInstalled fails")
 	}
 	var out []string
@@ -93,7 +93,7 @@ func TestCheckMsbOnPathReturnsTrueSilently(t *testing.T) {
 	}
 	t.Setenv("PATH", dir)
 
-	if !CheckMsb(context.Background(), &testUI) {
+	if !checkMsb(context.Background(), &testUI) {
 		t.Fatal("expected CheckMsb to return true when msb is on PATH")
 	}
 	if len(testUI.ErrorCalls)+len(testUI.WarnCalls)+len(testUI.InfoCalls) != 0 {
@@ -123,7 +123,7 @@ func TestCheckMsbNotOnPathExtendsPathAndReturnsTrue(t *testing.T) {
 	t.Setenv("SHELL", "/bin/zsh")
 	t.Setenv("PATH", "/nonexistent")
 
-	if !CheckMsb(context.Background(), &testUI) {
+	if !checkMsb(context.Background(), &testUI) {
 		t.Fatal("expected CheckMsb to return true when msb is installed but not on PATH")
 	}
 	out := make([]string, 0, len(testUI.WarnCalls)+len(testUI.InfoCalls))
@@ -155,7 +155,7 @@ func TestCheckMsbNotOnPathAndBinaryMissingReturnsFalse(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	t.Setenv("PATH", "/nonexistent")
 
-	if CheckMsb(context.Background(), &testUI) {
+	if checkMsb(context.Background(), &testUI) {
 		t.Fatal("expected CheckMsb to return false when msb binary is missing")
 	}
 	var out []string

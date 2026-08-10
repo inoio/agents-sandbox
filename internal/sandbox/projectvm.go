@@ -132,14 +132,14 @@ func summarizeConflicts(cs []msbSdk.ModificationConflict) string {
 	return strings.Join(b, "; ")
 }
 
-// EnsureProjectVM returns a live *Sandbox for the project VM. The boolean
+// ensureProjectVM returns a live *Sandbox for the project VM. The boolean
 // return is true when the VM was created fresh (first boot or recreation
 // after an image change); false when an existing VM was reused (connect or
 // start). A per-project host-side flock guards the first-boot race between
 // concurrent invocations.
 //
 //nolint:gocognit,funlen,gocyclo,cyclop // Complex lifecycle logic with multiple paths (connect, start, create) is inherently complex
-func EnsureProjectVM(
+func ensureProjectVM(
 	ctx context.Context,
 	opts RunOptions,
 	cfg Config,
@@ -332,15 +332,15 @@ func createProjectVM(
 	maxMemoryGiB := sysinfo.TotalMemoryGiB()
 
 	envMap := mergeEnvMaps(
-		buildEnvMap(cfg.UserEnvFile()),
-		buildEnvMap(ProjectEnvFile()),
+		buildEnvMap(cfg.userEnvFile()),
+		buildEnvMap(projectEnvFile()),
 	)
 	ui.Verbosef("adding docker env definitions to project VM environment: %s", imageEnvs)
 	buildProjectVMEnv(envMap, imageEnvs)
 
-	secrets := BuildSecrets(mergeEnvMaps(
-		buildEnvMap(cfg.UserEnvSecretFile()),
-		buildEnvMap(ProjectEnvSecretFile()),
+	secrets := buildSecrets(mergeEnvMaps(
+		buildEnvMap(cfg.userEnvSecretFile()),
+		buildEnvMap(projectEnvSecretFile()),
 	), ui)
 
 	mounts := buildMounts(homeVol, repoPath, resolveTmpSizeMiB(opts.TmpSize))

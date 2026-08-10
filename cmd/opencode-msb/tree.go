@@ -101,12 +101,12 @@ func formatFlagName(f *pflag.Flag) string {
 	return b.String()
 }
 
-func argsFromAnnotations(cmd *cobra.Command) []NamedArg {
+func argsFromAnnotations(cmd *cobra.Command) []namedArg {
 	raw, ok := cmd.Annotations[annotationArgs]
 	if !ok || raw == "" {
 		return nil
 	}
-	var args []NamedArg
+	var args []namedArg
 	if err := json.Unmarshal([]byte(raw), &args); err != nil {
 		return nil
 	}

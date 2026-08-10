@@ -3,7 +3,7 @@ package sandbox
 import _ "embed"
 
 //go:embed data/Dockerfile
-var EmbeddedDockerfile []byte
+var embeddedDockerfile []byte
 
 //go:embed data/Dockerfile.dind
-var EmbeddedDindDockerfile []byte
+var embeddedDindDockerfile []byte

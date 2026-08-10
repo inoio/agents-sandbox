@@ -310,7 +310,7 @@ func TestSetUpSandboxProvisionsConfigOnFreshSetup(t *testing.T) {
 	})
 	defer SetDaemonShellFunc(origDaemon)
 
-	fs := NewTestFS(nil, nil)
+	fs := newTestFS(nil, nil)
 	sb := &MockSandbox{Name_: "test-vm", FSValue_: fs}
 
 	userDir := t.TempDir()
@@ -348,7 +348,7 @@ func TestSetUpSandboxProvisionsConfigOnReuseWithEmptyDir(t *testing.T) {
 	})
 	defer SetDaemonShellFunc(origDaemon)
 
-	fs := NewTestFS(nil, nil) // empty FS simulates reused VM with empty config dir
+	fs := newTestFS(nil, nil) // empty FS simulates reused VM with empty config dir
 	sb := &MockSandbox{Name_: "test-vm", FSValue_: fs}
 
 	userDir := t.TempDir()
@@ -457,7 +457,7 @@ func TestRestartDaemonsRestartsServeAndDockerd(t *testing.T) {
 	})
 	defer SetDaemonShellFunc(savedShell)
 
-	fs := NewTestFS(nil, nil)
+	fs := newTestFS(nil, nil)
 	sb := &MockSandbox{
 		Name_:      "vm",
 		FSValue_:   fs,
@@ -530,7 +530,7 @@ func TestSetUpSandboxAppliesEnvSecretsOnReuseRestart(t *testing.T) {
 }
 
 func TestSetUpSandboxRestartsDaemonsOnReuseDecision(t *testing.T) {
-	var commands []string{}
+	var commands []string
 	orig := SetDaemonShellFunc(func(_ context.Context, _ Sandbox, command string) (string, int, error) {
 		commands = append(commands, command)
 		if command == "curl -sfm2 "+daemonHealthURL {

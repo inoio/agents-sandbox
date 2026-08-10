@@ -479,12 +479,6 @@ func NewTestFS(files map[string][]byte, ls []msbSdk.FsEntry) *TestFS {
 	return &TestFS{Contents: files, LS: ls}
 }
 
-// SetReadErr configures Read/ReadStream/String to return the given error.
-func (t *TestFS) SetReadErr(err error) *TestFS { t.ReadErr = err; return t }
-
-// SetListErr configures List to return the given error.
-func (t *TestFS) SetListErr(err error) *TestFS { t.ListErr = err; return t }
-
 func (t *TestFS) Exists(_ context.Context, path string) (bool, error) {
 	_, ok := t.Contents[path]
 	return ok, nil
@@ -601,10 +595,4 @@ func ResetGetFn(f func() Client) func() Client {
 	old := Get
 	Get = f
 	return old
-}
-
-// WithNoopMsbMock replaces Get with a MockMsbClient where every method succeeds.
-func WithNoopMsbMock(t *testing.T) {
-	//nolint:exhaustruct // zero value is intentionally minimal
-	WithMsbMock(t, &MockMsbClient{})
 }

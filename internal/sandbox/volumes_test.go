@@ -16,7 +16,7 @@ import (
 )
 
 func TestHomeVolumeName(t *testing.T) {
-	got := HomeVolumeName("myproj-aBc1234D", "")
+	got := homeVolumeName("myproj-aBc1234D", "")
 	expectedPrefix := "opencode-msb-home-myproj-aBc1234D-"
 	if !strings.HasPrefix(got, expectedPrefix) {
 		t.Errorf("expected prefix %q, got %q", expectedPrefix, got)
@@ -28,7 +28,7 @@ func TestHomeVolumeName(t *testing.T) {
 }
 
 func TestHomeVolumeNameDifferentInputs(t *testing.T) {
-	got := HomeVolumeName("myproj-aBc1234D", "sha256:abc123def456")
+	got := homeVolumeName("myproj-aBc1234D", "sha256:abc123def456")
 	if !strings.HasPrefix(got, "opencode-msb-home-myproj-aBc1234D-") {
 		t.Errorf("unexpected name format: %q", got)
 	}
@@ -36,7 +36,7 @@ func TestHomeVolumeNameDifferentInputs(t *testing.T) {
 
 func TestHomeVolumeNameTimestamp(t *testing.T) {
 	before := time.Now().UTC().Add(-time.Second)
-	got := HomeVolumeName("myproject", "")
+	got := homeVolumeName("myproject", "")
 	after := time.Now().UTC().Add(time.Second)
 
 	if !strings.HasPrefix(got, "opencode-msb-home-myproject-") {
@@ -56,9 +56,9 @@ func TestHomeVolumeNameTimestamp(t *testing.T) {
 }
 
 func TestHomeVolumeNameDigestIgnored(t *testing.T) {
-	got1 := HomeVolumeName("proj", "sha256:abc123")
-	got2 := HomeVolumeName("proj", "")
-	got3 := HomeVolumeName("proj", "different")
+	got1 := homeVolumeName("proj", "sha256:abc123")
+	got2 := homeVolumeName("proj", "")
+	got3 := homeVolumeName("proj", "different")
 	if !strings.HasPrefix(got1, "opencode-msb-home-proj-") {
 		t.Errorf("got1 prefix wrong: %q", got1)
 	}
@@ -72,7 +72,7 @@ func TestHomeVolumeNameDigestIgnored(t *testing.T) {
 
 func TestNewVolumeManager(t *testing.T) {
 	testUI := testutil.TermUIMock(t)
-	vm := NewVolumeManager(&testUI)
+	vm := newVolumeManager(&testUI)
 	if vm.ui == nil {
 		t.Error("expected ui to be set")
 	}
@@ -82,7 +82,7 @@ func TestPrefillVolumeRunsCopyCommand(t *testing.T) {
 	testUI := testutil.TermUIMock(t)
 	ui := &testUI
 	client := &MockMsbClient{}
-	vm := NewVolumeManager(ui)
+	vm := newVolumeManager(ui)
 
 	err := vm.prefillVolume(
 		context.Background(),
@@ -105,8 +105,8 @@ func TestPrefillVolumeRunsCopyCommand(t *testing.T) {
 
 func TestResolveHomeAction_SameDigestReturnsKeep(t *testing.T) {
 	ui := testutil.TermUIMock(t)
-	vm := NewVolumeManager(&ui)
-	action := vm.ResolveHomeAction(&ui, "same-digest", "same-digest")
+	vm := newVolumeManager(&ui)
+	action := vm.resolveHomeAction(&ui, "same-digest", "same-digest")
 	if action != actionKeep {
 		t.Errorf("expected actionKeep for matching digests, got %q", action)
 	}
@@ -115,8 +115,8 @@ func TestResolveHomeAction_SameDigestReturnsKeep(t *testing.T) {
 func TestResolveHomeAction_DifferentDigestInNonInteractiveReturnsKeep(t *testing.T) {
 	ui := testutil.TermUIMock(t)
 	ui.IsInteractiveResult = false
-	vm := NewVolumeManager(&ui)
-	action := vm.ResolveHomeAction(&ui, "old", "new")
+	vm := newVolumeManager(&ui)
+	action := vm.resolveHomeAction(&ui, "old", "new")
 	if action != actionKeep {
 		t.Errorf("expected actionKeep in non-interactive mode, got %q", action)
 	}
@@ -135,8 +135,8 @@ func TestResolveHomeAction_DifferentDigestInInteractivePrompt(t *testing.T) {
 			return actionMigrate, nil
 		},
 	}
-	vm := NewVolumeManager(ui)
-	action := vm.ResolveHomeAction(ui, "old", "new")
+	vm := newVolumeManager(ui)
+	action := vm.resolveHomeAction(ui, "old", "new")
 	if action != actionMigrate {
 		t.Errorf("expected actionMigrate, got %q", action)
 	}
@@ -149,8 +149,8 @@ func TestResolveHomeAction_ActionQuitReturnsQuit(t *testing.T) {
 			return actionQuit, nil
 		},
 	}
-	vm := NewVolumeManager(ui)
-	action := vm.ResolveHomeAction(ui, "old", "new")
+	vm := newVolumeManager(ui)
+	action := vm.resolveHomeAction(ui, "old", "new")
 	if action != actionQuit {
 		t.Errorf("expected actionQuit, got %q", action)
 	}
@@ -164,12 +164,12 @@ func TestRecordHomeImage_UpdatesDigestInState(t *testing.T) {
 		ImageDigest: "sha256:old",
 	})
 
-	vm := NewVolumeManager(&termio.Mock{})
-	if err := vm.RecordHomeImage("myproj", "sha256:new", &termio.Mock{}); err != nil {
+	vm := newVolumeManager(&termio.Mock{})
+	if err := vm.recordHomeImage("myproj", "sha256:new", &termio.Mock{}); err != nil {
 		t.Fatalf("RecordHomeImage: %v", err)
 	}
 
-	state, err := ReadState("myproj")
+	state, err := readState("myproj")
 	if err != nil {
 		t.Fatalf("ReadState: %v", err)
 	}
@@ -184,8 +184,8 @@ func TestRecordHomeImage_UpdatesDigestInState(t *testing.T) {
 func TestRecordHomeImage_MissingStateIsNoop(t *testing.T) {
 	SetStateDirForTest(t, t.TempDir()+"/opencode-msb")
 
-	vm := NewVolumeManager(&termio.Mock{})
-	if err := vm.RecordHomeImage("nosuchproj", "sha256:new", &termio.Mock{}); err != nil {
+	vm := newVolumeManager(&termio.Mock{})
+	if err := vm.recordHomeImage("nosuchproj", "sha256:new", &termio.Mock{}); err != nil {
 		t.Fatalf("RecordHomeImage should not error on missing state, got: %v", err)
 	}
 }
@@ -194,7 +194,7 @@ func TestApplyHomeAction_KeepReturnsOldVolume(t *testing.T) {
 	SetStateDirForTest(t, t.TempDir()+"/opencode-msb")
 
 	mock := &msb.MockMsbClient{}
-	vm := NewVolumeManager(&termio.Mock{})
+	vm := newVolumeManager(&termio.Mock{})
 
 	var createdVols int
 	mock.CreateVolumeFn = func(_ context.Context, _ string, _ ...msbSdk.VolumeOption) (msb.VolumeHandle, error) {
@@ -202,7 +202,7 @@ func TestApplyHomeAction_KeepReturnsOldVolume(t *testing.T) {
 		return &msb.MockVolumeHandle{}, nil
 	}
 
-	vol, err := vm.ApplyHomeAction(
+	vol, err := vm.applyHomeAction(
 		context.Background(),
 		mock,
 		"myproj",
@@ -246,9 +246,9 @@ func TestApplyHomeAction_ExecutesAndKeepsOld(t *testing.T) {
 			WriteState(slug, HomeState{HomeVolume: oldVol, ImageDigest: "sha256:old"})
 
 			mock := &msb.MockMsbClient{}
-			vm := NewVolumeManager(&termio.Mock{})
+			vm := newVolumeManager(&termio.Mock{})
 
-			newVol, err := vm.ApplyHomeAction(
+			newVol, err := vm.applyHomeAction(
 				context.Background(),
 				mock,
 				slug,
@@ -277,7 +277,7 @@ func TestApplyHomeAction_ExecutesAndKeepsOld(t *testing.T) {
 				t.Errorf("expected old volume to be kept, removed=%v", mock.RemovedVolumes)
 			}
 
-			st, err := ReadState(slug)
+			st, err := readState(slug)
 			if err != nil {
 				t.Fatalf("ReadState: %v", err)
 			}
@@ -299,7 +299,7 @@ func TestApplyHomeAction_Reset_DryRun_NoWrites(t *testing.T) {
 	WriteState(slug, HomeState{HomeVolume: oldVol, ImageDigest: "sha256:old"})
 
 	mock := &msb.MockMsbClient{}
-	vm := NewVolumeManager(&termio.Mock{})
+	vm := newVolumeManager(&termio.Mock{})
 
 	var createdVols int
 	mock.CreateVolumeFn = func(_ context.Context, _ string, _ ...msbSdk.VolumeOption) (msb.VolumeHandle, error) {
@@ -307,7 +307,7 @@ func TestApplyHomeAction_Reset_DryRun_NoWrites(t *testing.T) {
 		return &msb.MockVolumeHandle{}, nil
 	}
 
-	newVol, err := vm.ApplyHomeAction(
+	newVol, err := vm.applyHomeAction(
 		context.Background(),
 		mock,
 		slug,
@@ -328,7 +328,7 @@ func TestApplyHomeAction_Reset_DryRun_NoWrites(t *testing.T) {
 		t.Errorf("dry-run should not create volumes, got %d", createdVols)
 	}
 
-	st, err := ReadState(slug)
+	st, err := readState(slug)
 	if err != nil {
 		t.Fatalf("ReadState: %v", err)
 	}
@@ -348,9 +348,9 @@ func TestApplyHomeAction_Migrate_DryRunVM_NoStateWrite(t *testing.T) {
 	WriteState(slug, HomeState{HomeVolume: oldVol, ImageDigest: "sha256:old"})
 
 	mock := &msb.MockMsbClient{}
-	vm := NewVolumeManager(&termio.Mock{})
+	vm := newVolumeManager(&termio.Mock{})
 
-	newVol, err := vm.ApplyHomeAction(
+	newVol, err := vm.applyHomeAction(
 		context.Background(),
 		mock,
 		slug,
@@ -371,7 +371,7 @@ func TestApplyHomeAction_Migrate_DryRunVM_NoStateWrite(t *testing.T) {
 		t.Errorf("dry-run-vm should not spawn VMs, got %v", mock.CreatedSandboxes)
 	}
 
-	st, err := ReadState(slug)
+	st, err := readState(slug)
 	if err != nil {
 		t.Fatalf("ReadState: %v", err)
 	}
@@ -404,9 +404,9 @@ func TestApplyHomeAction_Migrate_CopyFails_RemovesNewVolume(t *testing.T) {
 		createdVol = name
 		return &msb.MockVolumeHandle{Name_: name}, nil
 	}
-	vm := NewVolumeManager(&termio.Mock{})
+	vm := newVolumeManager(&termio.Mock{})
 
-	_, err := vm.ApplyHomeAction(
+	_, err := vm.applyHomeAction(
 		context.Background(),
 		mock,
 		slug,
@@ -462,8 +462,8 @@ func TestResolveHomeVolume_FoundInState(t *testing.T) {
 		ImageDigest: "sha256:abc",
 	})
 
-	vm := NewVolumeManager(&termio.Mock{})
-	volName, state, err := vm.ResolveHomeVolume(
+	vm := newVolumeManager(&termio.Mock{})
+	volName, state, err := vm.resolveHomeVolume(
 		context.Background(),
 		mock,
 		"myproj",
@@ -491,8 +491,8 @@ func TestResolveHomeVolume_NoStateFile(t *testing.T) {
 		return MockVolumeHandle{Name_: name}, nil
 	}
 
-	vm := NewVolumeManager(&termio.Mock{})
-	volName, state, err := vm.ResolveHomeVolume(
+	vm := newVolumeManager(&termio.Mock{})
+	volName, state, err := vm.resolveHomeVolume(
 		context.Background(),
 		mock,
 		"testproj",
@@ -529,8 +529,8 @@ func TestResolveHomeVolume_VolumeNotFoundInSandbox(t *testing.T) {
 		ImageDigest: "sha256:abc",
 	})
 
-	vm := NewVolumeManager(&termio.Mock{})
-	volName, state, err := vm.ResolveHomeVolume(
+	vm := newVolumeManager(&termio.Mock{})
+	volName, state, err := vm.resolveHomeVolume(
 		context.Background(),
 		mock,
 		"orphanproj",

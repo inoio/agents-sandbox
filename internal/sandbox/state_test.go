@@ -9,12 +9,12 @@ import (
 )
 
 func TestStateFile(t *testing.T) {
-	old := stateDirSuffix
-	defer func() { stateDirSuffix = old }()
-	stateDirSuffix = t.TempDir() + "/opencode-msb"
+	old := stateDir
+	defer func() { stateDir = old }()
+	stateDir = t.TempDir() + "/opencode-msb"
 
 	slug := "testproj-aBc1234D"
-	f := StateFile(slug)
+	f := stateFile(slug)
 	if filepath.Base(f) != "state.yaml" {
 		t.Errorf("expected state.yaml basename, got %q", filepath.Base(f))
 	}
@@ -24,13 +24,13 @@ func TestStateFile(t *testing.T) {
 }
 
 func TestReadState_NoFileReturnsErrStateNotFound(t *testing.T) {
-	old := stateDirSuffix
-	defer func() { stateDirSuffix = old }()
+	old := stateDir
+	defer func() { stateDir = old }()
 
-	stateDirSuffix = t.TempDir() + "/opencode-msb"
+	stateDir = t.TempDir() + "/opencode-msb"
 
 	slug := "nonexistentproj-xyz"
-	result, err := ReadState(slug)
+	result, err := readState(slug)
 	if !errors.Is(err, ErrStateNotFound) {
 		t.Fatalf("expected ErrStateNotFound for missing file, got: %v", err)
 	}
@@ -40,10 +40,10 @@ func TestReadState_NoFileReturnsErrStateNotFound(t *testing.T) {
 }
 
 func TestWriteAndReadState(t *testing.T) {
-	old := stateDirSuffix
-	defer func() { stateDirSuffix = old }()
+	old := stateDir
+	defer func() { stateDir = old }()
 
-	stateDirSuffix = t.TempDir() + "/opencode-msb"
+	stateDir = t.TempDir() + "/opencode-msb"
 	slug := "myproj-aBc1234D"
 	digest := "sha256:deadbeef1234"
 
@@ -55,7 +55,7 @@ func TestWriteAndReadState(t *testing.T) {
 		t.Fatalf("WriteState: %v", err)
 	}
 
-	result, err := ReadState(slug)
+	result, err := readState(slug)
 	if err != nil {
 		t.Fatalf("ReadState: %v", err)
 	}
@@ -66,17 +66,17 @@ func TestWriteAndReadState(t *testing.T) {
 		t.Errorf("ImageDigest = %q, want %q", result.ImageDigest, digest)
 	}
 
-	fpath := filepath.Join(stateDirSuffix, slug, "state.yaml")
+	fpath := filepath.Join(stateDir, slug, "state.yaml")
 	if _, err := os.Stat(fpath); err != nil {
 		t.Errorf("state file should exist at %s: %v", fpath, err)
 	}
 }
 
 func TestWriteStateCreatesDirectory(t *testing.T) {
-	old := stateDirSuffix
-	defer func() { stateDirSuffix = old }()
+	old := stateDir
+	defer func() { stateDir = old }()
 
-	stateDirSuffix = t.TempDir() + "/opencode-msb"
+	stateDir = t.TempDir() + "/opencode-msb"
 	slug := "newproj-a"
 
 	err := WriteState(slug, HomeState{HomeVolume: "vol", ImageDigest: "d1"})
@@ -84,7 +84,7 @@ func TestWriteStateCreatesDirectory(t *testing.T) {
 		t.Fatalf("WriteState: %v", err)
 	}
 
-	dir := filepath.Join(stateDirSuffix, slug)
+	dir := filepath.Join(stateDir, slug)
 	info, err := os.Stat(dir)
 	if err != nil {
 		t.Fatalf("state dir should exist: %v", err)
@@ -95,13 +95,13 @@ func TestWriteStateCreatesDirectory(t *testing.T) {
 }
 
 func TestReadState_CorruptedYAML(t *testing.T) {
-	old := stateDirSuffix
-	defer func() { stateDirSuffix = old }()
+	old := stateDir
+	defer func() { stateDir = old }()
 
-	stateDirSuffix = t.TempDir() + "/opencode-msb"
+	stateDir = t.TempDir() + "/opencode-msb"
 	slug := "corruptproj"
 
-	sdir := filepath.Join(stateDirSuffix, slug)
+	sdir := filepath.Join(stateDir, slug)
 	if err := os.MkdirAll(sdir, 0o700); err != nil {
 		t.Fatal(err)
 	}
@@ -109,42 +109,42 @@ func TestReadState_CorruptedYAML(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	_, err := ReadState(slug)
+	_, err := readState(slug)
 	if err == nil {
 		t.Fatal("expected error for corrupted YAML")
 	}
 }
 
 func TestRemoveState(t *testing.T) {
-	old := stateDirSuffix
-	defer func() { stateDirSuffix = old }()
+	old := stateDir
+	defer func() { stateDir = old }()
 
-	stateDirSuffix = t.TempDir() + "/opencode-msb"
+	stateDir = t.TempDir() + "/opencode-msb"
 	slug := "myproj"
 
 	WriteState(slug, HomeState{HomeVolume: "vol", ImageDigest: "d1"})
 
-	statePath := filepath.Join(stateDirSuffix, slug, "state.yaml")
+	statePath := filepath.Join(stateDir, slug, "state.yaml")
 	if _, err := os.Stat(statePath); os.IsNotExist(err) {
 		t.Fatal("state file should exist before RemoveState")
 	}
 
-	RemoveState(slug)
+	removeState(slug)
 
 	if _, err := os.Stat(statePath); !os.IsNotExist(err) {
 		t.Errorf("state file should be removed, but still exists")
 	}
-	stateDir := filepath.Join(stateDirSuffix, slug)
+	stateDir := filepath.Join(stateDir, slug)
 	if _, err := os.Stat(stateDir); !os.IsNotExist(err) {
 		t.Errorf("state dir should be removed, but still exists")
 	}
 }
 
 func TestWriteAndReadState_EnvSecretRoundTrip(t *testing.T) {
-	old := stateDirSuffix
-	defer func() { stateDirSuffix = old }()
+	old := stateDir
+	defer func() { stateDir = old }()
 
-	stateDirSuffix = t.TempDir() + "/opencode-msb"
+	stateDir = t.TempDir() + "/opencode-msb"
 	slug := "myproj-abc123"
 
 	input := HomeState{
@@ -164,7 +164,7 @@ func TestWriteAndReadState_EnvSecretRoundTrip(t *testing.T) {
 		t.Fatalf("WriteState: %v", err)
 	}
 
-	result, err := ReadState(slug)
+	result, err := readState(slug)
 	if err != nil {
 		t.Fatalf("ReadState: %v", err)
 	}
@@ -194,10 +194,10 @@ func TestWriteAndReadState_EnvSecretRoundTrip(t *testing.T) {
 }
 
 func TestHomeState_ZeroEnvSecretOmitted(t *testing.T) {
-	old := stateDirSuffix
-	defer func() { stateDirSuffix = old }()
+	old := stateDir
+	defer func() { stateDir = old }()
 
-	stateDirSuffix = t.TempDir() + "/opencode-msb"
+	stateDir = t.TempDir() + "/opencode-msb"
 	slug := "emptyproj"
 
 	err := WriteState(slug, HomeState{
@@ -208,7 +208,7 @@ func TestHomeState_ZeroEnvSecretOmitted(t *testing.T) {
 		t.Fatalf("WriteState: %v", err)
 	}
 
-	data, err := os.ReadFile(filepath.Join(stateDirSuffix, slug, "state.yaml"))
+	data, err := os.ReadFile(filepath.Join(stateDir, slug, "state.yaml"))
 	if err != nil {
 		t.Fatalf("read state file: %v", err)
 	}

@@ -13,7 +13,7 @@ import (
 // state for env and secrets. Callers must decide/handle the opencode daemon
 // restart separately.
 //
-// desiredSecrets must be the output of BuildSecrets ([]msbSdk.SecretEntry) so
+// desiredSecrets must be the output of buildSecrets ([]msbSdk.SecretEntry) so
 // the diff and the Modify specs are derived from exactly the same parsed
 // entries — never re-parse the raw "VAR=value@host" strings here.
 //
@@ -106,7 +106,7 @@ func applySecretSpec(applied SecretState, desired []msbSdk.SecretEntry, mo *msbS
 }
 
 // secretModifySpecsFromEntries converts the desired secrets (as built by
-// BuildSecrets) into the SDK ModifyOptions.Secrets shape, mapping the sandbox
+// buildSecrets) into the SDK ModifyOptions.Secrets shape, mapping the sandbox
 // env-var name to a SecretModifySpec that re-supplies the same material and
 // allowed hosts. No re-parsing of raw strings happens here.
 func secretModifySpecsFromEntries(desiredSecrets []msbSdk.SecretEntry) map[string]msbSdk.SecretModifySpec {
