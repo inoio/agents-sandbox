@@ -18,7 +18,7 @@ func AutoPrune(ctx context.Context, threshold time.Duration, ui termio.UI) {
 		threshold = 30 * 24 * time.Hour
 	}
 	autoPruneOnce.Do(func() {
-		err := Prune(ctx, threshold, true, true, ui)
+		err := Prune(ctx, threshold, false, true, ui)
 		if err != nil {
 			ui.Warnf("auto-prune failed: %s", err)
 		}

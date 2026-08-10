@@ -33,6 +33,10 @@
 
 ## In Progress
 
+[ ] Test:
+  * volume migrate, edit, delete
+  * config changes to root size, tmp size, env, secrets, cpu, mem
+  * 
 
 ### README überarbeiten
 
@@ -43,12 +47,14 @@
 
 ## 1st prio
 
+[ ] dogfood -b/--branch feature
 [ ] make cli output pretty and UX'd
 [ ] secrets containing @ kann nicht funktionieren -> yaml. Keine CLI-Params...
 [ ] Deliver example AGENTS.md file with instructions for workflow, especially git (don't merge, tool does) 
 [ ] OPENCODE_DISABLE_AUTOUPDATE, OPENCODE_EXPERIMENTAL_EXA, OPENCODE_EXPERIMENTAL_BACKGROUND_SUBAGENTS, OPENCODE_EXPERIMENTAL_PARALLEL, OPENCODE_EXPERIMENTAL_SCOUT? 
 [ ] config show: list all files that would apply to a VM startup.
 [ ] default pattern for hiding project files, configurable (*.secret), not checked in? 
+[ ] remove msb load exec call by spooling to tmp file and using msb SDKs Image.Load 
 
 ## 2nd prio
 
