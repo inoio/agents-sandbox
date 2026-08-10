@@ -10,10 +10,10 @@ Each opencode-msb invocation follows this lifecycle:
 ```
 - Auto-prune: Remove stale VMs, volumes, and images
 - Pre-flight checks (doctor): Docker, KVM, Git, msb
-- Image verify/build: `.opencode-msb/Dockerfile` (or default image) → Docker image
-- Home volume verify/build: Persistent msb volume (`opencode-msb-home-<slug>-<hash>`) per project
+- Image verify/build: `.opencode-msb/Dockerfile` (or default image) → Docker image -> microsandbox image
+- Home volume verify/build: Persistent msb volume (`opencode-msb-home-<slug>-<timestamp>`) per project
 - VM creation or reuse: New or existing project-specific VM
-- Provisioning: Copy opencode config etc.
+- Provisioning: Copy opencode config etc. (updated configs are re-provisioned).
 - Daemon verify/start: Ensure/start microsandbox internal services
 - Branch resolve: If `-b` specified, create opencode VM-internal worktree via daemon API
 - Opencode run: Execute `opencode attach` against the worktree inside the sandbox
@@ -28,20 +28,19 @@ Each project gets a singular VM identified by the project slug (derived from the
 opencode-msb-vm-<project-slug>
 ```
 
-For example, a repo cloned from `git@gitlab.inoio.de:inoio/myproject.git` gets:
+The project slug consists of the repository name and a hash of the repository host and full path. For example, a repo
+cloned from `git@gitlab.inoio.de:inoio/myproject.git` gets:
 
 ```
-opencode-msb-vm-myproject-<full-origin-url-hash>
+opencode-msb-vm-myproject-<hash>
 ```
 
-The slug base is the human-readable repo name taken from the origin remote's URL, and the hash is over the full origin
-URL, so every clone and linked worktree of the same remote shares the same project (and therefore the same VM, volume,
-and image names).
+Where `<hash>` is the hash of `gitlab.inoio.de:inoio/myproject` (username and extension removed). Every clone and linked
+worktree of the same remote shares the same project (and therefore the same VM, volume, and image names).
 
 The VM is **per-project/-directory, not per-invocation**. Subsequent runs connect to the existing VM (or start it if
-stopped) rather than creating a new one. When the Docker image is rebuilt and its digest changes, the existing VM is
-recreated instead — it is stopped, removed, and re-provisioned from the new image. The home volume is untouched, so no
-user state is lost (see [Volumes](#volumes)).
+stopped) rather than creating a new one. When the Docker image's Dockerfile has changed, the existing VM has to be
+recreated, but it keeps its name. The home volume is untouched, so no user state is lost (see [Volumes](#volumes)).
 
 ## Volumes
 
@@ -50,16 +49,16 @@ user state is lost (see [Volumes](#volumes)).
 Home volumes are persistent storage for the VM's `$HOME` directory. They survive VM destruction and Dockerfile changes.
 
 Home volumes are named `opencode-msb-home-<slug>-<timestamp>`. Information which home volume is the current one is
-stored in a state file.
+stored in a state file (under `~/.local/state/<slug>/state.yaml`).
 
-When the Dockerfile changes (new image digest), the next run prompts you to keep, migrate, or reset your home volume.
-Migrate copies files from the old volume on top of the runner image's home directory, reset creates a fresh volume from
-the image. The chosen action is applied automatically during that run, and the old volume is always kept. The state file
-is updated only after the chosen action actually executes, so the prompt only reappears after the next image change.
-Dry runs never change the home volume or the state file.
+When the Dockerfile changes (new image digest), most of the times the current home volume can continue to be used. Only
+if the Dockerfile changes lead to changes in the home directory, keeping the current home volume might be an issue.
+Therefore, when detecting a Dockerfile change, opencode-msb prompts you to decide what to do with the home volume:
 
-The project VM itself is also recreated on an image change so it boots from the new image; this happens automatically
-and independently of the home-volume choice, and never affects the home volume.
+- *keep*: Keep on using the home volume
+- *reset*: Build a completely new home volume from the new VM's home directory, discarding the current home (e.g. losing opencode session history)
+- *migrate*: Build a new home volume like reset, but afterwards copy all files from the current home on top.
+
 
 ### Volume Management
 
@@ -85,26 +84,26 @@ Home volumes are pruned when:
 
 ## Idle Timeout
 
-By default, `auto-stop-timeout` is set to 10s. When the last opencode client detaches from a project VM, the VM is
-**not immediately stopped**. Instead, the launcher evaluates the `auto-stop-on-active-sessions` setting:
+By default, `auto-stop-timeout` is set to 10s. When the last opencode client detaches from a project VM, the VM is **not
+immediately stopped**. Instead, the launcher evaluates the `auto-stop-on-active-sessions` setting:
 
-- **Default** (`auto-stop-on-active-sessions: false`) — wait-for-quiescence mode. The VM is held while in-flight opencode
-  sessions are active. A session is considered quiescent when no session is stuck in `retry` beyond
+- **Default** (`auto-stop-on-active-sessions: false`) — wait-for-quiescence mode. The VM is held while in-flight
+  opencode sessions are active. A session is considered quiescent when no session is stuck in `retry` beyond
   `auto-stop-max-session-retries` (default 10). A `busy` session is also treated as quiescent while it has a pending,
   unanswered question (the agent is waiting for user input rather than doing work). Other `busy` sessions are never cut
-  off by the reaper (they block the stop).
-  Once all sessions are quiescent, the VM is allowed to stop via the idle timeout. Graceful stop preserves the VM and
-  home volume for a fast (<1s) restart.
+  off by the reaper (they block the stop). Once all sessions are quiescent, the VM is allowed to stop via the idle
+  timeout. Graceful stop preserves the VM and home volume for a fast (<1s) restart.
 
 - **`auto-stop-on-active-sessions: true`** — stop immediately mode. The VM is not held for in-flight agent work; it
   stops promptly via the idle timeout even while sessions are busy.
 
-The idle timeout is configured via `auto-stop-timeout` in launcher config (no CLI flag). See [Configuration](./configuration.md)
+The idle timeout is configured via `auto-stop-timeout` in launcher config (no CLI flag).
+See [Configuration](./configuration.md)
 for field details.
 
 A `busy` session that is blocked without an associated pending question (and with no client connected) waits under wait
-mode (consistent with "don't interrupt"). Sessions blocked on a pending question are treated as quiescent. Clean up stale
-VMs via `prune` or a manual `stop`.
+mode (consistent with "don't interrupt"). Sessions blocked on a pending question are treated as quiescent. Clean up
+stale VMs via `prune` or a manual `stop`.
 
 To stop a VM immediately:
 
