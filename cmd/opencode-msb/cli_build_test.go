@@ -53,7 +53,7 @@ func TestBuildBuildCmd(t *testing.T) {
 	})
 
 	t.Run("B3_no_dry_run_spinner", func(t *testing.T) {
-		// build (no flags) with docker client error → spinner "Building runner image"; non-nil error
+		// build (no flags) with docker client error → spinner "Ensuring runner image"; non-nil error
 		if _, err := exec.LookPath("docker"); err != nil {
 			t.Skip("docker not in PATH; cannot test build path")
 		}
@@ -70,8 +70,8 @@ func TestBuildBuildCmd(t *testing.T) {
 			t.Error("expected non-nil error from build image failure")
 		}
 
-		if !slices.Contains(ui.SpinnerCalls, "Building runner image") {
-			t.Errorf("expected spinner 'Building runner image'; got: %v", ui.SpinnerCalls)
+		if !slices.Contains(ui.SpinnerCalls, "Ensuring runner image") {
+			t.Errorf("expected spinner 'Ensuring runner image'; got: %v", ui.SpinnerCalls)
 		}
 	})
 

@@ -4,9 +4,11 @@ import (
 	"strings"
 	"testing"
 
-	"gitlab.inoio.de/inoio/opencode-msb/internal/launcherconfig"
+	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox"
+	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/docker"
 	"gitlab.inoio.de/inoio/opencode-msb/internal/termio"
 	"gitlab.inoio.de/inoio/opencode-msb/internal/testutil"
+	launcherconfig "gitlab.inoio.de/inoio/opencode-msb/internal/viperconfig"
 )
 
 // buildTree sets up a test UI, builds the root command, renders the tree,
@@ -387,6 +389,48 @@ func TestApplyLauncherConfigSetsUnsetFlags(t *testing.T) {
 	}
 }
 
+func TestCLICombinedShortFlagsActivateVerbose(t *testing.T) {
+	for _, args := range [][]string{
+		{"prune", "--age", "1m", "-nv"},
+		{"prune", "--age", "1m", "-n", "-v"},
+		{"prune", "--age", "1m", "--dry-run", "--verbose"},
+	} {
+		t.Run(strings.Join(args, "_"), func(t *testing.T) {
+			ui := &termio.Mock{}
+			mock := &sandbox.MockMsbClient{}
+			sandbox.WithMsbMock(t, mock)
+			docker.WithNoopDockerMock(t)
+
+			root := buildRootCmd(ui)
+			root.SetArgs(args)
+
+			if err := root.Execute(); err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if ui.Level() != termio.LevelVerbose {
+				t.Errorf("expected LevelVerbose, got %v", ui.Level())
+			}
+		})
+	}
+}
+
+func TestCLIPersistentYesAffectsUIAfterSubcommand(t *testing.T) {
+	ui := &termio.Mock{}
+	mock := &sandbox.MockMsbClient{}
+	sandbox.WithMsbMock(t, mock)
+	docker.WithNoopDockerMock(t)
+
+	root := buildRootCmd(ui)
+	root.SetArgs([]string{"prune", "--age", "1m", "-n", "-y"})
+
+	if err := root.Execute(); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !ui.AssumeYes() {
+		t.Error("expected AssumeYes=true for -y after subcommand")
+	}
+}
+
 func TestApplyLauncherConfigRespectsCLIOverrides(t *testing.T) {
 	testUI := testutil.TermUIMock(t)
 	root := buildRootCmd(&testUI)
@@ -446,17 +490,17 @@ func TestNewConfigSetsUserDirs(t *testing.T) {
 	t.Setenv("XDG_CACHE_HOME", "")
 	t.Setenv("XDG_STATE_HOME", "")
 	cfg := newConfig()
-	if cfg.UserStateDir != "/testhome/.local/state/opencode-msb" {
-		t.Errorf("unexpected state dir: %q", cfg.UserStateDir)
+	if cfg.UserStateDir() != "/testhome/.local/state/opencode-msb" {
+		t.Errorf("unexpected state dir: %q", cfg.UserStateDir())
 	}
-	if cfg.UserConfigDir != "/testhome/.config/opencode-msb" {
-		t.Errorf("unexpected user config dir: %q", cfg.UserConfigDir)
+	if cfg.UserConfigDir() != "/testhome/.config/opencode-msb" {
+		t.Errorf("unexpected user config dir: %q", cfg.UserConfigDir())
 	}
-	if cfg.UserOpenCodeConfigDir() != "/testhome/.config/opencode-msb/opencode" {
-		t.Errorf("unexpected opencode config dir: %q", cfg.UserOpenCodeConfigDir())
+	if cfg.UserOpencodeConfigDir() != "/testhome/.config/opencode-msb/opencode" {
+		t.Errorf("unexpected opencode config dir: %q", cfg.UserOpencodeConfigDir())
 	}
-	if cfg.UserCacheDir != "/testhome/.cache/opencode-msb" {
-		t.Errorf("unexpected cache dir: %q", cfg.UserCacheDir)
+	if cfg.UserCacheDir() != "/testhome/.cache/opencode-msb" {
+		t.Errorf("unexpected cache dir: %q", cfg.UserCacheDir())
 	}
 }
 
@@ -466,17 +510,17 @@ func TestNewConfigHonorsXdgEnv(t *testing.T) {
 	t.Setenv("XDG_CACHE_HOME", "/xdg/cache")
 	t.Setenv("XDG_STATE_HOME", "/xdg/state")
 	cfg := newConfig()
-	if cfg.UserStateDir != "/xdg/state/opencode-msb" {
-		t.Errorf("unexpected state dir: %q", cfg.UserStateDir)
+	if cfg.UserStateDir() != "/xdg/state/opencode-msb" {
+		t.Errorf("unexpected state dir: %q", cfg.UserStateDir())
 	}
-	if cfg.UserConfigDir != "/xdg/config/opencode-msb" {
-		t.Errorf("unexpected user config dir: %q", cfg.UserConfigDir)
+	if cfg.UserConfigDir() != "/xdg/config/opencode-msb" {
+		t.Errorf("unexpected user config dir: %q", cfg.UserConfigDir())
 	}
-	if cfg.UserOpenCodeConfigDir() != "/xdg/config/opencode-msb/opencode" {
-		t.Errorf("unexpected opencode config dir: %q", cfg.UserOpenCodeConfigDir())
+	if cfg.UserOpencodeConfigDir() != "/xdg/config/opencode-msb/opencode" {
+		t.Errorf("unexpected opencode config dir: %q", cfg.UserOpencodeConfigDir())
 	}
-	if cfg.UserCacheDir != "/xdg/cache/opencode-msb" {
-		t.Errorf("unexpected cache dir: %q", cfg.UserCacheDir)
+	if cfg.UserCacheDir() != "/xdg/cache/opencode-msb" {
+		t.Errorf("unexpected cache dir: %q", cfg.UserCacheDir())
 	}
 }
 

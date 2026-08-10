@@ -3,7 +3,7 @@ package sandbox
 // Prefix is the canonical base name for all opencode-msb naming conventions.
 // Changing this value renames the tool across all namespaces, annotations,
 // VM names, image references, sandbox names, and volume names.
-// Filesystem paths are exempt, they are defined separately in paths.go.
+// Filesystem paths are exempt, they are defined separately in config_paths.go.
 const Prefix = "opencode-msb"
 
 const baseSlug = "base"

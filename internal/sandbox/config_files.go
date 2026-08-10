@@ -15,7 +15,7 @@ import (
 
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 
-	"gitlab.inoio.de/inoio/opencode-msb/internal/config"
+	config "gitlab.inoio.de/inoio/opencode-msb/internal/opencodeconfig"
 	"gitlab.inoio.de/inoio/opencode-msb/internal/termio"
 )
 
@@ -38,8 +38,8 @@ func loadConfigFiles(userConfigDir string) (*configFiles, error) {
 		return nil, fmt.Errorf("load provider config: %w", err)
 	}
 	projectConfigDir := ""
-	if _, statErr := os.Stat(projectOpencodeConfigDir()); statErr == nil {
-		projectConfigDir = projectOpencodeConfigDir()
+	if _, statErr := os.Stat(GetConfigPaths().projectOpencodeConfigDir()); statErr == nil {
+		projectConfigDir = GetConfigPaths().projectOpencodeConfigDir()
 	}
 	files, err := config.BuildMergedConfig(userConfigDir, projectConfigDir, providerCfg)
 	if err != nil {

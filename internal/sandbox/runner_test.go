@@ -321,15 +321,13 @@ func setUpSandboxProvisionsConfig(t *testing.T, created bool, provisionMsg strin
 
 	fs := newTestFS(nil, nil) // empty FS simulates a VM with empty config dir
 	sb := &MockSandbox{Name_: "test-vm", FSValue_: fs}
+	withMockConfigPaths(t)
 
-	userDir := t.TempDir()
 	ui := &termio.Mock{}
 	target, err := setUpSandbox(
 		context.Background(),
 		sb,
 		RunOptions{},
-		Config{UserConfigDir: userDir},
-		"",
 		created,
 		ui,
 		false,
@@ -466,9 +464,6 @@ func TestSetUpSandboxAppliesEnvSecretsOnReuseRestart(t *testing.T) {
 	})
 	defer SetDaemonShellFunc(orig)
 
-	userDir := t.TempDir()
-	testutil.WritePath(t, filepath.Join(userDir, envFileName), "NEW=2\n")
-
 	// The env file provides the new desired env ("NEW=2").
 	// MockSandboxHandle provides the old env ("OLD=1") so there is a diff.
 	sh := msb.MockSandboxHandle{
@@ -478,6 +473,8 @@ func TestSetUpSandboxAppliesEnvSecretsOnReuseRestart(t *testing.T) {
 	}
 	sb := &MockSandbox{Name_: "test-vm"}
 	sh.ConnectSb = sb
+	withMockConfigPaths(t)
+	testutil.WritePath(t, GetConfigPaths().userEnvFile(), "NEW=2\n")
 
 	mockClient := &msb.MockMsbClient{}
 	mockClient.GetSandboxFn = func(_ context.Context, _ string) (msb.SandboxHandle, error) {
@@ -490,7 +487,7 @@ func TestSetUpSandboxAppliesEnvSecretsOnReuseRestart(t *testing.T) {
 
 	_, err := setUpSandbox(
 		context.Background(), &MockSandbox{Name_: "test-vm", FSValue_: msb.NewTestFS(nil, nil)},
-		RunOptions{}, Config{UserConfigDir: userDir}, filepath.Join(userDir, "unused"), false, &ui, true, true,
+		RunOptions{}, false, &ui, true, true,
 	)
 	if err != nil {
 		t.Fatalf("setUpSandbox: %v", err)
@@ -514,7 +511,6 @@ func TestSetUpSandboxRestartsDaemonsOnReuseDecision(t *testing.T) {
 
 	fs := msb.NewTestFS(nil, nil)
 	sb := &MockSandbox{Name_: "test-vm", FSValue_: fs}
-	userDir := t.TempDir()
 	ui := testutil.TermUIMock(t)
 
 	// Install a mock msb client so applyEnvAndSecrets doesn't hit the real SDK.
@@ -523,14 +519,15 @@ func TestSetUpSandboxRestartsDaemonsOnReuseDecision(t *testing.T) {
 		return &msb.MockSandboxHandle{Cfg: &msbSdk.SandboxConfig{}}, nil
 	}
 	msb.WithMsbMock(t, mockClient)
+	withMockConfigPaths(t)
 
 	// setUpSandbox's signature is
 	//   (ctx, sb, opts, cfg, cwd, created, ui, restart, restartDockerd).
 	// Pass restart=true, restartDockerd=true to force the daemon-restart path on a reused VM.
 	commands = commands[:0]
 	target, err := setUpSandbox(
-		context.Background(), sb, RunOptions{}, Config{UserConfigDir: userDir},
-		filepath.Join(userDir, "unused"), false, &ui, true, true,
+		context.Background(), sb, RunOptions{},
+		false, &ui, true, true,
 	)
 	if err != nil {
 		t.Fatalf("setUpSandbox: %v", err)

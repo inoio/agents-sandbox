@@ -61,5 +61,3 @@ type namedArg struct {
 	Name string `json:"name"`
 	Help string `json:"help"`
 }
-
-const projectConfigDir = sandbox.ProjectConfigDir

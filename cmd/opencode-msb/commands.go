@@ -5,13 +5,13 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"gitlab.inoio.de/inoio/opencode-msb/internal/launcherconfig"
 	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox"
 	"gitlab.inoio.de/inoio/opencode-msb/internal/termio"
+	launcherconfig "gitlab.inoio.de/inoio/opencode-msb/internal/viperconfig"
 )
 
 // launcherConfigKey is the context key type for storing the loaded
-// launcherconfig.Config between PersistentPreRunE and extractRunOptions.
+// viperconfig.Config between PersistentPreRunE and extractRunOptions.
 type launcherConfigKey struct{}
 
 // extractRunOptions extracts shared run/shell flags from the given command
@@ -80,17 +80,21 @@ func buildRootCmd(ui termio.UI) *cobra.Command {
 	rootCmd := buildMinimalRootFlagsCmd()
 
 	rootCmd.PersistentPreRunE = func(cmd *cobra.Command, _ []string) error {
+
 		cfg := newConfig()
-		lc, keys, err := launcherconfig.Load(cfg.UserConfigDir, projectConfigDir)
+		lc, keys, err := launcherconfig.Load(cfg.UserConfigDir(), cfg.ProjectConfigDir())
 		if err != nil {
 			return err
 		}
-		isDryRun, _ := cmd.Flags().GetBool(flagDryRun)
-		sandbox.AutoPrune(cmd.Context(), lc.AutoPruneAge, isDryRun, ui)
 		cmd.SetContext(context.WithValue(cmd.Context(), (*launcherConfigKey)(nil), lc))
 		if err := applyLauncherConfig(cmd, lc, keys); err != nil {
 			return err
 		}
+
+		// execute Auto-Prune
+		isDryRun, _ := cmd.Flags().GetBool(flagDryRun)
+		sandbox.AutoPrune(cmd.Context(), lc.AutoPruneAge, isDryRun, ui)
+		applyCLISettings(cmd, ui)
 		return nil
 	}
 	extendRunCmd(ui, rootCmd)

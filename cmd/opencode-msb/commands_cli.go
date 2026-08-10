@@ -102,9 +102,7 @@ func runFunc(ui termio.UI) func(cmd *cobra.Command, args []string) error {
 			opts.Auto = false
 		}
 
-		cfg := newConfig()
-
-		return sandbox.Run(cmd.Context(), opts, cfg, ui)
+		return sandbox.Run(cmd.Context(), opts, ui)
 	}
 }
 

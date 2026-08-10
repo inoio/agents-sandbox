@@ -24,7 +24,7 @@ func stateRoot() string {
 	if stateDir != "" {
 		return stateDir
 	}
-	return XdgStateDir()
+	return GetConfigPaths().UserStateDir()
 }
 
 // EnvState tracks environment-variable fingerprint data for a project.

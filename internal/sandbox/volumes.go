@@ -21,6 +21,11 @@ const (
 
 	actionMigrateLabel = "migrate"
 	actionResetLabel   = "reset"
+
+	// Mount point constants used by volume operations (prefill, copy, edit).
+	srcMount     = "/src"
+	dstMount     = "/dst"
+	tmpMountPath = "/tmp"
 )
 
 func homeVolumeName(projectSlug string) string {

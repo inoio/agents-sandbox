@@ -9,11 +9,11 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"gitlab.inoio.de/inoio/opencode-msb/internal/config"
 	"gitlab.inoio.de/inoio/opencode-msb/internal/git"
-	"gitlab.inoio.de/inoio/opencode-msb/internal/launcherconfig"
+	config "gitlab.inoio.de/inoio/opencode-msb/internal/opencodeconfig"
 	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox"
 	"gitlab.inoio.de/inoio/opencode-msb/internal/termio"
+	launcherconfig "gitlab.inoio.de/inoio/opencode-msb/internal/viperconfig"
 )
 
 type volumeOpFunc func(context.Context, string, string, string, bool, bool, termio.UI) error
@@ -112,11 +112,11 @@ func buildConfigCmd(ui termio.UI) *cobra.Command {
 				return fmt.Errorf("load provider config: %w", err)
 			}
 
-			descs, err := config.DescribeConfig(cfg.UserOpenCodeConfigDir(), projectConfigDir, providerCfg)
+			descs, err := config.DescribeConfig(cfg.UserOpencodeConfigDir(), cfg.ProjectConfigDir(), providerCfg)
 			if err != nil {
 				return err
 			}
-			files, err := config.BuildMergedConfig(cfg.UserOpenCodeConfigDir(), projectConfigDir, providerCfg)
+			files, err := config.BuildMergedConfig(cfg.UserOpencodeConfigDir(), cfg.ProjectConfigDir(), providerCfg)
 			if err != nil {
 				return err
 			}
