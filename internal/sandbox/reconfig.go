@@ -97,7 +97,6 @@ func resolveReconfig(
 type reconfigDecision struct {
 	recreate       bool
 	restartDaemons bool
-	restartDockerd bool
 	resources      *msbSdk.ModifyOptions
 	changes        []reconfigChange
 }
@@ -142,10 +141,11 @@ func planReconfig( //nolint:gocognit // core planner, cognitive complexity accep
 		}
 	}
 
-	// reuse-only daemon restart triggers (only when not recreating).
-	if !d.recreate && (envChanged || secretsChanged || opencodeConfigChanged) {
-		d.restartDaemons = true
-		d.restartDockerd = envChanged || secretsChanged
+	// Env/secret changes cannot be applied live or on a daemon restart:
+	// microsandbox requires a VM (re)start for them, so they are folded into the
+	// rebuild tier (they are baked into the VM at creation, see createProjectVM).
+	if !d.recreate && (envChanged || secretsChanged) {
+		d.recreate = true
 		if envChanged {
 			d.changes = append(
 				d.changes,
@@ -158,12 +158,16 @@ func planReconfig( //nolint:gocognit // core planner, cognitive complexity accep
 				reconfigChange{label: "secrets"}, //nolint:exhaustruct // label-only for change reporting
 			)
 		}
-		if opencodeConfigChanged {
-			d.changes = append(
-				d.changes,
-				reconfigChange{label: "opencode config"}, //nolint:exhaustruct // label-only for change reporting
-			)
-		}
+	}
+
+	// opencode config changes are picked up by restarting the opencode daemon;
+	// a full VM rebuild is not required.
+	if !d.recreate && opencodeConfigChanged {
+		d.restartDaemons = true
+		d.changes = append(
+			d.changes,
+			reconfigChange{label: "opencode config"}, //nolint:exhaustruct // label-only for change reporting
+		)
 	}
 
 	// cpu/memory always staged for live Modify (clamped to boot max).
