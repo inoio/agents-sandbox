@@ -596,3 +596,93 @@ func ResetGetFn(f func() Client) func() Client {
 	Get = f
 	return old
 }
+
+func InstallFailFastGet() { Get = func() Client { return &failFastMsbClient{} } }
+
+// failFastMsbClient is installed by InstallFailFastGet under tests; any method call
+// panics to signal a test reached the real msb client without opting in.
+type failFastMsbClient struct{}
+
+// Compile-time check that failFastMsbClient implements Client.
+var _ Client = (*failFastMsbClient)(nil)
+
+func (f *failFastMsbClient) mustMock() {
+	panic("msb.Get reached the real msb client; install msb.WithMsbMock(t, ...) in the test")
+}
+
+func (f *failFastMsbClient) EnsureInstalled(_ context.Context) error {
+	f.mustMock()
+	return nil
+}
+
+func (f *failFastMsbClient) GetSandbox(_ context.Context, _ string) (SandboxHandle, error) {
+	f.mustMock()
+	//nolint:nilnil // panics before returning; keeps failFastMsbClient interface-conformant
+	return nil, nil
+}
+
+func (f *failFastMsbClient) CreateSandbox(
+	_ context.Context,
+	_ string,
+	_ ...msbSdk.SandboxOption,
+) (Sandbox, error) {
+	f.mustMock()
+	//nolint:nilnil // panics before returning; keeps failFastMsbClient interface-conformant
+	return nil, nil
+}
+
+func (f *failFastMsbClient) ListSandboxes(_ context.Context) ([]SandboxHandle, error) {
+	f.mustMock()
+	return nil, nil
+}
+
+func (f *failFastMsbClient) RemoveSandbox(_ context.Context, _ string) error {
+	f.mustMock()
+	return nil
+}
+
+func (f *failFastMsbClient) GetVolume(_ context.Context, _ string) (VolumeHandle, error) {
+	f.mustMock()
+	//nolint:nilnil // panics before returning; keeps failFastMsbClient interface-conformant
+	return nil, nil
+}
+
+func (f *failFastMsbClient) CreateVolume(
+	_ context.Context,
+	_ string,
+	_ ...msbSdk.VolumeOption,
+) (VolumeHandle, error) {
+	f.mustMock()
+	//nolint:nilnil // panics before returning; keeps failFastMsbClient interface-conformant
+	return nil, nil
+}
+
+func (f *failFastMsbClient) ListVolumes(_ context.Context) ([]VolumeHandle, error) {
+	f.mustMock()
+	return nil, nil
+}
+
+func (f *failFastMsbClient) RemoveVolume(_ context.Context, _ string) error {
+	f.mustMock()
+	return nil
+}
+
+func (f *failFastMsbClient) ImageGet(_ context.Context, _ string) error {
+	f.mustMock()
+	return nil
+}
+
+func (f *failFastMsbClient) ImageList(_ context.Context) ([]ImageHandle, error) {
+	f.mustMock()
+	return nil, nil
+}
+
+func (f *failFastMsbClient) ImageRemove(_ context.Context, _ string, _ bool) error {
+	f.mustMock()
+	return nil
+}
+
+func (f *failFastMsbClient) ImageLoad(_ context.Context, _ string, _ io.Reader) error {
+	f.mustMock()
+	return nil
+}
