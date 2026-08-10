@@ -50,8 +50,22 @@ func slugify(name string) string {
 	return strings.Trim(slugifyPattern.ReplaceAllString(strings.ToLower(strings.TrimSpace(name)), "-"), "-")
 }
 
+// resolveTargetNoBranch returns the default worktree directory when no branch is requested.
 func resolveTargetNoBranch() string {
 	return defaultTargetDir
+}
+
+// validateWorktreeBase confirms the base ref resolves among existing local refs
+// inside the VM. It never fetches: the ref must already be present locally.
+func validateWorktreeBase(ctx context.Context, sb Sandbox, dir, base string) error {
+	out, err := sb.Exec(ctx, "git", []string{"-C", dir, "rev-parse", "--verify", base + "^{commit}"})
+	if err != nil {
+		return fmt.Errorf("check base %q: %w", base, err)
+	}
+	if !out.Success() {
+		return fmt.Errorf("base %q does not resolve locally (no fetch is performed)", base)
+	}
+	return nil
 }
 
 func parseWorktreeResponse(stdout string) (string, error) {
