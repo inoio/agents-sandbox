@@ -27,22 +27,19 @@ func (e *ExitError) Error() string {
 }
 
 type RunOptions struct {
-	ReapPolicy ReapPolicy
-
+	Branch      string
+	Memory      string
+	TmpSize     string
+	DiskSize    string
+	User        string
+	Args        []string
+	ReapPolicy  ReapPolicy
 	IdleTimeout time.Duration
-
-	Branch   string
-	Rebuild  bool
-	DryRun   bool
-	DryRunVM bool
-	CPUs     uint8
-	Memory   string
-	TmpSize  string
-	DiskSize string
-	User     string
-	Auto     bool
-	Args     []string
-
+	CPUs        uint8
+	Rebuild     bool
+	DryRun      bool
+	DryRunVM    bool
+	Auto        bool
 	// Recreate forces a project-VM rebuild on this invocation. It is set by
 	// prepareSandbox from the reconfig decision and is never user-facing.
 	Recreate bool

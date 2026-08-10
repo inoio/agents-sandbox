@@ -16,7 +16,7 @@ import (
 
 var version = "dev"
 
-// Execute runs the CLI with the given arguments and UI.
+// execute runs the CLI with the given arguments and UI.
 //
 // For integration testing, override the injection seams using:
 //   - sandbox: sandbox.SetNewMsbClient (replaces the MsbClient factory)
@@ -32,7 +32,7 @@ var version = "dev"
 //	    err := Execute([]string{"list"}, ui)
 //	    // ...assert...
 //	}
-func Execute(args []string, ui termio.UI) error {
+func execute(args []string, ui termio.UI) error {
 	rootCmd := buildRootCmd(ui)
 	rootCmd.SetArgs(args)
 	rootCmd.SetOut(ui.StdOut())

@@ -75,9 +75,9 @@ func BuildDockerImage(
 		spinner.StopError(err)
 		return fmt.Errorf("docker image build failed: %w", err)
 	}
+	defer buildResp.Body.Close()
 
 	buildErr := scanBuildOutput(buildResp.Body, ui)
-	_ = buildResp.Body.Close()
 	if buildErr != nil {
 		spinner.StopError(buildErr)
 		if strings.Contains(buildErr.Error(), "pull access denied") {
@@ -100,6 +100,7 @@ func dockerfileTar(dockerfile []byte) (*bytes.Buffer, error) {
 		Mode: dockerfileMode,
 		Size: int64(len(dockerfile)),
 	}); err != nil {
+		_ = tw.Close()
 		return nil, fmt.Errorf("tar write header: %w", err)
 	}
 	if _, err := io.Copy(tw, bytes.NewReader(dockerfile)); err != nil {
