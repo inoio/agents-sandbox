@@ -226,6 +226,24 @@ func TestResolveWorktreeSpecEmpty(t *testing.T) {
 	}
 }
 
+func TestValidateWorktreeBaseOK(t *testing.T) {
+	sb := &MockSandbox{ExecOut: map[string]ShellResult{
+		"git -C /w/feat rev-parse --verify main^{commit}": NewTestResult(true, 0, "abc123", "", nil),
+	}}
+	if err := validateWorktreeBase(context.Background(), sb, "/w/feat", "main"); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestValidateWorktreeBaseMissing(t *testing.T) {
+	sb := &MockSandbox{ExecOut: map[string]ShellResult{
+		"git -C /w/feat rev-parse --verify nope^{commit}": NewTestResult(false, 128, "", "unknown revision", nil),
+	}}
+	if err := validateWorktreeBase(context.Background(), sb, "/w/feat", "nope"); err == nil {
+		t.Error("expected error for unresolvable base")
+	}
+}
+
 func TestResolveWorktreeSpecRejectsNonSlugName(t *testing.T) {
 	for _, in := range []string{"feature/foo", "Feature bar", "a--b", "-lead", "trail-", ":main"} {
 		if _, err := ResolveWorktreeSpec(in); err == nil {
