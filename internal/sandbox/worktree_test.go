@@ -1,8 +1,11 @@
 package sandbox
 
 import (
+	"context"
 	"strings"
 	"testing"
+
+	"gitlab.inoio.de/inoio/opencode-msb/internal/termio"
 )
 
 func TestResolveTargetNoBranchReturnsWorkspace(t *testing.T) {
@@ -79,5 +82,106 @@ func TestBuildWorktreeListCmd(t *testing.T) {
 	}
 	if !strings.Contains(cmd, "127.0.0.1:4096") {
 		t.Errorf("expected daemon address in command, got %q", cmd)
+	}
+}
+
+func TestSlugifyMatchesDaemonNaming(t *testing.T) {
+	cases := []struct {
+		in, want string
+	}{
+		{"bugfix/exit-zero", "bugfix-exit-zero"},
+		{"bugfix/reuse-branch", "bugfix-reuse-branch"},
+		{"Feature/My-Topic", "feature-my-topic"},
+		{"  spaces  ", "spaces"},
+		{"/leading/dash", "leading-dash"},
+	}
+	for _, c := range cases {
+		if got := slugify(c.in); got != c.want {
+			t.Errorf("slugify(%q) = %q, want %q", c.in, got, c.want)
+		}
+	}
+}
+
+func TestFindWorktreeDirStringList(t *testing.T) {
+	list := `[
+		"/home/dev/.local/share/opencode/worktree/abc/review-test",
+		"/home/dev/.local/share/opencode/worktree/abc/bugfix-exit-zero"
+	]`
+	dir, ok := findWorktreeDir(list, "bugfix-exit-zero")
+	if !ok {
+		t.Fatal("expected to find existing worktree for slug bugfix-exit-zero")
+	}
+	if want := "/home/dev/.local/share/opencode/worktree/abc/bugfix-exit-zero"; dir != want {
+		t.Errorf("got dir %q, want %q", dir, want)
+	}
+}
+
+func TestFindWorktreeDirObjectList(t *testing.T) {
+	list := `[
+		{"name":"bugfix-exit-zero","branch":"opencode/bugfix-exit-zero","directory":"/root/bugfix-exit-zero"}
+	]`
+	dir, ok := findWorktreeDir(list, "bugfix-exit-zero")
+	if !ok {
+		t.Fatal("expected to find worktree from object list")
+	}
+	if want := "/root/bugfix-exit-zero"; dir != want {
+		t.Errorf("got dir %q, want %q", dir, want)
+	}
+}
+
+func TestFindWorktreeDirNoMatch(t *testing.T) {
+	list := `["/home/dev/.local/share/opencode/worktree/abc/other-topic"]`
+	if _, ok := findWorktreeDir(list, "bugfix-exit-zero"); ok {
+		t.Error("expected no match for a slug absent from the list")
+	}
+}
+
+func TestFindWorktreeDirEmptyList(t *testing.T) {
+	if _, ok := findWorktreeDir("", "bugfix-exit-zero"); ok {
+		t.Error("expected no match for an empty list response")
+	}
+}
+
+func TestResolveTargetReusesExistingWorktree(t *testing.T) {
+	ui := &termio.Mock{}
+	sb := &MockSandbox{
+		ShellOut: map[string]ShellResult{
+			buildWorktreeListCmd(): NewTestResult(true, 0,
+				`["/home/dev/.local/share/opencode/worktree/abc/bugfix-exit-zero"]`, "", nil),
+		},
+		ShellCalls: &[]string{},
+	}
+
+	dir, err := ResolveTarget(context.Background(), sb, "bugfix/exit-zero", ui)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if want := "/home/dev/.local/share/opencode/worktree/abc/bugfix-exit-zero"; dir != want {
+		t.Errorf("got dir %q, want %q", dir, want)
+	}
+	for _, call := range *sb.ShellCalls {
+		if strings.Contains(call, "POST") {
+			t.Errorf("expected reuse without create, but created a new worktree: %q", call)
+		}
+	}
+}
+
+func TestResolveTargetCreatesWhenNotListed(t *testing.T) {
+	ui := &termio.Mock{}
+	sb := &MockSandbox{
+		ShellOut: map[string]ShellResult{
+			buildWorktreeListCmd(): NewTestResult(true, 0, `[]`, "", nil),
+			buildWorktreeCreateCmd("feat-x"): NewTestResult(true, 0,
+				`{"directory":"/workspace/worktrees/feat-x"}`, "", nil),
+		},
+		ShellCalls: &[]string{},
+	}
+
+	dir, err := ResolveTarget(context.Background(), sb, "feat-x", ui)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if want := "/workspace/worktrees/feat-x"; dir != want {
+		t.Errorf("got dir %q, want %q", dir, want)
 	}
 }
