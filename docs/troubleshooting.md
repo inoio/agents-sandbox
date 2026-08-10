@@ -22,7 +22,7 @@ ls -la /dev/kvm
 If missing, enable virtualization in your system BIOS/UEFI (INTEL-VT, AMD-V or similar) and ensure your user is in the `kvm` group:
 
 ```console
-sudo usermod -aG $USER kvm
+sudo usermod -aG kvm "$USER"
 ```
 
 Log out and back in for the group change to take effect.

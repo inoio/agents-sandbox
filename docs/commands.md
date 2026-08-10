@@ -11,7 +11,6 @@ These flags are available on every command.
 | `--yes`      | `-y`  | `false` | Assume yes to all prompts      |
 | `--verbose`  | `-v`  | `false` | Show debug-level output        |
 | `--quiet`    | `-q`  | `false` | Suppress non-error output      |
-| `--tree`     | —     | `false` | Print the full command tree    |
 
 ## Commands
 
@@ -53,14 +52,14 @@ Arguments after `--` are forwarded to opencode. Arguments before `--` that don't
 
 ### shell
 
-Start a sandbox VM and open an interactive shell. Useful for debugging the sandbox environment. Same flags as `run` but without `--dry-run` and `--no-auto`.
+Start a sandbox VM and open an interactive shell. Useful for debugging the sandbox environment. Same flags as `run` but without `--no-auto`.
 
 ```console
 opencode-msb shell
 opencode-msb shell -b my-feature
 ```
 
-**Aliases:** `sandbox shell`
+**Aliases:** `sh`, `sandbox shell`
 
 ---
 
@@ -129,7 +128,7 @@ opencode-msb kill -f     # kill and remove VM state
 Remove stale VMs, volumes, and images. Staleness is determined by age — resources older than the threshold are pruned.
 
 ```console
-opencode-msb prune                       # default 7-day threshold
+opencode-msb prune                       # use --age, else manual-prune-age from config, else 7d
 opencode-msb prune -a 24h                # 24-hour threshold
 opencode-msb prune --dry-run             # preview only
 opencode-msb prune --force               # skip confirmation
@@ -139,7 +138,7 @@ opencode-msb prune --force               # skip confirmation
 
 | Flag           | Short | Default | Purpose                            |
 |----------------|-------|---------|------------------------------------|
-| `--age`        | `-a`  | `7d`    | Prune threshold (e.g. `24h`, `7d`) |
+| `--age`        | `-a`  | config  | Prune threshold. Falls back to `manual-prune-age` from config, then to `7d` (e.g. `24h`, `7d`). |
 | `--dry-run`    | `-n`  | `false` | Preview what would be pruned       |
 | `--force`      | `-f`  | `false` | Skip confirmation prompt           |
 | `--dry-run-vm` | —     | `false` | Suppress VM deletion during prune  |
@@ -148,7 +147,7 @@ opencode-msb prune --force               # skip confirmation
 
 ### list
 
-List all sandboxes for the current project.
+List all sandboxes on this host (across all projects).
 
 ```console
 opencode-msb list
@@ -186,7 +185,7 @@ opencode-msb config show
 Generate the autocompletion script for the specified shell.
 
 ```console
-opencode-msb completion bash
+opencode-msb completion bash         # bash completions (fish, powershell, zsh work the same)
 opencode-msb completion fish
 opencode-msb completion powershell
 opencode-msb completion zsh
@@ -216,6 +215,14 @@ opencode-msb image ls
 
 **Aliases:** `image ls`
 
+#### image build
+
+Build or rebuild the runner image. Equivalent to the top-level `build` command.
+
+```console
+opencode-msb image build
+```
+
 ---
 
 ### sandbox
@@ -234,36 +241,23 @@ opencode-msb sandbox kill
 
 ---
 
-### shell
+### tree
 
-Start a sandbox VM and open an interactive shell. Useful for debugging the sandbox environment. Same flags as `run` but without `--dry-run` and `--no-auto`.
+Print the full command tree, showing every subcommand, alias, and flag.
 
 ```console
-opencode-msb shell
-opencode-msb shell -b my-feature
+opencode-msb tree
 ```
-
-**Aliases:** `sh`, `sandbox shell`
 
 ---
 
-### stop
+### doctor
 
-Gracefully stop the project VM. State remains for future reuse.
+Check prerequisites (Docker, KVM, Git, msb) and exit.
 
 ```console
-opencode-msb stop
-opencode-msb stop -f     # stop and remove VM state
+opencode-msb doctor
 ```
-
-**Aliases:** `sandbox stop`
-
-**Flags:**
-
-| Flag        | Short | Default | Purpose                                     |
-|-------------|-------|---------|---------------------------------------------|
-| `--force`   | `-f`  | `false` | Remove VM's persisted state                 |
-| `--dry-run` | `-n`  | `false` | Show what would be stopped without stopping |
 
 ---
 
@@ -280,6 +274,18 @@ opencode-msb version
 ### `opencode-msb volume <subcommand>`
 
 The volume group provides manual home volume management.
+
+**Aliases:** `vol`
+
+#### `opencode-msb volume list`
+
+List all managed home volumes.
+
+```console
+opencode-msb volume list
+```
+
+**Aliases:** `volume ls`
 
 #### `opencode-msb volume migrate [volume-name]`
 
@@ -312,4 +318,3 @@ Create a new volume alongside the old one, for manual data transfer.
 - **Flags:**
   - `--rm` — remove old volume after you exit (you are responsible for confirming)
   - `--dry-run` — show what would be done
-  - `--rebuild` — rebuild runner image before editing
