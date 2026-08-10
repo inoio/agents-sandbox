@@ -72,6 +72,6 @@ Full [Commands Reference](/docs/commands.md).
 | [Commands](/docs/commands.md)               | Complete CLI reference                 |
 | [Configuration](/docs/configuration.md)     | Launcher config, env, secrets          |
 | [Runner Image](/docs/runner-image.md)       | Base image, custom tooling             |
-| [Branch Sessions](/docs/branch-sessions.md) | Isolated workflow for branches         |
+| [Worktree Sessions](/docs/branch-sessions.md) | Isolated worktree sessions for per-feature development |
 | [Sandboxes](/docs/sandboxes.md)             | VM lifecycle, volumes, pruning         |
 | [Troubleshooting](/docs/troubleshooting.md) | Common issues and fixes                |
