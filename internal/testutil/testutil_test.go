@@ -10,6 +10,14 @@ import (
 	"gitlab.inoio.de/inoio/opencode-msb/internal/termio"
 )
 
+func TestInitMocks_RunsInstallsInOrderBeforeTests(t *testing.T) {
+	// installOrder is populated by the package TestMain via InitMocks.
+	want := []string{"a", "b"}
+	if len(installOrder) != 2 || installOrder[0] != "a" || installOrder[1] != "b" {
+		t.Fatalf("InitMocks installs did not run in order before tests: got %v, want %v", installOrder, want)
+	}
+}
+
 func TestTermUIMock_ReturnsEmptyMock(t *testing.T) {
 	mock := TermUIMock(t)
 	if mock.InfoCalls != nil {

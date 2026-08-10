@@ -40,3 +40,14 @@ func WriteYAML(tb testing.TB, dir, name string, v map[string]any) {
 	}
 	WriteFile(tb, dir, name, string(data))
 }
+
+// InitMocks runs each install closure before the package's tests and then executes
+// them. Go requires TestMain to be defined in the package under test; this helper
+// keeps that definition to a single call. An install closure swaps a package-level
+// factory var (e.g. sandbox.GetConfigPaths) to a fail-fast default for tests.
+func InitMocks(m *testing.M, installs ...func()) {
+	for _, install := range installs {
+		install()
+	}
+	m.Run()
+}
