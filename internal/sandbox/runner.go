@@ -129,9 +129,9 @@ func (s *sandboxSession) cleanup() {
 		_ = s.sb.Detach(context.Background())
 	}
 	// Run git worktree prune on the host repo to clean up stale entries.
-	if s.cwd != "" {
+	/*if s.cwd != "" {
 		_ = git.PruneWorktrees(context.Background(), s.cwd)
-	}
+	}*/
 }
 
 func prepareSandbox(
