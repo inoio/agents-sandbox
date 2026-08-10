@@ -46,7 +46,7 @@ func setupRunMocks(t *testing.T, mock *sandbox.MockMsbClient, sandboxToReturn sa
 }
 
 // setupShellRunMocks is like setupRunMocks but adds shell output for worktree creation.
-// Branch scenarios need the mock sandbox to return valid JSON for the worktree curl command.
+// Branch scenarios need the mock sandbox to return valid JSON for the worktree curl commands.
 func setupShellRunMocks(t *testing.T, mock *sandbox.MockMsbClient, sandboxToReturn sandbox.Sandbox) {
 	t.Helper()
 
@@ -55,6 +55,13 @@ func setupShellRunMocks(t *testing.T, mock *sandbox.MockMsbClient, sandboxToRetu
 		if sb.ShellOut == nil {
 			sb.ShellOut = make(map[string]sandbox.ShellResult)
 		}
+		sb.ShellOut["curl -sf http://127.0.0.1:4096/experimental/worktree"] = sandbox.NewTestResult(
+			true,
+			0,
+			`[]`,
+			"",
+			nil,
+		)
 		sb.ShellOut["curl -sf -X POST http://127.0.0.1:4096/experimental/worktree -H 'Content-Type: application/json' -d '{\"name\":\"x\"}'"] = sandbox.NewTestResult(
 			true,
 			0,
@@ -338,6 +345,47 @@ func TestRunShell_R11_runSuccessDetachOk(t *testing.T) {
 	}
 	if exitErr.Code != 0 {
 		t.Errorf("expected exit code 0, got %d", exitErr.Code)
+	}
+}
+
+// R12b: run --branch reuses an existing worktree instead of creating a new one.
+func TestRunShell_R12b_branchReusesExistingWorktree(t *testing.T) {
+	initTestRepo(t)
+
+	ui := &termio.Mock{}
+	mock := &sandbox.MockMsbClient{}
+	sb := &sandbox.MockSandbox{
+		AttachErr:  errors.New("fail"),
+		ShellOut:   map[string]sandbox.ShellResult{},
+		ShellCalls: &[]string{},
+	}
+	sb.ShellOut["curl -sf http://127.0.0.1:4096/experimental/worktree"] = sandbox.NewTestResult(
+		true,
+		0,
+		`["/home/dev/.local/share/opencode/worktree/abc/bugfix-exit-zero"]`,
+		"",
+		nil,
+	)
+	setupRunMocks(t, mock, sb)
+
+	root := buildRootCmd(ui)
+	root.SetArgs([]string{"run", "--branch", "bugfix/exit-zero"})
+	_ = root.Execute()
+
+	found := false
+	for _, call := range ui.VerboseCalls {
+		if strings.Contains(call, "reusing existing worktree for \"bugfix/exit-zero\"") {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("expected verbose 'reusing existing worktree'; got: %v", ui.VerboseCalls)
+	}
+	for _, call := range *sb.ShellCalls {
+		if strings.Contains(call, "POST") {
+			t.Errorf("expected reuse without create, but created a new worktree: %q", call)
+		}
 	}
 }
 
