@@ -80,7 +80,7 @@ func TestResolveReconfigPromptAKeep(t *testing.T) {
 }
 
 func TestResolveReconfigPromptBKeepReturnsNoRestart(t *testing.T) {
-	plan := &reconfigDecision{restartDaemons: true, restartDockerd: true}
+	plan := &reconfigDecision{restartDaemons: true}
 	ui := &termio.Mock{}
 	ui.SelectFn = func(_ string, _ []termio.Choice, _ string) (string, error) { return "k", nil }
 	_, applyRestart, err := resolveReconfig(context.Background(), ui, plan, 1, plan.changes)
@@ -92,39 +92,36 @@ func TestResolveReconfigPromptBKeepReturnsNoRestart(t *testing.T) {
 	}
 }
 
-func TestPlanReconfigEnvChangeRestartsAllDaemons(t *testing.T) {
+func TestPlanReconfigEnvChangeRebuildsVM(t *testing.T) {
 	cfg := &msbSdk.SandboxConfig{Image: "a", CPUs: 4, MemoryMiB: 4096}
 	d := planReconfig(cfg, "a", RunOptions{}, true, false, false) // envChanged=true
-	if !d.restartDaemons {
-		t.Error("expected restartDaemons on env change")
+	if !d.recreate {
+		t.Error("expected recreate on env change (env cannot be applied live)")
 	}
-	if !d.restartDockerd {
-		t.Error("expected restartDockerd on env change")
-	}
-	if d.recreate {
-		t.Error("unexpected recreate for env-only change")
+	if d.restartDaemons {
+		t.Error("unexpected daemon restart for env change (folded into recreate)")
 	}
 }
 
-func TestPlanReconfigOpenCodeConfigChangeNoDockerdRestart(t *testing.T) {
+func TestPlanReconfigOpenCodeConfigChangeRestartsDaemon(t *testing.T) {
 	cfg := &msbSdk.SandboxConfig{Image: "a", CPUs: 4, MemoryMiB: 4096}
 	d := planReconfig(cfg, "a", RunOptions{}, false, false, true) // opencodeConfigChanged=true
 	if !d.restartDaemons {
 		t.Error("expected restartDaemons on opencode config change")
 	}
-	if d.restartDockerd {
-		t.Error("expected dockerd NOT restarted for opencode-config-only change")
+	if d.recreate {
+		t.Error("expected NO VM recreate for opencode-config-only change")
 	}
 }
 
-func TestPlanReconfigSecretsChangeRestartsAllDaemons(t *testing.T) {
+func TestPlanReconfigSecretsChangeRebuildsVM(t *testing.T) {
 	cfg := &msbSdk.SandboxConfig{Image: "a", CPUs: 4, MemoryMiB: 4096}
 	d := planReconfig(cfg, "a", RunOptions{}, false, true, false) // secretsChanged=true
-	if !d.restartDaemons {
-		t.Error("expected restartDaemons on secrets change")
+	if !d.recreate {
+		t.Error("expected recreate on secrets change (secrets cannot be applied live)")
 	}
-	if !d.restartDockerd {
-		t.Error("expected restartDockerd on secrets change")
+	if d.restartDaemons {
+		t.Error("unexpected daemon restart for secrets change (folded into recreate)")
 	}
 }
 
@@ -154,7 +151,7 @@ func TestPlanReconfigMemoryClampToMax(t *testing.T) {
 }
 
 func TestResolveReconfigPromptBRestart(t *testing.T) {
-	plan := &reconfigDecision{restartDaemons: true, restartDockerd: true}
+	plan := &reconfigDecision{restartDaemons: true}
 	ui := &termio.Mock{}
 	ui.SelectFn = func(_ string, _ []termio.Choice, _ string) (string, error) { return "r", nil }
 	applyRecreate, applyRestart, err := resolveReconfig(context.Background(), ui, plan, 1, plan.changes)

@@ -262,7 +262,7 @@ func TestDecideReconfig_EnvChangedWithPersistedState(t *testing.T) {
 	}
 
 	ui := testutil.TermUIMock(t)
-	recreate, restart, restartDockerd, _, err := decideReconfig(
+	recreate, restart, _, err := decideReconfig(
 		context.Background(),
 		mock,
 		vm,
@@ -276,13 +276,12 @@ func TestDecideReconfig_EnvChangedWithPersistedState(t *testing.T) {
 	if err != nil {
 		t.Fatalf("decideReconfig: %v", err)
 	}
-	if recreate {
-		t.Error("expected no recreate (image matches)")
+	if !recreate {
+		t.Error("expected recreate when env differs from persisted state (env cannot be applied live)")
 	}
-	if !restart {
-		t.Error("expected restart when env differs from persisted state")
+	if restart {
+		t.Error("expected no daemon restart for env change (folded into recreate)")
 	}
-	_ = restartDockerd
 }
 
 func TestDecideReconfig_EnvUnchangedWithPersistedState(t *testing.T) {
@@ -310,7 +309,7 @@ func TestDecideReconfig_EnvUnchangedWithPersistedState(t *testing.T) {
 	}
 
 	ui := testutil.TermUIMock(t)
-	recreate, restart, restartDockerd, _, err := decideReconfig(
+	recreate, restart, _, err := decideReconfig(
 		context.Background(),
 		mock,
 		vm,
@@ -330,7 +329,6 @@ func TestDecideReconfig_EnvUnchangedWithPersistedState(t *testing.T) {
 	if restart {
 		t.Error("expected no restart when env matches persisted state")
 	}
-	_ = restartDockerd
 }
 
 func TestDecideReconfig_SecretsChangedWithPersistedState(t *testing.T) {
@@ -354,7 +352,7 @@ func TestDecideReconfig_SecretsChangedWithPersistedState(t *testing.T) {
 	}
 
 	ui := testutil.TermUIMock(t)
-	recreate, restart, _, _, err := decideReconfig(
+	recreate, restart, _, err := decideReconfig(
 		context.Background(),
 		mock,
 		vm,
@@ -368,10 +366,12 @@ func TestDecideReconfig_SecretsChangedWithPersistedState(t *testing.T) {
 	if err != nil {
 		t.Fatalf("decideReconfig: %v", err)
 	}
-	if !restart {
-		t.Error("expected restart when secrets differ from persisted state")
+	if !recreate {
+		t.Error("expected recreate when secrets differ from persisted state (secrets cannot be applied live)")
 	}
-	_ = recreate
+	if restart {
+		t.Error("expected no daemon restart for secrets change (folded into recreate)")
+	}
 }
 
 func TestDecideReconfig_ZeroPersistedStateNoSpuriousChange(t *testing.T) {
@@ -390,7 +390,7 @@ func TestDecideReconfig_ZeroPersistedStateNoSpuriousChange(t *testing.T) {
 	testutil.WritePath(t, filepath.Join(userDir, envFileName), "# nothing here\n")
 
 	ui := testutil.TermUIMock(t)
-	recreate, restart, restartDockerd, _, err := decideReconfig(
+	recreate, restart, _, err := decideReconfig(
 		context.Background(),
 		mock,
 		vm,
@@ -410,7 +410,6 @@ func TestDecideReconfig_ZeroPersistedStateNoSpuriousChange(t *testing.T) {
 	if restart {
 		t.Error("expected no restart when no env is configured (zero+empty)")
 	}
-	_ = restartDockerd
 }
 
 func TestSecretsChanged_ZeroApplied_NilDesired(t *testing.T) {
@@ -595,7 +594,7 @@ func TestDecideReconfig_PersistedSecretsMatchDesired(t *testing.T) {
 	}
 
 	ui := testutil.TermUIMock(t)
-	recreate, restart, _, _, err := decideReconfig(
+	recreate, restart, _, err := decideReconfig(
 		context.Background(),
 		mock,
 		vm,

@@ -171,8 +171,8 @@ session. The change type determines the mechanism used to apply the new settings
 |-------------------|----------------|----------------------------------------------------------------------------------------------------------|
 | `cpus`            | Live Modify    | Applied live via SDK Modify (hotplug)                                                                    |
 | `memory`          | Live Modify    | Applied live via SDK Modify (hotplug)                                                                    |
-| `env`             | Daemon restart | Applied live via SDK Modify; opencode and dockerd daemons are restarted in-place, picking up the changes |
-| `secrets`         | Daemon restart | Applied live via SDK Modify; opencode and dockerd daemons are restarted in-place, picking up the changes |
+| `env`             | VM recreate    | microsandbox cannot apply env live or on a daemon restart, so the VM is rebuilt; env is baked in at creation |
+| `secrets`         | VM recreate    | microsandbox cannot apply secrets live or on a daemon restart, so the VM is rebuilt; secrets are baked in at creation |
 | `opencode config` | Daemon restart | Applied live via copy commands; opencode daemon is restarted in-place, picking up the changes            |
 | `tmp-size`        | VM recreate    | VM is stopped, removed, and rebuilt with new tmpfs size. Home volume is preserved.                       |
 | `disk-size`       | VM recreate    | VM is stopped, removed, and rebuilt with new disk size. Home volume is preserved.                        |
