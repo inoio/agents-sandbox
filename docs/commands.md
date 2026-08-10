@@ -20,7 +20,7 @@ Run opencode in a microsandbox VM. This is the default command — `opencode-msb
 
 ```console
 opencode-msb [ARGS...]                          # default: run opencode
-opencode-msb -b my-feature [ARGS...]            # branch session
+opencode-msb -w bugfix-fix-thing [ARGS...]            # worktree session
 opencode-msb --dry-run                          # validate only
 opencode-msb -m 8G -c 4 -- -c "fix bug"         # CPU/memory + ops
 opencode-msb -- -c "fix bug"                    # arguments to opencode
@@ -32,7 +32,7 @@ Arguments after `--` are forwarded to opencode. Arguments before `--` that don't
 
 | Flag           | Short | Default  | Purpose                                                                                                                                    |
 |----------------|-------|----------|--------------------------------------------------------------------------------------------------------------------------------------------|
-| `--branch`     | `-b`  | `""`     | Isolated git worktree for the given branch                                                                                                 |
+| `--worktree`   | `-w`  | `""`     | Isolated opencode worktree named <name>, optionally starting from base ref <name>:<base>                                  |
 | `--rebuild`    | `-r`  | `false`  | Rebuild runner image before starting                                                                                                       |
 | `--dry-run`    | `-n`  | `false`  | Validate setup without running opencode                                                                                                    |
 | `--cpus`       | `-c`  | `0`      | vCPUs for the sandbox (0 = all)                                                                                                            |
@@ -56,7 +56,7 @@ Start a sandbox VM and open an interactive shell. Useful for debugging the sandb
 
 ```console
 opencode-msb shell
-opencode-msb shell -b my-feature
+opencode-msb shell -w bugfix-fix-thing
 ```
 
 **Aliases:** `sh`, `sandbox shell`

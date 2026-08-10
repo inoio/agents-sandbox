@@ -16,10 +16,10 @@ After installation, start a session in your current project:
 opencode-msb
 ```
 
-Start an isolated session for a specific branch:
+Start an isolated session with a worktree:
 
 ```console
-opencode-msb -b feature/my-feature
+opencode-msb -w bugfix-my-fix
 ```
 
 Get an overview over commands via `opencode-msb tree`.
