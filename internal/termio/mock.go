@@ -21,6 +21,8 @@ type Mock struct {
 	StdOutBuffer bytes.Buffer
 	StdErrBuffer bytes.Buffer
 
+	level               Level
+	assumeYes           bool
 	IsInteractiveResult bool
 
 	SelectFn         func(prompt string, choices []Choice, defaultKey string) (string, error)
@@ -82,6 +84,22 @@ func (m *Mock) Spinner(msg string) Spinner {
 func (m *Mock) Spinnerf(format string, args ...any) Spinner {
 	m.SpinnerCalls = append(m.SpinnerCalls, fmt.Sprintf(format, args...))
 	return &mockSpinner{}
+}
+
+func (m *Mock) SetLevel(level Level) {
+	m.level = level
+}
+
+func (m *Mock) SetAssumeYes(assumeYes bool) {
+	m.assumeYes = assumeYes
+}
+
+func (m *Mock) Level() Level {
+	return m.level
+}
+
+func (m *Mock) AssumeYes() bool {
+	return m.assumeYes
 }
 
 func (m *Mock) IsInteractive() bool {

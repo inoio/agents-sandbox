@@ -275,7 +275,7 @@ func Prune(
 }
 
 func printPruneSummary(ui termio.UI, report *StaleReport, dryRun bool, autoPrune bool) {
-	if report == nil || !report.hasAnything() {
+	if report == nil {
 		return
 	}
 	var out func(string, ...any)
@@ -292,6 +292,9 @@ func printPruneSummary(ui termio.UI, report *StaleReport, dryRun bool, autoPrune
 		if dryRun {
 			action = "dry-run: Would prune"
 		}
+	}
+	if !report.hasAnything() {
+		out = ui.Verbosef
 	}
 	out(
 		"%s %d VMs, %d home volumes, %d docker images, %d msb images, %d task sandboxes, %d clone volumes",

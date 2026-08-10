@@ -7,9 +7,9 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"gitlab.inoio.de/inoio/opencode-msb/internal/launcherconfig"
 	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox"
 	"gitlab.inoio.de/inoio/opencode-msb/internal/termio"
+	launcherconfig "gitlab.inoio.de/inoio/opencode-msb/internal/viperconfig"
 )
 
 // extractRunOptionsReapPolicy tests that extractRunOptions populates
@@ -118,7 +118,7 @@ func TestExtractRunOptions_L6_ShellCommandPath(t *testing.T) {
 }
 
 // buildCommandWithLauncherConfig builds a "run" command and injects
-// a launcherconfig.Config into the context, mimicking what
+// a viperconfig.Config into the context, mimicking what
 // PersistentPreRunE does in production.
 func buildCommandWithLauncherConfig(ui termio.UI, lc launcherconfig.Config) *cobra.Command {
 	cmd := buildRunCmd(ui)
@@ -129,7 +129,7 @@ func buildCommandWithLauncherConfig(ui termio.UI, lc launcherconfig.Config) *cob
 }
 
 // buildShellCommandWithLauncherConfig builds a "shell" command and injects
-// a launcherconfig.Config into the context, verifying the shell path.
+// a viperconfig.Config into the context, verifying the shell path.
 func buildShellCommandWithLauncherConfig(ui termio.UI, lc launcherconfig.Config) *cobra.Command {
 	pet := buildShellCmd(ui)
 	petCtx := context.Background()

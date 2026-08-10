@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -43,28 +42,6 @@ type RunOptions struct {
 	// Recreate forces a project-VM rebuild on this invocation. It is set by
 	// prepareSandbox from the reconfig decision and is never user-facing.
 	Recreate bool
-}
-
-type Config struct {
-	UserStateDir  string
-	UserConfigDir string
-	UserCacheDir  string
-}
-
-// UserOpenCodeConfigDir returns the directory of the opencode server's own
-// user config, nested under the tool's user config base.
-func (c Config) UserOpenCodeConfigDir() string {
-	return filepath.Join(c.UserConfigDir, configDirName)
-}
-
-// userEnvFile returns the user-level environment definitions file.
-func (c Config) userEnvFile() string {
-	return filepath.Join(c.UserConfigDir, envFileName)
-}
-
-// userEnvSecretFile returns the user-level secret environment definitions file.
-func (c Config) userEnvSecretFile() string {
-	return filepath.Join(c.UserConfigDir, envSecretFileName)
 }
 
 const (
@@ -134,7 +111,7 @@ func buildOpencodeArgs(args []string, auto bool) []string {
 }
 
 func resolveDockerfile() []byte {
-	if data, err := os.ReadFile(projectDockerfile()); err == nil {
+	if data, err := os.ReadFile(GetConfigPaths().projectDockerfile()); err == nil {
 		return data
 	}
 	return embeddedDockerfile
@@ -160,7 +137,6 @@ func (s *sandboxSession) cleanup() {
 func prepareSandbox(
 	ctx context.Context,
 	opts RunOptions,
-	cfg Config,
 	ui termio.UI,
 ) (*sandboxSession, error) {
 	if !CheckAll(ctx, ui) {
@@ -192,7 +168,7 @@ func prepareSandbox(
 		client,
 		vm,
 		opts,
-		cfg,
+
 		imageRef,
 		imageDigest,
 		homeVol,
@@ -204,15 +180,18 @@ func prepareSandbox(
 	}
 	ui.Verbosef("recreate: %v, restart: %v, restartDockerd: %v", recreate, restart, restartDockerd)
 	opts.Recreate = recreate
-	sb, created, err := ensureProjectVM(ctx, opts, cfg, imageRef, homeVol, cwd, imageEnvs, ui)
+	sb, created, err := ensureProjectVM(ctx, opts, imageRef, homeVol, cwd, imageEnvs, ui)
 	if err != nil {
 		return nil, err
 	}
 	if created {
-		desiredEnv := mergeEnvMaps(buildEnvMap(cfg.userEnvFile()), buildEnvMap(projectEnvFile()))
+		desiredEnv := mergeEnvMaps(
+			buildEnvMap(GetConfigPaths().userEnvFile()),
+			buildEnvMap(GetConfigPaths().projectEnvFile()),
+		)
 		desiredSecrets := buildSecrets(mergeEnvMaps(
-			buildEnvMap(cfg.userEnvSecretFile()),
-			buildEnvMap(projectEnvSecretFile()),
+			buildEnvMap(GetConfigPaths().userEnvSecretFile()),
+			buildEnvMap(GetConfigPaths().projectEnvSecretFile()),
 		), ui)
 		if err := persistEnvSecrets(
 			projectSlug,
@@ -230,7 +209,7 @@ func prepareSandbox(
 		ui.Infof("VM lifecycle skipped (--dry-run-vm)")
 		sandboxTarget = resolveTargetNoBranch()
 	} else {
-		sandboxTarget, sandboxErr = setUpSandbox(ctx, sb, opts, cfg, cwd, created, ui, restart, restartDockerd)
+		sandboxTarget, sandboxErr = setUpSandbox(ctx, sb, opts, created, ui, restart, restartDockerd)
 		if sandboxErr != nil {
 			return nil, sandboxErr
 		}
@@ -250,8 +229,8 @@ func prepareSandbox(
 // serve, and attaches a TUI client.
 //
 // Note: Run is called from cli.go after all flags are resolved.
-func Run(ctx context.Context, opts RunOptions, cfg Config, ui termio.UI) error {
-	session, err := prepareSandbox(ctx, opts, cfg, ui)
+func Run(ctx context.Context, opts RunOptions, ui termio.UI) error {
+	session, err := prepareSandbox(ctx, opts, ui)
 	if err != nil {
 		return err
 	}
@@ -303,8 +282,8 @@ func Run(ctx context.Context, opts RunOptions, cfg Config, ui termio.UI) error {
 
 // Shell creates (or reuses) the project VM and drops the user into an
 // interactive shell session, without starting opencode serve.
-func Shell(ctx context.Context, opts RunOptions, cfg Config, ui termio.UI) error {
-	session, err := prepareSandbox(ctx, opts, cfg, ui)
+func Shell(ctx context.Context, opts RunOptions, cfg ConfigPaths, ui termio.UI) error {
+	session, err := prepareSandbox(ctx, opts, ui)
 	if err != nil {
 		return err
 	}
@@ -441,14 +420,12 @@ func setUpSandbox(
 	ctx context.Context,
 	sb Sandbox,
 	opts RunOptions,
-	cfg Config,
-	_ string,
 	created bool,
 	ui termio.UI,
 	restart bool,
 	restartDockerd bool,
 ) (string, error) {
-	cfs, err := loadConfigFiles(cfg.UserOpenCodeConfigDir())
+	cfs, err := loadConfigFiles(GetConfigPaths().UserOpencodeConfigDir())
 	if err != nil {
 		return "", err
 	}
@@ -457,7 +434,7 @@ func setUpSandbox(
 
 	if restart {
 		if restartDockerd {
-			applyEnvAndSecrets(ctx, cfg, ui)
+			applyEnvAndSecrets(ctx, ui)
 		}
 		restartDaemons(ctx, sb, cfs.files, restartDockerd, ui)
 		return ResolveTarget(ctx, sb, opts.Branch, ui)
@@ -484,7 +461,8 @@ func setUpSandbox(
 // applyEnvAndSecrets fetches the live VM handle and applies the current
 // desire env/secret configuration via the SDK Modify API. It is called on the
 // reuse+restart path so that a daemon restart picks up the new values.
-func applyEnvAndSecrets(ctx context.Context, cfg Config, ui termio.UI) {
+func applyEnvAndSecrets(ctx context.Context,
+	ui termio.UI) {
 	slug := git.ProjectSlug(ui)
 	handle, err := msb.Get().GetSandbox(ctx, projectVMName(slug))
 	if err != nil {
@@ -492,10 +470,13 @@ func applyEnvAndSecrets(ctx context.Context, cfg Config, ui termio.UI) {
 		return
 	}
 
-	desiredEnv := mergeEnvMaps(buildEnvMap(cfg.userEnvFile()), buildEnvMap(projectEnvFile()))
+	desiredEnv := mergeEnvMaps(
+		buildEnvMap(GetConfigPaths().userEnvFile()),
+		buildEnvMap(GetConfigPaths().projectEnvFile()),
+	)
 	desiredSecrets := buildSecrets(mergeEnvMaps(
-		buildEnvMap(cfg.userEnvSecretFile()),
-		buildEnvMap(projectEnvSecretFile()),
+		buildEnvMap(GetConfigPaths().userEnvSecretFile()),
+		buildEnvMap(GetConfigPaths().projectEnvSecretFile()),
 	), ui)
 
 	currentEnv := currentEnvState(slug, ui)
@@ -533,7 +514,7 @@ func decideReconfig(
 	ctx context.Context,
 	client MsbClient,
 	vm *VolumeManager,
-	opts RunOptions, cfg Config,
+	opts RunOptions,
 	imageRef, imageDigest, homeVol string, state HomeState,
 	ui termio.UI,
 ) (bool, bool, bool, string, error) {
@@ -569,7 +550,7 @@ func decideReconfig(
 		homeVol = newVol
 	}
 
-	cfs, err := loadConfigFiles(cfg.UserOpenCodeConfigDir())
+	cfs, err := loadConfigFiles(GetConfigPaths().UserOpencodeConfigDir())
 	if err != nil {
 		return false, false, false, homeVol, err
 	}
@@ -583,10 +564,13 @@ func decideReconfig(
 		}
 	}
 
-	desiredEnv := mergeEnvMaps(buildEnvMap(cfg.userEnvFile()), buildEnvMap(projectEnvFile()))
+	desiredEnv := mergeEnvMaps(
+		buildEnvMap(GetConfigPaths().userEnvFile()),
+		buildEnvMap(GetConfigPaths().projectEnvFile()),
+	)
 	desiredSecrets := buildSecrets(mergeEnvMaps(
-		buildEnvMap(cfg.userEnvSecretFile()),
-		buildEnvMap(projectEnvSecretFile()),
+		buildEnvMap(GetConfigPaths().userEnvSecretFile()),
+		buildEnvMap(GetConfigPaths().projectEnvSecretFile()),
 	), ui)
 	envHasChanged := envChanged(state.EnvState, desiredEnv)
 	secretsHasChanged := secretsChanged(state.SecretState, desiredSecrets)

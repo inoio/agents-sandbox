@@ -3,7 +3,6 @@ package sandbox
 import (
 	"context"
 	"errors"
-	"path/filepath"
 	"testing"
 
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
@@ -108,11 +107,7 @@ func TestCreateProjectVMCallsClientCreateSandbox(t *testing.T) {
 	client := &MockMsbClient{}
 	testUI := testutil.TermUIMock(t)
 	ui := &testUI
-	cfg := Config{
-		UserStateDir:  t.TempDir(),
-		UserConfigDir: t.TempDir(),
-	}
-
+	withMockConfigPaths(t)
 	sb, created, err := createProjectVM(
 		context.Background(),
 		client,
@@ -121,7 +116,6 @@ func TestCreateProjectVMCallsClientCreateSandbox(t *testing.T) {
 		"test-home-vol",
 		t.TempDir(),
 		RunOptions{Memory: "1G"},
-		cfg,
 		nil,
 		ui,
 	)
@@ -176,11 +170,7 @@ func TestEnsureProjectVM_CreatePath(t *testing.T) {
 		return msb.NewMockSandbox(msb.SandboxOpts{}), nil
 	}
 	msb.WithMsbMock(t, client)
-
-	cfg := Config{
-		UserStateDir:  filepath.Join(t.TempDir(), "state"),
-		UserConfigDir: t.TempDir(),
-	}
+	withMockConfigPaths(t)
 
 	// ProjectSlug depends on the current directory, so use a temp repo.
 	tmpRepo := testutil.InitRepo(t)
@@ -189,7 +179,6 @@ func TestEnsureProjectVM_CreatePath(t *testing.T) {
 	sb, created, err := ensureProjectVM(
 		context.Background(),
 		RunOptions{Memory: "1G", TmpSize: "512M"},
-		cfg,
 		"opencode-msb/runner-test:latest",
 		"test-home-vol",
 		tmpRepo,
@@ -223,11 +212,7 @@ func TestEnsureProjectVM_ReconnectPath(t *testing.T) {
 		return nil, errors.New("reconnect path must not create a sandbox")
 	}
 	msb.WithMsbMock(t, client)
-
-	cfg := Config{
-		UserStateDir:  filepath.Join(t.TempDir(), "state"),
-		UserConfigDir: t.TempDir(),
-	}
+	withMockConfigPaths(t)
 
 	tmpRepo := testutil.InitRepo(t)
 	t.Chdir(tmpRepo)
@@ -235,7 +220,6 @@ func TestEnsureProjectVM_ReconnectPath(t *testing.T) {
 	sb, created, err := ensureProjectVM(
 		context.Background(),
 		RunOptions{Memory: "1G", TmpSize: "512M"},
-		cfg,
 		"opencode-msb/runner-test:latest",
 		"test-home-vol",
 		tmpRepo,
@@ -271,11 +255,7 @@ func TestEnsureProjectVM_ReconnectWhenImageUnchanged(t *testing.T) {
 		return nil, errors.New("unchanged image must not create a sandbox")
 	}
 	msb.WithMsbMock(t, client)
-
-	cfg := Config{
-		UserStateDir:  filepath.Join(t.TempDir(), "state"),
-		UserConfigDir: t.TempDir(),
-	}
+	withMockConfigPaths(t)
 
 	tmpRepo := testutil.InitRepo(t)
 	t.Chdir(tmpRepo)
@@ -283,7 +263,6 @@ func TestEnsureProjectVM_ReconnectWhenImageUnchanged(t *testing.T) {
 	sb, created, err := ensureProjectVM(
 		context.Background(),
 		RunOptions{Memory: "1G", TmpSize: "512M"},
-		cfg,
 		"opencode-msb/runner-test:abc123",
 		"test-home-vol",
 		tmpRepo,
@@ -381,12 +360,12 @@ func TestCreateProjectVMAppliesRootDiskWhenDiskSizeSet(t *testing.T) {
 	client := &MockMsbClient{}
 	testUI := testutil.TermUIMock(t)
 	ui := &testUI
-	cfg := Config{UserStateDir: t.TempDir(), UserConfigDir: t.TempDir()}
+	withMockConfigPaths(t)
 
 	if _, _, err := createProjectVM(
 		context.Background(), client, "opencode-msb-vm-test",
 		"opencode-msb/runner-test:latest", "test-home-vol", t.TempDir(),
-		RunOptions{Memory: "1G", DiskSize: "16G"}, cfg, nil, ui,
+		RunOptions{Memory: "1G", DiskSize: "16G"}, nil, ui,
 	); err != nil {
 		t.Fatalf("createProjectVM failed: %v", err)
 	}
@@ -423,11 +402,7 @@ func TestEnsureProjectVM_NoReplacementWhenExistingImageUnknown(t *testing.T) {
 		return nil, errors.New("unknown image must not create a sandbox")
 	}
 	msb.WithMsbMock(t, client)
-
-	cfg := Config{
-		UserStateDir:  filepath.Join(t.TempDir(), "state"),
-		UserConfigDir: t.TempDir(),
-	}
+	withMockConfigPaths(t)
 
 	tmpRepo := testutil.InitRepo(t)
 	t.Chdir(tmpRepo)
@@ -435,7 +410,6 @@ func TestEnsureProjectVM_NoReplacementWhenExistingImageUnknown(t *testing.T) {
 	sb, created, err := ensureProjectVM(
 		context.Background(),
 		RunOptions{Memory: "1G", TmpSize: "512M"},
-		cfg,
 		"opencode-msb/runner-test:newDigest",
 		"test-home-vol",
 		tmpRepo,
@@ -550,12 +524,11 @@ func TestEnsureProjectVMRecreatesWhenFlagged(t *testing.T) {
 		return &msb.MockSandbox{Name_: name}, nil
 	}
 	msb.WithMsbMock(t, client)
-
-	cfg := Config{UserStateDir: t.TempDir(), UserConfigDir: t.TempDir()}
+	withMockConfigPaths(t)
 
 	opts := RunOptions{ReapPolicy: ReapPolicy{}, Recreate: true, CPUs: 1, Memory: "2G"}
 	sb, created, err := ensureProjectVM(
-		context.Background(), opts, cfg,
+		context.Background(), opts,
 		"new:tag", "homevol", "/workspace",
 		map[string]string{}, ui,
 	)
@@ -589,11 +562,10 @@ func TestEnsureProjectVMReusesWhenNotFlagged(t *testing.T) {
 		return nil, errors.New("CreateSandbox must not be called when reusing")
 	}
 	msb.WithMsbMock(t, client)
-
-	cfg := Config{UserStateDir: t.TempDir(), UserConfigDir: t.TempDir()}
+	withMockConfigPaths(t)
 
 	sb, created, err := ensureProjectVM(
-		context.Background(), RunOptions{}, cfg,
+		context.Background(), RunOptions{},
 		"old:tag", "homevol", "/workspace",
 		map[string]string{}, ui,
 	)

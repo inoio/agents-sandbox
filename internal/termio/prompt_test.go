@@ -34,6 +34,19 @@ func TestIsInteractive(t *testing.T) {
 			t.Fatal("expected true when stdin is a terminal and yes flag is not set")
 		}
 	})
+
+	t.Run("SetAssumeYes makes it non-interactive", func(t *testing.T) {
+		ui := New(nil, &bytes.Buffer{}, &bytes.Buffer{}, false, LevelNormal, false)
+		p := ui.(*printer)
+		p.isTerminal = func(int) bool { return true }
+		if !p.IsInteractive() {
+			t.Fatal("expected interactive before SetAssumeYes")
+		}
+		ui.SetAssumeYes(true)
+		if p.IsInteractive() {
+			t.Fatal("expected non-interactive after SetAssumeYes")
+		}
+	})
 }
 
 func TestSelect(t *testing.T) {

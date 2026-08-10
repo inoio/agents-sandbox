@@ -9,9 +9,9 @@ import (
 	"github.com/spf13/cobra"
 	"golang.org/x/term"
 
-	"gitlab.inoio.de/inoio/opencode-msb/internal/launcherconfig"
 	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox"
 	"gitlab.inoio.de/inoio/opencode-msb/internal/termio"
+	launcherconfig "gitlab.inoio.de/inoio/opencode-msb/internal/viperconfig"
 )
 
 var version = "dev"
@@ -41,16 +41,38 @@ func execute(args []string, ui termio.UI) error {
 	return rootCmd.Execute()
 }
 
+// applyCLISettings sets the terminal output level and assume-yes state on the UI
+// based on the effective --verbose/--quiet/--yes flags of the running command.
+//
+// It must run after cobra parses the real command tree and after launcher
+// config has been merged, so that flags work regardless of position or how
+// short shorthands are grouped (e.g. "-nv").
+func applyCLISettings(cmd *cobra.Command, ui termio.UI) {
+	if cmd == nil {
+		return
+	}
+	quiet, _ := cmd.Flags().GetBool(pFlagQuiet)
+	verbose, _ := cmd.Flags().GetBool(pFlagVerbose)
+	yes, _ := cmd.Flags().GetBool(pFlagYes)
+	ui.SetLevel(levelFrom(quiet, verbose))
+	ui.SetAssumeYes(yes)
+}
+
+func levelFrom(quiet, verbose bool) termio.Level {
+	switch {
+	case quiet:
+		return termio.LevelQuiet
+	case verbose:
+		return termio.LevelVerbose
+	default:
+		return termio.LevelNormal
+	}
+}
+
 func getIOLevel(root *cobra.Command) termio.Level {
 	verbose, _ := root.Flags().GetBool(pFlagVerbose)
 	quiet, _ := root.Flags().GetBool(pFlagQuiet)
-	level := termio.LevelNormal
-	if quiet {
-		level = termio.LevelQuiet
-	} else if verbose {
-		level = termio.LevelVerbose
-	}
-	return level
+	return levelFrom(quiet, verbose)
 }
 
 func newUI(args []string) termio.UI {
@@ -64,12 +86,8 @@ func newUI(args []string) termio.UI {
 		term.IsTerminal(int(os.Stderr.Fd())), level, yes)
 }
 
-func newConfig() sandbox.Config {
-	return sandbox.Config{
-		UserStateDir:  sandbox.XdgStateDir(),
-		UserConfigDir: sandbox.XdgConfigDir(),
-		UserCacheDir:  sandbox.XdgCacheDir(),
-	}
+func newConfig() sandbox.ConfigPaths {
+	return sandbox.GetConfigPaths()
 }
 
 func applyLauncherConfig(cmd *cobra.Command, lc launcherconfig.Config, keys map[string]bool) error {

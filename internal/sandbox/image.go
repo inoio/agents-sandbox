@@ -52,7 +52,7 @@ func runnerTag(projectSlug string) string {
 
 // envDir returns the user cache directory for image env info.
 func envDir() string {
-	return XdgCacheDir()
+	return GetConfigPaths().UserCacheDir()
 }
 
 // envMetaFile returns the JSON file path for image env metadata, keyed by the

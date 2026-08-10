@@ -167,6 +167,30 @@ func TestVerboseFormatsArgsAtVerbose(t *testing.T) {
 	}
 }
 
+func TestSetLevelRaisesVerbose(t *testing.T) {
+	var stderr bytes.Buffer
+	ui := New(nil, &bytes.Buffer{}, &stderr, false, LevelNormal, false)
+	ui.Verbose("secret")
+	if stderr.String() != "" {
+		t.Fatalf("verbose output at normal level must be suppressed, got %q", stderr.String())
+	}
+	ui.SetLevel(LevelVerbose)
+	ui.Verbose("secret")
+	if !strings.Contains(stderr.String(), "secret") {
+		t.Errorf("expected verbose output after SetLevel, got %q", stderr.String())
+	}
+}
+
+func TestSetLevelQuiets(t *testing.T) {
+	var stderr bytes.Buffer
+	ui := New(nil, &bytes.Buffer{}, &stderr, false, LevelNormal, false)
+	ui.SetLevel(LevelQuiet)
+	ui.Info("hidden")
+	if stderr.String() != "" {
+		t.Errorf("expected no info output at quiet level, got %q", stderr.String())
+	}
+}
+
 func TestOutfFormatsArgs(t *testing.T) {
 	var stdout bytes.Buffer
 	ui := New(nil, &stdout, &bytes.Buffer{}, false, LevelNormal, false)

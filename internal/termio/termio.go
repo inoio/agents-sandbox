@@ -45,6 +45,9 @@ type UI interface {
 	Spinner(msg string) Spinner
 	Spinnerf(format string, args ...any) Spinner
 
+	SetLevel(level Level)
+	SetAssumeYes(assumeYes bool)
+
 	StdOut() io.Writer
 	StdErr() io.Writer
 
