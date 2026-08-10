@@ -530,7 +530,7 @@ func TestSetUpSandboxAppliesEnvSecretsOnReuseRestart(t *testing.T) {
 }
 
 func TestSetUpSandboxRestartsDaemonsOnReuseDecision(t *testing.T) {
-	commands := []string{}
+	var commands []string{}
 	orig := SetDaemonShellFunc(func(_ context.Context, _ Sandbox, command string) (string, int, error) {
 		commands = append(commands, command)
 		if command == "curl -sfm2 "+daemonHealthURL {
