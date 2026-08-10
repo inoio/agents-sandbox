@@ -31,18 +31,18 @@ Arguments after `--` are forwarded to opencode. Arguments before `--` that don't
 
 **Flags:**
 
-| Flag            | Short | Default  | Purpose                                       |
-|-----------------|-------|----------|-----------------------------------------------|
-| `--branch`      | `-b`  | `""`     | Isolated git worktree for the given branch    |
-| `--rebuild`     | `-r`  | `false`  | Rebuild runner image before starting          |
-| `--dry-run`     | `-n`  | `false`  | Validate setup without running opencode       |
-| `--cpus`        | `-c`  | `0`      | vCPUs for the sandbox (0 = all)               |
-| `--memory`      | `-m`  | `4G`     | Memory limit, e.g. `4G`, `512M`               |
-| `--disk-size`   | —     | `""`     | Project VM root disk size (e.g. 16G). Empty = microsandbox runtime default (~4 GiB). Applied at VM creation; a change triggers recreation. |
-| `--tmp-size`    | —     | `2G`     | Size of `/tmp` tmpfs in the sandbox           |
-| `--user`        | `-u`  | `dev`*   | Username or UID for the runtime user (format: `<name|uid>[:<group|gid>]`) |
-| `--no-auto`     | —     | `false`  | Do not pass `--auto` to opencode              |
-| `--dry-run-vm`  | —     | `false`  | Skip VM lifecycle but prepare everything else |
+| Flag           | Short | Default  | Purpose                                                                                                                                    |
+|----------------|-------|----------|--------------------------------------------------------------------------------------------------------------------------------------------|
+| `--branch`     | `-b`  | `""`     | Isolated git worktree for the given branch                                                                                                 |
+| `--rebuild`    | `-r`  | `false`  | Rebuild runner image before starting                                                                                                       |
+| `--dry-run`    | `-n`  | `false`  | Validate setup without running opencode                                                                                                    |
+| `--cpus`       | `-c`  | `0`      | vCPUs for the sandbox (0 = all)                                                                                                            |
+| `--memory`     | `-m`  | `4G`     | Memory limit, e.g. `4G`, `512M`                                                                                                            |
+| `--disk-size`  | —     | `""`     | Project VM root disk size (e.g. 16G). Empty = microsandbox runtime default (~4 GiB). Applied at VM creation; a change triggers recreation. |
+| `--tmp-size`   | —     | `2G`     | Size of `/tmp` tmpfs in the sandbox                                                                                                        |
+| `--user`       | `-u`  | `dev`*   | Username or UID for the runtime user (format: `<name\|uid>[:<group\|gid>]`)                                                                |
+| `--no-auto`    | —     | `false`  | Do not pass `--auto` to opencode                                                                                                           |
+| `--dry-run-vm` | —     | `false`  | Skip VM lifecycle but prepare everything else                                                                                              |
 
 <!-- markdownlint-disable-next-line no-trailing-punctuation -->
 * Effective default: `dev`. The CLI flag defaults to empty string, but the launcher applies `dev` when blank.
