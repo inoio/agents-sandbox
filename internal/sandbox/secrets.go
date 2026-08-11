@@ -1,6 +1,7 @@
 package sandbox
 
 import (
+	"maps"
 	"os"
 	"strings"
 
@@ -101,4 +102,16 @@ func buildSecrets(secretLines map[string]string, ui termio.UI) []msb.SecretEntry
 		}
 	}
 	return secrets
+}
+
+func mergeSecretSpecs(mapsToMerge ...map[string]secretSpec) map[string]secretSpec {
+	var result map[string]secretSpec
+	for _, m := range mapsToMerge {
+		if result == nil {
+			result = m
+			continue
+		}
+		maps.Copy(result, m)
+	}
+	return result
 }
