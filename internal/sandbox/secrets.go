@@ -12,26 +12,22 @@ import (
 )
 
 type secretSpec struct {
-	Value string   `yaml:"value"`
-	Host  string   `yaml:"host"`
-	Hosts []string `yaml:"hosts"`
+	Value                 string   `yaml:"value"`
+	Host                  string   `yaml:"host"`
+	Hosts                 []string `yaml:"hosts"`
+	AllowAnyHostDangerous bool     `yaml:"allow_any_host_dangerous"`
 }
-
-const defaultSecretHost = "microsandbox"
 
 func buildSecretsFromSpecs(specs map[string]secretSpec, ui termio.UI) []msb.SecretEntry {
 	var secrets []msb.SecretEntry
 	for envVar, spec := range specs {
-		if spec.Value == "" {
-			ui.Warnf("Value of secret '%s' is empty; dropping", envVar)
+		if spec.Host == "" && len(spec.Hosts) == 0 && !spec.AllowAnyHostDangerous {
+			ui.Warnf("Secret '%s' has no hosts or allow_any_host_dangerous; dropping", envVar)
 			continue
 		}
 		hosts := append([]string{}, spec.Hosts...)
 		if spec.Host != "" {
 			hosts = append(hosts, spec.Host)
-		}
-		if len(hosts) == 0 {
-			hosts = []string{defaultSecretHost}
 		}
 		secrets = append(secrets, msb.Secret.Env(
 			envVar,
@@ -62,12 +58,14 @@ func parseSecretSpecLegacy(filename string, ui termio.UI) map[string]secretSpec 
 			continue
 		}
 		valueAndHost := eqParts[1]
-		parts := strings.SplitN(valueAndHost, "@", envKeyValueParts)
-		if len(parts) != envKeyValueParts {
+		atIdx := strings.LastIndex(valueAndHost, "@")
+		if atIdx < 0 {
 			ui.Warnf("Value of secret '%s' not defined in format 'value@host': '%s'", key, valueAndHost)
 			continue
 		}
-		specs[key] = secretSpec{Value: parts[0], Host: "", Hosts: []string{parts[1]}}
+		specs[key] = secretSpec{ //nolint:exhaustruct // missing field uses zero-value default
+			Value: valueAndHost[:atIdx], Host: "", Hosts: []string{valueAndHost[atIdx+1:]},
+		}
 	}
 	return specs
 }
