@@ -6,6 +6,7 @@ import (
 	"errors"
 	"io"
 	"os"
+	"path/filepath"
 	"reflect"
 	"strconv"
 	"strings"
@@ -215,5 +216,17 @@ func TestEnsureImageLoadsIntoMSBWhenNotCached(t *testing.T) {
 	}
 	if !strings.HasPrefix(msbClient.LoadedImages[0], "opencode-msb/runner-test-project:") {
 		t.Errorf("unexpected loaded image ref: %s", msbClient.LoadedImages[0])
+	}
+}
+
+func TestEnvDirUsesCache(t *testing.T) {
+	configpaths.WithRealConfigPaths(t)
+	cache := t.TempDir()
+	t.Setenv("XDG_CACHE_HOME", cache)
+	t.Setenv("HOME", t.TempDir())
+	got := envDir()
+	want := filepath.Join(cache, "opencode-msb")
+	if got != want {
+		t.Errorf("envDir() = %q, want %q", got, want)
 	}
 }
