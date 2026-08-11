@@ -136,11 +136,14 @@ An empty `value` causes the secret to be **dropped with a warning** — microsan
 
 **Precedence**
 
-Legacy files are merged first, then YAML files win per key:
+Files are merged from lowest to highest precedence per key, in this order:
 
-1. User-level `env.secret` → user-level `env.secret.yaml`
-2. Project-level `env.secret` → project-level `env.secret.yaml`
-3. Project-level always overrides user-level.
+1. user-level `env.secret` (legacy `KEY=value@host`)
+2. project-level `env.secret` (legacy)
+3. user-level `env.secret.yaml`
+4. project-level `env.secret.yaml`
+
+A YAML entry always wins over a legacy entry for the same key, even across levels — a user-level `env.secret.yaml` overrides a project-level `env.secret`.
 
 **Supported files**
 
