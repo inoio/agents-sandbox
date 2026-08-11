@@ -31,7 +31,7 @@ func checkForActiveVMs(ctx context.Context, slug string) error {
 		s, _ := naming.ExtractProjectSlugAndDigest(h.Name())
 		if s == slug {
 			status := h.Status()
-			if isSandboxActive(status) || isStoppedStatus(status) {
+			if msb.IsSandboxActive(status) || msb.IsStoppedStatus(status) {
 				return fmt.Errorf(
 					"session still running for slug %q -- quit all sessions before migrating or resetting",
 					slug,

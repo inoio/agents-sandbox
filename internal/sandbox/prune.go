@@ -64,18 +64,12 @@ type imageWithDigest struct {
 	isLatest bool
 }
 
-// isStoppedStatus returns true if the status indicates the sandbox is not
-// actively running (stopped or crashed).
-func isStoppedStatus(status msbSdk.SandboxStatus) bool {
-	return status == msbSdk.SandboxStatusStopped || status == msbSdk.SandboxStatusCrashed
-}
-
 // findStaleVMs filters sandboxes to only those that are stopped/crashed and
 // older than the given threshold.
 func findStaleVMs(sandboxes []staleVM, threshold time.Duration) []StaleEntry {
 	var stale []StaleEntry
 	for _, s := range sandboxes {
-		if !isStoppedStatus(s.status) {
+		if !msb.IsStoppedStatus(s.status) {
 			continue
 		}
 		elapsed := time.Since(s.updatedAt)

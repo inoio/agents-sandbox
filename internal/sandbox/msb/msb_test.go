@@ -23,3 +23,47 @@ func TestRealSandboxHandleConfigAndModify(t *testing.T) {
 		t.Errorf("expected Config error on handle without config, got cfg=%v err=%v", cfg, err)
 	}
 }
+
+func TestIsSandboxActive(t *testing.T) {
+	tests := []struct {
+		name   string
+		status msbSdk.SandboxStatus
+		want   bool
+	}{
+		{"running", msbSdk.SandboxStatusRunning, true},
+		{"draining", msbSdk.SandboxStatusDraining, true},
+		{"paused", msbSdk.SandboxStatusPaused, true},
+		{"stopped", msbSdk.SandboxStatusStopped, false},
+		{"crashed", msbSdk.SandboxStatusCrashed, false},
+		{"unknown", msbSdk.SandboxStatus(""), false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := IsSandboxActive(tt.status); got != tt.want {
+				t.Errorf("IsSandboxActive(%q) = %v, want %v", tt.status, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestIsStoppedStatus(t *testing.T) {
+	tests := []struct {
+		name   string
+		status msbSdk.SandboxStatus
+		want   bool
+	}{
+		{"stopped", msbSdk.SandboxStatusStopped, true},
+		{"crashed", msbSdk.SandboxStatusCrashed, true},
+		{"running", msbSdk.SandboxStatusRunning, false},
+		{"draining", msbSdk.SandboxStatusDraining, false},
+		{"paused", msbSdk.SandboxStatusPaused, false},
+		{"unknown", msbSdk.SandboxStatus(""), false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := IsStoppedStatus(tt.status); got != tt.want {
+				t.Errorf("IsStoppedStatus(%q) = %v, want %v", tt.status, got, tt.want)
+			}
+		})
+	}
+}

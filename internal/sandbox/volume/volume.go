@@ -32,30 +32,6 @@ const (
 	tmpMountPath = "/tmp"
 )
 
-// isSandboxActive reports whether a sandbox status represents a live VM that
-// WithReplace would terminate.
-func isSandboxActive(status msbSdk.SandboxStatus) bool {
-	switch status {
-	case msbSdk.SandboxStatusRunning, msbSdk.SandboxStatusDraining, msbSdk.SandboxStatusPaused:
-		return true
-	case msbSdk.SandboxStatusStopped, msbSdk.SandboxStatusCrashed:
-		return false
-	default:
-		return false
-	}
-}
-
-// isStoppedStatus reports whether a sandbox status is a stopped or crashed state.
-func isStoppedStatus(status msbSdk.SandboxStatus) bool {
-	//nolint:exhaustive // default case covers all other statuses
-	switch status {
-	case msbSdk.SandboxStatusStopped, msbSdk.SandboxStatusCrashed:
-		return true
-	default:
-		return false
-	}
-}
-
 // HomeVolumeName generates a volume name for the given project slug using the
 // standard home volume prefix and a UTC timestamp.
 func HomeVolumeName(projectSlug string) string {

@@ -208,8 +208,8 @@ func TestIsSandboxActive(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := isSandboxActive(tt.status); got != tt.want {
-				t.Errorf("isSandboxActive(%q) = %v, want %v", tt.status, got, tt.want)
+			if got := msb.IsSandboxActive(tt.status); got != tt.want {
+				t.Errorf("IsSandboxActive(%q) = %v, want %v", tt.status, got, tt.want)
 			}
 		})
 	}
