@@ -3,6 +3,8 @@ package sandbox
 import (
 	"path/filepath"
 	"testing"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestUserDirEnvOverride(t *testing.T) {
@@ -93,5 +95,20 @@ func TestEnvDirUsesCache(t *testing.T) {
 	want := filepath.Join(cache, "opencode-msb")
 	if got != want {
 		t.Errorf("envDir() = %q, want %q", got, want)
+	}
+}
+
+func TestEnvSecretYAMLPaths(t *testing.T) {
+	WithRealConfigPaths(t)
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	_, err := filepath.Abs(".")
+	require.NoError(t, err)
+
+	c := &realConfigPaths{}
+	if got := c.userEnvSecretYAMLFile(); got != filepath.Join(c.UserConfigDir(), envSecretYAMLFileName) {
+		t.Errorf("userEnvSecretYAMLFile() = %q", got)
+	}
+	if got := c.projectEnvSecretYAMLFile(); got != filepath.Join(c.ProjectConfigDir(), envSecretYAMLFileName) {
+		t.Errorf("projectEnvSecretYAMLFile() = %q, want %q", got, c.ProjectConfigDir())
 	}
 }

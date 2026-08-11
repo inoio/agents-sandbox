@@ -14,6 +14,9 @@ type ConfigPaths interface {
 	userEnvFile() string
 	userEnvSecretFile() string
 
+	projectEnvSecretYAMLFile() string
+	userEnvSecretYAMLFile() string
+
 	ProjectConfigDir() string
 	projectOpencodeConfigDir() string
 	projectEnvFile() string
@@ -79,7 +82,9 @@ const (
 	configDirName     = "opencode"
 	envFileName       = "env"
 	envSecretFileName = "env.secret"
-	dockerfileName    = "Dockerfile"
+	//nolint:gosec // not a credential, just a filename constant
+	envSecretYAMLFileName = "env.secret.yaml"
+	dockerfileName        = "Dockerfile"
 )
 
 // Project-level filesystem paths, built with filepath.Join to mirror the
@@ -99,6 +104,16 @@ func (c *realConfigPaths) projectEnvFile() string {
 
 func (c *realConfigPaths) projectEnvSecretFile() string {
 	return filepath.Join(projectConfigDir, envSecretFileName)
+}
+
+// userEnvSecretYAMLFile returns the user-level structured secret file.
+func (c *realConfigPaths) userEnvSecretYAMLFile() string {
+	return filepath.Join(c.UserConfigDir(), envSecretYAMLFileName)
+}
+
+// projectEnvSecretYAMLFile returns the project-level structured secret file.
+func (c *realConfigPaths) projectEnvSecretYAMLFile() string {
+	return filepath.Join(c.ProjectConfigDir(), envSecretYAMLFileName)
 }
 
 // xdgBaseDir resolves an XDG base directory for the given environment variable,
