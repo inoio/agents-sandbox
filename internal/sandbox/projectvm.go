@@ -12,6 +12,7 @@ import (
 	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/msb"
 	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/naming"
 	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/options"
+	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/reprovision"
 	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/state"
 	"gitlab.inoio.de/inoio/opencode-msb/internal/sysinfo"
 	"gitlab.inoio.de/inoio/opencode-msb/internal/termio"
@@ -331,16 +332,16 @@ func createProjectVM(
 	}
 	maxMemoryGiB := sysinfo.TotalMemoryGiB()
 
-	envMap := mergeEnvMaps(
-		buildEnvMap(GetConfigPaths().UserEnvFile()),
-		buildEnvMap(GetConfigPaths().ProjectEnvFile()),
+	envMap := reprovision.MergeEnvMaps(
+		reprovision.BuildEnvMap(GetConfigPaths().UserEnvFile()),
+		reprovision.BuildEnvMap(GetConfigPaths().ProjectEnvFile()),
 	)
 	ui.Verbosef("adding docker env definitions to project VM environment: %s", imageEnvs)
 	buildProjectVMEnv(envMap, imageEnvs)
 
-	secrets := buildSecrets(mergeEnvMaps(
-		buildEnvMap(GetConfigPaths().UserEnvSecretFile()),
-		buildEnvMap(GetConfigPaths().ProjectEnvSecretFile()),
+	secrets := reprovision.BuildSecrets(reprovision.MergeEnvMaps(
+		reprovision.BuildEnvMap(GetConfigPaths().UserEnvSecretFile()),
+		reprovision.BuildEnvMap(GetConfigPaths().ProjectEnvSecretFile()),
 	), ui)
 
 	mounts := buildMounts(homeVol, repoPath, options.ResolveTmpSizeMiB(opts.TmpSize))
@@ -440,7 +441,7 @@ func stopOrKillProjectVM(
 	spin.Stop()
 	pastTense := action + "ed"
 	if action == "stop" {
-		pastTense = "stopped" //nolint:goconst // singular English spelling fix
+		pastTense = "stopped"
 	}
 	ui.Infof("%s project VM: %s", pastTense, name)
 

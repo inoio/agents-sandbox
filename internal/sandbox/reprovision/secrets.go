@@ -9,7 +9,7 @@ import (
 	msb "github.com/superradcompany/microsandbox/sdk/go"
 )
 
-func buildSecrets(secretLines map[string]string, ui termio.UI) []msb.SecretEntry {
+func BuildSecrets(secretLines map[string]string, ui termio.UI) []msb.SecretEntry {
 	var secrets []msb.SecretEntry
 	for envVar, valueAndHost := range secretLines {
 		parts := strings.SplitN(valueAndHost, "@", options.EnvKeyValueParts)

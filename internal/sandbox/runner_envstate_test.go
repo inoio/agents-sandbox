@@ -10,6 +10,7 @@ import (
 
 	"gitlab.inoio.de/inoio/opencode-msb/internal/configpaths"
 	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/msb"
+	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/reprovision"
 	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/volume"
 	"gitlab.inoio.de/inoio/opencode-msb/internal/termio"
 	"gitlab.inoio.de/inoio/opencode-msb/internal/testutil"
@@ -245,7 +246,7 @@ func TestPersistEnvSecrets_ReadFailsReturnsError(t *testing.T) {
 func TestDecideReconfig_EnvChangedWithPersistedState(t *testing.T) {
 	SetStateDirForTest(t, t.TempDir()+"/opencode-msb")
 
-	// Set up handle so planReconfig gets a non-nil cfg
+	// Set up handle so reprovision.PlanReconfig gets a non-nil cfg
 	mock := reconfigMockClient()
 	msb.WithMsbMock(t, mock)
 	WithMockConfigPaths(t)
@@ -415,28 +416,28 @@ func TestDecideReconfig_ZeroPersistedStateNoSpuriousChange(t *testing.T) {
 }
 
 func TestSecretsChanged_ZeroApplied_NilDesired(t *testing.T) {
-	got := secretsChanged(SecretState{}, nil)
+	got := reprovision.SecretsChanged(SecretState{}, nil)
 	if got {
 		t.Error("expected NO change when applied is zero and desired is nil")
 	}
 }
 
 func TestSecretsChanged_ZeroApplied_EmptyDesired(t *testing.T) {
-	got := secretsChanged(SecretState{}, []msbSdk.SecretEntry{})
+	got := reprovision.SecretsChanged(SecretState{}, []msbSdk.SecretEntry{})
 	if got {
 		t.Error("expected NO change when applied is zero and desired is empty")
 	}
 }
 
 func TestSecretsChanged_NonZeroApplied_DifferentHash(t *testing.T) {
-	got := secretsChanged(SecretState{Hash: "h1"}, []msbSdk.SecretEntry{{EnvVar: "K", Value: "v"}})
+	got := reprovision.SecretsChanged(SecretState{Hash: "h1"}, []msbSdk.SecretEntry{{EnvVar: "K", Value: "v"}})
 	if !got {
 		t.Error("expected change when hashes differ")
 	}
 }
 
 func TestEnvChanged_ZeroApplied_NonEmptyDesired(t *testing.T) {
-	got := envChanged(EnvState{}, map[string]string{"FOO": "bar"})
+	got := reprovision.EnvChanged(EnvState{}, map[string]string{"FOO": "bar"})
 	if !got {
 		t.Error("expected change when applied is zero and desired is non-empty")
 	}
@@ -444,15 +445,15 @@ func TestEnvChanged_ZeroApplied_NonEmptyDesired(t *testing.T) {
 
 func TestEnvChanged_MatchingHash(t *testing.T) {
 	desired := map[string]string{"FOO": "bar"}
-	wantHash := envContentHash(desired)
-	got := envChanged(EnvState{Hash: wantHash}, desired)
+	wantHash := reprovision.EnvContentHash(desired)
+	got := reprovision.EnvChanged(EnvState{Hash: wantHash}, desired)
 	if got {
 		t.Error("expected NO change when hashes match")
 	}
 }
 
 func TestSecretState_NilEntries_RendersEmpty(t *testing.T) {
-	got := secretsContentHash(nil)
+	got := reprovision.SecretsContentHash(nil)
 	if got == "" {
 		t.Error("expected non-empty hash for nil entries")
 	}
@@ -461,8 +462,8 @@ func TestSecretState_NilEntries_RendersEmpty(t *testing.T) {
 func TestEnvContentHash_OrderIndependent(t *testing.T) {
 	a := map[string]string{"A": "1", "B": "2"}
 	b := map[string]string{"B": "2", "A": "1"}
-	hA := envContentHash(a)
-	hB := envContentHash(b)
+	hA := reprovision.EnvContentHash(a)
+	hB := reprovision.EnvContentHash(b)
 	if hA != hB {
 		t.Errorf("hashes differ for same content in different order: %q vs %q", hA, hB)
 	}
@@ -580,8 +581,8 @@ func TestDecideReconfig_PersistedSecretsMatchDesired(t *testing.T) {
 	vm := volume.NewManager(&termio.Mock{})
 
 	testutil.WritePath(t, filepath.Join(userDir, configpaths.EnvFileName), "K=V\n")
-	desiredEnv := mergeEnvMaps(buildEnvMap(filepath.Join(userDir, configpaths.EnvFileName)))
-	envHash := envContentHash(desiredEnv)
+	desiredEnv := reprovision.MergeEnvMaps(reprovision.BuildEnvMap(filepath.Join(userDir, configpaths.EnvFileName)))
+	envHash := reprovision.EnvContentHash(desiredEnv)
 
 	WriteState("myproj5", HomeState{
 		HomeVolume:  "vol",
@@ -631,8 +632,8 @@ func reconfigMockClient() *msb.MockMsbClient {
 }
 
 func computeEnvHash(envFile string) string {
-	env := buildEnvMap(envFile)
-	return envContentHash(env)
+	env := reprovision.BuildEnvMap(envFile)
+	return reprovision.EnvContentHash(env)
 }
 
 func makeSlug() string {

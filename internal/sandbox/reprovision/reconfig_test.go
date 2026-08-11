@@ -14,49 +14,49 @@ func TestPlanReconfigRecreateOnTmpMismatch(t *testing.T) {
 	cfg := &msbSdk.SandboxConfig{
 		Volumes: map[string]msbSdk.MountConfig{tmpMountPath: {SizeMiB: 2048}},
 	}
-	d := planReconfig(cfg, "img:tag", options.RunOptions{TmpSize: "4G"},
+	d := PlanReconfig(cfg, "img:tag", options.RunOptions{TmpSize: "4G"},
 		false, false, false)
-	if !d.recreate {
+	if !d.Recreate {
 		t.Error("expected recreate on /tmp size mismatch")
 	}
-	if len(d.changes) != 1 || d.changes[0].label != "/tmp tmpfs size" {
-		t.Errorf("expected one /tmp change, got %+v", d.changes)
+	if len(d.Changes) != 1 || d.Changes[0].Label != "/tmp tmpfs size" {
+		t.Errorf("expected one /tmp change, got %+v", d.Changes)
 	}
 }
 
 func TestPlanReconfigRecreateOnImageMismatch(t *testing.T) {
-	d := planReconfig(nil, "new:tag", options.RunOptions{}, false, false, false)
-	if d.recreate {
+	d := PlanReconfig(nil, "new:tag", options.RunOptions{}, false, false, false)
+	if d.Recreate {
 		t.Error("image comparison requires cfg.Image; see resolver, planner.cpp nil-cfg safe")
 	}
 	cfg := &msbSdk.SandboxConfig{Image: "old:tag"}
-	d = planReconfig(cfg, "new:tag", options.RunOptions{}, false, false, false)
-	if !d.recreate {
+	d = PlanReconfig(cfg, "new:tag", options.RunOptions{}, false, false, false)
+	if !d.Recreate {
 		t.Error("expected recreate on image mismatch")
 	}
 }
 
 func TestPlanReconfigStagesClampedCpus(t *testing.T) {
 	cfg := &msbSdk.SandboxConfig{CPUs: 2, MaxCPUs: 8}
-	d := planReconfig(cfg, "img", options.RunOptions{CPUs: 16}, false, false, false)
-	if d.resources == nil || d.resources.CPUs != 8 {
-		t.Fatalf("expected resources clamped CPUs=8, got %+v", d.resources)
+	d := PlanReconfig(cfg, "img", options.RunOptions{CPUs: 16}, false, false, false)
+	if d.Resources == nil || d.Resources.CPUs != 8 {
+		t.Fatalf("expected resources clamped CPUs=8, got %+v", d.Resources)
 	}
 }
 
 func TestPlanReconfigNoActionsWhenUnchanged(t *testing.T) {
 	cfg := &msbSdk.SandboxConfig{CPUs: 4, MemoryMiB: 4096}
-	d := planReconfig(cfg, "img", options.RunOptions{CPUs: 4, Memory: "4G"},
+	d := PlanReconfig(cfg, "img", options.RunOptions{CPUs: 4, Memory: "4G"},
 		false, false, false)
-	if d.recreate || d.restartDaemons || d.resources != nil {
+	if d.Recreate || d.RestartDaemons || d.Resources != nil {
 		t.Errorf("expected no actions, got %+v", d)
 	}
 }
 
 func TestResolveReconfigSilentWhenAlone(t *testing.T) {
-	plan := &reconfigDecision{recreate: true}
+	plan := &Plan{Recreate: true}
 	ui := &termio.Mock{}
-	applyRecreate, _, err := resolveReconfig(context.Background(), ui, plan, 0, nil)
+	applyRecreate, _, err := ResolveReconfig(context.Background(), ui, plan, 0, nil)
 	if err != nil || !applyRecreate {
 		t.Errorf("alone recreate should apply silently, got %v %v", applyRecreate, err)
 	}
@@ -66,12 +66,12 @@ func TestResolveReconfigSilentWhenAlone(t *testing.T) {
 }
 
 func TestResolveReconfigPromptAKeep(t *testing.T) {
-	plan := &reconfigDecision{recreate: true, changes: []reconfigChange{{label: "root disk size"}}}
+	plan := &Plan{Recreate: true, Changes: []Change{{Label: "root disk size"}}}
 	ui := &termio.Mock{}
 	ui.SelectFn = func(_ string, _ []termio.Choice, _ string) (string, error) {
 		return "q", nil // quit
 	}
-	applyRecreate, _, err := resolveReconfig(context.Background(), ui, plan, 1, plan.changes)
+	applyRecreate, _, err := ResolveReconfig(context.Background(), ui, plan, 1, plan.Changes)
 	if err == nil {
 		t.Error("expected quit to abort (return an error)")
 	}
@@ -81,10 +81,10 @@ func TestResolveReconfigPromptAKeep(t *testing.T) {
 }
 
 func TestResolveReconfigPromptBKeepReturnsNoRestart(t *testing.T) {
-	plan := &reconfigDecision{restartDaemons: true}
+	plan := &Plan{RestartDaemons: true}
 	ui := &termio.Mock{}
 	ui.SelectFn = func(_ string, _ []termio.Choice, _ string) (string, error) { return "k", nil }
-	_, applyRestart, err := resolveReconfig(context.Background(), ui, plan, 1, plan.changes)
+	_, applyRestart, err := ResolveReconfig(context.Background(), ui, plan, 1, plan.Changes)
 	if err != nil {
 		t.Fatalf("keep should not error: %v", err)
 	}
@@ -95,33 +95,33 @@ func TestResolveReconfigPromptBKeepReturnsNoRestart(t *testing.T) {
 
 func TestPlanReconfigEnvChangeRebuildsVM(t *testing.T) {
 	cfg := &msbSdk.SandboxConfig{Image: "a", CPUs: 4, MemoryMiB: 4096}
-	d := planReconfig(cfg, "a", options.RunOptions{}, true, false, false) // envChanged=true
-	if !d.recreate {
+	d := PlanReconfig(cfg, "a", options.RunOptions{}, true, false, false) // envChanged=true
+	if !d.Recreate {
 		t.Error("expected recreate on env change (env cannot be applied live)")
 	}
-	if d.restartDaemons {
+	if d.RestartDaemons {
 		t.Error("unexpected daemon restart for env change (folded into recreate)")
 	}
 }
 
 func TestPlanReconfigOpenCodeConfigChangeRestartsDaemon(t *testing.T) {
 	cfg := &msbSdk.SandboxConfig{Image: "a", CPUs: 4, MemoryMiB: 4096}
-	d := planReconfig(cfg, "a", options.RunOptions{}, false, false, true) // opencodeConfigChanged=true
-	if !d.restartDaemons {
+	d := PlanReconfig(cfg, "a", options.RunOptions{}, false, false, true) // opencodeConfigChanged=true
+	if !d.RestartDaemons {
 		t.Error("expected restartDaemons on opencode config change")
 	}
-	if d.recreate {
+	if d.Recreate {
 		t.Error("expected NO VM recreate for opencode-config-only change")
 	}
 }
 
 func TestPlanReconfigSecretsChangeRebuildsVM(t *testing.T) {
 	cfg := &msbSdk.SandboxConfig{Image: "a", CPUs: 4, MemoryMiB: 4096}
-	d := planReconfig(cfg, "a", options.RunOptions{}, false, true, false) // secretsChanged=true
-	if !d.recreate {
+	d := PlanReconfig(cfg, "a", options.RunOptions{}, false, true, false) // secretsChanged=true
+	if !d.Recreate {
 		t.Error("expected recreate on secrets change (secrets cannot be applied live)")
 	}
-	if d.restartDaemons {
+	if d.RestartDaemons {
 		t.Error("unexpected daemon restart for secrets change (folded into recreate)")
 	}
 }
@@ -131,31 +131,31 @@ func TestPlanReconfigEnvWithRecreateNoRestartFlag(t *testing.T) {
 		tmpMountPath: {SizeMiB: 2048},
 	}}
 	// image mismatch triggers recreate, env change would add restartDaemons
-	d := planReconfig(cfg, "new:tag", options.RunOptions{TmpSize: "4G"}, true, false, false)
-	if !d.recreate {
+	d := PlanReconfig(cfg, "new:tag", options.RunOptions{TmpSize: "4G"}, true, false, false)
+	if !d.Recreate {
 		t.Error("expected recreate on image mismatch")
 	}
-	if d.restartDaemons {
+	if d.RestartDaemons {
 		t.Error("expected restartDaemons=false when recreate is set (folded into recreate)")
 	}
 }
 
 func TestPlanReconfigMemoryClampToMax(t *testing.T) {
 	cfg := &msbSdk.SandboxConfig{Image: "a", MemoryMiB: 4096, MaxMemoryMiB: 8192}
-	d := planReconfig(cfg, "a", options.RunOptions{Memory: "16G"}, false, false, false)
-	if d.resources == nil {
+	d := PlanReconfig(cfg, "a", options.RunOptions{Memory: "16G"}, false, false, false)
+	if d.Resources == nil {
 		t.Fatal("expected resources set for memory change")
 	}
-	if d.resources.MemoryMiB != 8192 {
-		t.Errorf("expected memory clamped to 8192, got %d", d.resources.MemoryMiB)
+	if d.Resources.MemoryMiB != 8192 {
+		t.Errorf("expected memory clamped to 8192, got %d", d.Resources.MemoryMiB)
 	}
 }
 
 func TestResolveReconfigPromptBRestart(t *testing.T) {
-	plan := &reconfigDecision{restartDaemons: true}
+	plan := &Plan{RestartDaemons: true}
 	ui := &termio.Mock{}
 	ui.SelectFn = func(_ string, _ []termio.Choice, _ string) (string, error) { return "r", nil }
-	applyRecreate, applyRestart, err := resolveReconfig(context.Background(), ui, plan, 1, plan.changes)
+	applyRecreate, applyRestart, err := ResolveReconfig(context.Background(), ui, plan, 1, plan.Changes)
 	if err != nil {
 		t.Fatalf("restart should not error: %v", err)
 	}
