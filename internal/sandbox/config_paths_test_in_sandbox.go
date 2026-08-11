@@ -19,15 +19,3 @@ func TestStateFileAbsoluteUnderUserStateDir(t *testing.T) {
 		t.Errorf("StateFile() = %q, want %q", got, want)
 	}
 }
-
-func TestEnvDirUsesCache(t *testing.T) {
-	configpaths.WithRealConfigPaths(t)
-	cache := t.TempDir()
-	t.Setenv("XDG_CACHE_HOME", cache)
-	t.Setenv("HOME", t.TempDir())
-	got := envDir()
-	want := filepath.Join(cache, "opencode-msb")
-	if got != want {
-		t.Errorf("envDir() = %q, want %q", got, want)
-	}
-}

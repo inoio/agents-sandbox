@@ -1,4 +1,4 @@
-package sandbox
+package image
 
 import (
 	"bytes"
@@ -16,8 +16,9 @@ import (
 	"github.com/moby/moby/client"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 
+	"gitlab.inoio.de/inoio/opencode-msb/internal/configpaths"
 	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/docker"
-
+	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/msb"
 	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/naming"
 	"gitlab.inoio.de/inoio/opencode-msb/internal/termio"
 )
@@ -79,9 +80,9 @@ func TestBuildDockerImageSetsHostUserBuildArgs(t *testing.T) {
 func TestEnsureImageReturnsErrorWhenBuildFails(t *testing.T) {
 	l := &termio.Mock{}
 	docker.WithDefaultErrorDockerMock(t)
-	_, _, _, err := ensureImageWithClient(
+	_, _, _, err := EnsureImageWithClient(
 		context.Background(),
-		&MockMsbClient{},
+		&msb.MockMsbClient{},
 		embeddedDockerfile,
 		"test-project",
 		true,
@@ -153,7 +154,7 @@ func TestEnsureImageDoesNotBuildDindOnForceWithoutReference(t *testing.T) {
 
 func runEnsureImageTagTest(t *testing.T, dockerfile []byte, force bool, wantTags []string) {
 	t.Helper()
-	WithMockConfigPaths(t)
+	configpaths.WithMockConfigPaths(t)
 	m := &docker.MockDockerClient{}
 	var builtTags []string
 	m.ImageBuildFn = func(_ context.Context, _ io.Reader, opts client.ImageBuildOptions) (client.ImageBuildResult, error) {
@@ -162,9 +163,9 @@ func runEnsureImageTagTest(t *testing.T, dockerfile []byte, force bool, wantTags
 	}
 	docker.WithDockerMock(t, m)
 
-	_, _, _, err := ensureImageWithClient(
+	_, _, _, err := EnsureImageWithClient(
 		context.Background(),
-		&MockMsbClient{},
+		&msb.MockMsbClient{},
 		dockerfile,
 		"test-project",
 		force,
@@ -179,7 +180,7 @@ func runEnsureImageTagTest(t *testing.T, dockerfile []byte, force bool, wantTags
 }
 
 func TestEnsureImageLoadsIntoMSBWhenNotCached(t *testing.T) {
-	WithMockConfigPaths(t)
+	configpaths.WithMockConfigPaths(t)
 	docker.WithDockerMock(t, &docker.MockDockerClient{
 		ImageInspectFn: func(_ context.Context, _ string, _ ...client.ImageInspectOption) (client.ImageInspectResult, error) {
 			return client.ImageInspectResult{
@@ -192,13 +193,13 @@ func TestEnsureImageLoadsIntoMSBWhenNotCached(t *testing.T) {
 			}, nil
 		},
 	})
-	msbClient := &MockMsbClient{
+	msbClient := &msb.MockMsbClient{
 		ImageGetFn: func(_ context.Context, _ string) error {
 			return errors.New("image not in cache")
 		},
 	}
 	dockerfile := []byte("FROM opencode-msb/runner-base:latest\nRUN echo hi\n")
-	_, _, _, err := ensureImageWithClient(
+	_, _, _, err := EnsureImageWithClient(
 		context.Background(),
 		msbClient,
 		dockerfile,

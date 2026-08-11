@@ -14,6 +14,7 @@ import (
 
 	"gitlab.inoio.de/inoio/opencode-msb/internal/git"
 	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/doctor"
+	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/image"
 
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 )
@@ -47,13 +48,6 @@ func buildOpencodeArgs(args []string, auto bool) []string {
 		return args
 	}
 	return append([]string{options.AutoFlag}, args...)
-}
-
-func resolveDockerfile() []byte {
-	if data, err := os.ReadFile(GetConfigPaths().ProjectDockerfile()); err == nil {
-		return data
-	}
-	return embeddedDockerfile
 }
 
 type sandboxSession struct {
@@ -278,7 +272,7 @@ func BuildImage(ctx context.Context, force, dryRun bool, ui termio.UI) error {
 	}
 	projectSlug := git.ProjectSlug(ui)
 
-	_, _, _, err := ensureImageWithClient(ctx, msb.Get(), resolveDockerfile(), projectSlug, force, ui)
+	_, _, _, err := image.EnsureImageWithClient(ctx, msb.Get(), image.ResolveDockerfile(), projectSlug, force, ui)
 	return err
 }
 
