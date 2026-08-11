@@ -189,9 +189,11 @@ func prepareSandbox(
 			buildEnvMap(GetConfigPaths().userEnvFile()),
 			buildEnvMap(GetConfigPaths().projectEnvFile()),
 		)
-		desiredSecrets := buildSecrets(mergeEnvMaps(
-			buildEnvMap(GetConfigPaths().userEnvSecretFile()),
-			buildEnvMap(GetConfigPaths().projectEnvSecretFile()),
+		desiredSecrets := buildSecretsFromSpecs(mergeSecretSpecs(
+			parseSecretSpecLegacy(GetConfigPaths().userEnvSecretFile(), ui),
+			parseSecretSpecLegacy(GetConfigPaths().projectEnvSecretFile(), ui),
+			parseSecretSpecYAML(GetConfigPaths().userEnvSecretYAMLFile(), ui),
+			parseSecretSpecYAML(GetConfigPaths().projectEnvSecretYAMLFile(), ui),
 		), ui)
 		if err := persistEnvSecrets(
 			projectSlug,
@@ -521,9 +523,11 @@ func decideReconfig(
 		buildEnvMap(GetConfigPaths().userEnvFile()),
 		buildEnvMap(GetConfigPaths().projectEnvFile()),
 	)
-	desiredSecrets := buildSecrets(mergeEnvMaps(
-		buildEnvMap(GetConfigPaths().userEnvSecretFile()),
-		buildEnvMap(GetConfigPaths().projectEnvSecretFile()),
+	desiredSecrets := buildSecretsFromSpecs(mergeSecretSpecs(
+		parseSecretSpecLegacy(GetConfigPaths().userEnvSecretFile(), ui),
+		parseSecretSpecLegacy(GetConfigPaths().projectEnvSecretFile(), ui),
+		parseSecretSpecYAML(GetConfigPaths().userEnvSecretYAMLFile(), ui),
+		parseSecretSpecYAML(GetConfigPaths().projectEnvSecretYAMLFile(), ui),
 	), ui)
 	envHasChanged := envChanged(state.EnvState, desiredEnv)
 	secretsHasChanged := secretsChanged(state.SecretState, desiredSecrets)
