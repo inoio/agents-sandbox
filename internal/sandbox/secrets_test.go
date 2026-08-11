@@ -6,6 +6,8 @@ import (
 	"testing"
 
 	"gitlab.inoio.de/inoio/opencode-msb/internal/testutil"
+
+	msb "github.com/superradcompany/microsandbox/sdk/go"
 )
 
 func TestParseSecretSpecLegacyCreatesEntry(t *testing.T) {
@@ -170,5 +172,37 @@ func TestMergeSecretSpecsLaterWins(t *testing.T) {
 func TestMergeSecretSpecsEmpty(t *testing.T) {
 	if got := mergeSecretSpecs(); got != nil {
 		t.Errorf("expected nil for no maps, got %#v", got)
+	}
+}
+
+func TestBuildSecretsPipelinePrecedence(t *testing.T) {
+	dir := t.TempDir()
+	user := filepath.Join(dir, "user.env.secret")
+	project := filepath.Join(dir, "project.env.secret")
+	userYAML := filepath.Join(dir, "user.env.secret.yaml")
+	projectYAML := filepath.Join(dir, "project.env.secret.yaml")
+	testutil.WritePath(t, user, "KEY=legacy@a.example\nONLY_LEGACY=v@h\n")
+	testutil.WritePath(t, project, "KEY=proj@b.example\n")
+	testutil.WritePath(t, userYAML, "KEY:\n  value: user-yaml\n")
+	testutil.WritePath(t, projectYAML, "KEY:\n  value: proj-yaml@h\n")
+
+	testUI := testutil.TermUIMock(t)
+	specs := mergeSecretSpecs(
+		parseSecretSpecLegacy(user, &testUI),
+		parseSecretSpecLegacy(project, &testUI),
+		parseSecretSpecYAML(userYAML, &testUI),
+		parseSecretSpecYAML(projectYAML, &testUI),
+	)
+	secrets := buildSecretsFromSpecs(specs, &testUI)
+
+	byVar := map[string]msb.SecretEntry{}
+	for _, s := range secrets {
+		byVar[s.EnvVar] = s
+	}
+	if got := byVar["KEY"].Value; got != "proj-yaml@h" {
+		t.Errorf("KEY value = %q, want proj-yaml@h (yaml wins, project wins)", got)
+	}
+	if got := byVar["ONLY_LEGACY"].Value; got != "v" {
+		t.Errorf("ONLY_LEGACY value = %q, want v", got)
 	}
 }
