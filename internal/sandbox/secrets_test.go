@@ -152,3 +152,23 @@ func TestParseSecretSpecYAMLMalformedWarns(t *testing.T) {
 		t.Errorf("expected empty map for malformed yaml, got %#v", specs)
 	}
 }
+
+func TestMergeSecretSpecsLaterWins(t *testing.T) {
+	got := mergeSecretSpecs(
+		map[string]secretSpec{"K": {Value: "legacy", Hosts: []string{"a"}}},
+		map[string]secretSpec{"K": {Value: "yaml", Host: "b"}, "J": {Value: "only-yaml"}},
+	)
+	want := map[string]secretSpec{
+		"K": {Value: "yaml", Host: "b"},
+		"J": {Value: "only-yaml"},
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("got %#v, want %#v", got, want)
+	}
+}
+
+func TestMergeSecretSpecsEmpty(t *testing.T) {
+	if got := mergeSecretSpecs(); got != nil {
+		t.Errorf("expected nil for no maps, got %#v", got)
+	}
+}
