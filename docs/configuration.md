@@ -108,8 +108,8 @@ the same key.
 **Legacy format** — `env.secret`
 
 One `KEY=value@host` per line. The part after the **last** `@` is a policy tag restricting which microsandbox runtime
-hosts can access the secret (use `@microsandbox` by default). Values may contain `@` — everything before the last `@`
-is the value.
+hosts can access the secret. Values may contain `@` — everything before the last `@` is the value. Each entry must
+define a host explicitly; omitting the host part drops the secret with a warning.
 
 ```shell
 # .opencode-msb/env.secret
