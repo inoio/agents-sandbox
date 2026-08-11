@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/naming"
+	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/options"
 	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/state"
 	"gitlab.inoio.de/inoio/opencode-msb/internal/termio"
 
@@ -65,7 +66,7 @@ func (vm *VolumeManager) prefillVolume(
 		return fmt.Errorf("create prefill sandbox: %w", err)
 	}
 	defer func() {
-		stopCtx, cancel := context.WithTimeout(context.Background(), sandboxStopTimeout)
+		stopCtx, cancel := context.WithTimeout(context.Background(), options.SandboxStopTimeout)
 		defer cancel()
 		_ = sb.Stop(stopCtx)
 		_ = sb.Close()
@@ -278,7 +279,7 @@ func (vm *VolumeManager) copyVolume(
 		return fmt.Errorf("create copy sandbox: %w", err)
 	}
 	defer func() {
-		stopCtx, cancel := context.WithTimeout(context.Background(), sandboxStopTimeout)
+		stopCtx, cancel := context.WithTimeout(context.Background(), options.SandboxStopTimeout)
 		defer cancel()
 		_ = copySb.Stop(stopCtx)
 		_ = copySb.Close()

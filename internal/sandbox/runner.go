@@ -5,11 +5,10 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"strconv"
 	"strings"
-	"time"
 
 	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/msb"
+	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/options"
 	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/state"
 	"gitlab.inoio.de/inoio/opencode-msb/internal/termio"
 
@@ -18,71 +17,9 @@ import (
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 )
 
-type ExitError struct {
-	Code int
-}
+// Constants moved to internal/sandbox/options for sharing across modules.
 
-func (e *ExitError) Error() string {
-	return fmt.Sprintf("exit code %d", e.Code)
-}
-
-type RunOptions struct {
-	Worktree    WorktreeSpec
-	Memory      string
-	TmpSize     string
-	DiskSize    string
-	User        string
-	Args        []string
-	ReapPolicy  ReapPolicy
-	IdleTimeout time.Duration
-	CPUs        uint8
-	Rebuild     bool
-	DryRun      bool
-	DryRunVM    bool
-	Auto        bool
-	// Recreate forces a project-VM rebuild on this invocation. It is set by
-	// prepareSandbox from the reconfig decision and is never user-facing.
-	Recreate bool
-}
-
-const (
-	defaultMemoryMiB   = 4096
-	defaultTmpSizeMiB  = 2048
-	maxSandboxNameLen  = 128
-	sandboxStopTimeout = 30 * time.Second
-	envKeyValueParts   = 2
-	mibPerGib          = 1024
-)
-
-func parseMemory(spec string) uint32 {
-	spec = strings.TrimSpace(spec)
-	if spec == "" {
-		return defaultMemoryMiB
-	}
-	multiplier := uint32(1)
-	last := spec[len(spec)-1]
-	rest := spec
-	switch last {
-	case 'g', 'G':
-		multiplier = 1024
-		rest = spec[:len(spec)-1]
-	case 'm', 'M':
-		multiplier = 1
-		rest = spec[:len(spec)-1]
-	}
-	n, err := strconv.Atoi(rest)
-	if err != nil {
-		return defaultMemoryMiB
-	}
-	return uint32(n) * multiplier //nolint:gosec // G115: n is from Atoi on a memory spec, bounded by realistic values
-}
-
-func resolveTmpSizeMiB(spec string) uint32 {
-	if spec == "" {
-		return defaultTmpSizeMiB
-	}
-	return parseMemory(spec)
-}
+// parseMemory and resolveTmpSizeMiB moved to internal/sandbox/options.
 
 // isSandboxActive reports whether a sandbox status represents a live VM that
 // WithReplace would terminate. Stopped or crashed sandboxes are stale state
@@ -108,7 +45,7 @@ func buildOpencodeArgs(args []string, auto bool) []string {
 	if !auto {
 		return args
 	}
-	return append([]string{autoFlag}, args...)
+	return append([]string{options.AutoFlag}, args...)
 }
 
 func resolveDockerfile() []byte {
@@ -348,7 +285,7 @@ func finalizeRun(attachErr error, exitCode int) error {
 	if attachErr != nil {
 		return fmt.Errorf("opencode session failed: %w", attachErr)
 	}
-	return &ExitError{Code: exitCode}
+	return &options.ExitError{Code: exitCode}
 }
 
 func currentEnvState(slug string, ui termio.UI) state.EnvState {
@@ -495,7 +432,7 @@ func decideReconfig(
 		action := vm.resolveHomeAction(ui, hs.ImageDigest, imageDigest)
 		if action == actionQuit {
 			ui.Infof("exiting as requested by user")
-			return false, false, homeVol, &ExitError{Code: 1}
+			return false, false, homeVol, &options.ExitError{Code: 1}
 		}
 		newVol, err := vm.applyHomeAction(ctx, client, slug, homeVol, imageRef, imageDigest, action, opts, ui)
 		if err != nil {

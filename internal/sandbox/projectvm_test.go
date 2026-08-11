@@ -9,6 +9,7 @@ import (
 
 	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/msb"
 	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/naming"
+	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/options"
 	"gitlab.inoio.de/inoio/opencode-msb/internal/testutil"
 )
 
@@ -23,8 +24,8 @@ func TestProjectVMName(t *testing.T) {
 func TestProjectVMNameTruncation(t *testing.T) {
 	longSlug := "p-abcdef-very-long-slug-that-exceeds-the-128-byte-limit-and-then-some-more-padding"
 	got := projectVMName(longSlug)
-	if len(got) > maxSandboxNameLen {
-		t.Errorf("expected name <= %d bytes, got %d", maxSandboxNameLen, len(got))
+	if len(got) > options.MaxSandboxNameLen {
+		t.Errorf("expected name <= %d bytes, got %d", options.MaxSandboxNameLen, len(got))
 	}
 	if len(got) < len(naming.VmPrefix) {
 		t.Errorf("name too short: %q", got)
