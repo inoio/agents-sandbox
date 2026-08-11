@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/naming"
+	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/state"
 	"gitlab.inoio.de/inoio/opencode-msb/internal/termio"
 
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
@@ -94,22 +95,22 @@ func (vm *VolumeManager) resolveHomeVolume(
 	projectSlug, imageDigest, imageTag string,
 	opts RunOptions,
 	ui termio.UI,
-) (string, HomeState, error) {
-	state, err := readState(projectSlug)
+) (string, state.HomeState, error) {
+	st, err := state.ReadState(projectSlug)
 	if err != nil {
-		if !errors.Is(err, ErrStateNotFound) {
+		if !errors.Is(err, state.ErrStateNotFound) {
 			ui.Warnf("corrupted state file, creating fresh home volume")
 		}
 		return vm.ensureNewHome(ctx, client, projectSlug, imageDigest, imageTag, opts, ui)
 	}
 
-	_, err = client.GetVolume(ctx, state.HomeVolume)
+	_, err = client.GetVolume(ctx, st.HomeVolume)
 	if err != nil {
-		ui.Warnf("existing home volume %q not found, creating fresh", state.HomeVolume)
+		ui.Warnf("existing home volume %q not found, creating fresh", st.HomeVolume)
 		return vm.ensureNewHome(ctx, client, projectSlug, imageDigest, imageTag, opts, ui)
 	}
 
-	return state.HomeVolume, *state, nil
+	return st.HomeVolume, *st, nil
 }
 
 // ensureNewHome creates a fresh home volume from the image and writes the state.
@@ -119,33 +120,33 @@ func (vm *VolumeManager) ensureNewHome(
 	projectSlug, imageDigest, imageTag string,
 	opts RunOptions,
 	ui termio.UI,
-) (string, HomeState, error) {
+) (string, state.HomeState, error) {
 	volName := homeVolumeName(projectSlug)
 	vol, err := client.CreateVolume(ctx, volName,
 		msbSdk.WithVolumeKind(msbSdk.VolumeKindDir),
 	)
 	if err != nil {
-		return "", HomeState{}, fmt.Errorf("create volume %s: %w", volName, err)
+		return "", state.HomeState{}, fmt.Errorf("create volume %s: %w", volName, err)
 	}
 
 	if !opts.DryRunVM {
 		if err := vm.prefillVolume(ctx, client, projectSlug, vol.Name(), imageTag, ui); err != nil {
-			return "", HomeState{}, err
+			return "", state.HomeState{}, err
 		}
 	} else {
 		ui.Infof("dry-run: Would prefill home volume")
 	}
 
-	state := HomeState{
+	hs := state.HomeState{
 		HomeVolume:  volName,
 		ImageDigest: imageDigest,
-		EnvState:    EnvState{},    //nolint:exhaustruct // intentionally zeroed; fingerprint re-established on next apply
-		SecretState: SecretState{}, //nolint:exhaustruct // intentionally zeroed; fingerprint re-established on next apply
+		EnvState:    state.EnvState{},    //nolint:exhaustruct // intentionally zeroed; fingerprint re-established on next apply
+		SecretState: state.SecretState{}, //nolint:exhaustruct // intentionally zeroed; fingerprint re-established on next apply
 	}
-	if err := WriteState(projectSlug, state); err != nil {
+	if err := state.WriteState(projectSlug, hs); err != nil {
 		ui.Warnf("failed to write state file: %v", err)
 	}
-	return volName, state, nil
+	return volName, hs, nil
 }
 
 // recordHomeImage updates the stored image digest for a project to the
@@ -153,15 +154,15 @@ func (vm *VolumeManager) ensureNewHome(
 // image-change prompt so subsequent runs no longer detect a mismatch and do
 // not re-prompt. Missing state is a no-op.
 func (vm *VolumeManager) recordHomeImage(projectSlug, currentDigest string, ui termio.UI) error {
-	state, err := readState(projectSlug)
+	st, err := state.ReadState(projectSlug)
 	if err != nil {
-		if errors.Is(err, ErrStateNotFound) {
+		if errors.Is(err, state.ErrStateNotFound) {
 			return nil
 		}
 		return err
 	}
-	state.ImageDigest = currentDigest
-	if err := WriteState(projectSlug, *state); err != nil {
+	st.ImageDigest = currentDigest
+	if err := state.WriteState(projectSlug, *st); err != nil {
 		ui.Warnf("failed to write state file: %v", err)
 		return err
 	}
@@ -235,13 +236,13 @@ func (vm *VolumeManager) applyHomeAction(
 		}
 	}
 
-	newState := HomeState{
+	newState := state.HomeState{
 		HomeVolume:  newName,
 		ImageDigest: currentDigest,
-		EnvState:    EnvState{},    //nolint:exhaustruct // intentionally zeroed; fingerprint re-established on next apply
-		SecretState: SecretState{}, //nolint:exhaustruct // intentionally zeroed; fingerprint re-established on next apply
+		EnvState:    state.EnvState{},    //nolint:exhaustruct // intentionally zeroed; fingerprint re-established on next apply
+		SecretState: state.SecretState{}, //nolint:exhaustruct // intentionally zeroed; fingerprint re-established on next apply
 	}
-	if err := WriteState(projectSlug, newState); err != nil {
+	if err := state.WriteState(projectSlug, newState); err != nil {
 		ui.Warnf("failed to write state file: %v", err)
 	}
 	ui.Infof("%s to new home volume %q (old %q kept)", label, newName, oldVolume)

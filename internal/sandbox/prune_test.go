@@ -46,9 +46,9 @@ func runPruneActiveVMTest(
 	SetStateDirForTest(t, t.TempDir()+"/opencode-msb")
 
 	if yaml != "" {
-		stateDir := filepath.Join(stateDir, pruneTestSlug)
-		os.MkdirAll(stateDir, 0o700)
-		os.WriteFile(filepath.Join(stateDir, "state.yaml"), []byte(yaml), 0o600)
+		overrideDir := filepath.Join(StateDir(), pruneTestSlug)
+		os.MkdirAll(overrideDir, 0o700)
+		os.WriteFile(filepath.Join(overrideDir, "state.yaml"), []byte(yaml), 0o600)
 	}
 
 	err := pruneActiveVMHomeVolumes(
@@ -663,7 +663,7 @@ func TestRemoveHomeVolumes_CleansStateFile(t *testing.T) {
 		slug: {"opencode-msb-home-myproject-20260806T143022"},
 	}
 
-	statePath := filepath.Join(stateDir, slug, "state.yaml")
+	statePath := filepath.Join(StateDir(), slug, "state.yaml")
 	os.MkdirAll(filepath.Dir(statePath), 0o700)
 	testutil.WritePath(t, statePath,
 		"home_volume: opencode-msb-home-myproject-20260806T143022\nimage_digest: sha256:abc\n")
@@ -693,7 +693,7 @@ func TestRemoveHomeVolumes_DryRunDoesNotRemoveState(t *testing.T) {
 		slug: {"opencode-msb-home-myproject-20260806T143022"},
 	}
 
-	statePath := filepath.Join(stateDir, slug, "state.yaml")
+	statePath := filepath.Join(StateDir(), slug, "state.yaml")
 	os.MkdirAll(filepath.Dir(statePath), 0o700)
 	testutil.WritePath(t, statePath,
 		"home_volume: opencode-msb-home-myproject-20260806T143022\n")

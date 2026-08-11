@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/msb"
+	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/state"
 	"gitlab.inoio.de/inoio/opencode-msb/internal/termio"
 
 	"gitlab.inoio.de/inoio/opencode-msb/internal/git"
@@ -153,7 +154,7 @@ func prepareSandbox(
 
 	vm := newVolumeManager(ui)
 	client := msb.Get()
-	homeVol, state, err := vm.resolveHomeVolume(ctx, client, projectSlug, imageDigest, imageRef, opts, ui)
+	homeVol, vs, err := vm.resolveHomeVolume(ctx, client, projectSlug, imageDigest, imageRef, opts, ui)
 	if err != nil {
 		return nil, fmt.Errorf("volume setup failed: %w", err)
 	}
@@ -172,7 +173,7 @@ func prepareSandbox(
 		imageRef,
 		imageDigest,
 		homeVol,
-		state,
+		vs,
 		ui,
 	)
 	if err != nil {
@@ -246,7 +247,7 @@ func Run(ctx context.Context, opts RunOptions, ui termio.UI) error {
 	}
 
 	projectSlug := git.ProjectSlug(ui)
-	release, acquireErr := acquireClientLease(projectSlug)
+	release, acquireErr := state.AcquireClientLease(projectSlug)
 	if acquireErr != nil {
 		ui.Warnf("client lease failed: %v", acquireErr)
 	}
@@ -266,7 +267,7 @@ func Run(ctx context.Context, opts RunOptions, ui termio.UI) error {
 	exitCode, attachErr = session.sb.Attach(ctx, "/bin/bash", "-l", "-c", setup)
 
 	// Explicitly release the lease after attach returns, before reaping.
-	// This ensures CountActiveClients reflects only OTHER live clients.
+	// This ensures state.CountActiveClients reflects only OTHER live clients.
 	// The deferred release above is a safety net.
 	if acquireErr == nil {
 		release()
@@ -299,7 +300,7 @@ func Shell(ctx context.Context, opts RunOptions, ui termio.UI) error {
 	}
 
 	projectSlug := git.ProjectSlug(ui)
-	release, acquireErr := acquireClientLease(projectSlug)
+	release, acquireErr := state.AcquireClientLease(projectSlug)
 	if acquireErr != nil {
 		ui.Warnf("client lease failed: %v", acquireErr)
 	}
@@ -313,7 +314,7 @@ func Shell(ctx context.Context, opts RunOptions, ui termio.UI) error {
 	exitCode, attachErr := session.sb.Attach(ctx, "/bin/bash", "-l")
 
 	// Explicitly release the lease after attach returns, before reaping.
-	// This ensures CountActiveClients reflects only OTHER live clients.
+	// This ensures state.CountActiveClients reflects only OTHER live clients.
 	// The deferred release above is a safety net.
 	if acquireErr == nil {
 		release()
@@ -350,40 +351,40 @@ func finalizeRun(attachErr error, exitCode int) error {
 	return &ExitError{Code: exitCode}
 }
 
-func currentEnvState(slug string, ui termio.UI) EnvState {
-	state, err := readState(slug)
+func currentEnvState(slug string, ui termio.UI) state.EnvState {
+	st, err := state.ReadState(slug)
 	if err != nil {
-		if !errors.Is(err, ErrStateNotFound) {
+		if !errors.Is(err, state.ErrStateNotFound) {
 			ui.Warnf("reading state for env fingerprint: %v (continuing)", err)
 		}
-		return EnvState{}
+		return state.EnvState{}
 	}
-	return state.EnvState
+	return st.EnvState
 }
 
-func currentSecretState(slug string, ui termio.UI) SecretState {
-	state, err := readState(slug)
+func currentSecretState(slug string, ui termio.UI) state.SecretState {
+	st, err := state.ReadState(slug)
 	if err != nil {
-		if !errors.Is(err, ErrStateNotFound) {
+		if !errors.Is(err, state.ErrStateNotFound) {
 			ui.Warnf("reading state for secret fingerprint: %v (continuing)", err)
 		}
-		return SecretState{}
+		return state.SecretState{}
 	}
-	return state.SecretState
+	return st.SecretState
 }
 
-func persistEnvSecrets(slug string, envState EnvState, secretState SecretState) error {
-	state, err := readState(slug)
+func persistEnvSecrets(slug string, envState state.EnvState, secretState state.SecretState) error {
+	st, err := state.ReadState(slug)
 	if err != nil {
-		if errors.Is(err, ErrStateNotFound) {
-			state = new(HomeState)
+		if errors.Is(err, state.ErrStateNotFound) {
+			st = new(state.HomeState)
 		} else {
 			return fmt.Errorf("read state for persistence: %w", err)
 		}
 	}
-	state.EnvState = envState
-	state.SecretState = secretState
-	return WriteState(slug, *state)
+	st.EnvState = envState
+	st.SecretState = secretState
+	return state.WriteState(slug, *st)
 }
 
 func buildMounts(homeVol, repoPath string, tmpSizeMiB uint32) map[string]msbSdk.MountConfig {
@@ -468,7 +469,7 @@ func decideReconfig(
 	client MsbClient,
 	vm *VolumeManager,
 	opts RunOptions,
-	imageRef, imageDigest, homeVol string, state HomeState,
+	imageRef, imageDigest, homeVol string, hs state.HomeState,
 	ui termio.UI,
 ) (bool, bool, string, error) {
 	slug := git.ProjectSlug(ui)
@@ -490,8 +491,8 @@ func decideReconfig(
 	}
 
 	// image-change home-volume prompt runs before the rebuild decision.
-	if state.ImageDigest != imageDigest {
-		action := vm.resolveHomeAction(ui, state.ImageDigest, imageDigest)
+	if hs.ImageDigest != imageDigest {
+		action := vm.resolveHomeAction(ui, hs.ImageDigest, imageDigest)
 		if action == actionQuit {
 			ui.Infof("exiting as requested by user")
 			return false, false, homeVol, &ExitError{Code: 1}
@@ -525,11 +526,11 @@ func decideReconfig(
 		buildEnvMap(GetConfigPaths().UserEnvSecretFile()),
 		buildEnvMap(GetConfigPaths().ProjectEnvSecretFile()),
 	), ui)
-	envHasChanged := envChanged(state.EnvState, desiredEnv)
-	secretsHasChanged := secretsChanged(state.SecretState, desiredSecrets)
+	envHasChanged := envChanged(hs.EnvState, desiredEnv)
+	secretsHasChanged := secretsChanged(hs.SecretState, desiredSecrets)
 
 	plan := planReconfig(curCfg, imageRef, opts, envHasChanged, secretsHasChanged, opencfgChanged)
-	otherClients := countActiveClients(slug)
+	otherClients := state.CountActiveClients(slug)
 	applyRecreate, applyRestart, err := resolveReconfig(ctx, ui, plan, otherClients, plan.changes)
 	if err != nil {
 		return false, false, homeVol, err

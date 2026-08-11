@@ -154,7 +154,7 @@ func TestRecordHomeImage_UpdatesDigestInState(t *testing.T) {
 		t.Fatalf("RecordHomeImage: %v", err)
 	}
 
-	state, err := readState("myproj")
+	state, err := ReadState("myproj")
 	if err != nil {
 		t.Fatalf("ReadState: %v", err)
 	}
@@ -262,7 +262,7 @@ func TestApplyHomeAction_ExecutesAndKeepsOld(t *testing.T) {
 				t.Errorf("expected old volume to be kept, removed=%v", mock.RemovedVolumes)
 			}
 
-			st, err := readState(slug)
+			st, err := ReadState(slug)
 			if err != nil {
 				t.Fatalf("ReadState: %v", err)
 			}
@@ -313,7 +313,7 @@ func TestApplyHomeAction_Reset_DryRun_NoWrites(t *testing.T) {
 		t.Errorf("dry-run should not create volumes, got %d", createdVols)
 	}
 
-	st, err := readState(slug)
+	st, err := ReadState(slug)
 	if err != nil {
 		t.Fatalf("ReadState: %v", err)
 	}
@@ -356,7 +356,7 @@ func TestApplyHomeAction_Migrate_DryRunVM_NoStateWrite(t *testing.T) {
 		t.Errorf("dry-run-vm should not spawn VMs, got %v", mock.CreatedSandboxes)
 	}
 
-	st, err := readState(slug)
+	st, err := ReadState(slug)
 	if err != nil {
 		t.Fatalf("ReadState: %v", err)
 	}
