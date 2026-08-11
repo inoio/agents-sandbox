@@ -1,6 +1,6 @@
 //go:build linux
 
-package sandbox
+package doctor
 
 import (
 	"context"
@@ -12,5 +12,5 @@ import (
 // checkDoctor runs Linux-specific prerequisite checks.
 // On Linux, this includes the KVM availability check.
 func checkDoctor(ctx context.Context, ui termio.UI) bool {
-	return checkKvm(ui) && docker.CheckDockerAPI(ctx, ui) && checkDocker(ui) && checkGit(ui) && checkMsb(ctx, ui)
+	return checkKvm(ui) && docker.CheckDockerAPI(ctx, ui) && CheckDocker(ui) && checkGit(ui) && checkMsb(ctx, ui)
 }
