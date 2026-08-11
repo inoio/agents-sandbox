@@ -111,9 +111,11 @@ func prepareSandbox(
 			reprovision.BuildEnvMap(configpaths.GetConfigPaths().UserEnvFile()),
 			reprovision.BuildEnvMap(configpaths.GetConfigPaths().ProjectEnvFile()),
 		)
-		desiredSecrets := reprovision.BuildSecrets(reprovision.MergeEnvMaps(
-			reprovision.BuildEnvMap(configpaths.GetConfigPaths().UserEnvSecretFile()),
-			reprovision.BuildEnvMap(configpaths.GetConfigPaths().ProjectEnvSecretFile()),
+		desiredSecrets := reprovision.BuildSecretsFromSpecs(reprovision.MergeSecretSpecs(
+			reprovision.ParseSecretSpecLegacy(configpaths.GetConfigPaths().UserEnvSecretFile(), ui),
+			reprovision.ParseSecretSpecLegacy(configpaths.GetConfigPaths().ProjectEnvSecretFile(), ui),
+			reprovision.ParseSecretSpecYAML(configpaths.GetConfigPaths().UserEnvSecretYAMLFile(), ui),
+			reprovision.ParseSecretSpecYAML(configpaths.GetConfigPaths().ProjectEnvSecretYAMLFile(), ui),
 		), ui)
 		if err := persistEnvSecrets(
 			projectSlug,
@@ -430,9 +432,11 @@ func decideReconfig(
 		reprovision.BuildEnvMap(configpaths.GetConfigPaths().UserEnvFile()),
 		reprovision.BuildEnvMap(configpaths.GetConfigPaths().ProjectEnvFile()),
 	)
-	desiredSecrets := reprovision.BuildSecrets(reprovision.MergeEnvMaps(
-		reprovision.BuildEnvMap(configpaths.GetConfigPaths().UserEnvSecretFile()),
-		reprovision.BuildEnvMap(configpaths.GetConfigPaths().ProjectEnvSecretFile()),
+	desiredSecrets := reprovision.BuildSecretsFromSpecs(reprovision.MergeSecretSpecs(
+		reprovision.ParseSecretSpecLegacy(configpaths.GetConfigPaths().UserEnvSecretFile(), ui),
+		reprovision.ParseSecretSpecLegacy(configpaths.GetConfigPaths().ProjectEnvSecretFile(), ui),
+		reprovision.ParseSecretSpecYAML(configpaths.GetConfigPaths().UserEnvSecretYAMLFile(), ui),
+		reprovision.ParseSecretSpecYAML(configpaths.GetConfigPaths().ProjectEnvSecretYAMLFile(), ui),
 	), ui)
 	envHasChanged := reprovision.EnvChanged(hs.EnvState, desiredEnv)
 	secretsHasChanged := reprovision.SecretsChanged(hs.SecretState, desiredSecrets)

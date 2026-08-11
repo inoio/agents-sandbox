@@ -87,6 +87,14 @@ func (m *mockConfigPaths) ProjectEnvSecretFile() string {
 	return filepath.Join(m.ProjectConfigDir(), envSecretFileName)
 }
 
+func (m *mockConfigPaths) UserEnvSecretYAMLFile() string {
+	return filepath.Join(m.UserConfigDir(), envSecretYAMLFileName)
+}
+
+func (m *mockConfigPaths) ProjectEnvSecretYAMLFile() string {
+	return filepath.Join(m.ProjectConfigDir(), envSecretYAMLFileName)
+}
+
 func (m *mockConfigPaths) ProjectDockerfile() string {
 	return filepath.Join(m.ProjectConfigDir(), dockerfileName)
 }
@@ -121,4 +129,9 @@ func (f *failFastConfigPaths) ProjectOpencodeConfigDir() string {
 
 func (f *failFastConfigPaths) ProjectEnvFile() string       { f.mustMock(); return "" }
 func (f *failFastConfigPaths) ProjectEnvSecretFile() string { f.mustMock(); return "" }
-func (f *failFastConfigPaths) ProjectDockerfile() string    { f.mustMock(); return "" }
+func (f *failFastConfigPaths) ProjectEnvSecretYAMLFile() string {
+	f.mustMock()
+	return ""
+}
+func (f *failFastConfigPaths) UserEnvSecretYAMLFile() string { f.mustMock(); return "" }
+func (f *failFastConfigPaths) ProjectDockerfile() string     { f.mustMock(); return "" }
