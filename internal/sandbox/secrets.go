@@ -1,12 +1,74 @@
 package sandbox
 
 import (
+	"os"
 	"strings"
 
 	"gitlab.inoio.de/inoio/opencode-msb/internal/termio"
 
 	msb "github.com/superradcompany/microsandbox/sdk/go"
 )
+
+type secretSpec struct {
+	Value string
+	Host  string
+	Hosts []string
+}
+
+const defaultSecretHost = "microsandbox"
+
+func buildSecretsFromSpecs(specs map[string]secretSpec, ui termio.UI) []msb.SecretEntry {
+	var secrets []msb.SecretEntry
+	for envVar, spec := range specs {
+		if spec.Value == "" && spec.Host == "" {
+			ui.Warnf("Value of secret '%s' is empty; dropping", envVar)
+			continue
+		}
+		hosts := append([]string{}, spec.Hosts...)
+		if spec.Host != "" {
+			hosts = append(hosts, spec.Host)
+		}
+		if len(hosts) == 0 {
+			hosts = []string{defaultSecretHost}
+		}
+		secrets = append(secrets, msb.Secret.Env(
+			envVar,
+			spec.Value,
+			msb.SecretEnvOptions{AllowHosts: hosts},
+		))
+	}
+	return secrets
+}
+
+func parseSecretSpecLegacy(filename string, ui termio.UI) map[string]secretSpec {
+	data, err := os.ReadFile(filename)
+	if err != nil {
+		return nil
+	}
+	specs := make(map[string]secretSpec)
+	for line := range strings.SplitSeq(string(data), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		eqParts := strings.SplitN(line, "=", envKeyValueParts)
+		if len(eqParts) != envKeyValueParts {
+			continue
+		}
+		key := strings.TrimSpace(eqParts[0])
+		if key == "" {
+			continue
+		}
+		valueAndHost := eqParts[1]
+		parts := strings.SplitN(valueAndHost, "@", envKeyValueParts)
+		if len(parts) != envKeyValueParts {
+			ui.Warnf("Value of secret '%s' not defined in format 'value@host': '%s'", key, valueAndHost)
+			continue
+		}
+		specs[key] = secretSpec{Value: parts[0], Host: "", Hosts: []string{parts[1]}}
+	}
+	return specs
+}
 
 func buildSecrets(secretLines map[string]string, ui termio.UI) []msb.SecretEntry {
 	var secrets []msb.SecretEntry
