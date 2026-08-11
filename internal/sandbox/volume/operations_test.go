@@ -1,4 +1,4 @@
-package sandbox
+package volume
 
 import (
 	"context"
@@ -9,6 +9,7 @@ import (
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 
 	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/msb"
+	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/state"
 	"gitlab.inoio.de/inoio/opencode-msb/internal/termio"
 )
 
@@ -43,10 +44,10 @@ func TestVolumeOps_DryRun(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			SetStateDirForTest(t, t.TempDir()+"/opencode-msb")
+			state.SetStateDirForTest(t, t.TempDir()+"/opencode-msb")
 
 			slug := "testproj-aBc1234D"
-			WriteState(slug, HomeState{HomeVolume: "old-vol", ImageDigest: "sha256:abc"})
+			state.WriteState(slug, state.HomeState{HomeVolume: "old-vol", ImageDigest: "sha256:abc"})
 
 			mock := &msb.MockMsbClient{}
 			msb.WithMsbMock(t, mock)
@@ -69,11 +70,11 @@ func TestVolumeOps_DryRun(t *testing.T) {
 }
 
 func TestCmdReset_Success(t *testing.T) {
-	SetStateDirForTest(t, t.TempDir()+"/opencode-msb")
+	state.SetStateDirForTest(t, t.TempDir()+"/opencode-msb")
 
 	slug := "testproj-aBc1234D"
 	oldVol := "opencode-msb-home-" + slug + "-old"
-	WriteState(slug, HomeState{HomeVolume: oldVol, ImageDigest: "sha256:old"})
+	state.WriteState(slug, state.HomeState{HomeVolume: oldVol, ImageDigest: "sha256:old"})
 
 	mock := &msb.MockMsbClient{}
 	msb.WithMsbMock(t, mock)
@@ -94,7 +95,7 @@ func TestCmdReset_Success(t *testing.T) {
 		t.Errorf("expected reset message in InfoCalls: %v", ui.InfoCalls)
 	}
 
-	st, err := ReadState(slug)
+	st, err := state.ReadState(slug)
 	if err != nil {
 		t.Fatalf("ReadState: %v", err)
 	}
@@ -107,7 +108,7 @@ func TestCmdReset_Success(t *testing.T) {
 }
 
 func TestCmdMigrate_NoStateFile(t *testing.T) {
-	SetStateDirForTest(t, t.TempDir()+"/opencode-msb")
+	state.SetStateDirForTest(t, t.TempDir()+"/opencode-msb")
 
 	mock := &msb.MockMsbClient{}
 	msb.WithMsbMock(t, mock)
@@ -123,10 +124,10 @@ func TestCmdMigrate_NoStateFile(t *testing.T) {
 }
 
 func TestVolumeOp_CreateVolumeFails(t *testing.T) {
-	SetStateDirForTest(t, t.TempDir()+"/opencode-msb")
+	state.SetStateDirForTest(t, t.TempDir()+"/opencode-msb")
 
 	slug := "testproj-aBc1234D"
-	WriteState(slug, HomeState{HomeVolume: "old-vol", ImageDigest: "sha256:abc"})
+	state.WriteState(slug, state.HomeState{HomeVolume: "old-vol", ImageDigest: "sha256:abc"})
 
 	mock := &msb.MockMsbClient{}
 	mock.CreateVolumeFn = func(_ context.Context, _ string, _ ...msbSdk.VolumeOption) (msb.VolumeHandle, error) {
@@ -145,10 +146,10 @@ func TestVolumeOp_CreateVolumeFails(t *testing.T) {
 }
 
 func TestCmdReset_WithExplicitOldVolume(t *testing.T) {
-	SetStateDirForTest(t, t.TempDir()+"/opencode-msb")
+	state.SetStateDirForTest(t, t.TempDir()+"/opencode-msb")
 
 	slug := "testproj-aBc1234D"
-	WriteState(slug, HomeState{HomeVolume: "from-state-vol", ImageDigest: "sha256:abc"})
+	state.WriteState(slug, state.HomeState{HomeVolume: "from-state-vol", ImageDigest: "sha256:abc"})
 
 	mock := &msb.MockMsbClient{}
 	msb.WithMsbMock(t, mock)
@@ -170,10 +171,10 @@ func TestCmdReset_WithExplicitOldVolume(t *testing.T) {
 }
 
 func TestVolumeOp_ActiveVM_ReturnsError(t *testing.T) {
-	SetStateDirForTest(t, t.TempDir()+"/opencode-msb")
+	state.SetStateDirForTest(t, t.TempDir()+"/opencode-msb")
 
 	slug := "testproj-aBc1234D"
-	WriteState(slug, HomeState{HomeVolume: "old-vol", ImageDigest: "sha256:abc"})
+	state.WriteState(slug, state.HomeState{HomeVolume: "old-vol", ImageDigest: "sha256:abc"})
 
 	mock := &msb.MockMsbClient{}
 	mock.Sandboxes = []msb.SandboxHandle{
@@ -192,10 +193,10 @@ func TestVolumeOp_ActiveVM_ReturnsError(t *testing.T) {
 }
 
 func TestVolumeOp_MainFails_RemovesNewVolume(t *testing.T) {
-	SetStateDirForTest(t, t.TempDir()+"/opencode-msb")
+	state.SetStateDirForTest(t, t.TempDir()+"/opencode-msb")
 
 	slug := "testproj-aBc1234D"
-	WriteState(slug, HomeState{HomeVolume: "old-vol", ImageDigest: "sha256:abc"})
+	state.WriteState(slug, state.HomeState{HomeVolume: "old-vol", ImageDigest: "sha256:abc"})
 
 	var createdVol string
 	mock := &msb.MockMsbClient{}

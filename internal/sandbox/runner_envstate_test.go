@@ -10,6 +10,7 @@ import (
 
 	"gitlab.inoio.de/inoio/opencode-msb/internal/configpaths"
 	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/msb"
+	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/volume"
 	"gitlab.inoio.de/inoio/opencode-msb/internal/termio"
 	"gitlab.inoio.de/inoio/opencode-msb/internal/testutil"
 )
@@ -249,7 +250,7 @@ func TestDecideReconfig_EnvChangedWithPersistedState(t *testing.T) {
 	msb.WithMsbMock(t, mock)
 	WithMockConfigPaths(t)
 
-	vm := newVolumeManager(&termio.Mock{})
+	vm := volume.NewManager(&termio.Mock{})
 
 	// Write state with env hash that differs from desired (nil desired = empty env)
 	// Use matching imageDigest to skip home-volume path
@@ -293,7 +294,7 @@ func TestDecideReconfig_EnvUnchangedWithPersistedState(t *testing.T) {
 	msb.WithMsbMock(t, mock)
 	WithMockConfigPaths(t)
 
-	vm := newVolumeManager(&termio.Mock{})
+	vm := volume.NewManager(&termio.Mock{})
 
 	// Write env file and state with matching hash
 	testutil.WritePath(t, filepath.Join(userDir, configpaths.EnvFileName), "FOO=bar\n")
@@ -339,7 +340,7 @@ func TestDecideReconfig_SecretsChangedWithPersistedState(t *testing.T) {
 	msb.WithMsbMock(t, mock)
 	WithMockConfigPaths(t)
 
-	vm := newVolumeManager(&termio.Mock{})
+	vm := volume.NewManager(&termio.Mock{})
 
 	// Write state with different secret hash than desired (nil desired = no secrets)
 	// Use matching imageDigest to skip home-volume path
@@ -383,7 +384,7 @@ func TestDecideReconfig_ZeroPersistedStateNoSpuriousChange(t *testing.T) {
 	msb.WithMsbMock(t, mock)
 	WithMockConfigPaths(t)
 
-	vm := newVolumeManager(&termio.Mock{})
+	vm := volume.NewManager(&termio.Mock{})
 
 	// Write empty env file → desired is empty.
 	// State has no env_state → zero value (first run).
@@ -576,7 +577,7 @@ func TestDecideReconfig_PersistedSecretsMatchDesired(t *testing.T) {
 	msb.WithMsbMock(t, mock)
 	WithMockConfigPaths(t)
 
-	vm := newVolumeManager(&termio.Mock{})
+	vm := volume.NewManager(&termio.Mock{})
 
 	testutil.WritePath(t, filepath.Join(userDir, configpaths.EnvFileName), "K=V\n")
 	desiredEnv := mergeEnvMaps(buildEnvMap(filepath.Join(userDir, configpaths.EnvFileName)))

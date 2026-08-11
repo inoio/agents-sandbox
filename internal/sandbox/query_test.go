@@ -23,16 +23,3 @@ func TestFilterSandboxesByPrefix(t *testing.T) {
 		t.Errorf("expected second match, got %q", got[1])
 	}
 }
-
-func TestFilterVolumesByPrefix(t *testing.T) {
-	handles := []volumeHandle{
-		{name: "opencode-msb-home-proj-aBc1234D"},
-		{name: "opencode-msb-clone-proj-aBc1234D-1719432000"},
-		{name: "old-style-proj-opencode-home-sha256-abc"},
-		{name: "random-volume"},
-	}
-	got := filterVolumes(handles)
-	if len(got) != 1 {
-		t.Fatalf("expected 1 home volume, got %d", len(got))
-	}
-}
