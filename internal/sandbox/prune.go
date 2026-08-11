@@ -12,6 +12,7 @@ import (
 	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/docker"
 	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/msb"
 	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/naming"
+	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/state"
 	"gitlab.inoio.de/inoio/opencode-msb/internal/termio"
 
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
@@ -520,18 +521,18 @@ func pruneActiveVMHomeVolumes(
 		return nil
 	}
 
-	state, err := readState(slug)
+	st, err := state.ReadState(slug)
 	if err != nil {
-		if errors.Is(err, ErrStateNotFound) {
+		if errors.Is(err, state.ErrStateNotFound) {
 			return fmt.Errorf("no state file found for project %q", slug)
 		}
 		return err
 	}
-	if state == nil || state.HomeVolume == "" {
+	if st == nil || st.HomeVolume == "" {
 		return nil
 	}
 	for _, volName := range vols {
-		if volName == state.HomeVolume {
+		if volName == st.HomeVolume {
 			continue
 		}
 		if !dryRun {
@@ -707,7 +708,7 @@ func removeHomeVolumes(
 		})
 	}
 	if !dryRun {
-		if err := removeState(slug); err != nil {
+		if err := state.RemoveState(slug); err != nil {
 			ui.Warnf("failed to remove state file for slug %s: %v", slug, err)
 		}
 	}

@@ -5,15 +5,16 @@ import (
 	"testing"
 
 	"gitlab.inoio.de/inoio/opencode-msb/internal/configpaths"
+	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/state"
 )
 
 func TestStateFileAbsoluteUnderUserStateDir(t *testing.T) {
 	configpaths.WithRealConfigPaths(t)
-	state := t.TempDir()
-	t.Setenv("XDG_STATE_HOME", state)
+	cfgState := t.TempDir()
+	t.Setenv("XDG_STATE_HOME", cfgState)
 	t.Setenv("HOME", t.TempDir())
-	got := stateFile("proj")
-	want := filepath.Join(state, "opencode-msb", "proj", "state.yaml")
+	got := state.StateFile("proj")
+	want := filepath.Join(cfgState, "opencode-msb", "proj", "state.yaml")
 	if got != want {
 		t.Errorf("StateFile() = %q, want %q", got, want)
 	}

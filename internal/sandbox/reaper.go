@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/msb"
+	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/state"
 	"gitlab.inoio.de/inoio/opencode-msb/internal/termio"
 )
 
@@ -51,7 +52,7 @@ const questionListURL = "http://127.0.0.1:4096/question"
 // is a no-op. If it was, per policy it either returns immediately (auto-stop-on-active
 // mode, so the idle timeout stops the VM) or holds the VM until sessions quiesce.
 func reapOnLastClient(ctx context.Context, slug string, sb msb.Sandbox, policy ReapPolicy, ui termio.UI) error {
-	if countActiveClients(slug) > 0 {
+	if state.CountActiveClients(slug) > 0 {
 		return nil
 	}
 	if policy.AutoStopOnActiveSessions {
@@ -97,7 +98,7 @@ func waitQuiescent(ctx context.Context, slug string, sb msb.Sandbox, maxRetry in
 			}
 		}
 
-		if countActiveClients(slug) > 0 {
+		if state.CountActiveClients(slug) > 0 {
 			ui.Verbosef("client reattached during wait; aborting reaper")
 			return nil
 		}

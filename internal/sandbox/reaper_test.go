@@ -15,7 +15,7 @@ func TestReapOnLastClient_NoOpWhenOtherClientsActive(t *testing.T) {
 	SetStateDirForTest(t, t.TempDir()+"/opencode")
 
 	slug := "otherproj"
-	release, _ := acquireClientLease(slug)
+	release, _ := AcquireClientLease(slug)
 	defer release()
 
 	ui := &termio.Mock{}
@@ -37,7 +37,7 @@ func TestReapOnLastClient_ClientLeaseHeld_NoReap(t *testing.T) {
 	SetStateDirForTest(t, t.TempDir()+"/opencode")
 
 	slug := "leaseproj"
-	release, err := acquireClientLease(slug)
+	release, err := AcquireClientLease(slug)
 	if err != nil {
 		t.Fatalf("AcquireClientLease: %v", err)
 	}
@@ -246,7 +246,7 @@ func TestReapDoesNotFailSuccessfulAttach(t *testing.T) {
 	SetStateDirForTest(t, t.TempDir()+"/opencode")
 
 	slug := "attachproj"
-	release, err := acquireClientLease(slug)
+	release, err := AcquireClientLease(slug)
 	if err != nil {
 		t.Fatalf("AcquireClientLease: %v", err)
 	}

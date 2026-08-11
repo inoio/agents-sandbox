@@ -94,7 +94,7 @@ func TestCmdReset_Success(t *testing.T) {
 		t.Errorf("expected reset message in InfoCalls: %v", ui.InfoCalls)
 	}
 
-	st, err := readState(slug)
+	st, err := ReadState(slug)
 	if err != nil {
 		t.Fatalf("ReadState: %v", err)
 	}

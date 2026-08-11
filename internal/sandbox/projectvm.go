@@ -12,6 +12,7 @@ import (
 	"gitlab.inoio.de/inoio/opencode-msb/internal/git"
 	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/msb"
 	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/naming"
+	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/state"
 	"gitlab.inoio.de/inoio/opencode-msb/internal/sysinfo"
 	"gitlab.inoio.de/inoio/opencode-msb/internal/termio"
 
@@ -386,7 +387,7 @@ func acquireProjectFlock(path string) (func(), error) {
 	if err != nil {
 		return nil, fmt.Errorf("open flock %s: %w", path, err)
 	}
-	if err := flockExclusive(f); err != nil {
+	if err := state.FlockExclusive(f); err != nil {
 		_ = f.Close()
 		return nil, fmt.Errorf("flock %s: %w", path, err)
 	}

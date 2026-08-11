@@ -1,4 +1,4 @@
-package sandbox
+package state
 
 import (
 	"fmt"
@@ -7,12 +7,12 @@ import (
 	"time"
 )
 
-// acquireClientLease creates a unique lock file for the current client under the
+// AcquireClientLease creates a unique lock file for the current client under the
 // project slug's client state dir and holds an exclusive flock on it. It returns
 // a release function. The flock is auto-released if the process exits or crashes,
-// so a dead client never pins the VM. countActiveClients derives the live client
+// so a dead client never pins the VM. CountActiveClients derives the live client
 // count from held locks, avoiding stale persisted counters.
-func acquireClientLease(slug string) (func(), error) {
+func AcquireClientLease(slug string) (func(), error) {
 	dir := filepath.Join(stateRoot(), slug, "clients")
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return nil, fmt.Errorf("create client lock dir: %w", err)
@@ -22,7 +22,7 @@ func acquireClientLease(slug string) (func(), error) {
 	if err != nil {
 		return nil, fmt.Errorf("open client lock %s: %w", path, err)
 	}
-	if err := flockExclusive(f); err != nil {
+	if err := FlockExclusive(f); err != nil {
 		_ = f.Close()
 		_ = os.Remove(path)
 		return nil, fmt.Errorf("flock client lock %s: %w", path, err)
@@ -33,11 +33,11 @@ func acquireClientLease(slug string) (func(), error) {
 	}, nil
 }
 
-// countActiveClients returns the number of live client leases for a slug. A lock
+// CountActiveClients returns the number of live client leases for a slug. A lock
 // file whose lock can be acquired immediately is abandoned (no live holder) and is
 // removed. Files that fail a non-blocking exclusive lock are held by a live client
 // and counted.
-func countActiveClients(slug string) int {
+func CountActiveClients(slug string) int {
 	dir := filepath.Join(stateRoot(), slug, "clients")
 	entries, err := os.ReadDir(dir)
 	if err != nil {
@@ -49,7 +49,7 @@ func countActiveClients(slug string) int {
 		if err != nil {
 			continue
 		}
-		if err := flockExclusiveNB(f); err == nil {
+		if err := FlockExclusiveNB(f); err == nil {
 			// No live holder.
 			_ = f.Close()
 			_ = os.Remove(filepath.Join(dir, e.Name()))
