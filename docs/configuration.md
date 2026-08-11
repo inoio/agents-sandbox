@@ -113,8 +113,8 @@ define a host explicitly; omitting the host part drops the secret with a warning
 
 ```shell
 # .opencode-msb/env.secret
-GITHUB_TOKEN=ghp_xxxxxxxxxxxx@microsandbox
-ANTHROPIC_API_KEY=sk-ant-xxxxxxxxxxxx@microsandbox
+GITHUB_TOKEN=ghp_xxxxxxxxxxxx@github.com
+ANTHROPIC_API_KEY=sk-ant-xxxxxxxxxxxx@anthropic.com
 ```
 
 **YAML format** — `env.secret.yaml`
