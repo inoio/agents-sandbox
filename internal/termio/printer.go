@@ -4,10 +4,14 @@ import (
 	"bufio"
 	"fmt"
 	"io"
-	"time"
 )
 
-const spinnerInterval = 100 * time.Millisecond
+const (
+	ansiReset        = "\x1b[0m"
+	ansiRed          = "\x1b[31m"
+	ansiYellow       = "\x1b[33m"
+	ansiBlackIntense = "\x1b[90m"
+)
 
 type printer struct {
 	stdin       io.Reader
@@ -66,14 +70,14 @@ func (p *printer) Verbose(msg string) {
 	if p.level < LevelVerbose {
 		return
 	}
-	p.write(p.stderr, "", msg)
+	p.write(p.stderr, ansiBlackIntense, msg)
 }
 
 func (p *printer) Verbosef(format string, args ...any) {
 	if p.level < LevelVerbose {
 		return
 	}
-	p.write(p.stderr, "", p.format(format, args...))
+	p.write(p.stderr, ansiBlackIntense, p.format(format, args...))
 }
 
 func (p *printer) Out(msg string) {

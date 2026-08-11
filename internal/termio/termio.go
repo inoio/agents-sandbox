@@ -6,12 +6,6 @@ import (
 	"golang.org/x/term"
 )
 
-const (
-	ansiReset  = "\x1b[0m"
-	ansiRed    = "\x1b[31m"
-	ansiYellow = "\x1b[33m"
-)
-
 type Level int
 
 const (

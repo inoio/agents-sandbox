@@ -8,6 +8,8 @@ import (
 	"time"
 )
 
+const spinnerInterval = 100 * time.Millisecond
+
 //nolint:gochecknoglobals // static lookup table, never mutated
 var spinnerChars = []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
 
