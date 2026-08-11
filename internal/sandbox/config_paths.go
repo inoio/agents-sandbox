@@ -82,7 +82,7 @@ const (
 	configDirName     = "opencode"
 	envFileName       = "env"
 	envSecretFileName = "env.secret"
-	//nolint:gosec // not a credential, just a filename constant
+	//nolint:gosec // G101 false positive: filename constant
 	envSecretYAMLFileName = "env.secret.yaml"
 	dockerfileName        = "Dockerfile"
 )

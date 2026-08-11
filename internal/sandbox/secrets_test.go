@@ -48,12 +48,14 @@ func TestParseSecretSpecLegacyMissingFile(t *testing.T) {
 
 func TestParseSecretSpecLegacyBadLineWarns(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "env.secret")
-	testutil.WritePath(t, path, "FOO-no-at-sign\n")
+	testutil.WritePath(t, path, "KEY=nohost\n")
 	mock := testutil.TermUIMock(t)
-	_ = mock
 	specs := parseSecretSpecLegacy(path, &mock)
 	if len(specs) != 0 {
-		t.Errorf("expected 0 entries for a line with no @, got %#v", specs)
+		t.Errorf("expected 0 entries for a line without @ separator, got %#v", specs)
+	}
+	if len(mock.WarnCalls) == 0 {
+		t.Error("expected a warning for missing @ separator")
 	}
 }
 
