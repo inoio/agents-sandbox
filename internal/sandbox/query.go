@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 
+	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/image"
 	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/msb"
 	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/naming"
 )
@@ -20,10 +21,7 @@ type VolumeInfo struct {
 	Kind string
 }
 
-type ImageInfo struct {
-	Reference string
-	Digest    string
-}
+type ImageInfo = image.Info
 
 type sandboxHandle struct {
 	name string
@@ -31,10 +29,6 @@ type sandboxHandle struct {
 
 type volumeHandle struct {
 	name string
-}
-
-type imageHandle struct {
-	reference string
 }
 
 func filterSandboxes(handles []sandboxHandle) []string {
@@ -52,16 +46,6 @@ func filterVolumes(handles []volumeHandle) []string {
 	for _, h := range handles {
 		if strings.HasPrefix(h.name, naming.HomePrefix) {
 			result = append(result, h.name)
-		}
-	}
-	return result
-}
-
-func filterImages(handles []imageHandle) []string {
-	var result []string
-	for _, h := range handles {
-		if strings.HasPrefix(h.reference, naming.ImagePrefix) {
-			result = append(result, h.reference)
 		}
 	}
 	return result
@@ -106,21 +90,4 @@ func ListVolumes(ctx context.Context) ([]VolumeInfo, error) {
 	return result, nil
 }
 
-func ListImages(ctx context.Context) ([]ImageInfo, error) {
-	handles, err := msb.Get().ImageList(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("list images: %w", err)
-	}
-	var result []ImageInfo
-	for _, h := range handles {
-		ref := h.Reference()
-		if !strings.HasPrefix(ref, naming.ImagePrefix) {
-			continue
-		}
-		result = append(result, ImageInfo{
-			Reference: ref,
-			Digest:    h.ManifestDigest(),
-		})
-	}
-	return result, nil
-}
+var ListImages = image.ListImages //nolint:gochecknoglobals // re-export from image module

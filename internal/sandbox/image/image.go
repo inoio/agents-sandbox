@@ -1,4 +1,4 @@
-package sandbox
+package image
 
 import (
 	"bufio"
@@ -12,11 +12,11 @@ import (
 
 	"github.com/moby/moby/client"
 
+	"gitlab.inoio.de/inoio/opencode-msb/internal/configpaths"
+	"gitlab.inoio.de/inoio/opencode-msb/internal/git"
 	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/docker"
 	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/msb"
 	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/naming"
-
-	"gitlab.inoio.de/inoio/opencode-msb/internal/git"
 	"gitlab.inoio.de/inoio/opencode-msb/internal/termio"
 )
 
@@ -52,7 +52,7 @@ func runnerTag(projectSlug string) string {
 
 // envDir returns the user cache directory for image env info.
 func envDir() string {
-	return GetConfigPaths().UserCacheDir()
+	return configpaths.GetConfigPaths().UserCacheDir()
 }
 
 // envMetaFile returns the JSON file path for image env metadata, keyed by the
@@ -183,11 +183,11 @@ func buildRunnerImage(
 	return rTag, imageDigest, imageEnv, nil
 }
 
-// ensureImageWithClient builds/inspects the runner Docker image using the
+// EnsureImageWithClient builds/inspects the runner Docker image using the
 // provided clients. Tests inject mock clients to verify build behavior.
-func ensureImageWithClient(
+func EnsureImageWithClient(
 	ctx context.Context,
-	mclient MsbClient,
+	mclient msb.Client,
 	dockerfile []byte,
 	projectSlug string,
 	force bool,
@@ -259,8 +259,8 @@ func EnsureImage(
 	force bool,
 	ui termio.UI,
 ) (string, string, map[string]string, error) {
-	dockerfile := resolveDockerfile()
-	return ensureImageWithClient(ctx, msb.Get(), dockerfile, projectSlug, force, ui)
+	dockerfile := ResolveDockerfile()
+	return EnsureImageWithClient(ctx, msb.Get(), dockerfile, projectSlug, force, ui)
 }
 
 func parseImageEnv(envs []string) map[string]string {
