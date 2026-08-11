@@ -127,7 +127,7 @@ func TestPlanReconfigSecretsChangeRebuildsVM(t *testing.T) {
 
 func TestPlanReconfigEnvWithRecreateNoRestartFlag(t *testing.T) {
 	cfg := &msbSdk.SandboxConfig{Image: "old", CPUs: 4, MemoryMiB: 4096, Volumes: map[string]msbSdk.MountConfig{
-		"/tmp": {SizeMiB: 2048},
+		tmpMountPath: {SizeMiB: 2048},
 	}}
 	// image mismatch triggers recreate, env change would add restartDaemons
 	d := planReconfig(cfg, "new:tag", RunOptions{TmpSize: "4G"}, true, false, false)

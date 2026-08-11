@@ -1,4 +1,4 @@
-package sandbox
+package volume
 
 import (
 	"context"
@@ -71,12 +71,12 @@ func CmdMigrate(
 		dryRun: func(oldVolume string) string {
 			return fmt.Sprintf(
 				"dry-run: Would create volume %q, copy files from %q",
-				homeVolumeName(projectSlug),
+				HomeVolumeName(projectSlug),
 				oldVolume,
 			)
 		},
 		main: func(oldVolume, newVolumeName string) error {
-			if err := newVolumeManager(ui).copyVolume(
+			if err := NewManager(ui).CopyVolume(
 				ctx, msb.Get(), projectSlug, oldVolume, newVolumeName, imageTag, ui,
 			); err != nil {
 				return err
@@ -98,7 +98,7 @@ func CmdReset(
 		dryRun: func(oldVolume string) string {
 			return fmt.Sprintf(
 				"dry-run: Would create fresh volume %q, remove %q",
-				homeVolumeName(projectSlug),
+				HomeVolumeName(projectSlug),
 				oldVolume,
 			)
 		},
@@ -120,7 +120,7 @@ func CmdEdit(
 		dryRun: func(oldVolume string) string {
 			return fmt.Sprintf(
 				"dry-run: Would create volume %q alongside %q for manual transfer",
-				homeVolumeName(projectSlug),
+				HomeVolumeName(projectSlug),
 				oldVolume,
 			)
 		},
@@ -197,7 +197,7 @@ func volumeOp(
 		return nil
 	}
 
-	newVolumeName := homeVolumeName(projectSlug)
+	newVolumeName := HomeVolumeName(projectSlug)
 	newVol, err := client.CreateVolume(ctx, newVolumeName,
 		msbSdk.WithVolumeKind(msbSdk.VolumeKindDir),
 	)
@@ -205,8 +205,8 @@ func volumeOp(
 		return fmt.Errorf("create volume %s: %w", newVolumeName, err)
 	}
 
-	vm := newVolumeManager(ui)
-	if err := vm.prefillVolume(ctx, client, projectSlug, newVol.Name(), imageTag, ui); err != nil {
+	vm := NewManager(ui)
+	if err := vm.PrefillVolume(ctx, client, projectSlug, newVol.Name(), imageTag, ui); err != nil {
 		return fmt.Errorf("prefill new volume: %w", err)
 	}
 
