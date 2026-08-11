@@ -1,4 +1,4 @@
-package sandbox
+package session
 
 import (
 	"context"
@@ -6,22 +6,24 @@ import (
 	"time"
 
 	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/msb"
+	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/options"
+	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/state"
 	"gitlab.inoio.de/inoio/opencode-msb/internal/termio"
 )
 
 // --- ReapOnLastClient: no-op when other clients active ---
 
 func TestReapOnLastClient_NoOpWhenOtherClientsActive(t *testing.T) {
-	SetStateDirForTest(t, t.TempDir()+"/opencode")
+	state.SetStateDirForTest(t, t.TempDir()+"/opencode")
 
 	slug := "otherproj"
-	release, _ := AcquireClientLease(slug)
+	release, _ := state.AcquireClientLease(slug)
 	defer release()
 
 	ui := &termio.Mock{}
 	sb := msb.NewMockSandbox(msb.SandboxOpts{})
 
-	err := reapOnLastClient(context.Background(), slug, sb, ReapPolicy{}, ui)
+	err := reapOnLastClient(context.Background(), slug, sb, options.ReapPolicy{}, ui)
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
@@ -34,12 +36,12 @@ func TestReapOnLastClient_NoOpWhenOtherClientsActive(t *testing.T) {
 }
 
 func TestReapOnLastClient_ClientLeaseHeld_NoReap(t *testing.T) {
-	SetStateDirForTest(t, t.TempDir()+"/opencode")
+	state.SetStateDirForTest(t, t.TempDir()+"/opencode")
 
 	slug := "leaseproj"
-	release, err := AcquireClientLease(slug)
+	release, err := state.AcquireClientLease(slug)
 	if err != nil {
-		t.Fatalf("AcquireClientLease: %v", err)
+		t.Fatalf("state.AcquireClientLease: %v", err)
 	}
 	defer release()
 
@@ -47,7 +49,7 @@ func TestReapOnLastClient_ClientLeaseHeld_NoReap(t *testing.T) {
 	ui := &termio.Mock{}
 	sb := msb.NewMockSandbox(msb.SandboxOpts{})
 
-	err = reapOnLastClient(context.Background(), slug, sb, ReapPolicy{}, ui)
+	err = reapOnLastClient(context.Background(), slug, sb, options.ReapPolicy{}, ui)
 	if err != nil {
 		t.Fatalf("expected no error (lease held), got %v", err)
 	}
@@ -56,14 +58,14 @@ func TestReapOnLastClient_ClientLeaseHeld_NoReap(t *testing.T) {
 // --- ReapOnLastClient: auto-stop mode ---
 
 func TestReapOnLastClient_AutoStopOnActiveSessions_ReturnsImmediately(t *testing.T) {
-	SetStateDirForTest(t, t.TempDir()+"/opencode")
+	state.SetStateDirForTest(t, t.TempDir()+"/opencode")
 
 	slug := "nopollproj"
 
 	ui := &termio.Mock{}
 	sb := msb.NewMockSandbox(msb.SandboxOpts{})
 
-	err := reapOnLastClient(context.Background(), slug, sb, ReapPolicy{AutoStopOnActiveSessions: true}, ui)
+	err := reapOnLastClient(context.Background(), slug, sb, options.ReapPolicy{AutoStopOnActiveSessions: true}, ui)
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
@@ -89,7 +91,7 @@ func TestReapOnLastClient_AutoStopOnActiveSessions_ReturnsImmediately(t *testing
 // --- ReapOnLastClient: wait mode, idle from start ---
 
 func TestReapOnLastClient_WaitMode_IdleFromStart(t *testing.T) {
-	SetStateDirForTest(t, t.TempDir()+"/opencode")
+	state.SetStateDirForTest(t, t.TempDir()+"/opencode")
 
 	slug := "idleproj"
 
@@ -108,7 +110,7 @@ func TestReapOnLastClient_WaitMode_IdleFromStart(t *testing.T) {
 		"sleep 1h": msb.NewTestResult(true, 0, "", "", nil),
 	}
 
-	err := reapOnLastClient(context.Background(), slug, sb, ReapPolicy{}, ui)
+	err := reapOnLastClient(context.Background(), slug, sb, options.ReapPolicy{}, ui)
 	if err != nil {
 		t.Fatalf("ReapOnLastClient: expected no error, got %v", err)
 	}
@@ -117,7 +119,7 @@ func TestReapOnLastClient_WaitMode_IdleFromStart(t *testing.T) {
 // --- ReapOnLastClient: wait mode, empty status ---
 
 func TestReapOnLastClient_WaitMode_EmptyStatus(t *testing.T) {
-	SetStateDirForTest(t, t.TempDir()+"/opencode")
+	state.SetStateDirForTest(t, t.TempDir()+"/opencode")
 
 	slug := "emptyproj"
 
@@ -130,7 +132,7 @@ func TestReapOnLastClient_WaitMode_EmptyStatus(t *testing.T) {
 		"sleep 1h": msb.NewTestResult(true, 0, "", "", nil),
 	}
 
-	err := reapOnLastClient(context.Background(), slug, sb, ReapPolicy{}, ui)
+	err := reapOnLastClient(context.Background(), slug, sb, options.ReapPolicy{}, ui)
 	if err != nil {
 		t.Fatalf("ReapOnLastClient: expected no error, got %v", err)
 	}
@@ -139,7 +141,7 @@ func TestReapOnLastClient_WaitMode_EmptyStatus(t *testing.T) {
 // --- ReapOnLastClient: context cancelled ---
 
 func TestReapOnLastClient_ContextCancelled(t *testing.T) {
-	SetStateDirForTest(t, t.TempDir()+"/opencode")
+	state.SetStateDirForTest(t, t.TempDir()+"/opencode")
 
 	// Session status is busy, so the poll loop keeps waiting.
 	// Use a short timeout context that expires during the 2s ticker wait.
@@ -161,14 +163,14 @@ func TestReapOnLastClient_ContextCancelled(t *testing.T) {
 		"sleep 1h": msb.NewTestResult(true, 0, "", "", nil),
 	}
 
-	err := reapOnLastClient(shortCtx, "ctxproj", sb, ReapPolicy{}, ui)
+	err := reapOnLastClient(shortCtx, "ctxproj", sb, options.ReapPolicy{}, ui)
 	if err == nil {
 		t.Fatal("expected error when context times out")
 	}
 }
 
 func TestReapOnLastClient_WaitMode_BusyWithQuestionReaps(t *testing.T) {
-	SetStateDirForTest(t, t.TempDir()+"/opencode")
+	state.SetStateDirForTest(t, t.TempDir()+"/opencode")
 	slug := "qproj"
 	ui := &termio.Mock{}
 	sb := &msb.MockSandbox{
@@ -185,14 +187,14 @@ func TestReapOnLastClient_WaitMode_BusyWithQuestionReaps(t *testing.T) {
 	sb.ExecOut = map[string]msb.ShellResult{
 		"sleep 1h": msb.NewTestResult(true, 0, "", "", nil),
 	}
-	err := reapOnLastClient(context.Background(), slug, sb, ReapPolicy{}, ui)
+	err := reapOnLastClient(context.Background(), slug, sb, options.ReapPolicy{}, ui)
 	if err != nil {
 		t.Fatalf("ReapOnLastClient: expected no error, got %v", err)
 	}
 }
 
 func TestReapOnLastClient_WaitMode_BusyWithQuestionErrorKeepsPolling(t *testing.T) {
-	SetStateDirForTest(t, t.TempDir()+"/opencode")
+	state.SetStateDirForTest(t, t.TempDir()+"/opencode")
 	slug := "qerrproj"
 	shortCtx, shortCancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
 	defer shortCancel()
@@ -210,7 +212,7 @@ func TestReapOnLastClient_WaitMode_BusyWithQuestionErrorKeepsPolling(t *testing.
 	sb.ExecOut = map[string]msb.ShellResult{
 		"sleep 1h": msb.NewTestResult(true, 0, "", "", nil),
 	}
-	err := reapOnLastClient(shortCtx, slug, sb, ReapPolicy{}, ui)
+	err := reapOnLastClient(shortCtx, slug, sb, options.ReapPolicy{}, ui)
 	if err == nil {
 		t.Fatal("expected error when context times out (session stays busy)")
 	}
@@ -219,14 +221,14 @@ func TestReapOnLastClient_WaitMode_BusyWithQuestionErrorKeepsPolling(t *testing.
 // --- ReapOnLastClient: nil sandbox ---
 
 func TestReapOnLastClient_NilSandbox_AllModes(t *testing.T) {
-	SetStateDirForTest(t, t.TempDir()+"/opencode")
+	state.SetStateDirForTest(t, t.TempDir()+"/opencode")
 
 	tests := []struct {
 		name   string
-		policy ReapPolicy
+		policy options.ReapPolicy
 	}{
-		{"wait mode default", ReapPolicy{}},
-		{"auto-stop mode", ReapPolicy{AutoStopOnActiveSessions: true}},
+		{"wait mode default", options.ReapPolicy{}},
+		{"auto-stop mode", options.ReapPolicy{AutoStopOnActiveSessions: true}},
 	}
 
 	for _, tt := range tests {
@@ -243,12 +245,12 @@ func TestReapOnLastClient_NilSandbox_AllModes(t *testing.T) {
 // --- ReapOnLastClient: does not fail successful attach ---
 
 func TestReapDoesNotFailSuccessfulAttach(t *testing.T) {
-	SetStateDirForTest(t, t.TempDir()+"/opencode")
+	state.SetStateDirForTest(t, t.TempDir()+"/opencode")
 
 	slug := "attachproj"
-	release, err := AcquireClientLease(slug)
+	release, err := state.AcquireClientLease(slug)
 	if err != nil {
-		t.Fatalf("AcquireClientLease: %v", err)
+		t.Fatalf("state.AcquireClientLease: %v", err)
 	}
 
 	ui := &termio.Mock{}
@@ -269,7 +271,7 @@ func TestReapDoesNotFailSuccessfulAttach(t *testing.T) {
 	// Release before calling reaper (simulating last client detaching).
 	release()
 
-	err = reapOnLastClient(context.Background(), slug, sb, ReapPolicy{}, ui)
+	err = reapOnLastClient(context.Background(), slug, sb, options.ReapPolicy{}, ui)
 	if err != nil {
 		t.Fatalf("ReapOnLastClient should not fail: %v", err)
 	}
@@ -451,7 +453,7 @@ func TestDecodeSessionStates_ArrayType(t *testing.T) {
 	}
 }
 
-// --- ReapPolicy defaults ---
+// --- options.ReapPolicy defaults ---
 
 func TestDefaultMaxSessionRetriesIsTen(t *testing.T) {
 	if defaultMaxSessionRetries != 10 {
@@ -460,7 +462,7 @@ func TestDefaultMaxSessionRetriesIsTen(t *testing.T) {
 }
 
 func TestReapPolicy_DefaultZeroValue(t *testing.T) {
-	policy := ReapPolicy{}
+	policy := options.ReapPolicy{}
 	if policy.AutoStopOnActiveSessions {
 		t.Error("default AutoStopOnActiveSessions should be false")
 	}

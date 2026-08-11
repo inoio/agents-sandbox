@@ -1,4 +1,4 @@
-package sandbox
+package session
 
 import (
 	"context"
@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"time"
 
+	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/msb"
 	"gitlab.inoio.de/inoio/opencode-msb/internal/termio"
 )
 
@@ -21,7 +22,7 @@ var daemonPollInterval = 2 * time.Second //nolint:gochecknoglobals // test seam,
 
 // daemonShellFunc is the test seam for sb.Shell, matching the ensureInstalled
 // pattern in doctor.go. Tests override this; production code leaves the default.
-var daemonShellFunc = func(ctx context.Context, sb Sandbox, command string) (string, int, error) { //nolint:gochecknoglobals // test seam, swapped in tests
+var daemonShellFunc = func(ctx context.Context, sb msb.Sandbox, command string) (string, int, error) { //nolint:gochecknoglobals // test seam, swapped in tests
 	out, err := sb.Shell(ctx, command)
 	if err != nil {
 		return "", -1, err
@@ -45,7 +46,7 @@ func parseHealthResponse(stdout string) (bool, error) {
 // ensureDaemon guarantees the opencode serve daemon is healthy inside the VM.
 // It health checks via curl inside the VM; if unhealthy, it kills any stale
 // daemon process, starts a fresh one, and polls until healthy or timeout.
-func ensureDaemon(ctx context.Context, sb Sandbox, ui termio.UI) error {
+func ensureDaemon(ctx context.Context, sb msb.Sandbox, ui termio.UI) error {
 	if healthy := checkDaemonHealth(ctx, sb); healthy {
 		ui.Verbosef("opencode daemon already healthy")
 		return nil
@@ -75,7 +76,7 @@ func ensureDaemon(ctx context.Context, sb Sandbox, ui termio.UI) error {
 	return fmt.Errorf("opencode daemon did not become healthy within %s", daemonReadyTimeout)
 }
 
-func checkDaemonHealth(ctx context.Context, sb Sandbox) bool {
+func checkDaemonHealth(ctx context.Context, sb msb.Sandbox) bool {
 	stdout, exitCode, err := daemonShellFunc(ctx, sb, "curl -sfm2 "+daemonHealthURL)
 	if err != nil || exitCode != 0 {
 		return false
@@ -90,13 +91,13 @@ func checkDaemonHealth(ctx context.Context, sb Sandbox) bool {
 //
 // Usage from an external test package:
 //
-//	orig := sandbox.SetDaemonShellFunc(func(ctx context.Context, sb sandbox.Sandbox, command string) (string, int, error) {
+//	orig := sandbox.SetDaemonShellFunc(func(ctx context.Context, sb sandbox.msb.Sandbox, command string) (string, int, error) {
 //	    return "", 0, nil
 //	})
 //	t.Cleanup(func() { sandbox.SetDaemonShellFunc(orig) })
 func SetDaemonShellFunc(
-	f func(ctx context.Context, sb Sandbox, command string) (string, int, error),
-) func(ctx context.Context, sb Sandbox, command string) (string, int, error) {
+	f func(ctx context.Context, sb msb.Sandbox, command string) (string, int, error),
+) func(ctx context.Context, sb msb.Sandbox, command string) (string, int, error) {
 	orig := daemonShellFunc
 	daemonShellFunc = f
 	return orig

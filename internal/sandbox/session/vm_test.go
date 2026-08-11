@@ -1,4 +1,4 @@
-package sandbox
+package session
 
 import (
 	"context"
@@ -7,6 +7,7 @@ import (
 
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 
+	"gitlab.inoio.de/inoio/opencode-msb/internal/configpaths"
 	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/msb"
 	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/naming"
 	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/options"
@@ -107,10 +108,10 @@ func TestEnsureProjectVMStartsWhenCrashed(t *testing.T) {
 }
 
 func TestCreateProjectVMCallsClientCreateSandbox(t *testing.T) {
-	client := &MockMsbClient{}
+	client := &msb.MockMsbClient{}
 	testUI := testutil.TermUIMock(t)
 	ui := &testUI
-	WithMockConfigPaths(t)
+	configpaths.WithMockConfigPaths(t)
 	sb, created, err := createProjectVM(
 		context.Background(),
 		client,
@@ -118,7 +119,7 @@ func TestCreateProjectVMCallsClientCreateSandbox(t *testing.T) {
 		"opencode-msb/runner-test:latest",
 		"test-home-vol",
 		t.TempDir(),
-		RunOptions{Memory: "1G"},
+		options.RunOptions{Memory: "1G"},
 		nil,
 		ui,
 	)
@@ -142,13 +143,13 @@ func TestCreateProjectVMCallsClientCreateSandbox(t *testing.T) {
 func TestStopProjectVMUsesClient(t *testing.T) {
 	testUI := testutil.TermUIMock(t)
 	ui := &testUI
-	client := &MockMsbClient{}
-	client.SetGotSandbox(&MockSandboxHandle{
+	client := &msb.MockMsbClient{}
+	client.SetGotSandbox(&msb.MockSandboxHandle{
 		Name_:   "opencode-msb-vm-test",
 		Status_: msbSdk.SandboxStatusRunning,
 	})
 	oldGet := msb.Get
-	msb.Get = func() MsbClient { return client }
+	msb.Get = func() msb.Client { return client }
 	defer func() { msb.Get = oldGet }()
 
 	// ProjectSlug depends on the current directory, so use a temp repo.
@@ -173,7 +174,7 @@ func TestEnsureProjectVM_CreatePath(t *testing.T) {
 		return msb.NewMockSandbox(msb.SandboxOpts{}), nil
 	}
 	msb.WithMsbMock(t, client)
-	WithMockConfigPaths(t)
+	configpaths.WithMockConfigPaths(t)
 
 	// ProjectSlug depends on the current directory, so use a temp repo.
 	tmpRepo := testutil.InitRepo(t)
@@ -181,7 +182,7 @@ func TestEnsureProjectVM_CreatePath(t *testing.T) {
 
 	sb, created, err := ensureProjectVM(
 		context.Background(),
-		RunOptions{Memory: "1G", TmpSize: "512M"},
+		options.RunOptions{Memory: "1G", TmpSize: "512M"},
 		"opencode-msb/runner-test:latest",
 		"test-home-vol",
 		tmpRepo,
@@ -215,14 +216,14 @@ func TestEnsureProjectVM_ReconnectPath(t *testing.T) {
 		return nil, errors.New("reconnect path must not create a sandbox")
 	}
 	msb.WithMsbMock(t, client)
-	WithMockConfigPaths(t)
+	configpaths.WithMockConfigPaths(t)
 
 	tmpRepo := testutil.InitRepo(t)
 	t.Chdir(tmpRepo)
 
 	sb, created, err := ensureProjectVM(
 		context.Background(),
-		RunOptions{Memory: "1G", TmpSize: "512M"},
+		options.RunOptions{Memory: "1G", TmpSize: "512M"},
 		"opencode-msb/runner-test:latest",
 		"test-home-vol",
 		tmpRepo,
@@ -258,14 +259,14 @@ func TestEnsureProjectVM_ReconnectWhenImageUnchanged(t *testing.T) {
 		return nil, errors.New("unchanged image must not create a sandbox")
 	}
 	msb.WithMsbMock(t, client)
-	WithMockConfigPaths(t)
+	configpaths.WithMockConfigPaths(t)
 
 	tmpRepo := testutil.InitRepo(t)
 	t.Chdir(tmpRepo)
 
 	sb, created, err := ensureProjectVM(
 		context.Background(),
-		RunOptions{Memory: "1G", TmpSize: "512M"},
+		options.RunOptions{Memory: "1G", TmpSize: "512M"},
 		"opencode-msb/runner-test:abc123",
 		"test-home-vol",
 		tmpRepo,
@@ -292,12 +293,12 @@ func TestEnsureProjectVM_ReconnectWhenImageUnchanged(t *testing.T) {
 // TestReconcileResourceConfigClampsCpusToMax verifies that CPU/memory requests
 // above the boot-time maximum are clamped (not rejected).
 func TestReconcileResourceConfigClampsCpusToMax(t *testing.T) {
-	handle := &MockSandboxHandle{
+	handle := &msb.MockSandboxHandle{
 		Cfg:  &msbSdk.SandboxConfig{CPUs: 2, MaxCPUs: 8, MemoryMiB: 4096, MaxMemoryMiB: 8192},
 		Plan: &msbSdk.SandboxModificationPlan{Applied: true},
 	}
 	ui := testutil.TermUIMock(t)
-	err := reconcileResourceConfig(context.Background(), handle, RunOptions{CPUs: 16, Memory: "4G"}, &ui)
+	err := reconcileResourceConfig(context.Background(), handle, options.RunOptions{CPUs: 16, Memory: "4G"}, &ui)
 	if err != nil {
 		t.Fatalf("reconcile: %v", err)
 	}
@@ -316,13 +317,13 @@ func TestReconcileResourceConfigClampsCpusToMax(t *testing.T) {
 // applySandboxOpts applies captured functional options to a fresh SandboxConfig
 // so tests can assert what createProjectVM configured.
 func TestReconcileResourceConfigAppliesCPUsAndMemory(t *testing.T) {
-	handle := &MockSandboxHandle{
+	handle := &msb.MockSandboxHandle{
 		Cfg:  &msbSdk.SandboxConfig{CPUs: 2, MemoryMiB: 2048},
 		Plan: &msbSdk.SandboxModificationPlan{Applied: true},
 	}
 	ctx := context.Background()
 	ui := testutil.TermUIMock(t)
-	if err := reconcileResourceConfig(ctx, handle, RunOptions{CPUs: 8, Memory: "4G"}, &ui); err != nil {
+	if err := reconcileResourceConfig(ctx, handle, options.RunOptions{CPUs: 8, Memory: "4G"}, &ui); err != nil {
 		t.Fatalf("reconcileResourceConfig failed: %v", err)
 	}
 	if len(handle.ModifiedOptions) != 1 {
@@ -335,7 +336,7 @@ func TestReconcileResourceConfigAppliesCPUsAndMemory(t *testing.T) {
 }
 
 func TestReconcileResourceConfigNoopWhenSame(t *testing.T) {
-	handle := &MockSandboxHandle{
+	handle := &msb.MockSandboxHandle{
 		Cfg:  &msbSdk.SandboxConfig{CPUs: 8, MemoryMiB: 4096},
 		Plan: &msbSdk.SandboxModificationPlan{Applied: true},
 	}
@@ -343,7 +344,7 @@ func TestReconcileResourceConfigNoopWhenSame(t *testing.T) {
 	if err := reconcileResourceConfig(
 		context.Background(),
 		handle,
-		RunOptions{CPUs: 8, Memory: "4G"},
+		options.RunOptions{CPUs: 8, Memory: "4G"},
 		&ui,
 	); err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -360,15 +361,15 @@ func applySandboxOpts(cfg *msbSdk.SandboxConfig, opts []msbSdk.SandboxOption) {
 }
 
 func TestCreateProjectVMAppliesRootDiskWhenDiskSizeSet(t *testing.T) {
-	client := &MockMsbClient{}
+	client := &msb.MockMsbClient{}
 	testUI := testutil.TermUIMock(t)
 	ui := &testUI
-	WithMockConfigPaths(t)
+	configpaths.WithMockConfigPaths(t)
 
 	if _, _, err := createProjectVM(
 		context.Background(), client, "opencode-msb-vm-test",
 		"opencode-msb/runner-test:latest", "test-home-vol", t.TempDir(),
-		RunOptions{Memory: "1G", DiskSize: "16G"}, nil, ui,
+		options.RunOptions{Memory: "1G", DiskSize: "16G"}, nil, ui,
 	); err != nil {
 		t.Fatalf("createProjectVM failed: %v", err)
 	}
@@ -405,14 +406,14 @@ func TestEnsureProjectVM_NoReplacementWhenExistingImageUnknown(t *testing.T) {
 		return nil, errors.New("unknown image must not create a sandbox")
 	}
 	msb.WithMsbMock(t, client)
-	WithMockConfigPaths(t)
+	configpaths.WithMockConfigPaths(t)
 
 	tmpRepo := testutil.InitRepo(t)
 	t.Chdir(tmpRepo)
 
 	sb, created, err := ensureProjectVM(
 		context.Background(),
-		RunOptions{Memory: "1G", TmpSize: "512M"},
+		options.RunOptions{Memory: "1G", TmpSize: "512M"},
 		"opencode-msb/runner-test:newDigest",
 		"test-home-vol",
 		tmpRepo,
@@ -455,42 +456,42 @@ func TestPlanReconfigDecidesRecreate(t *testing.T) {
 		name     string
 		cfg      *msbSdk.SandboxConfig
 		imageRef string
-		opts     RunOptions
+		opts     options.RunOptions
 		want     bool
 	}{
 		{
 			name:     "image mismatch",
 			cfg:      mkConfig(4, 4096, 0, 2048),
 			imageRef: "image-b",
-			opts:     RunOptions{},
+			opts:     options.RunOptions{},
 			want:     true,
 		},
 		{
 			name:     "tmpfs mismatch",
 			cfg:      mkConfig(4, 4096, 0, 2048),
 			imageRef: "image-a",
-			opts:     RunOptions{TmpSize: "1G"},
+			opts:     options.RunOptions{TmpSize: "1G"},
 			want:     true,
 		},
 		{
 			name:     "disk mismatch (explicit)",
 			cfg:      mkConfig(4, 4096, 8192, 2048),
 			imageRef: "image-a",
-			opts:     RunOptions{DiskSize: "16G"},
+			opts:     options.RunOptions{DiskSize: "16G"},
 			want:     true,
 		},
 		{
 			name:     "disk unset ignores disk",
 			cfg:      mkConfig(4, 4096, 8192, 2048),
 			imageRef: "image-a",
-			opts:     RunOptions{},
+			opts:     options.RunOptions{},
 			want:     false,
 		},
 		{
 			name:     "no change",
 			cfg:      mkConfig(4, 4096, 16384, 2048),
 			imageRef: "image-a",
-			opts:     RunOptions{TmpSize: "2G", DiskSize: "16G"},
+			opts:     options.RunOptions{TmpSize: "2G", DiskSize: "16G"},
 			want:     false,
 		},
 	}
@@ -527,9 +528,9 @@ func TestEnsureProjectVMRecreatesWhenFlagged(t *testing.T) {
 		return &msb.MockSandbox{Name_: name}, nil
 	}
 	msb.WithMsbMock(t, client)
-	WithMockConfigPaths(t)
+	configpaths.WithMockConfigPaths(t)
 
-	opts := RunOptions{ReapPolicy: ReapPolicy{}, Recreate: true, CPUs: 1, Memory: "2G"}
+	opts := options.RunOptions{ReapPolicy: options.ReapPolicy{}, Recreate: true, CPUs: 1, Memory: "2G"}
 	sb, created, err := ensureProjectVM(
 		context.Background(), opts,
 		"new:tag", "homevol", "/workspace",
@@ -565,10 +566,10 @@ func TestEnsureProjectVMReusesWhenNotFlagged(t *testing.T) {
 		return nil, errors.New("CreateSandbox must not be called when reusing")
 	}
 	msb.WithMsbMock(t, client)
-	WithMockConfigPaths(t)
+	configpaths.WithMockConfigPaths(t)
 
 	sb, created, err := ensureProjectVM(
-		context.Background(), RunOptions{},
+		context.Background(), options.RunOptions{},
 		"old:tag", "homevol", "/workspace",
 		map[string]string{}, ui,
 	)

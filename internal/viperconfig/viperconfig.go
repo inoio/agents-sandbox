@@ -12,7 +12,7 @@ import (
 	"time"
 
 	"gitlab.inoio.de/inoio/opencode-msb/internal/configpaths"
-	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox"
+	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/options"
 
 	"github.com/go-viper/mapstructure/v2"
 	"github.com/spf13/viper"
@@ -263,12 +263,12 @@ func (c Config) IdleTimeout() time.Duration {
 	return 10 * time.Second
 }
 
-func (c Config) ReapPolicy() sandbox.ReapPolicy {
+func (c Config) ReapPolicy() options.ReapPolicy {
 	maxRetries := c.AutoStopMaxSessionRetries
 	if maxRetries <= 0 {
 		maxRetries = 10
 	}
-	return sandbox.ReapPolicy{
+	return options.ReapPolicy{
 		AutoStopOnActiveSessions: c.AutoStopOnActiveSessions,
 		MaxSessionRetries:        maxRetries,
 	}

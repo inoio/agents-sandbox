@@ -1,4 +1,4 @@
-package sandbox
+package session
 
 import (
 	"context"
@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"gitlab.inoio.de/inoio/opencode-msb/internal/configpaths"
 	"gitlab.inoio.de/inoio/opencode-msb/internal/git"
 	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/msb"
 	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/naming"
@@ -23,7 +24,6 @@ import (
 const experimentalWorkspacesValue = "true"
 
 // projectVMName generates the VM name from the project slug.
-// Note: truncation by bytes is safe because ProjectSlug sanitizes to ASCII.
 func projectVMName(slug string) string {
 	name := naming.VmPrefix + slug
 	if len(name) > options.MaxSandboxNameLen {
@@ -87,7 +87,12 @@ func decideVMAction(notFoundErr error, status msbSdk.SandboxStatus) (vmAction, e
 // (policy NoRestart); CPU = 0 means "all CPUs" (left unchanged).
 //
 //nolint:nilerr // Returning nil when config read fails is intentional — treat as no-op
-func reconcileResourceConfig(ctx context.Context, handle SandboxHandle, opts RunOptions, ui termio.UI) error {
+func reconcileResourceConfig(
+	ctx context.Context,
+	handle msb.SandboxHandle,
+	opts options.RunOptions,
+	ui termio.UI,
+) error {
 	cfg, err := handle.Config()
 	if err != nil || cfg == nil {
 		return nil
@@ -135,7 +140,7 @@ func summarizeConflicts(cs []msbSdk.ModificationConflict) string {
 	return strings.Join(b, "; ")
 }
 
-// ensureProjectVM returns a live *Sandbox for the project VM. The boolean
+// ensureProjectVM returns a live *msb.Sandbox for the project VM. The boolean
 // return is true when the VM was created fresh (first boot or recreation
 // after an image change); false when an existing VM was reused (connect or
 // start). A per-project host-side flock guards the first-boot race between
@@ -144,11 +149,11 @@ func summarizeConflicts(cs []msbSdk.ModificationConflict) string {
 //nolint:gocognit,funlen,gocyclo,cyclop // Complex lifecycle logic with multiple paths (connect, start, create) is inherently complex
 func ensureProjectVM(
 	ctx context.Context,
-	opts RunOptions,
+	opts options.RunOptions,
 	imageRef, homeVol, repoPath string,
 	imageEnvs map[string]string,
 	ui termio.UI,
-) (Sandbox, bool, error) {
+) (msb.Sandbox, bool, error) {
 	if opts.DryRunVM {
 		ui.Verbosef("dry-run: VM lifecycle skipped")
 		return nil, false, nil
@@ -159,7 +164,7 @@ func ensureProjectVM(
 	slug := git.ProjectSlug(ui)
 	name := projectVMName(slug)
 
-	flockPath := filepath.Join(GetConfigPaths().UserStateDir(), "vm-ensure", slug+".lock")
+	flockPath := filepath.Join(configpaths.GetConfigPaths().UserStateDir(), "vm-ensure", slug+".lock")
 	if err := os.MkdirAll(filepath.Dir(flockPath), 0o750); err != nil {
 		return nil, false, fmt.Errorf("create flock dir: %w", err)
 	}
@@ -315,12 +320,12 @@ func ensureProjectVM(
 
 func createProjectVM(
 	ctx context.Context,
-	client MsbClient,
+	client msb.Client,
 	name, imageRef, homeVol, repoPath string,
-	opts RunOptions,
+	opts options.RunOptions,
 	imageEnvs map[string]string,
 	ui termio.UI,
-) (Sandbox, bool, error) {
+) (msb.Sandbox, bool, error) {
 	user := opts.User
 	if user == "" {
 		user = "dev"
@@ -333,15 +338,15 @@ func createProjectVM(
 	maxMemoryGiB := sysinfo.TotalMemoryGiB()
 
 	envMap := reprovision.MergeEnvMaps(
-		reprovision.BuildEnvMap(GetConfigPaths().UserEnvFile()),
-		reprovision.BuildEnvMap(GetConfigPaths().ProjectEnvFile()),
+		reprovision.BuildEnvMap(configpaths.GetConfigPaths().UserEnvFile()),
+		reprovision.BuildEnvMap(configpaths.GetConfigPaths().ProjectEnvFile()),
 	)
 	ui.Verbosef("adding docker env definitions to project VM environment: %s", imageEnvs)
 	buildProjectVMEnv(envMap, imageEnvs)
 
 	secrets := reprovision.BuildSecrets(reprovision.MergeEnvMaps(
-		reprovision.BuildEnvMap(GetConfigPaths().UserEnvSecretFile()),
-		reprovision.BuildEnvMap(GetConfigPaths().ProjectEnvSecretFile()),
+		reprovision.BuildEnvMap(configpaths.GetConfigPaths().UserEnvSecretFile()),
+		reprovision.BuildEnvMap(configpaths.GetConfigPaths().ProjectEnvSecretFile()),
 	), ui)
 
 	mounts := buildMounts(homeVol, repoPath, options.ResolveTmpSizeMiB(opts.TmpSize))
@@ -405,8 +410,8 @@ func stopOrKillProjectVM(
 	dryRun bool,
 	ui termio.UI,
 	action, actionVerb string,
-	client MsbClient,
-	stopFn func(SandboxHandle, context.Context) error,
+	client msb.Client,
+	stopFn func(msb.SandboxHandle, context.Context) error,
 ) error {
 	slug := git.ProjectSlug(ui)
 	name := projectVMName(slug)
@@ -459,12 +464,12 @@ func stopOrKillProjectVM(
 // If remove is true, it also removes the VM's persisted state after stopping.
 func StopProjectVM(ctx context.Context, remove, dryRun bool, ui termio.UI) error {
 	return stopOrKillProjectVM(ctx, remove, dryRun, ui, "stop", "Stopping", msb.Get(),
-		func(h SandboxHandle, c context.Context) error { return h.Stop(c) })
+		func(h msb.SandboxHandle, c context.Context) error { return h.Stop(c) })
 }
 
 // KillProjectVM force-kills the project VM for the current directory.
 // If remove is true, it also removes the VM's persisted state after killing.
 func KillProjectVM(ctx context.Context, remove, dryRun bool, ui termio.UI) error {
 	return stopOrKillProjectVM(ctx, remove, dryRun, ui, "kill", "Force-killing", msb.Get(),
-		func(h SandboxHandle, c context.Context) error { return h.Kill(c) })
+		func(h msb.SandboxHandle, c context.Context) error { return h.Kill(c) })
 }

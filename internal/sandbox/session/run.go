@@ -1,4 +1,4 @@
-package sandbox
+package session
 
 import (
 	"context"
@@ -7,16 +7,16 @@ import (
 	"os"
 	"strings"
 
+	"gitlab.inoio.de/inoio/opencode-msb/internal/configpaths"
+	"gitlab.inoio.de/inoio/opencode-msb/internal/git"
+	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/doctor"
+	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/image"
 	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/msb"
 	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/options"
 	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/reprovision"
 	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/state"
-	"gitlab.inoio.de/inoio/opencode-msb/internal/termio"
-
-	"gitlab.inoio.de/inoio/opencode-msb/internal/git"
-	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/doctor"
-	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/image"
 	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/volume"
+	"gitlab.inoio.de/inoio/opencode-msb/internal/termio"
 
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 )
@@ -40,7 +40,7 @@ func buildOpencodeArgs(args []string, auto bool) []string {
 }
 
 type sandboxSession struct {
-	sb     Sandbox
+	sb     msb.Sandbox
 	name   string
 	target string
 	cwd    string
@@ -58,16 +58,16 @@ func (s *sandboxSession) cleanup() {
 
 func prepareSandbox(
 	ctx context.Context,
-	opts RunOptions,
+	opts options.RunOptions,
 	ui termio.UI,
 ) (*sandboxSession, error) {
-	if !CheckAll(ctx, ui) {
+	if !doctor.CheckAll(ctx, ui) {
 		return nil, errors.New("preflight failed")
 	}
 
 	projectSlug := git.ProjectSlug(ui)
 
-	imageRef, imageDigest, imageEnvs, err := EnsureImage(ctx, projectSlug, opts.Rebuild, ui)
+	imageRef, imageDigest, imageEnvs, err := image.EnsureImage(ctx, projectSlug, opts.Rebuild, ui)
 	if err != nil {
 		return nil, fmt.Errorf("image setup failed: %w", err)
 	}
@@ -108,12 +108,12 @@ func prepareSandbox(
 	}
 	if created {
 		desiredEnv := reprovision.MergeEnvMaps(
-			reprovision.BuildEnvMap(GetConfigPaths().UserEnvFile()),
-			reprovision.BuildEnvMap(GetConfigPaths().ProjectEnvFile()),
+			reprovision.BuildEnvMap(configpaths.GetConfigPaths().UserEnvFile()),
+			reprovision.BuildEnvMap(configpaths.GetConfigPaths().ProjectEnvFile()),
 		)
 		desiredSecrets := reprovision.BuildSecrets(reprovision.MergeEnvMaps(
-			reprovision.BuildEnvMap(GetConfigPaths().UserEnvSecretFile()),
-			reprovision.BuildEnvMap(GetConfigPaths().ProjectEnvSecretFile()),
+			reprovision.BuildEnvMap(configpaths.GetConfigPaths().UserEnvSecretFile()),
+			reprovision.BuildEnvMap(configpaths.GetConfigPaths().ProjectEnvSecretFile()),
 		), ui)
 		if err := persistEnvSecrets(
 			projectSlug,
@@ -151,7 +151,7 @@ func prepareSandbox(
 // serve, and attaches a TUI client.
 //
 // Note: Run is called from cli.go after all flags are resolved.
-func Run(ctx context.Context, opts RunOptions, ui termio.UI) error {
+func Run(ctx context.Context, opts options.RunOptions, ui termio.UI) error {
 	session, err := prepareSandbox(ctx, opts, ui)
 	if err != nil {
 		return err
@@ -204,7 +204,7 @@ func Run(ctx context.Context, opts RunOptions, ui termio.UI) error {
 
 // Shell creates (or reuses) the project VM and drops the user into an
 // interactive shell session, without starting opencode serve.
-func Shell(ctx context.Context, opts RunOptions, ui termio.UI) error {
+func Shell(ctx context.Context, opts options.RunOptions, ui termio.UI) error {
 	session, err := prepareSandbox(ctx, opts, ui)
 	if err != nil {
 		return err
@@ -327,13 +327,13 @@ func buildMounts(homeVol, repoPath string, tmpSizeMiB uint32) map[string]msbSdk.
 
 func setUpSandbox(
 	ctx context.Context,
-	sb Sandbox,
-	opts RunOptions,
+	sb msb.Sandbox,
+	opts options.RunOptions,
 	created bool,
 	ui termio.UI,
 	restart bool,
 ) (string, error) {
-	cfs, err := reprovision.LoadConfigFiles(GetConfigPaths().UserOpencodeConfigDir())
+	cfs, err := reprovision.LoadConfigFiles(configpaths.GetConfigPaths().UserOpencodeConfigDir())
 	if err != nil {
 		return "", err
 	}
@@ -366,17 +366,17 @@ func setUpSandbox(
 // decideReconfig centralizes all reconfiguration decisions: the image-change
 // home-volume prompt, the VM recreate decision, the daemon-restart decision,
 // and cpu/memory staging. It re-fetches the existing sandbox handle to read
-// live VM files (no passed-in Sandbox is available at the call site).
+// live VM files (no passed-in msb.Sandbox is available at the call site).
 //
-// Note: the plan's literal signature included an sb Sandbox parameter, but
+// Note: the plan's literal signature included an sb msb.Sandbox parameter, but
 // this is never available to decideReconfig in prepareSandbox (it runs
 // before ensureProjectVM, before any sandbox exists). The function re-fetches
 // and Connect()s its own sandbox for file reads.
 func decideReconfig(
 	ctx context.Context,
-	client MsbClient,
+	client msb.Client,
 	vm *volume.Manager,
-	opts RunOptions,
+	opts options.RunOptions,
 	imageRef, imageDigest, homeVol string, hs state.HomeState,
 	ui termio.UI,
 ) (bool, bool, string, error) {
@@ -384,7 +384,7 @@ func decideReconfig(
 	handle, _ := client.GetSandbox(ctx, projectVMName(slug))
 
 	var curCfg *msbSdk.SandboxConfig
-	var liveSb Sandbox
+	var liveSb msb.Sandbox
 	if handle != nil {
 		var cfgErr error
 		curCfg, cfgErr = handle.Config()
@@ -412,7 +412,7 @@ func decideReconfig(
 		homeVol = newVol
 	}
 
-	cfs, err := reprovision.LoadConfigFiles(GetConfigPaths().UserOpencodeConfigDir())
+	cfs, err := reprovision.LoadConfigFiles(configpaths.GetConfigPaths().UserOpencodeConfigDir())
 	if err != nil {
 		return false, false, homeVol, err
 	}
@@ -427,12 +427,12 @@ func decideReconfig(
 	}
 
 	desiredEnv := reprovision.MergeEnvMaps(
-		reprovision.BuildEnvMap(GetConfigPaths().UserEnvFile()),
-		reprovision.BuildEnvMap(GetConfigPaths().ProjectEnvFile()),
+		reprovision.BuildEnvMap(configpaths.GetConfigPaths().UserEnvFile()),
+		reprovision.BuildEnvMap(configpaths.GetConfigPaths().ProjectEnvFile()),
 	)
 	desiredSecrets := reprovision.BuildSecrets(reprovision.MergeEnvMaps(
-		reprovision.BuildEnvMap(GetConfigPaths().UserEnvSecretFile()),
-		reprovision.BuildEnvMap(GetConfigPaths().ProjectEnvSecretFile()),
+		reprovision.BuildEnvMap(configpaths.GetConfigPaths().UserEnvSecretFile()),
+		reprovision.BuildEnvMap(configpaths.GetConfigPaths().ProjectEnvSecretFile()),
 	), ui)
 	envHasChanged := reprovision.EnvChanged(hs.EnvState, desiredEnv)
 	secretsHasChanged := reprovision.SecretsChanged(hs.SecretState, desiredSecrets)
@@ -451,7 +451,7 @@ func decideReconfig(
 // restartDaemons provisions config files and restarts the opencode daemon so
 // an opencode-config change is picked up. Env/secret changes are never routed
 // here: they require a VM rebuild and are handled by the recreate path instead.
-func restartDaemons(ctx context.Context, sb Sandbox, files map[string][]byte, ui termio.UI) {
+func restartDaemons(ctx context.Context, sb msb.Sandbox, files map[string][]byte, ui termio.UI) {
 	if err := reprovision.ProvisionSandbox(ctx, sb.FS(), files); err != nil {
 		ui.Warnf("provision failed: %v (keeping existing daemon)", err)
 		return

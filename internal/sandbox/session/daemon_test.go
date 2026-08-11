@@ -1,4 +1,4 @@
-package sandbox
+package session
 
 import (
 	"context"
@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/msb"
 	"gitlab.inoio.de/inoio/opencode-msb/internal/testutil"
 )
 
@@ -49,7 +50,7 @@ type mockShellResp struct {
 	err      error
 }
 
-func (m *mockDaemonShell) run(_ context.Context, _ Sandbox, _ string) (string, int, error) {
+func (m *mockDaemonShell) run(_ context.Context, _ msb.Sandbox, _ string) (string, int, error) {
 	if m.calls >= len(m.responses) {
 		return "", 0, nil
 	}

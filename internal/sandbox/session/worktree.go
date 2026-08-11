@@ -1,4 +1,4 @@
-package sandbox
+package session
 
 import (
 	"context"
@@ -8,6 +8,8 @@ import (
 	"regexp"
 	"strings"
 
+	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/msb"
+	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/options"
 	"gitlab.inoio.de/inoio/opencode-msb/internal/termio"
 )
 
@@ -17,23 +19,23 @@ type worktreeResponse struct {
 	Directory string `json:"directory"`
 }
 
-// WorktreeSpec moved to internal/sandbox/options.
+// options.WorktreeSpec moved to internal/sandbox/options.
 
 // ResolveWorktreeSpec parses a --worktree value of the form <name>[:<base>]
 // and validates that the name is already a slug (slugify(name) == name).
-func ResolveWorktreeSpec(value string) (WorktreeSpec, error) {
+func ResolveWorktreeSpec(value string) (options.WorktreeSpec, error) {
 	value = strings.TrimSpace(value)
 	if value == "" {
-		return WorktreeSpec{}, nil
+		return options.WorktreeSpec{}, nil
 	}
 	name, base, _ := strings.Cut(value, ":")
 	if name == "" || slugify(name) != name {
-		return WorktreeSpec{}, fmt.Errorf(
+		return options.WorktreeSpec{}, fmt.Errorf(
 			"worktree name %q is not a valid slug (use lowercase letters, digits, and single hyphens)",
 			name,
 		)
 	}
-	return WorktreeSpec{Name: name, Base: base}, nil
+	return options.WorktreeSpec{Name: name, Base: base}, nil
 }
 
 // slugify mirrors the opencode daemon's worktree name normalisation so we can
@@ -52,7 +54,7 @@ func resolveTargetNoBranch() string {
 
 // validateWorktreeBase confirms the base ref resolves among existing local refs
 // inside the VM. It never fetches: the ref must already be present locally.
-func validateWorktreeBase(ctx context.Context, sb Sandbox, dir, base string) error {
+func validateWorktreeBase(ctx context.Context, sb msb.Sandbox, dir, base string) error {
 	out, err := sb.Exec(ctx, "git", []string{"-C", dir, "rev-parse", "--verify", base + "^{commit}"})
 	if err != nil {
 		return fmt.Errorf("check base %q: %w", base, err)
@@ -74,14 +76,14 @@ func parseWorktreeResponse(stdout string) (string, error) {
 	return resp.Directory, nil
 }
 
-func buildWorktreeCreateBody(spec WorktreeSpec) string {
+func buildWorktreeCreateBody(spec options.WorktreeSpec) string {
 	if spec.Base == "" {
 		return fmt.Sprintf(`{"name":%q}`, spec.Name)
 	}
 	return fmt.Sprintf(`{"name":%q,"startCommand":"git reset --hard %s"}`, spec.Name, spec.Base)
 }
 
-func buildWorktreeCreateCmd(spec WorktreeSpec) string {
+func buildWorktreeCreateCmd(spec options.WorktreeSpec) string {
 	return fmt.Sprintf(
 		`curl -sf -X POST http://127.0.0.1:4096/experimental/worktree -H 'Content-Type: application/json' -d '%s'`,
 		buildWorktreeCreateBody(spec),
@@ -137,8 +139,8 @@ func findWorktreeDir(listStdout string, slug string) (string, bool) {
 // startCommand via the buildWorktreeCreateBody helper.
 func ResolveTarget(
 	ctx context.Context,
-	sb Sandbox,
-	spec WorktreeSpec,
+	sb msb.Sandbox,
+	spec options.WorktreeSpec,
 	ui termio.UI,
 ) (string, error) {
 	if spec.Name == "" {
