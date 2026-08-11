@@ -8,6 +8,7 @@ import (
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 
 	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/msb"
+	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/naming"
 	"gitlab.inoio.de/inoio/opencode-msb/internal/testutil"
 )
 
@@ -25,7 +26,7 @@ func TestProjectVMNameTruncation(t *testing.T) {
 	if len(got) > maxSandboxNameLen {
 		t.Errorf("expected name <= %d bytes, got %d", maxSandboxNameLen, len(got))
 	}
-	if len(got) < len(vmPrefix) {
+	if len(got) < len(naming.VmPrefix) {
 		t.Errorf("name too short: %q", got)
 	}
 }

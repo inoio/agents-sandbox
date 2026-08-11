@@ -13,8 +13,8 @@ import (
 	"github.com/moby/moby/client"
 
 	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/docker"
-
 	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/msb"
+	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/naming"
 
 	"gitlab.inoio.de/inoio/opencode-msb/internal/git"
 	"gitlab.inoio.de/inoio/opencode-msb/internal/termio"
@@ -24,7 +24,7 @@ func referencesBase(dockerfile []byte) bool {
 	scanner := bufio.NewScanner(bytes.NewReader(dockerfile))
 	for scanner.Scan() {
 		line := strings.TrimLeft(scanner.Text(), " \t")
-		if strings.HasPrefix(line, "FROM") && strings.Contains(line, baseTag) {
+		if strings.HasPrefix(line, "FROM") && strings.Contains(line, naming.BaseTag) {
 			return true
 		}
 	}
@@ -35,7 +35,7 @@ func referencesDindBase(dockerfile []byte) bool {
 	scanner := bufio.NewScanner(bytes.NewReader(dockerfile))
 	for scanner.Scan() {
 		line := strings.TrimLeft(scanner.Text(), " \t")
-		if strings.HasPrefix(line, "FROM") && strings.Contains(line, dindBaseTag) {
+		if strings.HasPrefix(line, "FROM") && strings.Contains(line, naming.DindBaseTag) {
 			return true
 		}
 	}
@@ -43,11 +43,11 @@ func referencesDindBase(dockerfile []byte) bool {
 }
 
 func imageTag(projectSlug, imageDigest string) string {
-	return imagePrefix + projectSlug + ":" + git.HashID(imageDigest)
+	return naming.ImagePrefix + projectSlug + ":" + git.HashID(imageDigest)
 }
 
 func runnerTag(projectSlug string) string {
-	return imagePrefix + projectSlug + ":latest"
+	return naming.ImagePrefix + projectSlug + ":latest"
 }
 
 // envDir returns the user cache directory for image env info.
@@ -197,7 +197,7 @@ func ensureImageWithClient(
 		if err := docker.BuildDockerImage(
 			ctx,
 			embeddedDockerfile,
-			baseTag,
+			naming.BaseTag,
 			"Ensuring base runner image",
 			force,
 			ui,
@@ -210,7 +210,7 @@ func ensureImageWithClient(
 		if err := docker.BuildDockerImage(
 			ctx,
 			embeddedDindDockerfile,
-			dindBaseTag,
+			naming.DindBaseTag,
 			"Ensuring Docker-in-Docker base runner image",
 			force,
 			ui,

@@ -18,6 +18,7 @@ import (
 
 	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/docker"
 
+	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/naming"
 	"gitlab.inoio.de/inoio/opencode-msb/internal/termio"
 )
 
@@ -134,19 +135,19 @@ func TestReferencesBaseReturnsFalseForDindImage(t *testing.T) {
 
 func TestEnsureImageBuildsDindBaseWhenDockerfileReferencesDind(t *testing.T) {
 	dockerfile := []byte("FROM opencode-msb/runner-base-dind:latest\nRUN echo hi\n")
-	wantTags := []string{baseTag, dindBaseTag, "opencode-msb/runner-test-project:latest"}
+	wantTags := []string{naming.BaseTag, naming.DindBaseTag, "opencode-msb/runner-test-project:latest"}
 	runEnsureImageTagTest(t, dockerfile, false, wantTags)
 }
 
 func TestEnsureImageDoesNotBuildDindForPlainBase(t *testing.T) {
 	dockerfile := []byte("FROM opencode-msb/runner-base:latest\nRUN echo hi\n")
-	wantTags := []string{baseTag, "opencode-msb/runner-test-project:latest"}
+	wantTags := []string{naming.BaseTag, "opencode-msb/runner-test-project:latest"}
 	runEnsureImageTagTest(t, dockerfile, false, wantTags)
 }
 
 func TestEnsureImageDoesNotBuildDindOnForceWithoutReference(t *testing.T) {
 	dockerfile := []byte("FROM debian:trixie-slim\nRUN echo hi\n")
-	wantTags := []string{baseTag, "opencode-msb/runner-test-project:latest"}
+	wantTags := []string{naming.BaseTag, "opencode-msb/runner-test-project:latest"}
 	runEnsureImageTagTest(t, dockerfile, true, wantTags)
 }
 
