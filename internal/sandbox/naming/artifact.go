@@ -1,31 +1,13 @@
-package sandbox
+package naming
 
 import (
 	"strings"
 )
 
-//nolint:gochecknoglobals // fmt.stringer pattern for StaleType type / consts
-var stateName = map[StaleType]string{
-	staleTypeVM:          "vm",
-	staleTypeVolume:      "volume",
-	staleTypeDockerImage: "docker-image",
-	staleTypeMsbImage:    "msb-image",
-}
-
-func (ss StaleType) String() string {
-	return stateName[ss]
-}
-
-// artifactInfo holds the parsed slug and digest from an artifact name.
-type artifactInfo struct {
-	slug   string
-	digest string
-}
-
-// findHashSuffix finds the start index of a 14-character base36 hash suffix
+// FindHashSuffix finds the start index of a 14-character base36 hash suffix
 // in the name remainder (e.g. "saife-1mjusbm3wikhb0" -> returns 6, pointing
 // at the '1' in the 14-char hash). Returns -1 when no such suffix is found.
-func findHashSuffix(name string) int {
+func FindHashSuffix(name string) int {
 	for i := 1; i < len(name)-13; i++ {
 		if name[i-1] != '-' {
 			continue
@@ -45,7 +27,7 @@ func findHashSuffix(name string) int {
 	return -1
 }
 
-// parseImageTag extracts the slug and digest from a Docker image reference.
+// ParseImageTag extracts the slug and digest from a Docker image reference.
 // Examples: "opencode-msb/runner-myproject:xYz1234AbCdEfGh"
 //
 //	→ slug="myproject", digest="xYz1234AbCdEfGh"
@@ -55,38 +37,38 @@ func findHashSuffix(name string) int {
 //
 //	"opencode-msb/runner-myproject"
 //	→ slug="myproject", digest=""
-func parseImageTag(name string) artifactInfo {
-	if !strings.HasPrefix(name, imagePrefix) {
-		return artifactInfo{}
+func ParseImageTag(name string) ArtifactInfo {
+	if !strings.HasPrefix(name, ImagePrefix) {
+		return ArtifactInfo{}
 	}
-	afterPrefix := name[len(imagePrefix):]
+	afterPrefix := name[len(ImagePrefix):]
 	lastColon := strings.LastIndex(afterPrefix, ":")
 	if lastColon == -1 {
-		return artifactInfo{slug: afterPrefix}
+		return ArtifactInfo{Slug: afterPrefix, Digest: ""}
 	}
 	tag := afterPrefix[lastColon+1:]
 	slug := afterPrefix[:lastColon]
 	if tag != "" && tag != "latest" {
-		return artifactInfo{slug: slug, digest: tag}
+		return ArtifactInfo{Slug: slug, Digest: tag}
 	}
-	return artifactInfo{slug: slug}
+	return ArtifactInfo{Slug: slug, Digest: ""}
 }
 
-// parseVMName extracts the slug and optional branch (digest) from a sandbox name.
+// ParseVMName extracts the slug and optional branch (digest) from a sandbox name.
 // Examples: "opencode-msb-vm-projectname-aB3cDe4fGhIjKl"
 //
 //	→ slug="projectname-aB3cDe4fGhIjKl", digest=""
 //
 //	"opencode-msb-vm-projectname-aB3cDe4fGhIjKl-feature"
 //	→ slug="projectname-aB3cDe4fGhIjKl", digest="feature"
-func parseVMName(name string) artifactInfo {
-	if !strings.HasPrefix(name, vmPrefix) {
-		return artifactInfo{}
+func ParseVMName(name string) ArtifactInfo {
+	if !strings.HasPrefix(name, VmPrefix) {
+		return ArtifactInfo{}
 	}
-	remainder := name[len(vmPrefix):]
-	hashStart := findHashSuffix(remainder)
+	remainder := name[len(VmPrefix):]
+	hashStart := FindHashSuffix(remainder)
 	if hashStart == -1 {
-		return artifactInfo{slug: remainder}
+		return ArtifactInfo{Slug: remainder, Digest: ""}
 	}
 	folderName := remainder[:hashStart-1]
 	hash := remainder[hashStart : hashStart+14]
@@ -94,24 +76,24 @@ func parseVMName(name string) artifactInfo {
 	if hashStart+14 < len(remainder) {
 		rest := remainder[hashStart+14:]
 		if len(rest) > 1 && rest[0] == '-' {
-			return artifactInfo{slug: slug, digest: rest[1:]}
+			return ArtifactInfo{Slug: slug, Digest: rest[1:]}
 		}
 	}
-	return artifactInfo{slug: slug}
+	return ArtifactInfo{Slug: slug, Digest: ""}
 }
 
-// parseHomeVolumeName extracts the slug and timestamp from a home volume name.
+// ParseHomeVolumeName extracts the slug and timestamp from a home volume name.
 // Examples: "opencode-msb-home-myproject-aB3cDe4fGhIjKl-20260812T123456"
 //
 //	→ slug="myproject-aB3cDe4fGhIjKl", digest="20260812T123456"
-func parseHomeVolumeName(name string) artifactInfo {
-	if !strings.HasPrefix(name, homePrefix) {
-		return artifactInfo{}
+func ParseHomeVolumeName(name string) ArtifactInfo {
+	if !strings.HasPrefix(name, HomePrefix) {
+		return ArtifactInfo{}
 	}
-	remainder := name[len(homePrefix):]
+	remainder := name[len(HomePrefix):]
 	parts := strings.Split(remainder, "-")
 	if len(parts) < 2 {
-		return artifactInfo{slug: remainder}
+		return ArtifactInfo{Slug: remainder, Digest: ""}
 	}
 	// Check if last part looks like a timestamp (YYYYMMDDTHHmmss = 15 chars with 'T' at pos 8)
 	last := parts[len(parts)-1]
@@ -129,23 +111,23 @@ func parseHomeVolumeName(name string) artifactInfo {
 		}
 		if valid {
 			// Likely a new-format timestamp — treat as slug suffix, not digest
-			return artifactInfo{slug: strings.Join(parts[:len(parts)-1], "-")}
+			return ArtifactInfo{Slug: strings.Join(parts[:len(parts)-1], "-"), Digest: ""}
 		}
 	}
 	// Legacy format — last part is a 14-char base36 digest hash
-	return artifactInfo{
-		slug:   strings.Join(parts[:len(parts)-1], "-"),
-		digest: parts[len(parts)-1],
+	return ArtifactInfo{
+		Slug:   strings.Join(parts[:len(parts)-1], "-"),
+		Digest: parts[len(parts)-1],
 	}
 }
 
-// parseCloneVolumeName extracts the slug from a clone volume name.
+// ParseCloneVolumeName extracts the slug from a clone volume name.
 // Clone volumes have no digest component.
-func parseCloneVolumeName(name string) string {
-	if !strings.HasPrefix(name, clonePrefix) {
+func ParseCloneVolumeName(name string) string {
+	if !strings.HasPrefix(name, ClonePrefix) {
 		return ""
 	}
-	remainder := name[len(clonePrefix):]
+	remainder := name[len(ClonePrefix):]
 	parts := strings.Split(remainder, "-")
 	if len(parts) < 2 {
 		return remainder
@@ -153,7 +135,7 @@ func parseCloneVolumeName(name string) string {
 	return strings.Join(parts[:len(parts)-1], "-")
 }
 
-// extractProjectSlugAndDigest extracts the project slug and optional digest
+// ExtractProjectSlugAndDigest extracts the project slug and optional digest
 // from an artifact name (sandbox/volume/Docker image/MSB image).
 //
 // Examples:
@@ -161,29 +143,31 @@ func parseCloneVolumeName(name string) string {
 //	"opencode-msb-vm-projectname-main" → slug="projectname", digest=""
 //	"opencode-msb-home-myproject-aB3cDe4fGhIjKl-xYz1234AbCdEfGh" → slug="myproject-aB3cDe4fGhIjKl", digest="xYz1234AbCdEfGh"
 //	"opencode-msb/runner-myproject:xYz1234AbCdEfGh" → slug="myproject", digest="xYz1234AbCdEfGh"
-func extractProjectSlugAndDigest(name string) (string, string) {
-	info := artifactFor(name)
-	return info.slug, info.digest
+func ExtractProjectSlugAndDigest(name string) (string, string) {
+	info := ArtifactFor(name)
+	return info.Slug, info.Digest
 }
 
-// artifactFor dispatches to the appropriate parser based on the name prefix.
-func artifactFor(name string) artifactInfo {
+// ArtifactInfo is the result of an artifact name parse operation.
+
+// ArtifactFor dispatches to the appropriate parser based on the name prefix.
+func ArtifactFor(name string) ArtifactInfo {
 	switch {
-	case strings.HasPrefix(name, imagePrefix):
-		return parseImageTag(name)
-	case strings.HasPrefix(name, taskPrefix):
-		remainder := name[len(taskPrefix):]
+	case strings.HasPrefix(name, ImagePrefix):
+		return ParseImageTag(name)
+	case strings.HasPrefix(name, TaskPrefix):
+		remainder := name[len(TaskPrefix):]
 		parts := strings.Split(remainder, "-")
 		if len(parts) < 2 {
-			return artifactInfo{slug: remainder}
+			return ArtifactInfo{Slug: remainder, Digest: ""}
 		}
-		return artifactInfo{slug: strings.Join(parts[:len(parts)-1], "-")}
-	case strings.HasPrefix(name, vmPrefix):
-		return parseVMName(name)
-	case strings.HasPrefix(name, homePrefix):
-		return parseHomeVolumeName(name)
-	case strings.HasPrefix(name, clonePrefix):
-		return artifactInfo{slug: parseCloneVolumeName(name)}
+		return ArtifactInfo{Slug: strings.Join(parts[:len(parts)-1], "-"), Digest: ""}
+	case strings.HasPrefix(name, VmPrefix):
+		return ParseVMName(name)
+	case strings.HasPrefix(name, HomePrefix):
+		return ParseHomeVolumeName(name)
+	case strings.HasPrefix(name, ClonePrefix):
+		return ArtifactInfo{Slug: ParseCloneVolumeName(name), Digest: ""}
 	}
-	return artifactInfo{}
+	return ArtifactInfo{}
 }

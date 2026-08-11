@@ -1,4 +1,4 @@
-package sandbox
+package naming
 
 // Prefix is the canonical base name for all opencode-msb naming conventions.
 // Changing this value renames the tool across all namespaces, annotations,
@@ -6,21 +6,44 @@ package sandbox
 // Filesystem paths are exempt, they are defined separately in config_paths.go.
 const Prefix = "opencode-msb"
 
-const baseSlug = "base"
+const BaseSlug = "base"
 
 // Sandbox and image name prefixes derived from Prefix.
 const (
-	sbPrefix        = Prefix + "-"
-	vmPrefix        = Prefix + "-vm-"
-	homePrefix      = Prefix + "-home-"
-	clonePrefix     = Prefix + "-clone-"
-	taskPrefix      = Prefix + "-task-"
-	imagePrefix     = Prefix + "/runner-"
-	baseImagePrefix = Prefix + "/runner-base"
+	SbPrefix        = Prefix + "-"
+	VmPrefix        = Prefix + "-vm-" //nolint:staticcheck,revive // follows existing brief naming convention (ST1003, var-naming)
+	HomePrefix      = Prefix + "-home-"
+	ClonePrefix     = Prefix + "-clone-"
+	TaskPrefix      = Prefix + "-task-"
+	ImagePrefix     = Prefix + "/runner-"
+	BaseImagePrefix = Prefix + "/runner-base"
 )
 
 // Fully-qualified image references derived from Prefix.
 const (
-	baseTag     = baseImagePrefix + ":latest"
-	dindBaseTag = baseImagePrefix + "-dind:latest"
+	BaseTag     = BaseImagePrefix + ":latest"
+	DindBaseTag = BaseImagePrefix + "-dind:latest"
 )
+
+type StaleType int
+
+const (
+	StaleTypeVM StaleType = iota
+	StaleTypeVolume
+	StaleTypeDockerImage
+	StaleTypeMsbImage
+)
+
+var typeName = map[StaleType]string{ //nolint:gochecknoglobals // fmt.stringer pattern
+	StaleTypeVM:          "vm",
+	StaleTypeVolume:      "volume",
+	StaleTypeDockerImage: "docker-image",
+	StaleTypeMsbImage:    "msb-image",
+}
+
+func (ss StaleType) String() string { return typeName[ss] }
+
+type ArtifactInfo struct {
+	Slug   string
+	Digest string
+}
