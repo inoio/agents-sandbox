@@ -1,11 +1,10 @@
-package sandbox
+package session
 
 import (
 	"context"
 	"fmt"
 	"strings"
 
-	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/image"
 	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/msb"
 	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/naming"
 )
@@ -15,9 +14,6 @@ type Info struct {
 	Name   string
 	Status string
 }
-
-// ImageInfo is an alias for image.Info from the image module.
-type ImageInfo = image.Info
 
 type sandboxHandle struct {
 	name string
@@ -52,6 +48,3 @@ func ListSandboxes(ctx context.Context) ([]Info, error) {
 	}
 	return result, nil
 }
-
-// ListImages re-exports the image module's ListImages.
-var ListImages = image.ListImages //nolint:gochecknoglobals // re-export from image module

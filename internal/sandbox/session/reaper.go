@@ -1,4 +1,4 @@
-package sandbox
+package session
 
 import (
 	"context"
@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/msb"
+	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/options"
 	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/state"
 	"gitlab.inoio.de/inoio/opencode-msb/internal/termio"
 )
@@ -21,6 +22,8 @@ const defaultMaxSessionRetries = 10
 
 // SessionStatus is the decoded server-side /session/status entry. Busy and idle are
 // plain states; retry carries the server-maintained attempt counter.
+//
+//nolint:revive // session.SessionStatus avoids stutter with session.Status in a session package
 type SessionStatus struct {
 	Type    string `json:"type"`
 	Attempt int    `json:"attempt"`
@@ -37,7 +40,7 @@ const questionListURL = "http://127.0.0.1:4096/question"
 // reapOnLastClient runs after a client detaches. If this was not the last client it
 // is a no-op. If it was, per policy it either returns immediately (auto-stop-on-active
 // mode, so the idle timeout stops the VM) or holds the VM until sessions quiesce.
-func reapOnLastClient(ctx context.Context, slug string, sb msb.Sandbox, policy ReapPolicy, ui termio.UI) error {
+func reapOnLastClient(ctx context.Context, slug string, sb msb.Sandbox, policy options.ReapPolicy, ui termio.UI) error {
 	if state.CountActiveClients(slug) > 0 {
 		return nil
 	}

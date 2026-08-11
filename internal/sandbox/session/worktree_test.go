@@ -1,10 +1,12 @@
-package sandbox
+package session
 
 import (
 	"context"
 	"strings"
 	"testing"
 
+	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/msb"
+	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/options"
 	"gitlab.inoio.de/inoio/opencode-msb/internal/termio"
 )
 
@@ -17,8 +19,8 @@ func TestResolveTargetNoWorktreeReturnsWorkspace(t *testing.T) {
 
 func TestResolveTargetEmptySpecReturnsWorkspace(t *testing.T) {
 	ui := &termio.Mock{}
-	sb := &MockSandbox{ShellCalls: &[]string{}}
-	dir, err := ResolveTarget(context.Background(), sb, WorktreeSpec{}, ui)
+	sb := &msb.MockSandbox{ShellCalls: &[]string{}}
+	dir, err := ResolveTarget(context.Background(), sb, options.WorktreeSpec{}, ui)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -32,14 +34,14 @@ func TestResolveTargetEmptySpecReturnsWorkspace(t *testing.T) {
 
 func TestResolveTargetReusesExistingWorktree(t *testing.T) {
 	ui := &termio.Mock{}
-	sb := &MockSandbox{
-		ShellOut: map[string]ShellResult{
-			buildWorktreeListCmd(): NewTestResult(true, 0,
+	sb := &msb.MockSandbox{
+		ShellOut: map[string]msb.ShellResult{
+			buildWorktreeListCmd(): msb.NewTestResult(true, 0,
 				`["/home/dev/.local/share/opencode/worktree/abc/bugfix-exit-zero"]`, "", nil),
 		},
 		ShellCalls: &[]string{},
 	}
-	dir, err := ResolveTarget(context.Background(), sb, WorktreeSpec{Name: "bugfix-exit-zero"}, ui)
+	dir, err := ResolveTarget(context.Background(), sb, options.WorktreeSpec{Name: "bugfix-exit-zero"}, ui)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -55,14 +57,14 @@ func TestResolveTargetReusesExistingWorktree(t *testing.T) {
 
 func TestResolveTargetReuseWarnsIgnoredBase(t *testing.T) {
 	ui := &termio.Mock{}
-	sb := &MockSandbox{
-		ShellOut: map[string]ShellResult{
-			buildWorktreeListCmd(): NewTestResult(true, 0,
+	sb := &msb.MockSandbox{
+		ShellOut: map[string]msb.ShellResult{
+			buildWorktreeListCmd(): msb.NewTestResult(true, 0,
 				`["/home/dev/.local/share/opencode/worktree/abc/foo"]`, "", nil),
 		},
 		ShellCalls: &[]string{},
 	}
-	_, err := ResolveTarget(context.Background(), sb, WorktreeSpec{Name: "foo", Base: "main"}, ui)
+	_, err := ResolveTarget(context.Background(), sb, options.WorktreeSpec{Name: "foo", Base: "main"}, ui)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -85,15 +87,15 @@ func TestResolveTargetReuseWarnsIgnoredBase(t *testing.T) {
 
 func TestResolveTargetCreatesWithoutBase(t *testing.T) {
 	ui := &termio.Mock{}
-	sb := &MockSandbox{
-		ShellOut: map[string]ShellResult{
-			buildWorktreeListCmd(): NewTestResult(true, 0, `[]`, "", nil),
-			buildWorktreeCreateCmd(WorktreeSpec{Name: "feat-x"}): NewTestResult(true, 0,
+	sb := &msb.MockSandbox{
+		ShellOut: map[string]msb.ShellResult{
+			buildWorktreeListCmd(): msb.NewTestResult(true, 0, `[]`, "", nil),
+			buildWorktreeCreateCmd(options.WorktreeSpec{Name: "feat-x"}): msb.NewTestResult(true, 0,
 				`{"directory":"/workspace/worktrees/feat-x"}`, "", nil),
 		},
 		ShellCalls: &[]string{},
 	}
-	dir, err := ResolveTarget(context.Background(), sb, WorktreeSpec{Name: "feat-x"}, ui)
+	dir, err := ResolveTarget(context.Background(), sb, options.WorktreeSpec{Name: "feat-x"}, ui)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -104,15 +106,15 @@ func TestResolveTargetCreatesWithoutBase(t *testing.T) {
 
 func TestResolveTargetCreatesWithBaseValidatesAndSendsStartCommand(t *testing.T) {
 	ui := &termio.Mock{}
-	createCmd := buildWorktreeCreateCmd(WorktreeSpec{Name: "feat-x", Base: "main"})
-	sb := &MockSandbox{
-		ShellOut: map[string]ShellResult{
-			buildWorktreeListCmd(): NewTestResult(true, 0, `[]`, "", nil),
-			createCmd: NewTestResult(true, 0,
+	createCmd := buildWorktreeCreateCmd(options.WorktreeSpec{Name: "feat-x", Base: "main"})
+	sb := &msb.MockSandbox{
+		ShellOut: map[string]msb.ShellResult{
+			buildWorktreeListCmd(): msb.NewTestResult(true, 0, `[]`, "", nil),
+			createCmd: msb.NewTestResult(true, 0,
 				`{"directory":"/workspace/worktrees/feat-x"}`, "", nil),
 		},
-		ExecOut: map[string]ShellResult{
-			"git -C /workspace/worktrees/feat-x rev-parse --verify main^{commit}": NewTestResult(
+		ExecOut: map[string]msb.ShellResult{
+			"git -C /workspace/worktrees/feat-x rev-parse --verify main^{commit}": msb.NewTestResult(
 				true,
 				0,
 				"abc123",
@@ -122,7 +124,7 @@ func TestResolveTargetCreatesWithBaseValidatesAndSendsStartCommand(t *testing.T)
 		},
 		ShellCalls: &[]string{},
 	}
-	dir, err := ResolveTarget(context.Background(), sb, WorktreeSpec{Name: "feat-x", Base: "main"}, ui)
+	dir, err := ResolveTarget(context.Background(), sb, options.WorktreeSpec{Name: "feat-x", Base: "main"}, ui)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -143,14 +145,14 @@ func TestResolveTargetCreatesWithBaseValidatesAndSendsStartCommand(t *testing.T)
 
 func TestResolveTargetCreateFailsOnUnresolvableBase(t *testing.T) {
 	ui := &termio.Mock{}
-	createCmd := buildWorktreeCreateCmd(WorktreeSpec{Name: "feat-x", Base: "nope"})
-	sb := &MockSandbox{
-		ShellOut: map[string]ShellResult{
-			buildWorktreeListCmd(): NewTestResult(true, 0, `[]`, "", nil),
-			createCmd:              NewTestResult(true, 0, `{"directory":"/workspace/worktrees/feat-x"}`, "", nil),
+	createCmd := buildWorktreeCreateCmd(options.WorktreeSpec{Name: "feat-x", Base: "nope"})
+	sb := &msb.MockSandbox{
+		ShellOut: map[string]msb.ShellResult{
+			buildWorktreeListCmd(): msb.NewTestResult(true, 0, `[]`, "", nil),
+			createCmd:              msb.NewTestResult(true, 0, `{"directory":"/workspace/worktrees/feat-x"}`, "", nil),
 		},
-		ExecOut: map[string]ShellResult{
-			"git -C /workspace/worktrees/feat-x rev-parse --verify nope^{commit}": NewTestResult(
+		ExecOut: map[string]msb.ShellResult{
+			"git -C /workspace/worktrees/feat-x rev-parse --verify nope^{commit}": msb.NewTestResult(
 				false,
 				128,
 				"",
@@ -160,7 +162,12 @@ func TestResolveTargetCreateFailsOnUnresolvableBase(t *testing.T) {
 		},
 		ShellCalls: &[]string{},
 	}
-	if _, err := ResolveTarget(context.Background(), sb, WorktreeSpec{Name: "feat-x", Base: "nope"}, ui); err == nil {
+	if _, err := ResolveTarget(
+		context.Background(),
+		sb,
+		options.WorktreeSpec{Name: "feat-x", Base: "nope"},
+		ui,
+	); err == nil {
 		t.Error("expected error for unresolvable base")
 	}
 }
@@ -199,7 +206,7 @@ func TestParseWorktreeResponseEmptyDirectory(t *testing.T) {
 }
 
 func TestBuildWorktreeCreateBodyNameOnly(t *testing.T) {
-	got := buildWorktreeCreateBody(WorktreeSpec{Name: "feat-x"})
+	got := buildWorktreeCreateBody(options.WorktreeSpec{Name: "feat-x"})
 	if !strings.Contains(got, `"name":"feat-x"`) {
 		t.Errorf("expected name field, got %q", got)
 	}
@@ -209,7 +216,7 @@ func TestBuildWorktreeCreateBodyNameOnly(t *testing.T) {
 }
 
 func TestBuildWorktreeCreateBodyWithBase(t *testing.T) {
-	got := buildWorktreeCreateBody(WorktreeSpec{Name: "feat-x", Base: "main"})
+	got := buildWorktreeCreateBody(options.WorktreeSpec{Name: "feat-x", Base: "main"})
 	if !strings.Contains(got, `"name":"feat-x"`) {
 		t.Errorf("expected name field, got %q", got)
 	}
@@ -219,7 +226,7 @@ func TestBuildWorktreeCreateBodyWithBase(t *testing.T) {
 }
 
 func TestBuildWorktreeCreateCmd(t *testing.T) {
-	cmd := buildWorktreeCreateCmd(WorktreeSpec{Name: "feat-x"})
+	cmd := buildWorktreeCreateCmd(options.WorktreeSpec{Name: "feat-x"})
 	if !strings.Contains(cmd, "POST") {
 		t.Errorf("expected POST in command, got %q", cmd)
 	}
@@ -333,8 +340,8 @@ func TestResolveWorktreeSpecEmpty(t *testing.T) {
 }
 
 func TestValidateWorktreeBaseOK(t *testing.T) {
-	sb := &MockSandbox{ExecOut: map[string]ShellResult{
-		"git -C /w/feat rev-parse --verify main^{commit}": NewTestResult(true, 0, "abc123", "", nil),
+	sb := &msb.MockSandbox{ExecOut: map[string]msb.ShellResult{
+		"git -C /w/feat rev-parse --verify main^{commit}": msb.NewTestResult(true, 0, "abc123", "", nil),
 	}}
 	if err := validateWorktreeBase(context.Background(), sb, "/w/feat", "main"); err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -342,8 +349,8 @@ func TestValidateWorktreeBaseOK(t *testing.T) {
 }
 
 func TestValidateWorktreeBaseMissing(t *testing.T) {
-	sb := &MockSandbox{ExecOut: map[string]ShellResult{
-		"git -C /w/feat rev-parse --verify nope^{commit}": NewTestResult(false, 128, "", "unknown revision", nil),
+	sb := &msb.MockSandbox{ExecOut: map[string]msb.ShellResult{
+		"git -C /w/feat rev-parse --verify nope^{commit}": msb.NewTestResult(false, 128, "", "unknown revision", nil),
 	}}
 	if err := validateWorktreeBase(context.Background(), sb, "/w/feat", "nope"); err == nil {
 		t.Error("expected error for unresolvable base")

@@ -1,4 +1,4 @@
-package sandbox
+package session
 
 import (
 	"context"
@@ -6,9 +6,10 @@ import (
 	"fmt"
 	"time"
 
+	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/msb"
 	"gitlab.inoio.de/inoio/opencode-msb/internal/termio"
 
-	msb "github.com/superradcompany/microsandbox/sdk/go"
+	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 )
 
 const (
@@ -26,8 +27,8 @@ var (
 // use, or does nothing otherwise. It is safe to call on every VM bootstrap
 // because it checks for the dockerd binary and handles the case where dockerd
 // is already running.
-func startDockerdIfPresent(ctx context.Context, sb Sandbox, ui termio.UI) error {
-	out, checkErr := sb.Shell(ctx, dockerdBinaryCheckCmd, msb.WithExecUser("root"))
+func startDockerdIfPresent(ctx context.Context, sb msb.Sandbox, ui termio.UI) error {
+	out, checkErr := sb.Shell(ctx, dockerdBinaryCheckCmd, msbSdk.WithExecUser("root"))
 	if checkErr != nil {
 		return fmt.Errorf("while checking dockerd binary: %w", checkErr)
 	}
@@ -40,7 +41,7 @@ func startDockerdIfPresent(ctx context.Context, sb Sandbox, ui termio.UI) error 
 	if infoOut, readyErr := sb.Shell(
 		ctx,
 		dockerdReadyCmd,
-		msb.WithExecUser("dev"),
+		msbSdk.WithExecUser("dev"),
 	); readyErr == nil &&
 		infoOut.Success() {
 		ui.Verbose("using already running dockerd")
@@ -48,13 +49,13 @@ func startDockerdIfPresent(ctx context.Context, sb Sandbox, ui termio.UI) error 
 	}
 
 	ui.Verbosef("starting dockerd with vfs storage driver")
-	if _, restartErr := sb.Shell(ctx, dockerdRestartCmd, msb.WithExecUser("root")); restartErr != nil {
+	if _, restartErr := sb.Shell(ctx, dockerdRestartCmd, msbSdk.WithExecUser("root")); restartErr != nil {
 		return fmt.Errorf("start dockerd: %w", restartErr)
 	}
 
 	deadline := time.Now().Add(dockerdReadyTimeout)
 	for time.Now().Before(deadline) {
-		out, pollErr := sb.Shell(ctx, dockerdReadyCmd, msb.WithExecUser("dev"))
+		out, pollErr := sb.Shell(ctx, dockerdReadyCmd, msbSdk.WithExecUser("dev"))
 		if pollErr == nil && out.Success() {
 			ui.Verbosef("dockerd is ready")
 			return nil

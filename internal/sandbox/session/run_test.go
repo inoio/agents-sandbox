@@ -1,4 +1,4 @@
-package sandbox
+package session
 
 import (
 	"context"
@@ -9,6 +9,7 @@ import (
 
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 
+	"gitlab.inoio.de/inoio/opencode-msb/internal/configpaths"
 	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/msb"
 	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/options"
 	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/reprovision"
@@ -272,7 +273,7 @@ func TestSetUpSandboxProvisionsConfigOnReuseWithEmptyDir(t *testing.T) {
 
 func setUpSandboxProvisionsConfig(t *testing.T, created bool, provisionMsg string) {
 	t.Helper()
-	origDaemon := SetDaemonShellFunc(func(_ context.Context, _ Sandbox, command string) (string, int, error) {
+	origDaemon := SetDaemonShellFunc(func(_ context.Context, _ msb.Sandbox, command string) (string, int, error) {
 		if command == "curl -sfm2 "+daemonHealthURL {
 			return `{"healthy":true,"version":"test"}`, 0, nil
 		}
@@ -280,15 +281,15 @@ func setUpSandboxProvisionsConfig(t *testing.T, created bool, provisionMsg strin
 	})
 	defer SetDaemonShellFunc(origDaemon)
 
-	fs := newTestFS(nil, nil) // empty FS simulates a VM with empty config dir
-	sb := &MockSandbox{Name_: "test-vm", FSValue_: fs}
-	WithMockConfigPaths(t)
+	fs := msb.NewTestFS(nil, nil) // empty FS simulates a VM with empty config dir
+	sb := &msb.MockSandbox{Name_: "test-vm", FSValue_: fs}
+	configpaths.WithMockConfigPaths(t)
 
 	ui := &termio.Mock{}
 	target, err := setUpSandbox(
 		context.Background(),
 		sb,
-		RunOptions{},
+		options.RunOptions{},
 		created,
 		ui,
 		false,
@@ -312,7 +313,7 @@ func setUpSandboxProvisionsConfig(t *testing.T, created bool, provisionMsg strin
 func TestReadVMFilesUsesSDKFs(t *testing.T) {
 	data := []byte("test-config-data")
 	gitignore := []byte("node_modules/\n")
-	sb := &MockSandbox{
+	sb := &msb.MockSandbox{
 		Name_: "test-vm",
 		FSValue_: msb.NewTestFS(
 			map[string][]byte{
@@ -336,7 +337,7 @@ func TestReadVMFilesUsesSDKFs(t *testing.T) {
 }
 
 func TestReadVMFilesSkipsDirectories(t *testing.T) {
-	sb := &MockSandbox{
+	sb := &msb.MockSandbox{
 		Name_: "test-vm",
 		FSValue_: msb.NewTestFS(
 			map[string][]byte{
@@ -359,7 +360,7 @@ func TestReadVMFilesSkipsDirectories(t *testing.T) {
 }
 
 func TestReadVMFilesEmptyDir(t *testing.T) {
-	sb := &MockSandbox{
+	sb := &msb.MockSandbox{
 		Name_:    "test-vm",
 		FSValue_: msb.NewTestFS(nil, nil),
 	}
@@ -371,7 +372,7 @@ func TestReadVMFilesEmptyDir(t *testing.T) {
 
 func TestRestartDaemonsRestartsServe(t *testing.T) {
 	var cmdCalls []string
-	savedShell := SetDaemonShellFunc(func(_ context.Context, _ Sandbox, command string) (string, int, error) {
+	savedShell := SetDaemonShellFunc(func(_ context.Context, _ msb.Sandbox, command string) (string, int, error) {
 		cmdCalls = append(cmdCalls, command)
 		if command == "curl -sfm2 "+daemonHealthURL {
 			return `{"healthy":true,"version":"x"}`, 0, nil
@@ -380,8 +381,8 @@ func TestRestartDaemonsRestartsServe(t *testing.T) {
 	})
 	defer SetDaemonShellFunc(savedShell)
 
-	fs := newTestFS(nil, nil)
-	sb := &MockSandbox{
+	fs := msb.NewTestFS(nil, nil)
+	sb := &msb.MockSandbox{
 		Name_:      "vm",
 		FSValue_:   fs,
 		ShellCalls: &cmdCalls,
@@ -411,7 +412,7 @@ func TestRestartDaemonsRestartsServe(t *testing.T) {
 
 func TestSetUpSandboxRestartsDaemonsOnReuseDecision(t *testing.T) {
 	var commands []string
-	orig := SetDaemonShellFunc(func(_ context.Context, _ Sandbox, command string) (string, int, error) {
+	orig := SetDaemonShellFunc(func(_ context.Context, _ msb.Sandbox, command string) (string, int, error) {
 		commands = append(commands, command)
 		if command == "curl -sfm2 "+daemonHealthURL {
 			return `{"healthy":true,"version":"x"}`, 0, nil
@@ -421,17 +422,17 @@ func TestSetUpSandboxRestartsDaemonsOnReuseDecision(t *testing.T) {
 	defer SetDaemonShellFunc(orig)
 
 	fs := msb.NewTestFS(nil, nil)
-	sb := &MockSandbox{Name_: "test-vm", FSValue_: fs}
+	sb := &msb.MockSandbox{Name_: "test-vm", FSValue_: fs}
 	ui := testutil.TermUIMock(t)
 
-	WithMockConfigPaths(t)
+	configpaths.WithMockConfigPaths(t)
 
 	// setUpSandbox's signature is
 	//   (ctx, sb, opts, created, ui, restart).
 	// Pass restart=true to force the daemon-restart path on a reused VM.
 	commands = commands[:0]
 	target, err := setUpSandbox(
-		context.Background(), sb, RunOptions{},
+		context.Background(), sb, options.RunOptions{},
 		false, &ui, true,
 	)
 	if err != nil {
