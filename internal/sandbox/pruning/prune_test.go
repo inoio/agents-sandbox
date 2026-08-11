@@ -1,4 +1,4 @@
-package sandbox
+package pruning
 
 import (
 	"context"
@@ -12,6 +12,7 @@ import (
 
 	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/msb"
 	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/naming"
+	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/state"
 	"gitlab.inoio.de/inoio/opencode-msb/internal/termio"
 	"gitlab.inoio.de/inoio/opencode-msb/internal/testutil"
 )
@@ -35,19 +36,19 @@ const (
 // and error for the caller to assert on.
 func runPruneActiveVMTest(
 	t *testing.T,
-	client *MockMsbClient,
+	client *msb.MockMsbClient,
 	homesBySlug map[string][]string,
 	dryRun bool,
 	yaml string,
-) (*MockMsbClient, *termio.Mock, *StaleReport, error) {
+) (*msb.MockMsbClient, *termio.Mock, *StaleReport, error) {
 	t.Helper()
 	ui := &termio.Mock{}
 	report := &StaleReport{}
 
-	SetStateDirForTest(t, t.TempDir()+"/opencode-msb")
+	state.SetStateDirForTest(t, t.TempDir()+"/opencode-msb")
 
 	if yaml != "" {
-		overrideDir := filepath.Join(StateDir(), pruneTestSlug)
+		overrideDir := filepath.Join(state.StateDir, pruneTestSlug)
 		os.MkdirAll(overrideDir, 0o700)
 		os.WriteFile(filepath.Join(overrideDir, "state.yaml"), []byte(yaml), 0o600)
 	}
@@ -652,9 +653,9 @@ func TestParseCloneVolumeName(t *testing.T) {
 }
 
 func TestRemoveHomeVolumes_CleansStateFile(t *testing.T) {
-	SetStateDirForTest(t, t.TempDir()+"/opencode-msb")
+	state.SetStateDirForTest(t, t.TempDir()+"/opencode-msb")
 
-	client := &MockMsbClient{}
+	client := &msb.MockMsbClient{}
 	ui := &termio.Mock{}
 
 	report := &StaleReport{}
@@ -664,7 +665,7 @@ func TestRemoveHomeVolumes_CleansStateFile(t *testing.T) {
 		slug: {"opencode-msb-home-myproject-20260806T143022"},
 	}
 
-	statePath := filepath.Join(StateDir(), slug, "state.yaml")
+	statePath := filepath.Join(state.StateDir, slug, "state.yaml")
 	os.MkdirAll(filepath.Dir(statePath), 0o700)
 	testutil.WritePath(t, statePath,
 		"home_volume: opencode-msb-home-myproject-20260806T143022\nimage_digest: sha256:abc\n")
@@ -683,9 +684,9 @@ func TestRemoveHomeVolumes_CleansStateFile(t *testing.T) {
 }
 
 func TestRemoveHomeVolumes_DryRunDoesNotRemoveState(t *testing.T) {
-	SetStateDirForTest(t, t.TempDir()+"/opencode-msb")
+	state.SetStateDirForTest(t, t.TempDir()+"/opencode-msb")
 
-	client := &MockMsbClient{}
+	client := &msb.MockMsbClient{}
 	ui := &termio.Mock{}
 	report := &StaleReport{}
 
@@ -694,7 +695,7 @@ func TestRemoveHomeVolumes_DryRunDoesNotRemoveState(t *testing.T) {
 		slug: {"opencode-msb-home-myproject-20260806T143022"},
 	}
 
-	statePath := filepath.Join(StateDir(), slug, "state.yaml")
+	statePath := filepath.Join(state.StateDir, slug, "state.yaml")
 	os.MkdirAll(filepath.Dir(statePath), 0o700)
 	testutil.WritePath(t, statePath,
 		"home_volume: opencode-msb-home-myproject-20260806T143022\n")
@@ -718,7 +719,7 @@ func TestPruneActiveVMHomeVolumes_KeepsStateVolume(t *testing.T) {
 	}
 
 	client, _, report, err := runPruneActiveVMTest(
-		t, &MockMsbClient{}, homesBySlug, false, homeVolumeStateYAML,
+		t, &msb.MockMsbClient{}, homesBySlug, false, homeVolumeStateYAML,
 	)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -737,7 +738,7 @@ func TestPruneActiveVMHomeVolumes_RemovesAllWhenStateVolumeAbsent(t *testing.T) 
 	}
 
 	client, _, report, err := runPruneActiveVMTest(
-		t, &MockMsbClient{}, homesBySlug, false, homeVolumeStateYAML,
+		t, &msb.MockMsbClient{}, homesBySlug, false, homeVolumeStateYAML,
 	)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -756,7 +757,7 @@ func TestPruneActiveVMHomeVolumes_DryRunCountsButDoesNotDelete(t *testing.T) {
 	}
 
 	client, _, report, err := runPruneActiveVMTest(
-		t, &MockMsbClient{}, homesBySlug, true, homeVolumeStateYAML,
+		t, &msb.MockMsbClient{}, homesBySlug, true, homeVolumeStateYAML,
 	)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -774,7 +775,7 @@ func TestPruneActiveVMHomeVolumes_MissingStateFileReturnsError(t *testing.T) {
 		pruneTestSlug: {"opencode-msb-home-testslug-old"},
 	}
 
-	_, _, report, err := runPruneActiveVMTest(t, &MockMsbClient{}, homesBySlug, false, "")
+	_, _, report, err := runPruneActiveVMTest(t, &msb.MockMsbClient{}, homesBySlug, false, "")
 	if err == nil {
 		t.Fatal("expected error for missing state file, got nil")
 	}
@@ -788,7 +789,7 @@ func TestPruneActiveVMHomeVolumes_RemoveErrorWarns(t *testing.T) {
 		pruneTestSlug: {"opencode-msb-home-testslug-current", "opencode-msb-home-testslug-old"},
 	}
 
-	client := &MockMsbClient{
+	client := &msb.MockMsbClient{
 		RemoveVolumeFn: func(_ context.Context, _ string) error { return errors.New("volume busy") },
 	}
 	_, ui, report, err := runPruneActiveVMTest(t, client, homesBySlug, false, homeVolumeStateYAML)

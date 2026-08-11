@@ -1,4 +1,4 @@
-package sandbox
+package pruning
 
 import (
 	"context"
@@ -17,6 +17,9 @@ import (
 
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 )
+
+// MsbClient is a type alias for msb.Client, matching the original sandbox-level alias.
+type MsbClient = msb.Client
 
 // StaleReport describes the result of a prune operation.
 type StaleReport struct {
@@ -40,6 +43,8 @@ type StaleEntry struct {
 
 // PruningCatalog holds all collected artifact data for a single prune run.
 // buildCatalog creates it by inspecting sandboxes, volumes, and images.
+//
+//nolint:revive // Type name PruningCatalog is the pre-existing name from the sandbox core.
 type PruningCatalog struct {
 	StaleVMs       []StaleEntry
 	TaskSandboxes  []StaleEntry

@@ -1,4 +1,4 @@
-package sandbox
+package pruning
 
 import (
 	"context"
@@ -9,12 +9,13 @@ import (
 	moby "github.com/moby/moby/client"
 
 	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/docker"
+	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/msb"
+	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/state"
+	"gitlab.inoio.de/inoio/opencode-msb/internal/termio"
 
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 
-	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/msb"
-
-	"gitlab.inoio.de/inoio/opencode-msb/internal/termio"
+	cp "gitlab.inoio.de/inoio/opencode-msb/internal/configpaths"
 )
 
 // mockDockerClient provides per-call error injection for ImageRemove while
@@ -84,8 +85,8 @@ func assertReport(t *testing.T, report *StaleReport, want prunedCounts) {
 }
 
 func TestPruneStaleCascade_RemovesVMAndAllArtifacts(t *testing.T) {
-	WithMockConfigPaths(t)
-	client := &MockMsbClient{}
+	cp.WithMockConfigPaths(t)
+	client := &msb.MockMsbClient{}
 	dockerMock := &mockDockerClient{}
 	docker.WithDockerMock(t, dockerMock)
 	ui := newMockUI()
@@ -129,7 +130,7 @@ func TestPruneStaleCascade_RemovesVMAndAllArtifacts(t *testing.T) {
 }
 
 func TestPruneStaleCascade_DryRunDoesNotDelete(t *testing.T) {
-	client := &MockMsbClient{}
+	client := &msb.MockMsbClient{}
 	dockerMock := &mockDockerClient{}
 	docker.WithDockerMock(t, dockerMock)
 	ui := newMockUI()
@@ -157,7 +158,7 @@ func TestPruneStaleCascade_DryRunDoesNotDelete(t *testing.T) {
 }
 
 func TestPruneStaleCascade_RemoveErrorWarnsAndStopsCascade(t *testing.T) {
-	client := &MockMsbClient{
+	client := &msb.MockMsbClient{
 		RemoveSandboxFn: func(_ context.Context, _ string) error { return errors.New("sandbox locked") },
 	}
 	dockerMock := &mockDockerClient{}
@@ -188,8 +189,8 @@ func TestPruneStaleCascade_RemoveErrorWarnsAndStopsCascade(t *testing.T) {
 }
 
 func TestPruneActiveVMCleanup_KeepsMatchingDigestAndLatest(t *testing.T) {
-	WithMockConfigPaths(t)
-	client := &MockMsbClient{}
+	cp.WithMockConfigPaths(t)
+	client := &msb.MockMsbClient{}
 	dockerMock := &mockDockerClient{}
 	docker.WithDockerMock(t, dockerMock)
 	ui := newMockUI()
@@ -229,8 +230,8 @@ func TestPruneActiveVMCleanup_KeepsMatchingDigestAndLatest(t *testing.T) {
 }
 
 func TestPruneActiveVMCleanup_DryRunCountsButDoesNotDelete(t *testing.T) {
-	WithMockConfigPaths(t)
-	client := &MockMsbClient{}
+	cp.WithMockConfigPaths(t)
+	client := &msb.MockMsbClient{}
 	dockerMock := &mockDockerClient{}
 	docker.WithDockerMock(t, dockerMock)
 	ui := newMockUI()
@@ -262,8 +263,8 @@ func TestPruneActiveVMCleanup_DryRunCountsButDoesNotDelete(t *testing.T) {
 }
 
 func TestPruneOrphanSlug_RemovesEverything(t *testing.T) {
-	WithMockConfigPaths(t)
-	client := &MockMsbClient{}
+	cp.WithMockConfigPaths(t)
+	client := &msb.MockMsbClient{}
 	dockerMock := &mockDockerClient{}
 	docker.WithDockerMock(t, dockerMock)
 	ui := newMockUI()
@@ -296,8 +297,8 @@ func TestPruneOrphanSlug_RemovesEverything(t *testing.T) {
 }
 
 func TestPruneCloneVolume_RemovesWhenNoActiveVM(t *testing.T) {
-	WithMockConfigPaths(t)
-	client := &MockMsbClient{}
+	cp.WithMockConfigPaths(t)
+	client := &msb.MockMsbClient{}
 	ui := newMockUI()
 	report := &StaleReport{}
 
@@ -315,8 +316,8 @@ func TestPruneCloneVolume_RemovesWhenNoActiveVM(t *testing.T) {
 }
 
 func TestPruneCloneVolume_KeepsWhenActiveVMExists(t *testing.T) {
-	WithMockConfigPaths(t)
-	client := &MockMsbClient{}
+	cp.WithMockConfigPaths(t)
+	client := &msb.MockMsbClient{}
 	ui := newMockUI()
 	report := &StaleReport{}
 
@@ -334,8 +335,8 @@ func TestPruneCloneVolume_KeepsWhenActiveVMExists(t *testing.T) {
 }
 
 func TestPruneCloneVolume_DryRunDoesNotDelete(t *testing.T) {
-	WithMockConfigPaths(t)
-	client := &MockMsbClient{}
+	cp.WithMockConfigPaths(t)
+	client := &msb.MockMsbClient{}
 	ui := newMockUI()
 	report := &StaleReport{}
 
@@ -351,51 +352,51 @@ func TestPruneCloneVolume_DryRunDoesNotDelete(t *testing.T) {
 }
 
 func TestPrune_WithMocks_CoversAllCases(t *testing.T) {
-	WithMockConfigPaths(t)
+	cp.WithMockConfigPaths(t)
 	oldTime := time.Now().Add(-2 * time.Hour)
 	recentTime := time.Now().Add(-5 * time.Minute)
 
-	client := &MockMsbClient{
-		Sandboxes: []SandboxHandle{
+	client := &msb.MockMsbClient{
+		Sandboxes: []msb.SandboxHandle{
 			// Stale VM for myproject -> cascade removes everything.
-			&MockSandboxHandle{
+			&msb.MockSandboxHandle{
 				Name_:      "opencode-msb-vm-myproject-1mjusbm3wikhb0",
 				Status_:    msbSdk.SandboxStatusStopped,
 				UpdatedAt_: oldTime,
 			},
 			// Active VM for activeproject -> cleanup non-matching digests.
-			&MockSandboxHandle{
+			&msb.MockSandboxHandle{
 				Name_:      "opencode-msb-vm-activeproject-1mjusbm3wikhb0-main",
 				Status_:    msbSdk.SandboxStatusRunning,
 				UpdatedAt_: recentTime,
 				Image_:     "opencode-msb/runner-activeproject-1mjusbm3wikhb0:digest2",
 			},
 			// Task sandbox -> always pruned.
-			&MockSandboxHandle{
+			&msb.MockSandboxHandle{
 				Name_:      "opencode-msb-task-fill-proj",
 				Status_:    msbSdk.SandboxStatusStopped,
 				UpdatedAt_: oldTime,
 			},
 		},
-		Volumes: []VolumeHandle{
-			&MockVolumeHandle{Name_: "opencode-msb-home-myproject-1mjusbm3wikhb0-digest1"},
-			&MockVolumeHandle{Name_: "opencode-msb-home-activeproject-1mjusbm3wikhb0-digest1"},
-			&MockVolumeHandle{Name_: "opencode-msb-home-activeproject-1mjusbm3wikhb0-digest2"},
-			&MockVolumeHandle{Name_: "opencode-msb-clone-myproject-1mjusbm3wikhb0-abc123"},
-			&MockVolumeHandle{Name_: "opencode-msb-clone-activeproject-1mjusbm3wikhb0-def456"},
+		Volumes: []msb.VolumeHandle{
+			&msb.MockVolumeHandle{Name_: "opencode-msb-home-myproject-1mjusbm3wikhb0-digest1"},
+			&msb.MockVolumeHandle{Name_: "opencode-msb-home-activeproject-1mjusbm3wikhb0-digest1"},
+			&msb.MockVolumeHandle{Name_: "opencode-msb-home-activeproject-1mjusbm3wikhb0-digest2"},
+			&msb.MockVolumeHandle{Name_: "opencode-msb-clone-myproject-1mjusbm3wikhb0-abc123"},
+			&msb.MockVolumeHandle{Name_: "opencode-msb-clone-activeproject-1mjusbm3wikhb0-def456"},
 		},
-		Images: []ImageHandle{
-			&MockImageHandle{Reference_: "opencode-msb/runner-myproject-1mjusbm3wikhb0:digest1"},
-			&MockImageHandle{Reference_: "opencode-msb/runner-activeproject-1mjusbm3wikhb0:digest1"},
-			&MockImageHandle{Reference_: "opencode-msb/runner-activeproject-1mjusbm3wikhb0:digest2"},
-			&MockImageHandle{Reference_: "opencode-msb/runner-orphan:latest"},
+		Images: []msb.ImageHandle{
+			&msb.MockImageHandle{Reference_: "opencode-msb/runner-myproject-1mjusbm3wikhb0:digest1"},
+			&msb.MockImageHandle{Reference_: "opencode-msb/runner-activeproject-1mjusbm3wikhb0:digest1"},
+			&msb.MockImageHandle{Reference_: "opencode-msb/runner-activeproject-1mjusbm3wikhb0:digest2"},
+			&msb.MockImageHandle{Reference_: "opencode-msb/runner-orphan:latest"},
 		},
 	}
 	docker.WithNoopDockerMock(t)
 	ui := newMockUI()
 
-	SetStateDirForTest(t, t.TempDir()+"/opencode-msb")
-	if err := WriteState("activeproject-1mjusbm3wikhb0", HomeState{
+	state.SetStateDirForTest(t, t.TempDir()+"/opencode-msb")
+	if err := state.WriteState("activeproject-1mjusbm3wikhb0", state.HomeState{
 		HomeVolume: "opencode-msb-home-activeproject-1mjusbm3wikhb0-digest2",
 	}); err != nil {
 		t.Fatalf("WriteState: %v", err)
@@ -424,30 +425,30 @@ func TestPrune_StoppedRecentVM_PreservesImage(t *testing.T) {
 	recentTime := time.Now().Add(-5 * time.Minute)
 	slug := "commonproj-1mjusbm3wikhb0"
 
-	client := &MockMsbClient{
-		Sandboxes: []SandboxHandle{
+	client := &msb.MockMsbClient{
+		Sandboxes: []msb.SandboxHandle{
 			// Stopped but recent: within threshold, must be preserved.
-			&MockSandboxHandle{
+			&msb.MockSandboxHandle{
 				Name_:      "opencode-msb-vm-commonproj-1mjusbm3wikhb0",
 				Status_:    msbSdk.SandboxStatusStopped,
 				UpdatedAt_: recentTime,
 				Image_:     "opencode-msb/runner-commonproj-1mjusbm3wikhb0:digestCur",
 			},
 		},
-		Volumes: []VolumeHandle{
-			&MockVolumeHandle{Name_: "opencode-msb-home-commonproj-1mjusbm3wikhb0-20260810T120000"},
+		Volumes: []msb.VolumeHandle{
+			&msb.MockVolumeHandle{Name_: "opencode-msb-home-commonproj-1mjusbm3wikhb0-20260810T120000"},
 		},
-		Images: []ImageHandle{
-			&MockImageHandle{Reference_: "opencode-msb/runner-commonproj-1mjusbm3wikhb0:digestCur"},
-			&MockImageHandle{Reference_: "opencode-msb/runner-commonproj-1mjusbm3wikhb0:digestOld"},
-			&MockImageHandle{Reference_: "opencode-msb/runner-commonproj-1mjusbm3wikhb0:latest"},
+		Images: []msb.ImageHandle{
+			&msb.MockImageHandle{Reference_: "opencode-msb/runner-commonproj-1mjusbm3wikhb0:digestCur"},
+			&msb.MockImageHandle{Reference_: "opencode-msb/runner-commonproj-1mjusbm3wikhb0:digestOld"},
+			&msb.MockImageHandle{Reference_: "opencode-msb/runner-commonproj-1mjusbm3wikhb0:latest"},
 		},
 	}
 	docker.WithNoopDockerMock(t)
 	ui := newMockUI()
 
-	SetStateDirForTest(t, t.TempDir()+"/opencode-msb")
-	if err := WriteState(slug, HomeState{
+	state.SetStateDirForTest(t, t.TempDir()+"/opencode-msb")
+	if err := state.WriteState(slug, state.HomeState{
 		HomeVolume: "opencode-msb-home-commonproj-1mjusbm3wikhb0-20260810T120000",
 	}); err != nil {
 		t.Fatalf("WriteState: %v", err)
@@ -536,8 +537,8 @@ func TestPruneActiveVMDockerImages_PartialFailure(t *testing.T) {
 // fails during a stale VM cascade, MSB image removal and volume removal still
 // succeed, and the docker failure only affects the docker pruned count.
 func TestPruneStaleCascade_DockerRemoveFails_DependentOpsSucceed(t *testing.T) {
-	WithMockConfigPaths(t)
-	client := &MockMsbClient{}
+	cp.WithMockConfigPaths(t)
+	client := &msb.MockMsbClient{}
 	dockerMock := &mockDockerClient{
 		// First Docker removal succeeds, second fails.
 		perCallErrs: []error{nil, errors.New("image not found")},
@@ -579,24 +580,24 @@ func TestPruneStaleCascade_DockerRemoveFails_DependentOpsSucceed(t *testing.T) {
 }
 
 func TestPrune_DockerRemoveFails_PartialReport(t *testing.T) {
-	WithMockConfigPaths(t)
+	cp.WithMockConfigPaths(t)
 	oldTime := time.Now().Add(-2 * time.Hour)
 
-	client := &MockMsbClient{
-		Sandboxes: []SandboxHandle{
+	client := &msb.MockMsbClient{
+		Sandboxes: []msb.SandboxHandle{
 			// Stale VM for myproject -> cascade removes everything.
-			&MockSandboxHandle{
+			&msb.MockSandboxHandle{
 				Name_:      "opencode-msb-vm-myproject-1mjusbm3wikhb0",
 				Status_:    msbSdk.SandboxStatusStopped,
 				UpdatedAt_: oldTime,
 			},
 		},
-		Volumes: []VolumeHandle{
-			&MockVolumeHandle{Name_: "opencode-msb-home-myproject-1mjusbm3wikhb0-digest1"},
+		Volumes: []msb.VolumeHandle{
+			&msb.MockVolumeHandle{Name_: "opencode-msb-home-myproject-1mjusbm3wikhb0-digest1"},
 		},
-		Images: []ImageHandle{
-			&MockImageHandle{Reference_: "opencode-msb/runner-myproject-1mjusbm3wikhb0:digest1"},
-			&MockImageHandle{Reference_: "opencode-msb/runner-myproject-1mjusbm3wikhb0:latest"},
+		Images: []msb.ImageHandle{
+			&msb.MockImageHandle{Reference_: "opencode-msb/runner-myproject-1mjusbm3wikhb0:digest1"},
+			&msb.MockImageHandle{Reference_: "opencode-msb/runner-myproject-1mjusbm3wikhb0:latest"},
 		},
 	}
 
