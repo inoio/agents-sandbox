@@ -10,6 +10,7 @@ import (
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 
 	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/msb"
+	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/options"
 	"gitlab.inoio.de/inoio/opencode-msb/internal/termio"
 
 	"gitlab.inoio.de/inoio/opencode-msb/internal/testutil"
@@ -119,50 +120,10 @@ func TestEqualJSONFilesEmptyMaps(t *testing.T) {
 	}
 }
 
-func TestParseMemoryGigabytes(t *testing.T) {
-	got := parseMemory("4G")
-	if got != 4096 {
-		t.Errorf("expected 4096, got %d", got)
-	}
-}
-
-func TestParseMemoryMegabytes(t *testing.T) {
-	got := parseMemory("512M")
-	if got != 512 {
-		t.Errorf("expected 512, got %d", got)
-	}
-}
-
-func TestParseMemoryPlainNumber(t *testing.T) {
-	got := parseMemory("2048")
-	if got != 2048 {
-		t.Errorf("expected 2048, got %d", got)
-	}
-}
-
-func TestParseMemoryLowercase(t *testing.T) {
-	got := parseMemory("2g")
-	if got != 2048 {
-		t.Errorf("expected 2048, got %d", got)
-	}
-}
-
-func TestResolveTmpSizeDefaultsWhenEmpty(t *testing.T) {
-	got := resolveTmpSizeMiB("")
-	if got != defaultTmpSizeMiB {
-		t.Errorf("expected default %d, got %d", defaultTmpSizeMiB, got)
-	}
-}
-
-func TestResolveTmpSizeParsesSpec(t *testing.T) {
-	got := resolveTmpSizeMiB("4G")
-	if got != 4096 {
-		t.Errorf("expected 4096, got %d", got)
-	}
-}
+// parseMemory and resolveTmpSizeMiB tests moved to internal/sandbox/options/options_test.go.
 
 func TestBuildMountsIncludesTmpfsAtTmp(t *testing.T) {
-	mounts := buildMounts("test-home-vol", "/repo/path", defaultTmpSizeMiB)
+	mounts := buildMounts("test-home-vol", "/repo/path", options.DefaultTmpSizeMiB)
 
 	tmpMount, ok := mounts[tmpMountPath]
 	if !ok {
@@ -218,8 +179,8 @@ func TestBuildOpencodeArgs(t *testing.T) {
 		auto bool
 		want []string
 	}{
-		{"auto default", nil, true, []string{autoFlag}},
-		{"auto with forwarded args", []string{"foo", "bar"}, true, []string{autoFlag, "foo", "bar"}},
+		{"auto default", nil, true, []string{options.AutoFlag}},
+		{"auto with forwarded args", []string{"foo", "bar"}, true, []string{options.AutoFlag, "foo", "bar"}},
 		{"no-auto", []string{"foo"}, false, []string{"foo"}},
 		{"no-auto empty args", nil, false, nil},
 	}

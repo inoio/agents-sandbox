@@ -17,12 +17,7 @@ type worktreeResponse struct {
 	Directory string `json:"directory"`
 }
 
-// WorktreeSpec is a parsed --worktree flag value: a required name (which must
-// already be a slug) and an optional base ref to point a fresh worktree at.
-type WorktreeSpec struct {
-	Name string
-	Base string
-}
+// WorktreeSpec moved to internal/sandbox/options.
 
 // ResolveWorktreeSpec parses a --worktree value of the form <name>[:<base>]
 // and validates that the name is already a slug (slugify(name) == name).

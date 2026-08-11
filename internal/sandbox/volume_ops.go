@@ -12,6 +12,7 @@ import (
 
 	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/msb"
 	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/naming"
+	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/options"
 	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/state"
 	"gitlab.inoio.de/inoio/opencode-msb/internal/termio"
 )
@@ -150,7 +151,7 @@ func CmdEdit(
 				ui.Warnf("shell exited with error: %v", shellErr)
 			}
 			// Best-effort cleanup
-			stopCtx, cancel := context.WithTimeout(context.Background(), sandboxStopTimeout)
+			stopCtx, cancel := context.WithTimeout(context.Background(), options.SandboxStopTimeout)
 			_ = editSb.Stop(stopCtx)
 			cancel()
 			_ = editSb.Close()
@@ -210,7 +211,7 @@ func volumeOp(
 	}
 
 	if err := cbs.main(oldVolume, newVolumeName); err != nil {
-		cleanupCtx, cancel := context.WithTimeout(context.Background(), sandboxStopTimeout)
+		cleanupCtx, cancel := context.WithTimeout(context.Background(), options.SandboxStopTimeout)
 		defer cancel()
 		if rmErr := client.RemoveVolume(cleanupCtx, newVolumeName); rmErr != nil {
 			ui.Warnf("failed to clean up new volume %q after error: %v", newVolumeName, rmErr)

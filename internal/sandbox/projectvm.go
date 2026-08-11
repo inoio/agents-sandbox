@@ -7,11 +7,11 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"time"
 
 	"gitlab.inoio.de/inoio/opencode-msb/internal/git"
 	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/msb"
 	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/naming"
+	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/options"
 	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/state"
 	"gitlab.inoio.de/inoio/opencode-msb/internal/sysinfo"
 	"gitlab.inoio.de/inoio/opencode-msb/internal/termio"
@@ -25,8 +25,8 @@ const experimentalWorkspacesValue = "true"
 // Note: truncation by bytes is safe because ProjectSlug sanitizes to ASCII.
 func projectVMName(slug string) string {
 	name := naming.VmPrefix + slug
-	if len(name) > maxSandboxNameLen {
-		name = name[:maxSandboxNameLen]
+	if len(name) > options.MaxSandboxNameLen {
+		name = name[:options.MaxSandboxNameLen]
 	}
 	return name
 }
@@ -39,7 +39,7 @@ const (
 	vmActionStart
 )
 
-const defaultVMIdleTimeout = 30 * time.Second
+// defaultVMIdleTimeout moved to internal/sandbox/options.
 
 func buildProjectVMEnv(envMap map[string]string, imageEnvs map[string]string) {
 	// Merge env vars baked into the Docker image (set via Dockerfile ENV directives).
@@ -103,7 +103,7 @@ func reconcileResourceConfig(ctx context.Context, handle SandboxHandle, opts Run
 		}
 	}
 	if opts.Memory != "" {
-		want := parseMemory(opts.Memory)
+		want := options.ParseMemory(opts.Memory)
 		if cfg.MaxMemoryMiB > 0 && want > cfg.MaxMemoryMiB {
 			ui.Warnf("memory limited to %d MiB (boot maximum); requested %d MiB", cfg.MaxMemoryMiB, want)
 			want = cfg.MaxMemoryMiB
@@ -343,12 +343,12 @@ func createProjectVM(
 		buildEnvMap(GetConfigPaths().ProjectEnvSecretFile()),
 	), ui)
 
-	mounts := buildMounts(homeVol, repoPath, resolveTmpSizeMiB(opts.TmpSize))
+	mounts := buildMounts(homeVol, repoPath, options.ResolveTmpSizeMiB(opts.TmpSize))
 
 	spin := ui.Spinner("Starting project VM")
 	idleTimeout := opts.IdleTimeout
 	if idleTimeout <= 0 {
-		idleTimeout = defaultVMIdleTimeout
+		idleTimeout = options.DefaultVMIdleTimeout
 	}
 	optsList := []msbSdk.SandboxOption{
 		msbSdk.WithImage(imageRef),
@@ -359,15 +359,15 @@ func createProjectVM(
 		msbSdk.WithWorkdir(defaultTargetDir),
 		msbSdk.WithCPUs(cpus),
 		msbSdk.WithMaxCPUs(numCPUs),
-		msbSdk.WithMemory(parseMemory(opts.Memory)),
+		msbSdk.WithMemory(options.ParseMemory(opts.Memory)),
 		//nolint:gosec // G115: maxMemoryGiB is physical RAM in GiB, cannot overflow uint32
-		msbSdk.WithMaxMemory(uint32(maxMemoryGiB) * mibPerGib),
+		msbSdk.WithMaxMemory(uint32(maxMemoryGiB) * options.MibPerGib),
 		msbSdk.WithDetached(),
 		msbSdk.WithIdleTimeout(idleTimeout),
 		msbSdk.WithReplace(),
 	}
 	if opts.DiskSize != "" {
-		optsList = append(optsList, msbSdk.WithRootDisk(msbSdk.RootDisk.Managed(parseMemory(opts.DiskSize))))
+		optsList = append(optsList, msbSdk.WithRootDisk(msbSdk.RootDisk.Managed(options.ParseMemory(opts.DiskSize))))
 	}
 	sb, err := client.CreateSandbox(ctx, name, optsList...)
 	if err != nil {

@@ -17,20 +17,6 @@ const (
 	sessionTypeRetry = "retry"
 )
 
-// ReapPolicy controls what happens after the last client detaches from a VM.
-type ReapPolicy struct {
-	// AutoStopOnActiveSessions, when true, behaves like "auto-stop active sessions":
-	// the VM is NOT held for in-flight agent work and stops promptly (via the msb
-	// idle timeout) even while sessions are busy. When false (default), the reaper
-	// holds the VM (keeper exec) until all sessions are quiescent (busy runs to
-	// completion) or a stuck retry exceeds MaxSessionRetries, then detaches and the
-	// idle timeout stops the VM.
-	AutoStopOnActiveSessions bool
-	// MaxSessionRetries caps how long to tolerate a session stuck in retry before
-	// stopping the wait. 0 means use the package default (10).
-	MaxSessionRetries int
-}
-
 const defaultMaxSessionRetries = 10
 
 // SessionStatus is the decoded server-side /session/status entry. Busy and idle are
