@@ -1,4 +1,4 @@
-package sandbox
+package volume
 
 import (
 	"context"
@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"time"
 
+	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/msb"
 	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/naming"
 	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/options"
 	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/state"
@@ -31,22 +32,53 @@ const (
 	tmpMountPath = "/tmp"
 )
 
-func homeVolumeName(projectSlug string) string {
+// isSandboxActive reports whether a sandbox status represents a live VM that
+// WithReplace would terminate.
+func isSandboxActive(status msbSdk.SandboxStatus) bool {
+	switch status {
+	case msbSdk.SandboxStatusRunning, msbSdk.SandboxStatusDraining, msbSdk.SandboxStatusPaused:
+		return true
+	case msbSdk.SandboxStatusStopped, msbSdk.SandboxStatusCrashed:
+		return false
+	default:
+		return false
+	}
+}
+
+// isStoppedStatus reports whether a sandbox status is a stopped or crashed state.
+func isStoppedStatus(status msbSdk.SandboxStatus) bool {
+	//nolint:exhaustive // default case covers all other statuses
+	switch status {
+	case msbSdk.SandboxStatusStopped, msbSdk.SandboxStatusCrashed:
+		return true
+	default:
+		return false
+	}
+}
+
+// HomeVolumeName generates a volume name for the given project slug using the
+// standard home volume prefix and a UTC timestamp.
+func HomeVolumeName(projectSlug string) string {
 	ts := time.Now().UTC().Format("20060102T150405")
 	return naming.HomePrefix + projectSlug + "-" + ts
 }
 
-type VolumeManager struct {
+// Manager manages home-volume lifecycle for projects.
+type Manager struct {
 	ui termio.UI
 }
 
-func newVolumeManager(ui termio.UI) *VolumeManager {
-	return &VolumeManager{ui: ui}
+// NewManager returns a volume manager backed by the given UI.
+func NewManager(ui termio.UI) *Manager {
+	return &Manager{ui: ui}
 }
 
-func (vm *VolumeManager) prefillVolume(
+// PrefillVolume builds a throwaway sandbox from the given image, mounts the
+// target home volume at /mnt/home and copies the image's home directory onto it.
+// The throwaway sandbox is stopped and removed afterwards.
+func (vm *Manager) PrefillVolume(
 	ctx context.Context,
-	client MsbClient,
+	client msb.Client,
 	projectSlug, volumeName, imageTag string,
 	ui termio.UI,
 ) error {
@@ -87,14 +119,14 @@ func (vm *VolumeManager) prefillVolume(
 	return nil
 }
 
-// resolveHomeVolume checks the state file for an existing volume reference.
+// ResolveHomeVolume checks the state file for an existing volume reference.
 // If found and the volume still exists, returns the volume name and state.
-// If not found or the volume does not exist, falls through to ensureNewHome.
-func (vm *VolumeManager) resolveHomeVolume(
+// If not found or the volume does not exist, falls through to EnsureNewHome.
+func (vm *Manager) ResolveHomeVolume(
 	ctx context.Context,
-	client MsbClient,
+	client msb.Client,
 	projectSlug, imageDigest, imageTag string,
-	opts RunOptions,
+	opts options.RunOptions,
 	ui termio.UI,
 ) (string, state.HomeState, error) {
 	st, err := state.ReadState(projectSlug)
@@ -102,27 +134,27 @@ func (vm *VolumeManager) resolveHomeVolume(
 		if !errors.Is(err, state.ErrStateNotFound) {
 			ui.Warnf("corrupted state file, creating fresh home volume")
 		}
-		return vm.ensureNewHome(ctx, client, projectSlug, imageDigest, imageTag, opts, ui)
+		return vm.EnsureNewHome(ctx, client, projectSlug, imageDigest, imageTag, opts, ui)
 	}
 
 	_, err = client.GetVolume(ctx, st.HomeVolume)
 	if err != nil {
 		ui.Warnf("existing home volume %q not found, creating fresh", st.HomeVolume)
-		return vm.ensureNewHome(ctx, client, projectSlug, imageDigest, imageTag, opts, ui)
+		return vm.EnsureNewHome(ctx, client, projectSlug, imageDigest, imageTag, opts, ui)
 	}
 
 	return st.HomeVolume, *st, nil
 }
 
-// ensureNewHome creates a fresh home volume from the image and writes the state.
-func (vm *VolumeManager) ensureNewHome(
+// EnsureNewHome creates a fresh home volume from the image and writes the state.
+func (vm *Manager) EnsureNewHome(
 	ctx context.Context,
-	client MsbClient,
+	client msb.Client,
 	projectSlug, imageDigest, imageTag string,
-	opts RunOptions,
+	opts options.RunOptions,
 	ui termio.UI,
 ) (string, state.HomeState, error) {
-	volName := homeVolumeName(projectSlug)
+	volName := HomeVolumeName(projectSlug)
 	vol, err := client.CreateVolume(ctx, volName,
 		msbSdk.WithVolumeKind(msbSdk.VolumeKindDir),
 	)
@@ -131,7 +163,7 @@ func (vm *VolumeManager) ensureNewHome(
 	}
 
 	if !opts.DryRunVM {
-		if err := vm.prefillVolume(ctx, client, projectSlug, vol.Name(), imageTag, ui); err != nil {
+		if err := vm.PrefillVolume(ctx, client, projectSlug, vol.Name(), imageTag, ui); err != nil {
 			return "", state.HomeState{}, err
 		}
 	} else {
@@ -150,11 +182,11 @@ func (vm *VolumeManager) ensureNewHome(
 	return volName, hs, nil
 }
 
-// recordHomeImage updates the stored image digest for a project to the
+// RecordHomeImage updates the stored image digest for a project to the
 // current digest, preserving the tracked home volume. It is called after the
 // image-change prompt so subsequent runs no longer detect a mismatch and do
 // not re-prompt. Missing state is a no-op.
-func (vm *VolumeManager) recordHomeImage(projectSlug, currentDigest string, ui termio.UI) error {
+func (vm *Manager) RecordHomeImage(projectSlug, currentDigest string, ui termio.UI) error {
 	st, err := state.ReadState(projectSlug)
 	if err != nil {
 		if errors.Is(err, state.ErrStateNotFound) {
@@ -181,7 +213,7 @@ func actionLabel(action string) string {
 	return "keep"
 }
 
-// applyHomeAction executes the migrate/reset action the user chose, always
+// ApplyHomeAction executes the migrate/reset action the user chose, always
 // keeping the old volume. It returns the home volume to mount for this run.
 //
 // State is only written when the action actually executes successfully; a real
@@ -190,18 +222,18 @@ func actionLabel(action string) string {
 // digest. Both --dry-run and --dry-run-vm simulate the action without changing
 // state: --dry-run performs no writes at all, and --dry-run-vm additionally
 // never spawns a VM, so the chosen action is left uncommitted.
-func (vm *VolumeManager) applyHomeAction(
+func (vm *Manager) ApplyHomeAction(
 	ctx context.Context,
-	client MsbClient,
+	client msb.Client,
 	projectSlug, oldVolume, imageTag, currentDigest, action string,
-	opts RunOptions,
+	opts options.RunOptions,
 	ui termio.UI,
 ) (string, error) {
 	if action == actionKeep {
 		if opts.DryRun {
 			return oldVolume, nil
 		}
-		if err := vm.recordHomeImage(projectSlug, currentDigest, ui); err != nil {
+		if err := vm.RecordHomeImage(projectSlug, currentDigest, ui); err != nil {
 			ui.Warnf("failed to record image digest: %v", err)
 		}
 		return oldVolume, nil
@@ -217,7 +249,7 @@ func (vm *VolumeManager) applyHomeAction(
 		return oldVolume, nil
 	}
 
-	newVol, err := client.CreateVolume(ctx, homeVolumeName(projectSlug),
+	newVol, err := client.CreateVolume(ctx, HomeVolumeName(projectSlug),
 		msbSdk.WithVolumeKind(msbSdk.VolumeKindDir),
 	)
 	if err != nil {
@@ -225,13 +257,13 @@ func (vm *VolumeManager) applyHomeAction(
 	}
 	newName := newVol.Name()
 
-	if err := vm.prefillVolume(ctx, client, projectSlug, newName, imageTag, ui); err != nil {
+	if err := vm.PrefillVolume(ctx, client, projectSlug, newName, imageTag, ui); err != nil {
 		vm.cleanupVolume(ctx, client, newName, ui)
 		return "", err
 	}
 
 	if action == actionMigrate {
-		if err := vm.copyVolume(ctx, client, projectSlug, oldVolume, newName, imageTag, ui); err != nil {
+		if err := vm.CopyVolume(ctx, client, projectSlug, oldVolume, newName, imageTag, ui); err != nil {
 			vm.cleanupVolume(ctx, client, newName, ui)
 			return "", err
 		}
@@ -252,17 +284,17 @@ func (vm *VolumeManager) applyHomeAction(
 
 // cleanupVolume removes the given volume best-effort after a failed operation
 // that created it, so an uncommitted volume does not linger as an orphan.
-func (vm *VolumeManager) cleanupVolume(ctx context.Context, client MsbClient, name string, ui termio.UI) {
+func (vm *Manager) cleanupVolume(ctx context.Context, client msb.Client, name string, ui termio.UI) {
 	if err := client.RemoveVolume(ctx, name); err != nil {
 		ui.Warnf("failed to remove new volume %q after error: %v", name, err)
 	}
 }
 
-// copyVolume copies the contents of the old home volume on top of the newly
+// CopyVolume copies the contents of the old home volume on top of the newly
 // created one via a throwaway sandbox that mounts both.
-func (vm *VolumeManager) copyVolume(
+func (vm *Manager) CopyVolume(
 	ctx context.Context,
-	client MsbClient,
+	client msb.Client,
 	projectSlug, oldVolume, newVolume, imageTag string,
 	ui termio.UI,
 ) error {
@@ -301,11 +333,11 @@ func (vm *VolumeManager) copyVolume(
 	return nil
 }
 
-// resolveHomeAction compares the stored image digest with the current one.
+// ResolveHomeAction compares the stored image digest with the current one.
 // If they match, returns actionKeep immediately.
 // If they differ, presents a prompt: keep/migrate/reset/quit.
 // In non-interactive mode or with --yes, defaults to actionKeep.
-func (vm *VolumeManager) resolveHomeAction(
+func (vm *Manager) ResolveHomeAction(
 	ui termio.UI,
 	storedDigest, currentDigest string,
 ) string {

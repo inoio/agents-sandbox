@@ -15,6 +15,7 @@ import (
 	"gitlab.inoio.de/inoio/opencode-msb/internal/git"
 	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/doctor"
 	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/image"
+	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/volume"
 
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 )
@@ -84,9 +85,9 @@ func prepareSandbox(
 	}
 	ui.Verbosef("Using image '%s' (digest=%s)", imageRef, imageDigest)
 
-	vm := newVolumeManager(ui)
+	vm := volume.NewManager(ui)
 	client := msb.Get()
-	homeVol, vs, err := vm.resolveHomeVolume(ctx, client, projectSlug, imageDigest, imageRef, opts, ui)
+	homeVol, vs, err := vm.ResolveHomeVolume(ctx, client, projectSlug, imageDigest, imageRef, opts, ui)
 	if err != nil {
 		return nil, fmt.Errorf("volume setup failed: %w", err)
 	}
@@ -319,6 +320,9 @@ func persistEnvSecrets(slug string, envState state.EnvState, secretState state.S
 	return state.WriteState(slug, *st)
 }
 
+// tmpMountPath is the mount point used for the sandbox tmpfs.
+const tmpMountPath = "/tmp"
+
 func buildMounts(homeVol, repoPath string, tmpSizeMiB uint32) map[string]msbSdk.MountConfig {
 	return map[string]msbSdk.MountConfig{
 		"/home/dev":      msbSdk.Mount.Named(homeVol, msbSdk.MountOptions{}),
@@ -399,7 +403,7 @@ func setUpSandbox(
 func decideReconfig(
 	ctx context.Context,
 	client MsbClient,
-	vm *VolumeManager,
+	vm *volume.Manager,
 	opts RunOptions,
 	imageRef, imageDigest, homeVol string, hs state.HomeState,
 	ui termio.UI,
@@ -424,12 +428,12 @@ func decideReconfig(
 
 	// image-change home-volume prompt runs before the rebuild decision.
 	if hs.ImageDigest != imageDigest {
-		action := vm.resolveHomeAction(ui, hs.ImageDigest, imageDigest)
-		if action == actionQuit {
+		action := vm.ResolveHomeAction(ui, hs.ImageDigest, imageDigest)
+		if action == "4" {
 			ui.Infof("exiting as requested by user")
 			return false, false, homeVol, &options.ExitError{Code: 1}
 		}
-		newVol, err := vm.applyHomeAction(ctx, client, slug, homeVol, imageRef, imageDigest, action, opts, ui)
+		newVol, err := vm.ApplyHomeAction(ctx, client, slug, homeVol, imageRef, imageDigest, action, opts, ui)
 		if err != nil {
 			return false, false, homeVol, fmt.Errorf("apply home action: %w", err)
 		}
