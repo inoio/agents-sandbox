@@ -20,7 +20,7 @@ const defaultSecretHost = "microsandbox"
 func buildSecretsFromSpecs(specs map[string]secretSpec, ui termio.UI) []msb.SecretEntry {
 	var secrets []msb.SecretEntry
 	for envVar, spec := range specs {
-		if spec.Value == "" && spec.Host == "" {
+		if spec.Value == "" {
 			ui.Warnf("Value of secret '%s' is empty; dropping", envVar)
 			continue
 		}
