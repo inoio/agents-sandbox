@@ -11,7 +11,8 @@ import (
 	"strings"
 	"time"
 
-	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox"
+	"gitlab.inoio.de/inoio/opencode-msb/internal/configpaths"
+	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/options"
 
 	"github.com/go-viper/mapstructure/v2"
 	"github.com/spf13/viper"
@@ -104,10 +105,10 @@ func durationDecodeHook() mapstructure.DecodeHookFunc {
 func Load() (Config, map[string]bool, error) {
 	v := viper.New()
 
-	if err := mergeDir(v, sandbox.GetConfigPaths().UserConfigDir()); err != nil {
+	if err := mergeDir(v, configpaths.GetConfigPaths().UserConfigDir()); err != nil {
 		return Config{}, nil, err
 	}
-	if err := mergeDir(v, sandbox.GetConfigPaths().ProjectConfigDir()); err != nil {
+	if err := mergeDir(v, configpaths.GetConfigPaths().ProjectConfigDir()); err != nil {
 		return Config{}, nil, err
 	}
 	if err := validate(v); err != nil {
@@ -262,12 +263,12 @@ func (c Config) IdleTimeout() time.Duration {
 	return 10 * time.Second
 }
 
-func (c Config) ReapPolicy() sandbox.ReapPolicy {
+func (c Config) ReapPolicy() options.ReapPolicy {
 	maxRetries := c.AutoStopMaxSessionRetries
 	if maxRetries <= 0 {
 		maxRetries = 10
 	}
-	return sandbox.ReapPolicy{
+	return options.ReapPolicy{
 		AutoStopOnActiveSessions: c.AutoStopOnActiveSessions,
 		MaxSessionRetries:        maxRetries,
 	}

@@ -1,4 +1,4 @@
-package viperconfig
+package state
 
 import (
 	"testing"
