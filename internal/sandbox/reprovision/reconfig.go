@@ -1,4 +1,4 @@
-package sandbox
+package reprovision
 
 import (
 	"context"
@@ -105,7 +105,7 @@ type reconfigDecision struct {
 func planReconfig( //nolint:gocognit // core planner, cognitive complexity acceptable for now
 	cfg *msbSdk.SandboxConfig,
 	imageRef string,
-	opts RunOptions,
+	opts options.RunOptions,
 	envChanged, secretsChanged, opencodeConfigChanged bool,
 ) *reconfigDecision {
 	d := &reconfigDecision{} //nolint:exhaustruct // fields zeroed intentionally

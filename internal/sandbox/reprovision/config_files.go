@@ -1,4 +1,4 @@
-package sandbox
+package reprovision
 
 import (
 	"context"
@@ -16,9 +16,12 @@ import (
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 
 	config "gitlab.inoio.de/inoio/opencode-msb/internal/opencodeconfig"
+	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/msb"
 	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/options"
 	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/state"
 	"gitlab.inoio.de/inoio/opencode-msb/internal/termio"
+
+	cp "gitlab.inoio.de/inoio/opencode-msb/internal/configpaths"
 )
 
 // configFiles holds the merged configuration and parsed structures for comparison.
@@ -40,8 +43,8 @@ func loadConfigFiles(userConfigDir string) (*configFiles, error) {
 		return nil, fmt.Errorf("load provider config: %w", err)
 	}
 	projectConfigDir := ""
-	if _, statErr := os.Stat(GetConfigPaths().ProjectOpencodeConfigDir()); statErr == nil {
-		projectConfigDir = GetConfigPaths().ProjectOpencodeConfigDir()
+	if _, statErr := os.Stat(cp.GetConfigPaths().ProjectOpencodeConfigDir()); statErr == nil {
+		projectConfigDir = cp.GetConfigPaths().ProjectOpencodeConfigDir()
 	}
 	files, err := config.BuildMergedConfig(userConfigDir, projectConfigDir, providerCfg)
 	if err != nil {
@@ -68,11 +71,14 @@ func loadConfigFiles(userConfigDir string) (*configFiles, error) {
 	}, nil
 }
 
+// tmpMountPath is the mount point used for the sandbox tmpfs.
+const tmpMountPath = "/tmp"
+
 //
 //nolint:unparam // kept general: dir param passed from decideReconfig only at "/home/dev/.config/opencode"
 func readVMFiles(
 	ctx context.Context,
-	sb Sandbox,
+	sb msb.Sandbox,
 	dir string,
 	ui termio.UI,
 ) map[string][]byte {
