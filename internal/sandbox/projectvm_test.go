@@ -10,6 +10,7 @@ import (
 	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/msb"
 	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/naming"
 	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/options"
+	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/reprovision"
 	"gitlab.inoio.de/inoio/opencode-msb/internal/testutil"
 )
 
@@ -495,9 +496,9 @@ func TestPlanReconfigDecidesRecreate(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			got := planReconfig(tc.cfg, tc.imageRef, tc.opts, false, false, false).recreate
+			got := reprovision.PlanReconfig(tc.cfg, tc.imageRef, tc.opts, false, false, false).Recreate
 			if got != tc.want {
-				t.Errorf("planReconfig().recreate = %v, want %v", got, tc.want)
+				t.Errorf("reprovision.PlanReconfig().Recreate = %v, want %v", got, tc.want)
 			}
 		})
 	}

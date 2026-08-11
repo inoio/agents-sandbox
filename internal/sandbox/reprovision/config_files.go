@@ -24,20 +24,20 @@ import (
 	cp "gitlab.inoio.de/inoio/opencode-msb/internal/configpaths"
 )
 
-// configFiles holds the merged configuration and parsed structures for comparison.
-type configFiles struct {
-	files  map[string][]byte
-	parsed map[string]map[string]any
-	keys   []string // sorted file names for VM comparison
+// ConfigFiles holds the merged configuration and parsed structures for comparison.
+type ConfigFiles struct {
+	Files  map[string][]byte
+	Parsed map[string]map[string]any
+	Keys   []string // sorted file names for VM comparison
 }
 
 // autoFlag moved to internal/sandbox/options.
 
-// loadConfigFiles builds the merged opencode configuration from the user's
+// LoadConfigFiles builds the merged opencode configuration from the user's
 // config directory, any project-specific config in .opencode-msb/opencode,
 // and the embedded provider config. Returns the marshaled files, parsed
 // structures, and sorted file keys.
-func loadConfigFiles(userConfigDir string) (*configFiles, error) {
+func LoadConfigFiles(userConfigDir string) (*ConfigFiles, error) {
 	providerCfg, err := config.LoadProviderConfig()
 	if err != nil {
 		return nil, fmt.Errorf("load provider config: %w", err)
@@ -64,19 +64,18 @@ func loadConfigFiles(userConfigDir string) (*configFiles, error) {
 		fileKeys = append(fileKeys, k)
 	}
 	sort.Strings(fileKeys)
-	return &configFiles{
-		files:  files,
-		parsed: parsed,
-		keys:   fileKeys,
+	return &ConfigFiles{
+		Files:  files,
+		Parsed: parsed,
+		Keys:   fileKeys,
 	}, nil
 }
 
 // tmpMountPath is the mount point used for the sandbox tmpfs.
 const tmpMountPath = "/tmp"
 
-//
-//nolint:unparam // kept general: dir param passed from decideReconfig only at "/home/dev/.config/opencode"
-func readVMFiles(
+// ReadVMFiles reads all files from a sandbox directory.
+func ReadVMFiles(
 	ctx context.Context,
 	sb msb.Sandbox,
 	dir string,
@@ -109,14 +108,14 @@ func readVMFiles(
 	return result
 }
 
-// configEqual compares Go-side parsed config against VM-side files.
-func configEqual(goSide map[string]map[string]any, keys []string, vmData map[string][]byte) bool {
-	return equalJSONFiles(goSide, keys, vmData)
+// ConfigEqual compares Go-side parsed config against VM-side files.
+func ConfigEqual(goSide map[string]map[string]any, keys []string, vmData map[string][]byte) bool {
+	return EqualJSONFiles(goSide, keys, vmData)
 }
 
-// equalJSONFiles compares JSON files semantically (key order, number types) and
+// EqualJSONFiles compares JSON files semantically (key order, number types) and
 // compares non-JSON contents as raw bytes.
-func equalJSONFiles(goSide map[string]map[string]any, keys []string, vmData map[string][]byte) bool {
+func EqualJSONFiles(goSide map[string]map[string]any, keys []string, vmData map[string][]byte) bool {
 	for _, name := range keys {
 		goVal, hasGoVal := goSide[name]
 		vmBytes, hasVM := vmData[name]
@@ -151,8 +150,8 @@ func parseJSON(data []byte) (any, error) {
 	return v, nil
 }
 
-// buildEnvMap reads environment variables from a file.
-func buildEnvMap(filename string) map[string]string {
+// BuildEnvMap reads environment variables from a file.
+func BuildEnvMap(filename string) map[string]string {
 	data, err := os.ReadFile(filename)
 	if err != nil {
 		return nil
@@ -173,8 +172,8 @@ func buildEnvMap(filename string) map[string]string {
 	return env
 }
 
-// mergeEnvMaps merges multiple environment maps into one.
-func mergeEnvMaps(mapsToMerge ...map[string]string) map[string]string {
+// MergeEnvMaps merges multiple environment maps into one.
+func MergeEnvMaps(mapsToMerge ...map[string]string) map[string]string {
 	result := make(map[string]string)
 	for _, m := range mapsToMerge {
 		maps.Copy(result, m)
@@ -182,9 +181,9 @@ func mergeEnvMaps(mapsToMerge ...map[string]string) map[string]string {
 	return result
 }
 
-// envContentHash returns a SHA-256 hex digest of the env map contents.
+// EnvContentHash returns a SHA-256 hex digest of the env map contents.
 // Keys are sorted and hashed as "K=V" lines for order-independence.
-func envContentHash(env map[string]string) string {
+func EnvContentHash(env map[string]string) string {
 	if env == nil {
 		env = map[string]string{}
 	}
@@ -197,9 +196,9 @@ func envContentHash(env map[string]string) string {
 	return hex.EncodeToString(h[:])
 }
 
-// secretsContentHash returns a SHA-256 hex digest of the secret entries.
+// SecretsContentHash returns a SHA-256 hex digest of the secret entries.
 // Entries are sorted by EnvVar and hashed as "ENVVAR=VALUE" lines.
-func secretsContentHash(entries []msbSdk.SecretEntry) string {
+func SecretsContentHash(entries []msbSdk.SecretEntry) string {
 	if entries == nil {
 		entries = []msbSdk.SecretEntry{}
 	}
@@ -220,46 +219,46 @@ func secretsContentHash(entries []msbSdk.SecretEntry) string {
 	return hex.EncodeToString(h[:])
 }
 
-// envChanged reports whether the applied env state differs from the desired
+// EnvChanged reports whether the applied env state differs from the desired
 // env map, comparing content hashes for a stable order-independent result.
 // A zero-value appliedEnv indicates "no persisted state yet" (first run),
 // which is considered "changed" only when the desired map is non-empty.
-func envChanged(applied state.EnvState, desired map[string]string) bool {
+func EnvChanged(applied state.EnvState, desired map[string]string) bool {
 	if applied.Hash == "" {
 		return len(desired) > 0
 	}
-	return applied.Hash != envContentHash(desired)
+	return applied.Hash != EnvContentHash(desired)
 }
 
-// secretsChanged reports whether the applied secret state differs from the
+// SecretsChanged reports whether the applied secret state differs from the
 // desired secret entries, comparing content hashes.
 // A zero-value appliedSecrets indicates "no persisted state yet" (first run),
 // which is only considered "changed" when the desired slice is non-empty.
-func secretsChanged(applied state.SecretState, desired []msbSdk.SecretEntry) bool {
+func SecretsChanged(applied state.SecretState, desired []msbSdk.SecretEntry) bool {
 	if applied.Hash == "" {
 		if desired == nil {
 			return false
 		}
 		return len(desired) > 0
 	}
-	return applied.Hash != secretsContentHash(desired)
+	return applied.Hash != SecretsContentHash(desired)
 }
 
-// buildEnvState computes the content hash and sorted name list for the env map.
-func buildEnvState(desired map[string]string) state.EnvState {
+// BuildEnvState computes the content hash and sorted name list for the env map.
+func BuildEnvState(desired map[string]string) state.EnvState {
 	names := make([]string, 0, len(desired))
 	for k := range desired {
 		names = append(names, k)
 	}
 	sort.Strings(names)
 	return state.EnvState{
-		Hash:  envContentHash(desired),
+		Hash:  EnvContentHash(desired),
 		Names: names,
 	}
 }
 
-// buildSecretState computes the content hash and sorted name list for the secret entries.
-func buildSecretState(desired []msbSdk.SecretEntry) state.SecretState {
+// BuildSecretState computes the content hash and sorted name list for the secret entries.
+func BuildSecretState(desired []msbSdk.SecretEntry) state.SecretState {
 	byEnv := make(map[string]msbSdk.SecretEntry, len(desired))
 	for _, e := range desired {
 		byEnv[e.EnvVar] = e
@@ -270,7 +269,7 @@ func buildSecretState(desired []msbSdk.SecretEntry) state.SecretState {
 	}
 	sort.Strings(names)
 	return state.SecretState{
-		Hash:  secretsContentHash(desired),
+		Hash:  SecretsContentHash(desired),
 		Names: names,
 	}
 }
