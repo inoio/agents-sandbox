@@ -7,12 +7,13 @@ import (
 	"gitlab.inoio.de/inoio/opencode-msb/internal/termio"
 
 	msb "github.com/superradcompany/microsandbox/sdk/go"
+	"gopkg.in/yaml.v3"
 )
 
 type secretSpec struct {
-	Value string
-	Host  string
-	Hosts []string
+	Value string   `yaml:"value"`
+	Host  string   `yaml:"host"`
+	Hosts []string `yaml:"hosts"`
 }
 
 const defaultSecretHost = "microsandbox"
@@ -66,6 +67,19 @@ func parseSecretSpecLegacy(filename string, ui termio.UI) map[string]secretSpec 
 			continue
 		}
 		specs[key] = secretSpec{Value: parts[0], Host: "", Hosts: []string{parts[1]}}
+	}
+	return specs
+}
+
+func parseSecretSpecYAML(filename string, ui termio.UI) map[string]secretSpec {
+	data, err := os.ReadFile(filename)
+	if err != nil {
+		return nil
+	}
+	var specs map[string]secretSpec
+	if err := yaml.Unmarshal(data, &specs); err != nil {
+		ui.Warnf("Parsing secret file '%s' as YAML: %v", filename, err)
+		return nil
 	}
 	return specs
 }

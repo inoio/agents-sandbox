@@ -97,3 +97,58 @@ func TestBuildSecretsFromSpecsEmptyValueDropped(t *testing.T) {
 		t.Errorf("expected entry with empty value and no override to be dropped, got %#v", secrets)
 	}
 }
+
+func TestParseSecretSpecYAML(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "env.secret.yaml")
+	testutil.WritePath(t, path, "FOO:\n  value: \"a@b@c\"\n  host: gw.example\n")
+	testUI := testutil.TermUIMock(t)
+
+	specs := parseSecretSpecYAML(path, &testUI)
+	want := map[string]secretSpec{"FOO": {Value: "a@b@c", Host: "gw.example"}}
+	if !reflect.DeepEqual(specs, want) {
+		t.Errorf("got %#v, want %#v", specs, want)
+	}
+}
+
+func TestParseSecretSpecYAMLJSON(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "env.secret.yaml")
+	testutil.WritePath(t, path, `{"FOO": {"value": "a@b", "hosts": ["h1","h2"]}}`+"\n")
+	testUI := testutil.TermUIMock(t)
+
+	specs := parseSecretSpecYAML(path, &testUI)
+	want := map[string]secretSpec{"FOO": {Value: "a@b", Hosts: []string{"h1", "h2"}}}
+	if !reflect.DeepEqual(specs, want) {
+		t.Errorf("got %#v, want %#v", specs, want)
+	}
+}
+
+func TestParseSecretSpecYAMLMultilineValue(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "env.secret.yaml")
+	testutil.WritePath(t, path, "PEM:\n  value: |\n    line1\n    line2\n")
+	testUI := testutil.TermUIMock(t)
+
+	specs := parseSecretSpecYAML(path, &testUI)
+	got := specs["PEM"].Value
+	want := "line1\nline2\n"
+	if got != want {
+		t.Errorf("multiline value = %q, want %q", got, want)
+	}
+}
+
+func TestParseSecretSpecYAMLMissingFile(t *testing.T) {
+	testUI := testutil.TermUIMock(t)
+	specs := parseSecretSpecYAML(filepath.Join(t.TempDir(), "nope"), &testUI)
+	if len(specs) != 0 {
+		t.Errorf("expected empty map for missing file, got %#v", specs)
+	}
+}
+
+func TestParseSecretSpecYAMLMalformedWarns(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "env.secret.yaml")
+	testutil.WritePath(t, path, "{ not valid yaml\n")
+	testUI := testutil.TermUIMock(t)
+	specs := parseSecretSpecYAML(path, &testUI)
+	if len(specs) != 0 {
+		t.Errorf("expected empty map for malformed yaml, got %#v", specs)
+	}
+}
