@@ -37,6 +37,7 @@
   * volume migrate, edit, delete
   * config changes to root size, tmp size, env, secrets, cpu, mem
   * 
+[ ] dogfood -b/--branch feature
 
 ### README überarbeiten
 
@@ -44,12 +45,11 @@
 [ ] Bedeutungen z.B. env.secret sieht der Agent nicht (BUG, doch)
 [ ] Dependencies (z.B. git, docker)
 [ ] Flags an opencode übergeben (--) dokumentieren
+[ ] secrets containing @ kann nicht funktionieren -> yaml. Keine CLI-Params.
 
 ## 1st prio
 
-[ ] dogfood -b/--branch feature
 [ ] make cli output pretty and UX'd
-[ ] secrets containing @ kann nicht funktionieren -> yaml. Keine CLI-Params...
 [ ] Deliver example AGENTS.md file with instructions for workflow, especially git (don't merge, tool does) 
 [ ] OPENCODE_DISABLE_AUTOUPDATE, OPENCODE_EXPERIMENTAL_EXA, OPENCODE_EXPERIMENTAL_BACKGROUND_SUBAGENTS, OPENCODE_EXPERIMENTAL_PARALLEL, OPENCODE_EXPERIMENTAL_SCOUT? 
 [ ] config show: list all files that would apply to a VM startup.
