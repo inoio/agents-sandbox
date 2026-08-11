@@ -1,4 +1,4 @@
-package sandbox
+package reprovision
 
 import (
 	"context"
@@ -6,6 +6,7 @@ import (
 
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 
+	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/options"
 	"gitlab.inoio.de/inoio/opencode-msb/internal/termio"
 )
 
@@ -13,7 +14,7 @@ func TestPlanReconfigRecreateOnTmpMismatch(t *testing.T) {
 	cfg := &msbSdk.SandboxConfig{
 		Volumes: map[string]msbSdk.MountConfig{tmpMountPath: {SizeMiB: 2048}},
 	}
-	d := planReconfig(cfg, "img:tag", RunOptions{TmpSize: "4G"},
+	d := planReconfig(cfg, "img:tag", options.RunOptions{TmpSize: "4G"},
 		false, false, false)
 	if !d.recreate {
 		t.Error("expected recreate on /tmp size mismatch")
@@ -24,12 +25,12 @@ func TestPlanReconfigRecreateOnTmpMismatch(t *testing.T) {
 }
 
 func TestPlanReconfigRecreateOnImageMismatch(t *testing.T) {
-	d := planReconfig(nil, "new:tag", RunOptions{}, false, false, false)
+	d := planReconfig(nil, "new:tag", options.RunOptions{}, false, false, false)
 	if d.recreate {
 		t.Error("image comparison requires cfg.Image; see resolver, planner.cpp nil-cfg safe")
 	}
 	cfg := &msbSdk.SandboxConfig{Image: "old:tag"}
-	d = planReconfig(cfg, "new:tag", RunOptions{}, false, false, false)
+	d = planReconfig(cfg, "new:tag", options.RunOptions{}, false, false, false)
 	if !d.recreate {
 		t.Error("expected recreate on image mismatch")
 	}
@@ -37,7 +38,7 @@ func TestPlanReconfigRecreateOnImageMismatch(t *testing.T) {
 
 func TestPlanReconfigStagesClampedCpus(t *testing.T) {
 	cfg := &msbSdk.SandboxConfig{CPUs: 2, MaxCPUs: 8}
-	d := planReconfig(cfg, "img", RunOptions{CPUs: 16}, false, false, false)
+	d := planReconfig(cfg, "img", options.RunOptions{CPUs: 16}, false, false, false)
 	if d.resources == nil || d.resources.CPUs != 8 {
 		t.Fatalf("expected resources clamped CPUs=8, got %+v", d.resources)
 	}
@@ -45,7 +46,7 @@ func TestPlanReconfigStagesClampedCpus(t *testing.T) {
 
 func TestPlanReconfigNoActionsWhenUnchanged(t *testing.T) {
 	cfg := &msbSdk.SandboxConfig{CPUs: 4, MemoryMiB: 4096}
-	d := planReconfig(cfg, "img", RunOptions{CPUs: 4, Memory: "4G"},
+	d := planReconfig(cfg, "img", options.RunOptions{CPUs: 4, Memory: "4G"},
 		false, false, false)
 	if d.recreate || d.restartDaemons || d.resources != nil {
 		t.Errorf("expected no actions, got %+v", d)
@@ -94,7 +95,7 @@ func TestResolveReconfigPromptBKeepReturnsNoRestart(t *testing.T) {
 
 func TestPlanReconfigEnvChangeRebuildsVM(t *testing.T) {
 	cfg := &msbSdk.SandboxConfig{Image: "a", CPUs: 4, MemoryMiB: 4096}
-	d := planReconfig(cfg, "a", RunOptions{}, true, false, false) // envChanged=true
+	d := planReconfig(cfg, "a", options.RunOptions{}, true, false, false) // envChanged=true
 	if !d.recreate {
 		t.Error("expected recreate on env change (env cannot be applied live)")
 	}
@@ -105,7 +106,7 @@ func TestPlanReconfigEnvChangeRebuildsVM(t *testing.T) {
 
 func TestPlanReconfigOpenCodeConfigChangeRestartsDaemon(t *testing.T) {
 	cfg := &msbSdk.SandboxConfig{Image: "a", CPUs: 4, MemoryMiB: 4096}
-	d := planReconfig(cfg, "a", RunOptions{}, false, false, true) // opencodeConfigChanged=true
+	d := planReconfig(cfg, "a", options.RunOptions{}, false, false, true) // opencodeConfigChanged=true
 	if !d.restartDaemons {
 		t.Error("expected restartDaemons on opencode config change")
 	}
@@ -116,7 +117,7 @@ func TestPlanReconfigOpenCodeConfigChangeRestartsDaemon(t *testing.T) {
 
 func TestPlanReconfigSecretsChangeRebuildsVM(t *testing.T) {
 	cfg := &msbSdk.SandboxConfig{Image: "a", CPUs: 4, MemoryMiB: 4096}
-	d := planReconfig(cfg, "a", RunOptions{}, false, true, false) // secretsChanged=true
+	d := planReconfig(cfg, "a", options.RunOptions{}, false, true, false) // secretsChanged=true
 	if !d.recreate {
 		t.Error("expected recreate on secrets change (secrets cannot be applied live)")
 	}
@@ -130,7 +131,7 @@ func TestPlanReconfigEnvWithRecreateNoRestartFlag(t *testing.T) {
 		tmpMountPath: {SizeMiB: 2048},
 	}}
 	// image mismatch triggers recreate, env change would add restartDaemons
-	d := planReconfig(cfg, "new:tag", RunOptions{TmpSize: "4G"}, true, false, false)
+	d := planReconfig(cfg, "new:tag", options.RunOptions{TmpSize: "4G"}, true, false, false)
 	if !d.recreate {
 		t.Error("expected recreate on image mismatch")
 	}
@@ -141,7 +142,7 @@ func TestPlanReconfigEnvWithRecreateNoRestartFlag(t *testing.T) {
 
 func TestPlanReconfigMemoryClampToMax(t *testing.T) {
 	cfg := &msbSdk.SandboxConfig{Image: "a", MemoryMiB: 4096, MaxMemoryMiB: 8192}
-	d := planReconfig(cfg, "a", RunOptions{Memory: "16G"}, false, false, false)
+	d := planReconfig(cfg, "a", options.RunOptions{Memory: "16G"}, false, false, false)
 	if d.resources == nil {
 		t.Fatal("expected resources set for memory change")
 	}
