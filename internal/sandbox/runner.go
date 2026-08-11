@@ -24,19 +24,6 @@ import (
 
 // parseMemory and resolveTmpSizeMiB moved to internal/sandbox/options.
 
-// isSandboxActive reports whether a sandbox status represents a live VM that
-// WithReplace would terminate. Stopped or crashed sandboxes are stale state
-// that can be replaced silently.
-func isSandboxActive(status msbSdk.SandboxStatus) bool {
-	switch status {
-	case msbSdk.SandboxStatusRunning, msbSdk.SandboxStatusDraining, msbSdk.SandboxStatusPaused:
-		return true
-	case msbSdk.SandboxStatusStopped, msbSdk.SandboxStatusCrashed:
-		return false
-	}
-	return false
-}
-
 func buildAttachCommand(target string, _ bool, args []string) string {
 	parts := []string{"opencode", "attach", "http://127.0.0.1:4096", "--dir", target}
 	parts = append(parts, args...)

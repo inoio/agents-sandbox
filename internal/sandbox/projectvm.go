@@ -212,7 +212,7 @@ func ensureProjectVM(
 						refreshErr,
 					)
 				}
-				if isSandboxActive(handle2.Status()) {
+				if msb.IsSandboxActive(handle2.Status()) {
 					sb2, connErr2 := handle2.Connect(ctx)
 					if connErr2 != nil {
 						spin.StopError(connErr2)
