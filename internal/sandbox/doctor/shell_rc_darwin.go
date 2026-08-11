@@ -1,5 +1,5 @@
 //go:build darwin
 
-package sandbox
+package doctor
 
 const shellRcDefault = ".zshrc"

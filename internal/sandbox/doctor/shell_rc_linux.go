@@ -1,5 +1,5 @@
 //go:build linux
 
-package sandbox
+package doctor
 
 const shellRcDefault = ".bashrc"
