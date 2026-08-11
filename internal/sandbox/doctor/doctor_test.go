@@ -1,4 +1,4 @@
-package sandbox
+package doctor
 
 import (
 	"context"
@@ -15,7 +15,7 @@ func TestCheckDockerLogsUnderlyingError(t *testing.T) {
 	testUI := testutil.TermUIMock(t)
 
 	t.Setenv("PATH", "/nonexistent")
-	if checkDocker(&testUI) {
+	if CheckDocker(&testUI) {
 		t.Fatal("expected CheckDocker to return false when docker is not on PATH")
 	}
 
@@ -57,9 +57,8 @@ func TestShellRcFile(t *testing.T) {
 func TestCheckMsbEnsureInstalledErrorSurfacesErrorWithoutInstallHint(t *testing.T) {
 	testUI := testutil.TermUIMock(t)
 
-	prev := ensureInstalled
-	t.Cleanup(func() { ensureInstalled = prev })
-	ensureInstalled = func(context.Context) error { return errors.New("network unreachable") }
+	prev := SetEnsureInstalled(func(context.Context) error { return errors.New("network unreachable") })
+	t.Cleanup(func() { SetEnsureInstalled(prev) })
 
 	if checkMsb(context.Background(), &testUI) {
 		t.Fatal("expected CheckMsb to return false when ensureInstalled fails")
@@ -83,9 +82,8 @@ func TestCheckMsbEnsureInstalledErrorSurfacesErrorWithoutInstallHint(t *testing.
 func TestCheckMsbOnPathReturnsTrueSilently(t *testing.T) {
 	testUI := testutil.TermUIMock(t)
 
-	prev := ensureInstalled
-	t.Cleanup(func() { ensureInstalled = prev })
-	ensureInstalled = func(context.Context) error { return nil }
+	prev := SetEnsureInstalled(func(context.Context) error { return nil })
+	t.Cleanup(func() { SetEnsureInstalled(prev) })
 
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, "msb"), []byte("#!/bin/sh\n"), 0o755); err != nil {
@@ -105,9 +103,8 @@ func TestCheckMsbOnPathReturnsTrueSilently(t *testing.T) {
 func TestCheckMsbNotOnPathExtendsPathAndReturnsTrue(t *testing.T) {
 	testUI := testutil.TermUIMock(t)
 
-	prev := ensureInstalled
-	t.Cleanup(func() { ensureInstalled = prev })
-	ensureInstalled = func(context.Context) error { return nil }
+	prev := SetEnsureInstalled(func(context.Context) error { return nil })
+	t.Cleanup(func() { SetEnsureInstalled(prev) })
 
 	home := t.TempDir()
 	binDir := filepath.Join(home, ".microsandbox", "bin")
@@ -148,9 +145,8 @@ func TestCheckMsbNotOnPathExtendsPathAndReturnsTrue(t *testing.T) {
 func TestCheckMsbNotOnPathAndBinaryMissingReturnsFalse(t *testing.T) {
 	testUI := testutil.TermUIMock(t)
 
-	prev := ensureInstalled
-	t.Cleanup(func() { ensureInstalled = prev })
-	ensureInstalled = func(context.Context) error { return nil }
+	prev := SetEnsureInstalled(func(context.Context) error { return nil })
+	t.Cleanup(func() { SetEnsureInstalled(prev) })
 
 	t.Setenv("HOME", t.TempDir())
 	t.Setenv("PATH", "/nonexistent")

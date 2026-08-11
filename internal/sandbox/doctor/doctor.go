@@ -1,4 +1,4 @@
-package sandbox
+package doctor
 
 import (
 	"context"
@@ -20,7 +20,9 @@ var ensureInstalled = func(ctx context.Context) error { //nolint:gochecknoglobal
 	return msb.Get().EnsureInstalled(ctx)
 }
 
-func checkDocker(ui termio.UI) bool {
+// CheckDocker reports whether the docker binary is on PATH, logging a
+// descriptive error when it is not.
+func CheckDocker(ui termio.UI) bool {
 	if _, err := exec.LookPath("docker"); err != nil {
 		ui.Errorf("docker not found. Install Docker or Podman with docker-compatible CLI: %v", err)
 		return false
@@ -78,15 +80,15 @@ func checkMsb(ctx context.Context, ui termio.UI) bool {
 }
 
 // SetEnsureInstalled replaces the ensureInstalled factory used by the
-// sandbox package. The original factory is returned so callers can restore
+// doctor package. The original factory is returned so callers can restore
 // it after their test.
 //
 // Usage from an external test package:
 //
-//	orig := sandbox.SetEnsureInstalled(func(ctx context.Context) error {
+//	orig := doctor.SetEnsureInstalled(func(ctx context.Context) error {
 //	    return nil // succeed
 //	})
-//	t.Cleanup(func() { sandbox.SetEnsureInstalled(orig) })
+//	t.Cleanup(func() { doctor.SetEnsureInstalled(orig) })
 func SetEnsureInstalled(f func(ctx context.Context) error) func(ctx context.Context) error {
 	orig := ensureInstalled
 	ensureInstalled = f

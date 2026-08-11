@@ -1,6 +1,6 @@
 //go:build darwin
 
-package sandbox
+package doctor
 
 import (
 	"testing"

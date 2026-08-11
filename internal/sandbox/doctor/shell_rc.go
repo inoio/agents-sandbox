@@ -1,4 +1,4 @@
-package sandbox
+package doctor
 
 import (
 	"path/filepath"

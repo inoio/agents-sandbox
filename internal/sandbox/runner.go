@@ -13,6 +13,7 @@ import (
 	"gitlab.inoio.de/inoio/opencode-msb/internal/termio"
 
 	"gitlab.inoio.de/inoio/opencode-msb/internal/git"
+	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/doctor"
 
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 )
@@ -272,7 +273,7 @@ func BuildImage(ctx context.Context, force, dryRun bool, ui termio.UI) error {
 		return nil
 	}
 
-	if !checkDocker(ui) {
+	if !doctor.CheckDocker(ui) {
 		return errors.New("docker not available")
 	}
 	projectSlug := git.ProjectSlug(ui)

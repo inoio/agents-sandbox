@@ -1,6 +1,6 @@
 //go:build darwin
 
-package sandbox
+package doctor
 
 import (
 	"context"
@@ -13,7 +13,7 @@ import (
 // checkDoctor runs macOS-specific prerequisite checks.
 // On macOS, this includes an ARM64 architecture check.
 func checkDoctor(ctx context.Context, ui termio.UI) bool {
-	return CheckDarwin(ui) && docker.CheckDockerAPI(ctx, ui) && checkDocker(ui) && checkGit(ui) && checkMsb(ctx, ui)
+	return CheckDarwin(ui) && docker.CheckDockerAPI(ctx, ui) && CheckDocker(ui) && checkGit(ui) && checkMsb(ctx, ui)
 }
 
 // CheckDarwin validates that opencode-msb is running on Apple Silicon.
