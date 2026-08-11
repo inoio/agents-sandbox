@@ -8,6 +8,7 @@ import (
 
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 
+	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/options"
 	"gitlab.inoio.de/inoio/opencode-msb/internal/termio"
 )
 
@@ -179,7 +180,7 @@ func planReconfig( //nolint:gocognit // core planner, cognitive complexity accep
 		}
 	}
 	if opts.Memory != "" {
-		want := parseMemory(opts.Memory)
+		want := options.ParseMemory(opts.Memory)
 		if cfg.MaxMemoryMiB > 0 && want > cfg.MaxMemoryMiB {
 			want = cfg.MaxMemoryMiB
 		}

@@ -16,6 +16,7 @@ import (
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 
 	config "gitlab.inoio.de/inoio/opencode-msb/internal/opencodeconfig"
+	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/options"
 	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/state"
 	"gitlab.inoio.de/inoio/opencode-msb/internal/termio"
 )
@@ -27,7 +28,7 @@ type configFiles struct {
 	keys   []string // sorted file names for VM comparison
 }
 
-const autoFlag = "--auto"
+// autoFlag moved to internal/sandbox/options.
 
 // loadConfigFiles builds the merged opencode configuration from the user's
 // config directory, any project-specific config in .opencode-msb/opencode,
@@ -67,7 +68,6 @@ func loadConfigFiles(userConfigDir string) (*configFiles, error) {
 	}, nil
 }
 
-// readVMFiles reads all files from the given directory on the VM.
 //
 //nolint:unparam // kept general: dir param passed from decideReconfig only at "/home/dev/.config/opencode"
 func readVMFiles(
@@ -158,8 +158,8 @@ func buildEnvMap(filename string) map[string]string {
 			continue
 		}
 		if strings.Contains(line, "=") {
-			parts := strings.SplitN(line, "=", envKeyValueParts)
-			if len(parts) == envKeyValueParts {
+			parts := strings.SplitN(line, "=", options.EnvKeyValueParts)
+			if len(parts) == options.EnvKeyValueParts {
 				env[parts[0]] = parts[1]
 			}
 		}
