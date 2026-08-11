@@ -1,4 +1,4 @@
-package sandbox
+package configpaths
 
 import (
 	"fmt"
@@ -67,27 +67,27 @@ func (m *mockConfigPaths) ProjectConfigDir() string {
 	return ensureMockConfigDirectory(filepath.Join(m.baseDir, "projectconfig"))
 }
 
-func (m *mockConfigPaths) userEnvFile() string {
+func (m *mockConfigPaths) UserEnvFile() string {
 	return filepath.Join(m.UserConfigDir(), envFileName)
 }
 
-func (m *mockConfigPaths) userEnvSecretFile() string {
+func (m *mockConfigPaths) UserEnvSecretFile() string {
 	return filepath.Join(m.UserConfigDir(), envSecretFileName)
 }
 
-func (m *mockConfigPaths) projectOpencodeConfigDir() string {
+func (m *mockConfigPaths) ProjectOpencodeConfigDir() string {
 	return ensureMockConfigDirectory(filepath.Join(m.ProjectConfigDir(), "opencode"))
 }
 
-func (m *mockConfigPaths) projectEnvFile() string {
+func (m *mockConfigPaths) ProjectEnvFile() string {
 	return filepath.Join(m.ProjectConfigDir(), envFileName)
 }
 
-func (m *mockConfigPaths) projectEnvSecretFile() string {
+func (m *mockConfigPaths) ProjectEnvSecretFile() string {
 	return filepath.Join(m.ProjectConfigDir(), envSecretFileName)
 }
 
-func (m *mockConfigPaths) projectDockerfile() string {
+func (m *mockConfigPaths) ProjectDockerfile() string {
 	return filepath.Join(m.ProjectConfigDir(), dockerfileName)
 }
 
@@ -111,14 +111,14 @@ func (f *failFastConfigPaths) UserOpencodeConfigDir() string {
 	return ""
 }
 
-func (f *failFastConfigPaths) userEnvFile() string       { f.mustMock(); return "" }
-func (f *failFastConfigPaths) userEnvSecretFile() string { f.mustMock(); return "" }
+func (f *failFastConfigPaths) UserEnvFile() string       { f.mustMock(); return "" }
+func (f *failFastConfigPaths) UserEnvSecretFile() string { f.mustMock(); return "" }
 func (f *failFastConfigPaths) ProjectConfigDir() string  { f.mustMock(); return "" }
-func (f *failFastConfigPaths) projectOpencodeConfigDir() string {
+func (f *failFastConfigPaths) ProjectOpencodeConfigDir() string {
 	f.mustMock()
 	return ""
 }
 
-func (f *failFastConfigPaths) projectEnvFile() string       { f.mustMock(); return "" }
-func (f *failFastConfigPaths) projectEnvSecretFile() string { f.mustMock(); return "" }
-func (f *failFastConfigPaths) projectDockerfile() string    { f.mustMock(); return "" }
+func (f *failFastConfigPaths) ProjectEnvFile() string       { f.mustMock(); return "" }
+func (f *failFastConfigPaths) ProjectEnvSecretFile() string { f.mustMock(); return "" }
+func (f *failFastConfigPaths) ProjectDockerfile() string    { f.mustMock(); return "" }

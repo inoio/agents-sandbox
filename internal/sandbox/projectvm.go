@@ -330,15 +330,15 @@ func createProjectVM(
 	maxMemoryGiB := sysinfo.TotalMemoryGiB()
 
 	envMap := mergeEnvMaps(
-		buildEnvMap(GetConfigPaths().userEnvFile()),
-		buildEnvMap(GetConfigPaths().projectEnvFile()),
+		buildEnvMap(GetConfigPaths().UserEnvFile()),
+		buildEnvMap(GetConfigPaths().ProjectEnvFile()),
 	)
 	ui.Verbosef("adding docker env definitions to project VM environment: %s", imageEnvs)
 	buildProjectVMEnv(envMap, imageEnvs)
 
 	secrets := buildSecrets(mergeEnvMaps(
-		buildEnvMap(GetConfigPaths().userEnvSecretFile()),
-		buildEnvMap(GetConfigPaths().projectEnvSecretFile()),
+		buildEnvMap(GetConfigPaths().UserEnvSecretFile()),
+		buildEnvMap(GetConfigPaths().ProjectEnvSecretFile()),
 	), ui)
 
 	mounts := buildMounts(homeVol, repoPath, resolveTmpSizeMiB(opts.TmpSize))
