@@ -336,9 +336,11 @@ func createProjectVM(
 	ui.Verbosef("adding docker env definitions to project VM environment: %s", imageEnvs)
 	buildProjectVMEnv(envMap, imageEnvs)
 
-	secrets := buildSecrets(mergeEnvMaps(
-		buildEnvMap(GetConfigPaths().userEnvSecretFile()),
-		buildEnvMap(GetConfigPaths().projectEnvSecretFile()),
+	secrets := buildSecretsFromSpecs(mergeSecretSpecs(
+		parseSecretSpecLegacy(GetConfigPaths().userEnvSecretFile(), ui),
+		parseSecretSpecLegacy(GetConfigPaths().projectEnvSecretFile(), ui),
+		parseSecretSpecYAML(GetConfigPaths().userEnvSecretYAMLFile(), ui),
+		parseSecretSpecYAML(GetConfigPaths().projectEnvSecretYAMLFile(), ui),
 	), ui)
 
 	mounts := buildMounts(homeVol, repoPath, resolveTmpSizeMiB(opts.TmpSize))
