@@ -9,6 +9,7 @@ import (
 
 	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/msb"
 	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/options"
+	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/reprovision"
 	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/state"
 	"gitlab.inoio.de/inoio/opencode-msb/internal/termio"
 
@@ -106,18 +107,18 @@ func prepareSandbox(
 		return nil, err
 	}
 	if created {
-		desiredEnv := mergeEnvMaps(
-			buildEnvMap(GetConfigPaths().UserEnvFile()),
-			buildEnvMap(GetConfigPaths().ProjectEnvFile()),
+		desiredEnv := reprovision.MergeEnvMaps(
+			reprovision.BuildEnvMap(GetConfigPaths().UserEnvFile()),
+			reprovision.BuildEnvMap(GetConfigPaths().ProjectEnvFile()),
 		)
-		desiredSecrets := buildSecrets(mergeEnvMaps(
-			buildEnvMap(GetConfigPaths().UserEnvSecretFile()),
-			buildEnvMap(GetConfigPaths().ProjectEnvSecretFile()),
+		desiredSecrets := reprovision.BuildSecrets(reprovision.MergeEnvMaps(
+			reprovision.BuildEnvMap(GetConfigPaths().UserEnvSecretFile()),
+			reprovision.BuildEnvMap(GetConfigPaths().ProjectEnvSecretFile()),
 		), ui)
 		if err := persistEnvSecrets(
 			projectSlug,
-			buildEnvState(desiredEnv),
-			buildSecretState(desiredSecrets),
+			reprovision.BuildEnvState(desiredEnv),
+			reprovision.BuildSecretState(desiredSecrets),
 		); err != nil {
 			ui.Warnf("persisting env/secret fingerprints on VM creation: %v (continuing)", err)
 		}
@@ -324,22 +325,6 @@ func buildMounts(homeVol, repoPath string, tmpSizeMiB uint32) map[string]msbSdk.
 	}
 }
 
-func provisionSandbox(
-	ctx context.Context,
-	fs SandboxFS,
-	configFiles map[string][]byte,
-) error {
-	if err := fs.Mkdir(ctx, "/home/dev/.config/opencode"); err != nil {
-		return fmt.Errorf("mkdir opencode config: %w", err)
-	}
-	for fname, data := range configFiles {
-		if err := fs.Write(ctx, "/home/dev/.config/opencode/"+fname, data); err != nil {
-			return fmt.Errorf("write config file %s: %w", fname, err)
-		}
-	}
-	return nil
-}
-
 func setUpSandbox(
 	ctx context.Context,
 	sb Sandbox,
@@ -348,21 +333,21 @@ func setUpSandbox(
 	ui termio.UI,
 	restart bool,
 ) (string, error) {
-	cfs, err := loadConfigFiles(GetConfigPaths().UserOpencodeConfigDir())
+	cfs, err := reprovision.LoadConfigFiles(GetConfigPaths().UserOpencodeConfigDir())
 	if err != nil {
 		return "", err
 	}
 
-	ui.Verbosef("expected config files: %v", cfs.keys)
+	ui.Verbosef("expected config files: %v", cfs.Keys)
 
 	if restart {
-		restartDaemons(ctx, sb, cfs.files, ui)
+		restartDaemons(ctx, sb, cfs.Files, ui)
 		return ResolveTarget(ctx, sb, opts.Worktree, ui)
 	}
 
-	vmData := readVMFiles(ctx, sb, "/home/dev/.config/opencode", ui)
-	if len(cfs.files) > 0 && (created || len(vmData) == 0) {
-		if provErr := provisionSandbox(ctx, sb.FS(), cfs.files); provErr != nil {
+	vmData := reprovision.ReadVMFiles(ctx, sb, "/home/dev/.config/opencode", ui)
+	if len(cfs.Files) > 0 && (created || len(vmData) == 0) {
+		if provErr := reprovision.ProvisionSandbox(ctx, sb.FS(), cfs.Files); provErr != nil {
 			ui.Warnf("provision failed: %v (continuing)", provErr)
 		}
 	}
@@ -427,39 +412,39 @@ func decideReconfig(
 		homeVol = newVol
 	}
 
-	cfs, err := loadConfigFiles(GetConfigPaths().UserOpencodeConfigDir())
+	cfs, err := reprovision.LoadConfigFiles(GetConfigPaths().UserOpencodeConfigDir())
 	if err != nil {
 		return false, false, homeVol, err
 	}
 
 	var opencfgChanged bool
 	if liveSb != nil {
-		vmData := readVMFiles(ctx, liveSb, "/home/dev/.config/opencode", ui)
-		opencfgChanged = len(vmData) > 0 && !configEqual(cfs.parsed, cfs.keys, vmData)
+		vmData := reprovision.ReadVMFiles(ctx, liveSb, "/home/dev/.config/opencode", ui)
+		opencfgChanged = len(vmData) > 0 && !reprovision.ConfigEqual(cfs.Parsed, cfs.Keys, vmData)
 		if detachErr := liveSb.Detach(context.Background()); detachErr != nil {
 			ui.Verbosef("failed to detach live sandbox handle: %v", detachErr)
 		}
 	}
 
-	desiredEnv := mergeEnvMaps(
-		buildEnvMap(GetConfigPaths().UserEnvFile()),
-		buildEnvMap(GetConfigPaths().ProjectEnvFile()),
+	desiredEnv := reprovision.MergeEnvMaps(
+		reprovision.BuildEnvMap(GetConfigPaths().UserEnvFile()),
+		reprovision.BuildEnvMap(GetConfigPaths().ProjectEnvFile()),
 	)
-	desiredSecrets := buildSecrets(mergeEnvMaps(
-		buildEnvMap(GetConfigPaths().UserEnvSecretFile()),
-		buildEnvMap(GetConfigPaths().ProjectEnvSecretFile()),
+	desiredSecrets := reprovision.BuildSecrets(reprovision.MergeEnvMaps(
+		reprovision.BuildEnvMap(GetConfigPaths().UserEnvSecretFile()),
+		reprovision.BuildEnvMap(GetConfigPaths().ProjectEnvSecretFile()),
 	), ui)
-	envHasChanged := envChanged(hs.EnvState, desiredEnv)
-	secretsHasChanged := secretsChanged(hs.SecretState, desiredSecrets)
+	envHasChanged := reprovision.EnvChanged(hs.EnvState, desiredEnv)
+	secretsHasChanged := reprovision.SecretsChanged(hs.SecretState, desiredSecrets)
 
-	plan := planReconfig(curCfg, imageRef, opts, envHasChanged, secretsHasChanged, opencfgChanged)
+	plan := reprovision.PlanReconfig(curCfg, imageRef, opts, envHasChanged, secretsHasChanged, opencfgChanged)
 	otherClients := state.CountActiveClients(slug)
-	applyRecreate, applyRestart, err := resolveReconfig(ctx, ui, plan, otherClients, plan.changes)
+	applyRecreate, applyRestart, err := reprovision.ResolveReconfig(ctx, ui, plan, otherClients, plan.Changes)
 	if err != nil {
 		return false, false, homeVol, err
 	}
 	recreate := applyRecreate
-	restart := applyRestart && !recreate && !plan.recreate
+	restart := applyRestart && !recreate && !plan.Recreate
 	return recreate, restart, homeVol, nil
 }
 
@@ -467,7 +452,7 @@ func decideReconfig(
 // an opencode-config change is picked up. Env/secret changes are never routed
 // here: they require a VM rebuild and are handled by the recreate path instead.
 func restartDaemons(ctx context.Context, sb Sandbox, files map[string][]byte, ui termio.UI) {
-	if err := provisionSandbox(ctx, sb.FS(), files); err != nil {
+	if err := reprovision.ProvisionSandbox(ctx, sb.FS(), files); err != nil {
 		ui.Warnf("provision failed: %v (keeping existing daemon)", err)
 		return
 	}
