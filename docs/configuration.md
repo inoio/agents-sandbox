@@ -15,11 +15,11 @@ the [XDG base directory spec](https://specifications.freedesktop.org/basedir-spe
 | File                                                   | Purpose                                                |
 |--------------------------------------------------------|--------------------------------------------------------|
 | `~/.config/opencode-msb/env`                           | Environment variables forwarded to every sandbox       |
-| `~/.config/opencode-msb/env.secret`                    | Secret environment variables (see [Secrets](#secrets)) |
+| `~/.config/opencode-msb/env.secret`                    | Secret environment variables (legacy, see [Secrets](#secrets)) |
+| `~/.config/opencode-msb/env.secret.yaml`               | Secret environment variables (YAML/JSON, see [Secrets](#secrets)) |
 | `~/.config/opencode-msb/config.(y[a]ml\|json[(c\|5)])` | Launcher defaults for CLI flags                        |
 
-`env` and `env.secret` use `KEY=value` format (see [Environment Variables](#environment-variables)
-and [Secrets](#secrets) below).
+`env` uses `KEY=value` format. `env.secret` uses `KEY=value@host` (see [Secrets](#secrets)).
 
 Supported launcher config filenames: `config.yaml`, `config.yml`, `config.json`, `config.jsonc`, `config.json5`. The
 first one found is used.
@@ -64,7 +64,8 @@ Place files under `.opencode-msb/` in your project directory. These override use
 |-----------------------------------------------|----------------------------------------|
 | `.opencode-msb/Dockerfile`                    | Custom runner image layers             |
 | `.opencode-msb/env`                           | Project-specific environment variables |
-| `.opencode-msb/env.secret`                    | Project-specific secrets               |
+| `.opencode-msb/env.secret`                    | Project-specific secrets (legacy)      |
+| `.opencode-msb/env.secret.yaml`               | Project-specific secrets (YAML/JSON)   |
 | `.opencode-msb/config.(y[a]ml\|json[(c\|5)])` | Project-specific launcher defaults     |
 | `.opencode-msb/opencode/*`                    | Project-specific opencode config files |
 
@@ -101,21 +102,66 @@ secret mechanism. They never appear in Docker images or environment dumps inside
 
 ### Format
 
-Secret files use `KEY=value@host` format:
+Two file formats are supported: legacy text and structured YAML. YAML files take precedence over legacy files for
+the same key.
+
+**Legacy format** — `env.secret`
+
+One `KEY=value@host` per line. The part after the **last** `@` is a policy tag restricting which microsandbox runtime
+hosts can access the secret. Values may contain `@` — everything before the last `@` is the value. Each entry must
+define a host explicitly; omitting the host part drops the secret with a warning.
 
 ```shell
 # .opencode-msb/env.secret
-GITHUB_TOKEN=ghp_xxxxxxxxxxxx@microsandbox
-ANTHROPIC_API_KEY=sk-ant-xxxxxxxxxxxx@microsandbox
+GITHUB_TOKEN=ghp_xxxxxxxxxxxx@github.com
+ANTHROPIC_API_KEY=sk-ant-xxxxxxxxxxxx@anthropic.com
 ```
 
-The `@host` part is a policy tag that restricts which microsandbox runtime hosts can access the secret. Use
-`@microsandbox` by default.
+**YAML format** — `env.secret.yaml`
 
-Secret files:
+A YAML object map from env-var name to `{ value, host?, hosts?, allow_any_host_dangerous? }`. Values may contain **any
+characters** including `@`. `host` and `hosts` are optional when `allow_any_host_dangerous` is set, but otherwise
+required — entries with neither hosts nor a dangerous flag are dropped with a warning. JSON is also accepted (YAML 1.2
+is a JSON superset).
 
-- `~/.config/opencode-msb/env.secret` — user-level
-- `.opencode-msb/env.secret` — project-level
+```yaml
+# .opencode-msb/env.secret.yaml
+GITHUB_TOKEN:
+  value: "ghp_xxx@corp"
+  host: microsandbox
+ANTHROPIC_API_KEY:
+  value: sk-ant-xxxxxxxx
+  hosts: [gw-a.internal, gw-b.internal]
+# No hosts defined — this entry is dropped with a warning
+DROPPED_KEY:
+  value: secret-value
+TRUSTED_KEY:
+  value: secret-value
+  allow_any_host_dangerous: true
+```
+
+An empty `value` is valid and will be passed through unchanged.
+
+**Precedence**
+
+Files are merged from lowest to highest precedence per key, in this order:
+
+1. user-level `env.secret` (legacy `KEY=value@host`)
+2. project-level `env.secret` (legacy)
+3. user-level `env.secret.yaml`
+4. project-level `env.secret.yaml`
+
+A YAML entry always wins over a legacy entry for the same key, even across levels — a user-level
+`env.secret.yaml` overrides a project-level `env.secret`. The YAML entry **fully replaces** the legacy entry's hosts —
+if a YAML entry omits `host`, `hosts`, and `allow_any_host_dangerous`, the resulting entry has no hosts and is dropped
+with a warning.
+
+**Supported files**
+
+- `~/.config/opencode-msb/env.secret` — user-level, legacy text format
+- `~/.config/opencode-msb/env.secret.yaml` — user-level, structured YAML (or JSON)
+- `.opencode-msb/env.secret` — project-level, legacy text format
+- `.opencode-msb/env.secret.yaml` — project-level, structured YAML (or JSON)
 
 ### Accessing secrets inside the VM
 
