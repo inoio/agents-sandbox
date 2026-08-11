@@ -71,3 +71,16 @@ func TestUserDirIgnoresRelativeEnv(t *testing.T) {
 		t.Errorf("UserConfigDir() = %q, want %q", got, want)
 	}
 }
+
+func TestEnvSecretYAMLPaths(t *testing.T) {
+	WithRealConfigPaths(t)
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+
+	c := &realConfigPaths{}
+	if got := c.UserEnvSecretYAMLFile(); got != filepath.Join(c.UserConfigDir(), envSecretYAMLFileName) {
+		t.Errorf("userEnvSecretYAMLFile() = %q", got)
+	}
+	if got := c.ProjectEnvSecretYAMLFile(); got != filepath.Join(c.ProjectConfigDir(), envSecretYAMLFileName) {
+		t.Errorf("projectEnvSecretYAMLFile() = %q, want %q", got, c.ProjectConfigDir())
+	}
+}

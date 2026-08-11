@@ -125,7 +125,13 @@ If you need a tool that isn't in the base image (e.g., `go`, `rustc`, `python3`)
 
 ## Secrets not available
 
-Verify the secret is set in `env.secret` with the correct format of `KEY=value@host`. If the `@host` part is missing, the secret won't be set.
+Verify the secret is set with the correct format. For legacy `env.secret`, the format is `KEY=value@host` where the
+part after the **last** `@` is the host policy tag — values may contain `@`. If no `@host` part is present the
+secret is dropped with a warning.
+
+For `env.secret.yaml`, values may contain `@` without issues. Ensure the entry defines either `host`, `hosts`, or
+`allow_any_host_dangerous: true` — entries with no hosts definition are silently skipped. An empty `value` is valid
+and passed through unchanged.
 
 ## Memory or CPU limits too low
 

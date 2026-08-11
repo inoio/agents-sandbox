@@ -13,11 +13,13 @@ type ConfigPaths interface {
 
 	UserEnvFile() string
 	UserEnvSecretFile() string
+	UserEnvSecretYAMLFile() string
 
 	ProjectConfigDir() string
 	ProjectOpencodeConfigDir() string
 	ProjectEnvFile() string
 	ProjectEnvSecretFile() string
+	ProjectEnvSecretYAMLFile() string
 	ProjectDockerfile() string
 }
 
@@ -68,6 +70,11 @@ func (c *realConfigPaths) UserEnvSecretFile() string {
 	return filepath.Join(c.UserConfigDir(), envSecretFileName)
 }
 
+// UserEnvSecretYAMLFile returns the user-level structured secret file.
+func (c *realConfigPaths) UserEnvSecretYAMLFile() string {
+	return filepath.Join(c.UserConfigDir(), envSecretYAMLFileName)
+}
+
 const pathPrefix = "opencode-msb"
 
 // projectConfigDir is the project-local metadata directory for the tool.
@@ -80,7 +87,9 @@ const (
 	ConfigDirName     = "opencode"
 	EnvFileName       = "env"
 	EnvSecretFileName = "env.secret"
-	DockerFileName    = "Dockerfile"
+	//nolint:gosec // G101 false positive: filename constant
+	envSecretYAMLFileName = "env.secret.yaml"
+	DockerFileName        = "Dockerfile"
 )
 
 const (
@@ -106,6 +115,11 @@ func (c *realConfigPaths) ProjectEnvFile() string {
 
 func (c *realConfigPaths) ProjectEnvSecretFile() string {
 	return filepath.Join(projectConfigDir, envSecretFileName)
+}
+
+// ProjectEnvSecretYAMLFile returns the project-level structured secret file.
+func (c *realConfigPaths) ProjectEnvSecretYAMLFile() string {
+	return filepath.Join(c.ProjectConfigDir(), envSecretYAMLFileName)
 }
 
 // xdgBaseDir resolves an XDG base directory for the given environment variable,

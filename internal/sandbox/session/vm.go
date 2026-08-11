@@ -344,9 +344,11 @@ func createProjectVM(
 	ui.Verbosef("adding docker env definitions to project VM environment: %s", imageEnvs)
 	buildProjectVMEnv(envMap, imageEnvs)
 
-	secrets := reprovision.BuildSecrets(reprovision.MergeEnvMaps(
-		reprovision.BuildEnvMap(configpaths.GetConfigPaths().UserEnvSecretFile()),
-		reprovision.BuildEnvMap(configpaths.GetConfigPaths().ProjectEnvSecretFile()),
+	secrets := reprovision.BuildSecretsFromSpecs(reprovision.MergeSecretSpecs(
+		reprovision.ParseSecretSpecLegacy(configpaths.GetConfigPaths().UserEnvSecretFile(), ui),
+		reprovision.ParseSecretSpecLegacy(configpaths.GetConfigPaths().ProjectEnvSecretFile(), ui),
+		reprovision.ParseSecretSpecYAML(configpaths.GetConfigPaths().UserEnvSecretYAMLFile(), ui),
+		reprovision.ParseSecretSpecYAML(configpaths.GetConfigPaths().ProjectEnvSecretYAMLFile(), ui),
 	), ui)
 
 	mounts := buildMounts(homeVol, repoPath, options.ResolveTmpSizeMiB(opts.TmpSize))
