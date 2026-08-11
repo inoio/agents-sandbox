@@ -16,6 +16,7 @@ import (
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 
 	config "gitlab.inoio.de/inoio/opencode-msb/internal/opencodeconfig"
+	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/state"
 	"gitlab.inoio.de/inoio/opencode-msb/internal/termio"
 )
 
@@ -217,7 +218,7 @@ func secretsContentHash(entries []msbSdk.SecretEntry) string {
 // env map, comparing content hashes for a stable order-independent result.
 // A zero-value appliedEnv indicates "no persisted state yet" (first run),
 // which is considered "changed" only when the desired map is non-empty.
-func envChanged(applied EnvState, desired map[string]string) bool {
+func envChanged(applied state.EnvState, desired map[string]string) bool {
 	if applied.Hash == "" {
 		return len(desired) > 0
 	}
@@ -228,7 +229,7 @@ func envChanged(applied EnvState, desired map[string]string) bool {
 // desired secret entries, comparing content hashes.
 // A zero-value appliedSecrets indicates "no persisted state yet" (first run),
 // which is only considered "changed" when the desired slice is non-empty.
-func secretsChanged(applied SecretState, desired []msbSdk.SecretEntry) bool {
+func secretsChanged(applied state.SecretState, desired []msbSdk.SecretEntry) bool {
 	if applied.Hash == "" {
 		if desired == nil {
 			return false
@@ -239,20 +240,20 @@ func secretsChanged(applied SecretState, desired []msbSdk.SecretEntry) bool {
 }
 
 // buildEnvState computes the content hash and sorted name list for the env map.
-func buildEnvState(desired map[string]string) EnvState {
+func buildEnvState(desired map[string]string) state.EnvState {
 	names := make([]string, 0, len(desired))
 	for k := range desired {
 		names = append(names, k)
 	}
 	sort.Strings(names)
-	return EnvState{
+	return state.EnvState{
 		Hash:  envContentHash(desired),
 		Names: names,
 	}
 }
 
 // buildSecretState computes the content hash and sorted name list for the secret entries.
-func buildSecretState(desired []msbSdk.SecretEntry) SecretState {
+func buildSecretState(desired []msbSdk.SecretEntry) state.SecretState {
 	byEnv := make(map[string]msbSdk.SecretEntry, len(desired))
 	for _, e := range desired {
 		byEnv[e.EnvVar] = e
@@ -262,7 +263,7 @@ func buildSecretState(desired []msbSdk.SecretEntry) SecretState {
 		names = append(names, k)
 	}
 	sort.Strings(names)
-	return SecretState{
+	return state.SecretState{
 		Hash:  secretsContentHash(desired),
 		Names: names,
 	}

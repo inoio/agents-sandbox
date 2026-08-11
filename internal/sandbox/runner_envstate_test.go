@@ -56,7 +56,7 @@ func TestCurrentEnvState_IgnoresReadError(t *testing.T) {
 	slug := "badproj"
 
 	// Corrupted YAML that returns a parser error (not ErrStateNotFound):
-	sdir := filepath.Join(stateRoot(), slug)
+	sdir := filepath.Join(StateDir(), slug)
 	os.MkdirAll(sdir, 0o700)
 	if err := os.WriteFile(filepath.Join(sdir, "state.yaml"), []byte("!!broken: yaml: [invalid"), 0o600); err != nil {
 		t.Fatal(err)
@@ -120,7 +120,7 @@ func TestPersistEnvSecrets_RoundTrip(t *testing.T) {
 		t.Fatalf("persistEnvSecrets: %v", err)
 	}
 
-	got, err := readState(slug)
+	got, err := ReadState(slug)
 	if err != nil {
 		t.Fatalf("ReadState after persist: %v", err)
 	}
@@ -143,7 +143,7 @@ func TestPersistEnvSecrets_CreatesMissingStateDir(t *testing.T) {
 		t.Fatalf("persistEnvSecrets: %v", err)
 	}
 
-	got, err := readState(slug)
+	got, err := ReadState(slug)
 	if err != nil {
 		t.Fatalf("ReadState: %v", err)
 	}
@@ -169,7 +169,7 @@ func TestPersistEnvSecrets_MergesExistingState(t *testing.T) {
 		t.Fatalf("persistEnvSecrets: %v", err)
 	}
 
-	got, err := readState(slug)
+	got, err := ReadState(slug)
 	if err != nil {
 		t.Fatalf("ReadState: %v", err)
 	}
@@ -206,7 +206,7 @@ func TestPersistEnvSecrets_OverwritesExistingState(t *testing.T) {
 		t.Fatalf("persistEnvSecrets: %v", err)
 	}
 
-	got, err := readState(slug)
+	got, err := ReadState(slug)
 	if err != nil {
 		t.Fatalf("ReadState: %v", err)
 	}
@@ -223,7 +223,7 @@ func TestPersistEnvSecrets_ReadFailsReturnsError(t *testing.T) {
 	slug := "failproj"
 
 	// Corrupted YAML that returns an error (not ErrStateNotFound):
-	sdir := filepath.Join(stateRoot(), slug)
+	sdir := filepath.Join(StateDir(), slug)
 	os.MkdirAll(sdir, 0o700)
 	if err := os.WriteFile(filepath.Join(sdir, "state.yaml"), []byte("{ corrupted: yaml: ["), 0o600); err != nil {
 		t.Fatal(err)
@@ -479,7 +479,7 @@ func TestPersistEnvSecrets_NilStateOnNotFound(t *testing.T) {
 		t.Fatalf("persistEnvSecrets: %v", err)
 	}
 
-	got, err := readState(slug)
+	got, err := ReadState(slug)
 	if err != nil {
 		t.Fatalf("ReadState: %v", err)
 	}
@@ -508,7 +508,7 @@ func TestPersistEnvSecrets_HomeStateOmitsZeroState(t *testing.T) {
 		t.Fatalf("persistEnvSecrets: %v", err)
 	}
 
-	data, err := os.ReadFile(filepath.Join(stateRoot(), slug, "state.yaml"))
+	data, err := os.ReadFile(filepath.Join(StateDir(), slug, "state.yaml"))
 	if err != nil {
 		t.Fatalf("read state file: %v", err)
 	}
@@ -553,7 +553,7 @@ func TestPersistEnvSecrets_ZeroStateOverwritesOnlyFields(t *testing.T) {
 		t.Fatalf("persistEnvSecrets: %v", err)
 	}
 
-	got, err := readState(slug)
+	got, err := ReadState(slug)
 	if err != nil {
 		t.Fatalf("ReadState: %v", err)
 	}

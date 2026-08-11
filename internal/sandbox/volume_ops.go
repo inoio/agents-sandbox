@@ -12,6 +12,7 @@ import (
 
 	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/msb"
 	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/naming"
+	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/state"
 	"gitlab.inoio.de/inoio/opencode-msb/internal/termio"
 )
 
@@ -170,9 +171,9 @@ func volumeOp(
 ) error {
 	client := msb.Get()
 
-	state, err := readState(projectSlug)
+	st, err := state.ReadState(projectSlug)
 	if err != nil {
-		if errors.Is(err, ErrStateNotFound) {
+		if errors.Is(err, state.ErrStateNotFound) {
 			return fmt.Errorf("no state file found for project %q", projectSlug)
 		}
 		return fmt.Errorf("read state: %w", err)
@@ -180,7 +181,7 @@ func volumeOp(
 
 	oldVolume := volumeName
 	if oldVolume == "" {
-		oldVolume = state.HomeVolume
+		oldVolume = st.HomeVolume
 		if oldVolume == "" {
 			return errors.New("no volume to operate on: state has no home_volume set")
 		}
@@ -217,13 +218,13 @@ func volumeOp(
 		return err
 	}
 
-	newState := HomeState{
+	newState := state.HomeState{
 		HomeVolume:  newVolumeName,
-		ImageDigest: state.ImageDigest,
-		EnvState:    EnvState{},    //nolint:exhaustruct // intentionally zeroed; fingerprint re-established on next apply
-		SecretState: SecretState{}, //nolint:exhaustruct // intentionally zeroed; fingerprint re-established on next apply
+		ImageDigest: st.ImageDigest,
+		EnvState:    state.EnvState{},    //nolint:exhaustruct // intentionally zeroed; fingerprint re-established on next apply
+		SecretState: state.SecretState{}, //nolint:exhaustruct // intentionally zeroed; fingerprint re-established on next apply
 	}
-	if err := WriteState(projectSlug, newState); err != nil {
+	if err := state.WriteState(projectSlug, newState); err != nil {
 		ui.Warnf("failed to write state file: %v", err)
 	}
 

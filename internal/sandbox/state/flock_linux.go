@@ -1,16 +1,16 @@
 //go:build linux
 
-package sandbox
+package state
 
 import (
 	"os"
 	"syscall"
 )
 
-func flockExclusive(f *os.File) error {
+func FlockExclusive(f *os.File) error {
 	return syscall.Flock(int(f.Fd()), syscall.LOCK_EX)
 }
 
-func flockExclusiveNB(f *os.File) error {
+func FlockExclusiveNB(f *os.File) error {
 	return syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB)
 }

@@ -1,4 +1,4 @@
-package sandbox
+package state
 
 import (
 	"errors"
@@ -7,24 +7,26 @@ import (
 	"path/filepath"
 	"testing"
 
+	"gitlab.inoio.de/inoio/opencode-msb/internal/configpaths"
+
 	"gopkg.in/yaml.v3"
 )
 
-// stateDir overrides the state directory root for tests when set to a
+// StateDir overrides the state directory root for tests when set to a
 // non-empty value. An empty value resolves to the XDG state directory at call
 // time (see stateRoot).
 //
 //nolint:gochecknoglobals // Required for testable state directory path override
-var stateDir = ""
+var StateDir = ""
 
 // stateRoot returns the base directory for state files. Tests override it via
-// stateDir/SetStateDirForTest; otherwise it is the XDG state directory,
+// StateDir/SetStateDirForTest; otherwise it is the XDG state directory,
 // resolved fresh so environment changes are honored.
 func stateRoot() string {
-	if stateDir != "" {
-		return stateDir
+	if StateDir != "" {
+		return StateDir
 	}
-	return GetConfigPaths().UserStateDir()
+	return configpaths.GetConfigPaths().UserStateDir()
 }
 
 // EnvState tracks environment-variable fingerprint data for a project.
@@ -47,27 +49,27 @@ type HomeState struct {
 	SecretState SecretState `yaml:"secret_state,omitempty"`
 }
 
-// stateFile returns the path to the state file for a project slug.
-func stateFile(slug string) string {
+//nolint:revive // StateFile matches the original unexported name stateFile
+func StateFile(slug string) string {
 	return filepath.Join(stateRoot(), slug, "state.yaml")
 }
 
 // SetStateDirForTest overrides the state directory root for the given test.
 // The original value is restored via t.Cleanup.
 func SetStateDirForTest(t *testing.T, dir string) {
-	old := stateDir
-	stateDir = dir
-	t.Cleanup(func() { stateDir = old })
+	old := StateDir
+	StateDir = dir
+	t.Cleanup(func() { StateDir = old })
 }
 
 // ErrStateNotFound is returned by readState when no state file exists yet.
 var ErrStateNotFound = errors.New("state file not found")
 
-// readState loads and parses the state file.
+// ReadState loads and parses the state file.
 // Returns ErrStateNotFound with a nil state if no file exists.
 // Returns an error for parse failures or non-"not found" I/O errors.
-func readState(slug string) (*HomeState, error) {
-	path := stateFile(slug)
+func ReadState(slug string) (*HomeState, error) {
+	path := StateFile(slug)
 	data, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -84,7 +86,7 @@ func readState(slug string) (*HomeState, error) {
 
 // WriteState atomically writes the state to disk.
 func WriteState(slug string, state HomeState) error {
-	dir := filepath.Dir(stateFile(slug))
+	dir := filepath.Dir(StateFile(slug))
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return fmt.Errorf("create state dir %s: %w", dir, err)
 	}
@@ -96,7 +98,7 @@ func WriteState(slug string, state HomeState) error {
 	if err := os.WriteFile(tmpFile, data, 0o600); err != nil {
 		return fmt.Errorf("write state temp: %w", err)
 	}
-	if err := os.Rename(tmpFile, stateFile(slug)); err != nil {
+	if err := os.Rename(tmpFile, StateFile(slug)); err != nil {
 		// best-effort cleanup of temp file if rename failed
 		_ = os.Remove(tmpFile)
 		return fmt.Errorf("rename state file: %w", err)
@@ -104,8 +106,8 @@ func WriteState(slug string, state HomeState) error {
 	return nil
 }
 
-// removeState removes the state file and its parent directory.
-func removeState(slug string) error {
+// RemoveState removes the state file and its parent directory.
+func RemoveState(slug string) error {
 	slugStateDir := filepath.Join(stateRoot(), slug)
 	return os.RemoveAll(slugStateDir)
 }
