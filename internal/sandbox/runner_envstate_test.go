@@ -8,6 +8,7 @@ import (
 
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 
+	"gitlab.inoio.de/inoio/opencode-msb/internal/configpaths"
 	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/msb"
 	"gitlab.inoio.de/inoio/opencode-msb/internal/termio"
 	"gitlab.inoio.de/inoio/opencode-msb/internal/testutil"
@@ -295,8 +296,8 @@ func TestDecideReconfig_EnvUnchangedWithPersistedState(t *testing.T) {
 	vm := newVolumeManager(&termio.Mock{})
 
 	// Write env file and state with matching hash
-	testutil.WritePath(t, filepath.Join(userDir, envFileName), "FOO=bar\n")
-	envHash := computeEnvHash(filepath.Join(userDir, envFileName))
+	testutil.WritePath(t, filepath.Join(userDir, configpaths.EnvFileName), "FOO=bar\n")
+	envHash := computeEnvHash(filepath.Join(userDir, configpaths.EnvFileName))
 
 	// Build HomeState with matching env state
 	persistedState := HomeState{
@@ -387,7 +388,7 @@ func TestDecideReconfig_ZeroPersistedStateNoSpuriousChange(t *testing.T) {
 	// Write empty env file → desired is empty.
 	// State has no env_state → zero value (first run).
 	// Zero applied + empty desired → NOT changed (per ruling)
-	testutil.WritePath(t, filepath.Join(userDir, envFileName), "# nothing here\n")
+	testutil.WritePath(t, filepath.Join(userDir, configpaths.EnvFileName), "# nothing here\n")
 
 	ui := testutil.TermUIMock(t)
 	recreate, restart, _, err := decideReconfig(
@@ -577,8 +578,8 @@ func TestDecideReconfig_PersistedSecretsMatchDesired(t *testing.T) {
 
 	vm := newVolumeManager(&termio.Mock{})
 
-	testutil.WritePath(t, filepath.Join(userDir, envFileName), "K=V\n")
-	desiredEnv := mergeEnvMaps(buildEnvMap(filepath.Join(userDir, envFileName)))
+	testutil.WritePath(t, filepath.Join(userDir, configpaths.EnvFileName), "K=V\n")
+	desiredEnv := mergeEnvMaps(buildEnvMap(filepath.Join(userDir, configpaths.EnvFileName)))
 	envHash := envContentHash(desiredEnv)
 
 	WriteState("myproj5", HomeState{

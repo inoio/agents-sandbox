@@ -111,7 +111,7 @@ func buildOpencodeArgs(args []string, auto bool) []string {
 }
 
 func resolveDockerfile() []byte {
-	if data, err := os.ReadFile(GetConfigPaths().projectDockerfile()); err == nil {
+	if data, err := os.ReadFile(GetConfigPaths().ProjectDockerfile()); err == nil {
 		return data
 	}
 	return embeddedDockerfile
@@ -186,12 +186,12 @@ func prepareSandbox(
 	}
 	if created {
 		desiredEnv := mergeEnvMaps(
-			buildEnvMap(GetConfigPaths().userEnvFile()),
-			buildEnvMap(GetConfigPaths().projectEnvFile()),
+			buildEnvMap(GetConfigPaths().UserEnvFile()),
+			buildEnvMap(GetConfigPaths().ProjectEnvFile()),
 		)
 		desiredSecrets := buildSecrets(mergeEnvMaps(
-			buildEnvMap(GetConfigPaths().userEnvSecretFile()),
-			buildEnvMap(GetConfigPaths().projectEnvSecretFile()),
+			buildEnvMap(GetConfigPaths().UserEnvSecretFile()),
+			buildEnvMap(GetConfigPaths().ProjectEnvSecretFile()),
 		), ui)
 		if err := persistEnvSecrets(
 			projectSlug,
@@ -518,12 +518,12 @@ func decideReconfig(
 	}
 
 	desiredEnv := mergeEnvMaps(
-		buildEnvMap(GetConfigPaths().userEnvFile()),
-		buildEnvMap(GetConfigPaths().projectEnvFile()),
+		buildEnvMap(GetConfigPaths().UserEnvFile()),
+		buildEnvMap(GetConfigPaths().ProjectEnvFile()),
 	)
 	desiredSecrets := buildSecrets(mergeEnvMaps(
-		buildEnvMap(GetConfigPaths().userEnvSecretFile()),
-		buildEnvMap(GetConfigPaths().projectEnvSecretFile()),
+		buildEnvMap(GetConfigPaths().UserEnvSecretFile()),
+		buildEnvMap(GetConfigPaths().ProjectEnvSecretFile()),
 	), ui)
 	envHasChanged := envChanged(state.EnvState, desiredEnv)
 	secretsHasChanged := secretsChanged(state.SecretState, desiredSecrets)
