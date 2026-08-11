@@ -11,6 +11,7 @@ import (
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 
 	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/msb"
+	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/naming"
 	"gitlab.inoio.de/inoio/opencode-msb/internal/termio"
 )
 
@@ -22,10 +23,10 @@ func checkForActiveVMs(ctx context.Context, slug string) error {
 		return fmt.Errorf("list sandboxes: %w", err)
 	}
 	for _, h := range sandboxes {
-		if !strings.HasPrefix(h.Name(), vmPrefix) {
+		if !strings.HasPrefix(h.Name(), naming.VmPrefix) {
 			continue
 		}
-		s, _ := extractProjectSlugAndDigest(h.Name())
+		s, _ := naming.ExtractProjectSlugAndDigest(h.Name())
 		if s == slug {
 			status := h.Status()
 			if isSandboxActive(status) || isStoppedStatus(status) {
@@ -124,7 +125,7 @@ func CmdEdit(
 		main: func(oldVolume, newVolumeName string) error {
 			client := msb.Get()
 			spin := ui.Spinner("Starting interactive session with both volumes")
-			editSandboxName := taskPrefix + projectSlug + "-" + strconv.FormatInt(time.Now().UnixNano(), 10)
+			editSandboxName := naming.TaskPrefix + projectSlug + "-" + strconv.FormatInt(time.Now().UnixNano(), 10)
 			editOldMount := msbSdk.Mount.Named(oldVolume, msbSdk.MountOptions{})
 			editNewMount := msbSdk.Mount.Named(newVolumeName, msbSdk.MountOptions{})
 			editSb, editErr := client.CreateSandbox(ctx, editSandboxName,

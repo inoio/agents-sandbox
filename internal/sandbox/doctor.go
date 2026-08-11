@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/msb"
+	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/naming"
 	"gitlab.inoio.de/inoio/opencode-msb/internal/termio"
 )
 
@@ -113,20 +114,20 @@ func CheckAll(ctx context.Context, ui termio.UI) bool {
 }
 
 func isOrphanedSandbox(name string) bool {
-	if !strings.HasPrefix(name, sbPrefix) {
+	if !strings.HasPrefix(name, naming.SbPrefix) {
 		return false
 	}
 	// vm- sandboxes are the current model; task- sandboxes are operational (prefill).
-	return !strings.HasPrefix(name, vmPrefix) &&
-		!strings.HasPrefix(name, taskPrefix)
+	return !strings.HasPrefix(name, naming.VmPrefix) &&
+		!strings.HasPrefix(name, naming.TaskPrefix)
 }
 
 func isOrphanedVolume(name string) bool {
-	if strings.HasPrefix(name, homePrefix) {
+	if strings.HasPrefix(name, naming.HomePrefix) {
 		return false
 	}
 	// clone- volumes are obsolete (clone-on-use removed) → orphaned.
-	if strings.HasPrefix(name, clonePrefix) {
+	if strings.HasPrefix(name, naming.ClonePrefix) {
 		return true
 	}
 	return strings.Contains(name, "-opencode-home-")
@@ -135,7 +136,7 @@ func isOrphanedVolume(name string) bool {
 func isOrphanedImage(ref string) bool {
 	// Old format images used ":" directly after the namespace (e.g. "opencode-msb/runner:base").
 	// These predate the current naming and are always orphaned.
-	return strings.HasPrefix(ref, Prefix+"/runner:")
+	return strings.HasPrefix(ref, naming.Prefix+"/runner:")
 }
 
 func checkOrphans(ctx context.Context, ui termio.UI) bool {

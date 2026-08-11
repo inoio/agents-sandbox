@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"time"
 
+	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/naming"
 	"gitlab.inoio.de/inoio/opencode-msb/internal/termio"
 
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
@@ -30,7 +31,7 @@ const (
 
 func homeVolumeName(projectSlug string) string {
 	ts := time.Now().UTC().Format("20060102T150405")
-	return homePrefix + projectSlug + "-" + ts
+	return naming.HomePrefix + projectSlug + "-" + ts
 }
 
 type VolumeManager struct {
@@ -47,7 +48,7 @@ func (vm *VolumeManager) prefillVolume(
 	projectSlug, volumeName, imageTag string,
 	ui termio.UI,
 ) error {
-	prefillName := taskPrefix + projectSlug + "-" + strconv.FormatInt(time.Now().UnixNano(), 10)
+	prefillName := naming.TaskPrefix + projectSlug + "-" + strconv.FormatInt(time.Now().UnixNano(), 10)
 	mountConfig := msbSdk.Mount.Named(volumeName, msbSdk.MountOptions{})
 
 	spin := ui.Spinner("Preparing home volume")
@@ -263,7 +264,7 @@ func (vm *VolumeManager) copyVolume(
 	projectSlug, oldVolume, newVolume, imageTag string,
 	ui termio.UI,
 ) error {
-	copySbName := taskPrefix + projectSlug + "-" + strconv.FormatInt(time.Now().UnixNano(), 10)
+	copySbName := naming.TaskPrefix + projectSlug + "-" + strconv.FormatInt(time.Now().UnixNano(), 10)
 	copySb, err := client.CreateSandbox(ctx, copySbName,
 		msbSdk.WithImage(imageTag),
 		msbSdk.WithMounts(map[string]msbSdk.MountConfig{

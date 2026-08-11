@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/msb"
+	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/naming"
 )
 
 type Info struct {
@@ -39,7 +40,7 @@ type imageHandle struct {
 func filterSandboxes(handles []sandboxHandle) []string {
 	var result []string
 	for _, h := range handles {
-		if strings.HasPrefix(h.name, vmPrefix) {
+		if strings.HasPrefix(h.name, naming.VmPrefix) {
 			result = append(result, h.name)
 		}
 	}
@@ -49,7 +50,7 @@ func filterSandboxes(handles []sandboxHandle) []string {
 func filterVolumes(handles []volumeHandle) []string {
 	var result []string
 	for _, h := range handles {
-		if strings.HasPrefix(h.name, homePrefix) {
+		if strings.HasPrefix(h.name, naming.HomePrefix) {
 			result = append(result, h.name)
 		}
 	}
@@ -59,7 +60,7 @@ func filterVolumes(handles []volumeHandle) []string {
 func filterImages(handles []imageHandle) []string {
 	var result []string
 	for _, h := range handles {
-		if strings.HasPrefix(h.reference, imagePrefix) {
+		if strings.HasPrefix(h.reference, naming.ImagePrefix) {
 			result = append(result, h.reference)
 		}
 	}
@@ -74,7 +75,7 @@ func ListSandboxes(ctx context.Context) ([]Info, error) {
 	var result []Info
 	for _, h := range handles {
 		name := h.Name()
-		if !strings.HasPrefix(name, vmPrefix) {
+		if !strings.HasPrefix(name, naming.VmPrefix) {
 			continue
 		}
 		result = append(result, Info{
@@ -93,7 +94,7 @@ func ListVolumes(ctx context.Context) ([]VolumeInfo, error) {
 	var result []VolumeInfo
 	for _, h := range handles {
 		name := h.Name()
-		if !strings.HasPrefix(name, homePrefix) {
+		if !strings.HasPrefix(name, naming.HomePrefix) {
 			continue
 		}
 		result = append(result, VolumeInfo{
@@ -113,7 +114,7 @@ func ListImages(ctx context.Context) ([]ImageInfo, error) {
 	var result []ImageInfo
 	for _, h := range handles {
 		ref := h.Reference()
-		if !strings.HasPrefix(ref, imagePrefix) {
+		if !strings.HasPrefix(ref, naming.ImagePrefix) {
 			continue
 		}
 		result = append(result, ImageInfo{

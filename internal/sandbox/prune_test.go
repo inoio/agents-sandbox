@@ -10,6 +10,7 @@ import (
 
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 
+	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/naming"
 	"gitlab.inoio.de/inoio/opencode-msb/internal/termio"
 	"gitlab.inoio.de/inoio/opencode-msb/internal/testutil"
 )
@@ -59,12 +60,12 @@ func runPruneActiveVMTest(
 func runSlugDigestTests(t *testing.T, tests []slugDigestTest) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			slug, digest := extractProjectSlugAndDigest(tt.input)
+			slug, digest := naming.ExtractProjectSlugAndDigest(tt.input)
 			if slug != tt.wantSlug {
-				t.Errorf("extractProjectSlugAndDigest(%q) slug = %q, want %q", tt.input, slug, tt.wantSlug)
+				t.Errorf("naming.ExtractProjectSlugAndDigest(%q) slug = %q, want %q", tt.input, slug, tt.wantSlug)
 			}
 			if digest != tt.wantDigest {
-				t.Errorf("extractProjectSlugAndDigest(%q) digest = %q, want %q", tt.input, digest, tt.wantDigest)
+				t.Errorf("naming.ExtractProjectSlugAndDigest(%q) digest = %q, want %q", tt.input, digest, tt.wantDigest)
 			}
 		})
 	}
@@ -239,9 +240,9 @@ func TestFindHashSuffix(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := findHashSuffix(tt.input)
+			got := naming.FindHashSuffix(tt.input)
 			if got != tt.want {
-				t.Errorf("findHashSuffix(%q) = %d, want %d", tt.input, got, tt.want)
+				t.Errorf("naming.FindHashSuffix(%q) = %d, want %d", tt.input, got, tt.want)
 			}
 		})
 	}
@@ -279,9 +280,9 @@ func TestExtractProjectSlugAndDigest_VMOnlyTwoParts(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			slug, _ := extractProjectSlugAndDigest(tt.input)
+			slug, _ := naming.ExtractProjectSlugAndDigest(tt.input)
 			if slug != tt.wantSlug {
-				t.Errorf("extractProjectSlugAndDigest(%q) slug = %q, want %q", tt.input, slug, tt.wantSlug)
+				t.Errorf("naming.ExtractProjectSlugAndDigest(%q) slug = %q, want %q", tt.input, slug, tt.wantSlug)
 			}
 		})
 	}
@@ -424,7 +425,7 @@ func TestFindStaleVMs(t *testing.T) {
 				if got[i].Name != name {
 					t.Errorf("entry[%d] name = %q, want %q", i, got[i].Name, name)
 				}
-				if got[i].Type != staleTypeVM {
+				if got[i].Type != naming.StaleTypeVM {
 					t.Errorf("entry[%d] type = %q, want %q", i, got[i].Type, "vm")
 				}
 				if got[i].StaleFor <= 0 {
@@ -448,7 +449,7 @@ func TestFindStaleVMs_StaleEntryFields(t *testing.T) {
 	}
 
 	entry := got[0]
-	if entry.Type != staleTypeVM {
+	if entry.Type != naming.StaleTypeVM {
 		t.Errorf("Type = %q, want %q", entry.Type, "vm")
 	}
 	if entry.Name != "test-vm" {
@@ -475,8 +476,8 @@ func TestStaleReport(t *testing.T) {
 		PrunedTaskSandboxes: 1,
 		PrunedCloneVolumes:  0,
 		Details: []StaleEntry{
-			{Type: staleTypeVM, Name: "vm1", StaleFor: 2 * time.Hour},
-			{Type: staleTypeVolume, Name: "vol1", StaleFor: 3 * time.Hour},
+			{Type: naming.StaleTypeVM, Name: "vm1", StaleFor: 2 * time.Hour},
+			{Type: naming.StaleTypeVolume, Name: "vol1", StaleFor: 3 * time.Hour},
 		},
 	}
 
@@ -493,7 +494,7 @@ func TestStaleReport(t *testing.T) {
 		t.Errorf("Details length = %d, want 2", len(report.Details))
 	}
 
-	if report.Details[0].Type != staleTypeVM {
+	if report.Details[0].Type != naming.StaleTypeVM {
 		t.Errorf("Details[0].Type = %q, expected vm", report.Details[0].Type)
 	}
 }
@@ -533,12 +534,12 @@ func TestParseImageTag(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.input, func(t *testing.T) {
-			info := parseImageTag(tt.input)
-			if info.slug != tt.wantSlug {
-				t.Errorf("parseImageTag(%q) slug = %q, want %q", tt.input, info.slug, tt.wantSlug)
+			info := naming.ParseImageTag(tt.input)
+			if info.Slug != tt.wantSlug {
+				t.Errorf("naming.ParseImageTag(%q) slug = %q, want %q", tt.input, info.Slug, tt.wantSlug)
 			}
-			if info.digest != tt.wantDigest {
-				t.Errorf("parseImageTag(%q) digest = %q, want %q", tt.input, info.digest, tt.wantDigest)
+			if info.Digest != tt.wantDigest {
+				t.Errorf("naming.ParseImageTag(%q) digest = %q, want %q", tt.input, info.Digest, tt.wantDigest)
 			}
 		})
 	}
@@ -562,12 +563,12 @@ func TestParseVMName(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.input, func(t *testing.T) {
-			info := parseVMName(tt.input)
-			if info.slug != tt.wantSlug {
-				t.Errorf("parseVMName(%q) slug = %q, want %q", tt.input, info.slug, tt.wantSlug)
+			info := naming.ParseVMName(tt.input)
+			if info.Slug != tt.wantSlug {
+				t.Errorf("naming.ParseVMName(%q) slug = %q, want %q", tt.input, info.Slug, tt.wantSlug)
 			}
-			if info.digest != tt.wantDigest {
-				t.Errorf("parseVMName(%q) digest = %q, want %q", tt.input, info.digest, tt.wantDigest)
+			if info.Digest != tt.wantDigest {
+				t.Errorf("naming.ParseVMName(%q) digest = %q, want %q", tt.input, info.Digest, tt.wantDigest)
 			}
 		})
 	}
@@ -586,12 +587,12 @@ func TestParseHomeVolumeName(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.input, func(t *testing.T) {
-			info := parseHomeVolumeName(tt.input)
-			if info.slug != tt.wantSlug {
-				t.Errorf("parseHomeVolumeName(%q) slug = %q, want %q", tt.input, info.slug, tt.wantSlug)
+			info := naming.ParseHomeVolumeName(tt.input)
+			if info.Slug != tt.wantSlug {
+				t.Errorf("naming.ParseHomeVolumeName(%q) slug = %q, want %q", tt.input, info.Slug, tt.wantSlug)
 			}
-			if info.digest != tt.wantDigest {
-				t.Errorf("parseHomeVolumeName(%q) digest = %q, want %q", tt.input, info.digest, tt.wantDigest)
+			if info.Digest != tt.wantDigest {
+				t.Errorf("naming.ParseHomeVolumeName(%q) digest = %q, want %q", tt.input, info.Digest, tt.wantDigest)
 			}
 		})
 	}
@@ -609,24 +610,24 @@ func TestParseHomeVolumeNameNewFormat(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.input, func(t *testing.T) {
-			info := parseHomeVolumeName(tt.input)
-			if info.slug != tt.wantSlug {
-				t.Errorf("slug = %q, want %q", info.slug, tt.wantSlug)
+			info := naming.ParseHomeVolumeName(tt.input)
+			if info.Slug != tt.wantSlug {
+				t.Errorf("slug = %q, want %q", info.Slug, tt.wantSlug)
 			}
-			if info.digest != tt.wantDigest {
-				t.Errorf("digest = %q, want %q", info.digest, tt.wantDigest)
+			if info.Digest != tt.wantDigest {
+				t.Errorf("digest = %q, want %q", info.Digest, tt.wantDigest)
 			}
 		})
 	}
 }
 
 func TestParseHomeVolumeNameLegacyFormat(t *testing.T) {
-	info := parseHomeVolumeName("opencode-msb-home-myproject-aB3cDe4fGhIjKl-xYz1234AbCdEfGh")
-	if info.slug != "myproject-aB3cDe4fGhIjKl" {
-		t.Errorf("slug = %q, want %q", info.slug, "myproject-aB3cDe4fGhIjKl")
+	info := naming.ParseHomeVolumeName("opencode-msb-home-myproject-aB3cDe4fGhIjKl-xYz1234AbCdEfGh")
+	if info.Slug != "myproject-aB3cDe4fGhIjKl" {
+		t.Errorf("slug = %q, want %q", info.Slug, "myproject-aB3cDe4fGhIjKl")
 	}
-	if info.digest != "xYz1234AbCdEfGh" {
-		t.Errorf("digest = %q, want %q", info.digest, "xYz1234AbCdEfGh")
+	if info.Digest != "xYz1234AbCdEfGh" {
+		t.Errorf("digest = %q, want %q", info.Digest, "xYz1234AbCdEfGh")
 	}
 }
 
@@ -641,9 +642,9 @@ func TestParseCloneVolumeName(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.input, func(t *testing.T) {
-			slug := parseCloneVolumeName(tt.input)
+			slug := naming.ParseCloneVolumeName(tt.input)
 			if slug != tt.wantSlug {
-				t.Errorf("parseCloneVolumeName(%q) = %q, want %q", tt.input, slug, tt.wantSlug)
+				t.Errorf("naming.ParseCloneVolumeName(%q) = %q, want %q", tt.input, slug, tt.wantSlug)
 			}
 		})
 	}

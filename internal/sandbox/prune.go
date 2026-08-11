@@ -10,12 +10,11 @@ import (
 	"github.com/moby/moby/client"
 
 	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/docker"
+	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/msb"
+	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/naming"
+	"gitlab.inoio.de/inoio/opencode-msb/internal/termio"
 
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
-
-	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/msb"
-
-	"gitlab.inoio.de/inoio/opencode-msb/internal/termio"
 )
 
 // StaleReport describes the result of a prune operation.
@@ -29,18 +28,9 @@ type StaleReport struct {
 	Details             []StaleEntry
 }
 
-type StaleType int
-
-const (
-	staleTypeVM StaleType = iota
-	staleTypeVolume
-	staleTypeDockerImage
-	staleTypeMsbImage
-)
-
 // StaleEntry describes a single artifact that was pruned or would be pruned.
 type StaleEntry struct {
-	Type     StaleType
+	Type     naming.StaleType
 	Name     string
 	StaleFor time.Duration
 	Slug     string // project slug, for grouping related artifacts
@@ -73,9 +63,6 @@ type imageWithDigest struct {
 	isLatest bool
 }
 
-// findHashSuffix finds the start index of a 14-character base36 hash suffix
-// in the name remainder (e.g. "saife-1mjusbm3wikhb0" -> returns 6, pointing
-// at the '1' in the 14-char hash). Returns -1 when no such suffix is found.
 // isStoppedStatus returns true if the status indicates the sandbox is not
 // actively running (stopped or crashed).
 func isStoppedStatus(status msbSdk.SandboxStatus) bool {
@@ -93,7 +80,7 @@ func findStaleVMs(sandboxes []staleVM, threshold time.Duration) []StaleEntry {
 		elapsed := time.Since(s.updatedAt)
 		if elapsed > threshold {
 			stale = append(stale, StaleEntry{
-				Type:     staleTypeVM,
+				Type:     naming.StaleTypeVM,
 				Name:     s.name,
 				StaleFor: elapsed,
 				Slug:     "",
@@ -151,11 +138,11 @@ func buildCatalog(ctx context.Context, client MsbClient, threshold time.Duration
 	// Process sandboxes: collect stale VMs, task sandboxes, and active VMs.
 	for _, h := range sandboxHandles {
 		name := h.Name()
-		if !strings.HasPrefix(name, sbPrefix) {
+		if !strings.HasPrefix(name, naming.SbPrefix) {
 			continue
 		}
 
-		if strings.HasPrefix(name, vmPrefix) {
+		if strings.HasPrefix(name, naming.VmPrefix) {
 			staleVMs = append(staleVMs, staleVM{
 				name:      name,
 				status:    h.Status(),
@@ -164,12 +151,12 @@ func buildCatalog(ctx context.Context, client MsbClient, threshold time.Duration
 			})
 		}
 
-		if strings.HasPrefix(name, taskPrefix) {
+		if strings.HasPrefix(name, naming.TaskPrefix) {
 			// Task sandboxes are always pruned immediately.
 			elapsed := time.Since(h.UpdatedAt())
-			slug, _ := extractProjectSlugAndDigest(name)
+			slug, _ := naming.ExtractProjectSlugAndDigest(name)
 			catalog.TaskSandboxes = append(catalog.TaskSandboxes, StaleEntry{
-				Type:     staleTypeVM,
+				Type:     naming.StaleTypeVM,
 				Name:     name,
 				StaleFor: elapsed,
 				Slug:     slug,
@@ -180,26 +167,26 @@ func buildCatalog(ctx context.Context, client MsbClient, threshold time.Duration
 
 	staleEntries := findStaleVMs(staleVMs, threshold)
 	for i, e := range staleEntries {
-		slug, _ := extractProjectSlugAndDigest(e.Name)
+		slug, _ := naming.ExtractProjectSlugAndDigest(e.Name)
 		staleEntries[i].Slug = slug
 	}
 
 	// Process volumes: home volumes (slug/digest) and clone volumes.
 	for _, h := range volumeHandles {
 		name := h.Name()
-		if !strings.HasPrefix(name, sbPrefix) {
+		if !strings.HasPrefix(name, naming.SbPrefix) {
 			continue
 		}
 
-		if strings.HasPrefix(name, homePrefix) {
-			slug, _ := extractProjectSlugAndDigest(name)
+		if strings.HasPrefix(name, naming.HomePrefix) {
+			slug, _ := naming.ExtractProjectSlugAndDigest(name)
 			if catalog.HomeVolumes[slug] == nil {
 				catalog.HomeVolumes[slug] = []string{}
 			}
 			catalog.HomeVolumes[slug] = append(catalog.HomeVolumes[slug], name)
 		}
 
-		if strings.HasPrefix(name, clonePrefix) {
+		if strings.HasPrefix(name, naming.ClonePrefix) {
 			catalog.CloneVolumes = append(catalog.CloneVolumes, name)
 		}
 	}
@@ -208,11 +195,11 @@ func buildCatalog(ctx context.Context, client MsbClient, threshold time.Duration
 	seenMSB := make(map[string]bool)
 	for _, h := range imageHandles {
 		ref := h.Reference()
-		if !strings.HasPrefix(ref, imagePrefix) {
+		if !strings.HasPrefix(ref, naming.ImagePrefix) {
 			continue
 		}
-		slug, digest := extractProjectSlugAndDigest(ref)
-		if slug == baseSlug {
+		slug, digest := naming.ExtractProjectSlugAndDigest(ref)
+		if slug == naming.BaseSlug {
 			continue
 		}
 		if seenMSB[ref] {
@@ -233,13 +220,13 @@ func buildCatalog(ctx context.Context, client MsbClient, threshold time.Duration
 	// stale VMs are included so their artifact directories are cascaded before
 	// they age into staleness; this keeps the running image around for quick restarts.
 	for _, vm := range staleVMs {
-		slug, _ := extractProjectSlugAndDigest(vm.name)
+		slug, _ := naming.ExtractProjectSlugAndDigest(vm.name)
 		// Already-stale VMs: skip here to avoid collision with stale slugs.
 		if isStaleSlug(staleEntries, slug) {
 			continue
 		}
 		if vm.image != "" {
-			_, digest := extractProjectSlugAndDigest(vm.image)
+			_, digest := naming.ExtractProjectSlugAndDigest(vm.image)
 			if digest != "" {
 				catalog.ActiveVMDigest[slug] = digest
 			}
@@ -451,7 +438,7 @@ func pruneCloneVolumes(
 	report *StaleReport,
 ) (*StaleReport, error) {
 	for _, cv := range catalog.CloneVolumes {
-		slug, _ := extractProjectSlugAndDigest(cv)
+		slug, _ := naming.ExtractProjectSlugAndDigest(cv)
 		if _, active := catalog.ActiveVMDigest[slug]; active {
 			continue
 		}
@@ -463,7 +450,7 @@ func pruneCloneVolumes(
 		}
 		report.PrunedCloneVolumes++
 		report.Details = append(report.Details, StaleEntry{
-			Type:     staleTypeVolume,
+			Type:     naming.StaleTypeVolume,
 			Name:     cv,
 			Slug:     slug,
 			StaleFor: 0,
@@ -555,7 +542,7 @@ func pruneActiveVMHomeVolumes(
 		}
 		report.PrunedVolumes++
 		report.Details = append(report.Details, StaleEntry{
-			Type:     staleTypeVolume,
+			Type:     naming.StaleTypeVolume,
 			Name:     volName,
 			Slug:     slug,
 			StaleFor: 0,
@@ -587,7 +574,7 @@ func pruneActiveVMMSBImages(
 		}
 		report.PrunedMSBImages++
 		report.Details = append(report.Details, StaleEntry{
-			Type:     staleTypeMsbImage,
+			Type:     naming.StaleTypeMsbImage,
 			Name:     img.ref,
 			Slug:     slug,
 			StaleFor: 0,
@@ -622,7 +609,7 @@ func pruneActiveVMDockerImages(
 		}
 		report.PrunedDockerImages++
 		report.Details = append(report.Details, StaleEntry{
-			Type:     staleTypeDockerImage,
+			Type:     naming.StaleTypeDockerImage,
 			Name:     img.ref,
 			Slug:     slug,
 			StaleFor: 0,
@@ -644,7 +631,7 @@ func pruneCloneVolume(
 	ui termio.UI,
 	report *StaleReport,
 ) {
-	slug, digest := extractProjectSlugAndDigest(cv)
+	slug, digest := naming.ExtractProjectSlugAndDigest(cv)
 	if staleVMs != nil && staleVMs[slug] {
 		return
 	}
@@ -659,7 +646,7 @@ func pruneCloneVolume(
 	}
 	report.PrunedCloneVolumes++
 	report.Details = append(report.Details, StaleEntry{
-		Type:     staleTypeVolume,
+		Type:     naming.StaleTypeVolume,
 		Name:     cv,
 		Slug:     slug,
 		StaleFor: 0,
@@ -712,7 +699,7 @@ func removeHomeVolumes(
 		}
 		report.PrunedVolumes++
 		report.Details = append(report.Details, StaleEntry{
-			Type:     staleTypeVolume,
+			Type:     naming.StaleTypeVolume,
 			Name:     volName,
 			Slug:     slug,
 			StaleFor: 0,
@@ -744,7 +731,7 @@ func removeMSBImages(
 		}
 		report.PrunedMSBImages++
 		report.Details = append(report.Details, StaleEntry{
-			Type:     staleTypeMsbImage,
+			Type:     naming.StaleTypeMsbImage,
 			Name:     img.ref,
 			Slug:     slug,
 			StaleFor: 0,
@@ -775,7 +762,7 @@ func removeDockerImages(
 		}
 		report.PrunedDockerImages++
 		report.Details = append(report.Details, StaleEntry{
-			Type:     staleTypeDockerImage,
+			Type:     naming.StaleTypeDockerImage,
 			Name:     img.ref,
 			Slug:     slug,
 			StaleFor: 0,

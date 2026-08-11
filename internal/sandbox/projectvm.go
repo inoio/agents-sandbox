@@ -11,6 +11,7 @@ import (
 
 	"gitlab.inoio.de/inoio/opencode-msb/internal/git"
 	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/msb"
+	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/naming"
 	"gitlab.inoio.de/inoio/opencode-msb/internal/sysinfo"
 	"gitlab.inoio.de/inoio/opencode-msb/internal/termio"
 
@@ -22,7 +23,7 @@ const experimentalWorkspacesValue = "true"
 // projectVMName generates the VM name from the project slug.
 // Note: truncation by bytes is safe because ProjectSlug sanitizes to ASCII.
 func projectVMName(slug string) string {
-	name := vmPrefix + slug
+	name := naming.VmPrefix + slug
 	if len(name) > maxSandboxNameLen {
 		name = name[:maxSandboxNameLen]
 	}
