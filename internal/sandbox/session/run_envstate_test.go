@@ -1,4 +1,4 @@
-package sandbox
+package session
 
 import (
 	"context"
@@ -10,14 +10,16 @@ import (
 
 	"gitlab.inoio.de/inoio/opencode-msb/internal/configpaths"
 	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/msb"
+	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/options"
 	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/reprovision"
+	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/state"
 	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/volume"
 	"gitlab.inoio.de/inoio/opencode-msb/internal/termio"
 	"gitlab.inoio.de/inoio/opencode-msb/internal/testutil"
 )
 
 func TestCurrentEnvState_NotFoundReturnsZero(t *testing.T) {
-	SetStateDirForTest(t, t.TempDir()+"/opencode-msb")
+	state.SetStateDirForTest(t, t.TempDir()+"/opencode-msb")
 	slug := "nonexistent"
 
 	got := currentEnvState(slug, &termio.Mock{})
@@ -31,13 +33,13 @@ func TestCurrentEnvState_NotFoundReturnsZero(t *testing.T) {
 }
 
 func TestCurrentEnvState_ReadsPersisted(t *testing.T) {
-	SetStateDirForTest(t, t.TempDir()+"/opencode-msb")
+	state.SetStateDirForTest(t, t.TempDir()+"/opencode-msb")
 	slug := "testproj-abc1"
 
-	WriteState(slug, HomeState{
+	state.WriteState(slug, state.HomeState{
 		HomeVolume:  "vol",
 		ImageDigest: "sha256:xyz",
-		EnvState: EnvState{
+		EnvState: state.EnvState{
 			Hash:  "sha256:testenvhash",
 			Names: []string{"BAR", "FOO"},
 		},
@@ -54,11 +56,11 @@ func TestCurrentEnvState_ReadsPersisted(t *testing.T) {
 }
 
 func TestCurrentEnvState_IgnoresReadError(t *testing.T) {
-	SetStateDirForTest(t, t.TempDir()+"/opencode-msb")
+	state.SetStateDirForTest(t, t.TempDir()+"/opencode-msb")
 	slug := "badproj"
 
 	// Corrupted YAML that returns a parser error (not ErrStateNotFound):
-	sdir := filepath.Join(StateDir(), slug)
+	sdir := filepath.Join(state.StateDir, slug)
 	os.MkdirAll(sdir, 0o700)
 	if err := os.WriteFile(filepath.Join(sdir, "state.yaml"), []byte("!!broken: yaml: [invalid"), 0o600); err != nil {
 		t.Fatal(err)
@@ -76,7 +78,7 @@ func TestCurrentEnvState_IgnoresReadError(t *testing.T) {
 }
 
 func TestCurrentSecretState_NotFoundReturnsZero(t *testing.T) {
-	SetStateDirForTest(t, t.TempDir()+"/opencode-msb")
+	state.SetStateDirForTest(t, t.TempDir()+"/opencode-msb")
 	slug := "nonexistent"
 
 	got := currentSecretState(slug, &termio.Mock{})
@@ -90,11 +92,11 @@ func TestCurrentSecretState_NotFoundReturnsZero(t *testing.T) {
 }
 
 func TestCurrentSecretState_ReadsPersisted(t *testing.T) {
-	SetStateDirForTest(t, t.TempDir()+"/opencode-msb")
+	state.SetStateDirForTest(t, t.TempDir()+"/opencode-msb")
 	slug := "testproj-abc2"
 
-	WriteState(slug, HomeState{
-		SecretState: SecretState{
+	state.WriteState(slug, state.HomeState{
+		SecretState: state.SecretState{
 			Hash:  "sha256:testsecrethash",
 			Names: []string{"DB_PASSWORD", "API_KEY"},
 		},
@@ -111,18 +113,18 @@ func TestCurrentSecretState_ReadsPersisted(t *testing.T) {
 }
 
 func TestPersistEnvSecrets_RoundTrip(t *testing.T) {
-	SetStateDirForTest(t, t.TempDir()+"/opencode-msb")
+	state.SetStateDirForTest(t, t.TempDir()+"/opencode-msb")
 	slug := "roundtripproj"
 
-	envSt := EnvState{Hash: "env-hash-123", Names: []string{"FOO"}}
-	secSt := SecretState{Hash: "sec-hash-456", Names: []string{"PASS"}}
+	envSt := state.EnvState{Hash: "env-hash-123", Names: []string{"FOO"}}
+	secSt := state.SecretState{Hash: "sec-hash-456", Names: []string{"PASS"}}
 
 	err := persistEnvSecrets(slug, envSt, secSt)
 	if err != nil {
 		t.Fatalf("persistEnvSecrets: %v", err)
 	}
 
-	got, err := ReadState(slug)
+	got, err := state.ReadState(slug)
 	if err != nil {
 		t.Fatalf("ReadState after persist: %v", err)
 	}
@@ -135,17 +137,17 @@ func TestPersistEnvSecrets_RoundTrip(t *testing.T) {
 }
 
 func TestPersistEnvSecrets_CreatesMissingStateDir(t *testing.T) {
-	SetStateDirForTest(t, t.TempDir()+"/opencode-msb")
+	state.SetStateDirForTest(t, t.TempDir()+"/opencode-msb")
 	slug := "newproj-" + makeSlug()
 
-	envSt := EnvState{Hash: "h1", Names: []string{"X"}}
-	secSt := SecretState{Hash: "h2", Names: []string{"Y"}}
+	envSt := state.EnvState{Hash: "h1", Names: []string{"X"}}
+	secSt := state.SecretState{Hash: "h2", Names: []string{"Y"}}
 
 	if err := persistEnvSecrets(slug, envSt, secSt); err != nil {
 		t.Fatalf("persistEnvSecrets: %v", err)
 	}
 
-	got, err := ReadState(slug)
+	got, err := state.ReadState(slug)
 	if err != nil {
 		t.Fatalf("ReadState: %v", err)
 	}
@@ -155,23 +157,23 @@ func TestPersistEnvSecrets_CreatesMissingStateDir(t *testing.T) {
 }
 
 func TestPersistEnvSecrets_MergesExistingState(t *testing.T) {
-	SetStateDirForTest(t, t.TempDir()+"/opencode-msb")
+	state.SetStateDirForTest(t, t.TempDir()+"/opencode-msb")
 	slug := "mergeproj"
 
 	// Write existing state with HomeVolume and ImageDigest
-	WriteState(slug, HomeState{
+	state.WriteState(slug, state.HomeState{
 		HomeVolume:  "existing-vol",
 		ImageDigest: "sha256:existing",
 	})
 
-	envSt := EnvState{Hash: "new-env-hash", Names: []string{"NEW"}}
-	secSt := SecretState{Hash: "new-sec-hash", Names: []string{"SECRET"}}
+	envSt := state.EnvState{Hash: "new-env-hash", Names: []string{"NEW"}}
+	secSt := state.SecretState{Hash: "new-sec-hash", Names: []string{"SECRET"}}
 
 	if err := persistEnvSecrets(slug, envSt, secSt); err != nil {
 		t.Fatalf("persistEnvSecrets: %v", err)
 	}
 
-	got, err := ReadState(slug)
+	got, err := state.ReadState(slug)
 	if err != nil {
 		t.Fatalf("ReadState: %v", err)
 	}
@@ -190,25 +192,25 @@ func TestPersistEnvSecrets_MergesExistingState(t *testing.T) {
 }
 
 func TestPersistEnvSecrets_OverwritesExistingState(t *testing.T) {
-	SetStateDirForTest(t, t.TempDir()+"/opencode-msb")
+	state.SetStateDirForTest(t, t.TempDir()+"/opencode-msb")
 	slug := "existingstateproj"
 
 	// Pre-write state with env_state already set but different hash
-	oldState := HomeState{
+	oldState := state.HomeState{
 		HomeVolume: "vol", ImageDigest: "d1",
-		EnvState:    EnvState{Hash: "sha256:olddata", Names: nil},
-		SecretState: SecretState{},
+		EnvState:    state.EnvState{Hash: "sha256:olddata", Names: nil},
+		SecretState: state.SecretState{},
 	}
-	WriteState(slug, oldState)
+	state.WriteState(slug, oldState)
 
-	envSt := EnvState{Hash: "newhash", Names: []string{"K"}}
-	secSt := SecretState{Hash: "sh", Names: []string{"S"}}
+	envSt := state.EnvState{Hash: "newhash", Names: []string{"K"}}
+	secSt := state.SecretState{Hash: "sh", Names: []string{"S"}}
 
 	if err := persistEnvSecrets(slug, envSt, secSt); err != nil {
 		t.Fatalf("persistEnvSecrets: %v", err)
 	}
 
-	got, err := ReadState(slug)
+	got, err := state.ReadState(slug)
 	if err != nil {
 		t.Fatalf("ReadState: %v", err)
 	}
@@ -221,18 +223,18 @@ func TestPersistEnvSecrets_OverwritesExistingState(t *testing.T) {
 }
 
 func TestPersistEnvSecrets_ReadFailsReturnsError(t *testing.T) {
-	SetStateDirForTest(t, t.TempDir()+"/opencode-msb")
+	state.SetStateDirForTest(t, t.TempDir()+"/opencode-msb")
 	slug := "failproj"
 
 	// Corrupted YAML that returns an error (not ErrStateNotFound):
-	sdir := filepath.Join(StateDir(), slug)
+	sdir := filepath.Join(state.StateDir, slug)
 	os.MkdirAll(sdir, 0o700)
 	if err := os.WriteFile(filepath.Join(sdir, "state.yaml"), []byte("{ corrupted: yaml: ["), 0o600); err != nil {
 		t.Fatal(err)
 	}
 
-	envSt := EnvState{Hash: "h"}
-	secSt := SecretState{Hash: "h"}
+	envSt := state.EnvState{Hash: "h"}
+	secSt := state.SecretState{Hash: "h"}
 	err := persistEnvSecrets(slug, envSt, secSt)
 
 	if err == nil {
@@ -244,21 +246,21 @@ func TestPersistEnvSecrets_ReadFailsReturnsError(t *testing.T) {
 }
 
 func TestDecideReconfig_EnvChangedWithPersistedState(t *testing.T) {
-	SetStateDirForTest(t, t.TempDir()+"/opencode-msb")
+	state.SetStateDirForTest(t, t.TempDir()+"/opencode-msb")
 
 	// Set up handle so reprovision.PlanReconfig gets a non-nil cfg
 	mock := reconfigMockClient()
 	msb.WithMsbMock(t, mock)
-	WithMockConfigPaths(t)
+	configpaths.WithMockConfigPaths(t)
 
 	vm := volume.NewManager(&termio.Mock{})
 
 	// Write state with env hash that differs from desired (nil desired = empty env)
 	// Use matching imageDigest to skip home-volume path
-	persistedState := HomeState{
+	persistedState := state.HomeState{
 		HomeVolume:  "vol",
 		ImageDigest: "sha256:samedigest",
-		EnvState: EnvState{
+		EnvState: state.EnvState{
 			Hash:  "sha256:differenthash",
 			Names: []string{"OLD_KEY"},
 		},
@@ -269,7 +271,7 @@ func TestDecideReconfig_EnvChangedWithPersistedState(t *testing.T) {
 		context.Background(),
 		mock,
 		vm,
-		RunOptions{},
+		options.RunOptions{},
 		"img:tag",
 		"sha256:samedigest",
 		"vol",
@@ -288,12 +290,12 @@ func TestDecideReconfig_EnvChangedWithPersistedState(t *testing.T) {
 }
 
 func TestDecideReconfig_EnvUnchangedWithPersistedState(t *testing.T) {
-	SetStateDirForTest(t, t.TempDir()+"/opencode-msb")
+	state.SetStateDirForTest(t, t.TempDir()+"/opencode-msb")
 	userDir := t.TempDir()
 
 	mock := &msb.MockMsbClient{}
 	msb.WithMsbMock(t, mock)
-	WithMockConfigPaths(t)
+	configpaths.WithMockConfigPaths(t)
 
 	vm := volume.NewManager(&termio.Mock{})
 
@@ -302,10 +304,10 @@ func TestDecideReconfig_EnvUnchangedWithPersistedState(t *testing.T) {
 	envHash := computeEnvHash(filepath.Join(userDir, configpaths.EnvFileName))
 
 	// Build HomeState with matching env state
-	persistedState := HomeState{
+	persistedState := state.HomeState{
 		HomeVolume:  "vol",
 		ImageDigest: "sha256:img1",
-		EnvState: EnvState{
+		EnvState: state.EnvState{
 			Hash:  envHash,
 			Names: []string{"FOO"},
 		},
@@ -316,7 +318,7 @@ func TestDecideReconfig_EnvUnchangedWithPersistedState(t *testing.T) {
 		context.Background(),
 		mock,
 		vm,
-		RunOptions{},
+		options.RunOptions{},
 		"img:tag",
 		"sha256:samedigest",
 		"vol",
@@ -335,20 +337,20 @@ func TestDecideReconfig_EnvUnchangedWithPersistedState(t *testing.T) {
 }
 
 func TestDecideReconfig_SecretsChangedWithPersistedState(t *testing.T) {
-	SetStateDirForTest(t, t.TempDir()+"/opencode-msb")
+	state.SetStateDirForTest(t, t.TempDir()+"/opencode-msb")
 
 	mock := reconfigMockClient()
 	msb.WithMsbMock(t, mock)
-	WithMockConfigPaths(t)
+	configpaths.WithMockConfigPaths(t)
 
 	vm := volume.NewManager(&termio.Mock{})
 
 	// Write state with different secret hash than desired (nil desired = no secrets)
 	// Use matching imageDigest to skip home-volume path
-	persistedState := HomeState{
+	persistedState := state.HomeState{
 		HomeVolume:  "vol",
 		ImageDigest: "sha256:samedigest",
-		SecretState: SecretState{
+		SecretState: state.SecretState{
 			Hash:  "sha256:oldsecrethash",
 			Names: []string{"DB_PASS"},
 		},
@@ -359,7 +361,7 @@ func TestDecideReconfig_SecretsChangedWithPersistedState(t *testing.T) {
 		context.Background(),
 		mock,
 		vm,
-		RunOptions{},
+		options.RunOptions{},
 		"img:tag",
 		"sha256:samedigest",
 		"vol",
@@ -378,12 +380,12 @@ func TestDecideReconfig_SecretsChangedWithPersistedState(t *testing.T) {
 }
 
 func TestDecideReconfig_ZeroPersistedStateNoSpuriousChange(t *testing.T) {
-	SetStateDirForTest(t, t.TempDir()+"/opencode-msb")
+	state.SetStateDirForTest(t, t.TempDir()+"/opencode-msb")
 	userDir := t.TempDir()
 
 	mock := &msb.MockMsbClient{}
 	msb.WithMsbMock(t, mock)
-	WithMockConfigPaths(t)
+	configpaths.WithMockConfigPaths(t)
 
 	vm := volume.NewManager(&termio.Mock{})
 
@@ -397,11 +399,11 @@ func TestDecideReconfig_ZeroPersistedStateNoSpuriousChange(t *testing.T) {
 		context.Background(),
 		mock,
 		vm,
-		RunOptions{},
+		options.RunOptions{},
 		"img:tag",
 		"sha256:d1",
 		"vol",
-		HomeState{},
+		state.HomeState{},
 		&ui,
 	)
 	if err != nil {
@@ -416,28 +418,28 @@ func TestDecideReconfig_ZeroPersistedStateNoSpuriousChange(t *testing.T) {
 }
 
 func TestSecretsChanged_ZeroApplied_NilDesired(t *testing.T) {
-	got := reprovision.SecretsChanged(SecretState{}, nil)
+	got := reprovision.SecretsChanged(state.SecretState{}, nil)
 	if got {
 		t.Error("expected NO change when applied is zero and desired is nil")
 	}
 }
 
 func TestSecretsChanged_ZeroApplied_EmptyDesired(t *testing.T) {
-	got := reprovision.SecretsChanged(SecretState{}, []msbSdk.SecretEntry{})
+	got := reprovision.SecretsChanged(state.SecretState{}, []msbSdk.SecretEntry{})
 	if got {
 		t.Error("expected NO change when applied is zero and desired is empty")
 	}
 }
 
 func TestSecretsChanged_NonZeroApplied_DifferentHash(t *testing.T) {
-	got := reprovision.SecretsChanged(SecretState{Hash: "h1"}, []msbSdk.SecretEntry{{EnvVar: "K", Value: "v"}})
+	got := reprovision.SecretsChanged(state.SecretState{Hash: "h1"}, []msbSdk.SecretEntry{{EnvVar: "K", Value: "v"}})
 	if !got {
 		t.Error("expected change when hashes differ")
 	}
 }
 
 func TestEnvChanged_ZeroApplied_NonEmptyDesired(t *testing.T) {
-	got := reprovision.EnvChanged(EnvState{}, map[string]string{"FOO": "bar"})
+	got := reprovision.EnvChanged(state.EnvState{}, map[string]string{"FOO": "bar"})
 	if !got {
 		t.Error("expected change when applied is zero and desired is non-empty")
 	}
@@ -446,7 +448,7 @@ func TestEnvChanged_ZeroApplied_NonEmptyDesired(t *testing.T) {
 func TestEnvChanged_MatchingHash(t *testing.T) {
 	desired := map[string]string{"FOO": "bar"}
 	wantHash := reprovision.EnvContentHash(desired)
-	got := reprovision.EnvChanged(EnvState{Hash: wantHash}, desired)
+	got := reprovision.EnvChanged(state.EnvState{Hash: wantHash}, desired)
 	if got {
 		t.Error("expected NO change when hashes match")
 	}
@@ -471,17 +473,17 @@ func TestEnvContentHash_OrderIndependent(t *testing.T) {
 
 // TestPersistEnvSecrets_NilStateOnNotFound tests persistEnvSecrets when no state file exists.
 func TestPersistEnvSecrets_NilStateOnNotFound(t *testing.T) {
-	SetStateDirForTest(t, t.TempDir()+"/opencode-msb")
+	state.SetStateDirForTest(t, t.TempDir()+"/opencode-msb")
 	slug := "freshproject"
 
-	envSt := EnvState{Hash: "h1", Names: []string{"X"}}
-	secSt := SecretState{Hash: "h2", Names: []string{"Y"}}
+	envSt := state.EnvState{Hash: "h1", Names: []string{"X"}}
+	secSt := state.SecretState{Hash: "h2", Names: []string{"Y"}}
 
 	if err := persistEnvSecrets(slug, envSt, secSt); err != nil {
 		t.Fatalf("persistEnvSecrets: %v", err)
 	}
 
-	got, err := ReadState(slug)
+	got, err := state.ReadState(slug)
 	if err != nil {
 		t.Fatalf("ReadState: %v", err)
 	}
@@ -500,17 +502,17 @@ func TestPersistEnvSecrets_NilStateOnNotFound(t *testing.T) {
 }
 
 func TestPersistEnvSecrets_HomeStateOmitsZeroState(t *testing.T) {
-	SetStateDirForTest(t, t.TempDir()+"/opencode-msb")
+	state.SetStateDirForTest(t, t.TempDir()+"/opencode-msb")
 	slug := "omittestproj"
 
-	envSt := EnvState{Hash: "h1", Names: []string{"X"}}
-	secSt := SecretState{}
+	envSt := state.EnvState{Hash: "h1", Names: []string{"X"}}
+	secSt := state.SecretState{}
 
 	if err := persistEnvSecrets(slug, envSt, secSt); err != nil {
 		t.Fatalf("persistEnvSecrets: %v", err)
 	}
 
-	data, err := os.ReadFile(filepath.Join(StateDir(), slug, "state.yaml"))
+	data, err := os.ReadFile(filepath.Join(state.StateDir, slug, "state.yaml"))
 	if err != nil {
 		t.Fatalf("read state file: %v", err)
 	}
@@ -521,14 +523,14 @@ func TestPersistEnvSecrets_HomeStateOmitsZeroState(t *testing.T) {
 }
 
 func TestCurrentStates_PersistedBothFields(t *testing.T) {
-	SetStateDirForTest(t, t.TempDir()+"/opencode-msb")
+	state.SetStateDirForTest(t, t.TempDir()+"/opencode-msb")
 	slug := "bothproj"
 
-	WriteState(slug, HomeState{
+	state.WriteState(slug, state.HomeState{
 		HomeVolume:  "vol",
 		ImageDigest: "sha256:img",
-		EnvState:    EnvState{Hash: "eh", Names: []string{"A"}},
-		SecretState: SecretState{Hash: "sh", Names: []string{"B"}},
+		EnvState:    state.EnvState{Hash: "eh", Names: []string{"A"}},
+		SecretState: state.SecretState{Hash: "sh", Names: []string{"B"}},
 	})
 
 	e := currentEnvState(slug, nil)
@@ -542,20 +544,20 @@ func TestCurrentStates_PersistedBothFields(t *testing.T) {
 }
 
 func TestPersistEnvSecrets_ZeroStateOverwritesOnlyFields(t *testing.T) {
-	SetStateDirForTest(t, t.TempDir()+"/opencode-msb")
+	state.SetStateDirForTest(t, t.TempDir()+"/opencode-msb")
 	slug := "overwriteproj"
 
-	WriteState(slug, HomeState{
+	state.WriteState(slug, state.HomeState{
 		HomeVolume:  "vol",
 		ImageDigest: "sha256:img",
-		EnvState:    EnvState{Hash: "old-env", Names: []string{"OLD"}},
+		EnvState:    state.EnvState{Hash: "old-env", Names: []string{"OLD"}},
 	})
 
-	if err := persistEnvSecrets(slug, EnvState{}, SecretState{}); err != nil {
+	if err := persistEnvSecrets(slug, state.EnvState{}, state.SecretState{}); err != nil {
 		t.Fatalf("persistEnvSecrets: %v", err)
 	}
 
-	got, err := ReadState(slug)
+	got, err := state.ReadState(slug)
 	if err != nil {
 		t.Fatalf("ReadState: %v", err)
 	}
@@ -571,12 +573,12 @@ func TestPersistEnvSecrets_ZeroStateOverwritesOnlyFields(t *testing.T) {
 }
 
 func TestDecideReconfig_PersistedSecretsMatchDesired(t *testing.T) {
-	SetStateDirForTest(t, t.TempDir()+"/opencode-msb")
+	state.SetStateDirForTest(t, t.TempDir()+"/opencode-msb")
 	userDir := t.TempDir()
 
 	mock := &msb.MockMsbClient{}
 	msb.WithMsbMock(t, mock)
-	WithMockConfigPaths(t)
+	configpaths.WithMockConfigPaths(t)
 
 	vm := volume.NewManager(&termio.Mock{})
 
@@ -584,16 +586,16 @@ func TestDecideReconfig_PersistedSecretsMatchDesired(t *testing.T) {
 	desiredEnv := reprovision.MergeEnvMaps(reprovision.BuildEnvMap(filepath.Join(userDir, configpaths.EnvFileName)))
 	envHash := reprovision.EnvContentHash(desiredEnv)
 
-	WriteState("myproj5", HomeState{
+	state.WriteState("myproj5", state.HomeState{
 		HomeVolume:  "vol",
 		ImageDigest: "sha256:img",
-		EnvState:    EnvState{Hash: envHash, Names: []string{"K"}},
+		EnvState:    state.EnvState{Hash: envHash, Names: []string{"K"}},
 	})
 
-	persistedState := HomeState{
+	persistedState := state.HomeState{
 		HomeVolume:  "vol",
 		ImageDigest: "sha256:img",
-		EnvState:    EnvState{Hash: envHash, Names: []string{"K"}},
+		EnvState:    state.EnvState{Hash: envHash, Names: []string{"K"}},
 	}
 
 	ui := testutil.TermUIMock(t)
@@ -601,7 +603,7 @@ func TestDecideReconfig_PersistedSecretsMatchDesired(t *testing.T) {
 		context.Background(),
 		mock,
 		vm,
-		RunOptions{},
+		options.RunOptions{},
 		"img", "sha256:img", "vol",
 		persistedState,
 		&ui,
@@ -624,7 +626,7 @@ func reconfigMockClient() *msb.MockMsbClient {
 	sh := &msb.MockSandboxHandle{Cfg: &msbSdk.SandboxConfig{
 		Image: "img:tag", CPUs: 4, MemoryMiB: 4096,
 	}}
-	sh.ConnectSb = &MockSandbox{}
+	sh.ConnectSb = &msb.MockSandbox{}
 	mock.GetSandboxFn = func(_ context.Context, _ string) (msb.SandboxHandle, error) {
 		return sh, nil
 	}

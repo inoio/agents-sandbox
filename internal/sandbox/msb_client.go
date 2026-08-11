@@ -7,8 +7,6 @@ package sandbox
 import (
 	"testing"
 
-	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
-
 	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/msb"
 )
 
@@ -77,8 +75,3 @@ type SandboxOpts = msb.SandboxOpts
 
 // TestFS is a re-export of msb.TestFS for tests.
 type TestFS = msb.TestFS
-
-// newTestFS creates a SandboxFS backed by the given files.
-func newTestFS(files map[string][]byte, ls []msbSdk.FsEntry) *TestFS {
-	return msb.NewTestFS(files, ls)
-}
