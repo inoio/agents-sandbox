@@ -1,4 +1,4 @@
-package sandbox
+package configpaths
 
 import (
 	"os"
@@ -11,14 +11,14 @@ type ConfigPaths interface {
 	UserStateDir() string
 	UserOpencodeConfigDir() string
 
-	userEnvFile() string
-	userEnvSecretFile() string
+	UserEnvFile() string
+	UserEnvSecretFile() string
 
 	ProjectConfigDir() string
-	projectOpencodeConfigDir() string
-	projectEnvFile() string
-	projectEnvSecretFile() string
-	projectDockerfile() string
+	ProjectOpencodeConfigDir() string
+	ProjectEnvFile() string
+	ProjectEnvSecretFile() string
+	ProjectDockerfile() string
 }
 
 type realConfigPaths struct{}
@@ -58,13 +58,13 @@ func (c *realConfigPaths) UserOpencodeConfigDir() string {
 // ProjectConfigDir returns the tool's project-config directory: $PWD/opencode-msb.
 func (c *realConfigPaths) ProjectConfigDir() string { return projectConfigDir }
 
-// userEnvFile returns the user-level environment definitions file.
-func (c *realConfigPaths) userEnvFile() string {
+// UserEnvFile returns the user-level environment definitions file.
+func (c *realConfigPaths) UserEnvFile() string {
 	return filepath.Join(c.UserConfigDir(), envFileName)
 }
 
-// userEnvSecretFile returns the user-level secret environment definitions file.
-func (c *realConfigPaths) userEnvSecretFile() string {
+// UserEnvSecretFile returns the user-level secret environment definitions file.
+func (c *realConfigPaths) UserEnvSecretFile() string {
 	return filepath.Join(c.UserConfigDir(), envSecretFileName)
 }
 
@@ -76,28 +76,35 @@ const projectConfigDir = "." + pathPrefix
 // Shared names for config subdirectories and files, used by both the
 // project-local and the user-level config path helpers.
 const (
-	configDirName     = "opencode"
-	envFileName       = "env"
-	envSecretFileName = "env.secret"
-	dockerfileName    = "Dockerfile"
+	pathPrefixName    = "opencode-msb"
+	ConfigDirName     = "opencode"
+	EnvFileName       = "env"
+	EnvSecretFileName = "env.secret"
+	DockerFileName    = "Dockerfile"
 )
 
-// Project-level filesystem paths, built with filepath.Join to mirror the
-// user-level config path handling.
-func (c *realConfigPaths) projectDockerfile() string {
+const (
+	configDirName     = ConfigDirName
+	envFileName       = EnvFileName
+	envSecretFileName = EnvSecretFileName
+	dockerfileName    = DockerFileName
+)
+
+// ProjectDockerfile returns the project Dockerfile path.
+func (c *realConfigPaths) ProjectDockerfile() string {
 	return filepath.Join(projectConfigDir, dockerfileName)
 }
 
-// projectOpencodeConfigDir is the project-local opencode config directory.
-func (c *realConfigPaths) projectOpencodeConfigDir() string {
+// ProjectOpencodeConfigDir returns the project-local opencode config directory.
+func (c *realConfigPaths) ProjectOpencodeConfigDir() string {
 	return filepath.Join(projectConfigDir, configDirName)
 }
 
-func (c *realConfigPaths) projectEnvFile() string {
+func (c *realConfigPaths) ProjectEnvFile() string {
 	return filepath.Join(projectConfigDir, envFileName)
 }
 
-func (c *realConfigPaths) projectEnvSecretFile() string {
+func (c *realConfigPaths) ProjectEnvSecretFile() string {
 	return filepath.Join(projectConfigDir, envSecretFileName)
 }
 

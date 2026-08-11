@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"gitlab.inoio.de/inoio/opencode-msb/internal/configpaths"
 	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox"
 
 	"github.com/go-viper/mapstructure/v2"
@@ -104,10 +105,10 @@ func durationDecodeHook() mapstructure.DecodeHookFunc {
 func Load() (Config, map[string]bool, error) {
 	v := viper.New()
 
-	if err := mergeDir(v, sandbox.GetConfigPaths().UserConfigDir()); err != nil {
+	if err := mergeDir(v, configpaths.GetConfigPaths().UserConfigDir()); err != nil {
 		return Config{}, nil, err
 	}
-	if err := mergeDir(v, sandbox.GetConfigPaths().ProjectConfigDir()); err != nil {
+	if err := mergeDir(v, configpaths.GetConfigPaths().ProjectConfigDir()); err != nil {
 		return Config{}, nil, err
 	}
 	if err := validate(v); err != nil {

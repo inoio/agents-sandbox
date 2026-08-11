@@ -1,4 +1,4 @@
-package sandbox
+package configpaths
 
 import (
 	"path/filepath"
@@ -69,29 +69,5 @@ func TestUserDirIgnoresRelativeEnv(t *testing.T) {
 	want := filepath.Join(home, ".config", "opencode-msb")
 	if got := cfgPaths.UserConfigDir(); got != want {
 		t.Errorf("UserConfigDir() = %q, want %q", got, want)
-	}
-}
-
-func TestStateFileAbsoluteUnderUserStateDir(t *testing.T) {
-	WithRealConfigPaths(t)
-	state := t.TempDir()
-	t.Setenv("XDG_STATE_HOME", state)
-	t.Setenv("HOME", t.TempDir())
-	got := stateFile("proj")
-	want := filepath.Join(state, "opencode-msb", "proj", "state.yaml")
-	if got != want {
-		t.Errorf("StateFile() = %q, want %q", got, want)
-	}
-}
-
-func TestEnvDirUsesCache(t *testing.T) {
-	WithRealConfigPaths(t)
-	cache := t.TempDir()
-	t.Setenv("XDG_CACHE_HOME", cache)
-	t.Setenv("HOME", t.TempDir())
-	got := envDir()
-	want := filepath.Join(cache, "opencode-msb")
-	if got != want {
-		t.Errorf("envDir() = %q, want %q", got, want)
 	}
 }
