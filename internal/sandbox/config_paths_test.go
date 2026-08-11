@@ -3,8 +3,6 @@ package sandbox
 import (
 	"path/filepath"
 	"testing"
-
-	"github.com/stretchr/testify/require"
 )
 
 func TestUserDirEnvOverride(t *testing.T) {
@@ -101,8 +99,6 @@ func TestEnvDirUsesCache(t *testing.T) {
 func TestEnvSecretYAMLPaths(t *testing.T) {
 	WithRealConfigPaths(t)
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
-	_, err := filepath.Abs(".")
-	require.NoError(t, err)
 
 	c := &realConfigPaths{}
 	if got := c.userEnvSecretYAMLFile(); got != filepath.Join(c.UserConfigDir(), envSecretYAMLFileName) {
