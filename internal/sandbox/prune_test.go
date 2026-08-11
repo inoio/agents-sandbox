@@ -10,6 +10,7 @@ import (
 
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 
+	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/msb"
 	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/naming"
 	"gitlab.inoio.de/inoio/opencode-msb/internal/termio"
 	"gitlab.inoio.de/inoio/opencode-msb/internal/testutil"
@@ -304,9 +305,9 @@ func TestIsStoppedStatus(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := isStoppedStatus(tt.status)
+			got := msb.IsStoppedStatus(tt.status)
 			if got != tt.want {
-				t.Errorf("isStoppedStatus(%q) = %v, want %v", tt.status, got, tt.want)
+				t.Errorf("IsStoppedStatus(%q) = %v, want %v", tt.status, got, tt.want)
 			}
 		})
 	}

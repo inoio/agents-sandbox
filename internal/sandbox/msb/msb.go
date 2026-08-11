@@ -100,6 +100,25 @@ type SandboxFS interface {
 	Remove(ctx context.Context, path string) error
 }
 
+// IsSandboxActive reports whether a sandbox status represents a live VM that
+// WithReplace would terminate. Stopped or crashed sandboxes are stale state
+// that can be replaced silently.
+func IsSandboxActive(status msbSdk.SandboxStatus) bool {
+	switch status {
+	case msbSdk.SandboxStatusRunning, msbSdk.SandboxStatusDraining, msbSdk.SandboxStatusPaused:
+		return true
+	case msbSdk.SandboxStatusStopped, msbSdk.SandboxStatusCrashed:
+		return false
+	}
+	return false
+}
+
+// IsStoppedStatus reports whether a sandbox status indicates the sandbox is not
+// actively running (stopped or crashed).
+func IsStoppedStatus(status msbSdk.SandboxStatus) bool {
+	return status == msbSdk.SandboxStatusStopped || status == msbSdk.SandboxStatusCrashed
+}
+
 // MockCreateSandboxCall tracks a CreateSandbox call made on MockMsbClient.
 type MockCreateSandboxCall struct {
 	Name string
