@@ -43,7 +43,7 @@ func extractRunOptions(cmd *cobra.Command, auto bool, ui termio.UI) (sandbox.Run
 	ctx := cmd.Context()
 	if ctx != nil {
 		if lc, ok := ctx.Value((*launcherConfigKey)(nil)).(launcherconfig.Config); ok {
-			opts.ReapPolicy = lc.ReapPolicy()
+			opts.ReapPolicy = options.NewReapPolicy(lc.AutoStopOnActiveSessions, lc.AutoStopMaxSessionRetries)
 			opts.IdleTimeout = lc.IdleTimeout()
 		}
 	}
