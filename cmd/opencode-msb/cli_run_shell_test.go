@@ -327,7 +327,8 @@ func TestRunShell_R10_runWithShortFlags(t *testing.T) {
 	}
 }
 
-// R11: run success (Attach returns code 0).
+// R11: run success (Attach returns code 0). A clean exit must not be surfaced
+// as a cobra error (would print "Error: exit code 0" + usage).
 func TestRunShell_R11_runSuccessDetachOk(t *testing.T) {
 	initTestRepo(t)
 
@@ -339,12 +340,8 @@ func TestRunShell_R11_runSuccessDetachOk(t *testing.T) {
 	root.SetArgs([]string{"run"})
 
 	err := root.Execute()
-	var exitErr *sandbox.ExitError
-	if !errors.As(err, &exitErr) {
-		t.Fatalf("expected ExitError, got: %T (%v)", err, err)
-	}
-	if exitErr.Code != 0 {
-		t.Errorf("expected exit code 0, got %d", exitErr.Code)
+	if err != nil {
+		t.Fatalf("expected no error on clean exit, got: %T (%v)", err, err)
 	}
 }
 

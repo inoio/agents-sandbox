@@ -34,10 +34,20 @@ published on the host, prints the URL for Opencode Desktop, and stays running
 opencode-msb run --serve-only
 ````
 
-Connect Opencode Desktop to the printed `http://127.0.0.1:4096` URL. The server
-is only bound to the host loopback. To add basic auth, set
-`OPENCODE_SERVER_PASSWORD` (and optionally `OPENCODE_SERVER_USERNAME`) in the
-project or user env before starting.
+Connect Opencode Desktop to the printed `http://127.0.0.1:4096` URL. The host
+port is bound only to the host loopback (never exposed on the LAN); the in-VM
+`opencode serve` daemon listens on all interfaces so the published port is
+reachable. To add basic auth, set `OPENCODE_SERVER_PASSWORD` (and optionally
+`OPENCODE_SERVER_USERNAME`) in the project or user env before starting.
+
+To connect Opencode Desktop to the sandbox:
+
+1. Start the sandbox with `opencode-msb run --serve-only`.
+2. In Opencode Desktop: **File → Settings → Servers → Add server** (defaults).
+3. On the host (as root), symlink the directory you want to work in to
+   `/workspace`.
+4. **New project** for that server, pointing at `/workspace` — the path
+   Opencode Desktop sends must match the in-VM path (`/workspace`).
 
 ## Installation
 
