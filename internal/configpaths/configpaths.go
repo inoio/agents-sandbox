@@ -1,7 +1,7 @@
 package configpaths
 
 import (
-	"os"
+  	"os"
 	"path/filepath"
 )
 
