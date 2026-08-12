@@ -34,8 +34,8 @@ first one found is used.
 | `rebuild`                       | `--rebuild` / `-r`     | Rebuild runner image before starting                                                                                                         |
 | `cpus`                          | `--cpus` / `-c`        | Number of vCPUs for the VM                                                                                                                   |
 | `memory`                        | `--memory` / `-m`      | Memory limit (e.g. `8G`)                                                                                                                     |
-| `disk-size`                     | `--disk-size`          | Project VM root disk size (e.g. `16G`). Empty = microsandbox runtime default (~4 GiB). Applied at VM creation; a change triggers recreation. |
-| `tmp-size`                      | `--tmp-size`           | Size of `/tmp` tmpfs in the sandbox                                                                                                          |
+| `disk-size`                     | `--disk-size`          | Project VM root disk size (e.g. `16G`). Empty = microsandbox runtime default (~4 GiB). Applied at VM creation; a change triggers recreation. An invalid value is rejected with an error. |
+| `tmp-size`                      | `--tmp-size`           | Size of `/tmp` tmpfs in the sandbox. An invalid value is rejected with an error. |
 | `auto-prune-age`                | —                      | Auto-prune threshold, runs before every command (default: 30d, only in config)                                                               |
 | `manual-prune-age`              | `--age`                | Default prune age threshold for `prune` cmd                                                                                                  |
 | `auto-stop-on-active-sessions`  | —                      | Stop VM immediately on client detach without waiting for active sessions (default: false, only in config; `busy` sessions are never cut off) |
