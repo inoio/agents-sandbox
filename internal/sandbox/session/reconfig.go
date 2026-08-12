@@ -136,7 +136,7 @@ func decideReconfig(
 	// yet (fresh home already created), the prompt is skipped.
 	if imageChanged && recreate {
 		action := vm.ResolveHomeAction(ui, hs.ImageDigest, imageDigest)
-		if action == "4" {
+		if action == volume.ActionQuit {
 			ui.Infof("exiting as requested by user")
 			return false, false, homeVol, &ExitError{Code: 1}
 		}

@@ -62,7 +62,7 @@ func TestExtractProjectSlugAndDigest_Unrecognized(t *testing.T) {
 	}
 }
 
-func TestFindHashSuffix(t *testing.T) {
+func TestHashSuffix(t *testing.T) {
 	cases := []struct {
 		name string
 		in   string
@@ -75,9 +75,9 @@ func TestFindHashSuffix(t *testing.T) {
 		{"no hash - short string", "abc-def", -1},
 	}
 	for _, c := range cases {
-		got := FindHashSuffix(c.in)
+		got := findHashSuffix(c.in)
 		if got != c.want {
-			t.Errorf("FindHashSuffix(%q) = %d, want %d", c.in, got, c.want)
+			t.Errorf("findHashSuffix(%q) = %d, want %d", c.in, got, c.want)
 		}
 	}
 }

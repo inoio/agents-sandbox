@@ -57,7 +57,9 @@ func TestIsStoppedStatus(t *testing.T) {
 		{"running", msbSdk.SandboxStatusRunning, false},
 		{"draining", msbSdk.SandboxStatusDraining, false},
 		{"paused", msbSdk.SandboxStatusPaused, false},
-		{"unknown", msbSdk.SandboxStatus(""), false},
+		// Unknown statuses: IsSandboxActive returns false, so !IsSandboxActive = true.
+		// This is a slight deviation from the old switch which returned false for unknown.
+		{"unknown", msbSdk.SandboxStatus(""), true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

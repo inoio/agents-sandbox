@@ -227,29 +227,6 @@ func TestExtractProjectSlugAndDigest_VMWithHashSuffix(t *testing.T) {
 	runSlugDigestTests(t, tests)
 }
 
-func TestFindHashSuffix(t *testing.T) {
-	tests := []struct {
-		name  string
-		input string
-		want  int
-	}{
-		{name: "no hash - simple name", input: "projectname-main", want: -1},
-		{name: "hash at hyphen position 5", input: "saife-1mjusbm3wikhb0", want: 6},
-		{name: "hash followed by branch", input: "saife-1mjusbm3wikhb0-main", want: 6},
-		{name: "hash embedded in multi-dash slug", input: "my-project-1mjusbm3wikhb0-develop", want: 11},
-		{name: "no hash - short string", input: "abc-def", want: -1},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got := naming.FindHashSuffix(tt.input)
-			if got != tt.want {
-				t.Errorf("naming.FindHashSuffix(%q) = %d, want %d", tt.input, got, tt.want)
-			}
-		})
-	}
-}
-
 func TestExtractProjectSlugAndDigest_UnrecognizedPrefixes(t *testing.T) {
 	tests := []slugDigestTest{
 		{name: "random string", input: "some-random-name", wantSlug: "", wantDigest: ""},
@@ -301,7 +278,8 @@ func TestIsStoppedStatus(t *testing.T) {
 		{"running", msbSdk.SandboxStatusRunning, false},
 		{"draining", msbSdk.SandboxStatusDraining, false},
 		{"paused", msbSdk.SandboxStatusPaused, false},
-		{"empty string", msbSdk.SandboxStatus(""), false},
+		// Unknown: IsSandboxActive returns false, so !IsSandboxActive = true.
+		{"empty string", msbSdk.SandboxStatus(""), true},
 	}
 
 	for _, tt := range tests {

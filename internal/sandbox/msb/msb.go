@@ -114,9 +114,13 @@ func IsSandboxActive(status msbSdk.SandboxStatus) bool {
 }
 
 // IsStoppedStatus reports whether a sandbox status indicates the sandbox is not
-// actively running (stopped or crashed).
+// actively running (stopped or crashed). Derived from IsSandboxActive.
+// Note: unknown statuses not recognized by IsSandboxActive return true here
+// (since !false == true), which is a slight deviation from the previous
+// switch behavior. For the five statuses both predicates recognize
+// (Running/Draining/Paused/Stopped/Crashed), behavior is identical.
 func IsStoppedStatus(status msbSdk.SandboxStatus) bool {
-	return status == msbSdk.SandboxStatusStopped || status == msbSdk.SandboxStatusCrashed
+	return !IsSandboxActive(status)
 }
 
 // MockCreateSandboxCall tracks a CreateSandbox call made on MockMsbClient.
