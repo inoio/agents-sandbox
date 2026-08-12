@@ -46,6 +46,7 @@
 
 [ ] env.secret[.yaml] im Projekt, wie verstecken?
 [ ] default pattern for hiding project files, configurable (*.secret), not checked in?
+[ ] Concept for connecting Opencode Desktop to sandboxed server
 
 ### README überarbeiten
 
@@ -54,13 +55,15 @@
 
 ## 1st prio
 
-[ ] Concept for connecting Opencode Desktop to sandboxed server 
 [ ] inoio providers ausbauen, anders zur Verfügung stellen.
 [ ] opencode config dir & merging nach alphabet
+[ ] config file(s): support arbitrary files in VM home
 [ ] config file(s) übersicht, beispiele
 [ ] config show: list all files that would apply to a VM startup.
+
 [ ] make cli output pretty and UX'd
-[ ] OPENCODE_DISABLE_AUTOUPDATE, OPENCODE_EXPERIMENTAL_EXA, OPENCODE_EXPERIMENTAL_BACKGROUND_SUBAGENTS, OPENCODE_EXPERIMENTAL_PARALLEL, OPENCODE_EXPERIMENTAL_SCOUT? 
+[ ] OPENCODE_DISABLE_AUTOUPDATE and detect releases, offer vm rebuild
+[ ] OPENCODE_EXPERIMENTAL_EXA, OPENCODE_EXPERIMENTAL_BACKGROUND_SUBAGENTS, OPENCODE_EXPERIMENTAL_PARALLEL, OPENCODE_EXPERIMENTAL_SCOUT? 
 [ ] remove msb load exec call by spooling to tmp file and using msb SDKs Image.Load 
 
 ## 2nd prio
