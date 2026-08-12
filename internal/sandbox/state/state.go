@@ -39,17 +39,17 @@ func slugPath(slug string, parts ...string) string {
 	return filepath.Join(append([]string{slugDir(slug)}, parts...)...)
 }
 
-// EnvState tracks environment-variable fingerprint data for a project.
-type EnvState struct {
+// FingerprintState is the shared shape of env/secret fingerprint data.
+type FingerprintState struct {
 	Hash  string   `yaml:"hash,omitempty"`
 	Names []string `yaml:"names,omitempty"`
 }
 
+// EnvState tracks environment-variable fingerprint data for a project.
+type EnvState = FingerprintState
+
 // SecretState tracks secret fingerprint data for a project.
-type SecretState struct {
-	Hash  string   `yaml:"hash,omitempty"`
-	Names []string `yaml:"names,omitempty"`
-}
+type SecretState = FingerprintState
 
 // HomeState represents the per-project state file contents.
 type HomeState struct {
@@ -57,6 +57,15 @@ type HomeState struct {
 	ImageDigest string      `yaml:"image_digest"`
 	EnvState    EnvState    `yaml:"env_state,omitempty"`
 	SecretState SecretState `yaml:"secret_state,omitempty"`
+}
+
+// NewHomeState returns a HomeState with a zeroed EnvState/SecretState, ready
+// for write-after-creation or write-after-action flows.
+func NewHomeState(homeVolume, digest string) HomeState {
+	return HomeState{ //nolint:exhaustruct // EnvState/SecretState zeroed intentionally; serialized with omitempty
+		HomeVolume:  homeVolume,
+		ImageDigest: digest,
+	}
 }
 
 func stateFile(slug string) string {
