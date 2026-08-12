@@ -393,7 +393,7 @@ func TestRestartDaemonsRestartsServe(t *testing.T) {
 		},
 	}
 	ui := testutil.TermUIMock(t)
-	restartDaemons(context.Background(), sb, map[string][]byte{"opencode.jsonc": []byte("{}")}, &ui)
+	restartDaemons(context.Background(), sb, map[string][]byte{"opencode.jsonc": []byte("{}")}, false, &ui)
 
 	var joined strings.Builder
 	for _, c := range cmdCalls {
