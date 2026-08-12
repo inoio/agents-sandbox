@@ -1,0 +1,141 @@
+# Review package: d0919bd..29d80cf5427e58942ba69eebf201dd86dcf376bc
+
+## Commits
+29d80cf refactor: drop orphaned ExitError remaining in options after move
+87ace2e fix: revert out-of-scope serve-only drift in ensureDaemon/restartDaemons
+
+## Files changed
+ internal/sandbox/options/options.go  | 9 ---------
+ internal/sandbox/session/run.go      | 8 ++++----
+ internal/sandbox/session/run_test.go | 2 +-
+ 3 files changed, 5 insertions(+), 14 deletions(-)
+
+## Diff
+diff --git a/internal/sandbox/options/options.go b/internal/sandbox/options/options.go
+index 96e5710..ddd9f61 100644
+--- a/internal/sandbox/options/options.go
++++ b/internal/sandbox/options/options.go
+@@ -1,27 +1,18 @@
+ package options
+ 
+ import (
+-	"fmt"
+ 	"time"
+ 
+ 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
+ )
+ 
+-type ExitError struct {
+-	Code int
+-}
+-
+-func (e *ExitError) Error() string {
+-	return fmt.Sprintf("exit code %d", e.Code)
+-}
+-
+ // RunOptions controls sandbox lifecycle and configuration.
+ type RunOptions struct {
+ 	Worktree    WorktreeSpec
+ 	Memory      string
+ 	TmpSize     string
+ 	DiskSize    string
+ 	User        string
+ 	Args        []string
+ 	ReapPolicy  ReapPolicy
+ 	IdleTimeout time.Duration
+diff --git a/internal/sandbox/session/run.go b/internal/sandbox/session/run.go
+index 6b53cd2..1dc13a9 100644
+--- a/internal/sandbox/session/run.go
++++ b/internal/sandbox/session/run.go
+@@ -373,36 +373,36 @@ func setUpSandbox(
+ 	restart bool,
+ ) (string, error) {
+ 	cfs, err := reprovision.LoadConfigFiles(configpaths.GetConfigPaths().UserOpencodeConfigDir())
+ 	if err != nil {
+ 		return "", err
+ 	}
+ 
+ 	ui.Verbosef("expected config files: %v", cfs.Keys)
+ 
+ 	if restart {
+-		restartDaemons(ctx, sb, cfs.Files, opts.ServeOnly, ui)
++		restartDaemons(ctx, sb, cfs.Files, ui)
+ 		return ResolveTarget(ctx, sb, opts.Worktree, ui)
+ 	}
+ 
+ 	vmData := reprovision.ReadVMFiles(ctx, sb, "/home/dev/.config/opencode", ui)
+ 	if len(cfs.Files) > 0 && (created || len(vmData) == 0) {
+ 		if provErr := reprovision.ProvisionSandbox(ctx, sb.FS(), cfs.Files); provErr != nil {
+ 			ui.Warnf("provision failed: %v (continuing)", provErr)
+ 		}
+ 	}
+ 
+ 	if dockerErr := startDockerdIfPresent(ctx, sb, ui); dockerErr != nil {
+ 		return "", fmt.Errorf("docker startup: %w", dockerErr)
+ 	}
+ 
+-	if daemonErr := ensureDaemon(ctx, opts.ServeOnly, sb, ui); daemonErr != nil {
++	if daemonErr := ensureDaemon(ctx, sb, ui); daemonErr != nil {
+ 		return "", daemonErr
+ 	}
+ 
+ 	return ResolveTarget(ctx, sb, opts.Worktree, ui)
+ }
+ 
+ // decideReconfig centralizes all reconfiguration decisions: the image-change
+ // home-volume prompt, the VM recreate decision, the daemon-restart decision,
+ // and cpu/memory staging. It re-fetches the existing sandbox handle to read
+ // live VM files (no passed-in msb.Sandbox is available at the call site).
+@@ -493,23 +493,23 @@ func decideReconfig(
+ 			return false, false, homeVol, fmt.Errorf("apply home action: %w", err)
+ 		}
+ 		homeVol = newVol
+ 	}
+ 	return recreate, restart, homeVol, nil
+ }
+ 
+ // restartDaemons provisions config files and restarts the opencode daemon so
+ // an opencode-config change is picked up. Env/secret changes are never routed
+ // here: they require a VM rebuild and are handled by the recreate path instead.
+-func restartDaemons(ctx context.Context, sb msb.Sandbox, files map[string][]byte, serveOnly bool, ui termio.UI) {
++func restartDaemons(ctx context.Context, sb msb.Sandbox, files map[string][]byte, ui termio.UI) {
+ 	if err := reprovision.ProvisionSandbox(ctx, sb.FS(), files); err != nil {
+ 		ui.Warnf("provision failed: %v (keeping existing daemon)", err)
+ 		return
+ 	}
+ 	ui.Infof("opencode serve restarting…")
+ 	if _, _, err := daemonShellFunc(ctx, sb, daemonKillCmd); err != nil {
+ 		ui.Warnf("kill stale daemon failed (continuing): %v", err)
+ 	}
+-	if err := ensureDaemon(ctx, serveOnly, sb, ui); err != nil {
++	if err := ensureDaemon(ctx, sb, ui); err != nil {
+ 		ui.Warnf("daemon restart failed: %v (using existing)", err)
+ 	}
+ }
+diff --git a/internal/sandbox/session/run_test.go b/internal/sandbox/session/run_test.go
+index 841753f..ab9d047 100644
+--- a/internal/sandbox/session/run_test.go
++++ b/internal/sandbox/session/run_test.go
+@@ -386,21 +386,21 @@ func TestRestartDaemonsRestartsServe(t *testing.T) {
+ 	sb := &msb.MockSandbox{
+ 		Name_:      "vm",
+ 		FSValue_:   fs,
+ 		ShellCalls: &cmdCalls,
+ 		ShellOut: map[string]msb.ShellResult{
+ 			dockerdBinaryCheckCmd: msb.NewTestResult(true, 0, "", "", nil),
+ 			dockerdReadyCmd:       msb.NewTestResult(false, 1, "", "", nil),
+ 		},
+ 	}
+ 	ui := testutil.TermUIMock(t)
+-	restartDaemons(context.Background(), sb, map[string][]byte{"opencode.jsonc": []byte("{}")}, false, &ui)
++	restartDaemons(context.Background(), sb, map[string][]byte{"opencode.jsonc": []byte("{}")}, &ui)
+ 
+ 	var joined strings.Builder
+ 	for _, c := range cmdCalls {
+ 		joined.WriteString(c)
+ 		joined.WriteByte('|')
+ 	}
+ 	if !containsSubstring(joined.String(), daemonKillCmd) {
+ 		t.Errorf("expected serve kill command, got %q", joined.String())
+ 	}
+ 	if containsSubstring(joined.String(), dockerdRestartCmd) {
