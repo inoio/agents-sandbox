@@ -33,6 +33,7 @@
 [*] Dependencies (z.B. git, docker)
 [*] Flags an opencode übergeben (--) dokumentieren
 [*] dogfood -b/--branch feature
+[*] Deliver example AGENTS.md file with instructions for VM environment, workflow
 
 ## Testing
 
@@ -50,7 +51,6 @@
 
 ### README überarbeiten
 
-[ ] Deliver example AGENTS.md file with instructions for VM environment, workflow
 
 ## 1st prio
 
