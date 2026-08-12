@@ -71,3 +71,28 @@ func TestResolveTmpSizeParsesSpec(t *testing.T) {
 		t.Errorf("expected 4096, got %d", got)
 	}
 }
+
+func TestNewReapPolicyExplicitValues(t *testing.T) {
+	rp := NewReapPolicy(true, 5)
+	if !rp.AutoStopOnActiveSessions {
+		t.Error("expected AutoStopOnActiveSessions true")
+	}
+	if rp.MaxSessionRetries != 5 {
+		t.Errorf("expected MaxSessionRetries 5, got %d", rp.MaxSessionRetries)
+	}
+}
+
+func TestNewReapPolicyDefaultMaxSessionRetries(t *testing.T) {
+	rp := NewReapPolicy(false, 0)
+	if rp.AutoStopOnActiveSessions {
+		t.Error("expected AutoStopOnActiveSessions false")
+	}
+	if rp.MaxSessionRetries != 10 {
+		t.Errorf("expected MaxSessionRetries 10 (default), got %d", rp.MaxSessionRetries)
+	}
+
+	rp = NewReapPolicy(false, -1)
+	if rp.MaxSessionRetries != 10 {
+		t.Errorf("expected MaxSessionRetries 10 (default for negative), got %d", rp.MaxSessionRetries)
+	}
+}
