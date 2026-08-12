@@ -524,6 +524,32 @@ func TestPruneStaleCascade_DockerRemoveFails_DependentOpsSucceed(t *testing.T) {
 	}
 }
 
+func TestPruneCloneVolumes_DryRunDoesNotDelete(t *testing.T) {
+	cp.WithMockConfigPaths(t)
+	client := &msb.MockMsbClient{
+		Volumes: []msb.VolumeHandle{
+			&msb.MockVolumeHandle{Name_: "opencode-msb-clone-orphanproj-abc123"},
+		},
+	}
+	docker.WithNoopDockerMock(t)
+	ui := newMockUI()
+
+	oldGet := msb.Get
+	msb.Get = func() MsbClient { return client }
+	defer func() { msb.Get = oldGet }()
+
+	report, err := catalogAndPrune(context.Background(), 30*time.Minute, true, ui)
+	if err != nil {
+		t.Fatalf("catalogAndPrune returned error: %v", err)
+	}
+
+	assertReport(t, report, prunedCounts{cloneVolumes: 1})
+
+	if len(client.RemovedVolumes) != 0 {
+		t.Errorf("expected no RemoveVolume calls in dry run, got %v", client.RemovedVolumes)
+	}
+}
+
 func TestPrune_DockerRemoveFails_PartialReport(t *testing.T) {
 	cp.WithMockConfigPaths(t)
 	oldTime := time.Now().Add(-2 * time.Hour)
