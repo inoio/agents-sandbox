@@ -22,6 +22,7 @@ default:
   before_script:
     - mkdir -p .go
   cache:
+    key: go
     paths:
       - .go/pkg/mod/
 
@@ -43,15 +44,22 @@ build-builder-image:
     - echo "{\"auths\":{\"$CI_REGISTRY\":{\"username\":\"$CI_REGISTRY_USER\",\"password\":\"$CI_REGISTRY_PASSWORD\"}}}" > /kaniko/.docker/config.json
     - /kaniko/executor --context "$CI_PROJECT_DIR" --dockerfile "ci/builder/Dockerfile" --destination "$CI_REGISTRY_IMAGE/ci-builder:latest"
 
-lint:
+validate-fmt-lint:
   stage: lint
   image: golangci/golangci-lint:v2.12
   rules:
     - if: $CI_COMMIT_TAG
       when: never
     - if: $CI_COMMIT_BRANCH
+  variables:
+    GOLANGCI_LINT_CACHE: $CI_PROJECT_DIR/.golangci-lint
   script:
+    - make validate-fmt
     - make lint
+  cache:
+    key: lint
+    paths:
+      - .golangci-lint/
 
 test:
   stage: test
