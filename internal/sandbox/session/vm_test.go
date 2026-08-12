@@ -3,6 +3,7 @@ package session
 import (
 	"context"
 	"errors"
+	"reflect"
 	"testing"
 
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
@@ -584,5 +585,37 @@ func TestEnsureProjectVMReusesWhenNotFlagged(t *testing.T) {
 	}
 	if handle.DidRemove() {
 		t.Error("did not expect Remove on reuse")
+	}
+}
+
+func TestProjectPortBindingsServeOnly(t *testing.T) {
+	canonical := options.ServeOnlyBindings()
+	tests := []struct {
+		name      string
+		serveOnly bool
+		want      []msbSdk.PortBinding
+	}{
+		{"normal run", false, nil},
+		{"serve only", true, canonical},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := projectPortBindings(tt.serveOnly)
+			if !reflect.DeepEqual(got, tt.want) {
+				t.Errorf("projectPortBindings(%v) = %#v, want %#v", tt.serveOnly, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestProjectPortBindingsDelegatesToOptions(t *testing.T) {
+	got := projectPortBindings(true)
+	expected := options.ServeOnlyBindings()
+	if len(got) != len(expected) {
+		t.Fatalf("expected %d bindings, got %d", len(expected), len(got))
+	}
+	if got[0].Bind != expected[0].Bind || got[0].HostPort != expected[0].HostPort ||
+		got[0].GuestPort != expected[0].GuestPort || got[0].Protocol != expected[0].Protocol {
+		t.Errorf("binding = %#v, want %#v", got[0], expected[0])
 	}
 }
