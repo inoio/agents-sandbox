@@ -2,10 +2,12 @@ package main
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/spf13/cobra"
 
 	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox"
+	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/options"
 	"gitlab.inoio.de/inoio/opencode-msb/internal/termio"
 	launcherconfig "gitlab.inoio.de/inoio/opencode-msb/internal/viperconfig"
 )
@@ -43,6 +45,22 @@ func extractRunOptions(cmd *cobra.Command, auto bool, ui termio.UI) (sandbox.Run
 		if lc, ok := ctx.Value((*launcherConfigKey)(nil)).(launcherconfig.Config); ok {
 			opts.ReapPolicy = lc.ReapPolicy()
 			opts.IdleTimeout = lc.IdleTimeout()
+		}
+	}
+	if opts.TmpSize != "" {
+		if _, ok := options.ParseMemoryOK(opts.TmpSize); !ok {
+			return sandbox.RunOptions{}, fmt.Errorf(
+				"invalid --tmp-size %q: expected a size like 4G, 512M, or 2048",
+				opts.TmpSize,
+			)
+		}
+	}
+	if opts.DiskSize != "" {
+		if _, ok := options.ParseMemoryOK(opts.DiskSize); !ok {
+			return sandbox.RunOptions{}, fmt.Errorf(
+				"invalid --disk-size %q: expected a size like 16G, 512M, or 4096",
+				opts.DiskSize,
+			)
 		}
 	}
 	return opts, nil
