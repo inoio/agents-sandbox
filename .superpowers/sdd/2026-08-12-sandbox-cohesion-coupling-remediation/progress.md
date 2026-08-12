@@ -30,6 +30,8 @@ NOTE: GOOS=darwin go build steps in the plan are NOT runnable here (microsandbox
 
 Task 4: COMPLETE (commit c642a04 on opencode/sandbox-modularization-rework; base 0c889b1). Implementer DONE, reviewer Approved (spec ✅, no Critical/Important). Minor (deferred): vm.go/run.go left as bare `package session` stubs (16 bytes). Matches brief intent; consider deleting in a later cleanup — park for final review triage.
 
+Task 5: COMPLETE (commit 4f31e03 on opencode/sandbox-modularization-rework; base c642a04). Implementer DONE, reviewer Approved (spec ✅, no Critical/Important). findStaleVMs was in report.go, moved to catalog.go. Minors (deferred): (1) image.go left as bare 2-line doc stub; consider git rm + fold doc into build.go; (2) progress.md ledger drift (Task-4 COMPLETE line + a pre-existing "Commit pending" section read as contradictory) — sweep in final review. Image stub + empty file cleanup parked for final review triage.
+
 Task 3: REVIEW COMPLETE:
 - Reviewer verdict: Steps 1,3,4,5,6,7 ✅; Step 2 ❌ (orphaned options.ExitError left in options/options.go) + known serve-only scope violation.
 - Fix round 1: 29d80cf deleted orphaned options.ExitError + its Error() + fmt import; 87ace2e reverted serve-only drift (preconditioned).
