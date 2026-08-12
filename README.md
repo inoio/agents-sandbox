@@ -69,6 +69,7 @@ Full [Commands Reference](/docs/commands.md).
 | Topic                                       | Description                            |
 |---------------------------------------------|----------------------------------------|
 | [Getting Started](/docs/getting-started.md) | Installation, prerequisites, first run |
+| [Agent Context (AGENTS.md)](/docs/getting-started.md#agent-context-agentsmd) | Example AGENTS.md that primes agents running in the VM |
 | [Commands](/docs/commands.md)               | Complete CLI reference                 |
 | [Configuration](/docs/configuration.md)     | Launcher config, env, secrets          |
 | [Runner Image](/docs/runner-image.md)       | Base image, custom tooling             |

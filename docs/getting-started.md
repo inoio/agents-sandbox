@@ -92,6 +92,31 @@ opencode-msb -w bugfix-my-fix
 See the [Commands](/docs/commands.md) reference for the full API and [Configuration](/docs/configuration.md) for tuning
 behavior.
 
+## Agent Context (AGENTS.md)
+
+opencode runs inside the microsandbox VM, so an `AGENTS.md` in your project is a good place to orient the agent: where
+it is, what tooling is available, and what differs from the host. Here is a minimal, self-explanatory example you can
+copy and adapt:
+
+```dotenv
+## Environment
+
+You are running inside a microsandbox VM, not on the host.
+
+- `/workspace` — the host project directory, mounted read/write.
+- `$HOME` — a persistent volume that survives across sessions.
+- The host is not directly accessible: secrets are only passed in via msb's
+  secret mechanism, and nested VMs are unavailable (no `/dev/kvm`).
+
+## Toolchain
+
+Common CLI tools are preinstalled: git, go, node, npm, jq, yq.
+
+Build and test from the project root:
+
+make check
+```
+
 ## Next Steps
 
 - Read the [Commands](/docs/commands.md) reference for the complete CLI API.
