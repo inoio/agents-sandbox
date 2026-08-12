@@ -18,7 +18,8 @@ import (
 )
 
 // parseMemory and resolveTmpSizeMiB tests moved to internal/sandbox/options/options_test.go.
-// TestBuildEnvMap, TestReadSandboxEnvMissing, TestMergeEnvMapsProjectOverridesUser, TestIsSandboxActive, TestReadVMFiles* moved to their owning packages.
+// All other moved tests (ConfigEqual, EqualJSONFiles, BuildEnvMap, MergeEnvMaps, ReadVMFiles, IsSandboxActive, PlanReconfig)
+// live in their owning packages: internal/sandbox/reprovision/*_test.go, internal/sandbox/msb/msb_test.go.
 
 func TestBuildMountsIncludesTmpfsAtTmp(t *testing.T) {
 	mounts := buildMounts("test-home-vol", "/repo/path", options.DefaultTmpSizeMiB)
@@ -54,8 +55,8 @@ func TestBuildOpencodeArgs(t *testing.T) {
 		auto bool
 		want []string
 	}{
-		{"auto default", nil, true, []string{AutoFlag}},
-		{"auto with forwarded args", []string{"foo", "bar"}, true, []string{AutoFlag, "foo", "bar"}},
+		{"auto default", nil, true, []string{autoFlag}},
+		{"auto with forwarded args", []string{"foo", "bar"}, true, []string{autoFlag, "foo", "bar"}},
 		{"no-auto", []string{"foo"}, false, []string{"foo"}},
 		{"no-auto empty args", nil, false, nil},
 	}
