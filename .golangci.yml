@@ -482,6 +482,8 @@ linters:
     presets:
       - std-error-handling
       - common-false-positives
+    paths:
+      - example-agents-md/
     # Excluding configuration per-path, per-linter, per-text and per-source.
     rules:
       #- source: "TODO"
