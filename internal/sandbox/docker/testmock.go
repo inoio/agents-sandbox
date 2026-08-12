@@ -79,7 +79,7 @@ func newErrorDockerClient(mockErrs mockErrors) *MockDockerClient {
 	}
 }
 
-// MockDockerClient is the zero implementation of sandbox.DockerClient.
+// MockDockerClient is the zero implementation of docker.Client.
 // All methods succeed with nil/empty returns. Use newErrorDockerClient
 // to override specific methods with errors.
 type MockDockerClient struct {

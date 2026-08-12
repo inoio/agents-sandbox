@@ -97,11 +97,12 @@ func (vm *Manager) PrefillVolume(
 func (vm *Manager) ApplyHomeAction(
 	ctx context.Context,
 	client msb.Client,
-	projectSlug, oldVolume, imageTag, currentDigest, action string,
+	projectSlug, oldVolume, imageTag, currentDigest string,
+	action VolumeAction,
 	opts options.RunOptions,
 	ui termio.UI,
 ) (string, error) {
-	if action == actionKeep {
+	if action == ActionKeep {
 		if opts.DryRun {
 			return oldVolume, nil
 		}
@@ -134,7 +135,7 @@ func (vm *Manager) ApplyHomeAction(
 		return "", err
 	}
 
-	if action == actionMigrate {
+	if action == ActionMigrate {
 		if err := vm.CopyVolume(ctx, client, projectSlug, oldVolume, newName, imageTag, ui); err != nil {
 			vm.cleanupVolume(ctx, client, newName, ui)
 			return "", err

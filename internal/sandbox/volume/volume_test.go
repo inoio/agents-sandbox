@@ -94,8 +94,8 @@ func TestResolveHomeAction_SameDigestReturnsKeep(t *testing.T) {
 	ui := testutil.TermUIMock(t)
 	vm := NewManager(&ui)
 	action := vm.ResolveHomeAction(&ui, "same-digest", "same-digest")
-	if action != actionKeep {
-		t.Errorf("expected actionKeep for matching digests, got %q", action)
+	if action != ActionKeep {
+		t.Errorf("expected ActionKeep for matching digests, got %v", action)
 	}
 }
 
@@ -104,8 +104,8 @@ func TestResolveHomeAction_DifferentDigestInNonInteractiveReturnsKeep(t *testing
 	ui.IsInteractiveResult = false
 	vm := NewManager(&ui)
 	action := vm.ResolveHomeAction(&ui, "old", "new")
-	if action != actionKeep {
-		t.Errorf("expected actionKeep in non-interactive mode, got %q", action)
+	if action != ActionKeep {
+		t.Errorf("expected ActionKeep in non-interactive mode, got %v", action)
 	}
 }
 
@@ -119,13 +119,13 @@ func TestResolveHomeAction_DifferentDigestInInteractivePrompt(t *testing.T) {
 			if len(choices) != 4 {
 				return "", fmt.Errorf("expected 4 choices, got %d", len(choices))
 			}
-			return actionMigrate, nil
+			return "2", nil
 		},
 	}
 	vm := NewManager(ui)
 	action := vm.ResolveHomeAction(ui, "old", "new")
-	if action != actionMigrate {
-		t.Errorf("expected actionMigrate, got %q", action)
+	if action != ActionMigrate {
+		t.Errorf("expected ActionMigrate, got %v", action)
 	}
 }
 
@@ -133,13 +133,13 @@ func TestResolveHomeAction_ActionQuitReturnsQuit(t *testing.T) {
 	ui := &termio.Mock{
 		IsInteractiveResult: true,
 		SelectFn: func(_ string, _ []termio.Choice, _ string) (string, error) {
-			return actionQuit, nil
+			return "4", nil
 		},
 	}
 	vm := NewManager(ui)
 	action := vm.ResolveHomeAction(ui, "old", "new")
-	if action != actionQuit {
-		t.Errorf("expected actionQuit, got %q", action)
+	if action != ActionQuit {
+		t.Errorf("expected ActionQuit, got %v", action)
 	}
 }
 
@@ -196,7 +196,7 @@ func TestApplyHomeAction_KeepReturnsOldVolume(t *testing.T) {
 		"opencode-msb-home-myproj-old",
 		"img-tag",
 		"sha256:new",
-		actionKeep,
+		ActionKeep,
 		options.RunOptions{},
 		&termio.Mock{},
 	)
@@ -217,11 +217,11 @@ func TestApplyHomeAction_KeepReturnsOldVolume(t *testing.T) {
 func TestApplyHomeAction_ExecutesAndKeepsOld(t *testing.T) {
 	tests := []struct {
 		name          string
-		action        string
+		action        VolumeAction
 		wantSandboxes int
 	}{
-		{name: "reset", action: actionReset, wantSandboxes: 1},
-		{name: "migrate", action: actionMigrate, wantSandboxes: 2},
+		{name: "reset", action: ActionReset, wantSandboxes: 1},
+		{name: "migrate", action: ActionMigrate, wantSandboxes: 2},
 	}
 
 	for _, tt := range tests {
@@ -301,7 +301,7 @@ func TestApplyHomeAction_Reset_DryRun_NoWrites(t *testing.T) {
 		oldVol,
 		"img-tag",
 		"sha256:new",
-		actionReset,
+		ActionReset,
 		options.RunOptions{DryRun: true},
 		&termio.Mock{},
 	)
@@ -344,7 +344,7 @@ func TestApplyHomeAction_Migrate_DryRunVM_NoStateWrite(t *testing.T) {
 		oldVol,
 		"img-tag",
 		"sha256:new",
-		actionMigrate,
+		ActionMigrate,
 		options.RunOptions{DryRunVM: true},
 		&termio.Mock{},
 	)
@@ -400,7 +400,7 @@ func TestApplyHomeAction_Migrate_CopyFails_RemovesNewVolume(t *testing.T) {
 		oldVol,
 		"img-tag",
 		"sha256:new",
-		actionMigrate,
+		ActionMigrate,
 		options.RunOptions{},
 		&termio.Mock{},
 	)
@@ -421,18 +421,57 @@ func TestApplyHomeAction_Migrate_CopyFails_RemovesNewVolume(t *testing.T) {
 	}
 }
 
-func TestActionConstantsHaveCorrectKeys(t *testing.T) {
-	if actionKeep != "1" {
-		t.Errorf("actionKeep = %q, want %q", actionKeep, "1")
+func TestFromKeyMapsValidKeys(t *testing.T) {
+	tests := []struct {
+		key  string
+		want VolumeAction
+	}{
+		{"1", ActionKeep},
+		{"2", ActionMigrate},
+		{"3", ActionReset},
+		{"4", ActionQuit},
 	}
-	if actionMigrate != "2" {
-		t.Errorf("actionMigrate = %q, want %q", actionMigrate, "2")
+	for _, tt := range tests {
+		t.Run(tt.key, func(t *testing.T) {
+			got, err := FromKey(tt.key)
+			if err != nil {
+				t.Errorf("FromKey(%q) returned error: %v", tt.key, err)
+			}
+			if got != tt.want {
+				t.Errorf("FromKey(%q) = %v, want %v", tt.key, got, tt.want)
+			}
+		})
 	}
-	if actionReset != "3" {
-		t.Errorf("actionReset = %q, want %q", actionReset, "3")
+}
+
+func TestFromKeyReturnsErrorForInvalidKey(t *testing.T) {
+	_, err := FromKey("5")
+	if err == nil {
+		t.Errorf("FromKey(\"5\") returned nil error, want error")
 	}
-	if actionQuit != "4" {
-		t.Errorf("actionQuit = %q, want %q", actionQuit, "4")
+	_, err = FromKey("keep")
+	if err == nil {
+		t.Errorf("FromKey(\"keep\") returned nil error, want error")
+	}
+}
+
+func TestVolumeActionString(t *testing.T) {
+	tests := []struct {
+		action VolumeAction
+		want   string
+	}{
+		{ActionKeep, "keep"},
+		{ActionMigrate, "migrate"},
+		{ActionReset, "reset"},
+		{ActionQuit, "quit"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.want, func(t *testing.T) {
+			got := tt.action.String()
+			if got != tt.want {
+				t.Errorf("VolumeAction(%d).String() = %q, want %q", tt.action, got, tt.want)
+			}
+		})
 	}
 }
 
