@@ -48,6 +48,9 @@ lint:
 fmt:
 	golangci-lint fmt ./...
 
+validate-fmt:
+	golangci-lint fmt -d ./...
+
 run:
 	go run ./cmd/opencode-msb
 
