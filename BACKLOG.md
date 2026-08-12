@@ -64,6 +64,8 @@
 [ ] OPENCODE_DISABLE_AUTOUPDATE and detect releases, offer vm rebuild
 [ ] OPENCODE_EXPERIMENTAL_EXA, OPENCODE_EXPERIMENTAL_BACKGROUND_SUBAGENTS, OPENCODE_EXPERIMENTAL_PARALLEL, OPENCODE_EXPERIMENTAL_SCOUT? 
 [ ] remove msb load exec call by spooling to tmp file and using msb SDKs Image.Load 
+[ ] enforce basic auth for `run --serve-only` (published opencode port on host loopback is currently unauthenticated)
+[ ] configurable host port for `run --serve-only` (currently fixed 4096)
 
 ## 2nd prio
 

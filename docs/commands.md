@@ -42,6 +42,7 @@ Arguments after `--` are forwarded to opencode. Arguments before `--` that don't
 | `--user`       | `-u`  | `dev`*   | Username or UID for the runtime user (format: `<name\|uid>[:<group\|gid>]`)                                                                |
 | `--no-auto`    | —     | `false`  | Do not pass `--auto` to opencode                                                                                                           |
 | `--dry-run-vm` | —     | `false`  | Skip VM lifecycle but prepare everything else                                                                                              |
+| `--serve-only` | `-s`  | `false`  | Start opencode server published on host loopback (no in-VM TUI); press `Ctrl-D` to exit. Set `OPENCODE_SERVER_PASSWORD` for basic auth. |
 
 <!-- markdownlint-disable-next-line no-trailing-punctuation -->
 * Effective default: `dev`. The CLI flag defaults to empty string, but the launcher applies `dev` when blank.

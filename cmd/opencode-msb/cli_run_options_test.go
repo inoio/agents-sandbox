@@ -135,6 +135,30 @@ func TestExtractRunOptions_L6_ShellCommandPath(t *testing.T) {
 	}
 }
 
+// L7: --serve-only flag sets opts.ServeOnly and defaults to false.
+func TestExtractRunOptionsServeOnly(t *testing.T) {
+	cmd := buildRunCmd(&termio.Mock{})
+	if err := cmd.Flags().Set(flagServeOnly, "true"); err != nil {
+		t.Fatalf("set serve-only: %v", err)
+	}
+	opts, err := extractRunOptions(cmd, true, &termio.Mock{})
+	if err != nil {
+		t.Fatalf("extractRunOptions: %v", err)
+	}
+	if !opts.ServeOnly {
+		t.Errorf("expected ServeOnly=true when --serve-only passed, got false")
+	}
+
+	cmd2 := buildRunCmd(&termio.Mock{})
+	opts2, err := extractRunOptions(cmd2, true, &termio.Mock{})
+	if err != nil {
+		t.Fatalf("extractRunOptions: %v", err)
+	}
+	if opts2.ServeOnly {
+		t.Errorf("expected ServeOnly=false by default, got true")
+	}
+}
+
 // buildCommandWithLauncherConfig builds a "run" command and injects
 // a viperconfig.Config into the context, mimicking what
 // PersistentPreRunE does in production.

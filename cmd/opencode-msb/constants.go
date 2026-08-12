@@ -41,6 +41,7 @@ const (
 	flagWorktree    = "worktree"
 	flagUser        = "user"
 	flagNoAuto      = "no-auto"
+	flagServeOnly   = "serve-only"
 
 	annotationAlsoAs = sandbox.Prefix + "/also-as"
 	annotationArgs   = sandbox.Prefix + "/args"
