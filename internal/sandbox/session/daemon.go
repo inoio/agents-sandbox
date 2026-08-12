@@ -7,14 +7,29 @@ import (
 	"time"
 
 	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/msb"
+	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/options"
 	"gitlab.inoio.de/inoio/opencode-msb/internal/termio"
 )
 
 const (
 	daemonHealthURL = "http://127.0.0.1:4096/global/health"
-	daemonStartCmd  = "nohup opencode serve --hostname 127.0.0.1 --port 4096 > /tmp/opencode-serve.log 2>&1 &"
 	daemonKillCmd   = "pkill -f 'opencode serve' || true"
 )
+
+// daemonStartCommand builds the shell command that starts the opencode serve
+// daemon inside the VM. In serve-only mode it binds 0.0.0.0 so microsandbox's
+// published-port forwarder (which dials the guest's external interface address)
+// can reach the server; otherwise it binds loopback only.
+func daemonStartCommand(serveOnly bool) string {
+	hostname := "127.0.0.1"
+	if serveOnly {
+		hostname = "0.0.0.0"
+	}
+	return fmt.Sprintf(
+		"nohup opencode serve --hostname %s --port %s > /tmp/opencode-serve.log 2>&1 &",
+		hostname, options.ServeOnlyPort,
+	)
+}
 
 var daemonReadyTimeout = 60 * time.Second //nolint:gochecknoglobals // test seam, swapped in tests
 
@@ -45,8 +60,9 @@ func parseHealthResponse(stdout string) (bool, error) {
 
 // ensureDaemon guarantees the opencode serve daemon is healthy inside the VM.
 // It health checks via curl inside the VM; if unhealthy, it kills any stale
-// daemon process, starts a fresh one, and polls until healthy or timeout.
-func ensureDaemon(ctx context.Context, sb msb.Sandbox, ui termio.UI) error {
+// daemon process, starts a fresh one bound to the hostname appropriate for
+// serveOnly mode, and polls until healthy or timeout.
+func ensureDaemon(ctx context.Context, serveOnly bool, sb msb.Sandbox, ui termio.UI) error {
 	if healthy := checkDaemonHealth(ctx, sb); healthy {
 		ui.Verbosef("opencode daemon already healthy")
 		return nil
@@ -56,7 +72,7 @@ func ensureDaemon(ctx context.Context, sb msb.Sandbox, ui termio.UI) error {
 	if _, _, err := daemonShellFunc(ctx, sb, daemonKillCmd); err != nil {
 		ui.Warnf("kill stale daemon failed (continuing): %v", err)
 	}
-	if _, _, err := daemonShellFunc(ctx, sb, daemonStartCmd); err != nil {
+	if _, _, err := daemonShellFunc(ctx, sb, daemonStartCommand(serveOnly)); err != nil {
 		return fmt.Errorf("start opencode serve: %w", err)
 	}
 
