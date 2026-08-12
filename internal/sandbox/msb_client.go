@@ -10,17 +10,11 @@ import (
 	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/msb"
 )
 
-//nolint:revive // 'SandboxFS' stutters as 'sandbox.SandboxFS'
-type SandboxFS = msb.SandboxFS
-
 // MsbClient is a re-export of msb.Client for backward compatibility.
 type MsbClient = msb.Client
 
 // MockMsbClient is a re-export of msb.MockMsbClient for backward compatibility.
 type MockMsbClient = msb.MockMsbClient
-
-// MockRemoveImageCall is a re-export for backward compatibility.
-type MockRemoveImageCall = msb.MockRemoveImageCall
 
 //nolint:revive // 'SandboxHandle' stutters as 'sandbox.SandboxHandle'
 type SandboxHandle = msb.SandboxHandle
@@ -60,9 +54,6 @@ func WithMsbMock(t *testing.T, mock MsbClient) {
 	msb.WithMsbMock(t, mock)
 }
 
-// TestResult is a re-export of msb.TestResult for tests.
-type TestResult = msb.TestResult
-
 // NewTestResult creates a ShellResult for tests.
 func NewTestResult(success bool, exitCode int, stdout, stderr string, stdoutBytes []byte) ShellResult {
 	return msb.NewTestResult(success, exitCode, stdout, stderr, stdoutBytes)
@@ -72,6 +63,3 @@ func NewTestResult(success bool, exitCode int, stdout, stderr string, stdoutByte
 //
 //nolint:revive // re-export of msb type name for tests
 type SandboxOpts = msb.SandboxOpts
-
-// TestFS is a re-export of msb.TestFS for tests.
-type TestFS = msb.TestFS
