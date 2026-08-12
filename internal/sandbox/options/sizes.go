@@ -6,10 +6,10 @@ import (
 )
 
 const (
-	DefaultMemoryMiB  = 4096
-	DefaultTmpSizeMiB = 2048
-	MaxSandboxNameLen = 128
-	mibPerGib         = 1024
+	DefaultMemoryMiB  uint32 = 4096
+	DefaultTmpSizeMiB uint32 = 2048
+	MaxSandboxNameLen        = 128
+	mibPerGib                = 1024
 )
 
 // ParseMemoryGiB converts GiB to MiB.
