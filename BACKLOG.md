@@ -81,3 +81,15 @@
 [ ] was ist mit den LSP-Servern wenn ein Projekt node braucht?
 [ ] cli interaction library instead of prompt.go?
 [ ] testify/mock & mockery statt manuell?
+
+## Sandbox cohesion refactor — deferred follow-ups (from 2026-08-12 remediation plan)
+
+Larger, higher-risk items deliberately deferred out of the cohesion/coupling remediation; a future plan should implement them.
+
+1. Extract mock code out of production binaries (`msb/testmock.go` ~688 lines, `docker/testmock.go`) into `_test.go`/testutil — removes `testing` from the production import graph.
+2. `msb.Client` SDK-leak encapsulation — decide thin pass-through vs. a central SDK re-export to stop consumers importing `msbSdk` directly.
+3. Full `state` Root-parameterization so sibling packages build isolated per-test stores (`NewStore(t.TempDir())`) instead of mutating `state.StateDir`.
+4. `reprovision` sub-package split (configfiles / envstate / reconfig) — the largest single cohesion debt.
+5. Root `sandbox` facade deletion by migrating `cmd` to import submodules directly (now feasible since Task 9 reduced the facade to func wrappers).
+6. `reprovision`/`doctor` parameter narrowings (`RunOptions`, `ParseMemory` error-return, `checkForActiveVMs` relocation) to reduce behavioral risk-avoidance.
+7. `naming.ArtifactFor` vs. `ExtractProjectSlugAndDigest` dual-dispatch unification.
