@@ -129,6 +129,18 @@ func PlanReconfig( //nolint:gocognit // core planner, cognitive complexity accep
 	// Env/secret changes cannot be applied live or on a daemon restart:
 	// microsandbox requires a VM (re)start for them, so they are folded into the
 	// rebuild tier (they are baked into the VM at creation, see createProjectVM).
+
+	// Port publish state (serve-only) must match; mismatch requires recreate
+	// since microsandbox published ports can only be set at VM creation.
+	wantPorts := desiredPublishBindings(opts.ServeOnly)
+	if !portBindingsEqual(wantPorts, cfg.PortBindings) {
+		d.Recreate = true
+		d.Changes = append(
+			d.Changes,
+			//nolint:exhaustruct,goconst // label-only for change reporting
+			Change{Label: "published port(s)"},
+		)
+	}
 	if !d.Recreate && (envChanged || secretsChanged) {
 		d.Recreate = true
 		if envChanged {
@@ -222,4 +234,28 @@ func diskMiBOr0(cfg *msbSdk.SandboxConfig) uint32 {
 		return 0
 	}
 	return cfg.RootDisk.SizeMiB
+}
+
+// desiredPublishBindings returns the port bindings opencode-msb wants on the
+// project VM. Serve-only publishes the opencode port on the host loopback;
+// otherwise nothing is published.
+func desiredPublishBindings(serveOnly bool) []msbSdk.PortBinding {
+	if !serveOnly {
+		return nil
+	}
+	return []msbSdk.PortBinding{
+		{Bind: "127.0.0.1", HostPort: 4096, GuestPort: 4096, Protocol: msbSdk.PortProtocolTCP},
+	}
+}
+
+func portBindingsEqual(a, b []msbSdk.PortBinding) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
 }
