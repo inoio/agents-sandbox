@@ -94,27 +94,19 @@ behavior.
 
 ## Agent Context (AGENTS.md)
 
-opencode runs inside the microsandbox VM, so an `AGENTS.md` in your project is a good place to orient the agent: where
-it is, what tooling is available, and what differs from the host. Here is a minimal, self-explanatory example you can
-copy and adapt:
+An `AGENTS.md` in the working directory can orient the agent on being in a sandbox VM, available tooling etc. Here is a minimal, self-explanatory example you can copy and adapt:
 
 ```dotenv
 ## Environment
 
-You are running inside a microsandbox VM, not on the host.
+You are running inside a sandbox VM, not on the host. Filesystem layout:
 
-- `/workspace` — the host project directory, mounted read/write.
-- `$HOME` — a persistent volume that survives across sessions.
-- The host is not directly accessible: secrets are only passed in via msb's
-  secret mechanism, and nested VMs are unavailable (no `/dev/kvm`).
+- `/workspace` bind mount of the host CWD, mounted rw.
+- `~/.local/share/opencode/worktree/` git worktrees of `/workspace`, created by opencode
 
 ## Toolchain
 
-Common CLI tools are preinstalled: git, go, node, npm, jq, yq.
-
-Build and test from the project root:
-
-make check
+Common CLI tools are preinstalled: git, node, npm, jq, yq...
 ```
 
 ## Next Steps
