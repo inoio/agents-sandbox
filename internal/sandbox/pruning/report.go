@@ -4,7 +4,6 @@ import (
 	"time"
 
 	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/msb"
-	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/naming"
 )
 
 // StaleReport describes the result of a prune operation.
@@ -20,7 +19,7 @@ type StaleReport struct {
 
 // StaleEntry describes a single artifact that was pruned or would be pruned.
 type StaleEntry struct {
-	Type     naming.StaleType
+	Type     StaleType
 	Name     string
 	StaleFor time.Duration
 	Slug     string // project slug, for grouping related artifacts
@@ -58,7 +57,7 @@ func findStaleVMs(sandboxes []staleVM, threshold time.Duration) []StaleEntry {
 		elapsed := time.Since(s.updatedAt)
 		if elapsed > threshold {
 			stale = append(stale, StaleEntry{
-				Type:     naming.StaleTypeVM,
+				Type:     StaleTypeVM,
 				Name:     s.name,
 				StaleFor: elapsed,
 				Slug:     "",

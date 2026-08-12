@@ -182,8 +182,8 @@ func TestBuildOpencodeArgs(t *testing.T) {
 		auto bool
 		want []string
 	}{
-		{"auto default", nil, true, []string{options.AutoFlag}},
-		{"auto with forwarded args", []string{"foo", "bar"}, true, []string{options.AutoFlag, "foo", "bar"}},
+		{"auto default", nil, true, []string{AutoFlag}},
+		{"auto with forwarded args", []string{"foo", "bar"}, true, []string{AutoFlag, "foo", "bar"}},
 		{"no-auto", []string{"foo"}, false, []string{"foo"}},
 		{"no-auto empty args", nil, false, nil},
 	}
@@ -393,7 +393,7 @@ func TestRestartDaemonsRestartsServe(t *testing.T) {
 		},
 	}
 	ui := testutil.TermUIMock(t)
-	restartDaemons(context.Background(), sb, map[string][]byte{"opencode.jsonc": []byte("{}")}, &ui)
+	restartDaemons(context.Background(), sb, map[string][]byte{"opencode.jsonc": []byte("{}")}, false, &ui)
 
 	var joined strings.Builder
 	for _, c := range cmdCalls {

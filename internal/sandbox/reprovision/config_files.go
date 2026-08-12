@@ -17,12 +17,15 @@ import (
 
 	config "gitlab.inoio.de/inoio/opencode-msb/internal/opencodeconfig"
 	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/msb"
-	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/options"
 	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/state"
 	"gitlab.inoio.de/inoio/opencode-msb/internal/termio"
 
 	cp "gitlab.inoio.de/inoio/opencode-msb/internal/configpaths"
 )
+
+// EnvKeyValueParts is the number of parts strings.SplitN should produce for
+// key=value lines.
+const EnvKeyValueParts = 2
 
 // ConfigFiles holds the merged configuration and parsed structures for comparison.
 type ConfigFiles struct {
@@ -30,8 +33,6 @@ type ConfigFiles struct {
 	Parsed map[string]map[string]any
 	Keys   []string // sorted file names for VM comparison
 }
-
-// autoFlag moved to internal/sandbox/options.
 
 // LoadConfigFiles builds the merged opencode configuration from the user's
 // config directory, any project-specific config in .opencode-msb/opencode,
@@ -163,8 +164,8 @@ func BuildEnvMap(filename string) map[string]string {
 			continue
 		}
 		if strings.Contains(line, "=") {
-			parts := strings.SplitN(line, "=", options.EnvKeyValueParts)
-			if len(parts) == options.EnvKeyValueParts {
+			parts := strings.SplitN(line, "=", EnvKeyValueParts)
+			if len(parts) == EnvKeyValueParts {
 				env[parts[0]] = parts[1]
 			}
 		}

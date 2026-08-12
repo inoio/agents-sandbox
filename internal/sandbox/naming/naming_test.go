@@ -190,23 +190,6 @@ func TestParseCloneVolumeName(t *testing.T) {
 	}
 }
 
-func TestStaleTypeString(t *testing.T) {
-	cases := []struct {
-		staleType StaleType
-		want      string
-	}{
-		{StaleTypeVM, "vm"},
-		{StaleTypeVolume, "volume"},
-		{StaleTypeDockerImage, "docker-image"},
-		{StaleTypeMsbImage, "msb-image"},
-	}
-	for _, c := range cases {
-		if c.staleType.String() != c.want {
-			t.Errorf("StaleType(%d).String() = %q, want %q", c.staleType, c.staleType.String(), c.want)
-		}
-	}
-}
-
 func TestArtifactFor(t *testing.T) {
 	cases := []struct {
 		in         string

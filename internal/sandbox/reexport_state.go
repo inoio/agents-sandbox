@@ -13,10 +13,8 @@ var (
 	AcquireClientLease = state.AcquireClientLease
 	CountActiveClients = state.CountActiveClients
 	ReadState          = state.ReadState
+	StateDir           = state.StateDir
 )
-
-// StateDir returns the current state directory after any test override.
-func StateDir() string { return state.StateDir }
 
 // HomeState is a re-export of state.HomeState for the sandbox core public API.
 type (

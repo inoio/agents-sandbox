@@ -427,7 +427,7 @@ func TestFindStaleVMs(t *testing.T) {
 				if got[i].Name != name {
 					t.Errorf("entry[%d] name = %q, want %q", i, got[i].Name, name)
 				}
-				if got[i].Type != naming.StaleTypeVM {
+				if got[i].Type != StaleTypeVM {
 					t.Errorf("entry[%d] type = %q, want %q", i, got[i].Type, "vm")
 				}
 				if got[i].StaleFor <= 0 {
@@ -451,7 +451,7 @@ func TestFindStaleVMs_StaleEntryFields(t *testing.T) {
 	}
 
 	entry := got[0]
-	if entry.Type != naming.StaleTypeVM {
+	if entry.Type != StaleTypeVM {
 		t.Errorf("Type = %q, want %q", entry.Type, "vm")
 	}
 	if entry.Name != "test-vm" {
@@ -478,8 +478,8 @@ func TestStaleReport(t *testing.T) {
 		PrunedTaskSandboxes: 1,
 		PrunedCloneVolumes:  0,
 		Details: []StaleEntry{
-			{Type: naming.StaleTypeVM, Name: "vm1", StaleFor: 2 * time.Hour},
-			{Type: naming.StaleTypeVolume, Name: "vol1", StaleFor: 3 * time.Hour},
+			{Type: StaleTypeVM, Name: "vm1", StaleFor: 2 * time.Hour},
+			{Type: StaleTypeVolume, Name: "vol1", StaleFor: 3 * time.Hour},
 		},
 	}
 
@@ -496,7 +496,7 @@ func TestStaleReport(t *testing.T) {
 		t.Errorf("Details length = %d, want 2", len(report.Details))
 	}
 
-	if report.Details[0].Type != naming.StaleTypeVM {
+	if report.Details[0].Type != StaleTypeVM {
 		t.Errorf("Details[0].Type = %q, expected vm", report.Details[0].Type)
 	}
 }
@@ -801,5 +801,22 @@ func TestPruneActiveVMHomeVolumes_RemoveErrorWarns(t *testing.T) {
 	}
 	if report.PrunedVolumes != 0 {
 		t.Errorf("expected no pruned volumes on removal failure, got %d", report.PrunedVolumes)
+	}
+}
+
+func TestStaleTypeString(t *testing.T) {
+	cases := []struct {
+		staleType StaleType
+		want      string
+	}{
+		{StaleTypeVM, "vm"},
+		{StaleTypeVolume, "volume"},
+		{StaleTypeDockerImage, "docker-image"},
+		{StaleTypeMsbImage, "msb-image"},
+	}
+	for _, c := range cases {
+		if c.staleType.String() != c.want {
+			t.Errorf("StaleType(%d).String() = %q, want %q", c.staleType, c.staleType.String(), c.want)
+		}
 	}
 }

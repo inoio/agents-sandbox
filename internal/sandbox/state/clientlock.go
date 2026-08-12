@@ -13,7 +13,7 @@ import (
 // so a dead client never pins the VM. CountActiveClients derives the live client
 // count from held locks, avoiding stale persisted counters.
 func AcquireClientLease(slug string) (func(), error) {
-	dir := filepath.Join(stateRoot(), slug, "clients")
+	dir := filepath.Join(slugDir(slug), "clients")
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return nil, fmt.Errorf("create client lock dir: %w", err)
 	}
@@ -38,7 +38,7 @@ func AcquireClientLease(slug string) (func(), error) {
 // removed. Files that fail a non-blocking exclusive lock are held by a live client
 // and counted.
 func CountActiveClients(slug string) int {
-	dir := filepath.Join(stateRoot(), slug, "clients")
+	dir := filepath.Join(slugDir(slug), "clients")
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		return 0
