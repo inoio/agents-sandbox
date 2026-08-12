@@ -305,6 +305,23 @@ func createProjectVM(
 	return sb, true, nil
 }
 
+// tmpMountPath is the mount point used for the sandbox tmpfs.
+const tmpMountPath = "/tmp"
+
+func buildMounts(homeVol, repoPath string, tmpSizeMiB uint32) map[string]msbSdk.MountConfig {
+	return map[string]msbSdk.MountConfig{
+		"/home/dev":      msbSdk.Mount.Named(homeVol, msbSdk.MountOptions{}),
+		defaultTargetDir: msbSdk.Mount.Bind(repoPath, msbSdk.MountOptions{}),
+		tmpMountPath: msbSdk.Mount.Tmpfs(msbSdk.TmpfsOptions{
+			SizeMiB:  tmpSizeMiB,
+			Readonly: false,
+			Noexec:   false,
+			Nosuid:   false,
+			Nodev:    false,
+		}),
+	}
+}
+
 // acquireProjectFlock takes an exclusive flock on the given path. It returns a
 // release function. The flock prevents two concurrent invocations from both
 // creating a project VM (which would clobber via WithReplace).
