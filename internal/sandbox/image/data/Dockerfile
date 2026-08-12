@@ -1,7 +1,7 @@
 FROM debian:trixie-slim
 
 RUN apt-get update && \
-    apt-get install -y --no-install-recommends ca-certificates curl git ripgrep file gawk jq less lz4 moreutils net-tools parallel recode uuid wget xz-utils yq \
+    apt-get install -y --no-install-recommends bsdmainutils ca-certificates curl git ripgrep file gawk jq less lz4 man-db moreutils net-tools parallel recode uuid wget xz-utils yq \
     && rm -rf /var/lib/apt/lists/*
 
 # OpenCode
