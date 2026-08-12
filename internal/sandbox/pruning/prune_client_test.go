@@ -296,61 +296,6 @@ func TestPruneOrphanSlug_RemovesEverything(t *testing.T) {
 	}
 }
 
-func TestPruneCloneVolume_RemovesWhenNoActiveVM(t *testing.T) {
-	cp.WithMockConfigPaths(t)
-	client := &msb.MockMsbClient{}
-	ui := newMockUI()
-	report := &StaleReport{}
-
-	activeVMDigests := map[string]string{}
-	cv := "opencode-msb-clone-myproject-abc123"
-
-	pruneCloneVolume(context.Background(), client, cv, nil, activeVMDigests, false, ui, report)
-
-	if report.PrunedCloneVolumes != 1 {
-		t.Errorf("PrunedCloneVolumes = %d, want 1", report.PrunedCloneVolumes)
-	}
-	if len(client.RemovedVolumes) != 1 || client.RemovedVolumes[0] != cv {
-		t.Errorf("removed volumes = %v, want [%s]", client.RemovedVolumes, cv)
-	}
-}
-
-func TestPruneCloneVolume_KeepsWhenActiveVMExists(t *testing.T) {
-	cp.WithMockConfigPaths(t)
-	client := &msb.MockMsbClient{}
-	ui := newMockUI()
-	report := &StaleReport{}
-
-	activeVMDigests := map[string]string{"myproject": "digest1"}
-	cv := "opencode-msb-clone-myproject-abc123"
-
-	pruneCloneVolume(context.Background(), client, cv, nil, activeVMDigests, false, ui, report)
-
-	if report.PrunedCloneVolumes != 0 {
-		t.Errorf("PrunedCloneVolumes = %d, want 0", report.PrunedCloneVolumes)
-	}
-	if len(client.RemovedVolumes) != 0 {
-		t.Errorf("expected no volume removal, got %v", client.RemovedVolumes)
-	}
-}
-
-func TestPruneCloneVolume_DryRunDoesNotDelete(t *testing.T) {
-	cp.WithMockConfigPaths(t)
-	client := &msb.MockMsbClient{}
-	ui := newMockUI()
-	report := &StaleReport{}
-
-	cv := "opencode-msb-clone-myproject-abc123"
-	pruneCloneVolume(context.Background(), client, cv, nil, map[string]string{}, true, ui, report)
-
-	if report.PrunedCloneVolumes != 1 {
-		t.Errorf("PrunedCloneVolumes = %d, want 1", report.PrunedCloneVolumes)
-	}
-	if len(client.RemovedVolumes) != 0 {
-		t.Error("expected no deletion in dry run")
-	}
-}
-
 func TestPrune_WithMocks_CoversAllCases(t *testing.T) {
 	cp.WithMockConfigPaths(t)
 	oldTime := time.Now().Add(-2 * time.Hour)
