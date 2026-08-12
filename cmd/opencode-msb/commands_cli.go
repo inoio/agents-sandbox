@@ -133,6 +133,8 @@ func buildShellCmd(ui termio.UI) *cobra.Command {
 func registerRunFlags(cmd *cobra.Command) {
 	cmd.Flags().
 		StringP(flagWorktree, "w", "", "Run in an isolated opencode worktree named <name>, optionally starting from the local base ref <name>:<base>")
+	cmd.Flags().
+		BoolP(flagServeOnly, "s", false, "Serve opencode on the host port (http://127.0.0.1:4096) for clients like Opencode Desktop, without attaching the TUI")
 	registerSharedRunShellFlags(cmd)
 }
 

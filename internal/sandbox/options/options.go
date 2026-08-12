@@ -31,6 +31,10 @@ type RunOptions struct {
 	// Recreate forces a project-VM rebuild on this invocation. It is set by
 	// prepareSandbox from the reconfig decision and is never user-facing.
 	Recreate bool
+	// ServeOnly starts the VM with the opencode port published on the host and
+	// serves without attaching the in-VM TUI. Clients (e.g. Opencode Desktop)
+	// connect to the published host port.
+	ServeOnly bool
 }
 
 // ReapPolicy controls what happens after the last client detaches from a VM.
