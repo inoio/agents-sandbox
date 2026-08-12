@@ -1,5 +1,12 @@
 # SDD ledger — plan: /workspace/docs/superpowers/plans/2026-08-12-sandbox-cohesion-coupling-remediation.md
 
+## RESUME on new worktree (was: .../sandbox-cohesion-remediation-2)
+Worktree: .../sandbox-modularization-rework
+Branch: opencode/sandbox-modularization-rework
+Base (trusted /workspace main): 0c889b1 (merge of Tasks 1-3)
+Tasks 1-3 committed and merged into main at 0c889b1. Resume at Task 4.
+
+## Prior worktree history (record, now merged):
 Worktree: .../sandbox-cohesion-remediation-2
 Branch: opencode/sandbox-cohesion-remediation-2
 Base (trusted /workspace main): d0919bd
@@ -27,3 +34,17 @@ Task 3: REVIEW COMPLETE:
 - Re-review: All findings ADDRESSED; no new breakage.
 - Task 3 COMPLETE (commits 03dabd1..29d80cf, review clean after 1 fix round). Base of branch = 29d80cf (green: make check passes).
 - Minor/deferred (ledger, not loop): AutoFlag value is `--auto` (original), brief typo said `--auto-reap`; slugPath used once; stale nolint:gosec comment in vm.go.
+
+## Task 4 (this worktree): split session run.go and vm.go
+- Task 4 COMPLETE: mechanical split of session run.go and vm.go into focused files (Commit pending).
+- New files:
+  - vm_lifecycle.go: projectPortBindings, vmAction(+consts), decideVMAction, ensureProjectVM, createProjectVM, acquireProjectFlock
+  - vm_resources.go: reconcileResourceConfig, summarizeConflicts
+  - vm_name.go: projectVMName
+  - vm_env.go: experimentalWorkspacesValue, buildProjectVMEnv
+  - vm_control.go: stopOrKillProjectVM, StopProjectVM, KillProjectVM
+  - run_orchestrate.go: buildAttachCommand, buildOpencodeArgs, serveOnlyMessage, runServeOnly, sandboxSession/cleanup, prepareSandbox, Run, Shell, BuildImage, finalizeRun, tmpMountPath, buildMounts
+  - run_envstate.go: currentEnvState, currentSecretState, persistEnvSecrets (matches existing run_envstate_test.go)
+  - reconfig.go: setUpSandbox, decideReconfig, restartDaemons
+- run.go and vm.go reduced to thin package stubs (all symbols relocated).
+- Verified: `go build ./...`, `go test ./internal/sandbox/session/...`, and `make check` (fmt + lint 0 issues + full test suite) all PASS.
