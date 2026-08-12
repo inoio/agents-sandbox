@@ -172,9 +172,6 @@ Once set as a secret, the variable is available like any environment variable:
 echo $GITHUB_TOKEN
 ```
 
-Note: `.envrc` files in the project directory are denied by opencode's provider config and will not be processed or
-surfaced. Secrets from `.envrc` must be migrated to `.opencode-msb/env.secret`.
-
 ## Launcher config
 
 The launcher config file (YAML, JSON, JSONC, or JSON5) sets defaults for CLI flags. It is loaded from the user config
