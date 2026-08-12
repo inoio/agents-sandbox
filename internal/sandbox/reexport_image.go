@@ -1,11 +1,22 @@
 package sandbox
 
 import (
+	"context"
+
 	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/image"
+	"gitlab.inoio.de/inoio/opencode-msb/internal/termio"
 )
 
-// EnsureImage is re-exported from the image module so the sandbox core and cmd
-// stay compile-compatible without circular imports.
-//
-//nolint:gochecknoglobals // re-export from image module
-var EnsureImage = image.EnsureImage
+// Re-exported image module symbols preserve the public API of the sandbox
+// core so that cmd/opencode-msb continues to compile without changing its
+// import paths.
+
+// EnsureImage re-exports the image module's EnsureImage.
+func EnsureImage(
+	ctx context.Context,
+	projectSlug string,
+	force bool,
+	ui termio.UI,
+) (string, string, map[string]string, error) {
+	return image.EnsureImage(ctx, projectSlug, force, ui)
+}

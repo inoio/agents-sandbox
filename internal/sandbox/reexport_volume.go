@@ -1,22 +1,35 @@
 package sandbox
 
+import (
+	"context"
+
+	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/volume"
+	"gitlab.inoio.de/inoio/opencode-msb/internal/termio"
+)
+
 // Re-exported volume module symbols preserve the public API of the sandbox
-// core so that cmd/opencode-msb and any external consumers continue to work
-// without changing their import paths.
+// core so that cmd/opencode-msb continues to compile without changing its
+// import paths.
 
-import "gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/volume"
-
-// ListVolumes is re-exported from the volume module.
-//
-//nolint:gochecknoglobals // re-export preserves sandbox core public API
-var ListVolumes = volume.ListVolumes
+// ListVolumes re-exports the volume module's ListVolumes.
+func ListVolumes(ctx context.Context) ([]VolumeInfo, error) {
+	return volume.ListVolumes(ctx)
+}
 
 // VolumeInfo is re-exported from the volume module.
 type VolumeInfo = volume.VolumeInfo
 
-//nolint:gochecknoglobals // re-export preserves sandbox core public API
-var (
-	CmdMigrate = volume.CmdMigrate
-	CmdReset   = volume.CmdReset
-	CmdEdit    = volume.CmdEdit
-)
+// CmdMigrate re-exports the volume module's CmdMigrate.
+func CmdMigrate(ctx context.Context, projectSlug, volumeName, imageTag string, rmOld, dryRun bool, ui termio.UI) error {
+	return volume.CmdMigrate(ctx, projectSlug, volumeName, imageTag, rmOld, dryRun, ui)
+}
+
+// CmdReset re-exports the volume module's CmdReset.
+func CmdReset(ctx context.Context, projectSlug, volumeName, imageTag string, rmOld, dryRun bool, ui termio.UI) error {
+	return volume.CmdReset(ctx, projectSlug, volumeName, imageTag, rmOld, dryRun, ui)
+}
+
+// CmdEdit re-exports the volume module's CmdEdit.
+func CmdEdit(ctx context.Context, projectSlug, volumeName, imageTag string, rmOld, dryRun bool, ui termio.UI) error {
+	return volume.CmdEdit(ctx, projectSlug, volumeName, imageTag, rmOld, dryRun, ui)
+}
