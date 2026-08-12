@@ -39,6 +39,27 @@ func buildOpencodeArgs(args []string, auto bool) []string {
 	return append([]string{options.AutoFlag}, args...)
 }
 
+// serveOnlyMessage builds the message printed when serving opencode for
+// external clients such as Opencode Desktop.
+func serveOnlyMessage(host, port string) string {
+	return fmt.Sprintf("Connect Opencode Desktop to: http://%s:%s\n\n"+
+		"Optional: set OPENCODE_SERVER_PASSWORD (and OPENCODE_SERVER_USERNAME) to protect the server with basic auth.\n"+
+		"Press Ctrl-D to stop serving.", host, port)
+}
+
+// runServeOnly keeps the VM alive and blocks until ctx is done (CTRL-D or
+// SIGINT), without attaching an in-VM TUI. It holds the VM via a keeper exec so
+// the msb idle timeout does not stop it while serving.
+func runServeOnly(ctx context.Context, sb msb.Sandbox, ui termio.UI) error {
+	ui.Infof("%s", serveOnlyMessage("127.0.0.1", "4096"))
+	keeperCtx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	keeperDone := keepVMAlive(keeperCtx, sb)
+	defer func() { _ = keeperDone() }()
+	<-ctx.Done()
+	return ctx.Err()
+}
+
 type sandboxSession struct {
 	sb     msb.Sandbox
 	name   string
@@ -179,6 +200,20 @@ func Run(ctx context.Context, opts options.RunOptions, ui termio.UI) error {
 			release()
 		}
 	}()
+
+	if opts.ServeOnly {
+		if err := runServeOnly(ctx, session.sb, ui); err != nil && !errors.Is(err, context.Canceled) {
+			return err
+		}
+		if acquireErr == nil {
+			release()
+			release = nil
+		}
+		if err := reapOnLastClient(ctx, projectSlug, session.sb, opts.ReapPolicy, ui); err != nil {
+			ui.Warnf("reap failed: %v", err)
+		}
+		return &options.ExitError{Code: 0}
+	}
 
 	var exitCode int
 	var attachErr error
