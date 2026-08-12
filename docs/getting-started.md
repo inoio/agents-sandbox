@@ -106,7 +106,7 @@ You are running inside a sandbox VM, not on the host. Filesystem layout:
 
 ## Toolchain
 
-Common CLI tools are preinstalled: git, node, npm, jq, yq...
+Common CLI tools are preinstalled: git, node, npm, jq, yq etc. Don't install additional tools yourself without permission.
 ```
 
 ## Next Steps
