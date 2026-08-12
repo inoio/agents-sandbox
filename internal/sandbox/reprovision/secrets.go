@@ -44,29 +44,22 @@ func ParseSecretSpecLegacy(filename string, ui termio.UI) map[string]SecretSpec 
 		return nil
 	}
 	specs := make(map[string]SecretSpec)
-	for line := range strings.SplitSeq(string(data), "\n") {
-		line = strings.TrimSpace(line)
-		if line == "" || strings.HasPrefix(line, "#") {
-			continue
-		}
-		eqParts := strings.SplitN(line, "=", EnvKeyValueParts)
-		if len(eqParts) != EnvKeyValueParts {
-			continue
-		}
-		key := strings.TrimSpace(eqParts[0])
+	_ = parseKeyValueLines(string(data), func(key, value string) error {
+		key = strings.TrimSpace(key)
 		if key == "" {
-			continue
+			return nil
 		}
-		valueAndHost := eqParts[1]
+		valueAndHost := value
 		atIdx := strings.LastIndex(valueAndHost, "@")
 		if atIdx < 0 {
 			ui.Warnf("Value of secret '%s' not defined in format 'value@host': '%s'", key, valueAndHost)
-			continue
+			return nil
 		}
 		specs[key] = SecretSpec{ //nolint:exhaustruct // missing field uses zero-value default
 			Value: valueAndHost[:atIdx], Host: "", Hosts: []string{valueAndHost[atIdx+1:]},
 		}
-	}
+		return nil
+	})
 	return specs
 }
 

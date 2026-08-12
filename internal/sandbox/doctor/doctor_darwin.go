@@ -28,3 +28,6 @@ func CheckDarwin(ui termio.UI) bool {
 	}
 	return true
 }
+
+// checkKvm is a no-op on macOS where KVM is unavailable.
+func checkKvm(ui termio.UI) bool { return true }
