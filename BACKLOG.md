@@ -50,8 +50,7 @@
 
 ### README überarbeiten
 
-[ ] Bedeutungen z.B. env.secret sieht der Agent nicht (BUG, doch)
-[ ] Deliver example AGENTS.md file with instructions for workflow, especially git (don't merge, tool does)
+[ ] Deliver example AGENTS.md file with instructions for VM environment, workflow
 
 ## 1st prio
 
