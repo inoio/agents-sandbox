@@ -81,16 +81,14 @@ func PlanReconfig( //nolint:gocognit // core planner, cognitive complexity accep
 			Change{Label: "image"}, //nolint:exhaustruct // label-only for change reporting
 		)
 	}
-	if opts.TmpSize != "" {
-		wantTmp := options.ParseMemory(opts.TmpSize)
+	if wantTmp, ok := options.ParseMemoryOK(opts.TmpSize); ok {
 		if tmp, ok := cfg.Volumes[tmpMountPath]; ok && tmp.SizeMiB != wantTmp {
 			d.Recreate = true
 			oldRaw := FormatSizeSpec(tmp.SizeMiB, "")
 			d.Changes = append(d.Changes, SizeChange("/tmp tmpfs size", tmp.SizeMiB, wantTmp, oldRaw, opts.TmpSize))
 		}
 	}
-	if opts.DiskSize != "" {
-		wantDisk := options.ParseMemory(opts.DiskSize)
+	if wantDisk, ok := options.ParseMemoryOK(opts.DiskSize); ok {
 		if cfg.RootDisk == nil || cfg.RootDisk.SizeMiB != wantDisk {
 			d.Recreate = true
 			oldRaw := ""

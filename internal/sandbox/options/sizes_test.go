@@ -87,6 +87,26 @@ func TestParseMemoryOK_Whitespace(t *testing.T) {
 	}
 }
 
+func TestParseMemoryOK_Negative(t *testing.T) {
+	got, ok := ParseMemoryOK("-4")
+	if ok {
+		t.Fatal("expected not ok for negative spec")
+	}
+	if got != 0 {
+		t.Errorf("expected 0, got %d", got)
+	}
+}
+
+func TestParseMemoryOK_Overflow(t *testing.T) {
+	got, ok := ParseMemoryOK("4194305G")
+	if ok {
+		t.Fatal("expected not ok for overflowing spec")
+	}
+	if got != 0 {
+		t.Errorf("expected 0, got %d", got)
+	}
+}
+
 func TestParseMemoryOK_DefaultMemoryFallsThrough(t *testing.T) {
 	if ParseMemory("") != DefaultMemoryMiB {
 		t.Errorf("expected default %d for empty spec", DefaultMemoryMiB)
