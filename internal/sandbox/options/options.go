@@ -1,19 +1,10 @@
 package options
 
 import (
-	"fmt"
 	"time"
 
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 )
-
-type ExitError struct {
-	Code int
-}
-
-func (e *ExitError) Error() string {
-	return fmt.Sprintf("exit code %d", e.Code)
-}
 
 // RunOptions controls sandbox lifecycle and configuration.
 type RunOptions struct {
