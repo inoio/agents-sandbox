@@ -3,6 +3,7 @@ package session
 import (
 	"context"
 	"errors"
+	"reflect"
 	"testing"
 
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
@@ -584,5 +585,26 @@ func TestEnsureProjectVMReusesWhenNotFlagged(t *testing.T) {
 	}
 	if handle.DidRemove() {
 		t.Error("did not expect Remove on reuse")
+	}
+}
+
+func TestProjectPortBindingsServeOnly(t *testing.T) {
+	tests := []struct {
+		name      string
+		serveOnly bool
+		want      []msbSdk.PortBinding
+	}{
+		{"normal run", false, nil},
+		{"serve only", true, []msbSdk.PortBinding{
+			{Bind: "127.0.0.1", HostPort: 4096, GuestPort: 4096, Protocol: msbSdk.PortProtocolTCP},
+		}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := projectPortBindings(tt.serveOnly)
+			if !reflect.DeepEqual(got, tt.want) {
+				t.Errorf("projectPortBindings(%v) = %#v, want %#v", tt.serveOnly, got, tt.want)
+			}
+		})
 	}
 }

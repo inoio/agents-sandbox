@@ -32,6 +32,17 @@ func projectVMName(slug string) string {
 	return name
 }
 
+// projectPortBindings returns the port bindings to publish on the host for the
+// project VM. Serve-only exposes the opencode serve port on the host loopback.
+func projectPortBindings(serveOnly bool) []msbSdk.PortBinding {
+	if !serveOnly {
+		return nil
+	}
+	return []msbSdk.PortBinding{
+		{Bind: "127.0.0.1", HostPort: 4096, GuestPort: 4096, Protocol: msbSdk.PortProtocolTCP},
+	}
+}
+
 type vmAction int
 
 const (
@@ -376,6 +387,9 @@ func createProjectVM(
 	}
 	if opts.DiskSize != "" {
 		optsList = append(optsList, msbSdk.WithRootDisk(msbSdk.RootDisk.Managed(options.ParseMemory(opts.DiskSize))))
+	}
+	if opts.ServeOnly {
+		optsList = append(optsList, msbSdk.WithPortBindings(projectPortBindings(true)...))
 	}
 	sb, err := client.CreateSandbox(ctx, name, optsList...)
 	if err != nil {
