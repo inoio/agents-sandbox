@@ -39,7 +39,10 @@ persisting user state via a home directory volume.
 
 ## Development
 
-You are dogfooding the project, you are not on the host, but in an opencode-msb VM.
+You are dogfooding the project, you are not on the host, but in an opencode-msb VM. Filesystem layout:
+
+- `/workspace` bind mount of the host CWD, mounted rw.
+- `~/.local/share/opencode/worktree/` git worktrees of `/workspace`, created by opencode
 
 Installed tooling (see .opencode-msb/Dockerfile):
 
@@ -48,6 +51,8 @@ Installed tooling (see .opencode-msb/Dockerfile):
   tested manually by the user
 - shell tools like jq, yq
 - docker
+
+Don't install additional tools yourself without permission.
 
 Common development commands (run from the Go module root):
 
