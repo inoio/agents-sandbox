@@ -24,6 +24,21 @@ opencode-msb -w bugfix-my-fix
 
 Get an overview over commands via `opencode-msb tree`.
 
+### Serve opencode to a host client (e.g. Opencode Desktop)
+
+`run --serve-only` (or `-s`) starts the project VM with the opencode port
+published on the host, prints the URL for Opencode Desktop, and stays running
+(no in-VM TUI) until you press `Ctrl-D`:
+
+````console
+opencode-msb run --serve-only
+````
+
+Connect Opencode Desktop to the printed `http://127.0.0.1:4096` URL. The server
+is only bound to the host loopback. To add basic auth, set
+`OPENCODE_SERVER_PASSWORD` (and optionally `OPENCODE_SERVER_USERNAME`) in the
+project or user env before starting.
+
 ## Installation
 
 Requires **Linux (KVM) or macOS (Apple Silicon)**.
