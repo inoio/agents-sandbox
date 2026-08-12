@@ -8,9 +8,9 @@ import (
 
 	msb "github.com/superradcompany/microsandbox/sdk/go"
 
-	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/docker"
-
 	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox"
+	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/docker"
+	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/doctor"
 	"gitlab.inoio.de/inoio/opencode-msb/internal/termio"
 )
 
@@ -27,12 +27,12 @@ func setupRunMocks(t *testing.T, mock *sandbox.MockMsbClient, sandboxToReturn sa
 	sandbox.WithMsbMock(t, mock.SetGetSandboxErr(&msb.Error{Kind: msb.ErrSandboxNotFound, Message: "not found"}))
 
 	docker.WithNoopDockerMock(t)
-	origCheck := sandbox.SetEnsureInstalled(func(_ context.Context) error { return nil })
-	t.Cleanup(func() { sandbox.SetEnsureInstalled(origCheck) })
+	origCheck := doctor.SetEnsureInstalled(func(_ context.Context) error { return nil })
+	t.Cleanup(func() { doctor.SetEnsureInstalled(origCheck) })
 
-	origCheckAll := sandbox.CheckAllFunc
-	sandbox.CheckAllFunc = func(context.Context, termio.UI) bool { return true }
-	t.Cleanup(func() { sandbox.CheckAllFunc = origCheckAll })
+	origCheckAll := doctor.CheckAllFunc
+	doctor.CheckAllFunc = func(context.Context, termio.UI) bool { return true }
+	t.Cleanup(func() { doctor.CheckAllFunc = origCheckAll })
 
 	origShell := sandbox.SetDaemonShellFunc(
 		func(ctx context.Context, sb sandbox.Sandbox, command string) (string, int, error) {
