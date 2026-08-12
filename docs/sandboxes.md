@@ -53,7 +53,8 @@ stored in a state file (under `~/.local/state/<slug>/state.yaml`).
 
 When the Dockerfile changes (new image digest), most of the times the current home volume can continue to be used. Only
 if the Dockerfile changes lead to changes in the home directory, keeping the current home volume might be an issue.
-Therefore, when detecting a Dockerfile change, opencode-msb prompts you to decide what to do with the home volume:
+Therefore, when a Dockerfile change actually leads to a VM rebuild (and not just the VM continuing on the current image,
+e.g. when the rebuild is deferred to a later run), opencode-msb prompts you to decide what to do with the home volume:
 
 - *keep*: Keep on using the home volume
 - *reset*: Build a completely new home volume from the new VM's home directory, discarding the current home (e.g. losing opencode session history)

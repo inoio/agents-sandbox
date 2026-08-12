@@ -4,11 +4,13 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 
 	"gitlab.inoio.de/inoio/opencode-msb/internal/configpaths"
+	"gitlab.inoio.de/inoio/opencode-msb/internal/git"
 	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/msb"
 	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/options"
 	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/reprovision"
@@ -616,6 +618,121 @@ func TestDecideReconfig_PersistedSecretsMatchDesired(t *testing.T) {
 	}
 	if restart {
 		t.Error("expected no restart when env matches persisted state and no secrets")
+	}
+}
+
+func TestDecideReconfig_HomePromptDeferredWhenRebuildDeferred(t *testing.T) {
+	state.SetStateDirForTest(t, t.TempDir()+"/opencode-msb")
+
+	mock := reconfigMockClient()
+	msb.WithMsbMock(t, mock)
+	configpaths.WithMockConfigPaths(t)
+
+	prompted := false
+	ui := &termio.Mock{
+		IsInteractiveResult: true,
+		SelectFn: func(prompt string, _ []termio.Choice, _ string) (string, error) {
+			if strings.Contains(prompt, "Docker image changed") {
+				prompted = true
+			}
+			return "", nil
+		},
+	}
+	vm := volume.NewManager(ui)
+
+	persisted := state.HomeState{
+		HomeVolume:  "vol",
+		ImageDigest: "sha256:old",
+	}
+
+	recreate, restart, homeVol, err := decideReconfig(
+		context.Background(),
+		mock,
+		vm,
+		options.RunOptions{},
+		"img:tag",    // imageRef == cfg.Image -> no image-triggered rebuild
+		"sha256:new", // stored digest differs -> image change detected, but rebuild deferred
+		"vol",
+		persisted,
+		ui,
+	)
+	if err != nil {
+		t.Fatalf("decideReconfig: %v", err)
+	}
+	if prompted {
+		t.Error("expected home-volume prompt to be deferred when the rebuild is deferred")
+	}
+	if homeVol != "vol" {
+		t.Errorf("homeVol = %q, want unchanged %q", homeVol, "vol")
+	}
+	if recreate {
+		t.Error("expected no recreate when no config change triggers a rebuild")
+	}
+	if restart {
+		t.Error("expected no restart")
+	}
+}
+
+func TestDecideReconfig_HomePromptAskedWhenRebuildConfirmed(t *testing.T) {
+	state.SetStateDirForTest(t, t.TempDir()+"/opencode-msb")
+
+	mock := reconfigMockClient()
+	msb.WithMsbMock(t, mock)
+	configpaths.WithMockConfigPaths(t)
+
+	prompted := false
+	ui := &termio.Mock{
+		IsInteractiveResult: true,
+		SelectFn: func(prompt string, _ []termio.Choice, _ string) (string, error) {
+			if strings.Contains(prompt, "Docker image changed") {
+				prompted = true
+				return "1", nil // keep volume
+			}
+			return "", nil
+		},
+	}
+	vm := volume.NewManager(ui)
+
+	persisted := state.HomeState{
+		HomeVolume:  "vol",
+		ImageDigest: "sha256:old",
+	}
+	slug := git.ProjectSlug(ui)
+	state.WriteState(slug, persisted)
+
+	recreate, restart, homeVol, err := decideReconfig(
+		context.Background(),
+		mock,
+		vm,
+		options.RunOptions{},
+		"img:new",    // imageRef != cfg.Image("img:tag") -> image-triggered rebuild
+		"sha256:new", // stored digest differs -> image change detected
+		"vol",
+		persisted,
+		ui,
+	)
+	if err != nil {
+		t.Fatalf("decideReconfig: %v", err)
+	}
+	if !prompted {
+		t.Error("expected home-volume prompt to fire when the rebuild onto the new image is confirmed")
+	}
+	if !recreate {
+		t.Error("expected recreate when switching to the new image")
+	}
+	if restart {
+		t.Error("expected no restart (env/secret/config unchanged)")
+	}
+	if homeVol != "vol" {
+		t.Errorf("homeVol = %q, want %q (keep chosen)", homeVol, "vol")
+	}
+
+	st, rerr := state.ReadState(slug)
+	if rerr != nil {
+		t.Fatalf("ReadState: %v", rerr)
+	}
+	if st.ImageDigest != "sha256:new" {
+		t.Errorf("state ImageDigest = %q, want %q (keep records the new digest)", st.ImageDigest, "sha256:new")
 	}
 }
 
