@@ -64,4 +64,5 @@ completion:
 
 user-install: build
 	mkdir -p ~/.local/bin
-	cp opencode-msb ~/.local/bin
+	cp opencode-msb ~/.local/bin/opencode-msb.tmp
+	mv -f ~/.local/bin/opencode-msb.tmp ~/.local/bin/opencode-msb
