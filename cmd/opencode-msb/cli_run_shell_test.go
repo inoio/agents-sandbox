@@ -8,23 +8,25 @@ import (
 
 	msb "github.com/superradcompany/microsandbox/sdk/go"
 
-	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox"
+	"gitlab.inoio.de/inoio/opencode-msb/internal/configpaths"
 	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/docker"
 	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/doctor"
+	sandboxmsb "gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/msb"
+	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/session"
 	"gitlab.inoio.de/inoio/opencode-msb/internal/termio"
 )
 
 // setupRunMocks configures all mock dependencies needed for run/shell tests.
 // It always returns the given mock so callers can inspect its call history, and
 // also returns a cleanup function that restores the original factory.
-func setupRunMocks(t *testing.T, mock *sandbox.MockMsbClient, sandboxToReturn sandbox.Sandbox) {
+func setupRunMocks(t *testing.T, mock *sandboxmsb.MockMsbClient, sandboxToReturn sandboxmsb.Sandbox) {
 	t.Helper()
-	sandbox.WithMockConfigPaths(t)
+	configpaths.WithMockConfigPaths(t)
 	mock.CreatedSandbox = sandboxToReturn
 
 	// The default GetSandbox error must be an msb.Error with ErrSandboxNotFound
 	// so EnsureProjectVM treats it as "not found → create" rather than a real error.
-	sandbox.WithMsbMock(t, mock.SetGetSandboxErr(&msb.Error{Kind: msb.ErrSandboxNotFound, Message: "not found"}))
+	sandboxmsb.WithMsbMock(t, mock.SetGetSandboxErr(&msb.Error{Kind: msb.ErrSandboxNotFound, Message: "not found"}))
 
 	docker.WithNoopDockerMock(t)
 	origCheck := doctor.SetEnsureInstalled(func(_ context.Context) error { return nil })
@@ -34,49 +36,49 @@ func setupRunMocks(t *testing.T, mock *sandbox.MockMsbClient, sandboxToReturn sa
 	doctor.CheckAllFunc = func(context.Context, termio.UI) bool { return true }
 	t.Cleanup(func() { doctor.CheckAllFunc = origCheckAll })
 
-	origShell := sandbox.SetDaemonShellFunc(
-		func(ctx context.Context, sb sandbox.Sandbox, command string) (string, int, error) {
+	origShell := session.SetDaemonShellFunc(
+		func(ctx context.Context, sb sandboxmsb.Sandbox, command string) (string, int, error) {
 			_ = ctx
 			_ = sb
 			_ = command
 			return `{"healthy": true}`, 0, nil
 		},
 	)
-	t.Cleanup(func() { sandbox.SetDaemonShellFunc(origShell) })
+	t.Cleanup(func() { session.SetDaemonShellFunc(origShell) })
 }
 
 // setupShellRunMocks is like setupRunMocks but adds shell output for worktree creation.
 // Worktree scenarios need the mock sandbox to return valid JSON for the worktree curl commands.
-func setupShellRunMocks(t *testing.T, mock *sandbox.MockMsbClient, sandboxToReturn sandbox.Sandbox) {
+func setupShellRunMocks(t *testing.T, mock *sandboxmsb.MockMsbClient, sandboxToReturn sandboxmsb.Sandbox) {
 	t.Helper()
 
 	// Ensure shell responses include a JSON worktree response for curl commands.
-	if sb, ok := sandboxToReturn.(*sandbox.MockSandbox); ok {
+	if sb, ok := sandboxToReturn.(*sandboxmsb.MockSandbox); ok {
 		if sb.ShellOut == nil {
-			sb.ShellOut = make(map[string]sandbox.ShellResult)
+			sb.ShellOut = make(map[string]sandboxmsb.ShellResult)
 		}
-		sb.ShellOut["curl -sf http://127.0.0.1:4096/experimental/worktree"] = sandbox.NewTestResult(
+		sb.ShellOut["curl -sf http://127.0.0.1:4096/experimental/worktree"] = sandboxmsb.NewTestResult(
 			true,
 			0,
 			`[]`,
 			"",
 			nil,
 		)
-		sb.ShellOut["curl -sf -X POST http://127.0.0.1:4096/experimental/worktree -H 'Content-Type: application/json' -d '{\"name\":\"x\"}'"] = sandbox.NewTestResult(
+		sb.ShellOut["curl -sf -X POST http://127.0.0.1:4096/experimental/worktree -H 'Content-Type: application/json' -d '{\"name\":\"x\"}'"] = sandboxmsb.NewTestResult(
 			true,
 			0,
 			`{"directory":"/workspace/worktrees/x"}`,
 			"",
 			nil,
 		)
-		sb.ShellOut["curl -sf -X POST http://127.0.0.1:4096/experimental/worktree -H 'Content-Type: application/json' -d '{\"name\":\"main\"}'"] = sandbox.NewTestResult(
+		sb.ShellOut["curl -sf -X POST http://127.0.0.1:4096/experimental/worktree -H 'Content-Type: application/json' -d '{\"name\":\"main\"}'"] = sandboxmsb.NewTestResult(
 			true,
 			0,
 			`{"directory":"/workspace/worktrees/main"}`,
 			"",
 			nil,
 		)
-		sb.ShellOut["curl -sf -X POST http://127.0.0.1:4096/experimental/worktree -H 'Content-Type: application/json' -d '{\"name\":\"foo\"}'"] = sandbox.NewTestResult(
+		sb.ShellOut["curl -sf -X POST http://127.0.0.1:4096/experimental/worktree -H 'Content-Type: application/json' -d '{\"name\":\"foo\"}'"] = sandboxmsb.NewTestResult(
 			true,
 			0,
 			`{"directory":"/workspace/worktrees/foo"}`,
@@ -93,8 +95,8 @@ func TestRunShell_R1_dryRunRun(t *testing.T) {
 	initTestRepo(t)
 
 	ui := &termio.Mock{}
-	mock := &sandbox.MockMsbClient{}
-	setupRunMocks(t, mock, &sandbox.MockSandbox{})
+	mock := &sandboxmsb.MockMsbClient{}
+	setupRunMocks(t, mock, &sandboxmsb.MockSandbox{})
 
 	root := buildRootCmd(ui)
 	root.SetArgs([]string{"run", "--dry-run"})
@@ -131,8 +133,8 @@ func TestRunShell_R2_dryRunShell(t *testing.T) {
 	initTestRepo(t)
 
 	ui := &termio.Mock{}
-	mock := &sandbox.MockMsbClient{}
-	setupRunMocks(t, mock, &sandbox.MockSandbox{})
+	mock := &sandboxmsb.MockMsbClient{}
+	setupRunMocks(t, mock, &sandboxmsb.MockSandbox{})
 
 	root := buildRootCmd(ui)
 	root.SetArgs([]string{"shell", "--dry-run"})
@@ -158,8 +160,8 @@ func TestRunShell_R3_dryRunWithVmRun(t *testing.T) {
 	initTestRepo(t)
 
 	ui := &termio.Mock{}
-	mock := &sandbox.MockMsbClient{}
-	setupRunMocks(t, mock, &sandbox.MockSandbox{})
+	mock := &sandboxmsb.MockMsbClient{}
+	setupRunMocks(t, mock, &sandboxmsb.MockSandbox{})
 
 	root := buildRootCmd(ui)
 	root.SetArgs([]string{"run", "--dry-run", "--dry-run-vm"})
@@ -185,8 +187,8 @@ func TestRunShell_R4_dryRunWithVmShell(t *testing.T) {
 	initTestRepo(t)
 
 	ui := &termio.Mock{}
-	mock := &sandbox.MockMsbClient{}
-	setupRunMocks(t, mock, &sandbox.MockSandbox{})
+	mock := &sandboxmsb.MockMsbClient{}
+	setupRunMocks(t, mock, &sandboxmsb.MockSandbox{})
 
 	root := buildRootCmd(ui)
 	root.SetArgs([]string{"shell", "--dry-run", "--dry-run-vm"})
@@ -212,8 +214,8 @@ func TestRunShell_R5_runDefaultAttachError(t *testing.T) {
 	initTestRepo(t)
 
 	ui := &termio.Mock{}
-	mock := &sandbox.MockMsbClient{}
-	setupRunMocks(t, mock, &sandbox.MockSandbox{AttachErr: errors.New("connection refused")})
+	mock := &sandboxmsb.MockMsbClient{}
+	setupRunMocks(t, mock, &sandboxmsb.MockSandbox{AttachErr: errors.New("connection refused")})
 
 	root := buildRootCmd(ui)
 	root.SetArgs([]string{"run"})
@@ -232,8 +234,8 @@ func TestRunShell_R6_shellDefaultAttachError(t *testing.T) {
 	initTestRepo(t)
 
 	ui := &termio.Mock{}
-	mock := &sandbox.MockMsbClient{}
-	setupRunMocks(t, mock, &sandbox.MockSandbox{AttachErr: errors.New("shell error")})
+	mock := &sandboxmsb.MockMsbClient{}
+	setupRunMocks(t, mock, &sandboxmsb.MockSandbox{AttachErr: errors.New("shell error")})
 
 	root := buildRootCmd(ui)
 	root.SetArgs([]string{"shell"})
@@ -252,8 +254,8 @@ func TestRunShell_R7_dryRunNoAuto(t *testing.T) {
 	initTestRepo(t)
 
 	ui := &termio.Mock{}
-	mock := &sandbox.MockMsbClient{}
-	setupRunMocks(t, mock, &sandbox.MockSandbox{})
+	mock := &sandboxmsb.MockMsbClient{}
+	setupRunMocks(t, mock, &sandboxmsb.MockSandbox{})
 
 	root := buildRootCmd(ui)
 	root.SetArgs([]string{"run", "--dry-run", "--no-auto"})
@@ -279,8 +281,8 @@ func TestRunShell_R8_shellNoAuto(t *testing.T) {
 	initTestRepo(t)
 
 	ui := &termio.Mock{}
-	mock := &sandbox.MockMsbClient{}
-	setupRunMocks(t, mock, &sandbox.MockSandbox{AttachErr: errors.New("fail")})
+	mock := &sandboxmsb.MockMsbClient{}
+	setupRunMocks(t, mock, &sandboxmsb.MockSandbox{AttachErr: errors.New("fail")})
 
 	root := buildRootCmd(ui)
 	root.SetArgs([]string{"shell"})
@@ -296,8 +298,8 @@ func TestRunShell_R9_runWithAllFlags(t *testing.T) {
 	initTestRepo(t)
 
 	ui := &termio.Mock{}
-	mock := &sandbox.MockMsbClient{}
-	setupShellRunMocks(t, mock, &sandbox.MockSandbox{AttachErr: errors.New("fail")})
+	mock := &sandboxmsb.MockMsbClient{}
+	setupShellRunMocks(t, mock, &sandboxmsb.MockSandbox{AttachErr: errors.New("fail")})
 
 	root := buildRootCmd(ui)
 	root.SetArgs([]string{"run", "--worktree", "x", "--cpus", "2", "--memory", "8G", "--user", "alice"})
@@ -314,8 +316,8 @@ func TestRunShell_R10_runWithShortFlags(t *testing.T) {
 	initTestRepo(t)
 
 	ui := &termio.Mock{}
-	mock := &sandbox.MockMsbClient{}
-	setupShellRunMocks(t, mock, &sandbox.MockSandbox{AttachErr: errors.New("fail")})
+	mock := &sandboxmsb.MockMsbClient{}
+	setupShellRunMocks(t, mock, &sandboxmsb.MockSandbox{AttachErr: errors.New("fail")})
 
 	root := buildRootCmd(ui)
 	root.SetArgs([]string{"run", "--worktree", "main", "-c", "4", "-m", "16G", "-u", "root"})
@@ -333,8 +335,8 @@ func TestRunShell_R11_runSuccessDetachOk(t *testing.T) {
 	initTestRepo(t)
 
 	ui := &termio.Mock{}
-	mock := &sandbox.MockMsbClient{}
-	setupRunMocks(t, mock, &sandbox.MockSandbox{AttachCode: 0, AttachErr: nil})
+	mock := &sandboxmsb.MockMsbClient{}
+	setupRunMocks(t, mock, &sandboxmsb.MockSandbox{AttachCode: 0, AttachErr: nil})
 
 	root := buildRootCmd(ui)
 	root.SetArgs([]string{"run"})
@@ -350,13 +352,13 @@ func TestRunShell_R12b_worktreeReusesExistingWorktree(t *testing.T) {
 	initTestRepo(t)
 
 	ui := &termio.Mock{}
-	mock := &sandbox.MockMsbClient{}
-	sb := &sandbox.MockSandbox{
+	mock := &sandboxmsb.MockMsbClient{}
+	sb := &sandboxmsb.MockSandbox{
 		AttachErr:  errors.New("fail"),
-		ShellOut:   map[string]sandbox.ShellResult{},
+		ShellOut:   map[string]sandboxmsb.ShellResult{},
 		ShellCalls: &[]string{},
 	}
-	sb.ShellOut["curl -sf http://127.0.0.1:4096/experimental/worktree"] = sandbox.NewTestResult(
+	sb.ShellOut["curl -sf http://127.0.0.1:4096/experimental/worktree"] = sandboxmsb.NewTestResult(
 		true,
 		0,
 		`["/home/dev/.local/share/opencode/worktree/abc/bugfix-exit-zero"]`,
@@ -391,8 +393,8 @@ func TestRunShell_R12_shellWithBranchCpus(t *testing.T) {
 	initTestRepo(t)
 
 	ui := &termio.Mock{}
-	mock := &sandbox.MockMsbClient{}
-	setupShellRunMocks(t, mock, &sandbox.MockSandbox{AttachErr: errors.New("fail")})
+	mock := &sandboxmsb.MockMsbClient{}
+	setupShellRunMocks(t, mock, &sandboxmsb.MockSandbox{AttachErr: errors.New("fail")})
 
 	root := buildRootCmd(ui)
 	root.SetArgs([]string{"shell", "--cpus", "2"})
@@ -408,13 +410,13 @@ func TestRunShell_R12_shellWithBranchCpus(t *testing.T) {
 func TestRunShell_W1_worktreeReusesExisting(t *testing.T) {
 	initTestRepo(t)
 	ui := &termio.Mock{}
-	mock := &sandbox.MockMsbClient{}
-	sb := &sandbox.MockSandbox{
+	mock := &sandboxmsb.MockMsbClient{}
+	sb := &sandboxmsb.MockSandbox{
 		AttachErr:  errors.New("fail"),
-		ShellOut:   map[string]sandbox.ShellResult{},
+		ShellOut:   map[string]sandboxmsb.ShellResult{},
 		ShellCalls: &[]string{},
 	}
-	sb.ShellOut["curl -sf http://127.0.0.1:4096/experimental/worktree"] = sandbox.NewTestResult(
+	sb.ShellOut["curl -sf http://127.0.0.1:4096/experimental/worktree"] = sandboxmsb.NewTestResult(
 		true, 0, `["/home/dev/.local/share/opencode/worktree/abc/bugfix-exit-zero"]`, "", nil,
 	)
 	setupRunMocks(t, mock, sb)
@@ -439,8 +441,8 @@ func TestRunShell_W1_worktreeReusesExisting(t *testing.T) {
 func TestRunShell_W2_worktreeRejectsNonSlug(t *testing.T) {
 	initTestRepo(t)
 	ui := &termio.Mock{}
-	mock := &sandbox.MockMsbClient{}
-	sb := &sandbox.MockSandbox{AttachErr: errors.New("fail")}
+	mock := &sandboxmsb.MockMsbClient{}
+	sb := &sandboxmsb.MockSandbox{AttachErr: errors.New("fail")}
 	setupRunMocks(t, mock, sb)
 
 	root := buildRootCmd(ui)

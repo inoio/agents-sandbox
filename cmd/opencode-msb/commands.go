@@ -6,8 +6,10 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox"
+	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/naming"
 	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/options"
+	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/pruning"
+	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/session"
 	"gitlab.inoio.de/inoio/opencode-msb/internal/termio"
 	launcherconfig "gitlab.inoio.de/inoio/opencode-msb/internal/viperconfig"
 )
@@ -17,14 +19,14 @@ import (
 type launcherConfigKey struct{}
 
 // extractRunOptions extracts shared run/shell flags from the given command
-// and returns a populated sandbox.RunOptions. The auto parameter controls
+// and returns a populated options.RunOptions. The auto parameter controls
 // whether the Auto field is set on RunOptions.
-func extractRunOptions(cmd *cobra.Command, auto bool, ui termio.UI) (sandbox.RunOptions, error) {
-	opts := sandbox.RunOptions{Auto: auto}
+func extractRunOptions(cmd *cobra.Command, auto bool, ui termio.UI) (options.RunOptions, error) {
+	opts := options.RunOptions{Auto: auto}
 	rawWorktree, _ := cmd.Flags().GetString(flagWorktree)
-	worktree, err := sandbox.ResolveWorktreeSpec(rawWorktree)
+	worktree, err := session.ResolveWorktreeSpec(rawWorktree)
 	if err != nil {
-		return sandbox.RunOptions{}, err
+		return options.RunOptions{}, err
 	}
 	opts.Worktree = worktree
 	opts.Rebuild, _ = cmd.Flags().GetBool(flagRebuild)
@@ -49,7 +51,7 @@ func extractRunOptions(cmd *cobra.Command, auto bool, ui termio.UI) (sandbox.Run
 	}
 	if opts.TmpSize != "" {
 		if _, ok := options.ParseMemoryOK(opts.TmpSize); !ok {
-			return sandbox.RunOptions{}, fmt.Errorf(
+			return options.RunOptions{}, fmt.Errorf(
 				"invalid --tmp-size %q: expected a size like 4G, 512M, or 2048",
 				opts.TmpSize,
 			)
@@ -57,7 +59,7 @@ func extractRunOptions(cmd *cobra.Command, auto bool, ui termio.UI) (sandbox.Run
 	}
 	if opts.DiskSize != "" {
 		if _, ok := options.ParseMemoryOK(opts.DiskSize); !ok {
-			return sandbox.RunOptions{}, fmt.Errorf(
+			return options.RunOptions{}, fmt.Errorf(
 				"invalid --disk-size %q: expected a size like 16G, 512M, or 4096",
 				opts.DiskSize,
 			)
@@ -87,7 +89,7 @@ func printItems[T any](
 
 func buildMinimalRootFlagsCmd() *cobra.Command {
 	rootFlagsCmd := &cobra.Command{
-		Use:   sandbox.Prefix,
+		Use:   naming.Prefix,
 		Short: "Run opencode inside an ephemeral microsandbox VM",
 		Long: "Run opencode inside an ephemeral microsandbox VM.\n\n" +
 			"When invoked without a subcommand, the \"run\" command is implied.",
@@ -115,7 +117,7 @@ func buildRootCmd(ui termio.UI) *cobra.Command {
 
 		// execute Auto-Prune
 		isDryRun, _ := cmd.Flags().GetBool(flagDryRun)
-		sandbox.AutoPrune(cmd.Context(), lc.AutoPruneAge, isDryRun, ui)
+		pruning.AutoPrune(cmd.Context(), lc.AutoPruneAge, isDryRun, ui)
 		applyCLISettings(cmd, ui)
 		return nil
 	}

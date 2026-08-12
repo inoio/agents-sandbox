@@ -8,7 +8,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox"
+	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/options"
 	"gitlab.inoio.de/inoio/opencode-msb/internal/termio"
 	launcherconfig "gitlab.inoio.de/inoio/opencode-msb/internal/viperconfig"
 )
@@ -28,7 +28,7 @@ func TestExtractRunOptions_L1_DefaultValues(t *testing.T) {
 		t.Fatalf("extractRunOptions: %v", err)
 	}
 
-	expectedPolicy := sandbox.ReapPolicy{
+	expectedPolicy := options.ReapPolicy{
 		AutoStopOnActiveSessions: false,
 		MaxSessionRetries:        10,
 	}
@@ -124,7 +124,7 @@ func TestExtractRunOptions_L6_ShellCommandPath(t *testing.T) {
 		t.Fatalf("extractRunOptions: %v", err)
 	}
 
-	expectedPolicy := sandbox.ReapPolicy{
+	expectedPolicy := options.ReapPolicy{
 		AutoStopOnActiveSessions: true,
 		MaxSessionRetries:        7,
 	}

@@ -4,8 +4,9 @@ import (
 	"strings"
 	"testing"
 
-	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox"
+	"gitlab.inoio.de/inoio/opencode-msb/internal/configpaths"
 	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/docker"
+	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/msb"
 	"gitlab.inoio.de/inoio/opencode-msb/internal/termio"
 	"gitlab.inoio.de/inoio/opencode-msb/internal/testutil"
 	launcherconfig "gitlab.inoio.de/inoio/opencode-msb/internal/viperconfig"
@@ -396,10 +397,10 @@ func TestCLICombinedShortFlagsActivateVerbose(t *testing.T) {
 		{"prune", "--age", "1m", "--dry-run", "--verbose"},
 	} {
 		t.Run(strings.Join(args, "_"), func(t *testing.T) {
-			sandbox.WithMockConfigPaths(t)
+			configpaths.WithMockConfigPaths(t)
 			ui := &termio.Mock{}
-			mock := &sandbox.MockMsbClient{}
-			sandbox.WithMsbMock(t, mock)
+			mock := &msb.MockMsbClient{}
+			msb.WithMsbMock(t, mock)
 			docker.WithNoopDockerMock(t)
 
 			root := buildRootCmd(ui)
@@ -416,10 +417,10 @@ func TestCLICombinedShortFlagsActivateVerbose(t *testing.T) {
 }
 
 func TestCLIPersistentYesAffectsUIAfterSubcommand(t *testing.T) {
-	sandbox.WithMockConfigPaths(t)
+	configpaths.WithMockConfigPaths(t)
 	ui := &termio.Mock{}
-	mock := &sandbox.MockMsbClient{}
-	sandbox.WithMsbMock(t, mock)
+	mock := &msb.MockMsbClient{}
+	msb.WithMsbMock(t, mock)
 	docker.WithNoopDockerMock(t)
 
 	root := buildRootCmd(ui)
@@ -491,7 +492,7 @@ func TestNewConfigSetsUserDirs(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", "")
 	t.Setenv("XDG_CACHE_HOME", "")
 	t.Setenv("XDG_STATE_HOME", "")
-	sandbox.WithRealConfigPaths(t)
+	configpaths.WithRealConfigPaths(t)
 	cfg := newConfig()
 	if cfg.UserStateDir() != "/testhome/.local/state/opencode-msb" {
 		t.Errorf("unexpected state dir: %q", cfg.UserStateDir())
@@ -512,7 +513,7 @@ func TestNewConfigHonorsXdgEnv(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", "/xdg/config")
 	t.Setenv("XDG_CACHE_HOME", "/xdg/cache")
 	t.Setenv("XDG_STATE_HOME", "/xdg/state")
-	sandbox.WithRealConfigPaths(t)
+	configpaths.WithRealConfigPaths(t)
 	cfg := newConfig()
 	if cfg.UserStateDir() != "/xdg/state/opencode-msb" {
 		t.Errorf("unexpected state dir: %q", cfg.UserStateDir())

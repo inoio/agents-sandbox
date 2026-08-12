@@ -7,8 +7,9 @@ import (
 
 	msb "github.com/superradcompany/microsandbox/sdk/go"
 
-	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox"
+	"gitlab.inoio.de/inoio/opencode-msb/internal/configpaths"
 	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/docker"
+	sandboxmsb "gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/msb"
 	"gitlab.inoio.de/inoio/opencode-msb/internal/termio"
 	"gitlab.inoio.de/inoio/opencode-msb/internal/testutil"
 )
@@ -87,11 +88,11 @@ func TestLifecycle(t *testing.T) {
 			for _, flags := range stopKillFlags {
 				t.Run(tc.cmd+strings.Join(flags, "_"), func(t *testing.T) {
 					ui := &termio.Mock{}
-					mock := &sandbox.MockMsbClient{}
+					mock := &sandboxmsb.MockMsbClient{}
 					mock.SetGetSandboxErr(notFoundErr())
-					sandbox.WithMockConfigPaths(t)
+					configpaths.WithMockConfigPaths(t)
 					docker.WithNoopDockerMock(t)
-					sandbox.WithMsbMock(t, mock)
+					sandboxmsb.WithMsbMock(t, mock)
 
 					root := buildRootCmd(ui)
 					root.SetArgs(append([]string{tc.cmd}, flags...))
@@ -122,11 +123,11 @@ func TestLifecycle(t *testing.T) {
 			t.Run(tc.sNum+"_dry_run_"+tc.cmd+"_flags"+strings.Join(flags, "_"), func(t *testing.T) {
 				initTestRepo(t)
 				ui := &termio.Mock{}
-				mock := &sandbox.MockMsbClient{}
-				mock.SetGotSandbox(&sandbox.MockSandboxHandle{})
-				sandbox.WithMockConfigPaths(t)
+				mock := &sandboxmsb.MockMsbClient{}
+				mock.SetGotSandbox(&sandboxmsb.MockSandboxHandle{})
+				configpaths.WithMockConfigPaths(t)
 				docker.WithNoopDockerMock(t)
-				sandbox.WithMsbMock(t, mock)
+				sandboxmsb.WithMsbMock(t, mock)
 
 				root := buildRootCmd(ui)
 				root.SetArgs(append([]string{tc.cmd}, flags...))
@@ -150,11 +151,11 @@ func TestLifecycle(t *testing.T) {
 		t.Run("S6"+tc.cmd+"--force", func(t *testing.T) {
 			initTestRepo(t)
 			ui := &termio.Mock{}
-			mock := &sandbox.MockMsbClient{}
-			mock.SetGotSandbox(&sandbox.MockSandboxHandle{})
-			sandbox.WithMockConfigPaths(t)
+			mock := &sandboxmsb.MockMsbClient{}
+			mock.SetGotSandbox(&sandboxmsb.MockSandboxHandle{})
+			configpaths.WithMockConfigPaths(t)
 			docker.WithNoopDockerMock(t)
-			sandbox.WithMsbMock(t, mock)
+			sandboxmsb.WithMsbMock(t, mock)
 
 			root := buildRootCmd(ui)
 			root.SetArgs([]string{tc.cmd, "--force"})
@@ -170,11 +171,11 @@ func TestLifecycle(t *testing.T) {
 		t.Run("S6"+tc.cmd+"--force-short", func(t *testing.T) {
 			initTestRepo(t)
 			ui := &termio.Mock{}
-			mock := &sandbox.MockMsbClient{}
-			mock.SetGotSandbox(&sandbox.MockSandboxHandle{})
-			sandbox.WithMockConfigPaths(t)
+			mock := &sandboxmsb.MockMsbClient{}
+			mock.SetGotSandbox(&sandboxmsb.MockSandboxHandle{})
+			configpaths.WithMockConfigPaths(t)
 			docker.WithNoopDockerMock(t)
-			sandbox.WithMsbMock(t, mock)
+			sandboxmsb.WithMsbMock(t, mock)
 
 			root := buildRootCmd(ui)
 			root.SetArgs([]string{tc.cmd, "-f"})
@@ -191,11 +192,11 @@ func TestLifecycle(t *testing.T) {
 		t.Run("S9_force_remove_"+cmd, func(t *testing.T) {
 			initTestRepo(t)
 			ui := &termio.Mock{}
-			mock := &sandbox.MockMsbClient{}
-			mock.SetGotSandbox(&sandbox.MockSandboxHandle{})
-			sandbox.WithMockConfigPaths(t)
+			mock := &sandboxmsb.MockMsbClient{}
+			mock.SetGotSandbox(&sandboxmsb.MockSandboxHandle{})
+			configpaths.WithMockConfigPaths(t)
 			docker.WithNoopDockerMock(t)
-			sandbox.WithMsbMock(t, mock)
+			sandboxmsb.WithMsbMock(t, mock)
 
 			root := buildRootCmd(ui)
 			root.SetArgs([]string{cmd, "--force"})
@@ -219,11 +220,11 @@ func TestLifecycle(t *testing.T) {
 			t.Run("S10_remove_fail_"+tc.cmd+strings.Join(flags, "_"), func(t *testing.T) {
 				initTestRepo(t)
 				ui := &termio.Mock{}
-				mock := &sandbox.MockMsbClient{}
-				mock.SetGotSandbox(&sandbox.MockSandboxHandle{RemoveErr: errBoom})
-				sandbox.WithMockConfigPaths(t)
+				mock := &sandboxmsb.MockMsbClient{}
+				mock.SetGotSandbox(&sandboxmsb.MockSandboxHandle{RemoveErr: errBoom})
+				configpaths.WithMockConfigPaths(t)
 				docker.WithNoopDockerMock(t)
-				sandbox.WithMsbMock(t, mock)
+				sandboxmsb.WithMsbMock(t, mock)
 
 				root := buildRootCmd(ui)
 				root.SetArgs(append([]string{tc.cmd}, flags...))
@@ -243,11 +244,11 @@ func TestLifecycle(t *testing.T) {
 		t.Run("S10_non_dry_run_"+cmd+"_remove_fail", func(t *testing.T) {
 			initTestRepo(t)
 			ui := &termio.Mock{}
-			mock := &sandbox.MockMsbClient{}
-			mock.SetGotSandbox(&sandbox.MockSandboxHandle{RemoveErr: errBoom})
-			sandbox.WithMockConfigPaths(t)
+			mock := &sandboxmsb.MockMsbClient{}
+			mock.SetGotSandbox(&sandboxmsb.MockSandboxHandle{RemoveErr: errBoom})
+			configpaths.WithMockConfigPaths(t)
 			docker.WithNoopDockerMock(t)
-			sandbox.WithMsbMock(t, mock)
+			sandboxmsb.WithMsbMock(t, mock)
 
 			root := buildRootCmd(ui)
 			root.SetArgs([]string{cmd, "--force"})
