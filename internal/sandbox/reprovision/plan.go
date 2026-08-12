@@ -243,9 +243,7 @@ func desiredPublishBindings(serveOnly bool) []msbSdk.PortBinding {
 	if !serveOnly {
 		return nil
 	}
-	return []msbSdk.PortBinding{
-		{Bind: "127.0.0.1", HostPort: 4096, GuestPort: 4096, Protocol: msbSdk.PortProtocolTCP},
-	}
+	return options.ServeOnlyBindings()
 }
 
 func portBindingsEqual(a, b []msbSdk.PortBinding) bool {

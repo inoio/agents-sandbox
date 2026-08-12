@@ -3,6 +3,8 @@ package options
 import (
 	"fmt"
 	"time"
+
+	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 )
 
 type ExitError struct {
@@ -35,6 +37,21 @@ type RunOptions struct {
 	// serves without attaching the in-VM TUI. Clients (e.g. Opencode Desktop)
 	// connect to the published host port.
 	ServeOnly bool
+}
+
+// ServeOnlyBindAddr is the loopback address the opencode server binds to
+// when run in serve-only mode.
+const ServeOnlyBindAddr = "127.0.0.1"
+
+// ServeOnlyPort is the host/guest TCP port used for the opencode server in
+// serve-only mode.
+const ServeOnlyPort = "4096"
+
+// ServeOnlyBindings returns the msb port binding for serve-only mode.
+func ServeOnlyBindings() []msbSdk.PortBinding {
+	return []msbSdk.PortBinding{
+		{Bind: ServeOnlyBindAddr, HostPort: 4096, GuestPort: 4096, Protocol: msbSdk.PortProtocolTCP},
+	}
 }
 
 // ReapPolicy controls what happens after the last client detaches from a VM.

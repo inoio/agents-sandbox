@@ -1,9 +1,13 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"io"
+	"os"
+	"os/signal"
 	"strings"
+	"syscall"
 
 	"github.com/spf13/cobra"
 
@@ -105,7 +109,28 @@ func runFunc(ui termio.UI) func(cmd *cobra.Command, args []string) error {
 			opts.Auto = false
 		}
 
-		return sandbox.Run(cmd.Context(), opts, ui)
+		ctx := cmd.Context()
+		if opts.ServeOnly {
+			ctx, _ = serveOnlyContext(ctx)
+		}
+		return sandbox.Run(ctx, opts, ui)
+	}
+}
+
+// serveOnlyContext builds a cancellable context for the serve-only path.
+// It wires SIGINT/SIGTERM and stdin EOF (Ctrl-D) to cancel the context,
+// so runServeOnly can exit cleanly and trigger proper teardown
+// (lease release, keeper cancel, reaping, exit code 0).
+func serveOnlyContext(base context.Context) (context.Context, func()) {
+	ctx, stop := signal.NotifyContext(base, os.Interrupt, syscall.SIGTERM)
+	cancelCtx, cancel := context.WithCancel(ctx)
+	go func() {
+		_, _ = io.Copy(io.Discard, os.Stdin)
+		cancel()
+	}()
+	return cancelCtx, func() {
+		stop()
+		cancel()
 	}
 }
 
@@ -129,7 +154,8 @@ func buildShellCmd(ui termio.UI) *cobra.Command {
 	return cmd
 }
 
-// registerRunFlags adds the shared run/shell flags to the given command.
+// registerRunFlags registers run-specific flags, then the shared run/shell flags,
+// on the given command.
 func registerRunFlags(cmd *cobra.Command) {
 	cmd.Flags().
 		StringP(flagWorktree, "w", "", "Run in an isolated opencode worktree named <name>, optionally starting from the local base ref <name>:<base>")
