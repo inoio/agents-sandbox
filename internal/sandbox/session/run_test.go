@@ -6,6 +6,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 
@@ -462,4 +463,43 @@ func contains(s, sub string) bool {
 		}
 	}
 	return false
+}
+
+func TestServeOnlyMessage(t *testing.T) {
+	msg := serveOnlyMessage("127.0.0.1", "4096")
+	for _, want := range []string{"Connect Opencode Desktop to", "http://127.0.0.1:4096", "OPENCODE_SERVER_PASSWORD", "Ctrl-D"} {
+		if !strings.Contains(msg, want) {
+			t.Errorf("serveOnlyMessage missing %q in:\n%s", want, msg)
+		}
+	}
+}
+
+func TestRunServeOnlyBlocksUntilCancel(t *testing.T) {
+	sb := msb.NewMockSandbox(msb.SandboxOpts{})
+	ctx, cancel := context.WithCancel(context.Background())
+	got := make(chan error, 1)
+	ui := &termio.Mock{}
+	go func() { got <- runServeOnly(ctx, sb, ui) }()
+	cancel()
+	select {
+	case err := <-got:
+		if err == nil {
+			t.Error("expected ctx.Err from completed runServeOnly")
+		}
+	case <-time.After(2 * time.Second):
+		t.Error("runServeOnly did not return after ctx cancel")
+	}
+	if len(ui.InfoCalls) == 0 {
+		t.Fatal("expected Infof call to print connect URL, got no info calls")
+	}
+	found := false
+	for _, call := range ui.InfoCalls {
+		if strings.Contains(call, "http://127.0.0.1:4096") {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("expected connect URL 'http://127.0.0.1:4096' in info output, got %v", ui.InfoCalls)
+	}
 }
