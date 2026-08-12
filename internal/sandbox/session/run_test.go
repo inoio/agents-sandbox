@@ -2,7 +2,6 @@ package session
 
 import (
 	"context"
-	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
@@ -13,117 +12,13 @@ import (
 	"gitlab.inoio.de/inoio/opencode-msb/internal/configpaths"
 	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/msb"
 	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/options"
-	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/reprovision"
 	"gitlab.inoio.de/inoio/opencode-msb/internal/termio"
 
 	"gitlab.inoio.de/inoio/opencode-msb/internal/testutil"
 )
 
-func TestConfigEqualIgnoresExtraFilesOnVM(t *testing.T) {
-	// BuildMergedConfig produces only opencode.jsonc, but the VM has
-	// extra pre-installed npm files from the Docker image.
-	// reprovision.ConfigEqual should only compare the expected JSON files.
-	vmData := map[string][]byte{
-		"opencode.jsonc":    []byte(`{"provider":{"litellm":{"name":"LiteLLM"}}}`),
-		".gitignore":        []byte("node_modules/\n"),
-		"package.json":      []byte(`{"name":"opencode"}`),
-		"package-lock.json": []byte(`{"lockfileVersion":2}`),
-	}
-	goSide := map[string]map[string]any{
-		"opencode.jsonc": {"provider": map[string]any{"litellm": map[string]any{"name": "LiteLLM"}}},
-	}
-	keys := []string{"opencode.jsonc"}
-
-	got := reprovision.ConfigEqual(goSide, keys, vmData)
-	if !got {
-		t.Error("expected equality: extra VM files should be ignored")
-	}
-}
-
-func TestConfigEqualJSONMismatch(t *testing.T) {
-	goSideKeys := []string{"opencode.jsonc"}
-	goSide := map[string]map[string]any{
-		"opencode.jsonc": {"provider": map[string]any{"litellm": map[string]any{"name": "LiteLLM"}}},
-	}
-	vmData := map[string][]byte{
-		"opencode.jsonc": []byte(`{"provider":{"litellm":{"name":"other"}}}`),
-	}
-
-	got := reprovision.ConfigEqual(goSide, goSideKeys, vmData)
-	if got {
-		t.Error("expected mismatch: different provider names")
-	}
-}
-
-func TestConfigEqualVMKeyMissing(t *testing.T) {
-	goSideKeys := []string{"opencode.jsonc"}
-	goSide := map[string]map[string]any{
-		"opencode.jsonc": {"provider": map[string]any{"litellm": map[string]any{"name": "LiteLLM"}}},
-	}
-	vmData := map[string][]byte{}
-
-	got := reprovision.ConfigEqual(goSide, goSideKeys, vmData)
-	if got {
-		t.Error("expected mismatch: VM missing expected file")
-	}
-}
-
-func TestConfigEqualNonJSONByteMatch(t *testing.T) {
-	goSideKeys := []string{".gitignore"}
-	goSide := map[string]map[string]any{
-		".gitignore": nil, // not a JSON file
-	}
-	vmData := map[string][]byte{
-		".gitignore": []byte("node_modules/\n"),
-	}
-
-	got := reprovision.ConfigEqual(goSide, goSideKeys, vmData)
-	if !got {
-		t.Error("expected equality: non-JSON files should match byte-for-byte")
-	}
-}
-
-func TestConfigEqualKeyMismatch(t *testing.T) {
-	goSideKeys := []string{"opencode.jsonc", ".gitignore"}
-	goSide := map[string]map[string]any{
-		"opencode.jsonc": {},
-		".gitignore":     nil,
-	}
-	vmData := map[string][]byte{
-		"opencode.jsonc": []byte(`{}`),
-	}
-
-	got := reprovision.ConfigEqual(goSide, goSideKeys, vmData)
-	if got {
-		t.Error("expected mismatch: different file keys")
-	}
-}
-
-func TestConfigEqualJSONEquivalent(t *testing.T) {
-	// Different JSON representations (key order) should be semantically equal.
-	goSideKeys := []string{"opencode.jsonc"}
-	goSide := map[string]map[string]any{
-		"opencode.jsonc": {"a": 1, "b": "hello", "c": []any{1, 2}},
-	}
-	vmData := map[string][]byte{
-		"opencode.jsonc": []byte(`{"c":[1,2],"a":1,"b":"hello"}`),
-	}
-
-	got := reprovision.ConfigEqual(goSide, goSideKeys, vmData)
-	if !got {
-		t.Error("expected equality: semantically equivalent JSON despite key order")
-	}
-}
-
-func TestEqualJSONFilesEmptyMaps(t *testing.T) {
-	goSide := map[string]map[string]any{}
-	vmData := map[string][]byte{}
-	if !reprovision.EqualJSONFiles(goSide, nil, vmData) {
-		t.Error("expected equality for empty maps")
-	}
-}
-
 // parseMemory and resolveTmpSizeMiB tests moved to internal/sandbox/options/options_test.go.
+// TestBuildEnvMap, TestReadSandboxEnvMissing, TestMergeEnvMapsProjectOverridesUser, TestIsSandboxActive, TestReadVMFiles* moved to their owning packages.
 
 func TestBuildMountsIncludesTmpfsAtTmp(t *testing.T) {
 	mounts := buildMounts("test-home-vol", "/repo/path", options.DefaultTmpSizeMiB)
@@ -152,29 +47,6 @@ func TestBuildMountsRespectsCustomTmpSize(t *testing.T) {
 	}
 }
 
-func TestBuildEnvMap(t *testing.T) {
-	envFile := filepath.Join(t.TempDir(), "env")
-	testutil.WritePath(t, envFile, "FOO=bar\n# comment\n\nBAZ=qux\n")
-	got := reprovision.BuildEnvMap(envFile)
-
-	if len(got) != 2 {
-		t.Fatalf("expected 2 env vars, got %d: %v", len(got), got)
-	}
-	if got["FOO"] != "bar" {
-		t.Errorf("expected FOO=bar, got %q", got["FOO"])
-	}
-	if got["BAZ"] != "qux" {
-		t.Errorf("expected BAZ=qux, got %q", got["BAZ"])
-	}
-}
-
-func TestReadSandboxEnvMissing(t *testing.T) {
-	env := reprovision.BuildEnvMap("missing")
-	if len(env) != 0 {
-		t.Errorf("expected 0 env vars when .opencode-msb/env missing, got %d", len(env))
-	}
-}
-
 func TestBuildOpencodeArgs(t *testing.T) {
 	tests := []struct {
 		name string
@@ -194,40 +66,6 @@ func TestBuildOpencodeArgs(t *testing.T) {
 				t.Errorf("buildOpencodeArgs(%v, %v) = %v, want %v", tt.args, tt.auto, got, tt.want)
 			}
 		})
-	}
-}
-
-func TestIsSandboxActive(t *testing.T) {
-	tests := []struct {
-		name   string
-		status msbSdk.SandboxStatus
-		want   bool
-	}{
-		{"running", msbSdk.SandboxStatusRunning, true},
-		{"draining", msbSdk.SandboxStatusDraining, true},
-		{"paused", msbSdk.SandboxStatusPaused, true},
-		{"stopped", msbSdk.SandboxStatusStopped, false},
-		{"crashed", msbSdk.SandboxStatusCrashed, false},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			if got := msb.IsSandboxActive(tt.status); got != tt.want {
-				t.Errorf("IsSandboxActive(%q) = %v, want %v", tt.status, got, tt.want)
-			}
-		})
-	}
-}
-
-func TestMergeEnvMapsProjectOverridesUser(t *testing.T) {
-	userFile := filepath.Join(t.TempDir(), "env")
-	testutil.WritePath(t, userFile, "FOO=user\nBAR=user\n")
-	projectFile := filepath.Join(t.TempDir(), "env")
-	testutil.WritePath(t, projectFile, "FOO=project\n")
-
-	got := reprovision.MergeEnvMaps(reprovision.BuildEnvMap(userFile), reprovision.BuildEnvMap(projectFile))
-	want := map[string]string{"FOO": "project", "BAR": "user"}
-	if !reflect.DeepEqual(got, want) {
-		t.Errorf("got %v, want %v", got, want)
 	}
 }
 
@@ -308,66 +146,6 @@ func setUpSandboxProvisionsConfig(t *testing.T, created bool, provisionMsg strin
 			"expected config to be provisioned on %s, but opencode.jsonc was never written",
 			provisionMsg,
 		)
-	}
-}
-
-func TestReadVMFilesUsesSDKFs(t *testing.T) {
-	data := []byte("test-config-data")
-	gitignore := []byte("node_modules/\n")
-	sb := &msb.MockSandbox{
-		Name_: "test-vm",
-		FSValue_: msb.NewTestFS(
-			map[string][]byte{
-				"/home/dev/.config/opencode/thing.json": data,
-				"/home/dev/.config/opencode/.gitignore": gitignore,
-			},
-			[]msbSdk.FsEntry{
-				{Path: "/home/dev/.config/opencode/thing.json", Kind: msbSdk.FsEntryKindFile},
-				{Path: "/home/dev/.config/opencode/.gitignore", Kind: msbSdk.FsEntryKindFile},
-			},
-		),
-	}
-	want := map[string][]byte{
-		"thing.json": data,
-		".gitignore": gitignore,
-	}
-	got := reprovision.ReadVMFiles(context.Background(), sb, "/home/dev/.config/opencode", &termio.Mock{})
-	if !reflect.DeepEqual(got, want) {
-		t.Errorf("reprovision.ReadVMFiles(%q) = %v, want %v", "/home/dev/.config/opencode", got, want)
-	}
-}
-
-func TestReadVMFilesSkipsDirectories(t *testing.T) {
-	sb := &msb.MockSandbox{
-		Name_: "test-vm",
-		FSValue_: msb.NewTestFS(
-			map[string][]byte{
-				"/home/dev/.config/opencode/file.txt": []byte("hello"),
-			},
-			[]msbSdk.FsEntry{
-				{Path: "/home/dev/.config/opencode/file.txt", Kind: msbSdk.FsEntryKindFile},
-				{Path: "/home/dev/.config/opencode/dir1", Kind: msbSdk.FsEntryKindDirectory},
-				{Path: "/home/dev/.config/opencode/dir2", Kind: msbSdk.FsEntryKindDirectory},
-			},
-		),
-	}
-	want := map[string][]byte{
-		"file.txt": []byte("hello"),
-	}
-	got := reprovision.ReadVMFiles(context.Background(), sb, "/home/dev/.config/opencode", &termio.Mock{})
-	if !reflect.DeepEqual(got, want) {
-		t.Errorf("reprovision.ReadVMFiles(%q) = %v, want %v", "/home/dev/.config/opencode", got, want)
-	}
-}
-
-func TestReadVMFilesEmptyDir(t *testing.T) {
-	sb := &msb.MockSandbox{
-		Name_:    "test-vm",
-		FSValue_: msb.NewTestFS(nil, nil),
-	}
-	got := reprovision.ReadVMFiles(context.Background(), sb, "/home/dev/.config/opencode", &termio.Mock{})
-	if len(got) != 0 {
-		t.Errorf("expected empty result for empty dir, got %v", got)
 	}
 }
 
