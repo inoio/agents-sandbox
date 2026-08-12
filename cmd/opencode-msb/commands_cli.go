@@ -11,7 +11,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox"
+	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/session"
 	"gitlab.inoio.de/inoio/opencode-msb/internal/termio"
 )
 
@@ -113,7 +113,7 @@ func runFunc(ui termio.UI) func(cmd *cobra.Command, args []string) error {
 		if opts.ServeOnly {
 			ctx, _ = serveOnlyContext(ctx)
 		}
-		return sandbox.Run(ctx, opts, ui)
+		return session.Run(ctx, opts, ui)
 	}
 }
 
@@ -147,7 +147,7 @@ func buildShellCmd(ui termio.UI) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			return sandbox.Shell(cmd.Context(), opts, ui)
+			return session.Shell(cmd.Context(), opts, ui)
 		},
 	}
 	registerSharedRunShellFlags(cmd)
@@ -187,7 +187,7 @@ func buildStopCmd(ui termio.UI) *cobra.Command {
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			force, _ := cmd.Flags().GetBool(flagForce)
 			dryRun, _ := cmd.Flags().GetBool(flagDryRun)
-			return sandbox.StopProjectVM(cmd.Context(), force, dryRun, ui)
+			return session.StopProjectVM(cmd.Context(), force, dryRun, ui)
 		},
 	}
 	cmd.Flags().BoolP(flagForce, flagForce[:1], false, "Remove the VM's persisted state after stopping")
@@ -206,7 +206,7 @@ func buildKillCmd(ui termio.UI) *cobra.Command {
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			force, _ := cmd.Flags().GetBool(flagForce)
 			dryRun, _ := cmd.Flags().GetBool(flagDryRun)
-			return sandbox.KillProjectVM(cmd.Context(), force, dryRun, ui)
+			return session.KillProjectVM(cmd.Context(), force, dryRun, ui)
 		},
 	}
 	cmd.Flags().BoolP(flagForce, flagForce[:1], false, "Remove the VM's persisted state after killing")
