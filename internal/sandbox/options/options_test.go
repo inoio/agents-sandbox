@@ -37,6 +37,13 @@ func TestResolveTmpSizeDefaultsWhenEmpty(t *testing.T) {
 	}
 }
 
+func TestServeOnlyZeroValue(t *testing.T) {
+	opts := RunOptions{}
+	if opts.ServeOnly {
+		t.Error("expected ServeOnly to default to false")
+	}
+}
+
 func TestResolveTmpSizeParsesSpec(t *testing.T) {
 	got := ResolveTmpSizeMiB("4G")
 	if got != 4096 {
