@@ -2,8 +2,6 @@ package pruning
 
 import (
 	"time"
-
-	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/msb"
 )
 
 // StaleReport describes the result of a prune operation.
@@ -44,26 +42,4 @@ type imageWithDigest struct {
 	ref      string
 	digest   string // empty string for :latest
 	isLatest bool
-}
-
-// findStaleVMs filters sandboxes to only those that are stopped/crashed and
-// older than the given threshold.
-func findStaleVMs(sandboxes []staleVM, threshold time.Duration) []StaleEntry {
-	var stale []StaleEntry
-	for _, s := range sandboxes {
-		if !msb.IsStoppedStatus(s.status) {
-			continue
-		}
-		elapsed := time.Since(s.updatedAt)
-		if elapsed > threshold {
-			stale = append(stale, StaleEntry{
-				Type:     StaleTypeVM,
-				Name:     s.name,
-				StaleFor: elapsed,
-				Slug:     "",
-				Digest:   "",
-			})
-		}
-	}
-	return stale
 }

@@ -28,6 +28,8 @@ Task 3: IN PROGRESS — commit d0919bd implemented but NOT yet reviewed. Now bei
 
 NOTE: GOOS=darwin go build steps in the plan are NOT runnable here (microsandbox SDK excludes darwin FFI). Treat as linux build + build-tag reasoning.
 
+Task 4: COMPLETE (commit c642a04 on opencode/sandbox-modularization-rework; base 0c889b1). Implementer DONE, reviewer Approved (spec ✅, no Critical/Important). Minor (deferred): vm.go/run.go left as bare `package session` stubs (16 bytes). Matches brief intent; consider deleting in a later cleanup — park for final review triage.
+
 Task 3: REVIEW COMPLETE:
 - Reviewer verdict: Steps 1,3,4,5,6,7 ✅; Step 2 ❌ (orphaned options.ExitError left in options/options.go) + known serve-only scope violation.
 - Fix round 1: 29d80cf deleted orphaned options.ExitError + its Error() + fmt import; 87ace2e reverted serve-only drift (preconditioned).
