@@ -17,35 +17,43 @@ func ParseMemoryGiB(gib uint32) uint32 {
 	return gib * mibPerGib
 }
 
-// ParseMemory parses a memory size specification like "4G", "512M", or "2048".
-// Returns the value in MiB.
-func ParseMemory(spec string) uint32 {
-	spec = strings.TrimSpace(spec)
-	if spec == "" {
-		return DefaultMemoryMiB
+// ParseMemoryOK parses a size spec like "4G", "512M", or "2048" and reports
+// whether it parsed. Empty or unparseable spec returns ok=false.
+func ParseMemoryOK(spec string) (uint32, bool) {
+	trimmed := strings.TrimSpace(spec)
+	if trimmed == "" {
+		return 0, false
 	}
 	multiplier := uint32(1)
-	last := spec[len(spec)-1]
-	rest := spec
-	switch last {
+	rest := trimmed
+	switch last := trimmed[len(trimmed)-1]; last {
 	case 'g', 'G':
 		multiplier = 1024
-		rest = spec[:len(spec)-1]
+		rest = trimmed[:len(trimmed)-1]
 	case 'm', 'M':
 		multiplier = 1
-		rest = spec[:len(spec)-1]
+		rest = trimmed[:len(trimmed)-1]
 	}
 	n, err := strconv.Atoi(rest)
 	if err != nil {
-		return DefaultMemoryMiB
+		return 0, false
 	}
-	return uint32(n) * multiplier //nolint:gosec // G115: n is from Atoi on a memory spec, bounded by realistic values
+	return uint32(n) * multiplier, true //nolint:gosec // G115: bounded spec size
+}
+
+// ParseMemory parses a memory size specification like "4G", "512M", or "2048".
+// Returns the value in MiB.
+func ParseMemory(spec string) uint32 {
+	if v, ok := ParseMemoryOK(spec); ok {
+		return v
+	}
+	return DefaultMemoryMiB
 }
 
 // ResolveTmpSizeMiB returns the tmpfs size in MiB. An empty spec uses the default.
 func ResolveTmpSizeMiB(spec string) uint32 {
-	if spec == "" {
-		return DefaultTmpSizeMiB
+	if v, ok := ParseMemoryOK(spec); ok {
+		return v
 	}
-	return ParseMemory(spec)
+	return DefaultTmpSizeMiB
 }
