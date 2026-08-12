@@ -1,18 +1,26 @@
 package sandbox
 
-// Re-exported pruning module symbols preserve the public API of the sandbox
-// core so that cmd/opencode-msb and any sandbox-internal consumers continue
-// to work without changing their import paths.
+import (
+	"context"
+	"time"
 
-import "gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/pruning"
-
-//nolint:gochecknoglobals // Re-exports preserve the sandbox core public API.
-var (
-	// Prune is re-exported from the pruning module.
-	Prune = pruning.Prune
-	// AutoPrune is re-exported from the pruning module.
-	AutoPrune = pruning.AutoPrune
+	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/pruning"
+	"gitlab.inoio.de/inoio/opencode-msb/internal/termio"
 )
+
+// Re-exported pruning module symbols preserve the public API of the sandbox
+// core so that cmd/opencode-msb continues to compile without changing its
+// import paths.
+
+// Prune re-exports the pruning module's Prune.
+func Prune(ctx context.Context, threshold time.Duration, dryRun bool, autoPrune bool, ui termio.UI) error {
+	return pruning.Prune(ctx, threshold, dryRun, autoPrune, ui)
+}
+
+// AutoPrune re-exports the pruning module's AutoPrune.
+func AutoPrune(ctx context.Context, threshold time.Duration, dryRun bool, ui termio.UI) {
+	pruning.AutoPrune(ctx, threshold, dryRun, ui)
+}
 
 // StaleReport is re-exported from the pruning module.
 type StaleReport = pruning.StaleReport

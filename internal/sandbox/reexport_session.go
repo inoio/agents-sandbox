@@ -3,6 +3,7 @@ package sandbox
 import (
 	"context"
 
+	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/image"
 	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/session"
 	"gitlab.inoio.de/inoio/opencode-msb/internal/termio"
 )
@@ -63,4 +64,15 @@ func SetDaemonShellFunc(
 	f func(ctx context.Context, sb Sandbox, command string) (string, int, error),
 ) func(ctx context.Context, sb Sandbox, command string) (string, int, error) {
 	return session.SetDaemonShellFunc(f)
+}
+
+// Info is a re-export of session.Info so that cmd continues to compile.
+type Info = session.Info
+
+// ImageInfo is an alias for image.Info from the image module.
+type ImageInfo = image.Info
+
+// ListImages re-exports the image module's ListImages through the sandbox core.
+func ListImages(ctx context.Context) ([]ImageInfo, error) {
+	return image.ListImages(ctx)
 }
