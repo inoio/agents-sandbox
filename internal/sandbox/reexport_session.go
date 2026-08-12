@@ -7,6 +7,9 @@ import (
 	"gitlab.inoio.de/inoio/opencode-msb/internal/termio"
 )
 
+// ExitError re-exported from session for cmd compatibility.
+type ExitError = session.ExitError
+
 // Re-exported session module symbols preserve the public API of the sandbox
 // core so that cmd/opencode-msb and internal consumers continue to work
 // without changing their import paths. Only cmd-referenced symbols are re-exported.

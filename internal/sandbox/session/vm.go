@@ -378,7 +378,7 @@ func createProjectVM(
 		msbSdk.WithMaxCPUs(numCPUs),
 		msbSdk.WithMemory(options.ParseMemory(opts.Memory)),
 		//nolint:gosec // G115: maxMemoryGiB is physical RAM in GiB, cannot overflow uint32
-		msbSdk.WithMaxMemory(uint32(maxMemoryGiB) * options.MibPerGib),
+		msbSdk.WithMaxMemory(options.ParseMemoryGiB(uint32(maxMemoryGiB))),
 		msbSdk.WithDetached(),
 		msbSdk.WithIdleTimeout(idleTimeout),
 		msbSdk.WithReplace(),
