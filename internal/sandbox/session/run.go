@@ -400,19 +400,10 @@ func decideReconfig(
 		}
 	}
 
-	// image-change home-volume prompt runs before the rebuild decision.
-	if hs.ImageDigest != imageDigest {
-		action := vm.ResolveHomeAction(ui, hs.ImageDigest, imageDigest)
-		if action == "4" {
-			ui.Infof("exiting as requested by user")
-			return false, false, homeVol, &options.ExitError{Code: 1}
-		}
-		newVol, err := vm.ApplyHomeAction(ctx, client, slug, homeVol, imageRef, imageDigest, action, opts, ui)
-		if err != nil {
-			return false, false, homeVol, fmt.Errorf("apply home action: %w", err)
-		}
-		homeVol = newVol
-	}
+	// Detect whether the project's image digest changed since the last run. The
+	// home-volume prompt is deferred until the rebuild decision below confirms
+	// we are actually switching to the new image.
+	imageChanged := hs.ImageDigest != imageDigest
 
 	cfs, err := reprovision.LoadConfigFiles(configpaths.GetConfigPaths().UserOpencodeConfigDir())
 	if err != nil {
@@ -449,6 +440,23 @@ func decideReconfig(
 	}
 	recreate := applyRecreate
 	restart := applyRestart && !recreate && !plan.Recreate
+
+	// The home-volume question only matters when we are actually switching to
+	// the new image, so it is asked after the rebuild decision instead of up
+	// front. When the rebuild is deferred (keep current VM) or no state exists
+	// yet (fresh home already created), the prompt is skipped.
+	if imageChanged && recreate {
+		action := vm.ResolveHomeAction(ui, hs.ImageDigest, imageDigest)
+		if action == "4" {
+			ui.Infof("exiting as requested by user")
+			return false, false, homeVol, &options.ExitError{Code: 1}
+		}
+		newVol, err := vm.ApplyHomeAction(ctx, client, slug, homeVol, imageRef, imageDigest, action, opts, ui)
+		if err != nil {
+			return false, false, homeVol, fmt.Errorf("apply home action: %w", err)
+		}
+		homeVol = newVol
+	}
 	return recreate, restart, homeVol, nil
 }
 
