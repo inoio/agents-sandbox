@@ -4,7 +4,7 @@ import (
 	"errors"
 	"os"
 
-	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox"
+	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/session"
 )
 
 func main() {
@@ -13,7 +13,7 @@ func main() {
 	ui.Verbose("Initialized terminal output")
 
 	if err := execute(args, ui); err != nil {
-		var exitErr *sandbox.ExitError
+		var exitErr *session.ExitError
 		if errors.As(err, &exitErr) {
 			os.Exit(exitErr.Code)
 		}

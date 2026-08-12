@@ -3,18 +3,19 @@ package main
 import (
 	"testing"
 
-	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox"
+	"gitlab.inoio.de/inoio/opencode-msb/internal/configpaths"
 	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/docker"
+	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/msb"
 	"gitlab.inoio.de/inoio/opencode-msb/internal/termio"
 )
 
 func TestVolumeMigrateHelp(t *testing.T) {
 	initTestRepo(t)
-	sandbox.WithMockConfigPaths(t)
+	configpaths.WithMockConfigPaths(t)
 	docker.WithNoopDockerMock(t)
 	ui := &termio.Mock{}
-	mock := &sandbox.MockMsbClient{}
-	sandbox.WithMsbMock(t, mock)
+	mock := &msb.MockMsbClient{}
+	msb.WithMsbMock(t, mock)
 
 	root := buildRootCmd(ui)
 	root.SetArgs([]string{cmdVolume, cmdMigrate, "--help"})
@@ -23,11 +24,11 @@ func TestVolumeMigrateHelp(t *testing.T) {
 
 func TestVolumeResetHelp(t *testing.T) {
 	initTestRepo(t)
-	sandbox.WithMockConfigPaths(t)
+	configpaths.WithMockConfigPaths(t)
 	docker.WithNoopDockerMock(t)
 	ui := &termio.Mock{}
-	mock := &sandbox.MockMsbClient{}
-	sandbox.WithMsbMock(t, mock)
+	mock := &msb.MockMsbClient{}
+	msb.WithMsbMock(t, mock)
 
 	root := buildRootCmd(ui)
 	root.SetArgs([]string{cmdVolume, cmdReset, "--help"})
@@ -36,11 +37,11 @@ func TestVolumeResetHelp(t *testing.T) {
 
 func TestVolumeEditHelp(t *testing.T) {
 	initTestRepo(t)
-	sandbox.WithMockConfigPaths(t)
+	configpaths.WithMockConfigPaths(t)
 	docker.WithNoopDockerMock(t)
 	ui := &termio.Mock{}
-	mock := &sandbox.MockMsbClient{}
-	sandbox.WithMsbMock(t, mock)
+	mock := &msb.MockMsbClient{}
+	msb.WithMsbMock(t, mock)
 
 	root := buildRootCmd(ui)
 	root.SetArgs([]string{cmdVolume, cmdEdit, "--help"})
