@@ -94,7 +94,7 @@ func buildCatalog(ctx context.Context, client MsbClient, threshold time.Duration
 			elapsed := time.Since(h.UpdatedAt())
 			slug, _ := naming.ExtractProjectSlugAndDigest(name)
 			catalog.TaskSandboxes = append(catalog.TaskSandboxes, StaleEntry{
-				Type:     naming.StaleTypeVM,
+				Type:     StaleTypeVM,
 				Name:     name,
 				StaleFor: elapsed,
 				Slug:     slug,
@@ -388,7 +388,7 @@ func pruneCloneVolumes(
 		}
 		report.PrunedCloneVolumes++
 		report.Details = append(report.Details, StaleEntry{
-			Type:     naming.StaleTypeVolume,
+			Type:     StaleTypeVolume,
 			Name:     cv,
 			Slug:     slug,
 			StaleFor: 0,
@@ -480,7 +480,7 @@ func pruneActiveVMHomeVolumes(
 		}
 		report.PrunedVolumes++
 		report.Details = append(report.Details, StaleEntry{
-			Type:     naming.StaleTypeVolume,
+			Type:     StaleTypeVolume,
 			Name:     volName,
 			Slug:     slug,
 			StaleFor: 0,
@@ -512,7 +512,7 @@ func pruneActiveVMMSBImages(
 		}
 		report.PrunedMSBImages++
 		report.Details = append(report.Details, StaleEntry{
-			Type:     naming.StaleTypeMsbImage,
+			Type:     StaleTypeMsbImage,
 			Name:     img.ref,
 			Slug:     slug,
 			StaleFor: 0,
@@ -547,7 +547,7 @@ func pruneActiveVMDockerImages(
 		}
 		report.PrunedDockerImages++
 		report.Details = append(report.Details, StaleEntry{
-			Type:     naming.StaleTypeDockerImage,
+			Type:     StaleTypeDockerImage,
 			Name:     img.ref,
 			Slug:     slug,
 			StaleFor: 0,
@@ -584,7 +584,7 @@ func pruneCloneVolume(
 	}
 	report.PrunedCloneVolumes++
 	report.Details = append(report.Details, StaleEntry{
-		Type:     naming.StaleTypeVolume,
+		Type:     StaleTypeVolume,
 		Name:     cv,
 		Slug:     slug,
 		StaleFor: 0,
@@ -637,7 +637,7 @@ func removeHomeVolumes(
 		}
 		report.PrunedVolumes++
 		report.Details = append(report.Details, StaleEntry{
-			Type:     naming.StaleTypeVolume,
+			Type:     StaleTypeVolume,
 			Name:     volName,
 			Slug:     slug,
 			StaleFor: 0,
@@ -669,7 +669,7 @@ func removeMSBImages(
 		}
 		report.PrunedMSBImages++
 		report.Details = append(report.Details, StaleEntry{
-			Type:     naming.StaleTypeMsbImage,
+			Type:     StaleTypeMsbImage,
 			Name:     img.ref,
 			Slug:     slug,
 			StaleFor: 0,
@@ -700,7 +700,7 @@ func removeDockerImages(
 		}
 		report.PrunedDockerImages++
 		report.Details = append(report.Details, StaleEntry{
-			Type:     naming.StaleTypeDockerImage,
+			Type:     StaleTypeDockerImage,
 			Name:     img.ref,
 			Slug:     slug,
 			StaleFor: 0,

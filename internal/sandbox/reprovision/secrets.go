@@ -5,7 +5,6 @@ import (
 	"os"
 	"strings"
 
-	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/options"
 	"gitlab.inoio.de/inoio/opencode-msb/internal/termio"
 
 	msb "github.com/superradcompany/microsandbox/sdk/go"
@@ -50,8 +49,8 @@ func ParseSecretSpecLegacy(filename string, ui termio.UI) map[string]SecretSpec 
 		if line == "" || strings.HasPrefix(line, "#") {
 			continue
 		}
-		eqParts := strings.SplitN(line, "=", options.EnvKeyValueParts)
-		if len(eqParts) != options.EnvKeyValueParts {
+		eqParts := strings.SplitN(line, "=", EnvKeyValueParts)
+		if len(eqParts) != EnvKeyValueParts {
 			continue
 		}
 		key := strings.TrimSpace(eqParts[0])

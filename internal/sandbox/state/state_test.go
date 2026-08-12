@@ -12,7 +12,7 @@ func TestStateFile(t *testing.T) {
 	SetStateDirForTest(t, t.TempDir()+"/opencode-msb")
 
 	slug := "testproj-aBc1234D"
-	f := StateFile(slug)
+	f := stateFile(slug)
 	if filepath.Base(f) != "state.yaml" {
 		t.Errorf("expected state.yaml basename, got %q", filepath.Base(f))
 	}

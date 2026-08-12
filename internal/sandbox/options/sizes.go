@@ -3,19 +3,19 @@ package options
 import (
 	"strconv"
 	"strings"
-	"time"
 )
 
 const (
-	DefaultMemoryMiB     = 4096
-	DefaultTmpSizeMiB    = 2048
-	MaxSandboxNameLen    = 128
-	SandboxStopTimeout   = 30 * time.Second
-	EnvKeyValueParts     = 2
-	MibPerGib            = 1024
-	DefaultVMIdleTimeout = 30 * time.Second
-	AutoFlag             = "--auto"
+	DefaultMemoryMiB  = 4096
+	DefaultTmpSizeMiB = 2048
+	MaxSandboxNameLen = 128
+	mibPerGib         = 1024
 )
+
+// ParseMemoryGiB converts GiB to MiB.
+func ParseMemoryGiB(gib uint32) uint32 {
+	return gib * mibPerGib
+}
 
 // ParseMemory parses a memory size specification like "4G", "512M", or "2048".
 // Returns the value in MiB.

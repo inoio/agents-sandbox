@@ -29,6 +29,16 @@ func stateRoot() string {
 	return configpaths.GetConfigPaths().UserStateDir()
 }
 
+// slugDir returns the slug-specific state directory under stateRoot.
+func slugDir(slug string) string {
+	return filepath.Join(stateRoot(), slug)
+}
+
+// slugPath returns a path under the slug's state directory.
+func slugPath(slug string, parts ...string) string {
+	return filepath.Join(append([]string{slugDir(slug)}, parts...)...)
+}
+
 // EnvState tracks environment-variable fingerprint data for a project.
 type EnvState struct {
 	Hash  string   `yaml:"hash,omitempty"`
@@ -49,9 +59,8 @@ type HomeState struct {
 	SecretState SecretState `yaml:"secret_state,omitempty"`
 }
 
-//nolint:revive // StateFile matches the original unexported name stateFile
-func StateFile(slug string) string {
-	return filepath.Join(stateRoot(), slug, "state.yaml")
+func stateFile(slug string) string {
+	return slugPath(slug, "state.yaml")
 }
 
 // SetStateDirForTest overrides the state directory root for the given test.
@@ -69,7 +78,7 @@ var ErrStateNotFound = errors.New("state file not found")
 // Returns ErrStateNotFound with a nil state if no file exists.
 // Returns an error for parse failures or non-"not found" I/O errors.
 func ReadState(slug string) (*HomeState, error) {
-	path := StateFile(slug)
+	path := stateFile(slug)
 	data, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -86,7 +95,7 @@ func ReadState(slug string) (*HomeState, error) {
 
 // WriteState atomically writes the state to disk.
 func WriteState(slug string, state HomeState) error {
-	dir := filepath.Dir(StateFile(slug))
+	dir := filepath.Dir(stateFile(slug))
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return fmt.Errorf("create state dir %s: %w", dir, err)
 	}
@@ -98,7 +107,7 @@ func WriteState(slug string, state HomeState) error {
 	if err := os.WriteFile(tmpFile, data, 0o600); err != nil {
 		return fmt.Errorf("write state temp: %w", err)
 	}
-	if err := os.Rename(tmpFile, StateFile(slug)); err != nil {
+	if err := os.Rename(tmpFile, stateFile(slug)); err != nil {
 		// best-effort cleanup of temp file if rename failed
 		_ = os.Remove(tmpFile)
 		return fmt.Errorf("rename state file: %w", err)
@@ -108,6 +117,6 @@ func WriteState(slug string, state HomeState) error {
 
 // RemoveState removes the state file and its parent directory.
 func RemoveState(slug string) error {
-	slugStateDir := filepath.Join(stateRoot(), slug)
+	slugStateDir := slugDir(slug)
 	return os.RemoveAll(slugStateDir)
 }
