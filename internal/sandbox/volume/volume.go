@@ -142,12 +142,7 @@ func (vm *Manager) ApplyHomeAction(
 		}
 	}
 
-	newState := state.HomeState{
-		HomeVolume:  newName,
-		ImageDigest: currentDigest,
-		EnvState:    state.EnvState{},    //nolint:exhaustruct // intentionally zeroed; fingerprint re-established on next apply
-		SecretState: state.SecretState{}, //nolint:exhaustruct // intentionally zeroed; fingerprint re-established on next apply
-	}
+	newState := state.NewHomeState(newName, currentDigest)
 	if err := state.WriteState(projectSlug, newState); err != nil {
 		ui.Warnf("failed to write state file: %v", err)
 	}

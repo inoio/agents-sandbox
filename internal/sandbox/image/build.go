@@ -15,22 +15,11 @@ import (
 	"gitlab.inoio.de/inoio/opencode-msb/internal/termio"
 )
 
-func referencesBase(dockerfile []byte) bool {
+func referencesImage(dockerfile []byte, tag string) bool {
 	scanner := bufio.NewScanner(bytes.NewReader(dockerfile))
 	for scanner.Scan() {
 		line := strings.TrimLeft(scanner.Text(), " \t")
-		if strings.HasPrefix(line, "FROM") && strings.Contains(line, naming.BaseTag) {
-			return true
-		}
-	}
-	return false
-}
-
-func referencesDindBase(dockerfile []byte) bool {
-	scanner := bufio.NewScanner(bytes.NewReader(dockerfile))
-	for scanner.Scan() {
-		line := strings.TrimLeft(scanner.Text(), " \t")
-		if strings.HasPrefix(line, "FROM") && strings.Contains(line, naming.DindBaseTag) {
+		if strings.HasPrefix(line, "FROM") && strings.Contains(line, tag) {
 			return true
 		}
 	}
@@ -118,7 +107,7 @@ func EnsureImageWithClient(
 	force bool,
 	ui termio.UI,
 ) (string, string, map[string]string, error) {
-	if force || referencesBase(dockerfile) || referencesDindBase(dockerfile) {
+	if force || referencesImage(dockerfile, naming.BaseTag) || referencesImage(dockerfile, naming.DindBaseTag) {
 		if err := docker.BuildDockerImage(
 			ctx,
 			embeddedDockerfile,
@@ -131,7 +120,7 @@ func EnsureImageWithClient(
 		}
 	}
 
-	if referencesDindBase(dockerfile) {
+	if referencesImage(dockerfile, naming.DindBaseTag) {
 		if err := docker.BuildDockerImage(
 			ctx,
 			embeddedDindDockerfile,

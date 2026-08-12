@@ -64,12 +64,7 @@ func (vm *Manager) EnsureNewHome(
 		ui.Infof("dry-run: Would prefill home volume")
 	}
 
-	hs := state.HomeState{
-		HomeVolume:  volName,
-		ImageDigest: imageDigest,
-		EnvState:    state.EnvState{},    //nolint:exhaustruct // intentionally zeroed; fingerprint re-established on next apply
-		SecretState: state.SecretState{}, //nolint:exhaustruct // intentionally zeroed; fingerprint re-established on next apply
-	}
+	hs := state.NewHomeState(volName, imageDigest)
 	if err := state.WriteState(projectSlug, hs); err != nil {
 		ui.Warnf("failed to write state file: %v", err)
 	}
