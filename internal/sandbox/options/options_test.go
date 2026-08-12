@@ -1,6 +1,10 @@
 package options
 
-import "testing"
+import (
+	"testing"
+
+	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
+)
 
 func TestParseMemoryGigabytes(t *testing.T) {
 	got := ParseMemory("4G")
@@ -37,10 +41,27 @@ func TestResolveTmpSizeDefaultsWhenEmpty(t *testing.T) {
 	}
 }
 
-func TestServeOnlyZeroValue(t *testing.T) {
-	opts := RunOptions{}
-	if opts.ServeOnly {
-		t.Error("expected ServeOnly to default to false")
+func TestServeOnlyBindings(t *testing.T) {
+	bindings := ServeOnlyBindings()
+	if len(bindings) != 1 {
+		t.Fatalf("expected 1 binding, got %d", len(bindings))
+	}
+	b := bindings[0]
+	if b.Bind != ServeOnlyBindAddr {
+		t.Errorf("Bind = %q, want %q", b.Bind, ServeOnlyBindAddr)
+	}
+	if b.HostPort != 4096 || b.GuestPort != 4096 {
+		t.Errorf("HostPort/GuestPort = %d/%d, want 4096/4096", b.HostPort, b.GuestPort)
+	}
+	if b.Protocol != msbSdk.PortProtocolTCP {
+		t.Errorf("Protocol = %v, want %v", b.Protocol, msbSdk.PortProtocolTCP)
+	}
+}
+
+func TestServeOnlyOptionsSet(t *testing.T) {
+	opts := RunOptions{ServeOnly: true}
+	if !opts.ServeOnly {
+		t.Error("expected ServeOnly=true when explicitly set")
 	}
 }
 

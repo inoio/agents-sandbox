@@ -9,9 +9,7 @@ import (
 )
 
 func TestPlanReconfigServeOnly(t *testing.T) {
-	desired := []msbSdk.PortBinding{
-		{Bind: "127.0.0.1", HostPort: 4096, GuestPort: 4096, Protocol: msbSdk.PortProtocolTCP},
-	}
+	desired := options.ServeOnlyBindings()
 	tests := []struct {
 		name         string
 		serveOnly    bool
@@ -51,5 +49,32 @@ func TestPlanReconfigServeOnly(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestDesiredPublishBindingsDelegatesToOptions(t *testing.T) {
+	optsBindings := options.ServeOnlyBindings()
+	planBindings := desiredPublishBindings(true)
+	if len(planBindings) != 1 {
+		t.Fatalf("expected 1 binding, got %d", len(planBindings))
+	}
+	if planBindings[0].Bind != optsBindings[0].Bind {
+		t.Errorf("Bind = %q, want %q", planBindings[0].Bind, optsBindings[0].Bind)
+	}
+	if planBindings[0].HostPort != optsBindings[0].HostPort {
+		t.Errorf("HostPort = %d, want %d", planBindings[0].HostPort, optsBindings[0].HostPort)
+	}
+	if planBindings[0].GuestPort != optsBindings[0].GuestPort {
+		t.Errorf("GuestPort = %d, want %d", planBindings[0].GuestPort, optsBindings[0].GuestPort)
+	}
+	if planBindings[0].Protocol != optsBindings[0].Protocol {
+		t.Errorf("Protocol = %v, want %v", planBindings[0].Protocol, optsBindings[0].Protocol)
+	}
+}
+
+func TestDesiredPublishBindingsNilWhenNotServeOnly(t *testing.T) {
+	got := desiredPublishBindings(false)
+	if got != nil {
+		t.Errorf("expected nil when serveOnly=false, got %+v", got)
 	}
 }

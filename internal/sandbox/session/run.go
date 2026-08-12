@@ -51,7 +51,9 @@ func serveOnlyMessage(host, port string) string {
 // SIGINT), without attaching an in-VM TUI. It holds the VM via a keeper exec so
 // the msb idle timeout does not stop it while serving.
 func runServeOnly(ctx context.Context, sb msb.Sandbox, ui termio.UI) error {
-	ui.Infof("%s", serveOnlyMessage("127.0.0.1", "4096"))
+	host := options.ServeOnlyBindAddr
+	port := options.ServeOnlyPort
+	ui.Infof("%s", serveOnlyMessage(host, port))
 	keeperCtx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	keeperDone := keepVMAlive(keeperCtx, sb)
