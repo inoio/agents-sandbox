@@ -79,12 +79,14 @@ type VolumeHandle interface {
 	Name() string
 	Path() string
 	Kind() msbSdk.VolumeKind
+	CreatedAt() time.Time
 }
 
 // ImageHandle is the subset of *msb.ImageHandle that the launcher needs.
 type ImageHandle interface {
 	Reference() string
 	ManifestDigest() string
+	LastUsedAt() time.Time
 }
 
 // SandboxFS is the subset of the sandbox filesystem operations used by the launcher.
@@ -279,6 +281,13 @@ func (v realVolumeHandle) Kind() msbSdk.VolumeKind {
 		return h.Kind()
 	}
 	return msbSdk.VolumeKindDir
+}
+
+func (v realVolumeHandle) CreatedAt() time.Time {
+	if h, ok := v.val.(*msbSdk.VolumeHandle); ok {
+		return h.CreatedAt()
+	}
+	return time.Time{}
 }
 
 // realSandboxHandle adapts *msbSdk.SandboxHandle to SandboxHandle.

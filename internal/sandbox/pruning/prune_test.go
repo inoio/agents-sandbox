@@ -37,7 +37,7 @@ const (
 func runPruneActiveVMTest(
 	t *testing.T,
 	client *msb.MockMsbClient,
-	homesBySlug map[string][]string,
+	homesBySlug map[string][]volumeWithAge,
 	dryRun bool,
 	yaml string,
 ) (*msb.MockMsbClient, *termio.Mock, *StaleReport, error) {
@@ -639,8 +639,8 @@ func TestRemoveHomeVolumes_CleansStateFile(t *testing.T) {
 	report := &StaleReport{}
 
 	slug := "myproject"
-	homeBySlugDigest := map[string][]string{
-		slug: {"opencode-msb-home-myproject-20260806T143022"},
+	homeBySlugDigest := map[string][]volumeWithAge{
+		slug: {oldVol("opencode-msb-home-myproject-20260806T143022")},
 	}
 
 	statePath := filepath.Join(state.StateDir, slug, "state.yaml")
@@ -648,7 +648,7 @@ func TestRemoveHomeVolumes_CleansStateFile(t *testing.T) {
 	testutil.WritePath(t, statePath,
 		"home_volume: opencode-msb-home-myproject-20260806T143022\nimage_digest: sha256:abc\n")
 
-	removeHomeVolumes(context.Background(), client, slug, homeBySlugDigest, false, ui, report)
+	removeHomeVolumes(context.Background(), client, slug, pruneThreshold, homeBySlugDigest, false, ui, report)
 
 	if report.PrunedVolumes != 1 {
 		t.Errorf("expected 1 pruned volume, got %d", report.PrunedVolumes)
@@ -669,8 +669,8 @@ func TestRemoveHomeVolumes_DryRunDoesNotRemoveState(t *testing.T) {
 	report := &StaleReport{}
 
 	slug := "myproject"
-	homeBySlugDigest := map[string][]string{
-		slug: {"opencode-msb-home-myproject-20260806T143022"},
+	homeBySlugDigest := map[string][]volumeWithAge{
+		slug: {oldVol("opencode-msb-home-myproject-20260806T143022")},
 	}
 
 	statePath := filepath.Join(state.StateDir, slug, "state.yaml")
@@ -678,7 +678,7 @@ func TestRemoveHomeVolumes_DryRunDoesNotRemoveState(t *testing.T) {
 	testutil.WritePath(t, statePath,
 		"home_volume: opencode-msb-home-myproject-20260806T143022\n")
 
-	removeHomeVolumes(context.Background(), client, slug, homeBySlugDigest, true, ui, report)
+	removeHomeVolumes(context.Background(), client, slug, pruneThreshold, homeBySlugDigest, true, ui, report)
 
 	if report.PrunedVolumes != 1 {
 		t.Errorf("expected 1 pruned volume in dry-run, got %d", report.PrunedVolumes)
@@ -692,8 +692,8 @@ func TestRemoveHomeVolumes_DryRunDoesNotRemoveState(t *testing.T) {
 }
 
 func TestPruneActiveVMHomeVolumes_KeepsStateVolume(t *testing.T) {
-	homesBySlug := map[string][]string{
-		pruneTestSlug: {"opencode-msb-home-testslug-current", "opencode-msb-home-testslug-old"},
+	homesBySlug := map[string][]volumeWithAge{
+		pruneTestSlug: {oldVol("opencode-msb-home-testslug-current"), oldVol("opencode-msb-home-testslug-old")},
 	}
 
 	client, _, report, err := runPruneActiveVMTest(
@@ -711,8 +711,8 @@ func TestPruneActiveVMHomeVolumes_KeepsStateVolume(t *testing.T) {
 }
 
 func TestPruneActiveVMHomeVolumes_RemovesAllWhenStateVolumeAbsent(t *testing.T) {
-	homesBySlug := map[string][]string{
-		pruneTestSlug: {"opencode-msb-home-testslug-old1", "opencode-msb-home-testslug-old2"},
+	homesBySlug := map[string][]volumeWithAge{
+		pruneTestSlug: {oldVol("opencode-msb-home-testslug-old1"), oldVol("opencode-msb-home-testslug-old2")},
 	}
 
 	client, _, report, err := runPruneActiveVMTest(
@@ -730,8 +730,8 @@ func TestPruneActiveVMHomeVolumes_RemovesAllWhenStateVolumeAbsent(t *testing.T) 
 }
 
 func TestPruneActiveVMHomeVolumes_DryRunCountsButDoesNotDelete(t *testing.T) {
-	homesBySlug := map[string][]string{
-		pruneTestSlug: {"opencode-msb-home-testslug-current", "opencode-msb-home-testslug-old"},
+	homesBySlug := map[string][]volumeWithAge{
+		pruneTestSlug: {oldVol("opencode-msb-home-testslug-current"), oldVol("opencode-msb-home-testslug-old")},
 	}
 
 	client, _, report, err := runPruneActiveVMTest(
@@ -749,8 +749,8 @@ func TestPruneActiveVMHomeVolumes_DryRunCountsButDoesNotDelete(t *testing.T) {
 }
 
 func TestPruneActiveVMHomeVolumes_MissingStateFileReturnsError(t *testing.T) {
-	homesBySlug := map[string][]string{
-		pruneTestSlug: {"opencode-msb-home-testslug-old"},
+	homesBySlug := map[string][]volumeWithAge{
+		pruneTestSlug: {oldVol("opencode-msb-home-testslug-old")},
 	}
 
 	_, _, report, err := runPruneActiveVMTest(t, &msb.MockMsbClient{}, homesBySlug, false, "")
@@ -763,8 +763,8 @@ func TestPruneActiveVMHomeVolumes_MissingStateFileReturnsError(t *testing.T) {
 }
 
 func TestPruneActiveVMHomeVolumes_RemoveErrorWarns(t *testing.T) {
-	homesBySlug := map[string][]string{
-		pruneTestSlug: {"opencode-msb-home-testslug-current", "opencode-msb-home-testslug-old"},
+	homesBySlug := map[string][]volumeWithAge{
+		pruneTestSlug: {oldVol("opencode-msb-home-testslug-current"), oldVol("opencode-msb-home-testslug-old")},
 	}
 
 	client := &msb.MockMsbClient{
