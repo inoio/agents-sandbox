@@ -66,13 +66,12 @@ Full [Commands Reference](/docs/commands.md).
 
 ## Documentation
 
-| Topic                                       | Description                            |
-|---------------------------------------------|----------------------------------------|
-| [Getting Started](/docs/getting-started.md) | Installation, prerequisites, first run |
-| [Agent Context (AGENTS.md)](/docs/getting-started.md#agent-context-agentsmd) | Example AGENTS.md that primes agents running in the VM |
-| [Commands](/docs/commands.md)               | Complete CLI reference                 |
-| [Configuration](/docs/configuration.md)     | Launcher config, env, secrets          |
-| [Runner Image](/docs/runner-image.md)       | Base image, custom tooling             |
+| Topic                                         | Description                                            |
+|-----------------------------------------------|--------------------------------------------------------|
+| [Getting Started](/docs/getting-started.md)   | Installation, prerequisites, configuration, first run  |
+| [Commands](/docs/commands.md)                 | Complete CLI reference                                 |
+| [Configuration](/docs/configuration.md)       | Launcher config, env, secrets                          |
+| [Runner Image](/docs/runner-image.md)         | Base image, custom tooling                             |
 | [Worktree Sessions](/docs/branch-sessions.md) | Isolated worktree sessions for per-feature development |
-| [Sandboxes](/docs/sandboxes.md)             | VM lifecycle, volumes, pruning         |
-| [Troubleshooting](/docs/troubleshooting.md) | Common issues and fixes                |
+| [Sandboxes](/docs/sandboxes.md)               | VM lifecycle, volumes, pruning                         |
+| [Troubleshooting](/docs/troubleshooting.md)   | Common issues and fixes                                |
