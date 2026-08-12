@@ -32,6 +32,8 @@ Task 4: COMPLETE (commit c642a04 on opencode/sandbox-modularization-rework; base
 
 Task 5: COMPLETE (commit 4f31e03 on opencode/sandbox-modularization-rework; base c642a04). Implementer DONE, reviewer Approved (spec ✅, no Critical/Important). findStaleVMs was in report.go, moved to catalog.go. Minors (deferred): (1) image.go left as bare 2-line doc stub; consider git rm + fold doc into build.go; (2) progress.md ledger drift (Task-4 COMPLETE line + a pre-existing "Commit pending" section read as contradictory) — sweep in final review. Image stub + empty file cleanup parked for final review triage.
 
+Task 6: COMPLETE (commit 3dca71b on opencode/sandbox-modularization-rework; base 4f31e03). Implementer DONE, reviewer Approved (spec ✅, no Critical/Important). checkMsb split to install.go (ensureMsbInstalled/msbBinPath/appendPathHint) behavior-identical; checkKvm moved to linux build tag w/ darwin no-op; reprovision parseKeyValueLines dedup. Minors (deferred): (1) `_ = parseKeyValueLines(...)` error channel always nil (plan-mandated signature, cosmos); (2) consider adding a parseKeyValueLines unit test (blank/comment/'='-in-value/'#' cases) — harden shared helper. Both parked for final review triage.
+
 Task 3: REVIEW COMPLETE:
 - Reviewer verdict: Steps 1,3,4,5,6,7 ✅; Step 2 ❌ (orphaned options.ExitError left in options/options.go) + known serve-only scope violation.
 - Fix round 1: 29d80cf deleted orphaned options.ExitError + its Error() + fmt import; 87ace2e reverted serve-only drift (preconditioned).
