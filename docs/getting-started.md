@@ -107,6 +107,8 @@ You are running inside a sandbox VM, not on the host. Filesystem layout:
 ## Toolchain
 
 Common CLI tools are preinstalled: git, node, npm, jq, yq etc. Don't install additional tools yourself without permission.
+
+No SSH keys in the VM, git cmds against remotes won't work.
 ```
 
 ## Next Steps

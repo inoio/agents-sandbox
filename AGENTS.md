@@ -51,6 +51,7 @@ Installed tooling (see .opencode-msb/Dockerfile):
   tested manually by the user
 - shell tools like jq, yq
 - docker
+- git: No SSH keys in the VM, git cmds against remotes won't work.
 
 Don't install additional tools yourself without permission.
 
