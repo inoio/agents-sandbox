@@ -41,8 +41,8 @@ persisting user state via a home directory volume.
 
 You are dogfooding the project, you are not on the host, but in an opencode-msb VM. Filesystem layout:
 
-- `/workspace` bind mount of the host CWD, mounted rw.
-- `~/.local/share/opencode/worktree/` git worktrees of `/workspace`, created by opencode
+- `/workspace` bind mount of the host CWD, mounted rw. If that's your CWD, ask whether to work there, avoid editing conflicts with other agents.
+- `~/.local/share/opencode/worktree/` git worktrees of `/workspace`, created by opencode. If that's your CWD, work right there.
 
 Installed tooling (see .opencode-msb/Dockerfile):
 
