@@ -35,7 +35,10 @@ func ParseMemoryOK(spec string) (uint32, bool) {
 		rest = trimmed[:len(trimmed)-1]
 	}
 	n, err := strconv.Atoi(rest)
-	if err != nil {
+	if err != nil || n < 0 {
+		return 0, false
+	}
+	if multiplier > 1 && uint64(n)*uint64(multiplier) > uint64(^uint32(0)) {
 		return 0, false
 	}
 	return uint32(n) * multiplier, true //nolint:gosec // G115: bounded spec size
