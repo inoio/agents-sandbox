@@ -32,7 +32,7 @@ func buildOpencodeArgs(args []string, auto bool) []string {
 	if !auto {
 		return args
 	}
-	return append([]string{AutoFlag}, args...)
+	return append([]string{autoFlag}, args...)
 }
 
 // serveOnlyMessage builds the message printed when serving opencode for

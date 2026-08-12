@@ -7,7 +7,7 @@ import (
 
 	"gitlab.inoio.de/inoio/opencode-msb/internal/termio"
 
-	msb "github.com/superradcompany/microsandbox/sdk/go"
+	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 	"gopkg.in/yaml.v3"
 )
 
@@ -18,8 +18,8 @@ type SecretSpec struct {
 	AllowAnyHostDangerous bool     `yaml:"allow_any_host_dangerous"`
 }
 
-func BuildSecretsFromSpecs(specs map[string]SecretSpec, ui termio.UI) []msb.SecretEntry {
-	var secrets []msb.SecretEntry
+func BuildSecretsFromSpecs(specs map[string]SecretSpec, ui termio.UI) []msbSdk.SecretEntry {
+	var secrets []msbSdk.SecretEntry
 	for envVar, spec := range specs {
 		if spec.Host == "" && len(spec.Hosts) == 0 && !spec.AllowAnyHostDangerous {
 			ui.Warnf("Secret '%s' has no hosts or allow_any_host_dangerous; dropping", envVar)
@@ -29,10 +29,10 @@ func BuildSecretsFromSpecs(specs map[string]SecretSpec, ui termio.UI) []msb.Secr
 		if spec.Host != "" {
 			hosts = append(hosts, spec.Host)
 		}
-		secrets = append(secrets, msb.Secret.Env(
+		secrets = append(secrets, msbSdk.Secret.Env(
 			envVar,
 			spec.Value,
-			msb.SecretEnvOptions{AllowHosts: hosts},
+			msbSdk.SecretEnvOptions{AllowHosts: hosts},
 		))
 	}
 	return secrets

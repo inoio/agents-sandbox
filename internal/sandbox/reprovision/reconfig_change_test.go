@@ -10,18 +10,6 @@ func TestSizeChangeFormatting(t *testing.T) {
 	}
 }
 
-func TestParseSizeSpec(t *testing.T) {
-	if v, ok := ParseSizeSpec("4G"); !ok || v != 4096 {
-		t.Errorf("4G -> 4096, ok; got %d %v", v, ok)
-	}
-	if v, ok := ParseSizeSpec(""); ok || v != 0 {
-		t.Errorf("empty -> not ok; got %d %v", v, ok)
-	}
-	if _, ok := ParseSizeSpec("bogus"); ok {
-		t.Error("bogus should not parse")
-	}
-}
-
 func TestFormatSizeSpecVerbatimWhenMatches(t *testing.T) {
 	if got := FormatSizeSpec(2048, "2G"); got != "2G" {
 		t.Errorf("expected verbatim 2G, got %q", got)

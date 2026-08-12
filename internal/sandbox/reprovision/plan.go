@@ -20,34 +20,10 @@ type Change struct {
 	New   string
 }
 
-// ParseSizeSpec parses a memory spec ("" means runtime default -> not parsed).
-func ParseSizeSpec(spec string) (uint32, bool) {
-	if spec == "" {
-		return 0, false
-	}
-	spec = strings.TrimSpace(spec)
-	multiplier := uint32(1)
-	last := spec[len(spec)-1]
-	rest := spec
-	switch last {
-	case 'g', 'G':
-		multiplier = 1024
-		rest = spec[:len(spec)-1]
-	case 'm', 'M':
-		multiplier = 1
-		rest = spec[:len(spec)-1]
-	}
-	n, err := strconv.Atoi(rest)
-	if err != nil {
-		return 0, false
-	}
-	return uint32(n) * multiplier, true //nolint:gosec // G115: bounded spec size
-}
-
 // FormatSizeSpec returns the raw user spec verbatim when it matches valueMiB,
 // else the normalized "<valueMiB>M" form.
 func FormatSizeSpec(valueMiB uint32, raw string) string {
-	if v, ok := ParseSizeSpec(raw); ok && v == valueMiB {
+	if raw != "" && options.ParseMemory(raw) == valueMiB {
 		return raw
 	}
 	return strconv.FormatUint(uint64(valueMiB), 10) + "M"
@@ -105,14 +81,16 @@ func PlanReconfig( //nolint:gocognit // core planner, cognitive complexity accep
 			Change{Label: "image"}, //nolint:exhaustruct // label-only for change reporting
 		)
 	}
-	if wantTmp, ok := ParseSizeSpec(opts.TmpSize); ok {
+	if opts.TmpSize != "" {
+		wantTmp := options.ParseMemory(opts.TmpSize)
 		if tmp, ok := cfg.Volumes[tmpMountPath]; ok && tmp.SizeMiB != wantTmp {
 			d.Recreate = true
 			oldRaw := FormatSizeSpec(tmp.SizeMiB, "")
 			d.Changes = append(d.Changes, SizeChange("/tmp tmpfs size", tmp.SizeMiB, wantTmp, oldRaw, opts.TmpSize))
 		}
 	}
-	if wantDisk, ok := ParseSizeSpec(opts.DiskSize); ok {
+	if opts.DiskSize != "" {
+		wantDisk := options.ParseMemory(opts.DiskSize)
 		if cfg.RootDisk == nil || cfg.RootDisk.SizeMiB != wantDisk {
 			d.Recreate = true
 			oldRaw := ""
