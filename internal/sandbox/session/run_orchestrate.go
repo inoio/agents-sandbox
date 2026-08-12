@@ -189,17 +189,17 @@ func Run(ctx context.Context, opts options.RunOptions, ui termio.UI) error {
 	}
 
 	projectSlug := git.ProjectSlug(ui)
-	release, acquireErr := state.AcquireClientLease(projectSlug)
-	if acquireErr != nil {
-		ui.Warnf("client lease failed: %v", acquireErr)
-	}
-	defer func() {
-		if acquireErr == nil && release != nil {
-			release()
-		}
-	}()
 
-	if opts.ServeOnly {
+	if opts.ServeOnly { //nolint:nestif // lease acquire/serve/release/reap sequence requires this structure
+		release, acquireErr := state.AcquireClientLease(projectSlug)
+		if acquireErr != nil {
+			ui.Warnf("client lease failed: %v", acquireErr)
+		}
+		defer func() {
+			if acquireErr == nil && release != nil {
+				release()
+			}
+		}()
 		if err := runServeOnly(ctx, session.sb, ui); err != nil && !errors.Is(err, context.Canceled) {
 			return err
 		}
@@ -213,28 +213,12 @@ func Run(ctx context.Context, opts options.RunOptions, ui termio.UI) error {
 		return &ExitError{Code: 0}
 	}
 
-	var exitCode int
-	var attachErr error
 	setup := buildAttachCommand(session.target, opts.Auto, opts.Args)
 	ui.Verbosef("%s", setup)
 	// Run as a login shell so /etc/profile and ~/.profile are sourced,
 	// putting tools installed under /usr/local/go/bin, ~/go/bin and
 	// ~/.microsandbox/bin on PATH for opencode and its child shells.
-	exitCode, attachErr = session.sb.Attach(ctx, "/bin/bash", "-l", "-c", setup)
-
-	// Explicitly release the lease after attach returns, before reaping.
-	// This ensures state.CountActiveClients reflects only OTHER live clients.
-	// The deferred release above is a safety net.
-	if acquireErr == nil {
-		release()
-		release = nil
-	}
-
-	if err := reapOnLastClient(ctx, projectSlug, session.sb, opts.ReapPolicy, ui); err != nil {
-		ui.Warnf("reap failed: %v", err)
-	}
-
-	return finalizeRun(attachErr, exitCode)
+	return runAttach(ctx, session, projectSlug, ui, opts.ReapPolicy, "-l", "-c", setup)
 }
 
 // Shell creates (or reuses) the project VM and drops the user into an
@@ -256,32 +240,7 @@ func Shell(ctx context.Context, opts options.RunOptions, ui termio.UI) error {
 	}
 
 	projectSlug := git.ProjectSlug(ui)
-	release, acquireErr := state.AcquireClientLease(projectSlug)
-	if acquireErr != nil {
-		ui.Warnf("client lease failed: %v", acquireErr)
-	}
-	defer func() {
-		if acquireErr == nil && release != nil {
-			release()
-		}
-	}()
-
-	// Login shell so the interactive shell inherits PATH from /etc/profile and ~/.profile.
-	exitCode, attachErr := session.sb.Attach(ctx, "/bin/bash", "-l")
-
-	// Explicitly release the lease after attach returns, before reaping.
-	// This ensures state.CountActiveClients reflects only OTHER live clients.
-	// The deferred release above is a safety net.
-	if acquireErr == nil {
-		release()
-		release = nil
-	}
-
-	if err := reapOnLastClient(ctx, projectSlug, session.sb, opts.ReapPolicy, ui); err != nil {
-		ui.Warnf("reap failed: %v", err)
-	}
-
-	return finalizeRun(attachErr, exitCode)
+	return runAttach(ctx, session, projectSlug, ui, opts.ReapPolicy, "-l")
 }
 
 // BuildImage builds (or updates) the runner image for Docker-in-Docker support.
@@ -305,6 +264,45 @@ func finalizeRun(attachErr error, exitCode int) error {
 		return fmt.Errorf("opencode session failed: %w", attachErr)
 	}
 	return &ExitError{Code: exitCode}
+}
+
+// runAttach performs the shared lease-acquire, attach, explicit release,
+// reap-on-last-client, and finalize sequence for Run and Shell.
+func runAttach(
+	ctx context.Context,
+	session *sandboxSession,
+	projectSlug string,
+	ui termio.UI,
+	reapPolicy options.ReapPolicy,
+	bashArgs ...string,
+) error {
+	// Acquire a client lease so state tracks this session.
+	release, acquireErr := state.AcquireClientLease(projectSlug)
+	if acquireErr != nil {
+		ui.Warnf("client lease failed: %v", acquireErr)
+	}
+	defer func() {
+		if acquireErr == nil && release != nil {
+			release()
+		}
+	}()
+
+	// Attach to the sandbox and capture its exit code.
+	exitCode, attachErr := session.sb.Attach(ctx, "/bin/bash", bashArgs...)
+
+	// Explicitly release the lease after attach returns, before reaping.
+	// This ensures state.CountActiveClients reflects only OTHER live clients.
+	// The deferred release above is a safety net.
+	if acquireErr == nil {
+		release()
+		release = nil
+	}
+
+	if err := reapOnLastClient(ctx, projectSlug, session.sb, reapPolicy, ui); err != nil {
+		ui.Warnf("reap failed: %v", err)
+	}
+
+	return finalizeRun(attachErr, exitCode)
 }
 
 // tmpMountPath is the mount point used for the sandbox tmpfs.

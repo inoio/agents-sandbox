@@ -219,12 +219,7 @@ func volumeOp(
 		return err
 	}
 
-	newState := state.HomeState{
-		HomeVolume:  newVolumeName,
-		ImageDigest: st.ImageDigest,
-		EnvState:    state.EnvState{},    //nolint:exhaustruct // intentionally zeroed; fingerprint re-established on next apply
-		SecretState: state.SecretState{}, //nolint:exhaustruct // intentionally zeroed; fingerprint re-established on next apply
-	}
+	newState := state.NewHomeState(newVolumeName, st.ImageDigest)
 	if err := state.WriteState(projectSlug, newState); err != nil {
 		ui.Warnf("failed to write state file: %v", err)
 	}
