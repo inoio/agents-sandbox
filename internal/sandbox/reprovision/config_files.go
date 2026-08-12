@@ -27,6 +27,27 @@ import (
 // key=value lines.
 const EnvKeyValueParts = 2
 
+// parseKeyValueLines splits data into trimmed, non-blank, non-comment
+// "key=value" lines and hands each split pair to onLine. The key and value are
+// passed exactly as SplitN produced them (not re-trimmed); callers that need
+// trimmed keys trim them in their post-processing.
+func parseKeyValueLines(data string, onLine func(key, value string) error) error {
+	for line := range strings.SplitSeq(data, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		parts := strings.SplitN(line, "=", EnvKeyValueParts)
+		if len(parts) != EnvKeyValueParts {
+			continue
+		}
+		if err := onLine(parts[0], parts[1]); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // ConfigFiles holds the merged configuration and parsed structures for comparison.
 type ConfigFiles struct {
 	Files  map[string][]byte
@@ -158,18 +179,10 @@ func BuildEnvMap(filename string) map[string]string {
 		return nil
 	}
 	env := make(map[string]string)
-	for line := range strings.SplitSeq(string(data), "\n") {
-		line = strings.TrimSpace(line)
-		if line == "" || strings.HasPrefix(line, "#") {
-			continue
-		}
-		if strings.Contains(line, "=") {
-			parts := strings.SplitN(line, "=", EnvKeyValueParts)
-			if len(parts) == EnvKeyValueParts {
-				env[parts[0]] = parts[1]
-			}
-		}
-	}
+	_ = parseKeyValueLines(string(data), func(key, value string) error {
+		env[key] = value
+		return nil
+	})
 	return env
 }
 

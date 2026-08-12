@@ -4,8 +4,6 @@ import (
 	"context"
 	"os"
 	"os/exec"
-	"path/filepath"
-	"runtime"
 	"strings"
 
 	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/msb"
@@ -30,17 +28,6 @@ func CheckDocker(ui termio.UI) bool {
 	return true
 }
 
-func checkKvm(ui termio.UI) bool {
-	if runtime.GOOS != "linux" {
-		return true
-	}
-	if _, err := os.Stat("/dev/kvm"); err != nil {
-		ui.Errorf("/dev/kvm not found. Load kvm module and ensure user is in the kvm group: %v", err)
-		return false
-	}
-	return true
-}
-
 func checkGit(ui termio.UI) bool {
 	if _, err := exec.LookPath("git"); err != nil {
 		ui.Errorf("git not found. Install git via your system package manager: %v", err)
@@ -50,32 +37,17 @@ func checkGit(ui termio.UI) bool {
 }
 
 func checkMsb(ctx context.Context, ui termio.UI) bool {
-	if err := ensureInstalled(ctx); err != nil {
-		ui.Errorf("msb runtime setup failed: %v", err)
+	if err := ensureMsbInstalled(ctx, ui); err != nil {
 		return false
 	}
 	if _, err := exec.LookPath("msb"); err == nil {
 		return true
 	}
-	home, err := os.UserHomeDir()
-	if err != nil {
-		ui.Errorf("msb not on PATH and home directory cannot be resolved: %v", err)
+	home, binDir, binPath, ok := msbBinPath(ui)
+	if !ok {
 		return false
 	}
-	binDir := filepath.Join(home, ".microsandbox", "bin")
-	binPath := filepath.Join(binDir, "msb")
-	if _, err := os.Stat(binPath); err != nil {
-		ui.Errorf("msb not on PATH and binary missing at %s: %v", binDir, err)
-		return false
-	}
-	if err := os.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH")); err != nil {
-		ui.Warnf("could not add %s to PATH for this session (msb CLI may be unavailable): %v", binDir, err)
-	}
-	rc := shellRcFile(home, os.Getenv("SHELL"))
-	ui.Warnf("msb CLI is not on your PATH. Added %s for this session.", binDir)
-	ui.Infof("To make this permanent in other shells:")
-	ui.Infof("  echo 'export PATH=\"$PATH:%s\"' >> %s", binDir, rc)
-	ui.Infof("  or: ln -s %s ~/.local/bin/msb", binPath)
+	appendPathHint(home, os.Getenv("SHELL"), binDir, binPath, ui)
 	return true
 }
 
