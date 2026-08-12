@@ -54,6 +54,7 @@
 
 ## 1st prio
 
+[ ] image rebuild done unconditionally imports image into msb, should check whether it already exists
 [ ] inoio providers ausbauen, anders zur Verfügung stellen.
 [ ] opencode config dir & merging nach alphabet
 [ ] config file(s): support arbitrary files in VM home
