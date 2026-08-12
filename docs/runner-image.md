@@ -94,5 +94,6 @@ opencode-msb prune             # actually remove them
 See [Commands](/docs/commands.md) for details on the prune command.
 
 opencode-msb also auto-prunes all resources that are ephemeral, unused or haven't been in use for more than 30 days by
-default. See [Sandboxes](/docs/sandboxes.md) for more information and [Configuration](/docs/configuration.md) for how to
-configure auto-pruning.
+default. Cached runner images and home volumes are only pruned once they are older than the threshold, so a recently
+used project keeps its image and home state across restarts. See [Sandboxes](/docs/sandboxes.md) for more information
+and [Configuration](/docs/configuration.md) for how to configure auto-pruning.

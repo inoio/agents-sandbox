@@ -94,9 +94,9 @@ func catalogAndPrune(ctx context.Context, threshold time.Duration, dryRun bool, 
 		return report, catalogErr
 	}
 
-	report, staleVMErr := pruneStaleVMs(ctx, msbClient, catalog, dryRun, ui, report)
+	report, staleVMErr := pruneStaleVMs(ctx, msbClient, catalog, threshold, dryRun, ui, report)
 	report, activeVMErr := pruneActiveVMArtifacts(ctx, msbClient, catalog, dryRun, ui, report)
-	report, orphanErr := pruneOrphanArtifacts(ctx, msbClient, catalog, dryRun, ui, report)
+	report, orphanErr := pruneOrphanArtifacts(ctx, msbClient, catalog, threshold, dryRun, ui, report)
 	report, cloneVolErr := pruneCloneVolumes(ctx, msbClient, catalog, dryRun, ui, report)
 
 	// Prune task sandboxes (collected during catalog build, pruned here).
@@ -142,12 +142,13 @@ func pruneStaleVMs(
 	ctx context.Context,
 	client MsbClient,
 	catalog *PruningCatalog,
+	threshold time.Duration,
 	dryRun bool,
 	ui termio.UI,
 	report *StaleReport,
 ) (*StaleReport, error) {
 	for _, entry := range catalog.StaleVMs {
-		pruneStaleCascade(ctx, client, entry, catalog.HomeVolumes, catalog.MSBImages, dryRun, ui, report)
+		pruneStaleCascade(ctx, client, entry, threshold, catalog.HomeVolumes, catalog.MSBImages, dryRun, ui, report)
 	}
 	return report, nil
 }
@@ -190,6 +191,7 @@ func pruneOrphanArtifacts(
 	ctx context.Context,
 	client MsbClient,
 	catalog *PruningCatalog,
+	threshold time.Duration,
 	dryRun bool,
 	ui termio.UI,
 	report *StaleReport,
@@ -206,7 +208,7 @@ func pruneOrphanArtifacts(
 		if _, active := catalog.ActiveVMDigest[slug]; active {
 			continue
 		}
-		pruneOrphanSlug(ctx, client, slug, catalog.HomeVolumes, catalog.MSBImages, report, dryRun, ui)
+		pruneOrphanSlug(ctx, client, slug, threshold, catalog.HomeVolumes, catalog.MSBImages, report, dryRun, ui)
 	}
 	return report, nil
 }
@@ -251,7 +253,8 @@ func pruneStaleCascade(
 	ctx context.Context,
 	client MsbClient,
 	entry StaleEntry,
-	homesBySlug map[string][]string,
+	threshold time.Duration,
+	homesBySlug map[string][]volumeWithAge,
 	msbImagesBySlug map[string][]imageWithDigest,
 	dryRun bool,
 	ui termio.UI,
@@ -266,9 +269,9 @@ func pruneStaleCascade(
 	}
 	report.PrunedVMs++
 	report.Details = append(report.Details, entry)
-	removeHomeVolumes(ctx, client, slug, homesBySlug, dryRun, ui, report)
-	removeMSBImages(ctx, client, slug, msbImagesBySlug, dryRun, ui, report)
-	removeDockerImages(ctx, slug, msbImagesBySlug, dryRun, ui, report)
+	removeHomeVolumes(ctx, client, slug, threshold, homesBySlug, dryRun, ui, report)
+	removeMSBImages(ctx, client, slug, threshold, msbImagesBySlug, dryRun, ui, report)
+	removeDockerImages(ctx, slug, threshold, msbImagesBySlug, dryRun, ui, report)
 }
 
 // pruneActiveVMCleanup removes volumes and images that don't match an active VM's state.
@@ -277,7 +280,7 @@ func pruneActiveVMCleanup(
 	client MsbClient,
 	slug string,
 	digest string,
-	homesBySlug map[string][]string,
+	homesBySlug map[string][]volumeWithAge,
 	msbImagesBySlug map[string][]imageWithDigest,
 	dryRun bool,
 	ui termio.UI,
@@ -296,7 +299,7 @@ func pruneActiveVMHomeVolumes(
 	client MsbClient,
 	slug string,
 	digest string,
-	homesBySlug map[string][]string,
+	homesBySlug map[string][]volumeWithAge,
 	dryRun bool,
 	ui termio.UI,
 	report *StaleReport,
@@ -316,20 +319,20 @@ func pruneActiveVMHomeVolumes(
 	if st == nil || st.HomeVolume == "" {
 		return nil
 	}
-	for _, volName := range vols {
-		if volName == st.HomeVolume {
+	for _, vol := range vols {
+		if vol.name == st.HomeVolume {
 			continue
 		}
 		if !dryRun {
-			if err := client.RemoveVolume(ctx, volName); err != nil {
-				ui.Warnf("failed to remove home volume %s: %v", volName, err)
+			if err := client.RemoveVolume(ctx, vol.name); err != nil {
+				ui.Warnf("failed to remove home volume %s: %v", vol.name, err)
 				continue
 			}
 		}
 		report.PrunedVolumes++
 		report.Details = append(report.Details, StaleEntry{
 			Type:     StaleTypeVolume,
-			Name:     volName,
+			Name:     vol.name,
 			Slug:     slug,
 			StaleFor: 0,
 			Digest:   digest,
@@ -453,13 +456,14 @@ func pruneOrphanSlug(
 	ctx context.Context,
 	client MsbClient,
 	slug string,
-	homesBySlug map[string][]string,
+	threshold time.Duration,
+	homesBySlug map[string][]volumeWithAge,
 	msbImagesBySlug map[string][]imageWithDigest,
 	report *StaleReport,
 	dryRun bool,
 	ui termio.UI,
 ) {
-	removeHomeVolumes(ctx, client, slug, homesBySlug, dryRun, ui, report)
-	removeMSBImages(ctx, client, slug, msbImagesBySlug, dryRun, ui, report)
-	removeDockerImages(ctx, slug, msbImagesBySlug, dryRun, ui, report)
+	removeHomeVolumes(ctx, client, slug, threshold, homesBySlug, dryRun, ui, report)
+	removeMSBImages(ctx, client, slug, threshold, msbImagesBySlug, dryRun, ui, report)
+	removeDockerImages(ctx, slug, threshold, msbImagesBySlug, dryRun, ui, report)
 }

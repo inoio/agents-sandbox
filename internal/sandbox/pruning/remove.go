@@ -2,6 +2,7 @@ package pruning
 
 import (
 	"context"
+	"time"
 
 	"github.com/moby/moby/client"
 
@@ -10,11 +11,18 @@ import (
 	"gitlab.inoio.de/inoio/opencode-msb/internal/termio"
 )
 
+// isRecent reports whether a timestamp falls within the prune threshold.
+// A zero value is treated as recent so that unknown timestamps are never pruned.
+func isRecent(ts time.Time, threshold time.Duration) bool {
+	return ts.IsZero() || time.Since(ts) < threshold
+}
+
 func removeHomeVolumes(
 	ctx context.Context,
 	client MsbClient,
 	slug string,
-	homesBySlug map[string][]string,
+	threshold time.Duration,
+	homesBySlug map[string][]volumeWithAge,
 	dryRun bool,
 	ui termio.UI,
 	report *StaleReport,
@@ -23,22 +31,28 @@ func removeHomeVolumes(
 	if !ok || len(vols) == 0 {
 		return
 	}
-	for _, volName := range vols {
+	removedAny := false
+	for _, vol := range vols {
+		if isRecent(vol.createdAt, threshold) {
+			ui.Verbosef("keeping recent home volume %s", vol.name)
+			continue
+		}
+		removedAny = true
 		if !dryRun {
-			if err := client.RemoveVolume(ctx, volName); err != nil {
-				ui.Warnf("failed to remove home volume %s: %v", volName, err)
+			if err := client.RemoveVolume(ctx, vol.name); err != nil {
+				ui.Warnf("failed to remove home volume %s: %v", vol.name, err)
 			}
 		}
 		report.PrunedVolumes++
 		report.Details = append(report.Details, StaleEntry{
 			Type:     StaleTypeVolume,
-			Name:     volName,
+			Name:     vol.name,
 			Slug:     slug,
 			StaleFor: 0,
 			Digest:   "",
 		})
 	}
-	if !dryRun {
+	if removedAny && !dryRun {
 		if err := state.RemoveState(slug); err != nil {
 			ui.Warnf("failed to remove state file for slug %s: %v", slug, err)
 		}
@@ -49,12 +63,17 @@ func removeMSBImages(
 	ctx context.Context,
 	client MsbClient,
 	slug string,
+	threshold time.Duration,
 	msbImagesBySlug map[string][]imageWithDigest,
 	dryRun bool,
 	ui termio.UI,
 	report *StaleReport,
 ) {
 	for _, img := range msbImagesBySlug[slug] {
+		if isRecent(img.lastUsed, threshold) {
+			ui.Verbosef("keeping recent msb image %s", img.ref)
+			continue
+		}
 		if !dryRun {
 			if err := client.ImageRemove(ctx, img.ref, true); err != nil {
 				ui.Warnf("failed to remove msb image %s: %v", img.ref, err)
@@ -75,12 +94,17 @@ func removeMSBImages(
 func removeDockerImages(
 	ctx context.Context,
 	slug string,
+	threshold time.Duration,
 	msbImagesBySlug map[string][]imageWithDigest,
 	dryRun bool,
 	ui termio.UI,
 	report *StaleReport,
 ) {
 	for _, img := range msbImagesBySlug[slug] {
+		if isRecent(img.lastUsed, threshold) {
+			ui.Verbosef("keeping recent docker image %s", img.ref)
+			continue
+		}
 		if !dryRun {
 			dockerRef := stripDockerHostPrefix(img.ref)
 			_, err := docker.Get().ImageRemove(

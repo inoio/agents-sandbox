@@ -147,5 +147,10 @@ Pruning removes:
 - Surplus images for a project that still has a VM: digests other than the VM's current image and `:latest`
 - Stale clone volumes
 
+Home volumes, msb images, and Docker images are age-gated like VMs: they are only removed once they are older than
+the pruning threshold. Recently-created home volumes and recently-loaded runner images are preserved even if their
+project currently has no running VM, so the cached runner image and home state survive startup and the image does not
+need to be loaded into the sandbox again.
+
 Auto-pruning runs before every command via `sync.Once`. It uses a fixed default threshold of 30 days unless
 `auto-prune-age` is set in config.
