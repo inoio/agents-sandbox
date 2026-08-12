@@ -56,6 +56,25 @@ func newMockUI() *termio.Mock {
 	return &termio.Mock{}
 }
 
+// pruneThreshold is the threshold used by tests that exercise age-gated removal.
+const pruneThreshold = time.Hour
+
+// ancient returns a timestamp far enough in the past that artifacts carrying it
+// are never considered recent for the pruneThreshold used in tests.
+func ancient() time.Time {
+	return time.Now().Add(-2 * time.Hour)
+}
+
+// oldVol returns a home volume old enough to be pruned.
+func oldVol(name string) volumeWithAge {
+	return volumeWithAge{name: name, createdAt: ancient()}
+}
+
+// recentVol returns a home volume too young to be pruned.
+func recentVol(name string) volumeWithAge {
+	return volumeWithAge{name: name, createdAt: time.Now()}
+}
+
 // prunedCounts holds the expected pruned counts for all resource types.
 type prunedCounts struct {
 	vms, volumes, dockerImages, msbImages, taskSandboxes, cloneVolumes int
@@ -94,17 +113,27 @@ func TestPruneStaleCascade_RemovesVMAndAllArtifacts(t *testing.T) {
 
 	slug := "myproject"
 	entry := StaleEntry{Name: "opencode-msb-vm-myproject-digest1", Slug: slug}
-	homeBySlugDigest := map[string][]string{
-		slug: {"opencode-msb-home-myproject-digest1", "opencode-msb-home-myproject"},
+	homeBySlugDigest := map[string][]volumeWithAge{
+		slug: {oldVol("opencode-msb-home-myproject-digest1"), oldVol("opencode-msb-home-myproject")},
 	}
 	msbImagesBySlug := map[string][]imageWithDigest{
 		slug: {
-			{ref: "opencode-msb/runner-myproject:digest1", digest: "digest1", isLatest: false},
-			{ref: "opencode-msb/runner-myproject:latest", digest: "", isLatest: true},
+			{ref: "opencode-msb/runner-myproject:digest1", digest: "digest1", isLatest: false, lastUsed: ancient()},
+			{ref: "opencode-msb/runner-myproject:latest", digest: "", isLatest: true, lastUsed: ancient()},
 		},
 	}
 
-	pruneStaleCascade(context.Background(), client, entry, homeBySlugDigest, msbImagesBySlug, false, ui, report)
+	pruneStaleCascade(
+		context.Background(),
+		client,
+		entry,
+		pruneThreshold,
+		homeBySlugDigest,
+		msbImagesBySlug,
+		false,
+		ui,
+		report,
+	)
 
 	assertReport(t, report, prunedCounts{vms: 1, volumes: 2, msbImages: 2, dockerImages: 2})
 
@@ -138,14 +167,24 @@ func TestPruneStaleCascade_DryRunDoesNotDelete(t *testing.T) {
 
 	slug := "myproject"
 	entry := StaleEntry{Name: "opencode-msb-vm-myproject-digest1", Slug: slug}
-	homeBySlugDigest := map[string][]string{
-		slug: {"opencode-msb-home-myproject-digest1"},
+	homeBySlugDigest := map[string][]volumeWithAge{
+		slug: {oldVol("opencode-msb-home-myproject-digest1")},
 	}
 	msbImagesBySlug := map[string][]imageWithDigest{
-		slug: {{ref: "opencode-msb/runner-myproject:digest1", digest: "digest1", isLatest: false}},
+		slug: {{ref: "opencode-msb/runner-myproject:digest1", digest: "digest1", isLatest: false, lastUsed: ancient()}},
 	}
 
-	pruneStaleCascade(context.Background(), client, entry, homeBySlugDigest, msbImagesBySlug, true, ui, report)
+	pruneStaleCascade(
+		context.Background(),
+		client,
+		entry,
+		pruneThreshold,
+		homeBySlugDigest,
+		msbImagesBySlug,
+		true,
+		ui,
+		report,
+	)
 
 	assertReport(t, report, prunedCounts{vms: 1, volumes: 1, msbImages: 1, dockerImages: 1})
 
@@ -168,14 +207,24 @@ func TestPruneStaleCascade_RemoveErrorWarnsAndStopsCascade(t *testing.T) {
 
 	slug := "myproject"
 	entry := StaleEntry{Name: "opencode-msb-vm-myproject-digest1", Slug: slug}
-	homeBySlugDigest := map[string][]string{
-		slug: {"opencode-msb-home-myproject-digest1"},
+	homeBySlugDigest := map[string][]volumeWithAge{
+		slug: {oldVol("opencode-msb-home-myproject-digest1")},
 	}
 	msbImagesBySlug := map[string][]imageWithDigest{
-		slug: {{ref: "opencode-msb/runner-myproject:digest1", digest: "digest1", isLatest: false}},
+		slug: {{ref: "opencode-msb/runner-myproject:digest1", digest: "digest1", isLatest: false, lastUsed: ancient()}},
 	}
 
-	pruneStaleCascade(context.Background(), client, entry, homeBySlugDigest, msbImagesBySlug, false, ui, report)
+	pruneStaleCascade(
+		context.Background(),
+		client,
+		entry,
+		pruneThreshold,
+		homeBySlugDigest,
+		msbImagesBySlug,
+		false,
+		ui,
+		report,
+	)
 
 	if report.PrunedVMs != 0 {
 		t.Errorf("PrunedVMs = %d, want 0", report.PrunedVMs)
@@ -198,11 +247,11 @@ func TestPruneActiveVMCleanup_KeepsMatchingDigestAndLatest(t *testing.T) {
 
 	slug := "myproject"
 	activeDigest := "digest2"
-	homeBySlugDigest := map[string][]string{
+	homeBySlugDigest := map[string][]volumeWithAge{
 		slug: {
-			"opencode-msb-home-myproject-digest1",
-			"opencode-msb-home-myproject-digest2",
-			"opencode-msb-home-myproject",
+			oldVol("opencode-msb-home-myproject-digest1"),
+			oldVol("opencode-msb-home-myproject-digest2"),
+			oldVol("opencode-msb-home-myproject"),
 		},
 	}
 	msbImagesBySlug := map[string][]imageWithDigest{
@@ -238,8 +287,8 @@ func TestPruneActiveVMCleanup_DryRunCountsButDoesNotDelete(t *testing.T) {
 	report := &StaleReport{}
 
 	slug := "myproject"
-	homeBySlugDigest := map[string][]string{
-		slug: {"opencode-msb-home-myproject-digest1", "opencode-msb-home-myproject-digest2"},
+	homeBySlugDigest := map[string][]volumeWithAge{
+		slug: {oldVol("opencode-msb-home-myproject-digest1"), oldVol("opencode-msb-home-myproject-digest2")},
 	}
 	msbImagesBySlug := map[string][]imageWithDigest{
 		slug: {
@@ -271,17 +320,27 @@ func TestPruneOrphanSlug_RemovesEverything(t *testing.T) {
 	report := &StaleReport{}
 
 	slug := "orphan"
-	homeBySlugDigest := map[string][]string{
-		slug: {"opencode-msb-home-orphan-digest1", "opencode-msb-home-orphan"},
+	homeBySlugDigest := map[string][]volumeWithAge{
+		slug: {oldVol("opencode-msb-home-orphan-digest1"), oldVol("opencode-msb-home-orphan")},
 	}
 	msbImagesBySlug := map[string][]imageWithDigest{
 		slug: {
-			{ref: "opencode-msb/runner-orphan:digest1", digest: "digest1", isLatest: false},
-			{ref: "opencode-msb/runner-orphan:latest", digest: "", isLatest: true},
+			{ref: "opencode-msb/runner-orphan:digest1", digest: "digest1", isLatest: false, lastUsed: ancient()},
+			{ref: "opencode-msb/runner-orphan:latest", digest: "", isLatest: true, lastUsed: ancient()},
 		},
 	}
 
-	pruneOrphanSlug(context.Background(), client, slug, homeBySlugDigest, msbImagesBySlug, report, false, ui)
+	pruneOrphanSlug(
+		context.Background(),
+		client,
+		slug,
+		pruneThreshold,
+		homeBySlugDigest,
+		msbImagesBySlug,
+		report,
+		false,
+		ui,
+	)
 
 	assertReport(t, report, prunedCounts{volumes: 2, msbImages: 2, dockerImages: 2})
 
@@ -293,6 +352,90 @@ func TestPruneOrphanSlug_RemovesEverything(t *testing.T) {
 	}
 	if len(dockerMock.removedImages) != 2 {
 		t.Errorf("removed docker images = %v, want 2", dockerMock.removedImages)
+	}
+}
+
+func TestPruneOrphanSlug_KeepsRecentArtifacts(t *testing.T) {
+	cp.WithMockConfigPaths(t)
+	client := &msb.MockMsbClient{}
+	dockerMock := &mockDockerClient{}
+	docker.WithDockerMock(t, dockerMock)
+	ui := newMockUI()
+	report := &StaleReport{}
+
+	slug := "orphan"
+	homeBySlugDigest := map[string][]volumeWithAge{
+		slug: {recentVol("opencode-msb-home-orphan-digest1")},
+	}
+	msbImagesBySlug := map[string][]imageWithDigest{
+		slug: {
+			{ref: "opencode-msb/runner-orphan:digest1", digest: "digest1", isLatest: false, lastUsed: time.Now()},
+			{ref: "opencode-msb/runner-orphan:latest", digest: "", isLatest: true, lastUsed: time.Now()},
+		},
+	}
+
+	pruneOrphanSlug(
+		context.Background(),
+		client,
+		slug,
+		pruneThreshold,
+		homeBySlugDigest,
+		msbImagesBySlug,
+		report,
+		false,
+		ui,
+	)
+
+	if report.PrunedVolumes+report.PrunedMSBImages+report.PrunedDockerImages != 0 {
+		t.Errorf("recent artifacts should not be pruned, got %+v", report)
+	}
+	if len(client.RemovedVolumes)+len(client.RemovedImages)+len(dockerMock.removedImages) != 0 {
+		t.Errorf("recent artifacts should not be removed, got volumes=%v msb=%v docker=%v",
+			client.RemovedVolumes, client.RemovedImages, dockerMock.removedImages)
+	}
+}
+
+func TestPruneOrphanSlug_MixedAges_PrunesOnlyOld(t *testing.T) {
+	cp.WithMockConfigPaths(t)
+	client := &msb.MockMsbClient{}
+	dockerMock := &mockDockerClient{}
+	docker.WithDockerMock(t, dockerMock)
+	ui := newMockUI()
+	report := &StaleReport{}
+
+	slug := "orphan"
+	homeBySlugDigest := map[string][]volumeWithAge{
+		slug: {oldVol("opencode-msb-home-orphan-old"), recentVol("opencode-msb-home-orphan-recent")},
+	}
+	msbImagesBySlug := map[string][]imageWithDigest{
+		slug: {
+			{ref: "opencode-msb/runner-orphan:digest1", digest: "digest1", isLatest: false, lastUsed: ancient()},
+			{ref: "opencode-msb/runner-orphan:latest", digest: "", isLatest: true, lastUsed: time.Now()},
+		},
+	}
+
+	pruneOrphanSlug(
+		context.Background(),
+		client,
+		slug,
+		pruneThreshold,
+		homeBySlugDigest,
+		msbImagesBySlug,
+		report,
+		false,
+		ui,
+	)
+
+	assertReport(t, report, prunedCounts{volumes: 1, msbImages: 1, dockerImages: 1})
+
+	if len(client.RemovedVolumes) != 1 || client.RemovedVolumes[0] != "opencode-msb-home-orphan-old" {
+		t.Errorf("removed volumes = %v, want only [opencode-msb-home-orphan-old]", client.RemovedVolumes)
+	}
+	if len(client.RemovedImages) != 1 || client.RemovedImages[0].Ref != "opencode-msb/runner-orphan:digest1" {
+		t.Errorf("removed msb images = %v, want only digest1", client.RemovedImages)
+	}
+	if len(dockerMock.removedImages) != 1 || dockerMock.removedImages[0] != "opencode-msb/runner-orphan:digest1" {
+		t.Errorf("removed docker images = %v, want only digest1", dockerMock.removedImages)
 	}
 }
 
@@ -379,17 +522,35 @@ func TestPrune_WithMocks_CoversAllCases(t *testing.T) {
 			},
 		},
 		Volumes: []msb.VolumeHandle{
-			&msb.MockVolumeHandle{Name_: "opencode-msb-home-myproject-1mjusbm3wikhb0-digest1"},
-			&msb.MockVolumeHandle{Name_: "opencode-msb-home-activeproject-1mjusbm3wikhb0-digest1"},
-			&msb.MockVolumeHandle{Name_: "opencode-msb-home-activeproject-1mjusbm3wikhb0-digest2"},
-			&msb.MockVolumeHandle{Name_: "opencode-msb-clone-myproject-1mjusbm3wikhb0-abc123"},
-			&msb.MockVolumeHandle{Name_: "opencode-msb-clone-activeproject-1mjusbm3wikhb0-def456"},
+			&msb.MockVolumeHandle{Name_: "opencode-msb-home-myproject-1mjusbm3wikhb0-digest1", CreatedAt_: ancient()},
+			&msb.MockVolumeHandle{
+				Name_:      "opencode-msb-home-activeproject-1mjusbm3wikhb0-digest1",
+				CreatedAt_: ancient(),
+			},
+			&msb.MockVolumeHandle{
+				Name_:      "opencode-msb-home-activeproject-1mjusbm3wikhb0-digest2",
+				CreatedAt_: ancient(),
+			},
+			&msb.MockVolumeHandle{Name_: "opencode-msb-clone-myproject-1mjusbm3wikhb0-abc123", CreatedAt_: ancient()},
+			&msb.MockVolumeHandle{
+				Name_:      "opencode-msb-clone-activeproject-1mjusbm3wikhb0-def456",
+				CreatedAt_: ancient(),
+			},
 		},
 		Images: []msb.ImageHandle{
-			&msb.MockImageHandle{Reference_: "opencode-msb/runner-myproject-1mjusbm3wikhb0:digest1"},
-			&msb.MockImageHandle{Reference_: "opencode-msb/runner-activeproject-1mjusbm3wikhb0:digest1"},
-			&msb.MockImageHandle{Reference_: "opencode-msb/runner-activeproject-1mjusbm3wikhb0:digest2"},
-			&msb.MockImageHandle{Reference_: "opencode-msb/runner-orphan:latest"},
+			&msb.MockImageHandle{
+				Reference_:  "opencode-msb/runner-myproject-1mjusbm3wikhb0:digest1",
+				LastUsedAt_: ancient(),
+			},
+			&msb.MockImageHandle{
+				Reference_:  "opencode-msb/runner-activeproject-1mjusbm3wikhb0:digest1",
+				LastUsedAt_: ancient(),
+			},
+			&msb.MockImageHandle{
+				Reference_:  "opencode-msb/runner-activeproject-1mjusbm3wikhb0:digest2",
+				LastUsedAt_: ancient(),
+			},
+			&msb.MockImageHandle{Reference_: "opencode-msb/runner-orphan:latest", LastUsedAt_: ancient()},
 		},
 	}
 	docker.WithNoopDockerMock(t)
@@ -549,17 +710,27 @@ func TestPruneStaleCascade_DockerRemoveFails_DependentOpsSucceed(t *testing.T) {
 
 	slug := "myproject"
 	entry := StaleEntry{Name: "opencode-msb-vm-myproject-abc123", Slug: slug}
-	homeBySlugDigest := map[string][]string{
-		slug: {"opencode-msb-home-myproject-digest1"},
+	homeBySlugDigest := map[string][]volumeWithAge{
+		slug: {oldVol("opencode-msb-home-myproject-digest1")},
 	}
 	msbImagesBySlug := map[string][]imageWithDigest{
 		slug: {
-			{ref: "opencode-msb/runner-myproject:digest1", digest: "digest1", isLatest: false},
-			{ref: "opencode-msb/runner-myproject:latest", digest: "", isLatest: true},
+			{ref: "opencode-msb/runner-myproject:digest1", digest: "digest1", isLatest: false, lastUsed: ancient()},
+			{ref: "opencode-msb/runner-myproject:latest", digest: "", isLatest: true, lastUsed: ancient()},
 		},
 	}
 
-	pruneStaleCascade(context.Background(), client, entry, homeBySlugDigest, msbImagesBySlug, false, ui, report)
+	pruneStaleCascade(
+		context.Background(),
+		client,
+		entry,
+		pruneThreshold,
+		homeBySlugDigest,
+		msbImagesBySlug,
+		false,
+		ui,
+		report,
+	)
 
 	assertReport(t, report, prunedCounts{vms: 1, volumes: 1, msbImages: 2, dockerImages: 1})
 	// Verify MSB removals.
@@ -593,11 +764,17 @@ func TestPrune_DockerRemoveFails_PartialReport(t *testing.T) {
 			},
 		},
 		Volumes: []msb.VolumeHandle{
-			&msb.MockVolumeHandle{Name_: "opencode-msb-home-myproject-1mjusbm3wikhb0-digest1"},
+			&msb.MockVolumeHandle{Name_: "opencode-msb-home-myproject-1mjusbm3wikhb0-digest1", CreatedAt_: oldTime},
 		},
 		Images: []msb.ImageHandle{
-			&msb.MockImageHandle{Reference_: "opencode-msb/runner-myproject-1mjusbm3wikhb0:digest1"},
-			&msb.MockImageHandle{Reference_: "opencode-msb/runner-myproject-1mjusbm3wikhb0:latest"},
+			&msb.MockImageHandle{
+				Reference_:  "opencode-msb/runner-myproject-1mjusbm3wikhb0:digest1",
+				LastUsedAt_: oldTime,
+			},
+			&msb.MockImageHandle{
+				Reference_:  "opencode-msb/runner-myproject-1mjusbm3wikhb0:latest",
+				LastUsedAt_: oldTime,
+			},
 		},
 	}
 

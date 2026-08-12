@@ -14,6 +14,13 @@ import (
 	"gitlab.inoio.de/inoio/opencode-msb/internal/termio"
 )
 
+// oldArtifactTime returns a time far enough in the past that images and volumes
+// carrying it are never considered recent for any prune threshold used in the
+// CLI tests.
+func oldArtifactTime() time.Time {
+	return time.Now().Add(-30 * 24 * time.Hour)
+}
+
 func mkStaleVM(staleTime time.Time) sandbox.SandboxHandle {
 	return &sandbox.MockSandboxHandle{
 		Name_:      "opencode-msb-vm-projectname-1mjusbm3wikhb0",
@@ -40,15 +47,15 @@ func mkStaleTask(staleTime time.Time) sandbox.SandboxHandle {
 }
 
 func homeVol(name string) sandbox.VolumeHandle {
-	return &sandbox.MockVolumeHandle{Name_: name, Path_: "/mnt/home"}
+	return &sandbox.MockVolumeHandle{Name_: name, Path_: "/mnt/home", CreatedAt_: oldArtifactTime()}
 }
 
 func cloneVol(name string) sandbox.VolumeHandle {
-	return &sandbox.MockVolumeHandle{Name_: name, Path_: "/mnt/home"}
+	return &sandbox.MockVolumeHandle{Name_: name, Path_: "/mnt/home", CreatedAt_: oldArtifactTime()}
 }
 
 func msbImg(ref string) sandbox.ImageHandle {
-	return sandbox.MockImageHandle{Reference_: ref}
+	return sandbox.MockImageHandle{Reference_: ref, LastUsedAt_: oldArtifactTime()}
 }
 
 func TestPrune(t *testing.T) {

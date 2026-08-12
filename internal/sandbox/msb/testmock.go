@@ -558,9 +558,10 @@ func (t *TestResult) StdoutBytes() []byte {
 
 //nolint:revive // underscore names avoid conflicts with interface methods
 type MockVolumeHandle struct {
-	Name_ string
-	Path_ string
-	Kind_ msbSdk.VolumeKind
+	Name_      string
+	Path_      string
+	Kind_      msbSdk.VolumeKind
+	CreatedAt_ time.Time
 }
 
 func (m MockVolumeHandle) Name() string { return m.Name_ }
@@ -571,15 +572,18 @@ func (m MockVolumeHandle) Kind() msbSdk.VolumeKind {
 	}
 	return m.Kind_
 }
+func (m MockVolumeHandle) CreatedAt() time.Time { return m.CreatedAt_ }
 
 //nolint:revive // underscore names avoid conflicts with interface methods
 type MockImageHandle struct {
 	Reference_      string
 	ManifestDigest_ string
+	LastUsedAt_     time.Time
 }
 
 func (m MockImageHandle) Reference() string      { return m.Reference_ }
 func (m MockImageHandle) ManifestDigest() string { return m.ManifestDigest_ }
+func (m MockImageHandle) LastUsedAt() time.Time  { return m.LastUsedAt_ }
 
 // WithMsbMock replaces the global Get factory with the provided mock.
 // It restores the original factory when the test ends.

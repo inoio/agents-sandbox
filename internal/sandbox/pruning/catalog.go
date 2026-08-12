@@ -65,7 +65,7 @@ func buildCatalog(ctx context.Context, client MsbClient, threshold time.Duration
 
 	//nolint:exhaustruct // Only populating fields needed for the prune pipeline
 	catalog := &PruningCatalog{
-		HomeVolumes:    make(map[string][]string),
+		HomeVolumes:    make(map[string][]volumeWithAge),
 		CloneVolumes:   make([]string, 0),
 		MSBImages:      make(map[string][]imageWithDigest),
 		ActiveVMDigest: make(map[string]string),
@@ -119,9 +119,12 @@ func buildCatalog(ctx context.Context, client MsbClient, threshold time.Duration
 		if strings.HasPrefix(name, naming.HomePrefix) {
 			slug, _ := naming.ExtractProjectSlugAndDigest(name)
 			if catalog.HomeVolumes[slug] == nil {
-				catalog.HomeVolumes[slug] = []string{}
+				catalog.HomeVolumes[slug] = []volumeWithAge{}
 			}
-			catalog.HomeVolumes[slug] = append(catalog.HomeVolumes[slug], name)
+			catalog.HomeVolumes[slug] = append(catalog.HomeVolumes[slug], volumeWithAge{
+				name:      name,
+				createdAt: h.CreatedAt(),
+			})
 		}
 
 		if strings.HasPrefix(name, naming.ClonePrefix) {
@@ -148,6 +151,7 @@ func buildCatalog(ctx context.Context, client MsbClient, threshold time.Duration
 			ref:      ref,
 			digest:   digest,
 			isLatest: digest == "",
+			lastUsed: h.LastUsedAt(),
 		})
 	}
 

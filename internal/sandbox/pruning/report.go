@@ -32,14 +32,21 @@ type PruningCatalog struct {
 	StaleVMs       []StaleEntry
 	TaskSandboxes  []StaleEntry
 	ActiveVMDigest map[string]string // slug -> digest of the running VM
-	HomeVolumes    map[string][]string
+	HomeVolumes    map[string][]volumeWithAge
 	CloneVolumes   []string
 	MSBImages      map[string][]imageWithDigest
 }
 
-// imageWithDigest holds a reference and its digest for MSB images.
+// imageWithDigest holds a reference, its digest, and last-use time for MSB images.
 type imageWithDigest struct {
 	ref      string
 	digest   string // empty string for :latest
 	isLatest bool
+	lastUsed time.Time
+}
+
+// volumeWithAge holds a home volume name and its creation time.
+type volumeWithAge struct {
+	name      string
+	createdAt time.Time
 }
