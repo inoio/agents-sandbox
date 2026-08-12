@@ -34,12 +34,14 @@
 [*] Flags an opencode übergeben (--) dokumentieren
 [*] dogfood -b/--branch feature
 [*] Deliver example AGENTS.md file with instructions for VM environment, workflow
+[*] Concept for connecting Opencode Desktop to sandboxed server
+[*] image rebuild done unconditionally imports image into msb, should check whether it already exists
 
 ## Testing
 
 [ ] Test:
 * volume migrate, edit, delete
-* config changes to root size, tmp size, env, secrets, cpu, mem
+* config changes to root size, tmp size, cpu, mem
 *
 [ ] secrets containing @ kann nicht funktionieren -> yaml. Keine CLI-Params.
 
@@ -47,14 +49,12 @@
 
 [ ] env.secret[.yaml] im Projekt, wie verstecken?
 [ ] default pattern for hiding project files, configurable (*.secret), not checked in?
-[ ] Concept for connecting Opencode Desktop to sandboxed server
 
 ### README überarbeiten
 
 
 ## 1st prio
 
-[ ] image rebuild done unconditionally imports image into msb, should check whether it already exists
 [ ] inoio providers ausbauen, anders zur Verfügung stellen.
 [ ] opencode config dir & merging nach alphabet
 [ ] config file(s): support arbitrary files in VM home
