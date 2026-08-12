@@ -32,7 +32,7 @@ func setUpSandbox(
 	ui.Verbosef("expected config files: %v", cfs.Keys)
 
 	if restart {
-		restartDaemons(ctx, sb, cfs.Files, ui)
+		restartDaemons(ctx, sb, cfs.Files, opts.ServeOnly, ui)
 		return ResolveTarget(ctx, sb, opts.Worktree, ui)
 	}
 
@@ -47,7 +47,7 @@ func setUpSandbox(
 		return "", fmt.Errorf("docker startup: %w", dockerErr)
 	}
 
-	if daemonErr := ensureDaemon(ctx, sb, ui); daemonErr != nil {
+	if daemonErr := ensureDaemon(ctx, opts.ServeOnly, sb, ui); daemonErr != nil {
 		return "", daemonErr
 	}
 
@@ -152,7 +152,7 @@ func decideReconfig(
 // restartDaemons provisions config files and restarts the opencode daemon so
 // an opencode-config change is picked up. Env/secret changes are never routed
 // here: they require a VM rebuild and are handled by the recreate path instead.
-func restartDaemons(ctx context.Context, sb msb.Sandbox, files map[string][]byte, ui termio.UI) {
+func restartDaemons(ctx context.Context, sb msb.Sandbox, files map[string][]byte, serveOnly bool, ui termio.UI) {
 	if err := reprovision.ProvisionSandbox(ctx, sb.FS(), files); err != nil {
 		ui.Warnf("provision failed: %v (keeping existing daemon)", err)
 		return
@@ -161,7 +161,7 @@ func restartDaemons(ctx context.Context, sb msb.Sandbox, files map[string][]byte
 	if _, _, err := daemonShellFunc(ctx, sb, daemonKillCmd); err != nil {
 		ui.Warnf("kill stale daemon failed (continuing): %v", err)
 	}
-	if err := ensureDaemon(ctx, sb, ui); err != nil {
+	if err := ensureDaemon(ctx, serveOnly, sb, ui); err != nil {
 		ui.Warnf("daemon restart failed: %v (using existing)", err)
 	}
 }

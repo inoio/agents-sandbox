@@ -263,6 +263,9 @@ func finalizeRun(attachErr error, exitCode int) error {
 	if attachErr != nil {
 		return fmt.Errorf("opencode session failed: %w", attachErr)
 	}
+	if exitCode == 0 {
+		return nil
+	}
 	return &ExitError{Code: exitCode}
 }
 
