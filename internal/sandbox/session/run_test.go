@@ -2,6 +2,8 @@ package session
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
@@ -12,6 +14,7 @@ import (
 	"gitlab.inoio.de/inoio/opencode-msb/internal/configpaths"
 	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/msb"
 	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/options"
+	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/reprovision"
 	"gitlab.inoio.de/inoio/opencode-msb/internal/termio"
 
 	"gitlab.inoio.de/inoio/opencode-msb/internal/testutil"
@@ -124,6 +127,14 @@ func setUpSandboxProvisionsConfig(t *testing.T, created bool, provisionMsg strin
 	fs := msb.NewTestFS(nil, nil) // empty FS simulates a VM with empty config dir
 	sb := &msb.MockSandbox{Name_: "test-vm", FSValue_: fs}
 	configpaths.WithMockConfigPaths(t)
+	cp := configpaths.GetConfigPaths()
+	snippet := filepath.Join(cp.UserOpencodeConfigDir(), "opencode.json5")
+	if err := os.MkdirAll(filepath.Dir(snippet), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(snippet, []byte(`{"model":"x"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
 
 	ui := &termio.Mock{}
 	target, err := setUpSandbox(
@@ -141,10 +152,10 @@ func setUpSandboxProvisionsConfig(t *testing.T, created bool, provisionMsg strin
 		t.Errorf("target = %q, want %q", target, defaultTargetDir)
 	}
 
-	wroteConfig := fs.Writes != nil && fs.Writes["/home/dev/.config/opencode/opencode.jsonc"] != nil
+	wroteConfig := fs.Writes != nil && fs.Writes[reprovision.OpenCodeConfigPath(reprovision.VMHomeDir)] != nil
 	if !wroteConfig {
 		t.Errorf(
-			"expected config to be provisioned on %s, but opencode.jsonc was never written",
+			"expected config to be provisioned on %s, but opencode.json was never written",
 			provisionMsg,
 		)
 	}
@@ -172,7 +183,13 @@ func TestRestartDaemonsRestartsServe(t *testing.T) {
 		},
 	}
 	ui := testutil.TermUIMock(t)
-	restartDaemons(context.Background(), sb, map[string][]byte{"opencode.jsonc": []byte("{}")}, false, &ui)
+	restartDaemons(
+		context.Background(),
+		sb,
+		&reprovision.ConfigFiles{HasSnippets: true, OpenCode: []byte("{}")},
+		false,
+		&ui,
+	)
 
 	var joined strings.Builder
 	for _, c := range cmdCalls {
