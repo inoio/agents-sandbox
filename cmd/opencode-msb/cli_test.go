@@ -68,7 +68,7 @@ func TestPrintTreeContainsCommandDescriptions(t *testing.T) {
 		"Manage runner images",
 		"Manage home volumes",
 		"Manage sandboxes",
-		"Print the merged opencode config (from snippet files)",
+		"Print the merged opencode config and the snippet files used",
 		"List cached runner images",
 		"List managed volumes",
 		"Stop the project VM",
