@@ -157,7 +157,7 @@ func ensureProjectVM(
 				return sb2, false, nil
 			}
 			spin.Stop()
-			ui.Verbosef("connected to existing project VM: %s", name)
+			ui.Infof("connected to existing project VM: %s", name)
 			if recErr := reconcileResourceConfig(ctx, handle, opts, ui); recErr != nil {
 				ui.Warnf("could not reconcile VM resources: %v", recErr)
 			}
@@ -170,7 +170,7 @@ func ensureProjectVM(
 			spin.StopError(startErr)
 			return nil, false, fmt.Errorf("start sandbox %q: %w", name, startErr)
 		}
-		ui.Verbosef("started existing project VM: %s", name)
+		ui.Infof("started existing project VM: %s", name)
 		if recErr := reconcileResourceConfig(ctx, handle, opts, ui); recErr != nil {
 			ui.Warnf("could not reconcile VM resources: %v", recErr)
 		}
@@ -301,7 +301,7 @@ func createProjectVM(
 		return nil, false, fmt.Errorf("create sandbox: %w", err)
 	}
 	spin.Stop()
-	ui.Verbosef("created new project VM: %s", name)
+	ui.Infof("created new project VM: %s", name)
 	return sb, true, nil
 }
 
