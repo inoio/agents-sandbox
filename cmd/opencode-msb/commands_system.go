@@ -11,6 +11,7 @@ import (
 
 	"gitlab.inoio.de/inoio/opencode-msb/internal/configpaths"
 	"gitlab.inoio.de/inoio/opencode-msb/internal/git"
+	"gitlab.inoio.de/inoio/opencode-msb/internal/homeconfig"
 	opencodeconfig "gitlab.inoio.de/inoio/opencode-msb/internal/opencodeconfig"
 	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/doctor"
 	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/image"
@@ -104,51 +105,55 @@ func buildConfigCmd(ui termio.UI) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:     cmdConfig,
 		Aliases: cmdConfigAliases,
-		Short:   "Inspect opencode configuration",
+		Short:   "Inspect opencode and home configuration",
 	}
+
 	cmd.AddCommand(&cobra.Command{
 		Use:   cmdShow,
 		Args:  cobra.NoArgs,
-		Short: "Print merged opencode config with source paths",
-		RunE: func(_ *cobra.Command, _ []string) error {
-			providerCfg, err := opencodeconfig.LoadProviderConfig()
-			if err != nil {
-				return fmt.Errorf("load provider config: %w", err)
-			}
-
-			descs, err := opencodeconfig.DescribeConfig(
-				configpaths.GetConfigPaths().UserOpencodeConfigDir(),
-				configpaths.GetConfigPaths().ProjectConfigDir(),
-				providerCfg,
+		Short: "Print the merged opencode config (from snippet files)",
+		RunE: func(*cobra.Command, []string) error {
+			cp := configpaths.GetConfigPaths()
+			data, has, err := opencodeconfig.BuildOpenCodeJSON(
+				cp.UserOpencodeConfigDir(),
+				cp.ProjectOpencodeConfigDir(),
 			)
 			if err != nil {
 				return err
 			}
-			files, err := opencodeconfig.BuildMergedConfig(
-				configpaths.GetConfigPaths().UserOpencodeConfigDir(),
-				configpaths.GetConfigPaths().ProjectConfigDir(),
-				providerCfg,
-			)
-			if err != nil {
-				return err
+			if !has {
+				ui.Out("No opencode snippet files found; no merged opencode.json is provisioned.")
+				return nil
 			}
-
-			for _, desc := range descs {
-				ui.Outf("=== %s ===", desc.Name)
-				for _, src := range desc.Sources {
-					ui.Outf("  source: %s", src)
-				}
-				if data, ok := files[desc.Name]; ok {
-					ui.Out("  merged content:")
-					for line := range strings.SplitSeq(string(data), "\n") {
-						ui.Outf("    %s", line)
-					}
-				}
-				ui.Out("")
+			ui.Out("merged opencode.json:")
+			for line := range strings.SplitSeq(string(data), "\n") {
+				ui.Outf("  %s", line)
 			}
 			return nil
 		},
 	})
+
+	cmd.AddCommand(&cobra.Command{
+		Use:   cmdHome,
+		Args:  cobra.NoArgs,
+		Short: "List home-file mappings from the home.yaml manifest",
+		RunE: func(*cobra.Command, []string) error {
+			cp := configpaths.GetConfigPaths()
+			pairs, err := homeconfig.DescribeManifest(cp.UserConfigDir(), cp.ProjectConfigDir(), "/home/dev")
+			if err != nil {
+				return err
+			}
+			if len(pairs) == 0 {
+				ui.Out("No home.yaml manifest found.")
+				return nil
+			}
+			for _, p := range pairs {
+				ui.Outf("%s  <-  %s", p[0], p[1])
+			}
+			return nil
+		},
+	})
+
 	return cmd
 }
 
