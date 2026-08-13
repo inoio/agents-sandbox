@@ -38,6 +38,8 @@ func PromptB(ui termio.UI, changes []Change, n int) (string, error) {
 		//nolint:exhaustruct // brief-specified wording
 		{Key: keepKey, Label: "Keep current server (defer this change)"},
 		//nolint:exhaustruct // brief-specified wording
+		{Key: quitKey, Label: "Quit (leave server running; apply later)"},
+		//nolint:exhaustruct // brief-specified wording
 		{Key: restartKey, Label: "Restart server (apply changes)"},
 	}, keepKey)
 }
