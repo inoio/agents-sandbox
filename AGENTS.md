@@ -34,8 +34,6 @@ persisting user state via a home directory volume.
   to the server.
 - The project is exposed as an independent git clone when a different branch is requested, so concurrent isolated
   sessions are possible.
-- Shared inoio LiteLLM provider/model definitions are shipped as a repo JSON fragment and passed into opencode via
-  `OPENCODE_CONFIG_CONTENT`.
 
 ## Development
 

@@ -85,7 +85,8 @@ opencode-msb -w bugfix-my-fix
    project, preserving editor state, caches, and config across sessions.
 3. **VM creation or reuse** — Creates a new project VM on first boot; subsequent runs connect to the existing VM (or
    restart it if it stopped).
-4. **Provisioning** — Provisions the VM filesystem, syncs opencode config files into the VM.
+4. **Provisioning** — Merges your opencode config snippets into a single `opencode.json` in the VM home, provisions
+   `home.yaml` mappings, and syncs them into the VM.
 5. **Opencode** — Runs `opencode attach` inside the VM, forwarding any arguments after `--` to the AI agent.
 6. **Cleanup** — On exit, the session detaches. The VM-internal worktree is managed by opencode; on subsequent runs it is reused. The host repo is untouched.
 
@@ -110,6 +111,40 @@ Common CLI tools are preinstalled: git, node, npm, jq, yq etc. Don't install add
 
 No SSH keys in the VM, git cmds against remotes won't work.
 ```
+
+## Example: Permissions
+
+Opencode permissions are configured through opencode config snippets, which opencode-msb merges (user-first, then
+project; see [Configuration](/docs/configuration.md#opencode-configuration)). Place a snippet in your project, e.g.
+`.opencode-msb/opencode/permission.json5`.
+
+**Quasi-auto:** allow everything except what is explicitly denied:
+
+```json5
+{
+  // .opencode-msb/opencode/permission.json5
+  permission: {
+    "*": "allow",
+  },
+}
+```
+
+**Protect secrets:** deny reads of `.env` and `.envrc` files:
+
+```json5
+{
+  // .opencode-msb/opencode/permission.json5
+  permission: {
+    denylist: [
+      { tool: "read", files: [".env", ".envrc"] },
+    ],
+  },
+}
+```
+
+> **Caveat:** these rules are advisory for opencode's own Q&A tools. The `bash` tool executes arbitrary commands inside
+> the VM and can read any file regardless of these deny rules, so they are not a security boundary — keep secrets out of
+> the VM or rely on the [secret mechanism](/docs/configuration.md#secrets) instead.
 
 ## Next Steps
 
