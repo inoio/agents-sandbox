@@ -15,7 +15,7 @@ import (
 // descriptive error when it is not.
 func CheckDocker(ui termio.UI) bool {
 	if _, err := exec.LookPath("docker"); err != nil {
-		ui.Errorf("docker not found. Install Docker or Podman with docker-compatible CLI: %v", err)
+		ui.Error("docker not found. Install Docker or Podman with docker-compatible CLI", err)
 		return false
 	}
 	return true
@@ -23,7 +23,7 @@ func CheckDocker(ui termio.UI) bool {
 
 func checkGit(ui termio.UI) bool {
 	if _, err := exec.LookPath("git"); err != nil {
-		ui.Errorf("git not found. Install git via your system package manager: %v", err)
+		ui.Error("git not found. Install git via your system package manager", err)
 		return false
 	}
 	return true

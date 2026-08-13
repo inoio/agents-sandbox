@@ -2,6 +2,7 @@ package doctor
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 
@@ -12,7 +13,7 @@ import (
 // failure so the caller can short-circuit.
 func ensureMsbInstalled(ctx context.Context, ui termio.UI) error {
 	if err := ensureInstalled(ctx); err != nil {
-		ui.Errorf("msb runtime setup failed: %v", err)
+		ui.Error("msb runtime setup failed", err)
 		return err
 	}
 	return nil
@@ -24,13 +25,13 @@ func ensureMsbInstalled(ctx context.Context, ui termio.UI) error {
 func msbBinPath(ui termio.UI) (string, string, string, bool) {
 	home, err := os.UserHomeDir()
 	if err != nil {
-		ui.Errorf("msb not on PATH and home directory cannot be resolved: %v", err)
+		ui.Error("msb not on PATH and home directory cannot be resolved", err)
 		return "", "", "", false
 	}
 	binDir := filepath.Join(home, ".microsandbox", "bin")
 	binPath := filepath.Join(binDir, "msb")
 	if _, err := os.Stat(binPath); err != nil {
-		ui.Errorf("msb not on PATH and binary missing at %s: %v", binDir, err)
+		ui.Error(fmt.Sprintf("msb not on PATH and binary missing at %s", binDir), err)
 		return "", "", "", false
 	}
 	return home, binDir, binPath, true
