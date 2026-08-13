@@ -92,6 +92,17 @@ func TestSpinnerHiddenAtQuietLevel(t *testing.T) {
 	}
 }
 
+func TestSpinnerColorErrorEmitsRed(t *testing.T) {
+	var stderr bytes.Buffer
+	ui := New(nil, &bytes.Buffer{}, &stderr, true, LevelNormal, false)
+	spin := ui.Spinner("Failing step")
+	spin.StopError(errors.New("boom"))
+	out := stderr.String()
+	if !strings.Contains(out, "\x1b[31m") {
+		t.Errorf("expected red ANSI code for failure, got %q", out)
+	}
+}
+
 func TestSpinnerVerboseSameAsNormal(t *testing.T) {
 	var stderr bytes.Buffer
 	ui := New(nil, &bytes.Buffer{}, &stderr, false, LevelVerbose, false)
