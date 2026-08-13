@@ -101,6 +101,24 @@ func TestSelect(t *testing.T) {
 		}
 	})
 
+	t.Run("marks the default choice inline", func(t *testing.T) {
+		var stderr bytes.Buffer
+		ui := New(strings.NewReader("\n"), &bytes.Buffer{}, &stderr, false, LevelNormal, false)
+		p := ui.(*printer)
+		p.isTerminal = func(int) bool { return true }
+
+		_, err := ui.Select("What to do?", choices, "k")
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if !strings.Contains(stderr.String(), "k) Keep (default) - Keep the worktree") {
+			t.Errorf("expected default-marked listing, got %q", stderr.String())
+		}
+		if strings.Contains(stderr.String(), "r) Remove (default)") {
+			t.Errorf("non-default choice should not be marked default: %q", stderr.String())
+		}
+	})
+
 	t.Run("uses default when user presses enter", func(t *testing.T) {
 		ui := New(strings.NewReader("\n"), &bytes.Buffer{}, &bytes.Buffer{}, false, LevelNormal, false)
 		p := ui.(*printer)

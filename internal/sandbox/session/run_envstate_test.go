@@ -686,7 +686,7 @@ func TestDecideReconfig_HomePromptAskedWhenRebuildConfirmed(t *testing.T) {
 		SelectFn: func(prompt string, _ []termio.Choice, _ string) (string, error) {
 			if strings.Contains(prompt, "Docker image changed") {
 				prompted = true
-				return "1", nil // keep volume
+				return "k", nil // keep volume
 			}
 			return "", nil
 		},
