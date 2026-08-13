@@ -6,20 +6,45 @@ package reprovision
 import (
 	"context"
 	"fmt"
+	"path/filepath"
 
 	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/msb"
 )
 
-// ProvisionSandbox writes the merged opencode configuration files into the
-// sandbox's /home/dev/.config/opencode directory.
-func ProvisionSandbox(ctx context.Context, fs msb.SandboxFS, configFiles map[string][]byte) error {
-	if err := fs.Mkdir(ctx, "/home/dev/.config/opencode"); err != nil {
-		return fmt.Errorf("mkdir opencode config: %w", err)
+// Provision writes the merged opencode config (when snippets exist) and each
+// home file into the sandbox, creating parent directories as needed.
+func Provision(ctx context.Context, fs msb.SandboxFS, cf *ConfigFiles) error {
+	if cf.HasSnippets && len(cf.OpenCode) > 0 {
+		ocPath := OpenCodeConfigPath(VMHomeDir)
+		if err := mkdirAllFS(ctx, fs, filepath.Dir(ocPath)); err != nil {
+			return err
+		}
+		if err := fs.Write(ctx, ocPath, cf.OpenCode); err != nil {
+			return fmt.Errorf("write opencode config: %w", err)
+		}
 	}
-	for fname, data := range configFiles {
-		if err := fs.Write(ctx, "/home/dev/.config/opencode/"+fname, data); err != nil {
-			return fmt.Errorf("write config file %s: %w", fname, err)
+	for path, data := range cf.HomeFiles {
+		if err := mkdirAllFS(ctx, fs, filepath.Dir(path)); err != nil {
+			return err
+		}
+		if err := fs.Write(ctx, path, data); err != nil {
+			return fmt.Errorf("write home file %s: %w", path, err)
 		}
 	}
 	return nil
+}
+
+// mkdirAllFS creates path and all missing parents, tolerating existing dirs.
+func mkdirAllFS(ctx context.Context, fs msb.SandboxFS, path string) error {
+	if path == "" || path == "/" || path == "." {
+		return nil
+	}
+	// Walk up to an existing ancestor, then mkdir each missing segment.
+	if ok, _ := fs.Exists(ctx, path); ok {
+		return nil
+	}
+	if err := mkdirAllFS(ctx, fs, filepath.Dir(path)); err != nil {
+		return err
+	}
+	return fs.Mkdir(ctx, path)
 }

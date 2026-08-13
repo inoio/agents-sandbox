@@ -19,18 +19,11 @@ import (
 	"gitlab.inoio.de/inoio/opencode-msb/internal/termio"
 )
 
-func buildAttachCommand(target string, _ bool, args []string) string {
+func buildAttachCommand(target string, args []string) string {
 	parts := []string{"opencode", "attach", "http://127.0.0.1:4096", "--dir", target}
 	parts = append(parts, args...)
 
 	return strings.Join(parts, " ")
-}
-
-func buildOpencodeArgs(args []string, auto bool) []string {
-	if !auto {
-		return args
-	}
-	return append([]string{autoFlag}, args...)
 }
 
 // serveOnlyMessage builds the message printed when serving opencode for
@@ -211,7 +204,7 @@ func Run(ctx context.Context, opts options.RunOptions, ui termio.UI) error {
 		return &ExitError{Code: 0}
 	}
 
-	setup := buildAttachCommand(session.target, opts.Auto, opts.Args)
+	setup := buildAttachCommand(session.target, opts.Args)
 	ui.Verbosef("%s", setup)
 	// Run as a login shell so /etc/profile and ~/.profile are sourced,
 	// putting tools installed under /usr/local/go/bin, ~/go/bin and
