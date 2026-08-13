@@ -7,3 +7,4 @@
 /.superpowers/
 version.env
 docs/superpowers
+*.test

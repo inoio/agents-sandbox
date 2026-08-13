@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"gitlab.inoio.de/inoio/opencode-msb/internal/configpaths"
+	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/options"
 	"gitlab.inoio.de/inoio/opencode-msb/internal/testutil"
 )
 
@@ -235,7 +236,7 @@ func TestConfigReapPolicyDefaults(t *testing.T) {
 		t.Fatalf("Load failed: %v", err)
 	}
 
-	rp := cfg.ReapPolicy()
+	rp := options.NewReapPolicy(cfg.AutoStopOnActiveSessions, cfg.AutoStopMaxSessionRetries)
 	if rp.AutoStopOnActiveSessions {
 		t.Error("expected AutoStopOnActiveSessions false by default")
 	}
@@ -270,11 +271,6 @@ func TestConfigAutoStopOnActiveSessions(t *testing.T) {
 	}
 	if !cfg.AutoStopOnActiveSessions {
 		t.Error("expected AutoStopOnActiveSessions true")
-	}
-
-	rp := cfg.ReapPolicy()
-	if !rp.AutoStopOnActiveSessions {
-		t.Error("expected ReapPolicy.AutoStopOnActiveSessions true")
 	}
 }
 
@@ -334,7 +330,7 @@ func TestConfigAutoStopMaxSessionRetries(t *testing.T) {
 		t.Errorf("AutoStopMaxSessionRetries: got %d, want 5", cfg.AutoStopMaxSessionRetries)
 	}
 
-	rp := cfg.ReapPolicy()
+	rp := options.NewReapPolicy(cfg.AutoStopOnActiveSessions, cfg.AutoStopMaxSessionRetries)
 	if rp.MaxSessionRetries != 5 {
 		t.Errorf("ReapPolicy.MaxSessionRetries: got %d, want 5", rp.MaxSessionRetries)
 	}

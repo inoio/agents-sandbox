@@ -3,7 +3,7 @@ package main
 import (
 	"testing"
 
-	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox"
+	"gitlab.inoio.de/inoio/opencode-msb/internal/configpaths"
 	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/docker"
 	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/msb"
 	"gitlab.inoio.de/inoio/opencode-msb/internal/testutil"
@@ -11,7 +11,7 @@ import (
 
 func TestMain(m *testing.M) {
 	testutil.InitMocks(m,
-		sandbox.InstallFailFastConfigPaths,
+		configpaths.InstallFailFastConfigPaths,
 		docker.InstallFailFastGet,
 		msb.InstallFailFastGet,
 	)

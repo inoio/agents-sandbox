@@ -1,6 +1,6 @@
 package main
 
-import "gitlab.inoio.de/inoio/opencode-msb/internal/sandbox"
+import "gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/naming"
 
 const (
 	pFlagYes     = "yes"
@@ -43,8 +43,8 @@ const (
 	flagNoAuto      = "no-auto"
 	flagServeOnly   = "serve-only"
 
-	annotationAlsoAs = sandbox.Prefix + "/also-as"
-	annotationArgs   = sandbox.Prefix + "/args"
+	annotationAlsoAs = naming.Prefix + "/also-as"
+	annotationArgs   = naming.Prefix + "/args"
 )
 
 //nolint:gochecknoglobals // undeclarable as consts, but used as such

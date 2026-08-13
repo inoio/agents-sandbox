@@ -17,8 +17,6 @@ import (
 	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/state"
 	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/volume"
 	"gitlab.inoio.de/inoio/opencode-msb/internal/termio"
-
-	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 )
 
 func buildAttachCommand(target string, _ bool, args []string) string {
@@ -32,7 +30,7 @@ func buildOpencodeArgs(args []string, auto bool) []string {
 	if !auto {
 		return args
 	}
-	return append([]string{AutoFlag}, args...)
+	return append([]string{autoFlag}, args...)
 }
 
 // serveOnlyMessage builds the message printed when serving opencode for
@@ -306,21 +304,4 @@ func runAttach(
 	}
 
 	return finalizeRun(attachErr, exitCode)
-}
-
-// tmpMountPath is the mount point used for the sandbox tmpfs.
-const tmpMountPath = "/tmp"
-
-func buildMounts(homeVol, repoPath string, tmpSizeMiB uint32) map[string]msbSdk.MountConfig {
-	return map[string]msbSdk.MountConfig{
-		"/home/dev":      msbSdk.Mount.Named(homeVol, msbSdk.MountOptions{}),
-		defaultTargetDir: msbSdk.Mount.Bind(repoPath, msbSdk.MountOptions{}),
-		tmpMountPath: msbSdk.Mount.Tmpfs(msbSdk.TmpfsOptions{
-			SizeMiB:  tmpSizeMiB,
-			Readonly: false,
-			Noexec:   false,
-			Nosuid:   false,
-			Nodev:    false,
-		}),
-	}
 }

@@ -9,7 +9,7 @@ import (
 	"github.com/spf13/cobra"
 	"golang.org/x/term"
 
-	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox"
+	"gitlab.inoio.de/inoio/opencode-msb/internal/configpaths"
 	"gitlab.inoio.de/inoio/opencode-msb/internal/termio"
 	launcherconfig "gitlab.inoio.de/inoio/opencode-msb/internal/viperconfig"
 )
@@ -19,14 +19,14 @@ var version = "dev"
 // execute runs the CLI with the given arguments and UI.
 //
 // For integration testing, override the injection seams using:
-//   - sandbox: sandbox.SetNewMsbClient (replaces the MsbClient factory)
+//   - msb:   msb.ResetGetFn (replaces the msb.Client factory)
 //   - docker:  docker.WithNoopDockerMock / docker.WithDefaultErrorDockerMock / docker.WithDockerMock
 //
 // Example:
 //
 //	func TestListSandboxCommand(t *testing.T) {
-//	    orig := sandbox.SetNewMsbClient(func() sandbox.MsbClient { return mock })
-//	    t.Cleanup(func() { sandbox.SetNewMsbClient(orig) })
+//	    orig := msb.ResetGetFn(func() msb.Client { return mock })
+//	    t.Cleanup(func() { msb.ResetGetFn(orig) })
 //
 //	    ui := &termio.Mock{}
 //	    err := Execute([]string{"list"}, ui)
@@ -86,8 +86,8 @@ func newUI(args []string) termio.UI {
 		term.IsTerminal(int(os.Stderr.Fd())), level, yes)
 }
 
-func newConfig() sandbox.ConfigPaths {
-	return sandbox.GetConfigPaths()
+func newConfig() configpaths.ConfigPaths {
+	return configpaths.GetConfigPaths()
 }
 
 func applyLauncherConfig(cmd *cobra.Command, lc launcherconfig.Config, keys map[string]bool) error {
