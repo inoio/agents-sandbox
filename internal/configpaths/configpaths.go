@@ -34,19 +34,19 @@ var GetConfigPaths = func() ConfigPaths {
 }
 
 // UserConfigDir returns the tool's user-config directory: $XDG_CONFIG_HOME/
-// opencode-msb, defaulting to ~/.config/opencode-msb.
+// opencode-sandbox, defaulting to ~/.config/opencode-sandbox.
 func (c *realConfigPaths) UserConfigDir() string {
 	return filepath.Join(xdgBaseDir("XDG_CONFIG_HOME", ".config"), pathPrefix)
 }
 
 // UserCacheDir returns the tool's cache directory: $XDG_CACHE_HOME/
-// opencode-msb, defaulting to ~/.cache/opencode-msb.
+// opencode-sandbox, defaulting to ~/.cache/opencode-sandbox.
 func (c *realConfigPaths) UserCacheDir() string {
 	return filepath.Join(xdgBaseDir("XDG_CACHE_HOME", ".cache"), pathPrefix)
 }
 
 // UserStateDir returns the tool's state directory: $XDG_STATE_HOME/
-// opencode-msb, defaulting to ~/.local/state/opencode-msb.
+// opencode-sandbox, defaulting to ~/.local/state/opencode-sandbox.
 func (c *realConfigPaths) UserStateDir() string {
 	return filepath.Join(xdgBaseDir("XDG_STATE_HOME", ".local/state"), pathPrefix)
 }
@@ -57,7 +57,7 @@ func (c *realConfigPaths) UserOpencodeConfigDir() string {
 	return filepath.Join(c.UserConfigDir(), configDirName)
 }
 
-// ProjectConfigDir returns the tool's project-config directory: $PWD/opencode-msb.
+// ProjectConfigDir returns the tool's project-config directory: $PWD/opencode-sandbox.
 func (c *realConfigPaths) ProjectConfigDir() string { return projectConfigDir }
 
 // UserEnvFile returns the user-level environment definitions file.
@@ -75,7 +75,7 @@ func (c *realConfigPaths) UserEnvSecretYAMLFile() string {
 	return filepath.Join(c.UserConfigDir(), envSecretYAMLFileName)
 }
 
-const pathPrefix = "opencode-msb"
+const pathPrefix = "opencode-sandbox"
 
 // projectConfigDir is the project-local metadata directory for the tool.
 const projectConfigDir = "." + pathPrefix
@@ -83,7 +83,7 @@ const projectConfigDir = "." + pathPrefix
 // Shared names for config subdirectories and files, used by both the
 // project-local and the user-level config path helpers.
 const (
-	pathPrefixName    = "opencode-msb"
+	pathPrefixName    = "opencode-sandbox"
 	ConfigDirName     = "opencode"
 	EnvFileName       = "env"
 	EnvSecretFileName = "env.secret"
@@ -126,7 +126,7 @@ func (c *realConfigPaths) ProjectEnvSecretYAMLFile() string {
 // falling back to $HOME/<fallback> when the variable is unset or holds a
 // relative path (the XDG base directory spec only accepts absolute values). It
 // returns the base directory without the application's own subdirectory; each
-// caller appends "opencode-msb".
+// caller appends "opencode-sandbox".
 //
 // The os package's UserConfigDir/UserCacheDir are deliberately not used: they
 // return platform-specific paths (e.g. $HOME/Library/... on macOS) instead of

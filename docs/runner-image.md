@@ -1,6 +1,6 @@
 # Runner Image
 
-opencode-msb builds a Docker image for each sandbox. The image contains opencode, Node.js, and common CLI tools.
+opencode-sandbox builds a Docker image for each sandbox. The image contains opencode, Node.js, and common CLI tools.
 Projects can extend the image with their own tooling.
 
 ## Home directory
@@ -16,7 +16,7 @@ manual management.
 
 ## Base Image
 
-The default runner image `opencode-msb/runner-base` is built from `debian:trixie-slim` and includes:
+The default runner image `opencode-sandbox/runner-base` is built from `debian:trixie-slim` and includes:
 
 - **opencode** — symlinked to `/usr/local/bin/opencode`
 - **Node.js 26.x** — for opencode [LSP servers](https://opencode.ai/docs/lsp/)
@@ -28,16 +28,16 @@ directories.
 
 ## Docker-in-Docker Base Image
 
-On top of the base image, opencode-msb provides an image with Docker-in-Docker (dind) enabled,
-`opencode-msb/runner-base-dind`.
+On top of the base image, opencode-sandbox provides an image with Docker-in-Docker (dind) enabled,
+`opencode-sandbox/runner-base-dind`.
 
 ## Custom Runner
 
-To add project-specific tools, create `.opencode-msb/Dockerfile` in your project, starting from one of the base images:
+To add project-specific tools, create `.opencode-sandbox/Dockerfile` in your project, starting from one of the base images:
 
 ```dockerfile
-FROM opencode-msb/runner-base:latest
-# or FROM opencode-msb/runner-base-dind:latest
+FROM opencode-sandbox/runner-base:latest
+# or FROM opencode-sandbox/runner-base-dind:latest
 
 # Install your project's toolchain into the dev user directory
 RUN curl -fsSL https://pyenv.run | bash
@@ -48,7 +48,7 @@ RUN curl -fsSL https://pyenv.run | bash
 The project image **must** end with `USER dev` active. If you need to run commands as root, switch back:
 
 ```dockerfile
-FROM opencode-msb/runner-base
+FROM opencode-sandbox/runner-base
 
 USER root
 # Install your project's toolchain as root, e.g. via apt install
@@ -68,14 +68,14 @@ ENV definitions in Dockerfiles are applied to running sandboxes. If you need to 
 Build the image:
 
 ```console
-opencode-msb build        # builds if image is missing or base changed
-opencode-msb build -r     # force rebuild
+opencode-sandbox build        # builds if image is missing or base changed
+opencode-sandbox build -r     # force rebuild
 ```
 
 List cached images:
 
 ```console
-opencode-msb image list
+opencode-sandbox image list
 ```
 
 The image name includes the project slug and Docker image hash, so changes to the Dockerfile automatically trigger a
@@ -87,13 +87,13 @@ recreated on the next run so it uses the new image (the home volume is preserved
 Images can be pruned via the `prune` command:
 
 ```console
-opencode-msb prune --dry-run   # see what's stale
-opencode-msb prune             # actually remove them
+opencode-sandbox prune --dry-run   # see what's stale
+opencode-sandbox prune             # actually remove them
 ```
 
 See [Commands](/docs/commands.md) for details on the prune command.
 
-opencode-msb also auto-prunes all resources that are ephemeral, unused or haven't been in use for more than 30 days by
+opencode-sandbox also auto-prunes all resources that are ephemeral, unused or haven't been in use for more than 30 days by
 default. Cached runner images and home volumes are only pruned once they are older than the threshold, so a recently
 used project keeps its image and home state across restarts. See [Sandboxes](/docs/sandboxes.md) for more information
 and [Configuration](/docs/configuration.md) for how to configure auto-pruning.

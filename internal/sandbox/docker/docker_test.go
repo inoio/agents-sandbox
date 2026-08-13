@@ -11,7 +11,7 @@ import (
 
 	"github.com/moby/moby/client"
 
-	"gitlab.inoio.de/inoio/opencode-msb/internal/testutil"
+	"gitlab.inoio.de/inoio/opencode-sandbox/internal/testutil"
 )
 
 func TestDockerfileTarContainsDockerfile(t *testing.T) {

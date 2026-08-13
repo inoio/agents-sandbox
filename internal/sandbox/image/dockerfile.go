@@ -3,7 +3,7 @@ package image
 import (
 	"os"
 
-	"gitlab.inoio.de/inoio/opencode-msb/internal/configpaths"
+	"gitlab.inoio.de/inoio/opencode-sandbox/internal/configpaths"
 )
 
 // ResolveDockerfile returns the project Dockerfile bytes, falling back to the

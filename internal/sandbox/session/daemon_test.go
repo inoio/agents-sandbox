@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
-	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/msb"
-	"gitlab.inoio.de/inoio/opencode-msb/internal/testutil"
+	"gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/msb"
+	"gitlab.inoio.de/inoio/opencode-sandbox/internal/testutil"
 )
 
 func TestParseHealthResponseHealthy(t *testing.T) {

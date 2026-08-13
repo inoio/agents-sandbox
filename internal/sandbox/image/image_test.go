@@ -17,15 +17,15 @@ import (
 	"github.com/moby/moby/client"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 
-	"gitlab.inoio.de/inoio/opencode-msb/internal/configpaths"
-	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/docker"
-	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/msb"
-	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/naming"
-	"gitlab.inoio.de/inoio/opencode-msb/internal/termio"
+	"gitlab.inoio.de/inoio/opencode-sandbox/internal/configpaths"
+	"gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/docker"
+	"gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/msb"
+	"gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/naming"
+	"gitlab.inoio.de/inoio/opencode-sandbox/internal/termio"
 )
 
 func TestReferencesImageDetectsBaseTag(t *testing.T) {
-	dockerfile := []byte("FROM opencode-msb/runner-base:latest\nRUN echo hi\n")
+	dockerfile := []byte("FROM opencode-sandbox/runner-base:latest\nRUN echo hi\n")
 	if !referencesImage(dockerfile, naming.BaseTag) {
 		t.Error("expected referencesImage=true for Dockerfile with base tag")
 	}
@@ -39,7 +39,7 @@ func TestReferencesImageReturnsFalseForOtherTag(t *testing.T) {
 }
 
 func TestReferencesImageIgnoresComments(t *testing.T) {
-	dockerfile := []byte("# FROM opencode-msb/runner-base:latest\nFROM debian:trixie-slim\n")
+	dockerfile := []byte("# FROM opencode-sandbox/runner-base:latest\nFROM debian:trixie-slim\n")
 	if referencesImage(dockerfile, naming.BaseTag) {
 		t.Error("expected referencesImage=false for commented FROM")
 	}
@@ -47,7 +47,7 @@ func TestReferencesImageIgnoresComments(t *testing.T) {
 
 func TestImageTag(t *testing.T) {
 	got := imageTag("myproj-aBc1234D", "sha256:abc123def456")
-	expected := "opencode-msb/runner-myproj-aBc1234D:3k5q07ywpibwp5"
+	expected := "opencode-sandbox/runner-myproj-aBc1234D:3k5q07ywpibwp5"
 	if got != expected {
 		t.Errorf("expected %q, got %q", expected, got)
 	}
@@ -101,14 +101,14 @@ func TestEmbeddedDindDockerfileIsNonEmpty(t *testing.T) {
 }
 
 func TestReferencesImageDetectsDindTag(t *testing.T) {
-	dockerfile := []byte("FROM opencode-msb/runner-base-dind:latest\nRUN echo hi\n")
+	dockerfile := []byte("FROM opencode-sandbox/runner-base-dind:latest\nRUN echo hi\n")
 	if !referencesImage(dockerfile, naming.DindBaseTag) {
 		t.Error("expected referencesImage=true for Dockerfile with dind FROM")
 	}
 }
 
 func TestReferencesImageReturnsFalseForPlainBase(t *testing.T) {
-	dockerfile := []byte("FROM opencode-msb/runner-base:latest\nRUN echo hi\n")
+	dockerfile := []byte("FROM opencode-sandbox/runner-base:latest\nRUN echo hi\n")
 	if referencesImage(dockerfile, naming.DindBaseTag) {
 		t.Error("expected referencesImage=false for plain base Dockerfile")
 	}
@@ -122,34 +122,34 @@ func TestReferencesImageReturnsFalseForOtherImage(t *testing.T) {
 }
 
 func TestReferencesImageIgnoresDindComment(t *testing.T) {
-	dockerfile := []byte("# FROM opencode-msb/runner-base-dind:latest\nFROM debian:trixie-slim\n")
+	dockerfile := []byte("# FROM opencode-sandbox/runner-base-dind:latest\nFROM debian:trixie-slim\n")
 	if referencesImage(dockerfile, naming.DindBaseTag) {
 		t.Error("expected referencesImage=false for commented FROM")
 	}
 }
 
 func TestReferencesImageBaseDoesNotMatchDindTag(t *testing.T) {
-	dockerfile := []byte("FROM opencode-msb/runner-base-dind:latest\nRUN echo hi\n")
+	dockerfile := []byte("FROM opencode-sandbox/runner-base-dind:latest\nRUN echo hi\n")
 	if referencesImage(dockerfile, naming.BaseTag) {
 		t.Error("expected referencesImage=false for dind Dockerfile with base tag (no false positive)")
 	}
 }
 
 func TestEnsureImageBuildsDindBaseWhenDockerfileReferencesDind(t *testing.T) {
-	dockerfile := []byte("FROM opencode-msb/runner-base-dind:latest\nRUN echo hi\n")
-	wantTags := []string{naming.BaseTag, naming.DindBaseTag, "opencode-msb/runner-test-project:latest"}
+	dockerfile := []byte("FROM opencode-sandbox/runner-base-dind:latest\nRUN echo hi\n")
+	wantTags := []string{naming.BaseTag, naming.DindBaseTag, "opencode-sandbox/runner-test-project:latest"}
 	runEnsureImageTagTest(t, dockerfile, false, wantTags)
 }
 
 func TestEnsureImageDoesNotBuildDindForPlainBase(t *testing.T) {
-	dockerfile := []byte("FROM opencode-msb/runner-base:latest\nRUN echo hi\n")
-	wantTags := []string{naming.BaseTag, "opencode-msb/runner-test-project:latest"}
+	dockerfile := []byte("FROM opencode-sandbox/runner-base:latest\nRUN echo hi\n")
+	wantTags := []string{naming.BaseTag, "opencode-sandbox/runner-test-project:latest"}
 	runEnsureImageTagTest(t, dockerfile, false, wantTags)
 }
 
 func TestEnsureImageDoesNotBuildDindOnForceWithoutReference(t *testing.T) {
 	dockerfile := []byte("FROM debian:trixie-slim\nRUN echo hi\n")
-	wantTags := []string{naming.BaseTag, "opencode-msb/runner-test-project:latest"}
+	wantTags := []string{naming.BaseTag, "opencode-sandbox/runner-test-project:latest"}
 	runEnsureImageTagTest(t, dockerfile, true, wantTags)
 }
 
@@ -199,7 +199,7 @@ func TestEnsureImageLoadsIntoMSBWhenNotCached(t *testing.T) {
 			return errors.New("image not in cache")
 		},
 	}
-	dockerfile := []byte("FROM opencode-msb/runner-base:latest\nRUN echo hi\n")
+	dockerfile := []byte("FROM opencode-sandbox/runner-base:latest\nRUN echo hi\n")
 	_, _, _, err := EnsureImageWithClient(
 		context.Background(),
 		msbClient,
@@ -214,7 +214,7 @@ func TestEnsureImageLoadsIntoMSBWhenNotCached(t *testing.T) {
 	if len(msbClient.LoadedImages) != 1 {
 		t.Fatalf("expected 1 image load, got %d", len(msbClient.LoadedImages))
 	}
-	if !strings.HasPrefix(msbClient.LoadedImages[0], "opencode-msb/runner-test-project:") {
+	if !strings.HasPrefix(msbClient.LoadedImages[0], "opencode-sandbox/runner-test-project:") {
 		t.Errorf("unexpected loaded image ref: %s", msbClient.LoadedImages[0])
 	}
 }
@@ -225,7 +225,7 @@ func TestEnvDirUsesCache(t *testing.T) {
 	t.Setenv("XDG_CACHE_HOME", cache)
 	t.Setenv("HOME", t.TempDir())
 	got := envDir()
-	want := filepath.Join(cache, "opencode-msb")
+	want := filepath.Join(cache, "opencode-sandbox")
 	if got != want {
 		t.Errorf("envDir() = %q, want %q", got, want)
 	}

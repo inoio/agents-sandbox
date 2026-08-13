@@ -7,16 +7,16 @@ import (
 	"os"
 	"strings"
 
-	"gitlab.inoio.de/inoio/opencode-msb/internal/configpaths"
-	"gitlab.inoio.de/inoio/opencode-msb/internal/git"
-	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/doctor"
-	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/image"
-	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/msb"
-	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/options"
-	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/reprovision"
-	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/state"
-	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/volume"
-	"gitlab.inoio.de/inoio/opencode-msb/internal/termio"
+	"gitlab.inoio.de/inoio/opencode-sandbox/internal/configpaths"
+	"gitlab.inoio.de/inoio/opencode-sandbox/internal/git"
+	"gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/doctor"
+	"gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/image"
+	"gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/msb"
+	"gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/options"
+	"gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/reprovision"
+	"gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/state"
+	"gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/volume"
+	"gitlab.inoio.de/inoio/opencode-sandbox/internal/termio"
 )
 
 func buildAttachCommand(target string, args []string) string {

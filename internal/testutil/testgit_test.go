@@ -5,7 +5,7 @@ import (
 	"os/exec"
 	"testing"
 
-	"gitlab.inoio.de/inoio/opencode-msb/internal/testutil"
+	"gitlab.inoio.de/inoio/opencode-sandbox/internal/testutil"
 )
 
 func TestRunGit_SucceedsOnBasicCommand(t *testing.T) {

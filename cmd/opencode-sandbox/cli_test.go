@@ -4,12 +4,12 @@ import (
 	"strings"
 	"testing"
 
-	"gitlab.inoio.de/inoio/opencode-msb/internal/configpaths"
-	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/docker"
-	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/msb"
-	"gitlab.inoio.de/inoio/opencode-msb/internal/termio"
-	"gitlab.inoio.de/inoio/opencode-msb/internal/testutil"
-	launcherconfig "gitlab.inoio.de/inoio/opencode-msb/internal/viperconfig"
+	"gitlab.inoio.de/inoio/opencode-sandbox/internal/configpaths"
+	"gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/docker"
+	"gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/msb"
+	"gitlab.inoio.de/inoio/opencode-sandbox/internal/termio"
+	"gitlab.inoio.de/inoio/opencode-sandbox/internal/testutil"
+	launcherconfig "gitlab.inoio.de/inoio/opencode-sandbox/internal/viperconfig"
 )
 
 // buildTree sets up a test UI, builds the root command, renders the tree,
@@ -28,8 +28,8 @@ func TestPrintTreeStartsWithRootCommandName(t *testing.T) {
 	if len(lines) == 0 {
 		t.Fatal("expected at least one line in tree output")
 	}
-	if lines[0] != "opencode-msb" {
-		t.Errorf("expected first line to be %q, got %q", "opencode-msb", lines[0])
+	if lines[0] != "opencode-sandbox" {
+		t.Errorf("expected first line to be %q, got %q", "opencode-sandbox", lines[0])
 	}
 }
 
@@ -492,16 +492,16 @@ func TestNewConfigSetsUserDirs(t *testing.T) {
 	t.Setenv("XDG_STATE_HOME", "")
 	configpaths.WithRealConfigPaths(t)
 	cfg := newConfig()
-	if cfg.UserStateDir() != "/testhome/.local/state/opencode-msb" {
+	if cfg.UserStateDir() != "/testhome/.local/state/opencode-sandbox" {
 		t.Errorf("unexpected state dir: %q", cfg.UserStateDir())
 	}
-	if cfg.UserConfigDir() != "/testhome/.config/opencode-msb" {
+	if cfg.UserConfigDir() != "/testhome/.config/opencode-sandbox" {
 		t.Errorf("unexpected user config dir: %q", cfg.UserConfigDir())
 	}
-	if cfg.UserOpencodeConfigDir() != "/testhome/.config/opencode-msb/opencode" {
+	if cfg.UserOpencodeConfigDir() != "/testhome/.config/opencode-sandbox/opencode" {
 		t.Errorf("unexpected opencode config dir: %q", cfg.UserOpencodeConfigDir())
 	}
-	if cfg.UserCacheDir() != "/testhome/.cache/opencode-msb" {
+	if cfg.UserCacheDir() != "/testhome/.cache/opencode-sandbox" {
 		t.Errorf("unexpected cache dir: %q", cfg.UserCacheDir())
 	}
 }
@@ -513,16 +513,16 @@ func TestNewConfigHonorsXdgEnv(t *testing.T) {
 	t.Setenv("XDG_STATE_HOME", "/xdg/state")
 	configpaths.WithRealConfigPaths(t)
 	cfg := newConfig()
-	if cfg.UserStateDir() != "/xdg/state/opencode-msb" {
+	if cfg.UserStateDir() != "/xdg/state/opencode-sandbox" {
 		t.Errorf("unexpected state dir: %q", cfg.UserStateDir())
 	}
-	if cfg.UserConfigDir() != "/xdg/config/opencode-msb" {
+	if cfg.UserConfigDir() != "/xdg/config/opencode-sandbox" {
 		t.Errorf("unexpected user config dir: %q", cfg.UserConfigDir())
 	}
-	if cfg.UserOpencodeConfigDir() != "/xdg/config/opencode-msb/opencode" {
+	if cfg.UserOpencodeConfigDir() != "/xdg/config/opencode-sandbox/opencode" {
 		t.Errorf("unexpected opencode config dir: %q", cfg.UserOpencodeConfigDir())
 	}
-	if cfg.UserCacheDir() != "/xdg/cache/opencode-msb" {
+	if cfg.UserCacheDir() != "/xdg/cache/opencode-sandbox" {
 		t.Errorf("unexpected cache dir: %q", cfg.UserCacheDir())
 	}
 }

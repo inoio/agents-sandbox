@@ -11,8 +11,8 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/session"
-	"gitlab.inoio.de/inoio/opencode-msb/internal/termio"
+	"gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/session"
+	"gitlab.inoio.de/inoio/opencode-sandbox/internal/termio"
 )
 
 const minUsagePadding = 25

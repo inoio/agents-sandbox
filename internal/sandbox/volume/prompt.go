@@ -1,6 +1,6 @@
 package volume
 
-import "gitlab.inoio.de/inoio/opencode-msb/internal/termio"
+import "gitlab.inoio.de/inoio/opencode-sandbox/internal/termio"
 
 // VolumeAction is the user-selected disposition for an existing home volume.
 //

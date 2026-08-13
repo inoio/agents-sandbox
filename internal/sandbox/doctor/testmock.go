@@ -3,7 +3,7 @@ package doctor
 import (
 	"context"
 
-	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/msb"
+	"gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/msb"
 )
 
 // ensureInstalled is indirected so tests can stub the SDK runtime download.

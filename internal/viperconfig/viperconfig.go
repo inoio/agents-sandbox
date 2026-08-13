@@ -11,7 +11,7 @@ import (
 	"strings"
 	"time"
 
-	"gitlab.inoio.de/inoio/opencode-msb/internal/configpaths"
+	"gitlab.inoio.de/inoio/opencode-sandbox/internal/configpaths"
 
 	"github.com/go-viper/mapstructure/v2"
 	"github.com/spf13/viper"
@@ -19,7 +19,7 @@ import (
 )
 
 // Config holds launcher-level defaults that can be set in
-// ~/.config/opencode-msb/config.* and .opencode-msb/config.*.
+// ~/.config/opencode-sandbox/config.* and .opencode-sandbox/config.*.
 type Config struct {
 	AutoPruneAge   time.Duration `mapstructure:"auto-prune-age"`
 	ManualPruneAge time.Duration `mapstructure:"manual-prune-age"`
