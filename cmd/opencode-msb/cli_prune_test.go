@@ -164,9 +164,9 @@ func TestPrune(t *testing.T) {
 				if err != nil {
 					t.Fatalf("expected no error; got %s", err)
 				}
-				assert.True(t, slices.ContainsFunc(ui.VerboseCalls, func(s string) bool {
+				assert.True(t, slices.ContainsFunc(ui.WarnCalls, func(s string) bool {
 					return strings.Contains(s, "cannot connect to Docker daemon")
-				}), "No 'cannot connect to Docker daemon' found in verbose messages")
+				}), "No 'cannot connect to Docker daemon' found in warn messages")
 			})
 		}
 	})
