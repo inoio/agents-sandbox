@@ -5,11 +5,13 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 
+	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/docker"
 	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/msb"
 	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/naming"
 	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/state"
@@ -779,6 +781,43 @@ func TestPruneActiveVMHomeVolumes_RemoveErrorWarns(t *testing.T) {
 	}
 	if report.PrunedVolumes != 0 {
 		t.Errorf("expected no pruned volumes on removal failure, got %d", report.PrunedVolumes)
+	}
+}
+
+func TestRemoveDockerImagesFailureIsWarn(t *testing.T) {
+	dockerMock := &mockDockerClient{removeErr: errors.New("image does not exist")}
+	docker.WithDockerMock(t, dockerMock)
+	report := &StaleReport{}
+	ui := newMockUI()
+
+	slug := "myproject"
+	msbImagesBySlug := map[string][]imageWithDigest{
+		slug: {
+			{ref: "opencode-msb/runner-myproject:digest1", digest: "digest1", isLatest: false, lastUsed: ancient()},
+		},
+	}
+
+	removeDockerImages(context.Background(), slug, pruneThreshold, msbImagesBySlug, false, ui, report)
+
+	if report.PrunedDockerImages != 0 {
+		t.Errorf("PrunedDockerImages = %d, want 0", report.PrunedDockerImages)
+	}
+	if len(dockerMock.removedImages) != 0 {
+		t.Errorf("removedImages = %v, want [] (all calls failed)", dockerMock.removedImages)
+	}
+	found := false
+	for _, call := range ui.WarnCalls {
+		if strings.Contains(call, "failed to remove docker image") {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("expected a Warn call about failed docker image removal, WarnCalls = %v", ui.WarnCalls)
+	}
+	for _, call := range ui.VerboseCalls {
+		if strings.Contains(call, "failed to remove docker image") {
+			t.Errorf("failed docker image removal should not be Verbose, VerboseCalls = %v", ui.VerboseCalls)
+		}
 	}
 }
 
