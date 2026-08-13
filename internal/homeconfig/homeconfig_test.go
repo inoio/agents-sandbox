@@ -114,6 +114,18 @@ func TestResolveVMTargetReservedOpencodeJSON(t *testing.T) {
 	}
 }
 
+func TestResolveVMTargetRejectsReservedNonCanonicalSpellings(t *testing.T) {
+	for _, bad := range []string{
+		"./.config/opencode/opencode.json",
+		".config/opencode//opencode.json",
+		".config/opencode/./opencode.json",
+	} {
+		if _, err := ResolveVMTarget(vmHome, bad); err == nil {
+			t.Errorf("expected error for reserved opencode.json spelled %q", bad)
+		}
+	}
+}
+
 func TestBuildHomeFilesSkipsMissingSource(t *testing.T) {
 	// Point $HOME at an empty temp dir so the empty-source default
 	// (host $HOME/.gitconfig) deterministically does not exist.
@@ -136,9 +148,12 @@ func TestDescribeManifestListsAllMappings(t *testing.T) {
 	writeHomeYAML(t, user, ".gitconfig:\n")
 	writeHomeYAML(t, proj, ".config/tool/cfg.toml: ./tool/cfg.toml\n")
 	// cfg.toml need NOT exist for DescribeManifest.
-	pairs, err := DescribeManifest(user, proj, vmHome)
+	pairs, has, err := DescribeManifest(user, proj, vmHome)
 	if err != nil {
 		t.Fatalf("DescribeManifest: %v", err)
+	}
+	if !has {
+		t.Fatal("expected has=true")
 	}
 	got := map[string]string{}
 	for _, p := range pairs {
@@ -149,6 +164,67 @@ func TestDescribeManifestListsAllMappings(t *testing.T) {
 	}
 	if _, ok := got["/home/dev/.config/tool/cfg.toml"]; !ok {
 		t.Error("expected project cfg.toml mapping")
+	}
+}
+
+func TestDescribeManifestSortsPairsByVMPath(t *testing.T) {
+	user := t.TempDir()
+	proj := t.TempDir()
+	writeHomeYAML(t, proj, ""+
+		".zshrc:\n"+
+		".a:\n"+
+		".M:\n"+
+		".config/tool/cfg.toml: ./cfg.toml\n"+
+		".b:\n")
+
+	pairs, _, err := DescribeManifest(user, proj, vmHome)
+	if err != nil {
+		t.Fatalf("DescribeManifest: %v", err)
+	}
+	var paths []string
+	for _, p := range pairs {
+		paths = append(paths, p[0])
+	}
+	want := []string{
+		"/home/dev/.M",
+		"/home/dev/.a",
+		"/home/dev/.b",
+		"/home/dev/.config/tool/cfg.toml",
+		"/home/dev/.zshrc",
+	}
+	if !reflect.DeepEqual(paths, want) {
+		t.Errorf("DescribeManifest pairs not sorted by VM path:\ngot  %v\nwant %v", paths, want)
+	}
+}
+
+func TestDescribeManifestNoManifestHasFalse(t *testing.T) {
+	user := t.TempDir()
+	proj := t.TempDir()
+	pairs, has, err := DescribeManifest(user, proj, vmHome)
+	if err != nil {
+		t.Fatalf("DescribeManifest: %v", err)
+	}
+	if has {
+		t.Error("expected has=false when no manifest exists")
+	}
+	if len(pairs) != 0 {
+		t.Errorf("expected no pairs, got %d", len(pairs))
+	}
+}
+
+func TestDescribeManifestEmptyManifestHasTrue(t *testing.T) {
+	user := t.TempDir()
+	proj := t.TempDir()
+	writeHomeYAML(t, user, "")
+	pairs, has, err := DescribeManifest(user, proj, vmHome)
+	if err != nil {
+		t.Fatalf("DescribeManifest: %v", err)
+	}
+	if !has {
+		t.Error("expected has=true when an (empty) manifest exists")
+	}
+	if len(pairs) != 0 {
+		t.Errorf("expected no pairs, got %d", len(pairs))
 	}
 }
 
@@ -211,7 +287,7 @@ func TestDescribeManifestResolvesProjectRelativeSourceAgainstProjectDir(t *testi
 	proj := t.TempDir()
 	writeHomeYAML(t, proj, ".config/tool/cfg.toml: ./tool/cfg.toml\n")
 
-	pairs, err := DescribeManifest(user, proj, vmHome)
+	pairs, _, err := DescribeManifest(user, proj, vmHome)
 	if err != nil {
 		t.Fatalf("DescribeManifest: %v", err)
 	}
