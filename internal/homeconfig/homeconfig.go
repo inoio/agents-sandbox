@@ -148,3 +148,26 @@ func BuildHomeFiles(userConfigDir, projectConfigDir, homeBase string) (map[strin
 	}
 	return files, has, nil
 }
+
+// DescribeManifest returns the merged home.yaml manifest as resolved
+// (VM target path, host source path) pairs, independent of whether the source
+// files exist. It is used by `config home` to list all mappings.
+func DescribeManifest(userConfigDir, projectConfigDir, homeBase string) ([][2]string, error) {
+	layers, _, err := loadLayers(userConfigDir, projectConfigDir)
+	if err != nil {
+		return nil, err
+	}
+	var pairs [][2]string
+	for target, source := range MergeManifests(layers...) {
+		vmPath, err := ResolveVMTarget(homeBase, target)
+		if err != nil {
+			return nil, err
+		}
+		src, err := ResolveSource(target, source, userConfigDir)
+		if err != nil {
+			return nil, err
+		}
+		pairs = append(pairs, [2]string{vmPath, src})
+	}
+	return pairs, nil
+}

@@ -130,6 +130,28 @@ func TestBuildHomeFilesSkipsMissingSource(t *testing.T) {
 	}
 }
 
+func TestDescribeManifestListsAllMappings(t *testing.T) {
+	user := t.TempDir()
+	proj := t.TempDir()
+	writeHomeYAML(t, user, ".gitconfig:\n")
+	writeHomeYAML(t, proj, ".config/tool/cfg.toml: ./tool/cfg.toml\n")
+	// cfg.toml need NOT exist for DescribeManifest.
+	pairs, err := DescribeManifest(user, proj, vmHome)
+	if err != nil {
+		t.Fatalf("DescribeManifest: %v", err)
+	}
+	got := map[string]string{}
+	for _, p := range pairs {
+		got[p[0]] = p[1]
+	}
+	if _, ok := got["/home/dev/.gitconfig"]; !ok {
+		t.Error("expected user .gitconfig mapping")
+	}
+	if _, ok := got["/home/dev/.config/tool/cfg.toml"]; !ok {
+		t.Error("expected project cfg.toml mapping")
+	}
+}
+
 func TestBuildHomeFilesReadsBytesByVMPath(t *testing.T) {
 	user := t.TempDir()
 	proj := t.TempDir()
