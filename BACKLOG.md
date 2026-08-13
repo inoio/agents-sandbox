@@ -42,24 +42,19 @@
 [ ] Test:
 * volume migrate, edit, delete
 * config changes to root size, tmp size, cpu, mem
-*
 [ ] secrets containing @ kann nicht funktionieren -> yaml. Keine CLI-Params.
 
 ## In Progress
 
 [ ] env.secret[.yaml] im Projekt, wie verstecken?
 [ ] default pattern for hiding project files, configurable (*.secret), not checked in?
-
-### README überarbeiten
-
-
-## 1st prio
-
 [ ] inoio providers ausbauen, anders zur Verfügung stellen.
 [ ] opencode config dir & merging nach alphabet
 [ ] config file(s): support arbitrary files in VM home
 [ ] config file(s) übersicht, beispiele
 [ ] config show: list all files that would apply to a VM startup.
+
+## 1st prio
 
 [ ] make cli output pretty and UX'd
 [ ] OPENCODE_DISABLE_AUTOUPDATE and detect releases, offer vm rebuild
@@ -70,6 +65,7 @@
 
 ## 2nd prio
 
+[ ] request --auto in opencode for serve&attach
 [ ] after docker image import, remove docker built image? Or delete docker layers when deleting msb images? Regular auto-cleanup for this?
 [ ] clean commands for volumes, sandboxes, images. docker images/cache/... - with filters, best same ones. Also readable list output (project name, not number) (labels an docker images für cleanup?)
 [ ] shell subcommand user flag (other flags from msb)
