@@ -10,6 +10,7 @@ import (
 	"maps"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"gopkg.in/yaml.v3"
@@ -95,13 +96,13 @@ func ResolveVMTarget(homeBase, relTarget string) (string, error) {
 	if relTarget == "" {
 		return "", errors.New("home manifest target must not be empty")
 	}
-	if relTarget == opencodeConfigPath {
-		return "", fmt.Errorf("home manifest target %q is reserved for the merged opencode config", relTarget)
-	}
 	if filepath.IsAbs(relTarget) {
 		return "", fmt.Errorf("home manifest target %q must be relative to the home directory", relTarget)
 	}
 	clean := filepath.Clean(relTarget)
+	if clean == opencodeConfigPath {
+		return "", fmt.Errorf("home manifest target %q is reserved for the merged opencode config", relTarget)
+	}
 	if clean == ".." || strings.HasPrefix(clean, "../") {
 		return "", fmt.Errorf("home manifest target %q escapes the home directory", relTarget)
 	}
@@ -167,24 +168,28 @@ func BuildHomeFiles(userConfigDir, projectConfigDir, homeBase string) (map[strin
 }
 
 // DescribeManifest returns the merged home.yaml manifest as resolved
-// (VM target path, host source path) pairs, independent of whether the source
-// files exist. It is used by `config home` to list all mappings.
-func DescribeManifest(userConfigDir, projectConfigDir, homeBase string) ([][2]string, error) {
-	layers, _, err := loadLayers(userConfigDir, projectConfigDir)
+// (VM target path, host source path) pairs sorted by VM path, independent of
+// whether the source files exist. The boolean reports whether at least one
+// manifest file exists. It is used by `config home` to list all mappings.
+func DescribeManifest(userConfigDir, projectConfigDir, homeBase string) ([][2]string, bool, error) {
+	layers, has, err := loadLayers(userConfigDir, projectConfigDir)
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	resolved, err := resolveLayers(layers, []string{userConfigDir, projectConfigDir})
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	var pairs [][2]string
 	for target, src := range MergeManifests(resolved...) {
 		vmPath, err := ResolveVMTarget(homeBase, target)
 		if err != nil {
-			return nil, err
+			return nil, false, err
 		}
 		pairs = append(pairs, [2]string{vmPath, src})
 	}
-	return pairs, nil
+	sort.Slice(pairs, func(i, j int) bool {
+		return pairs[i][0] < pairs[j][0]
+	})
+	return pairs, has, nil
 }

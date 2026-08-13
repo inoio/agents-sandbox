@@ -139,12 +139,16 @@ func buildConfigCmd(ui termio.UI) *cobra.Command {
 		Short: "List home-file mappings from the home.yaml manifest",
 		RunE: func(*cobra.Command, []string) error {
 			cp := configpaths.GetConfigPaths()
-			pairs, err := homeconfig.DescribeManifest(cp.UserConfigDir(), cp.ProjectConfigDir(), "/home/dev")
+			pairs, has, err := homeconfig.DescribeManifest(cp.UserConfigDir(), cp.ProjectConfigDir(), "/home/dev")
 			if err != nil {
 				return err
 			}
-			if len(pairs) == 0 {
+			if !has {
 				ui.Out("No home.yaml manifest found.")
+				return nil
+			}
+			if len(pairs) == 0 {
+				ui.Out("No home.yaml mappings.")
 				return nil
 			}
 			for _, p := range pairs {
