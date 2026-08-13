@@ -29,16 +29,16 @@ func (a VolumeAction) String() string {
 	}
 }
 
-// FromKey maps the numeric prompt key ("1".."4") to a VolumeAction.
+// FromKey maps the letter prompt key ("k"/"m"/"r"/"q") to a VolumeAction.
 func FromKey(key string) (VolumeAction, error) {
 	switch key {
-	case "1":
+	case "k":
 		return ActionKeep, nil
-	case "2":
+	case "m":
 		return ActionMigrate, nil
-	case "3":
+	case "r":
 		return ActionReset, nil
-	case "4":
+	case "q":
 		return ActionQuit, nil
 	default:
 		return ActionKeep, &invalidKeyError{key}
@@ -79,16 +79,12 @@ func (vm *Manager) ResolveHomeAction(
 
 	prompt := "Docker image changed for project. The image's home directory is different from your current one."
 	choices := []termio.Choice{
-		{Key: "1", Label: "keep", Description: "continue with existing home volume"},
-		{Key: "2", Label: "migrate", Description: "create fresh volume, copy all files on top"},
-		{
-			Key:         "3",
-			Label:       "reset",
-			Description: "replace with fresh volume from image (lose local changes)",
-		},
-		{Key: "4", Label: "quit", Description: "exit without starting a session"},
+		{Key: "k", Label: "keep", Description: "continue with existing home volume"},
+		{Key: "m", Label: "migrate", Description: "create fresh volume, copy all files on top"},
+		{Key: "r", Label: "reset", Description: "replace with fresh volume from image (lose local changes)"},
+		{Key: "q", Label: "quit", Description: "exit without starting a session"},
 	}
-	selected, err := ui.Select(prompt, choices, "1")
+	selected, err := ui.Select(prompt, choices, "k")
 	if err != nil {
 		ui.Warnf("prompt failed, continuing with existing volume")
 		return ActionKeep

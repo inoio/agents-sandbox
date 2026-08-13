@@ -38,7 +38,11 @@ func (p *printer) Select(prompt string, choices []Choice, defaultKey string) (st
 		if desc == "" {
 			desc = "-"
 		}
-		fmt.Fprintf(p.stderr, "  %s) %s - %s\n", c.Key, c.Label, desc)
+		marker := ""
+		if c.Key == defaultKey {
+			marker = " (default)"
+		}
+		fmt.Fprintf(p.stderr, "  %s) %s%s - %s\n", c.Key, c.Label, marker, desc)
 	}
 	p.Infof("  default [%s]", defaultKey)
 

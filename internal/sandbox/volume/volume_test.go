@@ -119,7 +119,7 @@ func TestResolveHomeAction_DifferentDigestInInteractivePrompt(t *testing.T) {
 			if len(choices) != 4 {
 				return "", fmt.Errorf("expected 4 choices, got %d", len(choices))
 			}
-			return "2", nil
+			return "m", nil
 		},
 	}
 	vm := NewManager(ui)
@@ -146,7 +146,7 @@ func TestResolveHomeAction_ActionQuitReturnsQuit(t *testing.T) {
 	ui := &termio.Mock{
 		IsInteractiveResult: true,
 		SelectFn: func(_ string, _ []termio.Choice, _ string) (string, error) {
-			return "4", nil
+			return "q", nil
 		},
 	}
 	vm := NewManager(ui)
@@ -439,10 +439,10 @@ func TestFromKeyMapsValidKeys(t *testing.T) {
 		key  string
 		want VolumeAction
 	}{
-		{"1", ActionKeep},
-		{"2", ActionMigrate},
-		{"3", ActionReset},
-		{"4", ActionQuit},
+		{"k", ActionKeep},
+		{"m", ActionMigrate},
+		{"r", ActionReset},
+		{"q", ActionQuit},
 	}
 	for _, tt := range tests {
 		t.Run(tt.key, func(t *testing.T) {
