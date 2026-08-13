@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"reflect"
+	"strings"
 	"testing"
 
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
@@ -12,6 +13,7 @@ import (
 	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/msb"
 	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/naming"
 	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/options"
+	"gitlab.inoio.de/inoio/opencode-msb/internal/termio"
 	"gitlab.inoio.de/inoio/opencode-msb/internal/testutil"
 )
 
@@ -242,6 +244,103 @@ func TestEnsureProjectVM_ReconnectPath(t *testing.T) {
 	if len(client.CreatedSandboxes) != 0 {
 		t.Fatalf("expected no sandbox created on reconnect, got %v", client.CreatedSandboxes)
 	}
+}
+
+func assertInfoCall(t *testing.T, ui *termio.Mock, wantSubstr string) {
+	t.Helper()
+	for _, call := range ui.InfoCalls {
+		if strings.Contains(call, wantSubstr) {
+			return
+		}
+	}
+	t.Errorf("expected InfoCall containing %q; got: %v", wantSubstr, ui.InfoCalls)
+}
+
+func TestEnsureProjectVM_ConnectOutcomeIsInfo(t *testing.T) {
+	ui := &termio.Mock{}
+
+	client := &msb.MockMsbClient{}
+	client.SetGotSandbox(&msb.MockSandboxHandle{
+		Name_:   "opencode-msb-vm-test",
+		Status_: msbSdk.SandboxStatusRunning,
+	})
+	msb.WithMsbMock(t, client)
+	configpaths.WithMockConfigPaths(t)
+
+	tmpRepo := testutil.InitRepo(t)
+	t.Chdir(tmpRepo)
+
+	if _, _, err := ensureProjectVM(
+		context.Background(),
+		options.RunOptions{Memory: "1G", TmpSize: "512M"},
+		"opencode-msb/runner-test:latest",
+		"test-home-vol",
+		tmpRepo,
+		nil,
+		ui,
+	); err != nil {
+		t.Fatalf("EnsureProjectVM (connect): %v", err)
+	}
+	assertInfoCall(t, ui, "connected to existing project VM")
+}
+
+func TestEnsureProjectVM_StartOutcomeIsInfo(t *testing.T) {
+	ui := &termio.Mock{}
+
+	client := &msb.MockMsbClient{}
+	client.SetGotSandbox(&msb.MockSandboxHandle{
+		Name_:   "opencode-msb-vm-test",
+		Status_: msbSdk.SandboxStatusStopped,
+	})
+	msb.WithMsbMock(t, client)
+	configpaths.WithMockConfigPaths(t)
+
+	tmpRepo := testutil.InitRepo(t)
+	t.Chdir(tmpRepo)
+
+	if _, _, err := ensureProjectVM(
+		context.Background(),
+		options.RunOptions{Memory: "1G", TmpSize: "512M"},
+		"opencode-msb/runner-test:latest",
+		"test-home-vol",
+		tmpRepo,
+		nil,
+		ui,
+	); err != nil {
+		t.Fatalf("EnsureProjectVM (start): %v", err)
+	}
+	assertInfoCall(t, ui, "started existing project VM")
+}
+
+func TestEnsureProjectVM_CreateOutcomeIsInfo(t *testing.T) {
+	ui := &termio.Mock{}
+
+	notFoundErr := &msbSdk.Error{Kind: msbSdk.ErrSandboxNotFound, Message: "not found"}
+	client := &msb.MockMsbClient{}
+	client.GetSandboxFn = func(_ context.Context, _ string) (msb.SandboxHandle, error) {
+		return nil, notFoundErr
+	}
+	client.CreateSandboxFn = func(_ context.Context, _ string, _ ...msbSdk.SandboxOption) (msb.Sandbox, error) {
+		return msb.NewMockSandbox(msb.SandboxOpts{}), nil
+	}
+	msb.WithMsbMock(t, client)
+	configpaths.WithMockConfigPaths(t)
+
+	tmpRepo := testutil.InitRepo(t)
+	t.Chdir(tmpRepo)
+
+	if _, _, err := ensureProjectVM(
+		context.Background(),
+		options.RunOptions{Memory: "1G", TmpSize: "512M"},
+		"opencode-msb/runner-test:latest",
+		"test-home-vol",
+		tmpRepo,
+		nil,
+		ui,
+	); err != nil {
+		t.Fatalf("EnsureProjectVM (create): %v", err)
+	}
+	assertInfoCall(t, ui, "created new project VM")
 }
 
 func TestEnsureProjectVM_ReconnectWhenImageUnchanged(t *testing.T) {
