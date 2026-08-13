@@ -22,6 +22,25 @@ const manifestName = "home.yaml"
 // config; the manifest must not target it.
 const opencodeConfigPath = ".config/opencode/opencode.json"
 
+// resolveLayers returns each layer's sources resolved against that layer's own
+// manifest dir, for the user layer then the project layer. The returned resolved
+// layers keep project-wins-per-key when merged.
+func resolveLayers(layers []map[string]string, dirs []string) ([]map[string]string, error) {
+	resolved := make([]map[string]string, 0, len(layers))
+	for i, layer := range layers {
+		out := make(map[string]string, len(layer))
+		for target, source := range layer {
+			src, err := ResolveSource(target, source, dirs[i])
+			if err != nil {
+				return nil, err
+			}
+			out[target] = src
+		}
+		resolved = append(resolved, out)
+	}
+	return resolved, nil
+}
+
 // LoadManifest parses a home.yaml manifest into a map from VM-home-relative
 // target path to host source string (possibly empty).
 func LoadManifest(path string) (map[string]string, error) {
@@ -124,21 +143,19 @@ func BuildHomeFiles(userConfigDir, projectConfigDir, homeBase string) (map[strin
 	if err != nil {
 		return nil, false, err
 	}
-	merged := MergeManifests(layers...)
+	resolved, err := resolveLayers(layers, []string{userConfigDir, projectConfigDir})
+	if err != nil {
+		return nil, false, err
+	}
+	merged := MergeManifests(resolved...)
 	if len(merged) == 0 {
 		return map[string][]byte{}, has, nil
 	}
 	files := make(map[string][]byte)
-	for target, source := range merged {
+	for target, src := range merged {
 		vmPath, vErr := ResolveVMTarget(homeBase, target)
 		if vErr != nil {
 			return nil, false, vErr
-		}
-		// Relative sources resolve against the user manifest dir; both levels
-		// share the same semantic (relative to the owning manifest directory).
-		src, rErr := ResolveSource(target, source, userConfigDir)
-		if rErr != nil {
-			return nil, false, rErr
 		}
 		data, rErr := os.ReadFile(src)
 		if rErr != nil {
@@ -157,13 +174,13 @@ func DescribeManifest(userConfigDir, projectConfigDir, homeBase string) ([][2]st
 	if err != nil {
 		return nil, err
 	}
+	resolved, err := resolveLayers(layers, []string{userConfigDir, projectConfigDir})
+	if err != nil {
+		return nil, err
+	}
 	var pairs [][2]string
-	for target, source := range MergeManifests(layers...) {
+	for target, src := range MergeManifests(resolved...) {
 		vmPath, err := ResolveVMTarget(homeBase, target)
-		if err != nil {
-			return nil, err
-		}
-		src, err := ResolveSource(target, source, userConfigDir)
 		if err != nil {
 			return nil, err
 		}
