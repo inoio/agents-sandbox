@@ -200,6 +200,9 @@ func ResolveReconfig(
 		if err != nil {
 			return false, false, nil //nolint:nilerr // brief: swallow select errors
 		}
+		if key == quitKey {
+			return false, false, errors.New("config apply aborted by user")
+		}
 		return false, key == restartKey, nil
 	}
 	return false, false, nil

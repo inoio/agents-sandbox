@@ -151,6 +151,19 @@ func TestPlanReconfigMemoryClampToMax(t *testing.T) {
 	}
 }
 
+func TestResolveReconfigPromptBQuit(t *testing.T) {
+	plan := &Plan{RestartDaemons: true}
+	ui := &termio.Mock{}
+	ui.SelectFn = func(_ string, _ []termio.Choice, _ string) (string, error) { return "q", nil }
+	applyRecreate, applyRestart, err := ResolveReconfig(context.Background(), ui, plan, 1, plan.Changes)
+	if err == nil {
+		t.Error("expected quit to abort (return an error)")
+	}
+	if applyRecreate || applyRestart {
+		t.Error("quit must not apply recreate or restart daemons")
+	}
+}
+
 func TestResolveReconfigPromptBRestart(t *testing.T) {
 	plan := &Plan{RestartDaemons: true}
 	ui := &termio.Mock{}
