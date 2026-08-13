@@ -1,3 +1,5 @@
+// Package config merges opencode configuration snippet files into a single
+// opencode config consumed by the sandbox.
 package config
 
 import (
@@ -11,24 +13,28 @@ import (
 	"github.com/titanous/json5"
 )
 
-func LoadProviderConfig() (map[string]any, error) {
-	var cfg map[string]any
-	if err := json5.Unmarshal(embeddedProviderConfig, &cfg); err != nil {
-		return nil, err
+// isJSONFile reports whether name is an opencode config snippet (json, jsonc,
+// or json5) regardless of case.
+func isJSONFile(name string) bool {
+	switch strings.ToLower(filepath.Ext(name)) {
+	case ".json", ".jsonc", ".json5":
+		return true
 	}
-	return cfg, nil
+	return false
 }
 
+// deepMerge merges override into base recursively. Maps are merged key by key;
+// any other value in override replaces the base value.
 func deepMerge(base, override map[string]any) map[string]any {
 	result := make(map[string]any, len(base))
 	maps.Copy(result, base)
 	for k, v := range override {
 		if existing, ok := result[k]; ok {
-			if existingMap, ok := existing.(map[string]any); ok {
-				if overrideMap, ok := v.(map[string]any); ok {
-					result[k] = deepMerge(existingMap, overrideMap)
-					continue
-				}
+			existingMap, ok1 := existing.(map[string]any)
+			overrideMap, ok2 := v.(map[string]any)
+			if ok1 && ok2 {
+				result[k] = deepMerge(existingMap, overrideMap)
+				continue
 			}
 		}
 		result[k] = v
@@ -36,13 +42,12 @@ func deepMerge(base, override map[string]any) map[string]any {
 	return result
 }
 
-func isJSONFile(name string) bool {
-	ext := strings.ToLower(filepath.Ext(name))
-	return ext == ".json" || ext == ".jsonc"
-}
-
-func scanJSONFiles(dirs ...string) map[string]map[string]any {
-	files := make(map[string]map[string]any)
+// scanSnippetFiles reads every json/jsonc/json5 file across dirs and returns a
+// single deep-merged map. Directory order is user first then project; within a
+// directory files are merged in alphabetical order, so later files override
+// earlier ones.
+func scanSnippetFiles(dirs ...string) map[string]any {
+	var merged map[string]any
 	for _, dir := range dirs {
 		if dir == "" {
 			continue
@@ -58,8 +63,7 @@ func scanJSONFiles(dirs ...string) map[string]map[string]any {
 			if entry.IsDir() || !isJSONFile(entry.Name()) {
 				continue
 			}
-			path := filepath.Join(dir, entry.Name())
-			data, err := os.ReadFile(path)
+			data, err := os.ReadFile(filepath.Join(dir, entry.Name()))
 			if err != nil {
 				continue
 			}
@@ -67,120 +71,28 @@ func scanJSONFiles(dirs ...string) map[string]map[string]any {
 			if err := json5.Unmarshal(data, &cfg); err != nil {
 				continue
 			}
-			name := entry.Name()
-			files[name] = deepMerge(files[name], cfg)
+			merged = deepMerge(merged, cfg)
 		}
 	}
-	return files
+	if merged == nil {
+		merged = map[string]any{}
+	}
+	return merged
 }
 
-func scanOtherFiles(dirs ...string) map[string][]byte {
-	files := make(map[string][]byte)
-	for _, dir := range dirs {
-		if dir == "" {
-			continue
-		}
-		entries, err := os.ReadDir(dir)
-		if err != nil {
-			continue
-		}
-		sort.Slice(entries, func(i, j int) bool {
-			return entries[i].Name() < entries[j].Name()
-		})
-		for _, entry := range entries {
-			if entry.IsDir() || isJSONFile(entry.Name()) {
-				continue
-			}
-			path := filepath.Join(dir, entry.Name())
-			data, err := os.ReadFile(path)
-			if err != nil {
-				continue
-			}
-			files[entry.Name()] = data
-		}
+// BuildOpenCodeJSON merges all opencode snippet files under userDir and
+// projectDir into a single opencode.json document. It returns the marshaled
+// bytes, a boolean reporting whether any snippet existed, and an error.
+// When no snippet exists the returned bytes are nil and the boolean is false;
+// no opencode.json should then be provisioned into the VM.
+func BuildOpenCodeJSON(userDir, projectDir string) ([]byte, bool, error) {
+	merged := scanSnippetFiles(userDir, projectDir)
+	if len(merged) == 0 {
+		return nil, false, nil
 	}
-	return files
-}
-
-type FileDesc struct {
-	Name    string
-	Sources []string
-}
-
-func findSources(name string, dirs ...string) []string {
-	var sources []string
-	for _, dir := range dirs {
-		if dir == "" {
-			continue
-		}
-		entries, err := os.ReadDir(dir)
-		if err != nil {
-			continue
-		}
-		for _, e := range entries {
-			if e.Name() == name {
-				sources = append(sources, filepath.Join(dir, name))
-			}
-		}
+	data, err := json.MarshalIndent(merged, "", "  ")
+	if err != nil {
+		return nil, false, err
 	}
-	return sources
-}
-
-func DescribeConfig(userDir, projectDir string, _ map[string]any) ([]FileDesc, error) {
-	dirs := []string{userDir, projectDir}
-	var result []FileDesc
-
-	jsonFiles := scanJSONFiles(dirs...)
-	for name := range jsonFiles {
-		sources := findSources(name, dirs...)
-		if name == "opencode.jsonc" || name == "opencode.json" {
-			sources = append(sources, "embedded provider config")
-		}
-		result = append(result, FileDesc{Name: name, Sources: sources})
-	}
-
-	otherFiles := scanOtherFiles(dirs...)
-	for name := range otherFiles {
-		result = append(result, FileDesc{Name: name, Sources: findSources(name, dirs...)})
-	}
-
-	sort.Slice(result, func(i, j int) bool {
-		return result[i].Name < result[j].Name
-	})
-
-	return result, nil
-}
-
-func BuildMergedConfig(userDir, projectDir string, providerConfig map[string]any) (map[string][]byte, error) {
-	jsonFiles := scanJSONFiles(userDir, projectDir)
-	otherFiles := scanOtherFiles(userDir, projectDir)
-
-	result := make(map[string][]byte)
-	for name, cfg := range jsonFiles {
-		var merged map[string]any
-		if name == "opencode.jsonc" || name == "opencode.json" {
-			merged = deepMerge(providerConfig, cfg)
-		} else {
-			merged = cfg
-		}
-		data, err := json.MarshalIndent(merged, "", "  ")
-		if err != nil {
-			return nil, err
-		}
-		result[name] = append(data, '\n')
-	}
-
-	if _, hasJsonc := result["opencode.jsonc"]; !hasJsonc {
-		if _, hasJSON := result["opencode.json"]; !hasJSON {
-			data, err := json.MarshalIndent(providerConfig, "", "  ")
-			if err != nil {
-				return nil, err
-			}
-			result["opencode.jsonc"] = append(data, '\n')
-		}
-	}
-
-	maps.Copy(result, otherFiles)
-
-	return result, nil
+	return append(data, '\n'), true, nil
 }

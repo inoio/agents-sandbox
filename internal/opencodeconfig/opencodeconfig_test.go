@@ -5,258 +5,135 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
-func TestLoadProviderConfigParsesJSON5(t *testing.T) {
-	cfg, err := LoadProviderConfig()
-	if err != nil {
-		t.Fatalf("LoadProviderConfig failed: %v", err)
+func writeSnippet(t *testing.T, dir, name, content string) {
+	t.Helper()
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
 	}
-	litellm, ok := cfg["provider"].(map[string]any)["litellm"].(map[string]any)
-	if !ok {
-		t.Fatal("expected provider.litellm to exist")
-	}
-	if litellm["name"] != "LiteLLM" {
-		t.Errorf("expected name=LiteLLM, got %v", litellm["name"])
+	if err := os.WriteFile(filepath.Join(dir, name), []byte(content), 0o644); err != nil {
+		t.Fatal(err)
 	}
 }
 
-func TestDeepMergeNested(t *testing.T) {
-	base := map[string]any{
-		"a": map[string]any{"x": 1, "y": 2},
-		"b": "keep",
+func TestIsJSONFile(t *testing.T) {
+	cases := map[string]bool{
+		"opencode.json":  true,
+		"opencode.jsonc": true,
+		"opencode.json5": true,
+		"auth.json":      true,
+		"tui.json5":      true,
+		"README.md":      false,
+		"opencode.txt":   false,
+		"opencode":       false,
 	}
-	override := map[string]any{
-		"a": map[string]any{"y": 99, "z": 3},
-		"c": "new",
-	}
-	result := deepMerge(base, override)
-	a := result["a"].(map[string]any)
-	if a["x"] != 1 {
-		t.Errorf("expected x=1 (from base), got %v", a["x"])
-	}
-	if a["y"] != 99 {
-		t.Errorf("expected y=99 (overridden), got %v", a["y"])
-	}
-	if a["z"] != 3 {
-		t.Errorf("expected z=3 (new), got %v", a["z"])
-	}
-	if result["b"] != "keep" {
-		t.Errorf("expected b='keep', got %v", result["b"])
-	}
-	if result["c"] != "new" {
-		t.Errorf("expected c='new', got %v", result["c"])
+	for name, want := range cases {
+		if got := isJSONFile(name); got != want {
+			t.Errorf("isJSONFile(%q) = %v, want %v", name, got, want)
+		}
 	}
 }
 
-func TestBuildMergedConfigCreatesOpencodeJsoncWhenAbsent(t *testing.T) {
-	providerCfg := map[string]any{
-		"provider": map[string]any{"litellm": map[string]any{"name": "LiteLLM"}},
+func TestScanSnippetFilesAlphabeticalLaterWins(t *testing.T) {
+	dir := t.TempDir()
+	// "01-model.json5" runs before "02-agent.jsonc"; later scalar wins.
+	writeSnippet(t, dir, "01-model.json5", `{"model": "first", "theme": "dark"}`)
+	writeSnippet(t, dir, "02-agent.jsonc", `{"model": "second", "agent": "builder"}`)
+
+	merged := scanSnippetFiles(dir)
+	if merged["model"] != "second" {
+		t.Errorf("expect later file to override scalar, got %v", merged["model"])
 	}
-	files, err := BuildMergedConfig("", "", providerCfg)
+	if merged["theme"] != "dark" {
+		t.Errorf("expect earlier file's disjoint key kept, got %v", merged["theme"])
+	}
+	if merged["agent"] != "builder" {
+		t.Errorf("expect later file's key kept, got %v", merged["agent"])
+	}
+}
+
+func TestScanSnippetFilesDeepMergeMaps(t *testing.T) {
+	dir := t.TempDir()
+	writeSnippet(t, dir, "a.json", `{"permission": {"read": {"*": "allow", "*.env": "deny"}}}`)
+	writeSnippet(t, dir, "b.json", `{"permission": {"read": {"external_directory": "allow"}}}`)
+
+	merged := scanSnippetFiles(dir)
+	perm := merged["permission"].(map[string]any)
+	read := perm["read"].(map[string]any)
+	if read["*"] != "allow" || read["external_directory"] != "allow" {
+		t.Errorf("expected recursive map merge, got %v", read)
+	}
+}
+
+func TestScanSnippetFilesUserThenProjectOrder(t *testing.T) {
+	user := t.TempDir()
+	proj := t.TempDir()
+	writeSnippet(t, user, "cfg.json", `{"val": "user"}`)
+	writeSnippet(t, proj, "cfg.json", `{"val": "project"}`)
+
+	merged := scanSnippetFiles(user, proj)
+	if merged["val"] != "project" {
+		t.Errorf("expected project to override user, got %v", merged["val"])
+	}
+}
+
+func TestBuildOpenCodeJSONNoSnippets(t *testing.T) {
+	data, has, err := BuildOpenCodeJSON(t.TempDir(), t.TempDir())
 	if err != nil {
-		t.Fatalf("BuildMergedConfig failed: %v", err)
+		t.Fatalf("BuildOpenCodeJSON: %v", err)
 	}
-	data, ok := files["opencode.jsonc"]
-	if !ok {
-		t.Fatal("expected opencode.jsonc to be created")
+	if has {
+		t.Error("expected has=false when no snippet files exist")
+	}
+	if data != nil {
+		t.Errorf("expected nil bytes when no snippets, got %q", data)
+	}
+}
+
+func TestBuildOpenCodeJSONEmitsOpenCodeJSON(t *testing.T) {
+	user := t.TempDir()
+	writeSnippet(t, user, "opencode.json5", `{"model": "x", "instructions": "be brief"}`)
+
+	data, has, err := BuildOpenCodeJSON(user, "")
+	if err != nil {
+		t.Fatalf("BuildOpenCodeJSON: %v", err)
+	}
+	if !has {
+		t.Fatal("expected has=true")
 	}
 	var parsed map[string]any
 	if err := json.Unmarshal(data, &parsed); err != nil {
-		t.Fatalf("opencode.jsonc is not valid JSON: %v", err)
+		t.Fatalf("output not valid JSON: %v", err)
 	}
-	if _, ok := parsed["provider"]; !ok {
-		t.Error("expected provider key in opencode.jsonc")
-	}
-}
-
-func TestBuildMergedConfigMergesUserOpencodeJsonc(t *testing.T) {
-	tmp := t.TempDir()
-	userCfg := map[string]any{"theme": "dark"}
-	userBytes, _ := json.Marshal(userCfg)
-	if err := os.WriteFile(filepath.Join(tmp, "opencode.jsonc"), userBytes, 0o644); err != nil {
-		t.Fatal(err)
-	}
-
-	providerCfg := map[string]any{
-		"provider": map[string]any{"litellm": map[string]any{"name": "LiteLLM"}},
-	}
-	files, err := BuildMergedConfig(tmp, "", providerCfg)
-	if err != nil {
-		t.Fatalf("BuildMergedConfig failed: %v", err)
-	}
-	data := files["opencode.jsonc"]
-	var parsed map[string]any
-	if err := json.Unmarshal(data, &parsed); err != nil {
-		t.Fatal(err)
-	}
-	if parsed["theme"] != "dark" {
-		t.Errorf("expected theme=dark to be preserved, got %v", parsed["theme"])
-	}
-	if _, ok := parsed["provider"]; !ok {
-		t.Error("expected provider to be merged in")
+	if parsed["model"] != "x" || parsed["instructions"] != "be brief" {
+		t.Errorf("unexpected merged content: %v", parsed)
 	}
 }
 
-func TestBuildMergedConfigCopiesNonJsonFiles(t *testing.T) {
-	userDir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(userDir, "instructions.txt"), []byte("hello"), 0o644); err != nil {
-		t.Fatal(err)
-	}
+func TestBuildOpenCodeJSONDeterministic(t *testing.T) {
+	user := t.TempDir()
+	writeSnippet(t, user, "a.json", `{"b": 1, "a": 2}`)
+	writeSnippet(t, user, "c.json5", `{"c": {"z": 1, "y": 2}}`)
 
-	files, err := BuildMergedConfig(userDir, "", map[string]any{})
-	if err != nil {
-		t.Fatalf("BuildMergedConfig failed: %v", err)
+	var first []byte
+	for range 5 {
+		data, has, err := BuildOpenCodeJSON(user, "")
+		if err != nil || !has {
+			t.Fatalf("BuildOpenCodeJSON: has=%v err=%v", has, err)
+		}
+		if first == nil {
+			first = data
+			continue
+		}
+		if !bytes.Equal(first, data) {
+			t.Fatal("output not deterministic across runs")
+		}
 	}
-	if string(files["instructions.txt"]) != "hello" {
-		t.Errorf("expected instructions.txt content 'hello', got %q", files["instructions.txt"])
-	}
-}
-
-func TestBuildMergedConfigProjectDirOverridesUserDir(t *testing.T) {
-	userDir := t.TempDir()
-	projectDir := t.TempDir()
-	userBytes, _ := json.Marshal(map[string]any{"val": "user"})
-	projBytes, _ := json.Marshal(map[string]any{"val": "project"})
-	if err := os.WriteFile(filepath.Join(userDir, "opencode.jsonc"), userBytes, 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(projectDir, "opencode.jsonc"), projBytes, 0o644); err != nil {
-		t.Fatal(err)
-	}
-
-	files, err := BuildMergedConfig(userDir, projectDir, map[string]any{})
-	if err != nil {
-		t.Fatalf("BuildMergedConfig failed: %v", err)
-	}
-	var parsed map[string]any
-	if err := json.Unmarshal(files["opencode.jsonc"], &parsed); err != nil {
-		t.Fatal(err)
-	}
-	if parsed["val"] != "project" {
-		t.Errorf("expected project override, got %v", parsed["val"])
-	}
-}
-
-func TestBuildMergedConfigPreservesEmbeddedNonProviderFields(t *testing.T) {
-	embeddedCfg := map[string]any{
-		"permission": map[string]any{"read": map[string]any{"*": "allow"}},
-		"provider":   map[string]any{"litellm": map[string]any{"name": "LiteLLM"}},
-	}
-
-	files, err := BuildMergedConfig("", "", embeddedCfg)
-	if err != nil {
-		t.Fatalf("BuildMergedConfig failed: %v", err)
-	}
-	data := files["opencode.jsonc"]
-	var parsed map[string]any
-	if err := json.Unmarshal(data, &parsed); err != nil {
-		t.Fatal(err)
-	}
-
-	if _, ok := parsed["permission"]; !ok {
-		t.Error("expected permission from embedded config, missing from output")
-	}
-
-	permMap, ok := parsed["permission"].(map[string]any)
-	if !ok {
-		t.Fatalf("expected permission to be a map, got %T", parsed["permission"])
-	}
-	readMap := permMap["read"].(map[string]any)
-	if readMap["*"] != "allow" {
-		t.Errorf("expected permission.read.*=allow, got %v", readMap["*"])
-	}
-}
-
-func TestBuildMergedConfigUserOverridesEmbedded(t *testing.T) {
-	tmp := t.TempDir()
-	embeddedCfg := map[string]any{
-		"model":      "base-model",
-		"permission": map[string]any{"read": map[string]any{"*": "deny"}},
-		"provider":   map[string]any{"litellm": map[string]any{"name": "base"}},
-	}
-	userCfg := map[string]any{"model": "user-model", "theme": "dark"}
-	userBytes, _ := json.Marshal(userCfg)
-	if err := os.WriteFile(filepath.Join(tmp, "opencode.jsonc"), userBytes, 0o644); err != nil {
-		t.Fatal(err)
-	}
-
-	files, err := BuildMergedConfig(tmp, "", embeddedCfg)
-	if err != nil {
-		t.Fatalf("BuildMergedConfig failed: %v", err)
-	}
-	var parsed map[string]any
-	if err := json.Unmarshal(files["opencode.jsonc"], &parsed); err != nil {
-		t.Fatal(err)
-	}
-
-	if parsed["model"] != "user-model" {
-		t.Errorf("expected model=user-model (user override), got %v", parsed["model"])
-	}
-	if parsed["theme"] != "dark" {
-		t.Errorf("expected theme=dark, got %v", parsed["theme"])
-	}
-
-	permMap := parsed["permission"].(map[string]any)
-	if readMap := permMap["read"].(map[string]any); readMap["*"] != "deny" {
-		t.Errorf("expected permission.read.*=deny (from embedded), got %v", readMap["*"])
-	}
-}
-
-func TestBuildMergedConfigDeterministic(t *testing.T) {
-	providerCfg := map[string]any{
-		"permission": map[string]any{"read": map[string]any{"*": "allow", "*.env": "deny"}},
-		"provider": map[string]any{
-			"litellm": map[string]any{
-				"name": "LiteLLM",
-				"models": map[string]any{
-					"gpt-4": map[string]any{"name": "GPT 4"},
-				},
-			},
-		},
-		"model": "base-model",
-	}
-	tmp := t.TempDir()
-	userCfg := map[string]any{"theme": "dark", "instructions": "talk concise"}
-	userBytes, _ := json.Marshal(userCfg)
-	_ = os.WriteFile(filepath.Join(tmp, "opencode.jsonc"), userBytes, 0o644)
-	_ = os.WriteFile(filepath.Join(tmp, "instructions.md"), []byte("be nice"), 0o644)
-
-	for _, scenario := range []struct {
-		name    string
-		userDir string
-		projDir string
-		cfg     map[string]any
-	}{
-		{"no user, no project", "", "", providerCfg},
-		{"user only", tmp, "", providerCfg},
-		{"project only", "", tmp, map[string]any{}},
-		{"user + project", tmp, tmp, providerCfg},
-	} {
-		t.Run(scenario.name, func(t *testing.T) {
-			// Map[file_key][]iteration_index_in_first_results
-			firstResults := make(map[string][][]byte)
-			for range 5 {
-				files, err := BuildMergedConfig(scenario.userDir, scenario.projDir, scenario.cfg)
-				if err != nil {
-					t.Fatalf("BuildMergedConfig failed: %v", err)
-				}
-				for fname, data := range files {
-					if _, ok := firstResults[fname]; !ok {
-						firstResults[fname] = [][]byte{data}
-					} else {
-						firstResults[fname] = append(firstResults[fname], data)
-					}
-				}
-			}
-			for fname, iterations := range firstResults {
-				for i := 1; i < len(iterations); i++ {
-					if !bytes.Equal(iterations[0], iterations[i]) {
-						t.Errorf("file %q: iteration 0 and %d differ (non-deterministic)", fname, i)
-					}
-				}
-			}
-		})
+	// sanity: no trailing-extra blank lines weirdness
+	if !strings.HasSuffix(string(first), "\n") {
+		t.Error("expected a single trailing newline")
 	}
 }
