@@ -16,6 +16,7 @@ const (
 	cmdVersion = "version"
 	cmdConfig  = "config"
 	cmdShow    = "show"
+	cmdHome    = "home"
 	cmdImage   = "image"
 	cmdVolume  = "volume"
 	cmdSandbox = "sandbox"
