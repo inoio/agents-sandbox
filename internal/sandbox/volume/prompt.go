@@ -73,7 +73,7 @@ func (vm *Manager) ResolveHomeAction(
 	}
 
 	if !ui.IsInteractive() {
-		ui.Infof("non-interactive: using existing home volume")
+		ui.Infof("non-interactive: image changed; keeping existing home volume")
 		return ActionKeep
 	}
 
