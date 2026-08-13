@@ -73,7 +73,7 @@ type ConfigFiles struct {
 // the opencode snippet files) and the home files (from the home.yaml manifests).
 func LoadConfigFiles(userConfigDir string) (*ConfigFiles, error) {
 	projectOpenCodeDir := cp.GetConfigPaths().ProjectOpencodeConfigDir()
-	opencodeJSON, hasSnippets, err := config.BuildOpenCodeJSON(userConfigDir, projectOpenCodeDir)
+	opencodeJSON, _, hasSnippets, err := config.BuildOpenCodeJSON(userConfigDir, projectOpenCodeDir)
 	if err != nil {
 		return nil, fmt.Errorf("merge opencode config: %w", err)
 	}
