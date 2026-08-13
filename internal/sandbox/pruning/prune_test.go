@@ -11,7 +11,8 @@ import (
 
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 
-	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/docker"
+	"gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/docker"
+
 	"gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/msb"
 	"gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/naming"
 	"gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/state"
@@ -213,14 +214,14 @@ func TestExtractProjectSlugAndDigest_VMWithHashSuffix(t *testing.T) {
 	tests := []slugDigestTest{
 		{
 			name:       "vm with 14-char hash suffix (no branch)",
-			input:      "opencode-sandbox-vm-saife-1mjusbm3wikhb0",
-			wantSlug:   "saife-1mjusbm3wikhb0",
+			input:      "opencode-sandbox-vm-opencode-sandbox-1mjusbm3wikhb0",
+			wantSlug:   "opencode-sandbox-1mjusbm3wikhb0",
 			wantDigest: "",
 		},
 		{
 			name:       "vm with 14-char hash and branch",
-			input:      "opencode-sandbox-vm-saife-1mjusbm3wikhb0-main",
-			wantSlug:   "saife-1mjusbm3wikhb0",
+			input:      "opencode-sandbox-vm-opencode-sandbox-1mjusbm3wikhb0-main",
+			wantSlug:   "opencode-sandbox-1mjusbm3wikhb0",
 			wantDigest: "main",
 		},
 		{
@@ -231,8 +232,8 @@ func TestExtractProjectSlugAndDigest_VMWithHashSuffix(t *testing.T) {
 		},
 		{
 			name:       "user's case: VM without branch matches image slug",
-			input:      "opencode-sandbox-vm-saife-1mjusbm3wikhb0",
-			wantSlug:   "saife-1mjusbm3wikhb0",
+			input:      "opencode-sandbox-vm-opencode-sandbox-1mjusbm3wikhb0",
+			wantSlug:   "opencode-sandbox-1mjusbm3wikhb0",
 			wantDigest: "",
 		},
 	}
@@ -547,8 +548,8 @@ func TestParseVMName(t *testing.T) {
 		wantSlug   string
 		wantDigest string
 	}{
-		{"opencode-sandbox-vm-saife-1mjusbm3wikhb0", "saife-1mjusbm3wikhb0", ""},
-		{"opencode-sandbox-vm-saife-1mjusbm3wikhb0-main", "saife-1mjusbm3wikhb0", "main"},
+		{"opencode-sandbox-vm-opencode-sandbox-1mjusbm3wikhb0", "opencode-sandbox-1mjusbm3wikhb0", ""},
+		{"opencode-sandbox-vm-opencode-sandbox-1mjusbm3wikhb0-main", "opencode-sandbox-1mjusbm3wikhb0", "main"},
 		{"opencode-sandbox-vm-my-project-1mjusbm3wikhb0-develop", "my-project-1mjusbm3wikhb0", "develop"},
 		{"opencode-sandbox-vm-projectname-main", "projectname-main", ""},
 		{"opencode-sandbox-vm-myproject-abc1234567890", "myproject-abc1234567890", ""},
@@ -811,7 +812,7 @@ func TestRemoveDockerImagesFailureIsWarn(t *testing.T) {
 	slug := "myproject"
 	msbImagesBySlug := map[string][]imageWithDigest{
 		slug: {
-			{ref: "opencode-msb/runner-myproject:digest1", digest: "digest1", isLatest: false, lastUsed: ancient()},
+			{ref: "opencode-sandbox/runner-myproject:digest1", digest: "digest1", isLatest: false, lastUsed: ancient()},
 		},
 	}
 

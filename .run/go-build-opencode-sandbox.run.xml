@@ -1,12 +1,11 @@
 <component name="ProjectRunConfigurationManager">
-  <configuration default="false" name="go-build-saife" type="GoApplicationRunConfiguration" factoryName="Go Application">
-    <module name="saife" />
+  <configuration default="false" name="go-build-opencode-sandbox" type="GoApplicationRunConfiguration" factoryName="Go Application">
+    <module name="opencode-sandbox" />
     <working_directory value="$PROJECT_DIR$" />
     <kind value="PACKAGE" />
     <package value="gitlab.inoio.de/inoio/opencode-sandbox/cmd/opencode-sandbox" />
     <directory value="$PROJECT_DIR$" />
     <option name="run" value="false" />
-    <auto_managed_config_id value="$PROJECT_DIR$/cmd/opencode-sandbox" />
     <method v="2" />
   </configuration>
 </component>

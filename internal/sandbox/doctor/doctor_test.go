@@ -8,7 +8,8 @@ import (
 	"strings"
 	"testing"
 
-	"gitlab.inoio.de/inoio/opencode-msb/internal/termio"
+	"gitlab.inoio.de/inoio/opencode-sandbox/internal/termio"
+
 	"gitlab.inoio.de/inoio/opencode-sandbox/internal/testutil"
 )
 

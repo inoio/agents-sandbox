@@ -9,11 +9,12 @@ import (
 
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 
+	"gitlab.inoio.de/inoio/opencode-sandbox/internal/termio"
+
 	"gitlab.inoio.de/inoio/opencode-sandbox/internal/configpaths"
 	"gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/msb"
 	"gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/naming"
 	"gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/options"
-	"gitlab.inoio.de/inoio/opencode-msb/internal/termio"
 	"gitlab.inoio.de/inoio/opencode-sandbox/internal/testutil"
 )
 
@@ -261,7 +262,7 @@ func TestEnsureProjectVM_ConnectOutcomeIsInfo(t *testing.T) {
 
 	client := &msb.MockMsbClient{}
 	client.SetGotSandbox(&msb.MockSandboxHandle{
-		Name_:   "opencode-msb-vm-test",
+		Name_:   "opencode-sandbox-vm-test",
 		Status_: msbSdk.SandboxStatusRunning,
 	})
 	msb.WithMsbMock(t, client)
@@ -273,7 +274,7 @@ func TestEnsureProjectVM_ConnectOutcomeIsInfo(t *testing.T) {
 	if _, _, err := ensureProjectVM(
 		context.Background(),
 		options.RunOptions{Memory: "1G", TmpSize: "512M"},
-		"opencode-msb/runner-test:latest",
+		"opencode-sandbox/runner-test:latest",
 		"test-home-vol",
 		tmpRepo,
 		nil,
@@ -289,7 +290,7 @@ func TestEnsureProjectVM_StartOutcomeIsInfo(t *testing.T) {
 
 	client := &msb.MockMsbClient{}
 	client.SetGotSandbox(&msb.MockSandboxHandle{
-		Name_:   "opencode-msb-vm-test",
+		Name_:   "opencode-sandbox-vm-test",
 		Status_: msbSdk.SandboxStatusStopped,
 	})
 	msb.WithMsbMock(t, client)
@@ -301,7 +302,7 @@ func TestEnsureProjectVM_StartOutcomeIsInfo(t *testing.T) {
 	if _, _, err := ensureProjectVM(
 		context.Background(),
 		options.RunOptions{Memory: "1G", TmpSize: "512M"},
-		"opencode-msb/runner-test:latest",
+		"opencode-sandbox/runner-test:latest",
 		"test-home-vol",
 		tmpRepo,
 		nil,
@@ -332,7 +333,7 @@ func TestEnsureProjectVM_CreateOutcomeIsInfo(t *testing.T) {
 	if _, _, err := ensureProjectVM(
 		context.Background(),
 		options.RunOptions{Memory: "1G", TmpSize: "512M"},
-		"opencode-msb/runner-test:latest",
+		"opencode-sandbox/runner-test:latest",
 		"test-home-vol",
 		tmpRepo,
 		nil,
