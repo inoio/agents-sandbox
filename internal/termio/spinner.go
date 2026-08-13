@@ -96,7 +96,11 @@ func (s *spinner) finish(result string) {
 	case result == "done":
 		final = "✅" + suffix
 	case strings.HasPrefix(result, "failed: "):
-		final = fmt.Sprintf("failed %s: %s", suffix, strings.TrimPrefix(result, "failed: "))
+		msg := fmt.Sprintf("failed %s: %s", suffix, strings.TrimPrefix(result, "failed: "))
+		if s.color {
+			msg = ansiRed + msg + ansiReset
+		}
+		final = msg
 	default:
 		final = result + " " + suffix
 	}
