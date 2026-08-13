@@ -617,9 +617,12 @@ func TestPruneActiveVMDockerImages_AllFail_LogWarnings(t *testing.T) {
 	if len(dockerMock.removedImages) != 0 {
 		t.Errorf("removedImages = %v, want [] (all calls failed)", dockerMock.removedImages)
 	}
-	// There should be a verbose message about the failed docker image.
-	if len(ui.VerboseCalls) != 1 {
+	// There should be a warn message about the failed docker image.
+	if len(ui.WarnCalls) != 1 {
 		t.Errorf("WarnCalls = %d, want 1, got %v", len(ui.WarnCalls), ui.WarnCalls)
+	}
+	if len(ui.VerboseCalls) != 0 {
+		t.Errorf("VerboseCalls = %d, want 0, got %v", len(ui.VerboseCalls), ui.VerboseCalls)
 	}
 }
 
@@ -707,9 +710,12 @@ func TestPruneStaleCascade_DockerRemoveFails_DependentOpsSucceed(t *testing.T) {
 	if len(dockerMock.removedImages) != 1 {
 		t.Errorf("removed docker images = %v, want 1", dockerMock.removedImages)
 	}
-	// There should be a verbose message about the failed docker image.
-	if len(ui.VerboseCalls) != 1 {
+	// There should be a warn message about the failed docker image.
+	if len(ui.WarnCalls) != 1 {
 		t.Errorf("WarnCalls = %d, want 1, got %v", len(ui.WarnCalls), ui.WarnCalls)
+	}
+	if len(ui.VerboseCalls) != 0 {
+		t.Errorf("VerboseCalls = %d, want 0, got %v", len(ui.VerboseCalls), ui.VerboseCalls)
 	}
 }
 
@@ -785,8 +791,11 @@ func TestPrune_DockerRemoveFails_PartialReport(t *testing.T) {
 
 	// 1 stale VM is pruned.
 	assertReport(t, report, prunedCounts{vms: 1, volumes: 1, msbImages: 2, dockerImages: 1})
-	// There should be a verbose message about the failed docker image.
-	if len(ui.VerboseCalls) != 1 {
+	// There should be a warn message about the failed docker image.
+	if len(ui.WarnCalls) != 1 {
 		t.Errorf("WarnCalls = %d, want 1, got %v", len(ui.WarnCalls), ui.WarnCalls)
+	}
+	if len(ui.VerboseCalls) != 0 {
+		t.Errorf("VerboseCalls = %d, want 0, got %v", len(ui.VerboseCalls), ui.VerboseCalls)
 	}
 }

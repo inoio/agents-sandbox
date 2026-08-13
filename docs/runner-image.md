@@ -10,9 +10,9 @@ directory is copied to a volume and mounted to the running VM.
 
 If the image changes between runs and the VM is rebuilt onto the new image, you will be presented with a prompt to keep,
 migrate, or reset your home volume (the prompt is skipped when the rebuild is deferred and the VM keeps running on the
-current image). The chosen action is applied automatically and the old volume is always kept. The state file is only
-updated once the action has actually executed. `volume migrate`, `volume reset` and `volume edit` remain available for
-manual management.
+current image). In non-interactive mode the existing home volume is kept and you are told the image changed. The chosen
+action is applied automatically and the old volume is always kept. The state file is only updated once the action has
+actually executed. `volume migrate`, `volume reset` and `volume edit` remain available for manual management.
 
 ## Base Image
 

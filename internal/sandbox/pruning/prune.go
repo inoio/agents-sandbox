@@ -392,7 +392,7 @@ func pruneActiveVMDockerImages(
 				client.ImageRemoveOptions{PruneChildren: true},
 			)
 			if err != nil {
-				ui.Verbosef("failed to remove docker image %s: %v", dockerRef, err)
+				ui.Warnf("failed to remove docker image %s: %v", dockerRef, err)
 				continue
 			}
 		}
