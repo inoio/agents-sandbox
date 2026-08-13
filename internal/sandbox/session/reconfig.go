@@ -32,13 +32,13 @@ func setUpSandbox(
 	ui.Verbosef("expected config files: %v", cfs.Keys)
 
 	if restart {
-		restartDaemons(ctx, sb, cfs.Files, opts.ServeOnly, ui)
+		restartDaemons(ctx, sb, cfs, opts.ServeOnly, ui)
 		return ResolveTarget(ctx, sb, opts.Worktree, ui)
 	}
 
-	vmData := reprovision.ReadVMFiles(ctx, sb, "/home/dev/.config/opencode", ui)
-	if len(cfs.Files) > 0 && (created || len(vmData) == 0) {
-		if provErr := reprovision.ProvisionSandbox(ctx, sb.FS(), cfs.Files); provErr != nil {
+	vmData := reprovision.ReadVMConfig(ctx, sb, cfs.Keys, ui)
+	if (cfs.HasSnippets || len(cfs.HomeFiles) > 0) && (created || len(vmData) == 0) {
+		if provErr := reprovision.Provision(ctx, sb.FS(), cfs); provErr != nil {
 			ui.Warnf("provision failed: %v (continuing)", provErr)
 		}
 	}
@@ -101,8 +101,8 @@ func decideReconfig(
 
 	var opencfgChanged bool
 	if liveSb != nil {
-		vmData := reprovision.ReadVMFiles(ctx, liveSb, "/home/dev/.config/opencode", ui)
-		opencfgChanged = len(vmData) > 0 && !reprovision.ConfigEqual(cfs.Parsed, cfs.Keys, vmData)
+		vmData := reprovision.ReadVMConfig(ctx, liveSb, cfs.Keys, ui)
+		opencfgChanged = len(vmData) > 0 && !reprovision.ConfigEqual(cfs, vmData)
 		if detachErr := liveSb.Detach(context.Background()); detachErr != nil {
 			ui.Verbosef("failed to detach live sandbox handle: %v", detachErr)
 		}
@@ -152,8 +152,8 @@ func decideReconfig(
 // restartDaemons provisions config files and restarts the opencode daemon so
 // an opencode-config change is picked up. Env/secret changes are never routed
 // here: they require a VM rebuild and are handled by the recreate path instead.
-func restartDaemons(ctx context.Context, sb msb.Sandbox, files map[string][]byte, serveOnly bool, ui termio.UI) {
-	if err := reprovision.ProvisionSandbox(ctx, sb.FS(), files); err != nil {
+func restartDaemons(ctx context.Context, sb msb.Sandbox, files *reprovision.ConfigFiles, serveOnly bool, ui termio.UI) {
+	if err := reprovision.Provision(ctx, sb.FS(), files); err != nil {
 		ui.Warnf("provision failed: %v (keeping existing daemon)", err)
 		return
 	}
