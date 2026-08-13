@@ -1,6 +1,6 @@
 # Commands Reference
 
-This document lists all opencode-msb subcommands, aliases, and flags.
+This document lists all opencode-sandbox subcommands, aliases, and flags.
 
 ## Global Flags
 
@@ -16,14 +16,14 @@ These flags are available on every command.
 
 ### run
 
-Run opencode in a microsandbox VM. This is the default command — `opencode-msb` with no subcommand is equivalent to `opencode-msb run`.
+Run opencode in a microsandbox VM. This is the default command — `opencode-sandbox` with no subcommand is equivalent to `opencode-sandbox run`.
 
 ```console
-opencode-msb [ARGS...]                          # default: run opencode
-opencode-msb -w bugfix-fix-thing [ARGS...]            # worktree session
-opencode-msb --dry-run                          # validate only
-opencode-msb -m 8G -c 4 -- -c "fix bug"         # CPU/memory + ops
-opencode-msb -- -c "fix bug"                    # arguments to opencode
+opencode-sandbox [ARGS...]                          # default: run opencode
+opencode-sandbox -w bugfix-fix-thing [ARGS...]            # worktree session
+opencode-sandbox --dry-run                          # validate only
+opencode-sandbox -m 8G -c 4 -- -c "fix bug"         # CPU/memory + ops
+opencode-sandbox -- -c "fix bug"                    # arguments to opencode
 ```
 
 Arguments after `--` are forwarded to opencode. Arguments before `--` that don't match flags are also forwarded.
@@ -55,8 +55,8 @@ Arguments after `--` are forwarded to opencode. Arguments before `--` that don't
 Start a sandbox VM and open an interactive shell. Useful for debugging the sandbox environment. Shares the common run/shell flags with `run`.
 
 ```console
-opencode-msb shell
-opencode-msb shell -w bugfix-fix-thing
+opencode-sandbox shell
+opencode-sandbox shell -w bugfix-fix-thing
 ```
 
 **Aliases:** `sh`, `sandbox shell`
@@ -65,11 +65,11 @@ opencode-msb shell -w bugfix-fix-thing
 
 ### build
 
-Build or rebuild the runner Docker image. If `.opencode-msb/Dockerfile` exists in the project directory, it's layered on top of the base image.
+Build or rebuild the runner Docker image. If `.opencode-sandbox/Dockerfile` exists in the project directory, it's layered on top of the base image.
 
 ```console
-opencode-msb build        # build or update if needed
-opencode-msb build -r     # force clean rebuild
+opencode-sandbox build        # build or update if needed
+opencode-sandbox build -r     # force clean rebuild
 ```
 
 **Flags:**
@@ -88,8 +88,8 @@ opencode-msb build -r     # force clean rebuild
 Gracefully stop the project VM. State remains for future reuse.
 
 ```console
-opencode-msb stop
-opencode-msb stop -f     # stop and remove VM state
+opencode-sandbox stop
+opencode-sandbox stop -f     # stop and remove VM state
 ```
 
 **Aliases:** `sandbox stop`
@@ -108,8 +108,8 @@ opencode-msb stop -f     # stop and remove VM state
 Force-kill the project VM. Equivalent to powering off. State may be corrupted.
 
 ```console
-opencode-msb kill
-opencode-msb kill -f     # kill and remove VM state
+opencode-sandbox kill
+opencode-sandbox kill -f     # kill and remove VM state
 ```
 
 **Aliases:** `sandbox kill`
@@ -128,10 +128,10 @@ opencode-msb kill -f     # kill and remove VM state
 Remove stale VMs, volumes, and images. Staleness is determined by age — resources older than the threshold are pruned.
 
 ```console
-opencode-msb prune                       # use --age, else manual-prune-age from config, else 7d
-opencode-msb prune -a 24h                # 24-hour threshold
-opencode-msb prune --dry-run             # preview only
-opencode-msb prune --force               # skip confirmation
+opencode-sandbox prune                       # use --age, else manual-prune-age from config, else 7d
+opencode-sandbox prune -a 24h                # 24-hour threshold
+opencode-sandbox prune --dry-run             # preview only
+opencode-sandbox prune --force               # skip confirmation
 ```
 
 **Flags:**
@@ -150,9 +150,9 @@ opencode-msb prune --force               # skip confirmation
 List all sandboxes on this host (across all projects).
 
 ```console
-opencode-msb list
-opencode-msb ls
-opencode-msb sandbox list
+opencode-sandbox list
+opencode-sandbox ls
+opencode-sandbox sandbox list
 ```
 
 **Aliases:** `ls`, `sandbox list`
@@ -164,8 +164,8 @@ opencode-msb sandbox list
 Inspect opencode and home configuration.
 
 ```console
-opencode-msb config
-opencode-msb cfg
+opencode-sandbox config
+opencode-sandbox cfg
 ```
 
 **Aliases:** `cfg`
@@ -175,7 +175,7 @@ opencode-msb cfg
 Print the snippet files that were merged and the resulting opencode configuration (provisioned to `.config/opencode/opencode.json`).
 
 ```console
-opencode-msb config show
+opencode-sandbox config show
 ```
 
 #### config home
@@ -183,7 +183,7 @@ opencode-msb config show
 List the resolved home-file mappings from the `home.yaml` manifest (VM target path ← host source path).
 
 ```console
-opencode-msb config home
+opencode-sandbox config home
 ```
 
 ---
@@ -193,10 +193,10 @@ opencode-msb config home
 Generate the autocompletion script for the specified shell.
 
 ```console
-opencode-msb completion bash         # bash completions (fish, powershell, zsh work the same)
-opencode-msb completion fish
-opencode-msb completion powershell
-opencode-msb completion zsh
+opencode-sandbox completion bash         # bash completions (fish, powershell, zsh work the same)
+opencode-sandbox completion fish
+opencode-sandbox completion powershell
+opencode-sandbox completion zsh
 ```
 
 ---
@@ -206,8 +206,8 @@ opencode-msb completion zsh
 Manage runner images.
 
 ```console
-opencode-msb image
-opencode-msb img
+opencode-sandbox image
+opencode-sandbox img
 ```
 
 **Aliases:** `img`
@@ -217,8 +217,8 @@ opencode-msb img
 List cached runner Docker images with references and digests.
 
 ```console
-opencode-msb image list
-opencode-msb image ls
+opencode-sandbox image list
+opencode-sandbox image ls
 ```
 
 **Aliases:** `image ls`
@@ -228,7 +228,7 @@ opencode-msb image ls
 Build or rebuild the runner image. Equivalent to the top-level `build` command.
 
 ```console
-opencode-msb image build
+opencode-sandbox image build
 ```
 
 ---
@@ -238,11 +238,11 @@ opencode-msb image build
 Parent command that groups sandbox-related subcommands. Individual commands (`run`, `shell`, `stop`, `kill`, `list`) are also available at the top level.
 
 ```console
-opencode-msb sandbox run
-opencode-msb sandbox list
-opencode-msb sandbox shell
-opencode-msb sandbox stop
-opencode-msb sandbox kill
+opencode-sandbox sandbox run
+opencode-sandbox sandbox list
+opencode-sandbox sandbox shell
+opencode-sandbox sandbox stop
+opencode-sandbox sandbox kill
 ```
 
 **Aliases:** `sb`
@@ -254,7 +254,7 @@ opencode-msb sandbox kill
 Print the full command tree, showing every subcommand, alias, and flag.
 
 ```console
-opencode-msb tree
+opencode-sandbox tree
 ```
 
 ---
@@ -264,7 +264,7 @@ opencode-msb tree
 Check prerequisites (Docker, KVM, Git, msb) and exit.
 
 ```console
-opencode-msb doctor
+opencode-sandbox doctor
 ```
 
 ---
@@ -274,28 +274,28 @@ opencode-msb doctor
 Print version.
 
 ```console
-opencode-msb version
+opencode-sandbox version
 ```
 
 ---
 
-### `opencode-msb volume <subcommand>`
+### `opencode-sandbox volume <subcommand>`
 
 The volume group provides manual home volume management.
 
 **Aliases:** `vol`
 
-#### `opencode-msb volume list`
+#### `opencode-sandbox volume list`
 
 List all managed home volumes.
 
 ```console
-opencode-msb volume list
+opencode-sandbox volume list
 ```
 
 **Aliases:** `volume ls`
 
-#### `opencode-msb volume migrate [volume-name]`
+#### `opencode-sandbox volume migrate [volume-name]`
 
 Create a new home volume and copy files from the old volume on top of it.
 
@@ -306,7 +306,7 @@ Create a new home volume and copy files from the old volume on top of it.
   - `--dry-run` — show what would be done
   - `--rebuild` — rebuild runner image before migrating
 
-#### `opencode-msb volume reset [volume-name]`
+#### `opencode-sandbox volume reset [volume-name]`
 
 Create a new home volume from the image contents only (fresh, no copy).
 
@@ -317,7 +317,7 @@ Create a new home volume from the image contents only (fresh, no copy).
   - `--dry-run` — show what would be done
   - `--rebuild` — rebuild runner image before resetting
 
-#### `opencode-msb volume edit [volume-name]`
+#### `opencode-sandbox volume edit [volume-name]`
 
 Create a new volume alongside the old one, for manual data transfer.
 

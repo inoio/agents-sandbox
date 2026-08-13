@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"strings"
 
-	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/msb"
-	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/naming"
+	"gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/msb"
+	"gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/naming"
 )
 
 // VolumeInfo holds information about a single home volume.
@@ -18,7 +18,7 @@ type VolumeInfo struct {
 	Kind string
 }
 
-// ListVolumes returns a list of home volumes managed by opencode-msb.
+// ListVolumes returns a list of home volumes managed by opencode-sandbox.
 func ListVolumes(ctx context.Context) ([]VolumeInfo, error) {
 	handles, err := msb.Get().ListVolumes(ctx)
 	if err != nil {

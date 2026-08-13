@@ -34,14 +34,14 @@ func findHashSuffix(name string) int {
 }
 
 // ParseImageTag extracts the slug and digest from a Docker image reference.
-// Examples: "opencode-msb/runner-myproject:xYz1234AbCdEfGh"
+// Examples: "opencode-sandbox/runner-myproject:xYz1234AbCdEfGh"
 //
 //	→ slug="myproject", digest="xYz1234AbCdEfGh"
 //
-//	"opencode-msb/runner-myproject:latest"
+//	"opencode-sandbox/runner-myproject:latest"
 //	→ slug="myproject", digest=""
 //
-//	"opencode-msb/runner-myproject"
+//	"opencode-sandbox/runner-myproject"
 //	→ slug="myproject", digest=""
 func ParseImageTag(name string) ArtifactInfo {
 	if !strings.HasPrefix(name, ImagePrefix) {
@@ -61,11 +61,11 @@ func ParseImageTag(name string) ArtifactInfo {
 }
 
 // ParseVMName extracts the slug and optional branch (digest) from a sandbox name.
-// Examples: "opencode-msb-vm-projectname-aB3cDe4fGhIjKl"
+// Examples: "opencode-sandbox-vm-projectname-aB3cDe4fGhIjKl"
 //
 //	→ slug="projectname-aB3cDe4fGhIjKl", digest=""
 //
-//	"opencode-msb-vm-projectname-aB3cDe4fGhIjKl-feature"
+//	"opencode-sandbox-vm-projectname-aB3cDe4fGhIjKl-feature"
 //	→ slug="projectname-aB3cDe4fGhIjKl", digest="feature"
 func ParseVMName(name string) ArtifactInfo {
 	if !strings.HasPrefix(name, VmPrefix) {
@@ -89,7 +89,7 @@ func ParseVMName(name string) ArtifactInfo {
 }
 
 // ParseHomeVolumeName extracts the slug and timestamp from a home volume name.
-// Examples: "opencode-msb-home-myproject-aB3cDe4fGhIjKl-20260812T123456"
+// Examples: "opencode-sandbox-home-myproject-aB3cDe4fGhIjKl-20260812T123456"
 //
 //	→ slug="myproject-aB3cDe4fGhIjKl", digest="20260812T123456"
 func ParseHomeVolumeName(name string) ArtifactInfo {
@@ -146,9 +146,9 @@ func ParseCloneVolumeName(name string) string {
 //
 // Examples:
 //
-//	"opencode-msb-vm-projectname-main" → slug="projectname", digest=""
-//	"opencode-msb-home-myproject-aB3cDe4fGhIjKl-xYz1234AbCdEfGh" → slug="myproject-aB3cDe4fGhIjKl", digest="xYz1234AbCdEfGh"
-//	"opencode-msb/runner-myproject:xYz1234AbCdEfGh" → slug="myproject", digest="xYz1234AbCdEfGh"
+//	"opencode-sandbox-vm-projectname-main" → slug="projectname", digest=""
+//	"opencode-sandbox-home-myproject-aB3cDe4fGhIjKl-xYz1234AbCdEfGh" → slug="myproject-aB3cDe4fGhIjKl", digest="xYz1234AbCdEfGh"
+//	"opencode-sandbox/runner-myproject:xYz1234AbCdEfGh" → slug="myproject", digest="xYz1234AbCdEfGh"
 func ExtractProjectSlugAndDigest(name string) (string, string) {
 	info := ArtifactFor(name)
 	return info.Slug, info.Digest

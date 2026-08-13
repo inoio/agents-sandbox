@@ -8,12 +8,16 @@ func TestExtractProjectSlugAndDigest(t *testing.T) {
 		slug   string
 		digest string
 	}{
-		{"opencode-msb-vm-saife-1mjusbm3wikhb0", "saife-1mjusbm3wikhb0", ""},
-		{"opencode-msb-vm-saife-1mjusbm3wikhb0-main", "saife-1mjusbm3wikhb0", "main"},
-		{"opencode-msb/runner-myproject:xYz1234AbCdEfGh", "myproject", "xYz1234AbCdEfGh"},
-		{"opencode-msb/runner-myproject:latest", "myproject", ""},
-		{"opencode-msb/runner-myproject", "myproject", ""},
-		{"opencode-msb-home-myproject-aB3cDe4fGhIjKl-xYz1234AbCdEfGh", "myproject-aB3cDe4fGhIjKl", "xYz1234AbCdEfGh"},
+		{"opencode-sandbox-vm-saife-1mjusbm3wikhb0", "saife-1mjusbm3wikhb0", ""},
+		{"opencode-sandbox-vm-saife-1mjusbm3wikhb0-main", "saife-1mjusbm3wikhb0", "main"},
+		{"opencode-sandbox/runner-myproject:xYz1234AbCdEfGh", "myproject", "xYz1234AbCdEfGh"},
+		{"opencode-sandbox/runner-myproject:latest", "myproject", ""},
+		{"opencode-sandbox/runner-myproject", "myproject", ""},
+		{
+			"opencode-sandbox-home-myproject-aB3cDe4fGhIjKl-xYz1234AbCdEfGh",
+			"myproject-aB3cDe4fGhIjKl",
+			"xYz1234AbCdEfGh",
+		},
 	}
 	for _, c := range cases {
 		gotSlug, gotDigest := ExtractProjectSlugAndDigest(c.in)
@@ -29,10 +33,10 @@ func TestExtractProjectSlugAndDigest_SinglePartSlugs(t *testing.T) {
 		slug   string
 		digest string
 	}{
-		{"opencode-msb-task-prefill-proj-1719432000", "prefill-proj", ""},
-		{"opencode-msb-task-fill-proj", "fill", ""},
-		{"opencode-msb-clone-proj-aBc1234D-1719432000", "proj-aBc1234D", ""},
-		{"opencode-msb-clone-work-a1b2c3d4", "work", ""},
+		{"opencode-sandbox-task-prefill-proj-1719432000", "prefill-proj", ""},
+		{"opencode-sandbox-task-fill-proj", "fill", ""},
+		{"opencode-sandbox-clone-proj-aBc1234D-1719432000", "proj-aBc1234D", ""},
+		{"opencode-sandbox-clone-work-a1b2c3d4", "work", ""},
 	}
 	for _, c := range cases {
 		gotSlug, gotDigest := ExtractProjectSlugAndDigest(c.in)
@@ -50,9 +54,9 @@ func TestExtractProjectSlugAndDigest_Unrecognized(t *testing.T) {
 	}{
 		{"some-random-name", "", ""},
 		{"", "", ""},
-		{"opencode-msb-other-myslug", "", ""},
-		{"opencode-msb-vm-", "", ""},
-		{"opencode-msb-home-", "", ""},
+		{"opencode-sandbox-other-myslug", "", ""},
+		{"opencode-sandbox-vm-", "", ""},
+		{"opencode-sandbox-home-", "", ""},
 	}
 	for _, c := range cases {
 		gotSlug, gotDigest := ExtractProjectSlugAndDigest(c.in)
@@ -88,12 +92,12 @@ func TestParseImageTag(t *testing.T) {
 		wantSlug   string
 		wantDigest string
 	}{
-		{"opencode-msb/runner-myproject:xYz1234AbCdEfGh", "myproject", "xYz1234AbCdEfGh"},
-		{"opencode-msb/runner-myproject:latest", "myproject", ""},
-		{"opencode-msb/runner-myproject:", "myproject", ""},
-		{"opencode-msb/runner-myproject", "myproject", ""},
-		{"opencode-msb/runner-my-project-name:xYz1234AbCdEfGh", "my-project-name", "xYz1234AbCdEfGh"},
-		{"opencode-msb/runner-myproject:sha256:abc123", "myproject:sha256", "abc123"},
+		{"opencode-sandbox/runner-myproject:xYz1234AbCdEfGh", "myproject", "xYz1234AbCdEfGh"},
+		{"opencode-sandbox/runner-myproject:latest", "myproject", ""},
+		{"opencode-sandbox/runner-myproject:", "myproject", ""},
+		{"opencode-sandbox/runner-myproject", "myproject", ""},
+		{"opencode-sandbox/runner-my-project-name:xYz1234AbCdEfGh", "my-project-name", "xYz1234AbCdEfGh"},
+		{"opencode-sandbox/runner-myproject:sha256:abc123", "myproject:sha256", "abc123"},
 		{"other-image/myproject:tag", "", ""},
 	}
 	for _, c := range cases {
@@ -113,15 +117,15 @@ func TestParseVMName(t *testing.T) {
 		wantSlug   string
 		wantDigest string
 	}{
-		{"opencode-msb-vm-saife-1mjusbm3wikhb0", "saife-1mjusbm3wikhb0", ""},
-		{"opencode-msb-vm-saife-1mjusbm3wikhb0-main", "saife-1mjusbm3wikhb0", "main"},
-		{"opencode-msb-vm-my-project-1mjusbm3wikhb0-develop", "my-project-1mjusbm3wikhb0", "develop"},
-		{"opencode-msb-vm-projectname-main", "projectname-main", ""},
-		{"opencode-msb-vm-myproject-abc1234567890", "myproject-abc1234567890", ""},
-		{"opencode-msb-vm-noHash", "noHash", ""},
-		{"opencode-msb-home-test", "", ""},
-		{"opencode-msb-vm-projectname-aB3cDe4fGhIjKl", "projectname-aB3cDe4fGhIjKl", ""},
-		{"opencode-msb-vm-projectname-aB3cDe4fGhIjKl-feature", "projectname-aB3cDe4fGhIjKl-feature", ""},
+		{"opencode-sandbox-vm-saife-1mjusbm3wikhb0", "saife-1mjusbm3wikhb0", ""},
+		{"opencode-sandbox-vm-saife-1mjusbm3wikhb0-main", "saife-1mjusbm3wikhb0", "main"},
+		{"opencode-sandbox-vm-my-project-1mjusbm3wikhb0-develop", "my-project-1mjusbm3wikhb0", "develop"},
+		{"opencode-sandbox-vm-projectname-main", "projectname-main", ""},
+		{"opencode-sandbox-vm-myproject-abc1234567890", "myproject-abc1234567890", ""},
+		{"opencode-sandbox-vm-noHash", "noHash", ""},
+		{"opencode-sandbox-home-test", "", ""},
+		{"opencode-sandbox-vm-projectname-aB3cDe4fGhIjKl", "projectname-aB3cDe4fGhIjKl", ""},
+		{"opencode-sandbox-vm-projectname-aB3cDe4fGhIjKl-feature", "projectname-aB3cDe4fGhIjKl-feature", ""},
 	}
 	for _, c := range cases {
 		info := ParseVMName(c.in)
@@ -140,10 +144,14 @@ func TestParseHomeVolumeName(t *testing.T) {
 		wantSlug   string
 		wantDigest string
 	}{
-		{"opencode-msb-home-myproject-aB3cDe4fGhIjKl-xYz1234AbCdEfGh", "myproject-aB3cDe4fGhIjKl", "xYz1234AbCdEfGh"},
-		{"opencode-msb-home-myproject-abc1234567890", "myproject", "abc1234567890"},
-		{"opencode-msb-home-abc-def-gh", "abc-def", "gh"},
-		{"opencode-msb-vm-something", "", ""},
+		{
+			"opencode-sandbox-home-myproject-aB3cDe4fGhIjKl-xYz1234AbCdEfGh",
+			"myproject-aB3cDe4fGhIjKl",
+			"xYz1234AbCdEfGh",
+		},
+		{"opencode-sandbox-home-myproject-abc1234567890", "myproject", "abc1234567890"},
+		{"opencode-sandbox-home-abc-def-gh", "abc-def", "gh"},
+		{"opencode-sandbox-vm-something", "", ""},
 	}
 	for _, c := range cases {
 		info := ParseHomeVolumeName(c.in)
@@ -161,8 +169,8 @@ func TestParseHomeVolumeNameNewFormat(t *testing.T) {
 		in       string
 		wantSlug string
 	}{
-		{"opencode-msb-home-myproject-aB3cDe4fGhIjKl-20260812T123456", "myproject-aB3cDe4fGhIjKl"},
-		{"opencode-msb-home-projectname-20260101T000000", "projectname"},
+		{"opencode-sandbox-home-myproject-aB3cDe4fGhIjKl-20260812T123456", "myproject-aB3cDe4fGhIjKl"},
+		{"opencode-sandbox-home-projectname-20260101T000000", "projectname"},
 	}
 	for _, c := range cases {
 		info := ParseHomeVolumeName(c.in)
@@ -177,9 +185,9 @@ func TestParseCloneVolumeName(t *testing.T) {
 		in       string
 		wantSlug string
 	}{
-		{"opencode-msb-clone-proj-aBc1234D-1719432000", "proj-aBc1234D"},
-		{"opencode-msb-clone-work-a1b2c3d4", "work"},
-		{"opencode-msb-clone-singlepart", "singlepart"},
+		{"opencode-sandbox-clone-proj-aBc1234D-1719432000", "proj-aBc1234D"},
+		{"opencode-sandbox-clone-work-a1b2c3d4", "work"},
+		{"opencode-sandbox-clone-singlepart", "singlepart"},
 		{"other-name", ""},
 	}
 	for _, c := range cases {
@@ -196,11 +204,15 @@ func TestArtifactFor(t *testing.T) {
 		wantSlug   string
 		wantDigest string
 	}{
-		{"opencode-msb-vm-saife-1mjusbm3wikhb0", "saife-1mjusbm3wikhb0", ""},
-		{"opencode-msb/runner-myproject:xYz1234AbCdEfGh", "myproject", "xYz1234AbCdEfGh"},
-		{"opencode-msb-home-myproject-aB3cDe4fGhIjKl-xYz1234AbCdEfGh", "myproject-aB3cDe4fGhIjKl", "xYz1234AbCdEfGh"},
-		{"opencode-msb-task-prefill-proj-1719432000", "prefill-proj", ""},
-		{"opencode-msb-clone-proj-aBc1234D-1719432000", "proj-aBc1234D", ""},
+		{"opencode-sandbox-vm-saife-1mjusbm3wikhb0", "saife-1mjusbm3wikhb0", ""},
+		{"opencode-sandbox/runner-myproject:xYz1234AbCdEfGh", "myproject", "xYz1234AbCdEfGh"},
+		{
+			"opencode-sandbox-home-myproject-aB3cDe4fGhIjKl-xYz1234AbCdEfGh",
+			"myproject-aB3cDe4fGhIjKl",
+			"xYz1234AbCdEfGh",
+		},
+		{"opencode-sandbox-task-prefill-proj-1719432000", "prefill-proj", ""},
+		{"opencode-sandbox-clone-proj-aBc1234D-1719432000", "proj-aBc1234D", ""},
 		{"unknown-prefix-foo", "", ""},
 	}
 	for _, c := range cases {
@@ -215,37 +227,37 @@ func TestArtifactFor(t *testing.T) {
 }
 
 func TestConstants(t *testing.T) {
-	if Prefix != "opencode-msb" {
-		t.Errorf("Prefix = %q, want %q", Prefix, "opencode-msb")
+	if Prefix != "opencode-sandbox" {
+		t.Errorf("Prefix = %q, want %q", Prefix, "opencode-sandbox")
 	}
 	if BaseSlug != "base" {
 		t.Errorf("BaseSlug = %q, want %q", BaseSlug, "base")
 	}
-	if SbPrefix != "opencode-msb-" {
-		t.Errorf("SbPrefix = %q, want %q", SbPrefix, "opencode-msb-")
+	if SbPrefix != "opencode-sandbox-" {
+		t.Errorf("SbPrefix = %q, want %q", SbPrefix, "opencode-sandbox-")
 	}
-	if VmPrefix != "opencode-msb-vm-" {
-		t.Errorf("VmPrefix = %q, want %q", VmPrefix, "opencode-msb-vm-")
+	if VmPrefix != "opencode-sandbox-vm-" {
+		t.Errorf("VmPrefix = %q, want %q", VmPrefix, "opencode-sandbox-vm-")
 	}
-	if HomePrefix != "opencode-msb-home-" {
-		t.Errorf("HomePrefix = %q, want %q", HomePrefix, "opencode-msb-home-")
+	if HomePrefix != "opencode-sandbox-home-" {
+		t.Errorf("HomePrefix = %q, want %q", HomePrefix, "opencode-sandbox-home-")
 	}
-	if ClonePrefix != "opencode-msb-clone-" {
-		t.Errorf("ClonePrefix = %q, want %q", ClonePrefix, "opencode-msb-clone-")
+	if ClonePrefix != "opencode-sandbox-clone-" {
+		t.Errorf("ClonePrefix = %q, want %q", ClonePrefix, "opencode-sandbox-clone-")
 	}
-	if TaskPrefix != "opencode-msb-task-" {
-		t.Errorf("TaskPrefix = %q, want %q", TaskPrefix, "opencode-msb-task-")
+	if TaskPrefix != "opencode-sandbox-task-" {
+		t.Errorf("TaskPrefix = %q, want %q", TaskPrefix, "opencode-sandbox-task-")
 	}
-	if ImagePrefix != "opencode-msb/runner-" {
-		t.Errorf("ImagePrefix = %q, want %q", ImagePrefix, "opencode-msb/runner-")
+	if ImagePrefix != "opencode-sandbox/runner-" {
+		t.Errorf("ImagePrefix = %q, want %q", ImagePrefix, "opencode-sandbox/runner-")
 	}
-	if BaseImagePrefix != "opencode-msb/runner-base" {
-		t.Errorf("BaseImagePrefix = %q, want %q", BaseImagePrefix, "opencode-msb/runner-base")
+	if BaseImagePrefix != "opencode-sandbox/runner-base" {
+		t.Errorf("BaseImagePrefix = %q, want %q", BaseImagePrefix, "opencode-sandbox/runner-base")
 	}
-	if BaseTag != "opencode-msb/runner-base:latest" {
-		t.Errorf("BaseTag = %q, want %q", BaseTag, "opencode-msb/runner-base:latest")
+	if BaseTag != "opencode-sandbox/runner-base:latest" {
+		t.Errorf("BaseTag = %q, want %q", BaseTag, "opencode-sandbox/runner-base:latest")
 	}
-	if DindBaseTag != "opencode-msb/runner-base-dind:latest" {
-		t.Errorf("DindBaseTag = %q, want %q", DindBaseTag, "opencode-msb/runner-base-dind:latest")
+	if DindBaseTag != "opencode-sandbox/runner-base-dind:latest" {
+		t.Errorf("DindBaseTag = %q, want %q", DindBaseTag, "opencode-sandbox/runner-base-dind:latest")
 	}
 }

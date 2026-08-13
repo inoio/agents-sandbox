@@ -10,11 +10,11 @@ import (
 
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 
-	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/msb"
-	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/naming"
-	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/state"
-	"gitlab.inoio.de/inoio/opencode-msb/internal/termio"
-	"gitlab.inoio.de/inoio/opencode-msb/internal/testutil"
+	"gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/msb"
+	"gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/naming"
+	"gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/state"
+	"gitlab.inoio.de/inoio/opencode-sandbox/internal/termio"
+	"gitlab.inoio.de/inoio/opencode-sandbox/internal/testutil"
 )
 
 type slugDigestTest struct {
@@ -27,7 +27,7 @@ type slugDigestTest struct {
 // homeVolumeStateYAML is a state.yaml referring to pruneTestSlug's "current"
 // volume so the family of pruneActiveVMHomeVolumes tests share identical state.
 const (
-	homeVolumeStateYAML = "home_volume: opencode-msb-home-" + pruneTestSlug + "-current\nimage_digest: sha256:deadbeef\n"
+	homeVolumeStateYAML = "home_volume: opencode-sandbox-home-" + pruneTestSlug + "-current\nimage_digest: sha256:deadbeef\n"
 	pruneTestSlug       = "testslug"
 )
 
@@ -45,7 +45,7 @@ func runPruneActiveVMTest(
 	ui := &termio.Mock{}
 	report := &StaleReport{}
 
-	state.SetStateDirForTest(t, t.TempDir()+"/opencode-msb")
+	state.SetStateDirForTest(t, t.TempDir()+"/opencode-sandbox")
 
 	if yaml != "" {
 		overrideDir := filepath.Join(state.StateDir, pruneTestSlug)
@@ -77,37 +77,47 @@ func TestExtractProjectSlugAndDigest_ImageReferences(t *testing.T) {
 	tests := []slugDigestTest{
 		{
 			name:       "runner with digest tag",
-			input:      "opencode-msb/runner-myproject:xYz1234AbCdEfGh",
+			input:      "opencode-sandbox/runner-myproject:xYz1234AbCdEfGh",
 			wantSlug:   "myproject",
 			wantDigest: "xYz1234AbCdEfGh",
 		},
 		{
 			name:       "runner with latest tag",
-			input:      "opencode-msb/runner-myproject:latest",
+			input:      "opencode-sandbox/runner-myproject:latest",
 			wantSlug:   "myproject",
 			wantDigest: "",
 		},
-		{name: "runner with empty tag", input: "opencode-msb/runner-myproject:", wantSlug: "myproject", wantDigest: ""},
-		{name: "runner no tag at all", input: "opencode-msb/runner-myproject", wantSlug: "myproject", wantDigest: ""},
+		{
+			name:       "runner with empty tag",
+			input:      "opencode-sandbox/runner-myproject:",
+			wantSlug:   "myproject",
+			wantDigest: "",
+		},
+		{
+			name:       "runner no tag at all",
+			input:      "opencode-sandbox/runner-myproject",
+			wantSlug:   "myproject",
+			wantDigest: "",
+		},
 		{
 			name:       "runner with complex slug",
-			input:      "opencode-msb/runner-my-project-name:xYz1234AbCdEfGh",
+			input:      "opencode-sandbox/runner-my-project-name:xYz1234AbCdEfGh",
 			wantSlug:   "my-project-name",
 			wantDigest: "xYz1234AbCdEfGh",
 		},
 		{
 			name:       "runner with multiple colons in tag (uses LastIndex)",
-			input:      "opencode-msb/runner-myproject:sha256:abc123",
+			input:      "opencode-sandbox/runner-myproject:sha256:abc123",
 			wantSlug:   "myproject:sha256",
 			wantDigest: "abc123",
 		},
 		{
 			name:       "base image excluded-like prefix still parsed",
-			input:      "opencode-msb/runner-base",
+			input:      "opencode-sandbox/runner-base",
 			wantSlug:   "base",
 			wantDigest: "",
 		},
-		{name: "base image with tag", input: "opencode-msb/runner-base:latest", wantSlug: "base", wantDigest: ""},
+		{name: "base image with tag", input: "opencode-sandbox/runner-base:latest", wantSlug: "base", wantDigest: ""},
 	}
 	runSlugDigestTests(t, tests)
 }
@@ -116,19 +126,19 @@ func TestExtractProjectSlugAndDigest_VMNames(t *testing.T) {
 	tests := []slugDigestTest{
 		{
 			name:       "simple vm name without hash suffix",
-			input:      "opencode-msb-vm-projectname-main",
+			input:      "opencode-sandbox-vm-projectname-main",
 			wantSlug:   "projectname-main",
 			wantDigest: "",
 		},
 		{
 			name:       "slug with dash and branch with dash",
-			input:      "opencode-msb-vm-my-project-feature-branch",
+			input:      "opencode-sandbox-vm-my-project-feature-branch",
 			wantSlug:   "my-project-feature-branch",
 			wantDigest: "",
 		},
 		{
 			name:       "single word slug with single word branch",
-			input:      "opencode-msb-vm-myproject-main",
+			input:      "opencode-sandbox-vm-myproject-main",
 			wantSlug:   "myproject-main",
 			wantDigest: "",
 		},
@@ -140,25 +150,25 @@ func TestExtractProjectSlugAndDigest_HomeVolumes(t *testing.T) {
 	tests := []slugDigestTest{
 		{
 			name:       "home volume with slug and digest",
-			input:      "opencode-msb-home-myproject-aB3cDe4fGhIjKl-xYz1234AbCdEfGh",
+			input:      "opencode-sandbox-home-myproject-aB3cDe4fGhIjKl-xYz1234AbCdEfGh",
 			wantSlug:   "myproject-aB3cDe4fGhIjKl",
 			wantDigest: "xYz1234AbCdEfGh",
 		},
 		{
 			name:       "home volume slug with dashes",
-			input:      "opencode-msb-home-my-project-aB3cDe4fGhIjKl",
+			input:      "opencode-sandbox-home-my-project-aB3cDe4fGhIjKl",
 			wantSlug:   "my-project",
 			wantDigest: "aB3cDe4fGhIjKl",
 		},
 		{
 			name:       "home volume single part slug",
-			input:      "opencode-msb-home-myproject-xYz1234",
+			input:      "opencode-sandbox-home-myproject-xYz1234",
 			wantSlug:   "myproject",
 			wantDigest: "xYz1234",
 		},
 		{
 			name:       "home volume only two parts (slug-digest)",
-			input:      "opencode-msb-home-proj-abc123",
+			input:      "opencode-sandbox-home-proj-abc123",
 			wantSlug:   "proj",
 			wantDigest: "abc123",
 		},
@@ -170,13 +180,13 @@ func TestExtractProjectSlugAndDigest_TaskSandboxes(t *testing.T) {
 	tests := []slugDigestTest{
 		{
 			name:       "task sandbox",
-			input:      "opencode-msb-task-prefill-proj-1719432000",
+			input:      "opencode-sandbox-task-prefill-proj-1719432000",
 			wantSlug:   "prefill-proj",
 			wantDigest: "",
 		},
 		{
 			name:       "task sandbox single slug part before dash",
-			input:      "opencode-msb-task-fill-proj",
+			input:      "opencode-sandbox-task-fill-proj",
 			wantSlug:   "fill",
 			wantDigest: "",
 		},
@@ -188,11 +198,11 @@ func TestExtractProjectSlugAndDigest_CloneVolumes(t *testing.T) {
 	tests := []slugDigestTest{
 		{
 			name:       "clone volume",
-			input:      "opencode-msb-clone-proj-aBc1234D-1719432000",
+			input:      "opencode-sandbox-clone-proj-aBc1234D-1719432000",
 			wantSlug:   "proj-aBc1234D",
 			wantDigest: "",
 		},
-		{name: "clone volume minimal", input: "opencode-msb-clone-work-a1b2c3d4", wantSlug: "work", wantDigest: ""},
+		{name: "clone volume minimal", input: "opencode-sandbox-clone-work-a1b2c3d4", wantSlug: "work", wantDigest: ""},
 	}
 	runSlugDigestTests(t, tests)
 }
@@ -201,25 +211,25 @@ func TestExtractProjectSlugAndDigest_VMWithHashSuffix(t *testing.T) {
 	tests := []slugDigestTest{
 		{
 			name:       "vm with 14-char hash suffix (no branch)",
-			input:      "opencode-msb-vm-saife-1mjusbm3wikhb0",
+			input:      "opencode-sandbox-vm-saife-1mjusbm3wikhb0",
 			wantSlug:   "saife-1mjusbm3wikhb0",
 			wantDigest: "",
 		},
 		{
 			name:       "vm with 14-char hash and branch",
-			input:      "opencode-msb-vm-saife-1mjusbm3wikhb0-main",
+			input:      "opencode-sandbox-vm-saife-1mjusbm3wikhb0-main",
 			wantSlug:   "saife-1mjusbm3wikhb0",
 			wantDigest: "main",
 		},
 		{
 			name:       "vm with 14-char hash, slug with dash, and branch",
-			input:      "opencode-msb-vm-my-project-1mjusbm3wikhb0-develop",
+			input:      "opencode-sandbox-vm-my-project-1mjusbm3wikhb0-develop",
 			wantSlug:   "my-project-1mjusbm3wikhb0",
 			wantDigest: "develop",
 		},
 		{
 			name:       "user's case: VM without branch matches image slug",
-			input:      "opencode-msb-vm-saife-1mjusbm3wikhb0",
+			input:      "opencode-sandbox-vm-saife-1mjusbm3wikhb0",
 			wantSlug:   "saife-1mjusbm3wikhb0",
 			wantDigest: "",
 		},
@@ -231,11 +241,11 @@ func TestExtractProjectSlugAndDigest_UnrecognizedPrefixes(t *testing.T) {
 	tests := []slugDigestTest{
 		{name: "random string", input: "some-random-name", wantSlug: "", wantDigest: ""},
 		{name: "empty string", input: "", wantSlug: "", wantDigest: ""},
-		{name: "similar but wrong prefix", input: "opencode-msb-other-myslug", wantSlug: "", wantDigest: ""},
-		{name: "just the prefix no remainder for vm", input: "opencode-msb-vm-", wantSlug: "", wantDigest: ""},
+		{name: "similar but wrong prefix", input: "opencode-sandbox-other-myslug", wantSlug: "", wantDigest: ""},
+		{name: "just the prefix no remainder for vm", input: "opencode-sandbox-vm-", wantSlug: "", wantDigest: ""},
 		{
 			name:       "just the prefix home with single part after",
-			input:      "opencode-msb-home-",
+			input:      "opencode-sandbox-home-",
 			wantSlug:   "",
 			wantDigest: "",
 		},
@@ -245,7 +255,7 @@ func TestExtractProjectSlugAndDigest_UnrecognizedPrefixes(t *testing.T) {
 
 func TestExtractProjectSlugAndDigest_VMOnlyTwoParts(t *testing.T) {
 	// VM with only two parts after prefix (e.g. name-branch, but we have name-branch).
-	// "opencode-msb-vm-proj-main" → parts=["proj","main"] → slug = "proj".
+	// "opencode-sandbox-vm-proj-main" → parts=["proj","main"] → slug = "proj".
 	tests := []struct {
 		name     string
 		input    string
@@ -253,7 +263,7 @@ func TestExtractProjectSlugAndDigest_VMOnlyTwoParts(t *testing.T) {
 	}{
 		{
 			name:     "two parts vm",
-			input:    "opencode-msb-vm-proj-main",
+			input:    "opencode-sandbox-vm-proj-main",
 			wantSlug: "proj-main",
 		},
 	}
@@ -315,16 +325,16 @@ func TestFindStaleVMs(t *testing.T) {
 		{
 			name: "stopped VM past threshold",
 			sandboxes: []staleVM{
-				{name: "opencode-msb-vm-old-stale", status: msbSdk.SandboxStatusStopped, updatedAt: oldTime},
+				{name: "opencode-sandbox-vm-old-stale", status: msbSdk.SandboxStatusStopped, updatedAt: oldTime},
 			},
 			threshold: threshold,
 			wantCount: 1,
-			wantNames: []string{"opencode-msb-vm-old-stale"},
+			wantNames: []string{"opencode-sandbox-vm-old-stale"},
 		},
 		{
 			name: "stopped VM not past threshold",
 			sandboxes: []staleVM{
-				{name: "opencode-msb-vm-recent", status: msbSdk.SandboxStatusStopped, updatedAt: recentTime},
+				{name: "opencode-sandbox-vm-recent", status: msbSdk.SandboxStatusStopped, updatedAt: recentTime},
 			},
 			threshold: threshold,
 			wantCount: 0,
@@ -333,16 +343,16 @@ func TestFindStaleVMs(t *testing.T) {
 		{
 			name: "crashed VM past threshold",
 			sandboxes: []staleVM{
-				{name: "opencode-msb-vm-crashed-old", status: msbSdk.SandboxStatusCrashed, updatedAt: oldTime},
+				{name: "opencode-sandbox-vm-crashed-old", status: msbSdk.SandboxStatusCrashed, updatedAt: oldTime},
 			},
 			threshold: threshold,
 			wantCount: 1,
-			wantNames: []string{"opencode-msb-vm-crashed-old"},
+			wantNames: []string{"opencode-sandbox-vm-crashed-old"},
 		},
 		{
 			name: "running VM ignored even if old",
 			sandboxes: []staleVM{
-				{name: "opencode-msb-vm-running-old", status: msbSdk.SandboxStatusRunning, updatedAt: oldTime},
+				{name: "opencode-sandbox-vm-running-old", status: msbSdk.SandboxStatusRunning, updatedAt: oldTime},
 			},
 			threshold: threshold,
 			wantCount: 0,
@@ -351,7 +361,7 @@ func TestFindStaleVMs(t *testing.T) {
 		{
 			name: "draining VM ignored",
 			sandboxes: []staleVM{
-				{name: "opencode-msb-vm-draining", status: msbSdk.SandboxStatusDraining, updatedAt: oldTime},
+				{name: "opencode-sandbox-vm-draining", status: msbSdk.SandboxStatusDraining, updatedAt: oldTime},
 			},
 			threshold: threshold,
 			wantCount: 0,
@@ -360,7 +370,7 @@ func TestFindStaleVMs(t *testing.T) {
 		{
 			name: "paused VM ignored",
 			sandboxes: []staleVM{
-				{name: "opencode-msb-vm-paused", status: msbSdk.SandboxStatusPaused, updatedAt: oldTime},
+				{name: "opencode-sandbox-vm-paused", status: msbSdk.SandboxStatusPaused, updatedAt: oldTime},
 			},
 			threshold: threshold,
 			wantCount: 0,
@@ -369,23 +379,27 @@ func TestFindStaleVMs(t *testing.T) {
 		{
 			name: "mixed statuses",
 			sandboxes: []staleVM{
-				{name: "opencode-msb-vm-old-stopped", status: msbSdk.SandboxStatusStopped, updatedAt: oldTime},
-				{name: "opencode-msb-vm-recent-stopped", status: msbSdk.SandboxStatusStopped, updatedAt: recentTime},
-				{name: "opencode-msb-vm-old-running", status: msbSdk.SandboxStatusRunning, updatedAt: oldTime},
-				{name: "opencode-msb-vm-old-crashed", status: msbSdk.SandboxStatusCrashed, updatedAt: oldTime},
+				{name: "opencode-sandbox-vm-old-stopped", status: msbSdk.SandboxStatusStopped, updatedAt: oldTime},
+				{
+					name:      "opencode-sandbox-vm-recent-stopped",
+					status:    msbSdk.SandboxStatusStopped,
+					updatedAt: recentTime,
+				},
+				{name: "opencode-sandbox-vm-old-running", status: msbSdk.SandboxStatusRunning, updatedAt: oldTime},
+				{name: "opencode-sandbox-vm-old-crashed", status: msbSdk.SandboxStatusCrashed, updatedAt: oldTime},
 			},
 			threshold: threshold,
 			wantCount: 2,
-			wantNames: []string{"opencode-msb-vm-old-stopped", "opencode-msb-vm-old-crashed"},
+			wantNames: []string{"opencode-sandbox-vm-old-stopped", "opencode-sandbox-vm-old-crashed"},
 		},
 		{
 			name: "zero threshold stops everything stopped",
 			sandboxes: []staleVM{
-				{name: "opencode-msb-vm-recent", status: msbSdk.SandboxStatusStopped, updatedAt: recentTime},
+				{name: "opencode-sandbox-vm-recent", status: msbSdk.SandboxStatusStopped, updatedAt: recentTime},
 			},
 			threshold: 0,
 			wantCount: 1,
-			wantNames: []string{"opencode-msb-vm-recent"},
+			wantNames: []string{"opencode-sandbox-vm-recent"},
 		},
 	}
 
@@ -483,13 +497,13 @@ func TestExtractProjectSlugAndDigest_ComplexSlugNames(t *testing.T) {
 	tests := []slugDigestTest{
 		{
 			name:       "home with long slug containing hashes",
-			input:      "opencode-msb-home-abcdef-gH1234AB5678CD-eF9012gH3456iJ",
+			input:      "opencode-sandbox-home-abcdef-gH1234AB5678CD-eF9012gH3456iJ",
 			wantSlug:   "abcdef-gH1234AB5678CD",
 			wantDigest: "eF9012gH3456iJ",
 		},
 		{
 			name:       "vm with two-part name",
-			input:      "opencode-msb-vm-acme-corp",
+			input:      "opencode-sandbox-vm-acme-corp",
 			wantSlug:   "acme-corp",
 			wantDigest: "",
 		},
@@ -504,12 +518,12 @@ func TestParseImageTag(t *testing.T) {
 		wantSlug   string
 		wantDigest string
 	}{
-		{"opencode-msb/runner-myproject:xYz1234AbCdEfGh", "myproject", "xYz1234AbCdEfGh"},
-		{"opencode-msb/runner-myproject:latest", "myproject", ""},
-		{"opencode-msb/runner-myproject:", "myproject", ""},
-		{"opencode-msb/runner-myproject", "myproject", ""},
-		{"opencode-msb/runner-my-project-name:xYz1234AbCdEfGh", "my-project-name", "xYz1234AbCdEfGh"},
-		{"opencode-msb/runner-myproject:sha256:abc123", "myproject:sha256", "abc123"},
+		{"opencode-sandbox/runner-myproject:xYz1234AbCdEfGh", "myproject", "xYz1234AbCdEfGh"},
+		{"opencode-sandbox/runner-myproject:latest", "myproject", ""},
+		{"opencode-sandbox/runner-myproject:", "myproject", ""},
+		{"opencode-sandbox/runner-myproject", "myproject", ""},
+		{"opencode-sandbox/runner-my-project-name:xYz1234AbCdEfGh", "my-project-name", "xYz1234AbCdEfGh"},
+		{"opencode-sandbox/runner-myproject:sha256:abc123", "myproject:sha256", "abc123"},
 		{"other-image/myproject:tag", "", ""},
 	}
 	for _, tt := range tests {
@@ -531,15 +545,15 @@ func TestParseVMName(t *testing.T) {
 		wantSlug   string
 		wantDigest string
 	}{
-		{"opencode-msb-vm-saife-1mjusbm3wikhb0", "saife-1mjusbm3wikhb0", ""},
-		{"opencode-msb-vm-saife-1mjusbm3wikhb0-main", "saife-1mjusbm3wikhb0", "main"},
-		{"opencode-msb-vm-my-project-1mjusbm3wikhb0-develop", "my-project-1mjusbm3wikhb0", "develop"},
-		{"opencode-msb-vm-projectname-main", "projectname-main", ""},
-		{"opencode-msb-vm-myproject-abc1234567890", "myproject-abc1234567890", ""},
-		{"opencode-msb-vm-noHash", "noHash", ""},
-		{"opencode-msb-home-test", "", ""},
-		{"opencode-msb-vm-projectname-aB3cDe4fGhIjKl", "projectname-aB3cDe4fGhIjKl", ""},
-		{"opencode-msb-vm-projectname-aB3cDe4fGhIjKl-feature", "projectname-aB3cDe4fGhIjKl-feature", ""},
+		{"opencode-sandbox-vm-saife-1mjusbm3wikhb0", "saife-1mjusbm3wikhb0", ""},
+		{"opencode-sandbox-vm-saife-1mjusbm3wikhb0-main", "saife-1mjusbm3wikhb0", "main"},
+		{"opencode-sandbox-vm-my-project-1mjusbm3wikhb0-develop", "my-project-1mjusbm3wikhb0", "develop"},
+		{"opencode-sandbox-vm-projectname-main", "projectname-main", ""},
+		{"opencode-sandbox-vm-myproject-abc1234567890", "myproject-abc1234567890", ""},
+		{"opencode-sandbox-vm-noHash", "noHash", ""},
+		{"opencode-sandbox-home-test", "", ""},
+		{"opencode-sandbox-vm-projectname-aB3cDe4fGhIjKl", "projectname-aB3cDe4fGhIjKl", ""},
+		{"opencode-sandbox-vm-projectname-aB3cDe4fGhIjKl-feature", "projectname-aB3cDe4fGhIjKl-feature", ""},
 	}
 	for _, tt := range tests {
 		t.Run(tt.input, func(t *testing.T) {
@@ -560,10 +574,14 @@ func TestParseHomeVolumeName(t *testing.T) {
 		wantSlug   string
 		wantDigest string
 	}{
-		{"opencode-msb-home-myproject-aB3cDe4fGhIjKl-xYz1234AbCdEfGh", "myproject-aB3cDe4fGhIjKl", "xYz1234AbCdEfGh"},
-		{"opencode-msb-home-myproject-abc1234567890", "myproject", "abc1234567890"},
-		{"opencode-msb-home-abc-def-gh", "abc-def", "gh"},
-		{"opencode-msb-vm-something", "", ""},
+		{
+			"opencode-sandbox-home-myproject-aB3cDe4fGhIjKl-xYz1234AbCdEfGh",
+			"myproject-aB3cDe4fGhIjKl",
+			"xYz1234AbCdEfGh",
+		},
+		{"opencode-sandbox-home-myproject-abc1234567890", "myproject", "abc1234567890"},
+		{"opencode-sandbox-home-abc-def-gh", "abc-def", "gh"},
+		{"opencode-sandbox-vm-something", "", ""},
 	}
 	for _, tt := range tests {
 		t.Run(tt.input, func(t *testing.T) {
@@ -584,9 +602,9 @@ func TestParseHomeVolumeNameNewFormat(t *testing.T) {
 		wantSlug   string
 		wantDigest string
 	}{
-		{"opencode-msb-home-myproj-20260806T143022", "myproj", ""},
-		{"opencode-msb-home-abc-def-20260806T143022", "abc-def", ""},
-		{"opencode-msb-home-proj-20261231T235959", "proj", ""},
+		{"opencode-sandbox-home-myproj-20260806T143022", "myproj", ""},
+		{"opencode-sandbox-home-abc-def-20260806T143022", "abc-def", ""},
+		{"opencode-sandbox-home-proj-20261231T235959", "proj", ""},
 	}
 	for _, tt := range tests {
 		t.Run(tt.input, func(t *testing.T) {
@@ -602,7 +620,7 @@ func TestParseHomeVolumeNameNewFormat(t *testing.T) {
 }
 
 func TestParseHomeVolumeNameLegacyFormat(t *testing.T) {
-	info := naming.ParseHomeVolumeName("opencode-msb-home-myproject-aB3cDe4fGhIjKl-xYz1234AbCdEfGh")
+	info := naming.ParseHomeVolumeName("opencode-sandbox-home-myproject-aB3cDe4fGhIjKl-xYz1234AbCdEfGh")
 	if info.Slug != "myproject-aB3cDe4fGhIjKl" {
 		t.Errorf("slug = %q, want %q", info.Slug, "myproject-aB3cDe4fGhIjKl")
 	}
@@ -616,9 +634,9 @@ func TestParseCloneVolumeName(t *testing.T) {
 		input    string
 		wantSlug string
 	}{
-		{"opencode-msb-clone-proj-aBc1234D-1719432000", "proj-aBc1234D"},
-		{"opencode-msb-clone-my-project-something", "my-project"},
-		{"opencode-msb-home-foo", ""},
+		{"opencode-sandbox-clone-proj-aBc1234D-1719432000", "proj-aBc1234D"},
+		{"opencode-sandbox-clone-my-project-something", "my-project"},
+		{"opencode-sandbox-home-foo", ""},
 	}
 	for _, tt := range tests {
 		t.Run(tt.input, func(t *testing.T) {
@@ -631,7 +649,7 @@ func TestParseCloneVolumeName(t *testing.T) {
 }
 
 func TestRemoveHomeVolumes_CleansStateFile(t *testing.T) {
-	state.SetStateDirForTest(t, t.TempDir()+"/opencode-msb")
+	state.SetStateDirForTest(t, t.TempDir()+"/opencode-sandbox")
 
 	client := &msb.MockMsbClient{}
 	ui := &termio.Mock{}
@@ -640,13 +658,13 @@ func TestRemoveHomeVolumes_CleansStateFile(t *testing.T) {
 
 	slug := "myproject"
 	homeBySlugDigest := map[string][]volumeWithAge{
-		slug: {oldVol("opencode-msb-home-myproject-20260806T143022")},
+		slug: {oldVol("opencode-sandbox-home-myproject-20260806T143022")},
 	}
 
 	statePath := filepath.Join(state.StateDir, slug, "state.yaml")
 	os.MkdirAll(filepath.Dir(statePath), 0o700)
 	testutil.WritePath(t, statePath,
-		"home_volume: opencode-msb-home-myproject-20260806T143022\nimage_digest: sha256:abc\n")
+		"home_volume: opencode-sandbox-home-myproject-20260806T143022\nimage_digest: sha256:abc\n")
 
 	removeHomeVolumes(context.Background(), client, slug, pruneThreshold, homeBySlugDigest, false, ui, report)
 
@@ -662,7 +680,7 @@ func TestRemoveHomeVolumes_CleansStateFile(t *testing.T) {
 }
 
 func TestRemoveHomeVolumes_DryRunDoesNotRemoveState(t *testing.T) {
-	state.SetStateDirForTest(t, t.TempDir()+"/opencode-msb")
+	state.SetStateDirForTest(t, t.TempDir()+"/opencode-sandbox")
 
 	client := &msb.MockMsbClient{}
 	ui := &termio.Mock{}
@@ -670,13 +688,13 @@ func TestRemoveHomeVolumes_DryRunDoesNotRemoveState(t *testing.T) {
 
 	slug := "myproject"
 	homeBySlugDigest := map[string][]volumeWithAge{
-		slug: {oldVol("opencode-msb-home-myproject-20260806T143022")},
+		slug: {oldVol("opencode-sandbox-home-myproject-20260806T143022")},
 	}
 
 	statePath := filepath.Join(state.StateDir, slug, "state.yaml")
 	os.MkdirAll(filepath.Dir(statePath), 0o700)
 	testutil.WritePath(t, statePath,
-		"home_volume: opencode-msb-home-myproject-20260806T143022\n")
+		"home_volume: opencode-sandbox-home-myproject-20260806T143022\n")
 
 	removeHomeVolumes(context.Background(), client, slug, pruneThreshold, homeBySlugDigest, true, ui, report)
 
@@ -693,7 +711,7 @@ func TestRemoveHomeVolumes_DryRunDoesNotRemoveState(t *testing.T) {
 
 func TestPruneActiveVMHomeVolumes_KeepsStateVolume(t *testing.T) {
 	homesBySlug := map[string][]volumeWithAge{
-		pruneTestSlug: {oldVol("opencode-msb-home-testslug-current"), oldVol("opencode-msb-home-testslug-old")},
+		pruneTestSlug: {oldVol("opencode-sandbox-home-testslug-current"), oldVol("opencode-sandbox-home-testslug-old")},
 	}
 
 	client, _, report, err := runPruneActiveVMTest(
@@ -705,14 +723,14 @@ func TestPruneActiveVMHomeVolumes_KeepsStateVolume(t *testing.T) {
 	if report.PrunedVolumes != 1 {
 		t.Errorf("expected 1 pruned volume, got %d", report.PrunedVolumes)
 	}
-	if len(client.RemovedVolumes) != 1 || client.RemovedVolumes[0] != "opencode-msb-home-testslug-old" {
-		t.Errorf("removed volumes = %v, want [opencode-msb-home-testslug-old]", client.RemovedVolumes)
+	if len(client.RemovedVolumes) != 1 || client.RemovedVolumes[0] != "opencode-sandbox-home-testslug-old" {
+		t.Errorf("removed volumes = %v, want [opencode-sandbox-home-testslug-old]", client.RemovedVolumes)
 	}
 }
 
 func TestPruneActiveVMHomeVolumes_RemovesAllWhenStateVolumeAbsent(t *testing.T) {
 	homesBySlug := map[string][]volumeWithAge{
-		pruneTestSlug: {oldVol("opencode-msb-home-testslug-old1"), oldVol("opencode-msb-home-testslug-old2")},
+		pruneTestSlug: {oldVol("opencode-sandbox-home-testslug-old1"), oldVol("opencode-sandbox-home-testslug-old2")},
 	}
 
 	client, _, report, err := runPruneActiveVMTest(
@@ -731,7 +749,7 @@ func TestPruneActiveVMHomeVolumes_RemovesAllWhenStateVolumeAbsent(t *testing.T) 
 
 func TestPruneActiveVMHomeVolumes_DryRunCountsButDoesNotDelete(t *testing.T) {
 	homesBySlug := map[string][]volumeWithAge{
-		pruneTestSlug: {oldVol("opencode-msb-home-testslug-current"), oldVol("opencode-msb-home-testslug-old")},
+		pruneTestSlug: {oldVol("opencode-sandbox-home-testslug-current"), oldVol("opencode-sandbox-home-testslug-old")},
 	}
 
 	client, _, report, err := runPruneActiveVMTest(
@@ -750,7 +768,7 @@ func TestPruneActiveVMHomeVolumes_DryRunCountsButDoesNotDelete(t *testing.T) {
 
 func TestPruneActiveVMHomeVolumes_MissingStateFileReturnsError(t *testing.T) {
 	homesBySlug := map[string][]volumeWithAge{
-		pruneTestSlug: {oldVol("opencode-msb-home-testslug-old")},
+		pruneTestSlug: {oldVol("opencode-sandbox-home-testslug-old")},
 	}
 
 	_, _, report, err := runPruneActiveVMTest(t, &msb.MockMsbClient{}, homesBySlug, false, "")
@@ -764,7 +782,7 @@ func TestPruneActiveVMHomeVolumes_MissingStateFileReturnsError(t *testing.T) {
 
 func TestPruneActiveVMHomeVolumes_RemoveErrorWarns(t *testing.T) {
 	homesBySlug := map[string][]volumeWithAge{
-		pruneTestSlug: {oldVol("opencode-msb-home-testslug-current"), oldVol("opencode-msb-home-testslug-old")},
+		pruneTestSlug: {oldVol("opencode-sandbox-home-testslug-current"), oldVol("opencode-sandbox-home-testslug-old")},
 	}
 
 	client := &msb.MockMsbClient{

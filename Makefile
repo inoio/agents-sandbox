@@ -6,7 +6,7 @@ GOOS ?= $(shell go env GOOS)
 GOARCH ?= $(shell go env GOARCH)
 ZIG_TARGET ?=
 
-ARTIFACT = opencode-msb-$(GOOS)-$(GOARCH)
+ARTIFACT = opencode-sandbox-$(GOOS)-$(GOARCH)
 
 RELEASE_TARGETS = \
 	linux/amd64/x86_64-linux-gnu \
@@ -14,7 +14,7 @@ RELEASE_TARGETS = \
 	darwin/arm64/aarch64-macos.11.0-none
 
 build:
-	CGO_ENABLED=1 go build -ldflags "-X main.version=$(VERSION)" -o opencode-msb ./cmd/opencode-msb
+	CGO_ENABLED=1 go build -ldflags "-X main.version=$(VERSION)" -o opencode-sandbox ./cmd/opencode-sandbox
 
 build-release: export CC=zig cc -target $(ZIG_TARGET)
 build-release: export CXX=zig c++ -target $(ZIG_TARGET)
@@ -26,10 +26,10 @@ ifeq ($(GOOS),darwin)
 	CGO_ENABLED=1 GOOS=$(GOOS) GOARCH=$(GOARCH) \
 	    CGO_CFLAGS="-isystem $(shell dirname $(shell which zig))/lib/libc/include/any-darwin-any" \
 	    CGO_LDFLAGS="-F $(shell dirname $(shell which zig))/lib/libc/darwin/System/Library/Frameworks -L $(shell dirname $(shell which zig))/lib/libc/darwin/usr/lib -Wl,-undefined,dynamic_lookup" \
-	    go build -trimpath -buildvcs=false -ldflags "-s -w -X main.version=$(VERSION)" -o $(ARTIFACT) ./cmd/opencode-msb
+	    go build -trimpath -buildvcs=false -ldflags "-s -w -X main.version=$(VERSION)" -o $(ARTIFACT) ./cmd/opencode-sandbox
 else
 	CGO_ENABLED=1 GOOS=$(GOOS) GOARCH=$(GOARCH) \
-	    go build -trimpath -buildvcs=false -ldflags "-s -w -X main.version=$(VERSION)" -o $(ARTIFACT) ./cmd/opencode-msb
+	    go build -trimpath -buildvcs=false -ldflags "-s -w -X main.version=$(VERSION)" -o $(ARTIFACT) ./cmd/opencode-sandbox
 endif
 
 build-release-all: export VERSION=$(VERSION)
@@ -52,20 +52,20 @@ validate-fmt:
 	golangci-lint fmt -d ./...
 
 run:
-	go run ./cmd/opencode-msb
+	go run ./cmd/opencode-sandbox
 
 check: fmt lint test
 
 all: fmt lint test build
 
 clean:
-	rm -f opencode-msb
+	rm -f opencode-sandbox
 
 completion:
 	mkdir -p ~/.local/share/bash-completion/completions
-	go run ./cmd/opencode-msb completion bash > ~/.local/share/bash-completion/completions/opencode-msb
+	go run ./cmd/opencode-sandbox completion bash > ~/.local/share/bash-completion/completions/opencode-sandbox
 
 user-install: build
 	mkdir -p ~/.local/bin
-	cp opencode-msb ~/.local/bin/opencode-msb.tmp
-	mv -f ~/.local/bin/opencode-msb.tmp ~/.local/bin/opencode-msb
+	cp opencode-sandbox ~/.local/bin/opencode-sandbox.tmp
+	mv -f ~/.local/bin/opencode-sandbox.tmp ~/.local/bin/opencode-sandbox

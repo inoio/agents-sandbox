@@ -9,7 +9,7 @@ import (
 )
 
 func TestStateFile(t *testing.T) {
-	SetStateDirForTest(t, t.TempDir()+"/opencode-msb")
+	SetStateDirForTest(t, t.TempDir()+"/opencode-sandbox")
 
 	slug := "testproj-aBc1234D"
 	f := stateFile(slug)
@@ -22,7 +22,7 @@ func TestStateFile(t *testing.T) {
 }
 
 func TestReadState_NoFileReturnsErrStateNotFound(t *testing.T) {
-	SetStateDirForTest(t, t.TempDir()+"/opencode-msb")
+	SetStateDirForTest(t, t.TempDir()+"/opencode-sandbox")
 
 	slug := "nonexistentproj-xyz"
 	result, err := ReadState(slug)
@@ -35,12 +35,12 @@ func TestReadState_NoFileReturnsErrStateNotFound(t *testing.T) {
 }
 
 func TestWriteAndReadState(t *testing.T) {
-	SetStateDirForTest(t, t.TempDir()+"/opencode-msb")
+	SetStateDirForTest(t, t.TempDir()+"/opencode-sandbox")
 	slug := "myproj-aBc1234D"
 	digest := "sha256:deadbeef1234"
 
 	err := WriteState(slug, HomeState{
-		HomeVolume:  "opencode-msb-home-myproj-20260806T143022",
+		HomeVolume:  "opencode-sandbox-home-myproj-20260806T143022",
 		ImageDigest: digest,
 	})
 	if err != nil {
@@ -51,8 +51,8 @@ func TestWriteAndReadState(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ReadState: %v", err)
 	}
-	if result.HomeVolume != "opencode-msb-home-myproj-20260806T143022" {
-		t.Errorf("HomeVolume = %q, want %q", result.HomeVolume, "opencode-msb-home-myproj-20260806T143022")
+	if result.HomeVolume != "opencode-sandbox-home-myproj-20260806T143022" {
+		t.Errorf("HomeVolume = %q, want %q", result.HomeVolume, "opencode-sandbox-home-myproj-20260806T143022")
 	}
 	if result.ImageDigest != digest {
 		t.Errorf("ImageDigest = %q, want %q", result.ImageDigest, digest)
@@ -65,7 +65,7 @@ func TestWriteAndReadState(t *testing.T) {
 }
 
 func TestWriteStateCreatesDirectory(t *testing.T) {
-	SetStateDirForTest(t, t.TempDir()+"/opencode-msb")
+	SetStateDirForTest(t, t.TempDir()+"/opencode-sandbox")
 	slug := "newproj-a"
 
 	err := WriteState(slug, HomeState{HomeVolume: "vol", ImageDigest: "d1"})
@@ -84,7 +84,7 @@ func TestWriteStateCreatesDirectory(t *testing.T) {
 }
 
 func TestReadState_CorruptedYAML(t *testing.T) {
-	SetStateDirForTest(t, t.TempDir()+"/opencode-msb")
+	SetStateDirForTest(t, t.TempDir()+"/opencode-sandbox")
 	slug := "corruptproj"
 
 	sdir := filepath.Join(StateDir, slug)
@@ -102,7 +102,7 @@ func TestReadState_CorruptedYAML(t *testing.T) {
 }
 
 func TestRemoveState(t *testing.T) {
-	SetStateDirForTest(t, t.TempDir()+"/opencode-msb")
+	SetStateDirForTest(t, t.TempDir()+"/opencode-sandbox")
 	slug := "myproj"
 
 	WriteState(slug, HomeState{HomeVolume: "vol", ImageDigest: "d1"})
@@ -127,11 +127,11 @@ func TestWriteAndReadState_EnvSecretRoundTrip(t *testing.T) {
 	old := StateDir
 	defer func() { StateDir = old }()
 
-	StateDir = t.TempDir() + "/opencode-msb"
+	StateDir = t.TempDir() + "/opencode-sandbox"
 	slug := "myproj-abc123"
 
 	input := HomeState{
-		HomeVolume:  "opencode-msb-home-myproj",
+		HomeVolume:  "opencode-sandbox-home-myproj",
 		ImageDigest: "sha256:feedface",
 		EnvState: EnvState{
 			Hash:  "sha256:envhash",
@@ -180,7 +180,7 @@ func TestHomeState_ZeroEnvSecretOmitted(t *testing.T) {
 	old := StateDir
 	defer func() { StateDir = old }()
 
-	StateDir = t.TempDir() + "/opencode-msb"
+	StateDir = t.TempDir() + "/opencode-sandbox"
 	slug := "emptyproj"
 
 	err := WriteState(slug, HomeState{

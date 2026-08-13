@@ -1,15 +1,15 @@
 # Getting Started
 
-## What is opencode-msb?
+## What is opencode-sandbox?
 
-opencode-msb is a launcher that runs [opencode](https://github.com/anthropics/opencode) inside an isolated microsandbox
+opencode-sandbox is a launcher that runs [opencode](https://github.com/anthropics/opencode) inside an isolated microsandbox
 VM powered by [microsandbox](https://github.com/superradcompany/microsandbox). Each project gets a persistent VM
 identified by its git remote URL — first boot creates a fresh VM, subsequent runs connect to or start the existing one.
 The VM has your project bound as `/workspace`, a persistent home directory volume, and access to a curated toolchain.
 
 ## Prerequisites
 
-opencode-msb requires platform-specific prerequisites depending on your operating system:
+opencode-sandbox requires platform-specific prerequisites depending on your operating system:
 
 ### Linux (KVM)
 
@@ -24,13 +24,13 @@ opencode-msb requires platform-specific prerequisites depending on your operatin
 
 ### OS independent
 
-- **`msb`** CLI — the [microsandbox](https://github.com/superradcompany/microsandbox) runtime — opencode-msb tries to install it automatically
+- **`msb`** CLI — the [microsandbox](https://github.com/superradcompany/microsandbox) runtime — opencode-sandbox tries to install it automatically
 - **Git** — for branch sessions
 
 If you're unsure your system fulfills the prerequisites, you can verify your setup:
 
 ```shell
-opencode-msb doctor
+opencode-sandbox doctor
 ```
 
 ## Installation
@@ -40,24 +40,24 @@ opencode-msb doctor
   **Linux (x86_64):**
 
   ```console
-  curl -L -o opencode-msb https://gitlab.inoio.de/inoio/opencode-msb/-/releases/permalink/latest/downloads/opencode-msb-linux-amd64
+  curl -L -o opencode-sandbox https://gitlab.inoio.de/inoio/opencode-sandbox/-/releases/permalink/latest/downloads/opencode-sandbox-linux-amd64
   ```
 
   **macOS (Apple Silicon):**
 
   ```console
-  curl -L -o opencode-msb https://gitlab.inoio.de/inoio/opencode-msb/-/releases/permalink/latest/downloads/opencode-msb-darwin-arm64
+  curl -L -o opencode-sandbox https://gitlab.inoio.de/inoio/opencode-sandbox/-/releases/permalink/latest/downloads/opencode-sandbox-darwin-arm64
   ```
 
   **Linux (arm64):**
 
   ```console
-  curl -L -o opencode-msb https://gitlab.inoio.de/inoio/opencode-msb/-/releases/permalink/latest/downloads/opencode-msb-linux-arm64
+  curl -L -o opencode-sandbox https://gitlab.inoio.de/inoio/opencode-sandbox/-/releases/permalink/latest/downloads/opencode-sandbox-linux-arm64
   ```
 * Install:
   ```console
-  chmod u+x opencode-msb
-  mv opencode-msb ~/.local/bin # or any other directory in your PATH 
+  chmod u+x opencode-sandbox
+  mv opencode-sandbox ~/.local/bin # or any other directory in your PATH 
   ```
 
 ## Quick Start
@@ -65,7 +65,7 @@ opencode-msb doctor
 Navigate to any directory and run:
 
 ```shell
-opencode-msb
+opencode-sandbox
 ```
 
 This starts a microsandbox VM (or connects to the existing project VM), mounts the working directory into the VM , and
@@ -74,14 +74,14 @@ launches opencode.
 To start an isolated session for a different branch (only works in git repositories):
 
 ```shell
-opencode-msb -w bugfix-my-fix
+opencode-sandbox -w bugfix-my-fix
 ```
 
 ## How It Works
 
-1. **Image build** — Builds a Docker image from `.opencode-msb/Dockerfile` if present, or uses the base image. The image
+1. **Image build** — Builds a Docker image from `.opencode-sandbox/Dockerfile` if present, or uses the base image. The image
    contains opencode, Node.js 26, and common CLI tools.
-2. **Volume setup** — Creates a persistent home volume (managed by msb, name: `opencode-msb-home-<project-slug>-<timestamp>`) for the
+2. **Volume setup** — Creates a persistent home volume (managed by msb, name: `opencode-sandbox-home-<project-slug>-<timestamp>`) for the
    project, preserving editor state, caches, and config across sessions.
 3. **VM creation or reuse** — Creates a new project VM on first boot; subsequent runs connect to the existing VM (or
    restart it if it stopped).
@@ -114,15 +114,15 @@ No SSH keys in the VM, git cmds against remotes won't work.
 
 ## Example: Permissions
 
-Opencode permissions are configured through opencode config snippets, which opencode-msb merges (user-first, then
+Opencode permissions are configured through opencode config snippets, which opencode-sandbox merges (user-first, then
 project; see [Configuration](/docs/configuration.md#opencode-configuration)). Place a snippet in your project, e.g.
-`.opencode-msb/opencode/permission.json5`.
+`.opencode-sandbox/opencode/permission.json5`.
 
 **Quasi-auto:** allow everything except what is explicitly denied:
 
 ```json5
 {
-  // .opencode-msb/opencode/permission.json5
+  // .opencode-sandbox/opencode/permission.json5
   permission: {
     "*": "allow",
   },
@@ -133,7 +133,7 @@ project; see [Configuration](/docs/configuration.md#opencode-configuration)). Pl
 
 ```json5
 {
-  // .opencode-msb/opencode/permission.json5
+  // .opencode-sandbox/opencode/permission.json5
   permission: {
     denylist: [
       { tool: "read", files: [".env", ".envrc"] },

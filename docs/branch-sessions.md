@@ -1,13 +1,13 @@
 # Worktree Sessions
 
-By default, opencode-msb runs in the current directory (`/workspace`). To start an isolated development session in its own worktree, use `--worktree <name>[:<base>]` (`-w`). This creates an isolated git worktree **inside the VM**, leaving the host repository untouched.
+By default, opencode-sandbox runs in the current directory (`/workspace`). To start an isolated development session in its own worktree, use `--worktree <name>[:<base>]` (`-w`). This creates an isolated git worktree **inside the VM**, leaving the host repository untouched.
 
 ## Basic Usage
 
 ```console
-opencode-msb                             # run in /workspace
-opencode-msb -w bugfix-fix-thing         # run in an isolated worktree
-opencode-msb -w bugfix-fix-thing:main -y # worktree from local base ref
+opencode-sandbox                             # run in /workspace
+opencode-sandbox -w bugfix-fix-thing         # run in an isolated worktree
+opencode-sandbox -w bugfix-fix-thing:main -y # worktree from local base ref
 ```
 
 ## How It Works

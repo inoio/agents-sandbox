@@ -8,8 +8,8 @@ import (
 
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 
-	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/options"
-	"gitlab.inoio.de/inoio/opencode-msb/internal/termio"
+	"gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/options"
+	"gitlab.inoio.de/inoio/opencode-sandbox/internal/termio"
 )
 
 // Change describes one changed setting for prompt display. Values are
@@ -212,7 +212,7 @@ func diskMiBOr0(cfg *msbSdk.SandboxConfig) uint32 {
 	return cfg.RootDisk.SizeMiB
 }
 
-// desiredPublishBindings returns the port bindings opencode-msb wants on the
+// desiredPublishBindings returns the port bindings opencode-sandbox wants on the
 // project VM. Serve-only publishes the opencode port on the host loopback;
 // otherwise nothing is published.
 func desiredPublishBindings(serveOnly bool) []msbSdk.PortBinding {

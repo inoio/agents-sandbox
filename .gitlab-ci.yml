@@ -93,11 +93,11 @@ build:
       when: never
     - if: $CI_COMMIT_BRANCH != "release"
   script:
-    - go build -o opencode-msb ./cmd/opencode-msb
-    - ./opencode-msb version
+    - go build -o opencode-sandbox ./cmd/opencode-sandbox
+    - ./opencode-sandbox version
   artifacts:
     paths:
-      - opencode-msb
+      - opencode-sandbox
 
 .build-release-tmpl:
   stage: build
@@ -121,7 +121,7 @@ build:
     - if: $CI_COMMIT_BRANCH == "release"
   artifacts:
     paths:
-      - opencode-msb-$GOOS-$GOARCH
+      - opencode-sandbox-$GOOS-$GOARCH
     reports:
       dotenv: build.env
 
@@ -162,9 +162,9 @@ validate-releases:
     - if: $CI_COMMIT_BRANCH == "release"
   script:
     - apt update && apt install -y --no-install-recommends file
-    - ./opencode-msb-linux-amd64 version
-    - file opencode-msb-linux-arm64 | grep -q "ELF.*ARM.*aarch64"
-    - file opencode-msb-darwin-arm64 | grep -q "Mach-O.*arm64"
+    - ./opencode-sandbox-linux-amd64 version
+    - file opencode-sandbox-linux-arm64 | grep -q "ELF.*ARM.*aarch64"
+    - file opencode-sandbox-darwin-arm64 | grep -q "Mach-O.*arm64"
 
 
 release:
@@ -188,18 +188,18 @@ release:
   script:
     - echo "running release_job for $VERSION"
   release:
-    name: "opencode-msb $VERSION"
+    name: "opencode-sandbox $VERSION"
     description: "Release $VERSION"
     tag_name: "$VERSION"
     ref: '$CI_COMMIT_SHA'
     assets:
       links:
-        - name: "opencode-msb-linux-amd64"
-          url: "${CI_PROJECT_URL}/-/jobs/${JOB_ID_linux_amd64}/artifacts/file/opencode-msb-linux-amd64"
-          filepath: "/opencode-msb-linux-amd64"
-        - name: "opencode-msb-linux-arm64"
-          url: "${CI_PROJECT_URL}/-/jobs/${JOB_ID_linux_arm64}/artifacts/file/opencode-msb-linux-arm64"
-          filepath: "/opencode-msb-linux-arm64"
-        - name: "opencode-msb-darwin-arm64"
-          url: "${CI_PROJECT_URL}/-/jobs/${JOB_ID_darwin_arm64}/artifacts/file/opencode-msb-darwin-arm64"
-          filepath: "/opencode-msb-darwin-arm64"
+        - name: "opencode-sandbox-linux-amd64"
+          url: "${CI_PROJECT_URL}/-/jobs/${JOB_ID_linux_amd64}/artifacts/file/opencode-sandbox-linux-amd64"
+          filepath: "/opencode-sandbox-linux-amd64"
+        - name: "opencode-sandbox-linux-arm64"
+          url: "${CI_PROJECT_URL}/-/jobs/${JOB_ID_linux_arm64}/artifacts/file/opencode-sandbox-linux-arm64"
+          filepath: "/opencode-sandbox-linux-arm64"
+        - name: "opencode-sandbox-darwin-arm64"
+          url: "${CI_PROJECT_URL}/-/jobs/${JOB_ID_darwin_arm64}/artifacts/file/opencode-sandbox-darwin-arm64"
+          filepath: "/opencode-sandbox-darwin-arm64"

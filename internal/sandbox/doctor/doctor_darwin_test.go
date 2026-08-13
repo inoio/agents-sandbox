@@ -5,7 +5,7 @@ package doctor
 import (
 	"testing"
 
-	"gitlab.inoio.de/inoio/opencode-msb/internal/testutil"
+	"gitlab.inoio.de/inoio/opencode-sandbox/internal/testutil"
 )
 
 func TestCheckDarwinReturnsTrue(t *testing.T) {

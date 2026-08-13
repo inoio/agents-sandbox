@@ -1,4 +1,4 @@
-FROM opencode-msb/runner-base-dind:latest
+FROM opencode-sandbox/runner-base-dind:latest
 
 USER root
 # Go & linter

@@ -7,7 +7,7 @@ import (
 )
 
 func TestAcquireClientLease(t *testing.T) {
-	SetStateDirForTest(t, t.TempDir()+"/opencode-msb")
+	SetStateDirForTest(t, t.TempDir()+"/opencode-sandbox")
 
 	slug := "testproj-aBc1234D"
 
@@ -56,7 +56,7 @@ func TestAcquireClientLease(t *testing.T) {
 }
 
 func TestAcquireClientLease_DirectoriesCreated(t *testing.T) {
-	SetStateDirForTest(t, t.TempDir()+"/opencode-msb")
+	SetStateDirForTest(t, t.TempDir()+"/opencode-sandbox")
 
 	slug := "newslug-x7y9z"
 
@@ -83,7 +83,7 @@ func TestAcquireClientLease_DirectoriesCreated(t *testing.T) {
 }
 
 func TestAcquireClientLease_MultipleClients(t *testing.T) {
-	SetStateDirForTest(t, t.TempDir()+"/opencode-msb")
+	SetStateDirForTest(t, t.TempDir()+"/opencode-sandbox")
 
 	slug := "multiproj-a"
 
@@ -124,7 +124,7 @@ func TestAcquireClientLease_MultipleClients(t *testing.T) {
 }
 
 func TestCountActiveClients_CleansStaleLockFiles(t *testing.T) {
-	SetStateDirForTest(t, t.TempDir()+"/opencode-msb")
+	SetStateDirForTest(t, t.TempDir()+"/opencode-sandbox")
 
 	slug := "staleproj-b"
 
@@ -153,7 +153,7 @@ func TestCountActiveClients_CleansStaleLockFiles(t *testing.T) {
 }
 
 func TestAcquireClientLease_NonExistentSlug(t *testing.T) {
-	SetStateDirForTest(t, t.TempDir()+"/opencode-msb")
+	SetStateDirForTest(t, t.TempDir()+"/opencode-sandbox")
 
 	slug := "nonexistent-slug-xyz"
 	release, err := AcquireClientLease(slug)
@@ -164,7 +164,7 @@ func TestAcquireClientLease_NonExistentSlug(t *testing.T) {
 }
 
 func TestAcquireClientLease_MultipleFromSameProcess(t *testing.T) {
-	SetStateDirForTest(t, t.TempDir()+"/opencode-msb")
+	SetStateDirForTest(t, t.TempDir()+"/opencode-sandbox")
 
 	slug := "testproj-z"
 

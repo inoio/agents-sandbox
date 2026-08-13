@@ -5,7 +5,7 @@ import (
 	"os"
 	"strings"
 
-	"gitlab.inoio.de/inoio/opencode-msb/internal/termio"
+	"gitlab.inoio.de/inoio/opencode-sandbox/internal/termio"
 
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 	"gopkg.in/yaml.v3"

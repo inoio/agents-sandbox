@@ -7,18 +7,21 @@ import (
 	"strings"
 	"testing"
 
-	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/msb"
-	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/naming"
+	"gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/msb"
+	"gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/naming"
 )
 
 func TestListImagesFiltersByImagePrefix(t *testing.T) {
 	mockClient := &msb.MockMsbClient{
 		Images: []msb.ImageHandle{
 			msb.MockImageHandle{
-				Reference_:      "opencode-msb/runner-proj-aBc1234D:3k5q07ywpibwp5",
+				Reference_:      "opencode-sandbox/runner-proj-aBc1234D:3k5q07ywpibwp5",
 				ManifestDigest_: "sha256:abc123",
 			},
-			msb.MockImageHandle{Reference_: "opencode-msb/runner-other-de456:def789", ManifestDigest_: "sha256:def789"},
+			msb.MockImageHandle{
+				Reference_:      "opencode-sandbox/runner-other-de456:def789",
+				ManifestDigest_: "sha256:def789",
+			},
 			msb.MockImageHandle{Reference_: "python:3.12", ManifestDigest_: "sha256:python123"},
 			msb.MockImageHandle{Reference_: "ubuntu:24.04", ManifestDigest_: "sha256:ubuntu24"},
 		},
@@ -31,8 +34,8 @@ func TestListImagesFiltersByImagePrefix(t *testing.T) {
 	}
 
 	expected := []Info{
-		{Reference: "opencode-msb/runner-proj-aBc1234D:3k5q07ywpibwp5", Digest: "sha256:abc123"},
-		{Reference: "opencode-msb/runner-other-de456:def789", Digest: "sha256:def789"},
+		{Reference: "opencode-sandbox/runner-proj-aBc1234D:3k5q07ywpibwp5", Digest: "sha256:abc123"},
+		{Reference: "opencode-sandbox/runner-other-de456:def789", Digest: "sha256:def789"},
 	}
 	if len(result) != len(expected) {
 		t.Fatalf("expected %d images, got %d", len(expected), len(result))

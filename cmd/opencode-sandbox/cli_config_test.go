@@ -6,8 +6,8 @@ import (
 	"strings"
 	"testing"
 
-	"gitlab.inoio.de/inoio/opencode-msb/internal/configpaths"
-	"gitlab.inoio.de/inoio/opencode-msb/internal/testutil"
+	"gitlab.inoio.de/inoio/opencode-sandbox/internal/configpaths"
+	"gitlab.inoio.de/inoio/opencode-sandbox/internal/testutil"
 )
 
 func writeFile(t *testing.T, path, content string) {
@@ -24,7 +24,7 @@ func TestConfigShowPrintsMergedConfig(t *testing.T) {
 	base := t.TempDir()
 	t.Setenv("XDG_CONFIG_HOME", base)
 	configpaths.WithRealConfigPaths(t)
-	snippetPath := filepath.Join(base, "opencode-msb", "opencode", "opencode.json5")
+	snippetPath := filepath.Join(base, "opencode-sandbox", "opencode", "opencode.json5")
 	writeFile(
 		t,
 		snippetPath,
@@ -55,7 +55,7 @@ func TestConfigHomeListsMappings(t *testing.T) {
 	base := t.TempDir()
 	t.Setenv("XDG_CONFIG_HOME", base)
 	configpaths.WithRealConfigPaths(t)
-	cfgDir := filepath.Join(base, "opencode-msb")
+	cfgDir := filepath.Join(base, "opencode-sandbox")
 	writeFile(t, filepath.Join(cfgDir, "home.yaml"), ".gitconfig:\n")
 
 	ui := testutil.TermUIMock(t)
@@ -76,7 +76,7 @@ func TestConfigHomeNotFoundManifest(t *testing.T) {
 	base := t.TempDir()
 	t.Setenv("XDG_CONFIG_HOME", base)
 	configpaths.WithRealConfigPaths(t)
-	cfgDir := filepath.Join(base, "opencode-msb")
+	cfgDir := filepath.Join(base, "opencode-sandbox")
 	if err := os.MkdirAll(cfgDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -99,7 +99,7 @@ func TestConfigHomeEmptyManifest(t *testing.T) {
 	base := t.TempDir()
 	t.Setenv("XDG_CONFIG_HOME", base)
 	configpaths.WithRealConfigPaths(t)
-	cfgDir := filepath.Join(base, "opencode-msb")
+	cfgDir := filepath.Join(base, "opencode-sandbox")
 	writeFile(t, filepath.Join(cfgDir, "home.yaml"), "")
 
 	ui := testutil.TermUIMock(t)

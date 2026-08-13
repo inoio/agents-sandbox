@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"gitlab.inoio.de/inoio/opencode-msb/internal/testutil"
+	"gitlab.inoio.de/inoio/opencode-sandbox/internal/testutil"
 )
 
 func TestCheckDockerLogsUnderlyingError(t *testing.T) {
@@ -165,19 +165,19 @@ func TestCheckMsbNotOnPathAndBinaryMissingReturnsFalse(t *testing.T) {
 }
 
 func TestIsOrphanedSandboxVM(t *testing.T) {
-	if isOrphanedSandbox("opencode-msb-vm-proj-main") {
+	if isOrphanedSandbox("opencode-sandbox-vm-proj-main") {
 		t.Error("expected vm- sandbox to NOT be orphaned")
 	}
 }
 
 func TestIsOrphanedSandboxOldSBPrefix(t *testing.T) {
-	if !isOrphanedSandbox("opencode-msb-sb-proj-main") {
+	if !isOrphanedSandbox("opencode-sandbox-sb-proj-main") {
 		t.Error("expected old sb- sandbox to be orphaned")
 	}
 }
 
 func TestIsOrphanedSandboxTaskPrefix(t *testing.T) {
-	if isOrphanedSandbox("opencode-msb-task-prefill-proj-123") {
+	if isOrphanedSandbox("opencode-sandbox-task-prefill-proj-123") {
 		t.Error("expected task sandbox to NOT be orphaned")
 	}
 }
@@ -189,13 +189,13 @@ func TestIsOrphanedSandboxForeign(t *testing.T) {
 }
 
 func TestIsOrphanedVolumeHome(t *testing.T) {
-	if isOrphanedVolume("opencode-msb-home-proj-aBc1234D") {
+	if isOrphanedVolume("opencode-sandbox-home-proj-aBc1234D") {
 		t.Error("expected home volume to NOT be orphaned")
 	}
 }
 
 func TestIsOrphanedVolumeClone(t *testing.T) {
-	if !isOrphanedVolume("opencode-msb-clone-proj-aBc1234D-123") {
+	if !isOrphanedVolume("opencode-sandbox-clone-proj-aBc1234D-123") {
 		t.Error("expected clone volume to be orphaned (clone-on-use removed)")
 	}
 }
@@ -213,19 +213,19 @@ func TestIsOrphanedVolumeForeign(t *testing.T) {
 }
 
 func TestIsOrphanedImageOldPatterns(t *testing.T) {
-	if !isOrphanedImage("opencode-msb/runner:base") {
+	if !isOrphanedImage("opencode-sandbox/runner:base") {
 		t.Error("expected :base image to be orphaned")
 	}
-	if !isOrphanedImage("opencode-msb/runner:latest") {
+	if !isOrphanedImage("opencode-sandbox/runner:latest") {
 		t.Error("expected :latest image to be orphaned")
 	}
-	if !isOrphanedImage("opencode-msb/runner:sha256-abc123") {
+	if !isOrphanedImage("opencode-sandbox/runner:sha256-abc123") {
 		t.Error("expected sha256-prefixed image to be orphaned")
 	}
-	if isOrphanedImage("opencode-msb/runner-base:latest") {
+	if isOrphanedImage("opencode-sandbox/runner-base:latest") {
 		t.Error("expected new runner-base image to not be orphaned")
 	}
-	if isOrphanedImage("opencode-msb/runner-proj:latest") {
+	if isOrphanedImage("opencode-sandbox/runner-proj:latest") {
 		t.Error("expected project-specific runner image to not be orphaned")
 	}
 	if isOrphanedImage("some-other-image:latest") {

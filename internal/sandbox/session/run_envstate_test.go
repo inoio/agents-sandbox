@@ -9,19 +9,19 @@ import (
 
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 
-	"gitlab.inoio.de/inoio/opencode-msb/internal/configpaths"
-	"gitlab.inoio.de/inoio/opencode-msb/internal/git"
-	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/msb"
-	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/options"
-	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/reprovision"
-	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/state"
-	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/volume"
-	"gitlab.inoio.de/inoio/opencode-msb/internal/termio"
-	"gitlab.inoio.de/inoio/opencode-msb/internal/testutil"
+	"gitlab.inoio.de/inoio/opencode-sandbox/internal/configpaths"
+	"gitlab.inoio.de/inoio/opencode-sandbox/internal/git"
+	"gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/msb"
+	"gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/options"
+	"gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/reprovision"
+	"gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/state"
+	"gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/volume"
+	"gitlab.inoio.de/inoio/opencode-sandbox/internal/termio"
+	"gitlab.inoio.de/inoio/opencode-sandbox/internal/testutil"
 )
 
 func TestCurrentEnvState_NotFoundReturnsZero(t *testing.T) {
-	state.SetStateDirForTest(t, t.TempDir()+"/opencode-msb")
+	state.SetStateDirForTest(t, t.TempDir()+"/opencode-sandbox")
 	slug := "nonexistent"
 
 	got := currentEnvState(slug, &termio.Mock{})
@@ -35,7 +35,7 @@ func TestCurrentEnvState_NotFoundReturnsZero(t *testing.T) {
 }
 
 func TestCurrentEnvState_ReadsPersisted(t *testing.T) {
-	state.SetStateDirForTest(t, t.TempDir()+"/opencode-msb")
+	state.SetStateDirForTest(t, t.TempDir()+"/opencode-sandbox")
 	slug := "testproj-abc1"
 
 	state.WriteState(slug, state.HomeState{
@@ -58,7 +58,7 @@ func TestCurrentEnvState_ReadsPersisted(t *testing.T) {
 }
 
 func TestCurrentEnvState_IgnoresReadError(t *testing.T) {
-	state.SetStateDirForTest(t, t.TempDir()+"/opencode-msb")
+	state.SetStateDirForTest(t, t.TempDir()+"/opencode-sandbox")
 	slug := "badproj"
 
 	// Corrupted YAML that returns a parser error (not ErrStateNotFound):
@@ -80,7 +80,7 @@ func TestCurrentEnvState_IgnoresReadError(t *testing.T) {
 }
 
 func TestCurrentSecretState_NotFoundReturnsZero(t *testing.T) {
-	state.SetStateDirForTest(t, t.TempDir()+"/opencode-msb")
+	state.SetStateDirForTest(t, t.TempDir()+"/opencode-sandbox")
 	slug := "nonexistent"
 
 	got := currentSecretState(slug, &termio.Mock{})
@@ -94,7 +94,7 @@ func TestCurrentSecretState_NotFoundReturnsZero(t *testing.T) {
 }
 
 func TestCurrentSecretState_ReadsPersisted(t *testing.T) {
-	state.SetStateDirForTest(t, t.TempDir()+"/opencode-msb")
+	state.SetStateDirForTest(t, t.TempDir()+"/opencode-sandbox")
 	slug := "testproj-abc2"
 
 	state.WriteState(slug, state.HomeState{
@@ -115,7 +115,7 @@ func TestCurrentSecretState_ReadsPersisted(t *testing.T) {
 }
 
 func TestPersistEnvSecrets_RoundTrip(t *testing.T) {
-	state.SetStateDirForTest(t, t.TempDir()+"/opencode-msb")
+	state.SetStateDirForTest(t, t.TempDir()+"/opencode-sandbox")
 	slug := "roundtripproj"
 
 	envSt := state.EnvState{Hash: "env-hash-123", Names: []string{"FOO"}}
@@ -139,7 +139,7 @@ func TestPersistEnvSecrets_RoundTrip(t *testing.T) {
 }
 
 func TestPersistEnvSecrets_CreatesMissingStateDir(t *testing.T) {
-	state.SetStateDirForTest(t, t.TempDir()+"/opencode-msb")
+	state.SetStateDirForTest(t, t.TempDir()+"/opencode-sandbox")
 	slug := "newproj-" + makeSlug()
 
 	envSt := state.EnvState{Hash: "h1", Names: []string{"X"}}
@@ -159,7 +159,7 @@ func TestPersistEnvSecrets_CreatesMissingStateDir(t *testing.T) {
 }
 
 func TestPersistEnvSecrets_MergesExistingState(t *testing.T) {
-	state.SetStateDirForTest(t, t.TempDir()+"/opencode-msb")
+	state.SetStateDirForTest(t, t.TempDir()+"/opencode-sandbox")
 	slug := "mergeproj"
 
 	// Write existing state with HomeVolume and ImageDigest
@@ -194,7 +194,7 @@ func TestPersistEnvSecrets_MergesExistingState(t *testing.T) {
 }
 
 func TestPersistEnvSecrets_OverwritesExistingState(t *testing.T) {
-	state.SetStateDirForTest(t, t.TempDir()+"/opencode-msb")
+	state.SetStateDirForTest(t, t.TempDir()+"/opencode-sandbox")
 	slug := "existingstateproj"
 
 	// Pre-write state with env_state already set but different hash
@@ -225,7 +225,7 @@ func TestPersistEnvSecrets_OverwritesExistingState(t *testing.T) {
 }
 
 func TestPersistEnvSecrets_ReadFailsReturnsError(t *testing.T) {
-	state.SetStateDirForTest(t, t.TempDir()+"/opencode-msb")
+	state.SetStateDirForTest(t, t.TempDir()+"/opencode-sandbox")
 	slug := "failproj"
 
 	// Corrupted YAML that returns an error (not ErrStateNotFound):
@@ -248,7 +248,7 @@ func TestPersistEnvSecrets_ReadFailsReturnsError(t *testing.T) {
 }
 
 func TestDecideReconfig_EnvChangedWithPersistedState(t *testing.T) {
-	state.SetStateDirForTest(t, t.TempDir()+"/opencode-msb")
+	state.SetStateDirForTest(t, t.TempDir()+"/opencode-sandbox")
 
 	// Set up handle so reprovision.PlanReconfig gets a non-nil cfg
 	mock := reconfigMockClient()
@@ -292,7 +292,7 @@ func TestDecideReconfig_EnvChangedWithPersistedState(t *testing.T) {
 }
 
 func TestDecideReconfig_EnvUnchangedWithPersistedState(t *testing.T) {
-	state.SetStateDirForTest(t, t.TempDir()+"/opencode-msb")
+	state.SetStateDirForTest(t, t.TempDir()+"/opencode-sandbox")
 	userDir := t.TempDir()
 
 	mock := &msb.MockMsbClient{}
@@ -339,7 +339,7 @@ func TestDecideReconfig_EnvUnchangedWithPersistedState(t *testing.T) {
 }
 
 func TestDecideReconfig_SecretsChangedWithPersistedState(t *testing.T) {
-	state.SetStateDirForTest(t, t.TempDir()+"/opencode-msb")
+	state.SetStateDirForTest(t, t.TempDir()+"/opencode-sandbox")
 
 	mock := reconfigMockClient()
 	msb.WithMsbMock(t, mock)
@@ -382,7 +382,7 @@ func TestDecideReconfig_SecretsChangedWithPersistedState(t *testing.T) {
 }
 
 func TestDecideReconfig_ZeroPersistedStateNoSpuriousChange(t *testing.T) {
-	state.SetStateDirForTest(t, t.TempDir()+"/opencode-msb")
+	state.SetStateDirForTest(t, t.TempDir()+"/opencode-sandbox")
 	userDir := t.TempDir()
 
 	mock := &msb.MockMsbClient{}
@@ -475,7 +475,7 @@ func TestEnvContentHash_OrderIndependent(t *testing.T) {
 
 // TestPersistEnvSecrets_NilStateOnNotFound tests persistEnvSecrets when no state file exists.
 func TestPersistEnvSecrets_NilStateOnNotFound(t *testing.T) {
-	state.SetStateDirForTest(t, t.TempDir()+"/opencode-msb")
+	state.SetStateDirForTest(t, t.TempDir()+"/opencode-sandbox")
 	slug := "freshproject"
 
 	envSt := state.EnvState{Hash: "h1", Names: []string{"X"}}
@@ -504,7 +504,7 @@ func TestPersistEnvSecrets_NilStateOnNotFound(t *testing.T) {
 }
 
 func TestPersistEnvSecrets_HomeStateOmitsZeroState(t *testing.T) {
-	state.SetStateDirForTest(t, t.TempDir()+"/opencode-msb")
+	state.SetStateDirForTest(t, t.TempDir()+"/opencode-sandbox")
 	slug := "omittestproj"
 
 	envSt := state.EnvState{Hash: "h1", Names: []string{"X"}}
@@ -525,7 +525,7 @@ func TestPersistEnvSecrets_HomeStateOmitsZeroState(t *testing.T) {
 }
 
 func TestCurrentStates_PersistedBothFields(t *testing.T) {
-	state.SetStateDirForTest(t, t.TempDir()+"/opencode-msb")
+	state.SetStateDirForTest(t, t.TempDir()+"/opencode-sandbox")
 	slug := "bothproj"
 
 	state.WriteState(slug, state.HomeState{
@@ -546,7 +546,7 @@ func TestCurrentStates_PersistedBothFields(t *testing.T) {
 }
 
 func TestPersistEnvSecrets_ZeroStateOverwritesOnlyFields(t *testing.T) {
-	state.SetStateDirForTest(t, t.TempDir()+"/opencode-msb")
+	state.SetStateDirForTest(t, t.TempDir()+"/opencode-sandbox")
 	slug := "overwriteproj"
 
 	state.WriteState(slug, state.HomeState{
@@ -575,7 +575,7 @@ func TestPersistEnvSecrets_ZeroStateOverwritesOnlyFields(t *testing.T) {
 }
 
 func TestDecideReconfig_PersistedSecretsMatchDesired(t *testing.T) {
-	state.SetStateDirForTest(t, t.TempDir()+"/opencode-msb")
+	state.SetStateDirForTest(t, t.TempDir()+"/opencode-sandbox")
 	userDir := t.TempDir()
 
 	mock := &msb.MockMsbClient{}
@@ -622,7 +622,7 @@ func TestDecideReconfig_PersistedSecretsMatchDesired(t *testing.T) {
 }
 
 func TestDecideReconfig_HomePromptDeferredWhenRebuildDeferred(t *testing.T) {
-	state.SetStateDirForTest(t, t.TempDir()+"/opencode-msb")
+	state.SetStateDirForTest(t, t.TempDir()+"/opencode-sandbox")
 
 	mock := reconfigMockClient()
 	msb.WithMsbMock(t, mock)
@@ -674,7 +674,7 @@ func TestDecideReconfig_HomePromptDeferredWhenRebuildDeferred(t *testing.T) {
 }
 
 func TestDecideReconfig_HomePromptAskedWhenRebuildConfirmed(t *testing.T) {
-	state.SetStateDirForTest(t, t.TempDir()+"/opencode-msb")
+	state.SetStateDirForTest(t, t.TempDir()+"/opencode-sandbox")
 
 	mock := reconfigMockClient()
 	msb.WithMsbMock(t, mock)
