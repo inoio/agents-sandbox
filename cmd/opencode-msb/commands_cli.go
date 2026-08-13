@@ -35,7 +35,6 @@ func extendRunCmd(ui termio.UI, cmd *cobra.Command) *cobra.Command {
 	cmd.SetUsageFunc(runUsageFunc)
 
 	registerRunFlags(cmd)
-	cmd.Flags().Bool(flagNoAuto, false, "Do not pass --auto to opencode")
 
 	return cmd
 }
@@ -98,16 +97,11 @@ func rpad(s string, padding int) string {
 
 func runFunc(ui termio.UI) func(cmd *cobra.Command, args []string) error {
 	return func(cmd *cobra.Command, args []string) error {
-		opts, err := extractRunOptions(cmd, true, ui)
+		opts, err := extractRunOptions(cmd, ui)
 		if err != nil {
 			return err
 		}
 		opts.Args = args
-
-		// Handle the --no-auto flag specific to the run command
-		if noAuto, _ := cmd.Flags().GetBool(flagNoAuto); noAuto {
-			opts.Auto = false
-		}
 
 		ctx := cmd.Context()
 		if opts.ServeOnly {
@@ -143,7 +137,7 @@ func buildShellCmd(ui termio.UI) *cobra.Command {
 			annotationAlsoAs: "sandbox shell",
 		},
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			opts, err := extractRunOptions(cmd, false, ui)
+			opts, err := extractRunOptions(cmd, ui)
 			if err != nil {
 				return err
 			}

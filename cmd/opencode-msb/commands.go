@@ -19,10 +19,9 @@ import (
 type launcherConfigKey struct{}
 
 // extractRunOptions extracts shared run/shell flags from the given command
-// and returns a populated options.RunOptions. The auto parameter controls
-// whether the Auto field is set on RunOptions.
-func extractRunOptions(cmd *cobra.Command, auto bool, ui termio.UI) (options.RunOptions, error) {
-	opts := options.RunOptions{Auto: auto}
+// and returns a populated options.RunOptions.
+func extractRunOptions(cmd *cobra.Command, ui termio.UI) (options.RunOptions, error) {
+	opts := options.RunOptions{}
 	rawWorktree, _ := cmd.Flags().GetString(flagWorktree)
 	worktree, err := session.ResolveWorktreeSpec(rawWorktree)
 	if err != nil {

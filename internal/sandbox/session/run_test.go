@@ -2,7 +2,8 @@ package session
 
 import (
 	"context"
-	"reflect"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -12,6 +13,7 @@ import (
 	"gitlab.inoio.de/inoio/opencode-msb/internal/configpaths"
 	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/msb"
 	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/options"
+	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/reprovision"
 	"gitlab.inoio.de/inoio/opencode-msb/internal/termio"
 
 	"gitlab.inoio.de/inoio/opencode-msb/internal/testutil"
@@ -48,30 +50,8 @@ func TestBuildMountsRespectsCustomTmpSize(t *testing.T) {
 	}
 }
 
-func TestBuildOpencodeArgs(t *testing.T) {
-	tests := []struct {
-		name string
-		args []string
-		auto bool
-		want []string
-	}{
-		{"auto default", nil, true, []string{autoFlag}},
-		{"auto with forwarded args", []string{"foo", "bar"}, true, []string{autoFlag, "foo", "bar"}},
-		{"no-auto", []string{"foo"}, false, []string{"foo"}},
-		{"no-auto empty args", nil, false, nil},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got := buildOpencodeArgs(tt.args, tt.auto)
-			if !reflect.DeepEqual(got, tt.want) {
-				t.Errorf("buildOpencodeArgs(%v, %v) = %v, want %v", tt.args, tt.auto, got, tt.want)
-			}
-		})
-	}
-}
-
 func TestBuildAttachCommand(t *testing.T) {
-	got := buildAttachCommand("/workspace", true, []string{"foo"})
+	got := buildAttachCommand("/workspace", []string{"foo"})
 	if !strings.Contains(got, "opencode attach") {
 		t.Errorf("expected 'opencode attach' in command, got %q", got)
 	}
@@ -89,15 +69,8 @@ func TestBuildAttachCommand(t *testing.T) {
 	}
 }
 
-func TestBuildAttachCommandNoAuto(t *testing.T) {
-	got := buildAttachCommand("/workspace", false, nil)
-	if strings.Contains(got, "--auto") {
-		t.Errorf("did not expect --auto flag, got %q", got)
-	}
-}
-
 func TestBuildAttachCommandWorktreeTarget(t *testing.T) {
-	got := buildAttachCommand("/home/dev/.local/share/opencode/worktree/abc/feat", true, nil)
+	got := buildAttachCommand("/home/dev/.local/share/opencode/worktree/abc/feat", nil)
 	if !strings.Contains(got, "--dir /home/dev/.local/share/opencode/worktree/abc/feat") {
 		t.Errorf("expected worktree dir in command, got %q", got)
 	}
@@ -124,6 +97,14 @@ func setUpSandboxProvisionsConfig(t *testing.T, created bool, provisionMsg strin
 	fs := msb.NewTestFS(nil, nil) // empty FS simulates a VM with empty config dir
 	sb := &msb.MockSandbox{Name_: "test-vm", FSValue_: fs}
 	configpaths.WithMockConfigPaths(t)
+	cp := configpaths.GetConfigPaths()
+	snippet := filepath.Join(cp.UserOpencodeConfigDir(), "opencode.json5")
+	if err := os.MkdirAll(filepath.Dir(snippet), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(snippet, []byte(`{"model":"x"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
 
 	ui := &termio.Mock{}
 	target, err := setUpSandbox(
@@ -141,10 +122,10 @@ func setUpSandboxProvisionsConfig(t *testing.T, created bool, provisionMsg strin
 		t.Errorf("target = %q, want %q", target, defaultTargetDir)
 	}
 
-	wroteConfig := fs.Writes != nil && fs.Writes["/home/dev/.config/opencode/opencode.jsonc"] != nil
+	wroteConfig := fs.Writes != nil && fs.Writes[reprovision.OpenCodeConfigPath(reprovision.VMHomeDir)] != nil
 	if !wroteConfig {
 		t.Errorf(
-			"expected config to be provisioned on %s, but opencode.jsonc was never written",
+			"expected config to be provisioned on %s, but opencode.json was never written",
 			provisionMsg,
 		)
 	}
@@ -172,7 +153,13 @@ func TestRestartDaemonsRestartsServe(t *testing.T) {
 		},
 	}
 	ui := testutil.TermUIMock(t)
-	restartDaemons(context.Background(), sb, map[string][]byte{"opencode.jsonc": []byte("{}")}, false, &ui)
+	restartDaemons(
+		context.Background(),
+		sb,
+		&reprovision.ConfigFiles{HasSnippets: true, OpenCode: []byte("{}")},
+		false,
+		&ui,
+	)
 
 	var joined strings.Builder
 	for _, c := range cmdCalls {

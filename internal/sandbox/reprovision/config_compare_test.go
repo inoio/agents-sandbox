@@ -6,112 +6,85 @@ import (
 	"reflect"
 	"testing"
 
-	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
-
 	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/msb"
 	"gitlab.inoio.de/inoio/opencode-msb/internal/termio"
 
 	"gitlab.inoio.de/inoio/opencode-msb/internal/testutil"
 )
 
-func TestConfigEqualIgnoresExtraFilesOnVM(t *testing.T) {
-	vmData := map[string][]byte{
-		"opencode.jsonc":    []byte(`{"provider":{"litellm":{"name":"LiteLLM"}}}`),
-		".gitignore":        []byte("node_modules/\n"),
-		"package.json":      []byte(`{"name":"opencode"}`),
-		"package-lock.json": []byte(`{"lockfileVersion":2}`),
-	}
-	goSide := map[string]map[string]any{
-		"opencode.jsonc": {"provider": map[string]any{"litellm": map[string]any{"name": "LiteLLM"}}},
-	}
-	keys := []string{"opencode.jsonc"}
-
-	got := ConfigEqual(goSide, keys, vmData)
-	if !got {
-		t.Error("expected equality: extra VM files should be ignored")
-	}
-}
-
-func TestConfigEqualJSONMismatch(t *testing.T) {
-	goSideKeys := []string{"opencode.jsonc"}
-	goSide := map[string]map[string]any{
-		"opencode.jsonc": {"provider": map[string]any{"litellm": map[string]any{"name": "LiteLLM"}}},
+func TestConfigEqualHomeFileByteMatch(t *testing.T) {
+	cf := &ConfigFiles{
+		HasSnippets: true,
+		OpenCode:    mustJSON(t, `{"model":"x"}`),
+		HomeFiles: map[string][]byte{
+			"/home/dev/.gitconfig": []byte("user.name=X\n"),
+		},
+		Keys: []string{"/home/dev/.gitconfig"},
 	}
 	vmData := map[string][]byte{
-		"opencode.jsonc": []byte(`{"provider":{"litellm":{"name":"other"}}}`),
+		"/home/dev/.config/opencode/opencode.json": []byte(`{"model":"x"}`),
+		"/home/dev/.gitconfig":                     []byte("user.name=X\n"),
 	}
-
-	got := ConfigEqual(goSide, goSideKeys, vmData)
-	if got {
-		t.Error("expected mismatch: different provider names")
-	}
-}
-
-func TestConfigEqualVMKeyMissing(t *testing.T) {
-	goSideKeys := []string{"opencode.jsonc"}
-	goSide := map[string]map[string]any{
-		"opencode.jsonc": {"provider": map[string]any{"litellm": map[string]any{"name": "LiteLLM"}}},
-	}
-	vmData := map[string][]byte{}
-
-	got := ConfigEqual(goSide, goSideKeys, vmData)
-	if got {
-		t.Error("expected mismatch: VM missing expected file")
+	if !ConfigEqual(cf, vmData) {
+		t.Error("expected equality for matching opencode.json and home file")
 	}
 }
 
-func TestConfigEqualNonJSONByteMatch(t *testing.T) {
-	goSideKeys := []string{".gitignore"}
-	goSide := map[string]map[string]any{
-		".gitignore": nil,
+func TestConfigEqualHomeFileMismatch(t *testing.T) {
+	cf := &ConfigFiles{
+		HasSnippets: true,
+		OpenCode:    mustJSON(t, `{"model":"x"}`),
+		HomeFiles: map[string][]byte{
+			"/home/dev/.gitconfig": []byte("user.name=X\n"),
+		},
+		Keys: []string{"/home/dev/.gitconfig"},
 	}
 	vmData := map[string][]byte{
-		".gitignore": []byte("node_modules/\n"),
+		"/home/dev/.config/opencode/opencode.json": []byte(`{"model":"x"}`),
+		"/home/dev/.gitconfig":                     []byte("user.name=Y\n"),
 	}
-
-	got := ConfigEqual(goSide, goSideKeys, vmData)
-	if !got {
-		t.Error("expected equality: non-JSON files should match byte-for-byte")
-	}
-}
-
-func TestConfigEqualKeyMismatch(t *testing.T) {
-	goSideKeys := []string{"opencode.jsonc", ".gitignore"}
-	goSide := map[string]map[string]any{
-		"opencode.jsonc": {},
-		".gitignore":     nil,
-	}
-	vmData := map[string][]byte{
-		"opencode.jsonc": []byte(`{}`),
-	}
-
-	got := ConfigEqual(goSide, goSideKeys, vmData)
-	if got {
-		t.Error("expected mismatch: different file keys")
+	if ConfigEqual(cf, vmData) {
+		t.Error("expected mismatch for differing home file content")
 	}
 }
 
-func TestConfigEqualJSONEquivalent(t *testing.T) {
-	goSideKeys := []string{"opencode.jsonc"}
-	goSide := map[string]map[string]any{
-		"opencode.jsonc": {"a": 1, "b": "hello", "c": []any{1, 2}},
+func TestProvisionWritesOpenCodeAndHomeFiles(t *testing.T) {
+	cf := &ConfigFiles{
+		HasSnippets: true,
+		OpenCode:    []byte("{\n  \"model\": \"x\"\n}\n"),
+		HomeFiles: map[string][]byte{
+			"/home/dev/.config/tool/cfg.toml": []byte("k=v\n"),
+		},
 	}
-	vmData := map[string][]byte{
-		"opencode.jsonc": []byte(`{"c":[1,2],"a":1,"b":"hello"}`),
+	fs := msb.NewTestFS(nil, nil)
+	if err := Provision(context.Background(), fs, cf); err != nil {
+		t.Fatalf("Provision: %v", err)
 	}
-
-	got := ConfigEqual(goSide, goSideKeys, vmData)
-	if !got {
-		t.Error("expected equality: semantically equivalent JSON despite key order")
+	if fs.Writes[OpenCodeConfigPath(VMHomeDir)] == nil {
+		t.Error("expected opencode.json to be written")
+	}
+	if fs.Writes["/home/dev/.config/tool/cfg.toml"] == nil {
+		t.Error("expected home file to be written")
 	}
 }
 
-func TestEqualJSONFilesEmptyMaps(t *testing.T) {
-	goSide := map[string]map[string]any{}
-	vmData := map[string][]byte{}
-	if !EqualJSONFiles(goSide, nil, vmData) {
-		t.Error("expected equality for empty maps")
+func TestProvisionNoSnippetsSkipsOpenCode(t *testing.T) {
+	cf := &ConfigFiles{OpenCode: nil, HomeFiles: map[string][]byte{}}
+	fs := msb.NewTestFS(nil, nil)
+	if err := Provision(context.Background(), fs, cf); err != nil {
+		t.Fatalf("Provision: %v", err)
 	}
+	if _, ok := fs.Writes[OpenCodeConfigPath(VMHomeDir)]; ok {
+		t.Error("did not expect opencode.json when HasSnippets=false")
+	}
+}
+
+func mustJSON(t *testing.T, s string) []byte {
+	t.Helper()
+	if len(s) == 0 {
+		return nil
+	}
+	return []byte(s)
 }
 
 func TestBuildEnvMap(t *testing.T) {
@@ -150,62 +123,29 @@ func TestMergeEnvMapsProjectOverridesUser(t *testing.T) {
 	}
 }
 
-func TestReadVMFilesUsesSDKFs(t *testing.T) {
-	data := []byte("test-config-data")
-	gitignore := []byte("node_modules/\n")
+func TestReadVMConfigReadsPaths(t *testing.T) {
+	data := []byte("{}")
 	sb := &msb.MockSandbox{
 		Name_: "test-vm",
 		FSValue_: msb.NewTestFS(
 			map[string][]byte{
-				"/home/dev/.config/opencode/thing.json": data,
-				"/home/dev/.config/opencode/.gitignore": gitignore,
+				"/home/dev/.config/opencode/opencode.json": data,
+				"/home/dev/.gitconfig":                     []byte("x=y\n"),
 			},
-			[]msbSdk.FsEntry{
-				{Path: "/home/dev/.config/opencode/thing.json", Kind: msbSdk.FsEntryKindFile},
-				{Path: "/home/dev/.config/opencode/.gitignore", Kind: msbSdk.FsEntryKindFile},
-			},
+			nil,
 		),
 	}
 	want := map[string][]byte{
-		"thing.json": data,
-		".gitignore": gitignore,
+		"/home/dev/.config/opencode/opencode.json": data,
+		"/home/dev/.gitconfig":                     []byte("x=y\n"),
 	}
-	got := ReadVMFiles(context.Background(), sb, "/home/dev/.config/opencode", &termio.Mock{})
+	got := ReadVMConfig(context.Background(), sb,
+		[]string{"/home/dev/.config/opencode/opencode.json", "/home/dev/.gitconfig", "/home/dev/missing"},
+		&termio.Mock{})
+	if len(got) != 2 {
+		t.Fatalf("expected 2 files read, got %d", len(got))
+	}
 	if !reflect.DeepEqual(got, want) {
-		t.Errorf("ReadVMFiles(%q) = %v, want %v", "/home/dev/.config/opencode", got, want)
-	}
-}
-
-func TestReadVMFilesSkipsDirectories(t *testing.T) {
-	sb := &msb.MockSandbox{
-		Name_: "test-vm",
-		FSValue_: msb.NewTestFS(
-			map[string][]byte{
-				"/home/dev/.config/opencode/file.txt": []byte("hello"),
-			},
-			[]msbSdk.FsEntry{
-				{Path: "/home/dev/.config/opencode/file.txt", Kind: msbSdk.FsEntryKindFile},
-				{Path: "/home/dev/.config/opencode/dir1", Kind: msbSdk.FsEntryKindDirectory},
-				{Path: "/home/dev/.config/opencode/dir2", Kind: msbSdk.FsEntryKindDirectory},
-			},
-		),
-	}
-	want := map[string][]byte{
-		"file.txt": []byte("hello"),
-	}
-	got := ReadVMFiles(context.Background(), sb, "/home/dev/.config/opencode", &termio.Mock{})
-	if !reflect.DeepEqual(got, want) {
-		t.Errorf("ReadVMFiles(%q) = %v, want %v", "/home/dev/.config/opencode", got, want)
-	}
-}
-
-func TestReadVMFilesEmptyDir(t *testing.T) {
-	sb := &msb.MockSandbox{
-		Name_:    "test-vm",
-		FSValue_: msb.NewTestFS(nil, nil),
-	}
-	got := ReadVMFiles(context.Background(), sb, "/home/dev/.config/opencode", &termio.Mock{})
-	if len(got) != 0 {
-		t.Errorf("expected empty result for empty dir, got %v", got)
+		t.Errorf("ReadVMConfig = %v, want %v", got, want)
 	}
 }

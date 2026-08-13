@@ -18,6 +18,8 @@ the [XDG base directory spec](https://specifications.freedesktop.org/basedir-spe
 | `~/.config/opencode-msb/env.secret`                    | Secret environment variables (legacy, see [Secrets](#secrets)) |
 | `~/.config/opencode-msb/env.secret.yaml`               | Secret environment variables (YAML/JSON, see [Secrets](#secrets)) |
 | `~/.config/opencode-msb/config.(y[a]ml\|json[(c\|5)])` | Launcher defaults for CLI flags                        |
+| `~/.config/opencode-msb/opencode/*`                     | User opencode config snippets (see [Opencode configuration](#opencode-configuration)) |
+| `~/.config/opencode-msb/home.yaml`                      | User home-file mappings (see [Home files](#home-files)) |
 
 `env` uses `KEY=value` format. `env.secret` uses `KEY=value@host` (see [Secrets](#secrets)).
 
@@ -67,7 +69,8 @@ Place files under `.opencode-msb/` in your project directory. These override use
 | `.opencode-msb/env.secret`                    | Project-specific secrets (legacy)      |
 | `.opencode-msb/env.secret.yaml`               | Project-specific secrets (YAML/JSON)   |
 | `.opencode-msb/config.(y[a]ml\|json[(c\|5)])` | Project-specific launcher defaults     |
-| `.opencode-msb/opencode/*`                    | Project-specific opencode config files |
+| `.opencode-msb/opencode/*`                    | Project-specific opencode config snippets (see [Opencode configuration](#opencode-configuration)) |
+| `.opencode-msb/home.yaml`                     | Project-specific home-file mappings (see [Home files](#home-files)) |
 
 ## Precedence
 
@@ -231,12 +234,53 @@ recreate. The default is to keep/defer.
 
 ## Opencode configuration
 
-opencode-msb provisions opencode config into the VM at `/home/dev/.config/opencode/`. The merged config combines:
+opencode-msb provisions a single opencode config into the VM at `/home/dev/.config/opencode/opencode.json`. No embedded
+provider or permission config is shipped with opencode-msb. Instead, opencode config is assembled from snippet files
+under `~/.config/opencode-msb/opencode/` (user) and `.opencode-msb/opencode/` (project):
 
-1. **Embedded provider config** — shipped as part of opencode-msb
-2. **User config** — files in `~/.config/opencode-msb/opencode/`
-3. **Project config** — files in `.opencode-msb/opencode/`
+- All `.json`, `.jsonc`, and `.json5` files are parsed and **deep-merged** into one `opencode.json`.
+- The user directory is merged first, then the project directory; within each directory files are merged in
+  alphabetical order, so later files override earlier ones.
+- If no snippet files exist, no `opencode.json` is provisioned.
 
-The user and project config are deep-merged by filename.
+See the [permissions example](/docs/getting-started.md#example-permissions) for a concrete snippet.
 
-See `opencode-msb config show` to inspect the merged config with source paths.
+Run `opencode-msb config show` to print the merged config, and `opencode-msb config home` to list `home.yaml`
+mappings.
+
+## Home files
+
+In addition to the opencode config, `home.yaml` provisions arbitrary files into the VM home directory (`/home/dev`). A
+manifest is an optional YAML map from a **VM-home-relative target path** to a **host source string**:
+
+| Manifest location              | Purpose                         |
+|--------------------------------|---------------------------------|
+| `~/.config/opencode-msb/home.yaml` | User-level home-file mappings |
+| `.opencode-msb/home.yaml`      | Project-level home-file mappings |
+
+Keys (targets) are relative paths within the VM home, e.g. `.config/opencode/opencode.json`. The host source value is
+resolved as follows:
+
+- **empty** — read host `$HOME/<target>`
+- **`/`-prefixed** — an absolute host path
+- **`~`-prefixed** — host `$HOME/<rest>`
+- **otherwise** — relative to the manifest file that declares it
+
+Layering: the project manifest overrides the user manifest **per target**. Targets must stay within the VM home
+(`..` traversal and absolute paths are rejected), and `.config/opencode/opencode.json` is reserved for the merged
+opencode config — it cannot be provisioned via `home.yaml`.
+
+Example `.opencode-msb/home.yaml`:
+
+```yaml
+# Relative source resolves against .opencode-msb/
+.ssh/config: ssh_config
+# Absolute host path
+.config/tooling/rc: /abs/path/to/rc
+# Host $HOME
+.gitconfig: ~/.gitconfig
+# Empty source reads host $HOME/.inputrc
+.inputrc:
+```
+
+Run `opencode-msb config home` to list the resolved VM target → host source mappings.

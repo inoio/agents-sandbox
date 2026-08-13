@@ -16,6 +16,7 @@ const (
 	cmdVersion = "version"
 	cmdConfig  = "config"
 	cmdShow    = "show"
+	cmdHome    = "home"
 	cmdImage   = "image"
 	cmdVolume  = "volume"
 	cmdSandbox = "sandbox"
@@ -40,7 +41,6 @@ const (
 	flagAge         = "age"
 	flagWorktree    = "worktree"
 	flagUser        = "user"
-	flagNoAuto      = "no-auto"
 	flagServeOnly   = "serve-only"
 
 	annotationAlsoAs = naming.Prefix + "/also-as"
