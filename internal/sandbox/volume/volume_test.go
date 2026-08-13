@@ -119,7 +119,7 @@ func TestResolveHomeAction_DifferentDigestInInteractivePrompt(t *testing.T) {
 			if len(choices) != 4 {
 				return "", fmt.Errorf("expected 4 choices, got %d", len(choices))
 			}
-			return "2", nil
+			return "m", nil
 		},
 	}
 	vm := NewManager(ui)
@@ -129,11 +129,24 @@ func TestResolveHomeAction_DifferentDigestInInteractivePrompt(t *testing.T) {
 	}
 }
 
+func TestResolveHomeAction_NonInteractiveExplains(t *testing.T) {
+	vm := NewManager(&termio.Mock{})
+	ui := &termio.Mock{IsInteractiveResult: false}
+	action := vm.ResolveHomeAction(ui, "old", "new")
+	if action != ActionKeep {
+		t.Fatalf("expected ActionKeep, got %v", action)
+	}
+	if len(ui.InfoCalls) == 0 || !strings.Contains(ui.InfoCalls[0], "image changed") ||
+		!strings.Contains(ui.InfoCalls[0], "keeping") {
+		t.Errorf("expected an explanatory keep message, got %v", ui.InfoCalls)
+	}
+}
+
 func TestResolveHomeAction_ActionQuitReturnsQuit(t *testing.T) {
 	ui := &termio.Mock{
 		IsInteractiveResult: true,
 		SelectFn: func(_ string, _ []termio.Choice, _ string) (string, error) {
-			return "4", nil
+			return "q", nil
 		},
 	}
 	vm := NewManager(ui)
@@ -426,10 +439,10 @@ func TestFromKeyMapsValidKeys(t *testing.T) {
 		key  string
 		want VolumeAction
 	}{
-		{"1", ActionKeep},
-		{"2", ActionMigrate},
-		{"3", ActionReset},
-		{"4", ActionQuit},
+		{"k", ActionKeep},
+		{"m", ActionMigrate},
+		{"r", ActionReset},
+		{"q", ActionQuit},
 	}
 	for _, tt := range tests {
 		t.Run(tt.key, func(t *testing.T) {

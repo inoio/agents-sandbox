@@ -38,7 +38,11 @@ func (p *printer) Select(prompt string, choices []Choice, defaultKey string) (st
 		if desc == "" {
 			desc = "-"
 		}
-		fmt.Fprintf(p.stderr, "  %s) %s - %s\n", c.Key, c.Label, desc)
+		marker := ""
+		if c.Key == defaultKey {
+			marker = " (default)"
+		}
+		fmt.Fprintf(p.stderr, "  %s) %s%s - %s\n", c.Key, c.Label, marker, desc)
 	}
 	p.Infof("  default [%s]", defaultKey)
 
@@ -64,40 +68,6 @@ func (p *printer) Select(prompt string, choices []Choice, defaultKey string) (st
 	}
 
 	return "", errTooManyInvalidInputs
-}
-
-func (p *printer) ConfirmDefault(prompt string, defaultYes bool) (bool, error) {
-	if !p.IsInteractive() {
-		p.Infof("%s: using default '%t'", prompt, defaultYes)
-		return defaultYes, nil
-	}
-
-	defaultHint := "y/N"
-	if defaultYes {
-		defaultHint = "Y/n"
-	}
-	p.Infof("%s [%s]", prompt, defaultHint)
-
-	reader := p.getStdinReader()
-	for range maxRetries {
-		line, err := reader.ReadString('\n')
-		if err != nil {
-			return false, err
-		}
-		line = strings.TrimSpace(strings.ToLower(line))
-		if line == "" {
-			return defaultYes, nil
-		}
-		if line == "y" || line == "yes" {
-			return true, nil
-		}
-		if line == "n" || line == "no" {
-			return false, nil
-		}
-		fmt.Fprintf(p.stderr, "please answer y or n: ")
-	}
-
-	return false, errTooManyInvalidInputs
 }
 
 func (p *printer) Input(prompt, defaultValue string) (string, error) {

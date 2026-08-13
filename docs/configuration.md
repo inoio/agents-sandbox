@@ -229,8 +229,8 @@ When **no other client** is attached, config changes apply immediately.
 ### Parallel Sessions
 
 When multiple `opencode-sandbox` sessions are actively connected to a VM, applying a resource change by recreating the VM
-may disrupt active sessions. In this case, the launcher will prompt you whether to keep the current VM (defer) or
-recreate. The default is to keep/defer.
+may disrupt active sessions. In this case, the launcher will prompt you whether to keep the current VM (defer),
+recreate, or quit to abort the change. The default is to keep/defer.
 
 ## Opencode configuration
 

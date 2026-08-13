@@ -20,10 +20,8 @@ func PromptA(ui termio.UI, changes []Change, n int) (string, error) {
 		n,
 	)
 	return ui.Select(prompt, []termio.Choice{
-		//nolint:exhaustruct // brief-specified wording
-		{Key: keepKey, Label: "Keep current VM (defer this change)"},
-		//nolint:exhaustruct // brief-specified wording
-		{Key: quitKey, Label: "Quit (allow finalization of other sessions)"},
+		{Key: keepKey, Label: "Keep current VM", Description: "defer this change"},
+		{Key: quitKey, Label: "Quit", Description: "allow finalization of other sessions"},
 	}, keepKey)
 }
 
@@ -35,9 +33,8 @@ func PromptB(ui termio.UI, changes []Change, n int) (string, error) {
 		n,
 	)
 	return ui.Select(prompt, []termio.Choice{
-		//nolint:exhaustruct // brief-specified wording
-		{Key: keepKey, Label: "Keep current server (defer this change)"},
-		//nolint:exhaustruct // brief-specified wording
-		{Key: restartKey, Label: "Restart server (apply changes)"},
+		{Key: keepKey, Label: "Keep current server", Description: "defer this change"},
+		{Key: quitKey, Label: "Quit", Description: "leave server running; apply later"},
+		{Key: restartKey, Label: "Restart server", Description: "apply changes"},
 	}, keepKey)
 }

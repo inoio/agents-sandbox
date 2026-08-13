@@ -67,11 +67,6 @@ func TestMockPromptDefaults(t *testing.T) {
 		t.Errorf("expected default select, got %q, %v", got, err)
 	}
 
-	confirmed, err := m.ConfirmDefault("prompt", true)
-	if err != nil || !confirmed {
-		t.Errorf("expected default confirm true, got %v, %v", confirmed, err)
-	}
-
 	value, err := m.Input("prompt", "default")
 	if err != nil || value != "default" {
 		t.Errorf("expected default input, got %q, %v", value, err)
@@ -80,18 +75,13 @@ func TestMockPromptDefaults(t *testing.T) {
 
 func TestMockPromptFnsOverrideDefaults(t *testing.T) {
 	m := &Mock{
-		SelectFn:         func(string, []Choice, string) (string, error) { return "x", nil },
-		ConfirmDefaultFn: func(string, bool) (bool, error) { return false, nil },
-		InputFn:          func(string, string) (string, error) { return "y", nil },
+		SelectFn: func(string, []Choice, string) (string, error) { return "x", nil },
+		InputFn:  func(string, string) (string, error) { return "y", nil },
 	}
 
 	got, _ := m.Select("", nil, "a")
 	if got != "x" {
 		t.Errorf("expected select override x, got %q", got)
-	}
-	confirmed, _ := m.ConfirmDefault("", true)
-	if confirmed {
-		t.Error("expected confirm override false")
 	}
 	value, _ := m.Input("", "default")
 	if value != "y" {

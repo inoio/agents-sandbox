@@ -25,9 +25,8 @@ type Mock struct {
 	assumeYes           bool
 	IsInteractiveResult bool
 
-	SelectFn         func(prompt string, choices []Choice, defaultKey string) (string, error)
-	ConfirmDefaultFn func(prompt string, defaultYes bool) (bool, error)
-	InputFn          func(prompt, defaultValue string) (string, error)
+	SelectFn func(prompt string, choices []Choice, defaultKey string) (string, error)
+	InputFn  func(prompt, defaultValue string) (string, error)
 }
 
 type mockSpinner struct{}
@@ -111,13 +110,6 @@ func (m *Mock) Select(prompt string, choices []Choice, defaultKey string) (strin
 		return m.SelectFn(prompt, choices, defaultKey)
 	}
 	return defaultKey, nil
-}
-
-func (m *Mock) ConfirmDefault(prompt string, defaultYes bool) (bool, error) {
-	if m.ConfirmDefaultFn != nil {
-		return m.ConfirmDefaultFn(prompt, defaultYes)
-	}
-	return defaultYes, nil
 }
 
 func (m *Mock) Input(prompt, defaultValue string) (string, error) {

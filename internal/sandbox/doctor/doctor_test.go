@@ -8,8 +8,18 @@ import (
 	"strings"
 	"testing"
 
+	"gitlab.inoio.de/inoio/opencode-msb/internal/termio"
 	"gitlab.inoio.de/inoio/opencode-sandbox/internal/testutil"
 )
+
+// renderErrorCall mirrors termio.printer.Error, which renders "msg: err", so
+// tests can assert on both the guidance text and the underlying error.
+func renderErrorCall(e termio.ErrorCall) string {
+	if e.Err == nil {
+		return e.Msg
+	}
+	return e.Msg + ": " + e.Err.Error()
+}
 
 func TestCheckDockerLogsUnderlyingError(t *testing.T) {
 	testUI := testutil.TermUIMock(t)
@@ -21,7 +31,7 @@ func TestCheckDockerLogsUnderlyingError(t *testing.T) {
 
 	var out []string
 	for _, e := range testUI.ErrorCalls {
-		out = append(out, e.Msg)
+		out = append(out, renderErrorCall(e))
 	}
 	outStr := strings.Join(out, " ")
 	if !strings.Contains(outStr, "docker not found") {
@@ -65,7 +75,7 @@ func TestCheckMsbEnsureInstalledErrorSurfacesErrorWithoutInstallHint(t *testing.
 	}
 	var out []string
 	for _, e := range testUI.ErrorCalls {
-		out = append(out, e.Msg)
+		out = append(out, renderErrorCall(e))
 	}
 	outStr := strings.Join(out, " ")
 	if !strings.Contains(outStr, "msb runtime setup failed") {
