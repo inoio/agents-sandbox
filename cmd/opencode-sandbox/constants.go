@@ -1,6 +1,6 @@
 package main
 
-import "gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/naming"
+import "gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/naming"
 
 const (
 	pFlagYes     = "yes"

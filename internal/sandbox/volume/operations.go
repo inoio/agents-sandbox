@@ -10,11 +10,11 @@ import (
 
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 
-	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/msb"
-	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/naming"
-	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/options"
-	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/state"
-	"gitlab.inoio.de/inoio/opencode-msb/internal/termio"
+	"gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/msb"
+	"gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/naming"
+	"gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/options"
+	"gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/state"
+	"gitlab.inoio.de/inoio/opencode-sandbox/internal/termio"
 )
 
 // checkForActiveVMs checks if there are active or stopped VMs for the given slug.

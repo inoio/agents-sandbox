@@ -8,12 +8,12 @@ import (
 
 	msb "github.com/superradcompany/microsandbox/sdk/go"
 
-	"gitlab.inoio.de/inoio/opencode-msb/internal/configpaths"
-	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/docker"
-	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/doctor"
-	sandboxmsb "gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/msb"
-	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/session"
-	"gitlab.inoio.de/inoio/opencode-msb/internal/termio"
+	"gitlab.inoio.de/inoio/opencode-sandbox/internal/configpaths"
+	"gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/docker"
+	"gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/doctor"
+	sandboxmsb "gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/msb"
+	"gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/session"
+	"gitlab.inoio.de/inoio/opencode-sandbox/internal/termio"
 )
 
 // setupRunMocks configures all mock dependencies needed for run/shell tests.

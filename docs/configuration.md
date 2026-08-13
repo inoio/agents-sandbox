@@ -1,25 +1,25 @@
 # Configuration
 
-opencode-msb supports configuration at two levels: user-level defaults and project-level overrides. Both can set CLI
+opencode-sandbox supports configuration at two levels: user-level defaults and project-level overrides. Both can set CLI
 flags and environment variables.
 
 ## User-level defaults
 
-Place files under `~/.config/opencode-msb/` to set defaults for all projects:
+Place files under `~/.config/opencode-sandbox/` to set defaults for all projects:
 
 The tool follows
 the [XDG base directory spec](https://specifications.freedesktop.org/basedir-spec/basedir-spec-latest.html):
-`~/.config/opencode-msb`, `~/.cache/opencode-msb`, and `~/.local/state/opencode-msb` are the defaults, but the
+`~/.config/opencode-sandbox`, `~/.cache/opencode-sandbox`, and `~/.local/state/opencode-sandbox` are the defaults, but the
 `XDG_CONFIG_HOME`, `XDG_CACHE_HOME`, and `XDG_STATE_HOME` environment variables override them when set (and absolute).
 
 | File                                                   | Purpose                                                |
 |--------------------------------------------------------|--------------------------------------------------------|
-| `~/.config/opencode-msb/env`                           | Environment variables forwarded to every sandbox       |
-| `~/.config/opencode-msb/env.secret`                    | Secret environment variables (legacy, see [Secrets](#secrets)) |
-| `~/.config/opencode-msb/env.secret.yaml`               | Secret environment variables (YAML/JSON, see [Secrets](#secrets)) |
-| `~/.config/opencode-msb/config.(y[a]ml\|json[(c\|5)])` | Launcher defaults for CLI flags                        |
-| `~/.config/opencode-msb/opencode/*`                     | User opencode config snippets (see [Opencode configuration](#opencode-configuration)) |
-| `~/.config/opencode-msb/home.yaml`                      | User home-file mappings (see [Home files](#home-files)) |
+| `~/.config/opencode-sandbox/env`                           | Environment variables forwarded to every sandbox       |
+| `~/.config/opencode-sandbox/env.secret`                    | Secret environment variables (legacy, see [Secrets](#secrets)) |
+| `~/.config/opencode-sandbox/env.secret.yaml`               | Secret environment variables (YAML/JSON, see [Secrets](#secrets)) |
+| `~/.config/opencode-sandbox/config.(y[a]ml\|json[(c\|5)])` | Launcher defaults for CLI flags                        |
+| `~/.config/opencode-sandbox/opencode/*`                     | User opencode config snippets (see [Opencode configuration](#opencode-configuration)) |
+| `~/.config/opencode-sandbox/home.yaml`                      | User home-file mappings (see [Home files](#home-files)) |
 
 `env` uses `KEY=value` format. `env.secret` uses `KEY=value@host` (see [Secrets](#secrets)).
 
@@ -44,7 +44,7 @@ first one found is used.
 | `auto-stop-timeout`             | —                      | Idle timeout after last client detaches (default: 10s, only in config)                                                                       |
 | `auto-stop-max-session-retries` | —                      | Retries to tolerate for a session stuck in `retry` before stopping (default: 10, only in config)                                             |
 
-Example `~/.config/opencode-msb/config.yaml`:
+Example `~/.config/opencode-sandbox/config.yaml`:
 
 ```yaml
 verbose: true
@@ -60,38 +60,38 @@ auto-stop-max-session-retries: 10
 
 ## Project-level configuration
 
-Place files under `.opencode-msb/` in your project directory. These override user-level defaults.
+Place files under `.opencode-sandbox/` in your project directory. These override user-level defaults.
 
 | File                                          | Purpose                                |
 |-----------------------------------------------|----------------------------------------|
-| `.opencode-msb/Dockerfile`                    | Custom runner image layers             |
-| `.opencode-msb/env`                           | Project-specific environment variables |
-| `.opencode-msb/env.secret`                    | Project-specific secrets (legacy)      |
-| `.opencode-msb/env.secret.yaml`               | Project-specific secrets (YAML/JSON)   |
-| `.opencode-msb/config.(y[a]ml\|json[(c\|5)])` | Project-specific launcher defaults     |
-| `.opencode-msb/opencode/*`                    | Project-specific opencode config snippets (see [Opencode configuration](#opencode-configuration)) |
-| `.opencode-msb/home.yaml`                     | Project-specific home-file mappings (see [Home files](#home-files)) |
+| `.opencode-sandbox/Dockerfile`                    | Custom runner image layers             |
+| `.opencode-sandbox/env`                           | Project-specific environment variables |
+| `.opencode-sandbox/env.secret`                    | Project-specific secrets (legacy)      |
+| `.opencode-sandbox/env.secret.yaml`               | Project-specific secrets (YAML/JSON)   |
+| `.opencode-sandbox/config.(y[a]ml\|json[(c\|5)])` | Project-specific launcher defaults     |
+| `.opencode-sandbox/opencode/*`                    | Project-specific opencode config snippets (see [Opencode configuration](#opencode-configuration)) |
+| `.opencode-sandbox/home.yaml`                     | Project-specific home-file mappings (see [Home files](#home-files)) |
 
 ## Precedence
 
 Configuration is resolved in this order (later entries override earlier ones):
 
 1. **Built-in defaults** — compiled-in values
-2. **User-level** — `~/.config/opencode-msb/`
-3. **Project-level** — `.opencode-msb/`
+2. **User-level** — `~/.config/opencode-sandbox/`
+3. **Project-level** — `.opencode-sandbox/`
 4. **CLI flags** — always win
 
 ## Environment Variables
 
 Two files define environment variables passed to the sandbox:
 
-- `~/.config/opencode-msb/env` — user-level, every project
-- `.opencode-msb/env` — project-level, current project only
+- `~/.config/opencode-sandbox/env` — user-level, every project
+- `.opencode-sandbox/env` — project-level, current project only
 
 Format: one `KEY=value` per line. Comments (lines starting with `#`) and blank lines are ignored.
 
 ```shell
-# .opencode-msb/env
+# .opencode-sandbox/env
 FOO=bar
 DATABASE_URL=postgres://localhost/mydb
 ```
@@ -115,7 +115,7 @@ hosts can access the secret. Values may contain `@` — everything before the la
 define a host explicitly; omitting the host part drops the secret with a warning.
 
 ```shell
-# .opencode-msb/env.secret
+# .opencode-sandbox/env.secret
 GITHUB_TOKEN=ghp_xxxxxxxxxxxx@github.com
 ANTHROPIC_API_KEY=sk-ant-xxxxxxxxxxxx@anthropic.com
 ```
@@ -128,7 +128,7 @@ required — entries with neither hosts nor a dangerous flag are dropped with a 
 is a JSON superset).
 
 ```yaml
-# .opencode-msb/env.secret.yaml
+# .opencode-sandbox/env.secret.yaml
 GITHUB_TOKEN:
   value: "ghp_xxx@corp"
   host: microsandbox
@@ -161,10 +161,10 @@ with a warning.
 
 **Supported files**
 
-- `~/.config/opencode-msb/env.secret` — user-level, legacy text format
-- `~/.config/opencode-msb/env.secret.yaml` — user-level, structured YAML (or JSON)
-- `.opencode-msb/env.secret` — project-level, legacy text format
-- `.opencode-msb/env.secret.yaml` — project-level, structured YAML (or JSON)
+- `~/.config/opencode-sandbox/env.secret` — user-level, legacy text format
+- `~/.config/opencode-sandbox/env.secret.yaml` — user-level, structured YAML (or JSON)
+- `.opencode-sandbox/env.secret` — project-level, legacy text format
+- `.opencode-sandbox/env.secret.yaml` — project-level, structured YAML (or JSON)
 
 ### Accessing secrets inside the VM
 
@@ -228,15 +228,15 @@ When **no other client** is attached, config changes apply immediately.
 
 ### Parallel Sessions
 
-When multiple `opencode-msb` sessions are actively connected to a VM, applying a resource change by recreating the VM
+When multiple `opencode-sandbox` sessions are actively connected to a VM, applying a resource change by recreating the VM
 may disrupt active sessions. In this case, the launcher will prompt you whether to keep the current VM (defer) or
 recreate. The default is to keep/defer.
 
 ## Opencode configuration
 
-opencode-msb provisions a single opencode config into the VM at `/home/dev/.config/opencode/opencode.json`. No embedded
-provider or permission config is shipped with opencode-msb. Instead, opencode config is assembled from snippet files
-under `~/.config/opencode-msb/opencode/` (user) and `.opencode-msb/opencode/` (project):
+opencode-sandbox provisions a single opencode config into the VM at `/home/dev/.config/opencode/opencode.json`. No embedded
+provider or permission config is shipped with opencode-sandbox. Instead, opencode config is assembled from snippet files
+under `~/.config/opencode-sandbox/opencode/` (user) and `.opencode-sandbox/opencode/` (project):
 
 - All `.json`, `.jsonc`, and `.json5` files are parsed and **deep-merged** into one `opencode.json`.
 - The user directory is merged first, then the project directory; within each directory files are merged in
@@ -245,7 +245,7 @@ under `~/.config/opencode-msb/opencode/` (user) and `.opencode-msb/opencode/` (p
 
 See the [permissions example](/docs/getting-started.md#example-permissions) for a concrete snippet.
 
-Run `opencode-msb config show` to print the merged config, and `opencode-msb config home` to list `home.yaml`
+Run `opencode-sandbox config show` to print the merged config, and `opencode-sandbox config home` to list `home.yaml`
 mappings.
 
 ## Home files
@@ -255,8 +255,8 @@ manifest is an optional YAML map from a **VM-home-relative target path** to a **
 
 | Manifest location              | Purpose                         |
 |--------------------------------|---------------------------------|
-| `~/.config/opencode-msb/home.yaml` | User-level home-file mappings |
-| `.opencode-msb/home.yaml`      | Project-level home-file mappings |
+| `~/.config/opencode-sandbox/home.yaml` | User-level home-file mappings |
+| `.opencode-sandbox/home.yaml`      | Project-level home-file mappings |
 
 Keys (targets) are relative paths within the VM home, e.g. `.config/opencode/opencode.json`. The host source value is
 resolved as follows:
@@ -270,10 +270,10 @@ Layering: the project manifest overrides the user manifest **per target**. Targe
 (`..` traversal and absolute paths are rejected), and `.config/opencode/opencode.json` is reserved for the merged
 opencode config — it cannot be provisioned via `home.yaml`.
 
-Example `.opencode-msb/home.yaml`:
+Example `.opencode-sandbox/home.yaml`:
 
 ```yaml
-# Relative source resolves against .opencode-msb/
+# Relative source resolves against .opencode-sandbox/
 .ssh/config: ssh_config
 # Absolute host path
 .config/tooling/rc: /abs/path/to/rc
@@ -283,4 +283,4 @@ Example `.opencode-msb/home.yaml`:
 .inputrc:
 ```
 
-Run `opencode-msb config home` to list the resolved VM target → host source mappings.
+Run `opencode-sandbox config home` to list the resolved VM target → host source mappings.

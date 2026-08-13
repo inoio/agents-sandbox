@@ -1,9 +1,9 @@
 package naming
 
-// Prefix is the canonical base name for all opencode-msb naming conventions.
-// Changing this value renames the tool across all namespaces, annotations,
-// VM names, image references, sandbox names, and volume names.
-const Prefix = "opencode-msb"
+// Prefix is the canonical base name for all opencode-sandbox naming
+// conventions. Changing this value renames the tool across all namespaces,
+// annotations, VM names, image references, sandbox names, and volume names.
+const Prefix = "opencode-sandbox"
 
 const BaseSlug = "base"
 

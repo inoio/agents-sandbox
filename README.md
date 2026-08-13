@@ -1,8 +1,8 @@
-# opencode-msb
+# opencode-sandbox
 
 > Run opencode inside an isolated microsandbox VM.
 
-opencode-msb launches [opencode](https://github.com/anthropics/opencode) inside an isolated Linux VM backed
+opencode-sandbox launches [opencode](https://github.com/anthropics/opencode) inside an isolated Linux VM backed
 by [microsandbox](https://github.com/superradcompany/microsandbox). Each project gets a persistent project VM — shared
 across sessions with a configurable auto-stop policy (see [Configuration](/docs/configuration.md) and
 [Sandboxes](/docs/sandboxes.md)). The VM has your project mounted as `/workspace`, a persistent home directory
@@ -13,16 +13,16 @@ volume, and access to a curated toolchain (Node.js, ripgrep, jq, yq, curl, etc.)
 After installation, start a session in your current project:
 
 ```console
-opencode-msb
+opencode-sandbox
 ```
 
 Start an isolated session with a worktree:
 
 ```console
-opencode-msb -w bugfix-my-fix
+opencode-sandbox -w bugfix-my-fix
 ```
 
-Get an overview over commands via `opencode-msb tree`.
+Get an overview over commands via `opencode-sandbox tree`.
 
 ### Serve opencode to a host client (e.g. Opencode Desktop)
 
@@ -31,7 +31,7 @@ published on the host, prints the URL for Opencode Desktop, and stays running
 (no in-VM TUI) until you press `Ctrl-D`:
 
 ````console
-opencode-msb run --serve-only
+opencode-sandbox run --serve-only
 ````
 
 Connect Opencode Desktop to the printed `http://127.0.0.1:4096` URL. The host
@@ -42,7 +42,7 @@ reachable. To add basic auth, set `OPENCODE_SERVER_PASSWORD` (and optionally
 
 To connect Opencode Desktop to the sandbox:
 
-1. Start the sandbox with `opencode-msb run --serve-only`.
+1. Start the sandbox with `opencode-sandbox run --serve-only`.
 2. In Opencode Desktop: **File → Settings → Servers → Add server** (defaults).
 3. On the host (as root), symlink the directory you want to work in to
    `/workspace`.
@@ -58,29 +58,29 @@ Requires **Linux (KVM) or macOS (Apple Silicon)**.
   **Linux (x86_64):**
 
   ```console
-  curl -L -o opencode-msb https://gitlab.inoio.de/inoio/opencode-msb/-/releases/permalink/latest/downloads/opencode-msb-linux-amd64
+  curl -L -o opencode-sandbox https://gitlab.inoio.de/inoio/opencode-sandbox/-/releases/permalink/latest/downloads/opencode-sandbox-linux-amd64
   ```
 
   **macOS (Apple Silicon):**
 
   ```console
-  curl -L -o opencode-msb https://gitlab.inoio.de/inoio/opencode-msb/-/releases/permalink/latest/downloads/opencode-msb-darwin-arm64
+  curl -L -o opencode-sandbox https://gitlab.inoio.de/inoio/opencode-sandbox/-/releases/permalink/latest/downloads/opencode-sandbox-darwin-arm64
   ```
 
   **Linux (arm64):**
 
   ```console
-  curl -L -o opencode-msb https://gitlab.inoio.de/inoio/opencode-msb/-/releases/permalink/latest/downloads/opencode-msb-linux-arm64
+  curl -L -o opencode-sandbox https://gitlab.inoio.de/inoio/opencode-sandbox/-/releases/permalink/latest/downloads/opencode-sandbox-linux-arm64
   ```
 * Install:
   ```console
-  chmod u+x opencode-msb
-  mv opencode-msb ~/.local/bin # or any other directory in your PATH 
+  chmod u+x opencode-sandbox
+  mv opencode-sandbox ~/.local/bin # or any other directory in your PATH 
   ```
 * Check prerequisites:
 
    ```console
-   opencode-msb doctor
+   opencode-sandbox doctor
    ```
 
 See [Getting Started](/docs/getting-started.md) for prerequisites and a full setup guide.

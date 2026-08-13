@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"gitlab.inoio.de/inoio/opencode-msb/internal/testutil"
+	"gitlab.inoio.de/inoio/opencode-sandbox/internal/testutil"
 )
 
 func TestTree(t *testing.T) {
@@ -73,8 +73,8 @@ func TestTree(t *testing.T) {
 		if len(testUI.OutCalls) == 0 {
 			t.Fatal("expected at least one OutCall from version command")
 		}
-		if !strings.Contains(testUI.OutCalls[0], "opencode-msb dev") {
-			t.Errorf("expected version output to contain %q, got %q", "opencode-msb dev", testUI.OutCalls[0])
+		if !strings.Contains(testUI.OutCalls[0], "opencode-sandbox dev") {
+			t.Errorf("expected version output to contain %q, got %q", "opencode-sandbox dev", testUI.OutCalls[0])
 		}
 	})
 
@@ -97,8 +97,8 @@ func TestTree(t *testing.T) {
 		if len(testUI.OutCalls) == 0 {
 			t.Fatal("expected at least one OutCall from version command")
 		}
-		if !strings.Contains(testUI.OutCalls[0], "opencode-msb 1.2.3") {
-			t.Errorf("expected version output to contain %q, got %q", "opencode-msb 1.2.3", testUI.OutCalls[0])
+		if !strings.Contains(testUI.OutCalls[0], "opencode-sandbox 1.2.3") {
+			t.Errorf("expected version output to contain %q, got %q", "opencode-sandbox 1.2.3", testUI.OutCalls[0])
 		}
 	})
 }

@@ -9,17 +9,17 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"gitlab.inoio.de/inoio/opencode-msb/internal/configpaths"
-	"gitlab.inoio.de/inoio/opencode-msb/internal/git"
-	"gitlab.inoio.de/inoio/opencode-msb/internal/homeconfig"
-	opencodeconfig "gitlab.inoio.de/inoio/opencode-msb/internal/opencodeconfig"
-	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/doctor"
-	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/image"
-	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/pruning"
-	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/session"
-	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/volume"
-	"gitlab.inoio.de/inoio/opencode-msb/internal/termio"
-	viperconfig "gitlab.inoio.de/inoio/opencode-msb/internal/viperconfig"
+	"gitlab.inoio.de/inoio/opencode-sandbox/internal/configpaths"
+	"gitlab.inoio.de/inoio/opencode-sandbox/internal/git"
+	"gitlab.inoio.de/inoio/opencode-sandbox/internal/homeconfig"
+	opencodeconfig "gitlab.inoio.de/inoio/opencode-sandbox/internal/opencodeconfig"
+	"gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/doctor"
+	"gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/image"
+	"gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/pruning"
+	"gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/session"
+	"gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/volume"
+	"gitlab.inoio.de/inoio/opencode-sandbox/internal/termio"
+	viperconfig "gitlab.inoio.de/inoio/opencode-sandbox/internal/viperconfig"
 )
 
 type volumeOpFunc func(context.Context, string, string, string, bool, bool, termio.UI) error

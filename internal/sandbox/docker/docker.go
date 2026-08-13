@@ -14,7 +14,7 @@ import (
 
 	"github.com/moby/moby/client"
 
-	"gitlab.inoio.de/inoio/opencode-msb/internal/termio"
+	"gitlab.inoio.de/inoio/opencode-sandbox/internal/termio"
 )
 
 // Client is the exported interface for Docker API operations.

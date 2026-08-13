@@ -1,4 +1,4 @@
-FROM opencode-msb/runner-base:latest
+FROM opencode-sandbox/runner-base:latest
 
 USER root
 

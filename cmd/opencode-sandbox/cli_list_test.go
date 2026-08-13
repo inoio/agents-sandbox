@@ -2,16 +2,15 @@ package main
 
 import (
 	"errors"
-	"slices"
 	"strings"
 	"testing"
 
 	msb "github.com/superradcompany/microsandbox/sdk/go"
 
-	"gitlab.inoio.de/inoio/opencode-msb/internal/configpaths"
-	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/docker"
-	sandboxmsb "gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/msb"
-	"gitlab.inoio.de/inoio/opencode-msb/internal/termio"
+	"gitlab.inoio.de/inoio/opencode-sandbox/internal/configpaths"
+	"gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/docker"
+	sandboxmsb "gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/msb"
+	"gitlab.inoio.de/inoio/opencode-sandbox/internal/termio"
 )
 
 var errBoom = errors.New("boom")
@@ -42,15 +41,30 @@ func runListCmdTest(t *testing.T, ui *termio.Mock, mock *sandboxmsb.MockMsbClien
 		return
 	}
 	for _, want := range wantOut {
-		if !slices.Contains(ui.OutCalls, want) {
+		if !containsNormalized(ui.OutCalls, want) {
 			t.Errorf("OutCalls missing %q; got: %v", want, ui.OutCalls)
 		}
 	}
 	for _, want := range wantInfo {
-		if !slices.Contains(ui.InfoCalls, want) {
+		if !containsNormalized(ui.InfoCalls, want) {
 			t.Errorf("InfoCalls missing %q; got: %v", want, ui.InfoCalls)
 		}
 	}
+}
+
+// containsNormalized reports whether any element of got matches want when both
+// are whitespace-normalized. Column padding produced by the list renderers
+// (e.g. %-50s) depends on identifier widths that change independently of
+// test data, so alignment is not part of the assertion.
+func containsNormalized(got []string, want string) bool {
+	norm := func(s string) string { return strings.Join(strings.Fields(s), " ") }
+	wantN := norm(want)
+	for _, g := range got {
+		if norm(g) == wantN {
+			return true
+		}
+	}
+	return false
 }
 
 func TestListSandboxes(t *testing.T) {
@@ -74,26 +88,32 @@ func TestListSandboxes(t *testing.T) {
 			mockSetup: func(m *sandboxmsb.MockMsbClient) {
 				m.Sandboxes = []sandboxmsb.SandboxHandle{
 					&sandboxmsb.MockSandboxHandle{
-						Name_:   "opencode-msb-vm-abc123",
+						Name_:   "opencode-sandbox-vm-abc123",
 						Status_: msb.SandboxStatusRunning,
 					},
 				}
 			},
-			wantOut: []string{"opencode-msb-vm-abc123                   running"},
+			wantOut: []string{"opencode-sandbox-vm-abc123                   running"},
 		},
 		{
 			name: "L3-multiple sandboxes",
 			mockSetup: func(m *sandboxmsb.MockMsbClient) {
 				m.Sandboxes = []sandboxmsb.SandboxHandle{
-					&sandboxmsb.MockSandboxHandle{Name_: "opencode-msb-vm-alpha", Status_: msb.SandboxStatusRunning},
-					&sandboxmsb.MockSandboxHandle{Name_: "opencode-msb-vm-beta", Status_: msb.SandboxStatusStopped},
-					&sandboxmsb.MockSandboxHandle{Name_: "opencode-msb-vm-gamma", Status_: msb.SandboxStatusDraining},
+					&sandboxmsb.MockSandboxHandle{
+						Name_:   "opencode-sandbox-vm-alpha",
+						Status_: msb.SandboxStatusRunning,
+					},
+					&sandboxmsb.MockSandboxHandle{Name_: "opencode-sandbox-vm-beta", Status_: msb.SandboxStatusStopped},
+					&sandboxmsb.MockSandboxHandle{
+						Name_:   "opencode-sandbox-vm-gamma",
+						Status_: msb.SandboxStatusDraining,
+					},
 				}
 			},
 			wantOut: []string{
-				"opencode-msb-vm-alpha                    running",
-				"opencode-msb-vm-beta                     stopped",
-				"opencode-msb-vm-gamma                    draining",
+				"opencode-sandbox-vm-alpha                    running",
+				"opencode-sandbox-vm-beta                     stopped",
+				"opencode-sandbox-vm-gamma                    draining",
 			},
 		},
 		{
@@ -102,10 +122,10 @@ func TestListSandboxes(t *testing.T) {
 				m.Sandboxes = []sandboxmsb.SandboxHandle{
 					&sandboxmsb.MockSandboxHandle{Name_: "myvm-other-abc", Status_: msb.SandboxStatusRunning},
 					&sandboxmsb.MockSandboxHandle{Name_: "legacy-vm-xyz", Status_: msb.SandboxStatusRunning},
-					&sandboxmsb.MockSandboxHandle{Name_: "opencode-msb-vm-abc", Status_: msb.SandboxStatusRunning},
+					&sandboxmsb.MockSandboxHandle{Name_: "opencode-sandbox-vm-abc", Status_: msb.SandboxStatusRunning},
 				}
 			},
-			wantOut: []string{"opencode-msb-vm-abc                      running"},
+			wantOut: []string{"opencode-sandbox-vm-abc                      running"},
 		},
 		{
 			name:            "L5-list error",
@@ -156,35 +176,35 @@ func TestListImages(t *testing.T) {
 			mockSetup: func(m *sandboxmsb.MockMsbClient) {
 				m.Images = []sandboxmsb.ImageHandle{
 					&sandboxmsb.MockImageHandle{
-						Reference_:      "opencode-msb/runner-abc123",
+						Reference_:      "opencode-sandbox/runner-abc123",
 						ManifestDigest_: "sha256-abc123def456",
 					},
 				}
 			},
-			wantOut: []string{"opencode-msb/runner-abc123                         sha256-abc123def456"},
+			wantOut: []string{"opencode-sandbox/runner-abc123                         sha256-abc123def456"},
 		},
 		{
 			name: "L8-multiple images",
 			mockSetup: func(m *sandboxmsb.MockMsbClient) {
 				m.Images = []sandboxmsb.ImageHandle{
 					&sandboxmsb.MockImageHandle{
-						Reference_:      "opencode-msb/runner-latest",
+						Reference_:      "opencode-sandbox/runner-latest",
 						ManifestDigest_: "sha256-aaa",
 					},
 					&sandboxmsb.MockImageHandle{
-						Reference_:      "opencode-msb/runner-v1.0.0",
+						Reference_:      "opencode-sandbox/runner-v1.0.0",
 						ManifestDigest_: "sha256-bbb",
 					},
 					&sandboxmsb.MockImageHandle{
-						Reference_:      "opencode-msb/runner-v2.0.0-beta",
+						Reference_:      "opencode-sandbox/runner-v2.0.0-beta",
 						ManifestDigest_: "sha256-ccc",
 					},
 				}
 			},
 			wantOut: []string{
-				"opencode-msb/runner-latest                         sha256-aaa",
-				"opencode-msb/runner-v1.0.0                         sha256-bbb",
-				"opencode-msb/runner-v2.0.0-beta                    sha256-ccc",
+				"opencode-sandbox/runner-latest                         sha256-aaa",
+				"opencode-sandbox/runner-v1.0.0                         sha256-bbb",
+				"opencode-sandbox/runner-v2.0.0-beta                    sha256-ccc",
 			},
 		},
 		{
@@ -192,13 +212,13 @@ func TestListImages(t *testing.T) {
 			mockSetup: func(m *sandboxmsb.MockMsbClient) {
 				m.Images = []sandboxmsb.ImageHandle{
 					&sandboxmsb.MockImageHandle{
-						Reference_:      "opencode-msb/runner-xyz",
+						Reference_:      "opencode-sandbox/runner-xyz",
 						ManifestDigest_: "sha256-abc123",
 					},
 					&sandboxmsb.MockImageHandle{Reference_: "docker.io/some/img:latest", ManifestDigest_: "sha256-xxx"},
 				}
 			},
-			wantOut: []string{"opencode-msb/runner-xyz                            sha256-abc123"},
+			wantOut: []string{"opencode-sandbox/runner-xyz                            sha256-abc123"},
 		},
 		{
 			name:            "L10-list error",
@@ -249,35 +269,35 @@ func TestListVolumes(t *testing.T) {
 			mockSetup: func(m *sandboxmsb.MockMsbClient) {
 				m.Volumes = []sandboxmsb.VolumeHandle{
 					&sandboxmsb.MockVolumeHandle{
-						Name_: "opencode-msb-home-proj-abc",
+						Name_: "opencode-sandbox-home-proj-abc",
 						Path_: "/mnt/vol/home",
 					},
 				}
 			},
-			wantOut: []string{"opencode-msb-home-proj-abc                         /mnt/vol/home"},
+			wantOut: []string{"opencode-sandbox-home-proj-abc                         /mnt/vol/home"},
 		},
 		{
 			name: "L13-multiple volumes",
 			mockSetup: func(m *sandboxmsb.MockMsbClient) {
 				m.Volumes = []sandboxmsb.VolumeHandle{
-					&sandboxmsb.MockVolumeHandle{Name_: "opencode-msb-home-alpha", Path_: "/mnt/vol/a"},
-					&sandboxmsb.MockVolumeHandle{Name_: "opencode-msb-home-beta", Path_: "/mnt/vol/b"},
+					&sandboxmsb.MockVolumeHandle{Name_: "opencode-sandbox-home-alpha", Path_: "/mnt/vol/a"},
+					&sandboxmsb.MockVolumeHandle{Name_: "opencode-sandbox-home-beta", Path_: "/mnt/vol/b"},
 				}
 			},
 			wantOut: []string{
-				"opencode-msb-home-alpha                            /mnt/vol/a",
-				"opencode-msb-home-beta                             /mnt/vol/b",
+				"opencode-sandbox-home-alpha                            /mnt/vol/a",
+				"opencode-sandbox-home-beta                             /mnt/vol/b",
 			},
 		},
 		{
 			name: "L14-non-home volumes filtered",
 			mockSetup: func(m *sandboxmsb.MockMsbClient) {
 				m.Volumes = []sandboxmsb.VolumeHandle{
-					&sandboxmsb.MockVolumeHandle{Name_: "opencode-msb-clone-work", Path_: "/mnt/clone"},
-					&sandboxmsb.MockVolumeHandle{Name_: "opencode-msb-home-abc", Path_: "/mnt/vol"},
+					&sandboxmsb.MockVolumeHandle{Name_: "opencode-sandbox-clone-work", Path_: "/mnt/clone"},
+					&sandboxmsb.MockVolumeHandle{Name_: "opencode-sandbox-home-abc", Path_: "/mnt/vol"},
 				}
 			},
-			wantOut: []string{"opencode-msb-home-abc                              /mnt/vol"},
+			wantOut: []string{"opencode-sandbox-home-abc                              /mnt/vol"},
 		},
 		{
 			name:            "L15-list error",

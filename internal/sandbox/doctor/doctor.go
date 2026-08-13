@@ -6,9 +6,9 @@ import (
 	"os/exec"
 	"strings"
 
-	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/msb"
-	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/naming"
-	"gitlab.inoio.de/inoio/opencode-msb/internal/termio"
+	"gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/msb"
+	"gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/naming"
+	"gitlab.inoio.de/inoio/opencode-sandbox/internal/termio"
 )
 
 // CheckDocker reports whether the docker binary is on PATH, logging a
@@ -79,7 +79,7 @@ func isOrphanedVolume(name string) bool {
 }
 
 func isOrphanedImage(ref string) bool {
-	// Old format images used ":" directly after the namespace (e.g. "opencode-msb/runner:base").
+	// Old format images used ":" directly after the namespace (e.g. "opencode-sandbox/runner:base").
 	// These predate the current naming and are always orphaned.
 	return strings.HasPrefix(ref, naming.Prefix+"/runner:")
 }

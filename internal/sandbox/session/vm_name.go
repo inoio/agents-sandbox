@@ -1,8 +1,8 @@
 package session
 
 import (
-	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/naming"
-	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/options"
+	"gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/naming"
+	"gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/options"
 )
 
 // projectVMName generates the VM name from the project slug.

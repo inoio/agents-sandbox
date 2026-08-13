@@ -4,7 +4,7 @@ import (
 	"errors"
 	"os"
 
-	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/session"
+	"gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/session"
 )
 
 func main() {

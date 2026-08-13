@@ -6,9 +6,9 @@ import (
 
 	"github.com/moby/moby/client"
 
-	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/docker"
-	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/state"
-	"gitlab.inoio.de/inoio/opencode-msb/internal/termio"
+	"gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/docker"
+	"gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/state"
+	"gitlab.inoio.de/inoio/opencode-sandbox/internal/termio"
 )
 
 // isRecent reports whether a timestamp falls within the prune threshold.

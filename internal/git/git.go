@@ -10,7 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"gitlab.inoio.de/inoio/opencode-msb/internal/termio"
+	"gitlab.inoio.de/inoio/opencode-sandbox/internal/termio"
 
 	"github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/config"

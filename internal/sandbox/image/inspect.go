@@ -4,8 +4,8 @@ import (
 	"context"
 	"strings"
 
-	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/docker"
-	"gitlab.inoio.de/inoio/opencode-msb/internal/termio"
+	"gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/docker"
+	"gitlab.inoio.de/inoio/opencode-sandbox/internal/termio"
 )
 
 // inspectExistingImage attempts to inspect the image on disk. If the image is

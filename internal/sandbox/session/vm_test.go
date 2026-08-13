@@ -8,16 +8,16 @@ import (
 
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 
-	"gitlab.inoio.de/inoio/opencode-msb/internal/configpaths"
-	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/msb"
-	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/naming"
-	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/options"
-	"gitlab.inoio.de/inoio/opencode-msb/internal/testutil"
+	"gitlab.inoio.de/inoio/opencode-sandbox/internal/configpaths"
+	"gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/msb"
+	"gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/naming"
+	"gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/options"
+	"gitlab.inoio.de/inoio/opencode-sandbox/internal/testutil"
 )
 
 func TestProjectVMName(t *testing.T) {
 	got := projectVMName("myproj-aBc1234D")
-	want := "opencode-msb-vm-myproj-aBc1234D"
+	want := "opencode-sandbox-vm-myproj-aBc1234D"
 	if got != want {
 		t.Errorf("projectVMName(%q) = %q, want %q", "myproj-aBc1234D", got, want)
 	}
@@ -115,8 +115,8 @@ func TestCreateProjectVMCallsClientCreateSandbox(t *testing.T) {
 	sb, created, err := createProjectVM(
 		context.Background(),
 		client,
-		"opencode-msb-vm-test",
-		"opencode-msb/runner-test:latest",
+		"opencode-sandbox-vm-test",
+		"opencode-sandbox/runner-test:latest",
 		"test-home-vol",
 		t.TempDir(),
 		options.RunOptions{Memory: "1G"},
@@ -135,8 +135,8 @@ func TestCreateProjectVMCallsClientCreateSandbox(t *testing.T) {
 	if len(client.CreatedSandboxes) != 1 {
 		t.Fatalf("expected 1 created sandbox, got %d", len(client.CreatedSandboxes))
 	}
-	if client.CreatedSandboxes[0] != "opencode-msb-vm-test" {
-		t.Errorf("expected sandbox name %q, got %q", "opencode-msb-vm-test", client.CreatedSandboxes[0])
+	if client.CreatedSandboxes[0] != "opencode-sandbox-vm-test" {
+		t.Errorf("expected sandbox name %q, got %q", "opencode-sandbox-vm-test", client.CreatedSandboxes[0])
 	}
 }
 
@@ -145,7 +145,7 @@ func TestStopProjectVMUsesClient(t *testing.T) {
 	ui := &testUI
 	client := &msb.MockMsbClient{}
 	client.SetGotSandbox(&msb.MockSandboxHandle{
-		Name_:   "opencode-msb-vm-test",
+		Name_:   "opencode-sandbox-vm-test",
 		Status_: msbSdk.SandboxStatusRunning,
 	})
 	oldGet := msb.Get
@@ -183,7 +183,7 @@ func TestEnsureProjectVM_CreatePath(t *testing.T) {
 	sb, created, err := ensureProjectVM(
 		context.Background(),
 		options.RunOptions{Memory: "1G", TmpSize: "512M"},
-		"opencode-msb/runner-test:latest",
+		"opencode-sandbox/runner-test:latest",
 		"test-home-vol",
 		tmpRepo,
 		nil,
@@ -209,7 +209,7 @@ func TestEnsureProjectVM_ReconnectPath(t *testing.T) {
 
 	client := &msb.MockMsbClient{}
 	client.SetGotSandbox(&msb.MockSandboxHandle{
-		Name_:   "opencode-msb-vm-test",
+		Name_:   "opencode-sandbox-vm-test",
 		Status_: msbSdk.SandboxStatusRunning,
 	})
 	client.CreateSandboxFn = func(_ context.Context, _ string, _ ...msbSdk.SandboxOption) (msb.Sandbox, error) {
@@ -224,7 +224,7 @@ func TestEnsureProjectVM_ReconnectPath(t *testing.T) {
 	sb, created, err := ensureProjectVM(
 		context.Background(),
 		options.RunOptions{Memory: "1G", TmpSize: "512M"},
-		"opencode-msb/runner-test:latest",
+		"opencode-sandbox/runner-test:latest",
 		"test-home-vol",
 		tmpRepo,
 		nil,
@@ -249,9 +249,9 @@ func TestEnsureProjectVM_ReconnectWhenImageUnchanged(t *testing.T) {
 	ui := &testUI
 
 	oldHandle := &msb.MockSandboxHandle{
-		Name_:   "opencode-msb-vm-test",
+		Name_:   "opencode-sandbox-vm-test",
 		Status_: msbSdk.SandboxStatusRunning,
-		Image_:  "opencode-msb/runner-test:abc123",
+		Image_:  "opencode-sandbox/runner-test:abc123",
 	}
 	client := &msb.MockMsbClient{}
 	client.SetGotSandbox(oldHandle)
@@ -267,7 +267,7 @@ func TestEnsureProjectVM_ReconnectWhenImageUnchanged(t *testing.T) {
 	sb, created, err := ensureProjectVM(
 		context.Background(),
 		options.RunOptions{Memory: "1G", TmpSize: "512M"},
-		"opencode-msb/runner-test:abc123",
+		"opencode-sandbox/runner-test:abc123",
 		"test-home-vol",
 		tmpRepo,
 		nil,
@@ -367,8 +367,8 @@ func TestCreateProjectVMAppliesRootDiskWhenDiskSizeSet(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 
 	if _, _, err := createProjectVM(
-		context.Background(), client, "opencode-msb-vm-test",
-		"opencode-msb/runner-test:latest", "test-home-vol", t.TempDir(),
+		context.Background(), client, "opencode-sandbox-vm-test",
+		"opencode-sandbox/runner-test:latest", "test-home-vol", t.TempDir(),
 		options.RunOptions{Memory: "1G", DiskSize: "16G"}, nil, ui,
 	); err != nil {
 		t.Fatalf("createProjectVM failed: %v", err)
@@ -396,7 +396,7 @@ func TestEnsureProjectVM_NoReplacementWhenExistingImageUnknown(t *testing.T) {
 	ui := &testUI
 
 	oldHandle := &msb.MockSandboxHandle{
-		Name_:   "opencode-msb-vm-test",
+		Name_:   "opencode-sandbox-vm-test",
 		Status_: msbSdk.SandboxStatusRunning,
 		Image_:  "",
 	}
@@ -414,7 +414,7 @@ func TestEnsureProjectVM_NoReplacementWhenExistingImageUnknown(t *testing.T) {
 	sb, created, err := ensureProjectVM(
 		context.Background(),
 		options.RunOptions{Memory: "1G", TmpSize: "512M"},
-		"opencode-msb/runner-test:newDigest",
+		"opencode-sandbox/runner-test:newDigest",
 		"test-home-vol",
 		tmpRepo,
 		nil,
@@ -439,7 +439,7 @@ func TestEnsureProjectVMRecreatesWhenFlagged(t *testing.T) {
 	ui := &testUI
 
 	oldHandle := &msb.MockSandboxHandle{
-		Name_:   "opencode-msb-vm-test",
+		Name_:   "opencode-sandbox-vm-test",
 		Status_: msbSdk.SandboxStatusRunning,
 		Image_:  "old:tag",
 		Cfg:     &msbSdk.SandboxConfig{Image: "old:tag"},
@@ -484,7 +484,7 @@ func TestEnsureProjectVMReusesWhenNotFlagged(t *testing.T) {
 	ui := &testUI
 
 	handle := &msb.MockSandboxHandle{
-		Name_:   "opencode-msb-vm-test",
+		Name_:   "opencode-sandbox-vm-test",
 		Status_: msbSdk.SandboxStatusRunning,
 		Image_:  "old:tag",
 		Cfg:     &msbSdk.SandboxConfig{Image: "old:tag"},

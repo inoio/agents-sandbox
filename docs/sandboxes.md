@@ -1,17 +1,17 @@
 # Sandboxes
 
-opencode-msb manages sandboxes as ephemeral microsandbox VMs with persistent home volumes. This document explains the
+opencode-sandbox manages sandboxes as ephemeral microsandbox VMs with persistent home volumes. This document explains the
 sandbox lifecycle and management.
 
 ## Lifecycle Overview
 
-Each opencode-msb invocation follows this lifecycle:
+Each opencode-sandbox invocation follows this lifecycle:
 
 ```
 - Auto-prune: Remove stale VMs, volumes, and images
 - Pre-flight checks (doctor): Docker, KVM, Git, msb
-- Image verify/build: `.opencode-msb/Dockerfile` (or default image) → Docker image -> microsandbox image
-- Home volume verify/build: Persistent msb volume (`opencode-msb-home-<slug>-<timestamp>`) per project
+- Image verify/build: `.opencode-sandbox/Dockerfile` (or default image) → Docker image -> microsandbox image
+- Home volume verify/build: Persistent msb volume (`opencode-sandbox-home-<slug>-<timestamp>`) per project
 - VM creation or reuse: New or existing project-specific VM
 - Provisioning: Copy opencode config etc. (updated configs are re-provisioned).
 - Daemon verify/start: Ensure/start microsandbox internal services
@@ -25,14 +25,14 @@ Each opencode-msb invocation follows this lifecycle:
 Each project gets a singular VM identified by the project slug (derived from the git remote URL):
 
 ```
-opencode-msb-vm-<project-slug>
+opencode-sandbox-vm-<project-slug>
 ```
 
 The project slug consists of the repository name and a hash of the repository host and full path. For example, a repo
 cloned from `git@gitlab.inoio.de:inoio/myproject.git` gets:
 
 ```
-opencode-msb-vm-myproject-<hash>
+opencode-sandbox-vm-myproject-<hash>
 ```
 
 Where `<hash>` is the hash of `gitlab.inoio.de:inoio/myproject` (username and extension removed). Every clone and linked
@@ -48,13 +48,13 @@ recreated, but it keeps its name. The home volume is untouched, so no user state
 
 Home volumes are persistent storage for the VM's `$HOME` directory. They survive VM destruction and Dockerfile changes.
 
-Home volumes are named `opencode-msb-home-<slug>-<timestamp>`. Information which home volume is the current one is
+Home volumes are named `opencode-sandbox-home-<slug>-<timestamp>`. Information which home volume is the current one is
 stored in a state file (under `~/.local/state/<slug>/state.yaml`).
 
 When the Dockerfile changes (new image digest), most of the times the current home volume can continue to be used. Only
 if the Dockerfile changes lead to changes in the home directory, keeping the current home volume might be an issue.
 Therefore, when a Dockerfile change actually leads to a VM rebuild (and not just the VM continuing on the current image,
-e.g. when the rebuild is deferred to a later run), opencode-msb prompts you to decide what to do with the home volume:
+e.g. when the rebuild is deferred to a later run), opencode-sandbox prompts you to decide what to do with the home volume:
 
 - *keep*: Keep on using the home volume
 - *reset*: Build a completely new home volume from the new VM's home directory, discarding the current home (e.g. losing opencode session history)
@@ -66,15 +66,15 @@ e.g. when the rebuild is deferred to a later run), opencode-msb prompts you to d
 List all volumes:
 
 ```console
-opencode-msb volume list
+opencode-sandbox volume list
 ```
 
 Manual management:
 
 ```console
-opencode-msb volume migrate   # new volume, copy old volume files on top
-opencode-msb volume reset     # fresh volume from image
-opencode-msb volume edit      # new volume alongside old, manual transfer in a shell environment
+opencode-sandbox volume migrate   # new volume, copy old volume files on top
+opencode-sandbox volume reset     # fresh volume from image
+opencode-sandbox volume edit      # new volume alongside old, manual transfer in a shell environment
 ```
 
 Home volumes are pruned when:
@@ -109,21 +109,21 @@ stale VMs via `prune` or a manual `stop`.
 To stop a VM immediately:
 
 ```console
-opencode-msb stop
+opencode-sandbox stop
 ```
 
 To stop and remove state:
 
 ```console
-opencode-msb stop -f
+opencode-sandbox stop -f
 ```
 
 ## Concurrency
 
-Only one VM is created per project. Concurrent invocations of opencode-msb share the same VM — additional sessions
+Only one VM is created per project. Concurrent invocations of opencode-sandbox share the same VM — additional sessions
 connect to the existing VM rather than creating one.
 
-A host-side file lock (`~/.local/state/opencode-msb/vm-ensure/<slug>.lock`) prevents race conditions during first boot
+A host-side file lock (`~/.local/state/opencode-sandbox/vm-ensure/<slug>.lock`) prevents race conditions during first boot
 creation.
 
 When another client is attached, config changes that would restart the opencode daemon or recreate the VM trigger a
@@ -134,10 +134,10 @@ resource changes are applied and their reconnect semantics.
 ## Manual Pruning
 
 ```console
-opencode-msb prune                       # use manual-prune-age from config (default: 7d)
-opencode-msb prune -a 24h                # 24-hour threshold
-opencode-msb prune --dry-run             # preview only
-opencode-msb prune --force               # skip confirmation
+opencode-sandbox prune                       # use manual-prune-age from config (default: 7d)
+opencode-sandbox prune -a 24h                # 24-hour threshold
+opencode-sandbox prune --dry-run             # preview only
+opencode-sandbox prune --force               # skip confirmation
 ```
 
 Pruning removes:

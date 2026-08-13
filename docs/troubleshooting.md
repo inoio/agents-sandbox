@@ -2,7 +2,7 @@
 
 Common issues and how to resolve them.
 
-## `opencode-msb doctor` fails
+## `opencode-sandbox doctor` fails
 
 If the doctor command reports missing prerequisites:
 
@@ -62,7 +62,7 @@ When a VM won't start, check the general troubleshooting steps first.
 Try `--verbose` to see the full error:
 
 ```console
-opencode-msb run --verbose
+opencode-sandbox run --verbose
 ```
 
 Common causes:
@@ -74,18 +74,18 @@ Common causes:
 
 ```console
 # See what's running
-opencode-msb list
+opencode-sandbox list
 
 # Remove old resources
-opencode-msb prune --dry-run    # preview
-opencode-msb prune --force      # remove
+opencode-sandbox prune --dry-run    # preview
+opencode-sandbox prune --force      # remove
 ```
 
 ### Stop a specific VM
 
 ```console
-opencode-msb stop               # graceful stop
-opencode-msb kill               # force kill
+opencode-sandbox stop               # graceful stop
+opencode-sandbox kill               # force kill
 ```
 
 ## Branch session issues
@@ -138,13 +138,13 @@ and passed through unchanged.
 If opencode runs slowly or VMs fail to start with resource errors, increase allocation:
 
 ```console
-opencode-msb run -c 4 -m 8G
+opencode-sandbox run -c 4 -m 8G
 ```
 
 Or set defaults in config:
 
 ```yaml
-# ~/.config/opencode-msb/config.yaml
+# ~/.config/opencode-sandbox/config.yaml
 cpus: 4
 memory: 8G
 ```
@@ -156,8 +156,8 @@ If your config files aren't being picked up:
 1. Verify the file exists in the right location:
 
    ```console
-   ls ~/.config/opencode-msb/config.yaml
-   ls .opencode-msb/config.yaml
+   ls ~/.config/opencode-sandbox/config.yaml
+   ls .opencode-sandbox/config.yaml
    ```
 
 2. Check valid syntax:
@@ -175,7 +175,7 @@ If your config files aren't being picked up:
 4. Use `--verbose` to see which config files were loaded:
 
    ```console
-   opencode-msb run --verbose
+   opencode-sandbox run --verbose
    ```
 
 ## Image build fails
@@ -197,5 +197,5 @@ Docker build failures are usually due to:
 3. **Custom Dockerfile errors** — If using a project Dockerfile, build it manually to isolate the issue:
 
     ```console
-    docker build -f .opencode-msb/Dockerfile -t test-image .
+    docker build -f .opencode-sandbox/Dockerfile -t test-image .
     ```

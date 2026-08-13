@@ -12,8 +12,8 @@
 [*] refactor cli, subcommands for image rebuilding, ...? maybe remove some flags like --reset-home?
 [*] version based on date
 [*] provide easy installation method
-  [*] Download via curl (without auth?) -> https://gitlab.inoio.de/inoio/opencode-msb/-/releases/permalink/latest
-[*] config file for cli settings in .opencode-msb
+  [*] Download via curl (without auth?) -> https://gitlab.inoio.de/inoio/opencode-sandbox/-/releases/permalink/latest
+[*] config file for cli settings in .opencode-sandbox
 [*] git doctor nach install dokumentieren/aufrufen
 [*] install golangci-lint globally instead of to user home dir
 [*] make tmpfs size configurable and raise from 512m to 2GB (go builds broke with "no space left on device")

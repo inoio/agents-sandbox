@@ -6,8 +6,8 @@ import (
 	"strings"
 	"time"
 
-	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/msb"
-	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/naming"
+	"gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/msb"
+	"gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/naming"
 
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 )

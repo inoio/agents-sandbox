@@ -2,7 +2,7 @@
 
 ## Project
 
-`opencode-msb`: a launcher that runs opencode inside a microsandbox VM, binding a host directory as `/workspace` and
+`opencode-sandbox`: a launcher that runs opencode inside a microsandbox VM, binding a host directory as `/workspace` and
 persisting user state via a home directory volume.
 
 ## Code style (MVP)
@@ -37,12 +37,12 @@ persisting user state via a home directory volume.
 
 ## Development
 
-You are dogfooding the project, you are not on the host, but in an opencode-msb VM. Filesystem layout:
+You are dogfooding the project, you are not on the host, but in an opencode-sandbox VM. Filesystem layout:
 
 - `/workspace` bind mount of the host CWD, mounted rw. If that's your CWD, ask whether to work there, avoid editing conflicts with other agents.
 - `~/.local/share/opencode/worktree/` git worktrees of `/workspace`, created by opencode. If that's your CWD, work right there.
 
-Installed tooling (see .opencode-msb/Dockerfile):
+Installed tooling (see .opencode-sandbox/Dockerfile):
 
 - go, gofmt, golangci-lint, gcc (for CGO)
 - msb (microsandbox cli) - since /dev/kvm is not functional in the VM, you can't actually start VMs yourself. Must be
@@ -56,13 +56,13 @@ Don't install additional tools yourself without permission.
 Common development commands (run from the Go module root):
 
 - `go mod tidy` — sync `go.mod`/`go.sum` (run after adding/removing imports).
-- `go run ./cmd/opencode-msb --dry-run` — build and run locally without producing a binary or starting interactively
+- `go run ./cmd/opencode-sandbox --dry-run` — build and run locally without producing a binary or starting interactively
   (skips launching opencode)
 - `make fmt`/`golangci-lint fmt` — format all files. ALWAYS use! DON'T manually rewrite / use `go fmt`!
 - `make lint`/`golangci-lint run` — run the linter. ALWAYS use! DON'T use `go vet`!
 - `make test`/`go test ./...` — run all tests.
 - `make check` — run fmt, lint, test targets. Execute this when finalizing work.
-- `make build` - build binary to `./opencode-msb`
+- `make build` - build binary to `./opencode-sandbox`
 
 Use the linter as a guide for code style: Run it after every major edit, for smaller edits run it after at most 3 edits.
 
@@ -73,7 +73,7 @@ Always use your superpowers for appropriate tasks, never skip defined user appro
 ### Testing
 
 - Default to TDD - writing tests first, validating they fail, implementing changes, validating passing tests
-- Make sure that new/changed CLI commands/flags are thoroughly tested in the cmd/opencode-msb/cli_*_test.go tests
+- Make sure that new/changed CLI commands/flags are thoroughly tested in the cmd/opencode-sandbox/cli_*_test.go tests
 - Also write valuable unit tests for internal functionality with every implementation.
 
 ## Documentation
@@ -101,5 +101,5 @@ Always use your superpowers for appropriate tasks, never skip defined user appro
   docker build -t debian:trixie-slim .
   
   # 2. Build the runner image as usual.
-  go run ./cmd/opencode-msb build -y
+  go run ./cmd/opencode-sandbox build -y
   ```

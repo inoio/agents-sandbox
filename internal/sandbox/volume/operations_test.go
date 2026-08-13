@@ -8,9 +8,9 @@ import (
 
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 
-	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/msb"
-	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/state"
-	"gitlab.inoio.de/inoio/opencode-msb/internal/termio"
+	"gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/msb"
+	"gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/state"
+	"gitlab.inoio.de/inoio/opencode-sandbox/internal/termio"
 )
 
 func TestVolumeOps_DryRun(t *testing.T) {
@@ -44,7 +44,7 @@ func TestVolumeOps_DryRun(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			state.SetStateDirForTest(t, t.TempDir()+"/opencode-msb")
+			state.SetStateDirForTest(t, t.TempDir()+"/opencode-sandbox")
 
 			slug := "testproj-aBc1234D"
 			state.WriteState(slug, state.HomeState{HomeVolume: "old-vol", ImageDigest: "sha256:abc"})
@@ -70,10 +70,10 @@ func TestVolumeOps_DryRun(t *testing.T) {
 }
 
 func TestCmdReset_Success(t *testing.T) {
-	state.SetStateDirForTest(t, t.TempDir()+"/opencode-msb")
+	state.SetStateDirForTest(t, t.TempDir()+"/opencode-sandbox")
 
 	slug := "testproj-aBc1234D"
-	oldVol := "opencode-msb-home-" + slug + "-old"
+	oldVol := "opencode-sandbox-home-" + slug + "-old"
 	state.WriteState(slug, state.HomeState{HomeVolume: oldVol, ImageDigest: "sha256:old"})
 
 	mock := &msb.MockMsbClient{}
@@ -108,7 +108,7 @@ func TestCmdReset_Success(t *testing.T) {
 }
 
 func TestCmdMigrate_NoStateFile(t *testing.T) {
-	state.SetStateDirForTest(t, t.TempDir()+"/opencode-msb")
+	state.SetStateDirForTest(t, t.TempDir()+"/opencode-sandbox")
 
 	mock := &msb.MockMsbClient{}
 	msb.WithMsbMock(t, mock)
@@ -124,7 +124,7 @@ func TestCmdMigrate_NoStateFile(t *testing.T) {
 }
 
 func TestVolumeOp_CreateVolumeFails(t *testing.T) {
-	state.SetStateDirForTest(t, t.TempDir()+"/opencode-msb")
+	state.SetStateDirForTest(t, t.TempDir()+"/opencode-sandbox")
 
 	slug := "testproj-aBc1234D"
 	state.WriteState(slug, state.HomeState{HomeVolume: "old-vol", ImageDigest: "sha256:abc"})
@@ -146,7 +146,7 @@ func TestVolumeOp_CreateVolumeFails(t *testing.T) {
 }
 
 func TestCmdReset_WithExplicitOldVolume(t *testing.T) {
-	state.SetStateDirForTest(t, t.TempDir()+"/opencode-msb")
+	state.SetStateDirForTest(t, t.TempDir()+"/opencode-sandbox")
 
 	slug := "testproj-aBc1234D"
 	state.WriteState(slug, state.HomeState{HomeVolume: "from-state-vol", ImageDigest: "sha256:abc"})
@@ -171,14 +171,14 @@ func TestCmdReset_WithExplicitOldVolume(t *testing.T) {
 }
 
 func TestVolumeOp_ActiveVM_ReturnsError(t *testing.T) {
-	state.SetStateDirForTest(t, t.TempDir()+"/opencode-msb")
+	state.SetStateDirForTest(t, t.TempDir()+"/opencode-sandbox")
 
 	slug := "testproj-aBc1234D"
 	state.WriteState(slug, state.HomeState{HomeVolume: "old-vol", ImageDigest: "sha256:abc"})
 
 	mock := &msb.MockMsbClient{}
 	mock.Sandboxes = []msb.SandboxHandle{
-		&msb.MockSandboxHandle{Name_: "opencode-msb-vm-testproj-aBc1234D", Status_: msbSdk.SandboxStatusRunning},
+		&msb.MockSandboxHandle{Name_: "opencode-sandbox-vm-testproj-aBc1234D", Status_: msbSdk.SandboxStatusRunning},
 	}
 	msb.WithMsbMock(t, mock)
 
@@ -193,7 +193,7 @@ func TestVolumeOp_ActiveVM_ReturnsError(t *testing.T) {
 }
 
 func TestVolumeOp_MainFails_RemovesNewVolume(t *testing.T) {
-	state.SetStateDirForTest(t, t.TempDir()+"/opencode-msb")
+	state.SetStateDirForTest(t, t.TempDir()+"/opencode-sandbox")
 
 	slug := "testproj-aBc1234D"
 	state.WriteState(slug, state.HomeState{HomeVolume: "old-vol", ImageDigest: "sha256:abc"})

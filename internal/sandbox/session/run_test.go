@@ -10,13 +10,13 @@ import (
 
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 
-	"gitlab.inoio.de/inoio/opencode-msb/internal/configpaths"
-	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/msb"
-	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/options"
-	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/reprovision"
-	"gitlab.inoio.de/inoio/opencode-msb/internal/termio"
+	"gitlab.inoio.de/inoio/opencode-sandbox/internal/configpaths"
+	"gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/msb"
+	"gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/options"
+	"gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/reprovision"
+	"gitlab.inoio.de/inoio/opencode-sandbox/internal/termio"
 
-	"gitlab.inoio.de/inoio/opencode-msb/internal/testutil"
+	"gitlab.inoio.de/inoio/opencode-sandbox/internal/testutil"
 )
 
 // parseMemory and resolveTmpSizeMiB tests moved to internal/sandbox/options/options_test.go.

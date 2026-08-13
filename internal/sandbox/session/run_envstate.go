@@ -4,8 +4,8 @@ import (
 	"errors"
 	"fmt"
 
-	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/state"
-	"gitlab.inoio.de/inoio/opencode-msb/internal/termio"
+	"gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/state"
+	"gitlab.inoio.de/inoio/opencode-sandbox/internal/termio"
 )
 
 func currentEnvState(slug string, ui termio.UI) state.EnvState {

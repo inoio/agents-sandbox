@@ -5,7 +5,7 @@ import (
 	"sync"
 	"time"
 
-	"gitlab.inoio.de/inoio/opencode-msb/internal/termio"
+	"gitlab.inoio.de/inoio/opencode-sandbox/internal/termio"
 )
 
 //nolint:gochecknoglobals // once-per-process singleton is the right pattern

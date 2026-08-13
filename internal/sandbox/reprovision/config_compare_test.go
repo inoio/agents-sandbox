@@ -6,10 +6,10 @@ import (
 	"reflect"
 	"testing"
 
-	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/msb"
-	"gitlab.inoio.de/inoio/opencode-msb/internal/termio"
+	"gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/msb"
+	"gitlab.inoio.de/inoio/opencode-sandbox/internal/termio"
 
-	"gitlab.inoio.de/inoio/opencode-msb/internal/testutil"
+	"gitlab.inoio.de/inoio/opencode-sandbox/internal/testutil"
 )
 
 func TestConfigEqualHomeFileByteMatch(t *testing.T) {
@@ -106,7 +106,7 @@ func TestBuildEnvMap(t *testing.T) {
 func TestReadSandboxEnvMissing(t *testing.T) {
 	env := BuildEnvMap("missing")
 	if len(env) != 0 {
-		t.Errorf("expected 0 env vars when .opencode-msb/env missing, got %d", len(env))
+		t.Errorf("expected 0 env vars when .opencode-sandbox/env missing, got %d", len(env))
 	}
 }
 

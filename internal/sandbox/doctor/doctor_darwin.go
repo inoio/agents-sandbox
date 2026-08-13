@@ -6,8 +6,8 @@ import (
 	"context"
 	"runtime"
 
-	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/docker"
-	"gitlab.inoio.de/inoio/opencode-msb/internal/termio"
+	"gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/docker"
+	"gitlab.inoio.de/inoio/opencode-sandbox/internal/termio"
 )
 
 // checkDoctor runs macOS-specific prerequisite checks.
@@ -16,7 +16,7 @@ func checkDoctor(ctx context.Context, ui termio.UI) bool {
 	return CheckDarwin(ui) && docker.CheckDockerAPI(ctx, ui) && CheckDocker(ui) && checkGit(ui) && checkMsb(ctx, ui)
 }
 
-// CheckDarwin validates that opencode-msb is running on Apple Silicon.
+// CheckDarwin validates that opencode-sandbox is running on Apple Silicon.
 // The macOS binary is compiled for arm64 only; x86_64 binaries under Rosetta 2
 // are unsupported.
 func CheckDarwin(ui termio.UI) bool {

@@ -9,11 +9,11 @@ import (
 	"github.com/stretchr/testify/assert"
 	msb "github.com/superradcompany/microsandbox/sdk/go"
 
-	"gitlab.inoio.de/inoio/opencode-msb/internal/configpaths"
-	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/docker"
-	sandboxmsb "gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/msb"
-	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/state"
-	"gitlab.inoio.de/inoio/opencode-msb/internal/termio"
+	"gitlab.inoio.de/inoio/opencode-sandbox/internal/configpaths"
+	"gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/docker"
+	sandboxmsb "gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/msb"
+	"gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/state"
+	"gitlab.inoio.de/inoio/opencode-sandbox/internal/termio"
 )
 
 // oldArtifactTime returns a time far enough in the past that images and volumes
@@ -25,7 +25,7 @@ func oldArtifactTime() time.Time {
 
 func mkStaleVM(staleTime time.Time) sandboxmsb.SandboxHandle {
 	return &sandboxmsb.MockSandboxHandle{
-		Name_:      "opencode-msb-vm-projectname-1mjusbm3wikhb0",
+		Name_:      "opencode-sandbox-vm-projectname-1mjusbm3wikhb0",
 		Status_:    msb.SandboxStatusStopped,
 		UpdatedAt_: staleTime,
 	}
@@ -33,7 +33,7 @@ func mkStaleVM(staleTime time.Time) sandboxmsb.SandboxHandle {
 
 func mkActiveVM(imgRef string) sandboxmsb.SandboxHandle {
 	return &sandboxmsb.MockSandboxHandle{
-		Name_:      "opencode-msb-vm-activeproject-1mjusbm3wikhb0",
+		Name_:      "opencode-sandbox-vm-activeproject-1mjusbm3wikhb0",
 		Status_:    msb.SandboxStatusRunning,
 		UpdatedAt_: time.Now().Add(-3 * 24 * time.Hour),
 		Image_:     imgRef,
@@ -42,7 +42,7 @@ func mkActiveVM(imgRef string) sandboxmsb.SandboxHandle {
 
 func mkStaleTask(staleTime time.Time) sandboxmsb.SandboxHandle {
 	return &sandboxmsb.MockSandboxHandle{
-		Name_:      "opencode-msb-task-fill",
+		Name_:      "opencode-sandbox-task-fill",
 		Status_:    msb.SandboxStatusStopped,
 		UpdatedAt_: staleTime,
 	}
@@ -75,13 +75,13 @@ func TestPrune(t *testing.T) {
 				runPruneTest(t, append([]string{"--dry-run"}, flags...), func(m *sandboxmsb.MockMsbClient) {
 					m.Sandboxes = append(m.Sandboxes, mkStaleVM(time.Now().Add(-15*24*time.Hour)))
 					m.Sandboxes = append(m.Sandboxes,
-						mkActiveVM("opencode-msb/runner-activeproject-1mjusbm3wikhb0:abc1234"))
+						mkActiveVM("opencode-sandbox/runner-activeproject-1mjusbm3wikhb0:abc1234"))
 					m.Volumes = append(m.Volumes,
-						homeVol("opencode-msb-home-projectname-1mjusbm3wikhb0-d1"))
+						homeVol("opencode-sandbox-home-projectname-1mjusbm3wikhb0-d1"))
 					m.Volumes = append(m.Volumes,
-						cloneVol("opencode-msb-clone-projects"))
+						cloneVol("opencode-sandbox-clone-projects"))
 					m.Images = append(m.Images,
-						msbImg("opencode-msb/runner-projectname:xyz789"))
+						msbImg("opencode-sandbox/runner-projectname:xyz789"))
 				}, "dry-run: Would prune 1 VMs, 1 home volumes, 1 docker images, 1 msb images, 0 task sandboxes, 1 clone volumes")
 			})
 		}
@@ -96,19 +96,19 @@ func TestPrune(t *testing.T) {
 					// does not support per-VM error injection, so both removals
 					// succeed. The test verifies the output for stale items.
 					m.Sandboxes = append(m.Sandboxes, &sandboxmsb.MockSandboxHandle{
-						Name_:      "opencode-msb-vm-first-dbe294a8514d4000",
+						Name_:      "opencode-sandbox-vm-first-dbe294a8514d4000",
 						Status_:    msb.SandboxStatusStopped,
 						UpdatedAt_: time.Now().Add(-15 * 24 * time.Hour),
 					})
 					m.Sandboxes = append(m.Sandboxes, &sandboxmsb.MockSandboxHandle{
-						Name_:      "opencode-msb-vm-second-dbe294a8514d4001",
+						Name_:      "opencode-sandbox-vm-second-dbe294a8514d4001",
 						Status_:    msb.SandboxStatusStopped,
 						UpdatedAt_: time.Now().Add(-15 * 24 * time.Hour),
 					})
 					m.Volumes = append(m.Volumes,
-						homeVol("opencode-msb-home-first-dbe294a8514d4000-v1"))
+						homeVol("opencode-sandbox-home-first-dbe294a8514d4000-v1"))
 					m.Images = append(m.Images,
-						msbImg("opencode-msb/runner-second:v1"))
+						msbImg("opencode-sandbox/runner-second:v1"))
 				}, "Pruned 2 VMs, 0 home volumes, 1 docker images, 1 msb images, 0 task sandboxes, 0 clone volumes")
 			})
 		}
@@ -117,24 +117,24 @@ func TestPrune(t *testing.T) {
 	t.Run("P4_custom_age_2w", func(t *testing.T) {
 		runPruneTestWithAge(t, "2w", func(m *sandboxmsb.MockMsbClient) {
 			m.Sandboxes = append(m.Sandboxes, &sandboxmsb.MockSandboxHandle{
-				Name_:      "opencode-msb-vm-staleproject-1mjusbm3wikhb0",
+				Name_:      "opencode-sandbox-vm-staleproject-1mjusbm3wikhb0",
 				Status_:    msb.SandboxStatusStopped,
 				UpdatedAt_: time.Now().Add(-15 * 24 * time.Hour),
 			})
 			m.Volumes = append(m.Volumes,
-				cloneVol("opencode-msb-clone-staleproject-abc123"))
+				cloneVol("opencode-sandbox-clone-staleproject-abc123"))
 		}, "Pruned 1 VMs, 0 home volumes, 0 docker images, 0 msb images, 0 task sandboxes, 1 clone volumes")
 	})
 
 	t.Run("P5_custom_age_14d", func(t *testing.T) {
 		runPruneTestWithAge(t, "14d", func(m *sandboxmsb.MockMsbClient) {
 			m.Sandboxes = append(m.Sandboxes, &sandboxmsb.MockSandboxHandle{
-				Name_:      "opencode-msb-vm-staleproject-1mjusbm3wikhb0",
+				Name_:      "opencode-sandbox-vm-staleproject-1mjusbm3wikhb0",
 				Status_:    msb.SandboxStatusStopped,
 				UpdatedAt_: time.Now().Add(-15 * 24 * time.Hour),
 			})
 			m.Volumes = append(m.Volumes,
-				cloneVol("opencode-msb-clone-staleproject-abc123"))
+				cloneVol("opencode-sandbox-clone-staleproject-abc123"))
 		}, "Pruned 1 VMs, 0 home volumes, 0 docker images, 0 msb images, 0 task sandboxes, 1 clone volumes")
 	})
 
@@ -150,7 +150,7 @@ func TestPrune(t *testing.T) {
 				ui := &termio.Mock{}
 				mock := &sandboxmsb.MockMsbClient{}
 				mock.Images = append(mock.Images,
-					msbImg("opencode-msb/runner-projectname:v2"))
+					msbImg("opencode-sandbox/runner-projectname:v2"))
 
 				sandboxmsb.WithMsbMock(t, mock)
 				origMSB := sandboxmsb.ResetGetFn(func() sandboxmsb.Client { return mock })
@@ -178,11 +178,11 @@ func TestPrune(t *testing.T) {
 					m.Sandboxes = append(m.Sandboxes, mkStaleVM(time.Now().Add(-15*24*time.Hour)))
 					m.Sandboxes = append(m.Sandboxes, mkStaleTask(time.Now().Add(-15*24*time.Hour)))
 					m.Volumes = append(m.Volumes,
-						homeVol("opencode-msb-home-projectname-1mjusbm3wikhb0-v1"))
+						homeVol("opencode-sandbox-home-projectname-1mjusbm3wikhb0-v1"))
 					m.Volumes = append(m.Volumes,
-						cloneVol("opencode-msb-clone-projectname-abc123"))
+						cloneVol("opencode-sandbox-clone-projectname-abc123"))
 					m.Images = append(m.Images,
-						msbImg("opencode-msb/runner-projectname:v2"))
+						msbImg("opencode-sandbox/runner-projectname:v2"))
 				}, "Pruned 1 VMs, 1 home volumes, 1 docker images, 1 msb images, 1 task sandboxes, 1 clone volumes")
 			})
 		}
@@ -191,22 +191,22 @@ func TestPrune(t *testing.T) {
 	t.Run("P9_task_sandboxes_pruned", func(t *testing.T) {
 		for _, flags := range pruneAgeFlags {
 			t.Run("f"+strings.Join(flags, "_"), func(t *testing.T) {
-				state.SetStateDirForTest(t, t.TempDir()+"/opencode-msb")
+				state.SetStateDirForTest(t, t.TempDir()+"/opencode-sandbox")
 				if err := state.WriteState("activeproject-1mjusbm3wikhb0", state.HomeState{
-					HomeVolume: "opencode-msb-home-activeproject-1mjusbm3wikhb0-abc123",
+					HomeVolume: "opencode-sandbox-home-activeproject-1mjusbm3wikhb0-abc123",
 				}); err != nil {
 					t.Fatalf("WriteState: %v", err)
 				}
 				runPruneTest(t, flags, func(m *sandboxmsb.MockMsbClient) {
 					m.Sandboxes = append(m.Sandboxes,
-						mkActiveVM("opencode-msb/runner-activeproject-1mjusbm3wikhb0:xyz789"))
+						mkActiveVM("opencode-sandbox/runner-activeproject-1mjusbm3wikhb0:xyz789"))
 					m.Sandboxes = append(m.Sandboxes, mkStaleTask(time.Now().Add(-15*24*time.Hour)))
 					m.Volumes = append(m.Volumes,
-						homeVol("opencode-msb-home-activeproject-1mjusbm3wikhb0-abc123"))
+						homeVol("opencode-sandbox-home-activeproject-1mjusbm3wikhb0-abc123"))
 					m.Volumes = append(m.Volumes,
-						cloneVol("opencode-msb-clone-activeproject-abc123"))
+						cloneVol("opencode-sandbox-clone-activeproject-abc123"))
 					m.Images = append(m.Images,
-						msbImg("opencode-msb/runner-activeproject-1mjusbm3wikhb0:xyz789"))
+						msbImg("opencode-sandbox/runner-activeproject-1mjusbm3wikhb0:xyz789"))
 				}, "Pruned 0 VMs, 0 home volumes, 0 docker images, 0 msb images, 1 task sandboxes, 1 clone volumes")
 			})
 		}
@@ -219,11 +219,11 @@ func TestPrune(t *testing.T) {
 					// Use 15d staleness to work with all flag values (7d, 7d, 14d, 14d).
 					m.Sandboxes = append(m.Sandboxes, mkStaleVM(time.Now().Add(-15*24*time.Hour)))
 					m.Sandboxes = append(m.Sandboxes,
-						mkActiveVM("opencode-msb/runner-prod-main-1mjusbm3wikhb0:abc1234"))
+						mkActiveVM("opencode-sandbox/runner-prod-main-1mjusbm3wikhb0:abc1234"))
 					m.Volumes = append(m.Volumes,
-						homeVol("opencode-msb-home-projectname-1mjusbm3wikhb0-digest1"))
+						homeVol("opencode-sandbox-home-projectname-1mjusbm3wikhb0-digest1"))
 					m.Images = append(m.Images,
-						msbImg("opencode-msb/runner-activeproject:v2"))
+						msbImg("opencode-sandbox/runner-activeproject:v2"))
 				}, "Pruned 1 VMs, 1 home volumes, 1 docker images, 1 msb images, 0 task sandboxes, 0 clone volumes")
 			})
 		}

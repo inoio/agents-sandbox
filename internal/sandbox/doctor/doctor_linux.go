@@ -6,8 +6,8 @@ import (
 	"context"
 	"os"
 
-	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/docker"
-	"gitlab.inoio.de/inoio/opencode-msb/internal/termio"
+	"gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/docker"
+	"gitlab.inoio.de/inoio/opencode-sandbox/internal/termio"
 )
 
 // checkDoctor runs Linux-specific prerequisite checks.
