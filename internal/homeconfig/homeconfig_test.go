@@ -177,3 +177,52 @@ func TestBuildHomeFilesReadsBytesByVMPath(t *testing.T) {
 		t.Errorf("got %v, want %v", files, want)
 	}
 }
+
+func TestBuildHomeFilesReadsProjectRelativeSourceFromProjectDir(t *testing.T) {
+	user := t.TempDir()
+	proj := t.TempDir()
+
+	// project manifest with a source relative to the project manifest dir
+	if err := os.MkdirAll(filepath.Join(proj, "tool"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(proj, "tool/cfg.toml"), []byte("k=v\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	writeHomeYAML(t, proj, ".config/tool/cfg.toml: ./tool/cfg.toml\n")
+
+	files, has, err := BuildHomeFiles(user, proj, vmHome)
+	if err != nil {
+		t.Fatalf("BuildHomeFiles: %v", err)
+	}
+	if !has {
+		t.Fatal("expected has=true")
+	}
+	want := map[string][]byte{
+		"/home/dev/.config/tool/cfg.toml": []byte("k=v\n"),
+	}
+	if !reflect.DeepEqual(files, want) {
+		t.Errorf("got %v, want %v", files, want)
+	}
+}
+
+func TestDescribeManifestResolvesProjectRelativeSourceAgainstProjectDir(t *testing.T) {
+	user := t.TempDir()
+	proj := t.TempDir()
+	writeHomeYAML(t, proj, ".config/tool/cfg.toml: ./tool/cfg.toml\n")
+
+	pairs, err := DescribeManifest(user, proj, vmHome)
+	if err != nil {
+		t.Fatalf("DescribeManifest: %v", err)
+	}
+	var src string
+	for _, p := range pairs {
+		if p[0] == "/home/dev/.config/tool/cfg.toml" {
+			src = p[1]
+		}
+	}
+	want := filepath.Join(proj, "tool/cfg.toml")
+	if src != want {
+		t.Errorf("got source %q, want %q", src, want)
+	}
+}
