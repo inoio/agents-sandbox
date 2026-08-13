@@ -24,9 +24,10 @@ func TestConfigShowPrintsMergedConfig(t *testing.T) {
 	base := t.TempDir()
 	t.Setenv("XDG_CONFIG_HOME", base)
 	configpaths.WithRealConfigPaths(t)
+	snippetPath := filepath.Join(base, "opencode-msb", "opencode", "opencode.json5")
 	writeFile(
 		t,
-		filepath.Join(base, "opencode-msb", "opencode", "opencode.json5"),
+		snippetPath,
 		`{"model":"x","instructions":"be brief"}`,
 	)
 
@@ -41,6 +42,12 @@ func TestConfigShowPrintsMergedConfig(t *testing.T) {
 	joined := strings.Join(ui.OutCalls, "\n")
 	if !strings.Contains(joined, `"model": "x"`) {
 		t.Errorf("expected merged model in output, got:\n%s", joined)
+	}
+	if !strings.Contains(joined, "merged files:") {
+		t.Errorf("expected merged files listing header, got:\n%s", joined)
+	}
+	if !strings.Contains(joined, snippetPath) {
+		t.Errorf("expected merged source path %q in output, got:\n%s", snippetPath, joined)
 	}
 }
 

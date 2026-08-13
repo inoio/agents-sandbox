@@ -111,10 +111,10 @@ func buildConfigCmd(ui termio.UI) *cobra.Command {
 	cmd.AddCommand(&cobra.Command{
 		Use:   cmdShow,
 		Args:  cobra.NoArgs,
-		Short: "Print the merged opencode config (from snippet files)",
+		Short: "Print the merged opencode config and the snippet files used",
 		RunE: func(*cobra.Command, []string) error {
 			cp := configpaths.GetConfigPaths()
-			data, has, err := opencodeconfig.BuildOpenCodeJSON(
+			data, sources, has, err := opencodeconfig.BuildOpenCodeJSON(
 				cp.UserOpencodeConfigDir(),
 				cp.ProjectOpencodeConfigDir(),
 			)
@@ -124,6 +124,10 @@ func buildConfigCmd(ui termio.UI) *cobra.Command {
 			if !has {
 				ui.Out("No opencode snippet files found; no merged opencode.json is provisioned.")
 				return nil
+			}
+			ui.Out("merged files:")
+			for _, src := range sources {
+				ui.Outf("  %s", src)
 			}
 			ui.Out("merged opencode.json:")
 			for line := range strings.SplitSeq(string(data), "\n") {

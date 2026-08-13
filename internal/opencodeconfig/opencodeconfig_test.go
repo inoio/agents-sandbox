@@ -80,8 +80,34 @@ func TestScanSnippetFilesUserThenProjectOrder(t *testing.T) {
 	}
 }
 
+func TestBuildOpenCodeJSONSourcesInMergeOrder(t *testing.T) {
+	user := t.TempDir()
+	proj := t.TempDir()
+	writeSnippet(t, user, "02-user.json", `{"a": 1}`)
+	writeSnippet(t, user, "01-user.json", `{"a": 2}`)
+	writeSnippet(t, proj, "proj.json", `{"b": 3}`)
+
+	_, sources, has, err := BuildOpenCodeJSON(user, proj)
+	if err != nil || !has {
+		t.Fatalf("BuildOpenCodeJSON: has=%v err=%v", has, err)
+	}
+	want := []string{
+		filepath.Join(user, "01-user.json"),
+		filepath.Join(user, "02-user.json"),
+		filepath.Join(proj, "proj.json"),
+	}
+	if len(sources) != len(want) {
+		t.Fatalf("sources = %v, want %v", sources, want)
+	}
+	for i := range want {
+		if sources[i] != want[i] {
+			t.Fatalf("sources = %v, want %v", sources, want)
+		}
+	}
+}
+
 func TestBuildOpenCodeJSONNoSnippets(t *testing.T) {
-	data, has, err := BuildOpenCodeJSON(t.TempDir(), t.TempDir())
+	data, sources, has, err := BuildOpenCodeJSON(t.TempDir(), t.TempDir())
 	if err != nil {
 		t.Fatalf("BuildOpenCodeJSON: %v", err)
 	}
@@ -91,18 +117,24 @@ func TestBuildOpenCodeJSONNoSnippets(t *testing.T) {
 	if data != nil {
 		t.Errorf("expected nil bytes when no snippets, got %q", data)
 	}
+	if sources != nil {
+		t.Errorf("expected nil sources when no snippets, got %v", sources)
+	}
 }
 
 func TestBuildOpenCodeJSONEmitsOpenCodeJSON(t *testing.T) {
 	user := t.TempDir()
 	writeSnippet(t, user, "opencode.json5", `{"model": "x", "instructions": "be brief"}`)
 
-	data, has, err := BuildOpenCodeJSON(user, "")
+	data, sources, has, err := BuildOpenCodeJSON(user, "")
 	if err != nil {
 		t.Fatalf("BuildOpenCodeJSON: %v", err)
 	}
 	if !has {
 		t.Fatal("expected has=true")
+	}
+	if len(sources) != 1 || sources[0] != filepath.Join(user, "opencode.json5") {
+		t.Errorf("unexpected sources: %v", sources)
 	}
 	var parsed map[string]any
 	if err := json.Unmarshal(data, &parsed); err != nil {
@@ -120,7 +152,7 @@ func TestBuildOpenCodeJSONDeterministic(t *testing.T) {
 
 	var first []byte
 	for range 5 {
-		data, has, err := BuildOpenCodeJSON(user, "")
+		data, _, has, err := BuildOpenCodeJSON(user, "")
 		if err != nil || !has {
 			t.Fatalf("BuildOpenCodeJSON: has=%v err=%v", has, err)
 		}

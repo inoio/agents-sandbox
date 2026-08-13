@@ -52,7 +52,7 @@
 [ ] opencode config dir & merging nach alphabet
 [ ] config file(s): support arbitrary files in VM home
 [ ] config file(s) übersicht, beispiele
-[ ] config show: list all files that would apply to a VM startup.
+[x] config show: list all files that would apply to a VM startup.
 
 ## 1st prio
 

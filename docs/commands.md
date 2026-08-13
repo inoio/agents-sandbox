@@ -172,7 +172,7 @@ opencode-msb cfg
 
 #### config show
 
-Print the merged opencode configuration (provisioned to `.config/opencode/opencode.json`).
+Print the snippet files that were merged and the resulting opencode configuration (provisioned to `.config/opencode/opencode.json`).
 
 ```console
 opencode-msb config show

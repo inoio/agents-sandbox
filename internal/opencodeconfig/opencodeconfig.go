@@ -42,12 +42,14 @@ func deepMerge(base, override map[string]any) map[string]any {
 	return result
 }
 
-// scanSnippetFiles reads every json/jsonc/json5 file across dirs and returns a
-// single deep-merged map. Directory order is user first then project; within a
-// directory files are merged in alphabetical order, so later files override
-// earlier ones.
-func scanSnippetFiles(dirs ...string) map[string]any {
+// scanSnippets reads every json/jsonc/json5 file across dirs and returns a
+// single deep-merged map plus the ordered list of source files that produced
+// it. Directory order is user first then project; within a directory files are
+// merged in alphabetical order, so later files override earlier ones. The
+// source list is in the same merge order.
+func scanSnippets(dirs ...string) (map[string]any, []string) {
 	var merged map[string]any
+	var sources []string
 	for _, dir := range dirs {
 		if dir == "" {
 			continue
@@ -63,7 +65,8 @@ func scanSnippetFiles(dirs ...string) map[string]any {
 			if entry.IsDir() || !isJSONFile(entry.Name()) {
 				continue
 			}
-			data, err := os.ReadFile(filepath.Join(dir, entry.Name()))
+			path := filepath.Join(dir, entry.Name())
+			data, err := os.ReadFile(path)
 			if err != nil {
 				continue
 			}
@@ -72,27 +75,36 @@ func scanSnippetFiles(dirs ...string) map[string]any {
 				continue
 			}
 			merged = deepMerge(merged, cfg)
+			sources = append(sources, path)
 		}
 	}
 	if merged == nil {
 		merged = map[string]any{}
 	}
+	return merged, sources
+}
+
+// scanSnippetFiles reads every json/jsonc/json5 file across dirs and returns a
+// single deep-merged map.
+func scanSnippetFiles(dirs ...string) map[string]any {
+	merged, _ := scanSnippets(dirs...)
 	return merged
 }
 
 // BuildOpenCodeJSON merges all opencode snippet files under userDir and
 // projectDir into a single opencode.json document. It returns the marshaled
-// bytes, a boolean reporting whether any snippet existed, and an error.
-// When no snippet exists the returned bytes are nil and the boolean is false;
-// no opencode.json should then be provisioned into the VM.
-func BuildOpenCodeJSON(userDir, projectDir string) ([]byte, bool, error) {
-	merged := scanSnippetFiles(userDir, projectDir)
-	if len(merged) == 0 {
-		return nil, false, nil
+// bytes, the ordered list of snippet files that were merged, a boolean
+// reporting whether any snippet existed, and an error. When no snippet exists
+// the returned bytes and source list are nil and the boolean is false; no
+// opencode.json should then be provisioned into the VM.
+func BuildOpenCodeJSON(userDir, projectDir string) ([]byte, []string, bool, error) {
+	merged, sources := scanSnippets(userDir, projectDir)
+	if len(sources) == 0 {
+		return nil, nil, false, nil
 	}
 	data, err := json.MarshalIndent(merged, "", "  ")
 	if err != nil {
-		return nil, false, err
+		return nil, nil, false, err
 	}
-	return append(data, '\n'), true, nil
+	return append(data, '\n'), sources, true, nil
 }
