@@ -43,7 +43,6 @@ func TestTermUIMock_MockRecordsCalls(t *testing.T) {
 	mock.Spinner("spin")
 	mock.Spinnerf("spin %s", "1")
 	_, _ = mock.Select("choose", []termio.Choice{{Key: "a"}}, "a")
-	_, _ = mock.ConfirmDefault("yes?", true)
 	_, _ = mock.Input("type?", "default")
 
 	if n := len(mock.InfoCalls); n != 2 {
@@ -106,17 +105,6 @@ func TestTermUIMock_SelectReturnsDefault(t *testing.T) {
 	}
 }
 
-func TestTermUIMock_ConfirmDefaultReturnsDefault(t *testing.T) {
-	mock := TermUIMock(t)
-	got, err := mock.ConfirmDefault("prompt", true)
-	if err != nil {
-		t.Fatalf("ConfirmDefault: %v", err)
-	}
-	if !got {
-		t.Error("ConfirmDefault with true default should return true")
-	}
-}
-
 func TestTermUIMock_InputReturnsDefault(t *testing.T) {
 	mock := TermUIMock(t)
 	got, err := mock.Input("prompt", "hello")
@@ -137,14 +125,6 @@ func TestTermUIMock_CustomFnOverrides(t *testing.T) {
 	got, _ := mock.Select("", nil, "")
 	if got != "custom" {
 		t.Errorf("SelectFn override = %q, want %q", got, "custom")
-	}
-
-	mock.ConfirmDefaultFn = func(_ string, _ bool) (bool, error) {
-		return false, nil
-	}
-	got2, _ := mock.ConfirmDefault("", true)
-	if got2 {
-		t.Error("ConfirmDefaultFn override should return false")
 	}
 
 	mock.InputFn = func(_ string, _ string) (string, error) {
