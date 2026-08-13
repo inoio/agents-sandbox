@@ -407,42 +407,6 @@ func pruneActiveVMDockerImages(
 	}
 }
 
-// pruneCloneVolume removes a clone volume if it has no associated active VM.
-// The staleVMs map is optional: when populated, clone volumes for stale VMs
-// (cascade) are also pruned.
-func pruneCloneVolume(
-	ctx context.Context,
-	client MsbClient,
-	cv string,
-	staleVMs map[string]bool,
-	activeVMDigests map[string]string,
-	dryRun bool,
-	ui termio.UI,
-	report *StaleReport,
-) {
-	slug, digest := naming.ExtractProjectSlugAndDigest(cv)
-	if staleVMs != nil && staleVMs[slug] {
-		return
-	}
-	if _, active := activeVMDigests[slug]; active {
-		return
-	}
-	if !dryRun {
-		if err := client.RemoveVolume(ctx, cv); err != nil {
-			ui.Warnf("failed to remove clone volume %s: %v", cv, err)
-			return
-		}
-	}
-	report.PrunedCloneVolumes++
-	report.Details = append(report.Details, StaleEntry{
-		Type:     StaleTypeVolume,
-		Name:     cv,
-		Slug:     slug,
-		StaleFor: 0,
-		Digest:   digest,
-	})
-}
-
 func stripDockerHostPrefix(ref string) string {
 	if prefix, ok := strings.CutPrefix(ref, "docker.io/"); ok {
 		return prefix

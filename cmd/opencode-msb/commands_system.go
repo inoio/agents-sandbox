@@ -9,9 +9,14 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"gitlab.inoio.de/inoio/opencode-msb/internal/configpaths"
 	"gitlab.inoio.de/inoio/opencode-msb/internal/git"
 	opencodeconfig "gitlab.inoio.de/inoio/opencode-msb/internal/opencodeconfig"
-	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox"
+	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/doctor"
+	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/image"
+	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/pruning"
+	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/session"
+	"gitlab.inoio.de/inoio/opencode-msb/internal/sandbox/volume"
 	"gitlab.inoio.de/inoio/opencode-msb/internal/termio"
 	viperconfig "gitlab.inoio.de/inoio/opencode-msb/internal/viperconfig"
 )
@@ -31,13 +36,13 @@ func buildVolumeOpsCmd(
 		Args:  cobra.MaximumNArgs(1),
 		Short: short,
 		RunE: func(c *cobra.Command, args []string) error {
-			if !sandbox.CheckAll(c.Context(), ui) {
+			if !doctor.CheckAll(c.Context(), ui) {
 				return errors.New("preflight failed")
 			}
 			projectSlug := git.ProjectSlug(ui)
 			dryRun, _ := c.Flags().GetBool(flagDryRun)
 			rebuild, _ := c.Flags().GetBool(flagRebuild)
-			imageTag, _, _, err := sandbox.EnsureImage(c.Context(), projectSlug, rebuild, ui)
+			imageTag, _, _, err := image.EnsureImage(c.Context(), projectSlug, rebuild, ui)
 			if err != nil {
 				return fmt.Errorf("ensure image: %w", err)
 			}
@@ -62,7 +67,7 @@ func buildDoctorCmd(ui termio.UI) *cobra.Command {
 		Args:  cobra.NoArgs,
 		Short: "Check prerequisites",
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			if !sandbox.CheckAll(cmd.Context(), ui) {
+			if !doctor.CheckAll(cmd.Context(), ui) {
 				return errors.New("preflight failed")
 			}
 			ui.Info("doctor: all checks passed")
@@ -81,13 +86,13 @@ func buildListCmd(ui termio.UI) *cobra.Command {
 			annotationAlsoAs: "sandbox list",
 		},
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			sandboxes, err := sandbox.ListSandboxes(cmd.Context())
+			sandboxes, err := session.ListSandboxes(cmd.Context())
 			if err != nil {
 				return err
 			}
 			printItems(sandboxes, "No sandboxes found.", "%-40s %s",
-				func(s sandbox.Info) string { return s.Name },
-				func(s sandbox.Info) string { return s.Status },
+				func(s session.Info) string { return s.Name },
+				func(s session.Info) string { return s.Status },
 				ui)
 			return nil
 		},
@@ -112,16 +117,16 @@ func buildConfigCmd(ui termio.UI) *cobra.Command {
 			}
 
 			descs, err := opencodeconfig.DescribeConfig(
-				sandbox.GetConfigPaths().UserOpencodeConfigDir(),
-				sandbox.GetConfigPaths().ProjectConfigDir(),
+				configpaths.GetConfigPaths().UserOpencodeConfigDir(),
+				configpaths.GetConfigPaths().ProjectConfigDir(),
 				providerCfg,
 			)
 			if err != nil {
 				return err
 			}
 			files, err := opencodeconfig.BuildMergedConfig(
-				sandbox.GetConfigPaths().UserOpencodeConfigDir(),
-				sandbox.GetConfigPaths().ProjectConfigDir(),
+				configpaths.GetConfigPaths().UserOpencodeConfigDir(),
+				configpaths.GetConfigPaths().ProjectConfigDir(),
 				providerCfg,
 			)
 			if err != nil {
@@ -155,7 +160,7 @@ func buildBuildCmd(ui termio.UI) *cobra.Command {
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			force, _ := cmd.Flags().GetBool(flagRebuild)
 			dryRun, _ := cmd.Flags().GetBool(flagDryRun)
-			return sandbox.BuildImage(cmd.Context(), force, dryRun, ui)
+			return session.BuildImage(cmd.Context(), force, dryRun, ui)
 		},
 	}
 	cmd.Flags().BoolP(flagRebuild, flagRebuild[:1], false, "Force a clean rebuild")
@@ -176,13 +181,13 @@ func buildImageCmd(ui termio.UI) *cobra.Command {
 		Aliases: cmdListAliases,
 		Short:   "List cached runner images",
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			images, err := sandbox.ListImages(cmd.Context())
+			images, err := image.ListImages(cmd.Context())
 			if err != nil {
 				return err
 			}
 			printItems(images, "No images found.", "%-50s %s",
-				func(i sandbox.ImageInfo) string { return i.Reference },
-				func(i sandbox.ImageInfo) string { return i.Digest },
+				func(i image.Info) string { return i.Reference },
+				func(i image.Info) string { return i.Digest },
 				ui)
 			return nil
 		},
@@ -203,13 +208,13 @@ func buildVolumeCmd(ui termio.UI) *cobra.Command {
 		Args:    cobra.NoArgs,
 		Short:   "List managed volumes",
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			volumes, err := sandbox.ListVolumes(cmd.Context())
+			volumes, err := volume.ListVolumes(cmd.Context())
 			if err != nil {
 				return err
 			}
 			printItems(volumes, "No volumes found.", "%-50s %s",
-				func(v sandbox.VolumeInfo) string { return v.Name },
-				func(v sandbox.VolumeInfo) string { return v.Path },
+				func(v volume.VolumeInfo) string { return v.Name },
+				func(v volume.VolumeInfo) string { return v.Path },
 				ui)
 			return nil
 		},
@@ -220,7 +225,7 @@ func buildVolumeCmd(ui termio.UI) *cobra.Command {
 		buildVolumeOpsCmd(
 			ui,
 			cmdMigrate,
-			sandbox.CmdMigrate,
+			volume.CmdMigrate,
 			"Migrate: create new volume, copy files from existing volume on top",
 			flagRemove,
 			"Remove the old home volume after migration",
@@ -234,7 +239,7 @@ func buildVolumeCmd(ui termio.UI) *cobra.Command {
 		buildVolumeOpsCmd(
 			ui,
 			cmdReset,
-			sandbox.CmdReset,
+			volume.CmdReset,
 			"Reset: create new volume from image, ",
 			flagRemove,
 			"Remove the old home volume after reset",
@@ -248,7 +253,7 @@ func buildVolumeCmd(ui termio.UI) *cobra.Command {
 		buildVolumeOpsCmd(
 			ui,
 			cmdEdit,
-			sandbox.CmdEdit,
+			volume.CmdEdit,
 			"Edit: create new volume alongside old one for manual transfer",
 			flagRemove,
 			"Remove the old home volume after editing",
@@ -294,7 +299,7 @@ func buildPruneCmd(ui termio.UI) *cobra.Command {
 				age = 7 * 24 * time.Hour
 			}
 			dryRun, _ := cmd.Flags().GetBool(flagDryRun)
-			return sandbox.Prune(cmd.Context(), age, dryRun, false, ui)
+			return pruning.Prune(cmd.Context(), age, dryRun, false, ui)
 		},
 	}
 	cmd.Flags().StringP(flagAge, flagAge[:1], "", "Prune threshold (default: manualPruneAge from config)")

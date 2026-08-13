@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"testing"
 
 	"gitlab.inoio.de/inoio/opencode-msb/internal/configpaths"
 
@@ -70,14 +69,6 @@ func NewHomeState(homeVolume, digest string) HomeState {
 
 func stateFile(slug string) string {
 	return slugPath(slug, "state.yaml")
-}
-
-// SetStateDirForTest overrides the state directory root for the given test.
-// The original value is restored via t.Cleanup.
-func SetStateDirForTest(t *testing.T, dir string) {
-	old := StateDir
-	StateDir = dir
-	t.Cleanup(func() { StateDir = old })
 }
 
 // ErrStateNotFound is returned by readState when no state file exists yet.

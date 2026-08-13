@@ -18,20 +18,6 @@ type VolumeInfo struct {
 	Kind string
 }
 
-type volumeHandle struct {
-	name string
-}
-
-func filterVolumes(handles []volumeHandle) []string {
-	var result []string
-	for _, h := range handles {
-		if strings.HasPrefix(h.name, naming.HomePrefix) {
-			result = append(result, h.name)
-		}
-	}
-	return result
-}
-
 // ListVolumes returns a list of home volumes managed by opencode-msb.
 func ListVolumes(ctx context.Context) ([]VolumeInfo, error) {
 	handles, err := msb.Get().ListVolumes(ctx)

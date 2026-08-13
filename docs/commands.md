@@ -37,8 +37,8 @@ Arguments after `--` are forwarded to opencode. Arguments before `--` that don't
 | `--dry-run`    | `-n`  | `false`  | Validate setup without running opencode                                                                                                    |
 | `--cpus`       | `-c`  | `0`      | vCPUs for the sandbox (0 = all)                                                                                                            |
 | `--memory`     | `-m`  | `4G`     | Memory limit, e.g. `4G`, `512M`                                                                                                            |
-| `--disk-size`  | —     | `""`     | Project VM root disk size (e.g. 16G). Empty = microsandbox runtime default (~4 GiB). Applied at VM creation; a change triggers recreation. |
-| `--tmp-size`   | —     | `2G`     | Size of `/tmp` tmpfs in the sandbox                                                                                                        |
+| `--disk-size`  | —     | `""`     | Project VM root disk size (e.g. 16G). Empty = microsandbox runtime default (~4 GiB). Applied at VM creation; a change triggers recreation. An invalid value is rejected with an error. |
+| `--tmp-size`   | —     | `2G`     | Size of `/tmp` tmpfs in the sandbox. An invalid value is rejected with an error. |
 | `--user`       | `-u`  | `dev`*   | Username or UID for the runtime user (format: `<name\|uid>[:<group\|gid>]`)                                                                |
 | `--no-auto`    | —     | `false`  | Do not pass `--auto` to opencode                                                                                                           |
 | `--dry-run-vm` | —     | `false`  | Skip VM lifecycle but prepare everything else                                                                                              |

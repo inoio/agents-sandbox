@@ -59,6 +59,18 @@ type ReapPolicy struct {
 	MaxSessionRetries int
 }
 
+// NewReapPolicy builds a ReapPolicy. A non-positive maxSessionRetries uses
+// the package default (10).
+func NewReapPolicy(autoStopOnActiveSessions bool, maxSessionRetries int) ReapPolicy {
+	if maxSessionRetries <= 0 {
+		maxSessionRetries = 10
+	}
+	return ReapPolicy{
+		AutoStopOnActiveSessions: autoStopOnActiveSessions,
+		MaxSessionRetries:        maxSessionRetries,
+	}
+}
+
 // WorktreeSpec is a parsed --worktree flag value: a required name (which must
 // already be a slug) and an optional base ref to point a fresh worktree at.
 type WorktreeSpec struct {
