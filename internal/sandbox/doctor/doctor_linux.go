@@ -18,7 +18,7 @@ func checkDoctor(ctx context.Context, ui termio.UI) bool {
 
 func checkKvm(ui termio.UI) bool {
 	if _, err := os.Stat("/dev/kvm"); err != nil {
-		ui.Errorf("/dev/kvm not found. Load kvm module and ensure user is in the kvm group: %v", err)
+		ui.Error("/dev/kvm not found. Load kvm module and ensure user is in the kvm group", err)
 		return false
 	}
 	return true
