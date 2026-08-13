@@ -11,7 +11,7 @@ type ArtifactInfo struct {
 }
 
 // findHashSuffix finds the start index of a 14-character base36 hash suffix
-// in the name remainder (e.g. "saife-1mjusbm3wikhb0" -> returns 6, pointing
+// in the name remainder (e.g. "opencode-sandbox-1mjusbm3wikhb0" -> returns 6, pointing
 // at the '1' in the 14-char hash). Returns -1 when no such suffix is found.
 func findHashSuffix(name string) int {
 	for i := 1; i < len(name)-13; i++ {

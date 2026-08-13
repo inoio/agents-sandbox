@@ -1,6 +1,6 @@
 <component name="ProjectRunConfigurationManager">
-  <configuration default="false" name="go-test-saife" type="GoTestRunConfiguration" factoryName="Go Test">
-    <module name="saife" />
+  <configuration default="false" name="go-test-opencode-sandbox" type="GoTestRunConfiguration" factoryName="Go Test">
+    <module name="opencode-sandbox" />
     <working_directory value="$PROJECT_DIR$" />
     <kind value="DIRECTORY" />
     <package value="gitlab.inoio.de/inoio/opencode-sandbox" />

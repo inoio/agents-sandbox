@@ -8,8 +8,8 @@ func TestExtractProjectSlugAndDigest(t *testing.T) {
 		slug   string
 		digest string
 	}{
-		{"opencode-sandbox-vm-saife-1mjusbm3wikhb0", "saife-1mjusbm3wikhb0", ""},
-		{"opencode-sandbox-vm-saife-1mjusbm3wikhb0-main", "saife-1mjusbm3wikhb0", "main"},
+		{"opencode-sandbox-vm-opencode-sandbox-1mjusbm3wikhb0", "opencode-sandbox-1mjusbm3wikhb0", ""},
+		{"opencode-sandbox-vm-opencode-sandbox-1mjusbm3wikhb0-main", "opencode-sandbox-1mjusbm3wikhb0", "main"},
 		{"opencode-sandbox/runner-myproject:xYz1234AbCdEfGh", "myproject", "xYz1234AbCdEfGh"},
 		{"opencode-sandbox/runner-myproject:latest", "myproject", ""},
 		{"opencode-sandbox/runner-myproject", "myproject", ""},
@@ -73,8 +73,8 @@ func TestHashSuffix(t *testing.T) {
 		want int
 	}{
 		{"no hash - simple name", "projectname-main", -1},
-		{"hash at hyphen position 5", "saife-1mjusbm3wikhb0", 6},
-		{"hash followed by branch", "saife-1mjusbm3wikhb0-main", 6},
+		{"hash at hyphen position 5", "opencode-sandbox-1mjusbm3wikhb0", 17},
+		{"hash followed by branch", "opencode-sandbox-1mjusbm3wikhb0-main", 17},
 		{"hash embedded in multi-dash slug", "my-project-1mjusbm3wikhb0-develop", 11},
 		{"no hash - short string", "abc-def", -1},
 	}
@@ -117,8 +117,8 @@ func TestParseVMName(t *testing.T) {
 		wantSlug   string
 		wantDigest string
 	}{
-		{"opencode-sandbox-vm-saife-1mjusbm3wikhb0", "saife-1mjusbm3wikhb0", ""},
-		{"opencode-sandbox-vm-saife-1mjusbm3wikhb0-main", "saife-1mjusbm3wikhb0", "main"},
+		{"opencode-sandbox-vm-opencode-sandbox-1mjusbm3wikhb0", "opencode-sandbox-1mjusbm3wikhb0", ""},
+		{"opencode-sandbox-vm-opencode-sandbox-1mjusbm3wikhb0-main", "opencode-sandbox-1mjusbm3wikhb0", "main"},
 		{"opencode-sandbox-vm-my-project-1mjusbm3wikhb0-develop", "my-project-1mjusbm3wikhb0", "develop"},
 		{"opencode-sandbox-vm-projectname-main", "projectname-main", ""},
 		{"opencode-sandbox-vm-myproject-abc1234567890", "myproject-abc1234567890", ""},
@@ -204,7 +204,7 @@ func TestArtifactFor(t *testing.T) {
 		wantSlug   string
 		wantDigest string
 	}{
-		{"opencode-sandbox-vm-saife-1mjusbm3wikhb0", "saife-1mjusbm3wikhb0", ""},
+		{"opencode-sandbox-vm-opencode-sandbox-1mjusbm3wikhb0", "opencode-sandbox-1mjusbm3wikhb0", ""},
 		{"opencode-sandbox/runner-myproject:xYz1234AbCdEfGh", "myproject", "xYz1234AbCdEfGh"},
 		{
 			"opencode-sandbox-home-myproject-aB3cDe4fGhIjKl-xYz1234AbCdEfGh",
