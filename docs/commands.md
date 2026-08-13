@@ -161,7 +161,7 @@ opencode-msb sandbox list
 
 ### config
 
-Inspect opencode configuration.
+Inspect opencode and home configuration.
 
 ```console
 opencode-msb config
@@ -172,10 +172,18 @@ opencode-msb cfg
 
 #### config show
 
-Print the merged opencode configuration with source file paths.
+Print the merged opencode configuration (provisioned to `.config/opencode/opencode.json`).
 
 ```console
 opencode-msb config show
+```
+
+#### config home
+
+List the resolved home-file mappings from the `home.yaml` manifest (VM target path ← host source path).
+
+```console
+opencode-msb config home
 ```
 
 ---
