@@ -17,7 +17,7 @@ func main() {
 		if errors.As(err, &exitErr) {
 			os.Exit(exitErr.Code)
 		}
-		ui.Error("Failed: ", err)
+		ui.Error("Failed", err)
 		os.Exit(1)
 	}
 }
