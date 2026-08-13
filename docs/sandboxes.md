@@ -127,9 +127,9 @@ A host-side file lock (`~/.local/state/opencode-msb/vm-ensure/<slug>.lock`) prev
 creation.
 
 When another client is attached, config changes that would restart the opencode daemon or recreate the VM trigger a
-prompt asking whether to keep the running server/VM (defer) or proceed. The default is always to defer — existing
-sessions are never cut off. See [Configuration](./configuration.md#resource-config-application) for details on how
-resource changes are applied and their reconnect semantics.
+prompt asking whether to keep the running server/VM (defer), proceed, or quit (abort the apply). The default is always
+to defer — existing sessions are never cut off. See [Configuration](./configuration.md#resource-config-application)
+for details on how resource changes are applied and their reconnect semantics.
 
 ## Manual Pruning
 
