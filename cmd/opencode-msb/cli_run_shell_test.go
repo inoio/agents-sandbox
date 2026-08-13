@@ -249,50 +249,6 @@ func TestRunShell_R6_shellDefaultAttachError(t *testing.T) {
 	}
 }
 
-// R7: run --dry-run --no-auto.
-func TestRunShell_R7_dryRunNoAuto(t *testing.T) {
-	initTestRepo(t)
-
-	ui := &termio.Mock{}
-	mock := &sandboxmsb.MockMsbClient{}
-	setupRunMocks(t, mock, &sandboxmsb.MockSandbox{})
-
-	root := buildRootCmd(ui)
-	root.SetArgs([]string{"run", "--dry-run", "--no-auto"})
-
-	if err := root.Execute(); err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	foundInfo := false
-	for _, call := range ui.InfoCalls {
-		if strings.TrimSpace(call) == "dry-run: Would run opencode" {
-			foundInfo = true
-			break
-		}
-	}
-	if !foundInfo {
-		t.Errorf("expected info 'dry-run: Would run opencode'; got: %v", ui.InfoCalls)
-	}
-}
-
-// R8: shell no --auto (shell always has Auto=false).
-func TestRunShell_R8_shellNoAuto(t *testing.T) {
-	initTestRepo(t)
-
-	ui := &termio.Mock{}
-	mock := &sandboxmsb.MockMsbClient{}
-	setupRunMocks(t, mock, &sandboxmsb.MockSandbox{AttachErr: errors.New("fail")})
-
-	root := buildRootCmd(ui)
-	root.SetArgs([]string{"shell"})
-	_ = root.Execute()
-
-	if len(mock.CreatedSandboxCalls) < 1 {
-		t.Fatalf("expected at least 1 CreateSandbox call, got %d", len(mock.CreatedSandboxCalls))
-	}
-}
-
 // R9: run with --worktree --cpus --memory --user.
 func TestRunShell_R9_runWithAllFlags(t *testing.T) {
 	initTestRepo(t)

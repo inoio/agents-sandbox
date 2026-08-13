@@ -20,7 +20,6 @@ type RunOptions struct {
 	Rebuild     bool
 	DryRun      bool
 	DryRunVM    bool
-	Auto        bool
 	// Recreate forces a project-VM rebuild on this invocation. It is set by
 	// prepareSandbox from the reconfig decision and is never user-facing.
 	Recreate bool

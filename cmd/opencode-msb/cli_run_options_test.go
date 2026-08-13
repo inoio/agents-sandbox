@@ -23,7 +23,7 @@ func TestExtractRunOptions_L1_DefaultValues(t *testing.T) {
 	lc := launcherconfig.Config{} // zero value
 	cmd := buildCommandWithLauncherConfig(ui, lc)
 
-	opts, err := extractRunOptions(cmd, true, ui)
+	opts, err := extractRunOptions(cmd, ui)
 	if err != nil {
 		t.Fatalf("extractRunOptions: %v", err)
 	}
@@ -46,7 +46,7 @@ func TestExtractRunOptions_L2_AutoStopOnActiveSessions(t *testing.T) {
 	lc := launcherconfig.Config{AutoStopOnActiveSessions: true}
 	cmd := buildCommandWithLauncherConfig(ui, lc)
 
-	opts, err := extractRunOptions(cmd, true, ui)
+	opts, err := extractRunOptions(cmd, ui)
 	if err != nil {
 		t.Fatalf("extractRunOptions: %v", err)
 	}
@@ -62,7 +62,7 @@ func TestExtractRunOptions_L3_CustomMaxSessionRetries(t *testing.T) {
 	lc := launcherconfig.Config{AutoStopMaxSessionRetries: 5}
 	cmd := buildCommandWithLauncherConfig(ui, lc)
 
-	opts, err := extractRunOptions(cmd, true, ui)
+	opts, err := extractRunOptions(cmd, ui)
 	if err != nil {
 		t.Fatalf("extractRunOptions: %v", err)
 	}
@@ -78,7 +78,7 @@ func TestExtractRunOptions_L4_AutoStopTimeout(t *testing.T) {
 	lc := launcherconfig.Config{AutoStopTimeout: 30 * time.Second}
 	cmd := buildCommandWithLauncherConfig(ui, lc)
 
-	opts, err := extractRunOptions(cmd, true, ui)
+	opts, err := extractRunOptions(cmd, ui)
 	if err != nil {
 		t.Fatalf("extractRunOptions: %v", err)
 	}
@@ -93,7 +93,7 @@ func TestExtractRunOptions_L5_NoConfigInContext(t *testing.T) {
 	ui := &termio.Mock{}
 	cmd := buildCommandWithoutLauncherConfig(ui)
 
-	opts, err := extractRunOptions(cmd, true, ui)
+	opts, err := extractRunOptions(cmd, ui)
 	if err != nil {
 		t.Fatalf("extractRunOptions: %v", err)
 	}
@@ -119,7 +119,7 @@ func TestExtractRunOptions_L6_ShellCommandPath(t *testing.T) {
 	}
 	cmd := buildShellCommandWithLauncherConfig(ui, lc)
 
-	opts, err := extractRunOptions(cmd, false, ui)
+	opts, err := extractRunOptions(cmd, ui)
 	if err != nil {
 		t.Fatalf("extractRunOptions: %v", err)
 	}
@@ -142,7 +142,7 @@ func TestExtractRunOptionsServeOnly(t *testing.T) {
 	if err := cmd.Flags().Set(flagServeOnly, "true"); err != nil {
 		t.Fatalf("set serve-only: %v", err)
 	}
-	opts, err := extractRunOptions(cmd, true, &termio.Mock{})
+	opts, err := extractRunOptions(cmd, &termio.Mock{})
 	if err != nil {
 		t.Fatalf("extractRunOptions: %v", err)
 	}
@@ -151,7 +151,7 @@ func TestExtractRunOptionsServeOnly(t *testing.T) {
 	}
 
 	cmd2 := buildRunCmd(&termio.Mock{})
-	opts2, err := extractRunOptions(cmd2, true, &termio.Mock{})
+	opts2, err := extractRunOptions(cmd2, &termio.Mock{})
 	if err != nil {
 		t.Fatalf("extractRunOptions: %v", err)
 	}
@@ -194,7 +194,7 @@ func TestExtractRunOptions_L8_InvalidTmpSize(t *testing.T) {
 	if err := cmd.Flags().Set(flagTmpSize, "bogus"); err != nil {
 		t.Fatalf("set tmp-size: %v", err)
 	}
-	_, err := extractRunOptions(cmd, true, &termio.Mock{})
+	_, err := extractRunOptions(cmd, &termio.Mock{})
 	if err == nil {
 		t.Fatal("expected error for invalid --tmp-size")
 	}
@@ -209,7 +209,7 @@ func TestExtractRunOptions_L9_InvalidDiskSize(t *testing.T) {
 	if err := cmd.Flags().Set(flagDiskSize, "bogus"); err != nil {
 		t.Fatalf("set disk-size: %v", err)
 	}
-	_, err := extractRunOptions(cmd, true, &termio.Mock{})
+	_, err := extractRunOptions(cmd, &termio.Mock{})
 	if err == nil {
 		t.Fatal("expected error for invalid --disk-size")
 	}
@@ -227,7 +227,7 @@ func TestExtractRunOptions_L10_ValidSizeFlags(t *testing.T) {
 	if err := cmd.Flags().Set(flagDiskSize, "16G"); err != nil {
 		t.Fatalf("set disk-size: %v", err)
 	}
-	opts, err := extractRunOptions(cmd, true, &termio.Mock{})
+	opts, err := extractRunOptions(cmd, &termio.Mock{})
 	if err != nil {
 		t.Fatalf("expected no error for valid flags, got: %v", err)
 	}
