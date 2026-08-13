@@ -7,7 +7,7 @@ import (
 
 	"gitlab.inoio.de/inoio/opencode-msb/internal/testutil"
 
-	msb "github.com/superradcompany/microsandbox/sdk/go"
+	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 )
 
 func TestParseSecretSpecLegacyCreatesEntry(t *testing.T) {
@@ -225,7 +225,7 @@ func TestBuildSecretsPipelinePrecedence(t *testing.T) {
 	)
 	secrets := BuildSecretsFromSpecs(specs, &testUI)
 
-	byVar := map[string]msb.SecretEntry{}
+	byVar := map[string]msbSdk.SecretEntry{}
 	for _, s := range secrets {
 		byVar[s.EnvVar] = s
 	}
@@ -281,7 +281,7 @@ func TestMergePrecedence4Layers(t *testing.T) {
 	)
 	secrets := BuildSecretsFromSpecs(specs, &testUI)
 
-	byVar := map[string]msb.SecretEntry{}
+	byVar := map[string]msbSdk.SecretEntry{}
 	for _, s := range secrets {
 		byVar[s.EnvVar] = s
 	}
@@ -373,7 +373,7 @@ func TestMergeSecretSpecsYAMLOnlyKeyWins(t *testing.T) {
 	)
 	secrets := BuildSecretsFromSpecs(specs, &testUI)
 
-	byVar := map[string]msb.SecretEntry{}
+	byVar := map[string]msbSdk.SecretEntry{}
 	for _, s := range secrets {
 		byVar[s.EnvVar] = s
 	}
