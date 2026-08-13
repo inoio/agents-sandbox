@@ -1,6 +1,7 @@
 package reprovision
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -21,6 +22,7 @@ import (
 	"gitlab.inoio.de/inoio/opencode-msb/internal/termio"
 
 	cp "gitlab.inoio.de/inoio/opencode-msb/internal/configpaths"
+	"gitlab.inoio.de/inoio/opencode-msb/internal/homeconfig"
 )
 
 // EnvKeyValueParts is the number of parts strings.SplitN should produce for
@@ -48,119 +50,105 @@ func parseKeyValueLines(data string, onLine func(key, value string) error) error
 	return nil
 }
 
-// ConfigFiles holds the merged configuration and parsed structures for comparison.
-type ConfigFiles struct {
-	Files  map[string][]byte
-	Parsed map[string]map[string]any
-	Keys   []string // sorted file names for VM comparison
+// VMHomeDir is the sandbox home mount point. It is fixed by the project VM
+// layout regardless of the configured runtime user.
+const VMHomeDir = "/home/dev"
+
+// OpenCodeConfigPath returns the VM path where the merged opencode config is
+// provisioned.
+func OpenCodeConfigPath(home string) string {
+	return filepath.Join(home, ".config", "opencode", "opencode.json")
 }
 
-// LoadConfigFiles builds the merged opencode configuration from the user's
-// config directory, any project-specific config in .opencode-msb/opencode,
-// and the embedded provider config. Returns the marshaled files, parsed
-// structures, and sorted file keys.
+// ConfigFiles holds the merged opencode config and the set of home files to
+// provision into the VM.
+type ConfigFiles struct {
+	HasSnippets bool              // whether any opencode snippet existed
+	OpenCode    []byte            // merged opencode.json content
+	HomeFiles   map[string][]byte // VM absolute path -> content
+	Keys        []string          // sorted VM paths for comparison
+}
+
+// LoadConfigFiles builds the desired VM state: the merged opencode.json (from
+// the opencode snippet files) and the home files (from the home.yaml manifests).
 func LoadConfigFiles(userConfigDir string) (*ConfigFiles, error) {
-	providerCfg, err := config.LoadProviderConfig()
+	projectOpenCodeDir := cp.GetConfigPaths().ProjectOpencodeConfigDir()
+	opencodeJSON, hasSnippets, err := config.BuildOpenCodeJSON(userConfigDir, projectOpenCodeDir)
 	if err != nil {
-		return nil, fmt.Errorf("load provider config: %w", err)
+		return nil, fmt.Errorf("merge opencode config: %w", err)
 	}
-	projectConfigDir := ""
-	if _, statErr := os.Stat(cp.GetConfigPaths().ProjectOpencodeConfigDir()); statErr == nil {
-		projectConfigDir = cp.GetConfigPaths().ProjectOpencodeConfigDir()
-	}
-	files, err := config.BuildMergedConfig(userConfigDir, projectConfigDir, providerCfg)
+	homeFiles, _, err := homeconfig.BuildHomeFiles(
+		filepath.Dir(userConfigDir), // user home.yaml lives one level above the opencode subdir
+		cp.GetConfigPaths().ProjectConfigDir(),
+		VMHomeDir,
+	)
 	if err != nil {
-		return nil, fmt.Errorf("merge config: %w", err)
+		return nil, fmt.Errorf("build home files: %w", err)
 	}
-
-	parsed := make(map[string]map[string]any)
-	for name, data := range files {
-		var cfg map[string]any
-		if err := json.Unmarshal(data, &cfg); err == nil {
-			parsed[name] = cfg
-		}
+	keys := make([]string, 0, len(homeFiles)+1)
+	if hasSnippets {
+		keys = append(keys, OpenCodeConfigPath(VMHomeDir))
 	}
-
-	fileKeys := make([]string, 0, len(files))
-	for k := range files {
-		fileKeys = append(fileKeys, k)
+	for p := range homeFiles {
+		keys = append(keys, p)
 	}
-	sort.Strings(fileKeys)
+	sort.Strings(keys)
 	return &ConfigFiles{
-		Files:  files,
-		Parsed: parsed,
-		Keys:   fileKeys,
+		HasSnippets: hasSnippets,
+		OpenCode:    opencodeJSON,
+		HomeFiles:   homeFiles,
+		Keys:        keys,
 	}, nil
 }
 
 // tmpMountPath is the mount point used for the sandbox tmpfs.
 const tmpMountPath = "/tmp"
 
-// ReadVMFiles reads all files from a sandbox directory.
-func ReadVMFiles(
-	ctx context.Context,
-	sb msb.Sandbox,
-	dir string,
-	ui termio.UI,
-) map[string][]byte {
-	l, err := sb.FS().List(ctx, dir)
-	if err != nil {
-		ui.Verbosef("  list failed: %v", err)
-		return nil
-	}
-	if len(l) == 0 {
-		ui.Verbosef("  directory %q is empty or does not exist", dir)
-		return nil
-	}
-	ui.Verbosef("  found %d entries in %s", len(l), dir)
+// ReadVMConfig reads the given absolute VM paths, returning a map of path to
+// content for files that exist.
+func ReadVMConfig(ctx context.Context, sb msb.Sandbox, paths []string, ui termio.UI) map[string][]byte {
 	result := make(map[string][]byte)
-	for _, e := range l {
-		if e.Kind != msbSdk.FsEntryKindFile {
-			ui.Verbosef("    skipping %s (kind=%s)", e.Path, e.Kind)
-			continue
-		}
-		data, err := sb.FS().Read(ctx, e.Path)
+	for _, p := range paths {
+		data, err := sb.FS().Read(ctx, p)
 		if err != nil {
-			ui.Verbosef("    read %s failed: %v", e.Path, err)
+			ui.Verbosef("read %s failed: %v", p, err)
 			continue
 		}
-		result[filepath.Base(e.Path)] = data
-		ui.Verbosef("    OK: %s (%d bytes)", e.Path, len(data))
+		result[p] = data
+		ui.Verbosef("OK: %s (%d bytes)", p, len(data))
 	}
 	return result
 }
 
-// ConfigEqual compares Go-side parsed config against VM-side files.
-func ConfigEqual(goSide map[string]map[string]any, keys []string, vmData map[string][]byte) bool {
-	return EqualJSONFiles(goSide, keys, vmData)
-}
-
-// EqualJSONFiles compares JSON files semantically (key order, number types) and
-// compares non-JSON contents as raw bytes.
-func EqualJSONFiles(goSide map[string]map[string]any, keys []string, vmData map[string][]byte) bool {
-	for _, name := range keys {
-		goVal, hasGoVal := goSide[name]
-		vmBytes, hasVM := vmData[name]
-		if !hasVM {
+// ConfigEqual reports whether the desired state matches the VM state. The
+// merged opencode.json is compared semantically; home files byte-for-byte.
+func ConfigEqual(cf *ConfigFiles, vmData map[string][]byte) bool {
+	if cf.HasSnippets {
+		ocPath := OpenCodeConfigPath(VMHomeDir)
+		vm, ok := vmData[ocPath]
+		if !ok {
 			return false
 		}
-		if !hasGoVal || goVal == nil {
-			continue
-		}
-		goJSON, _ := json.Marshal(goVal)
-		va, err := parseJSON(goJSON)
-		if err != nil {
+		if !jsonEqual(cf.OpenCode, vm) {
 			return false
 		}
-		vb, err := parseJSON(vmBytes)
-		if err != nil {
-			return false
-		}
-		if !reflect.DeepEqual(va, vb) {
+	}
+	for path, want := range cf.HomeFiles {
+		got, ok := vmData[path]
+		if !ok || !bytes.Equal(want, got) {
 			return false
 		}
 	}
 	return true
+}
+
+func jsonEqual(a, b []byte) bool {
+	va, err1 := parseJSON(a)
+	vb, err2 := parseJSON(b)
+	if err1 != nil || err2 != nil {
+		return false
+	}
+	return reflect.DeepEqual(va, vb)
 }
 
 // parseJSON unmarshals data into map[string]any for deep equality comparison.
