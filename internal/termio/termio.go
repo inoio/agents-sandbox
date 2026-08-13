@@ -47,7 +47,6 @@ type UI interface {
 
 	IsInteractive() bool
 	Select(prompt string, choices []Choice, defaultKey string) (string, error)
-	ConfirmDefault(prompt string, defaultYes bool) (bool, error)
 	Input(prompt, defaultValue string) (string, error)
 }
 

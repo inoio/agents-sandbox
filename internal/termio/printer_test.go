@@ -127,6 +127,19 @@ func TestErrorShownAtQuietLevel(t *testing.T) {
 	}
 }
 
+func TestErrorRendersSingleColonBeforeErr(t *testing.T) {
+	var stderr bytes.Buffer
+	ui := New(nil, &bytes.Buffer{}, &stderr, false, LevelNormal, false)
+	ui.Error("Failed", errors.New("the error"))
+	out := stderr.String()
+	if !strings.Contains(out, "Failed: the error") {
+		t.Errorf("expected single colon 'Failed: the error', got %q", out)
+	}
+	if strings.Contains(out, ": :") {
+		t.Errorf("expected no double colon, got %q", out)
+	}
+}
+
 func TestErrorFormatsArgs(t *testing.T) {
 	var stderr bytes.Buffer
 	ui := New(nil, &bytes.Buffer{}, &stderr, false, LevelNormal, false)
