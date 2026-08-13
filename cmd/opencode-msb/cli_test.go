@@ -96,7 +96,6 @@ func TestPrintTreeContainsFlagDescriptions(t *testing.T) {
 		"Memory limit",
 		"Size of the /tmp tmpfs in the sandbox",
 		"Size of the project VM root disk (e.g. 16G)",
-		"Do not pass --auto to opencode",
 	}
 	for _, d := range flagDescs {
 		if !strings.Contains(out, d) {
@@ -136,7 +135,6 @@ func TestPrintTreeBoolFlagsHaveNoValuePlaceholders(t *testing.T) {
 		"--version <VERSION>",
 		"--rebuild <REBUILD>",
 		"--dry-run <DRY_RUN>",
-		"--no-auto <NO_AUTO>",
 	}
 	for _, s := range notExpected {
 		if strings.Contains(out, s) {
@@ -299,7 +297,7 @@ func TestRunCommandHasExpectedFlags(t *testing.T) {
 	if runCmd == nil {
 		t.Fatal("expected run command")
 	}
-	flags := []string{"worktree", "cpus", "memory", "tmp-size", "disk-size", "rebuild", "dry-run", "no-auto"}
+	flags := []string{"worktree", "cpus", "memory", "tmp-size", "disk-size", "rebuild", "dry-run"}
 	for _, f := range flags {
 		if runCmd.Flags().Lookup(f) == nil {
 			t.Errorf("expected flag --%s on run command", f)

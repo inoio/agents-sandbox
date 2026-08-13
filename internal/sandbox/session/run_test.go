@@ -4,7 +4,6 @@ import (
 	"context"
 	"os"
 	"path/filepath"
-	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -51,30 +50,8 @@ func TestBuildMountsRespectsCustomTmpSize(t *testing.T) {
 	}
 }
 
-func TestBuildOpencodeArgs(t *testing.T) {
-	tests := []struct {
-		name string
-		args []string
-		auto bool
-		want []string
-	}{
-		{"auto default", nil, true, []string{autoFlag}},
-		{"auto with forwarded args", []string{"foo", "bar"}, true, []string{autoFlag, "foo", "bar"}},
-		{"no-auto", []string{"foo"}, false, []string{"foo"}},
-		{"no-auto empty args", nil, false, nil},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got := buildOpencodeArgs(tt.args, tt.auto)
-			if !reflect.DeepEqual(got, tt.want) {
-				t.Errorf("buildOpencodeArgs(%v, %v) = %v, want %v", tt.args, tt.auto, got, tt.want)
-			}
-		})
-	}
-}
-
 func TestBuildAttachCommand(t *testing.T) {
-	got := buildAttachCommand("/workspace", true, []string{"foo"})
+	got := buildAttachCommand("/workspace", []string{"foo"})
 	if !strings.Contains(got, "opencode attach") {
 		t.Errorf("expected 'opencode attach' in command, got %q", got)
 	}
@@ -92,15 +69,8 @@ func TestBuildAttachCommand(t *testing.T) {
 	}
 }
 
-func TestBuildAttachCommandNoAuto(t *testing.T) {
-	got := buildAttachCommand("/workspace", false, nil)
-	if strings.Contains(got, "--auto") {
-		t.Errorf("did not expect --auto flag, got %q", got)
-	}
-}
-
 func TestBuildAttachCommandWorktreeTarget(t *testing.T) {
-	got := buildAttachCommand("/home/dev/.local/share/opencode/worktree/abc/feat", true, nil)
+	got := buildAttachCommand("/home/dev/.local/share/opencode/worktree/abc/feat", nil)
 	if !strings.Contains(got, "--dir /home/dev/.local/share/opencode/worktree/abc/feat") {
 		t.Errorf("expected worktree dir in command, got %q", got)
 	}
