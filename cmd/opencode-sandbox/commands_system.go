@@ -19,7 +19,7 @@ import (
 	"gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/session"
 	"gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/volume"
 	"gitlab.inoio.de/inoio/opencode-sandbox/internal/termio"
-	viperconfig "gitlab.inoio.de/inoio/opencode-sandbox/internal/viperconfig"
+	"gitlab.inoio.de/inoio/opencode-sandbox/internal/viperconfig"
 )
 
 type volumeOpFunc func(context.Context, string, string, string, bool, bool, termio.UI) error
@@ -113,7 +113,7 @@ func buildConfigCmd(ui termio.UI) *cobra.Command {
 		Args:  cobra.NoArgs,
 		Short: "Print the merged opencode config and the snippet files used",
 		RunE: func(*cobra.Command, []string) error {
-			cp := configpaths.GetConfigPaths()
+			cp := configpaths.Get()
 			data, sources, has, err := opencodeconfig.BuildOpenCodeJSON(
 				cp.UserOpencodeConfigDir(),
 				cp.ProjectOpencodeConfigDir(),
@@ -142,7 +142,7 @@ func buildConfigCmd(ui termio.UI) *cobra.Command {
 		Args:  cobra.NoArgs,
 		Short: "List home-file mappings from the home.yaml manifest",
 		RunE: func(*cobra.Command, []string) error {
-			cp := configpaths.GetConfigPaths()
+			cp := configpaths.Get()
 			pairs, has, err := homeconfig.DescribeManifest(cp.UserConfigDir(), cp.ProjectConfigDir(), "/home/dev")
 			if err != nil {
 				return err

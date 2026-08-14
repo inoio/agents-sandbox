@@ -97,7 +97,7 @@ func setUpSandboxProvisionsConfig(t *testing.T, created bool, provisionMsg strin
 	fs := msb.NewTestFS(nil, nil) // empty FS simulates a VM with empty config dir
 	sb := &msb.MockSandbox{Name_: "test-vm", FSValue_: fs}
 	configpaths.WithMockConfigPaths(t)
-	cp := configpaths.GetConfigPaths()
+	cp := configpaths.Get()
 	snippet := filepath.Join(cp.UserOpencodeConfigDir(), "opencode.json5")
 	if err := os.MkdirAll(filepath.Dir(snippet), 0o755); err != nil {
 		t.Fatal(err)

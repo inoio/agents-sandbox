@@ -57,6 +57,7 @@
 
 ## 1st prio
 
+[ ] volume reset geht nicht
 [ ] env.secret[.yaml] im Projekt, wie verstecken?
 [ ] default pattern for hiding project files, configurable (*.secret), not checked in?
 [ ] OPENCODE_DISABLE_AUTOUPDATE and detect releases, offer vm rebuild

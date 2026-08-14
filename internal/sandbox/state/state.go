@@ -25,7 +25,7 @@ func stateRoot() string {
 	if StateDir != "" {
 		return StateDir
 	}
-	return configpaths.GetConfigPaths().UserStateDir()
+	return configpaths.Get().UserStateDir()
 }
 
 // slugDir returns the slug-specific state directory under stateRoot.

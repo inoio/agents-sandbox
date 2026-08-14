@@ -10,7 +10,7 @@ import (
 
 // envDir returns the user cache directory for image env info.
 func envDir() string {
-	return configpaths.GetConfigPaths().UserCacheDir()
+	return configpaths.Get().UserCacheDir()
 }
 
 // envMetaFile returns the JSON file path for image env metadata, keyed by the

@@ -14,7 +14,7 @@ type mockConfigPaths struct {
 // InstallFailFastConfigPaths binds the sandbox config-path factory to its
 // fail-fast default. Exported so packages dispatching through the factory —
 // e.g. viperconfig, cmd/opencode-sandbox — can list it in their own InitMocks call.
-var InstallFailFastConfigPaths = func() { GetConfigPaths = FailFastConfigPaths } //nolint:gochecknoglobals // test hook, aligned with GetConfigPaths factory
+var InstallFailFastConfigPaths = func() { Get = FailFastConfigPaths } //nolint:gochecknoglobals // test hook, aligned with Get factory
 
 // FailFastConfigPaths is the ConfigPaths installed by default under tests: any
 // method call panics to signal a test reached real path resolution without opting in.
@@ -22,10 +22,10 @@ func FailFastConfigPaths() ConfigPaths { return &failFastConfigPaths{} }
 
 func WithMockConfigPaths(t *testing.T) {
 	t.Helper()
-	orig := GetConfigPaths
+	orig := Get
 	tempDir := t.TempDir()
-	GetConfigPaths = func() ConfigPaths { return &mockConfigPaths{baseDir: tempDir} }
-	t.Cleanup(func() { GetConfigPaths = orig })
+	Get = func() ConfigPaths { return &mockConfigPaths{baseDir: tempDir} }
+	t.Cleanup(func() { Get = orig })
 }
 
 // WithRealConfigPaths opts a test into the real XDG path resolution instead of
@@ -34,9 +34,9 @@ func WithMockConfigPaths(t *testing.T) {
 // t.Setenv, as config_paths_test.go does.
 func WithRealConfigPaths(t *testing.T) {
 	t.Helper()
-	orig := GetConfigPaths
-	GetConfigPaths = func() ConfigPaths { return &realConfigPaths{} }
-	t.Cleanup(func() { GetConfigPaths = orig })
+	orig := Get
+	Get = func() ConfigPaths { return &realConfigPaths{} }
+	t.Cleanup(func() { Get = orig })
 }
 
 func ensureMockConfigDirectory(path string) string {
