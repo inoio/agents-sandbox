@@ -2,6 +2,7 @@ package session
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 
@@ -91,9 +92,10 @@ func TestStartDockerdIfPresentNeverReady(t *testing.T) {
 	// the (shortened) poll window, forcing the timeout path.
 	sb := newCountingSandbox(1 << 30)
 
+	origTimeout, origInterval := dockerdReadyTimeout, dockerdPollInterval
 	t.Cleanup(func() {
-		dockerdReadyTimeout = 10 * time.Second
-		dockerdPollInterval = time.Second
+		dockerdReadyTimeout = origTimeout
+		dockerdPollInterval = origInterval
 	})
 	dockerdReadyTimeout = 100 * time.Millisecond
 	dockerdPollInterval = time.Millisecond
@@ -104,5 +106,60 @@ func TestStartDockerdIfPresentNeverReady(t *testing.T) {
 	}
 	if sb.restartCalls != 1 {
 		t.Errorf("expected 1 restart attempt before timeout, got %d", sb.restartCalls)
+	}
+}
+
+func TestDockerdRestartCmdTearsDownContainerd(t *testing.T) {
+	for _, want := range []string{
+		"pkill dockerd",
+		"pkill -f 'docker/containerd/containerd'",
+		"containerd",
+		".sock",
+		"dockerd -H unix:///var/run/docker.sock",
+	} {
+		if !strings.Contains(dockerdRestartCmd, want) {
+			t.Errorf("dockerdRestartCmd missing %q:\n%s", want, dockerdRestartCmd)
+		}
+	}
+	if !strings.HasSuffix(dockerdRestartCmd, "&") {
+		t.Errorf("dockerdRestartCmd should start dockerd in background:\n%s", dockerdRestartCmd)
+	}
+	if strings.Contains(dockerdRestartCmd, "sleep 1") {
+		t.Errorf("dockerdRestartCmd should not use a fixed sleep:\n%s", dockerdRestartCmd)
+	}
+}
+
+func TestDockerdReadyTimeoutAllowsFailOver(t *testing.T) {
+	if dockerdReadyTimeout < 25*time.Second {
+		t.Fatalf("dockerdReadyTimeout=%v must exceed dockerd's 15s containerd start timeout", dockerdReadyTimeout)
+	}
+}
+
+func TestTimeoutErrorIncludesDockerdLog(t *testing.T) {
+	origTimeout, origInterval := dockerdReadyTimeout, dockerdPollInterval
+	t.Cleanup(func() {
+		dockerdReadyTimeout = origTimeout
+		dockerdPollInterval = origInterval
+	})
+	dockerdReadyTimeout = 50 * time.Millisecond
+	dockerdPollInterval = time.Millisecond
+
+	const sentinel = "failed to start containerd: timeout waiting for containerd to start"
+	sb := &countingSandbox{
+		Sandbox: msb.NewMockSandbox(msb.SandboxOpts{
+			FSValue: msb.NewTestFS(map[string][]byte{
+				"/var/log/dockerd.log": []byte(sentinel),
+			}, nil),
+		}),
+		readyCallsBeforeHealthy: 1 << 30,
+	}
+	ui := testutil.TermUIMock(t)
+
+	err := startDockerdIfPresent(context.Background(), sb, &ui)
+	if err == nil {
+		t.Fatal("expected error when dockerd never becomes ready")
+	}
+	if !strings.Contains(err.Error(), sentinel) {
+		t.Errorf("timeout error should embed the dockerd log, got: %v", err)
 	}
 }
