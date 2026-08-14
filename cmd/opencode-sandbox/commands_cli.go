@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -10,6 +11,8 @@ import (
 	"syscall"
 
 	"github.com/spf13/cobra"
+
+	"gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/doctor"
 
 	"gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/session"
 	"gitlab.inoio.de/inoio/opencode-sandbox/internal/termio"
@@ -97,6 +100,9 @@ func rpad(s string, padding int) string {
 
 func runFunc(ui termio.UI) func(cmd *cobra.Command, args []string) error {
 	return func(cmd *cobra.Command, args []string) error {
+		if !doctor.CheckAll(cmd.Context(), ui) {
+			return errors.New("preflight failed")
+		}
 		opts, err := extractRunOptions(cmd, ui)
 		if err != nil {
 			return err
@@ -137,6 +143,9 @@ func buildShellCmd(ui termio.UI) *cobra.Command {
 			annotationAlsoAs: "sandbox shell",
 		},
 		RunE: func(cmd *cobra.Command, _ []string) error {
+			if !doctor.CheckAll(cmd.Context(), ui) {
+				return errors.New("preflight failed")
+			}
 			opts, err := extractRunOptions(cmd, ui)
 			if err != nil {
 				return err

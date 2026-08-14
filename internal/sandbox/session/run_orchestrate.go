@@ -71,10 +71,6 @@ func prepareSandbox(
 	opts options.RunOptions,
 	ui termio.UI,
 ) (*sandboxSession, error) {
-	if !doctor.CheckAll(ctx, ui) {
-		return nil, errors.New("preflight failed")
-	}
-
 	projectSlug := git.ProjectSlug(ui)
 
 	imageRef, imageDigest, imageEnvs, err := image.EnsureImage(ctx, projectSlug, opts.Rebuild, ui)

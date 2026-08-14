@@ -31,6 +31,7 @@ func checkGit(ui termio.UI) bool {
 
 func checkMsb(ctx context.Context, ui termio.UI) bool {
 	if err := ensureMsbInstalled(ctx, ui); err != nil {
+		ui.Error("the microsandbox runtime could not be auto-installed", err)
 		return false
 	}
 	if _, err := exec.LookPath("msb"); err == nil {
