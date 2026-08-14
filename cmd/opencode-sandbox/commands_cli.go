@@ -66,13 +66,13 @@ func runUsageFunc(cmd *cobra.Command) error {
 		out.WriteString(strings.Repeat(" ", maxLen-len(a.Name)+2))
 		out.WriteString(a.Help)
 	}
+	if len(args) > 0 {
+		out.WriteString("\n")
+	}
 
 	if cmd.HasAvailableSubCommands() {
-		out.WriteString("\n\nAvailable Commands:")
+		out.WriteString("\nAvailable Commands:")
 		for _, subcmd := range cmd.Commands() {
-			if !subcmd.IsAvailableCommand() && subcmd.Name() != "help" {
-				continue
-			}
 			out.WriteString("\n  ")
 			out.WriteString(rpad(subcmd.Name(), minUsagePadding))
 			out.WriteString(subcmd.Short)
