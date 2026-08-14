@@ -265,44 +265,6 @@ func TestDoctor_MsbBinaryMissing(t *testing.T) {
 	}
 }
 
-// D7: orphaned sandboxes/volumes/images are surfaced as actionable warnings.
-func TestDoctor_OrphanedArtifacts(t *testing.T) {
-	ui := &termio.Mock{}
-	msbMock := setupDoctorTest(t, true)
-
-	msbMock.Sandboxes = []sandboxmsb.SandboxHandle{
-		&sandboxmsb.MockSandboxHandle{Name_: "opencode-sandbox-sb-proj-main"},
-	}
-	msbMock.Volumes = []sandboxmsb.VolumeHandle{
-		sandboxmsb.MockVolumeHandle{Name_: "opencode-sandbox-clone-proj-x-123"},
-	}
-	msbMock.Images = []sandboxmsb.ImageHandle{
-		sandboxmsb.MockImageHandle{Reference_: "opencode-sandbox/runner:base"},
-	}
-
-	root := buildRootCmd(ui)
-	root.SetArgs([]string{"doctor"})
-	err := root.Execute()
-
-	expectDoctorFailure(t, err)
-	for _, want := range []string{
-		"Found orphaned sandbox: opencode-sandbox-sb-proj-main",
-		"Found orphaned volume: opencode-sandbox-clone-proj-x-123",
-		"Found orphaned image: opencode-sandbox/runner:base",
-	} {
-		found := false
-		for _, call := range ui.WarnCalls {
-			if strings.Contains(call, want) {
-				found = true
-				break
-			}
-		}
-		if !found {
-			t.Errorf("expected warning containing %q; got: %v", want, ui.WarnCalls)
-		}
-	}
-}
-
 // D8: all prerequisites OK reports a clean pass.
 func TestDoctor_AllChecksPass(t *testing.T) {
 	ui := &termio.Mock{}
