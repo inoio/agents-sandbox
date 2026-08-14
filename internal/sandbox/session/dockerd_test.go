@@ -2,6 +2,7 @@ package session
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -23,6 +24,7 @@ type countingSandbox struct {
 	restartCalls            int
 	readyCalls              int
 	readyCallsBeforeHealthy int
+	restartShellErr         error
 }
 
 func (s *countingSandbox) Shell(_ context.Context, command string, _ ...msbSdk.ExecOption) (msb.ShellResult, error) {
@@ -37,6 +39,9 @@ func (s *countingSandbox) Shell(_ context.Context, command string, _ ...msbSdk.E
 		return msb.NewTestResult(false, 1, "", "", nil), nil
 	case dockerdRestartCmd:
 		s.restartCalls++
+		if s.restartShellErr != nil {
+			return nil, s.restartShellErr
+		}
 		return msb.NewTestResult(true, 0, "", "", nil), nil
 	}
 	return msb.NewTestResult(true, 0, "", "", nil), nil
@@ -82,6 +87,20 @@ func TestStartDockerdIfPresentStartsAndBecomesReady(t *testing.T) {
 		t.Fatalf("startDockerdIfPresent should restart and become ready, got: %v", err)
 	}
 	if sb.restartCalls != 1 {
+		t.Errorf("expected restart attempt, got %d", sb.restartCalls)
+	}
+}
+
+func TestStartDockerdIfPresentShellError(t *testing.T) {
+	ui := testutil.TermUIMock(t)
+	sb := newCountingSandbox(1 << 30)
+	sb.restartShellErr = errors.New("connection lost")
+
+	err := startDockerdIfPresent(context.Background(), sb, &ui)
+	if err == nil {
+		t.Fatal("expected error when the restart Shell call fails")
+	}
+	if sb.restartCalls != 1 {
 		t.Errorf("expected 1 restart attempt, got %d", sb.restartCalls)
 	}
 }
@@ -112,7 +131,7 @@ func TestStartDockerdIfPresentNeverReady(t *testing.T) {
 func TestDockerdRestartCmdTearsDownContainerd(t *testing.T) {
 	for _, want := range []string{
 		"pkill dockerd",
-		"pkill -f 'docker/containerd/containerd'",
+		"pkill containerd",
 		"containerd",
 		".sock",
 		"dockerd -H unix:///var/run/docker.sock",

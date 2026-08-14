@@ -17,23 +17,23 @@ import (
 	"gitlab.inoio.de/inoio/opencode-sandbox/internal/termio"
 )
 
-// checkForActiveVMs checks if there are active or stopped VMs for the given slug.
+// checkForActiveVMs checks if there are active VMs for the given slug.
 func checkForActiveVMs(ctx context.Context, slug string) error {
 	client := msb.Get()
 	sandboxes, err := client.ListSandboxes(ctx)
 	if err != nil {
 		return fmt.Errorf("list sandboxes: %w", err)
 	}
-	for _, h := range sandboxes {
-		if !strings.HasPrefix(h.Name(), naming.VmPrefix) {
+	for _, handle := range sandboxes {
+		if !strings.HasPrefix(handle.Name(), naming.VmPrefix) {
 			continue
 		}
-		s, _ := naming.ExtractProjectSlugAndDigest(h.Name())
-		if s == slug {
-			status := h.Status()
-			if msb.IsSandboxActive(status) || msb.IsStoppedStatus(status) {
+		sandboxSlug, _ := naming.ExtractProjectSlugAndDigest(handle.Name())
+		if sandboxSlug == slug {
+			status := handle.Status()
+			if msb.IsSandboxActive(status) {
 				return fmt.Errorf(
-					"session still running for slug %q -- quit all sessions before migrating or resetting",
+					"VM still running for slug %q -- quit all sessions before migrating or resetting",
 					slug,
 				)
 			}

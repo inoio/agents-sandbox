@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"slices"
 	"strings"
 	"testing"
@@ -31,12 +32,21 @@ func mkStaleVM(staleTime time.Time) sandboxmsb.SandboxHandle {
 	}
 }
 
-func mkActiveVM(imgRef string) sandboxmsb.SandboxHandle {
+func mkStoppedVM(slug string) sandboxmsb.SandboxHandle {
 	return &sandboxmsb.MockSandboxHandle{
-		Name_:      "opencode-sandbox-vm-activeproject-1mjusbm3wikhb0",
+		Name_:      fmt.Sprintf("opencode-sandbox-vm-%s", slug),
+		Status_:    msb.SandboxStatusStopped,
+		UpdatedAt_: time.Now().Add(-3 * 24 * time.Hour),
+		Image_:     fmt.Sprintf("opencode-sandbox/runner-%s:xyz789", slug),
+	}
+}
+
+func mkActiveVM(slug string) sandboxmsb.SandboxHandle {
+	return &sandboxmsb.MockSandboxHandle{
+		Name_:      fmt.Sprintf("opencode-sandbox-vm-%s", slug),
 		Status_:    msb.SandboxStatusRunning,
 		UpdatedAt_: time.Now().Add(-3 * 24 * time.Hour),
-		Image_:     imgRef,
+		Image_:     fmt.Sprintf("opencode-sandbox/runner-%s:xyz789", slug),
 	}
 }
 
@@ -75,7 +85,7 @@ func TestPrune(t *testing.T) {
 				runPruneTest(t, append([]string{"--dry-run"}, flags...), func(m *sandboxmsb.MockMsbClient) {
 					m.Sandboxes = append(m.Sandboxes, mkStaleVM(time.Now().Add(-15*24*time.Hour)))
 					m.Sandboxes = append(m.Sandboxes,
-						mkActiveVM("opencode-sandbox/runner-activeproject-1mjusbm3wikhb0:abc1234"))
+						mkActiveVM("activeproject-1mjusbm3wikhb0"))
 					m.Volumes = append(m.Volumes,
 						homeVol("opencode-sandbox-home-projectname-1mjusbm3wikhb0-d1"))
 					m.Volumes = append(m.Volumes,
@@ -199,7 +209,7 @@ func TestPrune(t *testing.T) {
 				}
 				runPruneTest(t, flags, func(m *sandboxmsb.MockMsbClient) {
 					m.Sandboxes = append(m.Sandboxes,
-						mkActiveVM("opencode-sandbox/runner-activeproject-1mjusbm3wikhb0:xyz789"))
+						mkActiveVM("activeproject-1mjusbm3wikhb0"))
 					m.Sandboxes = append(m.Sandboxes, mkStaleTask(time.Now().Add(-15*24*time.Hour)))
 					m.Volumes = append(m.Volumes,
 						homeVol("opencode-sandbox-home-activeproject-1mjusbm3wikhb0-abc123"))
@@ -219,7 +229,7 @@ func TestPrune(t *testing.T) {
 					// Use 15d staleness to work with all flag values (7d, 7d, 14d, 14d).
 					m.Sandboxes = append(m.Sandboxes, mkStaleVM(time.Now().Add(-15*24*time.Hour)))
 					m.Sandboxes = append(m.Sandboxes,
-						mkActiveVM("opencode-sandbox/runner-prod-main-1mjusbm3wikhb0:abc1234"))
+						mkActiveVM("prod-main-1mjusbm3wikhb0"))
 					m.Volumes = append(m.Volumes,
 						homeVol("opencode-sandbox-home-projectname-1mjusbm3wikhb0-digest1"))
 					m.Images = append(m.Images,

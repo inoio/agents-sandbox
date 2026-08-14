@@ -187,8 +187,8 @@ func TestVolumeOp_ActiveVM_ReturnsError(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
-	if !strings.Contains(err.Error(), "session still running") {
-		t.Errorf("expected session still running error, got: %v", err)
+	if !strings.Contains(err.Error(), "VM still running") {
+		t.Errorf("expected VM still running error, got: %v", err)
 	}
 }
 

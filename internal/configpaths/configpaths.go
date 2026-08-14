@@ -25,11 +25,11 @@ type ConfigPaths interface {
 
 type realConfigPaths struct{}
 
-// GetConfigPaths is the factory clients can use to obtain an Client.
+// Get is the factory clients can use to obtain an Client.
 // Tests override Get to inject mocks.
 //
 //nolint:gochecknoglobals // test hook for the otherwise unmockable SDK
-var GetConfigPaths = func() ConfigPaths {
+var Get = func() ConfigPaths {
 	return &realConfigPaths{}
 }
 
