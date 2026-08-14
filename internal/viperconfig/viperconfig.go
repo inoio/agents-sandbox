@@ -104,10 +104,10 @@ func durationDecodeHook() mapstructure.DecodeHookFunc {
 func Load() (Config, map[string]bool, error) {
 	v := viper.New()
 
-	if err := mergeDir(v, configpaths.GetConfigPaths().UserConfigDir()); err != nil {
+	if err := mergeDir(v, configpaths.Get().UserConfigDir()); err != nil {
 		return Config{}, nil, err
 	}
-	if err := mergeDir(v, configpaths.GetConfigPaths().ProjectConfigDir()); err != nil {
+	if err := mergeDir(v, configpaths.Get().ProjectConfigDir()); err != nil {
 		return Config{}, nil, err
 	}
 	if err := validate(v); err != nil {

@@ -79,7 +79,7 @@ func ensureProjectVM(
 	slug := git.ProjectSlug(ui)
 	name := projectVMName(slug)
 
-	flockPath := filepath.Join(configpaths.GetConfigPaths().UserStateDir(), "vm-ensure", slug+".lock")
+	flockPath := filepath.Join(configpaths.Get().UserStateDir(), "vm-ensure", slug+".lock")
 	if err := os.MkdirAll(filepath.Dir(flockPath), 0o750); err != nil {
 		return nil, false, fmt.Errorf("create flock dir: %w", err)
 	}
@@ -253,17 +253,17 @@ func createProjectVM(
 	maxMemoryGiB := sysinfo.TotalMemoryGiB()
 
 	envMap := reprovision.MergeEnvMaps(
-		reprovision.BuildEnvMap(configpaths.GetConfigPaths().UserEnvFile()),
-		reprovision.BuildEnvMap(configpaths.GetConfigPaths().ProjectEnvFile()),
+		reprovision.BuildEnvMap(configpaths.Get().UserEnvFile()),
+		reprovision.BuildEnvMap(configpaths.Get().ProjectEnvFile()),
 	)
 	ui.Verbosef("adding docker env definitions to project VM environment: %s", imageEnvs)
 	buildProjectVMEnv(envMap, imageEnvs)
 
 	secrets := reprovision.BuildSecretsFromSpecs(reprovision.MergeSecretSpecs(
-		reprovision.ParseSecretSpecLegacy(configpaths.GetConfigPaths().UserEnvSecretFile(), ui),
-		reprovision.ParseSecretSpecLegacy(configpaths.GetConfigPaths().ProjectEnvSecretFile(), ui),
-		reprovision.ParseSecretSpecYAML(configpaths.GetConfigPaths().UserEnvSecretYAMLFile(), ui),
-		reprovision.ParseSecretSpecYAML(configpaths.GetConfigPaths().ProjectEnvSecretYAMLFile(), ui),
+		reprovision.ParseSecretSpecLegacy(configpaths.Get().UserEnvSecretFile(), ui),
+		reprovision.ParseSecretSpecLegacy(configpaths.Get().ProjectEnvSecretFile(), ui),
+		reprovision.ParseSecretSpecYAML(configpaths.Get().UserEnvSecretYAMLFile(), ui),
+		reprovision.ParseSecretSpecYAML(configpaths.Get().ProjectEnvSecretYAMLFile(), ui),
 	), ui)
 
 	mounts := buildMounts(homeVol, repoPath, options.ResolveTmpSizeMiB(opts.TmpSize))
