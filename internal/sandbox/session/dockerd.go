@@ -2,7 +2,6 @@ package session
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"time"
 
@@ -15,11 +14,15 @@ import (
 const (
 	dockerdBinaryCheckCmd = "test -x /usr/bin/dockerd"
 	dockerdReadyCmd       = "docker info"
-	dockerdRestartCmd     = "pkill dockerd 2>/dev/null || : && find /run /var/run -iname 'docker*.pid' -delete 2>/dev/null && sleep 1 && dockerd -H unix:///var/run/docker.sock > /var/log/dockerd.log 2>&1 &"
+	dockerdRestartCmd     = "pkill dockerd 2>/dev/null ; " +
+		"pkill -f 'docker/containerd/containerd' 2>/dev/null ; " +
+		"find /run /var/run -iname 'docker*.pid' -delete 2>/dev/null ; " +
+		"find /run /var/run -path '*containerd*' \\( -name '*.sock' -o -name '*.pid' \\) -delete 2>/dev/null ; " +
+		"dockerd -H unix:///var/run/docker.sock > /var/log/dockerd.log 2>&1 &"
 )
 
 var (
-	dockerdReadyTimeout = 10 * time.Second //nolint:gochecknoglobals // test seam, swapped in tests
+	dockerdReadyTimeout = 30 * time.Second //nolint:gochecknoglobals // test seam, swapped in tests
 	dockerdPollInterval = time.Second      //nolint:gochecknoglobals // test seam, swapped in tests
 )
 
@@ -73,9 +76,11 @@ func startDockerdIfPresent(ctx context.Context, sb msb.Sandbox, ui termio.UI) er
 		}
 	}
 	data, err := sb.FS().ReadString(ctx, "/var/log/dockerd.log")
-	if err != nil {
-		return err
+	if err == nil && data != "" {
+		return fmt.Errorf(
+			"dockerd did not become ready within %s; dockerd log:\n%s",
+			dockerdReadyTimeout, data,
+		)
 	}
-	ui.Verbosef("dockerd log:\n%s", data)
-	return errors.New("dockerd did not become ready within " + dockerdReadyTimeout.String())
+	return fmt.Errorf("dockerd did not become ready within %s (dockerd log unavailable)", dockerdReadyTimeout)
 }
