@@ -68,7 +68,7 @@ func projectSlugAt(cwd string, ui termio.UI) string {
 	})
 	if err != nil {
 		if abs, absErr := filepath.Abs(cwd); absErr == nil {
-			ui.Warnf("not inside a git repo; using CWD hash as project slug.")
+			ui.Verbosef("not inside a git repo; using CWD hash as project slug.")
 			return projectSlug(sanitizeFolderName(filepath.Base(abs)), abs)
 		}
 		return projectSlug("", cwd)
