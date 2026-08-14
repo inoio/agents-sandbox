@@ -67,6 +67,18 @@ func runUsageFunc(cmd *cobra.Command) error {
 		out.WriteString(a.Help)
 	}
 
+	if cmd.HasAvailableSubCommands() {
+		out.WriteString("\n\nAvailable Commands:")
+		for _, subcmd := range cmd.Commands() {
+			if !subcmd.IsAvailableCommand() && subcmd.Name() != "help" {
+				continue
+			}
+			out.WriteString("\n  ")
+			out.WriteString(rpad(subcmd.Name(), minUsagePadding))
+			out.WriteString(subcmd.Short)
+		}
+	}
+
 	if cmd.Flags().HasFlags() {
 		out.WriteString("\n\nFlags:\n")
 		out.WriteString(cmd.Flags().FlagUsages())
