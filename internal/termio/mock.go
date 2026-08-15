@@ -4,7 +4,14 @@ import (
 	"bytes"
 	"fmt"
 	"io"
+	"testing"
 )
+
+// NewTestMock returns an empty termio.Mock for tests.
+func NewTestMock(tb testing.TB) Mock {
+	tb.Helper()
+	return Mock{}
+}
 
 type ErrorCall struct {
 	Msg string

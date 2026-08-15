@@ -75,15 +75,12 @@ func (c *realConfigPaths) UserEnvSecretYAMLFile() string {
 	return filepath.Join(c.UserConfigDir(), envSecretYAMLFileName)
 }
 
-const pathPrefix = "opencode-sandbox"
-
-// projectConfigDir is the project-local metadata directory for the tool.
-const projectConfigDir = "." + pathPrefix
-
 // Shared names for config subdirectories and files, used by both the
 // project-local and the user-level config path helpers.
 const (
-	pathPrefixName    = "opencode-sandbox"
+	pathPrefix = "opencode-sandbox"
+	// projectConfigDir is the project-local metadata directory for the tool.
+	projectConfigDir  = "." + pathPrefix
 	ConfigDirName     = "opencode"
 	EnvFileName       = "env"
 	EnvSecretFileName = "env.secret"

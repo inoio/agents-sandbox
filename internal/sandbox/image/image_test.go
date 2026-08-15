@@ -1,6 +1,7 @@
 package image
 
 import (
+	"archive/tar"
 	"bytes"
 	"context"
 	"errors"
@@ -62,9 +63,8 @@ func TestBuildDockerImageSetsHostUserBuildArgs(t *testing.T) {
 		return client.ImageBuildResult{Body: io.NopCloser(bytes.NewReader(nil))}, nil
 	}
 	docker.WithDockerMock(t, m)
-	l := &termio.Mock{}
 
-	if err := docker.BuildDockerImage(context.Background(), dockerfile, "tag", "label", false, l); err != nil {
+	if err := buildImage(context.Background(), dockerfile, "tag", false, func(string) {}); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
@@ -75,6 +75,60 @@ func TestBuildDockerImageSetsHostUserBuildArgs(t *testing.T) {
 	}
 	if v := capturedBuildArgs["USER_GID"]; v == nil || *v != wantGID {
 		t.Errorf("USER_GID: want %q, got %v", wantGID, v)
+	}
+}
+
+func TestDockerfileTarContainsDockerfile(t *testing.T) {
+	dockerfile := []byte("FROM debian:trixie-slim\nRUN echo hi\n")
+	tarBuf, err := dockerfileTar(dockerfile)
+	if err != nil {
+		t.Fatalf("dockerfileTar failed: %v", err)
+	}
+
+	tr := tar.NewReader(tarBuf)
+	header, err := tr.Next()
+	if err != nil {
+		t.Fatalf("unexpected error reading tar: %v", err)
+	}
+	if header.Name != "Dockerfile" {
+		t.Errorf("expected tar entry 'Dockerfile', got %q", header.Name)
+	}
+	content, err := io.ReadAll(tr)
+	if err != nil {
+		t.Fatalf("unexpected error reading tar content: %v", err)
+	}
+	if !bytes.Equal(content, dockerfile) {
+		t.Errorf("tar content does not match dockerfile")
+	}
+}
+
+func TestScanBuildOutputForwardsStreamLines(t *testing.T) {
+	body := strings.NewReader(`{"stream":"Step 1/1 : FROM debian\n"}
+{"stream":"\n"}
+{"stream":"Successfully built abc123\n"}`)
+
+	var got []string
+	if err := scanBuildOutput(body, func(s string) { got = append(got, s) }); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	want := []string{"Step 1/1 : FROM debian", "Successfully built abc123"}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("expected lines %q, got %q", want, got)
+	}
+}
+
+func TestScanBuildOutputReturnsErrorMessage(t *testing.T) {
+	body := strings.NewReader(
+		`{"errorDetail":{"message":"pull access denied for base"},"error":"pull access denied for base"}`,
+	)
+
+	err := scanBuildOutput(body, func(string) {})
+	if err == nil {
+		t.Fatal("expected scanBuildOutput to return an error")
+	}
+	if !strings.Contains(err.Error(), "pull access denied") {
+		t.Errorf("expected error to mention the build failure, got %q", err)
 	}
 }
 

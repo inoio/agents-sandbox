@@ -10,16 +10,8 @@ import (
 	"gitlab.inoio.de/inoio/opencode-sandbox/internal/termio"
 )
 
-func TestInitMocks_RunsInstallsInOrderBeforeTests(t *testing.T) {
-	// installOrder is populated by the package TestMain via InitMocks.
-	want := []string{"a", "b"}
-	if len(installOrder) != 2 || installOrder[0] != "a" || installOrder[1] != "b" {
-		t.Fatalf("InitMocks installs did not run in order before tests: got %v, want %v", installOrder, want)
-	}
-}
-
 func TestTermUIMock_ReturnsEmptyMock(t *testing.T) {
-	mock := TermUIMock(t)
+	mock := termio.NewTestMock(t)
 	if mock.InfoCalls != nil {
 		t.Error("InfoCalls should be nil for empty mock")
 	}
@@ -32,7 +24,7 @@ func TestTermUIMock_ReturnsEmptyMock(t *testing.T) {
 }
 
 func TestTermUIMock_MockRecordsCalls(t *testing.T) {
-	mock := TermUIMock(t)
+	mock := termio.NewTestMock(t)
 
 	mock.Info("hello")
 	mock.Infof("fmt %s", "args")
@@ -69,7 +61,7 @@ func TestTermUIMock_MockRecordsCalls(t *testing.T) {
 }
 
 func TestTermUIMock_StdoutStderrAreWriters(t *testing.T) {
-	mock := TermUIMock(t)
+	mock := termio.NewTestMock(t)
 
 	n, err := mock.StdOut().Write([]byte("out"))
 	if err != nil {
@@ -95,7 +87,7 @@ func TestTermUIMock_StdoutStderrAreWriters(t *testing.T) {
 }
 
 func TestTermUIMock_SelectReturnsDefault(t *testing.T) {
-	mock := TermUIMock(t)
+	mock := termio.NewTestMock(t)
 	got, err := mock.Select("prompt", []termio.Choice{{Key: "a"}, {Key: "b"}}, "b")
 	if err != nil {
 		t.Fatalf("Select: %v", err)
@@ -106,7 +98,7 @@ func TestTermUIMock_SelectReturnsDefault(t *testing.T) {
 }
 
 func TestTermUIMock_InputReturnsDefault(t *testing.T) {
-	mock := TermUIMock(t)
+	mock := termio.NewTestMock(t)
 	got, err := mock.Input("prompt", "hello")
 	if err != nil {
 		t.Fatalf("Input: %v", err)
@@ -117,7 +109,7 @@ func TestTermUIMock_InputReturnsDefault(t *testing.T) {
 }
 
 func TestTermUIMock_CustomFnOverrides(t *testing.T) {
-	mock := TermUIMock(t)
+	mock := termio.NewTestMock(t)
 
 	mock.SelectFn = func(_ string, _ []termio.Choice, _ string) (string, error) {
 		return "custom", nil

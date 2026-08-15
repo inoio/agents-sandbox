@@ -1,12 +1,10 @@
 package git
 
 import (
-	"context"
 	"crypto/sha256"
 	"fmt"
 	"math/big"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 
@@ -200,13 +198,4 @@ func branchAt(path string) (string, error) {
 		return "", fmt.Errorf("unable to determine current git branch from %s: %w", path, err)
 	}
 	return head.Name().Short(), nil
-}
-
-func PruneWorktrees(ctx context.Context, cwd string) error {
-	cmd := exec.CommandContext(ctx, "git", "worktree", "prune")
-	cmd.Dir = cwd
-	if out, err := cmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("git worktree prune failed in %s: %w: %s", cwd, err, out)
-	}
-	return nil
 }
