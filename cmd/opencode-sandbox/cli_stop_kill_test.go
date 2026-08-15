@@ -261,3 +261,69 @@ func TestLifecycle(t *testing.T) {
 		})
 	}
 }
+
+// assertErrContains reports whether err is non-nil and contains wantPart.
+func assertErrContains(t *testing.T, err error, wantPart string) {
+	t.Helper()
+	if err == nil {
+		t.Errorf("expected error containing %q, got none", wantPart)
+		return
+	}
+	if !strings.Contains(err.Error(), wantPart) {
+		t.Errorf("expected error containing %q, got: %v", wantPart, err)
+	}
+}
+
+// TestStopKillGetSandboxError covers a non-not-found GetSandbox failure, which
+// is distinct from the "no project VM found" nil-return path.
+func TestStopKillGetSandboxError(t *testing.T) {
+	for _, tc := range []struct {
+		cmd     string
+		wantErr string
+	}{
+		{cmdStop, "get sandbox"},
+		{cmdKill, "get sandbox"},
+	} {
+		t.Run(tc.cmd, func(t *testing.T) {
+			initTestRepo(t)
+			ui := &termio.Mock{}
+			mock := &sandboxmsb.MockMsbClient{}
+			mock.SetGetSandboxErr(errBoom)
+			configpaths.WithMockConfigPaths(t)
+			docker.WithNoopDockerMock(t)
+			sandboxmsb.WithMsbMock(t, mock)
+
+			root := buildRootCmd(ui)
+			root.SetArgs([]string{tc.cmd})
+			assertErrContains(t, root.Execute(), tc.wantErr)
+		})
+	}
+}
+
+// TestStopKillActionError covers the Stop/Kill call itself failing.
+func TestStopKillActionError(t *testing.T) {
+	for _, tc := range []struct {
+		cmd     string
+		sbErr   func(*sandboxmsb.MockSandboxHandle)
+		wantErr string
+	}{
+		{cmdStop, func(h *sandboxmsb.MockSandboxHandle) { h.StopErr = errBoom }, "stop sandbox"},
+		{cmdKill, func(h *sandboxmsb.MockSandboxHandle) { h.KillErr = errBoom }, "kill sandbox"},
+	} {
+		t.Run(tc.cmd, func(t *testing.T) {
+			initTestRepo(t)
+			ui := &termio.Mock{}
+			mock := &sandboxmsb.MockMsbClient{}
+			handle := &sandboxmsb.MockSandboxHandle{}
+			tc.sbErr(handle)
+			mock.SetGotSandbox(handle)
+			configpaths.WithMockConfigPaths(t)
+			docker.WithNoopDockerMock(t)
+			sandboxmsb.WithMsbMock(t, mock)
+
+			root := buildRootCmd(ui)
+			root.SetArgs([]string{tc.cmd})
+			assertErrContains(t, root.Execute(), tc.wantErr)
+		})
+	}
+}

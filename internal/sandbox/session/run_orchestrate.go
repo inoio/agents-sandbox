@@ -237,8 +237,8 @@ func BuildImage(ctx context.Context, force, dryRun bool, ui termio.UI) error {
 		return nil
 	}
 
-	if !doctor.CheckDocker(ui) {
-		return errors.New("docker not available")
+	if err := doctor.CheckDocker(ctx); err != nil {
+		return fmt.Errorf("docker not available: %w", err)
 	}
 	projectSlug := git.ProjectSlug(ui)
 

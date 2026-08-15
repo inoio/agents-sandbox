@@ -9,8 +9,9 @@ import (
 
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 
+	"gitlab.inoio.de/inoio/opencode-sandbox/internal/termio"
+
 	"gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/msb"
-	"gitlab.inoio.de/inoio/opencode-sandbox/internal/testutil"
 )
 
 // countingSandbox is an msb.Sandbox stub that records how many times it ran
@@ -55,7 +56,7 @@ func newCountingSandbox(readyCallsBeforeHealthy int) *countingSandbox {
 }
 
 func TestStartDockerdIfPresentNoDockerdBinary(t *testing.T) {
-	ui := testutil.TermUIMock(t)
+	ui := termio.NewTestMock(t)
 	sb := msb.NewMockSandbox(msb.SandboxOpts{
 		ShellOut: map[string]msb.ShellResult{
 			dockerdBinaryCheckCmd: msb.NewTestResult(false, 1, "", "", nil),
@@ -68,7 +69,7 @@ func TestStartDockerdIfPresentNoDockerdBinary(t *testing.T) {
 }
 
 func TestStartDockerdIfPresentAlreadyRunning(t *testing.T) {
-	ui := testutil.TermUIMock(t)
+	ui := termio.NewTestMock(t)
 	sb := newCountingSandbox(0)
 
 	if err := startDockerdIfPresent(context.Background(), sb, &ui); err != nil {
@@ -80,7 +81,7 @@ func TestStartDockerdIfPresentAlreadyRunning(t *testing.T) {
 }
 
 func TestStartDockerdIfPresentStartsAndBecomesReady(t *testing.T) {
-	ui := testutil.TermUIMock(t)
+	ui := termio.NewTestMock(t)
 	sb := newCountingSandbox(1)
 
 	if err := startDockerdIfPresent(context.Background(), sb, &ui); err != nil {
@@ -92,7 +93,7 @@ func TestStartDockerdIfPresentStartsAndBecomesReady(t *testing.T) {
 }
 
 func TestStartDockerdIfPresentShellError(t *testing.T) {
-	ui := testutil.TermUIMock(t)
+	ui := termio.NewTestMock(t)
 	sb := newCountingSandbox(1 << 30)
 	sb.restartShellErr = errors.New("connection lost")
 
@@ -106,7 +107,7 @@ func TestStartDockerdIfPresentShellError(t *testing.T) {
 }
 
 func TestStartDockerdIfPresentNeverReady(t *testing.T) {
-	ui := testutil.TermUIMock(t)
+	ui := termio.NewTestMock(t)
 	// A huge threshold means the ready check can never become healthy within
 	// the (shortened) poll window, forcing the timeout path.
 	sb := newCountingSandbox(1 << 30)
@@ -172,7 +173,7 @@ func TestTimeoutErrorIncludesDockerdLog(t *testing.T) {
 		}),
 		readyCallsBeforeHealthy: 1 << 30,
 	}
-	ui := testutil.TermUIMock(t)
+	ui := termio.NewTestMock(t)
 
 	err := startDockerdIfPresent(context.Background(), sb, &ui)
 	if err == nil {

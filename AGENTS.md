@@ -72,7 +72,7 @@ Always use your superpowers for appropriate tasks, never skip defined user appro
 
 ### Testing
 
-- Default to TDD - writing tests first, validating they fail, implementing changes, validating passing tests
+- Default to TDD - writing tests first, validating they compile and fail, implementing changes, validating passing tests
 - Make sure that new/changed CLI commands/flags are thoroughly tested in the cmd/opencode-sandbox/cli_*_test.go tests
 - Also write valuable unit tests for internal functionality with every implementation.
 

@@ -5,6 +5,7 @@ import (
 	"reflect"
 	"testing"
 
+	"gitlab.inoio.de/inoio/opencode-sandbox/internal/termio"
 	"gitlab.inoio.de/inoio/opencode-sandbox/internal/testutil"
 
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
@@ -13,7 +14,7 @@ import (
 func TestParseSecretSpecLegacyCreatesEntry(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "env.secret")
 	testutil.WritePath(t, path, "FOO=bar@example.org\n")
-	testUI := testutil.TermUIMock(t)
+	testUI := termio.NewTestMock(t)
 
 	specs := ParseSecretSpecLegacy(path, &testUI)
 	want := map[string]SecretSpec{"FOO": {Value: "bar", Hosts: []string{"example.org"}}}
@@ -25,7 +26,7 @@ func TestParseSecretSpecLegacyCreatesEntry(t *testing.T) {
 func TestParseSecretSpecLegacySplitsOnLastAt(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "env.secret")
 	testutil.WritePath(t, path, "FOO=bar@baz@example.org\n")
-	testUI := testutil.TermUIMock(t)
+	testUI := termio.NewTestMock(t)
 
 	specs := ParseSecretSpecLegacy(path, &testUI)
 	got, ok := specs["FOO"]
@@ -39,7 +40,7 @@ func TestParseSecretSpecLegacySplitsOnLastAt(t *testing.T) {
 }
 
 func TestParseSecretSpecLegacyMissingFile(t *testing.T) {
-	testUI := testutil.TermUIMock(t)
+	testUI := termio.NewTestMock(t)
 	specs := ParseSecretSpecLegacy(filepath.Join(t.TempDir(), "nope"), &testUI)
 	if len(specs) != 0 {
 		t.Errorf("expected empty map for missing file, got %#v", specs)
@@ -49,7 +50,7 @@ func TestParseSecretSpecLegacyMissingFile(t *testing.T) {
 func TestParseSecretSpecLegacyBadLineWarns(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "env.secret")
 	testutil.WritePath(t, path, "KEY=nohost\n")
-	mock := testutil.TermUIMock(t)
+	mock := termio.NewTestMock(t)
 	specs := ParseSecretSpecLegacy(path, &mock)
 	if len(specs) != 0 {
 		t.Errorf("expected 0 entries for a line without @ separator, got %#v", specs)
@@ -60,7 +61,7 @@ func TestParseSecretSpecLegacyBadLineWarns(t *testing.T) {
 }
 
 func TestBuildSecretsFromSpecsNoHostsDropsEntry(t *testing.T) {
-	testUI := testutil.TermUIMock(t)
+	testUI := termio.NewTestMock(t)
 	in := map[string]SecretSpec{"FOO": {Value: "x"}}
 	secrets := BuildSecretsFromSpecs(in, &testUI)
 	if len(secrets) != 0 {
@@ -72,7 +73,7 @@ func TestBuildSecretsFromSpecsNoHostsDropsEntry(t *testing.T) {
 }
 
 func TestBuildSecretsFromSpecsHostListAndHost(t *testing.T) {
-	testUI := testutil.TermUIMock(t)
+	testUI := termio.NewTestMock(t)
 	in := map[string]SecretSpec{"K": {Value: "v", Host: "a.example", Hosts: []string{"b.example"}}}
 	secrets := BuildSecretsFromSpecs(in, &testUI)
 	if len(secrets) != 1 {
@@ -91,7 +92,7 @@ func TestBuildSecretsFromSpecsHostListAndHost(t *testing.T) {
 }
 
 func TestBuildSecretsFromSpecsEmptyValueAndHostIsPassedThrough(t *testing.T) {
-	testUI := testutil.TermUIMock(t)
+	testUI := termio.NewTestMock(t)
 	in := map[string]SecretSpec{"K": {Value: "", Hosts: []string{"h"}}}
 	secrets := BuildSecretsFromSpecs(in, &testUI)
 	if len(secrets) != 1 {
@@ -105,7 +106,7 @@ func TestBuildSecretsFromSpecsEmptyValueAndHostIsPassedThrough(t *testing.T) {
 func TestParseSecretSpecYAML(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "env.secret.yaml")
 	testutil.WritePath(t, path, "FOO:\n  value: \"a@b@c\"\n  host: gw.example\n")
-	testUI := testutil.TermUIMock(t)
+	testUI := termio.NewTestMock(t)
 
 	specs := ParseSecretSpecYAML(path, &testUI)
 	want := map[string]SecretSpec{"FOO": {Value: "a@b@c", Host: "gw.example"}}
@@ -117,7 +118,7 @@ func TestParseSecretSpecYAML(t *testing.T) {
 func TestParseSecretSpecYAMLJSON(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "env.secret.yaml")
 	testutil.WritePath(t, path, `{"FOO": {"value": "a@b", "hosts": ["h1","h2"]}}`+"\n")
-	testUI := testutil.TermUIMock(t)
+	testUI := termio.NewTestMock(t)
 
 	specs := ParseSecretSpecYAML(path, &testUI)
 	want := map[string]SecretSpec{"FOO": {Value: "a@b", Hosts: []string{"h1", "h2"}}}
@@ -129,7 +130,7 @@ func TestParseSecretSpecYAMLJSON(t *testing.T) {
 func TestParseSecretSpecYAMLMultilineValue(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "env.secret.yaml")
 	testutil.WritePath(t, path, "PEM:\n  value: |\n    line1\n    line2\n")
-	testUI := testutil.TermUIMock(t)
+	testUI := termio.NewTestMock(t)
 
 	specs := ParseSecretSpecYAML(path, &testUI)
 	got := specs["PEM"].Value
@@ -140,7 +141,7 @@ func TestParseSecretSpecYAMLMultilineValue(t *testing.T) {
 }
 
 func TestParseSecretSpecYAMLMissingFile(t *testing.T) {
-	testUI := testutil.TermUIMock(t)
+	testUI := termio.NewTestMock(t)
 	specs := ParseSecretSpecYAML(filepath.Join(t.TempDir(), "nope"), &testUI)
 	if len(specs) != 0 {
 		t.Errorf("expected empty map for missing file, got %#v", specs)
@@ -150,7 +151,7 @@ func TestParseSecretSpecYAMLMissingFile(t *testing.T) {
 func TestParseSecretSpecYAMLMalformedWarns(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "env.secret.yaml")
 	testutil.WritePath(t, path, "{ not valid yaml\n")
-	testUI := testutil.TermUIMock(t)
+	testUI := termio.NewTestMock(t)
 	specs := ParseSecretSpecYAML(path, &testUI)
 	if len(specs) != 0 {
 		t.Errorf("expected empty map for malformed yaml, got %#v", specs)
@@ -160,7 +161,7 @@ func TestParseSecretSpecYAMLMalformedWarns(t *testing.T) {
 func TestParseSecretSpecYAMLAllowAnyHostDangerous(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "env.secret.yaml")
 	testutil.WritePath(t, path, "DANGER:\n  value: x\n  allow_any_host_dangerous: true\n")
-	testUI := testutil.TermUIMock(t)
+	testUI := termio.NewTestMock(t)
 
 	specs := ParseSecretSpecYAML(path, &testUI)
 	want := map[string]SecretSpec{"DANGER": {Value: "x", AllowAnyHostDangerous: true}}
@@ -170,7 +171,7 @@ func TestParseSecretSpecYAMLAllowAnyHostDangerous(t *testing.T) {
 }
 
 func TestBuildSecretsFromSpecsAllowAnyHostDangerous(t *testing.T) {
-	testUI := testutil.TermUIMock(t)
+	testUI := termio.NewTestMock(t)
 	in := map[string]SecretSpec{"K": {Value: "v", AllowAnyHostDangerous: true}}
 	secrets := BuildSecretsFromSpecs(in, &testUI)
 	if len(secrets) != 1 {
@@ -216,7 +217,7 @@ func TestBuildSecretsPipelinePrecedence(t *testing.T) {
 	testutil.WritePath(t, userYAML, "KEY:\n  value: user-yaml\n  host: u.example\n")
 	testutil.WritePath(t, projectYAML, "KEY:\n  value: proj-yaml@h\n  host: p.example\n")
 
-	testUI := testutil.TermUIMock(t)
+	testUI := termio.NewTestMock(t)
 	specs := MergeSecretSpecs(
 		ParseSecretSpecLegacy(user, &testUI),
 		ParseSecretSpecLegacy(project, &testUI),
@@ -238,7 +239,7 @@ func TestBuildSecretsPipelinePrecedence(t *testing.T) {
 }
 
 func TestBuildSecretsFromSpecsDangerousFlagWithHosts(t *testing.T) {
-	testUI := testutil.TermUIMock(t)
+	testUI := termio.NewTestMock(t)
 	in := map[string]SecretSpec{"K": {Value: "v", AllowAnyHostDangerous: true, Hosts: []string{"h.example"}}}
 	secrets := BuildSecretsFromSpecs(in, &testUI)
 	if len(secrets) != 1 {
@@ -272,7 +273,7 @@ func TestMergePrecedence4Layers(t *testing.T) {
 		"C:\n  value: proj-yaml\n  host: p.example\nD:\n  value: proj-yaml\n  allow_any_host_dangerous: true\nE:\n  value: proj-only\n  host: e.example\n",
 	)
 
-	testUI := testutil.TermUIMock(t)
+	testUI := termio.NewTestMock(t)
 	specs := MergeSecretSpecs(
 		ParseSecretSpecLegacy(userLegacy, &testUI),
 		ParseSecretSpecLegacy(projectLegacy, &testUI),
@@ -311,7 +312,7 @@ func TestMergePrecedence4Layers(t *testing.T) {
 func TestParseSecretSpecLegacyValueOnly(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "env.secret")
 	testutil.WritePath(t, path, "FOO=val@h.example\n")
-	testUI := testutil.TermUIMock(t)
+	testUI := termio.NewTestMock(t)
 	specs := ParseSecretSpecLegacy(path, &testUI)
 	want := map[string]SecretSpec{"FOO": {Value: "val", Hosts: []string{"h.example"}}}
 	if !reflect.DeepEqual(specs, want) {
@@ -320,7 +321,7 @@ func TestParseSecretSpecLegacyValueOnly(t *testing.T) {
 }
 
 func TestBuildSecretsEmptyHostname(t *testing.T) {
-	testUI := testutil.TermUIMock(t)
+	testUI := termio.NewTestMock(t)
 	in := map[string]SecretSpec{"K": {Value: "v", Hosts: []string{""}}}
 	secrets := BuildSecretsFromSpecs(in, &testUI)
 	if len(secrets) != 1 {
@@ -339,7 +340,7 @@ func TestBuildSecretsYAMLValueOnlyWithNoHostsDropped(t *testing.T) {
 	testutil.WritePath(t, legacyPath, "KEY=legacy@h.example\n")
 	testutil.WritePath(t, yamlPath, "KEY:\n  value: yaml-only\n")
 
-	testUI := testutil.TermUIMock(t)
+	testUI := termio.NewTestMock(t)
 	specs := MergeSecretSpecs(
 		ParseSecretSpecLegacy(legacyPath, &testUI),
 		ParseSecretSpecYAML(yamlPath, &testUI),
@@ -366,7 +367,7 @@ func TestMergeSecretSpecsYAMLOnlyKeyWins(t *testing.T) {
 		"KEY:\n  value: proj-yaml\n  host: p.example\nEXTRA:\n  value: extras\n  host: e.example\n",
 	)
 
-	testUI := testutil.TermUIMock(t)
+	testUI := termio.NewTestMock(t)
 	specs := MergeSecretSpecs(
 		ParseSecretSpecYAML(userYAML, &testUI),
 		ParseSecretSpecYAML(projectYAML, &testUI),
@@ -389,7 +390,7 @@ func TestMergeSecretSpecsYAMLOnlyKeyWins(t *testing.T) {
 func TestParseSecretSpecLegacyValueWithAtAtEnd(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "env.secret")
 	testutil.WritePath(t, path, "FOO=value@@h.example\n")
-	testUI := testutil.TermUIMock(t)
+	testUI := termio.NewTestMock(t)
 	specs := ParseSecretSpecLegacy(path, &testUI)
 	want := map[string]SecretSpec{"FOO": {Value: "value@", Hosts: []string{"h.example"}}}
 	if !reflect.DeepEqual(specs, want) {
@@ -398,7 +399,7 @@ func TestParseSecretSpecLegacyValueWithAtAtEnd(t *testing.T) {
 }
 
 func TestBuildSecretsFromSpecsOnlySingleHost(t *testing.T) {
-	testUI := testutil.TermUIMock(t)
+	testUI := termio.NewTestMock(t)
 	in := map[string]SecretSpec{"K": {Value: "v", Host: "h.example"}}
 	secrets := BuildSecretsFromSpecs(in, &testUI)
 	if len(secrets) != 1 {

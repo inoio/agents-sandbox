@@ -12,7 +12,7 @@ import (
 	"gitlab.inoio.de/inoio/opencode-sandbox/internal/configpaths"
 	"gitlab.inoio.de/inoio/opencode-sandbox/internal/git"
 	"gitlab.inoio.de/inoio/opencode-sandbox/internal/homeconfig"
-	opencodeconfig "gitlab.inoio.de/inoio/opencode-sandbox/internal/opencodeconfig"
+	"gitlab.inoio.de/inoio/opencode-sandbox/internal/opencodeconfig"
 	"gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/doctor"
 	"gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/image"
 	"gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/pruning"

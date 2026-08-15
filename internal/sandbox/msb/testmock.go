@@ -12,6 +12,18 @@ import (
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 )
 
+// MockCreateSandboxCall tracks a CreateSandbox call made on MockMsbClient.
+type MockCreateSandboxCall struct {
+	Name string
+	Opts []msbSdk.SandboxOption
+}
+
+// MockRemoveImageCall tracks an ImageRemove call made on MockMsbClient.
+type MockRemoveImageCall struct {
+	Ref   string
+	Force bool
+}
+
 // MockMsbClient is a test double for Client with callback-style fields
 // and collection fields for convenient test setup. Nil callbacks mean no-op/succeed.
 // Existing callers that set Sandboxes/Volumes/Images/List*Err fields work without change.

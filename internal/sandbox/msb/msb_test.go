@@ -1,6 +1,8 @@
 package msb
 
 import (
+	"errors"
+	"fmt"
 	"testing"
 
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
@@ -46,25 +48,53 @@ func TestIsSandboxActive(t *testing.T) {
 	}
 }
 
-func TestIsStoppedStatus(t *testing.T) {
+func TestIsNotFound(t *testing.T) {
+	notFound := &msbSdk.Error{Kind: msbSdk.ErrSandboxNotFound, Message: "no such sandbox"}
+	other := &msbSdk.Error{Kind: msbSdk.ErrSandboxAlreadyExists, Message: "exists"}
+	plain := errors.New("some other failure")
+
 	tests := []struct {
-		name   string
-		status msbSdk.SandboxStatus
-		want   bool
+		name string
+		err  error
+		want bool
 	}{
-		{"stopped", msbSdk.SandboxStatusStopped, true},
-		{"crashed", msbSdk.SandboxStatusCrashed, true},
-		{"running", msbSdk.SandboxStatusRunning, false},
-		{"draining", msbSdk.SandboxStatusDraining, false},
-		{"paused", msbSdk.SandboxStatusPaused, false},
-		// Unknown statuses: IsSandboxActive returns false, so !IsSandboxActive = true.
-		// This is a slight deviation from the old switch which returned false for unknown.
-		{"unknown", msbSdk.SandboxStatus(""), true},
+		{"nil", nil, false},
+		{"not found kind", notFound, true},
+		{"wrapped not found", fmt.Errorf("outer: %w", notFound), true},
+		{"other kind", other, false},
+		{"plain error", plain, false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := IsStoppedStatus(tt.status); got != tt.want {
-				t.Errorf("IsStoppedStatus(%q) = %v, want %v", tt.status, got, tt.want)
+			if got := IsNotFound(tt.err); got != tt.want {
+				t.Errorf("IsNotFound(%v) = %v, want %v", tt.err, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestGetVMStatus(t *testing.T) {
+	tests := []struct {
+		name    string
+		status  msbSdk.SandboxStatus
+		want    VMStatusKind
+		wantErr bool
+	}{
+		{"running", msbSdk.SandboxStatusRunning, VMStatusActive, false},
+		{"draining", msbSdk.SandboxStatusDraining, VMStatusActive, false},
+		{"paused", msbSdk.SandboxStatusPaused, VMStatusActive, false},
+		{"stopped", msbSdk.SandboxStatusStopped, VMStatusStopped, false},
+		{"crashed", msbSdk.SandboxStatusCrashed, VMStatusStopped, false},
+		{"unknown", msbSdk.SandboxStatus(""), VMStatusUnknown, true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := GetVMStatus(tt.status)
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("GetVMStatus(%q) error = %v, wantErr %v", tt.status, err, tt.wantErr)
+			}
+			if got != tt.want {
+				t.Errorf("GetVMStatus(%q) = %v, want %v", tt.status, got, tt.want)
 			}
 		})
 	}

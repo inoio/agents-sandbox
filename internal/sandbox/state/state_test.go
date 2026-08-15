@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"gitlab.inoio.de/inoio/opencode-sandbox/internal/testutil"
 )
 
 func TestStateFile(t *testing.T) {
@@ -91,9 +93,7 @@ func TestReadState_CorruptedYAML(t *testing.T) {
 	if err := os.MkdirAll(sdir, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(sdir, "state.yaml"), []byte("not: valid: yaml: ["), 0o600); err != nil {
-		t.Fatal(err)
-	}
+	testutil.WriteFile(t, sdir, "state.yaml", "not: valid: yaml: [")
 
 	_, err := ReadState(slug)
 	if err == nil {

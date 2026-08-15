@@ -102,39 +102,40 @@ type SandboxFS interface {
 	Remove(ctx context.Context, path string) error
 }
 
-// IsSandboxActive reports whether a sandbox status represents a live VM that
-// WithReplace would terminate. Stopped or crashed sandboxes are stale state
-// that can be replaced silently.
-func IsSandboxActive(status msbSdk.SandboxStatus) bool {
+// VMStatusKind is the semantic lifecycle class of a sandbox status, as
+// consumed by the launcher's VM lifecycle decisions.
+type VMStatusKind int
+
+const (
+	VMStatusUnknown VMStatusKind = iota
+	VMStatusActive
+	VMStatusStopped
+)
+
+// GetVMStatus maps a sandbox status to its lifecycle class. Running, draining,
+// and paused are treated as active; stopped and crashed as stopped. Any other
+// status is returned as unknown and error.
+func GetVMStatus(status msbSdk.SandboxStatus) (VMStatusKind, error) {
 	switch status {
 	case msbSdk.SandboxStatusRunning, msbSdk.SandboxStatusDraining, msbSdk.SandboxStatusPaused:
-		return true
+		return VMStatusActive, nil
 	case msbSdk.SandboxStatusStopped, msbSdk.SandboxStatusCrashed:
-		return false
+		return VMStatusStopped, nil
+	default:
+		return VMStatusUnknown, fmt.Errorf("unexpected sandbox status: %q", status)
 	}
-	return false
 }
 
-// IsStoppedStatus reports whether a sandbox status indicates the sandbox is not
-// actively running (stopped or crashed). Derived from IsSandboxActive.
-// Note: unknown statuses not recognized by IsSandboxActive return true here
-// (since !false == true), which is a slight deviation from the previous
-// switch behavior. For the five statuses both predicates recognize
-// (Running/Draining/Paused/Stopped/Crashed), behavior is identical.
-func IsStoppedStatus(status msbSdk.SandboxStatus) bool {
-	return !IsSandboxActive(status)
+// IsSandboxActive reports whether a sandbox status represents a live VM.
+func IsSandboxActive(status msbSdk.SandboxStatus) bool {
+	kind, err := GetVMStatus(status)
+	return err == nil && kind == VMStatusActive
 }
 
-// MockCreateSandboxCall tracks a CreateSandbox call made on MockMsbClient.
-type MockCreateSandboxCall struct {
-	Name string
-	Opts []msbSdk.SandboxOption
-}
-
-// MockRemoveImageCall tracks an ImageRemove call made on MockMsbClient.
-type MockRemoveImageCall struct {
-	Ref   string
-	Force bool
+// IsNotFound reports whether err is the microsandbox "sandbox does not exist"
+// error, unwrapping any wrapped errors.
+func IsNotFound(err error) bool {
+	return msbSdk.IsKind(err, msbSdk.ErrSandboxNotFound)
 }
 
 // realMsbClient delegates to the actual microsandbox SDK.
