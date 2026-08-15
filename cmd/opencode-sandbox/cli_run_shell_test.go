@@ -6,30 +6,31 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/spf13/cobra"
 	msb "github.com/superradcompany/microsandbox/sdk/go"
 
-	"gitlab.inoio.de/inoio/opencode-sandbox/internal/configpaths"
-	"gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/docker"
 	"gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/doctor"
 	sandboxmsb "gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/msb"
 	"gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/session"
 	"gitlab.inoio.de/inoio/opencode-sandbox/internal/termio"
 )
 
-// setupRunMocks configures all mock dependencies needed for run/shell tests.
-// It always returns the given mock so callers can inspect its call history, and
-// also returns a cleanup function that restores the original factory.
-func setupRunMocks(t *testing.T, mock *sandboxmsb.MockMsbClient, sandboxToReturn sandboxmsb.Sandbox) {
+// setupRunMocks configures all mock dependencies needed for run/shell tests,
+// builds the root command for the given args, and returns it with the UI so
+// callers can Execute and assert. The common configpaths/noop-docker/doctor
+// mocks come from the command fixture. It always registers the given mock so
+// callers can inspect its call history, and installs a daemon shell stub that
+// reports the sandbox healthy.
+func setupRunMocks(t *testing.T, mock *sandboxmsb.MockMsbClient, sandboxToReturn sandboxmsb.Sandbox,
+	args ...string) (*cobra.Command, *termio.Mock) {
 	t.Helper()
-	configpaths.WithMockConfigPaths(t)
 	mock.CreatedSandbox = sandboxToReturn
+
+	cmd, ui := setupCommandFixtures(t, args...)
 
 	// The default GetSandbox error must be an msb.Error with ErrSandboxNotFound
 	// so EnsureProjectVM treats it as "not found → create" rather than a real error.
 	sandboxmsb.WithMsbMock(t, mock.SetGetSandboxErr(&msb.Error{Kind: msb.ErrSandboxNotFound, Message: "not found"}))
-
-	docker.WithNoopDockerMock(t)
-	doctor.MockedCheckAll(t, true)
 
 	origShell := session.SetDaemonShellFunc(
 		func(ctx context.Context, sb sandboxmsb.Sandbox, command string) (string, int, error) {
@@ -40,11 +41,14 @@ func setupRunMocks(t *testing.T, mock *sandboxmsb.MockMsbClient, sandboxToReturn
 		},
 	)
 	t.Cleanup(func() { session.SetDaemonShellFunc(origShell) })
+
+	return cmd, ui
 }
 
 // setupShellRunMocks is like setupRunMocks but adds shell output for worktree creation.
 // Worktree scenarios need the mock sandbox to return valid JSON for the worktree curl commands.
-func setupShellRunMocks(t *testing.T, mock *sandboxmsb.MockMsbClient, sandboxToReturn sandboxmsb.Sandbox) {
+func setupShellRunMocks(t *testing.T, mock *sandboxmsb.MockMsbClient, sandboxToReturn sandboxmsb.Sandbox,
+	args ...string) (*cobra.Command, *termio.Mock) {
 	t.Helper()
 
 	// Ensure shell responses include a JSON worktree response for curl commands.
@@ -82,19 +86,14 @@ func setupShellRunMocks(t *testing.T, mock *sandboxmsb.MockMsbClient, sandboxToR
 		)
 	}
 
-	setupRunMocks(t, mock, sandboxToReturn)
+	return setupRunMocks(t, mock, sandboxToReturn, args...)
 }
 
-// R1: run --dry-run.
-func TestRunShell_R1_dryRunRun(t *testing.T) {
+func TestRunShellDryRunRun(t *testing.T) {
 	initTestRepo(t)
 
-	ui := &termio.Mock{}
 	mock := &sandboxmsb.MockMsbClient{}
-	setupRunMocks(t, mock, &sandboxmsb.MockSandbox{})
-
-	root := buildRootCmd(ui)
-	root.SetArgs([]string{"run", "--dry-run"})
+	root, ui := setupRunMocks(t, mock, &sandboxmsb.MockSandbox{}, "run", "--dry-run")
 
 	if err := root.Execute(); err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -123,16 +122,11 @@ func TestRunShell_R1_dryRunRun(t *testing.T) {
 	}
 }
 
-// R2: shell --dry-run.
-func TestRunShell_R2_dryRunShell(t *testing.T) {
+func TestRunShellDryRunShell(t *testing.T) {
 	initTestRepo(t)
 
-	ui := &termio.Mock{}
 	mock := &sandboxmsb.MockMsbClient{}
-	setupRunMocks(t, mock, &sandboxmsb.MockSandbox{})
-
-	root := buildRootCmd(ui)
-	root.SetArgs([]string{"shell", "--dry-run"})
+	root, ui := setupRunMocks(t, mock, &sandboxmsb.MockSandbox{}, "shell", "--dry-run")
 
 	if err := root.Execute(); err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -150,16 +144,11 @@ func TestRunShell_R2_dryRunShell(t *testing.T) {
 	}
 }
 
-// R5: run (default) → error from Attach.
-func TestRunShell_R5_runDefaultAttachError(t *testing.T) {
+func TestRunShellRunAttachError(t *testing.T) {
 	initTestRepo(t)
 
-	ui := &termio.Mock{}
 	mock := &sandboxmsb.MockMsbClient{}
-	setupRunMocks(t, mock, &sandboxmsb.MockSandbox{AttachErr: errors.New("connection refused")})
-
-	root := buildRootCmd(ui)
-	root.SetArgs([]string{"run"})
+	root, _ := setupRunMocks(t, mock, &sandboxmsb.MockSandbox{AttachErr: errors.New("connection refused")}, "run")
 
 	err := root.Execute()
 	if err == nil {
@@ -170,16 +159,11 @@ func TestRunShell_R5_runDefaultAttachError(t *testing.T) {
 	}
 }
 
-// R6: shell (default) → error from Attach.
-func TestRunShell_R6_shellDefaultAttachError(t *testing.T) {
+func TestRunShellShellAttachError(t *testing.T) {
 	initTestRepo(t)
 
-	ui := &termio.Mock{}
 	mock := &sandboxmsb.MockMsbClient{}
-	setupRunMocks(t, mock, &sandboxmsb.MockSandbox{AttachErr: errors.New("shell error")})
-
-	root := buildRootCmd(ui)
-	root.SetArgs([]string{"shell"})
+	root, _ := setupRunMocks(t, mock, &sandboxmsb.MockSandbox{AttachErr: errors.New("shell error")}, "shell")
 
 	err := root.Execute()
 	if err == nil {
@@ -190,16 +174,12 @@ func TestRunShell_R6_shellDefaultAttachError(t *testing.T) {
 	}
 }
 
-// R9: run with --worktree --cpus --memory --user.
-func TestRunShell_R9_runWithAllFlags(t *testing.T) {
+func TestRunShellRunWithAllFlags(t *testing.T) {
 	initTestRepo(t)
 
-	ui := &termio.Mock{}
 	mock := &sandboxmsb.MockMsbClient{}
-	setupShellRunMocks(t, mock, &sandboxmsb.MockSandbox{AttachErr: errors.New("fail")})
-
-	root := buildRootCmd(ui)
-	root.SetArgs([]string{"run", "--worktree", "x", "--cpus", "2", "--memory", "8G", "--user", "alice"})
+	root, _ := setupShellRunMocks(t, mock, &sandboxmsb.MockSandbox{AttachErr: errors.New("fail")},
+		"run", "--worktree", "x", "--cpus", "2", "--memory", "8G", "--user", "alice")
 
 	_ = root.Execute()
 
@@ -208,16 +188,12 @@ func TestRunShell_R9_runWithAllFlags(t *testing.T) {
 	}
 }
 
-// R10: run with short flags.
-func TestRunShell_R10_runWithShortFlags(t *testing.T) {
+func TestRunShellRunWithShortFlags(t *testing.T) {
 	initTestRepo(t)
 
-	ui := &termio.Mock{}
 	mock := &sandboxmsb.MockMsbClient{}
-	setupShellRunMocks(t, mock, &sandboxmsb.MockSandbox{AttachErr: errors.New("fail")})
-
-	root := buildRootCmd(ui)
-	root.SetArgs([]string{"run", "--worktree", "main", "-c", "4", "-m", "16G", "-u", "root"})
+	root, _ := setupShellRunMocks(t, mock, &sandboxmsb.MockSandbox{AttachErr: errors.New("fail")},
+		"run", "--worktree", "main", "-c", "4", "-m", "16G", "-u", "root")
 
 	_ = root.Execute()
 
@@ -226,17 +202,11 @@ func TestRunShell_R10_runWithShortFlags(t *testing.T) {
 	}
 }
 
-// R11: run success (Attach returns code 0). A clean exit must not be surfaced
-// as a cobra error (would print "Error: exit code 0" + usage).
-func TestRunShell_R11_runSuccessDetachOk(t *testing.T) {
+func TestRunShellCleanExitNoError(t *testing.T) {
 	initTestRepo(t)
 
-	ui := &termio.Mock{}
 	mock := &sandboxmsb.MockMsbClient{}
-	setupRunMocks(t, mock, &sandboxmsb.MockSandbox{AttachCode: 0, AttachErr: nil})
-
-	root := buildRootCmd(ui)
-	root.SetArgs([]string{"run"})
+	root, _ := setupRunMocks(t, mock, &sandboxmsb.MockSandbox{AttachCode: 0, AttachErr: nil}, "run")
 
 	err := root.Execute()
 	if err != nil {
@@ -244,11 +214,9 @@ func TestRunShell_R11_runSuccessDetachOk(t *testing.T) {
 	}
 }
 
-// R12b: run --worktree reuses an existing worktree instead of creating a new one.
-func TestRunShell_R12b_worktreeReusesExistingWorktree(t *testing.T) {
+func TestRunShellWorktreeReusesExisting(t *testing.T) {
 	initTestRepo(t)
 
-	ui := &termio.Mock{}
 	mock := &sandboxmsb.MockMsbClient{}
 	sb := &sandboxmsb.MockSandbox{
 		AttachErr:  errors.New("fail"),
@@ -262,10 +230,7 @@ func TestRunShell_R12b_worktreeReusesExistingWorktree(t *testing.T) {
 		"",
 		nil,
 	)
-	setupRunMocks(t, mock, sb)
-
-	root := buildRootCmd(ui)
-	root.SetArgs([]string{"run", "--worktree", "bugfix-exit-zero"})
+	root, ui := setupRunMocks(t, mock, sb, "run", "--worktree", "bugfix-exit-zero")
 	_ = root.Execute()
 
 	found := false
@@ -285,16 +250,18 @@ func TestRunShell_R12b_worktreeReusesExistingWorktree(t *testing.T) {
 	}
 }
 
-// R12: shell with --cpus.
-func TestRunShell_R12_shellWithBranchCpus(t *testing.T) {
+func TestRunShellWithCpus(t *testing.T) {
 	initTestRepo(t)
 
-	ui := &termio.Mock{}
 	mock := &sandboxmsb.MockMsbClient{}
-	setupShellRunMocks(t, mock, &sandboxmsb.MockSandbox{AttachErr: errors.New("fail")})
-
-	root := buildRootCmd(ui)
-	root.SetArgs([]string{"shell", "--cpus", "2"})
+	root, _ := setupShellRunMocks(
+		t,
+		mock,
+		&sandboxmsb.MockSandbox{AttachErr: errors.New("fail")},
+		"shell",
+		"--cpus",
+		"2",
+	)
 
 	_ = root.Execute()
 
@@ -303,16 +270,11 @@ func TestRunShell_R12_shellWithBranchCpus(t *testing.T) {
 	}
 }
 
-// W2: run --worktree with a non-slug name fails fast.
-func TestRunShell_W2_worktreeRejectsNonSlug(t *testing.T) {
+func TestRunShellWorktreeRejectsNonSlug(t *testing.T) {
 	initTestRepo(t)
-	ui := &termio.Mock{}
 	mock := &sandboxmsb.MockMsbClient{}
 	sb := &sandboxmsb.MockSandbox{AttachErr: errors.New("fail")}
-	setupRunMocks(t, mock, sb)
-
-	root := buildRootCmd(ui)
-	root.SetArgs([]string{"run", "--worktree", "feature/foo"})
+	root, _ := setupRunMocks(t, mock, sb, "run", "--worktree", "feature/foo")
 	err := root.Execute()
 	if err == nil {
 		t.Fatal("expected an error for a non-slug worktree name")
@@ -332,17 +294,14 @@ type runShellScenario struct {
 func runRunShellErrorScenario(t *testing.T, tc runShellScenario) {
 	t.Helper()
 	initTestRepo(t)
-	ui := &termio.Mock{}
 	mock := &sandboxmsb.MockMsbClient{}
 	if tc.sandbox == nil {
 		tc.sandbox = &sandboxmsb.MockSandbox{}
 	}
-	setupRunMocks(t, mock, tc.sandbox)
+	root, _ := setupRunMocks(t, mock, tc.sandbox, tc.args...)
 
 	doctor.MockedCheckAll(t, tc.doctorPass)
 
-	root := buildRootCmd(ui)
-	root.SetArgs(tc.args)
 	err := root.Execute()
 	if err == nil {
 		t.Errorf("expected error containing %q, got none", tc.wantErrPart)
@@ -353,7 +312,7 @@ func runRunShellErrorScenario(t *testing.T, tc runShellScenario) {
 	}
 }
 
-func TestRunShell_PreflightFailure(t *testing.T) {
+func TestRunShellPreflightFailure(t *testing.T) {
 	for _, tc := range []runShellScenario{
 		{name: "run", args: []string{"run"}, wantErrPart: "preflight failed"},
 		{name: "shell", args: []string{"shell"}, wantErrPart: "preflight failed"},
@@ -364,16 +323,10 @@ func TestRunShell_PreflightFailure(t *testing.T) {
 	}
 }
 
-// R13: run with a valid start but a non-zero exit code must surface an
-// ExitError with that code (not a cobra "Error: exit code" usage dump).
-func TestRunShell_R13_runNonZeroExit(t *testing.T) {
+func TestRunShellRunNonZeroExit(t *testing.T) {
 	initTestRepo(t)
-	ui := &termio.Mock{}
 	mock := &sandboxmsb.MockMsbClient{}
-	setupRunMocks(t, mock, &sandboxmsb.MockSandbox{AttachCode: 5})
-
-	root := buildRootCmd(ui)
-	root.SetArgs([]string{"run"})
+	root, _ := setupRunMocks(t, mock, &sandboxmsb.MockSandbox{AttachCode: 5}, "run")
 	err := root.Execute()
 	if err == nil {
 		t.Fatal("expected an error for a non-zero exit code")
@@ -388,20 +341,16 @@ func TestRunShell_R13_runNonZeroExit(t *testing.T) {
 	}
 }
 
-// R14: invalid --tmp-size / --disk-size values must fail through the CLI.
-func TestRunShell_R14_InvalidSizeFlags(t *testing.T) {
+func TestRunShellInvalidSizeFlags(t *testing.T) {
 	for _, tc := range []runShellScenario{
 		{name: "tmp-size", args: []string{"run", "--tmp-size", "bogus"}, wantErrPart: "invalid --tmp-size"},
 		{name: "disk-size", args: []string{"run", "--disk-size", "bogus"}, wantErrPart: "invalid --disk-size"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			initTestRepo(t)
-			ui := &termio.Mock{}
 			mock := &sandboxmsb.MockMsbClient{}
-			setupRunMocks(t, mock, &sandboxmsb.MockSandbox{})
+			root, _ := setupRunMocks(t, mock, &sandboxmsb.MockSandbox{}, tc.args...)
 
-			root := buildRootCmd(ui)
-			root.SetArgs(tc.args)
 			err := root.Execute()
 			if err == nil {
 				t.Errorf("expected error containing %q, got none", tc.wantErrPart)
