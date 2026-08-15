@@ -11,20 +11,7 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// StateDir overrides the state directory root for tests when set to a
-// non-empty value. An empty value resolves to the XDG state directory at call
-// time (see stateRoot).
-//
-//nolint:gochecknoglobals // Required for testable state directory path override
-var StateDir = ""
-
-// stateRoot returns the base directory for state files. Tests override it via
-// StateDir/SetStateDirForTest; otherwise it is the XDG state directory,
-// resolved fresh so environment changes are honored.
 func stateRoot() string {
-	if StateDir != "" {
-		return StateDir
-	}
 	return configpaths.Get().UserStateDir()
 }
 

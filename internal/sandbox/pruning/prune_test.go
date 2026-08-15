@@ -11,11 +11,12 @@ import (
 
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 
+	"gitlab.inoio.de/inoio/opencode-sandbox/internal/configpaths"
+
 	"gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/docker"
 
 	"gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/msb"
 	"gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/naming"
-	"gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/state"
 	"gitlab.inoio.de/inoio/opencode-sandbox/internal/termio"
 	"gitlab.inoio.de/inoio/opencode-sandbox/internal/testutil"
 )
@@ -48,10 +49,10 @@ func runPruneActiveVMTest(
 	ui := &termio.Mock{}
 	report := &StaleReport{}
 
-	state.SetStateDirForTest(t, t.TempDir()+"/opencode-sandbox")
+	configpaths.WithMockConfigPaths(t)
 
 	if yaml != "" {
-		overrideDir := filepath.Join(state.StateDir, pruneTestSlug)
+		overrideDir := filepath.Join(configpaths.Get().UserStateDir(), pruneTestSlug)
 		os.MkdirAll(overrideDir, 0o700)
 		testutil.WriteFile(t, overrideDir, "state.yaml", yaml)
 	}
@@ -652,7 +653,7 @@ func TestParseCloneVolumeName(t *testing.T) {
 }
 
 func TestRemoveHomeVolumes_CleansStateFile(t *testing.T) {
-	state.SetStateDirForTest(t, t.TempDir()+"/opencode-sandbox")
+	configpaths.WithMockConfigPaths(t)
 
 	client := &msb.MockMsbClient{}
 	ui := &termio.Mock{}
@@ -664,7 +665,7 @@ func TestRemoveHomeVolumes_CleansStateFile(t *testing.T) {
 		slug: {oldVol("opencode-sandbox-home-myproject-20260806T143022")},
 	}
 
-	statePath := filepath.Join(state.StateDir, slug, "state.yaml")
+	statePath := filepath.Join(configpaths.Get().UserStateDir(), slug, "state.yaml")
 	os.MkdirAll(filepath.Dir(statePath), 0o700)
 	testutil.WritePath(t, statePath,
 		"home_volume: opencode-sandbox-home-myproject-20260806T143022\nimage_digest: sha256:abc\n")
@@ -683,7 +684,7 @@ func TestRemoveHomeVolumes_CleansStateFile(t *testing.T) {
 }
 
 func TestRemoveHomeVolumes_DryRunDoesNotRemoveState(t *testing.T) {
-	state.SetStateDirForTest(t, t.TempDir()+"/opencode-sandbox")
+	configpaths.WithMockConfigPaths(t)
 
 	client := &msb.MockMsbClient{}
 	ui := &termio.Mock{}
@@ -694,7 +695,7 @@ func TestRemoveHomeVolumes_DryRunDoesNotRemoveState(t *testing.T) {
 		slug: {oldVol("opencode-sandbox-home-myproject-20260806T143022")},
 	}
 
-	statePath := filepath.Join(state.StateDir, slug, "state.yaml")
+	statePath := filepath.Join(configpaths.Get().UserStateDir(), slug, "state.yaml")
 	os.MkdirAll(filepath.Dir(statePath), 0o700)
 	testutil.WritePath(t, statePath,
 		"home_volume: opencode-sandbox-home-myproject-20260806T143022\n")
