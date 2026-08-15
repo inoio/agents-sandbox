@@ -478,7 +478,7 @@ func TestPrune_WithMocks_CoversAllCases(t *testing.T) {
 	docker.WithNoopDockerMock(t)
 	ui := newMockUI()
 
-	state.SetStateDirForTest(t, t.TempDir()+"/opencode-sandbox")
+	cp.WithMockConfigPaths(t)
 	if err := state.WriteState("activeproject-1mjusbm3wikhb0", state.HomeState{
 		HomeVolume: "opencode-sandbox-home-activeproject-1mjusbm3wikhb0-digest2",
 	}); err != nil {
@@ -530,7 +530,7 @@ func TestPrune_StoppedRecentVM_PreservesImage(t *testing.T) {
 	docker.WithNoopDockerMock(t)
 	ui := newMockUI()
 
-	state.SetStateDirForTest(t, t.TempDir()+"/opencode-sandbox")
+	cp.WithMockConfigPaths(t)
 	if err := state.WriteState(slug, state.HomeState{
 		HomeVolume: "opencode-sandbox-home-commonproj-1mjusbm3wikhb0-20260810T120000",
 	}); err != nil {

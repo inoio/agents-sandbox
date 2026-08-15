@@ -80,7 +80,8 @@ func TestPrune(t *testing.T) {
 	t.Run("dry run with stale items", func(t *testing.T) {
 		for _, flags := range pruneAgeFlags {
 			t.Run(strings.Join(flags, " "), func(t *testing.T) {
-				runPruneTest(t, append([]string{"--dry-run"}, flags...), func(m *sandboxmsb.MockMsbClient) {
+				runPruneTest(t, append([]string{"--dry-run"}, flags...), func() {
+					m := &sandboxmsb.MockMsbClient{}
 					m.Sandboxes = append(m.Sandboxes, mkStaleVM(time.Now().Add(-15*24*time.Hour)))
 					m.Sandboxes = append(m.Sandboxes,
 						mkActiveVM("activeproject-1mjusbm3wikhb0"))
@@ -90,6 +91,7 @@ func TestPrune(t *testing.T) {
 						cloneVol("opencode-sandbox-clone-projects"))
 					m.Images = append(m.Images,
 						msbImg("opencode-sandbox/runner-projectname:xyz789"))
+					sandboxmsb.WithMsbMock(t, m)
 				}, "dry-run: Would prune 1 VMs, 1 home volumes, 1 docker images, 1 msb images, 0 task sandboxes, 1 clone volumes")
 			})
 		}
@@ -98,7 +100,8 @@ func TestPrune(t *testing.T) {
 	t.Run("partial failure", func(t *testing.T) {
 		for _, flags := range pruneAgeFlags {
 			t.Run(strings.Join(flags, " "), func(t *testing.T) {
-				runPruneTest(t, flags, func(m *sandboxmsb.MockMsbClient) {
+				runPruneTest(t, flags, func() {
+					m := &sandboxmsb.MockMsbClient{}
 					// Both stale VMs pruned; the MockSandboxHandle.RemoveErr
 					// does not affect MockMsbClient.RemoveSandbox. The mock
 					// does not support per-VM error injection, so both removals
@@ -117,6 +120,7 @@ func TestPrune(t *testing.T) {
 						homeVol("opencode-sandbox-home-first-dbe294a8514d4000-v1"))
 					m.Images = append(m.Images,
 						msbImg("opencode-sandbox/runner-second:v1"))
+					sandboxmsb.WithMsbMock(t, m)
 				}, "Pruned 2 VMs, 0 home volumes, 1 docker images, 1 msb images, 0 task sandboxes, 0 clone volumes")
 			})
 		}
@@ -165,7 +169,8 @@ func TestPrune(t *testing.T) {
 	t.Run("clone volumes pruned", func(t *testing.T) {
 		for _, flags := range pruneAgeFlags {
 			t.Run(strings.Join(flags, " "), func(t *testing.T) {
-				runPruneTest(t, flags, func(m *sandboxmsb.MockMsbClient) {
+				runPruneTest(t, flags, func() {
+					m := &sandboxmsb.MockMsbClient{}
 					m.Sandboxes = append(m.Sandboxes, mkStaleVM(time.Now().Add(-15*24*time.Hour)))
 					m.Sandboxes = append(m.Sandboxes, mkStaleTask(time.Now().Add(-15*24*time.Hour)))
 					m.Volumes = append(m.Volumes,
@@ -174,6 +179,7 @@ func TestPrune(t *testing.T) {
 						cloneVol("opencode-sandbox-clone-projectname-abc123"))
 					m.Images = append(m.Images,
 						msbImg("opencode-sandbox/runner-projectname:v2"))
+					sandboxmsb.WithMsbMock(t, m)
 				}, "Pruned 1 VMs, 1 home volumes, 1 docker images, 1 msb images, 1 task sandboxes, 1 clone volumes")
 			})
 		}
@@ -182,13 +188,14 @@ func TestPrune(t *testing.T) {
 	t.Run("task sandboxes pruned", func(t *testing.T) {
 		for _, flags := range pruneAgeFlags {
 			t.Run(strings.Join(flags, " "), func(t *testing.T) {
-				state.SetStateDirForTest(t, t.TempDir()+"/opencode-sandbox")
-				if err := state.WriteState("activeproject-1mjusbm3wikhb0", state.HomeState{
-					HomeVolume: "opencode-sandbox-home-activeproject-1mjusbm3wikhb0-abc123",
-				}); err != nil {
-					t.Fatalf("WriteState: %v", err)
-				}
-				runPruneTest(t, flags, func(m *sandboxmsb.MockMsbClient) {
+				runPruneTest(t, flags, func() {
+					if err := state.WriteState("activeproject-1mjusbm3wikhb0", state.HomeState{
+						HomeVolume: "opencode-sandbox-home-activeproject-1mjusbm3wikhb0-abc123",
+					}); err != nil {
+						t.Fatalf("WriteState: %v", err)
+					}
+
+					m := &sandboxmsb.MockMsbClient{}
 					m.Sandboxes = append(m.Sandboxes,
 						mkActiveVM("activeproject-1mjusbm3wikhb0"))
 					m.Sandboxes = append(m.Sandboxes, mkStaleTask(time.Now().Add(-15*24*time.Hour)))
@@ -198,6 +205,7 @@ func TestPrune(t *testing.T) {
 						cloneVol("opencode-sandbox-clone-activeproject-abc123"))
 					m.Images = append(m.Images,
 						msbImg("opencode-sandbox/runner-activeproject-1mjusbm3wikhb0:xyz789"))
+					sandboxmsb.WithMsbMock(t, m)
 				}, "Pruned 0 VMs, 0 home volumes, 0 docker images, 0 msb images, 1 task sandboxes, 1 clone volumes")
 			})
 		}
@@ -206,7 +214,8 @@ func TestPrune(t *testing.T) {
 	t.Run("flag fixture variations", func(t *testing.T) {
 		for _, flags := range pruneAgeFlags {
 			t.Run(strings.Join(flags, " "), func(t *testing.T) {
-				runPruneTest(t, flags, func(m *sandboxmsb.MockMsbClient) {
+				runPruneTest(t, flags, func() {
+					m := &sandboxmsb.MockMsbClient{}
 					// Use 15d staleness to work with all flag values (7d, 7d, 14d, 14d).
 					m.Sandboxes = append(m.Sandboxes, mkStaleVM(time.Now().Add(-15*24*time.Hour)))
 					m.Sandboxes = append(m.Sandboxes,
@@ -215,20 +224,19 @@ func TestPrune(t *testing.T) {
 						homeVol("opencode-sandbox-home-projectname-1mjusbm3wikhb0-digest1"))
 					m.Images = append(m.Images,
 						msbImg("opencode-sandbox/runner-activeproject:v2"))
+					sandboxmsb.WithMsbMock(t, m)
 				}, "Pruned 1 VMs, 1 home volumes, 1 docker images, 1 msb images, 0 task sandboxes, 0 clone volumes")
 			})
 		}
 	})
 }
 
-func runPruneTest(t *testing.T, flags []string, setupMock func(m *sandboxmsb.MockMsbClient), expected string) {
+func runPruneTest(t *testing.T, flags []string, setupMocks func(), expected string) {
 	t.Helper()
-	mock := &sandboxmsb.MockMsbClient{}
-	if setupMock != nil {
-		setupMock(mock)
-	}
 	cmd, ui := setupCommandFixtures(t, append([]string{"prune"}, flags...)...)
-	sandboxmsb.WithMsbMock(t, mock)
+	if setupMocks != nil {
+		setupMocks()
+	}
 
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("unexpected error: %v", err)

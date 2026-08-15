@@ -44,15 +44,11 @@ func TestVolumeOps_DryRun(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			state.SetStateDirForTest(t, t.TempDir()+"/opencode-sandbox")
+			_, ui := setupVolumeOpsFixtures(t)
 
 			slug := "testproj-aBc1234D"
 			state.WriteState(slug, state.HomeState{HomeVolume: "old-vol", ImageDigest: "sha256:abc"})
 
-			mock := &msb.MockMsbClient{}
-			msb.WithMsbMock(t, mock)
-
-			ui := &termio.Mock{}
 			err := tt.run(context.Background(), slug, "img-tag", false, true, ui)
 			if err != nil {
 				t.Fatalf("unexpected error: %v", err)
@@ -70,16 +66,11 @@ func TestVolumeOps_DryRun(t *testing.T) {
 }
 
 func TestCmdReset_Success(t *testing.T) {
-	state.SetStateDirForTest(t, t.TempDir()+"/opencode-sandbox")
+	_, ui := setupVolumeOpsFixtures(t)
 
 	slug := "testproj-aBc1234D"
 	oldVol := "opencode-sandbox-home-" + slug + "-old"
 	state.WriteState(slug, state.HomeState{HomeVolume: oldVol, ImageDigest: "sha256:old"})
-
-	mock := &msb.MockMsbClient{}
-	msb.WithMsbMock(t, mock)
-
-	ui := &termio.Mock{}
 	err := CmdReset(context.Background(), slug, "", "img-tag", false, false, ui)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -108,12 +99,7 @@ func TestCmdReset_Success(t *testing.T) {
 }
 
 func TestCmdMigrate_NoStateFile(t *testing.T) {
-	state.SetStateDirForTest(t, t.TempDir()+"/opencode-sandbox")
-
-	mock := &msb.MockMsbClient{}
-	msb.WithMsbMock(t, mock)
-
-	ui := &termio.Mock{}
+	_, ui := setupVolumeOpsFixtures(t)
 	err := CmdMigrate(context.Background(), "noproject", "", "img-tag", false, false, ui)
 	if err == nil {
 		t.Fatal("expected error, got nil")
@@ -124,18 +110,13 @@ func TestCmdMigrate_NoStateFile(t *testing.T) {
 }
 
 func TestVolumeOp_CreateVolumeFails(t *testing.T) {
-	state.SetStateDirForTest(t, t.TempDir()+"/opencode-sandbox")
+	mock, ui := setupVolumeOpsFixtures(t)
 
 	slug := "testproj-aBc1234D"
 	state.WriteState(slug, state.HomeState{HomeVolume: "old-vol", ImageDigest: "sha256:abc"})
-
-	mock := &msb.MockMsbClient{}
 	mock.CreateVolumeFn = func(_ context.Context, _ string, _ ...msbSdk.VolumeOption) (msb.VolumeHandle, error) {
 		return nil, errors.New("create failed")
 	}
-	msb.WithMsbMock(t, mock)
-
-	ui := &termio.Mock{}
 	err := CmdReset(context.Background(), slug, "", "img-tag", false, false, ui)
 	if err == nil {
 		t.Fatal("expected error, got nil")
@@ -146,15 +127,10 @@ func TestVolumeOp_CreateVolumeFails(t *testing.T) {
 }
 
 func TestCmdReset_WithExplicitOldVolume(t *testing.T) {
-	state.SetStateDirForTest(t, t.TempDir()+"/opencode-sandbox")
+	_, ui := setupVolumeOpsFixtures(t)
 
 	slug := "testproj-aBc1234D"
 	state.WriteState(slug, state.HomeState{HomeVolume: "from-state-vol", ImageDigest: "sha256:abc"})
-
-	mock := &msb.MockMsbClient{}
-	msb.WithMsbMock(t, mock)
-
-	ui := &termio.Mock{}
 	err := CmdReset(context.Background(), slug, "explicit-vol", "img-tag", false, true, ui)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -171,18 +147,13 @@ func TestCmdReset_WithExplicitOldVolume(t *testing.T) {
 }
 
 func TestVolumeOp_ActiveVM_ReturnsError(t *testing.T) {
-	state.SetStateDirForTest(t, t.TempDir()+"/opencode-sandbox")
+	mock, ui := setupVolumeOpsFixtures(t)
 
 	slug := "testproj-aBc1234D"
 	state.WriteState(slug, state.HomeState{HomeVolume: "old-vol", ImageDigest: "sha256:abc"})
-
-	mock := &msb.MockMsbClient{}
 	mock.Sandboxes = []msb.SandboxHandle{
 		&msb.MockSandboxHandle{Name_: "opencode-sandbox-vm-testproj-aBc1234D", Status_: msbSdk.SandboxStatusRunning},
 	}
-	msb.WithMsbMock(t, mock)
-
-	ui := &termio.Mock{}
 	err := CmdReset(context.Background(), slug, "", "img-tag", false, false, ui)
 	if err == nil {
 		t.Fatal("expected error, got nil")
@@ -193,13 +164,12 @@ func TestVolumeOp_ActiveVM_ReturnsError(t *testing.T) {
 }
 
 func TestVolumeOp_MainFails_RemovesNewVolume(t *testing.T) {
-	state.SetStateDirForTest(t, t.TempDir()+"/opencode-sandbox")
+	mock, ui := setupVolumeOpsFixtures(t)
 
 	slug := "testproj-aBc1234D"
 	state.WriteState(slug, state.HomeState{HomeVolume: "old-vol", ImageDigest: "sha256:abc"})
 
 	var createdVol string
-	mock := &msb.MockMsbClient{}
 	var sandboxCount int
 	mock.CreateSandboxFn = func(_ context.Context, _ string, _ ...msbSdk.SandboxOption) (msb.Sandbox, error) {
 		sandboxCount++
@@ -212,9 +182,6 @@ func TestVolumeOp_MainFails_RemovesNewVolume(t *testing.T) {
 		createdVol = name
 		return &msb.MockVolumeHandle{Name_: name}, nil
 	}
-	msb.WithMsbMock(t, mock)
-
-	ui := &termio.Mock{}
 	err := CmdMigrate(context.Background(), slug, "", "img-tag", false, false, ui)
 	if err == nil {
 		t.Fatal("expected error, got nil")

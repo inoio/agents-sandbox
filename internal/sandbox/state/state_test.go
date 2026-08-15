@@ -7,11 +7,12 @@ import (
 	"strings"
 	"testing"
 
+	"gitlab.inoio.de/inoio/opencode-sandbox/internal/configpaths"
 	"gitlab.inoio.de/inoio/opencode-sandbox/internal/testutil"
 )
 
 func TestStateFile(t *testing.T) {
-	SetStateDirForTest(t, t.TempDir()+"/opencode-sandbox")
+	configpaths.WithMockConfigPaths(t)
 
 	slug := "testproj-aBc1234D"
 	f := stateFile(slug)
@@ -24,7 +25,7 @@ func TestStateFile(t *testing.T) {
 }
 
 func TestReadState_NoFileReturnsErrStateNotFound(t *testing.T) {
-	SetStateDirForTest(t, t.TempDir()+"/opencode-sandbox")
+	configpaths.WithMockConfigPaths(t)
 
 	slug := "nonexistentproj-xyz"
 	result, err := ReadState(slug)
@@ -37,7 +38,7 @@ func TestReadState_NoFileReturnsErrStateNotFound(t *testing.T) {
 }
 
 func TestWriteAndReadState(t *testing.T) {
-	SetStateDirForTest(t, t.TempDir()+"/opencode-sandbox")
+	configpaths.WithMockConfigPaths(t)
 	slug := "myproj-aBc1234D"
 	digest := "sha256:deadbeef1234"
 
@@ -60,14 +61,14 @@ func TestWriteAndReadState(t *testing.T) {
 		t.Errorf("ImageDigest = %q, want %q", result.ImageDigest, digest)
 	}
 
-	fpath := filepath.Join(StateDir, slug, "state.yaml")
+	fpath := filepath.Join(configpaths.Get().UserStateDir(), slug, "state.yaml")
 	if _, err := os.Stat(fpath); err != nil {
 		t.Errorf("state file should exist at %s: %v", fpath, err)
 	}
 }
 
 func TestWriteStateCreatesDirectory(t *testing.T) {
-	SetStateDirForTest(t, t.TempDir()+"/opencode-sandbox")
+	configpaths.WithMockConfigPaths(t)
 	slug := "newproj-a"
 
 	err := WriteState(slug, HomeState{HomeVolume: "vol", ImageDigest: "d1"})
@@ -75,7 +76,7 @@ func TestWriteStateCreatesDirectory(t *testing.T) {
 		t.Fatalf("WriteState: %v", err)
 	}
 
-	dir := filepath.Join(StateDir, slug)
+	dir := filepath.Join(configpaths.Get().UserStateDir(), slug)
 	info, err := os.Stat(dir)
 	if err != nil {
 		t.Fatalf("state dir should exist: %v", err)
@@ -86,10 +87,10 @@ func TestWriteStateCreatesDirectory(t *testing.T) {
 }
 
 func TestReadState_CorruptedYAML(t *testing.T) {
-	SetStateDirForTest(t, t.TempDir()+"/opencode-sandbox")
+	configpaths.WithMockConfigPaths(t)
 	slug := "corruptproj"
 
-	sdir := filepath.Join(StateDir, slug)
+	sdir := filepath.Join(configpaths.Get().UserStateDir(), slug)
 	if err := os.MkdirAll(sdir, 0o700); err != nil {
 		t.Fatal(err)
 	}
@@ -102,12 +103,12 @@ func TestReadState_CorruptedYAML(t *testing.T) {
 }
 
 func TestRemoveState(t *testing.T) {
-	SetStateDirForTest(t, t.TempDir()+"/opencode-sandbox")
+	configpaths.WithMockConfigPaths(t)
 	slug := "myproj"
 
 	WriteState(slug, HomeState{HomeVolume: "vol", ImageDigest: "d1"})
 
-	statePath := filepath.Join(StateDir, slug, "state.yaml")
+	statePath := filepath.Join(configpaths.Get().UserStateDir(), slug, "state.yaml")
 	if _, err := os.Stat(statePath); os.IsNotExist(err) {
 		t.Fatal("state file should exist before RemoveState")
 	}
@@ -117,17 +118,14 @@ func TestRemoveState(t *testing.T) {
 	if _, err := os.Stat(statePath); !os.IsNotExist(err) {
 		t.Errorf("state file should be removed, but still exists")
 	}
-	stDir := filepath.Join(StateDir, slug)
+	stDir := filepath.Join(configpaths.Get().UserStateDir(), slug)
 	if _, err := os.Stat(stDir); !os.IsNotExist(err) {
 		t.Errorf("state dir should be removed, but still exists")
 	}
 }
 
 func TestWriteAndReadState_EnvSecretRoundTrip(t *testing.T) {
-	old := StateDir
-	defer func() { StateDir = old }()
-
-	StateDir = t.TempDir() + "/opencode-sandbox"
+	configpaths.WithMockConfigPaths(t)
 	slug := "myproj-abc123"
 
 	input := HomeState{
@@ -177,10 +175,7 @@ func TestWriteAndReadState_EnvSecretRoundTrip(t *testing.T) {
 }
 
 func TestHomeState_ZeroEnvSecretOmitted(t *testing.T) {
-	old := StateDir
-	defer func() { StateDir = old }()
-
-	StateDir = t.TempDir() + "/opencode-sandbox"
+	configpaths.WithMockConfigPaths(t)
 	slug := "emptyproj"
 
 	err := WriteState(slug, HomeState{
@@ -191,7 +186,7 @@ func TestHomeState_ZeroEnvSecretOmitted(t *testing.T) {
 		t.Fatalf("WriteState: %v", err)
 	}
 
-	data, err := os.ReadFile(filepath.Join(StateDir, slug, "state.yaml"))
+	data, err := os.ReadFile(filepath.Join(configpaths.Get().UserStateDir(), slug, "state.yaml"))
 	if err != nil {
 		t.Fatalf("read state file: %v", err)
 	}
