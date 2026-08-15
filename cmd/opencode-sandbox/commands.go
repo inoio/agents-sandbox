@@ -40,6 +40,9 @@ func extractRunOptions(cmd *cobra.Command, ui termio.UI) (options.RunOptions, er
 	opts.TmpSize, _ = cmd.Flags().GetString(flagTmpSize)
 	opts.DiskSize, _ = cmd.Flags().GetString(flagDiskSize)
 	opts.ServeOnly, _ = cmd.Flags().GetBool(flagServeOnly)
+	if cmd.Flags().Lookup(flagRoot) != nil {
+		opts.Root, _ = cmd.Flags().GetBool(flagRoot)
+	}
 	ctx := cmd.Context()
 	if ctx != nil {
 		if lc, ok := ctx.Value((*launcherConfigKey)(nil)).(launcherconfig.Config); ok {

@@ -242,10 +242,6 @@ func createProjectVM(
 	imageEnvs map[string]string,
 	ui termio.UI,
 ) (msb.Sandbox, bool, error) {
-	user := opts.User
-	if user == "" {
-		user = "dev"
-	}
 	cpus := opts.CPUs
 	numCPUs := sysinfo.NumCPUs()
 	if cpus == 0 {
@@ -279,7 +275,6 @@ func createProjectVM(
 		msbSdk.WithMounts(mounts),
 		msbSdk.WithSecrets(secrets...),
 		msbSdk.WithEnv(envMap),
-		msbSdk.WithUser(user),
 		msbSdk.WithWorkdir(defaultTargetDir),
 		msbSdk.WithCPUs(cpus),
 		msbSdk.WithMaxCPUs(numCPUs),
