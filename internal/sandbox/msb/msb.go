@@ -59,6 +59,7 @@ type Sandbox interface {
 	FS() SandboxFS
 	Shell(ctx context.Context, command string, opts ...msbSdk.ExecOption) (ShellResult, error)
 	Exec(ctx context.Context, command string, args []string, opts ...msbSdk.ExecOption) (ShellResult, error)
+	AttachWith(ctx context.Context, command string, args []string, opts ...msbSdk.AttachOption) (int, error)
 	Attach(ctx context.Context, command string, args ...string) (int, error)
 	Detach(ctx context.Context) error
 	Stop(ctx context.Context, opts ...msbSdk.StopOption) error
@@ -387,6 +388,15 @@ func (s realSandbox) Exec(
 
 func (s realSandbox) Attach(ctx context.Context, command string, args ...string) (int, error) {
 	return s.sandbox.Attach(ctx, command, args...)
+}
+
+func (s realSandbox) AttachWith(
+	ctx context.Context,
+	command string,
+	args []string,
+	opts ...msbSdk.AttachOption,
+) (int, error) {
+	return s.sandbox.AttachWith(ctx, command, args, opts...)
 }
 
 func (s realSandbox) Detach(ctx context.Context) error {
