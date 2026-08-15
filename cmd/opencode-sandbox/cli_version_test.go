@@ -10,7 +10,7 @@ import (
 )
 
 func TestVersion(t *testing.T) {
-	t.Run("Version command exists", func(t *testing.T) {
+	t.Run("version command exists", func(t *testing.T) {
 		versionCmd, _ := setupVersionTestFixtures(t)
 
 		if versionCmd == nil {
@@ -18,7 +18,7 @@ func TestVersion(t *testing.T) {
 		}
 	})
 
-	t.Run("Default version is 'dev'", func(t *testing.T) {
+	t.Run("default version is dev", func(t *testing.T) {
 		orig := version
 		t.Cleanup(func() { version = orig })
 		version = "dev"
@@ -35,7 +35,7 @@ func TestVersion(t *testing.T) {
 		}
 	})
 
-	t.Run("Custom version is displayed correctly", func(t *testing.T) {
+	t.Run("custom version is displayed correctly", func(t *testing.T) {
 		orig := version
 		t.Cleanup(func() { version = orig })
 		version = "1.2.3"

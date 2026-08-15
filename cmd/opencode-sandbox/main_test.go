@@ -3,9 +3,9 @@ package main
 import (
 	"testing"
 
-	termio "gitlab.inoio.de/inoio/opencode-sandbox/internal/testutil/mocks"
+	mocks "gitlab.inoio.de/inoio/opencode-sandbox/internal/testutil/mocks"
 )
 
 func TestMain(m *testing.M) {
-	termio.InitFailFastMocks(m)
+	mocks.InitFailFastMocks(m)
 }
