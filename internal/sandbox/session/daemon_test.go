@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/msb"
-	"gitlab.inoio.de/inoio/opencode-sandbox/internal/testutil"
+	"gitlab.inoio.de/inoio/opencode-sandbox/internal/termio"
 )
 
 func TestParseHealthResponseHealthy(t *testing.T) {
@@ -60,7 +60,7 @@ func (m *mockDaemonShell) run(_ context.Context, _ msb.Sandbox, _ string) (strin
 }
 
 func TestEnsureDaemonStartsWhenUnhealthy(t *testing.T) {
-	testUI := testutil.TermUIMock(t)
+	testUI := termio.NewTestMock(t)
 	mock := &mockDaemonShell{
 		responses: []mockShellResp{
 			// First healthcheck: unhealthy (daemon not running).
@@ -114,7 +114,7 @@ func TestDaemonStartCommandAttach(t *testing.T) {
 // forwarder dials the guest's external interface address, so a loopback-only
 // (127.0.0.1) binding would make host clients get an empty reply.
 func TestEnsureDaemonStartsServeOnlyOnExternalInterface(t *testing.T) {
-	testUI := testutil.TermUIMock(t)
+	testUI := termio.NewTestMock(t)
 	var startCmd string
 	healthChecks := 0
 	prev := SetDaemonShellFunc(func(_ context.Context, _ msb.Sandbox, command string) (string, int, error) {
@@ -145,7 +145,7 @@ func TestEnsureDaemonStartsServeOnlyOnExternalInterface(t *testing.T) {
 }
 
 func TestEnsureDaemonFailsAfterTimeout(t *testing.T) {
-	testUI := testutil.TermUIMock(t)
+	testUI := termio.NewTestMock(t)
 	mock := &mockDaemonShell{
 		responses: []mockShellResp{
 			// Always unhealthy.

@@ -1,6 +1,6 @@
-// Package config merges opencode configuration snippet files into a single
+// Package opencodeconfig merges opencode configuration snippet files into a single
 // opencode config consumed by the sandbox.
-package config
+package opencodeconfig
 
 import (
 	"encoding/json"

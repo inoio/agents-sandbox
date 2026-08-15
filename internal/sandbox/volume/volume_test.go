@@ -14,7 +14,6 @@ import (
 	"gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/options"
 	"gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/state"
 	"gitlab.inoio.de/inoio/opencode-sandbox/internal/termio"
-	"gitlab.inoio.de/inoio/opencode-sandbox/internal/testutil"
 )
 
 func TestHomeVolumeName(t *testing.T) {
@@ -58,7 +57,7 @@ func TestHomeVolumeNameTimestamp(t *testing.T) {
 }
 
 func TestNewManager(t *testing.T) {
-	testUI := testutil.TermUIMock(t)
+	testUI := termio.NewTestMock(t)
 	vm := NewManager(&testUI)
 	if vm.ui == nil {
 		t.Error("expected ui to be set")
@@ -66,7 +65,7 @@ func TestNewManager(t *testing.T) {
 }
 
 func TestPrefillVolumeRunsCopyCommand(t *testing.T) {
-	testUI := testutil.TermUIMock(t)
+	testUI := termio.NewTestMock(t)
 	ui := &testUI
 	client := &msb.MockMsbClient{}
 	vm := NewManager(ui)
@@ -91,7 +90,7 @@ func TestPrefillVolumeRunsCopyCommand(t *testing.T) {
 }
 
 func TestResolveHomeAction_SameDigestReturnsKeep(t *testing.T) {
-	ui := testutil.TermUIMock(t)
+	ui := termio.NewTestMock(t)
 	vm := NewManager(&ui)
 	action := vm.ResolveHomeAction(&ui, "same-digest", "same-digest")
 	if action != ActionKeep {
@@ -100,7 +99,7 @@ func TestResolveHomeAction_SameDigestReturnsKeep(t *testing.T) {
 }
 
 func TestResolveHomeAction_DifferentDigestInNonInteractiveReturnsKeep(t *testing.T) {
-	ui := testutil.TermUIMock(t)
+	ui := termio.NewTestMock(t)
 	ui.IsInteractiveResult = false
 	vm := NewManager(&ui)
 	action := vm.ResolveHomeAction(&ui, "old", "new")

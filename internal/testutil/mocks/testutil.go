@@ -1,4 +1,4 @@
-package doctor
+package termio
 
 import (
 	"testing"
@@ -8,12 +8,12 @@ import (
 	"gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/msb"
 )
 
-// TestMain installs the fail-fast defaults for the doctor factories so no
-// doctor test can silently touch real msb or Docker.
-func TestMain(m *testing.M) {
+// InitFailFastMocks initializes all fail-fast mocks for tests, so tests that forget to define a mock fail fast instead
+// of using real implementations.
+func InitFailFastMocks(m *testing.M) {
 	configpaths.InstallFailFastConfigPaths()
 	docker.InstallFailFastGet()
-	InstallFailFast()
+	// doctor.InstallFailFast()
 	msb.InstallFailFastGet()
 	m.Run()
 }

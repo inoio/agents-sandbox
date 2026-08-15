@@ -53,7 +53,7 @@ func runPruneActiveVMTest(
 	if yaml != "" {
 		overrideDir := filepath.Join(state.StateDir, pruneTestSlug)
 		os.MkdirAll(overrideDir, 0o700)
-		os.WriteFile(filepath.Join(overrideDir, "state.yaml"), []byte(yaml), 0o600)
+		testutil.WriteFile(t, overrideDir, "state.yaml", yaml)
 	}
 
 	err := pruneActiveVMHomeVolumes(
@@ -297,7 +297,7 @@ func TestIsStoppedStatus(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := msb.IsStoppedStatus(tt.status)
+			got := !msb.IsSandboxActive(tt.status)
 			if got != tt.want {
 				t.Errorf("IsStoppedStatus(%q) = %v, want %v", tt.status, got, tt.want)
 			}

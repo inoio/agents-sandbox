@@ -10,33 +10,16 @@ import (
 	"gitlab.inoio.de/inoio/opencode-sandbox/internal/testutil"
 )
 
-func writeFile(t *testing.T, path, content string) {
-	t.Helper()
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
-		t.Fatal(err)
-	}
-}
-
 func TestConfigShowPrintsMergedConfig(t *testing.T) {
-	base := t.TempDir()
-	t.Setenv("XDG_CONFIG_HOME", base)
-	configpaths.WithRealConfigPaths(t)
-	snippetPath := filepath.Join(base, "opencode-sandbox", "opencode", "opencode.json5")
-	writeFile(
+	cmd, ui := setupCommandFixtures(t, "config", "show")
+	snippetPath := filepath.Join(configpaths.Get().UserOpencodeConfigDir(), "opencode.json5")
+	testutil.WritePath(
 		t,
 		snippetPath,
 		`{"model":"x","instructions":"be brief"}`,
 	)
 
-	ui := testutil.TermUIMock(t)
-	root := buildRootCmd(&ui)
-	root.SetOut(&strings.Builder{})
-	root.SetErr(&strings.Builder{})
-	root.SetArgs([]string{"config", "show"})
-	if err := root.Execute(); err != nil {
+	if err := cmd.Execute(); err != nil {
 		t.Fatalf("config show: %v", err)
 	}
 	joined := strings.Join(ui.OutCalls, "\n")
@@ -52,18 +35,10 @@ func TestConfigShowPrintsMergedConfig(t *testing.T) {
 }
 
 func TestConfigHomeListsMappings(t *testing.T) {
-	base := t.TempDir()
-	t.Setenv("XDG_CONFIG_HOME", base)
-	configpaths.WithRealConfigPaths(t)
-	cfgDir := filepath.Join(base, "opencode-sandbox")
-	writeFile(t, filepath.Join(cfgDir, "home.yaml"), ".gitconfig:\n")
+	cmd, ui := setupCommandFixtures(t, "config", "home")
+	testutil.WriteFile(t, configpaths.Get().UserConfigDir(), "home.yaml", ".gitconfig:\n")
 
-	ui := testutil.TermUIMock(t)
-	root := buildRootCmd(&ui)
-	root.SetOut(&strings.Builder{})
-	root.SetErr(&strings.Builder{})
-	root.SetArgs([]string{"config", "home"})
-	if err := root.Execute(); err != nil {
+	if err := cmd.Execute(); err != nil {
 		t.Fatalf("config home: %v", err)
 	}
 	joined := strings.Join(ui.OutCalls, "\n")
@@ -73,20 +48,12 @@ func TestConfigHomeListsMappings(t *testing.T) {
 }
 
 func TestConfigHomeNotFoundManifest(t *testing.T) {
-	base := t.TempDir()
-	t.Setenv("XDG_CONFIG_HOME", base)
-	configpaths.WithRealConfigPaths(t)
-	cfgDir := filepath.Join(base, "opencode-sandbox")
-	if err := os.MkdirAll(cfgDir, 0o755); err != nil {
+	cmd, ui := setupCommandFixtures(t, "config", "home")
+	if err := os.MkdirAll(configpaths.Get().UserConfigDir(), 0o755); err != nil {
 		t.Fatal(err)
 	}
 
-	ui := testutil.TermUIMock(t)
-	root := buildRootCmd(&ui)
-	root.SetOut(&strings.Builder{})
-	root.SetErr(&strings.Builder{})
-	root.SetArgs([]string{"config", "home"})
-	if err := root.Execute(); err != nil {
+	if err := cmd.Execute(); err != nil {
 		t.Fatalf("config home: %v", err)
 	}
 	joined := strings.Join(ui.OutCalls, "\n")
@@ -96,18 +63,10 @@ func TestConfigHomeNotFoundManifest(t *testing.T) {
 }
 
 func TestConfigHomeEmptyManifest(t *testing.T) {
-	base := t.TempDir()
-	t.Setenv("XDG_CONFIG_HOME", base)
-	configpaths.WithRealConfigPaths(t)
-	cfgDir := filepath.Join(base, "opencode-sandbox")
-	writeFile(t, filepath.Join(cfgDir, "home.yaml"), "")
+	cmd, ui := setupCommandFixtures(t, "config", "home")
+	testutil.WriteFile(t, configpaths.Get().UserConfigDir(), "home.yaml", "")
 
-	ui := testutil.TermUIMock(t)
-	root := buildRootCmd(&ui)
-	root.SetOut(&strings.Builder{})
-	root.SetErr(&strings.Builder{})
-	root.SetArgs([]string{"config", "home"})
-	if err := root.Execute(); err != nil {
+	if err := cmd.Execute(); err != nil {
 		t.Fatalf("config home: %v", err)
 	}
 	joined := strings.Join(ui.OutCalls, "\n")
@@ -116,5 +75,33 @@ func TestConfigHomeEmptyManifest(t *testing.T) {
 	}
 	if strings.Contains(joined, "No home.yaml manifest found.") {
 		t.Errorf("found misleading not-found message for an existing empty manifest:\n%s", joined)
+	}
+}
+
+func TestConfigShowNoSnippetFiles(t *testing.T) {
+	cmd, ui := setupCommandFixtures(t, "config", "show")
+	if err := os.MkdirAll(configpaths.Get().UserOpencodeConfigDir(), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("config show: %v", err)
+	}
+	joined := strings.Join(ui.OutCalls, "\n")
+	if !strings.Contains(joined, "No opencode snippet files found") {
+		t.Errorf("expected no-snippets message, got:\n%s", joined)
+	}
+}
+
+func TestConfigHomeManifestError(t *testing.T) {
+	cmd, _ := setupCommandFixtures(t, "config", "home")
+	testutil.WriteFile(t, configpaths.Get().UserConfigDir(), "home.yaml", "../escape:\n")
+
+	err := cmd.Execute()
+	if err == nil {
+		t.Fatal("expected an error for an escaping home.yaml target")
+	}
+	if !strings.Contains(err.Error(), "escapes the home directory") {
+		t.Errorf("expected 'escapes the home directory' error, got: %v", err)
 	}
 }

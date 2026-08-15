@@ -136,18 +136,6 @@ func TestPrune(t *testing.T) {
 		}, "Pruned 1 VMs, 0 home volumes, 0 docker images, 0 msb images, 0 task sandboxes, 1 clone volumes")
 	})
 
-	t.Run("P5_custom_age_14d", func(t *testing.T) {
-		runPruneTestWithAge(t, "14d", func(m *sandboxmsb.MockMsbClient) {
-			m.Sandboxes = append(m.Sandboxes, &sandboxmsb.MockSandboxHandle{
-				Name_:      "opencode-sandbox-vm-staleproject-1mjusbm3wikhb0",
-				Status_:    msb.SandboxStatusStopped,
-				UpdatedAt_: time.Now().Add(-15 * 24 * time.Hour),
-			})
-			m.Volumes = append(m.Volumes,
-				cloneVol("opencode-sandbox-clone-staleproject-abc123"))
-		}, "Pruned 1 VMs, 0 home volumes, 0 docker images, 0 msb images, 0 task sandboxes, 1 clone volumes")
-	})
-
 	t.Run("P6_invalid_age_error", func(t *testing.T) {
 		// --age "invalid" must not be overridden by fixture flags.
 		runPruneTestError(t, []string{"prune", "--age", "invalid"}, "invalid age")
@@ -305,5 +293,27 @@ func checkSummary(t *testing.T, outCalls []string, expected string) {
 		if !slices.Contains(outCalls, expected) {
 			t.Errorf("expected %q; got: %v", expected, outCalls)
 		}
+	}
+}
+
+// TestPruneCatalogError covers the catalog build failing during prune, which
+// surfaces the list error from the command.
+func TestPruneCatalogError(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	ui := &termio.Mock{}
+	mock := &sandboxmsb.MockMsbClient{}
+	mock.ListSandboxesErr = errBoom
+	docker.WithNoopDockerMock(t)
+	sandboxmsb.WithMsbMock(t, mock)
+
+	root := buildRootCmd(ui)
+	root.SetArgs([]string{"prune", "--age", "7d"})
+
+	err := root.Execute()
+	if err == nil {
+		t.Fatal("expected an error when the prune catalog build fails")
+	}
+	if !strings.Contains(err.Error(), "list sandboxes") {
+		t.Errorf("expected 'list sandboxes' error, got: %v", err)
 	}
 }

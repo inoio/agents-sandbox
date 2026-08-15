@@ -7,8 +7,6 @@ import (
 	"gitlab.inoio.de/inoio/opencode-sandbox/internal/git"
 	"gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/msb"
 	"gitlab.inoio.de/inoio/opencode-sandbox/internal/termio"
-
-	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 )
 
 // stopOrKillProjectVM is the shared implementation for StopProjectVM and KillProjectVM.
@@ -27,7 +25,7 @@ func stopOrKillProjectVM(
 
 	handle, err := client.GetSandbox(ctx, name)
 	if err != nil {
-		if msbSdk.IsKind(err, msbSdk.ErrSandboxNotFound) {
+		if msb.IsNotFound(err) {
 			ui.Infof("no project VM found: %s", name)
 			return nil
 		}

@@ -46,13 +46,14 @@ func decideVMAction(notFoundErr error, status msbSdk.SandboxStatus) (vmAction, e
 	if notFoundErr != nil {
 		return vmActionCreate, nil
 	}
-	switch status {
-	case msbSdk.SandboxStatusRunning, msbSdk.SandboxStatusDraining, msbSdk.SandboxStatusPaused:
-		return vmActionConnect, nil
-	case msbSdk.SandboxStatusStopped, msbSdk.SandboxStatusCrashed:
-		return vmActionStart, nil
+	kind, err := msb.GetVMStatus(status)
+	if err != nil {
+		return vmActionCreate, err
 	}
-	return vmActionCreate, fmt.Errorf("unexpected sandbox status: %s", status)
+	if kind == msb.VMStatusActive {
+		return vmActionConnect, nil
+	}
+	return vmActionStart, nil
 }
 
 // ensureProjectVM returns a live *msb.Sandbox for the project VM. The boolean
@@ -87,7 +88,7 @@ func ensureProjectVM(
 	spin := ui.Spinner("Checking project VM")
 
 	handle, err := client.GetSandbox(ctx, name)
-	notFound := err != nil && msbSdk.IsKind(err, msbSdk.ErrSandboxNotFound)
+	notFound := msb.IsNotFound(err)
 	if err != nil && !notFound {
 		spin.StopError(err)
 		return nil, false, fmt.Errorf("check sandbox %q: %w", name, err)
@@ -222,7 +223,7 @@ func ensureProjectVM(
 		}
 		return sb, false, nil
 	}
-	if !msbSdk.IsKind(err, msbSdk.ErrSandboxNotFound) {
+	if !msb.IsNotFound(err) {
 		return nil, false, fmt.Errorf("re-check sandbox %q: %w", name, err)
 	}
 

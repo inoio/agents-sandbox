@@ -1,7 +1,6 @@
 package viperconfig
 
 import (
-	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -61,7 +60,7 @@ func TestLoadYAMLConfig(t *testing.T) {
 func TestLoadJSON5Config(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	cp := configpaths.Get()
-	testutil.WritePath(t, filepath.Join(cp.UserConfigDir(), "config.json5"), `{
+	testutil.WriteFile(t, cp.UserConfigDir(), "config.json5", `{
 		// a comment
 		"cpus": 2,
 		"memory": "512M",
@@ -125,7 +124,7 @@ func TestLoadInvalidCPUs(t *testing.T) {
 func TestLoadMalformedConfig(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	cp := configpaths.Get()
-	testutil.WritePath(t, filepath.Join(cp.UserConfigDir(), "config.json5"), "{")
+	testutil.WriteFile(t, cp.UserConfigDir(), "config.json5", "{")
 
 	_, _, err := Load()
 	if err == nil {
@@ -162,7 +161,7 @@ func TestLoadPruneAgeConfig(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			cp := configpaths.Get()
-			testutil.WritePath(t, filepath.Join(cp.UserConfigDir(), "config.json"), tc.json)
+			testutil.WriteFile(t, cp.UserConfigDir(), "config.json", tc.json)
 
 			cfg, keys, err := Load()
 			if err != nil {
@@ -299,7 +298,7 @@ func TestConfigAutoStopTimeoutParsing(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			cp := configpaths.Get()
-			testutil.WritePath(t, filepath.Join(cp.UserConfigDir(), "config.json"), tc.json)
+			testutil.WriteFile(t, cp.UserConfigDir(), "config.json", tc.json)
 
 			cfg, _, err := Load()
 			if err != nil {
