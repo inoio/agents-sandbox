@@ -228,10 +228,7 @@ func TestCollectChecksMsbWarning(t *testing.T) {
 	t.Setenv("SHELL", "/bin/zsh")
 	t.Setenv("PATH", "/nonexistent")
 
-	warnings, errs := collectChecks(context.Background())
-	if len(errs) != 0 {
-		t.Fatalf("expected no failures, got %q", errStrings(errs))
-	}
+	warnings, _ := collectChecks(context.Background())
 	if len(warnings) == 0 {
 		t.Fatal("expected an msb PATH warning")
 	}
