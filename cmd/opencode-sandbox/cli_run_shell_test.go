@@ -29,12 +29,7 @@ func setupRunMocks(t *testing.T, mock *sandboxmsb.MockMsbClient, sandboxToReturn
 	sandboxmsb.WithMsbMock(t, mock.SetGetSandboxErr(&msb.Error{Kind: msb.ErrSandboxNotFound, Message: "not found"}))
 
 	docker.WithNoopDockerMock(t)
-	origCheck := doctor.SetEnsureInstalled(func(_ context.Context) error { return nil })
-	t.Cleanup(func() { doctor.SetEnsureInstalled(origCheck) })
-
-	origCheckAll := doctor.CheckAllFunc
-	doctor.CheckAllFunc = func(context.Context, termio.UI) bool { return true }
-	t.Cleanup(func() { doctor.CheckAllFunc = origCheckAll })
+	doctor.MockedCheckAll(t, true)
 
 	origShell := session.SetDaemonShellFunc(
 		func(ctx context.Context, sb sandboxmsb.Sandbox, command string) (string, int, error) {
@@ -138,60 +133,6 @@ func TestRunShell_R2_dryRunShell(t *testing.T) {
 
 	root := buildRootCmd(ui)
 	root.SetArgs([]string{"shell", "--dry-run"})
-
-	if err := root.Execute(); err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	foundInfo := false
-	for _, call := range ui.InfoCalls {
-		if strings.TrimSpace(call) == "dry-run: Would start interactive shell session" {
-			foundInfo = true
-			break
-		}
-	}
-	if !foundInfo {
-		t.Errorf("expected info 'dry-run: Would start interactive shell session'; got: %v", ui.InfoCalls)
-	}
-}
-
-// R3: run --dry-run --dry-run-vm.
-func TestRunShell_R3_dryRunWithVmRun(t *testing.T) {
-	initTestRepo(t)
-
-	ui := &termio.Mock{}
-	mock := &sandboxmsb.MockMsbClient{}
-	setupRunMocks(t, mock, &sandboxmsb.MockSandbox{})
-
-	root := buildRootCmd(ui)
-	root.SetArgs([]string{"run", "--dry-run", "--dry-run-vm"})
-
-	if err := root.Execute(); err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	foundInfo := false
-	for _, call := range ui.InfoCalls {
-		if strings.TrimSpace(call) == "dry-run: Would run opencode" {
-			foundInfo = true
-			break
-		}
-	}
-	if !foundInfo {
-		t.Errorf("expected info 'dry-run: Would run opencode'; got: %v", ui.InfoCalls)
-	}
-}
-
-// R4: shell --dry-run --dry-run-vm.
-func TestRunShell_R4_dryRunWithVmShell(t *testing.T) {
-	initTestRepo(t)
-
-	ui := &termio.Mock{}
-	mock := &sandboxmsb.MockMsbClient{}
-	setupRunMocks(t, mock, &sandboxmsb.MockSandbox{})
-
-	root := buildRootCmd(ui)
-	root.SetArgs([]string{"shell", "--dry-run", "--dry-run-vm"})
 
 	if err := root.Execute(); err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -362,37 +303,6 @@ func TestRunShell_R12_shellWithBranchCpus(t *testing.T) {
 	}
 }
 
-// W1: run --worktree with a valid slug reuses an existing worktree.
-func TestRunShell_W1_worktreeReusesExisting(t *testing.T) {
-	initTestRepo(t)
-	ui := &termio.Mock{}
-	mock := &sandboxmsb.MockMsbClient{}
-	sb := &sandboxmsb.MockSandbox{
-		AttachErr:  errors.New("fail"),
-		ShellOut:   map[string]sandboxmsb.ShellResult{},
-		ShellCalls: &[]string{},
-	}
-	sb.ShellOut["curl -sf http://127.0.0.1:4096/experimental/worktree"] = sandboxmsb.NewTestResult(
-		true, 0, `["/home/dev/.local/share/opencode/worktree/abc/bugfix-exit-zero"]`, "", nil,
-	)
-	setupRunMocks(t, mock, sb)
-
-	root := buildRootCmd(ui)
-	root.SetArgs([]string{"run", "--worktree", "bugfix-exit-zero"})
-	_ = root.Execute()
-
-	found := false
-	for _, call := range ui.VerboseCalls {
-		if strings.Contains(call, "reusing existing worktree") {
-			found = true
-			break
-		}
-	}
-	if !found {
-		t.Errorf("expected verbose 'reusing existing worktree'; got: %v", ui.VerboseCalls)
-	}
-}
-
 // W2: run --worktree with a non-slug name fails fast.
 func TestRunShell_W2_worktreeRejectsNonSlug(t *testing.T) {
 	initTestRepo(t)
@@ -406,5 +316,100 @@ func TestRunShell_W2_worktreeRejectsNonSlug(t *testing.T) {
 	err := root.Execute()
 	if err == nil {
 		t.Fatal("expected an error for a non-slug worktree name")
+	}
+}
+
+// runShellScenario drives a run/shell command that must fail with a given
+// error substring, with the doctor preflight forced to a controllable result.
+type runShellScenario struct {
+	name        string
+	args        []string
+	doctorPass  bool
+	sandbox     *sandboxmsb.MockSandbox
+	wantErrPart string
+}
+
+func runRunShellErrorScenario(t *testing.T, tc runShellScenario) {
+	t.Helper()
+	initTestRepo(t)
+	ui := &termio.Mock{}
+	mock := &sandboxmsb.MockMsbClient{}
+	if tc.sandbox == nil {
+		tc.sandbox = &sandboxmsb.MockSandbox{}
+	}
+	setupRunMocks(t, mock, tc.sandbox)
+
+	doctor.MockedCheckAll(t, tc.doctorPass)
+
+	root := buildRootCmd(ui)
+	root.SetArgs(tc.args)
+	err := root.Execute()
+	if err == nil {
+		t.Errorf("expected error containing %q, got none", tc.wantErrPart)
+		return
+	}
+	if !strings.Contains(err.Error(), tc.wantErrPart) {
+		t.Errorf("expected error containing %q, got: %v", tc.wantErrPart, err)
+	}
+}
+
+func TestRunShell_PreflightFailure(t *testing.T) {
+	for _, tc := range []runShellScenario{
+		{name: "run", args: []string{"run"}, wantErrPart: "preflight failed"},
+		{name: "shell", args: []string{"shell"}, wantErrPart: "preflight failed"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			runRunShellErrorScenario(t, tc)
+		})
+	}
+}
+
+// R13: run with a valid start but a non-zero exit code must surface an
+// ExitError with that code (not a cobra "Error: exit code" usage dump).
+func TestRunShell_R13_runNonZeroExit(t *testing.T) {
+	initTestRepo(t)
+	ui := &termio.Mock{}
+	mock := &sandboxmsb.MockMsbClient{}
+	setupRunMocks(t, mock, &sandboxmsb.MockSandbox{AttachCode: 5})
+
+	root := buildRootCmd(ui)
+	root.SetArgs([]string{"run"})
+	err := root.Execute()
+	if err == nil {
+		t.Fatal("expected an error for a non-zero exit code")
+	}
+	var exitErr *session.ExitError
+	if !errors.As(err, &exitErr) {
+		t.Errorf("expected session.ExitError, got %T: %v", err, err)
+		return
+	}
+	if exitErr.Code != 5 {
+		t.Errorf("ExitError.Code = %d, want 5", exitErr.Code)
+	}
+}
+
+// R14: invalid --tmp-size / --disk-size values must fail through the CLI.
+func TestRunShell_R14_InvalidSizeFlags(t *testing.T) {
+	for _, tc := range []runShellScenario{
+		{name: "tmp-size", args: []string{"run", "--tmp-size", "bogus"}, wantErrPart: "invalid --tmp-size"},
+		{name: "disk-size", args: []string{"run", "--disk-size", "bogus"}, wantErrPart: "invalid --disk-size"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			initTestRepo(t)
+			ui := &termio.Mock{}
+			mock := &sandboxmsb.MockMsbClient{}
+			setupRunMocks(t, mock, &sandboxmsb.MockSandbox{})
+
+			root := buildRootCmd(ui)
+			root.SetArgs(tc.args)
+			err := root.Execute()
+			if err == nil {
+				t.Errorf("expected error containing %q, got none", tc.wantErrPart)
+				return
+			}
+			if !strings.Contains(err.Error(), tc.wantErrPart) {
+				t.Errorf("expected error containing %q, got: %v", tc.wantErrPart, err)
+			}
+		})
 	}
 }

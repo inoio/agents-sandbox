@@ -64,9 +64,7 @@ func TestCurrentEnvState_IgnoresReadError(t *testing.T) {
 	// Corrupted YAML that returns a parser error (not ErrStateNotFound):
 	sdir := filepath.Join(state.StateDir, slug)
 	os.MkdirAll(sdir, 0o700)
-	if err := os.WriteFile(filepath.Join(sdir, "state.yaml"), []byte("!!broken: yaml: [invalid"), 0o600); err != nil {
-		t.Fatal(err)
-	}
+	testutil.WriteFile(t, sdir, "state.yaml", "!!broken: yaml: [invalid")
 
 	ui := &termio.Mock{}
 	got := currentEnvState(slug, ui)
@@ -231,9 +229,7 @@ func TestPersistEnvSecrets_ReadFailsReturnsError(t *testing.T) {
 	// Corrupted YAML that returns an error (not ErrStateNotFound):
 	sdir := filepath.Join(state.StateDir, slug)
 	os.MkdirAll(sdir, 0o700)
-	if err := os.WriteFile(filepath.Join(sdir, "state.yaml"), []byte("{ corrupted: yaml: ["), 0o600); err != nil {
-		t.Fatal(err)
-	}
+	testutil.WriteFile(t, sdir, "state.yaml", "{ corrupted: yaml: [")
 
 	envSt := state.EnvState{Hash: "h"}
 	secSt := state.SecretState{Hash: "h"}
@@ -268,7 +264,7 @@ func TestDecideReconfig_EnvChangedWithPersistedState(t *testing.T) {
 		},
 	}
 
-	ui := testutil.TermUIMock(t)
+	ui := termio.NewTestMock(t)
 	recreate, restart, _, err := decideReconfig(
 		context.Background(),
 		mock,
@@ -302,7 +298,7 @@ func TestDecideReconfig_EnvUnchangedWithPersistedState(t *testing.T) {
 	vm := volume.NewManager(&termio.Mock{})
 
 	// Write env file and state with matching hash
-	testutil.WritePath(t, filepath.Join(userDir, configpaths.EnvFileName), "FOO=bar\n")
+	testutil.WriteFile(t, userDir, configpaths.EnvFileName, "FOO=bar\n")
 	envHash := computeEnvHash(filepath.Join(userDir, configpaths.EnvFileName))
 
 	// Build HomeState with matching env state
@@ -315,7 +311,7 @@ func TestDecideReconfig_EnvUnchangedWithPersistedState(t *testing.T) {
 		},
 	}
 
-	ui := testutil.TermUIMock(t)
+	ui := termio.NewTestMock(t)
 	recreate, restart, _, err := decideReconfig(
 		context.Background(),
 		mock,
@@ -358,7 +354,7 @@ func TestDecideReconfig_SecretsChangedWithPersistedState(t *testing.T) {
 		},
 	}
 
-	ui := testutil.TermUIMock(t)
+	ui := termio.NewTestMock(t)
 	recreate, restart, _, err := decideReconfig(
 		context.Background(),
 		mock,
@@ -394,9 +390,9 @@ func TestDecideReconfig_ZeroPersistedStateNoSpuriousChange(t *testing.T) {
 	// Write empty env file → desired is empty.
 	// State has no env_state → zero value (first run).
 	// Zero applied + empty desired → NOT changed (per ruling)
-	testutil.WritePath(t, filepath.Join(userDir, configpaths.EnvFileName), "# nothing here\n")
+	testutil.WriteFile(t, userDir, configpaths.EnvFileName, "# nothing here\n")
 
-	ui := testutil.TermUIMock(t)
+	ui := termio.NewTestMock(t)
 	recreate, restart, _, err := decideReconfig(
 		context.Background(),
 		mock,
@@ -584,7 +580,7 @@ func TestDecideReconfig_PersistedSecretsMatchDesired(t *testing.T) {
 
 	vm := volume.NewManager(&termio.Mock{})
 
-	testutil.WritePath(t, filepath.Join(userDir, configpaths.EnvFileName), "K=V\n")
+	testutil.WriteFile(t, userDir, configpaths.EnvFileName, "K=V\n")
 	desiredEnv := reprovision.MergeEnvMaps(reprovision.BuildEnvMap(filepath.Join(userDir, configpaths.EnvFileName)))
 	envHash := reprovision.EnvContentHash(desiredEnv)
 
@@ -600,7 +596,7 @@ func TestDecideReconfig_PersistedSecretsMatchDesired(t *testing.T) {
 		EnvState:    state.EnvState{Hash: envHash, Names: []string{"K"}},
 	}
 
-	ui := testutil.TermUIMock(t)
+	ui := termio.NewTestMock(t)
 	recreate, restart, _, err := decideReconfig(
 		context.Background(),
 		mock,

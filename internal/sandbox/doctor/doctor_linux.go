@@ -3,29 +3,14 @@
 package doctor
 
 import (
-	"context"
+	"errors"
 	"os"
-
-	"gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/docker"
-	"gitlab.inoio.de/inoio/opencode-sandbox/internal/termio"
 )
 
-// KvmPath is the device node checkKvm probes. It defaults to the Linux KVM
-// device but is a variable so tests can point it at a throwaway path.
-//
-//nolint:gochecknoglobals // test seam, swapped in tests configurable path
-var KvmPath = "/dev/kvm"
-
-// checkDoctor runs Linux-specific prerequisite checks.
-// On Linux, this includes the KVM availability check.
-func checkDoctor(ctx context.Context, ui termio.UI) bool {
-	return checkKvm(ui) && docker.CheckDockerAPI(ctx, ui) && CheckDocker(ui) && checkGit(ui) && checkMsb(ctx, ui)
-}
-
-func checkKvm(ui termio.UI) bool {
-	if _, err := os.Stat(KvmPath); err != nil {
-		ui.Error("/dev/kvm not found. Load kvm module and ensure user is in the kvm group", err)
-		return false
+// checkPlatform verifies Linux KVM availability.
+func checkPlatform() error {
+	if _, err := os.Stat("/dev/kvm"); err != nil {
+		return errors.New("/dev/kvm not found. Load kvm module and ensure user is in the kvm group")
 	}
-	return true
+	return nil
 }

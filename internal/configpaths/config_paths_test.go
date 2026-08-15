@@ -7,7 +7,7 @@ import (
 
 func TestUserDirEnvOverride(t *testing.T) {
 	WithRealConfigPaths(t)
-	cfgPaths := GetConfigPaths()
+	cfgPaths := Get()
 	state := t.TempDir()
 	t.Setenv("XDG_STATE_HOME", state)
 	if got := cfgPaths.UserStateDir(); got != filepath.Join(state, "opencode-sandbox") {
@@ -17,7 +17,7 @@ func TestUserDirEnvOverride(t *testing.T) {
 
 func TestUserDirsDefaultToHome(t *testing.T) {
 	WithRealConfigPaths(t)
-	cfgPaths := GetConfigPaths()
+	cfgPaths := Get()
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	t.Setenv("XDG_CONFIG_HOME", "")
@@ -41,7 +41,7 @@ func TestUserDirsDefaultToHome(t *testing.T) {
 
 func TestUserDirsUsesSeparateEnvVars(t *testing.T) {
 	WithRealConfigPaths(t)
-	cfgPaths := GetConfigPaths()
+	cfgPaths := Get()
 	config := t.TempDir()
 	cache := t.TempDir()
 	state := t.TempDir()
@@ -62,7 +62,7 @@ func TestUserDirsUsesSeparateEnvVars(t *testing.T) {
 
 func TestUserDirIgnoresRelativeEnv(t *testing.T) {
 	WithRealConfigPaths(t)
-	cfgPaths := GetConfigPaths()
+	cfgPaths := Get()
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	t.Setenv("XDG_CONFIG_HOME", "relative/config")

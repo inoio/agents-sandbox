@@ -4,6 +4,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"gitlab.inoio.de/inoio/opencode-sandbox/internal/testutil"
 )
 
 func TestAcquireClientLease(t *testing.T) {
@@ -136,9 +138,7 @@ func TestCountActiveClients_CleansStaleLockFiles(t *testing.T) {
 
 	// Create a stale lock file with no holder (just a file, no flock).
 	stalePath := filepath.Join(clientsDir, "12345-1000000000.lock")
-	if err := os.WriteFile(stalePath, []byte("stale"), 0o600); err != nil {
-		t.Fatal(err)
-	}
+	testutil.WritePath(t, stalePath, "stale")
 
 	// CountActiveClients should clean up the stale file.
 	count := CountActiveClients(slug)

@@ -3,10 +3,9 @@ package state
 import (
 	"testing"
 
-	"gitlab.inoio.de/inoio/opencode-sandbox/internal/configpaths"
-	"gitlab.inoio.de/inoio/opencode-sandbox/internal/testutil"
+	termio "gitlab.inoio.de/inoio/opencode-sandbox/internal/testutil/mocks"
 )
 
 func TestMain(m *testing.M) {
-	testutil.InitMocks(m, configpaths.InstallFailFastConfigPaths)
+	termio.InitFailFastMocks(m)
 }

@@ -6,15 +6,15 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+
+	"gitlab.inoio.de/inoio/opencode-sandbox/internal/testutil"
 )
 
 const vmHome = "/home/dev"
 
 func writeHomeYAML(t *testing.T, dir, body string) {
 	t.Helper()
-	if err := os.WriteFile(filepath.Join(dir, "home.yaml"), []byte(body), 0o644); err != nil {
-		t.Fatal(err)
-	}
+	testutil.WriteFile(t, dir, "home.yaml", body)
 }
 
 func TestLoadManifest(t *testing.T) {
@@ -234,9 +234,7 @@ func TestBuildHomeFilesReadsBytesByVMPath(t *testing.T) {
 
 	// project manifest with an absolute source
 	src := filepath.Join(proj, "cfg.toml")
-	if err := os.WriteFile(src, []byte("k=v\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
+	testutil.WritePath(t, src, "k=v\n")
 	writeHomeYAML(t, proj, ".config/tool/cfg.toml: "+src+"\n")
 
 	files, has, err := BuildHomeFiles(user, proj, vmHome)
@@ -262,9 +260,7 @@ func TestBuildHomeFilesReadsProjectRelativeSourceFromProjectDir(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(proj, "tool"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(proj, "tool/cfg.toml"), []byte("k=v\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
+	testutil.WriteFile(t, proj, "tool/cfg.toml", "k=v\n")
 	writeHomeYAML(t, proj, ".config/tool/cfg.toml: ./tool/cfg.toml\n")
 
 	files, has, err := BuildHomeFiles(user, proj, vmHome)

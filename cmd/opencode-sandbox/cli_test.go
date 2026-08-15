@@ -8,279 +8,11 @@ import (
 	"gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/docker"
 	"gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/msb"
 	"gitlab.inoio.de/inoio/opencode-sandbox/internal/termio"
-	"gitlab.inoio.de/inoio/opencode-sandbox/internal/testutil"
 	launcherconfig "gitlab.inoio.de/inoio/opencode-sandbox/internal/viperconfig"
 )
 
-// buildTree sets up a test UI, builds the root command, renders the tree,
-// and returns the UI for use in test assertions.
-func buildTree(t *testing.T) *termio.Mock {
-	t.Helper()
-	ui := testutil.TermUIMock(t)
-	root := buildRootCmd(&ui)
-	printTree(root, &ui)
-	return &ui
-}
-
-func TestPrintTreeStartsWithRootCommandName(t *testing.T) {
-	testUI := buildTree(t)
-	lines := testUI.InfoCalls
-	if len(lines) == 0 {
-		t.Fatal("expected at least one line in tree output")
-	}
-	if lines[0] != "opencode-sandbox" {
-		t.Errorf("expected first line to be %q, got %q", "opencode-sandbox", lines[0])
-	}
-}
-
-// skipcheck: canonical tree/version tests moved to cli_tree_test.go
-func TestPrintTreeDocumentsImplicitRun(t *testing.T) {
-	testUI := buildTree(t)
-	out := strings.Join(testUI.InfoCalls, "\n")
-	if !strings.Contains(out, "When invoked without a subcommand, the \"run\" command is implied.") {
-		t.Errorf("expected implicit run note in tree output:\n%s", out)
-	}
-}
-
-// skipcheck: canonical tree/version tests moved to cli_tree_test.go
-func TestPrintTreeContainsAllCommands(t *testing.T) {
-	testUI := buildTree(t)
-	out := strings.Join(testUI.InfoCalls, "\n")
-	expected := []string{"run", "doctor", "build", "list", "shell", "config", "image", "volume", "stop", "kill"}
-	for _, cmd := range expected {
-		if !strings.Contains(out, cmd) {
-			t.Errorf("expected tree to contain %q, got:\n%s", cmd, out)
-		}
-	}
-}
-
-// skipcheck: canonical tree/version tests moved to cli_tree_test.go
-func TestPrintTreeContainsCommandDescriptions(t *testing.T) {
-	testUI := buildTree(t)
-	out := strings.Join(testUI.InfoCalls, "\n")
-	descs := []string{
-		"Run opencode in a microsandbox VM",
-		"Check prerequisites",
-		"Build or rebuild the runner image",
-		"List sandboxes for this host",
-		"Start sandbox and open a shell (debug)",
-		"Inspect opencode and home configuration",
-		"Manage runner images",
-		"Manage home volumes",
-		"Manage sandboxes",
-		"Print the merged opencode config and the snippet files used",
-		"List cached runner images",
-		"List managed volumes",
-		"Stop the project VM",
-		"Force-kill the project VM",
-	}
-	for _, d := range descs {
-		if !strings.Contains(out, d) {
-			t.Errorf("expected description %q in tree output:\n%s", d, out)
-		}
-	}
-}
-
-// skipcheck: canonical tree/version tests moved to cli_tree_test.go
-func TestPrintTreeContainsFlagDescriptions(t *testing.T) {
-	testUI := buildTree(t)
-	out := strings.Join(testUI.InfoCalls, "\n")
-	flagDescs := []string{
-		"Assume yes to all prompts",
-		"Show debug-level output",
-		"Suppress non-error output",
-		"Run in an isolated opencode worktree named <name>, optionally starting from the local base ref <name>:<base>",
-		"Rebuild the runner image before starting",
-		"Dry run without starting anything",
-		"Number of CPUs (default: all)",
-		"Memory limit",
-		"Size of the /tmp tmpfs in the sandbox",
-		"Size of the project VM root disk (e.g. 16G)",
-	}
-	for _, d := range flagDescs {
-		if !strings.Contains(out, d) {
-			t.Errorf("expected flag description %q in tree output:\n%s", d, out)
-		}
-	}
-}
-
-// skipcheck: canonical tree/version tests moved to cli_tree_test.go
-func TestPrintTreeStringFlagsHaveValuePlaceholders(t *testing.T) {
-	testUI := buildTree(t)
-	out := strings.Join(testUI.InfoCalls, "\n")
-	expected := []string{
-		"--worktree <WORKTREE>",
-		"--cpus <CPUS>",
-		"--memory <MEMORY>",
-		"--tmp-size <TMP_SIZE>",
-		"--disk-size <DISK_SIZE>",
-		"--user <USER>",
-	}
-	for _, s := range expected {
-		if !strings.Contains(out, s) {
-			t.Errorf("expected %q in tree output:\n%s", s, out)
-		}
-	}
-}
-
-// skipcheck: canonical tree/version tests moved to cli_tree_test.go
-func TestPrintTreeBoolFlagsHaveNoValuePlaceholders(t *testing.T) {
-	testUI := buildTree(t)
-	out := strings.Join(testUI.InfoCalls, "\n")
-	notExpected := []string{
-		"--yes <YES>",
-		"--verbose <VERBOSE>",
-		"--quiet <QUIET>",
-		"--tree <TREE>",
-		"--version <VERSION>",
-		"--rebuild <REBUILD>",
-		"--dry-run <DRY_RUN>",
-	}
-	for _, s := range notExpected {
-		if strings.Contains(out, s) {
-			t.Errorf("did not expect %q in tree output:\n%s", s, out)
-		}
-	}
-}
-
-// skipcheck: canonical tree/version tests moved to cli_tree_test.go
-func TestPrintTreeFlagShortcuts(t *testing.T) {
-	testUI := buildTree(t)
-	out := strings.Join(testUI.InfoCalls, "\n")
-	expected := []string{
-		"-y, --yes",
-		"-v, --verbose",
-		"-q, --quiet",
-		"-w, --worktree <WORKTREE>",
-		"-r, --rebuild",
-		"-n, --dry-run",
-		"-c, --cpus <CPUS>",
-		"-m, --memory <MEMORY>",
-		"-u, --user <USER>",
-	}
-	for _, s := range expected {
-		if !strings.Contains(out, s) {
-			t.Errorf("expected %q in tree output:\n%s", s, out)
-		}
-	}
-}
-
-// skipcheck: canonical tree/version tests moved to cli_tree_test.go
-func TestPrintTreeDescriptionsGloballyAligned(t *testing.T) {
-	testUI := buildTree(t)
-	lines := testUI.InfoCalls
-
-	colCounts := map[int]int{}
-	for _, line := range lines[1:] {
-		col := descriptionStartCol(line)
-		if col > 0 {
-			colCounts[col]++
-		}
-	}
-	if len(colCounts) == 0 {
-		t.Fatal("expected at least some lines with descriptions in tree output")
-	}
-	if len(colCounts) > 1 {
-		t.Errorf("expected all descriptions at the same column, got: %v\n%s", colCounts, strings.Join(lines, "\n"))
-	}
-}
-
-func TestPrintTreeContainsAliases(t *testing.T) {
-	testUI := buildTree(t)
-	out := strings.Join(testUI.InfoCalls, "\n")
-	if !strings.Contains(out, "list (aliases: ls)") {
-		t.Errorf("expected alias annotation in tree output:\n%s", out)
-	}
-}
-
-func TestPrintTreeShowsSandboxShorthands(t *testing.T) {
-	testUI := buildTree(t)
-	out := strings.Join(testUI.InfoCalls, "\n")
-	shortcuts := []string{
-		"run (also: sandbox run)",
-		"list (aliases: ls, also: sandbox list)",
-		"shell (aliases: sh, also: sandbox shell)",
-	}
-	for _, s := range shortcuts {
-		if !strings.Contains(out, s) {
-			t.Errorf("expected %q in tree output:\n%s", s, out)
-		}
-	}
-}
-
-func TestPrintTreePositionalArgsHaveDescription(t *testing.T) {
-	testUI := buildTree(t)
-	out := strings.Join(testUI.InfoCalls, "\n")
-	for line := range strings.SplitSeq(out, "\n") {
-		if strings.Contains(line, "[ARGS...]") {
-			desc := strings.TrimSpace(extractDescription(line))
-			if desc == "" {
-				t.Errorf("expected [ARGS...] to have a description, got empty in line:\n%s", line)
-			}
-			if !strings.Contains(desc, "--") {
-				t.Errorf("expected [ARGS...] description to mention --, got:\n%s", desc)
-			}
-			if !strings.Contains(desc, "opencode") {
-				t.Errorf("expected [ARGS...] description to mention opencode, got:\n%s", desc)
-			}
-		}
-	}
-}
-
-func extractDescription(line string) string {
-	runes := []rune(line)
-	i := 0
-	for i < len(runes) && isTreeChar(runes[i]) {
-		i++
-	}
-	if i >= len(runes) {
-		return ""
-	}
-	for ; i < len(runes)-1; i++ {
-		if runes[i] == ' ' && runes[i+1] == ' ' {
-			j := i
-			for j < len(runes) && runes[j] == ' ' {
-				j++
-			}
-			return string(runes[j:])
-		}
-	}
-	return ""
-}
-
-func descriptionStartCol(line string) int {
-	line = strings.TrimRight(line, " ")
-	runes := []rune(line)
-
-	i := 0
-	for i < len(runes) && isTreeChar(runes[i]) {
-		i++
-	}
-	if i >= len(runes) {
-		return -1
-	}
-
-	for ; i < len(runes)-1; i++ {
-		if runes[i] == ' ' && runes[i+1] == ' ' {
-			j := i
-			for j < len(runes) && runes[j] == ' ' {
-				j++
-			}
-			if j < len(runes) {
-				return j
-			}
-			return -1
-		}
-	}
-	return -1
-}
-
-func isTreeChar(r rune) bool {
-	return r == '│' || r == '├' || r == '└' || r == '─' || r == ' '
-}
-
 func TestRootHasGlobalFlags(t *testing.T) {
-	testUI := testutil.TermUIMock(t)
+	testUI := termio.NewTestMock(t)
 	root := buildRootCmd(&testUI)
 	flags := []string{"yes", "verbose", "quiet"}
 	for _, f := range flags {
@@ -291,7 +23,7 @@ func TestRootHasGlobalFlags(t *testing.T) {
 }
 
 func TestRunCommandHasExpectedFlags(t *testing.T) {
-	testUI := testutil.TermUIMock(t)
+	testUI := termio.NewTestMock(t)
 	root := buildRootCmd(&testUI)
 	runCmd, _, _ := root.Find([]string{"run"})
 	if runCmd == nil {
@@ -306,7 +38,7 @@ func TestRunCommandHasExpectedFlags(t *testing.T) {
 }
 
 func TestRunCommandFlagShortcuts(t *testing.T) {
-	testUI := testutil.TermUIMock(t)
+	testUI := termio.NewTestMock(t)
 	root := buildRootCmd(&testUI)
 	runCmd, _, _ := root.Find([]string{"run"})
 	if runCmd == nil {
@@ -329,7 +61,7 @@ func TestRunCommandFlagShortcuts(t *testing.T) {
 }
 
 func TestImageBuildNounFormExists(t *testing.T) {
-	testUI := testutil.TermUIMock(t)
+	testUI := termio.NewTestMock(t)
 	root := buildRootCmd(&testUI)
 	imageCmd, _, _ := root.Find([]string{"image"})
 	if imageCmd == nil {
@@ -342,7 +74,7 @@ func TestImageBuildNounFormExists(t *testing.T) {
 }
 
 func TestApplyLauncherConfigSetsUnsetFlags(t *testing.T) {
-	testUI := testutil.TermUIMock(t)
+	testUI := termio.NewTestMock(t)
 	root := buildRootCmd(&testUI)
 	runCmd, _, _ := root.Find([]string{"run"})
 	if runCmd == nil {
@@ -433,7 +165,7 @@ func TestCLIPersistentYesAffectsUIAfterSubcommand(t *testing.T) {
 }
 
 func TestApplyLauncherConfigRespectsCLIOverrides(t *testing.T) {
-	testUI := testutil.TermUIMock(t)
+	testUI := termio.NewTestMock(t)
 	root := buildRootCmd(&testUI)
 	runCmd, _, _ := root.Find([]string{"run"})
 	if runCmd == nil {
@@ -540,7 +272,7 @@ func TestRunAndGetShellUserFlag(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			testUI := testutil.TermUIMock(t)
+			testUI := termio.NewTestMock(t)
 			root := buildRootCmd(&testUI)
 			cmd, _, _ := root.Find([]string{"shell"})
 			if cmd == nil {
@@ -558,7 +290,7 @@ func TestRunAndGetShellUserFlag(t *testing.T) {
 }
 
 func TestStopCommandExists(t *testing.T) {
-	testUI := testutil.TermUIMock(t)
+	testUI := termio.NewTestMock(t)
 	root := buildRootCmd(&testUI)
 	stopCmd, _, _ := root.Find([]string{"stop"})
 	if stopCmd == nil {
@@ -567,7 +299,7 @@ func TestStopCommandExists(t *testing.T) {
 }
 
 func TestKillCommandExists(t *testing.T) {
-	testUI := testutil.TermUIMock(t)
+	testUI := termio.NewTestMock(t)
 	root := buildRootCmd(&testUI)
 	killCmd, _, _ := root.Find([]string{"kill"})
 	if killCmd == nil {
@@ -576,7 +308,7 @@ func TestKillCommandExists(t *testing.T) {
 }
 
 func TestApplyLauncherConfigSetsDiskSize(t *testing.T) {
-	testUI := testutil.TermUIMock(t)
+	testUI := termio.NewTestMock(t)
 	root := buildRootCmd(&testUI)
 	runCmd, _, _ := root.Find([]string{"run"})
 	if runCmd == nil {
@@ -594,7 +326,7 @@ func TestApplyLauncherConfigSetsDiskSize(t *testing.T) {
 }
 
 func TestStopCommandHasForceFlag(t *testing.T) {
-	testUI := testutil.TermUIMock(t)
+	testUI := termio.NewTestMock(t)
 	root := buildRootCmd(&testUI)
 	stopCmd, _, _ := root.Find([]string{"stop"})
 	if stopCmd == nil {
@@ -606,7 +338,7 @@ func TestStopCommandHasForceFlag(t *testing.T) {
 }
 
 func TestKillCommandHasForceFlag(t *testing.T) {
-	testUI := testutil.TermUIMock(t)
+	testUI := termio.NewTestMock(t)
 	root := buildRootCmd(&testUI)
 	killCmd, _, _ := root.Find([]string{"kill"})
 	if killCmd == nil {

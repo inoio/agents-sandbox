@@ -43,20 +43,23 @@
 * volume migrate, edit, delete
 * config changes to root size, tmp size, cpu, mem
 [ ] secrets containing @ kann nicht funktionieren -> yaml. Keine CLI-Params.
-
-## In Progress
-
-[ ] env.secret[.yaml] im Projekt, wie verstecken?
-[ ] default pattern for hiding project files, configurable (*.secret), not checked in?
-[ ] inoio providers ausbauen, anders zur Verfügung stellen.
 [ ] opencode config dir & merging nach alphabet
 [ ] config file(s): support arbitrary files in VM home
 [ ] config file(s) übersicht, beispiele
-[x] config show: list all files that would apply to a VM startup.
+[ ] config show: list all files that would apply to a VM startup.
+
+## In Progress
+
+[ ] inoio providers ausbauen, anders zur Verfügung stellen.
+    * inoio-Anleitung, wie man das einrichtet
+    * getting-started: provider beispiel mit secret
+[ ] make cli output pretty and UX'd
 
 ## 1st prio
 
-[ ] make cli output pretty and UX'd
+[ ] volume reset geht nicht
+[ ] env.secret[.yaml] im Projekt, wie verstecken?
+[ ] default pattern for hiding project files, configurable (*.secret), not checked in?
 [ ] OPENCODE_DISABLE_AUTOUPDATE and detect releases, offer vm rebuild
 [ ] OPENCODE_EXPERIMENTAL_EXA, OPENCODE_EXPERIMENTAL_BACKGROUND_SUBAGENTS, OPENCODE_EXPERIMENTAL_PARALLEL, OPENCODE_EXPERIMENTAL_SCOUT? 
 [ ] remove msb load exec call by spooling to tmp file and using msb SDKs Image.Load 

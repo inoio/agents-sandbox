@@ -114,14 +114,14 @@ func prepareSandbox(
 	}
 	if created {
 		desiredEnv := reprovision.MergeEnvMaps(
-			reprovision.BuildEnvMap(configpaths.GetConfigPaths().UserEnvFile()),
-			reprovision.BuildEnvMap(configpaths.GetConfigPaths().ProjectEnvFile()),
+			reprovision.BuildEnvMap(configpaths.Get().UserEnvFile()),
+			reprovision.BuildEnvMap(configpaths.Get().ProjectEnvFile()),
 		)
 		desiredSecrets := reprovision.BuildSecretsFromSpecs(reprovision.MergeSecretSpecs(
-			reprovision.ParseSecretSpecLegacy(configpaths.GetConfigPaths().UserEnvSecretFile(), ui),
-			reprovision.ParseSecretSpecLegacy(configpaths.GetConfigPaths().ProjectEnvSecretFile(), ui),
-			reprovision.ParseSecretSpecYAML(configpaths.GetConfigPaths().UserEnvSecretYAMLFile(), ui),
-			reprovision.ParseSecretSpecYAML(configpaths.GetConfigPaths().ProjectEnvSecretYAMLFile(), ui),
+			reprovision.ParseSecretSpecLegacy(configpaths.Get().UserEnvSecretFile(), ui),
+			reprovision.ParseSecretSpecLegacy(configpaths.Get().ProjectEnvSecretFile(), ui),
+			reprovision.ParseSecretSpecYAML(configpaths.Get().UserEnvSecretYAMLFile(), ui),
+			reprovision.ParseSecretSpecYAML(configpaths.Get().ProjectEnvSecretYAMLFile(), ui),
 		), ui)
 		if err := persistEnvSecrets(
 			projectSlug,
@@ -237,8 +237,8 @@ func BuildImage(ctx context.Context, force, dryRun bool, ui termio.UI) error {
 		return nil
 	}
 
-	if !doctor.CheckDocker(ui) {
-		return errors.New("docker not available")
+	if err := doctor.CheckDocker(ctx); err != nil {
+		return fmt.Errorf("docker not available: %w", err)
 	}
 	projectSlug := git.ProjectSlug(ui)
 
