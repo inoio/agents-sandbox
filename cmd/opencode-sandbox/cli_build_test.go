@@ -11,7 +11,7 @@ import (
 	"gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/docker"
 )
 
-func TestBuildBuildCmd(t *testing.T) {
+func TestBuildCommand(t *testing.T) {
 	for _, commands := range [][]string{
 		{cmdBuild},
 		{cmdImage, cmdBuild},

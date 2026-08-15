@@ -10,11 +10,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	msb "github.com/superradcompany/microsandbox/sdk/go"
 
-	"gitlab.inoio.de/inoio/opencode-sandbox/internal/configpaths"
 	"gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/docker"
 	sandboxmsb "gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/msb"
 	"gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/state"
-	"gitlab.inoio.de/inoio/opencode-sandbox/internal/termio"
 )
 
 // oldArtifactTime returns a time far enough in the past that images and volumes
@@ -71,17 +69,17 @@ func msbImg(ref string) sandboxmsb.ImageHandle {
 }
 
 func TestPrune(t *testing.T) {
-	t.Run("P1_no_stale_items", func(t *testing.T) {
+	t.Run("no stale items", func(t *testing.T) {
 		for _, flags := range pruneAgeFlags {
-			t.Run("f"+strings.Join(flags, "_"), func(t *testing.T) {
+			t.Run(strings.Join(flags, " "), func(t *testing.T) {
 				runPruneTest(t, flags, nil, "")
 			})
 		}
 	})
 
-	t.Run("P2_dry_run_with_stale_items", func(t *testing.T) {
+	t.Run("dry run with stale items", func(t *testing.T) {
 		for _, flags := range pruneAgeFlags {
-			t.Run("f"+strings.Join(flags, "_"), func(t *testing.T) {
+			t.Run(strings.Join(flags, " "), func(t *testing.T) {
 				runPruneTest(t, append([]string{"--dry-run"}, flags...), func(m *sandboxmsb.MockMsbClient) {
 					m.Sandboxes = append(m.Sandboxes, mkStaleVM(time.Now().Add(-15*24*time.Hour)))
 					m.Sandboxes = append(m.Sandboxes,
@@ -97,9 +95,9 @@ func TestPrune(t *testing.T) {
 		}
 	})
 
-	t.Run("P3_partial_failure", func(t *testing.T) {
+	t.Run("partial failure", func(t *testing.T) {
 		for _, flags := range pruneAgeFlags {
-			t.Run("f"+strings.Join(flags, "_"), func(t *testing.T) {
+			t.Run(strings.Join(flags, " "), func(t *testing.T) {
 				runPruneTest(t, flags, func(m *sandboxmsb.MockMsbClient) {
 					// Both stale VMs pruned; the MockSandboxHandle.RemoveErr
 					// does not affect MockMsbClient.RemoveSandbox. The mock
@@ -124,7 +122,7 @@ func TestPrune(t *testing.T) {
 		}
 	})
 
-	t.Run("P4_custom_age_2w", func(t *testing.T) {
+	t.Run("custom age of two weeks", func(t *testing.T) {
 		runPruneTestWithAge(t, "2w", func(m *sandboxmsb.MockMsbClient) {
 			m.Sandboxes = append(m.Sandboxes, &sandboxmsb.MockSandboxHandle{
 				Name_:      "opencode-sandbox-vm-staleproject-1mjusbm3wikhb0",
@@ -136,28 +134,23 @@ func TestPrune(t *testing.T) {
 		}, "Pruned 1 VMs, 0 home volumes, 0 docker images, 0 msb images, 0 task sandboxes, 1 clone volumes")
 	})
 
-	t.Run("P6_invalid_age_error", func(t *testing.T) {
+	t.Run("invalid age error", func(t *testing.T) {
 		// --age "invalid" must not be overridden by fixture flags.
 		runPruneTestError(t, []string{"prune", "--age", "invalid"}, "invalid age")
 	})
 
-	t.Run("P7_docker_client_error", func(t *testing.T) {
+	t.Run("docker client error", func(t *testing.T) {
 		for _, flags := range pruneAgeFlags {
-			t.Run("f"+strings.Join(flags, "_"), func(t *testing.T) {
-				configpaths.WithMockConfigPaths(t)
-				ui := &termio.Mock{}
+			t.Run(strings.Join(flags, " "), func(t *testing.T) {
 				mock := &sandboxmsb.MockMsbClient{}
 				mock.Images = append(mock.Images,
 					msbImg("opencode-sandbox/runner-projectname:v2"))
 
+				cmd, ui := setupCommandFixtures(t, append([]string{"prune"}, flags...)...)
 				sandboxmsb.WithMsbMock(t, mock)
-				origMSB := sandboxmsb.ResetGetFn(func() sandboxmsb.Client { return mock })
-				t.Cleanup(func() { sandboxmsb.ResetGetFn(origMSB) })
 				docker.WithDefaultErrorDockerMock(t)
-				root := buildRootCmd(ui)
-				root.SetArgs(append([]string{"prune"}, flags...))
 
-				err := root.Execute()
+				err := cmd.Execute()
 
 				if err != nil {
 					t.Fatalf("expected no error; got %s", err)
@@ -169,9 +162,9 @@ func TestPrune(t *testing.T) {
 		}
 	})
 
-	t.Run("P8_clone_volumes_pruned", func(t *testing.T) {
+	t.Run("clone volumes pruned", func(t *testing.T) {
 		for _, flags := range pruneAgeFlags {
-			t.Run("f"+strings.Join(flags, "_"), func(t *testing.T) {
+			t.Run(strings.Join(flags, " "), func(t *testing.T) {
 				runPruneTest(t, flags, func(m *sandboxmsb.MockMsbClient) {
 					m.Sandboxes = append(m.Sandboxes, mkStaleVM(time.Now().Add(-15*24*time.Hour)))
 					m.Sandboxes = append(m.Sandboxes, mkStaleTask(time.Now().Add(-15*24*time.Hour)))
@@ -186,9 +179,9 @@ func TestPrune(t *testing.T) {
 		}
 	})
 
-	t.Run("P9_task_sandboxes_pruned", func(t *testing.T) {
+	t.Run("task sandboxes pruned", func(t *testing.T) {
 		for _, flags := range pruneAgeFlags {
-			t.Run("f"+strings.Join(flags, "_"), func(t *testing.T) {
+			t.Run(strings.Join(flags, " "), func(t *testing.T) {
 				state.SetStateDirForTest(t, t.TempDir()+"/opencode-sandbox")
 				if err := state.WriteState("activeproject-1mjusbm3wikhb0", state.HomeState{
 					HomeVolume: "opencode-sandbox-home-activeproject-1mjusbm3wikhb0-abc123",
@@ -210,9 +203,9 @@ func TestPrune(t *testing.T) {
 		}
 	})
 
-	t.Run("P10_flag_fixture", func(t *testing.T) {
+	t.Run("flag fixture variations", func(t *testing.T) {
 		for _, flags := range pruneAgeFlags {
-			t.Run("f"+strings.Join(flags, "_"), func(t *testing.T) {
+			t.Run(strings.Join(flags, " "), func(t *testing.T) {
 				runPruneTest(t, flags, func(m *sandboxmsb.MockMsbClient) {
 					// Use 15d staleness to work with all flag values (7d, 7d, 14d, 14d).
 					m.Sandboxes = append(m.Sandboxes, mkStaleVM(time.Now().Add(-15*24*time.Hour)))
@@ -230,19 +223,14 @@ func TestPrune(t *testing.T) {
 
 func runPruneTest(t *testing.T, flags []string, setupMock func(m *sandboxmsb.MockMsbClient), expected string) {
 	t.Helper()
-	configpaths.WithMockConfigPaths(t)
-	ui := &termio.Mock{}
 	mock := &sandboxmsb.MockMsbClient{}
 	if setupMock != nil {
 		setupMock(mock)
 	}
+	cmd, ui := setupCommandFixtures(t, append([]string{"prune"}, flags...)...)
 	sandboxmsb.WithMsbMock(t, mock)
-	docker.WithNoopDockerMock(t)
 
-	root := buildRootCmd(ui)
-	root.SetArgs(append([]string{"prune"}, flags...))
-
-	if err := root.Execute(); err != nil {
+	if err := cmd.Execute(); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	checkSummary(t, ui.OutCalls, expected)
@@ -250,17 +238,12 @@ func runPruneTest(t *testing.T, flags []string, setupMock func(m *sandboxmsb.Moc
 
 func runPruneTestWithAge(t *testing.T, age string, setupMock func(m *sandboxmsb.MockMsbClient), expected string) {
 	t.Helper()
-	configpaths.WithMockConfigPaths(t)
-	ui := &termio.Mock{}
 	mock := &sandboxmsb.MockMsbClient{}
 	setupMock(mock)
+	cmd, ui := setupCommandFixtures(t, "prune", "--age", age)
 	sandboxmsb.WithMsbMock(t, mock)
-	docker.WithNoopDockerMock(t)
 
-	root := buildRootCmd(ui)
-	root.SetArgs([]string{"prune", "--age", age})
-
-	if err := root.Execute(); err != nil {
+	if err := cmd.Execute(); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	checkSummary(t, ui.OutCalls, expected)
@@ -268,13 +251,9 @@ func runPruneTestWithAge(t *testing.T, age string, setupMock func(m *sandboxmsb.
 
 func runPruneTestError(t *testing.T, args []string, wantErrContains string) {
 	t.Helper()
-	configpaths.WithMockConfigPaths(t)
+	cmd, _ := setupCommandFixtures(t, args...)
 	sandboxmsb.WithMsbMock(t, &sandboxmsb.MockMsbClient{})
-	docker.WithNoopDockerMock(t)
-	ui := &termio.Mock{}
-	root := buildRootCmd(ui)
-	root.SetArgs(args)
-	err := root.Execute()
+	err := cmd.Execute()
 	if err == nil {
 		t.Fatal("expected error; got nil")
 	}
@@ -299,17 +278,12 @@ func checkSummary(t *testing.T, outCalls []string, expected string) {
 // TestPruneCatalogError covers the catalog build failing during prune, which
 // surfaces the list error from the command.
 func TestPruneCatalogError(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
-	ui := &termio.Mock{}
+	cmd, _ := setupCommandFixtures(t, "prune", "--age", "7d")
 	mock := &sandboxmsb.MockMsbClient{}
 	mock.ListSandboxesErr = errBoom
-	docker.WithNoopDockerMock(t)
 	sandboxmsb.WithMsbMock(t, mock)
 
-	root := buildRootCmd(ui)
-	root.SetArgs([]string{"prune", "--age", "7d"})
-
-	err := root.Execute()
+	err := cmd.Execute()
 	if err == nil {
 		t.Fatal("expected an error when the prune catalog build fails")
 	}

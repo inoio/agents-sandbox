@@ -5,10 +5,9 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/spf13/cobra"
 	msb "github.com/superradcompany/microsandbox/sdk/go"
 
-	"gitlab.inoio.de/inoio/opencode-sandbox/internal/configpaths"
-	"gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/docker"
 	sandboxmsb "gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/msb"
 	"gitlab.inoio.de/inoio/opencode-sandbox/internal/termio"
 	"gitlab.inoio.de/inoio/opencode-sandbox/internal/testutil"
@@ -21,6 +20,34 @@ func initTestRepo(t *testing.T) {
 }
 func notFoundErr() error {
 	return &msb.Error{Kind: msb.ErrSandboxNotFound, Message: "not found"}
+}
+
+// setupStopKillConfig builds a stop/kill command fixture installed with the
+// given mock configuration, so callers retain control over Execute's error.
+func setupStopKillConfig(
+	t *testing.T,
+	args []string,
+	mockSetup func(*sandboxmsb.MockMsbClient),
+) (*cobra.Command, *termio.Mock) {
+	t.Helper()
+	cmd, ui := setupCommandFixtures(t, args...)
+	mock := &sandboxmsb.MockMsbClient{}
+	if mockSetup != nil {
+		mockSetup(mock)
+	}
+	sandboxmsb.WithMsbMock(t, mock)
+	return cmd, ui
+}
+
+// runStopKill executes a stop/kill command and fails the test on any
+// unexpected error, returning the UI for assertions.
+func runStopKill(t *testing.T, args []string, mockSetup func(*sandboxmsb.MockMsbClient)) *termio.Mock {
+	t.Helper()
+	cmd, ui := setupStopKillConfig(t, args, mockSetup)
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	return ui
 }
 
 // assertInfoHasPrefix checks that ui.InfoCalls contains at least one entry
@@ -76,8 +103,8 @@ func assertSpinnerHas(t *testing.T, ui *termio.Mock, msg string) {
 	t.Errorf("expected SpinnerCall %q; got: %v", msg, ui.SpinnerCalls)
 }
 
-func TestLifecycle(t *testing.T) {
-	t.Run("S1_no_project_vm_found", func(t *testing.T) {
+func TestStopKillLifecycle(t *testing.T) {
+	t.Run("no project VM found", func(t *testing.T) {
 		for _, tc := range []struct {
 			cmd        string
 			wantPrefix string
@@ -86,20 +113,10 @@ func TestLifecycle(t *testing.T) {
 			{cmdKill, "no project VM found: "},
 		} {
 			for _, flags := range stopKillFlags {
-				t.Run(tc.cmd+strings.Join(flags, "_"), func(t *testing.T) {
-					ui := &termio.Mock{}
-					mock := &sandboxmsb.MockMsbClient{}
-					mock.SetGetSandboxErr(notFoundErr())
-					configpaths.WithMockConfigPaths(t)
-					docker.WithNoopDockerMock(t)
-					sandboxmsb.WithMsbMock(t, mock)
-
-					root := buildRootCmd(ui)
-					root.SetArgs(append([]string{tc.cmd}, flags...))
-
-					if err := root.Execute(); err != nil {
-						t.Fatalf("unexpected error: %v", err)
-					}
+				t.Run(strings.Join(append([]string{tc.cmd}, flags...), " "), func(t *testing.T) {
+					ui := runStopKill(t, append([]string{tc.cmd}, flags...), func(m *sandboxmsb.MockMsbClient) {
+						m.SetGetSandboxErr(notFoundErr())
+					})
 
 					assertInfoHasPrefix(t, ui, tc.wantPrefix)
 				})
@@ -107,34 +124,24 @@ func TestLifecycle(t *testing.T) {
 		}
 	})
 
-	// S2/S4: dry-run stop/kill
-	// S3/S5: dry-run force stop/kill
+	// dry-run stop/kill, both with and without persisted state removal
 	for _, tc := range []struct {
-		sNum       string
+		name       string
 		cmd        string
 		infoPrefix string
 	}{
-		{"S2", cmdStop, "dry-run: Would stop"},
-		{"S3", cmdKill, "dry-run: Would kill "},
-		{"S4", cmdStop, "(also would remove persisted state)"},
-		{"S5", cmdKill, "(also would remove persisted state)"},
+		{"dry-run stop", cmdStop, "dry-run: Would stop"},
+		{"dry-run kill", cmdKill, "dry-run: Would kill "},
+		{"dry-run stop removes persisted state", cmdStop, "(also would remove persisted state)"},
+		{"dry-run kill removes persisted state", cmdKill, "(also would remove persisted state)"},
 	} {
 		for _, flags := range stopKillFlags {
-			t.Run(tc.sNum+"_dry_run_"+tc.cmd+"_flags"+strings.Join(flags, "_"), func(t *testing.T) {
+			t.Run(tc.name+" "+strings.Join(flags, " "), func(t *testing.T) {
 				initTestRepo(t)
-				ui := &termio.Mock{}
-				mock := &sandboxmsb.MockMsbClient{}
-				mock.SetGotSandbox(&sandboxmsb.MockSandboxHandle{})
-				configpaths.WithMockConfigPaths(t)
-				docker.WithNoopDockerMock(t)
-				sandboxmsb.WithMsbMock(t, mock)
+				ui := runStopKill(t, append([]string{tc.cmd}, flags...), func(m *sandboxmsb.MockMsbClient) {
+					m.SetGotSandbox(&sandboxmsb.MockSandboxHandle{})
+				})
 
-				root := buildRootCmd(ui)
-				root.SetArgs(append([]string{tc.cmd}, flags...))
-
-				if err := root.Execute(); err != nil {
-					t.Fatalf("unexpected error: %v", err)
-				}
 				assertInfoHasPrefix(t, ui, tc.infoPrefix)
 			})
 		}
@@ -148,62 +155,32 @@ func TestLifecycle(t *testing.T) {
 		{cmdStop, "Stopping project VM", "stopped project VM: "},
 		{cmdKill, "Force-killing project VM", "killed project VM: "},
 	} {
-		t.Run("S6"+tc.cmd+"--force", func(t *testing.T) {
+		t.Run(tc.cmd+" with --force", func(t *testing.T) {
 			initTestRepo(t)
-			ui := &termio.Mock{}
-			mock := &sandboxmsb.MockMsbClient{}
-			mock.SetGotSandbox(&sandboxmsb.MockSandboxHandle{})
-			configpaths.WithMockConfigPaths(t)
-			docker.WithNoopDockerMock(t)
-			sandboxmsb.WithMsbMock(t, mock)
-
-			root := buildRootCmd(ui)
-			root.SetArgs([]string{tc.cmd, "--force"})
-
-			if err := root.Execute(); err != nil {
-				t.Fatalf("unexpected error: %v", err)
-			}
+			ui := runStopKill(t, []string{tc.cmd, "--force"}, func(m *sandboxmsb.MockMsbClient) {
+				m.SetGotSandbox(&sandboxmsb.MockSandboxHandle{})
+			})
 
 			assertSpinnerHas(t, ui, tc.spinner)
 			assertInfoHasPrefix(t, ui, tc.infoPrefix)
 		})
 
-		t.Run("S6"+tc.cmd+"--force-short", func(t *testing.T) {
+		t.Run(tc.cmd+" with -f", func(t *testing.T) {
 			initTestRepo(t)
-			ui := &termio.Mock{}
-			mock := &sandboxmsb.MockMsbClient{}
-			mock.SetGotSandbox(&sandboxmsb.MockSandboxHandle{})
-			configpaths.WithMockConfigPaths(t)
-			docker.WithNoopDockerMock(t)
-			sandboxmsb.WithMsbMock(t, mock)
-
-			root := buildRootCmd(ui)
-			root.SetArgs([]string{tc.cmd, "-f"})
-
-			if err := root.Execute(); err != nil {
-				t.Fatalf("unexpected error: %v", err)
-			}
+			ui := runStopKill(t, []string{tc.cmd, "-f"}, func(m *sandboxmsb.MockMsbClient) {
+				m.SetGotSandbox(&sandboxmsb.MockSandboxHandle{})
+			})
 
 			assertInfoHasPrefix(t, ui, tc.infoPrefix)
 		})
 	}
 
 	for _, cmd := range []string{cmdStop, cmdKill} {
-		t.Run("S9_force_remove_"+cmd, func(t *testing.T) {
+		t.Run(cmd+" --force removes persisted state", func(t *testing.T) {
 			initTestRepo(t)
-			ui := &termio.Mock{}
-			mock := &sandboxmsb.MockMsbClient{}
-			mock.SetGotSandbox(&sandboxmsb.MockSandboxHandle{})
-			configpaths.WithMockConfigPaths(t)
-			docker.WithNoopDockerMock(t)
-			sandboxmsb.WithMsbMock(t, mock)
-
-			root := buildRootCmd(ui)
-			root.SetArgs([]string{cmd, "--force"})
-
-			if err := root.Execute(); err != nil {
-				t.Fatalf("unexpected error: %v", err)
-			}
+			ui := runStopKill(t, []string{cmd, "--force"}, func(m *sandboxmsb.MockMsbClient) {
+				m.SetGotSandbox(&sandboxmsb.MockSandboxHandle{})
+			})
 
 			assertVerboseHasPrefix(t, ui, "persisted state removed: ")
 		})
@@ -217,21 +194,11 @@ func TestLifecycle(t *testing.T) {
 		{cmdKill, "dry-run: Would kill "},
 	} {
 		for _, flags := range stopKillFlags {
-			t.Run("S10_remove_fail_"+tc.cmd+strings.Join(flags, "_"), func(t *testing.T) {
+			t.Run("dry-run "+tc.cmd+" ignores state removal failure "+strings.Join(flags, " "), func(t *testing.T) {
 				initTestRepo(t)
-				ui := &termio.Mock{}
-				mock := &sandboxmsb.MockMsbClient{}
-				mock.SetGotSandbox(&sandboxmsb.MockSandboxHandle{RemoveErr: errBoom})
-				configpaths.WithMockConfigPaths(t)
-				docker.WithNoopDockerMock(t)
-				sandboxmsb.WithMsbMock(t, mock)
-
-				root := buildRootCmd(ui)
-				root.SetArgs(append([]string{tc.cmd}, flags...))
-
-				if err := root.Execute(); err != nil {
-					t.Fatalf("unexpected error: %v", err)
-				}
+				ui := runStopKill(t, append([]string{tc.cmd}, flags...), func(m *sandboxmsb.MockMsbClient) {
+					m.SetGotSandbox(&sandboxmsb.MockSandboxHandle{RemoveErr: errBoom})
+				})
 
 				assertInfoHasPrefix(t, ui, tc.infoPrefix)
 				assertNoWarn(t, ui)
@@ -239,23 +206,12 @@ func TestLifecycle(t *testing.T) {
 		}
 	}
 
-	// S10 non-dry-run remove fails
 	for _, cmd := range []string{cmdStop, cmdKill} {
-		t.Run("S10_non_dry_run_"+cmd+"_remove_fail", func(t *testing.T) {
+		t.Run(cmd+" --force warns on state removal failure", func(t *testing.T) {
 			initTestRepo(t)
-			ui := &termio.Mock{}
-			mock := &sandboxmsb.MockMsbClient{}
-			mock.SetGotSandbox(&sandboxmsb.MockSandboxHandle{RemoveErr: errBoom})
-			configpaths.WithMockConfigPaths(t)
-			docker.WithNoopDockerMock(t)
-			sandboxmsb.WithMsbMock(t, mock)
-
-			root := buildRootCmd(ui)
-			root.SetArgs([]string{cmd, "--force"})
-
-			if err := root.Execute(); err != nil {
-				t.Fatalf("unexpected error: %v", err)
-			}
+			ui := runStopKill(t, []string{cmd, "--force"}, func(m *sandboxmsb.MockMsbClient) {
+				m.SetGotSandbox(&sandboxmsb.MockSandboxHandle{RemoveErr: errBoom})
+			})
 
 			assertWarnContains(t, ui, "failed to remove sandbox state")
 		})
@@ -286,16 +242,10 @@ func TestStopKillGetSandboxError(t *testing.T) {
 	} {
 		t.Run(tc.cmd, func(t *testing.T) {
 			initTestRepo(t)
-			ui := &termio.Mock{}
-			mock := &sandboxmsb.MockMsbClient{}
-			mock.SetGetSandboxErr(errBoom)
-			configpaths.WithMockConfigPaths(t)
-			docker.WithNoopDockerMock(t)
-			sandboxmsb.WithMsbMock(t, mock)
-
-			root := buildRootCmd(ui)
-			root.SetArgs([]string{tc.cmd})
-			assertErrContains(t, root.Execute(), tc.wantErr)
+			cmd, _ := setupStopKillConfig(t, []string{tc.cmd}, func(m *sandboxmsb.MockMsbClient) {
+				m.SetGetSandboxErr(errBoom)
+			})
+			assertErrContains(t, cmd.Execute(), tc.wantErr)
 		})
 	}
 }
@@ -312,18 +262,12 @@ func TestStopKillActionError(t *testing.T) {
 	} {
 		t.Run(tc.cmd, func(t *testing.T) {
 			initTestRepo(t)
-			ui := &termio.Mock{}
-			mock := &sandboxmsb.MockMsbClient{}
-			handle := &sandboxmsb.MockSandboxHandle{}
-			tc.sbErr(handle)
-			mock.SetGotSandbox(handle)
-			configpaths.WithMockConfigPaths(t)
-			docker.WithNoopDockerMock(t)
-			sandboxmsb.WithMsbMock(t, mock)
-
-			root := buildRootCmd(ui)
-			root.SetArgs([]string{tc.cmd})
-			assertErrContains(t, root.Execute(), tc.wantErr)
+			cmd, _ := setupStopKillConfig(t, []string{tc.cmd}, func(m *sandboxmsb.MockMsbClient) {
+				handle := &sandboxmsb.MockSandboxHandle{}
+				tc.sbErr(handle)
+				m.SetGotSandbox(handle)
+			})
+			assertErrContains(t, cmd.Execute(), tc.wantErr)
 		})
 	}
 }
