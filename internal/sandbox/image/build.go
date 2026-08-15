@@ -1,10 +1,15 @@
 package image
 
 import (
+	"archive/tar"
 	"bufio"
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
+	"io"
+	"os"
+	"strconv"
 	"strings"
 
 	"github.com/moby/moby/client"
@@ -53,6 +58,131 @@ func ensureRunnerImage(
 	return buildRunnerImage(ctx, rTag, imageEnv, imageDigest, dockerfile, force, projectSlug, ui)
 }
 
+// buildDockerImage builds the given Dockerfile as a tag, wrapping the build
+// with a spinner and verbose output.
+func buildDockerImage(
+	ctx context.Context,
+	dockerfile []byte,
+	tag, label string,
+	force bool,
+	ui termio.UI,
+) error {
+	spinner := ui.Spinner(label)
+	line := func(s string) { ui.Verbose(s) }
+	if err := buildImage(ctx, dockerfile, tag, force, line); err != nil {
+		spinner.StopError(err)
+		return err
+	}
+	spinner.Stop()
+	return nil
+}
+
+// buildImage builds a Docker image via docker.Get().ImageBuild and reports each
+// decoded build output line to the given callback.
+func buildImage(
+	ctx context.Context,
+	dockerfile []byte,
+	tag string,
+	force bool,
+	line func(string),
+) error {
+	tarBuf, err := dockerfileTar(dockerfile)
+	if err != nil {
+		return fmt.Errorf("create build context: %w", err)
+	}
+	buildResp, err := docker.Get().ImageBuild(ctx, tarBuf, client.ImageBuildOptions{
+		Tags:      []string{tag},
+		Remove:    true,
+		NoCache:   force,
+		BuildArgs: userBuildArgs(os.Getuid(), os.Getgid()),
+	})
+	if err != nil {
+		return fmt.Errorf("docker image build failed: %w", err)
+	}
+	defer buildResp.Body.Close()
+
+	buildErr := scanBuildOutput(buildResp.Body, line)
+	if buildErr != nil {
+		if strings.Contains(buildErr.Error(), "pull access denied") {
+			return fmt.Errorf("docker image build failed (base image not found or not logged in): %w", buildErr)
+		}
+		return fmt.Errorf("docker image build failed: %w", buildErr)
+	}
+
+	return nil
+}
+
+// scanBuildOutput decodes the Docker build API stream and returns errors,
+// forwarding each non-empty line of output to the given callback.
+func scanBuildOutput(r io.Reader, line func(string)) error {
+	dec := json.NewDecoder(r)
+	for {
+		var msg dockerBuildMessage
+		if err := dec.Decode(&msg); err != nil {
+			if err == io.EOF {
+				return nil
+			}
+			return fmt.Errorf("unexpected Docker build output: %w", err)
+		}
+		if msg.Error != "" {
+			return fmt.Errorf("%s", msg.Error)
+		}
+		if msg.ErrorDetail.Message != "" {
+			return fmt.Errorf("%s", msg.ErrorDetail.Message)
+		}
+		trimmedMsg := strings.Trim(msg.Stream, " \n")
+		if trimmedMsg != "" {
+			line(trimmedMsg)
+		}
+	}
+}
+
+const dockerfileMode = 0o644
+
+func dockerfileTar(dockerfile []byte) (*bytes.Buffer, error) {
+	var buf bytes.Buffer
+	tw := tar.NewWriter(&buf)
+	if err := tw.WriteHeader(&tar.Header{
+		Name: "Dockerfile",
+		Mode: dockerfileMode,
+		Size: int64(len(dockerfile)),
+	}); err != nil {
+		_ = tw.Close()
+		return nil, fmt.Errorf("tar write header: %w", err)
+	}
+	if _, err := io.Copy(tw, bytes.NewReader(dockerfile)); err != nil {
+		_ = tw.Close()
+		return nil, fmt.Errorf("tar write dockerfile: %w", err)
+	}
+	if err := tw.Close(); err != nil {
+		return nil, fmt.Errorf("tar close: %w", err)
+	}
+	return &buf, nil
+}
+
+// userBuildArgs returns Docker build arguments that align the in-image dev user
+// (see data/Dockerfile's USER_UID/USER_GID) with the host user that owns the
+// bind-mounted /workspace, avoiding permission mismatches inside the VM.
+func userBuildArgs(uid, gid int) map[string]*string {
+	u := strconv.Itoa(uid)
+	g := strconv.Itoa(gid)
+	return map[string]*string{
+		"USER_UID": &u,
+		"USER_GID": &g,
+	}
+}
+
+// dockerBuildMessage represents a single line from the Docker build API
+// streaming response, decoding both progress and error output.
+// Docker returns either an ErrorDetail with a Message or an Error.
+type dockerBuildMessage struct {
+	ErrorDetail struct {
+		Message string `json:"message"`
+	} `json:"errorDetail"`
+	Error  string `json:"error"`
+	Stream string `json:"stream"`
+}
+
 // buildRunnerImage builds the runner image and returns the rTag, digest, env map.
 func buildRunnerImage(
 	ctx context.Context,
@@ -68,7 +198,7 @@ func buildRunnerImage(
 		imageEnv = make(map[string]string)
 	}
 
-	if err := docker.BuildDockerImage(ctx, dockerfile, rTag, "Ensuring runner image", force, ui); err != nil {
+	if err := buildDockerImage(ctx, dockerfile, rTag, "Ensuring runner image", force, ui); err != nil {
 		if len(imageEnv) > 0 {
 			ui.Warnf("build succeeded but inspect failed; using stored env metadata")
 			return rTag, imageDigest, imageEnv, nil
@@ -108,7 +238,7 @@ func EnsureImageWithClient(
 	ui termio.UI,
 ) (string, string, map[string]string, error) {
 	if force || referencesImage(dockerfile, naming.BaseTag) || referencesImage(dockerfile, naming.DindBaseTag) {
-		if err := docker.BuildDockerImage(
+		if err := buildDockerImage(
 			ctx,
 			embeddedDockerfile,
 			naming.BaseTag,
@@ -121,7 +251,7 @@ func EnsureImageWithClient(
 	}
 
 	if referencesImage(dockerfile, naming.DindBaseTag) {
-		if err := docker.BuildDockerImage(
+		if err := buildDockerImage(
 			ctx,
 			embeddedDindDockerfile,
 			naming.DindBaseTag,

@@ -14,11 +14,11 @@ import (
 const (
 	dockerdBinaryCheckCmd = "test -x /usr/bin/dockerd"
 	dockerdReadyCmd       = "docker info"
-	dockerdRestartCmd     = "pkill dockerd 2>/dev/null ; " +
-		"pkill -f 'docker/containerd/containerd' 2>/dev/null ; " +
-		"find /run /var/run -iname 'docker*.pid' -delete 2>/dev/null ; " +
-		"find /run /var/run -path '*containerd*' \\( -name '*.sock' -o -name '*.pid' \\) -delete 2>/dev/null ; " +
-		"dockerd -H unix:///var/run/docker.sock > /var/log/dockerd.log 2>&1 &"
+	dockerdRestartCmd     = "pkill dockerd >/dev/null 2>&1 || true; " +
+		"pkill containerd >/dev/null 2>&1 || true; " +
+		"find /run /var/run -iname 'docker*.pid' -delete >/dev/null 2>&1 || true; " +
+		"find /run /var/run \\( -iname '*containerd*.sock' -o -iname '*containerd*.pid' \\) -delete >/dev/null 2>&1 || true; " +
+		"nohup dockerd -H unix:///var/run/docker.sock > /var/log/dockerd.log 2>&1 &"
 )
 
 var (
@@ -52,8 +52,11 @@ func startDockerdIfPresent(ctx context.Context, sb msb.Sandbox, ui termio.UI) er
 	}
 
 	ui.Verbosef("starting dockerd with vfs storage driver")
+	// The command background-launches dockerd, so the shell always exits 0; a
+	// startup failure surfaces through the readiness loop below, not the exit
+	// code. Only a hard exec failure is fatal here.
 	if _, restartErr := sb.Shell(ctx, dockerdRestartCmd, msbSdk.WithExecUser("root")); restartErr != nil {
-		return fmt.Errorf("start dockerd: %w", restartErr)
+		return fmt.Errorf("start dockerd: %w (no result)", restartErr)
 	}
 
 	deadline := time.Now().Add(dockerdReadyTimeout)

@@ -2,14 +2,16 @@ package session
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 	"time"
 
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 
+	"gitlab.inoio.de/inoio/opencode-sandbox/internal/termio"
+
 	"gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/msb"
-	"gitlab.inoio.de/inoio/opencode-sandbox/internal/testutil"
 )
 
 // countingSandbox is an msb.Sandbox stub that records how many times it ran
@@ -23,6 +25,7 @@ type countingSandbox struct {
 	restartCalls            int
 	readyCalls              int
 	readyCallsBeforeHealthy int
+	restartShellErr         error
 }
 
 func (s *countingSandbox) Shell(_ context.Context, command string, _ ...msbSdk.ExecOption) (msb.ShellResult, error) {
@@ -37,6 +40,9 @@ func (s *countingSandbox) Shell(_ context.Context, command string, _ ...msbSdk.E
 		return msb.NewTestResult(false, 1, "", "", nil), nil
 	case dockerdRestartCmd:
 		s.restartCalls++
+		if s.restartShellErr != nil {
+			return nil, s.restartShellErr
+		}
 		return msb.NewTestResult(true, 0, "", "", nil), nil
 	}
 	return msb.NewTestResult(true, 0, "", "", nil), nil
@@ -50,7 +56,7 @@ func newCountingSandbox(readyCallsBeforeHealthy int) *countingSandbox {
 }
 
 func TestStartDockerdIfPresentNoDockerdBinary(t *testing.T) {
-	ui := testutil.TermUIMock(t)
+	ui := termio.NewTestMock(t)
 	sb := msb.NewMockSandbox(msb.SandboxOpts{
 		ShellOut: map[string]msb.ShellResult{
 			dockerdBinaryCheckCmd: msb.NewTestResult(false, 1, "", "", nil),
@@ -63,7 +69,7 @@ func TestStartDockerdIfPresentNoDockerdBinary(t *testing.T) {
 }
 
 func TestStartDockerdIfPresentAlreadyRunning(t *testing.T) {
-	ui := testutil.TermUIMock(t)
+	ui := termio.NewTestMock(t)
 	sb := newCountingSandbox(0)
 
 	if err := startDockerdIfPresent(context.Background(), sb, &ui); err != nil {
@@ -75,11 +81,25 @@ func TestStartDockerdIfPresentAlreadyRunning(t *testing.T) {
 }
 
 func TestStartDockerdIfPresentStartsAndBecomesReady(t *testing.T) {
-	ui := testutil.TermUIMock(t)
+	ui := termio.NewTestMock(t)
 	sb := newCountingSandbox(1)
 
 	if err := startDockerdIfPresent(context.Background(), sb, &ui); err != nil {
 		t.Fatalf("startDockerdIfPresent should restart and become ready, got: %v", err)
+	}
+	if sb.restartCalls != 1 {
+		t.Errorf("expected restart attempt, got %d", sb.restartCalls)
+	}
+}
+
+func TestStartDockerdIfPresentShellError(t *testing.T) {
+	ui := termio.NewTestMock(t)
+	sb := newCountingSandbox(1 << 30)
+	sb.restartShellErr = errors.New("connection lost")
+
+	err := startDockerdIfPresent(context.Background(), sb, &ui)
+	if err == nil {
+		t.Fatal("expected error when the restart Shell call fails")
 	}
 	if sb.restartCalls != 1 {
 		t.Errorf("expected 1 restart attempt, got %d", sb.restartCalls)
@@ -87,7 +107,7 @@ func TestStartDockerdIfPresentStartsAndBecomesReady(t *testing.T) {
 }
 
 func TestStartDockerdIfPresentNeverReady(t *testing.T) {
-	ui := testutil.TermUIMock(t)
+	ui := termio.NewTestMock(t)
 	// A huge threshold means the ready check can never become healthy within
 	// the (shortened) poll window, forcing the timeout path.
 	sb := newCountingSandbox(1 << 30)
@@ -112,7 +132,7 @@ func TestStartDockerdIfPresentNeverReady(t *testing.T) {
 func TestDockerdRestartCmdTearsDownContainerd(t *testing.T) {
 	for _, want := range []string{
 		"pkill dockerd",
-		"pkill -f 'docker/containerd/containerd'",
+		"pkill containerd",
 		"containerd",
 		".sock",
 		"dockerd -H unix:///var/run/docker.sock",
@@ -153,7 +173,7 @@ func TestTimeoutErrorIncludesDockerdLog(t *testing.T) {
 		}),
 		readyCallsBeforeHealthy: 1 << 30,
 	}
-	ui := testutil.TermUIMock(t)
+	ui := termio.NewTestMock(t)
 
 	err := startDockerdIfPresent(context.Background(), sb, &ui)
 	if err == nil {

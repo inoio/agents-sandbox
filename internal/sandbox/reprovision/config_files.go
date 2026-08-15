@@ -72,14 +72,14 @@ type ConfigFiles struct {
 // LoadConfigFiles builds the desired VM state: the merged opencode.json (from
 // the opencode snippet files) and the home files (from the home.yaml manifests).
 func LoadConfigFiles(userConfigDir string) (*ConfigFiles, error) {
-	projectOpenCodeDir := cp.GetConfigPaths().ProjectOpencodeConfigDir()
+	projectOpenCodeDir := cp.Get().ProjectOpencodeConfigDir()
 	opencodeJSON, _, hasSnippets, err := config.BuildOpenCodeJSON(userConfigDir, projectOpenCodeDir)
 	if err != nil {
 		return nil, fmt.Errorf("merge opencode config: %w", err)
 	}
 	homeFiles, _, err := homeconfig.BuildHomeFiles(
 		filepath.Dir(userConfigDir), // user home.yaml lives one level above the opencode subdir
-		cp.GetConfigPaths().ProjectConfigDir(),
+		cp.Get().ProjectConfigDir(),
 		VMHomeDir,
 	)
 	if err != nil {

@@ -1,9 +1,5 @@
 package main
 
-import (
-	"testing"
-)
-
 // FlagSet is a permutation of CLI flag arguments (one variation per test run).
 type FlagSet []string
 
@@ -26,13 +22,4 @@ var pruneAgeFlags = []FlagSet{
 	{"-a", "7d"},
 	{"-a", "2w"},
 	{"--age", "14d"},
-}
-
-// TestFixtureHelpers compiles-check that all fixture helpers and flags are
-// accessible from a test context. No assertions are performed.
-func TestFixtureHelpers(t *testing.T) {
-	_ = FlagSet(nil)
-	_ = stopKillFlags
-	_ = pruneAgeFlags
-	t.Log("fixture helpers compile-ok")
 }

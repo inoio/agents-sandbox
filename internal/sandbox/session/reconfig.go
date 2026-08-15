@@ -24,7 +24,7 @@ func setUpSandbox(
 	ui termio.UI,
 	restart bool,
 ) (string, error) {
-	cfs, err := reprovision.LoadConfigFiles(configpaths.GetConfigPaths().UserOpencodeConfigDir())
+	cfs, err := reprovision.LoadConfigFiles(configpaths.Get().UserOpencodeConfigDir())
 	if err != nil {
 		return "", err
 	}
@@ -94,7 +94,7 @@ func decideReconfig(
 	// we are actually switching to the new image.
 	imageChanged := hs.ImageDigest != imageDigest
 
-	cfs, err := reprovision.LoadConfigFiles(configpaths.GetConfigPaths().UserOpencodeConfigDir())
+	cfs, err := reprovision.LoadConfigFiles(configpaths.Get().UserOpencodeConfigDir())
 	if err != nil {
 		return false, false, homeVol, err
 	}
@@ -109,14 +109,14 @@ func decideReconfig(
 	}
 
 	desiredEnv := reprovision.MergeEnvMaps(
-		reprovision.BuildEnvMap(configpaths.GetConfigPaths().UserEnvFile()),
-		reprovision.BuildEnvMap(configpaths.GetConfigPaths().ProjectEnvFile()),
+		reprovision.BuildEnvMap(configpaths.Get().UserEnvFile()),
+		reprovision.BuildEnvMap(configpaths.Get().ProjectEnvFile()),
 	)
 	desiredSecrets := reprovision.BuildSecretsFromSpecs(reprovision.MergeSecretSpecs(
-		reprovision.ParseSecretSpecLegacy(configpaths.GetConfigPaths().UserEnvSecretFile(), ui),
-		reprovision.ParseSecretSpecLegacy(configpaths.GetConfigPaths().ProjectEnvSecretFile(), ui),
-		reprovision.ParseSecretSpecYAML(configpaths.GetConfigPaths().UserEnvSecretYAMLFile(), ui),
-		reprovision.ParseSecretSpecYAML(configpaths.GetConfigPaths().ProjectEnvSecretYAMLFile(), ui),
+		reprovision.ParseSecretSpecLegacy(configpaths.Get().UserEnvSecretFile(), ui),
+		reprovision.ParseSecretSpecLegacy(configpaths.Get().ProjectEnvSecretFile(), ui),
+		reprovision.ParseSecretSpecYAML(configpaths.Get().UserEnvSecretYAMLFile(), ui),
+		reprovision.ParseSecretSpecYAML(configpaths.Get().ProjectEnvSecretYAMLFile(), ui),
 	), ui)
 	envHasChanged := reprovision.EnvChanged(hs.EnvState, desiredEnv)
 	secretsHasChanged := reprovision.SecretsChanged(hs.SecretState, desiredSecrets)

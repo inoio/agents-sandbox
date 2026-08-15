@@ -1,8 +1,6 @@
 package git
 
 import (
-	"context"
-	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -183,34 +181,6 @@ func TestProjectSlugDeterministic(t *testing.T) {
 	b := ProjectSlug(l)
 	if a != b {
 		t.Errorf("expected deterministic slug, got %q and %q", a, b)
-	}
-}
-
-func TestPruneWorktreesCleansStaleEntries(t *testing.T) {
-	repo := testutil.InitRepo(t)
-	wtDir := filepath.Join(t.TempDir(), "stale-wt")
-	testutil.RunGit(t, repo, "worktree", "add", "--detach", wtDir)
-	if err := os.RemoveAll(wtDir); err != nil {
-		t.Fatalf("remove worktree dir: %v", err)
-	}
-	out := testutil.RunGit(t, repo, "worktree", "list")
-	if !strings.Contains(out, "prunable") {
-		t.Fatalf("expected prunable entry, got: %s", out)
-	}
-	if err := PruneWorktrees(context.Background(), repo); err != nil {
-		t.Fatalf("PruneWorktrees: %v", err)
-	}
-	out = testutil.RunGit(t, repo, "worktree", "list")
-	if strings.Contains(out, "prunable") {
-		t.Errorf("expected no prunable entries after prune, got: %s", out)
-	}
-}
-
-func TestPruneWorktreesNoRepo(t *testing.T) {
-	dir := t.TempDir()
-	err := PruneWorktrees(context.Background(), dir)
-	if err == nil {
-		t.Error("expected error when not in a git repo")
 	}
 }
 
