@@ -104,12 +104,7 @@ func assertReport(t *testing.T, report *StaleReport, want prunedCounts) {
 }
 
 func TestPruneStaleCascade_RemovesVMAndAllArtifacts(t *testing.T) {
-	cp.WithMockConfigPaths(t)
-	client := &msb.MockMsbClient{}
-	dockerMock := &mockDockerClient{}
-	docker.WithDockerMock(t, dockerMock)
-	ui := newMockUI()
-	report := &StaleReport{}
+	client, dockerMock, ui, report := setupPruningFixtures(t)
 
 	slug := "myproject"
 	entry := StaleEntry{Name: "opencode-sandbox-vm-myproject-digest1", Slug: slug}
@@ -162,11 +157,7 @@ func TestPruneStaleCascade_RemovesVMAndAllArtifacts(t *testing.T) {
 }
 
 func TestPruneStaleCascade_DryRunDoesNotDelete(t *testing.T) {
-	client := &msb.MockMsbClient{}
-	dockerMock := &mockDockerClient{}
-	docker.WithDockerMock(t, dockerMock)
-	ui := newMockUI()
-	report := &StaleReport{}
+	client, dockerMock, ui, report := setupPruningFixtures(t)
 
 	slug := "myproject"
 	entry := StaleEntry{Name: "opencode-sandbox-vm-myproject-digest1", Slug: slug}
@@ -202,14 +193,8 @@ func TestPruneStaleCascade_DryRunDoesNotDelete(t *testing.T) {
 }
 
 func TestPruneStaleCascade_RemoveErrorWarnsAndStopsCascade(t *testing.T) {
-	client := &msb.MockMsbClient{
-		RemoveSandboxFn: func(_ context.Context, _ string) error { return errors.New("sandbox locked") },
-	}
-	dockerMock := &mockDockerClient{}
-	docker.WithDockerMock(t, dockerMock)
-	ui := newMockUI()
-	report := &StaleReport{}
-
+	client, dockerMock, ui, report := setupPruningFixtures(t)
+	client.RemoveSandboxFn = func(_ context.Context, _ string) error { return errors.New("sandbox locked") }
 	slug := "myproject"
 	entry := StaleEntry{Name: "opencode-sandbox-vm-myproject-digest1", Slug: slug}
 	homeBySlugDigest := map[string][]volumeWithAge{
@@ -245,12 +230,7 @@ func TestPruneStaleCascade_RemoveErrorWarnsAndStopsCascade(t *testing.T) {
 }
 
 func TestPruneActiveVMCleanup_KeepsMatchingDigestAndLatest(t *testing.T) {
-	cp.WithMockConfigPaths(t)
-	client := &msb.MockMsbClient{}
-	dockerMock := &mockDockerClient{}
-	docker.WithDockerMock(t, dockerMock)
-	ui := newMockUI()
-	report := &StaleReport{}
+	client, dockerMock, ui, report := setupPruningFixtures(t)
 
 	slug := "myproject"
 	activeDigest := "digest2"
@@ -290,12 +270,7 @@ func TestPruneActiveVMCleanup_KeepsMatchingDigestAndLatest(t *testing.T) {
 }
 
 func TestPruneActiveVMCleanup_DryRunCountsButDoesNotDelete(t *testing.T) {
-	cp.WithMockConfigPaths(t)
-	client := &msb.MockMsbClient{}
-	dockerMock := &mockDockerClient{}
-	docker.WithDockerMock(t, dockerMock)
-	ui := newMockUI()
-	report := &StaleReport{}
+	client, dockerMock, ui, report := setupPruningFixtures(t)
 
 	slug := "myproject"
 	homeBySlugDigest := map[string][]volumeWithAge{
@@ -323,12 +298,7 @@ func TestPruneActiveVMCleanup_DryRunCountsButDoesNotDelete(t *testing.T) {
 }
 
 func TestPruneOrphanSlug_RemovesEverything(t *testing.T) {
-	cp.WithMockConfigPaths(t)
-	client := &msb.MockMsbClient{}
-	dockerMock := &mockDockerClient{}
-	docker.WithDockerMock(t, dockerMock)
-	ui := newMockUI()
-	report := &StaleReport{}
+	client, dockerMock, ui, report := setupPruningFixtures(t)
 
 	slug := "orphan"
 	homeBySlugDigest := map[string][]volumeWithAge{
@@ -367,12 +337,7 @@ func TestPruneOrphanSlug_RemovesEverything(t *testing.T) {
 }
 
 func TestPruneOrphanSlug_KeepsRecentArtifacts(t *testing.T) {
-	cp.WithMockConfigPaths(t)
-	client := &msb.MockMsbClient{}
-	dockerMock := &mockDockerClient{}
-	docker.WithDockerMock(t, dockerMock)
-	ui := newMockUI()
-	report := &StaleReport{}
+	client, dockerMock, ui, report := setupPruningFixtures(t)
 
 	slug := "orphan"
 	homeBySlugDigest := map[string][]volumeWithAge{
@@ -407,12 +372,7 @@ func TestPruneOrphanSlug_KeepsRecentArtifacts(t *testing.T) {
 }
 
 func TestPruneOrphanSlug_MixedAges_PrunesOnlyOld(t *testing.T) {
-	cp.WithMockConfigPaths(t)
-	client := &msb.MockMsbClient{}
-	dockerMock := &mockDockerClient{}
-	docker.WithDockerMock(t, dockerMock)
-	ui := newMockUI()
-	report := &StaleReport{}
+	client, dockerMock, ui, report := setupPruningFixtures(t)
 
 	slug := "orphan"
 	homeBySlugDigest := map[string][]volumeWithAge{
@@ -591,12 +551,8 @@ func TestPrune_StoppedRecentVM_PreservesImage(t *testing.T) {
 }
 
 func TestPruneActiveVMDockerImages_AllFail_LogWarnings(t *testing.T) {
-	dockerMock := &mockDockerClient{
-		removeErr: errors.New("image does not exist"),
-	}
-	docker.WithDockerMock(t, dockerMock)
-	report := &StaleReport{}
-	ui := newMockUI()
+	_, dockerMock, ui, report := setupPruningFixtures(t)
+	dockerMock.removeErr = errors.New("image does not exist")
 
 	// Two images: digest1 is not :latest and != digest2, latest is skipped.
 	slug := "myproject"
@@ -627,16 +583,8 @@ func TestPruneActiveVMDockerImages_AllFail_LogWarnings(t *testing.T) {
 }
 
 func TestPruneActiveVMDockerImages_PartialFailure(t *testing.T) {
-	dockerMock := &mockDockerClient{
-		// First call succeeds, second call fails (if a second call is made).
-		perCallErrs: []error{
-			nil,
-			errors.New("image does not exist"),
-		},
-	}
-	docker.WithDockerMock(t, dockerMock)
-	report := &StaleReport{}
-	ui := newMockUI()
+	_, dockerMock, ui, report := setupPruningFixtures(t)
+	dockerMock.perCallErrs = []error{nil, errors.New("image does not exist")}
 
 	// Two images: digest1 is not :latest and != digest2, latest is skipped.
 	slug := "myproject"
@@ -664,15 +612,8 @@ func TestPruneActiveVMDockerImages_PartialFailure(t *testing.T) {
 // fails during a stale VM cascade, MSB image removal and volume removal still
 // succeed, and the docker failure only affects the docker pruned count.
 func TestPruneStaleCascade_DockerRemoveFails_DependentOpsSucceed(t *testing.T) {
-	cp.WithMockConfigPaths(t)
-	client := &msb.MockMsbClient{}
-	dockerMock := &mockDockerClient{
-		// First Docker removal succeeds, second fails.
-		perCallErrs: []error{nil, errors.New("image not found")},
-	}
-	docker.WithDockerMock(t, dockerMock)
-	ui := newMockUI()
-	report := &StaleReport{}
+	client, dockerMock, ui, report := setupPruningFixtures(t)
+	dockerMock.perCallErrs = []error{nil, errors.New("image not found")}
 
 	slug := "myproject"
 	entry := StaleEntry{Name: "opencode-sandbox-vm-myproject-abc123", Slug: slug}
