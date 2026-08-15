@@ -7,6 +7,8 @@ import (
 	"os"
 	"strings"
 
+	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
+
 	"gitlab.inoio.de/inoio/opencode-sandbox/internal/configpaths"
 	"gitlab.inoio.de/inoio/opencode-sandbox/internal/git"
 	"gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/doctor"
@@ -205,7 +207,7 @@ func Run(ctx context.Context, opts options.RunOptions, ui termio.UI) error {
 	// Run as a login shell so /etc/profile and ~/.profile are sourced,
 	// putting tools installed under /usr/local/go/bin, ~/go/bin and
 	// ~/.microsandbox/bin on PATH for opencode and its child shells.
-	return runAttach(ctx, session, projectSlug, ui, opts.ReapPolicy, "-l", "-c", setup)
+	return runAttach(ctx, session, projectSlug, ui, opts, "-l", "-c", setup)
 }
 
 // Shell creates (or reuses) the project VM and drops the user into an
@@ -227,7 +229,7 @@ func Shell(ctx context.Context, opts options.RunOptions, ui termio.UI) error {
 	}
 
 	projectSlug := git.ProjectSlug(ui)
-	return runAttach(ctx, session, projectSlug, ui, opts.ReapPolicy, "-l")
+	return runAttach(ctx, session, projectSlug, ui, opts, "-l")
 }
 
 // BuildImage builds (or updates) the runner image for Docker-in-Docker support.
@@ -263,7 +265,7 @@ func runAttach(
 	session *sandboxSession,
 	projectSlug string,
 	ui termio.UI,
-	reapPolicy options.ReapPolicy,
+	opts options.RunOptions,
 	bashArgs ...string,
 ) error {
 	// Acquire a client lease so state tracks this session.
@@ -278,7 +280,13 @@ func runAttach(
 	}()
 
 	// Attach to the sandbox and capture its exit code.
-	exitCode, attachErr := session.sb.Attach(ctx, "/bin/bash", bashArgs...)
+	var exitCode int
+	var attachErr error
+	if opts.Root {
+		exitCode, attachErr = session.sb.AttachWith(ctx, "/bin/bash", bashArgs, msbSdk.WithAttachUser("root"))
+	} else {
+		exitCode, attachErr = session.sb.Attach(ctx, "/bin/bash", bashArgs...)
+	}
 
 	// Explicitly release the lease after attach returns, before reaping.
 	// This ensures state.CountActiveClients reflects only OTHER live clients.
@@ -288,7 +296,7 @@ func runAttach(
 		release = nil
 	}
 
-	if err := reapOnLastClient(ctx, projectSlug, session.sb, reapPolicy, ui); err != nil {
+	if err := reapOnLastClient(ctx, projectSlug, session.sb, opts.ReapPolicy, ui); err != nil {
 		ui.Warnf("reap failed: %v", err)
 	}
 
