@@ -13,8 +13,6 @@ import (
 // setupPruningFixtures installs the default happy-path mocks shared by most
 // pruning unit tests and returns the mock handles tests commonly inspect or
 // customize. Tests that need a non-default fixture override it afterwards.
-//
-//nolint:unused // Referenced by tests in the same package; used when tests in prune_client_test.go are refactored.
 func setupPruningFixtures(
 	t *testing.T,
 ) (client *msb.MockMsbClient, dockerMock *mockDockerClient, ui *termio.Mock, report *StaleReport) {
