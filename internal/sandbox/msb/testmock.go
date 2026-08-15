@@ -388,6 +388,7 @@ type MockSandbox struct {
 	ExecErr    error
 	AttachCode int
 	AttachErr  error
+	AttachUser string
 	DetachErr  error
 	StopErr    error
 	CloseErr   error
@@ -433,6 +434,23 @@ func (m *MockSandbox) Exec(
 }
 
 func (m *MockSandbox) Attach(_ context.Context, _ string, _ ...string) (int, error) {
+	return m.AttachCode, m.AttachErr
+}
+
+func (m *MockSandbox) AttachWith(
+	_ context.Context,
+	_ string,
+	_ []string,
+	opts ...msbSdk.AttachOption,
+) (int, error) {
+	if len(opts) > 0 {
+		//nolint:exhaustruct // only User_ is relevant for this mock
+		cfg := msbSdk.AttachConfig{}
+		for _, opt := range opts {
+			opt(&cfg)
+		}
+		m.AttachUser = cfg.User
+	}
 	return m.AttachCode, m.AttachErr
 }
 
