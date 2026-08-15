@@ -87,7 +87,7 @@ func newUI(args []string) termio.UI {
 }
 
 func newConfig() configpaths.ConfigPaths {
-	return configpaths.GetConfigPaths()
+	return configpaths.Get()
 }
 
 func applyLauncherConfig(cmd *cobra.Command, lc launcherconfig.Config, keys map[string]bool) error {

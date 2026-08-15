@@ -5,43 +5,17 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
+	"github.com/moby/moby/client"
+
+	"gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/docker"
 	"gitlab.inoio.de/inoio/opencode-sandbox/internal/termio"
 
 	"gitlab.inoio.de/inoio/opencode-sandbox/internal/testutil"
 )
-
-// renderErrorCall mirrors termio.printer.Error, which renders "msg: err", so
-// tests can assert on both the guidance text and the underlying error.
-func renderErrorCall(e termio.ErrorCall) string {
-	if e.Err == nil {
-		return e.Msg
-	}
-	return e.Msg + ": " + e.Err.Error()
-}
-
-func TestCheckDockerLogsUnderlyingError(t *testing.T) {
-	testUI := testutil.TermUIMock(t)
-
-	t.Setenv("PATH", "/nonexistent")
-	if CheckDocker(&testUI) {
-		t.Fatal("expected CheckDocker to return false when docker is not on PATH")
-	}
-
-	var out []string
-	for _, e := range testUI.ErrorCalls {
-		out = append(out, renderErrorCall(e))
-	}
-	outStr := strings.Join(out, " ")
-	if !strings.Contains(outStr, "docker not found") {
-		t.Errorf("expected log to contain 'docker not found', got %q", outStr)
-	}
-	if !strings.Contains(outStr, "executable file not found") {
-		t.Errorf("expected log to contain the underlying LookPath error, got %q", outStr)
-	}
-}
 
 func TestShellRcFile(t *testing.T) {
 	home := "/home/test"
@@ -66,56 +40,45 @@ func TestShellRcFile(t *testing.T) {
 }
 
 func TestCheckMsbEnsureInstalledErrorSurfacesErrorWithoutInstallHint(t *testing.T) {
-	testUI := testutil.TermUIMock(t)
+	MockedEnsureInstalled(t, true)
 
-	prev := SetEnsureInstalled(func(context.Context) error { return errors.New("network unreachable") })
-	t.Cleanup(func() { SetEnsureInstalled(prev) })
-
-	if checkMsb(context.Background(), &testUI) {
-		t.Fatal("expected CheckMsb to return false when ensureInstalled fails")
+	_, err := checkMsb(context.Background())
+	if err == nil {
+		t.Fatal("expected checkMsb to return an error when ensureInstalled fails")
 	}
-	var out []string
-	for _, e := range testUI.ErrorCalls {
-		out = append(out, renderErrorCall(e))
+	if !strings.Contains(err.Error(), "msb runtime setup failed") {
+		t.Errorf("expected error to mention 'msb runtime setup failed', got %q", err.Error())
 	}
-	outStr := strings.Join(out, " ")
-	if !strings.Contains(outStr, "msb runtime setup failed") {
-		t.Errorf("expected log to mention 'msb runtime setup failed', got %q", outStr)
+	if !strings.Contains(err.Error(), "mock") {
+		t.Errorf("expected error to contain the underlying error, got %q", err.Error())
 	}
-	if !strings.Contains(outStr, "network unreachable") {
-		t.Errorf("expected log to contain the underlying error, got %q", outStr)
-	}
-	if strings.Contains(outStr, "Install microsandbox") || strings.Contains(outStr, "github.com/microsandbox") {
-		t.Errorf("expected no 'install msb' instruction, got %q", outStr)
+	if strings.Contains(err.Error(), "Install microsandbox") ||
+		strings.Contains(err.Error(), "github.com/microsandbox") {
+		t.Errorf("expected no 'install msb' instruction, got %q", err.Error())
 	}
 }
 
 func TestCheckMsbOnPathReturnsTrueSilently(t *testing.T) {
-	testUI := testutil.TermUIMock(t)
-
-	prev := SetEnsureInstalled(func(context.Context) error { return nil })
-	t.Cleanup(func() { SetEnsureInstalled(prev) })
+	MockedEnsureInstalled(t, false)
 
 	dir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(dir, "msb"), []byte("#!/bin/sh\n"), 0o755); err != nil {
+	testutil.WriteFile(t, dir, "msb", "#!/bin/sh\n")
+	if err := os.Chmod(filepath.Join(dir, "msb"), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	t.Setenv("PATH", dir)
 
-	if !checkMsb(context.Background(), &testUI) {
-		t.Fatal("expected CheckMsb to return true when msb is on PATH")
+	warnings, err := checkMsb(context.Background())
+	if err != nil {
+		t.Fatal("expected checkMsb to return nil error when msb is on PATH")
 	}
-	if len(testUI.ErrorCalls)+len(testUI.WarnCalls)+len(testUI.InfoCalls) != 0 {
-		t.Errorf("expected no output when msb is on PATH, got errors=%d warns=%d infos=%d",
-			len(testUI.ErrorCalls), len(testUI.WarnCalls), len(testUI.InfoCalls))
+	if len(warnings) != 0 {
+		t.Errorf("expected no warnings when msb is on PATH, got %q", warnings)
 	}
 }
 
 func TestCheckMsbNotOnPathExtendsPathAndReturnsTrue(t *testing.T) {
-	testUI := testutil.TermUIMock(t)
-
-	prev := SetEnsureInstalled(func(context.Context) error { return nil })
-	t.Cleanup(func() { SetEnsureInstalled(prev) })
+	MockedEnsureInstalled(t, false)
 
 	home := t.TempDir()
 	binDir := filepath.Join(home, ".microsandbox", "bin")
@@ -123,7 +86,8 @@ func TestCheckMsbNotOnPathExtendsPathAndReturnsTrue(t *testing.T) {
 		t.Fatal(err)
 	}
 	binPath := filepath.Join(binDir, "msb")
-	if err := os.WriteFile(binPath, []byte("#!/bin/sh\n"), 0o755); err != nil {
+	testutil.WritePath(t, binPath, "#!/bin/sh\n")
+	if err := os.Chmod(binPath, 0o755); err != nil {
 		t.Fatal(err)
 	}
 
@@ -131,13 +95,11 @@ func TestCheckMsbNotOnPathExtendsPathAndReturnsTrue(t *testing.T) {
 	t.Setenv("SHELL", "/bin/zsh")
 	t.Setenv("PATH", "/nonexistent")
 
-	if !checkMsb(context.Background(), &testUI) {
-		t.Fatal("expected CheckMsb to return true when msb is installed but not on PATH")
+	warnings, err := checkMsb(context.Background())
+	if err != nil {
+		t.Fatal("expected checkMsb to return nil error when msb is installed but not on PATH")
 	}
-	out := make([]string, 0, len(testUI.WarnCalls)+len(testUI.InfoCalls))
-	out = append(out, testUI.WarnCalls...)
-	out = append(out, testUI.InfoCalls...)
-	outStr := strings.Join(out, " ")
+	outStr := strings.Join(warnings, " ")
 	if !strings.Contains(outStr, "not on your PATH") {
 		t.Errorf("expected a warning that msb is not on PATH, got %q", outStr)
 	}
@@ -147,30 +109,154 @@ func TestCheckMsbNotOnPathExtendsPathAndReturnsTrue(t *testing.T) {
 	if !strings.Contains(outStr, "ln -s") {
 		t.Errorf("expected hint to include a symlink alternative, got %q", outStr)
 	}
-	got := os.Getenv("PATH")
-	if !strings.HasPrefix(got, binDir) {
+	if got := os.Getenv("PATH"); !strings.HasPrefix(got, binDir) {
 		t.Errorf("expected PATH to start with %q, got %q", binDir, got)
 	}
 }
 
 func TestCheckMsbNotOnPathAndBinaryMissingReturnsFalse(t *testing.T) {
-	testUI := testutil.TermUIMock(t)
-
-	prev := SetEnsureInstalled(func(context.Context) error { return nil })
-	t.Cleanup(func() { SetEnsureInstalled(prev) })
+	MockedEnsureInstalled(t, false)
 
 	t.Setenv("HOME", t.TempDir())
 	t.Setenv("PATH", "/nonexistent")
 
-	if checkMsb(context.Background(), &testUI) {
-		t.Fatal("expected CheckMsb to return false when msb binary is missing")
+	_, err := checkMsb(context.Background())
+	if err == nil {
+		t.Fatal("expected checkMsb to return an error when msb binary is missing")
 	}
-	var out []string
+	if !strings.Contains(err.Error(), "binary missing") {
+		t.Errorf("expected 'binary missing' in error, got %q", err.Error())
+	}
+}
+
+func TestCheckAllAggregatesAllFailures(t *testing.T) {
+	testUI := termio.NewTestMock(t)
+	mockedCollectChecks(t, nil, []error{
+		errors.New("docker broken"),
+		errors.New("git broken"),
+	})
+
+	if realCheckAll(context.Background(), &testUI) {
+		t.Fatal("expected CheckAll to return false when checks fail")
+	}
+
+	got := make([]string, 0, len(testUI.ErrorCalls))
 	for _, e := range testUI.ErrorCalls {
-		out = append(out, e.Msg)
+		got = append(got, e.Msg)
 	}
-	outStr := strings.Join(out, " ")
-	if !strings.Contains(outStr, "binary missing") {
-		t.Errorf("expected 'binary missing' in output, got %q", outStr)
+	if !slices.Contains(got, "docker broken") || !slices.Contains(got, "git broken") {
+		t.Errorf("expected every failure rendered, got %q", got)
+	}
+}
+
+func TestCheckAllRendersWarningsWhenAllPass(t *testing.T) {
+	testUI := termio.NewTestMock(t)
+	mockedCollectChecks(t, []string{"msb not on your PATH"}, nil)
+
+	if !realCheckAll(context.Background(), &testUI) {
+		t.Fatal("expected CheckAll to return true when there are no fatal failures")
+	}
+	if !slices.Contains(testUI.WarnCalls, "msb not on your PATH") {
+		t.Errorf("expected warning rendered, got %q", testUI.WarnCalls)
+	}
+}
+
+func TestRealCheckDockerPingUnreachable(t *testing.T) {
+	docker.WithDockerMock(t, &docker.MockDockerClient{
+		PingFn: func(context.Context, client.PingOptions) (client.PingResult, error) {
+			return client.PingResult{}, errors.New("boom")
+		},
+	})
+
+	err := realCheckDocker(context.Background())
+	if err == nil {
+		t.Fatal("expected realCheckDocker to fail when the daemon is unreachable")
+	}
+	if !strings.Contains(err.Error(), "docker API unreachable") {
+		t.Errorf("expected error to mention 'docker API unreachable', got %q", err.Error())
+	}
+	if !strings.Contains(err.Error(), "boom") {
+		t.Errorf("expected error to wrap the underlying ping failure, got %q", err.Error())
+	}
+}
+
+func TestRealCheckDockerPingOK(t *testing.T) {
+	docker.WithDockerMock(t, &docker.MockDockerClient{})
+
+	if err := realCheckDocker(context.Background()); err != nil {
+		t.Errorf("expected realCheckDocker to succeed when the ping succeeds, got %v", err)
+	}
+}
+
+func TestCollectChecksAggregatesFailures(t *testing.T) {
+	MockedCheckDocker(t, false)
+	MockedEnsureInstalled(t, false)
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("PATH", "/nonexistent")
+
+	warnings, errs := collectChecks(context.Background())
+	if len(errs) == 0 {
+		t.Fatal("expected collectChecks to collect the docker and msb failures")
+	}
+	if len(warnings) != 0 {
+		t.Errorf("expected no warnings when both checks fail, got %q", warnings)
+	}
+	joined := strings.Join(errStrings(errs), " ")
+	if !strings.Contains(joined, "docker not available") {
+		t.Errorf("expected a docker failure, got %q", joined)
+	}
+	if !strings.Contains(joined, "binary missing") {
+		t.Errorf("expected an msb failure, got %q", joined)
+	}
+}
+
+func TestCollectChecksMsbWarning(t *testing.T) {
+	MockedCheckDocker(t, true)
+	MockedEnsureInstalled(t, false)
+
+	home := t.TempDir()
+	binDir := filepath.Join(home, ".microsandbox", "bin")
+	if err := os.MkdirAll(binDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	testutil.WritePath(t, filepath.Join(binDir, "msb"), "#!/bin/sh\n")
+	if err := os.Chmod(filepath.Join(binDir, "msb"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	t.Setenv("HOME", home)
+	t.Setenv("SHELL", "/bin/zsh")
+	t.Setenv("PATH", "/nonexistent")
+
+	warnings, _ := collectChecks(context.Background())
+	if len(warnings) == 0 {
+		t.Fatal("expected an msb PATH warning")
+	}
+	if !strings.Contains(strings.Join(warnings, " "), "not on your PATH") {
+		t.Errorf("expected a 'not on your PATH' warning, got %q", warnings)
+	}
+}
+
+func errStrings(errs []error) []string {
+	out := make([]string, 0, len(errs))
+	for _, e := range errs {
+		out = append(out, e.Error())
+	}
+	return out
+}
+
+func TestCheckPlatform(t *testing.T) {
+	_, err := os.Stat("/dev/kvm")
+	switch {
+	case err == nil:
+		if err := checkPlatform(); err != nil {
+			t.Errorf("expected checkPlatform to pass with /dev/kvm present, got %v", err)
+		}
+	case os.IsNotExist(err):
+		if err := checkPlatform(); err == nil {
+			t.Error("expected checkPlatform to fail without /dev/kvm")
+		}
+	default:
+		t.Skipf("cannot stat /dev/kvm: %v", err)
 	}
 }

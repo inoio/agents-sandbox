@@ -24,15 +24,15 @@ type staleVM struct {
 // older than the given threshold.
 func findStaleVMs(sandboxes []staleVM, threshold time.Duration) []StaleEntry {
 	var stale []StaleEntry
-	for _, s := range sandboxes {
-		if !msb.IsStoppedStatus(s.status) {
+	for _, sandbox := range sandboxes {
+		if msb.IsSandboxActive(sandbox.status) {
 			continue
 		}
-		elapsed := time.Since(s.updatedAt)
+		elapsed := time.Since(sandbox.updatedAt)
 		if elapsed > threshold {
 			stale = append(stale, StaleEntry{
 				Type:     StaleTypeVM,
-				Name:     s.name,
+				Name:     sandbox.name,
 				StaleFor: elapsed,
 				Slug:     "",
 				Digest:   "",

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"slices"
 	"strings"
 	"testing"
@@ -31,12 +32,21 @@ func mkStaleVM(staleTime time.Time) sandboxmsb.SandboxHandle {
 	}
 }
 
-func mkActiveVM(imgRef string) sandboxmsb.SandboxHandle {
+func mkStoppedVM(slug string) sandboxmsb.SandboxHandle {
 	return &sandboxmsb.MockSandboxHandle{
-		Name_:      "opencode-sandbox-vm-activeproject-1mjusbm3wikhb0",
+		Name_:      fmt.Sprintf("opencode-sandbox-vm-%s", slug),
+		Status_:    msb.SandboxStatusStopped,
+		UpdatedAt_: time.Now().Add(-3 * 24 * time.Hour),
+		Image_:     fmt.Sprintf("opencode-sandbox/runner-%s:xyz789", slug),
+	}
+}
+
+func mkActiveVM(slug string) sandboxmsb.SandboxHandle {
+	return &sandboxmsb.MockSandboxHandle{
+		Name_:      fmt.Sprintf("opencode-sandbox-vm-%s", slug),
 		Status_:    msb.SandboxStatusRunning,
 		UpdatedAt_: time.Now().Add(-3 * 24 * time.Hour),
-		Image_:     imgRef,
+		Image_:     fmt.Sprintf("opencode-sandbox/runner-%s:xyz789", slug),
 	}
 }
 
@@ -75,7 +85,7 @@ func TestPrune(t *testing.T) {
 				runPruneTest(t, append([]string{"--dry-run"}, flags...), func(m *sandboxmsb.MockMsbClient) {
 					m.Sandboxes = append(m.Sandboxes, mkStaleVM(time.Now().Add(-15*24*time.Hour)))
 					m.Sandboxes = append(m.Sandboxes,
-						mkActiveVM("opencode-sandbox/runner-activeproject-1mjusbm3wikhb0:abc1234"))
+						mkActiveVM("activeproject-1mjusbm3wikhb0"))
 					m.Volumes = append(m.Volumes,
 						homeVol("opencode-sandbox-home-projectname-1mjusbm3wikhb0-d1"))
 					m.Volumes = append(m.Volumes,
@@ -116,18 +126,6 @@ func TestPrune(t *testing.T) {
 
 	t.Run("P4_custom_age_2w", func(t *testing.T) {
 		runPruneTestWithAge(t, "2w", func(m *sandboxmsb.MockMsbClient) {
-			m.Sandboxes = append(m.Sandboxes, &sandboxmsb.MockSandboxHandle{
-				Name_:      "opencode-sandbox-vm-staleproject-1mjusbm3wikhb0",
-				Status_:    msb.SandboxStatusStopped,
-				UpdatedAt_: time.Now().Add(-15 * 24 * time.Hour),
-			})
-			m.Volumes = append(m.Volumes,
-				cloneVol("opencode-sandbox-clone-staleproject-abc123"))
-		}, "Pruned 1 VMs, 0 home volumes, 0 docker images, 0 msb images, 0 task sandboxes, 1 clone volumes")
-	})
-
-	t.Run("P5_custom_age_14d", func(t *testing.T) {
-		runPruneTestWithAge(t, "14d", func(m *sandboxmsb.MockMsbClient) {
 			m.Sandboxes = append(m.Sandboxes, &sandboxmsb.MockSandboxHandle{
 				Name_:      "opencode-sandbox-vm-staleproject-1mjusbm3wikhb0",
 				Status_:    msb.SandboxStatusStopped,
@@ -199,7 +197,7 @@ func TestPrune(t *testing.T) {
 				}
 				runPruneTest(t, flags, func(m *sandboxmsb.MockMsbClient) {
 					m.Sandboxes = append(m.Sandboxes,
-						mkActiveVM("opencode-sandbox/runner-activeproject-1mjusbm3wikhb0:xyz789"))
+						mkActiveVM("activeproject-1mjusbm3wikhb0"))
 					m.Sandboxes = append(m.Sandboxes, mkStaleTask(time.Now().Add(-15*24*time.Hour)))
 					m.Volumes = append(m.Volumes,
 						homeVol("opencode-sandbox-home-activeproject-1mjusbm3wikhb0-abc123"))
@@ -219,7 +217,7 @@ func TestPrune(t *testing.T) {
 					// Use 15d staleness to work with all flag values (7d, 7d, 14d, 14d).
 					m.Sandboxes = append(m.Sandboxes, mkStaleVM(time.Now().Add(-15*24*time.Hour)))
 					m.Sandboxes = append(m.Sandboxes,
-						mkActiveVM("opencode-sandbox/runner-prod-main-1mjusbm3wikhb0:abc1234"))
+						mkActiveVM("prod-main-1mjusbm3wikhb0"))
 					m.Volumes = append(m.Volumes,
 						homeVol("opencode-sandbox-home-projectname-1mjusbm3wikhb0-digest1"))
 					m.Images = append(m.Images,
@@ -295,5 +293,27 @@ func checkSummary(t *testing.T, outCalls []string, expected string) {
 		if !slices.Contains(outCalls, expected) {
 			t.Errorf("expected %q; got: %v", expected, outCalls)
 		}
+	}
+}
+
+// TestPruneCatalogError covers the catalog build failing during prune, which
+// surfaces the list error from the command.
+func TestPruneCatalogError(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	ui := &termio.Mock{}
+	mock := &sandboxmsb.MockMsbClient{}
+	mock.ListSandboxesErr = errBoom
+	docker.WithNoopDockerMock(t)
+	sandboxmsb.WithMsbMock(t, mock)
+
+	root := buildRootCmd(ui)
+	root.SetArgs([]string{"prune", "--age", "7d"})
+
+	err := root.Execute()
+	if err == nil {
+		t.Fatal("expected an error when the prune catalog build fails")
+	}
+	if !strings.Contains(err.Error(), "list sandboxes") {
+		t.Errorf("expected 'list sandboxes' error, got: %v", err)
 	}
 }

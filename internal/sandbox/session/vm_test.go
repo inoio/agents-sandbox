@@ -112,7 +112,7 @@ func TestEnsureProjectVMStartsWhenCrashed(t *testing.T) {
 
 func TestCreateProjectVMCallsClientCreateSandbox(t *testing.T) {
 	client := &msb.MockMsbClient{}
-	testUI := testutil.TermUIMock(t)
+	testUI := termio.NewTestMock(t)
 	ui := &testUI
 	configpaths.WithMockConfigPaths(t)
 	sb, created, err := createProjectVM(
@@ -144,7 +144,7 @@ func TestCreateProjectVMCallsClientCreateSandbox(t *testing.T) {
 }
 
 func TestStopProjectVMUsesClient(t *testing.T) {
-	testUI := testutil.TermUIMock(t)
+	testUI := termio.NewTestMock(t)
 	ui := &testUI
 	client := &msb.MockMsbClient{}
 	client.SetGotSandbox(&msb.MockSandboxHandle{
@@ -165,7 +165,7 @@ func TestStopProjectVMUsesClient(t *testing.T) {
 }
 
 func TestEnsureProjectVM_CreatePath(t *testing.T) {
-	testUI := testutil.TermUIMock(t)
+	testUI := termio.NewTestMock(t)
 	ui := &testUI
 
 	notFoundErr := &msbSdk.Error{Kind: msbSdk.ErrSandboxNotFound, Message: "not found"}
@@ -207,7 +207,7 @@ func TestEnsureProjectVM_CreatePath(t *testing.T) {
 }
 
 func TestEnsureProjectVM_ReconnectPath(t *testing.T) {
-	testUI := testutil.TermUIMock(t)
+	testUI := termio.NewTestMock(t)
 	ui := &testUI
 
 	client := &msb.MockMsbClient{}
@@ -345,7 +345,7 @@ func TestEnsureProjectVM_CreateOutcomeIsInfo(t *testing.T) {
 }
 
 func TestEnsureProjectVM_ReconnectWhenImageUnchanged(t *testing.T) {
-	testUI := testutil.TermUIMock(t)
+	testUI := termio.NewTestMock(t)
 	ui := &testUI
 
 	oldHandle := &msb.MockSandboxHandle{
@@ -397,7 +397,7 @@ func TestReconcileResourceConfigClampsCpusToMax(t *testing.T) {
 		Cfg:  &msbSdk.SandboxConfig{CPUs: 2, MaxCPUs: 8, MemoryMiB: 4096, MaxMemoryMiB: 8192},
 		Plan: &msbSdk.SandboxModificationPlan{Applied: true},
 	}
-	ui := testutil.TermUIMock(t)
+	ui := termio.NewTestMock(t)
 	err := reconcileResourceConfig(context.Background(), handle, options.RunOptions{CPUs: 16, Memory: "4G"}, &ui)
 	if err != nil {
 		t.Fatalf("reconcile: %v", err)
@@ -422,7 +422,7 @@ func TestReconcileResourceConfigAppliesCPUsAndMemory(t *testing.T) {
 		Plan: &msbSdk.SandboxModificationPlan{Applied: true},
 	}
 	ctx := context.Background()
-	ui := testutil.TermUIMock(t)
+	ui := termio.NewTestMock(t)
 	if err := reconcileResourceConfig(ctx, handle, options.RunOptions{CPUs: 8, Memory: "4G"}, &ui); err != nil {
 		t.Fatalf("reconcileResourceConfig failed: %v", err)
 	}
@@ -440,7 +440,7 @@ func TestReconcileResourceConfigNoopWhenSame(t *testing.T) {
 		Cfg:  &msbSdk.SandboxConfig{CPUs: 8, MemoryMiB: 4096},
 		Plan: &msbSdk.SandboxModificationPlan{Applied: true},
 	}
-	ui := testutil.TermUIMock(t)
+	ui := termio.NewTestMock(t)
 	if err := reconcileResourceConfig(
 		context.Background(),
 		handle,
@@ -462,7 +462,7 @@ func applySandboxOpts(cfg *msbSdk.SandboxConfig, opts []msbSdk.SandboxOption) {
 
 func TestCreateProjectVMAppliesRootDiskWhenDiskSizeSet(t *testing.T) {
 	client := &msb.MockMsbClient{}
-	testUI := testutil.TermUIMock(t)
+	testUI := termio.NewTestMock(t)
 	ui := &testUI
 	configpaths.WithMockConfigPaths(t)
 
@@ -492,7 +492,7 @@ func TestCreateProjectVMAppliesRootDiskWhenDiskSizeSet(t *testing.T) {
 }
 
 func TestEnsureProjectVM_NoReplacementWhenExistingImageUnknown(t *testing.T) {
-	testUI := testutil.TermUIMock(t)
+	testUI := termio.NewTestMock(t)
 	ui := &testUI
 
 	oldHandle := &msb.MockSandboxHandle{
@@ -535,7 +535,7 @@ func TestEnsureProjectVM_NoReplacementWhenExistingImageUnknown(t *testing.T) {
 }
 
 func TestEnsureProjectVMRecreatesWhenFlagged(t *testing.T) {
-	testUI := testutil.TermUIMock(t)
+	testUI := termio.NewTestMock(t)
 	ui := &testUI
 
 	oldHandle := &msb.MockSandboxHandle{
@@ -580,7 +580,7 @@ func TestEnsureProjectVMRecreatesWhenFlagged(t *testing.T) {
 }
 
 func TestEnsureProjectVMReusesWhenNotFlagged(t *testing.T) {
-	testUI := testutil.TermUIMock(t)
+	testUI := termio.NewTestMock(t)
 	ui := &testUI
 
 	handle := &msb.MockSandboxHandle{

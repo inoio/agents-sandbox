@@ -97,14 +97,12 @@ func setUpSandboxProvisionsConfig(t *testing.T, created bool, provisionMsg strin
 	fs := msb.NewTestFS(nil, nil) // empty FS simulates a VM with empty config dir
 	sb := &msb.MockSandbox{Name_: "test-vm", FSValue_: fs}
 	configpaths.WithMockConfigPaths(t)
-	cp := configpaths.GetConfigPaths()
+	cp := configpaths.Get()
 	snippet := filepath.Join(cp.UserOpencodeConfigDir(), "opencode.json5")
 	if err := os.MkdirAll(filepath.Dir(snippet), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(snippet, []byte(`{"model":"x"}`), 0o644); err != nil {
-		t.Fatal(err)
-	}
+	testutil.WritePath(t, snippet, `{"model":"x"}`)
 
 	ui := &termio.Mock{}
 	target, err := setUpSandbox(
@@ -152,7 +150,7 @@ func TestRestartDaemonsRestartsServe(t *testing.T) {
 			dockerdReadyCmd:       msb.NewTestResult(false, 1, "", "", nil),
 		},
 	}
-	ui := testutil.TermUIMock(t)
+	ui := termio.NewTestMock(t)
 	restartDaemons(
 		context.Background(),
 		sb,
@@ -190,7 +188,7 @@ func TestSetUpSandboxRestartsDaemonsOnReuseDecision(t *testing.T) {
 
 	fs := msb.NewTestFS(nil, nil)
 	sb := &msb.MockSandbox{Name_: "test-vm", FSValue_: fs}
-	ui := testutil.TermUIMock(t)
+	ui := termio.NewTestMock(t)
 
 	configpaths.WithMockConfigPaths(t)
 

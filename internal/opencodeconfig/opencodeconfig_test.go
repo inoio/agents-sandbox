@@ -1,4 +1,4 @@
-package config
+package opencodeconfig
 
 import (
 	"bytes"
@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"gitlab.inoio.de/inoio/opencode-sandbox/internal/testutil"
 )
 
 func writeSnippet(t *testing.T, dir, name, content string) {
@@ -14,9 +16,7 @@ func writeSnippet(t *testing.T, dir, name, content string) {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(dir, name), []byte(content), 0o644); err != nil {
-		t.Fatal(err)
-	}
+	testutil.WriteFile(t, dir, name, content)
 }
 
 func TestIsJSONFile(t *testing.T) {

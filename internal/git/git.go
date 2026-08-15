@@ -1,12 +1,10 @@
 package git
 
 import (
-	"context"
 	"crypto/sha256"
 	"fmt"
 	"math/big"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 
@@ -68,7 +66,7 @@ func projectSlugAt(cwd string, ui termio.UI) string {
 	})
 	if err != nil {
 		if abs, absErr := filepath.Abs(cwd); absErr == nil {
-			ui.Warnf("not inside a git repo; using CWD hash as project slug.")
+			ui.Verbosef("not inside a git repo; using CWD hash as project slug.")
 			return projectSlug(sanitizeFolderName(filepath.Base(abs)), abs)
 		}
 		return projectSlug("", cwd)
@@ -200,13 +198,4 @@ func branchAt(path string) (string, error) {
 		return "", fmt.Errorf("unable to determine current git branch from %s: %w", path, err)
 	}
 	return head.Name().Short(), nil
-}
-
-func PruneWorktrees(ctx context.Context, cwd string) error {
-	cmd := exec.CommandContext(ctx, "git", "worktree", "prune")
-	cmd.Dir = cwd
-	if out, err := cmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("git worktree prune failed in %s: %w: %s", cwd, err, out)
-	}
-	return nil
 }

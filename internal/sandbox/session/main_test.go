@@ -3,11 +3,9 @@ package session
 import (
 	"testing"
 
-	"gitlab.inoio.de/inoio/opencode-sandbox/internal/configpaths"
-	"gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/msb"
-	"gitlab.inoio.de/inoio/opencode-sandbox/internal/testutil"
+	termio "gitlab.inoio.de/inoio/opencode-sandbox/internal/testutil/mocks"
 )
 
 func TestMain(m *testing.M) {
-	testutil.InitMocks(m, msb.InstallFailFastGet, configpaths.InstallFailFastConfigPaths)
+	termio.InitFailFastMocks(m)
 }

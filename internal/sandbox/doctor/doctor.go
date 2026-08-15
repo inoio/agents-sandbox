@@ -2,53 +2,94 @@ package doctor
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"os/exec"
 
+	"github.com/moby/moby/client"
+
+	"gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/docker"
 	"gitlab.inoio.de/inoio/opencode-sandbox/internal/termio"
 )
 
-// CheckDocker reports whether the docker binary is on PATH, logging a
-// descriptive error when it is not.
-func CheckDocker(ui termio.UI) bool {
-	if _, err := exec.LookPath("docker"); err != nil {
-		ui.Error("docker not found. Install Docker or Podman with docker-compatible CLI", err)
-		return false
-	}
-	return true
+//nolint:gochecknoglobals // test seams
+var (
+	checkAllFunc      = realCheckAll
+	checkDockerFunc   = realCheckDocker
+	collectChecksFunc = collectChecks
+)
+
+// CheckDocker reports whether the docker binary is on PATH.
+func CheckDocker(ctx context.Context) error {
+	return checkDockerFunc(ctx)
 }
 
-func checkGit(ui termio.UI) bool {
-	if _, err := exec.LookPath("git"); err != nil {
-		ui.Error("git not found. Install git via your system package manager", err)
-		return false
-	}
-	return true
+// CheckAll runs every prerequisite check, rendering all failures and any
+// non-fatal warnings through ui. It returns true only when all checks pass.
+func CheckAll(ctx context.Context, ui termio.UI) bool {
+	return checkAllFunc(ctx, ui)
 }
 
-func checkMsb(ctx context.Context, ui termio.UI) bool {
-	if err := ensureMsbInstalled(ctx, ui); err != nil {
-		ui.Error("the microsandbox runtime could not be auto-installed", err)
-		return false
+// realCheckAll aggregates the platform checks and reports the results.
+func realCheckAll(ctx context.Context, ui termio.UI) bool {
+	warnings, errs := collectChecksFunc(ctx)
+	ok := len(errs) == 0
+	for _, warning := range warnings {
+		ui.Warn(warning)
+	}
+	for _, err := range errs {
+		ui.Errorf("%s", err)
+	}
+	return ok
+}
+
+// collectChecks runs every prerequisite check, collecting all failures so
+// CheckAll can report them together. checkPlatform is the only platform
+// specific check and comes first.
+func collectChecks(ctx context.Context) ([]string, []error) {
+	var warnings []string
+	var errs []error
+	for _, err := range []error{
+		checkPlatform(),
+		CheckDocker(ctx),
+	} {
+		if err != nil {
+			errs = append(errs, err)
+		}
+	}
+	msbWarnings, err := checkMsb(ctx)
+	warnings = append(warnings, msbWarnings...)
+	if err != nil {
+		errs = append(errs, err)
+	}
+	return warnings, errs
+}
+
+// realCheckDocker pings the Docker daemon, describing how to fix it on failure.
+func realCheckDocker(ctx context.Context) error {
+	//nolint:exhaustruct // NegotiateAPIVersion/ForceNegotiate not needed for a simple ping check
+	_, err := docker.Get().Ping(ctx, client.PingOptions{})
+	if err != nil {
+		return fmt.Errorf(
+			"docker API unreachable: %w; ensure Docker Desktop or colima is running, or verify DOCKER_HOST",
+			err,
+		)
+	}
+	return nil
+}
+
+// checkMsb ensures the msb runtime is installed, returning non-fatal PATH
+// guidance as warnings when msb is installed but not on PATH.
+func checkMsb(ctx context.Context) ([]string, error) {
+	if err := ensureMsbInstalled(ctx); err != nil {
+		return nil, fmt.Errorf("msb runtime setup failed: %w", err)
 	}
 	if _, err := exec.LookPath("msb"); err == nil {
-		return true
+		return nil, nil
 	}
-	home, binDir, binPath, ok := msbBinPath(ui)
-	if !ok {
-		return false
+	home, binDir, binPath, err := msbBinPath()
+	if err != nil {
+		return nil, err
 	}
-	appendPathHint(home, os.Getenv("SHELL"), binDir, binPath, ui)
-	return true
-}
-
-// checkAllReal contains the actual CheckAll logic. This allows the exported
-// CheckAllFunc to be reassigned in tests without redefining the checks.
-func checkAllReal(ctx context.Context, ui termio.UI) bool {
-	return checkDoctor(ctx, ui)
-}
-
-// CheckAll runs all prerequisite checks and reports orphaned VMs.
-func CheckAll(ctx context.Context, ui termio.UI) bool {
-	return CheckAllFunc(ctx, ui)
+	return pathHints(home, os.Getenv("SHELL"), binDir, binPath), nil
 }
