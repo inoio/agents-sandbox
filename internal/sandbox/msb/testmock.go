@@ -44,6 +44,7 @@ type MockMsbClient struct {
 	ImageListFn       func(ctx context.Context) ([]ImageHandle, error)
 	ImageRemoveFn     func(ctx context.Context, ref string, force bool) error
 	ImageLoadFn       func(ctx context.Context, ref string, r io.Reader) error
+	ImageInspectFn    func(ctx context.Context, ref string) (*msbSdk.ImageConfig, error)
 
 	// Pre-populated collections — List* methods return these when the callback is nil.
 	// Tests can append to these fields freely.
@@ -265,6 +266,13 @@ func (m *MockMsbClient) ImageLoad(ctx context.Context, ref string, r io.Reader) 
 		return m.ImageLoadFn(ctx, ref, r)
 	}
 	return m.imageLoadErr
+}
+
+func (m *MockMsbClient) ImageInspect(ctx context.Context, ref string) (*msbSdk.ImageConfig, error) {
+	if m.ImageInspectFn != nil {
+		return m.ImageInspectFn(ctx, ref)
+	}
+	return &msbSdk.ImageConfig{}, nil
 }
 
 // SetGetSandboxErr sets the error returned by MockMsbClient.GetSandbox.
@@ -701,4 +709,10 @@ func (f *failFastMsbClient) ImageRemove(_ context.Context, _ string, _ bool) err
 func (f *failFastMsbClient) ImageLoad(_ context.Context, _ string, _ io.Reader) error {
 	f.mustMock()
 	return nil
+}
+
+func (f *failFastMsbClient) ImageInspect(_ context.Context, _ string) (*msbSdk.ImageConfig, error) {
+	f.mustMock()
+	//nolint:nilnil // panics before returning; keeps failFastMsbClient interface-conformant
+	return nil, nil
 }
