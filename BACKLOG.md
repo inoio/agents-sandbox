@@ -71,7 +71,7 @@
 [ ] request --auto in opencode for serve&attach
 [ ] after docker image import, remove docker built image? Or delete docker layers when deleting msb images? Regular auto-cleanup for this?
 [ ] clean commands for volumes, sandboxes, images. docker images/cache/... - with filters, best same ones. Also readable list output (project name, not number) (labels an docker images für cleanup?)
-[ ] shell subcommand user flag (other flags from msb)
+[x] shell --root flag (attach as root)
 [ ] optionale Versionierung von dependencies (opencode, node.js)
 [ ] dev doku, design principles usw. (z.B. CLI design aligned with docker,msb)
 
