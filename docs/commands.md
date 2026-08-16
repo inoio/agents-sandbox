@@ -72,14 +72,16 @@ Build or rebuild the runner Docker image. If `.opencode-sandbox/Dockerfile` exis
 ```console
 opencode-sandbox build        # build or update if needed
 opencode-sandbox build -r     # force clean rebuild
+opencode-sandbox build --opencode-version 0.5.0  # pin a specific opencode version
 ```
 
 **Flags:**
 
-| Flag            | Short | Default  | Purpose                  |
-|-----------------|-------|----------|--------------------------|
-| `--rebuild`     | `-r`  | `false`  | Force a clean rebuild    |
-| `--dry-run`     | `-n`  | `false`  | Dry run without building |
+| Flag                 | Short | Default  | Purpose                                                         |
+|----------------------|-------|----------|-----------------------------------------------------------------|
+| `--rebuild`          | `-r`  | `false`  | Force a clean rebuild                                           |
+| `--dry-run`          | `-n`  | `false`  | Dry run without building                                        |
+| `--opencode-version` | —     | `""`     | Pin the opencode version baked into the image (default: latest) |
 
 **Aliases:** `image build`
 
