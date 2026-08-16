@@ -105,7 +105,7 @@ func decideReconfig(
 	var opencfgChanged bool
 	if liveSb != nil {
 		vmData := reprovision.ReadVMConfig(ctx, liveSb, cfs.Keys, ui)
-		opencfgChanged = len(vmData) > 0 && !reprovision.ConfigEqual(cfs, vmData)
+		opencfgChanged = len(vmData) > 0 && !reprovision.OpenCodeConfigEqual(cfs, vmData)
 		if detachErr := liveSb.Detach(context.Background()); detachErr != nil {
 			ui.Verbosef("failed to detach live sandbox handle: %v", detachErr)
 		}

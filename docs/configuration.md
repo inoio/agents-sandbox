@@ -227,7 +227,8 @@ session. The change type determines the mechanism used to apply the new settings
 When **no other client** is attached, config changes apply immediately.
 
 Opencode/home config files are provisioned into the VM on every startup, so a change is picked up by the next daemon start
-even when the current daemon is kept running (see below).
+even when the current daemon is kept running (see below). Only the `opencode config` change prompts for a daemon restart;
+`home.yaml` file changes are applied on the next startup without any prompt, since they do not require the daemon to restart.
 
 ### Parallel Sessions
 
