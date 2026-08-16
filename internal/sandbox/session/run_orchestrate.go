@@ -76,13 +76,21 @@ func prepareSandbox(
 	imageInfo, err := image.EnsureImage(
 		ctx,
 		projectSlug,
-		image.BuildOptions{Force: opts.Rebuild, OpenCodeVersion: ""},
+		image.BuildOptions{Force: opts.Rebuild, OpenCodeVersion: opts.OpenCodeVersion},
 		ui,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("image setup failed: %w", err)
 	}
 	ui.Verbosef("Using image '%s' (digest=%s, opencode %s)", imageInfo.Tag, imageInfo.Digest, imageInfo.OpenCodeVersion)
+
+	imageInfo, action, err := maybePromptOpenCodeUpgrade(ctx, ui, opts, imageInfo)
+	if err != nil {
+		return nil, err
+	}
+	if action == upgradeActionRebuild {
+		ui.Verbosef("runner image rebuilt with a newer opencode version")
+	}
 
 	vm := volume.NewManager(ui)
 	client := msb.Get()
