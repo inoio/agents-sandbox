@@ -1,5 +1,7 @@
 FROM opencode-sandbox/runner-base:latest
 
+ARG OPENCODE_VERSION
+
 USER root
 
 RUN apt-get update && \

@@ -8,6 +8,7 @@ import (
 	"gitlab.inoio.de/inoio/opencode-sandbox/internal/configpaths"
 	"gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/docker"
 	"gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/doctor"
+	"gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/image"
 	"gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/msb"
 	"gitlab.inoio.de/inoio/opencode-sandbox/internal/termio"
 )
@@ -39,6 +40,7 @@ var pruneAgeFlags = []FlagSet{
 func setupCommandFixtures(t *testing.T, args ...string) (*cobra.Command, *termio.Mock) {
 	t.Helper()
 	configpaths.WithMockConfigPaths(t)
+	image.WithMockOpenCodeVersion(t, "0.0.0-test")
 	msb.WithMsbMock(t, &msb.MockMsbClient{})
 	docker.WithNoopDockerMock(t)
 	doctor.MockedCheckAll(t, true)
