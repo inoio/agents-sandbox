@@ -12,6 +12,8 @@ func TestMain(m *testing.M) {
 	// testutil.InitFailFastMocks' body
 	configpaths.InstallFailFastConfigPaths()
 	InstallFailFastGet()
+	// cyclic dependency on Ping
+	// doctor.InstallFailFast()
 	msb.InstallFailFastGet()
 	m.Run()
 }

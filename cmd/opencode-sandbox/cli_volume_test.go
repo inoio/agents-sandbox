@@ -9,6 +9,7 @@ import (
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 
 	"gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/doctor"
+	"gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/image"
 
 	"gitlab.inoio.de/inoio/opencode-sandbox/internal/configpaths"
 	"gitlab.inoio.de/inoio/opencode-sandbox/internal/git"
@@ -46,6 +47,7 @@ func runVolumeOpScenario(t *testing.T, tc volumeOpScenario) {
 	mock := &msb.MockMsbClient{}
 
 	doctor.MockedCheckAll(t, !tc.preflightFail)
+	image.WithMockOpenCodeVersion(t, "0.0.0-test")
 	if tc.ensureImageErr {
 		docker.WithDefaultErrorDockerMock(t)
 	} else {

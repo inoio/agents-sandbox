@@ -107,6 +107,14 @@ func TestResolveVMTargetRejectsTraversal(t *testing.T) {
 	}
 }
 
+func TestResolveVMTargetRejectsTilde(t *testing.T) {
+	for _, bad := range []string{"~fdsa", "~/fdsa", "~/", "~"} {
+		if _, err := ResolveVMTarget(vmHome, bad); err == nil {
+			t.Errorf("expected error for target %q", bad)
+		}
+	}
+}
+
 func TestResolveVMTargetReservedOpencodeJSON(t *testing.T) {
 	_, err := ResolveVMTarget(vmHome, ".config/opencode/opencode.json")
 	if err == nil {
@@ -133,12 +141,19 @@ func TestBuildHomeFilesSkipsMissingSource(t *testing.T) {
 	user := t.TempDir()
 	proj := t.TempDir()
 	writeHomeYAML(t, user, ".gitconfig:\n")
-	files, _, err := BuildHomeFiles(user, proj, vmHome)
+	files, missing, _, err := BuildHomeFiles(user, proj, vmHome)
 	if err != nil {
 		t.Fatalf("BuildHomeFiles: %v", err)
 	}
 	if _, ok := files["/home/dev/.gitconfig"]; ok {
 		t.Error("expected missing source to be skipped, but entry present")
+	}
+	if len(missing) != 1 {
+		t.Fatalf("expected 1 missing source, got %v", missing)
+	}
+	want := filepath.Join(os.Getenv("HOME"), ".gitconfig")
+	if missing[0] != want {
+		t.Errorf("missing source = %q, want %q", missing[0], want)
 	}
 }
 
@@ -237,7 +252,7 @@ func TestBuildHomeFilesReadsBytesByVMPath(t *testing.T) {
 	testutil.WritePath(t, src, "k=v\n")
 	writeHomeYAML(t, proj, ".config/tool/cfg.toml: "+src+"\n")
 
-	files, has, err := BuildHomeFiles(user, proj, vmHome)
+	files, _, has, err := BuildHomeFiles(user, proj, vmHome)
 	if err != nil {
 		t.Fatalf("BuildHomeFiles: %v", err)
 	}
@@ -263,7 +278,7 @@ func TestBuildHomeFilesReadsProjectRelativeSourceFromProjectDir(t *testing.T) {
 	testutil.WriteFile(t, proj, "tool/cfg.toml", "k=v\n")
 	writeHomeYAML(t, proj, ".config/tool/cfg.toml: ./tool/cfg.toml\n")
 
-	files, has, err := BuildHomeFiles(user, proj, vmHome)
+	files, _, has, err := BuildHomeFiles(user, proj, vmHome)
 	if err != nil {
 		t.Fatalf("BuildHomeFiles: %v", err)
 	}

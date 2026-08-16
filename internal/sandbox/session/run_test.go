@@ -14,6 +14,7 @@ import (
 	"gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/msb"
 	"gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/options"
 	"gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/reprovision"
+	"gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/state"
 	"gitlab.inoio.de/inoio/opencode-sandbox/internal/termio"
 
 	"gitlab.inoio.de/inoio/opencode-sandbox/internal/testutil"
@@ -77,14 +78,14 @@ func TestBuildAttachCommandWorktreeTarget(t *testing.T) {
 }
 
 func TestSetUpSandboxProvisionsConfigOnFreshSetup(t *testing.T) {
-	setUpSandboxProvisionsConfig(t, true, "fresh setup")
+	setUpSandboxProvisionsConfig(t, "fresh setup")
 }
 
 func TestSetUpSandboxProvisionsConfigOnReuseWithEmptyDir(t *testing.T) {
-	setUpSandboxProvisionsConfig(t, false, "reused VM with empty config dir")
+	setUpSandboxProvisionsConfig(t, "reused VM with empty config dir")
 }
 
-func setUpSandboxProvisionsConfig(t *testing.T, created bool, provisionMsg string) {
+func setUpSandboxProvisionsConfig(t *testing.T, provisionMsg string) {
 	t.Helper()
 	origDaemon := SetDaemonShellFunc(func(_ context.Context, _ msb.Sandbox, command string) (string, int, error) {
 		if command == "curl -sfm2 "+daemonHealthURL {
@@ -109,7 +110,6 @@ func setUpSandboxProvisionsConfig(t *testing.T, created bool, provisionMsg strin
 		context.Background(),
 		sb,
 		options.RunOptions{},
-		created,
 		ui,
 		false,
 	)
@@ -198,7 +198,7 @@ func TestSetUpSandboxRestartsDaemonsOnReuseDecision(t *testing.T) {
 	commands = commands[:0]
 	target, err := setUpSandbox(
 		context.Background(), sb, options.RunOptions{},
-		false, &ui, true,
+		&ui, true,
 	)
 	if err != nil {
 		t.Fatalf("setUpSandbox: %v", err)
@@ -218,6 +218,51 @@ func TestSetUpSandboxRestartsDaemonsOnReuseDecision(t *testing.T) {
 
 func containsSubstring(hay, needle string) bool {
 	return len(hay) >= len(needle) && contains(hay, needle)
+}
+
+func TestSetUpSandboxProvisionsUpdatedConfigOnKeep(t *testing.T) {
+	origDaemon := SetDaemonShellFunc(func(_ context.Context, _ msb.Sandbox, command string) (string, int, error) {
+		if command == "curl -sfm2 "+daemonHealthURL {
+			return `{"healthy":true,"version":"test"}`, 0, nil
+		}
+		return "", 0, nil
+	})
+	defer SetDaemonShellFunc(origDaemon)
+
+	// The VM already contains an OLD opencode.json (content differs from desired).
+	// This simulates attaching to a running VM and choosing "keep": no daemon
+	// restart, but the updated config must still be provisioned so the next
+	// daemon start picks it up.
+	ocPath := reprovision.OpenCodeConfigPath(reprovision.VMHomeDir)
+	fs := msb.NewTestFS(map[string][]byte{
+		ocPath: []byte(`{"model":"old"}`),
+	}, nil)
+	sb := &msb.MockSandbox{Name_: "test-vm", FSValue_: fs}
+
+	configpaths.WithMockConfigPaths(t)
+	cp := configpaths.Get()
+	snippet := filepath.Join(cp.UserOpencodeConfigDir(), "opencode.json5")
+	if err := os.MkdirAll(filepath.Dir(snippet), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	testutil.WritePath(t, snippet, `{"model":"new"}`)
+
+	ui := &termio.Mock{}
+	_, err := setUpSandbox(
+		context.Background(),
+		sb,
+		options.RunOptions{},
+		ui,
+		false, // restart=false (user chose "keep")
+	)
+	if err != nil {
+		t.Fatalf("setUpSandbox: %v", err)
+	}
+
+	wrote := fs.Writes != nil && fs.Writes[ocPath] != nil
+	if !wrote {
+		t.Error("expected updated opencode.json to be provisioned even when daemon restart is deferred (keep)")
+	}
 }
 
 func contains(s, sub string) bool {
@@ -265,5 +310,51 @@ func TestRunServeOnlyBlocksUntilCancel(t *testing.T) {
 	}
 	if !found {
 		t.Errorf("expected connect URL 'http://127.0.0.1:4096' in info output, got %v", ui.InfoCalls)
+	}
+}
+
+func TestRunAttachUsesAttachWithForRoot(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+
+	ui := &termio.Mock{}
+	sb := &msb.MockSandbox{AttachCode: 0}
+	session := &sandboxSession{sb: sb, target: "/workspace"}
+
+	release, err := state.AcquireClientLease("roottest")
+	if err != nil {
+		t.Fatalf("state.AcquireClientLease: %v", err)
+	}
+	release()
+
+	err = runAttach(context.Background(), session, "roottest", ui,
+		options.RunOptions{Root: true, ReapPolicy: options.NewReapPolicy(false, 5)}, "-l")
+	if err != nil {
+		t.Fatalf("runAttach failed: %v", err)
+	}
+	if sb.AttachUser != "root" {
+		t.Errorf("AttachUser = %q, want %q", sb.AttachUser, "root")
+	}
+}
+
+func TestRunAttachDefaultDoesNotUseRoot(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+
+	ui := &termio.Mock{}
+	sb := &msb.MockSandbox{AttachCode: 0}
+	session := &sandboxSession{sb: sb, target: "/workspace"}
+
+	release, err := state.AcquireClientLease("defaulttest")
+	if err != nil {
+		t.Fatalf("state.AcquireClientLease: %v", err)
+	}
+	release()
+
+	err = runAttach(context.Background(), session, "defaulttest", ui,
+		options.RunOptions{ReapPolicy: options.NewReapPolicy(false, 5)}, "-l")
+	if err != nil {
+		t.Fatalf("runAttach failed: %v", err)
+	}
+	if sb.AttachUser != "" {
+		t.Errorf("AttachUser = %q, want empty for default (non-root) attach", sb.AttachUser)
 	}
 }

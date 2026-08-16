@@ -2,6 +2,7 @@ package session
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -21,7 +22,7 @@ import (
 )
 
 func TestCurrentEnvState_NotFoundReturnsZero(t *testing.T) {
-	state.SetStateDirForTest(t, t.TempDir()+"/opencode-sandbox")
+	configpaths.WithMockConfigPaths(t)
 	slug := "nonexistent"
 
 	got := currentEnvState(slug, &termio.Mock{})
@@ -35,7 +36,7 @@ func TestCurrentEnvState_NotFoundReturnsZero(t *testing.T) {
 }
 
 func TestCurrentEnvState_ReadsPersisted(t *testing.T) {
-	state.SetStateDirForTest(t, t.TempDir()+"/opencode-sandbox")
+	configpaths.WithMockConfigPaths(t)
 	slug := "testproj-abc1"
 
 	state.WriteState(slug, state.HomeState{
@@ -58,11 +59,12 @@ func TestCurrentEnvState_ReadsPersisted(t *testing.T) {
 }
 
 func TestCurrentEnvState_IgnoresReadError(t *testing.T) {
-	state.SetStateDirForTest(t, t.TempDir()+"/opencode-sandbox")
+	configpaths.WithMockConfigPaths(t)
+
 	slug := "badproj"
 
 	// Corrupted YAML that returns a parser error (not ErrStateNotFound):
-	sdir := filepath.Join(state.StateDir, slug)
+	sdir := filepath.Join(configpaths.Get().UserStateDir(), slug)
 	os.MkdirAll(sdir, 0o700)
 	testutil.WriteFile(t, sdir, "state.yaml", "!!broken: yaml: [invalid")
 
@@ -78,7 +80,8 @@ func TestCurrentEnvState_IgnoresReadError(t *testing.T) {
 }
 
 func TestCurrentSecretState_NotFoundReturnsZero(t *testing.T) {
-	state.SetStateDirForTest(t, t.TempDir()+"/opencode-sandbox")
+	configpaths.WithMockConfigPaths(t)
+
 	slug := "nonexistent"
 
 	got := currentSecretState(slug, &termio.Mock{})
@@ -92,7 +95,8 @@ func TestCurrentSecretState_NotFoundReturnsZero(t *testing.T) {
 }
 
 func TestCurrentSecretState_ReadsPersisted(t *testing.T) {
-	state.SetStateDirForTest(t, t.TempDir()+"/opencode-sandbox")
+	configpaths.WithMockConfigPaths(t)
+
 	slug := "testproj-abc2"
 
 	state.WriteState(slug, state.HomeState{
@@ -113,7 +117,8 @@ func TestCurrentSecretState_ReadsPersisted(t *testing.T) {
 }
 
 func TestPersistEnvSecrets_RoundTrip(t *testing.T) {
-	state.SetStateDirForTest(t, t.TempDir()+"/opencode-sandbox")
+	configpaths.WithMockConfigPaths(t)
+
 	slug := "roundtripproj"
 
 	envSt := state.EnvState{Hash: "env-hash-123", Names: []string{"FOO"}}
@@ -137,7 +142,8 @@ func TestPersistEnvSecrets_RoundTrip(t *testing.T) {
 }
 
 func TestPersistEnvSecrets_CreatesMissingStateDir(t *testing.T) {
-	state.SetStateDirForTest(t, t.TempDir()+"/opencode-sandbox")
+	configpaths.WithMockConfigPaths(t)
+
 	slug := "newproj-" + makeSlug()
 
 	envSt := state.EnvState{Hash: "h1", Names: []string{"X"}}
@@ -157,7 +163,8 @@ func TestPersistEnvSecrets_CreatesMissingStateDir(t *testing.T) {
 }
 
 func TestPersistEnvSecrets_MergesExistingState(t *testing.T) {
-	state.SetStateDirForTest(t, t.TempDir()+"/opencode-sandbox")
+	configpaths.WithMockConfigPaths(t)
+
 	slug := "mergeproj"
 
 	// Write existing state with HomeVolume and ImageDigest
@@ -192,7 +199,8 @@ func TestPersistEnvSecrets_MergesExistingState(t *testing.T) {
 }
 
 func TestPersistEnvSecrets_OverwritesExistingState(t *testing.T) {
-	state.SetStateDirForTest(t, t.TempDir()+"/opencode-sandbox")
+	configpaths.WithMockConfigPaths(t)
+
 	slug := "existingstateproj"
 
 	// Pre-write state with env_state already set but different hash
@@ -223,11 +231,12 @@ func TestPersistEnvSecrets_OverwritesExistingState(t *testing.T) {
 }
 
 func TestPersistEnvSecrets_ReadFailsReturnsError(t *testing.T) {
-	state.SetStateDirForTest(t, t.TempDir()+"/opencode-sandbox")
+	configpaths.WithMockConfigPaths(t)
+
 	slug := "failproj"
 
 	// Corrupted YAML that returns an error (not ErrStateNotFound):
-	sdir := filepath.Join(state.StateDir, slug)
+	sdir := filepath.Join(configpaths.Get().UserStateDir(), slug)
 	os.MkdirAll(sdir, 0o700)
 	testutil.WriteFile(t, sdir, "state.yaml", "{ corrupted: yaml: [")
 
@@ -244,7 +253,7 @@ func TestPersistEnvSecrets_ReadFailsReturnsError(t *testing.T) {
 }
 
 func TestDecideReconfig_EnvChangedWithPersistedState(t *testing.T) {
-	state.SetStateDirForTest(t, t.TempDir()+"/opencode-sandbox")
+	configpaths.WithMockConfigPaths(t)
 
 	// Set up handle so reprovision.PlanReconfig gets a non-nil cfg
 	mock := reconfigMockClient()
@@ -288,7 +297,8 @@ func TestDecideReconfig_EnvChangedWithPersistedState(t *testing.T) {
 }
 
 func TestDecideReconfig_EnvUnchangedWithPersistedState(t *testing.T) {
-	state.SetStateDirForTest(t, t.TempDir()+"/opencode-sandbox")
+	configpaths.WithMockConfigPaths(t)
+
 	userDir := t.TempDir()
 
 	mock := &msb.MockMsbClient{}
@@ -335,7 +345,7 @@ func TestDecideReconfig_EnvUnchangedWithPersistedState(t *testing.T) {
 }
 
 func TestDecideReconfig_SecretsChangedWithPersistedState(t *testing.T) {
-	state.SetStateDirForTest(t, t.TempDir()+"/opencode-sandbox")
+	configpaths.WithMockConfigPaths(t)
 
 	mock := reconfigMockClient()
 	msb.WithMsbMock(t, mock)
@@ -378,7 +388,8 @@ func TestDecideReconfig_SecretsChangedWithPersistedState(t *testing.T) {
 }
 
 func TestDecideReconfig_ZeroPersistedStateNoSpuriousChange(t *testing.T) {
-	state.SetStateDirForTest(t, t.TempDir()+"/opencode-sandbox")
+	configpaths.WithMockConfigPaths(t)
+
 	userDir := t.TempDir()
 
 	mock := &msb.MockMsbClient{}
@@ -471,7 +482,8 @@ func TestEnvContentHash_OrderIndependent(t *testing.T) {
 
 // TestPersistEnvSecrets_NilStateOnNotFound tests persistEnvSecrets when no state file exists.
 func TestPersistEnvSecrets_NilStateOnNotFound(t *testing.T) {
-	state.SetStateDirForTest(t, t.TempDir()+"/opencode-sandbox")
+	configpaths.WithMockConfigPaths(t)
+
 	slug := "freshproject"
 
 	envSt := state.EnvState{Hash: "h1", Names: []string{"X"}}
@@ -500,7 +512,8 @@ func TestPersistEnvSecrets_NilStateOnNotFound(t *testing.T) {
 }
 
 func TestPersistEnvSecrets_HomeStateOmitsZeroState(t *testing.T) {
-	state.SetStateDirForTest(t, t.TempDir()+"/opencode-sandbox")
+	configpaths.WithMockConfigPaths(t)
+
 	slug := "omittestproj"
 
 	envSt := state.EnvState{Hash: "h1", Names: []string{"X"}}
@@ -510,7 +523,7 @@ func TestPersistEnvSecrets_HomeStateOmitsZeroState(t *testing.T) {
 		t.Fatalf("persistEnvSecrets: %v", err)
 	}
 
-	data, err := os.ReadFile(filepath.Join(state.StateDir, slug, "state.yaml"))
+	data, err := os.ReadFile(filepath.Join(configpaths.Get().UserStateDir(), slug, "state.yaml"))
 	if err != nil {
 		t.Fatalf("read state file: %v", err)
 	}
@@ -521,7 +534,8 @@ func TestPersistEnvSecrets_HomeStateOmitsZeroState(t *testing.T) {
 }
 
 func TestCurrentStates_PersistedBothFields(t *testing.T) {
-	state.SetStateDirForTest(t, t.TempDir()+"/opencode-sandbox")
+	configpaths.WithMockConfigPaths(t)
+
 	slug := "bothproj"
 
 	state.WriteState(slug, state.HomeState{
@@ -542,7 +556,8 @@ func TestCurrentStates_PersistedBothFields(t *testing.T) {
 }
 
 func TestPersistEnvSecrets_ZeroStateOverwritesOnlyFields(t *testing.T) {
-	state.SetStateDirForTest(t, t.TempDir()+"/opencode-sandbox")
+	configpaths.WithMockConfigPaths(t)
+
 	slug := "overwriteproj"
 
 	state.WriteState(slug, state.HomeState{
@@ -571,7 +586,8 @@ func TestPersistEnvSecrets_ZeroStateOverwritesOnlyFields(t *testing.T) {
 }
 
 func TestDecideReconfig_PersistedSecretsMatchDesired(t *testing.T) {
-	state.SetStateDirForTest(t, t.TempDir()+"/opencode-sandbox")
+	configpaths.WithMockConfigPaths(t)
+
 	userDir := t.TempDir()
 
 	mock := &msb.MockMsbClient{}
@@ -618,7 +634,7 @@ func TestDecideReconfig_PersistedSecretsMatchDesired(t *testing.T) {
 }
 
 func TestDecideReconfig_HomePromptDeferredWhenRebuildDeferred(t *testing.T) {
-	state.SetStateDirForTest(t, t.TempDir()+"/opencode-sandbox")
+	configpaths.WithMockConfigPaths(t)
 
 	mock := reconfigMockClient()
 	msb.WithMsbMock(t, mock)
@@ -670,7 +686,7 @@ func TestDecideReconfig_HomePromptDeferredWhenRebuildDeferred(t *testing.T) {
 }
 
 func TestDecideReconfig_HomePromptAskedWhenRebuildConfirmed(t *testing.T) {
-	state.SetStateDirForTest(t, t.TempDir()+"/opencode-sandbox")
+	configpaths.WithMockConfigPaths(t)
 
 	mock := reconfigMockClient()
 	msb.WithMsbMock(t, mock)
@@ -729,6 +745,59 @@ func TestDecideReconfig_HomePromptAskedWhenRebuildConfirmed(t *testing.T) {
 	}
 	if st.ImageDigest != "sha256:new" {
 		t.Errorf("state ImageDigest = %q, want %q (keep records the new digest)", st.ImageDigest, "sha256:new")
+	}
+}
+
+func TestDecideReconfig_OpenCodeConfigChanged_StoppedVM(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+
+	// Desired opencode config: a snippet producing {"model":"y"} (new config).
+	testutil.WriteFile(t,
+		configpaths.Get().UserOpencodeConfigDir(),
+		"a.json",
+		`{"model":"y"}`,
+	)
+
+	// Existing VM whose Connect fails (stopped/suspended VM): decideReconfig
+	// cannot read live config, so it must neither recreate nor spuriously flag a
+	// daemon restart. Provisioning + fresh daemon pickup happen downstream in
+	// setUpSandbox once the VM is started.
+	sh := &msb.MockSandboxHandle{
+		Cfg: &msbSdk.SandboxConfig{Image: "img:tag", CPUs: 4, MemoryMiB: 4096},
+	}
+	sh.ConnectErr = errors.New("vm not running")
+	mock := &msb.MockMsbClient{}
+	mock.GetSandboxFn = func(_ context.Context, _ string) (msb.SandboxHandle, error) {
+		return sh, nil
+	}
+	msb.WithMsbMock(t, mock)
+
+	vm := volume.NewManager(&termio.Mock{})
+	persisted := state.HomeState{
+		HomeVolume:  "vol",
+		ImageDigest: "sha256:same",
+	}
+
+	ui := termio.NewTestMock(t)
+	recreate, restart, _, err := decideReconfig(
+		context.Background(),
+		mock,
+		vm,
+		options.RunOptions{},
+		"img:tag",
+		"sha256:same",
+		"vol",
+		persisted,
+		&ui,
+	)
+	if err != nil {
+		t.Fatalf("decideReconfig: %v", err)
+	}
+	if recreate {
+		t.Error("expected no recreate for an opencode-config-only change on a stopped VM")
+	}
+	if restart {
+		t.Error("expected no daemon-restart flag from a stopped VM (fresh daemon picks up config on start)")
 	}
 }
 

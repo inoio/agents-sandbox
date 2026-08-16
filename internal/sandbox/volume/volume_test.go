@@ -10,6 +10,8 @@ import (
 
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 
+	"gitlab.inoio.de/inoio/opencode-sandbox/internal/configpaths"
+
 	"gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/msb"
 	"gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/options"
 	"gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/state"
@@ -156,7 +158,7 @@ func TestResolveHomeAction_ActionQuitReturnsQuit(t *testing.T) {
 }
 
 func TestRecordHomeImage_UpdatesDigestInState(t *testing.T) {
-	state.SetStateDirForTest(t, t.TempDir()+"/opencode-sandbox")
+	configpaths.WithMockConfigPaths(t)
 
 	state.WriteState("myproj", state.HomeState{
 		HomeVolume:  "opencode-sandbox-home-myproj-20260806T143022",
@@ -181,7 +183,7 @@ func TestRecordHomeImage_UpdatesDigestInState(t *testing.T) {
 }
 
 func TestRecordHomeImage_MissingStateIsNoop(t *testing.T) {
-	state.SetStateDirForTest(t, t.TempDir()+"/opencode-sandbox")
+	configpaths.WithMockConfigPaths(t)
 
 	vm := NewManager(&termio.Mock{})
 	if err := vm.RecordHomeImage("nosuchproj", "sha256:new", &termio.Mock{}); err != nil {
@@ -190,7 +192,7 @@ func TestRecordHomeImage_MissingStateIsNoop(t *testing.T) {
 }
 
 func TestApplyHomeAction_KeepReturnsOldVolume(t *testing.T) {
-	state.SetStateDirForTest(t, t.TempDir()+"/opencode-sandbox")
+	configpaths.WithMockConfigPaths(t)
 
 	mock := &msb.MockMsbClient{}
 	vm := NewManager(&termio.Mock{})
@@ -238,7 +240,7 @@ func TestApplyHomeAction_ExecutesAndKeepsOld(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			state.SetStateDirForTest(t, t.TempDir()+"/opencode-sandbox")
+			configpaths.WithMockConfigPaths(t)
 
 			slug := "myproj"
 			oldVol := "opencode-sandbox-home-myproj-old"
@@ -291,7 +293,7 @@ func TestApplyHomeAction_ExecutesAndKeepsOld(t *testing.T) {
 }
 
 func TestApplyHomeAction_Reset_DryRun_NoWrites(t *testing.T) {
-	state.SetStateDirForTest(t, t.TempDir()+"/opencode-sandbox")
+	configpaths.WithMockConfigPaths(t)
 
 	slug := "myproj"
 	oldVol := "opencode-sandbox-home-myproj-old"
@@ -340,7 +342,7 @@ func TestApplyHomeAction_Reset_DryRun_NoWrites(t *testing.T) {
 }
 
 func TestApplyHomeAction_Migrate_DryRunVM_NoStateWrite(t *testing.T) {
-	state.SetStateDirForTest(t, t.TempDir()+"/opencode-sandbox")
+	configpaths.WithMockConfigPaths(t)
 
 	slug := "myproj"
 	oldVol := "opencode-sandbox-home-myproj-old"
@@ -383,7 +385,7 @@ func TestApplyHomeAction_Migrate_DryRunVM_NoStateWrite(t *testing.T) {
 }
 
 func TestApplyHomeAction_Migrate_CopyFails_RemovesNewVolume(t *testing.T) {
-	state.SetStateDirForTest(t, t.TempDir()+"/opencode-sandbox")
+	configpaths.WithMockConfigPaths(t)
 
 	slug := "myproj"
 	oldVol := "opencode-sandbox-home-myproj-old"
@@ -488,7 +490,7 @@ func TestVolumeActionString(t *testing.T) {
 }
 
 func TestResolveHomeVolume_FoundInState(t *testing.T) {
-	state.SetStateDirForTest(t, t.TempDir()+"/opencode-sandbox")
+	configpaths.WithMockConfigPaths(t)
 
 	mock := &msb.MockMsbClient{}
 	mock.GetVolumeFn = func(_ context.Context, name string) (msb.VolumeHandle, error) {
@@ -522,7 +524,7 @@ func TestResolveHomeVolume_FoundInState(t *testing.T) {
 }
 
 func TestResolveHomeVolume_NoStateFile(t *testing.T) {
-	state.SetStateDirForTest(t, t.TempDir()+"/opencode-sandbox")
+	configpaths.WithMockConfigPaths(t)
 
 	mock := &msb.MockMsbClient{}
 	mock.CreateVolumeFn = func(_ context.Context, name string, _ ...msbSdk.VolumeOption) (msb.VolumeHandle, error) {
@@ -551,7 +553,7 @@ func TestResolveHomeVolume_NoStateFile(t *testing.T) {
 }
 
 func TestResolveHomeVolume_VolumeNotFoundInSandbox(t *testing.T) {
-	state.SetStateDirForTest(t, t.TempDir()+"/opencode-sandbox")
+	configpaths.WithMockConfigPaths(t)
 
 	mock := &msb.MockMsbClient{}
 	mock.GetVolumeFn = func(_ context.Context, name string) (msb.VolumeHandle, error) {

@@ -5,11 +5,12 @@ import (
 	"path/filepath"
 	"testing"
 
+	"gitlab.inoio.de/inoio/opencode-sandbox/internal/configpaths"
 	"gitlab.inoio.de/inoio/opencode-sandbox/internal/testutil"
 )
 
 func TestAcquireClientLease(t *testing.T) {
-	SetStateDirForTest(t, t.TempDir()+"/opencode-sandbox")
+	configpaths.WithMockConfigPaths(t)
 
 	slug := "testproj-aBc1234D"
 
@@ -58,7 +59,7 @@ func TestAcquireClientLease(t *testing.T) {
 }
 
 func TestAcquireClientLease_DirectoriesCreated(t *testing.T) {
-	SetStateDirForTest(t, t.TempDir()+"/opencode-sandbox")
+	configpaths.WithMockConfigPaths(t)
 
 	slug := "newslug-x7y9z"
 
@@ -85,7 +86,7 @@ func TestAcquireClientLease_DirectoriesCreated(t *testing.T) {
 }
 
 func TestAcquireClientLease_MultipleClients(t *testing.T) {
-	SetStateDirForTest(t, t.TempDir()+"/opencode-sandbox")
+	configpaths.WithMockConfigPaths(t)
 
 	slug := "multiproj-a"
 
@@ -126,7 +127,7 @@ func TestAcquireClientLease_MultipleClients(t *testing.T) {
 }
 
 func TestCountActiveClients_CleansStaleLockFiles(t *testing.T) {
-	SetStateDirForTest(t, t.TempDir()+"/opencode-sandbox")
+	configpaths.WithMockConfigPaths(t)
 
 	slug := "staleproj-b"
 
@@ -153,7 +154,7 @@ func TestCountActiveClients_CleansStaleLockFiles(t *testing.T) {
 }
 
 func TestAcquireClientLease_NonExistentSlug(t *testing.T) {
-	SetStateDirForTest(t, t.TempDir()+"/opencode-sandbox")
+	configpaths.WithMockConfigPaths(t)
 
 	slug := "nonexistent-slug-xyz"
 	release, err := AcquireClientLease(slug)
@@ -164,7 +165,7 @@ func TestAcquireClientLease_NonExistentSlug(t *testing.T) {
 }
 
 func TestAcquireClientLease_MultipleFromSameProcess(t *testing.T) {
-	SetStateDirForTest(t, t.TempDir()+"/opencode-sandbox")
+	configpaths.WithMockConfigPaths(t)
 
 	slug := "testproj-z"
 

@@ -7,27 +7,20 @@ import (
 
 	msb "github.com/superradcompany/microsandbox/sdk/go"
 
-	"gitlab.inoio.de/inoio/opencode-sandbox/internal/configpaths"
-	"gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/docker"
 	sandboxmsb "gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/msb"
-	"gitlab.inoio.de/inoio/opencode-sandbox/internal/termio"
 )
 
 var errBoom = errors.New("boom")
 
-func runListCmdTest(t *testing.T, ui *termio.Mock, mock *sandboxmsb.MockMsbClient, cmdArgs []string,
-	mockSetup func(m *sandboxmsb.MockMsbClient), wantOut, wantInfo []string,
-	wantErr bool, wantErrContains string) {
+func runListCmdTest(t *testing.T, cmdArgs []string, mockSetup func(m *sandboxmsb.MockMsbClient), wantOut,
+	wantInfo []string, wantErr bool, wantErrContains string) {
 	t.Helper()
-	configpaths.WithMockConfigPaths(t)
-	docker.WithNoopDockerMock(t)
+	mock := &sandboxmsb.MockMsbClient{}
 	mockSetup(mock)
+	cmd, ui := setupCommandFixtures(t, cmdArgs...)
 	sandboxmsb.WithMsbMock(t, mock)
 
-	root := buildRootCmd(ui)
-	root.SetArgs(cmdArgs)
-
-	if err := root.Execute(); err != nil {
+	if err := cmd.Execute(); err != nil {
 		if !wantErr {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -79,12 +72,12 @@ func TestListSandboxes(t *testing.T) {
 
 	tests := []testCase{
 		{
-			name:      "L1-empty (no sandboxes found)",
+			name:      "empty (no sandboxes found)",
 			mockSetup: func(_ *sandboxmsb.MockMsbClient) {},
 			wantInfo:  []string{"No sandboxes found."},
 		},
 		{
-			name: "L2-one sandbox running",
+			name: "one sandbox running",
 			mockSetup: func(m *sandboxmsb.MockMsbClient) {
 				m.Sandboxes = []sandboxmsb.SandboxHandle{
 					&sandboxmsb.MockSandboxHandle{
@@ -96,7 +89,7 @@ func TestListSandboxes(t *testing.T) {
 			wantOut: []string{"opencode-sandbox-vm-abc123                   running"},
 		},
 		{
-			name: "L3-multiple sandboxes",
+			name: "multiple sandboxes",
 			mockSetup: func(m *sandboxmsb.MockMsbClient) {
 				m.Sandboxes = []sandboxmsb.SandboxHandle{
 					&sandboxmsb.MockSandboxHandle{
@@ -117,7 +110,7 @@ func TestListSandboxes(t *testing.T) {
 			},
 		},
 		{
-			name: "L4-non-project VMs filtered",
+			name: "non-project VMs filtered",
 			mockSetup: func(m *sandboxmsb.MockMsbClient) {
 				m.Sandboxes = []sandboxmsb.SandboxHandle{
 					&sandboxmsb.MockSandboxHandle{Name_: "myvm-other-abc", Status_: msb.SandboxStatusRunning},
@@ -128,7 +121,7 @@ func TestListSandboxes(t *testing.T) {
 			wantOut: []string{"opencode-sandbox-vm-abc                      running"},
 		},
 		{
-			name:            "L5-list error",
+			name:            "list sandboxes error",
 			mockSetup:       func(m *sandboxmsb.MockMsbClient) { m.ListSandboxesErr = errBoom },
 			wantErr:         true,
 			wantErrContains: "list sandboxes",
@@ -138,12 +131,8 @@ func TestListSandboxes(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			// t.Parallel() - disabled due to shared global test hook
-			ui := &termio.Mock{}
-			mock := &sandboxmsb.MockMsbClient{}
 			runListCmdTest(
 				t,
-				ui,
-				mock,
 				[]string{cmdList},
 				tt.mockSetup,
 				tt.wantOut,
@@ -167,12 +156,12 @@ func TestListImages(t *testing.T) {
 
 	tests := []testCase{
 		{
-			name:      "L6-empty (no images found)",
+			name:      "empty (no images found)",
 			mockSetup: func(_ *sandboxmsb.MockMsbClient) {},
 			wantInfo:  []string{"No images found."},
 		},
 		{
-			name: "L7-one image",
+			name: "one image",
 			mockSetup: func(m *sandboxmsb.MockMsbClient) {
 				m.Images = []sandboxmsb.ImageHandle{
 					&sandboxmsb.MockImageHandle{
@@ -184,7 +173,7 @@ func TestListImages(t *testing.T) {
 			wantOut: []string{"opencode-sandbox/runner-abc123                         sha256-abc123def456"},
 		},
 		{
-			name: "L8-multiple images",
+			name: "multiple images",
 			mockSetup: func(m *sandboxmsb.MockMsbClient) {
 				m.Images = []sandboxmsb.ImageHandle{
 					&sandboxmsb.MockImageHandle{
@@ -208,7 +197,7 @@ func TestListImages(t *testing.T) {
 			},
 		},
 		{
-			name: "L9-non-opencode images filtered",
+			name: "non-opencode images filtered",
 			mockSetup: func(m *sandboxmsb.MockMsbClient) {
 				m.Images = []sandboxmsb.ImageHandle{
 					&sandboxmsb.MockImageHandle{
@@ -221,7 +210,7 @@ func TestListImages(t *testing.T) {
 			wantOut: []string{"opencode-sandbox/runner-xyz                            sha256-abc123"},
 		},
 		{
-			name:            "L10-list error",
+			name:            "list images error",
 			mockSetup:       func(m *sandboxmsb.MockMsbClient) { m.ListImagesErr = errBoom },
 			wantErr:         true,
 			wantErrContains: "list images",
@@ -231,12 +220,8 @@ func TestListImages(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			// t.Parallel() - disabled due to shared global test hook
-			ui := &termio.Mock{}
-			mock := &sandboxmsb.MockMsbClient{}
 			runListCmdTest(
 				t,
-				ui,
-				mock,
 				[]string{cmdImage, cmdList},
 				tt.mockSetup,
 				tt.wantOut,
@@ -260,12 +245,12 @@ func TestListVolumes(t *testing.T) {
 
 	tests := []testCase{
 		{
-			name:      "L11-empty (no volumes found)",
+			name:      "empty (no volumes found)",
 			mockSetup: func(_ *sandboxmsb.MockMsbClient) {},
 			wantInfo:  []string{"No volumes found."},
 		},
 		{
-			name: "L12-one volume",
+			name: "one volume",
 			mockSetup: func(m *sandboxmsb.MockMsbClient) {
 				m.Volumes = []sandboxmsb.VolumeHandle{
 					&sandboxmsb.MockVolumeHandle{
@@ -277,7 +262,7 @@ func TestListVolumes(t *testing.T) {
 			wantOut: []string{"opencode-sandbox-home-proj-abc                         /mnt/vol/home"},
 		},
 		{
-			name: "L13-multiple volumes",
+			name: "multiple volumes",
 			mockSetup: func(m *sandboxmsb.MockMsbClient) {
 				m.Volumes = []sandboxmsb.VolumeHandle{
 					&sandboxmsb.MockVolumeHandle{Name_: "opencode-sandbox-home-alpha", Path_: "/mnt/vol/a"},
@@ -290,7 +275,7 @@ func TestListVolumes(t *testing.T) {
 			},
 		},
 		{
-			name: "L14-non-home volumes filtered",
+			name: "non-home volumes filtered",
 			mockSetup: func(m *sandboxmsb.MockMsbClient) {
 				m.Volumes = []sandboxmsb.VolumeHandle{
 					&sandboxmsb.MockVolumeHandle{Name_: "opencode-sandbox-clone-work", Path_: "/mnt/clone"},
@@ -300,7 +285,7 @@ func TestListVolumes(t *testing.T) {
 			wantOut: []string{"opencode-sandbox-home-abc                              /mnt/vol"},
 		},
 		{
-			name:            "L15-list error",
+			name:            "list volumes error",
 			mockSetup:       func(m *sandboxmsb.MockMsbClient) { m.ListVolumesErr = errBoom },
 			wantErr:         true,
 			wantErrContains: "list volumes",
@@ -310,12 +295,8 @@ func TestListVolumes(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			// t.Parallel() - disabled due to shared global test hook
-			ui := &termio.Mock{}
-			mock := &sandboxmsb.MockMsbClient{}
 			runListCmdTest(
 				t,
-				ui,
-				mock,
 				[]string{cmdVolume, cmdList},
 				tt.mockSetup,
 				tt.wantOut,

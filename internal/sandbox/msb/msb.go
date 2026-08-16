@@ -36,6 +36,7 @@ type Client interface {
 	ImageList(ctx context.Context) ([]ImageHandle, error)
 	ImageRemove(ctx context.Context, ref string, force bool) error
 	ImageLoad(ctx context.Context, ref string, r io.Reader) error
+	ImageInspect(ctx context.Context, ref string) (*msbSdk.ImageConfig, error)
 }
 
 // SandboxHandle is the subset of *msb.SandboxHandle used by the launcher.
@@ -59,6 +60,7 @@ type Sandbox interface {
 	FS() SandboxFS
 	Shell(ctx context.Context, command string, opts ...msbSdk.ExecOption) (ShellResult, error)
 	Exec(ctx context.Context, command string, args []string, opts ...msbSdk.ExecOption) (ShellResult, error)
+	AttachWith(ctx context.Context, command string, args []string, opts ...msbSdk.AttachOption) (int, error)
 	Attach(ctx context.Context, command string, args ...string) (int, error)
 	Detach(ctx context.Context) error
 	Stop(ctx context.Context, opts ...msbSdk.StopOption) error
@@ -252,6 +254,14 @@ func (realMsbClient) ImageLoad(ctx context.Context, ref string, r io.Reader) err
 	return nil
 }
 
+func (realMsbClient) ImageInspect(ctx context.Context, ref string) (*msbSdk.ImageConfig, error) {
+	detail, err := msbSdk.Image.Inspect(ctx, ref)
+	if err != nil {
+		return nil, err
+	}
+	return detail.Config, nil
+}
+
 // realVolumeHandle adapts *msbSdk.Volume or *msbSdk.VolumeHandle to VolumeHandle.
 type realVolumeHandle struct {
 	val any
@@ -387,6 +397,15 @@ func (s realSandbox) Exec(
 
 func (s realSandbox) Attach(ctx context.Context, command string, args ...string) (int, error) {
 	return s.sandbox.Attach(ctx, command, args...)
+}
+
+func (s realSandbox) AttachWith(
+	ctx context.Context,
+	command string,
+	args []string,
+	opts ...msbSdk.AttachOption,
+) (int, error) {
+	return s.sandbox.AttachWith(ctx, command, args, opts...)
 }
 
 func (s realSandbox) Detach(ctx context.Context) error {
