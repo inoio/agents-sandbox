@@ -78,6 +78,23 @@ func TestBuildDockerImageSetsHostUserBuildArgs(t *testing.T) {
 	}
 }
 
+func TestEmbeddedBaseDockerfileBakesVersionLabelAndDisablesAutoupdate(t *testing.T) {
+	base := string(embeddedDockerfile)
+	if !strings.Contains(base, `LABEL org.opencode-sandbox.opencode-version="$OPENCODE_VERSION"`) {
+		t.Error("base Dockerfile must label org.opencode-sandbox.opencode-version with $OPENCODE_VERSION")
+	}
+	if !strings.Contains(base, "OPENCODE_DISABLE_AUTOUPDATE=true") {
+		t.Error("base Dockerfile must set ENV OPENCODE_DISABLE_AUTOUPDATE=true")
+	}
+	if !strings.Contains(base, "--version \"$OPENCODE_VERSION\"") {
+		t.Error("base Dockerfile must install opencode with the pinned version")
+	}
+	dind := string(embeddedDindDockerfile)
+	if !strings.Contains(dind, "ARG OPENCODE_VERSION") {
+		t.Error("dind Dockerfile must declare ARG OPENCODE_VERSION")
+	}
+}
+
 func TestDockerfileTarContainsDockerfile(t *testing.T) {
 	dockerfile := []byte("FROM debian:trixie-slim\nRUN echo hi\n")
 	tarBuf, err := dockerfileTar(dockerfile)
