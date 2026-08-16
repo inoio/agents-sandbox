@@ -77,6 +77,38 @@ To start an isolated session for a different branch (only works in git repositor
 opencode-sandbox -w bugfix-my-fix
 ```
 
+## Adding Providers & Configuration
+
+If you have been using opencode, start by copying your existing opencode.json:
+
+```shell
+cp ~/.config/opencode/opencode.json ~/.config/opencode-sandbox/opencode/opencode.json
+```
+
+Then, replace any API keys and secrets with a reference to an environment variable, e.g.:
+
+```json
+{
+  "provider": {
+    "...": {
+      "options": {
+        "apiKey": "{env:YOUR_PROVIDER_API_KEY}"
+      }
+    }
+  }
+}
+```
+
+All that's left to do is to define a secret in `~/.config/opencode-sandbox/env.secret.yaml`:
+
+```yaml
+YOUR_PROVIDER_API_KEY:
+  value: <your-api-key>
+  host: provider.example
+```
+
+See [Configuration](/docs/configuration.md#secrets) for more details.
+
 ## How It Works
 
 1. **Image build** — Builds a Docker image from `.opencode-sandbox/Dockerfile` if present, or uses the base image. The image
