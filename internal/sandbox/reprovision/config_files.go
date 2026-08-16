@@ -120,6 +120,20 @@ func ReadVMConfig(ctx context.Context, sb msb.Sandbox, paths []string, ui termio
 	return result
 }
 
+// OpenCodeConfigEqual reports whether the merged opencode config matches the
+// VM state. Home files are intentionally ignored: they are provisioned on every
+// startup and do not require a daemon restart to take effect.
+func OpenCodeConfigEqual(cf *ConfigFiles, vmData map[string][]byte) bool {
+	if !cf.HasSnippets {
+		return true
+	}
+	vm, ok := vmData[OpenCodeConfigPath(VMHomeDir)]
+	if !ok {
+		return false
+	}
+	return jsonEqual(cf.OpenCode, vm)
+}
+
 // ConfigEqual reports whether the desired state matches the VM state. The
 // merged opencode.json is compared semantically; home files byte-for-byte.
 func ConfigEqual(cf *ConfigFiles, vmData map[string][]byte) bool {
