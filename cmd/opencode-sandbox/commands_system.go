@@ -43,7 +43,12 @@ func buildVolumeOpsCmd(
 			projectSlug := git.ProjectSlug(ui)
 			dryRun, _ := c.Flags().GetBool(flagDryRun)
 			rebuild, _ := c.Flags().GetBool(flagRebuild)
-			imageTag, _, _, err := image.EnsureImage(c.Context(), projectSlug, rebuild, ui)
+			info, err := image.EnsureImage(
+				c.Context(),
+				projectSlug,
+				image.BuildOptions{Force: rebuild, OpenCodeVersion: ""},
+				ui,
+			)
 			if err != nil {
 				return fmt.Errorf("ensure image: %w", err)
 			}
@@ -51,7 +56,7 @@ func buildVolumeOpsCmd(
 			if len(args) > 0 {
 				volName = args[0]
 			}
-			return fn(c.Context(), projectSlug, volName, imageTag, *rmVar, dryRun, ui)
+			return fn(c.Context(), projectSlug, volName, info.Tag, *rmVar, dryRun, ui)
 		},
 	}
 	cmd.Flags().BoolVar(rmVar, rmFlag, false, rmHelp)
@@ -173,7 +178,7 @@ func buildBuildCmd(ui termio.UI) *cobra.Command {
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			force, _ := cmd.Flags().GetBool(flagRebuild)
 			dryRun, _ := cmd.Flags().GetBool(flagDryRun)
-			return session.BuildImage(cmd.Context(), force, dryRun, ui)
+			return session.BuildImage(cmd.Context(), force, dryRun, "", ui)
 		},
 	}
 	cmd.Flags().BoolP(flagRebuild, flagRebuild[:1], false, "Force a clean rebuild")
