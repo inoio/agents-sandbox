@@ -42,7 +42,7 @@
 
 [ ] neben docker auch buildah, podman, ??? supporten?
 [ ] was ist mit den LSP-Servern wenn ein Projekt node braucht?
-[ ] cli interaction library instead of prompt.go?
+[ ] cli interaction library instead of prompt.go? https://github.com/pterm/pterm
 [ ] testify/mock & mockery statt manuell?
 
 ## Sandbox cohesion refactor — deferred follow-ups (from 2026-08-12 remediation plan)
