@@ -274,6 +274,10 @@ func TestDecideReconfig_EnvChangedWithPersistedState(t *testing.T) {
 	}
 
 	ui := termio.NewTestMock(t)
+	cfs, err := reprovision.LoadConfigFiles(configpaths.Get().UserOpencodeConfigDir(), &ui)
+	if err != nil {
+		t.Fatalf("LoadConfigFiles: %v", err)
+	}
 	recreate, restart, _, err := decideReconfig(
 		context.Background(),
 		mock,
@@ -283,6 +287,7 @@ func TestDecideReconfig_EnvChangedWithPersistedState(t *testing.T) {
 		"sha256:samedigest",
 		"vol",
 		persistedState,
+		cfs,
 		&ui,
 	)
 	if err != nil {
@@ -322,6 +327,10 @@ func TestDecideReconfig_EnvUnchangedWithPersistedState(t *testing.T) {
 	}
 
 	ui := termio.NewTestMock(t)
+	cfs, err := reprovision.LoadConfigFiles(configpaths.Get().UserOpencodeConfigDir(), &ui)
+	if err != nil {
+		t.Fatalf("LoadConfigFiles: %v", err)
+	}
 	recreate, restart, _, err := decideReconfig(
 		context.Background(),
 		mock,
@@ -331,6 +340,7 @@ func TestDecideReconfig_EnvUnchangedWithPersistedState(t *testing.T) {
 		"sha256:samedigest",
 		"vol",
 		persistedState,
+		cfs,
 		&ui,
 	)
 	if err != nil {
@@ -365,6 +375,10 @@ func TestDecideReconfig_SecretsChangedWithPersistedState(t *testing.T) {
 	}
 
 	ui := termio.NewTestMock(t)
+	cfs, err := reprovision.LoadConfigFiles(configpaths.Get().UserOpencodeConfigDir(), &ui)
+	if err != nil {
+		t.Fatalf("LoadConfigFiles: %v", err)
+	}
 	recreate, restart, _, err := decideReconfig(
 		context.Background(),
 		mock,
@@ -374,6 +388,7 @@ func TestDecideReconfig_SecretsChangedWithPersistedState(t *testing.T) {
 		"sha256:samedigest",
 		"vol",
 		persistedState,
+		cfs,
 		&ui,
 	)
 	if err != nil {
@@ -404,15 +419,20 @@ func TestDecideReconfig_ZeroPersistedStateNoSpuriousChange(t *testing.T) {
 	testutil.WriteFile(t, userDir, configpaths.EnvFileName, "# nothing here\n")
 
 	ui := termio.NewTestMock(t)
+	cfs, err := reprovision.LoadConfigFiles(configpaths.Get().UserOpencodeConfigDir(), &ui)
+	if err != nil {
+		t.Fatalf("LoadConfigFiles: %v", err)
+	}
 	recreate, restart, _, err := decideReconfig(
 		context.Background(),
 		mock,
 		vm,
 		options.RunOptions{},
 		"img:tag",
-		"sha256:d1",
+		"sha256:samedigest",
 		"vol",
 		state.HomeState{},
+		cfs,
 		&ui,
 	)
 	if err != nil {
@@ -613,6 +633,10 @@ func TestDecideReconfig_PersistedSecretsMatchDesired(t *testing.T) {
 	}
 
 	ui := termio.NewTestMock(t)
+	cfs, err := reprovision.LoadConfigFiles(configpaths.Get().UserOpencodeConfigDir(), &ui)
+	if err != nil {
+		t.Fatalf("LoadConfigFiles: %v", err)
+	}
 	recreate, restart, _, err := decideReconfig(
 		context.Background(),
 		mock,
@@ -620,6 +644,7 @@ func TestDecideReconfig_PersistedSecretsMatchDesired(t *testing.T) {
 		options.RunOptions{},
 		"img", "sha256:img", "vol",
 		persistedState,
+		cfs,
 		&ui,
 	)
 	if err != nil {
@@ -657,6 +682,10 @@ func TestDecideReconfig_HomePromptDeferredWhenRebuildDeferred(t *testing.T) {
 		ImageDigest: "sha256:old",
 	}
 
+	cfs, err := reprovision.LoadConfigFiles(configpaths.Get().UserOpencodeConfigDir(), ui)
+	if err != nil {
+		t.Fatalf("LoadConfigFiles: %v", err)
+	}
 	recreate, restart, homeVol, err := decideReconfig(
 		context.Background(),
 		mock,
@@ -666,6 +695,7 @@ func TestDecideReconfig_HomePromptDeferredWhenRebuildDeferred(t *testing.T) {
 		"sha256:new", // stored digest differs -> image change detected, but rebuild deferred
 		"vol",
 		persisted,
+		cfs,
 		ui,
 	)
 	if err != nil {
@@ -712,6 +742,10 @@ func TestDecideReconfig_HomePromptAskedWhenRebuildConfirmed(t *testing.T) {
 	slug := git.ProjectSlug(ui)
 	state.WriteState(slug, persisted)
 
+	cfs, err := reprovision.LoadConfigFiles(configpaths.Get().UserOpencodeConfigDir(), ui)
+	if err != nil {
+		t.Fatalf("LoadConfigFiles: %v", err)
+	}
 	recreate, restart, homeVol, err := decideReconfig(
 		context.Background(),
 		mock,
@@ -721,6 +755,7 @@ func TestDecideReconfig_HomePromptAskedWhenRebuildConfirmed(t *testing.T) {
 		"sha256:new", // stored digest differs -> image change detected
 		"vol",
 		persisted,
+		cfs,
 		ui,
 	)
 	if err != nil {
@@ -779,6 +814,10 @@ func TestDecideReconfig_OpenCodeConfigChanged_StoppedVM(t *testing.T) {
 	}
 
 	ui := termio.NewTestMock(t)
+	cfs, err := reprovision.LoadConfigFiles(configpaths.Get().UserOpencodeConfigDir(), &ui)
+	if err != nil {
+		t.Fatalf("LoadConfigFiles: %v", err)
+	}
 	recreate, restart, _, err := decideReconfig(
 		context.Background(),
 		mock,
@@ -788,6 +827,7 @@ func TestDecideReconfig_OpenCodeConfigChanged_StoppedVM(t *testing.T) {
 		"sha256:same",
 		"vol",
 		persisted,
+		cfs,
 		&ui,
 	)
 	if err != nil {

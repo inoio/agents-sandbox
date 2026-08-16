@@ -226,7 +226,7 @@ func pruneCloneVolumes(
 	report *StaleReport,
 ) (*StaleReport, error) {
 	for _, cv := range catalog.CloneVolumes {
-		slug, _ := naming.ExtractProjectSlugAndDigest(cv)
+		slug := naming.ArtifactFor(cv).Slug
 		if _, active := catalog.ActiveVMDigest[slug]; active {
 			continue
 		}

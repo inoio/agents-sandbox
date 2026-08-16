@@ -106,6 +106,14 @@ func prepareSandbox(
 	if err != nil {
 		return nil, fmt.Errorf("get current directory: %w", err)
 	}
+
+	// Load the merged opencode config and home files exactly once per startup;
+	// the result is shared by the reconfig decision and the provisioning step.
+	cfs, err := reprovision.LoadConfigFiles(configpaths.Get().UserOpencodeConfigDir(), ui)
+	if err != nil {
+		return nil, err
+	}
+
 	recreate, restart, homeVol, err := decideReconfig(
 		ctx,
 		client,
@@ -116,6 +124,7 @@ func prepareSandbox(
 		imageInfo.Digest,
 		homeVol,
 		vs,
+		cfs,
 		ui,
 	)
 	if err != nil {
@@ -128,23 +137,7 @@ func prepareSandbox(
 		return nil, err
 	}
 	if created {
-		desiredEnv := reprovision.MergeEnvMaps(
-			reprovision.BuildEnvMap(configpaths.Get().UserEnvFile()),
-			reprovision.BuildEnvMap(configpaths.Get().ProjectEnvFile()),
-		)
-		desiredSecrets := reprovision.BuildSecretsFromSpecs(reprovision.MergeSecretSpecs(
-			reprovision.ParseSecretSpecLegacy(configpaths.Get().UserEnvSecretFile(), ui),
-			reprovision.ParseSecretSpecLegacy(configpaths.Get().ProjectEnvSecretFile(), ui),
-			reprovision.ParseSecretSpecYAML(configpaths.Get().UserEnvSecretYAMLFile(), ui),
-			reprovision.ParseSecretSpecYAML(configpaths.Get().ProjectEnvSecretYAMLFile(), ui),
-		), ui)
-		if err := persistEnvSecrets(
-			projectSlug,
-			reprovision.BuildEnvState(desiredEnv),
-			reprovision.BuildSecretState(desiredSecrets),
-		); err != nil {
-			ui.Warnf("persisting env/secret fingerprints on VM creation: %v (continuing)", err)
-		}
+		persistCreatedEnvSecrets(projectSlug, ui)
 	}
 	name := projectVMName(projectSlug)
 
@@ -154,7 +147,7 @@ func prepareSandbox(
 		ui.Infof("VM lifecycle skipped (--dry-run-vm)")
 		sandboxTarget = resolveTargetNoBranch()
 	} else {
-		sandboxTarget, sandboxErr = setUpSandbox(ctx, sb, opts, ui, restart)
+		sandboxTarget, sandboxErr = setUpSandbox(ctx, sb, opts, cfs, ui, restart)
 		if sandboxErr != nil {
 			return nil, sandboxErr
 		}
@@ -168,6 +161,28 @@ func prepareSandbox(
 		target: sandboxTarget,
 		cwd:    cwd,
 	}, nil
+}
+
+// persistCreatedEnvSecrets records the desired env/secret fingerprints when a
+// project VM is freshly created, so subsequent runs can detect changes.
+func persistCreatedEnvSecrets(projectSlug string, ui termio.UI) {
+	desiredEnv := reprovision.MergeEnvMaps(
+		reprovision.BuildEnvMap(configpaths.Get().UserEnvFile()),
+		reprovision.BuildEnvMap(configpaths.Get().ProjectEnvFile()),
+	)
+	desiredSecrets := reprovision.BuildSecretsFromSpecs(reprovision.MergeSecretSpecs(
+		reprovision.ParseSecretSpecLegacy(configpaths.Get().UserEnvSecretFile(), ui),
+		reprovision.ParseSecretSpecLegacy(configpaths.Get().ProjectEnvSecretFile(), ui),
+		reprovision.ParseSecretSpecYAML(configpaths.Get().UserEnvSecretYAMLFile(), ui),
+		reprovision.ParseSecretSpecYAML(configpaths.Get().ProjectEnvSecretYAMLFile(), ui),
+	), ui)
+	if err := persistEnvSecrets(
+		projectSlug,
+		reprovision.BuildEnvState(desiredEnv),
+		reprovision.BuildSecretState(desiredSecrets),
+	); err != nil {
+		ui.Warnf("persisting env/secret fingerprints on VM creation: %v (continuing)", err)
+	}
 }
 
 // Run creates (or reuses) the project VM, provisions config, starts opencode

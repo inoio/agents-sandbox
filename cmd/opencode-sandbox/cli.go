@@ -2,12 +2,10 @@ package main
 
 import (
 	"fmt"
-	"os"
 	"strconv"
 	"time"
 
 	"github.com/spf13/cobra"
-	"golang.org/x/term"
 
 	"gitlab.inoio.de/inoio/opencode-sandbox/internal/configpaths"
 	"gitlab.inoio.de/inoio/opencode-sandbox/internal/termio"
@@ -37,6 +35,8 @@ func execute(args []string, ui termio.UI) error {
 	rootCmd.SetArgs(args)
 	rootCmd.SetOut(ui.StdOut())
 	rootCmd.SetErr(ui.StdErr())
+	rootCmd.SilenceUsage = true
+	rootCmd.SilenceErrors = true
 
 	return rootCmd.Execute()
 }
@@ -67,23 +67,6 @@ func levelFrom(quiet, verbose bool) termio.Level {
 	default:
 		return termio.LevelNormal
 	}
-}
-
-func getIOLevel(root *cobra.Command) termio.Level {
-	verbose, _ := root.Flags().GetBool(pFlagVerbose)
-	quiet, _ := root.Flags().GetBool(pFlagQuiet)
-	return levelFrom(quiet, verbose)
-}
-
-func newUI(args []string) termio.UI {
-	minimalCmd := buildMinimalRootFlagsCmd()
-	// We don't care about errors, just parse the minimal flags for UI initialization
-	_ = minimalCmd.ParseFlags(args)
-	yes, _ := minimalCmd.Flags().GetBool(pFlagYes)
-	level := getIOLevel(minimalCmd)
-
-	return termio.New(os.Stdin, os.Stdout, os.Stderr,
-		term.IsTerminal(int(os.Stderr.Fd())), level, yes)
 }
 
 func newConfig() configpaths.ConfigPaths {
