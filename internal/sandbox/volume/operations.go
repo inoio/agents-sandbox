@@ -63,11 +63,11 @@ type volCallbacks struct {
 // CmdMigrate creates a new home volume, copies old files on top, updates state.
 func CmdMigrate(
 	ctx context.Context,
-	projectSlug, volumeName, imageTag string,
+	projectSlug, volumeName, imageTag, currentDigest string,
 	rmOld, dryRun bool,
 	ui termio.UI,
 ) error {
-	return volumeOp(ctx, projectSlug, volumeName, imageTag, rmOld, dryRun, volCallbacks{
+	return volumeOp(ctx, projectSlug, volumeName, imageTag, currentDigest, rmOld, dryRun, volCallbacks{
 		dryRun: func(oldVolume string) string {
 			return fmt.Sprintf(
 				"dry-run: Would create volume %q, copy files from %q",
@@ -90,11 +90,11 @@ func CmdMigrate(
 // CmdReset creates a new home volume from image only, no copy.
 func CmdReset(
 	ctx context.Context,
-	projectSlug, volumeName, imageTag string,
+	projectSlug, volumeName, imageTag, currentDigest string,
 	rmOld, dryRun bool,
 	ui termio.UI,
 ) error {
-	return volumeOp(ctx, projectSlug, volumeName, imageTag, rmOld, dryRun, volCallbacks{
+	return volumeOp(ctx, projectSlug, volumeName, imageTag, currentDigest, rmOld, dryRun, volCallbacks{
 		dryRun: func(oldVolume string) string {
 			return fmt.Sprintf(
 				"dry-run: Would create fresh volume %q, remove %q",
@@ -112,11 +112,11 @@ func CmdReset(
 // CmdEdit creates a new volume alongside the old for manual transfer.
 func CmdEdit(
 	ctx context.Context,
-	projectSlug, volumeName, imageTag string,
+	projectSlug, volumeName, imageTag, currentDigest string,
 	rmOld, dryRun bool,
 	ui termio.UI,
 ) error {
-	return volumeOp(ctx, projectSlug, volumeName, imageTag, rmOld, dryRun, volCallbacks{
+	return volumeOp(ctx, projectSlug, volumeName, imageTag, currentDigest, rmOld, dryRun, volCallbacks{
 		dryRun: func(oldVolume string) string {
 			return fmt.Sprintf(
 				"dry-run: Would create volume %q alongside %q for manual transfer",
@@ -165,7 +165,7 @@ func CmdEdit(
 // volumeOp is the shared implementation for migrate, reset, and edit operations.
 func volumeOp(
 	ctx context.Context,
-	projectSlug, volumeName, imageTag string,
+	projectSlug, volumeName, imageTag, currentDigest string,
 	rmOld, dryRun bool,
 	cbs volCallbacks,
 	ui termio.UI,
@@ -219,7 +219,13 @@ func volumeOp(
 		return err
 	}
 
-	newState := state.NewHomeState(newVolumeName, st.ImageDigest)
+	// Preserve the env/secret fingerprints from the previous state: a volume
+	// operation changes the home volume data, not the env/secrets baked into
+	// the VM, so discarding them would trigger a false VM rebuild on the next
+	// startup (see EnvChanged/SecretsChanged treating empty state as "changed").
+	newState := state.NewHomeState(newVolumeName, currentDigest)
+	newState.EnvState = st.EnvState
+	newState.SecretState = st.SecretState
 	if err := state.WriteState(projectSlug, newState); err != nil {
 		ui.Warnf("failed to write state file: %v", err)
 	}

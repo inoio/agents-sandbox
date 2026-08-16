@@ -22,7 +22,7 @@ import (
 	"gitlab.inoio.de/inoio/opencode-sandbox/internal/viperconfig"
 )
 
-type volumeOpFunc func(context.Context, string, string, string, bool, bool, termio.UI) error
+type volumeOpFunc func(context.Context, string, string, string, string, bool, bool, termio.UI) error
 
 func buildVolumeOpsCmd(
 	ui termio.UI,
@@ -56,7 +56,7 @@ func buildVolumeOpsCmd(
 			if len(args) > 0 {
 				volName = args[0]
 			}
-			return fn(c.Context(), projectSlug, volName, info.Tag, *rmVar, dryRun, ui)
+			return fn(c.Context(), projectSlug, volName, info.Tag, info.Digest, *rmVar, dryRun, ui)
 		},
 	}
 	cmd.Flags().BoolVar(rmVar, rmFlag, false, rmHelp)
