@@ -20,6 +20,25 @@ import (
 	"gitlab.inoio.de/inoio/opencode-sandbox/internal/termio"
 )
 
+// BuildOptions controls runner-image construction.
+type BuildOptions struct {
+	// Force rebuilds the image regardless of cache state.
+	Force bool
+	// OpenCodeVersion pins the opencode version baked into the image. When
+	// empty, the latest release is resolved at build time.
+	OpenCodeVersion string
+}
+
+// ImageInfo describes the built or existing runner image.
+//
+//nolint:revive // unavoidable stutter: image.Info already exists (list.go)
+type ImageInfo struct {
+	Tag             string
+	Digest          string
+	OpenCodeVersion string
+	Env             map[string]string
+}
+
 func referencesImage(dockerfile []byte, tag string) bool {
 	scanner := bufio.NewScanner(bytes.NewReader(dockerfile))
 	for scanner.Scan() {
@@ -31,31 +50,23 @@ func referencesImage(dockerfile []byte, tag string) bool {
 	return false
 }
 
-// ensureRunnerImage checks the runner Docker image on disk, loads stored env
-// metadata as fallback when the image has been pruned, builds it if needed,
-// and returns the tag, digest, and image env map.
+// ensureRunnerImage builds (or reuses) the runner Docker image and returns its
+// tag and digest-based cache identity. Env and the opencode version are read
+// separately from the msb image cache, not from Docker.
 func ensureRunnerImage(
 	ctx context.Context,
 	dockerfile []byte,
 	projectSlug string,
 	force bool,
+	openCodeVersion string,
 	ui termio.UI,
-) (string, string, map[string]string, error) {
+) (string, string, error) {
 	rTag := runnerTag(projectSlug)
-	var imageEnv map[string]string
 	var imageDigest string
-
-	if force {
-		imageEnv = make(map[string]string)
-	} else {
-		imageEnv, imageDigest = inspectExistingImage(ctx, rTag, ui)
+	if !force {
+		imageDigest = inspectExistingImage(ctx, rTag, ui)
 	}
-
-	if imageEnv == nil {
-		imageEnv = make(map[string]string)
-	}
-
-	return buildRunnerImage(ctx, rTag, imageEnv, imageDigest, dockerfile, force, projectSlug, ui)
+	return buildRunnerImage(ctx, rTag, imageDigest, dockerfile, force, openCodeVersion, projectSlug, ui)
 }
 
 // buildDockerImage builds the given Dockerfile as a tag, wrapping the build
@@ -65,11 +76,12 @@ func buildDockerImage(
 	dockerfile []byte,
 	tag, label string,
 	force bool,
+	openCodeVersion string,
 	ui termio.UI,
 ) error {
 	spinner := ui.Spinner(label)
 	line := func(s string) { ui.Verbose(s) }
-	if err := buildImage(ctx, dockerfile, tag, force, line); err != nil {
+	if err := buildImage(ctx, dockerfile, tag, force, openCodeVersion, line); err != nil {
 		spinner.StopError(err)
 		return err
 	}
@@ -84,6 +96,7 @@ func buildImage(
 	dockerfile []byte,
 	tag string,
 	force bool,
+	openCodeVersion string,
 	line func(string),
 ) error {
 	tarBuf, err := dockerfileTar(dockerfile)
@@ -94,7 +107,7 @@ func buildImage(
 		Tags:      []string{tag},
 		Remove:    true,
 		NoCache:   force,
-		BuildArgs: userBuildArgs(os.Getuid(), os.Getgid()),
+		BuildArgs: userBuildArgs(os.Getuid(), os.Getgid(), openCodeVersion),
 	})
 	if err != nil {
 		return fmt.Errorf("docker image build failed: %w", err)
@@ -162,13 +175,14 @@ func dockerfileTar(dockerfile []byte) (*bytes.Buffer, error) {
 
 // userBuildArgs returns Docker build arguments that align the in-image dev user
 // (see data/Dockerfile's USER_UID/USER_GID) with the host user that owns the
-// bind-mounted /workspace, avoiding permission mismatches inside the VM.
-func userBuildArgs(uid, gid int) map[string]*string {
+// bind-mounted /workspace, and pin the opencode version baked into the image.
+func userBuildArgs(uid, gid int, openCodeVersion string) map[string]*string {
 	u := strconv.Itoa(uid)
 	g := strconv.Itoa(gid)
 	return map[string]*string{
-		"USER_UID": &u,
-		"USER_GID": &g,
+		"USER_UID":         &u,
+		"USER_GID":         &g,
+		"OPENCODE_VERSION": &openCodeVersion,
 	}
 }
 
@@ -183,126 +197,124 @@ type dockerBuildMessage struct {
 	Stream string `json:"stream"`
 }
 
-// buildRunnerImage builds the runner image and returns the rTag, digest, env map.
+// buildRunnerImage builds the runner image and returns the rTag and digest.
 func buildRunnerImage(
 	ctx context.Context,
 	rTag string,
-	imageEnv map[string]string,
-	imageDigest string,
+	imageDigest string, //nolint:unparam,staticcheck // digest refreshed by the rebuild's inspect below
 	dockerfile []byte,
 	force bool,
+	openCodeVersion string,
 	projectSlug string,
 	ui termio.UI,
-) (string, string, map[string]string, error) {
-	if len(imageEnv) == 0 {
-		imageEnv = make(map[string]string)
-	}
-
-	if err := buildDockerImage(ctx, dockerfile, rTag, "Ensuring runner image", force, ui); err != nil {
-		if len(imageEnv) > 0 {
-			ui.Warnf("build succeeded but inspect failed; using stored env metadata")
-			return rTag, imageDigest, imageEnv, nil
-		}
-		return "", "", nil, err
+) (string, string, error) {
+	if err := buildDockerImage(ctx, dockerfile, rTag, "Ensuring runner image", force, openCodeVersion, ui); err != nil {
+		return "", "", err
 	}
 	inspect, err := docker.Get().ImageInspect(ctx, rTag)
 	if err != nil {
-		return "", "", nil, fmt.Errorf("cannot inspect built image: %w", err)
+		return "", "", fmt.Errorf("cannot inspect built image: %w", err)
 	}
-	imageDigest = inspect.ID
-	imageEnv = parseImageEnv(inspect.Config.Env)
-	storeImageEnv(rTag, imageEnv)
-	ui.Verbosef("rebuilt image %s with %d env vars", rTag, len(imageEnv))
+	imageDigest = inspect.ID //nolint:staticcheck // assignment refreshes the digest param above
+	ui.Verbosef("rebuilt image %s (digest %s)", rTag, imageDigest)
 
-	digestTag := imageTag(projectSlug, imageDigest)
-	if digestTag != rTag {
-		if _, err := docker.Get().
-			ImageTag(ctx, client.ImageTagOptions{Source: rTag, Target: digestTag}); err != nil {
+	if digestTag := imageTag(projectSlug, imageDigest); digestTag != rTag {
+		if _, err := docker.Get().ImageTag(ctx, client.ImageTagOptions{Source: rTag, Target: digestTag}); err != nil {
 			ui.Warnf("failed to tag image with digest: %v", err)
-		} else {
-			ui.Verbosef("tagged image with digest: %s", digestTag)
 		}
 	}
-
-	return rTag, imageDigest, imageEnv, nil
+	return rTag, imageDigest, nil
 }
 
-// EnsureImageWithClient builds/inspects the runner Docker image using the
-// provided clients. Tests inject mock clients to verify build behavior.
+// EnsureImageWithClient builds/inspects the runner Docker image with the given
+// clients. The baked opencode version (requested or latest) becomes a build
+// arg, and the resulting env map + opencode version are read back from the msb
+// image cache. Tests inject mock clients to verify behavior.
 func EnsureImageWithClient(
 	ctx context.Context,
 	mclient msb.Client,
 	dockerfile []byte,
 	projectSlug string,
-	force bool,
+	buildOpts BuildOptions,
 	ui termio.UI,
-) (string, string, map[string]string, error) {
-	if force || referencesImage(dockerfile, naming.BaseTag) || referencesImage(dockerfile, naming.DindBaseTag) {
-		if err := buildDockerImage(
+) (ImageInfo, error) {
+	openCodeVersion, err := resolveOpenCodeVersion(ctx, buildOpts.OpenCodeVersion)
+	if err != nil {
+		return ImageInfo{}, fmt.Errorf("resolve opencode version: %w", err)
+	}
+
+	if buildOpts.Force || referencesImage(dockerfile, naming.BaseTag) ||
+		referencesImage(dockerfile, naming.DindBaseTag) {
+		if buildErr := buildDockerImage(
 			ctx,
 			embeddedDockerfile,
 			naming.BaseTag,
 			"Ensuring base runner image",
-			force,
+			buildOpts.Force,
+			openCodeVersion,
 			ui,
-		); err != nil {
-			return "", "", nil, fmt.Errorf("building base image: %w", err)
+		); buildErr != nil {
+			return ImageInfo{}, fmt.Errorf("building base image: %w", buildErr)
 		}
 	}
-
 	if referencesImage(dockerfile, naming.DindBaseTag) {
-		if err := buildDockerImage(
+		if buildErr := buildDockerImage(
 			ctx,
 			embeddedDindDockerfile,
 			naming.DindBaseTag,
 			"Ensuring Docker-in-Docker base runner image",
-			force,
+			buildOpts.Force,
+			openCodeVersion,
 			ui,
-		); err != nil {
-			return "", "", nil, fmt.Errorf("building dind base image: %w", err)
+		); buildErr != nil {
+			return ImageInfo{}, fmt.Errorf("building dind base image: %w", buildErr)
 		}
 	}
 
-	rTag, imageDigest, imageEnv, err := ensureRunnerImage(ctx, dockerfile, projectSlug, force, ui)
+	rTag, imageDigest, err := ensureRunnerImage(ctx, dockerfile, projectSlug, buildOpts.Force, openCodeVersion, ui)
 	if err != nil {
-		return "", "", nil, err
+		return ImageInfo{}, err
 	}
 
 	imageRef := imageTag(projectSlug, imageDigest)
 
-	cacheErr := mclient.ImageGet(ctx, imageRef)
-	if cacheErr == nil && !force {
-		return imageRef, imageDigest, imageEnv, nil
+	if cacheErr := mclient.ImageGet(ctx, imageRef); cacheErr == nil && !buildOpts.Force {
+		env, version, readErr := readImageInfoFromMSB(ctx, mclient, imageRef)
+		if readErr != nil {
+			return ImageInfo{}, fmt.Errorf("inspect cached msb image: %w", readErr)
+		}
+		return ImageInfo{Tag: rTag, Digest: imageDigest, OpenCodeVersion: version, Env: env}, nil
 	}
 
 	spin := ui.Spinner("Loading image into microsandbox")
 	saveResult, err := docker.Get().ImageSave(ctx, []string{rTag})
 	if err != nil {
 		spin.StopError(err)
-		return "", "", nil, fmt.Errorf("cannot export Docker image: %w", err)
+		return ImageInfo{}, fmt.Errorf("cannot export Docker image: %w", err)
 	}
 	defer saveResult.Close()
-
-	if err := mclient.ImageLoad(ctx, imageRef, saveResult); err != nil {
+	if err = mclient.ImageLoad(ctx, imageRef, saveResult); err != nil {
 		spin.StopError(err)
-		return "", "", nil, err
+		return ImageInfo{}, err
 	}
 	spin.Stop()
 
-	return imageRef, imageDigest, imageEnv, nil
+	env, version, err := readImageInfoFromMSB(ctx, mclient, imageRef)
+	if err != nil {
+		return ImageInfo{}, fmt.Errorf("inspect loaded msb image: %w", err)
+	}
+	return ImageInfo{Tag: rTag, Digest: imageDigest, OpenCodeVersion: version, Env: env}, nil
 }
 
-// EnsureImage builds/inspects the runner Docker image and returns its tag,
-// digest, and the Dockerfile ENV directives baked into the image config as a
-// map. The env map is derived from cli.ImageInspect; if the image is no
-// longer on disk (e.g. after `docker prune`), it falls back to stored JSON
-// metadata written by a previous invocation.
+// EnsureImage builds/inspects the runner Docker image and returns an ImageInfo
+// describing its tag, digest, baked opencode version, and ENV map (read from
+// the msb image cache).
 func EnsureImage(
 	ctx context.Context,
 	projectSlug string,
-	force bool,
+	buildOpts BuildOptions,
 	ui termio.UI,
-) (string, string, map[string]string, error) {
+) (ImageInfo, error) {
 	dockerfile := ResolveDockerfile()
-	return EnsureImageWithClient(ctx, msb.Get(), dockerfile, projectSlug, force, ui)
+	return EnsureImageWithClient(ctx, msb.Get(), dockerfile, projectSlug, buildOpts, ui)
 }

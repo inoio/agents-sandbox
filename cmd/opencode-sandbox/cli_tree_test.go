@@ -8,7 +8,7 @@ import (
 )
 
 func TestTree(t *testing.T) {
-	t.Run("Tree root name is printed as first line of InfoCalls", func(t *testing.T) {
+	t.Run("root name printed as first line", func(t *testing.T) {
 		testUI := termio.NewTestMock(t)
 		root := buildRootCmd(&testUI)
 		printTree(root, &testUI)
@@ -20,7 +20,7 @@ func TestTree(t *testing.T) {
 		}
 	})
 
-	t.Run("Tree lists all subcommands", func(t *testing.T) {
+	t.Run("lists all subcommands", func(t *testing.T) {
 		testUI := termio.NewTestMock(t)
 		root := buildRootCmd(&testUI)
 		printTree(root, &testUI)
@@ -33,7 +33,7 @@ func TestTree(t *testing.T) {
 		}
 	})
 
-	t.Run("Tree shows flag descriptions from persistent and local flags", func(t *testing.T) {
+	t.Run("shows flag descriptions from persistent and local flags", func(t *testing.T) {
 		testUI := termio.NewTestMock(t)
 		root := buildRootCmd(&testUI)
 		printTree(root, &testUI)
@@ -114,7 +114,6 @@ func TestPrintTreeStringFlagsHaveValuePlaceholders(t *testing.T) {
 		"--memory <MEMORY>",
 		"--tmp-size <TMP_SIZE>",
 		"--disk-size <DISK_SIZE>",
-		"--user <USER>",
 	}
 	for _, s := range expected {
 		if !strings.Contains(out, s) {
@@ -156,7 +155,6 @@ func TestPrintTreeFlagShortcuts(t *testing.T) {
 		"-n, --dry-run",
 		"-c, --cpus <CPUS>",
 		"-m, --memory <MEMORY>",
-		"-u, --user <USER>",
 	}
 	for _, s := range expected {
 		if !strings.Contains(out, s) {

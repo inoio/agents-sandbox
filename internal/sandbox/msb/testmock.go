@@ -44,6 +44,7 @@ type MockMsbClient struct {
 	ImageListFn       func(ctx context.Context) ([]ImageHandle, error)
 	ImageRemoveFn     func(ctx context.Context, ref string, force bool) error
 	ImageLoadFn       func(ctx context.Context, ref string, r io.Reader) error
+	ImageInspectFn    func(ctx context.Context, ref string) (*msbSdk.ImageConfig, error)
 
 	// Pre-populated collections — List* methods return these when the callback is nil.
 	// Tests can append to these fields freely.
@@ -267,6 +268,13 @@ func (m *MockMsbClient) ImageLoad(ctx context.Context, ref string, r io.Reader) 
 	return m.imageLoadErr
 }
 
+func (m *MockMsbClient) ImageInspect(ctx context.Context, ref string) (*msbSdk.ImageConfig, error) {
+	if m.ImageInspectFn != nil {
+		return m.ImageInspectFn(ctx, ref)
+	}
+	return &msbSdk.ImageConfig{}, nil
+}
+
 // SetGetSandboxErr sets the error returned by MockMsbClient.GetSandbox.
 func (m *MockMsbClient) SetGetSandboxErr(err error) *MockMsbClient {
 	if err != nil {
@@ -388,6 +396,7 @@ type MockSandbox struct {
 	ExecErr    error
 	AttachCode int
 	AttachErr  error
+	AttachUser string
 	DetachErr  error
 	StopErr    error
 	CloseErr   error
@@ -433,6 +442,23 @@ func (m *MockSandbox) Exec(
 }
 
 func (m *MockSandbox) Attach(_ context.Context, _ string, _ ...string) (int, error) {
+	return m.AttachCode, m.AttachErr
+}
+
+func (m *MockSandbox) AttachWith(
+	_ context.Context,
+	_ string,
+	_ []string,
+	opts ...msbSdk.AttachOption,
+) (int, error) {
+	if len(opts) > 0 {
+		//nolint:exhaustruct // only User_ is relevant for this mock
+		cfg := msbSdk.AttachConfig{}
+		for _, opt := range opts {
+			opt(&cfg)
+		}
+		m.AttachUser = cfg.User
+	}
 	return m.AttachCode, m.AttachErr
 }
 
@@ -701,4 +727,10 @@ func (f *failFastMsbClient) ImageRemove(_ context.Context, _ string, _ bool) err
 func (f *failFastMsbClient) ImageLoad(_ context.Context, _ string, _ io.Reader) error {
 	f.mustMock()
 	return nil
+}
+
+func (f *failFastMsbClient) ImageInspect(_ context.Context, _ string) (*msbSdk.ImageConfig, error) {
+	f.mustMock()
+	//nolint:nilnil // panics before returning; keeps failFastMsbClient interface-conformant
+	return nil, nil
 }

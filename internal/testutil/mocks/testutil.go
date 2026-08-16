@@ -5,6 +5,7 @@ import (
 
 	"gitlab.inoio.de/inoio/opencode-sandbox/internal/configpaths"
 	"gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/docker"
+	"gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/doctor"
 	"gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/msb"
 )
 
@@ -13,7 +14,7 @@ import (
 func InitFailFastMocks(m *testing.M) {
 	configpaths.InstallFailFastConfigPaths()
 	docker.InstallFailFastGet()
-	// doctor.InstallFailFast()
+	doctor.InstallFailFast()
 	msb.InstallFailFastGet()
 	m.Run()
 }

@@ -128,8 +128,10 @@ creation.
 
 When another client is attached, config changes that would restart the opencode daemon or recreate the VM trigger a
 prompt asking whether to keep the running server/VM (defer), proceed, or quit (abort the apply). The default is always
-to defer — existing sessions are never cut off. See [Configuration](./configuration.md#resource-config-application)
-for details on how resource changes are applied and their reconnect semantics.
+to defer — existing sessions are never cut off. Choosing to keep still provisions the updated config files into the VM,
+so the next daemon restart picks them up; only the restart itself is deferred. See
+[Configuration](./configuration.md#resource-config-application) for details on how resource changes are applied and
+their reconnect semantics.
 
 ## Manual Pruning
 

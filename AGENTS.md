@@ -39,8 +39,8 @@ persisting user state via a home directory volume.
 
 You are dogfooding the project, you are not on the host, but in an opencode-sandbox VM. Filesystem layout:
 
-- `/workspace` bind mount of the host CWD, mounted rw. If that's your CWD, ask whether to work there, avoid editing conflicts with other agents.
-- `~/.local/share/opencode/worktree/` git worktrees of `/workspace`, created by opencode. If that's your CWD, work right there.
+- `/workspace` bind mount of the host CWD, mounted rw. When working there, there's potential for parallel edits by other agents/humans.
+- `~/.local/share/opencode/worktree/` git worktrees of `/workspace`, created by opencode. If that's your CWD, when finalizing the session, after merging/pushing, always delete the worktree.
 
 Installed tooling (see .opencode-sandbox/Dockerfile):
 

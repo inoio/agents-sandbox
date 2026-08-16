@@ -7,7 +7,6 @@ import (
 	"errors"
 	"io"
 	"os"
-	"path/filepath"
 	"reflect"
 	"strconv"
 	"strings"
@@ -17,6 +16,7 @@ import (
 	"github.com/moby/moby/api/types/image"
 	"github.com/moby/moby/client"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
+	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 
 	"gitlab.inoio.de/inoio/opencode-sandbox/internal/configpaths"
 	"gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/docker"
@@ -64,7 +64,7 @@ func TestBuildDockerImageSetsHostUserBuildArgs(t *testing.T) {
 	}
 	docker.WithDockerMock(t, m)
 
-	if err := buildImage(context.Background(), dockerfile, "tag", false, func(string) {}); err != nil {
+	if err := buildImage(context.Background(), dockerfile, "tag", false, "", func(string) {}); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
@@ -75,6 +75,23 @@ func TestBuildDockerImageSetsHostUserBuildArgs(t *testing.T) {
 	}
 	if v := capturedBuildArgs["USER_GID"]; v == nil || *v != wantGID {
 		t.Errorf("USER_GID: want %q, got %v", wantGID, v)
+	}
+}
+
+func TestEmbeddedBaseDockerfileBakesVersionLabelAndDisablesAutoupdate(t *testing.T) {
+	base := string(embeddedDockerfile)
+	if !strings.Contains(base, `LABEL org.opencode-sandbox.opencode-version="$OPENCODE_VERSION"`) {
+		t.Error("base Dockerfile must label org.opencode-sandbox.opencode-version with $OPENCODE_VERSION")
+	}
+	if !strings.Contains(base, "OPENCODE_DISABLE_AUTOUPDATE=true") {
+		t.Error("base Dockerfile must set ENV OPENCODE_DISABLE_AUTOUPDATE=true")
+	}
+	if !strings.Contains(base, "--version \"$OPENCODE_VERSION\"") {
+		t.Error("base Dockerfile must install opencode with the pinned version")
+	}
+	dind := string(embeddedDindDockerfile)
+	if !strings.Contains(dind, "ARG OPENCODE_VERSION") {
+		t.Error("dind Dockerfile must declare ARG OPENCODE_VERSION")
 	}
 }
 
@@ -135,12 +152,12 @@ func TestScanBuildOutputReturnsErrorMessage(t *testing.T) {
 func TestEnsureImageReturnsErrorWhenBuildFails(t *testing.T) {
 	l := &termio.Mock{}
 	docker.WithDefaultErrorDockerMock(t)
-	_, _, _, err := EnsureImageWithClient(
+	_, err := EnsureImageWithClient(
 		context.Background(),
 		&msb.MockMsbClient{},
 		embeddedDockerfile,
 		"test-project",
-		true,
+		BuildOptions{Force: true},
 		l,
 	)
 	if err == nil {
@@ -218,12 +235,12 @@ func runEnsureImageTagTest(t *testing.T, dockerfile []byte, force bool, wantTags
 	}
 	docker.WithDockerMock(t, m)
 
-	_, _, _, err := EnsureImageWithClient(
+	_, err := EnsureImageWithClient(
 		context.Background(),
 		&msb.MockMsbClient{},
 		dockerfile,
 		"test-project",
-		force,
+		BuildOptions{Force: force},
 		&termio.Mock{},
 	)
 	if err != nil {
@@ -252,14 +269,19 @@ func TestEnsureImageLoadsIntoMSBWhenNotCached(t *testing.T) {
 		ImageGetFn: func(_ context.Context, _ string) error {
 			return errors.New("image not in cache")
 		},
+		ImageInspectFn: func(_ context.Context, _ string) (*msbSdk.ImageConfig, error) {
+			return &msbSdk.ImageConfig{
+				Labels: map[string]string{OpenCodeVersionLabel: "1.0.0"},
+			}, nil
+		},
 	}
 	dockerfile := []byte("FROM opencode-sandbox/runner-base:latest\nRUN echo hi\n")
-	_, _, _, err := EnsureImageWithClient(
+	_, err := EnsureImageWithClient(
 		context.Background(),
 		msbClient,
 		dockerfile,
 		"test-project",
-		false,
+		BuildOptions{Force: false},
 		&termio.Mock{},
 	)
 	if err != nil {
@@ -273,14 +295,117 @@ func TestEnsureImageLoadsIntoMSBWhenNotCached(t *testing.T) {
 	}
 }
 
-func TestEnvDirUsesCache(t *testing.T) {
-	configpaths.WithRealConfigPaths(t)
-	cache := t.TempDir()
-	t.Setenv("XDG_CACHE_HOME", cache)
-	t.Setenv("HOME", t.TempDir())
-	got := envDir()
-	want := filepath.Join(cache, "opencode-sandbox")
-	if got != want {
-		t.Errorf("envDir() = %q, want %q", got, want)
+func TestBuildImagePassesOpenCodeVersionBuildArg(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	orig := resolveOpenCodeVersion
+	resolveOpenCodeVersion = func(_ context.Context, requested string) (string, error) {
+		return requested, nil
+	}
+	t.Cleanup(func() { resolveOpenCodeVersion = orig })
+
+	m := &docker.MockDockerClient{}
+	var captured map[string]*string
+	m.ImageBuildFn = func(_ context.Context, _ io.Reader, opts client.ImageBuildOptions) (client.ImageBuildResult, error) {
+		captured = opts.BuildArgs
+		return client.ImageBuildResult{Body: io.NopCloser(bytes.NewReader(nil))}, nil
+	}
+	docker.WithDockerMock(t, m)
+
+	msbClient := &msb.MockMsbClient{}
+	_, err := EnsureImageWithClient(
+		context.Background(),
+		msbClient,
+		[]byte("FROM "+naming.BaseTag+":latest\nRUN echo hi\n"),
+		"test-project",
+		BuildOptions{Force: true, OpenCodeVersion: "1.2.3"},
+		&termio.Mock{},
+	)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if captured == nil {
+		t.Fatal("expected build args to be captured")
+	}
+	v := captured["OPENCODE_VERSION"]
+	if v == nil || *v != "1.2.3" {
+		t.Errorf("OPENCODE_VERSION build arg = %v, want %q", v, "1.2.3")
+	}
+}
+
+func TestEnsureImageReadsVersionFromMSBTAfterLoad(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	orig := resolveOpenCodeVersion
+	resolveOpenCodeVersion = func(_ context.Context, _ string) (string, error) {
+		return "2.0.0", nil
+	}
+	t.Cleanup(func() { resolveOpenCodeVersion = orig })
+
+	m := &docker.MockDockerClient{}
+	docker.WithDockerMock(t, m)
+
+	msbClient := &msb.MockMsbClient{
+		ImageGetFn: func(_ context.Context, _ string) error { return errors.New("not cached") },
+		ImageInspectFn: func(_ context.Context, _ string) (*msbSdk.ImageConfig, error) {
+			return &msbSdk.ImageConfig{
+				Env:    []string{"PATH=/usr/bin"},
+				Labels: map[string]string{OpenCodeVersionLabel: "2.0.0"},
+			}, nil
+		},
+	}
+
+	info, err := EnsureImageWithClient(
+		context.Background(),
+		msbClient,
+		[]byte("FROM debian:trixie-slim\nRUN echo hi\n"),
+		"test-project",
+		BuildOptions{Force: false},
+		&termio.Mock{},
+	)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if info.OpenCodeVersion != "2.0.0" {
+		t.Errorf("info.OpenCodeVersion = %q, want %q", info.OpenCodeVersion, "2.0.0")
+	}
+	if len(msbClient.LoadedImages) != 1 {
+		t.Fatalf("expected 1 image load, got %d", len(msbClient.LoadedImages))
+	}
+	if info.Env["PATH"] != "/usr/bin" {
+		t.Errorf("info.Env = %v", info.Env)
+	}
+}
+
+func TestEnsureImageReadsVersionFromMSBCachedPath(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	orig := resolveOpenCodeVersion
+	resolveOpenCodeVersion = func(_ context.Context, _ string) (string, error) {
+		return "3.0.0", nil
+	}
+	t.Cleanup(func() { resolveOpenCodeVersion = orig })
+
+	docker.WithDockerMock(t, &docker.MockDockerClient{})
+
+	msbClient := &msb.MockMsbClient{
+		ImageGetFn: func(_ context.Context, _ string) error { return nil },
+		ImageInspectFn: func(_ context.Context, _ string) (*msbSdk.ImageConfig, error) {
+			return &msbSdk.ImageConfig{Labels: map[string]string{OpenCodeVersionLabel: "3.0.0"}}, nil
+		},
+	}
+	info, err := EnsureImageWithClient(
+		context.Background(),
+		msbClient,
+		[]byte("FROM debian:trixie-slim\nRUN echo hi\n"),
+		"test-project",
+		BuildOptions{Force: false},
+		&termio.Mock{},
+	)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if info.OpenCodeVersion != "3.0.0" {
+		t.Errorf("info.OpenCodeVersion = %q, want %q", info.OpenCodeVersion, "3.0.0")
+	}
+	if len(msbClient.LoadedImages) != 0 {
+		t.Errorf("expected no load on cached path, got %d loads", len(msbClient.LoadedImages))
 	}
 }

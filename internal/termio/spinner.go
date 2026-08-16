@@ -70,7 +70,7 @@ func (s *spinner) animate() {
 		default:
 		}
 		elapsed := time.Since(s.start)
-		fmt.Fprintf(s.w, "\r\033[K%s %s%s%s", s.msg, spinnerChars[i%len(spinnerChars)], " ", formatElapsedLive(elapsed))
+		fmt.Fprintf(s.w, "\r\033[K%s %s%s", s.msg, spinnerChars[i%len(spinnerChars)], formatElapsedLive(elapsed))
 		i++
 		time.Sleep(spinnerInterval)
 	}
@@ -94,7 +94,11 @@ func (s *spinner) finish(result string) {
 	var final string
 	switch {
 	case result == "done":
-		final = "✅" + suffix
+		mark := "✔"
+		if s.color {
+			mark = ansiGreen + mark + ansiReset
+		}
+		final = mark + suffix
 	case strings.HasPrefix(result, "failed: "):
 		msg := fmt.Sprintf("failed %s: %s", suffix, strings.TrimPrefix(result, "failed: "))
 		if s.color {

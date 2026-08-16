@@ -1,6 +1,7 @@
 package msb
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"testing"
@@ -45,6 +46,21 @@ func TestIsSandboxActive(t *testing.T) {
 				t.Errorf("IsSandboxActive(%q) = %v, want %v", tt.status, got, tt.want)
 			}
 		})
+	}
+}
+
+func TestMockImageInspectUsesFn(t *testing.T) {
+	called := false
+	m := &MockMsbClient{ImageInspectFn: func(_ context.Context, _ string) (*msbSdk.ImageConfig, error) {
+		called = true
+		return &msbSdk.ImageConfig{}, nil
+	}}
+	cfg, err := m.ImageInspect(context.Background(), "ref")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !called || cfg == nil {
+		t.Error("expected ImageInspectFn to be called and return a config")
 	}
 }
 

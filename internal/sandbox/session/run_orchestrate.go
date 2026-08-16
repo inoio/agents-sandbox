@@ -7,6 +7,8 @@ import (
 	"os"
 	"strings"
 
+	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
+
 	"gitlab.inoio.de/inoio/opencode-sandbox/internal/configpaths"
 	"gitlab.inoio.de/inoio/opencode-sandbox/internal/git"
 	"gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/doctor"
@@ -73,15 +75,28 @@ func prepareSandbox(
 ) (*sandboxSession, error) {
 	projectSlug := git.ProjectSlug(ui)
 
-	imageRef, imageDigest, imageEnvs, err := image.EnsureImage(ctx, projectSlug, opts.Rebuild, ui)
+	imageInfo, err := image.EnsureImage(
+		ctx,
+		projectSlug,
+		image.BuildOptions{Force: opts.Rebuild, OpenCodeVersion: opts.OpenCodeVersion},
+		ui,
+	)
 	if err != nil {
 		return nil, fmt.Errorf("image setup failed: %w", err)
 	}
-	ui.Verbosef("Using image '%s' (digest=%s)", imageRef, imageDigest)
+	ui.Verbosef("Using image '%s' (digest=%s, opencode %s)", imageInfo.Tag, imageInfo.Digest, imageInfo.OpenCodeVersion)
+
+	imageInfo, action, err := maybePromptOpenCodeUpgrade(ctx, ui, opts, imageInfo)
+	if err != nil {
+		return nil, err
+	}
+	if action == upgradeActionRebuild {
+		ui.Verbosef("runner image rebuilt with a newer opencode version")
+	}
 
 	vm := volume.NewManager(ui)
 	client := msb.Get()
-	homeVol, vs, err := vm.ResolveHomeVolume(ctx, client, projectSlug, imageDigest, imageRef, opts, ui)
+	homeVol, vs, err := vm.ResolveHomeVolume(ctx, client, projectSlug, imageInfo.Digest, imageInfo.Tag, opts, ui)
 	if err != nil {
 		return nil, fmt.Errorf("volume setup failed: %w", err)
 	}
@@ -97,8 +112,8 @@ func prepareSandbox(
 		vm,
 		opts,
 
-		imageRef,
-		imageDigest,
+		imageInfo.Tag,
+		imageInfo.Digest,
 		homeVol,
 		vs,
 		ui,
@@ -108,7 +123,7 @@ func prepareSandbox(
 	}
 	ui.Verbosef("recreate: %v, restart: %v", recreate, restart)
 	opts.Recreate = recreate
-	sb, created, err := ensureProjectVM(ctx, opts, imageRef, homeVol, cwd, imageEnvs, ui)
+	sb, created, err := ensureProjectVM(ctx, opts, imageInfo.Tag, homeVol, cwd, imageInfo.Env, ui)
 	if err != nil {
 		return nil, err
 	}
@@ -139,7 +154,7 @@ func prepareSandbox(
 		ui.Infof("VM lifecycle skipped (--dry-run-vm)")
 		sandboxTarget = resolveTargetNoBranch()
 	} else {
-		sandboxTarget, sandboxErr = setUpSandbox(ctx, sb, opts, created, ui, restart)
+		sandboxTarget, sandboxErr = setUpSandbox(ctx, sb, opts, ui, restart)
 		if sandboxErr != nil {
 			return nil, sandboxErr
 		}
@@ -205,7 +220,7 @@ func Run(ctx context.Context, opts options.RunOptions, ui termio.UI) error {
 	// Run as a login shell so /etc/profile and ~/.profile are sourced,
 	// putting tools installed under /usr/local/go/bin, ~/go/bin and
 	// ~/.microsandbox/bin on PATH for opencode and its child shells.
-	return runAttach(ctx, session, projectSlug, ui, opts.ReapPolicy, "-l", "-c", setup)
+	return runAttach(ctx, session, projectSlug, ui, opts, "-l", "-c", setup)
 }
 
 // Shell creates (or reuses) the project VM and drops the user into an
@@ -227,11 +242,11 @@ func Shell(ctx context.Context, opts options.RunOptions, ui termio.UI) error {
 	}
 
 	projectSlug := git.ProjectSlug(ui)
-	return runAttach(ctx, session, projectSlug, ui, opts.ReapPolicy, "-l")
+	return runAttach(ctx, session, projectSlug, ui, opts, "-l")
 }
 
 // BuildImage builds (or updates) the runner image for Docker-in-Docker support.
-func BuildImage(ctx context.Context, force, dryRun bool, ui termio.UI) error {
+func BuildImage(ctx context.Context, force, dryRun bool, openCodeVersion string, ui termio.UI) error {
 	if dryRun {
 		ui.Infof("dry-run: Would build runner image")
 		return nil
@@ -242,7 +257,8 @@ func BuildImage(ctx context.Context, force, dryRun bool, ui termio.UI) error {
 	}
 	projectSlug := git.ProjectSlug(ui)
 
-	_, _, _, err := image.EnsureImageWithClient(ctx, msb.Get(), image.ResolveDockerfile(), projectSlug, force, ui)
+	_, err := image.EnsureImageWithClient(ctx, msb.Get(), image.ResolveDockerfile(), projectSlug,
+		image.BuildOptions{Force: force, OpenCodeVersion: openCodeVersion}, ui)
 	return err
 }
 
@@ -263,7 +279,7 @@ func runAttach(
 	session *sandboxSession,
 	projectSlug string,
 	ui termio.UI,
-	reapPolicy options.ReapPolicy,
+	opts options.RunOptions,
 	bashArgs ...string,
 ) error {
 	// Acquire a client lease so state tracks this session.
@@ -278,7 +294,13 @@ func runAttach(
 	}()
 
 	// Attach to the sandbox and capture its exit code.
-	exitCode, attachErr := session.sb.Attach(ctx, "/bin/bash", bashArgs...)
+	var exitCode int
+	var attachErr error
+	if opts.Root {
+		exitCode, attachErr = session.sb.AttachWith(ctx, "/bin/bash", bashArgs, msbSdk.WithAttachUser("root"))
+	} else {
+		exitCode, attachErr = session.sb.Attach(ctx, "/bin/bash", bashArgs...)
+	}
 
 	// Explicitly release the lease after attach returns, before reaping.
 	// This ensures state.CountActiveClients reflects only OTHER live clients.
@@ -288,7 +310,7 @@ func runAttach(
 		release = nil
 	}
 
-	if err := reapOnLastClient(ctx, projectSlug, session.sb, reapPolicy, ui); err != nil {
+	if err := reapOnLastClient(ctx, projectSlug, session.sb, opts.ReapPolicy, ui); err != nil {
 		ui.Warnf("reap failed: %v", err)
 	}
 

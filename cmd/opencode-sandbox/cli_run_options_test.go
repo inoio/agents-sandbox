@@ -17,8 +17,8 @@ import (
 // ReapPolicy and IdleTimeout from a launcherconfig.Config stored in
 // the command's context (wired via PersistentPreRunE in production).
 
-// L1: default zero Value Config produces the expected defaults.
-func TestExtractRunOptions_L1_DefaultValues(t *testing.T) {
+// A zero-value Config produces the expected defaults.
+func TestExtractRunOptionsDefaults(t *testing.T) {
 	ui := &termio.Mock{}
 	lc := launcherconfig.Config{} // zero value
 	cmd := buildCommandWithLauncherConfig(ui, lc)
@@ -40,8 +40,8 @@ func TestExtractRunOptions_L1_DefaultValues(t *testing.T) {
 	}
 }
 
-// L2: AutoStopOnActiveSessions: true propagates to ReapPolicy.
-func TestExtractRunOptions_L2_AutoStopOnActiveSessions(t *testing.T) {
+// AutoStopOnActiveSessions: true propagates to ReapPolicy.
+func TestExtractRunOptionsAutoStopOnActiveSessions(t *testing.T) {
 	ui := &termio.Mock{}
 	lc := launcherconfig.Config{AutoStopOnActiveSessions: true}
 	cmd := buildCommandWithLauncherConfig(ui, lc)
@@ -56,8 +56,8 @@ func TestExtractRunOptions_L2_AutoStopOnActiveSessions(t *testing.T) {
 	}
 }
 
-// L3: Custom AutoStopMaxSessionRetries propagates to ReapPolicy.
-func TestExtractRunOptions_L3_CustomMaxSessionRetries(t *testing.T) {
+// Custom AutoStopMaxSessionRetries propagates to ReapPolicy.
+func TestExtractRunOptionsCustomMaxSessionRetries(t *testing.T) {
 	ui := &termio.Mock{}
 	lc := launcherconfig.Config{AutoStopMaxSessionRetries: 5}
 	cmd := buildCommandWithLauncherConfig(ui, lc)
@@ -72,8 +72,7 @@ func TestExtractRunOptions_L3_CustomMaxSessionRetries(t *testing.T) {
 	}
 }
 
-// L4: AutoStopTimeout propagates as IdleTimeout.
-func TestExtractRunOptions_L4_AutoStopTimeout(t *testing.T) {
+func TestExtractRunOptionsAutoStopTimeout(t *testing.T) {
 	ui := &termio.Mock{}
 	lc := launcherconfig.Config{AutoStopTimeout: 30 * time.Second}
 	cmd := buildCommandWithLauncherConfig(ui, lc)
@@ -88,8 +87,7 @@ func TestExtractRunOptions_L4_AutoStopTimeout(t *testing.T) {
 	}
 }
 
-// L5: No launcher config in context → zero-valued opts (legacy behavior).
-func TestExtractRunOptions_L5_NoConfigInContext(t *testing.T) {
+func TestExtractRunOptionsWithoutConfig(t *testing.T) {
 	ui := &termio.Mock{}
 	cmd := buildCommandWithoutLauncherConfig(ui)
 
@@ -109,8 +107,7 @@ func TestExtractRunOptions_L5_NoConfigInContext(t *testing.T) {
 	}
 }
 
-// L6: shell command path — buildShellCmd with launcher config injected.
-func TestExtractRunOptions_L6_ShellCommandPath(t *testing.T) {
+func TestExtractRunOptionsShellCommand(t *testing.T) {
 	ui := &termio.Mock{}
 	lc := launcherconfig.Config{
 		AutoStopOnActiveSessions:  true,
@@ -136,7 +133,6 @@ func TestExtractRunOptions_L6_ShellCommandPath(t *testing.T) {
 	}
 }
 
-// L7: --serve-only flag sets opts.ServeOnly and defaults to false.
 func TestExtractRunOptionsServeOnly(t *testing.T) {
 	cmd := buildRunCmd(&termio.Mock{})
 	if err := cmd.Flags().Set(flagServeOnly, "true"); err != nil {
@@ -157,6 +153,31 @@ func TestExtractRunOptionsServeOnly(t *testing.T) {
 	}
 	if opts2.ServeOnly {
 		t.Errorf("expected ServeOnly=false by default, got true")
+	}
+}
+
+func TestExtractRunOptionsRootFlag(t *testing.T) {
+	shellCmd := buildShellCmd(&termio.Mock{})
+	if err := shellCmd.Flags().Set(flagRoot, "true"); err != nil {
+		t.Fatalf("set root: %v", err)
+	}
+	opts, err := extractRunOptions(shellCmd, &termio.Mock{})
+	if err != nil {
+		t.Fatalf("extractRunOptions: %v", err)
+	}
+	if !opts.Root {
+		t.Errorf("expected Root=true when --root passed, got false")
+	}
+}
+
+func TestExtractRunOptionsRootFlagNotSet(t *testing.T) {
+	runCmd := buildRunCmd(&termio.Mock{})
+	opts, err := extractRunOptions(runCmd, &termio.Mock{})
+	if err != nil {
+		t.Fatalf("extractRunOptions: %v", err)
+	}
+	if opts.Root {
+		t.Errorf("expected Root=false when --root not registered, got true")
 	}
 }
 
@@ -188,8 +209,7 @@ func buildCommandWithoutLauncherConfig(ui termio.UI) *cobra.Command {
 	return cmd // SetContext never called → no config key present
 }
 
-// L8: invalid --tmp-size produces a user-facing error.
-func TestExtractRunOptions_L8_InvalidTmpSize(t *testing.T) {
+func TestExtractRunOptionsInvalidTmpSize(t *testing.T) {
 	cmd := buildRunCmd(&termio.Mock{})
 	if err := cmd.Flags().Set(flagTmpSize, "bogus"); err != nil {
 		t.Fatalf("set tmp-size: %v", err)
@@ -203,8 +223,7 @@ func TestExtractRunOptions_L8_InvalidTmpSize(t *testing.T) {
 	}
 }
 
-// L9: invalid --disk-size produces a user-facing error.
-func TestExtractRunOptions_L9_InvalidDiskSize(t *testing.T) {
+func TestExtractRunOptionsInvalidDiskSize(t *testing.T) {
 	cmd := buildRunCmd(&termio.Mock{})
 	if err := cmd.Flags().Set(flagDiskSize, "bogus"); err != nil {
 		t.Fatalf("set disk-size: %v", err)
@@ -218,8 +237,7 @@ func TestExtractRunOptions_L9_InvalidDiskSize(t *testing.T) {
 	}
 }
 
-// L10: valid tmp-size and disk-size pass through without error.
-func TestExtractRunOptions_L10_ValidSizeFlags(t *testing.T) {
+func TestExtractRunOptionsValidSizeFlags(t *testing.T) {
 	cmd := buildRunCmd(&termio.Mock{})
 	if err := cmd.Flags().Set(flagTmpSize, "4G"); err != nil {
 		t.Fatalf("set tmp-size: %v", err)
@@ -236,5 +254,16 @@ func TestExtractRunOptions_L10_ValidSizeFlags(t *testing.T) {
 	}
 	if opts.DiskSize != "16G" {
 		t.Errorf("DiskSize = %q, want 16G", opts.DiskSize)
+	}
+}
+
+func TestRunCommandHasNoOpenCodeVersionFlag(t *testing.T) {
+	cmd, _ := setupCommandFixtures(t, cmdRun, "--help")
+	foundCmd, _, err := cmd.Find([]string{cmdRun})
+	if err != nil {
+		t.Fatalf("Find %q: %v", cmdRun, err)
+	}
+	if flag := foundCmd.Flags().Lookup(flagOpenCodeVersion); flag != nil {
+		t.Errorf("run command must NOT have --opencode-version flag, got %q", flag.Name)
 	}
 }
