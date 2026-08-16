@@ -15,7 +15,7 @@ import (
 func TestConfigEqualHomeFileByteMatch(t *testing.T) {
 	cf := &ConfigFiles{
 		HasSnippets: true,
-		OpenCode:    mustJSON(t, `{"model":"x"}`),
+		OpenCode:    []byte(`{"model":"x"}`),
 		HomeFiles: map[string][]byte{
 			"/home/dev/.gitconfig": []byte("user.name=X\n"),
 		},
@@ -33,7 +33,7 @@ func TestConfigEqualHomeFileByteMatch(t *testing.T) {
 func TestConfigEqualHomeFileMismatch(t *testing.T) {
 	cf := &ConfigFiles{
 		HasSnippets: true,
-		OpenCode:    mustJSON(t, `{"model":"x"}`),
+		OpenCode:    []byte(`{"model":"x"}`),
 		HomeFiles: map[string][]byte{
 			"/home/dev/.gitconfig": []byte("user.name=X\n"),
 		},
@@ -45,6 +45,49 @@ func TestConfigEqualHomeFileMismatch(t *testing.T) {
 	}
 	if ConfigEqual(cf, vmData) {
 		t.Error("expected mismatch for differing home file content")
+	}
+}
+
+func TestOpenCodeConfigEqualIgnoresHomeFiles(t *testing.T) {
+	cf := &ConfigFiles{
+		HasSnippets: true,
+		OpenCode:    []byte(`{"model":"x"}`),
+		HomeFiles: map[string][]byte{
+			"/home/dev/.gitconfig": []byte("user.name=X\n"),
+		},
+		Keys: []string{"/home/dev/.gitconfig"},
+	}
+	vmData := map[string][]byte{
+		"/home/dev/.config/opencode/opencode.json": []byte(`{"model":"x"}`),
+		"/home/dev/.gitconfig":                     []byte("user.name=Y\n"),
+	}
+	if !OpenCodeConfigEqual(cf, vmData) {
+		t.Error("expected opencode config equality despite differing home file content")
+	}
+}
+
+func TestOpenCodeConfigEqualDetectsConfigChange(t *testing.T) {
+	cf := &ConfigFiles{
+		HasSnippets: true,
+		OpenCode:    []byte(`{"model":"x"}`),
+		HomeFiles:   map[string][]byte{},
+	}
+	vmData := map[string][]byte{
+		"/home/dev/.config/opencode/opencode.json": []byte(`{"model":"y"}`),
+	}
+	if OpenCodeConfigEqual(cf, vmData) {
+		t.Error("expected mismatch when the opencode config differs")
+	}
+}
+
+func TestOpenCodeConfigEqualNoSnippets(t *testing.T) {
+	cf := &ConfigFiles{
+		HasSnippets: false,
+		OpenCode:    nil,
+		HomeFiles:   map[string][]byte{},
+	}
+	if !OpenCodeConfigEqual(cf, nil) {
+		t.Error("expected equality when no snippets are configured")
 	}
 }
 
@@ -77,14 +120,6 @@ func TestProvisionNoSnippetsSkipsOpenCode(t *testing.T) {
 	if _, ok := fs.Writes[OpenCodeConfigPath(VMHomeDir)]; ok {
 		t.Error("did not expect opencode.json when HasSnippets=false")
 	}
-}
-
-func mustJSON(t *testing.T, s string) []byte {
-	t.Helper()
-	if len(s) == 0 {
-		return nil
-	}
-	return []byte(s)
 }
 
 func TestBuildEnvMap(t *testing.T) {

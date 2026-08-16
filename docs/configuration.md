@@ -12,37 +12,60 @@ the [XDG base directory spec](https://specifications.freedesktop.org/basedir-spe
 `~/.config/opencode-sandbox`, `~/.cache/opencode-sandbox`, and `~/.local/state/opencode-sandbox` are the defaults, but the
 `XDG_CONFIG_HOME`, `XDG_CACHE_HOME`, and `XDG_STATE_HOME` environment variables override them when set (and absolute).
 
-| File                                                   | Purpose                                                |
-|--------------------------------------------------------|--------------------------------------------------------|
-| `~/.config/opencode-sandbox/env`                           | Environment variables forwarded to every sandbox       |
-| `~/.config/opencode-sandbox/env.secret`                    | Secret environment variables (legacy, see [Secrets](#secrets)) |
-| `~/.config/opencode-sandbox/env.secret.yaml`               | Secret environment variables (YAML/JSON, see [Secrets](#secrets)) |
-| `~/.config/opencode-sandbox/config.(y[a]ml\|json[(c\|5)])` | Launcher defaults for CLI flags                        |
-| `~/.config/opencode-sandbox/opencode/*`                     | User opencode config snippets (see [Opencode configuration](#opencode-configuration)) |
-| `~/.config/opencode-sandbox/home.yaml`                      | User home-file mappings (see [Home files](#home-files)) |
+| File                                                       | Purpose                                                                               |
+|------------------------------------------------------------|---------------------------------------------------------------------------------------|
+| `~/.config/opencode-sandbox/env`                           | Environment variables forwarded to every sandbox                                      |
+| `~/.config/opencode-sandbox/env.secret`                    | Secret environment variables (legacy, see [Secrets](#secrets))                        |
+| `~/.config/opencode-sandbox/env.secret.yaml`               | Secret environment variables (YAML/JSON, see [Secrets](#secrets))                     |
+| `~/.config/opencode-sandbox/config.(y[a]ml\|json[(c\|5)])` | Configuration file                                                                    |
+| `~/.config/opencode-sandbox/opencode/*`                    | User opencode config snippets (see [Opencode configuration](#opencode-configuration)) |
+| `~/.config/opencode-sandbox/home.yaml`                     | User home-file mappings (see [Home files](#home-files))                               |
 
 `env` uses `KEY=value` format. `env.secret` uses `KEY=value@host` (see [Secrets](#secrets)).
 
-Supported launcher config filenames: `config.yaml`, `config.yml`, `config.json`, `config.jsonc`, `config.json5`. The
+Supported configuration formats/filenames: YAML (`config.yaml`, `config.yml`), JSON(`config.json`, `config.jsonc`, `config.json5`). The
 first one found is used.
 
-### Launcher config fields
+## Project-level configuration
 
-| Field                           | Corresponding CLI flag | Description                                                                                                                                  |
-|---------------------------------|------------------------|----------------------------------------------------------------------------------------------------------------------------------------------|
-| `yes`                           | `--yes` / `-y`         | Assume yes to all prompts                                                                                                                    |
-| `verbose`                       | `--verbose` / `-v`     | Show debug-level output                                                                                                                      |
-| `quiet`                         | `--quiet` / `-q`       | Suppress non-error output                                                                                                                    |
-| `rebuild`                       | `--rebuild` / `-r`     | Rebuild runner image before starting                                                                                                         |
-| `cpus`                          | `--cpus` / `-c`        | Number of vCPUs for the VM                                                                                                                   |
-| `memory`                        | `--memory` / `-m`      | Memory limit (e.g. `8G`)                                                                                                                     |
+Place files under `.opencode-sandbox/` in your project directory. These override user-level defaults.
+
+| File                                              | Purpose                                                                                           |
+|---------------------------------------------------|---------------------------------------------------------------------------------------------------|
+| `.opencode-sandbox/Dockerfile`                    | Custom runner image layers                                                                        |
+| `.opencode-sandbox/env`                           | Project-specific environment variables                                                            |
+| `.opencode-sandbox/env.secret`                    | Project-specific secrets (legacy)                                                                 |
+| `.opencode-sandbox/env.secret.yaml`               | Project-specific secrets (YAML/JSON)                                                              |
+| `.opencode-sandbox/config.(y[a]ml\|json[(c\|5)])` | Project-specific configuration file                                                               |            
+| `.opencode-sandbox/opencode/*`                    | Project-specific opencode config snippets (see [Opencode configuration](#opencode-configuration)) |
+| `.opencode-sandbox/home.yaml`                     | Project-specific home-file mappings (see [Home files](#home-files))                               |
+
+## Precedence
+
+Configuration is resolved in this order (later entries override earlier ones):
+
+1. **Built-in defaults** — compiled-in values
+2. **User-level** — `~/.config/opencode-sandbox/`
+3. **Project-level** — `.opencode-sandbox/`
+4. **CLI flags** — always win
+
+## Configuration file
+
+| Field                           | Corresponding CLI flag | Description                                                                                                                                                                              |
+|---------------------------------|------------------------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `yes`                           | `--yes` / `-y`         | Assume yes to all prompts                                                                                                                                                                |
+| `verbose`                       | `--verbose` / `-v`     | Show debug-level output                                                                                                                                                                  |
+| `quiet`                         | `--quiet` / `-q`       | Suppress non-error output                                                                                                                                                                |
+| `rebuild`                       | `--rebuild` / `-r`     | Rebuild runner image before starting                                                                                                                                                     |
+| `cpus`                          | `--cpus` / `-c`        | Number of vCPUs for the VM                                                                                                                                                               |
+| `memory`                        | `--memory` / `-m`      | Memory limit (e.g. `8G`)                                                                                                                                                                 |
 | `disk-size`                     | `--disk-size`          | Project VM root disk size (e.g. `16G`). Empty = microsandbox runtime default (~4 GiB). Applied at VM creation; a change triggers recreation. An invalid value is rejected with an error. |
-| `tmp-size`                      | `--tmp-size`           | Size of `/tmp` tmpfs in the sandbox. An invalid value is rejected with an error. |
-| `auto-prune-age`                | —                      | Auto-prune threshold, runs before every command (default: 30d, only in config)                                                               |
-| `manual-prune-age`              | `--age`                | Default prune age threshold for `prune` cmd                                                                                                  |
-| `auto-stop-on-active-sessions`  | —                      | Stop VM immediately on client detach without waiting for active sessions (default: false, only in config; `busy` sessions are never cut off) |
-| `auto-stop-timeout`             | —                      | Idle timeout after last client detaches (default: 10s, only in config)                                                                       |
-| `auto-stop-max-session-retries` | —                      | Retries to tolerate for a session stuck in `retry` before stopping (default: 10, only in config)                                             |
+| `tmp-size`                      | `--tmp-size`           | Size of `/tmp` tmpfs in the sandbox. An invalid value is rejected with an error.                                                                                                         |
+| `auto-prune-age`                | —                      | Auto-prune threshold, runs before every command (default: 30d, only in config)                                                                                                           |
+| `manual-prune-age`              | `--age`                | Default prune age threshold for `prune` cmd                                                                                                                                              |
+| `auto-stop-on-active-sessions`  | —                      | Stop VM immediately on client detach without waiting for active sessions (default: false, only in config; `busy` sessions are never cut off)                                             |
+| `auto-stop-timeout`             | —                      | Idle timeout after last client detaches (default: 10s, only in config)                                                                                                                   |
+| `auto-stop-max-session-retries` | —                      | Retries to tolerate for a session stuck in `retry` before stopping (default: 10, only in config)                                                                                         |
 
 Example `~/.config/opencode-sandbox/config.yaml`:
 
@@ -58,28 +81,50 @@ auto-stop-timeout: "10s"
 auto-stop-max-session-retries: 10
 ```
 
-## Project-level configuration
+### Duration fields
 
-Place files under `.opencode-sandbox/` in your project directory. These override user-level defaults.
+The `auto-prune-age` field (for `run`/`shell` auto-pruning), `manual-prune-age` field (for `prune` default), and
+`auto-stop-timeout` field (for post-detach idle timeout) accept:
 
-| File                                          | Purpose                                |
-|-----------------------------------------------|----------------------------------------|
-| `.opencode-sandbox/Dockerfile`                    | Custom runner image layers             |
-| `.opencode-sandbox/env`                           | Project-specific environment variables |
-| `.opencode-sandbox/env.secret`                    | Project-specific secrets (legacy)      |
-| `.opencode-sandbox/env.secret.yaml`               | Project-specific secrets (YAML/JSON)   |
-| `.opencode-sandbox/config.(y[a]ml\|json[(c\|5)])` | Project-specific launcher defaults     |
-| `.opencode-sandbox/opencode/*`                    | Project-specific opencode config snippets (see [Opencode configuration](#opencode-configuration)) |
-| `.opencode-sandbox/home.yaml`                     | Project-specific home-file mappings (see [Home files](#home-files)) |
+- Go duration: `"7200000000000ns"`, `"2h"`, `"24h"`
+- Days shorthand: `"7d"`, `"14d"`
 
-## Precedence
+### Validation
 
-Configuration is resolved in this order (later entries override earlier ones):
+The launcher validates:
 
-1. **Built-in defaults** — compiled-in values
-2. **User-level** — `~/.config/opencode-sandbox/`
-3. **Project-level** — `.opencode-sandbox/`
-4. **CLI flags** — always win
+- `cpus` must be between 0 and 255
+
+Invalid config files prevent the launcher from starting.
+
+### Resource Config Application
+
+When a session is started against a VM, resource config changes need to be applied before taking effect in the new
+session. The change type determines the mechanism used to apply the new settings:
+
+| Resource          | Change type    | Behavior                                                                                                 |
+|-------------------|----------------|----------------------------------------------------------------------------------------------------------|
+| `cpus`            | Live Modify    | Applied live via SDK Modify (hotplug)                                                                    |
+| `memory`          | Live Modify    | Applied live via SDK Modify (hotplug)                                                                    |
+| `env`             | VM recreate    | microsandbox cannot apply env live or on a daemon restart, so the VM is rebuilt; env is baked in at creation |
+| `secrets`         | VM recreate    | microsandbox cannot apply secrets live or on a daemon restart, so the VM is rebuilt; secrets are baked in at creation |
+| `opencode config` | Daemon restart | Files are always copied into the VM (provisioning); the opencode daemon is restarted in-place to pick them up   |
+| `tmp-size`        | VM recreate    | VM is stopped, removed, and rebuilt with new tmpfs size. Home volume is preserved.                       |
+| `disk-size`       | VM recreate    | VM is stopped, removed, and rebuilt with new disk size. Home volume is preserved.                        |
+| `image`           | VM recreate    | VM is recreated with the new root image. Home volume is preserved.                                       |
+
+When **no other client** is attached, config changes apply immediately.
+
+Opencode/home config files are provisioned into the VM on every startup, so a change is picked up by the next daemon start
+even when the current daemon is kept running (see below). Only the `opencode config` change prompts for a daemon restart;
+`home.yaml` file changes are applied on the next startup without any prompt, since they do not require the daemon to restart.
+
+#### Parallel Sessions
+
+When multiple `opencode-sandbox` sessions are actively connected to a VM, applying a resource change by recreating the VM
+may disrupt active sessions. In this case, the launcher will prompt you whether to keep the current VM (defer),
+recreate, or quit to abort the change. The default is to keep/defer.
+
 
 ## Environment Variables
 
@@ -175,63 +220,6 @@ Once set as a secret, the variable is available like any environment variable:
 echo $GITHUB_TOKEN
 ```
 
-## Launcher config
-
-The launcher config file (YAML, JSON, JSONC, or JSON5) sets defaults for CLI flags. It is loaded from the user config
-directory and project config directory.
-
-### Supported formats
-
-All five formats are supported. The first one found in the directory wins:
-
-```
-config.yaml    # preferred
-config.yml
-config.json
-config.jsonc
-config.json5
-```
-
-### Duration fields
-
-The `auto-prune-age` field (for `run`/`shell` auto-pruning), `manual-prune-age` field (for `prune` default), and
-`auto-stop-timeout` field (for post-detach idle timeout) accept:
-
-- Go duration: `"7200000000000ns"`, `"2h"`, `"24h"`
-- Days shorthand: `"7d"`, `"14d"`
-
-### Validation
-
-The launcher validates:
-
-- `cpus` must be between 0 and 255
-
-Invalid config files prevent the launcher from starting.
-
-## Resource Config Application
-
-When a session is started against a VM, resource config changes need to be applied before taking effect in the new
-session. The change type determines the mechanism used to apply the new settings:
-
-| Resource          | Change type    | Behavior                                                                                                 |
-|-------------------|----------------|----------------------------------------------------------------------------------------------------------|
-| `cpus`            | Live Modify    | Applied live via SDK Modify (hotplug)                                                                    |
-| `memory`          | Live Modify    | Applied live via SDK Modify (hotplug)                                                                    |
-| `env`             | VM recreate    | microsandbox cannot apply env live or on a daemon restart, so the VM is rebuilt; env is baked in at creation |
-| `secrets`         | VM recreate    | microsandbox cannot apply secrets live or on a daemon restart, so the VM is rebuilt; secrets are baked in at creation |
-| `opencode config` | Daemon restart | Applied live via copy commands; opencode daemon is restarted in-place, picking up the changes            |
-| `tmp-size`        | VM recreate    | VM is stopped, removed, and rebuilt with new tmpfs size. Home volume is preserved.                       |
-| `disk-size`       | VM recreate    | VM is stopped, removed, and rebuilt with new disk size. Home volume is preserved.                        |
-| `image`           | VM recreate    | VM is recreated with the new root image. Home volume is preserved.                                       |
-
-When **no other client** is attached, config changes apply immediately.
-
-### Parallel Sessions
-
-When multiple `opencode-sandbox` sessions are actively connected to a VM, applying a resource change by recreating the VM
-may disrupt active sessions. In this case, the launcher will prompt you whether to keep the current VM (defer),
-recreate, or quit to abort the change. The default is to keep/defer.
-
 ## Opencode configuration
 
 opencode-sandbox provisions a single opencode config into the VM at `/home/dev/.config/opencode/opencode.json`. No embedded
@@ -245,30 +233,30 @@ under `~/.config/opencode-sandbox/opencode/` (user) and `.opencode-sandbox/openc
 
 See the [permissions example](/docs/getting-started.md#example-permissions) for a concrete snippet.
 
-Run `opencode-sandbox config show` to print the merged config, and `opencode-sandbox config home` to list `home.yaml`
-mappings.
+Run `opencode-sandbox config show` to print the merged config that would be provisioned into the VM.
 
 ## Home files
 
 In addition to the opencode config, `home.yaml` provisions arbitrary files into the VM home directory (`/home/dev`). A
 manifest is an optional YAML map from a **VM-home-relative target path** to a **host source string**:
 
-| Manifest location              | Purpose                         |
-|--------------------------------|---------------------------------|
-| `~/.config/opencode-sandbox/home.yaml` | User-level home-file mappings |
-| `.opencode-sandbox/home.yaml`      | Project-level home-file mappings |
+| Manifest location                      | Purpose                          |
+|----------------------------------------|----------------------------------|
+| `~/.config/opencode-sandbox/home.yaml` | User-level home-file mappings    |
+| `.opencode-sandbox/home.yaml`          | Project-level home-file mappings |
 
 Keys (targets) are relative paths within the VM home, e.g. `.config/opencode/opencode.json`. The host source value is
 resolved as follows:
 
 - **empty** — read host `$HOME/<target>`
 - **`/`-prefixed** — an absolute host path
-- **`~`-prefixed** — host `$HOME/<rest>`
+- **`~/`-prefixed** — host `$HOME/<rest>`
 - **otherwise** — relative to the manifest file that declares it
 
 Layering: the project manifest overrides the user manifest **per target**. Targets must stay within the VM home
-(`..` traversal and absolute paths are rejected), and `.config/opencode/opencode.json` is reserved for the merged
-opencode config — it cannot be provisioned via `home.yaml`.
+(`..` traversal, absolute paths, and `~`-prefixed targets are rejected — targets are already relative to the home
+directory, so `~/fdsa` should simply be written as `fdsa`), and `.config/opencode/opencode.json` is reserved for the
+merged opencode config — it cannot be provisioned via `home.yaml`.
 
 Example `.opencode-sandbox/home.yaml`:
 

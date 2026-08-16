@@ -39,12 +39,8 @@ Arguments after `--` are forwarded to opencode. Arguments before `--` that don't
 | `--memory`     | `-m`  | `4G`     | Memory limit, e.g. `4G`, `512M`                                                                                                            |
 | `--disk-size`  | —     | `""`     | Project VM root disk size (e.g. 16G). Empty = microsandbox runtime default (~4 GiB). Applied at VM creation; a change triggers recreation. An invalid value is rejected with an error. |
 | `--tmp-size`   | —     | `2G`     | Size of `/tmp` tmpfs in the sandbox. An invalid value is rejected with an error. |
-| `--user`       | `-u`  | `dev`*   | Username or UID for the runtime user (format: `<name\|uid>[:<group\|gid>]`)                                                                |
 | `--dry-run-vm` | —     | `false`  | Skip VM lifecycle but prepare everything else                                                                                              |
 | `--serve-only` | `-s`  | `false`  | Start opencode server published on host loopback (no in-VM TUI); press `Ctrl-D` to exit. Set `OPENCODE_SERVER_PASSWORD` for basic auth. |
-
-<!-- markdownlint-disable-next-line no-trailing-punctuation -->
-* Effective default: `dev`. The CLI flag defaults to empty string, but the launcher applies `dev` when blank.
 
 **Aliases:** `sandbox run`
 
@@ -59,6 +55,12 @@ opencode-sandbox shell
 opencode-sandbox shell -w bugfix-fix-thing
 ```
 
+**Flags:**
+
+| Flag       | Short | Default | Purpose                                                          |
+|------------|-------|---------|------------------------------------------------------------------|
+| `--root`   | —     | `false` | Attach the shell as root (debug/maintenance). Only available on shell. |
+
 **Aliases:** `sh`, `sandbox shell`
 
 ---
@@ -70,14 +72,16 @@ Build or rebuild the runner Docker image. If `.opencode-sandbox/Dockerfile` exis
 ```console
 opencode-sandbox build        # build or update if needed
 opencode-sandbox build -r     # force clean rebuild
+opencode-sandbox build --opencode-version 0.5.0  # pin a specific opencode version
 ```
 
 **Flags:**
 
-| Flag            | Short | Default  | Purpose                  |
-|-----------------|-------|----------|--------------------------|
-| `--rebuild`     | `-r`  | `false`  | Force a clean rebuild    |
-| `--dry-run`     | `-n`  | `false`  | Dry run without building |
+| Flag                 | Short | Default  | Purpose                                                         |
+|----------------------|-------|----------|-----------------------------------------------------------------|
+| `--rebuild`          | `-r`  | `false`  | Force a clean rebuild                                           |
+| `--dry-run`          | `-n`  | `false`  | Dry run without building                                        |
+| `--opencode-version` | —     | `""`     | Pin the opencode version baked into the image (default: latest) |
 
 **Aliases:** `image build`
 

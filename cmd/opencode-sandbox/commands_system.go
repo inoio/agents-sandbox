@@ -22,7 +22,7 @@ import (
 	"gitlab.inoio.de/inoio/opencode-sandbox/internal/viperconfig"
 )
 
-type volumeOpFunc func(context.Context, string, string, string, bool, bool, termio.UI) error
+type volumeOpFunc func(context.Context, string, string, string, string, bool, bool, termio.UI) error
 
 func buildVolumeOpsCmd(
 	ui termio.UI,
@@ -43,7 +43,12 @@ func buildVolumeOpsCmd(
 			projectSlug := git.ProjectSlug(ui)
 			dryRun, _ := c.Flags().GetBool(flagDryRun)
 			rebuild, _ := c.Flags().GetBool(flagRebuild)
-			imageTag, _, _, err := image.EnsureImage(c.Context(), projectSlug, rebuild, ui)
+			info, err := image.EnsureImage(
+				c.Context(),
+				projectSlug,
+				image.BuildOptions{Force: rebuild, OpenCodeVersion: ""},
+				ui,
+			)
 			if err != nil {
 				return fmt.Errorf("ensure image: %w", err)
 			}
@@ -51,7 +56,7 @@ func buildVolumeOpsCmd(
 			if len(args) > 0 {
 				volName = args[0]
 			}
-			return fn(c.Context(), projectSlug, volName, imageTag, *rmVar, dryRun, ui)
+			return fn(c.Context(), projectSlug, volName, info.Tag, info.Digest, *rmVar, dryRun, ui)
 		},
 	}
 	cmd.Flags().BoolVar(rmVar, rmFlag, false, rmHelp)
@@ -173,11 +178,14 @@ func buildBuildCmd(ui termio.UI) *cobra.Command {
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			force, _ := cmd.Flags().GetBool(flagRebuild)
 			dryRun, _ := cmd.Flags().GetBool(flagDryRun)
-			return session.BuildImage(cmd.Context(), force, dryRun, ui)
+			openCodeVersion, _ := cmd.Flags().GetString(flagOpenCodeVersion)
+			return session.BuildImage(cmd.Context(), force, dryRun, openCodeVersion, ui)
 		},
 	}
 	cmd.Flags().BoolP(flagRebuild, flagRebuild[:1], false, "Force a clean rebuild")
 	cmd.Flags().BoolP(flagDryRun, flagDryRunShort, false, "Dry run without building")
+	cmd.Flags().
+		String(flagOpenCodeVersion, "", "Pin the opencode version baked into the runner image (default: latest release)")
 	return cmd
 }
 

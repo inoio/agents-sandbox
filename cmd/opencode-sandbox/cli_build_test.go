@@ -11,7 +11,7 @@ import (
 	"gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/docker"
 )
 
-func TestBuildBuildCmd(t *testing.T) {
+func TestBuildCommand(t *testing.T) {
 	for _, commands := range [][]string{
 		{cmdBuild},
 		{cmdImage, cmdBuild},
@@ -109,5 +109,20 @@ func TestBuildBuildCmd(t *testing.T) {
 				t.Errorf("expected 'docker not available'; got: %v", err)
 			}
 		})
+	}
+}
+
+func TestBuildCommandHasOpenCodeVersionFlag(t *testing.T) {
+	cmd, _ := setupCommandFixtures(t, cmdBuild, "--help")
+	foundCmd, _, err := cmd.Find([]string{cmdBuild})
+	if err != nil {
+		t.Fatalf("Find %q: %v", cmdBuild, err)
+	}
+	flag := foundCmd.Flags().Lookup(flagOpenCodeVersion)
+	if flag == nil {
+		t.Fatal("build command must have --opencode-version flag")
+	}
+	if flag.Name != "opencode-version" {
+		t.Errorf("flag name = %q, want %q", flag.Name, "opencode-version")
 	}
 }

@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"gitlab.inoio.de/inoio/opencode-sandbox/internal/configpaths"
 	"gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/msb"
 	"gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/options"
 	"gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/state"
@@ -14,7 +15,7 @@ import (
 // --- ReapOnLastClient: no-op when other clients active ---
 
 func TestReapOnLastClient_NoOpWhenOtherClientsActive(t *testing.T) {
-	state.SetStateDirForTest(t, t.TempDir()+"/opencode")
+	configpaths.WithMockConfigPaths(t)
 
 	slug := "otherproj"
 	release, _ := state.AcquireClientLease(slug)
@@ -36,7 +37,7 @@ func TestReapOnLastClient_NoOpWhenOtherClientsActive(t *testing.T) {
 }
 
 func TestReapOnLastClient_ClientLeaseHeld_NoReap(t *testing.T) {
-	state.SetStateDirForTest(t, t.TempDir()+"/opencode")
+	configpaths.WithMockConfigPaths(t)
 
 	slug := "leaseproj"
 	release, err := state.AcquireClientLease(slug)
@@ -58,7 +59,7 @@ func TestReapOnLastClient_ClientLeaseHeld_NoReap(t *testing.T) {
 // --- ReapOnLastClient: auto-stop mode ---
 
 func TestReapOnLastClient_AutoStopOnActiveSessions_ReturnsImmediately(t *testing.T) {
-	state.SetStateDirForTest(t, t.TempDir()+"/opencode")
+	configpaths.WithMockConfigPaths(t)
 
 	slug := "nopollproj"
 
@@ -91,7 +92,7 @@ func TestReapOnLastClient_AutoStopOnActiveSessions_ReturnsImmediately(t *testing
 // --- ReapOnLastClient: wait mode, idle from start ---
 
 func TestReapOnLastClient_WaitMode_IdleFromStart(t *testing.T) {
-	state.SetStateDirForTest(t, t.TempDir()+"/opencode")
+	configpaths.WithMockConfigPaths(t)
 
 	slug := "idleproj"
 
@@ -119,7 +120,7 @@ func TestReapOnLastClient_WaitMode_IdleFromStart(t *testing.T) {
 // --- ReapOnLastClient: wait mode, empty status ---
 
 func TestReapOnLastClient_WaitMode_EmptyStatus(t *testing.T) {
-	state.SetStateDirForTest(t, t.TempDir()+"/opencode")
+	configpaths.WithMockConfigPaths(t)
 
 	slug := "emptyproj"
 
@@ -141,7 +142,7 @@ func TestReapOnLastClient_WaitMode_EmptyStatus(t *testing.T) {
 // --- ReapOnLastClient: context cancelled ---
 
 func TestReapOnLastClient_ContextCancelled(t *testing.T) {
-	state.SetStateDirForTest(t, t.TempDir()+"/opencode")
+	configpaths.WithMockConfigPaths(t)
 
 	// Session status is busy, so the poll loop keeps waiting.
 	// Use a short timeout context that expires during the 2s ticker wait.
@@ -170,7 +171,7 @@ func TestReapOnLastClient_ContextCancelled(t *testing.T) {
 }
 
 func TestReapOnLastClient_WaitMode_BusyWithQuestionReaps(t *testing.T) {
-	state.SetStateDirForTest(t, t.TempDir()+"/opencode")
+	configpaths.WithMockConfigPaths(t)
 	slug := "qproj"
 	ui := &termio.Mock{}
 	sb := &msb.MockSandbox{
@@ -194,7 +195,7 @@ func TestReapOnLastClient_WaitMode_BusyWithQuestionReaps(t *testing.T) {
 }
 
 func TestReapOnLastClient_WaitMode_BusyWithQuestionErrorKeepsPolling(t *testing.T) {
-	state.SetStateDirForTest(t, t.TempDir()+"/opencode")
+	configpaths.WithMockConfigPaths(t)
 	slug := "qerrproj"
 	shortCtx, shortCancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
 	defer shortCancel()
@@ -221,7 +222,7 @@ func TestReapOnLastClient_WaitMode_BusyWithQuestionErrorKeepsPolling(t *testing.
 // --- ReapOnLastClient: nil sandbox ---
 
 func TestReapOnLastClient_NilSandbox_AllModes(t *testing.T) {
-	state.SetStateDirForTest(t, t.TempDir()+"/opencode")
+	configpaths.WithMockConfigPaths(t)
 
 	tests := []struct {
 		name   string
@@ -245,7 +246,7 @@ func TestReapOnLastClient_NilSandbox_AllModes(t *testing.T) {
 // --- ReapOnLastClient: does not fail successful attach ---
 
 func TestReapDoesNotFailSuccessfulAttach(t *testing.T) {
-	state.SetStateDirForTest(t, t.TempDir()+"/opencode")
+	configpaths.WithMockConfigPaths(t)
 
 	slug := "attachproj"
 	release, err := state.AcquireClientLease(slug)

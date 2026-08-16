@@ -20,11 +20,10 @@ func setUpSandbox(
 	ctx context.Context,
 	sb msb.Sandbox,
 	opts options.RunOptions,
-	created bool,
 	ui termio.UI,
 	restart bool,
 ) (string, error) {
-	cfs, err := reprovision.LoadConfigFiles(configpaths.Get().UserOpencodeConfigDir())
+	cfs, err := reprovision.LoadConfigFiles(configpaths.Get().UserOpencodeConfigDir(), ui)
 	if err != nil {
 		return "", err
 	}
@@ -36,8 +35,12 @@ func setUpSandbox(
 		return ResolveTarget(ctx, sb, opts.Worktree, ui)
 	}
 
-	vmData := reprovision.ReadVMConfig(ctx, sb, cfs.Keys, ui)
-	if (cfs.HasSnippets || len(cfs.HomeFiles) > 0) && (created || len(vmData) == 0) {
+	// Provisioning (writing files) is idempotent and non-disruptive, so it is
+	// always performed when there is config to write. Whether the daemon is
+	// restarted to pick the config up is decided separately (the restart flag):
+	// on a "keep" decision the files are still updated on disk so the next
+	// daemon start sees them, without disturbing the running instance.
+	if cfs.HasSnippets || len(cfs.HomeFiles) > 0 {
 		if provErr := reprovision.Provision(ctx, sb.FS(), cfs); provErr != nil {
 			ui.Warnf("provision failed: %v (continuing)", provErr)
 		}
@@ -94,7 +97,7 @@ func decideReconfig(
 	// we are actually switching to the new image.
 	imageChanged := hs.ImageDigest != imageDigest
 
-	cfs, err := reprovision.LoadConfigFiles(configpaths.Get().UserOpencodeConfigDir())
+	cfs, err := reprovision.LoadConfigFiles(configpaths.Get().UserOpencodeConfigDir(), ui)
 	if err != nil {
 		return false, false, homeVol, err
 	}
@@ -102,7 +105,7 @@ func decideReconfig(
 	var opencfgChanged bool
 	if liveSb != nil {
 		vmData := reprovision.ReadVMConfig(ctx, liveSb, cfs.Keys, ui)
-		opencfgChanged = len(vmData) > 0 && !reprovision.ConfigEqual(cfs, vmData)
+		opencfgChanged = len(vmData) > 0 && !reprovision.OpenCodeConfigEqual(cfs, vmData)
 		if detachErr := liveSb.Detach(context.Background()); detachErr != nil {
 			ui.Verbosef("failed to detach live sandbox handle: %v", detachErr)
 		}

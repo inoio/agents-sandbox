@@ -1,5 +1,18 @@
 package main
 
+import (
+	"testing"
+
+	"github.com/spf13/cobra"
+
+	"gitlab.inoio.de/inoio/opencode-sandbox/internal/configpaths"
+	"gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/docker"
+	"gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/doctor"
+	"gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/image"
+	"gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/msb"
+	"gitlab.inoio.de/inoio/opencode-sandbox/internal/termio"
+)
+
 // FlagSet is a permutation of CLI flag arguments (one variation per test run).
 type FlagSet []string
 
@@ -22,4 +35,18 @@ var pruneAgeFlags = []FlagSet{
 	{"-a", "7d"},
 	{"-a", "2w"},
 	{"--age", "14d"},
+}
+
+func setupCommandFixtures(t *testing.T, args ...string) (*cobra.Command, *termio.Mock) {
+	t.Helper()
+	configpaths.WithMockConfigPaths(t)
+	image.WithMockOpenCodeVersion(t, "0.0.0-test")
+	msb.WithMsbMock(t, &msb.MockMsbClient{})
+	docker.WithNoopDockerMock(t)
+	doctor.MockedCheckAll(t, true)
+	doctor.MockedCheckDocker(t, true)
+	ui := &termio.Mock{}
+	cmd := buildRootCmd(ui)
+	cmd.SetArgs(args)
+	return cmd, ui
 }
