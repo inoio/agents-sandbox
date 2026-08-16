@@ -114,7 +114,6 @@ func TestPrintTreeStringFlagsHaveValuePlaceholders(t *testing.T) {
 		"--memory <MEMORY>",
 		"--tmp-size <TMP_SIZE>",
 		"--disk-size <DISK_SIZE>",
-		"--user <USER>",
 	}
 	for _, s := range expected {
 		if !strings.Contains(out, s) {
@@ -156,7 +155,6 @@ func TestPrintTreeFlagShortcuts(t *testing.T) {
 		"-n, --dry-run",
 		"-c, --cpus <CPUS>",
 		"-m, --memory <MEMORY>",
-		"-u, --user <USER>",
 	}
 	for _, s := range expected {
 		if !strings.Contains(out, s) {

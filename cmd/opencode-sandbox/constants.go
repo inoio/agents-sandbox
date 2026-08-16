@@ -40,7 +40,7 @@ const (
 	flagForce       = "force"
 	flagAge         = "age"
 	flagWorktree    = "worktree"
-	flagUser        = "user"
+	flagRoot        = "root"
 	flagServeOnly   = "serve-only"
 
 	annotationAlsoAs = naming.Prefix + "/also-as"

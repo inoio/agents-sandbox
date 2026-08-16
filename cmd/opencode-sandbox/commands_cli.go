@@ -166,6 +166,7 @@ func buildShellCmd(ui termio.UI) *cobra.Command {
 		},
 	}
 	registerSharedRunShellFlags(cmd)
+	cmd.Flags().Bool(flagRoot, false, "Attach the shell as root (debug/maintenance)")
 	return cmd
 }
 
@@ -187,8 +188,6 @@ func registerSharedRunShellFlags(cmd *cobra.Command) {
 	cmd.Flags().StringP(flagMemory, flagMemory[:1], "4G", "Memory limit")
 	cmd.Flags().String(flagTmpSize, "2G", "Size of the /tmp tmpfs in the sandbox")
 	cmd.Flags().String(flagDiskSize, "", "Size of the project VM root disk (e.g. 16G)")
-	cmd.Flags().
-		StringP(flagUser, flagUser[:1], "", "Username or UID for the runtime user (format: <name|uid>[:<group|gid>])")
 }
 
 func buildStopCmd(ui termio.UI) *cobra.Command {

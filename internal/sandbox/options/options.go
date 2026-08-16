@@ -12,7 +12,7 @@ type RunOptions struct {
 	Memory      string
 	TmpSize     string
 	DiskSize    string
-	User        string
+	Root        bool
 	Args        []string
 	ReapPolicy  ReapPolicy
 	IdleTimeout time.Duration

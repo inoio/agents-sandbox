@@ -259,33 +259,40 @@ func TestNewConfigHonorsXdgEnv(t *testing.T) {
 	}
 }
 
-func TestRunAndGetShellUserFlag(t *testing.T) {
-	tests := []struct {
-		name string
-		args []string
-		want string
-	}{
-		{"shell default empty", []string{}, ""},
-		{"shell --user bob", []string{"--user", "bob"}, "bob"},
-		{"shell -u bob", []string{"-u", "bob"}, "bob"},
+func TestShellRootFlag(t *testing.T) {
+	testUI := termio.NewTestMock(t)
+	root := buildRootCmd(&testUI)
+
+	shellCmd, _, _ := root.Find([]string{"shell"})
+	if shellCmd == nil {
+		t.Fatal("expected shell command")
+	}
+	rootFlag := shellCmd.Flags().Lookup(flagRoot)
+	if rootFlag == nil {
+		t.Fatal("expected --root flag on shell")
+	}
+	if rootFlag.Shorthand != "" {
+		t.Errorf("--root must have no short form, got -%s", rootFlag.Shorthand)
+	}
+	if err := shellCmd.ParseFlags([]string{"--root"}); err != nil {
+		t.Fatalf("ParseFlags --root failed: %v", err)
+	}
+	if got, _ := shellCmd.Flags().GetBool(flagRoot); !got {
+		t.Errorf("--root should be true, got false")
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			testUI := termio.NewTestMock(t)
-			root := buildRootCmd(&testUI)
-			cmd, _, _ := root.Find([]string{"shell"})
-			if cmd == nil {
-				t.Fatal("expected command")
-			}
-			if err := cmd.ParseFlags(tt.args); err != nil {
-				t.Fatalf("ParseFlags failed: %v", err)
-			}
-			got, _ := cmd.Flags().GetString(flagUser)
-			if got != tt.want {
-				t.Errorf("user=%q, want %q", got, tt.want)
-			}
-		})
+	runCmd, _, _ := root.Find([]string{"run"})
+	if runCmd == nil {
+		t.Fatal("expected run command")
+	}
+	if runCmd.Flags().Lookup(flagRoot) != nil {
+		t.Error("run must not have a --root flag")
+	}
+	if runCmd.Flags().Lookup("user") != nil {
+		t.Error("run must not have a --user flag")
+	}
+	if shellCmd.Flags().Lookup("user") != nil {
+		t.Error("shell must not have a --user flag")
 	}
 }
 
