@@ -231,3 +231,14 @@ func TestExtractRunOptionsValidSizeFlags(t *testing.T) {
 		t.Errorf("DiskSize = %q, want 16G", opts.DiskSize)
 	}
 }
+
+func TestRunCommandHasNoOpenCodeVersionFlag(t *testing.T) {
+	cmd, _ := setupCommandFixtures(t, cmdRun, "--help")
+	foundCmd, _, err := cmd.Find([]string{cmdRun})
+	if err != nil {
+		t.Fatalf("Find %q: %v", cmdRun, err)
+	}
+	if flag := foundCmd.Flags().Lookup(flagOpenCodeVersion); flag != nil {
+		t.Errorf("run command must NOT have --opencode-version flag, got %q", flag.Name)
+	}
+}
