@@ -71,19 +71,23 @@ type ConfigFiles struct {
 
 // LoadConfigFiles builds the desired VM state: the merged opencode.json (from
 // the opencode snippet files) and the home files (from the home.yaml manifests).
-func LoadConfigFiles(userConfigDir string) (*ConfigFiles, error) {
+// It warns about any home.yaml source that does not exist on the host.
+func LoadConfigFiles(userConfigDir string, ui termio.UI) (*ConfigFiles, error) {
 	projectOpenCodeDir := cp.Get().ProjectOpencodeConfigDir()
 	opencodeJSON, _, hasSnippets, err := config.BuildOpenCodeJSON(userConfigDir, projectOpenCodeDir)
 	if err != nil {
 		return nil, fmt.Errorf("merge opencode config: %w", err)
 	}
-	homeFiles, _, err := homeconfig.BuildHomeFiles(
+	homeFiles, missing, _, err := homeconfig.BuildHomeFiles(
 		filepath.Dir(userConfigDir), // user home.yaml lives one level above the opencode subdir
 		cp.Get().ProjectConfigDir(),
 		VMHomeDir,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("build home files: %w", err)
+	}
+	for _, src := range missing {
+		ui.Warnf("home.yaml source %q does not exist on the host; skipping", src)
 	}
 	keys := make([]string, 0, len(homeFiles)+1)
 	if hasSnippets {

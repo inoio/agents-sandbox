@@ -22,21 +22,21 @@ func TestVolumeOps_DryRun(t *testing.T) {
 		{
 			name: "migrate",
 			run: func(ctx context.Context, slug, imageTag string, rmOld, dryRun bool, ui *termio.Mock) error {
-				return CmdMigrate(ctx, slug, "", imageTag, rmOld, dryRun, ui)
+				return CmdMigrate(ctx, slug, "", imageTag, "sha256:abc", rmOld, dryRun, ui)
 			},
 			want: []string{"dry-run: Would create volume", "old-vol"},
 		},
 		{
 			name: "reset",
 			run: func(ctx context.Context, slug, imageTag string, rmOld, dryRun bool, ui *termio.Mock) error {
-				return CmdReset(ctx, slug, "", imageTag, rmOld, dryRun, ui)
+				return CmdReset(ctx, slug, "", imageTag, "sha256:abc", rmOld, dryRun, ui)
 			},
 			want: []string{"dry-run: Would create fresh volume", "old-vol"},
 		},
 		{
 			name: "edit",
 			run: func(ctx context.Context, slug, imageTag string, rmOld, dryRun bool, ui *termio.Mock) error {
-				return CmdEdit(ctx, slug, "", imageTag, rmOld, dryRun, ui)
+				return CmdEdit(ctx, slug, "", imageTag, "sha256:abc", rmOld, dryRun, ui)
 			},
 			want: []string{"dry-run: Would create volume", "alongside", "old-vol"},
 		},
@@ -71,7 +71,7 @@ func TestCmdReset_Success(t *testing.T) {
 	slug := "testproj-aBc1234D"
 	oldVol := "opencode-sandbox-home-" + slug + "-old"
 	state.WriteState(slug, state.HomeState{HomeVolume: oldVol, ImageDigest: "sha256:old"})
-	err := CmdReset(context.Background(), slug, "", "img-tag", false, false, ui)
+	err := CmdReset(context.Background(), slug, "", "img-tag", "sha256:new", false, false, ui)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -98,9 +98,65 @@ func TestCmdReset_Success(t *testing.T) {
 	}
 }
 
+func TestVolumeOp_RecordsCurrentImageDigest(t *testing.T) {
+	_, ui := setupVolumeOpsFixtures(t)
+
+	slug := "testproj-aBc1234D"
+	oldVol := "opencode-sandbox-home-" + slug + "-old"
+	state.WriteState(slug, state.HomeState{HomeVolume: oldVol, ImageDigest: "sha256:old"})
+	err := CmdReset(context.Background(), slug, "", "img-tag", "sha256:new", false, false, ui)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	st, err := state.ReadState(slug)
+	if err != nil {
+		t.Fatalf("ReadState: %v", err)
+	}
+	if st.ImageDigest != "sha256:new" {
+		t.Errorf(
+			"ImageDigest = %q, want %q (volume op must record the current image digest)",
+			st.ImageDigest,
+			"sha256:new",
+		)
+	}
+}
+
+func TestVolumeOp_PreservesEnvSecretFingerprints(t *testing.T) {
+	_, ui := setupVolumeOpsFixtures(t)
+
+	slug := "testproj-aBc1234D"
+	oldVol := "opencode-sandbox-home-" + slug + "-old"
+	oldState := state.HomeState{
+		HomeVolume:  oldVol,
+		ImageDigest: "sha256:old",
+		EnvState:    state.EnvState{Hash: "envhash", Names: []string{"FOO"}},
+		SecretState: state.SecretState{Hash: "sechash", Names: []string{"TOKEN"}},
+	}
+	if err := state.WriteState(slug, oldState); err != nil {
+		t.Fatalf("WriteState: %v", err)
+	}
+
+	err := CmdReset(context.Background(), slug, "", "img-tag", "sha256:new", false, false, ui)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	st, err := state.ReadState(slug)
+	if err != nil {
+		t.Fatalf("ReadState: %v", err)
+	}
+	if st.EnvState.Hash != "envhash" || len(st.EnvState.Names) != 1 || st.EnvState.Names[0] != "FOO" {
+		t.Errorf("EnvState not preserved after volume op: %+v", st.EnvState)
+	}
+	if st.SecretState.Hash != "sechash" || len(st.SecretState.Names) != 1 || st.SecretState.Names[0] != "TOKEN" {
+		t.Errorf("SecretState not preserved after volume op: %+v", st.SecretState)
+	}
+}
+
 func TestCmdMigrate_NoStateFile(t *testing.T) {
 	_, ui := setupVolumeOpsFixtures(t)
-	err := CmdMigrate(context.Background(), "noproject", "", "img-tag", false, false, ui)
+	err := CmdMigrate(context.Background(), "noproject", "", "img-tag", "sha256:new", false, false, ui)
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
@@ -117,7 +173,7 @@ func TestVolumeOp_CreateVolumeFails(t *testing.T) {
 	mock.CreateVolumeFn = func(_ context.Context, _ string, _ ...msbSdk.VolumeOption) (msb.VolumeHandle, error) {
 		return nil, errors.New("create failed")
 	}
-	err := CmdReset(context.Background(), slug, "", "img-tag", false, false, ui)
+	err := CmdReset(context.Background(), slug, "", "img-tag", "sha256:new", false, false, ui)
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
@@ -131,7 +187,7 @@ func TestCmdReset_WithExplicitOldVolume(t *testing.T) {
 
 	slug := "testproj-aBc1234D"
 	state.WriteState(slug, state.HomeState{HomeVolume: "from-state-vol", ImageDigest: "sha256:abc"})
-	err := CmdReset(context.Background(), slug, "explicit-vol", "img-tag", false, true, ui)
+	err := CmdReset(context.Background(), slug, "explicit-vol", "img-tag", "sha256:new", false, true, ui)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -154,7 +210,7 @@ func TestVolumeOp_ActiveVM_ReturnsError(t *testing.T) {
 	mock.Sandboxes = []msb.SandboxHandle{
 		&msb.MockSandboxHandle{Name_: "opencode-sandbox-vm-testproj-aBc1234D", Status_: msbSdk.SandboxStatusRunning},
 	}
-	err := CmdReset(context.Background(), slug, "", "img-tag", false, false, ui)
+	err := CmdReset(context.Background(), slug, "", "img-tag", "sha256:new", false, false, ui)
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
@@ -182,7 +238,7 @@ func TestVolumeOp_MainFails_RemovesNewVolume(t *testing.T) {
 		createdVol = name
 		return &msb.MockVolumeHandle{Name_: name}, nil
 	}
-	err := CmdMigrate(context.Background(), slug, "", "img-tag", false, false, ui)
+	err := CmdMigrate(context.Background(), slug, "", "img-tag", "sha256:new", false, false, ui)
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}

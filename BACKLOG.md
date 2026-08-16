@@ -10,18 +10,18 @@
 [*] inoio-Anleitung, wie man das einrichtet
 [*] inoio providers ausbauen, anders zur Verfügung stellen.
 [*] getting-started: provider beispiel mit secret
+[*] shell subcommand user flag (other flags from msb)
+[*] config file(s) übersicht, beispiele
+[*] volume migrate, edit, reset
 
 ## Testing
 
-[ ] volume migrate, edit, reset
-[ ] config changes to root size, tmp size, cpu, mem, opencode, home
-[ ] config file(s) übersicht, beispiele
+[ ] config changes to root size, tmp size, cpu, mem
+[ ] OPENCODE_DISABLE_AUTOUPDATE and detect releases, offer vm rebuild
+
 
 ## In Progress
 
-   
-[ ] OPENCODE_DISABLE_AUTOUPDATE and detect releases, offer vm rebuild
-[ ] shell subcommand user flag (other flags from msb)
 
 ## 1st prio
 

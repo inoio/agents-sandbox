@@ -23,7 +23,7 @@ func setUpSandbox(
 	ui termio.UI,
 	restart bool,
 ) (string, error) {
-	cfs, err := reprovision.LoadConfigFiles(configpaths.Get().UserOpencodeConfigDir())
+	cfs, err := reprovision.LoadConfigFiles(configpaths.Get().UserOpencodeConfigDir(), ui)
 	if err != nil {
 		return "", err
 	}
@@ -97,7 +97,7 @@ func decideReconfig(
 	// we are actually switching to the new image.
 	imageChanged := hs.ImageDigest != imageDigest
 
-	cfs, err := reprovision.LoadConfigFiles(configpaths.Get().UserOpencodeConfigDir())
+	cfs, err := reprovision.LoadConfigFiles(configpaths.Get().UserOpencodeConfigDir(), ui)
 	if err != nil {
 		return false, false, homeVol, err
 	}

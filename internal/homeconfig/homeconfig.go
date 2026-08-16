@@ -144,34 +144,38 @@ func loadLayers(userConfigDir, projectConfigDir string) ([]map[string]string, bo
 
 // BuildHomeFiles loads the user and project home.yaml manifests, merges them
 // (project wins per key), resolves each entry, and reads the host source files.
-// It returns the desired home files keyed by absolute VM path and whether any
-// manifest existed. A missing host source file is skipped, not fatal.
-func BuildHomeFiles(userConfigDir, projectConfigDir, homeBase string) (map[string][]byte, bool, error) {
+// It returns the desired home files keyed by absolute VM path, the resolved
+// source paths that could not be read (missing files), and whether any manifest
+// existed. A missing host source file is skipped, not fatal; its resolved path
+// is reported so callers can warn.
+func BuildHomeFiles(userConfigDir, projectConfigDir, homeBase string) (map[string][]byte, []string, bool, error) {
 	layers, has, err := loadLayers(userConfigDir, projectConfigDir)
 	if err != nil {
-		return nil, false, err
+		return nil, nil, false, err
 	}
 	resolved, err := resolveLayers(layers, []string{userConfigDir, projectConfigDir})
 	if err != nil {
-		return nil, false, err
+		return nil, nil, false, err
 	}
 	merged := MergeManifests(resolved...)
 	if len(merged) == 0 {
-		return map[string][]byte{}, has, nil
+		return map[string][]byte{}, nil, has, nil
 	}
 	files := make(map[string][]byte)
+	var missing []string
 	for target, src := range merged {
 		vmPath, vErr := ResolveVMTarget(homeBase, target)
 		if vErr != nil {
-			return nil, false, vErr
+			return nil, nil, false, vErr
 		}
 		data, rErr := os.ReadFile(src)
 		if rErr != nil {
-			continue // missing source: warn+skip
+			missing = append(missing, src)
+			continue
 		}
 		files[vmPath] = data
 	}
-	return files, has, nil
+	return files, missing, has, nil
 }
 
 // DescribeManifest returns the merged home.yaml manifest as resolved
