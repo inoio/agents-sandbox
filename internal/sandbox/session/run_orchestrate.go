@@ -73,15 +73,20 @@ func prepareSandbox(
 ) (*sandboxSession, error) {
 	projectSlug := git.ProjectSlug(ui)
 
-	imageRef, imageDigest, imageEnvs, err := image.EnsureImage(ctx, projectSlug, opts.Rebuild, ui)
+	imageInfo, err := image.EnsureImage(
+		ctx,
+		projectSlug,
+		image.BuildOptions{Force: opts.Rebuild, OpenCodeVersion: ""},
+		ui,
+	)
 	if err != nil {
 		return nil, fmt.Errorf("image setup failed: %w", err)
 	}
-	ui.Verbosef("Using image '%s' (digest=%s)", imageRef, imageDigest)
+	ui.Verbosef("Using image '%s' (digest=%s, opencode %s)", imageInfo.Tag, imageInfo.Digest, imageInfo.OpenCodeVersion)
 
 	vm := volume.NewManager(ui)
 	client := msb.Get()
-	homeVol, vs, err := vm.ResolveHomeVolume(ctx, client, projectSlug, imageDigest, imageRef, opts, ui)
+	homeVol, vs, err := vm.ResolveHomeVolume(ctx, client, projectSlug, imageInfo.Digest, imageInfo.Tag, opts, ui)
 	if err != nil {
 		return nil, fmt.Errorf("volume setup failed: %w", err)
 	}
@@ -97,8 +102,8 @@ func prepareSandbox(
 		vm,
 		opts,
 
-		imageRef,
-		imageDigest,
+		imageInfo.Tag,
+		imageInfo.Digest,
 		homeVol,
 		vs,
 		ui,
@@ -108,7 +113,7 @@ func prepareSandbox(
 	}
 	ui.Verbosef("recreate: %v, restart: %v", recreate, restart)
 	opts.Recreate = recreate
-	sb, created, err := ensureProjectVM(ctx, opts, imageRef, homeVol, cwd, imageEnvs, ui)
+	sb, created, err := ensureProjectVM(ctx, opts, imageInfo.Tag, homeVol, cwd, imageInfo.Env, ui)
 	if err != nil {
 		return nil, err
 	}
@@ -231,7 +236,7 @@ func Shell(ctx context.Context, opts options.RunOptions, ui termio.UI) error {
 }
 
 // BuildImage builds (or updates) the runner image for Docker-in-Docker support.
-func BuildImage(ctx context.Context, force, dryRun bool, ui termio.UI) error {
+func BuildImage(ctx context.Context, force, dryRun bool, openCodeVersion string, ui termio.UI) error {
 	if dryRun {
 		ui.Infof("dry-run: Would build runner image")
 		return nil
@@ -242,7 +247,8 @@ func BuildImage(ctx context.Context, force, dryRun bool, ui termio.UI) error {
 	}
 	projectSlug := git.ProjectSlug(ui)
 
-	_, _, _, err := image.EnsureImageWithClient(ctx, msb.Get(), image.ResolveDockerfile(), projectSlug, force, ui)
+	_, err := image.EnsureImageWithClient(ctx, msb.Get(), image.ResolveDockerfile(), projectSlug,
+		image.BuildOptions{Force: force, OpenCodeVersion: openCodeVersion}, ui)
 	return err
 }
 
