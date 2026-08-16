@@ -27,6 +27,9 @@ type RunOptions struct {
 	// serves without attaching the in-VM TUI. Clients (e.g. Opencode Desktop)
 	// connect to the published host port.
 	ServeOnly bool
+	// OpenCodeVersion pins the opencode version baked into the runner image on
+	// rebuild. Empty means resolve the latest at build time.
+	OpenCodeVersion string
 }
 
 // ServeOnlyBindAddr is the loopback address the opencode server binds to
