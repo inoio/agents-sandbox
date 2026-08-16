@@ -111,3 +111,18 @@ func TestBuildCommand(t *testing.T) {
 		})
 	}
 }
+
+func TestBuildCommandHasOpenCodeVersionFlag(t *testing.T) {
+	cmd, _ := setupCommandFixtures(t, cmdBuild, "--help")
+	foundCmd, _, err := cmd.Find([]string{cmdBuild})
+	if err != nil {
+		t.Fatalf("Find %q: %v", cmdBuild, err)
+	}
+	flag := foundCmd.Flags().Lookup(flagOpenCodeVersion)
+	if flag == nil {
+		t.Fatal("build command must have --opencode-version flag")
+	}
+	if flag.Name != "opencode-version" {
+		t.Errorf("flag name = %q, want %q", flag.Name, "opencode-version")
+	}
+}

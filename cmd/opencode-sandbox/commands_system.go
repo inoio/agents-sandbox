@@ -178,11 +178,14 @@ func buildBuildCmd(ui termio.UI) *cobra.Command {
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			force, _ := cmd.Flags().GetBool(flagRebuild)
 			dryRun, _ := cmd.Flags().GetBool(flagDryRun)
-			return session.BuildImage(cmd.Context(), force, dryRun, "", ui)
+			openCodeVersion, _ := cmd.Flags().GetString(flagOpenCodeVersion)
+			return session.BuildImage(cmd.Context(), force, dryRun, openCodeVersion, ui)
 		},
 	}
 	cmd.Flags().BoolP(flagRebuild, flagRebuild[:1], false, "Force a clean rebuild")
 	cmd.Flags().BoolP(flagDryRun, flagDryRunShort, false, "Dry run without building")
+	cmd.Flags().
+		String(flagOpenCodeVersion, "", "Pin the opencode version baked into the runner image (default: latest release)")
 	return cmd
 }
 
