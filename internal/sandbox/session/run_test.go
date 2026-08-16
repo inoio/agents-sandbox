@@ -14,6 +14,7 @@ import (
 	"gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/msb"
 	"gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/options"
 	"gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/reprovision"
+	"gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/state"
 	"gitlab.inoio.de/inoio/opencode-sandbox/internal/termio"
 
 	"gitlab.inoio.de/inoio/opencode-sandbox/internal/testutil"
@@ -265,5 +266,51 @@ func TestRunServeOnlyBlocksUntilCancel(t *testing.T) {
 	}
 	if !found {
 		t.Errorf("expected connect URL 'http://127.0.0.1:4096' in info output, got %v", ui.InfoCalls)
+	}
+}
+
+func TestRunAttachUsesAttachWithForRoot(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+
+	ui := &termio.Mock{}
+	sb := &msb.MockSandbox{AttachCode: 0}
+	session := &sandboxSession{sb: sb, target: "/workspace"}
+
+	release, err := state.AcquireClientLease("roottest")
+	if err != nil {
+		t.Fatalf("state.AcquireClientLease: %v", err)
+	}
+	release()
+
+	err = runAttach(context.Background(), session, "roottest", ui,
+		options.RunOptions{Root: true, ReapPolicy: options.NewReapPolicy(false, 5)}, "-l")
+	if err != nil {
+		t.Fatalf("runAttach failed: %v", err)
+	}
+	if sb.AttachUser != "root" {
+		t.Errorf("AttachUser = %q, want %q", sb.AttachUser, "root")
+	}
+}
+
+func TestRunAttachDefaultDoesNotUseRoot(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+
+	ui := &termio.Mock{}
+	sb := &msb.MockSandbox{AttachCode: 0}
+	session := &sandboxSession{sb: sb, target: "/workspace"}
+
+	release, err := state.AcquireClientLease("defaulttest")
+	if err != nil {
+		t.Fatalf("state.AcquireClientLease: %v", err)
+	}
+	release()
+
+	err = runAttach(context.Background(), session, "defaulttest", ui,
+		options.RunOptions{ReapPolicy: options.NewReapPolicy(false, 5)}, "-l")
+	if err != nil {
+		t.Fatalf("runAttach failed: %v", err)
+	}
+	if sb.AttachUser != "" {
+		t.Errorf("AttachUser = %q, want empty for default (non-root) attach", sb.AttachUser)
 	}
 }
