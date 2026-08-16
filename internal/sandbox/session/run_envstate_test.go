@@ -2,6 +2,7 @@ package session
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -744,6 +745,59 @@ func TestDecideReconfig_HomePromptAskedWhenRebuildConfirmed(t *testing.T) {
 	}
 	if st.ImageDigest != "sha256:new" {
 		t.Errorf("state ImageDigest = %q, want %q (keep records the new digest)", st.ImageDigest, "sha256:new")
+	}
+}
+
+func TestDecideReconfig_OpenCodeConfigChanged_StoppedVM(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+
+	// Desired opencode config: a snippet producing {"model":"y"} (new config).
+	testutil.WriteFile(t,
+		configpaths.Get().UserOpencodeConfigDir(),
+		"a.json",
+		`{"model":"y"}`,
+	)
+
+	// Existing VM whose Connect fails (stopped/suspended VM): decideReconfig
+	// cannot read live config, so it must neither recreate nor spuriously flag a
+	// daemon restart. Provisioning + fresh daemon pickup happen downstream in
+	// setUpSandbox once the VM is started.
+	sh := &msb.MockSandboxHandle{
+		Cfg: &msbSdk.SandboxConfig{Image: "img:tag", CPUs: 4, MemoryMiB: 4096},
+	}
+	sh.ConnectErr = errors.New("vm not running")
+	mock := &msb.MockMsbClient{}
+	mock.GetSandboxFn = func(_ context.Context, _ string) (msb.SandboxHandle, error) {
+		return sh, nil
+	}
+	msb.WithMsbMock(t, mock)
+
+	vm := volume.NewManager(&termio.Mock{})
+	persisted := state.HomeState{
+		HomeVolume:  "vol",
+		ImageDigest: "sha256:same",
+	}
+
+	ui := termio.NewTestMock(t)
+	recreate, restart, _, err := decideReconfig(
+		context.Background(),
+		mock,
+		vm,
+		options.RunOptions{},
+		"img:tag",
+		"sha256:same",
+		"vol",
+		persisted,
+		&ui,
+	)
+	if err != nil {
+		t.Fatalf("decideReconfig: %v", err)
+	}
+	if recreate {
+		t.Error("expected no recreate for an opencode-config-only change on a stopped VM")
+	}
+	if restart {
+		t.Error("expected no daemon-restart flag from a stopped VM (fresh daemon picks up config on start)")
 	}
 }
 
