@@ -154,7 +154,7 @@ func prepareSandbox(
 		ui.Infof("VM lifecycle skipped (--dry-run-vm)")
 		sandboxTarget = resolveTargetNoBranch()
 	} else {
-		sandboxTarget, sandboxErr = setUpSandbox(ctx, sb, opts, created, ui, restart)
+		sandboxTarget, sandboxErr = setUpSandbox(ctx, sb, opts, ui, restart)
 		if sandboxErr != nil {
 			return nil, sandboxErr
 		}
