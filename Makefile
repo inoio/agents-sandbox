@@ -1,4 +1,4 @@
-.PHONY: build build-release build-release-all test lint fmt clean completion user-install check all
+.PHONY: build build-release build-release-all test lint fmt clean completion user-install check all upgrade-deps
 
 VERSION ?= dev
 
@@ -69,3 +69,7 @@ user-install: build
 	mkdir -p ~/.local/bin
 	cp opencode-sandbox ~/.local/bin/opencode-sandbox.tmp
 	mv -f ~/.local/bin/opencode-sandbox.tmp ~/.local/bin/opencode-sandbox
+
+upgrade-deps:
+	go get -u
+	go mod tidy
