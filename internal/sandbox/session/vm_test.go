@@ -45,8 +45,8 @@ func TestBuildProjectVMEnvIncludesWorkspaces(t *testing.T) {
 	if envMap["OPENCODE_EXPERIMENTAL_WORKSPACES"] != "true" {
 		t.Errorf("expected OPENCODE_EXPERIMENTAL_WORKSPACES=true, got %q", envMap["OPENCODE_EXPERIMENTAL_WORKSPACES"])
 	}
-	if envMap["PATH"] == "" {
-		t.Error("expected PATH to have a fallback value")
+	if _, ok := envMap["PATH"]; ok {
+		t.Error("expected no PATH set when image envs provide none")
 	}
 }
 
