@@ -4,20 +4,23 @@ import (
 	"errors"
 	"os"
 
+	"golang.org/x/term"
+
 	"gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/session"
+	"gitlab.inoio.de/inoio/opencode-sandbox/internal/termio"
 )
 
 func main() {
 	args := os.Args[1:]
-	ui := newUI(args)
-	ui.Verbose("Initialized terminal output")
+	ui := termio.New(os.Stdin, os.Stdout, os.Stderr,
+		term.IsTerminal(int(os.Stderr.Fd())), termio.LevelNormal, false)
 
 	if err := execute(args, ui); err != nil {
 		var exitErr *session.ExitError
 		if errors.As(err, &exitErr) {
 			os.Exit(exitErr.Code)
 		}
-		ui.Error("Failed", err)
+		ui.Error("Error", err)
 		os.Exit(1)
 	}
 }

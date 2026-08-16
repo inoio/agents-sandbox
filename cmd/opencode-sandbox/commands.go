@@ -115,11 +115,10 @@ func buildRootCmd(ui termio.UI) *cobra.Command {
 		if err := applyLauncherConfig(cmd, lc, keys); err != nil {
 			return err
 		}
+		applyCLISettings(cmd, ui)
 
-		// execute Auto-Prune
 		isDryRun, _ := cmd.Flags().GetBool(flagDryRun)
 		pruning.AutoPrune(cmd.Context(), lc.AutoPruneAge, isDryRun, ui)
-		applyCLISettings(cmd, ui)
 		return nil
 	}
 	extendRunCmd(ui, rootCmd)

@@ -94,7 +94,7 @@ func (s *spinner) finish(result string) {
 	var final string
 	switch {
 	case result == "done":
-		mark := "✔"
+		mark := "✓"
 		if s.color {
 			mark = ansiGreen + mark + ansiReset
 		}

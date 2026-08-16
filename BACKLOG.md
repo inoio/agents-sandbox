@@ -13,6 +13,7 @@
 [*] shell subcommand user flag (other flags from msb)
 [*] config file(s) übersicht, beispiele
 [*] volume migrate, edit, reset
+[*] remove msb load exec call by spooling to tmp file and using msb SDKs Image.Load
 
 ## Testing
 
@@ -25,10 +26,15 @@
 
 ## 1st prio
 
+[ ] dev doku, design principles usw. (z.B. CLI design aligned with docker,msb)
+[ ] remove/clean commands for volumes, sandboxes, images. docker images/cache/... - with filters, best same ones. Also readable list output (project name, not number) (labels an docker images für cleanup?)
+
+
+
+
 [ ] env.secret[.yaml] im Projekt, wie verstecken?
 [ ] default pattern for hiding project files, configurable (*.secret), not checked in?
-[ ] OPENCODE_EXPERIMENTAL_EXA, OPENCODE_EXPERIMENTAL_BACKGROUND_SUBAGENTS, OPENCODE_EXPERIMENTAL_PARALLEL, OPENCODE_EXPERIMENTAL_SCOUT? 
-[ ] remove msb load exec call by spooling to tmp file and using msb SDKs Image.Load 
+[ ] document OPENCODE_EXPERIMENTAL_EXA, OPENCODE_EXPERIMENTAL_BACKGROUND_SUBAGENTS, OPENCODE_EXPERIMENTAL_PARALLEL, OPENCODE_EXPERIMENTAL_SCOUT? 
 [ ] enforce basic auth for `run --serve-only` (published opencode port on host loopback is currently unauthenticated)
 [ ] configurable host port for `run --serve-only` (currently fixed 4096)
 
@@ -36,9 +42,7 @@
 
 [ ] request --auto in opencode project for serve&attach
 [ ] after docker image import, remove docker built image? Or delete docker layers when deleting msb images? Regular auto-cleanup for this?
-[ ] clean commands for volumes, sandboxes, images. docker images/cache/... - with filters, best same ones. Also readable list output (project name, not number) (labels an docker images für cleanup?)
-[ ] optionale Versionierung von dependencies (opencode, node.js)
-[ ] dev doku, design principles usw. (z.B. CLI design aligned with docker,msb)
+[ ] optionale Versionierung von dependencies (node.js)
 
 ## 3rd prio
 
@@ -54,4 +58,4 @@ Larger, higher-risk items deliberately deferred out of the cohesion/coupling rem
 1. Extract mock code out of production binaries (`msb/testmock.go` ~688 lines, `docker/testmock.go`) into `_test.go`/testutil — removes `testing` from the production import graph.
 4. `reprovision` sub-package split (configfiles / envstate / reconfig) — the largest single cohesion debt.
 6. `reprovision`/`doctor` parameter narrowings (`RunOptions`, `ParseMemory` error-return, `checkForActiveVMs` relocation) to reduce behavioral risk-avoidance.
-7. `naming.ArtifactFor` vs. `ExtractProjectSlugAndDigest` dual-dispatch unification.
+7.  
