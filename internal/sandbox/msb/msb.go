@@ -36,6 +36,7 @@ type Client interface {
 	ImageList(ctx context.Context) ([]ImageHandle, error)
 	ImageRemove(ctx context.Context, ref string, force bool) error
 	ImageLoad(ctx context.Context, ref string, r io.Reader) error
+	ImageInspect(ctx context.Context, ref string) (*msbSdk.ImageConfig, error)
 }
 
 // SandboxHandle is the subset of *msb.SandboxHandle used by the launcher.
@@ -250,6 +251,14 @@ func (realMsbClient) ImageLoad(ctx context.Context, ref string, r io.Reader) err
 		return fmt.Errorf("loading image into microsandbox failed: %w: %s", err, out)
 	}
 	return nil
+}
+
+func (realMsbClient) ImageInspect(ctx context.Context, ref string) (*msbSdk.ImageConfig, error) {
+	detail, err := msbSdk.Image.Inspect(ctx, ref)
+	if err != nil {
+		return nil, err
+	}
+	return detail.Config, nil
 }
 
 // realVolumeHandle adapts *msbSdk.Volume or *msbSdk.VolumeHandle to VolumeHandle.
