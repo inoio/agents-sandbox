@@ -89,6 +89,9 @@ See [Getting Started](/docs/getting-started.md) for prerequisites and a full set
 
 Full [Commands Reference](/docs/commands.md).
 
+opencode is pinned into the runner image at build time and does not auto-update inside sandboxes; rebuild the image
+with `opencode-sandbox build` to upgrade (optionally pinning a specific version with `--opencode-version`).
+
 ## Documentation
 
 | Topic                                         | Description                                            |

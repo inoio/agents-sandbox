@@ -26,6 +26,29 @@ The default runner image `opencode-sandbox/runner-base` is built from `debian:tr
 It creates and switches to the `dev` user and sets the workdir to `/workspace` — the mount point for the working
 directories.
 
+## opencode autoupdate and upgrades
+
+opencode is pinned to a specific version at image build time and its runtime autoupdate is disabled via
+`OPENCODE_DISABLE_AUTOUPDATE=true` in the image, so the opencode binary in a sandbox is stable across runs. The
+pinned version is recorded as a Docker label (`org.opencode-sandbox.opencode-version`) on the image.
+
+By default the latest release available at build time is used. Pin an explicit version on the `build` command with
+`--opencode-version`:
+
+```console
+opencode-sandbox build --opencode-version 0.5.0
+opencode-sandbox build          # uses the latest release
+```
+
+**How to upgrade:** Rebuild the runner image with `opencode-sandbox build`. To pin a specific version, use
+`--opencode-version`.
+
+On `run`/`shell`, when a newer opencode release exists than the version baked into the image, the launcher offers to
+rebuild the image (interactive) or prints a notice advising `opencode-sandbox build` (non-interactive). Images that
+predated the version label are force-rebuilt to pin a version.
+
+> `--opencode-version` is only available on the `build` command — it is not supported on `run` or `shell`.
+
 ## Docker-in-Docker Base Image
 
 On top of the base image, opencode-sandbox provides an image with Docker-in-Docker (dind) enabled,
