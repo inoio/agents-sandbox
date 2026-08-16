@@ -90,14 +90,21 @@ func ResolveSource(target, source, manifestDir string) (string, error) {
 }
 
 // ResolveVMTarget validates a VM-home-relative target and returns its absolute
-// path under homeBase. It rejects empty targets, absolute paths, paths that
-// escape homeBase (e.g. ".." traversal), and the reserved opencode config path.
+// path under homeBase. It rejects empty targets, absolute paths, `~`-prefixed
+// paths (targets are already home-relative), paths that escape homeBase (e.g.
+// ".." traversal), and the reserved opencode config path.
 func ResolveVMTarget(homeBase, relTarget string) (string, error) {
 	if relTarget == "" {
 		return "", errors.New("home manifest target must not be empty")
 	}
 	if filepath.IsAbs(relTarget) {
 		return "", fmt.Errorf("home manifest target %q must be relative to the home directory", relTarget)
+	}
+	if strings.HasPrefix(relTarget, "~") {
+		return "", fmt.Errorf(
+			"home manifest target %q must not start with ~; targets are already relative to the home directory",
+			relTarget,
+		)
 	}
 	clean := filepath.Clean(relTarget)
 	if clean == opencodeConfigPath {

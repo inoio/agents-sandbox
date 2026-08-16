@@ -256,22 +256,23 @@ mappings.
 In addition to the opencode config, `home.yaml` provisions arbitrary files into the VM home directory (`/home/dev`). A
 manifest is an optional YAML map from a **VM-home-relative target path** to a **host source string**:
 
-| Manifest location              | Purpose                         |
-|--------------------------------|---------------------------------|
-| `~/.config/opencode-sandbox/home.yaml` | User-level home-file mappings |
-| `.opencode-sandbox/home.yaml`      | Project-level home-file mappings |
+| Manifest location                      | Purpose                          |
+|----------------------------------------|----------------------------------|
+| `~/.config/opencode-sandbox/home.yaml` | User-level home-file mappings    |
+| `.opencode-sandbox/home.yaml`          | Project-level home-file mappings |
 
 Keys (targets) are relative paths within the VM home, e.g. `.config/opencode/opencode.json`. The host source value is
 resolved as follows:
 
 - **empty** — read host `$HOME/<target>`
 - **`/`-prefixed** — an absolute host path
-- **`~`-prefixed** — host `$HOME/<rest>`
+- **`~/`-prefixed** — host `$HOME/<rest>`
 - **otherwise** — relative to the manifest file that declares it
 
 Layering: the project manifest overrides the user manifest **per target**. Targets must stay within the VM home
-(`..` traversal and absolute paths are rejected), and `.config/opencode/opencode.json` is reserved for the merged
-opencode config — it cannot be provisioned via `home.yaml`.
+(`..` traversal, absolute paths, and `~`-prefixed targets are rejected — targets are already relative to the home
+directory, so `~/fdsa` should simply be written as `fdsa`), and `.config/opencode/opencode.json` is reserved for the
+merged opencode config — it cannot be provisioned via `home.yaml`.
 
 Example `.opencode-sandbox/home.yaml`:
 
