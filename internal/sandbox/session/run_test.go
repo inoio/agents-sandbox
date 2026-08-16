@@ -78,14 +78,14 @@ func TestBuildAttachCommandWorktreeTarget(t *testing.T) {
 }
 
 func TestSetUpSandboxProvisionsConfigOnFreshSetup(t *testing.T) {
-	setUpSandboxProvisionsConfig(t, true, "fresh setup")
+	setUpSandboxProvisionsConfig(t, "fresh setup")
 }
 
 func TestSetUpSandboxProvisionsConfigOnReuseWithEmptyDir(t *testing.T) {
-	setUpSandboxProvisionsConfig(t, false, "reused VM with empty config dir")
+	setUpSandboxProvisionsConfig(t, "reused VM with empty config dir")
 }
 
-func setUpSandboxProvisionsConfig(t *testing.T, created bool, provisionMsg string) {
+func setUpSandboxProvisionsConfig(t *testing.T, provisionMsg string) {
 	t.Helper()
 	origDaemon := SetDaemonShellFunc(func(_ context.Context, _ msb.Sandbox, command string) (string, int, error) {
 		if command == "curl -sfm2 "+daemonHealthURL {
@@ -110,7 +110,6 @@ func setUpSandboxProvisionsConfig(t *testing.T, created bool, provisionMsg strin
 		context.Background(),
 		sb,
 		options.RunOptions{},
-		created,
 		ui,
 		false,
 	)
@@ -199,7 +198,7 @@ func TestSetUpSandboxRestartsDaemonsOnReuseDecision(t *testing.T) {
 	commands = commands[:0]
 	target, err := setUpSandbox(
 		context.Background(), sb, options.RunOptions{},
-		false, &ui, true,
+		&ui, true,
 	)
 	if err != nil {
 		t.Fatalf("setUpSandbox: %v", err)
@@ -219,6 +218,51 @@ func TestSetUpSandboxRestartsDaemonsOnReuseDecision(t *testing.T) {
 
 func containsSubstring(hay, needle string) bool {
 	return len(hay) >= len(needle) && contains(hay, needle)
+}
+
+func TestSetUpSandboxProvisionsUpdatedConfigOnKeep(t *testing.T) {
+	origDaemon := SetDaemonShellFunc(func(_ context.Context, _ msb.Sandbox, command string) (string, int, error) {
+		if command == "curl -sfm2 "+daemonHealthURL {
+			return `{"healthy":true,"version":"test"}`, 0, nil
+		}
+		return "", 0, nil
+	})
+	defer SetDaemonShellFunc(origDaemon)
+
+	// The VM already contains an OLD opencode.json (content differs from desired).
+	// This simulates attaching to a running VM and choosing "keep": no daemon
+	// restart, but the updated config must still be provisioned so the next
+	// daemon start picks it up.
+	ocPath := reprovision.OpenCodeConfigPath(reprovision.VMHomeDir)
+	fs := msb.NewTestFS(map[string][]byte{
+		ocPath: []byte(`{"model":"old"}`),
+	}, nil)
+	sb := &msb.MockSandbox{Name_: "test-vm", FSValue_: fs}
+
+	configpaths.WithMockConfigPaths(t)
+	cp := configpaths.Get()
+	snippet := filepath.Join(cp.UserOpencodeConfigDir(), "opencode.json5")
+	if err := os.MkdirAll(filepath.Dir(snippet), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	testutil.WritePath(t, snippet, `{"model":"new"}`)
+
+	ui := &termio.Mock{}
+	_, err := setUpSandbox(
+		context.Background(),
+		sb,
+		options.RunOptions{},
+		ui,
+		false, // restart=false (user chose "keep")
+	)
+	if err != nil {
+		t.Fatalf("setUpSandbox: %v", err)
+	}
+
+	wrote := fs.Writes != nil && fs.Writes[ocPath] != nil
+	if !wrote {
+		t.Error("expected updated opencode.json to be provisioned even when daemon restart is deferred (keep)")
+	}
 }
 
 func contains(s, sub string) bool {
