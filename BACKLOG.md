@@ -4,21 +4,22 @@
 
 [*] secrets containing @ kann nicht funktionieren -> yaml. Keine CLI-Params.
 [*] make cli output pretty and UX'd
+[*] config show: list all files that would apply to a VM startup.
+[*] opencode config dir & merging nach alphabet
+[*] config file(s): support arbitrary files in VM home
+[*] inoio-Anleitung, wie man das einrichtet
+[*] inoio providers ausbauen, anders zur Verfügung stellen.
+[*] getting-started: provider beispiel mit secret
 
 ## Testing
 
 [ ] volume migrate, edit, reset
 [ ] config changes to root size, tmp size, cpu, mem, opencode, home
-[ ] opencode config dir & merging nach alphabet
-[ ] config file(s): support arbitrary files in VM home
 [ ] config file(s) übersicht, beispiele
-[ ] config show: list all files that would apply to a VM startup.
 
 ## In Progress
 
-[ ] inoio providers ausbauen, anders zur Verfügung stellen.
-    * inoio-Anleitung, wie man das einrichtet
-    * getting-started: provider beispiel mit secret
+   
 [ ] OPENCODE_DISABLE_AUTOUPDATE and detect releases, offer vm rebuild
 [ ] shell subcommand user flag (other flags from msb)
 

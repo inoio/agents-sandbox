@@ -107,6 +107,14 @@ func TestResolveVMTargetRejectsTraversal(t *testing.T) {
 	}
 }
 
+func TestResolveVMTargetRejectsTilde(t *testing.T) {
+	for _, bad := range []string{"~fdsa", "~/fdsa", "~/", "~"} {
+		if _, err := ResolveVMTarget(vmHome, bad); err == nil {
+			t.Errorf("expected error for target %q", bad)
+		}
+	}
+}
+
 func TestResolveVMTargetReservedOpencodeJSON(t *testing.T) {
 	_, err := ResolveVMTarget(vmHome, ".config/opencode/opencode.json")
 	if err == nil {
