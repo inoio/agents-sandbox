@@ -156,6 +156,31 @@ func TestExtractRunOptionsServeOnly(t *testing.T) {
 	}
 }
 
+func TestExtractRunOptionsRootFlag(t *testing.T) {
+	shellCmd := buildShellCmd(&termio.Mock{})
+	if err := shellCmd.Flags().Set(flagRoot, "true"); err != nil {
+		t.Fatalf("set root: %v", err)
+	}
+	opts, err := extractRunOptions(shellCmd, &termio.Mock{})
+	if err != nil {
+		t.Fatalf("extractRunOptions: %v", err)
+	}
+	if !opts.Root {
+		t.Errorf("expected Root=true when --root passed, got false")
+	}
+}
+
+func TestExtractRunOptionsRootFlagNotSet(t *testing.T) {
+	runCmd := buildRunCmd(&termio.Mock{})
+	opts, err := extractRunOptions(runCmd, &termio.Mock{})
+	if err != nil {
+		t.Fatalf("extractRunOptions: %v", err)
+	}
+	if opts.Root {
+		t.Errorf("expected Root=false when --root not registered, got true")
+	}
+}
+
 // buildCommandWithLauncherConfig builds a "run" command and injects
 // a viperconfig.Config into the context, mimicking what
 // PersistentPreRunE does in production.
