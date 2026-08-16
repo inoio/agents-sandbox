@@ -179,7 +179,7 @@ func TestRunShellRunWithAllFlags(t *testing.T) {
 
 	mock := &sandboxmsb.MockMsbClient{}
 	root, _ := setupShellRunMocks(t, mock, &sandboxmsb.MockSandbox{AttachErr: errors.New("fail")},
-		"run", "--worktree", "x", "--cpus", "2", "--memory", "8G", "--user", "alice")
+		"run", "--worktree", "x", "--cpus", "2", "--memory", "8G")
 
 	_ = root.Execute()
 
@@ -193,7 +193,7 @@ func TestRunShellRunWithShortFlags(t *testing.T) {
 
 	mock := &sandboxmsb.MockMsbClient{}
 	root, _ := setupShellRunMocks(t, mock, &sandboxmsb.MockSandbox{AttachErr: errors.New("fail")},
-		"run", "--worktree", "main", "-c", "4", "-m", "16G", "-u", "root")
+		"run", "--worktree", "main", "-c", "4", "-m", "16G")
 
 	_ = root.Execute()
 
