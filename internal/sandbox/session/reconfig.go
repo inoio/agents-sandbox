@@ -20,14 +20,10 @@ func setUpSandbox(
 	ctx context.Context,
 	sb msb.Sandbox,
 	opts options.RunOptions,
+	cfs *reprovision.ConfigFiles,
 	ui termio.UI,
 	restart bool,
 ) (string, error) {
-	cfs, err := reprovision.LoadConfigFiles(configpaths.Get().UserOpencodeConfigDir(), ui)
-	if err != nil {
-		return "", err
-	}
-
 	ui.Verbosef("expected config files: %v", cfs.Keys)
 
 	if restart {
@@ -72,6 +68,7 @@ func decideReconfig(
 	vm *volume.Manager,
 	opts options.RunOptions,
 	imageRef, imageDigest, homeVol string, hs state.HomeState,
+	cfs *reprovision.ConfigFiles,
 	ui termio.UI,
 ) (bool, bool, string, error) {
 	slug := git.ProjectSlug(ui)
@@ -96,11 +93,6 @@ func decideReconfig(
 	// home-volume prompt is deferred until the rebuild decision below confirms
 	// we are actually switching to the new image.
 	imageChanged := hs.ImageDigest != imageDigest
-
-	cfs, err := reprovision.LoadConfigFiles(configpaths.Get().UserOpencodeConfigDir(), ui)
-	if err != nil {
-		return false, false, homeVol, err
-	}
 
 	var opencfgChanged bool
 	if liveSb != nil {

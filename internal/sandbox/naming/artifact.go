@@ -141,19 +141,6 @@ func ParseCloneVolumeName(name string) string {
 	return strings.Join(parts[:len(parts)-1], "-")
 }
 
-// ExtractProjectSlugAndDigest extracts the project slug and optional digest
-// from an artifact name (sandbox/volume/Docker image/MSB image).
-//
-// Examples:
-//
-//	"opencode-sandbox-vm-projectname-main" → slug="projectname", digest=""
-//	"opencode-sandbox-home-myproject-aB3cDe4fGhIjKl-xYz1234AbCdEfGh" → slug="myproject-aB3cDe4fGhIjKl", digest="xYz1234AbCdEfGh"
-//	"opencode-sandbox/runner-myproject:xYz1234AbCdEfGh" → slug="myproject", digest="xYz1234AbCdEfGh"
-func ExtractProjectSlugAndDigest(name string) (string, string) {
-	info := ArtifactFor(name)
-	return info.Slug, info.Digest
-}
-
 // ArtifactFor dispatches to the appropriate parser based on the name prefix.
 func ArtifactFor(name string) ArtifactInfo {
 	switch {

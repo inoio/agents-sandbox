@@ -2,7 +2,7 @@ package naming
 
 import "testing"
 
-func TestExtractProjectSlugAndDigest(t *testing.T) {
+func TestArtifactFor_Dispatch(t *testing.T) {
 	cases := []struct {
 		in     string
 		slug   string
@@ -20,14 +20,14 @@ func TestExtractProjectSlugAndDigest(t *testing.T) {
 		},
 	}
 	for _, c := range cases {
-		gotSlug, gotDigest := ExtractProjectSlugAndDigest(c.in)
-		if gotSlug != c.slug || gotDigest != c.digest {
-			t.Errorf("%q: got (%q,%q) want (%q,%q)", c.in, gotSlug, gotDigest, c.slug, c.digest)
+		info := ArtifactFor(c.in)
+		if info.Slug != c.slug || info.Digest != c.digest {
+			t.Errorf("%q: got (%q,%q) want (%q,%q)", c.in, info.Slug, info.Digest, c.slug, c.digest)
 		}
 	}
 }
 
-func TestExtractProjectSlugAndDigest_SinglePartSlugs(t *testing.T) {
+func TestArtifactFor_SinglePartSlugs(t *testing.T) {
 	cases := []struct {
 		in     string
 		slug   string
@@ -39,14 +39,14 @@ func TestExtractProjectSlugAndDigest_SinglePartSlugs(t *testing.T) {
 		{"opencode-sandbox-clone-work-a1b2c3d4", "work", ""},
 	}
 	for _, c := range cases {
-		gotSlug, gotDigest := ExtractProjectSlugAndDigest(c.in)
-		if gotSlug != c.slug || gotDigest != c.digest {
-			t.Errorf("%q: got (%q,%q) want (%q,%q)", c.in, gotSlug, gotDigest, c.slug, c.digest)
+		info := ArtifactFor(c.in)
+		if info.Slug != c.slug || info.Digest != c.digest {
+			t.Errorf("%q: got (%q,%q) want (%q,%q)", c.in, info.Slug, info.Digest, c.slug, c.digest)
 		}
 	}
 }
 
-func TestExtractProjectSlugAndDigest_Unrecognized(t *testing.T) {
+func TestArtifactFor_Unrecognized(t *testing.T) {
 	cases := []struct {
 		in         string
 		wantSlug   string
@@ -59,9 +59,9 @@ func TestExtractProjectSlugAndDigest_Unrecognized(t *testing.T) {
 		{"opencode-sandbox-home-", "", ""},
 	}
 	for _, c := range cases {
-		gotSlug, gotDigest := ExtractProjectSlugAndDigest(c.in)
-		if gotSlug != c.wantSlug || gotDigest != c.wantDigest {
-			t.Errorf("%q: got (%q,%q) want (%q,%q)", c.in, gotSlug, gotDigest, c.wantSlug, c.wantDigest)
+		info := ArtifactFor(c.in)
+		if info.Slug != c.wantSlug || info.Digest != c.wantDigest {
+			t.Errorf("%q: got (%q,%q) want (%q,%q)", c.in, info.Slug, info.Digest, c.wantSlug, c.wantDigest)
 		}
 	}
 }
