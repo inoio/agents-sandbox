@@ -2,65 +2,29 @@
 
 ## Done
 
-[*] test and dogfood the go binary
-[*] enable --auto in opencode invocation
-[*] Provide runtime per step in cli output, print elapsed duration for current/active step[ ] add test-run subcommand that ensures all steps until invocation of opencode
-[*] consistently name everything after deciding on a project/tool name (home folders, project folders etc.)
-[*] think through worktree functionality. Currently they get created, but not merged back at the end
-[*] warn on VM running for project and branchSlug, ask to terminate other or exit, default/yes exit 
-[*] --test-run flag for skipping opencode execution - for validating by an agent?
-[*] refactor cli, subcommands for image rebuilding, ...? maybe remove some flags like --reset-home?
-[*] version based on date
-[*] provide easy installation method
-  [*] Download via curl (without auth?) -> https://gitlab.inoio.de/inoio/opencode-sandbox/-/releases/permalink/latest
-[*] config file for cli settings in .opencode-sandbox
-[*] git doctor nach install dokumentieren/aufrufen
-[*] install golangci-lint globally instead of to user home dir
-[*] make tmpfs size configurable and raise from 512m to 2GB (go builds broke with "no space left on device")
-[*] think about lifecycle of home volume - it would be nice to keep history, but not across projects. Maybe clean option is enough - fancy: option to interactively edit the home volume.
-[*] !!! NEVER mount a home volume twice. For 2 sessions in 1 repo, warn the user that it'll be an ephemeral session, not recording opencode session history. Start from a fresh home copy from root
-[*] msb is not callable / not in path -> after EnsureInstalled, create symlink to ~/.local/bin
-[*] user uid,gid aus System bestimmen und setzen bei image build.
-[*] rework --tree, more explanations, root command
-[*] support docker in VM
-[*] use less tokens for dev
-[*] prune does not seem to work
-[*] single VM per project with multiple workspaces to work around sqlite's fcntl() locking home dir?
-[*] --branch merge deletes repo with changes
-[*] Installation ins Userverzeichnis ([~/bin,] ~/.local/bin)
-[*] docker images mit projekt-slug im namen bauen
-[*] git library einbinden?
-[*] Dependencies (z.B. git, docker)
-[*] Flags an opencode übergeben (--) dokumentieren
-[*] dogfood -b/--branch feature
-[*] Deliver example AGENTS.md file with instructions for VM environment, workflow
-[*] Concept for connecting Opencode Desktop to sandboxed server
-[*] image rebuild done unconditionally imports image into msb, should check whether it already exists
-
 ## Testing
 
-[ ] Test:
-* volume migrate, edit, delete
-* config changes to root size, tmp size, cpu, mem
+[ ] volume migrate, edit, reset
+[ ] config changes to root size, tmp size, cpu, mem
 [ ] secrets containing @ kann nicht funktionieren -> yaml. Keine CLI-Params.
 [ ] opencode config dir & merging nach alphabet
 [ ] config file(s): support arbitrary files in VM home
 [ ] config file(s) übersicht, beispiele
 [ ] config show: list all files that would apply to a VM startup.
+[ ] make cli output pretty and UX'd
 
 ## In Progress
 
 [ ] inoio providers ausbauen, anders zur Verfügung stellen.
     * inoio-Anleitung, wie man das einrichtet
     * getting-started: provider beispiel mit secret
-[ ] make cli output pretty and UX'd
+[ ] OPENCODE_DISABLE_AUTOUPDATE and detect releases, offer vm rebuild
+[ ] shell subcommand user flag (other flags from msb)
 
 ## 1st prio
 
-[ ] volume reset geht nicht
 [ ] env.secret[.yaml] im Projekt, wie verstecken?
 [ ] default pattern for hiding project files, configurable (*.secret), not checked in?
-[ ] OPENCODE_DISABLE_AUTOUPDATE and detect releases, offer vm rebuild
 [ ] OPENCODE_EXPERIMENTAL_EXA, OPENCODE_EXPERIMENTAL_BACKGROUND_SUBAGENTS, OPENCODE_EXPERIMENTAL_PARALLEL, OPENCODE_EXPERIMENTAL_SCOUT? 
 [ ] remove msb load exec call by spooling to tmp file and using msb SDKs Image.Load 
 [ ] enforce basic auth for `run --serve-only` (published opencode port on host loopback is currently unauthenticated)
@@ -68,10 +32,9 @@
 
 ## 2nd prio
 
-[ ] request --auto in opencode for serve&attach
+[ ] request --auto in opencode project for serve&attach
 [ ] after docker image import, remove docker built image? Or delete docker layers when deleting msb images? Regular auto-cleanup for this?
 [ ] clean commands for volumes, sandboxes, images. docker images/cache/... - with filters, best same ones. Also readable list output (project name, not number) (labels an docker images für cleanup?)
-[ ] shell subcommand user flag (other flags from msb)
 [ ] optionale Versionierung von dependencies (opencode, node.js)
 [ ] dev doku, design principles usw. (z.B. CLI design aligned with docker,msb)
 
@@ -87,9 +50,6 @@
 Larger, higher-risk items deliberately deferred out of the cohesion/coupling remediation; a future plan should implement them.
 
 1. Extract mock code out of production binaries (`msb/testmock.go` ~688 lines, `docker/testmock.go`) into `_test.go`/testutil — removes `testing` from the production import graph.
-2. `msb.Client` SDK-leak encapsulation — decide thin pass-through vs. a central SDK re-export to stop consumers importing `msbSdk` directly.
-3. Full `state` Root-parameterization so sibling packages build isolated per-test stores (`NewStore(t.TempDir())`) instead of mutating `state.StateDir`.
 4. `reprovision` sub-package split (configfiles / envstate / reconfig) — the largest single cohesion debt.
-5. Root `sandbox` facade deletion by migrating `cmd` to import submodules directly (now feasible since Task 9 reduced the facade to func wrappers).
 6. `reprovision`/`doctor` parameter narrowings (`RunOptions`, `ParseMemory` error-return, `checkForActiveVMs` relocation) to reduce behavioral risk-avoidance.
 7. `naming.ArtifactFor` vs. `ExtractProjectSlugAndDigest` dual-dispatch unification.
