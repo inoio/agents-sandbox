@@ -44,6 +44,8 @@ type SandboxHandle interface {
 	Name() string
 	Status() msbSdk.SandboxStatus
 	UpdatedAt() time.Time
+	CreatedAt() time.Time
+	BackendKind() msbSdk.BackendKind
 	Image() string
 	Connect(ctx context.Context) (Sandbox, error)
 	Refresh(ctx context.Context) (SandboxHandle, error)
@@ -332,6 +334,14 @@ func (w realSandboxHandle) Status() msbSdk.SandboxStatus {
 
 func (w realSandboxHandle) UpdatedAt() time.Time {
 	return w.handle.UpdatedAt()
+}
+
+func (w realSandboxHandle) CreatedAt() time.Time {
+	return w.handle.CreatedAt()
+}
+
+func (w realSandboxHandle) BackendKind() msbSdk.BackendKind {
+	return w.handle.BackendKind()
 }
 
 func (w realSandboxHandle) Image() string {

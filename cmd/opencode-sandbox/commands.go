@@ -69,22 +69,25 @@ func extractRunOptions(cmd *cobra.Command, ui termio.UI) (options.RunOptions, er
 	return opts, nil
 }
 
-// printItems renders a list of items using the given format, item type,
-// and type-specific accessors for name and value strings.
+// printItems renders a list of items using the given format string with one
+// verb per accessor, item type, and type-specific accessors for each column.
 func printItems[T any](
 	items []T,
 	emptyMsg string,
 	format string,
-	nameFunc func(T) string,
-	valueFunc func(T) string,
 	ui termio.UI,
+	funcs ...func(T) string,
 ) {
 	if len(items) == 0 {
 		ui.Info(emptyMsg)
 		return
 	}
 	for _, item := range items {
-		ui.Outf(format, nameFunc(item), valueFunc(item))
+		args := make([]any, len(funcs))
+		for i, f := range funcs {
+			args[i] = f(item)
+		}
+		ui.Outf(format, args...)
 	}
 }
 

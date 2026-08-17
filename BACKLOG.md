@@ -41,7 +41,7 @@
 ## 2nd prio
 
 [ ] request --auto in opencode project for serve&attach
-[ ] after docker image import, remove docker built image? Or delete docker layers when deleting msb images? Regular auto-cleanup for this?
+[ ] keep the local docker image as `:latest` (still needed to recompute the image hash); dangling images from rebuilds are reclaimed by the dangling-image prune
 [ ] optionale Versionierung von dependencies (node.js)
 
 ## 3rd prio

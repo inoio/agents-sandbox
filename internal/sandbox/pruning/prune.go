@@ -4,12 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"strings"
 	"time"
 
-	"github.com/moby/moby/client"
-
-	"gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/docker"
 	"gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/msb"
 	"gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/naming"
 	"gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/state"
@@ -101,6 +97,9 @@ func catalogAndPrune(ctx context.Context, threshold time.Duration, dryRun bool, 
 
 	// Prune task sandboxes (collected during catalog build, pruned here).
 	report, sandboxErrs := pruneTaskSandboxes(ctx, catalog, dryRun, msbClient, ui, report)
+
+	// Prune dangling Docker images once for the whole system.
+	pruneDockerImages(ctx, dryRun, ui, report)
 	return report, errors.Join(
 		catalogErr,
 		staleVMErr,
@@ -271,7 +270,6 @@ func pruneStaleCascade(
 	report.Details = append(report.Details, entry)
 	removeHomeVolumes(ctx, client, slug, threshold, homesBySlug, dryRun, ui, report)
 	removeMSBImages(ctx, client, slug, threshold, msbImagesBySlug, dryRun, ui, report)
-	removeDockerImages(ctx, slug, threshold, msbImagesBySlug, dryRun, ui, report)
 }
 
 // pruneActiveVMCleanup removes volumes and images that don't match an active VM's state.
@@ -289,8 +287,6 @@ func pruneActiveVMCleanup(
 	homeErr := pruneActiveVMHomeVolumes(ctx, client, slug, digest, homesBySlug, dryRun, ui, report)
 	// Images: delete unused ones, keep :latest, keep matching digest.
 	pruneActiveVMMSBImages(ctx, client, slug, digest, msbImagesBySlug, dryRun, ui, report)
-	// Docker images: same logic.
-	pruneActiveVMDockerImages(ctx, slug, digest, msbImagesBySlug, dryRun, ui, report)
 	return homeErr
 }
 
@@ -372,49 +368,7 @@ func pruneActiveVMMSBImages(
 	}
 }
 
-func pruneActiveVMDockerImages(
-	ctx context.Context,
-	slug string,
-	digest string,
-	msbImagesBySlug map[string][]imageWithDigest,
-	dryRun bool,
-	ui termio.UI,
-	report *StaleReport,
-) {
-	for _, img := range msbImagesBySlug[slug] {
-		if img.isLatest || img.digest == digest {
-			continue
-		}
-		if !dryRun {
-			dockerRef := stripDockerHostPrefix(img.ref)
-			_, err := docker.Get().ImageRemove(
-				ctx, dockerRef,
-				client.ImageRemoveOptions{PruneChildren: true},
-			)
-			if err != nil {
-				ui.Warnf("failed to remove docker image %s: %v", dockerRef, err)
-				continue
-			}
-		}
-		report.PrunedDockerImages++
-		report.Details = append(report.Details, StaleEntry{
-			Type:     StaleTypeDockerImage,
-			Name:     img.ref,
-			Slug:     slug,
-			StaleFor: 0,
-			Digest:   img.digest,
-		})
-	}
-}
-
-func stripDockerHostPrefix(ref string) string {
-	if prefix, ok := strings.CutPrefix(ref, "docker.io/"); ok {
-		return prefix
-	}
-	return ref
-}
-
-// pruneOrphanSlug deletes all home volumes, MSB images, and Docker images
+// pruneOrphanSlug deletes all home volumes and MSB images
 // for a slug that has no VM at all.
 func pruneOrphanSlug(
 	ctx context.Context,
@@ -429,5 +383,4 @@ func pruneOrphanSlug(
 ) {
 	removeHomeVolumes(ctx, client, slug, threshold, homesBySlug, dryRun, ui, report)
 	removeMSBImages(ctx, client, slug, threshold, msbImagesBySlug, dryRun, ui, report)
-	removeDockerImages(ctx, slug, threshold, msbImagesBySlug, dryRun, ui, report)
 }
