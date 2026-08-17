@@ -130,7 +130,9 @@ opencode-sandbox kill -f     # kill and remove VM state
 
 ### prune
 
-Remove stale VMs, volumes, and images. Staleness is determined by age — resources older than the threshold are pruned.
+Remove stale VMs, volumes, and images in one pass. Staleness is determined by age — resources older than the threshold
+are pruned. The summary line reads `Pruned N VMs, N home volumes, N docker images, N msb images`. To prune a single
+artifact type, use the `image prune`, `volume prune`, or `sandbox prune` subcommands below.
 
 ```console
 opencode-sandbox prune                       # use --age, else manual-prune-age from config, else 7d
@@ -147,6 +149,67 @@ opencode-sandbox prune --force               # skip confirmation
 | `--dry-run`    | `-n`  | `false` | Preview what would be pruned       |
 | `--force`      | `-f`  | `false` | Skip confirmation prompt           |
 | `--dry-run-vm` | —     | `false` | Suppress VM deletion during prune  |
+
+---
+
+### image prune
+
+Prune cached runner images no longer in use. Staleness is determined by age like VMs and volumes.
+
+```console
+opencode-sandbox image prune                      # use manual-prune-age from config (default: 7d)
+opencode-sandbox image prune -a 24h               # 24-hour threshold
+opencode-sandbox image prune --all                # also prune images of stopped-but-existing projects
+opencode-sandbox image prune --dry-run            # preview only
+```
+
+**Flags:**
+
+| Flag        | Short | Default | Purpose                                                                             |
+|-------------|-------|---------|-------------------------------------------------------------------------------------|
+| `--age`     | `-a`  | config  | Prune threshold. Falls back to `manual-prune-age` from config, then to `7d` (e.g. `24h`, `7d`). |
+| `--dry-run` | `-n`  | `false` | Show what would be pruned without deleting                                          |
+| `--all`     | —     | `false` | Prune images of stopped-but-existing projects too                                   |
+
+---
+
+### volume prune
+
+Prune home volumes no longer referenced by a project VM. Staleness is determined by age like VMs and images.
+
+```console
+opencode-sandbox volume prune                     # use manual-prune-age from config (default: 7d)
+opencode-sandbox volume prune -a 24h              # 24-hour threshold
+opencode-sandbox volume prune --all               # also prune volumes of stopped-but-existing projects
+opencode-sandbox volume prune --dry-run           # preview only
+```
+
+**Flags:**
+
+| Flag        | Short | Default | Purpose                                                                             |
+|-------------|-------|---------|-------------------------------------------------------------------------------------|
+| `--age`     | `-a`  | config  | Prune threshold. Falls back to `manual-prune-age` from config, then to `7d` (e.g. `24h`, `7d`). |
+| `--dry-run` | `-n`  | `false` | Show what would be pruned without deleting                                          |
+| `--all`     | —     | `false` | Prune volumes of stopped-but-existing projects too                                  |
+
+---
+
+### sandbox prune
+
+Prune stale sandboxes and leftover task workers. Task sandboxes fold into the VM count.
+
+```console
+opencode-sandbox sandbox prune                    # use manual-prune-age from config (default: 7d)
+opencode-sandbox sandbox prune -a 24h             # 24-hour threshold
+opencode-sandbox sandbox prune --dry-run          # preview only
+```
+
+**Flags:**
+
+| Flag        | Short | Default | Purpose                                                                             |
+|-------------|-------|---------|-------------------------------------------------------------------------------------|
+| `--age`     | `-a`  | config  | Prune threshold. Falls back to `manual-prune-age` from config, then to `7d` (e.g. `24h`, `7d`). |
+| `--dry-run` | `-n`  | `false` | Show what would be pruned without deleting                                          |
 
 ---
 
