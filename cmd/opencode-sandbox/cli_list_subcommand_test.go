@@ -261,6 +261,27 @@ func TestListSandboxesLimit(t *testing.T) {
 	}
 }
 
+func TestListSandboxesLimitZeroMeansNoLimit(t *testing.T) {
+	mock := &sandboxmsb.MockMsbClient{}
+	mock.Sandboxes = []sandboxmsb.SandboxHandle{
+		projectSandbox("opencode-sandbox-vm-alpha", nil),
+		projectSandbox("opencode-sandbox-vm-beta", nil),
+	}
+	cmd, ui := setupCommandFixtures(t, cmdList, "--limit", "0")
+	sandboxmsb.WithMsbMock(t, mock)
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	for _, want := range []string{
+		"opencode-sandbox-vm-alpha opencode-sandbox/runner:latest running 2026-08-17 10:00:00",
+		"opencode-sandbox-vm-beta opencode-sandbox/runner:latest running 2026-08-17 10:00:00",
+	} {
+		if !containsNormalized(ui.OutCalls, want) {
+			t.Errorf("OutCalls missing row %q with --limit 0 (should mean no limit); got: %v", want, ui.OutCalls)
+		}
+	}
+}
+
 func TestListSandboxesRunningOnly(t *testing.T) {
 	mock := &sandboxmsb.MockMsbClient{}
 	mock.Sandboxes = []sandboxmsb.SandboxHandle{
