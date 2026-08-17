@@ -9,6 +9,7 @@ import (
 	"gitlab.inoio.de/inoio/opencode-sandbox/internal/configpaths"
 	"gitlab.inoio.de/inoio/opencode-sandbox/internal/git"
 	"gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/msb"
+	"gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/naming"
 	"gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/options"
 	"gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/reprovision"
 	"gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/state"
@@ -227,7 +228,7 @@ func ensureProjectVM(
 		return nil, false, fmt.Errorf("re-check sandbox %q: %w", name, err)
 	}
 
-	sb, created, err := createProjectVM(ctx, client, name, imageRef, homeVol, repoPath, opts, imageEnvs, ui)
+	sb, created, err := createProjectVM(ctx, client, name, slug, imageRef, homeVol, repoPath, opts, imageEnvs, ui)
 	if err != nil {
 		return nil, false, err
 	}
@@ -237,7 +238,7 @@ func ensureProjectVM(
 func createProjectVM(
 	ctx context.Context,
 	client msb.Client,
-	name, imageRef, homeVol, repoPath string,
+	name, slug, imageRef, homeVol, repoPath string,
 	opts options.RunOptions,
 	imageEnvs map[string]string,
 	ui termio.UI,
@@ -272,6 +273,10 @@ func createProjectVM(
 	}
 	optsList := []msbSdk.SandboxOption{
 		msbSdk.WithImage(imageRef),
+		msbSdk.WithLabels(map[string]string{
+			naming.LabelProject: slug,
+			naming.LabelImage:   imageRef,
+		}),
 		msbSdk.WithMounts(mounts),
 		msbSdk.WithSecrets(secrets...),
 		msbSdk.WithEnv(envMap),
