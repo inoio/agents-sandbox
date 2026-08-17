@@ -17,7 +17,7 @@
 
 ## Testing
 
-[ ] config changes to root size, tmp size, cpu, mem
+[ ] config changes to root size, tmp size
 [ ] OPENCODE_DISABLE_AUTOUPDATE and detect releases, offer vm rebuild
 
 
