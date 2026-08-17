@@ -5,6 +5,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/spf13/cobra"
+
 	"gitlab.inoio.de/inoio/opencode-sandbox/internal/configpaths"
 	"gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/options"
 	"gitlab.inoio.de/inoio/opencode-sandbox/internal/testutil"
@@ -20,7 +22,7 @@ func TestLoadMissingFilesReturnsDefaults(t *testing.T) {
 		t.Errorf("expected no keys, got %v", keys)
 	}
 	if cfg.CPUs != 0 || cfg.Memory != "" || cfg.TmpSize != "" || cfg.DiskSize != "" || cfg.Yes || cfg.Verbose ||
-		cfg.Quiet || cfg.Rebuild || cfg.AutoPruneAge != 0 || cfg.ManualPruneAge != 0 {
+		cfg.Quiet || cfg.AutoPruneAge != 0 || cfg.ManualPruneAge != 0 {
 		t.Errorf("expected zero defaults, got %+v", cfg)
 	}
 }
@@ -32,7 +34,6 @@ func TestLoadYAMLConfig(t *testing.T) {
 		"cpus":     4,
 		"memory":   "8G",
 		"tmp-size": "4G",
-		"rebuild":  true,
 		"verbose":  true,
 	})
 
@@ -49,8 +50,8 @@ func TestLoadYAMLConfig(t *testing.T) {
 	if cfg.TmpSize != "4G" {
 		t.Errorf("expected tmp-size 4G, got %q", cfg.TmpSize)
 	}
-	if !cfg.Rebuild || !cfg.Verbose {
-		t.Errorf("expected rebuild and verbose true, got %+v", cfg)
+	if !cfg.Verbose {
+		t.Errorf("expected verbose true, got %+v", cfg)
 	}
 	if !keys["cpus"] || !keys["memory"] || !keys["tmp-size"] {
 		t.Errorf("expected cpus, memory, and tmp-size keys, got %v", keys)
@@ -461,4 +462,73 @@ func TestResolverEnvInvalidCPUs(t *testing.T) {
 	if _, err := NewResolver(nil); err == nil {
 		t.Fatal("expected error for cpus=300 from env")
 	}
+}
+
+// Flag-over-env-over-config precedence via a real cobra command.
+func TestResolverFlagOverridesEnv(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	cp := configpaths.Get()
+	testutil.WriteYAML(t, cp.UserConfigDir(), "config.yaml", map[string]any{"cpus": 2})
+	t.Setenv("OPENCODE_SANDBOX_CPUS", "4")
+
+	root := &cobra.Command{Use: "root"}
+	root.PersistentFlags().Uint8("cpus", 0, "")
+	if err := root.ParseFlags([]string{"--cpus", "6"}); err != nil {
+		t.Fatalf("ParseFlags: %v", err)
+	}
+
+	r, err := NewResolver(root)
+	if err != nil {
+		t.Fatalf("NewResolver: %v", err)
+	}
+	if r.CPUs() != 6 {
+		t.Errorf("CPUs = %d; want 6 (explicit flag overrides env/config)", r.CPUs())
+	}
+}
+
+// An unspecified flag with a default must NOT override env/config.
+func TestResolverUnspecifiedFlagDefaultDoesNotOverride(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	cp := configpaths.Get()
+	testutil.WriteYAML(t, cp.UserConfigDir(), "config.yaml", map[string]any{"memory": "8G"})
+
+	root := &cobra.Command{Use: "root"}
+	root.PersistentFlags().String("memory", "4G", "") // default 4G, not changed
+	r, err := NewResolver(root)
+	if err != nil {
+		t.Fatalf("NewResolver: %v", err)
+	}
+	if r.Memory() != "8G" {
+		t.Errorf("Memory = %q; want 8G (config beats unspecified flag default)", r.Memory())
+	}
+}
+
+// With no env/config, an unspecified flag's default is the resolution.
+func TestResolverFlagDefaultUsedWhenNothingElse(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	root := &cobra.Command{Use: "root"}
+	root.PersistentFlags().String("memory", "4G", "")
+	r, err := NewResolver(root)
+	if err != nil {
+		t.Fatalf("NewResolver: %v", err)
+	}
+	if r.Memory() != "4G" {
+		t.Errorf("Memory = %q; want 4G (flag default)", r.Memory())
+	}
+}
+
+// rebuild is not a config-backed key; a config file setting it is ignored.
+func TestResolverIgnoresRebuildKey(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	cp := configpaths.Get()
+	testutil.WriteYAML(t, cp.UserConfigDir(), "config.yaml", map[string]any{"rebuild": true, "cpus": 2})
+
+	r, err := NewResolver(nil)
+	if err != nil {
+		t.Fatalf("NewResolver: %v", err)
+	}
+	if r.CPUs() != 2 {
+		t.Errorf("CPUs = %d; want 2", r.CPUs())
+	}
+	// There is no Rebuild getter; the field is dropped silently.
 }
