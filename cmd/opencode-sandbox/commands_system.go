@@ -317,7 +317,11 @@ func buildPruneCmd(ui termio.UI) *cobra.Command {
 				age = d
 			}
 			if age == 0 {
-				age = 7 * 24 * time.Hour
+				if r := resolverFromContext(cmd.Context()); r != nil && r.ManualPruneAge() > 0 {
+					age = r.ManualPruneAge()
+				} else {
+					age = 7 * 24 * time.Hour
+				}
 			}
 			dryRun, _ := cmd.Flags().GetBool(flagDryRun)
 			return pruning.Prune(cmd.Context(), age, dryRun, false, ui)
