@@ -84,6 +84,13 @@ type VolumeHandle interface {
 	Path() string
 	Kind() msbSdk.VolumeKind
 	CreatedAt() time.Time
+	IsDefault() bool
+	QuotaMiB() *uint32
+	UsedBytes() uint64
+	CapacityBytes() *uint64
+	DiskFormat() *string
+	DiskFstype() *string
+	Labels() map[string]string
 }
 
 // ImageHandle is the subset of *msb.ImageHandle that the launcher needs.
@@ -319,6 +326,55 @@ func (v realVolumeHandle) CreatedAt() time.Time {
 		return h.CreatedAt()
 	}
 	return time.Time{}
+}
+
+func (v realVolumeHandle) IsDefault() bool {
+	if h, ok := v.val.(*msbSdk.VolumeHandle); ok {
+		return h.IsDefault()
+	}
+	return false
+}
+
+func (v realVolumeHandle) QuotaMiB() *uint32 {
+	if h, ok := v.val.(*msbSdk.VolumeHandle); ok {
+		return h.QuotaMiB()
+	}
+	return nil
+}
+
+func (v realVolumeHandle) UsedBytes() uint64 {
+	if h, ok := v.val.(*msbSdk.VolumeHandle); ok {
+		return h.UsedBytes()
+	}
+	return 0
+}
+
+func (v realVolumeHandle) CapacityBytes() *uint64 {
+	if h, ok := v.val.(*msbSdk.VolumeHandle); ok {
+		return h.CapacityBytes()
+	}
+	return nil
+}
+
+func (v realVolumeHandle) DiskFormat() *string {
+	if h, ok := v.val.(*msbSdk.VolumeHandle); ok {
+		return h.DiskFormat()
+	}
+	return nil
+}
+
+func (v realVolumeHandle) DiskFstype() *string {
+	if h, ok := v.val.(*msbSdk.VolumeHandle); ok {
+		return h.DiskFstype()
+	}
+	return nil
+}
+
+func (v realVolumeHandle) Labels() map[string]string {
+	if h, ok := v.val.(*msbSdk.VolumeHandle); ok {
+		return h.Labels()
+	}
+	return nil
 }
 
 // realSandboxHandle adapts *msbSdk.SandboxHandle to SandboxHandle.

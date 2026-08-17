@@ -608,10 +608,17 @@ func (t *TestResult) StdoutBytes() []byte {
 
 //nolint:revive // underscore names avoid conflicts with interface methods
 type MockVolumeHandle struct {
-	Name_      string
-	Path_      string
-	Kind_      msbSdk.VolumeKind
-	CreatedAt_ time.Time
+	Name_          string
+	Path_          string
+	Kind_          msbSdk.VolumeKind
+	CreatedAt_     time.Time
+	IsDefault_     bool
+	QuotaMiB_      *uint32
+	UsedBytes_     uint64
+	CapacityBytes_ *uint64
+	DiskFormat_    *string
+	DiskFstype_    *string
+	Labels_        map[string]string
 }
 
 func (m MockVolumeHandle) Name() string { return m.Name_ }
@@ -622,7 +629,16 @@ func (m MockVolumeHandle) Kind() msbSdk.VolumeKind {
 	}
 	return m.Kind_
 }
-func (m MockVolumeHandle) CreatedAt() time.Time { return m.CreatedAt_ }
+func (m MockVolumeHandle) CreatedAt() time.Time   { return m.CreatedAt_ }
+func (m MockVolumeHandle) IsDefault() bool        { return m.IsDefault_ }
+func (m MockVolumeHandle) QuotaMiB() *uint32      { return m.QuotaMiB_ }
+func (m MockVolumeHandle) UsedBytes() uint64      { return m.UsedBytes_ }
+func (m MockVolumeHandle) CapacityBytes() *uint64 { return m.CapacityBytes_ }
+func (m MockVolumeHandle) DiskFormat() *string    { return m.DiskFormat_ }
+func (m MockVolumeHandle) DiskFstype() *string    { return m.DiskFstype_ }
+func (m MockVolumeHandle) Labels() map[string]string {
+	return m.Labels_
+}
 
 //nolint:revive // underscore names avoid conflicts with interface methods
 type MockImageHandle struct {

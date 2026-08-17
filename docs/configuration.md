@@ -44,10 +44,11 @@ Place files under `.opencode-sandbox/` in your project directory. These override
 
 Configuration is resolved in this order (later entries override earlier ones):
 
-1. **Built-in defaults** — compiled-in values
+1. **Built-in / flag defaults** — compiled-in values and CLI flag defaults
 2. **User-level** — `~/.config/opencode-sandbox/`
 3. **Project-level** — `.opencode-sandbox/`
-4. **CLI flags** — always win
+4. **Environment variables** — `OPENCODE_SANDBOX_<KEY>`
+5. **CLI flags** — always win when explicitly passed
 
 ## Configuration file
 
@@ -56,7 +57,6 @@ Configuration is resolved in this order (later entries override earlier ones):
 | `yes`                           | `--yes` / `-y`         | Assume yes to all prompts                                                                                                                                                                |
 | `verbose`                       | `--verbose` / `-v`     | Show debug-level output                                                                                                                                                                  |
 | `quiet`                         | `--quiet` / `-q`       | Suppress non-error output                                                                                                                                                                |
-| `rebuild`                       | `--rebuild` / `-r`     | Rebuild runner image before starting                                                                                                                                                     |
 | `cpus`                          | `--cpus` / `-c`        | Number of vCPUs for the VM                                                                                                                                                               |
 | `memory`                        | `--memory` / `-m`      | Memory limit (e.g. `8G`)                                                                                                                                                                 |
 | `disk-size`                     | `--disk-size`          | Project VM root disk size (e.g. `16G`). Empty = microsandbox runtime default (~4 GiB). Applied at VM creation; a change triggers recreation. An invalid value is rejected with an error. |
@@ -125,6 +125,29 @@ When multiple `opencode-sandbox` sessions are actively connected to a VM, applyi
 may disrupt active sessions. In this case, the launcher will prompt you whether to keep the current VM (defer),
 recreate, or quit to abort the change. The default is to keep/defer.
 
+### Launcher configuration environment variables
+
+Every config-file field above can also be set with an environment variable. Env vars take
+precedence over config files but lose to an explicitly passed CLI flag. The prefix is
+`OPENCODE_SANDBOX_`; dashes in the field name become underscores.
+
+| Field                           | Environment variable                                              |
+|---------------------------------|-------------------------------------------------------------------|
+| `yes`                           | `OPENCODE_SANDBOX_YES`                                            |
+| `verbose`                       | `OPENCODE_SANDBOX_VERBOSE`                                        |
+| `quiet`                         | `OPENCODE_SANDBOX_QUIET`                                          |
+| `cpus`                          | `OPENCODE_SANDBOX_CPUS`                                           |
+| `memory`                        | `OPENCODE_SANDBOX_MEMORY`                                         |
+| `disk-size`                     | `OPENCODE_SANDBOX_DISK_SIZE`                                      |
+| `tmp-size`                      | `OPENCODE_SANDBOX_TMP_SIZE`                                       |
+| `auto-prune-age`                | `OPENCODE_SANDBOX_AUTO_PRUNE_AGE`                                 |
+| `manual-prune-age`              | `OPENCODE_SANDBOX_MANUAL_PRUNE_AGE`                               |
+| `auto-stop-on-active-sessions`  | `OPENCODE_SANDBOX_AUTO_STOP_ON_ACTIVE_SESSIONS`                   |
+| `auto-stop-timeout`             | `OPENCODE_SANDBOX_AUTO_STOP_TIMEOUT`                              |
+| `auto-stop-max-session-retries` | `OPENCODE_SANDBOX_AUTO_STOP_MAX_SESSION_RETRIES`                  |
+
+Action toggles (`--rebuild`, `--dry-run`, `--force`, ...) are CLI-only and cannot be set via
+config file or env var.
 
 ## Environment Variables
 

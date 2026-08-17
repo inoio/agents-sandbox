@@ -8,6 +8,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"gitlab.inoio.de/inoio/opencode-sandbox/internal/configpaths"
 	"gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/options"
 	"gitlab.inoio.de/inoio/opencode-sandbox/internal/termio"
 	launcherconfig "gitlab.inoio.de/inoio/opencode-sandbox/internal/viperconfig"
@@ -181,39 +182,48 @@ func TestExtractRunOptionsRootFlagNotSet(t *testing.T) {
 	}
 }
 
-// buildCommandWithLauncherConfig builds a "run" command and injects
-// a viperconfig.Config into the context, mimicking what
+// buildCommandWithLauncherConfig builds a "run" command and injects a
+// viperconfig.Resolver built from lc into the context, mimicking what
 // PersistentPreRunE does in production.
 func buildCommandWithLauncherConfig(ui termio.UI, lc launcherconfig.Config) *cobra.Command {
 	cmd := buildRunCmd(ui)
-	rootCtx := context.Background()
-	rootCtx = context.WithValue(rootCtx, (*launcherConfigKey)(nil), lc)
+	rootCtx := context.WithValue(
+		context.Background(),
+		(*launcherConfigKey)(nil),
+		launcherconfig.NewResolverWithConfig(lc),
+	)
 	cmd.SetContext(rootCtx)
 	return cmd
 }
 
 // buildShellCommandWithLauncherConfig builds a "shell" command and injects
-// a viperconfig.Config into the context, verifying the shell path.
+// a resolver built from lc, verifying the shell path.
 func buildShellCommandWithLauncherConfig(ui termio.UI, lc launcherconfig.Config) *cobra.Command {
 	pet := buildShellCmd(ui)
-	petCtx := context.Background()
-	petCtx = context.WithValue(petCtx, (*launcherConfigKey)(nil), lc)
+	petCtx := context.WithValue(
+		context.Background(),
+		(*launcherConfigKey)(nil),
+		launcherconfig.NewResolverWithConfig(lc),
+	)
 	pet.SetContext(petCtx)
 	return pet
 }
 
-// buildCommandWithoutLauncherConfig builds a "run" command with no
-// launcher config in its context, exercising the absent-config path.
+// buildCommandWithoutLauncherConfig builds a "run" command with no resolver
+// in its context, exercising the absent-config path.
 func buildCommandWithoutLauncherConfig(ui termio.UI) *cobra.Command {
 	cmd := buildRunCmd(ui)
-	return cmd // SetContext never called → no config key present
+	return cmd
 }
 
 func TestExtractRunOptionsInvalidTmpSize(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
 	cmd := buildRunCmd(&termio.Mock{})
 	if err := cmd.Flags().Set(flagTmpSize, "bogus"); err != nil {
 		t.Fatalf("set tmp-size: %v", err)
 	}
+	rootCtx := context.WithValue(context.Background(), (*launcherConfigKey)(nil), mustResolver(t, cmd))
+	cmd.SetContext(rootCtx)
 	_, err := extractRunOptions(cmd, &termio.Mock{})
 	if err == nil {
 		t.Fatal("expected error for invalid --tmp-size")
@@ -224,10 +234,13 @@ func TestExtractRunOptionsInvalidTmpSize(t *testing.T) {
 }
 
 func TestExtractRunOptionsInvalidDiskSize(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
 	cmd := buildRunCmd(&termio.Mock{})
 	if err := cmd.Flags().Set(flagDiskSize, "bogus"); err != nil {
 		t.Fatalf("set disk-size: %v", err)
 	}
+	rootCtx := context.WithValue(context.Background(), (*launcherConfigKey)(nil), mustResolver(t, cmd))
+	cmd.SetContext(rootCtx)
 	_, err := extractRunOptions(cmd, &termio.Mock{})
 	if err == nil {
 		t.Fatal("expected error for invalid --disk-size")
@@ -238,6 +251,7 @@ func TestExtractRunOptionsInvalidDiskSize(t *testing.T) {
 }
 
 func TestExtractRunOptionsValidSizeFlags(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
 	cmd := buildRunCmd(&termio.Mock{})
 	if err := cmd.Flags().Set(flagTmpSize, "4G"); err != nil {
 		t.Fatalf("set tmp-size: %v", err)
@@ -245,6 +259,8 @@ func TestExtractRunOptionsValidSizeFlags(t *testing.T) {
 	if err := cmd.Flags().Set(flagDiskSize, "16G"); err != nil {
 		t.Fatalf("set disk-size: %v", err)
 	}
+	rootCtx := context.WithValue(context.Background(), (*launcherConfigKey)(nil), mustResolver(t, cmd))
+	cmd.SetContext(rootCtx)
 	opts, err := extractRunOptions(cmd, &termio.Mock{})
 	if err != nil {
 		t.Fatalf("expected no error for valid flags, got: %v", err)
