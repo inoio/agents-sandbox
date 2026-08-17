@@ -171,7 +171,8 @@ opencode-sandbox sandbox prune               # VMs (stale sandboxes and leftover
 Pruning removes:
 
 - Stale VMs (stopped/crashed beyond the age threshold) and everything they reference; task sandboxes count into the VM
-  total
+  total. A stale VM's home volumes and images are reclaimed based on the snapshot taken at prune time, even if the
+  VM's own removal fails.
 - Orphaned artifacts: home volumes and msb images whose project has no VM at all
 - Surplus msb images for a project that still has a VM: digests other than the VM's current image and `:latest`
 - Dangling Docker images: after a rebuild the previous runner image is no longer referenced by any tag and is reclaimed
