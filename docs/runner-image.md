@@ -107,11 +107,11 @@ recreated on the next run so it uses the new image (the home volume is preserved
 
 ## Image Lifecycle
 
-Images can be pruned via the `prune` command:
+Images can be pruned via the `prune` command or, more targeted, the `image prune` subcommand:
 
 ```console
-opencode-sandbox prune --dry-run   # see what's stale
-opencode-sandbox prune             # actually remove them
+opencode-sandbox image prune --dry-run   # see what's stale
+opencode-sandbox image prune             # actually remove them
 ```
 
 See [Commands](/docs/commands.md) for details on the prune command.
