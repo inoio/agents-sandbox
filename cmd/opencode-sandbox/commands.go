@@ -14,8 +14,8 @@ import (
 	launcherconfig "gitlab.inoio.de/inoio/opencode-sandbox/internal/viperconfig"
 )
 
-// launcherConfigKey is the context key type for storing the loaded
-// viperconfig.Config between PersistentPreRunE and extractRunOptions.
+// launcherConfigKey is the context key type for storing the built
+// viperconfig.Resolver between PersistentPreRunE and command RunE.
 type launcherConfigKey struct{}
 
 // extractRunOptions extracts shared run/shell flags from the given command
@@ -43,13 +43,17 @@ func extractRunOptions(cmd *cobra.Command, ui termio.UI) (options.RunOptions, er
 	if cmd.Flags().Lookup(flagRoot) != nil {
 		opts.Root, _ = cmd.Flags().GetBool(flagRoot)
 	}
-	ctx := cmd.Context()
-	if ctx != nil {
-		if lc, ok := ctx.Value((*launcherConfigKey)(nil)).(launcherconfig.Config); ok {
-			opts.ReapPolicy = options.NewReapPolicy(lc.AutoStopOnActiveSessions, lc.AutoStopMaxSessionRetries)
-			opts.IdleTimeout = lc.IdleTimeout()
-		}
+
+	r := resolverFromContext(cmd.Context())
+	if r != nil {
+		opts.CPUs = r.CPUs()
+		opts.Memory = r.Memory()
+		opts.TmpSize = r.TmpSize()
+		opts.DiskSize = r.DiskSize()
+		opts.ReapPolicy = options.NewReapPolicy(r.AutoStopOnActiveSessions(), r.AutoStopMaxSessionRetries())
+		opts.IdleTimeout = r.IdleTimeout()
 	}
+
 	if opts.TmpSize != "" {
 		if _, ok := options.ParseMemoryOK(opts.TmpSize); !ok {
 			return options.RunOptions{}, fmt.Errorf(
@@ -67,6 +71,16 @@ func extractRunOptions(cmd *cobra.Command, ui termio.UI) (options.RunOptions, er
 		}
 	}
 	return opts, nil
+}
+
+// resolverFromContext returns the viperconfig.Resolver stored on the context,
+// or nil if absent.
+func resolverFromContext(ctx context.Context) *launcherconfig.Resolver {
+	if ctx == nil {
+		return nil
+	}
+	r, _ := ctx.Value((*launcherConfigKey)(nil)).(*launcherconfig.Resolver)
+	return r
 }
 
 // printItems renders a list of items using the given format, item type,
@@ -107,18 +121,15 @@ func buildRootCmd(ui termio.UI) *cobra.Command {
 	rootCmd := buildMinimalRootFlagsCmd()
 
 	rootCmd.PersistentPreRunE = func(cmd *cobra.Command, _ []string) error {
-		lc, keys, err := launcherconfig.Load()
+		r, err := launcherconfig.NewResolver(cmd)
 		if err != nil {
 			return err
 		}
-		cmd.SetContext(context.WithValue(cmd.Context(), (*launcherConfigKey)(nil), lc))
-		if err := applyLauncherConfig(cmd, lc, keys); err != nil {
-			return err
-		}
-		applyCLISettings(cmd, ui)
+		cmd.SetContext(context.WithValue(cmd.Context(), (*launcherConfigKey)(nil), r))
+		applyCLISettings(cmd, ui, r)
 
 		isDryRun, _ := cmd.Flags().GetBool(flagDryRun)
-		pruning.AutoPrune(cmd.Context(), lc.AutoPruneAge, isDryRun, ui)
+		pruning.AutoPrune(cmd.Context(), r.AutoPruneAge(), isDryRun, ui)
 		return nil
 	}
 	extendRunCmd(ui, rootCmd)
