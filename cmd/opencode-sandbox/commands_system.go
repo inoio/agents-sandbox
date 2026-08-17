@@ -163,7 +163,7 @@ func buildListCmd(ui termio.UI) *cobra.Command {
 				return err
 			}
 			var lim *uint32
-			if cmd.Flags().Changed(flagLimit) {
+			if cmd.Flags().Changed(flagLimit) && limit != 0 {
 				lim = &limit
 			}
 			opt := session.ListOption{
