@@ -70,7 +70,7 @@ opencode-sandbox list
 opencode-sandbox sandbox list
 ```
 
-Columns: `NAME`, `STATUS`, `IMAGE`, `CREATED` (`YYYY-MM-DD HH:MM:SS`).
+Columns: `NAME`, `IMAGE`, `STATUS`, `CREATED` (`YYYY-MM-DD HH:MM:SS`).
 
 ### Volume Management
 
@@ -80,7 +80,7 @@ List all volumes:
 opencode-sandbox volume list
 ```
 
-Columns: `NAME`, `KIND`, `SIZE`, `CREATED` (`YYYY-MM-DD HH:MM:SS`). `SIZE` shows the quota or capacity, or `-` for dir/unlimited volumes.
+Columns: `NAME`, `KIND`, `SIZE`, `CREATED` (`YYYY-MM-DD HH:MM:SS`). `SIZE` shows capacity for disk volumes and quota for directory volumes, or `-` when unavailable.
 
 Manual management:
 

@@ -12,6 +12,7 @@ const (
 	ansiGreen        = "\x1b[32m"
 	ansiYellow       = "\x1b[33m"
 	ansiBlackIntense = "\x1b[90m"
+	ansiCyanBold     = "\x1b[1;36m"
 )
 
 type printer struct {
@@ -86,6 +87,21 @@ func (p *printer) Out(msg string) {
 		return
 	}
 	p.write(p.stdout, "", msg)
+}
+
+// Header writes a table header line to stdout. When color is enabled the
+// whole line is rendered bold and cyan, matching microsandbox table headers.
+func (p *printer) Header(msg string) {
+	if p.level == LevelQuiet {
+		return
+	}
+	p.write(p.stdout, ansiCyanBold, msg)
+}
+
+// NewTable returns an empty aligned Table that prints through p.
+func (p *printer) NewTable(headers ...string) *Table {
+	//nolint:exhaustruct // rows starts empty (nil slice is the zero value)
+	return &Table{ui: p, headers: headers}
 }
 
 func (p *printer) Outf(format string, args ...any) {

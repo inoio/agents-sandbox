@@ -162,7 +162,7 @@ opencode-sandbox sandbox list
 **Aliases:** `ls`, `sandbox list`
 
 Prints a header row followed by one line per opencode-sandbox VM with columns
-`NAME`, `STATUS`, `IMAGE`, and `CREATED`. `CREATED` uses `YYYY-MM-DD HH:MM:SS`,
+`NAME`, `IMAGE`, `STATUS`, and `CREATED`. `CREATED` uses `YYYY-MM-DD HH:MM:SS`,
 matching microsandbox's `msb list` output.
 
 ---
@@ -304,7 +304,7 @@ List all managed home volumes.
 opencode-sandbox volume list
 ```
 
-Columns: `NAME`, `KIND`, `SIZE`, `CREATED` (`YYYY-MM-DD HH:MM:SS`). `SIZE` shows the quota or capacity, or `-` for dir/unlimited volumes.
+Columns: `NAME`, `KIND`, `SIZE`, `CREATED` (`YYYY-MM-DD HH:MM:SS`). `SIZE` shows capacity for disk volumes and quota for directory volumes, or `-` when unavailable.
 
 **Aliases:** `volume ls`
 

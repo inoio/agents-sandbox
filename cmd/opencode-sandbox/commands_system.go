@@ -25,18 +25,6 @@ import (
 
 type volumeOpFunc func(context.Context, string, string, string, string, bool, bool, termio.UI) error
 
-// sandboxListFormat is shared by buildListCmd and its tests so the column
-// layout stays in sync. Matches msb sandbox list columns.
-const sandboxListFormat = "%-32s %-10s %-50s %-19s"
-
-// imageListFormat is shared by buildImageCmd and its tests so the column
-// layout stays in sync.
-const imageListFormat = "%-73s %-19s %-11s %s"
-
-// volumeListFormat is shared by buildVolumeCmd and its tests so the column
-// layout stays in sync. Matches msb volume list: NAME KIND SIZE CREATED.
-const volumeListFormat = "%-60s %-6s %-8s %-19s"
-
 const (
 	colName    = "NAME"
 	colStatus  = "STATUS"
@@ -48,8 +36,10 @@ const (
 	colDigest  = "DIGEST"
 )
 
+// sandboxListHeaders returns the column order for sandbox lists. Matches msb:
+// NAME IMAGE STATUS CREATED.
 func sandboxListHeaders() []string {
-	return []string{colName, colStatus, colImage, colCreated}
+	return []string{colName, colImage, colStatus, colCreated}
 }
 
 func imageListHeaders() []string {
@@ -60,14 +50,17 @@ func volumeListHeaders() []string {
 	return []string{colName, colKind, colSize, colCreated}
 }
 
-// volumeSize renders the SIZE column: quota, else capacity, else "-" for
-// dir/unlimited volumes. Quota/capacity are bytes rendered human-readable.
-func volumeSize(q *uint32, c *uint64) string {
+// volumeSize renders the SIZE column to match msb: disk volumes show
+// capacity, directory volumes show quota, and "-" when unavailable.
+func volumeSize(kind string, q *uint32, c *uint64) string {
+	if kind == "disk" {
+		if c != nil {
+			return humanize.FormatBytes(*c)
+		}
+		return "-"
+	}
 	if q != nil {
 		return humanize.FormatBytes(uint64(*q) * 1024 * 1024)
-	}
-	if c != nil {
-		return humanize.FormatBytes(*c)
 	}
 	return "-"
 }
@@ -154,10 +147,10 @@ func buildListCmd(ui termio.UI) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			printItems(sandboxes, "No sandboxes found.", sandboxListHeaders(), sandboxListFormat, ui,
+			printItems(sandboxes, "No sandboxes found.", sandboxListHeaders(), ui,
 				func(s session.Info) string { return s.Name },
-				func(s session.Info) string { return s.Status },
 				func(s session.Info) string { return s.Image },
+				func(s session.Info) string { return s.Status },
 				func(s session.Info) string { return s.CreatedAt },
 			)
 			return nil
@@ -266,7 +259,7 @@ func buildImageCmd(ui termio.UI) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			printItems(images, "No images found.", imageListHeaders(), imageListFormat, ui,
+			printItems(images, "No images found.", imageListHeaders(), ui,
 				func(i image.Info) string { return i.Reference },
 				func(i image.Info) string { return truncateDigest(i.Digest) },
 				func(i image.Info) string { return i.Size },
@@ -295,10 +288,10 @@ func buildVolumeCmd(ui termio.UI) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			printItems(volumes, "No volumes found.", volumeListHeaders(), volumeListFormat, ui,
+			printItems(volumes, "No volumes found.", volumeListHeaders(), ui,
 				func(v volume.VolumeInfo) string { return v.Name },
 				func(v volume.VolumeInfo) string { return v.Kind },
-				func(v volume.VolumeInfo) string { return volumeSize(v.QuotaMiB, v.CapacityBytes) },
+				func(v volume.VolumeInfo) string { return volumeSize(v.Kind, v.QuotaMiB, v.CapacityBytes) },
 				func(v volume.VolumeInfo) string { return v.CreatedAt },
 			)
 			return nil
