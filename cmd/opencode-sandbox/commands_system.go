@@ -150,7 +150,7 @@ func buildListCmd(ui termio.UI) *cobra.Command {
 			printItems(sandboxes, "No sandboxes found.", sandboxListHeaders(), ui,
 				func(s session.Info) string { return s.Name },
 				func(s session.Info) string { return s.Image },
-				func(s session.Info) string { return s.Status },
+				func(s session.Info) string { return termio.StyleStatus(s.Status) },
 				func(s session.Info) string { return s.CreatedAt },
 			)
 			return nil
