@@ -128,8 +128,8 @@ func TestPruneStaleCascade_RemovesVMAndAllArtifacts(t *testing.T) {
 	}
 	msbImagesBySlug := map[string][]imageWithDigest{
 		slug: {
-			{ref: "opencode-sandbox/runner-myproject:digest1", digest: "digest1", isLatest: false, lastUsed: ancient()},
-			{ref: "opencode-sandbox/runner-myproject:latest", digest: "", isLatest: true, lastUsed: ancient()},
+			{ref: "opencode-sandbox/runner-myproject:digest1", digest: "digest1", lastUsed: ancient()},
+			{ref: "opencode-sandbox/runner-myproject:digest2", digest: "digest2", lastUsed: ancient()},
 		},
 	}
 
@@ -157,7 +157,7 @@ func TestPruneStaleCascade_RemovesVMAndAllArtifacts(t *testing.T) {
 		t.Errorf("removed volumes = %v, want %v", client.RemovedVolumes, wantVolumes)
 	}
 
-	wantMSBImages := []string{"opencode-sandbox/runner-myproject:digest1", "opencode-sandbox/runner-myproject:latest"}
+	wantMSBImages := []string{"opencode-sandbox/runner-myproject:digest1", "opencode-sandbox/runner-myproject:digest2"}
 	if len(client.RemovedImages) != len(wantMSBImages) {
 		t.Errorf("removed msb images count = %d, want %d", len(client.RemovedImages), len(wantMSBImages))
 	}
@@ -173,7 +173,7 @@ func TestPruneStaleCascade_DryRunDoesNotDelete(t *testing.T) {
 	}
 	msbImagesBySlug := map[string][]imageWithDigest{
 		slug: {
-			{ref: "opencode-sandbox/runner-myproject:digest1", digest: "digest1", isLatest: false, lastUsed: ancient()},
+			{ref: "opencode-sandbox/runner-myproject:digest1", digest: "digest1", lastUsed: ancient()},
 		},
 	}
 
@@ -209,7 +209,7 @@ func TestPruneStaleCascade_RemoveErrorWarnsAndStopsCascade(t *testing.T) {
 	}
 	msbImagesBySlug := map[string][]imageWithDigest{
 		slug: {
-			{ref: "opencode-sandbox/runner-myproject:digest1", digest: "digest1", isLatest: false, lastUsed: ancient()},
+			{ref: "opencode-sandbox/runner-myproject:digest1", digest: "digest1", lastUsed: ancient()},
 		},
 	}
 
@@ -236,7 +236,7 @@ func TestPruneStaleCascade_RemoveErrorWarnsAndStopsCascade(t *testing.T) {
 	}
 }
 
-func TestPruneActiveVMCleanup_KeepsMatchingDigestAndLatest(t *testing.T) {
+func TestPruneActiveVMCleanup_KeepsMatchingDigest(t *testing.T) {
 	client, _, ui, report := setupPruningFixtures(t)
 
 	slug := "myproject"
@@ -250,9 +250,8 @@ func TestPruneActiveVMCleanup_KeepsMatchingDigestAndLatest(t *testing.T) {
 	}
 	msbImagesBySlug := map[string][]imageWithDigest{
 		slug: {
-			{ref: "opencode-sandbox/runner-myproject:digest1", digest: "digest1", isLatest: false},
-			{ref: "opencode-sandbox/runner-myproject:digest2", digest: "digest2", isLatest: false},
-			{ref: "opencode-sandbox/runner-myproject:latest", digest: "", isLatest: true},
+			{ref: "opencode-sandbox/runner-myproject:digest1", digest: "digest1"},
+			{ref: "opencode-sandbox/runner-myproject:digest2", digest: "digest2"},
 		},
 	}
 
@@ -277,8 +276,8 @@ func TestPruneActiveVMCleanup_DryRunCountsButDoesNotDelete(t *testing.T) {
 	}
 	msbImagesBySlug := map[string][]imageWithDigest{
 		slug: {
-			{ref: "opencode-sandbox/runner-myproject:digest1", digest: "digest1", isLatest: false},
-			{ref: "opencode-sandbox/runner-myproject:digest2", digest: "digest2", isLatest: false},
+			{ref: "opencode-sandbox/runner-myproject:digest1", digest: "digest1"},
+			{ref: "opencode-sandbox/runner-myproject:digest2", digest: "digest2"},
 		},
 	}
 
@@ -305,8 +304,8 @@ func TestPruneOrphanSlug_RemovesEverything(t *testing.T) {
 	}
 	msbImagesBySlug := map[string][]imageWithDigest{
 		slug: {
-			{ref: "opencode-sandbox/runner-orphan:digest1", digest: "digest1", isLatest: false, lastUsed: ancient()},
-			{ref: "opencode-sandbox/runner-orphan:latest", digest: "", isLatest: true, lastUsed: ancient()},
+			{ref: "opencode-sandbox/runner-orphan:digest1", digest: "digest1", lastUsed: ancient()},
+			{ref: "opencode-sandbox/runner-orphan:digest2", digest: "digest2", lastUsed: ancient()},
 		},
 	}
 
@@ -341,8 +340,8 @@ func TestPruneOrphanSlug_KeepsRecentArtifacts(t *testing.T) {
 	}
 	msbImagesBySlug := map[string][]imageWithDigest{
 		slug: {
-			{ref: "opencode-sandbox/runner-orphan:digest1", digest: "digest1", isLatest: false, lastUsed: time.Now()},
-			{ref: "opencode-sandbox/runner-orphan:latest", digest: "", isLatest: true, lastUsed: time.Now()},
+			{ref: "opencode-sandbox/runner-orphan:digest1", digest: "digest1", lastUsed: time.Now()},
+			{ref: "opencode-sandbox/runner-orphan:digest2", digest: "digest2", lastUsed: time.Now()},
 		},
 	}
 
@@ -376,8 +375,8 @@ func TestPruneOrphanSlug_MixedAges_PrunesOnlyOld(t *testing.T) {
 	}
 	msbImagesBySlug := map[string][]imageWithDigest{
 		slug: {
-			{ref: "opencode-sandbox/runner-orphan:digest1", digest: "digest1", isLatest: false, lastUsed: ancient()},
-			{ref: "opencode-sandbox/runner-orphan:latest", digest: "", isLatest: true, lastUsed: time.Now()},
+			{ref: "opencode-sandbox/runner-orphan:digest1", digest: "digest1", lastUsed: ancient()},
+			{ref: "opencode-sandbox/runner-orphan:digest2", digest: "digest2", lastUsed: time.Now()},
 		},
 	}
 
@@ -465,7 +464,7 @@ func TestPrune_WithMocks_CoversAllCases(t *testing.T) {
 				Reference_:  "opencode-sandbox/runner-activeproject-1mjusbm3wikhb0:digest2",
 				LastUsedAt_: ancient(),
 			},
-			&msb.MockImageHandle{Reference_: "opencode-sandbox/runner-orphan:latest", LastUsedAt_: ancient()},
+			&msb.MockImageHandle{Reference_: "opencode-sandbox/runner-orphan:digest1", LastUsedAt_: ancient()},
 		},
 	}
 	docker.WithNoopDockerMock(t)
@@ -496,7 +495,7 @@ func TestPrune_WithMocks_CoversAllCases(t *testing.T) {
 
 // TestPrune_StoppedRecentVM_PreservesImage verifies that a stopped-but-not-yet
 // stale VM is not misclassified as an orphan: its currently used image digest
-// and the :latest tag must survive, and only surplus digests are pruned.
+// must survive, and only surplus digests are pruned.
 func TestPrune_StoppedRecentVM_PreservesImage(t *testing.T) {
 	recentTime := time.Now().Add(-5 * time.Minute)
 	slug := "commonproj-1mjusbm3wikhb0"
@@ -517,7 +516,6 @@ func TestPrune_StoppedRecentVM_PreservesImage(t *testing.T) {
 		Images: []msb.ImageHandle{
 			&msb.MockImageHandle{Reference_: "opencode-sandbox/runner-commonproj-1mjusbm3wikhb0:digestCur"},
 			&msb.MockImageHandle{Reference_: "opencode-sandbox/runner-commonproj-1mjusbm3wikhb0:digestOld"},
-			&msb.MockImageHandle{Reference_: "opencode-sandbox/runner-commonproj-1mjusbm3wikhb0:latest"},
 		},
 	}
 	docker.WithNoopDockerMock(t)
@@ -539,7 +537,7 @@ func TestPrune_StoppedRecentVM_PreservesImage(t *testing.T) {
 		t.Fatalf("Prune returned error: %v", err)
 	}
 
-	// Surplus digestOld is pruned (msb only); digestCur and :latest survive.
+	// Surplus digestOld is pruned (msb only); digestCur survives.
 	assertReport(t, report, prunedCounts{volumes: 0, msbImages: 1, dockerImages: 0})
 }
 
@@ -641,7 +639,7 @@ func TestPrune_DockerPruneFails_PartialReport(t *testing.T) {
 				LastUsedAt_: oldTime,
 			},
 			&msb.MockImageHandle{
-				Reference_:  "opencode-sandbox/runner-myproject-1mjusbm3wikhb0:latest",
+				Reference_:  "opencode-sandbox/runner-myproject-1mjusbm3wikhb0:digest2",
 				LastUsedAt_: oldTime,
 			},
 		},

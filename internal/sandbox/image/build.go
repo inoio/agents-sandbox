@@ -276,7 +276,7 @@ func EnsureImageWithClient(
 		if readErr != nil {
 			return ImageInfo{}, fmt.Errorf("inspect cached msb image: %w", readErr)
 		}
-		return ImageInfo{Tag: rTag, Digest: imageDigest, OpenCodeVersion: version, Env: env}, nil
+		return ImageInfo{Tag: imageRef, Digest: imageDigest, OpenCodeVersion: version, Env: env}, nil
 	}
 
 	spin := ui.Spinner("Loading image into microsandbox")
@@ -296,7 +296,7 @@ func EnsureImageWithClient(
 	if err != nil {
 		return ImageInfo{}, fmt.Errorf("inspect loaded msb image: %w", err)
 	}
-	return ImageInfo{Tag: rTag, Digest: imageDigest, OpenCodeVersion: version, Env: env}, nil
+	return ImageInfo{Tag: imageRef, Digest: imageDigest, OpenCodeVersion: version, Env: env}, nil
 }
 
 // EnsureImage builds/inspects the runner Docker image and returns an ImageInfo
