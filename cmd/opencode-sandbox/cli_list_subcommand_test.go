@@ -4,6 +4,7 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
 
 	msb "github.com/superradcompany/microsandbox/sdk/go"
 
@@ -81,32 +82,49 @@ func TestListSandboxes(t *testing.T) {
 			mockSetup: func(m *sandboxmsb.MockMsbClient) {
 				m.Sandboxes = []sandboxmsb.SandboxHandle{
 					&sandboxmsb.MockSandboxHandle{
-						Name_:   "opencode-sandbox-vm-abc123",
-						Status_: msb.SandboxStatusRunning,
+						Name_:      "opencode-sandbox-vm-abc123",
+						Status_:    msb.SandboxStatusRunning,
+						CreatedAt_: time.Date(2026, 8, 17, 10, 30, 0, 0, time.UTC),
+						UpdatedAt_: time.Date(2026, 8, 17, 11, 0, 0, 0, time.UTC),
+						Cfg:        &msb.SandboxConfig{Image: "opencode-sandbox/runner:latest"},
 					},
 				}
 			},
-			wantOut: []string{"opencode-sandbox-vm-abc123                   running"},
+			wantOut: []string{
+				"opencode-sandbox-vm-abc123 running opencode-sandbox/runner:latest 2026-08-17 10:30 2026-08-17 11:00",
+			},
 		},
 		{
 			name: "multiple sandboxes",
 			mockSetup: func(m *sandboxmsb.MockMsbClient) {
 				m.Sandboxes = []sandboxmsb.SandboxHandle{
 					&sandboxmsb.MockSandboxHandle{
-						Name_:   "opencode-sandbox-vm-alpha",
-						Status_: msb.SandboxStatusRunning,
+						Name_:      "opencode-sandbox-vm-alpha",
+						Status_:    msb.SandboxStatusRunning,
+						CreatedAt_: time.Date(2026, 8, 17, 9, 0, 0, 0, time.UTC),
+						UpdatedAt_: time.Date(2026, 8, 17, 10, 0, 0, 0, time.UTC),
+						Cfg:        &msb.SandboxConfig{Image: "opencode-sandbox/runner:latest"},
 					},
-					&sandboxmsb.MockSandboxHandle{Name_: "opencode-sandbox-vm-beta", Status_: msb.SandboxStatusStopped},
 					&sandboxmsb.MockSandboxHandle{
-						Name_:   "opencode-sandbox-vm-gamma",
-						Status_: msb.SandboxStatusDraining,
+						Name_:      "opencode-sandbox-vm-beta",
+						Status_:    msb.SandboxStatusStopped,
+						CreatedAt_: time.Date(2026, 8, 16, 12, 0, 0, 0, time.UTC),
+						UpdatedAt_: time.Date(2026, 8, 16, 13, 0, 0, 0, time.UTC),
+						Cfg:        &msb.SandboxConfig{Image: "opencode-sandbox/runner:v1.0.0"},
+					},
+					&sandboxmsb.MockSandboxHandle{
+						Name_:      "opencode-sandbox-vm-gamma",
+						Status_:    msb.SandboxStatusDraining,
+						CreatedAt_: time.Date(2026, 8, 15, 8, 30, 0, 0, time.UTC),
+						UpdatedAt_: time.Date(2026, 8, 15, 9, 15, 0, 0, time.UTC),
+						Cfg:        &msb.SandboxConfig{Image: "opencode-sandbox/runner:v2.0.0"},
 					},
 				}
 			},
 			wantOut: []string{
-				"opencode-sandbox-vm-alpha                    running",
-				"opencode-sandbox-vm-beta                     stopped",
-				"opencode-sandbox-vm-gamma                    draining",
+				"opencode-sandbox-vm-alpha running opencode-sandbox/runner:latest 2026-08-17 09:00 2026-08-17 10:00",
+				"opencode-sandbox-vm-beta stopped opencode-sandbox/runner:v1.0.0 2026-08-16 12:00 2026-08-16 13:00",
+				"opencode-sandbox-vm-gamma draining opencode-sandbox/runner:v2.0.0 2026-08-15 08:30 2026-08-15 09:15",
 			},
 		},
 		{
@@ -115,10 +133,18 @@ func TestListSandboxes(t *testing.T) {
 				m.Sandboxes = []sandboxmsb.SandboxHandle{
 					&sandboxmsb.MockSandboxHandle{Name_: "myvm-other-abc", Status_: msb.SandboxStatusRunning},
 					&sandboxmsb.MockSandboxHandle{Name_: "legacy-vm-xyz", Status_: msb.SandboxStatusRunning},
-					&sandboxmsb.MockSandboxHandle{Name_: "opencode-sandbox-vm-abc", Status_: msb.SandboxStatusRunning},
+					&sandboxmsb.MockSandboxHandle{
+						Name_:      "opencode-sandbox-vm-abc",
+						Status_:    msb.SandboxStatusRunning,
+						CreatedAt_: time.Date(2026, 8, 17, 10, 0, 0, 0, time.UTC),
+						UpdatedAt_: time.Date(2026, 8, 17, 11, 0, 0, 0, time.UTC),
+						Cfg:        &msb.SandboxConfig{Image: "opencode-sandbox/runner:latest"},
+					},
 				}
 			},
-			wantOut: []string{"opencode-sandbox-vm-abc                      running"},
+			wantOut: []string{
+				"opencode-sandbox-vm-abc running opencode-sandbox/runner:latest 2026-08-17 10:00 2026-08-17 11:00",
+			},
 		},
 		{
 			name:            "list sandboxes error",
@@ -305,5 +331,26 @@ func TestListVolumes(t *testing.T) {
 				tt.wantErrContains,
 			)
 		})
+	}
+}
+
+func TestTruncateImage(t *testing.T) {
+	short := "opencode-sandbox/runner:latest"
+	if got := truncateImage(short); got != short {
+		t.Errorf("truncateImage(short) = %q, want unchanged", got)
+	}
+	long := "ghcr.io/superradcompany/opencode-sandbox/runner-image-reference-that-is-very-long:latest"
+	got := truncateImage(long)
+	if len(got) > 44 {
+		t.Errorf("truncateImage(long) length = %d, want <= 44", len(got))
+	}
+	if len(got) == 0 || got[len(got)-3:] != "..." {
+		t.Errorf("truncateImage(long) = %q, want ... suffix", got)
+	}
+}
+
+func TestSandboxListFormatShared(t *testing.T) {
+	if sandboxListFormat == "" {
+		t.Error("sandboxListFormat must be non-empty so command and tests share it")
 	}
 }

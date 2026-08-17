@@ -92,7 +92,7 @@ func TestPrune(t *testing.T) {
 					m.Images = append(m.Images,
 						msbImg("opencode-sandbox/runner-projectname:xyz789"))
 					sandboxmsb.WithMsbMock(t, m)
-				}, "dry-run: Would prune 1 VMs, 1 home volumes, 1 docker images, 1 msb images, 0 task sandboxes, 1 clone volumes")
+				}, "dry-run: Would prune 1 VMs, 1 home volumes, 0 docker images, 1 msb images, 0 task sandboxes, 1 clone volumes")
 			})
 		}
 	})
@@ -121,7 +121,7 @@ func TestPrune(t *testing.T) {
 					m.Images = append(m.Images,
 						msbImg("opencode-sandbox/runner-second:v1"))
 					sandboxmsb.WithMsbMock(t, m)
-				}, "Pruned 2 VMs, 0 home volumes, 1 docker images, 1 msb images, 0 task sandboxes, 0 clone volumes")
+				}, "Pruned 2 VMs, 0 home volumes, 0 docker images, 1 msb images, 0 task sandboxes, 0 clone volumes")
 			})
 		}
 	})
@@ -180,7 +180,7 @@ func TestPrune(t *testing.T) {
 					m.Images = append(m.Images,
 						msbImg("opencode-sandbox/runner-projectname:v2"))
 					sandboxmsb.WithMsbMock(t, m)
-				}, "Pruned 1 VMs, 1 home volumes, 1 docker images, 1 msb images, 1 task sandboxes, 1 clone volumes")
+				}, "Pruned 1 VMs, 1 home volumes, 0 docker images, 1 msb images, 1 task sandboxes, 1 clone volumes")
 			})
 		}
 	})
@@ -225,7 +225,7 @@ func TestPrune(t *testing.T) {
 					m.Images = append(m.Images,
 						msbImg("opencode-sandbox/runner-activeproject:v2"))
 					sandboxmsb.WithMsbMock(t, m)
-				}, "Pruned 1 VMs, 1 home volumes, 1 docker images, 1 msb images, 0 task sandboxes, 0 clone volumes")
+				}, "Pruned 1 VMs, 1 home volumes, 0 docker images, 1 msb images, 0 task sandboxes, 0 clone volumes")
 			})
 		}
 	})
