@@ -56,7 +56,7 @@ Configuration is resolved in this order (later entries override earlier ones):
 |---------------------------------|------------------------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
 | `yes`                           | `--yes` / `-y`         | Assume yes to all prompts                                                                                                                                                                |
 | `verbose`                       | `--verbose` / `-v`     | Show debug-level output                                                                                                                                                                  |
-| `quiet`                         | `--quiet` / `-q`       | Suppress non-error output                                                                                                                                                                |
+| `error`                         | `--error`             | Only show error output                                                                                                                                                                 |
 | `cpus`                          | `--cpus` / `-c`        | Number of vCPUs for the VM                                                                                                                                                               |
 | `memory`                        | `--memory` / `-m`      | Memory limit (e.g. `8G`)                                                                                                                                                                 |
 | `disk-size`                     | `--disk-size`          | Project VM root disk size (e.g. `16G`). Empty = microsandbox runtime default (~4 GiB). Applied at VM creation; a change triggers recreation. An invalid value is rejected with an error. |
@@ -135,7 +135,7 @@ precedence over config files but lose to an explicitly passed CLI flag. The pref
 |---------------------------------|-------------------------------------------------------------------|
 | `yes`                           | `OPENCODE_SANDBOX_YES`                                            |
 | `verbose`                       | `OPENCODE_SANDBOX_VERBOSE`                                        |
-| `quiet`                         | `OPENCODE_SANDBOX_QUIET`                                          |
+| `error`                         | `OPENCODE_SANDBOX_ERROR`                                          |
 | `cpus`                          | `OPENCODE_SANDBOX_CPUS`                                           |
 | `memory`                        | `OPENCODE_SANDBOX_MEMORY`                                         |
 | `disk-size`                     | `OPENCODE_SANDBOX_DISK_SIZE`                                      |

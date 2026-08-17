@@ -5,7 +5,7 @@ import "gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/naming"
 const (
 	pFlagYes     = "yes"
 	pFlagVerbose = "verbose"
-	pFlagQuiet   = "quiet"
+	pFlagError   = "error"
 
 	cmdRun     = "run"
 	cmdShell   = "shell"

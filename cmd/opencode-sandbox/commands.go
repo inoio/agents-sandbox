@@ -114,7 +114,7 @@ func buildMinimalRootFlagsCmd() *cobra.Command {
 
 	rootFlagsCmd.PersistentFlags().BoolP(pFlagYes, pFlagYes[:1], false, "Assume yes to all prompts")
 	rootFlagsCmd.PersistentFlags().BoolP(pFlagVerbose, pFlagVerbose[:1], false, "Show debug-level output")
-	rootFlagsCmd.PersistentFlags().BoolP(pFlagQuiet, pFlagQuiet[:1], false, "Suppress non-error output")
+	rootFlagsCmd.PersistentFlags().BoolP(pFlagError, "", false, "Only show error output")
 
 	return rootFlagsCmd
 }
