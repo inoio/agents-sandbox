@@ -61,6 +61,17 @@ e.g. when the rebuild is deferred to a later run), opencode-sandbox prompts you 
 - *migrate*: Build a new home volume like reset, but afterwards copy all files from the current home on top.
 
 
+### List
+
+List all opencode-sandbox VMs with their image and timestamps:
+
+```console
+opencode-sandbox list
+opencode-sandbox sandbox list
+```
+
+Columns: `NAME`, `STATUS`, `IMAGE`, `CREATED`, `UPDATED` (`YYYY-MM-DD HH:MM`).
+
 ### Volume Management
 
 List all volumes:
