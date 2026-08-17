@@ -60,10 +60,6 @@ func homeVol(name string) sandboxmsb.VolumeHandle {
 	return &sandboxmsb.MockVolumeHandle{Name_: name, Path_: "/mnt/home", CreatedAt_: oldArtifactTime()}
 }
 
-func cloneVol(name string) sandboxmsb.VolumeHandle {
-	return &sandboxmsb.MockVolumeHandle{Name_: name, Path_: "/mnt/home", CreatedAt_: oldArtifactTime()}
-}
-
 func msbImg(ref string) sandboxmsb.ImageHandle {
 	return sandboxmsb.MockImageHandle{Reference_: ref, LastUsedAt_: oldArtifactTime()}
 }
@@ -87,12 +83,10 @@ func TestPrune(t *testing.T) {
 						mkActiveVM("activeproject-1mjusbm3wikhb0"))
 					m.Volumes = append(m.Volumes,
 						homeVol("opencode-sandbox-home-projectname-1mjusbm3wikhb0-d1"))
-					m.Volumes = append(m.Volumes,
-						cloneVol("opencode-sandbox-clone-projects"))
 					m.Images = append(m.Images,
 						msbImg("opencode-sandbox/runner-projectname:xyz789"))
 					sandboxmsb.WithMsbMock(t, m)
-				}, "dry-run: Would prune 1 VMs, 1 home volumes, 0 docker images, 1 msb images, 0 task sandboxes, 1 clone volumes")
+				}, "dry-run: Would prune 1 VMs, 1 home volumes, 0 docker images, 1 msb images")
 			})
 		}
 	})
@@ -121,7 +115,7 @@ func TestPrune(t *testing.T) {
 					m.Images = append(m.Images,
 						msbImg("opencode-sandbox/runner-second:v1"))
 					sandboxmsb.WithMsbMock(t, m)
-				}, "Pruned 2 VMs, 0 home volumes, 0 docker images, 1 msb images, 0 task sandboxes, 0 clone volumes")
+				}, "Pruned 2 VMs, 1 home volumes, 0 docker images, 1 msb images")
 			})
 		}
 	})
@@ -133,9 +127,7 @@ func TestPrune(t *testing.T) {
 				Status_:    msb.SandboxStatusStopped,
 				UpdatedAt_: time.Now().Add(-15 * 24 * time.Hour),
 			})
-			m.Volumes = append(m.Volumes,
-				cloneVol("opencode-sandbox-clone-staleproject-abc123"))
-		}, "Pruned 1 VMs, 0 home volumes, 0 docker images, 0 msb images, 0 task sandboxes, 1 clone volumes")
+		}, "Pruned 1 VMs, 0 home volumes, 0 docker images, 0 msb images")
 	})
 
 	t.Run("invalid age error", func(t *testing.T) {
@@ -166,7 +158,7 @@ func TestPrune(t *testing.T) {
 		}
 	})
 
-	t.Run("clone volumes pruned", func(t *testing.T) {
+	t.Run("stale VMs and task sandboxes pruned", func(t *testing.T) {
 		for _, flags := range pruneAgeFlags {
 			t.Run(strings.Join(flags, " "), func(t *testing.T) {
 				runPruneTest(t, flags, func() {
@@ -175,12 +167,10 @@ func TestPrune(t *testing.T) {
 					m.Sandboxes = append(m.Sandboxes, mkStaleTask(time.Now().Add(-15*24*time.Hour)))
 					m.Volumes = append(m.Volumes,
 						homeVol("opencode-sandbox-home-projectname-1mjusbm3wikhb0-v1"))
-					m.Volumes = append(m.Volumes,
-						cloneVol("opencode-sandbox-clone-projectname-abc123"))
 					m.Images = append(m.Images,
 						msbImg("opencode-sandbox/runner-projectname:v2"))
 					sandboxmsb.WithMsbMock(t, m)
-				}, "Pruned 1 VMs, 1 home volumes, 0 docker images, 1 msb images, 1 task sandboxes, 1 clone volumes")
+				}, "Pruned 2 VMs, 1 home volumes, 0 docker images, 1 msb images")
 			})
 		}
 	})
@@ -201,12 +191,10 @@ func TestPrune(t *testing.T) {
 					m.Sandboxes = append(m.Sandboxes, mkStaleTask(time.Now().Add(-15*24*time.Hour)))
 					m.Volumes = append(m.Volumes,
 						homeVol("opencode-sandbox-home-activeproject-1mjusbm3wikhb0-abc123"))
-					m.Volumes = append(m.Volumes,
-						cloneVol("opencode-sandbox-clone-activeproject-abc123"))
 					m.Images = append(m.Images,
 						msbImg("opencode-sandbox/runner-activeproject-1mjusbm3wikhb0:xyz789"))
 					sandboxmsb.WithMsbMock(t, m)
-				}, "Pruned 0 VMs, 0 home volumes, 0 docker images, 0 msb images, 1 task sandboxes, 1 clone volumes")
+				}, "Pruned 1 VMs, 0 home volumes, 0 docker images, 0 msb images")
 			})
 		}
 	})
@@ -225,7 +213,7 @@ func TestPrune(t *testing.T) {
 					m.Images = append(m.Images,
 						msbImg("opencode-sandbox/runner-activeproject:v2"))
 					sandboxmsb.WithMsbMock(t, m)
-				}, "Pruned 1 VMs, 1 home volumes, 0 docker images, 1 msb images, 0 task sandboxes, 0 clone volumes")
+				}, "Pruned 1 VMs, 1 home volumes, 0 docker images, 1 msb images")
 			})
 		}
 	})
@@ -283,8 +271,8 @@ func checkSummary(t *testing.T, outCalls []string, expected string) {
 	}
 }
 
-// TestPruneCatalogError covers the catalog build failing during prune, which
-// surfaces the list error from the command.
+// TestPruneCatalogError covers the live-state build failing during prune, which
+// surfaces the raw ListSandboxes error from the command.
 func TestPruneCatalogError(t *testing.T) {
 	cmd, _ := setupCommandFixtures(t, "prune", "--age", "7d")
 	mock := &sandboxmsb.MockMsbClient{}
@@ -295,7 +283,7 @@ func TestPruneCatalogError(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected an error when the prune catalog build fails")
 	}
-	if !strings.Contains(err.Error(), "list sandboxes") {
-		t.Errorf("expected 'list sandboxes' error, got: %v", err)
+	if !strings.Contains(err.Error(), "boom") {
+		t.Errorf("expected 'boom' error, got: %v", err)
 	}
 }

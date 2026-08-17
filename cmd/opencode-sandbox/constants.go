@@ -39,6 +39,7 @@ const (
 	flagDryRunVM        = "dry-run-vm"
 	flagForce           = "force"
 	flagAge             = "age"
+	flagAll             = "all"
 	flagWorktree        = "worktree"
 	flagRoot            = "root"
 	flagServeOnly       = "serve-only"
