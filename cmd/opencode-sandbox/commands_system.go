@@ -14,6 +14,7 @@ import (
 	"gitlab.inoio.de/inoio/opencode-sandbox/internal/homeconfig"
 	"gitlab.inoio.de/inoio/opencode-sandbox/internal/opencodeconfig"
 	"gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/doctor"
+	"gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/humanize"
 	"gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/image"
 	"gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/pruning"
 	"gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/session"
@@ -27,6 +28,22 @@ type volumeOpFunc func(context.Context, string, string, string, string, bool, bo
 // sandboxListFormat is shared by buildListCmd and its tests so the column
 // layout stays in sync.
 const sandboxListFormat = "%-32s %-10s %-44s %-16s %-16s"
+
+// volumeListFormat is shared by buildVolumeCmd and its tests so the column
+// layout stays in sync. Matches msb volume list: NAME KIND SIZE CREATED.
+const volumeListFormat = "%-60s %-6s %-8s %-19s"
+
+// volumeSize renders the SIZE column: quota, else capacity, else "-" for
+// dir/unlimited volumes. Quota/capacity are bytes rendered human-readable.
+func volumeSize(q *uint32, c *uint64) string {
+	if q != nil {
+		return humanize.FormatBytes(uint64(*q) * 1024 * 1024)
+	}
+	if c != nil {
+		return humanize.FormatBytes(*c)
+	}
+	return "-"
+}
 
 // truncateImage shortens a long image reference so the IMAGE column stays
 // within a normal terminal width.
@@ -250,9 +267,11 @@ func buildVolumeCmd(ui termio.UI) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			printItems(volumes, "No volumes found.", "%-50s %s", ui,
+			printItems(volumes, "No volumes found.", volumeListFormat, ui,
 				func(v volume.VolumeInfo) string { return v.Name },
-				func(v volume.VolumeInfo) string { return v.Path },
+				func(v volume.VolumeInfo) string { return v.Kind },
+				func(v volume.VolumeInfo) string { return volumeSize(v.QuotaMiB, v.CapacityBytes) },
+				func(v volume.VolumeInfo) string { return v.CreatedAt },
 			)
 			return nil
 		},
