@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -134,6 +135,14 @@ func buildDoctorCmd(ui termio.UI) *cobra.Command {
 }
 
 func buildListCmd(ui termio.UI) *cobra.Command {
+	var (
+		labelsStr []string
+		limit     uint32
+		running   bool
+		stopped   bool
+		namesOnly bool
+		format    string
+	)
 	cmd := &cobra.Command{
 		Use:     cmdList,
 		Aliases: cmdListAliases,
@@ -143,9 +152,38 @@ func buildListCmd(ui termio.UI) *cobra.Command {
 			annotationAlsoAs: "sandbox list",
 		},
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			sandboxes, err := session.ListSandboxes(cmd.Context())
+			if namesOnly && format != "" {
+				return errors.New("--quiet and --format are mutually exclusive")
+			}
+			if format != "" && format != formatJSON {
+				return fmt.Errorf("unsupported format %q: only %q is supported", format, formatJSON)
+			}
+			labels, err := parseLabelFlags(labelsStr)
 			if err != nil {
 				return err
+			}
+			var lim *uint32
+			if cmd.Flags().Changed(flagLimit) {
+				lim = &limit
+			}
+			opt := session.ListOption{
+				Labels:      labels,
+				Limit:       lim,
+				RunningOnly: running,
+				StoppedOnly: stopped,
+			}
+			sandboxes, err := session.ListSandboxes(cmd.Context(), opt)
+			if err != nil {
+				return err
+			}
+			if namesOnly {
+				for _, s := range sandboxes {
+					ui.Out(s.Name)
+				}
+				return nil
+			}
+			if format == formatJSON {
+				return printSandboxesJSON(ui, sandboxes)
 			}
 			printItems(sandboxes, "No sandboxes found.", sandboxListHeaders(), ui,
 				func(s session.Info) string { return s.Name },
@@ -156,7 +194,55 @@ func buildListCmd(ui termio.UI) *cobra.Command {
 			return nil
 		},
 	}
+	cmd.Flags().BoolVarP(&namesOnly, pFlagQuiet, pFlagQuiet[:1], false, "Print only sandbox names")
+	cmd.Flags().
+		StringArrayVar(&labelsStr, flagLabel, nil, "Only show sandboxes carrying this label KEY=VALUE (repeatable, all must match)")
+	cmd.Flags().Uint32Var(&limit, flagLimit, 0, "Limit the number of sandboxes shown")
+	cmd.Flags().BoolVar(&running, flagRunning, false, "Show only running sandboxes")
+	cmd.Flags().BoolVar(&stopped, flagStopped, false, "Show only stopped sandboxes")
+	cmd.Flags().StringVar(&format, flagFormat, "", "Output format (json)")
 	return cmd
+}
+
+func parseLabelFlags(values []string) (map[string]string, error) {
+	labels := make(map[string]string, len(values))
+	for _, v := range values {
+		key, val, ok := strings.Cut(v, "=")
+		if !ok || key == "" {
+			return nil, fmt.Errorf("invalid label %q: must be KEY=VALUE", v)
+		}
+		labels[key] = val
+	}
+	return labels, nil
+}
+
+type jsonSandbox struct {
+	Name    string            `json:"name"`
+	Status  string            `json:"status"`
+	Image   string            `json:"image"`
+	Created time.Time         `json:"created"`
+	Updated time.Time         `json:"updated"`
+	Labels  map[string]string `json:"labels"`
+}
+
+func printSandboxesJSON(ui termio.UI, infos []session.Info) error {
+	out := make([]jsonSandbox, 0, len(infos))
+	for _, s := range infos {
+		out = append(out, jsonSandbox{
+			Name:    s.Name,
+			Status:  s.Status,
+			Image:   s.Image,
+			Created: s.CreatedAtRaw,
+			Updated: s.UpdatedAtRaw,
+			Labels:  s.Labels,
+		})
+	}
+	data, err := json.MarshalIndent(out, "", "  ")
+	if err != nil {
+		return err
+	}
+	ui.Out(string(data))
+	return nil
 }
 
 func buildConfigCmd(ui termio.UI) *cobra.Command {
