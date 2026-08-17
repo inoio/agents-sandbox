@@ -62,8 +62,8 @@ Configuration is resolved in this order (later entries override earlier ones):
 | `disk-size`                     | `--disk-size`          | Project VM root disk size (e.g. `16G`). Empty = microsandbox runtime default (~4 GiB). Applied at VM creation; a change triggers recreation. An invalid value is rejected with an error. |
 | `tmp-size`                      | `--tmp-size`           | Size of `/tmp` tmpfs in the sandbox. An invalid value is rejected with an error.                                                                                                         |
 | `workspace-quota`               | `--workspace-quota`    | Guest-write quota for the `/workspace` bind mount (e.g. `32G`), bounding writes on top of the host repo. Default `16G`. Applied at VM creation; a change triggers recreation. An invalid value is rejected with an error. |
-| `auto-prune-age`                | —                      | Auto-prune threshold, runs before every command (default: 30d, only in config)                                                                                                           |
-| `manual-prune-age`              | `--age`                | Default prune age threshold for `prune` cmd                                                                                                                                              |
+| `auto-prune-age`                | —                      | Auto-prune threshold, runs before every command (default: 30d, only in config). Applies to VMs, volumes, and images alike.                                                               |
+| `manual-prune-age`              | `--age`                | Default prune age threshold for `prune`, `image prune`, `volume prune`, and `sandbox prune`                                                                                             |
 | `auto-stop-on-active-sessions`  | —                      | Stop VM immediately on client detach without waiting for active sessions (default: false, only in config; `busy` sessions are never cut off)                                             |
 | `auto-stop-timeout`             | —                      | Idle timeout after last client detaches (default: 10s, only in config)                                                                                                                   |
 | `auto-stop-max-session-retries` | —                      | Retries to tolerate for a session stuck in `retry` before stopping (default: 10, only in config)                                                                                         |
@@ -85,8 +85,8 @@ auto-stop-max-session-retries: 10
 
 ### Duration fields
 
-The `auto-prune-age` field (for `run`/`shell` auto-pruning), `manual-prune-age` field (for `prune` default), and
-`auto-stop-timeout` field (for post-detach idle timeout) accept:
+The `auto-prune-age` field (for `run`/`shell` auto-pruning), `manual-prune-age` field (for `prune`/`image prune`/
+`volume prune`/`sandbox prune` default), and `auto-stop-timeout` field (for post-detach idle timeout) accept:
 
 - Go duration: `"7200000000000ns"`, `"2h"`, `"24h"`
 - Days shorthand: `"7d"`, `"14d"`

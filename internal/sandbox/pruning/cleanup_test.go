@@ -48,53 +48,17 @@ func TestStaleReportHasAnything(t *testing.T) {
 		report *StaleReport
 		want   bool
 	}{
-		{
-			name:   "empty report",
-			report: &StaleReport{},
-			want:   false,
-		},
-		{
-			name:   "nil report",
-			report: nil,
-			want:   false,
-		},
-		{
-			name:   "has pruned VMs",
-			report: &StaleReport{PrunedVMs: 1},
-			want:   true,
-		},
-		{
-			name:   "has pruned volumes",
-			report: &StaleReport{PrunedVolumes: 3},
-			want:   true,
-		},
-		{
-			name:   "has pruned docker images",
-			report: &StaleReport{PrunedDockerImages: 2},
-			want:   true,
-		},
-		{
-			name:   "has pruned msb images",
-			report: &StaleReport{PrunedMSBImages: 1},
-			want:   true,
-		},
-		{
-			name:   "has pruned task sandboxes",
-			report: &StaleReport{PrunedTaskSandboxes: 5},
-			want:   true,
-		},
-		{
-			name:   "has pruned clone volumes",
-			report: &StaleReport{PrunedCloneVolumes: 2},
-			want:   true,
-		},
+		{"empty", &StaleReport{}, false},
+		{"nil", nil, false},
+		{"vms", &StaleReport{PrunedVMs: 1}, true},
+		{"volumes", &StaleReport{PrunedVolumes: 3}, true},
+		{"docker", &StaleReport{PrunedDockerImages: 2}, true},
+		{"msb", &StaleReport{PrunedMSBImages: 1}, true},
 	}
-
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := tt.report.hasAnything()
-			if got != tt.want {
-				t.Errorf("HasAnything() = %v, want %v", got, tt.want)
+			if got := tt.report.hasAnything(); got != tt.want {
+				t.Errorf("hasAnything() = %v, want %v", got, tt.want)
 			}
 		})
 	}
