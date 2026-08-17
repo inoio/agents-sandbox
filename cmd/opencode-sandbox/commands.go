@@ -79,15 +79,13 @@ func resolverFromContext(ctx context.Context) *launcherconfig.Resolver {
 	return r
 }
 
-// printItems renders a list of items using the given format string with one
-// verb per accessor, item type, and type-specific accessors for each column.
-// When headers is non-empty, a header row is printed first by applying the
-// same format to the header labels so columns stay aligned with the data.
+// printItems renders a list of items as an aligned table with a styled header
+// row. It uses the termio.Table renderer, which sizes each column to the
+// widest cell and matches microsandbox's table output.
 func printItems[T any](
 	items []T,
 	emptyMsg string,
 	headers []string,
-	format string,
 	ui termio.UI,
 	funcs ...func(T) string,
 ) {
@@ -95,20 +93,15 @@ func printItems[T any](
 		ui.Info(emptyMsg)
 		return
 	}
-	if len(headers) > 0 {
-		headerArgs := make([]any, len(headers))
-		for i, h := range headers {
-			headerArgs[i] = h
-		}
-		ui.Outf(format, headerArgs...)
-	}
+	tbl := ui.NewTable(headers...)
 	for _, item := range items {
-		args := make([]any, len(funcs))
+		cells := make([]string, len(funcs))
 		for i, f := range funcs {
-			args[i] = f(item)
+			cells[i] = f(item)
 		}
-		ui.Outf(format, args...)
+		tbl.AddRow(cells...)
 	}
+	tbl.Print()
 }
 
 func buildMinimalRootFlagsCmd() *cobra.Command {

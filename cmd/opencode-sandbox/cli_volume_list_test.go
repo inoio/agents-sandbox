@@ -43,23 +43,7 @@ func TestVolumeList(t *testing.T) {
 			},
 		},
 		{
-			name: "disk volume uses quota for size",
-			mockSetup: func(m *sandboxmsb.MockMsbClient) {
-				m.Volumes = []sandboxmsb.VolumeHandle{
-					&sandboxmsb.MockVolumeHandle{
-						Name_:      "opencode-sandbox-home-proj",
-						Kind_:      msb.VolumeKindDisk,
-						QuotaMiB_:  &quota,
-						CreatedAt_: time.Date(2026, 8, 17, 10, 42, 36, 0, time.UTC),
-					},
-				}
-			},
-			wantOut: []string{
-				"opencode-sandbox-home-proj disk 2 GiB 2026-08-17 10:42:36",
-			},
-		},
-		{
-			name: "disk volume uses capacity when no quota",
+			name: "disk volume uses capacity for size",
 			mockSetup: func(m *sandboxmsb.MockMsbClient) {
 				m.Volumes = []sandboxmsb.VolumeHandle{
 					&sandboxmsb.MockVolumeHandle{
@@ -72,6 +56,38 @@ func TestVolumeList(t *testing.T) {
 			},
 			wantOut: []string{
 				"opencode-sandbox-home-proj disk 1 GiB 2026-08-17 10:42:36",
+			},
+		},
+		{
+			name: "disk volume without capacity renders dash",
+			mockSetup: func(m *sandboxmsb.MockMsbClient) {
+				m.Volumes = []sandboxmsb.VolumeHandle{
+					&sandboxmsb.MockVolumeHandle{
+						Name_:      "opencode-sandbox-home-proj",
+						Kind_:      msb.VolumeKindDisk,
+						QuotaMiB_:  &quota,
+						CreatedAt_: time.Date(2026, 8, 17, 10, 42, 36, 0, time.UTC),
+					},
+				}
+			},
+			wantOut: []string{
+				"opencode-sandbox-home-proj disk - 2026-08-17 10:42:36",
+			},
+		},
+		{
+			name: "dir volume uses quota for size",
+			mockSetup: func(m *sandboxmsb.MockMsbClient) {
+				m.Volumes = []sandboxmsb.VolumeHandle{
+					&sandboxmsb.MockVolumeHandle{
+						Name_:      "opencode-sandbox-home-proj",
+						Kind_:      msb.VolumeKindDir,
+						QuotaMiB_:  &quota,
+						CreatedAt_: time.Date(2026, 8, 17, 10, 42, 36, 0, time.UTC),
+					},
+				}
+			},
+			wantOut: []string{
+				"opencode-sandbox-home-proj dir 2 GiB 2026-08-17 10:42:36",
 			},
 		},
 		{
@@ -120,8 +136,15 @@ func TestVolumeList(t *testing.T) {
 	}
 }
 
-func TestVolumeListFormatShared(t *testing.T) {
-	if volumeListFormat == "" {
-		t.Fatal("volumeListFormat must be non-empty so command and tests share it")
+func TestVolumeListHeadersOrder(t *testing.T) {
+	want := []string{"NAME", "KIND", "SIZE", "CREATED"}
+	got := volumeListHeaders()
+	if len(got) != len(want) {
+		t.Fatalf("volumeListHeaders() = %v, want %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("volumeListHeaders()[%d] = %q, want %q", i, got[i], want[i])
+		}
 	}
 }
