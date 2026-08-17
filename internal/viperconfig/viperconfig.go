@@ -31,7 +31,7 @@ type Config struct {
 	WorkspaceQuota string        `mapstructure:"workspace-quota"`
 	Yes            bool          `mapstructure:"yes"`
 	Verbose        bool          `mapstructure:"verbose"`
-	Quiet          bool          `mapstructure:"quiet"`
+	Error          bool          `mapstructure:"error"`
 	CPUs           uint8         `mapstructure:"cpus"`
 
 	AutoStopOnActiveSessions  bool          `mapstructure:"auto-stop-on-active-sessions"`
@@ -114,7 +114,7 @@ var supportedExts = []string{".yaml", ".yml", ".json", extJSONC, extJSON5}
 //nolint:gochecknoglobals,goconst // package-level constant slice
 var configFlagKeys = []string{
 	"cpus", "memory", "tmp-size", "disk-size", "workspace-quota",
-	"yes", "verbose", "quiet",
+	"yes", "verbose", "error",
 }
 
 // configEnvKeys are all launcher config keys bound to OPENCODE_SANDBOX_ env vars.
@@ -122,7 +122,7 @@ var configFlagKeys = []string{
 //nolint:gochecknoglobals // package-level constant slice
 var configEnvKeys = []string{
 	"cpus", "memory", "tmp-size", "disk-size", "workspace-quota",
-	"yes", "verbose", "quiet",
+	"yes", "verbose", "error",
 	"auto-prune-age", "manual-prune-age",
 	"auto-stop-on-active-sessions", "auto-stop-timeout", "auto-stop-max-session-retries",
 }
@@ -156,7 +156,7 @@ func flagTypedDefault(key string, flag *pflag.Flag) any {
 	case "cpus":
 		n, _ := strconv.ParseUint(flag.DefValue, 10, 8)
 		return uint8(n)
-	case "yes", "verbose", "quiet":
+	case "yes", "verbose", "error":
 		return flag.DefValue == "true"
 	default:
 		return flag.DefValue
@@ -351,7 +351,7 @@ func (r *Resolver) DiskSize() string               { return r.cfg.DiskSize }
 func (r *Resolver) WorkspaceQuota() string         { return r.cfg.WorkspaceQuota }
 func (r *Resolver) Yes() bool                      { return r.cfg.Yes }
 func (r *Resolver) Verbose() bool                  { return r.cfg.Verbose }
-func (r *Resolver) Quiet() bool                    { return r.cfg.Quiet }
+func (r *Resolver) Error() bool                    { return r.cfg.Error }
 func (r *Resolver) AutoPruneAge() time.Duration    { return r.cfg.AutoPruneAge }
 func (r *Resolver) ManualPruneAge() time.Duration  { return r.cfg.ManualPruneAge }
 func (r *Resolver) AutoStopOnActiveSessions() bool { return r.cfg.AutoStopOnActiveSessions }

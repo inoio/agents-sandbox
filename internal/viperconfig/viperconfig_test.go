@@ -25,7 +25,7 @@ func TestResolverGettersReturnConfig(t *testing.T) {
 		r.WorkspaceQuota() != "64G" {
 		t.Errorf("resource getters mismatch: %+v", cfg)
 	}
-	if !r.Yes() || !r.Verbose() || r.Quiet() {
+	if !r.Yes() || !r.Verbose() || r.Error() {
 		t.Error("UI getters mismatch")
 	}
 	if r.AutoPruneAge() != 7*24*time.Hour || r.ManualPruneAge() != 14*24*time.Hour {
