@@ -91,6 +91,8 @@ type ImageHandle interface {
 	Reference() string
 	ManifestDigest() string
 	LastUsedAt() time.Time
+	SizeBytes() *int64
+	CreatedAt() time.Time
 }
 
 // SandboxFS is the subset of the sandbox filesystem operations used by the launcher.
