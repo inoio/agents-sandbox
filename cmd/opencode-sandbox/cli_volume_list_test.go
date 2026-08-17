@@ -54,7 +54,7 @@ func TestVolumeList(t *testing.T) {
 				}
 			},
 			wantOut: []string{
-				"opencode-sandbox-home-proj disk 2.0G 2026-08-17 10:42:36",
+				"opencode-sandbox-home-proj disk 2 GiB 2026-08-17 10:42:36",
 			},
 		},
 		{
@@ -70,7 +70,7 @@ func TestVolumeList(t *testing.T) {
 				}
 			},
 			wantOut: []string{
-				"opencode-sandbox-home-proj disk 1.0G 2026-08-17 10:42:36",
+				"opencode-sandbox-home-proj disk 1 GiB 2026-08-17 10:42:36",
 			},
 		},
 		{
