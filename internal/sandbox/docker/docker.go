@@ -9,6 +9,8 @@ import (
 )
 
 // Client is the exported interface for Docker API operations.
+//
+//nolint:dupl // the mock mirrors this interface by design
 type Client interface {
 	ImageBuild(
 		ctx context.Context,
@@ -34,6 +36,10 @@ type Client interface {
 		ctx context.Context,
 		opts client.ImageTagOptions,
 	) (client.ImageTagResult, error)
+	ImagePrune(
+		ctx context.Context,
+		opts client.ImagePruneOptions,
+	) (client.ImagePruneResult, error)
 	Ping(ctx context.Context, opts client.PingOptions) (client.PingResult, error)
 }
 
@@ -110,6 +116,16 @@ func (realDockerClient) ImageTag(
 		return client.ImageTagResult{}, err
 	}
 	return mobyClient.ImageTag(ctx, options)
+}
+
+func (realDockerClient) ImagePrune(
+	ctx context.Context,
+	options client.ImagePruneOptions,
+) (client.ImagePruneResult, error) {
+	if err := ensureMobyClient(); err != nil {
+		return client.ImagePruneResult{}, err
+	}
+	return mobyClient.ImagePrune(ctx, options)
 }
 
 func (realDockerClient) Ping(
