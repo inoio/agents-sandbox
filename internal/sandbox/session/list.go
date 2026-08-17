@@ -41,7 +41,7 @@ func filterSandboxes(handles []sandboxHandle) []string {
 
 // ListSandboxes returns a list of sandbox VMs for the current host.
 func ListSandboxes(ctx context.Context) ([]Info, error) {
-	handles, err := msb.Get().ListSandboxes(ctx)
+	handles, err := msb.Get().ListSandboxes(ctx, nil)
 	if err != nil {
 		return nil, fmt.Errorf("list sandboxes: %w", err)
 	}
