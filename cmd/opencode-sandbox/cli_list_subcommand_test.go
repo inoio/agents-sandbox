@@ -91,8 +91,8 @@ func TestListSandboxes(t *testing.T) {
 				}
 			},
 			wantOut: []string{
-				"NAME STATUS IMAGE CREATED",
-				"opencode-sandbox-vm-abc123 running opencode-sandbox/runner:latest 2026-08-17 10:30:00",
+				"NAME IMAGE STATUS CREATED",
+				"opencode-sandbox-vm-abc123 opencode-sandbox/runner:latest running 2026-08-17 10:30:00",
 			},
 		},
 		{
@@ -123,9 +123,9 @@ func TestListSandboxes(t *testing.T) {
 				}
 			},
 			wantOut: []string{
-				"opencode-sandbox-vm-alpha running opencode-sandbox/runner:latest 2026-08-17 09:00:00",
-				"opencode-sandbox-vm-beta stopped opencode-sandbox/runner:v1.0.0 2026-08-16 12:00:00",
-				"opencode-sandbox-vm-gamma draining opencode-sandbox/runner:v2.0.0 2026-08-15 08:30:00",
+				"opencode-sandbox-vm-alpha opencode-sandbox/runner:latest running 2026-08-17 09:00:00",
+				"opencode-sandbox-vm-beta opencode-sandbox/runner:v1.0.0 stopped 2026-08-16 12:00:00",
+				"opencode-sandbox-vm-gamma opencode-sandbox/runner:v2.0.0 draining 2026-08-15 08:30:00",
 			},
 		},
 		{
@@ -144,7 +144,7 @@ func TestListSandboxes(t *testing.T) {
 				}
 			},
 			wantOut: []string{
-				"opencode-sandbox-vm-abc running opencode-sandbox/runner:latest 2026-08-17 10:00:00",
+				"opencode-sandbox-vm-abc opencode-sandbox/runner:latest running 2026-08-17 10:00:00",
 			},
 		},
 		{
@@ -285,16 +285,30 @@ func TestTruncateDigest(t *testing.T) {
 	}
 }
 
-func TestSandboxListFormatShared(t *testing.T) {
-	if sandboxListFormat == "" {
-		t.Error("sandboxListFormat must be non-empty so command and tests share it")
+func TestSandboxListHeadersOrder(t *testing.T) {
+	want := []string{"NAME", "IMAGE", "STATUS", "CREATED"}
+	got := sandboxListHeaders()
+	if len(got) != len(want) {
+		t.Fatalf("sandboxListHeaders() = %v, want %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("sandboxListHeaders()[%d] = %q, want %q (order must match msb)", i, got[i], want[i])
+		}
 	}
 }
 
 func int64PtrCLI(n int64) *int64 { return &n } //nolint:modernize // address-of-value is the intended pattern
 
-func TestImageListFormatShared(t *testing.T) {
-	if imageListFormat == "" {
-		t.Error("imageListFormat must be non-empty so command and tests share it")
+func TestImageListHeadersOrder(t *testing.T) {
+	want := []string{"REFERENCE", "DIGEST", "SIZE", "CREATED"}
+	got := imageListHeaders()
+	if len(got) != len(want) {
+		t.Fatalf("imageListHeaders() = %v, want %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("imageListHeaders()[%d] = %q, want %q", i, got[i], want[i])
+		}
 	}
 }
