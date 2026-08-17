@@ -62,7 +62,7 @@ func configChangeList(changes []Change) string {
 // PlanReconfig computes the reconfiguration plan given the current VM config
 // and the desired state. Returns a nil Plan when there is no existing config
 // (first creation) or nothing needs to change.
-func PlanReconfig( //nolint:gocognit // core planner, cognitive complexity acceptable for now
+func PlanReconfig( //nolint:gocognit,gocyclo,cyclop,funlen // core planner, cognitive and cyclomatic complexity acceptable for now
 	cfg *msbSdk.SandboxConfig,
 	imageRef string,
 	opts options.RunOptions,
@@ -86,6 +86,16 @@ func PlanReconfig( //nolint:gocognit // core planner, cognitive complexity accep
 			d.Recreate = true
 			oldRaw := FormatSizeSpec(tmp.SizeMiB, "")
 			d.Changes = append(d.Changes, SizeChange("/tmp tmpfs size", tmp.SizeMiB, wantTmp, oldRaw, opts.TmpSize))
+		}
+	}
+	if wantQuota, ok := options.ParseMemoryOK(opts.WorkspaceQuota); ok {
+		if ws, ok := cfg.Volumes[workspaceMountPath]; ok && ws.QuotaMiB != wantQuota {
+			d.Recreate = true
+			oldRaw := FormatSizeSpec(ws.QuotaMiB, "")
+			d.Changes = append(
+				d.Changes,
+				SizeChange("/workspace write quota", ws.QuotaMiB, wantQuota, oldRaw, opts.WorkspaceQuota),
+			)
 		}
 	}
 	if wantDisk, ok := options.ParseMemoryOK(opts.DiskSize); ok {

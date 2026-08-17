@@ -34,6 +34,7 @@ const (
 	flagMemory          = "memory"
 	flagTmpSize         = "tmp-size"
 	flagDiskSize        = "disk-size"
+	flagWorkspaceQuota  = "workspace-quota"
 	flagDryRun          = "dry-run"
 	flagDryRunShort     = "n"
 	flagDryRunVM        = "dry-run-vm"

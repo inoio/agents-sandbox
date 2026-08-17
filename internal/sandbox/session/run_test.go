@@ -25,7 +25,7 @@ import (
 // live in their owning packages: internal/sandbox/reprovision/*_test.go, internal/sandbox/msb/msb_test.go.
 
 func TestBuildMountsIncludesTmpfsAtTmp(t *testing.T) {
-	mounts := buildMounts("test-home-vol", "/repo/path", options.DefaultTmpSizeMiB)
+	mounts := buildMounts("test-home-vol", "/repo/path", options.DefaultTmpSizeMiB, options.DefaultWorkspaceQuotaMiB)
 
 	tmpMount, ok := mounts[tmpMountPath]
 	if !ok {
@@ -43,11 +43,38 @@ func TestBuildMountsIncludesTmpfsAtTmp(t *testing.T) {
 }
 
 func TestBuildMountsRespectsCustomTmpSize(t *testing.T) {
-	mounts := buildMounts("test-home-vol", "/repo/path", 4096)
+	mounts := buildMounts("test-home-vol", "/repo/path", 4096, options.DefaultWorkspaceQuotaMiB)
 
 	tmpMount := mounts[tmpMountPath]
 	if tmpMount.SizeMiB != 4096 {
 		t.Errorf("expected /tmp tmpfs size 4096 MiB, got %d", tmpMount.SizeMiB)
+	}
+}
+
+func TestBuildMountsSetsWorkspaceQuota(t *testing.T) {
+	mounts := buildMounts("test-home-vol", "/repo/path", options.DefaultTmpSizeMiB, 32*1024)
+
+	wsMount, ok := mounts[defaultTargetDir]
+	if !ok {
+		t.Fatal("expected /workspace mount, not found in mounts map")
+	}
+	if wsMount.Kind() != msbSdk.MountKindBind {
+		t.Errorf("expected /workspace to be a bind mount, got kind %d", wsMount.Kind())
+	}
+	if wsMount.QuotaMiB != 32*1024 {
+		t.Errorf("expected /workspace quota 32768 MiB, got %d", wsMount.QuotaMiB)
+	}
+}
+
+func TestBuildMountsWorkspaceQuotaDefault(t *testing.T) {
+	mounts := buildMounts("test-home-vol", "/repo/path", options.DefaultTmpSizeMiB, options.DefaultWorkspaceQuotaMiB)
+
+	wsMount, ok := mounts[defaultTargetDir]
+	if !ok {
+		t.Fatal("expected /workspace mount, not found in mounts map")
+	}
+	if wsMount.QuotaMiB != options.DefaultWorkspaceQuotaMiB {
+		t.Errorf("expected /workspace default quota %d MiB, got %d", options.DefaultWorkspaceQuotaMiB, wsMount.QuotaMiB)
 	}
 }
 
