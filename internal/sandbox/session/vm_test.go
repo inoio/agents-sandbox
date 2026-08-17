@@ -119,6 +119,7 @@ func TestCreateProjectVMCallsClientCreateSandbox(t *testing.T) {
 		context.Background(),
 		client,
 		"opencode-sandbox-vm-test",
+		"test-slug",
 		"opencode-sandbox/runner-test:latest",
 		"test-home-vol",
 		t.TempDir(),
@@ -203,6 +204,50 @@ func TestEnsureProjectVM_CreatePath(t *testing.T) {
 	}
 	if len(client.CreatedSandboxes) != 1 {
 		t.Fatalf("expected 1 created sandbox, got %d: %v", len(client.CreatedSandboxes), client.CreatedSandboxes)
+	}
+}
+
+func TestEnsureProjectVMAppliesLabels(t *testing.T) {
+	testUI := termio.NewTestMock(t)
+	ui := &testUI
+
+	client := &msb.MockMsbClient{}
+	client.GetSandboxFn = func(_ context.Context, _ string) (msb.SandboxHandle, error) {
+		return nil, &msbSdk.Error{Kind: msbSdk.ErrSandboxNotFound, Message: "not found"}
+	}
+	client.CreateSandboxFn = func(_ context.Context, _ string, opts ...msbSdk.SandboxOption) (msb.Sandbox, error) {
+		cfg := msbSdk.SandboxConfig{}
+		for _, opt := range opts {
+			opt(&cfg)
+		}
+		if cfg.Labels[naming.LabelProject] == "" {
+			t.Errorf("expected project label set, got %v", cfg.Labels)
+		}
+		if cfg.Labels[naming.LabelImage] == "" {
+			t.Errorf("expected image label set, got %v", cfg.Labels)
+		}
+		return msb.NewMockSandbox(msb.SandboxOpts{}), nil
+	}
+	msb.WithMsbMock(t, client)
+	configpaths.WithMockConfigPaths(t)
+
+	tmpRepo := testutil.InitRepo(t)
+	t.Chdir(tmpRepo)
+
+	sb, created, err := ensureProjectVM(
+		context.Background(),
+		options.RunOptions{Memory: "1G", TmpSize: "512M"},
+		"opencode-sandbox/runner-test:latest",
+		"test-home-vol",
+		tmpRepo,
+		nil,
+		ui,
+	)
+	if err != nil {
+		t.Fatalf("ensureProjectVM (create): %v", err)
+	}
+	if !created || sb == nil {
+		t.Fatal("expected created sandbox")
 	}
 }
 
@@ -468,6 +513,7 @@ func TestCreateProjectVMAppliesRootDiskWhenDiskSizeSet(t *testing.T) {
 
 	if _, _, err := createProjectVM(
 		context.Background(), client, "opencode-sandbox-vm-test",
+		"test-slug",
 		"opencode-sandbox/runner-test:latest", "test-home-vol", t.TempDir(),
 		options.RunOptions{Memory: "1G", DiskSize: "16G"}, nil, ui,
 	); err != nil {

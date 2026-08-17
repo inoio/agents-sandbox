@@ -5,6 +5,7 @@ import "gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/naming"
 const (
 	pFlagYes     = "yes"
 	pFlagVerbose = "verbose"
+	pFlagError   = "error"
 	pFlagQuiet   = "quiet"
 
 	cmdRun     = "run"
@@ -44,6 +45,12 @@ const (
 	flagRoot            = "root"
 	flagServeOnly       = "serve-only"
 	flagOpenCodeVersion = "opencode-version"
+	flagLabel           = "label"
+	flagLimit           = "limit"
+	flagRunning         = "running"
+	flagStopped         = "stopped"
+	flagFormat          = "format"
+	formatJSON          = "json"
 
 	annotationAlsoAs = naming.Prefix + "/also-as"
 	annotationArgs   = naming.Prefix + "/args"
