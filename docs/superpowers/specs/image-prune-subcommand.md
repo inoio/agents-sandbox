@@ -85,14 +85,12 @@ func PruneVMs(ctx context.Context, snap LiveState, threshold time.Duration,
 func PruneVolumes(ctx context.Context, snap LiveState, threshold time.Duration,
     all, dryRun bool, ui termio.UI) (VolumeReport, error)
 
-func PruneImages(ctx context.Context, snap LiveState, dryRun bool, ui termio.UI) (ImageReport, error)
+func PruneImages(ctx context.Context, snap LiveState, threshold time.Duration,
+    all, dryRun bool, ui termio.UI) (ImageReport, error)
 ```
 
-`PruneImages` takes **no age**: images are ephemeral and always replaced by a newer
-build, so any runner image whose slug is not in the keep-set is pruned regardless of age.
-The other pruners take `threshold`; `0` means "no wait" (prune anything not kept), and
-callers are responsible for passing a positive default so auto-prune never prunes too
-early.
+All pruners take `threshold`; `0` means "no wait" (prune anything not kept), and callers
+are responsible for passing a positive default so auto-prune never prunes too early.
 
 ### PruneVMs
 
@@ -126,17 +124,18 @@ Two artifact classes, both handled here:
 
 ### PruneImages
 
-Two sub-parts, both owned here. **No age threshold** — images are ephemeral.
+Two sub-parts, both owned here. Images respect the same `threshold` as VMs/volumes.
 
 - **MSB runner images**: list `naming.ImagePrefix` images (exclude `naming.BaseSlug`).
-  Unified prune rule per image (`slug`, `ref`, `digest`):
+  Unified prune rule per image (`slug`, `ref`, `digest`, `lastUsed`):
   1. slug **not** in the keep-set (default `snap.AllVMs`, `snap.ActiveVMs` under
-     `--all`) → prune (no surviving VM).
+     `--all`) → prunable (no surviving VM).
   2. slug is a **running** VM (`snap.ActiveVMs[slug]`) and `digest !=
-     snap.ActiveVMs[slug]` → prune as surplus (an active project keeps only its current
+     snap.ActiveVMs[slug]` → prunable as surplus (an active project keeps only its current
      image; older digests are reclaimed). This replaces the old `pruneActiveVMMSBImages`.
   3. otherwise → keep.
-  Remove via `client.ImageRemove(ctx, ref, true)`.
+  An image flagged prunable by (1) or (2) is removed only when `LastUsedAt` is older
+  than threshold. Remove via `client.ImageRemove(ctx, ref, true)`.
 - **Host-side dangling docker images**: the existing `pruneDockerImages` step (removes
   untagged images via `docker.Get().ImagePrune`). It has no slug/age/keep-set and always
   runs (skipped under dry-run, matching today).
@@ -148,20 +147,16 @@ Defaults by artifact type and invocation mode:
 
 | Invocation | VMs | Volumes | Images |
 |---|---|---|---|
-| Manual (`prune`, `sandbox prune`, `volume prune`, `image prune`) | `--age` else `manual-prune-age` else 7d | `--age` else `manual-prune-age` else 7d | always 0 (no `--age`, no config) |
-| Auto-prune (before every command) | 30d | 30d | 0 |
+| Manual (`prune`, `sandbox prune`, `volume prune`, `image prune`) | `--age` else `manual-prune-age` else 7d | `--age` else `manual-prune-age` else 7d | `--age` else `manual-prune-age` else 7d |
+| Auto-prune (before every command) | 30d | 30d | 30d |
 
-- **Images are always pruned at age 0** in both modes: they are ephemeral and replaced by
-  each build, so a runner image with no surviving VM (or a surplus digest of a running
-  VM) is dropped immediately. `image prune` exposes **no `--age` flag** and reads **no
-  prune-age config key**. This is intentional and documented in `--help` and docs so
-  users know the setting does not apply to images.
-- **VMs and volumes** use `manual-prune-age` (default 7d) for manual prunes and the
-  existing 30d `auto-prune-age` for auto-prune. The `--age` flag overrides the manual
-  default.
+- **VMs, volumes, and images** use the same defaults: `manual-prune-age` (default 7d)
+  for manual prunes and the existing 30d `auto-prune-age` for auto-prune. The `--age`
+  flag overrides the manual default. `image prune` therefore exposes `--age` like the
+  other prune commands, and the age setting applies uniformly to all artifact types.
 - The pruners are pure functions of `threshold`; `0` means "no wait". Callers
   (`AutoPrune`, the prune commands) resolve a positive default before calling so auto-prune
-  never accidentally prunes young home volumes.
+  never accidentally prunes young artifacts.
 
 ## Aggregate `prune` = composition
 
@@ -184,14 +179,14 @@ Each new subcommand maps 1:1 to a pruner. `--age` is a **plain cobra flag** (not
 viper-bound, matching today's `prune`). When empty, the command resolves its default via
 `resolverFromContext(cmd.Context())`:
 
-- `sandbox prune` and `volume prune`: `--age` else `manual-prune-age` else `7d`.
-- `image prune`: **no `--age`** (images always age 0).
+- `sandbox prune`, `volume prune`, and `image prune`: `--age` else `manual-prune-age`
+  else `7d`.
 - `--all` on `volume prune` (and `image prune`): prune artifacts of stopped-but-existing
   slugs too (keep-set = running VMs instead of any VM).
 - Global `-y/--yes` for confirmation, `--dry-run` shared as today.
 
 - `image prune` → `PruneImages` (MSB runner images + docker dangling). Added under
-  `buildImageCmd` (`cmdImage`). Flags: `--dry-run`, `--all`.
+  `buildImageCmd` (`cmdImage`). Flags: `--age`, `--dry-run`, `--all`.
 - `volume prune` → `PruneVolumes`. Added under `buildVolumeCmd` (`cmdVolume`). Flags:
   `--age`, `--dry-run`, `--all`.
 - `sandbox prune` → `PruneVMs`. Added under `buildSandboxCmd` (`cmdSandbox`). Flags:
@@ -235,15 +230,15 @@ Each renders its typed report (counts + freed bytes where available).
   toggle, age gate, zero-timestamp treated as recent, dry-run (counts reported, no SDK
   call), and per-item removal errors.
 - Explicit behavior-parity cases: task sandboxes are pruned with no age gate but a
-  running task sandbox is skipped; home volumes use the `AllVMs`/`ActiveVMs` keep-set
-  per `--all`; images are pruned purely by keep-set (no age); clone volumes are gone.
+  running task sandbox is skipped; home volumes and images use the
+  `AllVMs`/`ActiveVMs` keep-set per `--all`; clone volumes are gone.
 - Snapshot builder test: active vs all VM extraction, digest population.
 - Aggregate `Prune` test: confirms the three reports merge into `StaleReport` and that
   a stale VM's volumes/images are still cleaned in one invocation (end-to-end parity).
 - CLI tests (`cmd/opencode-sandbox/cli_prune_test.go` + new
   `cli_image_prune_test.go`/`cli_volume_prune_test.go`/`cli_sandbox_prune_test.go`):
   flag parsing (`--age`, `--dry-run`, `--all`, `-y`), report output for each
-  subcommand, error cases (invalid age), and that `image prune` rejects `--age`.
+  subcommand, error cases (invalid age), and that all three accept `--age`.
 
 ## Out of scope
 
