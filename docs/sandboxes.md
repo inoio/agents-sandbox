@@ -160,17 +160,26 @@ opencode-sandbox prune --dry-run             # preview only
 opencode-sandbox prune --force               # skip confirmation
 ```
 
+To prune a single artifact type rather than everything, use the dedicated subcommands:
+
+```console
+opencode-sandbox image prune                 # cached runner images
+opencode-sandbox volume prune                # home volumes
+opencode-sandbox sandbox prune               # VMs (stale sandboxes and leftover task workers)
+```
+
 Pruning removes:
 
-- Stale VMs (stopped/crashed beyond the age threshold) and everything they reference
+- Stale VMs (stopped/crashed beyond the age threshold) and everything they reference; task sandboxes count into the VM
+  total
 - Orphaned artifacts: home volumes and msb images whose project has no VM at all
 - Surplus msb images for a project that still has a VM: digests other than the VM's current image and `:latest`
-- Stale clone volumes
 - Dangling Docker images: after a rebuild the previous runner image is no longer referenced by any tag and is reclaimed
   by a single Docker image prune. Tagged images (base images and the current `:latest` runner) are left untouched.
 
 Home volumes and msb images are age-gated like VMs: they are only removed once they are older than the pruning
-threshold. Recently-created home volumes and recently-loaded runner images are preserved even if their project currently
+threshold. VMs, volumes, and images share the same age semantics — all are preserved if younger than the threshold.
+Recently-created home volumes and recently-loaded runner images are preserved even if their project currently
 has no running VM, so the cached runner image and home state survive startup and the image does not need to be loaded
 into the sandbox again.
 
