@@ -52,6 +52,23 @@ func TestPlanReconfigServeOnly(t *testing.T) {
 	}
 }
 
+func TestPlanReconfigTriggersRecreateOnImageChange(t *testing.T) {
+	cfg := &msbSdk.SandboxConfig{Image: "opencode-sandbox/runner-proj:oldhash"}
+
+	planSame := PlanReconfig(cfg, "opencode-sandbox/runner-proj:oldhash", options.RunOptions{}, false, false, false)
+	if planSame.Recreate {
+		t.Error("expected no recreate when image reference is unchanged")
+	}
+
+	planNew := PlanReconfig(cfg, "opencode-sandbox/runner-proj:newhash", options.RunOptions{}, false, false, false)
+	if !planNew.Recreate {
+		t.Error("expected recreate when image reference changes after a rebuild")
+	}
+	if len(planNew.Changes) == 0 || planNew.Changes[0].Label != "image" {
+		t.Errorf("expected an 'image' change label, got %+v", planNew.Changes)
+	}
+}
+
 func TestDesiredPublishBindingsDelegatesToOptions(t *testing.T) {
 	optsBindings := options.ServeOnlyBindings()
 	planBindings := desiredPublishBindings(true)
