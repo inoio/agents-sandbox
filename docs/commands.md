@@ -163,7 +163,10 @@ opencode-sandbox sandbox list
 
 Prints a header row followed by one line per opencode-sandbox VM with columns
 `NAME`, `IMAGE`, `STATUS`, and `CREATED`. `CREATED` uses `YYYY-MM-DD HH:MM:SS`,
-matching microsandbox's `msb list` output.
+matching microsandbox's `msb list` output. The `STATUS` cell is colored like
+microsandbox when color is enabled (`running` green, `stopped`/`created` dim,
+transitional states yellow, `crashed` red); with color disabled it renders as
+plain text.
 
 ---
 

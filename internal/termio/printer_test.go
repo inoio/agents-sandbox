@@ -250,3 +250,23 @@ func TestHeaderHiddenAtQuietLevel(t *testing.T) {
 		t.Errorf("expected no header at quiet level, got %q", stdout.String())
 	}
 }
+
+func TestOutStripsANSIIfColorDisabled(t *testing.T) {
+	var stdout bytes.Buffer
+	ui := New(nil, &stdout, &bytes.Buffer{}, false, LevelNormal, false)
+	ui.Out(StyleStatus("running"))
+	out := stdout.String()
+	if out != "running\n" {
+		t.Errorf("color-disabled Out should strip ANSI, got %q", out)
+	}
+}
+
+func TestOutKeepsANSIIfColorEnabled(t *testing.T) {
+	var stdout bytes.Buffer
+	ui := New(nil, &stdout, &bytes.Buffer{}, true, LevelNormal, false)
+	ui.Out(StyleStatus("running"))
+	out := stdout.String()
+	if !strings.Contains(out, "\x1b[1;32mrunning\x1b[0m") {
+		t.Errorf("color-enabled Out should keep ANSI, got %q", out)
+	}
+}

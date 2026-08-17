@@ -72,6 +72,11 @@ opencode-sandbox sandbox list
 
 Columns: `NAME`, `IMAGE`, `STATUS`, `CREATED` (`YYYY-MM-DD HH:MM:SS`).
 
+The `STATUS` cell is colored like microsandbox when color is enabled: `running`
+in green, `stopped`/`created` dim, transitional states (`starting`, `paused`,
+`draining`) in yellow, and `crashed` in red. When color is disabled (e.g. piped
+output) the status renders as plain text.
+
 ### Volume Management
 
 List all volumes:

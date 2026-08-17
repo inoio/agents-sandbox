@@ -13,6 +13,10 @@ const (
 	ansiYellow       = "\x1b[33m"
 	ansiBlackIntense = "\x1b[90m"
 	ansiCyanBold     = "\x1b[1;36m"
+	ansiGreenBold    = "\x1b[1;32m"
+	ansiYellowBold   = "\x1b[1;33m"
+	ansiRedBold      = "\x1b[1;31m"
+	ansiDim          = "\x1b[2m"
 )
 
 type printer struct {
@@ -31,7 +35,9 @@ func (p *printer) write(w io.Writer, color, msg string) {
 		fmt.Fprintf(w, "%s%s%s\n", color, msg, ansiReset)
 		return
 	}
-	fmt.Fprintln(w, msg)
+	// With color disabled, strip any ANSI codes embedded in msg so styled cell
+	// values (e.g. colored statuses) render as plain text on non-TTY output.
+	fmt.Fprintln(w, stripANSICodes(msg))
 }
 
 func (p *printer) format(format string, args ...any) string {
