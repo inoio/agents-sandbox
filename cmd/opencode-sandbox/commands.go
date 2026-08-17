@@ -81,9 +81,12 @@ func resolverFromContext(ctx context.Context) *launcherconfig.Resolver {
 
 // printItems renders a list of items using the given format string with one
 // verb per accessor, item type, and type-specific accessors for each column.
+// When headers is non-empty, a header row is printed first by applying the
+// same format to the header labels so columns stay aligned with the data.
 func printItems[T any](
 	items []T,
 	emptyMsg string,
+	headers []string,
 	format string,
 	ui termio.UI,
 	funcs ...func(T) string,
@@ -91,6 +94,13 @@ func printItems[T any](
 	if len(items) == 0 {
 		ui.Info(emptyMsg)
 		return
+	}
+	if len(headers) > 0 {
+		headerArgs := make([]any, len(headers))
+		for i, h := range headers {
+			headerArgs[i] = h
+		}
+		ui.Outf(format, headerArgs...)
 	}
 	for _, item := range items {
 		args := make([]any, len(funcs))

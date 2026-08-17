@@ -38,6 +38,7 @@ func TestVolumeList(t *testing.T) {
 				}
 			},
 			wantOut: []string{
+				"NAME KIND SIZE CREATED",
 				"opencode-sandbox-home-proj dir - 2026-08-17 10:42:36",
 			},
 		},

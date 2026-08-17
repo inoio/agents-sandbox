@@ -20,7 +20,7 @@ func TestFormatTime(t *testing.T) {
 		{
 			name: "timestamp",
 			in:   time.Date(2026, 8, 17, 10, 30, 45, 0, time.UTC),
-			want: "2026-08-17 10:30",
+			want: "2026-08-17 10:30:45",
 		},
 	}
 	for _, tt := range tests {
@@ -58,11 +58,8 @@ func TestListSandboxesPopulatesInfo(t *testing.T) {
 	if info.Name != "opencode-sandbox-vm-abc" || info.Status != "running" {
 		t.Errorf("unexpected name/status: %+v", info)
 	}
-	if info.CreatedAt != "2026-08-17 10:30" {
-		t.Errorf("CreatedAt = %q, want 2026-08-17 10:30", info.CreatedAt)
-	}
-	if info.UpdatedAt != "2026-08-17 10:30" {
-		t.Errorf("UpdatedAt = %q, want 2026-08-17 10:30", info.UpdatedAt)
+	if info.CreatedAt != "2026-08-17 10:30:00" {
+		t.Errorf("CreatedAt = %q, want 2026-08-17 10:30:00", info.CreatedAt)
 	}
 	if info.Image != "opencode-sandbox/runner:latest" {
 		t.Errorf("Image = %q, want opencode-sandbox/runner:latest", info.Image)

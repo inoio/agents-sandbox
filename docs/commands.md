@@ -161,9 +161,9 @@ opencode-sandbox sandbox list
 
 **Aliases:** `ls`, `sandbox list`
 
-Prints one line per opencode-sandbox VM with columns `NAME`, `STATUS`, `IMAGE`,
-`CREATED`, and `UPDATED`. `CREATED`/`UPDATED` use `YYYY-MM-DD HH:MM`; long image
-references are truncated. Column widths vary with terminal width.
+Prints a header row followed by one line per opencode-sandbox VM with columns
+`NAME`, `STATUS`, `IMAGE`, and `CREATED`. `CREATED` uses `YYYY-MM-DD HH:MM:SS`,
+matching microsandbox's `msb list` output.
 
 ---
 
@@ -224,7 +224,8 @@ opencode-sandbox img
 
 List cached runner Docker images with reference, digest, size, and creation time. The
 reference ends in the short content hash the image is keyed under in microsandbox; the
-digest column shows the image's full manifest digest as reported by microsandbox.
+digest column shows the short form (`sha256:` followed by 12 hex chars) as microsandbox
+reports it.
 
 ```console
 opencode-sandbox image list
