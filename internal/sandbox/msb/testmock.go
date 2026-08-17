@@ -629,11 +629,15 @@ type MockImageHandle struct {
 	Reference_      string
 	ManifestDigest_ string
 	LastUsedAt_     time.Time
+	SizeBytes_      *int64
+	CreatedAt_      time.Time
 }
 
 func (m MockImageHandle) Reference() string      { return m.Reference_ }
 func (m MockImageHandle) ManifestDigest() string { return m.ManifestDigest_ }
 func (m MockImageHandle) LastUsedAt() time.Time  { return m.LastUsedAt_ }
+func (m MockImageHandle) SizeBytes() *int64      { return m.SizeBytes_ }
+func (m MockImageHandle) CreatedAt() time.Time   { return m.CreatedAt_ }
 
 // WithMsbMock replaces the global Get factory with the provided mock.
 // It restores the original factory when the test ends.
