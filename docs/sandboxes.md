@@ -80,6 +80,8 @@ List all volumes:
 opencode-sandbox volume list
 ```
 
+Columns: `NAME`, `KIND`, `SIZE`, `CREATED` (`YYYY-MM-DD HH:MM:SS`). `SIZE` shows the quota or capacity, or `-` for dir/unlimited volumes.
+
 Manual management:
 
 ```console
