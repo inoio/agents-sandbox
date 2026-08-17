@@ -46,6 +46,7 @@ func extractRunOptions(cmd *cobra.Command, ui termio.UI) (options.RunOptions, er
 		opts.Memory = r.Memory()
 		opts.TmpSize = r.TmpSize()
 		opts.DiskSize = r.DiskSize()
+		opts.WorkspaceQuota = r.WorkspaceQuota()
 		opts.ReapPolicy = options.NewReapPolicy(r.AutoStopOnActiveSessions(), r.AutoStopMaxSessionRetries())
 		opts.IdleTimeout = r.IdleTimeout()
 	}
@@ -63,6 +64,14 @@ func extractRunOptions(cmd *cobra.Command, ui termio.UI) (options.RunOptions, er
 			return options.RunOptions{}, fmt.Errorf(
 				"invalid --disk-size %q: expected a size like 16G, 512M, or 4096",
 				opts.DiskSize,
+			)
+		}
+	}
+	if opts.WorkspaceQuota != "" {
+		if _, ok := options.ParseMemoryOK(opts.WorkspaceQuota); !ok {
+			return options.RunOptions{}, fmt.Errorf(
+				"invalid --workspace-quota %q: expected a size like 16G, 512M, or 4096",
+				opts.WorkspaceQuota,
 			)
 		}
 	}

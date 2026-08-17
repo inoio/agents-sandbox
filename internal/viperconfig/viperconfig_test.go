@@ -15,13 +15,14 @@ import (
 func TestResolverGettersReturnConfig(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	cfg := Config{
-		CPUs: 4, Memory: "8G", TmpSize: "4G", DiskSize: "32G",
+		CPUs: 4, Memory: "8G", TmpSize: "4G", DiskSize: "32G", WorkspaceQuota: "64G",
 		Yes: true, Verbose: true,
 		AutoPruneAge: 7 * 24 * time.Hour, ManualPruneAge: 14 * 24 * time.Hour,
 		AutoStopOnActiveSessions: true, AutoStopTimeout: 30 * time.Second, AutoStopMaxSessionRetries: 5,
 	}
 	r := NewResolverWithConfig(cfg)
-	if r.CPUs() != 4 || r.Memory() != "8G" || r.TmpSize() != "4G" || r.DiskSize() != "32G" {
+	if r.CPUs() != 4 || r.Memory() != "8G" || r.TmpSize() != "4G" || r.DiskSize() != "32G" ||
+		r.WorkspaceQuota() != "64G" {
 		t.Errorf("resource getters mismatch: %+v", cfg)
 	}
 	if !r.Yes() || !r.Verbose() || r.Quiet() {
@@ -264,6 +265,42 @@ func TestResolverDiskSizeConfig(t *testing.T) {
 	}
 	if r.DiskSize() != "24G" {
 		t.Errorf("DiskSize = %q; want 24G", r.DiskSize())
+	}
+}
+
+func TestResolverWorkspaceQuotaConfig(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	cp := configpaths.Get()
+	testutil.WriteYAML(t, cp.UserConfigDir(), "config.yaml", map[string]any{"workspace-quota": "32G"})
+
+	r, err := NewResolver(nil)
+	if err != nil {
+		t.Fatalf("NewResolver: %v", err)
+	}
+	if r.WorkspaceQuota() != "32G" {
+		t.Errorf("WorkspaceQuota = %q; want 32G", r.WorkspaceQuota())
+	}
+}
+
+func TestResolverWorkspaceQuotaEnv(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	t.Setenv("OPENCODE_SANDBOX_WORKSPACE_QUOTA", "48G")
+
+	r, err := NewResolver(nil)
+	if err != nil {
+		t.Fatalf("NewResolver: %v", err)
+	}
+	if r.WorkspaceQuota() != "48G" {
+		t.Errorf("WorkspaceQuota = %q; want 48G from env", r.WorkspaceQuota())
+	}
+}
+
+func TestResolverWorkspaceQuotaGetter(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	cfg := Config{WorkspaceQuota: "16G"}
+	r := NewResolverWithConfig(cfg)
+	if r.WorkspaceQuota() != "16G" {
+		t.Errorf("WorkspaceQuota = %q; want 16G", r.WorkspaceQuota())
 	}
 }
 
