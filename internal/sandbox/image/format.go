@@ -6,11 +6,13 @@ import (
 	"time"
 )
 
+const unknownSize = "unknown"
+
 // FormatSize renders a byte count with binary units (base 1024), one decimal
 // place, and a trailing ".0" trimmed. A nil count renders as "unknown".
 func FormatSize(bytes *int64) string {
 	if bytes == nil {
-		return "unknown"
+		return unknownSize
 	}
 	b := *bytes
 	if b == 0 {
