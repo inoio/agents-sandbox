@@ -46,7 +46,7 @@ func TestListImagesFiltersByImagePrefix(t *testing.T) {
 		{
 			Reference: "opencode-sandbox/runner-other-de456:def789",
 			Digest:    "sha256:def789",
-			Size:      "unknown",
+			Size:      unknownSize,
 			CreatedAt: "",
 		},
 	}
@@ -135,3 +135,25 @@ func TestListImagesPrefixMatchesNamingImagePrefix(t *testing.T) {
 }
 
 func int64Ptr(n int64) *int64 { return &n } //nolint:modernize // address-of-value is the intended pattern
+
+func TestImageSize(t *testing.T) {
+	tests := []struct {
+		name string
+		in   *int64
+		want string
+	}{
+		{"nil", nil, unknownSize},
+		{"negative", int64Ptr(-1), unknownSize},
+		{"zero", int64Ptr(0), "0 B"},
+		{"bytes", int64Ptr(512), "512 B"},
+		{"kib", int64Ptr(1024), "1 KiB"},
+		{"gib", int64Ptr(2 * 1024 * 1024 * 1024), "2 GiB"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := imageSize(tt.in); got != tt.want {
+				t.Errorf("imageSize(%v) = %q, want %q", tt.in, got, tt.want)
+			}
+		})
+	}
+}
