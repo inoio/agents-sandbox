@@ -28,6 +28,7 @@ type Config struct {
 	Memory         string        `mapstructure:"memory"`
 	TmpSize        string        `mapstructure:"tmp-size"`
 	DiskSize       string        `mapstructure:"disk-size"`
+	WorkspaceQuota string        `mapstructure:"workspace-quota"`
 	Yes            bool          `mapstructure:"yes"`
 	Verbose        bool          `mapstructure:"verbose"`
 	Quiet          bool          `mapstructure:"quiet"`
@@ -112,7 +113,7 @@ var supportedExts = []string{".yaml", ".yml", ".json", extJSONC, extJSON5}
 //
 //nolint:gochecknoglobals,goconst // package-level constant slice
 var configFlagKeys = []string{
-	"cpus", "memory", "tmp-size", "disk-size",
+	"cpus", "memory", "tmp-size", "disk-size", "workspace-quota",
 	"yes", "verbose", "quiet",
 }
 
@@ -120,7 +121,7 @@ var configFlagKeys = []string{
 //
 //nolint:gochecknoglobals // package-level constant slice
 var configEnvKeys = []string{
-	"cpus", "memory", "tmp-size", "disk-size",
+	"cpus", "memory", "tmp-size", "disk-size", "workspace-quota",
 	"yes", "verbose", "quiet",
 	"auto-prune-age", "manual-prune-age",
 	"auto-stop-on-active-sessions", "auto-stop-timeout", "auto-stop-max-session-retries",
@@ -347,6 +348,7 @@ func (r *Resolver) CPUs() uint8                    { return r.cfg.CPUs }
 func (r *Resolver) Memory() string                 { return r.cfg.Memory }
 func (r *Resolver) TmpSize() string                { return r.cfg.TmpSize }
 func (r *Resolver) DiskSize() string               { return r.cfg.DiskSize }
+func (r *Resolver) WorkspaceQuota() string         { return r.cfg.WorkspaceQuota }
 func (r *Resolver) Yes() bool                      { return r.cfg.Yes }
 func (r *Resolver) Verbose() bool                  { return r.cfg.Verbose }
 func (r *Resolver) Quiet() bool                    { return r.cfg.Quiet }

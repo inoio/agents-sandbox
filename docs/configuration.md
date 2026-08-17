@@ -61,6 +61,7 @@ Configuration is resolved in this order (later entries override earlier ones):
 | `memory`                        | `--memory` / `-m`      | Memory limit (e.g. `8G`)                                                                                                                                                                 |
 | `disk-size`                     | `--disk-size`          | Project VM root disk size (e.g. `16G`). Empty = microsandbox runtime default (~4 GiB). Applied at VM creation; a change triggers recreation. An invalid value is rejected with an error. |
 | `tmp-size`                      | `--tmp-size`           | Size of `/tmp` tmpfs in the sandbox. An invalid value is rejected with an error.                                                                                                         |
+| `workspace-quota`               | `--workspace-quota`    | Guest-write quota for the `/workspace` bind mount (e.g. `32G`), bounding writes on top of the host repo. Default `16G`. Applied at VM creation; a change triggers recreation. An invalid value is rejected with an error. |
 | `auto-prune-age`                | —                      | Auto-prune threshold, runs before every command (default: 30d, only in config)                                                                                                           |
 | `manual-prune-age`              | `--age`                | Default prune age threshold for `prune` cmd                                                                                                                                              |
 | `auto-stop-on-active-sessions`  | —                      | Stop VM immediately on client detach without waiting for active sessions (default: false, only in config; `busy` sessions are never cut off)                                             |
@@ -74,6 +75,7 @@ verbose: true
 cpus: 4
 memory: 8G
 disk-size: 16G
+workspace-quota: 32G
 auto-prune-age: "7d"
 manual-prune-age: "7d"
 auto-stop-on-active-sessions: false
@@ -111,6 +113,7 @@ session. The change type determines the mechanism used to apply the new settings
 | `opencode config` | Daemon restart | Files are always copied into the VM (provisioning); the opencode daemon is restarted in-place to pick them up   |
 | `tmp-size`        | VM recreate    | VM is stopped, removed, and rebuilt with new tmpfs size. Home volume is preserved.                       |
 | `disk-size`       | VM recreate    | VM is stopped, removed, and rebuilt with new disk size. Home volume is preserved.                        |
+| `workspace-quota` | VM recreate    | VM is stopped, removed, and rebuilt with new workspace write quota. Home volume is preserved.            |
 | `image`           | VM recreate    | VM is recreated with the new root image. Home volume is preserved.                                       |
 
 When **no other client** is attached, config changes apply immediately.
@@ -140,6 +143,7 @@ precedence over config files but lose to an explicitly passed CLI flag. The pref
 | `memory`                        | `OPENCODE_SANDBOX_MEMORY`                                         |
 | `disk-size`                     | `OPENCODE_SANDBOX_DISK_SIZE`                                      |
 | `tmp-size`                      | `OPENCODE_SANDBOX_TMP_SIZE`                                       |
+| `workspace-quota`               | `OPENCODE_SANDBOX_WORKSPACE_QUOTA`                                |
 | `auto-prune-age`                | `OPENCODE_SANDBOX_AUTO_PRUNE_AGE`                                 |
 | `manual-prune-age`              | `OPENCODE_SANDBOX_MANUAL_PRUNE_AGE`                               |
 | `auto-stop-on-active-sessions`  | `OPENCODE_SANDBOX_AUTO_STOP_ON_ACTIVE_SESSIONS`                   |

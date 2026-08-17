@@ -6,10 +6,11 @@ import (
 )
 
 const (
-	DefaultMemoryMiB  uint32 = 4096
-	DefaultTmpSizeMiB uint32 = 2048
-	MaxSandboxNameLen        = 128
-	mibPerGib                = 1024
+	DefaultMemoryMiB         uint32 = 4096
+	DefaultTmpSizeMiB        uint32 = 2048
+	DefaultWorkspaceQuotaMiB uint32 = 16 * 1024
+	MaxSandboxNameLen               = 128
+	mibPerGib                       = 1024
 )
 
 // ParseMemoryGiB converts GiB to MiB.
@@ -59,4 +60,13 @@ func ResolveTmpSizeMiB(spec string) uint32 {
 		return v
 	}
 	return DefaultTmpSizeMiB
+}
+
+// ResolveWorkspaceQuotaMiB returns the workspace bind mount quota in MiB.
+// An empty spec uses the default.
+func ResolveWorkspaceQuotaMiB(spec string) uint32 {
+	if v, ok := ParseMemoryOK(spec); ok {
+		return v
+	}
+	return DefaultWorkspaceQuotaMiB
 }

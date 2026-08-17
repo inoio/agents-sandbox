@@ -20,6 +20,8 @@ type RunOptions struct {
 	Rebuild     bool
 	DryRun      bool
 	DryRunVM    bool
+	// WorkspaceQuota is the guest-write quota for the /workspace bind mount.
+	WorkspaceQuota string
 	// Recreate forces a project-VM rebuild on this invocation. It is set by
 	// prepareSandbox from the reconfig decision and is never user-facing.
 	Recreate bool

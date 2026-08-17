@@ -263,7 +263,12 @@ func createProjectVM(
 		reprovision.ParseSecretSpecYAML(configpaths.Get().ProjectEnvSecretYAMLFile(), ui),
 	), ui)
 
-	mounts := buildMounts(homeVol, repoPath, options.ResolveTmpSizeMiB(opts.TmpSize))
+	mounts := buildMounts(
+		homeVol,
+		repoPath,
+		options.ResolveTmpSizeMiB(opts.TmpSize),
+		options.ResolveWorkspaceQuotaMiB(opts.WorkspaceQuota),
+	)
 
 	spin := ui.Spinner("Starting project VM")
 	idleTimeout := opts.IdleTimeout
@@ -304,10 +309,12 @@ func createProjectVM(
 // tmpMountPath is the mount point used for the sandbox tmpfs.
 const tmpMountPath = "/tmp"
 
-func buildMounts(homeVol, repoPath string, tmpSizeMiB uint32) map[string]msbSdk.MountConfig {
+func buildMounts(homeVol, repoPath string, tmpSizeMiB uint32, workspaceQuotaMiB uint32) map[string]msbSdk.MountConfig {
 	return map[string]msbSdk.MountConfig{
-		"/home/dev":      msbSdk.Mount.Named(homeVol, msbSdk.MountOptions{}),
-		defaultTargetDir: msbSdk.Mount.Bind(repoPath, msbSdk.MountOptions{}),
+		"/home/dev": msbSdk.Mount.Named(homeVol, msbSdk.MountOptions{}),
+		defaultTargetDir: msbSdk.Mount.Bind(repoPath, msbSdk.MountOptions{
+			QuotaMiB: workspaceQuotaMiB,
+		}),
 		tmpMountPath: msbSdk.Mount.Tmpfs(msbSdk.TmpfsOptions{
 			SizeMiB:  tmpSizeMiB,
 			Readonly: false,

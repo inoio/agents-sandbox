@@ -273,6 +273,54 @@ func TestExtractRunOptionsValidSizeFlags(t *testing.T) {
 	}
 }
 
+func TestExtractRunOptionsInvalidWorkspaceQuota(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	cmd := buildRunCmd(&termio.Mock{})
+	if err := cmd.Flags().Set(flagWorkspaceQuota, "bogus"); err != nil {
+		t.Fatalf("set workspace-quota: %v", err)
+	}
+	rootCtx := context.WithValue(context.Background(), (*launcherConfigKey)(nil), mustResolver(t, cmd))
+	cmd.SetContext(rootCtx)
+	_, err := extractRunOptions(cmd, &termio.Mock{})
+	if err == nil {
+		t.Fatal("expected error for invalid --workspace-quota")
+	}
+	if want := "invalid --workspace-quota"; !strings.Contains(err.Error(), want) {
+		t.Errorf("error = %q; want to contain %q", err, want)
+	}
+}
+
+func TestExtractRunOptionsWorkspaceQuota(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	cmd := buildRunCmd(&termio.Mock{})
+	if err := cmd.Flags().Set(flagWorkspaceQuota, "32G"); err != nil {
+		t.Fatalf("set workspace-quota: %v", err)
+	}
+	rootCtx := context.WithValue(context.Background(), (*launcherConfigKey)(nil), mustResolver(t, cmd))
+	cmd.SetContext(rootCtx)
+	opts, err := extractRunOptions(cmd, &termio.Mock{})
+	if err != nil {
+		t.Fatalf("expected no error for valid workspace-quota, got: %v", err)
+	}
+	if opts.WorkspaceQuota != "32G" {
+		t.Errorf("WorkspaceQuota = %q, want 32G", opts.WorkspaceQuota)
+	}
+}
+
+func TestExtractRunOptionsWorkspaceQuotaDefault(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	cmd := buildRunCmd(&termio.Mock{})
+	rootCtx := context.WithValue(context.Background(), (*launcherConfigKey)(nil), mustResolver(t, cmd))
+	cmd.SetContext(rootCtx)
+	opts, err := extractRunOptions(cmd, &termio.Mock{})
+	if err != nil {
+		t.Fatalf("expected no error for default workspace-quota, got: %v", err)
+	}
+	if opts.WorkspaceQuota != "16G" {
+		t.Errorf("WorkspaceQuota = %q, want 16G default", opts.WorkspaceQuota)
+	}
+}
+
 func TestRunCommandHasNoOpenCodeVersionFlag(t *testing.T) {
 	cmd, _ := setupCommandFixtures(t, cmdRun, "--help")
 	foundCmd, _, err := cmd.Find([]string{cmdRun})
