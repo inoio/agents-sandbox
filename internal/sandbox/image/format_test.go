@@ -5,7 +5,7 @@ import (
 	"time"
 )
 
-func ptr(n int64) *int64 { return &n }
+func ptr(n int64) *int64 { return &n } //nolint:modernize // address-of-value is the intended pattern
 
 func TestFormatSize(t *testing.T) {
 	tests := []struct {
