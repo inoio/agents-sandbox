@@ -31,7 +31,6 @@ type Config struct {
 	Yes            bool          `mapstructure:"yes"`
 	Verbose        bool          `mapstructure:"verbose"`
 	Quiet          bool          `mapstructure:"quiet"`
-	Rebuild        bool          `mapstructure:"rebuild"`
 	CPUs           uint8         `mapstructure:"cpus"`
 
 	AutoStopOnActiveSessions  bool          `mapstructure:"auto-stop-on-active-sessions"`
@@ -119,7 +118,7 @@ var configFlagKeys = []string{
 
 // configEnvKeys are all launcher config keys bound to OPENCODE_SANDBOX_ env vars.
 //
-//nolint:gochecknoglobals,goconst // package-level constant slice
+//nolint:gochecknoglobals // package-level constant slice
 var configEnvKeys = []string{
 	"cpus", "memory", "tmp-size", "disk-size",
 	"yes", "verbose", "quiet",
@@ -209,37 +208,6 @@ func durationDecodeHook() mapstructure.DecodeHookFunc {
 		}
 		return data, nil
 	}
-}
-
-// Load reads launcher config files from userDir and projectDir. Missing files
-// are ignored. Project values override user values. The returned map contains
-// the top-level keys that were explicitly set in either file.
-func Load() (Config, map[string]bool, error) {
-	v := viper.New()
-
-	if err := mergeDir(v, configpaths.Get().UserConfigDir()); err != nil {
-		return Config{}, nil, err
-	}
-	if err := mergeDir(v, configpaths.Get().ProjectConfigDir()); err != nil {
-		return Config{}, nil, err
-	}
-	if err := validate(v); err != nil {
-		return Config{}, nil, err
-	}
-	var cfg Config
-	if err := v.Unmarshal(&cfg, viper.DecodeHook(
-		mapstructure.ComposeDecodeHookFunc(
-			durationDecodeHook(),
-			mapstructure.StringToTimeDurationHookFunc(),
-		),
-	)); err != nil {
-		return Config{}, nil, fmt.Errorf("decode launcher config: %w", err)
-	}
-	keys := make(map[string]bool, len(v.AllSettings()))
-	for k := range v.AllSettings() {
-		keys[k] = true
-	}
-	return cfg, keys, nil
 }
 
 func mergeDir(v *viper.Viper, dir string) error {
