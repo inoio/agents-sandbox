@@ -10,7 +10,7 @@ These flags are available on every command.
 |--------------|-------|---------|--------------------------------|
 | `--yes`      | `-y`  | `false` | Assume yes to all prompts      |
 | `--verbose`  | `-v`  | `false` | Show debug-level output        |
-| `--quiet`    | `-q`  | `false` | Suppress non-error output      |
+| `--error`    |       | `false` | Only show error output         |
 
 ## Commands
 

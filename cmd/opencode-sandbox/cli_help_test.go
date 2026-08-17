@@ -48,7 +48,7 @@ func TestRootHelpDescribesImpliedRun(t *testing.T) {
 func TestRootHelpListsGlobalFlags(t *testing.T) {
 	out := commandOut(t, "--help")
 
-	for _, flag := range []string{"--yes", "--verbose", "--quiet", "--dry-run"} {
+	for _, flag := range []string{"--yes", "--verbose", "--error", "--dry-run"} {
 		if !strings.Contains(out, flag) {
 			t.Errorf("expected root help to list flag %q:\n%s", flag, out)
 		}

@@ -41,7 +41,7 @@ func TestTree(t *testing.T) {
 		descs := []string{
 			"Assume yes to all prompts",
 			"Show debug-level output",
-			"Suppress non-error output",
+			"Only show error output",
 			"Run in an isolated opencode worktree named <name>, optionally starting from the local base ref <name>:<base>",
 			"Rebuild the runner image before starting",
 			"Dry run without starting anything",
@@ -129,7 +129,7 @@ func TestPrintTreeBoolFlagsHaveNoValuePlaceholders(t *testing.T) {
 	notExpected := []string{
 		"--yes <YES>",
 		"--verbose <VERBOSE>",
-		"--quiet <QUIET>",
+		"--error <ERROR>",
 		"--tree <TREE>",
 		"--version <VERSION>",
 		"--rebuild <REBUILD>",
@@ -149,7 +149,7 @@ func TestPrintTreeFlagShortcuts(t *testing.T) {
 	expected := []string{
 		"-y, --yes",
 		"-v, --verbose",
-		"-q, --quiet",
+		"--error",
 		"-w, --worktree <WORKTREE>",
 		"-r, --rebuild",
 		"-n, --dry-run",
