@@ -1,13 +1,17 @@
 package main
 
 import (
+	"context"
 	"strings"
 	"testing"
+
+	"github.com/spf13/cobra"
 
 	"gitlab.inoio.de/inoio/opencode-sandbox/internal/configpaths"
 	"gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/docker"
 	"gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/msb"
 	"gitlab.inoio.de/inoio/opencode-sandbox/internal/termio"
+	"gitlab.inoio.de/inoio/opencode-sandbox/internal/testutil"
 	launcherconfig "gitlab.inoio.de/inoio/opencode-sandbox/internal/viperconfig"
 )
 
@@ -73,53 +77,6 @@ func TestImageBuildNounFormExists(t *testing.T) {
 	}
 }
 
-func TestApplyLauncherConfigSetsUnsetFlags(t *testing.T) {
-	testUI := termio.NewTestMock(t)
-	root := buildRootCmd(&testUI)
-	runCmd, _, _ := root.Find([]string{"run"})
-	if runCmd == nil {
-		t.Fatal("expected run command")
-	}
-	lc := launcherconfig.Config{CPUs: 4, Memory: "8G", TmpSize: "4G", DiskSize: "32G", Yes: true, Verbose: true}
-	keys := map[string]bool{
-		"cpus":      true,
-		"memory":    true,
-		"tmp-size":  true,
-		"disk-size": true,
-		"yes":       true,
-		"verbose":   true,
-	}
-
-	if err := applyLauncherConfig(runCmd, lc, keys); err != nil {
-		t.Fatalf("applyLauncherConfig failed: %v", err)
-	}
-
-	cpus, _ := runCmd.Flags().GetUint8(flagCpus)
-	if cpus != 4 {
-		t.Errorf("expected cpus 4, got %d", cpus)
-	}
-	mem, _ := runCmd.Flags().GetString(flagMemory)
-	if mem != "8G" {
-		t.Errorf("expected memory 8G, got %q", mem)
-	}
-	tmp, _ := runCmd.Flags().GetString(flagTmpSize)
-	if tmp != "4G" {
-		t.Errorf("expected tmp-size 4G, got %q", tmp)
-	}
-	disk, _ := runCmd.Flags().GetString(flagDiskSize)
-	if disk != "32G" {
-		t.Errorf("expected disk-size 32G, got %q", disk)
-	}
-	yes, _ := root.PersistentFlags().GetBool(pFlagYes)
-	if !yes {
-		t.Error("expected yes=true")
-	}
-	verbose, _ := root.PersistentFlags().GetBool(pFlagVerbose)
-	if !verbose {
-		t.Error("expected verbose=true")
-	}
-}
-
 func TestCLICombinedShortFlagsActivateVerbose(t *testing.T) {
 	for _, args := range [][]string{
 		{"prune", "--age", "1m", "-nv"},
@@ -161,59 +118,6 @@ func TestCLIPersistentYesAffectsUIAfterSubcommand(t *testing.T) {
 	}
 	if !ui.AssumeYes() {
 		t.Error("expected AssumeYes=true for -y after subcommand")
-	}
-}
-
-func TestApplyLauncherConfigRespectsCLIOverrides(t *testing.T) {
-	testUI := termio.NewTestMock(t)
-	root := buildRootCmd(&testUI)
-	runCmd, _, _ := root.Find([]string{"run"})
-	if runCmd == nil {
-		t.Fatal("expected run command")
-	}
-	if err := runCmd.ParseFlags(
-		[]string{"--cpus", "2", "--memory", "1G", "--tmp-size", "512M", "--disk-size", "16G", "--yes=false"},
-	); err != nil {
-		t.Fatalf("ParseFlags failed: %v", err)
-	}
-
-	lc := launcherconfig.Config{CPUs: 8, Memory: "16G", TmpSize: "8G", DiskSize: "64G", Yes: true, Verbose: true}
-	keys := map[string]bool{
-		"cpus":      true,
-		"memory":    true,
-		"tmp-size":  true,
-		"disk-size": true,
-		"yes":       true,
-		"verbose":   true,
-	}
-
-	if err := applyLauncherConfig(runCmd, lc, keys); err != nil {
-		t.Fatalf("applyLauncherConfig failed: %v", err)
-	}
-
-	cpus, _ := runCmd.Flags().GetUint8(flagCpus)
-	if cpus != 2 {
-		t.Errorf("expected cpus 2 (CLI override), got %d", cpus)
-	}
-	mem, _ := runCmd.Flags().GetString(flagMemory)
-	if mem != "1G" {
-		t.Errorf("expected memory 1G (CLI override), got %q", mem)
-	}
-	tmp, _ := runCmd.Flags().GetString(flagTmpSize)
-	if tmp != "512M" {
-		t.Errorf("expected tmp-size 512M (CLI override), got %q", tmp)
-	}
-	disk, _ := runCmd.Flags().GetString(flagDiskSize)
-	if disk != "16G" {
-		t.Errorf("expected disk-size 16G (CLI override), got %q", disk)
-	}
-	yes, _ := runCmd.Flags().GetBool(pFlagYes)
-	if yes {
-		t.Error("expected yes=false (CLI override)")
-	}
-	verbose, _ := runCmd.Flags().GetBool(pFlagVerbose)
-	if !verbose {
-		t.Error("expected verbose=true from config")
 	}
 }
 
@@ -314,24 +218,6 @@ func TestKillCommandExists(t *testing.T) {
 	}
 }
 
-func TestApplyLauncherConfigSetsDiskSize(t *testing.T) {
-	testUI := termio.NewTestMock(t)
-	root := buildRootCmd(&testUI)
-	runCmd, _, _ := root.Find([]string{"run"})
-	if runCmd == nil {
-		t.Fatal("expected run command")
-	}
-	keys := map[string]bool{"disk-size": true}
-	lc := launcherconfig.Config{DiskSize: "32G"}
-	if err := applyLauncherConfig(runCmd, lc, keys); err != nil {
-		t.Fatalf("applyLauncherConfig failed: %v", err)
-	}
-	got, _ := runCmd.Flags().GetString(flagDiskSize)
-	if got != "32G" {
-		t.Errorf("disk-size = %q, want 32G", got)
-	}
-}
-
 func TestStopCommandHasForceFlag(t *testing.T) {
 	testUI := termio.NewTestMock(t)
 	root := buildRootCmd(&testUI)
@@ -354,4 +240,40 @@ func TestKillCommandHasForceFlag(t *testing.T) {
 	if killCmd.Flags().Lookup("force") == nil {
 		t.Error("expected --force flag on kill command")
 	}
+}
+
+func TestCLIConfigPrecedenceViaResolver(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	cp := configpaths.Get()
+	testutil.WriteYAML(t, cp.UserConfigDir(), "config.yaml", map[string]any{"cpus": 2, "memory": "8G"})
+
+	ui := &termio.Mock{}
+	root := buildRootCmd(ui)
+	runCmd, _, _ := root.Find([]string{"run"})
+	if err := runCmd.ParseFlags([]string{"--cpus", "6"}); err != nil {
+		t.Fatalf("ParseFlags: %v", err)
+	}
+	rootCtx := context.WithValue(context.Background(), (*launcherConfigKey)(nil), mustResolver(t, runCmd))
+	runCmd.SetContext(rootCtx)
+
+	opts, err := extractRunOptions(runCmd, ui)
+	if err != nil {
+		t.Fatalf("extractRunOptions: %v", err)
+	}
+	if opts.CPUs != 6 {
+		t.Errorf("CPUs = %d; want 6 (flag overrides config)", opts.CPUs)
+	}
+	if opts.Memory != "8G" {
+		t.Errorf("Memory = %q; want 8G (config, flag unspecified)", opts.Memory)
+	}
+}
+
+// mustResolver builds a resolver from a real command, failing the test on error.
+func mustResolver(t *testing.T, cmd *cobra.Command) *launcherconfig.Resolver {
+	t.Helper()
+	r, err := launcherconfig.NewResolver(cmd)
+	if err != nil {
+		t.Fatalf("NewResolver: %v", err)
+	}
+	return r
 }
