@@ -1,6 +1,9 @@
 package humanize
 
-import "testing"
+import (
+	"testing"
+	"time"
+)
 
 func TestFormatBytes(t *testing.T) {
 	cases := []struct {
@@ -22,5 +25,15 @@ func TestFormatBytes(t *testing.T) {
 		if got := FormatBytes(tc.in); got != tc.want {
 			t.Errorf("FormatBytes(%d) = %q, want %q", tc.in, got, tc.want)
 		}
+	}
+}
+
+func TestFormatTimestamp(t *testing.T) {
+	if got := FormatTimestamp(time.Time{}); got != "" {
+		t.Errorf("FormatTimestamp(zero) = %q, want empty", got)
+	}
+	tm := time.Date(2026, 8, 17, 10, 42, 36, 0, time.UTC)
+	if got, want := FormatTimestamp(tm), "2026-08-17 10:42:36"; got != want {
+		t.Errorf("FormatTimestamp() = %q, want %q", got, want)
 	}
 }

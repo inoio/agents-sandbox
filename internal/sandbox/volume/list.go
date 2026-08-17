@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/humanize"
 	"gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/msb"
 	"gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/naming"
 )
@@ -20,13 +21,12 @@ type VolumeInfo struct {
 }
 
 // FormatVolumeTime renders a timestamp as YYYY-MM-DD HH:MM:SS in the time's own
-// location, or "-" for the zero time. This matches msb volume list output and is
-// intentionally distinct from session.FormatTime (which omits seconds).
+// location, or "-" for the zero time. Matches msb volume list output.
 func FormatVolumeTime(t time.Time) string {
 	if t.IsZero() {
 		return "-"
 	}
-	return t.Format("2006-01-02 15:04:05")
+	return humanize.FormatTimestamp(t)
 }
 
 // ListVolumes returns a list of home volumes managed by opencode-sandbox.

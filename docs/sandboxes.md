@@ -70,7 +70,7 @@ opencode-sandbox list
 opencode-sandbox sandbox list
 ```
 
-Columns: `NAME`, `STATUS`, `IMAGE`, `CREATED`, `UPDATED` (`YYYY-MM-DD HH:MM`).
+Columns: `NAME`, `STATUS`, `IMAGE`, `CREATED` (`YYYY-MM-DD HH:MM:SS`).
 
 ### Volume Management
 

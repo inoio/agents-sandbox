@@ -91,7 +91,8 @@ func TestListSandboxes(t *testing.T) {
 				}
 			},
 			wantOut: []string{
-				"opencode-sandbox-vm-abc123 running opencode-sandbox/runner:latest 2026-08-17 10:30 2026-08-17 11:00",
+				"NAME STATUS IMAGE CREATED",
+				"opencode-sandbox-vm-abc123 running opencode-sandbox/runner:latest 2026-08-17 10:30:00",
 			},
 		},
 		{
@@ -122,9 +123,9 @@ func TestListSandboxes(t *testing.T) {
 				}
 			},
 			wantOut: []string{
-				"opencode-sandbox-vm-alpha running opencode-sandbox/runner:latest 2026-08-17 09:00 2026-08-17 10:00",
-				"opencode-sandbox-vm-beta stopped opencode-sandbox/runner:v1.0.0 2026-08-16 12:00 2026-08-16 13:00",
-				"opencode-sandbox-vm-gamma draining opencode-sandbox/runner:v2.0.0 2026-08-15 08:30 2026-08-15 09:15",
+				"opencode-sandbox-vm-alpha running opencode-sandbox/runner:latest 2026-08-17 09:00:00",
+				"opencode-sandbox-vm-beta stopped opencode-sandbox/runner:v1.0.0 2026-08-16 12:00:00",
+				"opencode-sandbox-vm-gamma draining opencode-sandbox/runner:v2.0.0 2026-08-15 08:30:00",
 			},
 		},
 		{
@@ -143,7 +144,7 @@ func TestListSandboxes(t *testing.T) {
 				}
 			},
 			wantOut: []string{
-				"opencode-sandbox-vm-abc running opencode-sandbox/runner:latest 2026-08-17 10:00 2026-08-17 11:00",
+				"opencode-sandbox-vm-abc running opencode-sandbox/runner:latest 2026-08-17 10:00:00",
 			},
 		},
 		{
@@ -199,6 +200,7 @@ func TestListImages(t *testing.T) {
 				}
 			},
 			wantOut: []string{
+				"REFERENCE DIGEST SIZE CREATED",
 				"opencode-sandbox/runner-abc123 sha256-abc123def456 2 GiB 2026-08-17 10:42:36",
 			},
 		},
@@ -271,18 +273,15 @@ func TestListImages(t *testing.T) {
 	}
 }
 
-func TestTruncateImage(t *testing.T) {
-	short := "opencode-sandbox/runner:latest"
-	if got := truncateImage(short); got != short {
-		t.Errorf("truncateImage(short) = %q, want unchanged", got)
+func TestTruncateDigest(t *testing.T) {
+	full := "sha256:c9b7a85bcbd83f0eab313d091efe933c1608e952a082def11eb038841cb66375"
+	got := truncateDigest(full)
+	want := "sha256:c9b7a85bcbd8"
+	if got != want {
+		t.Errorf("truncateDigest() = %q, want %q", got, want)
 	}
-	long := "ghcr.io/superradcompany/opencode-sandbox/runner-image-reference-that-is-very-long:latest"
-	got := truncateImage(long)
-	if len(got) > 44 {
-		t.Errorf("truncateImage(long) length = %d, want <= 44", len(got))
-	}
-	if len(got) == 0 || got[len(got)-3:] != "..." {
-		t.Errorf("truncateImage(long) = %q, want ... suffix", got)
+	if got := truncateDigest("sha256:abc"); got != "sha256:abc" {
+		t.Errorf("truncateDigest(short) = %q, want unchanged", got)
 	}
 }
 
