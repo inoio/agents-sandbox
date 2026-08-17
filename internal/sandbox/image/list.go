@@ -13,6 +13,8 @@ import (
 type Info struct {
 	Reference string
 	Digest    string
+	Size      string
+	CreatedAt string
 }
 
 // ListImages returns the cached runner images.
@@ -28,6 +30,8 @@ func ListImages(ctx context.Context) ([]Info, error) {
 			result = append(result, Info{
 				Reference: ref,
 				Digest:    h.ManifestDigest(),
+				Size:      FormatSize(h.SizeBytes()),
+				CreatedAt: FormatImageTime(h.CreatedAt()),
 			})
 		}
 	}
