@@ -34,7 +34,7 @@ type MockMsbClient struct {
 	EnsureInstalledFn func(ctx context.Context) error
 	GetSandboxFn      func(ctx context.Context, name string) (SandboxHandle, error)
 	CreateSandboxFn   func(ctx context.Context, name string, opts ...msbSdk.SandboxOption) (Sandbox, error)
-	ListSandboxesFn   func(ctx context.Context) ([]SandboxHandle, error)
+	ListSandboxesFn   func(ctx context.Context, labels map[string]string) ([]SandboxHandle, error)
 	RemoveSandboxFn   func(ctx context.Context, name string) error
 	GetVolumeFn       func(ctx context.Context, name string) (VolumeHandle, error)
 	CreateVolumeFn    func(ctx context.Context, name string, opts ...msbSdk.VolumeOption) (VolumeHandle, error)
@@ -140,9 +140,9 @@ func (m *MockMsbClient) CreateSandbox(ctx context.Context, name string, opts ...
 }
 
 // ListSandboxes implements Client.
-func (m *MockMsbClient) ListSandboxes(ctx context.Context) ([]SandboxHandle, error) {
+func (m *MockMsbClient) ListSandboxes(ctx context.Context, labels map[string]string) ([]SandboxHandle, error) {
 	if m.ListSandboxesFn != nil {
-		return m.ListSandboxesFn(ctx)
+		return m.ListSandboxesFn(ctx, labels)
 	}
 	if m.ListSandboxesErr != nil {
 		return nil, m.ListSandboxesErr
@@ -705,7 +705,7 @@ func (f *failFastMsbClient) CreateSandbox(
 	return nil, nil
 }
 
-func (f *failFastMsbClient) ListSandboxes(_ context.Context) ([]SandboxHandle, error) {
+func (f *failFastMsbClient) ListSandboxes(_ context.Context, _ map[string]string) ([]SandboxHandle, error) {
 	f.mustMock()
 	return nil, nil
 }

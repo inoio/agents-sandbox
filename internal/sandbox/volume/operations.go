@@ -20,7 +20,7 @@ import (
 // checkForActiveVMs checks if there are active VMs for the given slug.
 func checkForActiveVMs(ctx context.Context, slug string) error {
 	client := msb.Get()
-	sandboxes, err := client.ListSandboxes(ctx)
+	sandboxes, err := client.ListSandboxes(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("list sandboxes: %w", err)
 	}

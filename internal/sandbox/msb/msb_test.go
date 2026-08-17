@@ -61,6 +61,20 @@ func TestIsSandboxActive(t *testing.T) {
 	}
 }
 
+func TestMockListSandboxesRecordsLabels(t *testing.T) {
+	m := &MockMsbClient{}
+	m.ListSandboxesFn = func(_ context.Context, labels map[string]string) ([]SandboxHandle, error) {
+		if labels["k"] != "v" {
+			t.Errorf("expected label k=v, got %v", labels)
+		}
+		return nil, nil
+	}
+	_, err := m.ListSandboxes(context.Background(), map[string]string{"k": "v"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
 func TestMockImageInspectUsesFn(t *testing.T) {
 	called := false
 	m := &MockMsbClient{ImageInspectFn: func(_ context.Context, _ string) (*msbSdk.ImageConfig, error) {
