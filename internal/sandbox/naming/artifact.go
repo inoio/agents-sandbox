@@ -127,20 +127,6 @@ func ParseHomeVolumeName(name string) ArtifactInfo {
 	}
 }
 
-// ParseCloneVolumeName extracts the slug from a clone volume name.
-// Clone volumes have no digest component.
-func ParseCloneVolumeName(name string) string {
-	if !strings.HasPrefix(name, ClonePrefix) {
-		return ""
-	}
-	remainder := name[len(ClonePrefix):]
-	parts := strings.Split(remainder, "-")
-	if len(parts) < 2 {
-		return remainder
-	}
-	return strings.Join(parts[:len(parts)-1], "-")
-}
-
 // ArtifactFor dispatches to the appropriate parser based on the name prefix.
 func ArtifactFor(name string) ArtifactInfo {
 	switch {
@@ -157,8 +143,6 @@ func ArtifactFor(name string) ArtifactInfo {
 		return ParseVMName(name)
 	case strings.HasPrefix(name, HomePrefix):
 		return ParseHomeVolumeName(name)
-	case strings.HasPrefix(name, ClonePrefix):
-		return ArtifactInfo{Slug: ParseCloneVolumeName(name), Digest: ""}
 	}
 	return ArtifactInfo{}
 }
