@@ -378,3 +378,87 @@ func TestConfigAutoStopNegativeTimeout(t *testing.T) {
 		})
 	}
 }
+
+func TestResolverGettersReturnConfig(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	cfg := Config{
+		CPUs: 4, Memory: "8G", TmpSize: "4G", DiskSize: "32G",
+		Yes: true, Verbose: true,
+		AutoPruneAge: 7 * 24 * time.Hour, ManualPruneAge: 14 * 24 * time.Hour,
+		AutoStopOnActiveSessions: true, AutoStopTimeout: 30 * time.Second, AutoStopMaxSessionRetries: 5,
+	}
+	r := NewResolverWithConfig(cfg)
+	if r.CPUs() != 4 || r.Memory() != "8G" || r.TmpSize() != "4G" || r.DiskSize() != "32G" {
+		t.Errorf("resource getters mismatch: %+v", cfg)
+	}
+	if !r.Yes() || !r.Verbose() || r.Quiet() {
+		t.Error("UI getters mismatch")
+	}
+	if r.AutoPruneAge() != 7*24*time.Hour || r.ManualPruneAge() != 14*24*time.Hour {
+		t.Error("prune getters mismatch")
+	}
+	if !r.AutoStopOnActiveSessions() || r.AutoStopTimeout() != 30*time.Second || r.AutoStopMaxSessionRetries() != 5 {
+		t.Error("autostop getters mismatch")
+	}
+	if r.IdleTimeout() != 30*time.Second {
+		t.Errorf("IdleTimeout = %v; want 30s", r.IdleTimeout())
+	}
+}
+
+func TestResolverIdleTimeoutDefault(t *testing.T) {
+	r := NewResolverWithConfig(Config{})
+	if r.IdleTimeout() != 10*time.Second {
+		t.Errorf("IdleTimeout default = %v; want 10s", r.IdleTimeout())
+	}
+}
+
+func TestResolverEnvPrecedenceOverConfig(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	cp := configpaths.Get()
+	testutil.WriteYAML(t, cp.UserConfigDir(), "config.yaml", map[string]any{"cpus": 2})
+	t.Setenv("OPENCODE_SANDBOX_CPUS", "6")
+
+	r, err := NewResolver(nil)
+	if err != nil {
+		t.Fatalf("NewResolver: %v", err)
+	}
+	if r.CPUs() != 6 {
+		t.Errorf("CPUs = %d; want 6 (env overrides config)", r.CPUs())
+	}
+}
+
+func TestResolverConfigNoFlag(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	cp := configpaths.Get()
+	testutil.WriteYAML(t, cp.UserConfigDir(), "config.yaml", map[string]any{"cpus": 3})
+
+	r, err := NewResolver(nil)
+	if err != nil {
+		t.Fatalf("NewResolver: %v", err)
+	}
+	if r.CPUs() != 3 {
+		t.Errorf("CPUs = %d; want 3", r.CPUs())
+	}
+}
+
+func TestResolverEnvKeyReplacement(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	t.Setenv("OPENCODE_SANDBOX_AUTO_STOP_ON_ACTIVE_SESSIONS", "true")
+
+	r, err := NewResolver(nil)
+	if err != nil {
+		t.Fatalf("NewResolver: %v", err)
+	}
+	if !r.AutoStopOnActiveSessions() {
+		t.Error("expected AutoStopOnActiveSessions true from env")
+	}
+}
+
+func TestResolverEnvInvalidCPUs(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	t.Setenv("OPENCODE_SANDBOX_CPUS", "300")
+
+	if _, err := NewResolver(nil); err == nil {
+		t.Fatal("expected error for cpus=300 from env")
+	}
+}
