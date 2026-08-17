@@ -28,8 +28,7 @@ func checkForActiveVMs(ctx context.Context, slug string) error {
 		if !strings.HasPrefix(handle.Name(), naming.VmPrefix) {
 			continue
 		}
-		sandboxSlug, _ := naming.ExtractProjectSlugAndDigest(handle.Name())
-		if sandboxSlug == slug {
+		if naming.ArtifactFor(handle.Name()).Slug == slug {
 			status := handle.Status()
 			if msb.IsSandboxActive(status) {
 				return fmt.Errorf(

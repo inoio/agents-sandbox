@@ -3,6 +3,7 @@ package volume
 import (
 	"context"
 	"testing"
+	"time"
 
 	"gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/msb"
 )
@@ -63,5 +64,51 @@ func TestListVolumes_EmptyReturnsNil(t *testing.T) {
 	}
 	if result != nil {
 		t.Errorf("expected nil for empty result, got %d volumes", len(result))
+	}
+}
+
+func TestListVolumes_PopulatesMetadata(t *testing.T) {
+	quota := uint32(1024)
+	var capacity uint64 = 2 * 1024 * 1024 * 1024
+	created := time.Date(2026, 8, 17, 10, 42, 36, 0, time.UTC)
+	mockClient := &msb.MockMsbClient{
+		Volumes: []msb.VolumeHandle{
+			&msb.MockVolumeHandle{
+				Name_:          "opencode-sandbox-home-proj",
+				Kind_:          "disk",
+				QuotaMiB_:      &quota,
+				CapacityBytes_: &capacity,
+				CreatedAt_:     created,
+			},
+		},
+	}
+	msb.WithMsbMock(t, mockClient)
+
+	result, err := ListVolumes(context.Background())
+	if err != nil {
+		t.Fatalf("ListVolumes returned error: %v", err)
+	}
+	if len(result) != 1 {
+		t.Fatalf("expected 1 volume, got %d", len(result))
+	}
+	v := result[0]
+	if v.QuotaMiB == nil || *v.QuotaMiB != quota {
+		t.Errorf("QuotaMiB = %v, want %d", v.QuotaMiB, quota)
+	}
+	if v.CapacityBytes == nil || *v.CapacityBytes != capacity {
+		t.Errorf("CapacityBytes = %v, want %d", v.CapacityBytes, capacity)
+	}
+	if v.CreatedAt != "2026-08-17 10:42:36" {
+		t.Errorf("CreatedAt = %q, want %q", v.CreatedAt, "2026-08-17 10:42:36")
+	}
+}
+
+func TestFormatVolumeTime(t *testing.T) {
+	utc := time.Date(2026, 8, 17, 10, 42, 36, 0, time.UTC)
+	if got := FormatVolumeTime(utc); got != "2026-08-17 10:42:36" {
+		t.Errorf("FormatVolumeTime(nonzero) = %q, want %q", got, "2026-08-17 10:42:36")
+	}
+	if got := FormatVolumeTime(time.Time{}); got != "-" {
+		t.Errorf("FormatVolumeTime(zero) = %q, want %q", got, "-")
 	}
 }

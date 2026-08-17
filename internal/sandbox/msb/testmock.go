@@ -320,6 +320,8 @@ type MockSandboxHandle struct {
 	Name_           string
 	Status_         msbSdk.SandboxStatus
 	UpdatedAt_      time.Time
+	CreatedAt_      time.Time
+	BackendKind_    msbSdk.BackendKind
 	Image_          string
 	ConnectSb       Sandbox
 	StartSb         Sandbox
@@ -335,10 +337,20 @@ type MockSandboxHandle struct {
 	ModifiedOptions []msbSdk.ModifyOptions
 }
 
-func (m *MockSandboxHandle) Name() string                 { return m.Name_ }
-func (m *MockSandboxHandle) Status() msbSdk.SandboxStatus { return m.Status_ }
-func (m *MockSandboxHandle) UpdatedAt() time.Time         { return m.UpdatedAt_ }
-func (m *MockSandboxHandle) Image() string                { return m.Image_ }
+func (m *MockSandboxHandle) Name() string                    { return m.Name_ }
+func (m *MockSandboxHandle) Status() msbSdk.SandboxStatus    { return m.Status_ }
+func (m *MockSandboxHandle) UpdatedAt() time.Time            { return m.UpdatedAt_ }
+func (m *MockSandboxHandle) CreatedAt() time.Time            { return m.CreatedAt_ }
+func (m *MockSandboxHandle) BackendKind() msbSdk.BackendKind { return m.BackendKind_ }
+func (m *MockSandboxHandle) Image() string {
+	if m.Image_ != "" {
+		return m.Image_
+	}
+	if m.Cfg != nil {
+		return m.Cfg.Image
+	}
+	return ""
+}
 func (m *MockSandboxHandle) Connect(_ context.Context) (Sandbox, error) {
 	if m.ConnectErr != nil {
 		return nil, m.ConnectErr
@@ -596,10 +608,17 @@ func (t *TestResult) StdoutBytes() []byte {
 
 //nolint:revive // underscore names avoid conflicts with interface methods
 type MockVolumeHandle struct {
-	Name_      string
-	Path_      string
-	Kind_      msbSdk.VolumeKind
-	CreatedAt_ time.Time
+	Name_          string
+	Path_          string
+	Kind_          msbSdk.VolumeKind
+	CreatedAt_     time.Time
+	IsDefault_     bool
+	QuotaMiB_      *uint32
+	UsedBytes_     uint64
+	CapacityBytes_ *uint64
+	DiskFormat_    *string
+	DiskFstype_    *string
+	Labels_        map[string]string
 }
 
 func (m MockVolumeHandle) Name() string { return m.Name_ }
@@ -610,18 +629,31 @@ func (m MockVolumeHandle) Kind() msbSdk.VolumeKind {
 	}
 	return m.Kind_
 }
-func (m MockVolumeHandle) CreatedAt() time.Time { return m.CreatedAt_ }
+func (m MockVolumeHandle) CreatedAt() time.Time   { return m.CreatedAt_ }
+func (m MockVolumeHandle) IsDefault() bool        { return m.IsDefault_ }
+func (m MockVolumeHandle) QuotaMiB() *uint32      { return m.QuotaMiB_ }
+func (m MockVolumeHandle) UsedBytes() uint64      { return m.UsedBytes_ }
+func (m MockVolumeHandle) CapacityBytes() *uint64 { return m.CapacityBytes_ }
+func (m MockVolumeHandle) DiskFormat() *string    { return m.DiskFormat_ }
+func (m MockVolumeHandle) DiskFstype() *string    { return m.DiskFstype_ }
+func (m MockVolumeHandle) Labels() map[string]string {
+	return m.Labels_
+}
 
 //nolint:revive // underscore names avoid conflicts with interface methods
 type MockImageHandle struct {
 	Reference_      string
 	ManifestDigest_ string
 	LastUsedAt_     time.Time
+	SizeBytes_      *int64
+	CreatedAt_      time.Time
 }
 
 func (m MockImageHandle) Reference() string      { return m.Reference_ }
 func (m MockImageHandle) ManifestDigest() string { return m.ManifestDigest_ }
 func (m MockImageHandle) LastUsedAt() time.Time  { return m.LastUsedAt_ }
+func (m MockImageHandle) SizeBytes() *int64      { return m.SizeBytes_ }
+func (m MockImageHandle) CreatedAt() time.Time   { return m.CreatedAt_ }
 
 // WithMsbMock replaces the global Get factory with the provided mock.
 // It restores the original factory when the test ends.

@@ -66,18 +66,18 @@ func runPruneActiveVMTest(
 func runSlugDigestTests(t *testing.T, tests []slugDigestTest) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			slug, digest := naming.ExtractProjectSlugAndDigest(tt.input)
-			if slug != tt.wantSlug {
-				t.Errorf("naming.ExtractProjectSlugAndDigest(%q) slug = %q, want %q", tt.input, slug, tt.wantSlug)
+			info := naming.ArtifactFor(tt.input)
+			if info.Slug != tt.wantSlug {
+				t.Errorf("naming.ArtifactFor(%q) slug = %q, want %q", tt.input, info.Slug, tt.wantSlug)
 			}
-			if digest != tt.wantDigest {
-				t.Errorf("naming.ExtractProjectSlugAndDigest(%q) digest = %q, want %q", tt.input, digest, tt.wantDigest)
+			if info.Digest != tt.wantDigest {
+				t.Errorf("naming.ArtifactFor(%q) digest = %q, want %q", tt.input, info.Digest, tt.wantDigest)
 			}
 		})
 	}
 }
 
-func TestExtractProjectSlugAndDigest_ImageReferences(t *testing.T) {
+func TestArtifactFor_ImageReferences(t *testing.T) {
 	tests := []slugDigestTest{
 		{
 			name:       "runner with digest tag",
@@ -126,7 +126,7 @@ func TestExtractProjectSlugAndDigest_ImageReferences(t *testing.T) {
 	runSlugDigestTests(t, tests)
 }
 
-func TestExtractProjectSlugAndDigest_VMNames(t *testing.T) {
+func TestArtifactFor_VMNames(t *testing.T) {
 	tests := []slugDigestTest{
 		{
 			name:       "simple vm name without hash suffix",
@@ -150,7 +150,7 @@ func TestExtractProjectSlugAndDigest_VMNames(t *testing.T) {
 	runSlugDigestTests(t, tests)
 }
 
-func TestExtractProjectSlugAndDigest_HomeVolumes(t *testing.T) {
+func TestArtifactFor_HomeVolumes(t *testing.T) {
 	tests := []slugDigestTest{
 		{
 			name:       "home volume with slug and digest",
@@ -180,7 +180,7 @@ func TestExtractProjectSlugAndDigest_HomeVolumes(t *testing.T) {
 	runSlugDigestTests(t, tests)
 }
 
-func TestExtractProjectSlugAndDigest_TaskSandboxes(t *testing.T) {
+func TestArtifactFor_TaskSandboxes(t *testing.T) {
 	tests := []slugDigestTest{
 		{
 			name:       "task sandbox",
@@ -198,7 +198,7 @@ func TestExtractProjectSlugAndDigest_TaskSandboxes(t *testing.T) {
 	runSlugDigestTests(t, tests)
 }
 
-func TestExtractProjectSlugAndDigest_CloneVolumes(t *testing.T) {
+func TestArtifactFor_CloneVolumes(t *testing.T) {
 	tests := []slugDigestTest{
 		{
 			name:       "clone volume",
@@ -211,7 +211,7 @@ func TestExtractProjectSlugAndDigest_CloneVolumes(t *testing.T) {
 	runSlugDigestTests(t, tests)
 }
 
-func TestExtractProjectSlugAndDigest_VMWithHashSuffix(t *testing.T) {
+func TestArtifactFor_VMWithHashSuffix(t *testing.T) {
 	tests := []slugDigestTest{
 		{
 			name:       "vm with 14-char hash suffix (no branch)",
@@ -241,7 +241,7 @@ func TestExtractProjectSlugAndDigest_VMWithHashSuffix(t *testing.T) {
 	runSlugDigestTests(t, tests)
 }
 
-func TestExtractProjectSlugAndDigest_UnrecognizedPrefixes(t *testing.T) {
+func TestArtifactFor_UnrecognizedPrefixes(t *testing.T) {
 	tests := []slugDigestTest{
 		{name: "random string", input: "some-random-name", wantSlug: "", wantDigest: ""},
 		{name: "empty string", input: "", wantSlug: "", wantDigest: ""},
@@ -257,7 +257,7 @@ func TestExtractProjectSlugAndDigest_UnrecognizedPrefixes(t *testing.T) {
 	runSlugDigestTests(t, tests)
 }
 
-func TestExtractProjectSlugAndDigest_VMOnlyTwoParts(t *testing.T) {
+func TestArtifactFor_VMOnlyTwoParts(t *testing.T) {
 	// VM with only two parts after prefix (e.g. name-branch, but we have name-branch).
 	// "opencode-sandbox-vm-proj-main" → parts=["proj","main"] → slug = "proj".
 	tests := []struct {
@@ -273,9 +273,9 @@ func TestExtractProjectSlugAndDigest_VMOnlyTwoParts(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			slug, _ := naming.ExtractProjectSlugAndDigest(tt.input)
+			slug := naming.ArtifactFor(tt.input).Slug
 			if slug != tt.wantSlug {
-				t.Errorf("naming.ExtractProjectSlugAndDigest(%q) slug = %q, want %q", tt.input, slug, tt.wantSlug)
+				t.Errorf("naming.ArtifactFor(%q) slug = %q, want %q", tt.input, slug, tt.wantSlug)
 			}
 		})
 	}
@@ -497,7 +497,7 @@ func TestStaleReport(t *testing.T) {
 	}
 }
 
-func TestExtractProjectSlugAndDigest_ComplexSlugNames(t *testing.T) {
+func TestArtifactFor_ComplexSlugNames(t *testing.T) {
 	tests := []slugDigestTest{
 		{
 			name:       "home with long slug containing hashes",
@@ -804,39 +804,32 @@ func TestPruneActiveVMHomeVolumes_RemoveErrorWarns(t *testing.T) {
 	}
 }
 
-func TestRemoveDockerImagesFailureIsWarn(t *testing.T) {
-	dockerMock := &mockDockerClient{removeErr: errors.New("image does not exist")}
+func TestPruneDockerImagesFailureIsWarn(t *testing.T) {
+	dockerMock := &mockDockerClient{pruneErr: errors.New("prune failed")}
 	docker.WithDockerMock(t, dockerMock)
 	report := &StaleReport{}
 	ui := newMockUI()
 
-	slug := "myproject"
-	msbImagesBySlug := map[string][]imageWithDigest{
-		slug: {
-			{ref: "opencode-sandbox/runner-myproject:digest1", digest: "digest1", isLatest: false, lastUsed: ancient()},
-		},
-	}
-
-	removeDockerImages(context.Background(), slug, pruneThreshold, msbImagesBySlug, false, ui, report)
+	pruneDockerImages(context.Background(), false, ui, report)
 
 	if report.PrunedDockerImages != 0 {
 		t.Errorf("PrunedDockerImages = %d, want 0", report.PrunedDockerImages)
 	}
-	if len(dockerMock.removedImages) != 0 {
-		t.Errorf("removedImages = %v, want [] (all calls failed)", dockerMock.removedImages)
+	if !dockerMock.pruneCalled {
+		t.Error("expected ImagePrune to be called")
 	}
 	found := false
 	for _, call := range ui.WarnCalls {
-		if strings.Contains(call, "failed to remove docker image") {
+		if strings.Contains(call, "failed to prune docker images") {
 			found = true
 		}
 	}
 	if !found {
-		t.Errorf("expected a Warn call about failed docker image removal, WarnCalls = %v", ui.WarnCalls)
+		t.Errorf("expected a Warn call about failed docker image prune, WarnCalls = %v", ui.WarnCalls)
 	}
 	for _, call := range ui.VerboseCalls {
-		if strings.Contains(call, "failed to remove docker image") {
-			t.Errorf("failed docker image removal should not be Verbose, VerboseCalls = %v", ui.VerboseCalls)
+		if strings.Contains(call, "failed to prune docker images") {
+			t.Errorf("failed docker image prune should not be Verbose, VerboseCalls = %v", ui.VerboseCalls)
 		}
 	}
 }

@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"os/exec"
+	"os"
 	"time"
 
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
@@ -44,6 +44,8 @@ type SandboxHandle interface {
 	Name() string
 	Status() msbSdk.SandboxStatus
 	UpdatedAt() time.Time
+	CreatedAt() time.Time
+	BackendKind() msbSdk.BackendKind
 	Image() string
 	Connect(ctx context.Context) (Sandbox, error)
 	Refresh(ctx context.Context) (SandboxHandle, error)
@@ -82,6 +84,13 @@ type VolumeHandle interface {
 	Path() string
 	Kind() msbSdk.VolumeKind
 	CreatedAt() time.Time
+	IsDefault() bool
+	QuotaMiB() *uint32
+	UsedBytes() uint64
+	CapacityBytes() *uint64
+	DiskFormat() *string
+	DiskFstype() *string
+	Labels() map[string]string
 }
 
 // ImageHandle is the subset of *msb.ImageHandle that the launcher needs.
@@ -89,6 +98,8 @@ type ImageHandle interface {
 	Reference() string
 	ManifestDigest() string
 	LastUsedAt() time.Time
+	SizeBytes() *int64
+	CreatedAt() time.Time
 }
 
 // SandboxFS is the subset of the sandbox filesystem operations used by the launcher.
@@ -245,11 +256,27 @@ func (realMsbClient) ImageRemove(ctx context.Context, ref string, force bool) er
 	return msbSdk.Image.Remove(ctx, ref, force)
 }
 
-func (realMsbClient) ImageLoad(ctx context.Context, ref string, r io.Reader) error {
-	cmd := exec.CommandContext(ctx, "msb", "load", "--tag", ref)
-	cmd.Stdin = r
-	if out, err := cmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("loading image into microsandbox failed: %w: %s", err, out)
+func (realMsbClient) ImageLoad(ctx context.Context, ref string, r io.Reader) (err error) {
+	tmp, err := os.CreateTemp("", "opencode-sandbox-image-*.tar")
+	if err != nil {
+		return fmt.Errorf("creating temp file for image load: %w", err)
+	}
+	defer os.Remove(tmp.Name())
+	defer func() {
+		if closeErr := tmp.Close(); closeErr != nil && err == nil {
+			err = fmt.Errorf("closing image archive: %w", closeErr)
+		}
+	}()
+
+	if _, err := io.Copy(tmp, r); err != nil {
+		return fmt.Errorf("spooling image archive: %w", err)
+	}
+	if err := tmp.Sync(); err != nil {
+		return fmt.Errorf("syncing image archive: %w", err)
+	}
+
+	if _, err := msbSdk.Image.Load(ctx, tmp.Name(), ref); err != nil {
+		return fmt.Errorf("loading image into microsandbox: %w", err)
 	}
 	return nil
 }
@@ -301,6 +328,55 @@ func (v realVolumeHandle) CreatedAt() time.Time {
 	return time.Time{}
 }
 
+func (v realVolumeHandle) IsDefault() bool {
+	if h, ok := v.val.(*msbSdk.VolumeHandle); ok {
+		return h.IsDefault()
+	}
+	return false
+}
+
+func (v realVolumeHandle) QuotaMiB() *uint32 {
+	if h, ok := v.val.(*msbSdk.VolumeHandle); ok {
+		return h.QuotaMiB()
+	}
+	return nil
+}
+
+func (v realVolumeHandle) UsedBytes() uint64 {
+	if h, ok := v.val.(*msbSdk.VolumeHandle); ok {
+		return h.UsedBytes()
+	}
+	return 0
+}
+
+func (v realVolumeHandle) CapacityBytes() *uint64 {
+	if h, ok := v.val.(*msbSdk.VolumeHandle); ok {
+		return h.CapacityBytes()
+	}
+	return nil
+}
+
+func (v realVolumeHandle) DiskFormat() *string {
+	if h, ok := v.val.(*msbSdk.VolumeHandle); ok {
+		return h.DiskFormat()
+	}
+	return nil
+}
+
+func (v realVolumeHandle) DiskFstype() *string {
+	if h, ok := v.val.(*msbSdk.VolumeHandle); ok {
+		return h.DiskFstype()
+	}
+	return nil
+}
+
+func (v realVolumeHandle) Labels() map[string]string {
+	if h, ok := v.val.(*msbSdk.VolumeHandle); ok {
+		return h.Labels()
+	}
+	return nil
+}
+
 // realSandboxHandle adapts *msbSdk.SandboxHandle to SandboxHandle.
 type realSandboxHandle struct {
 	handle *msbSdk.SandboxHandle
@@ -316,6 +392,14 @@ func (w realSandboxHandle) Status() msbSdk.SandboxStatus {
 
 func (w realSandboxHandle) UpdatedAt() time.Time {
 	return w.handle.UpdatedAt()
+}
+
+func (w realSandboxHandle) CreatedAt() time.Time {
+	return w.handle.CreatedAt()
+}
+
+func (w realSandboxHandle) BackendKind() msbSdk.BackendKind {
+	return w.handle.BackendKind()
 }
 
 func (w realSandboxHandle) Image() string {

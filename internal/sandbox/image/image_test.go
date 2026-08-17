@@ -251,6 +251,37 @@ func runEnsureImageTagTest(t *testing.T, dockerfile []byte, force bool, wantTags
 	}
 }
 
+func TestEnsureImageDoesNotCreateDigestAliasTag(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	var tagged []string
+	m := &docker.MockDockerClient{
+		ImageInspectFn: func(_ context.Context, _ string, _ ...client.ImageInspectOption) (client.ImageInspectResult, error) {
+			return client.ImageInspectResult{InspectResponse: image.InspectResponse{ID: "sha256:abc123"}}, nil
+		},
+		ImageTagFn: func(_ context.Context, opts client.ImageTagOptions) (client.ImageTagResult, error) {
+			tagged = append(tagged, opts.Target)
+			return client.ImageTagResult{}, nil
+		},
+	}
+	docker.WithDockerMock(t, m)
+
+	dockerfile := []byte("FROM debian:trixie-slim\nRUN echo hi\n")
+	_, err := EnsureImageWithClient(
+		context.Background(),
+		&msb.MockMsbClient{},
+		dockerfile,
+		"test-project",
+		BuildOptions{},
+		&termio.Mock{},
+	)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(tagged) != 0 {
+		t.Errorf("expected no digest alias tags, got: %v", tagged)
+	}
+}
+
 func TestEnsureImageLoadsIntoMSBWhenNotCached(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	docker.WithDockerMock(t, &docker.MockDockerClient{
@@ -372,6 +403,43 @@ func TestEnsureImageReadsVersionFromMSBTAfterLoad(t *testing.T) {
 	}
 	if info.Env["PATH"] != "/usr/bin" {
 		t.Errorf("info.Env = %v", info.Env)
+	}
+}
+
+func TestEnsureImageReturnsDigestImageRefAsTag(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	docker.WithDockerMock(t, &docker.MockDockerClient{
+		ImageInspectFn: func(_ context.Context, _ string, _ ...client.ImageInspectOption) (client.ImageInspectResult, error) {
+			return client.ImageInspectResult{
+				InspectResponse: image.InspectResponse{
+					ID: "sha256:abc123",
+					Config: &dockerspec.DockerOCIImageConfig{
+						ImageConfig: ocispec.ImageConfig{Env: []string{"PATH=/usr/bin"}},
+					},
+				},
+			}, nil
+		},
+	})
+	msbClient := &msb.MockMsbClient{
+		ImageGetFn: func(_ context.Context, _ string) error { return errors.New("not cached") },
+		ImageInspectFn: func(_ context.Context, _ string) (*msbSdk.ImageConfig, error) {
+			return &msbSdk.ImageConfig{Labels: map[string]string{OpenCodeVersionLabel: "1.0.0"}}, nil
+		},
+	}
+	info, err := EnsureImageWithClient(
+		context.Background(),
+		msbClient,
+		[]byte("FROM debian:trixie-slim\nRUN echo hi\n"),
+		"test-project",
+		BuildOptions{Force: false},
+		&termio.Mock{},
+	)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	want := imageTag("test-project", "sha256:abc123")
+	if info.Tag != want {
+		t.Errorf("info.Tag = %q, want digest-based image ref %q", info.Tag, want)
 	}
 }
 

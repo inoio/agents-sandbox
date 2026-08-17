@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 
+	"gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/humanize"
 	"gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/msb"
 	"gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/naming"
 )
@@ -13,6 +14,20 @@ import (
 type Info struct {
 	Reference string
 	Digest    string
+	Size      string
+	CreatedAt string
+}
+
+// unknownSize renders when the SDK does not report a size.
+const unknownSize = "unknown"
+
+// imageSize renders a size column from the SDK handle, or unknownSize when the
+// SDK did not report a size or reports a negative (invalid) one.
+func imageSize(bytes *int64) string {
+	if bytes == nil || *bytes < 0 {
+		return unknownSize
+	}
+	return humanize.FormatBytes(uint64(*bytes))
 }
 
 // ListImages returns the cached runner images.
@@ -28,6 +43,8 @@ func ListImages(ctx context.Context) ([]Info, error) {
 			result = append(result, Info{
 				Reference: ref,
 				Digest:    h.ManifestDigest(),
+				Size:      imageSize(h.SizeBytes()),
+				CreatedAt: FormatImageTime(h.CreatedAt()),
 			})
 		}
 	}

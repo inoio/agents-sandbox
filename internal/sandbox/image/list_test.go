@@ -6,6 +6,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	"gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/msb"
 	"gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/naming"
@@ -17,6 +18,8 @@ func TestListImagesFiltersByImagePrefix(t *testing.T) {
 			msb.MockImageHandle{
 				Reference_:      "opencode-sandbox/runner-proj-aBc1234D:3k5q07ywpibwp5",
 				ManifestDigest_: "sha256:abc123",
+				SizeBytes_:      int64Ptr(1024 * 1024 * 1024),
+				CreatedAt_:      time.Date(2026, 8, 17, 10, 42, 36, 0, time.UTC),
 			},
 			msb.MockImageHandle{
 				Reference_:      "opencode-sandbox/runner-other-de456:def789",
@@ -34,8 +37,18 @@ func TestListImagesFiltersByImagePrefix(t *testing.T) {
 	}
 
 	expected := []Info{
-		{Reference: "opencode-sandbox/runner-proj-aBc1234D:3k5q07ywpibwp5", Digest: "sha256:abc123"},
-		{Reference: "opencode-sandbox/runner-other-de456:def789", Digest: "sha256:def789"},
+		{
+			Reference: "opencode-sandbox/runner-proj-aBc1234D:3k5q07ywpibwp5",
+			Digest:    "sha256:abc123",
+			Size:      "1 GiB",
+			CreatedAt: "2026-08-17 10:42:36",
+		},
+		{
+			Reference: "opencode-sandbox/runner-other-de456:def789",
+			Digest:    "sha256:def789",
+			Size:      unknownSize,
+			CreatedAt: "",
+		},
 	}
 	if len(result) != len(expected) {
 		t.Fatalf("expected %d images, got %d", len(expected), len(result))
@@ -118,5 +131,29 @@ func TestListImagesPrefixMatchesNamingImagePrefix(t *testing.T) {
 	}
 	if result[0].Reference != prefix+"runner-foo:latest" {
 		t.Errorf("unexpected reference: %s", result[0].Reference)
+	}
+}
+
+func int64Ptr(n int64) *int64 { return &n } //nolint:modernize // address-of-value is the intended pattern
+
+func TestImageSize(t *testing.T) {
+	tests := []struct {
+		name string
+		in   *int64
+		want string
+	}{
+		{"nil", nil, unknownSize},
+		{"negative", int64Ptr(-1), unknownSize},
+		{"zero", int64Ptr(0), "0 B"},
+		{"bytes", int64Ptr(512), "512 B"},
+		{"kib", int64Ptr(1024), "1 KiB"},
+		{"gib", int64Ptr(2 * 1024 * 1024 * 1024), "2 GiB"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := imageSize(tt.in); got != tt.want {
+				t.Errorf("imageSize(%v) = %q, want %q", tt.in, got, tt.want)
+			}
+		})
 	}
 }

@@ -161,6 +161,10 @@ opencode-sandbox sandbox list
 
 **Aliases:** `ls`, `sandbox list`
 
+Prints one line per opencode-sandbox VM with columns `NAME`, `STATUS`, `IMAGE`,
+`CREATED`, and `UPDATED`. `CREATED`/`UPDATED` use `YYYY-MM-DD HH:MM`; long image
+references are truncated. Column widths vary with terminal width.
+
 ---
 
 ### config
@@ -218,7 +222,9 @@ opencode-sandbox img
 
 #### image list
 
-List cached runner Docker images with references and digests.
+List cached runner Docker images with reference, digest, size, and creation time. The
+reference ends in the short content hash the image is keyed under in microsandbox; the
+digest column shows the image's full manifest digest as reported by microsandbox.
 
 ```console
 opencode-sandbox image list
@@ -296,6 +302,8 @@ List all managed home volumes.
 ```console
 opencode-sandbox volume list
 ```
+
+Columns: `NAME`, `KIND`, `SIZE`, `CREATED` (`YYYY-MM-DD HH:MM:SS`). `SIZE` shows the quota or capacity, or `-` for dir/unlimited volumes.
 
 **Aliases:** `volume ls`
 

@@ -92,7 +92,7 @@ func buildCatalog(ctx context.Context, client MsbClient, threshold time.Duration
 		if strings.HasPrefix(name, naming.TaskPrefix) {
 			// Task sandboxes are always pruned immediately.
 			elapsed := time.Since(h.UpdatedAt())
-			slug, _ := naming.ExtractProjectSlugAndDigest(name)
+			slug := naming.ArtifactFor(name).Slug
 			catalog.TaskSandboxes = append(catalog.TaskSandboxes, StaleEntry{
 				Type:     StaleTypeVM,
 				Name:     name,
@@ -105,7 +105,7 @@ func buildCatalog(ctx context.Context, client MsbClient, threshold time.Duration
 
 	staleEntries := findStaleVMs(staleVMs, threshold)
 	for i, e := range staleEntries {
-		slug, _ := naming.ExtractProjectSlugAndDigest(e.Name)
+		slug := naming.ArtifactFor(e.Name).Slug
 		staleEntries[i].Slug = slug
 	}
 
@@ -117,7 +117,7 @@ func buildCatalog(ctx context.Context, client MsbClient, threshold time.Duration
 		}
 
 		if strings.HasPrefix(name, naming.HomePrefix) {
-			slug, _ := naming.ExtractProjectSlugAndDigest(name)
+			slug := naming.ArtifactFor(name).Slug
 			if catalog.HomeVolumes[slug] == nil {
 				catalog.HomeVolumes[slug] = []volumeWithAge{}
 			}
@@ -139,18 +139,17 @@ func buildCatalog(ctx context.Context, client MsbClient, threshold time.Duration
 		if !strings.HasPrefix(ref, naming.ImagePrefix) {
 			continue
 		}
-		slug, digest := naming.ExtractProjectSlugAndDigest(ref)
-		if slug == naming.BaseSlug {
+		info := naming.ArtifactFor(ref)
+		if info.Slug == naming.BaseSlug {
 			continue
 		}
 		if seenMSB[ref] {
 			continue
 		}
 		seenMSB[ref] = true
-		catalog.MSBImages[slug] = append(catalog.MSBImages[slug], imageWithDigest{
+		catalog.MSBImages[info.Slug] = append(catalog.MSBImages[info.Slug], imageWithDigest{
 			ref:      ref,
-			digest:   digest,
-			isLatest: digest == "",
+			digest:   info.Digest,
 			lastUsed: h.LastUsedAt(),
 		})
 	}
@@ -162,14 +161,13 @@ func buildCatalog(ctx context.Context, client MsbClient, threshold time.Duration
 	// stale VMs are included so their artifact directories are cascaded before
 	// they age into staleness; this keeps the running image around for quick restarts.
 	for _, vm := range staleVMs {
-		slug, _ := naming.ExtractProjectSlugAndDigest(vm.name)
+		slug := naming.ArtifactFor(vm.name).Slug
 		// Already-stale VMs: skip here to avoid collision with stale slugs.
 		if isStaleSlug(staleEntries, slug) {
 			continue
 		}
 		if vm.image != "" {
-			_, digest := naming.ExtractProjectSlugAndDigest(vm.image)
-			if digest != "" {
+			if digest := naming.ArtifactFor(vm.image).Digest; digest != "" {
 				catalog.ActiveVMDigest[slug] = digest
 			}
 		}

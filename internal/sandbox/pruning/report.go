@@ -21,7 +21,7 @@ type StaleEntry struct {
 	Name     string
 	StaleFor time.Duration
 	Slug     string // project slug, for grouping related artifacts
-	Digest   string // for images/volumes: the identifying digest tag; empty for :latest or VMs
+	Digest   string // for images/volumes: the identifying digest tag; empty for VMs
 }
 
 // PruningCatalog holds all collected artifact data for a single prune run.
@@ -40,8 +40,7 @@ type PruningCatalog struct {
 // imageWithDigest holds a reference, its digest, and last-use time for MSB images.
 type imageWithDigest struct {
 	ref      string
-	digest   string // empty string for :latest
-	isLatest bool
+	digest   string // digest tag suffix from the msb image reference
 	lastUsed time.Time
 }
 
