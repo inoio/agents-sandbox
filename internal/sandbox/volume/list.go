@@ -13,7 +13,6 @@ import (
 //nolint:revive // VolumeInfo is the established name from query.go
 type VolumeInfo struct {
 	Name          string
-	Path          string
 	Kind          string
 	QuotaMiB      *uint32
 	CapacityBytes *uint64
@@ -44,7 +43,6 @@ func ListVolumes(ctx context.Context) ([]VolumeInfo, error) {
 		}
 		result = append(result, VolumeInfo{
 			Name:          name,
-			Path:          h.Path(),
 			Kind:          string(h.Kind()),
 			QuotaMiB:      h.QuotaMiB(),
 			CapacityBytes: h.CapacityBytes(),
