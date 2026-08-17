@@ -161,6 +161,10 @@ opencode-sandbox sandbox list
 
 **Aliases:** `ls`, `sandbox list`
 
+Prints one line per opencode-sandbox VM with columns `NAME`, `STATUS`, `IMAGE`,
+`CREATED`, and `UPDATED`. `CREATED`/`UPDATED` use `YYYY-MM-DD HH:MM`; long image
+references are truncated. Column widths vary with terminal width.
+
 ---
 
 ### config
