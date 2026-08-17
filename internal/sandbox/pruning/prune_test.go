@@ -1,12 +1,17 @@
 package pruning
 
 import (
+	"context"
 	"testing"
+	"time"
 
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 
+	cp "gitlab.inoio.de/inoio/opencode-sandbox/internal/configpaths"
+	"gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/docker"
 	"gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/msb"
 	"gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/naming"
+	"gitlab.inoio.de/inoio/opencode-sandbox/internal/termio"
 )
 
 type slugDigestTest struct {
@@ -396,5 +401,50 @@ func TestStaleTypeString(t *testing.T) {
 		if c.staleType.String() != c.want {
 			t.Errorf("StaleType(%d).String() = %q, want %q", c.staleType, c.staleType.String(), c.want)
 		}
+	}
+}
+
+func TestPruneAggregateParity(t *testing.T) {
+	old := time.Now().Add(-15 * 24 * time.Hour)
+	client := &msb.MockMsbClient{
+		Sandboxes: []msb.SandboxHandle{
+			&msb.MockSandboxHandle{
+				Name_:      "opencode-sandbox-vm-proj-1mjusbm3wikhb0",
+				Status_:    msbSdk.SandboxStatusStopped,
+				UpdatedAt_: old,
+			},
+			&msb.MockSandboxHandle{
+				Name_:      "opencode-sandbox-vm-live-1mjusbm3wikhb0",
+				Status_:    msbSdk.SandboxStatusRunning,
+				UpdatedAt_: old,
+				Image_:     "opencode-sandbox/runner-live-1mjusbm3wikhb0:cur",
+			},
+		},
+		Volumes: []msb.VolumeHandle{
+			&msb.MockVolumeHandle{Name_: "opencode-sandbox-home-proj-1mjusbm3wikhb0-20260806T143022", CreatedAt_: old},
+			&msb.MockVolumeHandle{Name_: "opencode-sandbox-home-live-1mjusbm3wikhb0-20260806T143022", CreatedAt_: old},
+		},
+		Images: []msb.ImageHandle{
+			&msb.MockImageHandle{Reference_: "opencode-sandbox/runner-proj-1mjusbm3wikhb0:old", LastUsedAt_: old},
+			&msb.MockImageHandle{Reference_: "opencode-sandbox/runner-live-1mjusbm3wikhb0:cur", LastUsedAt_: old},
+			&msb.MockImageHandle{Reference_: "opencode-sandbox/runner-live-1mjusbm3wikhb0:old", LastUsedAt_: old},
+		},
+	}
+	msb.WithMsbMock(t, client)
+	docker.WithNoopDockerMock(t)
+	cp.WithMockConfigPaths(t)
+
+	testUI := termio.NewTestMock(t)
+	if err := Prune(context.Background(), 7*24*time.Hour, false, false, &testUI); err != nil {
+		t.Fatalf("Prune: %v", err)
+	}
+	if got := len(client.RemovedSandboxes); got != 1 {
+		t.Errorf("RemovedSandboxes = %d, want 1", got)
+	}
+	if got := len(client.RemovedVolumes); got != 1 {
+		t.Errorf("RemovedVolumes = %d, want 1", got)
+	}
+	if got := len(client.RemovedImages); got != 2 {
+		t.Errorf("RemovedImages = %d, want 2 (stale proj image + live surplus)", got)
 	}
 }
