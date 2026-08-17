@@ -44,7 +44,16 @@ yet expose `CreatedAt()` or `BackendKind()`. The underlying SDK
 3. **CLI** (`cmd/opencode-sandbox/commands_system.go`, `buildListCmd`): update the
    `printItems` format to the new columnar format. Chosen columns: `NAME`, `STATUS`,
    `IMAGE`, `CREATED` (and `UPDATED` if it fits a normal terminal width). Truncate
-   long image references and keep names/status unchanged from today.
+   long image references and keep names/status unchanged from today. Render with the
+   existing `printItems` + `termio` approach; see "Rendering & styling" below.
+
+## Rendering & styling
+
+Keep the output **plain** (no coloring, no bold headers). Do **not** adopt a
+table-rendering library for this chunk — the existing `printItems` + `termio` approach
+with a fixed format string is sufficient for the few added columns. If a table library
+is ever adopted, it is tracked separately in `table-rendering-library.md` (Spec 0), a
+possible predecessor to this and the other list-output chunks.
 
 4. **Tests** (`cmd/opencode-sandbox/cli_list_subcommand_test.go`, and the session
    `list_test.go` if present):
@@ -73,3 +82,5 @@ implementing.
 - Volume/image list output (see `volume-list-output.md`, `image-list-output.md`).
 - Changing how status strings are produced (`string(h.Status())`).
 - Any change to the sandbox name or the `VmPrefix` filtering.
+- Coloring / styling of the output (kept plain).
+- Adopting a table-rendering library (see `table-rendering-library.md`, Spec 0).
