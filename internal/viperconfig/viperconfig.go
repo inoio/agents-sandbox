@@ -14,6 +14,8 @@ import (
 	"gitlab.inoio.de/inoio/opencode-sandbox/internal/configpaths"
 
 	"github.com/go-viper/mapstructure/v2"
+	"github.com/spf13/cobra"
+	"github.com/spf13/pflag"
 	"github.com/spf13/viper"
 	"github.com/titanous/json5"
 )
@@ -37,6 +39,62 @@ type Config struct {
 	AutoStopMaxSessionRetries int           `mapstructure:"auto-stop-max-session-retries"`
 }
 
+// Resolver resolves launcher config with precedence flag > env > config > default.
+type Resolver struct {
+	cfg Config
+}
+
+// NewResolver builds a Resolver, loading config files, configuring the
+// OPENCODE_SANDBOX_ env prefix, binding config-backed flags on cmd, and
+// validating. cmd may be nil to skip flag binding.
+func NewResolver(cmd *cobra.Command) (*Resolver, error) {
+	v := viper.New()
+
+	if err := mergeDir(v, configpaths.Get().UserConfigDir()); err != nil {
+		return nil, err
+	}
+	if err := mergeDir(v, configpaths.Get().ProjectConfigDir()); err != nil {
+		return nil, err
+	}
+
+	v.SetEnvPrefix("OPENCODE_SANDBOX")
+	v.SetEnvKeyReplacer(strings.NewReplacer("-", "_"))
+	v.AutomaticEnv()
+	for _, key := range configEnvKeys {
+		if err := v.BindEnv(key); err != nil {
+			return nil, err
+		}
+	}
+
+	if cmd != nil {
+		if err := bindConfigFlags(v, cmd); err != nil {
+			return nil, err
+		}
+	}
+
+	if err := validate(v); err != nil {
+		return nil, err
+	}
+
+	var cfg Config
+	if err := v.Unmarshal(&cfg, viper.DecodeHook(
+		mapstructure.ComposeDecodeHookFunc(
+			durationDecodeHook(),
+			mapstructure.StringToTimeDurationHookFunc(),
+		),
+	)); err != nil {
+		return nil, fmt.Errorf("decode launcher config: %w", err)
+	}
+	return &Resolver{cfg: cfg}, nil
+}
+
+// NewResolverWithConfig builds a Resolver from an explicit Config. It is
+// used by callers (notably cmd tests) that need a resolver with known values
+// without touching config files or env.
+func NewResolverWithConfig(cfg Config) *Resolver {
+	return &Resolver{cfg: cfg}
+}
+
 const (
 	extJSON5                     = ".json5"
 	extJSONC                     = ".jsonc"
@@ -49,6 +107,61 @@ const (
 
 //nolint:gochecknoglobals // package-level constant slice
 var supportedExts = []string{".yaml", ".yml", ".json", extJSONC, extJSON5}
+
+// configFlagKeys are the config-backed keys that are also exposed as CLI flags.
+// Their env vars use the OPENCODE_SANDBOX_ prefix.
+//
+//nolint:gochecknoglobals,goconst // package-level constant slice
+var configFlagKeys = []string{
+	"cpus", "memory", "tmp-size", "disk-size",
+	"yes", "verbose", "quiet",
+}
+
+// configEnvKeys are all launcher config keys bound to OPENCODE_SANDBOX_ env vars.
+//
+//nolint:gochecknoglobals,goconst // package-level constant slice
+var configEnvKeys = []string{
+	"cpus", "memory", "tmp-size", "disk-size",
+	"yes", "verbose", "quiet",
+	"auto-prune-age", "manual-prune-age",
+	"auto-stop-on-active-sessions", "auto-stop-timeout", "auto-stop-max-session-retries",
+}
+
+// bindConfigFlags binds each config-backed flag found on cmd (local or
+// inherited) to viper and mirrors its declared default so that an
+// unspecified flag with a default does not override env/config.
+func bindConfigFlags(v *viper.Viper, cmd *cobra.Command) error {
+	for _, key := range configFlagKeys {
+		flag := findFlag(cmd, key)
+		if flag == nil {
+			continue
+		}
+		if err := v.BindPFlag(key, flag); err != nil {
+			return fmt.Errorf("bind flag %q: %w", key, err)
+		}
+		v.SetDefault(key, flagTypedDefault(key, flag))
+	}
+	return nil
+}
+
+func findFlag(cmd *cobra.Command, name string) *pflag.Flag {
+	if f := cmd.Flags().Lookup(name); f != nil {
+		return f
+	}
+	return cmd.InheritedFlags().Lookup(name)
+}
+
+func flagTypedDefault(key string, flag *pflag.Flag) any {
+	switch key {
+	case "cpus":
+		n, _ := strconv.ParseUint(flag.DefValue, 10, 8)
+		return uint8(n)
+	case "yes", "verbose", "quiet":
+		return flag.DefValue == "true"
+	default:
+		return flag.DefValue
+	}
+}
 
 // ParseHumanDuration parses duration strings like "7d", "2w", "6h", "30m"
 // into time.Duration. Go's time.ParseDuration supports ns/us/ms/s/m/h
@@ -261,3 +374,17 @@ func (c Config) IdleTimeout() time.Duration {
 	}
 	return 10 * time.Second
 }
+
+func (r *Resolver) CPUs() uint8                    { return r.cfg.CPUs }
+func (r *Resolver) Memory() string                 { return r.cfg.Memory }
+func (r *Resolver) TmpSize() string                { return r.cfg.TmpSize }
+func (r *Resolver) DiskSize() string               { return r.cfg.DiskSize }
+func (r *Resolver) Yes() bool                      { return r.cfg.Yes }
+func (r *Resolver) Verbose() bool                  { return r.cfg.Verbose }
+func (r *Resolver) Quiet() bool                    { return r.cfg.Quiet }
+func (r *Resolver) AutoPruneAge() time.Duration    { return r.cfg.AutoPruneAge }
+func (r *Resolver) ManualPruneAge() time.Duration  { return r.cfg.ManualPruneAge }
+func (r *Resolver) AutoStopOnActiveSessions() bool { return r.cfg.AutoStopOnActiveSessions }
+func (r *Resolver) AutoStopTimeout() time.Duration { return r.cfg.AutoStopTimeout }
+func (r *Resolver) AutoStopMaxSessionRetries() int { return r.cfg.AutoStopMaxSessionRetries }
+func (r *Resolver) IdleTimeout() time.Duration     { return r.cfg.IdleTimeout() }
