@@ -26,7 +26,7 @@ type Client interface {
 	EnsureInstalled(ctx context.Context) error
 	GetSandbox(ctx context.Context, name string) (SandboxHandle, error)
 	CreateSandbox(ctx context.Context, name string, opts ...msbSdk.SandboxOption) (Sandbox, error)
-	ListSandboxes(ctx context.Context) ([]SandboxHandle, error)
+	ListSandboxes(ctx context.Context, labels map[string]string) ([]SandboxHandle, error)
 	RemoveSandbox(ctx context.Context, name string) error
 	GetVolume(ctx context.Context, name string) (VolumeHandle, error)
 	CreateVolume(ctx context.Context, name string, opts ...msbSdk.VolumeOption) (VolumeHandle, error)
@@ -174,17 +174,20 @@ func (realMsbClient) CreateSandbox(ctx context.Context, name string, opts ...msb
 	return &realSandbox{sandbox: sb}, nil
 }
 
-func (realMsbClient) ListSandboxes(ctx context.Context) ([]SandboxHandle, error) {
+func (realMsbClient) ListSandboxes(ctx context.Context, labels map[string]string) ([]SandboxHandle, error) {
 	var result []SandboxHandle
 	var cursor *string
 	for {
 		var page *msbSdk.SandboxPage
 		var err error
-		if cursor == nil {
-			page, err = msbSdk.ListSandboxes(ctx)
-		} else {
-			page, err = msbSdk.ListSandboxesWith(ctx, msbSdk.WithListCursor(*cursor))
+		opts := []msbSdk.SandboxListOption{}
+		if len(labels) > 0 {
+			opts = append(opts, msbSdk.WithListLabels(labels))
 		}
+		if cursor != nil {
+			opts = append(opts, msbSdk.WithListCursor(*cursor))
+		}
+		page, err = msbSdk.ListSandboxesWith(ctx, opts...)
 		if err != nil {
 			return nil, err
 		}

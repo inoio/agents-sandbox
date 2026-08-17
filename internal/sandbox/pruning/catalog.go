@@ -48,7 +48,7 @@ func findStaleVMs(sandboxes []staleVM, threshold time.Duration) []StaleEntry {
 //
 //nolint:gocognit,funlen // Data collection involves multiple independent list operations with filtering
 func buildCatalog(ctx context.Context, client MsbClient, threshold time.Duration) (*PruningCatalog, error) {
-	sandboxHandles, err := client.ListSandboxes(ctx)
+	sandboxHandles, err := client.ListSandboxes(ctx, nil)
 	if err != nil {
 		return nil, fmt.Errorf("list sandboxes: %w", err)
 	}

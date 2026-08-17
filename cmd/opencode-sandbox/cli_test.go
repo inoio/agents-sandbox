@@ -18,7 +18,7 @@ import (
 func TestRootHasGlobalFlags(t *testing.T) {
 	testUI := termio.NewTestMock(t)
 	root := buildRootCmd(&testUI)
-	flags := []string{"yes", "verbose", "quiet"}
+	flags := []string{"yes", "verbose", "error"}
 	for _, f := range flags {
 		if root.PersistentFlags().Lookup(f) == nil {
 			t.Errorf("expected persistent flag --%s on root", f)
@@ -51,7 +51,7 @@ func TestRunCommandFlagShortcuts(t *testing.T) {
 	shortcuts := map[string]string{
 		"w": "worktree", "c": "cpus", "m": "memory",
 		"r": "rebuild", "n": "dry-run", "y": "yes",
-		"v": "verbose", "q": "quiet",
+		"v": "verbose",
 	}
 	for short, long := range shortcuts {
 		f := runCmd.Flags().ShorthandLookup(short)

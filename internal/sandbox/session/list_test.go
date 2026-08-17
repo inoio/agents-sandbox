@@ -8,7 +8,10 @@ import (
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 
 	"gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/msb"
+	"gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/naming"
 )
+
+func intPtr(n uint32) *uint32 { return &n } //nolint:modernize // keep explicit pointer helper for test clarity
 
 func TestFormatTime(t *testing.T) {
 	tests := []struct {
@@ -63,5 +66,129 @@ func TestListSandboxesPopulatesInfo(t *testing.T) {
 	}
 	if info.Image != "opencode-sandbox/runner:latest" {
 		t.Errorf("Image = %q, want opencode-sandbox/runner:latest", info.Image)
+	}
+}
+
+func TestListSandboxesRunningOnly(t *testing.T) {
+	mock := &msb.MockMsbClient{}
+	mock.Sandboxes = []msb.SandboxHandle{
+		&msb.MockSandboxHandle{Name_: "opencode-sandbox-vm-a", Status_: msbSdk.SandboxStatusRunning},
+		&msb.MockSandboxHandle{Name_: "opencode-sandbox-vm-b", Status_: msbSdk.SandboxStatusStopped},
+		&msb.MockSandboxHandle{Name_: "other-vm-c", Status_: msbSdk.SandboxStatusRunning},
+	}
+	msb.WithMsbMock(t, mock)
+
+	infos, err := ListSandboxes(context.Background(), ListOption{RunningOnly: true})
+	if err != nil {
+		t.Fatalf("ListSandboxes: %v", err)
+	}
+	if len(infos) != 1 || infos[0].Name != "opencode-sandbox-vm-a" {
+		t.Errorf("expected only running project VM, got %+v", infos)
+	}
+}
+
+func TestListSandboxesStoppedOnly(t *testing.T) {
+	mock := &msb.MockMsbClient{}
+	mock.Sandboxes = []msb.SandboxHandle{
+		&msb.MockSandboxHandle{Name_: "opencode-sandbox-vm-a", Status_: msbSdk.SandboxStatusRunning},
+		&msb.MockSandboxHandle{Name_: "opencode-sandbox-vm-b", Status_: msbSdk.SandboxStatusStopped},
+		&msb.MockSandboxHandle{Name_: "other-vm-c", Status_: msbSdk.SandboxStatusStopped},
+	}
+	msb.WithMsbMock(t, mock)
+
+	infos, err := ListSandboxes(context.Background(), ListOption{StoppedOnly: true})
+	if err != nil {
+		t.Fatalf("ListSandboxes: %v", err)
+	}
+	if len(infos) != 1 || infos[0].Name != "opencode-sandbox-vm-b" {
+		t.Errorf("expected only stopped project VM, got %+v", infos)
+	}
+}
+
+func TestListSandboxesRunningWinsWhenBoth(t *testing.T) {
+	mock := &msb.MockMsbClient{}
+	mock.Sandboxes = []msb.SandboxHandle{
+		&msb.MockSandboxHandle{Name_: "opencode-sandbox-vm-a", Status_: msbSdk.SandboxStatusRunning},
+		&msb.MockSandboxHandle{Name_: "opencode-sandbox-vm-b", Status_: msbSdk.SandboxStatusStopped},
+	}
+	msb.WithMsbMock(t, mock)
+
+	infos, err := ListSandboxes(context.Background(), ListOption{RunningOnly: true, StoppedOnly: true})
+	if err != nil {
+		t.Fatalf("ListSandboxes: %v", err)
+	}
+	if len(infos) != 1 || infos[0].Name != "opencode-sandbox-vm-a" {
+		t.Errorf("expected running-only when both set, got %+v", infos)
+	}
+}
+
+func TestListSandboxesLimit(t *testing.T) {
+	mock := &msb.MockMsbClient{}
+	mock.Sandboxes = []msb.SandboxHandle{
+		&msb.MockSandboxHandle{Name_: "opencode-sandbox-vm-a", Status_: msbSdk.SandboxStatusRunning},
+		&msb.MockSandboxHandle{Name_: "opencode-sandbox-vm-b", Status_: msbSdk.SandboxStatusRunning},
+	}
+	msb.WithMsbMock(t, mock)
+
+	infos, err := ListSandboxes(context.Background(), ListOption{Limit: intPtr(1)})
+	if err != nil {
+		t.Fatalf("ListSandboxes: %v", err)
+	}
+	if len(infos) != 1 {
+		t.Errorf("expected 1 result due to limit, got %d: %+v", len(infos), infos)
+	}
+}
+
+func TestListSandboxesLabelsForwarded(t *testing.T) {
+	mock := &msb.MockMsbClient{}
+	mock.Sandboxes = nil
+	var captured map[string]string
+	mock.ListSandboxesFn = func(_ context.Context, labels map[string]string) ([]msb.SandboxHandle, error) {
+		captured = labels
+		return mock.Sandboxes, nil
+	}
+	msb.WithMsbMock(t, mock)
+
+	if _, err := ListSandboxes(context.Background(), ListOption{Labels: map[string]string{"k": "v"}}); err != nil {
+		t.Fatalf("ListSandboxes: %v", err)
+	}
+	if captured == nil || captured["k"] != "v" {
+		t.Errorf("expected labels forwarded to msb, got %+v", captured)
+	}
+}
+
+func TestListSandboxesPopulatesInfoFields(t *testing.T) {
+	now := time.Date(2026, 8, 17, 10, 30, 0, 0, time.UTC)
+	mock := &msb.MockMsbClient{}
+	mock.Sandboxes = []msb.SandboxHandle{
+		&msb.MockSandboxHandle{
+			Name_:      "opencode-sandbox-vm-a",
+			Status_:    msbSdk.SandboxStatusRunning,
+			CreatedAt_: now,
+			UpdatedAt_: now.Add(time.Hour),
+			Cfg: &msbSdk.SandboxConfig{
+				Image:  "opencode-sandbox/runner:latest",
+				Labels: map[string]string{naming.LabelProject: "proj"},
+			},
+		},
+	}
+	msb.WithMsbMock(t, mock)
+
+	infos, err := ListSandboxes(context.Background())
+	if err != nil {
+		t.Fatalf("ListSandboxes: %v", err)
+	}
+	if len(infos) != 1 {
+		t.Fatalf("expected 1 result, got %d: %+v", len(infos), infos)
+	}
+	info := infos[0]
+	if info.Labels == nil || info.Labels[naming.LabelProject] != "proj" {
+		t.Errorf("Labels not populated: %+v", info.Labels)
+	}
+	if !info.CreatedAtRaw.Equal(now) {
+		t.Errorf("CreatedAtRaw = %v, want %v", info.CreatedAtRaw, now)
+	}
+	if !info.UpdatedAtRaw.Equal(now.Add(time.Hour)) {
+		t.Errorf("UpdatedAtRaw = %v, want %v", info.UpdatedAtRaw, now.Add(time.Hour))
 	}
 }
