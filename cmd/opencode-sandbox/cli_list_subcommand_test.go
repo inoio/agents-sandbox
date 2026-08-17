@@ -1,6 +1,8 @@
 package main
 
 import (
+	"context"
+	"encoding/json"
 	"errors"
 	"strings"
 	"testing"
@@ -9,6 +11,7 @@ import (
 	msb "github.com/superradcompany/microsandbox/sdk/go"
 
 	sandboxmsb "gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/msb"
+	"gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/naming"
 )
 
 var errBoom = errors.New("boom")
@@ -169,6 +172,238 @@ func TestListSandboxes(t *testing.T) {
 			)
 		})
 	}
+}
+
+// projectSandbox builds a running project-VM mock handle with the given label map.
+func projectSandbox(name string, labels map[string]string) *sandboxmsb.MockSandboxHandle {
+	return &sandboxmsb.MockSandboxHandle{
+		Name_:      name,
+		Status_:    msb.SandboxStatusRunning,
+		CreatedAt_: time.Date(2026, 8, 17, 10, 0, 0, 0, time.UTC),
+		UpdatedAt_: time.Date(2026, 8, 17, 11, 0, 0, 0, time.UTC),
+		Cfg:        &msb.SandboxConfig{Image: "opencode-sandbox/runner:latest", Labels: labels},
+	}
+}
+
+func TestListSandboxesLabelFilter(t *testing.T) {
+	mock := &sandboxmsb.MockMsbClient{}
+	mock.Sandboxes = []sandboxmsb.SandboxHandle{
+		projectSandbox("opencode-sandbox-vm-match",
+			map[string]string{naming.LabelProject: "myslug"}),
+		projectSandbox("opencode-sandbox-vm-other",
+			map[string]string{naming.LabelProject: "otherslug"}),
+	}
+	mock.ListSandboxesFn = func(_ context.Context, labels map[string]string) ([]sandboxmsb.SandboxHandle, error) {
+		var filtered []sandboxmsb.SandboxHandle
+		for _, h := range mock.Sandboxes {
+			cfg, _ := h.Config()
+			if labelsMatch(cfg.Labels, labels) {
+				filtered = append(filtered, h)
+			}
+		}
+		return filtered, nil
+	}
+	cmd, ui := setupCommandFixtures(t, cmdList, "--label", "org.opencode-sandbox.project=myslug")
+	sandboxmsb.WithMsbMock(t, mock)
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !containsNormalized(
+		ui.OutCalls,
+		"opencode-sandbox-vm-match opencode-sandbox/runner:latest running 2026-08-17 10:00:00",
+	) {
+		t.Errorf("matching sandbox row missing; got: %v", ui.OutCalls)
+	}
+	if containsNormalized(
+		ui.OutCalls,
+		"opencode-sandbox-vm-other opencode-sandbox/runner:latest running 2026-08-17 10:00:00",
+	) {
+		t.Errorf("non-matching sandbox row should be absent; got: %v", ui.OutCalls)
+	}
+}
+
+func labelsMatch(got, want map[string]string) bool {
+	for k, v := range want {
+		if got[k] != v {
+			return false
+		}
+	}
+	return true
+}
+
+func TestListSandboxesLabelInvalid(t *testing.T) {
+	runListCmdTest(t, []string{cmdList, "--label", "missing-equals"},
+		func(_ *sandboxmsb.MockMsbClient) {}, nil, nil, true, "invalid label")
+}
+
+func TestListSandboxesLimit(t *testing.T) {
+	mock := &sandboxmsb.MockMsbClient{}
+	mock.Sandboxes = []sandboxmsb.SandboxHandle{
+		projectSandbox("opencode-sandbox-vm-alpha", nil),
+		projectSandbox("opencode-sandbox-vm-beta", nil),
+	}
+	cmd, ui := setupCommandFixtures(t, cmdList, "--limit", "1")
+	sandboxmsb.WithMsbMock(t, mock)
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !containsNormalized(
+		ui.OutCalls,
+		"opencode-sandbox-vm-alpha opencode-sandbox/runner:latest running 2026-08-17 10:00:00",
+	) {
+		t.Errorf("alpha row missing; got: %v", ui.OutCalls)
+	}
+	if containsNormalized(
+		ui.OutCalls,
+		"opencode-sandbox-vm-beta opencode-sandbox/runner:latest running 2026-08-17 10:00:00",
+	) {
+		t.Errorf("beta row should be absent when limited to 1; got: %v", ui.OutCalls)
+	}
+}
+
+func TestListSandboxesRunningOnly(t *testing.T) {
+	mock := &sandboxmsb.MockMsbClient{}
+	mock.Sandboxes = []sandboxmsb.SandboxHandle{
+		projectSandbox("opencode-sandbox-vm-running", nil),
+		projectSandbox("opencode-sandbox-vm-stopped", nil),
+	}
+	mock.Sandboxes[1].(*sandboxmsb.MockSandboxHandle).Status_ = msb.SandboxStatusStopped
+	cmd, ui := setupCommandFixtures(t, cmdList, "--running")
+	sandboxmsb.WithMsbMock(t, mock)
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !containsNormalized(
+		ui.OutCalls,
+		"opencode-sandbox-vm-running opencode-sandbox/runner:latest running 2026-08-17 10:00:00",
+	) {
+		t.Errorf("running sandbox row missing; got: %v", ui.OutCalls)
+	}
+	if containsNormalized(
+		ui.OutCalls,
+		"opencode-sandbox-vm-stopped opencode-sandbox/runner:latest stopped 2026-08-17 10:00:00",
+	) {
+		t.Errorf("stopped sandbox row should be absent; got: %v", ui.OutCalls)
+	}
+}
+
+func TestListSandboxesStoppedOnly(t *testing.T) {
+	mock := &sandboxmsb.MockMsbClient{}
+	mock.Sandboxes = []sandboxmsb.SandboxHandle{
+		projectSandbox("opencode-sandbox-vm-running", nil),
+		projectSandbox("opencode-sandbox-vm-stopped", nil),
+	}
+	mock.Sandboxes[1].(*sandboxmsb.MockSandboxHandle).Status_ = msb.SandboxStatusStopped
+	cmd, ui := setupCommandFixtures(t, cmdList, "--stopped")
+	sandboxmsb.WithMsbMock(t, mock)
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !containsNormalized(
+		ui.OutCalls,
+		"opencode-sandbox-vm-stopped opencode-sandbox/runner:latest stopped 2026-08-17 10:00:00",
+	) {
+		t.Errorf("stopped sandbox row missing; got: %v", ui.OutCalls)
+	}
+	if containsNormalized(
+		ui.OutCalls,
+		"opencode-sandbox-vm-running opencode-sandbox/runner:latest running 2026-08-17 10:00:00",
+	) {
+		t.Errorf("running sandbox row should be absent; got: %v", ui.OutCalls)
+	}
+}
+
+func TestListSandboxesBothFlagsRunningWins(t *testing.T) {
+	mock := &sandboxmsb.MockMsbClient{}
+	mock.Sandboxes = []sandboxmsb.SandboxHandle{
+		projectSandbox("opencode-sandbox-vm-running", nil),
+		projectSandbox("opencode-sandbox-vm-stopped", nil),
+	}
+	mock.Sandboxes[1].(*sandboxmsb.MockSandboxHandle).Status_ = msb.SandboxStatusStopped
+	cmd, ui := setupCommandFixtures(t, cmdList, "--running", "--stopped")
+	sandboxmsb.WithMsbMock(t, mock)
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !containsNormalized(
+		ui.OutCalls,
+		"opencode-sandbox-vm-running opencode-sandbox/runner:latest running 2026-08-17 10:00:00",
+	) {
+		t.Errorf("running sandbox row missing; got: %v", ui.OutCalls)
+	}
+	if containsNormalized(
+		ui.OutCalls,
+		"opencode-sandbox-vm-stopped opencode-sandbox/runner:latest stopped 2026-08-17 10:00:00",
+	) {
+		t.Errorf("stopped sandbox row should be absent when running wins; got: %v", ui.OutCalls)
+	}
+}
+
+func TestListSandboxesQuietNames(t *testing.T) {
+	mock := &sandboxmsb.MockMsbClient{}
+	mock.Sandboxes = []sandboxmsb.SandboxHandle{
+		projectSandbox("opencode-sandbox-vm-alpha", nil),
+		projectSandbox("opencode-sandbox-vm-beta", nil),
+	}
+	cmd, ui := setupCommandFixtures(t, cmdList, "-q")
+	sandboxmsb.WithMsbMock(t, mock)
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	for _, want := range []string{"opencode-sandbox-vm-alpha", "opencode-sandbox-vm-beta"} {
+		if !containsNormalized(ui.OutCalls, want) {
+			t.Errorf("OutCalls missing name %q; got: %v", want, ui.OutCalls)
+		}
+	}
+	if containsNormalized(ui.OutCalls, "NAME IMAGE STATUS CREATED") {
+		t.Errorf("column header should be absent in quiet mode; got: %v", ui.OutCalls)
+	}
+}
+
+func TestListSandboxesFormatJSON(t *testing.T) {
+	mock := &sandboxmsb.MockMsbClient{}
+	mock.Sandboxes = []sandboxmsb.SandboxHandle{
+		projectSandbox("opencode-sandbox-vm-abc",
+			map[string]string{naming.LabelProject: "myslug"}),
+	}
+	cmd, ui := setupCommandFixtures(t, cmdList, "--format", "json")
+	sandboxmsb.WithMsbMock(t, mock)
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	joined := strings.Join(ui.OutCalls, "\n")
+	var got []struct {
+		Name    string            `json:"name"`
+		Status  string            `json:"status"`
+		Image   string            `json:"image"`
+		Labels  map[string]string `json:"labels"`
+		Created time.Time         `json:"created"`
+		Updated time.Time         `json:"updated"`
+	}
+	if err := json.Unmarshal([]byte(joined), &got); err != nil {
+		t.Fatalf("json.Unmarshal: %v; output: %q", err, joined)
+	}
+	if len(got) != 1 {
+		t.Fatalf("expected 1 sandbox in JSON, got %d: %q", len(got), joined)
+	}
+	s := got[0]
+	if s.Name != "opencode-sandbox-vm-abc" || s.Status != "running" ||
+		s.Image != "opencode-sandbox/runner:latest" || s.Labels[naming.LabelProject] != "myslug" {
+		t.Errorf("unexpected JSON fields: %+v", s)
+	}
+	if s.Created.IsZero() || s.Updated.IsZero() {
+		t.Errorf("created/updated should unmarshal as times, got %v / %v", s.Created, s.Updated)
+	}
+}
+
+func TestListSandboxesFormatJSONAndQuietConflict(t *testing.T) {
+	runListCmdTest(t, []string{cmdList, "-q", "--format", "json"},
+		func(_ *sandboxmsb.MockMsbClient) {}, nil, nil, true, "mutually exclusive")
+}
+
+func TestListSandboxesFormatUnknown(t *testing.T) {
+	runListCmdTest(t, []string{cmdList, "--format", "yaml"},
+		func(_ *sandboxmsb.MockMsbClient) {}, nil, nil, true, "unsupported format")
 }
 
 func TestListImages(t *testing.T) {
