@@ -168,6 +168,19 @@ microsandbox when color is enabled (`running` green, `stopped`/`created` dim,
 transitional states yellow, `crashed` red); with color disabled it renders as
 plain text.
 
+**Flags:**
+
+| Flag         | Short | Default | Purpose                                                                                                  |
+|--------------|-------|---------|----------------------------------------------------------------------------------------------------------|
+| `--label`    | —     | —       | Filter to sandboxes carrying the given `KEY=VALUE` label. Repeatable; labels are AND-matched.            |
+| `--limit`    | —     | `0`     | Limit the number of sandboxes listed (`0` = no limit).                                                   |
+| `--running`  | —     | `false` | Only list running sandboxes.                                                                             |
+| `--stopped`  | —     | `false` | Only list stopped sandboxes.                                                                            |
+| `--quiet`    | `-q`  | `false` | Print names only (no header, no status, image, or created columns).                                     |
+| `--format`   | —     | `""`    | Output format. `json` prints a top-level array of `{name,status,image,created,updated,labels}` objects. |
+
+`--running` wins over `--stopped` when both are set.
+
 ---
 
 ### config
