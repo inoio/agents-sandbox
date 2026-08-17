@@ -105,3 +105,19 @@ func TestPrintNoopWhenNoRows(t *testing.T) {
 		t.Errorf("Print() with no rows should write nothing, got %v", m.OutCalls)
 	}
 }
+
+func TestRenderAlignsStyledCellsWithPlainCells(t *testing.T) {
+	tbl := (&Mock{}).NewTable("NAME", "STATUS", "CREATED")
+	tbl.AddRow("alpha", StyleStatus("running"), "2026-08-17 09:00:00")
+	tbl.AddRow("beta", "unknown", "2026-08-17 10:00:00")
+
+	rendered := tbl.render()
+	lines := strings.Split(rendered, "\n")
+	// Compare visible columns, so ANSI bytes in the styled cell don't skew the
+	// byte offset of the CREATED column.
+	idx1 := strings.Index(stripANSICodes(lines[1]), "09:00:00")
+	idx2 := strings.Index(stripANSICodes(lines[2]), "10:00:00")
+	if idx1 != idx2 {
+		t.Errorf("CREATED column not aligned with styled status: row1=%d row2=%d", idx1, idx2)
+	}
+}

@@ -91,8 +91,9 @@ func renderRow(row []string, widths []int) string {
 	return b.String()
 }
 
-// displayWidth returns the visible width of s for alignment purposes, matching
-// msb's console::measure_text_width for the ASCII cells we render.
+// displayWidth returns the visible width of s for alignment purposes. ANSI
+// codes are stripped first so styled cells (e.g. colored statuses) align with
+// plain text, matching msb's console::measure_text_width.
 func displayWidth(s string) int {
-	return utf8.RuneCountInString(s)
+	return utf8.RuneCountInString(stripANSICodes(s))
 }
