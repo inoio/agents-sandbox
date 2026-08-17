@@ -24,6 +24,20 @@ import (
 
 type volumeOpFunc func(context.Context, string, string, string, string, bool, bool, termio.UI) error
 
+// sandboxListFormat is shared by buildListCmd and its tests so the column
+// layout stays in sync.
+const sandboxListFormat = "%-32s %-10s %-44s %-16s %-16s"
+
+// truncateImage shortens a long image reference so the IMAGE column stays
+// within a normal terminal width.
+func truncateImage(ref string) string {
+	const maxLen = 44
+	if len(ref) <= maxLen {
+		return ref
+	}
+	return ref[:maxLen-3] + "..."
+}
+
 func buildVolumeOpsCmd(
 	ui termio.UI,
 	name string,
@@ -96,10 +110,13 @@ func buildListCmd(ui termio.UI) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			printItems(sandboxes, "No sandboxes found.", "%-40s %s",
+			printItems(sandboxes, "No sandboxes found.", sandboxListFormat, ui,
 				func(s session.Info) string { return s.Name },
 				func(s session.Info) string { return s.Status },
-				ui)
+				func(s session.Info) string { return truncateImage(s.Image) },
+				func(s session.Info) string { return s.CreatedAt },
+				func(s session.Info) string { return s.UpdatedAt },
+			)
 			return nil
 		},
 	}
@@ -206,10 +223,10 @@ func buildImageCmd(ui termio.UI) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			printItems(images, "No images found.", "%-50s %s",
+			printItems(images, "No images found.", "%-50s %s", ui,
 				func(i image.Info) string { return i.Reference },
 				func(i image.Info) string { return i.Digest },
-				ui)
+			)
 			return nil
 		},
 	})
@@ -233,10 +250,10 @@ func buildVolumeCmd(ui termio.UI) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			printItems(volumes, "No volumes found.", "%-50s %s",
+			printItems(volumes, "No volumes found.", "%-50s %s", ui,
 				func(v volume.VolumeInfo) string { return v.Name },
 				func(v volume.VolumeInfo) string { return v.Path },
-				ui)
+			)
 			return nil
 		},
 	})
