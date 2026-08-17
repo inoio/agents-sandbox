@@ -222,7 +222,7 @@ opencode-sandbox img
 
 #### image list
 
-List cached runner Docker images with references and digests.
+List cached runner Docker images with reference, digest, size, and creation time.
 
 ```console
 opencode-sandbox image list
