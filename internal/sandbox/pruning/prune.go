@@ -25,6 +25,9 @@ func (r *StaleReport) hasAnything() bool {
 
 // Prune orchestrates all three pruners against one shared snapshot and prints a
 // merged summary. Task sandboxes count into PrunedVMs.
+//
+// The keep-set comes from the snapshot taken before pruning runs, so a stale VM's
+// home volumes and images are reclaimed even if the VM's own removal fails.
 func Prune(ctx context.Context, threshold time.Duration, dryRun, autoPrune bool, ui termio.UI) error {
 	snap, err := BuildLiveState(ctx, msb.Get(), threshold)
 	if err != nil {
