@@ -9,6 +9,18 @@ import (
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 )
 
+func TestMockVolumeHandleImplementsInterface(_ *testing.T) {
+	var _ VolumeHandle = (*MockVolumeHandle)(nil)
+	v := &MockVolumeHandle{}
+	_ = v.IsDefault()
+	_ = v.QuotaMiB()
+	_ = v.UsedBytes()
+	_ = v.CapacityBytes()
+	_ = v.DiskFormat()
+	_ = v.DiskFstype()
+	_ = v.Labels()
+}
+
 func TestRealVolumeHandle_Kind_UnknownValue(t *testing.T) {
 	vh := &realVolumeHandle{val: "not a volume"}
 	if got := vh.Kind(); got != msbSdk.VolumeKindDir {
