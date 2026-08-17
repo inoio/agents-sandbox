@@ -320,6 +320,8 @@ type MockSandboxHandle struct {
 	Name_           string
 	Status_         msbSdk.SandboxStatus
 	UpdatedAt_      time.Time
+	CreatedAt_      time.Time
+	BackendKind_    msbSdk.BackendKind
 	Image_          string
 	ConnectSb       Sandbox
 	StartSb         Sandbox
@@ -335,10 +337,20 @@ type MockSandboxHandle struct {
 	ModifiedOptions []msbSdk.ModifyOptions
 }
 
-func (m *MockSandboxHandle) Name() string                 { return m.Name_ }
-func (m *MockSandboxHandle) Status() msbSdk.SandboxStatus { return m.Status_ }
-func (m *MockSandboxHandle) UpdatedAt() time.Time         { return m.UpdatedAt_ }
-func (m *MockSandboxHandle) Image() string                { return m.Image_ }
+func (m *MockSandboxHandle) Name() string                    { return m.Name_ }
+func (m *MockSandboxHandle) Status() msbSdk.SandboxStatus    { return m.Status_ }
+func (m *MockSandboxHandle) UpdatedAt() time.Time            { return m.UpdatedAt_ }
+func (m *MockSandboxHandle) CreatedAt() time.Time            { return m.CreatedAt_ }
+func (m *MockSandboxHandle) BackendKind() msbSdk.BackendKind { return m.BackendKind_ }
+func (m *MockSandboxHandle) Image() string {
+	if m.Image_ != "" {
+		return m.Image_
+	}
+	if m.Cfg != nil {
+		return m.Cfg.Image
+	}
+	return ""
+}
 func (m *MockSandboxHandle) Connect(_ context.Context) (Sandbox, error) {
 	if m.ConnectErr != nil {
 		return nil, m.ConnectErr
