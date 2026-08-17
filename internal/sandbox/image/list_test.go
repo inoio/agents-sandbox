@@ -6,6 +6,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	"gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/msb"
 	"gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/naming"
@@ -17,6 +18,8 @@ func TestListImagesFiltersByImagePrefix(t *testing.T) {
 			msb.MockImageHandle{
 				Reference_:      "opencode-sandbox/runner-proj-aBc1234D:3k5q07ywpibwp5",
 				ManifestDigest_: "sha256:abc123",
+				SizeBytes_:      int64Ptr(1024 * 1024 * 1024),
+				CreatedAt_:      time.Date(2026, 8, 17, 10, 42, 36, 0, time.UTC),
 			},
 			msb.MockImageHandle{
 				Reference_:      "opencode-sandbox/runner-other-de456:def789",
@@ -34,8 +37,18 @@ func TestListImagesFiltersByImagePrefix(t *testing.T) {
 	}
 
 	expected := []Info{
-		{Reference: "opencode-sandbox/runner-proj-aBc1234D:3k5q07ywpibwp5", Digest: "sha256:abc123"},
-		{Reference: "opencode-sandbox/runner-other-de456:def789", Digest: "sha256:def789"},
+		{
+			Reference: "opencode-sandbox/runner-proj-aBc1234D:3k5q07ywpibwp5",
+			Digest:    "sha256:abc123",
+			Size:      "1 GiB",
+			CreatedAt: "2026-08-17 10:42:36",
+		},
+		{
+			Reference: "opencode-sandbox/runner-other-de456:def789",
+			Digest:    "sha256:def789",
+			Size:      "unknown",
+			CreatedAt: "",
+		},
 	}
 	if len(result) != len(expected) {
 		t.Fatalf("expected %d images, got %d", len(expected), len(result))
@@ -120,3 +133,5 @@ func TestListImagesPrefixMatchesNamingImagePrefix(t *testing.T) {
 		t.Errorf("unexpected reference: %s", result[0].Reference)
 	}
 }
+
+func int64Ptr(n int64) *int64 { return &n }
