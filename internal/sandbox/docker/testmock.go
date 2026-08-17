@@ -73,6 +73,9 @@ func newErrorDockerClient(mockErrs mockErrors) *MockDockerClient {
 			return client.ImageRemoveResult{}, removeErr
 		},
 		ImageTagFn: nil,
+		ImagePruneFn: func(_ context.Context, _ client.ImagePruneOptions) (client.ImagePruneResult, error) {
+			return client.ImagePruneResult{}, defaultErr
+		},
 		PingFn: func(ctx context.Context, opts client.PingOptions) (client.PingResult, error) {
 			return client.PingResult{}, errors.New("cannot connect to Docker daemon")
 		},
@@ -82,12 +85,15 @@ func newErrorDockerClient(mockErrs mockErrors) *MockDockerClient {
 // MockDockerClient is the zero implementation of docker.Client.
 // All methods succeed with nil/empty returns. Use newErrorDockerClient
 // to override specific methods with errors.
+//
+//nolint:dupl // mirrors the docker.Client interface by design
 type MockDockerClient struct {
 	ImageBuildFn   func(ctx context.Context, r io.Reader, options client.ImageBuildOptions) (client.ImageBuildResult, error)
 	ImageInspectFn func(ctx context.Context, ref string, inspectOpts ...client.ImageInspectOption) (client.ImageInspectResult, error)
 	ImageSaveFn    func(ctx context.Context, refs []string, saveOpts ...client.ImageSaveOption) (client.ImageSaveResult, error)
 	ImageRemoveFn  func(ctx context.Context, ref string, options client.ImageRemoveOptions) (client.ImageRemoveResult, error)
 	ImageTagFn     func(ctx context.Context, opts client.ImageTagOptions) (client.ImageTagResult, error)
+	ImagePruneFn   func(ctx context.Context, opts client.ImagePruneOptions) (client.ImagePruneResult, error)
 	PingFn         func(ctx context.Context, opts client.PingOptions) (client.PingResult, error)
 }
 
@@ -147,6 +153,16 @@ func (m *MockDockerClient) ImageTag(ctx context.Context, opts client.ImageTagOpt
 		return m.ImageTagFn(ctx, opts)
 	}
 	return client.ImageTagResult{}, nil
+}
+
+func (m *MockDockerClient) ImagePrune(
+	ctx context.Context,
+	opts client.ImagePruneOptions,
+) (client.ImagePruneResult, error) {
+	if m.ImagePruneFn != nil {
+		return m.ImagePruneFn(ctx, opts)
+	}
+	return client.ImagePruneResult{}, nil
 }
 
 func (m *MockDockerClient) Ping(
@@ -213,6 +229,14 @@ func (f *failFastDockerClient) ImageRemove(
 func (f *failFastDockerClient) ImageTag(_ context.Context, _ client.ImageTagOptions) (client.ImageTagResult, error) {
 	f.mustMock()
 	return client.ImageTagResult{}, nil
+}
+
+func (f *failFastDockerClient) ImagePrune(
+	_ context.Context,
+	_ client.ImagePruneOptions,
+) (client.ImagePruneResult, error) {
+	f.mustMock()
+	return client.ImagePruneResult{}, nil
 }
 
 func (f *failFastDockerClient) Ping(_ context.Context, _ client.PingOptions) (client.PingResult, error) {
