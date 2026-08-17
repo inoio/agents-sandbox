@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/humanize"
 	"gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/msb"
 	"gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/naming"
 )
@@ -16,16 +17,12 @@ type Info struct {
 	Status    string
 	Image     string
 	CreatedAt string
-	UpdatedAt string
 }
 
-// FormatTime renders a timestamp as YYYY-MM-DD HH:MM in the time's own
+// FormatTime renders a timestamp as YYYY-MM-DD HH:MM:SS in the time's own
 // location, or an empty string for the zero time.
 func FormatTime(t time.Time) string {
-	if t.IsZero() {
-		return ""
-	}
-	return t.Format("2006-01-02 15:04")
+	return humanize.FormatTimestamp(t)
 }
 
 type sandboxHandle struct {
@@ -59,7 +56,6 @@ func ListSandboxes(ctx context.Context) ([]Info, error) {
 			Status:    string(h.Status()),
 			Image:     h.Image(),
 			CreatedAt: FormatTime(h.CreatedAt()),
-			UpdatedAt: FormatTime(h.UpdatedAt()),
 		})
 	}
 	return result, nil

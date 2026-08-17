@@ -26,16 +26,39 @@ import (
 type volumeOpFunc func(context.Context, string, string, string, string, bool, bool, termio.UI) error
 
 // sandboxListFormat is shared by buildListCmd and its tests so the column
-// layout stays in sync.
-const sandboxListFormat = "%-32s %-10s %-44s %-16s %-16s"
+// layout stays in sync. Matches msb sandbox list columns.
+const sandboxListFormat = "%-32s %-10s %-50s %-19s"
 
 // imageListFormat is shared by buildImageCmd and its tests so the column
 // layout stays in sync.
-const imageListFormat = "%-73s %-22s %-11s %s"
+const imageListFormat = "%-73s %-19s %-11s %s"
 
 // volumeListFormat is shared by buildVolumeCmd and its tests so the column
 // layout stays in sync. Matches msb volume list: NAME KIND SIZE CREATED.
 const volumeListFormat = "%-60s %-6s %-8s %-19s"
+
+const (
+	colName    = "NAME"
+	colStatus  = "STATUS"
+	colImage   = "IMAGE"
+	colCreated = "CREATED"
+	colKind    = "KIND"
+	colSize    = "SIZE"
+	colRef     = "REFERENCE"
+	colDigest  = "DIGEST"
+)
+
+func sandboxListHeaders() []string {
+	return []string{colName, colStatus, colImage, colCreated}
+}
+
+func imageListHeaders() []string {
+	return []string{colRef, colDigest, colSize, colCreated}
+}
+
+func volumeListHeaders() []string {
+	return []string{colName, colKind, colSize, colCreated}
+}
 
 // volumeSize renders the SIZE column: quota, else capacity, else "-" for
 // dir/unlimited volumes. Quota/capacity are bytes rendered human-readable.
@@ -49,14 +72,14 @@ func volumeSize(q *uint32, c *uint64) string {
 	return "-"
 }
 
-// truncateImage shortens a long image reference so the IMAGE column stays
-// within a normal terminal width.
-func truncateImage(ref string) string {
-	const maxLen = 44
-	if len(ref) <= maxLen {
-		return ref
+// truncateDigest shortens a full manifest digest to the short form msb uses in
+// image list output: the "sha256:" prefix followed by the first 12 hex chars.
+func truncateDigest(digest string) string {
+	const shortLen = len("sha256:") + 12
+	if len(digest) <= shortLen {
+		return digest
 	}
-	return ref[:maxLen-3] + "..."
+	return digest[:shortLen]
 }
 
 func buildVolumeOpsCmd(
@@ -131,12 +154,11 @@ func buildListCmd(ui termio.UI) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			printItems(sandboxes, "No sandboxes found.", sandboxListFormat, ui,
+			printItems(sandboxes, "No sandboxes found.", sandboxListHeaders(), sandboxListFormat, ui,
 				func(s session.Info) string { return s.Name },
 				func(s session.Info) string { return s.Status },
-				func(s session.Info) string { return truncateImage(s.Image) },
+				func(s session.Info) string { return s.Image },
 				func(s session.Info) string { return s.CreatedAt },
-				func(s session.Info) string { return s.UpdatedAt },
 			)
 			return nil
 		},
@@ -244,9 +266,9 @@ func buildImageCmd(ui termio.UI) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			printItems(images, "No images found.", imageListFormat, ui,
+			printItems(images, "No images found.", imageListHeaders(), imageListFormat, ui,
 				func(i image.Info) string { return i.Reference },
-				func(i image.Info) string { return i.Digest },
+				func(i image.Info) string { return truncateDigest(i.Digest) },
 				func(i image.Info) string { return i.Size },
 				func(i image.Info) string { return i.CreatedAt },
 			)
@@ -273,7 +295,7 @@ func buildVolumeCmd(ui termio.UI) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			printItems(volumes, "No volumes found.", volumeListFormat, ui,
+			printItems(volumes, "No volumes found.", volumeListHeaders(), volumeListFormat, ui,
 				func(v volume.VolumeInfo) string { return v.Name },
 				func(v volume.VolumeInfo) string { return v.Kind },
 				func(v volume.VolumeInfo) string { return volumeSize(v.QuotaMiB, v.CapacityBytes) },
