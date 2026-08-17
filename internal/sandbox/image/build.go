@@ -66,7 +66,7 @@ func ensureRunnerImage(
 	if !force {
 		imageDigest = inspectExistingImage(ctx, rTag, ui)
 	}
-	return buildRunnerImage(ctx, rTag, imageDigest, dockerfile, force, openCodeVersion, projectSlug, ui)
+	return buildRunnerImage(ctx, rTag, imageDigest, dockerfile, force, openCodeVersion, ui)
 }
 
 // buildDockerImage builds the given Dockerfile as a tag, wrapping the build
@@ -205,7 +205,6 @@ func buildRunnerImage(
 	dockerfile []byte,
 	force bool,
 	openCodeVersion string,
-	projectSlug string,
 	ui termio.UI,
 ) (string, string, error) {
 	if err := buildDockerImage(ctx, dockerfile, rTag, "Ensuring runner image", force, openCodeVersion, ui); err != nil {
@@ -217,12 +216,6 @@ func buildRunnerImage(
 	}
 	imageDigest = inspect.ID //nolint:staticcheck // assignment refreshes the digest param above
 	ui.Verbosef("rebuilt image %s (digest %s)", rTag, imageDigest)
-
-	if digestTag := imageTag(projectSlug, imageDigest); digestTag != rTag {
-		if _, err := docker.Get().ImageTag(ctx, client.ImageTagOptions{Source: rTag, Target: digestTag}); err != nil {
-			ui.Warnf("failed to tag image with digest: %v", err)
-		}
-	}
 	return rTag, imageDigest, nil
 }
 

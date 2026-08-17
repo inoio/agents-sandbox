@@ -804,39 +804,32 @@ func TestPruneActiveVMHomeVolumes_RemoveErrorWarns(t *testing.T) {
 	}
 }
 
-func TestRemoveDockerImagesFailureIsWarn(t *testing.T) {
-	dockerMock := &mockDockerClient{removeErr: errors.New("image does not exist")}
+func TestPruneDockerImagesFailureIsWarn(t *testing.T) {
+	dockerMock := &mockDockerClient{pruneErr: errors.New("prune failed")}
 	docker.WithDockerMock(t, dockerMock)
 	report := &StaleReport{}
 	ui := newMockUI()
 
-	slug := "myproject"
-	msbImagesBySlug := map[string][]imageWithDigest{
-		slug: {
-			{ref: "opencode-sandbox/runner-myproject:digest1", digest: "digest1", isLatest: false, lastUsed: ancient()},
-		},
-	}
-
-	removeDockerImages(context.Background(), slug, pruneThreshold, msbImagesBySlug, false, ui, report)
+	pruneDockerImages(context.Background(), false, ui, report)
 
 	if report.PrunedDockerImages != 0 {
 		t.Errorf("PrunedDockerImages = %d, want 0", report.PrunedDockerImages)
 	}
-	if len(dockerMock.removedImages) != 0 {
-		t.Errorf("removedImages = %v, want [] (all calls failed)", dockerMock.removedImages)
+	if !dockerMock.pruneCalled {
+		t.Error("expected ImagePrune to be called")
 	}
 	found := false
 	for _, call := range ui.WarnCalls {
-		if strings.Contains(call, "failed to remove docker image") {
+		if strings.Contains(call, "failed to prune docker images") {
 			found = true
 		}
 	}
 	if !found {
-		t.Errorf("expected a Warn call about failed docker image removal, WarnCalls = %v", ui.WarnCalls)
+		t.Errorf("expected a Warn call about failed docker image prune, WarnCalls = %v", ui.WarnCalls)
 	}
 	for _, call := range ui.VerboseCalls {
-		if strings.Contains(call, "failed to remove docker image") {
-			t.Errorf("failed docker image removal should not be Verbose, VerboseCalls = %v", ui.VerboseCalls)
+		if strings.Contains(call, "failed to prune docker images") {
+			t.Errorf("failed docker image prune should not be Verbose, VerboseCalls = %v", ui.VerboseCalls)
 		}
 	}
 }
