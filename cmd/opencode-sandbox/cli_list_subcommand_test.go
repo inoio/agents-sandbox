@@ -193,10 +193,14 @@ func TestListImages(t *testing.T) {
 					&sandboxmsb.MockImageHandle{
 						Reference_:      "opencode-sandbox/runner-abc123",
 						ManifestDigest_: "sha256-abc123def456",
+						SizeBytes_:      int64PtrCLI(2 * 1024 * 1024 * 1024),
+						CreatedAt_:      time.Date(2026, 8, 17, 10, 42, 36, 0, time.UTC),
 					},
 				}
 			},
-			wantOut: []string{"opencode-sandbox/runner-abc123                         sha256-abc123def456"},
+			wantOut: []string{
+				"opencode-sandbox/runner-abc123 sha256-abc123def456 2 GiB 2026-08-17 10:42:36",
+			},
 		},
 		{
 			name: "multiple images",
@@ -205,10 +209,14 @@ func TestListImages(t *testing.T) {
 					&sandboxmsb.MockImageHandle{
 						Reference_:      "opencode-sandbox/runner-latest",
 						ManifestDigest_: "sha256-aaa",
+						SizeBytes_:      int64PtrCLI(864256000),
+						CreatedAt_:      time.Date(2026, 8, 17, 9, 0, 0, 0, time.UTC),
 					},
 					&sandboxmsb.MockImageHandle{
 						Reference_:      "opencode-sandbox/runner-v1.0.0",
 						ManifestDigest_: "sha256-bbb",
+						SizeBytes_:      int64PtrCLI(1024),
+						CreatedAt_:      time.Date(2026, 8, 16, 12, 0, 0, 0, time.UTC),
 					},
 					&sandboxmsb.MockImageHandle{
 						Reference_:      "opencode-sandbox/runner-v2.0.0-beta",
@@ -217,9 +225,9 @@ func TestListImages(t *testing.T) {
 				}
 			},
 			wantOut: []string{
-				"opencode-sandbox/runner-latest                         sha256-aaa",
-				"opencode-sandbox/runner-v1.0.0                         sha256-bbb",
-				"opencode-sandbox/runner-v2.0.0-beta                    sha256-ccc",
+				"opencode-sandbox/runner-latest sha256-aaa 824.2 MiB 2026-08-17 09:00:00",
+				"opencode-sandbox/runner-v1.0.0 sha256-bbb 1 KiB 2026-08-16 12:00:00",
+				"opencode-sandbox/runner-v2.0.0-beta sha256-ccc unknown",
 			},
 		},
 		{
@@ -229,11 +237,15 @@ func TestListImages(t *testing.T) {
 					&sandboxmsb.MockImageHandle{
 						Reference_:      "opencode-sandbox/runner-xyz",
 						ManifestDigest_: "sha256-abc123",
+						SizeBytes_:      int64PtrCLI(512),
+						CreatedAt_:      time.Date(2026, 8, 17, 10, 0, 0, 0, time.UTC),
 					},
 					&sandboxmsb.MockImageHandle{Reference_: "docker.io/some/img:latest", ManifestDigest_: "sha256-xxx"},
 				}
 			},
-			wantOut: []string{"opencode-sandbox/runner-xyz                            sha256-abc123"},
+			wantOut: []string{
+				"opencode-sandbox/runner-xyz sha256-abc123 512 B 2026-08-17 10:00:00",
+			},
 		},
 		{
 			name:            "list images error",
@@ -352,5 +364,13 @@ func TestTruncateImage(t *testing.T) {
 func TestSandboxListFormatShared(t *testing.T) {
 	if sandboxListFormat == "" {
 		t.Error("sandboxListFormat must be non-empty so command and tests share it")
+	}
+}
+
+func int64PtrCLI(n int64) *int64 { return &n } //nolint:modernize // address-of-value is the intended pattern
+
+func TestImageListFormatShared(t *testing.T) {
+	if imageListFormat == "" {
+		t.Error("imageListFormat must be non-empty so command and tests share it")
 	}
 }

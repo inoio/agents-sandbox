@@ -28,6 +28,10 @@ type volumeOpFunc func(context.Context, string, string, string, string, bool, bo
 // layout stays in sync.
 const sandboxListFormat = "%-32s %-10s %-44s %-16s %-16s"
 
+// imageListFormat is shared by buildImageCmd and its tests so the column
+// layout stays in sync.
+const imageListFormat = "%-73s %-22s %-11s %s"
+
 // truncateImage shortens a long image reference so the IMAGE column stays
 // within a normal terminal width.
 func truncateImage(ref string) string {
@@ -223,9 +227,11 @@ func buildImageCmd(ui termio.UI) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			printItems(images, "No images found.", "%-50s %s", ui,
+			printItems(images, "No images found.", imageListFormat, ui,
 				func(i image.Info) string { return i.Reference },
 				func(i image.Info) string { return i.Digest },
+				func(i image.Info) string { return i.Size },
+				func(i image.Info) string { return i.CreatedAt },
 			)
 			return nil
 		},
