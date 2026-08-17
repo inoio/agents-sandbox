@@ -222,7 +222,9 @@ opencode-sandbox img
 
 #### image list
 
-List cached runner Docker images with reference, digest, size, and creation time.
+List cached runner Docker images with reference, digest, size, and creation time. The
+reference ends in the short content hash the image is keyed under in microsandbox; the
+digest column shows the image's full manifest digest as reported by microsandbox.
 
 ```console
 opencode-sandbox image list

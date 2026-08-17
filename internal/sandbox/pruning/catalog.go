@@ -150,7 +150,6 @@ func buildCatalog(ctx context.Context, client MsbClient, threshold time.Duration
 		catalog.MSBImages[info.Slug] = append(catalog.MSBImages[info.Slug], imageWithDigest{
 			ref:      ref,
 			digest:   info.Digest,
-			isLatest: info.Digest == "",
 			lastUsed: h.LastUsedAt(),
 		})
 	}

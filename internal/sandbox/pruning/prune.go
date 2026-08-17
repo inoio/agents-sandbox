@@ -285,7 +285,7 @@ func pruneActiveVMCleanup(
 	report *StaleReport,
 ) error {
 	homeErr := pruneActiveVMHomeVolumes(ctx, client, slug, digest, homesBySlug, dryRun, ui, report)
-	// Images: delete unused ones, keep :latest, keep matching digest.
+	// Images: delete unused ones, keep the one matching the VM's image digest.
 	pruneActiveVMMSBImages(ctx, client, slug, digest, msbImagesBySlug, dryRun, ui, report)
 	return homeErr
 }
@@ -348,7 +348,7 @@ func pruneActiveVMMSBImages(
 	report *StaleReport,
 ) {
 	for _, img := range msbImagesBySlug[slug] {
-		if img.isLatest || img.digest == digest {
+		if img.digest == digest {
 			continue
 		}
 		if !dryRun {
