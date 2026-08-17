@@ -1,12 +1,14 @@
 package viperconfig
 
 import (
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/spf13/cobra"
 
 	"gitlab.inoio.de/inoio/opencode-sandbox/internal/configpaths"
+	"gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/options"
 	"gitlab.inoio.de/inoio/opencode-sandbox/internal/testutil"
 )
 
@@ -161,4 +163,133 @@ func TestResolverIgnoresRebuildKey(t *testing.T) {
 		t.Errorf("CPUs = %d; want 2", r.CPUs())
 	}
 	// There is no Rebuild getter; the field is dropped silently.
+}
+
+func TestResolverProjectOverridesUser(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	cp := configpaths.Get()
+	testutil.WriteYAML(t, cp.UserConfigDir(), "config.yaml", map[string]any{
+		"cpus":   2,
+		"memory": "4G",
+		"yes":    true,
+	})
+	testutil.WriteYAML(t, cp.ProjectConfigDir(), "config.yaml", map[string]any{
+		"memory": "8G",
+		"yes":    false,
+	})
+
+	r, err := NewResolver(nil)
+	if err != nil {
+		t.Fatalf("NewResolver: %v", err)
+	}
+	if r.CPUs() != 2 {
+		t.Errorf("CPUs = %d; want 2 from user config", r.CPUs())
+	}
+	if r.Memory() != "8G" {
+		t.Errorf("Memory = %q; want 8G from project override", r.Memory())
+	}
+	if r.Yes() {
+		t.Error("expected yes=false from project override")
+	}
+}
+
+func TestResolverInvalidPruneAgeFromFile(t *testing.T) {
+	for _, tc := range []struct {
+		key       string
+		value     string
+		errSuffix string
+	}{
+		{key: "auto-prune-age", value: "-1d", errSuffix: "auto-prune-age must be > 0"},
+		{key: "manual-prune-age", value: "-10h", errSuffix: "manual-prune-age must be > 0"},
+	} {
+		t.Run(tc.key, func(t *testing.T) {
+			configpaths.WithMockConfigPaths(t)
+			cp := configpaths.Get()
+			testutil.WriteYAML(t, cp.UserConfigDir(), "config.yaml", map[string]any{tc.key: tc.value})
+
+			_, err := NewResolver(nil)
+			if err == nil {
+				t.Fatalf("expected error for %s=%s", tc.key, tc.value)
+			}
+			if !strings.Contains(err.Error(), tc.errSuffix) {
+				t.Errorf("error %q does not contain %q", err.Error(), tc.errSuffix)
+			}
+		})
+	}
+}
+
+func TestResolverInvalidAutoStopRetriesFromFile(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	cp := configpaths.Get()
+	testutil.WriteYAML(t, cp.UserConfigDir(), "config.yaml", map[string]any{
+		"auto-stop-max-session-retries": -1,
+	})
+
+	_, err := NewResolver(nil)
+	if err == nil {
+		t.Fatal("expected error for negative auto-stop-max-session-retries")
+	}
+	if !strings.Contains(err.Error(), "auto-stop-max-session-retries") {
+		t.Errorf("error %q does not mention auto-stop-max-session-retries", err.Error())
+	}
+}
+
+func TestResolverJSON5Config(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	cp := configpaths.Get()
+	testutil.WriteFile(t, cp.UserConfigDir(), "config.json5", `{
+		// a comment
+		"cpus": 2,
+		"memory": "512M",
+		"yes": true
+	}`)
+
+	r, err := NewResolver(nil)
+	if err != nil {
+		t.Fatalf("NewResolver: %v", err)
+	}
+	if r.CPUs() != 2 || r.Memory() != "512M" || !r.Yes() {
+		t.Errorf("unexpected config: cpus=%d memory=%q yes=%v", r.CPUs(), r.Memory(), r.Yes())
+	}
+}
+
+func TestResolverDiskSizeConfig(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	cp := configpaths.Get()
+	testutil.WriteYAML(t, cp.UserConfigDir(), "config.yaml", map[string]any{"disk-size": "24G"})
+
+	r, err := NewResolver(nil)
+	if err != nil {
+		t.Fatalf("NewResolver: %v", err)
+	}
+	if r.DiskSize() != "24G" {
+		t.Errorf("DiskSize = %q; want 24G", r.DiskSize())
+	}
+}
+
+func TestResolverReapPolicyDefaults(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	r, err := NewResolver(nil)
+	if err != nil {
+		t.Fatalf("NewResolver: %v", err)
+	}
+
+	rp := options.NewReapPolicy(r.AutoStopOnActiveSessions(), r.AutoStopMaxSessionRetries())
+	if rp.AutoStopOnActiveSessions {
+		t.Error("expected AutoStopOnActiveSessions false by default")
+	}
+	if rp.MaxSessionRetries != 10 {
+		t.Errorf("expected MaxSessionRetries 10 by default, got %d", rp.MaxSessionRetries)
+	}
+}
+
+func TestResolverIdleTimeoutDefaultFromConfig(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	r, err := NewResolver(nil)
+	if err != nil {
+		t.Fatalf("NewResolver: %v", err)
+	}
+	if r.IdleTimeout() != 10*time.Second {
+		t.Errorf("IdleTimeout default = %v; want 10s", r.IdleTimeout())
+	}
 }
