@@ -91,38 +91,26 @@ func removeMSBImages(
 	}
 }
 
-func removeDockerImages(
+// pruneDockerImages removes dangling (untagged) Docker images. After a rebuild
+// the previous runner image is only referenced by tags we no longer create, so
+// it becomes untagged and is reclaimed here. Tagged images (base images and the
+// current :latest runner) are left untouched.
+func pruneDockerImages(
 	ctx context.Context,
-	slug string,
-	threshold time.Duration,
-	msbImagesBySlug map[string][]imageWithDigest,
 	dryRun bool,
 	ui termio.UI,
 	report *StaleReport,
 ) {
-	for _, img := range msbImagesBySlug[slug] {
-		if isRecent(img.lastUsed, threshold) {
-			ui.Verbosef("keeping recent docker image %s", img.ref)
-			continue
-		}
-		if !dryRun {
-			dockerRef := stripDockerHostPrefix(img.ref)
-			_, err := docker.Get().ImageRemove(
-				ctx, dockerRef,
-				client.ImageRemoveOptions{PruneChildren: true},
-			)
-			if err != nil {
-				ui.Warnf("failed to remove docker image %s: %v", dockerRef, err)
-				continue
-			}
-		}
-		report.PrunedDockerImages++
-		report.Details = append(report.Details, StaleEntry{
-			Type:     StaleTypeDockerImage,
-			Name:     img.ref,
-			Slug:     slug,
-			StaleFor: 0,
-			Digest:   img.digest,
-		})
+	if dryRun {
+		return
 	}
+	result, err := docker.Get().ImagePrune(ctx, client.ImagePruneOptions{Filters: client.Filters{}})
+	if err != nil {
+		ui.Warnf("failed to prune docker images: %v", err)
+		return
+	}
+	if len(result.Report.ImagesDeleted) > 0 {
+		ui.Verbosef("pruned %d dangling docker images", len(result.Report.ImagesDeleted))
+	}
+	report.PrunedDockerImages += len(result.Report.ImagesDeleted)
 }
