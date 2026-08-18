@@ -3,13 +3,13 @@ package pruning
 import "time"
 
 // StaleReport describes the result of an aggregate prune. Task sandboxes count
-// into PrunedVMs; clone volumes are removed (dead code).
+// into PrunedSandboxes; clone volumes are removed (dead code).
 type StaleReport struct {
-	PrunedVMs          int
-	PrunedVolumes      int
-	PrunedDockerImages int
-	PrunedMSBImages    int
-	Details            []StaleEntry
+	PrunedSandboxes     int
+	PrunedVolumes       int
+	PrunedDockerImages  int
+	PrunedSandboxImages int
+	Details             []StaleEntry
 }
 
 // StaleEntry describes a single artifact that was pruned or would be pruned.

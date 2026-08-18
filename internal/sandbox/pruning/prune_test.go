@@ -2,6 +2,7 @@ package pruning
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 
@@ -11,6 +12,7 @@ import (
 	"gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/docker"
 	"gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/msb"
 	"gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/naming"
+	"gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/state"
 	"gitlab.inoio.de/inoio/opencode-sandbox/internal/termio"
 )
 
@@ -434,8 +436,12 @@ func TestPruneAggregateParity(t *testing.T) {
 	docker.WithNoopDockerMock(t)
 	cp.WithMockConfigPaths(t)
 
+	if err := state.WriteState("live-1mjusbm3wikhb0", state.HomeState{ImageDigest: "cur"}); err != nil {
+		t.Fatalf("WriteState: %v", err)
+	}
+
 	testUI := termio.NewTestMock(t)
-	if err := Prune(context.Background(), 7*24*time.Hour, false, false, &testUI); err != nil {
+	if err := Prune(context.Background(), 7*24*time.Hour, false, &testUI); err != nil {
 		t.Fatalf("Prune: %v", err)
 	}
 	if got := len(client.RemovedSandboxes); got != 1 {
@@ -446,5 +452,27 @@ func TestPruneAggregateParity(t *testing.T) {
 	}
 	if got := len(client.RemovedImages); got != 2 {
 		t.Errorf("RemovedImages = %d, want 2 (stale proj image + live surplus)", got)
+	}
+}
+
+func TestPrune_BuildStateError(t *testing.T) {
+	client := &msb.MockMsbClient{
+		ListSandboxesFn: func(context.Context, map[string]string) ([]msb.SandboxHandle, error) {
+			return nil, errBoom
+		},
+	}
+	msb.WithMsbMock(t, client)
+	testUI := termio.NewTestMock(t)
+	err := Prune(context.Background(), 7*24*time.Hour, false, &testUI)
+	if err == nil || !strings.Contains(err.Error(), "boom") {
+		t.Errorf("expected buildPruneState error, got %v", err)
+	}
+}
+
+func TestPrintPruneSummary_NilReport(t *testing.T) {
+	ui := &termio.Mock{}
+	printPruneSummary(ui, nil, false)
+	if len(ui.OutCalls) != 0 {
+		t.Errorf("printPruneSummary with nil report must not emit output, got %v", ui.OutCalls)
 	}
 }

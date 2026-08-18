@@ -138,7 +138,6 @@ artifact type, use the `image prune`, `volume prune`, or `sandbox prune` subcomm
 opencode-sandbox prune                       # use --age, else manual-prune-age from config, else 7d
 opencode-sandbox prune -a 24h                # 24-hour threshold
 opencode-sandbox prune --dry-run             # preview only
-opencode-sandbox prune --force               # skip confirmation
 ```
 
 **Flags:**
@@ -147,19 +146,17 @@ opencode-sandbox prune --force               # skip confirmation
 |----------------|-------|---------|------------------------------------|
 | `--age`        | `-a`  | config  | Prune threshold. Falls back to `manual-prune-age` from config, then to `7d` (e.g. `24h`, `7d`). |
 | `--dry-run`    | `-n`  | `false` | Preview what would be pruned       |
-| `--force`      | `-f`  | `false` | Skip confirmation prompt           |
-| `--dry-run-vm` | —     | `false` | Suppress VM deletion during prune  |
 
 ---
 
 ### image prune
 
-Prune cached runner images no longer in use. Staleness is determined by age like VMs and volumes.
+Prune cached runner images. Images of stale projects (older than the threshold) are removed entirely; for projects with a
+surviving VM, surplus digests that diverge from the project's current digest are removed.
 
 ```console
 opencode-sandbox image prune                      # use manual-prune-age from config (default: 7d)
 opencode-sandbox image prune -a 24h               # 24-hour threshold
-opencode-sandbox image prune --all                # also prune images of stopped-but-existing projects
 opencode-sandbox image prune --dry-run            # preview only
 ```
 
@@ -169,18 +166,17 @@ opencode-sandbox image prune --dry-run            # preview only
 |-------------|-------|---------|-------------------------------------------------------------------------------------|
 | `--age`     | `-a`  | config  | Prune threshold. Falls back to `manual-prune-age` from config, then to `7d` (e.g. `24h`, `7d`). |
 | `--dry-run` | `-n`  | `false` | Show what would be pruned without deleting                                          |
-| `--all`     | —     | `false` | Prune images of stopped-but-existing projects too                                   |
 
 ---
 
 ### volume prune
 
-Prune home volumes no longer referenced by a project VM. Staleness is determined by age like VMs and images.
+Prune home volumes of stale projects (older than the threshold). When a project's last home volume is removed, its
+state file is removed too.
 
 ```console
 opencode-sandbox volume prune                     # use manual-prune-age from config (default: 7d)
 opencode-sandbox volume prune -a 24h              # 24-hour threshold
-opencode-sandbox volume prune --all               # also prune volumes of stopped-but-existing projects
 opencode-sandbox volume prune --dry-run           # preview only
 ```
 
@@ -190,7 +186,6 @@ opencode-sandbox volume prune --dry-run           # preview only
 |-------------|-------|---------|-------------------------------------------------------------------------------------|
 | `--age`     | `-a`  | config  | Prune threshold. Falls back to `manual-prune-age` from config, then to `7d` (e.g. `24h`, `7d`). |
 | `--dry-run` | `-n`  | `false` | Show what would be pruned without deleting                                          |
-| `--all`     | —     | `false` | Prune volumes of stopped-but-existing projects too                                  |
 
 ---
 
