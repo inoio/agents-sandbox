@@ -2,9 +2,11 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Replace the monolithic `pruning` pipeline with three independent per-artifact pruners backed by a shared `LiveState` snapshot, and expose `image prune`, `volume prune`, and `sandbox prune` subcommands that map 1:1 onto them.
+**Goal:** Replace the monolithic `pruning` pipeline with three independent per-artifact pruners, and expose `image prune`, `volume prune`, and `sandbox prune` subcommands that map 1:1 onto them. The decision of *what* to prune is centralized in `buildPruneState`; the pruners only execute against it.
 
-**Architecture:** A small `LiveState` snapshot (which project slugs have a surviving VM) is built once; `PruneVMs`/`PruneVolumes`/`PruneImages` each list their own artifacts and apply their own keep-set predicate. The aggregate `prune` composes all three and merges typed reports into a reduced `StaleReport`.
+**Architecture:** A single `PruneState` (the set of stale slugs) is built once from a `ListSandboxes` call; `PruneSandboxes`/`PruneVolumes`/`PruneImages` each list their own artifacts and execute against it. Images additionally prune surplus digests (digests that diverge from the slug's state-file `ImageDigest`). The aggregate `prune` composes all three and merges typed reports into a reduced `StaleReport`.
+
+> **Note:** the detailed tasks below trace the design as it evolved (an earlier `LiveState`/`ActiveVMs`/`--all` iteration). The final implementation uses `PruneState`, drops `--all`, and derives surplus digests from the state file — see `docs/superpowers/specs/image-prune-subcommand.md` for the current design.
 
 **Tech Stack:** Go, cobra, spf13/viper, microsandbox SDK (via the `msb` wrapper), moby docker client.
 
@@ -25,8 +27,8 @@
 ### Task 1: Introduce the `LiveState` snapshot
 
 **Files:**
-- Create: `internal/sandbox/pruning/snapshot.go`
-- Test: `internal/sandbox/pruning/snapshot_test.go`
+- Create: `../../../internal/sandbox/pruning/state.go`
+- Test: `../../../internal/sandbox/pruning/state_test.go`
 
 **Interfaces:**
 - Consumes: `msb.Client` (has `ListSandboxes(ctx) ([]SandboxHandle, error)`), `msb.SandboxHandle` (`Name()`, `Status()`, `UpdatedAt()`, `Image()`), `msb.IsSandboxActive(status) bool`, `naming.VmPrefix`, `naming.TaskPrefix`, `naming.ArtifactFor(name).Slug`.
@@ -42,7 +44,7 @@
 
 - [ ] **Step 1: Write the failing test**
 
-`internal/sandbox/pruning/snapshot_test.go`:
+`../../../internal/sandbox/pruning/state_test.go`:
 
 ```go
 package pruning
@@ -118,7 +120,7 @@ Expected: FAIL — `undefined: BuildLiveState`
 
 - [ ] **Step 3: Write the implementation**
 
-`internal/sandbox/pruning/snapshot.go`:
+`../../../internal/sandbox/pruning/state.go`:
 
 ```go
 package pruning
@@ -200,7 +202,7 @@ Expected: PASS
 - [ ] **Step 5: Commit**
 
 ```bash
-git add internal/sandbox/pruning/snapshot.go internal/sandbox/pruning/snapshot_test.go internal/sandbox/pruning/helpers.go
+git add internal/sandbox/pruning/state.go internal/sandbox/pruning/state_test.go internal/sandbox/pruning/helpers.go
 git commit -m "feat(pruning): add LiveState snapshot of surviving VMs"
 ```
 
@@ -209,7 +211,7 @@ git commit -m "feat(pruning): add LiveState snapshot of surviving VMs"
 ### Task 2: `PruneVMs` — VM + task-sandbox pruning
 
 **Files:**
-- Create: `internal/sandbox/pruning/vms.go`, `internal/sandbox/pruning/vms_test.go`
+- Create: `../../../internal/sandbox/pruning/sandboxes.go`, `../../../internal/sandbox/pruning/sandboxes_test.go`
 
 **Interfaces:**
 - Consumes: `LiveState` (Task 1), `msb.Client.RemoveSandbox(ctx, name) error`, `msb.IsSandboxActive`, `naming.VmPrefix`/`TaskPrefix`, `naming.ArtifactFor(name).Slug`, `StaleEntry`, `StaleReport`.
@@ -224,7 +226,7 @@ git commit -m "feat(pruning): add LiveState snapshot of surviving VMs"
 
 - [ ] **Step 1: Write the failing test**
 
-`internal/sandbox/pruning/vms_test.go`:
+`../../../internal/sandbox/pruning/sandboxes_test.go`:
 
 ```go
 package pruning
@@ -318,7 +320,7 @@ Expected: FAIL — `undefined: PruneVMs`
 
 - [ ] **Step 3: Write the implementation**
 
-`internal/sandbox/pruning/vms.go`:
+`../../../internal/sandbox/pruning/sandboxes.go`:
 
 ```go
 package pruning
@@ -385,7 +387,7 @@ Expected: PASS
 - [ ] **Step 5: Commit**
 
 ```bash
-git add internal/sandbox/pruning/vms.go internal/sandbox/pruning/vms_test.go
+git add internal/sandbox/pruning/sandboxes.go internal/sandbox/pruning/sandboxes_test.go
 git commit -m "feat(pruning): add PruneVMs for stale VMs and task sandboxes"
 ```
 
@@ -839,7 +841,7 @@ git commit -m "feat(pruning): add PruneImages for MSB and docker images"
 
 **Interfaces:**
 - Consumes: prior tasks' report types.
-- Produces: reduced `StaleReport` with only `PrunedVMs`, `PrunedVolumes`, `PrunedDockerImages`, `PrunedMSBImages`, `Details`; `StaleEntry` (unchanged shape); `StaleType` (unchanged).
+- Produces: reduced `StaleReport` with only `PrunedSandboxes`, `PrunedVolumes`, `PrunedDockerImages`, `PrunedSandboxImages`, `Details`; `StaleEntry` (unchanged shape); `StaleType` (unchanged).
 
 - [ ] **Step 1: Write the reduced report**
 

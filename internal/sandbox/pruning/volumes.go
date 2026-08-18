@@ -16,38 +16,64 @@ type VolumeReport struct {
 	Details       []StaleEntry
 }
 
-// PruneVolumes prunes home volumes whose slug is not in the keep-set and that
-// are older than threshold. The keep-set is AllVMs by default, ActiveVMs under
-// all. When any of a slug's volumes are removed, its state file is removed too.
-//
-//nolint:gocognit // independent filter branches for prefix, keep-set, and age
+// PruneVolumes prunes home volumes of stale slugs. When a slug's last home
+// volume is removed, its state file is removed too, so the state file never
+// outlives the volume it references.
 func PruneVolumes(
 	ctx context.Context,
-	snap LiveState,
-	threshold time.Duration,
-	all, dryRun bool,
+	pruneState PruneState,
+	dryRun bool,
 	ui termio.UI,
 ) (VolumeReport, error) {
 	report := VolumeReport{VolumesPruned: 0, Details: nil}
-	keep := snap.AllVMs
-	if all {
-		keep = activeSlugs(snap)
-	}
 	handles, err := msb.Get().ListVolumes(ctx)
 	if err != nil {
 		return report, err
 	}
-	removedSlugs := map[string]bool{}
-	for _, h := range handles {
-		name := h.Name()
+	exists := countVolumesBySlug(handles)
+	removed := pruneHomeVolumes(ctx, handles, pruneState, dryRun, ui, &report)
+	if !dryRun {
+		removeStateForGoneSlugs(ui, removed, exists)
+	}
+	printVolumePruneReport(ui, report, dryRun)
+	return report, nil
+}
+
+// countVolumesBySlug returns how many home volumes each slug currently has.
+func countVolumesBySlug(handles []msb.VolumeHandle) map[string]int {
+	exists := map[string]int{}
+	for _, handle := range handles {
+		if !hasPrefix(handle.Name(), naming.HomePrefix) {
+			continue
+		}
+		if slug := naming.ArtifactFor(handle.Name()).Slug; slug != "" {
+			exists[slug]++
+		}
+	}
+	return exists
+}
+
+// pruneHomeVolumes removes the home volumes of stale slugs and records the
+// number removed per slug.
+func pruneHomeVolumes(
+	ctx context.Context,
+	handles []msb.VolumeHandle,
+	pruneState PruneState,
+	dryRun bool,
+	ui termio.UI,
+	report *VolumeReport,
+) map[string]int {
+	removed := map[string]int{}
+	for _, handle := range handles {
+		name := handle.Name()
 		if !hasPrefix(name, naming.HomePrefix) {
 			continue
 		}
-		slug := naming.ArtifactFor(name).Slug
-		if slug == "" || keep[slug] {
+		volumeArtifact := naming.ArtifactFor(name)
+		if volumeArtifact.Slug == "" {
 			continue
 		}
-		if time.Since(h.CreatedAt()) <= threshold {
+		if _, found := pruneState[volumeArtifact.Slug]; !found {
 			continue
 		}
 		if !dryRun {
@@ -55,23 +81,36 @@ func PruneVolumes(
 				ui.Warnf("failed to remove home volume %s: %v", name, err)
 				continue
 			}
-			removedSlugs[slug] = true
+			removed[volumeArtifact.Slug]++
 		}
 		report.VolumesPruned++
 		report.Details = append(report.Details, StaleEntry{
 			Type:     StaleTypeVolume,
 			Name:     name,
-			Slug:     slug,
-			StaleFor: time.Since(h.CreatedAt()),
-			Digest:   naming.ArtifactFor(name).Digest,
+			Slug:     volumeArtifact.Slug,
+			StaleFor: time.Since(handle.CreatedAt()),
+			Digest:   volumeArtifact.Digest,
 		})
 	}
-	if !dryRun {
-		for slug := range removedSlugs {
-			if err := state.RemoveState(slug); err != nil {
-				ui.Warnf("failed to remove state file for slug %s: %v", slug, err)
-			}
+	return removed
+}
+
+// removeStateForGoneSlugs removes the state file for slugs whose last home
+// volume was removed in this run.
+func removeStateForGoneSlugs(ui termio.UI, removed, exists map[string]int) {
+	for slug, count := range removed {
+		if count < exists[slug] {
+			continue
+		}
+		if err := state.RemoveState(slug); err != nil {
+			ui.Warnf("failed to remove state file for slug %s: %v", slug, err)
 		}
 	}
-	return report, nil
+}
+
+func printVolumePruneReport(ui termio.UI, r VolumeReport, dryRun bool) {
+	ui.Outf("%s %d home volume(s)", pruneReportPrefix(dryRun), r.VolumesPruned)
+	for _, d := range r.Details {
+		ui.Verbosef("  %s (%s)", d.Name, d.Slug)
+	}
 }

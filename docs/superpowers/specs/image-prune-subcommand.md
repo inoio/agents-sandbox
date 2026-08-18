@@ -49,72 +49,64 @@ Therefore:
 
 ## The shared snapshot
 
-Replace `PruningCatalog` with a minimal snapshot built from a single `ListSandboxes`
-call (excluding `TaskPrefix` workers, which are never keep-set members). It is the only
-shared data across pruners.
+Replace `PruningCatalog` with a minimal `PruneState` built from a single `ListSandboxes`
+call. It records which project slugs are stale (their VM will be removed), and is the
+only shared data across pruners.
 
 ```go
-// LiveState is a point-in-time view of which project slugs have a surviving VM.
-// A slug is kept only if it has a VM that PruneVMs will NOT remove.
-func BuildLiveState(ctx context.Context, client msb.Client, threshold time.Duration) (LiveState, error)
+// PruneState is a point-in-time view of which project slugs have a VM that
+// PruneSandboxes will remove. Slugs absent from the map have a surviving VM
+// (running, or stopped-but-not-stale) and their artifacts are kept.
+func buildPruneState(ctx context.Context, age time.Duration) (PruneState, error)
 
-type LiveState struct {
-    ActiveVMs map[string]string // slug -> current image digest, for RUNNING VMs
-    AllVMs    map[string]bool   // slug with a kept VM (running, or stopped-but-not-stale)
-}
+type PruneState map[string]msb.SandboxHandle // slug -> stale VM/task handle to remove
 ```
 
-- **A stopped/crashed VM is in `AllVMs` only if it is younger than `threshold`** (i.e.
-  not stale, so `PruneVMs` keeps it and a restart is fast). A **stale** stopped VM is in
-  neither map: `PruneVMs` removes it, and its volumes/images become prunable — this is
-  what preserves the old cascade behavior through the keep-set instead of a separate
-  cascade code path.
-- **Task sandboxes are never keep-set members** (transient workers, not project VMs).
-- `AllVMs` is the default keep-set. `ActiveVMs` is the keep-set under `--all` (only
-  running VMs protect their artifacts).
+- A **stale stopped VM** (older than `age`) is included, so `PruneSandboxes` removes it and
+  its volumes/images become prunable — this preserves the old cascade behavior without a
+  separate cascade code path.
+- **Task sandboxes** are always included (no age gate) unless running.
+- **Running VMs** and **stopped-but-not-stale VMs** are excluded: their volumes and images
+  are kept.
 
 ## Three independent pruners
 
 All live in the `pruning` package. Each lists its own artifacts, applies its own
 predicate, owns its own report type, and handles dry-run and per-item errors itself.
+The *decision* of what to prune lives in `buildPruneState`; the pruners only execute
+against it.
 
 ```go
-func PruneVMs(ctx context.Context, snap LiveState, threshold time.Duration,
-    dryRun bool, ui termio.UI) (VMReport, error)
-
-func PruneVolumes(ctx context.Context, snap LiveState, threshold time.Duration,
-    all, dryRun bool, ui termio.UI) (VolumeReport, error)
-
-func PruneImages(ctx context.Context, snap LiveState, threshold time.Duration,
-    all, dryRun bool, ui termio.UI) (ImageReport, error)
+func PruneSandboxes(ctx context.Context, pruneState PruneState, dryRun bool, ui termio.UI) (SandboxReport, error)
+func PruneVolumes(ctx context.Context, pruneState PruneState, dryRun bool, ui termio.UI) (VolumeReport, error)
+func PruneImages(ctx context.Context, pruneState PruneState, dryRun bool, ui termio.UI) (ImageReport, error)
 ```
 
 All pruners take `threshold`; `0` means "no wait" (prune anything not kept), and callers
 are responsible for passing a positive default so auto-prune never prunes too early.
 
-### PruneVMs
+### PruneSandboxes
 
-Two artifact classes, both handled here:
+Two artifact classes, both handled here. It iterates the `PruneState` and removes each
+non-running sandbox:
 
 - **Task sandboxes** (`naming.TaskPrefix`): these are the transient prefill/copy VMs
   created by the volume migrate/reset/edit operations (volume.go, operations.go), so
   they are real and must be pruned. Rule: prune any **non-running**
   (`!msb.IsSandboxActive`) task sandbox with **no age gate** ("always prune, except
-  running"). This diverges deliberately from today's `pruneTaskSandboxes`, which
-  removes every task sandbox including running ones — pruning a running prefill/copy
-  VM would abort the in-progress volume operation. A running task sandbox is left
-  alone. Treated as VMs for reporting (StaleType VM).
-- **VMs** (`naming.VmPrefix`): pruned iff stopped/crashed (`!msb.IsSandboxActive`) and
-  older than threshold. Remove via `client.RemoveSandbox`.
+  running"). A running task sandbox is left alone. Treated as VMs for reporting (StaleType VM).
+- **VMs** (`naming.VmPrefix`): pruned iff stopped/crashed (`!msb.IsSandboxActive`).
+  Age gating is handled by `buildPruneState`, which only places stale VMs in `PruneState`.
+  Remove via `client.RemoveSandbox`.
 - Reports counts + per-item details (name, slug, stale-for).
 
 ### PruneVolumes
 
-- **Home volumes** (`naming.HomePrefix`): pruned iff slug **not** in the keep-set
-  (default `snap.AllVMs`, `snap.ActiveVMs` under `--all`) **and** older than threshold.
-  Because stale VMs are excluded from `AllVMs`, a stale VM's home volumes are pruned —
-  this replaces the old cascade. After removing a slug's home volumes, call
-  `state.RemoveState(slug)` (moved here from `removeHomeVolumes`).
+- **Home volumes** (`naming.HomePrefix`): pruned iff the volume's slug is in
+  `PruneState` (a stale VM). Because stale VMs are in `PruneState`, a stale VM's home
+  volumes are pruned — this replaces the old cascade. After removing a slug's **last**
+  home volume, call `state.RemoveState(slug)`, so the state file never outlives the
+  volume it references.
 - **Clone volumes are dead code**: `ClonePrefix` has no create site anywhere in the
   codebase — clone volumes are never produced, only parsed and pruned. Drop the clone
   volume branch entirely from `PruneVolumes` (and remove `pruneCloneVolumes`,
@@ -124,18 +116,17 @@ Two artifact classes, both handled here:
 
 ### PruneImages
 
-Two sub-parts, both owned here. Images respect the same `threshold` as VMs/volumes.
+Two sub-parts, both owned here.
 
-- **MSB runner images**: list `naming.ImagePrefix` images (exclude `naming.BaseSlug`).
-  Unified prune rule per image (`slug`, `ref`, `digest`, `lastUsed`):
-  1. slug **not** in the keep-set (default `snap.AllVMs`, `snap.ActiveVMs` under
-     `--all`) → prunable (no surviving VM).
-  2. slug is a **running** VM (`snap.ActiveVMs[slug]`) and `digest !=
-     snap.ActiveVMs[slug]` → prunable as surplus (an active project keeps only its current
-     image; older digests are reclaimed). This replaces the old `pruneActiveVMMSBImages`.
+- **MSB runner images**: list `naming.ImagePrefix` images (exclude `naming.BaseSlug` and
+  `naming.BaseDindSlug`). Unified prune rule per image (`slug`, `ref`, `digest`):
+  1. slug **in** `PruneState` (stale VM) → prunable (all digests removed; no surviving VM).
+  2. slug **not** in `PruneState` but its digest diverges from the slug's current digest
+     recorded in its **state file** → prunable as surplus (a surviving project keeps only
+     its current image; older digests are reclaimed). Without a state file the current
+     digest cannot be determined, so all digests are kept.
   3. otherwise → keep.
-  An image flagged prunable by (1) or (2) is removed only when `LastUsedAt` is older
-  than threshold. Remove via `client.ImageRemove(ctx, ref, true)`.
+  Remove via `client.ImageRemove(ctx, ref, true)`.
 - **Host-side dangling docker images**: the existing `pruneDockerImages` step (removes
   untagged images via `docker.Get().ImagePrune`). It has no slug/age/keep-set and always
   runs (skipped under dry-run, matching today).
@@ -160,14 +151,14 @@ Defaults by artifact type and invocation mode:
 
 ## Aggregate `prune` = composition
 
-`Prune(ctx, threshold, dryRun, autoPrune, ui)` becomes a thin orchestration:
+`Prune(ctx, threshold, dryRun, ui)` becomes a thin orchestration:
 
-1. Build the snapshot once.
-2. Call `PruneVMs`, `PruneVolumes` (with `all=false`), and `PruneImages`.
+1. Build `PruneState` once.
+2. Call `PruneSandboxes`, `PruneVolumes`, and `PruneImages` against it.
 3. Merge the three typed reports into the existing `StaleReport` so the aggregate
    summary output and CLI tests stay stable.
 
-**Report shape:** task sandboxes count into `PrunedVMs` (they are VMs). `PrunedCloneVolumes`
+**Report shape:** task sandboxes count into `PrunedSandboxes` (they are VMs). `PrunedCloneVolumes`
 is removed. The aggregate summary becomes:
 `Pruned %d VMs, %d home volumes, %d docker images, %d msb images`.
 
@@ -181,15 +172,13 @@ viper-bound, matching today's `prune`). When empty, the command resolves its def
 
 - `sandbox prune`, `volume prune`, and `image prune`: `--age` else `manual-prune-age`
   else `7d`.
-- `--all` on `volume prune` (and `image prune`): prune artifacts of stopped-but-existing
-  slugs too (keep-set = running VMs instead of any VM).
 - Global `-y/--yes` for confirmation, `--dry-run` shared as today.
 
 - `image prune` → `PruneImages` (MSB runner images + docker dangling). Added under
-  `buildImageCmd` (`cmdImage`). Flags: `--age`, `--dry-run`, `--all`.
+  `buildImageCmd` (`cmdImage`). Flags: `--age`, `--dry-run`.
 - `volume prune` → `PruneVolumes`. Added under `buildVolumeCmd` (`cmdVolume`). Flags:
-  `--age`, `--dry-run`, `--all`.
-- `sandbox prune` → `PruneVMs`. Added under `buildSandboxCmd` (`cmdSandbox`). Flags:
+  `--age`, `--dry-run`.
+- `sandbox prune` → `PruneSandboxes`. Added under `buildSandboxCmd` (`cmdSandbox`). Flags:
   `--age`, `--dry-run`.
 
 Each renders its typed report (counts + freed bytes where available).
@@ -197,8 +186,8 @@ Each renders its typed report (counts + freed bytes where available).
 ## Files touched
 
 - `internal/sandbox/pruning/` — core refactor:
-  - New `snapshot.go`: `LiveState` + builder.
-  - New `vms.go`, `volumes.go`, `images.go`: the three pruners + typed reports.
+  - New `state.go`: `PruneState` + builder.
+  - New `sandboxes.go`, `volumes.go`, `images.go`: the three pruners + typed reports.
   - `prune.go`: `Prune` becomes the composition; delete cascade/orphan/active-VM phase
     functions (`pruneStaleCascade`, `pruneOrphanSlug`, `pruneActiveVMCleanup`,
     `pruneActiveVMHomeVolumes`, `pruneActiveVMMSBImages`, `pruneCloneVolumes`,
@@ -221,28 +210,28 @@ Each renders its typed report (counts + freed bytes where available).
 - `internal/sandbox/image/` — no changes. The earlier `image prune` spec (SDK
   `Image.Prune`) is **replaced** by this design; no SDK `Image.Prune` call and no
   `Prune` entry point in the `image` or `session` packages. Commands call
-  `pruning.PruneImages`/`PruneVMs` directly.
+  `pruning.PruneImages`/`PruneSandboxes` directly.
 
 ## Testing
 
-- TDD: write tests first. Unit tests per pruner (`vms_test.go`, `volumes_test.go`,
-  `images_test.go`) covering the predicate matrix: keep-set membership, `--all`
-  toggle, age gate, zero-timestamp treated as recent, dry-run (counts reported, no SDK
-  call), and per-item removal errors.
+- TDD: write tests first. Unit tests per pruner (`sandboxes_test.go`, `volumes_test.go`,
+  `images_test.go`) covering: stale-slug membership in `PruneState`, surplus-digest
+  pruning vs the state file, age gate in `buildPruneState`, dry-run (counts reported, no
+  SDK call), state removal only when a slug's last volume is gone, and per-item removal
+  errors.
 - Explicit behavior-parity cases: task sandboxes are pruned with no age gate but a
-  running task sandbox is skipped; home volumes and images use the
-  `AllVMs`/`ActiveVMs` keep-set per `--all`; clone volumes are gone.
-- Snapshot builder test: active vs all VM extraction, digest population.
+  running task sandbox is skipped; stale slugs have their volumes and images reclaimed
+  in one invocation; clone volumes are gone.
+- `buildPruneState` test: stale vs kept VM extraction, task-sandbox handling, age 0.
 - Aggregate `Prune` test: confirms the three reports merge into `StaleReport` and that
   a stale VM's volumes/images are still cleaned in one invocation (end-to-end parity).
 - CLI tests (`cmd/opencode-sandbox/cli_prune_test.go` + new
   `cli_image_prune_test.go`/`cli_volume_prune_test.go`/`cli_sandbox_prune_test.go`):
-  flag parsing (`--age`, `--dry-run`, `--all`, `-y`), report output for each
+  flag parsing (`--age`, `--dry-run`, `-y`), report output for each
   subcommand, error cases (invalid age), and that all three accept `--age`.
 
 ## Out of scope
 
-- Changing the aggregate `prune`'s end-user-visible summary output.
 - The SDK `Image.Prune` API (superseded by per-ref removal in `PruneImages`).
 - Image save/load.
 - Docker dangling-image cleanup exposed outside the aggregate/image-prune paths.

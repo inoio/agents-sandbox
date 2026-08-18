@@ -8,7 +8,6 @@ import (
 
 	"gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/naming"
 	"gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/options"
-	"gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/pruning"
 	"gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/session"
 	"gitlab.inoio.de/inoio/opencode-sandbox/internal/termio"
 	launcherconfig "gitlab.inoio.de/inoio/opencode-sandbox/internal/viperconfig"
@@ -128,6 +127,17 @@ func buildMinimalRootFlagsCmd() *cobra.Command {
 	return rootFlagsCmd
 }
 
+type autoPruneOutToVerboseRedirect struct {
+	termio.UI
+}
+
+func (v *autoPruneOutToVerboseRedirect) Out(msg string) {
+	v.Verbose(msg)
+}
+func (v *autoPruneOutToVerboseRedirect) Outf(format string, args ...any) {
+	v.Verbosef(format, args...)
+}
+
 func buildRootCmd(ui termio.UI) *cobra.Command {
 	rootCmd := buildMinimalRootFlagsCmd()
 
@@ -138,9 +148,6 @@ func buildRootCmd(ui termio.UI) *cobra.Command {
 		}
 		cmd.SetContext(context.WithValue(cmd.Context(), (*launcherConfigKey)(nil), r))
 		applyCLISettings(cmd, ui, r)
-
-		isDryRun, _ := cmd.Flags().GetBool(flagDryRun)
-		pruning.AutoPrune(cmd.Context(), r.AutoPruneAge(), isDryRun, ui)
 		return nil
 	}
 	extendRunCmd(ui, rootCmd)

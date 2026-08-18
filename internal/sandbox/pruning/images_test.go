@@ -2,11 +2,15 @@ package pruning
 
 import (
 	"context"
+	"errors"
+	"strings"
 	"testing"
 	"time"
 
+	"gitlab.inoio.de/inoio/opencode-sandbox/internal/configpaths"
 	"gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/docker"
 	"gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/msb"
+	"gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/state"
 	"gitlab.inoio.de/inoio/opencode-sandbox/internal/termio"
 )
 
@@ -17,23 +21,25 @@ func TestPruneImages(t *testing.T) {
 		return &msb.MockImageHandle{Reference_: ref, LastUsedAt_: old}
 	}
 
-	t.Run("prunes orphan slug and surplus digest of active slug", func(t *testing.T) {
+	t.Run("prunes stale slug and surplus digest of active slug", func(t *testing.T) {
+		configpaths.WithMockConfigPaths(t)
+		if err := state.WriteState("active-1mjusbm3wikhb0", state.HomeState{ImageDigest: "digestCur"}); err != nil {
+			t.Fatalf("WriteState: %v", err)
+		}
 		client := &msb.MockMsbClient{
 			Images: []msb.ImageHandle{
 				img("opencode-sandbox/runner-orphan-1mjusbm3wikhb0:digest1"),
 				img("opencode-sandbox/runner-active-1mjusbm3wikhb0:digestCur"),
 				img("opencode-sandbox/runner-active-1mjusbm3wikhb0:digestOld"),
-				img("opencode-sandbox/runner-base:latest"), // base excluded
+				img("opencode-sandbox/runner-base:latest"),      // base excluded
+				img("opencode-sandbox/runner-base-dind:latest"), // base-dind excluded
 			},
 		}
 		msb.WithMsbMock(t, client)
 		docker.WithNoopDockerMock(t)
-		snap := LiveState{
-			AllVMs:    map[string]bool{"active-1mjusbm3wikhb0": true},
-			ActiveVMs: map[string]string{"active-1mjusbm3wikhb0": "digestCur"},
-		}
+		stateMap := PruneState{"orphan-1mjusbm3wikhb0": &msb.MockSandboxHandle{}}
 		ui := &termio.Mock{}
-		r, err := PruneImages(context.Background(), snap, 7*24*time.Hour, false, false, ui)
+		r, err := PruneImages(context.Background(), stateMap, false, ui)
 		if err != nil {
 			t.Fatalf("PruneImages: %v", err)
 		}
@@ -46,12 +52,18 @@ func TestPruneImages(t *testing.T) {
 	})
 
 	t.Run("dry run counts but does not delete", func(t *testing.T) {
+		configpaths.WithMockConfigPaths(t)
 		client := &msb.MockMsbClient{
 			Images: []msb.ImageHandle{img("opencode-sandbox/runner-orphan-1mjusbm3wikhb0:digest1")},
 		}
 		msb.WithMsbMock(t, client)
 		ui := &termio.Mock{}
-		r, err := PruneImages(context.Background(), LiveState{}, 7*24*time.Hour, false, true, ui)
+		r, err := PruneImages(
+			context.Background(),
+			PruneState{"orphan-1mjusbm3wikhb0": &msb.MockSandboxHandle{}},
+			true,
+			ui,
+		)
 		if err != nil {
 			t.Fatalf("PruneImages: %v", err)
 		}
@@ -63,44 +75,128 @@ func TestPruneImages(t *testing.T) {
 		}
 	})
 
-	t.Run("all=true uses ActiveVMs keep-set", func(t *testing.T) {
-		client := &msb.MockMsbClient{
-			Images: []msb.ImageHandle{img("opencode-sandbox/runner-stopped-1mjusbm3wikhb0:digest1")},
+	t.Run("keeps current digest and prunes only surplus for active slug", func(t *testing.T) {
+		configpaths.WithMockConfigPaths(t)
+		if err := state.WriteState("active-1mjusbm3wikhb0", state.HomeState{ImageDigest: "digestCur"}); err != nil {
+			t.Fatalf("WriteState: %v", err)
 		}
-		msb.WithMsbMock(t, client)
-		docker.WithNoopDockerMock(t)
-		snap := LiveState{
-			AllVMs:    map[string]bool{"stopped-1mjusbm3wikhb0": true},
-			ActiveVMs: map[string]string{},
-		}
-		ui := &termio.Mock{}
-		r, err := PruneImages(context.Background(), snap, 7*24*time.Hour, true, false, ui)
-		if err != nil {
-			t.Fatalf("PruneImages: %v", err)
-		}
-		if r.MSBImagesPruned != 1 {
-			t.Errorf("MSBImagesPruned = %d, want 1 under --all", r.MSBImagesPruned)
-		}
-	})
-
-	t.Run("young image kept despite orphaned slug", func(t *testing.T) {
 		client := &msb.MockMsbClient{
 			Images: []msb.ImageHandle{
-				&msb.MockImageHandle{
-					Reference_:  "opencode-sandbox/runner-orphan-1mjusbm3wikhb0:digest1",
-					LastUsedAt_: time.Now(),
-				},
+				img("opencode-sandbox/runner-active-1mjusbm3wikhb0:digestCur"),
+				img("opencode-sandbox/runner-active-1mjusbm3wikhb0:digestOld"),
 			},
 		}
 		msb.WithMsbMock(t, client)
 		docker.WithNoopDockerMock(t)
 		ui := &termio.Mock{}
-		r, err := PruneImages(context.Background(), LiveState{}, 7*24*time.Hour, false, false, ui)
+		r, err := PruneImages(context.Background(), PruneState{}, false, ui)
+		if err != nil {
+			t.Fatalf("PruneImages: %v", err)
+		}
+		if r.MSBImagesPruned != 1 {
+			t.Errorf("MSBImagesPruned = %d, want 1 (only digestOld)", r.MSBImagesPruned)
+		}
+		if len(client.RemovedImages) != 1 ||
+			client.RemovedImages[0].Ref != "opencode-sandbox/runner-active-1mjusbm3wikhb0:digestOld" {
+			t.Errorf("RemovedImages = %v, want only digestOld", client.RemovedImages)
+		}
+	})
+
+	t.Run("keeps all digests when slug has no state file", func(t *testing.T) {
+		configpaths.WithMockConfigPaths(t)
+		client := &msb.MockMsbClient{
+			Images: []msb.ImageHandle{
+				img("opencode-sandbox/runner-unknown-1mjusbm3wikhb0:digest1"),
+				img("opencode-sandbox/runner-unknown-1mjusbm3wikhb0:digest2"),
+			},
+		}
+		msb.WithMsbMock(t, client)
+		docker.WithNoopDockerMock(t)
+		ui := &termio.Mock{}
+		r, err := PruneImages(context.Background(), PruneState{}, false, ui)
 		if err != nil {
 			t.Fatalf("PruneImages: %v", err)
 		}
 		if r.MSBImagesPruned != 0 {
-			t.Errorf("MSBImagesPruned = %d, want 0 (recent image)", r.MSBImagesPruned)
+			t.Errorf("MSBImagesPruned = %d, want 0 (no state to determine current digest)", r.MSBImagesPruned)
+		}
+	})
+
+	t.Run("surplusDigest false for empty digest and missing state", func(t *testing.T) {
+		configpaths.WithMockConfigPaths(t)
+		if surplusDigest("some-slug", "") {
+			t.Error("surplusDigest with empty digest must be false")
+		}
+		if surplusDigest("no-state-1mjusbm3wikhb0", "digest1") {
+			t.Error("surplusDigest without state must be false")
+		}
+	})
+
+	t.Run("returns ImageList error", func(t *testing.T) {
+		client := &msb.MockMsbClient{
+			ImageListFn: func(context.Context) ([]msb.ImageHandle, error) {
+				return nil, errors.New("list boom")
+			},
+		}
+		msb.WithMsbMock(t, client)
+		ui := &termio.Mock{}
+		_, err := PruneImages(context.Background(), PruneState{}, false, ui)
+		if err == nil || !strings.Contains(err.Error(), "list boom") {
+			t.Errorf("expected ImageList error, got %v", err)
+		}
+	})
+
+	t.Run("continues past an ImageRemove error", func(t *testing.T) {
+		configpaths.WithMockConfigPaths(t)
+		removed := make(map[string]bool)
+		client := &msb.MockMsbClient{
+			Images: []msb.ImageHandle{
+				img("opencode-sandbox/runner-fail-1mjusbm3wikhb0:digest1"),
+				img("opencode-sandbox/runner-ok-1mjusbm3wikhb0:digest2"),
+			},
+			ImageRemoveFn: func(_ context.Context, ref string, _ bool) error {
+				if ref == "opencode-sandbox/runner-fail-1mjusbm3wikhb0:digest1" {
+					return errors.New("remove boom")
+				}
+				removed[ref] = true
+				return nil
+			},
+		}
+		msb.WithMsbMock(t, client)
+		docker.WithNoopDockerMock(t)
+		ui := &termio.Mock{}
+		r, err := PruneImages(context.Background(), PruneState{
+			"fail-1mjusbm3wikhb0": &msb.MockSandboxHandle{},
+			"ok-1mjusbm3wikhb0":   &msb.MockSandboxHandle{},
+		}, false, ui)
+		if err != nil {
+			t.Fatalf("PruneImages: %v", err)
+		}
+		if r.MSBImagesPruned != 1 {
+			t.Errorf("MSBImagesPruned = %d, want 1 (failed one is skipped)", r.MSBImagesPruned)
+		}
+		if !removed["opencode-sandbox/runner-ok-1mjusbm3wikhb0:digest2"] {
+			t.Errorf("expected the non-failing image to be removed, got %v", removed)
+		}
+		if len(ui.WarnCalls) != 1 {
+			t.Errorf("WarnCalls = %v, want 1 warn about the failed removal", ui.WarnCalls)
+		}
+	})
+
+	t.Run("docker prune error is warned but not fatal", func(t *testing.T) {
+		client := &msb.MockMsbClient{Images: []msb.ImageHandle{img("opencode-sandbox/runner-base:latest")}}
+		msb.WithMsbMock(t, client)
+		docker.WithDefaultErrorDockerMock(t)
+		ui := &termio.Mock{}
+		r, err := PruneImages(context.Background(), PruneState{}, false, ui)
+		if err != nil {
+			t.Fatalf("PruneImages: %v", err)
+		}
+		if r.DockerImagesPruned != 0 {
+			t.Errorf("DockerImagesPruned = %d, want 0 on error", r.DockerImagesPruned)
+		}
+		if len(ui.WarnCalls) == 0 {
+			t.Errorf("expected a warn about the docker prune failure, got %v", ui.WarnCalls)
 		}
 	})
 }

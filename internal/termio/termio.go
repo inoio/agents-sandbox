@@ -65,3 +65,12 @@ func New(stdin io.Reader, stdout, stderr io.Writer, color bool, level Level, ass
 		isTerminal: term.IsTerminal,
 	}
 }
+
+type OutToVerboseRedirect struct {
+	UI
+}
+
+func (v *OutToVerboseRedirect) Out(msg string) { v.Verbose(msg) }
+func (v *OutToVerboseRedirect) Outf(format string, args ...any) {
+	v.Verbosef(format, args...)
+}
