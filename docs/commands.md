@@ -10,7 +10,7 @@ These flags are available on every command.
 |--------------|-------|---------|--------------------------------|
 | `--yes`      | `-y`  | `false` | Assume yes to all prompts      |
 | `--verbose`  | `-v`  | `false` | Show debug-level output        |
-| `--quiet`    | `-q`  | `false` | Suppress non-error output      |
+| `--error`    |       | `false` | Only show error output         |
 
 ## Commands
 
@@ -39,6 +39,7 @@ Arguments after `--` are forwarded to opencode. Arguments before `--` that don't
 | `--memory`     | `-m`  | `4G`     | Memory limit, e.g. `4G`, `512M`                                                                                                            |
 | `--disk-size`  | —     | `""`     | Project VM root disk size (e.g. 16G). Empty = microsandbox runtime default (~4 GiB). Applied at VM creation; a change triggers recreation. An invalid value is rejected with an error. |
 | `--tmp-size`   | —     | `2G`     | Size of `/tmp` tmpfs in the sandbox. An invalid value is rejected with an error. |
+| `--workspace-quota` | — | `16G` | Guest-write quota for the `/workspace` bind mount (e.g. `32G`), bounding writes on top of the host repo. Applied at VM creation; a change triggers recreation. An invalid value is rejected with an error. |
 | `--dry-run-vm` | —     | `false`  | Skip VM lifecycle but prepare everything else                                                                                              |
 | `--serve-only` | `-s`  | `false`  | Start opencode server published on host loopback (no in-VM TUI); press `Ctrl-D` to exit. Set `OPENCODE_SERVER_PASSWORD` for basic auth. |
 
@@ -129,7 +130,9 @@ opencode-sandbox kill -f     # kill and remove VM state
 
 ### prune
 
-Remove stale VMs, volumes, and images. Staleness is determined by age — resources older than the threshold are pruned.
+Remove stale VMs, volumes, and images in one pass. Staleness is determined by age — resources older than the threshold
+are pruned. The summary line reads `Pruned N VMs, N home volumes, N docker images, N msb images`. To prune a single
+artifact type, use the `image prune`, `volume prune`, or `sandbox prune` subcommands below.
 
 ```console
 opencode-sandbox prune                       # use --age, else manual-prune-age from config, else 7d
@@ -149,6 +152,67 @@ opencode-sandbox prune --force               # skip confirmation
 
 ---
 
+### image prune
+
+Prune cached runner images no longer in use. Staleness is determined by age like VMs and volumes.
+
+```console
+opencode-sandbox image prune                      # use manual-prune-age from config (default: 7d)
+opencode-sandbox image prune -a 24h               # 24-hour threshold
+opencode-sandbox image prune --all                # also prune images of stopped-but-existing projects
+opencode-sandbox image prune --dry-run            # preview only
+```
+
+**Flags:**
+
+| Flag        | Short | Default | Purpose                                                                             |
+|-------------|-------|---------|-------------------------------------------------------------------------------------|
+| `--age`     | `-a`  | config  | Prune threshold. Falls back to `manual-prune-age` from config, then to `7d` (e.g. `24h`, `7d`). |
+| `--dry-run` | `-n`  | `false` | Show what would be pruned without deleting                                          |
+| `--all`     | —     | `false` | Prune images of stopped-but-existing projects too                                   |
+
+---
+
+### volume prune
+
+Prune home volumes no longer referenced by a project VM. Staleness is determined by age like VMs and images.
+
+```console
+opencode-sandbox volume prune                     # use manual-prune-age from config (default: 7d)
+opencode-sandbox volume prune -a 24h              # 24-hour threshold
+opencode-sandbox volume prune --all               # also prune volumes of stopped-but-existing projects
+opencode-sandbox volume prune --dry-run           # preview only
+```
+
+**Flags:**
+
+| Flag        | Short | Default | Purpose                                                                             |
+|-------------|-------|---------|-------------------------------------------------------------------------------------|
+| `--age`     | `-a`  | config  | Prune threshold. Falls back to `manual-prune-age` from config, then to `7d` (e.g. `24h`, `7d`). |
+| `--dry-run` | `-n`  | `false` | Show what would be pruned without deleting                                          |
+| `--all`     | —     | `false` | Prune volumes of stopped-but-existing projects too                                  |
+
+---
+
+### sandbox prune
+
+Prune stale sandboxes and leftover task workers. Task sandboxes fold into the VM count.
+
+```console
+opencode-sandbox sandbox prune                    # use manual-prune-age from config (default: 7d)
+opencode-sandbox sandbox prune -a 24h             # 24-hour threshold
+opencode-sandbox sandbox prune --dry-run          # preview only
+```
+
+**Flags:**
+
+| Flag        | Short | Default | Purpose                                                                             |
+|-------------|-------|---------|-------------------------------------------------------------------------------------|
+| `--age`     | `-a`  | config  | Prune threshold. Falls back to `manual-prune-age` from config, then to `7d` (e.g. `24h`, `7d`). |
+| `--dry-run` | `-n`  | `false` | Show what would be pruned without deleting                                          |
+
+---
+
 ### list
 
 List all sandboxes on this host (across all projects).
@@ -161,9 +225,25 @@ opencode-sandbox sandbox list
 
 **Aliases:** `ls`, `sandbox list`
 
-Prints one line per opencode-sandbox VM with columns `NAME`, `STATUS`, `IMAGE`,
-`CREATED`, and `UPDATED`. `CREATED`/`UPDATED` use `YYYY-MM-DD HH:MM`; long image
-references are truncated. Column widths vary with terminal width.
+Prints a header row followed by one line per opencode-sandbox VM with columns
+`NAME`, `IMAGE`, `STATUS`, and `CREATED`. `CREATED` uses `YYYY-MM-DD HH:MM:SS`,
+matching microsandbox's `msb list` output. The `STATUS` cell is colored like
+microsandbox when color is enabled (`running` green, `stopped`/`created` dim,
+transitional states yellow, `crashed` red); with color disabled it renders as
+plain text.
+
+**Flags:**
+
+| Flag         | Short | Default | Purpose                                                                                                  |
+|--------------|-------|---------|----------------------------------------------------------------------------------------------------------|
+| `--label`    | —     | —       | Filter to sandboxes carrying the given `KEY=VALUE` label. Repeatable; labels are AND-matched.            |
+| `--limit`    | —     | `0`     | Limit the number of sandboxes listed (`0` = no limit).                                                   |
+| `--running`  | —     | `false` | Only list running sandboxes.                                                                             |
+| `--stopped`  | —     | `false` | Only list stopped sandboxes.                                                                            |
+| `--quiet`    | `-q`  | `false` | Print names only (no header, no status, image, or created columns).                                     |
+| `--format`   | —     | `""`    | Output format. `json` prints a top-level array of `{name,status,image,created,updated,labels}` objects. |
+
+`--running` wins over `--stopped` when both are set.
 
 ---
 
@@ -224,7 +304,8 @@ opencode-sandbox img
 
 List cached runner Docker images with reference, digest, size, and creation time. The
 reference ends in the short content hash the image is keyed under in microsandbox; the
-digest column shows the image's full manifest digest as reported by microsandbox.
+digest column shows the short form (`sha256:` followed by 12 hex chars) as microsandbox
+reports it.
 
 ```console
 opencode-sandbox image list
@@ -303,7 +384,7 @@ List all managed home volumes.
 opencode-sandbox volume list
 ```
 
-Columns: `NAME`, `KIND`, `SIZE`, `CREATED` (`YYYY-MM-DD HH:MM:SS`). `SIZE` shows the quota or capacity, or `-` for dir/unlimited volumes.
+Columns: `NAME`, `KIND`, `SIZE`, `CREATED` (`YYYY-MM-DD HH:MM:SS`). `SIZE` shows capacity for disk volumes and quota for directory volumes, or `-` when unavailable.
 
 **Aliases:** `volume ls`
 

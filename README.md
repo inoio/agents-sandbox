@@ -89,6 +89,10 @@ See [Getting Started](/docs/getting-started.md) for prerequisites and a full set
 
 Full [Commands Reference](/docs/commands.md).
 
+> **Breaking change:** the global `-q/--quiet` flag was renamed to `--error`. `sandbox list`
+> now supports `--label`, `--limit`, `--running`, `--stopped`, `-q/--quiet` (names only),
+> and `--format json`.
+
 opencode is pinned into the runner image at build time and does not auto-update inside sandboxes; rebuild the image
 with `opencode-sandbox build` to upgrade (optionally pinning a specific version with `--opencode-version`).
 

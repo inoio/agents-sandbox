@@ -35,8 +35,6 @@ func TestArtifactFor_SinglePartSlugs(t *testing.T) {
 	}{
 		{"opencode-sandbox-task-prefill-proj-1719432000", "prefill-proj", ""},
 		{"opencode-sandbox-task-fill-proj", "fill", ""},
-		{"opencode-sandbox-clone-proj-aBc1234D-1719432000", "proj-aBc1234D", ""},
-		{"opencode-sandbox-clone-work-a1b2c3d4", "work", ""},
 	}
 	for _, c := range cases {
 		info := ArtifactFor(c.in)
@@ -180,24 +178,6 @@ func TestParseHomeVolumeNameNewFormat(t *testing.T) {
 	}
 }
 
-func TestParseCloneVolumeName(t *testing.T) {
-	cases := []struct {
-		in       string
-		wantSlug string
-	}{
-		{"opencode-sandbox-clone-proj-aBc1234D-1719432000", "proj-aBc1234D"},
-		{"opencode-sandbox-clone-work-a1b2c3d4", "work"},
-		{"opencode-sandbox-clone-singlepart", "singlepart"},
-		{"other-name", ""},
-	}
-	for _, c := range cases {
-		got := ParseCloneVolumeName(c.in)
-		if got != c.wantSlug {
-			t.Errorf("ParseCloneVolumeName(%q) = %q, want %q", c.in, got, c.wantSlug)
-		}
-	}
-}
-
 func TestArtifactFor(t *testing.T) {
 	cases := []struct {
 		in         string
@@ -212,7 +192,6 @@ func TestArtifactFor(t *testing.T) {
 			"xYz1234AbCdEfGh",
 		},
 		{"opencode-sandbox-task-prefill-proj-1719432000", "prefill-proj", ""},
-		{"opencode-sandbox-clone-proj-aBc1234D-1719432000", "proj-aBc1234D", ""},
 		{"unknown-prefix-foo", "", ""},
 	}
 	for _, c := range cases {

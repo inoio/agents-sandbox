@@ -21,7 +21,8 @@ func TestPlanReconfigDecidesRecreate(t *testing.T) {
 			RootDisk:  rootDisk,
 			Image:     "image-a",
 			Volumes: map[string]msbSdk.MountConfig{
-				tmpMountPath: {SizeMiB: tmpMiB},
+				tmpMountPath:       {SizeMiB: tmpMiB},
+				workspaceMountPath: {QuotaMiB: options.DefaultWorkspaceQuotaMiB},
 			},
 		}
 	}
@@ -46,6 +47,20 @@ func TestPlanReconfigDecidesRecreate(t *testing.T) {
 			imageRef: "image-a",
 			opts:     options.RunOptions{TmpSize: "1G"},
 			want:     true,
+		},
+		{
+			name:     "workspace quota mismatch",
+			cfg:      mkConfig(4, 4096, 0, 2048),
+			imageRef: "image-a",
+			opts:     options.RunOptions{WorkspaceQuota: "32G"},
+			want:     true,
+		},
+		{
+			name:     "workspace quota unset ignores quota",
+			cfg:      mkConfig(4, 4096, 0, 2048),
+			imageRef: "image-a",
+			opts:     options.RunOptions{},
+			want:     false,
 		},
 		{
 			name:     "disk mismatch (explicit)",

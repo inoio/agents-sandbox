@@ -188,6 +188,7 @@ func registerSharedRunShellFlags(cmd *cobra.Command) {
 	cmd.Flags().StringP(flagMemory, flagMemory[:1], "4G", "Memory limit")
 	cmd.Flags().String(flagTmpSize, "2G", "Size of the /tmp tmpfs in the sandbox")
 	cmd.Flags().String(flagDiskSize, "", "Size of the project VM root disk (e.g. 16G)")
+	cmd.Flags().String(flagWorkspaceQuota, "16G", "Guest-write quota for the /workspace bind mount (e.g. 32G)")
 }
 
 func buildStopCmd(ui termio.UI) *cobra.Command {

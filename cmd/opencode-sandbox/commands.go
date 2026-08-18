@@ -46,6 +46,7 @@ func extractRunOptions(cmd *cobra.Command, ui termio.UI) (options.RunOptions, er
 		opts.Memory = r.Memory()
 		opts.TmpSize = r.TmpSize()
 		opts.DiskSize = r.DiskSize()
+		opts.WorkspaceQuota = r.WorkspaceQuota()
 		opts.ReapPolicy = options.NewReapPolicy(r.AutoStopOnActiveSessions(), r.AutoStopMaxSessionRetries())
 		opts.IdleTimeout = r.IdleTimeout()
 	}
@@ -66,6 +67,14 @@ func extractRunOptions(cmd *cobra.Command, ui termio.UI) (options.RunOptions, er
 			)
 		}
 	}
+	if opts.WorkspaceQuota != "" {
+		if _, ok := options.ParseMemoryOK(opts.WorkspaceQuota); !ok {
+			return options.RunOptions{}, fmt.Errorf(
+				"invalid --workspace-quota %q: expected a size like 16G, 512M, or 4096",
+				opts.WorkspaceQuota,
+			)
+		}
+	}
 	return opts, nil
 }
 
@@ -79,12 +88,13 @@ func resolverFromContext(ctx context.Context) *launcherconfig.Resolver {
 	return r
 }
 
-// printItems renders a list of items using the given format string with one
-// verb per accessor, item type, and type-specific accessors for each column.
+// printItems renders a list of items as an aligned table with a styled header
+// row. It uses the termio.Table renderer, which sizes each column to the
+// widest cell and matches microsandbox's table output.
 func printItems[T any](
 	items []T,
 	emptyMsg string,
-	format string,
+	headers []string,
 	ui termio.UI,
 	funcs ...func(T) string,
 ) {
@@ -92,13 +102,15 @@ func printItems[T any](
 		ui.Info(emptyMsg)
 		return
 	}
+	tbl := ui.NewTable(headers...)
 	for _, item := range items {
-		args := make([]any, len(funcs))
+		cells := make([]string, len(funcs))
 		for i, f := range funcs {
-			args[i] = f(item)
+			cells[i] = f(item)
 		}
-		ui.Outf(format, args...)
+		tbl.AddRow(cells...)
 	}
+	tbl.Print()
 }
 
 func buildMinimalRootFlagsCmd() *cobra.Command {
@@ -111,7 +123,7 @@ func buildMinimalRootFlagsCmd() *cobra.Command {
 
 	rootFlagsCmd.PersistentFlags().BoolP(pFlagYes, pFlagYes[:1], false, "Assume yes to all prompts")
 	rootFlagsCmd.PersistentFlags().BoolP(pFlagVerbose, pFlagVerbose[:1], false, "Show debug-level output")
-	rootFlagsCmd.PersistentFlags().BoolP(pFlagQuiet, pFlagQuiet[:1], false, "Suppress non-error output")
+	rootFlagsCmd.PersistentFlags().BoolP(pFlagError, "", false, "Only show error output")
 
 	return rootFlagsCmd
 }

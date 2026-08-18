@@ -3,6 +3,7 @@ package humanize
 import (
 	"fmt"
 	"math"
+	"time"
 )
 
 // FormatBytes renders a byte count with binary units (base 1024), one decimal
@@ -21,4 +22,13 @@ func FormatBytes(bytes uint64) string {
 		return fmt.Sprintf("%.0f %s", mantissa, units[unit])
 	}
 	return fmt.Sprintf("%.1f %s", mantissa, units[unit])
+}
+
+// FormatTimestamp renders a timestamp as YYYY-MM-DD HH:MM:SS in the time's own
+// location, or an empty string for the zero value.
+func FormatTimestamp(t time.Time) string {
+	if t.IsZero() {
+		return ""
+	}
+	return t.Format("2006-01-02 15:04:05")
 }

@@ -213,3 +213,60 @@ func TestOutfFormatsArgs(t *testing.T) {
 		t.Errorf("expected formatted stdout, got %q", out)
 	}
 }
+
+func TestHeaderWritesToStdout(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	ui := New(nil, &stdout, &stderr, false, LevelNormal, false)
+	ui.Header("NAME STATUS")
+	if stdout.String() != "NAME STATUS\n" {
+		t.Errorf("expected plain header on stdout, got %q", stdout.String())
+	}
+	if stderr.String() != "" {
+		t.Errorf("expected no stderr output, got %q", stderr.String())
+	}
+}
+
+func TestHeaderStyledBoldCyanWhenColor(t *testing.T) {
+	var stdout bytes.Buffer
+	ui := New(nil, &stdout, &bytes.Buffer{}, true, LevelNormal, false)
+	ui.Header("NAME STATUS")
+	out := stdout.String()
+	if !strings.Contains(out, "\x1b[1;36m") {
+		t.Errorf("expected bold cyan ANSI code, got %q", out)
+	}
+	if !strings.Contains(out, "\x1b[0m") {
+		t.Errorf("expected ANSI reset, got %q", out)
+	}
+	if !strings.Contains(out, "NAME STATUS") {
+		t.Errorf("expected header text, got %q", out)
+	}
+}
+
+func TestHeaderHiddenAtQuietLevel(t *testing.T) {
+	var stdout bytes.Buffer
+	ui := New(nil, &stdout, &bytes.Buffer{}, false, LevelQuiet, false)
+	ui.Header("NAME")
+	if stdout.String() != "" {
+		t.Errorf("expected no header at quiet level, got %q", stdout.String())
+	}
+}
+
+func TestOutStripsANSIIfColorDisabled(t *testing.T) {
+	var stdout bytes.Buffer
+	ui := New(nil, &stdout, &bytes.Buffer{}, false, LevelNormal, false)
+	ui.Out(StyleStatus("running"))
+	out := stdout.String()
+	if out != "running\n" {
+		t.Errorf("color-disabled Out should strip ANSI, got %q", out)
+	}
+}
+
+func TestOutKeepsANSIIfColorEnabled(t *testing.T) {
+	var stdout bytes.Buffer
+	ui := New(nil, &stdout, &bytes.Buffer{}, true, LevelNormal, false)
+	ui.Out(StyleStatus("running"))
+	out := stdout.String()
+	if !strings.Contains(out, "\x1b[1;32mrunning\x1b[0m") {
+		t.Errorf("color-enabled Out should keep ANSI, got %q", out)
+	}
+}

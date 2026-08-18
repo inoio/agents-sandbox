@@ -127,3 +127,15 @@ func TestResolveTmpSizeMiB_DelegatesToParseMemoryOK(t *testing.T) {
 		t.Errorf("expected 4096 for 4G, got %d", got)
 	}
 }
+
+func TestResolveWorkspaceQuotaMiB_DelegatesToParseMemoryOK(t *testing.T) {
+	if got := ResolveWorkspaceQuotaMiB(""); got != DefaultWorkspaceQuotaMiB {
+		t.Errorf("expected default %d for empty, got %d", DefaultWorkspaceQuotaMiB, got)
+	}
+	if got := ResolveWorkspaceQuotaMiB("bogus"); got != DefaultWorkspaceQuotaMiB {
+		t.Errorf("expected default %d for bogus, got %d", DefaultWorkspaceQuotaMiB, got)
+	}
+	if got := ResolveWorkspaceQuotaMiB("16G"); got != 16*1024 {
+		t.Errorf("expected 16384 for 16G, got %d", got)
+	}
+}

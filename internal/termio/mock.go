@@ -76,7 +76,19 @@ func (m *Mock) Verbosef(format string, args ...any) {
 }
 
 func (m *Mock) Out(msg string) {
-	m.OutCalls = append(m.OutCalls, msg)
+	m.OutCalls = append(m.OutCalls, stripANSICodes(msg))
+}
+
+// Header records a table header line in OutCalls. The mock never applies ANSI
+// styling, matching the color-disabled printer path used by tests.
+func (m *Mock) Header(msg string) {
+	m.OutCalls = append(m.OutCalls, stripANSICodes(msg))
+}
+
+// NewTable returns an empty aligned Table that records output in the mock.
+func (m *Mock) NewTable(headers ...string) *Table {
+	//nolint:exhaustruct // rows starts empty (nil slice is the zero value)
+	return &Table{ui: m, headers: headers}
 }
 
 func (m *Mock) Outf(format string, args ...any) {
