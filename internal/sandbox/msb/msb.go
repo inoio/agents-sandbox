@@ -180,7 +180,7 @@ func (realMsbClient) ListSandboxes(ctx context.Context, labels map[string]string
 	for {
 		var page *msbSdk.SandboxPage
 		var err error
-		opts := []msbSdk.SandboxListOption{}
+		var opts []msbSdk.SandboxListOption
 		if len(labels) > 0 {
 			opts = append(opts, msbSdk.WithListLabels(labels))
 		}

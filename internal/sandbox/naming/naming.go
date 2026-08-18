@@ -10,10 +10,8 @@ const BaseDindSlug = "base-dind"
 
 // Sandbox and image name prefixes derived from Prefix.
 const (
-	SbPrefix            = Prefix + "-"
 	VmPrefix            = Prefix + "-vm-" //nolint:staticcheck,revive // follows existing brief naming convention (ST1003, var-naming)
 	HomePrefix          = Prefix + "-home-"
-	ClonePrefix         = Prefix + "-clone-"
 	TaskPrefix          = Prefix + "-task-"
 	ImagePrefix         = Prefix + "/runner-"
 	BaseImagePrefix     = Prefix + "/runner-base"

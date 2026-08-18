@@ -127,7 +127,7 @@ func TestNewConfigSetsUserDirs(t *testing.T) {
 	t.Setenv("XDG_CACHE_HOME", "")
 	t.Setenv("XDG_STATE_HOME", "")
 	configpaths.WithRealConfigPaths(t)
-	cfg := newConfig()
+	cfg := configpaths.Get()
 	if cfg.UserStateDir() != "/testhome/.local/state/opencode-sandbox" {
 		t.Errorf("unexpected state dir: %q", cfg.UserStateDir())
 	}
@@ -148,7 +148,7 @@ func TestNewConfigHonorsXdgEnv(t *testing.T) {
 	t.Setenv("XDG_CACHE_HOME", "/xdg/cache")
 	t.Setenv("XDG_STATE_HOME", "/xdg/state")
 	configpaths.WithRealConfigPaths(t)
-	cfg := newConfig()
+	cfg := configpaths.Get()
 	if cfg.UserStateDir() != "/xdg/state/opencode-sandbox" {
 		t.Errorf("unexpected state dir: %q", cfg.UserStateDir())
 	}
