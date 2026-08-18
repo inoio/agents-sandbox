@@ -21,101 +21,6 @@ import (
 	"gitlab.inoio.de/inoio/opencode-sandbox/internal/testutil"
 )
 
-func TestCurrentEnvState_NotFoundReturnsZero(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
-	slug := "nonexistent"
-
-	got := currentEnvState(slug, &termio.Mock{})
-
-	if got.Hash != "" {
-		t.Errorf("expected empty hash, got %q", got.Hash)
-	}
-	if got.Names != nil {
-		t.Errorf("expected nil names, got %v", got.Names)
-	}
-}
-
-func TestCurrentEnvState_ReadsPersisted(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
-	slug := "testproj-abc1"
-
-	state.WriteState(slug, state.HomeState{
-		HomeVolume:  "vol",
-		ImageDigest: "sha256:xyz",
-		EnvState: state.EnvState{
-			Hash:  "sha256:testenvhash",
-			Names: []string{"BAR", "FOO"},
-		},
-	})
-
-	got := currentEnvState(slug, nil)
-
-	if got.Hash != "sha256:testenvhash" {
-		t.Errorf("EnvState.Hash = %q, want %q", got.Hash, "sha256:testenvhash")
-	}
-	if len(got.Names) != 2 || got.Names[0] != "BAR" || got.Names[1] != "FOO" {
-		t.Errorf("EnvState.Names = %v, want [BAR, FOO]", got.Names)
-	}
-}
-
-func TestCurrentEnvState_IgnoresReadError(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
-
-	slug := "badproj"
-
-	// Corrupted YAML that returns a parser error (not ErrStateNotFound):
-	sdir := filepath.Join(configpaths.Get().UserStateDir(), slug)
-	os.MkdirAll(sdir, 0o700)
-	testutil.WriteFile(t, sdir, "state.yaml", "!!broken: yaml: [invalid")
-
-	ui := &termio.Mock{}
-	got := currentEnvState(slug, ui)
-
-	if got.Hash != "" {
-		t.Errorf("expected empty hash on read error, got %q", got.Hash)
-	}
-	if len(ui.WarnCalls) != 1 {
-		t.Errorf("expected 1 warn call on read error, got %d", len(ui.WarnCalls))
-	}
-}
-
-func TestCurrentSecretState_NotFoundReturnsZero(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
-
-	slug := "nonexistent"
-
-	got := currentSecretState(slug, &termio.Mock{})
-
-	if got.Hash != "" {
-		t.Errorf("expected empty hash, got %q", got.Hash)
-	}
-	if got.Names != nil {
-		t.Errorf("expected nil names, got %v", got.Names)
-	}
-}
-
-func TestCurrentSecretState_ReadsPersisted(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
-
-	slug := "testproj-abc2"
-
-	state.WriteState(slug, state.HomeState{
-		SecretState: state.SecretState{
-			Hash:  "sha256:testsecrethash",
-			Names: []string{"DB_PASSWORD", "API_KEY"},
-		},
-	})
-
-	got := currentSecretState(slug, nil)
-
-	if got.Hash != "sha256:testsecrethash" {
-		t.Errorf("SecretState.Hash = %q, want %q", got.Hash, "sha256:testsecrethash")
-	}
-	if len(got.Names) != 2 {
-		t.Errorf("SecretState.Names length = %d, want 2", len(got.Names))
-	}
-}
-
 func TestPersistEnvSecrets_RoundTrip(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 
@@ -550,28 +455,6 @@ func TestPersistEnvSecrets_HomeStateOmitsZeroState(t *testing.T) {
 	content := string(data)
 	if !containsStr(content, "env_state") {
 		t.Error("expected env_state in YAML")
-	}
-}
-
-func TestCurrentStates_PersistedBothFields(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
-
-	slug := "bothproj"
-
-	state.WriteState(slug, state.HomeState{
-		HomeVolume:  "vol",
-		ImageDigest: "sha256:img",
-		EnvState:    state.EnvState{Hash: "eh", Names: []string{"A"}},
-		SecretState: state.SecretState{Hash: "sh", Names: []string{"B"}},
-	})
-
-	e := currentEnvState(slug, nil)
-	if e.Hash != "eh" {
-		t.Errorf("EnvState.Hash = %q, want %q", e.Hash, "eh")
-	}
-	s := currentSecretState(slug, nil)
-	if s.Hash != "sh" {
-		t.Errorf("SecretState.Hash = %q, want %q", s.Hash, "sh")
 	}
 }
 

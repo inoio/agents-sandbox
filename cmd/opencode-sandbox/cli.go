@@ -3,7 +3,6 @@ package main
 import (
 	"github.com/spf13/cobra"
 
-	"gitlab.inoio.de/inoio/opencode-sandbox/internal/configpaths"
 	"gitlab.inoio.de/inoio/opencode-sandbox/internal/termio"
 	launcherconfig "gitlab.inoio.de/inoio/opencode-sandbox/internal/viperconfig"
 )
@@ -63,8 +62,4 @@ func levelFrom(quiet, verbose bool) termio.Level {
 	default:
 		return termio.LevelNormal
 	}
-}
-
-func newConfig() configpaths.ConfigPaths {
-	return configpaths.Get()
 }

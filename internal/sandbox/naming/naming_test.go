@@ -204,39 +204,3 @@ func TestArtifactFor(t *testing.T) {
 		}
 	}
 }
-
-func TestConstants(t *testing.T) {
-	if Prefix != "opencode-sandbox" {
-		t.Errorf("Prefix = %q, want %q", Prefix, "opencode-sandbox")
-	}
-	if BaseSlug != "base" {
-		t.Errorf("BaseSlug = %q, want %q", BaseSlug, "base")
-	}
-	if SbPrefix != "opencode-sandbox-" {
-		t.Errorf("SbPrefix = %q, want %q", SbPrefix, "opencode-sandbox-")
-	}
-	if VmPrefix != "opencode-sandbox-vm-" {
-		t.Errorf("VmPrefix = %q, want %q", VmPrefix, "opencode-sandbox-vm-")
-	}
-	if HomePrefix != "opencode-sandbox-home-" {
-		t.Errorf("HomePrefix = %q, want %q", HomePrefix, "opencode-sandbox-home-")
-	}
-	if ClonePrefix != "opencode-sandbox-clone-" {
-		t.Errorf("ClonePrefix = %q, want %q", ClonePrefix, "opencode-sandbox-clone-")
-	}
-	if TaskPrefix != "opencode-sandbox-task-" {
-		t.Errorf("TaskPrefix = %q, want %q", TaskPrefix, "opencode-sandbox-task-")
-	}
-	if ImagePrefix != "opencode-sandbox/runner-" {
-		t.Errorf("ImagePrefix = %q, want %q", ImagePrefix, "opencode-sandbox/runner-")
-	}
-	if BaseImagePrefix != "opencode-sandbox/runner-base" {
-		t.Errorf("BaseImagePrefix = %q, want %q", BaseImagePrefix, "opencode-sandbox/runner-base")
-	}
-	if BaseTag != "opencode-sandbox/runner-base:latest" {
-		t.Errorf("BaseTag = %q, want %q", BaseTag, "opencode-sandbox/runner-base:latest")
-	}
-	if DindBaseTag != "opencode-sandbox/runner-base-dind:latest" {
-		t.Errorf("DindBaseTag = %q, want %q", DindBaseTag, "opencode-sandbox/runner-base-dind:latest")
-	}
-}

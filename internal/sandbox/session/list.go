@@ -36,20 +36,6 @@ func FormatTime(t time.Time) string {
 	return humanize.FormatTimestamp(t)
 }
 
-type sandboxHandle struct {
-	name string
-}
-
-func filterSandboxes(handles []sandboxHandle) []string {
-	var result []string
-	for _, h := range handles {
-		if strings.HasPrefix(h.name, naming.VmPrefix) {
-			result = append(result, h.name)
-		}
-	}
-	return result
-}
-
 // ListSandboxes returns a list of sandbox VMs for the current host, filtered
 // by the given options.
 func ListSandboxes(ctx context.Context, opts ...ListOption) ([]Info, error) { //nolint:gocognit

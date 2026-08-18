@@ -2,7 +2,6 @@ package git
 
 import (
 	"crypto/sha256"
-	"fmt"
 	"math/big"
 	"os"
 	"path/filepath"
@@ -180,22 +179,4 @@ func projectSlug(folderName, id string) string {
 		folderName = "project"
 	}
 	return folderName + "-" + HashID(id)
-}
-
-func branchSlug(branch string) string {
-	slug := strings.ReplaceAll(branch, "-", "--")
-	slug = strings.ReplaceAll(slug, "/", "---")
-	return slug
-}
-
-func branchAt(path string) (string, error) {
-	repo, err := git.PlainOpen(path)
-	if err != nil {
-		return "", fmt.Errorf("unable to determine current git branch from %s: %w", path, err)
-	}
-	head, err := repo.Head()
-	if err != nil {
-		return "", fmt.Errorf("unable to determine current git branch from %s: %w", path, err)
-	}
-	return head.Name().Short(), nil
 }
