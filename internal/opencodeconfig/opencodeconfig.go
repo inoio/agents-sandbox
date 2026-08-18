@@ -84,13 +84,6 @@ func scanSnippets(dirs ...string) (map[string]any, []string) {
 	return merged, sources
 }
 
-// scanSnippetFiles reads every json/jsonc/json5 file across dirs and returns a
-// single deep-merged map.
-func scanSnippetFiles(dirs ...string) map[string]any {
-	merged, _ := scanSnippets(dirs...)
-	return merged
-}
-
 // BuildOpenCodeJSON merges all opencode snippet files under userDir and
 // projectDir into a single opencode.json document. It returns the marshaled
 // bytes, the ordered list of snippet files that were merged, a boolean

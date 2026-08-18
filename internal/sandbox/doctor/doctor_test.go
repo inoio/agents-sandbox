@@ -129,6 +129,16 @@ func TestCheckMsbNotOnPathAndBinaryMissingReturnsFalse(t *testing.T) {
 	}
 }
 
+func mockedCollectChecks(t *testing.T, warnings []string, errs []error) {
+	orig := collectChecksFunc
+	collectChecksFunc = collectChecksMockFunc(warnings, errs)
+	t.Cleanup(func() { collectChecksFunc = orig })
+}
+
+func collectChecksMockFunc(warnings []string, errs []error) func(context.Context) ([]string, []error) {
+	return func(context.Context) ([]string, []error) { return warnings, errs }
+}
+
 func TestCheckAllAggregatesAllFailures(t *testing.T) {
 	testUI := termio.NewTestMock(t)
 	mockedCollectChecks(t, nil, []error{

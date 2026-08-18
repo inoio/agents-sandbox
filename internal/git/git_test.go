@@ -9,54 +9,6 @@ import (
 	"gitlab.inoio.de/inoio/opencode-sandbox/internal/testutil"
 )
 
-func TestBranchSlugReplacesSlashes(t *testing.T) {
-	got := branchSlug("feature/foo/bar")
-	if got != "feature---foo---bar" {
-		t.Errorf("expected 'feature---foo---bar', got %q", got)
-	}
-}
-
-func TestBranchSlugEscapesDashes(t *testing.T) {
-	got := branchSlug("feature-foo")
-	if got != "feature--foo" {
-		t.Errorf("expected 'feature--foo', got %q", got)
-	}
-}
-
-func TestBranchSlugNoCollision(t *testing.T) {
-	a := branchSlug("feature/foo")
-	b := branchSlug("feature-foo")
-	if a == b {
-		t.Errorf("expected different slugs, got %q and %q", a, b)
-	}
-}
-
-func TestBranchSlugNoChange(t *testing.T) {
-	got := branchSlug("main")
-	if got != "main" {
-		t.Errorf("expected 'main', got %q", got)
-	}
-}
-
-func TestBranchAtReturnsCurrentBranch(t *testing.T) {
-	repo := testutil.InitRepo(t)
-	branch, err := branchAt(repo)
-	if err != nil {
-		t.Fatalf("BranchAt: %v", err)
-	}
-	if branch != "main" {
-		t.Errorf("expected branch 'main', got %q", branch)
-	}
-}
-
-func TestBranchAtFailsOutsideGitRepo(t *testing.T) {
-	dir := t.TempDir()
-	_, err := branchAt(dir)
-	if err == nil {
-		t.Error("expected error outside git repo, got nil")
-	}
-}
-
 func TestHashIDReturns14Chars(t *testing.T) {
 	got := HashID("test-input")
 	if len(got) != 14 {

@@ -12,6 +12,8 @@ import (
 	"gitlab.inoio.de/inoio/opencode-sandbox/internal/termio"
 )
 
+const changeLabelPublishedPorts = "published port(s)"
+
 // Change describes one changed setting for prompt display. Values are
 // shown for simple sizes/counts; env/secrets/config carry labels only (Old/New empty).
 type Change struct {
@@ -123,8 +125,7 @@ func PlanReconfig( //nolint:gocognit,gocyclo,cyclop,funlen // core planner, cogn
 		d.Recreate = true
 		d.Changes = append(
 			d.Changes,
-			//nolint:exhaustruct,goconst // label-only for change reporting
-			Change{Label: "published port(s)"},
+			Change{Label: changeLabelPublishedPorts}, //nolint:exhaustruct // label-only for change reporting
 		)
 	}
 	if !d.Recreate && (envChanged || secretsChanged) {

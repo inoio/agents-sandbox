@@ -123,8 +123,8 @@ var configFlagKeys = []string{
 var configEnvKeys = []string{
 	"cpus", "memory", "tmp-size", "disk-size", "workspace-quota",
 	"yes", "verbose", "error",
-	"auto-prune-age", "manual-prune-age",
-	"auto-stop-on-active-sessions", "auto-stop-timeout", "auto-stop-max-session-retries",
+	keyAutoPruneAge, keyManualPruneAge,
+	keyAutoStopOnActiveSessions, keyAutoStopTimeout, keyAutoStopMaxSessionRetries,
 }
 
 // bindConfigFlags binds each config-backed flag found on cmd (local or

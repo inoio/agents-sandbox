@@ -20,14 +20,6 @@ import (
 //nolint:gochecknoglobals // test hook for the otherwise unmockable endpoint URL
 var gitHubLatestURL = "https://api.github.com/repos/anomalyco/opencode/releases/latest"
 
-// overrideLatestURL swaps gitHubLatestURL for the duration of a test. It returns
-// a restore func.
-func overrideLatestURL(url string) func() {
-	orig := gitHubLatestURL
-	gitHubLatestURL = url
-	return func() { gitHubLatestURL = orig }
-}
-
 type githubRelease struct {
 	TagName string `json:"tag_name"`
 }

@@ -7,6 +7,14 @@ import (
 	"testing"
 )
 
+// overrideLatestURL swaps gitHubLatestURL for the duration of a test. It returns
+// a restore func.
+func overrideLatestURL(url string) func() {
+	orig := gitHubLatestURL
+	gitHubLatestURL = url
+	return func() { gitHubLatestURL = orig }
+}
+
 func TestLatestVersionReadsGitHubRelease(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")

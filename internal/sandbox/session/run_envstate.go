@@ -5,30 +5,7 @@ import (
 	"fmt"
 
 	"gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/state"
-	"gitlab.inoio.de/inoio/opencode-sandbox/internal/termio"
 )
-
-func currentEnvState(slug string, ui termio.UI) state.EnvState {
-	st, err := state.ReadState(slug)
-	if err != nil {
-		if !errors.Is(err, state.ErrStateNotFound) {
-			ui.Warnf("reading state for env fingerprint: %v (continuing)", err)
-		}
-		return state.EnvState{}
-	}
-	return st.EnvState
-}
-
-func currentSecretState(slug string, ui termio.UI) state.SecretState {
-	st, err := state.ReadState(slug)
-	if err != nil {
-		if !errors.Is(err, state.ErrStateNotFound) {
-			ui.Warnf("reading state for secret fingerprint: %v (continuing)", err)
-		}
-		return state.SecretState{}
-	}
-	return st.SecretState
-}
 
 func persistEnvSecrets(slug string, envState state.EnvState, secretState state.SecretState) error {
 	st, err := state.ReadState(slug)

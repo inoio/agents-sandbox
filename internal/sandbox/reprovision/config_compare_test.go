@@ -1,6 +1,7 @@
 package reprovision
 
 import (
+	"bytes"
 	"context"
 	"path/filepath"
 	"reflect"
@@ -11,6 +12,28 @@ import (
 
 	"gitlab.inoio.de/inoio/opencode-sandbox/internal/testutil"
 )
+
+// configEqual reports whether the desired state matches the VM state. The
+// merged opencode.json is compared semantically; home files byte-for-byte.
+func configEqual(cf *ConfigFiles, vmData map[string][]byte) bool {
+	if cf.HasSnippets {
+		ocPath := OpenCodeConfigPath(VMHomeDir)
+		vm, ok := vmData[ocPath]
+		if !ok {
+			return false
+		}
+		if !jsonEqual(cf.OpenCode, vm) {
+			return false
+		}
+	}
+	for path, want := range cf.HomeFiles {
+		got, ok := vmData[path]
+		if !ok || !bytes.Equal(want, got) {
+			return false
+		}
+	}
+	return true
+}
 
 func TestConfigEqualHomeFileByteMatch(t *testing.T) {
 	cf := &ConfigFiles{
@@ -25,7 +48,7 @@ func TestConfigEqualHomeFileByteMatch(t *testing.T) {
 		"/home/dev/.config/opencode/opencode.json": []byte(`{"model":"x"}`),
 		"/home/dev/.gitconfig":                     []byte("user.name=X\n"),
 	}
-	if !ConfigEqual(cf, vmData) {
+	if !configEqual(cf, vmData) {
 		t.Error("expected equality for matching opencode.json and home file")
 	}
 }
@@ -43,7 +66,7 @@ func TestConfigEqualHomeFileMismatch(t *testing.T) {
 		"/home/dev/.config/opencode/opencode.json": []byte(`{"model":"x"}`),
 		"/home/dev/.gitconfig":                     []byte("user.name=Y\n"),
 	}
-	if ConfigEqual(cf, vmData) {
+	if configEqual(cf, vmData) {
 		t.Error("expected mismatch for differing home file content")
 	}
 }
