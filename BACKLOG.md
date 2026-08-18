@@ -14,6 +14,7 @@
 [*] config file(s) übersicht, beispiele
 [*] volume migrate, edit, reset
 [*] remove msb load exec call by spooling to tmp file and using msb SDKs Image.Load
+[*] remove/clean commands for volumes, sandboxes, images. docker images/cache/... - with filters, best same ones. Also readable list output (project name, not number) (labels an docker images für cleanup?)
 
 ## Testing
 
@@ -27,9 +28,6 @@
 ## 1st prio
 
 [ ] dev doku, design principles usw. (z.B. CLI design aligned with docker,msb)
-[ ] remove/clean commands for volumes, sandboxes, images. docker images/cache/... - with filters, best same ones. Also readable list output (project name, not number) (labels an docker images für cleanup?)
-
-
 
 
 [ ] env.secret[.yaml] im Projekt, wie verstecken?

@@ -65,12 +65,8 @@ func maybePromptOpenCodeUpgrade(
 		return rebuilt, upgradeActionRebuild, nil
 	}
 
-	latest, err := openCodeUpgradeInfo(ctx)
-	if err != nil {
-		ui.Warnf("could not check for opencode updates: %v", err)
-		return info, upgradeActionNone, nil
-	}
-	if opencode.VersionCompare(latest, info.OpenCodeVersion) <= 0 {
+	latest, offer := pendingUpgrade(ctx, ui, info)
+	if !offer {
 		return info, upgradeActionNone, nil
 	}
 
@@ -107,5 +103,57 @@ func maybePromptOpenCodeUpgrade(
 		return info, upgradeActionNone, errUpgradeQuit
 	default:
 		return info, upgradeActionNone, nil
+	}
+}
+
+// pendingUpgrade resolves whether a newer opencode version is available and
+// should be offered for rebuild, enforcing the once-per-day and once-per-version
+// gates. It returns the candidate version and whether the user should be
+// prompted. The once-per-day window and offered set are persisted on every
+// successful check; an offline or failed check never fails the session and
+// leaves the window open.
+func pendingUpgrade(ctx context.Context, ui termio.UI, info image.ImageInfo) (string, bool) {
+	state := loadOrFreshUpgradeState(ui)
+	if !state.dueForCheck(now()) {
+		return "", false
+	}
+
+	latest, err := openCodeUpgradeInfo(ctx)
+	if err != nil {
+		// Offline or unreachable: never fail the session, and leave the
+		// once-per-day window open so the next online run retries.
+		ui.Warnf("could not check for opencode updates: %v", err)
+		return "", false
+	}
+
+	// A successful check refreshes the once-per-day window regardless of
+	// whether an upgrade is available.
+	state.LastChecked = now()
+	if opencode.VersionCompare(latest, info.OpenCodeVersion) <= 0 || state.offered(latest) {
+		persistUpgradeState(ui, state)
+		return "", false
+	}
+
+	state.markOffered(latest)
+	persistUpgradeState(ui, state)
+	return latest, true
+}
+
+// loadOrFreshUpgradeState loads the updater state, falling back to a fresh
+// state on any read error so bookkeeping never blocks a session.
+func loadOrFreshUpgradeState(ui termio.UI) upgradeState {
+	state, err := loadUpgradeState()
+	if err != nil {
+		ui.Warnf("could not read updater state: %v (checking anyway)", err)
+		return upgradeState{}
+	}
+	return state
+}
+
+// persistUpgradeState best-effort writes the updater state, warning on failure
+// without ever failing the session.
+func persistUpgradeState(ui termio.UI, state upgradeState) {
+	if err := saveUpgradeState(state); err != nil {
+		ui.Warnf("could not persist updater state: %v", err)
 	}
 }
