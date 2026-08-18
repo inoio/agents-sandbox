@@ -8,8 +8,8 @@ import (
 	"strings"
 	"testing"
 
-	"gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/doctor"
-	"gitlab.inoio.de/inoio/opencode-sandbox/internal/termio"
+	"github.com/inoio/opencode-sandbox/internal/sandbox/doctor"
+	"github.com/inoio/opencode-sandbox/internal/termio"
 )
 
 func expectDoctorFailure(t *testing.T, err error) {

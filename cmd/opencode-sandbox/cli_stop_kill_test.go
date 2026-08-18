@@ -8,9 +8,9 @@ import (
 	"github.com/spf13/cobra"
 	msb "github.com/superradcompany/microsandbox/sdk/go"
 
-	sandboxmsb "gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/msb"
-	"gitlab.inoio.de/inoio/opencode-sandbox/internal/termio"
-	"gitlab.inoio.de/inoio/opencode-sandbox/internal/testutil"
+	sandboxmsb "github.com/inoio/opencode-sandbox/internal/sandbox/msb"
+	"github.com/inoio/opencode-sandbox/internal/termio"
+	"github.com/inoio/opencode-sandbox/internal/testutil"
 )
 
 func initTestRepo(t *testing.T) {

@@ -11,7 +11,7 @@ import (
 	"strings"
 	"time"
 
-	"gitlab.inoio.de/inoio/opencode-sandbox/internal/configpaths"
+	"github.com/inoio/opencode-sandbox/internal/configpaths"
 
 	"github.com/go-viper/mapstructure/v2"
 	"github.com/spf13/cobra"

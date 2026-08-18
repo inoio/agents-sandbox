@@ -10,18 +10,18 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"gitlab.inoio.de/inoio/opencode-sandbox/internal/configpaths"
-	"gitlab.inoio.de/inoio/opencode-sandbox/internal/git"
-	"gitlab.inoio.de/inoio/opencode-sandbox/internal/homeconfig"
-	"gitlab.inoio.de/inoio/opencode-sandbox/internal/opencodeconfig"
-	"gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/doctor"
-	"gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/humanize"
-	"gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/image"
-	"gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/pruning"
-	"gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/session"
-	"gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/volume"
-	"gitlab.inoio.de/inoio/opencode-sandbox/internal/termio"
-	"gitlab.inoio.de/inoio/opencode-sandbox/internal/viperconfig"
+	"github.com/inoio/opencode-sandbox/internal/configpaths"
+	"github.com/inoio/opencode-sandbox/internal/git"
+	"github.com/inoio/opencode-sandbox/internal/homeconfig"
+	"github.com/inoio/opencode-sandbox/internal/opencodeconfig"
+	"github.com/inoio/opencode-sandbox/internal/sandbox/doctor"
+	"github.com/inoio/opencode-sandbox/internal/sandbox/humanize"
+	"github.com/inoio/opencode-sandbox/internal/sandbox/image"
+	"github.com/inoio/opencode-sandbox/internal/sandbox/pruning"
+	"github.com/inoio/opencode-sandbox/internal/sandbox/session"
+	"github.com/inoio/opencode-sandbox/internal/sandbox/volume"
+	"github.com/inoio/opencode-sandbox/internal/termio"
+	"github.com/inoio/opencode-sandbox/internal/viperconfig"
 )
 
 type volumeOpFunc func(context.Context, string, string, string, string, bool, bool, termio.UI) error

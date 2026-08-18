@@ -15,13 +15,13 @@ import (
 
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 
-	config "gitlab.inoio.de/inoio/opencode-sandbox/internal/opencodeconfig"
-	"gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/msb"
-	"gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/state"
-	"gitlab.inoio.de/inoio/opencode-sandbox/internal/termio"
+	config "github.com/inoio/opencode-sandbox/internal/opencodeconfig"
+	"github.com/inoio/opencode-sandbox/internal/sandbox/msb"
+	"github.com/inoio/opencode-sandbox/internal/sandbox/state"
+	"github.com/inoio/opencode-sandbox/internal/termio"
 
-	cp "gitlab.inoio.de/inoio/opencode-sandbox/internal/configpaths"
-	"gitlab.inoio.de/inoio/opencode-sandbox/internal/homeconfig"
+	cp "github.com/inoio/opencode-sandbox/internal/configpaths"
+	"github.com/inoio/opencode-sandbox/internal/homeconfig"
 )
 
 // EnvKeyValueParts is the number of parts strings.SplitN should produce for

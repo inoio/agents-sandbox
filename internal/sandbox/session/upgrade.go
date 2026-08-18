@@ -5,11 +5,11 @@ import (
 	"errors"
 	"fmt"
 
-	"gitlab.inoio.de/inoio/opencode-sandbox/internal/git"
-	"gitlab.inoio.de/inoio/opencode-sandbox/internal/opencode"
-	"gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/image"
-	"gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/options"
-	"gitlab.inoio.de/inoio/opencode-sandbox/internal/termio"
+	"github.com/inoio/opencode-sandbox/internal/git"
+	"github.com/inoio/opencode-sandbox/internal/opencode"
+	"github.com/inoio/opencode-sandbox/internal/sandbox/image"
+	"github.com/inoio/opencode-sandbox/internal/sandbox/options"
+	"github.com/inoio/opencode-sandbox/internal/termio"
 )
 
 // errUpgradeQuit signals the user chose to abort the session because of the

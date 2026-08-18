@@ -1,8 +1,8 @@
 package image
 
 import (
-	"gitlab.inoio.de/inoio/opencode-sandbox/internal/git"
-	"gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/naming"
+	"github.com/inoio/opencode-sandbox/internal/git"
+	"github.com/inoio/opencode-sandbox/internal/sandbox/naming"
 )
 
 func imageTag(projectSlug, imageDigest string) string {

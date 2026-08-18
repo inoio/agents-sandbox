@@ -5,7 +5,7 @@ import (
 	"errors"
 	"testing"
 
-	"gitlab.inoio.de/inoio/opencode-sandbox/internal/termio"
+	"github.com/inoio/opencode-sandbox/internal/termio"
 )
 
 // MockedEnsureInstalled replaces the ensureInstalled factory used by the

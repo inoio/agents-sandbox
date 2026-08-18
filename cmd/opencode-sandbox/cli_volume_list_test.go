@@ -6,7 +6,7 @@ import (
 
 	msb "github.com/superradcompany/microsandbox/sdk/go"
 
-	sandboxmsb "gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/msb"
+	sandboxmsb "github.com/inoio/opencode-sandbox/internal/sandbox/msb"
 )
 
 func TestVolumeList(t *testing.T) {

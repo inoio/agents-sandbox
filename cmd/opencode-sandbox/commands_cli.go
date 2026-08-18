@@ -12,13 +12,13 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/pruning"
-	launcherconfig "gitlab.inoio.de/inoio/opencode-sandbox/internal/viperconfig"
+	"github.com/inoio/opencode-sandbox/internal/sandbox/pruning"
+	launcherconfig "github.com/inoio/opencode-sandbox/internal/viperconfig"
 
-	"gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/doctor"
+	"github.com/inoio/opencode-sandbox/internal/sandbox/doctor"
 
-	"gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/session"
-	"gitlab.inoio.de/inoio/opencode-sandbox/internal/termio"
+	"github.com/inoio/opencode-sandbox/internal/sandbox/session"
+	"github.com/inoio/opencode-sandbox/internal/termio"
 )
 
 const minUsagePadding = 25
