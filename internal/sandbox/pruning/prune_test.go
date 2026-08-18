@@ -8,12 +8,12 @@ import (
 
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 
-	cp "gitlab.inoio.de/inoio/opencode-sandbox/internal/configpaths"
-	"gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/docker"
-	"gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/msb"
-	"gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/naming"
-	"gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/state"
-	"gitlab.inoio.de/inoio/opencode-sandbox/internal/termio"
+	cp "github.com/inoio/opencode-sandbox/internal/configpaths"
+	"github.com/inoio/opencode-sandbox/internal/sandbox/docker"
+	"github.com/inoio/opencode-sandbox/internal/sandbox/msb"
+	"github.com/inoio/opencode-sandbox/internal/sandbox/naming"
+	"github.com/inoio/opencode-sandbox/internal/sandbox/state"
+	"github.com/inoio/opencode-sandbox/internal/termio"
 )
 
 type slugDigestTest struct {

@@ -3,8 +3,8 @@ package msb
 import (
 	"testing"
 
-	"gitlab.inoio.de/inoio/opencode-sandbox/internal/configpaths"
-	"gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/docker"
+	"github.com/inoio/opencode-sandbox/internal/configpaths"
+	"github.com/inoio/opencode-sandbox/internal/sandbox/docker"
 )
 
 func TestMain(m *testing.M) {

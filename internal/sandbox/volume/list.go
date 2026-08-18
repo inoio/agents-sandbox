@@ -6,9 +6,9 @@ import (
 	"strings"
 	"time"
 
-	"gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/humanize"
-	"gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/msb"
-	"gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/naming"
+	"github.com/inoio/opencode-sandbox/internal/sandbox/humanize"
+	"github.com/inoio/opencode-sandbox/internal/sandbox/msb"
+	"github.com/inoio/opencode-sandbox/internal/sandbox/naming"
 )
 
 //nolint:revive // VolumeInfo is the established name from query.go

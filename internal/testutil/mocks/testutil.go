@@ -3,10 +3,10 @@ package termio
 import (
 	"testing"
 
-	"gitlab.inoio.de/inoio/opencode-sandbox/internal/configpaths"
-	"gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/docker"
-	"gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/doctor"
-	"gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/msb"
+	"github.com/inoio/opencode-sandbox/internal/configpaths"
+	"github.com/inoio/opencode-sandbox/internal/sandbox/docker"
+	"github.com/inoio/opencode-sandbox/internal/sandbox/doctor"
+	"github.com/inoio/opencode-sandbox/internal/sandbox/msb"
 )
 
 // InitFailFastMocks initializes all fail-fast mocks for tests, so tests that forget to define a mock fail fast instead

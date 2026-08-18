@@ -3,8 +3,8 @@ package main
 import (
 	"github.com/spf13/cobra"
 
-	"gitlab.inoio.de/inoio/opencode-sandbox/internal/termio"
-	launcherconfig "gitlab.inoio.de/inoio/opencode-sandbox/internal/viperconfig"
+	"github.com/inoio/opencode-sandbox/internal/termio"
+	launcherconfig "github.com/inoio/opencode-sandbox/internal/viperconfig"
 )
 
 var version = "dev"

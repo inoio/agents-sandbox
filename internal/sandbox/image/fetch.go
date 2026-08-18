@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"gitlab.inoio.de/inoio/opencode-sandbox/internal/opencode"
+	"github.com/inoio/opencode-sandbox/internal/opencode"
 )
 
 // LatestOpenCodeVersion returns the newest opencode release string as resolved

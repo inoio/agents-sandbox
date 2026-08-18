@@ -4,8 +4,8 @@ import (
 	"context"
 	"strings"
 
-	"gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/docker"
-	"gitlab.inoio.de/inoio/opencode-sandbox/internal/termio"
+	"github.com/inoio/opencode-sandbox/internal/sandbox/docker"
+	"github.com/inoio/opencode-sandbox/internal/termio"
 )
 
 // inspectExistingImage returns the Docker image ID (used as the digest-based

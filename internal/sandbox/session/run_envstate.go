@@ -4,7 +4,7 @@ import (
 	"errors"
 	"fmt"
 
-	"gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/state"
+	"github.com/inoio/opencode-sandbox/internal/sandbox/state"
 )
 
 func persistEnvSecrets(slug string, envState state.EnvState, secretState state.SecretState) error {

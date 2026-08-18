@@ -10,9 +10,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	msb "github.com/superradcompany/microsandbox/sdk/go"
 
-	"gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/docker"
-	sandboxmsb "gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/msb"
-	"gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/state"
+	"github.com/inoio/opencode-sandbox/internal/sandbox/docker"
+	sandboxmsb "github.com/inoio/opencode-sandbox/internal/sandbox/msb"
+	"github.com/inoio/opencode-sandbox/internal/sandbox/state"
 )
 
 // oldArtifactTime returns a time far enough in the past that images and volumes

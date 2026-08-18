@@ -9,10 +9,10 @@ import (
 	"github.com/spf13/cobra"
 	msb "github.com/superradcompany/microsandbox/sdk/go"
 
-	"gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/doctor"
-	sandboxmsb "gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/msb"
-	"gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/session"
-	"gitlab.inoio.de/inoio/opencode-sandbox/internal/termio"
+	"github.com/inoio/opencode-sandbox/internal/sandbox/doctor"
+	sandboxmsb "github.com/inoio/opencode-sandbox/internal/sandbox/msb"
+	"github.com/inoio/opencode-sandbox/internal/sandbox/session"
+	"github.com/inoio/opencode-sandbox/internal/termio"
 )
 
 // setupRunMocks configures all mock dependencies needed for run/shell tests,

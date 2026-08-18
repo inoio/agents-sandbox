@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"gitlab.inoio.de/inoio/opencode-sandbox/internal/configpaths"
+	"github.com/inoio/opencode-sandbox/internal/configpaths"
 )
 
 func TestUpgradeStateRoundTrip(t *testing.T) {

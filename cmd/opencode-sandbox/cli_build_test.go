@@ -6,9 +6,9 @@ import (
 	"strings"
 	"testing"
 
-	"gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/doctor"
+	"github.com/inoio/opencode-sandbox/internal/sandbox/doctor"
 
-	"gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/docker"
+	"github.com/inoio/opencode-sandbox/internal/sandbox/docker"
 )
 
 func TestBuildCommand(t *testing.T) {

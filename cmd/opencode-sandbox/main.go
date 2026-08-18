@@ -6,8 +6,8 @@ import (
 
 	"golang.org/x/term"
 
-	"gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/session"
-	"gitlab.inoio.de/inoio/opencode-sandbox/internal/termio"
+	"github.com/inoio/opencode-sandbox/internal/sandbox/session"
+	"github.com/inoio/opencode-sandbox/internal/termio"
 )
 
 func main() {

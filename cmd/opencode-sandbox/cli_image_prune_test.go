@@ -7,8 +7,8 @@ import (
 
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 
-	"gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/docker"
-	sandboxmsb "gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/msb"
+	"github.com/inoio/opencode-sandbox/internal/sandbox/docker"
+	sandboxmsb "github.com/inoio/opencode-sandbox/internal/sandbox/msb"
 )
 
 func TestImagePrune(t *testing.T) {

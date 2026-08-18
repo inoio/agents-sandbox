@@ -8,10 +8,10 @@ import (
 	"testing"
 	"time"
 
-	"gitlab.inoio.de/inoio/opencode-sandbox/internal/configpaths"
-	"gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/image"
-	"gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/options"
-	"gitlab.inoio.de/inoio/opencode-sandbox/internal/termio"
+	"github.com/inoio/opencode-sandbox/internal/configpaths"
+	"github.com/inoio/opencode-sandbox/internal/sandbox/image"
+	"github.com/inoio/opencode-sandbox/internal/sandbox/options"
+	"github.com/inoio/opencode-sandbox/internal/termio"
 )
 
 func TestMaybePromptSkipsWhenRebuildFlagSet(t *testing.T) {

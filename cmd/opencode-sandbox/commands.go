@@ -6,11 +6,11 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/naming"
-	"gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/options"
-	"gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/session"
-	"gitlab.inoio.de/inoio/opencode-sandbox/internal/termio"
-	launcherconfig "gitlab.inoio.de/inoio/opencode-sandbox/internal/viperconfig"
+	"github.com/inoio/opencode-sandbox/internal/sandbox/naming"
+	"github.com/inoio/opencode-sandbox/internal/sandbox/options"
+	"github.com/inoio/opencode-sandbox/internal/sandbox/session"
+	"github.com/inoio/opencode-sandbox/internal/termio"
+	launcherconfig "github.com/inoio/opencode-sandbox/internal/viperconfig"
 )
 
 // launcherConfigKey is the context key type for storing the built

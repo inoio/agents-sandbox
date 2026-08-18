@@ -5,7 +5,7 @@ import (
 
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 
-	"gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/options"
+	"github.com/inoio/opencode-sandbox/internal/sandbox/options"
 )
 
 func TestPlanReconfigDecidesRecreate(t *testing.T) {
