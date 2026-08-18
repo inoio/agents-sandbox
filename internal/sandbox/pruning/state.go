@@ -4,8 +4,8 @@ import (
 	"context"
 	"time"
 
-	"gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/msb"
-	"gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/naming"
+	"github.com/inoio/opencode-sandbox/internal/sandbox/msb"
+	"github.com/inoio/opencode-sandbox/internal/sandbox/naming"
 )
 
 // PruneState is a point-in-time view of which project slugs have a surviving VM.

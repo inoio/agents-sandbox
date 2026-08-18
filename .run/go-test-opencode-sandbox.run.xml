@@ -3,7 +3,7 @@
     <module name="opencode-sandbox" />
     <working_directory value="$PROJECT_DIR$" />
     <kind value="DIRECTORY" />
-    <package value="gitlab.inoio.de/inoio/opencode-sandbox" />
+    <package value="github.com/inoio/opencode-sandbox" />
     <directory value="$PROJECT_DIR$" />
     <filePath value="$PROJECT_DIR$" />
     <framework value="gotest" />

@@ -3,7 +3,7 @@ package image
 import (
 	"context"
 
-	"gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/msb"
+	"github.com/inoio/opencode-sandbox/internal/sandbox/msb"
 )
 
 // readImageInfoFromMSB returns the image env map and the baked opencode version

@@ -3,7 +3,7 @@ package reprovision
 import (
 	"fmt"
 
-	"gitlab.inoio.de/inoio/opencode-sandbox/internal/termio"
+	"github.com/inoio/opencode-sandbox/internal/termio"
 )
 
 const (

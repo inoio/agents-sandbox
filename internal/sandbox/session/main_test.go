@@ -3,7 +3,7 @@ package session
 import (
 	"testing"
 
-	termio "gitlab.inoio.de/inoio/opencode-sandbox/internal/testutil/mocks"
+	termio "github.com/inoio/opencode-sandbox/internal/testutil/mocks"
 )
 
 func TestMain(m *testing.M) {

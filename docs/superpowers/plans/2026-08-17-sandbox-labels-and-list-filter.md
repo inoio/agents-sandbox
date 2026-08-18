@@ -254,7 +254,7 @@ msbSdk.WithLabels(map[string]string{
 }),
 ```
 
-Add `"gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/naming"` to the imports if not already present.
+Add `"github.com/inoio/opencode-sandbox/internal/sandbox/naming"` to the imports if not already present.
 
 - [ ] **Step 4: Run test to verify it passes**
 

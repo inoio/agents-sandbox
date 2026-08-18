@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"gitlab.inoio.de/inoio/opencode-sandbox/internal/testutil"
+	"github.com/inoio/opencode-sandbox/internal/testutil"
 )
 
 func writeSnippet(t *testing.T, dir, name, content string) {

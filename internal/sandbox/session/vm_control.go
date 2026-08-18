@@ -4,9 +4,9 @@ import (
 	"context"
 	"fmt"
 
-	"gitlab.inoio.de/inoio/opencode-sandbox/internal/git"
-	"gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/msb"
-	"gitlab.inoio.de/inoio/opencode-sandbox/internal/termio"
+	"github.com/inoio/opencode-sandbox/internal/git"
+	"github.com/inoio/opencode-sandbox/internal/sandbox/msb"
+	"github.com/inoio/opencode-sandbox/internal/termio"
 )
 
 // stopOrKillProjectVM is the shared implementation for StopProjectVM and KillProjectVM.

@@ -7,12 +7,12 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"gitlab.inoio.de/inoio/opencode-sandbox/internal/configpaths"
-	"gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/docker"
-	"gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/msb"
-	"gitlab.inoio.de/inoio/opencode-sandbox/internal/termio"
-	"gitlab.inoio.de/inoio/opencode-sandbox/internal/testutil"
-	launcherconfig "gitlab.inoio.de/inoio/opencode-sandbox/internal/viperconfig"
+	"github.com/inoio/opencode-sandbox/internal/configpaths"
+	"github.com/inoio/opencode-sandbox/internal/sandbox/docker"
+	"github.com/inoio/opencode-sandbox/internal/sandbox/msb"
+	"github.com/inoio/opencode-sandbox/internal/termio"
+	"github.com/inoio/opencode-sandbox/internal/testutil"
+	launcherconfig "github.com/inoio/opencode-sandbox/internal/viperconfig"
 )
 
 func TestRootHasGlobalFlags(t *testing.T) {

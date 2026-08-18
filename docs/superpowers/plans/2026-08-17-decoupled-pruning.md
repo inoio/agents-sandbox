@@ -56,7 +56,7 @@ import (
 
     msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 
-    "gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/msb"
+    "github.com/inoio/opencode-sandbox/internal/sandbox/msb"
 )
 
 func TestBuildLiveState(t *testing.T) {
@@ -129,8 +129,8 @@ import (
     "context"
     "time"
 
-    "gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/msb"
-    "gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/naming"
+    "github.com/inoio/opencode-sandbox/internal/sandbox/msb"
+    "github.com/inoio/opencode-sandbox/internal/sandbox/naming"
 )
 
 // LiveState is a point-in-time view of which project slugs have a surviving VM.
@@ -238,8 +238,8 @@ import (
 
     msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 
-    "gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/msb"
-    "gitlab.inoio.de/inoio/opencode-sandbox/internal/termio"
+    "github.com/inoio/opencode-sandbox/internal/sandbox/msb"
+    "github.com/inoio/opencode-sandbox/internal/termio"
 )
 
 func TestPruneVMs(t *testing.T) {
@@ -329,9 +329,9 @@ import (
     "context"
     "time"
 
-    "gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/msb"
-    "gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/naming"
-    "gitlab.inoio.de/inoio/opencode-sandbox/internal/termio"
+    "github.com/inoio/opencode-sandbox/internal/sandbox/msb"
+    "github.com/inoio/opencode-sandbox/internal/sandbox/naming"
+    "github.com/inoio/opencode-sandbox/internal/termio"
 )
 
 // VMReport summarizes a PruneVMs run.
@@ -421,8 +421,8 @@ import (
     "testing"
     "time"
 
-    "gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/msb"
-    "gitlab.inoio.de/inoio/opencode-sandbox/internal/termio"
+    "github.com/inoio/opencode-sandbox/internal/sandbox/msb"
+    "github.com/inoio/opencode-sandbox/internal/termio"
 )
 
 func TestPruneVolumes(t *testing.T) {
@@ -509,10 +509,10 @@ import (
     "context"
     "time"
 
-    "gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/msb"
-    "gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/naming"
-    "gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/state"
-    "gitlab.inoio.de/inoio/opencode-sandbox/internal/termio"
+    "github.com/inoio/opencode-sandbox/internal/sandbox/msb"
+    "github.com/inoio/opencode-sandbox/internal/sandbox/naming"
+    "github.com/inoio/opencode-sandbox/internal/sandbox/state"
+    "github.com/inoio/opencode-sandbox/internal/termio"
 )
 
 // VolumeReport summarizes a PruneVolumes run.
@@ -625,8 +625,8 @@ import (
     "testing"
     "time"
 
-    "gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/msb"
-    "gitlab.inoio.de/inoio/opencode-sandbox/internal/termio"
+    "github.com/inoio/opencode-sandbox/internal/sandbox/msb"
+    "github.com/inoio/opencode-sandbox/internal/termio"
 )
 
 func TestPruneImages(t *testing.T) {
@@ -733,10 +733,10 @@ import (
 
     "github.com/moby/moby/client"
 
-    "gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/docker"
-    "gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/msb"
-    "gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/naming"
-    "gitlab.inoio.de/inoio/opencode-sandbox/internal/termio"
+    "github.com/inoio/opencode-sandbox/internal/sandbox/docker"
+    "github.com/inoio/opencode-sandbox/internal/sandbox/msb"
+    "github.com/inoio/opencode-sandbox/internal/sandbox/naming"
+    "github.com/inoio/opencode-sandbox/internal/termio"
 )
 
 // ImageReport summarizes a PruneImages run.
@@ -1021,8 +1021,8 @@ import (
     "context"
     "time"
 
-    "gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/msb"
-    "gitlab.inoio.de/inoio/opencode-sandbox/internal/termio"
+    "github.com/inoio/opencode-sandbox/internal/sandbox/msb"
+    "github.com/inoio/opencode-sandbox/internal/termio"
 )
 
 // MsbClient is a type alias for msb.Client, matching the original sandbox-level alias.
@@ -1314,8 +1314,8 @@ import (
     "testing"
     "time"
 
-    "gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/docker"
-    sandboxmsb "gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/msb"
+    "github.com/inoio/opencode-sandbox/internal/sandbox/docker"
+    sandboxmsb "github.com/inoio/opencode-sandbox/internal/sandbox/msb"
 )
 
 func TestImagePrune(t *testing.T) {
@@ -1367,8 +1367,8 @@ import (
     "testing"
     "time"
 
-    "gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/docker"
-    "gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/msb"
+    "github.com/inoio/opencode-sandbox/internal/sandbox/docker"
+    "github.com/inoio/opencode-sandbox/internal/sandbox/msb"
 )
 
 func TestVolumePrune(t *testing.T) {
@@ -1415,7 +1415,7 @@ import (
 
     msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 
-    "gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/msb"
+    "github.com/inoio/opencode-sandbox/internal/sandbox/msb"
 )
 
 func TestSandboxPrune(t *testing.T) {

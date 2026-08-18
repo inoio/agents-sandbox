@@ -702,7 +702,7 @@ func mustResolver(t *testing.T, cmd *cobra.Command) *launcherconfig.Resolver {
 }
 ```
 
-Add the needed imports to `cli_test.go`: `context`, `"gitlab.inoio.de/inoio/opencode-sandbox/internal/testutil"`, `launcherconfig` (if removed in Step 2, re-add).
+Add the needed imports to `cli_test.go`: `context`, `"github.com/inoio/opencode-sandbox/internal/testutil"`, `launcherconfig` (if removed in Step 2, re-add).
 
 - [ ] **Step 4: Run the `cmd` test suite**
 

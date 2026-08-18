@@ -372,8 +372,8 @@ import (
 	"strings"
 	"time"
 
-	"gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/msb"
-	"gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/naming"
+	"github.com/inoio/opencode-sandbox/internal/sandbox/msb"
+	"github.com/inoio/opencode-sandbox/internal/sandbox/naming"
 )
 
 //nolint:revive // VolumeInfo is the established name from query.go
@@ -465,7 +465,7 @@ import (
 
 	msb "github.com/superradcompany/microsandbox/sdk/go"
 
-	sandboxmsb "gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/msb"
+	sandboxmsb "github.com/inoio/opencode-sandbox/internal/sandbox/msb"
 )
 
 func TestVolumeList(t *testing.T) {
@@ -616,7 +616,7 @@ func volumeSize(q *uint32, c *uint64) string {
 }
 ```
 
-Add the import `"gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/humanize"` to `commands_system.go`.
+Add the import `"github.com/inoio/opencode-sandbox/internal/sandbox/humanize"` to `commands_system.go`.
 
 In `internal/sandbox/volume/list.go`, remove the now-unused `Path` field from `VolumeInfo` (and the `Path: h.Path(),` line from `ListVolumes`), since the CLI no longer references it:
 

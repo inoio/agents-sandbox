@@ -8,9 +8,9 @@ import (
 
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 
-	"gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/msb"
-	"gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/state"
-	"gitlab.inoio.de/inoio/opencode-sandbox/internal/termio"
+	"github.com/inoio/opencode-sandbox/internal/sandbox/msb"
+	"github.com/inoio/opencode-sandbox/internal/sandbox/state"
+	"github.com/inoio/opencode-sandbox/internal/termio"
 )
 
 func TestVolumeOps_DryRun(t *testing.T) {

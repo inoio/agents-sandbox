@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"gitlab.inoio.de/inoio/opencode-sandbox/internal/termio"
+	"github.com/inoio/opencode-sandbox/internal/termio"
 )
 
 func TestTree(t *testing.T) {

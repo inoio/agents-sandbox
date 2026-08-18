@@ -5,11 +5,11 @@ import (
 
 	"github.com/moby/moby/client"
 
-	"gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/docker"
-	"gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/msb"
-	"gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/naming"
-	"gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/state"
-	"gitlab.inoio.de/inoio/opencode-sandbox/internal/termio"
+	"github.com/inoio/opencode-sandbox/internal/sandbox/docker"
+	"github.com/inoio/opencode-sandbox/internal/sandbox/msb"
+	"github.com/inoio/opencode-sandbox/internal/sandbox/naming"
+	"github.com/inoio/opencode-sandbox/internal/sandbox/state"
+	"github.com/inoio/opencode-sandbox/internal/termio"
 )
 
 // ImageReport summarizes a PruneImages run.
@@ -62,7 +62,7 @@ func PruneImages(
 			Digest:   imageArtifact.Digest,
 		})
 	}
-	report.DockerImagesPruned = pruneDockerImagesCount(ctx, dryRun, ui)
+	report.DockerImagesPruned = pruneDockerImages(ctx, dryRun, ui)
 	printImagePruneReport(ui, report, dryRun)
 	return report, nil
 }
@@ -82,8 +82,8 @@ func surplusDigest(slug, digest string) bool {
 	return st.ImageDigest != "" && digest != st.ImageDigest
 }
 
-// pruneDockerImagesCount removes dangling (untagged) docker images created by us; skipped on dry-run.
-func pruneDockerImagesCount(ctx context.Context, dryRun bool, ui termio.UI) int {
+// pruneDockerImages removes dangling (untagged) docker images created by us; skipped on dry-run.
+func pruneDockerImages(ctx context.Context, dryRun bool, ui termio.UI) int {
 	if dryRun {
 		return 0
 	}

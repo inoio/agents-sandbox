@@ -10,8 +10,8 @@ import (
 
 	msb "github.com/superradcompany/microsandbox/sdk/go"
 
-	sandboxmsb "gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/msb"
-	"gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/naming"
+	sandboxmsb "github.com/inoio/opencode-sandbox/internal/sandbox/msb"
+	"github.com/inoio/opencode-sandbox/internal/sandbox/naming"
 )
 
 var errBoom = errors.New("boom")

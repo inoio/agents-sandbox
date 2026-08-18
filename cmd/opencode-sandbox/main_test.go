@@ -3,7 +3,7 @@ package main
 import (
 	"testing"
 
-	mocks "gitlab.inoio.de/inoio/opencode-sandbox/internal/testutil/mocks"
+	mocks "github.com/inoio/opencode-sandbox/internal/testutil/mocks"
 )
 
 func TestMain(m *testing.M) {

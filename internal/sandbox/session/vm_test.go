@@ -9,13 +9,13 @@ import (
 
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 
-	"gitlab.inoio.de/inoio/opencode-sandbox/internal/termio"
+	"github.com/inoio/opencode-sandbox/internal/termio"
 
-	"gitlab.inoio.de/inoio/opencode-sandbox/internal/configpaths"
-	"gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/msb"
-	"gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/naming"
-	"gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/options"
-	"gitlab.inoio.de/inoio/opencode-sandbox/internal/testutil"
+	"github.com/inoio/opencode-sandbox/internal/configpaths"
+	"github.com/inoio/opencode-sandbox/internal/sandbox/msb"
+	"github.com/inoio/opencode-sandbox/internal/sandbox/naming"
+	"github.com/inoio/opencode-sandbox/internal/sandbox/options"
+	"github.com/inoio/opencode-sandbox/internal/testutil"
 )
 
 func TestProjectVMName(t *testing.T) {

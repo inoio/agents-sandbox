@@ -11,15 +11,15 @@ import (
 	"github.com/moby/moby/client"
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 
-	"gitlab.inoio.de/inoio/opencode-sandbox/internal/configpaths"
-	"gitlab.inoio.de/inoio/opencode-sandbox/internal/git"
-	"gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/docker"
-	sandboximage "gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/image"
-	"gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/msb"
-	"gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/options"
-	"gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/state"
-	"gitlab.inoio.de/inoio/opencode-sandbox/internal/termio"
-	"gitlab.inoio.de/inoio/opencode-sandbox/internal/testutil"
+	"github.com/inoio/opencode-sandbox/internal/configpaths"
+	"github.com/inoio/opencode-sandbox/internal/git"
+	"github.com/inoio/opencode-sandbox/internal/sandbox/docker"
+	sandboximage "github.com/inoio/opencode-sandbox/internal/sandbox/image"
+	"github.com/inoio/opencode-sandbox/internal/sandbox/msb"
+	"github.com/inoio/opencode-sandbox/internal/sandbox/options"
+	"github.com/inoio/opencode-sandbox/internal/sandbox/state"
+	"github.com/inoio/opencode-sandbox/internal/termio"
+	"github.com/inoio/opencode-sandbox/internal/testutil"
 )
 
 // TestPrepareSandboxLoadsHomeYamlOnce verifies that a full startup loads the

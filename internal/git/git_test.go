@@ -5,8 +5,8 @@ import (
 	"strings"
 	"testing"
 
-	"gitlab.inoio.de/inoio/opencode-sandbox/internal/termio"
-	"gitlab.inoio.de/inoio/opencode-sandbox/internal/testutil"
+	"github.com/inoio/opencode-sandbox/internal/termio"
+	"github.com/inoio/opencode-sandbox/internal/testutil"
 )
 
 func TestHashIDReturns14Chars(t *testing.T) {

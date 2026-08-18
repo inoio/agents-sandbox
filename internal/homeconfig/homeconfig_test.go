@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"gitlab.inoio.de/inoio/opencode-sandbox/internal/testutil"
+	"github.com/inoio/opencode-sandbox/internal/testutil"
 )
 
 const vmHome = "/home/dev"

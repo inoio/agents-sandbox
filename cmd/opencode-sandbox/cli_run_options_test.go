@@ -8,10 +8,10 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"gitlab.inoio.de/inoio/opencode-sandbox/internal/configpaths"
-	"gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/options"
-	"gitlab.inoio.de/inoio/opencode-sandbox/internal/termio"
-	launcherconfig "gitlab.inoio.de/inoio/opencode-sandbox/internal/viperconfig"
+	"github.com/inoio/opencode-sandbox/internal/configpaths"
+	"github.com/inoio/opencode-sandbox/internal/sandbox/options"
+	"github.com/inoio/opencode-sandbox/internal/termio"
+	launcherconfig "github.com/inoio/opencode-sandbox/internal/viperconfig"
 )
 
 // extractRunOptionsReapPolicy tests that extractRunOptions populates
