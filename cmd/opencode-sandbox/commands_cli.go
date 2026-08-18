@@ -12,6 +12,9 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/pruning"
+	launcherconfig "gitlab.inoio.de/inoio/opencode-sandbox/internal/viperconfig"
+
 	"gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/doctor"
 
 	"gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/session"
@@ -125,6 +128,12 @@ func runFunc(ui termio.UI) func(cmd *cobra.Command, args []string) error {
 		if opts.ServeOnly {
 			ctx, _ = serveOnlyContext(ctx)
 		}
+		r, rerr := launcherconfig.NewResolver(cmd)
+		if rerr != nil {
+			return rerr
+		}
+		isDryRun, _ := cmd.Flags().GetBool(flagDryRun)
+		pruning.AutoPrune(cmd.Context(), r.AutoPruneAge(), isDryRun, &autoPruneOutToVerboseRedirect{UI: ui})
 		return session.Run(ctx, opts, ui)
 	}
 }
