@@ -75,10 +75,19 @@ func prepareSandbox(
 ) (*sandboxSession, error) {
 	projectSlug := git.ProjectSlug(ui)
 
+	// Without an explicit pin, reuse the version already baked into the runner
+	// image instead of re-resolving "latest" from the network on every run.
+	// Re-resolving would change the version build arg (and thus the image
+	// identity), causing sporadic rebuilds and fresh loads into microsandbox.
+	openCodeVersion := opts.OpenCodeVersion
+	if openCodeVersion == "" {
+		openCodeVersion = currentUpgradeVersion()
+	}
+
 	imageInfo, err := image.EnsureImage(
 		ctx,
 		projectSlug,
-		image.BuildOptions{Force: opts.Rebuild, OpenCodeVersion: opts.OpenCodeVersion},
+		image.BuildOptions{Force: opts.Rebuild, OpenCodeVersion: openCodeVersion},
 		ui,
 	)
 	if err != nil {
@@ -92,6 +101,12 @@ func prepareSandbox(
 	}
 	if action == upgradeActionRebuild {
 		ui.Verbosef("runner image rebuilt with a newer opencode version")
+	}
+
+	// Persist the version actually baked so later runs reuse it as a stable
+	// build arg. Recording after the upgrade prompt captures any rebuild.
+	if recordErr := recordUpgradeVersion(imageInfo.OpenCodeVersion); recordErr != nil {
+		ui.Warnf("could not record opencode version in updater state: %v (continuing)", recordErr)
 	}
 
 	vm := volume.NewManager(ui)
