@@ -29,13 +29,13 @@ opencode-sandbox-vm-<project-slug>
 ```
 
 The project slug consists of the repository name and a hash of the repository host and full path. For example, a repo
-cloned from `git@gitlab.inoio.de:inoio/myproject.git` gets:
+cloned from `git@github.com:inoio/myproject.git` gets:
 
 ```
 opencode-sandbox-vm-myproject-<hash>
 ```
 
-Where `<hash>` is the hash of `gitlab.inoio.de:inoio/myproject` (username and extension removed). Every clone and linked
+Where `<hash>` is the hash of `github.com:inoio/myproject` (username and extension removed). Every clone and linked
 worktree of the same remote shares the same project (and therefore the same VM, volume, and image names).
 
 The VM is **per-project/-directory, not per-invocation**. Subsequent runs connect to the existing VM (or start it if
