@@ -1,10 +1,6 @@
 /opencode-sandbox*
 /.idea/
-/.gitlab-ci-local/
-/.envrc
 /.opencode-sandbox
-/.worktrees/
-/.superpowers/
 version.env
-docs/superpowers
 *.test
+coverage.out

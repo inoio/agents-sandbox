@@ -164,7 +164,7 @@ func TestLastPathSegment(t *testing.T) {
 	}{
 		{"https with .git", "https://gitlab.example.com/org/repo.git", "repo"},
 		{"https no .git", "https://gitlab.example.com/org/my-repo", "my-repo"},
-		{"ssh scp-like with namespace", "git@gitlab.inoio.de:inoio/opencode-sandbox.git", "opencode-sandbox"},
+		{"ssh scp-like with namespace", "git@github.com:inoio/opencode-sandbox.git", "opencode-sandbox"},
 		{"ssh scp-like no namespace", "git@gitlab.example.com:tool.git", "tool"},
 		{"git protocol", "git://gitlab.example.com/org/repo.git", "repo"},
 	}
@@ -178,7 +178,7 @@ func TestLastPathSegment(t *testing.T) {
 }
 
 func TestProjectSlugUsesOriginRepoName(t *testing.T) {
-	const origin = "git@gitlab.inoio.de:inoio/opencode-sandbox.git"
+	const origin = "git@github.com:inoio/opencode-sandbox.git"
 	repo := testutil.InitRepo(t)
 	testutil.RunGit(t, repo, "remote", "add", "origin", origin)
 	t.Chdir(repo)
@@ -194,7 +194,7 @@ func TestProjectSlugUsesOriginRepoName(t *testing.T) {
 func TestProjectSlugStableForSameOrigin(t *testing.T) {
 	// Two clones of the same origin at different paths must share one slug,
 	// so worktrees/checkouts of the same project are not treated as distinct.
-	const origin = "git@gitlab.inoio.de:inoio/opencode-sandbox.git"
+	const origin = "git@github.com:inoio/opencode-sandbox.git"
 	a := testutil.InitRepo(t)
 	testutil.RunGit(t, a, "remote", "add", "origin", origin)
 	b := testutil.InitRepo(t)
@@ -211,7 +211,7 @@ func TestProjectSlugStableForSameOrigin(t *testing.T) {
 
 func TestProjectSlugDiffersForDifferentOrigins(t *testing.T) {
 	a := testutil.InitRepo(t)
-	testutil.RunGit(t, a, "remote", "add", "origin", "git@gitlab.inoio.de:inoio/opencode-sandbox.git")
+	testutil.RunGit(t, a, "remote", "add", "origin", "git@github.com:inoio/opencode-sandbox.git")
 	b := testutil.InitRepo(t)
 	testutil.RunGit(t, b, "remote", "add", "origin", "git@github.com:someone/opencode-sandbox.git")
 
@@ -225,7 +225,7 @@ func TestProjectSlugDiffersForDifferentOrigins(t *testing.T) {
 }
 
 func TestProjectSlugWorktreeSharesOriginSlug(t *testing.T) {
-	const origin = "git@gitlab.inoio.de:inoio/opencode-sandbox.git"
+	const origin = "git@github.com:inoio/opencode-sandbox.git"
 	repo := testutil.InitRepo(t)
 	testutil.RunGit(t, repo, "remote", "add", "origin", origin)
 	mainSlug := projectSlugAt(repo, &termio.Mock{})
