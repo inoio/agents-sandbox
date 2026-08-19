@@ -55,6 +55,10 @@ The update check is rate-limited to keep it quiet:
 - **Once per version:** each opencode version is offered for a rebuild at most once. Once the prompt for a version has
   been shown, that version is not offered again even on later days.
 
+The opencode version baked into the image is also recorded in `updater.yaml` and reused on `run`/`shell`. This keeps the
+image identity (and therefore the cached microsandbox image) stable across runs: the version is only re-resolved from the
+network when an upgrade is actually performed (via the upgrade prompt or `build`), rather than on every invocation.
+
 > `--opencode-version` is only available on the `build` command — it is not supported on `run` or `shell`.
 
 ## Docker-in-Docker Base Image
