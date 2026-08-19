@@ -27,7 +27,18 @@ var resolveOpenCodeVersion = func(ctx context.Context, requested string) (string
 // hit the GitHub releases endpoint) when the test ends.
 func WithMockOpenCodeVersion(t *testing.T, v string) {
 	t.Helper()
+	WithMockOpenCodeVersionResolver(t, func(_ context.Context, _ string) (string, error) { return v, nil })
+}
+
+// WithMockOpenCodeVersionResolver installs a custom opencode version resolver
+// for a test, restoring the real one (which may hit the GitHub releases
+// endpoint) when the test ends.
+func WithMockOpenCodeVersionResolver(
+	t *testing.T,
+	resolve func(ctx context.Context, requested string) (string, error),
+) {
+	t.Helper()
 	orig := resolveOpenCodeVersion
-	resolveOpenCodeVersion = func(_ context.Context, _ string) (string, error) { return v, nil }
+	resolveOpenCodeVersion = resolve
 	t.Cleanup(func() { resolveOpenCodeVersion = orig })
 }

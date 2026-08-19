@@ -29,6 +29,11 @@ var now = time.Now
 type upgradeState struct {
 	LastChecked     time.Time `yaml:"last_checked"`
 	OfferedVersions []string  `yaml:"offered_versions"`
+	// CurrentVersion is the opencode version currently baked into the runner
+	// image. It is reused as the build arg on subsequent runs so a normal run
+	// does not re-resolve "latest" from the network (which would invalidate the
+	// image identity and force rebuilds/reloads).
+	CurrentVersion string `yaml:"current_version"`
 }
 
 // dueForCheck reports whether the last successful check is older than one day
@@ -93,4 +98,30 @@ func saveUpgradeState(s upgradeState) error {
 		return err
 	}
 	return nil
+}
+
+// currentUpgradeVersion returns the opencode version currently baked into the
+// runner image, or "" when none has been recorded yet. A missing or corrupt
+// state file yields "" so the caller falls back to resolving latest.
+func currentUpgradeVersion() string {
+	state, err := loadUpgradeState()
+	if err != nil {
+		return ""
+	}
+	return state.CurrentVersion
+}
+
+// recordUpgradeVersion persists the opencode version actually baked into the
+// runner image, preserving all other persisted fields. An empty version is
+// ignored so a failed/unlabeled build never clobbers a previously recorded one.
+func recordUpgradeVersion(version string) error {
+	if version == "" {
+		return nil
+	}
+	state, err := loadUpgradeState()
+	if err != nil {
+		return err
+	}
+	state.CurrentVersion = version
+	return saveUpgradeState(state)
 }
