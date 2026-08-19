@@ -88,7 +88,7 @@ func pruneDockerImages(ctx context.Context, dryRun bool, ui termio.UI) int {
 		return 0
 	}
 	result, err := docker.Get().
-		ImagePrune(ctx, client.ImagePruneOptions{Filters: client.Filters{}.Add("dangling", "true").Add("label", "org.opencode-sandbox.managed=true")})
+		ImagePrune(ctx, client.ImagePruneOptions{Filters: client.Filters{}.Add("dangling", "true").Add("label", "org.opencode-sandbox.managed=true").Add("until", "24h")})
 	if err != nil {
 		ui.Warnf("failed to prune docker images: %v", err)
 		return 0
