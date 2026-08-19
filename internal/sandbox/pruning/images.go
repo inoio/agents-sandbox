@@ -6,6 +6,7 @@ import (
 	"github.com/moby/moby/client"
 
 	"github.com/inoio/opencode-sandbox/internal/sandbox/docker"
+	"github.com/inoio/opencode-sandbox/internal/sandbox/image"
 	"github.com/inoio/opencode-sandbox/internal/sandbox/msb"
 	"github.com/inoio/opencode-sandbox/internal/sandbox/naming"
 	"github.com/inoio/opencode-sandbox/internal/sandbox/state"
@@ -68,7 +69,9 @@ func PruneImages(
 }
 
 // surplusDigest reports whether digest is a surplus digest for the slug, i.e.
-// it diverges from the slug's current digest recorded in its state file. A slug
+// it diverges from the slug's current digest recorded in its state file. The
+// state file stores the full Docker image ID, while msb image tags carry the
+// shortened form, so the state digest is shortened before comparing. A slug
 // without a state file (or without a recorded digest) is kept, since its current
 // digest cannot be determined.
 func surplusDigest(slug, digest string) bool {
@@ -79,7 +82,10 @@ func surplusDigest(slug, digest string) bool {
 	if err != nil {
 		return false
 	}
-	return st.ImageDigest != "" && digest != st.ImageDigest
+	if st.ImageDigest == "" {
+		return false
+	}
+	return digest != image.TagDigest(st.ImageDigest)
 }
 
 // pruneDockerImages removes dangling (untagged) docker images created by us; skipped on dry-run.

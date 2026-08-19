@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/inoio/opencode-sandbox/internal/configpaths"
+	"github.com/inoio/opencode-sandbox/internal/git"
 	"github.com/inoio/opencode-sandbox/internal/sandbox/docker"
 	"github.com/inoio/opencode-sandbox/internal/sandbox/msb"
 	"github.com/inoio/opencode-sandbox/internal/sandbox/state"
@@ -21,15 +22,20 @@ func TestPruneImages(t *testing.T) {
 		return &msb.MockImageHandle{Reference_: ref, LastUsedAt_: old}
 	}
 
+	// State files store the full Docker image ID, while msb image tags carry
+	// the shortened form (git.HashID of the full ID).
+	fullCur := "sha256:2e454dd5b8ba117988d3beebd09f457ca46e758724e673d2272f77ddc9b3fb12"
+	curTag := git.HashID(fullCur)
+
 	t.Run("prunes stale slug and surplus digest of active slug", func(t *testing.T) {
 		configpaths.WithMockConfigPaths(t)
-		if err := state.WriteState("active-1mjusbm3wikhb0", state.HomeState{ImageDigest: "digestCur"}); err != nil {
+		if err := state.WriteState("active-1mjusbm3wikhb0", state.HomeState{ImageDigest: fullCur}); err != nil {
 			t.Fatalf("WriteState: %v", err)
 		}
 		client := &msb.MockMsbClient{
 			Images: []msb.ImageHandle{
 				img("opencode-sandbox/runner-orphan-1mjusbm3wikhb0:digest1"),
-				img("opencode-sandbox/runner-active-1mjusbm3wikhb0:digestCur"),
+				img("opencode-sandbox/runner-active-1mjusbm3wikhb0:" + curTag),
 				img("opencode-sandbox/runner-active-1mjusbm3wikhb0:digestOld"),
 				img("opencode-sandbox/runner-base:latest"),      // base excluded
 				img("opencode-sandbox/runner-base-dind:latest"), // base-dind excluded
@@ -77,12 +83,12 @@ func TestPruneImages(t *testing.T) {
 
 	t.Run("keeps current digest and prunes only surplus for active slug", func(t *testing.T) {
 		configpaths.WithMockConfigPaths(t)
-		if err := state.WriteState("active-1mjusbm3wikhb0", state.HomeState{ImageDigest: "digestCur"}); err != nil {
+		if err := state.WriteState("active-1mjusbm3wikhb0", state.HomeState{ImageDigest: fullCur}); err != nil {
 			t.Fatalf("WriteState: %v", err)
 		}
 		client := &msb.MockMsbClient{
 			Images: []msb.ImageHandle{
-				img("opencode-sandbox/runner-active-1mjusbm3wikhb0:digestCur"),
+				img("opencode-sandbox/runner-active-1mjusbm3wikhb0:" + curTag),
 				img("opencode-sandbox/runner-active-1mjusbm3wikhb0:digestOld"),
 			},
 		}
@@ -129,6 +135,20 @@ func TestPruneImages(t *testing.T) {
 		}
 		if surplusDigest("no-state-1mjusbm3wikhb0", "digest1") {
 			t.Error("surplusDigest without state must be false")
+		}
+	})
+
+	t.Run("keeps current digest when state stores full image ID", func(t *testing.T) {
+		configpaths.WithMockConfigPaths(t)
+		fullID := "sha256:2e454dd5b8ba117988d3beebd09f457ca46e758724e673d2272f77ddc9b3fb12"
+		if err := state.WriteState("active-1mjusbm3wikhb0", state.HomeState{ImageDigest: fullID}); err != nil {
+			t.Fatalf("WriteState: %v", err)
+		}
+		// The msb image tag stores the shortened digest; the current image must
+		// not be treated as surplus even though the tag never equals the full ID.
+		tagDigest := git.HashID(fullID)
+		if surplusDigest("active-1mjusbm3wikhb0", tagDigest) {
+			t.Errorf("surplusDigest(%q, %q) = true, want false: current image must be kept", tagDigest, fullID)
 		}
 	})
 

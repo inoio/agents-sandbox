@@ -9,6 +9,7 @@ import (
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 
 	cp "github.com/inoio/opencode-sandbox/internal/configpaths"
+	"github.com/inoio/opencode-sandbox/internal/git"
 	"github.com/inoio/opencode-sandbox/internal/sandbox/docker"
 	"github.com/inoio/opencode-sandbox/internal/sandbox/msb"
 	"github.com/inoio/opencode-sandbox/internal/sandbox/naming"
@@ -408,6 +409,8 @@ func TestStaleTypeString(t *testing.T) {
 
 func TestPruneAggregateParity(t *testing.T) {
 	old := time.Now().Add(-15 * 24 * time.Hour)
+	fullCur := "sha256:2e454dd5b8ba117988d3beebd09f457ca46e758724e673d2272f77ddc9b3fb12"
+	curTag := git.HashID(fullCur)
 	client := &msb.MockMsbClient{
 		Sandboxes: []msb.SandboxHandle{
 			&msb.MockSandboxHandle{
@@ -419,7 +422,7 @@ func TestPruneAggregateParity(t *testing.T) {
 				Name_:      "opencode-sandbox-vm-live-1mjusbm3wikhb0",
 				Status_:    msbSdk.SandboxStatusRunning,
 				UpdatedAt_: old,
-				Image_:     "opencode-sandbox/runner-live-1mjusbm3wikhb0:cur",
+				Image_:     "opencode-sandbox/runner-live-1mjusbm3wikhb0:" + curTag,
 			},
 		},
 		Volumes: []msb.VolumeHandle{
@@ -428,7 +431,7 @@ func TestPruneAggregateParity(t *testing.T) {
 		},
 		Images: []msb.ImageHandle{
 			&msb.MockImageHandle{Reference_: "opencode-sandbox/runner-proj-1mjusbm3wikhb0:old", LastUsedAt_: old},
-			&msb.MockImageHandle{Reference_: "opencode-sandbox/runner-live-1mjusbm3wikhb0:cur", LastUsedAt_: old},
+			&msb.MockImageHandle{Reference_: "opencode-sandbox/runner-live-1mjusbm3wikhb0:" + curTag, LastUsedAt_: old},
 			&msb.MockImageHandle{Reference_: "opencode-sandbox/runner-live-1mjusbm3wikhb0:old", LastUsedAt_: old},
 		},
 	}
@@ -436,7 +439,7 @@ func TestPruneAggregateParity(t *testing.T) {
 	docker.WithNoopDockerMock(t)
 	cp.WithMockConfigPaths(t)
 
-	if err := state.WriteState("live-1mjusbm3wikhb0", state.HomeState{ImageDigest: "cur"}); err != nil {
+	if err := state.WriteState("live-1mjusbm3wikhb0", state.HomeState{ImageDigest: fullCur}); err != nil {
 		t.Fatalf("WriteState: %v", err)
 	}
 
