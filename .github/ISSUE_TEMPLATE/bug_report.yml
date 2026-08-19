@@ -1,0 +1,62 @@
+name: Bug report
+description: Report a problem with opencode-sandbox
+title: "[Bug]: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to report a bug. Please fill in as much as you can.
+
+  - type: textarea
+    id: describe
+    attributes:
+      label: Describe the bug
+      description: What happened, and what did you expect instead?
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Steps to reproduce
+      description: The exact command(s) you ran and what you observed.
+      placeholder: |
+        1. opencode-sandbox ...
+        2. ...
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: Output of `opencode-sandbox version`
+    validations:
+      required: true
+
+  - type: dropdown
+    id: platform
+    attributes:
+      label: Platform
+      description: Host operating system / architecture
+      multiple: true
+      options:
+        - Linux (x86_64)
+        - Linux (arm64)
+        - macOS (Apple Silicon)
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant logs
+      description: Any error output, or the output of `opencode-sandbox doctor`
+      render: shell
+
+  - type: input
+    id: env
+    attributes:
+      label: Relevant configuration
+      description: Which env vars, config, home file mappings etc. you use that might affect the issue.
