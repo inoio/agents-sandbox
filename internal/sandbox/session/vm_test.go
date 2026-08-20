@@ -3,15 +3,19 @@ package session
 import (
 	"context"
 	"errors"
+	"io"
 	"reflect"
 	"strings"
 	"testing"
 
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 
+	"github.com/moby/moby/client"
+
 	"github.com/inoio/opencode-sandbox/internal/termio"
 
 	"github.com/inoio/opencode-sandbox/internal/configpaths"
+	"github.com/inoio/opencode-sandbox/internal/sandbox/docker"
 	"github.com/inoio/opencode-sandbox/internal/sandbox/msb"
 	"github.com/inoio/opencode-sandbox/internal/sandbox/naming"
 	"github.com/inoio/opencode-sandbox/internal/sandbox/options"
@@ -141,6 +145,51 @@ func TestCreateProjectVMCallsClientCreateSandbox(t *testing.T) {
 	}
 	if client.CreatedSandboxes[0] != "opencode-sandbox-vm-test" {
 		t.Errorf("expected sandbox name %q, got %q", "opencode-sandbox-vm-test", client.CreatedSandboxes[0])
+	}
+}
+
+func TestCreateProjectVMLoadsImageWhenNotCached(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	// The image is not yet in microsandbox (ImageGet fails), so EnsureLoaded
+	// must export it from Docker and load it before creating the VM.
+	docker.WithDockerMock(t, &docker.MockDockerClient{
+		ImageSaveFn: func(_ context.Context, _ []string, _ ...client.ImageSaveOption) (client.ImageSaveResult, error) {
+			return io.NopCloser(strings.NewReader("tar")), nil
+		},
+	})
+
+	client := &msb.MockMsbClient{
+		ImageGetFn: func(_ context.Context, _ string) error { return errors.New("not cached") },
+	}
+	testUI := termio.NewTestMock(t)
+	ui := &testUI
+
+	sb, created, err := createProjectVM(
+		context.Background(),
+		client,
+		"opencode-sandbox-vm-test",
+		"test-slug",
+		"opencode-sandbox/runner-test:abc",
+		"test-home-vol",
+		t.TempDir(),
+		options.RunOptions{Memory: "1G"},
+		nil,
+		ui,
+	)
+	if err != nil {
+		t.Fatalf("createProjectVM failed: %v", err)
+	}
+	if !created {
+		t.Error("expected created=true")
+	}
+	if sb == nil {
+		t.Fatal("expected non-nil sandbox")
+	}
+	if len(client.LoadedImages) != 1 {
+		t.Fatalf("expected the runner image to be loaded into microsandbox, got %d loads", len(client.LoadedImages))
+	}
+	if client.LoadedImages[0] != "opencode-sandbox/runner-test:abc" {
+		t.Errorf("loaded image ref = %q, want %q", client.LoadedImages[0], "opencode-sandbox/runner-test:abc")
 	}
 }
 
