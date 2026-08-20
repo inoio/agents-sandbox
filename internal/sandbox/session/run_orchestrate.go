@@ -287,9 +287,12 @@ func BuildImage(ctx context.Context, force, dryRun bool, openCodeVersion string,
 	}
 	projectSlug := git.ProjectSlug(ui)
 
-	_, err := image.EnsureImageWithClient(ctx, msb.Get(), image.ResolveDockerfile(), projectSlug,
+	info, err := image.EnsureImageWithClient(ctx, image.ResolveDockerfile(), projectSlug,
 		image.BuildOptions{Force: force, OpenCodeVersion: openCodeVersion}, ui)
-	return err
+	if err != nil {
+		return err
+	}
+	return image.EnsureLoaded(ctx, msb.Get(), projectSlug, info.Tag, ui)
 }
 
 func finalizeRun(attachErr error, exitCode int) error {

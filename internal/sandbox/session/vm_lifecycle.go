@@ -8,6 +8,7 @@ import (
 
 	"github.com/inoio/opencode-sandbox/internal/configpaths"
 	"github.com/inoio/opencode-sandbox/internal/git"
+	"github.com/inoio/opencode-sandbox/internal/sandbox/image"
 	"github.com/inoio/opencode-sandbox/internal/sandbox/msb"
 	"github.com/inoio/opencode-sandbox/internal/sandbox/naming"
 	"github.com/inoio/opencode-sandbox/internal/sandbox/options"
@@ -243,6 +244,9 @@ func createProjectVM(
 	imageEnvs map[string]string,
 	ui termio.UI,
 ) (msb.Sandbox, bool, error) {
+	if err := image.EnsureLoaded(ctx, client, slug, imageRef, ui); err != nil {
+		return nil, false, fmt.Errorf("load runner image: %w", err)
+	}
 	cpus := opts.CPUs
 	numCPUs := sysinfo.NumCPUs()
 	if cpus == 0 {

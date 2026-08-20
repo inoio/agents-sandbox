@@ -9,8 +9,7 @@ import (
 )
 
 // inspectExistingImage returns the Docker image ID (used as the digest-based
-// cache identity) for an existing project image. Env and the opencode version
-// are read separately from the msb image cache, not from Docker.
+// cache identity) for an existing project image.
 func inspectExistingImage(ctx context.Context, rTag string, ui termio.UI) string {
 	inspect, inspectErr := docker.Get().ImageInspect(ctx, rTag)
 	if inspectErr != nil {
@@ -18,6 +17,22 @@ func inspectExistingImage(ctx context.Context, rTag string, ui termio.UI) string
 		return ""
 	}
 	return inspect.ID
+}
+
+// readImageInfoFromDocker returns the image env map and the baked opencode
+// version by inspecting the Docker image. The loaded microsandbox image is a
+// passthrough of the Docker image, so reading from Docker is equivalent to
+// reading from microsandbox and avoids requiring the image to be loaded first.
+func readImageInfoFromDocker(ctx context.Context, rTag string) (map[string]string, string, error) {
+	inspect, err := docker.Get().ImageInspect(ctx, rTag)
+	if err != nil {
+		return nil, "", err
+	}
+	cfg := inspect.Config
+	if cfg == nil {
+		return nil, "", nil
+	}
+	return parseImageEnv(cfg.Env), parseImageVersion(cfg.Labels), nil
 }
 
 func parseImageEnv(envs []string) map[string]string {

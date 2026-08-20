@@ -219,13 +219,12 @@ func buildRunnerImage(
 	return rTag, imageDigest, nil
 }
 
-// EnsureImageWithClient builds/inspects the runner Docker image with the given
-// clients. The baked opencode version (requested or latest) becomes a build
-// arg, and the resulting env map + opencode version are read back from the msb
-// image cache. Tests inject mock clients to verify behavior.
+// EnsureImageWithClient builds/inspects the runner Docker image. The resulting
+// env map and opencode version are read back from the Docker image config. It
+// does not load the image into microsandbox; callers load it lazily via
+// EnsureLoaded when a VM needs it.
 func EnsureImageWithClient(
 	ctx context.Context,
-	mclient msb.Client,
 	dockerfile []byte,
 	projectSlug string,
 	buildOpts BuildOptions,
@@ -271,37 +270,43 @@ func EnsureImageWithClient(
 
 	imageRef := imageTag(projectSlug, imageDigest)
 
-	if cacheErr := mclient.ImageGet(ctx, imageRef); cacheErr == nil && !buildOpts.Force {
-		env, version, readErr := readImageInfoFromMSB(ctx, mclient, imageRef)
-		if readErr != nil {
-			return ImageInfo{}, fmt.Errorf("inspect cached msb image: %w", readErr)
-		}
-		return ImageInfo{Tag: imageRef, Digest: imageDigest, OpenCodeVersion: version, Env: env}, nil
+	env, version, err := readImageInfoFromDocker(ctx, rTag)
+	if err != nil {
+		return ImageInfo{}, fmt.Errorf("inspect built image: %w", err)
 	}
+	return ImageInfo{Tag: imageRef, Digest: imageDigest, OpenCodeVersion: version, Env: env}, nil
+}
+
+// EnsureLoaded loads the runner image into the microsandbox cache if it is not
+// already present, so the image can be used to create VMs. It is idempotent:
+// when the image is already cached (ImageGet succeeds) it returns immediately.
+func EnsureLoaded(ctx context.Context, mclient msb.Client, projectSlug, imageRef string, ui termio.UI) error {
+	if err := mclient.ImageGet(ctx, imageRef); err == nil {
+		return nil
+	}
+
+	// Docker tags the runner image as ":latest"; the digest-derived imageRef is
+	// the microsandbox-side alias. Export the Docker image by its runner tag.
+	rTag := runnerTag(projectSlug)
 
 	spin := ui.Spinner("Loading image into microsandbox")
 	saveResult, err := docker.Get().ImageSave(ctx, []string{rTag})
 	if err != nil {
 		spin.StopError(err)
-		return ImageInfo{}, fmt.Errorf("cannot export Docker image: %w", err)
+		return fmt.Errorf("cannot export Docker image: %w", err)
 	}
 	defer saveResult.Close()
 	if err = mclient.ImageLoad(ctx, imageRef, saveResult); err != nil {
 		spin.StopError(err)
-		return ImageInfo{}, err
+		return err
 	}
 	spin.Stop()
-
-	env, version, err := readImageInfoFromMSB(ctx, mclient, imageRef)
-	if err != nil {
-		return ImageInfo{}, fmt.Errorf("inspect loaded msb image: %w", err)
-	}
-	return ImageInfo{Tag: imageRef, Digest: imageDigest, OpenCodeVersion: version, Env: env}, nil
+	return nil
 }
 
 // EnsureImage builds/inspects the runner Docker image and returns an ImageInfo
 // describing its tag, digest, baked opencode version, and ENV map (read from
-// the msb image cache).
+// the Docker image config). It does not load the image into microsandbox.
 func EnsureImage(
 	ctx context.Context,
 	projectSlug string,
@@ -309,5 +314,5 @@ func EnsureImage(
 	ui termio.UI,
 ) (ImageInfo, error) {
 	dockerfile := ResolveDockerfile()
-	return EnsureImageWithClient(ctx, msb.Get(), dockerfile, projectSlug, buildOpts, ui)
+	return EnsureImageWithClient(ctx, dockerfile, projectSlug, buildOpts, ui)
 }

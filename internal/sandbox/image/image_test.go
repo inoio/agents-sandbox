@@ -16,7 +16,6 @@ import (
 	"github.com/moby/moby/api/types/image"
 	"github.com/moby/moby/client"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
-	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 
 	"github.com/inoio/opencode-sandbox/internal/configpaths"
 	"github.com/inoio/opencode-sandbox/internal/sandbox/docker"
@@ -24,6 +23,18 @@ import (
 	"github.com/inoio/opencode-sandbox/internal/sandbox/naming"
 	"github.com/inoio/opencode-sandbox/internal/termio"
 )
+
+// dockerConfigWith builds a Docker image config carrying the given opencode
+// version label and environment for mocked ImageInspect results.
+func dockerConfigWith(version string, env []string) *dockerspec.DockerOCIImageConfig {
+	labels := map[string]string{}
+	if version != "" {
+		labels[OpenCodeVersionLabel] = version
+	}
+	return &dockerspec.DockerOCIImageConfig{
+		ImageConfig: ocispec.ImageConfig{Env: env, Labels: labels},
+	}
+}
 
 func TestReferencesImageDetectsBaseTag(t *testing.T) {
 	dockerfile := []byte("FROM opencode-sandbox/runner-base:latest\nRUN echo hi\n")
@@ -154,7 +165,6 @@ func TestEnsureImageReturnsErrorWhenBuildFails(t *testing.T) {
 	docker.WithDefaultErrorDockerMock(t)
 	_, err := EnsureImageWithClient(
 		context.Background(),
-		&msb.MockMsbClient{},
 		embeddedDockerfile,
 		"test-project",
 		BuildOptions{Force: true},
@@ -237,7 +247,6 @@ func runEnsureImageTagTest(t *testing.T, dockerfile []byte, force bool, wantTags
 
 	_, err := EnsureImageWithClient(
 		context.Background(),
-		&msb.MockMsbClient{},
 		dockerfile,
 		"test-project",
 		BuildOptions{Force: force},
@@ -268,7 +277,6 @@ func TestEnsureImageDoesNotCreateDigestAliasTag(t *testing.T) {
 	dockerfile := []byte("FROM debian:trixie-slim\nRUN echo hi\n")
 	_, err := EnsureImageWithClient(
 		context.Background(),
-		&msb.MockMsbClient{},
 		dockerfile,
 		"test-project",
 		BuildOptions{},
@@ -282,16 +290,14 @@ func TestEnsureImageDoesNotCreateDigestAliasTag(t *testing.T) {
 	}
 }
 
-func TestEnsureImageLoadsIntoMSBWhenNotCached(t *testing.T) {
+func TestEnsureImageDoesNotLoadIntoMSB(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	docker.WithDockerMock(t, &docker.MockDockerClient{
 		ImageInspectFn: func(_ context.Context, _ string, _ ...client.ImageInspectOption) (client.ImageInspectResult, error) {
 			return client.ImageInspectResult{
 				InspectResponse: image.InspectResponse{
-					ID: "sha256:abc123",
-					Config: &dockerspec.DockerOCIImageConfig{
-						ImageConfig: ocispec.ImageConfig{Env: []string{"PATH=/usr/bin"}},
-					},
+					ID:     "sha256:abc123",
+					Config: dockerConfigWith("1.0.0", []string{"PATH=/usr/bin"}),
 				},
 			}, nil
 		},
@@ -300,16 +306,10 @@ func TestEnsureImageLoadsIntoMSBWhenNotCached(t *testing.T) {
 		ImageGetFn: func(_ context.Context, _ string) error {
 			return errors.New("image not in cache")
 		},
-		ImageInspectFn: func(_ context.Context, _ string) (*msbSdk.ImageConfig, error) {
-			return &msbSdk.ImageConfig{
-				Labels: map[string]string{OpenCodeVersionLabel: "1.0.0"},
-			}, nil
-		},
 	}
 	dockerfile := []byte("FROM opencode-sandbox/runner-base:latest\nRUN echo hi\n")
 	_, err := EnsureImageWithClient(
 		context.Background(),
-		msbClient,
 		dockerfile,
 		"test-project",
 		BuildOptions{Force: false},
@@ -318,11 +318,8 @@ func TestEnsureImageLoadsIntoMSBWhenNotCached(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if len(msbClient.LoadedImages) != 1 {
-		t.Fatalf("expected 1 image load, got %d", len(msbClient.LoadedImages))
-	}
-	if !strings.HasPrefix(msbClient.LoadedImages[0], "opencode-sandbox/runner-test-project:") {
-		t.Errorf("unexpected loaded image ref: %s", msbClient.LoadedImages[0])
+	if len(msbClient.LoadedImages) != 0 {
+		t.Errorf("EnsureImage must not load into microsandbox; got %d loads", len(msbClient.LoadedImages))
 	}
 }
 
@@ -342,10 +339,8 @@ func TestBuildImagePassesOpenCodeVersionBuildArg(t *testing.T) {
 	}
 	docker.WithDockerMock(t, m)
 
-	msbClient := &msb.MockMsbClient{}
 	_, err := EnsureImageWithClient(
 		context.Background(),
-		msbClient,
 		[]byte("FROM "+naming.BaseTag+":latest\nRUN echo hi\n"),
 		"test-project",
 		BuildOptions{Force: true, OpenCodeVersion: "1.2.3"},
@@ -363,7 +358,7 @@ func TestBuildImagePassesOpenCodeVersionBuildArg(t *testing.T) {
 	}
 }
 
-func TestEnsureImageReadsVersionFromMSBTAfterLoad(t *testing.T) {
+func TestEnsureImageReadsVersionAndEnvFromDocker(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	orig := resolveOpenCodeVersion
 	resolveOpenCodeVersion = func(_ context.Context, _ string) (string, error) {
@@ -371,22 +366,23 @@ func TestEnsureImageReadsVersionFromMSBTAfterLoad(t *testing.T) {
 	}
 	t.Cleanup(func() { resolveOpenCodeVersion = orig })
 
-	m := &docker.MockDockerClient{}
-	docker.WithDockerMock(t, m)
+	docker.WithDockerMock(t, &docker.MockDockerClient{
+		ImageInspectFn: func(_ context.Context, _ string, _ ...client.ImageInspectOption) (client.ImageInspectResult, error) {
+			return client.ImageInspectResult{
+				InspectResponse: image.InspectResponse{
+					ID:     "sha256:abc123",
+					Config: dockerConfigWith("2.0.0", []string{"PATH=/usr/bin"}),
+				},
+			}, nil
+		},
+	})
 
 	msbClient := &msb.MockMsbClient{
 		ImageGetFn: func(_ context.Context, _ string) error { return errors.New("not cached") },
-		ImageInspectFn: func(_ context.Context, _ string) (*msbSdk.ImageConfig, error) {
-			return &msbSdk.ImageConfig{
-				Env:    []string{"PATH=/usr/bin"},
-				Labels: map[string]string{OpenCodeVersionLabel: "2.0.0"},
-			}, nil
-		},
 	}
 
 	info, err := EnsureImageWithClient(
 		context.Background(),
-		msbClient,
 		[]byte("FROM debian:trixie-slim\nRUN echo hi\n"),
 		"test-project",
 		BuildOptions{Force: false},
@@ -398,8 +394,8 @@ func TestEnsureImageReadsVersionFromMSBTAfterLoad(t *testing.T) {
 	if info.OpenCodeVersion != "2.0.0" {
 		t.Errorf("info.OpenCodeVersion = %q, want %q", info.OpenCodeVersion, "2.0.0")
 	}
-	if len(msbClient.LoadedImages) != 1 {
-		t.Fatalf("expected 1 image load, got %d", len(msbClient.LoadedImages))
+	if len(msbClient.LoadedImages) != 0 {
+		t.Fatalf("expected no microsandbox load from EnsureImage, got %d", len(msbClient.LoadedImages))
 	}
 	if info.Env["PATH"] != "/usr/bin" {
 		t.Errorf("info.Env = %v", info.Env)
@@ -420,15 +416,8 @@ func TestEnsureImageReturnsDigestImageRefAsTag(t *testing.T) {
 			}, nil
 		},
 	})
-	msbClient := &msb.MockMsbClient{
-		ImageGetFn: func(_ context.Context, _ string) error { return errors.New("not cached") },
-		ImageInspectFn: func(_ context.Context, _ string) (*msbSdk.ImageConfig, error) {
-			return &msbSdk.ImageConfig{Labels: map[string]string{OpenCodeVersionLabel: "1.0.0"}}, nil
-		},
-	}
 	info, err := EnsureImageWithClient(
 		context.Background(),
-		msbClient,
 		[]byte("FROM debian:trixie-slim\nRUN echo hi\n"),
 		"test-project",
 		BuildOptions{Force: false},
@@ -443,7 +432,7 @@ func TestEnsureImageReturnsDigestImageRefAsTag(t *testing.T) {
 	}
 }
 
-func TestEnsureImageReadsVersionFromMSBCachedPath(t *testing.T) {
+func TestEnsureImageReadsVersionFromDocker(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	orig := resolveOpenCodeVersion
 	resolveOpenCodeVersion = func(_ context.Context, _ string) (string, error) {
@@ -451,17 +440,21 @@ func TestEnsureImageReadsVersionFromMSBCachedPath(t *testing.T) {
 	}
 	t.Cleanup(func() { resolveOpenCodeVersion = orig })
 
-	docker.WithDockerMock(t, &docker.MockDockerClient{})
-
-	msbClient := &msb.MockMsbClient{
-		ImageGetFn: func(_ context.Context, _ string) error { return nil },
-		ImageInspectFn: func(_ context.Context, _ string) (*msbSdk.ImageConfig, error) {
-			return &msbSdk.ImageConfig{Labels: map[string]string{OpenCodeVersionLabel: "3.0.0"}}, nil
+	docker.WithDockerMock(t, &docker.MockDockerClient{
+		ImageInspectFn: func(_ context.Context, _ string, _ ...client.ImageInspectOption) (client.ImageInspectResult, error) {
+			return client.ImageInspectResult{
+				InspectResponse: image.InspectResponse{
+					ID:     "sha256:abc123",
+					Config: dockerConfigWith("3.0.0", nil),
+				},
+			}, nil
 		},
-	}
+	})
+
+	msbClient := &msb.MockMsbClient{}
+
 	info, err := EnsureImageWithClient(
 		context.Background(),
-		msbClient,
 		[]byte("FROM debian:trixie-slim\nRUN echo hi\n"),
 		"test-project",
 		BuildOptions{Force: false},
@@ -474,6 +467,89 @@ func TestEnsureImageReadsVersionFromMSBCachedPath(t *testing.T) {
 		t.Errorf("info.OpenCodeVersion = %q, want %q", info.OpenCodeVersion, "3.0.0")
 	}
 	if len(msbClient.LoadedImages) != 0 {
-		t.Errorf("expected no load on cached path, got %d loads", len(msbClient.LoadedImages))
+		t.Errorf("expected no load, got %d loads", len(msbClient.LoadedImages))
+	}
+}
+
+func TestEnsureLoadedSkipsWhenAlreadyCached(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	m := &docker.MockDockerClient{}
+	docker.WithDockerMock(t, m)
+
+	msbClient := &msb.MockMsbClient{
+		ImageGetFn: func(_ context.Context, _ string) error { return nil },
+	}
+	if err := EnsureLoaded(
+		context.Background(),
+		msbClient,
+		"test-project",
+		"opencode-sandbox/runner-test-project:abc",
+		&termio.Mock{},
+	); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(msbClient.LoadedImages) != 0 {
+		t.Errorf("expected no load when image is cached, got %d loads", len(msbClient.LoadedImages))
+	}
+}
+
+func TestEnsureLoadedLoadsWhenNotCached(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	docker.WithDockerMock(t, &docker.MockDockerClient{
+		ImageSaveFn: func(_ context.Context, refs []string, _ ...client.ImageSaveOption) (client.ImageSaveResult, error) {
+			if len(refs) != 1 || refs[0] != runnerTag("test-project") {
+				t.Errorf("ImageSave refs = %v, want runner tag %q", refs, runnerTag("test-project"))
+			}
+			return io.NopCloser(strings.NewReader("tar-data")), nil
+		},
+	})
+
+	msbClient := &msb.MockMsbClient{
+		ImageGetFn: func(_ context.Context, _ string) error { return errors.New("not cached") },
+	}
+	if err := EnsureLoaded(
+		context.Background(),
+		msbClient,
+		"test-project",
+		"opencode-sandbox/runner-test-project:abc",
+		&termio.Mock{},
+	); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(msbClient.LoadedImages) != 1 {
+		t.Fatalf("expected 1 image load, got %d", len(msbClient.LoadedImages))
+	}
+	if msbClient.LoadedImages[0] != "opencode-sandbox/runner-test-project:abc" {
+		t.Errorf(
+			"loaded image ref = %q, want %q",
+			msbClient.LoadedImages[0],
+			"opencode-sandbox/runner-test-project:abc",
+		)
+	}
+}
+
+func TestEnsureLoadedReturnsErrorWhenSaveFails(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	docker.WithDockerMock(t, &docker.MockDockerClient{
+		ImageSaveFn: func(_ context.Context, _ []string, _ ...client.ImageSaveOption) (client.ImageSaveResult, error) {
+			return nil, errors.New("docker save failed")
+		},
+	})
+
+	msbClient := &msb.MockMsbClient{
+		ImageGetFn: func(_ context.Context, _ string) error { return errors.New("not cached") },
+	}
+	err := EnsureLoaded(
+		context.Background(),
+		msbClient,
+		"test-project",
+		"opencode-sandbox/runner-test-project:abc",
+		&termio.Mock{},
+	)
+	if err == nil {
+		t.Fatal("expected error when Docker save fails")
+	}
+	if len(msbClient.LoadedImages) != 0 {
+		t.Errorf("expected no load on save failure, got %d", len(msbClient.LoadedImages))
 	}
 }

@@ -10,6 +10,7 @@ import (
 
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 
+	"github.com/inoio/opencode-sandbox/internal/sandbox/image"
 	"github.com/inoio/opencode-sandbox/internal/sandbox/msb"
 	"github.com/inoio/opencode-sandbox/internal/sandbox/naming"
 	"github.com/inoio/opencode-sandbox/internal/sandbox/options"
@@ -125,6 +126,9 @@ func CmdEdit(
 		},
 		main: func(oldVolume, newVolumeName string) error {
 			client := msb.Get()
+			if err := image.EnsureLoaded(ctx, client, projectSlug, imageTag, ui); err != nil {
+				return fmt.Errorf("load runner image: %w", err)
+			}
 			spin := ui.Spinner("Starting interactive session with both volumes")
 			editSandboxName := naming.TaskPrefix + projectSlug + "-" + strconv.FormatInt(time.Now().UnixNano(), 10)
 			editOldMount := msbSdk.Mount.Named(oldVolume, msbSdk.MountOptions{})
