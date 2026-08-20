@@ -15,37 +15,43 @@ import (
 	"github.com/inoio/opencode-sandbox/internal/termio"
 )
 
+// fullCur is the full Docker image ID a state file stores; msb image tags carry
+// the shortened form (git.HashID of the full ID).
+const fullCur = "sha256:2e454dd5b8ba117988d3beebd09f457ca46e758724e673d2272f77ddc9b3fb12"
+
 func TestPruneImages(t *testing.T) {
+	now := time.Now()
 	old := time.Now().Add(-15 * 24 * time.Hour)
-
-	img := func(ref string) msb.ImageHandle {
-		return &msb.MockImageHandle{Reference_: ref, LastUsedAt_: old}
-	}
-
-	// State files store the full Docker image ID, while msb image tags carry
-	// the shortened form (git.HashID of the full ID).
-	fullCur := "sha256:2e454dd5b8ba117988d3beebd09f457ca46e758724e673d2272f77ddc9b3fb12"
+	older := time.Now().Add(-30 * 24 * time.Hour)
 	curTag := git.HashID(fullCur)
 
-	t.Run("prunes stale slug and surplus digest of active slug", func(t *testing.T) {
+	img := func(ref string, createdAt time.Time) msb.ImageHandle {
+		return &msb.MockImageHandle{Reference_: ref, CreatedAt_: createdAt}
+	}
+	live := func(slug string) PruneState {
+		return PruneState{ToKeep: map[string]struct{}{slug: {}}}
+	}
+
+	t.Run("prunes VM-less slug and older surplus of a kept slug", func(t *testing.T) {
 		configpaths.WithMockConfigPaths(t)
 		if err := state.WriteState("active-1mjusbm3wikhb0", state.HomeState{ImageDigest: fullCur}); err != nil {
 			t.Fatalf("WriteState: %v", err)
 		}
 		client := &msb.MockMsbClient{
 			Images: []msb.ImageHandle{
-				img("opencode-sandbox/runner-orphan-1mjusbm3wikhb0:digest1"),
-				img("opencode-sandbox/runner-active-1mjusbm3wikhb0:" + curTag),
-				img("opencode-sandbox/runner-active-1mjusbm3wikhb0:digestOld"),
-				img("opencode-sandbox/runner-base:latest"),      // base excluded
-				img("opencode-sandbox/runner-base-dind:latest"), // base-dind excluded
+				img("opencode-sandbox/runner-orphan-1mjusbm3wikhb0:digest1", old),
+				img("opencode-sandbox/runner-active-1mjusbm3wikhb0:"+curTag, old),
+				img("opencode-sandbox/runner-active-1mjusbm3wikhb0:digestOld", older),
+				img("opencode-sandbox/runner-base:latest", old),      // base excluded
+				img("opencode-sandbox/runner-base-dind:latest", old), // base-dind excluded
 			},
 		}
 		msb.WithMsbMock(t, client)
 		docker.WithNoopDockerMock(t)
-		stateMap := PruneState{"orphan-1mjusbm3wikhb0": &msb.MockSandboxHandle{}}
+		ps := live("active-1mjusbm3wikhb0")
+		ps.ToPrune = map[string]msb.SandboxHandle{"orphan-1mjusbm3wikhb0": &msb.MockSandboxHandle{}}
 		ui := &termio.Mock{}
-		r, err := PruneImages(context.Background(), stateMap, false, ui)
+		r, err := PruneImages(context.Background(), ps, false, ui)
 		if err != nil {
 			t.Fatalf("PruneImages: %v", err)
 		}
@@ -57,19 +63,18 @@ func TestPruneImages(t *testing.T) {
 		}
 	})
 
-	t.Run("dry run counts but does not delete", func(t *testing.T) {
+	t.Run("reclaims all images of a VM-less slug", func(t *testing.T) {
 		configpaths.WithMockConfigPaths(t)
 		client := &msb.MockMsbClient{
-			Images: []msb.ImageHandle{img("opencode-sandbox/runner-orphan-1mjusbm3wikhb0:digest1")},
+			Images: []msb.ImageHandle{
+				img("opencode-sandbox/runner-orphan-1mjusbm3wikhb0:digest1", old),
+			},
 		}
 		msb.WithMsbMock(t, client)
+		docker.WithNoopDockerMock(t)
+		ps := PruneState{ToPrune: map[string]msb.SandboxHandle{"orphan-1mjusbm3wikhb0": &msb.MockSandboxHandle{}}}
 		ui := &termio.Mock{}
-		r, err := PruneImages(
-			context.Background(),
-			PruneState{"orphan-1mjusbm3wikhb0": &msb.MockSandboxHandle{}},
-			true,
-			ui,
-		)
+		r, err := PruneImages(context.Background(), ps, true, ui)
 		if err != nil {
 			t.Fatalf("PruneImages: %v", err)
 		}
@@ -81,21 +86,22 @@ func TestPruneImages(t *testing.T) {
 		}
 	})
 
-	t.Run("keeps current digest and prunes only surplus for active slug", func(t *testing.T) {
+	t.Run("keeps current and newer images of a live slug, prunes older surplus", func(t *testing.T) {
 		configpaths.WithMockConfigPaths(t)
 		if err := state.WriteState("active-1mjusbm3wikhb0", state.HomeState{ImageDigest: fullCur}); err != nil {
 			t.Fatalf("WriteState: %v", err)
 		}
 		client := &msb.MockMsbClient{
 			Images: []msb.ImageHandle{
-				img("opencode-sandbox/runner-active-1mjusbm3wikhb0:" + curTag),
-				img("opencode-sandbox/runner-active-1mjusbm3wikhb0:digestOld"),
+				img("opencode-sandbox/runner-active-1mjusbm3wikhb0:"+curTag, old),
+				img("opencode-sandbox/runner-active-1mjusbm3wikhb0:newer", now),
+				img("opencode-sandbox/runner-active-1mjusbm3wikhb0:digestOld", older),
 			},
 		}
 		msb.WithMsbMock(t, client)
 		docker.WithNoopDockerMock(t)
 		ui := &termio.Mock{}
-		r, err := PruneImages(context.Background(), PruneState{}, false, ui)
+		r, err := PruneImages(context.Background(), live("active-1mjusbm3wikhb0"), false, ui)
 		if err != nil {
 			t.Fatalf("PruneImages: %v", err)
 		}
@@ -108,12 +114,12 @@ func TestPruneImages(t *testing.T) {
 		}
 	})
 
-	t.Run("keeps all digests when slug has no state file", func(t *testing.T) {
+	t.Run("reclaims images of a slug that has neither VM nor state", func(t *testing.T) {
 		configpaths.WithMockConfigPaths(t)
 		client := &msb.MockMsbClient{
 			Images: []msb.ImageHandle{
-				img("opencode-sandbox/runner-unknown-1mjusbm3wikhb0:digest1"),
-				img("opencode-sandbox/runner-unknown-1mjusbm3wikhb0:digest2"),
+				img("opencode-sandbox/runner-unknown-1mjusbm3wikhb0:digest1", old),
+				img("opencode-sandbox/runner-unknown-1mjusbm3wikhb0:digest2", old),
 			},
 		}
 		msb.WithMsbMock(t, client)
@@ -123,32 +129,27 @@ func TestPruneImages(t *testing.T) {
 		if err != nil {
 			t.Fatalf("PruneImages: %v", err)
 		}
-		if r.MSBImagesPruned != 0 {
-			t.Errorf("MSBImagesPruned = %d, want 0 (no state to determine current digest)", r.MSBImagesPruned)
+		if r.MSBImagesPruned != 2 {
+			t.Errorf("MSBImagesPruned = %d, want 2 (VM-less slug has no keepable image)", r.MSBImagesPruned)
 		}
 	})
 
-	t.Run("surplusDigest false for empty digest and missing state", func(t *testing.T) {
+	t.Run("isCurrentOrNewer true for current image stored as full ID", func(t *testing.T) {
 		configpaths.WithMockConfigPaths(t)
-		if surplusDigest("some-slug", "") {
-			t.Error("surplusDigest with empty digest must be false")
-		}
-		if surplusDigest("no-state-1mjusbm3wikhb0", "digest1") {
-			t.Error("surplusDigest without state must be false")
-		}
-	})
-
-	t.Run("keeps current digest when state stores full image ID", func(t *testing.T) {
-		configpaths.WithMockConfigPaths(t)
-		fullID := "sha256:2e454dd5b8ba117988d3beebd09f457ca46e758724e673d2272f77ddc9b3fb12"
-		if err := state.WriteState("active-1mjusbm3wikhb0", state.HomeState{ImageDigest: fullID}); err != nil {
+		if err := state.WriteState("active-1mjusbm3wikhb0", state.HomeState{ImageDigest: fullCur}); err != nil {
 			t.Fatalf("WriteState: %v", err)
 		}
-		// The msb image tag stores the shortened digest; the current image must
-		// not be treated as surplus even though the tag never equals the full ID.
-		tagDigest := git.HashID(fullID)
-		if surplusDigest("active-1mjusbm3wikhb0", tagDigest) {
-			t.Errorf("surplusDigest(%q, %q) = true, want false: current image must be kept", tagDigest, fullID)
+		h := img("opencode-sandbox/runner-active-1mjusbm3wikhb0:"+curTag, old)
+		if !isCurrentOrNewer("active-1mjusbm3wikhb0", curTag, h, []msb.ImageHandle{h}) {
+			t.Errorf("current image must be kept even though tag != full ID")
+		}
+	})
+
+	t.Run("isCurrentOrNewer conservative without state", func(t *testing.T) {
+		configpaths.WithMockConfigPaths(t)
+		h := img("opencode-sandbox/runner-unknown-1mjusbm3wikhb0:digest1", old)
+		if !isCurrentOrNewer("no-state-1mjusbm3wikhb0", "digest1", h, []msb.ImageHandle{h}) {
+			t.Error("isCurrentOrNewer without state must be conservative (keep)")
 		}
 	})
 
@@ -171,8 +172,8 @@ func TestPruneImages(t *testing.T) {
 		removed := make(map[string]bool)
 		client := &msb.MockMsbClient{
 			Images: []msb.ImageHandle{
-				img("opencode-sandbox/runner-fail-1mjusbm3wikhb0:digest1"),
-				img("opencode-sandbox/runner-ok-1mjusbm3wikhb0:digest2"),
+				img("opencode-sandbox/runner-fail-1mjusbm3wikhb0:digest1", old),
+				img("opencode-sandbox/runner-ok-1mjusbm3wikhb0:digest2", old),
 			},
 			ImageRemoveFn: func(_ context.Context, ref string, _ bool) error {
 				if ref == "opencode-sandbox/runner-fail-1mjusbm3wikhb0:digest1" {
@@ -185,10 +186,10 @@ func TestPruneImages(t *testing.T) {
 		msb.WithMsbMock(t, client)
 		docker.WithNoopDockerMock(t)
 		ui := &termio.Mock{}
-		r, err := PruneImages(context.Background(), PruneState{
+		r, err := PruneImages(context.Background(), PruneState{ToPrune: map[string]msb.SandboxHandle{
 			"fail-1mjusbm3wikhb0": &msb.MockSandboxHandle{},
 			"ok-1mjusbm3wikhb0":   &msb.MockSandboxHandle{},
-		}, false, ui)
+		}}, false, ui)
 		if err != nil {
 			t.Fatalf("PruneImages: %v", err)
 		}
@@ -204,7 +205,7 @@ func TestPruneImages(t *testing.T) {
 	})
 
 	t.Run("docker prune error is warned but not fatal", func(t *testing.T) {
-		client := &msb.MockMsbClient{Images: []msb.ImageHandle{img("opencode-sandbox/runner-base:latest")}}
+		client := &msb.MockMsbClient{Images: []msb.ImageHandle{img("opencode-sandbox/runner-base:latest", old)}}
 		msb.WithMsbMock(t, client)
 		docker.WithDefaultErrorDockerMock(t)
 		ui := &termio.Mock{}
@@ -219,4 +220,89 @@ func TestPruneImages(t *testing.T) {
 			t.Errorf("expected a warn about the docker prune failure, got %v", ui.WarnCalls)
 		}
 	})
+}
+
+// TestPruneImagesPreservesFreshSurplus reproduces the "imported msb image pruned
+// after the user quit" bug: a fresh runner image was loaded into microsandbox
+// but, because the user quit at the image-change home-volume prompt, its digest
+// was never recorded in the state file. The live VM's current image and the fresh
+// replacement must be kept, and only the older surplus digest reclaimed, so the
+// next run does not re-import the fresh image.
+func TestPruneImagesPreservesFreshSurplus(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	now := time.Now()
+	old := time.Now().Add(-15 * 24 * time.Hour)
+	older := time.Now().Add(-30 * 24 * time.Hour)
+	fullOld := "sha256:2e454dd5b8ba117988d3beebd09f457ca46e758724e673d2272f77ddc9b3fb12"
+	if err := state.WriteState("active-1mjusbm3wikhb0", state.HomeState{ImageDigest: fullOld}); err != nil {
+		t.Fatalf("WriteState: %v", err)
+	}
+	curTag := git.HashID(fullOld)
+	client := &msb.MockMsbClient{
+		Images: []msb.ImageHandle{
+			// The currently-used image (matching the state digest).
+			&msb.MockImageHandle{
+				Reference_: "opencode-sandbox/runner-active-1mjusbm3wikhb0:" + curTag,
+				CreatedAt_: old,
+			},
+			// A freshly imported replacement: same digest gap but newer.
+			&msb.MockImageHandle{
+				Reference_: "opencode-sandbox/runner-active-1mjusbm3wikhb0:newdigest",
+				CreatedAt_: now,
+			},
+			// A genuinely old surplus digest: older than the current image.
+			&msb.MockImageHandle{
+				Reference_: "opencode-sandbox/runner-active-1mjusbm3wikhb0:digestOld",
+				CreatedAt_: older,
+			},
+		},
+	}
+	msb.WithMsbMock(t, client)
+	docker.WithNoopDockerMock(t)
+	ui := &termio.Mock{}
+	ps := PruneState{ToKeep: map[string]struct{}{"active-1mjusbm3wikhb0": {}}}
+	r, err := PruneImages(context.Background(), ps, false, ui)
+	if err != nil {
+		t.Fatalf("PruneImages: %v", err)
+	}
+	if r.MSBImagesPruned != 1 {
+		t.Errorf("MSBImagesPruned = %d, want 1 (only the old surplus digest)", r.MSBImagesPruned)
+	}
+	if len(client.RemovedImages) != 1 ||
+		client.RemovedImages[0].Ref != "opencode-sandbox/runner-active-1mjusbm3wikhb0:digestOld" {
+		t.Errorf("RemovedImages = %v, want only the old surplus digest kept fresh image", client.RemovedImages)
+	}
+}
+
+// TestPruneImagesReclaimsKilledProjectImages covers the dangling-image gap: a
+// project whose VM was removed outside the prune flow (e.g. kill --force) leaves
+// its msb images behind. With no VM, the slug is VM-less and its images are
+// reclaimed, including the previously-current image.
+func TestPruneImagesReclaimsKilledProjectImages(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	old := time.Now().Add(-15 * 24 * time.Hour)
+	fullOld := "sha256:2e454dd5b8ba117988d3beebd09f457ca46e758724e673d2272f77ddc9b3fb12"
+	if err := state.WriteState("gone-1mjusbm3wikhb0", state.HomeState{ImageDigest: fullOld}); err != nil {
+		t.Fatalf("WriteState: %v", err)
+	}
+	curTag := git.HashID(fullOld)
+	client := &msb.MockMsbClient{
+		Images: []msb.ImageHandle{
+			&msb.MockImageHandle{Reference_: "opencode-sandbox/runner-gone-1mjusbm3wikhb0:" + curTag, CreatedAt_: old},
+			&msb.MockImageHandle{Reference_: "opencode-sandbox/runner-gone-1mjusbm3wikhb0:old", CreatedAt_: old},
+		},
+	}
+	msb.WithMsbMock(t, client)
+	docker.WithNoopDockerMock(t)
+	ui := &termio.Mock{}
+	r, err := PruneImages(context.Background(), PruneState{}, false, ui)
+	if err != nil {
+		t.Fatalf("PruneImages: %v", err)
+	}
+	if r.MSBImagesPruned != 2 {
+		t.Errorf("MSBImagesPruned = %d, want 2 (VM-less slug images reclaimed)", r.MSBImagesPruned)
+	}
+	if len(client.RemovedImages) != 2 {
+		t.Errorf("RemovedImages = %v, want 2 (both killed-project images reclaimed)", client.RemovedImages)
+	}
 }

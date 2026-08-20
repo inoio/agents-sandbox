@@ -430,9 +430,12 @@ func TestPruneAggregateParity(t *testing.T) {
 			&msb.MockVolumeHandle{Name_: "opencode-sandbox-home-live-1mjusbm3wikhb0-20260806T143022", CreatedAt_: old},
 		},
 		Images: []msb.ImageHandle{
-			&msb.MockImageHandle{Reference_: "opencode-sandbox/runner-proj-1mjusbm3wikhb0:old", LastUsedAt_: old},
-			&msb.MockImageHandle{Reference_: "opencode-sandbox/runner-live-1mjusbm3wikhb0:" + curTag, LastUsedAt_: old},
-			&msb.MockImageHandle{Reference_: "opencode-sandbox/runner-live-1mjusbm3wikhb0:old", LastUsedAt_: old},
+			&msb.MockImageHandle{Reference_: "opencode-sandbox/runner-proj-1mjusbm3wikhb0:old", CreatedAt_: old},
+			&msb.MockImageHandle{Reference_: "opencode-sandbox/runner-live-1mjusbm3wikhb0:" + curTag, CreatedAt_: old},
+			&msb.MockImageHandle{
+				Reference_: "opencode-sandbox/runner-live-1mjusbm3wikhb0:old",
+				CreatedAt_: time.Now().Add(-30 * 24 * time.Hour),
+			},
 		},
 	}
 	msb.WithMsbMock(t, client)

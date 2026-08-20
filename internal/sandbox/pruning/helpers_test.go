@@ -35,7 +35,7 @@ func TestInvokePruneFunc(t *testing.T) {
 		if err != nil {
 			t.Fatalf("InvokePruneFunc: %v", err)
 		}
-		if _, ok := gotState["proj-1mjusbm3wikhb0"]; !ok {
+		if _, ok := gotState.ToPrune["proj-1mjusbm3wikhb0"]; !ok {
 			t.Errorf("pruner did not receive built PruneState, got %v", gotState)
 		}
 	})
