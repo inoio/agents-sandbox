@@ -73,7 +73,7 @@ func pruneHomeVolumes(
 		if volumeArtifact.Slug == "" {
 			continue
 		}
-		if _, found := pruneState[volumeArtifact.Slug]; !found {
+		if _, found := pruneState.ToPrune[volumeArtifact.Slug]; !found {
 			continue
 		}
 		if !dryRun {
