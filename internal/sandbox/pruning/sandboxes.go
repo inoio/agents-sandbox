@@ -24,7 +24,7 @@ func PruneSandboxes(
 	ui termio.UI,
 ) (SandboxReport, error) {
 	report := SandboxReport{VMsPruned: 0, Details: nil}
-	for slug, handle := range pruneState {
+	for slug, handle := range pruneState.ToPrune {
 		name := handle.Name()
 		if msb.IsSandboxActive(handle.Status()) {
 			continue

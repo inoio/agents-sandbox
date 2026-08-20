@@ -29,7 +29,7 @@ func TestPruneVolumes(t *testing.T) {
 			},
 		}
 		msb.WithMsbMock(t, client)
-		stateMap := PruneState{"stale-1mjusbm3wikhb0": &msb.MockSandboxHandle{}}
+		stateMap := PruneState{ToPrune: map[string]msb.SandboxHandle{"stale-1mjusbm3wikhb0": &msb.MockSandboxHandle{}}}
 		ui := &termio.Mock{}
 		r, err := PruneVolumes(context.Background(), stateMap, false, ui)
 		if err != nil {
@@ -57,7 +57,7 @@ func TestPruneVolumes(t *testing.T) {
 			Volumes: []msb.VolumeHandle{home("opencode-sandbox-home-stale-1mjusbm3wikhb0-20260806T143022")},
 		}
 		msb.WithMsbMock(t, client)
-		stateMap := PruneState{slug: &msb.MockSandboxHandle{}}
+		stateMap := PruneState{ToPrune: map[string]msb.SandboxHandle{slug: &msb.MockSandboxHandle{}}}
 		ui := &termio.Mock{}
 		if _, err := PruneVolumes(context.Background(), stateMap, false, ui); err != nil {
 			t.Fatalf("PruneVolumes: %v", err)
@@ -89,7 +89,7 @@ func TestPruneVolumes(t *testing.T) {
 			},
 		}
 		msb.WithMsbMock(t, client)
-		stateMap := PruneState{slug: &msb.MockSandboxHandle{}}
+		stateMap := PruneState{ToPrune: map[string]msb.SandboxHandle{slug: &msb.MockSandboxHandle{}}}
 		ui := &termio.Mock{}
 		if _, err := PruneVolumes(context.Background(), stateMap, false, ui); err != nil {
 			t.Fatalf("PruneVolumes: %v", err)
@@ -105,7 +105,7 @@ func TestPruneVolumes(t *testing.T) {
 			Volumes: []msb.VolumeHandle{home("opencode-sandbox-home-stale-1mjusbm3wikhb0-20260806T143022")},
 		}
 		msb.WithMsbMock(t, client)
-		stateMap := PruneState{"stale-1mjusbm3wikhb0": &msb.MockSandboxHandle{}}
+		stateMap := PruneState{ToPrune: map[string]msb.SandboxHandle{"stale-1mjusbm3wikhb0": &msb.MockSandboxHandle{}}}
 		ui := &termio.Mock{}
 		r, err := PruneVolumes(context.Background(), stateMap, true, ui)
 		if err != nil {
@@ -159,7 +159,12 @@ func TestPruneVolumes(t *testing.T) {
 		}
 		msb.WithMsbMock(t, client)
 		ui := &termio.Mock{}
-		r, err := PruneVolumes(context.Background(), PruneState{"": &msb.MockSandboxHandle{}}, false, ui)
+		r, err := PruneVolumes(
+			context.Background(),
+			PruneState{ToPrune: map[string]msb.SandboxHandle{"": &msb.MockSandboxHandle{}}},
+			false,
+			ui,
+		)
 		if err != nil {
 			t.Fatalf("PruneVolumes: %v", err)
 		}

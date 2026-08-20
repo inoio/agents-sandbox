@@ -20,10 +20,8 @@ type ImageReport struct {
 	Details            []StaleEntry
 }
 
-// PruneImages prunes MSB runner images of stale slugs and surplus digests of
-// slugs with a surviving VM, plus host-side dangling docker images. A stale slug
-// (present in pruneState) has all its digests removed; any other slug keeps only
-// the digest recorded in its state file, and all diverging digests are removed.
+// PruneImages prunes MSB runner images of VM-less slugs and images created before
+// the currently-in-use image, plus host-side dangling docker images.
 func PruneImages(
 	ctx context.Context,
 	pruneState PruneState,
@@ -44,8 +42,7 @@ func PruneImages(
 		if imageArtifact.Slug == naming.BaseSlug || imageArtifact.Slug == naming.BaseDindSlug {
 			continue
 		}
-		if _, stale := pruneState[imageArtifact.Slug]; !stale &&
-			!surplusDigest(imageArtifact.Slug, imageArtifact.Digest) {
+		if keepImage(imageArtifact.Slug, imageArtifact.Digest, imageHandle, handles, pruneState) {
 			continue
 		}
 		if !dryRun {
@@ -68,24 +65,36 @@ func PruneImages(
 	return report, nil
 }
 
-// surplusDigest reports whether digest is a surplus digest for the slug, i.e.
-// it diverges from the slug's current digest recorded in its state file. The
-// state file stores the full Docker image ID, while msb image tags carry the
-// shortened form, so the state digest is shortened before comparing. A slug
-// without a state file (or without a recorded digest) is kept, since its current
-// digest cannot be determined.
-func surplusDigest(slug, digest string) bool {
-	if digest == "" {
+func keepImage(
+	slug, digest string,
+	imageHandle msb.ImageHandle,
+	handles []msb.ImageHandle,
+	pruneState PruneState,
+) bool {
+	if _, live := pruneState.ToKeep[slug]; !live {
 		return false
 	}
+	if _, pruned := pruneState.ToPrune[slug]; pruned {
+		return false
+	}
+	return isCurrentOrNewer(slug, digest, imageHandle, handles)
+}
+
+func isCurrentOrNewer(slug, digest string, imageHandle msb.ImageHandle, handles []msb.ImageHandle) bool {
 	st, err := state.ReadState(slug)
-	if err != nil {
-		return false
+	if err != nil || st.ImageDigest == "" {
+		return true
 	}
-	if st.ImageDigest == "" {
-		return false
+	if digest == image.TagDigest(st.ImageDigest) {
+		return true
 	}
-	return digest != image.TagDigest(st.ImageDigest)
+	currentRef := naming.ImagePrefix + slug + ":" + image.TagDigest(st.ImageDigest)
+	for _, h := range handles {
+		if h.Reference() == currentRef {
+			return !imageHandle.CreatedAt().Before(h.CreatedAt())
+		}
+	}
+	return true
 }
 
 // pruneDockerImages removes dangling (untagged) docker images created by us; skipped on dry-run.

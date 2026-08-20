@@ -36,9 +36,11 @@ func TestPruneSandboxes(t *testing.T) {
 		msb.WithMsbMock(t, client)
 		ui := &termio.Mock{}
 		state := PruneState{
-			"proj1-1mjusbm3wikhb0": stopped,
-			"proj2-1mjusbm3wikhb0": running,
-			"fill-proj":            task,
+			ToPrune: map[string]msb.SandboxHandle{
+				"proj1-1mjusbm3wikhb0": stopped,
+				"proj2-1mjusbm3wikhb0": running,
+				"fill-proj":            task,
+			},
 		}
 		r, err := PruneSandboxes(context.Background(), state, false, ui)
 		if err != nil {
@@ -65,7 +67,12 @@ func TestPruneSandboxes(t *testing.T) {
 		client := &msb.MockMsbClient{}
 		msb.WithMsbMock(t, client)
 		ui := &termio.Mock{}
-		r, err := PruneSandboxes(context.Background(), PruneState{"proj1-1mjusbm3wikhb0": stopped}, true, ui)
+		r, err := PruneSandboxes(
+			context.Background(),
+			PruneState{ToPrune: map[string]msb.SandboxHandle{"proj1-1mjusbm3wikhb0": stopped}},
+			true,
+			ui,
+		)
 		if err != nil {
 			t.Fatalf("PruneSandboxes: %v", err)
 		}
@@ -107,11 +114,13 @@ func TestPruneSandboxes(t *testing.T) {
 		msb.WithMsbMock(t, client)
 		ui := &termio.Mock{}
 		state := PruneState{
-			"proj1-1mjusbm3wikhb0": stopped,
-			"proj2-1mjusbm3wikhb0": &msb.MockSandboxHandle{
-				Name_:      "opencode-sandbox-vm-proj2-1mjusbm3wikhb0",
-				Status_:    msbSdk.SandboxStatusStopped,
-				UpdatedAt_: stale,
+			ToPrune: map[string]msb.SandboxHandle{
+				"proj1-1mjusbm3wikhb0": stopped,
+				"proj2-1mjusbm3wikhb0": &msb.MockSandboxHandle{
+					Name_:      "opencode-sandbox-vm-proj2-1mjusbm3wikhb0",
+					Status_:    msbSdk.SandboxStatusStopped,
+					UpdatedAt_: stale,
+				},
 			},
 		}
 		r, err := PruneSandboxes(context.Background(), state, false, ui)

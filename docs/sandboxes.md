@@ -172,19 +172,20 @@ opencode-sandbox sandbox prune               # VMs (stale sandboxes and leftover
 
 Pruning removes:
 
-- Stale VMs (stopped/crashed beyond the age threshold) and everything they reference; task sandboxes count into the VM
-  total. A stale VM's home volumes and images are reclaimed based on the snapshot taken at prune time, even if the VM's
-  own removal fails.
-- Orphaned artifacts: home volumes and msb images whose project has no VM at all
-- Surplus msb images for a project that still has a VM: digests other than the VM's current image and `:latest`
+- Stale VMs (not active in the age threshold) and everything they reference; task sandboxes count into the VM total. A
+  stale VM's home volumes and images are reclaimed based on the snapshot taken at prune time, even if the VM's own
+  removal fails.
+- Dangling runner images of projects whose VM is gone (e.g. after `kill --force`, or a prune whose image removal
+  failed). The prune snapshot tracks which slugs have a live VM, so it can tell a live project apart from a VM-less one
+  and reclaim the latter's cached images.
+- Surplus msb images of a project that still has a VM. Surplus images are images older than the VM's current image.
 - Dangling Docker images: after a rebuild the previous runner image is no longer referenced by any tag and is reclaimed
-  by a single Docker image prune. Tagged images (base images and the current `:latest` runner) are left untouched.
+  by a scoped Docker image prune. Tagged images (base images and the current `:latest` runner) are left untouched.
 
-Home volumes and msb images are age-gated like VMs: they are only removed once they are older than the pruning
-threshold. VMs, volumes, and images share the same age semantics — all are preserved if younger than the threshold.
-Recently-created home volumes and recently-loaded runner images are preserved even if their project currently has no
-running VM, so the cached runner image and home state survive startup and the image does not need to be loaded into the
-sandbox again.
+Age is applied when deciding which VMs are stale, and that decision is shared across VMs and home volumes: a project
+whose VM has activity in the age threshold is left alone entirely. Home volumes are reclaimed only when the project's VM
+is actually pruned (never for a merely VM-less project, since they hold user data), while runner images of a VM-less
+project are reclaimed because they can always be rebuilt.
 
 Auto-pruning runs before run commands (e.g., `opencode-sandbox`, `opencode-sandbox run`, `opencode-sandbox sandbox run`)
 via `sync.Once`. It uses a fixed default threshold of 30 days unless `auto-prune-age` is set in config.

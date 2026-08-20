@@ -83,7 +83,7 @@ func maybePromptOpenCodeUpgrade(
 	prompt := fmt.Sprintf("Rebuild the runner image with opencode %s?", latest)
 	choices := []termio.Choice{
 		{Label: "Rebuild", Key: "r", Description: "Rebuild the image with opencode " + latest},
-		{Label: "Keep", Key: "k", Description: "Keep the current image"},
+		{Label: "Keep", Key: "k", Description: "Keep the current image, don't remind again"},
 		{Label: "Quit", Key: "q", Description: "Abort this session"},
 	}
 	choice, err := ui.Select(prompt, choices, "r")
