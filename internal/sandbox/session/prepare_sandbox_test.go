@@ -9,6 +9,7 @@ import (
 	dockerspec "github.com/moby/docker-image-spec/specs-go/v1"
 	mobyimage "github.com/moby/moby/api/types/image"
 	"github.com/moby/moby/client"
+	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 
 	"github.com/inoio/opencode-sandbox/internal/configpaths"
@@ -51,8 +52,13 @@ func TestPrepareSandboxReusesStoredOpenCodeVersion(t *testing.T) {
 		ImageInspectFn: func(_ context.Context, _ string, _ ...client.ImageInspectOption) (client.ImageInspectResult, error) {
 			return client.ImageInspectResult{
 				InspectResponse: mobyimage.InspectResponse{
-					ID:     "sha256:abc123",
-					Config: &dockerspec.DockerOCIImageConfig{},
+					ID: "sha256:abc123",
+					Config: &dockerspec.DockerOCIImageConfig{
+						ImageConfig: ocispec.ImageConfig{
+							Env:    []string{"PATH=/usr/bin"},
+							Labels: map[string]string{sandboximage.OpenCodeVersionLabel: "1.5.0"},
+						},
+					},
 				},
 			}, nil
 		},
@@ -138,8 +144,13 @@ func TestPrepareSandboxLoadsHomeYamlOnce(t *testing.T) {
 		ImageInspectFn: func(_ context.Context, _ string, _ ...client.ImageInspectOption) (client.ImageInspectResult, error) {
 			return client.ImageInspectResult{
 				InspectResponse: mobyimage.InspectResponse{
-					ID:     "sha256:abc123",
-					Config: &dockerspec.DockerOCIImageConfig{},
+					ID: "sha256:abc123",
+					Config: &dockerspec.DockerOCIImageConfig{
+						ImageConfig: ocispec.ImageConfig{
+							Env:    []string{"PATH=/usr/bin"},
+							Labels: map[string]string{sandboximage.OpenCodeVersionLabel: "1.0.0"},
+						},
+					},
 				},
 			}, nil
 		},

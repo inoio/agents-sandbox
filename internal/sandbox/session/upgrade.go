@@ -8,6 +8,7 @@ import (
 	"github.com/inoio/opencode-sandbox/internal/git"
 	"github.com/inoio/opencode-sandbox/internal/opencode"
 	"github.com/inoio/opencode-sandbox/internal/sandbox/image"
+	"github.com/inoio/opencode-sandbox/internal/sandbox/msb"
 	"github.com/inoio/opencode-sandbox/internal/sandbox/options"
 	"github.com/inoio/opencode-sandbox/internal/termio"
 )
@@ -35,12 +36,19 @@ var openCodeUpgradeInfo = func(ctx context.Context) (string, error) {
 //
 //nolint:gochecknoglobals // test seam
 var rebuildImageForUpgrade = func(ctx context.Context, ui termio.UI, opts options.RunOptions) (image.ImageInfo, error) {
-	return image.EnsureImage(
+	info, err := image.EnsureImage(
 		ctx,
 		git.ProjectSlug(ui),
 		image.BuildOptions{Force: true, OpenCodeVersion: opts.OpenCodeVersion},
 		ui,
 	)
+	if err != nil {
+		return image.ImageInfo{}, err
+	}
+	if err := image.EnsureLoaded(ctx, msb.Get(), git.ProjectSlug(ui), info.Tag, ui); err != nil {
+		return image.ImageInfo{}, err
+	}
+	return info, nil
 }
 
 // maybePromptOpenCodeUpgrade offers to rebuild the runner image when a newer
