@@ -105,7 +105,7 @@ jobs:
           file "opencode-sandbox-${{ matrix.target }}"
 
       - name: Upload artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: opencode-sandbox-${{ matrix.target }}
           path: opencode-sandbox-${{ matrix.target }}
