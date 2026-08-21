@@ -11,8 +11,8 @@ jobs:
     name: lint
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
         with:
           go-version: "1.26"
           cache: true
@@ -26,8 +26,8 @@ jobs:
     name: test
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
         with:
           go-version: "1.26"
           cache: true
@@ -60,7 +60,7 @@ jobs:
             goarch: arm64
             zig_target: aarch64-macos.11.0-none
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Install zig
         run: |
@@ -83,7 +83,7 @@ jobs:
           cp ci/builder/stubs/Security.tbd      "$DARWIN/System/Library/Frameworks/Security.framework/"
           cp ci/builder/stubs/libresolv.tbd     "$DARWIN/usr/lib/"
 
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v7
         with:
           go-version: "1.26"
           cache: true
@@ -105,7 +105,7 @@ jobs:
           file "opencode-sandbox-${{ matrix.target }}"
 
       - name: Upload artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: opencode-sandbox-${{ matrix.target }}
           path: opencode-sandbox-${{ matrix.target }}
@@ -119,7 +119,7 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v7
         with:
           path: artifacts
       - name: Create GitHub Release
