@@ -1,23 +1,38 @@
 package pruning
 
-import "strings"
+import (
+	"context"
+	"strings"
+	"time"
+
+	"github.com/inoio/opencode-sandbox/internal/termio"
+)
 
 func hasPrefix(s, prefix string) bool { return strings.HasPrefix(s, prefix) }
 
-// imageDigest returns the digest tag (after the last ':') of an image reference,
-// or "" when absent.
-func imageDigest(ref string) string {
-	if i := strings.LastIndex(ref, ":"); i >= 0 {
-		return ref[i+1:]
+func pruneReportPrefix(dryRun bool) string {
+	prefix := "Pruned"
+	if dryRun {
+		prefix = "dry-run: Would prune"
 	}
-	return ""
+	return prefix
 }
 
-// activeSlugs returns the set of slugs that have a running VM.
-func activeSlugs(snap LiveState) map[string]bool {
-	m := make(map[string]bool, len(snap.ActiveVMs))
-	for slug := range snap.ActiveVMs {
-		m[slug] = true
+func InvokePruneFunc[R any](
+	context context.Context,
+	pruneLambda func(context.Context,
+		PruneState,
+		bool,
+		termio.UI,
+	) (R, error),
+	age time.Duration,
+	dryRun bool,
+	ui termio.UI,
+) error {
+	pruneState, err := buildPruneState(context, age)
+	if err != nil {
+		return err
 	}
-	return m
+	_, pruneErr := pruneLambda(context, pruneState, dryRun, ui)
+	return pruneErr
 }

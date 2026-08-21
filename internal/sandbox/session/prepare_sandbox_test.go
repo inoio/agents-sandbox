@@ -9,18 +9,108 @@ import (
 	dockerspec "github.com/moby/docker-image-spec/specs-go/v1"
 	mobyimage "github.com/moby/moby/api/types/image"
 	"github.com/moby/moby/client"
+	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 
-	"gitlab.inoio.de/inoio/opencode-sandbox/internal/configpaths"
-	"gitlab.inoio.de/inoio/opencode-sandbox/internal/git"
-	"gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/docker"
-	sandboximage "gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/image"
-	"gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/msb"
-	"gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/options"
-	"gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/state"
-	"gitlab.inoio.de/inoio/opencode-sandbox/internal/termio"
-	"gitlab.inoio.de/inoio/opencode-sandbox/internal/testutil"
+	"github.com/inoio/opencode-sandbox/internal/configpaths"
+	"github.com/inoio/opencode-sandbox/internal/git"
+	"github.com/inoio/opencode-sandbox/internal/sandbox/docker"
+	sandboximage "github.com/inoio/opencode-sandbox/internal/sandbox/image"
+	"github.com/inoio/opencode-sandbox/internal/sandbox/msb"
+	"github.com/inoio/opencode-sandbox/internal/sandbox/options"
+	"github.com/inoio/opencode-sandbox/internal/sandbox/state"
+	"github.com/inoio/opencode-sandbox/internal/termio"
+	"github.com/inoio/opencode-sandbox/internal/testutil"
 )
+
+// TestPrepareSandboxReusesStoredOpenCodeVersion verifies that a normal run
+// falls back to the opencode version recorded in updater.yaml instead of
+// re-resolving "latest" from the network. Passing the stored version keeps the
+// image identity (and thus the microsandbox load decision) stable across runs.
+func TestPrepareSandboxReusesStoredOpenCodeVersion(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+
+	if err := saveUpgradeState(upgradeState{CurrentVersion: "1.5.0"}); err != nil {
+		t.Fatalf("saveUpgradeState: %v", err)
+	}
+
+	// The resolver records the requested version and returns it, so the test
+	// observes exactly what prepareSandbox passed instead of a network lookup.
+	var requested string
+	sandboximage.WithMockOpenCodeVersionResolver(t, func(_ context.Context, req string) (string, error) {
+		requested = req
+		return req, nil
+	})
+	origUpgradeInfo := openCodeUpgradeInfo
+	openCodeUpgradeInfo = func(_ context.Context) (string, error) { return "1.5.0", nil }
+	t.Cleanup(func() { openCodeUpgradeInfo = origUpgradeInfo })
+
+	docker.WithDockerMock(t, &docker.MockDockerClient{
+		ImageBuildFn: func(_ context.Context, _ io.Reader, _ client.ImageBuildOptions) (client.ImageBuildResult, error) {
+			return client.ImageBuildResult{Body: io.NopCloser(strings.NewReader(""))}, nil
+		},
+		ImageInspectFn: func(_ context.Context, _ string, _ ...client.ImageInspectOption) (client.ImageInspectResult, error) {
+			return client.ImageInspectResult{
+				InspectResponse: mobyimage.InspectResponse{
+					ID: "sha256:abc123",
+					Config: &dockerspec.DockerOCIImageConfig{
+						ImageConfig: ocispec.ImageConfig{
+							Env:    []string{"PATH=/usr/bin"},
+							Labels: map[string]string{sandboximage.OpenCodeVersionLabel: "1.5.0"},
+						},
+					},
+				},
+			}, nil
+		},
+	})
+
+	slug := git.ProjectSlug(&termio.Mock{})
+	vmFS := msb.NewTestFS(nil, nil)
+	connectSb := &msb.MockSandbox{Name_: "vm", FSValue_: vmFS, ShellOut: map[string]msb.ShellResult{
+		dockerdBinaryCheckCmd: msb.NewTestResult(false, 1, "", "", nil),
+	}}
+	sh := &msb.MockSandboxHandle{
+		Name_:     projectVMName(slug),
+		Status_:   msbSdk.SandboxStatusRunning,
+		ConnectSb: connectSb,
+	}
+	mock := &msb.MockMsbClient{
+		ImageGetFn: func(_ context.Context, _ string) error { return nil },
+		ImageInspectFn: func(_ context.Context, _ string) (*msbSdk.ImageConfig, error) {
+			return &msbSdk.ImageConfig{
+				Env:    []string{"PATH=/usr/bin"},
+				Labels: map[string]string{sandboximage.OpenCodeVersionLabel: "1.5.0"},
+			}, nil
+		},
+		Volumes: []msb.VolumeHandle{&msb.MockVolumeHandle{Name_: "home-vol"}},
+	}
+	mock.SetGotSandbox(sh)
+	msb.WithMsbMock(t, mock)
+
+	state.WriteState(slug, state.HomeState{HomeVolume: "home-vol", ImageDigest: "sha256:abc123"})
+
+	origDaemon := SetDaemonShellFunc(func(_ context.Context, _ msb.Sandbox, command string) (string, int, error) {
+		if command == "curl -sfm2 "+daemonHealthURL {
+			return `{"healthy":true,"version":"test"}`, 0, nil
+		}
+		return "", 0, nil
+	})
+	defer SetDaemonShellFunc(origDaemon)
+
+	ui := termio.NewTestMock(t)
+	sess, err := prepareSandbox(context.Background(), options.RunOptions{}, &ui)
+	if err != nil {
+		t.Fatalf("prepareSandbox: %v", err)
+	}
+	if sess == nil {
+		t.Fatal("expected a non-nil session")
+	}
+	defer sess.cleanup()
+
+	if requested != "1.5.0" {
+		t.Errorf("resolver requested = %q, want stored version %q", requested, "1.5.0")
+	}
+}
 
 // TestPrepareSandboxLoadsHomeYamlOnce verifies that a full startup loads the
 // home.yaml manifests exactly once: a missing host source is warned about a
@@ -54,8 +144,13 @@ func TestPrepareSandboxLoadsHomeYamlOnce(t *testing.T) {
 		ImageInspectFn: func(_ context.Context, _ string, _ ...client.ImageInspectOption) (client.ImageInspectResult, error) {
 			return client.ImageInspectResult{
 				InspectResponse: mobyimage.InspectResponse{
-					ID:     "sha256:abc123",
-					Config: &dockerspec.DockerOCIImageConfig{},
+					ID: "sha256:abc123",
+					Config: &dockerspec.DockerOCIImageConfig{
+						ImageConfig: ocispec.ImageConfig{
+							Env:    []string{"PATH=/usr/bin"},
+							Labels: map[string]string{sandboximage.OpenCodeVersionLabel: "1.0.0"},
+						},
+					},
 				},
 			}, nil
 		},

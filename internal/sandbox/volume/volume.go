@@ -6,20 +6,20 @@ import (
 	"strconv"
 	"time"
 
-	"gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/msb"
-	"gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/naming"
-	"gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/options"
-	"gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/state"
-	"gitlab.inoio.de/inoio/opencode-sandbox/internal/termio"
+	"github.com/inoio/opencode-sandbox/internal/sandbox/image"
+	"github.com/inoio/opencode-sandbox/internal/sandbox/msb"
+	"github.com/inoio/opencode-sandbox/internal/sandbox/naming"
+	"github.com/inoio/opencode-sandbox/internal/sandbox/options"
+	"github.com/inoio/opencode-sandbox/internal/sandbox/state"
+	"github.com/inoio/opencode-sandbox/internal/termio"
 
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 )
 
 // Mount point constants used by volume operations (prefill, copy, edit).
 const (
-	srcMount     = "/src"
-	dstMount     = "/dst"
-	tmpMountPath = "/tmp"
+	srcMount = "/src"
+	dstMount = "/dst"
 )
 
 // HomeVolumeName generates a volume name for the given project slug using the
@@ -48,6 +48,9 @@ func (vm *Manager) PrefillVolume(
 	projectSlug, volumeName, imageTag string,
 	ui termio.UI,
 ) error {
+	if err := image.EnsureLoaded(ctx, client, projectSlug, imageTag, ui); err != nil {
+		return fmt.Errorf("load runner image: %w", err)
+	}
 	prefillName := naming.TaskPrefix + projectSlug + "-" + strconv.FormatInt(time.Now().UnixNano(), 10)
 	mountConfig := msbSdk.Mount.Named(volumeName, msbSdk.MountOptions{})
 
@@ -166,6 +169,9 @@ func (vm *Manager) CopyVolume(
 	projectSlug, oldVolume, newVolume, imageTag string,
 	ui termio.UI,
 ) error {
+	if err := image.EnsureLoaded(ctx, client, projectSlug, imageTag, ui); err != nil {
+		return fmt.Errorf("load runner image: %w", err)
+	}
 	copySbName := naming.TaskPrefix + projectSlug + "-" + strconv.FormatInt(time.Now().UnixNano(), 10)
 	copySb, err := client.CreateSandbox(ctx, copySbName,
 		msbSdk.WithImage(imageTag),

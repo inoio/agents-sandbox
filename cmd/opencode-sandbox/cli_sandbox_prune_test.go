@@ -7,7 +7,7 @@ import (
 
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 
-	"gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/msb"
+	"github.com/inoio/opencode-sandbox/internal/sandbox/msb"
 )
 
 func TestSandboxPrune(t *testing.T) {
@@ -26,7 +26,7 @@ func TestSandboxPrune(t *testing.T) {
 		if err := cmd.Execute(); err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
-		if !slices.Contains(ui.OutCalls, "sandbox prune: 1 sandbox(es)") {
+		if !slices.Contains(ui.OutCalls, "Pruned 1 sandbox(es)") {
 			t.Errorf("expected prune summary, got: %v", ui.OutCalls)
 		}
 	})

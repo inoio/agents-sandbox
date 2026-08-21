@@ -1,4 +1,4 @@
-.PHONY: build build-release build-release-all test lint fmt clean completion user-install check all upgrade-deps
+.PHONY: build build-release build-release-all test coverage lint fmt clean completion user-install check all upgrade-deps
 
 VERSION ?= dev
 
@@ -41,6 +41,10 @@ build-release-all:
 
 test:
 	CGO_ENABLED=1 go test ./...
+
+coverage:
+	CGO_ENABLED=1 go test -coverprofile=coverage.out ./...
+	go tool cover -func=coverage.out | tail -1
 
 lint:
 	golangci-lint run ./...

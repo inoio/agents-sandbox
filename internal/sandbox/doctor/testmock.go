@@ -5,7 +5,7 @@ import (
 	"errors"
 	"testing"
 
-	"gitlab.inoio.de/inoio/opencode-sandbox/internal/termio"
+	"github.com/inoio/opencode-sandbox/internal/termio"
 )
 
 // MockedEnsureInstalled replaces the ensureInstalled factory used by the
@@ -46,10 +46,6 @@ func checkDockerMockFunc(success bool) func(context.Context) error {
 	}
 }
 
-func collectChecksMockFunc(warnings []string, errs []error) func(context.Context) ([]string, []error) {
-	return func(context.Context) ([]string, []error) { return warnings, errs }
-}
-
 func MockedCheckAll(t *testing.T, success bool) {
 	orig := checkAllFunc
 	checkAllFunc = checkAllMockFunc(success)
@@ -60,15 +56,6 @@ func MockedCheckDocker(t *testing.T, success bool) {
 	orig := checkDockerFunc
 	checkDockerFunc = checkDockerMockFunc(success)
 	t.Cleanup(func() { checkDockerFunc = orig })
-}
-
-// mockedCollectChecks replaces the platform prerequisite aggregation with a
-// controlled set of warnings and failures so CheckAll's rendering can be
-// tested without touching real tooling.
-func mockedCollectChecks(t *testing.T, warnings []string, errs []error) {
-	orig := collectChecksFunc
-	collectChecksFunc = collectChecksMockFunc(warnings, errs)
-	t.Cleanup(func() { collectChecksFunc = orig })
 }
 
 func InstallFailFast() {

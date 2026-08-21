@@ -1,7 +1,6 @@
 package reprovision
 
 import (
-	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -16,13 +15,13 @@ import (
 
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 
-	config "gitlab.inoio.de/inoio/opencode-sandbox/internal/opencodeconfig"
-	"gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/msb"
-	"gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/state"
-	"gitlab.inoio.de/inoio/opencode-sandbox/internal/termio"
+	config "github.com/inoio/opencode-sandbox/internal/opencodeconfig"
+	"github.com/inoio/opencode-sandbox/internal/sandbox/msb"
+	"github.com/inoio/opencode-sandbox/internal/sandbox/state"
+	"github.com/inoio/opencode-sandbox/internal/termio"
 
-	cp "gitlab.inoio.de/inoio/opencode-sandbox/internal/configpaths"
-	"gitlab.inoio.de/inoio/opencode-sandbox/internal/homeconfig"
+	cp "github.com/inoio/opencode-sandbox/internal/configpaths"
+	"github.com/inoio/opencode-sandbox/internal/homeconfig"
 )
 
 // EnvKeyValueParts is the number of parts strings.SplitN should produce for
@@ -139,28 +138,6 @@ func OpenCodeConfigEqual(cf *ConfigFiles, vmData map[string][]byte) bool {
 		return false
 	}
 	return jsonEqual(cf.OpenCode, vm)
-}
-
-// ConfigEqual reports whether the desired state matches the VM state. The
-// merged opencode.json is compared semantically; home files byte-for-byte.
-func ConfigEqual(cf *ConfigFiles, vmData map[string][]byte) bool {
-	if cf.HasSnippets {
-		ocPath := OpenCodeConfigPath(VMHomeDir)
-		vm, ok := vmData[ocPath]
-		if !ok {
-			return false
-		}
-		if !jsonEqual(cf.OpenCode, vm) {
-			return false
-		}
-	}
-	for path, want := range cf.HomeFiles {
-		got, ok := vmData[path]
-		if !ok || !bytes.Equal(want, got) {
-			return false
-		}
-	}
-	return true
 }
 
 func jsonEqual(a, b []byte) bool {

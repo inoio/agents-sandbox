@@ -5,9 +5,9 @@ import (
 	"testing"
 	"time"
 
-	"gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/docker"
-	"gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/msb"
-	"gitlab.inoio.de/inoio/opencode-sandbox/internal/termio"
+	"github.com/inoio/opencode-sandbox/internal/sandbox/docker"
+	"github.com/inoio/opencode-sandbox/internal/sandbox/msb"
+	"github.com/inoio/opencode-sandbox/internal/termio"
 )
 
 // withAutoPruneMocks opts a smoke test into isolated msb and docker factories so
@@ -40,26 +40,4 @@ func TestAutoPruneDefaultsToSevenDays(t *testing.T) {
 	withAutoPruneMocks(t)
 	testUI := termio.NewTestMock(t)
 	AutoPrune(context.Background(), 0, true, &testUI)
-}
-
-func TestStaleReportHasAnything(t *testing.T) {
-	tests := []struct {
-		name   string
-		report *StaleReport
-		want   bool
-	}{
-		{"empty", &StaleReport{}, false},
-		{"nil", nil, false},
-		{"vms", &StaleReport{PrunedVMs: 1}, true},
-		{"volumes", &StaleReport{PrunedVolumes: 3}, true},
-		{"docker", &StaleReport{PrunedDockerImages: 2}, true},
-		{"msb", &StaleReport{PrunedMSBImages: 1}, true},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			if got := tt.report.hasAnything(); got != tt.want {
-				t.Errorf("hasAnything() = %v, want %v", got, tt.want)
-			}
-		})
-	}
 }

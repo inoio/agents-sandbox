@@ -1,0 +1,32 @@
+name: Feature request
+description: Suggest an idea for opencode-sandbox
+title: "[Feature]: "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for suggesting an idea. Try to keep it focused on the problem you're trying to solve. 
+        If an idea contains multiple independent features, please split them into separate issues.
+
+  - type: textarea
+    id: motivation
+    attributes:
+      label: Motivation
+      description: What problem are you trying to solve, and why does the current behavior fall short?
+    validations:
+      required: true
+
+  - type: textarea
+    id: behavior
+    attributes:
+      label: Proposed behavior
+      description: What should the tool do differently? How would you use it?
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Any workarounds or alternatives you already tried

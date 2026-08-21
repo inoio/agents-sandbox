@@ -5,17 +5,26 @@ import (
 	"testing"
 	"time"
 
-	"gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/docker"
-	sandboxmsb "gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/msb"
+	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
+
+	"github.com/inoio/opencode-sandbox/internal/sandbox/docker"
+	sandboxmsb "github.com/inoio/opencode-sandbox/internal/sandbox/msb"
 )
 
 func TestImagePrune(t *testing.T) {
 	t.Run("accepts and applies age flag", func(t *testing.T) {
-		// A 2d-old orphan image: pruned with --age 1d, but would survive the 7d default.
+		// A 2d-old stale VM makes its image prunable with --age 1d, but not the 7d default.
 		m := &sandboxmsb.MockMsbClient{
+			Sandboxes: []sandboxmsb.SandboxHandle{
+				&sandboxmsb.MockSandboxHandle{
+					Name_:      "opencode-sandbox-vm-orphan-1mjusbm3wikhb0",
+					Status_:    msbSdk.SandboxStatusStopped,
+					UpdatedAt_: time.Now().Add(-2 * 24 * time.Hour),
+				},
+			},
 			Images: []sandboxmsb.ImageHandle{
 				sandboxmsb.MockImageHandle{
-					Reference_:  "opencode-sandbox/runner-orphan:v1",
+					Reference_:  "opencode-sandbox/runner-orphan-1mjusbm3wikhb0:v1",
 					LastUsedAt_: time.Now().Add(-2 * 24 * time.Hour),
 				},
 			},
@@ -26,16 +35,23 @@ func TestImagePrune(t *testing.T) {
 		if err := cmd.Execute(); err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
-		if !slices.Contains(ui.OutCalls, "image prune: 1 runner image(s), 0 dangling docker image(s)") {
+		if !slices.Contains(ui.OutCalls, "Pruned 1 runner image(s), 0 dangling docker image(s)") {
 			t.Errorf("expected prune summary, got: %v", ui.OutCalls)
 		}
 	})
 
-	t.Run("prunes orphan images", func(t *testing.T) {
+	t.Run("prunes images of stale slugs", func(t *testing.T) {
 		m := &sandboxmsb.MockMsbClient{
+			Sandboxes: []sandboxmsb.SandboxHandle{
+				&sandboxmsb.MockSandboxHandle{
+					Name_:      "opencode-sandbox-vm-orphan-1mjusbm3wikhb0",
+					Status_:    msbSdk.SandboxStatusStopped,
+					UpdatedAt_: time.Now().Add(-30 * 24 * time.Hour),
+				},
+			},
 			Images: []sandboxmsb.ImageHandle{
 				sandboxmsb.MockImageHandle{
-					Reference_:  "opencode-sandbox/runner-orphan:v1",
+					Reference_:  "opencode-sandbox/runner-orphan-1mjusbm3wikhb0:v1",
 					LastUsedAt_: time.Now().Add(-30 * 24 * time.Hour),
 				},
 			},
@@ -46,7 +62,7 @@ func TestImagePrune(t *testing.T) {
 		if err := cmd.Execute(); err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
-		if !slices.Contains(ui.OutCalls, "image prune: 1 runner image(s), 0 dangling docker image(s)") {
+		if !slices.Contains(ui.OutCalls, "Pruned 1 runner image(s), 0 dangling docker image(s)") {
 			t.Errorf("expected prune summary, got: %v", ui.OutCalls)
 		}
 	})

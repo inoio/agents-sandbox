@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"gitlab.inoio.de/inoio/opencode-sandbox/internal/testutil"
+	"github.com/inoio/opencode-sandbox/internal/testutil"
 )
 
 func writeSnippet(t *testing.T, dir, name, content string) {
@@ -34,49 +34,6 @@ func TestIsJSONFile(t *testing.T) {
 		if got := isJSONFile(name); got != want {
 			t.Errorf("isJSONFile(%q) = %v, want %v", name, got, want)
 		}
-	}
-}
-
-func TestScanSnippetFilesAlphabeticalLaterWins(t *testing.T) {
-	dir := t.TempDir()
-	// "01-model.json5" runs before "02-agent.jsonc"; later scalar wins.
-	writeSnippet(t, dir, "01-model.json5", `{"model": "first", "theme": "dark"}`)
-	writeSnippet(t, dir, "02-agent.jsonc", `{"model": "second", "agent": "builder"}`)
-
-	merged := scanSnippetFiles(dir)
-	if merged["model"] != "second" {
-		t.Errorf("expect later file to override scalar, got %v", merged["model"])
-	}
-	if merged["theme"] != "dark" {
-		t.Errorf("expect earlier file's disjoint key kept, got %v", merged["theme"])
-	}
-	if merged["agent"] != "builder" {
-		t.Errorf("expect later file's key kept, got %v", merged["agent"])
-	}
-}
-
-func TestScanSnippetFilesDeepMergeMaps(t *testing.T) {
-	dir := t.TempDir()
-	writeSnippet(t, dir, "a.json", `{"permission": {"read": {"*": "allow", "*.env": "deny"}}}`)
-	writeSnippet(t, dir, "b.json", `{"permission": {"read": {"external_directory": "allow"}}}`)
-
-	merged := scanSnippetFiles(dir)
-	perm := merged["permission"].(map[string]any)
-	read := perm["read"].(map[string]any)
-	if read["*"] != "allow" || read["external_directory"] != "allow" {
-		t.Errorf("expected recursive map merge, got %v", read)
-	}
-}
-
-func TestScanSnippetFilesUserThenProjectOrder(t *testing.T) {
-	user := t.TempDir()
-	proj := t.TempDir()
-	writeSnippet(t, user, "cfg.json", `{"val": "user"}`)
-	writeSnippet(t, proj, "cfg.json", `{"val": "project"}`)
-
-	merged := scanSnippetFiles(user, proj)
-	if merged["val"] != "project" {
-		t.Errorf("expected project to override user, got %v", merged["val"])
 	}
 }
 

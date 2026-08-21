@@ -1,7 +1,7 @@
 # Sandboxes
 
-opencode-sandbox manages sandboxes as ephemeral microsandbox VMs with persistent home volumes. This document explains the
-sandbox lifecycle and management.
+opencode-sandbox manages sandboxes as ephemeral microsandbox VMs with persistent home volumes. This document explains
+the sandbox lifecycle and management.
 
 ## Lifecycle Overview
 
@@ -29,13 +29,13 @@ opencode-sandbox-vm-<project-slug>
 ```
 
 The project slug consists of the repository name and a hash of the repository host and full path. For example, a repo
-cloned from `git@gitlab.inoio.de:inoio/myproject.git` gets:
+cloned from `git@github.com:inoio/myproject.git` gets:
 
 ```
 opencode-sandbox-vm-myproject-<hash>
 ```
 
-Where `<hash>` is the hash of `gitlab.inoio.de:inoio/myproject` (username and extension removed). Every clone and linked
+Where `<hash>` is the hash of `github.com:inoio/myproject` (username and extension removed). Every clone and linked
 worktree of the same remote shares the same project (and therefore the same VM, volume, and image names).
 
 The VM is **per-project/-directory, not per-invocation**. Subsequent runs connect to the existing VM (or start it if
@@ -54,12 +54,13 @@ stored in a state file (under `~/.local/state/<slug>/state.yaml`).
 When the Dockerfile changes (new image digest), most of the times the current home volume can continue to be used. Only
 if the Dockerfile changes lead to changes in the home directory, keeping the current home volume might be an issue.
 Therefore, when a Dockerfile change actually leads to a VM rebuild (and not just the VM continuing on the current image,
-e.g. when the rebuild is deferred to a later run), opencode-sandbox prompts you to decide what to do with the home volume:
+e.g. when the rebuild is deferred to a later run), opencode-sandbox prompts you to decide what to do with the home
+volume:
 
 - *keep*: Keep on using the home volume
-- *reset*: Build a completely new home volume from the new VM's home directory, discarding the current home (e.g. losing opencode session history)
+- *reset*: Build a completely new home volume from the new VM's home directory, discarding the current home (e.g. losing
+  opencode session history)
 - *migrate*: Build a new home volume like reset, but afterwards copy all files from the current home on top.
-
 
 ### List
 
@@ -74,8 +75,8 @@ Columns: `NAME`, `IMAGE`, `STATUS`, `CREATED` (`YYYY-MM-DD HH:MM:SS`).
 
 The `STATUS` cell is colored like microsandbox when color is enabled: `running`
 in green, `stopped`/`created` dim, transitional states (`starting`, `paused`,
-`draining`) in yellow, and `crashed` in red. When color is disabled (e.g. piped
-output) the status renders as plain text.
+`draining`) in yellow, and `crashed` in red. When color is disabled (e.g. piped output) the status renders as plain
+text.
 
 ### Volume Management
 
@@ -85,7 +86,8 @@ List all volumes:
 opencode-sandbox volume list
 ```
 
-Columns: `NAME`, `KIND`, `SIZE`, `CREATED` (`YYYY-MM-DD HH:MM:SS`). `SIZE` shows capacity for disk volumes and quota for directory volumes, or `-` when unavailable.
+Columns: `NAME`, `KIND`, `SIZE`, `CREATED` (`YYYY-MM-DD HH:MM:SS`). `SIZE` shows capacity for disk volumes and quota for
+directory volumes, or `-` when unavailable.
 
 Manual management:
 
@@ -141,8 +143,8 @@ opencode-sandbox stop -f
 Only one VM is created per project. Concurrent invocations of opencode-sandbox share the same VM — additional sessions
 connect to the existing VM rather than creating one.
 
-A host-side file lock (`~/.local/state/opencode-sandbox/vm-ensure/<slug>.lock`) prevents race conditions during first boot
-creation.
+A host-side file lock (`~/.local/state/opencode-sandbox/vm-ensure/<slug>.lock`) prevents race conditions during first
+boot creation.
 
 When another client is attached, config changes that would restart the opencode daemon or recreate the VM trigger a
 prompt asking whether to keep the running server/VM (defer), proceed, or quit (abort the apply). The default is always
@@ -170,19 +172,20 @@ opencode-sandbox sandbox prune               # VMs (stale sandboxes and leftover
 
 Pruning removes:
 
-- Stale VMs (stopped/crashed beyond the age threshold) and everything they reference; task sandboxes count into the VM
-  total. A stale VM's home volumes and images are reclaimed based on the snapshot taken at prune time, even if the
-  VM's own removal fails.
-- Orphaned artifacts: home volumes and msb images whose project has no VM at all
-- Surplus msb images for a project that still has a VM: digests other than the VM's current image and `:latest`
+- Stale VMs (not active in the age threshold) and everything they reference; task sandboxes count into the VM total. A
+  stale VM's home volumes and images are reclaimed based on the snapshot taken at prune time, even if the VM's own
+  removal fails.
+- Dangling runner images of projects whose VM is gone (e.g. after `kill --force`, or a prune whose image removal
+  failed). The prune snapshot tracks which slugs have a live VM, so it can tell a live project apart from a VM-less one
+  and reclaim the latter's cached images.
+- Surplus msb images of a project that still has a VM. Surplus images are images older than the VM's current image.
 - Dangling Docker images: after a rebuild the previous runner image is no longer referenced by any tag and is reclaimed
-  by a single Docker image prune. Tagged images (base images and the current `:latest` runner) are left untouched.
+  by a scoped Docker image prune. Tagged images (base images and the current `:latest` runner) are left untouched.
 
-Home volumes and msb images are age-gated like VMs: they are only removed once they are older than the pruning
-threshold. VMs, volumes, and images share the same age semantics — all are preserved if younger than the threshold.
-Recently-created home volumes and recently-loaded runner images are preserved even if their project currently
-has no running VM, so the cached runner image and home state survive startup and the image does not need to be loaded
-into the sandbox again.
+Age is applied when deciding which VMs are stale, and that decision is shared across VMs and home volumes: a project
+whose VM has activity in the age threshold is left alone entirely. Home volumes are reclaimed only when the project's VM
+is actually pruned (never for a merely VM-less project, since they hold user data), while runner images of a VM-less
+project are reclaimed because they can always be rebuilt.
 
-Auto-pruning runs before every command via `sync.Once`. It uses a fixed default threshold of 30 days unless
-`auto-prune-age` is set in config.
+Auto-pruning runs before run commands (e.g., `opencode-sandbox`, `opencode-sandbox run`, `opencode-sandbox sandbox run`)
+via `sync.Once`. It uses a fixed default threshold of 30 days unless `auto-prune-age` is set in config.

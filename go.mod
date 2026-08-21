@@ -1,4 +1,4 @@
-module gitlab.inoio.de/inoio/opencode-sandbox
+module github.com/inoio/opencode-sandbox
 
 go 1.26
 

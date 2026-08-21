@@ -5,57 +5,9 @@ import (
 	"strings"
 	"testing"
 
-	"gitlab.inoio.de/inoio/opencode-sandbox/internal/termio"
-	"gitlab.inoio.de/inoio/opencode-sandbox/internal/testutil"
+	"github.com/inoio/opencode-sandbox/internal/termio"
+	"github.com/inoio/opencode-sandbox/internal/testutil"
 )
-
-func TestBranchSlugReplacesSlashes(t *testing.T) {
-	got := branchSlug("feature/foo/bar")
-	if got != "feature---foo---bar" {
-		t.Errorf("expected 'feature---foo---bar', got %q", got)
-	}
-}
-
-func TestBranchSlugEscapesDashes(t *testing.T) {
-	got := branchSlug("feature-foo")
-	if got != "feature--foo" {
-		t.Errorf("expected 'feature--foo', got %q", got)
-	}
-}
-
-func TestBranchSlugNoCollision(t *testing.T) {
-	a := branchSlug("feature/foo")
-	b := branchSlug("feature-foo")
-	if a == b {
-		t.Errorf("expected different slugs, got %q and %q", a, b)
-	}
-}
-
-func TestBranchSlugNoChange(t *testing.T) {
-	got := branchSlug("main")
-	if got != "main" {
-		t.Errorf("expected 'main', got %q", got)
-	}
-}
-
-func TestBranchAtReturnsCurrentBranch(t *testing.T) {
-	repo := testutil.InitRepo(t)
-	branch, err := branchAt(repo)
-	if err != nil {
-		t.Fatalf("BranchAt: %v", err)
-	}
-	if branch != "main" {
-		t.Errorf("expected branch 'main', got %q", branch)
-	}
-}
-
-func TestBranchAtFailsOutsideGitRepo(t *testing.T) {
-	dir := t.TempDir()
-	_, err := branchAt(dir)
-	if err == nil {
-		t.Error("expected error outside git repo, got nil")
-	}
-}
 
 func TestHashIDReturns14Chars(t *testing.T) {
 	got := HashID("test-input")
@@ -212,7 +164,7 @@ func TestLastPathSegment(t *testing.T) {
 	}{
 		{"https with .git", "https://gitlab.example.com/org/repo.git", "repo"},
 		{"https no .git", "https://gitlab.example.com/org/my-repo", "my-repo"},
-		{"ssh scp-like with namespace", "git@gitlab.inoio.de:inoio/opencode-sandbox.git", "opencode-sandbox"},
+		{"ssh scp-like with namespace", "git@github.com:inoio/opencode-sandbox.git", "opencode-sandbox"},
 		{"ssh scp-like no namespace", "git@gitlab.example.com:tool.git", "tool"},
 		{"git protocol", "git://gitlab.example.com/org/repo.git", "repo"},
 	}
@@ -226,7 +178,7 @@ func TestLastPathSegment(t *testing.T) {
 }
 
 func TestProjectSlugUsesOriginRepoName(t *testing.T) {
-	const origin = "git@gitlab.inoio.de:inoio/opencode-sandbox.git"
+	const origin = "git@github.com:inoio/opencode-sandbox.git"
 	repo := testutil.InitRepo(t)
 	testutil.RunGit(t, repo, "remote", "add", "origin", origin)
 	t.Chdir(repo)
@@ -242,7 +194,7 @@ func TestProjectSlugUsesOriginRepoName(t *testing.T) {
 func TestProjectSlugStableForSameOrigin(t *testing.T) {
 	// Two clones of the same origin at different paths must share one slug,
 	// so worktrees/checkouts of the same project are not treated as distinct.
-	const origin = "git@gitlab.inoio.de:inoio/opencode-sandbox.git"
+	const origin = "git@github.com:inoio/opencode-sandbox.git"
 	a := testutil.InitRepo(t)
 	testutil.RunGit(t, a, "remote", "add", "origin", origin)
 	b := testutil.InitRepo(t)
@@ -259,7 +211,7 @@ func TestProjectSlugStableForSameOrigin(t *testing.T) {
 
 func TestProjectSlugDiffersForDifferentOrigins(t *testing.T) {
 	a := testutil.InitRepo(t)
-	testutil.RunGit(t, a, "remote", "add", "origin", "git@gitlab.inoio.de:inoio/opencode-sandbox.git")
+	testutil.RunGit(t, a, "remote", "add", "origin", "git@github.com:inoio/opencode-sandbox.git")
 	b := testutil.InitRepo(t)
 	testutil.RunGit(t, b, "remote", "add", "origin", "git@github.com:someone/opencode-sandbox.git")
 
@@ -273,7 +225,7 @@ func TestProjectSlugDiffersForDifferentOrigins(t *testing.T) {
 }
 
 func TestProjectSlugWorktreeSharesOriginSlug(t *testing.T) {
-	const origin = "git@gitlab.inoio.de:inoio/opencode-sandbox.git"
+	const origin = "git@github.com:inoio/opencode-sandbox.git"
 	repo := testutil.InitRepo(t)
 	testutil.RunGit(t, repo, "remote", "add", "origin", origin)
 	mainSlug := projectSlugAt(repo, &termio.Mock{})

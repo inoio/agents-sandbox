@@ -2,16 +2,19 @@ package pruning
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 
-	cp "gitlab.inoio.de/inoio/opencode-sandbox/internal/configpaths"
-	"gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/docker"
-	"gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/msb"
-	"gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/naming"
-	"gitlab.inoio.de/inoio/opencode-sandbox/internal/termio"
+	cp "github.com/inoio/opencode-sandbox/internal/configpaths"
+	"github.com/inoio/opencode-sandbox/internal/git"
+	"github.com/inoio/opencode-sandbox/internal/sandbox/docker"
+	"github.com/inoio/opencode-sandbox/internal/sandbox/msb"
+	"github.com/inoio/opencode-sandbox/internal/sandbox/naming"
+	"github.com/inoio/opencode-sandbox/internal/sandbox/state"
+	"github.com/inoio/opencode-sandbox/internal/termio"
 )
 
 type slugDigestTest struct {
@@ -406,6 +409,8 @@ func TestStaleTypeString(t *testing.T) {
 
 func TestPruneAggregateParity(t *testing.T) {
 	old := time.Now().Add(-15 * 24 * time.Hour)
+	fullCur := "sha256:2e454dd5b8ba117988d3beebd09f457ca46e758724e673d2272f77ddc9b3fb12"
+	curTag := git.HashID(fullCur)
 	client := &msb.MockMsbClient{
 		Sandboxes: []msb.SandboxHandle{
 			&msb.MockSandboxHandle{
@@ -417,7 +422,7 @@ func TestPruneAggregateParity(t *testing.T) {
 				Name_:      "opencode-sandbox-vm-live-1mjusbm3wikhb0",
 				Status_:    msbSdk.SandboxStatusRunning,
 				UpdatedAt_: old,
-				Image_:     "opencode-sandbox/runner-live-1mjusbm3wikhb0:cur",
+				Image_:     "opencode-sandbox/runner-live-1mjusbm3wikhb0:" + curTag,
 			},
 		},
 		Volumes: []msb.VolumeHandle{
@@ -425,17 +430,24 @@ func TestPruneAggregateParity(t *testing.T) {
 			&msb.MockVolumeHandle{Name_: "opencode-sandbox-home-live-1mjusbm3wikhb0-20260806T143022", CreatedAt_: old},
 		},
 		Images: []msb.ImageHandle{
-			&msb.MockImageHandle{Reference_: "opencode-sandbox/runner-proj-1mjusbm3wikhb0:old", LastUsedAt_: old},
-			&msb.MockImageHandle{Reference_: "opencode-sandbox/runner-live-1mjusbm3wikhb0:cur", LastUsedAt_: old},
-			&msb.MockImageHandle{Reference_: "opencode-sandbox/runner-live-1mjusbm3wikhb0:old", LastUsedAt_: old},
+			&msb.MockImageHandle{Reference_: "opencode-sandbox/runner-proj-1mjusbm3wikhb0:old", CreatedAt_: old},
+			&msb.MockImageHandle{Reference_: "opencode-sandbox/runner-live-1mjusbm3wikhb0:" + curTag, CreatedAt_: old},
+			&msb.MockImageHandle{
+				Reference_: "opencode-sandbox/runner-live-1mjusbm3wikhb0:old",
+				CreatedAt_: time.Now().Add(-30 * 24 * time.Hour),
+			},
 		},
 	}
 	msb.WithMsbMock(t, client)
 	docker.WithNoopDockerMock(t)
 	cp.WithMockConfigPaths(t)
 
+	if err := state.WriteState("live-1mjusbm3wikhb0", state.HomeState{ImageDigest: fullCur}); err != nil {
+		t.Fatalf("WriteState: %v", err)
+	}
+
 	testUI := termio.NewTestMock(t)
-	if err := Prune(context.Background(), 7*24*time.Hour, false, false, &testUI); err != nil {
+	if err := Prune(context.Background(), 7*24*time.Hour, false, &testUI); err != nil {
 		t.Fatalf("Prune: %v", err)
 	}
 	if got := len(client.RemovedSandboxes); got != 1 {
@@ -446,5 +458,27 @@ func TestPruneAggregateParity(t *testing.T) {
 	}
 	if got := len(client.RemovedImages); got != 2 {
 		t.Errorf("RemovedImages = %d, want 2 (stale proj image + live surplus)", got)
+	}
+}
+
+func TestPrune_BuildStateError(t *testing.T) {
+	client := &msb.MockMsbClient{
+		ListSandboxesFn: func(context.Context, map[string]string) ([]msb.SandboxHandle, error) {
+			return nil, errBoom
+		},
+	}
+	msb.WithMsbMock(t, client)
+	testUI := termio.NewTestMock(t)
+	err := Prune(context.Background(), 7*24*time.Hour, false, &testUI)
+	if err == nil || !strings.Contains(err.Error(), "boom") {
+		t.Errorf("expected buildPruneState error, got %v", err)
+	}
+}
+
+func TestPrintPruneSummary_NilReport(t *testing.T) {
+	ui := &termio.Mock{}
+	printPruneSummary(ui, nil, false)
+	if len(ui.OutCalls) != 0 {
+		t.Errorf("printPruneSummary with nil report must not emit output, got %v", ui.OutCalls)
 	}
 }

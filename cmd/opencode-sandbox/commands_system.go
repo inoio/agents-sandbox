@@ -10,19 +10,18 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"gitlab.inoio.de/inoio/opencode-sandbox/internal/configpaths"
-	"gitlab.inoio.de/inoio/opencode-sandbox/internal/git"
-	"gitlab.inoio.de/inoio/opencode-sandbox/internal/homeconfig"
-	"gitlab.inoio.de/inoio/opencode-sandbox/internal/opencodeconfig"
-	"gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/doctor"
-	"gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/humanize"
-	"gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/image"
-	"gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/msb"
-	"gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/pruning"
-	"gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/session"
-	"gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/volume"
-	"gitlab.inoio.de/inoio/opencode-sandbox/internal/termio"
-	"gitlab.inoio.de/inoio/opencode-sandbox/internal/viperconfig"
+	"github.com/inoio/opencode-sandbox/internal/configpaths"
+	"github.com/inoio/opencode-sandbox/internal/git"
+	"github.com/inoio/opencode-sandbox/internal/homeconfig"
+	"github.com/inoio/opencode-sandbox/internal/opencodeconfig"
+	"github.com/inoio/opencode-sandbox/internal/sandbox/doctor"
+	"github.com/inoio/opencode-sandbox/internal/sandbox/humanize"
+	"github.com/inoio/opencode-sandbox/internal/sandbox/image"
+	"github.com/inoio/opencode-sandbox/internal/sandbox/pruning"
+	"github.com/inoio/opencode-sandbox/internal/sandbox/session"
+	"github.com/inoio/opencode-sandbox/internal/sandbox/volume"
+	"github.com/inoio/opencode-sandbox/internal/termio"
+	"github.com/inoio/opencode-sandbox/internal/viperconfig"
 )
 
 type volumeOpFunc func(context.Context, string, string, string, string, bool, bool, termio.UI) error
@@ -454,31 +453,28 @@ func buildPruneCmd(ui termio.UI) *cobra.Command {
 		Args:  cobra.NoArgs,
 		Short: "Prune stale VMs, volumes, and images",
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			age, err := resolvePruneAge(cmd)
+			age, dryRun, err := resolvePruneFlags(cmd)
 			if err != nil {
 				return err
 			}
-			dryRun, _ := cmd.Flags().GetBool(flagDryRun)
-			return pruning.Prune(cmd.Context(), age, dryRun, false, ui)
+			return pruning.Prune(cmd.Context(), age, dryRun, ui)
 		},
 	}
-	cmd.Flags().StringP(flagAge, flagAge[:1], "", "Prune threshold (default: manualPruneAge from config)")
-	cmd.Flags().BoolP(flagDryRun, flagDryRunShort, false, "Show what would be pruned without deleting")
-	cmd.Flags().Bool(flagDryRunVM, false, "Suppress VM deletion during prune")
-	cmd.Flags().BoolP(flagForce, flagForce[:1], false, "Skip confirmation prompt")
+	setPruneFlags(cmd)
 	return cmd
 }
 
 // resolvePruneAge returns the effective prune threshold for a manual prune:
 // --age if set, else manual-prune-age from config, else the 7d default.
 func resolvePruneAge(cmd *cobra.Command) (time.Duration, error) {
-	ageStr, _ := cmd.Flags().GetString(flagAge)
-	if ageStr == "" {
+	ageFlag := cmd.Flags().Lookup(flagAge)
+	if !ageFlag.Changed {
 		if r := resolverFromContext(cmd.Context()); r != nil && r.ManualPruneAge() > 0 {
 			return r.ManualPruneAge(), nil
 		}
 		return 7 * 24 * time.Hour, nil
 	}
+	ageStr := ageFlag.Value.String()
 	d, ok := viperconfig.ParseHumanDuration(ageStr)
 	if !ok {
 		return 0, fmt.Errorf("invalid age %q: use a Go duration or suffix d/w (e.g. 7d, 2w)", ageStr)
@@ -486,66 +482,47 @@ func resolvePruneAge(cmd *cobra.Command) (time.Duration, error) {
 	return d, nil
 }
 
-//nolint:dupl // parallel per-type prune commands differ in pruner, report, and help
 func buildImagePruneCmd(ui termio.UI) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   cmdPrune,
 		Args:  cobra.NoArgs,
 		Short: "Prune cached runner images not in use",
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			age, err := resolvePruneAge(cmd)
+			age, dryRun, err := resolvePruneFlags(cmd)
 			if err != nil {
 				return err
 			}
-			dryRun, _ := cmd.Flags().GetBool(flagDryRun)
-			all, _ := cmd.Flags().GetBool(flagAll)
-			snap, err := pruning.BuildLiveState(cmd.Context(), msb.Get(), age)
-			if err != nil {
-				return err
-			}
-			report, err := pruning.PruneImages(cmd.Context(), snap, age, all, dryRun, ui)
-			if err != nil {
-				return err
-			}
-			printImagePruneReport(ui, report, dryRun, all)
-			return nil
+			return pruning.InvokePruneFunc(cmd.Context(), pruning.PruneImages, age, dryRun, ui)
 		},
 	}
-	cmd.Flags().StringP(flagAge, flagAge[:1], "", "Prune threshold (default: manualPruneAge from config)")
-	cmd.Flags().BoolP(flagDryRun, flagDryRunShort, false, "Show what would be pruned without deleting")
-	cmd.Flags().Bool(flagAll, false, "Prune images of stopped-but-existing projects too")
+	setPruneFlags(cmd)
 	return cmd
 }
 
-//nolint:dupl // parallel per-type prune commands differ in pruner, report, and help
 func buildVolumePruneCmd(ui termio.UI) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   cmdPrune,
 		Args:  cobra.NoArgs,
 		Short: "Prune home volumes no longer referenced by a project VM",
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			age, err := resolvePruneAge(cmd)
+			age, dryRun, err := resolvePruneFlags(cmd)
 			if err != nil {
 				return err
 			}
-			dryRun, _ := cmd.Flags().GetBool(flagDryRun)
-			all, _ := cmd.Flags().GetBool(flagAll)
-			snap, err := pruning.BuildLiveState(cmd.Context(), msb.Get(), age)
-			if err != nil {
-				return err
-			}
-			report, err := pruning.PruneVolumes(cmd.Context(), snap, age, all, dryRun, ui)
-			if err != nil {
-				return err
-			}
-			printVolumePruneReport(ui, report, dryRun, all)
-			return nil
+			return pruning.InvokePruneFunc(cmd.Context(), pruning.PruneVolumes, age, dryRun, ui)
 		},
 	}
-	cmd.Flags().StringP(flagAge, flagAge[:1], "", "Prune threshold (default: manualPruneAge from config)")
-	cmd.Flags().BoolP(flagDryRun, flagDryRunShort, false, "Show what would be pruned without deleting")
-	cmd.Flags().Bool(flagAll, false, "Prune volumes of stopped-but-existing projects too")
+	setPruneFlags(cmd)
 	return cmd
+}
+
+func resolvePruneFlags(cmd *cobra.Command) (time.Duration, bool, error) {
+	age, err := resolvePruneAge(cmd)
+	if err != nil {
+		return 0 * time.Second, false, err
+	}
+	dryRun, _ := cmd.Flags().GetBool(flagDryRun)
+	return age, dryRun, nil
 }
 
 func buildSandboxPruneCmd(ui termio.UI) *cobra.Command {
@@ -554,43 +531,18 @@ func buildSandboxPruneCmd(ui termio.UI) *cobra.Command {
 		Args:  cobra.NoArgs,
 		Short: "Prune stale sandboxes and leftover task workers",
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			age, err := resolvePruneAge(cmd)
+			age, dryRun, err := resolvePruneFlags(cmd)
 			if err != nil {
 				return err
 			}
-			dryRun, _ := cmd.Flags().GetBool(flagDryRun)
-			snap, err := pruning.BuildLiveState(cmd.Context(), msb.Get(), age)
-			if err != nil {
-				return err
-			}
-			report, err := pruning.PruneVMs(cmd.Context(), snap, age, dryRun, ui)
-			if err != nil {
-				return err
-			}
-			printVMPruneReport(ui, report, dryRun)
-			return nil
+			return pruning.InvokePruneFunc(cmd.Context(), pruning.PruneSandboxes, age, dryRun, ui)
 		},
 	}
-	cmd.Flags().StringP(flagAge, flagAge[:1], "", "Prune threshold (default: manualPruneAge from config)")
-	cmd.Flags().BoolP(flagDryRun, flagDryRunShort, false, "Show what would be pruned without deleting")
+	setPruneFlags(cmd)
 	return cmd
 }
 
-func printImagePruneReport(ui termio.UI, r pruning.ImageReport, _, _ bool) {
-	ui.Outf("image prune: %d runner image(s), %d dangling docker image(s)", r.MSBImagesPruned, r.DockerImagesPruned)
-	for _, d := range r.Details {
-		ui.Verbosef("  %s (%s)", d.Name, d.Slug)
-	}
-}
-func printVolumePruneReport(ui termio.UI, r pruning.VolumeReport, _, _ bool) {
-	ui.Outf("volume prune: %d home volume(s)", r.VolumesPruned)
-	for _, d := range r.Details {
-		ui.Verbosef("  %s (%s)", d.Name, d.Slug)
-	}
-}
-func printVMPruneReport(ui termio.UI, r pruning.VMReport, _ bool) {
-	ui.Outf("sandbox prune: %d sandbox(es)", r.VMsPruned)
-	for _, d := range r.Details {
-		ui.Verbosef("  %s (%s)", d.Name, d.Slug)
-	}
+func setPruneFlags(cmd *cobra.Command) {
+	cmd.Flags().StringP(flagAge, flagAge[:1], "7d", "Prune threshold (default: manualPruneAge from config)")
+	cmd.Flags().BoolP(flagDryRun, flagDryRunShort, false, "Show what would be pruned without deleting")
 }

@@ -2,6 +2,13 @@
 
 > Run opencode inside an isolated microsandbox VM.
 
+[![License: GPL-3.0](https://img.shields.io/badge/license-GPL--3.0-blue)](https://github.com/inoio/opencode-sandbox/blob/main/LICENSE.md)
+[![CI](https://github.com/inoio/opencode-sandbox/actions/workflows/ci.yml/badge.svg)](https://github.com/inoio/opencode-sandbox/actions/workflows/ci.yml)
+[![Go](https://img.shields.io/github/go-mod/go-version/inoio/opencode-sandbox)](https://go.dev/)
+[![Release](https://img.shields.io/github/v/release/inoio/opencode-sandbox)](https://github.com/inoio/opencode-sandbox/releases)
+[![Coverage](https://codecov.io/gh/inoio/opencode-sandbox/branch/main/graph/badge.svg)](https://codecov.io/gh/inoio/opencode-sandbox)
+[![Security](https://img.shields.io/badge/security-policy-purple.svg)](SECURITY.md)
+
 opencode-sandbox launches [opencode](https://github.com/anthropics/opencode) inside an isolated Linux VM backed
 by [microsandbox](https://github.com/superradcompany/microsandbox). Each project gets a persistent project VM — shared
 across sessions with a configurable auto-stop policy (see [Configuration](/docs/configuration.md) and
@@ -58,19 +65,19 @@ Requires **Linux (KVM) or macOS (Apple Silicon)**.
   **Linux (x86_64):**
 
   ```console
-  curl -L -o opencode-sandbox https://gitlab.inoio.de/inoio/opencode-sandbox/-/releases/permalink/latest/downloads/opencode-sandbox-linux-amd64
+  curl -L -o opencode-sandbox https://github.com/inoio/opencode-sandbox/releases/latest/download/opencode-sandbox-linux-amd64
   ```
 
   **macOS (Apple Silicon):**
 
   ```console
-  curl -L -o opencode-sandbox https://gitlab.inoio.de/inoio/opencode-sandbox/-/releases/permalink/latest/downloads/opencode-sandbox-darwin-arm64
+  curl -L -o opencode-sandbox https://github.com/inoio/opencode-sandbox/releases/latest/download/opencode-sandbox-darwin-arm64
   ```
 
   **Linux (arm64):**
 
   ```console
-  curl -L -o opencode-sandbox https://gitlab.inoio.de/inoio/opencode-sandbox/-/releases/permalink/latest/downloads/opencode-sandbox-linux-arm64
+  curl -L -o opencode-sandbox https://github.com/inoio/opencode-sandbox/releases/latest/download/opencode-sandbox-linux-arm64
   ```
 * Install:
   ```console
@@ -107,3 +114,4 @@ with `opencode-sandbox build` to upgrade (optionally pinning a specific version 
 | [Worktree Sessions](/docs/branch-sessions.md) | Isolated worktree sessions for per-feature development |
 | [Sandboxes](/docs/sandboxes.md)               | VM lifecycle, volumes, pruning                         |
 | [Troubleshooting](/docs/troubleshooting.md)   | Common issues and fixes                                |
+| [Roadmap](/ROADMAP.md)                        | Public, forward-looking project roadmap                |

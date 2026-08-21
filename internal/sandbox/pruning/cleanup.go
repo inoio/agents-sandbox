@@ -5,7 +5,7 @@ import (
 	"sync"
 	"time"
 
-	"gitlab.inoio.de/inoio/opencode-sandbox/internal/termio"
+	"github.com/inoio/opencode-sandbox/internal/termio"
 )
 
 //nolint:gochecknoglobals // once-per-process singleton is the right pattern
@@ -18,7 +18,7 @@ func AutoPrune(ctx context.Context, threshold time.Duration, dryRun bool, ui ter
 		threshold = 30 * 24 * time.Hour
 	}
 	autoPruneOnce.Do(func() {
-		err := Prune(ctx, threshold, dryRun, true, ui)
+		err := Prune(ctx, threshold, dryRun, ui)
 		if err != nil {
 			ui.Warnf("auto-prune failed: %s", err)
 		}

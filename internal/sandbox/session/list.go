@@ -6,9 +6,9 @@ import (
 	"strings"
 	"time"
 
-	"gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/humanize"
-	"gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/msb"
-	"gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/naming"
+	"github.com/inoio/opencode-sandbox/internal/sandbox/humanize"
+	"github.com/inoio/opencode-sandbox/internal/sandbox/msb"
+	"github.com/inoio/opencode-sandbox/internal/sandbox/naming"
 )
 
 // Info holds display information about a sandbox VM.
@@ -34,20 +34,6 @@ type ListOption struct {
 // location, or an empty string for the zero time.
 func FormatTime(t time.Time) string {
 	return humanize.FormatTimestamp(t)
-}
-
-type sandboxHandle struct {
-	name string
-}
-
-func filterSandboxes(handles []sandboxHandle) []string {
-	var result []string
-	for _, h := range handles {
-		if strings.HasPrefix(h.name, naming.VmPrefix) {
-			result = append(result, h.name)
-		}
-	}
-	return result
 }
 
 // ListSandboxes returns a list of sandbox VMs for the current host, filtered

@@ -3,7 +3,7 @@ package image
 import (
 	"time"
 
-	"gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/humanize"
+	"github.com/inoio/opencode-sandbox/internal/sandbox/humanize"
 )
 
 // FormatImageTime renders a timestamp as YYYY-MM-DD HH:MM:SS in the time's own

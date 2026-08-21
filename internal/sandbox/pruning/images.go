@@ -2,14 +2,15 @@ package pruning
 
 import (
 	"context"
-	"time"
 
 	"github.com/moby/moby/client"
 
-	"gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/docker"
-	"gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/msb"
-	"gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/naming"
-	"gitlab.inoio.de/inoio/opencode-sandbox/internal/termio"
+	"github.com/inoio/opencode-sandbox/internal/sandbox/docker"
+	"github.com/inoio/opencode-sandbox/internal/sandbox/image"
+	"github.com/inoio/opencode-sandbox/internal/sandbox/msb"
+	"github.com/inoio/opencode-sandbox/internal/sandbox/naming"
+	"github.com/inoio/opencode-sandbox/internal/sandbox/state"
+	"github.com/inoio/opencode-sandbox/internal/termio"
 )
 
 // ImageReport summarizes a PruneImages run.
@@ -19,38 +20,29 @@ type ImageReport struct {
 	Details            []StaleEntry
 }
 
-// PruneImages prunes MSB runner images with no surviving VM (or surplus digests
-// of a running VM) and host-side dangling docker images. A prunable MSB image is
-// removed only when LastUsedAt is older than threshold.
+// PruneImages prunes MSB runner images of VM-less slugs and images created before
+// the currently-in-use image, plus host-side dangling docker images.
 func PruneImages(
 	ctx context.Context,
-	snap LiveState,
-	threshold time.Duration,
-	all, dryRun bool,
+	pruneState PruneState,
+	dryRun bool,
 	ui termio.UI,
 ) (ImageReport, error) {
 	report := ImageReport{MSBImagesPruned: 0, DockerImagesPruned: 0, Details: nil}
-	keep := snap.AllVMs
-	if all {
-		keep = activeSlugs(snap)
-	}
 	handles, err := msb.Get().ImageList(ctx)
 	if err != nil {
 		return report, err
 	}
-	for _, h := range handles {
-		ref := h.Reference()
+	for _, imageHandle := range handles {
+		ref := imageHandle.Reference()
 		if !hasPrefix(ref, naming.ImagePrefix) {
 			continue
 		}
-		info := naming.ArtifactFor(ref)
-		if info.Slug == naming.BaseSlug {
+		imageArtifact := naming.ArtifactFor(ref)
+		if imageArtifact.Slug == naming.BaseSlug || imageArtifact.Slug == naming.BaseDindSlug {
 			continue
 		}
-		if !pruneImage(info, snap, keep) {
-			continue
-		}
-		if time.Since(h.LastUsedAt()) <= threshold {
+		if keepImage(imageArtifact.Slug, imageArtifact.Digest, imageHandle, handles, pruneState) {
 			continue
 		}
 		if !dryRun {
@@ -64,34 +56,69 @@ func PruneImages(
 			Type:     StaleTypeMsbImage,
 			Name:     ref,
 			StaleFor: 0,
-			Slug:     info.Slug,
-			Digest:   info.Digest,
+			Slug:     imageArtifact.Slug,
+			Digest:   imageArtifact.Digest,
 		})
 	}
-	report.DockerImagesPruned = pruneDockerImagesCount(ctx, dryRun, ui)
+	report.DockerImagesPruned = pruneDockerImages(ctx, dryRun, ui)
+	printImagePruneReport(ui, report, dryRun)
 	return report, nil
 }
 
-// pruneImage reports whether an MSB image should be removed under the given keep-set.
-func pruneImage(info naming.ArtifactInfo, snap LiveState, keep map[string]bool) bool {
-	if !keep[info.Slug] {
-		return true // no surviving VM
+func keepImage(
+	slug, digest string,
+	imageHandle msb.ImageHandle,
+	handles []msb.ImageHandle,
+	pruneState PruneState,
+) bool {
+	if _, live := pruneState.ToKeep[slug]; !live {
+		return false
 	}
-	if cur, ok := snap.ActiveVMs[info.Slug]; ok {
-		return info.Digest != "" && info.Digest != cur // surplus digest of a running VM
+	if _, pruned := pruneState.ToPrune[slug]; pruned {
+		return false
 	}
-	return false
+	return isCurrentOrNewer(slug, digest, imageHandle, handles)
 }
 
-// pruneDockerImagesCount removes dangling (untagged) docker images; skipped on dry-run.
-func pruneDockerImagesCount(ctx context.Context, dryRun bool, ui termio.UI) int {
+func isCurrentOrNewer(slug, digest string, imageHandle msb.ImageHandle, handles []msb.ImageHandle) bool {
+	st, err := state.ReadState(slug)
+	if err != nil || st.ImageDigest == "" {
+		return true
+	}
+	if digest == image.TagDigest(st.ImageDigest) {
+		return true
+	}
+	currentRef := naming.ImagePrefix + slug + ":" + image.TagDigest(st.ImageDigest)
+	for _, h := range handles {
+		if h.Reference() == currentRef {
+			return !imageHandle.CreatedAt().Before(h.CreatedAt())
+		}
+	}
+	return true
+}
+
+// pruneDockerImages removes dangling (untagged) docker images created by us; skipped on dry-run.
+func pruneDockerImages(ctx context.Context, dryRun bool, ui termio.UI) int {
 	if dryRun {
 		return 0
 	}
-	result, err := docker.Get().ImagePrune(ctx, client.ImagePruneOptions{Filters: client.Filters{}})
+	result, err := docker.Get().
+		ImagePrune(ctx, client.ImagePruneOptions{Filters: client.Filters{}.Add("dangling", "true").Add("label", "org.opencode-sandbox.managed=true").Add("until", "24h")})
 	if err != nil {
 		ui.Warnf("failed to prune docker images: %v", err)
 		return 0
 	}
 	return len(result.Report.ImagesDeleted)
+}
+
+func printImagePruneReport(ui termio.UI, r ImageReport, dryRun bool) {
+	ui.Outf(
+		"%s %d runner image(s), %d dangling docker image(s)",
+		pruneReportPrefix(dryRun),
+		r.MSBImagesPruned,
+		r.DockerImagesPruned,
+	)
+	for _, d := range r.Details {
+		ui.Verbosef("  %s (%s)", d.Name, d.Slug)
+	}
 }

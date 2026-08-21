@@ -47,7 +47,7 @@ Installed tooling (see .opencode-sandbox/Dockerfile):
 - go, gofmt, golangci-lint, gcc (for CGO)
 - msb (microsandbox cli) - since /dev/kvm is not functional in the VM, you can't actually start VMs yourself. Must be
   tested manually by the user
-- shell tools like jq, yq
+- shell tools like jq, yq, rg
 - docker
 - git: No SSH keys in the VM, git cmds against remotes won't work.
 
@@ -66,6 +66,8 @@ Common development commands (run from the Go module root):
 
 Use the linter as a guide for code style: Run it after every major edit, for smaller edits run it after at most 3 edits.
 
+Content search: use `rg` (recursive by default, don't use `-r` -> `--replace`).
+
 ### Superpowers
 
 Always use your superpowers for appropriate tasks, never skip defined user approval.
@@ -79,7 +81,7 @@ Always use your superpowers for appropriate tasks, never skip defined user appro
 ## Documentation
 
 - When changing or adding behavior, keep `README.md` and `docs` directory (except `docs/superpowers`) in sync and
-  current.
+  current, and add a line to the `[Unreleased]` section in `CHANGELOG.md`. 
 - When you struggled with something non-obvious, propose to the user to document it in `AGENTS.md`.
 
 ## Current limitations

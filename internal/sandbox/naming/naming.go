@@ -6,20 +6,20 @@ package naming
 const Prefix = "opencode-sandbox"
 
 const BaseSlug = "base"
+const BaseDindSlug = "base-dind"
 
 // Sandbox and image name prefixes derived from Prefix.
 const (
-	SbPrefix        = Prefix + "-"
-	VmPrefix        = Prefix + "-vm-" //nolint:staticcheck,revive // follows existing brief naming convention (ST1003, var-naming)
-	HomePrefix      = Prefix + "-home-"
-	ClonePrefix     = Prefix + "-clone-"
-	TaskPrefix      = Prefix + "-task-"
-	ImagePrefix     = Prefix + "/runner-"
-	BaseImagePrefix = Prefix + "/runner-base"
+	VmPrefix            = Prefix + "-vm-" //nolint:staticcheck,revive // follows existing brief naming convention (ST1003, var-naming)
+	HomePrefix          = Prefix + "-home-"
+	TaskPrefix          = Prefix + "-task-"
+	ImagePrefix         = Prefix + "/runner-"
+	BaseImagePrefix     = Prefix + "/runner-base"
+	BaseDindImagePrefix = Prefix + "/runner-base-dind"
 )
 
 // Fully-qualified image references derived from Prefix.
 const (
 	BaseTag     = BaseImagePrefix + ":latest"
-	DindBaseTag = BaseImagePrefix + "-dind:latest"
+	DindBaseTag = BaseDindImagePrefix + ":latest"
 )

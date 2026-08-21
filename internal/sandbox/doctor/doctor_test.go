@@ -11,10 +11,10 @@ import (
 
 	"github.com/moby/moby/client"
 
-	"gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/docker"
-	"gitlab.inoio.de/inoio/opencode-sandbox/internal/termio"
+	"github.com/inoio/opencode-sandbox/internal/sandbox/docker"
+	"github.com/inoio/opencode-sandbox/internal/termio"
 
-	"gitlab.inoio.de/inoio/opencode-sandbox/internal/testutil"
+	"github.com/inoio/opencode-sandbox/internal/testutil"
 )
 
 func TestShellRcFile(t *testing.T) {
@@ -127,6 +127,16 @@ func TestCheckMsbNotOnPathAndBinaryMissingReturnsFalse(t *testing.T) {
 	if !strings.Contains(err.Error(), "binary missing") {
 		t.Errorf("expected 'binary missing' in error, got %q", err.Error())
 	}
+}
+
+func mockedCollectChecks(t *testing.T, warnings []string, errs []error) {
+	orig := collectChecksFunc
+	collectChecksFunc = collectChecksMockFunc(warnings, errs)
+	t.Cleanup(func() { collectChecksFunc = orig })
+}
+
+func collectChecksMockFunc(warnings []string, errs []error) func(context.Context) ([]string, []error) {
+	return func(context.Context) ([]string, []error) { return warnings, errs }
 }
 
 func TestCheckAllAggregatesAllFailures(t *testing.T) {

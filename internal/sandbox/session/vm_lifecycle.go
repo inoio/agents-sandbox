@@ -6,15 +6,16 @@ import (
 	"os"
 	"path/filepath"
 
-	"gitlab.inoio.de/inoio/opencode-sandbox/internal/configpaths"
-	"gitlab.inoio.de/inoio/opencode-sandbox/internal/git"
-	"gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/msb"
-	"gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/naming"
-	"gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/options"
-	"gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/reprovision"
-	"gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/state"
-	"gitlab.inoio.de/inoio/opencode-sandbox/internal/sysinfo"
-	"gitlab.inoio.de/inoio/opencode-sandbox/internal/termio"
+	"github.com/inoio/opencode-sandbox/internal/configpaths"
+	"github.com/inoio/opencode-sandbox/internal/git"
+	"github.com/inoio/opencode-sandbox/internal/sandbox/image"
+	"github.com/inoio/opencode-sandbox/internal/sandbox/msb"
+	"github.com/inoio/opencode-sandbox/internal/sandbox/naming"
+	"github.com/inoio/opencode-sandbox/internal/sandbox/options"
+	"github.com/inoio/opencode-sandbox/internal/sandbox/reprovision"
+	"github.com/inoio/opencode-sandbox/internal/sandbox/state"
+	"github.com/inoio/opencode-sandbox/internal/sysinfo"
+	"github.com/inoio/opencode-sandbox/internal/termio"
 
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 )
@@ -81,7 +82,7 @@ func ensureProjectVM(
 	slug := git.ProjectSlug(ui)
 	name := projectVMName(slug)
 
-	flockPath := filepath.Join(configpaths.Get().UserStateDir(), "vm-ensure", slug+".lock")
+	flockPath := filepath.Join(configpaths.Get().UserStateDir(), slug, "ensure-vm.lock")
 	if err := os.MkdirAll(filepath.Dir(flockPath), 0o750); err != nil {
 		return nil, false, fmt.Errorf("create flock dir: %w", err)
 	}
@@ -243,6 +244,9 @@ func createProjectVM(
 	imageEnvs map[string]string,
 	ui termio.UI,
 ) (msb.Sandbox, bool, error) {
+	if err := image.EnsureLoaded(ctx, client, slug, imageRef, ui); err != nil {
+		return nil, false, fmt.Errorf("load runner image: %w", err)
+	}
 	cpus := opts.CPUs
 	numCPUs := sysinfo.NumCPUs()
 	if cpus == 0 {

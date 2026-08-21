@@ -7,12 +7,12 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"gitlab.inoio.de/inoio/opencode-sandbox/internal/configpaths"
-	"gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/docker"
-	"gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/msb"
-	"gitlab.inoio.de/inoio/opencode-sandbox/internal/termio"
-	"gitlab.inoio.de/inoio/opencode-sandbox/internal/testutil"
-	launcherconfig "gitlab.inoio.de/inoio/opencode-sandbox/internal/viperconfig"
+	"github.com/inoio/opencode-sandbox/internal/configpaths"
+	"github.com/inoio/opencode-sandbox/internal/sandbox/docker"
+	"github.com/inoio/opencode-sandbox/internal/sandbox/msb"
+	"github.com/inoio/opencode-sandbox/internal/termio"
+	"github.com/inoio/opencode-sandbox/internal/testutil"
+	launcherconfig "github.com/inoio/opencode-sandbox/internal/viperconfig"
 )
 
 func TestRootHasGlobalFlags(t *testing.T) {
@@ -127,7 +127,7 @@ func TestNewConfigSetsUserDirs(t *testing.T) {
 	t.Setenv("XDG_CACHE_HOME", "")
 	t.Setenv("XDG_STATE_HOME", "")
 	configpaths.WithRealConfigPaths(t)
-	cfg := newConfig()
+	cfg := configpaths.Get()
 	if cfg.UserStateDir() != "/testhome/.local/state/opencode-sandbox" {
 		t.Errorf("unexpected state dir: %q", cfg.UserStateDir())
 	}
@@ -148,7 +148,7 @@ func TestNewConfigHonorsXdgEnv(t *testing.T) {
 	t.Setenv("XDG_CACHE_HOME", "/xdg/cache")
 	t.Setenv("XDG_STATE_HOME", "/xdg/state")
 	configpaths.WithRealConfigPaths(t)
-	cfg := newConfig()
+	cfg := configpaths.Get()
 	if cfg.UserStateDir() != "/xdg/state/opencode-sandbox" {
 		t.Errorf("unexpected state dir: %q", cfg.UserStateDir())
 	}

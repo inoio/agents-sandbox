@@ -1,6 +1,6 @@
 package main
 
-import "gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/naming"
+import "github.com/inoio/opencode-sandbox/internal/sandbox/naming"
 
 const (
 	pFlagYes     = "yes"
@@ -41,7 +41,6 @@ const (
 	flagDryRunVM        = "dry-run-vm"
 	flagForce           = "force"
 	flagAge             = "age"
-	flagAll             = "all"
 	flagWorktree        = "worktree"
 	flagRoot            = "root"
 	flagServeOnly       = "serve-only"

@@ -9,16 +9,16 @@ import (
 
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 
-	"gitlab.inoio.de/inoio/opencode-sandbox/internal/configpaths"
-	"gitlab.inoio.de/inoio/opencode-sandbox/internal/git"
-	"gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/doctor"
-	"gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/image"
-	"gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/msb"
-	"gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/options"
-	"gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/reprovision"
-	"gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/state"
-	"gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/volume"
-	"gitlab.inoio.de/inoio/opencode-sandbox/internal/termio"
+	"github.com/inoio/opencode-sandbox/internal/configpaths"
+	"github.com/inoio/opencode-sandbox/internal/git"
+	"github.com/inoio/opencode-sandbox/internal/sandbox/doctor"
+	"github.com/inoio/opencode-sandbox/internal/sandbox/image"
+	"github.com/inoio/opencode-sandbox/internal/sandbox/msb"
+	"github.com/inoio/opencode-sandbox/internal/sandbox/options"
+	"github.com/inoio/opencode-sandbox/internal/sandbox/reprovision"
+	"github.com/inoio/opencode-sandbox/internal/sandbox/state"
+	"github.com/inoio/opencode-sandbox/internal/sandbox/volume"
+	"github.com/inoio/opencode-sandbox/internal/termio"
 )
 
 func buildAttachCommand(target string, args []string) string {
@@ -75,10 +75,19 @@ func prepareSandbox(
 ) (*sandboxSession, error) {
 	projectSlug := git.ProjectSlug(ui)
 
+	// Without an explicit pin, reuse the version already baked into the runner
+	// image instead of re-resolving "latest" from the network on every run.
+	// Re-resolving would change the version build arg (and thus the image
+	// identity), causing sporadic rebuilds and fresh loads into microsandbox.
+	openCodeVersion := opts.OpenCodeVersion
+	if openCodeVersion == "" {
+		openCodeVersion = currentUpgradeVersion()
+	}
+
 	imageInfo, err := image.EnsureImage(
 		ctx,
 		projectSlug,
-		image.BuildOptions{Force: opts.Rebuild, OpenCodeVersion: opts.OpenCodeVersion},
+		image.BuildOptions{Force: opts.Rebuild, OpenCodeVersion: openCodeVersion},
 		ui,
 	)
 	if err != nil {
@@ -92,6 +101,12 @@ func prepareSandbox(
 	}
 	if action == upgradeActionRebuild {
 		ui.Verbosef("runner image rebuilt with a newer opencode version")
+	}
+
+	// Persist the version actually baked so later runs reuse it as a stable
+	// build arg. Recording after the upgrade prompt captures any rebuild.
+	if recordErr := recordUpgradeVersion(imageInfo.OpenCodeVersion); recordErr != nil {
+		ui.Warnf("could not record opencode version in updater state: %v (continuing)", recordErr)
 	}
 
 	vm := volume.NewManager(ui)
@@ -272,9 +287,12 @@ func BuildImage(ctx context.Context, force, dryRun bool, openCodeVersion string,
 	}
 	projectSlug := git.ProjectSlug(ui)
 
-	_, err := image.EnsureImageWithClient(ctx, msb.Get(), image.ResolveDockerfile(), projectSlug,
+	info, err := image.EnsureImageWithClient(ctx, image.ResolveDockerfile(), projectSlug,
 		image.BuildOptions{Force: force, OpenCodeVersion: openCodeVersion}, ui)
-	return err
+	if err != nil {
+		return err
+	}
+	return image.EnsureLoaded(ctx, msb.Get(), projectSlug, info.Tag, ui)
 }
 
 func finalizeRun(attachErr error, exitCode int) error {

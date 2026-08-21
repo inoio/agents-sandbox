@@ -1,5 +1,7 @@
 FROM debian:trixie-slim
 
+# used for pruning our dangling images
+LABEL org.opencode-sandbox.managed=true
 ARG OPENCODE_VERSION
 
 RUN apt-get update && \
@@ -9,6 +11,7 @@ RUN apt-get update && \
 # OpenCode: pinned to the resolved version and never auto-upgrade at runtime.
 ENV OPENCODE_DISABLE_AUTOUPDATE=true
 LABEL org.opencode-sandbox.opencode-version="$OPENCODE_VERSION"
+
 RUN curl -fsSL https://opencode.ai/install | bash -s -- --version "$OPENCODE_VERSION" && cp /root/.opencode/bin/opencode /usr/local/bin
 
 # Node.js (LSP servers such as pyright need a Node runtime).
