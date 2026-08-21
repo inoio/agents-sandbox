@@ -32,10 +32,10 @@ func CheckAll(ctx context.Context, ui termio.UI) bool {
 
 // realCheckAll aggregates the platform checks and reports the results.
 func realCheckAll(ctx context.Context, ui termio.UI) bool {
-	warnings, errs := collectChecksFunc(ctx)
+	infos, errs := collectChecksFunc(ctx)
 	ok := len(errs) == 0
-	for _, warning := range warnings {
-		ui.Warn(warning)
+	for _, info := range infos {
+		ui.Info(info)
 	}
 	for _, err := range errs {
 		ui.Errorf("%s", err)
@@ -47,7 +47,7 @@ func realCheckAll(ctx context.Context, ui termio.UI) bool {
 // CheckAll can report them together. checkPlatform is the only platform
 // specific check and comes first.
 func collectChecks(ctx context.Context) ([]string, []error) {
-	var warnings []string
+	var infos []string
 	var errs []error
 	for _, err := range []error{
 		checkPlatform(),
@@ -57,12 +57,12 @@ func collectChecks(ctx context.Context) ([]string, []error) {
 			errs = append(errs, err)
 		}
 	}
-	msbWarnings, err := checkMsb(ctx)
-	warnings = append(warnings, msbWarnings...)
+	msbMessages, err := checkMsb(ctx)
+	infos = append(infos, msbMessages...)
 	if err != nil {
 		errs = append(errs, err)
 	}
-	return warnings, errs
+	return infos, errs
 }
 
 // realCheckDocker pings the Docker daemon, describing how to fix it on failure.

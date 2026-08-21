@@ -37,12 +37,11 @@ func msbBinPath() (string, string, string, error) {
 // pathHints adds the microsandbox bin directory to PATH for the session and
 // returns user-facing messages for making that permanent in other shells.
 func pathHints(home, shell, binDir, binPath string) []string {
-	_ = os.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
 	rc := shellRcFile(home, shell)
 	return []string{
-		fmt.Sprintf("msb CLI is not on your PATH. Added %s for this session.", binDir),
+		fmt.Sprintf("msb CLI installed (in %s), but not in PATH.", binDir),
 		fmt.Sprintf(
-			"To make this permanent in other shells:\n  echo 'export PATH=\"$PATH:%s\"' >> %s\n  or: ln -s %s ~/.local/bin/msb",
+			"If you want to add it to PATH:\n  echo 'export PATH=\"$PATH:%s\"' >> %s\n  or: ln -s %s ~/.local/bin/msb",
 			binDir,
 			rc,
 			binPath,
