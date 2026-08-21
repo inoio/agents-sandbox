@@ -1,6 +1,6 @@
 # opencode-sandbox
 
-> Run opencode inside an isolated microsandbox VM.
+> opencode, supercharged — safely. Launch opencode inside a nearly instant microsandbox VM with your project mounted at /workspace. Unleash your agents' full permissions in a disposable cage, so they can do their best work without ever roaming your host or ever learning your secrets.
 
 [![License: GPL-3.0](https://img.shields.io/badge/license-GPL--3.0-blue)](https://github.com/inoio/opencode-sandbox/blob/main/LICENSE.md)
 [![CI](https://github.com/inoio/opencode-sandbox/actions/workflows/ci.yml/badge.svg)](https://github.com/inoio/opencode-sandbox/actions/workflows/ci.yml)
