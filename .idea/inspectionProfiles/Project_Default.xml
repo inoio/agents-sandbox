@@ -4,10 +4,10 @@
     <inspection_tool class="GoContextTodo" enabled="true" level="WEAK WARNING" enabled_by_default="true" />
     <inspection_tool class="GoDfaErrorMayBeNotNil" enabled="true" level="WARNING" enabled_by_default="true">
       <functions>
-        <function importPath="gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/pruning" name="PruneVMs" />
-        <function importPath="gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/pruning" name="PruneVolumes" />
-        <function importPath="gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/pruning" name="PruneImages" />
-        <function importPath="gitlab.inoio.de/inoio/opencode-sandbox/internal/sandbox/pruning" name="PruneSandboxes" />
+        <function importPath="github.com/inoio/opencode-sandbox/internal/sandbox/pruning" name="PruneVMs" />
+        <function importPath="github.com/inoio/opencode-sandbox/internal/sandbox/pruning" name="PruneVolumes" />
+        <function importPath="github.com/inoio/opencode-sandbox/internal/sandbox/pruning" name="PruneImages" />
+        <function importPath="github.com/inoio/opencode-sandbox/internal/sandbox/pruning" name="PruneSandboxes" />
       </functions>
     </inspection_tool>
     <inspection_tool class="GoLinter" enabled="true" level="WARNING" enabled_by_default="true" />
