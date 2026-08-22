@@ -77,7 +77,7 @@ func TestCheckMsbOnPathReturnsTrueSilently(t *testing.T) {
 	}
 }
 
-func TestCheckMsbNotOnPathExtendsPathAndReturnsTrue(t *testing.T) {
+func TestCheckMsbNotOnPathMessagesAndReturnsTrue(t *testing.T) {
 	MockedEnsureInstalled(t, false)
 
 	home := t.TempDir()
@@ -100,7 +100,7 @@ func TestCheckMsbNotOnPathExtendsPathAndReturnsTrue(t *testing.T) {
 		t.Fatal("expected checkMsb to return nil error when msb is installed but not on PATH")
 	}
 	outStr := strings.Join(warnings, " ")
-	if !strings.Contains(outStr, "not on your PATH") {
+	if !strings.Contains(outStr, "not in PATH") {
 		t.Errorf("expected a warning that msb is not on PATH, got %q", outStr)
 	}
 	if !strings.Contains(outStr, ".zshrc") {
@@ -108,9 +108,6 @@ func TestCheckMsbNotOnPathExtendsPathAndReturnsTrue(t *testing.T) {
 	}
 	if !strings.Contains(outStr, "ln -s") {
 		t.Errorf("expected hint to include a symlink alternative, got %q", outStr)
-	}
-	if got := os.Getenv("PATH"); !strings.HasPrefix(got, binDir) {
-		t.Errorf("expected PATH to start with %q, got %q", binDir, got)
 	}
 }
 
@@ -161,12 +158,12 @@ func TestCheckAllAggregatesAllFailures(t *testing.T) {
 
 func TestCheckAllRendersWarningsWhenAllPass(t *testing.T) {
 	testUI := termio.NewTestMock(t)
-	mockedCollectChecks(t, []string{"msb not on your PATH"}, nil)
+	mockedCollectChecks(t, []string{"msb not in PATH"}, nil)
 
 	if !realCheckAll(context.Background(), &testUI) {
 		t.Fatal("expected CheckAll to return true when there are no fatal failures")
 	}
-	if !slices.Contains(testUI.WarnCalls, "msb not on your PATH") {
+	if !slices.Contains(testUI.InfoCalls, "msb not in PATH") {
 		t.Errorf("expected warning rendered, got %q", testUI.WarnCalls)
 	}
 }
@@ -238,12 +235,12 @@ func TestCollectChecksMsbWarning(t *testing.T) {
 	t.Setenv("SHELL", "/bin/zsh")
 	t.Setenv("PATH", "/nonexistent")
 
-	warnings, _ := collectChecks(context.Background())
-	if len(warnings) == 0 {
+	messages, _ := collectChecks(context.Background())
+	if len(messages) == 0 {
 		t.Fatal("expected an msb PATH warning")
 	}
-	if !strings.Contains(strings.Join(warnings, " "), "not on your PATH") {
-		t.Errorf("expected a 'not on your PATH' warning, got %q", warnings)
+	if !strings.Contains(strings.Join(messages, " "), "not in PATH") {
+		t.Errorf("expected a 'not in PATH' warning, got %q", messages)
 	}
 }
 
