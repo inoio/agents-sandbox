@@ -298,4 +298,36 @@ Example `.opencode-sandbox/home.yaml`:
 .inputrc:
 ```
 
+In addition to the plain string form, a value may be a mapping that provisions the file and optionally runs it at VM
+startup as a startup hook:
+
+````yaml
+# provision AND run at startup, as root
+.vpn/connect.sh:
+  source: vpn/connect.sh   # resolved exactly like the plain string form
+  hook: startup            # optional; the only supported value is `startup`
+  user: root               # optional; empty runs as the sandbox user (dev)
+````
+
+Rules:
+
+- `hook: startup` runs the provisioned script inside the VM via an interactive TTY (`/bin/bash -l -c '<vm path>'`) as the
+  configured `user`, after home files are provisioned and before the opencode server daemon starts. Any other non-empty
+  `hook` value is rejected as a parse error.
+- The script must daemonize any long-running process it starts (e.g. `nohup openfortivpn ... &`) so it survives the
+  attach and lives for the VM's lifetime; it stops when the VM stops. This gives a full-session VPN with no extra
+  lifecycle code.
+- The script is run with `bash` regardless of its exec bit, so a non-executable provisioned file still runs.
+
+Example — bring up a corporate VPN with openfortivpn (installed via your `.opencode-sandbox/Dockerfile`), with its
+config (host, port, username, trusted cert) provisioned as a plain entry:
+
+````yaml
+.vpn/connect.sh:
+  source: vpn/connect.sh
+  hook: startup
+  user: root
+.openfortivpn/config: .openfortivpn/config
+````
+
 Run `opencode-sandbox config home` to list the resolved VM target → host source mappings.

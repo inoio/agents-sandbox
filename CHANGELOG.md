@@ -10,6 +10,9 @@ command reports the bare version (e.g. `0.1.0`).
 
 ### Added
 
+- `home.yaml` startup hooks: a `hook: startup` / `user` entry provisions a script into the VM home and runs it at VM
+  startup via an interactive TTY, enabling VPN-in-VM (proof of concept).
+
 ### Changed
 
 ### Fixed
