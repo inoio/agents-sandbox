@@ -15,6 +15,7 @@ import (
 
 	"github.com/inoio/opencode-sandbox/internal/configpaths"
 	"github.com/inoio/opencode-sandbox/internal/git"
+	"github.com/inoio/opencode-sandbox/internal/homeconfig"
 	"github.com/inoio/opencode-sandbox/internal/sandbox/docker"
 	sandboximage "github.com/inoio/opencode-sandbox/internal/sandbox/image"
 	"github.com/inoio/opencode-sandbox/internal/sandbox/msb"
@@ -302,5 +303,21 @@ func TestPrepareSandboxRunsStartupHook(t *testing.T) {
 
 	if connectSb.AttachUser != "root" {
 		t.Errorf("startup hook AttachWith user = %q, want %q", connectSb.AttachUser, "root")
+	}
+}
+
+// TestRunStartupHooksDefaultsToDevUser verifies that a startup hook without an
+// explicit user runs as the default sandbox user (dev). This is the path most
+// users hit, unlike the root-run case covered by the integration flow.
+func TestRunStartupHooksDefaultsToDevUser(t *testing.T) {
+	sb := &msb.MockSandbox{Name_: "vm"}
+	ui := termio.NewTestMock(t)
+
+	runStartupHooks(context.Background(), sb, []homeconfig.HookSpec{
+		{Target: "/home/dev/.vpn/connect.sh", Source: "x", User: ""},
+	}, &ui)
+
+	if sb.AttachUser != defaultSandboxUser {
+		t.Errorf("startup hook AttachWith user = %q, want default %q", sb.AttachUser, defaultSandboxUser)
 	}
 }
