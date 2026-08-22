@@ -319,7 +319,7 @@ Rules:
   lifecycle code.
 - The script is run with `bash` regardless of its exec bit, so a non-executable provisioned file still runs.
 
-Example — bring up a corporate VPN with openfortivpn (installed via your `.opencode-sandbox/Dockerfile`), with its
+Example: bring up a VPN with a vpn client (installed via your `.opencode-sandbox/Dockerfile`), with its
 config (host, port, username, trusted cert) provisioned as a plain entry:
 
 ````yaml
@@ -327,7 +327,9 @@ config (host, port, username, trusted cert) provisioned as a plain entry:
   source: vpn/connect.sh
   hook: startup
   user: root
-.openfortivpn/config: .openfortivpn/config
+.vpn/config: .vpn/config
 ````
+
+Any credentials (passwords, MFA) the VPN needs should be interactively read from user input by the script.
 
 Run `opencode-sandbox config home` to list the resolved VM target → host source mappings.

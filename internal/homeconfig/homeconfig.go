@@ -112,15 +112,14 @@ func MergeManifests(layers ...Manifest) Manifest {
 	return merged
 }
 
-// resolveLayers returns each layer's sources resolved against that layer's own
-// manifest dir, for the user layer then the project layer. The returned resolved
-// layers keep project-wins-per-key when merged.
-func resolveLayers(layers []Manifest, dirs []string) ([]Manifest, error) {
-	resolved := make([]Manifest, 0, len(layers))
-	for i, layer := range layers {
+// resolveManifestSources returns each layer's sources resolved against that layer's own
+// manifest dir, for the dirs passed. The returned resolved layers keep project-wins-per-key when merged.
+func resolveManifestSources(manifests []Manifest, dirs []string) ([]Manifest, error) {
+	resolved := make([]Manifest, 0, len(manifests))
+	for i, layer := range manifests {
 		out := make(Manifest, len(layer))
 		for target, e := range layer {
-			src, err := ResolveSource(target, e.Source, dirs[i])
+			src, err := ResolveManifestSource(target, e.Source, dirs[i])
 			if err != nil {
 				return nil, err
 			}
@@ -132,13 +131,13 @@ func resolveLayers(layers []Manifest, dirs []string) ([]Manifest, error) {
 	return resolved, nil
 }
 
-// ResolveSource resolves a manifest source value to a host path.
+// ResolveManifestSource resolves a manifest source value to a host path.
 //
 //	empty            -> host $HOME/<target>
 //	starts with "/"  -> absolute
 //	starts with "~"  -> host $HOME/<rest>
 //	otherwise        -> relative to manifestDir
-func ResolveSource(target, source, manifestDir string) (string, error) {
+func ResolveManifestSource(target, source, manifestDir string) (string, error) {
 	home, _ := os.UserHomeDir()
 	switch {
 	case source == "":
@@ -216,7 +215,7 @@ func BuildHomeFiles(userConfigDir, projectConfigDir, homeBase string) (map[strin
 	if err != nil {
 		return nil, nil, false, err
 	}
-	resolved, err := resolveLayers(layers, []string{userConfigDir, projectConfigDir})
+	resolved, err := resolveManifestSources(layers, []string{userConfigDir, projectConfigDir})
 	if err != nil {
 		return nil, nil, false, err
 	}
@@ -250,7 +249,7 @@ func DescribeManifest(userConfigDir, projectConfigDir, homeBase string) ([][2]st
 	if err != nil {
 		return nil, false, err
 	}
-	resolved, err := resolveLayers(layers, []string{userConfigDir, projectConfigDir})
+	resolved, err := resolveManifestSources(layers, []string{userConfigDir, projectConfigDir})
 	if err != nil {
 		return nil, false, err
 	}
@@ -284,7 +283,7 @@ func BuildHooks(userConfigDir, projectConfigDir, homeBase string) ([]HookSpec, e
 	if err != nil {
 		return nil, err
 	}
-	resolved, err := resolveLayers(layers, []string{userConfigDir, projectConfigDir})
+	resolved, err := resolveManifestSources(layers, []string{userConfigDir, projectConfigDir})
 	if err != nil {
 		return nil, err
 	}

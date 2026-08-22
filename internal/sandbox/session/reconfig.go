@@ -21,9 +21,7 @@ import (
 const defaultSandboxUser = "dev"
 
 // runStartupHooks runs each configured startup hook inside the VM via an
-// interactive TTY, so the script can prompt for credentials. Each script is
-// responsible for daemonizing its own long-running process so it outlives the
-// attach. Failures are logged, not fatal.
+// interactive TTY.  Failures are logged, not fatal.
 func runStartupHooks(ctx context.Context, sb msb.Sandbox, hooks []homeconfig.HookSpec, ui termio.UI) {
 	for _, h := range hooks {
 		user := h.User

@@ -69,7 +69,7 @@ func TestLoadManifestRejectsUnknownHook(t *testing.T) {
 }
 
 func TestResolveSourceEmptyFallsBackToTarget(t *testing.T) {
-	got, err := ResolveSource(".gitconfig", "", "/tmp/mf")
+	got, err := ResolveManifestSource(".gitconfig", "", "/tmp/mf")
 	if err != nil {
 		t.Fatalf("ResolveSource: %v", err)
 	}
@@ -82,7 +82,7 @@ func TestResolveSourceEmptyFallsBackToTarget(t *testing.T) {
 }
 
 func TestResolveSourceAbsolute(t *testing.T) {
-	got, err := ResolveSource(".x", "/etc/foo", "/tmp/mf")
+	got, err := ResolveManifestSource(".x", "/etc/foo", "/tmp/mf")
 	if err != nil {
 		t.Fatalf("ResolveSource: %v", err)
 	}
@@ -93,7 +93,7 @@ func TestResolveSourceAbsolute(t *testing.T) {
 
 func TestResolveSourceTilde(t *testing.T) {
 	t.Setenv("HOME", "/home/u")
-	got, err := ResolveSource(".x", "~/bar", "/tmp/mf")
+	got, err := ResolveManifestSource(".x", "~/bar", "/tmp/mf")
 	if err != nil {
 		t.Fatalf("ResolveSource: %v", err)
 	}
@@ -103,7 +103,7 @@ func TestResolveSourceTilde(t *testing.T) {
 }
 
 func TestResolveSourceRelativeToManifestDir(t *testing.T) {
-	got, err := ResolveSource(".x", "tool/cfg.toml", "/home/u/dotfiles")
+	got, err := ResolveManifestSource(".x", "tool/cfg.toml", "/home/u/dotfiles")
 	if err != nil {
 		t.Fatalf("ResolveSource: %v", err)
 	}
