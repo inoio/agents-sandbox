@@ -336,3 +336,59 @@ func TestDescribeManifestResolvesProjectRelativeSourceAgainstProjectDir(t *testi
 		t.Errorf("got source %q, want %q", src, want)
 	}
 }
+
+func TestBuildHooksFiltersAndSorts(t *testing.T) {
+	user := t.TempDir()
+	proj := t.TempDir()
+
+	// Only .vpn/connect.sh is marked hook: startup and its source exists.
+	if err := os.MkdirAll(filepath.Join(proj, "vpn"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	testutil.WritePath(t, filepath.Join(proj, "vpn/connect.sh"), "#!/bin/sh\necho hi\n")
+	writeHomeYAML(t, proj, ""+
+		".vpn/connect.sh:\n  source: vpn/connect.sh\n  hook: startup\n  user: root\n"+
+		".zshrc:\n")
+
+	hooks, err := BuildHooks(user, proj, vmHome)
+	if err != nil {
+		t.Fatalf("BuildHooks: %v", err)
+	}
+	want := []HookSpec{
+		{Target: "/home/dev/.vpn/connect.sh", Source: filepath.Join(proj, "vpn/connect.sh"), User: "root"},
+	}
+	if !reflect.DeepEqual(hooks, want) {
+		t.Errorf("got %v, want %v", hooks, want)
+	}
+}
+
+func TestBuildHooksSkipsMissingSource(t *testing.T) {
+	user := t.TempDir()
+	proj := t.TempDir()
+	// hook entry whose source file does not exist on the host
+	writeHomeYAML(t, proj, ".vpn/connect.sh:\n  source: vpn/connect.sh\n  hook: startup\n")
+	hooks, err := BuildHooks(user, proj, vmHome)
+	if err != nil {
+		t.Fatalf("BuildHooks: %v", err)
+	}
+	if len(hooks) != 0 {
+		t.Errorf("expected no hooks for missing source, got %v", hooks)
+	}
+}
+
+func TestBuildHooksSortsByTarget(t *testing.T) {
+	user := t.TempDir()
+	proj := t.TempDir()
+	testutil.WritePath(t, filepath.Join(proj, "a.sh"), "#!/bin/sh\n")
+	testutil.WritePath(t, filepath.Join(proj, "b.sh"), "#!/bin/sh\n")
+	writeHomeYAML(t, proj, ""+
+		".b:\n  source: b.sh\n  hook: startup\n"+
+		".a:\n  source: a.sh\n  hook: startup\n")
+	hooks, err := BuildHooks(user, proj, vmHome)
+	if err != nil {
+		t.Fatalf("BuildHooks: %v", err)
+	}
+	if len(hooks) != 2 || hooks[0].Target != "/home/dev/.a" || hooks[1].Target != "/home/dev/.b" {
+		t.Errorf("hooks not sorted by target: %v", hooks)
+	}
+}

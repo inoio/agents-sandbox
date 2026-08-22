@@ -19,6 +19,9 @@ import (
 // manifestName is the fixed manifest filename.
 const manifestName = "home.yaml"
 
+// startupHook is the only supported startup-hook value.
+const startupHook = "startup"
+
 // opencodeConfigPath is the reserved VM path for the snippet-merged opencode
 // config; the manifest must not target it.
 const opencodeConfigPath = ".config/opencode/opencode.json"
@@ -83,8 +86,8 @@ func parseEntry(v any) (Entry, error) {
 			}
 			e.Hook = hook
 		}
-		if e.Hook != "" && e.Hook != "startup" {
-			return e, fmt.Errorf("hook must be %q, got %q", "startup", e.Hook)
+		if e.Hook != "" && e.Hook != startupHook {
+			return e, fmt.Errorf("hook must be %q, got %q", startupHook, e.Hook)
 		}
 		if u, ok := val["user"]; ok {
 			user, ok := u.(string)
@@ -263,4 +266,44 @@ func DescribeManifest(userConfigDir, projectConfigDir, homeBase string) ([][2]st
 		return pairs[i][0] < pairs[j][0]
 	})
 	return pairs, has, nil
+}
+
+// HookSpec describes a single startup-hook entry: the provisioned VM target,
+// its resolved host source, and the user to run it as (empty means dev).
+type HookSpec struct {
+	Target string // absolute VM path to the provisioned script
+	Source string // resolved host source path
+	User   string // optional; empty means the sandbox user (dev)
+}
+
+// BuildHooks returns the merged manifest's startup-hook entries (Hook ==
+// "startup") whose host source exists, sorted by VM target. A hook whose host
+// source is missing is skipped (its script will not have been provisioned).
+func BuildHooks(userConfigDir, projectConfigDir, homeBase string) ([]HookSpec, error) {
+	layers, _, err := loadLayers(userConfigDir, projectConfigDir)
+	if err != nil {
+		return nil, err
+	}
+	resolved, err := resolveLayers(layers, []string{userConfigDir, projectConfigDir})
+	if err != nil {
+		return nil, err
+	}
+	var hooks []HookSpec
+	for target, e := range MergeManifests(resolved...) {
+		if e.Hook != startupHook {
+			continue
+		}
+		if _, err := os.Stat(e.Source); err != nil {
+			continue
+		}
+		vmPath, vErr := ResolveVMTarget(homeBase, target)
+		if vErr != nil {
+			return nil, vErr
+		}
+		hooks = append(hooks, HookSpec{Target: vmPath, Source: e.Source, User: e.User})
+	}
+	sort.Slice(hooks, func(i, j int) bool {
+		return hooks[i].Target < hooks[j].Target
+	})
+	return hooks, nil
 }
