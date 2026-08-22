@@ -3,6 +3,7 @@ package session
 import (
 	"context"
 	"io"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -216,5 +217,90 @@ func TestPrepareSandboxLoadsHomeYamlOnce(t *testing.T) {
 	if missingWarnings != 1 {
 		t.Errorf("expected exactly 1 'missing home.yaml source' warning, got %d (warnings: %v)",
 			missingWarnings, ui.WarnCalls)
+	}
+}
+
+// TestPrepareSandboxRunsStartupHook verifies that a home.yaml entry marked
+// hook: startup is executed through an interactive AttachWith as the configured
+// user (root) during startup, before the opencode daemon is ensured.
+func TestPrepareSandboxRunsStartupHook(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	cp := configpaths.Get()
+
+	// A project home.yaml that both provisions a script and marks it a
+	// root-run startup hook.
+	testutil.WritePath(t, filepath.Join(cp.ProjectConfigDir(), "connect.sh"), "#!/bin/sh\nnohup echo vpn &\n")
+	testutil.WriteFile(t, cp.ProjectConfigDir(), "home.yaml",
+		".vpn/connect.sh:\n  source: connect.sh\n  hook: startup\n  user: root\n")
+
+	sandboximage.WithMockOpenCodeVersion(t, "1.0.0")
+	origUpgradeInfo := openCodeUpgradeInfo
+	openCodeUpgradeInfo = func(_ context.Context) (string, error) { return "1.0.0", nil }
+	t.Cleanup(func() { openCodeUpgradeInfo = origUpgradeInfo })
+
+	docker.WithDockerMock(t, &docker.MockDockerClient{
+		ImageBuildFn: func(_ context.Context, _ io.Reader, _ client.ImageBuildOptions) (client.ImageBuildResult, error) {
+			return client.ImageBuildResult{Body: io.NopCloser(strings.NewReader(""))}, nil
+		},
+		ImageInspectFn: func(_ context.Context, _ string, _ ...client.ImageInspectOption) (client.ImageInspectResult, error) {
+			return client.ImageInspectResult{
+				InspectResponse: mobyimage.InspectResponse{
+					ID: "sha256:abc123",
+					Config: &dockerspec.DockerOCIImageConfig{
+						ImageConfig: ocispec.ImageConfig{
+							Env:    []string{"PATH=/usr/bin"},
+							Labels: map[string]string{sandboximage.OpenCodeVersionLabel: "1.0.0"},
+						},
+					},
+				},
+			}, nil
+		},
+	})
+
+	slug := git.ProjectSlug(&termio.Mock{})
+	vmFS := msb.NewTestFS(nil, nil)
+	connectSb := &msb.MockSandbox{Name_: "vm", FSValue_: vmFS, ShellOut: map[string]msb.ShellResult{
+		dockerdBinaryCheckCmd: msb.NewTestResult(false, 1, "", "", nil),
+	}}
+	sh := &msb.MockSandboxHandle{
+		Name_:     projectVMName(slug),
+		Status_:   msbSdk.SandboxStatusRunning,
+		ConnectSb: connectSb,
+	}
+	mock := &msb.MockMsbClient{
+		ImageGetFn: func(_ context.Context, _ string) error { return nil },
+		ImageInspectFn: func(_ context.Context, _ string) (*msbSdk.ImageConfig, error) {
+			return &msbSdk.ImageConfig{
+				Env:    []string{"PATH=/usr/bin"},
+				Labels: map[string]string{sandboximage.OpenCodeVersionLabel: "1.0.0"},
+			}, nil
+		},
+		Volumes: []msb.VolumeHandle{&msb.MockVolumeHandle{Name_: "home-vol"}},
+	}
+	mock.SetGotSandbox(sh)
+	msb.WithMsbMock(t, mock)
+
+	state.WriteState(slug, state.HomeState{HomeVolume: "home-vol", ImageDigest: "sha256:abc123"})
+
+	origDaemon := SetDaemonShellFunc(func(_ context.Context, _ msb.Sandbox, command string) (string, int, error) {
+		if command == "curl -sfm2 "+daemonHealthURL {
+			return `{"healthy":true,"version":"test"}`, 0, nil
+		}
+		return "", 0, nil
+	})
+	defer SetDaemonShellFunc(origDaemon)
+
+	ui := termio.NewTestMock(t)
+	sess, err := prepareSandbox(context.Background(), options.RunOptions{}, &ui)
+	if err != nil {
+		t.Fatalf("prepareSandbox: %v", err)
+	}
+	if sess == nil {
+		t.Fatal("expected a non-nil session")
+	}
+	defer sess.cleanup()
+
+	if connectSb.AttachUser != "root" {
+		t.Errorf("startup hook AttachWith user = %q, want %q", connectSb.AttachUser, "root")
 	}
 }

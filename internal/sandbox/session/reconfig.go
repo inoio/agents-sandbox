@@ -6,6 +6,7 @@ import (
 
 	"github.com/inoio/opencode-sandbox/internal/configpaths"
 	"github.com/inoio/opencode-sandbox/internal/git"
+	"github.com/inoio/opencode-sandbox/internal/homeconfig"
 	"github.com/inoio/opencode-sandbox/internal/sandbox/msb"
 	"github.com/inoio/opencode-sandbox/internal/sandbox/options"
 	"github.com/inoio/opencode-sandbox/internal/sandbox/reprovision"
@@ -15,6 +16,31 @@ import (
 
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 )
+
+// defaultSandboxUser is the user hooks run as when no user is configured.
+const defaultSandboxUser = "dev"
+
+// runStartupHooks runs each configured startup hook inside the VM via an
+// interactive TTY, so the script can prompt for credentials. Each script is
+// responsible for daemonizing its own long-running process so it outlives the
+// attach. Failures are logged, not fatal.
+func runStartupHooks(ctx context.Context, sb msb.Sandbox, hooks []homeconfig.HookSpec, ui termio.UI) {
+	for _, h := range hooks {
+		user := h.User
+		if user == "" {
+			user = defaultSandboxUser
+		}
+		ui.Infof("running startup hook %s (as %s)", h.Target, user)
+		if _, err := sb.AttachWith(
+			ctx,
+			"/bin/bash",
+			[]string{"-l", "-c", h.Target},
+			msbSdk.WithAttachUser(user),
+		); err != nil {
+			ui.Warnf("startup hook %s failed: %v", h.Target, err)
+		}
+	}
+}
 
 func setUpSandbox(
 	ctx context.Context,
@@ -44,6 +70,10 @@ func setUpSandbox(
 
 	if dockerErr := startDockerdIfPresent(ctx, sb, ui); dockerErr != nil {
 		return "", fmt.Errorf("docker startup: %w", dockerErr)
+	}
+
+	if len(cfs.Hooks) > 0 {
+		runStartupHooks(ctx, sb, cfs.Hooks, ui)
 	}
 
 	if daemonErr := ensureDaemon(ctx, opts.ServeOnly, sb, ui); daemonErr != nil {
