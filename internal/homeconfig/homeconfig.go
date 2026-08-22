@@ -23,50 +23,110 @@ const manifestName = "home.yaml"
 // config; the manifest must not target it.
 const opencodeConfigPath = ".config/opencode/opencode.json"
 
-// resolveLayers returns each layer's sources resolved against that layer's own
-// manifest dir, for the user layer then the project layer. The returned resolved
-// layers keep project-wins-per-key when merged.
-func resolveLayers(layers []map[string]string, dirs []string) ([]map[string]string, error) {
-	resolved := make([]map[string]string, 0, len(layers))
-	for i, layer := range layers {
-		out := make(map[string]string, len(layer))
-		for target, source := range layer {
-			src, err := ResolveSource(target, source, dirs[i])
-			if err != nil {
-				return nil, err
-			}
-			out[target] = src
-		}
-		resolved = append(resolved, out)
-	}
-	return resolved, nil
+// Entry describes a single home.yaml mapping: the host source path and the
+// optional startup-hook metadata. A plain-string value is equivalent to an
+// Entry with only Source set.
+type Entry struct {
+	Source string // host source path, resolved like the plain string form
+	Hook   string // optional; only "startup" is supported
+	User   string // optional; empty means the sandbox user (dev)
 }
 
-// LoadManifest parses a home.yaml manifest into a map from VM-home-relative
-// target path to host source string (possibly empty).
-func LoadManifest(path string) (map[string]string, error) {
+// Manifest maps a VM-home-relative target path to its Entry.
+type Manifest map[string]Entry
+
+// LoadManifest parses a home.yaml manifest into a Manifest. Each value may be
+// either a plain source string (as before) or a mapping with optional
+// source/hook/user fields. Unknown hook values are rejected.
+func LoadManifest(path string) (Manifest, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, err
 	}
-	var m map[string]string
-	if err := yaml.Unmarshal(data, &m); err != nil {
+	var raw map[string]any
+	if err := yaml.Unmarshal(data, &raw); err != nil {
 		return nil, fmt.Errorf("parse %s: %w", path, err)
 	}
-	if m == nil {
-		m = map[string]string{}
+	if raw == nil {
+		raw = map[string]any{}
+	}
+	m := Manifest{}
+	for target, v := range raw {
+		e, err := parseEntry(v)
+		if err != nil {
+			return nil, fmt.Errorf("parse %s entry %q: %w", path, target, err)
+		}
+		m[target] = e
 	}
 	return m, nil
 }
 
+func parseEntry(v any) (Entry, error) {
+	switch val := v.(type) {
+	case nil:
+		return Entry{}, nil
+	case string:
+		return Entry{Source: val, Hook: "", User: ""}, nil
+	case map[string]any:
+		var e Entry
+		if s, ok := val["source"]; ok {
+			src, ok := s.(string)
+			if !ok {
+				return e, errors.New("source must be a string")
+			}
+			e.Source = src
+		}
+		if h, ok := val["hook"]; ok {
+			hook, ok := h.(string)
+			if !ok {
+				return e, errors.New("hook must be a string")
+			}
+			e.Hook = hook
+		}
+		if e.Hook != "" && e.Hook != "startup" {
+			return e, fmt.Errorf("hook must be %q, got %q", "startup", e.Hook)
+		}
+		if u, ok := val["user"]; ok {
+			user, ok := u.(string)
+			if !ok {
+				return e, errors.New("user must be a string")
+			}
+			e.User = user
+		}
+		return e, nil
+	default:
+		return Entry{}, fmt.Errorf("unsupported value type %T", v)
+	}
+}
+
 // MergeManifests returns a single map with later layers overriding earlier ones
 // by key.
-func MergeManifests(layers ...map[string]string) map[string]string {
-	merged := map[string]string{}
+func MergeManifests(layers ...Manifest) Manifest {
+	merged := Manifest{}
 	for _, layer := range layers {
 		maps.Copy(merged, layer)
 	}
 	return merged
+}
+
+// resolveLayers returns each layer's sources resolved against that layer's own
+// manifest dir, for the user layer then the project layer. The returned resolved
+// layers keep project-wins-per-key when merged.
+func resolveLayers(layers []Manifest, dirs []string) ([]Manifest, error) {
+	resolved := make([]Manifest, 0, len(layers))
+	for i, layer := range layers {
+		out := make(Manifest, len(layer))
+		for target, e := range layer {
+			src, err := ResolveSource(target, e.Source, dirs[i])
+			if err != nil {
+				return nil, err
+			}
+			e.Source = src
+			out[target] = e
+		}
+		resolved = append(resolved, out)
+	}
+	return resolved, nil
 }
 
 // ResolveSource resolves a manifest source value to a host path.
@@ -123,11 +183,11 @@ func ResolveVMTarget(homeBase, relTarget string) (string, error) {
 
 // loadLayers reads each present manifest; an absent manifest yields an empty
 // layer. The boolean reports whether at least one manifest file exists.
-func loadLayers(userConfigDir, projectConfigDir string) ([]map[string]string, bool, error) {
-	var layers []map[string]string
+func loadLayers(userConfigDir, projectConfigDir string) ([]Manifest, bool, error) {
+	var layers []Manifest
 	has := false
 	for _, dir := range []string{userConfigDir, projectConfigDir} {
-		layer := map[string]string{}
+		layer := Manifest{}
 		path := filepath.Join(dir, manifestName)
 		if _, err := os.Stat(path); err == nil {
 			has = true
@@ -163,14 +223,14 @@ func BuildHomeFiles(userConfigDir, projectConfigDir, homeBase string) (map[strin
 	}
 	files := make(map[string][]byte)
 	var missing []string
-	for target, src := range merged {
+	for target, e := range merged {
 		vmPath, vErr := ResolveVMTarget(homeBase, target)
 		if vErr != nil {
 			return nil, nil, false, vErr
 		}
-		data, rErr := os.ReadFile(src)
+		data, rErr := os.ReadFile(e.Source)
 		if rErr != nil {
-			missing = append(missing, src)
+			missing = append(missing, e.Source)
 			continue
 		}
 		files[vmPath] = data
@@ -192,12 +252,12 @@ func DescribeManifest(userConfigDir, projectConfigDir, homeBase string) ([][2]st
 		return nil, false, err
 	}
 	var pairs [][2]string
-	for target, src := range MergeManifests(resolved...) {
+	for target, e := range MergeManifests(resolved...) {
 		vmPath, err := ResolveVMTarget(homeBase, target)
 		if err != nil {
 			return nil, false, err
 		}
-		pairs = append(pairs, [2]string{vmPath, src})
+		pairs = append(pairs, [2]string{vmPath, e.Source})
 	}
 	sort.Slice(pairs, func(i, j int) bool {
 		return pairs[i][0] < pairs[j][0]

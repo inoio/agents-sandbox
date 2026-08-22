@@ -24,9 +24,9 @@ func TestLoadManifest(t *testing.T) {
 	if err != nil {
 		t.Fatalf("LoadManifest: %v", err)
 	}
-	want := map[string]string{
-		".gitconfig":            "",
-		".config/tool/cfg.toml": "./tool/cfg.toml",
+	want := Manifest{
+		".gitconfig":            Entry{Source: ""},
+		".config/tool/cfg.toml": Entry{Source: "./tool/cfg.toml"},
 	}
 	if !reflect.DeepEqual(m, want) {
 		t.Errorf("got %v, want %v", m, want)
@@ -34,14 +34,37 @@ func TestLoadManifest(t *testing.T) {
 }
 
 func TestMergeManifestsProjectWins(t *testing.T) {
-	user := map[string]string{".gitconfig": "", ".ssh/config": ""}
-	proj := map[string]string{".gitconfig": "~/dotfiles/gitconfig"}
+	user := Manifest{".gitconfig": Entry{Source: ""}, ".ssh/config": Entry{Source: ""}}
+	proj := Manifest{".gitconfig": Entry{Source: "~/dotfiles/gitconfig"}}
 	merged := MergeManifests(user, proj)
-	if merged[".ssh/config"] != "" {
-		t.Errorf("user-only key should remain, got %q", merged[".ssh/config"])
+	if merged[".ssh/config"].Source != "" {
+		t.Errorf("user-only key should remain, got %q", merged[".ssh/config"].Source)
 	}
-	if merged[".gitconfig"] != "~/dotfiles/gitconfig" {
-		t.Errorf("project should override user, got %q", merged[".gitconfig"])
+	if merged[".gitconfig"].Source != "~/dotfiles/gitconfig" {
+		t.Errorf("project should override user, got %q", merged[".gitconfig"].Source)
+	}
+}
+
+func TestLoadManifestStructuredEntry(t *testing.T) {
+	dir := t.TempDir()
+	writeHomeYAML(t, dir, ".vpn/connect.sh:\n  source: vpn/connect.sh\n  hook: startup\n  user: root\n")
+	m, err := LoadManifest(filepath.Join(dir, "home.yaml"))
+	if err != nil {
+		t.Fatalf("LoadManifest: %v", err)
+	}
+	want := Manifest{
+		".vpn/connect.sh": Entry{Source: "vpn/connect.sh", Hook: "startup", User: "root"},
+	}
+	if !reflect.DeepEqual(m, want) {
+		t.Errorf("got %v, want %v", m, want)
+	}
+}
+
+func TestLoadManifestRejectsUnknownHook(t *testing.T) {
+	dir := t.TempDir()
+	writeHomeYAML(t, dir, ".x:\n  source: x\n  hook: boot\n")
+	if _, err := LoadManifest(filepath.Join(dir, "home.yaml")); err == nil {
+		t.Fatal("expected error for unknown hook value")
 	}
 }
 
