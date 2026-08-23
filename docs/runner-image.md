@@ -83,7 +83,7 @@ RUN curl -fsSL https://pyenv.run | bash
 The project image **must** end with `USER dev` active. If you need to run commands as root, switch back:
 
 ```dockerfile
-FROM opencode-sandbox/runner-base
+FROM opencode-sandbox/runner-base:latest
 
 USER root
 # Install your project's toolchain as root, e.g. via apt install

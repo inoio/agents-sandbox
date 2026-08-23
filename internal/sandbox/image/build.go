@@ -12,6 +12,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/distribution/reference"
 	"github.com/moby/moby/client"
 
 	"github.com/inoio/opencode-sandbox/internal/sandbox/docker"
@@ -39,15 +40,87 @@ type ImageInfo struct {
 	Env             map[string]string
 }
 
-func referencesImage(dockerfile []byte, tag string) bool {
+// referencesImage reports whether the Dockerfile uses the given image
+// identifier as the base of its final (last) stage, ignoring any tag or digest
+// on the reference. Multi-stage FROM lines are resolved through their declared
+// stage aliases, so the image only counts if it ultimately backs the resulting
+// image.
+func referencesImage(dockerfile []byte, imageRef string) bool {
+	stageBase := make(map[string]string)
+	var lastImage string
 	scanner := bufio.NewScanner(bytes.NewReader(dockerfile))
 	for scanner.Scan() {
 		line := strings.TrimLeft(scanner.Text(), " \t")
-		if strings.HasPrefix(line, "FROM") && strings.Contains(line, tag) {
-			return true
+		if !strings.HasPrefix(line, "FROM") {
+			continue
+		}
+		fromImage, stageAlias := parseFrom(line)
+		if fromImage == "" {
+			continue
+		}
+		if stageAlias != "" {
+			stageBase[stageAlias] = fromImage
+		}
+		lastImage = fromImage
+	}
+	return imageRefMatches(resolveStageBase(lastImage, stageBase), imageRef)
+}
+
+// resolveStageBase follows a FROM image token through any declared stage
+// aliases until it reaches the underlying image reference.
+func resolveStageBase(token string, stageBase map[string]string) string {
+	for {
+		base, ok := stageBase[token]
+		if !ok {
+			return token
+		}
+		token = base
+	}
+}
+
+// imageRefMatches reports whether the given image token refers to imageRef,
+// ignoring any tag or digest on the token.
+func imageRefMatches(token, imageRef string) bool {
+	ref, err := reference.ParseNormalizedNamed(token)
+	if err != nil {
+		return false
+	}
+	return reference.FamiliarName(ref) == imageRef
+}
+
+// parseFrom parses a Dockerfile FROM line, returning the main image reference
+// and the declared stage alias (the "AS <name>" token, if present). Leading
+// build flags (e.g. --platform) are ignored.
+func parseFrom(line string) (string, string) {
+	rest := strings.TrimSpace(strings.TrimPrefix(line, "FROM"))
+	var fromImage string
+	for rest != "" {
+		token, tail := nextField(rest)
+		rest = tail
+		if strings.HasPrefix(token, "--") {
+			continue
+		}
+		if fromImage == "" {
+			fromImage = token
+			continue
+		}
+		if strings.EqualFold(token, "AS") {
+			if alias, _ := nextField(rest); alias != "" {
+				return fromImage, alias
+			}
 		}
 	}
-	return false
+	return fromImage, ""
+}
+
+// nextField splits off the first whitespace-delimited field of s, returning the
+// field and the remainder of the string.
+func nextField(s string) (string, string) {
+	i := strings.IndexAny(s, " \t")
+	if i < 0 {
+		return s, ""
+	}
+	return s[:i], strings.TrimLeft(s[i+1:], " \t")
 }
 
 // ensureRunnerImage builds (or reuses) the runner Docker image and returns its
@@ -235,8 +308,8 @@ func EnsureImageWithClient(
 		return ImageInfo{}, fmt.Errorf("resolve opencode version: %w", err)
 	}
 
-	if buildOpts.Force || referencesImage(dockerfile, naming.BaseTag) ||
-		referencesImage(dockerfile, naming.DindBaseTag) {
+	if buildOpts.Force || referencesImage(dockerfile, naming.BaseImagePrefix) ||
+		referencesImage(dockerfile, naming.BaseDindImagePrefix) {
 		if buildErr := buildDockerImage(
 			ctx,
 			embeddedDockerfile,
@@ -249,7 +322,7 @@ func EnsureImageWithClient(
 			return ImageInfo{}, fmt.Errorf("building base image: %w", buildErr)
 		}
 	}
-	if referencesImage(dockerfile, naming.DindBaseTag) {
+	if referencesImage(dockerfile, naming.BaseDindImagePrefix) {
 		if buildErr := buildDockerImage(
 			ctx,
 			embeddedDindDockerfile,
