@@ -1,4 +1,4 @@
-package sandbox
+package vm
 
 import (
 	"github.com/inoio/opencode-sandbox/internal/sandbox/naming"

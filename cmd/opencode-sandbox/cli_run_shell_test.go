@@ -11,7 +11,7 @@ import (
 
 	"github.com/inoio/opencode-sandbox/internal/sandbox/doctor"
 	sandboxmsb "github.com/inoio/opencode-sandbox/internal/sandbox/msb"
-	"github.com/inoio/opencode-sandbox/internal/sandbox/sandbox"
+	sandbox "github.com/inoio/opencode-sandbox/internal/sandbox/vm"
 	"github.com/inoio/opencode-sandbox/internal/termio"
 )
 

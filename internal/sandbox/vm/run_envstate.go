@@ -1,4 +1,4 @@
-package sandbox
+package vm
 
 import (
 	"errors"

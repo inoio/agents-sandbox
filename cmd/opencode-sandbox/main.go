@@ -6,7 +6,7 @@ import (
 
 	"golang.org/x/term"
 
-	"github.com/inoio/opencode-sandbox/internal/sandbox/sandbox"
+	sandbox "github.com/inoio/opencode-sandbox/internal/sandbox/vm"
 	"github.com/inoio/opencode-sandbox/internal/termio"
 )
 

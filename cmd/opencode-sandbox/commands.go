@@ -8,7 +8,7 @@ import (
 
 	"github.com/inoio/opencode-sandbox/internal/sandbox/naming"
 	"github.com/inoio/opencode-sandbox/internal/sandbox/options"
-	"github.com/inoio/opencode-sandbox/internal/sandbox/sandbox"
+	sandbox "github.com/inoio/opencode-sandbox/internal/sandbox/vm"
 	"github.com/inoio/opencode-sandbox/internal/termio"
 	launcherconfig "github.com/inoio/opencode-sandbox/internal/viperconfig"
 )

@@ -18,7 +18,7 @@ import (
 	"github.com/inoio/opencode-sandbox/internal/sandbox/humanize"
 	"github.com/inoio/opencode-sandbox/internal/sandbox/image"
 	"github.com/inoio/opencode-sandbox/internal/sandbox/pruning"
-	"github.com/inoio/opencode-sandbox/internal/sandbox/sandbox"
+	sandbox "github.com/inoio/opencode-sandbox/internal/sandbox/vm"
 	"github.com/inoio/opencode-sandbox/internal/sandbox/volume"
 	"github.com/inoio/opencode-sandbox/internal/termio"
 	"github.com/inoio/opencode-sandbox/internal/viperconfig"
