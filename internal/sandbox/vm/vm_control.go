@@ -32,6 +32,16 @@ func stopOrKillProjectVM(
 		return fmt.Errorf("get sandbox %q: %w", name, err)
 	}
 
+	pastTense := action + "ed"
+	if action == "stop" {
+		pastTense = "stopped"
+	}
+
+	if kind, err := msb.GetVMStatus(handle.Status()); err == nil && kind == msb.VMStatusStopped {
+		ui.Infof("project VM already %s: %s", pastTense, name)
+		return nil
+	}
+
 	if dryRun {
 		actionWord := "Would stop"
 		if action == "kill" {
@@ -51,10 +61,6 @@ func stopOrKillProjectVM(
 		return fmt.Errorf("%s sandbox %q: %w", action, name, err)
 	}
 	spin.Stop()
-	pastTense := action + "ed"
-	if action == "stop" {
-		pastTense = "stopped"
-	}
 	ui.Infof("%s project VM: %s", pastTense, name)
 
 	if remove {

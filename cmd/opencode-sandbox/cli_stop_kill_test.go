@@ -218,6 +218,38 @@ func TestStopKillLifecycle(t *testing.T) {
 	}
 }
 
+// TestStopKillAlreadyStopped covers stop/kill on an already-stopped VM: the
+// action and persisted-state removal must be skipped, and the user told the VM
+// is already stopped.
+func TestStopKillAlreadyStopped(t *testing.T) {
+	for _, tc := range []struct {
+		cmd        string
+		infoPrefix string
+		action     func(h *sandboxmsb.MockSandboxHandle) bool
+	}{
+		{cmdStop, "project VM already stopped: ", func(h *sandboxmsb.MockSandboxHandle) bool { return h.DidStop }},
+		{cmdKill, "project VM already killed: ", func(h *sandboxmsb.MockSandboxHandle) bool { return h.DidKill }},
+	} {
+		for _, flags := range stopKillFlags {
+			t.Run(tc.cmd+" "+strings.Join(flags, " "), func(t *testing.T) {
+				initTestRepo(t)
+				handle := &sandboxmsb.MockSandboxHandle{Status_: msb.SandboxStatusStopped}
+				ui := runStopKill(t, append([]string{tc.cmd}, flags...), func(m *sandboxmsb.MockMsbClient) {
+					m.SetGotSandbox(handle)
+				})
+
+				assertInfoHasPrefix(t, ui, tc.infoPrefix)
+				if tc.action(handle) {
+					t.Errorf("expected no stop/kill action on already-stopped VM; got action")
+				}
+				if handle.DidRemove() {
+					t.Errorf("expected no state removal on already-stopped VM; got removal")
+				}
+			})
+		}
+	}
+}
+
 // assertErrContains reports whether err is non-nil and contains wantPart.
 func assertErrContains(t *testing.T, err error, wantPart string) {
 	t.Helper()

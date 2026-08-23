@@ -326,6 +326,8 @@ type MockSandboxHandle struct {
 	ConnectSb       Sandbox
 	StartSb         Sandbox
 	DidRmv          bool
+	DidStop         bool
+	DidKill         bool
 	ConnectErr      error
 	StartErr        error
 	StopErr         error
@@ -372,8 +374,14 @@ func (m *MockSandboxHandle) Start(_ context.Context) (Sandbox, error) {
 	//nolint:exhaustruct // only Name_ needed
 	return &MockSandbox{Name_: m.Name_}, nil
 }
-func (m *MockSandboxHandle) Stop(_ context.Context, _ ...msbSdk.StopOption) error { return m.StopErr }
-func (m *MockSandboxHandle) Kill(_ context.Context, _ ...msbSdk.KillOption) error { return m.KillErr }
+func (m *MockSandboxHandle) Stop(_ context.Context, _ ...msbSdk.StopOption) error {
+	m.DidStop = true
+	return m.StopErr
+}
+func (m *MockSandboxHandle) Kill(_ context.Context, _ ...msbSdk.KillOption) error {
+	m.DidKill = true
+	return m.KillErr
+}
 func (m *MockSandboxHandle) Remove(_ context.Context) error {
 	if m.RemoveErr != nil {
 		return m.RemoveErr
