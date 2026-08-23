@@ -123,7 +123,8 @@ func TestProvisionWritesOpenCodeAndHomeFiles(t *testing.T) {
 		},
 	}
 	fs := msb.NewTestFS(nil, nil)
-	if err := Provision(context.Background(), fs, cf); err != nil {
+	sb := &msb.MockSandbox{FSValue_: fs}
+	if err := Provision(context.Background(), sb, cf); err != nil {
 		t.Fatalf("Provision: %v", err)
 	}
 	if fs.Writes[OpenCodeConfigPath(VMHomeDir)] == nil {
@@ -137,7 +138,8 @@ func TestProvisionWritesOpenCodeAndHomeFiles(t *testing.T) {
 func TestProvisionNoSnippetsSkipsOpenCode(t *testing.T) {
 	cf := &ConfigFiles{OpenCode: nil, HomeFiles: map[string][]byte{}}
 	fs := msb.NewTestFS(nil, nil)
-	if err := Provision(context.Background(), fs, cf); err != nil {
+	sb := &msb.MockSandbox{FSValue_: fs}
+	if err := Provision(context.Background(), sb, cf); err != nil {
 		t.Fatalf("Provision: %v", err)
 	}
 	if _, ok := fs.Writes[OpenCodeConfigPath(VMHomeDir)]; ok {

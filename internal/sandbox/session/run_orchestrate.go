@@ -147,11 +147,11 @@ func prepareSandbox(
 	}
 	ui.Verbosef("recreate: %v, restart: %v", recreate, restart)
 	opts.Recreate = recreate
-	sb, created, err := ensureProjectVM(ctx, opts, imageInfo.Tag, homeVol, cwd, imageInfo.Env, ui)
+	sb, boot, err := ensureProjectVM(ctx, opts, imageInfo.Tag, homeVol, cwd, imageInfo.Env, ui)
 	if err != nil {
 		return nil, err
 	}
-	if created {
+	if boot == vmBootCreated {
 		persistCreatedEnvSecrets(projectSlug, ui)
 	}
 	name := projectVMName(projectSlug)
@@ -162,7 +162,7 @@ func prepareSandbox(
 		ui.Infof("VM lifecycle skipped (--dry-run-vm)")
 		sandboxTarget = resolveTargetNoBranch()
 	} else {
-		sandboxTarget, sandboxErr = setUpSandbox(ctx, sb, opts, cfs, ui, restart)
+		sandboxTarget, sandboxErr = setUpSandbox(ctx, sb, opts, cfs, ui, restart, boot)
 		if sandboxErr != nil {
 			return nil, sandboxErr
 		}
@@ -330,7 +330,7 @@ func runAttach(
 	var exitCode int
 	var attachErr error
 	if opts.Root {
-		exitCode, attachErr = session.sb.AttachWith(ctx, "/bin/bash", bashArgs, msbSdk.WithAttachUser("root"))
+		exitCode, attachErr = session.sb.AttachWith(ctx, "/bin/bash", bashArgs, msbSdk.WithAttachUser(rootUser))
 	} else {
 		exitCode, attachErr = session.sb.Attach(ctx, "/bin/bash", bashArgs...)
 	}

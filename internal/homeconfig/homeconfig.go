@@ -19,63 +19,125 @@ import (
 // manifestName is the fixed manifest filename.
 const manifestName = "home.yaml"
 
+// startupHook is the only supported startup-hook value.
+const startupHook = "startup"
+
 // opencodeConfigPath is the reserved VM path for the snippet-merged opencode
 // config; the manifest must not target it.
 const opencodeConfigPath = ".config/opencode/opencode.json"
 
-// resolveLayers returns each layer's sources resolved against that layer's own
-// manifest dir, for the user layer then the project layer. The returned resolved
-// layers keep project-wins-per-key when merged.
-func resolveLayers(layers []map[string]string, dirs []string) ([]map[string]string, error) {
-	resolved := make([]map[string]string, 0, len(layers))
-	for i, layer := range layers {
-		out := make(map[string]string, len(layer))
-		for target, source := range layer {
-			src, err := ResolveSource(target, source, dirs[i])
-			if err != nil {
-				return nil, err
-			}
-			out[target] = src
-		}
-		resolved = append(resolved, out)
-	}
-	return resolved, nil
+// Entry describes a single home.yaml mapping: the host source path and the
+// optional startup-hook metadata. A plain-string value is equivalent to an
+// Entry with only Source set.
+type Entry struct {
+	Source string // host source path, resolved like the plain string form
+	Hook   string // optional; only "startup" is supported
+	Root   bool   // optional; run the hook as root (default: the sandbox user, dev)
 }
 
-// LoadManifest parses a home.yaml manifest into a map from VM-home-relative
-// target path to host source string (possibly empty).
-func LoadManifest(path string) (map[string]string, error) {
+// Manifest maps a VM-home-relative target path to its Entry.
+type Manifest map[string]Entry
+
+// LoadManifest parses a home.yaml manifest into a Manifest. Each value may be
+// either a plain source string (as before) or a mapping with optional
+// source/hook/user fields. Unknown hook values are rejected.
+func LoadManifest(path string) (Manifest, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, err
 	}
-	var m map[string]string
-	if err := yaml.Unmarshal(data, &m); err != nil {
+	var raw map[string]any
+	if err := yaml.Unmarshal(data, &raw); err != nil {
 		return nil, fmt.Errorf("parse %s: %w", path, err)
 	}
-	if m == nil {
-		m = map[string]string{}
+	if raw == nil {
+		raw = map[string]any{}
+	}
+	m := Manifest{}
+	for target, v := range raw {
+		e, err := parseEntry(v)
+		if err != nil {
+			return nil, fmt.Errorf("parse %s entry %q: %w", path, target, err)
+		}
+		m[target] = e
 	}
 	return m, nil
 }
 
+func parseEntry(v any) (Entry, error) {
+	switch val := v.(type) {
+	case nil:
+		return Entry{}, nil
+	case string:
+		return Entry{Source: val, Hook: "", Root: false}, nil
+	case map[string]any:
+		var e Entry
+		if s, ok := val["source"]; ok {
+			src, ok := s.(string)
+			if !ok {
+				return e, errors.New("source must be a string")
+			}
+			e.Source = src
+		}
+		if h, ok := val["hook"]; ok {
+			hook, ok := h.(string)
+			if !ok {
+				return e, errors.New("hook must be a string")
+			}
+			e.Hook = hook
+		}
+		if e.Hook != "" && e.Hook != startupHook {
+			return e, fmt.Errorf("hook must be %q, got %q", startupHook, e.Hook)
+		}
+		if r, ok := val["root"]; ok {
+			root, ok := r.(bool)
+			if !ok {
+				return e, errors.New("root must be a boolean")
+			}
+			e.Root = root
+		}
+		return e, nil
+	default:
+		return Entry{}, fmt.Errorf("unsupported value type %T", v)
+	}
+}
+
 // MergeManifests returns a single map with later layers overriding earlier ones
 // by key.
-func MergeManifests(layers ...map[string]string) map[string]string {
-	merged := map[string]string{}
+func MergeManifests(layers ...Manifest) Manifest {
+	merged := Manifest{}
 	for _, layer := range layers {
 		maps.Copy(merged, layer)
 	}
 	return merged
 }
 
-// ResolveSource resolves a manifest source value to a host path.
+// resolveManifestSources returns each layer's sources resolved against that layer's own
+// manifest dir, for the dirs passed. The returned resolved layers keep project-wins-per-key when merged.
+func resolveManifestSources(manifests []Manifest, dirs []string) ([]Manifest, error) {
+	resolved := make([]Manifest, 0, len(manifests))
+	for i, layer := range manifests {
+		out := make(Manifest, len(layer))
+		for target, e := range layer {
+			src, err := ResolveManifestSource(target, e.Source, dirs[i])
+			if err != nil {
+				return nil, err
+			}
+			e.Source = src
+			out[target] = e
+		}
+		resolved = append(resolved, out)
+	}
+	return resolved, nil
+}
+
+// ResolveManifestSource resolves a manifest source value to a host path.
 //
 //	empty            -> host $HOME/<target>
 //	starts with "/"  -> absolute
 //	starts with "~"  -> host $HOME/<rest>
 //	otherwise        -> relative to manifestDir
-func ResolveSource(target, source, manifestDir string) (string, error) {
+func ResolveManifestSource(target, source, manifestDir string) (string, error) {
 	home, _ := os.UserHomeDir()
 	switch {
 	case source == "":
@@ -123,11 +185,11 @@ func ResolveVMTarget(homeBase, relTarget string) (string, error) {
 
 // loadLayers reads each present manifest; an absent manifest yields an empty
 // layer. The boolean reports whether at least one manifest file exists.
-func loadLayers(userConfigDir, projectConfigDir string) ([]map[string]string, bool, error) {
-	var layers []map[string]string
+func loadLayers(userConfigDir, projectConfigDir string) ([]Manifest, bool, error) {
+	var layers []Manifest
 	has := false
 	for _, dir := range []string{userConfigDir, projectConfigDir} {
-		layer := map[string]string{}
+		layer := Manifest{}
 		path := filepath.Join(dir, manifestName)
 		if _, err := os.Stat(path); err == nil {
 			has = true
@@ -153,7 +215,7 @@ func BuildHomeFiles(userConfigDir, projectConfigDir, homeBase string) (map[strin
 	if err != nil {
 		return nil, nil, false, err
 	}
-	resolved, err := resolveLayers(layers, []string{userConfigDir, projectConfigDir})
+	resolved, err := resolveManifestSources(layers, []string{userConfigDir, projectConfigDir})
 	if err != nil {
 		return nil, nil, false, err
 	}
@@ -163,14 +225,14 @@ func BuildHomeFiles(userConfigDir, projectConfigDir, homeBase string) (map[strin
 	}
 	files := make(map[string][]byte)
 	var missing []string
-	for target, src := range merged {
+	for target, e := range merged {
 		vmPath, vErr := ResolveVMTarget(homeBase, target)
 		if vErr != nil {
 			return nil, nil, false, vErr
 		}
-		data, rErr := os.ReadFile(src)
+		data, rErr := os.ReadFile(e.Source)
 		if rErr != nil {
-			missing = append(missing, src)
+			missing = append(missing, e.Source)
 			continue
 		}
 		files[vmPath] = data
@@ -187,20 +249,106 @@ func DescribeManifest(userConfigDir, projectConfigDir, homeBase string) ([][2]st
 	if err != nil {
 		return nil, false, err
 	}
-	resolved, err := resolveLayers(layers, []string{userConfigDir, projectConfigDir})
+	resolved, err := resolveManifestSources(layers, []string{userConfigDir, projectConfigDir})
 	if err != nil {
 		return nil, false, err
 	}
 	var pairs [][2]string
-	for target, src := range MergeManifests(resolved...) {
+	for target, e := range MergeManifests(resolved...) {
 		vmPath, err := ResolveVMTarget(homeBase, target)
 		if err != nil {
 			return nil, false, err
 		}
-		pairs = append(pairs, [2]string{vmPath, src})
+		pairs = append(pairs, [2]string{vmPath, e.Source})
 	}
 	sort.Slice(pairs, func(i, j int) bool {
 		return pairs[i][0] < pairs[j][0]
 	})
 	return pairs, has, nil
+}
+
+// HookSpec describes a single startup-hook entry: the provisioned VM target,
+// its resolved host source, the interpreter declared by the script's shebang,
+// and whether to run it as root.
+type HookSpec struct {
+	Target      string // absolute VM path to the provisioned script
+	Source      string // resolved host source path
+	Interpreter string // script's shebang interpreter; empty falls back to /bin/sh
+	Root        bool   // run as root; false runs as the sandbox user (dev)
+}
+
+// shebangInterpreter returns the interpreter named by the first `#!` line of
+// the file at path, or "" if there is none. `#!/usr/bin/env bash` yields
+// "/usr/bin/env bash" so the env command resolves the real interpreter inside
+// the VM.
+func shebangInterpreter(path string) string {
+	f, err := os.Open(path)
+	if err != nil {
+		return ""
+	}
+	defer f.Close()
+	var line []byte
+	buf := make([]byte, 1)
+	for range 2 {
+		if _, err := f.Read(buf); err != nil {
+			return ""
+		}
+		line = append(line, buf[0])
+	}
+	if string(line) != "#!" {
+		return ""
+	}
+	for {
+		b, err := f.Read(buf)
+		if err != nil {
+			break
+		}
+		if b == 0 {
+			break
+		}
+		if buf[0] == '\n' {
+			break
+		}
+		line = append(line, buf[0])
+	}
+	interp := strings.TrimSpace(strings.TrimPrefix(string(line), "#!"))
+	if interp == "" {
+		return ""
+	}
+	return interp
+}
+
+// BuildHooks returns the merged manifest's startup-hook entries (Hook ==
+// "startup") whose host source exists, sorted by VM target. A hook whose host
+// source is missing is skipped (its script will not have been provisioned).
+func BuildHooks(userConfigDir, projectConfigDir, homeBase string) ([]HookSpec, error) {
+	layers, _, err := loadLayers(userConfigDir, projectConfigDir)
+	if err != nil {
+		return nil, err
+	}
+	resolved, err := resolveManifestSources(layers, []string{userConfigDir, projectConfigDir})
+	if err != nil {
+		return nil, err
+	}
+	var hooks []HookSpec
+	for target, e := range MergeManifests(resolved...) {
+		if e.Hook != startupHook {
+			continue
+		}
+		if _, err := os.Stat(e.Source); err != nil {
+			continue
+		}
+		vmPath, vErr := ResolveVMTarget(homeBase, target)
+		if vErr != nil {
+			return nil, vErr
+		}
+		hooks = append(
+			hooks,
+			HookSpec{Target: vmPath, Source: e.Source, Interpreter: shebangInterpreter(e.Source), Root: e.Root},
+		)
+	}
+	sort.Slice(hooks, func(i, j int) bool {
+		return hooks[i].Target < hooks[j].Target
+	})
+	return hooks, nil
 }

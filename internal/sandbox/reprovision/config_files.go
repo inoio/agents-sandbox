@@ -62,10 +62,11 @@ func OpenCodeConfigPath(home string) string {
 // ConfigFiles holds the merged opencode config and the set of home files to
 // provision into the VM.
 type ConfigFiles struct {
-	HasSnippets bool              // whether any opencode snippet existed
-	OpenCode    []byte            // merged opencode.json content
-	HomeFiles   map[string][]byte // VM absolute path -> content
-	Keys        []string          // sorted VM paths for comparison
+	HasSnippets bool                  // whether any opencode snippet existed
+	OpenCode    []byte                // merged opencode.json content
+	HomeFiles   map[string][]byte     // VM absolute path -> content
+	Hooks       []homeconfig.HookSpec // startup hooks to run at setUpSandbox
+	Keys        []string              // sorted VM paths for comparison
 }
 
 // LoadConfigFiles builds the desired VM state: the merged opencode.json (from
@@ -88,6 +89,14 @@ func LoadConfigFiles(userConfigDir string, ui termio.UI) (*ConfigFiles, error) {
 	for _, src := range missing {
 		ui.Warnf("home.yaml source %q does not exist on the host; skipping", src)
 	}
+	hooks, err := homeconfig.BuildHooks(
+		filepath.Dir(userConfigDir), // user home.yaml lives one level above the opencode subdir
+		cp.Get().ProjectConfigDir(),
+		VMHomeDir,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("build hooks: %w", err)
+	}
 	keys := make([]string, 0, len(homeFiles)+1)
 	if hasSnippets {
 		keys = append(keys, OpenCodeConfigPath(VMHomeDir))
@@ -100,6 +109,7 @@ func LoadConfigFiles(userConfigDir string, ui termio.UI) (*ConfigFiles, error) {
 		HasSnippets: hasSnippets,
 		OpenCode:    opencodeJSON,
 		HomeFiles:   homeFiles,
+		Hooks:       hooks,
 		Keys:        keys,
 	}, nil
 }

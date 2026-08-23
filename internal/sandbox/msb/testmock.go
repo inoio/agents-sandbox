@@ -409,6 +409,8 @@ type MockSandbox struct {
 	AttachCode int
 	AttachErr  error
 	AttachUser string
+	AttachCmd  string
+	AttachArgs []string
 	DetachErr  error
 	StopErr    error
 	CloseErr   error
@@ -459,10 +461,12 @@ func (m *MockSandbox) Attach(_ context.Context, _ string, _ ...string) (int, err
 
 func (m *MockSandbox) AttachWith(
 	_ context.Context,
-	_ string,
-	_ []string,
+	command string,
+	args []string,
 	opts ...msbSdk.AttachOption,
 ) (int, error) {
+	m.AttachCmd = command
+	m.AttachArgs = args
 	if len(opts) > 0 {
 		//nolint:exhaustruct // only User_ is relevant for this mock
 		cfg := msbSdk.AttachConfig{}
@@ -518,7 +522,9 @@ type TestFS struct {
 	LS       []msbSdk.FsEntry
 	ReadErr  error
 	ListErr  error
+	WriteErr error
 	Writes   map[string][]byte
+	Mkdirs   []string
 }
 
 // NewTestFS creates a SandboxFS backed by the given files. Files is a map from
@@ -562,8 +568,14 @@ func (t *TestFS) ReadStream(_ context.Context, _ string) (*msbSdk.FsReadStream, 
 	return &msbSdk.FsReadStream{}, nil
 }
 
-func (t *TestFS) Mkdir(_ context.Context, _ string) error { return nil }
+func (t *TestFS) Mkdir(_ context.Context, path string) error {
+	t.Mkdirs = append(t.Mkdirs, path)
+	return nil
+}
 func (t *TestFS) Write(_ context.Context, path string, data []byte) error {
+	if t.WriteErr != nil {
+		return t.WriteErr
+	}
 	if t.Writes == nil {
 		t.Writes = make(map[string][]byte)
 	}

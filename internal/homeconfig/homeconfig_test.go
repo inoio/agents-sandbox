@@ -24,9 +24,9 @@ func TestLoadManifest(t *testing.T) {
 	if err != nil {
 		t.Fatalf("LoadManifest: %v", err)
 	}
-	want := map[string]string{
-		".gitconfig":            "",
-		".config/tool/cfg.toml": "./tool/cfg.toml",
+	want := Manifest{
+		".gitconfig":            Entry{Source: ""},
+		".config/tool/cfg.toml": Entry{Source: "./tool/cfg.toml"},
 	}
 	if !reflect.DeepEqual(m, want) {
 		t.Errorf("got %v, want %v", m, want)
@@ -34,19 +34,50 @@ func TestLoadManifest(t *testing.T) {
 }
 
 func TestMergeManifestsProjectWins(t *testing.T) {
-	user := map[string]string{".gitconfig": "", ".ssh/config": ""}
-	proj := map[string]string{".gitconfig": "~/dotfiles/gitconfig"}
+	user := Manifest{".gitconfig": Entry{Source: ""}, ".ssh/config": Entry{Source: ""}}
+	proj := Manifest{".gitconfig": Entry{Source: "~/dotfiles/gitconfig"}}
 	merged := MergeManifests(user, proj)
-	if merged[".ssh/config"] != "" {
-		t.Errorf("user-only key should remain, got %q", merged[".ssh/config"])
+	if merged[".ssh/config"].Source != "" {
+		t.Errorf("user-only key should remain, got %q", merged[".ssh/config"].Source)
 	}
-	if merged[".gitconfig"] != "~/dotfiles/gitconfig" {
-		t.Errorf("project should override user, got %q", merged[".gitconfig"])
+	if merged[".gitconfig"].Source != "~/dotfiles/gitconfig" {
+		t.Errorf("project should override user, got %q", merged[".gitconfig"].Source)
+	}
+}
+
+func TestLoadManifestStructuredEntry(t *testing.T) {
+	dir := t.TempDir()
+	writeHomeYAML(t, dir, ".vpn/connect.sh:\n  source: vpn/connect.sh\n  hook: startup\n  root: true\n")
+	m, err := LoadManifest(filepath.Join(dir, "home.yaml"))
+	if err != nil {
+		t.Fatalf("LoadManifest: %v", err)
+	}
+	want := Manifest{
+		".vpn/connect.sh": Entry{Source: "vpn/connect.sh", Hook: "startup", Root: true},
+	}
+	if !reflect.DeepEqual(m, want) {
+		t.Errorf("got %v, want %v", m, want)
+	}
+}
+
+func TestLoadManifestRejectsUnknownHook(t *testing.T) {
+	dir := t.TempDir()
+	writeHomeYAML(t, dir, ".x:\n  source: x\n  hook: boot\n")
+	if _, err := LoadManifest(filepath.Join(dir, "home.yaml")); err == nil {
+		t.Fatal("expected error for unknown hook value")
+	}
+}
+
+func TestLoadManifestRejectsNonBooleanRoot(t *testing.T) {
+	dir := t.TempDir()
+	writeHomeYAML(t, dir, ".x:\n  source: x\n  hook: startup\n  root: yes\n")
+	if _, err := LoadManifest(filepath.Join(dir, "home.yaml")); err == nil {
+		t.Fatal("expected error for non-boolean root value")
 	}
 }
 
 func TestResolveSourceEmptyFallsBackToTarget(t *testing.T) {
-	got, err := ResolveSource(".gitconfig", "", "/tmp/mf")
+	got, err := ResolveManifestSource(".gitconfig", "", "/tmp/mf")
 	if err != nil {
 		t.Fatalf("ResolveSource: %v", err)
 	}
@@ -59,7 +90,7 @@ func TestResolveSourceEmptyFallsBackToTarget(t *testing.T) {
 }
 
 func TestResolveSourceAbsolute(t *testing.T) {
-	got, err := ResolveSource(".x", "/etc/foo", "/tmp/mf")
+	got, err := ResolveManifestSource(".x", "/etc/foo", "/tmp/mf")
 	if err != nil {
 		t.Fatalf("ResolveSource: %v", err)
 	}
@@ -70,7 +101,7 @@ func TestResolveSourceAbsolute(t *testing.T) {
 
 func TestResolveSourceTilde(t *testing.T) {
 	t.Setenv("HOME", "/home/u")
-	got, err := ResolveSource(".x", "~/bar", "/tmp/mf")
+	got, err := ResolveManifestSource(".x", "~/bar", "/tmp/mf")
 	if err != nil {
 		t.Fatalf("ResolveSource: %v", err)
 	}
@@ -80,7 +111,7 @@ func TestResolveSourceTilde(t *testing.T) {
 }
 
 func TestResolveSourceRelativeToManifestDir(t *testing.T) {
-	got, err := ResolveSource(".x", "tool/cfg.toml", "/home/u/dotfiles")
+	got, err := ResolveManifestSource(".x", "tool/cfg.toml", "/home/u/dotfiles")
 	if err != nil {
 		t.Fatalf("ResolveSource: %v", err)
 	}
@@ -311,5 +342,106 @@ func TestDescribeManifestResolvesProjectRelativeSourceAgainstProjectDir(t *testi
 	want := filepath.Join(proj, "tool/cfg.toml")
 	if src != want {
 		t.Errorf("got source %q, want %q", src, want)
+	}
+}
+
+func TestBuildHooksFiltersAndSorts(t *testing.T) {
+	user := t.TempDir()
+	proj := t.TempDir()
+
+	// Only .vpn/connect.sh is marked hook: startup and its source exists.
+	if err := os.MkdirAll(filepath.Join(proj, "vpn"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	testutil.WritePath(t, filepath.Join(proj, "vpn/connect.sh"), "#!/bin/sh\necho hi\n")
+	writeHomeYAML(t, proj, ""+
+		".vpn/connect.sh:\n  source: vpn/connect.sh\n  hook: startup\n  root: true\n"+
+		".zshrc:\n")
+
+	hooks, err := BuildHooks(user, proj, vmHome)
+	if err != nil {
+		t.Fatalf("BuildHooks: %v", err)
+	}
+	want := []HookSpec{
+		{
+			Target:      "/home/dev/.vpn/connect.sh",
+			Source:      filepath.Join(proj, "vpn/connect.sh"),
+			Interpreter: "/bin/sh",
+			Root:        true,
+		},
+	}
+	if !reflect.DeepEqual(hooks, want) {
+		t.Errorf("got %v, want %v", hooks, want)
+	}
+}
+
+func TestBuildHooksSkipsMissingSource(t *testing.T) {
+	user := t.TempDir()
+	proj := t.TempDir()
+	// hook entry whose source file does not exist on the host
+	writeHomeYAML(t, proj, ".vpn/connect.sh:\n  source: vpn/connect.sh\n  hook: startup\n")
+	hooks, err := BuildHooks(user, proj, vmHome)
+	if err != nil {
+		t.Fatalf("BuildHooks: %v", err)
+	}
+	if len(hooks) != 0 {
+		t.Errorf("expected no hooks for missing source, got %v", hooks)
+	}
+}
+
+func TestShebangInterpreter(t *testing.T) {
+	dir := t.TempDir()
+	cases := []struct {
+		name string
+		body string
+		want string
+	}{
+		{"plain sh", "#!/bin/sh\n", "/bin/sh"},
+		{"bash", "#!/bin/bash\necho hi\n", "/bin/bash"},
+		{"env bash", "#!/usr/bin/env bash\n", "/usr/bin/env bash"},
+		{"with spaces", "#!/usr/bin/env python3\n", "/usr/bin/env python3"},
+		{"no shebang", "echo hi\n", ""},
+		{"empty file", "", ""},
+		{"crlf shebang", "#!/bin/bash\r\n", "/bin/bash"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			p := filepath.Join(dir, "s.sh")
+			testutil.WritePath(t, p, tc.body)
+			if got := shebangInterpreter(p); got != tc.want {
+				t.Errorf("shebangInterpreter(%q) = %q, want %q", tc.body, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestBuildHooksCapturesInterpreter(t *testing.T) {
+	user := t.TempDir()
+	proj := t.TempDir()
+	testutil.WritePath(t, filepath.Join(proj, "connect.sh"), "#!/bin/bash\n")
+	writeHomeYAML(t, proj, ".vpn/connect.sh:\n  source: connect.sh\n  hook: startup\n")
+	hooks, err := BuildHooks(user, proj, vmHome)
+	if err != nil {
+		t.Fatalf("BuildHooks: %v", err)
+	}
+	if len(hooks) != 1 || hooks[0].Interpreter != "/bin/bash" {
+		t.Errorf("hooks = %v, want interpreter /bin/bash", hooks)
+	}
+}
+
+func TestBuildHooksSortsByTarget(t *testing.T) {
+	user := t.TempDir()
+	proj := t.TempDir()
+	testutil.WritePath(t, filepath.Join(proj, "a.sh"), "#!/bin/sh\n")
+	testutil.WritePath(t, filepath.Join(proj, "b.sh"), "#!/bin/sh\n")
+	writeHomeYAML(t, proj, ""+
+		".b:\n  source: b.sh\n  hook: startup\n"+
+		".a:\n  source: a.sh\n  hook: startup\n")
+	hooks, err := BuildHooks(user, proj, vmHome)
+	if err != nil {
+		t.Fatalf("BuildHooks: %v", err)
+	}
+	if len(hooks) != 2 || hooks[0].Target != "/home/dev/.a" || hooks[1].Target != "/home/dev/.b" {
+		t.Errorf("hooks not sorted by target: %v", hooks)
 	}
 }

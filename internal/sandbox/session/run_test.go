@@ -11,6 +11,7 @@ import (
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 
 	"github.com/inoio/opencode-sandbox/internal/configpaths"
+	"github.com/inoio/opencode-sandbox/internal/homeconfig"
 	"github.com/inoio/opencode-sandbox/internal/sandbox/msb"
 	"github.com/inoio/opencode-sandbox/internal/sandbox/options"
 	"github.com/inoio/opencode-sandbox/internal/sandbox/reprovision"
@@ -144,6 +145,7 @@ func setUpSandboxProvisionsConfig(t *testing.T, provisionMsg string) {
 		cfs,
 		ui,
 		false,
+		vmBootStarted,
 	)
 	if err != nil {
 		t.Fatalf("setUpSandbox: %v", err)
@@ -234,7 +236,7 @@ func TestSetUpSandboxRestartsDaemonsOnReuseDecision(t *testing.T) {
 	}
 	target, err := setUpSandbox(
 		context.Background(), sb, options.RunOptions{},
-		cfs, &ui, true,
+		cfs, &ui, true, vmBootStarted,
 	)
 	if err != nil {
 		t.Fatalf("setUpSandbox: %v", err)
@@ -295,6 +297,7 @@ func TestSetUpSandboxProvisionsUpdatedConfigOnKeep(t *testing.T) {
 		cfs,
 		ui,
 		false, // restart=false (user chose "keep")
+		vmBootStarted,
 	)
 	if err != nil {
 		t.Fatalf("setUpSandbox: %v", err)
@@ -303,6 +306,52 @@ func TestSetUpSandboxProvisionsUpdatedConfigOnKeep(t *testing.T) {
 	wrote := fs.Writes != nil && fs.Writes[ocPath] != nil
 	if !wrote {
 		t.Error("expected updated opencode.json to be provisioned even when daemon restart is deferred (keep)")
+	}
+}
+
+// TestSetUpSandboxRunsHooksOnlyOnBoot verifies that startup hooks run only
+// when the VM transitioned to running this run (started/created), and are
+// skipped when the VM was already running and merely connected to.
+func TestSetUpSandboxRunsHooksOnlyOnBoot(t *testing.T) {
+	origDaemon := SetDaemonShellFunc(func(_ context.Context, _ msb.Sandbox, command string) (string, int, error) {
+		if command == "curl -sfm2 "+daemonHealthURL {
+			return `{"healthy":true,"version":"test"}`, 0, nil
+		}
+		return "", 0, nil
+	})
+	defer SetDaemonShellFunc(origDaemon)
+
+	fs := msb.NewTestFS(nil, nil)
+	sb := &msb.MockSandbox{Name_: "test-vm", FSValue_: fs}
+	configpaths.WithMockConfigPaths(t)
+	ui := &termio.Mock{}
+	cfs := &reprovision.ConfigFiles{
+		Hooks: []homeconfig.HookSpec{
+			{Target: "/home/dev/.hello.sh", Source: "x", Interpreter: "/bin/sh"},
+		},
+	}
+
+	for _, tc := range []struct {
+		name   string
+		boot   vmBoot
+		expect bool
+	}{
+		{"connected VM skips hooks", vmBootConnected, false},
+		{"started VM runs hooks", vmBootStarted, true},
+		{"created VM runs hooks", vmBootCreated, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			sb.AttachCmd = ""
+			sb.AttachUser = ""
+			_, err := setUpSandbox(context.Background(), sb, options.RunOptions{}, cfs, ui, false, tc.boot)
+			if err != nil {
+				t.Fatalf("setUpSandbox: %v", err)
+			}
+			ran := sb.AttachCmd != ""
+			if ran != tc.expect {
+				t.Errorf("hook ran = %v, want %v", ran, tc.expect)
+			}
+		})
 	}
 }
 

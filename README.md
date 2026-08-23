@@ -109,7 +109,7 @@ with `opencode-sandbox build` to upgrade (optionally pinning a specific version 
 |-----------------------------------------------|--------------------------------------------------------|
 | [Getting Started](/docs/getting-started.md)   | Installation, prerequisites, configuration, first run  |
 | [Commands](/docs/commands.md)                 | Complete CLI reference                                 |
-| [Configuration](/docs/configuration.md)       | Launcher config, env, secrets, opencode snippet merge, `home.yaml` |
+| [Configuration](/docs/configuration.md)       | Launcher config, env, secrets, opencode snippet merge, `home.yaml` (incl. startup hooks) |
 | [Runner Image](/docs/runner-image.md)         | Base image, custom tooling                             |
 | [Worktree Sessions](/docs/branch-sessions.md) | Isolated worktree sessions for per-feature development |
 | [Sandboxes](/docs/sandboxes.md)               | VM lifecycle, volumes, pruning                         |

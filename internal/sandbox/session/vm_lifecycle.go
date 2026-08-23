@@ -37,6 +37,24 @@ const (
 	vmActionStart
 )
 
+// vmBoot records how the project VM entered the running state this run.
+type vmBoot int
+
+const (
+	// vmBootConnected means the VM was already running and was merely attached to.
+	vmBootConnected vmBoot = iota
+	// vmBootStarted means the VM was booted this run from a stopped/crashed state.
+	vmBootStarted
+	// vmBootCreated means the VM was freshly created (first boot or recreation).
+	vmBootCreated
+)
+
+// booted reports whether the VM transitioned to running this run (started or
+// created) rather than being already-running when attached to.
+func (b vmBoot) booted() bool {
+	return b == vmBootStarted || b == vmBootCreated
+}
+
 // defaultVMIdleTimeout moved to internal/sandbox/options.
 
 // decideVMAction maps a GetSandbox result to the lifecycle action.
@@ -58,11 +76,12 @@ func decideVMAction(notFoundErr error, status msbSdk.SandboxStatus) (vmAction, e
 	return vmActionStart, nil
 }
 
-// ensureProjectVM returns a live *msb.Sandbox for the project VM. The boolean
-// return is true when the VM was created fresh (first boot or recreation
-// after an image change); false when an existing VM was reused (connect or
-// start). A per-project host-side flock guards the first-boot race between
-// concurrent invocations.
+// ensureProjectVM returns a live *msb.Sandbox for the project VM and how it
+// entered the running state this run: vmBootCreated on first boot or
+// recreation, vmBootStarted when an existing stopped/crashed VM was booted,
+// or vmBootConnected when an already-running VM was merely attached to. A
+// per-project host-side flock guards the first-boot race between concurrent
+// invocations.
 //
 //nolint:gocognit,funlen,gocyclo,cyclop // Complex lifecycle logic with multiple paths (connect, start, create) is inherently complex
 func ensureProjectVM(
@@ -71,10 +90,10 @@ func ensureProjectVM(
 	imageRef, homeVol, repoPath string,
 	imageEnvs map[string]string,
 	ui termio.UI,
-) (msb.Sandbox, bool, error) {
+) (msb.Sandbox, vmBoot, error) {
 	if opts.DryRunVM {
 		ui.Verbosef("dry-run: VM lifecycle skipped")
-		return nil, false, nil
+		return nil, vmBootConnected, nil
 	}
 
 	client := msb.Get()
@@ -84,7 +103,7 @@ func ensureProjectVM(
 
 	flockPath := filepath.Join(configpaths.Get().UserStateDir(), slug, "ensure-vm.lock")
 	if err := os.MkdirAll(filepath.Dir(flockPath), 0o750); err != nil {
-		return nil, false, fmt.Errorf("create flock dir: %w", err)
+		return nil, vmBootConnected, fmt.Errorf("create flock dir: %w", err)
 	}
 
 	spin := ui.Spinner("Checking project VM")
@@ -93,7 +112,7 @@ func ensureProjectVM(
 	notFound := msb.IsNotFound(err)
 	if err != nil && !notFound {
 		spin.StopError(err)
-		return nil, false, fmt.Errorf("check sandbox %q: %w", name, err)
+		return nil, vmBootConnected, fmt.Errorf("check sandbox %q: %w", name, err)
 	}
 
 	// Fast path: VM is already running → connect without flock.
@@ -106,7 +125,7 @@ func ensureProjectVM(
 			}
 			if removeErr := handle.Remove(context.Background()); removeErr != nil {
 				spin.StopError(removeErr)
-				return nil, false, fmt.Errorf("remove old project VM %q: %w", name, removeErr)
+				return nil, vmBootConnected, fmt.Errorf("remove old project VM %q: %w", name, removeErr)
 			}
 			ui.Verbosef("replaced project VM %s; recreating from new config", name)
 			notFound = true
@@ -119,7 +138,7 @@ func ensureProjectVM(
 		action, actionErr := decideVMAction(nil, handle.Status())
 		if actionErr != nil {
 			spin.StopError(actionErr)
-			return nil, false, actionErr
+			return nil, vmBootConnected, actionErr
 		}
 		if action == vmActionConnect {
 			sb, connErr := handle.Connect(ctx)
@@ -130,7 +149,7 @@ func ensureProjectVM(
 				handle2, refreshErr := handle.Refresh(ctx)
 				if refreshErr != nil {
 					spin.StopError(refreshErr)
-					return nil, false, fmt.Errorf(
+					return nil, vmBootConnected, fmt.Errorf(
 						"connect sandbox %q (refresh after connect failure): %w",
 						name,
 						refreshErr,
@@ -140,58 +159,58 @@ func ensureProjectVM(
 					sb2, connErr2 := handle2.Connect(ctx)
 					if connErr2 != nil {
 						spin.StopError(connErr2)
-						return nil, false, fmt.Errorf("connect sandbox %q: %w", name, connErr2)
+						return nil, vmBootConnected, fmt.Errorf("connect sandbox %q: %w", name, connErr2)
 					}
 					spin.Stop()
 					if recErr := reconcileResourceConfig(ctx, handle2, opts, ui); recErr != nil {
 						ui.Warnf("could not reconcile VM resources: %v", recErr)
 					}
-					return sb2, false, nil
+					return sb2, vmBootConnected, nil
 				}
 				sb2, startErr := handle2.Start(ctx)
 				if startErr != nil {
 					spin.StopError(startErr)
-					return nil, false, fmt.Errorf("start sandbox %q: %w", name, startErr)
+					return nil, vmBootConnected, fmt.Errorf("start sandbox %q: %w", name, startErr)
 				}
 				spin.Stop()
 				if recErr := reconcileResourceConfig(ctx, handle2, opts, ui); recErr != nil {
 					ui.Warnf("could not reconcile VM resources: %v", recErr)
 				}
-				return sb2, false, nil
+				return sb2, vmBootStarted, nil
 			}
 			spin.Stop()
 			ui.Infof("connected to existing project VM: %s", name)
 			if recErr := reconcileResourceConfig(ctx, handle, opts, ui); recErr != nil {
 				ui.Warnf("could not reconcile VM resources: %v", recErr)
 			}
-			return sb, false, nil
+			return sb, vmBootConnected, nil
 		}
 		spin.Stop()
 		// Stopped/crashed → start (no flock needed, Start is idempotent enough).
 		sb, startErr := handle.Start(ctx)
 		if startErr != nil {
 			spin.StopError(startErr)
-			return nil, false, fmt.Errorf("start sandbox %q: %w", name, startErr)
+			return nil, vmBootConnected, fmt.Errorf("start sandbox %q: %w", name, startErr)
 		}
 		ui.Infof("started existing project VM: %s", name)
 		if recErr := reconcileResourceConfig(ctx, handle, opts, ui); recErr != nil {
 			ui.Warnf("could not reconcile VM resources: %v", recErr)
 		}
-		return sb, false, nil
+		return sb, vmBootStarted, nil
 	}
 
 	spin.Stop()
 
 	// Ensure runtime is available before acquiring the flock to reduce contention.
 	if ensureErr := client.EnsureInstalled(ctx); ensureErr != nil {
-		return nil, false, fmt.Errorf("microsandbox runtime: %w", ensureErr)
+		return nil, vmBootConnected, fmt.Errorf("microsandbox runtime: %w", ensureErr)
 	}
 
 	// Slow path: VM doesn't exist → create. Hold a flock so concurrent
 	// invocations don't both create (and clobber via WithReplace).
 	release, lockErr := acquireProjectFlock(flockPath)
 	if lockErr != nil {
-		return nil, false, fmt.Errorf("acquire project flock: %w", lockErr)
+		return nil, vmBootConnected, fmt.Errorf("acquire project flock: %w", lockErr)
 	}
 	defer release()
 
@@ -202,7 +221,7 @@ func ensureProjectVM(
 		// Someone else created it while we waited for the lock.
 		action, actionErr := decideVMAction(nil, handle.Status())
 		if actionErr != nil {
-			return nil, false, actionErr
+			return nil, vmBootConnected, actionErr
 		}
 		if action == vmActionConnect {
 			sb, connErr := handle.Connect(ctx)
@@ -213,27 +232,31 @@ func ensureProjectVM(
 				if recErr := reconcileResourceConfig(ctx, handle, opts, ui); recErr != nil {
 					ui.Warnf("could not reconcile VM resources: %v", recErr)
 				}
-				return sb, false, nil
+				return sb, vmBootConnected, nil
 			}
 		}
 		sb, startErr := handle.Start(ctx)
 		if startErr != nil {
-			return nil, false, fmt.Errorf("start sandbox %q: %w", name, startErr)
+			return nil, vmBootConnected, fmt.Errorf("start sandbox %q: %w", name, startErr)
 		}
 		if recErr := reconcileResourceConfig(ctx, handle, opts, ui); recErr != nil {
 			ui.Warnf("could not reconcile VM resources: %v", recErr)
 		}
-		return sb, false, nil
+		return sb, vmBootStarted, nil
 	}
 	if !msb.IsNotFound(err) {
-		return nil, false, fmt.Errorf("re-check sandbox %q: %w", name, err)
+		return nil, vmBootConnected, fmt.Errorf("re-check sandbox %q: %w", name, err)
 	}
 
 	sb, created, err := createProjectVM(ctx, client, name, slug, imageRef, homeVol, repoPath, opts, imageEnvs, ui)
 	if err != nil {
-		return nil, false, err
+		return nil, vmBootConnected, err
 	}
-	return sb, created, nil
+	boot := vmBootConnected
+	if created {
+		boot = vmBootCreated
+	}
+	return sb, boot, nil
 }
 
 func createProjectVM(
