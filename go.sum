@@ -129,8 +129,8 @@ github.com/stretchr/testify v1.11.1 h1:7s2iGBzp5EwR7/aIZr8ao5+dra3wiQyKjjFuvgVKu
 github.com/stretchr/testify v1.11.1/go.mod h1:wZwfW3scLgRK+23gO65QZefKpKQRnfz6sD981Nm4B6U=
 github.com/subosito/gotenv v1.6.0 h1:9NlTDc1FTs4qu0DDq7AEtTPNw6SVm7uBMsUCUjABIf8=
 github.com/subosito/gotenv v1.6.0/go.mod h1:Dk4QP5c2W3ibzajGcXpNraDfq2IrhjMIvMSWPKKo0FU=
-github.com/superradcompany/microsandbox/sdk/go v0.6.9 h1:wf7qd6CdPlwdP6FpfS6Rre8zsFhNPxF3bq5FhF5tbsA=
-github.com/superradcompany/microsandbox/sdk/go v0.6.9/go.mod h1:p7Tm/p9zkO7sHO3N8A1fiTVeLB2w/fQoKdYlpN/5neA=
+github.com/superradcompany/microsandbox/sdk/go v0.6.14 h1:cXGbpLhUVFgqj6seFeCMicmkwNfDGp+XixAAAch9638=
+github.com/superradcompany/microsandbox/sdk/go v0.6.14/go.mod h1:p7Tm/p9zkO7sHO3N8A1fiTVeLB2w/fQoKdYlpN/5neA=
 github.com/titanous/json5 v1.0.0 h1:hJf8Su1d9NuI/ffpxgxQfxh/UiBFZX7bMPid0rIL/7s=
 github.com/titanous/json5 v1.0.0/go.mod h1:7JH1M8/LHKc6cyP5o5g3CSaRj+mBrIimTxzpvmckH8c=
 github.com/xanzy/ssh-agent v0.3.3 h1:+/15pJfg/RsTxqYcX6fHqOXZwwMP+2VyYWJeWM2qQFM=

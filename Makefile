@@ -75,5 +75,5 @@ user-install: build
 	mv -f ~/.local/bin/opencode-sandbox.tmp ~/.local/bin/opencode-sandbox
 
 upgrade-deps:
-	go get -u
+	go get -u ./...
 	go mod tidy

@@ -48,7 +48,7 @@ RUN ZIG_DARWIN="$(dirname "$(which zig)")/lib/libc/darwin" \
 
 USER dev
 # microsandbox so the agent can check --help, sources. Running VMs doesn't work because /dev/kvm is missing.
-RUN curl -fsSL https://github.com/superradcompany/microsandbox/releases/download/v0.6.7/install.sh | sh
+RUN curl -fsSL https://github.com/superradcompany/microsandbox/releases/download/v0.6.14/install.sh | sh
 
 USER root
 ENV PATH="/home/dev/.microsandbox/bin:$PATH"
