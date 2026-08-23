@@ -316,3 +316,20 @@ func EnsureImage(
 	dockerfile := ResolveDockerfile()
 	return EnsureImageWithClient(ctx, dockerfile, projectSlug, buildOpts, ui)
 }
+
+// Build ensures the runner image is built and loaded into the microsandbox
+// cache, so it can be used to create VMs. It composes EnsureImageWithClient
+// (build/inspect) and EnsureLoaded (load into microsandbox). Preflight checks
+// (e.g. docker availability) and dry-run handling are the caller's concern.
+func Build(
+	ctx context.Context,
+	projectSlug string,
+	buildOpts BuildOptions,
+	ui termio.UI,
+) error {
+	info, err := EnsureImageWithClient(ctx, ResolveDockerfile(), projectSlug, buildOpts, ui)
+	if err != nil {
+		return err
+	}
+	return EnsureLoaded(ctx, msb.Get(), projectSlug, info.Tag, ui)
+}

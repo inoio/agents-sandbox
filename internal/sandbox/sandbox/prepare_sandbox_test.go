@@ -1,4 +1,4 @@
-package session
+package sandbox
 
 import (
 	"context"
@@ -37,7 +37,7 @@ func TestPrepareSandboxReusesStoredOpenCodeVersion(t *testing.T) {
 	}
 
 	// The resolver records the requested version and returns it, so the test
-	// observes exactly what prepareSandbox passed instead of a network lookup.
+	// observes exactly what PrepareSandbox passed instead of a network lookup.
 	var requested string
 	sandboximage.WithMockOpenCodeVersionResolver(t, func(_ context.Context, req string) (string, error) {
 		requested = req
@@ -100,14 +100,14 @@ func TestPrepareSandboxReusesStoredOpenCodeVersion(t *testing.T) {
 	defer SetDaemonShellFunc(origDaemon)
 
 	ui := termio.NewTestMock(t)
-	sess, err := prepareSandbox(context.Background(), options.RunOptions{}, &ui)
+	sess, err := PrepareSandbox(context.Background(), options.RunOptions{}, &ui)
 	if err != nil {
-		t.Fatalf("prepareSandbox: %v", err)
+		t.Fatalf("PrepareSandbox: %v", err)
 	}
 	if sess == nil {
 		t.Fatal("expected a non-nil session")
 	}
-	defer sess.cleanup()
+	defer sess.Cleanup()
 
 	if requested != "1.5.0" {
 		t.Errorf("resolver requested = %q, want stored version %q", requested, "1.5.0")
@@ -200,14 +200,14 @@ func TestPrepareSandboxLoadsHomeYamlOnce(t *testing.T) {
 	defer SetDaemonShellFunc(origDaemon)
 
 	ui := termio.NewTestMock(t)
-	sess, err := prepareSandbox(context.Background(), options.RunOptions{}, &ui)
+	sess, err := PrepareSandbox(context.Background(), options.RunOptions{}, &ui)
 	if err != nil {
-		t.Fatalf("prepareSandbox: %v", err)
+		t.Fatalf("PrepareSandbox: %v", err)
 	}
 	if sess == nil {
 		t.Fatal("expected a non-nil session")
 	}
-	defer sess.cleanup()
+	defer sess.Cleanup()
 
 	missingWarnings := 0
 	for _, w := range ui.WarnCalls {
@@ -293,14 +293,14 @@ func TestPrepareSandboxRunsStartupHook(t *testing.T) {
 	defer SetDaemonShellFunc(origDaemon)
 
 	ui := termio.NewTestMock(t)
-	sess, err := prepareSandbox(context.Background(), options.RunOptions{}, &ui)
+	sess, err := PrepareSandbox(context.Background(), options.RunOptions{}, &ui)
 	if err != nil {
-		t.Fatalf("prepareSandbox: %v", err)
+		t.Fatalf("PrepareSandbox: %v", err)
 	}
 	if sess == nil {
 		t.Fatal("expected a non-nil session")
 	}
-	defer sess.cleanup()
+	defer sess.Cleanup()
 
 	if connectSb.AttachUser != "root" {
 		t.Errorf("startup hook AttachWith user = %q, want %q", connectSb.AttachUser, "root")
@@ -319,8 +319,8 @@ func TestRunStartupHooksDefaultsToDevUser(t *testing.T) {
 		{Target: "/home/dev/.vpn/connect.sh", Source: "x", Root: false},
 	}, &ui)
 
-	if sb.AttachUser != defaultSandboxUser {
-		t.Errorf("startup hook AttachWith user = %q, want default %q", sb.AttachUser, defaultSandboxUser)
+	if sb.AttachUser != DefaultSandboxUser {
+		t.Errorf("startup hook AttachWith user = %q, want default %q", sb.AttachUser, DefaultSandboxUser)
 	}
 	if sb.AttachCmd != "/bin/sh" {
 		t.Errorf("startup hook AttachWith cmd = %q, want fallback %q", sb.AttachCmd, "/bin/sh")

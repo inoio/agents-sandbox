@@ -6,7 +6,7 @@ import (
 
 	"golang.org/x/term"
 
-	"github.com/inoio/opencode-sandbox/internal/sandbox/session"
+	"github.com/inoio/opencode-sandbox/internal/sandbox/sandbox"
 	"github.com/inoio/opencode-sandbox/internal/termio"
 )
 
@@ -16,7 +16,7 @@ func main() {
 		term.IsTerminal(int(os.Stderr.Fd())), termio.LevelNormal, false)
 
 	if err := execute(args, ui); err != nil {
-		var exitErr *session.ExitError
+		var exitErr *sandbox.ExitError
 		if errors.As(err, &exitErr) {
 			os.Exit(exitErr.Code)
 		}

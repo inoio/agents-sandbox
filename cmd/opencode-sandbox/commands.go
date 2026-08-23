@@ -8,7 +8,7 @@ import (
 
 	"github.com/inoio/opencode-sandbox/internal/sandbox/naming"
 	"github.com/inoio/opencode-sandbox/internal/sandbox/options"
-	"github.com/inoio/opencode-sandbox/internal/sandbox/session"
+	"github.com/inoio/opencode-sandbox/internal/sandbox/sandbox"
 	"github.com/inoio/opencode-sandbox/internal/termio"
 	launcherconfig "github.com/inoio/opencode-sandbox/internal/viperconfig"
 )
@@ -22,7 +22,7 @@ type launcherConfigKey struct{}
 func extractRunOptions(cmd *cobra.Command, ui termio.UI) (options.RunOptions, error) {
 	opts := options.RunOptions{}
 	rawWorktree, _ := cmd.Flags().GetString(flagWorktree)
-	worktree, err := session.ResolveWorktreeSpec(rawWorktree)
+	worktree, err := sandbox.ResolveWorktreeSpec(rawWorktree)
 	if err != nil {
 		return options.RunOptions{}, err
 	}

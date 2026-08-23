@@ -18,7 +18,7 @@ import (
 	"github.com/inoio/opencode-sandbox/internal/sandbox/humanize"
 	"github.com/inoio/opencode-sandbox/internal/sandbox/image"
 	"github.com/inoio/opencode-sandbox/internal/sandbox/pruning"
-	"github.com/inoio/opencode-sandbox/internal/sandbox/session"
+	"github.com/inoio/opencode-sandbox/internal/sandbox/sandbox"
 	"github.com/inoio/opencode-sandbox/internal/sandbox/volume"
 	"github.com/inoio/opencode-sandbox/internal/termio"
 	"github.com/inoio/opencode-sandbox/internal/viperconfig"
@@ -166,13 +166,13 @@ func buildListCmd(ui termio.UI) *cobra.Command {
 			if cmd.Flags().Changed(flagLimit) && limit != 0 {
 				lim = &limit
 			}
-			opt := session.ListOption{
+			opt := sandbox.ListOption{
 				Labels:      labels,
 				Limit:       lim,
 				RunningOnly: running,
 				StoppedOnly: stopped,
 			}
-			sandboxes, err := session.ListSandboxes(cmd.Context(), opt)
+			sandboxes, err := sandbox.ListSandboxes(cmd.Context(), opt)
 			if err != nil {
 				return err
 			}
@@ -186,10 +186,10 @@ func buildListCmd(ui termio.UI) *cobra.Command {
 				return printSandboxesJSON(ui, sandboxes)
 			}
 			printItems(sandboxes, "No sandboxes found.", sandboxListHeaders(), ui,
-				func(s session.Info) string { return s.Name },
-				func(s session.Info) string { return s.Image },
-				func(s session.Info) string { return termio.StyleStatus(s.Status) },
-				func(s session.Info) string { return s.CreatedAt },
+				func(s sandbox.Info) string { return s.Name },
+				func(s sandbox.Info) string { return s.Image },
+				func(s sandbox.Info) string { return termio.StyleStatus(s.Status) },
+				func(s sandbox.Info) string { return s.CreatedAt },
 			)
 			return nil
 		},
@@ -225,7 +225,7 @@ type jsonSandbox struct {
 	Labels  map[string]string `json:"labels"`
 }
 
-func printSandboxesJSON(ui termio.UI, infos []session.Info) error {
+func printSandboxesJSON(ui termio.UI, infos []sandbox.Info) error {
 	out := make([]jsonSandbox, 0, len(infos))
 	for _, s := range infos {
 		out = append(out, jsonSandbox{
@@ -318,7 +318,16 @@ func buildBuildCmd(ui termio.UI) *cobra.Command {
 			force, _ := cmd.Flags().GetBool(flagRebuild)
 			dryRun, _ := cmd.Flags().GetBool(flagDryRun)
 			openCodeVersion, _ := cmd.Flags().GetString(flagOpenCodeVersion)
-			return session.BuildImage(cmd.Context(), force, dryRun, openCodeVersion, ui)
+			if dryRun {
+				ui.Infof("dry-run: Would build runner image")
+				return nil
+			}
+			if err := doctor.CheckDocker(cmd.Context()); err != nil {
+				return fmt.Errorf("docker not available: %w", err)
+			}
+			return image.Build(cmd.Context(), git.ProjectSlug(), image.BuildOptions{
+				Force: force, OpenCodeVersion: openCodeVersion,
+			}, ui)
 		},
 	}
 	cmd.Flags().BoolP(flagRebuild, flagRebuild[:1], false, "Force a clean rebuild")

@@ -1,4 +1,4 @@
-package session
+package sandbox
 
 import (
 	"context"
@@ -23,7 +23,7 @@ func TestMaybePromptSkipsWhenRebuildFlagSet(t *testing.T) {
 	}()
 
 	rebuildCalled := false
-	rebuildImageForUpgrade = func(_ context.Context, _ termio.UI, _ options.RunOptions) (image.ImageInfo, error) {
+	rebuildImageForUpgrade = func(_ context.Context, _ termio.UI, _ string) (image.ImageInfo, error) {
 		rebuildCalled = true
 		return image.ImageInfo{}, nil
 	}
@@ -40,7 +40,13 @@ func TestMaybePromptSkipsWhenRebuildFlagSet(t *testing.T) {
 	opts := options.RunOptions{Rebuild: true}
 	ui := &termio.Mock{}
 
-	gotInfo, gotAction, err := maybePromptOpenCodeUpgrade(context.Background(), ui, opts, info)
+	gotInfo, gotAction, err := maybePromptOpenCodeUpgrade(
+		context.Background(),
+		ui,
+		opts.Rebuild,
+		opts.OpenCodeVersion,
+		info,
+	)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -68,7 +74,7 @@ func TestMaybePromptForcesRebuildWhenNoVersionLabel(t *testing.T) {
 		OpenCodeVersion: "9.9.9",
 		Env:             map[string]string{"FOO": "bar"},
 	}
-	rebuildImageForUpgrade = func(_ context.Context, _ termio.UI, _ options.RunOptions) (image.ImageInfo, error) {
+	rebuildImageForUpgrade = func(_ context.Context, _ termio.UI, _ string) (image.ImageInfo, error) {
 		return expectedRebuilt, nil
 	}
 
@@ -78,7 +84,13 @@ func TestMaybePromptForcesRebuildWhenNoVersionLabel(t *testing.T) {
 	opts := options.RunOptions{}
 	ui := &termio.Mock{}
 
-	gotInfo, gotAction, err := maybePromptOpenCodeUpgrade(context.Background(), ui, opts, info)
+	gotInfo, gotAction, err := maybePromptOpenCodeUpgrade(
+		context.Background(),
+		ui,
+		opts.Rebuild,
+		opts.OpenCodeVersion,
+		info,
+	)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -97,7 +109,7 @@ func TestMaybePromptWarnsAndKeepsWhenForceRebuildFails(t *testing.T) {
 	origRebuild := rebuildImageForUpgrade
 	defer func() { rebuildImageForUpgrade = origRebuild }()
 
-	rebuildImageForUpgrade = func(_ context.Context, _ termio.UI, _ options.RunOptions) (image.ImageInfo, error) {
+	rebuildImageForUpgrade = func(_ context.Context, _ termio.UI, _ string) (image.ImageInfo, error) {
 		return image.ImageInfo{}, errors.New("build failed")
 	}
 
@@ -107,7 +119,13 @@ func TestMaybePromptWarnsAndKeepsWhenForceRebuildFails(t *testing.T) {
 	opts := options.RunOptions{}
 	ui := &termio.Mock{}
 
-	gotInfo, gotAction, err := maybePromptOpenCodeUpgrade(context.Background(), ui, opts, info)
+	gotInfo, gotAction, err := maybePromptOpenCodeUpgrade(
+		context.Background(),
+		ui,
+		opts.Rebuild,
+		opts.OpenCodeVersion,
+		info,
+	)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -136,7 +154,13 @@ func TestMaybePromptKeepsWhenNoNewerVersion(t *testing.T) {
 	opts := options.RunOptions{}
 	ui := &termio.Mock{}
 
-	gotInfo, gotAction, err := maybePromptOpenCodeUpgrade(context.Background(), ui, opts, info)
+	gotInfo, gotAction, err := maybePromptOpenCodeUpgrade(
+		context.Background(),
+		ui,
+		opts.Rebuild,
+		opts.OpenCodeVersion,
+		info,
+	)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -162,7 +186,13 @@ func TestMaybePromptNonInteractiveLogsUpgradeAvailable(t *testing.T) {
 	opts := options.RunOptions{}
 	ui := &termio.Mock{IsInteractiveResult: false}
 
-	gotInfo, gotAction, err := maybePromptOpenCodeUpgrade(context.Background(), ui, opts, info)
+	gotInfo, gotAction, err := maybePromptOpenCodeUpgrade(
+		context.Background(),
+		ui,
+		opts.Rebuild,
+		opts.OpenCodeVersion,
+		info,
+	)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -185,7 +215,7 @@ func TestMaybePromptInteractiveRebuild(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 
 	rebuilt := image.ImageInfo{Tag: "opencode-sandbox:new", OpenCodeVersion: "2.0.0"}
-	rebuildImageForUpgrade = func(_ context.Context, _ termio.UI, _ options.RunOptions) (image.ImageInfo, error) {
+	rebuildImageForUpgrade = func(_ context.Context, _ termio.UI, _ string) (image.ImageInfo, error) {
 		return rebuilt, nil
 	}
 
@@ -202,7 +232,13 @@ func TestMaybePromptInteractiveRebuild(t *testing.T) {
 		},
 	}
 
-	gotInfo, gotAction, err := maybePromptOpenCodeUpgrade(context.Background(), ui, opts, info)
+	gotInfo, gotAction, err := maybePromptOpenCodeUpgrade(
+		context.Background(),
+		ui,
+		opts.Rebuild,
+		opts.OpenCodeVersion,
+		info,
+	)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -234,7 +270,13 @@ func TestMaybePromptSkipsCheckWhenCheckedToday(t *testing.T) {
 	opts := options.RunOptions{}
 	ui := &termio.Mock{IsInteractiveResult: true}
 
-	gotInfo, gotAction, err := maybePromptOpenCodeUpgrade(context.Background(), ui, opts, info)
+	gotInfo, gotAction, err := maybePromptOpenCodeUpgrade(
+		context.Background(),
+		ui,
+		opts.Rebuild,
+		opts.OpenCodeVersion,
+		info,
+	)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -270,7 +312,13 @@ func TestMaybePromptDoesNotReOfferVersion(t *testing.T) {
 	opts := options.RunOptions{}
 	ui := &termio.Mock{IsInteractiveResult: true}
 
-	gotInfo, gotAction, err := maybePromptOpenCodeUpgrade(context.Background(), ui, opts, info)
+	gotInfo, gotAction, err := maybePromptOpenCodeUpgrade(
+		context.Background(),
+		ui,
+		opts.Rebuild,
+		opts.OpenCodeVersion,
+		info,
+	)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -294,7 +342,7 @@ func TestMaybePromptRecordsOfferedVersionBeforePrompt(t *testing.T) {
 	openCodeUpgradeInfo = func(_ context.Context) (string, error) {
 		return "2.0.0", nil
 	}
-	rebuildImageForUpgrade = func(_ context.Context, _ termio.UI, _ options.RunOptions) (image.ImageInfo, error) {
+	rebuildImageForUpgrade = func(_ context.Context, _ termio.UI, _ string) (image.ImageInfo, error) {
 		return image.ImageInfo{OpenCodeVersion: "2.0.0"}, nil
 	}
 
@@ -302,7 +350,7 @@ func TestMaybePromptRecordsOfferedVersionBeforePrompt(t *testing.T) {
 	opts := options.RunOptions{}
 	ui := &termio.Mock{IsInteractiveResult: true}
 
-	_, _, err := maybePromptOpenCodeUpgrade(context.Background(), ui, opts, info)
+	_, _, err := maybePromptOpenCodeUpgrade(context.Background(), ui, opts.Rebuild, opts.OpenCodeVersion, info)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -334,7 +382,13 @@ func TestMaybePromptOfflineDoesNotUpdateLastChecked(t *testing.T) {
 	opts := options.RunOptions{}
 	ui := &termio.Mock{IsInteractiveResult: true}
 
-	gotInfo, gotAction, err := maybePromptOpenCodeUpgrade(context.Background(), ui, opts, info)
+	gotInfo, gotAction, err := maybePromptOpenCodeUpgrade(
+		context.Background(),
+		ui,
+		opts.Rebuild,
+		opts.OpenCodeVersion,
+		info,
+	)
 	if err != nil {
 		t.Fatalf("offline check must not fail the session, got: %v", err)
 	}
@@ -369,7 +423,7 @@ func TestMaybePromptInteractiveQuit(t *testing.T) {
 
 	configpaths.WithMockConfigPaths(t)
 
-	rebuildImageForUpgrade = func(_ context.Context, _ termio.UI, _ options.RunOptions) (image.ImageInfo, error) {
+	rebuildImageForUpgrade = func(_ context.Context, _ termio.UI, _ string) (image.ImageInfo, error) {
 		return image.ImageInfo{}, nil
 	}
 	openCodeUpgradeInfo = func(_ context.Context) (string, error) {
@@ -385,7 +439,7 @@ func TestMaybePromptInteractiveQuit(t *testing.T) {
 		},
 	}
 
-	_, _, err := maybePromptOpenCodeUpgrade(context.Background(), ui, opts, info)
+	_, _, err := maybePromptOpenCodeUpgrade(context.Background(), ui, opts.Rebuild, opts.OpenCodeVersion, info)
 	if !errors.Is(err, errUpgradeQuit) {
 		t.Fatalf("expected errUpgradeQuit, got %v", err)
 	}

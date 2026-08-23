@@ -12,7 +12,8 @@ command reports the bare version (e.g. `0.1.0`).
 
 ### Changed
 
-### Fixed
+- Moved sandbox-VM listing (`ListSandboxes`/`Info`/`ListOption`) from `session` to `internal/sandbox/sandbox`, and moved runner-image building to `image.Build`, so the `cmd` layer talks to the owning packages directly.
+- Split the former `session` package: sandbox setup/lifecycle (VM provisioning, upgrade, worktrees, daemon, stop/kill, `ExitError`) moved to `internal/sandbox/sandbox`, leaving `session` scoped to run/shell attach, serve, and reap. `cmd` now imports both `sandbox` and `session`.
 
 ## [0.1.0] - 2026-08-??
 

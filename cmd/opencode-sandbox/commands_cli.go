@@ -17,6 +17,7 @@ import (
 
 	"github.com/inoio/opencode-sandbox/internal/sandbox/doctor"
 
+	"github.com/inoio/opencode-sandbox/internal/sandbox/sandbox"
 	"github.com/inoio/opencode-sandbox/internal/sandbox/session"
 	"github.com/inoio/opencode-sandbox/internal/termio"
 )
@@ -211,7 +212,7 @@ func buildStopCmd(ui termio.UI) *cobra.Command {
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			force, _ := cmd.Flags().GetBool(flagForce)
 			dryRun, _ := cmd.Flags().GetBool(flagDryRun)
-			return session.StopProjectVM(cmd.Context(), force, dryRun, ui)
+			return sandbox.StopProjectVM(cmd.Context(), force, dryRun, ui)
 		},
 	}
 	cmd.Flags().BoolP(flagForce, flagForce[:1], false, "Remove the VM's persisted state after stopping")
@@ -230,7 +231,7 @@ func buildKillCmd(ui termio.UI) *cobra.Command {
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			force, _ := cmd.Flags().GetBool(flagForce)
 			dryRun, _ := cmd.Flags().GetBool(flagDryRun)
-			return session.KillProjectVM(cmd.Context(), force, dryRun, ui)
+			return sandbox.KillProjectVM(cmd.Context(), force, dryRun, ui)
 		},
 	}
 	cmd.Flags().BoolP(flagForce, flagForce[:1], false, "Remove the VM's persisted state after killing")

@@ -6,7 +6,6 @@ import (
 	"fmt"
 
 	"github.com/inoio/opencode-sandbox/internal/sandbox/msb"
-	"github.com/inoio/opencode-sandbox/internal/sandbox/options"
 	"github.com/inoio/opencode-sandbox/internal/sandbox/state"
 	"github.com/inoio/opencode-sandbox/internal/termio"
 
@@ -20,7 +19,7 @@ func (vm *Manager) ResolveHomeVolume(
 	ctx context.Context,
 	client msb.Client,
 	projectSlug, imageDigest, imageTag string,
-	opts options.RunOptions,
+	dryRunVM bool,
 	ui termio.UI,
 ) (string, state.HomeState, error) {
 	st, err := state.ReadState(projectSlug)
@@ -28,13 +27,13 @@ func (vm *Manager) ResolveHomeVolume(
 		if !errors.Is(err, state.ErrStateNotFound) {
 			ui.Warnf("corrupted state file, creating fresh home volume")
 		}
-		return vm.EnsureNewHome(ctx, client, projectSlug, imageDigest, imageTag, opts, ui)
+		return vm.EnsureNewHome(ctx, client, projectSlug, imageDigest, imageTag, dryRunVM, ui)
 	}
 
 	_, err = client.GetVolume(ctx, st.HomeVolume)
 	if err != nil {
 		ui.Warnf("existing home volume %q not found, creating fresh", st.HomeVolume)
-		return vm.EnsureNewHome(ctx, client, projectSlug, imageDigest, imageTag, opts, ui)
+		return vm.EnsureNewHome(ctx, client, projectSlug, imageDigest, imageTag, dryRunVM, ui)
 	}
 
 	return st.HomeVolume, *st, nil
@@ -45,7 +44,7 @@ func (vm *Manager) EnsureNewHome(
 	ctx context.Context,
 	client msb.Client,
 	projectSlug, imageDigest, imageTag string,
-	opts options.RunOptions,
+	dryRunVM bool,
 	ui termio.UI,
 ) (string, state.HomeState, error) {
 	volName := HomeVolumeName(projectSlug)
@@ -56,7 +55,7 @@ func (vm *Manager) EnsureNewHome(
 		return "", state.HomeState{}, fmt.Errorf("create volume %s: %w", volName, err)
 	}
 
-	if !opts.DryRunVM {
+	if !dryRunVM {
 		if err := vm.PrefillVolume(ctx, client, projectSlug, vol.Name(), imageTag, ui); err != nil {
 			return "", state.HomeState{}, err
 		}

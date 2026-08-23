@@ -1,4 +1,4 @@
-package session
+package sandbox
 
 import (
 	"context"
@@ -9,7 +9,6 @@ import (
 	"github.com/inoio/opencode-sandbox/internal/opencode"
 	"github.com/inoio/opencode-sandbox/internal/sandbox/image"
 	"github.com/inoio/opencode-sandbox/internal/sandbox/msb"
-	"github.com/inoio/opencode-sandbox/internal/sandbox/options"
 	"github.com/inoio/opencode-sandbox/internal/termio"
 )
 
@@ -35,11 +34,11 @@ var openCodeUpgradeInfo = func(ctx context.Context) (string, error) {
 // requested) opencode version and returns the resulting ImageInfo.
 //
 //nolint:gochecknoglobals // test seam
-var rebuildImageForUpgrade = func(ctx context.Context, ui termio.UI, opts options.RunOptions) (image.ImageInfo, error) {
+var rebuildImageForUpgrade = func(ctx context.Context, ui termio.UI, openCodeVersion string) (image.ImageInfo, error) {
 	info, err := image.EnsureImage(
 		ctx,
 		git.ProjectSlug(),
-		image.BuildOptions{Force: true, OpenCodeVersion: opts.OpenCodeVersion},
+		image.BuildOptions{Force: true, OpenCodeVersion: openCodeVersion},
 		ui,
 	)
 	if err != nil {
@@ -56,16 +55,17 @@ var rebuildImageForUpgrade = func(ctx context.Context, ui termio.UI, opts option
 func maybePromptOpenCodeUpgrade(
 	ctx context.Context,
 	ui termio.UI,
-	opts options.RunOptions,
+	rebuild bool,
+	openCodeVersion string,
 	info image.ImageInfo,
 ) (image.ImageInfo, upgradeAction, error) {
-	if opts.Rebuild {
+	if rebuild {
 		return info, upgradeActionNone, nil
 	}
 
 	if info.OpenCodeVersion == "" {
 		ui.Warnf("image has no opencode version label; forcing a rebuild to pin opencode")
-		rebuilt, err := rebuildImageForUpgrade(ctx, ui, opts)
+		rebuilt, err := rebuildImageForUpgrade(ctx, ui, openCodeVersion)
 		if err != nil {
 			ui.Warnf("could not rebuild image to pin opencode: %v (continuing with current image)", err)
 			return info, upgradeActionNone, nil
@@ -100,7 +100,7 @@ func maybePromptOpenCodeUpgrade(
 	}
 	switch choice {
 	case "r":
-		rebuilt, rebuildErr := rebuildImageForUpgrade(ctx, ui, opts)
+		rebuilt, rebuildErr := rebuildImageForUpgrade(ctx, ui, openCodeVersion)
 		if rebuildErr != nil {
 			return info, upgradeActionNone, rebuildErr
 		}

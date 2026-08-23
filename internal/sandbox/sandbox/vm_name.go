@@ -1,4 +1,4 @@
-package session
+package sandbox
 
 import (
 	"github.com/inoio/opencode-sandbox/internal/sandbox/naming"

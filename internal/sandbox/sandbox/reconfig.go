@@ -1,4 +1,4 @@
-package session
+package sandbox
 
 import (
 	"context"
@@ -17,11 +17,11 @@ import (
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 )
 
-// defaultSandboxUser is the user hooks run as unless the hook opts into root.
-const defaultSandboxUser = "dev"
+// DefaultSandboxUser is the user hooks run as unless the hook opts into root.
+const DefaultSandboxUser = "dev"
 
-// rootUser is the VM root user, used to run privileged startup hooks.
-const rootUser = "root"
+// RootUser is the VM root user, used to run privileged startup hooks.
+const RootUser = "root"
 
 // defaultHookInterpreter is the interpreter used for a startup hook that does
 // not declare an explicit one.
@@ -36,10 +36,10 @@ const defaultHookInterpreter = "/bin/sh"
 // itself. Failures are logged, not fatal.
 func runStartupHooks(ctx context.Context, sb msb.Sandbox, hooks []homeconfig.HookSpec, ui termio.UI) {
 	for _, h := range hooks {
-		user := defaultSandboxUser
+		user := DefaultSandboxUser
 		home := "/home/dev"
 		if h.Root {
-			user = rootUser
+			user = RootUser
 			home = "/root"
 		}
 		interp := h.Interpreter

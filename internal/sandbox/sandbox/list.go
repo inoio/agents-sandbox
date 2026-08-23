@@ -1,4 +1,7 @@
-package session
+// Package sandbox queries and represents the sandbox VMs managed by the
+// launcher, mirroring the list/display helpers in the image and volume
+// packages.
+package sandbox
 
 import (
 	"context"

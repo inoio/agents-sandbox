@@ -509,7 +509,7 @@ func TestResolveHomeVolume_FoundInState(t *testing.T) {
 		"myproj",
 		"sha256:abc",
 		"",
-		options.RunOptions{},
+		false,
 		&termio.Mock{},
 	)
 	if err != nil {
@@ -538,7 +538,7 @@ func TestResolveHomeVolume_NoStateFile(t *testing.T) {
 		"testproj",
 		"sha256:def",
 		"",
-		options.RunOptions{},
+		false,
 		&termio.Mock{},
 	)
 	if err != nil {
@@ -576,7 +576,7 @@ func TestResolveHomeVolume_VolumeNotFoundInSandbox(t *testing.T) {
 		"orphanproj",
 		"sha256:def",
 		"latest-docker-image",
-		options.RunOptions{},
+		false,
 		&termio.Mock{},
 	)
 	if err != nil {
