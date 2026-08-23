@@ -75,6 +75,22 @@ func TestResolverConfigNoFlag(t *testing.T) {
 	}
 }
 
+func TestResolverConfigSyntaxErrorIsFriendly(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	cp := configpaths.Get()
+	testutil.WriteFile(t, cp.UserConfigDir(), "config.yaml", "cpus: 2\n  memory: [\n")
+
+	_, err := NewResolver(nil)
+	if err == nil {
+		t.Fatal("expected error for malformed config.yaml")
+	}
+	for _, want := range []string{"config.yaml", "invalid YAML", "line 2"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("error %q does not mention %q", err, want)
+		}
+	}
+}
+
 func TestResolverEnvKeyReplacement(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	t.Setenv("OPENCODE_SANDBOX_AUTO_STOP_ON_ACTIVE_SESSIONS", "true")

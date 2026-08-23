@@ -14,6 +14,8 @@ import (
 	"strings"
 
 	"gopkg.in/yaml.v3"
+
+	"github.com/inoio/opencode-sandbox/internal/yamlfmt"
 )
 
 // manifestName is the fixed manifest filename.
@@ -48,7 +50,7 @@ func LoadManifest(path string) (Manifest, error) {
 	}
 	var raw map[string]any
 	if err := yaml.Unmarshal(data, &raw); err != nil {
-		return nil, fmt.Errorf("parse %s: %w", path, err)
+		return nil, yamlfmt.WrapErr(path, err)
 	}
 	if raw == nil {
 		raw = map[string]any{}

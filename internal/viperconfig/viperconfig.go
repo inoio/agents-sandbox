@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/inoio/opencode-sandbox/internal/configpaths"
+	"github.com/inoio/opencode-sandbox/internal/yamlfmt"
 
 	"github.com/go-viper/mapstructure/v2"
 	"github.com/spf13/cobra"
@@ -234,6 +235,9 @@ func mergeDir(v *viper.Viper, dir string) error {
 	}
 	v.SetConfigType(ct)
 	if err := v.MergeConfig(bytes.NewReader(data)); err != nil {
+		if ct == "yaml" {
+			return yamlfmt.WrapErr(path, err)
+		}
 		return fmt.Errorf("load launcher config %s: %w", path, err)
 	}
 	return nil

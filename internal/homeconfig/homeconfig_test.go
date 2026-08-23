@@ -60,6 +60,22 @@ func TestLoadManifestStructuredEntry(t *testing.T) {
 	}
 }
 
+func TestLoadManifestSyntaxErrorIsFriendly(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "home.yaml")
+	writeHomeYAML(t, dir, ".gitconfig:\n  source: [\n")
+
+	_, err := LoadManifest(path)
+	if err == nil {
+		t.Fatal("expected error for malformed home.yaml")
+	}
+	for _, want := range []string{path, "invalid YAML", "line 2"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("error %q does not mention %q", err, want)
+		}
+	}
+}
+
 func TestLoadManifestRejectsUnknownHook(t *testing.T) {
 	dir := t.TempDir()
 	writeHomeYAML(t, dir, ".x:\n  source: x\n  hook: boot\n")
