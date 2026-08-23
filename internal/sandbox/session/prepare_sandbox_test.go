@@ -232,7 +232,7 @@ func TestPrepareSandboxRunsStartupHook(t *testing.T) {
 	// root-run startup hook.
 	testutil.WritePath(t, filepath.Join(cp.ProjectConfigDir(), "connect.sh"), "#!/bin/sh\nnohup echo vpn &\n")
 	testutil.WriteFile(t, cp.ProjectConfigDir(), "home.yaml",
-		".vpn/connect.sh:\n  source: connect.sh\n  hook: startup\n  user: root\n")
+		".vpn/connect.sh:\n  source: connect.sh\n  hook: startup\n  root: true\n")
 
 	sandboximage.WithMockOpenCodeVersion(t, "1.0.0")
 	origUpgradeInfo := openCodeUpgradeInfo
@@ -265,8 +265,9 @@ func TestPrepareSandboxRunsStartupHook(t *testing.T) {
 	}}
 	sh := &msb.MockSandboxHandle{
 		Name_:     projectVMName(slug),
-		Status_:   msbSdk.SandboxStatusRunning,
+		Status_:   msbSdk.SandboxStatusStopped,
 		ConnectSb: connectSb,
+		StartSb:   connectSb,
 	}
 	mock := &msb.MockMsbClient{
 		ImageGetFn: func(_ context.Context, _ string) error { return nil },
@@ -307,17 +308,55 @@ func TestPrepareSandboxRunsStartupHook(t *testing.T) {
 }
 
 // TestRunStartupHooksDefaultsToDevUser verifies that a startup hook without an
-// explicit user runs as the default sandbox user (dev). This is the path most
-// users hit, unlike the root-run case covered by the integration flow.
+// explicit user runs as the default sandbox user (dev), and that a missing
+// interpreter falls back to /bin/sh. This is the path most users hit, unlike
+// the root-run case covered by the integration flow.
 func TestRunStartupHooksDefaultsToDevUser(t *testing.T) {
 	sb := &msb.MockSandbox{Name_: "vm"}
 	ui := termio.NewTestMock(t)
 
 	runStartupHooks(context.Background(), sb, []homeconfig.HookSpec{
-		{Target: "/home/dev/.vpn/connect.sh", Source: "x", User: ""},
+		{Target: "/home/dev/.vpn/connect.sh", Source: "x", Root: false},
 	}, &ui)
 
 	if sb.AttachUser != defaultSandboxUser {
 		t.Errorf("startup hook AttachWith user = %q, want default %q", sb.AttachUser, defaultSandboxUser)
+	}
+	if sb.AttachCmd != "/bin/sh" {
+		t.Errorf("startup hook AttachWith cmd = %q, want fallback %q", sb.AttachCmd, "/bin/sh")
+	}
+}
+
+// TestRunStartupHooksUsesShebangInterpreter verifies that a hook with a
+// detected interpreter is run via that interpreter rather than a hardcoded
+// shell.
+func TestRunStartupHooksUsesShebangInterpreter(t *testing.T) {
+	sb := &msb.MockSandbox{Name_: "vm"}
+	ui := termio.NewTestMock(t)
+
+	runStartupHooks(context.Background(), sb, []homeconfig.HookSpec{
+		{Target: "/home/dev/.vpn/connect.sh", Source: "x", Root: false, Interpreter: "/bin/bash"},
+	}, &ui)
+
+	if sb.AttachCmd != "/bin/bash" {
+		t.Errorf("startup hook AttachWith cmd = %q, want %q", sb.AttachCmd, "/bin/bash")
+	}
+	if len(sb.AttachArgs) != 1 || sb.AttachArgs[0] != "/home/dev/.vpn/connect.sh" {
+		t.Errorf("startup hook AttachWith args = %v, want the script path", sb.AttachArgs)
+	}
+}
+
+// TestRunStartupHooksRunsAsRoot verifies that a hook with Root set attaches as
+// the root user.
+func TestRunStartupHooksRunsAsRoot(t *testing.T) {
+	sb := &msb.MockSandbox{Name_: "vm"}
+	ui := termio.NewTestMock(t)
+
+	runStartupHooks(context.Background(), sb, []homeconfig.HookSpec{
+		{Target: "/home/dev/.vpn/connect.sh", Source: "x", Root: true},
+	}, &ui)
+
+	if sb.AttachUser != "root" {
+		t.Errorf("startup hook AttachWith user = %q, want %q", sb.AttachUser, "root")
 	}
 }

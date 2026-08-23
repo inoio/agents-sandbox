@@ -31,7 +31,7 @@ var (
 // because it checks for the dockerd binary and handles the case where dockerd
 // is already running.
 func startDockerdIfPresent(ctx context.Context, sb msb.Sandbox, ui termio.UI) error {
-	out, checkErr := sb.Shell(ctx, dockerdBinaryCheckCmd, msbSdk.WithExecUser("root"))
+	out, checkErr := sb.Shell(ctx, dockerdBinaryCheckCmd, msbSdk.WithExecUser(rootUser))
 	if checkErr != nil {
 		return fmt.Errorf("while checking dockerd binary: %w", checkErr)
 	}
@@ -44,7 +44,7 @@ func startDockerdIfPresent(ctx context.Context, sb msb.Sandbox, ui termio.UI) er
 	if infoOut, readyErr := sb.Shell(
 		ctx,
 		dockerdReadyCmd,
-		msbSdk.WithExecUser("dev"),
+		msbSdk.WithExecUser(defaultSandboxUser),
 	); readyErr == nil &&
 		infoOut.Success() {
 		ui.Verbose("using already running dockerd")
@@ -55,13 +55,13 @@ func startDockerdIfPresent(ctx context.Context, sb msb.Sandbox, ui termio.UI) er
 	// The command background-launches dockerd, so the shell always exits 0; a
 	// startup failure surfaces through the readiness loop below, not the exit
 	// code. Only a hard exec failure is fatal here.
-	if _, restartErr := sb.Shell(ctx, dockerdRestartCmd, msbSdk.WithExecUser("root")); restartErr != nil {
+	if _, restartErr := sb.Shell(ctx, dockerdRestartCmd, msbSdk.WithExecUser(rootUser)); restartErr != nil {
 		return fmt.Errorf("start dockerd: %w (no result)", restartErr)
 	}
 
 	deadline := time.Now().Add(dockerdReadyTimeout)
 	for time.Now().Before(deadline) {
-		out, pollErr := sb.Shell(ctx, dockerdReadyCmd, msbSdk.WithExecUser("dev"))
+		out, pollErr := sb.Shell(ctx, dockerdReadyCmd, msbSdk.WithExecUser(defaultSandboxUser))
 		if pollErr == nil && out.Success() {
 			ui.Verbosef("dockerd is ready")
 			return nil

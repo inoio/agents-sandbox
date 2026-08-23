@@ -25,3 +25,11 @@ Items follow [MoSCoW](https://en.wikipedia.org/wiki/MoSCoW_method) priority: **[
   removing `testing` from the production import graph.
 - [C] **Tech debt:** Split the `reprovision` sub-package (configfiles / envstate / reconfig).
 - [C] **Tech debt:** Narrow `reprovision`/`doctor` parameter types and error returns to reduce behavioral risk.
+
+## Refactorings
+
+- Remove dependency on termio from git package
+
+## Bugs
+
+- Resetting the home volume and restarting does not pick up the new volume.

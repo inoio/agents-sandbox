@@ -32,7 +32,7 @@ const opencodeConfigPath = ".config/opencode/opencode.json"
 type Entry struct {
 	Source string // host source path, resolved like the plain string form
 	Hook   string // optional; only "startup" is supported
-	User   string // optional; empty means the sandbox user (dev)
+	Root   bool   // optional; run the hook as root (default: the sandbox user, dev)
 }
 
 // Manifest maps a VM-home-relative target path to its Entry.
@@ -69,7 +69,7 @@ func parseEntry(v any) (Entry, error) {
 	case nil:
 		return Entry{}, nil
 	case string:
-		return Entry{Source: val, Hook: "", User: ""}, nil
+		return Entry{Source: val, Hook: "", Root: false}, nil
 	case map[string]any:
 		var e Entry
 		if s, ok := val["source"]; ok {
@@ -89,12 +89,12 @@ func parseEntry(v any) (Entry, error) {
 		if e.Hook != "" && e.Hook != startupHook {
 			return e, fmt.Errorf("hook must be %q, got %q", startupHook, e.Hook)
 		}
-		if u, ok := val["user"]; ok {
-			user, ok := u.(string)
+		if r, ok := val["root"]; ok {
+			root, ok := r.(bool)
 			if !ok {
-				return e, errors.New("user must be a string")
+				return e, errors.New("root must be a boolean")
 			}
-			e.User = user
+			e.Root = root
 		}
 		return e, nil
 	default:
@@ -268,11 +268,54 @@ func DescribeManifest(userConfigDir, projectConfigDir, homeBase string) ([][2]st
 }
 
 // HookSpec describes a single startup-hook entry: the provisioned VM target,
-// its resolved host source, and the user to run it as (empty means dev).
+// its resolved host source, the interpreter declared by the script's shebang,
+// and whether to run it as root.
 type HookSpec struct {
-	Target string // absolute VM path to the provisioned script
-	Source string // resolved host source path
-	User   string // optional; empty means the sandbox user (dev)
+	Target      string // absolute VM path to the provisioned script
+	Source      string // resolved host source path
+	Interpreter string // script's shebang interpreter; empty falls back to /bin/sh
+	Root        bool   // run as root; false runs as the sandbox user (dev)
+}
+
+// shebangInterpreter returns the interpreter named by the first `#!` line of
+// the file at path, or "" if there is none. `#!/usr/bin/env bash` yields
+// "/usr/bin/env bash" so the env command resolves the real interpreter inside
+// the VM.
+func shebangInterpreter(path string) string {
+	f, err := os.Open(path)
+	if err != nil {
+		return ""
+	}
+	defer f.Close()
+	var line []byte
+	buf := make([]byte, 1)
+	for range 2 {
+		if _, err := f.Read(buf); err != nil {
+			return ""
+		}
+		line = append(line, buf[0])
+	}
+	if string(line) != "#!" {
+		return ""
+	}
+	for {
+		b, err := f.Read(buf)
+		if err != nil {
+			break
+		}
+		if b == 0 {
+			break
+		}
+		if buf[0] == '\n' {
+			break
+		}
+		line = append(line, buf[0])
+	}
+	interp := strings.TrimSpace(strings.TrimPrefix(string(line), "#!"))
+	if interp == "" {
+		return ""
+	}
+	return interp
 }
 
 // BuildHooks returns the merged manifest's startup-hook entries (Hook ==
@@ -299,7 +342,10 @@ func BuildHooks(userConfigDir, projectConfigDir, homeBase string) ([]HookSpec, e
 		if vErr != nil {
 			return nil, vErr
 		}
-		hooks = append(hooks, HookSpec{Target: vmPath, Source: e.Source, User: e.User})
+		hooks = append(
+			hooks,
+			HookSpec{Target: vmPath, Source: e.Source, Interpreter: shebangInterpreter(e.Source), Root: e.Root},
+		)
 	}
 	sort.Slice(hooks, func(i, j int) bool {
 		return hooks[i].Target < hooks[j].Target

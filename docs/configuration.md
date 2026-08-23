@@ -306,18 +306,20 @@ startup as a startup hook:
 .vpn/connect.sh:
   source: vpn/connect.sh   # resolved exactly like the plain string form
   hook: startup            # optional; the only supported value is `startup`
-  user: root               # optional; empty runs as the sandbox user (dev)
+  root: true               # optional; true runs as root, the default (dev) otherwise
 ````
 
 Rules:
 
-- `hook: startup` runs the provisioned script inside the VM via an interactive TTY (`/bin/bash -l -c '<vm path>'`) as the
-  configured `user`, after home files are provisioned and before the opencode server daemon starts. Any other non-empty
-  `hook` value is rejected as a parse error.
-- The script must daemonize any long-running process it starts (e.g. `nohup openfortivpn ... &`) so it survives the
-  attach and lives for the VM's lifetime; it stops when the VM stops. This gives a full-session VPN with no extra
-  lifecycle code.
-- The script is run with `bash` regardless of its exec bit, so a non-executable provisioned file still runs.
+- `hook: startup` runs the provisioned script after home files are provisioned and before the opencode server daemon
+  starts, using the interpreter named by the script's shebang (`#!/bin/sh`, `#!/bin/bash`, `#!/usr/bin/env python3`, ...).
+  A script with **no shebang** falls back to `/bin/sh`. Any other non-empty `hook` value is rejected as a parse error.
+- The hook runs only when the VM is **started** — freshly created, recreated, or booted from a stopped/crashed state. It
+  is **not** re-run when you attach to an already-running VM.
+- The hook runs interactively: it may read from user input (e.g. prompt for passwords or MFA), and opencode blocks
+  startup until the script finishes. A hook that must keep running for the VM's lifetime (e.g. a VPN client) must
+  daemonize itself (e.g. `nohup openfortivpn ... &`) so it survives the attach; it stops when the VM stops.
+- The script runs as the sandbox user (`dev`) by default; set `root: true` to run it as root.
 
 Example: bring up a VPN with a vpn client (installed via your `.opencode-sandbox/Dockerfile`), with its
 config (host, port, username, trusted cert) provisioned as a plain entry:
@@ -326,7 +328,7 @@ config (host, port, username, trusted cert) provisioned as a plain entry:
 .vpn/connect.sh:
   source: vpn/connect.sh
   hook: startup
-  user: root
+  root: true
 .vpn/config: .vpn/config
 ````
 

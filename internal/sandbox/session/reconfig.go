@@ -17,23 +17,42 @@ import (
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 )
 
-// defaultSandboxUser is the user hooks run as when no user is configured.
+// defaultSandboxUser is the user hooks run as unless the hook opts into root.
 const defaultSandboxUser = "dev"
 
+// rootUser is the VM root user, used to run privileged startup hooks.
+const rootUser = "root"
+
+// defaultHookInterpreter is the interpreter used for a startup hook that does
+// not declare an explicit one.
+const defaultHookInterpreter = "/bin/sh"
+
 // runStartupHooks runs each configured startup hook inside the VM via an
-// interactive TTY.  Failures are logged, not fatal.
+// interactive shell. Each script is run through its shebang interpreter (the
+// home-volume mount does not allow chmod, so the script cannot be made
+// executable; invoking the interpreter is what honors the shebang). The hook's
+// HOME is set so scripts can rely on it. opencode waits for the attach to
+// finish; a hook that must outlive the attach is responsible for daemonizing
+// itself. Failures are logged, not fatal.
 func runStartupHooks(ctx context.Context, sb msb.Sandbox, hooks []homeconfig.HookSpec, ui termio.UI) {
 	for _, h := range hooks {
-		user := h.User
-		if user == "" {
-			user = defaultSandboxUser
+		user := defaultSandboxUser
+		home := "/home/dev"
+		if h.Root {
+			user = rootUser
+			home = "/root"
 		}
-		ui.Infof("running startup hook %s (as %s)", h.Target, user)
+		interp := h.Interpreter
+		if interp == "" {
+			interp = defaultHookInterpreter
+		}
+		ui.Infof("running startup hook %s (as %s, via %s)", h.Target, user, interp)
 		if _, err := sb.AttachWith(
 			ctx,
-			"/bin/bash",
-			[]string{"-l", "-c", h.Target},
+			interp,
+			[]string{h.Target},
 			msbSdk.WithAttachUser(user),
+			msbSdk.WithAttachEnv(map[string]string{"HOME": home}),
 		); err != nil {
 			ui.Warnf("startup hook %s failed: %v", h.Target, err)
 		}
@@ -47,6 +66,7 @@ func setUpSandbox(
 	cfs *reprovision.ConfigFiles,
 	ui termio.UI,
 	restart bool,
+	boot vmBoot,
 ) (string, error) {
 	ui.Verbosef("expected config files: %v", cfs.Keys)
 
@@ -61,17 +81,17 @@ func setUpSandbox(
 	// on a "keep" decision the files are still updated on disk so the next
 	// daemon start sees them, without disturbing the running instance.
 	if cfs.HasSnippets || len(cfs.HomeFiles) > 0 {
-		if provErr := reprovision.Provision(ctx, sb.FS(), cfs); provErr != nil {
+		if provErr := reprovision.Provision(ctx, sb, cfs); provErr != nil {
 			ui.Warnf("provision failed: %v (continuing)", provErr)
 		}
 	}
 
-	if dockerErr := startDockerdIfPresent(ctx, sb, ui); dockerErr != nil {
-		return "", fmt.Errorf("docker startup: %w", dockerErr)
+	if len(cfs.Hooks) > 0 && boot.booted() {
+		runStartupHooks(ctx, sb, cfs.Hooks, ui)
 	}
 
-	if len(cfs.Hooks) > 0 {
-		runStartupHooks(ctx, sb, cfs.Hooks, ui)
+	if dockerErr := startDockerdIfPresent(ctx, sb, ui); dockerErr != nil {
+		return "", fmt.Errorf("docker startup: %w", dockerErr)
 	}
 
 	if daemonErr := ensureDaemon(ctx, opts.ServeOnly, sb, ui); daemonErr != nil {
@@ -176,7 +196,7 @@ func decideReconfig(
 // an opencode-config change is picked up. Env/secret changes are never routed
 // here: they require a VM rebuild and are handled by the recreate path instead.
 func restartDaemons(ctx context.Context, sb msb.Sandbox, files *reprovision.ConfigFiles, serveOnly bool, ui termio.UI) {
-	if err := reprovision.Provision(ctx, sb.FS(), files); err != nil {
+	if err := reprovision.Provision(ctx, sb, files); err != nil {
 		ui.Warnf("provision failed: %v (keeping existing daemon)", err)
 		return
 	}

@@ -47,13 +47,13 @@ func TestMergeManifestsProjectWins(t *testing.T) {
 
 func TestLoadManifestStructuredEntry(t *testing.T) {
 	dir := t.TempDir()
-	writeHomeYAML(t, dir, ".vpn/connect.sh:\n  source: vpn/connect.sh\n  hook: startup\n  user: root\n")
+	writeHomeYAML(t, dir, ".vpn/connect.sh:\n  source: vpn/connect.sh\n  hook: startup\n  root: true\n")
 	m, err := LoadManifest(filepath.Join(dir, "home.yaml"))
 	if err != nil {
 		t.Fatalf("LoadManifest: %v", err)
 	}
 	want := Manifest{
-		".vpn/connect.sh": Entry{Source: "vpn/connect.sh", Hook: "startup", User: "root"},
+		".vpn/connect.sh": Entry{Source: "vpn/connect.sh", Hook: "startup", Root: true},
 	}
 	if !reflect.DeepEqual(m, want) {
 		t.Errorf("got %v, want %v", m, want)
@@ -65,6 +65,14 @@ func TestLoadManifestRejectsUnknownHook(t *testing.T) {
 	writeHomeYAML(t, dir, ".x:\n  source: x\n  hook: boot\n")
 	if _, err := LoadManifest(filepath.Join(dir, "home.yaml")); err == nil {
 		t.Fatal("expected error for unknown hook value")
+	}
+}
+
+func TestLoadManifestRejectsNonBooleanRoot(t *testing.T) {
+	dir := t.TempDir()
+	writeHomeYAML(t, dir, ".x:\n  source: x\n  hook: startup\n  root: yes\n")
+	if _, err := LoadManifest(filepath.Join(dir, "home.yaml")); err == nil {
+		t.Fatal("expected error for non-boolean root value")
 	}
 }
 
@@ -347,7 +355,7 @@ func TestBuildHooksFiltersAndSorts(t *testing.T) {
 	}
 	testutil.WritePath(t, filepath.Join(proj, "vpn/connect.sh"), "#!/bin/sh\necho hi\n")
 	writeHomeYAML(t, proj, ""+
-		".vpn/connect.sh:\n  source: vpn/connect.sh\n  hook: startup\n  user: root\n"+
+		".vpn/connect.sh:\n  source: vpn/connect.sh\n  hook: startup\n  root: true\n"+
 		".zshrc:\n")
 
 	hooks, err := BuildHooks(user, proj, vmHome)
@@ -355,7 +363,12 @@ func TestBuildHooksFiltersAndSorts(t *testing.T) {
 		t.Fatalf("BuildHooks: %v", err)
 	}
 	want := []HookSpec{
-		{Target: "/home/dev/.vpn/connect.sh", Source: filepath.Join(proj, "vpn/connect.sh"), User: "root"},
+		{
+			Target:      "/home/dev/.vpn/connect.sh",
+			Source:      filepath.Join(proj, "vpn/connect.sh"),
+			Interpreter: "/bin/sh",
+			Root:        true,
+		},
 	}
 	if !reflect.DeepEqual(hooks, want) {
 		t.Errorf("got %v, want %v", hooks, want)
@@ -373,6 +386,46 @@ func TestBuildHooksSkipsMissingSource(t *testing.T) {
 	}
 	if len(hooks) != 0 {
 		t.Errorf("expected no hooks for missing source, got %v", hooks)
+	}
+}
+
+func TestShebangInterpreter(t *testing.T) {
+	dir := t.TempDir()
+	cases := []struct {
+		name string
+		body string
+		want string
+	}{
+		{"plain sh", "#!/bin/sh\n", "/bin/sh"},
+		{"bash", "#!/bin/bash\necho hi\n", "/bin/bash"},
+		{"env bash", "#!/usr/bin/env bash\n", "/usr/bin/env bash"},
+		{"with spaces", "#!/usr/bin/env python3\n", "/usr/bin/env python3"},
+		{"no shebang", "echo hi\n", ""},
+		{"empty file", "", ""},
+		{"crlf shebang", "#!/bin/bash\r\n", "/bin/bash"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			p := filepath.Join(dir, "s.sh")
+			testutil.WritePath(t, p, tc.body)
+			if got := shebangInterpreter(p); got != tc.want {
+				t.Errorf("shebangInterpreter(%q) = %q, want %q", tc.body, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestBuildHooksCapturesInterpreter(t *testing.T) {
+	user := t.TempDir()
+	proj := t.TempDir()
+	testutil.WritePath(t, filepath.Join(proj, "connect.sh"), "#!/bin/bash\n")
+	writeHomeYAML(t, proj, ".vpn/connect.sh:\n  source: connect.sh\n  hook: startup\n")
+	hooks, err := BuildHooks(user, proj, vmHome)
+	if err != nil {
+		t.Fatalf("BuildHooks: %v", err)
+	}
+	if len(hooks) != 1 || hooks[0].Interpreter != "/bin/bash" {
+		t.Errorf("hooks = %v, want interpreter /bin/bash", hooks)
 	}
 }
 

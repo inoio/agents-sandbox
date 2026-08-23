@@ -5,7 +5,7 @@ LABEL org.opencode-sandbox.managed=true
 ARG OPENCODE_VERSION
 
 RUN apt-get update && \
-    apt-get install -y --no-install-recommends bsdmainutils ca-certificates curl git ripgrep file gawk jq less lz4 man-db moreutils net-tools parallel recode uuid wget xz-utils yq \
+    apt-get install -y --no-install-recommends bsdmainutils ca-certificates curl dnsutils git ripgrep fd-find file gawk iproute2 iputils-ping jq less lz4 man-db moreutils net-tools netcat-openbsd parallel procps psmisc python3 recode rsync socat tar tree unzip uuid wget xz-utils yq zip zstd \
     && rm -rf /var/lib/apt/lists/*
 
 # OpenCode: pinned to the resolved version and never auto-upgrade at runtime.
