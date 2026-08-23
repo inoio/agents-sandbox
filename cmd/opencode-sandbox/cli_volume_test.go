@@ -78,7 +78,7 @@ func runVolumeOpScenario(t *testing.T, tc volumeOpScenario) {
 		}
 	}
 
-	slug := git.ProjectSlug(ui)
+	slug := git.ProjectSlug()
 	if tc.withStopped {
 		mock.Sandboxes = append(mock.Sandboxes, mkStoppedVM(slug))
 	}

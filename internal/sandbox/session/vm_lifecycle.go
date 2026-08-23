@@ -98,7 +98,7 @@ func ensureProjectVM(
 
 	client := msb.Get()
 
-	slug := git.ProjectSlug(ui)
+	slug := git.ProjectSlug()
 	name := projectVMName(slug)
 
 	flockPath := filepath.Join(configpaths.Get().UserStateDir(), slug, "ensure-vm.lock")

@@ -119,7 +119,7 @@ func decideReconfig(
 	cfs *reprovision.ConfigFiles,
 	ui termio.UI,
 ) (bool, bool, string, error) {
-	slug := git.ProjectSlug(ui)
+	slug := git.ProjectSlug()
 	handle, _ := client.GetSandbox(ctx, projectVMName(slug))
 
 	var curCfg *msbSdk.SandboxConfig

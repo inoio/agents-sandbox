@@ -20,7 +20,7 @@ func stopOrKillProjectVM(
 	client msb.Client,
 	stopFn func(msb.SandboxHandle, context.Context) error,
 ) error {
-	slug := git.ProjectSlug(ui)
+	slug := git.ProjectSlug()
 	name := projectVMName(slug)
 
 	handle, err := client.GetSandbox(ctx, name)

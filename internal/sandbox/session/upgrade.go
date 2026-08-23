@@ -38,14 +38,14 @@ var openCodeUpgradeInfo = func(ctx context.Context) (string, error) {
 var rebuildImageForUpgrade = func(ctx context.Context, ui termio.UI, opts options.RunOptions) (image.ImageInfo, error) {
 	info, err := image.EnsureImage(
 		ctx,
-		git.ProjectSlug(ui),
+		git.ProjectSlug(),
 		image.BuildOptions{Force: true, OpenCodeVersion: opts.OpenCodeVersion},
 		ui,
 	)
 	if err != nil {
 		return image.ImageInfo{}, err
 	}
-	if err := image.EnsureLoaded(ctx, msb.Get(), git.ProjectSlug(ui), info.Tag, ui); err != nil {
+	if err := image.EnsureLoaded(ctx, msb.Get(), git.ProjectSlug(), info.Tag, ui); err != nil {
 		return image.ImageInfo{}, err
 	}
 	return info, nil

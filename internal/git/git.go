@@ -7,8 +7,6 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/inoio/opencode-sandbox/internal/termio"
-
 	"github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/config"
 )
@@ -48,24 +46,26 @@ func HashID(input string) string {
 	return encoded
 }
 
-func ProjectSlug(ui termio.UI) string {
-	return projectSlugAt(".", ui)
+// ProjectSlug returns a stable, human-readable identifier for the current
+// working directory's repository, used to name sandboxes and their image
+// tags. The slug is "<repo-name>-<hash>": repo-name comes from the origin
+// remote's URL (or the checkout folder name if there is no origin), and the
+// 14-character base36 hash is derived from the full origin URL (or the
+// repository's top-level path when there is no origin). Because the hash is
+// over the origin URL, every clone and worktree of the same remote shares one
+// slug, while different hosts/forks yield different slugs.
+func ProjectSlug() string {
+	return projectSlugAt(".")
 }
 
-// projectSlugAt computes the project slug for the repository at cwd.
-//
-// The slug base is the human-readable repo name taken from the origin
-// remote's URL, and the hash is over the full origin URL, so every clone and
-// worktree of the same remote shares one slug (different hosts/forks differ).
-// When there is no origin remote it falls back to the checkout folder name
-// and a hash of the repository's top-level path.
-func projectSlugAt(cwd string, ui termio.UI) string {
+// projectSlugAt returns the project slug for the repository at cwd; see
+// ProjectSlug.
+func projectSlugAt(cwd string) string {
 	repo, err := git.PlainOpenWithOptions(cwd, &git.PlainOpenOptions{ //nolint:exhaustruct // DetectDotGit only
 		DetectDotGit: true,
 	})
 	if err != nil {
 		if abs, absErr := filepath.Abs(cwd); absErr == nil {
-			ui.Verbosef("not inside a git repo; using CWD hash as project slug.")
 			return projectSlug(sanitizeFolderName(filepath.Base(abs)), abs)
 		}
 		return projectSlug("", cwd)
@@ -78,13 +78,9 @@ func projectSlugAt(cwd string, ui termio.UI) string {
 		return projectSlug("", cwd)
 	}
 	if url := originURL(root); url != "" {
-		slug := projectSlug(sanitizeFolderName(lastPathSegment(url)), url)
-		ui.Verbosef("Using project slug '%s' (origin %s)", slug, url)
-		return slug
+		return projectSlug(sanitizeFolderName(lastPathSegment(url)), url)
 	}
-	slug := projectSlug(sanitizeFolderName(filepath.Base(root)), root)
-	ui.Verbosef("Using project slug '%s'", slug)
-	return slug
+	return projectSlug(sanitizeFolderName(filepath.Base(root)), root)
 }
 
 // worktreeRoot returns the working-tree root directory of an opened repository.

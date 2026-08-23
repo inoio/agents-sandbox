@@ -5,7 +5,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/inoio/opencode-sandbox/internal/termio"
 	"github.com/inoio/opencode-sandbox/internal/testutil"
 )
 
@@ -106,7 +105,7 @@ func TestProjectSlugFormat(t *testing.T) {
 	repo := testutil.InitRepo(t)
 	// ProjectSlug uses the working directory, so chdir into the repo.
 	t.Chdir(repo)
-	got := ProjectSlug(&termio.Mock{})
+	got := ProjectSlug()
 	// Expected format: <sanitized-folder>-<14 base36 chars>.
 	// The folder name is filepath.Base(repo), sanitized.
 	folderName := sanitizeFolderName(filepath.Base(repo))
@@ -128,9 +127,8 @@ func TestProjectSlugFormat(t *testing.T) {
 func TestProjectSlugDeterministic(t *testing.T) {
 	repo := testutil.InitRepo(t)
 	t.Chdir(repo)
-	l := &termio.Mock{}
-	a := ProjectSlug(l)
-	b := ProjectSlug(l)
+	a := ProjectSlug()
+	b := ProjectSlug()
 	if a != b {
 		t.Errorf("expected deterministic slug, got %q and %q", a, b)
 	}
@@ -182,7 +180,7 @@ func TestProjectSlugUsesOriginRepoName(t *testing.T) {
 	repo := testutil.InitRepo(t)
 	testutil.RunGit(t, repo, "remote", "add", "origin", origin)
 	t.Chdir(repo)
-	got := ProjectSlug(&termio.Mock{})
+	got := ProjectSlug()
 	if !strings.HasPrefix(got, "opencode-sandbox-") {
 		t.Errorf("expected slug to start with 'opencode-sandbox-', got %q", got)
 	}
@@ -201,9 +199,9 @@ func TestProjectSlugStableForSameOrigin(t *testing.T) {
 	testutil.RunGit(t, b, "remote", "add", "origin", origin)
 
 	t.Chdir(a)
-	slugA := ProjectSlug(&termio.Mock{})
+	slugA := ProjectSlug()
 	t.Chdir(b)
-	slugB := ProjectSlug(&termio.Mock{})
+	slugB := ProjectSlug()
 	if slugA != slugB {
 		t.Errorf("expected identical slug for same origin across checkouts, got %q and %q", slugA, slugB)
 	}
@@ -216,9 +214,9 @@ func TestProjectSlugDiffersForDifferentOrigins(t *testing.T) {
 	testutil.RunGit(t, b, "remote", "add", "origin", "git@github.com:someone/opencode-sandbox.git")
 
 	t.Chdir(a)
-	slugA := ProjectSlug(&termio.Mock{})
+	slugA := ProjectSlug()
 	t.Chdir(b)
-	slugB := ProjectSlug(&termio.Mock{})
+	slugB := ProjectSlug()
 	if slugA == slugB {
 		t.Errorf("expected distinct slugs for different origins, both %q", slugA)
 	}
@@ -228,11 +226,11 @@ func TestProjectSlugWorktreeSharesOriginSlug(t *testing.T) {
 	const origin = "git@github.com:inoio/opencode-sandbox.git"
 	repo := testutil.InitRepo(t)
 	testutil.RunGit(t, repo, "remote", "add", "origin", origin)
-	mainSlug := projectSlugAt(repo, &termio.Mock{})
+	mainSlug := projectSlugAt(repo)
 
 	wtDir := filepath.Join(t.TempDir(), "wt")
 	testutil.RunGit(t, repo, "worktree", "add", "--detach", wtDir)
-	wtSlug := projectSlugAt(wtDir, &termio.Mock{})
+	wtSlug := projectSlugAt(wtDir)
 	if wtSlug != mainSlug {
 		t.Errorf("expected worktree to share the main checkout's slug, got %q and %q", mainSlug, wtSlug)
 	}
@@ -241,7 +239,7 @@ func TestProjectSlugWorktreeSharesOriginSlug(t *testing.T) {
 func TestProjectSlugFallsBackWithoutOrigin(t *testing.T) {
 	repo := testutil.InitRepo(t)
 	t.Chdir(repo)
-	got := ProjectSlug(&termio.Mock{})
+	got := ProjectSlug()
 	folderName := sanitizeFolderName(filepath.Base(repo))
 	if !strings.HasPrefix(got, folderName+"-") {
 		t.Errorf("expected slug to start with %q, got %q", folderName+"-", got)

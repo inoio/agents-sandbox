@@ -622,7 +622,7 @@ func TestDecideReconfig_HomePromptAskedWhenRebuildConfirmed(t *testing.T) {
 		HomeVolume:  "vol",
 		ImageDigest: "sha256:old",
 	}
-	slug := git.ProjectSlug(ui)
+	slug := git.ProjectSlug()
 	state.WriteState(slug, persisted)
 
 	cfs, err := reprovision.LoadConfigFiles(configpaths.Get().UserOpencodeConfigDir(), ui)

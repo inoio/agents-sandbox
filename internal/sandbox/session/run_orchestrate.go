@@ -73,7 +73,7 @@ func prepareSandbox(
 	opts options.RunOptions,
 	ui termio.UI,
 ) (*sandboxSession, error) {
-	projectSlug := git.ProjectSlug(ui)
+	projectSlug := git.ProjectSlug()
 
 	// Without an explicit pin, reuse the version already baked into the runner
 	// image instead of re-resolving "latest" from the network on every run.
@@ -220,7 +220,7 @@ func Run(ctx context.Context, opts options.RunOptions, ui termio.UI) error {
 		return nil
 	}
 
-	projectSlug := git.ProjectSlug(ui)
+	projectSlug := git.ProjectSlug()
 
 	if opts.ServeOnly { //nolint:nestif // lease acquire/serve/release/reap sequence requires this structure
 		release, acquireErr := state.AcquireClientLease(projectSlug)
@@ -271,7 +271,7 @@ func Shell(ctx context.Context, opts options.RunOptions, ui termio.UI) error {
 		return nil
 	}
 
-	projectSlug := git.ProjectSlug(ui)
+	projectSlug := git.ProjectSlug()
 	return runAttach(ctx, session, projectSlug, ui, opts, "-l")
 }
 
@@ -285,7 +285,7 @@ func BuildImage(ctx context.Context, force, dryRun bool, openCodeVersion string,
 	if err := doctor.CheckDocker(ctx); err != nil {
 		return fmt.Errorf("docker not available: %w", err)
 	}
-	projectSlug := git.ProjectSlug(ui)
+	projectSlug := git.ProjectSlug()
 
 	info, err := image.EnsureImageWithClient(ctx, image.ResolveDockerfile(), projectSlug,
 		image.BuildOptions{Force: force, OpenCodeVersion: openCodeVersion}, ui)

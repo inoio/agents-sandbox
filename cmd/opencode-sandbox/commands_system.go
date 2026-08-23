@@ -92,7 +92,7 @@ func buildVolumeOpsCmd(
 			if !doctor.CheckAll(c.Context(), ui) {
 				return errors.New("preflight failed")
 			}
-			projectSlug := git.ProjectSlug(ui)
+			projectSlug := git.ProjectSlug()
 			dryRun, _ := c.Flags().GetBool(flagDryRun)
 			rebuild, _ := c.Flags().GetBool(flagRebuild)
 			info, err := image.EnsureImage(

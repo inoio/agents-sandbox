@@ -66,7 +66,7 @@ func TestPrepareSandboxReusesStoredOpenCodeVersion(t *testing.T) {
 		},
 	})
 
-	slug := git.ProjectSlug(&termio.Mock{})
+	slug := git.ProjectSlug()
 	vmFS := msb.NewTestFS(nil, nil)
 	connectSb := &msb.MockSandbox{Name_: "vm", FSValue_: vmFS, ShellOut: map[string]msb.ShellResult{
 		dockerdBinaryCheckCmd: msb.NewTestResult(false, 1, "", "", nil),
@@ -158,7 +158,7 @@ func TestPrepareSandboxLoadsHomeYamlOnce(t *testing.T) {
 		},
 	})
 
-	slug := git.ProjectSlug(&termio.Mock{})
+	slug := git.ProjectSlug()
 
 	// The msb image cache already holds the digest image (ImageGet succeeds),
 	// so EnsureImage short-circuits before exporting/loading anything. The
@@ -258,7 +258,7 @@ func TestPrepareSandboxRunsStartupHook(t *testing.T) {
 		},
 	})
 
-	slug := git.ProjectSlug(&termio.Mock{})
+	slug := git.ProjectSlug()
 	vmFS := msb.NewTestFS(nil, nil)
 	connectSb := &msb.MockSandbox{Name_: "vm", FSValue_: vmFS, ShellOut: map[string]msb.ShellResult{
 		dockerdBinaryCheckCmd: msb.NewTestResult(false, 1, "", "", nil),
