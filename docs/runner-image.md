@@ -1,3 +1,8 @@
+---
+title: Runner Image
+layout: default
+nav_order: 4
+---
 # Runner Image
 
 opencode-sandbox builds a Docker image for each sandbox. The image contains opencode, Node.js, and common CLI tools.

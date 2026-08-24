@@ -1,3 +1,8 @@
+---
+title: Configuration
+layout: default
+nav_order: 2
+---
 # Configuration
 
 opencode-sandbox supports configuration at two levels: user-level defaults and project-level overrides. Both can set CLI

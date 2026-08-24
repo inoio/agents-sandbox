@@ -1,0 +1,25 @@
+title: opencode-sandbox
+description: >-
+  Launch opencode inside a nearly instant microsandbox VM with your project mounted at /workspace.
+remote_theme: just-the-docs/just-the-docs@v0.10.0
+
+# https://github.com/just-the-docs/just-the-docs
+plugins:
+  - jekyll-remote-theme
+
+# Project navigation (order matters).
+aux_links:
+  "opencode-sandbox on GitHub":
+    - "https://github.com/inoio/opencode-sandbox"
+
+# just-the-docs theme options.
+search_enabled: true
+heading_anchors: true
+color_scheme: light
+back_to_top: true
+
+# Avoid copying build artefacts into the deployed site.
+exclude:
+  - Gemfile
+  - Gemfile.lock
+  - "*.gemspec"

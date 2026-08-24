@@ -1,3 +1,8 @@
+---
+title: Sandboxes
+layout: default
+nav_order: 3
+---
 # Sandboxes
 
 opencode-sandbox manages sandboxes as ephemeral microsandbox VMs with persistent home volumes. This document explains

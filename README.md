@@ -8,6 +8,7 @@
 [![Release](https://img.shields.io/github/v/release/inoio/opencode-sandbox)](https://github.com/inoio/opencode-sandbox/releases)
 [![Coverage](https://codecov.io/gh/inoio/opencode-sandbox/branch/main/graph/badge.svg)](https://codecov.io/gh/inoio/opencode-sandbox)
 [![Security](https://img.shields.io/badge/security-policy-purple.svg)](SECURITY.md)
+[![Docs](https://img.shields.io/badge/docs-github--pages-blue)](https://inoio.github.io/opencode-sandbox/)
 
 opencode-sandbox launches [opencode](https://github.com/anthropics/opencode) inside an isolated Linux VM backed
 by [microsandbox](https://github.com/superradcompany/microsandbox). Each project gets a persistent project VM — shared

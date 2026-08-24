@@ -1,3 +1,8 @@
+---
+title: Worktree Sessions
+layout: default
+nav_order: 6
+---
 # Worktree Sessions
 
 By default, opencode-sandbox runs in the current directory (`/workspace`). To start an isolated development session in its own worktree, use `--worktree <name>[:<base>]` (`-w`). This creates an isolated git worktree **inside the VM**, leaving the host repository untouched.

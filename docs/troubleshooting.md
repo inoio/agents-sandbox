@@ -1,3 +1,8 @@
+---
+title: Troubleshooting
+layout: default
+nav_order: 7
+---
 # Troubleshooting
 
 Common issues and how to resolve them.

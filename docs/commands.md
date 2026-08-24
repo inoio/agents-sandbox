@@ -1,3 +1,8 @@
+---
+title: Commands
+layout: default
+nav_order: 5
+---
 # Commands Reference
 
 This document lists all opencode-sandbox subcommands, aliases, and flags.
