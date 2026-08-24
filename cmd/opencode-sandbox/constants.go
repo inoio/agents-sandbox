@@ -44,6 +44,7 @@ const (
 	flagWorktree        = "worktree"
 	flagRoot            = "root"
 	flagServeOnly       = "serve-only"
+	flagNetwork         = "network"
 	flagOpenCodeVersion = "opencode-version"
 	flagLabel           = "label"
 	flagLimit           = "limit"

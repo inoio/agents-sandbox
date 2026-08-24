@@ -9,6 +9,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/inoio/opencode-sandbox/internal/configpaths"
+	"github.com/inoio/opencode-sandbox/internal/sandbox/network"
 	"github.com/inoio/opencode-sandbox/internal/sandbox/options"
 	"github.com/inoio/opencode-sandbox/internal/termio"
 	launcherconfig "github.com/inoio/opencode-sandbox/internal/viperconfig"
@@ -329,5 +330,37 @@ func TestRunCommandHasNoOpenCodeVersionFlag(t *testing.T) {
 	}
 	if flag := foundCmd.Flags().Lookup(flagOpenCodeVersion); flag != nil {
 		t.Errorf("run command must NOT have --opencode-version flag, got %q", flag.Name)
+	}
+}
+
+func TestExtractRunOptionsNetworkFlag(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	cmd := buildRunCmd(&termio.Mock{})
+	if err := cmd.Flags().Set(flagNetwork, "none"); err != nil {
+		t.Fatalf("set network: %v", err)
+	}
+	rootCtx := context.WithValue(context.Background(), (*launcherConfigKey)(nil), mustResolver(t, cmd))
+	cmd.SetContext(rootCtx)
+	opts, err := extractRunOptions(cmd, &termio.Mock{})
+	if err != nil {
+		t.Fatalf("extractRunOptions: %v", err)
+	}
+	if opts.Network.Profile != network.ProfileNone {
+		t.Fatalf("Network.Profile = %q, want none", opts.Network.Profile)
+	}
+}
+
+func TestExtractRunOptionsNetworkFromResolver(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	t.Setenv("OPENCODE_SANDBOX_NETWORK_PROFILE", "private")
+	cmd := buildRunCmd(&termio.Mock{})
+	rootCtx := context.WithValue(context.Background(), (*launcherConfigKey)(nil), mustResolver(t, cmd))
+	cmd.SetContext(rootCtx)
+	opts, err := extractRunOptions(cmd, &termio.Mock{})
+	if err != nil {
+		t.Fatalf("extractRunOptions: %v", err)
+	}
+	if opts.Network.Profile != network.ProfilePrivate {
+		t.Fatalf("Network.Profile = %q, want private (from resolver)", opts.Network.Profile)
 	}
 }
