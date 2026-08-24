@@ -8,6 +8,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/inoio/opencode-sandbox/internal/configpaths"
+	"github.com/inoio/opencode-sandbox/internal/sandbox/network"
 	"github.com/inoio/opencode-sandbox/internal/sandbox/options"
 	"github.com/inoio/opencode-sandbox/internal/testutil"
 )
@@ -344,5 +345,36 @@ func TestResolverIdleTimeoutDefaultFromConfig(t *testing.T) {
 	}
 	if r.IdleTimeout() != 10*time.Second {
 		t.Errorf("IdleTimeout default = %v; want 10s", r.IdleTimeout())
+	}
+}
+
+func TestNetworkProfileEnvVar(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	t.Setenv("OPENCODE_SANDBOX_NETWORK_PROFILE", "none")
+	r, err := NewResolver(nil)
+	if err != nil {
+		t.Fatalf("NewResolver: %v", err)
+	}
+	if got := r.Network(); got.Profile != network.ProfileNone {
+		t.Fatalf("Network().Profile = %q, want %q", got.Profile, network.ProfileNone)
+	}
+}
+
+func TestNetworkDefaultEmpty(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	r, err := NewResolver(nil)
+	if err != nil {
+		t.Fatalf("NewResolver: %v", err)
+	}
+	if !r.Network().Empty() {
+		t.Error("with no network config, Network() should be Empty (default public)")
+	}
+}
+
+func TestNetworkInvalidProfileRejected(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	t.Setenv("OPENCODE_SANDBOX_NETWORK_PROFILE", "bogus")
+	if _, err := NewResolver(nil); err == nil {
+		t.Fatal("expected error for invalid network profile")
 	}
 }
