@@ -10,9 +10,6 @@ command reports the bare version (e.g. `0.1.0`).
 
 ### Added
 
-- feat: config-driven network egress policy (profiles + allow/deny lists, airgap via `profile: none`) applied at VM creation
-- feat: per-slug user config directory `~/.config/opencode-sandbox/<slug>/`
-
 ### Changed
 
 ## [0.1.0] - 2026-08-??

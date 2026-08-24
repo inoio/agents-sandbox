@@ -5,7 +5,6 @@ import (
 
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 
-	"github.com/inoio/opencode-sandbox/internal/sandbox/network"
 	"github.com/inoio/opencode-sandbox/internal/sandbox/options"
 )
 
@@ -33,7 +32,7 @@ func TestPlanReconfigServeOnly(t *testing.T) {
 			} else {
 				cfg = &msbSdk.SandboxConfig{PortBindings: tt.cfgPorts}
 			}
-			plan := PlanReconfig(cfg, "img", options.RunOptions{ServeOnly: tt.serveOnly}, false, false, false)
+			plan := PlanReconfig(cfg, "img", options.RunOptions{ServeOnly: tt.serveOnly}, false, false, false, false)
 			if plan.Recreate != tt.wantRecreate {
 				t.Errorf("Recreate = %v, want %v", plan.Recreate, tt.wantRecreate)
 			}
@@ -56,12 +55,28 @@ func TestPlanReconfigServeOnly(t *testing.T) {
 func TestPlanReconfigTriggersRecreateOnImageChange(t *testing.T) {
 	cfg := &msbSdk.SandboxConfig{Image: "opencode-sandbox/runner-proj:oldhash"}
 
-	planSame := PlanReconfig(cfg, "opencode-sandbox/runner-proj:oldhash", options.RunOptions{}, false, false, false)
+	planSame := PlanReconfig(
+		cfg,
+		"opencode-sandbox/runner-proj:oldhash",
+		options.RunOptions{},
+		false,
+		false,
+		false,
+		false,
+	)
 	if planSame.Recreate {
 		t.Error("expected no recreate when image reference is unchanged")
 	}
 
-	planNew := PlanReconfig(cfg, "opencode-sandbox/runner-proj:newhash", options.RunOptions{}, false, false, false)
+	planNew := PlanReconfig(
+		cfg,
+		"opencode-sandbox/runner-proj:newhash",
+		options.RunOptions{},
+		false,
+		false,
+		false,
+		false,
+	)
 	if !planNew.Recreate {
 		t.Error("expected recreate when image reference changes after a rebuild")
 	}
@@ -98,22 +113,18 @@ func TestDesiredPublishBindingsNilWhenNotServeOnly(t *testing.T) {
 }
 
 func TestPlanReconfigNetworkChangeTriggersRecreate(t *testing.T) {
-	cfg := &msbSdk.SandboxConfig{
-		Network: msbSdk.NetworkPolicy.FromProfiles(msbSdk.NetworkProfilePublic),
-	}
-	opts := options.RunOptions{Network: network.Policy{Profile: network.ProfileNone}}
-	plan := PlanReconfig(cfg, "img", opts, false, false, false)
+	cfg := &msbSdk.SandboxConfig{}
+	opts := options.RunOptions{}
+	plan := PlanReconfig(cfg, "img", opts, false, false, true, false)
 	if !plan.Recreate {
 		t.Fatal("expected Recreate when network policy changes")
 	}
 }
 
 func TestPlanReconfigNetworkSameNoRecreate(t *testing.T) {
-	cfg := &msbSdk.SandboxConfig{
-		Network: msbSdk.NetworkPolicy.FromProfiles(msbSdk.NetworkProfilePublic),
-	}
-	opts := options.RunOptions{Network: network.Policy{Profile: network.ProfilePublic}}
-	plan := PlanReconfig(cfg, "img", opts, false, false, false)
+	cfg := &msbSdk.SandboxConfig{}
+	opts := options.RunOptions{}
+	plan := PlanReconfig(cfg, "img", opts, false, false, false, false)
 	if plan.Recreate {
 		t.Fatal("expected no Recreate when network policy is unchanged")
 	}

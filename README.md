@@ -14,7 +14,7 @@ by [microsandbox](https://github.com/superradcompany/microsandbox). Each project
 across sessions with a configurable auto-stop policy (see [Configuration](/docs/configuration.md) and
 [Sandboxes](/docs/sandboxes.md)). The VM has your project mounted as `/workspace`, a persistent home directory
 volume, and access to a curated toolchain (Node.js, ripgrep, jq, yq, curl, etc.). Network egress/ingress is
-config-driven (profiles + allow/deny lists, incl. airgap via `profile: none`), and per-project defaults can be set with a
+config-driven (profiles + allow/deny lists, incl. an allowlist-only `profile: none`), and per-project defaults can be set with a
 per-slug user config at `~/.config/opencode-sandbox/<slug>/`.
 
 ## Quick Start

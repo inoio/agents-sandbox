@@ -1,9 +1,7 @@
 package reprovision
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
 	"errors"
 	"strconv"
 	"strings"
@@ -71,7 +69,7 @@ func PlanReconfig( //nolint:gocognit,gocyclo,cyclop,funlen // core planner, cogn
 	cfg *msbSdk.SandboxConfig,
 	imageRef string,
 	opts options.RunOptions,
-	envChanged, secretsChanged, opencodeConfigChanged bool,
+	envChanged, secretsChanged, networkChanged, opencodeConfigChanged bool,
 ) *Plan {
 	d := &Plan{} //nolint:exhaustruct // fields zeroed intentionally
 	if cfg == nil {
@@ -133,8 +131,10 @@ func PlanReconfig( //nolint:gocognit,gocyclo,cyclop,funlen // core planner, cogn
 	}
 
 	// Network policy is creation-only in microsandbox; a change requires a
-	// recreate (same tier as env/secrets/ports).
-	if !networkConfigEqual(desiredNetworkConfig(opts), cfg.Network) {
+	// recreate (same tier as env/secrets/ports). The comparison is based on a
+	// persisted fingerprint (NetworkChanged), because the microsandbox SDK does
+	// not round-trip the network config when reading back an existing VM.
+	if networkChanged {
 		d.Recreate = true
 		d.Changes = append(
 			d.Changes,
@@ -260,29 +260,4 @@ func portBindingsEqual(a, b []msbSdk.PortBinding) bool {
 		}
 	}
 	return true
-}
-
-func desiredNetworkConfig(opts options.RunOptions) *msbSdk.NetworkConfig {
-	if opts.Network.Empty() {
-		// Unset policy means "as-created / unchanged". Returning nil keeps
-		// existing VMs (created before this feature, cfg.Network == nil) from
-		// being needlessly recreated. An explicit `profile: public` in config
-		// DOES produce a non-nil config and triggers a one-time recreate.
-		return nil
-	}
-	cfg, err := opts.Network.Config()
-	if err != nil {
-		// Unreachable in practice: the profile is validated at every entry
-		// point (config/env validation, --network ParseProfile, and
-		// createProjectVM, which calls Config() itself and would surface the
-		// error otherwise).
-		return nil
-	}
-	return cfg
-}
-
-func networkConfigEqual(a, b *msbSdk.NetworkConfig) bool {
-	aJSON, _ := json.Marshal(a)
-	bJSON, _ := json.Marshal(b)
-	return bytes.Equal(aJSON, bJSON)
 }

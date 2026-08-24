@@ -1,7 +1,11 @@
 package network
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
+	"sort"
+	"strings"
 
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 )
@@ -41,12 +45,40 @@ type Policy struct {
 // should fall back to the default public profile.
 func (p Policy) Empty() bool { return p.Profile == "" }
 
-// Config converts the policy into a microsandbox NetworkConfig.
-func (p Policy) Config() (*msbSdk.NetworkConfig, error) {
-	if p.Profile == ProfileNone {
-		return msbSdk.NetworkPolicy.None(), nil
+// Fingerprint returns a stable SHA-256 hex digest of the policy, for detecting
+// changes across runs. It hashes the profile and the sorted allow/deny lists,
+// independent of the microsandbox SDK's canonical NetworkConfig shape.
+func (p Policy) Fingerprint() string {
+	var lines []string
+	lines = append(lines, "profile="+string(p.Profile))
+	for _, d := range p.EgressAllow {
+		lines = append(lines, "allow="+d)
 	}
-	cfg, err := msbSdk.NetworkPolicy.FromProfilesChecked(msbSdk.NetworkProfile(p.Profile))
+	for _, d := range p.EgressDeny {
+		lines = append(lines, "deny="+d)
+	}
+	sort.Strings(lines)
+	sum := sha256.Sum256([]byte(strings.Join(lines, "\n")))
+	return hex.EncodeToString(sum[:])
+}
+
+// Config converts the policy into a microsandbox NetworkConfig.
+//
+// The `none` profile is an allowlist-only policy: egress is deny-by-default,
+// ingress is allowed, and only the gateway-DNS rule plus the explicit
+// egress-allow/egress-deny lists apply. It is not an airgap.
+func (p Policy) Config() (*msbSdk.NetworkConfig, error) {
+	var cfg *msbSdk.NetworkConfig
+	var err error
+	if p.Profile == ProfileNone {
+		// Deny-by-default egress, allow ingress, with no profile rules. The
+		// gateway-DNS rule is added manually so named allow-listed hosts can
+		// resolve.
+		cfg, err = msbSdk.NetworkPolicy.FromProfilesChecked()
+		cfg.Rules = append(cfg.Rules, msbSdk.Rule.AllowDNS())
+	} else {
+		cfg, err = msbSdk.NetworkPolicy.FromProfilesChecked(msbSdk.NetworkProfile(p.Profile))
+	}
 	if err != nil {
 		return nil, err
 	}

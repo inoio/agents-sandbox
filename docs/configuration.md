@@ -69,9 +69,9 @@ Configuration is resolved in this order (later entries override earlier ones):
 | `auto-stop-on-active-sessions`  | —                      | Stop VM immediately on client detach without waiting for active sessions (default: false, only in config; `busy` sessions are never cut off)                                             |
 | `auto-stop-timeout`             | —                      | Idle timeout after last client detaches (default: 10s, only in config)                                                                                                                   |
 | `auto-stop-max-session-retries` | —                      | Retries to tolerate for a session stuck in `retry` before stopping (default: 10, only in config)                                                                                         |
-| `network.profile`               | `--network`            | Egress/ingress network profile: `public`, `private`, `host`, or `none` (see [Networking](#networking))                                                                                    |
-| `network.egress-allow`          | —                      | Egress destinations to allow: `host`, a CIDR, or a `.suffix` (see [Networking](#networking); ignored when `profile: none`)                                                                 |
-| `network.egress-deny`           | —                      | Egress carve-outs, emitted before allow rules (see [Networking](#networking); ignored when `profile: none`)                                                                               |
+| `network.profile`               | `--network`            | Network profile: `public`, `private`, `host`, or `none` (see [Networking](#networking))                                                                                                  |
+| `network.egress-allow`          | —                      | Egress destinations to allow: `host`, a CIDR, or a `.suffix` (see [Networking](#networking))                                                                                             |
+| `network.egress-deny`           | —                      | Egress carve-outs, emitted before allow rules (see [Networking](#networking))                                                                                                            |
 
 Example `~/.config/opencode-sandbox/config.yaml`:
 
@@ -176,17 +176,23 @@ microsandbox's default (public) — no behavior change for existing users.
 | `egress-allow`      | []string | Egress destinations to allow: `host`, a CIDR (e.g. `123.123.0.0/16`), or a `.suffix` (e.g. `.internal`).              |
 | `egress-deny`       | []string | Egress carve-outs, same destination forms as `egress-allow`. Emitted **before** allow rules (deny-before-allow).     |
 
-- `profile: none` is an **airgap**: it denies all egress **and** all ingress. When `profile: none`, `egress-allow` and
-  `egress-deny` are ignored.
+- `profile: none` is an **allowlist-only** profile: egress is deny-by-default, ingress is allowed, and only the
+  gateway-DNS rule plus your explicit `egress-allow`/`egress-deny` lists apply. This is how you restrict the VM to a
+  specific set of hosts. The `public`/`private`/`host` profiles additionally allow their whole destination class.
 - Rule order in the generated firewall: profile rules (including gateway DNS), then `egress-deny`, then `egress-allow`.
   So `egress-allow: [123.123.0.0/16]` together with `egress-deny: [123.123.123.0/24]` denies `123.123.123.5` while
   allowing `123.123.200.5` (a carve-out).
 
-Profile and lists can be combined, e.g. a `private` profile with an `egress-allow: [.internal]` exception.
+For example, to allow only a single API host:
 
-> **Note:** Passing an explicit profile (`--network public` or `network.profile: public`) on a VM created before this
-> feature will trigger a **one-time recreate**. An explicit profile yields a non-nil desired network config, whereas an
-> unset one does not, so the recreated VM then matches the explicit profile going forward.
+```yaml
+network:
+  profile: none
+  egress-allow:
+    - api.example.com
+```
+
+Profile and lists can be combined, e.g. a `private` profile with an `egress-allow: [.internal]` exception.
 
 The profile is also configurable via the `OPENCODE_SANDBOX_NETWORK_PROFILE` environment variable and the `--network`
 flag on `run`/`shell` (e.g. `opencode-sandbox run --network none`). Precedence: **flag > env > config > default**. The
