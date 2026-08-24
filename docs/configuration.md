@@ -20,6 +20,7 @@ the [XDG base directory spec](https://specifications.freedesktop.org/basedir-spe
 | `~/.config/opencode-sandbox/config.(y[a]ml\|json[(c\|5)])` | Configuration file                                                                    |
 | `~/.config/opencode-sandbox/opencode/*`                    | User opencode config snippets (see [Opencode configuration](#opencode-configuration)) |
 | `~/.config/opencode-sandbox/home.yaml`                     | User home-file mappings (see [Home files](#home-files))                               |
+| `~/.config/opencode-sandbox/<slug>/config.(y[a]ml\|json[(c\|5)])` | Per-project (per-slug) configuration file (see [Per-slug configuration](#per-slug-configuration)) |
 
 `env` uses `KEY=value` format. `env.secret` uses `KEY=value@host` (see [Secrets](#secrets)).
 
@@ -46,9 +47,10 @@ Configuration is resolved in this order (later entries override earlier ones):
 
 1. **Built-in / flag defaults** — compiled-in values and CLI flag defaults
 2. **User-level** — `~/.config/opencode-sandbox/`
-3. **Project-level** — `.opencode-sandbox/`
-4. **Environment variables** — `OPENCODE_SANDBOX_<KEY>`
-5. **CLI flags** — always win when explicitly passed
+3. **User per-slug** — `~/.config/opencode-sandbox/<slug>/`
+4. **Project-level** — `.opencode-sandbox/`
+5. **Environment variables** — `OPENCODE_SANDBOX_<KEY>`
+6. **CLI flags** — always win when explicitly passed
 
 ## Configuration file
 
@@ -67,6 +69,9 @@ Configuration is resolved in this order (later entries override earlier ones):
 | `auto-stop-on-active-sessions`  | —                      | Stop VM immediately on client detach without waiting for active sessions (default: false, only in config; `busy` sessions are never cut off)                                             |
 | `auto-stop-timeout`             | —                      | Idle timeout after last client detaches (default: 10s, only in config)                                                                                                                   |
 | `auto-stop-max-session-retries` | —                      | Retries to tolerate for a session stuck in `retry` before stopping (default: 10, only in config)                                                                                         |
+| `network.profile`               | `--network`            | Egress/ingress network profile: `public`, `private`, `host`, or `none` (see [Networking](#networking))                                                                                    |
+| `network.egress-allow`          | —                      | Egress destinations to allow: `host`, a CIDR, or a `.suffix` (see [Networking](#networking); ignored when `profile: none`)                                                                 |
+| `network.egress-deny`           | —                      | Egress carve-outs, emitted before allow rules (see [Networking](#networking); ignored when `profile: none`)                                                                               |
 
 Example `~/.config/opencode-sandbox/config.yaml`:
 
@@ -81,6 +86,10 @@ manual-prune-age: "7d"
 auto-stop-on-active-sessions: false
 auto-stop-timeout: "10s"
 auto-stop-max-session-retries: 10
+network:
+  profile: public
+  egress-allow: []
+  egress-deny: []
 ```
 
 ### Duration fields
@@ -115,6 +124,7 @@ session. The change type determines the mechanism used to apply the new settings
 | `disk-size`       | VM recreate    | VM is stopped, removed, and rebuilt with new disk size. Home volume is preserved.                        |
 | `workspace-quota` | VM recreate    | VM is stopped, removed, and rebuilt with new workspace write quota. Home volume is preserved.            |
 | `image`           | VM recreate    | VM is recreated with the new root image. Home volume is preserved.                                       |
+| `network`         | VM recreate    | Network policy is baked in at VM creation, so a change recreates the VM. Home volume is preserved.        |
 
 When **no other client** is attached, config changes apply immediately.
 
@@ -149,9 +159,57 @@ precedence over config files but lose to an explicitly passed CLI flag. The pref
 | `auto-stop-on-active-sessions`  | `OPENCODE_SANDBOX_AUTO_STOP_ON_ACTIVE_SESSIONS`                   |
 | `auto-stop-timeout`             | `OPENCODE_SANDBOX_AUTO_STOP_TIMEOUT`                              |
 | `auto-stop-max-session-retries` | `OPENCODE_SANDBOX_AUTO_STOP_MAX_SESSION_RETRIES`                  |
+| `network.profile`               | `OPENCODE_SANDBOX_NETWORK_PROFILE`                                |
 
 Action toggles (`--rebuild`, `--dry-run`, `--force`, ...) are CLI-only and cannot be set via
 config file or env var.
+
+## Networking
+
+The `network:` block controls the VM's network policy. It is baked in at VM creation, so changing it recreates the VM
+(see [Resource Config Application](#resource-config-application)). When the whole `network:` block is absent, the VM gets
+microsandbox's default (public) — no behavior change for existing users.
+
+| Field               | Type     | Description                                                                                                          |
+|---------------------|----------|----------------------------------------------------------------------------------------------------------------------|
+| `profile`           | string   | `public`, `private`, `host`, or `none`. Defaults to `public` (microsandbox's default) when unset.                    |
+| `egress-allow`      | []string | Egress destinations to allow: `host`, a CIDR (e.g. `123.123.0.0/16`), or a `.suffix` (e.g. `.internal`).              |
+| `egress-deny`       | []string | Egress carve-outs, same destination forms as `egress-allow`. Emitted **before** allow rules (deny-before-allow).     |
+
+- `profile: none` is an **airgap**: it denies all egress **and** all ingress. When `profile: none`, `egress-allow` and
+  `egress-deny` are ignored.
+- Rule order in the generated firewall: profile rules (including gateway DNS), then `egress-deny`, then `egress-allow`.
+  So `egress-allow: [123.123.0.0/16]` together with `egress-deny: [123.123.123.0/24]` denies `123.123.123.5` while
+  allowing `123.123.200.5` (a carve-out).
+
+Profile and lists can be combined, e.g. a `private` profile with an `egress-allow: [.internal]` exception.
+
+The profile is also configurable via the `OPENCODE_SANDBOX_NETWORK_PROFILE` environment variable and the `--network`
+flag on `run`/`shell` (e.g. `opencode-sandbox run --network none`). Precedence: **flag > env > config > default**. The
+`egress-allow`/`egress-deny` lists are config-file-only and have no env var or flag.
+
+```yaml
+network:
+  profile: public
+  egress-allow: []          # host, CIDR, or .suffix
+  egress-deny: []           # carve-outs; emitted before allow rules
+```
+
+## Per-slug configuration
+
+Beyond the generic user-level config, you can provide config for a **specific project** at
+`~/.config/opencode-sandbox/<slug>/config.yaml` (slug = the project's git project slug). This sits between the generic
+user-level config and the project-level config in precedence:
+
+1. **Built-in / flag defaults**
+2. **User-level** — `~/.config/opencode-sandbox/config.yaml`
+3. **User per-slug** — `~/.config/opencode-sandbox/<slug>/config.yaml`
+4. **Project-level** — `.opencode-sandbox/config.yaml`
+5. **Environment variables** — `OPENCODE_SANDBOX_*`
+6. **CLI flags** — always win when explicitly passed
+
+The same formats/filenames as the generic user config are supported (`config.yaml`, `config.yml`, `config.json`,
+`config.jsonc`, `config.json5`).
 
 ## Environment Variables
 
