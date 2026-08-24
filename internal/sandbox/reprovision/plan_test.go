@@ -5,6 +5,7 @@ import (
 
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 
+	"github.com/inoio/opencode-sandbox/internal/sandbox/network"
 	"github.com/inoio/opencode-sandbox/internal/sandbox/options"
 )
 
@@ -93,5 +94,27 @@ func TestDesiredPublishBindingsNilWhenNotServeOnly(t *testing.T) {
 	got := desiredPublishBindings(false)
 	if got != nil {
 		t.Errorf("expected nil when serveOnly=false, got %+v", got)
+	}
+}
+
+func TestPlanReconfigNetworkChangeTriggersRecreate(t *testing.T) {
+	cfg := &msbSdk.SandboxConfig{
+		Network: msbSdk.NetworkPolicy.FromProfiles(msbSdk.NetworkProfilePublic),
+	}
+	opts := options.RunOptions{Network: network.Policy{Profile: network.ProfileNone}}
+	plan := PlanReconfig(cfg, "img", opts, false, false, false)
+	if !plan.Recreate {
+		t.Fatal("expected Recreate when network policy changes")
+	}
+}
+
+func TestPlanReconfigNetworkSameNoRecreate(t *testing.T) {
+	cfg := &msbSdk.SandboxConfig{
+		Network: msbSdk.NetworkPolicy.FromProfiles(msbSdk.NetworkProfilePublic),
+	}
+	opts := options.RunOptions{Network: network.Policy{Profile: network.ProfilePublic}}
+	plan := PlanReconfig(cfg, "img", opts, false, false, false)
+	if plan.Recreate {
+		t.Fatal("expected no Recreate when network policy is unchanged")
 	}
 }

@@ -1,7 +1,9 @@
 package reprovision
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"strconv"
 	"strings"
@@ -128,6 +130,17 @@ func PlanReconfig( //nolint:gocognit,gocyclo,cyclop,funlen // core planner, cogn
 			Change{Label: changeLabelPublishedPorts}, //nolint:exhaustruct // label-only for change reporting
 		)
 	}
+
+	// Network policy is creation-only in microsandbox; a change requires a
+	// recreate (same tier as env/secrets/ports).
+	if !networkConfigEqual(desiredNetworkConfig(opts), cfg.Network) {
+		d.Recreate = true
+		d.Changes = append(
+			d.Changes,
+			Change{Label: "network policy"}, //nolint:exhaustruct // label-only for change reporting
+		)
+	}
+
 	if !d.Recreate && (envChanged || secretsChanged) {
 		d.Recreate = true
 		if envChanged {
@@ -246,4 +259,25 @@ func portBindingsEqual(a, b []msbSdk.PortBinding) bool {
 		}
 	}
 	return true
+}
+
+func desiredNetworkConfig(opts options.RunOptions) *msbSdk.NetworkConfig {
+	if opts.Network.Empty() {
+		// Unset policy means "as-created / unchanged". Returning nil keeps
+		// existing VMs (created before this feature, cfg.Network == nil) from
+		// being needlessly recreated. An explicit `profile: public` in config
+		// DOES produce a non-nil config and triggers a one-time recreate.
+		return nil
+	}
+	cfg, err := opts.Network.Config()
+	if err != nil {
+		return nil
+	}
+	return cfg
+}
+
+func networkConfigEqual(a, b *msbSdk.NetworkConfig) bool {
+	aJSON, _ := json.Marshal(a)
+	bJSON, _ := json.Marshal(b)
+	return bytes.Equal(aJSON, bJSON)
 }
