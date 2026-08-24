@@ -331,7 +331,7 @@ under `~/.config/opencode-sandbox/opencode/` (user) and `.opencode-sandbox/openc
   alphabetical order, so later files override earlier ones.
 - If no snippet files exist, no `opencode.json` is provisioned.
 
-See the [permissions example](/docs/getting-started.md#example-permissions) for a concrete snippet.
+See the [permissions example]({% link getting-started.md %}#example-permissions) for a concrete snippet.
 
 Run `opencode-sandbox config show` to print the merged config that would be provisioned into the VM.
 

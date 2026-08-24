@@ -126,7 +126,7 @@ git remote add origin https://example.com/repo.git
 
 ## Missing tools inside the sandbox
 
-If you need a tool that isn't in the base image (e.g., `go`, `rustc`, `python3`), add it to your project's custom Dockerfile, see [Runner Image](/docs/runner-image.md) documentation.
+If you need a tool that isn't in the base image (e.g., `go`, `rustc`, `python3`), add it to your project's custom Dockerfile, see [Runner Image]({% link runner-image.md %}) documentation.
 
 ## Secrets not available
 

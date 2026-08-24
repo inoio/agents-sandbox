@@ -112,7 +112,7 @@ YOUR_PROVIDER_API_KEY:
   host: provider.example
 ```
 
-See [Configuration](/docs/configuration.md#secrets) for more details.
+See [Configuration]({% link configuration.md %}#secrets) for more details.
 
 ## How It Works
 
@@ -127,7 +127,7 @@ See [Configuration](/docs/configuration.md#secrets) for more details.
 5. **Opencode** — Runs `opencode attach` inside the VM, forwarding any arguments after `--` to the AI agent.
 6. **Cleanup** — On exit, the session detaches. The VM-internal worktree is managed by opencode; on subsequent runs it is reused. The host repo is untouched.
 
-See the [Commands](/docs/commands.md) reference for the full API and [Configuration](/docs/configuration.md) for tuning
+See the [Commands]({% link commands.md %}) reference for the full API and [Configuration]({% link configuration.md %}) for tuning
 behavior.
 
 ## Agent Context (AGENTS.md)
@@ -152,7 +152,7 @@ No SSH keys in the VM, git cmds against remotes won't work.
 ## Example: Permissions
 
 Opencode permissions are configured through opencode config snippets, which opencode-sandbox merges (user-first, then
-project; see [Configuration](/docs/configuration.md#opencode-configuration)). Place a snippet in your project, e.g.
+project; see [Configuration]({% link configuration.md %}#opencode-configuration)). Place a snippet in your project, e.g.
 `.opencode-sandbox/opencode/permission.json5`.
 
 **Quasi-auto:** allow everything except what is explicitly denied:
@@ -181,12 +181,12 @@ project; see [Configuration](/docs/configuration.md#opencode-configuration)). Pl
 
 > **Caveat:** these rules are advisory for opencode's own Q&A tools. The `bash` tool executes arbitrary commands inside
 > the VM and can read any file regardless of these deny rules, so they are not a security boundary — keep secrets out of
-> the VM or rely on the [secret mechanism](/docs/configuration.md#secrets) instead.
+> the VM or rely on the [secret mechanism]({% link configuration.md %}#secrets) instead.
 
 ## Next Steps
 
-- Read the [Commands](/docs/commands.md) reference for the complete CLI API.
-- Learn about [Configuration](/docs/configuration.md) for setting defaults and secrets.
-- See how to [Extend the Runner Image](/docs/runner-image.md) with project-specific tooling.
-- Explore [Worktree Sessions](/docs/branch-sessions.md) for isolated worktree sessions.
-- Check [Troubleshooting](/docs/troubleshooting.md) for common issues.
+- Read the [Commands]({% link commands.md %}) reference for the complete CLI API.
+- Learn about [Configuration]({% link configuration.md %}) for setting defaults and secrets.
+- See how to [Extend the Runner Image]({% link runner-image.md %}) with project-specific tooling.
+- Explore [Worktree Sessions]({% link branch-sessions.md %}) for isolated worktree sessions.
+- Check [Troubleshooting]({% link troubleshooting.md %}) for common issues.
