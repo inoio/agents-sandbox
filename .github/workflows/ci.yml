@@ -101,8 +101,19 @@ jobs:
 
       - name: Validate binary
         run: |
-          ./opencode-sandbox-${{ matrix.target }} version
-          file "opencode-sandbox-${{ matrix.target }}"
+          f="opencode-sandbox-${{ matrix.target }}"
+          test -s "$f"
+          # Verify the correct executable format per target via magic header.
+          if [ "${{ matrix.goos }}" = "linux" ]; then
+            [ "$(od -An -tx1 -N4 "$f" | tr -d ' \n')" = "7f454c46" ]   # \x7fELF
+          else
+            [ "$(od -An -tx1 -N4 "$f" | tr -d ' \n')" = "cffaedfe" ]   # Mach-O 64
+          fi
+          # Native execution smoke test only where the runner arch matches.
+          if [ "${{ matrix.target }}" = "linux-amd64" ]; then
+            ./"$f" version
+          fi
+          file "$f"
 
       - name: Upload artifact
         uses: actions/upload-artifact@v7
