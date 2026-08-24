@@ -13,6 +13,7 @@ import (
 	"github.com/inoio/opencode-sandbox/internal/configpaths"
 	"github.com/inoio/opencode-sandbox/internal/git"
 	"github.com/inoio/opencode-sandbox/internal/sandbox/msb"
+	"github.com/inoio/opencode-sandbox/internal/sandbox/network"
 	"github.com/inoio/opencode-sandbox/internal/sandbox/options"
 	"github.com/inoio/opencode-sandbox/internal/sandbox/reprovision"
 	"github.com/inoio/opencode-sandbox/internal/sandbox/state"
@@ -132,6 +133,144 @@ func TestPersistEnvSecrets_OverwritesExistingState(t *testing.T) {
 	}
 	if got.SecretState.Hash != "sh" {
 		t.Errorf("SecretState.Hash = %q, want %q", got.SecretState.Hash, "sh")
+	}
+}
+
+func TestPersistNetworkState_RoundTrip(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+
+	slug := "netproj"
+	policy := network.Policy{Profile: network.ProfileNone, EgressAllow: []string{"api.example.com"}}
+
+	if err := persistNetworkState(slug, policy); err != nil {
+		t.Fatalf("persistNetworkState: %v", err)
+	}
+
+	got, err := state.ReadState(slug)
+	if err != nil {
+		t.Fatalf("ReadState after persist: %v", err)
+	}
+	want := reprovision.BuildNetworkState(policy)
+	if got.NetworkState.Hash != want.Hash {
+		t.Errorf("NetworkState.Hash = %q, want %q", got.NetworkState.Hash, want.Hash)
+	}
+}
+
+func TestDecideReconfig_NetworkChangedWithPersistedState(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+
+	mock := reconfigMockClient()
+	msb.WithMsbMock(t, mock)
+
+	vm := volume.NewManager(&termio.Mock{})
+
+	// Zero network state (no policy recorded yet) + a non-empty desired policy
+	// => recreate to apply the policy.
+	persistedState := state.HomeState{
+		HomeVolume:  "vol",
+		ImageDigest: "sha256:samedigest",
+	}
+	opts := options.RunOptions{Network: network.Policy{Profile: network.ProfileNone}}
+
+	ui := termio.NewTestMock(t)
+	cfs, err := reprovision.LoadConfigFiles(configpaths.Get().UserOpencodeConfigDir(), &ui)
+	if err != nil {
+		t.Fatalf("LoadConfigFiles: %v", err)
+	}
+	recreate, restart, _, err := decideReconfig(
+		context.Background(),
+		mock,
+		vm,
+		opts,
+		"img:tag",
+		"sha256:samedigest",
+		"vol",
+		persistedState,
+		cfs,
+		&ui,
+	)
+	if err != nil {
+		t.Fatalf("decideReconfig: %v", err)
+	}
+	if !recreate {
+		t.Error("expected recreate when network policy differs from persisted state (network cannot be applied live)")
+	}
+	if restart {
+		t.Error("expected no daemon restart for network change (folded into recreate)")
+	}
+}
+
+func TestDecideReconfig_NetworkUnchangedNoRecreate(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+
+	mock := reconfigMockClient()
+	msb.WithMsbMock(t, mock)
+
+	vm := volume.NewManager(&termio.Mock{})
+
+	policy := network.Policy{Profile: network.ProfileNone}
+	persistedState := state.HomeState{
+		HomeVolume:   "vol",
+		ImageDigest:  "sha256:samedigest",
+		NetworkState: reprovision.BuildNetworkState(policy),
+	}
+	opts := options.RunOptions{Network: policy}
+
+	ui := termio.NewTestMock(t)
+	cfs, err := reprovision.LoadConfigFiles(configpaths.Get().UserOpencodeConfigDir(), &ui)
+	if err != nil {
+		t.Fatalf("LoadConfigFiles: %v", err)
+	}
+	recreate, restart, _, err := decideReconfig(
+		context.Background(),
+		mock,
+		vm,
+		opts,
+		"img:tag",
+		"sha256:samedigest",
+		"vol",
+		persistedState,
+		cfs,
+		&ui,
+	)
+	if err != nil {
+		t.Fatalf("decideReconfig: %v", err)
+	}
+	if recreate {
+		t.Error("expected no recreate when network policy matches persisted state")
+	}
+	if restart {
+		t.Error("expected no restart when network policy matches persisted state")
+	}
+}
+
+func TestNetworkChanged_ZeroApplied_NonEmptyDesired(t *testing.T) {
+	got := reprovision.NetworkChanged(state.NetworkState{}, network.Policy{Profile: network.ProfileNone})
+	if !got {
+		t.Error("expected change when applied is zero and desired is non-empty")
+	}
+}
+
+func TestNetworkChanged_ZeroApplied_EmptyDesired(t *testing.T) {
+	got := reprovision.NetworkChanged(state.NetworkState{}, network.Policy{})
+	if got {
+		t.Error("expected NO change when applied is zero and desired is empty")
+	}
+}
+
+func TestNetworkChanged_MatchingHash(t *testing.T) {
+	policy := network.Policy{Profile: network.ProfileNone, EgressAllow: []string{"api.example.com"}}
+	applied := reprovision.BuildNetworkState(policy)
+	if got := reprovision.NetworkChanged(applied, policy); got {
+		t.Error("expected NO change when fingerprints match")
+	}
+}
+
+func TestNetworkChanged_DifferentHash(t *testing.T) {
+	policy := network.Policy{Profile: network.ProfileNone, EgressAllow: []string{"api.example.com"}}
+	applied := reprovision.BuildNetworkState(network.Policy{Profile: network.ProfileNone})
+	if got := reprovision.NetworkChanged(applied, policy); !got {
+		t.Error("expected change when fingerprints differ")
 	}
 }
 

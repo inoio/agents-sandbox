@@ -222,13 +222,15 @@ func volumeOp(
 		return err
 	}
 
-	// Preserve the env/secret fingerprints from the previous state: a volume
-	// operation changes the home volume data, not the env/secrets baked into
-	// the VM, so discarding them would trigger a false VM rebuild on the next
-	// startup (see EnvChanged/SecretsChanged treating empty state as "changed").
+	// Preserve the env/secret/network fingerprints from the previous state: a
+	// volume operation changes the home volume data, not the env/secrets/network
+	// baked into the VM, so discarding them would trigger a false VM rebuild on
+	// the next startup (see EnvChanged/SecretsChanged/NetworkChanged treating
+	// empty state as "changed").
 	newState := state.NewHomeState(newVolumeName, currentDigest)
 	newState.EnvState = st.EnvState
 	newState.SecretState = st.SecretState
+	newState.NetworkState = st.NetworkState
 	if err := state.WriteState(projectSlug, newState); err != nil {
 		ui.Warnf("failed to write state file: %v", err)
 	}

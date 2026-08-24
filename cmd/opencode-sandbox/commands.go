@@ -6,7 +6,9 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/inoio/opencode-sandbox/internal/git"
 	"github.com/inoio/opencode-sandbox/internal/sandbox/naming"
+	"github.com/inoio/opencode-sandbox/internal/sandbox/network"
 	"github.com/inoio/opencode-sandbox/internal/sandbox/options"
 	sandbox "github.com/inoio/opencode-sandbox/internal/sandbox/vm"
 	"github.com/inoio/opencode-sandbox/internal/termio"
@@ -48,6 +50,18 @@ func extractRunOptions(cmd *cobra.Command, ui termio.UI) (options.RunOptions, er
 		opts.WorkspaceQuota = r.WorkspaceQuota()
 		opts.ReapPolicy = options.NewReapPolicy(r.AutoStopOnActiveSessions(), r.AutoStopMaxSessionRetries())
 		opts.IdleTimeout = r.IdleTimeout()
+	}
+
+	// CLI flag wins over resolver/env/config; otherwise use the resolver's
+	// resolved policy (which defaults to public when unset).
+	if raw, _ := cmd.Flags().GetString(flagNetwork); raw != "" {
+		prof, err := network.ParseProfile(raw)
+		if err != nil {
+			return options.RunOptions{}, err
+		}
+		opts.Network = network.Policy{Profile: prof, EgressAllow: nil, EgressDeny: nil}
+	} else if r := resolverFromContext(cmd.Context()); r != nil {
+		opts.Network = r.Network()
 	}
 
 	if opts.TmpSize != "" {
@@ -142,7 +156,7 @@ func buildRootCmd(ui termio.UI) *cobra.Command {
 	rootCmd := buildMinimalRootFlagsCmd()
 
 	rootCmd.PersistentPreRunE = func(cmd *cobra.Command, _ []string) error {
-		r, err := launcherconfig.NewResolver(cmd)
+		r, err := launcherconfig.NewResolver(cmd, git.ProjectSlug())
 		if err != nil {
 			return err
 		}

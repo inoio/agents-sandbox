@@ -13,6 +13,7 @@ import (
 )
 
 const changeLabelPublishedPorts = "published port(s)"
+const changeLabelNetworkPolicy = "network policy"
 
 // Change describes one changed setting for prompt display. Values are
 // shown for simple sizes/counts; env/secrets/config carry labels only (Old/New empty).
@@ -68,7 +69,7 @@ func PlanReconfig( //nolint:gocognit,gocyclo,cyclop,funlen // core planner, cogn
 	cfg *msbSdk.SandboxConfig,
 	imageRef string,
 	opts options.RunOptions,
-	envChanged, secretsChanged, opencodeConfigChanged bool,
+	envChanged, secretsChanged, networkChanged, opencodeConfigChanged bool,
 ) *Plan {
 	d := &Plan{} //nolint:exhaustruct // fields zeroed intentionally
 	if cfg == nil {
@@ -128,6 +129,19 @@ func PlanReconfig( //nolint:gocognit,gocyclo,cyclop,funlen // core planner, cogn
 			Change{Label: changeLabelPublishedPorts}, //nolint:exhaustruct // label-only for change reporting
 		)
 	}
+
+	// Network policy is creation-only in microsandbox; a change requires a
+	// recreate (same tier as env/secrets/ports). The comparison is based on a
+	// persisted fingerprint (NetworkChanged), because the microsandbox SDK does
+	// not round-trip the network config when reading back an existing VM.
+	if networkChanged {
+		d.Recreate = true
+		d.Changes = append(
+			d.Changes,
+			Change{Label: changeLabelNetworkPolicy}, //nolint:exhaustruct // label-only for change reporting
+		)
+	}
+
 	if !d.Recreate && (envChanged || secretsChanged) {
 		d.Recreate = true
 		if envChanged {

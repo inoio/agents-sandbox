@@ -1,6 +1,8 @@
 package viperconfig
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -8,6 +10,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/inoio/opencode-sandbox/internal/configpaths"
+	"github.com/inoio/opencode-sandbox/internal/sandbox/network"
 	"github.com/inoio/opencode-sandbox/internal/sandbox/options"
 	"github.com/inoio/opencode-sandbox/internal/testutil"
 )
@@ -52,7 +55,7 @@ func TestResolverEnvPrecedenceOverConfig(t *testing.T) {
 	testutil.WriteYAML(t, cp.UserConfigDir(), "config.yaml", map[string]any{"cpus": 2})
 	t.Setenv("OPENCODE_SANDBOX_CPUS", "6")
 
-	r, err := NewResolver(nil)
+	r, err := NewResolver(nil, "")
 	if err != nil {
 		t.Fatalf("NewResolver: %v", err)
 	}
@@ -66,7 +69,7 @@ func TestResolverConfigNoFlag(t *testing.T) {
 	cp := configpaths.Get()
 	testutil.WriteYAML(t, cp.UserConfigDir(), "config.yaml", map[string]any{"cpus": 3})
 
-	r, err := NewResolver(nil)
+	r, err := NewResolver(nil, "")
 	if err != nil {
 		t.Fatalf("NewResolver: %v", err)
 	}
@@ -80,7 +83,7 @@ func TestResolverConfigSyntaxErrorIsFriendly(t *testing.T) {
 	cp := configpaths.Get()
 	testutil.WriteFile(t, cp.UserConfigDir(), "config.yaml", "cpus: 2\n  memory: [\n")
 
-	_, err := NewResolver(nil)
+	_, err := NewResolver(nil, "")
 	if err == nil {
 		t.Fatal("expected error for malformed config.yaml")
 	}
@@ -95,7 +98,7 @@ func TestResolverEnvKeyReplacement(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	t.Setenv("OPENCODE_SANDBOX_AUTO_STOP_ON_ACTIVE_SESSIONS", "true")
 
-	r, err := NewResolver(nil)
+	r, err := NewResolver(nil, "")
 	if err != nil {
 		t.Fatalf("NewResolver: %v", err)
 	}
@@ -108,7 +111,7 @@ func TestResolverEnvInvalidCPUs(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	t.Setenv("OPENCODE_SANDBOX_CPUS", "300")
 
-	if _, err := NewResolver(nil); err == nil {
+	if _, err := NewResolver(nil, ""); err == nil {
 		t.Fatal("expected error for cpus=300 from env")
 	}
 }
@@ -126,7 +129,7 @@ func TestResolverFlagOverridesEnv(t *testing.T) {
 		t.Fatalf("ParseFlags: %v", err)
 	}
 
-	r, err := NewResolver(root)
+	r, err := NewResolver(root, "")
 	if err != nil {
 		t.Fatalf("NewResolver: %v", err)
 	}
@@ -143,7 +146,7 @@ func TestResolverUnspecifiedFlagDefaultDoesNotOverride(t *testing.T) {
 
 	root := &cobra.Command{Use: "root"}
 	root.PersistentFlags().String("memory", "4G", "") // default 4G, not changed
-	r, err := NewResolver(root)
+	r, err := NewResolver(root, "")
 	if err != nil {
 		t.Fatalf("NewResolver: %v", err)
 	}
@@ -157,7 +160,7 @@ func TestResolverFlagDefaultUsedWhenNothingElse(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	root := &cobra.Command{Use: "root"}
 	root.PersistentFlags().String("memory", "4G", "")
-	r, err := NewResolver(root)
+	r, err := NewResolver(root, "")
 	if err != nil {
 		t.Fatalf("NewResolver: %v", err)
 	}
@@ -172,7 +175,7 @@ func TestResolverIgnoresRebuildKey(t *testing.T) {
 	cp := configpaths.Get()
 	testutil.WriteYAML(t, cp.UserConfigDir(), "config.yaml", map[string]any{"rebuild": true, "cpus": 2})
 
-	r, err := NewResolver(nil)
+	r, err := NewResolver(nil, "")
 	if err != nil {
 		t.Fatalf("NewResolver: %v", err)
 	}
@@ -195,7 +198,7 @@ func TestResolverProjectOverridesUser(t *testing.T) {
 		"yes":    false,
 	})
 
-	r, err := NewResolver(nil)
+	r, err := NewResolver(nil, "")
 	if err != nil {
 		t.Fatalf("NewResolver: %v", err)
 	}
@@ -224,7 +227,7 @@ func TestResolverInvalidPruneAgeFromFile(t *testing.T) {
 			cp := configpaths.Get()
 			testutil.WriteYAML(t, cp.UserConfigDir(), "config.yaml", map[string]any{tc.key: tc.value})
 
-			_, err := NewResolver(nil)
+			_, err := NewResolver(nil, "")
 			if err == nil {
 				t.Fatalf("expected error for %s=%s", tc.key, tc.value)
 			}
@@ -242,7 +245,7 @@ func TestResolverInvalidAutoStopRetriesFromFile(t *testing.T) {
 		"auto-stop-max-session-retries": -1,
 	})
 
-	_, err := NewResolver(nil)
+	_, err := NewResolver(nil, "")
 	if err == nil {
 		t.Fatal("expected error for negative auto-stop-max-session-retries")
 	}
@@ -261,7 +264,7 @@ func TestResolverJSON5Config(t *testing.T) {
 		"yes": true
 	}`)
 
-	r, err := NewResolver(nil)
+	r, err := NewResolver(nil, "")
 	if err != nil {
 		t.Fatalf("NewResolver: %v", err)
 	}
@@ -275,7 +278,7 @@ func TestResolverDiskSizeConfig(t *testing.T) {
 	cp := configpaths.Get()
 	testutil.WriteYAML(t, cp.UserConfigDir(), "config.yaml", map[string]any{"disk-size": "24G"})
 
-	r, err := NewResolver(nil)
+	r, err := NewResolver(nil, "")
 	if err != nil {
 		t.Fatalf("NewResolver: %v", err)
 	}
@@ -289,7 +292,7 @@ func TestResolverWorkspaceQuotaConfig(t *testing.T) {
 	cp := configpaths.Get()
 	testutil.WriteYAML(t, cp.UserConfigDir(), "config.yaml", map[string]any{"workspace-quota": "32G"})
 
-	r, err := NewResolver(nil)
+	r, err := NewResolver(nil, "")
 	if err != nil {
 		t.Fatalf("NewResolver: %v", err)
 	}
@@ -302,7 +305,7 @@ func TestResolverWorkspaceQuotaEnv(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	t.Setenv("OPENCODE_SANDBOX_WORKSPACE_QUOTA", "48G")
 
-	r, err := NewResolver(nil)
+	r, err := NewResolver(nil, "")
 	if err != nil {
 		t.Fatalf("NewResolver: %v", err)
 	}
@@ -322,7 +325,7 @@ func TestResolverWorkspaceQuotaGetter(t *testing.T) {
 
 func TestResolverReapPolicyDefaults(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
-	r, err := NewResolver(nil)
+	r, err := NewResolver(nil, "")
 	if err != nil {
 		t.Fatalf("NewResolver: %v", err)
 	}
@@ -338,11 +341,73 @@ func TestResolverReapPolicyDefaults(t *testing.T) {
 
 func TestResolverIdleTimeoutDefaultFromConfig(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
-	r, err := NewResolver(nil)
+	r, err := NewResolver(nil, "")
 	if err != nil {
 		t.Fatalf("NewResolver: %v", err)
 	}
 	if r.IdleTimeout() != 10*time.Second {
 		t.Errorf("IdleTimeout default = %v; want 10s", r.IdleTimeout())
+	}
+}
+
+func TestNetworkProfileEnvVar(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	t.Setenv("OPENCODE_SANDBOX_NETWORK_PROFILE", "none")
+	r, err := NewResolver(nil, "")
+	if err != nil {
+		t.Fatalf("NewResolver: %v", err)
+	}
+	if got := r.Network(); got.Profile != network.ProfileNone {
+		t.Fatalf("Network().Profile = %q, want %q", got.Profile, network.ProfileNone)
+	}
+}
+
+func TestNetworkDefaultEmpty(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	r, err := NewResolver(nil, "")
+	if err != nil {
+		t.Fatalf("NewResolver: %v", err)
+	}
+	if !r.Network().Empty() {
+		t.Error("with no network config, Network() should be Empty (default public)")
+	}
+}
+
+func TestNetworkInvalidProfileRejected(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	t.Setenv("OPENCODE_SANDBOX_NETWORK_PROFILE", "bogus")
+	if _, err := NewResolver(nil, ""); err == nil {
+		t.Fatal("expected error for invalid network profile")
+	}
+}
+
+func TestPerSlugConfigPrecedence(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	cp := configpaths.Get()
+
+	// generic user: cpus=2; per-slug user: cpus=3; project: cpus=4
+	testutil.WriteYAML(t, cp.UserConfigDir(), "config.yaml", map[string]any{"cpus": 2})
+	if err := os.MkdirAll(filepath.Join(cp.UserConfigDir(), "myslug"), 0o755); err != nil {
+		t.Fatalf("mkdir per-slug: %v", err)
+	}
+	testutil.WriteYAML(t, filepath.Join(cp.UserConfigDir(), "myslug"), "config.yaml", map[string]any{"cpus": 3})
+	testutil.WriteYAML(t, cp.ProjectConfigDir(), "config.yaml", map[string]any{"cpus": 4})
+
+	r, err := NewResolver(nil, "myslug")
+	if err != nil {
+		t.Fatalf("NewResolver: %v", err)
+	}
+	if r.CPUs() != 4 {
+		t.Fatalf("CPUs = %d; want 4 (project overrides per-slug user)", r.CPUs())
+	}
+
+	// Remove the project file; per-slug user must now win over generic user.
+	os.Remove(filepath.Join(cp.ProjectConfigDir(), "config.yaml"))
+	r2, err := NewResolver(nil, "myslug")
+	if err != nil {
+		t.Fatalf("NewResolver: %v", err)
+	}
+	if r2.CPUs() != 3 {
+		t.Fatalf("CPUs = %d; want 3 (per-slug user overrides generic user)", r2.CPUs())
 	}
 }

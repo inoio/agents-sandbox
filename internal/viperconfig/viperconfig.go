@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/inoio/opencode-sandbox/internal/configpaths"
+	"github.com/inoio/opencode-sandbox/internal/sandbox/network"
 	"github.com/inoio/opencode-sandbox/internal/yamlfmt"
 
 	"github.com/go-viper/mapstructure/v2"
@@ -38,6 +39,9 @@ type Config struct {
 	AutoStopOnActiveSessions  bool          `mapstructure:"auto-stop-on-active-sessions"`
 	AutoStopTimeout           time.Duration `mapstructure:"auto-stop-timeout"`
 	AutoStopMaxSessionRetries int           `mapstructure:"auto-stop-max-session-retries"`
+
+	// Network holds the egress policy. Only Profile is settable via env/flag.
+	Network network.Policy `mapstructure:"network"`
 }
 
 // Resolver resolves launcher config with precedence flag > env > config > default.
@@ -47,19 +51,31 @@ type Resolver struct {
 
 // NewResolver builds a Resolver, loading config files, configuring the
 // OPENCODE_SANDBOX_ env prefix, binding config-backed flags on cmd, and
-// validating. cmd may be nil to skip flag binding.
-func NewResolver(cmd *cobra.Command) (*Resolver, error) {
+// validating. Config precedence (lowest to highest): generic user dir,
+// per-slug user dir (when slug is non-empty), project dir, env, flags.
+// cmd may be nil to skip flag binding.
+func NewResolver(cmd *cobra.Command, slug string) (*Resolver, error) {
 	v := viper.New()
 
 	if err := mergeDir(v, configpaths.Get().UserConfigDir()); err != nil {
 		return nil, err
+	}
+	if slug != "" {
+		if err := mergeDir(v, filepath.Join(configpaths.Get().UserConfigDir(), slug)); err != nil {
+			return nil, err
+		}
 	}
 	if err := mergeDir(v, configpaths.Get().ProjectConfigDir()); err != nil {
 		return nil, err
 	}
 
 	v.SetEnvPrefix("OPENCODE_SANDBOX")
-	v.SetEnvKeyReplacer(strings.NewReplacer("-", "_"))
+	// Env-var keys are all top-level and dash-separated; only the nested
+	// "network.profile" key uses a dot, which maps to "_" here. This is a
+	// repo-wide replacement, so a future dotted top-level key (e.g.
+	// "auto.stop") would collide with a dashed one ("auto-stop") and must be
+	// avoided.
+	v.SetEnvKeyReplacer(strings.NewReplacer("-", "_", ".", "_"))
 	v.AutomaticEnv()
 	for _, key := range configEnvKeys {
 		if err := v.BindEnv(key); err != nil {
@@ -104,6 +120,7 @@ const (
 	keyAutoStopOnActiveSessions  = "auto-stop-on-active-sessions"
 	keyAutoStopTimeout           = "auto-stop-timeout"
 	keyAutoStopMaxSessionRetries = "auto-stop-max-session-retries"
+	keyNetworkProfile            = "network.profile"
 )
 
 //nolint:gochecknoglobals // package-level constant slice
@@ -126,6 +143,7 @@ var configEnvKeys = []string{
 	"yes", "verbose", "error",
 	keyAutoPruneAge, keyManualPruneAge,
 	keyAutoStopOnActiveSessions, keyAutoStopTimeout, keyAutoStopMaxSessionRetries,
+	keyNetworkProfile,
 }
 
 // bindConfigFlags binds each config-backed flag found on cmd (local or
@@ -278,12 +296,26 @@ func validate(v *viper.Viper) error {
 	if err := validateAutoStopTimeout(v); err != nil {
 		return err
 	}
+	if err := validateNetworkProfile(v); err != nil {
+		return err
+	}
 	if !v.IsSet("cpus") {
 		return nil
 	}
 	cpus := v.GetInt("cpus")
 	if cpus < 0 || cpus > 255 {
 		return fmt.Errorf("launcher config cpus must be between 0 and 255, got %d", cpus)
+	}
+	return nil
+}
+
+func validateNetworkProfile(v *viper.Viper) error {
+	if !v.IsSet(keyNetworkProfile) {
+		return nil
+	}
+	profileStr := v.GetString(keyNetworkProfile)
+	if _, err := network.ParseProfile(profileStr); err != nil {
+		return err
 	}
 	return nil
 }
@@ -362,3 +394,10 @@ func (r *Resolver) AutoStopOnActiveSessions() bool { return r.cfg.AutoStopOnActi
 func (r *Resolver) AutoStopTimeout() time.Duration { return r.cfg.AutoStopTimeout }
 func (r *Resolver) AutoStopMaxSessionRetries() int { return r.cfg.AutoStopMaxSessionRetries }
 func (r *Resolver) IdleTimeout() time.Duration     { return r.cfg.IdleTimeout() }
+
+// Network returns the configured network policy, or an empty policy when no
+// network config is set. Callers fall back to the default public profile when
+// the policy is Empty.
+func (r *Resolver) Network() network.Policy {
+	return r.cfg.Network
+}

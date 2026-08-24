@@ -163,8 +163,17 @@ func decideReconfig(
 	), ui)
 	envHasChanged := reprovision.EnvChanged(hs.EnvState, desiredEnv)
 	secretsHasChanged := reprovision.SecretsChanged(hs.SecretState, desiredSecrets)
+	networkHasChanged := reprovision.NetworkChanged(hs.NetworkState, opts.Network)
 
-	plan := reprovision.PlanReconfig(curCfg, imageRef, opts, envHasChanged, secretsHasChanged, opencfgChanged)
+	plan := reprovision.PlanReconfig(
+		curCfg,
+		imageRef,
+		opts,
+		envHasChanged,
+		secretsHasChanged,
+		networkHasChanged,
+		opencfgChanged,
+	)
 	otherClients := state.CountActiveClients(slug)
 	applyRecreate, applyRestart, err := reprovision.ResolveReconfig(ctx, ui, plan, otherClients, plan.Changes)
 	if err != nil {

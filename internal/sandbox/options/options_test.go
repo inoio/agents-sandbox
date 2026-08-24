@@ -82,6 +82,13 @@ func TestNewReapPolicyExplicitValues(t *testing.T) {
 	}
 }
 
+func TestRunOptionsNetworkZeroValueEmpty(t *testing.T) {
+	opts := RunOptions{}
+	if !opts.Network.Empty() {
+		t.Error("zero-value RunOptions.Network should be Empty (unset => default public)")
+	}
+}
+
 func TestNewReapPolicyDefaultMaxSessionRetries(t *testing.T) {
 	rp := NewReapPolicy(false, 0)
 	if rp.AutoStopOnActiveSessions {

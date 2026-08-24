@@ -4,6 +4,8 @@ import (
 	"time"
 
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
+
+	"github.com/inoio/opencode-sandbox/internal/sandbox/network"
 )
 
 // RunOptions controls sandbox lifecycle and configuration.
@@ -29,6 +31,9 @@ type RunOptions struct {
 	// serves without attaching the in-VM TUI. Clients (e.g. Opencode Desktop)
 	// connect to the published host port.
 	ServeOnly bool
+	// Network is the resolved egress policy for the project VM. The zero value
+	// (Empty) means no policy is set and the default public profile applies.
+	Network network.Policy
 	// OpenCodeVersion pins the opencode version baked into the runner image on
 	// rebuild. Empty means resolve the latest at build time.
 	OpenCodeVersion string

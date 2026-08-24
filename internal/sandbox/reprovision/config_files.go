@@ -17,6 +17,7 @@ import (
 
 	config "github.com/inoio/opencode-sandbox/internal/opencodeconfig"
 	"github.com/inoio/opencode-sandbox/internal/sandbox/msb"
+	"github.com/inoio/opencode-sandbox/internal/sandbox/network"
 	"github.com/inoio/opencode-sandbox/internal/sandbox/state"
 	"github.com/inoio/opencode-sandbox/internal/termio"
 
@@ -281,5 +282,25 @@ func BuildSecretState(desired []msbSdk.SecretEntry) state.SecretState {
 	return state.SecretState{
 		Hash:  SecretsContentHash(desired),
 		Names: names,
+	}
+}
+
+// NetworkChanged reports whether the applied network state differs from the
+// desired network policy, comparing content fingerprints. A zero-value applied
+// state indicates "no persisted state yet" (first run or a VM created before
+// network policies existed); it is only considered "changed" when the desired
+// policy is non-empty.
+func NetworkChanged(applied state.NetworkState, desired network.Policy) bool {
+	if applied.Hash == "" {
+		return !desired.Empty()
+	}
+	return applied.Hash != desired.Fingerprint()
+}
+
+// BuildNetworkState computes the fingerprint for the desired network policy.
+func BuildNetworkState(desired network.Policy) state.NetworkState {
+	return state.NetworkState{
+		Hash:  desired.Fingerprint(),
+		Names: []string{string(desired.Profile)},
 	}
 }

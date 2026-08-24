@@ -12,6 +12,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/inoio/opencode-sandbox/internal/git"
 	"github.com/inoio/opencode-sandbox/internal/sandbox/pruning"
 	launcherconfig "github.com/inoio/opencode-sandbox/internal/viperconfig"
 
@@ -129,7 +130,7 @@ func runFunc(ui termio.UI) func(cmd *cobra.Command, args []string) error {
 		if opts.ServeOnly {
 			ctx, _ = serveOnlyContext(ctx)
 		}
-		r, rerr := launcherconfig.NewResolver(cmd)
+		r, rerr := launcherconfig.NewResolver(cmd, git.ProjectSlug())
 		if rerr != nil {
 			return rerr
 		}
@@ -199,6 +200,8 @@ func registerSharedRunShellFlags(cmd *cobra.Command) {
 	cmd.Flags().String(flagTmpSize, "2G", "Size of the /tmp tmpfs in the sandbox")
 	cmd.Flags().String(flagDiskSize, "", "Size of the project VM root disk (e.g. 16G)")
 	cmd.Flags().String(flagWorkspaceQuota, "16G", "Guest-write quota for the /workspace bind mount (e.g. 32G)")
+	cmd.Flags().
+		String(flagNetwork, "", "Network egress profile for the VM: public, private, host, or none (default public)")
 }
 
 func buildStopCmd(ui termio.UI) *cobra.Command {
