@@ -8,6 +8,7 @@ import (
 
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 
+	"github.com/inoio/opencode-sandbox/internal/configpaths"
 	"github.com/inoio/opencode-sandbox/internal/sandbox/msb"
 	"github.com/inoio/opencode-sandbox/internal/sandbox/state"
 	"github.com/inoio/opencode-sandbox/internal/termio"
@@ -256,5 +257,262 @@ func TestVolumeOp_MainFails_RemovesNewVolume(t *testing.T) {
 	}
 	if !cleanedUp {
 		t.Errorf("expected new volume %q to be removed on main failure; removed=%v", createdVol, mock.RemovedVolumes)
+	}
+}
+
+func TestCmdEdit_DryRun(t *testing.T) {
+	_, ui := setupVolumeOpsFixtures(t)
+
+	slug := "testproj-aBc1234D"
+	state.WriteState(slug, state.HomeState{HomeVolume: "old-vol", ImageDigest: "sha256:abc"})
+
+	err := CmdEdit(context.Background(), slug, "", "img-tag", "sha256:abc", false, true, ui)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(ui.InfoCalls) != 1 {
+		t.Fatalf("expected 1 Info call, got %d: %v", len(ui.InfoCalls), ui.InfoCalls)
+	}
+	if !strings.Contains(ui.InfoCalls[0], "dry-run") {
+		t.Errorf("unexpected dry-run message: %q", ui.InfoCalls[0])
+	}
+	if !strings.Contains(ui.InfoCalls[0], "alongside") {
+		t.Errorf("expected 'alongside' in message: %q", ui.InfoCalls[0])
+	}
+}
+
+func TestCmdEdit_MainPath(t *testing.T) {
+	mock, ui := setupVolumeOpsFixtures(t)
+
+	slug := "testproj-aBc1234D"
+	state.WriteState(slug, state.HomeState{HomeVolume: "old-vol", ImageDigest: "sha256:abc"})
+
+	mock.CreateSandboxFn = func(_ context.Context, _ string, _ ...msbSdk.SandboxOption) (msb.Sandbox, error) {
+		return msb.NewMockSandbox(msb.SandboxOpts{}), nil
+	}
+	mock.CreateVolumeFn = func(_ context.Context, name string, _ ...msbSdk.VolumeOption) (msb.VolumeHandle, error) {
+		return &msb.MockVolumeHandle{Name_: name}, nil
+	}
+
+	err := CmdEdit(context.Background(), slug, "", "img-tag", "sha256:abc", false, false, ui)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Should have created the home volume
+	if len(mock.CreatedSandboxes) == 0 {
+		t.Error("expected sandbox creation for edit")
+	}
+}
+
+func TestCmdEdit_MainFails_RemovesVolume(t *testing.T) {
+	mock, ui := setupVolumeOpsFixtures(t)
+
+	slug := "testproj-aBc1234D"
+	state.WriteState(slug, state.HomeState{HomeVolume: "old-vol", ImageDigest: "sha256:abc"})
+
+	var createdVol string
+	var sandboxCount int
+	mock.CreateSandboxFn = func(_ context.Context, _ string, _ ...msbSdk.SandboxOption) (msb.Sandbox, error) {
+		sandboxCount++
+		if sandboxCount == 1 {
+			// First call is from PrefillVolume — succeed
+			return msb.NewMockSandbox(msb.SandboxOpts{}), nil
+		}
+		// Second call is from CmdEdit main — fail
+		return nil, errors.New("create edit sandbox failed")
+	}
+	mock.CreateVolumeFn = func(_ context.Context, name string, _ ...msbSdk.VolumeOption) (msb.VolumeHandle, error) {
+		createdVol = name
+		return &msb.MockVolumeHandle{Name_: name}, nil
+	}
+
+	err := CmdEdit(context.Background(), slug, "", "img-tag", "sha256:abc", false, false, ui)
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	if !strings.Contains(err.Error(), "create edit sandbox") {
+		t.Errorf("unexpected error: %v", err)
+	}
+	if createdVol == "" {
+		t.Fatal("expected new volume to have been created")
+	}
+	var cleanedUp bool
+	for _, v := range mock.RemovedVolumes {
+		if v == createdVol {
+			cleanedUp = true
+		}
+	}
+	if !cleanedUp {
+		t.Errorf("expected new volume %q to be removed on error; removed=%v", createdVol, mock.RemovedVolumes)
+	}
+}
+
+func TestCmdEdit_AttachError_Warns(t *testing.T) {
+	mock, ui := setupVolumeOpsFixtures(t)
+
+	slug := "testproj-aBc1234D"
+	state.WriteState(slug, state.HomeState{HomeVolume: "old-vol", ImageDigest: "sha256:abc"})
+
+	mock.CreateSandboxFn = func(_ context.Context, _ string, _ ...msbSdk.SandboxOption) (msb.Sandbox, error) {
+		return msb.NewMockSandbox(msb.SandboxOpts{
+			AttachErr: errors.New("attach failed"),
+		}), nil
+	}
+	mock.CreateVolumeFn = func(_ context.Context, name string, _ ...msbSdk.VolumeOption) (msb.VolumeHandle, error) {
+		return &msb.MockVolumeHandle{Name_: name}, nil
+	}
+
+	err := CmdEdit(context.Background(), slug, "", "img-tag", "sha256:abc", false, false, ui)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	// CmdEdit should return nil even if attach fails (it only warns)
+	var foundWarn bool
+	for _, call := range ui.WarnCalls {
+		if strings.Contains(call, "shell exited") {
+			foundWarn = true
+		}
+	}
+	if !foundWarn {
+		t.Errorf("expected warning about shell error, got: %v", ui.WarnCalls)
+	}
+}
+
+func TestCmdMigrate_NonDryRun_Success(t *testing.T) {
+	mock, ui := setupVolumeOpsFixtures(t)
+
+	slug := "testproj-aBc1234D"
+	state.WriteState(slug, state.HomeState{HomeVolume: "old-vol", ImageDigest: "sha256:old"})
+
+	mock.CreateSandboxFn = func(_ context.Context, _ string, _ ...msbSdk.SandboxOption) (msb.Sandbox, error) {
+		return msb.NewMockSandbox(msb.SandboxOpts{
+			ExecOut: map[string]msb.ShellResult{
+				"sh -c cp -a /home/dev/. /mnt/home/ && chown -R dev:dev /mnt/home": msb.NewTestResult(
+					true,
+					0,
+					"",
+					"",
+					nil,
+				),
+				"sh -c cp -a /src/. /dst/ && chown -R dev:dev /dst": msb.NewTestResult(
+					true,
+					0,
+					"",
+					"",
+					nil,
+				),
+			},
+		}), nil
+	}
+	mock.CreateVolumeFn = func(_ context.Context, name string, _ ...msbSdk.VolumeOption) (msb.VolumeHandle, error) {
+		return &msb.MockVolumeHandle{Name_: name}, nil
+	}
+
+	err := CmdMigrate(context.Background(), slug, "", "img-tag", "sha256:new", false, false, ui)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(mock.CreatedSandboxes) != 2 {
+		t.Errorf("expected 2 sandboxes (prefill + copy), got %d", len(mock.CreatedSandboxes))
+	}
+
+	st, err := state.ReadState(slug)
+	if err != nil {
+		t.Fatalf("ReadState: %v", err)
+	}
+	if st.HomeVolume == "" {
+		t.Error("expected HomeVolume to be set in new state")
+	}
+	if st.ImageDigest != "sha256:new" {
+		t.Errorf("ImageDigest = %q, want %q", st.ImageDigest, "sha256:new")
+	}
+}
+
+func TestCmdReset_RemOldVolume(t *testing.T) {
+	mock, ui := setupVolumeOpsFixtures(t)
+
+	slug := "testproj-aBc1234D"
+	oldVol := "opencode-sandbox-home-" + slug + "-old"
+	state.WriteState(slug, state.HomeState{HomeVolume: oldVol, ImageDigest: "sha256:old"})
+
+	mock.CreateSandboxFn = func(_ context.Context, _ string, _ ...msbSdk.SandboxOption) (msb.Sandbox, error) {
+		return msb.NewMockSandbox(msb.SandboxOpts{}), nil
+	}
+	mock.CreateVolumeFn = func(_ context.Context, name string, _ ...msbSdk.VolumeOption) (msb.VolumeHandle, error) {
+		return &msb.MockVolumeHandle{Name_: name}, nil
+	}
+
+	err := CmdReset(context.Background(), slug, "", "img-tag", "sha256:new", true, false, ui)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	// With rmOld=true, the old volume should be removed
+	var foundOld bool
+	for _, v := range mock.RemovedVolumes {
+		if v == oldVol {
+			foundOld = true
+		}
+	}
+	if !foundOld {
+		t.Errorf("expected old volume %q to be removed, got %v", oldVol, mock.RemovedVolumes)
+	}
+}
+
+func TestVolumeOp_ExplicitOldVolume(t *testing.T) {
+	mock, ui := setupVolumeOpsFixtures(t)
+
+	slug := "testproj-aBc1234D"
+	state.WriteState(slug, state.HomeState{HomeVolume: "state-vol", ImageDigest: "sha256:abc"})
+
+	mock.CreateSandboxFn = func(_ context.Context, _ string, _ ...msbSdk.SandboxOption) (msb.Sandbox, error) {
+		return msb.NewMockSandbox(msb.SandboxOpts{}), nil
+	}
+	mock.CreateVolumeFn = func(_ context.Context, name string, _ ...msbSdk.VolumeOption) (msb.VolumeHandle, error) {
+		return &msb.MockVolumeHandle{Name_: name}, nil
+	}
+
+	err := CmdReset(context.Background(), slug, "explicit-vol", "img-tag", "sha256:abc", false, false, ui)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	// Should use explicit volume, not state volume
+	if len(ui.InfoCalls) == 0 {
+		t.Fatal("expected info calls")
+	}
+	// The reset message should reference the new volume, not the explicit one (reset doesn't copy)
+}
+
+func TestResolveHomeVolume_VolumeNotFound_Warns(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+
+	slug := "myproj"
+	state.WriteState(slug, state.HomeState{HomeVolume: "opencode-sandbox-home-myproj-old", ImageDigest: "sha256:abc"})
+
+	mock := &msb.MockMsbClient{}
+	mock.GetVolumeFn = func(_ context.Context, _ string) (msb.VolumeHandle, error) {
+		var vh msb.VolumeHandle
+		return vh, errors.New("volume not found")
+	}
+	mock.CreateVolumeFn = func(_ context.Context, name string, _ ...msbSdk.VolumeOption) (msb.VolumeHandle, error) {
+		return msb.MockVolumeHandle{Name_: name}, nil
+	}
+
+	mockUI := &termio.Mock{}
+	vm := NewManager(mockUI)
+	_, _, err := vm.ResolveHomeVolume(
+		context.Background(),
+		mock,
+		slug,
+		"sha256:def",
+		"latest",
+		false,
+		mockUI,
+	)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(mockUI.WarnCalls) == 0 {
+		t.Error("expected warning about volume not found")
 	}
 }

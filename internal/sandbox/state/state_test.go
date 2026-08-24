@@ -102,6 +102,22 @@ func TestReadState_CorruptedYAML(t *testing.T) {
 	}
 }
 
+func TestNewHomeState(t *testing.T) {
+	st := NewHomeState("vol", "sha256:digest")
+	if st.HomeVolume != "vol" {
+		t.Errorf("HomeVolume = %q, want vol", st.HomeVolume)
+	}
+	if st.ImageDigest != "sha256:digest" {
+		t.Errorf("ImageDigest = %q, want sha256:digest", st.ImageDigest)
+	}
+	if st.EnvState.Hash != "" || len(st.EnvState.Names) != 0 {
+		t.Errorf("EnvState should be zeroed, got %+v", st.EnvState)
+	}
+	if st.SecretState.Hash != "" || len(st.SecretState.Names) != 0 {
+		t.Errorf("SecretState should be zeroed, got %+v", st.SecretState)
+	}
+}
+
 func TestRemoveState(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	slug := "myproj"

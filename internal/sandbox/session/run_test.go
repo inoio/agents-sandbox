@@ -2,6 +2,7 @@ package session
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -10,6 +11,7 @@ import (
 	"github.com/inoio/opencode-sandbox/internal/sandbox/msb"
 	"github.com/inoio/opencode-sandbox/internal/sandbox/options"
 	"github.com/inoio/opencode-sandbox/internal/sandbox/state"
+	sandbox "github.com/inoio/opencode-sandbox/internal/sandbox/vm"
 	"github.com/inoio/opencode-sandbox/internal/termio"
 )
 
@@ -119,5 +121,329 @@ func TestRunAttachDefaultDoesNotUseRoot(t *testing.T) {
 	}
 	if sb.AttachUser != "" {
 		t.Errorf("AttachUser = %q, want empty for default (non-root) attach", sb.AttachUser)
+	}
+}
+
+type fakePrepared struct {
+	sb     msb.Sandbox
+	target string
+}
+
+func (f *fakePrepared) Cleanup()             {}
+func (f *fakePrepared) Sandbox() msb.Sandbox { return f.sb }
+func (f *fakePrepared) Target() string       { return f.target }
+
+// --- Run: dry-run ---
+
+func TestRunDryRun(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	ui := &termio.Mock{}
+	orig := prepareSandbox
+	prepareSandbox = func(context.Context, options.RunOptions, termio.UI) (preparedSandbox, error) {
+		return &fakePrepared{}, nil
+	}
+	defer func() { prepareSandbox = orig }()
+
+	err := Run(context.Background(), options.RunOptions{DryRun: true}, ui)
+	if err != nil {
+		t.Fatalf("Run dry-run: %v", err)
+	}
+	if len(ui.InfoCalls) == 0 {
+		t.Fatal("expected info output")
+	}
+	if ui.InfoCalls[0] != "dry-run: Would run opencode" {
+		t.Errorf("info = %q, want dry-run message", ui.InfoCalls[0])
+	}
+}
+
+func TestRunDryRunVM(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	ui := &termio.Mock{}
+	orig := prepareSandbox
+	prepareSandbox = func(context.Context, options.RunOptions, termio.UI) (preparedSandbox, error) {
+		return &fakePrepared{}, nil
+	}
+	defer func() { prepareSandbox = orig }()
+
+	err := Run(context.Background(), options.RunOptions{DryRunVM: true}, ui)
+	if err != nil {
+		t.Fatalf("Run dry-run-vm: %v", err)
+	}
+	if len(ui.InfoCalls) == 0 || ui.InfoCalls[0] != "dry-run: Would start opencode in VM" {
+		t.Errorf("info = %v, want dry-run-vm message", ui.InfoCalls)
+	}
+}
+
+func TestRunServeOnlyPath(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	ui := &termio.Mock{}
+	orig := prepareSandbox
+	prepareSandbox = func(context.Context, options.RunOptions, termio.UI) (preparedSandbox, error) {
+		return &fakePrepared{sb: msb.NewMockSandbox(msb.SandboxOpts{})}, nil
+	}
+	defer func() { prepareSandbox = orig }()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	done := make(chan error, 1)
+	go func() {
+		done <- Run(ctx, options.RunOptions{ServeOnly: true, ReapPolicy: options.NewReapPolicy(true, 5)}, ui)
+	}()
+	cancel()
+	var err error
+	select {
+	case err = <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("Run serve-only did not return after cancel")
+	}
+	if err == nil {
+		t.Fatal("expected ExitError from serve-only path")
+	}
+	var exitErr *sandbox.ExitError
+	if !errors.As(err, &exitErr) || exitErr.Code != 0 {
+		t.Errorf("err = %v, want ExitError code 0", err)
+	}
+}
+
+func TestRunPrepareSandboxError(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	ui := &termio.Mock{}
+	orig := prepareSandbox
+	prepareSandbox = func(context.Context, options.RunOptions, termio.UI) (preparedSandbox, error) {
+		return nil, errors.New("prepare boom")
+	}
+	defer func() { prepareSandbox = orig }()
+
+	err := Run(context.Background(), options.RunOptions{}, ui)
+	if err == nil || !strings.Contains(err.Error(), "prepare boom") {
+		t.Errorf("err = %v, want prepareSandbox error", err)
+	}
+}
+
+func TestRunServeOnlyReapFailureWarns(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	ui := &termio.Mock{}
+	sb := &msb.MockSandbox{Name_: "test-vm"}
+	sb.ShellErr = errors.New("shell failed")
+	orig := prepareSandbox
+	prepareSandbox = func(context.Context, options.RunOptions, termio.UI) (preparedSandbox, error) {
+		return &fakePrepared{sb: sb}, nil
+	}
+	defer func() { prepareSandbox = orig }()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	done := make(chan error, 1)
+	go func() {
+		done <- Run(ctx, options.RunOptions{ServeOnly: true, ReapPolicy: options.NewReapPolicy(false, 5)}, ui)
+	}()
+	cancel()
+	var err error
+	select {
+	case err = <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("Run serve-only did not return after cancel")
+	}
+	if err == nil {
+		t.Fatal("expected ExitError from serve-only path")
+	}
+	var exitErr *sandbox.ExitError
+	if !errors.As(err, &exitErr) || exitErr.Code != 0 {
+		t.Errorf("err = %v, want ExitError code 0", err)
+	}
+	found := false
+	for _, w := range ui.WarnCalls {
+		if strings.Contains(w, "reap failed") {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("expected reap warning, got %v", ui.WarnCalls)
+	}
+}
+
+func TestShellPrepareSandboxError(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	ui := &termio.Mock{}
+	orig := prepareSandbox
+	prepareSandbox = func(context.Context, options.RunOptions, termio.UI) (preparedSandbox, error) {
+		return nil, errors.New("prepare boom")
+	}
+	defer func() { prepareSandbox = orig }()
+
+	err := Shell(context.Background(), options.RunOptions{}, ui)
+	if err == nil || !strings.Contains(err.Error(), "prepare boom") {
+		t.Errorf("err = %v, want prepareSandbox error", err)
+	}
+}
+
+func TestRunNormalCallsRunAttach(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	ui := &termio.Mock{}
+	sb := &msb.MockSandbox{AttachCode: 0, Name_: "test-vm"}
+	sb.ShellOut = map[string]msb.ShellResult{
+		"curl -sf http://127.0.0.1:4096/session/status": msb.NewTestResult(
+			true, 0, `{"s1":{"type":"idle","attempt":0}}`, "", nil,
+		),
+	}
+	sb.ExecOut = map[string]msb.ShellResult{
+		"sleep 1h": msb.NewTestResult(true, 0, "", "", nil),
+	}
+	orig := prepareSandbox
+	prepareSandbox = func(context.Context, options.RunOptions, termio.UI) (preparedSandbox, error) {
+		return &fakePrepared{sb: sb, target: "/workspace"}, nil
+	}
+	defer func() { prepareSandbox = orig }()
+
+	err := Run(context.Background(), options.RunOptions{ReapPolicy: options.NewReapPolicy(true, 5)}, ui)
+	if err != nil {
+		t.Fatalf("Run normal: %v", err)
+	}
+	found := false
+	for _, v := range ui.VerboseCalls {
+		if strings.Contains(v, "opencode attach") {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("expected attach command in verbose output, got %v", ui.VerboseCalls)
+	}
+}
+
+// --- Shell ---
+
+func TestShellDryRun(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	ui := &termio.Mock{}
+	orig := prepareSandbox
+	prepareSandbox = func(context.Context, options.RunOptions, termio.UI) (preparedSandbox, error) {
+		return &fakePrepared{}, nil
+	}
+	defer func() { prepareSandbox = orig }()
+
+	err := Shell(context.Background(), options.RunOptions{DryRun: true}, ui)
+	if err != nil {
+		t.Fatalf("Shell dry-run: %v", err)
+	}
+	if len(ui.InfoCalls) == 0 || ui.InfoCalls[0] != "dry-run: Would start interactive shell session" {
+		t.Errorf("info = %v, want dry-run shell message", ui.InfoCalls)
+	}
+}
+
+func TestShellDryRunVM(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	ui := &termio.Mock{}
+	orig := prepareSandbox
+	prepareSandbox = func(context.Context, options.RunOptions, termio.UI) (preparedSandbox, error) {
+		return &fakePrepared{}, nil
+	}
+	defer func() { prepareSandbox = orig }()
+
+	err := Shell(context.Background(), options.RunOptions{DryRunVM: true}, ui)
+	if err != nil {
+		t.Fatalf("Shell dry-run-vm: %v", err)
+	}
+	if len(ui.InfoCalls) == 0 || ui.InfoCalls[0] != "dry-run: Would start interactive shell session" {
+		t.Errorf("info = %v, want dry-run shell message", ui.InfoCalls)
+	}
+}
+
+func TestShellNormalCallsRunAttach(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	ui := &termio.Mock{}
+	sb := &msb.MockSandbox{AttachCode: 0, Name_: "test-vm"}
+	sb.ShellOut = map[string]msb.ShellResult{
+		"curl -sf http://127.0.0.1:4096/session/status": msb.NewTestResult(
+			true, 0, `{"s1":{"type":"idle","attempt":0}}`, "", nil,
+		),
+	}
+	sb.ExecOut = map[string]msb.ShellResult{
+		"sleep 1h": msb.NewTestResult(true, 0, "", "", nil),
+	}
+	orig := prepareSandbox
+	prepareSandbox = func(context.Context, options.RunOptions, termio.UI) (preparedSandbox, error) {
+		return &fakePrepared{sb: sb, target: "/workspace"}, nil
+	}
+	defer func() { prepareSandbox = orig }()
+
+	err := Shell(context.Background(), options.RunOptions{ReapPolicy: options.NewReapPolicy(true, 5)}, ui)
+	if err != nil {
+		t.Fatalf("Shell normal: %v", err)
+	}
+}
+
+// --- runAttach error paths ---
+
+func TestRunAttachPropagatesAttachError(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	ui := &termio.Mock{}
+	sb := &msb.MockSandbox{AttachErr: errors.New("attach boom")}
+
+	err := runAttach(context.Background(), sb, "errproj", ui,
+		options.RunOptions{ReapPolicy: options.NewReapPolicy(true, 5)}, "-l")
+	if err == nil {
+		t.Fatal("expected error when attach fails")
+	}
+	if !strings.Contains(err.Error(), "opencode session failed") {
+		t.Errorf("err = %q, want wrapped attach failure", err.Error())
+	}
+}
+
+func TestRunAttachReturnsExitErrorForNonZeroCode(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	ui := &termio.Mock{}
+	sb := &msb.MockSandbox{AttachCode: 3}
+
+	err := runAttach(context.Background(), sb, "exitproj", ui,
+		options.RunOptions{ReapPolicy: options.NewReapPolicy(true, 5)}, "-l")
+	var exitErr *sandbox.ExitError
+	if !errors.As(err, &exitErr) || exitErr.Code != 3 {
+		t.Errorf("err = %v, want ExitError code 3", err)
+	}
+}
+
+func TestRunAttachWarnsOnReapFailure(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	ui := &termio.Mock{}
+	sb := &msb.MockSandbox{AttachCode: 0, Name_: "test-vm"}
+	sb.ShellErr = errors.New("shell failed")
+
+	// A cancelled context makes waitQuiescent abort on its next poll, so
+	// reapOnLastClient returns an error that runAttach must warn about.
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	err := runAttach(ctx, sb, "reaperrproj", ui,
+		options.RunOptions{ReapPolicy: options.NewReapPolicy(false, 5)}, "-l")
+	if err != nil {
+		t.Fatalf("runAttach should not fail on reap error: %v", err)
+	}
+	found := false
+	for _, w := range ui.WarnCalls {
+		if strings.Contains(w, "reap failed") {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("expected reap warning, got %v", ui.WarnCalls)
+	}
+}
+
+func TestFinalizeRun(t *testing.T) {
+	if err := finalizeRun(nil, 0); err != nil {
+		t.Errorf("finalizeRun(nil, 0) = %v, want nil", err)
+	}
+	if err := finalizeRun(errors.New("boom"), 1); err == nil {
+		t.Error("finalizeRun(error, code) should return wrapped error")
+	} else if !strings.Contains(err.Error(), "opencode session failed") {
+		t.Errorf("finalizeRun error = %q, want wrapped session failure", err.Error())
+	}
+	err := finalizeRun(nil, 3)
+	var exitErr *sandbox.ExitError
+	if !errors.As(err, &exitErr) || exitErr.Code != 3 {
+		t.Errorf("finalizeRun(nil, 3) = %v, want ExitError code 3", err)
 	}
 }
