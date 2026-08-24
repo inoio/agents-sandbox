@@ -6,6 +6,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/inoio/opencode-sandbox/internal/git"
 	"github.com/inoio/opencode-sandbox/internal/sandbox/naming"
 	"github.com/inoio/opencode-sandbox/internal/sandbox/network"
 	"github.com/inoio/opencode-sandbox/internal/sandbox/options"
@@ -155,7 +156,7 @@ func buildRootCmd(ui termio.UI) *cobra.Command {
 	rootCmd := buildMinimalRootFlagsCmd()
 
 	rootCmd.PersistentPreRunE = func(cmd *cobra.Command, _ []string) error {
-		r, err := launcherconfig.NewResolver(cmd)
+		r, err := launcherconfig.NewResolver(cmd, git.ProjectSlug())
 		if err != nil {
 			return err
 		}

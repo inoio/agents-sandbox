@@ -51,12 +51,19 @@ type Resolver struct {
 
 // NewResolver builds a Resolver, loading config files, configuring the
 // OPENCODE_SANDBOX_ env prefix, binding config-backed flags on cmd, and
-// validating. cmd may be nil to skip flag binding.
-func NewResolver(cmd *cobra.Command) (*Resolver, error) {
+// validating. Config precedence (lowest to highest): generic user dir,
+// per-slug user dir (when slug is non-empty), project dir, env, flags.
+// cmd may be nil to skip flag binding.
+func NewResolver(cmd *cobra.Command, slug string) (*Resolver, error) {
 	v := viper.New()
 
 	if err := mergeDir(v, configpaths.Get().UserConfigDir()); err != nil {
 		return nil, err
+	}
+	if slug != "" {
+		if err := mergeDir(v, filepath.Join(configpaths.Get().UserConfigDir(), slug)); err != nil {
+			return nil, err
+		}
 	}
 	if err := mergeDir(v, configpaths.Get().ProjectConfigDir()); err != nil {
 		return nil, err
