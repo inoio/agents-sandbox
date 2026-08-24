@@ -164,6 +164,50 @@ func TestAcquireClientLease_NonExistentSlug(t *testing.T) {
 	release()
 }
 
+func TestCountActiveClients_NoClientsDir(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+
+	slug := "nodir-proj"
+	if got := CountActiveClients(slug); got != 0 {
+		t.Errorf("CountActiveClients = %d, want 0 when clients dir is absent", got)
+	}
+}
+
+func TestCountActiveClients_SkipsUnopenableEntry(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+
+	slug := "subdir-proj"
+	clientsDir := filepath.Join(stateRoot(), slug, "clients")
+	if err := os.MkdirAll(filepath.Join(clientsDir, "a-subdir"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+
+	// A directory entry cannot be flock'd and must be skipped, not counted
+	// and not removed.
+	if got := CountActiveClients(slug); got != 0 {
+		t.Errorf("CountActiveClients = %d, want 0 for unopenable entry", got)
+	}
+	if _, err := os.Stat(filepath.Join(clientsDir, "a-subdir")); err != nil {
+		t.Fatalf("subdirectory entry should not be removed, got %v", err)
+	}
+}
+
+func TestAcquireClientLease_MkdirFailure(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+
+	// Place a file where the slug dir would live so MkdirAll fails.
+	slug := "blocked-proj"
+	slugPath := filepath.Join(stateRoot(), slug)
+	if err := os.MkdirAll(stateRoot(), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	testutil.WritePath(t, slugPath, "not a directory")
+
+	if _, err := AcquireClientLease(slug); err == nil {
+		t.Fatal("AcquireClientLease should fail when the client lock dir cannot be created")
+	}
+}
+
 func TestAcquireClientLease_MultipleFromSameProcess(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 

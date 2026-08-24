@@ -14,4 +14,10 @@ command reports the bare version (e.g. `0.1.0`).
 
 ## [0.1.0] - 2026-08-??
 
-Initial release
+### Added
+
+* everything ;)
+
+### Changed
+
+* lives & experiences, hopefully :)

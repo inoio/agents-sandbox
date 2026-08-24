@@ -115,6 +115,8 @@ func NewResolverWithConfig(cfg Config) *Resolver {
 const (
 	extJSON5                     = ".json5"
 	extJSONC                     = ".jsonc"
+	ctJSON                       = "json"
+	ctYAML                       = "yaml"
 	keyAutoPruneAge              = "auto-prune-age"
 	keyManualPruneAge            = "manual-prune-age"
 	keyAutoStopOnActiveSessions  = "auto-stop-on-active-sessions"
@@ -249,11 +251,11 @@ func mergeDir(v *viper.Viper, dir string) error {
 		if err != nil {
 			return fmt.Errorf("normalize launcher config %s: %w", path, err)
 		}
-		ct = "json"
+		ct = ctJSON
 	}
 	v.SetConfigType(ct)
 	if err := v.MergeConfig(bytes.NewReader(data)); err != nil {
-		if ct == "yaml" {
+		if ct == ctYAML {
 			return yamlfmt.WrapErr(path, err)
 		}
 		return fmt.Errorf("load launcher config %s: %w", path, err)
@@ -277,9 +279,9 @@ func findConfigFile(dir string) (string, string, bool) {
 func configType(ext string) string {
 	switch strings.ToLower(ext) {
 	case ".yaml", ".yml":
-		return "yaml"
+		return ctYAML
 	case ".json", ".jsonc", ".json5":
-		return "json"
+		return ctJSON
 	}
 	return ""
 }
