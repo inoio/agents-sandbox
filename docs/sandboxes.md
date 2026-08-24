@@ -12,6 +12,30 @@ the sandbox lifecycle and management.
 
 Each opencode-sandbox invocation follows this lifecycle:
 
+```mermaid
+flowchart TD
+    A["Auto-prune<br/>remove stale VMs, volumes, images"]
+    B["Pre-flight checks (doctor)<br/>Docker, KVM, Git, msb"]
+    C["Image verify/build<br/>Dockerfile → Docker image → msb image"]
+    D["Home volume verify/build<br/>persistent msb volume per project"]
+    E{"VM exists?"}
+    F["Create VM"]
+    G["Provisioning<br/>copy opencode config, home.yaml"]
+    H["Daemon verify/start"]
+    I{"--worktree?"}
+    J["Resolve/branch VM-internal worktree"]
+    K["opencode attach"]
+    L["Cleanup / detach"]
+
+    A --> B --> C --> D --> E
+    E -- "no" --> F --> G
+    E -- "yes" --> G
+    G --> H --> I
+    I -- "yes" --> J --> K
+    I -- "no" --> K
+    K --> L
+```
+
 ```
 - Auto-prune: Remove stale VMs, volumes, and images
 - Pre-flight checks (doctor): Docker, KVM, Git, msb

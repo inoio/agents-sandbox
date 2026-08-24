@@ -10,6 +10,8 @@ command reports the bare version (e.g. `0.1.0`).
 
 ### Added
 
+- Mermaid diagrams (system context, VM lifecycle, config precedence) rendered in the docs pages.
+
 ### Changed
 
 ## [0.1.0] - 2026-08-??

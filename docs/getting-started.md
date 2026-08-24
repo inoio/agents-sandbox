@@ -130,6 +130,39 @@ See [Configuration]({% link configuration.md %}#secrets) for more details.
 See the [Commands]({% link commands.md %}) reference for the full API and [Configuration]({% link configuration.md %}) for tuning
 behavior.
 
+### System Context
+
+The following diagram shows how opencode-sandbox relates the host to the microsandbox VM: your project directory is bound
+into the VM as `/workspace`, persistent state lives on a home volume at `/home/dev`, secrets are injected host-side only, and
+one or more opencode clients attach to the server running inside the VM.
+
+```mermaid
+flowchart LR
+    subgraph host["Host"]
+        dir["Project directory<br/>(host CWD)"]
+        secret["Secrets<br/>(host-side only)"]
+        client1["opencode-sandbox client"]
+        client2["opencode-sandbox client"]
+    end
+
+    subgraph vm["Microsandbox VM"]
+        ws["/workspace<br/>(bind mount, rw)"]
+        home["/home/dev<br/>(persistent home volume)"]
+        image["Runner image<br/>(opencode, node, tools)"]
+        server["opencode server"]
+    end
+
+    dir -- "bind mount" --> ws
+    secret -- "msb secret mechanism" --> home
+    image -- "root filesystem" --> vm
+    client1 -- "attach" --> server
+    client2 -- "attach" --> server
+```
+
+`/workspace` and the host CWD are the same files — edits inside the VM appear on the host and vice-versa. Secrets never live in
+the image or in environment dumps inside the VM; they are injected at runtime and visible only as environment variables.
+Multiple clients can attach to the same VM concurrently.
+
 ## Agent Context (AGENTS.md)
 
 An `AGENTS.md` in the working directory can orient the agent on being in a sandbox VM, available tooling etc. Here is a minimal, self-explanatory example you can copy and adapt:

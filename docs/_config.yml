@@ -18,6 +18,11 @@ heading_anchors: true
 color_scheme: light
 back_to_top: true
 
+# Mermaid diagrams, rendered client-side from ```mermaid code blocks.
+# https://just-the-docs.github.io/just-the-docs/docs/configuration/#mermaid-diagrams
+mermaid:
+  version: "10.9.1"
+
 # Avoid copying build artefacts into the deployed site.
 exclude:
   - Gemfile
