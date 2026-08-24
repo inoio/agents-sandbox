@@ -102,3 +102,31 @@ func TestParseProfile(t *testing.T) {
 		t.Fatal("ParseProfile(bogus) should error")
 	}
 }
+
+func TestConfigDeDuplicatesEmptyEntries(t *testing.T) {
+	cfg, err := (Policy{
+		Profile:     ProfilePublic,
+		EgressAllow: []string{"", "api.github.com", ""},
+	}).Config()
+	if err != nil {
+		t.Fatalf("Config: %v", err)
+	}
+	count := 0
+	for _, r := range cfg.Rules {
+		if r.Destination == "api.github.com" {
+			count++
+		}
+		if r.Destination == "" {
+			t.Fatalf("Config must drop empty destinations, got rule with empty destination")
+		}
+	}
+	if count != 1 {
+		t.Fatalf("expected exactly one rule for api.github.com, got %d", count)
+	}
+}
+
+func TestConfigUnknownProfileErrors(t *testing.T) {
+	if _, err := (Policy{Profile: Profile("bogus")}).Config(); err == nil {
+		t.Fatal("Config with unknown profile should error")
+	}
+}

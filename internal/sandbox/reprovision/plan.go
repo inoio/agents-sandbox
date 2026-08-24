@@ -15,6 +15,7 @@ import (
 )
 
 const changeLabelPublishedPorts = "published port(s)"
+const changeLabelNetworkPolicy = "network policy"
 
 // Change describes one changed setting for prompt display. Values are
 // shown for simple sizes/counts; env/secrets/config carry labels only (Old/New empty).
@@ -137,7 +138,7 @@ func PlanReconfig( //nolint:gocognit,gocyclo,cyclop,funlen // core planner, cogn
 		d.Recreate = true
 		d.Changes = append(
 			d.Changes,
-			Change{Label: "network policy"}, //nolint:exhaustruct // label-only for change reporting
+			Change{Label: changeLabelNetworkPolicy}, //nolint:exhaustruct // label-only for change reporting
 		)
 	}
 
@@ -271,6 +272,10 @@ func desiredNetworkConfig(opts options.RunOptions) *msbSdk.NetworkConfig {
 	}
 	cfg, err := opts.Network.Config()
 	if err != nil {
+		// Unreachable in practice: the profile is validated at every entry
+		// point (config/env validation, --network ParseProfile, and
+		// createProjectVM, which calls Config() itself and would surface the
+		// error otherwise).
 		return nil
 	}
 	return cfg

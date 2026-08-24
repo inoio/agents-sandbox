@@ -70,8 +70,11 @@ func NewResolver(cmd *cobra.Command, slug string) (*Resolver, error) {
 	}
 
 	v.SetEnvPrefix("OPENCODE_SANDBOX")
-	// Map both hyphens and nested-key dots to underscores so that keys like
-	// "network.profile" resolve from OPENCODE_SANDBOX_NETWORK_PROFILE.
+	// Env-var keys are all top-level and dash-separated; only the nested
+	// "network.profile" key uses a dot, which maps to "_" here. This is a
+	// repo-wide replacement, so a future dotted top-level key (e.g.
+	// "auto.stop") would collide with a dashed one ("auto-stop") and must be
+	// avoided.
 	v.SetEnvKeyReplacer(strings.NewReplacer("-", "_", ".", "_"))
 	v.AutomaticEnv()
 	for _, key := range configEnvKeys {

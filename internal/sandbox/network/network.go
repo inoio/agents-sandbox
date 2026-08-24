@@ -46,7 +46,7 @@ func (p Policy) Config() (*msbSdk.NetworkConfig, error) {
 	if p.Profile == ProfileNone {
 		return msbSdk.NetworkPolicy.None(), nil
 	}
-	cfg, err := msbSdk.NetworkPolicy.FromProfilesChecked(toMSBProfile(p.Profile))
+	cfg, err := msbSdk.NetworkPolicy.FromProfilesChecked(msbSdk.NetworkProfile(p.Profile))
 	if err != nil {
 		return nil, err
 	}
@@ -65,10 +65,6 @@ func egressRule(action msbSdk.PolicyAction, destination string) msbSdk.PolicyRul
 	r.Direction = msbSdk.PolicyDirectionEgress
 	r.Destination = destination
 	return r
-}
-
-func toMSBProfile(p Profile) msbSdk.NetworkProfile {
-	return msbSdk.NetworkProfile(p)
 }
 
 func dedupe(in []string) []string {

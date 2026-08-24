@@ -364,3 +364,16 @@ func TestExtractRunOptionsNetworkFromResolver(t *testing.T) {
 		t.Fatalf("Network.Profile = %q, want private (from resolver)", opts.Network.Profile)
 	}
 }
+
+func TestExtractRunOptionsNetworkInvalid(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	cmd := buildRunCmd(&termio.Mock{})
+	if err := cmd.Flags().Set(flagNetwork, "bogus"); err != nil {
+		t.Fatalf("set network: %v", err)
+	}
+	rootCtx := context.WithValue(context.Background(), (*launcherConfigKey)(nil), mustResolver(t, cmd))
+	cmd.SetContext(rootCtx)
+	if _, err := extractRunOptions(cmd, &termio.Mock{}); err == nil {
+		t.Fatal("expected error for invalid --network profile")
+	}
+}

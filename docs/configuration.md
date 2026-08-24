@@ -184,6 +184,10 @@ microsandbox's default (public) — no behavior change for existing users.
 
 Profile and lists can be combined, e.g. a `private` profile with an `egress-allow: [.internal]` exception.
 
+> **Note:** Passing an explicit profile (`--network public` or `network.profile: public`) on a VM created before this
+> feature will trigger a **one-time recreate**. An explicit profile yields a non-nil desired network config, whereas an
+> unset one does not, so the recreated VM then matches the explicit profile going forward.
+
 The profile is also configurable via the `OPENCODE_SANDBOX_NETWORK_PROFILE` environment variable and the `--network`
 flag on `run`/`shell` (e.g. `opencode-sandbox run --network none`). Precedence: **flag > env > config > default**. The
 `egress-allow`/`egress-deny` lists are config-file-only and have no env var or flag.
