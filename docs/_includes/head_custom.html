@@ -1,0 +1,33 @@
+<script>
+(function () {
+  function saved() {
+    try {
+      var v = window.localStorage.getItem("jtd-theme");
+      return v === "dark" || v === "light" ? v : null;
+    } catch (e) {
+      return null;
+    }
+  }
+  function preferred() {
+    return window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches
+      ? "dark"
+      : "light";
+  }
+  function apply(scheme) {
+    var link = document.querySelector("link[rel='stylesheet']");
+    if (link) {
+      link.href = link.href.replace(/just-the-docs-(default|light|dark)\.css/, "just-the-docs-" + scheme + ".css");
+    }
+  }
+  var savedScheme = saved();
+  var initialScheme = savedScheme || preferred();
+  apply(initialScheme);
+  var mql = window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)");
+  if (mql && mql.addEventListener) {
+    mql.addEventListener("change", function (e) {
+      if (saved()) return;
+      apply(e.matches ? "dark" : "light");
+    });
+  }
+})();
+</script>

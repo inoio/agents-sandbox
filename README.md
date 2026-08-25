@@ -108,6 +108,8 @@ with `opencode-sandbox build` to upgrade (optionally pinning a specific version 
 
 ## Documentation
 
+The docs are also published to [GitHub Pages](https://inoio.github.io/opencode-sandbox/).
+
 | Topic                                         | Description                                            |
 |-----------------------------------------------|--------------------------------------------------------|
 | [Getting Started](/docs/getting-started.md)   | Installation, prerequisites, configuration, first run  |
