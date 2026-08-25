@@ -12,6 +12,10 @@ command reports the bare version (e.g. `0.1.0`).
 
 ### Changed
 
+* Docs pages are now published only after a successful release, rebuilding from the published tag rather than in parallel on tag push. Each page footer and the home page display the release (or branch) they were built from.
+* Docs support dark mode: they follow the OS/browser color-scheme preference by default and expose a sun/moon toggle in the header (next to the GitHub link) that overrides and persists the choice.
+* The README's Documentation section now links directly to the hosted GitHub Pages docs.
+
 ## [0.1.0] - 2026-08-??
 
 ### Added
