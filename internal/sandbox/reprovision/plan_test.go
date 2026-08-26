@@ -32,7 +32,16 @@ func TestPlanReconfigServeOnly(t *testing.T) {
 			} else {
 				cfg = &msbSdk.SandboxConfig{PortBindings: tt.cfgPorts}
 			}
-			plan := PlanReconfig(cfg, "img", options.RunOptions{ServeOnly: tt.serveOnly}, false, false, false, false)
+			plan := PlanReconfig(
+				cfg,
+				"img",
+				options.RunOptions{ServeOnly: tt.serveOnly},
+				false,
+				false,
+				false,
+				false,
+				"",
+			)
 			if plan.Recreate != tt.wantRecreate {
 				t.Errorf("Recreate = %v, want %v", plan.Recreate, tt.wantRecreate)
 			}
@@ -63,6 +72,7 @@ func TestPlanReconfigTriggersRecreateOnImageChange(t *testing.T) {
 		false,
 		false,
 		false,
+		"",
 	)
 	if planSame.Recreate {
 		t.Error("expected no recreate when image reference is unchanged")
@@ -76,6 +86,7 @@ func TestPlanReconfigTriggersRecreateOnImageChange(t *testing.T) {
 		false,
 		false,
 		false,
+		"",
 	)
 	if !planNew.Recreate {
 		t.Error("expected recreate when image reference changes after a rebuild")
@@ -115,7 +126,7 @@ func TestDesiredPublishBindingsNilWhenNotServeOnly(t *testing.T) {
 func TestPlanReconfigNetworkChangeTriggersRecreate(t *testing.T) {
 	cfg := &msbSdk.SandboxConfig{}
 	opts := options.RunOptions{}
-	plan := PlanReconfig(cfg, "img", opts, false, false, true, false)
+	plan := PlanReconfig(cfg, "img", opts, false, false, true, false, "")
 	if !plan.Recreate {
 		t.Fatal("expected Recreate when network policy changes")
 	}
@@ -124,8 +135,54 @@ func TestPlanReconfigNetworkChangeTriggersRecreate(t *testing.T) {
 func TestPlanReconfigNetworkSameNoRecreate(t *testing.T) {
 	cfg := &msbSdk.SandboxConfig{}
 	opts := options.RunOptions{}
-	plan := PlanReconfig(cfg, "img", opts, false, false, false, false)
+	plan := PlanReconfig(cfg, "img", opts, false, false, false, false, "")
 	if plan.Recreate {
 		t.Fatal("expected no Recreate when network policy is unchanged")
+	}
+}
+
+func TestPlanReconfigHomeVolumeChangeTriggersRecreate(t *testing.T) {
+	cfg := &msbSdk.SandboxConfig{
+		Image: "img",
+		Volumes: map[string]msbSdk.MountConfig{
+			VMHomeDir: {Named: "opencode-sandbox-home-proj-old"},
+		},
+	}
+	plan := PlanReconfig(cfg, "img", options.RunOptions{}, false, false, false, false,
+		"opencode-sandbox-home-proj-new")
+	if !plan.Recreate {
+		t.Fatal("expected Recreate when the desired home volume differs from the mounted one")
+	}
+	found := false
+	for _, c := range plan.Changes {
+		if c.Label == "home volume" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("expected a 'home volume' change label, got %+v", plan.Changes)
+	}
+}
+
+func TestPlanReconfigHomeVolumeSameNoRecreate(t *testing.T) {
+	cfg := &msbSdk.SandboxConfig{
+		Image: "img",
+		Volumes: map[string]msbSdk.MountConfig{
+			VMHomeDir: {Named: "opencode-sandbox-home-proj-vol"},
+		},
+	}
+	plan := PlanReconfig(cfg, "img", options.RunOptions{}, false, false, false, false,
+		"opencode-sandbox-home-proj-vol")
+	if plan.Recreate {
+		t.Fatal("expected no Recreate when the mounted home volume matches the desired one")
+	}
+}
+
+func TestPlanReconfigNilCfgHomeVolumeSafe(t *testing.T) {
+	plan := PlanReconfig(nil, "img", options.RunOptions{}, false, false, false, false,
+		"opencode-sandbox-home-proj-vol")
+	if plan.Recreate {
+		t.Fatal("expected no Recreate for a nil config (fresh VM creation)")
 	}
 }

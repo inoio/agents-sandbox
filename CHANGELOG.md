@@ -18,6 +18,7 @@ command reports the bare version (e.g. `0.1.0`).
 * Docs: Support for dark mode; follows the OS/browser color-scheme preference by default and expose a sun/moon toggle in the header (next to the GitHub link) that overrides and persists the choice.
 * Docs: The README's Documentation section now links directly to the hosted GitHub Pages docs.
 * Bugfix: A change to a secret's allowed hosts (or other secret properties such as placeholder) now triggers a VM recreate; previously only the secret value was part of the change hash, so host changes were silently ignored.
+* Bugfix: After a home-volume `reset` or `migrate`, restarting now recreates the project VM so the new home volume is actually mounted; previously the running VM kept serving the old volume because the mounted home volume was not compared during reconfiguration.
 
 ## [0.1.0] - 2026-08-??
 
