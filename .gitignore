@@ -1,6 +1,7 @@
 /opencode-sandbox*
 /.idea/
-/.opencode-sandbox
+/.opencode-sandbox/
+!/.opencode-sandbox/Dockerfile
 version.env
 *.test
 coverage.out
