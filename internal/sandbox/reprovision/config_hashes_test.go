@@ -50,6 +50,35 @@ func TestEnvChanged(t *testing.T) {
 	}
 }
 
+func TestSecretsContentHashIncludesHosts(t *testing.T) {
+	// A change to a secret's allowed hosts (with the same value) must produce
+	// a different hash so the launcher recreates the VM. See SecretsContentHash.
+	a := SecretsContentHash([]msbSdk.SecretEntry{
+		{EnvVar: "GITHUB_TOKEN", Value: "t", AllowHosts: []string{"github.com"}},
+	})
+	b := SecretsContentHash([]msbSdk.SecretEntry{
+		{EnvVar: "GITHUB_TOKEN", Value: "t", AllowHosts: []string{"api.github.com", "github.com"}},
+	})
+	if a == b {
+		t.Error("SecretsContentHash should differ when AllowHosts changes with the same value")
+	}
+}
+
+func TestSecretsContentHashIncludesOtherFields(t *testing.T) {
+	placeholder := "$GITHUB_TOKEN"
+	base := SecretsContentHash([]msbSdk.SecretEntry{{EnvVar: "A", Value: "1"}})
+	if got := SecretsContentHash([]msbSdk.SecretEntry{
+		{EnvVar: "A", Value: "1", AllowHostPatterns: []string{"*.github.com"}},
+	}); got == base {
+		t.Error("SecretsContentHash should differ when AllowHostPatterns changes")
+	}
+	if got := SecretsContentHash(
+		[]msbSdk.SecretEntry{{EnvVar: "A", Value: "1", Placeholder: placeholder}},
+	); got == base {
+		t.Error("SecretsContentHash should differ when Placeholder changes")
+	}
+}
+
 func TestSecretsChanged(t *testing.T) {
 	hash := SecretsContentHash([]msbSdk.SecretEntry{{EnvVar: "A", Value: "1"}})
 	if SecretsChanged(state.SecretState{Hash: hash}, []msbSdk.SecretEntry{{EnvVar: "A", Value: "1"}}) {
