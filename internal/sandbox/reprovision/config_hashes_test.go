@@ -50,6 +50,49 @@ func TestEnvChanged(t *testing.T) {
 	}
 }
 
+func TestSecretsContentHashIncludesHosts(t *testing.T) {
+	// A change to a secret's allowed hosts (with the same value) must produce
+	// a different hash so the launcher recreates the VM. See SecretsContentHash.
+	a := SecretsContentHash([]msbSdk.SecretEntry{
+		{EnvVar: "GITHUB_TOKEN", Value: "t", AllowHosts: []string{"github.com"}},
+	})
+	b := SecretsContentHash([]msbSdk.SecretEntry{
+		{EnvVar: "GITHUB_TOKEN", Value: "t", AllowHosts: []string{"api.github.com", "github.com"}},
+	})
+	if a == b {
+		t.Error("SecretsContentHash should differ when AllowHosts changes with the same value")
+	}
+}
+
+func TestSecretsContentHashIncludesOtherFields(t *testing.T) {
+	base := msbSdk.SecretEntry{EnvVar: "A", Value: "1"}
+	baseHash := SecretsContentHash([]msbSdk.SecretEntry{base})
+
+	boolPtr := func(v bool) *bool { return &v }
+	tests := []struct {
+		name   string
+		mutate func(e *msbSdk.SecretEntry)
+	}{
+		{"Value", func(e *msbSdk.SecretEntry) { e.Value = "2" }},
+		{"AllowHosts", func(e *msbSdk.SecretEntry) { e.AllowHosts = []string{"github.com"} }},
+		{"AllowHostPatterns", func(e *msbSdk.SecretEntry) { e.AllowHostPatterns = []string{"*.github.com"} }},
+		{"Placeholder", func(e *msbSdk.SecretEntry) { e.Placeholder = "$GITHUB_TOKEN" }},
+		{"RequireTLS true", func(e *msbSdk.SecretEntry) { e.RequireTLS = boolPtr(true) }},
+		{"RequireTLS false", func(e *msbSdk.SecretEntry) { e.RequireTLS = boolPtr(false) }},
+		{"OnViolation", func(e *msbSdk.SecretEntry) { e.OnViolation = msbSdk.ViolationActionBlock }},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			e := base
+			tt.mutate(&e)
+			if got := SecretsContentHash([]msbSdk.SecretEntry{e}); got == baseHash {
+				t.Errorf("SecretsContentHash should differ when %s changes", tt.name)
+			}
+		})
+	}
+}
+
 func TestSecretsChanged(t *testing.T) {
 	hash := SecretsContentHash([]msbSdk.SecretEntry{{EnvVar: "A", Value: "1"}})
 	if SecretsChanged(state.SecretState{Hash: hash}, []msbSdk.SecretEntry{{EnvVar: "A", Value: "1"}}) {
