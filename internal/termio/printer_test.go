@@ -117,6 +117,24 @@ func TestWarnShownAtWarningLevel(t *testing.T) {
 	}
 }
 
+func TestWarnHiddenAtErrorLevel(t *testing.T) {
+	var stderr bytes.Buffer
+	ui := New(nil, &bytes.Buffer{}, &stderr, false, LevelError, false, false)
+	ui.Warn("danger")
+	if stderr.String() != "" {
+		t.Errorf("expected no warn output at error level, got %q", stderr.String())
+	}
+}
+
+func TestWarnfHiddenAtErrorLevel(t *testing.T) {
+	var stderr bytes.Buffer
+	ui := New(nil, &bytes.Buffer{}, &stderr, false, LevelError, false, false)
+	ui.Warnf("danger %s", "x")
+	if stderr.String() != "" {
+		t.Errorf("expected no warnf output at error level, got %q", stderr.String())
+	}
+}
+
 func TestErrorShownAtErrorLevel(t *testing.T) {
 	var stderr bytes.Buffer
 	ui := New(nil, &bytes.Buffer{}, &stderr, false, LevelError, false, false)

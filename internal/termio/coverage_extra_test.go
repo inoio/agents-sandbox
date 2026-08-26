@@ -174,6 +174,14 @@ func TestMockHelperCoverage(t *testing.T) {
 	if !m.AssumeYes() {
 		t.Error("AssumeYes() = false, want true")
 	}
+	m.SetQuiet(true)
+	if !m.Quiet() {
+		t.Error("Quiet() = false, want true")
+	}
+	m.SetQuiet(false)
+	if m.Quiet() {
+		t.Error("Quiet() = true after SetQuiet(false), want false")
+	}
 
 	m.IsInteractiveResult = true
 	if !m.IsInteractive() {

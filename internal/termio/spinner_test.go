@@ -92,6 +92,15 @@ func TestSpinnerHiddenAtErrorLevel(t *testing.T) {
 	}
 }
 
+func TestSpinnerFinishSuppressedAtErrorLevel(t *testing.T) {
+	var stderr bytes.Buffer
+	s := &spinner{w: &stderr, level: LevelError, active: true}
+	s.finish("done")
+	if stderr.String() != "" {
+		t.Errorf("expected finish suppressed at error level, got %q", stderr.String())
+	}
+}
+
 func TestSpinnerColorErrorEmitsRed(t *testing.T) {
 	var stderr bytes.Buffer
 	ui := New(nil, &bytes.Buffer{}, &stderr, true, LevelInfo, false, false)

@@ -20,6 +20,9 @@ func TestLevelString(t *testing.T) {
 			t.Errorf("(%d).String() = %q, want %q", tc.level, got, tc.want)
 		}
 	}
+	if got := Level(99).String(); got != "info" {
+		t.Errorf("unknown level String() = %q, want %q", got, "info")
+	}
 }
 
 func TestParseLevel(t *testing.T) {

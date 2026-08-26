@@ -110,6 +110,15 @@ func TestFlagTypedDefault(t *testing.T) {
 		t.Errorf("flagTypedDefault(yes) = %#v, want true", got)
 	}
 
+	quietFlag := &pflag.Flag{Name: "quiet", DefValue: "true"}
+	if got := flagTypedDefault("quiet", quietFlag); got != true {
+		t.Errorf("flagTypedDefault(quiet) = %#v, want true", got)
+	}
+	quietFlagFalse := &pflag.Flag{Name: "quiet", DefValue: "false"}
+	if got := flagTypedDefault("quiet", quietFlagFalse); got != false {
+		t.Errorf("flagTypedDefault(quiet,false) = %#v, want false", got)
+	}
+
 	strFlag := &pflag.Flag{Name: "memory", DefValue: "8G"}
 	if got := flagTypedDefault("memory", strFlag); got != "8G" {
 		t.Errorf("flagTypedDefault(memory) = %#v, want 8G", got)
