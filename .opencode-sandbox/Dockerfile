@@ -46,6 +46,20 @@ RUN ZIG_DARWIN="$(dirname "$(which zig)")/lib/libc/darwin" \
       'current-version: 1\nexports:\n  - targets:         [ arm64-macos, x86_64-macos, arm64e-macos ]\n    symbols:         [ ]\n' \
       > "$ZIG_DARWIN/usr/lib/libresolv.tbd"
 
+# GitHub CLI (gh)
+# In order to preauthenticate the client, use a startup hook, e.g.:
+# ```
+# #!/bin/sh
+# if [ ! -z "${GITHUB_PAT:-}" ]; then
+#   printf '%s\n' "$GITHUB_PAT" | gh auth login --with-token
+#   gh auth setup-git
+# fi
+# ```
+ARG GH_VERSION=2.62.0
+RUN curl -fsSL "https://github.com/cli/cli/releases/download/v${GH_VERSION}/gh_${GH_VERSION}_linux_amd64.deb" -o /tmp/gh.deb \
+ && dpkg -i /tmp/gh.deb \
+ && rm -f /tmp/gh.deb
+
 USER dev
 # microsandbox so the agent can check --help, sources. Running VMs doesn't work because /dev/kvm is missing.
 RUN curl -fsSL https://github.com/superradcompany/microsandbox/releases/download/v0.6.14/install.sh | sh
