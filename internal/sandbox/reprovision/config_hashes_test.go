@@ -65,17 +65,31 @@ func TestSecretsContentHashIncludesHosts(t *testing.T) {
 }
 
 func TestSecretsContentHashIncludesOtherFields(t *testing.T) {
-	placeholder := "$GITHUB_TOKEN"
-	base := SecretsContentHash([]msbSdk.SecretEntry{{EnvVar: "A", Value: "1"}})
-	if got := SecretsContentHash([]msbSdk.SecretEntry{
-		{EnvVar: "A", Value: "1", AllowHostPatterns: []string{"*.github.com"}},
-	}); got == base {
-		t.Error("SecretsContentHash should differ when AllowHostPatterns changes")
+	base := msbSdk.SecretEntry{EnvVar: "A", Value: "1"}
+	baseHash := SecretsContentHash([]msbSdk.SecretEntry{base})
+
+	boolPtr := func(v bool) *bool { return &v }
+	tests := []struct {
+		name   string
+		mutate func(e *msbSdk.SecretEntry)
+	}{
+		{"Value", func(e *msbSdk.SecretEntry) { e.Value = "2" }},
+		{"AllowHosts", func(e *msbSdk.SecretEntry) { e.AllowHosts = []string{"github.com"} }},
+		{"AllowHostPatterns", func(e *msbSdk.SecretEntry) { e.AllowHostPatterns = []string{"*.github.com"} }},
+		{"Placeholder", func(e *msbSdk.SecretEntry) { e.Placeholder = "$GITHUB_TOKEN" }},
+		{"RequireTLS true", func(e *msbSdk.SecretEntry) { e.RequireTLS = boolPtr(true) }},
+		{"RequireTLS false", func(e *msbSdk.SecretEntry) { e.RequireTLS = boolPtr(false) }},
+		{"OnViolation", func(e *msbSdk.SecretEntry) { e.OnViolation = msbSdk.ViolationActionBlock }},
 	}
-	if got := SecretsContentHash(
-		[]msbSdk.SecretEntry{{EnvVar: "A", Value: "1", Placeholder: placeholder}},
-	); got == base {
-		t.Error("SecretsContentHash should differ when Placeholder changes")
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			e := base
+			tt.mutate(&e)
+			if got := SecretsContentHash([]msbSdk.SecretEntry{e}); got == baseHash {
+				t.Errorf("SecretsContentHash should differ when %s changes", tt.name)
+			}
+		})
 	}
 }
 
