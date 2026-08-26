@@ -17,6 +17,8 @@ import (
 	"github.com/moby/moby/client"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 
+	"github.com/inoio/opencode-sandbox/internal/opencode"
+
 	"github.com/inoio/opencode-sandbox/internal/configpaths"
 	"github.com/inoio/opencode-sandbox/internal/sandbox/docker"
 	"github.com/inoio/opencode-sandbox/internal/sandbox/msb"
@@ -300,6 +302,10 @@ func runEnsureImageTagTest(t *testing.T, dockerfile []byte, force bool, wantTags
 	m.ImageBuildFn = func(_ context.Context, _ io.Reader, opts client.ImageBuildOptions) (client.ImageBuildResult, error) {
 		builtTags = append(builtTags, opts.Tags...)
 		return client.ImageBuildResult{Body: io.NopCloser(bytes.NewReader(nil))}, nil
+	}
+
+	opencode.LatestVersion = func(_ context.Context) (string, error) {
+		return "2.3.4", nil
 	}
 	docker.WithDockerMock(t, m)
 

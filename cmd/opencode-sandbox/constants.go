@@ -3,10 +3,10 @@ package main
 import "github.com/inoio/opencode-sandbox/internal/sandbox/naming"
 
 const (
-	pFlagYes     = "yes"
-	pFlagVerbose = "verbose"
-	pFlagError   = "error"
-	pFlagQuiet   = "quiet"
+	pFlagYes      = "yes"
+	pFlagLogLevel = "log-level"
+	pFlagQuiet    = "quiet"
+	pFlagNames    = "names"
 
 	cmdRun     = "run"
 	cmdShell   = "shell"

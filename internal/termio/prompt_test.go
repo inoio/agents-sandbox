@@ -9,7 +9,7 @@ import (
 
 func TestIsInteractive(t *testing.T) {
 	t.Run("returns false when stdin is not a terminal", func(t *testing.T) {
-		ui := New(nil, &bytes.Buffer{}, &bytes.Buffer{}, false, LevelNormal, false)
+		ui := New(nil, &bytes.Buffer{}, &bytes.Buffer{}, false, LevelInfo, false, false)
 		p := ui.(*printer)
 		p.isTerminal = func(int) bool { return false }
 		if p.IsInteractive() {
@@ -18,7 +18,7 @@ func TestIsInteractive(t *testing.T) {
 	})
 
 	t.Run("returns false when yes flag is set", func(t *testing.T) {
-		ui := New(nil, &bytes.Buffer{}, &bytes.Buffer{}, false, LevelNormal, true)
+		ui := New(nil, &bytes.Buffer{}, &bytes.Buffer{}, false, LevelInfo, false, true)
 		p := ui.(*printer)
 		p.isTerminal = func(int) bool { return true }
 		if p.IsInteractive() {
@@ -27,7 +27,7 @@ func TestIsInteractive(t *testing.T) {
 	})
 
 	t.Run("returns true when stdin is a terminal and yes flag is not set", func(t *testing.T) {
-		ui := New(nil, &bytes.Buffer{}, &bytes.Buffer{}, false, LevelNormal, false)
+		ui := New(nil, &bytes.Buffer{}, &bytes.Buffer{}, false, LevelInfo, false, false)
 		p := ui.(*printer)
 		p.isTerminal = func(int) bool { return true }
 		if !p.IsInteractive() {
@@ -36,7 +36,7 @@ func TestIsInteractive(t *testing.T) {
 	})
 
 	t.Run("SetAssumeYes makes it non-interactive", func(t *testing.T) {
-		ui := New(nil, &bytes.Buffer{}, &bytes.Buffer{}, false, LevelNormal, false)
+		ui := New(nil, &bytes.Buffer{}, &bytes.Buffer{}, false, LevelInfo, false, false)
 		p := ui.(*printer)
 		p.isTerminal = func(int) bool { return true }
 		if !p.IsInteractive() {
@@ -57,7 +57,7 @@ func TestSelect(t *testing.T) {
 
 	t.Run("returns default in non-interactive mode", func(t *testing.T) {
 		var stderr bytes.Buffer
-		ui := New(strings.NewReader("r\n"), &bytes.Buffer{}, &stderr, false, LevelNormal, false)
+		ui := New(strings.NewReader("r\n"), &bytes.Buffer{}, &stderr, false, LevelInfo, false, false)
 		p := ui.(*printer)
 		p.isTerminal = func(int) bool { return false }
 
@@ -74,7 +74,7 @@ func TestSelect(t *testing.T) {
 	})
 
 	t.Run("returns matched key in interactive mode", func(t *testing.T) {
-		ui := New(strings.NewReader("r\n"), &bytes.Buffer{}, &bytes.Buffer{}, false, LevelNormal, false)
+		ui := New(strings.NewReader("r\n"), &bytes.Buffer{}, &bytes.Buffer{}, false, LevelInfo, false, false)
 		p := ui.(*printer)
 		p.isTerminal = func(int) bool { return true }
 
@@ -88,7 +88,7 @@ func TestSelect(t *testing.T) {
 	})
 
 	t.Run("matches keys case-insensitively", func(t *testing.T) {
-		ui := New(strings.NewReader("R\n"), &bytes.Buffer{}, &bytes.Buffer{}, false, LevelNormal, false)
+		ui := New(strings.NewReader("R\n"), &bytes.Buffer{}, &bytes.Buffer{}, false, LevelInfo, false, false)
 		p := ui.(*printer)
 		p.isTerminal = func(int) bool { return true }
 
@@ -103,7 +103,7 @@ func TestSelect(t *testing.T) {
 
 	t.Run("marks the default choice inline", func(t *testing.T) {
 		var stderr bytes.Buffer
-		ui := New(strings.NewReader("\n"), &bytes.Buffer{}, &stderr, false, LevelNormal, false)
+		ui := New(strings.NewReader("\n"), &bytes.Buffer{}, &stderr, false, LevelInfo, false, false)
 		p := ui.(*printer)
 		p.isTerminal = func(int) bool { return true }
 
@@ -120,7 +120,7 @@ func TestSelect(t *testing.T) {
 	})
 
 	t.Run("uses default when user presses enter", func(t *testing.T) {
-		ui := New(strings.NewReader("\n"), &bytes.Buffer{}, &bytes.Buffer{}, false, LevelNormal, false)
+		ui := New(strings.NewReader("\n"), &bytes.Buffer{}, &bytes.Buffer{}, false, LevelInfo, false, false)
 		p := ui.(*printer)
 		p.isTerminal = func(int) bool { return true }
 
@@ -134,7 +134,7 @@ func TestSelect(t *testing.T) {
 	})
 
 	t.Run("retries on invalid input", func(t *testing.T) {
-		ui := New(strings.NewReader("x\nfoo\nr\n"), &bytes.Buffer{}, &bytes.Buffer{}, false, LevelNormal, false)
+		ui := New(strings.NewReader("x\nfoo\nr\n"), &bytes.Buffer{}, &bytes.Buffer{}, false, LevelInfo, false, false)
 		p := ui.(*printer)
 		p.isTerminal = func(int) bool { return true }
 
@@ -148,7 +148,15 @@ func TestSelect(t *testing.T) {
 	})
 
 	t.Run("returns error after too many retries", func(t *testing.T) {
-		ui := New(strings.NewReader("x\nx\nx\nx\nx\nx\n"), &bytes.Buffer{}, &bytes.Buffer{}, false, LevelNormal, false)
+		ui := New(
+			strings.NewReader("x\nx\nx\nx\nx\nx\n"),
+			&bytes.Buffer{},
+			&bytes.Buffer{},
+			false,
+			LevelInfo,
+			false,
+			false,
+		)
 		p := ui.(*printer)
 		p.isTerminal = func(int) bool { return true }
 
@@ -159,7 +167,7 @@ func TestSelect(t *testing.T) {
 	})
 
 	t.Run("returns error when reading fails", func(t *testing.T) {
-		ui := New(&failingReader{}, &bytes.Buffer{}, &bytes.Buffer{}, false, LevelNormal, false)
+		ui := New(&failingReader{}, &bytes.Buffer{}, &bytes.Buffer{}, false, LevelInfo, false, false)
 		p := ui.(*printer)
 		p.isTerminal = func(int) bool { return true }
 
@@ -172,7 +180,7 @@ func TestSelect(t *testing.T) {
 
 func TestInput(t *testing.T) {
 	t.Run("returns default in non-interactive mode", func(t *testing.T) {
-		ui := New(nil, &bytes.Buffer{}, &bytes.Buffer{}, false, LevelNormal, false)
+		ui := New(nil, &bytes.Buffer{}, &bytes.Buffer{}, false, LevelInfo, false, false)
 		p := ui.(*printer)
 		p.isTerminal = func(int) bool { return false }
 
@@ -186,7 +194,7 @@ func TestInput(t *testing.T) {
 	})
 
 	t.Run("returns user input", func(t *testing.T) {
-		ui := New(strings.NewReader("feature\n"), &bytes.Buffer{}, &bytes.Buffer{}, false, LevelNormal, false)
+		ui := New(strings.NewReader("feature\n"), &bytes.Buffer{}, &bytes.Buffer{}, false, LevelInfo, false, false)
 		p := ui.(*printer)
 		p.isTerminal = func(int) bool { return true }
 
@@ -200,7 +208,7 @@ func TestInput(t *testing.T) {
 	})
 
 	t.Run("returns default on empty input", func(t *testing.T) {
-		ui := New(strings.NewReader("\n"), &bytes.Buffer{}, &bytes.Buffer{}, false, LevelNormal, false)
+		ui := New(strings.NewReader("\n"), &bytes.Buffer{}, &bytes.Buffer{}, false, LevelInfo, false, false)
 		p := ui.(*printer)
 		p.isTerminal = func(int) bool { return true }
 
@@ -214,7 +222,7 @@ func TestInput(t *testing.T) {
 	})
 
 	t.Run("returns error when reading fails", func(t *testing.T) {
-		ui := New(&failingReader{}, &bytes.Buffer{}, &bytes.Buffer{}, false, LevelNormal, false)
+		ui := New(&failingReader{}, &bytes.Buffer{}, &bytes.Buffer{}, false, LevelInfo, false, false)
 		p := ui.(*printer)
 		p.isTerminal = func(int) bool { return true }
 

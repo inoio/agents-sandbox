@@ -11,11 +11,11 @@ This document lists all opencode-sandbox subcommands, aliases, and flags.
 
 These flags are available on every command.
 
-| Flag         | Short | Default | Purpose                        |
-|--------------|-------|---------|--------------------------------|
-| `--yes`      | `-y`  | `false` | Assume yes to all prompts      |
-| `--verbose`  | `-v`  | `false` | Show debug-level output        |
-| `--error`    |       | `false` | Only show error output         |
+| Flag          | Short | Default | Purpose                                                         |
+|---------------|-------|---------|-----------------------------------------------------------------|
+| `--yes`       | `-y`  | `false` | Assume yes to all prompts                                       |
+| `--quiet`     | `-q`  | `false` | Suppress stdout output                                          |
+| `--log-level` | `-l`  | `info`  | Minimum log level to show (`error`, `warning`, `info`, `verbose`) |
 
 ## Commands
 
@@ -240,7 +240,7 @@ plain text.
 | `--limit`    | —     | `0`     | Limit the number of sandboxes listed (`0` = no limit).                                                   |
 | `--running`  | —     | `false` | Only list running sandboxes.                                                                             |
 | `--stopped`  | —     | `false` | Only list stopped sandboxes.                                                                            |
-| `--quiet`    | `-q`  | `false` | Print names only (no header, no status, image, or created columns).                                     |
+| `--names`    | —     | `false` | Print names only (no header, no status, image, or created columns).                                     |
 | `--format`   | —     | `""`    | Output format. `json` prints a top-level array of `{name,status,image,created,updated,labels}` objects. |
 
 `--running` wins over `--stopped` when both are set.

@@ -18,7 +18,7 @@ import (
 func TestRootHasGlobalFlags(t *testing.T) {
 	testUI := termio.NewTestMock(t)
 	root := buildRootCmd(&testUI)
-	flags := []string{"yes", "verbose", "error"}
+	flags := []string{"yes", "log-level", "quiet"}
 	for _, f := range flags {
 		if root.PersistentFlags().Lookup(f) == nil {
 			t.Errorf("expected persistent flag --%s on root", f)
@@ -51,7 +51,7 @@ func TestRunCommandFlagShortcuts(t *testing.T) {
 	shortcuts := map[string]string{
 		"w": "worktree", "c": "cpus", "m": "memory",
 		"r": "rebuild", "n": "dry-run", "y": "yes",
-		"v": "verbose",
+		"l": "log-level", "q": "quiet",
 	}
 	for short, long := range shortcuts {
 		f := runCmd.Flags().ShorthandLookup(short)
@@ -77,11 +77,10 @@ func TestImageBuildNounFormExists(t *testing.T) {
 	}
 }
 
-func TestCLICombinedShortFlagsActivateVerbose(t *testing.T) {
+func TestCLILogLevelFlagSetsLevel(t *testing.T) {
 	for _, args := range [][]string{
-		{"prune", "--age", "1m", "-nv"},
-		{"prune", "--age", "1m", "-n", "-v"},
-		{"prune", "--age", "1m", "--dry-run", "--verbose"},
+		{"prune", "--age", "1m", "--log-level", "verbose"},
+		{"prune", "--age", "1m", "-l", "verbose"},
 	} {
 		t.Run(strings.Join(args, "_"), func(t *testing.T) {
 			configpaths.WithMockConfigPaths(t)
@@ -118,6 +117,49 @@ func TestCLIPersistentYesAffectsUIAfterSubcommand(t *testing.T) {
 	}
 	if !ui.AssumeYes() {
 		t.Error("expected AssumeYes=true for -y after subcommand")
+	}
+}
+
+func TestCLIQuietFlagSetsQuiet(t *testing.T) {
+	for _, args := range [][]string{
+		{"prune", "--age", "1m", "--quiet"},
+		{"prune", "--age", "1m", "-q"},
+	} {
+		t.Run(strings.Join(args, "_"), func(t *testing.T) {
+			configpaths.WithMockConfigPaths(t)
+			ui := &termio.Mock{}
+			mock := &msb.MockMsbClient{}
+			msb.WithMsbMock(t, mock)
+			docker.WithNoopDockerMock(t)
+
+			root := buildRootCmd(ui)
+			root.SetArgs(args)
+
+			if err := root.Execute(); err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if !ui.Quiet() {
+				t.Errorf("expected Quiet=true, got %v", ui.Quiet())
+			}
+		})
+	}
+}
+
+func TestCLIQuietFlagFalseByDefault(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	ui := &termio.Mock{}
+	mock := &msb.MockMsbClient{}
+	msb.WithMsbMock(t, mock)
+	docker.WithNoopDockerMock(t)
+
+	root := buildRootCmd(ui)
+	root.SetArgs([]string{"prune", "--age", "1m"})
+
+	if err := root.Execute(); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if ui.Quiet() {
+		t.Error("expected Quiet=false by default")
 	}
 }
 

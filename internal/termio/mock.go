@@ -30,6 +30,7 @@ type Mock struct {
 
 	level               Level
 	assumeYes           bool
+	quiet               bool
 	IsInteractiveResult bool
 
 	SelectFn func(prompt string, choices []Choice, defaultKey string) (string, error)
@@ -112,12 +113,20 @@ func (m *Mock) SetAssumeYes(assumeYes bool) {
 	m.assumeYes = assumeYes
 }
 
+func (m *Mock) SetQuiet(quiet bool) {
+	m.quiet = quiet
+}
+
 func (m *Mock) Level() Level {
 	return m.level
 }
 
 func (m *Mock) AssumeYes() bool {
 	return m.assumeYes
+}
+
+func (m *Mock) Quiet() bool {
+	return m.quiet
 }
 
 func (m *Mock) IsInteractive() bool {

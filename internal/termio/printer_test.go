@@ -9,7 +9,7 @@ import (
 
 func TestSuccessWritesWithoutColor(t *testing.T) {
 	var stderr bytes.Buffer
-	ui := New(nil, &bytes.Buffer{}, &stderr, false, LevelNormal, false)
+	ui := New(nil, &bytes.Buffer{}, &stderr, false, LevelInfo, false, false)
 	ui.Info("hello")
 	out := stderr.String()
 	if !strings.Contains(out, "hello") {
@@ -22,7 +22,7 @@ func TestSuccessWritesWithoutColor(t *testing.T) {
 
 func TestSuccessWritesToStderr(t *testing.T) {
 	var stdout, stderr bytes.Buffer
-	ui := New(nil, &stdout, &stderr, false, LevelNormal, false)
+	ui := New(nil, &stdout, &stderr, false, LevelInfo, false, false)
 	ui.Info("status")
 	if stderr.String() != "status\n" {
 		t.Errorf("expected stderr status, got stdout=%q stderr=%q", stdout.String(), stderr.String())
@@ -34,7 +34,7 @@ func TestSuccessWritesToStderr(t *testing.T) {
 
 func TestOutWritesToStdout(t *testing.T) {
 	var stdout, stderr bytes.Buffer
-	ui := New(nil, &stdout, &stderr, false, LevelNormal, false)
+	ui := New(nil, &stdout, &stderr, false, LevelInfo, false, false)
 	ui.Out("data")
 	if stdout.String() != "data\n" {
 		t.Errorf("expected stdout data, got %q", stdout.String())
@@ -46,7 +46,7 @@ func TestOutWritesToStdout(t *testing.T) {
 
 func TestWarnWritesWithYellow(t *testing.T) {
 	var stderr bytes.Buffer
-	ui := New(nil, &bytes.Buffer{}, &stderr, true, LevelNormal, false)
+	ui := New(nil, &bytes.Buffer{}, &stderr, true, LevelInfo, false, false)
 	ui.Warn("danger")
 	out := stderr.String()
 	if !strings.Contains(out, "danger") {
@@ -59,7 +59,7 @@ func TestWarnWritesWithYellow(t *testing.T) {
 
 func TestErrorWritesWithRed(t *testing.T) {
 	var stderr bytes.Buffer
-	ui := New(nil, &bytes.Buffer{}, &stderr, true, LevelNormal, false)
+	ui := New(nil, &bytes.Buffer{}, &stderr, true, LevelInfo, false, false)
 	ui.Error("boom", errors.New("nope"))
 	out := stderr.String()
 	if !strings.Contains(out, "\x1b[31m") {
@@ -70,18 +70,18 @@ func TestErrorWritesWithRed(t *testing.T) {
 	}
 }
 
-func TestVerboseHiddenAtNormalLevel(t *testing.T) {
+func TestVerboseHiddenAtInfoLevel(t *testing.T) {
 	var stderr bytes.Buffer
-	ui := New(nil, &bytes.Buffer{}, &stderr, false, LevelNormal, false)
+	ui := New(nil, &bytes.Buffer{}, &stderr, false, LevelInfo, false, false)
 	ui.Verbose("secret")
 	if stderr.String() != "" {
 		t.Errorf("expected no verbose output at normal level, got %q", stderr.String())
 	}
 }
 
-func TestVerboseShownAtVerboseLevel(t *testing.T) {
+func TestVerboseShownAtDebugLevel(t *testing.T) {
 	var stderr bytes.Buffer
-	ui := New(nil, &bytes.Buffer{}, &stderr, false, LevelVerbose, false)
+	ui := New(nil, &bytes.Buffer{}, &stderr, false, LevelVerbose, false, false)
 	ui.Verbose("secret")
 	out := stderr.String()
 	if !strings.Contains(out, "secret") {
@@ -89,47 +89,47 @@ func TestVerboseShownAtVerboseLevel(t *testing.T) {
 	}
 }
 
-func TestSuccessHiddenAtQuietLevel(t *testing.T) {
+func TestSuccessHiddenAtErrorLevel(t *testing.T) {
 	var stderr bytes.Buffer
-	ui := New(nil, &bytes.Buffer{}, &stderr, false, LevelQuiet, false)
+	ui := New(nil, &bytes.Buffer{}, &stderr, false, LevelError, false, false)
 	ui.Info("hello")
 	if stderr.String() != "" {
-		t.Errorf("expected no success output at quiet level, got %q", stderr.String())
+		t.Errorf("expected no success output at error level, got %q", stderr.String())
 	}
 }
 
-func TestOutHiddenAtQuietLevel(t *testing.T) {
+func TestOutAlwaysShownAtErrorLevel(t *testing.T) {
 	var stdout bytes.Buffer
-	ui := New(nil, &stdout, &bytes.Buffer{}, false, LevelQuiet, false)
+	ui := New(nil, &stdout, &bytes.Buffer{}, false, LevelError, false, false)
 	ui.Out("hello")
-	if stdout.String() != "" {
-		t.Errorf("expected no stdout output at quiet level, got %q", stdout.String())
+	if stdout.String() != "hello\n" {
+		t.Errorf("expected stdout output even at error level, got %q", stdout.String())
 	}
 }
 
-func TestWarnShownAtQuietLevel(t *testing.T) {
+func TestWarnShownAtWarningLevel(t *testing.T) {
 	var stderr bytes.Buffer
-	ui := New(nil, &bytes.Buffer{}, &stderr, false, LevelQuiet, false)
+	ui := New(nil, &bytes.Buffer{}, &stderr, false, LevelWarning, false, false)
 	ui.Warn("danger")
 	out := stderr.String()
 	if !strings.Contains(out, "danger") {
-		t.Errorf("expected warn at quiet level, got %q", out)
+		t.Errorf("expected warn at warning level, got %q", out)
 	}
 }
 
-func TestErrorShownAtQuietLevel(t *testing.T) {
+func TestErrorShownAtErrorLevel(t *testing.T) {
 	var stderr bytes.Buffer
-	ui := New(nil, &bytes.Buffer{}, &stderr, false, LevelQuiet, false)
+	ui := New(nil, &bytes.Buffer{}, &stderr, false, LevelError, false, false)
 	ui.Errorf("boom")
 	out := stderr.String()
 	if !strings.Contains(out, "boom") {
-		t.Errorf("expected error at quiet level, got %q", out)
+		t.Errorf("expected error at error level, got %q", out)
 	}
 }
 
 func TestErrorRendersSingleColonBeforeErr(t *testing.T) {
 	var stderr bytes.Buffer
-	ui := New(nil, &bytes.Buffer{}, &stderr, false, LevelNormal, false)
+	ui := New(nil, &bytes.Buffer{}, &stderr, false, LevelInfo, false, false)
 	ui.Error("Failed", errors.New("the error"))
 	out := stderr.String()
 	if !strings.Contains(out, "Failed: the error") {
@@ -142,7 +142,7 @@ func TestErrorRendersSingleColonBeforeErr(t *testing.T) {
 
 func TestErrorFormatsArgs(t *testing.T) {
 	var stderr bytes.Buffer
-	ui := New(nil, &bytes.Buffer{}, &stderr, false, LevelNormal, false)
+	ui := New(nil, &bytes.Buffer{}, &stderr, false, LevelInfo, false, false)
 	ui.Errorf("msb not found: %v", errors.New("nope"))
 	out := stderr.String()
 	if !strings.Contains(out, "msb not found: nope") {
@@ -152,7 +152,7 @@ func TestErrorFormatsArgs(t *testing.T) {
 
 func TestWarnFormatsArgs(t *testing.T) {
 	var stderr bytes.Buffer
-	ui := New(nil, &bytes.Buffer{}, &stderr, false, LevelNormal, false)
+	ui := New(nil, &bytes.Buffer{}, &stderr, false, LevelInfo, false, false)
 	ui.Warnf("kept repo %s on branch %s", "/p", "feat")
 	out := stderr.String()
 	if !strings.Contains(out, "kept repo /p on branch feat") {
@@ -162,7 +162,7 @@ func TestWarnFormatsArgs(t *testing.T) {
 
 func TestSuccessFormatsArgs(t *testing.T) {
 	var stderr bytes.Buffer
-	ui := New(nil, &bytes.Buffer{}, &stderr, false, LevelNormal, false)
+	ui := New(nil, &bytes.Buffer{}, &stderr, false, LevelInfo, false, false)
 	ui.Infof("using default %q", "y")
 	out := stderr.String()
 	if !strings.Contains(out, `using default "y"`) {
@@ -170,9 +170,9 @@ func TestSuccessFormatsArgs(t *testing.T) {
 	}
 }
 
-func TestVerboseFormatsArgsAtVerbose(t *testing.T) {
+func TestVerboseFormatsArgsAtDebug(t *testing.T) {
 	var stderr bytes.Buffer
-	ui := New(nil, &bytes.Buffer{}, &stderr, false, LevelVerbose, false)
+	ui := New(nil, &bytes.Buffer{}, &stderr, false, LevelVerbose, false, false)
 	ui.Verbosef("workspace: %s (branch=%s)", "/p", "feat")
 	out := stderr.String()
 	if !strings.Contains(out, "workspace: /p (branch=feat)") {
@@ -180,9 +180,9 @@ func TestVerboseFormatsArgsAtVerbose(t *testing.T) {
 	}
 }
 
-func TestSetLevelRaisesVerbose(t *testing.T) {
+func TestSetLevelRaisesToDebug(t *testing.T) {
 	var stderr bytes.Buffer
-	ui := New(nil, &bytes.Buffer{}, &stderr, false, LevelNormal, false)
+	ui := New(nil, &bytes.Buffer{}, &stderr, false, LevelInfo, false, false)
 	ui.Verbose("secret")
 	if stderr.String() != "" {
 		t.Fatalf("verbose output at normal level must be suppressed, got %q", stderr.String())
@@ -194,19 +194,19 @@ func TestSetLevelRaisesVerbose(t *testing.T) {
 	}
 }
 
-func TestSetLevelQuiets(t *testing.T) {
+func TestSetLevelLowersSeverity(t *testing.T) {
 	var stderr bytes.Buffer
-	ui := New(nil, &bytes.Buffer{}, &stderr, false, LevelNormal, false)
-	ui.SetLevel(LevelQuiet)
+	ui := New(nil, &bytes.Buffer{}, &stderr, false, LevelInfo, false, false)
+	ui.SetLevel(LevelError)
 	ui.Info("hidden")
 	if stderr.String() != "" {
-		t.Errorf("expected no info output at quiet level, got %q", stderr.String())
+		t.Errorf("expected no info output at error level, got %q", stderr.String())
 	}
 }
 
 func TestOutfFormatsArgs(t *testing.T) {
 	var stdout bytes.Buffer
-	ui := New(nil, &stdout, &bytes.Buffer{}, false, LevelNormal, false)
+	ui := New(nil, &stdout, &bytes.Buffer{}, false, LevelInfo, false, false)
 	ui.Outf("%-40s %s", "name", "status")
 	out := stdout.String()
 	if !strings.Contains(out, "name"+strings.Repeat(" ", 37)+"status") {
@@ -216,7 +216,7 @@ func TestOutfFormatsArgs(t *testing.T) {
 
 func TestHeaderWritesToStdout(t *testing.T) {
 	var stdout, stderr bytes.Buffer
-	ui := New(nil, &stdout, &stderr, false, LevelNormal, false)
+	ui := New(nil, &stdout, &stderr, false, LevelInfo, false, false)
 	ui.Header("NAME STATUS")
 	if stdout.String() != "NAME STATUS\n" {
 		t.Errorf("expected plain header on stdout, got %q", stdout.String())
@@ -228,7 +228,7 @@ func TestHeaderWritesToStdout(t *testing.T) {
 
 func TestHeaderStyledBoldCyanWhenColor(t *testing.T) {
 	var stdout bytes.Buffer
-	ui := New(nil, &stdout, &bytes.Buffer{}, true, LevelNormal, false)
+	ui := New(nil, &stdout, &bytes.Buffer{}, true, LevelInfo, false, false)
 	ui.Header("NAME STATUS")
 	out := stdout.String()
 	if !strings.Contains(out, "\x1b[1;36m") {
@@ -242,18 +242,76 @@ func TestHeaderStyledBoldCyanWhenColor(t *testing.T) {
 	}
 }
 
-func TestHeaderHiddenAtQuietLevel(t *testing.T) {
+func TestHeaderAlwaysShownAtErrorLevel(t *testing.T) {
 	var stdout bytes.Buffer
-	ui := New(nil, &stdout, &bytes.Buffer{}, false, LevelQuiet, false)
+	ui := New(nil, &stdout, &bytes.Buffer{}, false, LevelError, false, false)
 	ui.Header("NAME")
+	if stdout.String() != "NAME\n" {
+		t.Errorf("expected header even at error level, got %q", stdout.String())
+	}
+}
+
+func TestQuietSuppressesOut(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	ui := New(nil, &stdout, &stderr, false, LevelInfo, false, false)
+	ui.SetQuiet(true)
+	ui.Out("data")
 	if stdout.String() != "" {
-		t.Errorf("expected no header at quiet level, got %q", stdout.String())
+		t.Errorf("quiet Out should write nothing to stdout, got %q", stdout.String())
+	}
+	if stderr.String() != "" {
+		t.Errorf("quiet Out should not touch stderr, got %q", stderr.String())
+	}
+}
+
+func TestQuietSuppressesOutf(t *testing.T) {
+	var stdout bytes.Buffer
+	ui := New(nil, &stdout, &bytes.Buffer{}, false, LevelInfo, true, false)
+	ui.Outf("name=%s", "alpha")
+	if stdout.String() != "" {
+		t.Errorf("quiet Outf should write nothing to stdout, got %q", stdout.String())
+	}
+}
+
+func TestQuietSuppressesHeader(t *testing.T) {
+	var stdout bytes.Buffer
+	ui := New(nil, &stdout, &bytes.Buffer{}, false, LevelInfo, true, false)
+	ui.Header("NAME STATUS")
+	if stdout.String() != "" {
+		t.Errorf("quiet Header should write nothing to stdout, got %q", stdout.String())
+	}
+}
+
+func TestQuietDoesNotSuppressStderrLogs(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	ui := New(nil, &stdout, &stderr, false, LevelInfo, true, false)
+	ui.Info("progress")
+	ui.Warn("danger")
+	if stderr.String() == "" {
+		t.Error("quiet must not suppress Info/Warn on stderr")
+	}
+	if stdout.String() != "" {
+		t.Errorf("quiet should still suppress stdout, got %q", stdout.String())
+	}
+}
+
+func TestQuietCanBeDisabledAgain(t *testing.T) {
+	var stdout bytes.Buffer
+	ui := New(nil, &stdout, &bytes.Buffer{}, false, LevelInfo, true, false)
+	ui.Out("hidden")
+	if stdout.String() != "" {
+		t.Fatalf("expected quiet suppression, got %q", stdout.String())
+	}
+	ui.SetQuiet(false)
+	ui.Out("visible")
+	if stdout.String() != "visible\n" {
+		t.Errorf("expected stdout after SetQuiet(false), got %q", stdout.String())
 	}
 }
 
 func TestOutStripsANSIIfColorDisabled(t *testing.T) {
 	var stdout bytes.Buffer
-	ui := New(nil, &stdout, &bytes.Buffer{}, false, LevelNormal, false)
+	ui := New(nil, &stdout, &bytes.Buffer{}, false, LevelInfo, false, false)
 	ui.Out(StyleStatus("running"))
 	out := stdout.String()
 	if out != "running\n" {
@@ -263,7 +321,7 @@ func TestOutStripsANSIIfColorDisabled(t *testing.T) {
 
 func TestOutKeepsANSIIfColorEnabled(t *testing.T) {
 	var stdout bytes.Buffer
-	ui := New(nil, &stdout, &bytes.Buffer{}, true, LevelNormal, false)
+	ui := New(nil, &stdout, &bytes.Buffer{}, true, LevelInfo, false, false)
 	ui.Out(StyleStatus("running"))
 	out := stdout.String()
 	if !strings.Contains(out, "\x1b[1;32mrunning\x1b[0m") {

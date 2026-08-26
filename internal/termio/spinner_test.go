@@ -45,7 +45,7 @@ func TestFormatElapsedDone(t *testing.T) {
 
 func TestSpinnerNonTerminalStop(t *testing.T) {
 	var stderr bytes.Buffer
-	ui := New(nil, &bytes.Buffer{}, &stderr, false, LevelNormal, false)
+	ui := New(nil, &bytes.Buffer{}, &stderr, false, LevelInfo, false, false)
 	spin := ui.Spinner("Building image")
 	spin.Stop()
 
@@ -60,7 +60,7 @@ func TestSpinnerNonTerminalStop(t *testing.T) {
 
 func TestSpinnerNonTerminalError(t *testing.T) {
 	var stderr bytes.Buffer
-	ui := New(nil, &bytes.Buffer{}, &stderr, false, LevelNormal, false)
+	ui := New(nil, &bytes.Buffer{}, &stderr, false, LevelInfo, false, false)
 	spin := ui.Spinner("Building image")
 	spin.StopError(errors.New("build failed"))
 
@@ -75,26 +75,26 @@ func TestSpinnerNonTerminalError(t *testing.T) {
 
 func TestSpinnerStopTwiceNoPanic(_ *testing.T) {
 	var stderr bytes.Buffer
-	ui := New(nil, &bytes.Buffer{}, &stderr, false, LevelNormal, false)
+	ui := New(nil, &bytes.Buffer{}, &stderr, false, LevelInfo, false, false)
 	spin := ui.Spinner("Building image")
 	spin.Stop()
 	spin.Stop()
 	spin.StopError(errors.New("err"))
 }
 
-func TestSpinnerHiddenAtQuietLevel(t *testing.T) {
+func TestSpinnerHiddenAtErrorLevel(t *testing.T) {
 	var stderr bytes.Buffer
-	ui := New(nil, &bytes.Buffer{}, &stderr, false, LevelQuiet, false)
+	ui := New(nil, &bytes.Buffer{}, &stderr, false, LevelError, false, false)
 	spin := ui.Spinner("Building image")
 	spin.Stop()
 	if stderr.String() != "" {
-		t.Errorf("expected no spinner output at quiet level, got %q", stderr.String())
+		t.Errorf("expected no spinner output at error level, got %q", stderr.String())
 	}
 }
 
 func TestSpinnerColorErrorEmitsRed(t *testing.T) {
 	var stderr bytes.Buffer
-	ui := New(nil, &bytes.Buffer{}, &stderr, true, LevelNormal, false)
+	ui := New(nil, &bytes.Buffer{}, &stderr, true, LevelInfo, false, false)
 	spin := ui.Spinner("Failing step")
 	spin.StopError(errors.New("boom"))
 	out := stderr.String()
@@ -103,9 +103,9 @@ func TestSpinnerColorErrorEmitsRed(t *testing.T) {
 	}
 }
 
-func TestSpinnerVerboseSameAsNormal(t *testing.T) {
+func TestSpinnerShownAtDebugLevel(t *testing.T) {
 	var stderr bytes.Buffer
-	ui := New(nil, &bytes.Buffer{}, &stderr, false, LevelVerbose, false)
+	ui := New(nil, &bytes.Buffer{}, &stderr, false, LevelVerbose, false, false)
 	spin := ui.Spinner("Building image")
 	spin.Stop()
 

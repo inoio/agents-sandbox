@@ -34,7 +34,7 @@ func newSpinner(w io.Writer, color bool, level Level, msg string) *spinner {
 
 func (s *spinner) Start(msg string) {
 	s.mu.Lock()
-	if s.active || s.level == LevelQuiet {
+	if s.active || s.level < LevelInfo {
 		s.mu.Unlock()
 		return
 	}
@@ -86,7 +86,7 @@ func (s *spinner) finish(result string) {
 	elapsed := time.Since(s.start)
 	s.mu.Unlock()
 
-	if s.level == LevelQuiet {
+	if s.level < LevelInfo {
 		return
 	}
 

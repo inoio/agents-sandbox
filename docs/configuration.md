@@ -59,29 +59,29 @@ Configuration is resolved in this order (later entries override earlier ones):
 
 ## Configuration file
 
-| Field                           | Corresponding CLI flag | Description                                                                                                                                                                              |
-|---------------------------------|------------------------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| `yes`                           | `--yes` / `-y`         | Assume yes to all prompts                                                                                                                                                                |
-| `verbose`                       | `--verbose` / `-v`     | Show debug-level output                                                                                                                                                                  |
-| `error`                         | `--error`             | Only show error output                                                                                                                                                                 |
-| `cpus`                          | `--cpus` / `-c`        | Number of vCPUs for the VM                                                                                                                                                               |
-| `memory`                        | `--memory` / `-m`      | Memory limit (e.g. `8G`)                                                                                                                                                                 |
-| `disk-size`                     | `--disk-size`          | Project VM root disk size (e.g. `16G`). Empty = microsandbox runtime default (~4 GiB). Applied at VM creation; a change triggers recreation. An invalid value is rejected with an error. |
-| `tmp-size`                      | `--tmp-size`           | Size of `/tmp` tmpfs in the sandbox. An invalid value is rejected with an error.                                                                                                         |
+| Field                           | Corresponding CLI flag | Description                                                                                                                                                                                                               |
+|---------------------------------|------------------------|---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `yes`                           | `--yes` / `-y`         | Assume yes to all prompts                                                                                                                                                                                                 |
+| `quiet`                         | `--quiet` / `-q`       | Suppress stdout output                                                                                                                                                                                                    |
+| `log-level`                     | `--log-level` / `-l`   | Minimum log level to show on the console: `error`, `warning`, `info`, `verbose` (default `info`)                                                                                                                          |
+| `cpus`                          | `--cpus` / `-c`        | Number of vCPUs for the VM                                                                                                                                                                                                |
+| `memory`                        | `--memory` / `-m`      | Memory limit (e.g. `8G`)                                                                                                                                                                                                  |
+| `disk-size`                     | `--disk-size`          | Project VM root disk size (e.g. `16G`). Empty = microsandbox runtime default (~4 GiB). Applied at VM creation; a change triggers recreation. An invalid value is rejected with an error.                                  |
+| `tmp-size`                      | `--tmp-size`           | Size of `/tmp` tmpfs in the sandbox. An invalid value is rejected with an error.                                                                                                                                          |
 | `workspace-quota`               | `--workspace-quota`    | Guest-write quota for the `/workspace` bind mount (e.g. `32G`), bounding writes on top of the host repo. Default `16G`. Applied at VM creation; a change triggers recreation. An invalid value is rejected with an error. |
-| `auto-prune-age`                | —                      | Auto-prune threshold, runs before every command (default: 30d, only in config). Applies to VMs, volumes, and images alike.                                                               |
-| `manual-prune-age`              | `--age`                | Default prune age threshold for `prune`, `image prune`, `volume prune`, and `sandbox prune`                                                                                             |
-| `auto-stop-on-active-sessions`  | —                      | Stop VM immediately on client detach without waiting for active sessions (default: false, only in config; `busy` sessions are never cut off)                                             |
-| `auto-stop-timeout`             | —                      | Idle timeout after last client detaches (default: 10s, only in config)                                                                                                                   |
-| `auto-stop-max-session-retries` | —                      | Retries to tolerate for a session stuck in `retry` before stopping (default: 10, only in config)                                                                                         |
-| `network.profile`               | `--network`            | Network profile: `public`, `private`, `host`, or `none` (see [Networking](#networking))                                                                                                  |
-| `network.egress-allow`          | —                      | Egress destinations to allow: `host`, a CIDR, or a `.suffix` (see [Networking](#networking))                                                                                             |
-| `network.egress-deny`           | —                      | Egress carve-outs, emitted before allow rules (see [Networking](#networking))                                                                                                            |
+| `auto-prune-age`                | —                      | Auto-prune threshold, runs before every command (default: 30d, only in config). Applies to VMs, volumes, and images alike.                                                                                                |
+| `manual-prune-age`              | `--age`                | Default prune age threshold for `prune`, `image prune`, `volume prune`, and `sandbox prune`                                                                                                                               |
+| `auto-stop-on-active-sessions`  | —                      | Stop VM immediately on client detach without waiting for active sessions (default: false, only in config; `busy` sessions are never cut off)                                                                              |
+| `auto-stop-timeout`             | —                      | Idle timeout after last client detaches (default: 10s, only in config)                                                                                                                                                    |
+| `auto-stop-max-session-retries` | —                      | Retries to tolerate for a session stuck in `retry` before stopping (default: 10, only in config)                                                                                                                          |
+| `network.profile`               | `--network`            | Network profile: `public`, `private`, `host`, or `none` (see [Networking](#networking))                                                                                                                                   |
+| `network.egress-allow`          | —                      | Egress destinations to allow: `host`, a CIDR, or a `.suffix` (see [Networking](#networking))                                                                                                                              |
+| `network.egress-deny`           | —                      | Egress carve-outs, emitted before allow rules (see [Networking](#networking))                                                                                                                                             |
 
 Example `~/.config/opencode-sandbox/config.yaml`:
 
 ```yaml
-verbose: true
+log-level: verbose
 cpus: 4
 memory: 8G
 disk-size: 16G
@@ -152,8 +152,8 @@ precedence over config files but lose to an explicitly passed CLI flag. The pref
 | Field                           | Environment variable                                              |
 |---------------------------------|-------------------------------------------------------------------|
 | `yes`                           | `OPENCODE_SANDBOX_YES`                                            |
-| `verbose`                       | `OPENCODE_SANDBOX_VERBOSE`                                        |
-| `error`                         | `OPENCODE_SANDBOX_ERROR`                                          |
+| `quiet`                         | `OPENCODE_SANDBOX_QUIET`                                          |
+| `log-level`                     | `OPENCODE_SANDBOX_LOG_LEVEL`                                      |
 | `cpus`                          | `OPENCODE_SANDBOX_CPUS`                                           |
 | `memory`                        | `OPENCODE_SANDBOX_MEMORY`                                         |
 | `disk-size`                     | `OPENCODE_SANDBOX_DISK_SIZE`                                      |
