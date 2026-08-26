@@ -478,6 +478,7 @@ func TestVolumeActionString(t *testing.T) {
 		{ActionMigrate, "migrate"},
 		{ActionReset, "reset"},
 		{ActionQuit, "quit"},
+		{VolumeAction(99), "unknown"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.want, func(t *testing.T) {
@@ -587,5 +588,373 @@ func TestResolveHomeVolume_VolumeNotFoundInSandbox(t *testing.T) {
 	}
 	if st.ImageDigest != "sha256:def" {
 		t.Errorf("digest = %q, want %q", st.ImageDigest, "sha256:def")
+	}
+}
+
+func TestInvalidKeyError(t *testing.T) {
+	e := &invalidKeyError{key: "z"}
+	if got := e.Error(); got != "invalid action key: z" {
+		t.Errorf("invalidKeyError.Error() = %q, want %q", got, "invalid action key: z")
+	}
+}
+
+func TestFromKey(t *testing.T) {
+	if a, err := FromKey("k"); err != nil || a != ActionKeep {
+		t.Errorf("FromKey(k) = %v, %v", a, err)
+	}
+	if a, err := FromKey("m"); err != nil || a != ActionMigrate {
+		t.Errorf("FromKey(m) = %v, %v", a, err)
+	}
+	if a, err := FromKey("r"); err != nil || a != ActionReset {
+		t.Errorf("FromKey(r) = %v, %v", a, err)
+	}
+	if a, err := FromKey("q"); err != nil || a != ActionQuit {
+		t.Errorf("FromKey(q) = %v, %v", a, err)
+	}
+	if _, err := FromKey("x"); err == nil {
+		t.Error("FromKey(x) should error")
+	}
+}
+
+func TestActionLabel(t *testing.T) {
+	if got := actionLabel(ActionReset); got != "reset" {
+		t.Errorf("actionLabel(reset) = %q, want reset", got)
+	}
+	if got := actionLabel(ActionMigrate); got != "migrate" {
+		t.Errorf("actionLabel(migrate) = %q, want migrate", got)
+	}
+	if got := actionLabel(ActionKeep); got != "keep" {
+		t.Errorf("actionLabel(keep) = %q, want keep", got)
+	}
+}
+
+func TestCleanupVolume_Success(t *testing.T) {
+	mock := &msb.MockMsbClient{}
+	vm := NewManager(&termio.Mock{})
+
+	vm.cleanupVolume(context.Background(), mock, "orphan-vol", &termio.Mock{})
+
+	if len(mock.RemovedVolumes) != 1 {
+		t.Fatalf("expected volume to be removed, got %v", mock.RemovedVolumes)
+	}
+}
+
+func TestCleanupVolume_Failure(t *testing.T) {
+	mock := &msb.MockMsbClient{}
+	mock.RemoveVolumeFn = func(_ context.Context, _ string) error {
+		return errors.New("volume busy")
+	}
+	ui := &termio.Mock{}
+	vm := NewManager(ui)
+
+	vm.cleanupVolume(context.Background(), mock, "orphan-vol", ui)
+
+	if len(ui.WarnCalls) != 1 {
+		t.Fatalf("expected 1 warning, got %d", len(ui.WarnCalls))
+	}
+	if !strings.Contains(ui.WarnCalls[0], "failed to remove") {
+		t.Errorf("unexpected warning: %q", ui.WarnCalls[0])
+	}
+}
+
+func TestPrefillVolume_CreateSandboxFails(t *testing.T) {
+	mock := &msb.MockMsbClient{}
+	mock.CreateSandboxErr = errors.New("sandbox creation failed")
+	vm := NewManager(&termio.Mock{})
+
+	err := vm.PrefillVolume(
+		context.Background(),
+		mock,
+		"myproject",
+		"test-home-vol",
+		"img-tag",
+		&termio.Mock{},
+	)
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	if !strings.Contains(err.Error(), "create prefill sandbox") {
+		t.Errorf("unexpected error: %v", err)
+	}
+}
+
+func TestPrefillVolume_ExecFails(t *testing.T) {
+	mock := &msb.MockMsbClient{}
+	mock.CreateSandboxFn = func(_ context.Context, _ string, _ ...msbSdk.SandboxOption) (msb.Sandbox, error) {
+		return msb.NewMockSandbox(msb.SandboxOpts{
+			ExecErr: errors.New("exec failed"),
+		}), nil
+	}
+	ui := &termio.Mock{}
+	vm := NewManager(ui)
+
+	err := vm.PrefillVolume(
+		context.Background(),
+		mock,
+		"myproject",
+		"test-home-vol",
+		"img-tag",
+		ui,
+	)
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	if !strings.Contains(err.Error(), "prefill cp") {
+		t.Errorf("unexpected error: %v", err)
+	}
+}
+
+func TestPrefillVolume_ExecExitFailure(t *testing.T) {
+	mock := &msb.MockMsbClient{}
+	mock.CreateSandboxFn = func(_ context.Context, _ string, _ ...msbSdk.SandboxOption) (msb.Sandbox, error) {
+		return msb.NewMockSandbox(msb.SandboxOpts{
+			ExecOut: map[string]msb.ShellResult{
+				"sh -c cp -a /home/dev/. /mnt/home/ && chown -R dev:dev /mnt/home": msb.NewTestResult(
+					false,
+					1,
+					"",
+					"cp: permission denied",
+					nil,
+				),
+			},
+		}), nil
+	}
+	ui := &termio.Mock{}
+	vm := NewManager(ui)
+
+	err := vm.PrefillVolume(
+		context.Background(),
+		mock,
+		"myproject",
+		"test-home-vol",
+		"img-tag",
+		ui,
+	)
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	if !strings.Contains(err.Error(), "prefill cp failed") {
+		t.Errorf("unexpected error: %v", err)
+	}
+}
+
+func TestCopyVolume_CreateSandboxFails(t *testing.T) {
+	mock := &msb.MockMsbClient{}
+	mock.CreateSandboxErr = errors.New("sandbox creation failed")
+	vm := NewManager(&termio.Mock{})
+
+	err := vm.CopyVolume(
+		context.Background(),
+		mock,
+		"myproject",
+		"old-vol",
+		"new-vol",
+		"img-tag",
+		&termio.Mock{},
+	)
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	if !strings.Contains(err.Error(), "create copy sandbox") {
+		t.Errorf("unexpected error: %v", err)
+	}
+}
+
+func TestCopyVolume_ExecFails(t *testing.T) {
+	mock := &msb.MockMsbClient{}
+	mock.CreateSandboxFn = func(_ context.Context, _ string, _ ...msbSdk.SandboxOption) (msb.Sandbox, error) {
+		return msb.NewMockSandbox(msb.SandboxOpts{
+			ExecErr: errors.New("exec failed during copy"),
+		}), nil
+	}
+	ui := &termio.Mock{}
+	vm := NewManager(ui)
+
+	err := vm.CopyVolume(
+		context.Background(),
+		mock,
+		"myproject",
+		"old-vol",
+		"new-vol",
+		"img-tag",
+		ui,
+	)
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	if !strings.Contains(err.Error(), "copy files") {
+		t.Errorf("unexpected error: %v", err)
+	}
+}
+
+func TestCopyVolume_ExecExitFailure(t *testing.T) {
+	mock := &msb.MockMsbClient{}
+	mock.CreateSandboxFn = func(_ context.Context, _ string, _ ...msbSdk.SandboxOption) (msb.Sandbox, error) {
+		return msb.NewMockSandbox(msb.SandboxOpts{
+			ExecOut: map[string]msb.ShellResult{
+				"sh -c cp -a /src/. /dst/ && chown -R dev:dev /dst": msb.NewTestResult(
+					false,
+					1,
+					"",
+					"chown: permission denied",
+					nil,
+				),
+			},
+		}), nil
+	}
+	ui := &termio.Mock{}
+	vm := NewManager(ui)
+
+	err := vm.CopyVolume(
+		context.Background(),
+		mock,
+		"myproject",
+		"old-vol",
+		"new-vol",
+		"img-tag",
+		ui,
+	)
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	if !strings.Contains(err.Error(), "copy failed") {
+		t.Errorf("unexpected error: %v", err)
+	}
+}
+
+func TestApplyHomeAction_Reset_Success(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+
+	slug := "myproj"
+	oldVol := "opencode-sandbox-home-myproj-old"
+	state.WriteState(slug, state.HomeState{HomeVolume: oldVol, ImageDigest: "sha256:old"})
+
+	mock := &msb.MockMsbClient{}
+	vm := NewManager(&termio.Mock{})
+
+	newVol, err := vm.ApplyHomeAction(
+		context.Background(),
+		mock,
+		slug,
+		oldVol,
+		"img-tag",
+		"sha256:new",
+		ActionReset,
+		options.RunOptions{},
+		&termio.Mock{},
+	)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if newVol == oldVol {
+		t.Errorf("expected new volume, got old volume %q", newVol)
+	}
+	if len(mock.CreatedSandboxes) != 1 {
+		t.Errorf("expected 1 sandbox for reset, got %d", len(mock.CreatedSandboxes))
+	}
+
+	st, err := state.ReadState(slug)
+	if err != nil {
+		t.Fatalf("ReadState: %v", err)
+	}
+	if st.HomeVolume != newVol {
+		t.Errorf("state HomeVolume = %q, want %q", st.HomeVolume, newVol)
+	}
+}
+
+func TestApplyHomeAction_PrefillFails_RemovesVolume(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+
+	slug := "myproj"
+	oldVol := "opencode-sandbox-home-myproj-old"
+	state.WriteState(slug, state.HomeState{HomeVolume: oldVol, ImageDigest: "sha256:old"})
+
+	mock := &msb.MockMsbClient{}
+	mock.CreateSandboxErr = errors.New("prefill sandbox creation failed")
+	vm := NewManager(&termio.Mock{})
+
+	_, err := vm.ApplyHomeAction(
+		context.Background(),
+		mock,
+		slug,
+		oldVol,
+		"img-tag",
+		"sha256:new",
+		ActionReset,
+		options.RunOptions{},
+		&termio.Mock{},
+	)
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	if len(mock.RemovedVolumes) == 0 {
+		t.Errorf("expected new volume to be cleaned up, got %v", mock.RemovedVolumes)
+	}
+}
+
+func TestEnsureNewHome_PrefillFails(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+
+	mock := &msb.MockMsbClient{}
+	mock.CreateSandboxErr = errors.New("prefill sandbox creation failed")
+	vm := NewManager(&termio.Mock{})
+
+	_, _, err := vm.EnsureNewHome(
+		context.Background(),
+		mock,
+		"testproj",
+		"sha256:abc",
+		"img-tag",
+		false,
+		&termio.Mock{},
+	)
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	if !strings.Contains(err.Error(), "prefill") {
+		t.Errorf("unexpected error: %v", err)
+	}
+}
+
+func TestEnsureNewHome_DryRunVM_NoSandbox(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+
+	mock := &msb.MockMsbClient{}
+	vm := NewManager(&termio.Mock{})
+
+	volName, _, err := vm.EnsureNewHome(
+		context.Background(),
+		mock,
+		"testproj",
+		"sha256:abc",
+		"img-tag",
+		true, // dryRunVM
+		&termio.Mock{},
+	)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !strings.HasPrefix(volName, "opencode-sandbox-home-testproj-") {
+		t.Errorf("expected home volume prefix, got %q", volName)
+	}
+	if len(mock.CreatedSandboxes) != 0 {
+		t.Errorf("expected no sandboxes in dry-run-vm, got %d", len(mock.CreatedSandboxes))
+	}
+}
+
+func TestResolveHomeAction_PromptFails_ReturnsKeep(t *testing.T) {
+	ui := &termio.Mock{
+		IsInteractiveResult: true,
+		SelectFn: func(_ string, _ []termio.Choice, _ string) (string, error) {
+			return "", errors.New("select failed")
+		},
+	}
+	vm := NewManager(ui)
+	action := vm.ResolveHomeAction(ui, "old", "new")
+	if action != ActionKeep {
+		t.Errorf("expected ActionKeep on prompt failure, got %v", action)
+	}
+	if len(ui.WarnCalls) != 1 {
+		t.Errorf("expected 1 warning on prompt failure, got %d", len(ui.WarnCalls))
 	}
 }

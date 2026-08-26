@@ -11,9 +11,21 @@ command reports the bare version (e.g. `0.1.0`).
 ### Added
 
 - Mermaid diagrams (system context, VM lifecycle, config precedence) rendered in the docs pages.
+- Docs: The roadmap now lives as GitHub issues. `ROADMAP.md` is a pointer to the issue-driven process, with labels (`priority:critical`, `priority:high`, `priority:low`, `chore`, `upstream`) and filtered search links.
 
 ### Changed
 
+- Docs: Pages are now published only after a successful release, rebuilding from the published tag rather than in parallel on tag push. Each page footer and the home page display the release (or branch) they were built from.
+- Docs: Support for dark mode; follows the OS/browser color-scheme preference by default and expose a sun/moon toggle in the header (next to the GitHub link) that overrides and persists the choice.
+- Docs: The README's Documentation section now links directly to the hosted GitHub Pages docs.
+- Bugfix: A change to a secret's allowed hosts (or other secret properties such as placeholder) now triggers a VM recreate; previously only the secret value was part of the change hash, so host changes were silently ignored.
+
 ## [0.1.0] - 2026-08-??
 
-Initial release
+### Added
+
+- everything ;)
+
+### Changed
+
+- lives & experiences, hopefully :)

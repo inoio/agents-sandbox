@@ -1,0 +1,36 @@
+<button class="btn btn-outline" type="button" id="theme-toggle" aria-label="Toggle dark mode" title="Toggle dark mode" style="align-self: center; display: inline-flex; align-items: center; line-height: 1; padding: 0.15rem 0.35rem; margin-left: 0.5rem; margin-right: 0.5rem; cursor: pointer; box-shadow: none; background: transparent;">
+  <svg id="theme-icon" viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"></svg>
+</button>
+<script>
+(function () {
+  var btn = document.getElementById("theme-toggle");
+  var icon = document.getElementById("theme-icon");
+  var MOON = '<path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>';
+  var SUN = '<circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/>';
+  icon.setAttribute("fill", "none");
+  icon.setAttribute("stroke", "currentColor");
+  icon.setAttribute("stroke-width", "2");
+  icon.setAttribute("stroke-linecap", "round");
+  icon.setAttribute("stroke-linejoin", "round");
+  function current() {
+    var theme = (window.jtd && jtd.getTheme && jtd.getTheme()) || "default";
+    return theme === "dark" ? "dark" : "light";
+  }
+  function render() {
+    icon.innerHTML = current() === "dark" ? SUN : MOON;
+    btn.setAttribute("aria-label", current() === "dark" ? "Switch to light mode" : "Switch to dark mode");
+  }
+  btn.addEventListener("click", function () {
+    var from = current();
+    var next = from === "dark" ? "light" : "dark";
+    jtd.setTheme(next);
+    try {
+      window.localStorage.setItem("jtd-theme", next);
+    } catch (e) {
+      console.log("just-the-docs theme toggle: could not persist \"" + next + "\" to localStorage.jtd-theme");
+    }
+    render();
+  });
+  render();
+})();
+</script>

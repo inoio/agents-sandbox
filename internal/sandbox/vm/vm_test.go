@@ -742,3 +742,190 @@ func TestProjectPortBindingsDelegatesToOptions(t *testing.T) {
 		t.Errorf("binding = %#v, want %#v", got[0], expected[0])
 	}
 }
+
+func TestExitError(t *testing.T) {
+	e := &ExitError{Code: 42}
+	if got := e.Error(); got != "exit code 42" {
+		t.Errorf("ExitError.Error() = %q, want %q", got, "exit code 42")
+	}
+}
+
+func TestKillProjectVMUsesClient(t *testing.T) {
+	testUI := termio.NewTestMock(t)
+	ui := &testUI
+	client := &msb.MockMsbClient{}
+	client.SetGotSandbox(&msb.MockSandboxHandle{
+		Name_:   "opencode-sandbox-vm-test",
+		Status_: msbSdk.SandboxStatusRunning,
+	})
+	oldGet := msb.Get
+	msb.Get = func() msb.Client { return client }
+	defer func() { msb.Get = oldGet }()
+
+	tmpRepo := testutil.InitRepo(t)
+	t.Chdir(tmpRepo)
+
+	if err := KillProjectVM(context.Background(), false, false, ui); err != nil {
+		t.Fatalf("KillProjectVM failed: %v", err)
+	}
+}
+
+func TestStopProjectVMAlreadyStopped(t *testing.T) {
+	testUI := termio.NewTestMock(t)
+	ui := &testUI
+	client := &msb.MockMsbClient{}
+	client.SetGotSandbox(&msb.MockSandboxHandle{
+		Name_:   "opencode-sandbox-vm-test",
+		Status_: msbSdk.SandboxStatusStopped,
+	})
+	msb.WithMsbMock(t, client)
+
+	tmpRepo := testutil.InitRepo(t)
+	t.Chdir(tmpRepo)
+
+	if err := StopProjectVM(context.Background(), false, false, ui); err != nil {
+		t.Fatalf("StopProjectVM on already-stopped VM failed: %v", err)
+	}
+}
+
+func TestStopProjectVMDryRunRemove(t *testing.T) {
+	testUI := termio.NewTestMock(t)
+	ui := &testUI
+	client := &msb.MockMsbClient{}
+	client.SetGotSandbox(&msb.MockSandboxHandle{
+		Name_:   "opencode-sandbox-vm-test",
+		Status_: msbSdk.SandboxStatusRunning,
+	})
+	msb.WithMsbMock(t, client)
+
+	tmpRepo := testutil.InitRepo(t)
+	t.Chdir(tmpRepo)
+
+	if err := StopProjectVM(context.Background(), true, true, ui); err != nil {
+		t.Fatalf("StopProjectVM dry-run with remove failed: %v", err)
+	}
+}
+
+func TestStopProjectVMNotFound(t *testing.T) {
+	testUI := termio.NewTestMock(t)
+	ui := &testUI
+	client := &msb.MockMsbClient{}
+	client.GetSandboxFn = func(_ context.Context, _ string) (msb.SandboxHandle, error) {
+		return nil, &msbSdk.Error{Kind: msbSdk.ErrSandboxNotFound, Message: "not found"}
+	}
+	msb.WithMsbMock(t, client)
+
+	tmpRepo := testutil.InitRepo(t)
+	t.Chdir(tmpRepo)
+
+	if err := StopProjectVM(context.Background(), false, false, ui); err != nil {
+		t.Fatalf("StopProjectVM on missing VM failed: %v", err)
+	}
+}
+
+func TestSummarizeConflicts(t *testing.T) {
+	cs := []msbSdk.ModificationConflict{
+		{Field: "cpus", Message: "too high"},
+		{Field: "memory", Message: "not enough"},
+	}
+	if got := summarizeConflicts(cs); got != "cpus: too high; memory: not enough" {
+		t.Errorf("summarizeConflicts() = %q, want joined string", got)
+	}
+	if got := summarizeConflicts(nil); got != "" {
+		t.Errorf("summarizeConflicts(nil) = %q, want empty", got)
+	}
+}
+
+func TestReconcileResourceConfig_AppliesCPUsAndMemory(t *testing.T) {
+	handle := &msb.MockSandboxHandle{
+		Cfg:  &msbSdk.SandboxConfig{CPUs: 2, MaxCPUs: 8, MemoryMiB: 2048, MaxMemoryMiB: 8192},
+		Plan: &msbSdk.SandboxModificationPlan{},
+	}
+	ui := termio.NewTestMock(t)
+
+	opts := options.RunOptions{CPUs: 4, Memory: "4G"}
+	if err := reconcileResourceConfig(context.Background(), handle, opts, &ui); err != nil {
+		t.Fatalf("reconcileResourceConfig() error = %v", err)
+	}
+	if len(handle.ModifiedOptions) != 1 {
+		t.Fatalf("expected 1 Modify call, got %d", len(handle.ModifiedOptions))
+	}
+	mo := handle.ModifiedOptions[0]
+	if mo.CPUs != 4 || mo.MemoryMiB != 4096 {
+		t.Errorf("Modify options = %+v, want CPUs=4 MemoryMiB=4096", mo)
+	}
+	if mo.Policy != msbSdk.ModificationPolicyNoRestart {
+		t.Errorf("Modify policy = %v, want NoRestart", mo.Policy)
+	}
+}
+
+func TestReconcileResourceConfig_ClampsToBootMax(t *testing.T) {
+	handle := &msb.MockSandboxHandle{
+		Cfg:  &msbSdk.SandboxConfig{CPUs: 2, MaxCPUs: 4, MemoryMiB: 2048, MaxMemoryMiB: 4096},
+		Plan: &msbSdk.SandboxModificationPlan{},
+	}
+	ui := termio.NewTestMock(t)
+
+	opts := options.RunOptions{CPUs: 16, Memory: "16G"}
+	if err := reconcileResourceConfig(context.Background(), handle, opts, &ui); err != nil {
+		t.Fatalf("reconcileResourceConfig() error = %v", err)
+	}
+	if len(handle.ModifiedOptions) != 1 {
+		t.Fatalf("expected 1 Modify call, got %d", len(handle.ModifiedOptions))
+	}
+	mo := handle.ModifiedOptions[0]
+	if mo.CPUs != 4 || mo.MemoryMiB != 4096 {
+		t.Errorf("Modify options = %+v, want clamped CPUs=4 MemoryMiB=4096", mo)
+	}
+}
+
+func TestReconcileResourceConfig_NoChangeSkipsModify(t *testing.T) {
+	handle := &msb.MockSandboxHandle{
+		Cfg: &msbSdk.SandboxConfig{CPUs: 2, MaxCPUs: 8, MemoryMiB: 2048, MaxMemoryMiB: 8192},
+	}
+	ui := termio.NewTestMock(t)
+
+	if err := reconcileResourceConfig(
+		context.Background(),
+		handle,
+		options.RunOptions{CPUs: 2, Memory: "2048"},
+		&ui,
+	); err != nil {
+		t.Fatalf("reconcileResourceConfig() error = %v", err)
+	}
+	if len(handle.ModifiedOptions) != 0 {
+		t.Errorf("expected no Modify call when nothing changes, got %d", len(handle.ModifiedOptions))
+	}
+}
+
+func TestReconcileResourceConfig_ConflictsError(t *testing.T) {
+	handle := &msb.MockSandboxHandle{
+		Cfg: &msbSdk.SandboxConfig{CPUs: 2, MaxCPUs: 8, MemoryMiB: 2048, MaxMemoryMiB: 8192},
+		Plan: &msbSdk.SandboxModificationPlan{
+			Conflicts: []msbSdk.ModificationConflict{{Field: "cpus", Message: "conflict"}},
+		},
+	}
+	ui := termio.NewTestMock(t)
+
+	err := reconcileResourceConfig(context.Background(), handle, options.RunOptions{CPUs: 4}, &ui)
+	if err == nil {
+		t.Fatal("expected error when plan has conflicts")
+	}
+}
+
+func TestSessionAccessors(t *testing.T) {
+	sb := &msb.MockSandbox{}
+	s := &Session{sb: sb, name: "vm-name", target: "/tmp/target", cwd: "/workspace"}
+	if got := s.Sandbox(); got != sb {
+		t.Errorf("Sandbox() = %v, want the stored sandbox", got)
+	}
+	if got := s.Target(); got != "/tmp/target" {
+		t.Errorf("Target() = %q, want /tmp/target", got)
+	}
+
+	nilSession := &Session{}
+	if got := nilSession.Sandbox(); got != nil {
+		t.Errorf("Sandbox() on nil VM = %v, want nil", got)
+	}
+	nilSession.Cleanup()
+}

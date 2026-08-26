@@ -1,0 +1,6 @@
+# Docs build artefacts and dependencies
+/_site/
+/.bundle/
+/vendor/
+/_data/
+/Gemfile.lock

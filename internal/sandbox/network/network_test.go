@@ -191,3 +191,21 @@ func TestFingerprintDistinguishesConfigs(t *testing.T) {
 		t.Fatal("allow vs deny lists must have different fingerprints")
 	}
 }
+
+func TestProfileString(t *testing.T) {
+	if got := ProfilePublic.String(); got != "public" {
+		t.Errorf("ProfilePublic.String() = %q, want public", got)
+	}
+	if got := Profile("custom").String(); got != "custom" {
+		t.Errorf("Profile(custom).String() = %q, want custom", got)
+	}
+}
+
+func TestPolicyEmpty(t *testing.T) {
+	if !(Policy{}).Empty() {
+		t.Error("zero Policy should be empty")
+	}
+	if (Policy{Profile: ProfilePublic}).Empty() {
+		t.Error("Policy with a profile should not be empty")
+	}
+}

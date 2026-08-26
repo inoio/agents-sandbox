@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"sort"
+	"strconv"
 	"strings"
 
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
@@ -208,7 +209,10 @@ func EnvContentHash(env map[string]string) string {
 }
 
 // SecretsContentHash returns a SHA-256 hex digest of the secret entries.
-// Entries are sorted by EnvVar and hashed as "ENVVAR=VALUE" lines.
+// Entries are sorted by EnvVar and hashed as "ENVVAR=VALUE|HOSTS|PATTERNS|
+// PLACEHOLDER|TLS|VIOLATION" lines. Every field that microsandbox bakes into
+// the VM at creation is included so a change to any of them (not just the
+// value) triggers the VM recreate that applies it.
 func SecretsContentHash(entries []msbSdk.SecretEntry) string {
 	if entries == nil {
 		entries = []msbSdk.SecretEntry{}
@@ -224,7 +228,20 @@ func SecretsContentHash(entries []msbSdk.SecretEntry) string {
 	sort.Strings(envVars)
 	var b strings.Builder
 	for _, k := range envVars {
-		fmt.Fprintf(&b, "%s=%s\n", k, byEnv[k].Value)
+		e := byEnv[k]
+		tls := ""
+		if e.RequireTLS != nil {
+			tls = strconv.FormatBool(*e.RequireTLS)
+		}
+		fmt.Fprintf(&b, "%s=%s|%s|%s|%s|%s|%s\n",
+			k,
+			e.Value,
+			strings.Join(e.AllowHosts, ","),
+			strings.Join(e.AllowHostPatterns, ","),
+			e.Placeholder,
+			tls,
+			string(e.OnViolation),
+		)
 	}
 	h := sha256.Sum256([]byte(b.String()))
 	return hex.EncodeToString(h[:])

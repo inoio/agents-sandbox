@@ -139,3 +139,12 @@ func TestResolveWorkspaceQuotaMiB_DelegatesToParseMemoryOK(t *testing.T) {
 		t.Errorf("expected 16384 for 16G, got %d", got)
 	}
 }
+
+func TestParseMemoryGiB(t *testing.T) {
+	if got := ParseMemoryGiB(4); got != 4096 {
+		t.Errorf("ParseMemoryGiB(4) = %d, want 4096", got)
+	}
+	if got := ParseMemoryGiB(1); got != 1024 {
+		t.Errorf("ParseMemoryGiB(1) = %d, want 1024", got)
+	}
+}

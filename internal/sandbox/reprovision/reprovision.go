@@ -73,9 +73,11 @@ func chownPaths(ctx context.Context, sb msb.Sandbox, paths []string) error {
 	// Deduplicate: mkdirAllFS may create the same ancestor for several writes.
 	unique := make([]string, 0, len(paths))
 	sort.Strings(paths)
-	for i, p := range paths {
-		if i == 0 || paths[i-1] != p {
+	var last string
+	for _, p := range paths {
+		if p != last {
 			unique = append(unique, p)
+			last = p
 		}
 	}
 	cmd := "chown -R " + defaultSandboxUser + ":" + defaultSandboxUser + " " + strings.Join(unique, " ")

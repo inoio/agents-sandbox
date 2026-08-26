@@ -84,3 +84,41 @@ func TestEnvSecretYAMLPaths(t *testing.T) {
 		t.Errorf("projectEnvSecretYAMLFile() = %q, want %q", got, c.ProjectConfigDir())
 	}
 }
+
+func TestUserOpencodeConfigDir(t *testing.T) {
+	WithRealConfigPaths(t)
+	cfgPaths := Get()
+	want := filepath.Join(cfgPaths.UserConfigDir(), ConfigDirName)
+	if got := cfgPaths.UserOpencodeConfigDir(); got != want {
+		t.Errorf("UserOpencodeConfigDir() = %q, want %q", got, want)
+	}
+}
+
+func TestUserEnvFiles(t *testing.T) {
+	WithRealConfigPaths(t)
+	cfgPaths := Get()
+	if got := cfgPaths.UserEnvFile(); got != filepath.Join(cfgPaths.UserConfigDir(), EnvFileName) {
+		t.Errorf("UserEnvFile() = %q", got)
+	}
+	if got := cfgPaths.UserEnvSecretFile(); got != filepath.Join(cfgPaths.UserConfigDir(), EnvSecretFileName) {
+		t.Errorf("UserEnvSecretFile() = %q", got)
+	}
+}
+
+func TestProjectDirsAndFiles(t *testing.T) {
+	WithRealConfigPaths(t)
+	cfgPaths := Get()
+
+	if got := cfgPaths.ProjectOpencodeConfigDir(); got != filepath.Join(projectConfigDir, ConfigDirName) {
+		t.Errorf("ProjectOpencodeConfigDir() = %q", got)
+	}
+	if got := cfgPaths.ProjectEnvFile(); got != filepath.Join(projectConfigDir, EnvFileName) {
+		t.Errorf("ProjectEnvFile() = %q", got)
+	}
+	if got := cfgPaths.ProjectEnvSecretFile(); got != filepath.Join(projectConfigDir, EnvSecretFileName) {
+		t.Errorf("ProjectEnvSecretFile() = %q", got)
+	}
+	if got := cfgPaths.ProjectDockerfile(); got != filepath.Join(projectConfigDir, DockerFileName) {
+		t.Errorf("ProjectDockerfile() = %q", got)
+	}
+}

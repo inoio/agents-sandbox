@@ -16,6 +16,19 @@ import (
 	"github.com/inoio/opencode-sandbox/internal/termio"
 )
 
+// preparedSandbox is the subset of a prepared session that Run and Shell use.
+// It is satisfied by *sandbox.Session and by the fake used in tests.
+type preparedSandbox interface {
+	Cleanup()
+	Sandbox() msb.Sandbox
+	Target() string
+}
+
+// prepareSandbox is a test seam swapped in tests to avoid real VM setup.
+var prepareSandbox = func(ctx context.Context, opts options.RunOptions, ui termio.UI) (preparedSandbox, error) { //nolint:gochecknoglobals // test seam
+	return sandbox.PrepareSandbox(ctx, opts, ui)
+}
+
 func buildAttachCommand(target string, args []string) string {
 	parts := []string{"opencode", "attach", "http://127.0.0.1:4096", "--dir", target}
 	parts = append(parts, args...)
@@ -51,7 +64,7 @@ func runServeOnly(ctx context.Context, sb msb.Sandbox, ui termio.UI) error {
 //
 // Note: Run is called from cli.go after all flags are resolved.
 func Run(ctx context.Context, opts options.RunOptions, ui termio.UI) error {
-	ses, err := sandbox.PrepareSandbox(ctx, opts, ui)
+	ses, err := prepareSandbox(ctx, opts, ui)
 	if err != nil {
 		return err
 	}
@@ -103,7 +116,7 @@ func Run(ctx context.Context, opts options.RunOptions, ui termio.UI) error {
 // Shell creates (or reuses) the project VM and drops the user into an
 // interactive shell session, without starting opencode serve.
 func Shell(ctx context.Context, opts options.RunOptions, ui termio.UI) error {
-	ses, err := sandbox.PrepareSandbox(ctx, opts, ui)
+	ses, err := prepareSandbox(ctx, opts, ui)
 	if err != nil {
 		return err
 	}

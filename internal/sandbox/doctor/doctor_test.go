@@ -267,3 +267,16 @@ func TestCheckPlatform(t *testing.T) {
 		t.Skipf("cannot stat /dev/kvm: %v", err)
 	}
 }
+
+func TestCheckAllDelegates(t *testing.T) {
+	testUI := termio.NewTestMock(t)
+	mockedCollectChecks(t, nil, []error{errors.New("broken")})
+
+	orig := checkAllFunc
+	checkAllFunc = realCheckAll
+	t.Cleanup(func() { checkAllFunc = orig })
+
+	if CheckAll(context.Background(), &testUI) {
+		t.Fatal("expected CheckAll to return false when a check fails")
+	}
+}

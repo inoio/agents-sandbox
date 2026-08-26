@@ -2,6 +2,7 @@ package session
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -577,5 +578,34 @@ func checkQuiescence(t *testing.T, name string, busy int, stuck bool, wantBusy i
 	}
 	if stuck != wantStuck {
 		t.Errorf("%s: stuckRetry = %v, want %v", name, stuck, wantStuck)
+	}
+}
+
+func TestSessionStatesShellError(t *testing.T) {
+	sb := &msb.MockSandbox{Name_: "test-vm"}
+	sb.ShellErr = errors.New("shell failed")
+
+	if _, err := sessionStates(context.Background(), sb); err == nil {
+		t.Error("sessionStates() with Shell error should return error")
+	}
+}
+
+func TestSessionStatesNonSuccess(t *testing.T) {
+	sb := &msb.MockSandbox{Name_: "test-vm"}
+	sb.ShellOut = map[string]msb.ShellResult{
+		"curl -sf http://127.0.0.1:4096/session/status": msb.NewTestResult(false, 7, "", "curl error", nil),
+	}
+
+	if _, err := sessionStates(context.Background(), sb); err == nil {
+		t.Error("sessionStates() with non-success result should return error")
+	}
+}
+
+func TestPendingQuestionSessionIDsShellError(t *testing.T) {
+	sb := &msb.MockSandbox{Name_: "test-vm"}
+	sb.ShellErr = errors.New("shell failed")
+
+	if _, err := pendingQuestionSessionIDs(context.Background(), sb); err == nil {
+		t.Error("pendingQuestionSessionIDs() with Shell error should return error")
 	}
 }

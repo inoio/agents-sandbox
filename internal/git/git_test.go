@@ -245,3 +245,20 @@ func TestProjectSlugFallsBackWithoutOrigin(t *testing.T) {
 		t.Errorf("expected slug to start with %q, got %q", folderName+"-", got)
 	}
 }
+
+func TestProjectSlugNonRepoDirectory(t *testing.T) {
+	dir := t.TempDir()
+	t.Chdir(dir)
+	got := projectSlugAt(".")
+	if !strings.Contains(got, "-") {
+		t.Errorf("expected slug to contain folder-name and id, got %q", got)
+	}
+}
+
+func TestProjectSlugAbsoluteNonRepoPath(t *testing.T) {
+	dir := t.TempDir()
+	got := projectSlugAt(dir)
+	if !strings.Contains(got, "-") {
+		t.Errorf("expected slug from absolute non-repo path, got %q", got)
+	}
+}
