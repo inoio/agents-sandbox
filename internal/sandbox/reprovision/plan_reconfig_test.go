@@ -23,6 +23,7 @@ func TestPlanReconfigDecidesRecreate(t *testing.T) {
 			Volumes: map[string]msbSdk.MountConfig{
 				tmpMountPath:       {SizeMiB: tmpMiB},
 				workspaceMountPath: {QuotaMiB: options.DefaultWorkspaceQuotaMiB},
+				VMHomeDir:          {Named: "opencode-sandbox-home-proj-vol"},
 			},
 		}
 	}
@@ -32,6 +33,7 @@ func TestPlanReconfigDecidesRecreate(t *testing.T) {
 		cfg      *msbSdk.SandboxConfig
 		imageRef string
 		opts     options.RunOptions
+		homeVol  string
 		want     bool
 	}{
 		{
@@ -39,6 +41,7 @@ func TestPlanReconfigDecidesRecreate(t *testing.T) {
 			cfg:      mkConfig(4, 4096, 0, 2048),
 			imageRef: "image-b",
 			opts:     options.RunOptions{},
+			homeVol:  "opencode-sandbox-home-proj-vol",
 			want:     true,
 		},
 		{
@@ -46,6 +49,7 @@ func TestPlanReconfigDecidesRecreate(t *testing.T) {
 			cfg:      mkConfig(4, 4096, 0, 2048),
 			imageRef: "image-a",
 			opts:     options.RunOptions{TmpSize: "1G"},
+			homeVol:  "opencode-sandbox-home-proj-vol",
 			want:     true,
 		},
 		{
@@ -53,6 +57,7 @@ func TestPlanReconfigDecidesRecreate(t *testing.T) {
 			cfg:      mkConfig(4, 4096, 0, 2048),
 			imageRef: "image-a",
 			opts:     options.RunOptions{WorkspaceQuota: "32G"},
+			homeVol:  "opencode-sandbox-home-proj-vol",
 			want:     true,
 		},
 		{
@@ -60,6 +65,7 @@ func TestPlanReconfigDecidesRecreate(t *testing.T) {
 			cfg:      mkConfig(4, 4096, 0, 2048),
 			imageRef: "image-a",
 			opts:     options.RunOptions{},
+			homeVol:  "opencode-sandbox-home-proj-vol",
 			want:     false,
 		},
 		{
@@ -67,6 +73,7 @@ func TestPlanReconfigDecidesRecreate(t *testing.T) {
 			cfg:      mkConfig(4, 4096, 8192, 2048),
 			imageRef: "image-a",
 			opts:     options.RunOptions{DiskSize: "16G"},
+			homeVol:  "opencode-sandbox-home-proj-vol",
 			want:     true,
 		},
 		{
@@ -74,19 +81,29 @@ func TestPlanReconfigDecidesRecreate(t *testing.T) {
 			cfg:      mkConfig(4, 4096, 8192, 2048),
 			imageRef: "image-a",
 			opts:     options.RunOptions{},
+			homeVol:  "opencode-sandbox-home-proj-vol",
 			want:     false,
+		},
+		{
+			name:     "home volume mismatch",
+			cfg:      mkConfig(4, 4096, 0, 2048),
+			imageRef: "image-a",
+			opts:     options.RunOptions{},
+			homeVol:  "opencode-sandbox-home-proj-new",
+			want:     true,
 		},
 		{
 			name:     "no change",
 			cfg:      mkConfig(4, 4096, 16384, 2048),
 			imageRef: "image-a",
 			opts:     options.RunOptions{TmpSize: "2G", DiskSize: "16G"},
+			homeVol:  "opencode-sandbox-home-proj-vol",
 			want:     false,
 		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			got := PlanReconfig(tc.cfg, tc.imageRef, tc.opts, false, false, false, false).Recreate
+			got := PlanReconfig(tc.cfg, tc.imageRef, tc.opts, false, false, false, false, tc.homeVol).Recreate
 			if got != tc.want {
 				t.Errorf("PlanReconfig().Recreate = %v, want %v", got, tc.want)
 			}

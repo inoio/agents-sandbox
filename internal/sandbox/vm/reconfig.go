@@ -173,6 +173,7 @@ func decideReconfig(
 		secretsHasChanged,
 		networkHasChanged,
 		opencfgChanged,
+		homeVol,
 	)
 	otherClients := state.CountActiveClients(slug)
 	applyRecreate, applyRestart, err := reprovision.ResolveReconfig(ctx, ui, plan, otherClients, plan.Changes)

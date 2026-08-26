@@ -70,6 +70,7 @@ func PlanReconfig( //nolint:gocognit,gocyclo,cyclop,funlen // core planner, cogn
 	imageRef string,
 	opts options.RunOptions,
 	envChanged, secretsChanged, networkChanged, opencodeConfigChanged bool,
+	homeVol string,
 ) *Plan {
 	d := &Plan{} //nolint:exhaustruct // fields zeroed intentionally
 	if cfg == nil {
@@ -98,6 +99,19 @@ func PlanReconfig( //nolint:gocognit,gocyclo,cyclop,funlen // core planner, cogn
 			d.Changes = append(
 				d.Changes,
 				SizeChange("/workspace write quota", ws.QuotaMiB, wantQuota, oldRaw, opts.WorkspaceQuota),
+			)
+		}
+	}
+
+	// A home-volume migration/reset points state at a new volume, but the
+	// mount is baked into the VM at creation time. A change can only be
+	// applied by recreating the VM with the new volume mounted.
+	if homeVol != "" {
+		if home, ok := cfg.Volumes[VMHomeDir]; ok && home.Named != homeVol {
+			d.Recreate = true
+			d.Changes = append(
+				d.Changes,
+				Change{Label: "home volume"}, //nolint:exhaustruct // label-only for change reporting
 			)
 		}
 	}
