@@ -31,6 +31,15 @@ jobs:
           echo "release: $DOCS_VERSION" > _data/version.yml
         env:
           DOCS_VERSION: ${{ github.event.release.tag_name || github.ref_name }}
+      - name: Render PlantUML diagrams
+        working-directory: docs
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends default-jre
+          curl -fsSL "https://github.com/plantuml/plantuml/releases/download/v${PLANTUML_VERSION}/plantuml.jar" -o /tmp/plantuml.jar
+          cd diagrams && java -jar /tmp/plantuml.jar -DRELATIVE_INCLUDE -tsvg -o . $(find . -maxdepth 1 -name '*.puml' ! -name 'C4*' -printf '%f ')
+        env:
+          PLANTUML_VERSION: 1.2026.7
       - name: Setup Ruby
         uses: ruby/setup-ruby@v1
         with:

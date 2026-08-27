@@ -132,32 +132,11 @@ behavior.
 
 ### System Context
 
-The following diagram shows how opencode-sandbox relates the host to the microsandbox VM: your project directory is bound
-into the VM as `/workspace`, persistent state lives on a home volume at `/home/dev`, secrets are injected host-side only, and
-one or more opencode clients attach to the server running inside the VM.
+The following C4 container diagram shows how opencode-sandbox relates the host to the microsandbox VM: your project
+directory is bound into the VM as `/workspace`, persistent state lives on a home volume at `/home/dev`, secrets are
+injected host-side only, and one or more opencode clients attach to the server running inside the VM.
 
-```mermaid
-flowchart LR
-    subgraph host["Host"]
-        dir["Project directory<br/>(host CWD)"]
-        secret["Secrets<br/>(host-side only)"]
-        client1["opencode-sandbox client"]
-        client2["opencode-sandbox client"]
-    end
-
-    subgraph vm["Microsandbox VM"]
-        ws["/workspace<br/>(bind mount, rw)"]
-        home["/home/dev<br/>(persistent home volume)"]
-        image["Runner image<br/>(opencode, node, tools)"]
-        server["opencode server"]
-    end
-
-    dir -- "bind mount" --> ws
-    secret -- "msb secret mechanism" --> home
-    image -- "root filesystem" --> vm
-    client1 -- "attach" --> server
-    client2 -- "attach" --> server
-```
+![opencode-sandbox C4 container diagram]({% link diagrams/c4-container.svg %})
 
 `/workspace` and the host CWD are the same files — edits inside the VM appear on the host and vice-versa. Secrets never live in
 the image or in environment dumps inside the VM; they are injected at runtime and visible only as environment variables.
@@ -222,4 +201,5 @@ project; see [Configuration]({% link configuration.md %}#opencode-configuration)
 - Learn about [Configuration]({% link configuration.md %}) for setting defaults and secrets.
 - See how to [Extend the Runner Image]({% link runner-image.md %}) with project-specific tooling.
 - Explore [Worktree Sessions]({% link branch-sessions.md %}) for isolated worktree sessions.
+- Browse [Recipes]({% link recipes.md %}) for hands-on workflows like connecting Opencode Desktop.
 - Check [Troubleshooting]({% link troubleshooting.md %}) for common issues.

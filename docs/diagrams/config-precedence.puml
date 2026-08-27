@@ -1,0 +1,14 @@
+@startuml
+skinparam defaultTextAlignment center
+' opencode-sandbox — Configuration precedence (later entries override earlier ones)
+title opencode-sandbox — Configuration precedence
+
+start
+:1. Built-in / flag defaults;
+:2. User-level\n\~/.config/opencode-sandbox/;
+:3. User per-slug\n\~/.config/opencode-sandbox/<slug>/;
+:4. Project-level\n.opencode-sandbox/;
+:5. Environment variables\nOPENCODE_SANDBOX_*;
+:6. CLI flags;
+stop
+@enduml

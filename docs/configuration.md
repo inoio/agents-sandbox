@@ -50,16 +50,7 @@ Place files under `.opencode-sandbox/` in your project directory. These override
 
 Configuration is resolved in this order (later entries override earlier ones):
 
-```mermaid
-flowchart LR
-    A["1. Built-in / flag defaults"]
-    B["2. User-level<br/>~/.config/opencode-sandbox/"]
-    C["3. User per-slug<br/>~/.config/opencode-sandbox/<slug>/"]
-    D["4. Project-level<br/>.opencode-sandbox/"]
-    E["5. Environment variables<br/>OPENCODE_SANDBOX_*"]
-    F["6. CLI flags"]
-    A --> B --> C --> D --> E --> F
-```
+![Configuration precedence diagram]({% link diagrams/config-precedence.svg %})
 
 1. **Built-in / flag defaults** — compiled-in values and CLI flag defaults
 2. **User-level** — `~/.config/opencode-sandbox/`

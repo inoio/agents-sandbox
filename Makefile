@@ -1,10 +1,11 @@
-.PHONY: build build-release build-release-all test coverage lint fmt clean completion user-install check all upgrade-deps
+.PHONY: build build-release build-release-all test coverage lint fmt clean completion user-install check all upgrade-deps docs-diagrams
 
 VERSION ?= dev
 
 GOOS ?= $(shell go env GOOS)
 GOARCH ?= $(shell go env GOARCH)
 ZIG_TARGET ?=
+PLANTUML ?= plantuml
 
 ARTIFACT = opencode-sandbox-$(GOOS)-$(GOARCH)
 
@@ -68,6 +69,11 @@ clean:
 completion:
 	mkdir -p ~/.local/share/bash-completion/completions
 	go run ./cmd/opencode-sandbox completion bash > ~/.local/share/bash-completion/completions/opencode-sandbox
+
+# Render PlantUML diagrams in docs/diagrams/ to SVG (local preview; CI re-renders on release).
+# Excludes the vendored C4-PlantUML library files (C4*.puml), which are not standalone diagrams.
+docs-diagrams:
+	cd docs/diagrams && for f in *.puml; do case "$$f" in C4*) ;; *) $(PLANTUML) -DRELATIVE_INCLUDE -tsvg -o . "$$f" || exit 1;; esac; done
 
 user-install: build
 	mkdir -p ~/.local/bin

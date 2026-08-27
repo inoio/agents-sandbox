@@ -5,3 +5,5 @@
 version.env
 *.test
 coverage.out
+docs/diagrams/*.svg
+/docs/superpowers/
