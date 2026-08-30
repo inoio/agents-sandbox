@@ -8,7 +8,7 @@ nav_order: 0
 
 This documentation is built from release `{{ site.data.version.release }}`.
 
-Launch [opencode](https://github.com/anthropics/opencode) inside a nearly instant microsandbox VM with your project
+Launch [opencode](https://github.com/anomalyco/opencode) inside a nearly instant microsandbox VM with your project
 mounted at `/workspace`. Unleash your agents' full permissions in a disposable cage, so they can do their best work
 without ever roaming your host or ever learning your secrets.
 
