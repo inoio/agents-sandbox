@@ -34,6 +34,8 @@ type RunOptions struct {
 	// Network is the resolved egress policy for the project VM. The zero value
 	// (Empty) means no policy is set and the default public profile applies.
 	Network network.Policy
+	// Mounts are additional host directories bind-mounted at absolute guest paths.
+	Mounts Mounts
 	// OpenCodeVersion pins the opencode version baked into the runner image on
 	// rebuild. Empty means resolve the latest at build time.
 	OpenCodeVersion string

@@ -14,6 +14,7 @@ import (
 
 const changeLabelPublishedPorts = "published port(s)"
 const changeLabelNetworkPolicy = "network policy"
+const changeLabelBindMounts = "host bind mounts"
 
 // Change describes one changed setting for prompt display. Values are
 // shown for simple sizes/counts; env/secrets/config carry labels only (Old/New empty).
@@ -62,6 +63,18 @@ func configChangeList(changes []Change) string {
 	return strings.Join(lines, "\n")
 }
 
+// ChangeFlags carries the change detections that PlanReconfig cannot derive
+// from the live VM config, because the microsandbox SDK does not round-trip
+// these settings when reading an existing VM back. Each flag is computed by
+// comparing a persisted fingerprint against the desired state.
+type ChangeFlags struct {
+	Env            bool
+	Secrets        bool
+	Network        bool
+	Mounts         bool
+	OpenCodeConfig bool
+}
+
 // PlanReconfig computes the reconfiguration plan given the current VM config
 // and the desired state. Returns a nil Plan when there is no existing config
 // (first creation) or nothing needs to change.
@@ -69,7 +82,7 @@ func PlanReconfig( //nolint:gocognit,gocyclo,cyclop,funlen // core planner, cogn
 	cfg *msbSdk.SandboxConfig,
 	imageRef string,
 	opts options.RunOptions,
-	envChanged, secretsChanged, networkChanged, opencodeConfigChanged bool,
+	flags ChangeFlags,
 	homeVol string,
 ) *Plan {
 	d := &Plan{} //nolint:exhaustruct // fields zeroed intentionally
@@ -115,6 +128,16 @@ func PlanReconfig( //nolint:gocognit,gocyclo,cyclop,funlen // core planner, cogn
 			)
 		}
 	}
+	// Host bind mounts are baked into the VM at creation time. The comparison
+	// is fingerprint-based (MountsChanged) for the same reason as the network
+	// policy: the SDK does not round-trip volumes when reading a VM back.
+	if flags.Mounts {
+		d.Recreate = true
+		d.Changes = append(
+			d.Changes,
+			Change{Label: changeLabelBindMounts}, //nolint:exhaustruct // label-only for change reporting
+		)
+	}
 	if wantDisk, ok := options.ParseMemoryOK(opts.DiskSize); ok {
 		if cfg.RootDisk == nil || cfg.RootDisk.SizeMiB != wantDisk {
 			d.Recreate = true
@@ -148,7 +171,7 @@ func PlanReconfig( //nolint:gocognit,gocyclo,cyclop,funlen // core planner, cogn
 	// recreate (same tier as env/secrets/ports). The comparison is based on a
 	// persisted fingerprint (NetworkChanged), because the microsandbox SDK does
 	// not round-trip the network config when reading back an existing VM.
-	if networkChanged {
+	if flags.Network {
 		d.Recreate = true
 		d.Changes = append(
 			d.Changes,
@@ -156,15 +179,15 @@ func PlanReconfig( //nolint:gocognit,gocyclo,cyclop,funlen // core planner, cogn
 		)
 	}
 
-	if !d.Recreate && (envChanged || secretsChanged) {
+	if !d.Recreate && (flags.Env || flags.Secrets) {
 		d.Recreate = true
-		if envChanged {
+		if flags.Env {
 			d.Changes = append(
 				d.Changes,
 				Change{Label: "environment variables"}, //nolint:exhaustruct // label-only for change reporting
 			)
 		}
-		if secretsChanged {
+		if flags.Secrets {
 			d.Changes = append(
 				d.Changes,
 				Change{Label: "secrets"}, //nolint:exhaustruct // label-only for change reporting
@@ -174,7 +197,7 @@ func PlanReconfig( //nolint:gocognit,gocyclo,cyclop,funlen // core planner, cogn
 
 	// opencode config changes are picked up by restarting the opencode daemon;
 	// a full VM rebuild is not required.
-	if !d.Recreate && opencodeConfigChanged {
+	if !d.Recreate && flags.OpenCodeConfig {
 		d.RestartDaemons = true
 		d.Changes = append(
 			d.Changes,

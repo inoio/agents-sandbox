@@ -40,6 +40,9 @@ type SecretState = FingerprintState
 // NetworkState tracks network-policy fingerprint data for a project.
 type NetworkState = FingerprintState
 
+// MountState tracks host bind-mount fingerprint data for a project.
+type MountState = FingerprintState
+
 // HomeState represents the per-project state file contents.
 type HomeState struct {
 	HomeVolume   string       `yaml:"home_volume"`
@@ -47,6 +50,7 @@ type HomeState struct {
 	EnvState     EnvState     `yaml:"env_state,omitempty"`
 	SecretState  SecretState  `yaml:"secret_state,omitempty"`
 	NetworkState NetworkState `yaml:"network_state,omitempty"`
+	MountState   MountState   `yaml:"mount_state,omitempty"`
 }
 
 // NewHomeState returns a HomeState with a zeroed EnvState/SecretState, ready

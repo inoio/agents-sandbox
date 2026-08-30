@@ -296,6 +296,7 @@ func createProjectVM(
 		repoPath,
 		options.ResolveTmpSizeMiB(opts.TmpSize),
 		options.ResolveWorkspaceQuotaMiB(opts.WorkspaceQuota),
+		opts.Mounts,
 	)
 
 	spin := ui.Spinner("Starting project VM")
@@ -347,11 +348,15 @@ func createProjectVM(
 }
 
 // tmpMountPath is the mount point used for the sandbox tmpfs.
-const tmpMountPath = "/tmp"
+const tmpMountPath = options.TmpMountPath
 
-func buildMounts(homeVol, repoPath string, tmpSizeMiB uint32, workspaceQuotaMiB uint32) map[string]msbSdk.MountConfig {
-	return map[string]msbSdk.MountConfig{
-		"/home/dev": msbSdk.Mount.Named(homeVol, msbSdk.MountOptions{}),
+func buildMounts(
+	homeVol, repoPath string,
+	tmpSizeMiB, workspaceQuotaMiB uint32,
+	extra options.Mounts,
+) map[string]msbSdk.MountConfig {
+	mounts := map[string]msbSdk.MountConfig{
+		options.VMHomeDir: msbSdk.Mount.Named(homeVol, msbSdk.MountOptions{}),
 		defaultTargetDir: msbSdk.Mount.Bind(repoPath, msbSdk.MountOptions{
 			QuotaMiB: workspaceQuotaMiB,
 		}),
@@ -363,6 +368,10 @@ func buildMounts(homeVol, repoPath string, tmpSizeMiB uint32, workspaceQuotaMiB 
 			Nodev:    false,
 		}),
 	}
+	for target, mount := range extra {
+		mounts[target] = msbSdk.Mount.Bind(mount.Source, msbSdk.MountOptions{Readonly: mount.Readonly})
+	}
+	return mounts
 }
 
 // acquireProjectFlock takes an exclusive flock on the given path. It returns a

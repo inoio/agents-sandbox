@@ -103,7 +103,7 @@ func TestPlanReconfigDecidesRecreate(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			got := PlanReconfig(tc.cfg, tc.imageRef, tc.opts, false, false, false, false, tc.homeVol).Recreate
+			got := PlanReconfig(tc.cfg, tc.imageRef, tc.opts, ChangeFlags{}, tc.homeVol).Recreate
 			if got != tc.want {
 				t.Errorf("PlanReconfig().Recreate = %v, want %v", got, tc.want)
 			}

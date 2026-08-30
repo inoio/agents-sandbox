@@ -902,3 +902,50 @@ func errIsContains(err error, sub string) bool {
 func containsStr(s, sub string) bool {
 	return len(s) >= len(sub) && contains(s, sub)
 }
+
+// TestPersistMountState_NilStateOnNotFound tests persistMountState when no
+// state file exists yet, e.g. the very first run of a project.
+func TestPersistMountState_NilStateOnNotFound(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+
+	slug := "freshmountproject"
+	mounts := options.Mounts{
+		"/home/dev/.m2": {Source: "/host/.m2"},
+	}
+
+	if err := persistMountState(slug, mounts); err != nil {
+		t.Fatalf("persistMountState: %v", err)
+	}
+
+	got, err := state.ReadState(slug)
+	if err != nil {
+		t.Fatalf("ReadState: %v", err)
+	}
+	if got.HomeVolume != "" {
+		t.Error("expected empty HomeVolume for newly created state")
+	}
+	if got.MountState.Hash != options.Fingerprint(mounts) {
+		t.Errorf("MountState.Hash = %q, want %q", got.MountState.Hash, options.Fingerprint(mounts))
+	}
+}
+
+// TestPersistMountStateCorruptState covers the read-error branch, where the
+// state file exists but cannot be parsed.
+func TestPersistMountStateCorruptState(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+
+	slug := "corruptmountproject"
+	sdir := filepath.Join(configpaths.Get().UserStateDir(), slug)
+	if err := os.MkdirAll(sdir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	testutil.WriteFile(t, sdir, "state.yaml", "{ corrupted: yaml: [")
+
+	err := persistMountState(slug, nil)
+	if err == nil {
+		t.Fatal("expected an error for a corrupt state file")
+	}
+	if !strings.Contains(err.Error(), "read state for mount persistence") {
+		t.Errorf("error = %v, want it to mention mount persistence", err)
+	}
+}

@@ -61,24 +61,25 @@ Configuration is resolved in this order (later entries override earlier ones):
 
 ## Configuration file
 
-| Field                           | Corresponding CLI flag | Description                                                                                                                                                                                                               |
-|---------------------------------|------------------------|---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| `yes`                           | `--yes` / `-y`         | Assume yes to all prompts                                                                                                                                                                                                 |
-| `quiet`                         | `--quiet` / `-q`       | Suppress stdout output                                                                                                                                                                                                    |
-| `log-level`                     | `--log-level` / `-l`   | Minimum log level to show on the console: `error`, `warning`, `info`, `verbose` (default `info`)                                                                                                                          |
-| `cpus`                          | `--cpus` / `-c`        | Number of vCPUs for the VM                                                                                                                                                                                                |
-| `memory`                        | `--memory` / `-m`      | Memory limit (e.g. `8G`)                                                                                                                                                                                                  |
-| `disk-size`                     | `--disk-size`          | Project VM root disk size (e.g. `16G`). Empty = microsandbox runtime default (~4 GiB). Applied at VM creation; a change triggers recreation. An invalid value is rejected with an error.                                  |
-| `tmp-size`                      | `--tmp-size`           | Size of `/tmp` tmpfs in the sandbox. An invalid value is rejected with an error.                                                                                                                                          |
-| `workspace-quota`               | `--workspace-quota`    | Guest-write quota for the `/workspace` bind mount (e.g. `32G`), bounding writes on top of the host repo. Default `16G`. Applied at VM creation; a change triggers recreation. An invalid value is rejected with an error. |
-| `auto-prune-age`                | —                      | Auto-prune threshold, runs before every command (default: 30d, only in config). Applies to VMs, volumes, and images alike.                                                                                                |
-| `manual-prune-age`              | `--age`                | Default prune age threshold for `prune`, `image prune`, `volume prune`, and `sandbox prune`                                                                                                                               |
-| `auto-stop-on-active-sessions`  | —                      | Stop VM immediately on client detach without waiting for active sessions (default: false, only in config; `busy` sessions are never cut off)                                                                              |
-| `auto-stop-timeout`             | —                      | Idle timeout after last client detaches (default: 10s, only in config)                                                                                                                                                    |
-| `auto-stop-max-session-retries` | —                      | Retries to tolerate for a session stuck in `retry` before stopping (default: 10, only in config)                                                                                                                          |
-| `network.profile`               | `--network`            | Network profile: `public`, `private`, `host`, or `none` (see [Networking](#networking))                                                                                                                                   |
-| `network.egress-allow`          | —                      | Egress destinations to allow: `host`, a CIDR, or a `.suffix` (see [Networking](#networking))                                                                                                                              |
-| `network.egress-deny`           | —                      | Egress carve-outs, emitted before allow rules (see [Networking](#networking))                                                                                                                                             |
+| Field                           | Corresponding CLI flag   | Description                                                                                                                                                                                                               |
+|---------------------------------|--------------------------|---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `yes`                           | `--yes` / `-y`           | Assume yes to all prompts                                                                                                                                                                                                 |
+| `quiet`                         | `--quiet` / `-q`         | Suppress stdout output                                                                                                                                                                                                    |
+| `log-level`                     | `--log-level` / `-l`     | Minimum log level to show on the console: `error`, `warning`, `info`, `verbose` (default `info`)                                                                                                                          |
+| `cpus`                          | `--cpus` / `-c`          | Number of vCPUs for the VM                                                                                                                                                                                                |
+| `memory`                        | `--memory` / `-m`        | Memory limit (e.g. `8G`)                                                                                                                                                                                                  |
+| `disk-size`                     | `--disk-size`            | Project VM root disk size (e.g. `16G`). Empty = microsandbox runtime default (~4 GiB). Applied at VM creation; a change triggers recreation. An invalid value is rejected with an error.                                  |
+| `tmp-size`                      | `--tmp-size`             | Size of `/tmp` tmpfs in the sandbox. An invalid value is rejected with an error.                                                                                                                                          |
+| `workspace-quota`               | `--workspace-quota`      | Guest-write quota for the `/workspace` bind mount (e.g. `32G`), bounding writes on top of the host repo. Default `16G`. Applied at VM creation; a change triggers recreation. An invalid value is rejected with an error. |
+| `auto-prune-age`                | —                        | Auto-prune threshold, runs before every command (default: 30d, only in config). Applies to VMs, volumes, and images alike.                                                                                                |
+| `manual-prune-age`              | `--age`                  | Default prune age threshold for `prune`, `image prune`, `volume prune`, and `sandbox prune`                                                                                                                               |
+| `auto-stop-on-active-sessions`  | —                        | Stop VM immediately on client detach without waiting for active sessions (default: false, only in config; `busy` sessions are never cut off)                                                                              |
+| `auto-stop-timeout`             | —                        | Idle timeout after last client detaches (default: 10s, only in config)                                                                                                                                                    |
+| `auto-stop-max-session-retries` | —                        | Retries to tolerate for a session stuck in `retry` before stopping (default: 10, only in config)                                                                                                                          |
+| `network.profile`               | `--network`              | Network profile: `public`, `private`, `host`, or `none` (see [Networking](#networking))                                                                                                                                   |
+| `network.egress-allow`          | —                        | Egress destinations to allow: `host`, a CIDR, or a `.suffix` (see [Networking](#networking))                                                                                                                              |
+| `network.egress-deny`           | —                        | Egress carve-outs, emitted before allow rules (see [Networking](#networking))                                                                                                                                             
+| `mounts`                        | —                        | Additional host directories mounted into the VM (see [Host bind mounts](#host-bind-mounts))                                                                                                                               |
 
 Example `~/.config/opencode-sandbox/config.yaml`:
 
@@ -97,6 +98,8 @@ network:
   profile: public
   egress-allow: []
   egress-deny: []
+mounts:
+  /home/dev/.m2: ~/.m2
 ```
 
 ### Duration fields
@@ -133,6 +136,7 @@ session. The change type determines the mechanism used to apply the new settings
 | `image`           | VM recreate    | VM is recreated with the new root image. Home volume is preserved.                                       |
 | `home volume`     | VM recreate    | After `volume migrate`/`reset`, the new home volume is mounted by recreating the VM; the mount is baked in at creation. |
 | `network`         | VM recreate    | Network policy is baked in at VM creation, so a change recreates the VM. Home volume is preserved.        |
+| `mounts`          | VM recreate    | Host bind mounts are baked in at VM creation.                                                           |
 
 When **no other client** is attached, config changes apply immediately.
 
@@ -212,6 +216,26 @@ network:
   egress-allow: []          # host, CIDR, or .suffix
   egress-deny: []           # carve-outs; emitted before allow rules
 ```
+
+## Host bind mounts
+
+The `mounts` map exposes additional host directories inside the sandbox. Each key is an absolute guest target and its
+value is either the host source directory or a mapping with `source` and optional `readonly`. Sources may be absolute or
+start with `~/`. Mounts are writable by default; set `readonly: true` when the sandbox must not modify the host directory.
+
+```yaml
+mounts:
+  /home/dev/.m2: ~/.m2
+  /home/dev/reference:
+    source: /opt/company/reference
+    readonly: true
+```
+
+Configured source directories must already exist on the host and must be directories. The managed mount targets
+`/home/dev`, `/workspace`, and `/tmp` cannot be replaced, and a target may not shadow a parent of them. Nesting a mount
+inside `/workspace` or `/tmp` is rejected because it would hide managed content; nesting inside `/home/dev` is allowed
+and is the common case. A mount configuration change recreates the project VM. Writable mounts let sandbox processes
+modify host files directly, so only mount directories whose contents may be changed by sandboxed tools.
 
 ## Per-slug configuration
 
