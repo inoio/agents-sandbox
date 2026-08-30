@@ -10,7 +10,7 @@
 [![Security](https://img.shields.io/badge/security-policy-purple.svg)](SECURITY.md)
 [![Docs](https://img.shields.io/badge/docs-github--pages-blue)](https://inoio.github.io/opencode-sandbox/)
 
-opencode-sandbox launches [opencode](https://github.com/anthropics/opencode) inside an isolated Linux VM backed
+opencode-sandbox launches [opencode](https://github.com/anomalyco/opencode) inside an isolated Linux VM backed
 by [microsandbox](https://github.com/superradcompany/microsandbox). Each project gets a persistent project VM — shared
 across sessions with a configurable auto-stop policy (see [Configuration](/docs/configuration.md) and
 [Sandboxes](/docs/sandboxes.md)). The VM has your project mounted as `/workspace`, a persistent home directory
