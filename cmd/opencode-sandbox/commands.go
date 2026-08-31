@@ -135,8 +135,9 @@ func buildMinimalRootFlagsCmd() *cobra.Command {
 	}
 
 	rootFlagsCmd.PersistentFlags().BoolP(pFlagYes, pFlagYes[:1], false, "Assume yes to all prompts")
-	rootFlagsCmd.PersistentFlags().BoolP(pFlagVerbose, pFlagVerbose[:1], false, "Show debug-level output")
-	rootFlagsCmd.PersistentFlags().BoolP(pFlagError, "", false, "Only show error output")
+	rootFlagsCmd.PersistentFlags().BoolP(pFlagQuiet, pFlagQuiet[:1], false, "Suppress stdout output")
+	rootFlagsCmd.PersistentFlags().
+		StringP(pFlagLogLevel, pFlagLogLevel[:1], "info", "Minimum log level to show (error, warning, info, verbose)")
 
 	return rootFlagsCmd
 }
@@ -161,8 +162,7 @@ func buildRootCmd(ui termio.UI) *cobra.Command {
 			return err
 		}
 		cmd.SetContext(context.WithValue(cmd.Context(), (*launcherConfigKey)(nil), r))
-		applyCLISettings(cmd, ui, r)
-		return nil
+		return applyCLISettings(cmd, ui, r)
 	}
 	extendRunCmd(ui, rootCmd)
 

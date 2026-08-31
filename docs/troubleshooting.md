@@ -64,10 +64,10 @@ When a VM won't start, check the general troubleshooting steps first.
 
 ### "create sandbox: ..." errors
 
-Try `--verbose` to see the full error:
+Try `--log-level verbose` to see the full error:
 
 ```console
-opencode-sandbox run --verbose
+opencode-sandbox run --log-level verbose
 ```
 
 Common causes:
@@ -177,10 +177,10 @@ If your config files aren't being picked up:
 
 3. Check that CLI flags aren't overriding your config (flags always win).
 
-4. Use `--verbose` to see which config files were loaded:
+4. Use `--log-level verbose` to see which config files were loaded:
 
    ```console
-   opencode-sandbox run --verbose
+   opencode-sandbox run --log-level verbose
    ```
 
 ## Image build fails

@@ -13,7 +13,7 @@ import (
 func main() {
 	args := os.Args[1:]
 	ui := termio.New(os.Stdin, os.Stdout, os.Stderr,
-		term.IsTerminal(int(os.Stderr.Fd())), termio.LevelNormal, false)
+		term.IsTerminal(int(os.Stderr.Fd())), termio.LevelInfo, false, false)
 
 	if err := execute(args, ui); err != nil {
 		var exitErr *sandbox.ExitError

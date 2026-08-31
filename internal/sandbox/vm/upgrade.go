@@ -16,7 +16,7 @@ var errUpgradeQuit = errors.New("opencode upgrade cancelled") //nolint:err113 //
 
 // openCodeUpgradeInfo returns the latest opencode release version string.
 //
-//nolint:gochecknoglobals,gocritic // test seam
+//nolint:gochecknoglobals // test seam
 var openCodeUpgradeInfo = func(ctx context.Context) (string, error) {
 	return opencode.LatestVersion(ctx)
 }

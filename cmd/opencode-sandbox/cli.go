@@ -37,29 +37,21 @@ func execute(args []string, ui termio.UI) error {
 }
 
 // applyCLISettings sets the terminal output level and assume-yes state on the UI
-// based on the effective --verbose/--error/--yes flags of the running command.
+// based on the effective --log-level/--yes flags of the running command.
 //
 // It must run after cobra parses the real command tree and after launcher
 // config has been merged, so that flags work regardless of position or how
-// short shorthands are grouped (e.g. "-nv").
-func applyCLISettings(cmd *cobra.Command, ui termio.UI, r *launcherconfig.Resolver) {
+// short shorthands are grouped (e.g. "-ny").
+func applyCLISettings(cmd *cobra.Command, ui termio.UI, r *launcherconfig.Resolver) error {
 	if cmd == nil || r == nil {
-		return
+		return nil
 	}
-	quiet := r.Error()
-	verbose := r.Verbose()
-	yes := r.Yes()
-	ui.SetLevel(levelFrom(quiet, verbose))
-	ui.SetAssumeYes(yes)
-}
-
-func levelFrom(quiet, verbose bool) termio.Level {
-	switch {
-	case quiet:
-		return termio.LevelQuiet
-	case verbose:
-		return termio.LevelVerbose
-	default:
-		return termio.LevelNormal
+	level, err := termio.ParseLevel(r.LogLevel())
+	if err != nil {
+		return err
 	}
+	ui.SetLevel(level)
+	ui.SetAssumeYes(r.Yes())
+	ui.SetQuiet(r.Quiet())
+	return nil
 }
