@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -550,6 +552,49 @@ func TestResolveHomeVolume_NoStateFile(t *testing.T) {
 	}
 	if st.ImageDigest != "sha256:def" {
 		t.Errorf("digest = %q, want %q", st.ImageDigest, "sha256:def")
+	}
+}
+
+// TestResolveHomeVolume_CorruptStateFile covers the branch where the state file
+// exists but cannot be read (a non-not-found error): the caller warns about the
+// missing state and creates a fresh home volume.
+func TestResolveHomeVolume_CorruptStateFile(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+
+	// A directory in place of the state file makes os.ReadFile fail with a
+	// non-not-found error, unlike a genuinely absent file.
+	statePath := filepath.Join(configpaths.Get().UserStateDir(), "corruptproj", "state.yaml")
+	if err := os.MkdirAll(statePath, 0o700); err != nil {
+		t.Fatal(err)
+	}
+
+	mock := &msb.MockMsbClient{}
+	mock.CreateVolumeFn = func(_ context.Context, name string, _ ...msbSdk.VolumeOption) (msb.VolumeHandle, error) {
+		return msb.MockVolumeHandle{Name_: name}, nil
+	}
+
+	ui := &termio.Mock{}
+	vm := NewManager(ui)
+	volName, st, err := vm.ResolveHomeVolume(
+		context.Background(),
+		mock,
+		"corruptproj",
+		"sha256:def",
+		"",
+		false,
+		ui,
+	)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !strings.HasPrefix(volName, "opencode-sandbox-home-corruptproj-") {
+		t.Errorf("volume = %q, expected prefix %q", volName, "opencode-sandbox-home-corruptproj-")
+	}
+	if st.ImageDigest != "sha256:def" {
+		t.Errorf("digest = %q, want %q", st.ImageDigest, "sha256:def")
+	}
+	if !strings.Contains(strings.Join(ui.WarnCalls, " "), "missing state file") {
+		t.Errorf("expected a 'missing state file' warning, got %v", ui.WarnCalls)
 	}
 }
 
