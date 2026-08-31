@@ -2,12 +2,6 @@ package agent
 
 import "context"
 
-// ProvisionRule declares a host file (or glob) to copy into the VM by default.
-// Its full shape and selection/evaluation logic are defined in Task 2
-// (internal/agent/manifest.go); only a minimal placeholder lives here so the
-// Provisioner capability can compile.
-type ProvisionRule struct{}
-
 // DaemonProvider runs a long-lived server that clients attach to (opencode).
 type DaemonProvider interface {
 	DaemonStartCmd(serveOnly bool) string
