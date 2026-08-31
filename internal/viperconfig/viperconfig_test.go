@@ -13,7 +13,7 @@ import (
 	"github.com/inoio/opencode-sandbox/internal/sandbox/network"
 	"github.com/inoio/opencode-sandbox/internal/sandbox/options"
 	"github.com/inoio/opencode-sandbox/internal/testutil"
-	"github.com/inoio/opencode-sandbox/internal/update"
+	"github.com/inoio/opencode-sandbox/internal/upgrade"
 )
 
 func TestResolverGettersReturnConfig(t *testing.T) {
@@ -488,54 +488,54 @@ func TestPerSlugConfigPrecedence(t *testing.T) {
 	}
 }
 
-func TestResolverUpdateGetters(t *testing.T) {
+func TestResolverUpgradeGetters(t *testing.T) {
 	r := NewResolverWithConfig(Config{
-		Update: UpdateConfig{Mode: "auto-upgrade", Interval: 2 * time.Hour},
+		Upgrade: UpgradeConfig{Mode: "auto", Interval: 2 * time.Hour},
 	})
-	if r.UpdateMode() != update.ModeAutoUpgrade {
-		t.Fatalf("UpdateMode = %q, want %q", r.UpdateMode(), update.ModeAutoUpgrade)
+	if r.UpgradeMode() != upgrade.ModeAuto {
+		t.Fatalf("UpgradeMode = %q, want %q", r.UpgradeMode(), upgrade.ModeAuto)
 	}
-	if r.UpdateInterval() != 2*time.Hour {
-		t.Fatalf("UpdateInterval = %v, want 2h", r.UpdateInterval())
+	if r.UpgradeInterval() != 2*time.Hour {
+		t.Fatalf("UpgradeInterval = %v, want 2h", r.UpgradeInterval())
 	}
 }
 
-func TestResolverUpdateDefaults(t *testing.T) {
+func TestResolverUpgradeDefaults(t *testing.T) {
 	r := NewResolverWithConfig(Config{})
-	if r.UpdateMode() != update.ModePrompt {
-		t.Fatalf("UpdateMode default = %q, want prompt", r.UpdateMode())
+	if r.UpgradeMode() != upgrade.ModePrompt {
+		t.Fatalf("UpgradeMode default = %q, want prompt", r.UpgradeMode())
 	}
-	if r.UpdateInterval() != update.DefaultInterval {
-		t.Fatalf("UpdateInterval default = %v, want %v", r.UpdateInterval(), update.DefaultInterval)
-	}
-}
-
-func TestResolverUpdateIntervalClampsMin(t *testing.T) {
-	r := NewResolverWithConfig(Config{Update: UpdateConfig{Interval: time.Minute}})
-	if r.UpdateInterval() != update.MinInterval {
-		t.Fatalf("UpdateInterval = %v, want clamped to %v", r.UpdateInterval(), update.MinInterval)
+	if r.UpgradeInterval() != upgrade.DefaultInterval {
+		t.Fatalf("UpgradeInterval default = %v, want %v", r.UpgradeInterval(), upgrade.DefaultInterval)
 	}
 }
 
-func TestResolverUpdateEnvVars(t *testing.T) {
+func TestResolverUpgradeIntervalClampsMin(t *testing.T) {
+	r := NewResolverWithConfig(Config{Upgrade: UpgradeConfig{Interval: time.Minute}})
+	if r.UpgradeInterval() != upgrade.MinInterval {
+		t.Fatalf("UpgradeInterval = %v, want clamped to %v", r.UpgradeInterval(), upgrade.MinInterval)
+	}
+}
+
+func TestResolverUpgradeEnvVars(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
-	t.Setenv("OPENCODE_SANDBOX_UPDATE_MODE", "notify")
-	t.Setenv("OPENCODE_SANDBOX_UPDATE_INTERVAL", "2h")
+	t.Setenv("OPENCODE_SANDBOX_UPGRADE_MODE", "notify")
+	t.Setenv("OPENCODE_SANDBOX_UPGRADE_INTERVAL", "2h")
 	r, err := NewResolver(nil, "")
 	if err != nil {
 		t.Fatalf("NewResolver: %v", err)
 	}
-	if r.UpdateMode() != update.ModeNotify {
-		t.Fatalf("UpdateMode = %q, want notify", r.UpdateMode())
+	if r.UpgradeMode() != upgrade.ModeNotify {
+		t.Fatalf("UpgradeMode = %q, want notify", r.UpgradeMode())
 	}
-	if r.UpdateInterval() != 2*time.Hour {
-		t.Fatalf("UpdateInterval = %v, want 2h", r.UpdateInterval())
+	if r.UpgradeInterval() != 2*time.Hour {
+		t.Fatalf("UpgradeInterval = %v, want 2h", r.UpgradeInterval())
 	}
 }
 
-func TestResolverRejectsInvalidUpdateMode(t *testing.T) {
+func TestResolverRejectsInvalidUpgradeMode(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
-	t.Setenv("OPENCODE_SANDBOX_UPDATE_MODE", "bogus")
+	t.Setenv("OPENCODE_SANDBOX_UPGRADE_MODE", "bogus")
 	if _, err := NewResolver(nil, ""); err == nil {
 		t.Fatal("expected error for invalid update mode")
 	}
@@ -543,7 +543,7 @@ func TestResolverRejectsInvalidUpdateMode(t *testing.T) {
 
 func TestResolverRejectsTooSmallInterval(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
-	t.Setenv("OPENCODE_SANDBOX_UPDATE_INTERVAL", "1m")
+	t.Setenv("OPENCODE_SANDBOX_UPGRADE_INTERVAL", "1m")
 	if _, err := NewResolver(nil, ""); err == nil {
 		t.Fatal("expected error for update interval below minimum")
 	}

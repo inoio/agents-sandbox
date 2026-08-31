@@ -14,7 +14,7 @@ import (
 
 	"github.com/inoio/opencode-sandbox/internal/git"
 	"github.com/inoio/opencode-sandbox/internal/sandbox/pruning"
-	"github.com/inoio/opencode-sandbox/internal/update"
+	"github.com/inoio/opencode-sandbox/internal/upgrade"
 	launcherconfig "github.com/inoio/opencode-sandbox/internal/viperconfig"
 
 	"github.com/inoio/opencode-sandbox/internal/sandbox/doctor"
@@ -137,7 +137,7 @@ func runFunc(ui termio.UI) func(cmd *cobra.Command, args []string) error {
 			if !doctor.CheckAll(cmd.Context(), ui) {
 				return errors.New("preflight failed")
 			}
-			exit, err := checkForUpdate(ctx, r, ui)
+			exit, err := checkForUpgrade(ctx, r, ui)
 			if err != nil {
 				return err
 			}
@@ -150,16 +150,16 @@ func runFunc(ui termio.UI) func(cmd *cobra.Command, args []string) error {
 	}
 }
 
-// checkForUpdate runs the self-update check for the current version and
+// checkForUpgrade runs the self-upgrade check for the current version and
 // returns whether the caller should exit (an upgrade-and-exit was performed).
-func checkForUpdate(ctx context.Context, r *launcherconfig.Resolver, ui termio.UI) (bool, error) {
+func checkForUpgrade(ctx context.Context, r *launcherconfig.Resolver, ui termio.UI) (bool, error) {
 	if r == nil {
 		return false, nil
 	}
-	res, err := update.Check(ctx, update.Options{ //nolint:exhaustruct // StatePath/UpdateFunc use their defaults
+	res, err := upgrade.Check(ctx, upgrade.Options{ //nolint:exhaustruct // StatePath/UpdateFunc use their defaults
 		CurrentVersion: version,
-		Mode:           r.UpdateMode(),
-		Interval:       r.UpdateInterval(),
+		Mode:           r.UpgradeMode(),
+		Interval:       r.UpgradeInterval(),
 		UI:             ui,
 	})
 	if err != nil {
@@ -199,7 +199,7 @@ func buildShellCmd(ui termio.UI) *cobra.Command {
 			}
 			isDryRun, _ := cmd.Flags().GetBool(flagDryRun)
 			if !isDryRun {
-				exit, err := checkForUpdate(cmd.Context(), resolverFromContext(cmd.Context()), ui)
+				exit, err := checkForUpgrade(cmd.Context(), resolverFromContext(cmd.Context()), ui)
 				if err != nil {
 					return err
 				}

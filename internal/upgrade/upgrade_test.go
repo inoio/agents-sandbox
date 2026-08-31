@@ -1,11 +1,13 @@
-package update
+package upgrade
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -56,8 +58,8 @@ func TestParseMode(t *testing.T) {
 	}{
 		{in: "prompt", want: ModePrompt},
 		{in: "notify", want: ModeNotify},
-		{in: "auto-upgrade", want: ModeAutoUpgrade},
-		{in: "auto-upgrade-exit", want: ModeAutoUpgradeExit},
+		{in: "auto", want: ModeAuto},
+		{in: "auto-exit", want: ModeAutoExit},
 		{in: "PROMPT", want: ModePrompt},
 		{in: " bogus ", wantErr: true},
 	}
@@ -168,7 +170,7 @@ func TestCheckNotify(t *testing.T) {
 func TestCheckAutoUpgrade(t *testing.T) {
 	serveLatest(t, "2.0.0", nil)
 	ui := termio.Mock{}
-	opts := mockOptions(t, "1.0.0", ModeAutoUpgrade)
+	opts := mockOptions(t, "1.0.0", ModeAuto)
 	opts.UI = &ui
 	var updated string
 	opts.UpdateFunc = func(_ context.Context, latest string) error {
@@ -186,7 +188,7 @@ func TestCheckAutoUpgrade(t *testing.T) {
 
 func TestCheckAutoUpgradeExit(t *testing.T) {
 	serveLatest(t, "2.0.0", nil)
-	opts := mockOptions(t, "1.0.0", ModeAutoUpgradeExit)
+	opts := mockOptions(t, "1.0.0", ModeAutoExit)
 	opts.UpdateFunc = func(_ context.Context, _ string) error { return nil }
 	res, err := Check(context.Background(), opts)
 	if err != nil {
@@ -281,7 +283,7 @@ func TestDownloadAndReplace(t *testing.T) {
 	serveLatest(t, "2.0.0", []byte("#!/bin/sh\necho new\n"))
 	dir := t.TempDir()
 	target := filepath.Join(dir, "opencode-sandbox")
-	_ = os.WriteFile(target, []byte("old"), 0o755)
+	_ = os.WriteFile(target, []byte("old"), 0o750)
 
 	asset, err := downloadAssetToDir(context.Background(), dir)
 	if err != nil {
@@ -299,8 +301,23 @@ func TestDownloadAndReplace(t *testing.T) {
 		t.Fatalf("unexpected replaced content: %q", string(data))
 	}
 	info, _ := os.Stat(target)
+	if info.Mode().Perm() != 0o750 {
+		t.Fatalf("replaced binary mode = %o, want 750 (preserve original permissions)", info.Mode().Perm())
+	}
+}
+
+func TestReplaceExecutableDefaultsToExecutable(t *testing.T) {
+	dir := t.TempDir()
+	target := filepath.Join(dir, "opencode-sandbox") // does not exist
+	asset := filepath.Join(dir, "asset")
+	_ = os.WriteFile(asset, []byte("new"), 0o600)
+
+	if err := replaceExecutable(asset, target); err != nil {
+		t.Fatalf("replace: %v", err)
+	}
+	info, _ := os.Stat(target)
 	if info.Mode().Perm()&0o111 == 0 {
-		t.Fatal("replaced binary is not executable")
+		t.Fatal("replaced binary should be executable when target missing")
 	}
 }
 
@@ -320,5 +337,177 @@ func TestLoadStateMissingFile(t *testing.T) {
 	s := loadState(filepath.Join(t.TempDir(), "nope.json"))
 	if !s.LastCheck.IsZero() || len(s.DismissedVersions) != 0 {
 		t.Fatalf("expected empty state, got %+v", s)
+	}
+}
+
+func TestCheckSubMinIntervalFails(t *testing.T) {
+	opts := mockOptions(t, "1.0.0", ModeNotify)
+	opts.Interval = time.Minute
+	res, err := Check(context.Background(), opts)
+	if err == nil {
+		t.Fatalf("expected error for sub-minimum interval, got %+v", res)
+	}
+}
+
+func TestCheckUnparsableVersionIgnored(t *testing.T) {
+	serveLatest(t, "2.0.0", nil)
+	ui := termio.Mock{}
+	opts := mockOptions(t, "not-a-version", ModeNotify)
+	opts.UI = &ui
+	res, err := Check(context.Background(), opts)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if res.HasUpdate {
+		t.Fatalf("expected no update, got %+v", res)
+	}
+	if len(ui.VerboseCalls) == 0 {
+		t.Fatal("expected a verbose log for the parse failure")
+	}
+}
+
+func TestCheckAutoInstallFailureNotifies(t *testing.T) {
+	serveLatest(t, "2.0.0", nil)
+	ui := termio.Mock{}
+	opts := mockOptions(t, "1.0.0", ModeAuto)
+	opts.UI = &ui
+	opts.UpdateFunc = func(context.Context, string) error { return errors.New("boom") }
+	res, err := Check(context.Background(), opts)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if res.Updated || res.Exit {
+		t.Fatalf("expected no update on install failure, got %+v", res)
+	}
+	if len(ui.InfoCalls) == 0 {
+		t.Fatal("expected fallback notification on install failure")
+	}
+}
+
+func TestCheckPromptInstallFailure(t *testing.T) {
+	serveLatest(t, "2.0.0", nil)
+	ui := termio.Mock{IsInteractiveResult: true}
+	ui.SelectFn = func(_ string, _ []termio.Choice, _ string) (string, error) { return "u", nil }
+	opts := mockOptions(t, "1.0.0", ModePrompt)
+	opts.UI = &ui
+	opts.UpdateFunc = func(context.Context, string) error { return errors.New("boom") }
+	res, err := Check(context.Background(), opts)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if res.Updated || res.Exit {
+		t.Fatalf("expected no update on install failure, got %+v", res)
+	}
+}
+
+func TestUpgrade(t *testing.T) {
+	t.Run("dev build rejected", func(t *testing.T) {
+		if err := Upgrade(context.Background(), &termio.Mock{}, "dev"); err == nil {
+			t.Fatal("expected error for dev build")
+		}
+	})
+
+	t.Run("up to date", func(t *testing.T) {
+		orig := LatestVersion
+		LatestVersion = func(context.Context) (string, error) { return "1.0.0", nil }
+		t.Cleanup(func() { LatestVersion = orig })
+		ui := termio.Mock{}
+		if err := Upgrade(context.Background(), &ui, "1.0.0"); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if len(ui.InfoCalls) == 0 || !strings.Contains(ui.InfoCalls[0], "up to date") {
+			t.Fatalf("expected up-to-date info, got %v", ui.InfoCalls)
+		}
+	})
+
+	t.Run("upgrades", func(t *testing.T) {
+		origLatest, origUpdate := LatestVersion, Update
+		LatestVersion = func(context.Context) (string, error) { return "2.0.0", nil }
+		var installed string
+		Update = func(_ context.Context, latest string) error { installed = latest; return nil }
+		t.Cleanup(func() { LatestVersion, Update = origLatest, origUpdate })
+		ui := termio.Mock{}
+		if err := Upgrade(context.Background(), &ui, "1.0.0"); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if installed != "2.0.0" {
+			t.Fatalf("installed = %q, want 2.0.0", installed)
+		}
+	})
+
+	t.Run("latest lookup failure", func(t *testing.T) {
+		orig := LatestVersion
+		LatestVersion = func(context.Context) (string, error) { return "", errors.New("boom") }
+		t.Cleanup(func() { LatestVersion = orig })
+		if err := Upgrade(context.Background(), &termio.Mock{}, "1.0.0"); err == nil {
+			t.Fatal("expected error on lookup failure")
+		}
+	})
+}
+
+func TestIsNewer(t *testing.T) {
+	tests := []struct {
+		current, latest string
+		want            bool
+	}{
+		{current: "1.0.0", latest: "1.1.0", want: true},
+		{current: "1.10.0", latest: "1.9.0", want: false},
+		{current: "2.0.0", latest: "2.0.0", want: false},
+		{current: "v1.0.0", latest: "1.0.1", want: true},
+		{current: "1.0.0", latest: "1.0.0-beta.1", want: false},
+	}
+	for _, tc := range tests {
+		got, err := isNewer(tc.current, tc.latest)
+		if err != nil {
+			t.Fatalf("isNewer(%q,%q): %v", tc.current, tc.latest, err)
+		}
+		if got != tc.want {
+			t.Errorf("isNewer(%q,%q) = %v, want %v", tc.current, tc.latest, got, tc.want)
+		}
+	}
+}
+
+func TestIsNewerInvalidVersion(t *testing.T) {
+	if _, err := isNewer("dev", "1.0.0"); err == nil {
+		t.Fatal("expected error for invalid version")
+	}
+}
+
+func TestLatestReleaseNon200(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		http.Error(w, "nope", http.StatusInternalServerError)
+	}))
+	t.Cleanup(srv.Close)
+	orig := latestURL
+	latestURL = srv.URL + "/releases/latest"
+	t.Cleanup(func() { latestURL = orig })
+	if _, err := latestRelease(context.Background()); err == nil {
+		t.Fatal("expected error on non-200 response")
+	}
+}
+
+func TestLatestReleaseDecodeError(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte("not json"))
+	}))
+	t.Cleanup(srv.Close)
+	orig := latestURL
+	latestURL = srv.URL + "/releases/latest"
+	t.Cleanup(func() { latestURL = orig })
+	if _, err := latestRelease(context.Background()); err == nil {
+		t.Fatal("expected error on undecodable response")
+	}
+}
+
+func TestDownloadAssetNon200(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		http.Error(w, "nope", http.StatusNotFound)
+	}))
+	t.Cleanup(srv.Close)
+	orig := downloadBase
+	downloadBase = srv.URL
+	t.Cleanup(func() { downloadBase = orig })
+	if _, err := downloadAssetToDir(context.Background(), t.TempDir()); err == nil {
+		t.Fatal("expected error on non-200 download")
 	}
 }

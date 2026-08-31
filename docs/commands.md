@@ -372,7 +372,7 @@ opencode-sandbox version
 
 ### upgrade
 
-Check for and install the latest release, independent of the `update.mode`/`update.interval` settings that govern the
+Check for and install the latest release, independent of the `upgrade.mode`/`upgrade.interval` settings that govern the
 automatic check on `run`/`shell`. Replaces the running executable with the release binary for your platform; the new
 version takes effect on the next invocation.
 

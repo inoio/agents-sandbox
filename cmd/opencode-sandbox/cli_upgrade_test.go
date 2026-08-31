@@ -9,17 +9,17 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/inoio/opencode-sandbox/internal/termio"
-	"github.com/inoio/opencode-sandbox/internal/update"
+	"github.com/inoio/opencode-sandbox/internal/upgrade"
 )
 
 func TestUpgrade(t *testing.T) {
 	origVersion := version
-	origLatest := update.LatestVersion
-	origUpdate := update.Update
+	origLatest := upgrade.LatestVersion
+	origUpdate := upgrade.Update
 	t.Cleanup(func() {
 		version = origVersion
-		update.LatestVersion = origLatest
-		update.Update = origUpdate
+		upgrade.LatestVersion = origLatest
+		upgrade.Update = origUpdate
 	})
 
 	t.Run("dev build is rejected", func(t *testing.T) {
@@ -33,8 +33,8 @@ func TestUpgrade(t *testing.T) {
 
 	t.Run("up to date", func(t *testing.T) {
 		version = "1.0.0"
-		update.LatestVersion = func(context.Context) (string, error) { return "1.0.0", nil }
-		update.Update = func(context.Context, string) error { t.Fatal("Update should not be called"); return nil }
+		upgrade.LatestVersion = func(context.Context) (string, error) { return "1.0.0", nil }
+		upgrade.Update = func(context.Context, string) error { t.Fatal("Update should not be called"); return nil }
 
 		updateCmd, testUI := setupUpgradeTestFixtures(t)
 		if err := updateCmd.RunE(updateCmd, nil); err != nil {
@@ -47,9 +47,9 @@ func TestUpgrade(t *testing.T) {
 
 	t.Run("update available", func(t *testing.T) {
 		version = "1.0.0"
-		update.LatestVersion = func(context.Context) (string, error) { return "2.0.0", nil }
+		upgrade.LatestVersion = func(context.Context) (string, error) { return "2.0.0", nil }
 		var installed string
-		update.Update = func(_ context.Context, latest string) error {
+		upgrade.Update = func(_ context.Context, latest string) error {
 			installed = latest
 			return nil
 		}
@@ -68,8 +68,8 @@ func TestUpgrade(t *testing.T) {
 
 	t.Run("latest lookup failure", func(t *testing.T) {
 		version = "1.0.0"
-		update.LatestVersion = func(context.Context) (string, error) { return "", errors.New("boom") }
-		update.Update = func(context.Context, string) error { t.Fatal("Update should not be called"); return nil }
+		upgrade.LatestVersion = func(context.Context) (string, error) { return "", errors.New("boom") }
+		upgrade.Update = func(context.Context, string) error { t.Fatal("Update should not be called"); return nil }
 
 		updateCmd, _ := setupUpgradeTestFixtures(t)
 		if err := updateCmd.RunE(updateCmd, nil); err == nil {

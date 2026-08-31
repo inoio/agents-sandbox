@@ -14,7 +14,7 @@ import (
 	"github.com/inoio/opencode-sandbox/internal/configpaths"
 	"github.com/inoio/opencode-sandbox/internal/sandbox/mounts"
 	"github.com/inoio/opencode-sandbox/internal/sandbox/network"
-	"github.com/inoio/opencode-sandbox/internal/update"
+	"github.com/inoio/opencode-sandbox/internal/upgrade"
 	"github.com/inoio/opencode-sandbox/internal/yamlfmt"
 
 	"github.com/go-viper/mapstructure/v2"
@@ -49,13 +49,13 @@ type Config struct {
 	// /home/dev/.m2 into nested keys, which would corrupt the map keys.
 	Mounts mounts.Mounts `mapstructure:"-"`
 
-	// Update controls checking for and installing newer opencode-sandbox
+	// Upgrade controls checking for and installing newer opencode-sandbox
 	// releases. Only Mode and Interval are settable via env.
-	Update UpdateConfig `mapstructure:"update"`
+	Upgrade UpgradeConfig `mapstructure:"upgrade"`
 }
 
-// UpdateConfig holds self-update settings.
-type UpdateConfig struct {
+// UpgradeConfig holds self-upgrade settings.
+type UpgradeConfig struct {
 	Mode     string        `mapstructure:"mode"`
 	Interval time.Duration `mapstructure:"interval"`
 }
@@ -145,8 +145,8 @@ const (
 	keyAutoStopTimeout           = "auto-stop-timeout"
 	keyAutoStopMaxSessionRetries = "auto-stop-max-session-retries"
 	keyNetworkProfile            = "network.profile"
-	keyUpdateMode                = "update.mode"
-	keyUpdateInterval            = "update.interval"
+	keyUpgradeMode               = "upgrade.mode"
+	keyUpgradeInterval           = "upgrade.interval"
 )
 
 //nolint:gochecknoglobals // package-level constant slice
@@ -170,7 +170,7 @@ var configEnvKeys = []string{
 	keyAutoPruneAge, keyManualPruneAge,
 	keyAutoStopOnActiveSessions, keyAutoStopTimeout, keyAutoStopMaxSessionRetries,
 	keyNetworkProfile,
-	keyUpdateMode, keyUpdateInterval,
+	keyUpgradeMode, keyUpgradeInterval,
 }
 
 // bindConfigFlags binds each config-backed flag found on cmd (local or
@@ -328,7 +328,7 @@ func validate(v *viper.Viper) error {
 	if err := validateNetworkProfile(v); err != nil {
 		return err
 	}
-	if err := validateUpdate(v); err != nil {
+	if err := validateUpgrade(v); err != nil {
 		return err
 	}
 	if !v.IsSet("cpus") {
@@ -352,24 +352,24 @@ func validateNetworkProfile(v *viper.Viper) error {
 	return nil
 }
 
-// validateUpdate validates the update.mode and update.interval config keys.
-func validateUpdate(v *viper.Viper) error {
-	if v.IsSet(keyUpdateMode) {
-		if _, err := update.ParseMode(v.GetString(keyUpdateMode)); err != nil {
+// validateUpgrade validates the upgrade.mode and upgrade.interval config keys.
+func validateUpgrade(v *viper.Viper) error {
+	if v.IsSet(keyUpgradeMode) {
+		if _, err := upgrade.ParseMode(v.GetString(keyUpgradeMode)); err != nil {
 			return err
 		}
 	}
-	if !v.IsSet(keyUpdateInterval) {
+	if !v.IsSet(keyUpgradeInterval) {
 		return nil
 	}
-	d := v.GetDuration(keyUpdateInterval)
-	if s, ok := v.Get(keyUpdateInterval).(string); ok {
+	d := v.GetDuration(keyUpgradeInterval)
+	if s, ok := v.Get(keyUpgradeInterval).(string); ok {
 		if parsed, ok := ParseHumanDuration(s); ok {
 			d = parsed
 		}
 	}
-	if d < update.MinInterval {
-		return fmt.Errorf("launcher config %s must be >= %s, got %v", keyUpdateInterval, update.MinInterval, d)
+	if d < upgrade.MinInterval {
+		return fmt.Errorf("launcher config %s must be >= %s, got %v", keyUpgradeInterval, upgrade.MinInterval, d)
 	}
 	return nil
 }
@@ -456,27 +456,27 @@ func (r *Resolver) Network() network.Policy {
 	return r.cfg.Network
 }
 
-// UpdateMode returns the configured update mode, defaulting to prompt. An
+// UpgradeMode returns the configured upgrade mode, defaulting to prompt. An
 // unparsable value (possible via NewResolverWithConfig, which skips
 // validation) also falls back to prompt.
-func (r *Resolver) UpdateMode() update.Mode {
-	m, err := update.ParseMode(r.cfg.Update.Mode)
+func (r *Resolver) UpgradeMode() upgrade.Mode {
+	m, err := upgrade.ParseMode(r.cfg.Upgrade.Mode)
 	if err != nil {
-		return update.ModePrompt
+		return upgrade.ModePrompt
 	}
 	return m
 }
 
-// UpdateInterval returns the configured update-check interval, defaulting to
+// UpgradeInterval returns the configured upgrade-check interval, defaulting to
 // a day and never returning less than the rate-limit guard.
-func (r *Resolver) UpdateInterval() time.Duration {
+func (r *Resolver) UpgradeInterval() time.Duration {
 	switch {
-	case r.cfg.Update.Interval <= 0:
-		return update.DefaultInterval
-	case r.cfg.Update.Interval < update.MinInterval:
-		return update.MinInterval
+	case r.cfg.Upgrade.Interval <= 0:
+		return upgrade.DefaultInterval
+	case r.cfg.Upgrade.Interval < upgrade.MinInterval:
+		return upgrade.MinInterval
 	default:
-		return r.cfg.Update.Interval
+		return r.cfg.Upgrade.Interval
 	}
 }
 

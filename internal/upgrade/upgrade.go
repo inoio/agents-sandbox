@@ -1,12 +1,13 @@
-// Package update checks the opencode-sandbox GitHub releases for a newer
+// Package upgrade checks the opencode-sandbox GitHub releases for a newer
 // version than the one running, and optionally installs it. It mirrors how
-// opencode resolves its own latest release (GitHub releases/latest) and how
-// it compares version strings (numerical dot-separated segments).
-package update
+// opencode resolves its own latest release (GitHub releases/latest) and
+// compares version strings using semantic versioning.
+package upgrade
 
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -17,8 +18,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Masterminds/semver/v3"
+
 	"github.com/inoio/opencode-sandbox/internal/configpaths"
-	"github.com/inoio/opencode-sandbox/internal/opencode"
 	"github.com/inoio/opencode-sandbox/internal/termio"
 )
 
@@ -26,7 +28,7 @@ const (
 	githubRepo = "inoio/opencode-sandbox"
 
 	// devVersion is the version baked into locally built binaries; we never
-	// auto-update or compare against it meaningfully.
+	// auto-upgrade or compare against it meaningfully.
 	devVersion = "dev"
 
 	// DefaultInterval is how often to check for a new release when unset.
@@ -35,7 +37,7 @@ const (
 	// unauthenticated requests) with absurdly frequent checks.
 	MinInterval = time.Hour
 
-	stateFileName = "update.json"
+	stateFileName = "upgrade.json"
 )
 
 //nolint:gochecknoglobals // test seams for the otherwise unmockable endpoints
@@ -52,11 +54,11 @@ const (
 	ModePrompt Mode = "prompt"
 	// ModeNotify only reports the newer release without installing it.
 	ModeNotify Mode = "notify"
-	// ModeAutoUpgrade installs the newer release and continues running.
-	ModeAutoUpgrade Mode = "auto-upgrade"
-	// ModeAutoUpgradeExit installs the newer release and exits so the next
+	// ModeAuto installs the newer release and continues running.
+	ModeAuto Mode = "auto"
+	// ModeAutoExit installs the newer release and exits so the next
 	// invocation uses the new binary.
-	ModeAutoUpgradeExit Mode = "auto-upgrade-exit"
+	ModeAutoExit Mode = "auto-exit"
 )
 
 // ParseMode maps a mode name to its Mode, returning an error for unknown
@@ -64,10 +66,10 @@ const (
 func ParseMode(s string) (Mode, error) {
 	m := Mode(strings.ToLower(strings.TrimSpace(s)))
 	switch m {
-	case ModePrompt, ModeNotify, ModeAutoUpgrade, ModeAutoUpgradeExit:
+	case ModePrompt, ModeNotify, ModeAuto, ModeAutoExit:
 		return m, nil
 	default:
-		return "", fmt.Errorf("invalid update mode %q (want prompt, notify, auto-upgrade or auto-upgrade-exit)", s)
+		return "", fmt.Errorf("invalid upgrade mode %q (want prompt, notify, auto or auto-exit)", s)
 	}
 }
 
@@ -93,7 +95,7 @@ type Options struct {
 	UpdateFunc func(ctx context.Context, latest string) error
 }
 
-// state is the persisted per-user update state.
+// state is the persisted per-user upgrade state.
 type state struct {
 	LastCheck         time.Time `json:"last_check"`
 	DismissedVersions []string  `json:"dismissed_versions,omitempty"`
@@ -109,7 +111,9 @@ func (o Options) statePath() string {
 // Check looks for a newer opencode-sandbox release than CurrentVersion and
 // acts on it according to Mode. It is a no-op for development builds and when
 // a check happened within Interval. Transient network or parsing failures are
-// silently ignored so an offline run never blocks startup.
+// silently ignored so an offline run never blocks startup. An explicitly
+// configured interval below MinInterval is a misconfiguration and fails
+// loudly rather than being silently clamped.
 func Check(ctx context.Context, opts Options) (Result, error) {
 	if opts.CurrentVersion == "" || opts.CurrentVersion == devVersion {
 		return Result{}, nil
@@ -119,7 +123,7 @@ func Check(ctx context.Context, opts Options) (Result, error) {
 	case interval <= 0:
 		interval = DefaultInterval
 	case interval < MinInterval:
-		interval = MinInterval
+		return Result{}, fmt.Errorf("upgrade interval %s is below the minimum %s", interval, MinInterval)
 	}
 	updateFunc := opts.UpdateFunc
 	if updateFunc == nil {
@@ -134,12 +138,16 @@ func Check(ctx context.Context, opts Options) (Result, error) {
 
 	latest, err := latestRelease(ctx)
 	if err != nil {
-		opts.UI.Verbosef("update check failed: %v", err)
+		opts.UI.Verbosef("upgrade check failed: %v", err)
 		return Result{}, nil
 	}
 
-	if opencode.VersionCompare(opts.CurrentVersion, latest) >= 0 ||
-		slices.Contains(st.DismissedVersions, latest) {
+	newer, err := isNewer(opts.CurrentVersion, latest)
+	if err != nil {
+		opts.UI.Verbosef("upgrade check failed: %v", err)
+		return Result{}, nil
+	}
+	if !newer || slices.Contains(st.DismissedVersions, latest) {
 		st.LastCheck = time.Now()
 		_ = saveState(path, st)
 		return Result{}, nil
@@ -152,6 +160,20 @@ func Check(ctx context.Context, opts Options) (Result, error) {
 	st.LastCheck = time.Now()
 	_ = saveState(path, st)
 	return res, nil
+}
+
+// isNewer reports whether current is strictly older than latest, comparing
+// them as semantic versions.
+func isNewer(current, latest string) (bool, error) {
+	cv, err := semver.NewVersion(strings.TrimPrefix(current, "v"))
+	if err != nil {
+		return false, fmt.Errorf("parse current version %q: %w", current, err)
+	}
+	lv, err := semver.NewVersion(strings.TrimPrefix(latest, "v"))
+	if err != nil {
+		return false, fmt.Errorf("parse latest version %q: %w", latest, err)
+	}
+	return cv.LessThan(lv), nil
 }
 
 // applyMode handles a detected newer release according to the configured mode
@@ -173,9 +195,9 @@ func applyMode(
 		return true
 	}
 	switch opts.Mode {
-	case ModeAutoUpgrade:
+	case ModeAuto:
 		res.Updated = install()
-	case ModeAutoUpgradeExit:
+	case ModeAutoExit:
 		if install() {
 			res.Updated = true
 			res.Exit = true
@@ -204,7 +226,7 @@ func applyMode(
 func notify(ui termio.UI, current, latest string) {
 	ui.Infof(
 		"A new version of opencode-sandbox is available: %s (you have %s). "+
-			"Run `opencode-sandbox upgrade` to install it, or set update.mode in your config.",
+			"Run `opencode-sandbox upgrade` to install it, or set upgrade.mode in your config.",
 		latest, current,
 	)
 }
@@ -249,6 +271,33 @@ func prompt(ui termio.UI, current, latest string) promptAction {
 	default:
 		return actionContinue
 	}
+}
+
+// Upgrade checks for a newer release than current and installs it over the
+// running binary, reporting progress via ui. It is the on-demand counterpart
+// to Check's automatic modes.
+func Upgrade(ctx context.Context, ui termio.UI, current string) error {
+	if current == "" || current == devVersion {
+		return errors.New("cannot upgrade a development build; use the released binary")
+	}
+	latest, err := LatestVersion(ctx)
+	if err != nil {
+		return err
+	}
+	newer, err := isNewer(current, latest)
+	if err != nil {
+		return err
+	}
+	if !newer {
+		ui.Infof("opencode-sandbox is up to date (%s)", current)
+		return nil
+	}
+	ui.Infof("upgrading opencode-sandbox %s -> %s", current, latest)
+	if err := Update(ctx, latest); err != nil {
+		return err
+	}
+	ui.Infof("upgraded to %s; restart to use it", latest)
+	return nil
 }
 
 // LatestVersion returns the newest stable opencode-sandbox release string
@@ -348,12 +397,17 @@ func executablePath() (string, error) {
 	return filepath.Abs(exe)
 }
 
-// replaceExecutable makes assetPath executable and renames it over exePath.
-// The caller must place assetPath in exePath's directory so the rename is on
-// the same filesystem and therefore atomic.
+// replaceExecutable makes assetPath carry the target's permissions and renames
+// it over exePath. The caller must place assetPath in exePath's directory so
+// the rename is on the same filesystem and therefore atomic. Preserving the
+// old binary's permissions honours installs that used a non-default mode
+// (e.g. a setuid or group-writable binary).
 func replaceExecutable(assetPath, exePath string) error {
-	//nolint:gosec // G302: the downloaded release binary must be executable
-	if err := os.Chmod(assetPath, 0o755); err != nil {
+	mode := os.FileMode(0o755)
+	if info, err := os.Stat(exePath); err == nil {
+		mode = info.Mode().Perm()
+	}
+	if err := os.Chmod(assetPath, mode); err != nil {
 		return fmt.Errorf("make downloaded binary executable: %w", err)
 	}
 	if err := os.Rename(assetPath, exePath); err != nil {
@@ -362,8 +416,8 @@ func replaceExecutable(assetPath, exePath string) error {
 	return nil
 }
 
-// loadState reads the persisted update state, tolerating a missing or corrupt
-// file by returning empty state.
+// loadState reads the persisted upgrade state, tolerating a missing or
+// corrupt file by returning empty state.
 func loadState(path string) state {
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -374,7 +428,8 @@ func loadState(path string) state {
 	return s
 }
 
-// saveState writes the update state to path, creating its directory if needed.
+// saveState writes the upgrade state to path, creating its directory if
+// needed.
 func saveState(path string, s state) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return err

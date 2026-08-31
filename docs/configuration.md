@@ -80,8 +80,8 @@ Configuration is resolved in this order (later entries override earlier ones):
 | `network.egress-allow`          | —                        | Egress destinations to allow: `host`, a CIDR, or a `.suffix` (see [Networking](#networking))                                                                                                                              |
 | `network.egress-deny`           | —                        | Egress carve-outs, emitted before allow rules (see [Networking](#networking))                                                                                                                                             
 | `mounts`                        | —                        | Additional host directories mounted into the VM (see [Host bind mounts](#host-bind-mounts))                                                                                                                               |
-| `update.mode`                   | —                        | How to handle a newer release when one is found: `prompt`, `notify`, `auto-upgrade`, or `auto-upgrade-exit` (default `prompt`, see [Self-update](#self-update))                                                            |
-| `update.interval`               | —                        | How often to check for a newer release (default `1d`, minimum `1h`, see [Self-update](#self-update))                                                                                                                        |
+| `upgrade.mode`                   | —                        | How to handle a newer release when one is found: `prompt`, `notify`, `auto`, or `auto-exit` (default `prompt`, see [Self-upgrade](#self-upgrade))                                                            |
+| `upgrade.interval`               | —                        | How often to check for a newer release (default `1d`, minimum `1h`, see [Self-upgrade](#self-upgrade))                                                                                                                        |
 
 Example `~/.config/opencode-sandbox/config.yaml`:
 
@@ -102,7 +102,7 @@ network:
   egress-deny: []
 mounts:
   /home/dev/.m2: ~/.m2
-update:
+upgrade:
   mode: notify
   interval: "7d"
 ```
@@ -110,8 +110,8 @@ update:
 ### Duration fields
 
 The `auto-prune-age` field (for `run`/`shell` auto-pruning), `manual-prune-age` field (for `prune`/`image prune`/
-`volume prune`/`sandbox prune` default), `auto-stop-timeout` field (for post-detach idle timeout), and `update.interval`
-field (for the self-update check) accept:
+`volume prune`/`sandbox prune` default), `auto-stop-timeout` field (for post-detach idle timeout), and `upgrade.interval`
+field (for the self-upgrade check) accept:
 
 - Go duration: `"7200000000000ns"`, `"2h"`, `"24h"`
 - Days shorthand: `"7d"`, `"14d"`
@@ -121,8 +121,8 @@ field (for the self-update check) accept:
 The launcher validates:
 
 - `cpus` must be between 0 and 255
-- `update.mode` must be one of `prompt`, `notify`, `auto-upgrade`, `auto-upgrade-exit`
-- `update.interval` must be at least `1h` (a floor guarding against GitHub rate limits)
+- `upgrade.mode` must be one of `prompt`, `notify`, `auto`, `auto-exit`
+- `upgrade.interval` must be at least `1h` (a floor guarding against GitHub rate limits)
 
 Invalid config files prevent the launcher from starting.
 
@@ -180,8 +180,8 @@ precedence over config files but lose to an explicitly passed CLI flag. The pref
 | `auto-stop-timeout`             | `OPENCODE_SANDBOX_AUTO_STOP_TIMEOUT`                              |
 | `auto-stop-max-session-retries` | `OPENCODE_SANDBOX_AUTO_STOP_MAX_SESSION_RETRIES`                  |
 | `network.profile`               | `OPENCODE_SANDBOX_NETWORK_PROFILE`                                |
-| `update.mode`                   | `OPENCODE_SANDBOX_UPDATE_MODE`                                    |
-| `update.interval`               | `OPENCODE_SANDBOX_UPDATE_INTERVAL`                                |
+| `upgrade.mode`                   | `OPENCODE_SANDBOX_UPGRADE_MODE`                                    |
+| `upgrade.interval`               | `OPENCODE_SANDBOX_UPGRADE_INTERVAL`                                |
 
 Action toggles (`--rebuild`, `--dry-run`, `--force`, ...) are CLI-only and cannot be set via
 config file or env var.
@@ -247,24 +247,24 @@ inside `/workspace` or `/tmp` is rejected because it would hide managed content;
 and is the common case. A mount configuration change recreates the project VM. Writable mounts let sandbox processes
 modify host files directly, so only mount directories whose contents may be changed by sandboxed tools.
 
-## Self-update
+## Self-upgrade
 
 opencode-sandbox checks GitHub for a newer release when you start `run`/`shell`. The check is throttled to at most once
-per `update.interval` (default `1d`, minimum `1h`) and is skipped entirely for local `dev` builds and when a check is
+per `upgrade.interval` (default `1d`, minimum `1h`) and is skipped entirely for local `dev` builds and when a check is
 already within the interval. Transient network failures are ignored so an offline start is never blocked. When a newer
-release is found, the `update.mode` decides what happens:
+release is found, the `upgrade.mode` decides what happens:
 
 | Mode                 | Behavior                                                                                                            |
 |----------------------|---------------------------------------------------------------------------------------------------------------------|
 | `prompt` (default)   | Ask what to do: continue, don't ask again for this version, upgrade & continue, or upgrade & exit. Falls back to a plain notice when not interactive. |
 | `notify`             | Print a notice that a newer release exists; never installs anything.                                                |
-| `auto-upgrade`       | Silently download and replace the binary, then continue running the current version.                                |
-| `auto-upgrade-exit`  | Silently download and replace the binary, then exit so the next invocation uses the new version.                    |
+| `auto`       | Silently download and replace the binary, then continue running the current version.                                |
+| `auto-exit`  | Silently download and replace the binary, then exit so the next invocation uses the new version.                    |
 
 The `upgrade` command (`opencode-sandbox upgrade`) checks for and installs the latest release at any time, independent of
-`update.mode`/`update.interval`. Upgrading replaces the running executable with the release binary for your platform
+`upgrade.mode`/`upgrade.interval`. Upgrading replaces the running executable with the release binary for your platform
 (`opencode-sandbox-<os>-<arch>` from the GitHub release assets); because a running process cannot swap its own binary, an
-upgrade (or `auto-upgrade-exit`) takes effect on the next invocation.
+upgrade (or `auto-exit`) takes effect on the next invocation.
 
 ## Per-slug configuration
 
