@@ -24,9 +24,12 @@ type githubRelease struct {
 	TagName string `json:"tag_name"`
 }
 
+//nolint:gochecknoglobals // test seam
+var LatestVersion = latestVersion
+
 // LatestVersion returns the newest stable opencode release string (leading "v"
 // stripped) by querying the GitHub releases/latest endpoint.
-func LatestVersion(ctx context.Context) (string, error) {
+func latestVersion(ctx context.Context) (string, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, gitHubLatestURL, nil)
 	if err != nil {
 		return "", fmt.Errorf("build latest-version request: %w", err)

@@ -1,18 +1,63 @@
 package termio
 
 import (
+	"fmt"
 	"io"
+	"strings"
 
 	"golang.org/x/term"
 )
 
+// Level selects the minimum severity shown on the console. Levels are
+// monotonic: showing a level also shows every more severe level, so a higher
+// level is never hidden while a lower one is shown.
 type Level int
 
 const (
-	LevelNormal Level = iota
-	LevelQuiet
+	LevelError Level = iota
+	LevelWarning
+	LevelInfo
 	LevelVerbose
 )
+
+const (
+	verboseString = "verbose"
+	infoString    = "info"
+	warningString = "warning"
+	errorString   = "error"
+)
+
+// String returns the canonical lower-case name of the level.
+func (l Level) String() string {
+	switch l {
+	case LevelError:
+		return errorString
+	case LevelWarning:
+		return warningString
+	case LevelVerbose:
+		return verboseString
+	case LevelInfo:
+		return infoString
+	default:
+		return infoString
+	}
+}
+
+// ParseLevel maps a case-insensitive level name to a Level.
+func ParseLevel(s string) (Level, error) {
+	switch strings.ToLower(s) {
+	case errorString:
+		return LevelError, nil
+	case warningString:
+		return LevelWarning, nil
+	case infoString:
+		return LevelInfo, nil
+	case verboseString:
+		return LevelVerbose, nil
+	default:
+		return LevelInfo, fmt.Errorf("invalid log level %q (want error, warning, info or verbose)", s)
+	}
+}
 
 type Choice struct {
 	Label       string
@@ -43,6 +88,7 @@ type UI interface {
 
 	SetLevel(level Level)
 	SetAssumeYes(assumeYes bool)
+	SetQuiet(quiet bool)
 
 	StdOut() io.Writer
 	StdErr() io.Writer
@@ -53,7 +99,7 @@ type UI interface {
 }
 
 // New creates a production ui backed by the given streams.
-func New(stdin io.Reader, stdout, stderr io.Writer, color bool, level Level, assumeYes bool) UI {
+func New(stdin io.Reader, stdout, stderr io.Writer, color bool, level Level, quiet bool, assumeYes bool) UI {
 	//nolint:exhaustruct // stdinReader not needed in production
 	return &printer{
 		stdin:      stdin,
@@ -61,6 +107,7 @@ func New(stdin io.Reader, stdout, stderr io.Writer, color bool, level Level, ass
 		stderr:     stderr,
 		color:      color,
 		level:      level,
+		quiet:      quiet,
 		assumeYes:  assumeYes,
 		isTerminal: term.IsTerminal,
 	}

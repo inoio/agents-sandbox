@@ -27,6 +27,7 @@ type printer struct {
 	level       Level
 	color       bool
 	assumeYes   bool
+	quiet       bool
 	isTerminal  func(int) bool
 }
 
@@ -45,24 +46,30 @@ func (p *printer) format(format string, args ...any) string {
 }
 
 func (p *printer) Info(msg string) {
-	if p.level == LevelQuiet {
+	if p.level < LevelInfo {
 		return
 	}
 	p.write(p.stderr, "", msg)
 }
 
 func (p *printer) Infof(format string, args ...any) {
-	if p.level == LevelQuiet {
+	if p.level < LevelInfo {
 		return
 	}
 	p.write(p.stderr, "", p.format(format, args...))
 }
 
 func (p *printer) Warn(msg string) {
+	if p.level < LevelWarning {
+		return
+	}
 	p.write(p.stderr, ansiYellow, msg)
 }
 
 func (p *printer) Warnf(format string, args ...any) {
+	if p.level < LevelWarning {
+		return
+	}
 	p.write(p.stderr, ansiYellow, p.format(format, args...))
 }
 
@@ -89,7 +96,7 @@ func (p *printer) Verbosef(format string, args ...any) {
 }
 
 func (p *printer) Out(msg string) {
-	if p.level == LevelQuiet {
+	if p.quiet {
 		return
 	}
 	p.write(p.stdout, "", msg)
@@ -98,7 +105,7 @@ func (p *printer) Out(msg string) {
 // Header writes a table header line to stdout. When color is enabled the
 // whole line is rendered bold and cyan, matching microsandbox table headers.
 func (p *printer) Header(msg string) {
-	if p.level == LevelQuiet {
+	if p.quiet {
 		return
 	}
 	p.write(p.stdout, ansiCyanBold, msg)
@@ -111,7 +118,7 @@ func (p *printer) NewTable(headers ...string) *Table {
 }
 
 func (p *printer) Outf(format string, args ...any) {
-	if p.level == LevelQuiet {
+	if p.quiet {
 		return
 	}
 	p.write(p.stdout, "", p.format(format, args...))
@@ -123,6 +130,10 @@ func (p *printer) SetLevel(level Level) {
 
 func (p *printer) SetAssumeYes(assumeYes bool) {
 	p.assumeYes = assumeYes
+}
+
+func (p *printer) SetQuiet(quiet bool) {
+	p.quiet = quiet
 }
 
 func (p *printer) Spinner(msg string) Spinner {

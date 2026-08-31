@@ -19,7 +19,7 @@ func TestResolverGettersReturnConfig(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	cfg := Config{
 		CPUs: 4, Memory: "8G", TmpSize: "4G", DiskSize: "32G", WorkspaceQuota: "64G",
-		Yes: true, Verbose: true,
+		Yes: true, LogLevel: "verbose", Quiet: true,
 		AutoPruneAge: 7 * 24 * time.Hour, ManualPruneAge: 14 * 24 * time.Hour,
 		AutoStopOnActiveSessions: true, AutoStopTimeout: 30 * time.Second, AutoStopMaxSessionRetries: 5,
 	}
@@ -28,7 +28,7 @@ func TestResolverGettersReturnConfig(t *testing.T) {
 		r.WorkspaceQuota() != "64G" {
 		t.Errorf("resource getters mismatch: %+v", cfg)
 	}
-	if !r.Yes() || !r.Verbose() || r.Error() {
+	if !r.Yes() || r.LogLevel() != "verbose" || !r.Quiet() {
 		t.Error("UI getters mismatch")
 	}
 	if r.AutoPruneAge() != 7*24*time.Hour || r.ManualPruneAge() != 14*24*time.Hour {

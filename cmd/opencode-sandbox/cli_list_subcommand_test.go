@@ -366,7 +366,7 @@ func TestListSandboxesQuietNames(t *testing.T) {
 		projectSandbox("opencode-sandbox-vm-alpha", nil),
 		projectSandbox("opencode-sandbox-vm-beta", nil),
 	}
-	cmd, ui := setupCommandFixtures(t, cmdList, "-q")
+	cmd, ui := setupCommandFixtures(t, cmdList, "--names")
 	sandboxmsb.WithMsbMock(t, mock)
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -417,8 +417,8 @@ func TestListSandboxesFormatJSON(t *testing.T) {
 	}
 }
 
-func TestListSandboxesFormatJSONAndQuietConflict(t *testing.T) {
-	runListCmdTest(t, []string{cmdList, "-q", "--format", "json"},
+func TestListSandboxesFormatJSONAndNamesConflict(t *testing.T) {
+	runListCmdTest(t, []string{cmdList, "--names", "--format", "json"},
 		func(_ *sandboxmsb.MockMsbClient) {}, nil, nil, true, "mutually exclusive")
 }
 

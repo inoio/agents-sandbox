@@ -9,51 +9,58 @@ import (
 	launcherconfig "github.com/inoio/opencode-sandbox/internal/viperconfig"
 )
 
-func TestLevelFrom(t *testing.T) {
-	tests := []struct {
-		name    string
-		quiet   bool
-		verbose bool
-		want    termio.Level
-	}{
-		{"quiet wins over verbose", true, true, termio.LevelQuiet},
-		{"quiet", true, false, termio.LevelQuiet},
-		{"verbose", false, true, termio.LevelVerbose},
-		{"normal default", false, false, termio.LevelNormal},
-	}
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			if got := levelFrom(tc.quiet, tc.verbose); got != tc.want {
-				t.Errorf("levelFrom(%v, %v) = %v, want %v", tc.quiet, tc.verbose, got, tc.want)
-			}
-		})
-	}
-}
-
 func TestApplyCLISettingsAppliesResolverValues(t *testing.T) {
 	ui := termio.NewTestMock(t)
 	r := launcherconfig.NewResolverWithConfig(launcherconfig.Config{
-		Error:   true,
-		Verbose: true,
-		Yes:     true,
+		LogLevel: "error",
+		Yes:      true,
+		Quiet:    true,
 	})
 
-	applyCLISettings(&cobra.Command{}, &ui, r)
+	if err := applyCLISettings(&cobra.Command{}, &ui, r); err != nil {
+		t.Fatalf("applyCLISettings: %v", err)
+	}
 
-	if ui.Level() != termio.LevelQuiet {
-		t.Errorf("Level() = %v, want LevelQuiet", ui.Level())
+	if ui.Level() != termio.LevelError {
+		t.Errorf("Level() = %v, want LevelError", ui.Level())
 	}
 	if !ui.AssumeYes() {
 		t.Error("AssumeYes() = false, want true")
+	}
+	if !ui.Quiet() {
+		t.Error("Quiet() = false, want true")
+	}
+}
+
+func TestApplyCLISettingsSetsWarningLevel(t *testing.T) {
+	ui := termio.NewTestMock(t)
+	r := launcherconfig.NewResolverWithConfig(launcherconfig.Config{LogLevel: "warning"})
+
+	if err := applyCLISettings(&cobra.Command{}, &ui, r); err != nil {
+		t.Fatalf("applyCLISettings: %v", err)
+	}
+	if ui.Level() != termio.LevelWarning {
+		t.Errorf("Level() = %v, want LevelWarning", ui.Level())
+	}
+}
+
+func TestApplyCLISettingsRejectsInvalidLevel(t *testing.T) {
+	ui := termio.NewTestMock(t)
+	r := launcherconfig.NewResolverWithConfig(launcherconfig.Config{LogLevel: "bogus"})
+
+	if err := applyCLISettings(&cobra.Command{}, &ui, r); err == nil {
+		t.Fatal("applyCLISettings with invalid level should error")
 	}
 }
 
 func TestApplyCLISettingsNilCommandOrResolverNoop(t *testing.T) {
 	ui := termio.NewTestMock(t)
-	applyCLISettings(nil, &ui, nil)
+	if err := applyCLISettings(nil, &ui, nil); err != nil {
+		t.Fatalf("applyCLISettings(nil): unexpected error %v", err)
+	}
 
-	// No panic, and the UI keeps its defaults.
-	if ui.Level() != termio.LevelNormal {
-		t.Errorf("Level() = %v, want default LevelNormal", ui.Level())
+	// No panic, and the UI level is left untouched.
+	if ui.Level() != termio.LevelError {
+		t.Errorf("Level() = %v, want untouched LevelError", ui.Level())
 	}
 }

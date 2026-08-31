@@ -153,7 +153,7 @@ func buildListCmd(ui termio.UI) *cobra.Command {
 		},
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			if namesOnly && format != "" {
-				return errors.New("--quiet and --format are mutually exclusive")
+				return errors.New("--names and --format are mutually exclusive")
 			}
 			if format != "" && format != formatJSON {
 				return fmt.Errorf("unsupported format %q: only %q is supported", format, formatJSON)
@@ -194,7 +194,7 @@ func buildListCmd(ui termio.UI) *cobra.Command {
 			return nil
 		},
 	}
-	cmd.Flags().BoolVarP(&namesOnly, pFlagQuiet, pFlagQuiet[:1], false, "Print only sandbox names")
+	cmd.Flags().BoolVar(&namesOnly, pFlagNames, false, "Print only sandbox names")
 	cmd.Flags().
 		StringArrayVar(&labelsStr, flagLabel, nil, "Only show sandboxes carrying this label KEY=VALUE (repeatable, all must match)")
 	cmd.Flags().Uint32Var(&limit, flagLimit, 0, "Limit the number of sandboxes shown")

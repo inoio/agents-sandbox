@@ -40,8 +40,7 @@ func TestTree(t *testing.T) {
 		out := strings.Join(testUI.InfoCalls, "\n")
 		descs := []string{
 			"Assume yes to all prompts",
-			"Show debug-level output",
-			"Only show error output",
+			"Minimum log level to show (error, warning, info, verbose)",
 			"Run in an isolated opencode worktree named <name>, optionally starting from the local base ref <name>:<base>",
 			"Rebuild the runner image before starting",
 			"Dry run without starting anything",
@@ -128,8 +127,6 @@ func TestPrintTreeBoolFlagsHaveNoValuePlaceholders(t *testing.T) {
 	out := strings.Join(testUI.InfoCalls, "\n")
 	notExpected := []string{
 		"--yes <YES>",
-		"--verbose <VERBOSE>",
-		"--error <ERROR>",
 		"--tree <TREE>",
 		"--version <VERSION>",
 		"--rebuild <REBUILD>",
@@ -148,8 +145,8 @@ func TestPrintTreeFlagShortcuts(t *testing.T) {
 	out := strings.Join(testUI.InfoCalls, "\n")
 	expected := []string{
 		"-y, --yes",
-		"-v, --verbose",
-		"--error",
+		"-q, --quiet",
+		"-l, --log-level <LOG_LEVEL>",
 		"-w, --worktree <WORKTREE>",
 		"-r, --rebuild",
 		"-n, --dry-run",

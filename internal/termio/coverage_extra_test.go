@@ -11,7 +11,7 @@ import (
 
 func TestPrinterNewTableReturnsEmptyTable(t *testing.T) {
 	var stdout bytes.Buffer
-	ui := New(nil, &stdout, &bytes.Buffer{}, false, LevelNormal, false).(*printer)
+	ui := New(nil, &stdout, &bytes.Buffer{}, false, LevelInfo, false, false).(*printer)
 	tbl := ui.NewTable("A", "B")
 	if tbl == nil {
 		t.Fatal("NewTable returned nil")
@@ -26,7 +26,7 @@ func TestPrinterNewTableReturnsEmptyTable(t *testing.T) {
 }
 
 func TestPrinterNewTableWithNoHeaders(t *testing.T) {
-	ui := New(nil, &bytes.Buffer{}, &bytes.Buffer{}, false, LevelNormal, false).(*printer)
+	ui := New(nil, &bytes.Buffer{}, &bytes.Buffer{}, false, LevelInfo, false, false).(*printer)
 	tbl := ui.NewTable()
 	if tbl == nil {
 		t.Fatal("NewTable returned nil")
@@ -35,7 +35,7 @@ func TestPrinterNewTableWithNoHeaders(t *testing.T) {
 
 func TestPrinterSpinnerf(t *testing.T) {
 	var stderr bytes.Buffer
-	ui := New(nil, &bytes.Buffer{}, &stderr, false, LevelNormal, false)
+	ui := New(nil, &bytes.Buffer{}, &stderr, false, LevelInfo, false, false)
 	spin := ui.Spinnerf("Building %s", "image")
 	spin.Stop()
 	out := stderr.String()
@@ -46,7 +46,7 @@ func TestPrinterSpinnerf(t *testing.T) {
 
 func TestPrinterStdOutStdErr(t *testing.T) {
 	var stdout, stderr bytes.Buffer
-	ui := New(nil, &stdout, &stderr, false, LevelNormal, false).(*printer)
+	ui := New(nil, &stdout, &stderr, false, LevelInfo, false, false).(*printer)
 	if got := ui.StdOut(); got != &stdout {
 		t.Errorf("StdOut() = %v, want %v", got, &stdout)
 	}
@@ -57,7 +57,7 @@ func TestPrinterStdOutStdErr(t *testing.T) {
 
 func TestInfofHiddenAtQuietLevel(t *testing.T) {
 	var stderr bytes.Buffer
-	ui := New(nil, &bytes.Buffer{}, &stderr, false, LevelQuiet, false)
+	ui := New(nil, &bytes.Buffer{}, &stderr, false, LevelError, false, false)
 	ui.Infof("using default %q", "y")
 	if stderr.String() != "" {
 		t.Errorf("expected no infof output at quiet level, got %q", stderr.String())
@@ -66,7 +66,7 @@ func TestInfofHiddenAtQuietLevel(t *testing.T) {
 
 func TestVerbosefHiddenAtNormalLevel(t *testing.T) {
 	var stderr bytes.Buffer
-	ui := New(nil, &bytes.Buffer{}, &stderr, false, LevelNormal, false)
+	ui := New(nil, &bytes.Buffer{}, &stderr, false, LevelInfo, false, false)
 	ui.Verbosef("workspace: %s", "/p")
 	if stderr.String() != "" {
 		t.Errorf("expected no verbosef output at normal level, got %q", stderr.String())
@@ -75,7 +75,7 @@ func TestVerbosefHiddenAtNormalLevel(t *testing.T) {
 
 func TestOutfHiddenAtQuietLevel(t *testing.T) {
 	var stdout bytes.Buffer
-	ui := New(nil, &stdout, &bytes.Buffer{}, false, LevelQuiet, false)
+	ui := New(nil, &stdout, &bytes.Buffer{}, false, LevelError, true, false)
 	ui.Outf("%s", "data")
 	if stdout.String() != "" {
 		t.Errorf("expected no outf output at quiet level, got %q", stdout.String())
@@ -106,7 +106,7 @@ func TestOutToVerboseRedirectOutf(t *testing.T) {
 
 func TestSpinnerColorAnimateAndDone(t *testing.T) {
 	var stderr bytes.Buffer
-	ui := New(nil, &bytes.Buffer{}, &stderr, true, LevelNormal, false)
+	ui := New(nil, &bytes.Buffer{}, &stderr, true, LevelInfo, false, false)
 	spin := ui.Spinner("Working")
 	spin.Stop()
 	out := stderr.String()
@@ -120,7 +120,7 @@ func TestSpinnerColorAnimateAndDone(t *testing.T) {
 
 func TestSpinnerFinishDefaultResult(t *testing.T) {
 	var stderr bytes.Buffer
-	s := newSpinner(&stderr, false, LevelNormal, "step")
+	s := newSpinner(&stderr, false, LevelInfo, "step")
 	s.finish("custom result")
 	out := stderr.String()
 	if !strings.Contains(out, "custom result (") {
@@ -130,7 +130,7 @@ func TestSpinnerFinishDefaultResult(t *testing.T) {
 
 func TestSpinnerFinishDefaultResultColor(t *testing.T) {
 	var stderr bytes.Buffer
-	s := newSpinner(&stderr, true, LevelNormal, "step")
+	s := newSpinner(&stderr, true, LevelInfo, "step")
 	s.finish("custom result")
 	out := stderr.String()
 	if !strings.Contains(out, "custom result (") {
@@ -140,7 +140,7 @@ func TestSpinnerFinishDefaultResultColor(t *testing.T) {
 
 func TestSpinnerFinishDoneNonColor(t *testing.T) {
 	var stderr bytes.Buffer
-	s := newSpinner(&stderr, false, LevelNormal, "step")
+	s := newSpinner(&stderr, false, LevelInfo, "step")
 	s.finish("done")
 	out := stderr.String()
 	if !strings.Contains(out, "✓(") {
@@ -150,7 +150,7 @@ func TestSpinnerFinishDoneNonColor(t *testing.T) {
 
 func TestSpinnerFinishFailedNonColor(t *testing.T) {
 	var stderr bytes.Buffer
-	s := newSpinner(&stderr, false, LevelNormal, "step")
+	s := newSpinner(&stderr, false, LevelInfo, "step")
 	s.finish("failed: nope")
 	out := stderr.String()
 	if !strings.Contains(out, "failed (") || !strings.Contains(out, ": nope") {
@@ -173,6 +173,14 @@ func TestMockHelperCoverage(t *testing.T) {
 	m.SetAssumeYes(true)
 	if !m.AssumeYes() {
 		t.Error("AssumeYes() = false, want true")
+	}
+	m.SetQuiet(true)
+	if !m.Quiet() {
+		t.Error("Quiet() = false, want true")
+	}
+	m.SetQuiet(false)
+	if m.Quiet() {
+		t.Error("Quiet() = true after SetQuiet(false), want false")
 	}
 
 	m.IsInteractiveResult = true
