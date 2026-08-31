@@ -9,12 +9,13 @@ import (
 	"strings"
 
 	"github.com/inoio/opencode-sandbox/internal/agent"
+	"github.com/inoio/opencode-sandbox/internal/sandbox/mounts"
 	"github.com/inoio/opencode-sandbox/internal/sandbox/msb"
 	"github.com/inoio/opencode-sandbox/internal/sandbox/options"
 	"github.com/inoio/opencode-sandbox/internal/termio"
 )
 
-const defaultTargetDir = "/workspace"
+const defaultTargetDir = mounts.WorkspaceMountPath
 
 // options.WorktreeSpec moved to internal/sandbox/options.
 

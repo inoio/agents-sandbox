@@ -5,6 +5,7 @@ import (
 
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 
+	"github.com/inoio/opencode-sandbox/internal/sandbox/mounts"
 	"github.com/inoio/opencode-sandbox/internal/sandbox/network"
 	"github.com/inoio/opencode-sandbox/internal/sandbox/state"
 )
@@ -154,5 +155,51 @@ func TestBuildNetworkState(t *testing.T) {
 	}
 	if len(st.Names) != 1 || st.Names[0] != string(network.ProfileNone) {
 		t.Errorf("BuildNetworkState.Names = %v, want [none]", st.Names)
+	}
+}
+
+func TestMountsChanged(t *testing.T) {
+	desired := mounts.Mounts{
+		"/home/dev/.m2": {Source: "/host/.m2"},
+	}
+	applied := BuildMountState(desired)
+
+	if MountsChanged(applied, desired) {
+		t.Error("MountsChanged with identical mounts should be false")
+	}
+	if !MountsChanged(applied, nil) {
+		t.Error("MountsChanged after removing all mounts should be true")
+	}
+	if !MountsChanged(applied, mounts.Mounts{
+		"/home/dev/.m2": {Source: "/host/.m2", Readonly: true},
+	}) {
+		t.Error("MountsChanged with a flipped readonly flag should be true")
+	}
+}
+
+// TestMountsChangedEmptyAppliedState covers VMs created before mounts existed:
+// no persisted fingerprint must only count as changed when mounts are set.
+func TestMountsChangedEmptyAppliedState(t *testing.T) {
+	if MountsChanged(state.MountState{}, nil) {
+		t.Error("MountsChanged with no persisted state and no mounts should be false")
+	}
+	if !MountsChanged(state.MountState{}, mounts.Mounts{
+		"/home/dev/.m2": {Source: "/host/.m2"},
+	}) {
+		t.Error("MountsChanged with no persisted state and configured mounts should be true")
+	}
+}
+
+func TestBuildMountState(t *testing.T) {
+	desired := mounts.Mounts{
+		"/home/dev/z": {Source: "/host/z"},
+		"/home/dev/a": {Source: "/host/a"},
+	}
+	st := BuildMountState(desired)
+	if st.Hash != mounts.Fingerprint(desired) {
+		t.Errorf("BuildMountState.Hash = %q, want %q", st.Hash, mounts.Fingerprint(desired))
+	}
+	if len(st.Names) != 2 || st.Names[0] != "/home/dev/a" || st.Names[1] != "/home/dev/z" {
+		t.Errorf("BuildMountState.Names = %v, want sorted targets", st.Names)
 	}
 }

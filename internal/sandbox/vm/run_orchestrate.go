@@ -9,6 +9,7 @@ import (
 	"github.com/inoio/opencode-sandbox/internal/configpaths"
 	"github.com/inoio/opencode-sandbox/internal/git"
 	"github.com/inoio/opencode-sandbox/internal/sandbox/image"
+	"github.com/inoio/opencode-sandbox/internal/sandbox/mounts"
 	"github.com/inoio/opencode-sandbox/internal/sandbox/msb"
 	"github.com/inoio/opencode-sandbox/internal/sandbox/network"
 	"github.com/inoio/opencode-sandbox/internal/sandbox/options"
@@ -135,7 +136,7 @@ func PrepareSandbox(
 		return nil, err
 	}
 	if boot == vmBootCreated {
-		persistConfigHashes(projectSlug, opts.Network, ui)
+		persistConfigHashes(projectSlug, opts.Network, opts.Mounts, ui)
 	}
 	name := projectVMName(projectSlug)
 
@@ -175,10 +176,15 @@ func resolveHomeVolume(
 	return vm.ResolveHomeVolume(ctx, client, projectSlug, info.Digest, info.Tag, dryRunVM, ui)
 }
 
-// persistConfigHashes records the desired env/secret/network fingerprints
-// when a project VM is freshly created (or recreated), so subsequent runs can
-// detect changes.
-func persistConfigHashes(projectSlug string, networkPolicy network.Policy, ui termio.UI) {
+// persistConfigHashes records the desired env/secret/network/mount
+// fingerprints when a project VM is freshly created (or recreated), so
+// subsequent runs can detect changes.
+func persistConfigHashes(
+	projectSlug string,
+	networkPolicy network.Policy,
+	mounts mounts.Mounts,
+	ui termio.UI,
+) {
 	desiredEnv := reprovision.MergeEnvMaps(
 		reprovision.BuildEnvMap(configpaths.Get().UserEnvFile()),
 		reprovision.BuildEnvMap(configpaths.Get().ProjectEnvFile()),
@@ -198,5 +204,8 @@ func persistConfigHashes(projectSlug string, networkPolicy network.Policy, ui te
 	}
 	if err := persistNetworkState(projectSlug, networkPolicy); err != nil {
 		ui.Warnf("persisting network fingerprint on VM creation: %v (continuing)", err)
+	}
+	if err := persistMountState(projectSlug, mounts); err != nil {
+		ui.Warnf("persisting mount fingerprint on VM creation: %v (continuing)", err)
 	}
 }

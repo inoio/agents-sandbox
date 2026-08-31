@@ -10,6 +10,7 @@ import (
 
 	"github.com/inoio/opencode-sandbox/internal/agent"
 	"github.com/inoio/opencode-sandbox/internal/git"
+	"github.com/inoio/opencode-sandbox/internal/sandbox/mounts"
 	"github.com/inoio/opencode-sandbox/internal/sandbox/naming"
 	"github.com/inoio/opencode-sandbox/internal/sandbox/network"
 	"github.com/inoio/opencode-sandbox/internal/sandbox/options"
@@ -24,6 +25,8 @@ type launcherConfigKey struct{}
 
 // extractRunOptions extracts shared run/shell flags from the given command
 // and returns a populated options.RunOptions.
+//
+//nolint:gocognit // TODO refactor
 func extractRunOptions(cmd *cobra.Command, ui termio.UI) (options.RunOptions, error) {
 	opts := options.RunOptions{}
 	rawWorktree, _ := cmd.Flags().GetString(flagWorktree)
@@ -45,12 +48,12 @@ func extractRunOptions(cmd *cobra.Command, ui termio.UI) (options.RunOptions, er
 	}
 
 	opts.Agent, _ = cmd.Flags().GetString(flagAgent)
-	a, err := resolveAgentFlag(cmd)
+	resolvedAgent, err := resolveAgentFlag(cmd)
 	if err != nil {
 		return options.RunOptions{}, err
 	}
-	if err := validateAgentFlags(a, opts); err != nil {
-		return options.RunOptions{}, err
+	if agentErr := validateAgentFlags(resolvedAgent, opts); agentErr != nil {
+		return options.RunOptions{}, agentErr
 	}
 
 	r := resolverFromContext(cmd.Context())
@@ -62,6 +65,10 @@ func extractRunOptions(cmd *cobra.Command, ui termio.UI) (options.RunOptions, er
 		opts.WorkspaceQuota = r.WorkspaceQuota()
 		opts.ReapPolicy = options.NewReapPolicy(r.AutoStopOnActiveSessions(), r.AutoStopMaxSessionRetries())
 		opts.IdleTimeout = r.IdleTimeout()
+		opts.Mounts, err = mounts.ResolveBindMounts(r.Mounts())
+		if err != nil {
+			return options.RunOptions{}, err
+		}
 	}
 
 	// CLI flag wins over resolver/env/config; otherwise use the resolver's

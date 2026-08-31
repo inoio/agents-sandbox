@@ -18,6 +18,8 @@ command reports the bare version (e.g. `0.1.0`).
 - Docs: New `Recipes` page with a hands-on how-to for connecting Opencode Desktop via `run --serve-only`; moved out of the README. The comparison matrix also names Docker Sandboxes and adds a "Why not just use Docker Sandboxes?" callout.
 - Docs: `Recipes` is now a parent overview page (with `has_children`); the Connect Opencode Desktop recipe lives on a nested child page, ready for more recipes to be added.
 - Docs: Sidebar submenus are expanded by default via a small script in `docs/_includes/head_custom.html`.
+- Configurable host-directory bind mounts (`mounts`), including `~/` source expansion and read-only mounts. Mount changes are tracked via a persisted fingerprint and recreate the project VM.
+
 - CLI: a new `--agent <name>` flag on `run`, `build`, and the `volume` subcommands selects the coding-agent profile to run/build/provision. Milestone 1 ships `opencode` as the only registered agent (the default), so existing usage is fully backward compatible; the registry abstraction paves the way for future agents (e.g. pi, claude).
 - CLI: a new `--agent-version` flag pins the agent version baked into the runner image (default: latest release).
 - Behavior: default drop-in provisioning — when running, the launcher now copies the active agent's config + credential files from the host into the VM by default, driven by per-agent gitignore-style include-list manifests (`ProvisionRules`). For opencode this copies `~/.config/opencode/**` (excluding `node_modules`, `package*.json`, `.gitignore`) and `~/.local/share/opencode/auth.json`.

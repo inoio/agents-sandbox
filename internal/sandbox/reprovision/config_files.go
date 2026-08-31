@@ -18,6 +18,7 @@ import (
 
 	"github.com/inoio/opencode-sandbox/internal/agent"
 	config "github.com/inoio/opencode-sandbox/internal/opencodeconfig"
+	"github.com/inoio/opencode-sandbox/internal/sandbox/mounts"
 	"github.com/inoio/opencode-sandbox/internal/sandbox/msb"
 	"github.com/inoio/opencode-sandbox/internal/sandbox/network"
 	"github.com/inoio/opencode-sandbox/internal/sandbox/state"
@@ -54,7 +55,7 @@ func parseKeyValueLines(data string, onLine func(key, value string) error) error
 
 // VMHomeDir is the sandbox home mount point. It is fixed by the project VM
 // layout regardless of the configured runtime user.
-const VMHomeDir = "/home/dev"
+const VMHomeDir = mounts.VMHomeDir
 
 // OpenCodeConfigPath returns the VM path where the merged opencode config is
 // provisioned.
@@ -183,10 +184,10 @@ func buildMergedConfig(a agent.Agent, vmHome string) (string, []byte, bool, erro
 }
 
 // tmpMountPath is the mount point used for the sandbox tmpfs.
-const tmpMountPath = "/tmp"
+const tmpMountPath = mounts.TmpMountPath
 
 // workspaceMountPath is the mount point used for the host bind mount.
-const workspaceMountPath = "/workspace"
+const workspaceMountPath = mounts.WorkspaceMountPath
 
 // ReadVMConfig reads the given absolute VM paths, returning a map of path to
 // content for files that exist.
@@ -385,5 +386,27 @@ func BuildNetworkState(desired network.Policy) state.NetworkState {
 	return state.NetworkState{
 		Hash:  desired.Fingerprint(),
 		Names: []string{string(desired.Profile)},
+	}
+}
+
+// MountsChanged reports whether the applied mount state differs from the
+// desired host bind mounts, comparing content fingerprints. The comparison is
+// fingerprint-based because the microsandbox SDK does not round-trip volumes
+// when reading back an existing VM, so the live config cannot be inspected. A
+// zero-value applied state indicates "no persisted state yet" (first run or a
+// VM created before mounts existed); it is only considered "changed" when
+// mounts are actually configured.
+func MountsChanged(applied state.MountState, desired mounts.Mounts) bool {
+	if applied.Hash == "" {
+		return len(desired) > 0
+	}
+	return applied.Hash != mounts.Fingerprint(desired)
+}
+
+// BuildMountState computes the fingerprint for the desired host bind mounts.
+func BuildMountState(desired mounts.Mounts) state.MountState {
+	return state.MountState{
+		Hash:  mounts.Fingerprint(desired),
+		Names: mounts.MountTargets(desired),
 	}
 }

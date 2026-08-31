@@ -49,6 +49,81 @@ func TestResolverIdleTimeoutDefault(t *testing.T) {
 	}
 }
 
+func TestResolverMounts(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	cp := configpaths.Get()
+	testutil.WriteYAML(t, cp.UserConfigDir(), "config.yaml", map[string]any{
+		"mounts": map[string]any{
+			"/home/dev/.m2": "~/.m2",
+			"/home/dev/ref": map[string]any{"source": "/opt/company/reference", "readonly": true},
+		},
+	})
+
+	r, err := NewResolver(nil, "")
+	if err != nil {
+		t.Fatalf("NewResolver: %v", err)
+	}
+	if len(r.Mounts()) != 2 {
+		t.Fatalf("Mounts = %+v", r.Mounts())
+	}
+	if got := r.Mounts()["/home/dev/.m2"]; got.Source != "~/.m2" || got.Readonly {
+		t.Errorf("Mounts = %+v", r.Mounts())
+	}
+	if got := r.Mounts()["/home/dev/ref"]; got.Source != "/opt/company/reference" || !got.Readonly {
+		t.Errorf("Mounts = %+v", r.Mounts())
+	}
+}
+
+func TestResolverMountsMergeByTarget(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	cp := configpaths.Get()
+	testutil.WriteYAML(t, cp.UserConfigDir(), "config.yaml", map[string]any{
+		"mounts": map[string]any{
+			"/home/dev/.m2":    "~/.m2",
+			"/home/dev/shared": "/host/shared",
+		},
+	})
+	testutil.WriteYAML(t, cp.ProjectConfigDir(), "config.yaml", map[string]any{
+		"mounts": map[string]any{
+			"/home/dev/.m2": map[string]any{"source": "/project/.m2", "readonly": true},
+		},
+	})
+
+	r, err := NewResolver(nil, "")
+	if err != nil {
+		t.Fatalf("NewResolver: %v", err)
+	}
+	if len(r.Mounts()) != 2 {
+		t.Fatalf("Mounts = %+v", r.Mounts())
+	}
+	if got := r.Mounts()["/home/dev/.m2"]; got.Source != "/project/.m2" || !got.Readonly {
+		t.Errorf("project override = %+v", got)
+	}
+	if got := r.Mounts()["/home/dev/shared"]; got.Source != "/host/shared" {
+		t.Errorf("user mount = %+v", got)
+	}
+}
+
+func TestResolverRejectsInvalidMountEntry(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	cp := configpaths.Get()
+	testutil.WriteYAML(t, cp.UserConfigDir(), "config.yaml", map[string]any{
+		"mounts": map[string]any{
+			"/home/dev/.m2": map[string]any{"readonly": "yes"},
+		},
+	})
+
+	_, err := NewResolver(nil, "")
+	if err == nil {
+		t.Fatal("expected invalid mount entry to fail")
+	}
+	for _, want := range []string{"decode launcher config", "/home/dev/.m2", "expected type 'bool'"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("error %q does not mention %q", err, want)
+		}
+	}
+}
+
 func TestResolverEnvPrecedenceOverConfig(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	cp := configpaths.Get()

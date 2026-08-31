@@ -98,7 +98,7 @@ func TestPersistConfigHashesCoversEnvSecretAndNetwork(t *testing.T) {
 	slug := "hashproj"
 	policy := network.Policy{Profile: network.ProfileNone}
 
-	persistConfigHashes(slug, policy, &ui)
+	persistConfigHashes(slug, policy, nil, &ui)
 
 	st, err := state.ReadState(slug)
 	if err != nil {
@@ -106,6 +106,9 @@ func TestPersistConfigHashesCoversEnvSecretAndNetwork(t *testing.T) {
 	}
 	if st.NetworkState.Hash == "" {
 		t.Error("expected network state hash to be persisted")
+	}
+	if st.MountState.Hash == "" {
+		t.Error("expected mount state hash to be persisted")
 	}
 }
 
