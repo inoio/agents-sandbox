@@ -79,7 +79,7 @@ func TestParseKeyValueLinesHandlesWhitespace(t *testing.T) {
 func TestLoadConfigFilesWithSnippet(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	cp := configpaths.Get()
-	testutil.WriteFile(t, cp.ProjectOpencodeConfigDir(), "model.json", `{"model":"x"}`)
+	testutil.WriteFile(t, cp.ProjectOpencodeConfigDir(), "opencode-model.json", `{"model":"x"}`)
 
 	ui := termio.NewTestMock(t)
 	cf, err := LoadConfigFiles(configpaths.Get().UserOpencodeConfigDir(), &ui)

@@ -12,7 +12,7 @@ import (
 
 func TestConfigShowPrintsMergedConfig(t *testing.T) {
 	cmd, ui := setupCommandFixtures(t, "config", "show")
-	snippetPath := filepath.Join(configpaths.Get().UserOpencodeConfigDir(), "opencode.json5")
+	snippetPath := filepath.Join(configpaths.Get().UserOpencodeConfigDir(), "opencode-x.json5")
 	testutil.WritePath(
 		t,
 		snippetPath,

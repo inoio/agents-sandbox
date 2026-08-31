@@ -95,7 +95,7 @@ func setUpSandboxProvisionsConfig(t *testing.T, provisionMsg string) {
 	sb := &msb.MockSandbox{Name_: "test-vm", FSValue_: fs}
 	configpaths.WithMockConfigPaths(t)
 	cp := configpaths.Get()
-	snippet := filepath.Join(cp.UserOpencodeConfigDir(), "opencode.json5")
+	snippet := filepath.Join(cp.UserOpencodeConfigDir(), "opencode-x.json5")
 	if err := os.MkdirAll(filepath.Dir(snippet), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -294,7 +294,7 @@ func TestSetUpSandboxProvisionsUpdatedConfigOnKeep(t *testing.T) {
 
 	configpaths.WithMockConfigPaths(t)
 	cp := configpaths.Get()
-	snippet := filepath.Join(cp.UserOpencodeConfigDir(), "opencode.json5")
+	snippet := filepath.Join(cp.UserOpencodeConfigDir(), "opencode-x.json5")
 	if err := os.MkdirAll(filepath.Dir(snippet), 0o755); err != nil {
 		t.Fatal(err)
 	}
