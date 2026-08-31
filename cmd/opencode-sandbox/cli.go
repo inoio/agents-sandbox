@@ -7,7 +7,11 @@ import (
 	launcherconfig "github.com/inoio/opencode-sandbox/internal/viperconfig"
 )
 
-var version = "dev"
+// devVersion is the version baked into locally built binaries via ldflags
+// only for releases.
+const devVersion = "dev"
+
+var version = devVersion
 
 // execute runs the CLI with the given arguments and UI.
 //

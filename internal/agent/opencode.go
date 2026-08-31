@@ -81,7 +81,7 @@ func (opencodeProfile) WorktreeParseDir(stdout string) (string, bool) {
 func (opencodeProfile) LatestVersion(ctx context.Context) (string, error) {
 	return opencode.LatestVersion(ctx)
 }
-func (opencodeProfile) VersionCompare(a, b string) int { return opencode.VersionCompare(a, b) }
+func (opencodeProfile) NewerThan(a, b string) (bool, error) { return opencode.NewerThan(a, b) }
 
 func (opencodeProfile) SnippetPattern() string { return "opencode-*.json*" }
 func (opencodeProfile) VMConfigPath(home string) string {

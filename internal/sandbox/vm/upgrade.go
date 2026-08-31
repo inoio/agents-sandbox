@@ -137,7 +137,12 @@ func pendingUpgrade(ctx context.Context, ui termio.UI, a agent.Agent, currentVer
 	// A successful check refreshes the once-per-day window regardless of
 	// whether an upgrade is available.
 	state.LastChecked = now()
-	if checker.VersionCompare(latest, currentVersion) <= 0 || state.offered(latest) {
+	newer, err := checker.NewerThan(latest, currentVersion)
+	if err != nil {
+		// An unparsable version never fails the session; leave the window open.
+		return "", false
+	}
+	if !newer || state.offered(latest) {
 		persistUpgradeState(ui, state)
 		return "", false
 	}

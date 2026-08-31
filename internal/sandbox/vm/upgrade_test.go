@@ -272,6 +272,32 @@ func TestResolveOpenCodeVersionRecordsOfferedBeforePrompt(t *testing.T) {
 	}
 }
 
+func TestResolveOpenCodeVersionUnparsableLatestKeepsCurrent(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	if err := saveUpgradeState(upgradeState{CurrentVersion: "1.0.0"}); err != nil {
+		t.Fatalf("saveUpgradeState: %v", err)
+	}
+
+	origLatest := openCodeUpgradeInfo
+	defer func() { openCodeUpgradeInfo = origLatest }()
+	// An unparsable latest version must never fail the session or offer an upgrade.
+	openCodeUpgradeInfo = func(_ context.Context) (string, error) { return "not-a-version", nil }
+
+	opts := options.RunOptions{}
+	ui := &termio.Mock{IsInteractiveResult: true}
+
+	got, upgraded, err := resolveBuildVersion(context.Background(), opencodeAgent(t), ui, opts)
+	if err != nil {
+		t.Fatalf("unparsable latest version must not fail the session, got: %v", err)
+	}
+	if got != "1.0.0" {
+		t.Errorf("expected current version 1.0.0, got %q", got)
+	}
+	if upgraded {
+		t.Error("expected upgraded=false when the latest version is unparsable")
+	}
+}
+
 func TestResolveOpenCodeVersionOfflineDoesNotUpdateLastChecked(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	if err := saveUpgradeState(upgradeState{CurrentVersion: "1.0.0"}); err != nil {

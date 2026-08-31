@@ -14,6 +14,7 @@ import (
 	"github.com/inoio/opencode-sandbox/internal/configpaths"
 	"github.com/inoio/opencode-sandbox/internal/sandbox/mounts"
 	"github.com/inoio/opencode-sandbox/internal/sandbox/network"
+	"github.com/inoio/opencode-sandbox/internal/upgrade"
 	"github.com/inoio/opencode-sandbox/internal/yamlfmt"
 
 	"github.com/go-viper/mapstructure/v2"
@@ -47,6 +48,16 @@ type Config struct {
 	// from v.Get("mounts") instead: viper flattens dotted guest paths such as
 	// /home/dev/.m2 into nested keys, which would corrupt the map keys.
 	Mounts mounts.Mounts `mapstructure:"-"`
+
+	// Upgrade controls checking for and installing newer opencode-sandbox
+	// releases. Only Mode and Interval are settable via env.
+	Upgrade UpgradeConfig `mapstructure:"upgrade"`
+}
+
+// UpgradeConfig holds self-upgrade settings.
+type UpgradeConfig struct {
+	Mode     string        `mapstructure:"mode"`
+	Interval time.Duration `mapstructure:"interval"`
 }
 
 // Resolver resolves launcher config with precedence flag > env > config > default.
@@ -134,6 +145,8 @@ const (
 	keyAutoStopTimeout           = "auto-stop-timeout"
 	keyAutoStopMaxSessionRetries = "auto-stop-max-session-retries"
 	keyNetworkProfile            = "network.profile"
+	keyUpgradeMode               = "upgrade.mode"
+	keyUpgradeInterval           = "upgrade.interval"
 )
 
 //nolint:gochecknoglobals // package-level constant slice
@@ -157,6 +170,7 @@ var configEnvKeys = []string{
 	keyAutoPruneAge, keyManualPruneAge,
 	keyAutoStopOnActiveSessions, keyAutoStopTimeout, keyAutoStopMaxSessionRetries,
 	keyNetworkProfile,
+	keyUpgradeMode, keyUpgradeInterval,
 }
 
 // bindConfigFlags binds each config-backed flag found on cmd (local or
@@ -314,6 +328,9 @@ func validate(v *viper.Viper) error {
 	if err := validateNetworkProfile(v); err != nil {
 		return err
 	}
+	if err := validateUpgrade(v); err != nil {
+		return err
+	}
 	if !v.IsSet("cpus") {
 		return nil
 	}
@@ -331,6 +348,28 @@ func validateNetworkProfile(v *viper.Viper) error {
 	profileStr := v.GetString(keyNetworkProfile)
 	if _, err := network.ParseProfile(profileStr); err != nil {
 		return err
+	}
+	return nil
+}
+
+// validateUpgrade validates the upgrade.mode and upgrade.interval config keys.
+func validateUpgrade(v *viper.Viper) error {
+	if v.IsSet(keyUpgradeMode) {
+		if _, err := upgrade.ParseMode(v.GetString(keyUpgradeMode)); err != nil {
+			return err
+		}
+	}
+	if !v.IsSet(keyUpgradeInterval) {
+		return nil
+	}
+	d := v.GetDuration(keyUpgradeInterval)
+	if s, ok := v.Get(keyUpgradeInterval).(string); ok {
+		if parsed, ok := ParseHumanDuration(s); ok {
+			d = parsed
+		}
+	}
+	if d < upgrade.MinInterval {
+		return fmt.Errorf("launcher config %s must be >= %s, got %v", keyUpgradeInterval, upgrade.MinInterval, d)
 	}
 	return nil
 }
@@ -415,6 +454,30 @@ func (r *Resolver) IdleTimeout() time.Duration     { return r.cfg.IdleTimeout() 
 // the policy is Empty.
 func (r *Resolver) Network() network.Policy {
 	return r.cfg.Network
+}
+
+// UpgradeMode returns the configured upgrade mode, defaulting to prompt. An
+// unparsable value (possible via NewResolverWithConfig, which skips
+// validation) also falls back to prompt.
+func (r *Resolver) UpgradeMode() upgrade.Mode {
+	m, err := upgrade.ParseMode(r.cfg.Upgrade.Mode)
+	if err != nil {
+		return upgrade.ModePrompt
+	}
+	return m
+}
+
+// UpgradeInterval returns the configured upgrade-check interval, defaulting to
+// a day and never returning less than the rate-limit guard.
+func (r *Resolver) UpgradeInterval() time.Duration {
+	switch {
+	case r.cfg.Upgrade.Interval <= 0:
+		return upgrade.DefaultInterval
+	case r.cfg.Upgrade.Interval < upgrade.MinInterval:
+		return upgrade.MinInterval
+	default:
+		return r.cfg.Upgrade.Interval
+	}
 }
 
 // Mounts returns additional host bind mounts.

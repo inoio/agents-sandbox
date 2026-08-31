@@ -373,6 +373,18 @@ opencode-sandbox version
 
 ---
 
+### upgrade
+
+Check for and install the latest release, independent of the `upgrade.mode`/`upgrade.interval` settings that govern the
+automatic check on `run`/`shell`. Replaces the running executable with the release binary for your platform; the new
+version takes effect on the next invocation.
+
+```console
+opencode-sandbox upgrade
+```
+
+---
+
 ### `opencode-sandbox volume <subcommand>`
 
 The volume group provides manual home volume management.

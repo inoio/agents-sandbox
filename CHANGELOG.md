@@ -19,6 +19,7 @@ command reports the bare version (e.g. `0.1.0`).
 - Docs: `Recipes` is now a parent overview page (with `has_children`); the Connect Opencode Desktop recipe lives on a nested child page, ready for more recipes to be added.
 - Docs: Sidebar submenus are expanded by default via a small script in `docs/_includes/head_custom.html`.
 - Configurable host-directory bind mounts (`mounts`), including `~/` source expansion and read-only mounts. Mount changes are tracked via a persisted fingerprint and recreate the project VM.
+- Self-upgrade: `run`/`shell` check GitHub for a newer opencode-sandbox release (throttled to `upgrade.interval`, default `1d`, minimum `1h`). `upgrade.mode` controls behavior: `prompt` (default; continue / don't-ask-again / upgrade & continue / upgrade & exit, falling back to a notice when non-interactive), `notify`, `auto`, or `auto-exit`. A new `upgrade` command installs the latest release on demand. Checks are skipped for `dev` builds and offline failures are ignored.
 
 - CLI: a new `--agent <name>` flag on `run`, `build`, and the `volume` subcommands selects the coding-agent profile to run/build/provision. Milestone 1 ships `opencode` as the only registered agent (the default), so existing usage is fully backward compatible; the registry abstraction paves the way for future agents (e.g. pi, claude).
 - CLI: a new `--agent-version` flag pins the agent version baked into the runner image (default: latest release).

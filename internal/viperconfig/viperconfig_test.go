@@ -13,6 +13,7 @@ import (
 	"github.com/inoio/opencode-sandbox/internal/sandbox/network"
 	"github.com/inoio/opencode-sandbox/internal/sandbox/options"
 	"github.com/inoio/opencode-sandbox/internal/testutil"
+	"github.com/inoio/opencode-sandbox/internal/upgrade"
 )
 
 func TestResolverGettersReturnConfig(t *testing.T) {
@@ -484,5 +485,66 @@ func TestPerSlugConfigPrecedence(t *testing.T) {
 	}
 	if r2.CPUs() != 3 {
 		t.Fatalf("CPUs = %d; want 3 (per-slug user overrides generic user)", r2.CPUs())
+	}
+}
+
+func TestResolverUpgradeGetters(t *testing.T) {
+	r := NewResolverWithConfig(Config{
+		Upgrade: UpgradeConfig{Mode: "auto", Interval: 2 * time.Hour},
+	})
+	if r.UpgradeMode() != upgrade.ModeAuto {
+		t.Fatalf("UpgradeMode = %q, want %q", r.UpgradeMode(), upgrade.ModeAuto)
+	}
+	if r.UpgradeInterval() != 2*time.Hour {
+		t.Fatalf("UpgradeInterval = %v, want 2h", r.UpgradeInterval())
+	}
+}
+
+func TestResolverUpgradeDefaults(t *testing.T) {
+	r := NewResolverWithConfig(Config{})
+	if r.UpgradeMode() != upgrade.ModePrompt {
+		t.Fatalf("UpgradeMode default = %q, want prompt", r.UpgradeMode())
+	}
+	if r.UpgradeInterval() != upgrade.DefaultInterval {
+		t.Fatalf("UpgradeInterval default = %v, want %v", r.UpgradeInterval(), upgrade.DefaultInterval)
+	}
+}
+
+func TestResolverUpgradeIntervalClampsMin(t *testing.T) {
+	r := NewResolverWithConfig(Config{Upgrade: UpgradeConfig{Interval: time.Minute}})
+	if r.UpgradeInterval() != upgrade.MinInterval {
+		t.Fatalf("UpgradeInterval = %v, want clamped to %v", r.UpgradeInterval(), upgrade.MinInterval)
+	}
+}
+
+func TestResolverUpgradeEnvVars(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	t.Setenv("OPENCODE_SANDBOX_UPGRADE_MODE", "notify")
+	t.Setenv("OPENCODE_SANDBOX_UPGRADE_INTERVAL", "2h")
+	r, err := NewResolver(nil, "")
+	if err != nil {
+		t.Fatalf("NewResolver: %v", err)
+	}
+	if r.UpgradeMode() != upgrade.ModeNotify {
+		t.Fatalf("UpgradeMode = %q, want notify", r.UpgradeMode())
+	}
+	if r.UpgradeInterval() != 2*time.Hour {
+		t.Fatalf("UpgradeInterval = %v, want 2h", r.UpgradeInterval())
+	}
+}
+
+func TestResolverRejectsInvalidUpgradeMode(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	t.Setenv("OPENCODE_SANDBOX_UPGRADE_MODE", "bogus")
+	if _, err := NewResolver(nil, ""); err == nil {
+		t.Fatal("expected error for invalid update mode")
+	}
+}
+
+func TestResolverRejectsTooSmallInterval(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	t.Setenv("OPENCODE_SANDBOX_UPGRADE_INTERVAL", "1m")
+	if _, err := NewResolver(nil, ""); err == nil {
+		t.Fatal("expected error for update interval below minimum")
 	}
 }

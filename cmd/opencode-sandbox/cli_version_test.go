@@ -21,7 +21,7 @@ func TestVersion(t *testing.T) {
 	t.Run("default version is dev", func(t *testing.T) {
 		orig := version
 		t.Cleanup(func() { version = orig })
-		version = "dev"
+		version = devVersion
 
 		versionCmd, testUI := setupVersionTestFixtures(t)
 

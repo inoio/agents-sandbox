@@ -16,6 +16,7 @@ const (
 	cmdTree    = "tree"
 	cmdVersion = "version"
 	cmdConfig  = "config"
+	cmdUpgrade = "upgrade"
 	cmdShow    = "show"
 	cmdHome    = "home"
 	cmdImage   = "image"

@@ -16,7 +16,7 @@ type DaemonProvider interface {
 // UpgradeChecker can resolve and compare releases.
 type UpgradeChecker interface {
 	LatestVersion(ctx context.Context) (string, error)
-	VersionCompare(a, b string) int
+	NewerThan(a, b string) (bool, error)
 }
 
 // ConfigMerger exposes data consumed by the shared merge logic in

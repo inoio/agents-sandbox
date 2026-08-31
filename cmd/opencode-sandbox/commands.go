@@ -16,6 +16,7 @@ import (
 	"github.com/inoio/opencode-sandbox/internal/sandbox/options"
 	sandbox "github.com/inoio/opencode-sandbox/internal/sandbox/vm"
 	"github.com/inoio/opencode-sandbox/internal/termio"
+	"github.com/inoio/opencode-sandbox/internal/upgrade"
 	launcherconfig "github.com/inoio/opencode-sandbox/internal/viperconfig"
 )
 
@@ -218,6 +219,7 @@ func buildRootCmd(ui termio.UI) *cobra.Command {
 	rootCmd.AddCommand(buildRunCmd(ui))
 	rootCmd.AddCommand(buildTreeCmd(rootCmd, ui))
 	rootCmd.AddCommand(buildVersionCmd(rootCmd, ui))
+	rootCmd.AddCommand(buildUpgradeCmd(ui))
 	rootCmd.AddCommand(buildDoctorCmd(ui))
 	rootCmd.AddCommand(buildBuildCmd(ui))
 	rootCmd.AddCommand(buildListCmd(ui))
@@ -258,4 +260,15 @@ func buildVersionCmd(rootCmd *cobra.Command, ui termio.UI) *cobra.Command {
 		},
 	}
 	return cmd
+}
+
+func buildUpgradeCmd(ui termio.UI) *cobra.Command {
+	return &cobra.Command{
+		Use:   cmdUpgrade,
+		Args:  cobra.NoArgs,
+		Short: "Check for and install the latest release",
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			return upgrade.Upgrade(cmd.Context(), ui, version)
+		},
+	}
 }
