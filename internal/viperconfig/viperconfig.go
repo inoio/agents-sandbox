@@ -12,8 +12,8 @@ import (
 	"time"
 
 	"github.com/inoio/opencode-sandbox/internal/configpaths"
+	"github.com/inoio/opencode-sandbox/internal/sandbox/mounts"
 	"github.com/inoio/opencode-sandbox/internal/sandbox/network"
-	"github.com/inoio/opencode-sandbox/internal/sandbox/options"
 	"github.com/inoio/opencode-sandbox/internal/yamlfmt"
 
 	"github.com/go-viper/mapstructure/v2"
@@ -43,7 +43,10 @@ type Config struct {
 
 	// Network holds the egress policy. Only Profile is settable via env/flag.
 	Network network.Policy `mapstructure:"network"`
-	Mounts  options.Mounts `mapstructure:"-"`
+	// Mounts is excluded from viper.Unmarshal (mapstructure:"-") and decoded
+	// from v.Get("mounts") instead: viper flattens dotted guest paths such as
+	// /home/dev/.m2 into nested keys, which would corrupt the map keys.
+	Mounts mounts.Mounts `mapstructure:"-"`
 }
 
 // Resolver resolves launcher config with precedence flag > env > config > default.
@@ -104,7 +107,7 @@ func NewResolver(cmd *cobra.Command, slug string) (*Resolver, error) {
 	)); err != nil {
 		return nil, fmt.Errorf("decode launcher config: %w", err)
 	}
-	mounts, err := options.DecodeMounts(v.Get("mounts"))
+	mounts, err := mounts.DecodeMounts(v.Get("mounts"))
 	if err != nil {
 		return nil, fmt.Errorf("decode launcher config: %w", err)
 	}
@@ -415,6 +418,6 @@ func (r *Resolver) Network() network.Policy {
 }
 
 // Mounts returns additional host bind mounts.
-func (r *Resolver) Mounts() options.Mounts {
+func (r *Resolver) Mounts() mounts.Mounts {
 	return r.cfg.Mounts
 }

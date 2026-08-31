@@ -117,7 +117,7 @@ func TestResolverRejectsInvalidMountEntry(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected invalid mount entry to fail")
 	}
-	for _, want := range []string{"decode launcher config", "/home/dev/.m2", "readonly must be a boolean"} {
+	for _, want := range []string{"decode launcher config", "/home/dev/.m2", "expected type 'bool'"} {
 		if !strings.Contains(err.Error(), want) {
 			t.Errorf("error %q does not mention %q", err, want)
 		}

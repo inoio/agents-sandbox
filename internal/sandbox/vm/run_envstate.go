@@ -4,8 +4,8 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/inoio/opencode-sandbox/internal/sandbox/mounts"
 	"github.com/inoio/opencode-sandbox/internal/sandbox/network"
-	"github.com/inoio/opencode-sandbox/internal/sandbox/options"
 	"github.com/inoio/opencode-sandbox/internal/sandbox/reprovision"
 	"github.com/inoio/opencode-sandbox/internal/sandbox/state"
 )
@@ -37,7 +37,7 @@ func persistNetworkState(slug string, policy network.Policy) error {
 	return state.WriteState(slug, *st)
 }
 
-func persistMountState(slug string, mounts options.Mounts) error {
+func persistMountState(slug string, mounts mounts.Mounts) error {
 	st, err := state.ReadState(slug)
 	if err != nil {
 		if errors.Is(err, state.ErrStateNotFound) {
