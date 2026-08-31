@@ -55,6 +55,8 @@ func PrepareSandbox(
 ) (*Session, error) {
 	projectSlug := git.ProjectSlug()
 
+	a, _ := agent.Lookup("")
+
 	// Decide the opencode version to bake before touching the image. Without an
 	// explicit pin, this checks for (and may offer) an upgrade up front, so a
 	// normal run never rebuilds the image twice (once for the current version,
@@ -63,12 +65,11 @@ func PrepareSandbox(
 	// re-resolving "latest" from the network on every run; re-resolving would
 	// change the version build arg (and thus the image identity), causing
 	// sporadic rebuilds and fresh loads into microsandbox.
-	openCodeVersion, shallUpgrade, err := resolveOpenCodeBuildVersion(ctx, ui, opts)
+	openCodeVersion, shallUpgrade, err := resolveBuildVersion(ctx, a, ui, opts)
 	if err != nil {
 		return nil, err
 	}
 
-	a, _ := agent.Lookup("opencode")
 	imageInfo, err := image.EnsureImage(
 		ctx,
 		a,

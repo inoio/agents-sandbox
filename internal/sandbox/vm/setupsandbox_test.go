@@ -84,7 +84,7 @@ func TestSetUpSandboxProvisionsConfigOnReuseWithEmptyDir(t *testing.T) {
 func setUpSandboxProvisionsConfig(t *testing.T, provisionMsg string) {
 	t.Helper()
 	origDaemon := SetDaemonShellFunc(func(_ context.Context, _ msb.Sandbox, command string) (string, int, error) {
-		if command == "curl -sfm2 "+daemonHealthURL {
+		if command == opencodeProvider(t).DaemonHealthCmd() {
 			return `{"healthy":true,"version":"test"}`, 0, nil
 		}
 		return "", 0, nil
@@ -135,7 +135,7 @@ func TestRestartDaemonsRestartsServe(t *testing.T) {
 	var cmdCalls []string
 	savedShell := SetDaemonShellFunc(func(_ context.Context, _ msb.Sandbox, command string) (string, int, error) {
 		cmdCalls = append(cmdCalls, command)
-		if command == "curl -sfm2 "+daemonHealthURL {
+		if command == opencodeProvider(t).DaemonHealthCmd() {
 			return `{"healthy":true,"version":"x"}`, 0, nil
 		}
 		return "", 0, nil
@@ -155,6 +155,7 @@ func TestRestartDaemonsRestartsServe(t *testing.T) {
 	ui := termio.NewTestMock(t)
 	restartDaemons(
 		context.Background(),
+		opencodeAgent(t),
 		sb,
 		false,
 		&ui,
@@ -165,7 +166,7 @@ func TestRestartDaemonsRestartsServe(t *testing.T) {
 		joined.WriteString(c)
 		joined.WriteByte('|')
 	}
-	if !containsSubstring(joined.String(), daemonKillCmd) {
+	if !containsSubstring(joined.String(), opencodeProvider(t).DaemonKillCmd()) {
 		t.Errorf("expected serve kill command, got %q", joined.String())
 	}
 	if containsSubstring(joined.String(), dockerdRestartCmd) {
@@ -180,7 +181,7 @@ func TestSetUpSandboxRestartsDaemonsOnReuseDecision(t *testing.T) {
 	var commands []string
 	orig := SetDaemonShellFunc(func(_ context.Context, _ msb.Sandbox, command string) (string, int, error) {
 		commands = append(commands, command)
-		if command == "curl -sfm2 "+daemonHealthURL {
+		if command == opencodeProvider(t).DaemonHealthCmd() {
 			return `{"healthy":true,"version":"x"}`, 0, nil
 		}
 		return "", 0, nil
@@ -216,7 +217,7 @@ func TestSetUpSandboxRestartsDaemonsOnReuseDecision(t *testing.T) {
 		joinedParts = append(joinedParts, c, "|")
 	}
 	joined := strings.Join(joinedParts, "")
-	if len(commands) == 0 || !containsSubstring(joined, daemonKillCmd) {
+	if len(commands) == 0 || !containsSubstring(joined, opencodeProvider(t).DaemonKillCmd()) {
 		t.Errorf("expected opencode serve restart on restartDaemons=true, got %q", joined)
 	}
 }
@@ -233,7 +234,7 @@ func TestSetUpSandboxSkipsRestartOnProvisionError(t *testing.T) {
 	var commands []string
 	orig := SetDaemonShellFunc(func(_ context.Context, _ msb.Sandbox, command string) (string, int, error) {
 		commands = append(commands, command)
-		if command == "curl -sfm2 "+daemonHealthURL {
+		if command == opencodeProvider(t).DaemonHealthCmd() {
 			return `{"healthy":true,"version":"x"}`, 0, nil
 		}
 		return "", 0, nil
@@ -275,7 +276,7 @@ func TestSetUpSandboxSkipsRestartOnProvisionError(t *testing.T) {
 
 func TestSetUpSandboxProvisionsUpdatedConfigOnKeep(t *testing.T) {
 	origDaemon := SetDaemonShellFunc(func(_ context.Context, _ msb.Sandbox, command string) (string, int, error) {
-		if command == "curl -sfm2 "+daemonHealthURL {
+		if command == opencodeProvider(t).DaemonHealthCmd() {
 			return `{"healthy":true,"version":"test"}`, 0, nil
 		}
 		return "", 0, nil
@@ -329,7 +330,7 @@ func TestSetUpSandboxProvisionsUpdatedConfigOnKeep(t *testing.T) {
 // skipped when the VM was already running and merely connected to.
 func TestSetUpSandboxRunsHooksOnlyOnBoot(t *testing.T) {
 	origDaemon := SetDaemonShellFunc(func(_ context.Context, _ msb.Sandbox, command string) (string, int, error) {
-		if command == "curl -sfm2 "+daemonHealthURL {
+		if command == opencodeProvider(t).DaemonHealthCmd() {
 			return `{"healthy":true,"version":"test"}`, 0, nil
 		}
 		return "", 0, nil

@@ -199,7 +199,7 @@ func TestKillProjectVMDryRunRemove(t *testing.T) {
 // continues (config provisioning is non-disruptive and never fatal).
 func TestSetUpSandboxProvisionError(t *testing.T) {
 	orig := SetDaemonShellFunc(func(_ context.Context, _ msb.Sandbox, command string) (string, int, error) {
-		if command == "curl -sfm2 "+daemonHealthURL {
+		if command == opencodeProvider(t).DaemonHealthCmd() {
 			return `{"healthy":true,"version":"test"}`, 0, nil
 		}
 		return "", 0, nil
@@ -242,10 +242,10 @@ func TestSetUpSandboxProvisionError(t *testing.T) {
 // restartDaemons: the function warns but continues to ensure the daemon.
 func TestRestartDaemonsKillError(t *testing.T) {
 	orig := SetDaemonShellFunc(func(_ context.Context, _ msb.Sandbox, command string) (string, int, error) {
-		if command == daemonKillCmd {
+		if command == opencodeProvider(t).DaemonKillCmd() {
 			return "", 0, errors.New("kill failed")
 		}
-		if command == "curl -sfm2 "+daemonHealthURL {
+		if command == opencodeProvider(t).DaemonHealthCmd() {
 			return `{"healthy":true,"version":"test"}`, 0, nil
 		}
 		return "", 0, nil
@@ -256,7 +256,7 @@ func TestRestartDaemonsKillError(t *testing.T) {
 	fs := msb.NewTestFS(nil, nil)
 	sb := &msb.MockSandbox{Name_: "vm", FSValue_: fs}
 
-	restartDaemons(context.Background(), sb, false, &ui)
+	restartDaemons(context.Background(), opencodeAgent(t), sb, false, &ui)
 
 	if !contains(joinStrings(ui.WarnCalls), "kill stale daemon failed") {
 		t.Errorf("expected a kill-failure warning, got %v", ui.WarnCalls)

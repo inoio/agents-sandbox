@@ -59,9 +59,13 @@ func (opencodeProfile) WorktreeListCmd() string {
 	return "curl -sf http://127.0.0.1:4096/experimental/worktree"
 }
 func (opencodeProfile) WorktreeCreateCmd(spec WorktreeSpec) string {
+	body := fmt.Sprintf(`{"name":%q}`, spec.Name)
+	if spec.Base != "" {
+		body = fmt.Sprintf(`{"name":%q,"startCommand":"git reset --hard %s"}`, spec.Name, spec.Base)
+	}
 	return fmt.Sprintf(
-		"curl -sf -X POST http://127.0.0.1:4096/experimental/worktree -H 'Content-Type: application/json' -d '{\"name\":%q}'",
-		spec.Name,
+		"curl -sf -X POST http://127.0.0.1:4096/experimental/worktree -H 'Content-Type: application/json' -d '%s'",
+		body,
 	)
 }
 func (opencodeProfile) WorktreeParseDir(stdout string) (string, bool) {

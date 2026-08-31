@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/inoio/opencode-sandbox/internal/agent"
 	"github.com/inoio/opencode-sandbox/internal/configpaths"
 	"github.com/inoio/opencode-sandbox/internal/git"
 	"github.com/inoio/opencode-sandbox/internal/homeconfig"
@@ -69,6 +70,7 @@ func setUpSandbox(
 	boot vmBoot,
 ) (string, error) {
 	ui.Verbosef("expected config files: %v", cfs.Keys)
+	a, _ := agent.Lookup("")
 
 	// Provisioning (writing files) is idempotent and non-disruptive, so it is
 	// always performed when there is config to write. Whether the daemon is
@@ -85,9 +87,9 @@ func setUpSandbox(
 
 	if restart {
 		if provisioned {
-			restartDaemons(ctx, sb, opts.ServeOnly, ui)
+			restartDaemons(ctx, a, sb, opts.ServeOnly, ui)
 		}
-		return ResolveTarget(ctx, sb, opts.Worktree, ui)
+		return ResolveTarget(ctx, a, sb, opts.Worktree, ui)
 	}
 
 	if len(cfs.Hooks) > 0 && boot.booted() {
@@ -98,11 +100,11 @@ func setUpSandbox(
 		return "", fmt.Errorf("docker startup: %w", dockerErr)
 	}
 
-	if daemonErr := ensureDaemon(ctx, opts.ServeOnly, sb, ui); daemonErr != nil {
+	if daemonErr := ensureDaemon(ctx, a, opts.ServeOnly, sb, ui); daemonErr != nil {
 		return "", daemonErr
 	}
 
-	return ResolveTarget(ctx, sb, opts.Worktree, ui)
+	return ResolveTarget(ctx, a, sb, opts.Worktree, ui)
 }
 
 // decideReconfig centralizes all reconfiguration decisions: the image-change
@@ -206,15 +208,19 @@ func decideReconfig(
 	return recreate, restart, homeVol, nil
 }
 
-// restartDaemons provisions config files and restarts the opencode daemon so
-// an opencode-config change is picked up. Env/secret changes are never routed
+// restartDaemons provisions config files and restarts the agent's daemon so an
+// opencode-config change is picked up. Env/secret changes are never routed
 // here: they require a VM rebuild and are handled by the recreate path instead.
-func restartDaemons(ctx context.Context, sb msb.Sandbox, serveOnly bool, ui termio.UI) {
+func restartDaemons(ctx context.Context, a agent.Agent, sb msb.Sandbox, serveOnly bool, ui termio.UI) {
 	ui.Infof("opencode serve restarting…")
-	if _, _, err := daemonShellFunc(ctx, sb, daemonKillCmd); err != nil {
+	provider, ok := agent.AsDaemonProvider(a)
+	if !ok {
+		return
+	}
+	if _, _, err := daemonShellFunc(ctx, sb, provider.DaemonKillCmd()); err != nil {
 		ui.Warnf("kill stale daemon failed (continuing): %v", err)
 	}
-	if err := ensureDaemon(ctx, serveOnly, sb, ui); err != nil {
+	if err := ensureDaemon(ctx, a, serveOnly, sb, ui); err != nil {
 		ui.Warnf("daemon restart failed: %v (using existing)", err)
 	}
 }

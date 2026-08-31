@@ -8,16 +8,13 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/inoio/opencode-sandbox/internal/agent"
 	"github.com/inoio/opencode-sandbox/internal/sandbox/msb"
 	"github.com/inoio/opencode-sandbox/internal/sandbox/options"
 	"github.com/inoio/opencode-sandbox/internal/termio"
 )
 
 const defaultTargetDir = "/workspace"
-
-type worktreeResponse struct {
-	Directory string `json:"directory"`
-}
 
 // options.WorktreeSpec moved to internal/sandbox/options.
 
@@ -65,35 +62,6 @@ func validateWorktreeBase(ctx context.Context, sb msb.Sandbox, dir, base string)
 	return nil
 }
 
-func parseWorktreeResponse(stdout string) (string, error) {
-	var resp worktreeResponse
-	if err := json.Unmarshal([]byte(stdout), &resp); err != nil {
-		return "", fmt.Errorf("parse worktree response: %w", err)
-	}
-	if resp.Directory == "" {
-		return "", fmt.Errorf("worktree response missing directory field: %s", stdout)
-	}
-	return resp.Directory, nil
-}
-
-func buildWorktreeCreateBody(spec options.WorktreeSpec) string {
-	if spec.Base == "" {
-		return fmt.Sprintf(`{"name":%q}`, spec.Name)
-	}
-	return fmt.Sprintf(`{"name":%q,"startCommand":"git reset --hard %s"}`, spec.Name, spec.Base)
-}
-
-func buildWorktreeCreateCmd(spec options.WorktreeSpec) string {
-	return fmt.Sprintf(
-		`curl -sf -X POST http://127.0.0.1:4096/experimental/worktree -H 'Content-Type: application/json' -d '%s'`,
-		buildWorktreeCreateBody(spec),
-	)
-}
-
-func buildWorktreeListCmd() string {
-	return "curl -sf http://127.0.0.1:4096/experimental/worktree"
-}
-
 // findWorktreeDir scans the daemon's worktree list response for a directory
 // whose base name matches the given slug. The list may be an array of
 // directory path strings (current daemon) or an array of objects each carrying
@@ -116,7 +84,9 @@ func findWorktreeDir(listStdout string, slug string) (string, bool) {
 			}
 			directory = path
 		default:
-			var info worktreeResponse
+			var info struct {
+				Directory string `json:"directory"`
+			}
 			if json.Unmarshal(entry, &info) != nil {
 				continue
 			}
@@ -129,26 +99,32 @@ func findWorktreeDir(listStdout string, slug string) (string, bool) {
 	return "", false
 }
 
-// ResolveTarget returns the --dir target for opencode attach. An empty spec →
-// /workspace. With a name → reuse an existing opencode worktree via the
-// daemon's HTTP API when one already exists for that name, otherwise create
-// a new one and return its directory path. When a base is present on an
-// existing (reused) worktree the base is silently ignored with a warning.
-// When a base is present on a fresh create the base is validated
-// (no fetch) and the create body carries a `git reset --hard <base>`
-// startCommand via the buildWorktreeCreateBody helper.
+// ResolveTarget returns the --dir target for attach. An empty spec → /workspace.
+// With a name → reuse an existing worktree via the provider's HTTP API when one
+// already exists for that name, otherwise create a new one and return its
+// directory path. When a base is present on an existing (reused) worktree the
+// base is silently ignored with a warning. When a base is present on a fresh
+// create the base is validated (no fetch) and the create body carries a
+// `git reset --hard <base>` startCommand. An agent without a daemon provider
+// falls back to the default directory.
 func ResolveTarget(
 	ctx context.Context,
+	a agent.Agent,
 	sb msb.Sandbox,
 	spec options.WorktreeSpec,
 	ui termio.UI,
 ) (string, error) {
+	provider, hasDaemon := agent.AsDaemonProvider(a)
+	if !hasDaemon {
+		return resolveTargetNoBranch(), nil
+	}
+
 	if spec.Name == "" {
 		return resolveTargetNoBranch(), nil
 	}
 
 	ui.Verbosef("checking for an existing worktree %q", spec.Name)
-	listOut, err := sb.Shell(ctx, buildWorktreeListCmd())
+	listOut, err := sb.Shell(ctx, provider.WorktreeListCmd())
 	if err != nil {
 		return "", fmt.Errorf("list worktrees for %q: %w", spec.Name, err)
 	}
@@ -163,7 +139,11 @@ func ResolveTarget(
 	}
 
 	ui.Verbosef("creating worktree %q", spec.Name)
-	out, err := sb.Shell(ctx, buildWorktreeCreateCmd(spec))
+	createSpec := agent.WorktreeSpec{ //nolint:exhaustruct // Target is unused by the create command
+		Name: spec.Name,
+		Base: spec.Base,
+	}
+	out, err := sb.Shell(ctx, provider.WorktreeCreateCmd(createSpec))
 	if err != nil {
 		return "", fmt.Errorf("create worktree %q: %w", spec.Name, err)
 	}
@@ -171,9 +151,9 @@ func ResolveTarget(
 		return "", fmt.Errorf("create worktree %q failed (exit %d): %s", spec.Name, out.ExitCode(), out.Stderr())
 	}
 
-	dir, err := parseWorktreeResponse(out.Stdout())
-	if err != nil {
-		return "", fmt.Errorf("parse worktree response for %q: %w", spec.Name, err)
+	dir, ok := provider.WorktreeParseDir(out.Stdout())
+	if !ok {
+		return "", fmt.Errorf("parse worktree response for %q", spec.Name)
 	}
 
 	if spec.Base != "" {

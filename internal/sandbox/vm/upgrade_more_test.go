@@ -12,7 +12,7 @@ import (
 )
 
 // TestResolveOpenCodeVersionInteractiveSelectError covers the Select failure
-// branch of resolveOpenCodeBuildVersion: an interactive prompt whose selection
+// branch of resolveBuildVersion: an interactive prompt whose selection
 // errors is propagated.
 func TestResolveOpenCodeVersionInteractiveSelectError(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
@@ -30,7 +30,7 @@ func TestResolveOpenCodeVersionInteractiveSelectError(t *testing.T) {
 		},
 	}
 
-	_, _, err := resolveOpenCodeBuildVersion(context.Background(), ui, options.RunOptions{})
+	_, _, err := resolveBuildVersion(context.Background(), opencodeAgent(t), ui, options.RunOptions{})
 	if err == nil {
 		t.Fatal("expected error when the interactive selection fails")
 	}
@@ -55,7 +55,7 @@ func TestResolveOpenCodeVersionInteractiveDefaultChoice(t *testing.T) {
 		},
 	}
 
-	got, upgraded, err := resolveOpenCodeBuildVersion(context.Background(), ui, options.RunOptions{})
+	got, upgraded, err := resolveBuildVersion(context.Background(), opencodeAgent(t), ui, options.RunOptions{})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -85,7 +85,7 @@ func TestResolveOpenCodeVersionInteractiveKeep(t *testing.T) {
 		},
 	}
 
-	got, upgraded, err := resolveOpenCodeBuildVersion(context.Background(), ui, options.RunOptions{})
+	got, upgraded, err := resolveBuildVersion(context.Background(), opencodeAgent(t), ui, options.RunOptions{})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}

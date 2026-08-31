@@ -93,7 +93,7 @@ func TestPrepareSandboxReusesStoredOpenCodeVersion(t *testing.T) {
 	state.WriteState(slug, state.HomeState{HomeVolume: "home-vol", ImageDigest: "sha256:abc123"})
 
 	origDaemon := SetDaemonShellFunc(func(_ context.Context, _ msb.Sandbox, command string) (string, int, error) {
-		if command == "curl -sfm2 "+daemonHealthURL {
+		if command == opencodeProvider(t).DaemonHealthCmd() {
 			return `{"healthy":true,"version":"test"}`, 0, nil
 		}
 		return "", 0, nil
@@ -183,7 +183,7 @@ func TestPrepareSandboxUpgradeRebuildsImage(t *testing.T) {
 	state.WriteState(slug, state.HomeState{HomeVolume: "home-vol", ImageDigest: "sha256:abc123"})
 
 	origDaemon := SetDaemonShellFunc(func(_ context.Context, _ msb.Sandbox, command string) (string, int, error) {
-		if command == "curl -sfm2 "+daemonHealthURL {
+		if command == opencodeProvider(t).DaemonHealthCmd() {
 			return `{"healthy":true,"version":"test"}`, 0, nil
 		}
 		return "", 0, nil
@@ -225,7 +225,7 @@ func TestPrepareSandboxLoadsHomeYamlOnce(t *testing.T) {
 	sandboximage.WithMockOpenCodeVersion(t, "1.0.0")
 
 	// The image is considered up to date: the same version is "latest", so
-	// resolveOpenCodeBuildVersion does not offer a rebuild.
+	// resolveBuildVersion does not offer a rebuild.
 	origUpgradeInfo := openCodeUpgradeInfo
 	openCodeUpgradeInfo = func(_ context.Context) (string, error) { return "1.0.0", nil }
 	t.Cleanup(func() { openCodeUpgradeInfo = origUpgradeInfo })
@@ -285,7 +285,7 @@ func TestPrepareSandboxLoadsHomeYamlOnce(t *testing.T) {
 	// The opencode daemon is healthy inside the VM, so ensureDaemon returns
 	// immediately instead of starting and polling.
 	origDaemon := SetDaemonShellFunc(func(_ context.Context, _ msb.Sandbox, command string) (string, int, error) {
-		if command == "curl -sfm2 "+daemonHealthURL {
+		if command == opencodeProvider(t).DaemonHealthCmd() {
 			return `{"healthy":true,"version":"test"}`, 0, nil
 		}
 		return "", 0, nil
@@ -378,7 +378,7 @@ func TestPrepareSandboxRunsStartupHook(t *testing.T) {
 	state.WriteState(slug, state.HomeState{HomeVolume: "home-vol", ImageDigest: "sha256:abc123"})
 
 	origDaemon := SetDaemonShellFunc(func(_ context.Context, _ msb.Sandbox, command string) (string, int, error) {
-		if command == "curl -sfm2 "+daemonHealthURL {
+		if command == opencodeProvider(t).DaemonHealthCmd() {
 			return `{"healthy":true,"version":"test"}`, 0, nil
 		}
 		return "", 0, nil
@@ -514,7 +514,7 @@ func TestPrepareSandboxWarnsWhenRecordingVersionFails(t *testing.T) {
 	msb.WithMsbMock(t, mock)
 
 	origDaemon := SetDaemonShellFunc(func(_ context.Context, _ msb.Sandbox, command string) (string, int, error) {
-		if command == "curl -sfm2 "+daemonHealthURL {
+		if command == opencodeProvider(t).DaemonHealthCmd() {
 			return `{"healthy":true,"version":"test"}`, 0, nil
 		}
 		return "", 0, nil

@@ -102,7 +102,7 @@ func TestSetUpSandboxEnsureDaemonError(t *testing.T) {
 // logged as a warning and does not fail the sandbox setup).
 func TestSetUpSandboxProvisionWarn(t *testing.T) {
 	orig := SetDaemonShellFunc(func(_ context.Context, _ msb.Sandbox, command string) (string, int, error) {
-		if command == "curl -sfm2 "+daemonHealthURL {
+		if command == opencodeProvider(t).DaemonHealthCmd() {
 			return `{"healthy":true,"version":"test"}`, 0, nil
 		}
 		return "", 0, nil

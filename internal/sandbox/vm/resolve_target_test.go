@@ -5,6 +5,7 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/inoio/opencode-sandbox/internal/agent"
 	"github.com/inoio/opencode-sandbox/internal/sandbox/msb"
 	"github.com/inoio/opencode-sandbox/internal/sandbox/options"
 	"github.com/inoio/opencode-sandbox/internal/termio"
@@ -15,7 +16,7 @@ import (
 func TestResolveTargetListError(t *testing.T) {
 	ui := &termio.Mock{}
 	sb := &msb.MockSandbox{ShellErr: errors.New("list failed")}
-	_, err := ResolveTarget(context.Background(), sb, options.WorktreeSpec{Name: "feat-x"}, ui)
+	_, err := ResolveTarget(context.Background(), opencodeAgent(t), sb, options.WorktreeSpec{Name: "feat-x"}, ui)
 	if err == nil {
 		t.Fatal("expected error when listing worktrees fails")
 	}
@@ -25,14 +26,15 @@ func TestResolveTargetListError(t *testing.T) {
 // of ResolveTarget.
 func TestResolveTargetCreateNonSuccess(t *testing.T) {
 	ui := &termio.Mock{}
-	createCmd := buildWorktreeCreateCmd(options.WorktreeSpec{Name: "feat-x"})
+	provider := opencodeProvider(t)
+	createCmd := provider.WorktreeCreateCmd(agent.WorktreeSpec{Name: "feat-x"})
 	sb := &msb.MockSandbox{
 		ShellOut: map[string]msb.ShellResult{
-			buildWorktreeListCmd(): msb.NewTestResult(true, 0, `[]`, "", nil),
-			createCmd:              msb.NewTestResult(false, 1, "", "failed", nil),
+			provider.WorktreeListCmd(): msb.NewTestResult(true, 0, `[]`, "", nil),
+			createCmd:                  msb.NewTestResult(false, 1, "", "failed", nil),
 		},
 	}
-	_, err := ResolveTarget(context.Background(), sb, options.WorktreeSpec{Name: "feat-x"}, ui)
+	_, err := ResolveTarget(context.Background(), opencodeAgent(t), sb, options.WorktreeSpec{Name: "feat-x"}, ui)
 	if err == nil {
 		t.Fatal("expected error when the create command exits non-zero")
 	}
@@ -42,14 +44,15 @@ func TestResolveTargetCreateNonSuccess(t *testing.T) {
 // ResolveTarget: the create command succeeds but returns non-JSON output.
 func TestResolveTargetParseError(t *testing.T) {
 	ui := &termio.Mock{}
-	createCmd := buildWorktreeCreateCmd(options.WorktreeSpec{Name: "feat-x"})
+	provider := opencodeProvider(t)
+	createCmd := provider.WorktreeCreateCmd(agent.WorktreeSpec{Name: "feat-x"})
 	sb := &msb.MockSandbox{
 		ShellOut: map[string]msb.ShellResult{
-			buildWorktreeListCmd(): msb.NewTestResult(true, 0, `[]`, "", nil),
-			createCmd:              msb.NewTestResult(true, 0, "not-json", "", nil),
+			provider.WorktreeListCmd(): msb.NewTestResult(true, 0, `[]`, "", nil),
+			createCmd:                  msb.NewTestResult(true, 0, "not-json", "", nil),
 		},
 	}
-	_, err := ResolveTarget(context.Background(), sb, options.WorktreeSpec{Name: "feat-x"}, ui)
+	_, err := ResolveTarget(context.Background(), opencodeAgent(t), sb, options.WorktreeSpec{Name: "feat-x"}, ui)
 	if err == nil {
 		t.Fatal("expected error when parsing the create response fails")
 	}

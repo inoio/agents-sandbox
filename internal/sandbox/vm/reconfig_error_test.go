@@ -20,7 +20,7 @@ import (
 // restartDaemons: the daemon restart fails and is logged as a warning.
 func TestRestartDaemonsEnsureDaemonError(t *testing.T) {
 	orig := SetDaemonShellFunc(func(_ context.Context, _ msb.Sandbox, command string) (string, int, error) {
-		if command == "curl -sfm2 "+daemonHealthURL {
+		if command == opencodeProvider(t).DaemonHealthCmd() {
 			return "", 0, errors.New("health check failed")
 		}
 		return "", 0, errors.New("command failed")
@@ -31,7 +31,7 @@ func TestRestartDaemonsEnsureDaemonError(t *testing.T) {
 	fs := msb.NewTestFS(nil, nil)
 	sb := &msb.MockSandbox{Name_: "vm", FSValue_: fs}
 
-	restartDaemons(context.Background(), sb, false, &ui)
+	restartDaemons(context.Background(), opencodeAgent(t), sb, false, &ui)
 
 	if !contains(joinStrings(ui.WarnCalls), "daemon restart failed") {
 		t.Errorf("expected a daemon-restart-failure warning, got %v", ui.WarnCalls)

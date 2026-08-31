@@ -25,7 +25,7 @@ func TestResolveOpenCodeVersionPinnedSkipsUpdateCheck(t *testing.T) {
 	opts := options.RunOptions{OpenCodeVersion: "2.0.0"}
 	ui := &termio.Mock{}
 
-	got, upgraded, err := resolveOpenCodeBuildVersion(context.Background(), ui, opts)
+	got, upgraded, err := resolveBuildVersion(context.Background(), opencodeAgent(t), ui, opts)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -56,7 +56,7 @@ func TestResolveOpenCodeVersionRebuildSkipsUpdateCheck(t *testing.T) {
 	opts := options.RunOptions{Rebuild: true}
 	ui := &termio.Mock{}
 
-	got, upgraded, err := resolveOpenCodeBuildVersion(context.Background(), ui, opts)
+	got, upgraded, err := resolveBuildVersion(context.Background(), opencodeAgent(t), ui, opts)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -84,7 +84,7 @@ func TestResolveOpenCodeVersionNoBaseline(t *testing.T) {
 	opts := options.RunOptions{}
 	ui := &termio.Mock{}
 
-	got, upgraded, err := resolveOpenCodeBuildVersion(context.Background(), ui, opts)
+	got, upgraded, err := resolveBuildVersion(context.Background(), opencodeAgent(t), ui, opts)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -111,7 +111,7 @@ func TestResolveOpenCodeVersionNoNewerVersion(t *testing.T) {
 	opts := options.RunOptions{}
 	ui := &termio.Mock{}
 
-	got, upgraded, err := resolveOpenCodeBuildVersion(context.Background(), ui, opts)
+	got, upgraded, err := resolveBuildVersion(context.Background(), opencodeAgent(t), ui, opts)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -135,7 +135,7 @@ func TestResolveOpenCodeVersionNonInteractiveLogsUpgradeAvailable(t *testing.T) 
 	opts := options.RunOptions{}
 	ui := &termio.Mock{IsInteractiveResult: false}
 
-	got, upgraded, err := resolveOpenCodeBuildVersion(context.Background(), ui, opts)
+	got, upgraded, err := resolveBuildVersion(context.Background(), opencodeAgent(t), ui, opts)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -168,7 +168,7 @@ func TestResolveOpenCodeVersionInteractiveRebuild(t *testing.T) {
 		},
 	}
 
-	got, upgraded, err := resolveOpenCodeBuildVersion(context.Background(), ui, opts)
+	got, upgraded, err := resolveBuildVersion(context.Background(), opencodeAgent(t), ui, opts)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -197,7 +197,7 @@ func TestResolveOpenCodeVersionSkipsCheckWhenCheckedToday(t *testing.T) {
 	opts := options.RunOptions{}
 	ui := &termio.Mock{IsInteractiveResult: true}
 
-	got, upgraded, err := resolveOpenCodeBuildVersion(context.Background(), ui, opts)
+	got, upgraded, err := resolveBuildVersion(context.Background(), opencodeAgent(t), ui, opts)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -229,7 +229,7 @@ func TestResolveOpenCodeVersionDoesNotReOfferVersion(t *testing.T) {
 	opts := options.RunOptions{}
 	ui := &termio.Mock{IsInteractiveResult: true}
 
-	got, upgraded, err := resolveOpenCodeBuildVersion(context.Background(), ui, opts)
+	got, upgraded, err := resolveBuildVersion(context.Background(), opencodeAgent(t), ui, opts)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -254,7 +254,7 @@ func TestResolveOpenCodeVersionRecordsOfferedBeforePrompt(t *testing.T) {
 	opts := options.RunOptions{}
 	ui := &termio.Mock{IsInteractiveResult: true}
 
-	if _, _, err := resolveOpenCodeBuildVersion(context.Background(), ui, opts); err != nil {
+	if _, _, err := resolveBuildVersion(context.Background(), opencodeAgent(t), ui, opts); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
@@ -287,7 +287,7 @@ func TestResolveOpenCodeVersionOfflineDoesNotUpdateLastChecked(t *testing.T) {
 	opts := options.RunOptions{}
 	ui := &termio.Mock{IsInteractiveResult: true}
 
-	got, upgraded, err := resolveOpenCodeBuildVersion(context.Background(), ui, opts)
+	got, upgraded, err := resolveBuildVersion(context.Background(), opencodeAgent(t), ui, opts)
 	if err != nil {
 		t.Fatalf("offline check must not fail the session, got: %v", err)
 	}
@@ -329,7 +329,7 @@ func TestResolveOpenCodeVersionInteractiveQuit(t *testing.T) {
 		},
 	}
 
-	_, _, err := resolveOpenCodeBuildVersion(context.Background(), ui, opts)
+	_, _, err := resolveBuildVersion(context.Background(), opencodeAgent(t), ui, opts)
 	if !errors.Is(err, errUpgradeQuit) {
 		t.Fatalf("expected errUpgradeQuit, got %v", err)
 	}
