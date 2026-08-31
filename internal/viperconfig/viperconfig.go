@@ -14,6 +14,7 @@ import (
 	"github.com/inoio/opencode-sandbox/internal/configpaths"
 	"github.com/inoio/opencode-sandbox/internal/sandbox/network"
 	"github.com/inoio/opencode-sandbox/internal/sandbox/options"
+	"github.com/inoio/opencode-sandbox/internal/update"
 	"github.com/inoio/opencode-sandbox/internal/yamlfmt"
 
 	"github.com/go-viper/mapstructure/v2"
@@ -44,6 +45,16 @@ type Config struct {
 	// Network holds the egress policy. Only Profile is settable via env/flag.
 	Network network.Policy `mapstructure:"network"`
 	Mounts  options.Mounts `mapstructure:"-"`
+
+	// Update controls checking for and installing newer opencode-sandbox
+	// releases. Only Mode and Interval are settable via env.
+	Update UpdateConfig `mapstructure:"update"`
+}
+
+// UpdateConfig holds self-update settings.
+type UpdateConfig struct {
+	Mode     string        `mapstructure:"mode"`
+	Interval time.Duration `mapstructure:"interval"`
 }
 
 // Resolver resolves launcher config with precedence flag > env > config > default.
@@ -131,6 +142,8 @@ const (
 	keyAutoStopTimeout           = "auto-stop-timeout"
 	keyAutoStopMaxSessionRetries = "auto-stop-max-session-retries"
 	keyNetworkProfile            = "network.profile"
+	keyUpdateMode                = "update.mode"
+	keyUpdateInterval            = "update.interval"
 )
 
 //nolint:gochecknoglobals // package-level constant slice
@@ -154,6 +167,7 @@ var configEnvKeys = []string{
 	keyAutoPruneAge, keyManualPruneAge,
 	keyAutoStopOnActiveSessions, keyAutoStopTimeout, keyAutoStopMaxSessionRetries,
 	keyNetworkProfile,
+	keyUpdateMode, keyUpdateInterval,
 }
 
 // bindConfigFlags binds each config-backed flag found on cmd (local or
@@ -311,6 +325,9 @@ func validate(v *viper.Viper) error {
 	if err := validateNetworkProfile(v); err != nil {
 		return err
 	}
+	if err := validateUpdate(v); err != nil {
+		return err
+	}
 	if !v.IsSet("cpus") {
 		return nil
 	}
@@ -328,6 +345,28 @@ func validateNetworkProfile(v *viper.Viper) error {
 	profileStr := v.GetString(keyNetworkProfile)
 	if _, err := network.ParseProfile(profileStr); err != nil {
 		return err
+	}
+	return nil
+}
+
+// validateUpdate validates the update.mode and update.interval config keys.
+func validateUpdate(v *viper.Viper) error {
+	if v.IsSet(keyUpdateMode) {
+		if _, err := update.ParseMode(v.GetString(keyUpdateMode)); err != nil {
+			return err
+		}
+	}
+	if !v.IsSet(keyUpdateInterval) {
+		return nil
+	}
+	d := v.GetDuration(keyUpdateInterval)
+	if s, ok := v.Get(keyUpdateInterval).(string); ok {
+		if parsed, ok := ParseHumanDuration(s); ok {
+			d = parsed
+		}
+	}
+	if d < update.MinInterval {
+		return fmt.Errorf("launcher config %s must be >= %s, got %v", keyUpdateInterval, update.MinInterval, d)
 	}
 	return nil
 }
@@ -412,6 +451,30 @@ func (r *Resolver) IdleTimeout() time.Duration     { return r.cfg.IdleTimeout() 
 // the policy is Empty.
 func (r *Resolver) Network() network.Policy {
 	return r.cfg.Network
+}
+
+// UpdateMode returns the configured update mode, defaulting to prompt. An
+// unparsable value (possible via NewResolverWithConfig, which skips
+// validation) also falls back to prompt.
+func (r *Resolver) UpdateMode() update.Mode {
+	m, err := update.ParseMode(r.cfg.Update.Mode)
+	if err != nil {
+		return update.ModePrompt
+	}
+	return m
+}
+
+// UpdateInterval returns the configured update-check interval, defaulting to
+// a day and never returning less than the rate-limit guard.
+func (r *Resolver) UpdateInterval() time.Duration {
+	switch {
+	case r.cfg.Update.Interval <= 0:
+		return update.DefaultInterval
+	case r.cfg.Update.Interval < update.MinInterval:
+		return update.MinInterval
+	default:
+		return r.cfg.Update.Interval
+	}
 }
 
 // Mounts returns additional host bind mounts.

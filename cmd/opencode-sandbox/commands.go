@@ -2,16 +2,19 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/spf13/cobra"
 
 	"github.com/inoio/opencode-sandbox/internal/git"
+	"github.com/inoio/opencode-sandbox/internal/opencode"
 	"github.com/inoio/opencode-sandbox/internal/sandbox/naming"
 	"github.com/inoio/opencode-sandbox/internal/sandbox/network"
 	"github.com/inoio/opencode-sandbox/internal/sandbox/options"
 	sandbox "github.com/inoio/opencode-sandbox/internal/sandbox/vm"
 	"github.com/inoio/opencode-sandbox/internal/termio"
+	"github.com/inoio/opencode-sandbox/internal/update"
 	launcherconfig "github.com/inoio/opencode-sandbox/internal/viperconfig"
 )
 
@@ -173,6 +176,7 @@ func buildRootCmd(ui termio.UI) *cobra.Command {
 	rootCmd.AddCommand(buildRunCmd(ui))
 	rootCmd.AddCommand(buildTreeCmd(rootCmd, ui))
 	rootCmd.AddCommand(buildVersionCmd(rootCmd, ui))
+	rootCmd.AddCommand(buildUpgradeCmd(ui))
 	rootCmd.AddCommand(buildDoctorCmd(ui))
 	rootCmd.AddCommand(buildBuildCmd(ui))
 	rootCmd.AddCommand(buildListCmd(ui))
@@ -210,6 +214,34 @@ func buildVersionCmd(rootCmd *cobra.Command, ui termio.UI) *cobra.Command {
 		Short: "Print version",
 		Run: func(_ *cobra.Command, _ []string) {
 			ui.Outf("%s %s\n", rootCmd.Name(), version)
+		},
+	}
+	return cmd
+}
+
+func buildUpgradeCmd(ui termio.UI) *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   cmdUpgrade,
+		Args:  cobra.NoArgs,
+		Short: "Check for and install the latest release",
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			if version == devVersion {
+				return errors.New("cannot upgrade a development build; use the released binary")
+			}
+			latest, err := update.LatestVersion(cmd.Context())
+			if err != nil {
+				return err
+			}
+			if opencode.VersionCompare(version, latest) >= 0 {
+				ui.Infof("opencode-sandbox is up to date (%s)", version)
+				return nil
+			}
+			ui.Infof("upgrading opencode-sandbox %s -> %s", version, latest)
+			if err := update.Update(cmd.Context(), latest); err != nil {
+				return err
+			}
+			ui.Infof("upgraded to %s; restart to use it", latest)
+			return nil
 		},
 	}
 	return cmd

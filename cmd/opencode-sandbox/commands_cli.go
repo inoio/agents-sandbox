@@ -14,6 +14,7 @@ import (
 
 	"github.com/inoio/opencode-sandbox/internal/git"
 	"github.com/inoio/opencode-sandbox/internal/sandbox/pruning"
+	"github.com/inoio/opencode-sandbox/internal/update"
 	launcherconfig "github.com/inoio/opencode-sandbox/internal/viperconfig"
 
 	"github.com/inoio/opencode-sandbox/internal/sandbox/doctor"
@@ -136,10 +137,35 @@ func runFunc(ui termio.UI) func(cmd *cobra.Command, args []string) error {
 			if !doctor.CheckAll(cmd.Context(), ui) {
 				return errors.New("preflight failed")
 			}
+			exit, err := checkForUpdate(ctx, r, ui)
+			if err != nil {
+				return err
+			}
+			if exit {
+				return nil
+			}
 		}
 		pruning.AutoPrune(cmd.Context(), r.AutoPruneAge(), isDryRun, &autoPruneOutToVerboseRedirect{UI: ui})
 		return session.Run(ctx, opts, ui)
 	}
+}
+
+// checkForUpdate runs the self-update check for the current version and
+// returns whether the caller should exit (an upgrade-and-exit was performed).
+func checkForUpdate(ctx context.Context, r *launcherconfig.Resolver, ui termio.UI) (bool, error) {
+	if r == nil {
+		return false, nil
+	}
+	res, err := update.Check(ctx, update.Options{ //nolint:exhaustruct // StatePath/UpdateFunc use their defaults
+		CurrentVersion: version,
+		Mode:           r.UpdateMode(),
+		Interval:       r.UpdateInterval(),
+		UI:             ui,
+	})
+	if err != nil {
+		return false, err
+	}
+	return res.Exit, nil
 }
 
 // serveOnlyContext builds a cancellable context for the serve-only path.
@@ -170,6 +196,16 @@ func buildShellCmd(ui termio.UI) *cobra.Command {
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			if !doctor.CheckAll(cmd.Context(), ui) {
 				return errors.New("preflight failed")
+			}
+			isDryRun, _ := cmd.Flags().GetBool(flagDryRun)
+			if !isDryRun {
+				exit, err := checkForUpdate(cmd.Context(), resolverFromContext(cmd.Context()), ui)
+				if err != nil {
+					return err
+				}
+				if exit {
+					return nil
+				}
 			}
 			opts, err := extractRunOptions(cmd, ui)
 			if err != nil {
