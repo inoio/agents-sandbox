@@ -1,11 +1,13 @@
 package reprovision
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 
@@ -144,6 +146,63 @@ func TestLoadConfigFilesProvisioning(t *testing.T) {
 		if strings.Contains(p, "node_modules") {
 			t.Errorf("node_modules must not be provisioned, got %s", p)
 		}
+	}
+}
+
+// TestLoadConfigFilesProvisioningPrecedence verifies the precedence rules: a
+// home-file key overrides a provisioned key at the same VM path, and when
+// snippets exist the merged agent config wins over the provisioned default at
+// its path (so the merged config path is absent from Provisioned).
+func TestLoadConfigFilesProvisioningPrecedence(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	cp := configpaths.Get()
+	hostHome := t.TempDir()
+	vmHome := t.TempDir()
+
+	a, _ := agent.Lookup("opencode")
+
+	// Snippets exist so hasSnippets=true and the merged config is written.
+	testutil.WriteFile(t, cp.ProjectAgentConfigDir(a), "opencode-model.json", `{"model":"x"}`)
+
+	// Host files that the drop-in copy would pick up.
+	ocConfig := filepath.Join(hostHome, ".config/opencode")
+	if err := os.MkdirAll(ocConfig, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	testutil.WriteFile(t, ocConfig, "opencode.json", `{"a":1}`)
+	testutil.WriteFile(t, ocConfig, "somefile.json", `{"host":1}`)
+
+	// A home file at the same VM path as one of the provisioned files, which
+	// must override it.
+	project := cp.ProjectConfigDir()
+	testutil.WriteFile(t, project, "somefile-home.json", `{"home":1}`)
+	testutil.WriteFile(t, project, "home.yaml",
+		".config/opencode/somefile.json:\n  source: somefile-home.json\n")
+
+	ui := termio.NewTestMock(t)
+	cf, err := LoadConfigFilesForHost(a, hostHome, vmHome, &ui)
+	if err != nil {
+		t.Fatalf("LoadConfigFilesForHost: %v", err)
+	}
+
+	mergedPath := filepath.Join(vmHome, ".config", "opencode", "opencode.json")
+	if _, ok := cf.Provisioned[mergedPath]; ok {
+		t.Errorf(
+			"merged config path %s must not be in Provisioned (merged config wins), got %v",
+			mergedPath,
+			cf.Provisioned,
+		)
+	}
+	if !slices.Contains(cf.Keys, mergedPath) {
+		t.Errorf("expected merged config path %s in Keys, got %v", mergedPath, cf.Keys)
+	}
+
+	homePath := filepath.Join(vmHome, ".config", "opencode", "somefile.json")
+	if _, ok := cf.Provisioned[homePath]; ok {
+		t.Errorf("home-file path %s must not be in Provisioned (home file wins), got %v", homePath, cf.Provisioned)
+	}
+	if !bytes.Equal(cf.HomeFiles[homePath], []byte(`{"home":1}`)) {
+		t.Errorf("expected home file to override provisioned content at %s, got %q", homePath, cf.HomeFiles[homePath])
 	}
 }
 

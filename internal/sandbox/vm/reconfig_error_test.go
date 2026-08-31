@@ -85,7 +85,7 @@ func TestDecideReconfigDetachErrorVerbose(t *testing.T) {
 	persisted := state.HomeState{HomeVolume: "vol", ImageDigest: "sha256:same"}
 
 	ui := termio.NewTestMock(t)
-	cfs, err := reprovision.LoadConfigFiles(opencodeAgent(t), configpaths.Get().UserOpencodeConfigDir(), &ui)
+	cfs, err := reprovision.LoadConfigFilesForHost(opencodeAgent(t), t.TempDir(), reprovision.VMHomeDir, &ui)
 	if err != nil {
 		t.Fatalf("LoadConfigFiles: %v", err)
 	}

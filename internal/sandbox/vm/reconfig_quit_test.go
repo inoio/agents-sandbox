@@ -48,7 +48,7 @@ func TestDecideReconfigHomeQuit(t *testing.T) {
 		ImageDigest: "sha256:old",
 	}
 
-	cfs, err := reprovision.LoadConfigFiles(opencodeAgent(t), configpaths.Get().UserOpencodeConfigDir(), ui)
+	cfs, err := reprovision.LoadConfigFilesForHost(opencodeAgent(t), t.TempDir(), reprovision.VMHomeDir, ui)
 	if err != nil {
 		t.Fatalf("LoadConfigFiles: %v", err)
 	}
