@@ -8,12 +8,20 @@ import (
 
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 
+	"github.com/inoio/opencode-sandbox/internal/agent"
 	"github.com/inoio/opencode-sandbox/internal/configpaths"
 	"github.com/inoio/opencode-sandbox/internal/sandbox/msb"
 	"github.com/inoio/opencode-sandbox/internal/sandbox/options"
 	"github.com/inoio/opencode-sandbox/internal/termio"
 	"github.com/inoio/opencode-sandbox/internal/testutil"
 )
+
+// opencodeTestAgent returns the default opencode profile for LoadConfigFiles
+// tests that do not care which agent is active.
+func opencodeTestAgent() agent.Agent {
+	a, _ := agent.Lookup("")
+	return a
+}
 
 // TestParseKeyValueLinesOnLineError verifies that an error returned by the
 // callback is propagated.
@@ -82,7 +90,7 @@ func TestLoadConfigFilesWithSnippet(t *testing.T) {
 	testutil.WriteFile(t, cp.ProjectOpencodeConfigDir(), "opencode-model.json", `{"model":"x"}`)
 
 	ui := termio.NewTestMock(t)
-	cf, err := LoadConfigFiles(configpaths.Get().UserOpencodeConfigDir(), &ui)
+	cf, err := LoadConfigFiles(opencodeTestAgent(), configpaths.Get().UserOpencodeConfigDir(), &ui)
 	if err != nil {
 		t.Fatalf("LoadConfigFiles: %v", err)
 	}
@@ -105,7 +113,7 @@ func TestLoadConfigFilesWarnsMissingSource(t *testing.T) {
 	testutil.WriteFile(t, cp.ProjectConfigDir(), "home.yaml", ".tool/x:\n  source: does-not-exist\n")
 
 	ui := termio.NewTestMock(t)
-	cf, err := LoadConfigFiles(configpaths.Get().UserOpencodeConfigDir(), &ui)
+	cf, err := LoadConfigFiles(opencodeTestAgent(), configpaths.Get().UserOpencodeConfigDir(), &ui)
 	if err != nil {
 		t.Fatalf("LoadConfigFiles: %v", err)
 	}
@@ -126,7 +134,7 @@ func TestLoadConfigFilesBuildHomeFilesError(t *testing.T) {
 	testutil.WriteFile(t, cp.ProjectConfigDir(), "home.yaml", ".tool/x:\n  source: 123\n")
 
 	ui := termio.NewTestMock(t)
-	if _, err := LoadConfigFiles(configpaths.Get().UserOpencodeConfigDir(), &ui); err == nil {
+	if _, err := LoadConfigFiles(opencodeTestAgent(), configpaths.Get().UserOpencodeConfigDir(), &ui); err == nil {
 		t.Error("expected an error for a malformed home.yaml source type")
 	}
 }
@@ -142,7 +150,7 @@ func TestLoadConfigFilesBuildHooksError(t *testing.T) {
 	testutil.WriteFile(t, cp.ProjectConfigDir(), "home.yaml", ".vpn/x:\n  source: s\n  hook: 123\n")
 
 	ui := termio.NewTestMock(t)
-	if _, err := LoadConfigFiles(configpaths.Get().UserOpencodeConfigDir(), &ui); err == nil {
+	if _, err := LoadConfigFiles(opencodeTestAgent(), configpaths.Get().UserOpencodeConfigDir(), &ui); err == nil {
 		t.Error("expected an error for an invalid hook value")
 	}
 }

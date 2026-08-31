@@ -88,6 +88,13 @@ func (opencodeProfile) VMConfigPath(home string) string {
 	return filepath.Join(home, ".config", "opencode", "opencode.json")
 }
 
+func (opencodeProfile) ProvisionRules() []ProvisionRule {
+	return []ProvisionRule{
+		{Dir: ".config/opencode", Patterns: []string{"**", "!node_modules/", "!package*.json", "!.gitignore"}},
+		{Dir: ".local/share/opencode", Patterns: []string{"auth.json"}},
+	}
+}
+
 func (opencodeProfile) AttachCommand(target string, args []string) string {
 	parts := []string{"opencode", "attach", "http://127.0.0.1:4096", "--dir", target}
 	parts = append(parts, args...)

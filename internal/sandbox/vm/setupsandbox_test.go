@@ -102,7 +102,7 @@ func setUpSandboxProvisionsConfig(t *testing.T, provisionMsg string) {
 	testutil.WritePath(t, snippet, `{"model":"x"}`)
 
 	ui := &termio.Mock{}
-	cfs, err := reprovision.LoadConfigFiles(configpaths.Get().UserOpencodeConfigDir(), ui)
+	cfs, err := reprovision.LoadConfigFiles(opencodeAgent(t), configpaths.Get().UserOpencodeConfigDir(), ui)
 	if err != nil {
 		t.Fatalf("LoadConfigFiles: %v", err)
 	}
@@ -198,7 +198,7 @@ func TestSetUpSandboxRestartsDaemonsOnReuseDecision(t *testing.T) {
 	//   (ctx, sb, opts, cfs, ui, restart).
 	// Pass restart=true to force the daemon-restart path on a reused VM.
 	commands = commands[:0]
-	cfs, err := reprovision.LoadConfigFiles(configpaths.Get().UserOpencodeConfigDir(), &ui)
+	cfs, err := reprovision.LoadConfigFiles(opencodeAgent(t), configpaths.Get().UserOpencodeConfigDir(), &ui)
 	if err != nil {
 		t.Fatalf("LoadConfigFiles: %v", err)
 	}
@@ -302,7 +302,7 @@ func TestSetUpSandboxProvisionsUpdatedConfigOnKeep(t *testing.T) {
 	testutil.WritePath(t, snippet, `{"model":"new"}`)
 
 	ui := &termio.Mock{}
-	cfs, err := reprovision.LoadConfigFiles(configpaths.Get().UserOpencodeConfigDir(), ui)
+	cfs, err := reprovision.LoadConfigFiles(opencodeAgent(t), configpaths.Get().UserOpencodeConfigDir(), ui)
 	if err != nil {
 		t.Fatalf("LoadConfigFiles: %v", err)
 	}

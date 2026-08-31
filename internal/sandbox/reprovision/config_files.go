@@ -16,6 +16,7 @@ import (
 
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 
+	"github.com/inoio/opencode-sandbox/internal/agent"
 	config "github.com/inoio/opencode-sandbox/internal/opencodeconfig"
 	"github.com/inoio/opencode-sandbox/internal/sandbox/msb"
 	"github.com/inoio/opencode-sandbox/internal/sandbox/network"
@@ -61,29 +62,42 @@ func OpenCodeConfigPath(home string) string {
 	return filepath.Join(home, ".config", "opencode", "opencode.json")
 }
 
-// ConfigFiles holds the merged opencode config and the set of home files to
-// provision into the VM.
+// ConfigFiles holds the merged agent config, the set of home files to
+// provision into the VM, and the default drop-in copy from the host.
 type ConfigFiles struct {
-	HasSnippets bool                  // whether any opencode snippet existed
-	OpenCode    []byte                // merged opencode.json content
-	HomeFiles   map[string][]byte     // VM absolute path -> content
+	HasSnippets bool                  // whether any agent snippet existed
+	OpenCode    []byte                // merged agent config content
+	HomeFiles   map[string][]byte     // VM absolute path -> content (home.yaml)
+	Provisioned map[string][]byte     // VM absolute path -> content (drop-in copy)
 	Hooks       []homeconfig.HookSpec // startup hooks to run at setUpSandbox
 	Keys        []string              // sorted VM paths for comparison
 }
 
-// LoadConfigFiles builds the desired VM state: the merged opencode.json (from
-// the opencode snippet files) and the home files (from the home.yaml manifests).
-// It warns about any home.yaml source that does not exist on the host.
-func LoadConfigFiles(userConfigDir string, ui termio.UI) (*ConfigFiles, error) {
-	projectOpenCodeDir := cp.Get().ProjectOpencodeConfigDir()
-	opencodeJSON, _, hasSnippets, err := config.BuildOpenCodeJSON(userConfigDir, projectOpenCodeDir)
+// LoadConfigFiles builds the desired VM state for the given agent using the
+// real host home. userConfigDir is accepted for call compatibility with older
+// opencode-specific callers; the agent determines its own config directories.
+func LoadConfigFiles(a agent.Agent, _ string, ui termio.UI) (*ConfigFiles, error) {
+	hostHome, _ := os.UserHomeDir()
+	return LoadConfigFilesForHost(a, hostHome, VMHomeDir, ui)
+}
+
+// LoadConfigFilesForHost builds the desired VM state for the given agent with
+// explicit host and VM home directories: the merged agent config, the home
+// files (from the home.yaml manifests), and the default drop-in copy of the
+// agent's host config (per its provision rules). It warns about any home.yaml
+// source that does not exist on the host and about malformed provision rules.
+// Home files and the merged config override provisioned defaults for the same
+// VM path.
+func LoadConfigFilesForHost(a agent.Agent, hostHome, vmHome string, ui termio.UI) (*ConfigFiles, error) {
+	mergedPath, opencodeJSON, hasSnippets, err := buildMergedConfig(a, vmHome)
 	if err != nil {
-		return nil, fmt.Errorf("merge opencode config: %w", err)
+		return nil, err
 	}
+	userConfigDir := filepath.Dir(cp.Get().UserAgentConfigDir(a))
 	homeFiles, missing, _, err := homeconfig.BuildHomeFiles(
-		filepath.Dir(userConfigDir), // user home.yaml lives one level above the opencode subdir
+		userConfigDir, // user home.yaml lives one level above the agent subdir
 		cp.Get().ProjectConfigDir(),
-		VMHomeDir,
+		vmHome,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("build home files: %w", err)
@@ -92,18 +106,43 @@ func LoadConfigFiles(userConfigDir string, ui termio.UI) (*ConfigFiles, error) {
 		ui.Warnf("home.yaml source %q does not exist on the host; skipping", src)
 	}
 	hooks, err := homeconfig.BuildHooks(
-		filepath.Dir(userConfigDir), // user home.yaml lives one level above the opencode subdir
+		userConfigDir, // user home.yaml lives one level above the agent subdir
 		cp.Get().ProjectConfigDir(),
-		VMHomeDir,
+		vmHome,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("build hooks: %w", err)
 	}
-	keys := make([]string, 0, len(homeFiles)+1)
+	provisioned := make(map[string][]byte)
+	if p, ok := agent.AsProvisioner(a); ok {
+		for _, w := range agent.ValidateProvisionRules(p.ProvisionRules()) {
+			ui.Warnf("provision rule: %s", w)
+		}
+		onCopy := func(dst string, data []byte) error {
+			provisioned[dst] = data
+			return nil
+		}
+		if _, err := agent.EvalProvisionRules(p.ProvisionRules(), hostHome, vmHome, onCopy); err != nil {
+			return nil, fmt.Errorf("eval provision rules: %w", err)
+		}
+	}
+	// Precedence: home files always override provisioned defaults, and the
+	// merged agent config overrides the provisioned config at the same path when
+	// snippets exist (no merged config means the drop-in default is provisioned).
+	for p := range homeFiles {
+		delete(provisioned, p)
+	}
 	if hasSnippets {
-		keys = append(keys, OpenCodeConfigPath(VMHomeDir))
+		delete(provisioned, mergedPath)
+	}
+	keys := make([]string, 0, len(homeFiles)+len(provisioned)+1)
+	if hasSnippets {
+		keys = append(keys, mergedPath)
 	}
 	for p := range homeFiles {
+		keys = append(keys, p)
+	}
+	for p := range provisioned {
 		keys = append(keys, p)
 	}
 	sort.Strings(keys)
@@ -111,9 +150,36 @@ func LoadConfigFiles(userConfigDir string, ui termio.UI) (*ConfigFiles, error) {
 		HasSnippets: hasSnippets,
 		OpenCode:    opencodeJSON,
 		HomeFiles:   homeFiles,
+		Provisioned: provisioned,
 		Hooks:       hooks,
 		Keys:        keys,
 	}, nil
+}
+
+// buildMergedConfig merges the agent's snippet files into a single config and
+// returns its destination VM path, content, whether any snippet existed, and an
+// error. Agents that implement ConfigMerger use their own snippet pattern and
+// VM config path; other agents fall back to the opencode snippet behavior.
+func buildMergedConfig(a agent.Agent, vmHome string) (string, []byte, bool, error) {
+	if cm, ok := agent.AsConfigMerger(a); ok {
+		merged, _, hasSnippets, err := config.BuildMerged(
+			cm.SnippetPattern(),
+			cp.Get().UserAgentConfigDir(a),
+			cp.Get().ProjectAgentConfigDir(a),
+		)
+		if err != nil {
+			return "", nil, false, fmt.Errorf("merge agent config: %w", err)
+		}
+		return cm.VMConfigPath(vmHome), merged, hasSnippets, nil
+	}
+	merged, _, hasSnippets, err := config.BuildOpenCodeJSON(
+		cp.Get().UserOpencodeConfigDir(),
+		cp.Get().ProjectOpencodeConfigDir(),
+	)
+	if err != nil {
+		return "", nil, false, fmt.Errorf("merge opencode config: %w", err)
+	}
+	return OpenCodeConfigPath(vmHome), merged, hasSnippets, nil
 }
 
 // tmpMountPath is the mount point used for the sandbox tmpfs.

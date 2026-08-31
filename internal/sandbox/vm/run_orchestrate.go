@@ -107,7 +107,7 @@ func PrepareSandbox(
 
 	// Load the merged opencode config and home files exactly once per startup;
 	// the result is shared by the reconfig decision and the provisioning step.
-	cfs, err := reprovision.LoadConfigFiles(configpaths.Get().UserOpencodeConfigDir(), ui)
+	cfs, err := reprovision.LoadConfigFiles(a, configpaths.Get().UserOpencodeConfigDir(), ui)
 	if err != nil {
 		return nil, err
 	}

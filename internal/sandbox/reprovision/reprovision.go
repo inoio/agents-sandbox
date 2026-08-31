@@ -64,6 +64,17 @@ func Provision(ctx context.Context, sb msb.Sandbox, cf *ConfigFiles) (retErr err
 		}
 		paths = append(paths, path)
 	}
+	for path, data := range cf.Provisioned {
+		made, err := mkdirAllFS(ctx, fs, filepath.Dir(path))
+		if err != nil {
+			return err
+		}
+		paths = append(paths, made...)
+		if err := fs.Write(ctx, path, data); err != nil {
+			return fmt.Errorf("write provisioned file %s: %w", path, err)
+		}
+		paths = append(paths, path)
+	}
 	return nil
 }
 
