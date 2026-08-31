@@ -328,7 +328,8 @@ echo $GITHUB_TOKEN
 opencode-sandbox is agent-aware. A `--agent <name>` flag on `run`, `build`, and the `volume` subcommands selects the
 coding-agent profile to run, build, and provision. Milestone 1 ships **opencode as the only registered agent** (the
 default), so existing usage is unchanged; the registry abstraction paves the way for future agents (e.g. pi, claude).
-Run `opencode-sandbox tree` to see the current list of registered agents.
+There is no command that lists registered agents in this milestone; passing an unsupported `--agent` name reports the
+valid names in its error message.
 
 Each agent owns its config directories, one subdir per agent under the tool's config base:
 
