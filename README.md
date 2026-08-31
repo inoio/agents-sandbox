@@ -10,7 +10,7 @@
 [![Security](https://img.shields.io/badge/security-policy-purple.svg)](SECURITY.md)
 [![Docs](https://img.shields.io/badge/docs-github--pages-blue)](https://inoio.github.io/opencode-sandbox/)
 
-opencode-sandbox gives [opencode](https://github.com/anthropics/opencode) a real, hardware-isolated machine to work on —
+opencode-sandbox gives [opencode](https://github.com/anomalyco/opencode) a real, hardware-isolated machine to work on —
 full agent permissions inside a boundary that can't reach your host, and secrets the agent never gets to see.
 
 Docker, bubblewrap, seatbelt, and bare opencode all share your kernel — a kernel bug or `sudo` is enough for an agent to

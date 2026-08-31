@@ -23,7 +23,7 @@ jobs:
           ref: ${{ github.event.release.tag_name || github.ref }}
       - name: Configure Pages
         id: pages
-        uses: actions/configure-pages@v5
+        uses: actions/configure-pages@v6
       - name: Inject release version
         working-directory: docs
         run: |
@@ -57,4 +57,4 @@ jobs:
           path: docs/_site
       - name: Deploy to GitHub Pages
         id: deployment
-        uses: actions/deploy-pages@v4
+        uses: actions/deploy-pages@v5

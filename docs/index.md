@@ -6,7 +6,7 @@ nav_order: 0
 
 # opencode-sandbox
 
-> **opencode, supercharged — safely.** Run [opencode](https://github.com/anthropics/opencode) in a near-instant, hardware-isolated VM — your project at `/workspace`, your secrets safe, your agent free to do its best work.
+> **opencode, supercharged — safely.** Run [opencode](https://github.com/anomalyco/opencode) in a near-instant, hardware-isolated VM — your project at `/workspace`, your secrets safe, your agent free to do its best work.
 
 opencode-sandbox gives opencode a real, hardware-isolated machine to work on — full agent permissions inside a boundary that can't reach your host, and secrets the agent never gets to see.
 

@@ -131,6 +131,7 @@ session. The change type determines the mechanism used to apply the new settings
 | `disk-size`       | VM recreate    | VM is stopped, removed, and rebuilt with new disk size. Home volume is preserved.                        |
 | `workspace-quota` | VM recreate    | VM is stopped, removed, and rebuilt with new workspace write quota. Home volume is preserved.            |
 | `image`           | VM recreate    | VM is recreated with the new root image. Home volume is preserved.                                       |
+| `home volume`     | VM recreate    | After `volume migrate`/`reset`, the new home volume is mounted by recreating the VM; the mount is baked in at creation. |
 | `network`         | VM recreate    | Network policy is baked in at VM creation, so a change recreates the VM. Home volume is preserved.        |
 
 When **no other client** is attached, config changes apply immediately.

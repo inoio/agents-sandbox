@@ -104,6 +104,9 @@ opencode-sandbox volume reset     # fresh volume from image
 opencode-sandbox volume edit      # new volume alongside old, manual transfer in a shell environment
 ```
 
+The chosen volume is recorded in the state file, and the next run recreates the project VM so the new volume is mounted at
+`$HOME`. Until then the running VM keeps the previous home volume mounted.
+
 Home volumes are pruned when:
 
 - You run `volume migrate|reset` with `--rm` (removes the old volume)
