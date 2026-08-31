@@ -61,38 +61,63 @@ func TestLatestVersionPropagatesRequestError(t *testing.T) {
 	}
 }
 
-func TestVersionCompareNumerical(t *testing.T) {
-	cases := []struct {
-		a, b string
-		want int
-	}{
-		{"1.9.0", "1.10.0", -1},
-		{"1.10.0", "1.9.0", 1},
-		{"1.2.3", "1.2.3", 0},
-		{"1.2.3", "1.2.4", -1},
-		{"2.0.0", "1.99.99", 1},
-		{"v1.2.3", "1.2.4", -1},
-		{"1.2", "1.2.0", 0},
-	}
-	for _, tc := range cases {
-		got := VersionCompare(tc.a, tc.b)
-		switch {
-		case tc.want < 0 && got >= 0:
-			t.Errorf("VersionCompare(%q,%q) = %d, want < 0", tc.a, tc.b, got)
-		case tc.want > 0 && got <= 0:
-			t.Errorf("VersionCompare(%q,%q) = %d, want > 0", tc.a, tc.b, got)
-		case tc.want == 0 && got != 0:
-			t.Errorf("VersionCompare(%q,%q) = %d, want 0", tc.a, tc.b, got)
-		}
+func TestLatestVersionNon200(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		http.Error(w, "nope", http.StatusInternalServerError)
+	}))
+	t.Cleanup(srv.Close)
+	restore := overrideLatestURL(srv.URL)
+	t.Cleanup(restore)
+
+	if _, err := LatestVersion(context.Background()); err == nil {
+		t.Fatal("expected error on non-200 response")
 	}
 }
 
-func TestVersionCompareReturnsBakedDirection(t *testing.T) {
-	// Convenience directional tests matching how the reconcile hook uses it.
-	if VersionCompare("1.0.0", "1.1.0") >= 0 {
-		t.Error("expected older < newer")
+func TestLatestVersionDecodeError(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte("not json"))
+	}))
+	t.Cleanup(srv.Close)
+	restore := overrideLatestURL(srv.URL)
+	t.Cleanup(restore)
+
+	if _, err := LatestVersion(context.Background()); err == nil {
+		t.Fatal("expected error on undecodable response")
 	}
-	if VersionCompare("1.2.0", "1.1.0") <= 0 {
-		t.Error("expected newer > older")
+}
+
+func TestNewerThan(t *testing.T) {
+	tests := []struct {
+		name string
+		a, b string
+		want bool
+	}{
+		{name: "newer", a: "1.1.0", b: "1.0.0", want: true},
+		{name: "older", a: "1.0.0", b: "1.1.0", want: false},
+		{name: "equal", a: "1.0.0", b: "1.0.0", want: false},
+		{name: "v-prefix a", a: "v1.1.0", b: "1.0.0", want: true},
+		{name: "v-prefix b", a: "1.1.0", b: "v1.0.0", want: true},
+		{name: "prerelease not newer", a: "1.0.0-beta.1", b: "1.0.0", want: false},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := NewerThan(tc.a, tc.b)
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if got != tc.want {
+				t.Errorf("NewerThan(%q, %q) = %v, want %v", tc.a, tc.b, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestNewerThanInvalidVersion(t *testing.T) {
+	if _, err := NewerThan("not-a-version", "1.0.0"); err == nil {
+		t.Fatal("expected error for invalid first version")
+	}
+	if _, err := NewerThan("1.0.0", "not-a-version"); err == nil {
+		t.Fatal("expected error for invalid second version")
 	}
 }
