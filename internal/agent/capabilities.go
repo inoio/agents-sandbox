@@ -1,0 +1,61 @@
+package agent
+
+import "context"
+
+// ProvisionRule declares a host file (or glob) to copy into the VM by default.
+// Its full shape and selection/evaluation logic are defined in Task 2
+// (internal/agent/manifest.go); only a minimal placeholder lives here so the
+// Provisioner capability can compile.
+type ProvisionRule struct{}
+
+// DaemonProvider runs a long-lived server that clients attach to (opencode).
+type DaemonProvider interface {
+	DaemonStartCmd(serveOnly bool) string
+	DaemonKillCmd() string
+	DaemonHealthCmd() string
+	DaemonHealthParse(stdout string) (bool, error)
+	WorktreeListCmd() string
+	WorktreeCreateCmd(spec WorktreeSpec) string
+	WorktreeParseDir(stdout string) (string, bool)
+}
+
+// UpgradeChecker can resolve and compare releases.
+type UpgradeChecker interface {
+	LatestVersion(ctx context.Context) (string, error)
+	VersionCompare(a, b string) int
+}
+
+// ConfigMerger merges snippet files matching a pattern into one config document.
+type ConfigMerger interface {
+	SnippetPattern() string
+	VMConfigPath(home string) string
+	BuildMerged(userDir, projectDir string) ([]byte, []string, bool, error)
+}
+
+// AttachRunner starts the client TUI/session.
+type AttachRunner interface {
+	AttachCommand(target string, args []string) string
+}
+
+// Provisioner declares host files to copy into the VM by default (drop-in).
+type Provisioner interface {
+	ProvisionRules() []ProvisionRule
+}
+
+// AsDaemonProvider returns the agent's DaemonProvider, if it implements one.
+func AsDaemonProvider(a Agent) (DaemonProvider, bool) {
+	p, ok := a.(DaemonProvider)
+	return p, ok
+}
+
+// AsUpgradeChecker returns the agent's UpgradeChecker, if it implements one.
+func AsUpgradeChecker(a Agent) (UpgradeChecker, bool) { p, ok := a.(UpgradeChecker); return p, ok }
+
+// AsConfigMerger returns the agent's ConfigMerger, if it implements one.
+func AsConfigMerger(a Agent) (ConfigMerger, bool) { p, ok := a.(ConfigMerger); return p, ok }
+
+// AsAttachRunner returns the agent's AttachRunner, if it implements one.
+func AsAttachRunner(a Agent) (AttachRunner, bool) { p, ok := a.(AttachRunner); return p, ok }
+
+// AsProvisioner returns the agent's Provisioner, if it implements one.
+func AsProvisioner(a Agent) (Provisioner, bool) { p, ok := a.(Provisioner); return p, ok }
