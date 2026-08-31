@@ -4,10 +4,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"strings"
 
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 
+	"github.com/inoio/opencode-sandbox/internal/agent"
 	"github.com/inoio/opencode-sandbox/internal/git"
 	"github.com/inoio/opencode-sandbox/internal/sandbox/msb"
 	"github.com/inoio/opencode-sandbox/internal/sandbox/options"
@@ -29,11 +29,12 @@ var prepareSandbox = func(ctx context.Context, opts options.RunOptions, ui termi
 	return sandbox.PrepareSandbox(ctx, opts, ui)
 }
 
-func buildAttachCommand(target string, args []string) string {
-	parts := []string{"opencode", "attach", "http://127.0.0.1:4096", "--dir", target}
-	parts = append(parts, args...)
-
-	return strings.Join(parts, " ")
+func buildAttachCommand(a agent.Agent, target string, args []string) string {
+	runner, ok := agent.AsAttachRunner(a)
+	if !ok {
+		return ""
+	}
+	return runner.AttachCommand(target, args)
 }
 
 // serveOnlyMessage builds the message printed when serving opencode for
@@ -105,7 +106,8 @@ func Run(ctx context.Context, opts options.RunOptions, ui termio.UI) error {
 		return &sandbox.ExitError{Code: 0}
 	}
 
-	setup := buildAttachCommand(ses.Target(), opts.Args)
+	a, _ := agent.Lookup(opts.Agent)
+	setup := buildAttachCommand(a, ses.Target(), opts.Args)
 	ui.Verbosef("%s", setup)
 	// Run as a login shell so /etc/profile and ~/.profile are sourced,
 	// putting tools installed under /usr/local/go/bin, ~/go/bin and

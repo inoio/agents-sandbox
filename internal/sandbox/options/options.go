@@ -10,12 +10,15 @@ import (
 
 // RunOptions controls sandbox lifecycle and configuration.
 type RunOptions struct {
-	Worktree    WorktreeSpec
-	Memory      string
-	TmpSize     string
-	DiskSize    string
-	Root        bool
-	Args        []string
+	Worktree WorktreeSpec
+	Memory   string
+	TmpSize  string
+	DiskSize string
+	Root     bool
+	Args     []string
+	// Agent selects the coding-agent profile for this session. Empty resolves
+	// to the opencode default via agent.Lookup.
+	Agent       string
 	ReapPolicy  ReapPolicy
 	IdleTimeout time.Duration
 	CPUs        uint8

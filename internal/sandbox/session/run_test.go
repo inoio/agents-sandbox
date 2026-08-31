@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/inoio/opencode-sandbox/internal/agent"
 	"github.com/inoio/opencode-sandbox/internal/configpaths"
 	"github.com/inoio/opencode-sandbox/internal/sandbox/msb"
 	"github.com/inoio/opencode-sandbox/internal/sandbox/options"
@@ -16,7 +17,8 @@ import (
 )
 
 func TestBuildAttachCommand(t *testing.T) {
-	got := buildAttachCommand("/workspace", []string{"foo"})
+	a, _ := agent.Lookup("opencode")
+	got := buildAttachCommand(a, "/workspace", []string{"foo"})
 	if !strings.Contains(got, "opencode attach") {
 		t.Errorf("expected 'opencode attach' in command, got %q", got)
 	}
@@ -35,9 +37,34 @@ func TestBuildAttachCommand(t *testing.T) {
 }
 
 func TestBuildAttachCommandWorktreeTarget(t *testing.T) {
-	got := buildAttachCommand("/home/dev/.local/share/opencode/worktree/abc/feat", nil)
+	a, _ := agent.Lookup("opencode")
+	got := buildAttachCommand(a, "/home/dev/.local/share/opencode/worktree/abc/feat", nil)
 	if !strings.Contains(got, "--dir /home/dev/.local/share/opencode/worktree/abc/feat") {
 		t.Errorf("expected worktree dir in command, got %q", got)
+	}
+}
+
+func TestBuildAttachCommandOpencode(t *testing.T) {
+	a, _ := agent.Lookup("opencode")
+	got := buildAttachCommand(a, "/workspace/x", nil)
+	want := "opencode attach http://127.0.0.1:4096 --dir /workspace/x"
+	if got != want {
+		t.Errorf("attach = %q, want %q", got, want)
+	}
+}
+
+// nonAttachAgent implements agent.Agent but not agent.AttachRunner, so
+// buildAttachCommand must return "" for it.
+type nonAttachAgent struct{}
+
+func (nonAttachAgent) Name() string               { return "nonattach" }
+func (nonAttachAgent) ConfigDirName() string      { return "nonattach" }
+func (nonAttachAgent) ImageSpec() agent.ImageSpec { return agent.ImageSpec{} }
+
+func TestBuildAttachCommandNoAttachRunner(t *testing.T) {
+	got := buildAttachCommand(nonAttachAgent{}, "/workspace/x", nil)
+	if got != "" {
+		t.Errorf("attach = %q, want empty string for non-AttachRunner agent", got)
 	}
 }
 
