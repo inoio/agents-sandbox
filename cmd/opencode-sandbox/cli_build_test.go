@@ -112,17 +112,24 @@ func TestBuildCommand(t *testing.T) {
 	}
 }
 
-func TestBuildCommandHasOpenCodeVersionFlag(t *testing.T) {
+func TestBuildCommandHasAgentVersionFlag(t *testing.T) {
 	cmd, _ := setupCommandFixtures(t, cmdBuild, "--help")
 	foundCmd, _, err := cmd.Find([]string{cmdBuild})
 	if err != nil {
 		t.Fatalf("Find %q: %v", cmdBuild, err)
 	}
-	flag := foundCmd.Flags().Lookup(flagOpenCodeVersion)
-	if flag == nil {
-		t.Fatal("build command must have --opencode-version flag")
+	agentVersion := foundCmd.Flags().Lookup(flagAgentVersion)
+	if agentVersion == nil {
+		t.Fatal("build command must have --agent-version flag")
 	}
-	if flag.Name != "opencode-version" {
-		t.Errorf("flag name = %q, want %q", flag.Name, "opencode-version")
+	if agentVersion.Name != "agent-version" {
+		t.Errorf("flag name = %q, want %q", agentVersion.Name, "agent-version")
+	}
+	openCodeVersion := foundCmd.Flags().Lookup(flagOpenCodeVersion)
+	if openCodeVersion == nil {
+		t.Fatal("build command must keep --opencode-version as a deprecated alias")
+	}
+	if openCodeVersion.Name != "opencode-version" {
+		t.Errorf("flag name = %q, want %q", openCodeVersion.Name, "opencode-version")
 	}
 }

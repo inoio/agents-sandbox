@@ -3,9 +3,12 @@ package main
 import (
 	"context"
 	"fmt"
+	"slices"
+	"strings"
 
 	"github.com/spf13/cobra"
 
+	"github.com/inoio/opencode-sandbox/internal/agent"
 	"github.com/inoio/opencode-sandbox/internal/git"
 	"github.com/inoio/opencode-sandbox/internal/sandbox/naming"
 	"github.com/inoio/opencode-sandbox/internal/sandbox/network"
@@ -39,6 +42,15 @@ func extractRunOptions(cmd *cobra.Command, ui termio.UI) (options.RunOptions, er
 	opts.ServeOnly, _ = cmd.Flags().GetBool(flagServeOnly)
 	if cmd.Flags().Lookup(flagRoot) != nil {
 		opts.Root, _ = cmd.Flags().GetBool(flagRoot)
+	}
+
+	opts.Agent, _ = cmd.Flags().GetString(flagAgent)
+	a, err := resolveAgentFlag(cmd)
+	if err != nil {
+		return options.RunOptions{}, err
+	}
+	if err := validateAgentFlags(a, opts); err != nil {
+		return options.RunOptions{}, err
 	}
 
 	r := resolverFromContext(cmd.Context())
@@ -99,6 +111,36 @@ func resolverFromContext(ctx context.Context) *launcherconfig.Resolver {
 	}
 	r, _ := ctx.Value((*launcherConfigKey)(nil)).(*launcherconfig.Resolver)
 	return r
+}
+
+// defaultAgentName is the fallback agent used when --agent is not provided.
+const defaultAgentName = "opencode"
+
+// resolveAgentFlag reads the --agent flag (defaulting to opencode) and returns
+// the matching agent, rejecting unknown names.
+func resolveAgentFlag(cmd *cobra.Command) (agent.Agent, error) {
+	name, _ := cmd.Flags().GetString(flagAgent)
+	if !slices.Contains(agent.Names(), name) {
+		return nil, fmt.Errorf(
+			"unknown agent %q: must be one of %s",
+			name,
+			strings.Join(agent.Names(), ", "),
+		)
+	}
+	a, _ := agent.Lookup(name)
+	return a, nil
+}
+
+// validateAgentFlags rejects --worktree/--serve-only for agents that lack a
+// daemon provider, since those modes require a long-lived server.
+func validateAgentFlags(a agent.Agent, opts options.RunOptions) error {
+	if _, ok := agent.AsDaemonProvider(a); ok {
+		return nil
+	}
+	if opts.Worktree.Name != "" || opts.ServeOnly {
+		return fmt.Errorf("--worktree/--serve-only are not supported by agent %q", a.Name())
+	}
+	return nil
 }
 
 // printItems renders a list of items as an aligned table with a styled header

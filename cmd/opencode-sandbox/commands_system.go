@@ -10,7 +10,6 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/inoio/opencode-sandbox/internal/agent"
 	"github.com/inoio/opencode-sandbox/internal/configpaths"
 	"github.com/inoio/opencode-sandbox/internal/git"
 	"github.com/inoio/opencode-sandbox/internal/homeconfig"
@@ -96,7 +95,10 @@ func buildVolumeOpsCmd(
 			projectSlug := git.ProjectSlug()
 			dryRun, _ := c.Flags().GetBool(flagDryRun)
 			rebuild, _ := c.Flags().GetBool(flagRebuild)
-			a, _ := agent.Lookup("opencode")
+			a, err := resolveAgentFlag(c)
+			if err != nil {
+				return err
+			}
 			info, err := image.EnsureImage(
 				c.Context(),
 				a,
@@ -119,6 +121,7 @@ func buildVolumeOpsCmd(
 	if buildImage {
 		cmd.Flags().Bool(flagRebuild, false, "Rebuild runner image first")
 	}
+	cmd.Flags().String(flagAgent, defaultAgentName, "Coding agent profile")
 	return cmd
 }
 
@@ -320,7 +323,10 @@ func buildBuildCmd(ui termio.UI) *cobra.Command {
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			force, _ := cmd.Flags().GetBool(flagRebuild)
 			dryRun, _ := cmd.Flags().GetBool(flagDryRun)
-			openCodeVersion, _ := cmd.Flags().GetString(flagOpenCodeVersion)
+			openCodeVersion, _ := cmd.Flags().GetString(flagAgentVersion)
+			if !cmd.Flags().Changed(flagAgentVersion) && cmd.Flags().Changed(flagOpenCodeVersion) {
+				openCodeVersion, _ = cmd.Flags().GetString(flagOpenCodeVersion)
+			}
 			if dryRun {
 				ui.Infof("dry-run: Would build runner image")
 				return nil
@@ -328,7 +334,10 @@ func buildBuildCmd(ui termio.UI) *cobra.Command {
 			if err := doctor.CheckDocker(cmd.Context()); err != nil {
 				return fmt.Errorf("docker not available: %w", err)
 			}
-			a, _ := agent.Lookup("opencode")
+			a, err := resolveAgentFlag(cmd)
+			if err != nil {
+				return err
+			}
 			return image.Build(cmd.Context(), a, git.ProjectSlug(), image.BuildOptions{
 				Force: force, OpenCodeVersion: openCodeVersion,
 			}, ui)
@@ -336,8 +345,12 @@ func buildBuildCmd(ui termio.UI) *cobra.Command {
 	}
 	cmd.Flags().BoolP(flagRebuild, flagRebuild[:1], false, "Force a clean rebuild")
 	cmd.Flags().BoolP(flagDryRun, flagDryRunShort, false, "Dry run without building")
+	cmd.Flags().String(flagAgent, defaultAgentName, "Coding agent profile to build")
 	cmd.Flags().
-		String(flagOpenCodeVersion, "", "Pin the opencode version baked into the runner image (default: latest release)")
+		String(flagAgentVersion, "", "Pin the agent version baked into the runner image (default: latest release)")
+	cmd.Flags().
+		String(flagOpenCodeVersion, "", "Deprecated alias for --agent-version")
+	_ = cmd.Flags().MarkDeprecated(flagOpenCodeVersion, "use --agent-version instead")
 	return cmd
 }
 

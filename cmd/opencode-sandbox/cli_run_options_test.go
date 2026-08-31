@@ -8,6 +8,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/inoio/opencode-sandbox/internal/agent"
 	"github.com/inoio/opencode-sandbox/internal/configpaths"
 	"github.com/inoio/opencode-sandbox/internal/sandbox/network"
 	"github.com/inoio/opencode-sandbox/internal/sandbox/options"
@@ -375,5 +376,76 @@ func TestExtractRunOptionsNetworkInvalid(t *testing.T) {
 	cmd.SetContext(rootCtx)
 	if _, err := extractRunOptions(cmd, &termio.Mock{}); err == nil {
 		t.Fatal("expected error for invalid --network profile")
+	}
+}
+
+func TestExtractRunOptionsAgentDefault(t *testing.T) {
+	cmd := buildRunCmd(&termio.Mock{})
+	opts, err := extractRunOptions(cmd, &termio.Mock{})
+	if err != nil {
+		t.Fatalf("extractRunOptions: %v", err)
+	}
+	if opts.Agent != "opencode" {
+		t.Errorf("Agent = %q; want %q", opts.Agent, "opencode")
+	}
+}
+
+func TestExtractRunOptionsUnknownAgent(t *testing.T) {
+	cmd := buildRunCmd(&termio.Mock{})
+	if err := cmd.Flags().Set(flagAgent, "bogus"); err != nil {
+		t.Fatalf("set agent: %v", err)
+	}
+	_, err := extractRunOptions(cmd, &termio.Mock{})
+	if err == nil {
+		t.Fatal("expected error for unknown --agent")
+	}
+	if want := "unknown agent"; !strings.Contains(err.Error(), want) {
+		t.Errorf("error = %q; want to contain %q", err, want)
+	}
+}
+
+// noDaemonAgent is a minimal agent.Agent that intentionally does not implement
+// DaemonProvider, so validateAgentFlags can be exercised without polluting the
+// global agent registry.
+type noDaemonAgent struct{ name string }
+
+func (a noDaemonAgent) Name() string             { return a.name }
+func (noDaemonAgent) ConfigDirName() string      { return "nod" }
+func (noDaemonAgent) ImageSpec() agent.ImageSpec { return agent.ImageSpec{} }
+
+func TestValidateAgentFlagsRejectsNonDaemonWorktree(t *testing.T) {
+	a := noDaemonAgent{name: "nod"}
+	err := validateAgentFlags(a, options.RunOptions{Worktree: options.WorktreeSpec{Name: "x"}})
+	if err == nil {
+		t.Fatal("expected error for non-daemon agent with --worktree")
+	}
+	if want := `not supported by agent "nod"`; !strings.Contains(err.Error(), want) {
+		t.Errorf("error = %q; want to contain %q", err, want)
+	}
+}
+
+func TestValidateAgentFlagsRejectsNonDaemonServeOnly(t *testing.T) {
+	a := noDaemonAgent{name: "nod"}
+	err := validateAgentFlags(a, options.RunOptions{ServeOnly: true})
+	if err == nil {
+		t.Fatal("expected error for non-daemon agent with --serve-only")
+	}
+}
+
+func TestValidateAgentFlagsAllowsNonDaemonPlainRun(t *testing.T) {
+	a := noDaemonAgent{name: "nod"}
+	if err := validateAgentFlags(a, options.RunOptions{}); err != nil {
+		t.Fatalf("unexpected error for non-daemon agent plain run: %v", err)
+	}
+}
+
+func TestValidateAgentFlagsAllowsOpencodeWithDaemonFlags(t *testing.T) {
+	a, ok := agent.Lookup("opencode")
+	if !ok {
+		t.Fatal("opencode agent not found")
+	}
+	opts := options.RunOptions{Worktree: options.WorktreeSpec{Name: "x"}, ServeOnly: true}
+	if err := validateAgentFlags(a, opts); err != nil {
+		t.Fatalf("unexpected error for opencode with --worktree/--serve-only: %v", err)
 	}
 }

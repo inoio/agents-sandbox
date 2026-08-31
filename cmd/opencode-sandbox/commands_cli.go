@@ -204,6 +204,7 @@ func registerSharedRunShellFlags(cmd *cobra.Command) {
 	cmd.Flags().String(flagWorkspaceQuota, "16G", "Guest-write quota for the /workspace bind mount (e.g. 32G)")
 	cmd.Flags().
 		String(flagNetwork, "", "Network egress profile for the VM: public, private, host, or none (default public)")
+	cmd.Flags().String(flagAgent, defaultAgentName, "Coding agent profile to run")
 }
 
 func buildStopCmd(ui termio.UI) *cobra.Command {
