@@ -20,7 +20,13 @@ import (
 )
 
 func TestBuildMountsIncludesTmpfsAtTmp(t *testing.T) {
-	mounts := buildMounts("test-home-vol", "/repo/path", options.DefaultTmpSizeMiB, options.DefaultWorkspaceQuotaMiB)
+	mounts := buildMounts(
+		"test-home-vol",
+		"/repo/path",
+		options.DefaultTmpSizeMiB,
+		options.DefaultWorkspaceQuotaMiB,
+		nil,
+	)
 
 	tmpMount, ok := mounts[tmpMountPath]
 	if !ok {
@@ -38,7 +44,7 @@ func TestBuildMountsIncludesTmpfsAtTmp(t *testing.T) {
 }
 
 func TestBuildMountsRespectsCustomTmpSize(t *testing.T) {
-	mounts := buildMounts("test-home-vol", "/repo/path", 4096, options.DefaultWorkspaceQuotaMiB)
+	mounts := buildMounts("test-home-vol", "/repo/path", 4096, options.DefaultWorkspaceQuotaMiB, nil)
 
 	tmpMount := mounts[tmpMountPath]
 	if tmpMount.SizeMiB != 4096 {
@@ -47,7 +53,7 @@ func TestBuildMountsRespectsCustomTmpSize(t *testing.T) {
 }
 
 func TestBuildMountsSetsWorkspaceQuota(t *testing.T) {
-	mounts := buildMounts("test-home-vol", "/repo/path", options.DefaultTmpSizeMiB, 32*1024)
+	mounts := buildMounts("test-home-vol", "/repo/path", options.DefaultTmpSizeMiB, 32*1024, nil)
 
 	wsMount, ok := mounts[defaultTargetDir]
 	if !ok {
@@ -62,7 +68,13 @@ func TestBuildMountsSetsWorkspaceQuota(t *testing.T) {
 }
 
 func TestBuildMountsWorkspaceQuotaDefault(t *testing.T) {
-	mounts := buildMounts("test-home-vol", "/repo/path", options.DefaultTmpSizeMiB, options.DefaultWorkspaceQuotaMiB)
+	mounts := buildMounts(
+		"test-home-vol",
+		"/repo/path",
+		options.DefaultTmpSizeMiB,
+		options.DefaultWorkspaceQuotaMiB,
+		nil,
+	)
 
 	wsMount, ok := mounts[defaultTargetDir]
 	if !ok {
@@ -70,6 +82,63 @@ func TestBuildMountsWorkspaceQuotaDefault(t *testing.T) {
 	}
 	if wsMount.QuotaMiB != options.DefaultWorkspaceQuotaMiB {
 		t.Errorf("expected /workspace default quota %d MiB, got %d", options.DefaultWorkspaceQuotaMiB, wsMount.QuotaMiB)
+	}
+}
+
+func TestBuildMountsIncludesConfiguredBindMount(t *testing.T) {
+	mounts := buildMounts(
+		"test-home-vol",
+		"/repo/path",
+		options.DefaultTmpSizeMiB,
+		options.DefaultWorkspaceQuotaMiB,
+		options.Mounts{
+			"/home/dev/.m2": {Source: "/host/home/.m2"},
+			"/home/dev/ref": {Source: "/host/ref", Readonly: true},
+		},
+	)
+
+	m2, ok := mounts["/home/dev/.m2"]
+	if !ok {
+		t.Fatalf("expected configured .m2 bind mount, got %v", mounts)
+	}
+	if m2.Kind() != msbSdk.MountKindBind {
+		t.Errorf("expected a bind mount, got kind %d", m2.Kind())
+	}
+	if m2.Bind != "/host/home/.m2" {
+		t.Errorf("bind source = %q, want /host/home/.m2", m2.Bind)
+	}
+	if m2.Readonly {
+		t.Error("expected .m2 to be writable")
+	}
+
+	ref, ok := mounts["/home/dev/ref"]
+	if !ok {
+		t.Fatal("expected configured readonly bind mount")
+	}
+	if !ref.Readonly {
+		t.Error("expected readonly to be propagated to the mount config")
+	}
+}
+
+// TestBuildMountsKeepsManagedMounts ensures configured mounts are additive and
+// never replace the managed home/workspace/tmp mounts.
+func TestBuildMountsKeepsManagedMounts(t *testing.T) {
+	mounts := buildMounts(
+		"test-home-vol",
+		"/repo/path",
+		options.DefaultTmpSizeMiB,
+		options.DefaultWorkspaceQuotaMiB,
+		options.Mounts{"/home/dev/.m2": {Source: "/host/.m2"}},
+	)
+
+	if home, ok := mounts[options.VMHomeDir]; !ok || home.Named != "test-home-vol" {
+		t.Errorf("managed home mount altered: %+v", mounts[options.VMHomeDir])
+	}
+	if ws, ok := mounts[defaultTargetDir]; !ok || ws.Bind != "/repo/path" {
+		t.Errorf("managed workspace mount altered: %+v", mounts[defaultTargetDir])
+	}
+	if tmp, ok := mounts[tmpMountPath]; !ok || tmp.Kind() != msbSdk.MountKindTmpfs {
+		t.Errorf("managed tmp mount altered: %+v", mounts[tmpMountPath])
 	}
 }
 

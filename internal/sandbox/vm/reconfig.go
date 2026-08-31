@@ -168,15 +168,19 @@ func decideReconfig(
 	envHasChanged := reprovision.EnvChanged(hs.EnvState, desiredEnv)
 	secretsHasChanged := reprovision.SecretsChanged(hs.SecretState, desiredSecrets)
 	networkHasChanged := reprovision.NetworkChanged(hs.NetworkState, opts.Network)
+	mountsHaveChanged := reprovision.MountsChanged(hs.MountState, opts.Mounts)
 
 	plan := reprovision.PlanReconfig(
 		curCfg,
 		imageRef,
 		opts,
-		envHasChanged,
-		secretsHasChanged,
-		networkHasChanged,
-		opencfgChanged,
+		reprovision.ChangeFlags{
+			Env:            envHasChanged,
+			Secrets:        secretsHasChanged,
+			Network:        networkHasChanged,
+			Mounts:         mountsHaveChanged,
+			OpenCodeConfig: opencfgChanged,
+		},
 		homeVol,
 	)
 	otherClients := state.CountActiveClients(slug)

@@ -535,3 +535,93 @@ func TestPrepareSandboxWarnsWhenRecordingVersionFails(t *testing.T) {
 		t.Errorf("expected a version-recording warning, got %v", ui.WarnCalls)
 	}
 }
+
+// TestPrepareSandboxPersistsMountFingerprintOnVMCreation verifies that a
+// freshly created project VM records the configured bind mounts in the state
+// file. Without this fingerprint the next run would compare against an empty
+// state, report a mount change and recreate the VM on every startup.
+func TestPrepareSandboxPersistsMountFingerprintOnVMCreation(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+
+	sandboximage.WithMockOpenCodeVersionResolver(t, func(_ context.Context, req string) (string, error) {
+		return req, nil
+	})
+	origUpgradeInfo := openCodeUpgradeInfo
+	openCodeUpgradeInfo = func(_ context.Context) (string, error) { return "1.5.0", nil }
+	t.Cleanup(func() { openCodeUpgradeInfo = origUpgradeInfo })
+	if err := saveUpgradeState(upgradeState{CurrentVersion: "1.5.0"}); err != nil {
+		t.Fatalf("saveUpgradeState: %v", err)
+	}
+
+	docker.WithDockerMock(t, &docker.MockDockerClient{
+		ImageBuildFn: func(_ context.Context, _ io.Reader, _ client.ImageBuildOptions) (client.ImageBuildResult, error) {
+			return client.ImageBuildResult{Body: io.NopCloser(strings.NewReader(""))}, nil
+		},
+		ImageInspectFn: func(_ context.Context, _ string, _ ...client.ImageInspectOption) (client.ImageInspectResult, error) {
+			return client.ImageInspectResult{
+				InspectResponse: mobyimage.InspectResponse{
+					ID: "sha256:abc123",
+					Config: &dockerspec.DockerOCIImageConfig{
+						ImageConfig: ocispec.ImageConfig{
+							Labels: map[string]string{sandboximage.OpenCodeVersionLabel: "1.5.0"},
+						},
+					},
+				},
+			}, nil
+		},
+	})
+
+	slug := git.ProjectSlug()
+	vmFS := msb.NewTestFS(nil, nil)
+	createdSb := &msb.MockSandbox{Name_: projectVMName(slug), FSValue_: vmFS, ShellOut: map[string]msb.ShellResult{
+		dockerdBinaryCheckCmd: msb.NewTestResult(false, 1, "", "", nil),
+	}}
+	// No sandbox handle is registered, so GetSandbox reports "not found" and
+	// PrepareSandbox takes the create path (boot == vmBootCreated).
+	mock := &msb.MockMsbClient{
+		ImageGetFn:     func(_ context.Context, _ string) error { return nil },
+		CreatedSandbox: createdSb,
+		Volumes:        []msb.VolumeHandle{&msb.MockVolumeHandle{Name_: "home-vol"}},
+	}
+	msb.WithMsbMock(t, mock)
+
+	if err := state.WriteState(slug, state.HomeState{
+		HomeVolume:  "home-vol",
+		ImageDigest: "sha256:abc123",
+	}); err != nil {
+		t.Fatalf("WriteState: %v", err)
+	}
+
+	origDaemon := SetDaemonShellFunc(func(_ context.Context, _ msb.Sandbox, command string) (string, int, error) {
+		if command == "curl -sfm2 "+daemonHealthURL {
+			return `{"healthy":true,"version":"test"}`, 0, nil
+		}
+		return "", 0, nil
+	})
+	defer SetDaemonShellFunc(origDaemon)
+
+	mounts := options.Mounts{
+		"/home/dev/.m2": {Source: filepath.Join(t.TempDir(), "m2")},
+	}
+	ui := termio.NewTestMock(t)
+	sess, err := PrepareSandbox(context.Background(), options.RunOptions{Mounts: mounts}, &ui)
+	if err != nil {
+		t.Fatalf("PrepareSandbox: %v", err)
+	}
+	defer sess.Cleanup()
+
+	if len(mock.CreatedSandboxes) != 1 {
+		t.Fatalf("expected the project VM to be created, got %d creations", len(mock.CreatedSandboxes))
+	}
+
+	st, err := state.ReadState(slug)
+	if err != nil {
+		t.Fatalf("ReadState: %v", err)
+	}
+	if st.MountState.Hash != options.Fingerprint(mounts) {
+		t.Errorf("MountState.Hash = %q, want %q", st.MountState.Hash, options.Fingerprint(mounts))
+	}
+	if len(st.MountState.Names) != 1 || st.MountState.Names[0] != "/home/dev/.m2" {
+		t.Errorf("MountState.Names = %v, want [/home/dev/.m2]", st.MountState.Names)
+	}
+}

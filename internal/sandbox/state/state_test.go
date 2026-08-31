@@ -215,3 +215,31 @@ func TestHomeState_ZeroEnvSecretOmitted(t *testing.T) {
 		t.Error("expected secret_state to be omitted from YAML when zero")
 	}
 }
+
+func TestWriteAndReadState_MountRoundTrip(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	slug := "mountproj-abc123"
+
+	input := HomeState{
+		HomeVolume:  "opencode-sandbox-home-mountproj",
+		ImageDigest: "sha256:feedface",
+		MountState: MountState{
+			Hash:  "sha256:mounthash",
+			Names: []string{"/home/dev/.m2"},
+		},
+	}
+	if err := WriteState(slug, input); err != nil {
+		t.Fatalf("WriteState: %v", err)
+	}
+
+	result, err := ReadState(slug)
+	if err != nil {
+		t.Fatalf("ReadState: %v", err)
+	}
+	if result.MountState.Hash != input.MountState.Hash {
+		t.Errorf("MountState.Hash = %q, want %q", result.MountState.Hash, input.MountState.Hash)
+	}
+	if len(result.MountState.Names) != 1 || result.MountState.Names[0] != "/home/dev/.m2" {
+		t.Errorf("MountState.Names = %v, want [/home/dev/.m2]", result.MountState.Names)
+	}
+}

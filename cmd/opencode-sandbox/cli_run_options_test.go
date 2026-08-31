@@ -377,3 +377,49 @@ func TestExtractRunOptionsNetworkInvalid(t *testing.T) {
 		t.Fatal("expected error for invalid --network profile")
 	}
 }
+
+// Configured mounts are resolved into RunOptions, keyed by guest path.
+func TestExtractRunOptionsResolvesMounts(t *testing.T) {
+	ui := &termio.Mock{}
+	source := t.TempDir()
+	lc := launcherconfig.Config{Mounts: options.Mounts{
+		"/home/dev/.m2": {Source: source},
+	}}
+	cmd := buildCommandWithLauncherConfig(ui, lc)
+
+	opts, err := extractRunOptions(cmd, ui)
+	if err != nil {
+		t.Fatalf("extractRunOptions: %v", err)
+	}
+	mount, ok := opts.Mounts["/home/dev/.m2"]
+	if !ok {
+		t.Fatalf("Mounts = %+v; want a /home/dev/.m2 entry", opts.Mounts)
+	}
+	if mount.Source != source {
+		t.Errorf("Source = %q; want %q", mount.Source, source)
+	}
+}
+
+// An invalid mount must fail the command rather than silently starting a VM
+// without the mount.
+func TestExtractRunOptionsRejectsInvalidMount(t *testing.T) {
+	cases := []struct {
+		name  string
+		mount options.Mounts
+	}{
+		{"missing source", options.Mounts{"/home/dev/.m2": {Source: "/definitely/not/here"}}},
+		{"reserved target", options.Mounts{"/workspace": {Source: "/tmp"}}},
+		{"relative target", options.Mounts{"relative": {Source: "/tmp"}}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			ui := &termio.Mock{}
+			lc := launcherconfig.Config{Mounts: tc.mount}
+			cmd := buildCommandWithLauncherConfig(ui, lc)
+
+			if _, err := extractRunOptions(cmd, ui); err == nil {
+				t.Fatal("expected extractRunOptions to fail")
+			}
+		})
+	}
+}

@@ -13,7 +13,7 @@ import (
 	"github.com/inoio/opencode-sandbox/internal/termio"
 )
 
-const defaultTargetDir = "/workspace"
+const defaultTargetDir = options.WorkspaceMountPath
 
 type worktreeResponse struct {
 	Directory string `json:"directory"`

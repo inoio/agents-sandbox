@@ -50,6 +50,10 @@ func extractRunOptions(cmd *cobra.Command, ui termio.UI) (options.RunOptions, er
 		opts.WorkspaceQuota = r.WorkspaceQuota()
 		opts.ReapPolicy = options.NewReapPolicy(r.AutoStopOnActiveSessions(), r.AutoStopMaxSessionRetries())
 		opts.IdleTimeout = r.IdleTimeout()
+		opts.Mounts, err = options.ResolveBindMounts(r.Mounts())
+		if err != nil {
+			return options.RunOptions{}, err
+		}
 	}
 
 	// CLI flag wins over resolver/env/config; otherwise use the resolver's

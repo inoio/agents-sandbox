@@ -36,10 +36,7 @@ func TestPlanReconfigServeOnly(t *testing.T) {
 				cfg,
 				"img",
 				options.RunOptions{ServeOnly: tt.serveOnly},
-				false,
-				false,
-				false,
-				false,
+				ChangeFlags{},
 				"",
 			)
 			if plan.Recreate != tt.wantRecreate {
@@ -68,10 +65,7 @@ func TestPlanReconfigTriggersRecreateOnImageChange(t *testing.T) {
 		cfg,
 		"opencode-sandbox/runner-proj:oldhash",
 		options.RunOptions{},
-		false,
-		false,
-		false,
-		false,
+		ChangeFlags{},
 		"",
 	)
 	if planSame.Recreate {
@@ -82,10 +76,7 @@ func TestPlanReconfigTriggersRecreateOnImageChange(t *testing.T) {
 		cfg,
 		"opencode-sandbox/runner-proj:newhash",
 		options.RunOptions{},
-		false,
-		false,
-		false,
-		false,
+		ChangeFlags{},
 		"",
 	)
 	if !planNew.Recreate {
@@ -126,7 +117,7 @@ func TestDesiredPublishBindingsNilWhenNotServeOnly(t *testing.T) {
 func TestPlanReconfigNetworkChangeTriggersRecreate(t *testing.T) {
 	cfg := &msbSdk.SandboxConfig{}
 	opts := options.RunOptions{}
-	plan := PlanReconfig(cfg, "img", opts, false, false, true, false, "")
+	plan := PlanReconfig(cfg, "img", opts, ChangeFlags{Network: true}, "")
 	if !plan.Recreate {
 		t.Fatal("expected Recreate when network policy changes")
 	}
@@ -135,7 +126,7 @@ func TestPlanReconfigNetworkChangeTriggersRecreate(t *testing.T) {
 func TestPlanReconfigNetworkSameNoRecreate(t *testing.T) {
 	cfg := &msbSdk.SandboxConfig{}
 	opts := options.RunOptions{}
-	plan := PlanReconfig(cfg, "img", opts, false, false, false, false, "")
+	plan := PlanReconfig(cfg, "img", opts, ChangeFlags{}, "")
 	if plan.Recreate {
 		t.Fatal("expected no Recreate when network policy is unchanged")
 	}
@@ -148,7 +139,7 @@ func TestPlanReconfigHomeVolumeChangeTriggersRecreate(t *testing.T) {
 			VMHomeDir: {Named: "opencode-sandbox-home-proj-old"},
 		},
 	}
-	plan := PlanReconfig(cfg, "img", options.RunOptions{}, false, false, false, false,
+	plan := PlanReconfig(cfg, "img", options.RunOptions{}, ChangeFlags{},
 		"opencode-sandbox-home-proj-new")
 	if !plan.Recreate {
 		t.Fatal("expected Recreate when the desired home volume differs from the mounted one")
@@ -172,7 +163,7 @@ func TestPlanReconfigHomeVolumeSameNoRecreate(t *testing.T) {
 			VMHomeDir: {Named: "opencode-sandbox-home-proj-vol"},
 		},
 	}
-	plan := PlanReconfig(cfg, "img", options.RunOptions{}, false, false, false, false,
+	plan := PlanReconfig(cfg, "img", options.RunOptions{}, ChangeFlags{},
 		"opencode-sandbox-home-proj-vol")
 	if plan.Recreate {
 		t.Fatal("expected no Recreate when the mounted home volume matches the desired one")
@@ -180,9 +171,41 @@ func TestPlanReconfigHomeVolumeSameNoRecreate(t *testing.T) {
 }
 
 func TestPlanReconfigNilCfgHomeVolumeSafe(t *testing.T) {
-	plan := PlanReconfig(nil, "img", options.RunOptions{}, false, false, false, false,
+	plan := PlanReconfig(nil, "img", options.RunOptions{}, ChangeFlags{},
 		"opencode-sandbox-home-proj-vol")
 	if plan.Recreate {
 		t.Fatal("expected no Recreate for a nil config (fresh VM creation)")
+	}
+}
+
+func TestPlanReconfigMountsChangeTriggersRecreate(t *testing.T) {
+	cfg := &msbSdk.SandboxConfig{}
+	plan := PlanReconfig(cfg, "img", options.RunOptions{}, ChangeFlags{Mounts: true}, "")
+	if !plan.Recreate {
+		t.Fatal("expected Recreate when host bind mounts change")
+	}
+	found := false
+	for _, c := range plan.Changes {
+		if c.Label == changeLabelBindMounts {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("expected a %q change label, got %+v", changeLabelBindMounts, plan.Changes)
+	}
+}
+
+// TestPlanReconfigMountsUnchangedNoRecreate guards the regression where the
+// plan was derived from cfg.Volumes, which the SDK never populates when
+// reading an existing VM back: every run would then rebuild the VM.
+func TestPlanReconfigMountsUnchangedNoRecreate(t *testing.T) {
+	cfg := &msbSdk.SandboxConfig{}
+	opts := options.RunOptions{Mounts: options.Mounts{
+		"/home/dev/.m2": {Source: "/host/.m2"},
+	}}
+	plan := PlanReconfig(cfg, "img", opts, ChangeFlags{}, "")
+	if plan.Recreate {
+		t.Fatalf("expected no Recreate for unchanged mounts, got %+v", plan.Changes)
 	}
 }

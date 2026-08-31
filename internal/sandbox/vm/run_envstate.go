@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/inoio/opencode-sandbox/internal/sandbox/network"
+	"github.com/inoio/opencode-sandbox/internal/sandbox/options"
 	"github.com/inoio/opencode-sandbox/internal/sandbox/reprovision"
 	"github.com/inoio/opencode-sandbox/internal/sandbox/state"
 )
@@ -33,5 +34,18 @@ func persistNetworkState(slug string, policy network.Policy) error {
 		}
 	}
 	st.NetworkState = reprovision.BuildNetworkState(policy)
+	return state.WriteState(slug, *st)
+}
+
+func persistMountState(slug string, mounts options.Mounts) error {
+	st, err := state.ReadState(slug)
+	if err != nil {
+		if errors.Is(err, state.ErrStateNotFound) {
+			st = new(state.HomeState)
+		} else {
+			return fmt.Errorf("read state for mount persistence: %w", err)
+		}
+	}
+	st.MountState = reprovision.BuildMountState(mounts)
 	return state.WriteState(slug, *st)
 }

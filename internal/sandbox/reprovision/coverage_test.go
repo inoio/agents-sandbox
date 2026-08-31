@@ -279,7 +279,7 @@ func TestDiskMiBOr0NilRootDisk(t *testing.T) {
 // formatting.
 func TestPlanReconfigDiskChangeWithNilRootDisk(t *testing.T) {
 	cfg := &msbSdk.SandboxConfig{Image: "img"}
-	plan := PlanReconfig(cfg, "img", options.RunOptions{DiskSize: "8G"}, false, false, false, false, "")
+	plan := PlanReconfig(cfg, "img", options.RunOptions{DiskSize: "8G"}, ChangeFlags{}, "")
 	if !plan.Recreate {
 		t.Fatal("expected recreate on disk size change with nil RootDisk")
 	}

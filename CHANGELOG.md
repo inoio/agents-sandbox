@@ -18,6 +18,7 @@ command reports the bare version (e.g. `0.1.0`).
 - Docs: New `Recipes` page with a hands-on how-to for connecting Opencode Desktop via `run --serve-only`; moved out of the README. The comparison matrix also names Docker Sandboxes and adds a "Why not just use Docker Sandboxes?" callout.
 - Docs: `Recipes` is now a parent overview page (with `has_children`); the Connect Opencode Desktop recipe lives on a nested child page, ready for more recipes to be added.
 - Docs: Sidebar submenus are expanded by default via a small script in `docs/_includes/head_custom.html`.
+- Configurable host-directory bind mounts (`mounts`), including `~/` source expansion and read-only mounts. Mount changes are tracked via a persisted fingerprint and recreate the project VM.
 
 ### Changed
 

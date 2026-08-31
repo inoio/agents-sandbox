@@ -74,12 +74,15 @@ func TestPersistConfigHashesWarnsOnError(t *testing.T) {
 	}
 	testutil.WriteFile(t, sdir, "state.yaml", "{ corrupted: yaml: [")
 
-	persistConfigHashes(slug, network.Policy{Profile: network.ProfileNone}, &ui)
+	persistConfigHashes(slug, network.Policy{Profile: network.ProfileNone}, nil, &ui)
 
 	if !contains(joinStrings(ui.WarnCalls), "persisting env/secret fingerprints") {
 		t.Errorf("expected a warning about persisting env/secret fingerprints, got %v", ui.WarnCalls)
 	}
 	if !contains(joinStrings(ui.WarnCalls), "persisting network fingerprint") {
 		t.Errorf("expected a warning about persisting the network fingerprint, got %v", ui.WarnCalls)
+	}
+	if !contains(joinStrings(ui.WarnCalls), "persisting mount fingerprint") {
+		t.Errorf("expected a warning about persisting the mount fingerprint, got %v", ui.WarnCalls)
 	}
 }
