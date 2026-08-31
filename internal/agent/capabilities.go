@@ -25,11 +25,11 @@ type UpgradeChecker interface {
 	VersionCompare(a, b string) int
 }
 
-// ConfigMerger merges snippet files matching a pattern into one config document.
+// ConfigMerger exposes data consumed by the shared merge logic in
+// internal/opencodeconfig.BuildMerged.
 type ConfigMerger interface {
 	SnippetPattern() string
 	VMConfigPath(home string) string
-	BuildMerged(userDir, projectDir string) ([]byte, []string, bool, error)
 }
 
 // AttachRunner starts the client TUI/session.
