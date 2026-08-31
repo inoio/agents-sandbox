@@ -7,7 +7,7 @@ nav_order: 1
 
 ## What is opencode-sandbox?
 
-opencode-sandbox is a launcher that runs [opencode](https://github.com/anthropics/opencode) inside an isolated microsandbox
+opencode-sandbox is a launcher that runs [opencode](https://github.com/anomalyco/opencode) inside an isolated microsandbox
 VM powered by [microsandbox](https://github.com/superradcompany/microsandbox). Each project gets a persistent VM
 identified by its git remote URL — first boot creates a fresh VM, subsequent runs connect to or start the existing one.
 The VM has your project bound as `/workspace`, a persistent home directory volume, and access to a curated toolchain.
