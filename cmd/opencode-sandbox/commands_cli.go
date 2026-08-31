@@ -150,13 +150,16 @@ func runFunc(ui termio.UI) func(cmd *cobra.Command, args []string) error {
 	}
 }
 
+//nolint:gochecknoglobals // test seam for the otherwise hard-to-reach upgrade check
+var upgradeCheck = upgrade.Check
+
 // checkForUpgrade runs the self-upgrade check for the current version and
 // returns whether the caller should exit (an upgrade-and-exit was performed).
 func checkForUpgrade(ctx context.Context, r *launcherconfig.Resolver, ui termio.UI) (bool, error) {
 	if r == nil {
 		return false, nil
 	}
-	res, err := upgrade.Check(ctx, upgrade.Options{ //nolint:exhaustruct // StatePath/UpdateFunc use their defaults
+	res, err := upgradeCheck(ctx, upgrade.Options{ //nolint:exhaustruct // StatePath/UpdateFunc use their defaults
 		CurrentVersion: version,
 		Mode:           r.UpgradeMode(),
 		Interval:       r.UpgradeInterval(),

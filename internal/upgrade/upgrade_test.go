@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/inoio/opencode-sandbox/internal/configpaths"
 	"github.com/inoio/opencode-sandbox/internal/termio"
 )
 
@@ -509,5 +510,75 @@ func TestDownloadAssetNon200(t *testing.T) {
 	t.Cleanup(func() { downloadBase = orig })
 	if _, err := downloadAssetToDir(context.Background(), t.TempDir()); err == nil {
 		t.Fatal("expected error on non-200 download")
+	}
+}
+
+func TestCheckDefaultsIntervalAndStatePath(t *testing.T) {
+	// A zero Interval and empty StatePath exercise the default-resolution
+	// branches of Check, writing state to the mocked user state dir.
+	configpaths.WithMockConfigPaths(t)
+	serveLatest(t, "2.0.0", nil)
+	ui := termio.Mock{}
+	opts := Options{CurrentVersion: "1.0.0", Mode: ModeNotify, UI: &ui}
+	res, err := Check(context.Background(), opts)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !res.HasUpdate {
+		t.Fatalf("expected an update notification, got %+v", res)
+	}
+}
+
+func TestIsNewerInvalidLatest(t *testing.T) {
+	if _, err := isNewer("1.0.0", "not-a-version"); err == nil {
+		t.Fatal("expected error for invalid latest version")
+	}
+}
+
+func TestPromptSelectErrorContinues(t *testing.T) {
+	ui := termio.Mock{IsInteractiveResult: true}
+	ui.SelectFn = func(_ string, _ []termio.Choice, _ string) (string, error) {
+		return "", errors.New("boom")
+	}
+	if got := prompt(&ui, "1.0.0", "2.0.0"); got != actionContinue {
+		t.Fatalf("prompt on select error = %v, want actionContinue", got)
+	}
+}
+
+func TestUpgradeIsNewerError(t *testing.T) {
+	orig := LatestVersion
+	LatestVersion = func(context.Context) (string, error) { return "not-a-version", nil }
+	t.Cleanup(func() { LatestVersion = orig })
+	if err := Upgrade(context.Background(), &termio.Mock{}, "1.0.0"); err == nil {
+		t.Fatal("expected error when the latest version is unparsable")
+	}
+}
+
+func TestUpgradeUpdateError(t *testing.T) {
+	origLatest, origUpdate := LatestVersion, Update
+	LatestVersion = func(context.Context) (string, error) { return "2.0.0", nil }
+	Update = func(context.Context, string) error { return errors.New("boom") }
+	t.Cleanup(func() { LatestVersion, Update = origLatest, origUpdate })
+	if err := Upgrade(context.Background(), &termio.Mock{}, "1.0.0"); err == nil {
+		t.Fatal("expected error when the install fails")
+	}
+}
+
+func TestDownloadAssetNetworkError(t *testing.T) {
+	orig := downloadBase
+	downloadBase = "http://127.0.0.1:1"
+	t.Cleanup(func() { downloadBase = orig })
+	if _, err := downloadAssetToDir(context.Background(), t.TempDir()); err == nil {
+		t.Fatal("expected error on unreachable download endpoint")
+	}
+}
+
+func TestExecutablePath(t *testing.T) {
+	path, err := executablePath()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if path == "" {
+		t.Fatal("expected a non-empty executable path")
 	}
 }
