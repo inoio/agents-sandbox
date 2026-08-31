@@ -9,6 +9,7 @@ import (
 	"github.com/moby/moby/api/types/image"
 	"github.com/moby/moby/client"
 
+	"github.com/inoio/opencode-sandbox/internal/agent"
 	"github.com/inoio/opencode-sandbox/internal/configpaths"
 	"github.com/inoio/opencode-sandbox/internal/sandbox/docker"
 	"github.com/inoio/opencode-sandbox/internal/sandbox/msb"
@@ -18,6 +19,7 @@ import (
 func TestEnsureImageSuccess(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	WithMockOpenCodeVersion(t, "1.2.3")
+	a, _ := agent.Lookup("opencode")
 	docker.WithDockerMock(t, &docker.MockDockerClient{
 		ImageInspectFn: func(_ context.Context, _ string, _ ...client.ImageInspectOption) (client.ImageInspectResult, error) {
 			return client.ImageInspectResult{
@@ -29,7 +31,7 @@ func TestEnsureImageSuccess(t *testing.T) {
 		},
 	})
 
-	info, err := EnsureImage(context.Background(), "test-project", BuildOptions{}, &termio.Mock{})
+	info, err := EnsureImage(context.Background(), a, "test-project", BuildOptions{}, &termio.Mock{})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -44,10 +46,12 @@ func TestEnsureImageSuccess(t *testing.T) {
 func TestEnsureImageReturnsError(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	WithMockOpenCodeVersion(t, "1.2.3")
+	a, _ := agent.Lookup("opencode")
 	docker.WithDefaultErrorDockerMock(t)
 
 	_, err := EnsureImage(
 		context.Background(),
+		a,
 		"test-project",
 		BuildOptions{Force: true},
 		&termio.Mock{},
@@ -60,6 +64,7 @@ func TestEnsureImageReturnsError(t *testing.T) {
 func TestBuildSuccess(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	WithMockOpenCodeVersion(t, "1.2.3")
+	a, _ := agent.Lookup("opencode")
 	docker.WithDockerMock(t, &docker.MockDockerClient{
 		ImageInspectFn: func(_ context.Context, _ string, _ ...client.ImageInspectOption) (client.ImageInspectResult, error) {
 			return client.ImageInspectResult{
@@ -78,7 +83,7 @@ func TestBuildSuccess(t *testing.T) {
 	}
 	msb.WithMsbMock(t, msbClient)
 
-	if err := Build(context.Background(), "test-project", BuildOptions{}, &termio.Mock{}); err != nil {
+	if err := Build(context.Background(), a, "test-project", BuildOptions{}, &termio.Mock{}); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if len(msbClient.LoadedImages) != 1 {
@@ -89,10 +94,11 @@ func TestBuildSuccess(t *testing.T) {
 func TestBuildReturnsErrorWhenImageBuildFails(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	WithMockOpenCodeVersion(t, "1.2.3")
+	a, _ := agent.Lookup("opencode")
 	docker.WithDefaultErrorDockerMock(t)
 	msb.WithMsbMock(t, &msb.MockMsbClient{})
 
-	if err := Build(context.Background(), "test-project", BuildOptions{Force: true}, &termio.Mock{}); err == nil {
+	if err := Build(context.Background(), a, "test-project", BuildOptions{Force: true}, &termio.Mock{}); err == nil {
 		t.Error("expected Build to return an error when image build fails")
 	}
 }
@@ -100,6 +106,7 @@ func TestBuildReturnsErrorWhenImageBuildFails(t *testing.T) {
 func TestBuildReturnsErrorWhenLoadFails(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	WithMockOpenCodeVersion(t, "1.2.3")
+	a, _ := agent.Lookup("opencode")
 	docker.WithDockerMock(t, &docker.MockDockerClient{
 		ImageInspectFn: func(_ context.Context, _ string, _ ...client.ImageInspectOption) (client.ImageInspectResult, error) {
 			return client.ImageInspectResult{
@@ -117,7 +124,7 @@ func TestBuildReturnsErrorWhenLoadFails(t *testing.T) {
 		ImageGetFn: func(_ context.Context, _ string) error { return errors.New("not cached") },
 	})
 
-	if err := Build(context.Background(), "test-project", BuildOptions{}, &termio.Mock{}); err == nil {
+	if err := Build(context.Background(), a, "test-project", BuildOptions{}, &termio.Mock{}); err == nil {
 		t.Error("expected Build to return an error when loading the image into microsandbox fails")
 	}
 }

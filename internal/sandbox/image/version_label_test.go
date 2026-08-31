@@ -6,14 +6,21 @@ func TestParseImageVersion(t *testing.T) {
 	got := parseImageVersion(map[string]string{
 		OpenCodeVersionLabel: "1.2.3",
 		"other":              "x",
-	})
+	}, OpenCodeVersionLabel)
 	if got != "1.2.3" {
 		t.Errorf("parseImageVersion = %q, want %q", got, "1.2.3")
 	}
 }
 
 func TestParseImageVersionMissing(t *testing.T) {
-	if got := parseImageVersion(nil); got != "" {
+	if got := parseImageVersion(nil, OpenCodeVersionLabel); got != "" {
 		t.Errorf("parseImageVersion(nil) = %q, want empty", got)
+	}
+}
+
+func TestParseImageVersionUsesGivenLabel(t *testing.T) {
+	got := parseImageVersion(map[string]string{"custom.label": "9.9.9"}, "custom.label")
+	if got != "9.9.9" {
+		t.Errorf("parseImageVersion with custom label = %q, want %q", got, "9.9.9")
 	}
 }

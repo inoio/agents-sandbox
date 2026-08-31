@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	"github.com/inoio/opencode-sandbox/internal/agent"
 	"github.com/inoio/opencode-sandbox/internal/opencode"
 )
 
@@ -20,6 +21,16 @@ var resolveOpenCodeVersion = func(ctx context.Context, requested string) (string
 		return requested, nil
 	}
 	return LatestOpenCodeVersion(ctx)
+}
+
+// resolveAgentVersion returns the requested version when non-empty, otherwise
+// resolves the latest release for the agent. Agents without an UpgradeChecker
+// fall back to the requested (or empty) version.
+func resolveAgentVersion(ctx context.Context, a agent.Agent, requested string) (string, error) {
+	if _, ok := agent.AsUpgradeChecker(a); ok {
+		return resolveOpenCodeVersion(ctx, requested)
+	}
+	return requested, nil
 }
 
 // WithMockOpenCodeVersion redirects the image package's opencode version

@@ -17,6 +17,7 @@ import (
 	"github.com/moby/moby/client"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 
+	"github.com/inoio/opencode-sandbox/internal/agent"
 	"github.com/inoio/opencode-sandbox/internal/opencode"
 
 	"github.com/inoio/opencode-sandbox/internal/configpaths"
@@ -135,7 +136,8 @@ func TestBuildDockerImageSetsHostUserBuildArgs(t *testing.T) {
 	}
 	docker.WithDockerMock(t, m)
 
-	if err := buildImage(context.Background(), dockerfile, "tag", false, "", func(string) {}); err != nil {
+	a, _ := agent.Lookup("opencode")
+	if err := buildImage(context.Background(), a, dockerfile, "tag", false, "", func(string) {}); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
@@ -150,15 +152,16 @@ func TestBuildDockerImageSetsHostUserBuildArgs(t *testing.T) {
 }
 
 func TestEmbeddedBaseDockerfileBakesVersionLabelAndDisablesAutoupdate(t *testing.T) {
-	base := string(embeddedDockerfile)
+	a, _ := agent.Lookup("opencode")
+	base := string(DockerfileFromImageSpec(a.ImageSpec()))
 	if !strings.Contains(base, `LABEL org.opencode-sandbox.opencode-version="$OPENCODE_VERSION"`) {
-		t.Error("base Dockerfile must label org.opencode-sandbox.opencode-version with $OPENCODE_VERSION")
+		t.Error("rendered Dockerfile must label org.opencode-sandbox.opencode-version with $OPENCODE_VERSION")
 	}
 	if !strings.Contains(base, "OPENCODE_DISABLE_AUTOUPDATE=true") {
-		t.Error("base Dockerfile must set ENV OPENCODE_DISABLE_AUTOUPDATE=true")
+		t.Error("rendered Dockerfile must set ENV OPENCODE_DISABLE_AUTOUPDATE=true")
 	}
 	if !strings.Contains(base, "--version \"$OPENCODE_VERSION\"") {
-		t.Error("base Dockerfile must install opencode with the pinned version")
+		t.Error("rendered Dockerfile must install opencode with the pinned version")
 	}
 	dind := string(embeddedDindDockerfile)
 	if !strings.Contains(dind, "ARG OPENCODE_VERSION") {
@@ -221,10 +224,12 @@ func TestScanBuildOutputReturnsErrorMessage(t *testing.T) {
 }
 
 func TestEnsureImageReturnsErrorWhenBuildFails(t *testing.T) {
+	a, _ := agent.Lookup("opencode")
 	l := &termio.Mock{}
 	docker.WithDefaultErrorDockerMock(t)
 	_, err := EnsureImageWithClient(
 		context.Background(),
+		a,
 		embeddedDockerfile,
 		"test-project",
 		BuildOptions{Force: true},
@@ -297,6 +302,7 @@ func TestEnsureImageDoesNotBuildDindOnForceWithoutReference(t *testing.T) {
 func runEnsureImageTagTest(t *testing.T, dockerfile []byte, force bool, wantTags []string) {
 	t.Helper()
 	configpaths.WithMockConfigPaths(t)
+	a, _ := agent.Lookup("opencode")
 	m := &docker.MockDockerClient{}
 	var builtTags []string
 	m.ImageBuildFn = func(_ context.Context, _ io.Reader, opts client.ImageBuildOptions) (client.ImageBuildResult, error) {
@@ -311,6 +317,7 @@ func runEnsureImageTagTest(t *testing.T, dockerfile []byte, force bool, wantTags
 
 	_, err := EnsureImageWithClient(
 		context.Background(),
+		a,
 		dockerfile,
 		"test-project",
 		BuildOptions{Force: force},
@@ -325,6 +332,7 @@ func runEnsureImageTagTest(t *testing.T, dockerfile []byte, force bool, wantTags
 }
 
 func TestEnsureImageDoesNotCreateDigestAliasTag(t *testing.T) {
+	a, _ := agent.Lookup("opencode")
 	configpaths.WithMockConfigPaths(t)
 	var tagged []string
 	m := &docker.MockDockerClient{
@@ -341,6 +349,7 @@ func TestEnsureImageDoesNotCreateDigestAliasTag(t *testing.T) {
 	dockerfile := []byte("FROM debian:trixie-slim\nRUN echo hi\n")
 	_, err := EnsureImageWithClient(
 		context.Background(),
+		a,
 		dockerfile,
 		"test-project",
 		BuildOptions{},
@@ -355,6 +364,7 @@ func TestEnsureImageDoesNotCreateDigestAliasTag(t *testing.T) {
 }
 
 func TestEnsureImageDoesNotLoadIntoMSB(t *testing.T) {
+	a, _ := agent.Lookup("opencode")
 	configpaths.WithMockConfigPaths(t)
 	docker.WithDockerMock(t, &docker.MockDockerClient{
 		ImageInspectFn: func(_ context.Context, _ string, _ ...client.ImageInspectOption) (client.ImageInspectResult, error) {
@@ -374,6 +384,7 @@ func TestEnsureImageDoesNotLoadIntoMSB(t *testing.T) {
 	dockerfile := []byte("FROM opencode-sandbox/runner-base:latest\nRUN echo hi\n")
 	_, err := EnsureImageWithClient(
 		context.Background(),
+		a,
 		dockerfile,
 		"test-project",
 		BuildOptions{Force: false},
@@ -388,6 +399,7 @@ func TestEnsureImageDoesNotLoadIntoMSB(t *testing.T) {
 }
 
 func TestBuildImagePassesOpenCodeVersionBuildArg(t *testing.T) {
+	a, _ := agent.Lookup("opencode")
 	configpaths.WithMockConfigPaths(t)
 	orig := resolveOpenCodeVersion
 	resolveOpenCodeVersion = func(_ context.Context, requested string) (string, error) {
@@ -405,6 +417,7 @@ func TestBuildImagePassesOpenCodeVersionBuildArg(t *testing.T) {
 
 	_, err := EnsureImageWithClient(
 		context.Background(),
+		a,
 		[]byte("FROM "+naming.BaseTag+":latest\nRUN echo hi\n"),
 		"test-project",
 		BuildOptions{Force: true, OpenCodeVersion: "1.2.3"},
@@ -423,6 +436,7 @@ func TestBuildImagePassesOpenCodeVersionBuildArg(t *testing.T) {
 }
 
 func TestEnsureImageReadsVersionAndEnvFromDocker(t *testing.T) {
+	a, _ := agent.Lookup("opencode")
 	configpaths.WithMockConfigPaths(t)
 	orig := resolveOpenCodeVersion
 	resolveOpenCodeVersion = func(_ context.Context, _ string) (string, error) {
@@ -447,6 +461,7 @@ func TestEnsureImageReadsVersionAndEnvFromDocker(t *testing.T) {
 
 	info, err := EnsureImageWithClient(
 		context.Background(),
+		a,
 		[]byte("FROM debian:trixie-slim\nRUN echo hi\n"),
 		"test-project",
 		BuildOptions{Force: false},
@@ -467,6 +482,7 @@ func TestEnsureImageReadsVersionAndEnvFromDocker(t *testing.T) {
 }
 
 func TestEnsureImageReturnsDigestImageRefAsTag(t *testing.T) {
+	a, _ := agent.Lookup("opencode")
 	configpaths.WithMockConfigPaths(t)
 	docker.WithDockerMock(t, &docker.MockDockerClient{
 		ImageInspectFn: func(_ context.Context, _ string, _ ...client.ImageInspectOption) (client.ImageInspectResult, error) {
@@ -482,6 +498,7 @@ func TestEnsureImageReturnsDigestImageRefAsTag(t *testing.T) {
 	})
 	info, err := EnsureImageWithClient(
 		context.Background(),
+		a,
 		[]byte("FROM debian:trixie-slim\nRUN echo hi\n"),
 		"test-project",
 		BuildOptions{Force: false},
@@ -497,6 +514,7 @@ func TestEnsureImageReturnsDigestImageRefAsTag(t *testing.T) {
 }
 
 func TestEnsureImageReadsVersionFromDocker(t *testing.T) {
+	a, _ := agent.Lookup("opencode")
 	configpaths.WithMockConfigPaths(t)
 	orig := resolveOpenCodeVersion
 	resolveOpenCodeVersion = func(_ context.Context, _ string) (string, error) {
@@ -519,6 +537,7 @@ func TestEnsureImageReadsVersionFromDocker(t *testing.T) {
 
 	info, err := EnsureImageWithClient(
 		context.Background(),
+		a,
 		[]byte("FROM debian:trixie-slim\nRUN echo hi\n"),
 		"test-project",
 		BuildOptions{Force: false},

@@ -2,8 +2,10 @@ package image
 
 import (
 	"os"
+	"strings"
 	"testing"
 
+	"github.com/inoio/opencode-sandbox/internal/agent"
 	"github.com/inoio/opencode-sandbox/internal/configpaths"
 	"github.com/inoio/opencode-sandbox/internal/testutil"
 )
@@ -15,6 +17,17 @@ func TestResolveDockerfile_ProjectFile(t *testing.T) {
 
 	if got := string(ResolveDockerfile()); got != content {
 		t.Errorf("ResolveDockerfile() = %q, want %q", got, content)
+	}
+}
+
+func TestDockerfileFromImageSpecOpencode(t *testing.T) {
+	a, _ := agent.Lookup("opencode")
+	out := DockerfileFromImageSpec(a.ImageSpec())
+	s := string(out)
+	for _, want := range []string{"ARG OPENCODE_VERSION", "org.opencode-sandbox.opencode-version", "OPENCODE_DISABLE_AUTOUPDATE", "curl -fsSL https://opencode.ai/install"} {
+		if !strings.Contains(s, want) {
+			t.Errorf("generated Dockerfile missing %q", want)
+		}
 	}
 }
 

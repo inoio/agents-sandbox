@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/inoio/opencode-sandbox/internal/agent"
 	"github.com/inoio/opencode-sandbox/internal/configpaths"
 	"github.com/inoio/opencode-sandbox/internal/git"
 	"github.com/inoio/opencode-sandbox/internal/sandbox/image"
@@ -67,8 +68,10 @@ func PrepareSandbox(
 		return nil, err
 	}
 
+	a, _ := agent.Lookup("opencode")
 	imageInfo, err := image.EnsureImage(
 		ctx,
+		a,
 		projectSlug,
 		image.BuildOptions{Force: opts.Rebuild || shallUpgrade, OpenCodeVersion: openCodeVersion},
 		ui,

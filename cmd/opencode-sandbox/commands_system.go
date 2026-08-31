@@ -10,6 +10,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/inoio/opencode-sandbox/internal/agent"
 	"github.com/inoio/opencode-sandbox/internal/configpaths"
 	"github.com/inoio/opencode-sandbox/internal/git"
 	"github.com/inoio/opencode-sandbox/internal/homeconfig"
@@ -95,8 +96,10 @@ func buildVolumeOpsCmd(
 			projectSlug := git.ProjectSlug()
 			dryRun, _ := c.Flags().GetBool(flagDryRun)
 			rebuild, _ := c.Flags().GetBool(flagRebuild)
+			a, _ := agent.Lookup("opencode")
 			info, err := image.EnsureImage(
 				c.Context(),
+				a,
 				projectSlug,
 				image.BuildOptions{Force: rebuild, OpenCodeVersion: ""},
 				ui,
@@ -325,7 +328,8 @@ func buildBuildCmd(ui termio.UI) *cobra.Command {
 			if err := doctor.CheckDocker(cmd.Context()); err != nil {
 				return fmt.Errorf("docker not available: %w", err)
 			}
-			return image.Build(cmd.Context(), git.ProjectSlug(), image.BuildOptions{
+			a, _ := agent.Lookup("opencode")
+			return image.Build(cmd.Context(), a, git.ProjectSlug(), image.BuildOptions{
 				Force: force, OpenCodeVersion: openCodeVersion,
 			}, ui)
 		},

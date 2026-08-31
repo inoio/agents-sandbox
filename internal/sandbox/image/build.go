@@ -15,6 +15,7 @@ import (
 	"github.com/distribution/reference"
 	"github.com/moby/moby/client"
 
+	"github.com/inoio/opencode-sandbox/internal/agent"
 	"github.com/inoio/opencode-sandbox/internal/sandbox/docker"
 	"github.com/inoio/opencode-sandbox/internal/sandbox/msb"
 	"github.com/inoio/opencode-sandbox/internal/sandbox/naming"
@@ -37,6 +38,7 @@ type ImageInfo struct {
 	Tag             string
 	Digest          string
 	OpenCodeVersion string
+	AgentVersion    string
 	Env             map[string]string
 }
 
@@ -128,10 +130,11 @@ func nextField(s string) (string, string) {
 // separately from the msb image cache, not from Docker.
 func ensureRunnerImage(
 	ctx context.Context,
+	a agent.Agent,
 	dockerfile []byte,
 	projectSlug string,
 	force bool,
-	openCodeVersion string,
+	agentVersion string,
 	ui termio.UI,
 ) (string, string, error) {
 	rTag := runnerTag(projectSlug)
@@ -139,22 +142,23 @@ func ensureRunnerImage(
 	if !force {
 		imageDigest = inspectExistingImage(ctx, rTag, ui)
 	}
-	return buildRunnerImage(ctx, rTag, imageDigest, dockerfile, force, openCodeVersion, ui)
+	return buildRunnerImage(ctx, a, rTag, imageDigest, dockerfile, force, agentVersion, ui)
 }
 
 // buildDockerImage builds the given Dockerfile as a tag, wrapping the build
 // with a spinner and verbose output.
 func buildDockerImage(
 	ctx context.Context,
+	a agent.Agent,
 	dockerfile []byte,
 	tag, label string,
 	force bool,
-	openCodeVersion string,
+	agentVersion string,
 	ui termio.UI,
 ) error {
 	spinner := ui.Spinner(label)
 	line := func(s string) { ui.Verbose(s) }
-	if err := buildImage(ctx, dockerfile, tag, force, openCodeVersion, line); err != nil {
+	if err := buildImage(ctx, a, dockerfile, tag, force, agentVersion, line); err != nil {
 		spinner.StopError(err)
 		return err
 	}
@@ -166,10 +170,11 @@ func buildDockerImage(
 // decoded build output line to the given callback.
 func buildImage(
 	ctx context.Context,
+	a agent.Agent,
 	dockerfile []byte,
 	tag string,
 	force bool,
-	openCodeVersion string,
+	agentVersion string,
 	line func(string),
 ) error {
 	tarBuf, err := dockerfileTar(dockerfile)
@@ -180,7 +185,7 @@ func buildImage(
 		Tags:      []string{tag},
 		Remove:    true,
 		NoCache:   force,
-		BuildArgs: userBuildArgs(os.Getuid(), os.Getgid(), openCodeVersion),
+		BuildArgs: userBuildArgs(os.Getuid(), os.Getgid(), a.ImageSpec(), agentVersion),
 	})
 	if err != nil {
 		return fmt.Errorf("docker image build failed: %w", err)
@@ -248,14 +253,14 @@ func dockerfileTar(dockerfile []byte) (*bytes.Buffer, error) {
 
 // userBuildArgs returns Docker build arguments that align the in-image dev user
 // (see data/Dockerfile's USER_UID/USER_GID) with the host user that owns the
-// bind-mounted /workspace, and pin the opencode version baked into the image.
-func userBuildArgs(uid, gid int, openCodeVersion string) map[string]*string {
+// bind-mounted /workspace, and pin the agent version baked into the image.
+func userBuildArgs(uid, gid int, spec agent.ImageSpec, version string) map[string]*string {
 	u := strconv.Itoa(uid)
 	g := strconv.Itoa(gid)
 	return map[string]*string{
-		"USER_UID":         &u,
-		"USER_GID":         &g,
-		"OPENCODE_VERSION": &openCodeVersion,
+		"USER_UID":      &u,
+		"USER_GID":      &g,
+		spec.VersionArg: &version,
 	}
 }
 
@@ -273,14 +278,15 @@ type dockerBuildMessage struct {
 // buildRunnerImage builds the runner image and returns the rTag and digest.
 func buildRunnerImage(
 	ctx context.Context,
+	a agent.Agent,
 	rTag string,
 	imageDigest string, //nolint:unparam,staticcheck // digest refreshed by the rebuild's inspect below
 	dockerfile []byte,
 	force bool,
-	openCodeVersion string,
+	agentVersion string,
 	ui termio.UI,
 ) (string, string, error) {
-	if err := buildDockerImage(ctx, dockerfile, rTag, "Ensuring runner image", force, openCodeVersion, ui); err != nil {
+	if err := buildDockerImage(ctx, a, dockerfile, rTag, "Ensuring runner image", force, agentVersion, ui); err != nil {
 		return "", "", err
 	}
 	inspect, err := docker.Get().ImageInspect(ctx, rTag)
@@ -298,25 +304,27 @@ func buildRunnerImage(
 // EnsureLoaded when a VM needs it.
 func EnsureImageWithClient(
 	ctx context.Context,
+	a agent.Agent,
 	dockerfile []byte,
 	projectSlug string,
 	buildOpts BuildOptions,
 	ui termio.UI,
 ) (ImageInfo, error) {
-	openCodeVersion, err := resolveOpenCodeVersion(ctx, buildOpts.OpenCodeVersion)
+	agentVersion, err := resolveAgentVersion(ctx, a, buildOpts.OpenCodeVersion)
 	if err != nil {
-		return ImageInfo{}, fmt.Errorf("resolve opencode version: %w", err)
+		return ImageInfo{}, fmt.Errorf("resolve agent version: %w", err)
 	}
 
 	if buildOpts.Force || referencesImage(dockerfile, naming.BaseImagePrefix) ||
 		referencesImage(dockerfile, naming.BaseDindImagePrefix) {
 		if buildErr := buildDockerImage(
 			ctx,
-			embeddedDockerfile,
+			a,
+			DockerfileFromImageSpec(a.ImageSpec()),
 			naming.BaseTag,
 			"Ensuring base runner image",
 			buildOpts.Force,
-			openCodeVersion,
+			agentVersion,
 			ui,
 		); buildErr != nil {
 			return ImageInfo{}, fmt.Errorf("building base image: %w", buildErr)
@@ -325,29 +333,36 @@ func EnsureImageWithClient(
 	if referencesImage(dockerfile, naming.BaseDindImagePrefix) {
 		if buildErr := buildDockerImage(
 			ctx,
+			a,
 			embeddedDindDockerfile,
 			naming.DindBaseTag,
 			"Ensuring Docker-in-Docker base runner image",
 			buildOpts.Force,
-			openCodeVersion,
+			agentVersion,
 			ui,
 		); buildErr != nil {
 			return ImageInfo{}, fmt.Errorf("building dind base image: %w", buildErr)
 		}
 	}
 
-	rTag, imageDigest, err := ensureRunnerImage(ctx, dockerfile, projectSlug, buildOpts.Force, openCodeVersion, ui)
+	rTag, imageDigest, err := ensureRunnerImage(ctx, a, dockerfile, projectSlug, buildOpts.Force, agentVersion, ui)
 	if err != nil {
 		return ImageInfo{}, err
 	}
 
 	imageRef := imageTag(projectSlug, imageDigest)
 
-	env, version, err := readImageInfoFromDocker(ctx, rTag)
+	env, version, err := readImageInfoFromDocker(ctx, rTag, a.ImageSpec().VersionLabel)
 	if err != nil {
 		return ImageInfo{}, fmt.Errorf("inspect built image: %w", err)
 	}
-	return ImageInfo{Tag: imageRef, Digest: imageDigest, OpenCodeVersion: version, Env: env}, nil
+	return ImageInfo{
+		Tag:             imageRef,
+		Digest:          imageDigest,
+		OpenCodeVersion: version,
+		AgentVersion:    version,
+		Env:             env,
+	}, nil
 }
 
 // EnsureLoaded loads the runner image into the microsandbox cache if it is not
@@ -382,12 +397,13 @@ func EnsureLoaded(ctx context.Context, mclient msb.Client, projectSlug, imageRef
 // the Docker image config). It does not load the image into microsandbox.
 func EnsureImage(
 	ctx context.Context,
+	a agent.Agent,
 	projectSlug string,
 	buildOpts BuildOptions,
 	ui termio.UI,
 ) (ImageInfo, error) {
-	dockerfile := ResolveDockerfile()
-	return EnsureImageWithClient(ctx, dockerfile, projectSlug, buildOpts, ui)
+	dockerfile := ResolveRunnerDockerfile(a)
+	return EnsureImageWithClient(ctx, a, dockerfile, projectSlug, buildOpts, ui)
 }
 
 // Build ensures the runner image is built and loaded into the microsandbox
@@ -396,11 +412,12 @@ func EnsureImage(
 // (e.g. docker availability) and dry-run handling are the caller's concern.
 func Build(
 	ctx context.Context,
+	a agent.Agent,
 	projectSlug string,
 	buildOpts BuildOptions,
 	ui termio.UI,
 ) error {
-	info, err := EnsureImageWithClient(ctx, ResolveDockerfile(), projectSlug, buildOpts, ui)
+	info, err := EnsureImageWithClient(ctx, a, ResolveRunnerDockerfile(a), projectSlug, buildOpts, ui)
 	if err != nil {
 		return err
 	}
