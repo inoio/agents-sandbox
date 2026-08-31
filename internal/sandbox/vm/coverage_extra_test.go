@@ -266,6 +266,20 @@ func TestRestartDaemonsKillError(t *testing.T) {
 	}
 }
 
+// TestRestartDaemonsNoProvider covers the early-return branch of
+// restartDaemons for an agent that is not a DaemonProvider: it must no-op.
+func TestRestartDaemonsNoProvider(t *testing.T) {
+	ui := termio.NewTestMock(t)
+	fs := msb.NewTestFS(nil, nil)
+	sb := &msb.MockSandbox{Name_: "vm", FSValue_: fs, ShellCalls: &[]string{}}
+
+	restartDaemons(context.Background(), &fakeAgent{}, sb, false, &ui)
+
+	if len(*sb.ShellCalls) != 0 {
+		t.Errorf("expected no shell calls for an agent without a DaemonProvider, got %v", *sb.ShellCalls)
+	}
+}
+
 // TestEnsureProjectVMDryRunVM covers the DryRunVM early-return branch.
 func TestEnsureProjectVMDryRunVM(t *testing.T) {
 	ui := termio.NewTestMock(t)

@@ -1,9 +1,11 @@
 package image
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"io"
+	"slices"
 	"testing"
 
 	"github.com/moby/moby/api/types/image"
@@ -13,6 +15,7 @@ import (
 	"github.com/inoio/opencode-sandbox/internal/configpaths"
 	"github.com/inoio/opencode-sandbox/internal/sandbox/docker"
 	"github.com/inoio/opencode-sandbox/internal/sandbox/msb"
+	"github.com/inoio/opencode-sandbox/internal/sandbox/naming"
 	"github.com/inoio/opencode-sandbox/internal/termio"
 )
 
@@ -138,5 +141,44 @@ func TestInspectExistingImageReturnsEmptyOnInspectFailure(t *testing.T) {
 
 	if got := inspectExistingImage(context.Background(), "runner-tag", &termio.Mock{}); got != "" {
 		t.Errorf("inspectExistingImage = %q, want empty string on inspect failure", got)
+	}
+}
+
+func TestEnsureImageReturnsErrorWhenRunnerBuildFails(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	WithMockOpenCodeVersion(t, "1.2.3")
+	a, _ := agent.Lookup("opencode")
+	// The base image build must succeed so the flow reaches the runner build,
+	// which then fails.
+	docker.WithDockerMock(t, &docker.MockDockerClient{
+		ImageBuildFn: func(_ context.Context, _ io.Reader, opts client.ImageBuildOptions) (client.ImageBuildResult, error) {
+			if slices.Contains(opts.Tags, naming.BaseTag) {
+				return client.ImageBuildResult{Body: io.NopCloser(bytes.NewReader(nil))}, nil
+			}
+			return client.ImageBuildResult{}, errors.New("runner build boom")
+		},
+	})
+	dockerfile := []byte("FROM " + naming.BaseImagePrefix + ":latest\nRUN echo hi\n")
+	_, err := EnsureImageWithClient(
+		context.Background(), a, dockerfile, "test-project",
+		BuildOptions{Force: true}, &termio.Mock{},
+	)
+	if err == nil {
+		t.Error("expected error when runner image build fails")
+	}
+}
+
+func TestEnsureImageReturnsErrorWhenVersionResolveFails(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	a, _ := agent.Lookup("opencode")
+	WithMockOpenCodeVersionResolver(t, func(context.Context, string) (string, error) {
+		return "", errors.New("resolve boom")
+	})
+	_, err := EnsureImageWithClient(
+		context.Background(), a, []byte("FROM x\n"), "test-project",
+		BuildOptions{}, &termio.Mock{},
+	)
+	if err == nil {
+		t.Error("expected error when resolving agent version fails")
 	}
 }

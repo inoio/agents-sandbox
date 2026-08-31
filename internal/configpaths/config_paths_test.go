@@ -134,3 +134,54 @@ func TestProjectDirsAndFiles(t *testing.T) {
 		t.Errorf("ProjectDockerfile() = %q", got)
 	}
 }
+
+func TestMockUserAgentConfigDir(t *testing.T) {
+	WithMockConfigPaths(t)
+	a, _ := agent.Lookup("opencode")
+	got := Get().UserAgentConfigDir(a)
+	want := filepath.Join(Get().UserConfigDir(), a.ConfigDirName())
+	if got != want {
+		t.Errorf("mock UserAgentConfigDir(opencode) = %q, want %q", got, want)
+	}
+}
+
+func TestMockProjectAgentConfigDir(t *testing.T) {
+	WithMockConfigPaths(t)
+	a, _ := agent.Lookup("opencode")
+	got := Get().ProjectAgentConfigDir(a)
+	want := filepath.Join(Get().ProjectConfigDir(), a.ConfigDirName())
+	if got != want {
+		t.Errorf("mock ProjectAgentConfigDir(opencode) = %q, want %q", got, want)
+	}
+}
+
+func TestFailFastUserAgentConfigDirPanics(t *testing.T) {
+	assertPanics(t, func() {
+		(&failFastConfigPaths{}).UserAgentConfigDir(agentAgent(t))
+	})
+}
+
+func TestFailFastProjectAgentConfigDirPanics(t *testing.T) {
+	assertPanics(t, func() {
+		(&failFastConfigPaths{}).ProjectAgentConfigDir(agentAgent(t))
+	})
+}
+
+func agentAgent(t *testing.T) agent.Agent {
+	t.Helper()
+	a, ok := agent.Lookup("opencode")
+	if !ok {
+		t.Fatal("opencode agent not registered")
+	}
+	return a
+}
+
+func assertPanics(t *testing.T, fn func()) {
+	t.Helper()
+	defer func() {
+		if recover() == nil {
+			t.Error("expected panic, got none")
+		}
+	}()
+	fn()
+}

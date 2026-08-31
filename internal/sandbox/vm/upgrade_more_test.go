@@ -133,3 +133,33 @@ func TestSaveUpgradeStateWriteError(t *testing.T) {
 		t.Error("expected error when writing the updater state file fails")
 	}
 }
+
+// TestResolveBuildVersionWithoutUpgradeChecker covers the fallback branch of
+// resolveBuildVersion: an agent with no upgrade checker reuses the recorded
+// version without prompting.
+func TestResolveBuildVersionWithoutUpgradeChecker(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	if err := saveUpgradeState(upgradeState{CurrentVersion: "1.5.0"}); err != nil {
+		t.Fatalf("saveUpgradeState: %v", err)
+	}
+	got, upgraded, err := resolveBuildVersion(context.Background(), &fakeAgent{}, &termio.Mock{}, options.RunOptions{})
+	if err != nil {
+		t.Fatalf("resolveBuildVersion: %v", err)
+	}
+	if got != "1.5.0" {
+		t.Errorf("resolveBuildVersion = %q, want recorded version 1.5.0", got)
+	}
+	if upgraded {
+		t.Error("expected upgraded=false for an agent without an upgrade checker")
+	}
+}
+
+// TestPendingUpgradeWithoutUpgradeChecker covers the no-checker branch of
+// pendingUpgrade: it never offers an upgrade for an agent lacking a checker.
+func TestPendingUpgradeWithoutUpgradeChecker(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	latest, offer := pendingUpgrade(context.Background(), &termio.Mock{}, &fakeAgent{}, "1.0.0")
+	if offer {
+		t.Errorf("expected no upgrade offer for an agent without a checker, got latest=%q", latest)
+	}
+}

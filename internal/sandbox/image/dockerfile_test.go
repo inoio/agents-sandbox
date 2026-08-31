@@ -45,3 +45,35 @@ func TestResolveDockerfile_FallsBackToEmbedded(t *testing.T) {
 		t.Errorf("ResolveDockerfile() = %q, want embedded %q", got, string(embeddedDockerfile))
 	}
 }
+
+func TestResolveRunnerDockerfile_ProjectFile(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	content := "FROM custom/base:latest\n"
+	testutil.WriteFile(t, configpaths.Get().ProjectConfigDir(), "Dockerfile", content)
+
+	got := string(ResolveRunnerDockerfile(agentOpencode(t)))
+	if got != content {
+		t.Errorf("ResolveRunnerDockerfile() = %q, want %q", got, content)
+	}
+}
+
+func TestResolveRunnerDockerfile_FallsBackToAgent(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+
+	got := string(ResolveRunnerDockerfile(agentOpencode(t)))
+	if got == "" {
+		t.Error("ResolveRunnerDockerfile() = empty, want agent-rendered fallback")
+	}
+	if !strings.Contains(got, "ARG OPENCODE_VERSION") {
+		t.Error("fallback runner Dockerfile should be rendered for the opencode agent")
+	}
+}
+
+func agentOpencode(t *testing.T) agent.Agent {
+	t.Helper()
+	a, ok := agent.Lookup("opencode")
+	if !ok {
+		t.Fatal("opencode agent not registered")
+	}
+	return a
+}

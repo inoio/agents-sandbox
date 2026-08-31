@@ -179,3 +179,35 @@ func TestBuildOpenCodeJSONDeterministic(t *testing.T) {
 		t.Error("expected a single trailing newline")
 	}
 }
+
+func TestExpandBracesUnbalanced(t *testing.T) {
+	// Unmatched open or close brace: returned unchanged.
+	if got := expandBraces("a-{b,c"); len(got) != 1 || got[0] != "a-{b,c" {
+		t.Errorf("unmatched open brace = %v, want [a-{b,c]", got)
+	}
+	if got := expandBraces("a-b}"); len(got) != 1 || got[0] != "a-b}" {
+		t.Errorf("unmatched close brace = %v, want [a-b}]", got)
+	}
+}
+
+func TestBuildMergedSkipsUnparsableSnippet(t *testing.T) {
+	dir := t.TempDir()
+	// A matching-but-invalid snippet must be skipped, not fail the build.
+	writeSnippet(t, dir, "opencode-bad.json5", "{ this is not valid json5")
+	writeSnippet(t, dir, "opencode-good.json", `{"ok": true}`)
+
+	data, sources, has, err := BuildMerged("opencode-*.json*", dir, "")
+	if err != nil || !has {
+		t.Fatalf("BuildMerged: has=%v err=%v", has, err)
+	}
+	if len(sources) != 1 {
+		t.Errorf("sources = %v, want only the valid snippet", sources)
+	}
+	var m map[string]bool
+	if err := json.Unmarshal(data, &m); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if !m["ok"] {
+		t.Errorf("merged = %v, want ok=true", m)
+	}
+}
