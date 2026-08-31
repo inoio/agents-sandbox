@@ -43,74 +43,28 @@ Egress and ingress stay under your control with simple profiles and allow/deny l
 >
 > opencode-sandbox, by contrast, is **open and account-free**, runs on **any Linux (KVM) and Apple Silicon**, and gives you **one-command disposal** — without the telemetry, login, or vendor lock-in.
 
-## Quick Start
-
-After installation, start a session in your current project:
-
-```console
-opencode-sandbox
-```
-
-Start an isolated session with a worktree:
-
-```console
-opencode-sandbox -w bugfix-my-fix
-```
-
-Get an overview over commands via `opencode-sandbox tree`.
-
-## Installation
-
-Requires **Linux (KVM) or macOS (Apple Silicon)**.
-
-* Download the latest binary:
-
-  **Linux (x86_64):**
-
-  ```console
-  curl -L -o opencode-sandbox https://github.com/inoio/opencode-sandbox/releases/latest/download/opencode-sandbox-linux-amd64
-  ```
-
-  **macOS (Apple Silicon):**
-
-  ```console
-  curl -L -o opencode-sandbox https://github.com/inoio/opencode-sandbox/releases/latest/download/opencode-sandbox-darwin-arm64
-  ```
-
-  **Linux (arm64):**
-
-  ```console
-  curl -L -o opencode-sandbox https://github.com/inoio/opencode-sandbox/releases/latest/download/opencode-sandbox-linux-arm64
-  ```
-* Install:
-  ```console
-  chmod u+x opencode-sandbox
-  mv opencode-sandbox ~/.local/bin # or any other directory in your PATH 
-  ```
-* Check prerequisites:
-
-   ```console
-   opencode-sandbox doctor
-   ```
-
-See [Getting Started](/docs/getting-started.md) for prerequisites and a full setup guide.
-
-## Usage
-
-Full [Commands Reference](/docs/commands.md).
-
 ## Documentation
 
-The docs are also published to [GitHub Pages](https://inoio.github.io/opencode-sandbox/).
+There's dedicated documentation per topic. You can also browse the documentation on [GitHub Pages](https://inoio.github.io/opencode-sandbox/).
 
-| Topic                                         | Description                                            |
-|-----------------------------------------------|--------------------------------------------------------|
-| [Getting Started](/docs/getting-started.md)   | Installation, prerequisites, configuration, first run  |
-| [Commands](/docs/commands.md)                 | Complete CLI reference                                 |
+| Topic                                         | Description                                                                              |
+|-----------------------------------------------|------------------------------------------------------------------------------------------|
+| [Introduction](/docs/introduction.md)         | Introduction and motivation.                                                             |
+| [Getting Started](/docs/getting-started.md)   | Installation, prerequisites, configuration, first run                                    |
+| [Commands](/docs/commands.md)                 | Complete CLI reference                                                                   |
 | [Configuration](/docs/configuration.md)       | Launcher config, env, secrets, opencode snippet merge, `home.yaml` (incl. startup hooks) |
-| [Runner Image](/docs/runner-image.md)         | Base image, custom tooling                             |
-| [Worktree Sessions](/docs/branch-sessions.md) | Isolated worktree sessions for per-feature development |
-| [Recipes](/docs/recipes.md)                   | Hands-on workflows (e.g. connecting Opencode Desktop)  |
-| [Sandboxes](/docs/sandboxes.md)               | VM lifecycle, volumes, pruning                         |
-| [Troubleshooting](/docs/troubleshooting.md)   | Common issues and fixes                                |
-| [Roadmap](/ROADMAP.md)                        | Public, forward-looking project roadmap                |
+| [Runner Image](/docs/runner-image.md)         | Base image, custom tooling                                                               |
+| [Worktree Sessions](/docs/branch-sessions.md) | Isolated worktree sessions for per-feature development                                   |
+| [Recipes](/docs/recipes.md)                   | Hands-on workflows (e.g. connecting Opencode Desktop)                                    |
+| [Sandboxes](/docs/sandboxes.md)               | VM lifecycle, volumes, pruning                                                           |
+| [Troubleshooting](/docs/troubleshooting.md)   | Common issues and fixes                                                                  |
+| [Roadmap](/ROADMAP.md)                        | Public, forward-looking project roadmap                                                  |
+
+## Contributing  
+
+| Topic                                  | Description                                     |
+|----------------------------------------|-------------------------------------------------|
+| [Contributing](/CONTRIBUTING.md)       | Guidelines for contributing to opencode-sandbox |
+| [Code of conduct](/CODE_OF_CONDUCT.md) | Our code of conduct                             |
+| [Security](/SECURITYmd)                | Rules for submitting security issues            |
+| [Roadmap](/ROADMAP.md)                 | Public, forward-looking project roadmap         |

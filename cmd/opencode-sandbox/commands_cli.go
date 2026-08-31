@@ -117,9 +117,6 @@ func rpad(s string, padding int) string {
 
 func runFunc(ui termio.UI) func(cmd *cobra.Command, args []string) error {
 	return func(cmd *cobra.Command, args []string) error {
-		if !doctor.CheckAll(cmd.Context(), ui) {
-			return errors.New("preflight failed")
-		}
 		opts, err := extractRunOptions(cmd, ui)
 		if err != nil {
 			return err
@@ -135,6 +132,11 @@ func runFunc(ui termio.UI) func(cmd *cobra.Command, args []string) error {
 			return rerr
 		}
 		isDryRun, _ := cmd.Flags().GetBool(flagDryRun)
+		if !isDryRun {
+			if !doctor.CheckAll(cmd.Context(), ui) {
+				return errors.New("preflight failed")
+			}
+		}
 		pruning.AutoPrune(cmd.Context(), r.AutoPruneAge(), isDryRun, &autoPruneOutToVerboseRedirect{UI: ui})
 		return session.Run(ctx, opts, ui)
 	}

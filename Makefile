@@ -1,4 +1,4 @@
-.PHONY: build build-release build-release-all test coverage lint fmt clean completion user-install check all upgrade-deps docs-diagrams
+.PHONY: build build-release build-release-all test coverage lint fmt clean completion user-install check all upgrade-deps docs-diagrams docs-serve
 
 VERSION ?= dev
 
@@ -74,6 +74,10 @@ completion:
 # Excludes the vendored C4-PlantUML library files (C4*.puml), which are not standalone diagrams.
 docs-diagrams:
 	cd docs/diagrams && for f in *.puml; do case "$$f" in C4*) ;; *) $(PLANTUML) -DRELATIVE_INCLUDE -tsvg -o . "$$f" || exit 1;; esac; done
+
+# Serve the docs locally the same way GitHub Pages does (Jekyll build + live reload) at http://localhost:4000/.
+docs-serve:
+	cd docs && bundle install && bundle exec jekyll serve --livereload
 
 user-install: build
 	mkdir -p ~/.local/bin

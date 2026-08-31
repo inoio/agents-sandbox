@@ -31,7 +31,7 @@ func TestRestartDaemonsEnsureDaemonError(t *testing.T) {
 	fs := msb.NewTestFS(nil, nil)
 	sb := &msb.MockSandbox{Name_: "vm", FSValue_: fs}
 
-	restartDaemons(context.Background(), sb, &reprovision.ConfigFiles{}, false, &ui)
+	restartDaemons(context.Background(), sb, false, &ui)
 
 	if !contains(joinStrings(ui.WarnCalls), "daemon restart failed") {
 		t.Errorf("expected a daemon-restart-failure warning, got %v", ui.WarnCalls)

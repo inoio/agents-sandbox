@@ -5,23 +5,14 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/inoio/opencode-sandbox/internal/git"
 	"github.com/inoio/opencode-sandbox/internal/opencode"
-	"github.com/inoio/opencode-sandbox/internal/sandbox/image"
-	"github.com/inoio/opencode-sandbox/internal/sandbox/msb"
+	"github.com/inoio/opencode-sandbox/internal/sandbox/options"
 	"github.com/inoio/opencode-sandbox/internal/termio"
 )
 
 // errUpgradeQuit signals the user chose to abort the session because of the
 // pending image upgrade.
 var errUpgradeQuit = errors.New("opencode upgrade cancelled") //nolint:err113 // static sentinel intended
-
-type upgradeAction int
-
-const (
-	upgradeActionNone upgradeAction = iota
-	upgradeActionRebuild
-)
 
 // openCodeUpgradeInfo returns the latest opencode release version string.
 //
@@ -30,62 +21,62 @@ var openCodeUpgradeInfo = func(ctx context.Context) (string, error) {
 	return opencode.LatestVersion(ctx)
 }
 
-// rebuildImageForUpgrade rebuilds the runner image with the latest (or
-// requested) opencode version and returns the resulting ImageInfo.
+// resolveOpenCodeBuildVersion decides the opencode version to bake into the
+// runner image before the image is built, so a normal run never builds twice
+// (once for the current version and once for an upgrade). It returns the target
+// version and whether that version is a freshly chosen upgrade.
 //
-//nolint:gochecknoglobals // test seam
-var rebuildImageForUpgrade = func(ctx context.Context, ui termio.UI, openCodeVersion string) (image.ImageInfo, error) {
-	info, err := image.EnsureImage(
-		ctx,
-		git.ProjectSlug(),
-		image.BuildOptions{Force: true, OpenCodeVersion: openCodeVersion},
-		ui,
-	)
-	if err != nil {
-		return image.ImageInfo{}, err
-	}
-	if err := image.EnsureLoaded(ctx, msb.Get(), git.ProjectSlug(), info.Tag, ui); err != nil {
-		return image.ImageInfo{}, err
-	}
-	return info, nil
-}
-
-// maybePromptOpenCodeUpgrade offers to rebuild the runner image when a newer
-// opencode release exists than the version baked into the current image.
-func maybePromptOpenCodeUpgrade(
+// An explicitly pinned version skips the update check entirely. Otherwise the
+// update check runs first and may offer to rebuild with a newer opencode
+// release, deciding the final version up front.
+func resolveOpenCodeBuildVersion(
 	ctx context.Context,
 	ui termio.UI,
-	rebuild bool,
-	openCodeVersion string,
-	info image.ImageInfo,
-) (image.ImageInfo, upgradeAction, error) {
-	if rebuild {
-		return info, upgradeActionNone, nil
+	opts options.RunOptions,
+) (string, bool, error) {
+	// An explicitly pinned version is authoritative: never prompt for an upgrade.
+	if opts.OpenCodeVersion != "" {
+		return opts.OpenCodeVersion, false, nil
 	}
 
-	if info.OpenCodeVersion == "" {
-		ui.Warnf("image has no opencode version label; forcing a rebuild to pin opencode")
-		rebuilt, err := rebuildImageForUpgrade(ctx, ui, openCodeVersion)
-		if err != nil {
-			ui.Warnf("could not rebuild image to pin opencode: %v (continuing with current image)", err)
-			return info, upgradeActionNone, nil
-		}
-		return rebuilt, upgradeActionRebuild, nil
+	// A forced rebuild uses whatever version is current; no upgrade prompt.
+	if opts.Rebuild {
+		return currentUpgradeVersion(), false, nil
 	}
 
-	latest, offer := pendingUpgrade(ctx, ui, info)
+	current := currentUpgradeVersion()
+	if current == "" {
+		// No recorded baseline (e.g. first run): resolve latest at build time
+		// rather than prompting against an unknown version.
+		return "", false, nil
+	}
+
+	latest, offer := pendingUpgrade(ctx, ui, current)
 	if !offer {
-		return info, upgradeActionNone, nil
+		return current, false, nil
 	}
 
-	ui.Infof(
-		"opencode %s available (image has %s); run 'opencode-sandbox build' to upgrade",
-		latest,
-		info.OpenCodeVersion,
-	) //nolint:lll // user-facing line
+	chosen, err := promptUpgrade(ui, current, latest)
+	if err != nil {
+		return "", false, err
+	}
+	if chosen == latest {
+		return latest, true, nil
+	}
+	return current, false, nil
+}
 
+// promptUpgrade offers to rebuild the runner image with a newer opencode
+// release. It returns the chosen version, or an error when the user aborts.
+// A non-interactive session logs the availability but keeps the current version.
+func promptUpgrade(ui termio.UI, current, latest string) (string, error) {
 	if !ui.IsInteractive() {
-		return info, upgradeActionNone, nil
+		ui.Infof(
+			"opencode %s available (image has %s); run 'opencode-sandbox build' to upgrade",
+			latest,
+			current,
+		) //nolint:lll // user-facing line
+		return current, nil
 	}
 
 	prompt := fmt.Sprintf("Rebuild the runner image with opencode %s?", latest)
@@ -96,31 +87,25 @@ func maybePromptOpenCodeUpgrade(
 	}
 	choice, err := ui.Select(prompt, choices, "r")
 	if err != nil {
-		return info, upgradeActionNone, err
+		return "", err
 	}
 	switch choice {
 	case "r":
-		rebuilt, rebuildErr := rebuildImageForUpgrade(ctx, ui, openCodeVersion)
-		if rebuildErr != nil {
-			return info, upgradeActionNone, rebuildErr
-		}
-		return rebuilt, upgradeActionRebuild, nil
-	case "k":
-		return info, upgradeActionNone, nil
+		return latest, nil
 	case "q":
-		return info, upgradeActionNone, errUpgradeQuit
+		return "", errUpgradeQuit
 	default:
-		return info, upgradeActionNone, nil
+		return current, nil
 	}
 }
 
 // pendingUpgrade resolves whether a newer opencode version is available and
 // should be offered for rebuild, enforcing the once-per-day and once-per-version
-// gates. It returns the candidate version and whether the user should be
-// prompted. The once-per-day window and offered set are persisted on every
-// successful check; an offline or failed check never fails the session and
-// leaves the window open.
-func pendingUpgrade(ctx context.Context, ui termio.UI, info image.ImageInfo) (string, bool) {
+// gates against the given current version. It returns the candidate version and
+// whether the user should be prompted. The once-per-day window and offered set
+// are persisted on every successful check; an offline or failed check never
+// fails the session and leaves the window open.
+func pendingUpgrade(ctx context.Context, ui termio.UI, currentVersion string) (string, bool) {
 	state := loadOrFreshUpgradeState(ui)
 	if !state.dueForCheck(now()) {
 		return "", false
@@ -137,7 +122,7 @@ func pendingUpgrade(ctx context.Context, ui termio.UI, info image.ImageInfo) (st
 	// A successful check refreshes the once-per-day window regardless of
 	// whether an upgrade is available.
 	state.LastChecked = now()
-	if opencode.VersionCompare(latest, info.OpenCodeVersion) <= 0 || state.offered(latest) {
+	if opencode.VersionCompare(latest, currentVersion) <= 0 || state.offered(latest) {
 		persistUpgradeState(ui, state)
 		return "", false
 	}

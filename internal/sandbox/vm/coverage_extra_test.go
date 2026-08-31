@@ -194,18 +194,43 @@ func TestKillProjectVMDryRunRemove(t *testing.T) {
 	}
 }
 
-// TestRestartDaemonsProvisionError covers the provision-failure branch of
-// restartDaemons: a provision failure keeps the existing daemon and does not
-// attempt to restart it.
-func TestRestartDaemonsProvisionError(t *testing.T) {
+// TestSetUpSandboxProvisionError covers the provision-failure branch of
+// setUpSandbox: a provision failure is logged as a warning and the setup
+// continues (config provisioning is non-disruptive and never fatal).
+func TestSetUpSandboxProvisionError(t *testing.T) {
+	orig := SetDaemonShellFunc(func(_ context.Context, _ msb.Sandbox, command string) (string, int, error) {
+		if command == "curl -sfm2 "+daemonHealthURL {
+			return `{"healthy":true,"version":"test"}`, 0, nil
+		}
+		return "", 0, nil
+	})
+	defer SetDaemonShellFunc(orig)
+
+	configpaths.WithMockConfigPaths(t)
+
 	ui := termio.NewTestMock(t)
 	fs := msb.NewTestFS(nil, nil)
 	fs.WriteErr = errors.New("write denied")
-	sb := &msb.MockSandbox{Name_: "vm", FSValue_: fs}
+	sb := &msb.MockSandbox{
+		Name_:    "vm",
+		FSValue_: fs,
+		ShellOut: map[string]msb.ShellResult{
+			dockerdBinaryCheckCmd: msb.NewTestResult(false, 1, "", "", nil),
+		},
+	}
 
-	restartDaemons(context.Background(), sb,
-		&reprovision.ConfigFiles{HasSnippets: true, OpenCode: []byte("{}")},
-		false, &ui)
+	cfs := &reprovision.ConfigFiles{HasSnippets: true, OpenCode: []byte("{}")}
+	if _, err := setUpSandbox(
+		context.Background(),
+		sb,
+		options.RunOptions{},
+		cfs,
+		&ui,
+		false,
+		vmBootStarted,
+	); err != nil {
+		t.Fatalf("setUpSandbox: %v", err)
+	}
 
 	joined := joinStrings(ui.WarnCalls)
 	if !contains(joined, "provision failed") {
@@ -231,7 +256,7 @@ func TestRestartDaemonsKillError(t *testing.T) {
 	fs := msb.NewTestFS(nil, nil)
 	sb := &msb.MockSandbox{Name_: "vm", FSValue_: fs}
 
-	restartDaemons(context.Background(), sb, &reprovision.ConfigFiles{}, false, &ui)
+	restartDaemons(context.Background(), sb, false, &ui)
 
 	if !contains(joinStrings(ui.WarnCalls), "kill stale daemon failed") {
 		t.Errorf("expected a kill-failure warning, got %v", ui.WarnCalls)

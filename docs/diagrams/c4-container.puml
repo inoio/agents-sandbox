@@ -6,7 +6,7 @@
 hide stereotype
 %set_variable_value("$system_boundaryElementTagTechn", "")
 
-title opencode-sandbox — System Context (Container level)
+title opencode-sandbox — System Context
 
 Person(dev, "User", "Runs opencode-sandbox in a project directory")
 

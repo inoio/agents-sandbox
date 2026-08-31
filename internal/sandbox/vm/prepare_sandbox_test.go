@@ -132,7 +132,7 @@ func TestPrepareSandboxLoadsHomeYamlOnce(t *testing.T) {
 	sandboximage.WithMockOpenCodeVersion(t, "1.0.0")
 
 	// The image is considered up to date: the same version is "latest", so
-	// maybePromptOpenCodeUpgrade does not offer a rebuild.
+	// resolveOpenCodeBuildVersion does not offer a rebuild.
 	origUpgradeInfo := openCodeUpgradeInfo
 	openCodeUpgradeInfo = func(_ context.Context) (string, error) { return "1.0.0", nil }
 	t.Cleanup(func() { openCodeUpgradeInfo = origUpgradeInfo })

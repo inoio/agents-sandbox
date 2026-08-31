@@ -3,31 +3,18 @@ package vm
 import (
 	"context"
 	"errors"
-	"reflect"
 	"slices"
 	"testing"
 	"time"
 
 	"github.com/inoio/opencode-sandbox/internal/configpaths"
-	"github.com/inoio/opencode-sandbox/internal/sandbox/image"
 	"github.com/inoio/opencode-sandbox/internal/sandbox/options"
 	"github.com/inoio/opencode-sandbox/internal/termio"
 )
 
-func TestMaybePromptSkipsWhenRebuildFlagSet(t *testing.T) {
-	origRebuild := rebuildImageForUpgrade
+func TestResolveOpenCodeVersionPinnedSkipsUpdateCheck(t *testing.T) {
 	origLatest := openCodeUpgradeInfo
-	defer func() {
-		rebuildImageForUpgrade = origRebuild
-		openCodeUpgradeInfo = origLatest
-	}()
-
-	rebuildCalled := false
-	rebuildImageForUpgrade = func(_ context.Context, _ termio.UI, _ string) (image.ImageInfo, error) {
-		rebuildCalled = true
-		return image.ImageInfo{}, nil
-	}
-
+	defer func() { openCodeUpgradeInfo = origLatest }()
 	latestCalled := false
 	openCodeUpgradeInfo = func(_ context.Context) (string, error) {
 		latestCalled = true
@@ -35,172 +22,128 @@ func TestMaybePromptSkipsWhenRebuildFlagSet(t *testing.T) {
 	}
 
 	configpaths.WithMockConfigPaths(t)
-
-	info := image.ImageInfo{Tag: "opencode-sandbox:run", OpenCodeVersion: "1.0.0"}
-	opts := options.RunOptions{Rebuild: true}
+	opts := options.RunOptions{OpenCodeVersion: "2.0.0"}
 	ui := &termio.Mock{}
 
-	gotInfo, gotAction, err := maybePromptOpenCodeUpgrade(
-		context.Background(),
-		ui,
-		opts.Rebuild,
-		opts.OpenCodeVersion,
-		info,
-	)
+	got, upgraded, err := resolveOpenCodeBuildVersion(context.Background(), ui, opts)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if !reflect.DeepEqual(gotInfo, info) {
-		t.Errorf("expected unchanged info, got %+v", gotInfo)
+	if got != "2.0.0" {
+		t.Errorf("expected pinned version 2.0.0, got %q", got)
 	}
-	if gotAction != upgradeActionNone {
-		t.Errorf("expected upgradeActionNone, got %d", gotAction)
+	if upgraded {
+		t.Error("expected upgraded=false for a pinned version")
 	}
-	if rebuildCalled {
-		t.Error("rebuildImageForUpgrade should NOT have been called when Rebuild is set")
+	if latestCalled {
+		t.Error("openCodeUpgradeInfo should NOT have been called when the version is pinned")
+	}
+}
+
+func TestResolveOpenCodeVersionRebuildSkipsUpdateCheck(t *testing.T) {
+	origLatest := openCodeUpgradeInfo
+	defer func() { openCodeUpgradeInfo = origLatest }()
+	latestCalled := false
+	openCodeUpgradeInfo = func(_ context.Context) (string, error) {
+		latestCalled = true
+		return "2.0.0", nil
+	}
+
+	configpaths.WithMockConfigPaths(t)
+	if err := saveUpgradeState(upgradeState{CurrentVersion: "1.0.0"}); err != nil {
+		t.Fatalf("saveUpgradeState: %v", err)
+	}
+	opts := options.RunOptions{Rebuild: true}
+	ui := &termio.Mock{}
+
+	got, upgraded, err := resolveOpenCodeBuildVersion(context.Background(), ui, opts)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got != "1.0.0" {
+		t.Errorf("expected current version 1.0.0, got %q", got)
+	}
+	if upgraded {
+		t.Error("expected upgraded=false when Rebuild is set")
 	}
 	if latestCalled {
 		t.Error("openCodeUpgradeInfo should NOT have been called when Rebuild is set")
 	}
 }
 
-func TestMaybePromptForcesRebuildWhenNoVersionLabel(t *testing.T) {
-	origRebuild := rebuildImageForUpgrade
-	defer func() { rebuildImageForUpgrade = origRebuild }()
-
-	expectedRebuilt := image.ImageInfo{
-		Tag:             "opencode-sandbox:rebuilt",
-		Digest:          "sha256:abc",
-		OpenCodeVersion: "9.9.9",
-		Env:             map[string]string{"FOO": "bar"},
-	}
-	rebuildImageForUpgrade = func(_ context.Context, _ termio.UI, _ string) (image.ImageInfo, error) {
-		return expectedRebuilt, nil
-	}
-
-	configpaths.WithMockConfigPaths(t)
-
-	info := image.ImageInfo{Tag: "opencode-sandbox:old", Digest: "sha256:old", OpenCodeVersion: ""}
-	opts := options.RunOptions{}
-	ui := &termio.Mock{}
-
-	gotInfo, gotAction, err := maybePromptOpenCodeUpgrade(
-		context.Background(),
-		ui,
-		opts.Rebuild,
-		opts.OpenCodeVersion,
-		info,
-	)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if gotInfo.OpenCodeVersion != "9.9.9" {
-		t.Errorf("expected OpenCodeVersion 9.9.9, got %q", gotInfo.OpenCodeVersion)
-	}
-	if gotInfo.Tag != "opencode-sandbox:rebuilt" {
-		t.Errorf("expected Tag opencode-sandbox:rebuilt, got %q", gotInfo.Tag)
-	}
-	if gotAction != upgradeActionRebuild {
-		t.Errorf("expected upgradeActionRebuild, got %d", gotAction)
-	}
-}
-
-func TestMaybePromptWarnsAndKeepsWhenForceRebuildFails(t *testing.T) {
-	origRebuild := rebuildImageForUpgrade
-	defer func() { rebuildImageForUpgrade = origRebuild }()
-
-	rebuildImageForUpgrade = func(_ context.Context, _ termio.UI, _ string) (image.ImageInfo, error) {
-		return image.ImageInfo{}, errors.New("build failed")
-	}
-
-	configpaths.WithMockConfigPaths(t)
-
-	info := image.ImageInfo{Tag: "opencode-sandbox:old", OpenCodeVersion: ""}
-	opts := options.RunOptions{}
-	ui := &termio.Mock{}
-
-	gotInfo, gotAction, err := maybePromptOpenCodeUpgrade(
-		context.Background(),
-		ui,
-		opts.Rebuild,
-		opts.OpenCodeVersion,
-		info,
-	)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if gotAction != upgradeActionNone {
-		t.Errorf("expected upgradeActionNone on rebuild failure, got %d", gotAction)
-	}
-	if !reflect.DeepEqual(gotInfo, info) {
-		t.Errorf("expected unchanged info on rebuild failure, got %+v", gotInfo)
-	}
-	if len(ui.WarnCalls) == 0 {
-		t.Error("expected a warning about failed rebuild, got no warnings")
-	}
-}
-
-func TestMaybePromptKeepsWhenNoNewerVersion(t *testing.T) {
+func TestResolveOpenCodeVersionNoBaseline(t *testing.T) {
 	origLatest := openCodeUpgradeInfo
 	defer func() { openCodeUpgradeInfo = origLatest }()
-
+	latestCalled := false
 	openCodeUpgradeInfo = func(_ context.Context) (string, error) {
+		latestCalled = true
 		return "2.0.0", nil
 	}
 
 	configpaths.WithMockConfigPaths(t)
-
-	info := image.ImageInfo{Tag: "opencode-sandbox:run", OpenCodeVersion: "2.0.0"}
 	opts := options.RunOptions{}
 	ui := &termio.Mock{}
 
-	gotInfo, gotAction, err := maybePromptOpenCodeUpgrade(
-		context.Background(),
-		ui,
-		opts.Rebuild,
-		opts.OpenCodeVersion,
-		info,
-	)
+	got, upgraded, err := resolveOpenCodeBuildVersion(context.Background(), ui, opts)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if gotAction != upgradeActionNone {
-		t.Errorf("expected upgradeActionNone, got %d", gotAction)
+	if got != "" {
+		t.Errorf("expected empty version (no baseline), got %q", got)
 	}
-	if !reflect.DeepEqual(gotInfo, info) {
-		t.Errorf("expected unchanged info, got %+v", gotInfo)
+	if upgraded {
+		t.Error("expected upgraded=false without a baseline")
+	}
+	if latestCalled {
+		t.Error("openCodeUpgradeInfo should NOT have been called without a baseline")
 	}
 }
 
-func TestMaybePromptNonInteractiveLogsUpgradeAvailable(t *testing.T) {
+func TestResolveOpenCodeVersionNoNewerVersion(t *testing.T) {
 	origLatest := openCodeUpgradeInfo
 	defer func() { openCodeUpgradeInfo = origLatest }()
-
-	openCodeUpgradeInfo = func(_ context.Context) (string, error) {
-		return "2.0.0", nil
-	}
+	openCodeUpgradeInfo = func(_ context.Context) (string, error) { return "2.0.0", nil }
 
 	configpaths.WithMockConfigPaths(t)
+	if err := saveUpgradeState(upgradeState{CurrentVersion: "2.0.0"}); err != nil {
+		t.Fatalf("saveUpgradeState: %v", err)
+	}
+	opts := options.RunOptions{}
+	ui := &termio.Mock{}
 
-	info := image.ImageInfo{Tag: "opencode-sandbox:run", OpenCodeVersion: "1.0.0"}
+	got, upgraded, err := resolveOpenCodeBuildVersion(context.Background(), ui, opts)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got != "2.0.0" {
+		t.Errorf("expected current version 2.0.0, got %q", got)
+	}
+	if upgraded {
+		t.Error("expected upgraded=false when no newer version exists")
+	}
+}
+
+func TestResolveOpenCodeVersionNonInteractiveLogsUpgradeAvailable(t *testing.T) {
+	origLatest := openCodeUpgradeInfo
+	defer func() { openCodeUpgradeInfo = origLatest }()
+	openCodeUpgradeInfo = func(_ context.Context) (string, error) { return "2.0.0", nil }
+
+	configpaths.WithMockConfigPaths(t)
+	if err := saveUpgradeState(upgradeState{CurrentVersion: "1.0.0"}); err != nil {
+		t.Fatalf("saveUpgradeState: %v", err)
+	}
 	opts := options.RunOptions{}
 	ui := &termio.Mock{IsInteractiveResult: false}
 
-	gotInfo, gotAction, err := maybePromptOpenCodeUpgrade(
-		context.Background(),
-		ui,
-		opts.Rebuild,
-		opts.OpenCodeVersion,
-		info,
-	)
+	got, upgraded, err := resolveOpenCodeBuildVersion(context.Background(), ui, opts)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if gotAction != upgradeActionNone {
-		t.Errorf("expected upgradeActionNone, got %d", gotAction)
+	if got != "1.0.0" {
+		t.Errorf("expected current version 1.0.0, got %q", got)
 	}
-	if !reflect.DeepEqual(gotInfo, info) {
-		t.Errorf("expected unchanged info, got %+v", gotInfo)
+	if upgraded {
+		t.Error("expected upgraded=false in a non-interactive session")
 	}
 	wantInfo := "opencode 2.0.0 available (image has 1.0.0); run 'opencode-sandbox build' to upgrade"
 	if !slices.Contains(ui.InfoCalls, wantInfo) {
@@ -208,22 +151,15 @@ func TestMaybePromptNonInteractiveLogsUpgradeAvailable(t *testing.T) {
 	}
 }
 
-func TestMaybePromptInteractiveRebuild(t *testing.T) {
-	origRebuild := rebuildImageForUpgrade
-	defer func() { rebuildImageForUpgrade = origRebuild }()
+func TestResolveOpenCodeVersionInteractiveRebuild(t *testing.T) {
+	origLatest := openCodeUpgradeInfo
+	defer func() { openCodeUpgradeInfo = origLatest }()
+	openCodeUpgradeInfo = func(_ context.Context) (string, error) { return "2.0.0", nil }
 
 	configpaths.WithMockConfigPaths(t)
-
-	rebuilt := image.ImageInfo{Tag: "opencode-sandbox:new", OpenCodeVersion: "2.0.0"}
-	rebuildImageForUpgrade = func(_ context.Context, _ termio.UI, _ string) (image.ImageInfo, error) {
-		return rebuilt, nil
+	if err := saveUpgradeState(upgradeState{CurrentVersion: "1.0.0"}); err != nil {
+		t.Fatalf("saveUpgradeState: %v", err)
 	}
-
-	openCodeUpgradeInfo = func(_ context.Context) (string, error) {
-		return "2.0.0", nil
-	}
-
-	info := image.ImageInfo{Tag: "opencode-sandbox:run", OpenCodeVersion: "1.0.0"}
 	opts := options.RunOptions{}
 	ui := &termio.Mock{
 		IsInteractiveResult: true,
@@ -232,26 +168,23 @@ func TestMaybePromptInteractiveRebuild(t *testing.T) {
 		},
 	}
 
-	gotInfo, gotAction, err := maybePromptOpenCodeUpgrade(
-		context.Background(),
-		ui,
-		opts.Rebuild,
-		opts.OpenCodeVersion,
-		info,
-	)
+	got, upgraded, err := resolveOpenCodeBuildVersion(context.Background(), ui, opts)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if gotAction != upgradeActionRebuild {
-		t.Errorf("expected upgradeActionRebuild, got %d", gotAction)
+	if got != "2.0.0" {
+		t.Errorf("expected new version 2.0.0, got %q", got)
 	}
-	if gotInfo.OpenCodeVersion != "2.0.0" {
-		t.Errorf("expected OpenCodeVersion 2.0.0, got %q", gotInfo.OpenCodeVersion)
+	if !upgraded {
+		t.Error("expected upgraded=true after choosing to rebuild")
 	}
 }
 
-func TestMaybePromptSkipsCheckWhenCheckedToday(t *testing.T) {
+func TestResolveOpenCodeVersionSkipsCheckWhenCheckedToday(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
+	if err := saveUpgradeState(upgradeState{CurrentVersion: "1.0.0", LastChecked: now()}); err != nil {
+		t.Fatalf("saveUpgradeState: %v", err)
+	}
 
 	origLatest := openCodeUpgradeInfo
 	defer func() { openCodeUpgradeInfo = origLatest }()
@@ -261,97 +194,67 @@ func TestMaybePromptSkipsCheckWhenCheckedToday(t *testing.T) {
 		return "2.0.0", nil
 	}
 
-	// A successful check happened just now, so the once-per-day gate is closed.
-	if err := saveUpgradeState(upgradeState{LastChecked: now()}); err != nil {
-		t.Fatalf("saveUpgradeState: %v", err)
-	}
-
-	info := image.ImageInfo{Tag: "opencode-sandbox:run", OpenCodeVersion: "1.0.0"}
 	opts := options.RunOptions{}
 	ui := &termio.Mock{IsInteractiveResult: true}
 
-	gotInfo, gotAction, err := maybePromptOpenCodeUpgrade(
-		context.Background(),
-		ui,
-		opts.Rebuild,
-		opts.OpenCodeVersion,
-		info,
-	)
+	got, upgraded, err := resolveOpenCodeBuildVersion(context.Background(), ui, opts)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if gotAction != upgradeActionNone {
-		t.Errorf("expected upgradeActionNone, got %d", gotAction)
+	if got != "1.0.0" {
+		t.Errorf("expected current version 1.0.0, got %q", got)
 	}
-	if !reflect.DeepEqual(gotInfo, info) {
-		t.Errorf("expected unchanged info, got %+v", gotInfo)
+	if upgraded {
+		t.Error("expected upgraded=false when already checked today")
 	}
 	if latestCalled {
 		t.Error("openCodeUpgradeInfo should NOT have been called when already checked today")
 	}
 }
 
-func TestMaybePromptDoesNotReOfferVersion(t *testing.T) {
+func TestResolveOpenCodeVersionDoesNotReOfferVersion(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
-
-	origLatest := openCodeUpgradeInfo
-	defer func() { openCodeUpgradeInfo = origLatest }()
-	openCodeUpgradeInfo = func(_ context.Context) (string, error) {
-		return "2.0.0", nil
-	}
-
-	// The same version was already offered (and its prompt shown) before.
 	if err := saveUpgradeState(upgradeState{
+		CurrentVersion:  "1.0.0",
 		LastChecked:     now().Add(-25 * time.Hour),
 		OfferedVersions: []string{"2.0.0"},
 	}); err != nil {
 		t.Fatalf("saveUpgradeState: %v", err)
 	}
 
-	info := image.ImageInfo{Tag: "opencode-sandbox:run", OpenCodeVersion: "1.0.0"}
+	origLatest := openCodeUpgradeInfo
+	defer func() { openCodeUpgradeInfo = origLatest }()
+	openCodeUpgradeInfo = func(_ context.Context) (string, error) { return "2.0.0", nil }
+
 	opts := options.RunOptions{}
 	ui := &termio.Mock{IsInteractiveResult: true}
 
-	gotInfo, gotAction, err := maybePromptOpenCodeUpgrade(
-		context.Background(),
-		ui,
-		opts.Rebuild,
-		opts.OpenCodeVersion,
-		info,
-	)
+	got, upgraded, err := resolveOpenCodeBuildVersion(context.Background(), ui, opts)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if gotAction != upgradeActionNone {
-		t.Errorf("expected upgradeActionNone for already-offered version, got %d", gotAction)
+	if got != "1.0.0" {
+		t.Errorf("expected current version 1.0.0, got %q", got)
 	}
-	if !reflect.DeepEqual(gotInfo, info) {
-		t.Errorf("expected unchanged info, got %+v", gotInfo)
+	if upgraded {
+		t.Error("expected upgraded=false for an already-offered version")
 	}
 }
 
-func TestMaybePromptRecordsOfferedVersionBeforePrompt(t *testing.T) {
+func TestResolveOpenCodeVersionRecordsOfferedBeforePrompt(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
+	if err := saveUpgradeState(upgradeState{CurrentVersion: "1.0.0"}); err != nil {
+		t.Fatalf("saveUpgradeState: %v", err)
+	}
 
 	origLatest := openCodeUpgradeInfo
-	origRebuild := rebuildImageForUpgrade
-	defer func() {
-		openCodeUpgradeInfo = origLatest
-		rebuildImageForUpgrade = origRebuild
-	}()
-	openCodeUpgradeInfo = func(_ context.Context) (string, error) {
-		return "2.0.0", nil
-	}
-	rebuildImageForUpgrade = func(_ context.Context, _ termio.UI, _ string) (image.ImageInfo, error) {
-		return image.ImageInfo{OpenCodeVersion: "2.0.0"}, nil
-	}
+	defer func() { openCodeUpgradeInfo = origLatest }()
+	openCodeUpgradeInfo = func(_ context.Context) (string, error) { return "2.0.0", nil }
 
-	info := image.ImageInfo{Tag: "opencode-sandbox:run", OpenCodeVersion: "1.0.0"}
 	opts := options.RunOptions{}
 	ui := &termio.Mock{IsInteractiveResult: true}
 
-	_, _, err := maybePromptOpenCodeUpgrade(context.Background(), ui, opts.Rebuild, opts.OpenCodeVersion, info)
-	if err != nil {
+	if _, _, err := resolveOpenCodeBuildVersion(context.Background(), ui, opts); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
@@ -369,8 +272,11 @@ func TestMaybePromptRecordsOfferedVersionBeforePrompt(t *testing.T) {
 	}
 }
 
-func TestMaybePromptOfflineDoesNotUpdateLastChecked(t *testing.T) {
+func TestResolveOpenCodeVersionOfflineDoesNotUpdateLastChecked(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
+	if err := saveUpgradeState(upgradeState{CurrentVersion: "1.0.0"}); err != nil {
+		t.Fatalf("saveUpgradeState: %v", err)
+	}
 
 	origLatest := openCodeUpgradeInfo
 	defer func() { openCodeUpgradeInfo = origLatest }()
@@ -378,25 +284,18 @@ func TestMaybePromptOfflineDoesNotUpdateLastChecked(t *testing.T) {
 		return "", errors.New("network unreachable")
 	}
 
-	info := image.ImageInfo{Tag: "opencode-sandbox:run", OpenCodeVersion: "1.0.0"}
 	opts := options.RunOptions{}
 	ui := &termio.Mock{IsInteractiveResult: true}
 
-	gotInfo, gotAction, err := maybePromptOpenCodeUpgrade(
-		context.Background(),
-		ui,
-		opts.Rebuild,
-		opts.OpenCodeVersion,
-		info,
-	)
+	got, upgraded, err := resolveOpenCodeBuildVersion(context.Background(), ui, opts)
 	if err != nil {
 		t.Fatalf("offline check must not fail the session, got: %v", err)
 	}
-	if gotAction != upgradeActionNone {
-		t.Errorf("expected upgradeActionNone when offline, got %d", gotAction)
+	if got != "1.0.0" {
+		t.Errorf("expected current version 1.0.0 when offline, got %q", got)
 	}
-	if !reflect.DeepEqual(gotInfo, info) {
-		t.Errorf("expected unchanged info when offline, got %+v", gotInfo)
+	if upgraded {
+		t.Error("expected upgraded=false when offline")
 	}
 	if len(ui.WarnCalls) == 0 {
 		t.Error("expected a warning about the failed update check")
@@ -413,24 +312,15 @@ func TestMaybePromptOfflineDoesNotUpdateLastChecked(t *testing.T) {
 	}
 }
 
-func TestMaybePromptInteractiveQuit(t *testing.T) {
-	origRebuild := rebuildImageForUpgrade
+func TestResolveOpenCodeVersionInteractiveQuit(t *testing.T) {
 	origLatest := openCodeUpgradeInfo
-	defer func() {
-		rebuildImageForUpgrade = origRebuild
-		openCodeUpgradeInfo = origLatest
-	}()
+	defer func() { openCodeUpgradeInfo = origLatest }()
+	openCodeUpgradeInfo = func(_ context.Context) (string, error) { return "2.0.0", nil }
 
 	configpaths.WithMockConfigPaths(t)
-
-	rebuildImageForUpgrade = func(_ context.Context, _ termio.UI, _ string) (image.ImageInfo, error) {
-		return image.ImageInfo{}, nil
+	if err := saveUpgradeState(upgradeState{CurrentVersion: "1.0.0"}); err != nil {
+		t.Fatalf("saveUpgradeState: %v", err)
 	}
-	openCodeUpgradeInfo = func(_ context.Context) (string, error) {
-		return "2.0.0", nil
-	}
-
-	info := image.ImageInfo{Tag: "opencode-sandbox:run", OpenCodeVersion: "1.0.0"}
 	opts := options.RunOptions{}
 	ui := &termio.Mock{
 		IsInteractiveResult: true,
@@ -439,7 +329,7 @@ func TestMaybePromptInteractiveQuit(t *testing.T) {
 		},
 	}
 
-	_, _, err := maybePromptOpenCodeUpgrade(context.Background(), ui, opts.Rebuild, opts.OpenCodeVersion, info)
+	_, _, err := resolveOpenCodeBuildVersion(context.Background(), ui, opts)
 	if !errors.Is(err, errUpgradeQuit) {
 		t.Fatalf("expected errUpgradeQuit, got %v", err)
 	}

@@ -8,7 +8,7 @@ RUN curl -sSfL https://golangci-lint.run/install.sh | sh -s -- -b /usr/local/bin
 # build-essential for CGO, shellcheck for shell script linting, default-jre for the PlantUML jar
 # (the full JRE, not -headless: PlantUML renders fonts and needs libharfbuzz/libfontmanager)
 RUN apt-get update && \
-    apt-get install -y --no-install-recommends build-essential ruby shellcheck default-jre && \
+    apt-get install -y --no-install-recommends build-essential bundler shellcheck default-jre && \
     rm -rf /var/lib/apt/lists/*
 
 # zig

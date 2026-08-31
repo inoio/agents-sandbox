@@ -25,7 +25,7 @@ func (vm *Manager) ResolveHomeVolume(
 	st, err := state.ReadState(projectSlug)
 	if err != nil {
 		if !errors.Is(err, state.ErrStateNotFound) {
-			ui.Warnf("corrupted state file, creating fresh home volume")
+			ui.Warnf("missing state file, creating fresh home volume")
 		}
 		return vm.EnsureNewHome(ctx, client, projectSlug, imageDigest, imageTag, dryRunVM, ui)
 	}

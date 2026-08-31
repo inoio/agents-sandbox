@@ -2,6 +2,7 @@ package vm
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -155,7 +156,6 @@ func TestRestartDaemonsRestartsServe(t *testing.T) {
 	restartDaemons(
 		context.Background(),
 		sb,
-		&reprovision.ConfigFiles{HasSnippets: true, OpenCode: []byte("{}")},
 		false,
 		&ui,
 	)
@@ -223,6 +223,54 @@ func TestSetUpSandboxRestartsDaemonsOnReuseDecision(t *testing.T) {
 
 func containsSubstring(hay, needle string) bool {
 	return len(hay) >= len(needle) && contains(hay, needle)
+}
+
+// TestSetUpSandboxSkipsRestartOnProvisionError verifies that when a daemon
+// restart is warranted (restart=true) but provisioning the updated config
+// fails, the running daemon is preserved: restartDaemons is not called and no
+// daemon commands are issued, but a target is still returned.
+func TestSetUpSandboxSkipsRestartOnProvisionError(t *testing.T) {
+	var commands []string
+	orig := SetDaemonShellFunc(func(_ context.Context, _ msb.Sandbox, command string) (string, int, error) {
+		commands = append(commands, command)
+		if command == "curl -sfm2 "+daemonHealthURL {
+			return `{"healthy":true,"version":"x"}`, 0, nil
+		}
+		return "", 0, nil
+	})
+	defer SetDaemonShellFunc(orig)
+
+	configpaths.WithMockConfigPaths(t)
+
+	ui := termio.NewTestMock(t)
+	fs := msb.NewTestFS(nil, nil)
+	fs.WriteErr = errors.New("write denied")
+	sb := &msb.MockSandbox{Name_: "vm", FSValue_: fs}
+
+	cfs := &reprovision.ConfigFiles{HasSnippets: true, OpenCode: []byte("{}")}
+	target, err := setUpSandbox(
+		context.Background(),
+		sb,
+		options.RunOptions{},
+		cfs,
+		&ui,
+		true,
+		vmBootStarted,
+	)
+	if err != nil {
+		t.Fatalf("setUpSandbox: %v", err)
+	}
+	if target == "" {
+		t.Error("expected a resolved target even when provisioning failed")
+	}
+
+	joined := joinStrings(commands)
+	if len(commands) > 0 {
+		t.Errorf("expected no daemon commands on provision failure (daemon preserved), got %q", joined)
+	}
+	if !contains(joinStrings(ui.WarnCalls), "provision failed") {
+		t.Errorf("expected a provision-failure warning, got %v", ui.WarnCalls)
+	}
 }
 
 func TestSetUpSandboxProvisionsUpdatedConfigOnKeep(t *testing.T) {

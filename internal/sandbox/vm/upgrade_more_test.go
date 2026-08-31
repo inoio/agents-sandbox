@@ -7,20 +7,22 @@ import (
 	"testing"
 
 	"github.com/inoio/opencode-sandbox/internal/configpaths"
-	"github.com/inoio/opencode-sandbox/internal/sandbox/image"
+	"github.com/inoio/opencode-sandbox/internal/sandbox/options"
 	"github.com/inoio/opencode-sandbox/internal/termio"
 )
 
-// TestMaybePromptInteractiveSelectError covers the Select failure branch of
-// maybePromptOpenCodeUpgrade: an interactive prompt whose selection errors is
-// propagated.
-func TestMaybePromptInteractiveSelectError(t *testing.T) {
+// TestResolveOpenCodeVersionInteractiveSelectError covers the Select failure
+// branch of resolveOpenCodeBuildVersion: an interactive prompt whose selection
+// errors is propagated.
+func TestResolveOpenCodeVersionInteractiveSelectError(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
+	if err := saveUpgradeState(upgradeState{CurrentVersion: "1.0.0"}); err != nil {
+		t.Fatalf("saveUpgradeState: %v", err)
+	}
 	origLatest := openCodeUpgradeInfo
 	defer func() { openCodeUpgradeInfo = origLatest }()
 	openCodeUpgradeInfo = func(_ context.Context) (string, error) { return "2.0.0", nil }
 
-	info := image.ImageInfo{Tag: "opencode-sandbox:run", OpenCodeVersion: "1.0.0"}
 	ui := &termio.Mock{
 		IsInteractiveResult: true,
 		SelectFn: func(_ string, _ []termio.Choice, _ string) (string, error) {
@@ -28,51 +30,24 @@ func TestMaybePromptInteractiveSelectError(t *testing.T) {
 		},
 	}
 
-	_, _, err := maybePromptOpenCodeUpgrade(context.Background(), ui, false, "", info)
+	_, _, err := resolveOpenCodeBuildVersion(context.Background(), ui, options.RunOptions{})
 	if err == nil {
 		t.Fatal("expected error when the interactive selection fails")
 	}
 }
 
-// TestMaybePromptInteractiveRebuildError covers the rebuild-failure branch in
-// the interactive path: the user chooses Rebuild but the rebuild fails.
-func TestMaybePromptInteractiveRebuildError(t *testing.T) {
+// TestResolveOpenCodeVersionInteractiveDefaultChoice covers the
+// default/unknown-choice branch: an unrecognized selection keeps the current
+// version.
+func TestResolveOpenCodeVersionInteractiveDefaultChoice(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
-	origLatest := openCodeUpgradeInfo
-	origRebuild := rebuildImageForUpgrade
-	defer func() {
-		openCodeUpgradeInfo = origLatest
-		rebuildImageForUpgrade = origRebuild
-	}()
-	openCodeUpgradeInfo = func(_ context.Context) (string, error) { return "2.0.0", nil }
-	rebuildImageForUpgrade = func(_ context.Context, _ termio.UI, _ string) (image.ImageInfo, error) {
-		return image.ImageInfo{}, errors.New("rebuild failed")
+	if err := saveUpgradeState(upgradeState{CurrentVersion: "1.0.0"}); err != nil {
+		t.Fatalf("saveUpgradeState: %v", err)
 	}
-
-	info := image.ImageInfo{Tag: "opencode-sandbox:run", OpenCodeVersion: "1.0.0"}
-	ui := &termio.Mock{
-		IsInteractiveResult: true,
-		SelectFn: func(_ string, _ []termio.Choice, _ string) (string, error) {
-			return "r", nil
-		},
-	}
-
-	_, _, err := maybePromptOpenCodeUpgrade(context.Background(), ui, false, "", info)
-	if err == nil {
-		t.Fatal("expected error when the interactive rebuild fails")
-	}
-}
-
-// TestMaybePromptInteractiveDefaultChoice covers the default/unknown-choice
-// branch of maybePromptOpenCodeUpgrade: an unrecognized selection keeps the
-// current image.
-func TestMaybePromptInteractiveDefaultChoice(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
 	origLatest := openCodeUpgradeInfo
 	defer func() { openCodeUpgradeInfo = origLatest }()
 	openCodeUpgradeInfo = func(_ context.Context) (string, error) { return "2.0.0", nil }
 
-	info := image.ImageInfo{Tag: "opencode-sandbox:run", OpenCodeVersion: "1.0.0"}
 	ui := &termio.Mock{
 		IsInteractiveResult: true,
 		SelectFn: func(_ string, _ []termio.Choice, _ string) (string, error) {
@@ -80,27 +55,29 @@ func TestMaybePromptInteractiveDefaultChoice(t *testing.T) {
 		},
 	}
 
-	gotInfo, gotAction, err := maybePromptOpenCodeUpgrade(context.Background(), ui, false, "", info)
+	got, upgraded, err := resolveOpenCodeBuildVersion(context.Background(), ui, options.RunOptions{})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if gotAction != upgradeActionNone {
-		t.Errorf("expected upgradeActionNone for an unknown choice, got %d", gotAction)
+	if upgraded {
+		t.Error("expected upgraded=false for an unknown choice")
 	}
-	if gotInfo.OpenCodeVersion != info.OpenCodeVersion {
-		t.Errorf("expected unchanged info for an unknown choice")
+	if got != "1.0.0" {
+		t.Errorf("expected current version for an unknown choice, got %q", got)
 	}
 }
 
-// TestMaybePromptInteractiveKeep covers the "keep" choice branch of
-// maybePromptOpenCodeUpgrade: the current image is kept.
-func TestMaybePromptInteractiveKeep(t *testing.T) {
+// TestResolveOpenCodeVersionInteractiveKeep covers the "keep" choice branch:
+// the current version is kept.
+func TestResolveOpenCodeVersionInteractiveKeep(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
+	if err := saveUpgradeState(upgradeState{CurrentVersion: "1.0.0"}); err != nil {
+		t.Fatalf("saveUpgradeState: %v", err)
+	}
 	origLatest := openCodeUpgradeInfo
 	defer func() { openCodeUpgradeInfo = origLatest }()
 	openCodeUpgradeInfo = func(_ context.Context) (string, error) { return "2.0.0", nil }
 
-	info := image.ImageInfo{Tag: "opencode-sandbox:run", OpenCodeVersion: "1.0.0"}
 	ui := &termio.Mock{
 		IsInteractiveResult: true,
 		SelectFn: func(_ string, _ []termio.Choice, _ string) (string, error) {
@@ -108,15 +85,15 @@ func TestMaybePromptInteractiveKeep(t *testing.T) {
 		},
 	}
 
-	gotInfo, gotAction, err := maybePromptOpenCodeUpgrade(context.Background(), ui, false, "", info)
+	got, upgraded, err := resolveOpenCodeBuildVersion(context.Background(), ui, options.RunOptions{})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if gotAction != upgradeActionNone {
-		t.Errorf("expected upgradeActionNone for the keep choice, got %d", gotAction)
+	if upgraded {
+		t.Error("expected upgraded=false for the keep choice")
 	}
-	if gotInfo.OpenCodeVersion != info.OpenCodeVersion {
-		t.Errorf("expected unchanged info for the keep choice")
+	if got != "1.0.0" {
+		t.Errorf("expected current version for the keep choice, got %q", got)
 	}
 }
 
