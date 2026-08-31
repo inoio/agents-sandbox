@@ -1,116 +1,15 @@
 ---
 title: Getting Started
 layout: default
-nav_order: 1
+nav_order: 20
+has_children: true
+has_toc: false
 ---
+
 # Getting Started
-
-## What is opencode-sandbox?
-
-opencode-sandbox is a launcher that runs [opencode](https://github.com/anomalyco/opencode) inside an isolated microsandbox
-VM powered by [microsandbox](https://github.com/superradcompany/microsandbox). Each project gets a persistent VM
-identified by its git remote URL — first boot creates a fresh VM, subsequent runs connect to or start the existing one.
-The VM has your project bound as `/workspace`, a persistent home directory volume, and access to a curated toolchain.
-
-## Prerequisites
-
-opencode-sandbox requires platform-specific prerequisites depending on your operating system:
-
-### Linux (KVM)
-
-- **Docker** running with rootless or rootful daemon
-- **KVM** available (check with `kvm-ok` or `/dev/kvm` existence)
-
-
-### macOS (Apple Silicon)
-
-- **Apple Silicon (arm64)** — Intel (x86_64) Macs are not supported.
-- **Docker Desktop** or **colima** — ensure the Docker socket is accessible (`docker info` succeeds)
-
-### OS independent
-
-- **`msb`** CLI — the [microsandbox](https://github.com/superradcompany/microsandbox) runtime — opencode-sandbox tries to install it automatically
-- **Git** — for branch sessions
-
-If you're unsure your system fulfills the prerequisites, you can verify your setup:
-
-```shell
-opencode-sandbox doctor
-```
-
-## Installation
-
-* Download the latest binary:
-
-  **Linux (x86_64):**
-
-  ```console
-  curl -L -o opencode-sandbox https://github.com/inoio/opencode-sandbox/releases/latest/download/opencode-sandbox-linux-amd64
-  ```
-
-  **macOS (Apple Silicon):**
-
-  ```console
-  curl -L -o opencode-sandbox https://github.com/inoio/opencode-sandbox/releases/latest/download/opencode-sandbox-darwin-arm64
-  ```
-
-  **Linux (arm64):**
-
-  ```console
-  curl -L -o opencode-sandbox https://github.com/inoio/opencode-sandbox/releases/latest/download/opencode-sandbox-linux-arm64
-  ```
-* Install:
-  ```console
-  chmod u+x opencode-sandbox
-  mv opencode-sandbox ~/.local/bin # or any other directory in your PATH 
-  ```
 
 ## Quick Start
 
-Navigate to any directory and run:
-
-```shell
-opencode-sandbox
-```
-
-This starts a microsandbox VM (or connects to the existing project VM), mounts the working directory into the VM , and
-launches opencode.
-
-To start an isolated session for a different branch (only works in git repositories):
-
-```shell
-opencode-sandbox -w bugfix-my-fix
-```
-
-## Adding Providers & Configuration
-
-If you have been using opencode, start by copying your existing opencode.json:
-
-```shell
-cp ~/.config/opencode/opencode.json ~/.config/opencode-sandbox/opencode/opencode.json
-```
-
-Then, replace any API keys and secrets with a reference to an environment variable, e.g.:
-
-```json
-{
-  "provider": {
-    "...": {
-      "options": {
-        "apiKey": "{env:YOUR_PROVIDER_API_KEY}"
-      }
-    }
-  }
-}
-```
-
-All that's left to do is to define a secret in `~/.config/opencode-sandbox/env.secret.yaml`:
-
-```yaml
-YOUR_PROVIDER_API_KEY:
-  value: <your-api-key>
-  host: provider.example
-```
 
 See [Configuration]({% link configuration.md %}#secrets) for more details.
 
@@ -129,6 +28,18 @@ See [Configuration]({% link configuration.md %}#secrets) for more details.
 
 See the [Commands]({% link commands.md %}) reference for the full API and [Configuration]({% link configuration.md %}) for tuning
 behavior.
+
+### System Context
+
+The following C4 container diagram shows how opencode-sandbox relates the host to the microsandbox VM: your project
+directory is bound into the VM as `/workspace`, persistent state lives on a home volume at `/home/dev`, secrets are
+injected host-side only, and one or more opencode clients attach to the server running inside the VM.
+
+![opencode-sandbox C4 container diagram]({% link diagrams/c4-container.svg %})
+
+`/workspace` and the host CWD are the same files — edits inside the VM appear on the host and vice-versa. Secrets never live in
+the image or in environment dumps inside the VM; they are injected at runtime and visible only as environment variables.
+Multiple clients can attach to the same VM concurrently.
 
 ## Agent Context (AGENTS.md)
 
@@ -189,4 +100,5 @@ project; see [Configuration]({% link configuration.md %}#opencode-configuration)
 - Learn about [Configuration]({% link configuration.md %}) for setting defaults and secrets.
 - See how to [Extend the Runner Image]({% link runner-image.md %}) with project-specific tooling.
 - Explore [Worktree Sessions]({% link branch-sessions.md %}) for isolated worktree sessions.
+- Browse [Recipes]({% link recipes.md %}) for hands-on workflows like connecting Opencode Desktop.
 - Check [Troubleshooting]({% link troubleshooting.md %}) for common issues.

@@ -1,0 +1,30 @@
+@startuml
+skinparam defaultTextAlignment center
+skinparam roundCorner 0
+skinparam activityBackgroundColor #438DD5
+skinparam activityBorderColor #3C7FC0
+skinparam activityFontColor #FFF
+skinparam activityDiamondBackgroundColor #438DD5
+skinparam activityDiamondBorderColor #3C7FC0
+skinparam activityDiamondFontColor #FFF
+skinparam arrowColor #181818
+<style>
+activityDiagram {
+  circle {
+    LineColor #3C7FC0
+    BackGroundColor #438DD5
+  }
+}
+</style>
+' opencode-sandbox — Configuration precedence (later entries override earlier ones)
+title opencode-sandbox — Configuration precedence
+
+start
+:1. Built-in / flag defaults;
+:2. User-level\n\~/.config/opencode-sandbox/;
+:3. User per-slug\n\~/.config/opencode-sandbox/<slug>/;
+:4. Project-level\n.opencode-sandbox/;
+:5. Environment variables\nOPENCODE_SANDBOX_*;
+:6. CLI flags;
+stop
+@enduml

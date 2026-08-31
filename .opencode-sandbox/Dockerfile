@@ -5,9 +5,10 @@ USER root
 ENV PATH="/usr/local/go/bin:$PATH"
 RUN curl -fsSL https://go.dev/dl/go1.26.6.linux-amd64.tar.gz | tar -C /usr/local -xzf -
 RUN curl -sSfL https://golangci-lint.run/install.sh | sh -s -- -b /usr/local/bin v2.12.2
-# build-essential for CGO, shellcheck for shell script linting
+# build-essential for CGO, shellcheck for shell script linting, default-jre for the PlantUML jar
+# (the full JRE, not -headless: PlantUML renders fonts and needs libharfbuzz/libfontmanager)
 RUN apt-get update && \
-    apt-get install -y --no-install-recommends build-essential shellcheck && \
+    apt-get install -y --no-install-recommends build-essential bundler shellcheck default-jre && \
     rm -rf /var/lib/apt/lists/*
 
 # zig
@@ -59,6 +60,35 @@ ARG GH_VERSION=2.62.0
 RUN curl -fsSL "https://github.com/cli/cli/releases/download/v${GH_VERSION}/gh_${GH_VERSION}_linux_amd64.deb" -o /tmp/gh.deb \
  && dpkg -i /tmp/gh.deb \
  && rm -f /tmp/gh.deb
+
+# PlantUML (standalone jar; the apt package is too old for C4-PlantUML)
+ARG PLANTUML_VERSION=1.2026.7
+RUN mkdir -p /usr/local/plantuml \
+ && curl -fsSL "https://github.com/plantuml/plantuml/releases/download/v${PLANTUML_VERSION}/plantuml.jar" -o /usr/local/plantuml/plantuml.jar \
+ && printf '%b' \
+      '#!/bin/sh\n' \
+      '# Launcher that merges the microsandbox egress CA into a user-writable\n' \
+      '# JVM truststore so HTTPS !include fetches trust the injected cert.\n' \
+      'PLANTUML_JAR=/usr/local/plantuml/plantuml.jar\n' \
+      'MICRO_CA=/usr/local/share/ca-certificates/microsandbox-ca.crt\n' \
+      'JAVA=$(command -v java || echo /usr/bin/java)\n' \
+      'DEFAULT_CACERTS="$(readlink -f "$(dirname "$(readlink -f "$JAVA")")/../lib/security/cacerts" 2>/dev/null)"\n' \
+      '[ -f "$DEFAULT_CACERTS" ] || DEFAULT_CACERTS=/etc/ssl/certs/java/cacerts\n' \
+      'if [ -n "$MICRO_CA" ] && [ -f "$MICRO_CA" ] && [ -f "$DEFAULT_CACERTS" ] && command -v keytool >/dev/null 2>&1; then\n' \
+      '    DIR="${PLANTUML_HOME:-$HOME/.plantuml}"\n' \
+      '    TRUSTSTORE="$DIR/cacerts"\n' \
+      '    if [ ! -f "$TRUSTSTORE" ]; then\n' \
+      '        mkdir -p "$DIR"\n' \
+      '        cp "$DEFAULT_CACERTS" "$TRUSTSTORE"\n' \
+      '        keytool -importcert -noprompt -alias microsandbox -file "$MICRO_CA" \\\n' \
+      '            -keystore "$TRUSTSTORE" -storepass changeit 2>/dev/null\n' \
+      '    fi\n' \
+      '    exec "$JAVA" -Djavax.net.ssl.trustStore="$TRUSTSTORE" \\\n' \
+      '        -Djavax.net.ssl.trustStorePassword=changeit -jar "$PLANTUML_JAR" "$@"\n' \
+      'fi\n' \
+      'exec "$JAVA" -jar "$PLANTUML_JAR" "$@"\n' \
+      > /usr/local/bin/plantuml \
+ && chmod +x /usr/local/bin/plantuml
 
 USER dev
 # microsandbox so the agent can check --help, sources. Running VMs doesn't work because /dev/kvm is missing.

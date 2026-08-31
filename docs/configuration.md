@@ -1,7 +1,7 @@
 ---
 title: Configuration
 layout: default
-nav_order: 2
+nav_order: 30
 ---
 # Configuration
 
@@ -49,6 +49,8 @@ Place files under `.opencode-sandbox/` in your project directory. These override
 ## Precedence
 
 Configuration is resolved in this order (later entries override earlier ones):
+
+![Configuration precedence diagram]({% link diagrams/config-precedence.svg %})
 
 1. **Built-in / flag defaults** — compiled-in values and CLI flag defaults
 2. **User-level** — `~/.config/opencode-sandbox/`

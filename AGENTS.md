@@ -5,10 +5,12 @@
 `opencode-sandbox`: a launcher that runs opencode inside a microsandbox VM, binding a host directory as `/workspace` and
 persisting user state via a home directory volume.
 
-## Code style (MVP)
+## Code style
 
 - Follow idiomatic Go (Effective Go / Go Proverbs).
-- Write clear, self-explanatory code. Keep inline comments minimal.
+- Write clear, self-documenting code (ex. extract a function and name it clearly).
+- Use self-documenting, non-abbreviated identifiers (```additionResult := add(1,2)```). 
+- Keep inline comments concise and avoid them when the code can instead be refactored to be self-documenting.
 - Start/stay concrete and simple. Add abstractions when the code gives you a reason to.
 - Keep units/files small and focused on a clear responsibility.
 - When principles conflict, prioritize: KISS → YAGNI → SOLID → DRY
@@ -92,6 +94,10 @@ Always use your superpowers for appropriate tasks, never skip user approval.
 - When changing or adding behavior, keep `README.md` and `docs` directory (except `docs/superpowers`) in sync and
   current, and add a line to the `[Unreleased]` section in `CHANGELOG.md`.
 - When you struggled with something non-obvious, propose to the user to document it in `AGENTS.md`.
+- The Jekyll build (used by `make docs-serve` and GitHub Pages) minifies output HTML onto a single line. An inline
+  `<script>` in `docs/_includes/` that starts with a `//` line comment silently disables the whole script (the comment
+  swallows the rest of the line). Use `/* ... */` or no comment inside inline scripts in the docs. If inline docs JS
+  "doesn't work in the browser", check the minified output for this before touching logic.
 
 ## Current limitations
 

@@ -1,0 +1,49 @@
+@startuml
+' opencode-sandbox — C4 Container diagram (level 2)
+' Uses the vendored C4-PlantUML library (v2.14.0) in this directory.
+!include C4_Container.puml
+
+hide stereotype
+%set_variable_value("$system_boundaryElementTagTechn", "")
+
+title opencode-sandbox — System Context
+
+Person(dev, "User", "Runs opencode-sandbox in a project directory")
+
+Container(internet, "Internet", "Network", "External network; the egress forwards to allowed hosts")
+
+System_Boundary(host, "Host machine") {
+    Container(image, "Runner image", "OCI image", "opencode, Node.js, common CLI tools")
+    Container(cwd, "Project directory", "Filesystem", "The host CWD, bound into the VM")
+    Container(client, "opencode-sandbox client", "CLI", "Launcher that starts the VM and attaches to it")
+
+    System_Boundary(network, "Network boundary") {
+        Container(egress, "Microsandbox ingress/egress", "Firewall, Secret swap", "Swaps secret placeholders for real credentials at the boundary")
+
+        System_Boundary(vm, "Microsandbox VM") {
+            Container(ws, "/workspace", "Bind mount", "Same files as the host CWD (rw)")
+            Container(home, "/home/dev", "Microsandbox volume", "Persistent editor state, caches, config")
+            Container(oc, "opencode client(s)", "Client", "Session running inside the VM")
+            Container(server, "opencode serve", "Server", "Server inside the VM; the client connects to it")
+        }
+    }
+}
+
+Rel(image, vm, "provides VM's root filesystem")
+Rel(dev, client, "runs")
+BiRel(cwd, ws, "bind mount", "rw")
+Rel_L(client, cwd, "in current working directory")
+Rel(client, image, "ensures availability")
+Rel(client, egress, "defines secret env vars")
+Rel_L(egress, vm, "provisions secret env var placeholders to VM")
+Rel(server, egress, "request to allowed host", "placeholder credentials")
+Rel(egress, internet, "forwards request to allowed host", "real credentials")
+Rel(client, oc, "starts")
+Rel(oc, server, "connects to")
+Rel(client, home, "defines mount")
+UpdateRelStyle(dev, client, $offsetX="20", $offsetY="40")
+
+Lay_D(egress, server)
+Lay_R(image, cwd)
+
+@enduml

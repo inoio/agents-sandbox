@@ -1,0 +1,94 @@
+@startuml
+skinparam defaultTextAlignment center
+skinparam roundCorner 0
+skinparam activityBackgroundColor #438DD5
+skinparam activityBorderColor #3C7FC0
+skinparam activityFontColor #FFF
+skinparam activityDiamondBackgroundColor #438DD5
+skinparam activityDiamondBorderColor #3C7FC0
+skinparam activityDiamondFontColor #FFF
+skinparam arrowColor #181818
+<style>
+activityDiagram {
+  circle {
+    LineColor #3C7FC0
+    BackGroundColor #438DD5
+  }
+}
+</style>
+' opencode-sandbox — invocation lifecycle (from internal/sandbox/vm/run_orchestrate.go)
+title opencode-sandbox — lifecycle of the run command
+
+start
+:Pre-flight checks (doctor)\nDocker, KVM, Git, msb;
+:Auto-prune\nremove stale VMs, volumes, images (once per process);
+
+if (newer opencode available?\nchecked once per day & per version) then (yes)
+    :Prompt: rebuild runner image?\nRebuild / Keep / Quit;
+    if (rebuild chosen?) then (yes)
+        :Build runner image\nresolve latest opencode if unpinned; base + project layers;
+    else (no)
+        :Reuse cached image\nno rebuild needed;
+    endif
+else (no)
+    if (image not cached or changed) then (yes)
+        :Build runner image\nresolve latest opencode if unpinned; base + project layers;
+    else (no)
+        :Reuse cached image\nno rebuild needed;
+    endif
+endif
+:Home volume verify\nread state file, check msb volume;
+if (volume exists?) then (no)
+    :Create home volume\nprefill from runner image;
+else (yes)
+endif
+
+:Detect config changes\ncompare image, env, secrets, network, opencode config;
+if (config changed?) then (yes: recreate VM)
+    if (other clients attached?) then (yes)
+        :Prompt: rebuild VM?\nKeep current VM / Quit;
+    else (no)
+        :Rebuild VM (no other client attached);
+    endif
+    if (image changed?) then (yes)
+        :Prompt: existing home volume?\nKeep / Migrate / Reset / Quit;
+    else (no)
+    endif
+else (no: opencode daemon restart)
+    if (other clients attached?) then (yes)
+        :Prompt: restart daemon?\nKeep / Restart / Quit;
+    else (no)
+        :Restart daemon (no other client attached);
+    endif
+endif
+
+if (VM exists?) then (no)
+    :Load runner image into microsandbox;
+    :Create VM\nmount /workspace, /home/dev, /tmp; apply env, secrets, network;
+else (yes)
+    if (VM running?) then (yes)
+        :Connect to existing VM;
+    else (stopped / crashed)
+        :Start existing VM;
+    endif
+endif
+
+:Provisioning\ncopy opencode config, home.yaml;
+if (fresh boot?) then (yes)
+    :Run startup hooks;
+    :Start dockerd (if present)\nno-op when already running;
+else (no)
+endif
+:Verify / start opencode serve daemon;
+
+if (--worktree?) then (yes)
+    :Resolve or create VM-internal worktree;
+else (no)
+endif
+
+:Interactive opencode session\nopencode attach; work with the agent in the VM;
+
+:Cleanup / detach\nrelease client lease; hold VM until sessions quiesce;
+
+stop
+@enduml

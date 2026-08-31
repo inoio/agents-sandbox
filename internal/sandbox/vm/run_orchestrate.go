@@ -54,36 +54,36 @@ func PrepareSandbox(
 ) (*Session, error) {
 	projectSlug := git.ProjectSlug()
 
-	// Without an explicit pin, reuse the version already baked into the runner
-	// image instead of re-resolving "latest" from the network on every run.
-	// Re-resolving would change the version build arg (and thus the image
-	// identity), causing sporadic rebuilds and fresh loads into microsandbox.
-	openCodeVersion := opts.OpenCodeVersion
-	if openCodeVersion == "" {
-		openCodeVersion = currentUpgradeVersion()
+	// Decide the opencode version to bake before touching the image. Without an
+	// explicit pin, this checks for (and may offer) an upgrade up front, so a
+	// normal run never rebuilds the image twice (once for the current version,
+	// once for an upgrade). When unpinned and nothing newer is chosen, the
+	// version already baked into the runner image is reused instead of
+	// re-resolving "latest" from the network on every run; re-resolving would
+	// change the version build arg (and thus the image identity), causing
+	// sporadic rebuilds and fresh loads into microsandbox.
+	openCodeVersion, shallUpgrade, err := resolveOpenCodeBuildVersion(ctx, ui, opts)
+	if err != nil {
+		return nil, err
 	}
 
 	imageInfo, err := image.EnsureImage(
 		ctx,
 		projectSlug,
-		image.BuildOptions{Force: opts.Rebuild, OpenCodeVersion: openCodeVersion},
+		image.BuildOptions{Force: opts.Rebuild || shallUpgrade, OpenCodeVersion: openCodeVersion},
 		ui,
 	)
 	if err != nil {
-		return nil, fmt.Errorf("image setup failed: %w", err)
+		return nil, fmt.Errorf("ensuring image failed: %w", err)
 	}
-	ui.Verbosef("Using image '%s' (digest=%s, opencode %s)", imageInfo.Tag, imageInfo.Digest, imageInfo.OpenCodeVersion)
-
-	imageInfo, action, err := maybePromptOpenCodeUpgrade(ctx, ui, opts.Rebuild, opts.OpenCodeVersion, imageInfo)
-	if err != nil {
-		return nil, err
-	}
-	if action == upgradeActionRebuild {
+	if shallUpgrade {
 		ui.Verbosef("runner image rebuilt with a newer opencode version")
 	}
 
+	ui.Verbosef("Using image '%s' (digest=%s, opencode %s)", imageInfo.Tag, imageInfo.Digest, imageInfo.OpenCodeVersion)
+
 	// Persist the version actually baked so later runs reuse it as a stable
-	// build arg. Recording after the upgrade prompt captures any rebuild.
+	// build arg.
 	if recordErr := recordUpgradeVersion(imageInfo.OpenCodeVersion); recordErr != nil {
 		ui.Warnf("could not record opencode version in updater state: %v (continuing)", recordErr)
 	}

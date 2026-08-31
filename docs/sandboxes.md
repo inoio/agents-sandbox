@@ -1,7 +1,7 @@
 ---
 title: Sandboxes
 layout: default
-nav_order: 3
+nav_order: 40
 ---
 # Sandboxes
 
@@ -11,6 +11,8 @@ the sandbox lifecycle and management.
 ## Lifecycle Overview
 
 Each opencode-sandbox invocation follows this lifecycle:
+
+![Sandbox lifecycle diagram]({% link diagrams/lifecycle.svg %})
 
 ```
 - Auto-prune: Remove stale VMs, volumes, and images

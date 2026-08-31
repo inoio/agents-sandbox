@@ -70,20 +70,24 @@ func setUpSandbox(
 ) (string, error) {
 	ui.Verbosef("expected config files: %v", cfs.Keys)
 
-	if restart {
-		restartDaemons(ctx, sb, cfs, opts.ServeOnly, ui)
-		return ResolveTarget(ctx, sb, opts.Worktree, ui)
-	}
-
 	// Provisioning (writing files) is idempotent and non-disruptive, so it is
 	// always performed when there is config to write. Whether the daemon is
 	// restarted to pick the config up is decided separately (the restart flag):
 	// on a "keep" decision the files are still updated on disk so the next
 	// daemon start sees them, without disturbing the running instance.
+	provisioned := true
 	if cfs.HasSnippets || len(cfs.HomeFiles) > 0 {
 		if provErr := reprovision.Provision(ctx, sb, cfs); provErr != nil {
 			ui.Warnf("provision failed: %v (continuing)", provErr)
+			provisioned = false
 		}
+	}
+
+	if restart {
+		if provisioned {
+			restartDaemons(ctx, sb, opts.ServeOnly, ui)
+		}
+		return ResolveTarget(ctx, sb, opts.Worktree, ui)
 	}
 
 	if len(cfs.Hooks) > 0 && boot.booted() {
@@ -205,11 +209,7 @@ func decideReconfig(
 // restartDaemons provisions config files and restarts the opencode daemon so
 // an opencode-config change is picked up. Env/secret changes are never routed
 // here: they require a VM rebuild and are handled by the recreate path instead.
-func restartDaemons(ctx context.Context, sb msb.Sandbox, files *reprovision.ConfigFiles, serveOnly bool, ui termio.UI) {
-	if err := reprovision.Provision(ctx, sb, files); err != nil {
-		ui.Warnf("provision failed: %v (keeping existing daemon)", err)
-		return
-	}
+func restartDaemons(ctx context.Context, sb msb.Sandbox, serveOnly bool, ui termio.UI) {
 	ui.Infof("opencode serve restarting…")
 	if _, _, err := daemonShellFunc(ctx, sb, daemonKillCmd); err != nil {
 		ui.Warnf("kill stale daemon failed (continuing): %v", err)
