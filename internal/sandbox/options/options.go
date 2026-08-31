@@ -5,6 +5,7 @@ import (
 
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 
+	"github.com/inoio/opencode-sandbox/internal/sandbox/mounts"
 	"github.com/inoio/opencode-sandbox/internal/sandbox/network"
 )
 
@@ -35,7 +36,7 @@ type RunOptions struct {
 	// (Empty) means no policy is set and the default public profile applies.
 	Network network.Policy
 	// Mounts are additional host directories bind-mounted at absolute guest paths.
-	Mounts Mounts
+	Mounts mounts.Mounts
 	// OpenCodeVersion pins the opencode version baked into the runner image on
 	// rebuild. Empty means resolve the latest at build time.
 	OpenCodeVersion string

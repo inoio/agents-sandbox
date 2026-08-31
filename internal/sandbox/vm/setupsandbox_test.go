@@ -12,6 +12,7 @@ import (
 
 	"github.com/inoio/opencode-sandbox/internal/configpaths"
 	"github.com/inoio/opencode-sandbox/internal/homeconfig"
+	"github.com/inoio/opencode-sandbox/internal/sandbox/mounts"
 	"github.com/inoio/opencode-sandbox/internal/sandbox/msb"
 	"github.com/inoio/opencode-sandbox/internal/sandbox/options"
 	"github.com/inoio/opencode-sandbox/internal/sandbox/reprovision"
@@ -91,7 +92,7 @@ func TestBuildMountsIncludesConfiguredBindMount(t *testing.T) {
 		"/repo/path",
 		options.DefaultTmpSizeMiB,
 		options.DefaultWorkspaceQuotaMiB,
-		options.Mounts{
+		mounts.Mounts{
 			"/home/dev/.m2": {Source: "/host/home/.m2"},
 			"/home/dev/ref": {Source: "/host/ref", Readonly: true},
 		},
@@ -123,22 +124,22 @@ func TestBuildMountsIncludesConfiguredBindMount(t *testing.T) {
 // TestBuildMountsKeepsManagedMounts ensures configured mounts are additive and
 // never replace the managed home/workspace/tmp mounts.
 func TestBuildMountsKeepsManagedMounts(t *testing.T) {
-	mounts := buildMounts(
+	built := buildMounts(
 		"test-home-vol",
 		"/repo/path",
 		options.DefaultTmpSizeMiB,
 		options.DefaultWorkspaceQuotaMiB,
-		options.Mounts{"/home/dev/.m2": {Source: "/host/.m2"}},
+		mounts.Mounts{"/home/dev/.m2": {Source: "/host/.m2"}},
 	)
 
-	if home, ok := mounts[options.VMHomeDir]; !ok || home.Named != "test-home-vol" {
-		t.Errorf("managed home mount altered: %+v", mounts[options.VMHomeDir])
+	if home, ok := built[mounts.VMHomeDir]; !ok || home.Named != "test-home-vol" {
+		t.Errorf("managed home mount altered: %+v", built[mounts.VMHomeDir])
 	}
-	if ws, ok := mounts[defaultTargetDir]; !ok || ws.Bind != "/repo/path" {
-		t.Errorf("managed workspace mount altered: %+v", mounts[defaultTargetDir])
+	if ws, ok := built[defaultTargetDir]; !ok || ws.Bind != "/repo/path" {
+		t.Errorf("managed workspace mount altered: %+v", built[defaultTargetDir])
 	}
-	if tmp, ok := mounts[tmpMountPath]; !ok || tmp.Kind() != msbSdk.MountKindTmpfs {
-		t.Errorf("managed tmp mount altered: %+v", mounts[tmpMountPath])
+	if tmp, ok := built[tmpMountPath]; !ok || tmp.Kind() != msbSdk.MountKindTmpfs {
+		t.Errorf("managed tmp mount altered: %+v", built[tmpMountPath])
 	}
 }
 

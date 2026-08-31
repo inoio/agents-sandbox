@@ -12,6 +12,7 @@ import (
 
 	"github.com/inoio/opencode-sandbox/internal/configpaths"
 	"github.com/inoio/opencode-sandbox/internal/git"
+	"github.com/inoio/opencode-sandbox/internal/sandbox/mounts"
 	"github.com/inoio/opencode-sandbox/internal/sandbox/msb"
 	"github.com/inoio/opencode-sandbox/internal/sandbox/network"
 	"github.com/inoio/opencode-sandbox/internal/sandbox/options"
@@ -909,11 +910,11 @@ func TestPersistMountState_NilStateOnNotFound(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 
 	slug := "freshmountproject"
-	mounts := options.Mounts{
+	mnts := mounts.Mounts{
 		"/home/dev/.m2": {Source: "/host/.m2"},
 	}
 
-	if err := persistMountState(slug, mounts); err != nil {
+	if err := persistMountState(slug, mnts); err != nil {
 		t.Fatalf("persistMountState: %v", err)
 	}
 
@@ -924,8 +925,8 @@ func TestPersistMountState_NilStateOnNotFound(t *testing.T) {
 	if got.HomeVolume != "" {
 		t.Error("expected empty HomeVolume for newly created state")
 	}
-	if got.MountState.Hash != options.Fingerprint(mounts) {
-		t.Errorf("MountState.Hash = %q, want %q", got.MountState.Hash, options.Fingerprint(mounts))
+	if got.MountState.Hash != mounts.Fingerprint(mnts) {
+		t.Errorf("MountState.Hash = %q, want %q", got.MountState.Hash, mounts.Fingerprint(mnts))
 	}
 }
 

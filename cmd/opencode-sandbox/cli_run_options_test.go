@@ -9,6 +9,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/inoio/opencode-sandbox/internal/configpaths"
+	"github.com/inoio/opencode-sandbox/internal/sandbox/mounts"
 	"github.com/inoio/opencode-sandbox/internal/sandbox/network"
 	"github.com/inoio/opencode-sandbox/internal/sandbox/options"
 	"github.com/inoio/opencode-sandbox/internal/termio"
@@ -382,7 +383,7 @@ func TestExtractRunOptionsNetworkInvalid(t *testing.T) {
 func TestExtractRunOptionsResolvesMounts(t *testing.T) {
 	ui := &termio.Mock{}
 	source := t.TempDir()
-	lc := launcherconfig.Config{Mounts: options.Mounts{
+	lc := launcherconfig.Config{Mounts: mounts.Mounts{
 		"/home/dev/.m2": {Source: source},
 	}}
 	cmd := buildCommandWithLauncherConfig(ui, lc)
@@ -405,11 +406,11 @@ func TestExtractRunOptionsResolvesMounts(t *testing.T) {
 func TestExtractRunOptionsRejectsInvalidMount(t *testing.T) {
 	cases := []struct {
 		name  string
-		mount options.Mounts
+		mount mounts.Mounts
 	}{
-		{"missing source", options.Mounts{"/home/dev/.m2": {Source: "/definitely/not/here"}}},
-		{"reserved target", options.Mounts{"/workspace": {Source: "/tmp"}}},
-		{"relative target", options.Mounts{"relative": {Source: "/tmp"}}},
+		{"missing source", mounts.Mounts{"/home/dev/.m2": {Source: "/definitely/not/here"}}},
+		{"reserved target", mounts.Mounts{"/workspace": {Source: "/tmp"}}},
+		{"relative target", mounts.Mounts{"relative": {Source: "/tmp"}}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

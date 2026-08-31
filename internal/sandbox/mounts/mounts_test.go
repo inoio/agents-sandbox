@@ -1,10 +1,16 @@
-package options
+package mounts
 
 import (
 	"os"
 	"path/filepath"
+	"reflect"
 	"testing"
 )
+
+// namedString is a defined string type: its reflection Kind is String, but it
+// is not assignable to a plain string. It drives the hook's assertion-failure
+// branch, which a plain string never reaches.
+type namedString string
 
 func TestDecodeMountsShortAndLongForms(t *testing.T) {
 	got, err := DecodeMounts(map[string]any{
@@ -25,6 +31,18 @@ func TestDecodeMountsShortAndLongForms(t *testing.T) {
 	}
 }
 
+func TestDecodeMountsIgnoresUnknownFields(t *testing.T) {
+	got, err := DecodeMounts(map[string]any{
+		"/home/dev/.m2": map[string]any{"source": "~/.m2", "read-only": true},
+	})
+	if err != nil {
+		t.Fatalf("DecodeMounts: %v", err)
+	}
+	if mount := got["/home/dev/.m2"]; mount.Source != "~/.m2" || mount.Readonly {
+		t.Errorf("unknown field must be ignored (lenient), got %+v", mount)
+	}
+}
+
 func TestDecodeMountsRejectsInvalid(t *testing.T) {
 	cases := []struct {
 		name string
@@ -34,7 +52,6 @@ func TestDecodeMountsRejectsInvalid(t *testing.T) {
 		{"invalid value", map[string]any{"/home/dev/.m2": true}},
 		{"source not string", map[string]any{"/home/dev/.m2": map[string]any{"source": true}}},
 		{"readonly not boolean", map[string]any{"/home/dev/.m2": map[string]any{"readonly": "yes"}}},
-		{"unknown field", map[string]any{"/home/dev/.m2": map[string]any{"read-only": true}}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -52,6 +69,14 @@ func TestDecodeMountsNil(t *testing.T) {
 	}
 	if len(got) != 0 {
 		t.Errorf("DecodeMounts(nil) = %+v, want empty", got)
+	}
+}
+
+func TestStringToBindMountHookRejectsNonStringSource(t *testing.T) {
+	hook := stringToBindMountHook()
+	_, err := hook(reflect.TypeFor[namedString](), reflect.TypeFor[BindMount](), namedString("~/.m2"))
+	if err == nil {
+		t.Fatal("expected the hook to reject a non-string source")
 	}
 }
 

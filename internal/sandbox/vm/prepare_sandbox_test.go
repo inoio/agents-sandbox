@@ -19,6 +19,7 @@ import (
 	"github.com/inoio/opencode-sandbox/internal/homeconfig"
 	"github.com/inoio/opencode-sandbox/internal/sandbox/docker"
 	sandboximage "github.com/inoio/opencode-sandbox/internal/sandbox/image"
+	"github.com/inoio/opencode-sandbox/internal/sandbox/mounts"
 	"github.com/inoio/opencode-sandbox/internal/sandbox/msb"
 	"github.com/inoio/opencode-sandbox/internal/sandbox/options"
 	"github.com/inoio/opencode-sandbox/internal/sandbox/state"
@@ -600,11 +601,11 @@ func TestPrepareSandboxPersistsMountFingerprintOnVMCreation(t *testing.T) {
 	})
 	defer SetDaemonShellFunc(origDaemon)
 
-	mounts := options.Mounts{
+	mnts := mounts.Mounts{
 		"/home/dev/.m2": {Source: filepath.Join(t.TempDir(), "m2")},
 	}
 	ui := termio.NewTestMock(t)
-	sess, err := PrepareSandbox(context.Background(), options.RunOptions{Mounts: mounts}, &ui)
+	sess, err := PrepareSandbox(context.Background(), options.RunOptions{Mounts: mnts}, &ui)
 	if err != nil {
 		t.Fatalf("PrepareSandbox: %v", err)
 	}
@@ -618,8 +619,8 @@ func TestPrepareSandboxPersistsMountFingerprintOnVMCreation(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ReadState: %v", err)
 	}
-	if st.MountState.Hash != options.Fingerprint(mounts) {
-		t.Errorf("MountState.Hash = %q, want %q", st.MountState.Hash, options.Fingerprint(mounts))
+	if st.MountState.Hash != mounts.Fingerprint(mnts) {
+		t.Errorf("MountState.Hash = %q, want %q", st.MountState.Hash, mounts.Fingerprint(mnts))
 	}
 	if len(st.MountState.Names) != 1 || st.MountState.Names[0] != "/home/dev/.m2" {
 		t.Errorf("MountState.Names = %v, want [/home/dev/.m2]", st.MountState.Names)

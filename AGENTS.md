@@ -31,10 +31,10 @@ persisting user state via a home directory volume.
 
 You are dogfooding the project, you are not on the host, but in an opencode-sandbox VM. Filesystem layout:
 
-- `/workspace` bind mount of the host CWD, mounted rw. When working there, there's potential for parallel edits by other
-  agents/humans.
-- `~/.local/share/opencode/worktree/` git worktrees of `/workspace`, created by opencode. If that's your CWD, when
-  finalizing the session, after merging/pushing, always delete the worktree.
+- `/workspace` bind mount of the host CWD, mounted rw. When working there, don't commit/revert/stash etc yourself: 
+  There's potential for parallel edits by other agents/humans. Always ask the user how to finalize the session.
+- `~/.local/share/opencode/worktree/` git worktrees of `/workspace`, created by opencode. If that's your CWD, finalize 
+  the session by pushing a PR to github and deleting the worktree.
 
 ## System tools
 

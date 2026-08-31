@@ -8,6 +8,7 @@ import (
 	"github.com/inoio/opencode-sandbox/internal/configpaths"
 	"github.com/inoio/opencode-sandbox/internal/git"
 	"github.com/inoio/opencode-sandbox/internal/sandbox/image"
+	"github.com/inoio/opencode-sandbox/internal/sandbox/mounts"
 	"github.com/inoio/opencode-sandbox/internal/sandbox/msb"
 	"github.com/inoio/opencode-sandbox/internal/sandbox/network"
 	"github.com/inoio/opencode-sandbox/internal/sandbox/options"
@@ -177,7 +178,7 @@ func resolveHomeVolume(
 func persistConfigHashes(
 	projectSlug string,
 	networkPolicy network.Policy,
-	mounts options.Mounts,
+	mounts mounts.Mounts,
 	ui termio.UI,
 ) {
 	desiredEnv := reprovision.MergeEnvMaps(
