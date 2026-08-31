@@ -5,6 +5,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/inoio/opencode-sandbox/internal/agent"
 )
 
 type mockConfigPaths struct {
@@ -63,6 +65,10 @@ func (m *mockConfigPaths) UserOpencodeConfigDir() string {
 	return ensureMockConfigDirectory(filepath.Join(m.UserConfigDir(), "opencode"))
 }
 
+func (m *mockConfigPaths) UserAgentConfigDir(a agent.Agent) string {
+	return ensureMockConfigDirectory(filepath.Join(m.UserConfigDir(), a.ConfigDirName()))
+}
+
 func (m *mockConfigPaths) ProjectConfigDir() string {
 	return ensureMockConfigDirectory(filepath.Join(m.baseDir, "projectconfig"))
 }
@@ -77,6 +83,10 @@ func (m *mockConfigPaths) UserEnvSecretFile() string {
 
 func (m *mockConfigPaths) ProjectOpencodeConfigDir() string {
 	return ensureMockConfigDirectory(filepath.Join(m.ProjectConfigDir(), "opencode"))
+}
+
+func (m *mockConfigPaths) ProjectAgentConfigDir(a agent.Agent) string {
+	return ensureMockConfigDirectory(filepath.Join(m.ProjectConfigDir(), a.ConfigDirName()))
 }
 
 func (m *mockConfigPaths) ProjectEnvFile() string {
@@ -119,10 +129,20 @@ func (f *failFastConfigPaths) UserOpencodeConfigDir() string {
 	return ""
 }
 
+func (f *failFastConfigPaths) UserAgentConfigDir(_ agent.Agent) string {
+	f.mustMock()
+	return ""
+}
+
 func (f *failFastConfigPaths) UserEnvFile() string       { f.mustMock(); return "" }
 func (f *failFastConfigPaths) UserEnvSecretFile() string { f.mustMock(); return "" }
 func (f *failFastConfigPaths) ProjectConfigDir() string  { f.mustMock(); return "" }
 func (f *failFastConfigPaths) ProjectOpencodeConfigDir() string {
+	f.mustMock()
+	return ""
+}
+
+func (f *failFastConfigPaths) ProjectAgentConfigDir(_ agent.Agent) string {
 	f.mustMock()
 	return ""
 }

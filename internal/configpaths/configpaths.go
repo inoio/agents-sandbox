@@ -3,6 +3,8 @@ package configpaths
 import (
 	"os"
 	"path/filepath"
+
+	"github.com/inoio/opencode-sandbox/internal/agent"
 )
 
 type ConfigPaths interface {
@@ -10,6 +12,7 @@ type ConfigPaths interface {
 	UserCacheDir() string
 	UserStateDir() string
 	UserOpencodeConfigDir() string
+	UserAgentConfigDir(a agent.Agent) string
 
 	UserEnvFile() string
 	UserEnvSecretFile() string
@@ -17,6 +20,7 @@ type ConfigPaths interface {
 
 	ProjectConfigDir() string
 	ProjectOpencodeConfigDir() string
+	ProjectAgentConfigDir(a agent.Agent) string
 	ProjectEnvFile() string
 	ProjectEnvSecretFile() string
 	ProjectEnvSecretYAMLFile() string
@@ -54,7 +58,14 @@ func (c *realConfigPaths) UserStateDir() string {
 // UserOpencodeConfigDir returns the directory of the opencode server's own
 // user config, nested under the tool's user config base.
 func (c *realConfigPaths) UserOpencodeConfigDir() string {
-	return filepath.Join(c.UserConfigDir(), configDirName)
+	a, _ := agent.Lookup("opencode")
+	return c.UserAgentConfigDir(a)
+}
+
+// UserAgentConfigDir returns the directory of the active agent's own user
+// config, nested under the tool's user config base.
+func (c *realConfigPaths) UserAgentConfigDir(a agent.Agent) string {
+	return filepath.Join(c.UserConfigDir(), a.ConfigDirName())
 }
 
 // ProjectConfigDir returns the tool's project-config directory: $PWD/opencode-sandbox.
@@ -90,7 +101,6 @@ const (
 )
 
 const (
-	configDirName     = ConfigDirName
 	envFileName       = EnvFileName
 	envSecretFileName = EnvSecretFileName
 	dockerfileName    = DockerFileName
@@ -103,7 +113,13 @@ func (c *realConfigPaths) ProjectDockerfile() string {
 
 // ProjectOpencodeConfigDir returns the project-local opencode config directory.
 func (c *realConfigPaths) ProjectOpencodeConfigDir() string {
-	return filepath.Join(projectConfigDir, configDirName)
+	a, _ := agent.Lookup("opencode")
+	return c.ProjectAgentConfigDir(a)
+}
+
+// ProjectAgentConfigDir returns the project-local config dir for the agent.
+func (c *realConfigPaths) ProjectAgentConfigDir(a agent.Agent) string {
+	return filepath.Join(projectConfigDir, a.ConfigDirName())
 }
 
 func (c *realConfigPaths) ProjectEnvFile() string {

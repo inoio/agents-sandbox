@@ -3,6 +3,8 @@ package configpaths
 import (
 	"path/filepath"
 	"testing"
+
+	"github.com/inoio/opencode-sandbox/internal/agent"
 )
 
 func TestUserDirEnvOverride(t *testing.T) {
@@ -91,6 +93,16 @@ func TestUserOpencodeConfigDir(t *testing.T) {
 	want := filepath.Join(cfgPaths.UserConfigDir(), ConfigDirName)
 	if got := cfgPaths.UserOpencodeConfigDir(); got != want {
 		t.Errorf("UserOpencodeConfigDir() = %q, want %q", got, want)
+	}
+}
+
+func TestUserAgentConfigDir(t *testing.T) {
+	WithRealConfigPaths(t)
+	a, _ := agent.Lookup("opencode")
+	got := Get().UserAgentConfigDir(a)
+	want := Get().UserOpencodeConfigDir()
+	if got != want {
+		t.Errorf("UserAgentConfigDir(opencode) = %q, want %q", got, want)
 	}
 }
 
