@@ -1,4 +1,4 @@
-package options
+package mounts
 
 import (
 	"crypto/sha256"
@@ -7,8 +7,11 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"sort"
 	"strings"
+
+	"github.com/go-viper/mapstructure/v2"
 )
 
 // Guest mount points that opencode-sandbox manages itself. They are fixed by
@@ -31,59 +34,42 @@ type BindMount struct {
 // Mounts maps absolute guest target paths to host bind-mount settings.
 type Mounts map[string]BindMount
 
-const (
-	mountFieldSource   = "source"
-	mountFieldReadonly = "readonly"
-)
+// stringToBindMountHook decodes the short mount form (`target: ~/.m2`) into a
+// writable BindMount. The long form (`target: {source, readonly}`) needs no
+// hook; mapstructure decodes it via the BindMount struct tags.
+func stringToBindMountHook() mapstructure.DecodeHookFuncType {
+	return func(f reflect.Type, t reflect.Type, data any) (any, error) {
+		if f.Kind() != reflect.String || t != reflect.TypeFor[BindMount]() {
+			return data, nil
+		}
+		source, ok := data.(string)
+		if !ok {
+			return nil, errors.New("bind mount source must be a string")
+		}
+		return BindMount{Source: source, Readonly: false}, nil
+	}
+}
 
-// DecodeMounts parses the launcher config's short and long mount forms.
+// DecodeMounts parses the launcher config's short and long mount forms,
+// delegating shape parsing to mapstructure. Unknown fields are ignored
+// (lenient); semantic validation is left to ResolveBindMounts.
 func DecodeMounts(raw any) (Mounts, error) {
 	if raw == nil {
 		return Mounts{}, nil
 	}
-	entries, ok := raw.(map[string]any)
-	if !ok {
-		return nil, fmt.Errorf("mounts must be a mapping, got %T", raw)
+	var mounts Mounts
+	//nolint:exhaustruct // DecoderConfig has many optional fields we leave zeroed.
+	decoder, err := mapstructure.NewDecoder(&mapstructure.DecoderConfig{
+		DecodeHook: stringToBindMountHook(),
+		Result:     &mounts,
+	})
+	if err != nil {
+		return nil, err
 	}
-	mounts := make(Mounts, len(entries))
-	for target, rawEntry := range entries {
-		mount, err := decodeMount(rawEntry)
-		if err != nil {
-			return nil, fmt.Errorf("decode mount %q: %w", target, err)
-		}
-		mounts[target] = mount
+	if err := decoder.Decode(raw); err != nil {
+		return nil, err
 	}
 	return mounts, nil
-}
-
-func decodeMount(raw any) (BindMount, error) {
-	switch entry := raw.(type) {
-	case string:
-		return BindMount{Source: entry, Readonly: false}, nil
-	case map[string]any:
-		var mount BindMount
-		for key, value := range entry {
-			switch key {
-			case mountFieldSource:
-				source, ok := value.(string)
-				if !ok {
-					return BindMount{}, errors.New("source must be a string")
-				}
-				mount.Source = source
-			case mountFieldReadonly:
-				readonly, ok := value.(bool)
-				if !ok {
-					return BindMount{}, errors.New("readonly must be a boolean")
-				}
-				mount.Readonly = readonly
-			default:
-				return BindMount{}, fmt.Errorf("unknown field %q", key)
-			}
-		}
-		return mount, nil
-	default:
-		return BindMount{}, fmt.Errorf("value must be a source string or mapping, got %T", raw)
-	}
 }
 
 // managedMountTargets are the guest paths opencode-sandbox mounts itself. A

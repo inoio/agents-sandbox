@@ -9,6 +9,7 @@ import (
 	"github.com/inoio/opencode-sandbox/internal/configpaths"
 	"github.com/inoio/opencode-sandbox/internal/git"
 	"github.com/inoio/opencode-sandbox/internal/sandbox/image"
+	"github.com/inoio/opencode-sandbox/internal/sandbox/mounts"
 	"github.com/inoio/opencode-sandbox/internal/sandbox/msb"
 	"github.com/inoio/opencode-sandbox/internal/sandbox/naming"
 	"github.com/inoio/opencode-sandbox/internal/sandbox/options"
@@ -348,15 +349,15 @@ func createProjectVM(
 }
 
 // tmpMountPath is the mount point used for the sandbox tmpfs.
-const tmpMountPath = options.TmpMountPath
+const tmpMountPath = mounts.TmpMountPath
 
 func buildMounts(
 	homeVol, repoPath string,
 	tmpSizeMiB, workspaceQuotaMiB uint32,
-	extra options.Mounts,
+	extra mounts.Mounts,
 ) map[string]msbSdk.MountConfig {
-	mounts := map[string]msbSdk.MountConfig{
-		options.VMHomeDir: msbSdk.Mount.Named(homeVol, msbSdk.MountOptions{}),
+	built := map[string]msbSdk.MountConfig{
+		mounts.VMHomeDir: msbSdk.Mount.Named(homeVol, msbSdk.MountOptions{}),
 		defaultTargetDir: msbSdk.Mount.Bind(repoPath, msbSdk.MountOptions{
 			QuotaMiB: workspaceQuotaMiB,
 		}),
@@ -369,9 +370,9 @@ func buildMounts(
 		}),
 	}
 	for target, mount := range extra {
-		mounts[target] = msbSdk.Mount.Bind(mount.Source, msbSdk.MountOptions{Readonly: mount.Readonly})
+		built[target] = msbSdk.Mount.Bind(mount.Source, msbSdk.MountOptions{Readonly: mount.Readonly})
 	}
-	return mounts
+	return built
 }
 
 // acquireProjectFlock takes an exclusive flock on the given path. It returns a

@@ -5,8 +5,8 @@ import (
 
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 
+	"github.com/inoio/opencode-sandbox/internal/sandbox/mounts"
 	"github.com/inoio/opencode-sandbox/internal/sandbox/network"
-	"github.com/inoio/opencode-sandbox/internal/sandbox/options"
 	"github.com/inoio/opencode-sandbox/internal/sandbox/state"
 )
 
@@ -159,7 +159,7 @@ func TestBuildNetworkState(t *testing.T) {
 }
 
 func TestMountsChanged(t *testing.T) {
-	desired := options.Mounts{
+	desired := mounts.Mounts{
 		"/home/dev/.m2": {Source: "/host/.m2"},
 	}
 	applied := BuildMountState(desired)
@@ -170,7 +170,7 @@ func TestMountsChanged(t *testing.T) {
 	if !MountsChanged(applied, nil) {
 		t.Error("MountsChanged after removing all mounts should be true")
 	}
-	if !MountsChanged(applied, options.Mounts{
+	if !MountsChanged(applied, mounts.Mounts{
 		"/home/dev/.m2": {Source: "/host/.m2", Readonly: true},
 	}) {
 		t.Error("MountsChanged with a flipped readonly flag should be true")
@@ -183,7 +183,7 @@ func TestMountsChangedEmptyAppliedState(t *testing.T) {
 	if MountsChanged(state.MountState{}, nil) {
 		t.Error("MountsChanged with no persisted state and no mounts should be false")
 	}
-	if !MountsChanged(state.MountState{}, options.Mounts{
+	if !MountsChanged(state.MountState{}, mounts.Mounts{
 		"/home/dev/.m2": {Source: "/host/.m2"},
 	}) {
 		t.Error("MountsChanged with no persisted state and configured mounts should be true")
@@ -191,13 +191,13 @@ func TestMountsChangedEmptyAppliedState(t *testing.T) {
 }
 
 func TestBuildMountState(t *testing.T) {
-	desired := options.Mounts{
+	desired := mounts.Mounts{
 		"/home/dev/z": {Source: "/host/z"},
 		"/home/dev/a": {Source: "/host/a"},
 	}
 	st := BuildMountState(desired)
-	if st.Hash != options.Fingerprint(desired) {
-		t.Errorf("BuildMountState.Hash = %q, want %q", st.Hash, options.Fingerprint(desired))
+	if st.Hash != mounts.Fingerprint(desired) {
+		t.Errorf("BuildMountState.Hash = %q, want %q", st.Hash, mounts.Fingerprint(desired))
 	}
 	if len(st.Names) != 2 || st.Names[0] != "/home/dev/a" || st.Names[1] != "/home/dev/z" {
 		t.Errorf("BuildMountState.Names = %v, want sorted targets", st.Names)

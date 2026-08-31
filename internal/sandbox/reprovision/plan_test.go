@@ -5,6 +5,7 @@ import (
 
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 
+	"github.com/inoio/opencode-sandbox/internal/sandbox/mounts"
 	"github.com/inoio/opencode-sandbox/internal/sandbox/options"
 )
 
@@ -201,7 +202,7 @@ func TestPlanReconfigMountsChangeTriggersRecreate(t *testing.T) {
 // reading an existing VM back: every run would then rebuild the VM.
 func TestPlanReconfigMountsUnchangedNoRecreate(t *testing.T) {
 	cfg := &msbSdk.SandboxConfig{}
-	opts := options.RunOptions{Mounts: options.Mounts{
+	opts := options.RunOptions{Mounts: mounts.Mounts{
 		"/home/dev/.m2": {Source: "/host/.m2"},
 	}}
 	plan := PlanReconfig(cfg, "img", opts, ChangeFlags{}, "")
