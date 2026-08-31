@@ -23,7 +23,7 @@ the [XDG base directory spec](https://specifications.freedesktop.org/basedir-spe
 | `~/.config/opencode-sandbox/env.secret`                    | Secret environment variables (legacy, see [Secrets](#secrets))                        |
 | `~/.config/opencode-sandbox/env.secret.yaml`               | Secret environment variables (YAML/JSON, see [Secrets](#secrets))                     |
 | `~/.config/opencode-sandbox/config.(y[a]ml\|json[(c\|5)])` | Configuration file                                                                    |
-| `~/.config/opencode-sandbox/opencode/*`                    | User opencode config snippets (see [Opencode configuration](#opencode-configuration)) |
+| `~/.config/opencode-sandbox/<agent>/*`                    | Agent config snippets, one subdir per agent (e.g. `opencode/`; see [Agent configuration](#agent-configuration)) |
 | `~/.config/opencode-sandbox/home.yaml`                     | User home-file mappings (see [Home files](#home-files))                               |
 | `~/.config/opencode-sandbox/<slug>/config.(y[a]ml\|json[(c\|5)])` | Per-project (per-slug) configuration file (see [Per-slug configuration](#per-slug-configuration)) |
 
@@ -43,7 +43,7 @@ Place files under `.opencode-sandbox/` in your project directory. These override
 | `.opencode-sandbox/env.secret`                    | Project-specific secrets (legacy)                                                                 |
 | `.opencode-sandbox/env.secret.yaml`               | Project-specific secrets (YAML/JSON)                                                              |
 | `.opencode-sandbox/config.(y[a]ml\|json[(c\|5)])` | Project-specific configuration file                                                               |            
-| `.opencode-sandbox/opencode/*`                    | Project-specific opencode config snippets (see [Opencode configuration](#opencode-configuration)) |
+| `.opencode-sandbox/<agent>/*`                    | Project-specific agent config snippets (see [Agent configuration](#agent-configuration))          |
 | `.opencode-sandbox/home.yaml`                     | Project-specific home-file mappings (see [Home files](#home-files))                               |
 
 ## Precedence
@@ -323,20 +323,61 @@ Once set as a secret, the variable is available like any environment variable:
 echo $GITHUB_TOKEN
 ```
 
-## Opencode configuration
+## Agent configuration
 
-opencode-sandbox provisions a single opencode config into the VM at `/home/dev/.config/opencode/opencode.json`. No embedded
-provider or permission config is shipped with opencode-sandbox. Instead, opencode config is assembled from snippet files
-under `~/.config/opencode-sandbox/opencode/` (user) and `.opencode-sandbox/opencode/` (project):
+opencode-sandbox is agent-aware. A `--agent <name>` flag on `run`, `build`, and the `volume` subcommands selects the
+coding-agent profile to run, build, and provision. Milestone 1 ships **opencode as the only registered agent** (the
+default), so existing usage is unchanged; the registry abstraction paves the way for future agents (e.g. pi, claude).
+Run `opencode-sandbox tree` to see the current list of registered agents.
 
-- All `.json`, `.jsonc`, and `.json5` files are parsed and **deep-merged** into one `opencode.json`.
-- The user directory is merged first, then the project directory; within each directory files are merged in
-  alphabetical order, so later files override earlier ones.
-- If no snippet files exist, no `opencode.json` is provisioned.
+Each agent owns its config directories, one subdir per agent under the tool's config base:
+
+- **User:** `~/.config/opencode-sandbox/<agent>/` (e.g. `~/.config/opencode-sandbox/opencode/`)
+- **Project:** `.opencode-sandbox/<agent>/` (e.g. `.opencode-sandbox/opencode/`)
+
+### Config snippet merge
+
+opencode-sandbox provisions a single agent config into the VM (for opencode, at
+`/home/dev/.config/opencode/opencode.json`). No embedded provider or permission config is shipped. Instead, the agent
+config is assembled from **snippet files** that match the agent's snippet pattern, collected from the user and project
+directories:
+
+- For opencode, snippets must match the glob `opencode-*.json*` — e.g. `opencode-model.json`, `opencode-permissions.jsonc`,
+  `opencode-x.json5`. A file named exactly `opencode.json` no longer merges by default.
+- Matching files are parsed and **deep-merged** into one config document. The user directory is merged first, then the
+  project directory; within each directory files are merged in alphabetical order, so later files override earlier ones.
+- Snippet parsing supports JSON, JSONC, JSON5, and YAML (agents whose pattern includes YAML extensions, e.g.
+  `pi-*.{json,yaml}`). The opencode pattern matches JSON-family extensions.
+- If no snippet files exist, no merged config is produced.
+
+Run `opencode-sandbox config show` to print the merged config that would be provisioned into the VM.
 
 See the [permissions example]({% link getting-started.md %}#example-permissions) for a concrete snippet.
 
-Run `opencode-sandbox config show` to print the merged config that would be provisioned into the VM.
+### Default drop-in provisioning
+
+Beyond the snippet merge, when running the launcher now **copies the active agent's config + credential files from the
+host into the VM by default**, driven by a per-agent gitignore-style include-list manifest (provision rules). This means
+your normal agent setup (e.g. an existing opencode config) works without extra configuration.
+
+For opencode the drop-in copy includes:
+
+- `~/.config/opencode/**` — the whole opencode config tree, excluding `node_modules/`, `package*.json`, and `.gitignore`
+- `~/.local/share/opencode/auth.json` — the opencode credential file
+
+Precedence: the merged snippet config and any `home.yaml` mappings override the drop-in copy for the same VM path.
+
+#### Authentication: file copy vs. env-secret
+
+> **Security note:** because of the drop-in provisioning above, the opencode `auth.json` credential file is now copied
+> into the VM by default. If you prefer to deliver credentials exclusively through the env-secret mechanism (which never
+> writes them into the VM, see [Secrets](#secrets)), you can opt out of the credential file copy. The env-secret channel
+> remains fully supported and unchanged; this does not replace it.
+
+To opt out, exclude `auth.json` from the drop-in copy by placing a `home.yaml` entry that overrides the provisioned path
+(see [Home files](#home-files)), or remove the credential file from the host before running. The launcher does not inject
+host secrets in any other way; the env-secret mechanism is the supported channel for secrets you do not want on disk in
+the VM.
 
 ## Home files
 

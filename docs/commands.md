@@ -47,6 +47,7 @@ Arguments after `--` are forwarded to opencode. Arguments before `--` that don't
 | `--workspace-quota` | — | `16G` | Guest-write quota for the `/workspace` bind mount (e.g. `32G`), bounding writes on top of the host repo. Applied at VM creation; a change triggers recreation. An invalid value is rejected with an error. |
 | `--dry-run-vm` | —     | `false`  | Skip VM lifecycle but prepare everything else                                                                                              |
 | `--serve-only` | `-s`  | `false`  | Start opencode server published on host loopback (no in-VM TUI); press `Ctrl-D` to exit. Set `OPENCODE_SERVER_PASSWORD` for basic auth. |
+| `--agent`      | —     | `opencode` | Coding-agent profile to run. Milestone 1 ships only `opencode` (the default).                                                           |
 
 **Aliases:** `sandbox run`
 
@@ -78,7 +79,7 @@ Build or rebuild the runner Docker image. If `.opencode-sandbox/Dockerfile` exis
 ```console
 opencode-sandbox build        # build or update if needed
 opencode-sandbox build -r     # force clean rebuild
-opencode-sandbox build --opencode-version 0.5.0  # pin a specific opencode version
+opencode-sandbox build --agent-version 0.5.0  # pin a specific agent version
 ```
 
 **Flags:**
@@ -87,7 +88,9 @@ opencode-sandbox build --opencode-version 0.5.0  # pin a specific opencode versi
 |----------------------|-------|----------|-----------------------------------------------------------------|
 | `--rebuild`          | `-r`  | `false`  | Force a clean rebuild                                           |
 | `--dry-run`          | `-n`  | `false`  | Dry run without building                                        |
-| `--opencode-version` | —     | `""`     | Pin the opencode version baked into the image (default: latest) |
+| `--agent`            | —     | `opencode` | Coding-agent profile to build. Milestone 1 ships only `opencode` (the default). |
+| `--agent-version`    | —     | `""`     | Pin the agent version baked into the image (default: latest)    |
+| `--opencode-version` | —     | `""`     | Deprecated alias for `--agent-version`                          |
 
 **Aliases:** `image build`
 
@@ -398,6 +401,7 @@ Create a new home volume and copy files from the old volume on top of it.
   - `--rm` — remove old volume after successful migration
   - `--dry-run` — show what would be done
   - `--rebuild` — rebuild runner image before migrating
+  - `--agent` — coding-agent profile to provision (`opencode` default)
 
 #### `opencode-sandbox volume reset [volume-name]`
 
@@ -409,6 +413,7 @@ Create a new home volume from the image contents only (fresh, no copy).
   - `--rm` — remove old volume after reset
   - `--dry-run` — show what would be done
   - `--rebuild` — rebuild runner image before resetting
+  - `--agent` — coding-agent profile to provision (`opencode` default)
 
 #### `opencode-sandbox volume edit [volume-name]`
 

@@ -43,6 +43,17 @@ Egress and ingress stay under your control with simple profiles and allow/deny l
 >
 > opencode-sandbox, by contrast, is **open and account-free**, runs on **any Linux (KVM) and Apple Silicon**, and gives you **one-command disposal** — without the telemetry, login, or vendor lock-in.
 
+## Agents
+
+opencode-sandbox is agent-aware. A `--agent <name>` flag on `run`, `build`, and the `volume` subcommands selects the
+coding-agent profile to run and provision; `--agent-version` pins the agent version baked into the runner image
+(replacing the older `--opencode-version`, which remains as a deprecated alias). Milestone 1 ships **opencode as the only
+registered agent** (the default), so existing usage is unchanged — the abstraction paves the way for future agents.
+
+By default the launcher copies the active agent's config + credential files from the host into the VM. **Security note:**
+this includes the opencode `auth.json` credential file. If you prefer to deliver credentials via the env-secret mechanism
+(which never writes them into the VM), see the [Configuration docs](/docs/configuration.md) to opt out of the file copy.
+
 ## Documentation
 
 There's dedicated documentation per topic. You can also browse the documentation on [GitHub Pages](https://inoio.github.io/opencode-sandbox/).
@@ -52,7 +63,7 @@ There's dedicated documentation per topic. You can also browse the documentation
 | [Introduction](/docs/introduction.md)         | Introduction and motivation.                                                             |
 | [Getting Started](/docs/getting-started.md)   | Installation, prerequisites, configuration, first run                                    |
 | [Commands](/docs/commands.md)                 | Complete CLI reference                                                                   |
-| [Configuration](/docs/configuration.md)       | Launcher config, env, secrets, opencode snippet merge, `home.yaml` (incl. startup hooks) |
+| [Configuration](/docs/configuration.md)       | Launcher config, env, secrets, agent snippet merge, drop-in provisioning, `home.yaml` (incl. startup hooks) |
 | [Runner Image](/docs/runner-image.md)         | Base image, custom tooling                                                               |
 | [Worktree Sessions](/docs/branch-sessions.md) | Isolated worktree sessions for per-feature development                                   |
 | [Recipes](/docs/recipes.md)                   | Hands-on workflows (e.g. connecting Opencode Desktop)                                    |

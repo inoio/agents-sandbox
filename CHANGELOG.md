@@ -18,6 +18,10 @@ command reports the bare version (e.g. `0.1.0`).
 - Docs: New `Recipes` page with a hands-on how-to for connecting Opencode Desktop via `run --serve-only`; moved out of the README. The comparison matrix also names Docker Sandboxes and adds a "Why not just use Docker Sandboxes?" callout.
 - Docs: `Recipes` is now a parent overview page (with `has_children`); the Connect Opencode Desktop recipe lives on a nested child page, ready for more recipes to be added.
 - Docs: Sidebar submenus are expanded by default via a small script in `docs/_includes/head_custom.html`.
+- CLI: a new `--agent <name>` flag on `run`, `build`, and the `volume` subcommands selects the coding-agent profile to run/build/provision. Milestone 1 ships `opencode` as the only registered agent (the default), so existing usage is fully backward compatible; the registry abstraction paves the way for future agents (e.g. pi, claude).
+- CLI: a new `--agent-version` flag pins the agent version baked into the runner image (default: latest release).
+- Behavior: default drop-in provisioning — when running, the launcher now copies the active agent's config + credential files from the host into the VM by default, driven by per-agent gitignore-style include-list manifests (`ProvisionRules`). For opencode this copies `~/.config/opencode/**` (excluding `node_modules`, `package*.json`, `.gitignore`) and `~/.local/share/opencode/auth.json`.
+  - **Security note:** the opencode `auth.json` credential file is now copied into the VM by default. Users who prefer to deliver credentials via the env-secret mechanism should opt out of the file copy — see the docs. The env-secret channel is unchanged and still supported.
 
 ### Changed
 
@@ -31,6 +35,8 @@ command reports the bare version (e.g. `0.1.0`).
 - Bugfix: After a home-volume `reset` or `migrate`, restarting now recreates the project VM so the new home volume is actually mounted; previously the running VM kept serving the old volume because the mounted home volume was not compared during reconfiguration.
 - Changed: The runner-image opencode version is now resolved once, up front, before the image is built. An explicitly pinned version skips the update check entirely; otherwise an available upgrade is offered before building so a normal run no longer rebuilds the image twice (once for the current version, once for the upgrade).
 - Note: Images built before the opencode-version label existed are no longer force-rebuilt to pin/relabel opencode; if you have such an image, run `opencode-sandbox build` once to re-pin it.
+* **Breaking** CLI: `--opencode-version` is renamed to `--agent-version`. The old `--opencode-version` flag remains as a deprecated alias.
+* **Breaking** config merge: opencode config snippet files must now match the pattern `opencode-*.json*` (i.e. `opencode-<name>.json`/`.jsonc`/`.json5`). A file named exactly `opencode.json` no longer merges by default. Snippet parsing also supports YAML patterns for agents whose pattern includes them.
 
 ## [0.1.0] - 2026-08-??
 

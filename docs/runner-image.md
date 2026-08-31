@@ -38,15 +38,18 @@ opencode is pinned to a specific version at image build time and its runtime aut
 pinned version is recorded as a Docker label (`org.opencode-sandbox.opencode-version`) on the image.
 
 By default the latest release available at build time is used. Pin an explicit version on the `build` command with
-`--opencode-version`:
+`--agent-version` (the older `--opencode-version` remains as a deprecated alias):
 
 ```console
-opencode-sandbox build --opencode-version 0.5.0
+opencode-sandbox build --agent-version 0.5.0
 opencode-sandbox build          # uses the latest release
 ```
 
 **How to upgrade:** Rebuild the runner image with `opencode-sandbox build`. To pin a specific version, use
-`--opencode-version`.
+`--agent-version`.
+
+The `--agent <name>` flag selects the coding-agent profile to build (`opencode` is the only agent in Milestone 1 and the
+default).
 
 On `run`/`shell`, when a newer opencode release exists than the version baked into the image, the launcher offers to
 rebuild the image (interactive) or prints a notice advising `opencode-sandbox build` (non-interactive). Images that
@@ -64,7 +67,8 @@ The opencode version baked into the image is also recorded in `updater.yaml` and
 image identity (and therefore the cached microsandbox image) stable across runs: the version is only re-resolved from the
 network when an upgrade is actually performed (via the upgrade prompt or `build`), rather than on every invocation.
 
-> `--opencode-version` is only available on the `build` command — it is not supported on `run` or `shell`.
+> `--agent-version` is only available on the `build` command — it is not supported on `run` or `shell` (which pin the
+> version baked into the image). The deprecated `--opencode-version` alias is likewise `build`-only.
 
 ## Docker-in-Docker Base Image
 
