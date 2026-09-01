@@ -7,8 +7,6 @@ import (
 	"net/http"
 	"strings"
 	"time"
-
-	"github.com/Masterminds/semver/v3"
 )
 
 // opencodeGitHubLatestURL is a var (not const) so the tests can point it at an httptest
@@ -49,13 +47,5 @@ func latestOpenCodeVersion(ctx context.Context) (string, error) {
 // newerOpenCodeThan reports whether a is a strictly newer semantic version than b,
 // ignoring a leading "v" on either string.
 func newerOpenCodeThan(a, b string) (bool, error) {
-	av, err := semver.NewVersion(strings.TrimPrefix(a, "v"))
-	if err != nil {
-		return false, fmt.Errorf("parse version %q: %w", a, err)
-	}
-	bv, err := semver.NewVersion(strings.TrimPrefix(b, "v"))
-	if err != nil {
-		return false, fmt.Errorf("parse version %q: %w", b, err)
-	}
-	return av.GreaterThan(bv), nil
+	return newerVersionThan(a, b)
 }

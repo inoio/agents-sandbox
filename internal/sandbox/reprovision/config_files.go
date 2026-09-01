@@ -57,19 +57,28 @@ func parseKeyValueLines(data string, onLine func(key, value string) error) error
 // layout regardless of the configured runtime user.
 const VMHomeDir = mounts.VMHomeDir
 
-// opencodeConfigFileNames are the config files opencode reads from its global
-// config directory (config.json < opencode.json < opencode.jsonc), plus the
-// opencode.* variants it may gain support for. When a merged config is
-// provisioned (or host config provisioning is disabled), these are removed
-// from the VM so host config cannot deep-merge into the merged config.
+// opencodeConfigFileNames returns the config filenames the opencode agent reads
+// from its global config directory (config.json < opencode.json <
+// opencode.jsonc), plus the opencode.* variants it may gain support for. When a
+// merged config is provisioned (or host config provisioning is disabled), these
+// are removed from the VM so host config cannot deep-merge into the merged
+// config.
 func opencodeConfigFileNames() []string {
-	return []string{"config.json", "opencode.json", "opencode.jsonc", "opencode.json5", "opencode.yaml", "opencode.yml"}
+	a, _ := agent.Lookup("opencode")
+	if cm, ok := agent.AsConfigMerger(a); ok {
+		return cm.ConfigFileNames()
+	}
+	return nil
 }
 
 // OpenCodeConfigPath returns the VM path where the merged opencode config is
 // provisioned. opencode merges global config as config.json < opencode.json <
 // opencode.jsonc (later wins), so the merged config uses the last-loaded file.
 func OpenCodeConfigPath(home string) string {
+	a, _ := agent.Lookup("opencode")
+	if cm, ok := agent.AsConfigMerger(a); ok {
+		return cm.VMConfigPath(home)
+	}
 	return filepath.Join(home, ".config", "opencode", "opencode.jsonc")
 }
 
@@ -79,6 +88,7 @@ func OpenCodeConfigPath(home string) string {
 type ConfigFiles struct {
 	HasSnippets bool                  // whether any agent snippet existed
 	OpenCode    []byte                // merged agent config content
+	MergedPath  string                // VM path of the merged config ("" when no snippets)
 	Sources     []string              // host snippet paths merged into OpenCode
 	HomeFiles   map[string][]byte     // VM absolute path -> content (home.yaml)
 	Provisioned map[string][]byte     // VM absolute path -> content (drop-in copy)
@@ -159,7 +169,7 @@ func LoadConfigFilesForHost(
 	// Remove stale host config so it cannot shadow the merged config: when
 	// snippets exist the merged config must be the only config, and when host
 	// config provisioning is disabled no host file may remain.
-	remove := configFileFamilyPaths(mergedPath)
+	remove := configFileFamilyPaths(mergedPath, configFamilyNames(a))
 	if !provisionHostConfig {
 		remove = append(remove, provisionDestinations(a, hostHome, vmHome)...)
 	}
@@ -177,6 +187,7 @@ func LoadConfigFilesForHost(
 	return &ConfigFiles{
 		HasSnippets: hasSnippets,
 		OpenCode:    opencodeJSON,
+		MergedPath:  mergedPath,
 		Sources:     sources,
 		HomeFiles:   homeFiles,
 		Provisioned: provisioned,
@@ -186,11 +197,21 @@ func LoadConfigFilesForHost(
 	}, nil
 }
 
+// configFamilyNames returns the config filenames the agent reads from its VM
+// config directory that the merged config supersedes, or nil for an agent
+// without a ConfigMerger.
+func configFamilyNames(a agent.Agent) []string {
+	if cm, ok := agent.AsConfigMerger(a); ok {
+		return cm.ConfigFileNames()
+	}
+	return nil
+}
+
 // configFileFamilyPaths returns the VM paths of the config files in the merged
-// config's directory that would otherwise merge into (or shadow) it.
-func configFileFamilyPaths(mergedPath string) []string {
+// config's directory (the given names) that would otherwise merge into (or
+// shadow) it.
+func configFileFamilyPaths(mergedPath string, names []string) []string {
 	dir := filepath.Dir(mergedPath)
-	names := opencodeConfigFileNames()
 	paths := make([]string, 0, len(names))
 	for _, name := range names {
 		paths = append(paths, filepath.Join(dir, name))
@@ -266,10 +287,10 @@ func hostFilesFromProvisioner(a agent.Agent, hostHome, vmHome string, cf *Config
 	if !ok {
 		return nil
 	}
-	mergedPath := OpenCodeConfigPath(vmHome)
+	mergedPath := cf.MergedPath
 	merged := make(map[string]struct{})
 	if cf.HasSnippets {
-		for _, path := range configFileFamilyPaths(mergedPath) {
+		for _, path := range configFileFamilyPaths(mergedPath, configFamilyNames(a)) {
 			merged[path] = struct{}{}
 		}
 	}
@@ -315,14 +336,14 @@ func ReadVMConfig(ctx context.Context, sb msb.Sandbox, paths []string, ui termio
 	return result
 }
 
-// OpenCodeConfigEqual reports whether the merged opencode config matches the
-// VM state. Home files are intentionally ignored: they are provisioned on every
+// OpenCodeConfigEqual reports whether the merged agent config matches the VM
+// state. Home files are intentionally ignored: they are provisioned on every
 // startup and do not require a daemon restart to take effect.
 func OpenCodeConfigEqual(cf *ConfigFiles, vmData map[string][]byte) bool {
 	if !cf.HasSnippets {
 		return true
 	}
-	vm, ok := vmData[OpenCodeConfigPath(VMHomeDir)]
+	vm, ok := vmData[cf.MergedPath]
 	if !ok {
 		return false
 	}

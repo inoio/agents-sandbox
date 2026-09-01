@@ -53,6 +53,7 @@ func TestProvisionChownsHomeFiles(t *testing.T) {
 	cf := &ConfigFiles{
 		HasSnippets: true,
 		OpenCode:    []byte(`{"model":"x"}`),
+		MergedPath:  OpenCodeConfigPath(VMHomeDir),
 		HomeFiles: map[string][]byte{
 			"/home/dev/.gitconfig":            []byte("user.name=X\n"),
 			"/home/dev/.config/tool/cfg.toml": []byte("k=v\n"),
@@ -342,7 +343,8 @@ func TestProvisionRemovesStalePaths(t *testing.T) {
 	cf := &ConfigFiles{
 		HasSnippets: true,
 		OpenCode:    []byte(`{"model":"x"}`),
-		Remove:      configFileFamilyPaths(OpenCodeConfigPath(VMHomeDir)),
+		MergedPath:  OpenCodeConfigPath(VMHomeDir),
+		Remove:      configFileFamilyPaths(OpenCodeConfigPath(VMHomeDir), opencodeConfigFileNames()),
 	}
 	fs := msb.NewTestFS(nil, nil)
 	sb := &msb.MockSandbox{FSValue_: fs, ShellCalls: &[]string{}}
@@ -381,5 +383,37 @@ func TestProvisionWritesProvisioned(t *testing.T) {
 		if _, ok := fs.Writes[p]; !ok {
 			t.Errorf("provisioned file %s was not written", p)
 		}
+	}
+}
+
+// TestLoadConfigFilesPIMergedConfig verifies that a pi snippet is merged into
+// the pi settings path (not the opencode path) and that the config family it
+// supersedes is removed from the VM.
+func TestLoadConfigFilesPIMergedConfig(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	cp := configpaths.Get()
+	hostHome := t.TempDir()
+	vmHome := t.TempDir()
+
+	a, _ := agent.Lookup("pi")
+	testutil.WriteFile(t, cp.ProjectAgentConfigDir(a), "settings.json", `{"model":"claude-sonnet-4-5"}`)
+
+	ui := termio.NewTestMock(t)
+	cf, err := LoadConfigFilesForHost(a, hostHome, vmHome, &ui, true)
+	if err != nil {
+		t.Fatalf("LoadConfigFilesForHost: %v", err)
+	}
+	if !cf.HasSnippets {
+		t.Fatal("expected HasSnippets=true for a pi settings snippet")
+	}
+	wantMerged := filepath.Join(vmHome, ".pi", "agent", "settings.json")
+	if cf.MergedPath != wantMerged {
+		t.Errorf("MergedPath = %q, want %q", cf.MergedPath, wantMerged)
+	}
+	if !slices.Contains(cf.Keys, wantMerged) {
+		t.Errorf("Keys = %v, want to include %s", cf.Keys, wantMerged)
+	}
+	if !slices.Contains(cf.Remove, wantMerged) {
+		t.Errorf("Remove = %v, want to include %s", cf.Remove, wantMerged)
 	}
 }

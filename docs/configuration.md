@@ -384,10 +384,14 @@ echo $GITHUB_TOKEN
 
 opencode-sandbox is agent-aware. A `--agent <name>` flag on `run`, `build`, and the `volume` subcommands selects the
 coding-agent profile to run, build, and provision. The agent can also be selected via the `agent` config key or the
-`OPENCODE_SANDBOX_AGENT` environment variable. Milestone 1 ships **opencode as the only registered agent** (the
-default), so existing usage is unchanged; the registry abstraction paves the way for future agents (e.g. pi, claude).
-There is no command that lists registered agents in this milestone; passing an unsupported `--agent` name reports the
-valid names in its error message.
+`OPENCODE_SANDBOX_AGENT` environment variable. Three agents ship as built-in profiles:
+
+- **`opencode`** (default) — daemon-based, with serve/attach, worktree sessions, and GitHub-release upgrade checks.
+- **`pi`** — the pi coding agent, run interactively; upgrade checks via `pi.dev`.
+- **`claude-code`** — Anthropic's Claude Code, run interactively; upgrade checks via the npm registry.
+
+`--worktree` and `--serve-only` are rejected for pi and claude-code (they have no daemon); they run through the
+interactive TUI instead. Passing an unsupported `--agent` name reports the valid names in its error message.
 
 Each agent owns its config directories, one subdir per agent under the tool's config base:
 
@@ -396,25 +400,28 @@ Each agent owns its config directories, one subdir per agent under the tool's co
 
 ### Config snippet merge
 
-opencode-sandbox provisions a single agent config into the VM (for opencode, at
-`/home/dev/.config/opencode/opencode.jsonc`). No embedded provider or permission config is shipped. Instead, the agent
-config is assembled from **snippet files** that match the agent's snippet pattern, collected from the user and project
-directories:
+opencode-sandbox provisions a single agent config into the VM. No embedded provider or permission config is shipped.
+Instead, the agent config is assembled from **snippet files** that match the agent's snippet pattern, collected from the
+user and project directories, and written to the agent's VM config path:
 
-- For opencode, snippets must match the glob `opencode-*.json*` — e.g. `opencode-model.json`, `opencode-permissions.jsonc`,
-  `opencode-x.json5`. A file named exactly `opencode.json` no longer merges by default.
-- Matching files are parsed and **deep-merged** into one config document. The user directory is merged first, then the
-  project directory; within each directory files are merged in alphabetical order, so later files override earlier ones.
-- Snippet parsing supports JSON, JSONC, JSON5, and YAML (agents whose pattern includes YAML extensions, e.g.
-  `pi-*.{json,yaml}`). The opencode pattern matches JSON-family extensions.
-- If no snippet files exist, no merged config is produced.
+- **opencode** — snippets match `opencode-*.json*` (e.g. `opencode-model.json`, `opencode-permissions.jsonc`); merged to
+  `/home/dev/.config/opencode/opencode.jsonc`. A file named exactly `opencode.json` no longer merges by default.
+- **pi** — snippets match `settings*.json*` in the `pi/` subdir; merged to `/home/dev/.pi/agent/settings.json`.
+- **claude-code** — snippets match `settings*.json*` in the `claude/` subdir; merged to `/home/dev/.claude/settings.json`.
+
+Matching files are parsed and **deep-merged** into one config document. The user directory is merged first, then the
+project directory; within each directory files are merged in alphabetical order, so later files override earlier ones.
+Snippet parsing supports JSON, JSONC, JSON5, and YAML (agents whose pattern includes YAML extensions, e.g. a pattern
+like `pi-*.{json,yaml}`). The built-in patterns above match JSON-family extensions.
+
+If no snippet files exist, no merged config is produced.
 
 Run `opencode-sandbox config agent` to print the merged config that would be provisioned into the VM.
 
-> **Note:** the merged config is written to `opencode.jsonc`, the last file opencode loads
-> (`config.json` < `opencode.json` < `opencode.jsonc`), so it always wins the deep merge. When snippets exist, the whole
-> config-file family (`config.json`, `opencode.json`, `opencode.jsonc`, …) is removed from the VM so a host drop-in copy
-> of any of those files cannot shadow the merged snippet config.
+> **Note:** the merged config is written to the agent's VM config path (for opencode, `opencode.jsonc`, the last file
+> opencode loads: `config.json` < `opencode.json` < `opencode.jsonc`), so it always wins the deep merge. When snippets
+> exist, the config-file family (for opencode: `config.json`, `opencode.json`, `opencode.jsonc`, …) is removed from the
+> VM so a host drop-in copy of any of those files cannot shadow the merged snippet config.
 
 See the [permissions example]({% link getting-started.md %}#example-permissions) for a concrete snippet.
 
@@ -424,10 +431,12 @@ Beyond the snippet merge, when running the launcher now **copies the active agen
 host into the VM by default**, driven by a per-agent gitignore-style include-list manifest (provision rules). This means
 your normal agent setup (e.g. an existing opencode config) works without extra configuration.
 
-For opencode the drop-in copy includes:
+The drop-in copy is scoped to the agent's settings file, not its runtime state or credentials:
 
-- `~/.config/opencode/**` — the whole opencode config tree, excluding `node_modules/`, `package*.json`, and `.gitignore`
-- `~/.local/share/opencode/auth.json` — the opencode credential file
+- **opencode** — `~/.config/opencode/**` (excluding `node_modules/`, `package*.json`, and `.gitignore`) plus
+  `~/.local/share/opencode/auth.json`.
+- **pi** — `~/.pi/agent/settings.json`.
+- **claude-code** — `~/.claude/settings.json` (runtime state and the machine-managed `.credentials.json` are not copied).
 
 Precedence: the merged snippet config and any `home.yaml` mappings override the drop-in copy for the same VM path.
 
@@ -461,6 +470,14 @@ To opt out, exclude `auth.json` from the drop-in copy by placing a `home.yaml` e
 (see [Home files](#home-files)), or remove the credential file from the host before running. The launcher does not inject
 host secrets in any other way; the env-secret mechanism is the supported channel for secrets you do not want on disk in
 the VM.
+
+For pi and claude-code, the drop-in copy does not include credential files; authenticate them with env secrets instead:
+
+- **pi** — per-provider env vars, e.g. `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GEMINI_API_KEY` (see pi's docs for the
+  full list). Put them in an `env.secret` / `env.secret.yaml` file (below).
+- **claude-code** — `ANTHROPIC_AUTH_TOKEN`, `ANTHROPIC_API_KEY`, or `CLAUDE_CODE_OAUTH_TOKEN`. Claude's
+  `.credentials.json` is machine-managed and not hand-provisioned, so env vars are the supported channel here.
+- **opencode** — `OPENCODE_API_KEY`.
 
 ## Home files
 

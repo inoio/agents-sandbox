@@ -86,6 +86,14 @@ func (opencodeProfile) VMConfigPath(home string) string {
 	return filepath.Join(home, ".config", "opencode", "opencode.jsonc")
 }
 
+// opencodeConfigFileNames are the config files opencode reads from its global
+// config directory (config.json < opencode.json < opencode.jsonc), plus the
+// opencode.* variants it may gain support for. The merged config is written to
+// the last-loaded filename so it wins over the others.
+func (opencodeProfile) ConfigFileNames() []string {
+	return []string{"config.json", "opencode.json", "opencode.jsonc", "opencode.json5", "opencode.yaml", "opencode.yml"}
+}
+
 func (opencodeProfile) ProvisionRules() []ProvisionRule {
 	return []ProvisionRule{
 		{Dir: ".config/opencode", Patterns: []string{"**", "!node_modules/", "!package*.json", "!.gitignore"}},

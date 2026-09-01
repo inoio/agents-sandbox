@@ -75,6 +75,7 @@ func TestOpenCodeConfigEqualIgnoresHomeFiles(t *testing.T) {
 	cf := &ConfigFiles{
 		HasSnippets: true,
 		OpenCode:    []byte(`{"model":"x"}`),
+		MergedPath:  OpenCodeConfigPath(VMHomeDir),
 		HomeFiles: map[string][]byte{
 			"/home/dev/.gitconfig": []byte("user.name=X\n"),
 		},
@@ -93,6 +94,7 @@ func TestOpenCodeConfigEqualDetectsConfigChange(t *testing.T) {
 	cf := &ConfigFiles{
 		HasSnippets: true,
 		OpenCode:    []byte(`{"model":"x"}`),
+		MergedPath:  OpenCodeConfigPath(VMHomeDir),
 		HomeFiles:   map[string][]byte{},
 	}
 	vmData := map[string][]byte{
@@ -118,6 +120,7 @@ func TestProvisionWritesOpenCodeAndHomeFiles(t *testing.T) {
 	cf := &ConfigFiles{
 		HasSnippets: true,
 		OpenCode:    []byte("{\n  \"model\": \"x\"\n}\n"),
+		MergedPath:  OpenCodeConfigPath(VMHomeDir),
 		HomeFiles: map[string][]byte{
 			"/home/dev/.config/tool/cfg.toml": []byte("k=v\n"),
 		},

@@ -47,8 +47,15 @@ Egress and ingress stay under your control with simple profiles and allow/deny l
 
 opencode-sandbox is agent-aware. A `--agent <name>` flag on `run`, `build`, and the `volume` subcommands selects the
 coding-agent profile to run and provision; `--agent-version` pins the agent version baked into the runner image
-(replacing the older `--opencode-version`, which remains as a deprecated alias). Milestone 1 ships **opencode as the only
-registered agent** (the default), so existing usage is unchanged — the abstraction paves the way for future agents.
+(replacing the older `--opencode-version`, which remains as a deprecated alias). Three agents ship as built-in profiles:
+
+- **`opencode`** (default) — a daemon-based agent with serve/attach, worktree sessions, and GitHub-release upgrade checks.
+- **`pi`** — the pi coding agent (`@earendil-works/pi-coding-agent`), run interactively, with upgrade checks via `pi.dev`.
+- **`claude-code`** — Anthropic's Claude Code (`@anthropic-ai/claude-code`), run interactively, with upgrade checks via the
+  npm registry.
+
+`--worktree` and `--serve-only` are rejected for agents that have no daemon (pi, claude-code); they run through the
+interactive TUI instead.
 
 By default the launcher copies the active agent's config + credential files from the host into the VM. **Security note:**
 this includes the opencode `auth.json` credential file. If you prefer to deliver credentials via the env-secret mechanism

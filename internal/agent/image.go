@@ -14,9 +14,9 @@ type ImageSpec struct {
 }
 
 // versionArgFor derives the Docker build ARG name for an agent from its name,
-// e.g. "opencode" -> "OPENCODE_VERSION".
+// e.g. "opencode" -> "OPENCODE_VERSION", "claude-code" -> "CLAUDE_CODE_VERSION".
 func versionArgFor(name string) string {
-	return strings.ToUpper(name) + "_VERSION"
+	return strings.ToUpper(strings.ReplaceAll(name, "-", "_")) + "_VERSION"
 }
 
 // versionLabelFor derives the Docker version label for an agent from its name,

@@ -467,6 +467,68 @@ func TestExtractRunOptionsAgentFromEnv(t *testing.T) {
 	}
 }
 
+func TestExtractRunOptionsAgentPI(t *testing.T) {
+	cmd := buildRunCmd(&termio.Mock{})
+	if err := cmd.Flags().Set(flagAgent, "pi"); err != nil {
+		t.Fatalf("set agent: %v", err)
+	}
+	opts, err := extractRunOptions(cmd, &termio.Mock{})
+	if err != nil {
+		t.Fatalf("extractRunOptions: %v", err)
+	}
+	if opts.Agent != "pi" {
+		t.Errorf("Agent = %q; want pi", opts.Agent)
+	}
+}
+
+func TestExtractRunOptionsAgentClaudeCode(t *testing.T) {
+	cmd := buildRunCmd(&termio.Mock{})
+	if err := cmd.Flags().Set(flagAgent, "claude-code"); err != nil {
+		t.Fatalf("set agent: %v", err)
+	}
+	opts, err := extractRunOptions(cmd, &termio.Mock{})
+	if err != nil {
+		t.Fatalf("extractRunOptions: %v", err)
+	}
+	if opts.Agent != "claude-code" {
+		t.Errorf("Agent = %q; want claude-code", opts.Agent)
+	}
+}
+
+func TestExtractRunOptionsRejectsWorktreeForPI(t *testing.T) {
+	cmd := buildRunCmd(&termio.Mock{})
+	if err := cmd.Flags().Set(flagAgent, "pi"); err != nil {
+		t.Fatalf("set agent: %v", err)
+	}
+	if err := cmd.Flags().Set(flagWorktree, "feat"); err != nil {
+		t.Fatalf("set worktree: %v", err)
+	}
+	_, err := extractRunOptions(cmd, &termio.Mock{})
+	if err == nil {
+		t.Fatal("expected error for pi with --worktree")
+	}
+	if want := `not supported by agent "pi"`; !strings.Contains(err.Error(), want) {
+		t.Errorf("error = %q; want to contain %q", err, want)
+	}
+}
+
+func TestExtractRunOptionsRejectsServeOnlyForClaudeCode(t *testing.T) {
+	cmd := buildRunCmd(&termio.Mock{})
+	if err := cmd.Flags().Set(flagAgent, "claude-code"); err != nil {
+		t.Fatalf("set agent: %v", err)
+	}
+	if err := cmd.Flags().Set(flagServeOnly, "true"); err != nil {
+		t.Fatalf("set serve-only: %v", err)
+	}
+	_, err := extractRunOptions(cmd, &termio.Mock{})
+	if err == nil {
+		t.Fatal("expected error for claude-code with --serve-only")
+	}
+	if want := `not supported by agent "claude-code"`; !strings.Contains(err.Error(), want) {
+		t.Errorf("error = %q; want to contain %q", err, want)
+	}
+}
+
 // noDaemonAgent is a minimal agent.Agent that intentionally does not implement
 // DaemonProvider, so validateAgentFlags can be exercised without polluting the
 // global agent registry.

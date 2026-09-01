@@ -2,6 +2,10 @@ package agent
 
 import "context"
 
+// settingsFileName is the settings filename shared by the pi and claude-code
+// agents, whose merged snippet config is written to <config dir>/settings.json.
+const settingsFileName = "settings.json"
+
 // DaemonProvider runs a long-lived server that clients attach to (opencode).
 type DaemonProvider interface {
 	DaemonStartCmd(serveOnly bool) string
@@ -28,6 +32,10 @@ type UpgradeChecker interface {
 type ConfigMerger interface {
 	SnippetPattern() string
 	VMConfigPath(home string) string
+	// ConfigFileNames returns the config filenames the agent reads from its VM
+	// config directory that the merged config supersedes (and which a stale
+	// host copy could otherwise shadow it with).
+	ConfigFileNames() []string
 }
 
 // AttachRunner starts the client TUI/session.

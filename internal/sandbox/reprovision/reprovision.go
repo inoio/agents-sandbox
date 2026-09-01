@@ -47,7 +47,7 @@ func Provision(ctx context.Context, sb msb.Sandbox, cf *ConfigFiles) (retErr err
 	// (opencode.jsonc), so a failed removal is non-fatal.
 	removeStalePaths(ctx, fs, cf.Remove)
 	if cf.HasSnippets && len(cf.OpenCode) > 0 {
-		ocPath := OpenCodeConfigPath(VMHomeDir)
+		ocPath := cf.MergedPath
 		made, err := mkdirAllFS(ctx, fs, filepath.Dir(ocPath))
 		if err != nil {
 			return err

@@ -77,3 +77,40 @@ func agentOpencode(t *testing.T) agent.Agent {
 	}
 	return a
 }
+
+func TestDockerfileFromImageSpecNPMAgents(t *testing.T) {
+	for _, name := range []string{"pi", "claude-code"} {
+		t.Run(name, func(t *testing.T) {
+			a, ok := agent.Lookup(name)
+			if !ok {
+				t.Fatalf("%s agent not registered", name)
+			}
+			out := DockerfileFromImageSpec(a.ImageSpec())
+			s := string(out)
+			if !strings.Contains(s, "ARG "+a.ImageSpec().VersionArg) {
+				t.Errorf("generated Dockerfile missing ARG %s", a.ImageSpec().VersionArg)
+			}
+			if !strings.Contains(s, a.ImageSpec().VersionLabel) {
+				t.Errorf("generated Dockerfile missing version label %s", a.ImageSpec().VersionLabel)
+			}
+			if !strings.Contains(s, a.ImageSpec().InstallCommand) {
+				t.Errorf("generated Dockerfile missing install command %q", a.ImageSpec().InstallCommand)
+			}
+		})
+	}
+}
+
+func TestEmbeddedDockerfileInstallsNodeBeforeAgentBlock(t *testing.T) {
+	s := string(embeddedDockerfile)
+	nodeIdx := strings.Index(s, "nodesource")
+	markerIdx := strings.Index(s, markerOpenCodeInstall)
+	if nodeIdx < 0 {
+		t.Fatal("embedded Dockerfile missing node install")
+	}
+	if markerIdx < 0 {
+		t.Fatal("embedded Dockerfile missing agent install marker")
+	}
+	if nodeIdx > markerIdx {
+		t.Error("node install must come before the agent install block so npm-based agents can install")
+	}
+}
