@@ -14,6 +14,7 @@ The layout is a standard Go module:
 
 - Go 1.26 (see `go.mod`)
 - `golangci-lint` v2 for linting and formatting
+- `gotestsum` for generating JUnit XML test results (`make coverage-junit`)
 - Docker for building the runner image (`opencode-sandbox build`)
 - `zig` 0.16.0 - only needed for cross-compiling release binaries (`make build-release`)
 
@@ -29,6 +30,7 @@ Run these from the module root:
 | `make check`         | Format, lint, and test — run before finalizing any change  |
 | `make build`         | Build the `opencode-sandbox` binary                        |
 | `make coverage`      | Run tests and print the coverage total                     |
+| `make coverage-junit`| Run tests, write coverage + JUnit XML (`junit.xml`)        |
 | `go mod tidy`        | Sync `go.mod` / `go.sum` after changing imports            |
 
 ## Writing code

@@ -1,4 +1,4 @@
-.PHONY: build build-release build-release-all test coverage lint fmt clean completion user-install check all upgrade-deps docs-diagrams docs-serve
+.PHONY: build build-release build-release-all test coverage coverage-junit lint fmt clean completion user-install check all upgrade-deps docs-diagrams docs-serve
 
 VERSION ?= dev
 
@@ -45,6 +45,11 @@ test:
 
 coverage:
 	CGO_ENABLED=1 go test -coverprofile=coverage.out ./...
+	go tool cover -func=coverage.out | tail -1
+
+# Single test run that also emits JUnit XML (junit.xml) for Codecov Test Analytics.
+coverage-junit:
+	CGO_ENABLED=1 go run gotest.tools/gotestsum@latest --junitfile junit.xml -- -coverprofile=coverage.out ./...
 	go tool cover -func=coverage.out | tail -1
 
 lint:

@@ -5,6 +5,8 @@ USER root
 ENV PATH="/usr/local/go/bin:$PATH"
 RUN curl -fsSL https://go.dev/dl/go1.26.6.linux-amd64.tar.gz | tar -C /usr/local -xzf -
 RUN curl -sSfL https://golangci-lint.run/install.sh | sh -s -- -b /usr/local/bin v2.12.2
+# gotestsum: emits JUnit XML (junit.xml) for Codecov Test Analytics alongside coverage.
+RUN GOBIN=/usr/local/bin go install gotest.tools/gotestsum@v1.13.0
 # build-essential for CGO, shellcheck for shell script linting, default-jre for the PlantUML jar
 # (the full JRE, not -headless: PlantUML renders fonts and needs libharfbuzz/libfontmanager)
 RUN apt-get update && \
