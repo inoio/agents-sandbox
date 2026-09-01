@@ -27,7 +27,7 @@ type launcherConfigKey struct{}
 // extractRunOptions extracts shared run/shell flags from the given command
 // and returns a populated options.RunOptions.
 //
-//nolint:gocognit // TODO refactor
+//nolint:gocognit,funlen // TODO refactor
 func extractRunOptions(cmd *cobra.Command, ui termio.UI) (options.RunOptions, error) {
 	opts := options.RunOptions{}
 	rawWorktree, _ := cmd.Flags().GetString(flagWorktree)
@@ -48,8 +48,14 @@ func extractRunOptions(cmd *cobra.Command, ui termio.UI) (options.RunOptions, er
 		opts.Root, _ = cmd.Flags().GetBool(flagRoot)
 	}
 
-	opts.Agent, _ = cmd.Flags().GetString(flagAgent)
-	resolvedAgent, err := resolveAgentFlag(cmd)
+	opts.Agent = defaultAgentName
+	if r := resolverFromContext(cmd.Context()); r != nil && r.Agent() != "" {
+		opts.Agent = r.Agent()
+	}
+	if name, _ := cmd.Flags().GetString(flagAgent); name != "" && cmd.Flags().Changed(flagAgent) {
+		opts.Agent = name
+	}
+	resolvedAgent, err := resolveAgent(opts.Agent)
 	if err != nil {
 		return options.RunOptions{}, err
 	}
@@ -126,10 +132,10 @@ func resolverFromContext(ctx context.Context) *launcherconfig.Resolver {
 // defaultAgentName is the fallback agent used when --agent is not provided.
 const defaultAgentName = "opencode"
 
-// resolveAgentFlag reads the --agent flag (defaulting to opencode) and returns
-// the matching agent, rejecting unknown names.
-func resolveAgentFlag(cmd *cobra.Command) (agent.Agent, error) {
-	name, _ := cmd.Flags().GetString(flagAgent)
+// resolveAgent validates a resolved agent name (from flag, env, or config)
+// against the registered agents, returning the matching agent and rejecting
+// unknown names.
+func resolveAgent(name string) (agent.Agent, error) {
 	if !slices.Contains(agent.Names(), name) {
 		return nil, fmt.Errorf(
 			"unknown agent %q: must be one of %s",
@@ -141,14 +147,25 @@ func resolveAgentFlag(cmd *cobra.Command) (agent.Agent, error) {
 	return a, nil
 }
 
-// validateAgentFlags rejects --worktree/--serve-only for agents that lack a
-// daemon provider, since those modes require a long-lived server.
+// resolveAgentFlag reads the --agent flag (defaulting to opencode) and returns
+// the matching agent, rejecting unknown names.
+func resolveAgentFlag(cmd *cobra.Command) (agent.Agent, error) {
+	name, _ := cmd.Flags().GetString(flagAgent)
+	return resolveAgent(name)
+}
+
+// validateAgentFlags rejects --worktree for agents without a worktree provider
+// and --serve-only for agents without a daemon provider.
 func validateAgentFlags(a agent.Agent, opts options.RunOptions) error {
-	if _, ok := agent.AsDaemonProvider(a); ok {
-		return nil
+	if opts.Worktree.Name != "" {
+		if _, ok := agent.AsWorktreeProvider(a); !ok {
+			return fmt.Errorf("--worktree is not supported by agent %q", a.Name())
+		}
 	}
-	if opts.Worktree.Name != "" || opts.ServeOnly {
-		return fmt.Errorf("--worktree/--serve-only are not supported by agent %q", a.Name())
+	if opts.ServeOnly {
+		if _, ok := agent.AsDaemonProvider(a); !ok {
+			return fmt.Errorf("--serve-only is not supported by agent %q", a.Name())
+		}
 	}
 	return nil
 }

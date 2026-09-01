@@ -1,7 +1,4 @@
-// Package opencode resolves the latest opencode release the same way
-// opencode's own autoupdate does: the latest release is read from the GitHub
-// releases/latest endpoint.
-package opencode
+package agent
 
 import (
 	"context"
@@ -14,23 +11,20 @@ import (
 	"github.com/Masterminds/semver/v3"
 )
 
-// gitHubLatestURL is a var (not const) so the tests can point it at an httptest
+// opencodeGitHubLatestURL is a var (not const) so the tests can point it at an httptest
 // server via overrideLatestURL.
 //
 //nolint:gochecknoglobals // test hook for the otherwise unmockable endpoint URL
-var gitHubLatestURL = "https://api.github.com/repos/anomalyco/opencode/releases/latest"
+var opencodeGitHubLatestURL = "https://api.github.com/repos/anomalyco/opencode/releases/latest"
 
 type githubRelease struct {
 	TagName string `json:"tag_name"`
 }
 
-//nolint:gochecknoglobals // test seam
-var LatestVersion = latestVersion
-
-// LatestVersion returns the newest stable opencode release string (leading "v"
+// latestOpenCodeVersion returns the newest stable opencode release string (leading "v"
 // stripped) by querying the GitHub releases/latest endpoint.
-func latestVersion(ctx context.Context) (string, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, gitHubLatestURL, nil)
+func latestOpenCodeVersion(ctx context.Context) (string, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, opencodeGitHubLatestURL, nil)
 	if err != nil {
 		return "", fmt.Errorf("build latest-version request: %w", err)
 	}
@@ -52,9 +46,9 @@ func latestVersion(ctx context.Context) (string, error) {
 	return strings.TrimPrefix(release.TagName, "v"), nil
 }
 
-// NewerThan reports whether a is a strictly newer semantic version than b,
+// newerOpenCodeThan reports whether a is a strictly newer semantic version than b,
 // ignoring a leading "v" on either string.
-func NewerThan(a, b string) (bool, error) {
+func newerOpenCodeThan(a, b string) (bool, error) {
 	av, err := semver.NewVersion(strings.TrimPrefix(a, "v"))
 	if err != nil {
 		return false, fmt.Errorf("parse version %q: %w", a, err)

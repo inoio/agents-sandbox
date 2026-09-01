@@ -15,8 +15,7 @@ import (
 )
 
 // plainAgent implements only the base Agent, so it is neither a Provisioner
-// nor a ConfigMerger; LoadConfigFilesForHost must take the opencode fallback
-// path for the merged config.
+// nor a ConfigMerger; LoadConfigFilesForHost must produce no merged config.
 type plainAgent struct{}
 
 func (plainAgent) Name() string          { return "plain" }
@@ -37,34 +36,34 @@ func (badProvisionerAgent) ProvisionRules() []agent.ProvisionRule {
 	}
 }
 
-func TestLoadConfigFilesFallbackForNonConfigMerger(t *testing.T) {
+func TestLoadConfigFilesNoMergedForNonConfigMerger(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	cp := configpaths.Get()
 	vmHome := t.TempDir()
 	hostHome := t.TempDir()
 
-	// No snippets: fallback yields empty config and hasSnippets=false.
+	// No snippets: a non-ConfigMerger agent yields no merged config.
 	ui := termio.NewTestMock(t)
 	cf, err := LoadConfigFilesForHost(plainAgent{}, hostHome, vmHome, &ui, true)
 	if err != nil {
 		t.Fatalf("LoadConfigFilesForHost: %v", err)
 	}
 	if cf.HasSnippets {
-		t.Error("expected HasSnippets=false when no opencode snippet exists")
+		t.Error("expected HasSnippets=false when no snippet exists")
 	}
 
-	// With a snippet the fallback merges it at the opencode VM config path.
+	// Even with snippet files present, a non-ConfigMerger agent produces no
+	// merged config because only ConfigMerger agents merge snippets.
 	testutil.WriteFile(t, cp.UserOpencodeConfigDir(), "opencode-model.json", `{"model":"x"}`)
 	cf, err = LoadConfigFilesForHost(plainAgent{}, hostHome, vmHome, &ui, true)
 	if err != nil {
 		t.Fatalf("LoadConfigFilesForHost: %v", err)
 	}
-	if !cf.HasSnippets {
-		t.Error("expected HasSnippets=true when a snippet exists")
+	if cf.HasSnippets {
+		t.Error("expected HasSnippets=false for a non-ConfigMerger agent")
 	}
-	wantPath := filepath.Join(vmHome, ".config", "opencode", "opencode.json")
-	if _, ok := cf.HomeFiles[wantPath]; ok {
-		t.Errorf("merged config should not appear in HomeFiles, got %v", cf.HomeFiles)
+	if cf.OpenCode != nil {
+		t.Errorf("expected nil merged config, got %q", cf.OpenCode)
 	}
 }
 

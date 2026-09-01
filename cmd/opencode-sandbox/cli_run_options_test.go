@@ -451,6 +451,22 @@ func TestExtractRunOptionsUnknownAgent(t *testing.T) {
 	}
 }
 
+// The agent can be selected via the OPENCODE_SANDBOX_AGENT env var.
+func TestExtractRunOptionsAgentFromEnv(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	t.Setenv("OPENCODE_SANDBOX_AGENT", "opencode")
+	cmd := buildRunCmd(&termio.Mock{})
+	rootCtx := context.WithValue(context.Background(), (*launcherConfigKey)(nil), mustResolver(t, cmd))
+	cmd.SetContext(rootCtx)
+	opts, err := extractRunOptions(cmd, &termio.Mock{})
+	if err != nil {
+		t.Fatalf("extractRunOptions: %v", err)
+	}
+	if opts.Agent != "opencode" {
+		t.Errorf("Agent = %q, want opencode from env", opts.Agent)
+	}
+}
+
 // noDaemonAgent is a minimal agent.Agent that intentionally does not implement
 // DaemonProvider, so validateAgentFlags can be exercised without polluting the
 // global agent registry.

@@ -14,6 +14,7 @@ import (
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 
+	"github.com/inoio/opencode-sandbox/internal/agent"
 	"github.com/inoio/opencode-sandbox/internal/configpaths"
 	"github.com/inoio/opencode-sandbox/internal/git"
 	"github.com/inoio/opencode-sandbox/internal/homeconfig"
@@ -41,13 +42,13 @@ func TestPrepareSandboxReusesStoredOpenCodeVersion(t *testing.T) {
 	// The resolver records the requested version and returns it, so the test
 	// observes exactly what PrepareSandbox passed instead of a network lookup.
 	var requested string
-	sandboximage.WithMockOpenCodeVersionResolver(t, func(_ context.Context, req string) (string, error) {
+	sandboximage.WithMockAgentVersionResolver(t, func(_ context.Context, _ agent.Agent, req string) (string, error) {
 		requested = req
 		return req, nil
 	})
-	origUpgradeInfo := openCodeUpgradeInfo
-	openCodeUpgradeInfo = func(_ context.Context) (string, error) { return "1.5.0", nil }
-	t.Cleanup(func() { openCodeUpgradeInfo = origUpgradeInfo })
+	origUpgradeInfo := agentLatestVersion
+	agentLatestVersion = func(_ context.Context, _ agent.Agent) (string, error) { return "1.5.0", nil }
+	t.Cleanup(func() { agentLatestVersion = origUpgradeInfo })
 
 	docker.WithDockerMock(t, &docker.MockDockerClient{
 		ImageBuildFn: func(_ context.Context, _ io.Reader, _ client.ImageBuildOptions) (client.ImageBuildResult, error) {
@@ -125,9 +126,9 @@ func TestPrepareSandboxUpgradeRebuildsImage(t *testing.T) {
 		t.Fatalf("saveUpgradeState: %v", err)
 	}
 
-	origUpgradeInfo := openCodeUpgradeInfo
-	openCodeUpgradeInfo = func(_ context.Context) (string, error) { return "2.0.0", nil }
-	t.Cleanup(func() { openCodeUpgradeInfo = origUpgradeInfo })
+	origUpgradeInfo := agentLatestVersion
+	agentLatestVersion = func(_ context.Context, _ agent.Agent) (string, error) { return "2.0.0", nil }
+	t.Cleanup(func() { agentLatestVersion = origUpgradeInfo })
 
 	// The upgrade prompt accepts the rebuild, so shallUpgrade is true.
 	ui := &termio.Mock{
@@ -223,13 +224,13 @@ func TestPrepareSandboxLoadsHomeYamlOnce(t *testing.T) {
 	testutil.WriteFile(t, cp.ProjectConfigDir(), "home.yaml", "missing-file.txt: missing-file.txt\n")
 
 	// Pin the resolved opencode version so image resolution needs no network.
-	sandboximage.WithMockOpenCodeVersion(t, "1.0.0")
+	sandboximage.WithMockAgentVersion(t, "1.0.0")
 
 	// The image is considered up to date: the same version is "latest", so
 	// resolveBuildVersion does not offer a rebuild.
-	origUpgradeInfo := openCodeUpgradeInfo
-	openCodeUpgradeInfo = func(_ context.Context) (string, error) { return "1.0.0", nil }
-	t.Cleanup(func() { openCodeUpgradeInfo = origUpgradeInfo })
+	origUpgradeInfo := agentLatestVersion
+	agentLatestVersion = func(_ context.Context, _ agent.Agent) (string, error) { return "1.0.0", nil }
+	t.Cleanup(func() { agentLatestVersion = origUpgradeInfo })
 
 	// Docker build + inspect are mocked so EnsureImage can "build" the runner
 	// image and produce a deterministic digest.
@@ -328,10 +329,10 @@ func TestPrepareSandboxRunsStartupHook(t *testing.T) {
 	testutil.WriteFile(t, cp.ProjectConfigDir(), "home.yaml",
 		".vpn/connect.sh:\n  source: connect.sh\n  hook: startup\n  root: true\n")
 
-	sandboximage.WithMockOpenCodeVersion(t, "1.0.0")
-	origUpgradeInfo := openCodeUpgradeInfo
-	openCodeUpgradeInfo = func(_ context.Context) (string, error) { return "1.0.0", nil }
-	t.Cleanup(func() { openCodeUpgradeInfo = origUpgradeInfo })
+	sandboximage.WithMockAgentVersion(t, "1.0.0")
+	origUpgradeInfo := agentLatestVersion
+	agentLatestVersion = func(_ context.Context, _ agent.Agent) (string, error) { return "1.0.0", nil }
+	t.Cleanup(func() { agentLatestVersion = origUpgradeInfo })
 
 	docker.WithDockerMock(t, &docker.MockDockerClient{
 		ImageBuildFn: func(_ context.Context, _ io.Reader, _ client.ImageBuildOptions) (client.ImageBuildResult, error) {
@@ -470,7 +471,7 @@ func TestPrepareSandboxWarnsWhenRecordingVersionFails(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	sandboximage.WithMockOpenCodeVersion(t, "1.0.0")
+	sandboximage.WithMockAgentVersion(t, "1.0.0")
 
 	docker.WithDockerMock(t, &docker.MockDockerClient{
 		ImageBuildFn: func(_ context.Context, _ io.Reader, _ client.ImageBuildOptions) (client.ImageBuildResult, error) {
@@ -544,12 +545,12 @@ func TestPrepareSandboxWarnsWhenRecordingVersionFails(t *testing.T) {
 func TestPrepareSandboxPersistsMountFingerprintOnVMCreation(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 
-	sandboximage.WithMockOpenCodeVersionResolver(t, func(_ context.Context, req string) (string, error) {
+	sandboximage.WithMockAgentVersionResolver(t, func(_ context.Context, _ agent.Agent, req string) (string, error) {
 		return req, nil
 	})
-	origUpgradeInfo := openCodeUpgradeInfo
-	openCodeUpgradeInfo = func(_ context.Context) (string, error) { return "1.5.0", nil }
-	t.Cleanup(func() { openCodeUpgradeInfo = origUpgradeInfo })
+	origUpgradeInfo := agentLatestVersion
+	agentLatestVersion = func(_ context.Context, _ agent.Agent) (string, error) { return "1.5.0", nil }
+	t.Cleanup(func() { agentLatestVersion = origUpgradeInfo })
 	if err := saveUpgradeState(upgradeState{CurrentVersion: "1.5.0"}); err != nil {
 		t.Fatalf("saveUpgradeState: %v", err)
 	}

@@ -5,19 +5,21 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
 	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
 
+	"github.com/inoio/opencode-sandbox/internal/agent"
 	"github.com/inoio/opencode-sandbox/internal/configpaths"
 	"github.com/inoio/opencode-sandbox/internal/git"
 	"github.com/inoio/opencode-sandbox/internal/homeconfig"
 	"github.com/inoio/opencode-sandbox/internal/humanize"
-	"github.com/inoio/opencode-sandbox/internal/opencodeconfig"
 	"github.com/inoio/opencode-sandbox/internal/sandbox/doctor"
 	"github.com/inoio/opencode-sandbox/internal/sandbox/image"
 	"github.com/inoio/opencode-sandbox/internal/sandbox/pruning"
+	"github.com/inoio/opencode-sandbox/internal/sandbox/reprovision"
 	sandbox "github.com/inoio/opencode-sandbox/internal/sandbox/vm"
 	"github.com/inoio/opencode-sandbox/internal/sandbox/volume"
 	"github.com/inoio/opencode-sandbox/internal/termio"
@@ -258,34 +260,7 @@ func buildConfigCmd(ui termio.UI) *cobra.Command {
 		Short:   "Inspect opencode and home configuration",
 	}
 
-	cmd.AddCommand(&cobra.Command{
-		Use:   cmdShow,
-		Args:  cobra.NoArgs,
-		Short: "Print the merged opencode config and the snippet files used",
-		RunE: func(*cobra.Command, []string) error {
-			cp := configpaths.Get()
-			data, sources, has, err := opencodeconfig.BuildOpenCodeJSON(
-				cp.UserOpencodeConfigDir(),
-				cp.ProjectOpencodeConfigDir(),
-			)
-			if err != nil {
-				return err
-			}
-			if !has {
-				ui.Out("No opencode snippet files found; no merged opencode.jsonc is provisioned.")
-				return nil
-			}
-			ui.Out("merged files:")
-			for _, src := range sources {
-				ui.Outf("  %s", src)
-			}
-			ui.Out("merged opencode.jsonc:")
-			for line := range strings.SplitSeq(string(data), "\n") {
-				ui.Outf("  %s", line)
-			}
-			return nil
-		},
-	})
+	cmd.AddCommand(buildConfigAgentCmd(ui))
 
 	cmd.AddCommand(&cobra.Command{
 		Use:   cmdHome,
@@ -313,6 +288,60 @@ func buildConfigCmd(ui termio.UI) *cobra.Command {
 	})
 
 	return cmd
+}
+
+// buildConfigAgentCmd returns the config agent subcommand, which prints the
+// agent's merged snippet config and the host drop-in files that provisioning
+// would copy into the VM.
+func buildConfigAgentCmd(ui termio.UI) *cobra.Command {
+	return &cobra.Command{
+		Use:   cmdAgent,
+		Args:  cobra.MaximumNArgs(1),
+		Short: "Show the merged agent config and the host files provisioned into the VM",
+		RunE: func(c *cobra.Command, args []string) error {
+			name := defaultAgentName
+			if len(args) > 0 {
+				name = args[0]
+			} else if r := resolverFromContext(c.Context()); r != nil {
+				name = r.Agent()
+			}
+			a, ok := agent.Lookup(name)
+			if !ok {
+				return fmt.Errorf("unknown agent %q: must be one of %s", name, strings.Join(agent.Names(), ", "))
+			}
+			provision := true
+			if r := resolverFromContext(c.Context()); r != nil {
+				provision = r.ProvisionHostConfig()
+			}
+			hostHome, _ := os.UserHomeDir()
+			merged, sources, hostFiles, err := reprovision.Describe(a, hostHome, reprovision.VMHomeDir, ui, provision)
+			if err != nil {
+				return err
+			}
+			ui.Outf("agent: %s", a.Name())
+			if len(sources) == 0 {
+				ui.Out("No snippet files found; no merged config is provisioned.")
+				return nil
+			}
+			ui.Out("merged files:")
+			for _, src := range sources {
+				ui.Outf("  %s", src)
+			}
+			ui.Out("merged agent config:")
+			for line := range strings.SplitSeq(string(merged), "\n") {
+				ui.Outf("  %s", line)
+			}
+			ui.Outf("host files (drop-in, provision-host-config=%v):", provision)
+			for _, hf := range hostFiles {
+				status := "not merged"
+				if hf.Merged {
+					status = "merged"
+				}
+				ui.Outf("  %-9s %s  ->  %s", status, hf.HostPath, hf.VMPath)
+			}
+			return nil
+		},
+	}
 }
 
 func buildBuildCmd(ui termio.UI) *cobra.Command {

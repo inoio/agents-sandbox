@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/inoio/opencode-sandbox/internal/agent"
 	"github.com/inoio/opencode-sandbox/internal/configpaths"
@@ -16,14 +17,17 @@ const markerOpenCodeInstall = "# AGENT_INSTALL_BLOCK"
 // DockerfileFromImageSpec renders the runner Dockerfile with the agent's
 // install block parameterized from its ImageSpec.
 func DockerfileFromImageSpec(spec agent.ImageSpec) []byte {
+	var envBlock strings.Builder
+	for k, v := range spec.AgentEnv {
+		fmt.Fprintf(&envBlock, "ENV %s=%s\n", k, v)
+	}
 	block := fmt.Sprintf(`
 ARG %s
 
-ENV %s=true
-LABEL %s="$%s"
+%sLABEL %s="$%s"
 
 RUN %s
-`, spec.VersionArg, spec.DisableUpdateEnv, spec.VersionLabel, spec.VersionArg, spec.InstallCommand)
+`, spec.VersionArg, envBlock.String(), spec.VersionLabel, spec.VersionArg, spec.InstallCommand)
 	return bytes.Replace(embeddedDockerfile, []byte(markerOpenCodeInstall), []byte(block), 1)
 }
 

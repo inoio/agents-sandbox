@@ -24,11 +24,8 @@ func TestOpencodeAttachCommand(t *testing.T) {
 
 func TestOpencodeWorktreeCreateCmdUsesName(t *testing.T) {
 	a, _ := agent.Lookup("opencode")
-	daemon, ok := agent.AsDaemonProvider(a)
-	if !ok {
-		t.Fatal("opencode should implement DaemonProvider")
-	}
-	got := daemon.WorktreeCreateCmd(agent.WorktreeSpec{Name: "feature/x"})
+	worktree := mustWorktree(t, a)
+	got := worktree.WorktreeCreateCmd(agent.WorktreeSpec{Name: "feature/x"})
 	want := "curl -sf -X POST http://127.0.0.1:4096/experimental/worktree -H 'Content-Type: application/json' -d '{\"name\":\"feature/x\"}'"
 	if got != want {
 		t.Errorf("WorktreeCreateCmd = %q, want %q", got, want)
@@ -77,16 +74,16 @@ func TestOpencodeDaemonHealthParse(t *testing.T) {
 
 func TestOpencodeWorktreeListCmd(t *testing.T) {
 	a, _ := agent.Lookup("opencode")
-	daemon := mustDaemon(t, a)
-	if !strings.Contains(daemon.WorktreeListCmd(), "/experimental/worktree") {
-		t.Errorf("WorktreeListCmd = %q", daemon.WorktreeListCmd())
+	worktree := mustWorktree(t, a)
+	if !strings.Contains(worktree.WorktreeListCmd(), "/experimental/worktree") {
+		t.Errorf("WorktreeListCmd = %q", worktree.WorktreeListCmd())
 	}
 }
 
 func TestOpencodeWorktreeCreateCmdWithBase(t *testing.T) {
 	a, _ := agent.Lookup("opencode")
-	daemon := mustDaemon(t, a)
-	got := daemon.WorktreeCreateCmd(agent.WorktreeSpec{Name: "f", Base: "main"})
+	worktree := mustWorktree(t, a)
+	got := worktree.WorktreeCreateCmd(agent.WorktreeSpec{Name: "f", Base: "main"})
 	if !strings.Contains(got, `"startCommand":"git reset --hard main"`) {
 		t.Errorf("WorktreeCreateCmd(with base) = %q", got)
 	}
@@ -94,15 +91,15 @@ func TestOpencodeWorktreeCreateCmdWithBase(t *testing.T) {
 
 func TestOpencodeWorktreeParseDir(t *testing.T) {
 	a, _ := agent.Lookup("opencode")
-	daemon := mustDaemon(t, a)
-	dir, ok := daemon.WorktreeParseDir(`{"directory":"/home/dev/ws"}`)
+	worktree := mustWorktree(t, a)
+	dir, ok := worktree.WorktreeParseDir(`{"directory":"/home/dev/ws"}`)
 	if !ok || dir != "/home/dev/ws" {
 		t.Errorf("WorktreeParseDir = %q, %v, want /home/dev/ws, true", dir, ok)
 	}
-	if _, ok := daemon.WorktreeParseDir("not json"); ok {
+	if _, ok := worktree.WorktreeParseDir("not json"); ok {
 		t.Error("WorktreeParseDir(invalid) should return not-ok")
 	}
-	if _, ok := daemon.WorktreeParseDir(`{"directory":""}`); ok {
+	if _, ok := worktree.WorktreeParseDir(`{"directory":""}`); ok {
 		t.Error("WorktreeParseDir(empty) should return not-ok")
 	}
 }
@@ -178,6 +175,15 @@ func mustDaemon(t *testing.T, a agent.Agent) agent.DaemonProvider {
 		t.Fatal("opencode should implement DaemonProvider")
 	}
 	return daemon
+}
+
+func mustWorktree(t *testing.T, a agent.Agent) agent.WorktreeProvider {
+	t.Helper()
+	worktree, ok := agent.AsWorktreeProvider(a)
+	if !ok {
+		t.Fatal("opencode should implement WorktreeProvider")
+	}
+	return worktree
 }
 
 func mustChecker(t *testing.T, a agent.Agent) agent.UpgradeChecker {

@@ -18,6 +18,17 @@ func TestResolveTargetNoWorktreeReturnsWorkspace(t *testing.T) {
 	}
 }
 
+// mustWorktreeProvider returns the opencode profile's WorktreeProvider so tests
+// can build the exact worktree commands the production path shells out with.
+func mustWorktreeProvider(t *testing.T) agent.WorktreeProvider {
+	t.Helper()
+	provider, ok := agent.AsWorktreeProvider(opencodeAgent(t))
+	if !ok {
+		t.Fatal("opencode agent does not implement WorktreeProvider")
+	}
+	return provider
+}
+
 func TestResolveTargetEmptySpecReturnsWorkspace(t *testing.T) {
 	ui := &termio.Mock{}
 	sb := &msb.MockSandbox{ShellCalls: &[]string{}}
@@ -50,7 +61,7 @@ func TestResolveTargetNoDaemonProvider(t *testing.T) {
 
 func TestResolveTargetReusesExistingWorktree(t *testing.T) {
 	ui := &termio.Mock{}
-	provider := opencodeProvider(t)
+	provider := mustWorktreeProvider(t)
 	sb := &msb.MockSandbox{
 		ShellOut: map[string]msb.ShellResult{
 			provider.WorktreeListCmd(): msb.NewTestResult(true, 0,
@@ -80,7 +91,7 @@ func TestResolveTargetReusesExistingWorktree(t *testing.T) {
 
 func TestResolveTargetReuseWarnsIgnoredBase(t *testing.T) {
 	ui := &termio.Mock{}
-	provider := opencodeProvider(t)
+	provider := mustWorktreeProvider(t)
 	sb := &msb.MockSandbox{
 		ShellOut: map[string]msb.ShellResult{
 			provider.WorktreeListCmd(): msb.NewTestResult(true, 0,
@@ -117,7 +128,7 @@ func TestResolveTargetReuseWarnsIgnoredBase(t *testing.T) {
 
 func TestResolveTargetCreatesWithoutBase(t *testing.T) {
 	ui := &termio.Mock{}
-	provider := opencodeProvider(t)
+	provider := mustWorktreeProvider(t)
 	sb := &msb.MockSandbox{
 		ShellOut: map[string]msb.ShellResult{
 			provider.WorktreeListCmd(): msb.NewTestResult(true, 0, `[]`, "", nil),
@@ -137,7 +148,7 @@ func TestResolveTargetCreatesWithoutBase(t *testing.T) {
 
 func TestResolveTargetCreatesWithBaseValidatesAndSendsStartCommand(t *testing.T) {
 	ui := &termio.Mock{}
-	provider := opencodeProvider(t)
+	provider := mustWorktreeProvider(t)
 	createCmd := provider.WorktreeCreateCmd(agent.WorktreeSpec{Name: "feat-x", Base: "main"})
 	sb := &msb.MockSandbox{
 		ShellOut: map[string]msb.ShellResult{
@@ -188,7 +199,7 @@ func TestResolveTargetCreatesWithBaseValidatesAndSendsStartCommand(t *testing.T)
 
 func TestResolveTargetCreateFailsOnUnresolvableBase(t *testing.T) {
 	ui := &termio.Mock{}
-	provider := opencodeProvider(t)
+	provider := mustWorktreeProvider(t)
 	createCmd := provider.WorktreeCreateCmd(agent.WorktreeSpec{Name: "feat-x", Base: "nope"})
 	sb := &msb.MockSandbox{
 		ShellOut: map[string]msb.ShellResult{

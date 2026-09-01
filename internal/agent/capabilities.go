@@ -8,6 +8,10 @@ type DaemonProvider interface {
 	DaemonKillCmd() string
 	DaemonHealthCmd() string
 	DaemonHealthParse(stdout string) (bool, error)
+}
+
+// WorktreeProvider manages git worktrees through a running daemon.
+type WorktreeProvider interface {
 	WorktreeListCmd() string
 	WorktreeCreateCmd(spec WorktreeSpec) string
 	WorktreeParseDir(stdout string) (string, bool)
@@ -20,7 +24,7 @@ type UpgradeChecker interface {
 }
 
 // ConfigMerger exposes data consumed by the shared merge logic in
-// internal/opencodeconfig.BuildMerged.
+// internal/configmerge.BuildMerged.
 type ConfigMerger interface {
 	SnippetPattern() string
 	VMConfigPath(home string) string
@@ -39,6 +43,12 @@ type Provisioner interface {
 // AsDaemonProvider returns the agent's DaemonProvider, if it implements one.
 func AsDaemonProvider(a Agent) (DaemonProvider, bool) {
 	p, ok := a.(DaemonProvider)
+	return p, ok
+}
+
+// AsWorktreeProvider returns the agent's WorktreeProvider, if it implements one.
+func AsWorktreeProvider(a Agent) (WorktreeProvider, bool) {
+	p, ok := a.(WorktreeProvider)
 	return p, ok
 }
 

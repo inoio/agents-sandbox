@@ -36,6 +36,7 @@ type Config struct {
 	Yes            bool          `mapstructure:"yes"`
 	LogLevel       string        `mapstructure:"log-level"`
 	Quiet          bool          `mapstructure:"quiet"`
+	Agent          string        `mapstructure:"agent"`
 	CPUs           uint8         `mapstructure:"cpus"`
 	// ProvisionHostConfig controls whether the agent's host config files are
 	// copied into the VM (drop-in provisioning). Default true.
@@ -151,6 +152,7 @@ const (
 	keyAutoStopTimeout           = "auto-stop-timeout"
 	keyAutoStopMaxSessionRetries = "auto-stop-max-session-retries"
 	keyNetworkProfile            = "network.profile"
+	keyAgent                     = "agent"
 	keyUpgradeMode               = "upgrade.mode"
 	keyUpgradeInterval           = "upgrade.interval"
 	keyProvisionHostConfig       = "provision-host-config"
@@ -165,7 +167,7 @@ var supportedExts = []string{".yaml", ".yml", ".json", extJSONC, extJSON5}
 //nolint:gochecknoglobals,goconst // package-level constant slice
 var configFlagKeys = []string{
 	"cpus", "memory", "tmp-size", "disk-size", "workspace-quota",
-	"yes", "quiet", "log-level",
+	"yes", "quiet", "log-level", "agent",
 }
 
 // configEnvKeys are all launcher config keys bound to OPENCODE_SANDBOX_ env vars.
@@ -177,6 +179,7 @@ var configEnvKeys = []string{
 	keyAutoPruneAge, keyManualPruneAge,
 	keyAutoStopOnActiveSessions, keyAutoStopTimeout, keyAutoStopMaxSessionRetries,
 	keyNetworkProfile,
+	keyAgent,
 	keyUpgradeMode, keyUpgradeInterval,
 	keyProvisionHostConfig,
 }
@@ -450,6 +453,7 @@ func (r *Resolver) WorkspaceQuota() string         { return r.cfg.WorkspaceQuota
 func (r *Resolver) Yes() bool                      { return r.cfg.Yes }
 func (r *Resolver) Quiet() bool                    { return r.cfg.Quiet }
 func (r *Resolver) LogLevel() string               { return r.cfg.LogLevel }
+func (r *Resolver) Agent() string                  { return r.cfg.Agent }
 func (r *Resolver) ProvisionHostConfig() bool      { return r.cfg.ProvisionHostConfig }
 func (r *Resolver) AutoPruneAge() time.Duration    { return r.cfg.AutoPruneAge }
 func (r *Resolver) ManualPruneAge() time.Duration  { return r.cfg.ManualPruneAge }

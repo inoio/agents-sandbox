@@ -106,7 +106,7 @@ func findWorktreeDir(listStdout string, slug string) (string, bool) {
 // directory path. When a base is present on an existing (reused) worktree the
 // base is silently ignored with a warning. When a base is present on a fresh
 // create the base is validated (no fetch) and the create body carries a
-// `git reset --hard <base>` startCommand. An agent without a daemon provider
+// `git reset --hard <base>` startCommand. An agent without a worktree provider
 // falls back to the default directory.
 func ResolveTarget(
 	ctx context.Context,
@@ -115,8 +115,8 @@ func ResolveTarget(
 	spec options.WorktreeSpec,
 	ui termio.UI,
 ) (string, error) {
-	provider, hasDaemon := agent.AsDaemonProvider(a)
-	if !hasDaemon {
+	provider, hasWorktree := agent.AsWorktreeProvider(a)
+	if !hasWorktree {
 		return resolveTargetNoBranch(), nil
 	}
 

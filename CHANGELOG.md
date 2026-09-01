@@ -23,6 +23,7 @@ command reports the bare version (e.g. `0.1.0`).
 
 - CLI: a new `--agent <name>` flag on `run`, `build`, and the `volume` subcommands selects the coding-agent profile to run/build/provision. Milestone 1 ships `opencode` as the only registered agent (the default), so existing usage is fully backward compatible; the registry abstraction paves the way for future agents (e.g. pi, claude).
 - CLI: a new `--agent-version` flag pins the agent version baked into the runner image (default: latest release).
+- Config: the agent can be selected via the `agent` launcher config key and `OPENCODE_SANDBOX_AGENT` env var, in addition to the `--agent` flag.
 - Behavior: default drop-in provisioning — when running, the launcher now copies the active agent's config + credential files from the host into the VM by default, driven by per-agent gitignore-style include-list manifests (`ProvisionRules`). For opencode this copies `~/.config/opencode/**` (excluding `node_modules`, `package*.json`, `.gitignore`) and `~/.local/share/opencode/auth.json`.
   - **Security note:** the opencode `auth.json` credential file is now copied into the VM by default. Users who prefer to deliver credentials via the env-secret mechanism should opt out of the file copy — see the docs. The env-secret channel is unchanged and still supported.
 - CI: test results are now uploaded to Codecov Test Analytics. The test job runs `gotestsum` to emit JUnit XML (`junit.xml`) alongside `coverage.out` in a single test run and uploads it via `codecov/codecov-action` with `report_type: test_results`; the new `make coverage-junit` target reproduces this locally.
@@ -43,6 +44,7 @@ command reports the bare version (e.g. `0.1.0`).
 * **Breaking** config merge: opencode config snippet files must now match the pattern `opencode-*.json*` (i.e. `opencode-<name>.json`/`.jsonc`/`.json5`). A file named exactly `opencode.json` no longer merges by default. Snippet parsing also supports YAML patterns for agents whose pattern includes them.
 - Bugfix: Host config files in `~/.config/opencode/` (e.g. `opencode.jsonc`) no longer override the merged config provisioned from snippets. The merged config is now written to `opencode.jsonc`, the last file opencode loads (config.json < opencode.json < opencode.jsonc), and when snippets exist the whole config-file family is removed from the VM so host config cannot deep-merge into it.
 - New config key `provision-host-config` (default `true`): set to `false` to skip the default drop-in copy of the agent's host config (and credentials) into the VM entirely. Existing home volumes are cleaned of any previously drop-in-copied config and credential files on the next run.
+* **Breaking** CLI: `config show` is replaced by `config agent [name]`, which shows the active agent's merged snippet config and the host drop-in files (each marked `merged` or `not merged`). `config home` is unchanged.
 
 ## [0.1.0] - 2026-08-??
 

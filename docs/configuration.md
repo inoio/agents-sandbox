@@ -80,6 +80,7 @@ Configuration is resolved in this order (later entries override earlier ones):
 | `network.egress-allow`          | —                        | Egress destinations to allow: `host`, a CIDR, or a `.suffix` (see [Networking](#networking))                                                                                                                              |
 | `network.egress-deny`           | —                        | Egress carve-outs, emitted before allow rules (see [Networking](#networking))                                                                                                                                             
 | `mounts`                        | —                        | Additional host directories mounted into the VM (see [Host bind mounts](#host-bind-mounts))                                                                                                                               |
+| `agent`                         | `--agent`                | Agent profile name to run, build, and provision (default `opencode`, see [Agent configuration](#agent-configuration))                                                                                                        |
 | `provision-host-config`         | —                        | Copy the agent's host config + credentials into the VM by default (default: true; set false to opt out, see [Default drop-in provisioning](#default-drop-in-provisioning))                                               |
 | `upgrade.mode`                   | —                        | How to handle a newer release when one is found: `prompt`, `notify`, `auto`, or `auto-exit` (default `prompt`, see [Self-upgrade](#self-upgrade))                                                            |
 | `upgrade.interval`               | —                        | How often to check for a newer release (default `1d`, minimum `1h`, see [Self-upgrade](#self-upgrade))                                                                                                                        |
@@ -181,6 +182,7 @@ precedence over config files but lose to an explicitly passed CLI flag. The pref
 | `auto-stop-timeout`             | `OPENCODE_SANDBOX_AUTO_STOP_TIMEOUT`                              |
 | `auto-stop-max-session-retries` | `OPENCODE_SANDBOX_AUTO_STOP_MAX_SESSION_RETRIES`                  |
 | `network.profile`               | `OPENCODE_SANDBOX_NETWORK_PROFILE`                                |
+| `agent`                         | `OPENCODE_SANDBOX_AGENT`                                          |
 | `provision-host-config`         | `OPENCODE_SANDBOX_PROVISION_HOST_CONFIG`                          |
 | `upgrade.mode`                   | `OPENCODE_SANDBOX_UPGRADE_MODE`                                    |
 | `upgrade.interval`               | `OPENCODE_SANDBOX_UPGRADE_INTERVAL`                                |
@@ -381,7 +383,8 @@ echo $GITHUB_TOKEN
 ## Agent configuration
 
 opencode-sandbox is agent-aware. A `--agent <name>` flag on `run`, `build`, and the `volume` subcommands selects the
-coding-agent profile to run, build, and provision. Milestone 1 ships **opencode as the only registered agent** (the
+coding-agent profile to run, build, and provision. The agent can also be selected via the `agent` config key or the
+`OPENCODE_SANDBOX_AGENT` environment variable. Milestone 1 ships **opencode as the only registered agent** (the
 default), so existing usage is unchanged; the registry abstraction paves the way for future agents (e.g. pi, claude).
 There is no command that lists registered agents in this milestone; passing an unsupported `--agent` name reports the
 valid names in its error message.
@@ -406,7 +409,7 @@ directories:
   `pi-*.{json,yaml}`). The opencode pattern matches JSON-family extensions.
 - If no snippet files exist, no merged config is produced.
 
-Run `opencode-sandbox config show` to print the merged config that would be provisioned into the VM.
+Run `opencode-sandbox config agent` to print the merged config that would be provisioned into the VM.
 
 > **Note:** the merged config is written to `opencode.jsonc`, the last file opencode loads
 > (`config.json` < `opencode.json` < `opencode.jsonc`), so it always wins the deep merge. When snippets exist, the whole
@@ -430,6 +433,11 @@ Precedence: the merged snippet config and any `home.yaml` mappings override the 
 
 When snippets exist, the drop-in copy of the config-file family is skipped entirely (see the note above) so host config
 cannot override the merged snippets. Non-config files — e.g. plugins, custom commands, themes — are still copied.
+
+To switch from your agent's own config to `opencode-sandbox/<agent>` snippet provisioning, create snippet files in the
+user or project snippet directories (see [Config snippet merge](#config-snippet-merge)). Once a snippet matching the
+agent's pattern exists, it wins over the host config for the merged config path. To stop the native-config drop-in
+entirely so only the snippet merge and `home.yaml` mappings apply, set `provision-host-config: false` (below).
 
 To turn off the drop-in copy altogether (config **and** credentials), set `provision-host-config: false` in the launcher
 config:

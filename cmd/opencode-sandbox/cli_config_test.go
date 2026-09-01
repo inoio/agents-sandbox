@@ -6,21 +6,36 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/inoio/opencode-sandbox/internal/agent"
 	"github.com/inoio/opencode-sandbox/internal/configpaths"
 	"github.com/inoio/opencode-sandbox/internal/testutil"
 )
 
-func TestConfigShowPrintsMergedConfig(t *testing.T) {
-	cmd, ui := setupCommandFixtures(t, "config", "show")
-	snippetPath := filepath.Join(configpaths.Get().UserOpencodeConfigDir(), "opencode-x.json5")
-	testutil.WritePath(
-		t,
-		snippetPath,
-		`{"model":"x","instructions":"be brief"}`,
-	)
+// mustOpencode returns the built-in opencode agent profile, failing the test if
+// it is not registered.
+func mustOpencode(t *testing.T) agent.Agent {
+	t.Helper()
+	a, ok := agent.Lookup("opencode")
+	if !ok {
+		t.Fatal("opencode agent not registered")
+	}
+	return a
+}
+
+func TestConfigAgentPrintsMergedAndHostFiles(t *testing.T) {
+	cmd, ui := setupCommandFixtures(t, "config", "agent", "opencode")
+	snippetPath := filepath.Join(configpaths.Get().UserAgentConfigDir(mustOpencode(t)), "opencode-x.json5")
+	testutil.WritePath(t, snippetPath, `{"model":"x"}`)
+
+	// A host opencode.jsonc plus a non-config file exercise both statuses.
+	hostOcDir := filepath.Join(os.Getenv("HOME"), ".config", "opencode")
+	if err := os.MkdirAll(hostOcDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	testutil.WritePath(t, filepath.Join(hostOcDir, "opencode.jsonc"), `{"model":"host"}`)
 
 	if err := cmd.Execute(); err != nil {
-		t.Fatalf("config show: %v", err)
+		t.Fatalf("config agent: %v", err)
 	}
 	joined := strings.Join(ui.OutCalls, "\n")
 	if !strings.Contains(joined, `"model": "x"`) {
@@ -31,6 +46,9 @@ func TestConfigShowPrintsMergedConfig(t *testing.T) {
 	}
 	if !strings.Contains(joined, snippetPath) {
 		t.Errorf("expected merged source path %q in output, got:\n%s", snippetPath, joined)
+	}
+	if !strings.Contains(joined, "opencode.jsonc") {
+		t.Errorf("expected host drop-in file in output, got:\n%s", joined)
 	}
 }
 
@@ -78,18 +96,25 @@ func TestConfigHomeEmptyManifest(t *testing.T) {
 	}
 }
 
-func TestConfigShowNoSnippetFiles(t *testing.T) {
-	cmd, ui := setupCommandFixtures(t, "config", "show")
+func TestConfigAgentNoSnippetFiles(t *testing.T) {
+	cmd, ui := setupCommandFixtures(t, "config", "agent", "opencode")
 	if err := os.MkdirAll(configpaths.Get().UserOpencodeConfigDir(), 0o755); err != nil {
 		t.Fatal(err)
 	}
 
 	if err := cmd.Execute(); err != nil {
-		t.Fatalf("config show: %v", err)
+		t.Fatalf("config agent: %v", err)
 	}
 	joined := strings.Join(ui.OutCalls, "\n")
-	if !strings.Contains(joined, "No opencode snippet files found") {
+	if !strings.Contains(joined, "No snippet files found") {
 		t.Errorf("expected no-snippets message, got:\n%s", joined)
+	}
+}
+
+func TestConfigAgentUnknownAgent(t *testing.T) {
+	cmd, _ := setupCommandFixtures(t, "config", "agent", "bogus")
+	if err := cmd.Execute(); err == nil {
+		t.Fatal("expected an error for an unknown agent")
 	}
 }
 

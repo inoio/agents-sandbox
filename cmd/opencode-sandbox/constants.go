@@ -17,7 +17,7 @@ const (
 	cmdVersion = "version"
 	cmdConfig  = "config"
 	cmdUpgrade = "upgrade"
-	cmdShow    = "show"
+	cmdAgent   = "agent"
 	cmdHome    = "home"
 	cmdImage   = "image"
 	cmdVolume  = "volume"

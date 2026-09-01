@@ -69,8 +69,12 @@ func setUpSandbox(
 	restart bool,
 	boot vmBoot,
 ) (string, error) {
+	a, ok := agent.Lookup(opts.Agent)
+	if !ok {
+		return "", fmt.Errorf("unknown agent %q", opts.Agent)
+	}
+
 	ui.Verbosef("expected config files: %v", cfs.Keys)
-	a, _ := agent.Lookup("")
 
 	// Provisioning (writing files) is idempotent and non-disruptive, so it is
 	// always performed when there is config to write. Whether the daemon is

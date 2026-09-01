@@ -40,7 +40,7 @@ var pruneAgeFlags = []FlagSet{
 func setupCommandFixtures(t *testing.T, args ...string) (*cobra.Command, *termio.Mock) {
 	t.Helper()
 	configpaths.WithMockConfigPaths(t)
-	image.WithMockOpenCodeVersion(t, "0.0.0-test")
+	image.WithMockAgentVersion(t, "0.0.0-test")
 	msb.WithMsbMock(t, &msb.MockMsbClient{})
 	docker.WithNoopDockerMock(t)
 	doctor.MockedCheckAll(t, true)

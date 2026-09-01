@@ -6,7 +6,6 @@ import (
 	"fmt"
 
 	"github.com/inoio/opencode-sandbox/internal/agent"
-	"github.com/inoio/opencode-sandbox/internal/opencode"
 	"github.com/inoio/opencode-sandbox/internal/sandbox/options"
 	"github.com/inoio/opencode-sandbox/internal/termio"
 )
@@ -15,11 +14,16 @@ import (
 // pending image upgrade.
 var errUpgradeQuit = errors.New("opencode upgrade cancelled") //nolint:err113 // static sentinel intended
 
-// openCodeUpgradeInfo returns the latest opencode release version string.
+// agentLatestVersion returns the newest release version for the agent via its
+// own UpgradeChecker.
 //
 //nolint:gochecknoglobals // test seam
-var openCodeUpgradeInfo = func(ctx context.Context) (string, error) {
-	return opencode.LatestVersion(ctx)
+var agentLatestVersion = func(ctx context.Context, a agent.Agent) (string, error) {
+	checker, ok := agent.AsUpgradeChecker(a)
+	if !ok {
+		return "", nil
+	}
+	return checker.LatestVersion(ctx)
 }
 
 // resolveBuildVersion decides the opencode version to bake into the runner
@@ -126,7 +130,7 @@ func pendingUpgrade(ctx context.Context, ui termio.UI, a agent.Agent, currentVer
 		return "", false
 	}
 
-	latest, err := openCodeUpgradeInfo(ctx)
+	latest, err := agentLatestVersion(ctx, a)
 	if err != nil {
 		// Offline or unreachable: never fail the session, and leave the
 		// once-per-day window open so the next online run retries.

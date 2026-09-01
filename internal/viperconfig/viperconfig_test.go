@@ -426,6 +426,25 @@ func TestResolverIdleTimeoutDefaultFromConfig(t *testing.T) {
 	}
 }
 
+func TestResolverAgentGetter(t *testing.T) {
+	r := NewResolverWithConfig(Config{Agent: "pi"})
+	if r.Agent() != "pi" {
+		t.Errorf("Agent = %q; want pi", r.Agent())
+	}
+}
+
+func TestResolverAgentEnvVar(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	t.Setenv("OPENCODE_SANDBOX_AGENT", "pi")
+	r, err := NewResolver(nil, "")
+	if err != nil {
+		t.Fatalf("NewResolver: %v", err)
+	}
+	if r.Agent() != "pi" {
+		t.Errorf("Agent = %q; want pi from env", r.Agent())
+	}
+}
+
 func TestNetworkProfileEnvVar(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	t.Setenv("OPENCODE_SANDBOX_NETWORK_PROFILE", "none")

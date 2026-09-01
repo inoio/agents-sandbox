@@ -1,4 +1,4 @@
-package opencodeconfig
+package configmerge
 
 import (
 	"bytes"
@@ -90,16 +90,16 @@ func TestBuildMergedYAML(t *testing.T) {
 	}
 }
 
-func TestBuildOpenCodeJSONSourcesInMergeOrder(t *testing.T) {
+func TestBuildMergedSourcesInMergeOrder(t *testing.T) {
 	user := t.TempDir()
 	proj := t.TempDir()
 	writeSnippet(t, user, "opencode-02-user.json", `{"a": 1}`)
 	writeSnippet(t, user, "opencode-01-user.json", `{"a": 2}`)
 	writeSnippet(t, proj, "opencode-proj.json", `{"b": 3}`)
 
-	_, sources, has, err := BuildOpenCodeJSON(user, proj)
+	_, sources, has, err := BuildMerged("opencode-*.json*", user, proj)
 	if err != nil || !has {
-		t.Fatalf("BuildOpenCodeJSON: has=%v err=%v", has, err)
+		t.Fatalf("BuildMerged: has=%v err=%v", has, err)
 	}
 	want := []string{
 		filepath.Join(user, "opencode-01-user.json"),
@@ -116,10 +116,10 @@ func TestBuildOpenCodeJSONSourcesInMergeOrder(t *testing.T) {
 	}
 }
 
-func TestBuildOpenCodeJSONNoSnippets(t *testing.T) {
-	data, sources, has, err := BuildOpenCodeJSON(t.TempDir(), t.TempDir())
+func TestBuildMergedNoSnippets(t *testing.T) {
+	data, sources, has, err := BuildMerged("opencode-*.json*", t.TempDir(), t.TempDir())
 	if err != nil {
-		t.Fatalf("BuildOpenCodeJSON: %v", err)
+		t.Fatalf("BuildMerged: %v", err)
 	}
 	if has {
 		t.Error("expected has=false when no snippet files exist")
@@ -132,13 +132,13 @@ func TestBuildOpenCodeJSONNoSnippets(t *testing.T) {
 	}
 }
 
-func TestBuildOpenCodeJSONEmitsOpenCodeJSON(t *testing.T) {
+func TestBuildMergedEmitsMergedJSON(t *testing.T) {
 	user := t.TempDir()
 	writeSnippet(t, user, "opencode-x.json5", `{"model": "x", "instructions": "be brief"}`)
 
-	data, sources, has, err := BuildOpenCodeJSON(user, "")
+	data, sources, has, err := BuildMerged("opencode-*.json*", user, "")
 	if err != nil {
-		t.Fatalf("BuildOpenCodeJSON: %v", err)
+		t.Fatalf("BuildMerged: %v", err)
 	}
 	if !has {
 		t.Fatal("expected has=true")
@@ -155,16 +155,16 @@ func TestBuildOpenCodeJSONEmitsOpenCodeJSON(t *testing.T) {
 	}
 }
 
-func TestBuildOpenCodeJSONDeterministic(t *testing.T) {
+func TestBuildMergedDeterministic(t *testing.T) {
 	user := t.TempDir()
 	writeSnippet(t, user, "opencode-a.json", `{"b": 1, "a": 2}`)
 	writeSnippet(t, user, "opencode-c.json5", `{"c": {"z": 1, "y": 2}}`)
 
 	var first []byte
 	for range 5 {
-		data, _, has, err := BuildOpenCodeJSON(user, "")
+		data, _, has, err := BuildMerged("opencode-*.json*", user, "")
 		if err != nil || !has {
-			t.Fatalf("BuildOpenCodeJSON: has=%v err=%v", has, err)
+			t.Fatalf("BuildMerged: has=%v err=%v", has, err)
 		}
 		if first == nil {
 			first = data
@@ -177,6 +177,25 @@ func TestBuildOpenCodeJSONDeterministic(t *testing.T) {
 	// sanity: no trailing-extra blank lines weirdness
 	if !strings.HasSuffix(string(first), "\n") {
 		t.Error("expected a single trailing newline")
+	}
+}
+
+// BuildMerged is the generic entry point: pattern comes from the caller, so the
+// package no longer hardcodes the opencode snippet pattern.
+func TestBuildMergedUsesCallerPattern(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "pi-model.yaml"), []byte("model: x\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	data, sources, has, err := BuildMerged("pi-*.{json,yaml}", "", dir)
+	if err != nil {
+		t.Fatalf("BuildMerged: %v", err)
+	}
+	if !has || len(sources) != 1 {
+		t.Fatalf("has=%v sources=%v, want one matched file", has, sources)
+	}
+	if !strings.Contains(string(data), `"model": "x"`) {
+		t.Errorf("merged data = %s, want model:x", data)
 	}
 }
 

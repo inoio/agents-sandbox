@@ -1,6 +1,8 @@
-// Package opencodeconfig merges opencode configuration snippet files into a single
-// opencode config consumed by the sandbox.
-package opencodeconfig
+// Package configmerge merges agent configuration snippet files matching a
+// caller-supplied glob pattern into a single JSON config document consumed by
+// the sandbox. It is agent-agnostic: the snippet pattern and config path come
+// from the agent.
+package configmerge
 
 import (
 	"encoding/json"
@@ -142,10 +144,4 @@ func BuildMerged(pattern string, userDir, projectDir string) ([]byte, []string, 
 		return nil, nil, false, err
 	}
 	return append(data, '\n'), sources, true, nil
-}
-
-// BuildOpenCodeJSON retains the opencode behavior (deprecated: use BuildMerged
-// with the opencode SnippetPattern).
-func BuildOpenCodeJSON(userDir, projectDir string) ([]byte, []string, bool, error) {
-	return BuildMerged("opencode-*.json*", userDir, projectDir)
 }

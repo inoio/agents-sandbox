@@ -7,16 +7,17 @@ import (
 	"testing"
 	"time"
 
+	"github.com/inoio/opencode-sandbox/internal/agent"
 	"github.com/inoio/opencode-sandbox/internal/configpaths"
 	"github.com/inoio/opencode-sandbox/internal/sandbox/options"
 	"github.com/inoio/opencode-sandbox/internal/termio"
 )
 
 func TestResolveOpenCodeVersionPinnedSkipsUpdateCheck(t *testing.T) {
-	origLatest := openCodeUpgradeInfo
-	defer func() { openCodeUpgradeInfo = origLatest }()
+	origLatest := agentLatestVersion
+	defer func() { agentLatestVersion = origLatest }()
 	latestCalled := false
-	openCodeUpgradeInfo = func(_ context.Context) (string, error) {
+	agentLatestVersion = func(_ context.Context, _ agent.Agent) (string, error) {
 		latestCalled = true
 		return "2.0.0", nil
 	}
@@ -36,15 +37,15 @@ func TestResolveOpenCodeVersionPinnedSkipsUpdateCheck(t *testing.T) {
 		t.Error("expected upgraded=false for a pinned version")
 	}
 	if latestCalled {
-		t.Error("openCodeUpgradeInfo should NOT have been called when the version is pinned")
+		t.Error("agentLatestVersion should NOT have been called when the version is pinned")
 	}
 }
 
 func TestResolveOpenCodeVersionRebuildSkipsUpdateCheck(t *testing.T) {
-	origLatest := openCodeUpgradeInfo
-	defer func() { openCodeUpgradeInfo = origLatest }()
+	origLatest := agentLatestVersion
+	defer func() { agentLatestVersion = origLatest }()
 	latestCalled := false
-	openCodeUpgradeInfo = func(_ context.Context) (string, error) {
+	agentLatestVersion = func(_ context.Context, _ agent.Agent) (string, error) {
 		latestCalled = true
 		return "2.0.0", nil
 	}
@@ -67,15 +68,15 @@ func TestResolveOpenCodeVersionRebuildSkipsUpdateCheck(t *testing.T) {
 		t.Error("expected upgraded=false when Rebuild is set")
 	}
 	if latestCalled {
-		t.Error("openCodeUpgradeInfo should NOT have been called when Rebuild is set")
+		t.Error("agentLatestVersion should NOT have been called when Rebuild is set")
 	}
 }
 
 func TestResolveOpenCodeVersionNoBaseline(t *testing.T) {
-	origLatest := openCodeUpgradeInfo
-	defer func() { openCodeUpgradeInfo = origLatest }()
+	origLatest := agentLatestVersion
+	defer func() { agentLatestVersion = origLatest }()
 	latestCalled := false
-	openCodeUpgradeInfo = func(_ context.Context) (string, error) {
+	agentLatestVersion = func(_ context.Context, _ agent.Agent) (string, error) {
 		latestCalled = true
 		return "2.0.0", nil
 	}
@@ -95,14 +96,14 @@ func TestResolveOpenCodeVersionNoBaseline(t *testing.T) {
 		t.Error("expected upgraded=false without a baseline")
 	}
 	if latestCalled {
-		t.Error("openCodeUpgradeInfo should NOT have been called without a baseline")
+		t.Error("agentLatestVersion should NOT have been called without a baseline")
 	}
 }
 
 func TestResolveOpenCodeVersionNoNewerVersion(t *testing.T) {
-	origLatest := openCodeUpgradeInfo
-	defer func() { openCodeUpgradeInfo = origLatest }()
-	openCodeUpgradeInfo = func(_ context.Context) (string, error) { return "2.0.0", nil }
+	origLatest := agentLatestVersion
+	defer func() { agentLatestVersion = origLatest }()
+	agentLatestVersion = func(_ context.Context, _ agent.Agent) (string, error) { return "2.0.0", nil }
 
 	configpaths.WithMockConfigPaths(t)
 	if err := saveUpgradeState(upgradeState{CurrentVersion: "2.0.0"}); err != nil {
@@ -124,9 +125,9 @@ func TestResolveOpenCodeVersionNoNewerVersion(t *testing.T) {
 }
 
 func TestResolveOpenCodeVersionNonInteractiveLogsUpgradeAvailable(t *testing.T) {
-	origLatest := openCodeUpgradeInfo
-	defer func() { openCodeUpgradeInfo = origLatest }()
-	openCodeUpgradeInfo = func(_ context.Context) (string, error) { return "2.0.0", nil }
+	origLatest := agentLatestVersion
+	defer func() { agentLatestVersion = origLatest }()
+	agentLatestVersion = func(_ context.Context, _ agent.Agent) (string, error) { return "2.0.0", nil }
 
 	configpaths.WithMockConfigPaths(t)
 	if err := saveUpgradeState(upgradeState{CurrentVersion: "1.0.0"}); err != nil {
@@ -152,9 +153,9 @@ func TestResolveOpenCodeVersionNonInteractiveLogsUpgradeAvailable(t *testing.T) 
 }
 
 func TestResolveOpenCodeVersionInteractiveRebuild(t *testing.T) {
-	origLatest := openCodeUpgradeInfo
-	defer func() { openCodeUpgradeInfo = origLatest }()
-	openCodeUpgradeInfo = func(_ context.Context) (string, error) { return "2.0.0", nil }
+	origLatest := agentLatestVersion
+	defer func() { agentLatestVersion = origLatest }()
+	agentLatestVersion = func(_ context.Context, _ agent.Agent) (string, error) { return "2.0.0", nil }
 
 	configpaths.WithMockConfigPaths(t)
 	if err := saveUpgradeState(upgradeState{CurrentVersion: "1.0.0"}); err != nil {
@@ -186,10 +187,10 @@ func TestResolveOpenCodeVersionSkipsCheckWhenCheckedToday(t *testing.T) {
 		t.Fatalf("saveUpgradeState: %v", err)
 	}
 
-	origLatest := openCodeUpgradeInfo
-	defer func() { openCodeUpgradeInfo = origLatest }()
+	origLatest := agentLatestVersion
+	defer func() { agentLatestVersion = origLatest }()
 	latestCalled := false
-	openCodeUpgradeInfo = func(_ context.Context) (string, error) {
+	agentLatestVersion = func(_ context.Context, _ agent.Agent) (string, error) {
 		latestCalled = true
 		return "2.0.0", nil
 	}
@@ -208,7 +209,7 @@ func TestResolveOpenCodeVersionSkipsCheckWhenCheckedToday(t *testing.T) {
 		t.Error("expected upgraded=false when already checked today")
 	}
 	if latestCalled {
-		t.Error("openCodeUpgradeInfo should NOT have been called when already checked today")
+		t.Error("agentLatestVersion should NOT have been called when already checked today")
 	}
 }
 
@@ -222,9 +223,9 @@ func TestResolveOpenCodeVersionDoesNotReOfferVersion(t *testing.T) {
 		t.Fatalf("saveUpgradeState: %v", err)
 	}
 
-	origLatest := openCodeUpgradeInfo
-	defer func() { openCodeUpgradeInfo = origLatest }()
-	openCodeUpgradeInfo = func(_ context.Context) (string, error) { return "2.0.0", nil }
+	origLatest := agentLatestVersion
+	defer func() { agentLatestVersion = origLatest }()
+	agentLatestVersion = func(_ context.Context, _ agent.Agent) (string, error) { return "2.0.0", nil }
 
 	opts := options.RunOptions{}
 	ui := &termio.Mock{IsInteractiveResult: true}
@@ -247,9 +248,9 @@ func TestResolveOpenCodeVersionRecordsOfferedBeforePrompt(t *testing.T) {
 		t.Fatalf("saveUpgradeState: %v", err)
 	}
 
-	origLatest := openCodeUpgradeInfo
-	defer func() { openCodeUpgradeInfo = origLatest }()
-	openCodeUpgradeInfo = func(_ context.Context) (string, error) { return "2.0.0", nil }
+	origLatest := agentLatestVersion
+	defer func() { agentLatestVersion = origLatest }()
+	agentLatestVersion = func(_ context.Context, _ agent.Agent) (string, error) { return "2.0.0", nil }
 
 	opts := options.RunOptions{}
 	ui := &termio.Mock{IsInteractiveResult: true}
@@ -278,10 +279,10 @@ func TestResolveOpenCodeVersionUnparsableLatestKeepsCurrent(t *testing.T) {
 		t.Fatalf("saveUpgradeState: %v", err)
 	}
 
-	origLatest := openCodeUpgradeInfo
-	defer func() { openCodeUpgradeInfo = origLatest }()
+	origLatest := agentLatestVersion
+	defer func() { agentLatestVersion = origLatest }()
 	// An unparsable latest version must never fail the session or offer an upgrade.
-	openCodeUpgradeInfo = func(_ context.Context) (string, error) { return "not-a-version", nil }
+	agentLatestVersion = func(_ context.Context, _ agent.Agent) (string, error) { return "not-a-version", nil }
 
 	opts := options.RunOptions{}
 	ui := &termio.Mock{IsInteractiveResult: true}
@@ -304,9 +305,9 @@ func TestResolveOpenCodeVersionOfflineDoesNotUpdateLastChecked(t *testing.T) {
 		t.Fatalf("saveUpgradeState: %v", err)
 	}
 
-	origLatest := openCodeUpgradeInfo
-	defer func() { openCodeUpgradeInfo = origLatest }()
-	openCodeUpgradeInfo = func(_ context.Context) (string, error) {
+	origLatest := agentLatestVersion
+	defer func() { agentLatestVersion = origLatest }()
+	agentLatestVersion = func(_ context.Context, _ agent.Agent) (string, error) {
 		return "", errors.New("network unreachable")
 	}
 
@@ -339,9 +340,9 @@ func TestResolveOpenCodeVersionOfflineDoesNotUpdateLastChecked(t *testing.T) {
 }
 
 func TestResolveOpenCodeVersionInteractiveQuit(t *testing.T) {
-	origLatest := openCodeUpgradeInfo
-	defer func() { openCodeUpgradeInfo = origLatest }()
-	openCodeUpgradeInfo = func(_ context.Context) (string, error) { return "2.0.0", nil }
+	origLatest := agentLatestVersion
+	defer func() { agentLatestVersion = origLatest }()
+	agentLatestVersion = func(_ context.Context, _ agent.Agent) (string, error) { return "2.0.0", nil }
 
 	configpaths.WithMockConfigPaths(t)
 	if err := saveUpgradeState(upgradeState{CurrentVersion: "1.0.0"}); err != nil {

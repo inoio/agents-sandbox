@@ -18,7 +18,6 @@ import (
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 
 	"github.com/inoio/opencode-sandbox/internal/agent"
-	"github.com/inoio/opencode-sandbox/internal/opencode"
 
 	"github.com/inoio/opencode-sandbox/internal/configpaths"
 	"github.com/inoio/opencode-sandbox/internal/sandbox/docker"
@@ -302,6 +301,7 @@ func TestEnsureImageDoesNotBuildDindOnForceWithoutReference(t *testing.T) {
 func runEnsureImageTagTest(t *testing.T, dockerfile []byte, force bool, wantTags []string) {
 	t.Helper()
 	configpaths.WithMockConfigPaths(t)
+	WithMockAgentVersion(t, "2.3.4")
 	a, _ := agent.Lookup("opencode")
 	m := &docker.MockDockerClient{}
 	var builtTags []string
@@ -310,9 +310,6 @@ func runEnsureImageTagTest(t *testing.T, dockerfile []byte, force bool, wantTags
 		return client.ImageBuildResult{Body: io.NopCloser(bytes.NewReader(nil))}, nil
 	}
 
-	opencode.LatestVersion = func(_ context.Context) (string, error) {
-		return "2.3.4", nil
-	}
 	docker.WithDockerMock(t, m)
 
 	_, err := EnsureImageWithClient(
@@ -401,11 +398,11 @@ func TestEnsureImageDoesNotLoadIntoMSB(t *testing.T) {
 func TestBuildImagePassesOpenCodeVersionBuildArg(t *testing.T) {
 	a, _ := agent.Lookup("opencode")
 	configpaths.WithMockConfigPaths(t)
-	orig := resolveOpenCodeVersion
-	resolveOpenCodeVersion = func(_ context.Context, requested string) (string, error) {
+	orig := resolveAgentVersion
+	resolveAgentVersion = func(_ context.Context, _ agent.Agent, requested string) (string, error) {
 		return requested, nil
 	}
-	t.Cleanup(func() { resolveOpenCodeVersion = orig })
+	t.Cleanup(func() { resolveAgentVersion = orig })
 
 	m := &docker.MockDockerClient{}
 	var captured map[string]*string
@@ -438,11 +435,11 @@ func TestBuildImagePassesOpenCodeVersionBuildArg(t *testing.T) {
 func TestEnsureImageReadsVersionAndEnvFromDocker(t *testing.T) {
 	a, _ := agent.Lookup("opencode")
 	configpaths.WithMockConfigPaths(t)
-	orig := resolveOpenCodeVersion
-	resolveOpenCodeVersion = func(_ context.Context, _ string) (string, error) {
+	orig := resolveAgentVersion
+	resolveAgentVersion = func(_ context.Context, _ agent.Agent, _ string) (string, error) {
 		return "2.0.0", nil
 	}
-	t.Cleanup(func() { resolveOpenCodeVersion = orig })
+	t.Cleanup(func() { resolveAgentVersion = orig })
 
 	docker.WithDockerMock(t, &docker.MockDockerClient{
 		ImageInspectFn: func(_ context.Context, _ string, _ ...client.ImageInspectOption) (client.ImageInspectResult, error) {
@@ -516,11 +513,11 @@ func TestEnsureImageReturnsDigestImageRefAsTag(t *testing.T) {
 func TestEnsureImageReadsVersionFromDocker(t *testing.T) {
 	a, _ := agent.Lookup("opencode")
 	configpaths.WithMockConfigPaths(t)
-	orig := resolveOpenCodeVersion
-	resolveOpenCodeVersion = func(_ context.Context, _ string) (string, error) {
+	orig := resolveAgentVersion
+	resolveAgentVersion = func(_ context.Context, _ agent.Agent, _ string) (string, error) {
 		return "3.0.0", nil
 	}
-	t.Cleanup(func() { resolveOpenCodeVersion = orig })
+	t.Cleanup(func() { resolveAgentVersion = orig })
 
 	docker.WithDockerMock(t, &docker.MockDockerClient{
 		ImageInspectFn: func(_ context.Context, _ string, _ ...client.ImageInspectOption) (client.ImageInspectResult, error) {

@@ -48,6 +48,20 @@ func TestOpencodeConfigDirName(t *testing.T) {
 	}
 }
 
+func TestImageSpecDerivationHelpers(t *testing.T) {
+	a, _ := agent.Lookup("opencode")
+	spec := a.ImageSpec()
+	if spec.VersionArg != "OPENCODE_VERSION" {
+		t.Errorf("VersionArg = %q, want derived OPENCODE_VERSION", spec.VersionArg)
+	}
+	if spec.VersionLabel != "org.opencode-sandbox.opencode-version" {
+		t.Errorf("VersionLabel = %q, want derived label", spec.VersionLabel)
+	}
+	if _, ok := spec.AgentEnv["OPENCODE_DISABLE_AUTOUPDATE"]; !ok {
+		t.Errorf("AgentEnv = %v, want OPENCODE_DISABLE_AUTOUPDATE key", spec.AgentEnv)
+	}
+}
+
 func TestOpencodeImplementsDaemon(t *testing.T) {
 	a, _ := agent.Lookup("opencode")
 	if _, ok := agent.AsDaemonProvider(a); !ok {
@@ -64,8 +78,8 @@ func TestOpencodeImageSpec(t *testing.T) {
 	if spec.VersionLabel != "org.opencode-sandbox.opencode-version" {
 		t.Errorf("VersionLabel = %q", spec.VersionLabel)
 	}
-	if spec.DisableUpdateEnv != "OPENCODE_DISABLE_AUTOUPDATE" {
-		t.Errorf("DisableUpdateEnv = %q", spec.DisableUpdateEnv)
+	if _, ok := spec.AgentEnv["OPENCODE_DISABLE_AUTOUPDATE"]; !ok {
+		t.Errorf("AgentEnv = %v, want OPENCODE_DISABLE_AUTOUPDATE key", spec.AgentEnv)
 	}
 	if spec.InstallCommand == "" {
 		t.Error("InstallCommand must not be empty")

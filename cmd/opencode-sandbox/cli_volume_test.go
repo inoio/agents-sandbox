@@ -47,7 +47,7 @@ func runVolumeOpScenario(t *testing.T, tc volumeOpScenario) {
 	mock := &msb.MockMsbClient{}
 
 	doctor.MockedCheckAll(t, !tc.preflightFail)
-	image.WithMockOpenCodeVersion(t, "0.0.0-test")
+	image.WithMockAgentVersion(t, "0.0.0-test")
 	if tc.ensureImageErr {
 		docker.WithDefaultErrorDockerMock(t)
 	} else {

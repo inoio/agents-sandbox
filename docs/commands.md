@@ -261,13 +261,15 @@ opencode-sandbox cfg
 
 **Aliases:** `cfg`
 
-#### config show
+#### config agent [name]
 
-Print the snippet files that were merged and the resulting opencode configuration (provisioned to `.config/opencode/opencode.jsonc`).
+Show the merged snippet config and the host files drop-in-provisioned into the VM for an agent (default: the configured agent, `opencode`).
 
 ```console
-opencode-sandbox config show
+opencode-sandbox config agent opencode
 ```
+
+Each host file is listed as `merged` (its VM path is the merged config path or part of the removed config-file family) or `not merged` (copied verbatim).
 
 #### config home
 

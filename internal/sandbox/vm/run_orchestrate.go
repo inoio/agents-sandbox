@@ -49,6 +49,8 @@ func (s *Session) Target() string {
 // PrepareSandbox builds (or reuses) the project VM, provisions config, and
 // returns a ready-to-attach Session. It is the setup half of a run:
 // Run and Shell in the session package call it and then attach to the result.
+//
+//nolint:funlen // central orchestration function; near the limit by nature
 func PrepareSandbox(
 	ctx context.Context,
 	opts options.RunOptions,
@@ -56,7 +58,10 @@ func PrepareSandbox(
 ) (*Session, error) {
 	projectSlug := git.ProjectSlug()
 
-	a, _ := agent.Lookup("")
+	a, ok := agent.Lookup(opts.Agent)
+	if !ok {
+		return nil, fmt.Errorf("unknown agent %q", opts.Agent)
+	}
 
 	// Decide the opencode version to bake before touching the image. Without an
 	// explicit pin, this checks for (and may offer) an upgrade up front, so a

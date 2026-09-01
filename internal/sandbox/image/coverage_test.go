@@ -21,7 +21,7 @@ import (
 
 func TestEnsureImageSuccess(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
-	WithMockOpenCodeVersion(t, "1.2.3")
+	WithMockAgentVersion(t, "1.2.3")
 	a, _ := agent.Lookup("opencode")
 	docker.WithDockerMock(t, &docker.MockDockerClient{
 		ImageInspectFn: func(_ context.Context, _ string, _ ...client.ImageInspectOption) (client.ImageInspectResult, error) {
@@ -48,7 +48,7 @@ func TestEnsureImageSuccess(t *testing.T) {
 
 func TestEnsureImageReturnsError(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
-	WithMockOpenCodeVersion(t, "1.2.3")
+	WithMockAgentVersion(t, "1.2.3")
 	a, _ := agent.Lookup("opencode")
 	docker.WithDefaultErrorDockerMock(t)
 
@@ -66,7 +66,7 @@ func TestEnsureImageReturnsError(t *testing.T) {
 
 func TestBuildSuccess(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
-	WithMockOpenCodeVersion(t, "1.2.3")
+	WithMockAgentVersion(t, "1.2.3")
 	a, _ := agent.Lookup("opencode")
 	docker.WithDockerMock(t, &docker.MockDockerClient{
 		ImageInspectFn: func(_ context.Context, _ string, _ ...client.ImageInspectOption) (client.ImageInspectResult, error) {
@@ -96,7 +96,7 @@ func TestBuildSuccess(t *testing.T) {
 
 func TestBuildReturnsErrorWhenImageBuildFails(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
-	WithMockOpenCodeVersion(t, "1.2.3")
+	WithMockAgentVersion(t, "1.2.3")
 	a, _ := agent.Lookup("opencode")
 	docker.WithDefaultErrorDockerMock(t)
 	msb.WithMsbMock(t, &msb.MockMsbClient{})
@@ -108,7 +108,7 @@ func TestBuildReturnsErrorWhenImageBuildFails(t *testing.T) {
 
 func TestBuildReturnsErrorWhenLoadFails(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
-	WithMockOpenCodeVersion(t, "1.2.3")
+	WithMockAgentVersion(t, "1.2.3")
 	a, _ := agent.Lookup("opencode")
 	docker.WithDockerMock(t, &docker.MockDockerClient{
 		ImageInspectFn: func(_ context.Context, _ string, _ ...client.ImageInspectOption) (client.ImageInspectResult, error) {
@@ -146,7 +146,7 @@ func TestInspectExistingImageReturnsEmptyOnInspectFailure(t *testing.T) {
 
 func TestEnsureImageReturnsErrorWhenRunnerBuildFails(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
-	WithMockOpenCodeVersion(t, "1.2.3")
+	WithMockAgentVersion(t, "1.2.3")
 	a, _ := agent.Lookup("opencode")
 	// The base image build must succeed so the flow reaches the runner build,
 	// which then fails.
@@ -171,7 +171,7 @@ func TestEnsureImageReturnsErrorWhenRunnerBuildFails(t *testing.T) {
 func TestEnsureImageReturnsErrorWhenVersionResolveFails(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	a, _ := agent.Lookup("opencode")
-	WithMockOpenCodeVersionResolver(t, func(context.Context, string) (string, error) {
+	WithMockAgentVersionResolver(t, func(_ context.Context, _ agent.Agent, _ string) (string, error) {
 		return "", errors.New("resolve boom")
 	})
 	_, err := EnsureImageWithClient(

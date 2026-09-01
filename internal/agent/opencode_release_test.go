@@ -1,4 +1,4 @@
-package opencode
+package agent
 
 import (
 	"context"
@@ -7,12 +7,12 @@ import (
 	"testing"
 )
 
-// overrideLatestURL swaps gitHubLatestURL for the duration of a test. It returns
+// overrideLatestURL swaps opencodeGitHubLatestURL for the duration of a test. It returns
 // a restore func.
 func overrideLatestURL(url string) func() {
-	orig := gitHubLatestURL
-	gitHubLatestURL = url
-	return func() { gitHubLatestURL = orig }
+	orig := opencodeGitHubLatestURL
+	opencodeGitHubLatestURL = url
+	return func() { opencodeGitHubLatestURL = orig }
 }
 
 func TestLatestVersionReadsGitHubRelease(t *testing.T) {
@@ -25,7 +25,7 @@ func TestLatestVersionReadsGitHubRelease(t *testing.T) {
 	restore := overrideLatestURL(srv.URL)
 	t.Cleanup(restore)
 
-	got, err := LatestVersion(context.Background())
+	got, err := latestOpenCodeVersion(context.Background())
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -43,7 +43,7 @@ func TestLatestVersionStripsVBeta(t *testing.T) {
 	restore := overrideLatestURL(srv.URL)
 	t.Cleanup(restore)
 
-	got, err := LatestVersion(context.Background())
+	got, err := latestOpenCodeVersion(context.Background())
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -56,7 +56,7 @@ func TestLatestVersionPropagatesRequestError(t *testing.T) {
 	restore := overrideLatestURL("http://127.0.0.1:1")
 	t.Cleanup(restore)
 
-	if _, err := LatestVersion(context.Background()); err == nil {
+	if _, err := latestOpenCodeVersion(context.Background()); err == nil {
 		t.Fatal("expected error for unreachable endpoint")
 	}
 }
@@ -69,7 +69,7 @@ func TestLatestVersionNon200(t *testing.T) {
 	restore := overrideLatestURL(srv.URL)
 	t.Cleanup(restore)
 
-	if _, err := LatestVersion(context.Background()); err == nil {
+	if _, err := latestOpenCodeVersion(context.Background()); err == nil {
 		t.Fatal("expected error on non-200 response")
 	}
 }
@@ -82,7 +82,7 @@ func TestLatestVersionDecodeError(t *testing.T) {
 	restore := overrideLatestURL(srv.URL)
 	t.Cleanup(restore)
 
-	if _, err := LatestVersion(context.Background()); err == nil {
+	if _, err := latestOpenCodeVersion(context.Background()); err == nil {
 		t.Fatal("expected error on undecodable response")
 	}
 }
@@ -102,7 +102,7 @@ func TestNewerThan(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			got, err := NewerThan(tc.a, tc.b)
+			got, err := newerOpenCodeThan(tc.a, tc.b)
 			if err != nil {
 				t.Fatalf("unexpected error: %v", err)
 			}
@@ -114,10 +114,10 @@ func TestNewerThan(t *testing.T) {
 }
 
 func TestNewerThanInvalidVersion(t *testing.T) {
-	if _, err := NewerThan("not-a-version", "1.0.0"); err == nil {
+	if _, err := newerOpenCodeThan("not-a-version", "1.0.0"); err == nil {
 		t.Fatal("expected error for invalid first version")
 	}
-	if _, err := NewerThan("1.0.0", "not-a-version"); err == nil {
+	if _, err := newerOpenCodeThan("1.0.0", "not-a-version"); err == nil {
 		t.Fatal("expected error for invalid second version")
 	}
 }

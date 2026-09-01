@@ -26,7 +26,7 @@ func TestResolveTargetListError(t *testing.T) {
 // of ResolveTarget.
 func TestResolveTargetCreateNonSuccess(t *testing.T) {
 	ui := &termio.Mock{}
-	provider := opencodeProvider(t)
+	provider := mustWorktreeProvider(t)
 	createCmd := provider.WorktreeCreateCmd(agent.WorktreeSpec{Name: "feat-x"})
 	sb := &msb.MockSandbox{
 		ShellOut: map[string]msb.ShellResult{
@@ -44,7 +44,7 @@ func TestResolveTargetCreateNonSuccess(t *testing.T) {
 // ResolveTarget: the create command succeeds but returns non-JSON output.
 func TestResolveTargetParseError(t *testing.T) {
 	ui := &termio.Mock{}
-	provider := opencodeProvider(t)
+	provider := mustWorktreeProvider(t)
 	createCmd := provider.WorktreeCreateCmd(agent.WorktreeSpec{Name: "feat-x"})
 	sb := &msb.MockSandbox{
 		ShellOut: map[string]msb.ShellResult{

@@ -17,7 +17,7 @@ import (
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 
 	"github.com/inoio/opencode-sandbox/internal/agent"
-	config "github.com/inoio/opencode-sandbox/internal/opencodeconfig"
+	config "github.com/inoio/opencode-sandbox/internal/configmerge"
 	"github.com/inoio/opencode-sandbox/internal/sandbox/mounts"
 	"github.com/inoio/opencode-sandbox/internal/sandbox/msb"
 	"github.com/inoio/opencode-sandbox/internal/sandbox/network"
@@ -79,6 +79,7 @@ func OpenCodeConfigPath(home string) string {
 type ConfigFiles struct {
 	HasSnippets bool                  // whether any agent snippet existed
 	OpenCode    []byte                // merged agent config content
+	Sources     []string              // host snippet paths merged into OpenCode
 	HomeFiles   map[string][]byte     // VM absolute path -> content (home.yaml)
 	Provisioned map[string][]byte     // VM absolute path -> content (drop-in copy)
 	Remove      []string              // VM absolute paths to delete before writing
@@ -107,7 +108,7 @@ func LoadConfigFilesForHost(
 	ui termio.UI,
 	provisionHostConfig bool,
 ) (*ConfigFiles, error) {
-	mergedPath, opencodeJSON, hasSnippets, err := buildMergedConfig(a, vmHome)
+	mergedPath, opencodeJSON, sources, hasSnippets, err := buildMergedConfig(a, vmHome)
 	if err != nil {
 		return nil, err
 	}
@@ -160,7 +161,7 @@ func LoadConfigFilesForHost(
 	// config provisioning is disabled no host file may remain.
 	remove := configFileFamilyPaths(mergedPath)
 	if !provisionHostConfig {
-		remove = append(remove, filepath.Join(vmHome, ".local", "share", "opencode", "auth.json"))
+		remove = append(remove, provisionDestinations(a, hostHome, vmHome)...)
 	}
 	keys := make([]string, 0, len(homeFiles)+len(provisioned)+1)
 	if hasSnippets {
@@ -176,6 +177,7 @@ func LoadConfigFilesForHost(
 	return &ConfigFiles{
 		HasSnippets: hasSnippets,
 		OpenCode:    opencodeJSON,
+		Sources:     sources,
 		HomeFiles:   homeFiles,
 		Provisioned: provisioned,
 		Remove:      remove,
@@ -197,29 +199,98 @@ func configFileFamilyPaths(mergedPath string) []string {
 }
 
 // buildMergedConfig merges the agent's snippet files into a single config and
-// returns its destination VM path, content, whether any snippet existed, and an
-// error. Agents that implement ConfigMerger use their own snippet pattern and
-// VM config path; other agents fall back to the opencode snippet behavior.
-func buildMergedConfig(a agent.Agent, vmHome string) (string, []byte, bool, error) {
+// returns its destination VM path, content, the snippet source paths, whether
+// any snippet existed, and an error. Every agent in the registry implements
+// ConfigMerger, so a non-merger agent produces no merged config.
+func buildMergedConfig(a agent.Agent, vmHome string) (string, []byte, []string, bool, error) {
 	if cm, ok := agent.AsConfigMerger(a); ok {
-		merged, _, hasSnippets, err := config.BuildMerged(
+		merged, sources, hasSnippets, err := config.BuildMerged(
 			cm.SnippetPattern(),
 			cp.Get().UserAgentConfigDir(a),
 			cp.Get().ProjectAgentConfigDir(a),
 		)
 		if err != nil {
-			return "", nil, false, fmt.Errorf("merge agent config: %w", err)
+			return "", nil, nil, false, fmt.Errorf("merge agent config: %w", err)
 		}
-		return cm.VMConfigPath(vmHome), merged, hasSnippets, nil
+		return cm.VMConfigPath(vmHome), merged, sources, hasSnippets, nil
 	}
-	merged, _, hasSnippets, err := config.BuildOpenCodeJSON(
-		cp.Get().UserOpencodeConfigDir(),
-		cp.Get().ProjectOpencodeConfigDir(),
-	)
+	return "", nil, nil, false, nil
+}
+
+// provisionDestinations returns the VM paths the agent's provision rules would
+// copy for the given host, without copying anything. It mirrors the drop-in
+// copy's destinations so they can be removed when host provisioning is disabled.
+func provisionDestinations(a agent.Agent, hostHome, vmHome string) []string {
+	p, ok := agent.AsProvisioner(a)
+	if !ok {
+		return nil
+	}
+	var dsts []string
+	_, _ = agent.EvalProvisionRules(p.ProvisionRules(), hostHome, vmHome, func(dst string, _ []byte) error {
+		dsts = append(dsts, dst)
+		return nil
+	})
+	return dsts
+}
+
+// HostFile is one host file the drop-in provisioning would copy.
+type HostFile struct {
+	HostPath string
+	VMPath   string
+	Merged   bool
+}
+
+// Describe returns the merged config and the host drop-in files (host path →
+// VM path, plus whether the path is merged into the final config) for agent a.
+// It mirrors the state LoadConfigFilesForHost computes, without touching a VM.
+func Describe(
+	a agent.Agent,
+	hostHome, vmHome string,
+	ui termio.UI,
+	provisionHostConfig bool,
+) ([]byte, []string, []HostFile, error) {
+	cf, err := LoadConfigFilesForHost(a, hostHome, vmHome, ui, provisionHostConfig)
 	if err != nil {
-		return "", nil, false, fmt.Errorf("merge opencode config: %w", err)
+		return nil, nil, nil, err
 	}
-	return OpenCodeConfigPath(vmHome), merged, hasSnippets, nil
+	hostFiles := hostFilesFromProvisioner(a, hostHome, vmHome, cf)
+	return cf.OpenCode, cf.Sources, hostFiles, nil
+}
+
+// hostFilesFromProvisioner walks the agent's provision rules against hostHome
+// and records each host file it would copy, marking whether the VM destination
+// is merged into the single config rather than copied as a drop-in. It never
+// modifies any state.
+func hostFilesFromProvisioner(a agent.Agent, hostHome, vmHome string, cf *ConfigFiles) []HostFile {
+	p, ok := agent.AsProvisioner(a)
+	if !ok {
+		return nil
+	}
+	mergedPath := OpenCodeConfigPath(vmHome)
+	merged := make(map[string]struct{})
+	if cf.HasSnippets {
+		for _, path := range configFileFamilyPaths(mergedPath) {
+			merged[path] = struct{}{}
+		}
+	}
+	var files []HostFile
+	_, _ = agent.EvalProvisionRules(p.ProvisionRules(), hostHome, vmHome, func(dst string, _ []byte) error {
+		_, isMerged := merged[dst]
+		files = append(files, HostFile{
+			HostPath: hostPathForDst(dst, hostHome, vmHome),
+			VMPath:   dst,
+			Merged:   isMerged,
+		})
+		return nil
+	})
+	return files
+}
+
+// hostPathForDst reverses a VM destination path to the corresponding host path,
+// since provision rules copy host → VM at the same relative path.
+func hostPathForDst(dst, hostHome, vmHome string) string {
+	rel := strings.TrimPrefix(dst, vmHome)
+	return filepath.Join(hostHome, strings.TrimPrefix(rel, string(filepath.Separator)))
 }
 
 // tmpMountPath is the mount point used for the sandbox tmpfs.

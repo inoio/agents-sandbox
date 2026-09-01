@@ -6,6 +6,7 @@ import (
 	"os"
 	"testing"
 
+	"github.com/inoio/opencode-sandbox/internal/agent"
 	"github.com/inoio/opencode-sandbox/internal/configpaths"
 	"github.com/inoio/opencode-sandbox/internal/sandbox/options"
 	"github.com/inoio/opencode-sandbox/internal/termio"
@@ -19,9 +20,9 @@ func TestResolveOpenCodeVersionInteractiveSelectError(t *testing.T) {
 	if err := saveUpgradeState(upgradeState{CurrentVersion: "1.0.0"}); err != nil {
 		t.Fatalf("saveUpgradeState: %v", err)
 	}
-	origLatest := openCodeUpgradeInfo
-	defer func() { openCodeUpgradeInfo = origLatest }()
-	openCodeUpgradeInfo = func(_ context.Context) (string, error) { return "2.0.0", nil }
+	origLatest := agentLatestVersion
+	defer func() { agentLatestVersion = origLatest }()
+	agentLatestVersion = func(_ context.Context, _ agent.Agent) (string, error) { return "2.0.0", nil }
 
 	ui := &termio.Mock{
 		IsInteractiveResult: true,
@@ -44,9 +45,9 @@ func TestResolveOpenCodeVersionInteractiveDefaultChoice(t *testing.T) {
 	if err := saveUpgradeState(upgradeState{CurrentVersion: "1.0.0"}); err != nil {
 		t.Fatalf("saveUpgradeState: %v", err)
 	}
-	origLatest := openCodeUpgradeInfo
-	defer func() { openCodeUpgradeInfo = origLatest }()
-	openCodeUpgradeInfo = func(_ context.Context) (string, error) { return "2.0.0", nil }
+	origLatest := agentLatestVersion
+	defer func() { agentLatestVersion = origLatest }()
+	agentLatestVersion = func(_ context.Context, _ agent.Agent) (string, error) { return "2.0.0", nil }
 
 	ui := &termio.Mock{
 		IsInteractiveResult: true,
@@ -74,9 +75,9 @@ func TestResolveOpenCodeVersionInteractiveKeep(t *testing.T) {
 	if err := saveUpgradeState(upgradeState{CurrentVersion: "1.0.0"}); err != nil {
 		t.Fatalf("saveUpgradeState: %v", err)
 	}
-	origLatest := openCodeUpgradeInfo
-	defer func() { openCodeUpgradeInfo = origLatest }()
-	openCodeUpgradeInfo = func(_ context.Context) (string, error) { return "2.0.0", nil }
+	origLatest := agentLatestVersion
+	defer func() { agentLatestVersion = origLatest }()
+	agentLatestVersion = func(_ context.Context, _ agent.Agent) (string, error) { return "2.0.0", nil }
 
 	ui := &termio.Mock{
 		IsInteractiveResult: true,

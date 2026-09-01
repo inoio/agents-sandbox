@@ -306,6 +306,11 @@ func TestLoadConfigFilesProvisioningDisabled(t *testing.T) {
 		t.Fatal(err)
 	}
 	testutil.WriteFile(t, ocConfig, "opencode.json", `{"a":1}`)
+	ocShare := filepath.Join(hostHome, ".local", "share", "opencode")
+	if err := os.MkdirAll(ocShare, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	testutil.WriteFile(t, ocShare, "auth.json", `{"t":"x"}`)
 
 	ui := termio.NewTestMock(t)
 	cf, err := LoadConfigFilesForHost(a, hostHome, vmHome, &ui, false)

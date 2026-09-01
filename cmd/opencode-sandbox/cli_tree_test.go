@@ -90,7 +90,7 @@ func TestPrintTreeContainsCommandDescriptions(t *testing.T) {
 		"Manage runner images",
 		"Manage home volumes",
 		"Manage sandboxes",
-		"Print the merged opencode config and the snippet files used",
+		"Show the merged agent config and the host files provisioned into the VM",
 		"List cached runner images",
 		"List managed volumes",
 		"Stop the project VM",

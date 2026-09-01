@@ -6,8 +6,6 @@ import (
 	"fmt"
 	"path/filepath"
 	"strings"
-
-	"github.com/inoio/opencode-sandbox/internal/opencode"
 )
 
 //nolint:gochecknoinits // built-in agent self-registration
@@ -20,10 +18,10 @@ func (opencodeProfile) ConfigDirName() string { return "opencode" }
 
 func (opencodeProfile) ImageSpec() ImageSpec {
 	return ImageSpec{
-		VersionArg:       "OPENCODE_VERSION",
-		VersionLabel:     "org.opencode-sandbox.opencode-version",
-		DisableUpdateEnv: "OPENCODE_DISABLE_AUTOUPDATE",
-		InstallCommand:   `curl -fsSL https://opencode.ai/install | bash -s -- --version "$OPENCODE_VERSION" && cp /root/.opencode/bin/opencode /usr/local/bin`,
+		VersionArg:     versionArgFor(opencodeName),
+		VersionLabel:   versionLabelFor(opencodeName),
+		AgentEnv:       map[string]string{"OPENCODE_DISABLE_AUTOUPDATE": "true"},
+		InstallCommand: `curl -fsSL https://opencode.ai/install | bash -s -- --version "$OPENCODE_VERSION" && cp /root/.opencode/bin/opencode /usr/local/bin`,
 	}
 }
 
@@ -79,9 +77,9 @@ func (opencodeProfile) WorktreeParseDir(stdout string) (string, bool) {
 }
 
 func (opencodeProfile) LatestVersion(ctx context.Context) (string, error) {
-	return opencode.LatestVersion(ctx)
+	return latestOpenCodeVersion(ctx)
 }
-func (opencodeProfile) NewerThan(a, b string) (bool, error) { return opencode.NewerThan(a, b) }
+func (opencodeProfile) NewerThan(a, b string) (bool, error) { return newerOpenCodeThan(a, b) }
 
 func (opencodeProfile) SnippetPattern() string { return "opencode-*.json*" }
 func (opencodeProfile) VMConfigPath(home string) string {
