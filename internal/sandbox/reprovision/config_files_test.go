@@ -417,3 +417,115 @@ func TestLoadConfigFilesPIMergedConfig(t *testing.T) {
 		t.Errorf("Remove = %v, want to include %s", cf.Remove, wantMerged)
 	}
 }
+
+func TestHostPathForDst(t *testing.T) {
+	got := hostPathForDst("/home/dev/.config/opencode/opencode.json", "/home/user", "/home/dev")
+	want := filepath.Join("/home/user", ".config", "opencode", "opencode.json")
+	if got != want {
+		t.Errorf("hostPathForDst = %q, want %q", got, want)
+	}
+}
+
+func TestHostPathForDstRoot(t *testing.T) {
+	got := hostPathForDst("/home/dev", "/home/user", "/home/dev")
+	if got != "/home/user" {
+		t.Errorf("hostPathForDst(root) = %q, want /home/user", got)
+	}
+}
+
+// TestHostFilesFromProvisioner verifies hostFilesFromProvisioner reports each
+// host file the drop-in copy would pick up, marking config-family destinations
+// as Merged when snippets produce a merged config.
+func TestHostFilesFromProvisioner(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	hostHome := t.TempDir()
+	vmHome := t.TempDir()
+
+	a, _ := agent.Lookup("opencode")
+	ocConfig := filepath.Join(hostHome, ".config", "opencode")
+	if err := os.MkdirAll(ocConfig, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	testutil.WriteFile(t, ocConfig, "opencode.json", `{"a":1}`)
+	testutil.WriteFile(t, ocConfig, "other.json", `{"host":1}`)
+
+	mergedPath := filepath.Join(vmHome, ".config", "opencode", "opencode.jsonc")
+	cf := &ConfigFiles{HasSnippets: true, MergedPath: mergedPath}
+	files := hostFilesFromProvisioner(a, hostHome, vmHome, cf)
+
+	if len(files) != 2 {
+		t.Fatalf("hostFilesFromProvisioner = %+v, want 2 files", files)
+	}
+	var configFile, otherFile *HostFile
+	for i := range files {
+		f := &files[i]
+		switch f.VMPath {
+		case filepath.Join(vmHome, ".config", "opencode", "opencode.json"):
+			configFile = f
+		case filepath.Join(vmHome, ".config", "opencode", "other.json"):
+			otherFile = f
+		}
+	}
+	if configFile == nil || !configFile.Merged {
+		t.Errorf("config-family file should be marked Merged, got %+v", files)
+	}
+	if configFile != nil && configFile.HostPath != filepath.Join(hostHome, ".config", "opencode", "opencode.json") {
+		t.Errorf("config-file HostPath = %q", configFile.HostPath)
+	}
+	if otherFile == nil || otherFile.Merged {
+		t.Errorf("non-family file should not be Merged, got %+v", files)
+	}
+}
+
+// TestHostFilesFromProvisionerNoSnippets verifies that without snippets the
+// drop-in files are not marked merged.
+func TestHostFilesFromProvisionerNoSnippets(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	hostHome := t.TempDir()
+	vmHome := t.TempDir()
+
+	a, _ := agent.Lookup("opencode")
+	ocConfig := filepath.Join(hostHome, ".config", "opencode")
+	if err := os.MkdirAll(ocConfig, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	testutil.WriteFile(t, ocConfig, "opencode.json", `{"a":1}`)
+
+	cf := &ConfigFiles{HasSnippets: false}
+	files := hostFilesFromProvisioner(a, hostHome, vmHome, cf)
+	if len(files) != 1 || files[0].Merged {
+		t.Errorf("hostFilesFromProvisioner = %+v, want 1 non-merged file", files)
+	}
+}
+
+// TestDescribe verifies Describe returns the merged config, snippet sources and
+// the host drop-in files without touching a VM.
+func TestDescribe(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	cp := configpaths.Get()
+	hostHome := t.TempDir()
+	vmHome := t.TempDir()
+
+	a, _ := agent.Lookup("opencode")
+	testutil.WriteFile(t, cp.ProjectAgentConfigDir(a), "opencode-model.json", `{"model":"x"}`)
+	ocConfig := filepath.Join(hostHome, ".config", "opencode")
+	if err := os.MkdirAll(ocConfig, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	testutil.WriteFile(t, ocConfig, "opencode.json", `{"a":1}`)
+
+	ui := termio.NewTestMock(t)
+	merged, sources, hostFiles, err := Describe(a, hostHome, vmHome, &ui, true)
+	if err != nil {
+		t.Fatalf("Describe: %v", err)
+	}
+	if len(merged) == 0 {
+		t.Error("Describe returned empty merged config")
+	}
+	if len(sources) == 0 {
+		t.Error("Describe returned no snippet sources")
+	}
+	if len(hostFiles) == 0 {
+		t.Error("Describe returned no host files")
+	}
+}

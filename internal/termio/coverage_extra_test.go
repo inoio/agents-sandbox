@@ -5,6 +5,7 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
 )
 
 // ---- printer: NewTable, Spinnerf, StdOut/StdErr, quiet-return paths ----
@@ -135,6 +136,17 @@ func TestSpinnerFinishDefaultResultColor(t *testing.T) {
 	out := stderr.String()
 	if !strings.Contains(out, "custom result (") {
 		t.Errorf("expected default color result render, got %q", out)
+	}
+}
+
+func TestSpinnerAnimateIterates(t *testing.T) {
+	var stderr bytes.Buffer
+	s := newSpinner(&stderr, true, LevelInfo, "step")
+	time.Sleep(3 * spinnerInterval)
+	s.finish("done")
+	out := stderr.String()
+	if !strings.Contains(out, "step") {
+		t.Errorf("expected spinner msg in animated output, got %q", out)
 	}
 }
 

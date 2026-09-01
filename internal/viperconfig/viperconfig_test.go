@@ -23,6 +23,7 @@ func TestResolverGettersReturnConfig(t *testing.T) {
 		Yes: true, LogLevel: "verbose", Quiet: true,
 		AutoPruneAge: 7 * 24 * time.Hour, ManualPruneAge: 14 * 24 * time.Hour,
 		AutoStopOnActiveSessions: true, AutoStopTimeout: 30 * time.Second, AutoStopMaxSessionRetries: 5,
+		Agent: "pi", ProvisionHostConfig: true,
 	}
 	r := NewResolverWithConfig(cfg)
 	if r.CPUs() != 4 || r.Memory() != "8G" || r.TmpSize() != "4G" || r.DiskSize() != "32G" ||
@@ -31,6 +32,9 @@ func TestResolverGettersReturnConfig(t *testing.T) {
 	}
 	if !r.Yes() || r.LogLevel() != "verbose" || !r.Quiet() {
 		t.Error("UI getters mismatch")
+	}
+	if r.Agent() != "pi" || !r.ProvisionHostConfig() {
+		t.Error("agent getters mismatch")
 	}
 	if r.AutoPruneAge() != 7*24*time.Hour || r.ManualPruneAge() != 14*24*time.Hour {
 		t.Error("prune getters mismatch")

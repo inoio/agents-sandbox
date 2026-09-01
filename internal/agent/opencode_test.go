@@ -3,6 +3,7 @@ package agent_test
 import (
 	"context"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -144,6 +145,26 @@ func TestOpencodeConfigMerger(t *testing.T) {
 	}
 	if merger.VMConfigPath("/home/user") != filepath.Join("/home/user", ".config", "opencode", "opencode.jsonc") {
 		t.Errorf("VMConfigPath = %q", merger.VMConfigPath("/home/user"))
+	}
+}
+
+func TestOpencodeConfigFileNames(t *testing.T) {
+	a, _ := agent.Lookup("opencode")
+	merger, ok := agent.AsConfigMerger(a)
+	if !ok {
+		t.Fatal("opencode should implement ConfigMerger")
+	}
+	names := merger.ConfigFileNames()
+	want := []string{
+		"config.json",
+		"opencode.json",
+		"opencode.jsonc",
+		"opencode.json5",
+		"opencode.yaml",
+		"opencode.yml",
+	}
+	if !slices.Equal(names, want) {
+		t.Errorf("ConfigFileNames = %v, want %v", names, want)
 	}
 }
 

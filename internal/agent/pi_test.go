@@ -1,6 +1,7 @@
 package agent_test
 
 import (
+	"context"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -89,6 +90,38 @@ func TestPIProvisionRules(t *testing.T) {
 	}
 	if !found {
 		t.Errorf("ProvisionRules missing .pi/agent: %+v", provisioner.ProvisionRules())
+	}
+}
+
+func TestPILatestVersionCancelledCtx(t *testing.T) {
+	a, _ := agent.Lookup("pi")
+	checker, ok := agent.AsUpgradeChecker(a)
+	if !ok {
+		t.Fatal("pi should implement UpgradeChecker")
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if _, err := checker.LatestVersion(ctx); err == nil {
+		t.Error("LatestVersion with cancelled ctx should error")
+	}
+}
+
+func TestPINewerThan(t *testing.T) {
+	a, _ := agent.Lookup("pi")
+	checker, ok := agent.AsUpgradeChecker(a)
+	if !ok {
+		t.Fatal("pi should implement UpgradeChecker")
+	}
+	gt, err := checker.NewerThan("v1.2.0", "1.1.0")
+	if err != nil || !gt {
+		t.Errorf("NewerThan(v1.2.0, 1.1.0) = %v, %v, want true, nil", gt, err)
+	}
+	lt, err := checker.NewerThan("1.0.0", "1.1.0")
+	if err != nil || lt {
+		t.Errorf("NewerThan(1.0.0, 1.1.0) = %v, %v, want false, nil", lt, err)
+	}
+	if _, err := checker.NewerThan("notaversion", "1.0.0"); err == nil {
+		t.Error("NewerThan(invalid) should error")
 	}
 }
 

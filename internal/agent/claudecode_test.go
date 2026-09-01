@@ -1,6 +1,7 @@
 package agent_test
 
 import (
+	"context"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -89,6 +90,38 @@ func TestClaudeCodeProvisionRules(t *testing.T) {
 	}
 	if !found {
 		t.Errorf("ProvisionRules missing .claude: %+v", provisioner.ProvisionRules())
+	}
+}
+
+func TestClaudeCodeLatestVersionCancelledCtx(t *testing.T) {
+	a, _ := agent.Lookup("claude-code")
+	checker, ok := agent.AsUpgradeChecker(a)
+	if !ok {
+		t.Fatal("claude-code should implement UpgradeChecker")
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if _, err := checker.LatestVersion(ctx); err == nil {
+		t.Error("LatestVersion with cancelled ctx should error")
+	}
+}
+
+func TestClaudeCodeNewerThan(t *testing.T) {
+	a, _ := agent.Lookup("claude-code")
+	checker, ok := agent.AsUpgradeChecker(a)
+	if !ok {
+		t.Fatal("claude-code should implement UpgradeChecker")
+	}
+	gt, err := checker.NewerThan("v2.0.0", "1.9.9")
+	if err != nil || !gt {
+		t.Errorf("NewerThan(v2.0.0, 1.9.9) = %v, %v, want true, nil", gt, err)
+	}
+	lt, err := checker.NewerThan("1.0.0", "2.0.0")
+	if err != nil || lt {
+		t.Errorf("NewerThan(1.0.0, 2.0.0) = %v, %v, want false, nil", lt, err)
+	}
+	if _, err := checker.NewerThan("notaversion", "1.0.0"); err == nil {
+		t.Error("NewerThan(invalid) should error")
 	}
 }
 
