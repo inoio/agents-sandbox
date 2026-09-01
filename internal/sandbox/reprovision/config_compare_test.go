@@ -45,8 +45,8 @@ func TestConfigEqualHomeFileByteMatch(t *testing.T) {
 		Keys: []string{"/home/dev/.gitconfig"},
 	}
 	vmData := map[string][]byte{
-		"/home/dev/.config/opencode/opencode.json": []byte(`{"model":"x"}`),
-		"/home/dev/.gitconfig":                     []byte("user.name=X\n"),
+		OpenCodeConfigPath(VMHomeDir): []byte(`{"model":"x"}`),
+		"/home/dev/.gitconfig":        []byte("user.name=X\n"),
 	}
 	if !configEqual(cf, vmData) {
 		t.Error("expected equality for matching opencode.json and home file")
@@ -63,8 +63,8 @@ func TestConfigEqualHomeFileMismatch(t *testing.T) {
 		Keys: []string{"/home/dev/.gitconfig"},
 	}
 	vmData := map[string][]byte{
-		"/home/dev/.config/opencode/opencode.json": []byte(`{"model":"x"}`),
-		"/home/dev/.gitconfig":                     []byte("user.name=Y\n"),
+		OpenCodeConfigPath(VMHomeDir): []byte(`{"model":"x"}`),
+		"/home/dev/.gitconfig":        []byte("user.name=Y\n"),
 	}
 	if configEqual(cf, vmData) {
 		t.Error("expected mismatch for differing home file content")
@@ -81,8 +81,8 @@ func TestOpenCodeConfigEqualIgnoresHomeFiles(t *testing.T) {
 		Keys: []string{"/home/dev/.gitconfig"},
 	}
 	vmData := map[string][]byte{
-		"/home/dev/.config/opencode/opencode.json": []byte(`{"model":"x"}`),
-		"/home/dev/.gitconfig":                     []byte("user.name=Y\n"),
+		OpenCodeConfigPath(VMHomeDir): []byte(`{"model":"x"}`),
+		"/home/dev/.gitconfig":        []byte("user.name=Y\n"),
 	}
 	if !OpenCodeConfigEqual(cf, vmData) {
 		t.Error("expected opencode config equality despite differing home file content")
@@ -96,7 +96,7 @@ func TestOpenCodeConfigEqualDetectsConfigChange(t *testing.T) {
 		HomeFiles:   map[string][]byte{},
 	}
 	vmData := map[string][]byte{
-		"/home/dev/.config/opencode/opencode.json": []byte(`{"model":"y"}`),
+		OpenCodeConfigPath(VMHomeDir): []byte(`{"model":"y"}`),
 	}
 	if OpenCodeConfigEqual(cf, vmData) {
 		t.Error("expected mismatch when the opencode config differs")
@@ -189,18 +189,18 @@ func TestReadVMConfigReadsPaths(t *testing.T) {
 		Name_: "test-vm",
 		FSValue_: msb.NewTestFS(
 			map[string][]byte{
-				"/home/dev/.config/opencode/opencode.json": data,
-				"/home/dev/.gitconfig":                     []byte("x=y\n"),
+				OpenCodeConfigPath(VMHomeDir): data,
+				"/home/dev/.gitconfig":        []byte("x=y\n"),
 			},
 			nil,
 		),
 	}
 	want := map[string][]byte{
-		"/home/dev/.config/opencode/opencode.json": data,
-		"/home/dev/.gitconfig":                     []byte("x=y\n"),
+		OpenCodeConfigPath(VMHomeDir): data,
+		"/home/dev/.gitconfig":        []byte("x=y\n"),
 	}
 	got := ReadVMConfig(context.Background(), sb,
-		[]string{"/home/dev/.config/opencode/opencode.json", "/home/dev/.gitconfig", "/home/dev/missing"},
+		[]string{OpenCodeConfigPath(VMHomeDir), "/home/dev/.gitconfig", "/home/dev/missing"},
 		&termio.Mock{})
 	if len(got) != 2 {
 		t.Fatalf("expected 2 files read, got %d", len(got))

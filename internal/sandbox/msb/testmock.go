@@ -533,6 +533,7 @@ type TestFS struct {
 	WriteErr error
 	Writes   map[string][]byte
 	Mkdirs   []string
+	Removed  []string
 }
 
 // NewTestFS creates a SandboxFS backed by the given files. Files is a map from
@@ -599,7 +600,10 @@ func (t *TestFS) Read(_ context.Context, path string) ([]byte, error) {
 	}
 	return nil, fmt.Errorf("file not found: %s", path)
 }
-func (t *TestFS) Remove(_ context.Context, _ string) error { return nil }
+func (t *TestFS) Remove(_ context.Context, path string) error {
+	t.Removed = append(t.Removed, path)
+	return nil
+}
 
 // TestResult implements ShellResult for tests.
 type TestResult struct {

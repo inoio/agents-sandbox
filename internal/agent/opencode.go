@@ -85,7 +85,7 @@ func (opencodeProfile) NewerThan(a, b string) (bool, error) { return opencode.Ne
 
 func (opencodeProfile) SnippetPattern() string { return "opencode-*.json*" }
 func (opencodeProfile) VMConfigPath(home string) string {
-	return filepath.Join(home, ".config", "opencode", "opencode.json")
+	return filepath.Join(home, ".config", "opencode", "opencode.jsonc")
 }
 
 func (opencodeProfile) ProvisionRules() []ProvisionRule {

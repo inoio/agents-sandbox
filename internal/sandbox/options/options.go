@@ -43,6 +43,10 @@ type RunOptions struct {
 	// OpenCodeVersion pins the opencode version baked into the runner image on
 	// rebuild. Empty means resolve the latest at build time.
 	OpenCodeVersion string
+	// ProvisionHostConfig controls whether the agent's host config files are
+	// copied into the VM (drop-in provisioning). A nil value enables it
+	// (default); cmd resolves the launcher config and sets it explicitly.
+	ProvisionHostConfig *bool
 }
 
 // ServeOnlyBindAddr is the loopback address the opencode server binds to

@@ -21,11 +21,12 @@ import (
 // microsandbox SDK's file writes create files owned by root.
 const defaultSandboxUser = "dev"
 
-// Provision writes the merged opencode config (when snippets exist) and each
-// home file into the sandbox, creating parent directories as needed, then
-// chowns every written path and created directory to the runtime user so the
-// files are readable by opencode and startup hooks (the SDK's file writes
-// create root-owned files and directories).
+// Provision writes the merged opencode config (when snippets exist), each home
+// file, and the drop-in copy into the sandbox, creates parent directories as
+// needed, removes the marked stale paths, then chowns every written path and
+// created directory to the runtime user so the files are readable by opencode
+// and startup hooks (the SDK's file writes create root-owned files and
+// directories).
 func Provision(ctx context.Context, sb msb.Sandbox, cf *ConfigFiles) (retErr error) {
 	fs := sb.FS()
 	paths := make([]string, 0)
@@ -41,6 +42,10 @@ func Provision(ctx context.Context, sb msb.Sandbox, cf *ConfigFiles) (retErr err
 			retErr = errors.Join(retErr, err)
 		}
 	}()
+	// Remove stale config first so it cannot shadow the files written below.
+	// Best-effort: the merged config is written to the last-loaded filename
+	// (opencode.jsonc), so a failed removal is non-fatal.
+	removeStalePaths(ctx, fs, cf.Remove)
 	if cf.HasSnippets && len(cf.OpenCode) > 0 {
 		ocPath := OpenCodeConfigPath(VMHomeDir)
 		made, err := mkdirAllFS(ctx, fs, filepath.Dir(ocPath))
@@ -76,6 +81,16 @@ func Provision(ctx context.Context, sb msb.Sandbox, cf *ConfigFiles) (retErr err
 		paths = append(paths, path)
 	}
 	return nil
+}
+
+// removeStalePaths deletes the marked stale paths so a previous provisioning
+// run's host config cannot shadow the files written by Provision. Failures are
+// ignored: the merged config is written to the last-loaded filename
+// (opencode.jsonc), so a failed removal is non-fatal.
+func removeStalePaths(ctx context.Context, fs msb.SandboxFS, remove []string) {
+	for _, p := range remove {
+		_ = fs.Remove(ctx, p)
+	}
 }
 
 // chownPaths runs a single chown -R over the given paths so all provisioned

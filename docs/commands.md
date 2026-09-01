@@ -263,7 +263,7 @@ opencode-sandbox cfg
 
 #### config show
 
-Print the snippet files that were merged and the resulting opencode configuration (provisioned to `.config/opencode/opencode.json`).
+Print the snippet files that were merged and the resulting opencode configuration (provisioned to `.config/opencode/opencode.jsonc`).
 
 ```console
 opencode-sandbox config show

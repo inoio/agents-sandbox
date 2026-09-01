@@ -174,7 +174,7 @@ func TestDecideReconfig_NetworkChangedWithPersistedState(t *testing.T) {
 	opts := options.RunOptions{Network: network.Policy{Profile: network.ProfileNone}}
 
 	ui := termio.NewTestMock(t)
-	cfs, err := reprovision.LoadConfigFilesForHost(opencodeAgent(t), t.TempDir(), reprovision.VMHomeDir, &ui)
+	cfs, err := reprovision.LoadConfigFilesForHost(opencodeAgent(t), t.TempDir(), reprovision.VMHomeDir, &ui, true)
 	if err != nil {
 		t.Fatalf("LoadConfigFiles: %v", err)
 	}
@@ -218,7 +218,7 @@ func TestDecideReconfig_NetworkUnchangedNoRecreate(t *testing.T) {
 	opts := options.RunOptions{Network: policy}
 
 	ui := termio.NewTestMock(t)
-	cfs, err := reprovision.LoadConfigFilesForHost(opencodeAgent(t), t.TempDir(), reprovision.VMHomeDir, &ui)
+	cfs, err := reprovision.LoadConfigFilesForHost(opencodeAgent(t), t.TempDir(), reprovision.VMHomeDir, &ui, true)
 	if err != nil {
 		t.Fatalf("LoadConfigFiles: %v", err)
 	}
@@ -319,7 +319,7 @@ func TestDecideReconfig_EnvChangedWithPersistedState(t *testing.T) {
 	}
 
 	ui := termio.NewTestMock(t)
-	cfs, err := reprovision.LoadConfigFilesForHost(opencodeAgent(t), t.TempDir(), reprovision.VMHomeDir, &ui)
+	cfs, err := reprovision.LoadConfigFilesForHost(opencodeAgent(t), t.TempDir(), reprovision.VMHomeDir, &ui, true)
 	if err != nil {
 		t.Fatalf("LoadConfigFiles: %v", err)
 	}
@@ -372,7 +372,7 @@ func TestDecideReconfig_EnvUnchangedWithPersistedState(t *testing.T) {
 	}
 
 	ui := termio.NewTestMock(t)
-	cfs, err := reprovision.LoadConfigFilesForHost(opencodeAgent(t), t.TempDir(), reprovision.VMHomeDir, &ui)
+	cfs, err := reprovision.LoadConfigFilesForHost(opencodeAgent(t), t.TempDir(), reprovision.VMHomeDir, &ui, true)
 	if err != nil {
 		t.Fatalf("LoadConfigFiles: %v", err)
 	}
@@ -420,7 +420,7 @@ func TestDecideReconfig_SecretsChangedWithPersistedState(t *testing.T) {
 	}
 
 	ui := termio.NewTestMock(t)
-	cfs, err := reprovision.LoadConfigFilesForHost(opencodeAgent(t), t.TempDir(), reprovision.VMHomeDir, &ui)
+	cfs, err := reprovision.LoadConfigFilesForHost(opencodeAgent(t), t.TempDir(), reprovision.VMHomeDir, &ui, true)
 	if err != nil {
 		t.Fatalf("LoadConfigFiles: %v", err)
 	}
@@ -464,7 +464,7 @@ func TestDecideReconfig_ZeroPersistedStateNoSpuriousChange(t *testing.T) {
 	testutil.WriteFile(t, userDir, configpaths.EnvFileName, "# nothing here\n")
 
 	ui := termio.NewTestMock(t)
-	cfs, err := reprovision.LoadConfigFilesForHost(opencodeAgent(t), t.TempDir(), reprovision.VMHomeDir, &ui)
+	cfs, err := reprovision.LoadConfigFilesForHost(opencodeAgent(t), t.TempDir(), reprovision.VMHomeDir, &ui, true)
 	if err != nil {
 		t.Fatalf("LoadConfigFiles: %v", err)
 	}
@@ -656,7 +656,7 @@ func TestDecideReconfig_PersistedSecretsMatchDesired(t *testing.T) {
 	}
 
 	ui := termio.NewTestMock(t)
-	cfs, err := reprovision.LoadConfigFilesForHost(opencodeAgent(t), t.TempDir(), reprovision.VMHomeDir, &ui)
+	cfs, err := reprovision.LoadConfigFilesForHost(opencodeAgent(t), t.TempDir(), reprovision.VMHomeDir, &ui, true)
 	if err != nil {
 		t.Fatalf("LoadConfigFiles: %v", err)
 	}
@@ -705,7 +705,7 @@ func TestDecideReconfig_HomePromptDeferredWhenRebuildDeferred(t *testing.T) {
 		ImageDigest: "sha256:old",
 	}
 
-	cfs, err := reprovision.LoadConfigFilesForHost(opencodeAgent(t), t.TempDir(), reprovision.VMHomeDir, ui)
+	cfs, err := reprovision.LoadConfigFilesForHost(opencodeAgent(t), t.TempDir(), reprovision.VMHomeDir, ui, true)
 	if err != nil {
 		t.Fatalf("LoadConfigFiles: %v", err)
 	}
@@ -765,7 +765,7 @@ func TestDecideReconfig_HomePromptAskedWhenRebuildConfirmed(t *testing.T) {
 	slug := git.ProjectSlug()
 	state.WriteState(slug, persisted)
 
-	cfs, err := reprovision.LoadConfigFilesForHost(opencodeAgent(t), t.TempDir(), reprovision.VMHomeDir, ui)
+	cfs, err := reprovision.LoadConfigFilesForHost(opencodeAgent(t), t.TempDir(), reprovision.VMHomeDir, ui, true)
 	if err != nil {
 		t.Fatalf("LoadConfigFiles: %v", err)
 	}
@@ -837,7 +837,7 @@ func TestDecideReconfig_OpenCodeConfigChanged_StoppedVM(t *testing.T) {
 	}
 
 	ui := termio.NewTestMock(t)
-	cfs, err := reprovision.LoadConfigFilesForHost(opencodeAgent(t), t.TempDir(), reprovision.VMHomeDir, &ui)
+	cfs, err := reprovision.LoadConfigFilesForHost(opencodeAgent(t), t.TempDir(), reprovision.VMHomeDir, &ui, true)
 	if err != nil {
 		t.Fatalf("LoadConfigFiles: %v", err)
 	}

@@ -25,8 +25,10 @@ const manifestName = "home.yaml"
 const startupHook = "startup"
 
 // opencodeConfigPath is the reserved VM path for the snippet-merged opencode
-// config; the manifest must not target it.
-const opencodeConfigPath = ".config/opencode/opencode.json"
+// config; the manifest must not target it. opencode loads global config as
+// config.json < opencode.json < opencode.jsonc, so the merged config is written
+// to the last-loaded file to stay authoritative.
+const opencodeConfigPath = ".config/opencode/opencode.jsonc"
 
 // Entry describes a single home.yaml mapping: the host source path and the
 // optional startup-hook metadata. A plain-string value is equivalent to an

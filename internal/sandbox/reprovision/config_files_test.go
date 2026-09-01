@@ -29,7 +29,7 @@ func TestLoadConfigFilesPopulatesHooks(t *testing.T) {
 
 	ui := termio.NewTestMock(t)
 	a, _ := agent.Lookup("")
-	cf, err := LoadConfigFiles(a, configpaths.Get().UserOpencodeConfigDir(), &ui)
+	cf, err := LoadConfigFiles(a, configpaths.Get().UserOpencodeConfigDir(), &ui, true)
 	if err != nil {
 		t.Fatalf("LoadConfigFiles: %v", err)
 	}
@@ -79,7 +79,7 @@ func TestProvisionChownsHomeFiles(t *testing.T) {
 		t.Fatalf("expected 1 chown shell call, got %d: %v", len(calls), calls)
 	}
 	wantChown := "chown -R dev:dev /home /home/dev /home/dev/.config /home/dev/.config/opencode " +
-		"/home/dev/.config/opencode/opencode.json /home/dev/.config/tool /home/dev/.config/tool/cfg.toml " +
+		"/home/dev/.config/opencode/opencode.jsonc /home/dev/.config/tool /home/dev/.config/tool/cfg.toml " +
 		"/home/dev/.gitconfig"
 	if calls[0] != wantChown {
 		t.Errorf("shell command = %q, want %q", calls[0], wantChown)
@@ -134,7 +134,7 @@ func TestLoadConfigFilesProvisioning(t *testing.T) {
 
 	a, _ := agent.Lookup("opencode")
 	ui := termio.NewTestMock(t)
-	cf, err := LoadConfigFilesForHost(a, hostHome, vmHome, &ui)
+	cf, err := LoadConfigFilesForHost(a, hostHome, vmHome, &ui, true)
 	if err != nil {
 		t.Fatalf("LoadConfigFilesForHost: %v", err)
 	}
@@ -180,12 +180,12 @@ func TestLoadConfigFilesProvisioningPrecedence(t *testing.T) {
 		".config/opencode/somefile.json:\n  source: somefile-home.json\n")
 
 	ui := termio.NewTestMock(t)
-	cf, err := LoadConfigFilesForHost(a, hostHome, vmHome, &ui)
+	cf, err := LoadConfigFilesForHost(a, hostHome, vmHome, &ui, true)
 	if err != nil {
 		t.Fatalf("LoadConfigFilesForHost: %v", err)
 	}
 
-	mergedPath := filepath.Join(vmHome, ".config", "opencode", "opencode.json")
+	mergedPath := filepath.Join(vmHome, ".config", "opencode", "opencode.jsonc")
 	if _, ok := cf.Provisioned[mergedPath]; ok {
 		t.Errorf(
 			"merged config path %s must not be in Provisioned (merged config wins), got %v",
@@ -203,6 +203,158 @@ func TestLoadConfigFilesProvisioningPrecedence(t *testing.T) {
 	}
 	if !bytes.Equal(cf.HomeFiles[homePath], []byte(`{"home":1}`)) {
 		t.Errorf("expected home file to override provisioned content at %s, got %q", homePath, cf.HomeFiles[homePath])
+	}
+}
+
+// TestLoadConfigFilesRemovesStaleConfigWithSnippets verifies that when snippets
+// produce a merged config, the config-file family is excluded from the drop-in
+// copy and marked for removal so host config cannot shadow the merged config,
+// while unrelated host config files are still provisioned.
+func TestLoadConfigFilesRemovesStaleConfigWithSnippets(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	cp := configpaths.Get()
+	hostHome := t.TempDir()
+	vmHome := t.TempDir()
+
+	a, _ := agent.Lookup("opencode")
+
+	// Snippets exist so hasSnippets=true and the merged config is written.
+	testutil.WriteFile(t, cp.ProjectAgentConfigDir(a), "opencode-model.json", `{"model":"x"}`)
+
+	// Host files the drop-in copy would pick up: opencode.jsonc is the merged
+	// config filename, other.json is unrelated.
+	ocConfig := filepath.Join(hostHome, ".config/opencode")
+	if err := os.MkdirAll(ocConfig, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	testutil.WriteFile(t, ocConfig, "opencode.jsonc", `{"model":"host"}`)
+	testutil.WriteFile(t, ocConfig, "other.json", `{"host":1}`)
+
+	ui := termio.NewTestMock(t)
+	cf, err := LoadConfigFilesForHost(a, hostHome, vmHome, &ui, true)
+	if err != nil {
+		t.Fatalf("LoadConfigFilesForHost: %v", err)
+	}
+
+	mergedPath := filepath.Join(vmHome, ".config", "opencode", "opencode.jsonc")
+	for _, name := range opencodeConfigFileNames() {
+		want := filepath.Join(vmHome, ".config", "opencode", name)
+		if !slices.Contains(cf.Remove, want) {
+			t.Errorf("expected config file %s in Remove, got %v", want, cf.Remove)
+		}
+		if _, ok := cf.Provisioned[want]; ok {
+			t.Errorf("config file %s must not be in Provisioned when snippets exist, got %v", want, cf.Provisioned)
+		}
+	}
+	if _, ok := cf.Provisioned[mergedPath]; ok {
+		t.Errorf(
+			"merged config path %s must not be in Provisioned (merged config wins), got %v",
+			mergedPath,
+			cf.Provisioned,
+		)
+	}
+	otherPath := filepath.Join(vmHome, ".config", "opencode", "other.json")
+	if _, ok := cf.Provisioned[otherPath]; !ok {
+		t.Errorf("unrelated host config %s should still be provisioned, got %v", otherPath, cf.Provisioned)
+	}
+}
+
+// TestLoadConfigFilesShadowingCopiedWithoutSnippets verifies that without
+// snippets the host opencode.jsonc is drop-in copied as the default config.
+func TestLoadConfigFilesShadowingCopiedWithoutSnippets(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	hostHome := t.TempDir()
+	vmHome := t.TempDir()
+
+	a, _ := agent.Lookup("opencode")
+
+	ocConfig := filepath.Join(hostHome, ".config/opencode")
+	if err := os.MkdirAll(ocConfig, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	testutil.WriteFile(t, ocConfig, "opencode.jsonc", `{"model":"host"}`)
+
+	ui := termio.NewTestMock(t)
+	cf, err := LoadConfigFilesForHost(a, hostHome, vmHome, &ui, true)
+	if err != nil {
+		t.Fatalf("LoadConfigFilesForHost: %v", err)
+	}
+	if cf.HasSnippets {
+		t.Fatal("expected HasSnippets=false without snippets")
+	}
+
+	shadowPath := filepath.Join(vmHome, ".config", "opencode", "opencode.jsonc")
+	if _, ok := cf.Provisioned[shadowPath]; !ok {
+		t.Errorf("expected host %s provisioned when no snippets exist, got %v", shadowPath, cf.Provisioned)
+	}
+}
+
+// TestLoadConfigFilesProvisioningDisabled verifies that with host config
+// provisioning disabled the drop-in copy is skipped entirely, the config-file
+// family and auth.json are marked for removal, and snippet merging still works.
+func TestLoadConfigFilesProvisioningDisabled(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	cp := configpaths.Get()
+	hostHome := t.TempDir()
+	vmHome := t.TempDir()
+
+	a, _ := agent.Lookup("opencode")
+
+	testutil.WriteFile(t, cp.ProjectAgentConfigDir(a), "opencode-model.json", `{"model":"x"}`)
+	ocConfig := filepath.Join(hostHome, ".config/opencode")
+	if err := os.MkdirAll(ocConfig, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	testutil.WriteFile(t, ocConfig, "opencode.json", `{"a":1}`)
+
+	ui := termio.NewTestMock(t)
+	cf, err := LoadConfigFilesForHost(a, hostHome, vmHome, &ui, false)
+	if err != nil {
+		t.Fatalf("LoadConfigFilesForHost: %v", err)
+	}
+
+	if len(cf.Provisioned) != 0 {
+		t.Errorf("expected no drop-in copy when provisioning disabled, got %v", cf.Provisioned)
+	}
+	for _, name := range opencodeConfigFileNames() {
+		want := filepath.Join(vmHome, ".config", "opencode", name)
+		if !slices.Contains(cf.Remove, want) {
+			t.Errorf("expected config file %s in Remove, got %v", want, cf.Remove)
+		}
+	}
+	authPath := filepath.Join(vmHome, ".local", "share", "opencode", "auth.json")
+	if !slices.Contains(cf.Remove, authPath) {
+		t.Errorf("expected auth.json in Remove when provisioning disabled, got %v", cf.Remove)
+	}
+	if !cf.HasSnippets || len(cf.OpenCode) == 0 {
+		t.Error("expected merged config to be built despite disabled provisioning")
+	}
+}
+
+// TestProvisionRemovesStalePaths verifies that Provision removes the marked
+// stale paths before writing the merged config.
+func TestProvisionRemovesStalePaths(t *testing.T) {
+	cf := &ConfigFiles{
+		HasSnippets: true,
+		OpenCode:    []byte(`{"model":"x"}`),
+		Remove:      configFileFamilyPaths(OpenCodeConfigPath(VMHomeDir)),
+	}
+	fs := msb.NewTestFS(nil, nil)
+	sb := &msb.MockSandbox{FSValue_: fs, ShellCalls: &[]string{}}
+	if err := Provision(context.Background(), sb, cf); err != nil {
+		t.Fatalf("Provision: %v", err)
+	}
+	if len(fs.Removed) != len(cf.Remove) {
+		t.Fatalf("expected %d removals, got %v", len(cf.Remove), fs.Removed)
+	}
+	for i, p := range cf.Remove {
+		if i >= len(fs.Removed) || fs.Removed[i] != p {
+			t.Errorf("Remove order = %v, want %v", fs.Removed, cf.Remove)
+			break
+		}
+	}
+	if fs.Writes[OpenCodeConfigPath(VMHomeDir)] == nil {
+		t.Error("expected merged config written after removal")
 	}
 }
 

@@ -163,17 +163,17 @@ func TestResolveVMTargetRejectsTilde(t *testing.T) {
 }
 
 func TestResolveVMTargetReservedOpencodeJSON(t *testing.T) {
-	_, err := ResolveVMTarget(vmHome, ".config/opencode/opencode.json")
+	_, err := ResolveVMTarget(vmHome, ".config/opencode/opencode.jsonc")
 	if err == nil {
-		t.Error("expected error for reserved opencode.json target")
+		t.Error("expected error for reserved opencode.jsonc target")
 	}
 }
 
 func TestResolveVMTargetRejectsReservedNonCanonicalSpellings(t *testing.T) {
 	for _, bad := range []string{
-		"./.config/opencode/opencode.json",
-		".config/opencode//opencode.json",
-		".config/opencode/./opencode.json",
+		"./.config/opencode/opencode.jsonc",
+		".config/opencode//opencode.jsonc",
+		".config/opencode/./opencode.jsonc",
 	} {
 		if _, err := ResolveVMTarget(vmHome, bad); err == nil {
 			t.Errorf("expected error for reserved opencode.json spelled %q", bad)

@@ -57,19 +57,31 @@ func parseKeyValueLines(data string, onLine func(key, value string) error) error
 // layout regardless of the configured runtime user.
 const VMHomeDir = mounts.VMHomeDir
 
+// opencodeConfigFileNames are the config files opencode reads from its global
+// config directory (config.json < opencode.json < opencode.jsonc), plus the
+// opencode.* variants it may gain support for. When a merged config is
+// provisioned (or host config provisioning is disabled), these are removed
+// from the VM so host config cannot deep-merge into the merged config.
+func opencodeConfigFileNames() []string {
+	return []string{"config.json", "opencode.json", "opencode.jsonc", "opencode.json5", "opencode.yaml", "opencode.yml"}
+}
+
 // OpenCodeConfigPath returns the VM path where the merged opencode config is
-// provisioned.
+// provisioned. opencode merges global config as config.json < opencode.json <
+// opencode.jsonc (later wins), so the merged config uses the last-loaded file.
 func OpenCodeConfigPath(home string) string {
-	return filepath.Join(home, ".config", "opencode", "opencode.json")
+	return filepath.Join(home, ".config", "opencode", "opencode.jsonc")
 }
 
 // ConfigFiles holds the merged agent config, the set of home files to
-// provision into the VM, and the default drop-in copy from the host.
+// provision into the VM, the default drop-in copy from the host, and the VM
+// paths to remove so stale host config cannot shadow the merged config.
 type ConfigFiles struct {
 	HasSnippets bool                  // whether any agent snippet existed
 	OpenCode    []byte                // merged agent config content
 	HomeFiles   map[string][]byte     // VM absolute path -> content (home.yaml)
 	Provisioned map[string][]byte     // VM absolute path -> content (drop-in copy)
+	Remove      []string              // VM absolute paths to delete before writing
 	Hooks       []homeconfig.HookSpec // startup hooks to run at setUpSandbox
 	Keys        []string              // sorted VM paths for comparison
 }
@@ -77,19 +89,24 @@ type ConfigFiles struct {
 // LoadConfigFiles builds the desired VM state for the given agent using the
 // real host home. userConfigDir is accepted for call compatibility with older
 // opencode-specific callers; the agent determines its own config directories.
-func LoadConfigFiles(a agent.Agent, _ string, ui termio.UI) (*ConfigFiles, error) {
+func LoadConfigFiles(a agent.Agent, _ string, ui termio.UI, provisionHostConfig bool) (*ConfigFiles, error) {
 	hostHome, _ := os.UserHomeDir()
-	return LoadConfigFilesForHost(a, hostHome, VMHomeDir, ui)
+	return LoadConfigFilesForHost(a, hostHome, VMHomeDir, ui, provisionHostConfig)
 }
 
 // LoadConfigFilesForHost builds the desired VM state for the given agent with
 // explicit host and VM home directories: the merged agent config, the home
 // files (from the home.yaml manifests), and the default drop-in copy of the
-// agent's host config (per its provision rules). It warns about any home.yaml
-// source that does not exist on the host and about malformed provision rules.
-// Home files and the merged config override provisioned defaults for the same
-// VM path.
-func LoadConfigFilesForHost(a agent.Agent, hostHome, vmHome string, ui termio.UI) (*ConfigFiles, error) {
+// agent's host config (per its provision rules, unless host config provisioning
+// is disabled). It warns about any home.yaml source that does not exist on the
+// host and about malformed provision rules. Home files and the merged config
+// override provisioned defaults for the same VM path.
+func LoadConfigFilesForHost(
+	a agent.Agent,
+	hostHome, vmHome string,
+	ui termio.UI,
+	provisionHostConfig bool,
+) (*ConfigFiles, error) {
 	mergedPath, opencodeJSON, hasSnippets, err := buildMergedConfig(a, vmHome)
 	if err != nil {
 		return nil, err
@@ -115,26 +132,35 @@ func LoadConfigFilesForHost(a agent.Agent, hostHome, vmHome string, ui termio.UI
 		return nil, fmt.Errorf("build hooks: %w", err)
 	}
 	provisioned := make(map[string][]byte)
-	if p, ok := agent.AsProvisioner(a); ok {
-		for _, w := range agent.ValidateProvisionRules(p.ProvisionRules()) {
-			ui.Warnf("provision rule: %s", w)
-		}
-		onCopy := func(dst string, data []byte) error {
-			provisioned[dst] = data
-			return nil
-		}
-		if _, err := agent.EvalProvisionRules(p.ProvisionRules(), hostHome, vmHome, onCopy); err != nil {
-			return nil, fmt.Errorf("eval provision rules: %w", err)
+	if provisionHostConfig {
+		if p, ok := agent.AsProvisioner(a); ok {
+			for _, w := range agent.ValidateProvisionRules(p.ProvisionRules()) {
+				ui.Warnf("provision rule: %s", w)
+			}
+			onCopy := func(dst string, data []byte) error {
+				provisioned[dst] = data
+				return nil
+			}
+			if _, err := agent.EvalProvisionRules(p.ProvisionRules(), hostHome, vmHome, onCopy); err != nil {
+				return nil, fmt.Errorf("eval provision rules: %w", err)
+			}
 		}
 	}
 	// Precedence: home files always override provisioned defaults, and the
-	// merged agent config overrides the provisioned config at the same path when
-	// snippets exist (no merged config means the drop-in default is provisioned).
+	// merged agent config overrides the provisioned config when snippets exist
+	// (no merged config means the drop-in default is provisioned).
 	for p := range homeFiles {
 		delete(provisioned, p)
 	}
 	if hasSnippets {
 		delete(provisioned, mergedPath)
+	}
+	// Remove stale host config so it cannot shadow the merged config: when
+	// snippets exist the merged config must be the only config, and when host
+	// config provisioning is disabled no host file may remain.
+	remove := configFileFamilyPaths(mergedPath)
+	if !provisionHostConfig {
+		remove = append(remove, filepath.Join(vmHome, ".local", "share", "opencode", "auth.json"))
 	}
 	keys := make([]string, 0, len(homeFiles)+len(provisioned)+1)
 	if hasSnippets {
@@ -152,9 +178,22 @@ func LoadConfigFilesForHost(a agent.Agent, hostHome, vmHome string, ui termio.UI
 		OpenCode:    opencodeJSON,
 		HomeFiles:   homeFiles,
 		Provisioned: provisioned,
+		Remove:      remove,
 		Hooks:       hooks,
 		Keys:        keys,
 	}, nil
+}
+
+// configFileFamilyPaths returns the VM paths of the config files in the merged
+// config's directory that would otherwise merge into (or shadow) it.
+func configFileFamilyPaths(mergedPath string) []string {
+	dir := filepath.Dir(mergedPath)
+	names := opencodeConfigFileNames()
+	paths := make([]string, 0, len(names))
+	for _, name := range names {
+		paths = append(paths, filepath.Join(dir, name))
+	}
+	return paths
 }
 
 // buildMergedConfig merges the agent's snippet files into a single config and

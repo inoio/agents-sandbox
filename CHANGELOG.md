@@ -41,6 +41,8 @@ command reports the bare version (e.g. `0.1.0`).
 - Note: Images built before the opencode-version label existed are no longer force-rebuilt to pin/relabel opencode; if you have such an image, run `opencode-sandbox build` once to re-pin it.
 * **Breaking** CLI: `--opencode-version` is renamed to `--agent-version`. The old `--opencode-version` flag remains as a deprecated alias.
 * **Breaking** config merge: opencode config snippet files must now match the pattern `opencode-*.json*` (i.e. `opencode-<name>.json`/`.jsonc`/`.json5`). A file named exactly `opencode.json` no longer merges by default. Snippet parsing also supports YAML patterns for agents whose pattern includes them.
+- Bugfix: Host config files in `~/.config/opencode/` (e.g. `opencode.jsonc`) no longer override the merged config provisioned from snippets. The merged config is now written to `opencode.jsonc`, the last file opencode loads (config.json < opencode.json < opencode.jsonc), and when snippets exist the whole config-file family is removed from the VM so host config cannot deep-merge into it.
+- New config key `provision-host-config` (default `true`): set to `false` to skip the default drop-in copy of the agent's host config (and credentials) into the VM entirely. Existing home volumes are cleaned of any previously drop-in-copied config and credential files on the next run.
 
 ## [0.1.0] - 2026-08-??
 

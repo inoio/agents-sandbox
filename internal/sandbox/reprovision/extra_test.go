@@ -45,7 +45,7 @@ func TestLoadConfigFilesFallbackForNonConfigMerger(t *testing.T) {
 
 	// No snippets: fallback yields empty config and hasSnippets=false.
 	ui := termio.NewTestMock(t)
-	cf, err := LoadConfigFilesForHost(plainAgent{}, hostHome, vmHome, &ui)
+	cf, err := LoadConfigFilesForHost(plainAgent{}, hostHome, vmHome, &ui, true)
 	if err != nil {
 		t.Fatalf("LoadConfigFilesForHost: %v", err)
 	}
@@ -55,7 +55,7 @@ func TestLoadConfigFilesFallbackForNonConfigMerger(t *testing.T) {
 
 	// With a snippet the fallback merges it at the opencode VM config path.
 	testutil.WriteFile(t, cp.UserOpencodeConfigDir(), "opencode-model.json", `{"model":"x"}`)
-	cf, err = LoadConfigFilesForHost(plainAgent{}, hostHome, vmHome, &ui)
+	cf, err = LoadConfigFilesForHost(plainAgent{}, hostHome, vmHome, &ui, true)
 	if err != nil {
 		t.Fatalf("LoadConfigFilesForHost: %v", err)
 	}
@@ -82,7 +82,7 @@ func TestLoadConfigFilesWarnsOnMalformedProvisionRules(t *testing.T) {
 	}
 
 	ui := termio.NewTestMock(t)
-	cf, err := LoadConfigFilesForHost(badProvisionerAgent{}, hostHome, vmHome, &ui)
+	cf, err := LoadConfigFilesForHost(badProvisionerAgent{}, hostHome, vmHome, &ui, true)
 	if err != nil {
 		t.Fatalf("LoadConfigFilesForHost: %v", err)
 	}

@@ -272,14 +272,14 @@ func buildConfigCmd(ui termio.UI) *cobra.Command {
 				return err
 			}
 			if !has {
-				ui.Out("No opencode snippet files found; no merged opencode.json is provisioned.")
+				ui.Out("No opencode snippet files found; no merged opencode.jsonc is provisioned.")
 				return nil
 			}
 			ui.Out("merged files:")
 			for _, src := range sources {
 				ui.Outf("  %s", src)
 			}
-			ui.Out("merged opencode.json:")
+			ui.Out("merged opencode.jsonc:")
 			for line := range strings.SplitSeq(string(data), "\n") {
 				ui.Outf("  %s", line)
 			}

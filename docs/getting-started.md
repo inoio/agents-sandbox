@@ -21,7 +21,7 @@ See [Configuration]({% link configuration.md %}#secrets) for more details.
    project, preserving editor state, caches, and config across sessions.
 3. **VM creation or reuse** — Creates a new project VM on first boot; subsequent runs connect to the existing VM (or
    restart it if it stopped).
-4. **Provisioning** — Merges your opencode config snippets into a single `opencode.json` in the VM home, provisions
+4. **Provisioning** — Merges your opencode config snippets into a single `opencode.jsonc` in the VM home, provisions
    `home.yaml` mappings, and syncs them into the VM.
 5. **Opencode** — Runs `opencode attach` inside the VM, forwarding any arguments after `--` to the AI agent.
 6. **Cleanup** — On exit, the session detaches. The VM-internal worktree is managed by opencode; on subsequent runs it is reused. The host repo is untouched.

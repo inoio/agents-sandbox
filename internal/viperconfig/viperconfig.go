@@ -37,6 +37,9 @@ type Config struct {
 	LogLevel       string        `mapstructure:"log-level"`
 	Quiet          bool          `mapstructure:"quiet"`
 	CPUs           uint8         `mapstructure:"cpus"`
+	// ProvisionHostConfig controls whether the agent's host config files are
+	// copied into the VM (drop-in provisioning). Default true.
+	ProvisionHostConfig bool `mapstructure:"provision-host-config"`
 
 	AutoStopOnActiveSessions  bool          `mapstructure:"auto-stop-on-active-sessions"`
 	AutoStopTimeout           time.Duration `mapstructure:"auto-stop-timeout"`
@@ -105,6 +108,9 @@ func NewResolver(cmd *cobra.Command, slug string) (*Resolver, error) {
 		}
 	}
 
+	// Non-flag defaults: host config provisioning is on unless opted out.
+	v.SetDefault(keyProvisionHostConfig, true)
+
 	if err := validate(v); err != nil {
 		return nil, err
 	}
@@ -147,6 +153,7 @@ const (
 	keyNetworkProfile            = "network.profile"
 	keyUpgradeMode               = "upgrade.mode"
 	keyUpgradeInterval           = "upgrade.interval"
+	keyProvisionHostConfig       = "provision-host-config"
 )
 
 //nolint:gochecknoglobals // package-level constant slice
@@ -171,6 +178,7 @@ var configEnvKeys = []string{
 	keyAutoStopOnActiveSessions, keyAutoStopTimeout, keyAutoStopMaxSessionRetries,
 	keyNetworkProfile,
 	keyUpgradeMode, keyUpgradeInterval,
+	keyProvisionHostConfig,
 }
 
 // bindConfigFlags binds each config-backed flag found on cmd (local or
@@ -442,6 +450,7 @@ func (r *Resolver) WorkspaceQuota() string         { return r.cfg.WorkspaceQuota
 func (r *Resolver) Yes() bool                      { return r.cfg.Yes }
 func (r *Resolver) Quiet() bool                    { return r.cfg.Quiet }
 func (r *Resolver) LogLevel() string               { return r.cfg.LogLevel }
+func (r *Resolver) ProvisionHostConfig() bool      { return r.cfg.ProvisionHostConfig }
 func (r *Resolver) AutoPruneAge() time.Duration    { return r.cfg.AutoPruneAge }
 func (r *Resolver) ManualPruneAge() time.Duration  { return r.cfg.ManualPruneAge }
 func (r *Resolver) AutoStopOnActiveSessions() bool { return r.cfg.AutoStopOnActiveSessions }

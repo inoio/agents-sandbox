@@ -90,7 +90,7 @@ func TestLoadConfigFilesWithSnippet(t *testing.T) {
 	testutil.WriteFile(t, cp.ProjectOpencodeConfigDir(), "opencode-model.json", `{"model":"x"}`)
 
 	ui := termio.NewTestMock(t)
-	cf, err := LoadConfigFilesForHost(opencodeTestAgent(), t.TempDir(), VMHomeDir, &ui)
+	cf, err := LoadConfigFilesForHost(opencodeTestAgent(), t.TempDir(), VMHomeDir, &ui, true)
 	if err != nil {
 		t.Fatalf("LoadConfigFiles: %v", err)
 	}
@@ -113,7 +113,7 @@ func TestLoadConfigFilesWarnsMissingSource(t *testing.T) {
 	testutil.WriteFile(t, cp.ProjectConfigDir(), "home.yaml", ".tool/x:\n  source: does-not-exist\n")
 
 	ui := termio.NewTestMock(t)
-	cf, err := LoadConfigFilesForHost(opencodeTestAgent(), t.TempDir(), VMHomeDir, &ui)
+	cf, err := LoadConfigFilesForHost(opencodeTestAgent(), t.TempDir(), VMHomeDir, &ui, true)
 	if err != nil {
 		t.Fatalf("LoadConfigFiles: %v", err)
 	}
@@ -134,7 +134,7 @@ func TestLoadConfigFilesBuildHomeFilesError(t *testing.T) {
 	testutil.WriteFile(t, cp.ProjectConfigDir(), "home.yaml", ".tool/x:\n  source: 123\n")
 
 	ui := termio.NewTestMock(t)
-	if _, err := LoadConfigFilesForHost(opencodeTestAgent(), t.TempDir(), VMHomeDir, &ui); err == nil {
+	if _, err := LoadConfigFilesForHost(opencodeTestAgent(), t.TempDir(), VMHomeDir, &ui, true); err == nil {
 		t.Error("expected an error for a malformed home.yaml source type")
 	}
 }
@@ -150,7 +150,7 @@ func TestLoadConfigFilesBuildHooksError(t *testing.T) {
 	testutil.WriteFile(t, cp.ProjectConfigDir(), "home.yaml", ".vpn/x:\n  source: s\n  hook: 123\n")
 
 	ui := termio.NewTestMock(t)
-	if _, err := LoadConfigFilesForHost(opencodeTestAgent(), t.TempDir(), VMHomeDir, &ui); err == nil {
+	if _, err := LoadConfigFilesForHost(opencodeTestAgent(), t.TempDir(), VMHomeDir, &ui, true); err == nil {
 		t.Error("expected an error for an invalid hook value")
 	}
 }

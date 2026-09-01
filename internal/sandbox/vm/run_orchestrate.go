@@ -108,7 +108,7 @@ func PrepareSandbox(
 
 	// Load the merged opencode config and home files exactly once per startup;
 	// the result is shared by the reconfig decision and the provisioning step.
-	cfs, err := reprovision.LoadConfigFiles(a, configpaths.Get().UserOpencodeConfigDir(), ui)
+	cfs, err := reprovision.LoadConfigFiles(a, configpaths.Get().UserOpencodeConfigDir(), ui, provisionHostConfig(opts))
 	if err != nil {
 		return nil, err
 	}
@@ -208,4 +208,13 @@ func persistConfigHashes(
 	if err := persistMountState(projectSlug, mounts); err != nil {
 		ui.Warnf("persisting mount fingerprint on VM creation: %v (continuing)", err)
 	}
+}
+
+// provisionHostConfig reports whether the agent's host config files should be
+// copied into the VM. A nil option enables it (the launcher default).
+func provisionHostConfig(opts options.RunOptions) bool {
+	if opts.ProvisionHostConfig == nil {
+		return true
+	}
+	return *opts.ProvisionHostConfig
 }

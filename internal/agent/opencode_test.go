@@ -145,7 +145,7 @@ func TestOpencodeConfigMerger(t *testing.T) {
 	if merger.SnippetPattern() != "opencode-*.json*" {
 		t.Errorf("SnippetPattern = %q", merger.SnippetPattern())
 	}
-	if merger.VMConfigPath("/home/user") != filepath.Join("/home/user", ".config", "opencode", "opencode.json") {
+	if merger.VMConfigPath("/home/user") != filepath.Join("/home/user", ".config", "opencode", "opencode.jsonc") {
 		t.Errorf("VMConfigPath = %q", merger.VMConfigPath("/home/user"))
 	}
 }

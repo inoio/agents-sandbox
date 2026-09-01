@@ -80,6 +80,7 @@ Configuration is resolved in this order (later entries override earlier ones):
 | `network.egress-allow`          | —                        | Egress destinations to allow: `host`, a CIDR, or a `.suffix` (see [Networking](#networking))                                                                                                                              |
 | `network.egress-deny`           | —                        | Egress carve-outs, emitted before allow rules (see [Networking](#networking))                                                                                                                                             
 | `mounts`                        | —                        | Additional host directories mounted into the VM (see [Host bind mounts](#host-bind-mounts))                                                                                                                               |
+| `provision-host-config`         | —                        | Copy the agent's host config + credentials into the VM by default (default: true; set false to opt out, see [Default drop-in provisioning](#default-drop-in-provisioning))                                               |
 | `upgrade.mode`                   | —                        | How to handle a newer release when one is found: `prompt`, `notify`, `auto`, or `auto-exit` (default `prompt`, see [Self-upgrade](#self-upgrade))                                                            |
 | `upgrade.interval`               | —                        | How often to check for a newer release (default `1d`, minimum `1h`, see [Self-upgrade](#self-upgrade))                                                                                                                        |
 
@@ -180,6 +181,7 @@ precedence over config files but lose to an explicitly passed CLI flag. The pref
 | `auto-stop-timeout`             | `OPENCODE_SANDBOX_AUTO_STOP_TIMEOUT`                              |
 | `auto-stop-max-session-retries` | `OPENCODE_SANDBOX_AUTO_STOP_MAX_SESSION_RETRIES`                  |
 | `network.profile`               | `OPENCODE_SANDBOX_NETWORK_PROFILE`                                |
+| `provision-host-config`         | `OPENCODE_SANDBOX_PROVISION_HOST_CONFIG`                          |
 | `upgrade.mode`                   | `OPENCODE_SANDBOX_UPGRADE_MODE`                                    |
 | `upgrade.interval`               | `OPENCODE_SANDBOX_UPGRADE_INTERVAL`                                |
 
@@ -392,7 +394,7 @@ Each agent owns its config directories, one subdir per agent under the tool's co
 ### Config snippet merge
 
 opencode-sandbox provisions a single agent config into the VM (for opencode, at
-`/home/dev/.config/opencode/opencode.json`). No embedded provider or permission config is shipped. Instead, the agent
+`/home/dev/.config/opencode/opencode.jsonc`). No embedded provider or permission config is shipped. Instead, the agent
 config is assembled from **snippet files** that match the agent's snippet pattern, collected from the user and project
 directories:
 
@@ -405,6 +407,11 @@ directories:
 - If no snippet files exist, no merged config is produced.
 
 Run `opencode-sandbox config show` to print the merged config that would be provisioned into the VM.
+
+> **Note:** the merged config is written to `opencode.jsonc`, the last file opencode loads
+> (`config.json` < `opencode.json` < `opencode.jsonc`), so it always wins the deep merge. When snippets exist, the whole
+> config-file family (`config.json`, `opencode.json`, `opencode.jsonc`, …) is removed from the VM so a host drop-in copy
+> of any of those files cannot shadow the merged snippet config.
 
 See the [permissions example]({% link getting-started.md %}#example-permissions) for a concrete snippet.
 
@@ -420,6 +427,20 @@ For opencode the drop-in copy includes:
 - `~/.local/share/opencode/auth.json` — the opencode credential file
 
 Precedence: the merged snippet config and any `home.yaml` mappings override the drop-in copy for the same VM path.
+
+When snippets exist, the drop-in copy of the config-file family is skipped entirely (see the note above) so host config
+cannot override the merged snippets. Non-config files — e.g. plugins, custom commands, themes — are still copied.
+
+To turn off the drop-in copy altogether (config **and** credentials), set `provision-host-config: false` in the launcher
+config:
+
+```yaml
+provision-host-config: false
+```
+
+This skips the whole host-config copy (for opencode: `~/.config/opencode/**` and `auth.json`), while the snippet merge
+and `home.yaml` mappings keep working. On the next run, previously drop-in-copied config and credential files are removed
+from existing home volumes so they cannot linger.
 
 #### Authentication: file copy vs. env-secret
 
@@ -453,7 +474,7 @@ resolved as follows:
 
 Layering: the project manifest overrides the user manifest **per target**. Targets must stay within the VM home
 (`..` traversal, absolute paths, and `~`-prefixed targets are rejected — targets are already relative to the home
-directory, so `~/fdsa` should simply be written as `fdsa`), and `.config/opencode/opencode.json` is reserved for the
+directory, so `~/fdsa` should simply be written as `fdsa`), and `.config/opencode/opencode.jsonc` is reserved for the
 merged opencode config — it cannot be provisioned via `home.yaml`.
 
 Example `.opencode-sandbox/home.yaml`:

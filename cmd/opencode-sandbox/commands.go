@@ -70,6 +70,8 @@ func extractRunOptions(cmd *cobra.Command, ui termio.UI) (options.RunOptions, er
 		if err != nil {
 			return options.RunOptions{}, err
 		}
+		provisionHostConfig := r.ProvisionHostConfig()
+		opts.ProvisionHostConfig = &provisionHostConfig
 	}
 
 	// CLI flag wins over resolver/env/config; otherwise use the resolver's
