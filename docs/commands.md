@@ -290,7 +290,16 @@ Show the merged snippet config and the host files drop-in-provisioned into the V
 
 ```console
 opencode-sandbox config agent opencode
+opencode-sandbox config agent --agent pi
 ```
+
+**Flags:**
+
+| Flag       | Short | Default    | Purpose                                                                 |
+|------------|-------|------------|-------------------------------------------------------------------------|
+| `--agent`  | —     | `opencode` | Coding-agent profile to inspect: `opencode` (default), `pi`, or `claude-code`. |
+
+The agent is resolved from the `--agent` flag, then the positional `[name]`, then the configured agent, then `opencode`. Passing both `--agent` and a positional `[name]` (conflicting values) returns an "ambiguous" error.
 
 Each host file is listed as `merged` (its VM path is the merged config path or part of the removed config-file family) or `not merged` (copied verbatim).
 

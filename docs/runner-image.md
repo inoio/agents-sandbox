@@ -148,6 +148,28 @@ The image name includes the project slug and Docker image hash, so changes to th
 rebuild. When the resulting image digest differs from the image the existing project VM was booted from, the VM is
 recreated on the next run so it uses the new image (the home volume is preserved).
 
+Runner images are tagged **per agent** on both Docker and microsandbox. The `-latest` tag is namespaced by the agent,
+so each agent's image can be identified and updated independently:
+
+```
+opencode-sandbox/runner-<slug>:<agent>-latest
+```
+
+For example, with a project slug of `my-project`, the opencode image is `opencode-sandbox/runner-my-project:opencode-latest`
+and the pi image is `opencode-sandbox/runner-my-project:pi-latest`.
+
+### Skip-build when unchanged
+
+The Docker build is skipped when the baked `org.opencode-sandbox.dockerfile-id` label matches the current content. This
+label is a hash of the rendered Dockerfile and the agent version, so an image already built from the exact same
+Dockerfile and agent version is reused instead of being rebuilt.
+
+### Content-verified load
+
+Before skipping a load, `EnsureLoaded` verifies the microsandbox cache content — the config digest (compared against
+the Docker image ID) or the `dockerfile-id` label. If the cached content no longer matches, the image is reloaded so the
+VM always boots from the correct image.
+
 ## Image Lifecycle
 
 Images can be pruned via the `prune` command or, more targeted, the `image prune` subcommand:
@@ -157,7 +179,8 @@ opencode-sandbox image prune --dry-run   # see what's stale
 opencode-sandbox image prune             # actually remove them
 ```
 
-See [Commands]({% link commands.md %}) for details on the prune command.
+Pruning retains one `-latest` image **per agent** per live project and reclaims all other refs — pre-redesign digest refs,
+orphaned surplus images, and every ref of projects (slugs) that no longer have a live VM. See [Commands]({% link commands.md %}) for details on the prune command.
 
 opencode-sandbox also auto-prunes all resources that are ephemeral, unused or haven't been in use for more than 30 days by
 default. Cached runner images and home volumes are only pruned once they are older than the threshold, so a recently

@@ -33,6 +33,19 @@ command reports the bare version (e.g. `0.1.0`).
 - CI: test results are now uploaded to Codecov Test Analytics. The test job runs `gotestsum` to emit JUnit XML (`junit.xml`) alongside `coverage.out` in a single test run and uploads it via `codecov/codecov-action` with `report_type: test_results`; the new `make coverage-junit` target reproduces this locally.
 - Image: per-image provenance labels (`org.opencode-sandbox.agent`, `org.opencode-sandbox.base=<ref>@sha256:<digest>`)
   and in-image source files (`/etc/opencode-sandbox/agent-source`, `/etc/opencode-sandbox/docker-source`).
+- Behavior: non-daemon agents (`pi`, `claude-code`) now exit cleanly on last client — the reaper's `reapOnLastClient`
+  returns immediately for them instead of waiting for sessions to quiesce, so the idle timeout stops the VM.
+- Self-upgrade: upgrade state is now tracked per agent. `updater.yaml` stores a per-agent map (each agent's
+  `last_checked`/`current_version`/`agent_source`/`docker_source`/`offered_versions`), so each agent records its own
+  version, source, and check window independently. Legacy flat state migrates into the `opencode` entry on load.
+- Image: runner tags are now per agent on both docker and microsandbox
+  (`opencode-sandbox/runner-<slug>:<agent>-latest`). The docker build is skipped when the baked
+  `org.opencode-sandbox.dockerfile-id` label matches the current content; `EnsureLoaded` verifies the microsandbox cache
+  content (config digest or the `dockerfile-id` label) before skipping a load and reloads on mismatch; pruning retains
+  one `-latest` image per agent per live project and reclaims all other refs.
+- CLI: `config agent` now accepts a `--agent <name>` flag, consistent with `run`/`shell`/`build`. Resolution is
+  `--agent` flag → positional `[name]` → configured agent → `opencode`; conflicting `--agent` + positional returns an
+  "ambiguous" error.
 
 ### Changed
 
