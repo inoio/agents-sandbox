@@ -46,6 +46,39 @@ func TestResolveBuildVersionSkipsCheckForUserAgentSource(t *testing.T) {
 	}
 }
 
+func TestResolveBuildVersionUserAgentEmptyVersionUsesSentinel(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	if err := saveUpgradeState(upgradeState{AgentSource: agentSourceUser}); err != nil {
+		t.Fatal(err)
+	}
+	var latestCalled bool
+	origLatest := agentLatestVersion
+	agentLatestVersion = func(_ context.Context, _ agent.Agent) (string, error) {
+		latestCalled = true
+		return "10.0.0", nil
+	}
+	t.Cleanup(func() { agentLatestVersion = origLatest })
+
+	got, upgraded, err := resolveBuildVersion(
+		context.Background(),
+		opencodeAgent(t),
+		&termio.Mock{},
+		options.RunOptions{},
+	)
+	if err != nil {
+		t.Fatalf("resolveBuildVersion: %v", err)
+	}
+	if upgraded {
+		t.Error("expected upgraded=false for a user-provided agent")
+	}
+	if got != userProvidedAgentVersion {
+		t.Errorf("resolveBuildVersion = %q, want sentinel %q", got, userProvidedAgentVersion)
+	}
+	if latestCalled {
+		t.Error("agentLatestVersion must not be called for a user-provided agent")
+	}
+}
+
 func TestResolveOpenCodeVersionPinnedSkipsUpdateCheck(t *testing.T) {
 	origLatest := agentLatestVersion
 	defer func() { agentLatestVersion = origLatest }()

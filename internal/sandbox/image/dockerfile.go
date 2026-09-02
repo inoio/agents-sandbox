@@ -96,14 +96,14 @@ func dindBlock() string {
 	return fmt.Sprintf(`USER root
 ARG DOCKER_VERSION=%s
 
-RUN mkdir -p /etc/opencode-sandbox && \
+RUN set -e; mkdir -p /etc/opencode-sandbox && \
     if command -v dockerd >/dev/null 2>&1; then \
       echo user > /etc/opencode-sandbox/docker-source; \
     else \
       echo tool > /etc/opencode-sandbox/docker-source; \
       curl -fsSL "https://download.docker.com/linux/static/stable/$(uname -m)/docker-${DOCKER_VERSION}.tgz" \
-        | tar -xz -C /usr/local/bin --strip-components=1 && \
-      set -e; for p in iptables git ps xz curl tar; do \
+        | tar -xz -C /usr/local/bin --strip-components=1; \
+      for p in iptables git ps xz curl tar; do \
         command -v "$p" >/dev/null 2>&1 || \
           { echo "error: docker prerequisite missing: $p" >&2; exit 1; }; \
       done; \

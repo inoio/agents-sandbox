@@ -61,7 +61,7 @@ func TestBuildCommand(t *testing.T) {
 
 		t.Run(
 			fmt.Sprintf(
-				"%s (no flags) with docker client error → non-nil error (base resolution fails first)",
+				"%s (no flags) with docker client error → non-nil error (docker preflight fails first)",
 				strings.Join(commands, " "),
 			),
 			func(t *testing.T) {
@@ -73,11 +73,12 @@ func TestBuildCommand(t *testing.T) {
 				if err == nil {
 					t.Error("expected non-nil error from build image failure")
 				}
-				// With a broken docker client, base-image resolution (pull)
-				// fails before the build spinner is started.
+				// With a broken docker client, the docker preflight (Ping) fails
+				// before the build spinner is started; base-image resolution is
+				// never reached.
 				if slices.Contains(ui.SpinnerCalls, "Ensuring runner image") {
 					t.Errorf(
-						"expected no 'Ensuring runner image' spinner when base resolution fails first; got: %v",
+						"expected no 'Ensuring runner image' spinner when the docker preflight fails first; got: %v",
 						ui.SpinnerCalls,
 					)
 				}
