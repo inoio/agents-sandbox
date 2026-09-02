@@ -37,7 +37,9 @@ type Config struct {
 	LogLevel       string        `mapstructure:"log-level"`
 	Quiet          bool          `mapstructure:"quiet"`
 	Agent          string        `mapstructure:"agent"`
-	CPUs           uint8         `mapstructure:"cpus"`
+	// Dind appends the tool's Docker-in-Docker block to the runner image.
+	Dind bool  `mapstructure:"dind"`
+	CPUs uint8 `mapstructure:"cpus"`
 	// ProvisionHostConfig controls whether the agent's host config files are
 	// copied into the VM (drop-in provisioning). Default true.
 	ProvisionHostConfig bool `mapstructure:"provision-host-config"`
@@ -153,6 +155,7 @@ const (
 	keyAutoStopMaxSessionRetries = "auto-stop-max-session-retries"
 	keyNetworkProfile            = "network.profile"
 	keyAgent                     = "agent"
+	keyDind                      = "dind"
 	keyUpgradeMode               = "upgrade.mode"
 	keyUpgradeInterval           = "upgrade.interval"
 	keyProvisionHostConfig       = "provision-host-config"
@@ -167,7 +170,7 @@ var supportedExts = []string{".yaml", ".yml", ".json", extJSONC, extJSON5}
 //nolint:gochecknoglobals,goconst // package-level constant slice
 var configFlagKeys = []string{
 	"cpus", "memory", "tmp-size", "disk-size", "workspace-quota",
-	"yes", "quiet", "log-level", "agent",
+	"yes", "quiet", "log-level", "agent", "dind",
 }
 
 // configEnvKeys are all launcher config keys bound to OPENCODE_SANDBOX_ env vars.
@@ -180,6 +183,7 @@ var configEnvKeys = []string{
 	keyAutoStopOnActiveSessions, keyAutoStopTimeout, keyAutoStopMaxSessionRetries,
 	keyNetworkProfile,
 	keyAgent,
+	keyDind,
 	keyUpgradeMode, keyUpgradeInterval,
 	keyProvisionHostConfig,
 }
@@ -454,6 +458,7 @@ func (r *Resolver) Yes() bool                      { return r.cfg.Yes }
 func (r *Resolver) Quiet() bool                    { return r.cfg.Quiet }
 func (r *Resolver) LogLevel() string               { return r.cfg.LogLevel }
 func (r *Resolver) Agent() string                  { return r.cfg.Agent }
+func (r *Resolver) Dind() bool                     { return r.cfg.Dind }
 func (r *Resolver) ProvisionHostConfig() bool      { return r.cfg.ProvisionHostConfig }
 func (r *Resolver) AutoPruneAge() time.Duration    { return r.cfg.AutoPruneAge }
 func (r *Resolver) ManualPruneAge() time.Duration  { return r.cfg.ManualPruneAge }

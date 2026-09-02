@@ -127,3 +127,14 @@ func TestHelpCommandShowsHelp(t *testing.T) {
 		})
 	}
 }
+
+func TestBuildRunShellHelpListDindFlag(t *testing.T) {
+	for _, path := range [][]string{{"build"}, {"run"}, {"shell"}} {
+		t.Run(strings.Join(path, "_"), func(t *testing.T) {
+			out := commandOut(t, append(path, "--help")...)
+			if !strings.Contains(out, "--dind") {
+				t.Errorf("expected %q help to list --dind flag:\n%s", strings.Join(path, " "), out)
+			}
+		})
+	}
+}

@@ -244,6 +244,7 @@ func registerSharedRunShellFlags(cmd *cobra.Command) {
 	cmd.Flags().
 		String(flagNetwork, "", "Network egress profile for the VM: public, private, host, or none (default public)")
 	cmd.Flags().String(flagAgent, defaultAgentName, "Coding agent profile to run")
+	cmd.Flags().Bool(flagDind, false, "Enable Docker-in-Docker in the runner image")
 }
 
 func buildStopCmd(ui termio.UI) *cobra.Command {

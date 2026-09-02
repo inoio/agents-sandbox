@@ -72,6 +72,7 @@ func extractRunOptions(cmd *cobra.Command, ui termio.UI) (options.RunOptions, er
 		opts.WorkspaceQuota = r.WorkspaceQuota()
 		opts.ReapPolicy = options.NewReapPolicy(r.AutoStopOnActiveSessions(), r.AutoStopMaxSessionRetries())
 		opts.IdleTimeout = r.IdleTimeout()
+		opts.Dind = r.Dind()
 		opts.Mounts, err = mounts.ResolveBindMounts(r.Mounts())
 		if err != nil {
 			return options.RunOptions{}, err

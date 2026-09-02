@@ -24,8 +24,10 @@ type RunOptions struct {
 	IdleTimeout time.Duration
 	CPUs        uint8
 	Rebuild     bool
-	DryRun      bool
-	DryRunVM    bool
+	// Dind appends the tool's Docker-in-Docker block to the runner image.
+	Dind     bool
+	DryRun   bool
+	DryRunVM bool
 	// WorkspaceQuota is the guest-write quota for the /workspace bind mount.
 	WorkspaceQuota string
 	// Recreate forces a project-VM rebuild on this invocation. It is set by

@@ -480,6 +480,35 @@ func TestNetworkInvalidProfileRejected(t *testing.T) {
 	}
 }
 
+func TestDindFromConfig(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	// project-level config.yaml
+	if err := os.MkdirAll(configpaths.Get().ProjectConfigDir(), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(
+		filepath.Join(configpaths.Get().ProjectConfigDir(), "config.yaml"),
+		[]byte("dind: true\n"),
+		0o600,
+	); err != nil {
+		t.Fatal(err)
+	}
+	r, err := NewResolver(nil, "some-slug")
+	if err != nil {
+		t.Fatalf("NewResolver: %v", err)
+	}
+	if !r.Dind() {
+		t.Error("Dind() = false, want true from config")
+	}
+}
+
+func TestDindDefaultsFalse(t *testing.T) {
+	r := NewResolverWithConfig(Config{})
+	if r.Dind() {
+		t.Error("Dind() = true, want default false")
+	}
+}
+
 func TestPerSlugConfigPrecedence(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	cp := configpaths.Get()

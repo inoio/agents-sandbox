@@ -335,6 +335,36 @@ func TestRunCommandHasNoOpenCodeVersionFlag(t *testing.T) {
 	}
 }
 
+func TestRunAndShellHaveDindFlag(t *testing.T) {
+	for _, name := range []string{cmdRun, cmdShell} {
+		cmd, _ := setupCommandFixtures(t, name, "--help")
+		foundCmd, _, err := cmd.Find([]string{name})
+		if err != nil {
+			t.Fatalf("Find %q: %v", name, err)
+		}
+		if flag := foundCmd.Flags().Lookup(flagDind); flag == nil {
+			t.Errorf("%s command must have --dind flag", name)
+		}
+	}
+}
+
+func TestExtractRunOptionsPropagatesDind(t *testing.T) {
+	cmd := buildRunCmd(&termio.Mock{})
+	rootCtx := context.WithValue(
+		context.Background(),
+		(*launcherConfigKey)(nil),
+		launcherconfig.NewResolverWithConfig(launcherconfig.Config{Dind: true}),
+	)
+	cmd.SetContext(rootCtx)
+	opts, err := extractRunOptions(cmd, &termio.Mock{})
+	if err != nil {
+		t.Fatalf("extractRunOptions: %v", err)
+	}
+	if !opts.Dind {
+		t.Error("opts.Dind = false, want true from resolver")
+	}
+}
+
 func TestExtractRunOptionsNetworkFlag(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	cmd := buildRunCmd(&termio.Mock{})

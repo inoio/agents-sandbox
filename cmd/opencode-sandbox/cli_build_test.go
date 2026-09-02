@@ -117,6 +117,17 @@ func TestBuildCommand(t *testing.T) {
 	}
 }
 
+func TestBuildCommandHasDindFlag(t *testing.T) {
+	cmd, _ := setupCommandFixtures(t, cmdBuild, "--help")
+	foundCmd, _, err := cmd.Find([]string{cmdBuild})
+	if err != nil {
+		t.Fatalf("Find %q: %v", cmdBuild, err)
+	}
+	if flag := foundCmd.Flags().Lookup(flagDind); flag == nil {
+		t.Error("build command must have --dind flag")
+	}
+}
+
 func TestBuildCommandHasAgentVersionFlag(t *testing.T) {
 	cmd, _ := setupCommandFixtures(t, cmdBuild, "--help")
 	foundCmd, _, err := cmd.Find([]string{cmdBuild})
