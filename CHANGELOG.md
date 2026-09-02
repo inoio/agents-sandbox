@@ -33,8 +33,6 @@ command reports the bare version (e.g. `0.1.0`).
 - CI: test results are now uploaded to Codecov Test Analytics. The test job runs `gotestsum` to emit JUnit XML (`junit.xml`) alongside `coverage.out` in a single test run and uploads it via `codecov/codecov-action` with `report_type: test_results`; the new `make coverage-junit` target reproduces this locally.
 - Image: per-image provenance labels (`org.opencode-sandbox.agent`, `org.opencode-sandbox.base=<ref>@sha256:<digest>`)
   and in-image source files (`/etc/opencode-sandbox/agent-source`, `/etc/opencode-sandbox/docker-source`).
-- Behavior: non-daemon agents (`pi`, `claude-code`) now exit cleanly on last client — the reaper's `reapOnLastClient`
-  returns immediately for them instead of waiting for sessions to quiesce, so the idle timeout stops the VM.
 - Self-upgrade: upgrade state is now tracked per agent. `updater.yaml` stores a per-agent map (each agent's
   `last_checked`/`current_version`/`agent_source`/`docker_source`/`offered_versions`), so each agent records its own
   version, source, and check window independently. Legacy flat state migrates into the `opencode` entry on load.
@@ -66,6 +64,8 @@ command reports the bare version (e.g. `0.1.0`).
   build with `--agent pi`.
 - CLI: the `build` command now honors its `--dind` flag (previously it was registered but the build only used the `dind`
   config key); the flag still falls back to the configured `dind` when not passed.
+- Bugfix: non-daemon agents (`pi`, `claude-code`) now exit cleanly on last client — the reaper's `reapOnLastClient`
+  returns immediately for them instead of waiting for sessions to quiesce, so the idle timeout stops the VM.
 - Docs: Pages are now published only after a successful release, rebuilding from the published tag rather than in parallel on tag push. Each page footer and the home page display the release (or branch) they were built from.
 - Docs: Support for dark mode; follows the OS/browser color-scheme preference by default and expose a sun/moon toggle in the header (next to the GitHub link) that overrides and persists the choice.
 * **Breaking** CLI: the global `--verbose`/`--error` flags are replaced by a single monotonic `--log-level` flag (`error` | `warning` | `info` | `verbose`, default `info`, short `-l`). The `verbose`/`error` launcher-config keys and `OPENCODE_SANDBOX_VERBOSE`/`OPENCODE_SANDBOX_ERROR` env vars are replaced by `log-level` and `OPENCODE_SANDBOX_LOG_LEVEL`. The level selects the minimum severity shown on the console; `error < warning < info < verbose`, so a higher level is never hidden while a lower one is shown.
