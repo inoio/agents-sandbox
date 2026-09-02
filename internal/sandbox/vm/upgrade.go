@@ -54,8 +54,8 @@ func resolveBuildVersion(
 
 	// A user-provided agent is not owned by the tool: a rebuild would not
 	// change its version, so never check or offer an upgrade.
-	if currentAgentSource() == agentSourceUser {
-		version := currentUpgradeVersion()
+	if currentAgentSource(a) == agentSourceUser {
+		version := currentUpgradeVersion(a)
 		if version == "" {
 			version = userProvidedAgentVersion
 		}
@@ -65,15 +65,15 @@ func resolveBuildVersion(
 	// Without an upgrade checker there is nothing to check against; reuse the
 	// recorded version so the image identity stays stable.
 	if _, ok := agent.AsUpgradeChecker(a); !ok {
-		return currentUpgradeVersion(), false, nil
+		return currentUpgradeVersion(a), false, nil
 	}
 
 	// A forced rebuild uses whatever version is current; no upgrade prompt.
 	if opts.Rebuild {
-		return currentUpgradeVersion(), false, nil
+		return currentUpgradeVersion(a), false, nil
 	}
 
-	current := currentUpgradeVersion()
+	current := currentUpgradeVersion(a)
 	if current == "" {
 		// No recorded baseline (e.g. first run): resolve latest at build time
 		// rather than prompting against an unknown version.
@@ -137,7 +137,8 @@ func promptUpgrade(ui termio.UI, a agent.Agent, current, latest string) (string,
 // fails the session and leaves the window open.
 func pendingUpgrade(ctx context.Context, ui termio.UI, a agent.Agent, currentVersion string) (string, bool) {
 	state := loadOrFreshUpgradeState(ui)
-	if !state.dueForCheck(now()) {
+	entry := state.Agents[a.Name()]
+	if !entry.dueForCheck(now()) {
 		return "", false
 	}
 
@@ -156,18 +157,20 @@ func pendingUpgrade(ctx context.Context, ui termio.UI, a agent.Agent, currentVer
 
 	// A successful check refreshes the once-per-day window regardless of
 	// whether an upgrade is available.
-	state.LastChecked = now()
+	entry.LastChecked = now()
 	newer, err := checker.NewerThan(latest, currentVersion)
 	if err != nil {
 		// An unparsable version never fails the session; leave the window open.
 		return "", false
 	}
-	if !newer || state.offered(latest) {
+	if !newer || entry.offered(latest) {
+		state.Agents[a.Name()] = entry
 		persistUpgradeState(ui, state)
 		return "", false
 	}
 
-	state.markOffered(latest)
+	entry.markOffered(latest)
+	state.Agents[a.Name()] = entry
 	persistUpgradeState(ui, state)
 	return latest, true
 }

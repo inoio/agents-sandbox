@@ -6,6 +6,7 @@ import (
 	"slices"
 	"time"
 
+	"github.com/inoio/opencode-sandbox/internal/agent"
 	"github.com/inoio/opencode-sandbox/internal/configpaths"
 
 	"gopkg.in/yaml.v3"
@@ -24,9 +25,11 @@ const upgradeStateFile = "updater.yaml"
 //nolint:gochecknoglobals // test seam
 var now = time.Now
 
-// upgradeState is the persisted record gating the opencode updater. It is
+// upgradeState is the persisted record gating the updater per agent. It is
 // global (not per project): once checked, the version is checked machine-wide.
 type upgradeState struct {
+	// Legacy flat fields, only populated when the on-disk file predates the
+	// per-agent redesign. They are folded into agents["opencode"] on load.
 	LastChecked     time.Time `yaml:"last_checked"`
 	OfferedVersions []string  `yaml:"offered_versions"`
 	// CurrentVersion is the agent version currently baked into the runner
@@ -40,22 +43,34 @@ type upgradeState struct {
 	// DockerSource records where dockerd came from (tool | user), for future
 	// docker-version checks.
 	DockerSource string `yaml:"docker_source"`
+	// Agents holds the per-agent upgrade bookkeeping keyed by agent name.
+	Agents map[string]agentUpgradeState `yaml:"agents"`
+}
+
+// agentUpgradeState is the per-agent upgrade bookkeeping: its own checked
+// window, offered-version set, and recorded version/source.
+type agentUpgradeState struct {
+	LastChecked     time.Time `yaml:"last_checked"`
+	CurrentVersion  string    `yaml:"current_version"`
+	AgentSource     string    `yaml:"agent_source"`
+	DockerSource    string    `yaml:"docker_source"`
+	OfferedVersions []string  `yaml:"offered_versions"`
 }
 
 // dueForCheck reports whether the last successful check is older than one day
 // (or absent), i.e. a fresh GitHub check is due.
-func (s upgradeState) dueForCheck(t time.Time) bool {
+func (s agentUpgradeState) dueForCheck(t time.Time) bool {
 	return s.LastChecked.IsZero() || t.Sub(s.LastChecked) >= upgradeCheckInterval
 }
 
 // offered reports whether the given version has already had its rebuild prompt
 // shown.
-func (s upgradeState) offered(v string) bool {
+func (s agentUpgradeState) offered(v string) bool {
 	return slices.Contains(s.OfferedVersions, v)
 }
 
 // markOffered appends v to the set of versions whose prompt has been shown.
-func (s *upgradeState) markOffered(v string) {
+func (s *agentUpgradeState) markOffered(v string) {
 	s.OfferedVersions = append(s.OfferedVersions, v)
 }
 
@@ -81,7 +96,33 @@ func loadUpgradeState() (upgradeState, error) {
 		//nolint:nilerr // corrupt-file tolerance is deliberate
 		return upgradeState{}, nil
 	}
+	migrateLegacy(&s)
 	return s, nil
+}
+
+// migrateLegacy folds the pre-per-agent flat fields into agents["opencode"] so
+// state written before the redesign is still honored.
+func migrateLegacy(s *upgradeState) {
+	if s.Agents == nil {
+		s.Agents = map[string]agentUpgradeState{}
+	}
+	oc := s.Agents["opencode"]
+	if oc.LastChecked.IsZero() {
+		oc.LastChecked = s.LastChecked
+	}
+	if oc.CurrentVersion == "" {
+		oc.CurrentVersion = s.CurrentVersion
+	}
+	if oc.AgentSource == "" {
+		oc.AgentSource = s.AgentSource
+	}
+	if oc.DockerSource == "" {
+		oc.DockerSource = s.DockerSource
+	}
+	if len(oc.OfferedVersions) == 0 {
+		oc.OfferedVersions = s.OfferedVersions
+	}
+	s.Agents["opencode"] = oc
 }
 
 // saveUpgradeState atomically writes the updater state file.
@@ -106,23 +147,23 @@ func saveUpgradeState(s upgradeState) error {
 	return nil
 }
 
-// currentUpgradeVersion returns the opencode version currently baked into the
+// currentUpgradeVersion returns the agent version currently baked into the
 // runner image, or "" when none has been recorded yet. A missing or corrupt
 // state file yields "" so the caller falls back to resolving latest.
-func currentUpgradeVersion() string {
+func currentUpgradeVersion(a agent.Agent) string {
 	state, err := loadUpgradeState()
 	if err != nil {
 		return ""
 	}
-	return state.CurrentVersion
+	return state.Agents[a.Name()].CurrentVersion
 }
 
 // currentAgentSource returns the agent-source recorded from the image's
 // provenance files, or "" when none has been recorded yet.
-func currentAgentSource() string {
+func currentAgentSource(a agent.Agent) string {
 	state, err := loadUpgradeState()
 	if err != nil {
 		return ""
 	}
-	return state.AgentSource
+	return state.Agents[a.Name()].AgentSource
 }

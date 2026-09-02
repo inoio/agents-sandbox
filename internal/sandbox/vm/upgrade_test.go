@@ -331,10 +331,11 @@ func TestResolveOpenCodeVersionRecordsOfferedBeforePrompt(t *testing.T) {
 	if err != nil {
 		t.Fatalf("loadUpgradeState: %v", err)
 	}
-	if !st.offered("2.0.0") {
+	oc := st.Agents["opencode"]
+	if !oc.offered("2.0.0") {
 		t.Error("expected 2.0.0 to be recorded as offered after the prompt")
 	}
-	if st.LastChecked.IsZero() {
+	if oc.LastChecked.IsZero() {
 		t.Error("expected LastChecked to be refreshed after a successful check")
 	}
 }
@@ -400,8 +401,8 @@ func TestResolveOpenCodeVersionOfflineDoesNotUpdateLastChecked(t *testing.T) {
 	if err != nil {
 		t.Fatalf("loadUpgradeState: %v", err)
 	}
-	if !st.LastChecked.IsZero() {
-		t.Errorf("expected LastChecked to remain zero after offline check, got %v", st.LastChecked)
+	if !st.Agents["opencode"].LastChecked.IsZero() {
+		t.Errorf("expected LastChecked to remain zero after offline check, got %v", st.Agents["opencode"].LastChecked)
 	}
 }
 

@@ -140,7 +140,11 @@ func TestSaveUpgradeStateWriteError(t *testing.T) {
 // version without prompting.
 func TestResolveBuildVersionWithoutUpgradeChecker(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
-	if err := saveUpgradeState(upgradeState{CurrentVersion: "1.5.0"}); err != nil {
+	if err := saveUpgradeState(upgradeState{
+		Agents: map[string]agentUpgradeState{
+			"fake": {CurrentVersion: "1.5.0"},
+		},
+	}); err != nil {
 		t.Fatalf("saveUpgradeState: %v", err)
 	}
 	got, upgraded, err := resolveBuildVersion(context.Background(), &fakeAgent{}, &termio.Mock{}, options.RunOptions{})

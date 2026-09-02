@@ -42,12 +42,17 @@ func recordImageProvenance(ctx context.Context, a agent.Agent, sb msb.Sandbox, u
 		ui.Warnf("could not read updater state: %v (continuing)", err)
 		return
 	}
-	state.AgentSource = agentSource
-	state.DockerSource = dockerSource
-
-	if agentSource == agentSourceTool {
-		recordToolAgentVersion(ctx, a, sb, ui, &state)
+	if state.Agents == nil {
+		state.Agents = map[string]agentUpgradeState{}
 	}
+	entry := state.Agents[a.Name()]
+	entry.AgentSource = agentSource
+	entry.DockerSource = dockerSource
+	if agentSource == agentSourceTool {
+		// recordToolAgentVersion writes entry.CurrentVersion
+		entry = recordToolAgentVersion(ctx, a, sb, ui, entry)
+	}
+	state.Agents[a.Name()] = entry
 
 	if persistErr := saveUpgradeState(state); persistErr != nil {
 		ui.Warnf("could not persist updater state: %v (continuing)", persistErr)
@@ -57,20 +62,27 @@ func recordImageProvenance(ctx context.Context, a agent.Agent, sb msb.Sandbox, u
 // recordToolAgentVersion detects the installed agent version via the agent's
 // VersionProvider and records it as the upgrade baseline. Failures are logged,
 // never fatal.
-func recordToolAgentVersion(ctx context.Context, a agent.Agent, sb msb.Sandbox, ui termio.UI, state *upgradeState) {
+func recordToolAgentVersion(
+	ctx context.Context,
+	a agent.Agent,
+	sb msb.Sandbox,
+	ui termio.UI,
+	entry agentUpgradeState,
+) agentUpgradeState {
 	provider, ok := agent.AsVersionProvider(a)
 	if !ok {
-		return
+		return entry
 	}
 	out, runErr := sb.Shell(ctx, provider.VersionCmd(), msbSdk.WithExecUser(DefaultSandboxUser))
 	if runErr != nil {
 		ui.Warnf("could not detect agent version: %v (continuing)", runErr)
-		return
+		return entry
 	}
 	version, parseErr := provider.ParseVersion(out.Stdout())
 	if parseErr != nil {
 		ui.Warnf("could not parse agent version: %v (continuing)", parseErr)
-		return
+		return entry
 	}
-	state.CurrentVersion = version
+	entry.CurrentVersion = version
+	return entry
 }

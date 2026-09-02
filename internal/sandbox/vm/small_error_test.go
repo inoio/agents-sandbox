@@ -46,7 +46,7 @@ func TestCurrentUpgradeVersionReadError(t *testing.T) {
 	}
 	t.Cleanup(func() { configpaths.Get = orig })
 
-	if got := currentUpgradeVersion(); got != "" {
+	if got := currentUpgradeVersion(opencodeAgent(t)); got != "" {
 		t.Errorf("currentUpgradeVersion() = %q, want empty when the state cannot be read", got)
 	}
 }

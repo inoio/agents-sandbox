@@ -27,14 +27,15 @@ func TestRecordImageProvenanceDetectsToolAgentVersion(t *testing.T) {
 	if err != nil {
 		t.Fatalf("loadUpgradeState: %v", err)
 	}
-	if state.AgentSource != agentSourceTool {
-		t.Errorf("AgentSource = %q, want tool", state.AgentSource)
+	oc := state.Agents["opencode"]
+	if oc.AgentSource != agentSourceTool {
+		t.Errorf("AgentSource = %q, want tool", oc.AgentSource)
 	}
-	if state.DockerSource != agentSourceUser {
-		t.Errorf("DockerSource = %q, want user", state.DockerSource)
+	if oc.DockerSource != agentSourceUser {
+		t.Errorf("DockerSource = %q, want user", oc.DockerSource)
 	}
-	if state.CurrentVersion != "0.5.0" {
-		t.Errorf("CurrentVersion = %q, want 0.5.0", state.CurrentVersion)
+	if oc.CurrentVersion != "0.5.0" {
+		t.Errorf("CurrentVersion = %q, want 0.5.0", oc.CurrentVersion)
 	}
 }
 
@@ -50,11 +51,12 @@ func TestRecordImageProvenanceSkipsVersionForUserAgent(t *testing.T) {
 	if err != nil {
 		t.Fatalf("loadUpgradeState: %v", err)
 	}
-	if state.AgentSource != agentSourceUser {
-		t.Errorf("AgentSource = %q, want user", state.AgentSource)
+	oc := state.Agents["opencode"]
+	if oc.AgentSource != agentSourceUser {
+		t.Errorf("AgentSource = %q, want user", oc.AgentSource)
 	}
-	if state.CurrentVersion != "" {
-		t.Errorf("CurrentVersion = %q, want empty for a user-provided agent", state.CurrentVersion)
+	if oc.CurrentVersion != "" {
+		t.Errorf("CurrentVersion = %q, want empty for a user-provided agent", oc.CurrentVersion)
 	}
 }
 
@@ -67,20 +69,21 @@ func TestRecordImageProvenanceSkipsWhenFileAbsent(t *testing.T) {
 	if err != nil {
 		t.Fatalf("loadUpgradeState: %v", err)
 	}
-	if state.AgentSource != "" || state.CurrentVersion != "" {
-		t.Errorf("expected empty provenance for an image without the files, got %+v", state)
+	oc := state.Agents["opencode"]
+	if oc.AgentSource != "" || oc.CurrentVersion != "" {
+		t.Errorf("expected empty provenance for an image without the files, got %+v", oc)
 	}
 }
 
 func TestCurrentAgentSource(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
-	if got := currentAgentSource(); got != "" {
+	if got := currentAgentSource(opencodeAgent(t)); got != "" {
 		t.Errorf("currentAgentSource() = %q, want empty", got)
 	}
 	if err := saveUpgradeState(upgradeState{AgentSource: agentSourceUser}); err != nil {
 		t.Fatal(err)
 	}
-	if got := currentAgentSource(); got != agentSourceUser {
+	if got := currentAgentSource(opencodeAgent(t)); got != agentSourceUser {
 		t.Errorf("currentAgentSource() = %q, want user", got)
 	}
 }
