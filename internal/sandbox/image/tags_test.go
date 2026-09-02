@@ -1,11 +1,9 @@
 package image
 
 import (
-	"strings"
 	"testing"
 
 	"github.com/inoio/opencode-sandbox/internal/git"
-	"github.com/inoio/opencode-sandbox/internal/sandbox/naming"
 )
 
 func TestTagDigestShortensFullDigest(t *testing.T) {
@@ -19,14 +17,11 @@ func TestTagDigestShortensFullDigest(t *testing.T) {
 	}
 }
 
-func TestImageTagUsesTagDigest(t *testing.T) {
-	full := "sha256:2e454dd5b8ba117988d3beebd09f457ca46e758724e673d2272f77ddc9b3fb12"
-	tag := imageTag("myproject", full)
-	want := naming.ImagePrefix + "myproject:" + TagDigest(full)
-	if tag != want {
-		t.Errorf("imageTag = %q, want %q", tag, want)
+func TestRunnerTagIsPerAgent(t *testing.T) {
+	if got := runnerTag("myproject", "opencode"); got != "opencode-sandbox/runner-myproject:opencode-latest" {
+		t.Errorf("runnerTag(opencode) = %q", got)
 	}
-	if !strings.HasSuffix(tag, TagDigest(full)) {
-		t.Errorf("imageTag %q must end in the shortened digest %q", tag, TagDigest(full))
+	if got := runnerTag("myproject", "pi"); got != "opencode-sandbox/runner-myproject:pi-latest" {
+		t.Errorf("runnerTag(pi) = %q", got)
 	}
 }

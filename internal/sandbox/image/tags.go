@@ -13,10 +13,6 @@ func TagDigest(fullDigest string) string {
 	return git.HashID(fullDigest)
 }
 
-func imageTag(projectSlug, imageDigest string) string {
-	return naming.ImagePrefix + projectSlug + ":" + TagDigest(imageDigest)
-}
-
-func runnerTag(projectSlug string) string {
-	return naming.ImagePrefix + projectSlug + ":latest"
+func runnerTag(projectSlug, agentName string) string {
+	return naming.ImagePrefix + projectSlug + ":" + agentName + "-latest"
 }

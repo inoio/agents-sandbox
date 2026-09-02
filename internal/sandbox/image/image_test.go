@@ -117,8 +117,8 @@ func TestReferencesImageTrueWhenLastStageReusesAliasOfBase(t *testing.T) {
 }
 
 func TestImageTag(t *testing.T) {
-	got := imageTag("myproj-aBc1234D", "sha256:abc123def456")
-	expected := "opencode-sandbox/runner-myproj-aBc1234D:3k5q07ywpibwp5"
+	got := runnerTag("myproj-aBc1234D", "opencode")
+	expected := "opencode-sandbox/runner-myproj-aBc1234D:opencode-latest"
 	if got != expected {
 		t.Errorf("expected %q, got %q", expected, got)
 	}
@@ -444,9 +444,9 @@ func TestEnsureImageReturnsDigestImageRefAsTag(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	want := imageTag("test-project", "sha256:abc123")
+	want := "opencode-sandbox/runner-test-project:opencode-latest"
 	if info.Tag != want {
-		t.Errorf("info.Tag = %q, want digest-based image ref %q", info.Tag, want)
+		t.Errorf("info.Tag = %q, want agent-based image ref %q", info.Tag, want)
 	}
 }
 
@@ -517,8 +517,8 @@ func TestEnsureLoadedLoadsWhenNotCached(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	docker.WithDockerMock(t, &docker.MockDockerClient{
 		ImageSaveFn: func(_ context.Context, refs []string, _ ...client.ImageSaveOption) (client.ImageSaveResult, error) {
-			if len(refs) != 1 || refs[0] != runnerTag("test-project") {
-				t.Errorf("ImageSave refs = %v, want runner tag %q", refs, runnerTag("test-project"))
+			if len(refs) != 1 || refs[0] != "opencode-sandbox/runner-test-project:abc" {
+				t.Errorf("ImageSave refs = %v, want runner tag %q", refs, "opencode-sandbox/runner-test-project:abc")
 			}
 			return io.NopCloser(strings.NewReader("tar-data")), nil
 		},

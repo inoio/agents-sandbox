@@ -287,7 +287,7 @@ func EnsureImageWithClient(
 		return ImageInfo{}, fmt.Errorf("resolve agent version: %w", err)
 	}
 
-	rTag := runnerTag(projectSlug)
+	rTag := runnerTag(projectSlug, a.Name())
 	rendered := RenderDockerfile(a, projectDockerfile, buildOpts.Dind)
 
 	// Pre-redesign images lack the agent contract label; force one rebuild.
@@ -313,7 +313,7 @@ func EnsureImageWithClient(
 	imageDigest := inspect.ID
 	ui.Verbosef("rebuilt image %s (digest %s)", rTag, imageDigest)
 
-	imageRef := imageTag(projectSlug, imageDigest)
+	imageRef := rTag // the agent tag is the msb reference
 	env, err := readImageInfoFromDocker(ctx, rTag)
 	if err != nil {
 		return ImageInfo{}, fmt.Errorf("inspect built image: %w", err)
@@ -324,17 +324,13 @@ func EnsureImageWithClient(
 // EnsureLoaded loads the runner image into the microsandbox cache if it is not
 // already present, so the image can be used to create VMs. It is idempotent:
 // when the image is already cached (ImageGet succeeds) it returns immediately.
-func EnsureLoaded(ctx context.Context, mclient msb.Client, projectSlug, imageRef string, ui termio.UI) error {
+func EnsureLoaded(ctx context.Context, mclient msb.Client, _, imageRef string, ui termio.UI) error {
 	if err := mclient.ImageGet(ctx, imageRef); err == nil {
 		return nil
 	}
 
-	// Docker tags the runner image as ":latest"; the digest-derived imageRef is
-	// the microsandbox-side alias. Export the Docker image by its runner tag.
-	rTag := runnerTag(projectSlug)
-
 	spin := ui.Spinner("Loading image into microsandbox")
-	saveResult, err := docker.Get().ImageSave(ctx, []string{rTag})
+	saveResult, err := docker.Get().ImageSave(ctx, []string{imageRef})
 	if err != nil {
 		spin.StopError(err)
 		return fmt.Errorf("cannot export Docker image: %w", err)
