@@ -100,7 +100,8 @@ func Run(ctx context.Context, opts options.RunOptions, ui termio.UI) error {
 			release()
 			release = nil
 		}
-		if err := reapOnLastClient(ctx, projectSlug, sb, opts.ReapPolicy, ui); err != nil {
+		a, _ := agent.Lookup(opts.Agent)
+		if err := reapOnLastClient(ctx, projectSlug, a, sb, opts.ReapPolicy, ui); err != nil {
 			ui.Warnf("reap failed: %v", err)
 		}
 		return &sandbox.ExitError{Code: 0}
@@ -186,7 +187,8 @@ func runAttach(
 		release = nil
 	}
 
-	if err := reapOnLastClient(ctx, projectSlug, sb, opts.ReapPolicy, ui); err != nil {
+	a, _ := agent.Lookup(opts.Agent)
+	if err := reapOnLastClient(ctx, projectSlug, a, sb, opts.ReapPolicy, ui); err != nil {
 		ui.Warnf("reap failed: %v", err)
 	}
 

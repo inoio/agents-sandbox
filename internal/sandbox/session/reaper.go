@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/inoio/opencode-sandbox/internal/agent"
 	"github.com/inoio/opencode-sandbox/internal/sandbox/msb"
 	"github.com/inoio/opencode-sandbox/internal/sandbox/options"
 	"github.com/inoio/opencode-sandbox/internal/sandbox/state"
@@ -40,7 +41,19 @@ const questionListURL = "http://127.0.0.1:4096/question"
 // reapOnLastClient runs after a client detaches. If this was not the last client it
 // is a no-op. If it was, per policy it either returns immediately (auto-stop-on-active
 // mode, so the idle timeout stops the VM) or holds the VM until sessions quiesce.
-func reapOnLastClient(ctx context.Context, slug string, sb msb.Sandbox, policy options.ReapPolicy, ui termio.UI) error {
+// Agents without a daemon (e.g. pi, claude-code) never run a session server, so
+// there is nothing to wait on and the reaper returns immediately.
+func reapOnLastClient(
+	ctx context.Context,
+	slug string,
+	a agent.Agent,
+	sb msb.Sandbox,
+	policy options.ReapPolicy,
+	ui termio.UI,
+) error {
+	if _, ok := agent.AsDaemonProvider(a); !ok {
+		return nil
+	}
 	if state.CountActiveClients(slug) > 0 {
 		return nil
 	}
