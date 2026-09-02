@@ -42,9 +42,9 @@ type RunOptions struct {
 	Network network.Policy
 	// Mounts are additional host directories bind-mounted at absolute guest paths.
 	Mounts mounts.Mounts
-	// OpenCodeVersion pins the opencode version baked into the runner image on
+	// AgentVersion pins the agent version baked into the runner image on
 	// rebuild. Empty means resolve the latest at build time.
-	OpenCodeVersion string
+	AgentVersion string
 	// ProvisionHostConfig controls whether the agent's host config files are
 	// copied into the VM (drop-in provisioning). A nil value enables it
 	// (default); cmd resolves the launcher config and sets it explicitly.

@@ -42,8 +42,14 @@ func resolveBuildVersion(
 	opts options.RunOptions,
 ) (string, bool, error) {
 	// An explicitly pinned version is authoritative: never prompt for an upgrade.
-	if opts.OpenCodeVersion != "" {
-		return opts.OpenCodeVersion, false, nil
+	if opts.AgentVersion != "" {
+		return opts.AgentVersion, false, nil
+	}
+
+	// A user-provided agent is not owned by the tool: a rebuild would not
+	// change its version, so never check or offer an upgrade.
+	if currentAgentSource() == agentSourceUser {
+		return currentUpgradeVersion(), false, nil
 	}
 
 	// Without an upgrade checker there is nothing to check against; reuse the

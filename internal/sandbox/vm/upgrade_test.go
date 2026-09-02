@@ -13,6 +13,39 @@ import (
 	"github.com/inoio/opencode-sandbox/internal/termio"
 )
 
+func TestResolveBuildVersionSkipsCheckForUserAgentSource(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	if err := saveUpgradeState(upgradeState{AgentSource: agentSourceUser, CurrentVersion: "9.9.9"}); err != nil {
+		t.Fatal(err)
+	}
+	var latestCalled bool
+	origLatest := agentLatestVersion
+	agentLatestVersion = func(_ context.Context, _ agent.Agent) (string, error) {
+		latestCalled = true
+		return "10.0.0", nil
+	}
+	t.Cleanup(func() { agentLatestVersion = origLatest })
+
+	got, upgraded, err := resolveBuildVersion(
+		context.Background(),
+		opencodeAgent(t),
+		&termio.Mock{},
+		options.RunOptions{},
+	)
+	if err != nil {
+		t.Fatalf("resolveBuildVersion: %v", err)
+	}
+	if upgraded {
+		t.Error("expected upgraded=false for a user-provided agent")
+	}
+	if got != "9.9.9" {
+		t.Errorf("resolveBuildVersion = %q, want recorded 9.9.9", got)
+	}
+	if latestCalled {
+		t.Error("agentLatestVersion must not be called for a user-provided agent")
+	}
+}
+
 func TestResolveOpenCodeVersionPinnedSkipsUpdateCheck(t *testing.T) {
 	origLatest := agentLatestVersion
 	defer func() { agentLatestVersion = origLatest }()
@@ -23,7 +56,7 @@ func TestResolveOpenCodeVersionPinnedSkipsUpdateCheck(t *testing.T) {
 	}
 
 	configpaths.WithMockConfigPaths(t)
-	opts := options.RunOptions{OpenCodeVersion: "2.0.0"}
+	opts := options.RunOptions{AgentVersion: "2.0.0"}
 	ui := &termio.Mock{}
 
 	got, upgraded, err := resolveBuildVersion(context.Background(), opencodeAgent(t), ui, opts)

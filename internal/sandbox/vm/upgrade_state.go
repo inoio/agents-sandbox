@@ -29,11 +29,17 @@ var now = time.Now
 type upgradeState struct {
 	LastChecked     time.Time `yaml:"last_checked"`
 	OfferedVersions []string  `yaml:"offered_versions"`
-	// CurrentVersion is the opencode version currently baked into the runner
-	// image. It is reused as the build arg on subsequent runs so a normal run
-	// does not re-resolve "latest" from the network (which would invalidate the
-	// image identity and force rebuilds/reloads).
+	// CurrentVersion is the agent version currently baked into the runner
+	// image, detected on first boot. It is reused as the build arg on
+	// subsequent runs so a normal run does not re-resolve "latest" from the
+	// network.
 	CurrentVersion string `yaml:"current_version"`
+	// AgentSource records where the agent came from (tool | user), read from
+	// the image's /etc/opencode-sandbox/agent-source on first boot.
+	AgentSource string `yaml:"agent_source"`
+	// DockerSource records where dockerd came from (tool | user), for future
+	// docker-version checks.
+	DockerSource string `yaml:"docker_source"`
 }
 
 // dueForCheck reports whether the last successful check is older than one day
@@ -109,4 +115,14 @@ func currentUpgradeVersion() string {
 		return ""
 	}
 	return state.CurrentVersion
+}
+
+// currentAgentSource returns the agent-source recorded from the image's
+// provenance files, or "" when none has been recorded yet.
+func currentAgentSource() string {
+	state, err := loadUpgradeState()
+	if err != nil {
+		return ""
+	}
+	return state.AgentSource
 }

@@ -96,6 +96,11 @@ func setUpSandbox(
 		return ResolveTarget(ctx, a, sb, opts.Worktree, ui)
 	}
 
+	// Record image provenance and the agent version baseline on a fresh boot.
+	if boot.booted() {
+		recordImageProvenance(ctx, a, sb, ui)
+	}
+
 	if len(cfs.Hooks) > 0 && boot.booted() {
 		runStartupHooks(ctx, sb, cfs.Hooks, ui)
 	}

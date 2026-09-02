@@ -69,7 +69,7 @@ func PrepareSandbox(
 	// re-resolving "latest" from the network on every run; re-resolving would
 	// change the version build arg (and thus the image identity), causing
 	// sporadic rebuilds and fresh loads into microsandbox.
-	openCodeVersion, shallUpgrade, err := resolveBuildVersion(ctx, a, ui, opts)
+	agentVersion, shallUpgrade, err := resolveBuildVersion(ctx, a, ui, opts)
 	if err != nil {
 		return nil, err
 	}
@@ -78,7 +78,7 @@ func PrepareSandbox(
 		ctx,
 		a,
 		projectSlug,
-		image.BuildOptions{Force: opts.Rebuild || shallUpgrade, AgentVersion: openCodeVersion, Dind: false},
+		image.BuildOptions{Force: opts.Rebuild || shallUpgrade, AgentVersion: agentVersion, Dind: opts.Dind},
 		ui,
 	)
 	if err != nil {
