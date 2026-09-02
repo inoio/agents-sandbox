@@ -1,10 +1,13 @@
 package image
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/inoio/opencode-sandbox/internal/agent"
+	"github.com/inoio/opencode-sandbox/internal/configpaths"
 )
 
 func TestRenderDockerfileDefaultBase(t *testing.T) {
@@ -233,4 +236,68 @@ func TestInsertAfterLastFromNoFrom(t *testing.T) {
 func firstLine(s string) string {
 	line, _, _ := strings.Cut(s, "\n")
 	return line
+}
+
+// projectDockerfilePaths is a minimal configpaths.ConfigPaths pointing at a
+// temp project dir so tests can exercise on-disk Dockerfile reading.
+type projectDockerfilePaths struct {
+	dir string
+}
+
+func (p *projectDockerfilePaths) ProjectDockerfile() string {
+	return filepath.Join(p.dir, configpaths.DockerFileName)
+}
+
+func (p *projectDockerfilePaths) UserConfigDir() string                 { return "" }
+func (p *projectDockerfilePaths) UserCacheDir() string                  { return "" }
+func (p *projectDockerfilePaths) UserStateDir() string                  { return "" }
+func (p *projectDockerfilePaths) UserOpencodeConfigDir() string         { return "" }
+func (p *projectDockerfilePaths) UserAgentConfigDir(agent.Agent) string { return "" }
+func (p *projectDockerfilePaths) UserEnvFile() string                   { return "" }
+func (p *projectDockerfilePaths) UserEnvSecretFile() string             { return "" }
+func (p *projectDockerfilePaths) UserEnvSecretYAMLFile() string         { return "" }
+func (p *projectDockerfilePaths) ProjectConfigDir() string              { return "" }
+func (p *projectDockerfilePaths) ProjectOpencodeConfigDir() string      { return "" }
+func (p *projectDockerfilePaths) ProjectAgentConfigDir(agent.Agent) string {
+	return ""
+}
+func (p *projectDockerfilePaths) ProjectEnvFile() string           { return "" }
+func (p *projectDockerfilePaths) ProjectEnvSecretFile() string     { return "" }
+func (p *projectDockerfilePaths) ProjectEnvSecretYAMLFile() string { return "" }
+
+func TestRenderProjectDockerfileReadsProjectFile(t *testing.T) {
+	a, _ := agent.Lookup("opencode")
+	dir := t.TempDir()
+	projectFile := filepath.Join(dir, configpaths.DockerFileName)
+	if err := os.WriteFile(projectFile, []byte("FROM ubuntu:24.04\nRUN echo custom\n"), 0o644); err != nil {
+		t.Fatalf("write project dockerfile: %v", err)
+	}
+
+	orig := configpaths.Get
+	configpaths.Get = func() configpaths.ConfigPaths { return &projectDockerfilePaths{dir: dir} }
+	t.Cleanup(func() { configpaths.Get = orig })
+
+	out := string(RenderProjectDockerfile(a, false))
+	for _, want := range []string{"FROM ubuntu:24.04", "RUN echo custom"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("rendered project Dockerfile missing %q; got:\n%s", want, out)
+		}
+	}
+	if strings.Contains(out, "DOCKER_VERSION") {
+		t.Errorf("project Dockerfile without --dind must not contain the dind block")
+	}
+}
+
+func TestRenderProjectDockerfileNoProjectFile(t *testing.T) {
+	a, _ := agent.Lookup("opencode")
+	dir := t.TempDir()
+
+	orig := configpaths.Get
+	configpaths.Get = func() configpaths.ConfigPaths { return &projectDockerfilePaths{dir: dir} }
+	t.Cleanup(func() { configpaths.Get = orig })
+
+	out := string(RenderProjectDockerfile(a, false))
+	if !strings.Contains(out, "FROM debian:trixie-slim") {
+		t.Errorf("without a project Dockerfile the embedded debian base is used; got:\n%s", out)
+	}
 }

@@ -98,6 +98,25 @@ opencode-sandbox build --agent-version 0.5.0  # pin a specific agent version
 
 **Aliases:** `image build`
 
+#### build dockerfile
+
+Print the runner Dockerfile exactly as it would be built for the current project, without invoking docker. The output reflects the selected agent profile and the dind switch, and layers the project's `.opencode-sandbox/Dockerfile` (if any) on top of the base image.
+
+```console
+opencode-sandbox build dockerfile            # default (opencode, no dind)
+opencode-sandbox build dockerfile --dind     # with Docker-in-Docker block
+opencode-sandbox build dockerfile --agent claude-code
+```
+
+**Flags:**
+
+| Flag      | Short | Default    | Purpose                                                     |
+|-----------|-------|------------|-------------------------------------------------------------|
+| `--agent` | —     | `opencode` | Coding-agent profile to build: `opencode`, `pi`, or `claude-code`. |
+| `--dind`  | —     | `false`    | Enable Docker-in-Docker in the runner image                 |
+
+**Aliases:** `image build dockerfile`
+
 ---
 
 ### stop

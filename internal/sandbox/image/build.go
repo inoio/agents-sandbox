@@ -277,6 +277,12 @@ func EnsureImageWithClient(
 	ui termio.UI,
 ) (ImageInfo, error) {
 	agentVersion, err := resolveAgentVersion(ctx, a, buildOpts.AgentVersion)
+	ui.Verbosef(
+		"Resolved agent version for agent %s to %s, requested %s",
+		a.Name(),
+		agentVersion,
+		buildOpts.AgentVersion,
+	)
 	if err != nil {
 		return ImageInfo{}, fmt.Errorf("resolve agent version: %w", err)
 	}

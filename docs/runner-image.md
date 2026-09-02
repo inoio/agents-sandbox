@@ -131,6 +131,13 @@ opencode-sandbox build        # builds if image is missing or base changed
 opencode-sandbox build -r     # force rebuild
 ```
 
+Preview the exact Dockerfile that would be built (without invoking docker):
+
+```console
+opencode-sandbox build dockerfile            # default (opencode, no dind)
+opencode-sandbox build dockerfile --dind     # with Docker-in-Docker block
+```
+
 List cached images:
 
 ```console

@@ -348,6 +348,19 @@ func buildConfigAgentCmd(ui termio.UI) *cobra.Command {
 	}
 }
 
+// resolveBuildDind returns the effective dind switch for a build: the --dind
+// flag when set, else the configured resolver value (false when absent).
+func resolveBuildDind(cmd *cobra.Command) bool {
+	if cmd.Flags().Changed(flagDind) {
+		dind, _ := cmd.Flags().GetBool(flagDind)
+		return dind
+	}
+	if r := resolverFromContext(cmd.Context()); r != nil {
+		return r.Dind()
+	}
+	return false
+}
+
 func buildBuildCmd(ui termio.UI) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   cmdBuild,
@@ -371,12 +384,8 @@ func buildBuildCmd(ui termio.UI) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			dind := false
-			if r := resolverFromContext(cmd.Context()); r != nil {
-				dind = r.Dind()
-			}
 			return image.Build(cmd.Context(), a, git.ProjectSlug(), image.BuildOptions{
-				Force: force, AgentVersion: openCodeVersion, Dind: dind,
+				Force: force, AgentVersion: openCodeVersion, Dind: resolveBuildDind(cmd),
 			}, ui)
 		},
 	}
@@ -389,6 +398,32 @@ func buildBuildCmd(ui termio.UI) *cobra.Command {
 	cmd.Flags().
 		String(flagOpenCodeVersion, "", "Deprecated alias for --agent-version")
 	_ = cmd.Flags().MarkDeprecated(flagOpenCodeVersion, "use --agent-version instead")
+
+	cmd.AddCommand(buildDockerfileCmd(ui))
+	return cmd
+}
+
+// buildDockerfileCmd returns the "build dockerfile" subcommand, which prints
+// the runner Dockerfile exactly as it would be built without invoking docker.
+func buildDockerfileCmd(ui termio.UI) *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   cmdDockerfile,
+		Args:  cobra.NoArgs,
+		Short: "Print the runner Dockerfile as it would be built",
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			a, err := resolveAgentFlag(cmd)
+			if err != nil {
+				return err
+			}
+			out := image.RenderProjectDockerfile(a, resolveBuildDind(cmd))
+			if _, err := ui.StdOut().Write(out); err != nil {
+				return err
+			}
+			return nil
+		},
+	}
+	cmd.Flags().String(flagAgent, defaultAgentName, "Coding agent profile to build")
+	cmd.Flags().Bool(flagDind, false, "Enable Docker-in-Docker in the runner image")
 	return cmd
 }
 

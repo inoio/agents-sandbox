@@ -150,3 +150,82 @@ func TestBuildCommandHasAgentVersionFlag(t *testing.T) {
 		t.Errorf("flag name = %q, want %q", openCodeVersion.Name, "opencode-version")
 	}
 }
+
+func TestBuildDockerfileCommand(t *testing.T) {
+	for _, commands := range [][]string{
+		{cmdBuild, cmdDockerfile},
+		{cmdImage, cmdBuild, cmdDockerfile},
+	} {
+		t.Run(
+			fmt.Sprintf("%s prints the rendered Dockerfile", strings.Join(commands, " ")),
+			func(t *testing.T) {
+				cmd, ui := setupCommandFixtures(t, commands...)
+
+				if err := cmd.Execute(); err != nil {
+					t.Fatalf("unexpected error: %v", err)
+				}
+
+				out := ui.StdOutBuffer.String()
+				for _, want := range []string{
+					"FROM debian:trixie-slim",
+					"LABEL org.opencode-sandbox.agent=opencode",
+					"USER dev",
+					"WORKDIR /workspace",
+				} {
+					if !strings.Contains(out, want) {
+						t.Errorf("dockerfile output missing %q; got:\n%s", want, out)
+					}
+				}
+				// No --dind flag: the dind block must be absent.
+				if strings.Contains(out, "DOCKER_VERSION") {
+					t.Errorf("dockerfile output must not contain dind block without --dind; got:\n%s", out)
+				}
+			},
+		)
+
+		t.Run(
+			fmt.Sprintf("%s --dind appends the dind block", strings.Join(commands, " ")),
+			func(t *testing.T) {
+				cmd, ui := setupCommandFixtures(t, append(commands, "--dind")...)
+
+				if err := cmd.Execute(); err != nil {
+					t.Fatalf("unexpected error: %v", err)
+				}
+
+				out := ui.StdOutBuffer.String()
+				if !strings.Contains(out, "DOCKER_VERSION") {
+					t.Errorf("dockerfile output with --dind must contain the dind block; got:\n%s", out)
+				}
+			},
+		)
+
+		t.Run(
+			fmt.Sprintf("%s does not invoke docker", strings.Join(commands, " ")),
+			func(t *testing.T) {
+				cmd, ui := setupCommandFixtures(t, commands...)
+
+				if err := cmd.Execute(); err != nil {
+					t.Fatalf("unexpected error: %v", err)
+				}
+
+				if len(ui.SpinnerCalls) > 0 {
+					t.Errorf("dockerfile should not spawn a spinner; got: %v", ui.SpinnerCalls)
+				}
+			},
+		)
+	}
+}
+
+func TestBuildDockerfileCommandHasDindFlag(t *testing.T) {
+	cmd, _ := setupCommandFixtures(t, cmdBuild, "--help")
+	foundCmd, _, err := cmd.Find([]string{cmdBuild, cmdDockerfile})
+	if err != nil {
+		t.Fatalf("Find %q: %v", cmdDockerfile, err)
+	}
+	if flag := foundCmd.Flags().Lookup(flagDind); flag == nil {
+		t.Error("build dockerfile command must have --dind flag")
+	}
+	if flag := foundCmd.Flags().Lookup(flagAgent); flag == nil {
+		t.Error("build dockerfile command must have --agent flag")
+	}
+}

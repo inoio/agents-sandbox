@@ -210,6 +210,14 @@ LABEL org.opencode-sandbox.base=$BASE_IMAGE
 `
 }
 
+// RenderProjectDockerfile renders the runner Dockerfile exactly as it would be
+// built for the current project: the agent profile, the on-disk project
+// Dockerfile (if any), and the dind switch. It is the single source of truth
+// for previewing and building the image.
+func RenderProjectDockerfile(a agent.Agent, dind bool) []byte {
+	return RenderDockerfile(a, readProjectDockerfile(), dind)
+}
+
 // readProjectDockerfile returns the project Dockerfile bytes, or nil when none
 // exists.
 func readProjectDockerfile() []byte {
