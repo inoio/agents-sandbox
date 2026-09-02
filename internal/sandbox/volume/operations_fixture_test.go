@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/inoio/opencode-sandbox/internal/configpaths"
+	"github.com/inoio/opencode-sandbox/internal/sandbox/docker"
 	"github.com/inoio/opencode-sandbox/internal/sandbox/msb"
 	"github.com/inoio/opencode-sandbox/internal/termio"
 )
@@ -17,5 +18,6 @@ func setupVolumeOpsFixtures(t *testing.T) (*msb.MockMsbClient, *termio.Mock) {
 	configpaths.WithMockConfigPaths(t)
 	mock := &msb.MockMsbClient{}
 	msb.WithMsbMock(t, mock)
+	docker.WithNoopDockerMock(t)
 	return mock, &termio.Mock{}
 }
