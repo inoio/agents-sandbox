@@ -103,8 +103,8 @@ func TestEnsureImageDindAddsDockerVersionArg(t *testing.T) {
 	if _, err := EnsureImage(context.Background(), a, "proj", BuildOptions{Dind: true}, &termio.Mock{}); err != nil {
 		t.Fatalf("EnsureImage: %v", err)
 	}
-	if gotArgs == nil || gotArgs["DOCKER_VERSION"] == nil || *gotArgs["DOCKER_VERSION"] != "27.5.1" {
-		t.Errorf("DOCKER_VERSION build arg = %v, want 27.5.1", gotArgs)
+	if gotArgs == nil || gotArgs["DOCKER_VERSION"] == nil || *gotArgs["DOCKER_VERSION"] != "29.7.2" {
+		t.Errorf("DOCKER_VERSION build arg = %v, want 29.7.2", gotArgs)
 	}
 }
 

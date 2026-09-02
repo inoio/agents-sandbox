@@ -24,8 +24,8 @@ const agentLabelKey = "org.opencode-sandbox.agent"
 
 // Pinned third-party versions baked into the image.
 const (
-	nodeVersion   = "v22.14.0"
-	dockerVersion = "27.5.1"
+	nodeVersion   = "v26.8.1"
+	dockerVersion = "29.7.2"
 )
 
 // RenderDockerfile composes the single per-project runner Dockerfile from the

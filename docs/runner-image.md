@@ -77,13 +77,13 @@ ENV definitions in Dockerfiles are applied to running sandboxes. If you need to 
 Enable Docker-in-Docker (dind) in the runner image with the `--dind` flag (on `build`, `run`, or `shell`) or the `dind:
 true` config key. A project Dockerfile still starting `FROM .../runner-base-dind:latest` keeps working and implies it.
 
-The dind block installs the engine from the docker static tarball, pinned to `27.5.1`. The `vfs` storage driver is always
+The dind block installs the engine from the docker static tarball, pinned to `29.7.2`. The `vfs` storage driver is always
 forced for microsandbox compatibility. `buildx` and `docker compose` are **not** installed — install them in your project
 Dockerfile if you need them. The static tarball is selected by `uname -m` (`x86_64`/`aarch64`).
 
 ## Node and the agent
 
-The agent block installs Node.js (`v22.14.0`, official tarball) only if it is absent, and installs the selected agent
+The agent block installs Node.js (`v26.8.1`, official tarball) only if it is absent, and installs the selected agent
 only if its binary is absent — so an existing install is left alone (idempotency). What the block actually did is
 recorded in `/etc/opencode-sandbox/agent-source` and `/etc/opencode-sandbox/docker-source`.
 

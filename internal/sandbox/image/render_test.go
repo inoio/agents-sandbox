@@ -17,7 +17,7 @@ func TestRenderDockerfileDefaultBase(t *testing.T) {
 		"ARG OPENCODE_VERSION",
 		"LABEL org.opencode-sandbox.agent=opencode",
 		"OPENCODE_DISABLE_AUTOUPDATE=true",
-		"node-v22.14.0-linux",
+		"node-v26.8.1-linux",
 		"echo tool > /etc/opencode-sandbox/agent-source",
 		"echo user > /etc/opencode-sandbox/agent-source",
 		"groupadd -g \"$USER_GID\" dev",
@@ -44,7 +44,7 @@ func TestRenderDockerfileDindEnabled(t *testing.T) {
 	out := RenderDockerfile(a, nil, true)
 	s := string(out)
 	for _, want := range []string{
-		"ARG DOCKER_VERSION=27.5.1",
+		"ARG DOCKER_VERSION=29.7.2",
 		"download.docker.com/linux/static/stable/$(uname -m)/docker-${DOCKER_VERSION}.tgz",
 		"echo tool > /etc/opencode-sandbox/docker-source",
 		"echo user > /etc/opencode-sandbox/docker-source",
