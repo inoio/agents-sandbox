@@ -119,6 +119,7 @@ func TestCreateProjectVMCallsClientCreateSandbox(t *testing.T) {
 	testUI := termio.NewTestMock(t)
 	ui := &testUI
 	configpaths.WithMockConfigPaths(t)
+	docker.WithNoopDockerMock(t)
 	sb, created, err := createProjectVM(
 		context.Background(),
 		client,
@@ -228,6 +229,7 @@ func TestEnsureProjectVM_CreatePath(t *testing.T) {
 	}
 	msb.WithMsbMock(t, client)
 	configpaths.WithMockConfigPaths(t)
+	docker.WithNoopDockerMock(t)
 
 	// ProjectSlug depends on the current directory, so use a temp repo.
 	tmpRepo := testutil.InitRepo(t)
@@ -279,6 +281,7 @@ func TestEnsureProjectVMAppliesLabels(t *testing.T) {
 	}
 	msb.WithMsbMock(t, client)
 	configpaths.WithMockConfigPaths(t)
+	docker.WithNoopDockerMock(t)
 
 	tmpRepo := testutil.InitRepo(t)
 	t.Chdir(tmpRepo)
@@ -420,6 +423,7 @@ func TestEnsureProjectVM_CreateOutcomeIsInfo(t *testing.T) {
 	}
 	msb.WithMsbMock(t, client)
 	configpaths.WithMockConfigPaths(t)
+	docker.WithNoopDockerMock(t)
 
 	tmpRepo := testutil.InitRepo(t)
 	t.Chdir(tmpRepo)
@@ -559,6 +563,7 @@ func TestCreateProjectVMAppliesRootDiskWhenDiskSizeSet(t *testing.T) {
 	testUI := termio.NewTestMock(t)
 	ui := &testUI
 	configpaths.WithMockConfigPaths(t)
+	docker.WithNoopDockerMock(t)
 
 	if _, _, err := createProjectVM(
 		context.Background(), client, "opencode-sandbox-vm-test",
@@ -653,6 +658,7 @@ func TestEnsureProjectVMRecreatesWhenFlagged(t *testing.T) {
 	}
 	msb.WithMsbMock(t, client)
 	configpaths.WithMockConfigPaths(t)
+	docker.WithNoopDockerMock(t)
 
 	opts := options.RunOptions{ReapPolicy: options.ReapPolicy{}, Recreate: true, CPUs: 1, Memory: "2G"}
 	sb, created, err := ensureProjectVM(

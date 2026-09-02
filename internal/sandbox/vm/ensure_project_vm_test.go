@@ -233,6 +233,7 @@ func TestEnsureProjectVMPostLockRecheckStart(t *testing.T) {
 // VM's Stop fails: the failure is logged as verbose and recreation continues.
 func TestEnsureProjectVMRecreateStopError(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
+	docker.WithNoopDockerMock(t)
 	ui := termio.NewTestMock(t)
 	callCount := 0
 	oldHandle := &msb.MockSandboxHandle{
@@ -389,6 +390,7 @@ func TestEnsureProjectVMRecheckNonNotFoundError(t *testing.T) {
 // ensureProjectVM (createProjectVM fails after the post-lock recheck).
 func TestEnsureProjectVMCreateError(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
+	docker.WithNoopDockerMock(t)
 	ui := termio.NewTestMock(t)
 	client := &msb.MockMsbClient{}
 	client.CreateSandboxErr = errors.New("create failed")
