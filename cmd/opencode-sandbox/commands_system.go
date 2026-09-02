@@ -298,16 +298,14 @@ func buildConfigCmd(ui termio.UI) *cobra.Command {
 // agent's merged snippet config and the host drop-in files that provisioning
 // would copy into the VM.
 func buildConfigAgentCmd(ui termio.UI) *cobra.Command {
-	return &cobra.Command{
+	cmd := &cobra.Command{
 		Use:   cmdAgent,
 		Args:  cobra.MaximumNArgs(1),
 		Short: "Show the merged agent config and the host files provisioned into the VM",
 		RunE: func(c *cobra.Command, args []string) error {
-			name := defaultAgentName
-			if len(args) > 0 {
-				name = args[0]
-			} else if r := resolverFromContext(c.Context()); r != nil {
-				name = r.Agent()
+			name, err := resolveConfigAgentName(c, args)
+			if err != nil {
+				return err
 			}
 			a, ok := agent.Lookup(name)
 			if !ok {
@@ -346,6 +344,31 @@ func buildConfigAgentCmd(ui termio.UI) *cobra.Command {
 			return nil
 		},
 	}
+	cmd.Flags().String(flagAgent, defaultAgentName, "Coding agent profile")
+	return cmd
+}
+
+// resolveConfigAgentName resolves the agent name for the config agent command:
+// --agent flag, then the positional arg, then the resolver, then the default.
+// An explicit --agent that conflicts with a positional arg is ambiguous.
+func resolveConfigAgentName(c *cobra.Command, args []string) (string, error) {
+	name := defaultAgentName
+	flagName, _ := c.Flags().GetString(flagAgent)
+	if c.Flags().Changed(flagAgent) {
+		if len(args) > 0 && args[0] != flagName {
+			return "", fmt.Errorf("ambiguous agent: --agent %q conflicts with positional %q", flagName, args[0])
+		}
+		return flagName, nil
+	}
+	if len(args) > 0 {
+		return args[0], nil
+	}
+	if r := resolverFromContext(c.Context()); r != nil {
+		if rn := r.Agent(); rn != "" {
+			return rn, nil
+		}
+	}
+	return name, nil
 }
 
 // resolveBuildDind returns the effective dind switch for a build: the --dind

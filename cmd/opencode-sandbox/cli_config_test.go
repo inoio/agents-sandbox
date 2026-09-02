@@ -111,6 +111,25 @@ func TestConfigAgentNoSnippetFiles(t *testing.T) {
 	}
 }
 
+func TestConfigAgentFlag(t *testing.T) {
+	cmd, ui := setupCommandFixtures(t, "config", "agent", "--agent", "pi")
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("config agent --agent pi: %v", err)
+	}
+	joined := strings.Join(ui.OutCalls, "\n")
+	if !strings.Contains(joined, "pi") {
+		t.Errorf("expected output to reference pi, got %q", joined)
+	}
+}
+
+func TestConfigAgentAmbiguousFlagAndPositional(t *testing.T) {
+	cmd, _ := setupCommandFixtures(t, "config", "agent", "--agent", "pi", "claude-code")
+	err := cmd.Execute()
+	if err == nil || !strings.Contains(err.Error(), "ambiguous") {
+		t.Errorf("expected ambiguous error, got %v", err)
+	}
+}
+
 func TestConfigAgentUnknownAgent(t *testing.T) {
 	cmd, _ := setupCommandFixtures(t, "config", "agent", "bogus")
 	if err := cmd.Execute(); err == nil {
