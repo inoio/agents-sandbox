@@ -17,6 +17,8 @@ import (
 	"github.com/moby/moby/client"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 
+	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
+
 	"github.com/inoio/opencode-sandbox/internal/agent"
 
 	"github.com/inoio/opencode-sandbox/internal/configpaths"
@@ -492,25 +494,100 @@ func TestEnsureImageReadsVersionFromDocker(t *testing.T) {
 	}
 }
 
-func TestEnsureLoadedSkipsWhenAlreadyCached(t *testing.T) {
+func TestEnsureLoadedReloadsWhenCachedContentDiffers(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
-	m := &docker.MockDockerClient{}
-	docker.WithDockerMock(t, m)
-
+	a := agentOpencode(t)
+	rTag := runnerTag("test-project", a.Name())
+	docker.WithDockerMock(t, &docker.MockDockerClient{
+		ImageInspectFn: func(_ context.Context, _ string, _ ...client.ImageInspectOption) (client.ImageInspectResult, error) {
+			return client.ImageInspectResult{InspectResponse: image.InspectResponse{ID: "sha256:docker-new"}}, nil
+		},
+		ImageSaveFn: func(_ context.Context, refs []string, _ ...client.ImageSaveOption) (client.ImageSaveResult, error) {
+			if len(refs) != 1 || refs[0] != rTag {
+				t.Errorf("ImageSave refs = %v, want %q", refs, rTag)
+			}
+			return io.NopCloser(strings.NewReader("tar-data")), nil
+		},
+	})
+	removed := false
 	msbClient := &msb.MockMsbClient{
 		ImageGetFn: func(_ context.Context, _ string) error { return nil },
+		ImageInspectFn: func(_ context.Context, _ string) (*msbSdk.ImageConfig, error) {
+			return &msbSdk.ImageConfig{Digest: "sha256:msb-old"}, nil
+		},
+		ImageRemoveFn: func(_ context.Context, _ string, _ bool) error { removed = true; return nil },
 	}
-	if err := EnsureLoaded(
-		context.Background(),
-		msbClient,
-		"test-project",
-		"opencode-sandbox/runner-test-project:abc",
-		&termio.Mock{},
-	); err != nil {
-		t.Fatalf("unexpected error: %v", err)
+	if err := EnsureLoaded(context.Background(), msbClient, "test-project", rTag, &termio.Mock{}); err != nil {
+		t.Fatalf("EnsureLoaded: %v", err)
+	}
+	if !removed {
+		t.Error("expected the stale cached image to be removed before reload")
+	}
+	if len(msbClient.LoadedImages) != 1 || msbClient.LoadedImages[0] != rTag {
+		t.Errorf("LoadedImages = %v, want a reload of %q", msbClient.LoadedImages, rTag)
+	}
+}
+
+func TestEnsureLoadedSkipsWhenCachedContentMatches(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	a := agentOpencode(t)
+	rTag := runnerTag("test-project", a.Name())
+	docker.WithDockerMock(t, &docker.MockDockerClient{
+		ImageInspectFn: func(_ context.Context, _ string, _ ...client.ImageInspectOption) (client.ImageInspectResult, error) {
+			return client.ImageInspectResult{
+				InspectResponse: image.InspectResponse{ID: "sha256:same", Config: dockerConfigWith("", nil)},
+			}, nil
+		},
+	})
+	removed := false
+	msbClient := &msb.MockMsbClient{
+		ImageGetFn: func(_ context.Context, _ string) error { return nil },
+		ImageInspectFn: func(_ context.Context, _ string) (*msbSdk.ImageConfig, error) {
+			return &msbSdk.ImageConfig{Digest: "sha256:same"}, nil
+		},
+		ImageRemoveFn: func(_ context.Context, _ string, _ bool) error { removed = true; return nil },
+	}
+	if err := EnsureLoaded(context.Background(), msbClient, "test-project", rTag, &termio.Mock{}); err != nil {
+		t.Fatalf("EnsureLoaded: %v", err)
+	}
+	if removed {
+		t.Error("expected the matching cached image not to be removed")
 	}
 	if len(msbClient.LoadedImages) != 0 {
-		t.Errorf("expected no load when image is cached, got %d loads", len(msbClient.LoadedImages))
+		t.Errorf("expected no reload when content matches, got %v", msbClient.LoadedImages)
+	}
+}
+
+func TestEnsureLoadedSkipsWhenDockerfileIDLabelMatches(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	a := agentOpencode(t)
+	rTag := runnerTag("test-project", a.Name())
+	labels := map[string]string{dockerfileIDLabelKey: "abc123"}
+	docker.WithDockerMock(t, &docker.MockDockerClient{
+		ImageInspectFn: func(_ context.Context, _ string, _ ...client.ImageInspectOption) (client.ImageInspectResult, error) {
+			return client.ImageInspectResult{
+				InspectResponse: image.InspectResponse{ID: "", Config: &dockerspec.DockerOCIImageConfig{
+					ImageConfig: ocispec.ImageConfig{Labels: labels},
+				}},
+			}, nil
+		},
+	})
+	removed := false
+	msbClient := &msb.MockMsbClient{
+		ImageGetFn: func(_ context.Context, _ string) error { return nil },
+		ImageInspectFn: func(_ context.Context, _ string) (*msbSdk.ImageConfig, error) {
+			return &msbSdk.ImageConfig{Digest: "", Labels: labels}, nil
+		},
+		ImageRemoveFn: func(_ context.Context, _ string, _ bool) error { removed = true; return nil },
+	}
+	if err := EnsureLoaded(context.Background(), msbClient, "test-project", rTag, &termio.Mock{}); err != nil {
+		t.Fatalf("EnsureLoaded: %v", err)
+	}
+	if removed {
+		t.Error("expected the matching cached image not to be removed")
+	}
+	if len(msbClient.LoadedImages) != 0 {
+		t.Errorf("expected no reload when labels match, got %v", msbClient.LoadedImages)
 	}
 }
 

@@ -340,10 +340,17 @@ func EnsureImageWithClient(
 
 // EnsureLoaded loads the runner image into the microsandbox cache if it is not
 // already present, so the image can be used to create VMs. It is idempotent:
-// when the image is already cached (ImageGet succeeds) it returns immediately.
+// when the image is already cached (ImageGet succeeds) it returns immediately,
+// unless the cached content no longer matches the Docker image, in which case
+// the stale microsandbox image is removed and reloaded.
 func EnsureLoaded(ctx context.Context, mclient msb.Client, _, imageRef string, ui termio.UI) error {
 	if err := mclient.ImageGet(ctx, imageRef); err == nil {
-		return nil
+		if cachedImageMatchesDocker(ctx, mclient, imageRef) {
+			return nil
+		}
+		if err := mclient.ImageRemove(ctx, imageRef, true); err != nil {
+			ui.Warnf("failed to remove stale cached image %s: %v (continuing)", imageRef, err)
+		}
 	}
 
 	spin := ui.Spinner("Loading image into microsandbox")
@@ -359,6 +366,26 @@ func EnsureLoaded(ctx context.Context, mclient msb.Client, _, imageRef string, u
 	}
 	spin.Stop()
 	return nil
+}
+
+// cachedImageMatchesDocker reports whether the microsandbox image under ref
+// matches the Docker image under ref. It compares the microsandbox config
+// digest against the Docker image ID, falling back to the dockerfile-id label
+// when the digest is unavailable.
+func cachedImageMatchesDocker(ctx context.Context, mclient msb.Client, ref string) bool {
+	dInspect, err := docker.Get().ImageInspect(ctx, ref)
+	if err != nil || dInspect.Config == nil {
+		return false
+	}
+	mInspect, err := mclient.ImageInspect(ctx, ref)
+	if err != nil {
+		return false
+	}
+	if mInspect.Digest != "" && mInspect.Digest == dInspect.ID {
+		return true
+	}
+	dID := dInspect.Config.Labels[dockerfileIDLabelKey]
+	return dID != "" && mInspect.Labels[dockerfileIDLabelKey] == dID
 }
 
 // EnsureImage builds/inspects the runner Docker image and returns an ImageInfo
