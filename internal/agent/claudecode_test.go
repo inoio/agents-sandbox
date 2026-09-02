@@ -35,9 +35,6 @@ func TestClaudeCodeImageSpec(t *testing.T) {
 	if spec.VersionArg != "CLAUDE_CODE_VERSION" {
 		t.Errorf("VersionArg = %q, want CLAUDE_CODE_VERSION", spec.VersionArg)
 	}
-	if spec.VersionLabel != "org.opencode-sandbox.claude-code-version" {
-		t.Errorf("VersionLabel = %q, want org.opencode-sandbox.claude-code-version", spec.VersionLabel)
-	}
 	if _, ok := spec.AgentEnv["DISABLE_AUTOUPDATER"]; !ok {
 		t.Errorf("AgentEnv = %v, want DISABLE_AUTOUPDATER key", spec.AgentEnv)
 	}

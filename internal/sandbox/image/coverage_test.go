@@ -1,11 +1,9 @@
 package image
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"io"
-	"slices"
 	"testing"
 
 	"github.com/moby/moby/api/types/image"
@@ -15,7 +13,6 @@ import (
 	"github.com/inoio/opencode-sandbox/internal/configpaths"
 	"github.com/inoio/opencode-sandbox/internal/sandbox/docker"
 	"github.com/inoio/opencode-sandbox/internal/sandbox/msb"
-	"github.com/inoio/opencode-sandbox/internal/sandbox/naming"
 	"github.com/inoio/opencode-sandbox/internal/termio"
 )
 
@@ -37,9 +34,6 @@ func TestEnsureImageSuccess(t *testing.T) {
 	info, err := EnsureImage(context.Background(), a, "test-project", BuildOptions{}, &termio.Mock{})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
-	}
-	if info.OpenCodeVersion != "1.2.3" {
-		t.Errorf("info.OpenCodeVersion = %q, want %q", info.OpenCodeVersion, "1.2.3")
 	}
 	if info.Env["PATH"] != "/usr/bin" {
 		t.Errorf("info.Env = %v", info.Env)
@@ -141,30 +135,6 @@ func TestInspectExistingImageReturnsEmptyOnInspectFailure(t *testing.T) {
 
 	if got := inspectExistingImage(context.Background(), "runner-tag", &termio.Mock{}); got != "" {
 		t.Errorf("inspectExistingImage = %q, want empty string on inspect failure", got)
-	}
-}
-
-func TestEnsureImageReturnsErrorWhenRunnerBuildFails(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
-	WithMockAgentVersion(t, "1.2.3")
-	a, _ := agent.Lookup("opencode")
-	// The base image build must succeed so the flow reaches the runner build,
-	// which then fails.
-	docker.WithDockerMock(t, &docker.MockDockerClient{
-		ImageBuildFn: func(_ context.Context, _ io.Reader, opts client.ImageBuildOptions) (client.ImageBuildResult, error) {
-			if slices.Contains(opts.Tags, naming.BaseTag) {
-				return client.ImageBuildResult{Body: io.NopCloser(bytes.NewReader(nil))}, nil
-			}
-			return client.ImageBuildResult{}, errors.New("runner build boom")
-		},
-	})
-	dockerfile := []byte("FROM " + naming.BaseImagePrefix + ":latest\nRUN echo hi\n")
-	_, err := EnsureImageWithClient(
-		context.Background(), a, dockerfile, "test-project",
-		BuildOptions{Force: true}, &termio.Mock{},
-	)
-	if err == nil {
-		t.Error("expected error when runner image build fails")
 	}
 }
 

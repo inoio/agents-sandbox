@@ -301,6 +301,7 @@ linters:
         # third-party libs (project-specific)
         - ^github.com/moby/moby/client.ImageBuildOptions$
         - ^github.com/moby/moby/client.ImageRemoveOptions$
+        - ^github.com/moby/moby/client.ImagePullOptions$
         - ^github.com/superradcompany/microsandbox/sdk/go.MountOptions$
         - ^github.com/superradcompany/microsandbox/sdk/go.SecretEnvOptions$
         # microsandbox SDK errors — Cause is nil for SDK-originated errors

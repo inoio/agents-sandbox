@@ -49,8 +49,6 @@ func (s *Session) Target() string {
 // PrepareSandbox builds (or reuses) the project VM, provisions config, and
 // returns a ready-to-attach Session. It is the setup half of a run:
 // Run and Shell in the session package call it and then attach to the result.
-//
-//nolint:funlen // central orchestration function; near the limit by nature
 func PrepareSandbox(
 	ctx context.Context,
 	opts options.RunOptions,
@@ -80,7 +78,7 @@ func PrepareSandbox(
 		ctx,
 		a,
 		projectSlug,
-		image.BuildOptions{Force: opts.Rebuild || shallUpgrade, OpenCodeVersion: openCodeVersion},
+		image.BuildOptions{Force: opts.Rebuild || shallUpgrade, AgentVersion: openCodeVersion, Dind: false},
 		ui,
 	)
 	if err != nil {
@@ -90,13 +88,7 @@ func PrepareSandbox(
 		ui.Verbosef("runner image rebuilt with a newer opencode version")
 	}
 
-	ui.Verbosef("Using image '%s' (digest=%s, opencode %s)", imageInfo.Tag, imageInfo.Digest, imageInfo.OpenCodeVersion)
-
-	// Persist the version actually baked so later runs reuse it as a stable
-	// build arg.
-	if recordErr := recordUpgradeVersion(imageInfo.OpenCodeVersion); recordErr != nil {
-		ui.Warnf("could not record opencode version in updater state: %v (continuing)", recordErr)
-	}
+	ui.Verbosef("Using image '%s' (digest=%s)", imageInfo.Tag, imageInfo.Digest)
 
 	client := msb.Get()
 	vm := volume.NewManager(ui)

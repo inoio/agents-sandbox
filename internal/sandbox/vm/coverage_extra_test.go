@@ -57,28 +57,6 @@ func TestCurrentUpgradeVersionIgnoresCorruptFile(t *testing.T) {
 	}
 }
 
-// TestRecordUpgradeVersionReturnsLoadError covers the case where the updater
-// state file cannot be read at all (non-not-found), so recordUpgradeVersion
-// propagates the read error.
-func TestRecordUpgradeVersionReturnsLoadError(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
-	// Point the state directory at a regular file so reading updater.yaml fails.
-	dir := t.TempDir()
-	stateFile := filepath.Join(dir, "userstate")
-	if err := os.WriteFile(stateFile, []byte("not-a-dir"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	orig := configpaths.Get
-	configpaths.Get = func() configpaths.ConfigPaths {
-		return failingStateDirConfigPaths{stateDir: stateFile}
-	}
-	t.Cleanup(func() { configpaths.Get = orig })
-
-	if err := recordUpgradeVersion("2.0.0"); err == nil {
-		t.Error("expected error when updater state cannot be read")
-	}
-}
-
 // TestSaveUpgradeStateMkdirError covers the MkdirAll error path in
 // saveUpgradeState (state directory cannot be created).
 func TestSaveUpgradeStateMkdirError(t *testing.T) {

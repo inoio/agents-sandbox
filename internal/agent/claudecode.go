@@ -19,8 +19,7 @@ func (claudeCodeProfile) ConfigDirName() string { return "claude" }
 
 func (claudeCodeProfile) ImageSpec() ImageSpec {
 	return ImageSpec{
-		VersionArg:   versionArgFor(claudeCodeName),
-		VersionLabel: versionLabelFor(claudeCodeName),
+		VersionArg: versionArgFor(claudeCodeName),
 		// claude-code self-updates at startup; the sandbox pins the baked
 		// version and resolves upgrades itself, so disable the in-agent
 		// auto-updater.

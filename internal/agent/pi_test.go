@@ -35,9 +35,6 @@ func TestPIImageSpec(t *testing.T) {
 	if spec.VersionArg != "PI_VERSION" {
 		t.Errorf("VersionArg = %q, want PI_VERSION", spec.VersionArg)
 	}
-	if spec.VersionLabel != "org.opencode-sandbox.pi-version" {
-		t.Errorf("VersionLabel = %q, want org.opencode-sandbox.pi-version", spec.VersionLabel)
-	}
 	if _, ok := spec.AgentEnv["PI_SKIP_VERSION_CHECK"]; !ok {
 		t.Errorf("AgentEnv = %v, want PI_SKIP_VERSION_CHECK key", spec.AgentEnv)
 	}

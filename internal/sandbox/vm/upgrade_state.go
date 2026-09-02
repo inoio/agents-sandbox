@@ -110,18 +110,3 @@ func currentUpgradeVersion() string {
 	}
 	return state.CurrentVersion
 }
-
-// recordUpgradeVersion persists the opencode version actually baked into the
-// runner image, preserving all other persisted fields. An empty version is
-// ignored so a failed/unlabeled build never clobbers a previously recorded one.
-func recordUpgradeVersion(version string) error {
-	if version == "" {
-		return nil
-	}
-	state, err := loadUpgradeState()
-	if err != nil {
-		return err
-	}
-	state.CurrentVersion = version
-	return saveUpgradeState(state)
-}

@@ -19,8 +19,7 @@ func (piProfile) ConfigDirName() string { return "pi" }
 
 func (piProfile) ImageSpec() ImageSpec {
 	return ImageSpec{
-		VersionArg:   versionArgFor(piName),
-		VersionLabel: versionLabelFor(piName),
+		VersionArg: versionArgFor(piName),
 		// pi checks pi.dev for updates at startup; the sandbox pins the baked
 		// version and resolves upgrades itself, so disable the in-agent check.
 		AgentEnv: map[string]string{"PI_SKIP_VERSION_CHECK": "1"},

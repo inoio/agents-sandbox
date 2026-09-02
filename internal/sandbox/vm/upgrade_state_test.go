@@ -63,46 +63,6 @@ func TestCurrentUpgradeVersionWhenMissing(t *testing.T) {
 	}
 }
 
-func TestRecordUpgradeVersion(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
-
-	// Recording preserves unrelated fields already persisted in the state.
-	prior := upgradeState{LastChecked: time.Date(2026, 8, 18, 12, 0, 0, 0, time.UTC)}
-	if err := saveUpgradeState(prior); err != nil {
-		t.Fatalf("saveUpgradeState: %v", err)
-	}
-
-	if err := recordUpgradeVersion("2.0.0"); err != nil {
-		t.Fatalf("recordUpgradeVersion: %v", err)
-	}
-
-	got, err := loadUpgradeState()
-	if err != nil {
-		t.Fatalf("loadUpgradeState: %v", err)
-	}
-	if got.CurrentVersion != "2.0.0" {
-		t.Errorf("CurrentVersion = %q, want %q", got.CurrentVersion, "2.0.0")
-	}
-	if !got.LastChecked.Equal(prior.LastChecked) {
-		t.Errorf("LastChecked = %v, want preserved %v", got.LastChecked, prior.LastChecked)
-	}
-}
-
-func TestRecordUpgradeVersionIgnoresEmpty(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
-
-	if err := saveUpgradeState(upgradeState{CurrentVersion: "1.0.0"}); err != nil {
-		t.Fatalf("saveUpgradeState: %v", err)
-	}
-	// Recording an empty version must not clobber an existing stored version.
-	if err := recordUpgradeVersion(""); err != nil {
-		t.Fatalf("recordUpgradeVersion: %v", err)
-	}
-	if got := currentUpgradeVersion(); got != "1.0.0" {
-		t.Errorf("currentUpgradeVersion() = %q, want preserved %q", got, "1.0.0")
-	}
-}
-
 func TestLoadUpgradeStateWhenMissing(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 

@@ -19,20 +19,20 @@ func inspectExistingImage(ctx context.Context, rTag string, ui termio.UI) string
 	return inspect.ID
 }
 
-// readImageInfoFromDocker returns the image env map and the baked agent
-// version by inspecting the Docker image. The loaded microsandbox image is a
-// passthrough of the Docker image, so reading from Docker is equivalent to
-// reading from microsandbox and avoids requiring the image to be loaded first.
-func readImageInfoFromDocker(ctx context.Context, rTag string, versionLabel string) (map[string]string, string, error) {
+// readImageInfoFromDocker returns the image env map by inspecting the Docker
+// image. The loaded microsandbox image is a passthrough of the Docker image, so
+// reading from Docker is equivalent to reading from microsandbox and avoids
+// requiring the image to be loaded first.
+func readImageInfoFromDocker(ctx context.Context, rTag string) (map[string]string, error) {
 	inspect, err := docker.Get().ImageInspect(ctx, rTag)
 	if err != nil {
-		return nil, "", err
+		return nil, err
 	}
-	cfg := inspect.Config
-	if cfg == nil {
-		return nil, "", nil
+	if inspect.Config == nil {
+		//nolint:nilnil // a missing config means no env, which is not an error
+		return nil, nil
 	}
-	return parseImageEnv(cfg.Env), parseImageVersion(cfg.Labels, versionLabel), nil
+	return parseImageEnv(inspect.Config.Env), nil
 }
 
 func parseImageEnv(envs []string) map[string]string {

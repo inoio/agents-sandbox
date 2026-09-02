@@ -54,9 +54,6 @@ func TestImageSpecDerivationHelpers(t *testing.T) {
 	if spec.VersionArg != "OPENCODE_VERSION" {
 		t.Errorf("VersionArg = %q, want derived OPENCODE_VERSION", spec.VersionArg)
 	}
-	if spec.VersionLabel != "org.opencode-sandbox.opencode-version" {
-		t.Errorf("VersionLabel = %q, want derived label", spec.VersionLabel)
-	}
 	if _, ok := spec.AgentEnv["OPENCODE_DISABLE_AUTOUPDATE"]; !ok {
 		t.Errorf("AgentEnv = %v, want OPENCODE_DISABLE_AUTOUPDATE key", spec.AgentEnv)
 	}
@@ -74,9 +71,6 @@ func TestOpencodeImageSpec(t *testing.T) {
 	spec := a.ImageSpec()
 	if spec.VersionArg != "OPENCODE_VERSION" {
 		t.Errorf("VersionArg = %q, want OPENCODE_VERSION", spec.VersionArg)
-	}
-	if spec.VersionLabel != "org.opencode-sandbox.opencode-version" {
-		t.Errorf("VersionLabel = %q", spec.VersionLabel)
 	}
 	if _, ok := spec.AgentEnv["OPENCODE_DISABLE_AUTOUPDATE"]; !ok {
 		t.Errorf("AgentEnv = %v, want OPENCODE_DISABLE_AUTOUPDATE key", spec.AgentEnv)
