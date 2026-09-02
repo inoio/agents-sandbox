@@ -42,8 +42,6 @@ func TestPruneImages(t *testing.T) {
 				img("opencode-sandbox/runner-orphan-1mjusbm3wikhb0:digest1", old),
 				img("opencode-sandbox/runner-active-1mjusbm3wikhb0:"+curTag, old),
 				img("opencode-sandbox/runner-active-1mjusbm3wikhb0:digestOld", older),
-				img("opencode-sandbox/runner-base:latest", old),      // base excluded
-				img("opencode-sandbox/runner-base-dind:latest", old), // base-dind excluded
 			},
 		}
 		msb.WithMsbMock(t, client)
@@ -205,7 +203,9 @@ func TestPruneImages(t *testing.T) {
 	})
 
 	t.Run("docker prune error is warned but not fatal", func(t *testing.T) {
-		client := &msb.MockMsbClient{Images: []msb.ImageHandle{img("opencode-sandbox/runner-base:latest", old)}}
+		client := &msb.MockMsbClient{
+			Images: []msb.ImageHandle{img("opencode-sandbox/runner-dockererr-1mjusbm3wikhb0:digest1", old)},
+		}
 		msb.WithMsbMock(t, client)
 		docker.WithDefaultErrorDockerMock(t)
 		ui := &termio.Mock{}

@@ -22,7 +22,6 @@ import (
 	"github.com/inoio/opencode-sandbox/internal/configpaths"
 	"github.com/inoio/opencode-sandbox/internal/sandbox/docker"
 	"github.com/inoio/opencode-sandbox/internal/sandbox/msb"
-	"github.com/inoio/opencode-sandbox/internal/sandbox/naming"
 	"github.com/inoio/opencode-sandbox/internal/termio"
 )
 
@@ -40,56 +39,56 @@ func dockerConfigWith(version string, env []string) *dockerspec.DockerOCIImageCo
 
 func TestReferencesImageDetectsBaseImage(t *testing.T) {
 	dockerfile := []byte("FROM opencode-sandbox/runner-base:latest\nRUN echo hi\n")
-	if !referencesImage(dockerfile, naming.BaseImagePrefix) {
+	if !referencesImage(dockerfile, "opencode-sandbox/runner-base") {
 		t.Error("expected referencesImage=true for Dockerfile with base image")
 	}
 }
 
 func TestReferencesImageReturnsFalseForOtherImage(t *testing.T) {
 	dockerfile := []byte("FROM debian:trixie-slim\nRUN echo hi\n")
-	if referencesImage(dockerfile, naming.BaseImagePrefix) {
+	if referencesImage(dockerfile, "opencode-sandbox/runner-base") {
 		t.Error("expected referencesImage=false for non-base Dockerfile")
 	}
 }
 
 func TestReferencesImageIgnoresComments(t *testing.T) {
 	dockerfile := []byte("# FROM opencode-sandbox/runner-base:latest\nFROM debian:trixie-slim\n")
-	if referencesImage(dockerfile, naming.BaseImagePrefix) {
+	if referencesImage(dockerfile, "opencode-sandbox/runner-base") {
 		t.Error("expected referencesImage=false for commented FROM")
 	}
 }
 
 func TestReferencesImageMatchesImageIdentifierRegardlessOfTag(t *testing.T) {
 	dockerfile := []byte("FROM opencode-sandbox/runner-base:custom\nRUN echo hi\n")
-	if !referencesImage(dockerfile, naming.BaseImagePrefix) {
+	if !referencesImage(dockerfile, "opencode-sandbox/runner-base") {
 		t.Error("expected referencesImage=true for base image with a non-default tag")
 	}
 }
 
 func TestReferencesImageMatchesMainImageWithStageAlias(t *testing.T) {
 	dockerfile := []byte("FROM opencode-sandbox/runner-base:latest AS builder\nRUN echo hi\n")
-	if !referencesImage(dockerfile, naming.BaseImagePrefix) {
+	if !referencesImage(dockerfile, "opencode-sandbox/runner-base") {
 		t.Error("expected referencesImage=true for base image declared as a stage")
 	}
 }
 
 func TestReferencesImageIgnoresStageReference(t *testing.T) {
 	dockerfile := []byte("FROM debian:trixie-slim AS base\nFROM base AS builder\n")
-	if referencesImage(dockerfile, naming.BaseImagePrefix) {
+	if referencesImage(dockerfile, "opencode-sandbox/runner-base") {
 		t.Error("expected referencesImage=false when base image is used as a stage reference")
 	}
 }
 
 func TestReferencesImageIgnoresBuildFlag(t *testing.T) {
 	dockerfile := []byte("FROM --platform=linux/amd64 opencode-sandbox/runner-base:latest\nRUN echo hi\n")
-	if !referencesImage(dockerfile, naming.BaseImagePrefix) {
+	if !referencesImage(dockerfile, "opencode-sandbox/runner-base") {
 		t.Error("expected referencesImage=true for base image after build flag")
 	}
 }
 
 func TestReferencesImageFalseWhenBaseNotLastStage(t *testing.T) {
 	dockerfile := []byte("FROM opencode-sandbox/runner-base:latest AS base\nFROM debian:trixie-slim AS final\n")
-	if referencesImage(dockerfile, naming.BaseImagePrefix) {
+	if referencesImage(dockerfile, "opencode-sandbox/runner-base") {
 		t.Error("expected referencesImage=false when base image is not the last stage")
 	}
 }
@@ -98,21 +97,21 @@ func TestReferencesImageTrueWhenBaseIsLastStageViaAlias(t *testing.T) {
 	dockerfile := []byte(
 		"FROM debian:trixie-slim AS base\nFROM opencode-sandbox/runner-base:latest AS builder\nFROM builder\n",
 	)
-	if !referencesImage(dockerfile, naming.BaseImagePrefix) {
+	if !referencesImage(dockerfile, "opencode-sandbox/runner-base") {
 		t.Error("expected referencesImage=true when base image backs the final stage through an alias")
 	}
 }
 
 func TestReferencesImageIgnoresIntermediateStage(t *testing.T) {
 	dockerfile := []byte("FROM opencode-sandbox/runner-base:latest AS base\nFROM debian:trixie-slim AS final\n")
-	if referencesImage(dockerfile, naming.BaseImagePrefix) {
+	if referencesImage(dockerfile, "opencode-sandbox/runner-base") {
 		t.Error("expected referencesImage=false for base image used only as an intermediate stage")
 	}
 }
 
 func TestReferencesImageTrueWhenLastStageReusesAliasOfBase(t *testing.T) {
 	dockerfile := []byte("FROM opencode-sandbox/runner-base:latest AS base\nFROM base\n")
-	if !referencesImage(dockerfile, naming.BaseImagePrefix) {
+	if !referencesImage(dockerfile, "opencode-sandbox/runner-base") {
 		t.Error("expected referencesImage=true when the last stage reuses an alias of the base image")
 	}
 }
@@ -233,35 +232,35 @@ func TestEnsureImageReturnsErrorWhenBuildFails(t *testing.T) {
 
 func TestReferencesImageDetectsDindImage(t *testing.T) {
 	dockerfile := []byte("FROM opencode-sandbox/runner-base-dind:latest\nRUN echo hi\n")
-	if !referencesImage(dockerfile, naming.BaseDindImagePrefix) {
+	if !referencesImage(dockerfile, "opencode-sandbox/runner-base-dind") {
 		t.Error("expected referencesImage=true for Dockerfile with dind FROM")
 	}
 }
 
 func TestReferencesImageReturnsFalseForPlainBase(t *testing.T) {
 	dockerfile := []byte("FROM opencode-sandbox/runner-base:latest\nRUN echo hi\n")
-	if referencesImage(dockerfile, naming.BaseDindImagePrefix) {
+	if referencesImage(dockerfile, "opencode-sandbox/runner-base-dind") {
 		t.Error("expected referencesImage=false for plain base Dockerfile")
 	}
 }
 
 func TestReferencesImageReturnsFalseForDindOtherImage(t *testing.T) {
 	dockerfile := []byte("FROM debian:trixie-slim\nRUN echo hi\n")
-	if referencesImage(dockerfile, naming.BaseDindImagePrefix) {
+	if referencesImage(dockerfile, "opencode-sandbox/runner-base-dind") {
 		t.Error("expected referencesImage=false for non-base Dockerfile")
 	}
 }
 
 func TestReferencesImageIgnoresDindComment(t *testing.T) {
 	dockerfile := []byte("# FROM opencode-sandbox/runner-base-dind:latest\nFROM debian:trixie-slim\n")
-	if referencesImage(dockerfile, naming.BaseDindImagePrefix) {
+	if referencesImage(dockerfile, "opencode-sandbox/runner-base-dind") {
 		t.Error("expected referencesImage=false for commented FROM")
 	}
 }
 
 func TestReferencesImageDindDoesNotMatchBase(t *testing.T) {
 	dockerfile := []byte("FROM opencode-sandbox/runner-base-dind:latest\nRUN echo hi\n")
-	if referencesImage(dockerfile, naming.BaseImagePrefix) {
+	if referencesImage(dockerfile, "opencode-sandbox/runner-base") {
 		t.Error("expected referencesImage=false for dind Dockerfile with base image identifier (no false positive)")
 	}
 }

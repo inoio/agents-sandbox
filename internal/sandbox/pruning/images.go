@@ -39,9 +39,6 @@ func PruneImages(
 			continue
 		}
 		imageArtifact := naming.ArtifactFor(ref)
-		if imageArtifact.Slug == naming.BaseSlug || imageArtifact.Slug == naming.BaseDindSlug {
-			continue
-		}
 		if keepImage(imageArtifact.Slug, imageArtifact.Digest, imageHandle, handles, pruneState) {
 			continue
 		}
