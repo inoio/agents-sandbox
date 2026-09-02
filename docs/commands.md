@@ -48,6 +48,7 @@ Arguments after `--` are forwarded to opencode. Arguments before `--` that don't
 | `--dry-run-vm` | —     | `false`  | Skip VM lifecycle but prepare everything else                                                                                              |
 | `--serve-only` | `-s`  | `false`  | Start opencode server published on host loopback (no in-VM TUI); press `Ctrl-D` to exit. Set `OPENCODE_SERVER_PASSWORD` for basic auth. |
 | `--agent`      | —     | `opencode` | Coding-agent profile to run: `opencode` (default), `pi`, or `claude-code`.                                                                |
+| `--dind`       | —     | `false`  | Enable Docker-in-Docker in the runner image                                                                                                |
 
 **Aliases:** `sandbox run`
 
@@ -67,6 +68,7 @@ opencode-sandbox shell -w bugfix-fix-thing
 | Flag       | Short | Default | Purpose                                                          |
 |------------|-------|---------|------------------------------------------------------------------|
 | `--root`   | —     | `false` | Attach the shell as root (debug/maintenance). Only available on shell. |
+| `--dind`   | —     | `false` | Enable Docker-in-Docker in the runner image                      |
 
 **Aliases:** `sh`, `sandbox shell`
 
@@ -90,7 +92,9 @@ opencode-sandbox build --agent-version 0.5.0  # pin a specific agent version
 | `--dry-run`          | `-n`  | `false`  | Dry run without building                                        |
 | `--agent`            | —     | `opencode` | Coding-agent profile to build: `opencode` (default), `pi`, or `claude-code`. |
 | `--agent-version`    | —     | `""`     | Pin the agent version baked into the image (default: latest)    |
-| `--opencode-version` | —     | `""`     | Deprecated alias for `--agent-version`                          |
+| `--dind`             | —     | `false`  | Enable Docker-in-Docker in the runner image                     |
+
+> The deprecated `--opencode-version` flag remains as an alias for `--agent-version`.
 
 **Aliases:** `image build`
 

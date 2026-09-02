@@ -30,9 +30,17 @@ command reports the bare version (e.g. `0.1.0`).
 - Behavior: default drop-in provisioning — when running, the launcher now copies the active agent's config + credential files from the host into the VM by default, driven by per-agent gitignore-style include-list manifests (`ProvisionRules`). For opencode this copies `~/.config/opencode/**` (excluding `node_modules`, `package*.json`, `.gitignore`) and `~/.local/share/opencode/auth.json`.
   - **Security note:** the opencode `auth.json` credential file is now copied into the VM by default. Users who prefer to deliver credentials via the env-secret mechanism should opt out of the file copy — see the docs. The env-secret channel is unchanged and still supported.
 - CI: test results are now uploaded to Codecov Test Analytics. The test job runs `gotestsum` to emit JUnit XML (`junit.xml`) alongside `coverage.out` in a single test run and uploads it via `codecov/codecov-action` with `report_type: test_results`; the new `make coverage-junit` target reproduces this locally.
+- Image: per-image provenance labels (`org.opencode-sandbox.agent`, `org.opencode-sandbox.base=<ref>@sha256:<digest>`)
+  and in-image source files (`/etc/opencode-sandbox/agent-source`, `/etc/opencode-sandbox/docker-source`).
 
 ### Changed
 
+- **Breaking** Image build: opencode-sandbox now builds a single runner image per project instead of
+  `opencode-sandbox/runner-base` and `opencode-sandbox/runner-base-dind`. Docker-in-Docker is enabled with the new
+  `--dind` flag or `dind: true` config key (a project Dockerfile still starting `FROM .../runner-base-dind:latest`
+  keeps working and implies it). A project Dockerfile whose `FROM` is any other image is treated as a custom base and
+  gets the agent (and optional dind) layered on top. The agent version is now detected on first boot instead of being
+  read from an image label; images that predate the redesign are force-rebuilt once.
 - Docs: Pages are now published only after a successful release, rebuilding from the published tag rather than in parallel on tag push. Each page footer and the home page display the release (or branch) they were built from.
 - Docs: Support for dark mode; follows the OS/browser color-scheme preference by default and expose a sun/moon toggle in the header (next to the GitHub link) that overrides and persists the choice.
 * **Breaking** CLI: the global `--verbose`/`--error` flags are replaced by a single monotonic `--log-level` flag (`error` | `warning` | `info` | `verbose`, default `info`, short `-l`). The `verbose`/`error` launcher-config keys and `OPENCODE_SANDBOX_VERBOSE`/`OPENCODE_SANDBOX_ERROR` env vars are replaced by `log-level` and `OPENCODE_SANDBOX_LOG_LEVEL`. The level selects the minimum severity shown on the console; `error < warning < info < verbose`, so a higher level is never hidden while a lower one is shown.

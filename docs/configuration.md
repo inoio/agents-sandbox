@@ -46,6 +46,12 @@ Place files under `.opencode-sandbox/` in your project directory. These override
 | `.opencode-sandbox/<agent>/*`                    | Project-specific agent config snippets (see [Agent configuration](#agent-configuration))          |
 | `.opencode-sandbox/home.yaml`                     | Project-specific home-file mappings (see [Home files](#home-files))                               |
 
+### Custom base images
+
+A `.opencode-sandbox/Dockerfile` whose `FROM` is a specific image is treated as a **custom base** and the agent (and
+optional dind) blocks are layered on top of it. See [Runner Image]({% link runner-image.md %}) for the contract: the base
+must provide `curl` and `bash`, the dind prerequisites when dind runs, and idempotency for an existing docker/node/agent.
+
 ## Precedence
 
 Configuration is resolved in this order (later entries override earlier ones):
@@ -82,6 +88,7 @@ Configuration is resolved in this order (later entries override earlier ones):
 | `mounts`                        | —                        | Additional host directories mounted into the VM (see [Host bind mounts](#host-bind-mounts))                                                                                                                               |
 | `agent`                         | `--agent`                | Agent profile name to run, build, and provision (default `opencode`, see [Agent configuration](#agent-configuration))                                                                                                        |
 | `provision-host-config`         | —                        | Copy the agent's host config + credentials into the VM by default (default: true; set false to opt out, see [Default drop-in provisioning](#default-drop-in-provisioning))                                               |
+| `dind`                          | `--dind`                 | Append the Docker-in-Docker block to the runner image (overridable with `--dind`)                                                                                                                                             |
 | `upgrade.mode`                   | —                        | How to handle a newer release when one is found: `prompt`, `notify`, `auto`, or `auto-exit` (default `prompt`, see [Self-upgrade](#self-upgrade))                                                            |
 | `upgrade.interval`               | —                        | How often to check for a newer release (default `1d`, minimum `1h`, see [Self-upgrade](#self-upgrade))                                                                                                                        |
 
@@ -184,6 +191,7 @@ precedence over config files but lose to an explicitly passed CLI flag. The pref
 | `network.profile`               | `OPENCODE_SANDBOX_NETWORK_PROFILE`                                |
 | `agent`                         | `OPENCODE_SANDBOX_AGENT`                                          |
 | `provision-host-config`         | `OPENCODE_SANDBOX_PROVISION_HOST_CONFIG`                          |
+| `dind`                          | `OPENCODE_SANDBOX_DIND`                                           |
 | `upgrade.mode`                   | `OPENCODE_SANDBOX_UPGRADE_MODE`                                    |
 | `upgrade.interval`               | `OPENCODE_SANDBOX_UPGRADE_INTERVAL`                                |
 
