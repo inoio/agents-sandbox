@@ -42,7 +42,7 @@ func (piProfile) ConfigFileNames() []string { return []string{settingsFileName} 
 
 func (piProfile) ProvisionRules() []ProvisionRule {
 	return []ProvisionRule{
-		{Dir: ".pi/agent", Patterns: []string{settingsFileName}},
+		{Dir: ".pi/agent", Patterns: []string{"**"}},
 	}
 }
 
