@@ -194,7 +194,7 @@ func TestPrune(t *testing.T) {
 					m.Volumes = append(m.Volumes,
 						homeVol("opencode-sandbox-home-activeproject-1mjusbm3wikhb0-abc123"))
 					m.Images = append(m.Images,
-						msbImg("opencode-sandbox/runner-activeproject-1mjusbm3wikhb0:xyz789"))
+						msbImg("opencode-sandbox/runner-activeproject-1mjusbm3wikhb0:opencode-latest"))
 					sandboxmsb.WithMsbMock(t, m)
 				}, staleSummary("Pruned", 1, 0, 0))
 			})
