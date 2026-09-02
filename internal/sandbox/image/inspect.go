@@ -8,6 +8,19 @@ import (
 	"github.com/inoio/opencode-sandbox/internal/termio"
 )
 
+// imageHasDockerfileID reports whether the existing runner image carries a
+// dockerfile-id label matching the current content identity. A match means the
+// baked image reflects the current agent, project Dockerfile, and version, so
+// the build can be skipped. It returns false on any inspect error or a missing
+// config/label so an unknown image is always rebuilt.
+func imageHasDockerfileID(ctx context.Context, rTag, dockerfileID string) bool {
+	inspect, err := docker.Get().ImageInspect(ctx, rTag)
+	if err != nil || inspect.Config == nil {
+		return false
+	}
+	return inspect.Config.Labels[dockerfileIDLabelKey] == dockerfileID
+}
+
 // inspectExistingImage returns the Docker image ID (used as the digest-based
 // cache identity) for an existing project image.
 func inspectExistingImage(ctx context.Context, rTag string, ui termio.UI) string {

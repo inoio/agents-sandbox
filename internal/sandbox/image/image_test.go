@@ -143,6 +143,7 @@ func TestBuildDockerImageSetsHostUserBuildArgs(t *testing.T) {
 		false,
 		"",
 		"debian:trixie-slim",
+		"",
 		false,
 		func(string) {},
 	); err != nil {

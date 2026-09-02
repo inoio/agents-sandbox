@@ -19,6 +19,8 @@ func TestRenderDockerfileDefaultBase(t *testing.T) {
 		"iptables",
 		"ARG OPENCODE_VERSION",
 		"LABEL org.opencode-sandbox.agent=opencode",
+		"ARG DOCKERFILE_ID",
+		"LABEL org.opencode-sandbox.dockerfile-id=$DOCKERFILE_ID",
 		"OPENCODE_DISABLE_AUTOUPDATE=true",
 		"node-v26.8.1-linux",
 		"echo tool > /etc/opencode-sandbox/agent-source",

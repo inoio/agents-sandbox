@@ -2,6 +2,8 @@ package image
 
 import (
 	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"os"
 	"strings"
@@ -21,6 +23,19 @@ const (
 
 // agentLabelKey is the image label carrying the baked agent name.
 const agentLabelKey = "org.opencode-sandbox.agent"
+
+// dockerfileIDLabelKey is the image label carrying the content identity of the
+// baked runner image, used to skip rebuilds when nothing that affects the
+// image has changed.
+const dockerfileIDLabelKey = "org.opencode-sandbox.dockerfile-id"
+
+// computeDockerfileID returns the content identity of a rendered runner
+// Dockerfile combined with the pinned agent version, capturing every input
+// that affects the baked image while excluding host-dependent build args.
+func computeDockerfileID(rendered []byte, agentVersion string) string {
+	h := sha256.Sum256(append(rendered, []byte(agentVersion)...))
+	return hex.EncodeToString(h[:])
+}
 
 // Pinned third-party versions baked into the image.
 const (
@@ -169,6 +184,8 @@ func agentBlock(a agent.Agent) string {
 	return fmt.Sprintf(`USER root
 ARG %s
 LABEL %s=%s
+ARG DOCKERFILE_ID
+LABEL org.opencode-sandbox.dockerfile-id=$DOCKERFILE_ID
 %sRUN command -v node >/dev/null 2>&1 || { \
       case "$(uname -m)" in \
         x86_64) NODE_ARCH=x64 ;; \

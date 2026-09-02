@@ -134,13 +134,25 @@ func buildDockerImage(
 	force bool,
 	agentVersion string,
 	baseImage string,
+	dockerfileID string,
 	dind bool,
 	ui termio.UI,
 ) error {
 	spinner := ui.Spinner(label)
 	line := func(s string) { ui.Verbose(s) }
 	ui.Verbosef("Building Docker image (force=%v)", force)
-	if err := buildImage(ctx, a, dockerfile, tag, force, agentVersion, baseImage, dind, line); err != nil {
+	if err := buildImage(
+		ctx,
+		a,
+		dockerfile,
+		tag,
+		force,
+		agentVersion,
+		baseImage,
+		dockerfileID,
+		dind,
+		line,
+	); err != nil {
 		spinner.StopError(err)
 		return err
 	}
@@ -158,6 +170,7 @@ func buildImage(
 	force bool,
 	agentVersion string,
 	baseImage string,
+	dockerfileID string,
 	dind bool,
 	line func(string),
 ) error {
@@ -169,7 +182,7 @@ func buildImage(
 		Tags:      []string{tag},
 		Remove:    true,
 		NoCache:   force,
-		BuildArgs: userBuildArgs(os.Getuid(), os.Getgid(), a.ImageSpec(), agentVersion, baseImage, dind),
+		BuildArgs: userBuildArgs(os.Getuid(), os.Getgid(), a.ImageSpec(), agentVersion, baseImage, dockerfileID, dind),
 	})
 	if err != nil {
 		return fmt.Errorf("docker image build failed: %w", err)
@@ -238,7 +251,12 @@ func dockerfileTar(dockerfile []byte) (*bytes.Buffer, error) {
 // userBuildArgs returns Docker build arguments that align the in-image dev
 // user with the host user that owns the bind-mounted /workspace, pin the agent
 // version, and record the base image provenance label.
-func userBuildArgs(uid, gid int, spec agent.ImageSpec, version, baseImage string, dind bool) map[string]*string {
+func userBuildArgs(
+	uid, gid int,
+	spec agent.ImageSpec,
+	version, baseImage, dockerfileID string,
+	dind bool,
+) map[string]*string {
 	u := strconv.Itoa(uid)
 	g := strconv.Itoa(gid)
 	args := map[string]*string{
@@ -246,6 +264,7 @@ func userBuildArgs(uid, gid int, spec agent.ImageSpec, version, baseImage string
 		"USER_GID":      &g,
 		spec.VersionArg: &version,
 		"BASE_IMAGE":    &baseImage,
+		"DOCKERFILE_ID": &dockerfileID,
 	}
 	if dind {
 		v := dockerVersion
@@ -289,21 +308,20 @@ func EnsureImageWithClient(
 
 	rTag := runnerTag(projectSlug, a.Name())
 	rendered := RenderDockerfile(a, projectDockerfile, buildOpts.Dind)
+	dockerfileID := computeDockerfileID(rendered, agentVersion)
 
-	// Pre-redesign images lack the agent contract label; force one rebuild.
-	force := buildOpts.Force || !imageHasAgentLabel(ctx, rTag, ui)
-
-	baseRef := baseImageRef(rendered)
-	baseDigest, err := resolveBaseDigest(ctx, baseRef, ui)
-	if err != nil {
-		return ImageInfo{}, fmt.Errorf("resolve base image %s: %w", baseRef, err)
-	}
-
-	if buildErr := buildDockerImage(
-		ctx, a, rendered, rTag, "Ensuring runner image",
-		force, agentVersion, baseDigest, buildOpts.Dind, ui,
-	); buildErr != nil {
-		return ImageInfo{}, buildErr
+	if buildOpts.Force || !imageHasDockerfileID(ctx, rTag, dockerfileID) {
+		baseRef := baseImageRef(rendered)
+		baseDigest, baseErr := resolveBaseDigest(ctx, baseRef, ui)
+		if baseErr != nil {
+			return ImageInfo{}, fmt.Errorf("resolve base image %s: %w", baseRef, baseErr)
+		}
+		if buildErr := buildDockerImage(
+			ctx, a, rendered, rTag, "Ensuring runner image",
+			true, agentVersion, baseDigest, dockerfileID, buildOpts.Dind, ui,
+		); buildErr != nil {
+			return ImageInfo{}, buildErr
+		}
 	}
 
 	inspect, err := docker.Get().ImageInspect(ctx, rTag)
@@ -311,14 +329,13 @@ func EnsureImageWithClient(
 		return ImageInfo{}, fmt.Errorf("cannot inspect built image: %w", err)
 	}
 	imageDigest := inspect.ID
-	ui.Verbosef("rebuilt image %s (digest %s)", rTag, imageDigest)
+	ui.Verbosef("image %s (digest %s)", rTag, imageDigest)
 
-	imageRef := rTag // the agent tag is the msb reference
 	env, err := readImageInfoFromDocker(ctx, rTag)
 	if err != nil {
 		return ImageInfo{}, fmt.Errorf("inspect built image: %w", err)
 	}
-	return ImageInfo{Tag: imageRef, Digest: imageDigest, Env: env}, nil
+	return ImageInfo{Tag: rTag, Digest: imageDigest, Env: env}, nil
 }
 
 // EnsureLoaded loads the runner image into the microsandbox cache if it is not
@@ -407,19 +424,6 @@ func finalStageToken(rendered []byte) string {
 		lastImage = fromImage
 	}
 	return resolveStageBase(lastImage, stageBase)
-}
-
-// imageHasAgentLabel reports whether the existing runner image carries the
-// agent contract label. Pre-redesign images lack it and are force-rebuilt once.
-func imageHasAgentLabel(ctx context.Context, rTag string, _ termio.UI) bool {
-	inspect, err := docker.Get().ImageInspect(ctx, rTag)
-	if err != nil {
-		return false
-	}
-	if inspect.Config == nil {
-		return false
-	}
-	return inspect.Config.Labels[agentLabelKey] != ""
 }
 
 // resolveBaseDigest returns "<ref>@sha256:<digest>" for the base image, pulling

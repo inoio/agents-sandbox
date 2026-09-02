@@ -17,40 +17,73 @@ import (
 	"github.com/inoio/opencode-sandbox/internal/termio"
 )
 
-// TestEnsureImageMigrationForcesRebuildWithoutAgentLabel verifies the one-time
-// migration: a pre-redesign image lacking the agent label is force-rebuilt.
-func TestEnsureImageMigrationForcesRebuildWithoutAgentLabel(t *testing.T) {
+// TestEnsureImageSkipsBuildWhenDockerfileIDMatches verifies the build is skipped
+// when the existing runner image already carries a matching dockerfile-id label.
+func TestEnsureImageSkipsBuildWhenDockerfileIDMatches(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	WithMockAgentVersion(t, "1.2.3")
 	a := agentOpencode(t)
-	var noCache bool
+	built := false
 	docker.WithDockerMock(t, &docker.MockDockerClient{
 		ImageInspectFn: func(_ context.Context, ref string, _ ...client.ImageInspectOption) (client.ImageInspectResult, error) {
-			if ref == "debian:trixie-slim" {
-				return client.ImageInspectResult{
-					InspectResponse: image.InspectResponse{ID: "sha256:base"},
-				}, nil
+			id := "sha256:existing"
+			labels := map[string]string{
+				dockerfileIDLabelKey: computeDockerfileID(RenderDockerfile(a, nil, false), "1.2.3"),
 			}
-			return client.ImageInspectResult{
-				InspectResponse: image.InspectResponse{
-					ID: "sha256:old",
-					Config: &dockerspec.DockerOCIImageConfig{
-						ImageConfig: ocispec.ImageConfig{Labels: map[string]string{}},
-					},
-				},
-			}, nil
+			if ref == "debian:trixie-slim" {
+				return client.ImageInspectResult{InspectResponse: image.InspectResponse{ID: "sha256:base"}}, nil
+			}
+			return client.ImageInspectResult{InspectResponse: image.InspectResponse{
+				ID:     id,
+				Config: &dockerspec.DockerOCIImageConfig{ImageConfig: ocispec.ImageConfig{Labels: labels}},
+			}}, nil
 		},
-		ImageBuildFn: func(_ context.Context, _ io.Reader, opts client.ImageBuildOptions) (client.ImageBuildResult, error) {
-			noCache = opts.NoCache
+		ImageBuildFn: func(_ context.Context, _ io.Reader, _ client.ImageBuildOptions) (client.ImageBuildResult, error) {
+			built = true
 			return client.ImageBuildResult{Body: io.NopCloser(strings.NewReader(""))}, nil
 		},
 	})
-	_, err := EnsureImage(context.Background(), a, "proj", BuildOptions{}, &termio.Mock{})
+	info, err := EnsureImage(context.Background(), a, "proj", BuildOptions{}, &termio.Mock{})
 	if err != nil {
 		t.Fatalf("EnsureImage: %v", err)
 	}
-	if !noCache {
-		t.Error("expected a forced (NoCache) rebuild for a pre-redesign image without the agent label")
+	if built {
+		t.Error("expected the docker build to be skipped when the dockerfile-id label matches")
+	}
+	if info.Digest != "sha256:existing" {
+		t.Errorf("Digest = %q, want the existing image ID", info.Digest)
+	}
+}
+
+// TestEnsureImageBuildsWhenDockerfileIDMismatches verifies the build runs when
+// the existing runner image's dockerfile-id label differs from the current one.
+func TestEnsureImageBuildsWhenDockerfileIDMismatches(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	WithMockAgentVersion(t, "1.2.3")
+	a := agentOpencode(t)
+	built := false
+	docker.WithDockerMock(t, &docker.MockDockerClient{
+		ImageInspectFn: func(_ context.Context, ref string, _ ...client.ImageInspectOption) (client.ImageInspectResult, error) {
+			if ref == "debian:trixie-slim" {
+				return client.ImageInspectResult{InspectResponse: image.InspectResponse{ID: "sha256:base"}}, nil
+			}
+			return client.ImageInspectResult{InspectResponse: image.InspectResponse{
+				ID: "sha256:existing",
+				Config: &dockerspec.DockerOCIImageConfig{
+					ImageConfig: ocispec.ImageConfig{Labels: map[string]string{dockerfileIDLabelKey: "stale"}},
+				},
+			}}, nil
+		},
+		ImageBuildFn: func(_ context.Context, _ io.Reader, _ client.ImageBuildOptions) (client.ImageBuildResult, error) {
+			built = true
+			return client.ImageBuildResult{Body: io.NopCloser(strings.NewReader(""))}, nil
+		},
+	})
+	if _, err := EnsureImage(context.Background(), a, "proj", BuildOptions{}, &termio.Mock{}); err != nil {
+		t.Fatalf("EnsureImage: %v", err)
+	}
+	if !built {
+		t.Error("expected the docker build to run when the dockerfile-id label mismatches")
 	}
 }
 
