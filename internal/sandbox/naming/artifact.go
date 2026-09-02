@@ -8,6 +8,7 @@ import (
 type ArtifactInfo struct {
 	Slug   string
 	Digest string
+	Agent  string
 }
 
 // findHashSuffix finds the start index of a 14-character base36 hash suffix
@@ -33,16 +34,19 @@ func findHashSuffix(name string) int {
 	return -1
 }
 
-// ParseImageTag extracts the slug and digest from a Docker image reference.
-// Examples: "opencode-sandbox/runner-myproject:xYz1234AbCdEfGh"
+// ParseImageTag extracts the slug, digest, and agent from a Docker image
+// reference. Examples: "opencode-sandbox/runner-myproject:xYz1234AbCdEfGh"
 //
-//	→ slug="myproject", digest="xYz1234AbCdEfGh"
+//	→ slug="myproject", digest="xYz1234AbCdEfGh", agent=""
+//
+//	"opencode-sandbox/runner-myproject:opencode-latest"
+//	→ slug="myproject", digest="", agent="opencode"
 //
 //	"opencode-sandbox/runner-myproject:latest"
-//	→ slug="myproject", digest=""
+//	→ slug="myproject", digest="", agent=""
 //
 //	"opencode-sandbox/runner-myproject"
-//	→ slug="myproject", digest=""
+//	→ slug="myproject", digest="", agent=""
 func ParseImageTag(name string) ArtifactInfo {
 	if !strings.HasPrefix(name, ImagePrefix) {
 		return ArtifactInfo{}
@@ -50,14 +54,17 @@ func ParseImageTag(name string) ArtifactInfo {
 	afterPrefix := name[len(ImagePrefix):]
 	lastColon := strings.LastIndex(afterPrefix, ":")
 	if lastColon == -1 {
-		return ArtifactInfo{Slug: afterPrefix, Digest: ""}
+		return ArtifactInfo{Slug: afterPrefix, Digest: "", Agent: ""}
 	}
 	tag := afterPrefix[lastColon+1:]
 	slug := afterPrefix[:lastColon]
-	if tag != "" && tag != "latest" {
-		return ArtifactInfo{Slug: slug, Digest: tag}
+	if agent, ok := strings.CutSuffix(tag, "-latest"); ok {
+		return ArtifactInfo{Slug: slug, Digest: "", Agent: agent}
 	}
-	return ArtifactInfo{Slug: slug, Digest: ""}
+	if tag != "" && tag != "latest" {
+		return ArtifactInfo{Slug: slug, Digest: tag, Agent: ""}
+	}
+	return ArtifactInfo{Slug: slug, Digest: "", Agent: ""}
 }
 
 // ParseVMName extracts the slug and optional branch (digest) from a sandbox name.
@@ -74,7 +81,7 @@ func ParseVMName(name string) ArtifactInfo {
 	remainder := name[len(VmPrefix):]
 	hashStart := findHashSuffix(remainder)
 	if hashStart == -1 {
-		return ArtifactInfo{Slug: remainder, Digest: ""}
+		return ArtifactInfo{Slug: remainder, Digest: "", Agent: ""}
 	}
 	folderName := remainder[:hashStart-1]
 	hash := remainder[hashStart : hashStart+14]
@@ -82,10 +89,10 @@ func ParseVMName(name string) ArtifactInfo {
 	if hashStart+14 < len(remainder) {
 		rest := remainder[hashStart+14:]
 		if len(rest) > 1 && rest[0] == '-' {
-			return ArtifactInfo{Slug: slug, Digest: rest[1:]}
+			return ArtifactInfo{Slug: slug, Digest: rest[1:], Agent: ""}
 		}
 	}
-	return ArtifactInfo{Slug: slug, Digest: ""}
+	return ArtifactInfo{Slug: slug, Digest: "", Agent: ""}
 }
 
 // ParseHomeVolumeName extracts the slug and timestamp from a home volume name.
@@ -99,7 +106,7 @@ func ParseHomeVolumeName(name string) ArtifactInfo {
 	remainder := name[len(HomePrefix):]
 	parts := strings.Split(remainder, "-")
 	if len(parts) < 2 {
-		return ArtifactInfo{Slug: remainder, Digest: ""}
+		return ArtifactInfo{Slug: remainder, Digest: "", Agent: ""}
 	}
 	// Check if last part looks like a timestamp (YYYYMMDDTHHmmss = 15 chars with 'T' at pos 8)
 	last := parts[len(parts)-1]
@@ -117,13 +124,14 @@ func ParseHomeVolumeName(name string) ArtifactInfo {
 		}
 		if valid {
 			// Likely a new-format timestamp — treat as slug suffix, not digest
-			return ArtifactInfo{Slug: strings.Join(parts[:len(parts)-1], "-"), Digest: ""}
+			return ArtifactInfo{Slug: strings.Join(parts[:len(parts)-1], "-"), Digest: "", Agent: ""}
 		}
 	}
 	// Legacy format — last part is a 14-char base36 digest hash
 	return ArtifactInfo{
 		Slug:   strings.Join(parts[:len(parts)-1], "-"),
 		Digest: parts[len(parts)-1],
+		Agent:  "",
 	}
 }
 
@@ -136,9 +144,9 @@ func ArtifactFor(name string) ArtifactInfo {
 		remainder := name[len(TaskPrefix):]
 		parts := strings.Split(remainder, "-")
 		if len(parts) < 2 {
-			return ArtifactInfo{Slug: remainder, Digest: ""}
+			return ArtifactInfo{Slug: remainder, Digest: "", Agent: ""}
 		}
-		return ArtifactInfo{Slug: strings.Join(parts[:len(parts)-1], "-"), Digest: ""}
+		return ArtifactInfo{Slug: strings.Join(parts[:len(parts)-1], "-"), Digest: "", Agent: ""}
 	case strings.HasPrefix(name, VmPrefix):
 		return ParseVMName(name)
 	case strings.HasPrefix(name, HomePrefix):

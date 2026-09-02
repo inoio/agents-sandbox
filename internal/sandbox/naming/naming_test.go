@@ -89,14 +89,18 @@ func TestParseImageTag(t *testing.T) {
 		in         string
 		wantSlug   string
 		wantDigest string
+		wantAgent  string
 	}{
-		{"opencode-sandbox/runner-myproject:xYz1234AbCdEfGh", "myproject", "xYz1234AbCdEfGh"},
-		{"opencode-sandbox/runner-myproject:latest", "myproject", ""},
-		{"opencode-sandbox/runner-myproject:", "myproject", ""},
-		{"opencode-sandbox/runner-myproject", "myproject", ""},
-		{"opencode-sandbox/runner-my-project-name:xYz1234AbCdEfGh", "my-project-name", "xYz1234AbCdEfGh"},
-		{"opencode-sandbox/runner-myproject:sha256:abc123", "myproject:sha256", "abc123"},
-		{"other-image/myproject:tag", "", ""},
+		{"opencode-sandbox/runner-myproject:xYz1234AbCdEfGh", "myproject", "xYz1234AbCdEfGh", ""},
+		{"opencode-sandbox/runner-myproject:latest", "myproject", "", ""},
+		{"opencode-sandbox/runner-myproject:", "myproject", "", ""},
+		{"opencode-sandbox/runner-myproject", "myproject", "", ""},
+		{"opencode-sandbox/runner-my-project-name:xYz1234AbCdEfGh", "my-project-name", "xYz1234AbCdEfGh", ""},
+		{"opencode-sandbox/runner-myproject:sha256:abc123", "myproject:sha256", "abc123", ""},
+		{"opencode-sandbox/runner-myproject:opencode-latest", "myproject", "", "opencode"},
+		{"opencode-sandbox/runner-myproject:pi-latest", "myproject", "", "pi"},
+		{"opencode-sandbox/runner-myproject:claude-code-latest", "myproject", "", "claude-code"},
+		{"other-image/myproject:tag", "", "", ""},
 	}
 	for _, c := range cases {
 		info := ParseImageTag(c.in)
@@ -105,6 +109,9 @@ func TestParseImageTag(t *testing.T) {
 		}
 		if info.Digest != c.wantDigest {
 			t.Errorf("ParseImageTag(%q) digest = %q, want %q", c.in, info.Digest, c.wantDigest)
+		}
+		if info.Agent != c.wantAgent {
+			t.Errorf("ParseImageTag(%q) agent = %q, want %q", c.in, info.Agent, c.wantAgent)
 		}
 	}
 }

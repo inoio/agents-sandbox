@@ -9,11 +9,9 @@ import (
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 
 	cp "github.com/inoio/opencode-sandbox/internal/configpaths"
-	"github.com/inoio/opencode-sandbox/internal/git"
 	"github.com/inoio/opencode-sandbox/internal/sandbox/docker"
 	"github.com/inoio/opencode-sandbox/internal/sandbox/msb"
 	"github.com/inoio/opencode-sandbox/internal/sandbox/naming"
-	"github.com/inoio/opencode-sandbox/internal/sandbox/state"
 	"github.com/inoio/opencode-sandbox/internal/termio"
 )
 
@@ -409,8 +407,6 @@ func TestStaleTypeString(t *testing.T) {
 
 func TestPruneAggregateParity(t *testing.T) {
 	old := time.Now().Add(-15 * 24 * time.Hour)
-	fullCur := "sha256:2e454dd5b8ba117988d3beebd09f457ca46e758724e673d2272f77ddc9b3fb12"
-	curTag := git.HashID(fullCur)
 	client := &msb.MockMsbClient{
 		Sandboxes: []msb.SandboxHandle{
 			&msb.MockSandboxHandle{
@@ -422,7 +418,7 @@ func TestPruneAggregateParity(t *testing.T) {
 				Name_:      "opencode-sandbox-vm-live-1mjusbm3wikhb0",
 				Status_:    msbSdk.SandboxStatusRunning,
 				UpdatedAt_: old,
-				Image_:     "opencode-sandbox/runner-live-1mjusbm3wikhb0:" + curTag,
+				Image_:     "opencode-sandbox/runner-live-1mjusbm3wikhb0:opencode-latest",
 			},
 		},
 		Volumes: []msb.VolumeHandle{
@@ -431,7 +427,10 @@ func TestPruneAggregateParity(t *testing.T) {
 		},
 		Images: []msb.ImageHandle{
 			&msb.MockImageHandle{Reference_: "opencode-sandbox/runner-proj-1mjusbm3wikhb0:old", CreatedAt_: old},
-			&msb.MockImageHandle{Reference_: "opencode-sandbox/runner-live-1mjusbm3wikhb0:" + curTag, CreatedAt_: old},
+			&msb.MockImageHandle{
+				Reference_: "opencode-sandbox/runner-live-1mjusbm3wikhb0:opencode-latest",
+				CreatedAt_: old,
+			},
 			&msb.MockImageHandle{
 				Reference_: "opencode-sandbox/runner-live-1mjusbm3wikhb0:old",
 				CreatedAt_: time.Now().Add(-30 * 24 * time.Hour),
@@ -441,10 +440,6 @@ func TestPruneAggregateParity(t *testing.T) {
 	msb.WithMsbMock(t, client)
 	docker.WithNoopDockerMock(t)
 	cp.WithMockConfigPaths(t)
-
-	if err := state.WriteState("live-1mjusbm3wikhb0", state.HomeState{ImageDigest: fullCur}); err != nil {
-		t.Fatalf("WriteState: %v", err)
-	}
 
 	testUI := termio.NewTestMock(t)
 	if err := Prune(context.Background(), 7*24*time.Hour, false, &testUI); err != nil {

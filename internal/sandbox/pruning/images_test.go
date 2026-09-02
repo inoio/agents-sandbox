@@ -8,22 +8,15 @@ import (
 	"time"
 
 	"github.com/inoio/opencode-sandbox/internal/configpaths"
-	"github.com/inoio/opencode-sandbox/internal/git"
 	"github.com/inoio/opencode-sandbox/internal/sandbox/docker"
 	"github.com/inoio/opencode-sandbox/internal/sandbox/msb"
-	"github.com/inoio/opencode-sandbox/internal/sandbox/state"
 	"github.com/inoio/opencode-sandbox/internal/termio"
 )
-
-// fullCur is the full Docker image ID a state file stores; msb image tags carry
-// the shortened form (git.HashID of the full ID).
-const fullCur = "sha256:2e454dd5b8ba117988d3beebd09f457ca46e758724e673d2272f77ddc9b3fb12"
 
 func TestPruneImages(t *testing.T) {
 	now := time.Now()
 	old := time.Now().Add(-15 * 24 * time.Hour)
 	older := time.Now().Add(-30 * 24 * time.Hour)
-	curTag := git.HashID(fullCur)
 
 	img := func(ref string, createdAt time.Time) msb.ImageHandle {
 		return &msb.MockImageHandle{Reference_: ref, CreatedAt_: createdAt}
@@ -34,13 +27,10 @@ func TestPruneImages(t *testing.T) {
 
 	t.Run("prunes VM-less slug and older surplus of a kept slug", func(t *testing.T) {
 		configpaths.WithMockConfigPaths(t)
-		if err := state.WriteState("active-1mjusbm3wikhb0", state.HomeState{ImageDigest: fullCur}); err != nil {
-			t.Fatalf("WriteState: %v", err)
-		}
 		client := &msb.MockMsbClient{
 			Images: []msb.ImageHandle{
 				img("opencode-sandbox/runner-orphan-1mjusbm3wikhb0:digest1", old),
-				img("opencode-sandbox/runner-active-1mjusbm3wikhb0:"+curTag, old),
+				img("opencode-sandbox/runner-active-1mjusbm3wikhb0:opencode-latest", old),
 				img("opencode-sandbox/runner-active-1mjusbm3wikhb0:digestOld", older),
 			},
 		}
@@ -84,15 +74,12 @@ func TestPruneImages(t *testing.T) {
 		}
 	})
 
-	t.Run("keeps current and newer images of a live slug, prunes older surplus", func(t *testing.T) {
+	t.Run("keeps per-agent latest tags of a live slug, prunes surplus", func(t *testing.T) {
 		configpaths.WithMockConfigPaths(t)
-		if err := state.WriteState("active-1mjusbm3wikhb0", state.HomeState{ImageDigest: fullCur}); err != nil {
-			t.Fatalf("WriteState: %v", err)
-		}
 		client := &msb.MockMsbClient{
 			Images: []msb.ImageHandle{
-				img("opencode-sandbox/runner-active-1mjusbm3wikhb0:"+curTag, old),
-				img("opencode-sandbox/runner-active-1mjusbm3wikhb0:newer", now),
+				img("opencode-sandbox/runner-active-1mjusbm3wikhb0:opencode-latest", old),
+				img("opencode-sandbox/runner-active-1mjusbm3wikhb0:pi-latest", now),
 				img("opencode-sandbox/runner-active-1mjusbm3wikhb0:digestOld", older),
 			},
 		}
@@ -129,25 +116,6 @@ func TestPruneImages(t *testing.T) {
 		}
 		if r.MSBImagesPruned != 2 {
 			t.Errorf("MSBImagesPruned = %d, want 2 (VM-less slug has no keepable image)", r.MSBImagesPruned)
-		}
-	})
-
-	t.Run("isCurrentOrNewer true for current image stored as full ID", func(t *testing.T) {
-		configpaths.WithMockConfigPaths(t)
-		if err := state.WriteState("active-1mjusbm3wikhb0", state.HomeState{ImageDigest: fullCur}); err != nil {
-			t.Fatalf("WriteState: %v", err)
-		}
-		h := img("opencode-sandbox/runner-active-1mjusbm3wikhb0:"+curTag, old)
-		if !isCurrentOrNewer("active-1mjusbm3wikhb0", curTag, h, []msb.ImageHandle{h}) {
-			t.Errorf("current image must be kept even though tag != full ID")
-		}
-	})
-
-	t.Run("isCurrentOrNewer conservative without state", func(t *testing.T) {
-		configpaths.WithMockConfigPaths(t)
-		h := img("opencode-sandbox/runner-unknown-1mjusbm3wikhb0:digest1", old)
-		if !isCurrentOrNewer("no-state-1mjusbm3wikhb0", "digest1", h, []msb.ImageHandle{h}) {
-			t.Error("isCurrentOrNewer without state must be conservative (keep)")
 		}
 	})
 
@@ -222,35 +190,70 @@ func TestPruneImages(t *testing.T) {
 	})
 }
 
+// TestPruneImagesKeepsPerAgentTagsOfLiveSlug verifies that a live slug keeps
+// exactly its per-agent "-latest" refs and reclaims every other (digest) ref.
+func TestPruneImagesKeepsPerAgentTagsOfLiveSlug(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	now := time.Now()
+	old := time.Now().Add(-15 * 24 * time.Hour)
+	older := time.Now().Add(-30 * 24 * time.Hour)
+	client := &msb.MockMsbClient{
+		Images: []msb.ImageHandle{
+			&msb.MockImageHandle{
+				Reference_: "opencode-sandbox/runner-active-1mjusbm3wikhb0:opencode-latest",
+				CreatedAt_: old,
+			},
+			&msb.MockImageHandle{
+				Reference_: "opencode-sandbox/runner-active-1mjusbm3wikhb0:pi-latest",
+				CreatedAt_: now,
+			},
+			&msb.MockImageHandle{
+				Reference_: "opencode-sandbox/runner-active-1mjusbm3wikhb0:olddigest",
+				CreatedAt_: older,
+			},
+		},
+	}
+	msb.WithMsbMock(t, client)
+	docker.WithNoopDockerMock(t)
+	ui := &termio.Mock{}
+	ps := PruneState{ToKeep: map[string]struct{}{"active-1mjusbm3wikhb0": {}}}
+	r, err := PruneImages(context.Background(), ps, false, ui)
+	if err != nil {
+		t.Fatalf("PruneImages: %v", err)
+	}
+	if r.MSBImagesPruned != 1 {
+		t.Errorf("MSBImagesPruned = %d, want 1 (reclaim non -latest ref)", r.MSBImagesPruned)
+	}
+	if len(client.RemovedImages) != 1 ||
+		client.RemovedImages[0].Ref != "opencode-sandbox/runner-active-1mjusbm3wikhb0:olddigest" {
+		t.Errorf("RemovedImages = %v, want only the non -latest ref", client.RemovedImages)
+	}
+}
+
 // TestPruneImagesPreservesFreshSurplus reproduces the "imported msb image pruned
 // after the user quit" bug: a fresh runner image was loaded into microsandbox
 // but, because the user quit at the image-change home-volume prompt, its digest
-// was never recorded in the state file. The live VM's current image and the fresh
-// replacement must be kept, and only the older surplus digest reclaimed, so the
-// next run does not re-import the fresh image.
+// was never recorded in the state file. A live slug must keep its per-agent
+// "-latest" refs and reclaim only the surplus digest ref, so the next run does
+// not re-import the fresh image.
 func TestPruneImagesPreservesFreshSurplus(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	now := time.Now()
 	old := time.Now().Add(-15 * 24 * time.Hour)
 	older := time.Now().Add(-30 * 24 * time.Hour)
-	fullOld := "sha256:2e454dd5b8ba117988d3beebd09f457ca46e758724e673d2272f77ddc9b3fb12"
-	if err := state.WriteState("active-1mjusbm3wikhb0", state.HomeState{ImageDigest: fullOld}); err != nil {
-		t.Fatalf("WriteState: %v", err)
-	}
-	curTag := git.HashID(fullOld)
 	client := &msb.MockMsbClient{
 		Images: []msb.ImageHandle{
-			// The currently-used image (matching the state digest).
+			// A per-agent latest tag for the live slug.
 			&msb.MockImageHandle{
-				Reference_: "opencode-sandbox/runner-active-1mjusbm3wikhb0:" + curTag,
+				Reference_: "opencode-sandbox/runner-active-1mjusbm3wikhb0:opencode-latest",
 				CreatedAt_: old,
 			},
-			// A freshly imported replacement: same digest gap but newer.
+			// A freshly imported replacement for another agent.
 			&msb.MockImageHandle{
-				Reference_: "opencode-sandbox/runner-active-1mjusbm3wikhb0:newdigest",
+				Reference_: "opencode-sandbox/runner-active-1mjusbm3wikhb0:pi-latest",
 				CreatedAt_: now,
 			},
-			// A genuinely old surplus digest: older than the current image.
+			// A genuinely old surplus digest: reclaimed.
 			&msb.MockImageHandle{
 				Reference_: "opencode-sandbox/runner-active-1mjusbm3wikhb0:digestOld",
 				CreatedAt_: older,
@@ -277,18 +280,16 @@ func TestPruneImagesPreservesFreshSurplus(t *testing.T) {
 // TestPruneImagesReclaimsKilledProjectImages covers the dangling-image gap: a
 // project whose VM was removed outside the prune flow (e.g. kill --force) leaves
 // its msb images behind. With no VM, the slug is VM-less and its images are
-// reclaimed, including the previously-current image.
+// reclaimed, including any current/latest-tagged image.
 func TestPruneImagesReclaimsKilledProjectImages(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	old := time.Now().Add(-15 * 24 * time.Hour)
-	fullOld := "sha256:2e454dd5b8ba117988d3beebd09f457ca46e758724e673d2272f77ddc9b3fb12"
-	if err := state.WriteState("gone-1mjusbm3wikhb0", state.HomeState{ImageDigest: fullOld}); err != nil {
-		t.Fatalf("WriteState: %v", err)
-	}
-	curTag := git.HashID(fullOld)
 	client := &msb.MockMsbClient{
 		Images: []msb.ImageHandle{
-			&msb.MockImageHandle{Reference_: "opencode-sandbox/runner-gone-1mjusbm3wikhb0:" + curTag, CreatedAt_: old},
+			&msb.MockImageHandle{
+				Reference_: "opencode-sandbox/runner-gone-1mjusbm3wikhb0:opencode-latest",
+				CreatedAt_: old,
+			},
 			&msb.MockImageHandle{Reference_: "opencode-sandbox/runner-gone-1mjusbm3wikhb0:old", CreatedAt_: old},
 		},
 	}

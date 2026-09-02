@@ -2,14 +2,13 @@ package pruning
 
 import (
 	"context"
+	"strings"
 
 	"github.com/moby/moby/client"
 
 	"github.com/inoio/opencode-sandbox/internal/sandbox/docker"
-	"github.com/inoio/opencode-sandbox/internal/sandbox/image"
 	"github.com/inoio/opencode-sandbox/internal/sandbox/msb"
 	"github.com/inoio/opencode-sandbox/internal/sandbox/naming"
-	"github.com/inoio/opencode-sandbox/internal/sandbox/state"
 	"github.com/inoio/opencode-sandbox/internal/termio"
 )
 
@@ -20,8 +19,9 @@ type ImageReport struct {
 	Details            []StaleEntry
 }
 
-// PruneImages prunes MSB runner images of VM-less slugs and images created before
-// the currently-in-use image, plus host-side dangling docker images.
+// PruneImages prunes MSB runner images that are no longer referenced by a live
+// slug (kept only as per-agent "-latest" tags), plus host-side dangling docker
+// images.
 func PruneImages(
 	ctx context.Context,
 	pruneState PruneState,
@@ -39,7 +39,7 @@ func PruneImages(
 			continue
 		}
 		imageArtifact := naming.ArtifactFor(ref)
-		if keepImage(imageArtifact.Slug, imageArtifact.Digest, imageHandle, handles, pruneState) {
+		if keepImage(imageHandle, pruneState) {
 			continue
 		}
 		if !dryRun {
@@ -62,36 +62,19 @@ func PruneImages(
 	return report, nil
 }
 
-func keepImage(
-	slug, digest string,
-	imageHandle msb.ImageHandle,
-	handles []msb.ImageHandle,
-	pruneState PruneState,
-) bool {
-	if _, live := pruneState.ToKeep[slug]; !live {
+// keepImage reports whether an msb image reference of a live slug should be
+// retained: per-agent "-latest" tags are the current image for that agent;
+// every other ref is surplus (orphaned content or pre-redesign digest refs).
+func keepImage(imageHandle msb.ImageHandle, pruneState PruneState) bool {
+	ref := imageHandle.Reference()
+	artifact := naming.ArtifactFor(ref)
+	if _, live := pruneState.ToKeep[artifact.Slug]; !live {
 		return false
 	}
-	if _, pruned := pruneState.ToPrune[slug]; pruned {
+	if _, pruned := pruneState.ToPrune[artifact.Slug]; pruned {
 		return false
 	}
-	return isCurrentOrNewer(slug, digest, imageHandle, handles)
-}
-
-func isCurrentOrNewer(slug, digest string, imageHandle msb.ImageHandle, handles []msb.ImageHandle) bool {
-	st, err := state.ReadState(slug)
-	if err != nil || st.ImageDigest == "" {
-		return true
-	}
-	if digest == image.TagDigest(st.ImageDigest) {
-		return true
-	}
-	currentRef := naming.ImagePrefix + slug + ":" + image.TagDigest(st.ImageDigest)
-	for _, h := range handles {
-		if h.Reference() == currentRef {
-			return !imageHandle.CreatedAt().Before(h.CreatedAt())
-		}
-	}
-	return true
+	return artifact.Agent != "" && strings.HasSuffix(ref, "-latest")
 }
 
 // pruneDockerImages removes dangling (untagged) docker images created by us; skipped on dry-run.
