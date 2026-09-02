@@ -12,7 +12,7 @@ import (
 )
 
 const (
-	dockerdBinaryCheckCmd = "test -x /usr/bin/dockerd"
+	dockerdBinaryCheckCmd = "command -v dockerd >/dev/null 2>&1"
 	dockerdReadyCmd       = "docker info"
 	dockerdRestartCmd     = "pkill dockerd >/dev/null 2>&1 || true; " +
 		"pkill containerd >/dev/null 2>&1 || true; " +
