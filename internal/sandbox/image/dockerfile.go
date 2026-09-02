@@ -35,31 +35,26 @@ const (
 // the user's own custom base.
 func RenderDockerfile(a agent.Agent, projectDockerfile []byte, dind bool) []byte {
 	base := embeddedBaseToolsBlock
-	var userBody []byte
 
 	switch {
 	case len(bytes.TrimSpace(projectDockerfile)) == 0:
 		// No project Dockerfile: the embedded debian base tools block is the whole base.
 	case referencesImage(projectDockerfile, managedBaseRef) ||
 		referencesImage(projectDockerfile, managedBaseDindRef):
-		// Managed FROM: replace it with the embedded base tools block and keep the body.
+		// Managed FROM: replace the final stage's FROM with the embedded base
+		// tools block, keeping earlier build stages and the body in place.
 		if referencesImage(projectDockerfile, managedBaseDindRef) {
 			dind = true
 		}
-		userBody = replaceFinalStageFrom(projectDockerfile)
+		base = replaceFinalStageFrom(projectDockerfile, embeddedBaseToolsBlock)
 	default:
-		// Custom base: keep the user's whole Dockerfile; append only the
-		// dind/agent/finalize blocks.
+		// Custom base: keep the user's whole Dockerfile.
 		base = projectDockerfile
 	}
 
 	var out strings.Builder
 	out.Write(base)
 	out.WriteString("\n")
-	if len(userBody) > 0 {
-		out.Write(userBody)
-		out.WriteString("\n")
-	}
 	if dind {
 		out.WriteString(dindBlock())
 		out.WriteString("\n")
@@ -67,25 +62,65 @@ func RenderDockerfile(a agent.Agent, projectDockerfile []byte, dind bool) []byte
 	out.WriteString(agentBlock(a))
 	out.WriteString("\n")
 	out.WriteString(finalizeBlock())
-	return []byte(out.String())
+
+	// Create the dev user as the first instruction of the final stage so its
+	// UID/GID is reserved before any stage body or tool-owned block runs.
+	return insertAfterLastFrom([]byte(out.String()), []byte(devUserBlock()))
 }
 
-// replaceFinalStageFrom removes the final stage's FROM line from a project
-// Dockerfile so the embedded base tools block (which carries its own FROM) can
-// take its place. Earlier stages are preserved.
-func replaceFinalStageFrom(dockerfile []byte) []byte {
+// devUserBlock creates the dev user as root, leaving the shell as root.
+func devUserBlock() string {
+	return `USER root
+ARG USER_UID=1000
+ARG USER_GID=1000
+RUN id -u dev >/dev/null 2>&1 || \
+      { groupadd -g "$USER_GID" dev && useradd -m -u "$USER_UID" -g "$USER_GID" -s /bin/bash dev; }
+`
+}
+
+// replaceFinalStageFrom swaps a project Dockerfile's final stage FROM for the
+// given block (which carries its own FROM), keeping earlier build stages and
+// the body that follows the FROM.
+func replaceFinalStageFrom(dockerfile []byte, block []byte) []byte {
 	lines := bytes.SplitAfter(dockerfile, []byte("\n"))
+	lastFrom := lastFromLine(lines)
+	if lastFrom < 0 {
+		return dockerfile
+	}
+	var out bytes.Buffer
+	out.Write(bytes.Join(lines[:lastFrom], nil))
+	out.Write(block)
+	if !bytes.HasSuffix(block, []byte("\n")) {
+		out.WriteByte('\n')
+	}
+	out.Write(bytes.Join(lines[lastFrom+1:], nil))
+	return out.Bytes()
+}
+
+// insertAfterLastFrom inserts block immediately after the last FROM
+// instruction, making it the first instruction of the final stage.
+func insertAfterLastFrom(dockerfile []byte, block []byte) []byte {
+	lines := bytes.SplitAfter(dockerfile, []byte("\n"))
+	lastFrom := lastFromLine(lines)
+	if lastFrom < 0 {
+		return dockerfile
+	}
+	var out bytes.Buffer
+	out.Write(bytes.Join(lines[:lastFrom+1], nil))
+	out.Write(block)
+	out.Write(bytes.Join(lines[lastFrom+1:], nil))
+	return out.Bytes()
+}
+
+// lastFromLine returns the index of the last FROM instruction in lines, or -1.
+func lastFromLine(lines [][]byte) int {
 	lastFrom := -1
 	for i, line := range lines {
 		if bytes.HasPrefix(bytes.TrimSpace(line), []byte("FROM")) {
 			lastFrom = i
 		}
 	}
-	if lastFrom < 0 {
-		return dockerfile
-	}
-	lines[lastFrom] = []byte{}
-	return bytes.Join(lines, nil)
+	return lastFrom
 }
 
 // dindBlock returns the idempotent docker-engine install block, appended when
@@ -161,16 +196,12 @@ RUN mkdir -p /etc/opencode-sandbox && \
 	)
 }
 
-// finalizeBlock creates the dev user, sets the workdir, and records the image
-// contract labels. It always ends with USER dev + WORKDIR /workspace.
+// finalizeBlock records the image contract labels and makes dev the runtime
+// user. The dev user itself is created earlier by devUserBlock.
 func finalizeBlock() string {
 	return `USER root
-ARG USER_UID=1000
-ARG USER_GID=1000
 ARG BASE_IMAGE
 
-RUN id -u dev >/dev/null 2>&1 || \
-      { groupadd -g "$USER_GID" dev && useradd -m -u "$USER_UID" -g "$USER_GID" -s /bin/bash dev; }
 RUN usermod -aG docker dev 2>/dev/null || true
 USER dev
 WORKDIR /workspace

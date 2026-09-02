@@ -21,18 +21,20 @@ actually executed. `volume migrate`, `volume reset` and `volume edit` remain ava
 
 ## One image per project
 
-opencode-sandbox builds a single runner image per project. The image is assembled from a sequence of blocks, each
-prefixed with `USER root`:
+opencode-sandbox builds a single runner image per project. The rendered Dockerfile is assembled from your project
+Dockerfile (if any) plus tool-owned blocks:
 
-1. **Base tools block** — the base starting point plus the CLI tools.
-2. **Docker-in-Docker block** *(optional)* — only when dind is enabled.
-3. **Agent block** — Node.js and the coding agent.
-4. **Finalize block** — switches back to the `dev` user and sets `WORKDIR /workspace`.
+- **Base** — the embedded `debian:trixie-slim` tools block, or your whole custom base. For a managed base
+  (`FROM .../runner-base...`), the final stage's `FROM` is replaced **in place** with the embedded tools block, keeping
+  any earlier build stages above it — so multi-stage project Dockerfiles are supported.
+- **Dev user block** — the first instruction of the final stage, inserted right after the final `FROM`: creates the
+  `dev` user (host UID/GID), reserving its identity before anything else in the stage runs.
+- **Docker-in-Docker block** *(optional)* — only when dind is enabled.
+- **Agent block** — Node.js and the coding agent.
+- **Finalize block** — adds `dev` to the docker group, switches to `USER dev`, and sets `WORKDIR /workspace`.
 
-Because the project's `.opencode-sandbox/Dockerfile` is layered on top, every appended block runs before your
-project's `FROM` line — which is why each block is `USER root`-prefixed, so agent/dind installs always run as root
-regardless of what user your Dockerfile leaves active. The finalize block ends with `USER dev` and
-`WORKDIR /workspace`.
+Every tool-owned block is `USER root`-prefixed so agent/dind installs always run as root regardless of what user your
+Dockerfile leaves active. The image always ends with `USER dev` and `WORKDIR /workspace`.
 
 ## Base starting point
 
@@ -53,7 +55,9 @@ blocks are layered on top of it:
 
 ### Important: User context
 
-The project image **must** end with `USER dev` active. If you need to run commands as root, switch back:
+The `dev` user (host UID/GID) is created as the first instruction of the final stage, and the image always ends with
+`USER dev` active. Your Dockerfile body runs in the final stage, so it may switch to `USER dev` — but earlier build
+stages in a multi-stage Dockerfile run as root:
 
 ```dockerfile
 FROM debian:trixie-slim
@@ -61,9 +65,6 @@ FROM debian:trixie-slim
 USER root
 # Install your project's toolchain as root, e.g. via apt install
 RUN apt-get update && apt-get install -y python3 && rm -rf /var/lib/apt/lists/*
-
-USER dev
-# everything else as dev
 ```
 
 ### ENV configuration

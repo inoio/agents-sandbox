@@ -91,12 +91,3 @@ RUN mkdir -p /usr/local/plantuml \
       'exec "$JAVA" -jar "$PLANTUML_JAR" "$@"\n' \
       > /usr/local/bin/plantuml \
  && chmod +x /usr/local/bin/plantuml
-
-USER dev
-# microsandbox so the agent can check --help, sources. Running VMs doesn't work because /dev/kvm is missing.
-RUN curl -fsSL https://github.com/superradcompany/microsandbox/releases/download/v0.6.14/install.sh | sh
-
-USER root
-ENV PATH="/home/dev/.microsandbox/bin:$PATH"
-
-USER dev

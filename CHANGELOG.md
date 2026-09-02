@@ -41,6 +41,12 @@ command reports the bare version (e.g. `0.1.0`).
   keeps working and implies it). A project Dockerfile whose `FROM` is any other image is treated as a custom base and
   gets the agent (and optional dind) layered on top. The agent version is now detected on first boot instead of being
   read from an image label; images that predate the redesign are force-rebuilt once.
+- Image: the `dev` user is now created as the first instruction of the final stage instead of in the finalize block.
+  Its host UID/GID is reserved before the dind docker group is added, which previously grabbed the first free GID
+  (1000) and broke the build with `groupadd: GID '1000' already exists`.
+- Image: a managed `FROM .../runner-base...` is now replaced in place by the embedded base tools block instead of being
+  stripped and re-prepended, so multi-stage project Dockerfiles keep their base tooling and the `dev` user in the final
+  stage.
 - Docs: Pages are now published only after a successful release, rebuilding from the published tag rather than in parallel on tag push. Each page footer and the home page display the release (or branch) they were built from.
 - Docs: Support for dark mode; follows the OS/browser color-scheme preference by default and expose a sun/moon toggle in the header (next to the GitHub link) that overrides and persists the choice.
 * **Breaking** CLI: the global `--verbose`/`--error` flags are replaced by a single monotonic `--log-level` flag (`error` | `warning` | `info` | `verbose`, default `info`, short `-l`). The `verbose`/`error` launcher-config keys and `OPENCODE_SANDBOX_VERBOSE`/`OPENCODE_SANDBOX_ERROR` env vars are replaced by `log-level` and `OPENCODE_SANDBOX_LOG_LEVEL`. The level selects the minimum severity shown on the console; `error < warning < info < verbose`, so a higher level is never hidden while a lower one is shown.

@@ -139,6 +139,7 @@ func buildDockerImage(
 ) error {
 	spinner := ui.Spinner(label)
 	line := func(s string) { ui.Verbose(s) }
+	ui.Verbosef("Building Docker image (force=%v)", force)
 	if err := buildImage(ctx, a, dockerfile, tag, force, agentVersion, baseImage, dind, line); err != nil {
 		spinner.StopError(err)
 		return err
