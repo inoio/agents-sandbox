@@ -71,3 +71,14 @@ func AsAttachRunner(a Agent) (AttachRunner, bool) { p, ok := a.(AttachRunner); r
 
 // AsProvisioner returns the agent's Provisioner, if it implements one.
 func AsProvisioner(a Agent) (Provisioner, bool) { p, ok := a.(Provisioner); return p, ok }
+
+// VersionProvider exposes how to read the installed agent version from a
+// running image: the shell command to run and a parser for its output. Agents
+// print their version in different formats, so parsing is per-agent.
+type VersionProvider interface {
+	VersionCmd() string
+	ParseVersion(stdout string) (string, error)
+}
+
+// AsVersionProvider returns the agent's VersionProvider, if it implements one.
+func AsVersionProvider(a Agent) (VersionProvider, bool) { p, ok := a.(VersionProvider); return p, ok }

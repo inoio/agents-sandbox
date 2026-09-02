@@ -51,3 +51,8 @@ func (claudeCodeProfile) AttachCommand(_ string, args []string) string {
 	parts = append(parts, args...)
 	return strings.Join(parts, " ")
 }
+
+func (claudeCodeProfile) VersionCmd() string { return "claude --version" }
+func (claudeCodeProfile) ParseVersion(stdout string) (string, error) {
+	return extractSemverFromOutput(stdout)
+}

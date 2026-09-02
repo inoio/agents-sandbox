@@ -52,3 +52,8 @@ func (piProfile) AttachCommand(_ string, args []string) string {
 	parts = append(parts, args...)
 	return strings.Join(parts, " ")
 }
+
+func (piProfile) VersionCmd() string { return "pi --version" }
+func (piProfile) ParseVersion(stdout string) (string, error) {
+	return extractSemverFromOutput(stdout)
+}

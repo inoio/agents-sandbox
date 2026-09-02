@@ -14,7 +14,7 @@ func init() { Register(opencodeProfile{}) }
 type opencodeProfile struct{}
 
 func (opencodeProfile) Name() string          { return opencodeName }
-func (opencodeProfile) ConfigDirName() string { return "opencode" }
+func (opencodeProfile) ConfigDirName() string { return opencodeName }
 
 func (opencodeProfile) ImageSpec() ImageSpec {
 	return ImageSpec{
@@ -105,4 +105,9 @@ func (opencodeProfile) AttachCommand(target string, args []string) string {
 	parts := []string{"opencode", "attach", "http://127.0.0.1:4096", "--dir", target}
 	parts = append(parts, args...)
 	return strings.Join(parts, " ")
+}
+
+func (opencodeProfile) VersionCmd() string { return "opencode --version" }
+func (opencodeProfile) ParseVersion(stdout string) (string, error) {
+	return extractSemverFromOutput(stdout)
 }
