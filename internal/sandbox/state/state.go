@@ -11,18 +11,30 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+// Key identifies a project artifact by project slug and agent.
+type Key struct {
+	Slug  string
+	Agent string
+}
+
 func stateRoot() string {
 	return configpaths.Get().UserStateDir()
 }
 
-// slugDir returns the slug-specific state directory under stateRoot.
+// KeyDir returns the state directory for a project/agent key.
+func KeyDir(k Key) string {
+	return filepath.Join(stateRoot(), k.Slug, k.Agent)
+}
+
+// slugDir returns the per-project state directory (not agent-scoped), used for
+// per-project claims.
 func slugDir(slug string) string {
 	return filepath.Join(stateRoot(), slug)
 }
 
-// slugPath returns a path under the slug's state directory.
-func slugPath(slug string, parts ...string) string {
-	return filepath.Join(append([]string{slugDir(slug)}, parts...)...)
+// slugPath returns a path under the key's state directory.
+func slugPath(k Key, parts ...string) string {
+	return filepath.Join(append([]string{KeyDir(k)}, parts...)...)
 }
 
 // FingerprintState is the shared shape of env/secret fingerprint data.
@@ -62,8 +74,8 @@ func NewHomeState(homeVolume, digest string) HomeState {
 	}
 }
 
-func stateFile(slug string) string {
-	return slugPath(slug, "state.yaml")
+func stateFile(k Key) string {
+	return slugPath(k, "state.yaml")
 }
 
 // ErrStateNotFound is returned by readState when no state file exists yet.
@@ -72,8 +84,8 @@ var ErrStateNotFound = errors.New("state file not found")
 // ReadState loads and parses the state file.
 // Returns ErrStateNotFound with a nil state if no file exists.
 // Returns an error for parse failures or non-"not found" I/O errors.
-func ReadState(slug string) (*HomeState, error) {
-	path := stateFile(slug)
+func ReadState(k Key) (*HomeState, error) {
+	path := stateFile(k)
 	data, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -89,8 +101,8 @@ func ReadState(slug string) (*HomeState, error) {
 }
 
 // WriteState atomically writes the state to disk.
-func WriteState(slug string, state HomeState) error {
-	dir := filepath.Dir(stateFile(slug))
+func WriteState(k Key, state HomeState) error {
+	dir := filepath.Dir(stateFile(k))
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return fmt.Errorf("create state dir %s: %w", dir, err)
 	}
@@ -102,7 +114,7 @@ func WriteState(slug string, state HomeState) error {
 	if err := os.WriteFile(tmpFile, data, 0o600); err != nil {
 		return fmt.Errorf("write state temp: %w", err)
 	}
-	if err := os.Rename(tmpFile, stateFile(slug)); err != nil {
+	if err := os.Rename(tmpFile, stateFile(k)); err != nil {
 		// best-effort cleanup of temp file if rename failed
 		_ = os.Remove(tmpFile)
 		return fmt.Errorf("rename state file: %w", err)
@@ -110,8 +122,18 @@ func WriteState(slug string, state HomeState) error {
 	return nil
 }
 
-// RemoveState removes the state file and its parent directory.
-func RemoveState(slug string) error {
-	slugStateDir := slugDir(slug)
-	return os.RemoveAll(slugStateDir)
+// RemoveState removes the state file and its per-agent directory. Legacy
+// agent-less keys remove only the legacy state file so per-project claims and
+// other agents' state survive.
+func RemoveState(k Key) error {
+	if k.Agent != "" {
+		return os.RemoveAll(KeyDir(k))
+	}
+	// Legacy agent-less state lived directly under the slug dir; remove only
+	// the legacy state file, leaving per-project claims and sibling per-agent
+	// state intact.
+	if err := os.Remove(filepath.Join(slugDir(k.Slug), "state.yaml")); err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	return nil
 }

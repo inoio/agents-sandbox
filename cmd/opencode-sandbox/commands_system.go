@@ -21,13 +21,14 @@ import (
 	"github.com/inoio/opencode-sandbox/internal/sandbox/image"
 	"github.com/inoio/opencode-sandbox/internal/sandbox/pruning"
 	"github.com/inoio/opencode-sandbox/internal/sandbox/reprovision"
+	"github.com/inoio/opencode-sandbox/internal/sandbox/state"
 	sandbox "github.com/inoio/opencode-sandbox/internal/sandbox/vm"
 	"github.com/inoio/opencode-sandbox/internal/sandbox/volume"
 	"github.com/inoio/opencode-sandbox/internal/termio"
 	"github.com/inoio/opencode-sandbox/internal/viperconfig"
 )
 
-type volumeOpFunc func(context.Context, string, string, string, string, bool, bool, termio.UI) error
+type volumeOpFunc func(context.Context, state.Key, string, string, string, bool, bool, termio.UI) error
 
 const (
 	colName    = "NAME"
@@ -120,7 +121,16 @@ func buildVolumeOpsCmd(
 			if len(args) > 0 {
 				volName = args[0]
 			}
-			return fn(c.Context(), projectSlug, volName, info.Tag, info.Digest, *rmVar, dryRun, ui)
+			return fn(
+				c.Context(),
+				state.Key{Slug: projectSlug, Agent: a.Name()},
+				volName,
+				info.Tag,
+				info.Digest,
+				*rmVar,
+				dryRun,
+				ui,
+			)
 		},
 	}
 	cmd.Flags().BoolVar(rmVar, rmFlag, false, rmHelp)

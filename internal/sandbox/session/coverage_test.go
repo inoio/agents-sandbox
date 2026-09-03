@@ -60,14 +60,21 @@ func TestReapOnLastClient_ClientReattachesDuringWait(t *testing.T) {
 	defer close(hold)
 	go func() {
 		time.Sleep(100 * time.Millisecond)
-		release, _ := state.AcquireClientLease(slug)
+		release, _ := state.AcquireClientLease(state.Key{Slug: slug, Agent: "opencode"})
 		<-hold
 		if release != nil {
 			release()
 		}
 	}()
 
-	err := reapOnLastClient(context.Background(), opencodeAgent(t), slug, sb, options.ReapPolicy{}, ui)
+	err := reapOnLastClient(
+		context.Background(),
+		opencodeAgent(t),
+		state.Key{Slug: slug, Agent: "opencode"},
+		sb,
+		options.ReapPolicy{},
+		ui,
+	)
 	if err != nil {
 		t.Fatalf("reapOnLastClient: expected no error on client reattach, got %v", err)
 	}

@@ -135,7 +135,8 @@ func Run(ctx context.Context, opts options.RunOptions, ui termio.UI) error {
 	defer stopNotify()
 
 	if opts.ServeOnly { //nolint:nestif // lease acquire/serve/release/reap sequence requires this structure
-		release, acquireErr := state.AcquireClientLease(projectSlug)
+		k := state.Key{Slug: projectSlug, Agent: a.Name()}
+		release, acquireErr := state.AcquireClientLease(k)
 		if acquireErr != nil {
 			ui.Warnf("client lease failed: %v", acquireErr)
 		}
@@ -151,7 +152,7 @@ func Run(ctx context.Context, opts options.RunOptions, ui termio.UI) error {
 			release()
 			release = nil
 		}
-		if err := reapOnLastClient(ctx, a, projectSlug, sb, opts.ReapPolicy, ui); err != nil {
+		if err := reapOnLastClient(ctx, a, k, sb, opts.ReapPolicy, ui); err != nil {
 			ui.Warnf("reap failed: %v", err)
 		}
 		return &sandbox.ExitError{Code: 0}
@@ -208,8 +209,11 @@ func runAttach(
 	opts options.RunOptions,
 	bashArgs ...string,
 ) error {
+	a, _ := agent.Lookup(opts.Agent)
+	k := state.Key{Slug: projectSlug, Agent: a.Name()}
+
 	// Acquire a client lease so state tracks this session.
-	release, acquireErr := state.AcquireClientLease(projectSlug)
+	release, acquireErr := state.AcquireClientLease(k)
 	if acquireErr != nil {
 		ui.Warnf("client lease failed: %v", acquireErr)
 	}
@@ -236,8 +240,7 @@ func runAttach(
 		release = nil
 	}
 
-	a, _ := agent.Lookup(opts.Agent)
-	if err := reapOnLastClient(ctx, a, projectSlug, sb, opts.ReapPolicy, ui); err != nil {
+	if err := reapOnLastClient(ctx, a, k, sb, opts.ReapPolicy, ui); err != nil {
 		ui.Warnf("reap failed: %v", err)
 	}
 

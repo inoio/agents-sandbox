@@ -90,6 +90,7 @@ func TestDecideReconfigConfigError(t *testing.T) {
 		context.Background(),
 		mock,
 		vm,
+		state.Key{Slug: "testproj", Agent: "opencode"},
 		options.RunOptions{},
 		"img:tag",
 		"sha256:same",
@@ -115,7 +116,7 @@ func TestDecideReconfigResolveReconfigError(t *testing.T) {
 	t.Chdir(tmpRepo)
 	slug := git.ProjectSlug()
 
-	release, err := state.AcquireClientLease(slug)
+	release, err := state.AcquireClientLease(state.Key{Slug: slug, Agent: "opencode"})
 	if err != nil {
 		t.Fatalf("AcquireClientLease: %v", err)
 	}
@@ -142,6 +143,7 @@ func TestDecideReconfigResolveReconfigError(t *testing.T) {
 		context.Background(),
 		mock,
 		vm,
+		state.Key{Slug: "testproj", Agent: "opencode"},
 		options.RunOptions{},
 		"img:new",
 		"sha256:new",
@@ -187,6 +189,7 @@ func TestDecideReconfigApplyHomeActionError(t *testing.T) {
 		context.Background(),
 		mock,
 		vm,
+		state.Key{Slug: "testproj", Agent: "opencode"},
 		options.RunOptions{},
 		"img:new",
 		"sha256:new",

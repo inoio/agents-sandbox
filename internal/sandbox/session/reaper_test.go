@@ -40,13 +40,20 @@ func TestReapOnLastClient_NoOpWhenOtherClientsActive(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 
 	slug := "otherproj"
-	release, _ := state.AcquireClientLease(slug)
+	release, _ := state.AcquireClientLease(state.Key{Slug: slug, Agent: "opencode"})
 	defer release()
 
 	ui := &termio.Mock{}
 	sb := msb.NewMockSandbox(msb.SandboxOpts{})
 
-	err := reapOnLastClient(context.Background(), opencodeAgent(t), slug, sb, options.ReapPolicy{}, ui)
+	err := reapOnLastClient(
+		context.Background(),
+		opencodeAgent(t),
+		state.Key{Slug: slug, Agent: "opencode"},
+		sb,
+		options.ReapPolicy{},
+		ui,
+	)
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
@@ -62,7 +69,7 @@ func TestReapOnLastClient_ClientLeaseHeld_NoReap(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 
 	slug := "leaseproj"
-	release, err := state.AcquireClientLease(slug)
+	release, err := state.AcquireClientLease(state.Key{Slug: slug, Agent: "opencode"})
 	if err != nil {
 		t.Fatalf("state.AcquireClientLease: %v", err)
 	}
@@ -72,7 +79,14 @@ func TestReapOnLastClient_ClientLeaseHeld_NoReap(t *testing.T) {
 	ui := &termio.Mock{}
 	sb := msb.NewMockSandbox(msb.SandboxOpts{})
 
-	err = reapOnLastClient(context.Background(), opencodeAgent(t), slug, sb, options.ReapPolicy{}, ui)
+	err = reapOnLastClient(
+		context.Background(),
+		opencodeAgent(t),
+		state.Key{Slug: slug, Agent: "opencode"},
+		sb,
+		options.ReapPolicy{},
+		ui,
+	)
 	if err != nil {
 		t.Fatalf("expected no error (lease held), got %v", err)
 	}
@@ -91,7 +105,7 @@ func TestReapOnLastClient_AutoStopOnActiveSessions_ReturnsImmediately(t *testing
 	err := reapOnLastClient(
 		context.Background(),
 		opencodeAgent(t),
-		slug,
+		state.Key{Slug: slug, Agent: "opencode"},
 		sb,
 		options.ReapPolicy{AutoStopOnActiveSessions: true},
 		ui,
@@ -140,7 +154,14 @@ func TestReapOnLastClient_WaitMode_IdleFromStart(t *testing.T) {
 		"sleep 1h": msb.NewTestResult(true, 0, "", "", nil),
 	}
 
-	err := reapOnLastClient(context.Background(), opencodeAgent(t), slug, sb, options.ReapPolicy{}, ui)
+	err := reapOnLastClient(
+		context.Background(),
+		opencodeAgent(t),
+		state.Key{Slug: slug, Agent: "opencode"},
+		sb,
+		options.ReapPolicy{},
+		ui,
+	)
 	if err != nil {
 		t.Fatalf("ReapOnLastClient: expected no error, got %v", err)
 	}
@@ -162,7 +183,14 @@ func TestReapOnLastClient_WaitMode_EmptyStatus(t *testing.T) {
 		"sleep 1h": msb.NewTestResult(true, 0, "", "", nil),
 	}
 
-	err := reapOnLastClient(context.Background(), opencodeAgent(t), slug, sb, options.ReapPolicy{}, ui)
+	err := reapOnLastClient(
+		context.Background(),
+		opencodeAgent(t),
+		state.Key{Slug: slug, Agent: "opencode"},
+		sb,
+		options.ReapPolicy{},
+		ui,
+	)
 	if err != nil {
 		t.Fatalf("ReapOnLastClient: expected no error, got %v", err)
 	}
@@ -193,7 +221,14 @@ func TestReapOnLastClient_ContextCancelled(t *testing.T) {
 		"sleep 1h": msb.NewTestResult(true, 0, "", "", nil),
 	}
 
-	err := reapOnLastClient(shortCtx, opencodeAgent(t), "ctxproj", sb, options.ReapPolicy{}, ui)
+	err := reapOnLastClient(
+		shortCtx,
+		opencodeAgent(t),
+		state.Key{Slug: "ctxproj", Agent: "opencode"},
+		sb,
+		options.ReapPolicy{},
+		ui,
+	)
 	if err == nil {
 		t.Fatal("expected error when context times out")
 	}
@@ -217,7 +252,14 @@ func TestReapOnLastClient_WaitMode_BusyWithQuestionReaps(t *testing.T) {
 	sb.ExecOut = map[string]msb.ShellResult{
 		"sleep 1h": msb.NewTestResult(true, 0, "", "", nil),
 	}
-	err := reapOnLastClient(context.Background(), opencodeAgent(t), slug, sb, options.ReapPolicy{}, ui)
+	err := reapOnLastClient(
+		context.Background(),
+		opencodeAgent(t),
+		state.Key{Slug: slug, Agent: "opencode"},
+		sb,
+		options.ReapPolicy{},
+		ui,
+	)
 	if err != nil {
 		t.Fatalf("ReapOnLastClient: expected no error, got %v", err)
 	}
@@ -242,7 +284,14 @@ func TestReapOnLastClient_WaitMode_BusyWithQuestionErrorKeepsPolling(t *testing.
 	sb.ExecOut = map[string]msb.ShellResult{
 		"sleep 1h": msb.NewTestResult(true, 0, "", "", nil),
 	}
-	err := reapOnLastClient(shortCtx, opencodeAgent(t), slug, sb, options.ReapPolicy{}, ui)
+	err := reapOnLastClient(
+		shortCtx,
+		opencodeAgent(t),
+		state.Key{Slug: slug, Agent: "opencode"},
+		sb,
+		options.ReapPolicy{},
+		ui,
+	)
 	if err == nil {
 		t.Fatal("expected error when context times out (session stays busy)")
 	}
@@ -264,7 +313,14 @@ func TestReapOnLastClient_NilSandbox_AllModes(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			ui := &termio.Mock{}
-			err := reapOnLastClient(context.Background(), opencodeAgent(t), "nilproj", nil, tt.policy, ui)
+			err := reapOnLastClient(
+				context.Background(),
+				opencodeAgent(t),
+				state.Key{Slug: "nilproj", Agent: "opencode"},
+				nil,
+				tt.policy,
+				ui,
+			)
 			if err != nil {
 				t.Fatalf("expected no error with nil sb, got %v", err)
 			}
@@ -281,7 +337,14 @@ func TestReapOnLastClient_NoSessionStatusProvider_SkipsWait(t *testing.T) {
 	ui := &termio.Mock{}
 	sb := msb.NewMockSandbox(msb.SandboxOpts{})
 
-	err := reapOnLastClient(context.Background(), noSessionStatusAgent{}, slug, sb, options.ReapPolicy{}, ui)
+	err := reapOnLastClient(
+		context.Background(),
+		noSessionStatusAgent{},
+		state.Key{Slug: slug, Agent: "opencode"},
+		sb,
+		options.ReapPolicy{},
+		ui,
+	)
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
@@ -298,7 +361,7 @@ func TestReapDoesNotFailSuccessfulAttach(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 
 	slug := "attachproj"
-	release, err := state.AcquireClientLease(slug)
+	release, err := state.AcquireClientLease(state.Key{Slug: slug, Agent: "opencode"})
 	if err != nil {
 		t.Fatalf("state.AcquireClientLease: %v", err)
 	}
@@ -321,7 +384,14 @@ func TestReapDoesNotFailSuccessfulAttach(t *testing.T) {
 	// Release before calling reaper (simulating last client detaching).
 	release()
 
-	err = reapOnLastClient(context.Background(), opencodeAgent(t), slug, sb, options.ReapPolicy{}, ui)
+	err = reapOnLastClient(
+		context.Background(),
+		opencodeAgent(t),
+		state.Key{Slug: slug, Agent: "opencode"},
+		sb,
+		options.ReapPolicy{},
+		ui,
+	)
 	if err != nil {
 		t.Fatalf("ReapOnLastClient should not fail: %v", err)
 	}
@@ -340,7 +410,14 @@ func TestReapOnLastClientSkipsNonDaemonAgent(t *testing.T) {
 	}
 	ui := &termio.Mock{}
 	sb := msb.NewMockSandbox(msb.SandboxOpts{})
-	if err := reapOnLastClient(context.Background(), a, "slug", sb, options.ReapPolicy{}, ui); err != nil {
+	if err := reapOnLastClient(
+		context.Background(),
+		a,
+		state.Key{Slug: "slug", Agent: "opencode"},
+		sb,
+		options.ReapPolicy{},
+		ui,
+	); err != nil {
 		t.Fatalf("reapOnLastClient = %v, want nil for agent without session-status endpoints", err)
 	}
 	if len(ui.SpinnerCalls) != 0 {

@@ -181,9 +181,12 @@ func TestPrune(t *testing.T) {
 		for _, flags := range pruneAgeFlags {
 			t.Run(strings.Join(flags, " "), func(t *testing.T) {
 				runPruneTest(t, flags, func() {
-					if err := state.WriteState("activeproject-1mjusbm3wikhb0", state.HomeState{
-						HomeVolume: "opencode-sandbox-home-activeproject-1mjusbm3wikhb0-abc123",
-					}); err != nil {
+					if err := state.WriteState(
+						state.Key{Slug: "activeproject-1mjusbm3wikhb0", Agent: "opencode"},
+						state.HomeState{
+							HomeVolume: "opencode-sandbox-home-activeproject-1mjusbm3wikhb0-abc123",
+						},
+					); err != nil {
 						t.Fatalf("WriteState: %v", err)
 					}
 

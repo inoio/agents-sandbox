@@ -18,22 +18,22 @@ import (
 func (vm *Manager) ResolveHomeVolume(
 	ctx context.Context,
 	client msb.Client,
-	projectSlug, imageDigest, imageTag string,
+	k state.Key, imageDigest, imageTag string,
 	dryRunVM bool,
 	ui termio.UI,
 ) (string, state.HomeState, error) {
-	st, err := state.ReadState(projectSlug)
+	st, err := state.ReadState(k)
 	if err != nil {
 		if !errors.Is(err, state.ErrStateNotFound) {
 			ui.Warnf("missing state file, creating fresh home volume")
 		}
-		return vm.EnsureNewHome(ctx, client, projectSlug, imageDigest, imageTag, dryRunVM, ui)
+		return vm.EnsureNewHome(ctx, client, k, imageDigest, imageTag, dryRunVM, ui)
 	}
 
 	_, err = client.GetVolume(ctx, st.HomeVolume)
 	if err != nil {
 		ui.Warnf("existing home volume %q not found, creating fresh", st.HomeVolume)
-		return vm.EnsureNewHome(ctx, client, projectSlug, imageDigest, imageTag, dryRunVM, ui)
+		return vm.EnsureNewHome(ctx, client, k, imageDigest, imageTag, dryRunVM, ui)
 	}
 
 	return st.HomeVolume, *st, nil
@@ -43,11 +43,11 @@ func (vm *Manager) ResolveHomeVolume(
 func (vm *Manager) EnsureNewHome(
 	ctx context.Context,
 	client msb.Client,
-	projectSlug, imageDigest, imageTag string,
+	k state.Key, imageDigest, imageTag string,
 	dryRunVM bool,
 	ui termio.UI,
 ) (string, state.HomeState, error) {
-	volName := HomeVolumeName(projectSlug)
+	volName := HomeVolumeName(k.Slug)
 	vol, err := client.CreateVolume(ctx, volName,
 		msbSdk.WithVolumeKind(msbSdk.VolumeKindDir),
 	)
@@ -56,7 +56,7 @@ func (vm *Manager) EnsureNewHome(
 	}
 
 	if !dryRunVM {
-		if err := vm.PrefillVolume(ctx, client, projectSlug, vol.Name(), imageTag, ui); err != nil {
+		if err := vm.PrefillVolume(ctx, client, k, vol.Name(), imageTag, ui); err != nil {
 			return "", state.HomeState{}, err
 		}
 	} else {
@@ -64,7 +64,7 @@ func (vm *Manager) EnsureNewHome(
 	}
 
 	hs := state.NewHomeState(volName, imageDigest)
-	if err := state.WriteState(projectSlug, hs); err != nil {
+	if err := state.WriteState(k, hs); err != nil {
 		ui.Warnf("failed to write state file: %v", err)
 	}
 	return volName, hs, nil
@@ -74,8 +74,8 @@ func (vm *Manager) EnsureNewHome(
 // current digest, preserving the tracked home volume. It is called after the
 // image-change prompt so subsequent runs no longer detect a mismatch and do
 // not re-prompt. Missing state is a no-op.
-func (vm *Manager) RecordHomeImage(projectSlug, currentDigest string, ui termio.UI) error {
-	st, err := state.ReadState(projectSlug)
+func (vm *Manager) RecordHomeImage(k state.Key, currentDigest string, ui termio.UI) error {
+	st, err := state.ReadState(k)
 	if err != nil {
 		if errors.Is(err, state.ErrStateNotFound) {
 			return nil
@@ -83,7 +83,7 @@ func (vm *Manager) RecordHomeImage(projectSlug, currentDigest string, ui termio.
 		return err
 	}
 	st.ImageDigest = currentDigest
-	if err := state.WriteState(projectSlug, *st); err != nil {
+	if err := state.WriteState(k, *st); err != nil {
 		ui.Warnf("failed to write state file: %v", err)
 		return err
 	}

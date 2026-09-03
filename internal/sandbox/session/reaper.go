@@ -44,12 +44,12 @@ type QuestionRequest struct {
 func reapOnLastClient(
 	ctx context.Context,
 	a agent.Agent,
-	slug string,
+	k state.Key,
 	sb msb.Sandbox,
 	policy options.ReapPolicy,
 	ui termio.UI,
 ) error {
-	if state.CountActiveClients(slug) > 0 {
+	if state.CountActiveClients(k) > 0 {
 		return nil
 	}
 	if policy.AutoStopOnActiveSessions {
@@ -64,7 +64,7 @@ func reapOnLastClient(
 		ui.Verbosef("agent %q has no session-status endpoints; skipping quiescence wait", a.Name())
 		return nil
 	}
-	return waitQuiescent(ctx, slug, sb, provider, policy.MaxSessionRetries, ui)
+	return waitQuiescent(ctx, k, sb, provider, policy.MaxSessionRetries, ui)
 }
 
 // waitQuiescent keeps the VM alive (keeper exec) and polls the provider's
@@ -73,7 +73,7 @@ func reapOnLastClient(
 // aborts it.
 func waitQuiescent(
 	ctx context.Context,
-	slug string,
+	k state.Key,
 	sb msb.Sandbox,
 	provider agent.SessionStatusProvider,
 	maxRetry int,
@@ -108,7 +108,7 @@ func waitQuiescent(
 			}
 		}
 
-		if state.CountActiveClients(slug) > 0 {
+		if state.CountActiveClients(k) > 0 {
 			ui.Verbosef("client reattached during wait; aborting reaper")
 			return nil
 		}

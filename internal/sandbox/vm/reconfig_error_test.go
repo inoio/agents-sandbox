@@ -93,6 +93,7 @@ func TestDecideReconfigDetachErrorVerbose(t *testing.T) {
 		context.Background(),
 		mock,
 		vm,
+		state.Key{Slug: "testproj", Agent: "opencode"},
 		options.RunOptions{},
 		"img:tag",
 		"sha256:same",

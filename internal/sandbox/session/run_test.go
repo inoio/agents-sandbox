@@ -114,7 +114,7 @@ func TestRunAttachUsesAttachWithForRoot(t *testing.T) {
 	ui := &termio.Mock{}
 	sb := &msb.MockSandbox{AttachCode: 0}
 
-	release, err := state.AcquireClientLease("roottest")
+	release, err := state.AcquireClientLease(state.Key{Slug: "roottest", Agent: "opencode"})
 	if err != nil {
 		t.Fatalf("state.AcquireClientLease: %v", err)
 	}
@@ -136,7 +136,7 @@ func TestRunAttachDefaultDoesNotUseRoot(t *testing.T) {
 	ui := &termio.Mock{}
 	sb := &msb.MockSandbox{AttachCode: 0}
 
-	release, err := state.AcquireClientLease("defaulttest")
+	release, err := state.AcquireClientLease(state.Key{Slug: "defaulttest", Agent: "opencode"})
 	if err != nil {
 		t.Fatalf("state.AcquireClientLease: %v", err)
 	}

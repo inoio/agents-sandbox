@@ -130,6 +130,7 @@ func decideReconfig(
 	ctx context.Context,
 	client msb.Client,
 	vm *volume.Manager,
+	k state.Key,
 	opts options.RunOptions,
 	imageRef, imageDigest, homeVol string, hs state.HomeState,
 	cfs *reprovision.ConfigFiles,
@@ -195,7 +196,7 @@ func decideReconfig(
 		},
 		homeVol,
 	)
-	otherClients := state.CountActiveClients(slug)
+	otherClients := state.CountActiveClients(k)
 	applyRecreate, applyRestart, err := reprovision.ResolveReconfig(ctx, ui, plan, otherClients, plan.Changes)
 	if err != nil {
 		return false, false, homeVol, err
@@ -213,7 +214,7 @@ func decideReconfig(
 			ui.Infof("exiting as requested by user")
 			return false, false, homeVol, &ExitError{Code: 1}
 		}
-		newVol, err := vm.ApplyHomeAction(ctx, client, slug, homeVol, imageRef, imageDigest, action, opts, ui)
+		newVol, err := vm.ApplyHomeAction(ctx, client, k, homeVol, imageRef, imageDigest, action, opts, ui)
 		if err != nil {
 			return false, false, homeVol, fmt.Errorf("apply home action: %w", err)
 		}

@@ -76,9 +76,9 @@ func TestPersistConfigHashesCoversEnvSecretAndNetwork(t *testing.T) {
 	slug := "hashproj"
 	policy := network.Policy{Profile: network.ProfileNone}
 
-	persistConfigHashes(slug, policy, nil, &ui)
+	persistConfigHashes(state.Key{Slug: slug, Agent: "opencode"}, policy, nil, &ui)
 
-	st, err := state.ReadState(slug)
+	st, err := state.ReadState(state.Key{Slug: slug, Agent: "opencode"})
 	if err != nil {
 		t.Fatalf("ReadState after persistConfigHashes: %v", err)
 	}

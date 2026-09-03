@@ -91,7 +91,10 @@ func TestPrepareSandboxReusesStoredOpenCodeVersion(t *testing.T) {
 	mock.SetGotSandbox(sh)
 	msb.WithMsbMock(t, mock)
 
-	state.WriteState(slug, state.HomeState{HomeVolume: "home-vol", ImageDigest: "sha256:abc123"})
+	state.WriteState(
+		state.Key{Slug: slug, Agent: "opencode"},
+		state.HomeState{HomeVolume: "home-vol", ImageDigest: "sha256:abc123"},
+	)
 
 	origDaemon := SetDaemonShellFunc(func(_ context.Context, _ msb.Sandbox, command string) (string, int, error) {
 		if command == opencodeProvider(t).DaemonHealthCmd() {
@@ -181,7 +184,10 @@ func TestPrepareSandboxUpgradeRebuildsImage(t *testing.T) {
 	mock.SetGotSandbox(sh)
 	msb.WithMsbMock(t, mock)
 
-	state.WriteState(slug, state.HomeState{HomeVolume: "home-vol", ImageDigest: "sha256:abc123"})
+	state.WriteState(
+		state.Key{Slug: slug, Agent: "opencode"},
+		state.HomeState{HomeVolume: "home-vol", ImageDigest: "sha256:abc123"},
+	)
 
 	origDaemon := SetDaemonShellFunc(func(_ context.Context, _ msb.Sandbox, command string) (string, int, error) {
 		if command == opencodeProvider(t).DaemonHealthCmd() {
@@ -281,7 +287,10 @@ func TestPrepareSandboxLoadsHomeYamlOnce(t *testing.T) {
 
 	// Seed home state so ResolveHomeVolume reuses the existing volume and
 	// digest matches (no image-change home-volume prompt).
-	state.WriteState(slug, state.HomeState{HomeVolume: "home-vol", ImageDigest: "sha256:abc123"})
+	state.WriteState(
+		state.Key{Slug: slug, Agent: "opencode"},
+		state.HomeState{HomeVolume: "home-vol", ImageDigest: "sha256:abc123"},
+	)
 
 	// The opencode daemon is healthy inside the VM, so ensureDaemon returns
 	// immediately instead of starting and polling.
@@ -376,7 +385,10 @@ func TestPrepareSandboxRunsStartupHook(t *testing.T) {
 	mock.SetGotSandbox(sh)
 	msb.WithMsbMock(t, mock)
 
-	state.WriteState(slug, state.HomeState{HomeVolume: "home-vol", ImageDigest: "sha256:abc123"})
+	state.WriteState(
+		state.Key{Slug: slug, Agent: "opencode"},
+		state.HomeState{HomeVolume: "home-vol", ImageDigest: "sha256:abc123"},
+	)
 
 	origDaemon := SetDaemonShellFunc(func(_ context.Context, _ msb.Sandbox, command string) (string, int, error) {
 		if command == opencodeProvider(t).DaemonHealthCmd() {
@@ -504,7 +516,7 @@ func TestPrepareSandboxPersistsMountFingerprintOnVMCreation(t *testing.T) {
 	}
 	msb.WithMsbMock(t, mock)
 
-	if err := state.WriteState(slug, state.HomeState{
+	if err := state.WriteState(state.Key{Slug: slug, Agent: "opencode"}, state.HomeState{
 		HomeVolume:  "home-vol",
 		ImageDigest: "sha256:abc123",
 	}); err != nil {
@@ -533,7 +545,7 @@ func TestPrepareSandboxPersistsMountFingerprintOnVMCreation(t *testing.T) {
 		t.Fatalf("expected the project VM to be created, got %d creations", len(mock.CreatedSandboxes))
 	}
 
-	st, err := state.ReadState(slug)
+	st, err := state.ReadState(state.Key{Slug: slug, Agent: "opencode"})
 	if err != nil {
 		t.Fatalf("ReadState: %v", err)
 	}

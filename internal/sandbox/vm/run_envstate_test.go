@@ -31,12 +31,12 @@ func TestPersistEnvSecrets_RoundTrip(t *testing.T) {
 	envSt := state.EnvState{Hash: "env-hash-123", Names: []string{"FOO"}}
 	secSt := state.SecretState{Hash: "sec-hash-456", Names: []string{"PASS"}}
 
-	err := persistEnvSecrets(slug, envSt, secSt)
+	err := persistEnvSecrets(state.Key{Slug: slug, Agent: "opencode"}, envSt, secSt)
 	if err != nil {
 		t.Fatalf("persistEnvSecrets: %v", err)
 	}
 
-	got, err := state.ReadState(slug)
+	got, err := state.ReadState(state.Key{Slug: slug, Agent: "opencode"})
 	if err != nil {
 		t.Fatalf("ReadState after persist: %v", err)
 	}
@@ -56,11 +56,11 @@ func TestPersistEnvSecrets_CreatesMissingStateDir(t *testing.T) {
 	envSt := state.EnvState{Hash: "h1", Names: []string{"X"}}
 	secSt := state.SecretState{Hash: "h2", Names: []string{"Y"}}
 
-	if err := persistEnvSecrets(slug, envSt, secSt); err != nil {
+	if err := persistEnvSecrets(state.Key{Slug: slug, Agent: "opencode"}, envSt, secSt); err != nil {
 		t.Fatalf("persistEnvSecrets: %v", err)
 	}
 
-	got, err := state.ReadState(slug)
+	got, err := state.ReadState(state.Key{Slug: slug, Agent: "opencode"})
 	if err != nil {
 		t.Fatalf("ReadState: %v", err)
 	}
@@ -75,7 +75,7 @@ func TestPersistEnvSecrets_MergesExistingState(t *testing.T) {
 	slug := "mergeproj"
 
 	// Write existing state with HomeVolume and ImageDigest
-	state.WriteState(slug, state.HomeState{
+	state.WriteState(state.Key{Slug: slug, Agent: "opencode"}, state.HomeState{
 		HomeVolume:  "existing-vol",
 		ImageDigest: "sha256:existing",
 	})
@@ -83,11 +83,11 @@ func TestPersistEnvSecrets_MergesExistingState(t *testing.T) {
 	envSt := state.EnvState{Hash: "new-env-hash", Names: []string{"NEW"}}
 	secSt := state.SecretState{Hash: "new-sec-hash", Names: []string{"SECRET"}}
 
-	if err := persistEnvSecrets(slug, envSt, secSt); err != nil {
+	if err := persistEnvSecrets(state.Key{Slug: slug, Agent: "opencode"}, envSt, secSt); err != nil {
 		t.Fatalf("persistEnvSecrets: %v", err)
 	}
 
-	got, err := state.ReadState(slug)
+	got, err := state.ReadState(state.Key{Slug: slug, Agent: "opencode"})
 	if err != nil {
 		t.Fatalf("ReadState: %v", err)
 	}
@@ -116,16 +116,16 @@ func TestPersistEnvSecrets_OverwritesExistingState(t *testing.T) {
 		EnvState:    state.EnvState{Hash: "sha256:olddata", Names: nil},
 		SecretState: state.SecretState{},
 	}
-	state.WriteState(slug, oldState)
+	state.WriteState(state.Key{Slug: slug, Agent: "opencode"}, oldState)
 
 	envSt := state.EnvState{Hash: "newhash", Names: []string{"K"}}
 	secSt := state.SecretState{Hash: "sh", Names: []string{"S"}}
 
-	if err := persistEnvSecrets(slug, envSt, secSt); err != nil {
+	if err := persistEnvSecrets(state.Key{Slug: slug, Agent: "opencode"}, envSt, secSt); err != nil {
 		t.Fatalf("persistEnvSecrets: %v", err)
 	}
 
-	got, err := state.ReadState(slug)
+	got, err := state.ReadState(state.Key{Slug: slug, Agent: "opencode"})
 	if err != nil {
 		t.Fatalf("ReadState: %v", err)
 	}
@@ -143,11 +143,11 @@ func TestPersistNetworkState_RoundTrip(t *testing.T) {
 	slug := "netproj"
 	policy := network.Policy{Profile: network.ProfileNone, EgressAllow: []string{"api.example.com"}}
 
-	if err := persistNetworkState(slug, policy); err != nil {
+	if err := persistNetworkState(state.Key{Slug: slug, Agent: "opencode"}, policy); err != nil {
 		t.Fatalf("persistNetworkState: %v", err)
 	}
 
-	got, err := state.ReadState(slug)
+	got, err := state.ReadState(state.Key{Slug: slug, Agent: "opencode"})
 	if err != nil {
 		t.Fatalf("ReadState after persist: %v", err)
 	}
@@ -182,6 +182,7 @@ func TestDecideReconfig_NetworkChangedWithPersistedState(t *testing.T) {
 		context.Background(),
 		mock,
 		vm,
+		state.Key{Slug: "testproj", Agent: "opencode"},
 		opts,
 		"img:tag",
 		"sha256:samedigest",
@@ -226,6 +227,7 @@ func TestDecideReconfig_NetworkUnchangedNoRecreate(t *testing.T) {
 		context.Background(),
 		mock,
 		vm,
+		state.Key{Slug: "testproj", Agent: "opencode"},
 		opts,
 		"img:tag",
 		"sha256:samedigest",
@@ -281,13 +283,13 @@ func TestPersistEnvSecrets_ReadFailsReturnsError(t *testing.T) {
 	slug := "failproj"
 
 	// Corrupted YAML that returns an error (not ErrStateNotFound):
-	sdir := filepath.Join(configpaths.Get().UserStateDir(), slug)
+	sdir := filepath.Join(configpaths.Get().UserStateDir(), slug, "opencode")
 	os.MkdirAll(sdir, 0o700)
 	testutil.WriteFile(t, sdir, "state.yaml", "{ corrupted: yaml: [")
 
 	envSt := state.EnvState{Hash: "h"}
 	secSt := state.SecretState{Hash: "h"}
-	err := persistEnvSecrets(slug, envSt, secSt)
+	err := persistEnvSecrets(state.Key{Slug: slug, Agent: "opencode"}, envSt, secSt)
 
 	if err == nil {
 		t.Fatal("expected error for corrupted YAML, got nil")
@@ -327,6 +329,7 @@ func TestDecideReconfig_EnvChangedWithPersistedState(t *testing.T) {
 		context.Background(),
 		mock,
 		vm,
+		state.Key{Slug: "testproj", Agent: "opencode"},
 		options.RunOptions{},
 		"img:tag",
 		"sha256:samedigest",
@@ -380,6 +383,7 @@ func TestDecideReconfig_EnvUnchangedWithPersistedState(t *testing.T) {
 		context.Background(),
 		mock,
 		vm,
+		state.Key{Slug: "testproj", Agent: "opencode"},
 		options.RunOptions{},
 		"img:tag",
 		"sha256:samedigest",
@@ -428,6 +432,7 @@ func TestDecideReconfig_SecretsChangedWithPersistedState(t *testing.T) {
 		context.Background(),
 		mock,
 		vm,
+		state.Key{Slug: "testproj", Agent: "opencode"},
 		options.RunOptions{},
 		"img:tag",
 		"sha256:samedigest",
@@ -472,6 +477,7 @@ func TestDecideReconfig_ZeroPersistedStateNoSpuriousChange(t *testing.T) {
 		context.Background(),
 		mock,
 		vm,
+		state.Key{Slug: "testproj", Agent: "opencode"},
 		options.RunOptions{},
 		"img:tag",
 		"sha256:samedigest",
@@ -554,11 +560,11 @@ func TestPersistEnvSecrets_NilStateOnNotFound(t *testing.T) {
 	envSt := state.EnvState{Hash: "h1", Names: []string{"X"}}
 	secSt := state.SecretState{Hash: "h2", Names: []string{"Y"}}
 
-	if err := persistEnvSecrets(slug, envSt, secSt); err != nil {
+	if err := persistEnvSecrets(state.Key{Slug: slug, Agent: "opencode"}, envSt, secSt); err != nil {
 		t.Fatalf("persistEnvSecrets: %v", err)
 	}
 
-	got, err := state.ReadState(slug)
+	got, err := state.ReadState(state.Key{Slug: slug, Agent: "opencode"})
 	if err != nil {
 		t.Fatalf("ReadState: %v", err)
 	}
@@ -584,11 +590,11 @@ func TestPersistEnvSecrets_HomeStateOmitsZeroState(t *testing.T) {
 	envSt := state.EnvState{Hash: "h1", Names: []string{"X"}}
 	secSt := state.SecretState{}
 
-	if err := persistEnvSecrets(slug, envSt, secSt); err != nil {
+	if err := persistEnvSecrets(state.Key{Slug: slug, Agent: "opencode"}, envSt, secSt); err != nil {
 		t.Fatalf("persistEnvSecrets: %v", err)
 	}
 
-	data, err := os.ReadFile(filepath.Join(configpaths.Get().UserStateDir(), slug, "state.yaml"))
+	data, err := os.ReadFile(filepath.Join(configpaths.Get().UserStateDir(), slug, "opencode", "state.yaml"))
 	if err != nil {
 		t.Fatalf("read state file: %v", err)
 	}
@@ -603,17 +609,21 @@ func TestPersistEnvSecrets_ZeroStateOverwritesOnlyFields(t *testing.T) {
 
 	slug := "overwriteproj"
 
-	state.WriteState(slug, state.HomeState{
+	state.WriteState(state.Key{Slug: slug, Agent: "opencode"}, state.HomeState{
 		HomeVolume:  "vol",
 		ImageDigest: "sha256:img",
 		EnvState:    state.EnvState{Hash: "old-env", Names: []string{"OLD"}},
 	})
 
-	if err := persistEnvSecrets(slug, state.EnvState{}, state.SecretState{}); err != nil {
+	if err := persistEnvSecrets(
+		state.Key{Slug: slug, Agent: "opencode"},
+		state.EnvState{},
+		state.SecretState{},
+	); err != nil {
 		t.Fatalf("persistEnvSecrets: %v", err)
 	}
 
-	got, err := state.ReadState(slug)
+	got, err := state.ReadState(state.Key{Slug: slug, Agent: "opencode"})
 	if err != nil {
 		t.Fatalf("ReadState: %v", err)
 	}
@@ -643,7 +653,7 @@ func TestDecideReconfig_PersistedSecretsMatchDesired(t *testing.T) {
 	desiredEnv := reprovision.MergeEnvMaps(reprovision.BuildEnvMap(filepath.Join(userDir, configpaths.EnvFileName)))
 	envHash := reprovision.EnvContentHash(desiredEnv)
 
-	state.WriteState("myproj5", state.HomeState{
+	state.WriteState(state.Key{Slug: "myproj5", Agent: "opencode"}, state.HomeState{
 		HomeVolume:  "vol",
 		ImageDigest: "sha256:img",
 		EnvState:    state.EnvState{Hash: envHash, Names: []string{"K"}},
@@ -664,6 +674,7 @@ func TestDecideReconfig_PersistedSecretsMatchDesired(t *testing.T) {
 		context.Background(),
 		mock,
 		vm,
+		state.Key{Slug: "testproj", Agent: "opencode"},
 		options.RunOptions{},
 		"img", "sha256:img", "vol",
 		persistedState,
@@ -713,6 +724,7 @@ func TestDecideReconfig_HomePromptDeferredWhenRebuildDeferred(t *testing.T) {
 		context.Background(),
 		mock,
 		vm,
+		state.Key{Slug: "testproj", Agent: "opencode"},
 		options.RunOptions{},
 		"img:tag",    // imageRef == cfg.Image -> no image-triggered rebuild
 		"sha256:new", // stored digest differs -> image change detected, but rebuild deferred
@@ -763,7 +775,7 @@ func TestDecideReconfig_HomePromptAskedWhenRebuildConfirmed(t *testing.T) {
 		ImageDigest: "sha256:old",
 	}
 	slug := git.ProjectSlug()
-	state.WriteState(slug, persisted)
+	state.WriteState(state.Key{Slug: slug, Agent: "opencode"}, persisted)
 
 	cfs, err := reprovision.LoadConfigFilesForHost(opencodeAgent(t), t.TempDir(), reprovision.VMHomeDir, ui, true)
 	if err != nil {
@@ -773,6 +785,7 @@ func TestDecideReconfig_HomePromptAskedWhenRebuildConfirmed(t *testing.T) {
 		context.Background(),
 		mock,
 		vm,
+		state.Key{Slug: slug, Agent: "opencode"},
 		options.RunOptions{},
 		"img:new",    // imageRef != cfg.Image("img:tag") -> image-triggered rebuild
 		"sha256:new", // stored digest differs -> image change detected
@@ -797,7 +810,7 @@ func TestDecideReconfig_HomePromptAskedWhenRebuildConfirmed(t *testing.T) {
 		t.Errorf("homeVol = %q, want %q (keep chosen)", homeVol, "vol")
 	}
 
-	st, rerr := state.ReadState(slug)
+	st, rerr := state.ReadState(state.Key{Slug: slug, Agent: "opencode"})
 	if rerr != nil {
 		t.Fatalf("ReadState: %v", rerr)
 	}
@@ -845,6 +858,7 @@ func TestDecideReconfig_OpenCodeConfigChanged_StoppedVM(t *testing.T) {
 		context.Background(),
 		mock,
 		vm,
+		state.Key{Slug: "testproj", Agent: "opencode"},
 		options.RunOptions{},
 		"img:tag",
 		"sha256:same",
@@ -914,11 +928,11 @@ func TestPersistMountState_NilStateOnNotFound(t *testing.T) {
 		"/home/dev/.m2": {Source: "/host/.m2"},
 	}
 
-	if err := persistMountState(slug, mnts); err != nil {
+	if err := persistMountState(state.Key{Slug: slug, Agent: "opencode"}, mnts); err != nil {
 		t.Fatalf("persistMountState: %v", err)
 	}
 
-	got, err := state.ReadState(slug)
+	got, err := state.ReadState(state.Key{Slug: slug, Agent: "opencode"})
 	if err != nil {
 		t.Fatalf("ReadState: %v", err)
 	}
@@ -936,13 +950,13 @@ func TestPersistMountStateCorruptState(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 
 	slug := "corruptmountproject"
-	sdir := filepath.Join(configpaths.Get().UserStateDir(), slug)
+	sdir := filepath.Join(configpaths.Get().UserStateDir(), slug, "opencode")
 	if err := os.MkdirAll(sdir, 0o700); err != nil {
 		t.Fatal(err)
 	}
 	testutil.WriteFile(t, sdir, "state.yaml", "{ corrupted: yaml: [")
 
-	err := persistMountState(slug, nil)
+	err := persistMountState(state.Key{Slug: slug, Agent: "opencode"}, nil)
 	if err == nil {
 		t.Fatal("expected an error for a corrupt state file")
 	}

@@ -23,7 +23,7 @@ func TestCheckForActiveVMs_ListSandboxesError(t *testing.T) {
 	mock, _ := setupVolumeOpsFixtures(t)
 	mock.ListSandboxesErr = errors.New("boom")
 
-	err := checkForActiveVMs(context.Background(), "someproj")
+	err := checkForActiveVMs(context.Background(), state.Key{Slug: "someproj", Agent: "opencode"})
 	if err == nil || !strings.Contains(err.Error(), "list sandboxes") {
 		t.Fatalf("expected list sandboxes error, got: %v", err)
 	}
@@ -35,7 +35,7 @@ func TestCheckForActiveVMs_IgnoresNonVMSandboxes(t *testing.T) {
 		&msb.MockSandboxHandle{Name_: "opencode-sandbox-task-someproj", Status_: msbSdk.SandboxStatusRunning},
 	}
 
-	if err := checkForActiveVMs(context.Background(), "someproj"); err != nil {
+	if err := checkForActiveVMs(context.Background(), state.Key{Slug: "someproj", Agent: "opencode"}); err != nil {
 		t.Fatalf("expected no error for non-VM sandbox, got: %v", err)
 	}
 }
@@ -46,7 +46,7 @@ func TestCheckForActiveVMs_OtherSlugVMIsIgnored(t *testing.T) {
 		&msb.MockSandboxHandle{Name_: "opencode-sandbox-vm-otherproj", Status_: msbSdk.SandboxStatusRunning},
 	}
 
-	if err := checkForActiveVMs(context.Background(), "someproj"); err != nil {
+	if err := checkForActiveVMs(context.Background(), state.Key{Slug: "someproj", Agent: "opencode"}); err != nil {
 		t.Fatalf("expected no error for a VM of another slug, got: %v", err)
 	}
 }
@@ -57,7 +57,7 @@ func TestCheckForActiveVMs_InactiveVMSameSlugIsIgnored(t *testing.T) {
 		&msb.MockSandboxHandle{Name_: "opencode-sandbox-vm-someproj", Status_: msbSdk.SandboxStatusStopped},
 	}
 
-	if err := checkForActiveVMs(context.Background(), "someproj"); err != nil {
+	if err := checkForActiveVMs(context.Background(), state.Key{Slug: "someproj", Agent: "opencode"}); err != nil {
 		t.Fatalf("expected no error for an inactive VM, got: %v", err)
 	}
 }
@@ -65,12 +65,21 @@ func TestCheckForActiveVMs_InactiveVMSameSlugIsIgnored(t *testing.T) {
 func TestVolumeOp_ReadStateCorruptError(t *testing.T) {
 	_, ui := setupVolumeOpsFixtures(t)
 	slug := "corruptproj-read"
-	statePath := filepath.Join(configpaths.Get().UserStateDir(), slug, "state.yaml")
+	statePath := filepath.Join(configpaths.Get().UserStateDir(), slug, "opencode", "state.yaml")
 	if err := os.MkdirAll(statePath, 0o700); err != nil {
 		t.Fatal(err)
 	}
 
-	err := CmdReset(context.Background(), slug, "", "img-tag", "sha256:new", false, false, ui)
+	err := CmdReset(
+		context.Background(),
+		state.Key{Slug: slug, Agent: "opencode"},
+		"",
+		"img-tag",
+		"sha256:new",
+		false,
+		false,
+		ui,
+	)
 	if err == nil || !strings.Contains(err.Error(), "read state") {
 		t.Fatalf("expected read state error, got: %v", err)
 	}
@@ -79,9 +88,18 @@ func TestVolumeOp_ReadStateCorruptError(t *testing.T) {
 func TestVolumeOp_NoVolumeToOperate(t *testing.T) {
 	_, ui := setupVolumeOpsFixtures(t)
 	slug := "novolproj"
-	state.WriteState(slug, state.HomeState{})
+	state.WriteState(state.Key{Slug: slug, Agent: "opencode"}, state.HomeState{})
 
-	err := CmdReset(context.Background(), slug, "", "img-tag", "sha256:new", false, false, ui)
+	err := CmdReset(
+		context.Background(),
+		state.Key{Slug: slug, Agent: "opencode"},
+		"",
+		"img-tag",
+		"sha256:new",
+		false,
+		false,
+		ui,
+	)
 	if err == nil || !strings.Contains(err.Error(), "no volume to operate") {
 		t.Fatalf("expected no-volume error, got: %v", err)
 	}
@@ -90,10 +108,22 @@ func TestVolumeOp_NoVolumeToOperate(t *testing.T) {
 func TestVolumeOp_PrefillFails(t *testing.T) {
 	mock, ui := setupVolumeOpsFixtures(t)
 	slug := "testproj-aBc1234D"
-	state.WriteState(slug, state.HomeState{HomeVolume: "old-vol", ImageDigest: "sha256:abc"})
+	state.WriteState(
+		state.Key{Slug: slug, Agent: "opencode"},
+		state.HomeState{HomeVolume: "old-vol", ImageDigest: "sha256:abc"},
+	)
 	mock.CreateSandboxErr = errors.New("prefill failed")
 
-	err := CmdReset(context.Background(), slug, "", "img-tag", "sha256:new", false, false, ui)
+	err := CmdReset(
+		context.Background(),
+		state.Key{Slug: slug, Agent: "opencode"},
+		"",
+		"img-tag",
+		"sha256:new",
+		false,
+		false,
+		ui,
+	)
 	if err == nil || !strings.Contains(err.Error(), "prefill new volume") {
 		t.Fatalf("expected prefill error, got: %v", err)
 	}
@@ -102,7 +132,10 @@ func TestVolumeOp_PrefillFails(t *testing.T) {
 func TestVolumeOp_MainFails_CleanupVolumeFailsWarns(t *testing.T) {
 	mock, ui := setupVolumeOpsFixtures(t)
 	slug := "testproj-aBc1234D"
-	state.WriteState(slug, state.HomeState{HomeVolume: "old-vol", ImageDigest: "sha256:abc"})
+	state.WriteState(
+		state.Key{Slug: slug, Agent: "opencode"},
+		state.HomeState{HomeVolume: "old-vol", ImageDigest: "sha256:abc"},
+	)
 
 	var sandboxCount int
 	mock.CreateSandboxFn = func(_ context.Context, _ string, _ ...msbSdk.SandboxOption) (msb.Sandbox, error) {
@@ -119,7 +152,16 @@ func TestVolumeOp_MainFails_CleanupVolumeFailsWarns(t *testing.T) {
 		return errors.New("volume busy")
 	}
 
-	err := CmdMigrate(context.Background(), slug, "", "img-tag", "sha256:new", false, false, ui)
+	err := CmdMigrate(
+		context.Background(),
+		state.Key{Slug: slug, Agent: "opencode"},
+		"",
+		"img-tag",
+		"sha256:new",
+		false,
+		false,
+		ui,
+	)
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
@@ -137,9 +179,12 @@ func TestVolumeOp_MainFails_CleanupVolumeFailsWarns(t *testing.T) {
 func TestVolumeOp_WriteStateFails_Warns(t *testing.T) {
 	mock, ui := setupVolumeOpsFixtures(t)
 	slug := "testproj-aBc1234D"
-	state.WriteState(slug, state.HomeState{HomeVolume: "old-vol", ImageDigest: "sha256:old"})
+	state.WriteState(
+		state.Key{Slug: slug, Agent: "opencode"},
+		state.HomeState{HomeVolume: "old-vol", ImageDigest: "sha256:old"},
+	)
 
-	sdir := filepath.Join(configpaths.Get().UserStateDir(), slug)
+	sdir := filepath.Join(configpaths.Get().UserStateDir(), slug, "opencode")
 	if err := os.MkdirAll(filepath.Join(sdir, ".state.yaml.tmp"), 0o700); err != nil {
 		t.Fatal(err)
 	}
@@ -151,7 +196,16 @@ func TestVolumeOp_WriteStateFails_Warns(t *testing.T) {
 		return &msb.MockVolumeHandle{Name_: name}, nil
 	}
 
-	err := CmdReset(context.Background(), slug, "", "img-tag", "sha256:new", false, false, ui)
+	err := CmdReset(
+		context.Background(),
+		state.Key{Slug: slug, Agent: "opencode"},
+		"",
+		"img-tag",
+		"sha256:new",
+		false,
+		false,
+		ui,
+	)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -170,7 +224,10 @@ func TestVolumeOp_RemoveOldFails_Warns(t *testing.T) {
 	mock, ui := setupVolumeOpsFixtures(t)
 	slug := "testproj-aBc1234D"
 	oldVol := "opencode-sandbox-home-" + slug + "-old"
-	state.WriteState(slug, state.HomeState{HomeVolume: oldVol, ImageDigest: "sha256:old"})
+	state.WriteState(
+		state.Key{Slug: slug, Agent: "opencode"},
+		state.HomeState{HomeVolume: oldVol, ImageDigest: "sha256:old"},
+	)
 
 	mock.CreateSandboxFn = func(_ context.Context, _ string, _ ...msbSdk.SandboxOption) (msb.Sandbox, error) {
 		return msb.NewMockSandbox(msb.SandboxOpts{}), nil
@@ -185,7 +242,16 @@ func TestVolumeOp_RemoveOldFails_Warns(t *testing.T) {
 		return nil
 	}
 
-	err := CmdReset(context.Background(), slug, "", "img-tag", "sha256:new", true, false, ui)
+	err := CmdReset(
+		context.Background(),
+		state.Key{Slug: slug, Agent: "opencode"},
+		"",
+		"img-tag",
+		"sha256:new",
+		true,
+		false,
+		ui,
+	)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -205,9 +271,21 @@ func TestCmdEdit_LoadImageFails(t *testing.T) {
 	docker.WithDefaultErrorDockerMock(t)
 
 	slug := "testproj-aBc1234D"
-	state.WriteState(slug, state.HomeState{HomeVolume: "old-vol", ImageDigest: "sha256:abc"})
+	state.WriteState(
+		state.Key{Slug: slug, Agent: "opencode"},
+		state.HomeState{HomeVolume: "old-vol", ImageDigest: "sha256:abc"},
+	)
 
-	err := CmdEdit(context.Background(), slug, "", "img-tag", "sha256:abc", false, false, ui)
+	err := CmdEdit(
+		context.Background(),
+		state.Key{Slug: slug, Agent: "opencode"},
+		"",
+		"img-tag",
+		"sha256:abc",
+		false,
+		false,
+		ui,
+	)
 	if err == nil || !strings.Contains(err.Error(), "load runner image") {
 		t.Fatalf("expected load runner image error, got: %v", err)
 	}
@@ -219,7 +297,14 @@ func TestPrefillVolume_LoadImageFails(t *testing.T) {
 
 	mock := &msb.MockMsbClient{}
 	vm := NewManager(&termio.Mock{})
-	err := vm.PrefillVolume(context.Background(), mock, "myproject", "vol", "img-tag", &termio.Mock{})
+	err := vm.PrefillVolume(
+		context.Background(),
+		mock,
+		state.Key{Slug: "myproject", Agent: "opencode"},
+		"vol",
+		"img-tag",
+		&termio.Mock{},
+	)
 	if err == nil || !strings.Contains(err.Error(), "load runner image") {
 		t.Fatalf("expected load runner image error, got: %v", err)
 	}
@@ -231,7 +316,15 @@ func TestCopyVolume_LoadImageFails(t *testing.T) {
 
 	mock := &msb.MockMsbClient{}
 	vm := NewManager(&termio.Mock{})
-	err := vm.CopyVolume(context.Background(), mock, "myproject", "old-vol", "new-vol", "img-tag", &termio.Mock{})
+	err := vm.CopyVolume(
+		context.Background(),
+		mock,
+		state.Key{Slug: "myproject", Agent: "opencode"},
+		"old-vol",
+		"new-vol",
+		"img-tag",
+		&termio.Mock{},
+	)
 	if err == nil || !strings.Contains(err.Error(), "load runner image") {
 		t.Fatalf("expected load runner image error, got: %v", err)
 	}
@@ -246,7 +339,13 @@ func TestEnsureNewHome_CreateVolumeFails(t *testing.T) {
 	}
 	vm := NewManager(&termio.Mock{})
 	_, _, err := vm.EnsureNewHome(
-		context.Background(), mock, "testproj", "sha256:abc", "img-tag", false, &termio.Mock{},
+		context.Background(),
+		mock,
+		state.Key{Slug: "testproj", Agent: "opencode"},
+		"sha256:abc",
+		"img-tag",
+		false,
+		&termio.Mock{},
 	)
 	if err == nil || !strings.Contains(err.Error(), "create volume") {
 		t.Fatalf("expected create volume error, got: %v", err)
@@ -257,13 +356,13 @@ func TestRecordHomeImage_ReadStateError(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 
 	slug := "corrupt-rh"
-	statePath := filepath.Join(configpaths.Get().UserStateDir(), slug, "state.yaml")
+	statePath := filepath.Join(configpaths.Get().UserStateDir(), slug, "opencode", "state.yaml")
 	if err := os.MkdirAll(statePath, 0o700); err != nil {
 		t.Fatal(err)
 	}
 
 	vm := NewManager(&termio.Mock{})
-	err := vm.RecordHomeImage(slug, "sha256:new", &termio.Mock{})
+	err := vm.RecordHomeImage(state.Key{Slug: slug, Agent: "opencode"}, "sha256:new", &termio.Mock{})
 	if err == nil {
 		t.Fatal("expected error for unreadable state, got nil")
 	}
@@ -273,15 +372,18 @@ func TestRecordHomeImage_WriteStateFails(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 
 	slug := "writefail-rh"
-	state.WriteState(slug, state.HomeState{HomeVolume: "vol", ImageDigest: "sha256:old"})
-	sdir := filepath.Join(configpaths.Get().UserStateDir(), slug)
+	state.WriteState(
+		state.Key{Slug: slug, Agent: "opencode"},
+		state.HomeState{HomeVolume: "vol", ImageDigest: "sha256:old"},
+	)
+	sdir := filepath.Join(configpaths.Get().UserStateDir(), slug, "opencode")
 	if err := os.MkdirAll(filepath.Join(sdir, ".state.yaml.tmp"), 0o700); err != nil {
 		t.Fatal(err)
 	}
 
 	ui := &termio.Mock{}
 	vm := NewManager(ui)
-	err := vm.RecordHomeImage(slug, "sha256:new", ui)
+	err := vm.RecordHomeImage(state.Key{Slug: slug, Agent: "opencode"}, "sha256:new", ui)
 	if err == nil {
 		t.Fatal("expected write-state error, got nil")
 	}
@@ -310,7 +412,7 @@ func TestApplyHomeAction_KeepDryRun_ReturnsOldVolume(t *testing.T) {
 	vol, err := vm.ApplyHomeAction(
 		context.Background(),
 		mock,
-		"myproj",
+		state.Key{Slug: "myproj", Agent: "opencode"},
 		"old-vol",
 		"img-tag",
 		"sha256:new",
@@ -333,7 +435,7 @@ func TestApplyHomeAction_KeepRecordImageFails_Warns(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 
 	slug := "corrupt-keep"
-	statePath := filepath.Join(configpaths.Get().UserStateDir(), slug, "state.yaml")
+	statePath := filepath.Join(configpaths.Get().UserStateDir(), slug, "opencode", "state.yaml")
 	if err := os.MkdirAll(statePath, 0o700); err != nil {
 		t.Fatal(err)
 	}
@@ -345,7 +447,7 @@ func TestApplyHomeAction_KeepRecordImageFails_Warns(t *testing.T) {
 	vol, err := vm.ApplyHomeAction(
 		context.Background(),
 		mock,
-		slug,
+		state.Key{Slug: slug, Agent: "opencode"},
 		"old-vol",
 		"img-tag",
 		"sha256:new",
@@ -382,7 +484,7 @@ func TestApplyHomeAction_CreateVolumeFails(t *testing.T) {
 	_, err := vm.ApplyHomeAction(
 		context.Background(),
 		mock,
-		"myproj",
+		state.Key{Slug: "myproj", Agent: "opencode"},
 		"old-vol",
 		"img-tag",
 		"sha256:new",
@@ -400,8 +502,11 @@ func TestApplyHomeAction_WriteStateFails_Warns(t *testing.T) {
 	docker.WithNoopDockerMock(t)
 
 	slug := "writefail-apply"
-	state.WriteState(slug, state.HomeState{HomeVolume: "old-vol", ImageDigest: "sha256:old"})
-	sdir := filepath.Join(configpaths.Get().UserStateDir(), slug)
+	state.WriteState(
+		state.Key{Slug: slug, Agent: "opencode"},
+		state.HomeState{HomeVolume: "old-vol", ImageDigest: "sha256:old"},
+	)
+	sdir := filepath.Join(configpaths.Get().UserStateDir(), slug, "opencode")
 	if err := os.MkdirAll(filepath.Join(sdir, ".state.yaml.tmp"), 0o700); err != nil {
 		t.Fatal(err)
 	}
@@ -419,7 +524,7 @@ func TestApplyHomeAction_WriteStateFails_Warns(t *testing.T) {
 	_, err := vm.ApplyHomeAction(
 		context.Background(),
 		mock,
-		slug,
+		state.Key{Slug: slug, Agent: "opencode"},
 		"old-vol",
 		"img-tag",
 		"sha256:new",
@@ -445,7 +550,10 @@ func TestCmdEdit_LoadImageFailsInMain(t *testing.T) {
 	mock, ui := setupVolumeOpsFixtures(t)
 
 	slug := "testproj-aBc1234D"
-	state.WriteState(slug, state.HomeState{HomeVolume: "old-vol", ImageDigest: "sha256:abc"})
+	state.WriteState(
+		state.Key{Slug: slug, Agent: "opencode"},
+		state.HomeState{HomeVolume: "old-vol", ImageDigest: "sha256:abc"},
+	)
 
 	loadCalls := 0
 	mock.ImageLoadFn = func(_ context.Context, _ string, _ io.Reader) error {
@@ -456,7 +564,16 @@ func TestCmdEdit_LoadImageFailsInMain(t *testing.T) {
 		return nil
 	}
 
-	err := CmdEdit(context.Background(), slug, "", "img-tag", "sha256:abc", false, false, ui)
+	err := CmdEdit(
+		context.Background(),
+		state.Key{Slug: slug, Agent: "opencode"},
+		"",
+		"img-tag",
+		"sha256:abc",
+		false,
+		false,
+		ui,
+	)
 	if err == nil || !strings.Contains(err.Error(), "load runner image") {
 		t.Fatalf("expected load runner image error, got: %v", err)
 	}

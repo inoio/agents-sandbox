@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/inoio/opencode-sandbox/internal/configpaths"
+	"github.com/inoio/opencode-sandbox/internal/testutil"
 )
 
 func TestAcquireClaimExclusivePerKey(t *testing.T) {
@@ -91,4 +92,39 @@ func TestAcquireClaimReclaimableAfterReleaseWithFilePresent(t *testing.T) {
 		t.Fatalf("re-acquire after release: claimed=%v err=%v", claimed2, err)
 	}
 	release2()
+}
+
+func TestAcquireClaim_MkdirError(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	slug := "claimmkdirproj"
+	sdir := filepath.Join(configpaths.Get().UserStateDir(), slug)
+	if err := os.MkdirAll(sdir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	// A file where the claims dir should live makes MkdirAll fail.
+	testutil.WritePath(t, filepath.Join(sdir, "claims"), "not a directory")
+
+	if _, _, err := AcquireClaim(slug, "key"); err == nil {
+		t.Fatal("expected error when the claims dir cannot be created")
+	}
+}
+
+func TestAcquireClaim_OpenFileError(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("cannot simulate an unwritable dir as root")
+	}
+	configpaths.WithMockConfigPaths(t)
+	slug := "claimroproj"
+	dir := filepath.Join(configpaths.Get().UserStateDir(), slug, "claims")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(dir, 0o500); err != nil {
+		t.Fatal(err)
+	}
+	defer os.Chmod(dir, 0o700)
+
+	if _, _, err := AcquireClaim(slug, "key"); err == nil {
+		t.Fatal("expected error when the claim file cannot be opened")
+	}
 }

@@ -72,7 +72,10 @@ func TestPrepareSandboxDryRunVM(t *testing.T) {
 	}
 	msb.WithMsbMock(t, mock)
 
-	state.WriteState(slug, state.HomeState{HomeVolume: "home-vol", ImageDigest: "sha256:abc123"})
+	state.WriteState(
+		state.Key{Slug: slug, Agent: "opencode"},
+		state.HomeState{HomeVolume: "home-vol", ImageDigest: "sha256:abc123"},
+	)
 
 	origDaemon := SetDaemonShellFunc(func(_ context.Context, _ msb.Sandbox, command string) (string, int, error) {
 		if command == opencodeProvider(t).DaemonHealthCmd() {
@@ -210,7 +213,10 @@ func TestPrepareSandboxEnsureVMError(t *testing.T) {
 	}
 	msb.WithMsbMock(t, mock)
 
-	state.WriteState(slug, state.HomeState{HomeVolume: "home-vol", ImageDigest: "sha256:abc123"})
+	state.WriteState(
+		state.Key{Slug: slug, Agent: "opencode"},
+		state.HomeState{HomeVolume: "home-vol", ImageDigest: "sha256:abc123"},
+	)
 
 	origDaemon := SetDaemonShellFunc(func(_ context.Context, _ msb.Sandbox, command string) (string, int, error) {
 		if command == opencodeProvider(t).DaemonHealthCmd() {
@@ -281,7 +287,10 @@ func TestPrepareSandboxSetUpError(t *testing.T) {
 	mock.SetGotSandbox(sh)
 	msb.WithMsbMock(t, mock)
 
-	state.WriteState(slug, state.HomeState{HomeVolume: "home-vol", ImageDigest: "sha256:abc123"})
+	state.WriteState(
+		state.Key{Slug: slug, Agent: "opencode"},
+		state.HomeState{HomeVolume: "home-vol", ImageDigest: "sha256:abc123"},
+	)
 
 	origDaemon := SetDaemonShellFunc(func(_ context.Context, _ msb.Sandbox, command string) (string, int, error) {
 		if command == opencodeProvider(t).DaemonHealthCmd() {

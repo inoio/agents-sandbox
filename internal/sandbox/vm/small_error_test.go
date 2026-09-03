@@ -10,6 +10,7 @@ import (
 	"github.com/inoio/opencode-sandbox/internal/configpaths"
 	"github.com/inoio/opencode-sandbox/internal/sandbox/msb"
 	"github.com/inoio/opencode-sandbox/internal/sandbox/network"
+	"github.com/inoio/opencode-sandbox/internal/sandbox/state"
 	"github.com/inoio/opencode-sandbox/internal/termio"
 	"github.com/inoio/opencode-sandbox/internal/testutil"
 )
@@ -20,13 +21,13 @@ func TestPersistNetworkStateReadError(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 
 	slug := "corruptnetproj"
-	sdir := filepath.Join(configpaths.Get().UserStateDir(), slug)
+	sdir := filepath.Join(configpaths.Get().UserStateDir(), slug, "opencode")
 	if err := os.MkdirAll(sdir, 0o700); err != nil {
 		t.Fatal(err)
 	}
 	testutil.WriteFile(t, sdir, "state.yaml", "{ corrupted: yaml: [")
 
-	err := persistNetworkState(slug, network.Policy{Profile: network.ProfileNone})
+	err := persistNetworkState(state.Key{Slug: slug, Agent: "opencode"}, network.Policy{Profile: network.ProfileNone})
 	if err == nil {
 		t.Fatal("expected error for corrupted state YAML")
 	}
@@ -68,13 +69,18 @@ func TestPersistConfigHashesWarnsOnError(t *testing.T) {
 	ui := termio.NewTestMock(t)
 
 	slug := "corrupthashproj"
-	sdir := filepath.Join(configpaths.Get().UserStateDir(), slug)
+	sdir := filepath.Join(configpaths.Get().UserStateDir(), slug, "opencode")
 	if err := os.MkdirAll(sdir, 0o700); err != nil {
 		t.Fatal(err)
 	}
 	testutil.WriteFile(t, sdir, "state.yaml", "{ corrupted: yaml: [")
 
-	persistConfigHashes(slug, network.Policy{Profile: network.ProfileNone}, nil, &ui)
+	persistConfigHashes(
+		state.Key{Slug: slug, Agent: "opencode"},
+		network.Policy{Profile: network.ProfileNone},
+		nil,
+		&ui,
+	)
 
 	if !contains(joinStrings(ui.WarnCalls), "persisting env/secret fingerprints") {
 		t.Errorf("expected a warning about persisting env/secret fingerprints, got %v", ui.WarnCalls)

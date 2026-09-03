@@ -92,7 +92,7 @@ func runVolumeOpScenario(t *testing.T, tc volumeOpScenario) {
 		if tc.emptyHomeVolume {
 			homeVolume = ""
 		}
-		state.WriteState(slug, state.HomeState{
+		state.WriteState(state.Key{Slug: slug, Agent: "opencode"}, state.HomeState{
 			HomeVolume:  homeVolume,
 			ImageDigest: "sha256:2e454dd5b8ba117988d3beebd09f457ca46e758724e673d2272f77ddc9b3fb12",
 			EnvState:    state.EnvState{},

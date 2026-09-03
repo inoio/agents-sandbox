@@ -48,7 +48,7 @@ func TestPruneVolumes(t *testing.T) {
 		configpaths.WithMockConfigPaths(t)
 		slug := "stale-1mjusbm3wikhb0"
 		if err := state.WriteState(
-			slug,
+			state.Key{Slug: slug, Agent: ""},
 			state.HomeState{HomeVolume: "opencode-sandbox-home-stale-1mjusbm3wikhb0-20260806T143022"},
 		); err != nil {
 			t.Fatalf("WriteState: %v", err)
@@ -62,7 +62,7 @@ func TestPruneVolumes(t *testing.T) {
 		if _, err := PruneVolumes(context.Background(), stateMap, false, ui); err != nil {
 			t.Fatalf("PruneVolumes: %v", err)
 		}
-		if _, err := state.ReadState(slug); !errors.Is(err, state.ErrStateNotFound) {
+		if _, err := state.ReadState(state.Key{Slug: slug, Agent: ""}); !errors.Is(err, state.ErrStateNotFound) {
 			t.Errorf("state file for %s should be removed, got err=%v", slug, err)
 		}
 	})
@@ -71,7 +71,7 @@ func TestPruneVolumes(t *testing.T) {
 		configpaths.WithMockConfigPaths(t)
 		slug := "stale-1mjusbm3wikhb0"
 		if err := state.WriteState(
-			slug,
+			state.Key{Slug: slug, Agent: ""},
 			state.HomeState{HomeVolume: "opencode-sandbox-home-stale-1mjusbm3wikhb0-20260806T143022"},
 		); err != nil {
 			t.Fatalf("WriteState: %v", err)
@@ -94,7 +94,7 @@ func TestPruneVolumes(t *testing.T) {
 		if _, err := PruneVolumes(context.Background(), stateMap, false, ui); err != nil {
 			t.Fatalf("PruneVolumes: %v", err)
 		}
-		if _, err := state.ReadState(slug); err != nil {
+		if _, err := state.ReadState(state.Key{Slug: slug, Agent: ""}); err != nil {
 			t.Errorf("state file for %s should remain when a volume survives, got err=%v", slug, err)
 		}
 	})

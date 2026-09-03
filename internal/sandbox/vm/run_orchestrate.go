@@ -92,7 +92,8 @@ func PrepareSandbox(
 
 	client := msb.Get()
 	vm := volume.NewManager(ui)
-	homeVol, vs, err := resolveHomeVolume(ctx, vm, client, projectSlug, imageInfo, opts.DryRunVM, ui)
+	k := state.Key{Slug: projectSlug, Agent: a.Name()}
+	homeVol, vs, err := resolveHomeVolume(ctx, vm, client, k, imageInfo, opts.DryRunVM, ui)
 	if err != nil {
 		return nil, fmt.Errorf("volume setup failed: %w", err)
 	}
@@ -114,6 +115,7 @@ func PrepareSandbox(
 		ctx,
 		client,
 		vm,
+		k,
 		opts,
 
 		imageInfo.Tag,
@@ -133,7 +135,7 @@ func PrepareSandbox(
 		return nil, err
 	}
 	if boot == vmBootCreated {
-		persistConfigHashes(projectSlug, opts.Network, opts.Mounts, ui)
+		persistConfigHashes(k, opts.Network, opts.Mounts, ui)
 	}
 	name := projectVMName(projectSlug)
 
@@ -165,19 +167,19 @@ func resolveHomeVolume(
 	ctx context.Context,
 	vm *volume.Manager,
 	client msb.Client,
-	projectSlug string,
+	k state.Key,
 	info image.ImageInfo,
 	dryRunVM bool,
 	ui termio.UI,
 ) (string, state.HomeState, error) {
-	return vm.ResolveHomeVolume(ctx, client, projectSlug, info.Digest, info.Tag, dryRunVM, ui)
+	return vm.ResolveHomeVolume(ctx, client, k, info.Digest, info.Tag, dryRunVM, ui)
 }
 
 // persistConfigHashes records the desired env/secret/network/mount
 // fingerprints when a project VM is freshly created (or recreated), so
 // subsequent runs can detect changes.
 func persistConfigHashes(
-	projectSlug string,
+	k state.Key,
 	networkPolicy network.Policy,
 	mounts mounts.Mounts,
 	ui termio.UI,
@@ -193,16 +195,16 @@ func persistConfigHashes(
 		reprovision.ParseSecretSpecYAML(configpaths.Get().ProjectEnvSecretYAMLFile(), ui),
 	), ui)
 	if err := persistEnvSecrets(
-		projectSlug,
+		k,
 		reprovision.BuildEnvState(desiredEnv),
 		reprovision.BuildSecretState(desiredSecrets),
 	); err != nil {
 		ui.Warnf("persisting env/secret fingerprints on VM creation: %v (continuing)", err)
 	}
-	if err := persistNetworkState(projectSlug, networkPolicy); err != nil {
+	if err := persistNetworkState(k, networkPolicy); err != nil {
 		ui.Warnf("persisting network fingerprint on VM creation: %v (continuing)", err)
 	}
-	if err := persistMountState(projectSlug, mounts); err != nil {
+	if err := persistMountState(k, mounts); err != nil {
 		ui.Warnf("persisting mount fingerprint on VM creation: %v (continuing)", err)
 	}
 }

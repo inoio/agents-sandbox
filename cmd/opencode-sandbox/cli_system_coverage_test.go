@@ -39,7 +39,7 @@ func TestVolumeMigrateWithPositionalArg(t *testing.T) {
 	image.WithMockAgentVersion(t, "0.0.0-test")
 	docker.WithNoopDockerMock(t)
 	slug := git.ProjectSlug()
-	state.WriteState(slug, state.HomeState{
+	state.WriteState(state.Key{Slug: slug, Agent: "opencode"}, state.HomeState{
 		HomeVolume: fmt.Sprintf("opencode-sandbox-home-%s-20260101T000000", slug),
 	})
 	msb.WithMsbMock(t, mock)
