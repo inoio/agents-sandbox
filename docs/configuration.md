@@ -433,6 +433,29 @@ Run `opencode-sandbox config agent` to print the merged config that would be pro
 
 See the [permissions example]({% link getting-started.md %}#example-permissions) for a concrete snippet.
 
+### Verbatim config directory mirror
+
+Beyond the snippet merge, the `<agent>` config directories (`~/.config/opencode-sandbox/<agent>/` and
+`.opencode-sandbox/<agent>/`) act as a **1:1 verbatim mirror** of the agent's VM config directory. Every file and
+subdirectory in them is copied verbatim into the VM, preserving its relative path (for opencode: `tui.json`, `AGENTS.md`,
+`agents/`, `commands/`, `themes/`, `plugins/`, `skills/`, `tools/`, …). This makes your whole agent setup available in
+the VM without extra configuration.
+
+Two families of files are *not* mirrored:
+
+- Files matching the agent's snippet pattern (`opencode-*.json*`, `settings*.json*`) are **deep-merged** (see [Config
+  snippet merge](#config-snippet-merge)), never mirrored.
+- The agent's config-file family (for opencode: `config.json`, `opencode.json`, `opencode.jsonc`, …) is **reserved for
+  the merged output** and never mirrored, so a mirror copy cannot shadow the merged snippet config.
+
+Precedence when the same VM path is reachable from multiple sources:
+
+`home.yaml` > merged snippet config > verbatim mirror > drop-in provisioning
+
+The mirror is **always active**, independent of `provision-host-config`. Stale mirrored files (deleted from the host)
+are left in place in the VM. Run `opencode-sandbox config agent` to list the mirror files, each shown as its host source
+path → VM path. Previously non-pattern files in `<agent>/` were silently ignored; they are now mirrored verbatim.
+
 ### Default drop-in provisioning
 
 Beyond the snippet merge, when running the launcher now **copies the active agent's config + credential files from the

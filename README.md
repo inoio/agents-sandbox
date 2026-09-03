@@ -70,7 +70,7 @@ There's dedicated documentation per topic. You can also browse the documentation
 | [Introduction](/docs/introduction.md)         | Introduction and motivation.                                                             |
 | [Getting Started](/docs/getting-started.md)   | Installation, prerequisites, configuration, first run                                    |
 | [Commands](/docs/commands.md)                 | Complete CLI reference                                                                   |
-| [Configuration](/docs/configuration.md)       | Launcher config, env, secrets, agent snippet merge, drop-in provisioning, `home.yaml` (incl. startup hooks) |
+| [Configuration](/docs/configuration.md)       | Launcher config, env, secrets, agent snippet merge + verbatim config-dir mirror, drop-in provisioning, `home.yaml` (incl. startup hooks) |
 | [Runner Image](/docs/runner-image.md)         | Base image, custom tooling                                                               |
 | [Worktree Sessions](/docs/branch-sessions.md) | Isolated worktree sessions for per-feature development                                   |
 | [Recipes](/docs/recipes.md)                   | Hands-on workflows (e.g. connecting Opencode Desktop)                                    |

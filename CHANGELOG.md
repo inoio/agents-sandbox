@@ -10,6 +10,12 @@ command reports the bare version (e.g. `0.1.0`).
 
 ### Added
 
+- Behavior: the `<agent>` config dirs (`~/.config/opencode-sandbox/<agent>/`, `.opencode-sandbox/<agent>/`) now act as a
+  verbatim mirror of the agent's VM config directory. Files matching the agent's snippet pattern are still deep-merged;
+  every other file and subdirectory is provisioned verbatim (e.g. `tui.json`, `AGENTS.md`, `agents/`, `commands/`,
+  `themes/`). Precedence: `home.yaml` > merged snippet config > mirror > drop-in provisioning. `config agent` lists the
+  mirrored files. Previously non-pattern files in `<agent>/` were silently ignored.
+
 - CLI: a new `build dockerfile` subcommand prints the runner Dockerfile exactly as it would be built (`--agent`, `--dind`), without invoking docker. Also available as `image build dockerfile`.
 - Project toolchain: PlantUML (standalone jar, pinned version) plus `default-jre`, installed in `.opencode-sandbox/Dockerfile`. The launcher merges the microsandbox egress CA into a user-writable JVM truststore so HTTPS `!include` fetches in diagrams trust the injected cert.
 - Docs: The "System Context" section in Getting Started now uses a server-rendered PlantUML C4 container diagram (SVG), replacing the Mermaid variants. The `docs` workflow renders `docs/diagrams/*.puml` (excluding the vendored `C4*` library files) to SVG before the Jekyll build; `make docs-diagrams` does the same locally.
