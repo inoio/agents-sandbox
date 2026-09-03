@@ -3,7 +3,10 @@ package msb
 import (
 	"context"
 	"errors"
+	"io"
 	"testing"
+
+	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 )
 
 // streamHandleStub is a hand-rolled StreamHandle used where MockSandbox's
@@ -56,5 +59,70 @@ func TestMockSandboxShellStreamReturnsConfiguredHandle(t *testing.T) {
 	ev, err := got.Recv(context.Background())
 	if err != nil || ev.Kind != StreamEventStdout || string(ev.Data) != "x" {
 		t.Errorf("Recv = %+v, %v; want the configured stdout event", ev, err)
+	}
+}
+
+func TestMapExecEvent(t *testing.T) {
+	tests := []struct {
+		name string
+		ev   msbSdk.ExecEvent
+		want StreamEvent
+		ok   bool
+		err  error
+	}{
+		{
+			name: "stdout",
+			ev:   msbSdk.ExecEvent{Kind: msbSdk.ExecEventStdout, Data: []byte("x")},
+			want: StreamEvent{Kind: StreamEventStdout, Data: []byte("x")},
+			ok:   true,
+		},
+		{
+			name: "stderr",
+			ev:   msbSdk.ExecEvent{Kind: msbSdk.ExecEventStderr, Data: []byte("e")},
+			want: StreamEvent{Kind: StreamEventStderr, Data: []byte("e")},
+			ok:   true,
+		},
+		{
+			name: "exited",
+			ev:   msbSdk.ExecEvent{Kind: msbSdk.ExecEventExited, ExitCode: 3},
+			want: StreamEvent{Kind: StreamEventExited, ExitCode: 3},
+			ok:   true,
+		},
+		{
+			name: "failed",
+			ev:   msbSdk.ExecEvent{Kind: msbSdk.ExecEventFailed},
+			want: StreamEvent{Kind: StreamEventFailed},
+			ok:   true,
+		},
+		{
+			name: "done is io.EOF",
+			ev:   msbSdk.ExecEvent{Kind: msbSdk.ExecEventDone},
+			err:  io.EOF,
+		},
+		{
+			name: "started is skipped",
+			ev:   msbSdk.ExecEvent{Kind: msbSdk.ExecEventStarted},
+			ok:   false,
+		},
+		{
+			name: "stdin error is skipped",
+			ev:   msbSdk.ExecEvent{Kind: msbSdk.ExecEventStdinError},
+			ok:   false,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, ok, err := mapExecEvent(tt.ev)
+			if !errors.Is(err, tt.err) {
+				t.Fatalf("mapExecEvent() err = %v, want %v", err, tt.err)
+			}
+			if ok != tt.ok {
+				t.Fatalf("mapExecEvent() ok = %v, want %v", ok, tt.ok)
+			}
+			if got.Kind != tt.want.Kind || string(got.Data) != string(tt.want.Data) ||
+				got.ExitCode != tt.want.ExitCode {
+				t.Errorf("mapExecEvent() = %+v, want %+v", got, tt.want)
+			}
+		})
 	}
 }

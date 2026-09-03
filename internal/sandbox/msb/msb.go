@@ -533,24 +533,40 @@ func (h *realStreamHandle) Recv(ctx context.Context) (StreamEvent, error) {
 		if err != nil {
 			return StreamEvent{}, err
 		}
-		switch ev.Kind {
-		case msbSdk.ExecEventStdout:
-			//nolint:exhaustruct // stdout events carry no ExitCode
-			return StreamEvent{Kind: StreamEventStdout, Data: ev.Data}, nil
-		case msbSdk.ExecEventStderr:
-			//nolint:exhaustruct // stderr events carry no ExitCode
-			return StreamEvent{Kind: StreamEventStderr, Data: ev.Data}, nil
-		case msbSdk.ExecEventExited:
-			//nolint:exhaustruct // exited events carry no Data
-			return StreamEvent{Kind: StreamEventExited, ExitCode: ev.ExitCode}, nil
-		case msbSdk.ExecEventFailed:
-			//nolint:exhaustruct // failed events carry neither Data nor ExitCode
-			return StreamEvent{Kind: StreamEventFailed}, nil
-		case msbSdk.ExecEventDone:
-			return StreamEvent{}, io.EOF
-		default:
-			// ExecEventStarted / ExecEventStdinError: skip and keep reading.
+		event, ok, err := mapExecEvent(*ev)
+		if err != nil {
+			return StreamEvent{}, err
 		}
+		if !ok {
+			continue
+		}
+		return event, nil
+	}
+}
+
+// mapExecEvent translates one SDK exec event into a StreamEvent. ok reports
+// whether the event carries a payload to surface; events that do not (Started,
+// StdinError) are skipped so Recv keeps reading. Done is translated to io.EOF
+// so callers can detect a clean end of stream.
+func mapExecEvent(ev msbSdk.ExecEvent) (StreamEvent, bool, error) {
+	switch ev.Kind {
+	case msbSdk.ExecEventStdout:
+		//nolint:exhaustruct // stdout events carry no ExitCode
+		return StreamEvent{Kind: StreamEventStdout, Data: ev.Data}, true, nil
+	case msbSdk.ExecEventStderr:
+		//nolint:exhaustruct // stderr events carry no ExitCode
+		return StreamEvent{Kind: StreamEventStderr, Data: ev.Data}, true, nil
+	case msbSdk.ExecEventExited:
+		//nolint:exhaustruct // exited events carry no Data
+		return StreamEvent{Kind: StreamEventExited, ExitCode: ev.ExitCode}, true, nil
+	case msbSdk.ExecEventFailed:
+		//nolint:exhaustruct // failed events carry neither Data nor ExitCode
+		return StreamEvent{Kind: StreamEventFailed}, true, nil
+	case msbSdk.ExecEventDone:
+		return StreamEvent{}, false, io.EOF
+	default:
+		// ExecEventStarted / ExecEventStdinError: skip and keep reading.
+		return StreamEvent{}, false, nil
 	}
 }
 
