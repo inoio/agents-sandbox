@@ -386,6 +386,28 @@ func TestProvisionWritesProvisioned(t *testing.T) {
 	}
 }
 
+// TestProvisionWritesMirror verifies that Provision writes the verbatim mirror
+// files just like home files and drop-in copies.
+func TestProvisionWritesMirror(t *testing.T) {
+	cf := &ConfigFiles{
+		Mirror: map[string][]byte{
+			"/home/dev/.config/opencode/tui.json":        []byte(`{"theme":"dark"}`),
+			"/home/dev/.config/opencode/agents/coder.md": []byte("# coder\n"),
+		},
+	}
+	fs := msb.NewTestFS(nil, nil)
+	sb := &msb.MockSandbox{FSValue_: fs, ShellCalls: &[]string{}}
+
+	if err := Provision(context.Background(), sb, cf); err != nil {
+		t.Fatalf("Provision: %v", err)
+	}
+	for p := range cf.Mirror {
+		if _, ok := fs.Writes[p]; !ok {
+			t.Errorf("mirror file %s was not written", p)
+		}
+	}
+}
+
 // TestLoadConfigFilesPIMergedConfig verifies that a pi snippet is merged into
 // the pi settings path (not the opencode path) and that the config family it
 // supersedes is removed from the VM.
