@@ -459,6 +459,50 @@ func TestCreateProjectVMServeOnlyAndNetwork(t *testing.T) {
 	}
 }
 
+// TestCreateProjectVMServeOnlyPublishesExactPort covers the real production
+// path of createProjectVM where PrepareSandbox has already resolved a non-zero
+// opts.ServeHostPort: the created VM must publish exactly that host port.
+func TestCreateProjectVMServeOnlyPublishesExactPort(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	docker.WithNoopDockerMock(t)
+	client := &msb.MockMsbClient{}
+	ui := termio.NewTestMock(t)
+
+	_, _, err := createProjectVM(
+		context.Background(),
+		client,
+		"opencode-sandbox-vm-test",
+		testVMKey(),
+		"opencode-sandbox/runner-test:latest",
+		"test-home-vol",
+		t.TempDir(),
+		options.RunOptions{
+			Memory:        "1G",
+			ServeOnly:     true,
+			ServeHostPort: 4097,
+		},
+		nil,
+		&ui,
+	)
+	if err != nil {
+		t.Fatalf("createProjectVM with serve-only + fixed host port: %v", err)
+	}
+	if len(client.CreatedSandboxCalls) != 1 {
+		t.Fatalf("expected 1 create call, got %d", len(client.CreatedSandboxCalls))
+	}
+	cfg := msbSdk.SandboxConfig{}
+	for _, o := range client.CreatedSandboxCalls[0].Opts {
+		o(&cfg)
+	}
+	if len(cfg.PortBindings) != 1 {
+		t.Fatalf("expected 1 port binding, got %d", len(cfg.PortBindings))
+	}
+	pb := cfg.PortBindings[0]
+	if pb.HostPort != 4097 || pb.GuestPort != 4096 {
+		t.Errorf("binding = host %d guest %d, want host 4097 guest 4096", pb.HostPort, pb.GuestPort)
+	}
+}
+
 // TestDefaultDaemonShellFuncErrorBranch covers the error branch of the default
 // daemonShellFunc closure: a failed sb.Shell yields exit code -1.
 func TestDefaultDaemonShellFuncErrorBranch(t *testing.T) {
