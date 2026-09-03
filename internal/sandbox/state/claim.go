@@ -18,7 +18,6 @@ func AcquireClaim(slug, key string) (func(), bool, error) {
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return nil, false, fmt.Errorf("create claim dir: %w", err)
 	}
-	pruneAbandonedClaims(dir)
 	path := filepath.Join(dir, key+".claim")
 	f, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0o600)
 	if err != nil {
@@ -34,34 +33,6 @@ func AcquireClaim(slug, key string) (func(), bool, error) {
 	return func() {
 		_ = f.Close()
 	}, true, nil
-}
-
-// pruneAbandonedClaims removes claim files under dir whose flock is free (no
-// live holder). A file that can be locked immediately belongs to a crashed or
-// dead client and is stale; removing it prevents abandoned claims from
-// accumulating. Files that fail the non-blocking lock are live-held and kept.
-// Because only files with no live flock are removed, pruning can never create
-// two simultaneous holders for a key.
-func pruneAbandonedClaims(dir string) {
-	entries, err := os.ReadDir(dir)
-	if err != nil {
-		return
-	}
-	for _, e := range entries {
-		path := filepath.Join(dir, e.Name())
-		f, err := os.OpenFile(path, os.O_RDWR, 0o600)
-		if err != nil {
-			continue
-		}
-		if err := FlockExclusiveNB(f); err != nil {
-			_ = f.Close() // live-held; skip
-			continue
-		}
-		// We hold the flock; unlink before closing so no new claimer can be
-		// cut off mid-acquire and create a second live holder.
-		_ = os.Remove(path)
-		_ = f.Close()
-	}
 }
 
 // isLockContention reports whether a flock error means the lock is held by

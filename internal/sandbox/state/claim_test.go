@@ -69,32 +69,6 @@ func TestAcquireClaimAbandonedFileReclaimable(t *testing.T) {
 	release()
 }
 
-func TestAcquireClaimPrunesAbandonedFiles(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
-	slug := "claimproj-d"
-
-	dir := filepath.Join(stateRoot(), slug, "claims")
-	if err := os.MkdirAll(dir, 0o700); err != nil {
-		t.Fatal(err)
-	}
-	// A stale (unlocked) claim file that should be pruned on the next acquire.
-	stalePath := filepath.Join(dir, "stale.claim")
-	if err := os.WriteFile(stalePath, nil, 0o600); err != nil {
-		t.Fatal(err)
-	}
-
-	// Acquiring a different key triggers pruning of the stale file.
-	release, claimed, err := AcquireClaim(slug, "fresh")
-	if err != nil || !claimed {
-		t.Fatalf("acquire fresh: claimed=%v err=%v", claimed, err)
-	}
-	release()
-
-	if _, err := os.Stat(stalePath); !os.IsNotExist(err) {
-		t.Fatalf("stale claim file should be pruned, stat err=%v", err)
-	}
-}
-
 func TestAcquireClaimReclaimableAfterReleaseWithFilePresent(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	slug := "claimproj-b"
