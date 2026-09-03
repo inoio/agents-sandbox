@@ -82,3 +82,27 @@ type VersionProvider interface {
 
 // AsVersionProvider returns the agent's VersionProvider, if it implements one.
 func AsVersionProvider(a Agent) (VersionProvider, bool) { p, ok := a.(VersionProvider); return p, ok }
+
+// EventStreamSpec describes the SSE event stream notify watches for an agent:
+// the shell command that streams events in the VM, the event-type names that
+// drive tracker transitions, and the agent name used in notification titles.
+type EventStreamSpec struct {
+	StreamCommand string
+	BusyEvents    []string
+	AwaitingInput []string
+	IdleEvents    []string
+	ErrorEvents   []string
+	Name          string
+}
+
+// EventStreamProvider exposes the SSE event stream an agent daemon serves.
+type EventStreamProvider interface {
+	EventStream() EventStreamSpec
+}
+
+// AsEventStreamProvider returns the agent's EventStreamProvider, if it
+// implements one.
+func AsEventStreamProvider(a Agent) (EventStreamProvider, bool) {
+	p, ok := a.(EventStreamProvider)
+	return p, ok
+}

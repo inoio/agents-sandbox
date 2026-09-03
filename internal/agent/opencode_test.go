@@ -3,6 +3,7 @@ package agent_test
 import (
 	"context"
 	"path/filepath"
+	"reflect"
 	"slices"
 	"strings"
 	"testing"
@@ -214,4 +215,23 @@ func mustChecker(t *testing.T, a agent.Agent) agent.UpgradeChecker {
 		t.Fatal("opencode should implement UpgradeChecker")
 	}
 	return checker
+}
+
+func TestOpencodeEventStream(t *testing.T) {
+	a, _ := agent.Lookup("opencode")
+	provider, ok := agent.AsEventStreamProvider(a)
+	if !ok {
+		t.Fatal("opencode should implement EventStreamProvider")
+	}
+	want := agent.EventStreamSpec{
+		StreamCommand: "curl -N -s http://127.0.0.1:4096/global/event",
+		BusyEvents:    []string{"message.part.updated", "session.updated"},
+		AwaitingInput: []string{"permission.updated", "question.asked"},
+		IdleEvents:    []string{"session.idle"},
+		ErrorEvents:   []string{"session.error"},
+		Name:          "opencode",
+	}
+	if got := provider.EventStream(); !reflect.DeepEqual(got, want) {
+		t.Errorf("EventStream() = %+v, want %+v", got, want)
+	}
 }
