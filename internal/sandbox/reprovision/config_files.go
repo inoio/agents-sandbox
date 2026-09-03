@@ -92,6 +92,7 @@ type ConfigFiles struct {
 	Sources     []string              // host snippet paths merged into OpenCode
 	HomeFiles   map[string][]byte     // VM absolute path -> content (home.yaml)
 	Provisioned map[string][]byte     // VM absolute path -> content (drop-in copy)
+	Mirror      map[string][]byte     // VM absolute path -> content (verbatim <agent> mirror)
 	Remove      []string              // VM absolute paths to delete before writing
 	Hooks       []homeconfig.HookSpec // startup hooks to run at setUpSandbox
 	Keys        []string              // sorted VM paths for comparison
@@ -152,8 +153,13 @@ func LoadConfigFilesForHost(
 				provisioned[dst] = data
 				return nil
 			}
-			if _, err := agent.EvalProvisionRules(p.ProvisionRules(), hostHome, vmHome, onCopy); err != nil {
-				return nil, fmt.Errorf("eval provision rules: %w", err)
+			if _, provisionErr := agent.EvalProvisionRules(
+				p.ProvisionRules(),
+				hostHome,
+				vmHome,
+				onCopy,
+			); provisionErr != nil {
+				return nil, fmt.Errorf("eval provision rules: %w", provisionErr)
 			}
 		}
 	}
@@ -166,6 +172,13 @@ func LoadConfigFilesForHost(
 	if hasSnippets {
 		delete(provisioned, mergedPath)
 	}
+	mirror, err := buildMirror(a, vmHome)
+	if err != nil {
+		return nil, fmt.Errorf("build config mirror: %w", err)
+	}
+	// Precedence: home.yaml overrides the mirror, the merged config overrides
+	// the mirror, and the mirror overrides the drop-in copy for the same path.
+	applyMirrorPrecedence(mirror, provisioned, homeFiles, mergedPath, hasSnippets)
 	// Remove stale host config so it cannot shadow the merged config: when
 	// snippets exist the merged config must be the only config, and when host
 	// config provisioning is disabled no host file may remain.
@@ -173,16 +186,7 @@ func LoadConfigFilesForHost(
 	if !provisionHostConfig {
 		remove = append(remove, provisionDestinations(a, hostHome, vmHome)...)
 	}
-	keys := make([]string, 0, len(homeFiles)+len(provisioned)+1)
-	if hasSnippets {
-		keys = append(keys, mergedPath)
-	}
-	for p := range homeFiles {
-		keys = append(keys, p)
-	}
-	for p := range provisioned {
-		keys = append(keys, p)
-	}
+	keys := configKeys(mergedPath, hasSnippets, homeFiles, mirror, provisioned)
 	sort.Strings(keys)
 	return &ConfigFiles{
 		HasSnippets: hasSnippets,
@@ -191,10 +195,46 @@ func LoadConfigFilesForHost(
 		Sources:     sources,
 		HomeFiles:   homeFiles,
 		Provisioned: provisioned,
+		Mirror:      mirror,
 		Remove:      remove,
 		Hooks:       hooks,
 		Keys:        keys,
 	}, nil
+}
+
+// applyMirrorPrecedence prunes the mirror and drop-in copy maps so the mirror
+// overrides the drop-in copy for the same VM path, while home files and the
+// merged config override the mirror.
+func applyMirrorPrecedence(mirror, provisioned, homeFiles map[string][]byte, mergedPath string, hasSnippets bool) {
+	for p := range mirror {
+		delete(provisioned, p)
+	}
+	for p := range homeFiles {
+		delete(mirror, p)
+	}
+	if hasSnippets {
+		delete(mirror, mergedPath)
+	}
+}
+
+// configKeys returns the sorted VM paths to provision and compare: the merged
+// config (when snippets exist), then home files, mirror files, and drop-in
+// provisioned files.
+func configKeys(mergedPath string, hasSnippets bool, homeFiles, mirror, provisioned map[string][]byte) []string {
+	keys := make([]string, 0, len(homeFiles)+len(provisioned)+len(mirror)+1)
+	if hasSnippets {
+		keys = append(keys, mergedPath)
+	}
+	for p := range homeFiles {
+		keys = append(keys, p)
+	}
+	for p := range mirror {
+		keys = append(keys, p)
+	}
+	for p := range provisioned {
+		keys = append(keys, p)
+	}
+	return keys
 }
 
 // configFamilyNames returns the config filenames the agent reads from its VM
@@ -236,6 +276,32 @@ func buildMergedConfig(a agent.Agent, vmHome string) (string, []byte, []string, 
 		return cm.VMConfigPath(vmHome), merged, sources, hasSnippets, nil
 	}
 	return "", nil, nil, false, nil
+}
+
+// buildMirror returns the verbatim mirror files for agent a: every file in the
+// user and project <agent> config dirs that is neither a top-level snippet
+// match nor a top-level config-family name, keyed by VM path under the agent's
+// VM config directory. Agents without a ConfigMerger have no mirror.
+func buildMirror(a agent.Agent, vmHome string) (map[string][]byte, error) {
+	cm, ok := agent.AsConfigMerger(a)
+	if !ok {
+		return nil, nil //nolint:nilnil // agents without a ConfigMerger have no mirror to return
+	}
+	entries, err := config.ScanMirror(
+		cm.SnippetPattern(),
+		cm.ConfigFileNames(),
+		cp.Get().UserAgentConfigDir(a),
+		cp.Get().ProjectAgentConfigDir(a),
+		filepath.Dir(cm.VMConfigPath(vmHome)),
+	)
+	if err != nil {
+		return nil, err
+	}
+	mirror := make(map[string][]byte, len(entries))
+	for _, e := range entries {
+		mirror[e.VMPath] = e.Data
+	}
+	return mirror, nil
 }
 
 // provisionDestinations returns the VM paths the agent's provision rules would

@@ -479,6 +479,125 @@ func TestHostFilesFromProvisioner(t *testing.T) {
 
 // TestHostFilesFromProvisionerNoSnippets verifies that without snippets the
 // drop-in files are not marked merged.
+func TestLoadConfigFilesMirror(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	cp := configpaths.Get()
+	hostHome := t.TempDir()
+	vmHome := t.TempDir()
+
+	a, _ := agent.Lookup("opencode")
+	// Snippet (merged, not mirrored) plus mirror files at top level and nested.
+	testutil.WriteFile(t, cp.ProjectAgentConfigDir(a), "opencode-model.json", `{"model":"x"}`)
+	testutil.WriteFile(t, cp.ProjectAgentConfigDir(a), "tui.json", `{"theme":"dark"}`)
+	if err := os.MkdirAll(filepath.Join(cp.ProjectAgentConfigDir(a), "agents"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	testutil.WriteFile(t, filepath.Join(cp.ProjectAgentConfigDir(a), "agents"), "coder.md", "# coder\n")
+
+	ui := termio.NewTestMock(t)
+	cf, err := LoadConfigFilesForHost(a, hostHome, vmHome, &ui, true)
+	if err != nil {
+		t.Fatalf("LoadConfigFilesForHost: %v", err)
+	}
+	wantTUI := filepath.Join(vmHome, ".config", "opencode", "tui.json")
+	if !bytes.Equal(cf.Mirror[wantTUI], []byte(`{"theme":"dark"}`)) {
+		t.Errorf("Mirror[%s] = %q, want dark theme", wantTUI, cf.Mirror[wantTUI])
+	}
+	wantAgent := filepath.Join(vmHome, ".config", "opencode", "agents", "coder.md")
+	if !bytes.Equal(cf.Mirror[wantAgent], []byte("# coder\n")) {
+		t.Errorf("Mirror[%s] = %q, want coder agent", wantAgent, cf.Mirror[wantAgent])
+	}
+	// The snippet file must NOT be mirrored.
+	snippetVM := filepath.Join(vmHome, ".config", "opencode", "opencode-model.json")
+	if _, ok := cf.Mirror[snippetVM]; ok {
+		t.Errorf("snippet file must not be mirrored, got %v", cf.Mirror[snippetVM])
+	}
+	// Mirror paths appear in Keys.
+	if !slices.Contains(cf.Keys, wantTUI) || !slices.Contains(cf.Keys, wantAgent) {
+		t.Errorf("Keys = %v, want mirror paths %s and %s", cf.Keys, wantTUI, wantAgent)
+	}
+}
+
+func TestLoadConfigFilesMirrorPrecedence(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	cp := configpaths.Get()
+	hostHome := t.TempDir()
+	vmHome := t.TempDir()
+
+	a, _ := agent.Lookup("opencode")
+	// Mirror file at tui.json, plus a host drop-in copy at the same VM path.
+	testutil.WriteFile(t, cp.ProjectAgentConfigDir(a), "tui.json", `{"theme":"mirror"}`)
+	ocConfig := filepath.Join(hostHome, ".config", "opencode")
+	if err := os.MkdirAll(ocConfig, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	testutil.WriteFile(t, ocConfig, "tui.json", `{"theme":"host"}`)
+
+	ui := termio.NewTestMock(t)
+	cf, err := LoadConfigFilesForHost(a, hostHome, vmHome, &ui, true)
+	if err != nil {
+		t.Fatalf("LoadConfigFilesForHost: %v", err)
+	}
+	wantTUI := filepath.Join(vmHome, ".config", "opencode", "tui.json")
+	if _, ok := cf.Provisioned[wantTUI]; ok {
+		t.Errorf(
+			"mirror path %s must not be in Provisioned (mirror wins over drop-in), got %v",
+			wantTUI,
+			cf.Provisioned,
+		)
+	}
+	if !bytes.Equal(cf.Mirror[wantTUI], []byte(`{"theme":"mirror"}`)) {
+		t.Errorf("Mirror[%s] = %q, want mirror content", wantTUI, cf.Mirror[wantTUI])
+	}
+}
+
+func TestLoadConfigFilesMirrorHomeYAMLWins(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	cp := configpaths.Get()
+	hostHome := t.TempDir()
+	vmHome := t.TempDir()
+
+	a, _ := agent.Lookup("opencode")
+	testutil.WriteFile(t, cp.ProjectAgentConfigDir(a), "tui.json", `{"theme":"mirror"}`)
+	// home.yaml maps the same VM path explicitly; it must win over the mirror.
+	testutil.WriteFile(t, cp.ProjectConfigDir(), "tui-home.json", `{"theme":"home"}`)
+	testutil.WriteFile(t, cp.ProjectConfigDir(), "home.yaml",
+		".config/opencode/tui.json:\n  source: tui-home.json\n")
+
+	ui := termio.NewTestMock(t)
+	cf, err := LoadConfigFilesForHost(a, hostHome, vmHome, &ui, true)
+	if err != nil {
+		t.Fatalf("LoadConfigFilesForHost: %v", err)
+	}
+	wantTUI := filepath.Join(vmHome, ".config", "opencode", "tui.json")
+	if _, ok := cf.Mirror[wantTUI]; ok {
+		t.Errorf("mirror path %s must not be in Mirror (home.yaml wins), got %v", wantTUI, cf.Mirror)
+	}
+	if !bytes.Equal(cf.HomeFiles[wantTUI], []byte(`{"theme":"home"}`)) {
+		t.Errorf("HomeFiles[%s] = %q, want home content", wantTUI, cf.HomeFiles[wantTUI])
+	}
+}
+
+func TestLoadConfigFilesMirrorWithProvisioningDisabled(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	cp := configpaths.Get()
+	hostHome := t.TempDir()
+	vmHome := t.TempDir()
+
+	a, _ := agent.Lookup("opencode")
+	testutil.WriteFile(t, cp.ProjectAgentConfigDir(a), "tui.json", `{"theme":"dark"}`)
+
+	ui := termio.NewTestMock(t)
+	cf, err := LoadConfigFilesForHost(a, hostHome, vmHome, &ui, false)
+	if err != nil {
+		t.Fatalf("LoadConfigFilesForHost: %v", err)
+	}
+	wantTUI := filepath.Join(vmHome, ".config", "opencode", "tui.json")
+	if !bytes.Equal(cf.Mirror[wantTUI], []byte(`{"theme":"dark"}`)) {
+		t.Errorf("mirror must be provisioned even when host config provisioning is disabled, Mirror = %v", cf.Mirror)
+	}
+}
+
 func TestHostFilesFromProvisionerNoSnippets(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	hostHome := t.TempDir()
