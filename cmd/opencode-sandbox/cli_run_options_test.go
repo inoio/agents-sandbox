@@ -10,6 +10,7 @@ import (
 
 	"github.com/inoio/opencode-sandbox/internal/agent"
 	"github.com/inoio/opencode-sandbox/internal/configpaths"
+	"github.com/inoio/opencode-sandbox/internal/notify"
 	"github.com/inoio/opencode-sandbox/internal/sandbox/mounts"
 	"github.com/inoio/opencode-sandbox/internal/sandbox/network"
 	"github.com/inoio/opencode-sandbox/internal/sandbox/options"
@@ -602,5 +603,143 @@ func TestValidateAgentFlagsAllowsOpencodeWithDaemonFlags(t *testing.T) {
 	opts := options.RunOptions{Worktree: options.WorktreeSpec{Name: "x"}, ServeOnly: true}
 	if err := validateAgentFlags(a, opts); err != nil {
 		t.Fatalf("unexpected error for opencode with --worktree/--serve-only: %v", err)
+	}
+}
+
+// The bare --notify flag must resolve to "on" via NoOptDefVal once parsed.
+func TestNotifyFlagBareMeansOn(t *testing.T) {
+	ui := &termio.Mock{}
+	cmd := buildRunCmd(ui)
+	cmd.SetArgs([]string{"--notify"})
+	if err := cmd.ParseFlags([]string{"--notify"}); err != nil {
+		t.Fatalf("ParseFlags: %v", err)
+	}
+	if !cmd.Flags().Changed(flagNotify) {
+		t.Fatal("--notify should be marked changed after parse")
+	}
+	if got, _ := cmd.Flags().GetString(flagNotify); got != "on" {
+		t.Errorf("notify flag after parse = %q, want on (NoOptDefVal)", got)
+	}
+}
+
+func TestExtractRunOptionsNotifyDefaultOff(t *testing.T) {
+	ui := &termio.Mock{}
+	cmd := buildCommandWithLauncherConfig(ui, launcherconfig.Config{})
+	opts, err := extractRunOptions(cmd, ui)
+	if err != nil {
+		t.Fatalf("extractRunOptions: %v", err)
+	}
+	if opts.Notify.Active() {
+		t.Errorf("default notify should be inactive, got %+v", opts.Notify)
+	}
+}
+
+func TestExtractRunOptionsNotifyFromConfig(t *testing.T) {
+	ui := &termio.Mock{}
+	lc := launcherconfig.Config{Notify: launcherconfig.NotifyConfig{
+		Desktop: true,
+		Audio:   notify.AudioSystem,
+		OnInput: true, OnDone: true, OnError: true,
+	}}
+	cmd := buildCommandWithLauncherConfig(ui, lc)
+	opts, err := extractRunOptions(cmd, ui)
+	if err != nil {
+		t.Fatalf("extractRunOptions: %v", err)
+	}
+	if !opts.Notify.Desktop || opts.Notify.Audio != notify.AudioSystem {
+		t.Errorf("notify from config = %+v, want desktop+system", opts.Notify)
+	}
+}
+
+func TestExtractRunOptionsNotifyEnvOverridesConfig(t *testing.T) {
+	t.Setenv(notifyEnvVar, "audio")
+	ui := &termio.Mock{}
+	lc := launcherconfig.Config{Notify: launcherconfig.NotifyConfig{
+		Desktop: true,
+		Audio:   notify.AudioSystem,
+		OnInput: true, OnDone: true, OnError: true,
+	}}
+	cmd := buildCommandWithLauncherConfig(ui, lc)
+	opts, err := extractRunOptions(cmd, ui)
+	if err != nil {
+		t.Fatalf("extractRunOptions: %v", err)
+	}
+	if opts.Notify.Desktop || opts.Notify.Audio != notify.AudioSystem {
+		t.Errorf("env override audio: got %+v, want desktop off audio system", opts.Notify)
+	}
+}
+
+func TestExtractRunOptionsNotifyFlagOverridesEnv(t *testing.T) {
+	t.Setenv(notifyEnvVar, "audio")
+	ui := &termio.Mock{}
+	cmd := buildRunCmd(ui)
+	if err := cmd.Flags().Set(flagNotify, "desktop"); err != nil {
+		t.Fatalf("set notify: %v", err)
+	}
+	rootCtx := context.WithValue(context.Background(), (*launcherConfigKey)(nil),
+		launcherconfig.NewResolverWithConfig(launcherconfig.Config{}))
+	cmd.SetContext(rootCtx)
+	opts, err := extractRunOptions(cmd, ui)
+	if err != nil {
+		t.Fatalf("extractRunOptions: %v", err)
+	}
+	if !opts.Notify.Desktop || opts.Notify.Audio != notify.AudioOff {
+		t.Errorf("flag override desktop: got %+v, want desktop on audio off", opts.Notify)
+	}
+}
+
+func TestExtractRunOptionsNotifyInvalidValue(t *testing.T) {
+	t.Setenv(notifyEnvVar, "loud")
+	ui := &termio.Mock{}
+	cmd := buildCommandWithLauncherConfig(ui, launcherconfig.Config{})
+	if _, err := extractRunOptions(cmd, ui); err == nil {
+		t.Fatal("expected error for invalid OPENCODE_SANDBOX_NOTIFY value")
+	}
+}
+
+func TestExtractRunOptionsNotifyRejectedForInteractiveAgent(t *testing.T) {
+	ui := &termio.Mock{}
+	cmd := buildRunCmd(ui)
+	if err := cmd.Flags().Set(flagAgent, "pi"); err != nil {
+		t.Fatalf("set agent: %v", err)
+	}
+	if err := cmd.Flags().Set(flagNotify, "on"); err != nil {
+		t.Fatalf("set notify: %v", err)
+	}
+	rootCtx := context.WithValue(context.Background(), (*launcherConfigKey)(nil),
+		launcherconfig.NewResolverWithConfig(launcherconfig.Config{}))
+	cmd.SetContext(rootCtx)
+	if _, err := extractRunOptions(cmd, ui); err == nil {
+		t.Fatal("expected error: --notify is not supported by interactive agent pi")
+	}
+}
+
+func TestExtractRunOptionsNotifyConfigOnlyWarnsForInteractiveAgent(t *testing.T) {
+	ui := &termio.Mock{}
+	lc := launcherconfig.Config{Notify: launcherconfig.NotifyConfig{
+		Desktop: true,
+		Audio:   notify.AudioOff,
+		OnInput: true, OnDone: true, OnError: true,
+	}}
+	cmd := buildCommandWithLauncherConfig(ui, lc)
+	if err := cmd.Flags().Set(flagAgent, "pi"); err != nil {
+		t.Fatalf("set agent: %v", err)
+	}
+	opts, err := extractRunOptions(cmd, ui)
+	if err != nil {
+		t.Fatalf("extractRunOptions: %v", err)
+	}
+	if opts.Notify.Active() {
+		t.Errorf("notify should be disabled for interactive agent, got %+v", opts.Notify)
+	}
+	found := false
+	for _, w := range ui.WarnCalls {
+		if strings.Contains(w, "notifications not supported") {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("expected a warning about unsupported notifications, got %v", ui.WarnCalls)
 	}
 }

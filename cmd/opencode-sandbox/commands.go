@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"os"
 	"slices"
 	"strings"
 
@@ -10,6 +11,7 @@ import (
 
 	"github.com/inoio/opencode-sandbox/internal/agent"
 	"github.com/inoio/opencode-sandbox/internal/git"
+	"github.com/inoio/opencode-sandbox/internal/notify"
 	"github.com/inoio/opencode-sandbox/internal/sandbox/mounts"
 	"github.com/inoio/opencode-sandbox/internal/sandbox/naming"
 	"github.com/inoio/opencode-sandbox/internal/sandbox/network"
@@ -61,6 +63,25 @@ func extractRunOptions(cmd *cobra.Command, ui termio.UI) (options.RunOptions, er
 	}
 	if agentErr := validateAgentFlags(resolvedAgent, opts); agentErr != nil {
 		return options.RunOptions{}, agentErr
+	}
+
+	nc, err := resolveNotifyConfig(cmd)
+	if err != nil {
+		return options.RunOptions{}, err
+	}
+	opts.Notify = nc
+	if nc.Active() {
+		a, _ := agent.Lookup(opts.Agent)
+		if _, ok := agent.AsDaemonProvider(a); !ok {
+			if cmd.Flags().Changed(flagNotify) || os.Getenv(notifyEnvVar) != "" {
+				return options.RunOptions{}, fmt.Errorf(
+					"--notify is not supported by agent %q (no daemon/event stream)",
+					a.Name(),
+				)
+			}
+			ui.Warnf("notifications not supported by agent %q (no daemon/event stream); ignoring", a.Name())
+			opts.Notify = notify.Config{Audio: notify.AudioOff} //nolint:exhaustruct // channels disabled
+		}
 	}
 
 	r := resolverFromContext(cmd.Context())
@@ -128,6 +149,33 @@ func resolverFromContext(ctx context.Context) *launcherconfig.Resolver {
 	}
 	r, _ := ctx.Value((*launcherConfigKey)(nil)).(*launcherconfig.Resolver)
 	return r
+}
+
+// notifyEnvVar is the environment variable override for --notify.
+const notifyEnvVar = "OPENCODE_SANDBOX_NOTIFY"
+
+// resolveNotifyConfig resolves the effective notify config with precedence
+// flag > env > config, then validates the value and agent support.
+func resolveNotifyConfig(cmd *cobra.Command) (notify.Config, error) {
+	cfg := notify.Config{Audio: notify.AudioOff} //nolint:exhaustruct // zero channels, populated below
+	if r := resolverFromContext(cmd.Context()); r != nil {
+		cfg = r.Notify()
+	}
+	if raw := os.Getenv(notifyEnvVar); raw != "" {
+		override, err := notify.ParseOverride(raw)
+		if err != nil {
+			return notify.Config{}, fmt.Errorf("%s: %w", notifyEnvVar, err)
+		}
+		cfg = notify.ApplyOverride(cfg, override)
+	}
+	if raw, _ := cmd.Flags().GetString(flagNotify); cmd.Flags().Changed(flagNotify) && raw != "" {
+		override, err := notify.ParseOverride(raw)
+		if err != nil {
+			return notify.Config{}, err
+		}
+		cfg = notify.ApplyOverride(cfg, override)
+	}
+	return cfg, nil
 }
 
 // defaultAgentName is the fallback agent used when --agent is not provided.

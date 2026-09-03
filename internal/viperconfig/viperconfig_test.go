@@ -10,6 +10,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/inoio/opencode-sandbox/internal/configpaths"
+	"github.com/inoio/opencode-sandbox/internal/notify"
 	"github.com/inoio/opencode-sandbox/internal/sandbox/network"
 	"github.com/inoio/opencode-sandbox/internal/sandbox/options"
 	"github.com/inoio/opencode-sandbox/internal/testutil"
@@ -598,5 +599,48 @@ func TestResolverRejectsTooSmallInterval(t *testing.T) {
 	t.Setenv("OPENCODE_SANDBOX_UPGRADE_INTERVAL", "1m")
 	if _, err := NewResolver(nil, ""); err == nil {
 		t.Fatal("expected error for update interval below minimum")
+	}
+}
+
+func TestResolverNotifyDefaults(t *testing.T) {
+	r := NewResolverWithConfig(Config{})
+	cfg := r.Notify()
+	if cfg.Active() {
+		t.Errorf("default notify should be inactive, got %+v", cfg)
+	}
+	if cfg.Audio != notify.AudioOff {
+		t.Errorf("default audio = %q, want off", cfg.Audio)
+	}
+}
+
+func TestResolverNotifyFromConfigFile(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	testutil.WriteYAML(t, configpaths.Get().UserConfigDir(), "config.yaml", map[string]any{
+		"notify": map[string]any{
+			"desktop":  true,
+			"audio":    "bell",
+			"on-input": false,
+		},
+	})
+	r, err := NewResolver(nil, "")
+	if err != nil {
+		t.Fatalf("NewResolver: %v", err)
+	}
+	cfg := r.Notify()
+	if !cfg.Desktop || cfg.Audio != notify.AudioBell {
+		t.Errorf("channels = desktop:%v audio:%q, want desktop true audio bell", cfg.Desktop, cfg.Audio)
+	}
+	if cfg.OnInput || !cfg.OnDone || !cfg.OnError {
+		t.Errorf("triggers = %+v, want on-input off, on-done/on-error defaulted true", cfg)
+	}
+}
+
+func TestResolverNotifyRejectsInvalidAudio(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	testutil.WriteYAML(t, configpaths.Get().UserConfigDir(), "config.yaml", map[string]any{
+		"notify": map[string]any{"audio": "loud"},
+	})
+	if _, err := NewResolver(nil, ""); err == nil {
+		t.Fatal("expected error for invalid notify.audio mode")
 	}
 }

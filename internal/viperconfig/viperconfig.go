@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/inoio/opencode-sandbox/internal/configpaths"
+	"github.com/inoio/opencode-sandbox/internal/notify"
 	"github.com/inoio/opencode-sandbox/internal/sandbox/mounts"
 	"github.com/inoio/opencode-sandbox/internal/sandbox/network"
 	"github.com/inoio/opencode-sandbox/internal/upgrade"
@@ -58,7 +59,15 @@ type Config struct {
 	// Upgrade controls checking for and installing newer opencode-sandbox
 	// releases. Only Mode and Interval are settable via env.
 	Upgrade UpgradeConfig `mapstructure:"upgrade"`
+	// Notify holds the resolved notify config. It is decoded separately (not
+	// via viper.Unmarshal) from dotted keys so the OPENCODE_SANDBOX_NOTIFY env
+	// override — the bare "notify" key — cannot collide with the nested
+	// notify.desktop/audio/... keys.
+	Notify NotifyConfig `mapstructure:"-"`
 }
+
+// NotifyConfig is the resolved notify setting for a session.
+type NotifyConfig = notify.Config
 
 // UpgradeConfig holds self-upgrade settings.
 type UpgradeConfig struct {
@@ -132,6 +141,7 @@ func NewResolver(cmd *cobra.Command, slug string) (*Resolver, error) {
 		return nil, fmt.Errorf("decode launcher config: %w", err)
 	}
 	cfg.Mounts = mounts
+	cfg.Notify = decodeNotify(v)
 	return &Resolver{cfg: cfg}, nil
 }
 
@@ -159,6 +169,11 @@ const (
 	keyUpgradeMode               = "upgrade.mode"
 	keyUpgradeInterval           = "upgrade.interval"
 	keyProvisionHostConfig       = "provision-host-config"
+	keyNotifyDesktop             = "notify.desktop"
+	keyNotifyAudio               = "notify.audio"
+	keyNotifyOnInput             = "notify.on-input"
+	keyNotifyOnDone              = "notify.on-done"
+	keyNotifyOnError             = "notify.on-error"
 )
 
 //nolint:gochecknoglobals // package-level constant slice
@@ -346,6 +361,9 @@ func validate(v *viper.Viper) error {
 	if err := validateUpgrade(v); err != nil {
 		return err
 	}
+	if err := validateNotify(v); err != nil {
+		return err
+	}
 	if !v.IsSet("cpus") {
 		return nil
 	}
@@ -385,6 +403,16 @@ func validateUpgrade(v *viper.Viper) error {
 	}
 	if d < upgrade.MinInterval {
 		return fmt.Errorf("launcher config %s must be >= %s, got %v", keyUpgradeInterval, upgrade.MinInterval, d)
+	}
+	return nil
+}
+
+func validateNotify(v *viper.Viper) error {
+	if !v.IsSet(keyNotifyAudio) {
+		return nil
+	}
+	if _, err := notify.ParseAudioMode(v.GetString(keyNotifyAudio)); err != nil {
+		return err
 	}
 	return nil
 }
@@ -501,4 +529,44 @@ func (r *Resolver) UpgradeInterval() time.Duration {
 // Mounts returns additional host bind mounts.
 func (r *Resolver) Mounts() mounts.Mounts {
 	return r.cfg.Mounts
+}
+
+// Notify returns the resolved notify config. An empty Audio (zero-value Config)
+// is normalized to AudioOff so the feature is inactive by default.
+func (r *Resolver) Notify() notify.Config {
+	cfg := r.cfg.Notify
+	if cfg.Audio == "" {
+		cfg.Audio = notify.AudioOff
+	}
+	return cfg
+}
+
+// decodeNotify reads the notify: section from dotted viper keys. It returns an
+// inactive config when no notify key is set; otherwise channels are read as-is
+// and triggers default to true.
+func decodeNotify(v *viper.Viper) NotifyConfig {
+	cfg := NotifyConfig{Audio: notify.AudioOff} //nolint:exhaustruct // remaining fields zeroed and set below
+	if !v.IsSet(keyNotifyDesktop) && !v.IsSet(keyNotifyAudio) &&
+		!v.IsSet(keyNotifyOnInput) && !v.IsSet(keyNotifyOnDone) && !v.IsSet(keyNotifyOnError) {
+		return cfg
+	}
+	cfg.Desktop = v.GetBool(keyNotifyDesktop)
+	if s := v.GetString(keyNotifyAudio); s != "" {
+		if m, err := notify.ParseAudioMode(s); err == nil {
+			cfg.Audio = m
+		}
+	}
+	cfg.OnInput = true
+	cfg.OnDone = true
+	cfg.OnError = true
+	if v.IsSet(keyNotifyOnInput) {
+		cfg.OnInput = v.GetBool(keyNotifyOnInput)
+	}
+	if v.IsSet(keyNotifyOnDone) {
+		cfg.OnDone = v.GetBool(keyNotifyOnDone)
+	}
+	if v.IsSet(keyNotifyOnError) {
+		cfg.OnError = v.GetBool(keyNotifyOnError)
+	}
+	return cfg
 }

@@ -111,6 +111,12 @@ network:
   egress-deny: []
 mounts:
   /home/dev/.m2: ~/.m2
+notify:
+  desktop: true      # notify-send (Linux) / osascript (macOS)
+  audio: system      # system | bell | off
+  on-input: true     # agent waiting on input
+  on-done: true      # busy -> idle
+  on-error: true     # session.error
 upgrade:
   mode: notify
   interval: "7d"

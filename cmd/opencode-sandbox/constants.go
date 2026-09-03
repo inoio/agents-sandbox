@@ -48,6 +48,7 @@ const (
 	flagServeOnly       = "serve-only"
 	flagNetwork         = "network"
 	flagAgent           = "agent"
+	flagNotify          = "notify"
 	flagDind            = "dind"
 	flagAgentVersion    = "agent-version"
 	flagOpenCodeVersion = "opencode-version"
