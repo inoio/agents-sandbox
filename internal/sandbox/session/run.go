@@ -82,6 +82,7 @@ func Run(ctx context.Context, opts options.RunOptions, ui termio.UI) error {
 	}
 
 	projectSlug := git.ProjectSlug()
+	a, _ := agent.Lookup(opts.Agent)
 
 	if opts.ServeOnly { //nolint:nestif // lease acquire/serve/release/reap sequence requires this structure
 		release, acquireErr := state.AcquireClientLease(projectSlug)
@@ -100,13 +101,12 @@ func Run(ctx context.Context, opts options.RunOptions, ui termio.UI) error {
 			release()
 			release = nil
 		}
-		if err := reapOnLastClient(ctx, projectSlug, sb, opts.ReapPolicy, ui); err != nil {
+		if err := reapOnLastClient(ctx, a, projectSlug, sb, opts.ReapPolicy, ui); err != nil {
 			ui.Warnf("reap failed: %v", err)
 		}
 		return &sandbox.ExitError{Code: 0}
 	}
 
-	a, _ := agent.Lookup(opts.Agent)
 	setup := buildAttachCommand(a, ses.Target(), opts.Args)
 	ui.Verbosef("%s", setup)
 	// Run as a login shell so /etc/profile and ~/.profile are sourced,
@@ -186,7 +186,8 @@ func runAttach(
 		release = nil
 	}
 
-	if err := reapOnLastClient(ctx, projectSlug, sb, opts.ReapPolicy, ui); err != nil {
+	a, _ := agent.Lookup(opts.Agent)
+	if err := reapOnLastClient(ctx, a, projectSlug, sb, opts.ReapPolicy, ui); err != nil {
 		ui.Warnf("reap failed: %v", err)
 	}
 

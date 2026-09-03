@@ -2,19 +2,20 @@ package agent
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
-	"path/filepath"
 	"strings"
 )
 
 //nolint:gochecknoinits // built-in agent self-registration
-func init() { Register(opencodeProfile{}) }
+func init() { Register(opencodeProfile{opencodeConfig: opencodeConfig{}}) }
 
-type opencodeProfile struct{}
+// opencodeProfile is the opencode (v1) coding agent. It embeds opencodeConfig
+// for the config handling it shares with opencode2.
+type opencodeProfile struct {
+	opencodeConfig
+}
 
-func (opencodeProfile) Name() string          { return opencodeName }
-func (opencodeProfile) ConfigDirName() string { return "opencode" }
+func (opencodeProfile) Name() string { return opencodeName }
 
 func (opencodeProfile) ImageSpec() ImageSpec {
 	return ImageSpec{
@@ -43,19 +44,25 @@ func (opencodeProfile) DaemonHealthCmd() string {
 }
 
 func (opencodeProfile) DaemonHealthParse(stdout string) (bool, error) {
-	var resp struct {
-		Healthy bool   `json:"healthy"`
-		Version string `json:"version"`
-	}
-	if err := json.Unmarshal([]byte(stdout), &resp); err != nil {
-		return false, fmt.Errorf("parse health response: %w", err)
-	}
-	return resp.Healthy, nil
+	return parseDaemonHealth(stdout)
+}
+
+// SessionStatusCmd returns the v1 server endpoint listing session states, used
+// by the launcher to wait for active sessions to finish before stopping a VM.
+func (opencodeProfile) SessionStatusCmd() string {
+	return "curl -sf http://127.0.0.1:4096/session/status"
+}
+
+// QuestionListCmd returns the v1 server endpoint listing pending questions,
+// used by the launcher to keep sessions awaiting user input from being cut off.
+func (opencodeProfile) QuestionListCmd() string {
+	return "curl -sf http://127.0.0.1:4096/question"
 }
 
 func (opencodeProfile) WorktreeListCmd() string {
 	return "curl -sf http://127.0.0.1:4096/experimental/worktree"
 }
+
 func (opencodeProfile) WorktreeCreateCmd(spec WorktreeSpec) string {
 	body := fmt.Sprintf(`{"name":%q}`, spec.Name)
 	if spec.Base != "" {
@@ -66,40 +73,16 @@ func (opencodeProfile) WorktreeCreateCmd(spec WorktreeSpec) string {
 		body,
 	)
 }
+
 func (opencodeProfile) WorktreeParseDir(stdout string) (string, bool) {
-	var resp struct {
-		Directory string `json:"directory"`
-	}
-	if err := json.Unmarshal([]byte(stdout), &resp); err != nil {
-		return "", false
-	}
-	return resp.Directory, resp.Directory != ""
+	return parseWorktreeDirectory(stdout)
 }
 
 func (opencodeProfile) LatestVersion(ctx context.Context) (string, error) {
 	return latestOpenCodeVersion(ctx)
 }
+
 func (opencodeProfile) NewerThan(a, b string) (bool, error) { return newerOpenCodeThan(a, b) }
-
-func (opencodeProfile) SnippetPattern() string { return "opencode-*.json*" }
-func (opencodeProfile) VMConfigPath(home string) string {
-	return filepath.Join(home, ".config", "opencode", "opencode.jsonc")
-}
-
-// opencodeConfigFileNames are the config files opencode reads from its global
-// config directory (config.json < opencode.json < opencode.jsonc), plus the
-// opencode.* variants it may gain support for. The merged config is written to
-// the last-loaded filename so it wins over the others.
-func (opencodeProfile) ConfigFileNames() []string {
-	return []string{"config.json", "opencode.json", "opencode.jsonc", "opencode.json5", "opencode.yaml", "opencode.yml"}
-}
-
-func (opencodeProfile) ProvisionRules() []ProvisionRule {
-	return []ProvisionRule{
-		{Dir: ".config/opencode", Patterns: []string{"**", "!node_modules/", "!package*.json", "!.gitignore"}},
-		{Dir: ".local/share/opencode", Patterns: []string{"auth.json"}},
-	}
-}
 
 func (opencodeProfile) AttachCommand(target string, args []string) string {
 	parts := []string{"opencode", "attach", "http://127.0.0.1:4096", "--dir", target}

@@ -27,6 +27,15 @@ type UpgradeChecker interface {
 	NewerThan(a, b string) (bool, error)
 }
 
+// SessionStatusProvider exposes the daemon's session-status and pending-question
+// endpoints so the launcher can wait for active sessions to finish before
+// stopping a VM. Only the opencode (v1) daemon exposes these endpoints today;
+// agents without them skip the quiescence wait.
+type SessionStatusProvider interface {
+	SessionStatusCmd() string
+	QuestionListCmd() string
+}
+
 // ConfigMerger exposes data consumed by the shared merge logic in
 // internal/configmerge.BuildMerged.
 type ConfigMerger interface {
@@ -62,6 +71,13 @@ func AsWorktreeProvider(a Agent) (WorktreeProvider, bool) {
 
 // AsUpgradeChecker returns the agent's UpgradeChecker, if it implements one.
 func AsUpgradeChecker(a Agent) (UpgradeChecker, bool) { p, ok := a.(UpgradeChecker); return p, ok }
+
+// AsSessionStatusProvider returns the agent's SessionStatusProvider, if it
+// implements one.
+func AsSessionStatusProvider(a Agent) (SessionStatusProvider, bool) {
+	p, ok := a.(SessionStatusProvider)
+	return p, ok
+}
 
 // AsConfigMerger returns the agent's ConfigMerger, if it implements one.
 func AsConfigMerger(a Agent) (ConfigMerger, bool) { p, ok := a.(ConfigMerger); return p, ok }

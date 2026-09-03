@@ -1,0 +1,1324 @@
+diff --git a/CHANGELOG.md b/CHANGELOG.md
+index 54c9f2e175..7a03f332ee 100644
+--- a/CHANGELOG.md
++++ b/CHANGELOG.md
+@@ -22,6 +22,7 @@ command reports the bare version (e.g. `0.1.0`).
+ - Self-upgrade: `run`/`shell` check GitHub for a newer opencode-sandbox release (throttled to `upgrade.interval`, default `1d`, minimum `1h`). `upgrade.mode` controls behavior: `prompt` (default; continue / don't-ask-again / upgrade & continue / upgrade & exit, falling back to a notice when non-interactive), `notify`, `auto`, or `auto-exit`. A new `upgrade` command installs the latest release on demand. Checks are skipped for `dev` builds and offline failures are ignored.
+ 
+ - CLI: a new `--agent <name>` flag on `run`, `build`, and the `volume` subcommands selects the coding-agent profile to run/build/provision. The registry abstraction keeps existing usage fully backward compatible (`opencode` remains the default).
++- Agents: a built-in `opencode2` (opencode 2 beta) profile, installed from `@opencode-ai/cli@beta` on npm. Daemon-based like `opencode` (serve/attach on the v2 `/api` server, worktree sessions, health via `/api/health`), it shares the `opencode` config directory (v2 reads the same files as v1), resolves its latest version from the npm `beta` dist-tag, and compares `0.0.0-beta-<build>` versions numerically (plain semver mis-sorts them across digit lengths). The quiescence reaper now skips the v1 session-status wait for daemons that expose no such endpoints.
+ - Agents: built-in `pi` (`@earendil-works/pi-coding-agent`) and `claude-code` (`@anthropic-ai/claude-code`) profiles, alongside the default `opencode`. Both run interactively via the TUI (no daemon), support snippet config merge into `~/.pi/agent/settings.json` / `~/.claude/settings.json`, and resolve latest versions for `build` (pi via `pi.dev`, claude-code via the npm registry). `--worktree` and `--serve-only` are rejected for agents without a daemon.
+ - Image: the runner Dockerfile installs Node.js before the agent install block so npm-based agents (pi, claude-code) can be installed with `npm install -g`.
+ - Config: the agent-specific config family (which files the merged config supersedes) is now driven per agent rather than hardcoded to opencode, so merged config detection and `config agent` output are correct for pi and claude-code.
+diff --git a/README.md b/README.md
+index e02324de3d..cdc25276e5 100644
+--- a/README.md
++++ b/README.md
+@@ -47,9 +47,12 @@ Egress and ingress stay under your control with simple profiles and allow/deny l
+ 
+ opencode-sandbox is agent-aware. A `--agent <name>` flag on `run`, `build`, and the `volume` subcommands selects the
+ coding-agent profile to run and provision; `--agent-version` pins the agent version baked into the runner image
+-(replacing the older `--opencode-version`, which remains as a deprecated alias). Three agents ship as built-in profiles:
++(replacing the older `--opencode-version`, which remains as a deprecated alias). Four agents ship as built-in profiles:
+ 
+ - **`opencode`** (default) — a daemon-based agent with serve/attach, worktree sessions, and GitHub-release upgrade checks.
++- **`opencode2`** — opencode 2 (beta), installed from `@opencode-ai/cli@beta` on npm; daemon-based with serve/attach,
++  worktree sessions, and npm beta-tag upgrade checks. It shares the `opencode` config directory (v2 reads the same files
++  as v1).
+ - **`pi`** — the pi coding agent (`@earendil-works/pi-coding-agent`), run interactively, with upgrade checks via `pi.dev`.
+ - **`claude-code`** — Anthropic's Claude Code (`@anthropic-ai/claude-code`), run interactively, with upgrade checks via the
+   npm registry.
+diff --git a/cmd/opencode-sandbox/cli_run_options_test.go b/cmd/opencode-sandbox/cli_run_options_test.go
+index 54700ae17d..c4a2db3b19 100644
+--- a/cmd/opencode-sandbox/cli_run_options_test.go
++++ b/cmd/opencode-sandbox/cli_run_options_test.go
+@@ -495,6 +495,34 @@ func TestExtractRunOptionsAgentClaudeCode(t *testing.T) {
+ 	}
+ }
+ 
++func TestExtractRunOptionsAgentOpencode2(t *testing.T) {
++	cmd := buildRunCmd(&termio.Mock{})
++	if err := cmd.Flags().Set(flagAgent, "opencode2"); err != nil {
++		t.Fatalf("set agent: %v", err)
++	}
++	opts, err := extractRunOptions(cmd, &termio.Mock{})
++	if err != nil {
++		t.Fatalf("extractRunOptions: %v", err)
++	}
++	if opts.Agent != "opencode2" {
++		t.Errorf("Agent = %q; want opencode2", opts.Agent)
++	}
++}
++
++func TestValidateAgentFlagsAcceptsWorktreeAndServeOnlyForOpencode2(t *testing.T) {
++	a, ok := agent.Lookup("opencode2")
++	if !ok {
++		t.Fatal("opencode2 agent not registered")
++	}
++	err := validateAgentFlags(a, options.RunOptions{
++		Worktree:  options.WorktreeSpec{Name: "feat"},
++		ServeOnly: true,
++	})
++	if err != nil {
++		t.Errorf("expected opencode2 to support --worktree and --serve-only, got %v", err)
++	}
++}
++
+ func TestExtractRunOptionsRejectsWorktreeForPI(t *testing.T) {
+ 	cmd := buildRunCmd(&termio.Mock{})
+ 	if err := cmd.Flags().Set(flagAgent, "pi"); err != nil {
+diff --git a/docs/commands.md b/docs/commands.md
+index 47eac10a46..5143dc3d12 100644
+--- a/docs/commands.md
++++ b/docs/commands.md
+@@ -47,7 +47,7 @@ Arguments after `--` are forwarded to opencode. Arguments before `--` that don't
+ | `--workspace-quota` | — | `16G` | Guest-write quota for the `/workspace` bind mount (e.g. `32G`), bounding writes on top of the host repo. Applied at VM creation; a change triggers recreation. An invalid value is rejected with an error. |
+ | `--dry-run-vm` | —     | `false`  | Skip VM lifecycle but prepare everything else                                                                                              |
+ | `--serve-only` | `-s`  | `false`  | Start opencode server published on host loopback (no in-VM TUI); press `Ctrl-D` to exit. Set `OPENCODE_SERVER_PASSWORD` for basic auth. |
+-| `--agent`      | —     | `opencode` | Coding-agent profile to run: `opencode` (default), `pi`, or `claude-code`.                                                                |
++| `--agent`      | —     | `opencode` | Coding-agent profile to run: `opencode` (default), `opencode2`, `pi`, or `claude-code`.                                                                |
+ 
+ **Aliases:** `sandbox run`
+ 
+@@ -88,7 +88,7 @@ opencode-sandbox build --agent-version 0.5.0  # pin a specific agent version
+ |----------------------|-------|----------|-----------------------------------------------------------------|
+ | `--rebuild`          | `-r`  | `false`  | Force a clean rebuild                                           |
+ | `--dry-run`          | `-n`  | `false`  | Dry run without building                                        |
+-| `--agent`            | —     | `opencode` | Coding-agent profile to build: `opencode` (default), `pi`, or `claude-code`. |
++| `--agent`            | —     | `opencode` | Coding-agent profile to build: `opencode` (default), `opencode2`, `pi`, or `claude-code`. |
+ | `--agent-version`    | —     | `""`     | Pin the agent version baked into the image (default: latest)    |
+ | `--opencode-version` | —     | `""`     | Deprecated alias for `--agent-version`                          |
+ 
+diff --git a/docs/configuration.md b/docs/configuration.md
+index a2871af11f..a83ca6eec1 100644
+--- a/docs/configuration.md
++++ b/docs/configuration.md
+@@ -384,9 +384,12 @@ echo $GITHUB_TOKEN
+ 
+ opencode-sandbox is agent-aware. A `--agent <name>` flag on `run`, `build`, and the `volume` subcommands selects the
+ coding-agent profile to run, build, and provision. The agent can also be selected via the `agent` config key or the
+-`OPENCODE_SANDBOX_AGENT` environment variable. Three agents ship as built-in profiles:
++`OPENCODE_SANDBOX_AGENT` environment variable. Four agents ship as built-in profiles:
+ 
+ - **`opencode`** (default) — daemon-based, with serve/attach, worktree sessions, and GitHub-release upgrade checks.
++- **`opencode2`** — opencode 2 (beta), installed from `@opencode-ai/cli@beta` on npm; daemon-based with serve/attach,
++  worktree sessions, and npm beta-tag upgrade checks. It shares the `opencode` config directory (v2 reads the same files
++  as v1).
+ - **`pi`** — the pi coding agent, run interactively; upgrade checks via `pi.dev`.
+ - **`claude-code`** — Anthropic's Claude Code, run interactively; upgrade checks via the npm registry.
+ 
+@@ -406,6 +409,7 @@ user and project directories, and written to the agent's VM config path:
+ 
+ - **opencode** — snippets match `opencode-*.json*` (e.g. `opencode-model.json`, `opencode-permissions.jsonc`); merged to
+   `/home/dev/.config/opencode/opencode.jsonc`. A file named exactly `opencode.json` no longer merges by default.
++- **opencode2** — same snippet pattern and merged config path as `opencode` (v2 reads the same files as v1).
+ - **pi** — snippets match `settings*.json*` in the `pi/` subdir; merged to `/home/dev/.pi/agent/settings.json`.
+ - **claude-code** — snippets match `settings*.json*` in the `claude/` subdir; merged to `/home/dev/.claude/settings.json`.
+ 
+@@ -435,6 +439,7 @@ The drop-in copy is scoped to the agent's settings file, not its runtime state o
+ 
+ - **opencode** — `~/.config/opencode/**` (excluding `node_modules/`, `package*.json`, and `.gitignore`) plus
+   `~/.local/share/opencode/auth.json`.
++- **opencode2** — same drop-in copy as `opencode` (`~/.config/opencode/**` and `~/.local/share/opencode/auth.json`).
+ - **pi** — `~/.pi/agent/settings.json`.
+ - **claude-code** — `~/.claude/settings.json` (runtime state and the machine-managed `.credentials.json` are not copied).
+ 
+diff --git a/docs/runner-image.md b/docs/runner-image.md
+index 98edab3cd8..0d2634d62e 100644
+--- a/docs/runner-image.md
++++ b/docs/runner-image.md
+@@ -48,10 +48,11 @@ opencode-sandbox build          # uses the latest release
+ **How to upgrade:** Rebuild the runner image with `opencode-sandbox build`. To pin a specific version, use
+ `--agent-version`.
+ 
+-The `--agent <name>` flag selects the coding-agent profile to build. Three agents are built in: `opencode` (default),
+-`pi` (installed via `npm i -g @earendil-works/pi-coding-agent`), and `claude-code` (installed via `npm i -g
+-@anthropic-ai/claude-code`). All three resolve their latest version for an unpinned build — opencode via its GitHub
+-releases endpoint, pi via `pi.dev`, and claude-code via the npm registry's `latest` dist-tag.
++The `--agent <name>` flag selects the coding-agent profile to build. Four agents are built in: `opencode` (default),
++`opencode2` (installed via `npm i -g @opencode-ai/cli@$OPENCODE2_VERSION`, the opencode 2 beta), `pi` (installed via `npm
++i -g @earendil-works/pi-coding-agent`), and `claude-code` (installed via `npm i -g @anthropic-ai/claude-code`). All four
++resolve their latest version for an unpinned build — opencode via its GitHub releases endpoint, opencode2 via the npm
++registry's `beta` dist-tag, pi via `pi.dev`, and claude-code via the npm registry's `latest` dist-tag.
+ 
+ On `run`/`shell`, when a newer agent release exists than the version baked into the image, the launcher offers to rebuild
+ the image (interactive) or prints a notice advising `opencode-sandbox build` (non-interactive). Images that predated the
+@@ -59,10 +60,10 @@ version label are force-rebuilt to pin a version.
+ 
+ The update check is rate-limited to keep it quiet:
+ 
+-- **Once per day:** the agent's release endpoint (opencode's GitHub releases, pi's `pi.dev`, claude-code's npm registry)
+-  is queried at most once per 24 hours, machine-wide. The last successful check is recorded in the tool's state directory
+-  (`~/.local/state/opencode-sandbox/updater.yaml`). A failed or offline check does not start the window, so the next
+-  online session retries.
++- **Once per day:** the agent's release endpoint (opencode's GitHub releases, opencode2's npm `beta` dist-tag, pi's
++  `pi.dev`, claude-code's npm registry) is queried at most once per 24 hours, machine-wide. The last successful check is
++  recorded in the tool's state directory (`~/.local/state/opencode-sandbox/updater.yaml`). A failed or offline check does
++  not start the window, so the next online session retries.
+ - **Once per version:** each agent version is offered for a rebuild at most once. Once the prompt for a version has
+   been shown, that version is not offered again even on later days.
+ 
+diff --git a/internal/agent/capabilities.go b/internal/agent/capabilities.go
+index 1110c06e2a..db54cb0ec8 100644
+--- a/internal/agent/capabilities.go
++++ b/internal/agent/capabilities.go
+@@ -27,6 +27,15 @@ type UpgradeChecker interface {
+ 	NewerThan(a, b string) (bool, error)
+ }
+ 
++// SessionStatusProvider exposes the daemon's session-status and pending-question
++// endpoints so the launcher can wait for active sessions to finish before
++// stopping a VM. Only the opencode (v1) daemon exposes these endpoints today;
++// agents without them skip the quiescence wait.
++type SessionStatusProvider interface {
++	SessionStatusCmd() string
++	QuestionListCmd() string
++}
++
+ // ConfigMerger exposes data consumed by the shared merge logic in
+ // internal/configmerge.BuildMerged.
+ type ConfigMerger interface {
+@@ -63,6 +72,13 @@ func AsWorktreeProvider(a Agent) (WorktreeProvider, bool) {
+ // AsUpgradeChecker returns the agent's UpgradeChecker, if it implements one.
+ func AsUpgradeChecker(a Agent) (UpgradeChecker, bool) { p, ok := a.(UpgradeChecker); return p, ok }
+ 
++// AsSessionStatusProvider returns the agent's SessionStatusProvider, if it
++// implements one.
++func AsSessionStatusProvider(a Agent) (SessionStatusProvider, bool) {
++	p, ok := a.(SessionStatusProvider)
++	return p, ok
++}
++
+ // AsConfigMerger returns the agent's ConfigMerger, if it implements one.
+ func AsConfigMerger(a Agent) (ConfigMerger, bool) { p, ok := a.(ConfigMerger); return p, ok }
+ 
+diff --git a/internal/agent/opencode.go b/internal/agent/opencode.go
+index b0144b0c8b..0e9f7aa680 100644
+--- a/internal/agent/opencode.go
++++ b/internal/agent/opencode.go
+@@ -2,19 +2,20 @@ package agent
+ 
+ import (
+ 	"context"
+-	"encoding/json"
+ 	"fmt"
+-	"path/filepath"
+ 	"strings"
+ )
+ 
+ //nolint:gochecknoinits // built-in agent self-registration
+-func init() { Register(opencodeProfile{}) }
++func init() { Register(opencodeProfile{opencodeConfig: opencodeConfig{}}) }
+ 
+-type opencodeProfile struct{}
++// opencodeProfile is the opencode (v1) coding agent. It embeds opencodeConfig
++// for the config handling it shares with opencode2.
++type opencodeProfile struct {
++	opencodeConfig
++}
+ 
+-func (opencodeProfile) Name() string          { return opencodeName }
+-func (opencodeProfile) ConfigDirName() string { return "opencode" }
++func (opencodeProfile) Name() string { return opencodeName }
+ 
+ func (opencodeProfile) ImageSpec() ImageSpec {
+ 	return ImageSpec{
+@@ -43,19 +44,25 @@ func (opencodeProfile) DaemonHealthCmd() string {
+ }
+ 
+ func (opencodeProfile) DaemonHealthParse(stdout string) (bool, error) {
+-	var resp struct {
+-		Healthy bool   `json:"healthy"`
+-		Version string `json:"version"`
+-	}
+-	if err := json.Unmarshal([]byte(stdout), &resp); err != nil {
+-		return false, fmt.Errorf("parse health response: %w", err)
+-	}
+-	return resp.Healthy, nil
++	return parseDaemonHealth(stdout)
++}
++
++// SessionStatusCmd returns the v1 server endpoint listing session states, used
++// by the launcher to wait for active sessions to finish before stopping a VM.
++func (opencodeProfile) SessionStatusCmd() string {
++	return "curl -sf http://127.0.0.1:4096/session/status"
++}
++
++// QuestionListCmd returns the v1 server endpoint listing pending questions,
++// used by the launcher to keep sessions awaiting user input from being cut off.
++func (opencodeProfile) QuestionListCmd() string {
++	return "curl -sf http://127.0.0.1:4096/question"
+ }
+ 
+ func (opencodeProfile) WorktreeListCmd() string {
+ 	return "curl -sf http://127.0.0.1:4096/experimental/worktree"
+ }
++
+ func (opencodeProfile) WorktreeCreateCmd(spec WorktreeSpec) string {
+ 	body := fmt.Sprintf(`{"name":%q}`, spec.Name)
+ 	if spec.Base != "" {
+@@ -66,40 +73,16 @@ func (opencodeProfile) WorktreeCreateCmd(spec WorktreeSpec) string {
+ 		body,
+ 	)
+ }
++
+ func (opencodeProfile) WorktreeParseDir(stdout string) (string, bool) {
+-	var resp struct {
+-		Directory string `json:"directory"`
+-	}
+-	if err := json.Unmarshal([]byte(stdout), &resp); err != nil {
+-		return "", false
+-	}
+-	return resp.Directory, resp.Directory != ""
++	return parseWorktreeDirectory(stdout)
+ }
+ 
+ func (opencodeProfile) LatestVersion(ctx context.Context) (string, error) {
+ 	return latestOpenCodeVersion(ctx)
+ }
+-func (opencodeProfile) NewerThan(a, b string) (bool, error) { return newerOpenCodeThan(a, b) }
+ 
+-func (opencodeProfile) SnippetPattern() string { return "opencode-*.json*" }
+-func (opencodeProfile) VMConfigPath(home string) string {
+-	return filepath.Join(home, ".config", "opencode", "opencode.jsonc")
+-}
+-
+-// opencodeConfigFileNames are the config files opencode reads from its global
+-// config directory (config.json < opencode.json < opencode.jsonc), plus the
+-// opencode.* variants it may gain support for. The merged config is written to
+-// the last-loaded filename so it wins over the others.
+-func (opencodeProfile) ConfigFileNames() []string {
+-	return []string{"config.json", "opencode.json", "opencode.jsonc", "opencode.json5", "opencode.yaml", "opencode.yml"}
+-}
+-
+-func (opencodeProfile) ProvisionRules() []ProvisionRule {
+-	return []ProvisionRule{
+-		{Dir: ".config/opencode", Patterns: []string{"**", "!node_modules/", "!package*.json", "!.gitignore"}},
+-		{Dir: ".local/share/opencode", Patterns: []string{"auth.json"}},
+-	}
+-}
++func (opencodeProfile) NewerThan(a, b string) (bool, error) { return newerOpenCodeThan(a, b) }
+ 
+ func (opencodeProfile) AttachCommand(target string, args []string) string {
+ 	parts := []string{"opencode", "attach", "http://127.0.0.1:4096", "--dir", target}
+diff --git a/internal/sandbox/image/dockerfile_test.go b/internal/sandbox/image/dockerfile_test.go
+index 0f4ea80a28..8ca05329b0 100644
+--- a/internal/sandbox/image/dockerfile_test.go
++++ b/internal/sandbox/image/dockerfile_test.go
+@@ -79,7 +79,7 @@ func agentOpencode(t *testing.T) agent.Agent {
+ }
+ 
+ func TestDockerfileFromImageSpecNPMAgents(t *testing.T) {
+-	for _, name := range []string{"pi", "claude-code"} {
++	for _, name := range []string{"pi", "claude-code", "opencode2"} {
+ 		t.Run(name, func(t *testing.T) {
+ 			a, ok := agent.Lookup(name)
+ 			if !ok {
+diff --git a/internal/sandbox/session/reaper.go b/internal/sandbox/session/reaper.go
+index 1132007070..5d70d8e1f0 100644
+--- a/internal/sandbox/session/reaper.go
++++ b/internal/sandbox/session/reaper.go
+@@ -6,6 +6,7 @@ import (
+ 	"fmt"
+ 	"time"
+ 
++	"github.com/inoio/opencode-sandbox/internal/agent"
+ 	"github.com/inoio/opencode-sandbox/internal/sandbox/msb"
+ 	"github.com/inoio/opencode-sandbox/internal/sandbox/options"
+ 	"github.com/inoio/opencode-sandbox/internal/sandbox/state"
+@@ -35,12 +36,19 @@ type QuestionRequest struct {
+ 	SessionID string `json:"sessionID"`
+ }
+ 
+-const questionListURL = "http://127.0.0.1:4096/question"
+-
+ // reapOnLastClient runs after a client detaches. If this was not the last client it
+ // is a no-op. If it was, per policy it either returns immediately (auto-stop-on-active
+ // mode, so the idle timeout stops the VM) or holds the VM until sessions quiesce.
+-func reapOnLastClient(ctx context.Context, slug string, sb msb.Sandbox, policy options.ReapPolicy, ui termio.UI) error {
++// An agent whose daemon does not expose the v1 session-status endpoints skips the
++// quiescence wait, so the idle timeout stops the VM as in auto-stop mode.
++func reapOnLastClient(
++	ctx context.Context,
++	a agent.Agent,
++	slug string,
++	sb msb.Sandbox,
++	policy options.ReapPolicy,
++	ui termio.UI,
++) error {
+ 	if state.CountActiveClients(slug) > 0 {
+ 		return nil
+ 	}
+@@ -51,13 +59,26 @@ func reapOnLastClient(ctx context.Context, slug string, sb msb.Sandbox, policy o
+ 	if sb == nil {
+ 		return nil
+ 	}
+-	return waitQuiescent(ctx, slug, sb, policy.MaxSessionRetries, ui)
++	provider, ok := agent.AsSessionStatusProvider(a)
++	if !ok {
++		ui.Verbosef("agent %q has no session-status endpoints; skipping quiescence wait", a.Name())
++		return nil
++	}
++	return waitQuiescent(ctx, slug, sb, provider, policy.MaxSessionRetries, ui)
+ }
+ 
+-// waitQuiescent keeps the VM alive (keeper exec) and polls /session/status until
+-// no session is busy and no session is retrying past the cutoff, or ctx is done.
+-// A client that reattaches during the wait aborts it.
+-func waitQuiescent(ctx context.Context, slug string, sb msb.Sandbox, maxRetry int, ui termio.UI) error {
++// waitQuiescent keeps the VM alive (keeper exec) and polls the provider's
++// session-status endpoint until no session is busy and no session is retrying
++// past the cutoff, or ctx is done. A client that reattaches during the wait
++// aborts it.
++func waitQuiescent(
++	ctx context.Context,
++	slug string,
++	sb msb.Sandbox,
++	provider agent.SessionStatusProvider,
++	maxRetry int,
++	ui termio.UI,
++) error {
+ 	if maxRetry <= 0 {
+ 		maxRetry = defaultMaxSessionRetries
+ 	}
+@@ -92,7 +113,7 @@ func waitQuiescent(ctx context.Context, slug string, sb msb.Sandbox, maxRetry in
+ 			return nil
+ 		}
+ 
+-		states, err := sessionStates(ctx, sb)
++		states, err := sessionStates(ctx, sb, provider.SessionStatusCmd())
+ 		if err != nil {
+ 			ui.Verbosef("session status poll failed: %v", err)
+ 			continue
+@@ -100,7 +121,7 @@ func waitQuiescent(ctx context.Context, slug string, sb msb.Sandbox, maxRetry in
+ 
+ 		busy, stuckRetry := quiescenceOf(states, nil, maxRetry)
+ 		if busy > 0 {
+-			pending, pendingErr := pendingQuestionSessionIDs(ctx, sb)
++			pending, pendingErr := pendingQuestionSessionIDs(ctx, sb, provider.QuestionListCmd())
+ 			if pendingErr != nil {
+ 				ui.Verbosef("question status poll failed: %v", pendingErr)
+ 			}
+@@ -114,10 +135,10 @@ func waitQuiescent(ctx context.Context, slug string, sb msb.Sandbox, maxRetry in
+ 	}
+ }
+ 
+-// sessionStates reads GET /session/status once via an in-VM curl and decodes the
+-// sessionID->status map.
+-func sessionStates(ctx context.Context, sb msb.Sandbox) (map[string]SessionStatus, error) {
+-	res, err := sb.Shell(ctx, "curl -sf http://127.0.0.1:4096/session/status")
++// sessionStates reads the provider's session-status endpoint once via an in-VM
++// curl and decodes the sessionID->status map.
++func sessionStates(ctx context.Context, sb msb.Sandbox, cmd string) (map[string]SessionStatus, error) {
++	res, err := sb.Shell(ctx, cmd)
+ 	if err != nil {
+ 		return nil, err
+ 	}
+@@ -127,12 +148,12 @@ func sessionStates(ctx context.Context, sb msb.Sandbox) (map[string]SessionStatu
+ 	return decodeSessionStates(res.Stdout())
+ }
+ 
+-// pendingQuestionSessionIDs reads GET /question once via an in-VM curl and
+-// returns the set of sessionIDs that have at least one pending, unanswered
+-// question. On any failure it returns an error and a nil set; the caller keeps
+-// those sessions busy (never risks cutting off real work).
+-func pendingQuestionSessionIDs(ctx context.Context, sb msb.Sandbox) (map[string]bool, error) {
+-	res, err := sb.Shell(ctx, "curl -sf "+questionListURL)
++// pendingQuestionSessionIDs reads the provider's question endpoint once via an
++// in-VM curl and returns the set of sessionIDs that have at least one pending,
++// unanswered question. On any failure it returns an error and a nil set; the
++// caller keeps those sessions busy (never risks cutting off real work).
++func pendingQuestionSessionIDs(ctx context.Context, sb msb.Sandbox, cmd string) (map[string]bool, error) {
++	res, err := sb.Shell(ctx, cmd)
+ 	if err != nil {
+ 		return nil, err
+ 	}
+diff --git a/internal/sandbox/session/reaper_test.go b/internal/sandbox/session/reaper_test.go
+index 243eacfc72..5b2ac87fc6 100644
+--- a/internal/sandbox/session/reaper_test.go
++++ b/internal/sandbox/session/reaper_test.go
+@@ -6,6 +6,7 @@ import (
+ 	"testing"
+ 	"time"
+ 
++	"github.com/inoio/opencode-sandbox/internal/agent"
+ 	"github.com/inoio/opencode-sandbox/internal/configpaths"
+ 	"github.com/inoio/opencode-sandbox/internal/sandbox/msb"
+ 	"github.com/inoio/opencode-sandbox/internal/sandbox/options"
+@@ -13,6 +14,26 @@ import (
+ 	"github.com/inoio/opencode-sandbox/internal/termio"
+ )
+ 
++// opencodeAgent returns the registered opencode profile, which implements
++// SessionStatusProvider (the v1 session-status endpoints the quiescence wait
++// polls).
++func opencodeAgent(t *testing.T) agent.Agent {
++	t.Helper()
++	a, ok := agent.Lookup("opencode")
++	if !ok {
++		t.Fatal("opencode agent not registered")
++	}
++	return a
++}
++
++// noSessionStatusAgent implements agent.Agent without SessionStatusProvider,
++// modeling daemons whose servers expose no v1 session-status endpoints.
++type noSessionStatusAgent struct{}
++
++func (noSessionStatusAgent) Name() string               { return "no-session-status" }
++func (noSessionStatusAgent) ConfigDirName() string      { return "nosessionstatus" }
++func (noSessionStatusAgent) ImageSpec() agent.ImageSpec { return agent.ImageSpec{} }
++
+ // --- ReapOnLastClient: no-op when other clients active ---
+ 
+ func TestReapOnLastClient_NoOpWhenOtherClientsActive(t *testing.T) {
+@@ -25,7 +46,7 @@ func TestReapOnLastClient_NoOpWhenOtherClientsActive(t *testing.T) {
+ 	ui := &termio.Mock{}
+ 	sb := msb.NewMockSandbox(msb.SandboxOpts{})
+ 
+-	err := reapOnLastClient(context.Background(), slug, sb, options.ReapPolicy{}, ui)
++	err := reapOnLastClient(context.Background(), opencodeAgent(t), slug, sb, options.ReapPolicy{}, ui)
+ 	if err != nil {
+ 		t.Fatalf("expected no error, got %v", err)
+ 	}
+@@ -51,7 +72,7 @@ func TestReapOnLastClient_ClientLeaseHeld_NoReap(t *testing.T) {
+ 	ui := &termio.Mock{}
+ 	sb := msb.NewMockSandbox(msb.SandboxOpts{})
+ 
+-	err = reapOnLastClient(context.Background(), slug, sb, options.ReapPolicy{}, ui)
++	err = reapOnLastClient(context.Background(), opencodeAgent(t), slug, sb, options.ReapPolicy{}, ui)
+ 	if err != nil {
+ 		t.Fatalf("expected no error (lease held), got %v", err)
+ 	}
+@@ -67,7 +88,14 @@ func TestReapOnLastClient_AutoStopOnActiveSessions_ReturnsImmediately(t *testing
+ 	ui := &termio.Mock{}
+ 	sb := msb.NewMockSandbox(msb.SandboxOpts{})
+ 
+-	err := reapOnLastClient(context.Background(), slug, sb, options.ReapPolicy{AutoStopOnActiveSessions: true}, ui)
++	err := reapOnLastClient(
++		context.Background(),
++		opencodeAgent(t),
++		slug,
++		sb,
++		options.ReapPolicy{AutoStopOnActiveSessions: true},
++		ui,
++	)
+ 	if err != nil {
+ 		t.Fatalf("expected no error, got %v", err)
+ 	}
+@@ -112,7 +140,7 @@ func TestReapOnLastClient_WaitMode_IdleFromStart(t *testing.T) {
+ 		"sleep 1h": msb.NewTestResult(true, 0, "", "", nil),
+ 	}
+ 
+-	err := reapOnLastClient(context.Background(), slug, sb, options.ReapPolicy{}, ui)
++	err := reapOnLastClient(context.Background(), opencodeAgent(t), slug, sb, options.ReapPolicy{}, ui)
+ 	if err != nil {
+ 		t.Fatalf("ReapOnLastClient: expected no error, got %v", err)
+ 	}
+@@ -134,7 +162,7 @@ func TestReapOnLastClient_WaitMode_EmptyStatus(t *testing.T) {
+ 		"sleep 1h": msb.NewTestResult(true, 0, "", "", nil),
+ 	}
+ 
+-	err := reapOnLastClient(context.Background(), slug, sb, options.ReapPolicy{}, ui)
++	err := reapOnLastClient(context.Background(), opencodeAgent(t), slug, sb, options.ReapPolicy{}, ui)
+ 	if err != nil {
+ 		t.Fatalf("ReapOnLastClient: expected no error, got %v", err)
+ 	}
+@@ -165,7 +193,7 @@ func TestReapOnLastClient_ContextCancelled(t *testing.T) {
+ 		"sleep 1h": msb.NewTestResult(true, 0, "", "", nil),
+ 	}
+ 
+-	err := reapOnLastClient(shortCtx, "ctxproj", sb, options.ReapPolicy{}, ui)
++	err := reapOnLastClient(shortCtx, opencodeAgent(t), "ctxproj", sb, options.ReapPolicy{}, ui)
+ 	if err == nil {
+ 		t.Fatal("expected error when context times out")
+ 	}
+@@ -189,7 +217,7 @@ func TestReapOnLastClient_WaitMode_BusyWithQuestionReaps(t *testing.T) {
+ 	sb.ExecOut = map[string]msb.ShellResult{
+ 		"sleep 1h": msb.NewTestResult(true, 0, "", "", nil),
+ 	}
+-	err := reapOnLastClient(context.Background(), slug, sb, options.ReapPolicy{}, ui)
++	err := reapOnLastClient(context.Background(), opencodeAgent(t), slug, sb, options.ReapPolicy{}, ui)
+ 	if err != nil {
+ 		t.Fatalf("ReapOnLastClient: expected no error, got %v", err)
+ 	}
+@@ -214,7 +242,7 @@ func TestReapOnLastClient_WaitMode_BusyWithQuestionErrorKeepsPolling(t *testing.
+ 	sb.ExecOut = map[string]msb.ShellResult{
+ 		"sleep 1h": msb.NewTestResult(true, 0, "", "", nil),
+ 	}
+-	err := reapOnLastClient(shortCtx, slug, sb, options.ReapPolicy{}, ui)
++	err := reapOnLastClient(shortCtx, opencodeAgent(t), slug, sb, options.ReapPolicy{}, ui)
+ 	if err == nil {
+ 		t.Fatal("expected error when context times out (session stays busy)")
+ 	}
+@@ -236,7 +264,7 @@ func TestReapOnLastClient_NilSandbox_AllModes(t *testing.T) {
+ 	for _, tt := range tests {
+ 		t.Run(tt.name, func(t *testing.T) {
+ 			ui := &termio.Mock{}
+-			err := reapOnLastClient(context.Background(), "nilproj", nil, tt.policy, ui)
++			err := reapOnLastClient(context.Background(), opencodeAgent(t), "nilproj", nil, tt.policy, ui)
+ 			if err != nil {
+ 				t.Fatalf("expected no error with nil sb, got %v", err)
+ 			}
+@@ -244,6 +272,26 @@ func TestReapOnLastClient_NilSandbox_AllModes(t *testing.T) {
+ 	}
+ }
+ 
++// --- ReapOnLastClient: agent without session-status endpoints skips the wait ---
++
++func TestReapOnLastClient_NoSessionStatusProvider_SkipsWait(t *testing.T) {
++	configpaths.WithMockConfigPaths(t)
++
++	slug := "nosessionproj"
++	ui := &termio.Mock{}
++	sb := msb.NewMockSandbox(msb.SandboxOpts{})
++
++	err := reapOnLastClient(context.Background(), noSessionStatusAgent{}, slug, sb, options.ReapPolicy{}, ui)
++	if err != nil {
++		t.Fatalf("expected no error, got %v", err)
++	}
++
++	// Spinner should NOT be created (no polling without session-status endpoints).
++	if len(ui.SpinnerCalls) != 0 {
++		t.Errorf("expected no spinner, got %d spinner calls", len(ui.SpinnerCalls))
++	}
++}
++
+ // --- ReapOnLastClient: does not fail successful attach ---
+ 
+ func TestReapDoesNotFailSuccessfulAttach(t *testing.T) {
+@@ -273,7 +321,7 @@ func TestReapDoesNotFailSuccessfulAttach(t *testing.T) {
+ 	// Release before calling reaper (simulating last client detaching).
+ 	release()
+ 
+-	err = reapOnLastClient(context.Background(), slug, sb, options.ReapPolicy{}, ui)
++	err = reapOnLastClient(context.Background(), opencodeAgent(t), slug, sb, options.ReapPolicy{}, ui)
+ 	if err != nil {
+ 		t.Fatalf("ReapOnLastClient should not fail: %v", err)
+ 	}
+@@ -530,7 +578,7 @@ func TestPendingQuestionSessionIDs_PopulatesSet(t *testing.T) {
+ 			),
+ 		},
+ 	}
+-	got, err := pendingQuestionSessionIDs(context.Background(), sb)
++	got, err := pendingQuestionSessionIDs(context.Background(), sb, "curl -sf http://127.0.0.1:4096/question")
+ 	if err != nil {
+ 		t.Fatalf("pendingQuestionSessionIDs: %v", err)
+ 	}
+@@ -549,7 +597,7 @@ func TestPendingQuestionSessionIDs_Empty(t *testing.T) {
+ 			"curl -sf http://127.0.0.1:4096/question": msb.NewTestResult(true, 0, `[]`, "", nil),
+ 		},
+ 	}
+-	got, err := pendingQuestionSessionIDs(context.Background(), sb)
++	got, err := pendingQuestionSessionIDs(context.Background(), sb, "curl -sf http://127.0.0.1:4096/question")
+ 	if err != nil {
+ 		t.Fatalf("pendingQuestionSessionIDs: %v", err)
+ 	}
+@@ -565,7 +613,7 @@ func TestPendingQuestionSessionIDs_CurlFailure(t *testing.T) {
+ 			"curl -sf http://127.0.0.1:4096/question": msb.NewTestResult(false, 7, "", "curl error", nil),
+ 		},
+ 	}
+-	_, err := pendingQuestionSessionIDs(context.Background(), sb)
++	_, err := pendingQuestionSessionIDs(context.Background(), sb, "curl -sf http://127.0.0.1:4096/question")
+ 	if err == nil {
+ 		t.Fatal("expected error on curl failure")
+ 	}
+@@ -585,7 +633,7 @@ func TestSessionStatesShellError(t *testing.T) {
+ 	sb := &msb.MockSandbox{Name_: "test-vm"}
+ 	sb.ShellErr = errors.New("shell failed")
+ 
+-	if _, err := sessionStates(context.Background(), sb); err == nil {
++	if _, err := sessionStates(context.Background(), sb, "curl -sf http://127.0.0.1:4096/session/status"); err == nil {
+ 		t.Error("sessionStates() with Shell error should return error")
+ 	}
+ }
+@@ -596,7 +644,7 @@ func TestSessionStatesNonSuccess(t *testing.T) {
+ 		"curl -sf http://127.0.0.1:4096/session/status": msb.NewTestResult(false, 7, "", "curl error", nil),
+ 	}
+ 
+-	if _, err := sessionStates(context.Background(), sb); err == nil {
++	if _, err := sessionStates(context.Background(), sb, "curl -sf http://127.0.0.1:4096/session/status"); err == nil {
+ 		t.Error("sessionStates() with non-success result should return error")
+ 	}
+ }
+@@ -605,7 +653,11 @@ func TestPendingQuestionSessionIDsShellError(t *testing.T) {
+ 	sb := &msb.MockSandbox{Name_: "test-vm"}
+ 	sb.ShellErr = errors.New("shell failed")
+ 
+-	if _, err := pendingQuestionSessionIDs(context.Background(), sb); err == nil {
++	if _, err := pendingQuestionSessionIDs(
++		context.Background(),
++		sb,
++		"curl -sf http://127.0.0.1:4096/question",
++	); err == nil {
+ 		t.Error("pendingQuestionSessionIDs() with Shell error should return error")
+ 	}
+ }
+diff --git a/internal/sandbox/session/run.go b/internal/sandbox/session/run.go
+index 872c4754c6..e9988cc420 100644
+--- a/internal/sandbox/session/run.go
++++ b/internal/sandbox/session/run.go
+@@ -82,6 +82,7 @@ func Run(ctx context.Context, opts options.RunOptions, ui termio.UI) error {
+ 	}
+ 
+ 	projectSlug := git.ProjectSlug()
++	a, _ := agent.Lookup(opts.Agent)
+ 
+ 	if opts.ServeOnly { //nolint:nestif // lease acquire/serve/release/reap sequence requires this structure
+ 		release, acquireErr := state.AcquireClientLease(projectSlug)
+@@ -100,13 +101,12 @@ func Run(ctx context.Context, opts options.RunOptions, ui termio.UI) error {
+ 			release()
+ 			release = nil
+ 		}
+-		if err := reapOnLastClient(ctx, projectSlug, sb, opts.ReapPolicy, ui); err != nil {
++		if err := reapOnLastClient(ctx, a, projectSlug, sb, opts.ReapPolicy, ui); err != nil {
+ 			ui.Warnf("reap failed: %v", err)
+ 		}
+ 		return &sandbox.ExitError{Code: 0}
+ 	}
+ 
+-	a, _ := agent.Lookup(opts.Agent)
+ 	setup := buildAttachCommand(a, ses.Target(), opts.Args)
+ 	ui.Verbosef("%s", setup)
+ 	// Run as a login shell so /etc/profile and ~/.profile are sourced,
+@@ -186,7 +186,8 @@ func runAttach(
+ 		release = nil
+ 	}
+ 
+-	if err := reapOnLastClient(ctx, projectSlug, sb, opts.ReapPolicy, ui); err != nil {
++	a, _ := agent.Lookup(opts.Agent)
++	if err := reapOnLastClient(ctx, a, projectSlug, sb, opts.ReapPolicy, ui); err != nil {
+ 		ui.Warnf("reap failed: %v", err)
+ 	}
+ 
+diff --git a/internal/agent/opencode2.go b/internal/agent/opencode2.go
+new file mode 100644
+index 0000000..195b9ea
+--- /dev/null
++++ b/internal/agent/opencode2.go
++++ b/internal/agent/opencode2.go
+@@ -0,0 +1,103 @@
++package agent
++
++import (
++	"context"
++	"fmt"
++	"strings"
++)
++
++//nolint:gochecknoinits // built-in agent self-registration
++func init() { Register(opencode2Profile{opencodeConfig: opencodeConfig{}}) }
++
++// opencode2Name is the canonical registry name of the opencode 2 agent.
++const opencode2Name = "opencode2"
++
++// opencode2Port is the forwarded guest port the opencode2 serve daemon binds,
++// matching the sandbox's fixed host/guest port mapping.
++const opencode2Port = "4096"
++
++// opencode2Profile is the opencode 2 (beta) coding agent. It embeds
++// opencodeConfig for the config handling it shares with v1 (v2 reads the same
++// ~/.config/opencode files and auth.json) and overrides the daemon, worktree,
++// attach, and version behavior for the v2 server API.
++type opencode2Profile struct {
++	opencodeConfig
++}
++
++func (opencode2Profile) Name() string { return opencode2Name }
++
++func (opencode2Profile) ImageSpec() ImageSpec {
++	return ImageSpec{
++		VersionArg:   versionArgFor(opencode2Name),
++		VersionLabel: versionLabelFor(opencode2Name),
++		// The sandbox pins the baked version and resolves upgrades itself; the
++		// env var disables opencode's own auto-update checks at startup.
++		AgentEnv:       map[string]string{"OPENCODE_DISABLE_AUTOUPDATE": "true"},
++		InstallCommand: "npm install -g @opencode-ai/cli@$OPENCODE2_VERSION",
++	}
++}
++
++func (opencode2Profile) DaemonStartCmd(serveOnly bool) string {
++	hostname := "127.0.0.1"
++	if serveOnly {
++		hostname = "0.0.0.0"
++	}
++	return fmt.Sprintf(
++		"nohup opencode2 serve --hostname %s --port %s > /tmp/opencode2-serve.log 2>&1 &",
++		hostname,
++		opencode2Port,
++	)
++}
++
++func (opencode2Profile) DaemonKillCmd() string { return "pkill -f 'opencode2 serve' || true" }
++
++func (opencode2Profile) DaemonHealthCmd() string {
++	return "curl -sfm2 http://127.0.0.1:" + opencode2Port + "/api/health"
++}
++
++func (opencode2Profile) DaemonHealthParse(stdout string) (bool, error) {
++	return parseDaemonHealth(stdout)
++}
++
++// opencode2ProjectIDCmd resolves the current project's id from the running v2
++// server; the worktree routes are scoped by project id.
++const opencode2ProjectIDCmd = "$(curl -sf http://127.0.0.1:4096/api/project/current | jq -r .id)"
++
++func (opencode2Profile) WorktreeListCmd() string {
++	return "PID=" + opencode2ProjectIDCmd + "; curl -sf http://127.0.0.1:4096/api/worktree/$PID"
++}
++
++func (opencode2Profile) WorktreeCreateCmd(spec WorktreeSpec) string {
++	directory := fmt.Sprintf("$HOME/.local/share/opencode/worktree/$PID/%s", spec.Name)
++	body := fmt.Sprintf(`{\"strategy\":\"git_worktree\",\"name\":\"%s\",\"directory\":\"%s\"}`, spec.Name, directory)
++	if spec.Base != "" {
++		body = fmt.Sprintf(
++			`{\"strategy\":\"git_worktree\",\"name\":\"%s\",\"directory\":\"%s\",\"from\":\"%s\"}`,
++			spec.Name,
++			directory,
++			spec.Base,
++		)
++	}
++	return fmt.Sprintf(
++		"PID="+opencode2ProjectIDCmd+"; curl -sf -X POST http://127.0.0.1:4096/api/worktree/$PID -H 'Content-Type: application/json' -d \"%s\"",
++		body,
++	)
++}
++
++func (opencode2Profile) WorktreeParseDir(stdout string) (string, bool) {
++	return parseWorktreeDirectory(stdout)
++}
++
++func (opencode2Profile) LatestVersion(ctx context.Context) (string, error) {
++	return latestOpenCode2Version(ctx)
++}
++
++func (opencode2Profile) NewerThan(a, b string) (bool, error) {
++	return newerOpenCode2Than(a, b)
++}
++
++func (opencode2Profile) AttachCommand(target string, args []string) string {
++	parts := []string{"opencode2", "--server", "http://127.0.0.1:4096", "--dir", target}
++	parts = append(parts, args...)
++	return strings.Join(parts, " ")
++}
+diff --git a/internal/agent/opencode2_release.go b/internal/agent/opencode2_release.go
+new file mode 100644
+index 0000000..a2dbfa6
+--- /dev/null
++++ b/internal/agent/opencode2_release.go
++++ b/internal/agent/opencode2_release.go
+@@ -0,0 +1,56 @@
++package agent
++
++import (
++	"context"
++	"strconv"
++	"strings"
++)
++
++// opencode2NpmBetaURL resolves the newest opencode 2 beta release from the npm
++// registry's "beta" dist-tag (the version `npm install -g @opencode-ai/cli@beta`
++// would fetch). It is a var (not const) so the tests can point it at an
++// httptest server.
++//
++//nolint:gochecknoglobals // test hook for the otherwise unmockable endpoint URL
++var opencode2NpmBetaURL = "https://registry.npmjs.org/@opencode-ai/cli/beta"
++
++// latestOpenCode2Version returns the newest opencode 2 beta release string by
++// querying the npm registry's "beta" dist-tag endpoint.
++func latestOpenCode2Version(ctx context.Context) (string, error) {
++	return latestVersionFromJSON(ctx, opencode2NpmBetaURL, "opencode2")
++}
++
++// opencode2BetaPrefix is the version shape npm publishes for the opencode 2
++// beta: 0.0.0-beta-<build>.
++const opencode2BetaPrefix = "0.0.0-beta-"
++
++// opencode2BetaBuildNumber extracts the trailing build number from a
++// "0.0.0-beta-<build>" version, optionally v-prefixed. ok is false when v does
++// not match the beta shape.
++func opencode2BetaBuildNumber(v string) (int, bool) {
++	v = strings.TrimPrefix(v, "v")
++	if !strings.HasPrefix(v, opencode2BetaPrefix) {
++		return 0, false
++	}
++	build := strings.TrimPrefix(v, opencode2BetaPrefix)
++	n, err := strconv.Atoi(build)
++	if err != nil {
++		return 0, false
++	}
++	return n, true
++}
++
++// newerOpenCode2Than reports whether a is a strictly newer opencode 2 release
++// than b. Beta versions are "0.0.0-beta-<build>" where <build> is a
++// monotonically increasing integer; comparing them as plain semver breaks
++// across digit-length changes (e.g. 0.0.0-beta-9999 vs 0.0.0-beta-10000), so
++// the build number is compared numerically when both versions match the beta
++// shape. Any other version falls back to plain semver comparison.
++func newerOpenCode2Than(a, b string) (bool, error) {
++	an, aBeta := opencode2BetaBuildNumber(a)
++	bn, bBeta := opencode2BetaBuildNumber(b)
++	if aBeta && bBeta {
++		return an > bn, nil
++	}
++	return newerVersionThan(a, b)
++}
+diff --git a/internal/agent/opencode2_release_test.go b/internal/agent/opencode2_release_test.go
+new file mode 100644
+index 0000000..a4f520f
+--- /dev/null
++++ b/internal/agent/opencode2_release_test.go
++++ b/internal/agent/opencode2_release_test.go
+@@ -0,0 +1,116 @@
++package agent
++
++import (
++	"context"
++	"net/http"
++	"net/http/httptest"
++	"testing"
++)
++
++// overrideOpenCode2NpmURL swaps opencode2NpmBetaURL for the duration of a test.
++// It returns a restore func.
++func overrideOpenCode2NpmURL(url string) func() {
++	orig := opencode2NpmBetaURL
++	opencode2NpmBetaURL = url
++	return func() { opencode2NpmBetaURL = orig }
++}
++
++func TestOpencode2LatestVersionReadsNpmBeta(t *testing.T) {
++	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
++		w.Header().Set("Content-Type", "application/json")
++		_, _ = w.Write([]byte(`{"version":"0.0.0-beta-18866","name":"@opencode-ai/cli"}`))
++	}))
++	t.Cleanup(srv.Close)
++	restore := overrideOpenCode2NpmURL(srv.URL)
++	t.Cleanup(restore)
++
++	got, err := latestOpenCode2Version(context.Background())
++	if err != nil {
++		t.Fatalf("unexpected error: %v", err)
++	}
++	if got != "0.0.0-beta-18866" {
++		t.Errorf("latestOpenCode2Version() = %q, want 0.0.0-beta-18866", got)
++	}
++}
++
++func TestOpencode2LatestVersionNon200(t *testing.T) {
++	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
++		http.Error(w, "nope", http.StatusInternalServerError)
++	}))
++	t.Cleanup(srv.Close)
++	restore := overrideOpenCode2NpmURL(srv.URL)
++	t.Cleanup(restore)
++
++	if _, err := latestOpenCode2Version(context.Background()); err == nil {
++		t.Fatal("expected error on non-200 response")
++	}
++}
++
++func TestOpencode2LatestVersionDecodeError(t *testing.T) {
++	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
++		_, _ = w.Write([]byte("not json"))
++	}))
++	t.Cleanup(srv.Close)
++	restore := overrideOpenCode2NpmURL(srv.URL)
++	t.Cleanup(restore)
++
++	if _, err := latestOpenCode2Version(context.Background()); err == nil {
++		t.Fatal("expected error on undecodable response")
++	}
++}
++
++func TestOpencode2LatestVersionEmptyVersion(t *testing.T) {
++	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
++		w.Header().Set("Content-Type", "application/json")
++		_, _ = w.Write([]byte(`{"version":""}`))
++	}))
++	t.Cleanup(srv.Close)
++	restore := overrideOpenCode2NpmURL(srv.URL)
++	t.Cleanup(restore)
++
++	if _, err := latestOpenCode2Version(context.Background()); err == nil {
++		t.Fatal("expected error for empty version")
++	}
++}
++
++func TestOpencode2NewerThanBetaBuilds(t *testing.T) {
++	tests := []struct {
++		name string
++		a, b string
++		want bool
++	}{
++		{name: "newer build", a: "0.0.0-beta-18866", b: "0.0.0-beta-17823", want: true},
++		{name: "older build", a: "0.0.0-beta-17823", b: "0.0.0-beta-18866", want: false},
++		{name: "equal build", a: "0.0.0-beta-18866", b: "0.0.0-beta-18866", want: false},
++		{name: "cross digit length newer", a: "0.0.0-beta-10000", b: "0.0.0-beta-9999", want: true},
++		{name: "cross digit length older", a: "0.0.0-beta-9999", b: "0.0.0-beta-10000", want: false},
++		{name: "v-prefixed beta", a: "v0.0.0-beta-18866", b: "0.0.0-beta-17823", want: true},
++	}
++	for _, tc := range tests {
++		t.Run(tc.name, func(t *testing.T) {
++			got, err := newerOpenCode2Than(tc.a, tc.b)
++			if err != nil {
++				t.Fatalf("unexpected error: %v", err)
++			}
++			if got != tc.want {
++				t.Errorf("newerOpenCode2Than(%q, %q) = %v, want %v", tc.a, tc.b, got, tc.want)
++			}
++		})
++	}
++}
++
++func TestOpencode2NewerThanFallsBackToSemver(t *testing.T) {
++	got, err := newerOpenCode2Than("1.2.0", "1.1.0")
++	if err != nil || !got {
++		t.Errorf("newerOpenCode2Than(1.2.0, 1.1.0) = %v, %v, want true, nil", got, err)
++	}
++}
++
++func TestOpencode2NewerThanInvalidVersion(t *testing.T) {
++	if _, err := newerOpenCode2Than("not-a-version", "0.0.0-beta-18866"); err == nil {
++		t.Fatal("expected error for invalid first version")
++	}
++	if _, err := newerOpenCode2Than("0.0.0-beta-18866", "not-a-version"); err == nil {
++		t.Fatal("expected error for invalid second version")
++	}
++}
+diff --git a/internal/agent/opencode2_test.go b/internal/agent/opencode2_test.go
+new file mode 100644
+index 0000000..4d4ee1b
+--- /dev/null
++++ b/internal/agent/opencode2_test.go
++++ b/internal/agent/opencode2_test.go
+@@ -0,0 +1,261 @@
++package agent_test
++
++import (
++	"context"
++	"path/filepath"
++	"slices"
++	"strings"
++	"testing"
++
++	"github.com/inoio/opencode-sandbox/internal/agent"
++)
++
++func TestOpencode2LookupAndName(t *testing.T) {
++	a, ok := agent.Lookup("opencode2")
++	if !ok {
++		t.Fatal("Lookup(\"opencode2\") returned not-ok")
++	}
++	if a.Name() != "opencode2" {
++		t.Errorf("Name() = %q, want opencode2", a.Name())
++	}
++	found := false
++	for _, n := range agent.Names() {
++		if n == "opencode2" {
++			found = true
++		}
++	}
++	if !found {
++		t.Errorf("Names() = %v, want to include opencode2", agent.Names())
++	}
++}
++
++func TestOpencode2ConfigDirName(t *testing.T) {
++	a, _ := agent.Lookup("opencode2")
++	if a.ConfigDirName() != "opencode" {
++		t.Errorf("ConfigDirName = %q, want opencode (v2 shares the v1 config dir)", a.ConfigDirName())
++	}
++}
++
++func TestOpencode2ImageSpec(t *testing.T) {
++	a, _ := agent.Lookup("opencode2")
++	spec := a.ImageSpec()
++	if spec.VersionArg != "OPENCODE2_VERSION" {
++		t.Errorf("VersionArg = %q, want OPENCODE2_VERSION", spec.VersionArg)
++	}
++	if spec.VersionLabel != "org.opencode-sandbox.opencode2-version" {
++		t.Errorf("VersionLabel = %q, want org.opencode-sandbox.opencode2-version", spec.VersionLabel)
++	}
++	if _, ok := spec.AgentEnv["OPENCODE_DISABLE_AUTOUPDATE"]; !ok {
++		t.Errorf("AgentEnv = %v, want OPENCODE_DISABLE_AUTOUPDATE key", spec.AgentEnv)
++	}
++	wantInstall := "npm install -g @opencode-ai/cli@$OPENCODE2_VERSION"
++	if spec.InstallCommand != wantInstall {
++		t.Errorf("InstallCommand = %q, want %q", spec.InstallCommand, wantInstall)
++	}
++}
++
++func TestOpencode2AttachCommand(t *testing.T) {
++	a, _ := agent.Lookup("opencode2")
++	runner, ok := agent.AsAttachRunner(a)
++	if !ok {
++		t.Fatal("opencode2 should implement AttachRunner")
++	}
++	got := runner.AttachCommand("/workspace", []string{"--print-logs"})
++	want := "opencode2 --server http://127.0.0.1:4096 --dir /workspace --print-logs"
++	if got != want {
++		t.Errorf("AttachCommand = %q, want %q", got, want)
++	}
++}
++
++func TestOpencode2DaemonStartCmd(t *testing.T) {
++	a, _ := agent.Lookup("opencode2")
++	daemon := mustDaemon(t, a)
++	local := daemon.DaemonStartCmd(false)
++	if !strings.Contains(local, "opencode2 serve --hostname 127.0.0.1 --port 4096") {
++		t.Errorf("local DaemonStartCmd = %q, want opencode2 serve on 127.0.0.1:4096", local)
++	}
++	if !strings.Contains(local, "/tmp/opencode2-serve.log") {
++		t.Errorf("local DaemonStartCmd = %q, want opencode2-serve.log", local)
++	}
++	serve := daemon.DaemonStartCmd(true)
++	if !strings.Contains(serve, "--hostname 0.0.0.0") {
++		t.Errorf("serve DaemonStartCmd = %q, want hostname 0.0.0.0", serve)
++	}
++}
++
++func TestOpencode2DaemonKillAndHealthCmd(t *testing.T) {
++	a, _ := agent.Lookup("opencode2")
++	daemon := mustDaemon(t, a)
++	if !strings.Contains(daemon.DaemonKillCmd(), "pkill -f 'opencode2 serve'") {
++		t.Errorf("DaemonKillCmd = %q, want pkill opencode2 serve", daemon.DaemonKillCmd())
++	}
++	if !strings.Contains(daemon.DaemonHealthCmd(), "127.0.0.1:4096/api/health") {
++		t.Errorf("DaemonHealthCmd = %q, want v2 /api/health endpoint", daemon.DaemonHealthCmd())
++	}
++}
++
++func TestOpencode2DaemonHealthParse(t *testing.T) {
++	a, _ := agent.Lookup("opencode2")
++	daemon := mustDaemon(t, a)
++	ok, err := daemon.DaemonHealthParse(`{"healthy":true,"version":"0.0.0-beta-18866","pid":1}`)
++	if err != nil || !ok {
++		t.Errorf("DaemonHealthParse(healthy) = %v, %v, want true, nil", ok, err)
++	}
++	notOK, err := daemon.DaemonHealthParse(`{"healthy":false,"version":"0.0.0-beta-18866"}`)
++	if err != nil || notOK {
++		t.Errorf("DaemonHealthParse(unhealthy) = %v, %v, want false, nil", notOK, err)
++	}
++	if _, err := daemon.DaemonHealthParse("not json"); err == nil {
++		t.Error("DaemonHealthParse(invalid) should error")
++	}
++}
++
++func TestOpencode2WorktreeListCmd(t *testing.T) {
++	a, _ := agent.Lookup("opencode2")
++	worktree := mustWorktree(t, a)
++	got := worktree.WorktreeListCmd()
++	for _, part := range []string{"/api/project/current", "/api/worktree/", "jq -r .id"} {
++		if !strings.Contains(got, part) {
++			t.Errorf("WorktreeListCmd = %q, want to contain %q", got, part)
++		}
++	}
++}
++
++func TestOpencode2WorktreeCreateCmd(t *testing.T) {
++	a, _ := agent.Lookup("opencode2")
++	worktree := mustWorktree(t, a)
++	got := worktree.WorktreeCreateCmd(agent.WorktreeSpec{Name: "feature/x"})
++	want := "PID=$(curl -sf http://127.0.0.1:4096/api/project/current | jq -r .id); " +
++		"curl -sf -X POST http://127.0.0.1:4096/api/worktree/$PID -H 'Content-Type: application/json' " +
++		`-d "{\"strategy\":\"git_worktree\",\"name\":\"feature/x\",\"directory\":\"$HOME/.local/share/opencode/worktree/$PID/feature/x\"}"`
++	if got != want {
++		t.Errorf("WorktreeCreateCmd = %q, want %q", got, want)
++	}
++}
++
++func TestOpencode2WorktreeCreateCmdWithBase(t *testing.T) {
++	a, _ := agent.Lookup("opencode2")
++	worktree := mustWorktree(t, a)
++	got := worktree.WorktreeCreateCmd(agent.WorktreeSpec{Name: "f", Base: "main"})
++	if !strings.Contains(got, `\"from\":\"main\"`) {
++		t.Errorf("WorktreeCreateCmd(with base) = %q, want from:main", got)
++	}
++}
++
++func TestOpencode2WorktreeParseDir(t *testing.T) {
++	a, _ := agent.Lookup("opencode2")
++	worktree := mustWorktree(t, a)
++	dir, ok := worktree.WorktreeParseDir(`{"directory":"/home/dev/ws","strategy":"git_worktree"}`)
++	if !ok || dir != "/home/dev/ws" {
++		t.Errorf("WorktreeParseDir = %q, %v, want /home/dev/ws, true", dir, ok)
++	}
++	if _, ok := worktree.WorktreeParseDir("not json"); ok {
++		t.Error("WorktreeParseDir(invalid) should return not-ok")
++	}
++	if _, ok := worktree.WorktreeParseDir(`{"directory":""}`); ok {
++		t.Error("WorktreeParseDir(empty) should return not-ok")
++	}
++}
++
++func TestOpencode2LatestVersionCancelledCtx(t *testing.T) {
++	a, _ := agent.Lookup("opencode2")
++	checker, ok := agent.AsUpgradeChecker(a)
++	if !ok {
++		t.Fatal("opencode2 should implement UpgradeChecker")
++	}
++	ctx, cancel := context.WithCancel(context.Background())
++	cancel()
++	if _, err := checker.LatestVersion(ctx); err == nil {
++		t.Error("LatestVersion with cancelled ctx should error")
++	}
++}
++
++func TestOpencode2NewerThanBetaBuilds(t *testing.T) {
++	a, _ := agent.Lookup("opencode2")
++	checker := mustChecker(t, a)
++	tests := []struct {
++		name string
++		a, b string
++		want bool
++	}{
++		{name: "newer beta build", a: "0.0.0-beta-18866", b: "0.0.0-beta-17823", want: true},
++		{name: "older beta build", a: "0.0.0-beta-17823", b: "0.0.0-beta-18866", want: false},
++		{name: "equal beta build", a: "0.0.0-beta-18866", b: "0.0.0-beta-18866", want: false},
++		{name: "cross digit length newer", a: "0.0.0-beta-10000", b: "0.0.0-beta-9999", want: true},
++		{name: "cross digit length older", a: "0.0.0-beta-9999", b: "0.0.0-beta-10000", want: false},
++	}
++	for _, tc := range tests {
++		t.Run(tc.name, func(t *testing.T) {
++			got, err := checker.NewerThan(tc.a, tc.b)
++			if err != nil {
++				t.Fatalf("unexpected error: %v", err)
++			}
++			if got != tc.want {
++				t.Errorf("NewerThan(%q, %q) = %v, want %v", tc.a, tc.b, got, tc.want)
++			}
++		})
++	}
++}
++
++func TestOpencode2NewerThanInvalidVersion(t *testing.T) {
++	a, _ := agent.Lookup("opencode2")
++	checker := mustChecker(t, a)
++	if _, err := checker.NewerThan("not-a-version", "0.0.0-beta-18866"); err == nil {
++		t.Error("NewerThan(invalid) should error")
++	}
++}
++
++func TestOpencode2ConfigMerger(t *testing.T) {
++	a, _ := agent.Lookup("opencode2")
++	merger, ok := agent.AsConfigMerger(a)
++	if !ok {
++		t.Fatal("opencode2 should implement ConfigMerger")
++	}
++	if merger.SnippetPattern() != "opencode-*.json*" {
++		t.Errorf("SnippetPattern = %q", merger.SnippetPattern())
++	}
++	if merger.VMConfigPath("/home/user") != filepath.Join("/home/user", ".config", "opencode", "opencode.jsonc") {
++		t.Errorf("VMConfigPath = %q", merger.VMConfigPath("/home/user"))
++	}
++}
++
++func TestOpencode2ConfigFileNames(t *testing.T) {
++	a, _ := agent.Lookup("opencode2")
++	merger, ok := agent.AsConfigMerger(a)
++	if !ok {
++		t.Fatal("opencode2 should implement ConfigMerger")
++	}
++	names := merger.ConfigFileNames()
++	want := []string{
++		"config.json",
++		"opencode.json",
++		"opencode.jsonc",
++		"opencode.json5",
++		"opencode.yaml",
++		"opencode.yml",
++	}
++	if !slices.Equal(names, want) {
++		t.Errorf("ConfigFileNames = %v, want %v", names, want)
++	}
++}
++
++func TestOpencode2ProvisionRules(t *testing.T) {
++	a, _ := agent.Lookup("opencode2")
++	provisioner, ok := agent.AsProvisioner(a)
++	if !ok {
++		t.Fatal("opencode2 should implement Provisioner")
++	}
++	rules := provisioner.ProvisionRules()
++	if len(rules) == 0 {
++		t.Fatal("ProvisionRules must not be empty")
++	}
++	found := false
++	for _, r := range rules {
++		if r.Dir == ".config/opencode" {
++			found = true
++		}
++	}
++	if !found {
++		t.Errorf("ProvisionRules missing .config/opencode: %+v", rules)
++	}
++}
+diff --git a/internal/agent/opencode_shared.go b/internal/agent/opencode_shared.go
+new file mode 100644
+index 0000000..8d6ad16
+--- /dev/null
++++ b/internal/agent/opencode_shared.go
++++ b/internal/agent/opencode_shared.go
+@@ -0,0 +1,60 @@
++package agent
++
++import (
++	"encoding/json"
++	"fmt"
++	"path/filepath"
++)
++
++// opencodeConfig carries the config-dir behavior shared by the opencode and
++// opencode2 profiles: v2 reads the same ~/.config/opencode files as v1, so both
++// agents share the snippet pattern, merged config path, config file names, and
++// provisioning rules.
++type opencodeConfig struct{}
++
++func (opencodeConfig) ConfigDirName() string { return "opencode" }
++
++func (opencodeConfig) SnippetPattern() string { return "opencode-*.json*" }
++
++func (opencodeConfig) VMConfigPath(home string) string {
++	return filepath.Join(home, ".config", "opencode", "opencode.jsonc")
++}
++
++// opencodeConfigFileNames are the config files opencode reads from its global
++// config directory (config.json < opencode.json < opencode.jsonc), plus the
++// opencode.* variants it may gain support for. The merged config is written to
++// the last-loaded filename so it wins over the others.
++func (opencodeConfig) ConfigFileNames() []string {
++	return []string{"config.json", "opencode.json", "opencode.jsonc", "opencode.json5", "opencode.yaml", "opencode.yml"}
++}
++
++func (opencodeConfig) ProvisionRules() []ProvisionRule {
++	return []ProvisionRule{
++		{Dir: ".config/opencode", Patterns: []string{"**", "!node_modules/", "!package*.json", "!.gitignore"}},
++		{Dir: ".local/share/opencode", Patterns: []string{"auth.json"}},
++	}
++}
++
++// parseDaemonHealth decodes the shared {"healthy": bool} health response used
++// by the opencode and opencode2 daemon agents.
++func parseDaemonHealth(stdout string) (bool, error) {
++	var resp struct {
++		Healthy bool `json:"healthy"`
++	}
++	if err := json.Unmarshal([]byte(stdout), &resp); err != nil {
++		return false, fmt.Errorf("parse health response: %w", err)
++	}
++	return resp.Healthy, nil
++}
++
++// parseWorktreeDirectory decodes the shared {"directory": string} worktree
++// response used by the opencode and opencode2 daemon agents.
++func parseWorktreeDirectory(stdout string) (string, bool) {
++	var resp struct {
++		Directory string `json:"directory"`
++	}
++	if err := json.Unmarshal([]byte(stdout), &resp); err != nil {
++		return "", false
++	}
++	return resp.Directory, resp.Directory != ""
++}

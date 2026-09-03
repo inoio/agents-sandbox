@@ -79,7 +79,7 @@ func agentOpencode(t *testing.T) agent.Agent {
 }
 
 func TestDockerfileFromImageSpecNPMAgents(t *testing.T) {
-	for _, name := range []string{"pi", "claude-code"} {
+	for _, name := range []string{"pi", "claude-code", "opencode2"} {
 		t.Run(name, func(t *testing.T) {
 			a, ok := agent.Lookup(name)
 			if !ok {

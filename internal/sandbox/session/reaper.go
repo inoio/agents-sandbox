@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/inoio/opencode-sandbox/internal/agent"
 	"github.com/inoio/opencode-sandbox/internal/sandbox/msb"
 	"github.com/inoio/opencode-sandbox/internal/sandbox/options"
 	"github.com/inoio/opencode-sandbox/internal/sandbox/state"
@@ -35,12 +36,19 @@ type QuestionRequest struct {
 	SessionID string `json:"sessionID"`
 }
 
-const questionListURL = "http://127.0.0.1:4096/question"
-
 // reapOnLastClient runs after a client detaches. If this was not the last client it
 // is a no-op. If it was, per policy it either returns immediately (auto-stop-on-active
 // mode, so the idle timeout stops the VM) or holds the VM until sessions quiesce.
-func reapOnLastClient(ctx context.Context, slug string, sb msb.Sandbox, policy options.ReapPolicy, ui termio.UI) error {
+// An agent whose daemon does not expose the v1 session-status endpoints skips the
+// quiescence wait, so the idle timeout stops the VM as in auto-stop mode.
+func reapOnLastClient(
+	ctx context.Context,
+	a agent.Agent,
+	slug string,
+	sb msb.Sandbox,
+	policy options.ReapPolicy,
+	ui termio.UI,
+) error {
 	if state.CountActiveClients(slug) > 0 {
 		return nil
 	}
@@ -51,13 +59,26 @@ func reapOnLastClient(ctx context.Context, slug string, sb msb.Sandbox, policy o
 	if sb == nil {
 		return nil
 	}
-	return waitQuiescent(ctx, slug, sb, policy.MaxSessionRetries, ui)
+	provider, ok := agent.AsSessionStatusProvider(a)
+	if !ok {
+		ui.Verbosef("agent %q has no session-status endpoints; skipping quiescence wait", a.Name())
+		return nil
+	}
+	return waitQuiescent(ctx, slug, sb, provider, policy.MaxSessionRetries, ui)
 }
 
-// waitQuiescent keeps the VM alive (keeper exec) and polls /session/status until
-// no session is busy and no session is retrying past the cutoff, or ctx is done.
-// A client that reattaches during the wait aborts it.
-func waitQuiescent(ctx context.Context, slug string, sb msb.Sandbox, maxRetry int, ui termio.UI) error {
+// waitQuiescent keeps the VM alive (keeper exec) and polls the provider's
+// session-status endpoint until no session is busy and no session is retrying
+// past the cutoff, or ctx is done. A client that reattaches during the wait
+// aborts it.
+func waitQuiescent(
+	ctx context.Context,
+	slug string,
+	sb msb.Sandbox,
+	provider agent.SessionStatusProvider,
+	maxRetry int,
+	ui termio.UI,
+) error {
 	if maxRetry <= 0 {
 		maxRetry = defaultMaxSessionRetries
 	}
@@ -92,7 +113,7 @@ func waitQuiescent(ctx context.Context, slug string, sb msb.Sandbox, maxRetry in
 			return nil
 		}
 
-		states, err := sessionStates(ctx, sb)
+		states, err := sessionStates(ctx, sb, provider.SessionStatusCmd())
 		if err != nil {
 			ui.Verbosef("session status poll failed: %v", err)
 			continue
@@ -100,7 +121,7 @@ func waitQuiescent(ctx context.Context, slug string, sb msb.Sandbox, maxRetry in
 
 		busy, stuckRetry := quiescenceOf(states, nil, maxRetry)
 		if busy > 0 {
-			pending, pendingErr := pendingQuestionSessionIDs(ctx, sb)
+			pending, pendingErr := pendingQuestionSessionIDs(ctx, sb, provider.QuestionListCmd())
 			if pendingErr != nil {
 				ui.Verbosef("question status poll failed: %v", pendingErr)
 			}
@@ -114,10 +135,10 @@ func waitQuiescent(ctx context.Context, slug string, sb msb.Sandbox, maxRetry in
 	}
 }
 
-// sessionStates reads GET /session/status once via an in-VM curl and decodes the
-// sessionID->status map.
-func sessionStates(ctx context.Context, sb msb.Sandbox) (map[string]SessionStatus, error) {
-	res, err := sb.Shell(ctx, "curl -sf http://127.0.0.1:4096/session/status")
+// sessionStates reads the provider's session-status endpoint once via an in-VM
+// curl and decodes the sessionID->status map.
+func sessionStates(ctx context.Context, sb msb.Sandbox, cmd string) (map[string]SessionStatus, error) {
+	res, err := sb.Shell(ctx, cmd)
 	if err != nil {
 		return nil, err
 	}
@@ -127,12 +148,12 @@ func sessionStates(ctx context.Context, sb msb.Sandbox) (map[string]SessionStatu
 	return decodeSessionStates(res.Stdout())
 }
 
-// pendingQuestionSessionIDs reads GET /question once via an in-VM curl and
-// returns the set of sessionIDs that have at least one pending, unanswered
-// question. On any failure it returns an error and a nil set; the caller keeps
-// those sessions busy (never risks cutting off real work).
-func pendingQuestionSessionIDs(ctx context.Context, sb msb.Sandbox) (map[string]bool, error) {
-	res, err := sb.Shell(ctx, "curl -sf "+questionListURL)
+// pendingQuestionSessionIDs reads the provider's question endpoint once via an
+// in-VM curl and returns the set of sessionIDs that have at least one pending,
+// unanswered question. On any failure it returns an error and a nil set; the
+// caller keeps those sessions busy (never risks cutting off real work).
+func pendingQuestionSessionIDs(ctx context.Context, sb msb.Sandbox, cmd string) (map[string]bool, error) {
+	res, err := sb.Shell(ctx, cmd)
 	if err != nil {
 		return nil, err
 	}
