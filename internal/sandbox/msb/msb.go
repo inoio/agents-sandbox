@@ -62,6 +62,7 @@ type Sandbox interface {
 	FS() SandboxFS
 	Shell(ctx context.Context, command string, opts ...msbSdk.ExecOption) (ShellResult, error)
 	Exec(ctx context.Context, command string, args []string, opts ...msbSdk.ExecOption) (ShellResult, error)
+	ShellStream(ctx context.Context, command string, opts ...msbSdk.ExecOption) (StreamHandle, error)
 	AttachWith(ctx context.Context, command string, args []string, opts ...msbSdk.AttachOption) (int, error)
 	Attach(ctx context.Context, command string, args ...string) (int, error)
 	Detach(ctx context.Context) error
@@ -76,6 +77,29 @@ type ShellResult interface {
 	Stdout() string
 	Stderr() string
 	StdoutBytes() []byte
+}
+
+// StreamEventKind distinguishes the payload of a StreamEvent.
+type StreamEventKind int
+
+const (
+	StreamEventStdout StreamEventKind = iota
+	StreamEventStderr
+	StreamEventExited
+	StreamEventFailed
+)
+
+// StreamEvent is one event from a streaming exec session.
+type StreamEvent struct {
+	Kind     StreamEventKind
+	Data     []byte
+	ExitCode int
+}
+
+// StreamHandle is a live streaming exec session inside a sandbox.
+type StreamHandle interface {
+	Recv(ctx context.Context) (StreamEvent, error)
+	Close() error
 }
 
 // VolumeHandle is the subset of *msb.VolumeHandle that the launcher needs.
@@ -481,6 +505,56 @@ func (s realSandbox) Exec(
 ) (ShellResult, error) {
 	return s.sandbox.Exec(ctx, command, args, opts...)
 }
+
+func (s realSandbox) ShellStream(
+	ctx context.Context,
+	command string,
+	opts ...msbSdk.ExecOption,
+) (StreamHandle, error) {
+	handle, err := s.sandbox.ShellStream(ctx, command, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return &realStreamHandle{handle: handle}, nil
+}
+
+// realStreamHandle adapts *msbSdk.ExecHandle to StreamHandle.
+type realStreamHandle struct {
+	handle *msbSdk.ExecHandle
+}
+
+// Recv maps the SDK's ExecEventKind onto StreamEventKind explicitly. The SDK
+// enum has extra kinds (Started, StdinError, Done) so a numeric cast would
+// mislabel events. Done is translated to io.EOF so callers can detect a clean
+// stream end; Started/StdinError carry no stdout payload and are skipped.
+func (h *realStreamHandle) Recv(ctx context.Context) (StreamEvent, error) {
+	for {
+		ev, err := h.handle.Recv(ctx)
+		if err != nil {
+			return StreamEvent{}, err
+		}
+		switch ev.Kind {
+		case msbSdk.ExecEventStdout:
+			//nolint:exhaustruct // stdout events carry no ExitCode
+			return StreamEvent{Kind: StreamEventStdout, Data: ev.Data}, nil
+		case msbSdk.ExecEventStderr:
+			//nolint:exhaustruct // stderr events carry no ExitCode
+			return StreamEvent{Kind: StreamEventStderr, Data: ev.Data}, nil
+		case msbSdk.ExecEventExited:
+			//nolint:exhaustruct // exited events carry no Data
+			return StreamEvent{Kind: StreamEventExited, ExitCode: ev.ExitCode}, nil
+		case msbSdk.ExecEventFailed:
+			//nolint:exhaustruct // failed events carry neither Data nor ExitCode
+			return StreamEvent{Kind: StreamEventFailed}, nil
+		case msbSdk.ExecEventDone:
+			return StreamEvent{}, io.EOF
+		default:
+			// ExecEventStarted / ExecEventStdinError: skip and keep reading.
+		}
+	}
+}
+
+func (h *realStreamHandle) Close() error { return h.handle.Close() }
 
 func (s realSandbox) Attach(ctx context.Context, command string, args ...string) (int, error) {
 	return s.sandbox.Attach(ctx, command, args...)

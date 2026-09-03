@@ -2,6 +2,7 @@ package msb
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"strings"
@@ -422,6 +423,16 @@ type MockSandbox struct {
 	DetachErr  error
 	StopErr    error
 	CloseErr   error
+
+	// StreamHandle_ is returned by ShellStream when ShellStreamFn is nil. When
+	// both are nil, a no-op handle is returned that immediately reports
+	// stream-closed on Recv.
+	StreamHandle_ StreamHandle
+	// ShellStreamFn overrides StreamHandle_ when set. Useful for reconnect
+	// tests that must return a different handle per call.
+	ShellStreamFn func(command string) (StreamHandle, error)
+	// ShellStreamCmds records every command passed to ShellStream.
+	ShellStreamCmds *[]string
 }
 
 func (m *MockSandbox) FS() SandboxFS {
@@ -490,8 +501,36 @@ func (m *MockSandbox) Detach(_ context.Context) error                       { re
 func (m *MockSandbox) Stop(_ context.Context, _ ...msbSdk.StopOption) error { return m.StopErr }
 func (m *MockSandbox) Close() error                                         { return m.CloseErr }
 
+func (m *MockSandbox) ShellStream(
+	_ context.Context,
+	command string,
+	_ ...msbSdk.ExecOption,
+) (StreamHandle, error) {
+	if m.ShellStreamCmds != nil {
+		*m.ShellStreamCmds = append(*m.ShellStreamCmds, command)
+	}
+	if m.ShellStreamFn != nil {
+		return m.ShellStreamFn(command)
+	}
+	if m.StreamHandle_ != nil {
+		return m.StreamHandle_, nil
+	}
+	return &emptyStreamHandle{}, nil
+}
+
+// emptyStreamHandle returns stream-closed immediately; tests that need real
+// streaming provide a StreamHandle_ with events.
+type emptyStreamHandle struct{}
+
+func (emptyStreamHandle) Recv(context.Context) (StreamEvent, error) {
+	return StreamEvent{}, errors.New("stream closed")
+}
+func (emptyStreamHandle) Close() error { return nil }
+
 // SandboxOpts configures a MockSandbox via NewMockSandbox.
 // Zero/unset values produce sensible defaults.
+//
+//nolint:revive // StreamHandle_ uses an underscore to mirror the MockSandbox field
 type SandboxOpts struct {
 	FSValue    any
 	ShellOut   map[string]ShellResult
@@ -503,6 +542,12 @@ type SandboxOpts struct {
 	DetachErr  error
 	StopErr    error
 	CloseErr   error
+	// StreamHandle_ is returned by ShellStream when ShellStreamFn is nil.
+	StreamHandle_ StreamHandle
+	// ShellStreamFn overrides StreamHandle_ when set.
+	ShellStreamFn func(command string) (StreamHandle, error)
+	// ShellStreamCmds records every command passed to ShellStream.
+	ShellStreamCmds *[]string
 }
 
 // NewMockSandbox returns a Sandbox configured by opts. Zero/unset values produce
@@ -510,16 +555,19 @@ type SandboxOpts struct {
 func NewMockSandbox(opts SandboxOpts) Sandbox {
 	//nolint:exhaustruct // Name_ is optional for mock construction
 	return &MockSandbox{
-		FSValue_:   opts.FSValue,
-		ShellOut:   opts.ShellOut,
-		ShellErr:   opts.ShellErr,
-		ExecOut:    opts.ExecOut,
-		ExecErr:    opts.ExecErr,
-		AttachCode: opts.AttachCode,
-		AttachErr:  opts.AttachErr,
-		DetachErr:  opts.DetachErr,
-		StopErr:    opts.StopErr,
-		CloseErr:   opts.CloseErr,
+		FSValue_:        opts.FSValue,
+		ShellOut:        opts.ShellOut,
+		ShellErr:        opts.ShellErr,
+		ExecOut:         opts.ExecOut,
+		ExecErr:         opts.ExecErr,
+		AttachCode:      opts.AttachCode,
+		AttachErr:       opts.AttachErr,
+		DetachErr:       opts.DetachErr,
+		StopErr:         opts.StopErr,
+		CloseErr:        opts.CloseErr,
+		StreamHandle_:   opts.StreamHandle_,
+		ShellStreamFn:   opts.ShellStreamFn,
+		ShellStreamCmds: opts.ShellStreamCmds,
 	}
 }
 
@@ -786,6 +834,12 @@ func (f *failFastMsbClient) ImageLoad(_ context.Context, _ string, _ io.Reader) 
 }
 
 func (f *failFastMsbClient) ImageInspect(_ context.Context, _ string) (*msbSdk.ImageConfig, error) {
+	f.mustMock()
+	//nolint:nilnil // panics before returning; keeps failFastMsbClient interface-conformant
+	return nil, nil
+}
+
+func (f *failFastMsbClient) ShellStream(_ context.Context, _ string, _ ...msbSdk.ExecOption) (StreamHandle, error) {
 	f.mustMock()
 	//nolint:nilnil // panics before returning; keeps failFastMsbClient interface-conformant
 	return nil, nil
