@@ -14,6 +14,7 @@ import (
 	"github.com/inoio/opencode-sandbox/internal/git"
 	"github.com/inoio/opencode-sandbox/internal/sandbox/msb"
 	"github.com/inoio/opencode-sandbox/internal/sandbox/options"
+	"github.com/inoio/opencode-sandbox/internal/sandbox/state"
 	"github.com/inoio/opencode-sandbox/internal/termio"
 	"github.com/inoio/opencode-sandbox/internal/testutil"
 )
@@ -78,8 +79,9 @@ func TestEnsureProjectVMFlockError(t *testing.T) {
 	tmpRepo := testutil.InitRepo(t)
 	t.Chdir(tmpRepo)
 	slug := git.ProjectSlug()
-	slugDir := filepath.Join(configpaths.Get().UserStateDir(), slug)
-	if err := os.MkdirAll(filepath.Join(slugDir, "ensure-vm.lock"), 0o750); err != nil {
+	k := state.Key{Slug: slug, Agent: "opencode"}
+	flockDir := filepath.Join(configpaths.Get().UserStateDir(), slug, "opencode")
+	if err := os.MkdirAll(filepath.Join(flockDir, "ensure-vm.lock"), 0o750); err != nil {
 		t.Fatal(err)
 	}
 
@@ -90,8 +92,16 @@ func TestEnsureProjectVMFlockError(t *testing.T) {
 	client.EnsureInstalledFn = func(context.Context) error { return nil }
 	msb.WithMsbMock(t, client)
 
-	_, _, err := ensureProjectVM(context.Background(), options.RunOptions{},
-		"img:tag", "vol", "/workspace", nil, &ui)
+	_, _, err := ensureProjectVM(
+		context.Background(),
+		options.RunOptions{},
+		"img:tag",
+		"vol",
+		"/workspace",
+		nil,
+		k,
+		&ui,
+	)
 	if err == nil {
 		t.Fatal("expected error when acquiring the project flock fails")
 	}

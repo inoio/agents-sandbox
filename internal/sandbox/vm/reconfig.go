@@ -6,7 +6,6 @@ import (
 
 	"github.com/inoio/opencode-sandbox/internal/agent"
 	"github.com/inoio/opencode-sandbox/internal/configpaths"
-	"github.com/inoio/opencode-sandbox/internal/git"
 	"github.com/inoio/opencode-sandbox/internal/homeconfig"
 	"github.com/inoio/opencode-sandbox/internal/sandbox/msb"
 	"github.com/inoio/opencode-sandbox/internal/sandbox/options"
@@ -136,8 +135,7 @@ func decideReconfig(
 	cfs *reprovision.ConfigFiles,
 	ui termio.UI,
 ) (bool, bool, string, error) {
-	slug := git.ProjectSlug()
-	handle, _ := client.GetSandbox(ctx, projectVMName(slug))
+	handle, _ := client.GetSandbox(ctx, projectVMName(k))
 
 	var curCfg *msbSdk.SandboxConfig
 	var liveSb msb.Sandbox

@@ -7,7 +7,6 @@ import (
 	"path/filepath"
 
 	"github.com/inoio/opencode-sandbox/internal/configpaths"
-	"github.com/inoio/opencode-sandbox/internal/git"
 	"github.com/inoio/opencode-sandbox/internal/sandbox/image"
 	"github.com/inoio/opencode-sandbox/internal/sandbox/mounts"
 	"github.com/inoio/opencode-sandbox/internal/sandbox/msb"
@@ -90,6 +89,7 @@ func ensureProjectVM(
 	opts options.RunOptions,
 	imageRef, homeVol, repoPath string,
 	imageEnvs map[string]string,
+	k state.Key,
 	ui termio.UI,
 ) (msb.Sandbox, vmBoot, error) {
 	if opts.DryRunVM {
@@ -99,10 +99,9 @@ func ensureProjectVM(
 
 	client := msb.Get()
 
-	slug := git.ProjectSlug()
-	name := projectVMName(slug)
+	name := projectVMName(k)
 
-	flockPath := filepath.Join(configpaths.Get().UserStateDir(), slug, "ensure-vm.lock")
+	flockPath := filepath.Join(state.KeyDir(k), "ensure-vm.lock")
 	if err := os.MkdirAll(filepath.Dir(flockPath), 0o750); err != nil {
 		return nil, vmBootConnected, fmt.Errorf("create flock dir: %w", err)
 	}
@@ -249,7 +248,7 @@ func ensureProjectVM(
 		return nil, vmBootConnected, fmt.Errorf("re-check sandbox %q: %w", name, err)
 	}
 
-	sb, created, err := createProjectVM(ctx, client, name, slug, imageRef, homeVol, repoPath, opts, imageEnvs, ui)
+	sb, created, err := createProjectVM(ctx, client, name, k, imageRef, homeVol, repoPath, opts, imageEnvs, ui)
 	if err != nil {
 		return nil, vmBootConnected, err
 	}
@@ -263,12 +262,14 @@ func ensureProjectVM(
 func createProjectVM(
 	ctx context.Context,
 	client msb.Client,
-	name, slug, imageRef, homeVol, repoPath string,
+	name string,
+	k state.Key,
+	imageRef, homeVol, repoPath string,
 	opts options.RunOptions,
 	imageEnvs map[string]string,
 	ui termio.UI,
 ) (msb.Sandbox, bool, error) {
-	if err := image.EnsureLoaded(ctx, client, slug, imageRef, ui); err != nil {
+	if err := image.EnsureLoaded(ctx, client, k.Slug, imageRef, ui); err != nil {
 		return nil, false, fmt.Errorf("load runner image: %w", err)
 	}
 	cpus := opts.CPUs
@@ -308,7 +309,7 @@ func createProjectVM(
 	optsList := []msbSdk.SandboxOption{
 		msbSdk.WithImage(imageRef),
 		msbSdk.WithLabels(map[string]string{
-			naming.LabelProject: slug,
+			naming.LabelProject: k.Slug,
 			naming.LabelImage:   imageRef,
 		}),
 		msbSdk.WithMounts(mounts),

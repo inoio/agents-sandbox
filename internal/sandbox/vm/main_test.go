@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/inoio/opencode-sandbox/internal/agent"
+	"github.com/inoio/opencode-sandbox/internal/sandbox/state"
 
 	termio "github.com/inoio/opencode-sandbox/internal/testutil/mocks"
 )
@@ -32,4 +33,10 @@ func opencodeProvider(t *testing.T) agent.DaemonProvider {
 		t.Fatal("opencode agent does not implement DaemonProvider")
 	}
 	return p
+}
+
+// testVMKey returns a stable project/agent key for unit tests that exercise
+// the VM lifecycle without needing a real git project slug.
+func testVMKey() state.Key {
+	return state.Key{Slug: "testproj", Agent: "opencode"}
 }

@@ -61,8 +61,16 @@ func TestEnsureProjectVMConnectRetryReconnectSucceeds(t *testing.T) {
 	client.SetGotSandbox(handle)
 	msb.WithMsbMock(t, client)
 
-	sb, boot, err := ensureProjectVM(context.Background(), options.RunOptions{},
-		"img:tag", "vol", "/workspace", nil, &ui)
+	sb, boot, err := ensureProjectVM(
+		context.Background(),
+		options.RunOptions{},
+		"img:tag",
+		"vol",
+		"/workspace",
+		nil,
+		testVMKey(),
+		&ui,
+	)
 	if err != nil {
 		t.Fatalf("ensureProjectVM connect-retry reconnect: %v", err)
 	}
@@ -95,8 +103,16 @@ func TestEnsureProjectVMConnectRetryThenStart(t *testing.T) {
 	client.SetGotSandbox(handle)
 	msb.WithMsbMock(t, client)
 
-	sb, boot, err := ensureProjectVM(context.Background(), options.RunOptions{},
-		"img:tag", "vol", "/workspace", nil, &ui)
+	sb, boot, err := ensureProjectVM(
+		context.Background(),
+		options.RunOptions{},
+		"img:tag",
+		"vol",
+		"/workspace",
+		nil,
+		testVMKey(),
+		&ui,
+	)
 	if err != nil {
 		t.Fatalf("ensureProjectVM connect-retry start: %v", err)
 	}
@@ -129,8 +145,16 @@ func TestEnsureProjectVMPostLockDecideError(t *testing.T) {
 	client.EnsureInstalledFn = func(context.Context) error { return nil }
 	msb.WithMsbMock(t, client)
 
-	_, _, err := ensureProjectVM(context.Background(), options.RunOptions{},
-		"img:tag", "vol", "/workspace", nil, &ui)
+	_, _, err := ensureProjectVM(
+		context.Background(),
+		options.RunOptions{},
+		"img:tag",
+		"vol",
+		"/workspace",
+		nil,
+		testVMKey(),
+		&ui,
+	)
 	if err == nil {
 		t.Fatal("expected error for an unrecognized status in the post-lock recheck")
 	}
@@ -159,8 +183,16 @@ func TestEnsureProjectVMPostLockConnectFailThenStart(t *testing.T) {
 	client.EnsureInstalledFn = func(context.Context) error { return nil }
 	msb.WithMsbMock(t, client)
 
-	sb, boot, err := ensureProjectVM(context.Background(), options.RunOptions{},
-		"img:tag", "vol", "/workspace", nil, &ui)
+	sb, boot, err := ensureProjectVM(
+		context.Background(),
+		options.RunOptions{},
+		"img:tag",
+		"vol",
+		"/workspace",
+		nil,
+		testVMKey(),
+		&ui,
+	)
 	if err != nil {
 		t.Fatalf("ensureProjectVM post-lock connect-fail start: %v", err)
 	}
@@ -197,8 +229,16 @@ func TestEnsureProjectVMPostLockStartError(t *testing.T) {
 	client.EnsureInstalledFn = func(context.Context) error { return nil }
 	msb.WithMsbMock(t, client)
 
-	_, _, err := ensureProjectVM(context.Background(), options.RunOptions{},
-		"img:tag", "vol", "/workspace", nil, &ui)
+	_, _, err := ensureProjectVM(
+		context.Background(),
+		options.RunOptions{},
+		"img:tag",
+		"vol",
+		"/workspace",
+		nil,
+		testVMKey(),
+		&ui,
+	)
 	if err == nil {
 		t.Fatal("expected error when the post-lock start fails")
 	}
@@ -228,8 +268,16 @@ func TestEnsureProjectVMPostLockConnectReconcileWarn(t *testing.T) {
 	client.EnsureInstalledFn = func(context.Context) error { return nil }
 	msb.WithMsbMock(t, client)
 
-	sb, boot, err := ensureProjectVM(context.Background(), options.RunOptions{CPUs: 4},
-		"img:tag", "vol", "/workspace", nil, &ui)
+	sb, boot, err := ensureProjectVM(
+		context.Background(),
+		options.RunOptions{CPUs: 4},
+		"img:tag",
+		"vol",
+		"/workspace",
+		nil,
+		testVMKey(),
+		&ui,
+	)
 	if err != nil {
 		t.Fatalf("ensureProjectVM post-lock connect reconcile warn: %v", err)
 	}
@@ -268,8 +316,16 @@ func TestEnsureProjectVMPostLockStartReconcileWarn(t *testing.T) {
 	client.EnsureInstalledFn = func(context.Context) error { return nil }
 	msb.WithMsbMock(t, client)
 
-	sb, boot, err := ensureProjectVM(context.Background(), options.RunOptions{CPUs: 4},
-		"img:tag", "vol", "/workspace", nil, &ui)
+	sb, boot, err := ensureProjectVM(
+		context.Background(),
+		options.RunOptions{CPUs: 4},
+		"img:tag",
+		"vol",
+		"/workspace",
+		nil,
+		testVMKey(),
+		&ui,
+	)
 	if err != nil {
 		t.Fatalf("ensureProjectVM post-lock start reconcile warn: %v", err)
 	}
@@ -300,8 +356,16 @@ func TestEnsureProjectVMConnectRetryRefreshError(t *testing.T) {
 	client.SetGotSandbox(handle)
 	msb.WithMsbMock(t, client)
 
-	_, _, err := ensureProjectVM(context.Background(), options.RunOptions{},
-		"img:tag", "vol", "/workspace", nil, &ui)
+	_, _, err := ensureProjectVM(
+		context.Background(),
+		options.RunOptions{},
+		"img:tag",
+		"vol",
+		"/workspace",
+		nil,
+		testVMKey(),
+		&ui,
+	)
 	if err == nil {
 		t.Fatal("expected error when refreshing the handle after a connect failure")
 	}
@@ -330,8 +394,16 @@ func TestEnsureProjectVMConnectRetryReconcileWarn(t *testing.T) {
 	client.SetGotSandbox(handle)
 	msb.WithMsbMock(t, client)
 
-	sb, boot, err := ensureProjectVM(context.Background(), options.RunOptions{CPUs: 4},
-		"img:tag", "vol", "/workspace", nil, &ui)
+	sb, boot, err := ensureProjectVM(
+		context.Background(),
+		options.RunOptions{CPUs: 4},
+		"img:tag",
+		"vol",
+		"/workspace",
+		nil,
+		testVMKey(),
+		&ui,
+	)
 	if err != nil {
 		t.Fatalf("ensureProjectVM connect-retry reconcile warn: %v", err)
 	}
@@ -367,8 +439,16 @@ func TestEnsureProjectVMConnectRetryStartError(t *testing.T) {
 	client.SetGotSandbox(handle)
 	msb.WithMsbMock(t, client)
 
-	_, _, err := ensureProjectVM(context.Background(), options.RunOptions{},
-		"img:tag", "vol", "/workspace", nil, &ui)
+	_, _, err := ensureProjectVM(
+		context.Background(),
+		options.RunOptions{},
+		"img:tag",
+		"vol",
+		"/workspace",
+		nil,
+		testVMKey(),
+		&ui,
+	)
 	if err == nil {
 		t.Fatal("expected error when starting the VM after a failed connect")
 	}
@@ -397,8 +477,16 @@ func TestEnsureProjectVMConnectRetryStartReconcileWarn(t *testing.T) {
 	client.SetGotSandbox(handle)
 	msb.WithMsbMock(t, client)
 
-	sb, boot, err := ensureProjectVM(context.Background(), options.RunOptions{CPUs: 4},
-		"img:tag", "vol", "/workspace", nil, &ui)
+	sb, boot, err := ensureProjectVM(
+		context.Background(),
+		options.RunOptions{CPUs: 4},
+		"img:tag",
+		"vol",
+		"/workspace",
+		nil,
+		testVMKey(),
+		&ui,
+	)
 	if err != nil {
 		t.Fatalf("ensureProjectVM connect-retry start reconcile warn: %v", err)
 	}

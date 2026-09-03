@@ -22,25 +22,6 @@ import (
 	"github.com/inoio/opencode-sandbox/internal/testutil"
 )
 
-func TestProjectVMName(t *testing.T) {
-	got := projectVMName("myproj-aBc1234D")
-	want := "opencode-sandbox-vm-myproj-aBc1234D"
-	if got != want {
-		t.Errorf("projectVMName(%q) = %q, want %q", "myproj-aBc1234D", got, want)
-	}
-}
-
-func TestProjectVMNameTruncation(t *testing.T) {
-	longSlug := "p-abcdef-very-long-slug-that-exceeds-the-128-byte-limit-and-then-some-more-padding"
-	got := projectVMName(longSlug)
-	if len(got) > options.MaxSandboxNameLen {
-		t.Errorf("expected name <= %d bytes, got %d", options.MaxSandboxNameLen, len(got))
-	}
-	if len(got) < len(naming.VmPrefix) {
-		t.Errorf("name too short: %q", got)
-	}
-}
-
 func TestBuildProjectVMEnvMergesImageEnvs(t *testing.T) {
 	imageEnvs := map[string]string{
 		"MY_KEY":                           "my_value",
@@ -123,7 +104,7 @@ func TestCreateProjectVMCallsClientCreateSandbox(t *testing.T) {
 		context.Background(),
 		client,
 		"opencode-sandbox-vm-test",
-		"test-slug",
+		testVMKey(),
 		"opencode-sandbox/runner-test:latest",
 		"test-home-vol",
 		t.TempDir(),
@@ -168,7 +149,7 @@ func TestCreateProjectVMLoadsImageWhenNotCached(t *testing.T) {
 		context.Background(),
 		client,
 		"opencode-sandbox-vm-test",
-		"test-slug",
+		testVMKey(),
 		"opencode-sandbox/runner-test:abc",
 		"test-home-vol",
 		t.TempDir(),
@@ -209,7 +190,7 @@ func TestStopProjectVMUsesClient(t *testing.T) {
 	tmpRepo := testutil.InitRepo(t)
 	t.Chdir(tmpRepo)
 
-	if err := StopProjectVM(context.Background(), false, false, ui); err != nil {
+	if err := StopProjectVM(context.Background(), false, false, ui, "opencode"); err != nil {
 		t.Fatalf("StopProjectVM failed: %v", err)
 	}
 }
@@ -241,6 +222,7 @@ func TestEnsureProjectVM_CreatePath(t *testing.T) {
 		"test-home-vol",
 		tmpRepo,
 		nil,
+		testVMKey(),
 		ui,
 	)
 	if err != nil {
@@ -292,6 +274,7 @@ func TestEnsureProjectVMAppliesLabels(t *testing.T) {
 		"test-home-vol",
 		tmpRepo,
 		nil,
+		testVMKey(),
 		ui,
 	)
 	if err != nil {
@@ -327,6 +310,7 @@ func TestEnsureProjectVM_ReconnectPath(t *testing.T) {
 		"test-home-vol",
 		tmpRepo,
 		nil,
+		testVMKey(),
 		ui,
 	)
 	if err != nil {
@@ -374,6 +358,7 @@ func TestEnsureProjectVM_ConnectOutcomeIsInfo(t *testing.T) {
 		"test-home-vol",
 		tmpRepo,
 		nil,
+		testVMKey(),
 		ui,
 	); err != nil {
 		t.Fatalf("EnsureProjectVM (connect): %v", err)
@@ -402,6 +387,7 @@ func TestEnsureProjectVM_StartOutcomeIsInfo(t *testing.T) {
 		"test-home-vol",
 		tmpRepo,
 		nil,
+		testVMKey(),
 		ui,
 	); err != nil {
 		t.Fatalf("EnsureProjectVM (start): %v", err)
@@ -434,6 +420,7 @@ func TestEnsureProjectVM_CreateOutcomeIsInfo(t *testing.T) {
 		"test-home-vol",
 		tmpRepo,
 		nil,
+		testVMKey(),
 		ui,
 	); err != nil {
 		t.Fatalf("EnsureProjectVM (create): %v", err)
@@ -468,6 +455,7 @@ func TestEnsureProjectVM_ReconnectWhenImageUnchanged(t *testing.T) {
 		"test-home-vol",
 		tmpRepo,
 		nil,
+		testVMKey(),
 		ui,
 	)
 	if err != nil {
@@ -566,7 +554,7 @@ func TestCreateProjectVMAppliesRootDiskWhenDiskSizeSet(t *testing.T) {
 
 	if _, _, err := createProjectVM(
 		context.Background(), client, "opencode-sandbox-vm-test",
-		"test-slug",
+		testVMKey(),
 		"opencode-sandbox/runner-test:latest", "test-home-vol", t.TempDir(),
 		options.RunOptions{Memory: "1G", DiskSize: "16G"}, nil, ui,
 	); err != nil {
@@ -617,6 +605,7 @@ func TestEnsureProjectVM_NoReplacementWhenExistingImageUnknown(t *testing.T) {
 		"test-home-vol",
 		tmpRepo,
 		nil,
+		testVMKey(),
 		ui,
 	)
 	if err != nil {
@@ -661,9 +650,14 @@ func TestEnsureProjectVMRecreatesWhenFlagged(t *testing.T) {
 
 	opts := options.RunOptions{ReapPolicy: options.ReapPolicy{}, Recreate: true, CPUs: 1, Memory: "2G"}
 	sb, created, err := ensureProjectVM(
-		context.Background(), opts,
-		"new:tag", "homevol", "/workspace",
-		map[string]string{}, ui,
+		context.Background(),
+		opts,
+		"new:tag",
+		"homevol",
+		"/workspace",
+		map[string]string{},
+		testVMKey(),
+		ui,
 	)
 	if err != nil {
 		t.Fatalf("EnsureProjectVM: %v", err)
@@ -698,9 +692,14 @@ func TestEnsureProjectVMReusesWhenNotFlagged(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 
 	sb, created, err := ensureProjectVM(
-		context.Background(), options.RunOptions{},
-		"old:tag", "homevol", "/workspace",
-		map[string]string{}, ui,
+		context.Background(),
+		options.RunOptions{},
+		"old:tag",
+		"homevol",
+		"/workspace",
+		map[string]string{},
+		testVMKey(),
+		ui,
 	)
 	if err != nil {
 		t.Fatalf("EnsureProjectVM: %v", err)
@@ -770,7 +769,7 @@ func TestKillProjectVMUsesClient(t *testing.T) {
 	tmpRepo := testutil.InitRepo(t)
 	t.Chdir(tmpRepo)
 
-	if err := KillProjectVM(context.Background(), false, false, ui); err != nil {
+	if err := KillProjectVM(context.Background(), false, false, ui, "opencode"); err != nil {
 		t.Fatalf("KillProjectVM failed: %v", err)
 	}
 }
@@ -788,7 +787,7 @@ func TestStopProjectVMAlreadyStopped(t *testing.T) {
 	tmpRepo := testutil.InitRepo(t)
 	t.Chdir(tmpRepo)
 
-	if err := StopProjectVM(context.Background(), false, false, ui); err != nil {
+	if err := StopProjectVM(context.Background(), false, false, ui, "opencode"); err != nil {
 		t.Fatalf("StopProjectVM on already-stopped VM failed: %v", err)
 	}
 }
@@ -806,7 +805,7 @@ func TestStopProjectVMDryRunRemove(t *testing.T) {
 	tmpRepo := testutil.InitRepo(t)
 	t.Chdir(tmpRepo)
 
-	if err := StopProjectVM(context.Background(), true, true, ui); err != nil {
+	if err := StopProjectVM(context.Background(), true, true, ui, "opencode"); err != nil {
 		t.Fatalf("StopProjectVM dry-run with remove failed: %v", err)
 	}
 }
@@ -823,7 +822,7 @@ func TestStopProjectVMNotFound(t *testing.T) {
 	tmpRepo := testutil.InitRepo(t)
 	t.Chdir(tmpRepo)
 
-	if err := StopProjectVM(context.Background(), false, false, ui); err != nil {
+	if err := StopProjectVM(context.Background(), false, false, ui, "opencode"); err != nil {
 		t.Fatalf("StopProjectVM on missing VM failed: %v", err)
 	}
 }

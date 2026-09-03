@@ -74,7 +74,7 @@ func TestPrepareSandboxReusesStoredOpenCodeVersion(t *testing.T) {
 		dockerdBinaryCheckCmd: msb.NewTestResult(false, 1, "", "", nil),
 	}}
 	sh := &msb.MockSandboxHandle{
-		Name_:     projectVMName(slug),
+		Name_:     projectVMName(state.Key{Slug: slug, Agent: "opencode"}),
 		Status_:   msbSdk.SandboxStatusRunning,
 		ConnectSb: connectSb,
 	}
@@ -167,7 +167,7 @@ func TestPrepareSandboxUpgradeRebuildsImage(t *testing.T) {
 		dockerdBinaryCheckCmd: msb.NewTestResult(false, 1, "", "", nil),
 	}}
 	sh := &msb.MockSandboxHandle{
-		Name_:     projectVMName(slug),
+		Name_:     projectVMName(state.Key{Slug: slug, Agent: "opencode"}),
 		Status_:   msbSdk.SandboxStatusRunning,
 		ConnectSb: connectSb,
 	}
@@ -268,7 +268,7 @@ func TestPrepareSandboxLoadsHomeYamlOnce(t *testing.T) {
 		dockerdBinaryCheckCmd: msb.NewTestResult(false, 1, "", "", nil),
 	}}
 	sh := &msb.MockSandboxHandle{
-		Name_:     projectVMName(slug),
+		Name_:     projectVMName(state.Key{Slug: slug, Agent: "opencode"}),
 		Status_:   msbSdk.SandboxStatusRunning,
 		ConnectSb: connectSb,
 	}
@@ -367,7 +367,7 @@ func TestPrepareSandboxRunsStartupHook(t *testing.T) {
 		dockerdBinaryCheckCmd: msb.NewTestResult(false, 1, "", "", nil),
 	}}
 	sh := &msb.MockSandboxHandle{
-		Name_:     projectVMName(slug),
+		Name_:     projectVMName(state.Key{Slug: slug, Agent: "opencode"}),
 		Status_:   msbSdk.SandboxStatusStopped,
 		ConnectSb: connectSb,
 		StartSb:   connectSb,
@@ -504,9 +504,13 @@ func TestPrepareSandboxPersistsMountFingerprintOnVMCreation(t *testing.T) {
 
 	slug := git.ProjectSlug()
 	vmFS := msb.NewTestFS(nil, nil)
-	createdSb := &msb.MockSandbox{Name_: projectVMName(slug), FSValue_: vmFS, ShellOut: map[string]msb.ShellResult{
-		dockerdBinaryCheckCmd: msb.NewTestResult(false, 1, "", "", nil),
-	}}
+	createdSb := &msb.MockSandbox{
+		Name_:    projectVMName(state.Key{Slug: slug, Agent: "opencode"}),
+		FSValue_: vmFS,
+		ShellOut: map[string]msb.ShellResult{
+			dockerdBinaryCheckCmd: msb.NewTestResult(false, 1, "", "", nil),
+		},
+	}
 	// No sandbox handle is registered, so GetSandbox reports "not found" and
 	// PrepareSandbox takes the create path (boot == vmBootCreated).
 	mock := &msb.MockMsbClient{

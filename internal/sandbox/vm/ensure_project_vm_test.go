@@ -39,8 +39,16 @@ func TestEnsureProjectVMFlockDirError(t *testing.T) {
 	}
 	t.Cleanup(func() { configpaths.Get = orig })
 
-	_, _, err := ensureProjectVM(context.Background(), options.RunOptions{},
-		"img:tag", "vol", "/workspace", nil, &ui)
+	_, _, err := ensureProjectVM(
+		context.Background(),
+		options.RunOptions{},
+		"img:tag",
+		"vol",
+		"/workspace",
+		nil,
+		testVMKey(),
+		&ui,
+	)
 	if err == nil {
 		t.Fatal("expected error when the flock directory cannot be created")
 	}
@@ -58,8 +66,16 @@ func TestEnsureProjectVMDecideActionError(t *testing.T) {
 	})
 	msb.WithMsbMock(t, client)
 
-	_, _, err := ensureProjectVM(context.Background(), options.RunOptions{},
-		"img:tag", "vol", "/workspace", nil, &ui)
+	_, _, err := ensureProjectVM(
+		context.Background(),
+		options.RunOptions{},
+		"img:tag",
+		"vol",
+		"/workspace",
+		nil,
+		testVMKey(),
+		&ui,
+	)
 	if err == nil {
 		t.Fatal("expected error for an unrecognized sandbox status")
 	}
@@ -79,8 +95,16 @@ func TestEnsureProjectVMStartError(t *testing.T) {
 	client.SetGotSandbox(handle)
 	msb.WithMsbMock(t, client)
 
-	_, _, err := ensureProjectVM(context.Background(), options.RunOptions{},
-		"img:tag", "vol", "/workspace", nil, &ui)
+	_, _, err := ensureProjectVM(
+		context.Background(),
+		options.RunOptions{},
+		"img:tag",
+		"vol",
+		"/workspace",
+		nil,
+		testVMKey(),
+		&ui,
+	)
 	if err == nil {
 		t.Fatal("expected error when starting the stopped VM fails")
 	}
@@ -98,8 +122,16 @@ func TestEnsureProjectVMEnsureInstalledError(t *testing.T) {
 	}
 	msb.WithMsbMock(t, client)
 
-	_, _, err := ensureProjectVM(context.Background(), options.RunOptions{},
-		"img:tag", "vol", "/workspace", nil, &ui)
+	_, _, err := ensureProjectVM(
+		context.Background(),
+		options.RunOptions{},
+		"img:tag",
+		"vol",
+		"/workspace",
+		nil,
+		testVMKey(),
+		&ui,
+	)
 	if err == nil {
 		t.Fatal("expected error when the microsandbox runtime install fails")
 	}
@@ -120,8 +152,16 @@ func TestEnsureProjectVMConnectRetryReconnectError(t *testing.T) {
 	client.SetGotSandbox(handle)
 	msb.WithMsbMock(t, client)
 
-	_, _, err := ensureProjectVM(context.Background(), options.RunOptions{},
-		"img:tag", "vol", "/workspace", nil, &ui)
+	_, _, err := ensureProjectVM(
+		context.Background(),
+		options.RunOptions{},
+		"img:tag",
+		"vol",
+		"/workspace",
+		nil,
+		testVMKey(),
+		&ui,
+	)
 	if err == nil {
 		t.Fatal("expected error when reconnect after a connect failure also fails")
 	}
@@ -150,8 +190,16 @@ func TestEnsureProjectVMConnectRetryStartAfterRefresh(t *testing.T) {
 	// The mock's Refresh returns the same handle; with a running status the
 	// retry path attempts a second Connect which also fails. We assert the
 	// resulting error message mentions the connect failure.
-	_, _, err := ensureProjectVM(context.Background(), options.RunOptions{},
-		"img:tag", "vol", "/workspace", nil, &ui)
+	_, _, err := ensureProjectVM(
+		context.Background(),
+		options.RunOptions{},
+		"img:tag",
+		"vol",
+		"/workspace",
+		nil,
+		testVMKey(),
+		&ui,
+	)
 	if err == nil {
 		t.Fatal("expected error from the connect retry path")
 	}
@@ -180,8 +228,16 @@ func TestEnsureProjectVMPostLockRecheckConnect(t *testing.T) {
 	client.EnsureInstalledFn = func(context.Context) error { return nil }
 	msb.WithMsbMock(t, client)
 
-	sb, boot, err := ensureProjectVM(context.Background(), options.RunOptions{},
-		"img:tag", "vol", "/workspace", nil, &ui)
+	sb, boot, err := ensureProjectVM(
+		context.Background(),
+		options.RunOptions{},
+		"img:tag",
+		"vol",
+		"/workspace",
+		nil,
+		testVMKey(),
+		&ui,
+	)
 	if err != nil {
 		t.Fatalf("ensureProjectVM post-lock recheck: %v", err)
 	}
@@ -216,8 +272,16 @@ func TestEnsureProjectVMPostLockRecheckStart(t *testing.T) {
 	client.EnsureInstalledFn = func(context.Context) error { return nil }
 	msb.WithMsbMock(t, client)
 
-	sb, boot, err := ensureProjectVM(context.Background(), options.RunOptions{},
-		"img:tag", "vol", "/workspace", nil, &ui)
+	sb, boot, err := ensureProjectVM(
+		context.Background(),
+		options.RunOptions{},
+		"img:tag",
+		"vol",
+		"/workspace",
+		nil,
+		testVMKey(),
+		&ui,
+	)
 	if err != nil {
 		t.Fatalf("ensureProjectVM post-lock recheck: %v", err)
 	}
@@ -255,9 +319,16 @@ func TestEnsureProjectVMRecreateStopError(t *testing.T) {
 	client.EnsureInstalledFn = func(context.Context) error { return nil }
 	msb.WithMsbMock(t, client)
 
-	sb, boot, err := ensureProjectVM(context.Background(),
+	sb, boot, err := ensureProjectVM(
+		context.Background(),
 		options.RunOptions{Recreate: true, CPUs: 1, Memory: "2G"},
-		"new:tag", "homevol", "/workspace", map[string]string{}, &ui)
+		"new:tag",
+		"homevol",
+		"/workspace",
+		map[string]string{},
+		testVMKey(),
+		&ui,
+	)
 	if err != nil {
 		t.Fatalf("ensureProjectVM recreate with stop error: %v", err)
 	}
@@ -284,9 +355,16 @@ func TestEnsureProjectVMStartSucceedsWithReconcile(t *testing.T) {
 	client.SetGotSandbox(handle)
 	msb.WithMsbMock(t, client)
 
-	sb, boot, err := ensureProjectVM(context.Background(),
+	sb, boot, err := ensureProjectVM(
+		context.Background(),
 		options.RunOptions{CPUs: 2, Memory: "2048"},
-		"img:tag", "vol", "/workspace", nil, &ui)
+		"img:tag",
+		"vol",
+		"/workspace",
+		nil,
+		testVMKey(),
+		&ui,
+	)
 	if err != nil {
 		t.Fatalf("ensureProjectVM start: %v", err)
 	}
@@ -315,9 +393,16 @@ func TestEnsureProjectVMConnectReconcileWarn(t *testing.T) {
 	client.SetGotSandbox(handle)
 	msb.WithMsbMock(t, client)
 
-	sb, boot, err := ensureProjectVM(context.Background(),
+	sb, boot, err := ensureProjectVM(
+		context.Background(),
 		options.RunOptions{CPUs: 4},
-		"img:tag", "vol", "/workspace", nil, &ui)
+		"img:tag",
+		"vol",
+		"/workspace",
+		nil,
+		testVMKey(),
+		&ui,
+	)
 	if err != nil {
 		t.Fatalf("ensureProjectVM connect with reconcile warning: %v", err)
 	}
@@ -348,9 +433,16 @@ func TestEnsureProjectVMStartReconcileWarn(t *testing.T) {
 	client.SetGotSandbox(handle)
 	msb.WithMsbMock(t, client)
 
-	sb, _, err := ensureProjectVM(context.Background(),
+	sb, _, err := ensureProjectVM(
+		context.Background(),
 		options.RunOptions{CPUs: 4},
-		"img:tag", "vol", "/workspace", nil, &ui)
+		"img:tag",
+		"vol",
+		"/workspace",
+		nil,
+		testVMKey(),
+		&ui,
+	)
 	if err != nil {
 		t.Fatalf("ensureProjectVM start with reconcile warning: %v", err)
 	}
@@ -379,8 +471,16 @@ func TestEnsureProjectVMRecheckNonNotFoundError(t *testing.T) {
 	client.EnsureInstalledFn = func(context.Context) error { return nil }
 	msb.WithMsbMock(t, client)
 
-	_, _, err := ensureProjectVM(context.Background(), options.RunOptions{},
-		"img:tag", "vol", "/workspace", nil, &ui)
+	_, _, err := ensureProjectVM(
+		context.Background(),
+		options.RunOptions{},
+		"img:tag",
+		"vol",
+		"/workspace",
+		nil,
+		testVMKey(),
+		&ui,
+	)
 	if err == nil {
 		t.Fatal("expected error from the post-lock recheck")
 	}
@@ -397,8 +497,16 @@ func TestEnsureProjectVMCreateError(t *testing.T) {
 	client.EnsureInstalledFn = func(context.Context) error { return nil }
 	msb.WithMsbMock(t, client)
 
-	_, _, err := ensureProjectVM(context.Background(), options.RunOptions{Memory: "1G"},
-		"img:tag", "vol", "/workspace", nil, &ui)
+	_, _, err := ensureProjectVM(
+		context.Background(),
+		options.RunOptions{Memory: "1G"},
+		"img:tag",
+		"vol",
+		"/workspace",
+		nil,
+		testVMKey(),
+		&ui,
+	)
 	if err == nil {
 		t.Fatal("expected error from createProjectVM")
 	}
@@ -426,9 +534,16 @@ func TestEnsureProjectVMRecreateRemoveError(t *testing.T) {
 	client.EnsureInstalledFn = func(context.Context) error { return nil }
 	msb.WithMsbMock(t, client)
 
-	_, _, err := ensureProjectVM(context.Background(),
+	_, _, err := ensureProjectVM(
+		context.Background(),
 		options.RunOptions{Recreate: true, CPUs: 1, Memory: "2G"},
-		"new:tag", "homevol", "/workspace", map[string]string{}, &ui)
+		"new:tag",
+		"homevol",
+		"/workspace",
+		map[string]string{},
+		testVMKey(),
+		&ui,
+	)
 	if err == nil {
 		t.Fatal("expected error when removing the old VM fails")
 	}
@@ -452,8 +567,16 @@ func TestEnsureProjectVMCreateEnsureLoadedError(t *testing.T) {
 	client.EnsureInstalledFn = func(context.Context) error { return nil }
 	msb.WithMsbMock(t, client)
 
-	_, _, err := ensureProjectVM(context.Background(), options.RunOptions{Memory: "1G"},
-		"img:tag", "vol", "/workspace", nil, &ui)
+	_, _, err := ensureProjectVM(
+		context.Background(),
+		options.RunOptions{Memory: "1G"},
+		"img:tag",
+		"vol",
+		"/workspace",
+		nil,
+		testVMKey(),
+		&ui,
+	)
 	if err == nil {
 		t.Fatal("expected error when loading the image into microsandbox fails")
 	}

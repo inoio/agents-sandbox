@@ -270,7 +270,7 @@ func TestPrepareSandboxSetUpError(t *testing.T) {
 	vmFS := msb.NewTestFS(nil, nil)
 	connectSb := &msb.MockSandbox{Name_: "vm", FSValue_: vmFS, ShellErr: errors.New("shell failed")}
 	sh := &msb.MockSandboxHandle{
-		Name_:     projectVMName(slug),
+		Name_:     projectVMName(state.Key{Slug: slug, Agent: "opencode"}),
 		Status_:   msbSdk.SandboxStatusRunning,
 		ConnectSb: connectSb,
 	}

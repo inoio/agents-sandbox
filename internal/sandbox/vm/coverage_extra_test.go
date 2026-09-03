@@ -28,16 +28,52 @@ func joinStrings(parts []string) string {
 	return b.String()
 }
 
-// TestProjectVMNameTruncatesToMaxLen covers the truncation branch of
-// projectVMName (prefix + slug longer than MaxSandboxNameLen).
-func TestProjectVMNameTruncatesToMaxLen(t *testing.T) {
-	slug := "x" + string(make([]byte, options.MaxSandboxNameLen))
-	got := projectVMName(slug)
-	if len(got) > options.MaxSandboxNameLen {
-		t.Errorf("expected name <= %d bytes, got %d", options.MaxSandboxNameLen, len(got))
+func TestProjectVMNameIncludesAgent(t *testing.T) {
+	got := projectVMName(state.Key{Slug: "myproject-aBc1234DeF", Agent: "pi"})
+	want := "opencode-sandbox-vm-myproject-aBc1234DeF-pi"
+	if got != want {
+		t.Errorf("projectVMName = %q, want %q", got, want)
 	}
+	got = projectVMName(state.Key{Slug: "myproject-aBc1234DeF", Agent: "opencode"})
+	want = "opencode-sandbox-vm-myproject-aBc1234DeF-opencode"
+	if got != want {
+		t.Errorf("projectVMName = %q, want %q", got, want)
+	}
+}
+
+func TestProjectVMNameTruncationPreservesAgent(t *testing.T) {
+	long := "x" + string(make([]byte, options.MaxSandboxNameLen))
+	k := state.Key{Slug: long, Agent: "pi"}
+	got := projectVMName(k)
+	if len(got) > options.MaxSandboxNameLen {
+		t.Fatalf("name %d bytes > max %d", len(got), options.MaxSandboxNameLen)
+	}
+	if !strings.HasSuffix(got, "-pi") {
+		t.Errorf("truncated name %q lost the agent suffix", got)
+	}
+}
+
+// TestProjectVMNameExtremeAgentCoversFinalCut covers the final hard cut in
+// projectVMName, reachable only when the agent name itself exceeds the max
+// name length. The full name is cut at the byte limit and the agent suffix
+// may be lost, so we only assert the length bound.
+func TestProjectVMNameExtremeAgentCoversFinalCut(t *testing.T) {
+	slug := "proj"
+	agent := "a" + string(make([]byte, options.MaxSandboxNameLen))
+	got := projectVMName(state.Key{Slug: slug, Agent: agent})
 	if len(got) != options.MaxSandboxNameLen {
-		t.Errorf("expected name truncated to exactly %d bytes, got %d", options.MaxSandboxNameLen, len(got))
+		t.Errorf("expected name cut to exactly %d bytes, got %d", options.MaxSandboxNameLen, len(got))
+	}
+}
+
+// TestKeyDirFlockPath covers the agent-scoped flock-path construction used by
+// ensureProjectVM: it lives under the (slug, agent) key directory.
+func TestKeyDirFlockPath(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	k := state.Key{Slug: "myproj", Agent: "opencode"}
+	want := filepath.Join(configpaths.Get().UserStateDir(), "myproj", "opencode", "ensure-vm.lock")
+	if got := filepath.Join(state.KeyDir(k), "ensure-vm.lock"); got != want {
+		t.Errorf("flock path = %q, want %q", got, want)
 	}
 }
 
@@ -132,7 +168,7 @@ func TestStopProjectVMGetSandboxError(t *testing.T) {
 	client.SetGetSandboxErr(errors.New("boom"))
 	msb.WithMsbMock(t, client)
 
-	err := stopOrKillProjectVM(context.Background(), false, false, &ui, "stop", "Stopping", client,
+	err := stopOrKillProjectVM(context.Background(), false, false, &ui, testVMKey(), "stop", "Stopping", client,
 		func(h msb.SandboxHandle, c context.Context) error { return h.Stop(c) })
 	if err == nil {
 		t.Fatal("expected error from GetSandbox")
@@ -152,7 +188,7 @@ func TestStopProjectVMStopFnError(t *testing.T) {
 	client.SetGotSandbox(handle)
 	msb.WithMsbMock(t, client)
 
-	err := stopOrKillProjectVM(context.Background(), false, false, &ui, "stop", "Stopping", client,
+	err := stopOrKillProjectVM(context.Background(), false, false, &ui, testVMKey(), "stop", "Stopping", client,
 		func(h msb.SandboxHandle, c context.Context) error { return h.Stop(c) })
 	if err == nil {
 		t.Fatal("expected error from stopFn")
@@ -170,8 +206,20 @@ func TestKillProjectVMDryRunRemove(t *testing.T) {
 	})
 	msb.WithMsbMock(t, client)
 
-	if err := KillProjectVM(context.Background(), true, true, &ui); err != nil {
+	if err := KillProjectVM(context.Background(), true, true, &ui, "opencode"); err != nil {
 		t.Fatalf("KillProjectVM dry-run: %v", err)
+	}
+}
+
+// TestStopAndKillProjectVMUnknownAgent covers the unknown-agent error branch
+// in both StopProjectVM and KillProjectVM.
+func TestStopAndKillProjectVMUnknownAgent(t *testing.T) {
+	ui := termio.NewTestMock(t)
+	if err := StopProjectVM(context.Background(), false, false, &ui, "no-such-agent"); err == nil {
+		t.Fatal("expected error from StopProjectVM with an unknown agent")
+	}
+	if err := KillProjectVM(context.Background(), false, false, &ui, "no-such-agent"); err == nil {
+		t.Fatal("expected error from KillProjectVM with an unknown agent")
 	}
 }
 
@@ -261,8 +309,16 @@ func TestRestartDaemonsNoProvider(t *testing.T) {
 // TestEnsureProjectVMDryRunVM covers the DryRunVM early-return branch.
 func TestEnsureProjectVMDryRunVM(t *testing.T) {
 	ui := termio.NewTestMock(t)
-	sb, boot, err := ensureProjectVM(context.Background(), options.RunOptions{DryRunVM: true},
-		"img:tag", "vol", "/workspace", nil, &ui)
+	sb, boot, err := ensureProjectVM(
+		context.Background(),
+		options.RunOptions{DryRunVM: true},
+		"img:tag",
+		"vol",
+		"/workspace",
+		nil,
+		testVMKey(),
+		&ui,
+	)
 	if err != nil {
 		t.Fatalf("ensureProjectVM dry-run: %v", err)
 	}
@@ -283,8 +339,16 @@ func TestEnsureProjectVMGetSandboxFatalError(t *testing.T) {
 	client.SetGetSandboxErr(errors.New("boom"))
 	msb.WithMsbMock(t, client)
 
-	_, _, err := ensureProjectVM(context.Background(), options.RunOptions{},
-		"img:tag", "vol", "/workspace", nil, &ui)
+	_, _, err := ensureProjectVM(
+		context.Background(),
+		options.RunOptions{},
+		"img:tag",
+		"vol",
+		"/workspace",
+		nil,
+		testVMKey(),
+		&ui,
+	)
 	if err == nil {
 		t.Fatal("expected error from GetSandbox")
 	}

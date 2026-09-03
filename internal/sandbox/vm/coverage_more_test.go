@@ -199,7 +199,7 @@ func TestStopOrKillProjectVMDryRunNoRemove(t *testing.T) {
 	tmpRepo := testutil.InitRepo(t)
 	t.Chdir(tmpRepo)
 
-	err := stopOrKillProjectVM(context.Background(), false, true, &ui, "stop", "Stopping",
+	err := stopOrKillProjectVM(context.Background(), false, true, &ui, testVMKey(), "stop", "Stopping",
 		client, func(_ msb.SandboxHandle, _ context.Context) error { return nil })
 	if err != nil {
 		t.Fatalf("dry-run without remove: %v", err)
@@ -221,7 +221,7 @@ func TestStopOrKillProjectVMRemoveSuccess(t *testing.T) {
 	tmpRepo := testutil.InitRepo(t)
 	t.Chdir(tmpRepo)
 
-	err := stopOrKillProjectVM(context.Background(), true, false, &ui, "stop", "Stopping",
+	err := stopOrKillProjectVM(context.Background(), true, false, &ui, testVMKey(), "stop", "Stopping",
 		client, func(h msb.SandboxHandle, c context.Context) error { return h.Stop(c) })
 	if err != nil {
 		t.Fatalf("remove success: %v", err)
@@ -246,7 +246,7 @@ func TestStopOrKillProjectVMRemoveError(t *testing.T) {
 	tmpRepo := testutil.InitRepo(t)
 	t.Chdir(tmpRepo)
 
-	err := stopOrKillProjectVM(context.Background(), true, false, &ui, "stop", "Stopping",
+	err := stopOrKillProjectVM(context.Background(), true, false, &ui, testVMKey(), "stop", "Stopping",
 		client, func(h msb.SandboxHandle, c context.Context) error { return h.Stop(c) })
 	if err != nil {
 		t.Fatalf("remove error should be non-fatal: %v", err)
@@ -349,7 +349,7 @@ func TestCreateProjectVMNetworkError(t *testing.T) {
 		context.Background(),
 		client,
 		"opencode-sandbox-vm-test",
-		"test-slug",
+		testVMKey(),
 		"opencode-sandbox/runner-test:latest",
 		"test-home-vol",
 		t.TempDir(),
@@ -376,7 +376,7 @@ func TestCreateProjectVMCreateError(t *testing.T) {
 		context.Background(),
 		client,
 		"opencode-sandbox-vm-test",
-		"test-slug",
+		testVMKey(),
 		"opencode-sandbox/runner-test:latest",
 		"test-home-vol",
 		t.TempDir(),
@@ -429,7 +429,7 @@ func TestCreateProjectVMServeOnlyAndNetwork(t *testing.T) {
 		context.Background(),
 		client,
 		"opencode-sandbox-vm-test",
-		"test-slug",
+		testVMKey(),
 		"opencode-sandbox/runner-test:latest",
 		"test-home-vol",
 		t.TempDir(),

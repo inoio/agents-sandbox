@@ -143,7 +143,7 @@ func TestDecideReconfigResolveReconfigError(t *testing.T) {
 		context.Background(),
 		mock,
 		vm,
-		state.Key{Slug: "testproj", Agent: "opencode"},
+		state.Key{Slug: slug, Agent: "opencode"},
 		options.RunOptions{},
 		"img:new",
 		"sha256:new",

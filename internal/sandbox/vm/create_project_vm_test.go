@@ -27,7 +27,7 @@ func TestCreateProjectVMCreateSandboxError(t *testing.T) {
 
 	_, _, err := createProjectVM(
 		context.Background(), client, "opencode-sandbox-vm-test",
-		"test-slug", "opencode-sandbox/runner-test:latest", "test-home-vol", t.TempDir(),
+		testVMKey(), "opencode-sandbox/runner-test:latest", "test-home-vol", t.TempDir(),
 		options.RunOptions{Memory: "1G"}, nil, ui,
 	)
 	if err == nil {
@@ -46,7 +46,7 @@ func TestCreateProjectVMNetworkConfigError(t *testing.T) {
 
 	_, _, err := createProjectVM(
 		context.Background(), client, "opencode-sandbox-vm-test",
-		"test-slug", "opencode-sandbox/runner-test:latest", "test-home-vol", t.TempDir(),
+		testVMKey(), "opencode-sandbox/runner-test:latest", "test-home-vol", t.TempDir(),
 		options.RunOptions{
 			Memory:  "1G",
 			Network: network.Policy{Profile: network.Profile("bogus-profile")},

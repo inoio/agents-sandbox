@@ -130,14 +130,14 @@ func PrepareSandbox(
 	}
 	ui.Verbosef("recreate: %v, restart: %v", recreate, restart)
 	opts.Recreate = recreate
-	sb, boot, err := ensureProjectVM(ctx, opts, imageInfo.Tag, homeVol, cwd, imageInfo.Env, ui)
+	sb, boot, err := ensureProjectVM(ctx, opts, imageInfo.Tag, homeVol, cwd, imageInfo.Env, k, ui)
 	if err != nil {
 		return nil, err
 	}
 	if boot == vmBootCreated {
 		persistConfigHashes(k, opts.Network, opts.Mounts, ui)
 	}
-	name := projectVMName(projectSlug)
+	name := projectVMName(k)
 
 	var sandboxTarget string
 	var sandboxErr error
