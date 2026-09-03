@@ -92,6 +92,35 @@ type MockMsbClient struct {
 // Compile-time check.
 var _ Client = (*MockMsbClient)(nil)
 
+// namedHandle is implemented by mock handles that expose a Name.
+type namedHandle interface{ Name() string }
+
+// resolveHandle applies the MockMsbClient lookup fallback shared by
+// GetSandbox and GetVolume: the injected error, the pre-seeded handle, a scan
+// of the collection by name, then a not-found SDK error.
+func resolveHandle[T namedHandle](
+	name string,
+	got T,
+	handles []T,
+	err error,
+	notFoundKind msbSdk.ErrorKind,
+) (T, error) {
+	if err != nil {
+		var zero T
+		return zero, err
+	}
+	if any(got) != nil {
+		return got, nil
+	}
+	for _, h := range handles {
+		if h.Name() == name {
+			return h, nil
+		}
+	}
+	var zero T
+	return zero, &msbSdk.Error{Kind: notFoundKind, Message: name}
+}
+
 // EnsureInstalled implements Client.
 func (m *MockMsbClient) EnsureInstalled(ctx context.Context) error {
 	if m.EnsureInstalledFn != nil {
@@ -105,19 +134,7 @@ func (m *MockMsbClient) GetSandbox(ctx context.Context, name string) (SandboxHan
 	if m.GetSandboxFn != nil {
 		return m.GetSandboxFn(ctx, name)
 	}
-	if m.getSandboxErr != nil {
-		return nil, m.getSandboxErr
-	}
-	if m.gotSandbox != nil {
-		return m.gotSandbox, nil
-	}
-	// Fall back to sandbox handles from Sandboxes collection.
-	for _, h := range m.Sandboxes {
-		if h.Name() == name {
-			return h, nil
-		}
-	}
-	return nil, &msbSdk.Error{Kind: msbSdk.ErrSandboxNotFound, Message: name}
+	return resolveHandle(name, m.gotSandbox, m.Sandboxes, m.getSandboxErr, msbSdk.ErrSandboxNotFound)
 }
 
 // CreateSandbox implements Client.
@@ -170,18 +187,7 @@ func (m *MockMsbClient) GetVolume(ctx context.Context, name string) (VolumeHandl
 	if m.GetVolumeFn != nil {
 		return m.GetVolumeFn(ctx, name)
 	}
-	if m.GetVolumeErr != nil {
-		return nil, m.GetVolumeErr
-	}
-	if m.gotVolume != nil {
-		return m.gotVolume, nil
-	}
-	for _, h := range m.Volumes {
-		if h.Name() == name {
-			return h, nil
-		}
-	}
-	return nil, &msbSdk.Error{Kind: msbSdk.ErrVolumeNotFound, Message: name}
+	return resolveHandle(name, m.gotVolume, m.Volumes, m.GetVolumeErr, msbSdk.ErrVolumeNotFound)
 }
 
 // CreateVolume implements Client.

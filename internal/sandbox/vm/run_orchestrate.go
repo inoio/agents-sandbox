@@ -6,7 +6,6 @@ import (
 	"os"
 
 	"github.com/inoio/opencode-sandbox/internal/agent"
-	"github.com/inoio/opencode-sandbox/internal/configpaths"
 	"github.com/inoio/opencode-sandbox/internal/git"
 	"github.com/inoio/opencode-sandbox/internal/sandbox/image"
 	"github.com/inoio/opencode-sandbox/internal/sandbox/mounts"
@@ -182,16 +181,7 @@ func persistConfigHashes(
 	mounts mounts.Mounts,
 	ui termio.UI,
 ) {
-	desiredEnv := reprovision.MergeEnvMaps(
-		reprovision.BuildEnvMap(configpaths.Get().UserEnvFile()),
-		reprovision.BuildEnvMap(configpaths.Get().ProjectEnvFile()),
-	)
-	desiredSecrets := reprovision.BuildSecretsFromSpecs(reprovision.MergeSecretSpecs(
-		reprovision.ParseSecretSpecLegacy(configpaths.Get().UserEnvSecretFile(), ui),
-		reprovision.ParseSecretSpecLegacy(configpaths.Get().ProjectEnvSecretFile(), ui),
-		reprovision.ParseSecretSpecYAML(configpaths.Get().UserEnvSecretYAMLFile(), ui),
-		reprovision.ParseSecretSpecYAML(configpaths.Get().ProjectEnvSecretYAMLFile(), ui),
-	), ui)
+	desiredEnv, desiredSecrets := reprovision.LoadEnvAndSecrets(ui)
 	if err := persistEnvSecrets(
 		projectSlug,
 		reprovision.BuildEnvState(desiredEnv),

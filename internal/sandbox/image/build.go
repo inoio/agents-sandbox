@@ -25,11 +25,11 @@ import (
 type BuildOptions struct {
 	// Force rebuilds the image regardless of cache state.
 	Force bool
+	// Dind appends the tool's Docker-in-Docker block when the image is built.
+	Dind bool
 	// AgentVersion pins the agent version baked into the image. When empty,
 	// the latest release is resolved at build time.
 	AgentVersion string
-	// Dind appends the tool's Docker-in-Docker block when the image is built.
-	Dind bool
 }
 
 // ImageInfo describes the built or existing runner image.
@@ -47,6 +47,13 @@ type ImageInfo struct {
 // stage aliases, so the image only counts if it ultimately backs the resulting
 // image.
 func referencesImage(dockerfile []byte, imageRef string) bool {
+	lastImage, stageBase := scanFromStages(dockerfile)
+	return imageRefMatches(resolveStageBase(lastImage, stageBase), imageRef)
+}
+
+// scanFromStages walks a Dockerfile's FROM lines, returning the final stage's
+// image token and the declared stage-alias map.
+func scanFromStages(dockerfile []byte) (string, map[string]string) {
 	stageBase := make(map[string]string)
 	var lastImage string
 	scanner := bufio.NewScanner(bytes.NewReader(dockerfile))
@@ -64,7 +71,7 @@ func referencesImage(dockerfile []byte, imageRef string) bool {
 		}
 		lastImage = fromImage
 	}
-	return imageRefMatches(resolveStageBase(lastImage, stageBase), imageRef)
+	return lastImage, stageBase
 }
 
 // resolveStageBase follows a FROM image token through any declared stage
@@ -433,23 +440,7 @@ func baseImageRef(rendered []byte) string {
 // finalStageToken resolves the rendered Dockerfile's final stage FROM through
 // any stage aliases to the underlying image reference.
 func finalStageToken(rendered []byte) string {
-	stageBase := make(map[string]string)
-	var lastImage string
-	scanner := bufio.NewScanner(bytes.NewReader(rendered))
-	for scanner.Scan() {
-		line := strings.TrimLeft(scanner.Text(), " \t")
-		if !strings.HasPrefix(line, "FROM") {
-			continue
-		}
-		fromImage, stageAlias := parseFrom(line)
-		if fromImage == "" {
-			continue
-		}
-		if stageAlias != "" {
-			stageBase[stageAlias] = fromImage
-		}
-		lastImage = fromImage
-	}
+	lastImage, stageBase := scanFromStages(rendered)
 	return resolveStageBase(lastImage, stageBase)
 }
 

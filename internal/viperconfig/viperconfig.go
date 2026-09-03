@@ -136,11 +136,11 @@ func NewResolver(cmd *cobra.Command, slug string) (*Resolver, error) {
 	)); err != nil {
 		return nil, fmt.Errorf("decode launcher config: %w", err)
 	}
-	mounts, err := mounts.DecodeMounts(v.Get("mounts"))
+	decodedMounts, err := mounts.DecodeMounts(v.Get("mounts"))
 	if err != nil {
 		return nil, fmt.Errorf("decode launcher config: %w", err)
 	}
-	cfg.Mounts = mounts
+	cfg.Mounts = decodedMounts
 	cfg.Notify = decodeNotify(v)
 	return &Resolver{cfg: cfg}, nil
 }

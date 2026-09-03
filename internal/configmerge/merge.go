@@ -101,8 +101,8 @@ func scanSnippets(dirs []string, pattern string) (map[string]any, []string) {
 			if entry.IsDir() || !snippetFileMatches(pattern, entry.Name()) {
 				continue
 			}
-			path := filepath.Join(dir, entry.Name())
-			data, err := os.ReadFile(path)
+			snippetPath := filepath.Join(dir, entry.Name())
+			data, err := os.ReadFile(snippetPath)
 			if err != nil {
 				continue
 			}
@@ -111,7 +111,7 @@ func scanSnippets(dirs []string, pattern string) (map[string]any, []string) {
 				continue
 			}
 			merged = deepMerge(merged, cfg)
-			sources = append(sources, path)
+			sources = append(sources, snippetPath)
 		}
 	}
 	if merged == nil {
@@ -187,14 +187,14 @@ func ScanMirror(pattern string, family []string, userDir, projectDir, destDir st
 // scanMirrorDir walks dir and adds every mirrorable file to byDest, keyed by
 // its VM destination path under destDir.
 func scanMirrorDir(pattern string, family []string, dir, destDir string, byDest map[string]MirrorEntry) error {
-	return filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
+	return filepath.WalkDir(dir, func(p string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return nil //nolint:nilerr // skip unreadable entries; never fail provisioning
 		}
 		if d.IsDir() {
 			return nil
 		}
-		rel, relErr := filepath.Rel(dir, path)
+		rel, relErr := filepath.Rel(dir, p)
 		if relErr != nil || rel == "." {
 			return nil //nolint:nilerr // skip entries outside the walk root
 		}
@@ -202,12 +202,12 @@ func scanMirrorDir(pattern string, family []string, dir, destDir string, byDest 
 		if topLevel && (snippetFileMatches(pattern, d.Name()) || inFamily(family, d.Name())) {
 			return nil
 		}
-		data, readErr := os.ReadFile(path) //nolint:gosec // reads within the config dir we own
+		data, readErr := os.ReadFile(p) //nolint:gosec // reads within the config dir we own
 		if readErr != nil {
 			return nil //nolint:nilerr // skip unreadable file; never fail provisioning
 		}
 		dest := filepath.Join(destDir, rel)
-		byDest[dest] = MirrorEntry{HostPath: path, VMPath: dest, Data: data}
+		byDest[dest] = MirrorEntry{HostPath: p, VMPath: dest, Data: data}
 		return nil
 	})
 }

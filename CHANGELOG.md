@@ -10,6 +10,11 @@ command reports the bare version (e.g. `0.1.0`).
 
 ### Changed
 
+- Internal: housekeeping — deduplicated the Dockerfile FROM-scan in `internal/sandbox/image`, the env/secret
+  loading in `internal/sandbox/vm` (new `reprovision.LoadEnvAndSecrets`), and the `GetSandbox`/`GetVolume` mock
+  lookup fallback in `internal/sandbox/msb`; unified `agentUpgradeState` receivers to pointers; removed struct
+  padding in `BuildOptions`/`notify.Config`/`upgrade.Result`; and fixed a potential nil-deref when building a
+  `none` network profile config.
 - Behavior: image prune now retains any msb image a kept VM still references, not just per-agent `-latest` tags. A
   stopped-not-yet-stale VM created before the per-agent tag redesign references its runner image by digest ref; pruning
   attempted to reclaim it, which failed in msb with a `FOREIGN KEY constraint failed` error.

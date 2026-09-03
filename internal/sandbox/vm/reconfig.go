@@ -5,7 +5,6 @@ import (
 	"fmt"
 
 	"github.com/inoio/opencode-sandbox/internal/agent"
-	"github.com/inoio/opencode-sandbox/internal/configpaths"
 	"github.com/inoio/opencode-sandbox/internal/git"
 	"github.com/inoio/opencode-sandbox/internal/homeconfig"
 	"github.com/inoio/opencode-sandbox/internal/sandbox/msb"
@@ -167,16 +166,7 @@ func decideReconfig(
 		}
 	}
 
-	desiredEnv := reprovision.MergeEnvMaps(
-		reprovision.BuildEnvMap(configpaths.Get().UserEnvFile()),
-		reprovision.BuildEnvMap(configpaths.Get().ProjectEnvFile()),
-	)
-	desiredSecrets := reprovision.BuildSecretsFromSpecs(reprovision.MergeSecretSpecs(
-		reprovision.ParseSecretSpecLegacy(configpaths.Get().UserEnvSecretFile(), ui),
-		reprovision.ParseSecretSpecLegacy(configpaths.Get().ProjectEnvSecretFile(), ui),
-		reprovision.ParseSecretSpecYAML(configpaths.Get().UserEnvSecretYAMLFile(), ui),
-		reprovision.ParseSecretSpecYAML(configpaths.Get().ProjectEnvSecretYAMLFile(), ui),
-	), ui)
+	desiredEnv, desiredSecrets := reprovision.LoadEnvAndSecrets(ui)
 	envHasChanged := reprovision.EnvChanged(hs.EnvState, desiredEnv)
 	secretsHasChanged := reprovision.SecretsChanged(hs.SecretState, desiredSecrets)
 	networkHasChanged := reprovision.NetworkChanged(hs.NetworkState, opts.Network)
