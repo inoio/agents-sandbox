@@ -5,6 +5,7 @@ import (
 
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 
+	"github.com/inoio/opencode-sandbox/internal/notify"
 	"github.com/inoio/opencode-sandbox/internal/sandbox/mounts"
 	"github.com/inoio/opencode-sandbox/internal/sandbox/network"
 )
@@ -37,6 +38,8 @@ type RunOptions struct {
 	// serves without attaching the in-VM TUI. Clients (e.g. Opencode Desktop)
 	// connect to the published host port.
 	ServeOnly bool
+	// Notify is the resolved notify config for the session (channels + triggers).
+	Notify notify.Config
 	// Network is the resolved egress policy for the project VM. The zero value
 	// (Empty) means no policy is set and the default public profile applies.
 	Network network.Policy

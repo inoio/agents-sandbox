@@ -229,6 +229,11 @@ func registerRunFlags(cmd *cobra.Command) {
 		StringP(flagWorktree, "w", "", "Run in an isolated opencode worktree named <name>, optionally starting from the local base ref <name>:<base>")
 	cmd.Flags().
 		BoolP(flagServeOnly, "s", false, "Serve opencode on the host port (http://127.0.0.1:4096) for clients like Opencode Desktop, without attaching the TUI")
+	cmd.Flags().
+		String(flagNotify, "", `Notify on session status: "on", "off", "desktop", or "audio" (bare --notify = on)`)
+	if notifyFlag := cmd.Flags().Lookup(flagNotify); notifyFlag != nil {
+		notifyFlag.NoOptDefVal = "on"
+	}
 	registerSharedRunShellFlags(cmd)
 }
 
