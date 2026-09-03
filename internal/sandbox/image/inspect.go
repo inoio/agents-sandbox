@@ -5,7 +5,6 @@ import (
 	"strings"
 
 	"github.com/inoio/opencode-sandbox/internal/sandbox/docker"
-	"github.com/inoio/opencode-sandbox/internal/termio"
 )
 
 // imageHasDockerfileID reports whether the existing runner image carries a
@@ -19,17 +18,6 @@ func imageHasDockerfileID(ctx context.Context, rTag, dockerfileID string) bool {
 		return false
 	}
 	return inspect.Config.Labels[dockerfileIDLabelKey] == dockerfileID
-}
-
-// inspectExistingImage returns the Docker image ID (used as the digest-based
-// cache identity) for an existing project image.
-func inspectExistingImage(ctx context.Context, rTag string, ui termio.UI) string {
-	inspect, inspectErr := docker.Get().ImageInspect(ctx, rTag)
-	if inspectErr != nil {
-		ui.Verbosef("image inspect failed (might be pruned): %v", inspectErr)
-		return ""
-	}
-	return inspect.ID
 }
 
 // readImageInfoFromDocker returns the image env map by inspecting the Docker

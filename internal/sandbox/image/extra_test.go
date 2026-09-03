@@ -393,17 +393,6 @@ func TestReplaceFinalStageFromBlockWithoutNewline(t *testing.T) {
 	}
 }
 
-func TestInspectExistingImageReturnsID(t *testing.T) {
-	docker.WithDockerMock(t, &docker.MockDockerClient{
-		ImageInspectFn: func(_ context.Context, _ string, _ ...client.ImageInspectOption) (client.ImageInspectResult, error) {
-			return client.ImageInspectResult{InspectResponse: image.InspectResponse{ID: "sha256:abc"}}, nil
-		},
-	})
-	if got := inspectExistingImage(context.Background(), "runner-tag", &termio.Mock{}); got != "sha256:abc" {
-		t.Errorf("inspectExistingImage = %q, want sha256:abc", got)
-	}
-}
-
 func TestReadImageInfoFromDockerNilConfig(t *testing.T) {
 	docker.WithDockerMock(t, &docker.MockDockerClient{
 		ImageInspectFn: func(_ context.Context, _ string, _ ...client.ImageInspectOption) (client.ImageInspectResult, error) {

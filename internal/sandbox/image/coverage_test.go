@@ -126,18 +126,6 @@ func TestBuildReturnsErrorWhenLoadFails(t *testing.T) {
 	}
 }
 
-func TestInspectExistingImageReturnsEmptyOnInspectFailure(t *testing.T) {
-	docker.WithDockerMock(t, &docker.MockDockerClient{
-		ImageInspectFn: func(_ context.Context, _ string, _ ...client.ImageInspectOption) (client.ImageInspectResult, error) {
-			return client.ImageInspectResult{}, errors.New("image not found")
-		},
-	})
-
-	if got := inspectExistingImage(context.Background(), "runner-tag", &termio.Mock{}); got != "" {
-		t.Errorf("inspectExistingImage = %q, want empty string on inspect failure", got)
-	}
-}
-
 func TestEnsureImageReturnsErrorWhenVersionResolveFails(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	a, _ := agent.Lookup("opencode")
