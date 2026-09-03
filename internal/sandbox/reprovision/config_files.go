@@ -432,9 +432,11 @@ func ReadVMConfig(ctx context.Context, sb msb.Sandbox, paths []string, ui termio
 	return result
 }
 
-// OpenCodeConfigEqual reports whether the merged agent config matches the VM
-// state. Home files are intentionally ignored: they are provisioned on every
-// startup and do not require a daemon restart to take effect.
+// OpenCodeConfigEqual reports whether the merged agent config and the verbatim
+// mirror files match the VM state. The merged config is compared semantically
+// and mirror files byte-for-byte, so a change to either triggers a daemon
+// restart. Home and drop-in files are intentionally ignored: they are
+// provisioned on every startup and do not require a daemon restart.
 func OpenCodeConfigEqual(cf *ConfigFiles, vmData map[string][]byte) bool {
 	if cf.HasSnippets {
 		vm, ok := vmData[cf.MergedPath]
