@@ -53,12 +53,13 @@ func pruneAbandonedClaims(dir string) {
 		if err != nil {
 			continue
 		}
-		if err := FlockExclusiveNB(f); err == nil {
-			// No live holder, so the claim is abandoned.
-			_ = f.Close()
-			_ = os.Remove(path)
+		if err := FlockExclusiveNB(f); err != nil {
+			_ = f.Close() // live-held; skip
 			continue
 		}
+		// We hold the flock; unlink before closing so no new claimer can be
+		// cut off mid-acquire and create a second live holder.
+		_ = os.Remove(path)
 		_ = f.Close()
 	}
 }
