@@ -27,6 +27,8 @@ const defaultSandboxUser = "dev"
 // created directory to the runtime user so the files are readable by opencode
 // and startup hooks (the SDK's file writes create root-owned files and
 // directories).
+//
+//nolint:gocognit // four near-identical write loops mandated by the config-mirror plan
 func Provision(ctx context.Context, sb msb.Sandbox, cf *ConfigFiles) (retErr error) {
 	fs := sb.FS()
 	paths := make([]string, 0)
