@@ -1,6 +1,7 @@
 package reprovision
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -406,14 +407,22 @@ func ReadVMConfig(ctx context.Context, sb msb.Sandbox, paths []string, ui termio
 // state. Home files are intentionally ignored: they are provisioned on every
 // startup and do not require a daemon restart to take effect.
 func OpenCodeConfigEqual(cf *ConfigFiles, vmData map[string][]byte) bool {
-	if !cf.HasSnippets {
-		return true
+	if cf.HasSnippets {
+		vm, ok := vmData[cf.MergedPath]
+		if !ok {
+			return false
+		}
+		if !jsonEqual(cf.OpenCode, vm) {
+			return false
+		}
 	}
-	vm, ok := vmData[cf.MergedPath]
-	if !ok {
-		return false
+	for path, want := range cf.Mirror {
+		got, ok := vmData[path]
+		if !ok || !bytes.Equal(want, got) {
+			return false
+		}
 	}
-	return jsonEqual(cf.OpenCode, vm)
+	return true
 }
 
 func jsonEqual(a, b []byte) bool {

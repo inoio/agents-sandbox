@@ -116,6 +116,57 @@ func TestOpenCodeConfigEqualNoSnippets(t *testing.T) {
 	}
 }
 
+func TestOpenCodeConfigEqualMirrorMatch(t *testing.T) {
+	cf := &ConfigFiles{
+		HasSnippets: true,
+		OpenCode:    []byte(`{"model":"x"}`),
+		MergedPath:  OpenCodeConfigPath(VMHomeDir),
+		Mirror: map[string][]byte{
+			"/home/dev/.config/opencode/tui.json": []byte(`{"theme":"dark"}`),
+		},
+	}
+	vmData := map[string][]byte{
+		OpenCodeConfigPath(VMHomeDir):         []byte(`{"model":"x"}`),
+		"/home/dev/.config/opencode/tui.json": []byte(`{"theme":"dark"}`),
+	}
+	if !OpenCodeConfigEqual(cf, vmData) {
+		t.Error("expected equality when merged config and mirror match")
+	}
+}
+
+func TestOpenCodeConfigEqualMirrorMismatch(t *testing.T) {
+	cf := &ConfigFiles{
+		HasSnippets: true,
+		OpenCode:    []byte(`{"model":"x"}`),
+		MergedPath:  OpenCodeConfigPath(VMHomeDir),
+		Mirror: map[string][]byte{
+			"/home/dev/.config/opencode/tui.json": []byte(`{"theme":"dark"}`),
+		},
+	}
+	vmData := map[string][]byte{
+		OpenCodeConfigPath(VMHomeDir):         []byte(`{"model":"x"}`),
+		"/home/dev/.config/opencode/tui.json": []byte(`{"theme":"light"}`),
+	}
+	if OpenCodeConfigEqual(cf, vmData) {
+		t.Error("expected mismatch when a mirror file differs")
+	}
+}
+
+func TestOpenCodeConfigEqualMirrorNoSnippets(t *testing.T) {
+	cf := &ConfigFiles{
+		Mirror: map[string][]byte{
+			"/home/dev/.config/opencode/tui.json": []byte(`{"theme":"dark"}`),
+		},
+	}
+	match := map[string][]byte{"/home/dev/.config/opencode/tui.json": []byte(`{"theme":"dark"}`)}
+	if !OpenCodeConfigEqual(cf, match) {
+		t.Error("expected equality when mirror matches without snippets")
+	}
+	if OpenCodeConfigEqual(cf, nil) {
+		t.Error("expected mismatch when the VM mirror is missing")
+	}
+}
+
 func TestProvisionWritesOpenCodeAndHomeFiles(t *testing.T) {
 	cf := &ConfigFiles{
 		HasSnippets: true,
