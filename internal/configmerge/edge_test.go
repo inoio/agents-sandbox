@@ -14,7 +14,7 @@ func TestBuildMergedRecursivelyMergesNestedMaps(t *testing.T) {
 	writeSnippet(t, dir, "opencode-a.json", `{"models": {"a": 1}}`)
 	writeSnippet(t, dir, "opencode-b.json", `{"models": {"b": 2}}`)
 
-	data, _, has, err := BuildMerged("opencode-*.json*", dir, "")
+	data, _, has, err := BuildMerged("opencode*.json*", dir, "")
 	if err != nil || !has {
 		t.Fatalf("BuildMerged: has=%v err=%v", has, err)
 	}
@@ -32,7 +32,7 @@ func TestBuildMergedNonMapOverrideReplacesNestedMap(t *testing.T) {
 	writeSnippet(t, dir, "opencode-a.json", `{"models": {"a": 1}}`)
 	writeSnippet(t, dir, "opencode-b.json", `{"models": 5}`)
 
-	data, _, has, err := BuildMerged("opencode-*.json*", dir, "")
+	data, _, has, err := BuildMerged("opencode*.json*", dir, "")
 	if err != nil || !has {
 		t.Fatalf("BuildMerged: has=%v err=%v", has, err)
 	}
@@ -49,7 +49,7 @@ func TestBuildMergedSkipsMissingDirectory(t *testing.T) {
 	dir := t.TempDir()
 	writeSnippet(t, dir, "opencode-a.json", `{"a": 1}`)
 
-	data, sources, has, err := BuildMerged("opencode-*.json*", dir, filepath.Join(t.TempDir(), "missing"))
+	data, sources, has, err := BuildMerged("opencode*.json*", dir, filepath.Join(t.TempDir(), "missing"))
 	if err != nil || !has {
 		t.Fatalf("BuildMerged: has=%v err=%v", has, err)
 	}
@@ -72,7 +72,7 @@ func TestBuildMergedSkipsUnreadableSnippet(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	data, sources, has, err := BuildMerged("opencode-*.json*", dir, "")
+	data, sources, has, err := BuildMerged("opencode*.json*", dir, "")
 	if err != nil || !has {
 		t.Fatalf("BuildMerged: has=%v err=%v", has, err)
 	}
@@ -125,7 +125,7 @@ func TestScanMirrorSkipsUnreadableEntries(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = os.Chmod(noread, 0o644) })
 
-	entries, err := ScanMirror("opencode-*.json*", nil, user, "", dest)
+	entries, err := ScanMirror("opencode*.json*", nil, user, "", dest)
 	if err != nil {
 		t.Fatalf("ScanMirror: %v", err)
 	}

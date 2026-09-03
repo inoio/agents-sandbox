@@ -88,7 +88,7 @@ func TestSystemAudioNotifierWithToolInPath(t *testing.T) {
 			if err := os.WriteFile(path, []byte("#!/bin/sh\n"), 0o755); err != nil {
 				t.Fatal(err)
 			}
-			t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+			t.Setenv("PATH", dir)
 
 			orig := execCommand
 			defer func() { execCommand = orig }()

@@ -20,7 +20,7 @@ import (
 )
 
 // snippetFileMatches reports whether name matches the agent's snippet pattern
-// glob (e.g. "opencode-*.json*", "pi-*.{json,yaml}" or "settings*.json*").
+// glob (e.g. "opencode*.json*", "pi-*.{json,yaml}" or "settings*.json*").
 func snippetFileMatches(pattern, name string) bool {
 	return matchesGlob(pattern, name)
 }

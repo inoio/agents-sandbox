@@ -466,7 +466,7 @@ opencode-sandbox provisions a single agent config into the VM. No embedded provi
 Instead, the agent config is assembled from **snippet files** that match the agent's snippet pattern, collected from the
 user and project directories, and written to the agent's VM config path:
 
-- **opencode** — snippets match `opencode-*.json*` (e.g. `opencode-model.json`, `opencode-permissions.jsonc`); merged to
+- **opencode** — snippets match `opencode*.json*` (e.g. `opencode-model.json`, `opencode-permissions.jsonc`); merged to
   `/home/dev/.config/opencode/opencode.jsonc`. A file named exactly `opencode.json` no longer merges by default.
 - **opencode2** — same snippet pattern and merged config path as `opencode` (v2 reads the same files as v1).
 - **pi** — snippets match `settings*.json*` in the `pi/` subdir; merged to `/home/dev/.pi/agent/settings.json`.
@@ -498,7 +498,7 @@ the VM without extra configuration.
 
 Two families of files are *not* mirrored:
 
-- Files matching the agent's snippet pattern (`opencode-*.json*`, `settings*.json*`) are **deep-merged** (see [Config
+- Files matching the agent's snippet pattern (`opencode*.json*`, `settings*.json*`) are **deep-merged** (see [Config
   snippet merge](#config-snippet-merge)), never mirrored.
 - The agent's config-file family (for opencode: `config.json`, `opencode.json`, `opencode.jsonc`, …) is **reserved for
   the merged output** and never mirrored, so a mirror copy cannot shadow the merged snippet config.

@@ -27,16 +27,16 @@ func TestSnippetFileMatches(t *testing.T) {
 		name    string
 		want    bool
 	}{
-		{"opencode-*.json*", "opencode-x.json", true},
-		{"opencode-*.json*", "opencode-x.jsonc", true},
-		{"opencode-*.json*", "opencode-x.json5", true},
-		{"opencode-*.json*", "opencode-a.json", true},
-		{"opencode-*.json*", "opencode.json", false},
-		{"opencode-*.json*", "opencode.jsonc", false},
-		{"opencode-*.json*", "auth.json", false},
-		{"opencode-*.json*", "tui.json5", false},
-		{"opencode-*.json*", "README.md", false},
-		{"opencode-*.json*", "opencode.txt", false},
+		{"opencode*.json*", "opencode-x.json", true},
+		{"opencode*.json*", "opencode-x.jsonc", true},
+		{"opencode*.json*", "opencode-x.json5", true},
+		{"opencode*.json*", "opencode-a.json", true},
+		{"opencode*.json*", "opencode.json", true},
+		{"opencode*.json*", "opencode.jsonc", true},
+		{"opencode*.json*", "auth.json", false},
+		{"opencode*.json*", "tui.json5", false},
+		{"opencode*.json*", "README.md", false},
+		{"opencode*.json*", "opencode.txt", false},
 		{"pi-*.{json,yaml}", "pi-settings.yaml", true},
 		{"pi-*.{json,yaml}", "pi-settings.json", true},
 		{"pi-*.{json,yaml}", "pi-settings.yml", false},
@@ -55,7 +55,7 @@ func TestBuildMergedPatternFilter(t *testing.T) {
 	testutil.WriteFile(t, dir, "opencode-a.json", `{"a":1}`)
 	testutil.WriteFile(t, dir, "opencode-b.json", `{"b":2}`)
 	testutil.WriteFile(t, dir, "ignored.json", `{"x":9}`) // must not merge (name doesn't match)
-	data, sources, has, err := BuildMerged("opencode-*.json*", dir, "")
+	data, sources, has, err := BuildMerged("opencode*.json*", dir, "")
 	if err != nil || !has {
 		t.Fatalf("BuildMerged: has=%v err=%v", has, err)
 	}
@@ -97,7 +97,7 @@ func TestBuildMergedSourcesInMergeOrder(t *testing.T) {
 	writeSnippet(t, user, "opencode-01-user.json", `{"a": 2}`)
 	writeSnippet(t, proj, "opencode-proj.json", `{"b": 3}`)
 
-	_, sources, has, err := BuildMerged("opencode-*.json*", user, proj)
+	_, sources, has, err := BuildMerged("opencode*.json*", user, proj)
 	if err != nil || !has {
 		t.Fatalf("BuildMerged: has=%v err=%v", has, err)
 	}
@@ -117,7 +117,7 @@ func TestBuildMergedSourcesInMergeOrder(t *testing.T) {
 }
 
 func TestBuildMergedNoSnippets(t *testing.T) {
-	data, sources, has, err := BuildMerged("opencode-*.json*", t.TempDir(), t.TempDir())
+	data, sources, has, err := BuildMerged("opencode*.json*", t.TempDir(), t.TempDir())
 	if err != nil {
 		t.Fatalf("BuildMerged: %v", err)
 	}
@@ -136,7 +136,7 @@ func TestBuildMergedEmitsMergedJSON(t *testing.T) {
 	user := t.TempDir()
 	writeSnippet(t, user, "opencode-x.json5", `{"model": "x", "instructions": "be brief"}`)
 
-	data, sources, has, err := BuildMerged("opencode-*.json*", user, "")
+	data, sources, has, err := BuildMerged("opencode*.json*", user, "")
 	if err != nil {
 		t.Fatalf("BuildMerged: %v", err)
 	}
@@ -162,7 +162,7 @@ func TestBuildMergedDeterministic(t *testing.T) {
 
 	var first []byte
 	for range 5 {
-		data, _, has, err := BuildMerged("opencode-*.json*", user, "")
+		data, _, has, err := BuildMerged("opencode*.json*", user, "")
 		if err != nil || !has {
 			t.Fatalf("BuildMerged: has=%v err=%v", has, err)
 		}
@@ -215,7 +215,7 @@ func TestBuildMergedSkipsUnparsableSnippet(t *testing.T) {
 	writeSnippet(t, dir, "opencode-bad.json5", "{ this is not valid json5")
 	writeSnippet(t, dir, "opencode-good.json", `{"ok": true}`)
 
-	data, sources, has, err := BuildMerged("opencode-*.json*", dir, "")
+	data, sources, has, err := BuildMerged("opencode*.json*", dir, "")
 	if err != nil || !has {
 		t.Fatalf("BuildMerged: has=%v err=%v", has, err)
 	}
@@ -240,7 +240,7 @@ func TestScanMirrorBasic(t *testing.T) {
 	testutil.WriteFile(t, filepath.Join(user, "agents"), "coder.md", "# coder\n")
 	testutil.WriteFile(t, filepath.Join(user, "themes"), "dark.json", `{"bg":"#000"}`)
 
-	entries, err := ScanMirror("opencode-*.json*", nil, user, "", dest)
+	entries, err := ScanMirror("opencode*.json*", nil, user, "", dest)
 	if err != nil {
 		t.Fatalf("ScanMirror: %v", err)
 	}
@@ -275,7 +275,7 @@ func TestScanMirrorSkipsSnippetPatternAndFamily(t *testing.T) {
 	testutil.WriteFile(t, user, "tui.json", `{"theme":"dark"}`)
 
 	family := []string{"config.json", "opencode.json", "opencode.jsonc", "opencode.json5"}
-	entries, err := ScanMirror("opencode-*.json*", family, user, "", dest)
+	entries, err := ScanMirror("opencode*.json*", family, user, "", dest)
 	if err != nil {
 		t.Fatalf("ScanMirror: %v", err)
 	}
@@ -294,7 +294,7 @@ func TestScanMirrorProjectOverridesUser(t *testing.T) {
 	testutil.WriteFile(t, user, "tui.json", `{"theme":"user"}`)
 	testutil.WriteFile(t, proj, "tui.json", `{"theme":"project"}`)
 
-	entries, err := ScanMirror("opencode-*.json*", nil, user, proj, dest)
+	entries, err := ScanMirror("opencode*.json*", nil, user, proj, dest)
 	if err != nil {
 		t.Fatalf("ScanMirror: %v", err)
 	}
@@ -310,7 +310,7 @@ func TestScanMirrorProjectOverridesUser(t *testing.T) {
 }
 
 func TestScanMirrorEmptyDirs(t *testing.T) {
-	entries, err := ScanMirror("opencode-*.json*", nil, t.TempDir(), t.TempDir(), t.TempDir())
+	entries, err := ScanMirror("opencode*.json*", nil, t.TempDir(), t.TempDir(), t.TempDir())
 	if err != nil {
 		t.Fatalf("ScanMirror: %v", err)
 	}
