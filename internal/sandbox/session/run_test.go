@@ -9,6 +9,7 @@ import (
 
 	"github.com/inoio/opencode-sandbox/internal/agent"
 	"github.com/inoio/opencode-sandbox/internal/configpaths"
+	"github.com/inoio/opencode-sandbox/internal/notify"
 	"github.com/inoio/opencode-sandbox/internal/sandbox/msb"
 	"github.com/inoio/opencode-sandbox/internal/sandbox/options"
 	"github.com/inoio/opencode-sandbox/internal/sandbox/state"
@@ -472,5 +473,67 @@ func TestFinalizeRun(t *testing.T) {
 	var exitErr *sandbox.ExitError
 	if !errors.As(err, &exitErr) || exitErr.Code != 3 {
 		t.Errorf("finalizeRun(nil, 3) = %v, want ExitError code 3", err)
+	}
+}
+
+func TestRunStartsNotifyWatcher(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	ui := &termio.Mock{}
+	origPrepare := prepareSandbox
+	prepareSandbox = func(context.Context, options.RunOptions, termio.UI) (preparedSandbox, error) {
+		return &fakePrepared{sb: msb.NewMockSandbox(msb.SandboxOpts{AttachCode: 0})}, nil
+	}
+	defer func() { prepareSandbox = origPrepare }()
+
+	origWatch := notifyWatch
+	defer func() { notifyWatch = origWatch }()
+	started := make(chan struct{})
+	notifyWatch = func(context.Context, msb.Sandbox, notify.Backend) error {
+		close(started)
+		return nil
+	}
+
+	err := Run(context.Background(), options.RunOptions{
+		ReapPolicy: options.NewReapPolicy(true, 5),
+		Notify: notify.Config{
+			Desktop: true, Audio: notify.AudioOff,
+			OnInput: true, OnDone: true, OnError: true,
+		},
+	}, ui)
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	select {
+	case <-started:
+	case <-time.After(2 * time.Second):
+		t.Fatal("notify watcher was not started for active notify config")
+	}
+}
+
+func TestRunDoesNotStartNotifyWatcherWhenInactive(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	ui := &termio.Mock{}
+	origPrepare := prepareSandbox
+	prepareSandbox = func(context.Context, options.RunOptions, termio.UI) (preparedSandbox, error) {
+		return &fakePrepared{sb: msb.NewMockSandbox(msb.SandboxOpts{AttachCode: 0})}, nil
+	}
+	defer func() { prepareSandbox = origPrepare }()
+
+	origWatch := notifyWatch
+	defer func() { notifyWatch = origWatch }()
+	called := false
+	notifyWatch = func(context.Context, msb.Sandbox, notify.Backend) error {
+		called = true
+		return nil
+	}
+
+	err := Run(context.Background(), options.RunOptions{
+		ReapPolicy: options.NewReapPolicy(true, 5),
+	}, ui)
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if called {
+		t.Error("notify watcher should not start when notify config is inactive")
 	}
 }

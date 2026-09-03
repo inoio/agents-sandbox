@@ -9,6 +9,7 @@ import (
 
 	"github.com/inoio/opencode-sandbox/internal/agent"
 	"github.com/inoio/opencode-sandbox/internal/git"
+	"github.com/inoio/opencode-sandbox/internal/notify"
 	"github.com/inoio/opencode-sandbox/internal/sandbox/msb"
 	"github.com/inoio/opencode-sandbox/internal/sandbox/options"
 	"github.com/inoio/opencode-sandbox/internal/sandbox/state"
@@ -27,6 +28,34 @@ type preparedSandbox interface {
 // prepareSandbox is a test seam swapped in tests to avoid real VM setup.
 var prepareSandbox = func(ctx context.Context, opts options.RunOptions, ui termio.UI) (preparedSandbox, error) { //nolint:gochecknoglobals // test seam
 	return sandbox.PrepareSandbox(ctx, opts, ui)
+}
+
+// notifyWatch is a test seam; production uses notify.Watch.
+//
+//nolint:gochecknoglobals // test seam
+var notifyWatch = notify.Watch
+
+// startNotifyWatcher launches the notify watcher in a goroutine and returns a
+// stop function. It is a no-op when notifications are inactive or the sandbox
+// is nil (dry-run). The watcher runs until the session ctx is done or stop is
+// called, whichever comes first.
+func startNotifyWatcher(ctx context.Context, sb msb.Sandbox, cfg notify.Config, ui termio.UI) func() {
+	if sb == nil || !cfg.Active() {
+		return func() {}
+	}
+	backend := notify.NewBackend(cfg, ui)
+	watchCtx, cancel := context.WithCancel(ctx)
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		if err := notifyWatch(watchCtx, sb, backend); err != nil {
+			ui.Verbosef("notify watcher stopped: %v", err)
+		}
+	}()
+	return func() {
+		cancel()
+		<-done
+	}
 }
 
 func buildAttachCommand(a agent.Agent, target string, args []string) string {
@@ -80,6 +109,9 @@ func Run(ctx context.Context, opts options.RunOptions, ui termio.UI) error {
 		ui.Infof("dry-run: Would start opencode in VM")
 		return nil
 	}
+
+	stopNotify := startNotifyWatcher(ctx, sb, opts.Notify, ui)
+	defer stopNotify()
 
 	projectSlug := git.ProjectSlug()
 
