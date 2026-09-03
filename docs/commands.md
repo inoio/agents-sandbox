@@ -48,6 +48,7 @@ Arguments after `--` are forwarded to opencode. Arguments before `--` that don't
 | `--dry-run-vm` | —     | `false`  | Skip VM lifecycle but prepare everything else                                                                                              |
 | `--serve-only` | `-s`  | `false`  | Start opencode server published on host loopback (no in-VM TUI); press `Ctrl-D` to exit. Set `OPENCODE_SERVER_PASSWORD` for basic auth. |
 | `--agent`      | —     | `opencode` | Coding-agent profile to run: `opencode` (default), `pi`, or `claude-code`.                                                                |
+| `--notify`     | —     | `off`     | Notify on session status: `on`, `off`, `desktop`, or `audio` (bare `--notify` = `on`). Overridable via `OPENCODE_SANDBOX_NOTIFY`. Only applies to daemon-based agents (opencode). |
 | `--dind`       | —     | `false`  | Enable Docker-in-Docker in the runner image                                                                                                |
 
 **Aliases:** `sandbox run`
