@@ -135,25 +135,25 @@ func TestParseSSEBlock(t *testing.T) {
 		{
 			"session diff",
 			[]string{"data: " + sessionDiff},
-			Event{Type: "session.diff", Data: []byte(sessionDiff)},
+			Event{Type: "session.diff", SessionID: "ses_f987482bcffeiws2F2jQHsI18v", Data: []byte(sessionDiff)},
 			true,
 		},
 		{
 			"session status busy",
 			[]string{"data: " + sessionStatusBusy},
-			Event{Type: "session.status", Data: []byte(sessionStatusBusy)},
+			Event{Type: "session.status", SessionID: "ses_f987482bcffeiws2F2jQHsI18v", Data: []byte(sessionStatusBusy)},
 			true,
 		},
 		{
 			"session status idle",
 			[]string{"data: " + sessionStatusIdle},
-			Event{Type: "session.status", Data: []byte(sessionStatusIdle)},
+			Event{Type: "session.status", SessionID: "ses_f987482bcffeiws2F2jQHsI18v", Data: []byte(sessionStatusIdle)},
 			true,
 		},
 		{
 			"session idle",
 			[]string{"data: " + sessionIdle},
-			Event{Type: "session.idle", Data: []byte(sessionIdle)},
+			Event{Type: "session.idle", SessionID: "ses_f987482bcffeiws2F2jQHsI18v", Data: []byte(sessionIdle)},
 			true,
 		},
 		{
@@ -170,7 +170,8 @@ func TestParseSSEBlock(t *testing.T) {
 			if ok != tc.ok {
 				t.Fatalf("parseSSEBlock ok = %v, want %v", ok, tc.ok)
 			}
-			if ok && (got.Type != tc.want.Type || string(got.Data) != string(tc.want.Data)) {
+			if ok &&
+				(got.Type != tc.want.Type || got.SessionID != tc.want.SessionID || string(got.Data) != string(tc.want.Data)) {
 				t.Errorf("parseSSEBlock = %+v, want %+v", got, tc.want)
 			}
 		})

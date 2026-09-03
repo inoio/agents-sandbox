@@ -8,8 +8,9 @@ import (
 
 // Event is a parsed SSE event.
 type Event struct {
-	Type string
-	Data []byte
+	Type      string
+	SessionID string
+	Data      []byte
 }
 
 // Tracker derives notification transitions from a stream of events.
@@ -67,7 +68,7 @@ func (t *Tracker) Handle(e Event) *Notification {
 
 // HandleEventType is a convenience wrapper for tests.
 func (t *Tracker) HandleEventType(typ string) *Notification {
-	return t.Handle(Event{Type: typ, Data: nil})
+	return t.Handle(Event{Type: typ, SessionID: "", Data: nil})
 }
 
 func eventTypeIn(typ string, eventTypes []string) bool {

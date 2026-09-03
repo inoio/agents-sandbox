@@ -157,7 +157,10 @@ func parseSSEBlock(lines []string) (Event, bool) {
 	}
 	var raw struct {
 		Payload struct {
-			Type string `json:"type"`
+			Type       string `json:"type"`
+			Properties struct {
+				SessionID string `json:"sessionID"`
+			} `json:"properties"`
 		} `json:"payload"`
 	}
 	if err := json.Unmarshal(payload, &raw); err != nil {
@@ -166,5 +169,5 @@ func parseSSEBlock(lines []string) (Event, bool) {
 	if raw.Payload.Type == "" {
 		return Event{}, false
 	}
-	return Event{Type: raw.Payload.Type, Data: payload}, true
+	return Event{Type: raw.Payload.Type, SessionID: raw.Payload.Properties.SessionID, Data: payload}, true
 }
