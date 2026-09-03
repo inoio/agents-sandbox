@@ -149,3 +149,23 @@ func TestConfigHomeManifestError(t *testing.T) {
 		t.Errorf("expected 'escapes the home directory' error, got: %v", err)
 	}
 }
+
+func TestConfigAgentPrintsMirrorFiles(t *testing.T) {
+	cmd, ui := setupCommandFixtures(t, "config", "agent", "opencode")
+	agentDir := configpaths.Get().UserAgentConfigDir(mustOpencode(t))
+	testutil.WriteFile(t, agentDir, "tui.json", `{"theme":"dark"}`)
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("config agent: %v", err)
+	}
+	joined := strings.Join(ui.OutCalls, "\n")
+	if !strings.Contains(joined, "mirror files:") {
+		t.Errorf("expected mirror files section, got:\n%s", joined)
+	}
+	if !strings.Contains(joined, filepath.Join(agentDir, "tui.json")) {
+		t.Errorf("expected mirror source path, got:\n%s", joined)
+	}
+	if !strings.Contains(joined, "/home/dev/.config/opencode/tui.json") {
+		t.Errorf("expected mirror VM path, got:\n%s", joined)
+	}
+}

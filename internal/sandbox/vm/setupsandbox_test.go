@@ -449,3 +449,33 @@ func contains(s, sub string) bool {
 	}
 	return false
 }
+
+// TestSetUpSandboxProvisionsMirrorOnly verifies that a ConfigFiles carrying
+// only mirror files still triggers provisioning.
+func TestSetUpSandboxProvisionsMirrorOnly(t *testing.T) {
+	origDaemon := SetDaemonShellFunc(func(_ context.Context, _ msb.Sandbox, command string) (string, int, error) {
+		if command == opencodeProvider(t).DaemonHealthCmd() {
+			return `{"healthy":true,"version":"test"}`, 0, nil
+		}
+		return "", 0, nil
+	})
+	defer SetDaemonShellFunc(origDaemon)
+
+	fs := msb.NewTestFS(nil, nil)
+	sb := &msb.MockSandbox{Name_: "test-vm", FSValue_: fs}
+	configpaths.WithMockConfigPaths(t)
+	ui := &termio.Mock{}
+	cfs := &reprovision.ConfigFiles{
+		Mirror: map[string][]byte{
+			"/home/dev/.config/opencode/tui.json": []byte(`{"theme":"dark"}`),
+		},
+	}
+	if _, err := setUpSandbox(
+		context.Background(), sb, options.RunOptions{}, cfs, ui, false, vmBootStarted,
+	); err != nil {
+		t.Fatalf("setUpSandbox: %v", err)
+	}
+	if fs.Writes["/home/dev/.config/opencode/tui.json"] == nil {
+		t.Error("expected mirror file to be provisioned")
+	}
+}

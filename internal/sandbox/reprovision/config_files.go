@@ -328,21 +328,50 @@ type HostFile struct {
 	Merged   bool
 }
 
-// Describe returns the merged config and the host drop-in files (host path →
-// VM path, plus whether the path is merged into the final config) for agent a.
-// It mirrors the state LoadConfigFilesForHost computes, without touching a VM.
+// MirrorFile is one host file the verbatim config-dir mirror would provision.
+type MirrorFile struct {
+	HostPath string
+	VMPath   string
+}
+
+// Describe returns the merged config, the snippet sources, the host drop-in
+// files, and the verbatim mirror files (host path → VM path) for agent a,
+// without touching a VM.
 func Describe(
 	a agent.Agent,
 	hostHome, vmHome string,
 	ui termio.UI,
 	provisionHostConfig bool,
-) ([]byte, []string, []HostFile, error) {
+) ([]byte, []string, []HostFile, []MirrorFile, error) {
 	cf, err := LoadConfigFilesForHost(a, hostHome, vmHome, ui, provisionHostConfig)
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, nil, nil, nil, err
 	}
 	hostFiles := hostFilesFromProvisioner(a, hostHome, vmHome, cf)
-	return cf.OpenCode, cf.Sources, hostFiles, nil
+	return cf.OpenCode, cf.Sources, hostFiles, mirrorFilesFromConfig(a, vmHome), nil
+}
+
+// mirrorFilesFromConfig returns the mirror display records for agent a.
+func mirrorFilesFromConfig(a agent.Agent, vmHome string) []MirrorFile {
+	cm, ok := agent.AsConfigMerger(a)
+	if !ok {
+		return nil
+	}
+	entries, err := config.ScanMirror(
+		cm.SnippetPattern(),
+		cm.ConfigFileNames(),
+		cp.Get().UserAgentConfigDir(a),
+		cp.Get().ProjectAgentConfigDir(a),
+		filepath.Dir(cm.VMConfigPath(vmHome)),
+	)
+	if err != nil {
+		return nil
+	}
+	files := make([]MirrorFile, 0, len(entries))
+	for _, e := range entries {
+		files = append(files, MirrorFile{HostPath: e.HostPath, VMPath: e.VMPath})
+	}
+	return files
 }
 
 // hostFilesFromProvisioner walks the agent's provision rules against hostHome

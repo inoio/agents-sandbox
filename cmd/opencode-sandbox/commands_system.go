@@ -316,22 +316,34 @@ func buildConfigAgentCmd(ui termio.UI) *cobra.Command {
 				provision = r.ProvisionHostConfig()
 			}
 			hostHome, _ := os.UserHomeDir()
-			merged, sources, hostFiles, err := reprovision.Describe(a, hostHome, reprovision.VMHomeDir, ui, provision)
+			merged, sources, hostFiles, mirrorFiles, err := reprovision.Describe(
+				a,
+				hostHome,
+				reprovision.VMHomeDir,
+				ui,
+				provision,
+			)
 			if err != nil {
 				return err
 			}
 			ui.Outf("agent: %s", a.Name())
 			if len(sources) == 0 {
 				ui.Out("No snippet files found; no merged config is provisioned.")
-				return nil
+			} else {
+				ui.Out("merged files:")
+				for _, src := range sources {
+					ui.Outf("  %s", src)
+				}
+				ui.Out("merged agent config:")
+				for line := range strings.SplitSeq(string(merged), "\n") {
+					ui.Outf("  %s", line)
+				}
 			}
-			ui.Out("merged files:")
-			for _, src := range sources {
-				ui.Outf("  %s", src)
-			}
-			ui.Out("merged agent config:")
-			for line := range strings.SplitSeq(string(merged), "\n") {
-				ui.Outf("  %s", line)
+			if len(mirrorFiles) > 0 {
+				ui.Out("mirror files:")
+				for _, mf := range mirrorFiles {
+					ui.Outf("  %s  ->  %s", mf.HostPath, mf.VMPath)
+				}
 			}
 			ui.Outf("host files (drop-in, provision-host-config=%v):", provision)
 			for _, hf := range hostFiles {

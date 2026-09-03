@@ -639,8 +639,8 @@ func TestHostFilesFromProvisionerNoSnippets(t *testing.T) {
 	}
 }
 
-// TestDescribe verifies Describe returns the merged config, snippet sources and
-// the host drop-in files without touching a VM.
+// TestDescribe verifies Describe returns the merged config, snippet sources,
+// host drop-in files and mirror files without touching a VM.
 func TestDescribe(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	cp := configpaths.Get()
@@ -649,6 +649,7 @@ func TestDescribe(t *testing.T) {
 
 	a, _ := agent.Lookup("opencode")
 	testutil.WriteFile(t, cp.ProjectAgentConfigDir(a), "opencode-model.json", `{"model":"x"}`)
+	testutil.WriteFile(t, cp.ProjectAgentConfigDir(a), "tui.json", `{"theme":"dark"}`)
 	ocConfig := filepath.Join(hostHome, ".config", "opencode")
 	if err := os.MkdirAll(ocConfig, 0o755); err != nil {
 		t.Fatal(err)
@@ -656,7 +657,7 @@ func TestDescribe(t *testing.T) {
 	testutil.WriteFile(t, ocConfig, "opencode.json", `{"a":1}`)
 
 	ui := termio.NewTestMock(t)
-	merged, sources, hostFiles, err := Describe(a, hostHome, vmHome, &ui, true)
+	merged, sources, hostFiles, mirrorFiles, err := Describe(a, hostHome, vmHome, &ui, true)
 	if err != nil {
 		t.Fatalf("Describe: %v", err)
 	}
@@ -668,5 +669,14 @@ func TestDescribe(t *testing.T) {
 	}
 	if len(hostFiles) == 0 {
 		t.Error("Describe returned no host files")
+	}
+	wantMirror := MirrorFile{
+		HostPath: filepath.Join(cp.ProjectAgentConfigDir(a), "tui.json"),
+		VMPath:   filepath.Join(vmHome, ".config", "opencode", "tui.json"),
+	}
+	if !slices.ContainsFunc(mirrorFiles, func(mf MirrorFile) bool {
+		return mf.HostPath == wantMirror.HostPath && mf.VMPath == wantMirror.VMPath
+	}) {
+		t.Errorf("Describe mirror files = %+v, want to include %+v", mirrorFiles, wantMirror)
 	}
 }
