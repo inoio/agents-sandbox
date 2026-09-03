@@ -46,7 +46,7 @@ Arguments after `--` are forwarded to opencode. Arguments before `--` that don't
 | `--tmp-size`   | —     | `2G`     | Size of `/tmp` tmpfs in the sandbox. An invalid value is rejected with an error. |
 | `--workspace-quota` | — | `16G` | Guest-write quota for the `/workspace` bind mount (e.g. `32G`), bounding writes on top of the host repo. Applied at VM creation; a change triggers recreation. An invalid value is rejected with an error. |
 | `--dry-run-vm` | —     | `false`  | Skip VM lifecycle but prepare everything else                                                                                              |
-| `--serve-only` | `-s`  | `false`  | Start opencode server published on host loopback (no in-VM TUI); press `Ctrl-D` to exit. Set `OPENCODE_SERVER_PASSWORD` for basic auth. |
+| `--serve-only` | `-s`  | `false`  | Start opencode server published on host loopback at a dynamically allocated host port (no in-VM TUI); press `Ctrl-D` to exit. The printed `http://127.0.0.1:<port>` URL is authoritative — use it (rather than assuming a fixed port) to connect from clients like Opencode Desktop. Set `OPENCODE_SERVER_PASSWORD` for basic auth. |
 | `--agent`      | —     | `opencode` | Coding-agent profile to run: `opencode` (default), `opencode2`, `pi`, or `claude-code`.                                                                |
 | `--notify`     | —     | `off`     | Notify on session status: `on`, `off`, `desktop`, or `audio` (bare `--notify` = `on`). Overridable via `OPENCODE_SANDBOX_NOTIFY`. Only applies to daemon-based agents (opencode). |
 | `--dind`       | —     | `false`  | Enable Docker-in-Docker in the runner image                                                                                                |
@@ -133,10 +133,11 @@ opencode-sandbox stop -f     # stop and remove VM state
 
 **Flags:**
 
-| Flag        | Short | Default | Purpose                                     |
-|-------------|-------|---------|---------------------------------------------|
-| `--force`   | `-f`  | `false` | Remove VM's persisted state                 |
-| `--dry-run` | `-n`  | `false` | Show what would be stopped without stopping |
+| Flag        | Short | Default     | Purpose                                     |
+|-------------|-------|-------------|---------------------------------------------|
+| `--force`   | `-f`  | `false`     | Remove VM's persisted state                 |
+| `--dry-run` | `-n`  | `false`     | Show what would be stopped without stopping |
+| `--agent`   | —     | `opencode`  | Coding-agent profile to stop                |
 
 ---
 
@@ -153,10 +154,11 @@ opencode-sandbox kill -f     # kill and remove VM state
 
 **Flags:**
 
-| Flag        | Short | Default | Purpose                                   |
-|-------------|-------|---------|-------------------------------------------|
-| `--force`   | `-f`  | `false` | Remove VM's persisted state               |
-| `--dry-run` | `-n`  | `false` | Show what would be killed without killing |
+| Flag        | Short | Default     | Purpose                                   |
+|-------------|-------|-------------|-------------------------------------------|
+| `--force`   | `-f`  | `false`     | Remove VM's persisted state               |
+| `--dry-run` | `-n`  | `false`     | Show what would be killed without killing |
+| `--agent`   | —     | `opencode`  | Coding-agent profile to kill              |
 
 ---
 

@@ -20,11 +20,13 @@ published on the host, prints the URL for Opencode Desktop, and stays running
 opencode-sandbox run --serve-only
 ```
 
-Connect Opencode Desktop to the printed `http://127.0.0.1:4096` URL. The host
-port is bound only to the host loopback (never exposed on the LAN); the in-VM
-`opencode serve` daemon listens on all interfaces so the published port is
-reachable. To add basic auth, set `OPENCODE_SERVER_PASSWORD` (and optionally
-`OPENCODE_SERVER_USERNAME`) in the project or user env before starting.
+Connect Opencode Desktop to the printed `http://127.0.0.1:<port>` URL — the
+port is dynamically allocated, so always use the URL opencode-sandbox prints.
+The host port is bound only to the host loopback (never exposed on the LAN);
+the in-VM `opencode serve` daemon listens on all interfaces so the published
+port is reachable. To add basic auth, set `OPENCODE_SERVER_PASSWORD` (and
+optionally `OPENCODE_SERVER_USERNAME`) in the project or user env before
+starting.
 
 ## Why the project must live at `/workspace`
 

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"slices"
 	"strings"
 	"testing"
@@ -278,6 +279,87 @@ func TestStopKillGetSandboxError(t *testing.T) {
 				m.SetGetSandboxErr(errBoom)
 			})
 			assertErrContains(t, cmd.Execute(), tc.wantErr)
+		})
+	}
+}
+
+// TestStopCommandHasAgentFlag asserts the stop command exposes the --agent flag
+// defaulting to defaultAgentName.
+func TestStopCommandHasAgentFlag(t *testing.T) {
+	ui := &termio.Mock{}
+	root := buildRootCmd(ui)
+	cmd, _, err := root.Find([]string{cmdStop})
+	if err != nil {
+		t.Fatalf("stop command not found: %v", err)
+	}
+	flag := cmd.Flags().Lookup(flagAgent)
+	if flag == nil {
+		t.Fatal("stop command missing --agent flag")
+	}
+	if got := flag.DefValue; got != defaultAgentName {
+		t.Errorf("--agent default = %q, want %q", got, defaultAgentName)
+	}
+}
+
+// TestKillCommandHasAgentFlag asserts the kill command exposes the --agent flag
+// defaulting to defaultAgentName.
+func TestKillCommandHasAgentFlag(t *testing.T) {
+	ui := &termio.Mock{}
+	root := buildRootCmd(ui)
+	cmd, _, err := root.Find([]string{cmdKill})
+	if err != nil {
+		t.Fatalf("kill command not found: %v", err)
+	}
+	flag := cmd.Flags().Lookup(flagAgent)
+	if flag == nil {
+		t.Fatal("kill command missing --agent flag")
+	}
+	if got := flag.DefValue; got != defaultAgentName {
+		t.Errorf("--agent default = %q, want %q", got, defaultAgentName)
+	}
+}
+
+// TestStopKillAgentPassThrough asserts that --agent <name> is forwarded to the
+// StopProjectVM/KillProjectVM seam by capturing the VM name passed to
+// GetSandbox and checking the agent suffix.
+func TestStopKillAgentPassThrough(t *testing.T) {
+	for _, tc := range []struct {
+		cmd  string
+		flag string
+	}{
+		{cmdStop, "--agent"},
+		{cmdKill, "--agent"},
+	} {
+		for _, agentName := range []string{"pi", "opencode2"} {
+			t.Run(tc.cmd+" "+agentName, func(t *testing.T) {
+				initTestRepo(t)
+				cmd, _ := setupStopKillConfig(
+					t,
+					[]string{tc.cmd, tc.flag, agentName},
+					func(m *sandboxmsb.MockMsbClient) {
+						m.GetSandboxFn = func(_ context.Context, name string) (sandboxmsb.SandboxHandle, error) {
+							if !strings.HasSuffix(name, "-"+agentName) {
+								t.Errorf("GetSandbox name %q does not carry agent suffix %q", name, agentName)
+							}
+							return &sandboxmsb.MockSandboxHandle{}, nil
+						}
+					},
+				)
+				if err := cmd.Execute(); err != nil {
+					t.Fatalf("unexpected error: %v", err)
+				}
+			})
+		}
+	}
+}
+
+// TestStopKillUnknownAgent asserts that stop/kill reject an unknown --agent.
+func TestStopKillUnknownAgent(t *testing.T) {
+	for _, cmd := range []string{cmdStop, cmdKill} {
+		t.Run(cmd, func(t *testing.T) {
+			initTestRepo(t)
+			cmd, _ := setupStopKillConfig(t, []string{cmd, "--agent", "bogus"}, nil)
+			assertErrContains(t, cmd.Execute(), `unknown agent "bogus"`)
 		})
 	}
 }

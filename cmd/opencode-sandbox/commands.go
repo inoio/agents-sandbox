@@ -196,6 +196,11 @@ func resolveAgent(name string) (agent.Agent, error) {
 	return a, nil
 }
 
+// bindAgentFlag registers the shared --agent flag on the given command.
+func bindAgentFlag(cmd *cobra.Command) {
+	cmd.Flags().String(flagAgent, defaultAgentName, "Coding agent profile to run")
+}
+
 // resolveAgentFlag reads the --agent flag (defaulting to opencode) and returns
 // the matching agent, rejecting unknown names.
 func resolveAgentFlag(cmd *cobra.Command) (agent.Agent, error) {

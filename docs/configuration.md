@@ -441,9 +441,9 @@ echo $GITHUB_TOKEN
 
 ## Agent configuration
 
-opencode-sandbox is agent-aware. A `--agent <name>` flag on `run`, `build`, and the `volume` subcommands selects the
-coding-agent profile to run, build, and provision. The agent can also be selected via the `agent` config key or the
-`OPENCODE_SANDBOX_AGENT` environment variable. Four agents ship as built-in profiles:
+opencode-sandbox is agent-aware. A `--agent <name>` flag on `run`, `shell`, `build`, `volume`, `stop`, and `kill`
+selects the coding-agent profile to run, build, provision, or manage. The agent can also be selected via the `agent`
+config key or the `OPENCODE_SANDBOX_AGENT` environment variable. Four agents ship as built-in profiles:
 
 - **`opencode`** (default) — daemon-based, with serve/attach, worktree sessions, and GitHub-release upgrade checks.
 - **`opencode2`** — opencode 2 (beta), installed from `@opencode-ai/cli@beta` on npm; daemon-based with serve/attach,
@@ -459,6 +459,10 @@ Each agent owns its config directories, one subdir per agent under the tool's co
 
 - **User:** `~/.config/opencode-sandbox/<agent>/` (e.g. `~/.config/opencode-sandbox/opencode/`)
 - **Project:** `.opencode-sandbox/<agent>/` (e.g. `.opencode-sandbox/opencode/`)
+
+VMs, home volumes, and state are also scoped per agent: the VM name, home volume, and state file all carry the agent, so
+switching agents no longer tears down the project sandbox and multiple agents can serve the same project concurrently
+(see [Sandboxes]({% link sandboxes.md %}#vm-identity)).
 
 ### Config snippet merge
 

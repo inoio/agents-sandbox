@@ -10,6 +10,9 @@ command reports the bare version (e.g. `0.1.0`).
 
 ### Changed
 
+- Behavior: VMs, home volumes, and state are now scoped per agent (`--agent`): switching agents no longer tears down
+  the project sandbox, and opencode/opencode2 can serve concurrently. `stop`/`kill` accept `--agent`. Existing
+  per-project VMs/home volumes are abandoned (see docs/sandboxes.md).
 - Behavior: image prune now retains any msb image a kept VM still references, not just per-agent `-latest` tags. A
   stopped-not-yet-stale VM created before the per-agent tag redesign references its runner image by digest ref; pruning
   attempted to reclaim it, which failed in msb with a `FOREIGN KEY constraint failed` error.

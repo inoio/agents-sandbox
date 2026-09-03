@@ -45,9 +45,10 @@ Egress and ingress stay under your control with simple profiles and allow/deny l
 
 ## Agents
 
-opencode-sandbox is agent-aware. A `--agent <name>` flag on `run`, `build`, and the `volume` subcommands selects the
-coding-agent profile to run and provision; `--agent-version` pins the agent version baked into the runner image
-(replacing the older `--opencode-version`, which remains as a deprecated alias). Four agents ship as built-in profiles:
+opencode-sandbox is agent-aware. A `--agent <name>` flag on `run`, `shell`, `build`, `volume`, `stop`, and `kill`
+selects the coding-agent profile to run, provision, or manage; `--agent-version` pins the agent version baked into the
+runner image (replacing the older `--opencode-version`, which remains as a deprecated alias). Four agents ship as
+built-in profiles:
 
 - **`opencode`** (default) — a daemon-based agent with serve/attach, worktree sessions, and GitHub-release upgrade checks.
 - **`opencode2`** — opencode 2 (beta), installed from `@opencode-ai/cli@beta` on npm; daemon-based with serve/attach,

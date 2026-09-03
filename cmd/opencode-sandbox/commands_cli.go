@@ -263,9 +263,14 @@ func buildStopCmd(ui termio.UI) *cobra.Command {
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			force, _ := cmd.Flags().GetBool(flagForce)
 			dryRun, _ := cmd.Flags().GetBool(flagDryRun)
-			return sandbox.StopProjectVM(cmd.Context(), force, dryRun, ui, defaultAgentName)
+			a, err := resolveAgentFlag(cmd)
+			if err != nil {
+				return err
+			}
+			return sandbox.StopProjectVM(cmd.Context(), force, dryRun, ui, a.Name())
 		},
 	}
+	bindAgentFlag(cmd)
 	cmd.Flags().BoolP(flagForce, flagForce[:1], false, "Remove the VM's persisted state after stopping")
 	cmd.Flags().BoolP(flagDryRun, flagDryRunShort, false, "Show what would be stopped without stopping")
 	return cmd
@@ -282,9 +287,14 @@ func buildKillCmd(ui termio.UI) *cobra.Command {
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			force, _ := cmd.Flags().GetBool(flagForce)
 			dryRun, _ := cmd.Flags().GetBool(flagDryRun)
-			return sandbox.KillProjectVM(cmd.Context(), force, dryRun, ui, defaultAgentName)
+			a, err := resolveAgentFlag(cmd)
+			if err != nil {
+				return err
+			}
+			return sandbox.KillProjectVM(cmd.Context(), force, dryRun, ui, a.Name())
 		},
 	}
+	bindAgentFlag(cmd)
 	cmd.Flags().BoolP(flagForce, flagForce[:1], false, "Remove the VM's persisted state after killing")
 	cmd.Flags().BoolP(flagDryRun, flagDryRunShort, false, "Show what would be killed without killing")
 	return cmd

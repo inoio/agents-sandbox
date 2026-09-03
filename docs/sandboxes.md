@@ -29,25 +29,31 @@ Each opencode-sandbox invocation follows this lifecycle:
 
 ## VM Identity
 
-Each project gets a singular VM identified by the project slug (derived from the git remote URL):
+Each (project, agent) pair gets its own VM identified by the project slug and agent:
 
 ```
-opencode-sandbox-vm-<project-slug>
+opencode-sandbox-vm-<project-slug>-<agent>
 ```
 
 The project slug consists of the repository name and a hash of the repository host and full path. For example, a repo
 cloned from `git@github.com:inoio/myproject.git` gets:
 
 ```
-opencode-sandbox-vm-myproject-<hash>
+opencode-sandbox-vm-myproject-<hash>-opencode
 ```
 
 Where `<hash>` is the hash of `github.com:inoio/myproject` (username and extension removed). Every clone and linked
-worktree of the same remote shares the same project (and therefore the same VM, volume, and image names).
+worktree of the same remote shares the same project (and therefore the same VM, volume, and image names) for the same
+agent.
 
-The VM is **per-project/-directory, not per-invocation**. Subsequent runs connect to the existing VM (or start it if
+The VM is **per-(project, agent), not per-invocation**. Subsequent runs connect to the existing VM (or start it if
 stopped) rather than creating a new one. When the Docker image's Dockerfile has changed, the existing VM has to be
 recreated, but it keeps its name. The home volume is untouched, so no user state is lost (see [Volumes](#volumes)).
+
+VMs, home volumes, and state are scoped per `--agent`, so switching agents no longer tears down the project sandbox, and
+multiple agents (e.g. `opencode` and `opencode2`) can serve the same project concurrently. VMs created by earlier
+per-project versions (which did not carry an agent suffix) are abandoned rather than migrated — they are not picked up
+by the agent-scoped names, and are reclaimed by `prune`.
 
 ## Volumes
 
@@ -150,8 +156,8 @@ opencode-sandbox stop -f
 
 ## Concurrency
 
-Only one VM is created per project. Concurrent invocations of opencode-sandbox share the same VM — additional sessions
-connect to the existing VM rather than creating one.
+Only one VM is created per (project, agent). Concurrent invocations of opencode-sandbox share the same VM — additional
+sessions connect to the existing VM rather than creating one.
 
 A host-side file lock (`~/.local/state/opencode-sandbox/vm-ensure/<slug>.lock`) prevents race conditions during first
 boot creation.
