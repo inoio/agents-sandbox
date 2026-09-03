@@ -28,6 +28,9 @@ func TestMockDockerClientDefaults(t *testing.T) {
 	if _, err := m.ImageRemove(ctx, "ref", client.ImageRemoveOptions{}); err != nil {
 		t.Errorf("ImageRemove default error = %v, want nil", err)
 	}
+	if _, err := m.ImagePull(ctx, "ref", client.ImagePullOptions{}); err != nil {
+		t.Errorf("ImagePull default error = %v, want nil", err)
+	}
 	if _, err := m.ImageTag(ctx, client.ImageTagOptions{}); err != nil {
 		t.Errorf("ImageTag default error = %v, want nil", err)
 	}
@@ -58,6 +61,9 @@ func TestMockDockerClientFns(t *testing.T) {
 		ImageRemoveFn: func(context.Context, string, client.ImageRemoveOptions) (client.ImageRemoveResult, error) {
 			return client.ImageRemoveResult{}, wantErr
 		},
+		ImagePullFn: func(context.Context, string, client.ImagePullOptions) (io.ReadCloser, error) {
+			return nil, wantErr
+		},
 		ImageTagFn: func(context.Context, client.ImageTagOptions) (client.ImageTagResult, error) {
 			return client.ImageTagResult{}, wantErr
 		},
@@ -80,6 +86,9 @@ func TestMockDockerClientFns(t *testing.T) {
 	}
 	if _, err := m.ImageRemove(ctx, "ref", client.ImageRemoveOptions{}); !errors.Is(err, wantErr) {
 		t.Errorf("ImageRemove err = %v, want %v", err, wantErr)
+	}
+	if _, err := m.ImagePull(ctx, "ref", client.ImagePullOptions{}); !errors.Is(err, wantErr) {
+		t.Errorf("ImagePull err = %v, want %v", err, wantErr)
 	}
 	if _, err := m.ImageTag(ctx, client.ImageTagOptions{}); !errors.Is(err, wantErr) {
 		t.Errorf("ImageTag err = %v, want %v", err, wantErr)
@@ -109,6 +118,10 @@ func TestNewErrorDockerClient(t *testing.T) {
 	if _, err := m.ImageRemove(ctx, "ref", client.ImageRemoveOptions{}); err == nil {
 		t.Error("ImageRemove should error")
 	}
+	// ImagePull always uses the default error in the error mock.
+	if _, err := m.ImagePull(ctx, "ref", client.ImagePullOptions{}); err == nil {
+		t.Error("ImagePull should error")
+	}
 	// ImageTagFn is intentionally nil in the error mock, so ImageTag succeeds
 	// via the default branch.
 	if _, err := m.ImageTag(ctx, client.ImageTagOptions{}); err != nil {
@@ -133,6 +146,37 @@ func TestNewErrorDockerClientCustomErrors(t *testing.T) {
 	}
 	if _, err := m.ImageInspect(ctx, "ref"); errors.Is(err, custom) {
 		t.Error("ImageInspect should not use the build override")
+	}
+}
+
+// TestNewErrorDockerClientAllOverrides verifies that each per-method error
+// override branch is honored, so the default daemon error is never returned
+// when a custom error is supplied for that method.
+func TestNewErrorDockerClientAllOverrides(t *testing.T) {
+	ctx := context.Background()
+	overrides := map[string]error{
+		"build":   errors.New("build custom"),
+		"inspect": errors.New("inspect custom"),
+		"save":    errors.New("save custom"),
+		"remove":  errors.New("remove custom"),
+	}
+	m := newErrorDockerClient(mockErrors{
+		buildErr:   overrides["build"],
+		inspectErr: overrides["inspect"],
+		saveErr:    overrides["save"],
+		removeErr:  overrides["remove"],
+	})
+
+	checks := map[string]func() error{
+		"build":   func() error { _, err := m.ImageBuild(ctx, nil, client.ImageBuildOptions{}); return err },
+		"inspect": func() error { _, err := m.ImageInspect(ctx, "ref"); return err },
+		"save":    func() error { _, err := m.ImageSave(ctx, nil); return err },
+		"remove":  func() error { _, err := m.ImageRemove(ctx, "ref", client.ImageRemoveOptions{}); return err },
+	}
+	for name, want := range overrides {
+		if err := checks[name](); !errors.Is(err, want) {
+			t.Errorf("%s err = %v, want %v", name, err, want)
+		}
 	}
 }
 
@@ -169,6 +213,7 @@ func TestFailFastDockerClientPanics(t *testing.T) {
 		{"ImageBuild", func() { _, _ = f.ImageBuild(ctx, nil, client.ImageBuildOptions{}) }},
 		{"ImageInspect", func() { _, _ = f.ImageInspect(ctx, "ref") }},
 		{"ImageSave", func() { _, _ = f.ImageSave(ctx, nil) }},
+		{"ImagePull", func() { _, _ = f.ImagePull(ctx, "ref", client.ImagePullOptions{}) }},
 		{"ImageRemove", func() { _, _ = f.ImageRemove(ctx, "ref", client.ImageRemoveOptions{}) }},
 		{"ImageTag", func() { _, _ = f.ImageTag(ctx, client.ImageTagOptions{}) }},
 		{"ImagePrune", func() { _, _ = f.ImagePrune(ctx, client.ImagePruneOptions{}) }},

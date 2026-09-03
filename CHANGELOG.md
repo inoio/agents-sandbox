@@ -10,6 +10,9 @@ command reports the bare version (e.g. `0.1.0`).
 
 ### Changed
 
+- Docs: `docs/configuration.md` now documents the `notify:` config block (desktop/audio channels and on-input/on-done/on-error
+  triggers) in the configuration table, the environment-variable table (`OPENCODE_SANDBOX_NOTIFY`), and a new
+  [Notifications](#notifications) section.
 - Behavior: `OPENCODE_EXPERIMENTAL_WORKSPACES=true` is now baked into the runner image via the opencode agent profile
   (instead of being set at VM creation), so it is included in the image's own env set. The serve-only prompt now reads
   "Connect a client to: ...", and dry-run/daemon messages name the active agent rather than opencode.

@@ -208,6 +208,28 @@ func TestAcquireClientLease_MkdirFailure(t *testing.T) {
 	}
 }
 
+func TestAcquireClientLease_OpenFileFailure(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("cannot simulate an unwritable dir as root")
+	}
+	configpaths.WithMockConfigPaths(t)
+	slug := "roproj-a"
+
+	clientsDir := filepath.Join(stateRoot(), slug, "clients")
+	if err := os.MkdirAll(clientsDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	// Make the clients dir read-only so the lock file cannot be created.
+	if err := os.Chmod(clientsDir, 0o500); err != nil {
+		t.Fatal(err)
+	}
+	defer os.Chmod(clientsDir, 0o700)
+
+	if _, err := AcquireClientLease(slug); err == nil {
+		t.Fatal("expected error when the lock file cannot be opened")
+	}
+}
+
 func TestAcquireClientLease_MultipleFromSameProcess(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 

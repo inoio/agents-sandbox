@@ -91,6 +91,11 @@ Configuration is resolved in this order (later entries override earlier ones):
 | `dind`                          | `--dind`                 | Append the Docker-in-Docker block to the runner image (overridable with `--dind`)                                                                                                                                             |
 | `upgrade.mode`                   | —                        | How to handle a newer release when one is found: `prompt`, `notify`, `auto`, or `auto-exit` (default `prompt`, see [Self-upgrade](#self-upgrade))                                                            |
 | `upgrade.interval`               | —                        | How often to check for a newer release (default `1d`, minimum `1h`, see [Self-upgrade](#self-upgrade))                                                                                                                        |
+| `notify.desktop`                 | —                        | Show desktop notifications via `notify-send` (Linux) / `osascript` (macOS) (default false, see [Notifications](#notifications))                                                                                                |
+| `notify.audio`                   | —                        | Audio notification channel: `system`, `bell`, or `off` (default `off`, see [Notifications](#notifications))                                                                                                                  |
+| `notify.on-input`                | —                        | Notify when the agent is waiting on user input (default false)                                                                                                                                                               |
+| `notify.on-done`                 | —                        | Notify when a `busy` session returns to `idle` (default false)                                                                                                                                                               |
+| `notify.on-error`                | —                        | Notify on a `session.error` event (default false)                                                                                                                                                                            |
 
 Example `~/.config/opencode-sandbox/config.yaml`:
 
@@ -200,9 +205,42 @@ precedence over config files but lose to an explicitly passed CLI flag. The pref
 | `dind`                          | `OPENCODE_SANDBOX_DIND`                                           |
 | `upgrade.mode`                   | `OPENCODE_SANDBOX_UPGRADE_MODE`                                    |
 | `upgrade.interval`               | `OPENCODE_SANDBOX_UPGRADE_INTERVAL`                                |
+| `notify` (override)              | `OPENCODE_SANDBOX_NOTIFY`                                          |
 
 Action toggles (`--rebuild`, `--dry-run`, `--force`, ...) are CLI-only and cannot be set via
 config file or env var.
+
+## Notifications
+
+opencode-sandbox can alert you when the opencode session status changes (input needed, done, error) via desktop and/or
+audio notifications. Only daemon-based agents with an event stream support this; for interactive agents (e.g. `pi`,
+`claude-code`) the notify config is ignored.
+
+The `notify:` block controls the channels and the triggers:
+
+| Field             | Type    | Description                                                                                              |
+|-------------------|---------|----------------------------------------------------------------------------------------------------------|
+| `desktop`         | boolean | Show a desktop notification (`notify-send` on Linux, `osascript` on macOS). Default `false`.             |
+| `audio`           | string  | Audio channel: `system` (bundled sound via `afplay`/`paplay`/`pw-play`/`aplay`), `bell` (terminal BEL), or `off`. Default `off`. |
+| `on-input`        | boolean | Notify when the agent is waiting on user input. Default `false`.                                         |
+| `on-done`         | boolean | Notify when a `busy` session returns to `idle`. Default `false`.                                         |
+| `on-error`        | boolean | Notify on a `session.error` event. Default `false`.                                                      |
+
+Notifications are inactive unless at least one channel is enabled (`desktop` true or `audio` not `off`). When inactive,
+the `on-input`/`on-done`/`on-error` trigger toggles have no effect.
+
+```yaml
+notify:
+  desktop: true      # notify-send (Linux) / osascript (macOS)
+  audio: system      # system | bell | off
+  on-input: true     # agent waiting on input
+  on-done: true      # busy -> idle
+  on-error: true     # session.error
+```
+
+The whole thing can be overridden with the `--notify` flag (`on`, `off`, `desktop`, or `audio`; bare `--notify` = `on`)
+or the `OPENCODE_SANDBOX_NOTIFY` environment variable. The override sets the **channels only**; it leaves the
+`on-input`/`on-done`/`on-error` trigger toggles from the config file unchanged. Precedence: **flag > env > config**.
 
 ## Networking
 
