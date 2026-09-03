@@ -36,11 +36,17 @@ var prepareSandbox = func(ctx context.Context, opts options.RunOptions, ui termi
 var notifyWatch = notify.Watch
 
 // startNotifyWatcher launches the notify watcher in a goroutine and returns a
-// stop function. It is a no-op when notifications are inactive or the sandbox
-// is nil (dry-run). The watcher runs until the session ctx is done or stop is
-// called, whichever comes first.
-func startNotifyWatcher(ctx context.Context, sb msb.Sandbox, cfg notify.Config, ui termio.UI) func() {
-	if sb == nil || !cfg.Active() {
+// stop function. It is a no-op when notifications are inactive, the sandbox is
+// nil (dry-run), or the agent provides no EventStreamSpec. The watcher runs
+// until the session ctx is done or stop is called, whichever comes first.
+func startNotifyWatcher(
+	ctx context.Context,
+	sb msb.Sandbox,
+	cfg notify.Config,
+	ui termio.UI,
+	spec *agent.EventStreamSpec,
+) func() {
+	if sb == nil || !cfg.Active() || spec == nil {
 		return func() {}
 	}
 	backend := notify.NewBackend(cfg, ui)
@@ -48,7 +54,7 @@ func startNotifyWatcher(ctx context.Context, sb msb.Sandbox, cfg notify.Config, 
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		if err := notifyWatch(watchCtx, sb, backend); err != nil {
+		if err := notifyWatch(watchCtx, sb, *spec, backend); err != nil {
 			ui.Verbosef("notify watcher stopped: %v", err)
 		}
 	}()
@@ -110,7 +116,13 @@ func Run(ctx context.Context, opts options.RunOptions, ui termio.UI) error {
 		return nil
 	}
 
-	stopNotify := startNotifyWatcher(ctx, sb, opts.Notify, ui)
+	a, _ := agent.Lookup(opts.Agent)
+	var streamSpec *agent.EventStreamSpec
+	if provider, ok := agent.AsEventStreamProvider(a); ok {
+		eventStream := provider.EventStream()
+		streamSpec = &eventStream
+	}
+	stopNotify := startNotifyWatcher(ctx, sb, opts.Notify, ui, streamSpec)
 	defer stopNotify()
 
 	projectSlug := git.ProjectSlug()
@@ -132,14 +144,12 @@ func Run(ctx context.Context, opts options.RunOptions, ui termio.UI) error {
 			release()
 			release = nil
 		}
-		a, _ := agent.Lookup(opts.Agent)
 		if err := reapOnLastClient(ctx, projectSlug, a, sb, opts.ReapPolicy, ui); err != nil {
 			ui.Warnf("reap failed: %v", err)
 		}
 		return &sandbox.ExitError{Code: 0}
 	}
 
-	a, _ := agent.Lookup(opts.Agent)
 	setup := buildAttachCommand(a, ses.Target(), opts.Args)
 	ui.Verbosef("%s", setup)
 	// Run as a login shell so /etc/profile and ~/.profile are sourced,

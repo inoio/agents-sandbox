@@ -67,7 +67,7 @@ func TestWatchDrivesBackend(t *testing.T) {
 	defer cancel()
 
 	done := make(chan error, 1)
-	go func() { done <- Watch(ctx, sb, backend) }()
+	go func() { done <- Watch(ctx, sb, opencodeSpec(), backend) }()
 
 	// Wait for the done notification, then stop the watcher.
 	deadline := time.Now().Add(2 * time.Second)
@@ -98,11 +98,12 @@ func TestWatchReconnectsOnStreamExit(t *testing.T) {
 
 	var attempts atomic.Int32
 	secondAttempt := make(chan struct{})
+	spec := opencodeSpec()
 	sb := msb.NewMockSandbox(msb.SandboxOpts{})
 	sb.(*msb.MockSandbox).ShellStreamFn = func(command string) (msb.StreamHandle, error) {
 		n := attempts.Add(1)
-		if command != StreamCommand {
-			t.Errorf("ShellStream command = %q, want %q", command, StreamCommand)
+		if command != spec.StreamCommand {
+			t.Errorf("ShellStream command = %q, want %q", command, spec.StreamCommand)
 		}
 		var events []msb.StreamEvent
 		if n == 1 {
@@ -125,7 +126,7 @@ func TestWatchReconnectsOnStreamExit(t *testing.T) {
 		<-secondAttempt
 		cancel()
 	}()
-	if err := Watch(ctx, sb, backend); err != nil {
+	if err := Watch(ctx, sb, spec, backend); err != nil {
 		t.Fatalf("Watch() error = %v", err)
 	}
 	if attempts.Load() < 2 {

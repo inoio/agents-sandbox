@@ -154,7 +154,7 @@ func bell() {
 }
 
 func writeTempWAV() (string, error) {
-	f, err := os.CreateTemp("", "opencode-notify-*.wav")
+	f, err := os.CreateTemp("", "agent-notify-*.wav")
 	if err != nil {
 		return "", err
 	}

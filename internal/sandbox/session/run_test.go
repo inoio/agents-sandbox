@@ -488,7 +488,7 @@ func TestRunStartsNotifyWatcher(t *testing.T) {
 	origWatch := notifyWatch
 	defer func() { notifyWatch = origWatch }()
 	started := make(chan struct{})
-	notifyWatch = func(context.Context, msb.Sandbox, notify.Backend) error {
+	notifyWatch = func(_ context.Context, _ msb.Sandbox, _ agent.EventStreamSpec, _ notify.Backend) error {
 		close(started)
 		return nil
 	}
@@ -522,7 +522,7 @@ func TestRunDoesNotStartNotifyWatcherWhenInactive(t *testing.T) {
 	origWatch := notifyWatch
 	defer func() { notifyWatch = origWatch }()
 	called := false
-	notifyWatch = func(context.Context, msb.Sandbox, notify.Backend) error {
+	notifyWatch = func(_ context.Context, _ msb.Sandbox, _ agent.EventStreamSpec, _ notify.Backend) error {
 		called = true
 		return nil
 	}
@@ -535,5 +535,88 @@ func TestRunDoesNotStartNotifyWatcherWhenInactive(t *testing.T) {
 	}
 	if called {
 		t.Error("notify watcher should not start when notify config is inactive")
+	}
+}
+
+func TestStartNotifyWatcherNoOpWithoutSpec(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	ui := &termio.Mock{}
+	origWatch := notifyWatch
+	defer func() { notifyWatch = origWatch }()
+	called := false
+	notifyWatch = func(_ context.Context, _ msb.Sandbox, _ agent.EventStreamSpec, _ notify.Backend) error {
+		called = true
+		return nil
+	}
+
+	stop := startNotifyWatcher(context.Background(), msb.NewMockSandbox(msb.SandboxOpts{}),
+		notify.Config{Desktop: true, Audio: notify.AudioOff, OnInput: true, OnDone: true, OnError: true}, ui, nil)
+	stop()
+	if called {
+		t.Error("startNotifyWatcher should be a no-op without an EventStreamSpec")
+	}
+}
+
+func TestStartNotifyWatcherUsesSpec(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	ui := &termio.Mock{}
+	origWatch := notifyWatch
+	defer func() { notifyWatch = origWatch }()
+	got := make(chan agent.EventStreamSpec, 1)
+	notifyWatch = func(_ context.Context, _ msb.Sandbox, spec agent.EventStreamSpec, _ notify.Backend) error {
+		got <- spec
+		return nil
+	}
+	spec := agent.EventStreamSpec{
+		StreamCommand: "curl -N -s http://127.0.0.1:9999/events",
+		BusyEvents:    []string{"busy.evt"},
+		AwaitingInput: []string{"ask.evt"},
+		IdleEvents:    []string{"idle.evt"},
+		ErrorEvents:   []string{"fail.evt"},
+		Name:          "pi",
+	}
+	stop := startNotifyWatcher(context.Background(), msb.NewMockSandbox(msb.SandboxOpts{}),
+		notify.Config{Desktop: true, Audio: notify.AudioOff, OnInput: true, OnDone: true, OnError: true}, ui, &spec)
+	defer stop()
+	select {
+	case received := <-got:
+		if received.StreamCommand != spec.StreamCommand || received.Name != spec.Name {
+			t.Errorf("notifyWatch spec = %+v, want %+v", received, spec)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("notifyWatch was not called")
+	}
+}
+
+func TestRunDoesNotStartNotifyWatcherWithoutEventStreamProvider(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	ui := &termio.Mock{}
+	origPrepare := prepareSandbox
+	prepareSandbox = func(context.Context, options.RunOptions, termio.UI) (preparedSandbox, error) {
+		return &fakePrepared{sb: msb.NewMockSandbox(msb.SandboxOpts{AttachCode: 0})}, nil
+	}
+	defer func() { prepareSandbox = origPrepare }()
+
+	origWatch := notifyWatch
+	defer func() { notifyWatch = origWatch }()
+	called := false
+	notifyWatch = func(_ context.Context, _ msb.Sandbox, _ agent.EventStreamSpec, _ notify.Backend) error {
+		called = true
+		return nil
+	}
+
+	err := Run(context.Background(), options.RunOptions{
+		Agent:      "pi",
+		ReapPolicy: options.NewReapPolicy(true, 5),
+		Notify: notify.Config{
+			Desktop: true, Audio: notify.AudioOff,
+			OnInput: true, OnDone: true, OnError: true,
+		},
+	}, ui)
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if called {
+		t.Error("notify watcher should not start for an agent without EventStreamProvider")
 	}
 }

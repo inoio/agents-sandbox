@@ -10,14 +10,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/inoio/opencode-sandbox/internal/agent"
 	"github.com/inoio/opencode-sandbox/internal/sandbox/msb"
 )
-
-// SSEEURL is the in-VM opencode SSE endpoint the watcher subscribes to.
-const SSEEURL = "http://127.0.0.1:4096/global/event"
-
-// StreamCommand runs in the VM and streams SSE events to the host.
-const StreamCommand = "curl -N -s " + SSEEURL
 
 // maxStreamAttempts caps how many times Watch reconnects before giving up.
 const maxStreamAttempts = 10
@@ -31,15 +26,15 @@ var watchBackoff = time.Second
 // Watch relays the in-VM SSE stream to the tracker and backend. When the
 // stream drops (exits, connection reset) it reconnects with a bounded number
 // of attempts and a growing backoff, until ctx is cancelled or the cap is hit.
-func Watch(ctx context.Context, sb msb.Sandbox, sink Backend) error {
+func Watch(ctx context.Context, sb msb.Sandbox, spec agent.EventStreamSpec, sink Backend) error {
 	if sink == nil {
 		return nil
 	}
-	tracker := NewTracker()
+	tracker := NewTracker(spec)
 	var err error
 loop:
 	for attempt := 1; ; attempt++ {
-		dropped := watchOnce(ctx, sb, tracker, sink)
+		dropped := watchOnce(ctx, sb, tracker, sink, spec.StreamCommand)
 		switch {
 		case ctx.Err() != nil:
 			break loop
@@ -60,8 +55,8 @@ loop:
 // is cancelled. It reports whether the stream dropped (vs ctx ending). SSE
 // events are blocks of `event:`/`data:` lines separated by blank lines, so
 // lines are accumulated and parsed one block at a time.
-func watchOnce(ctx context.Context, sb msb.Sandbox, tracker *Tracker, sink Backend) bool {
-	handle, err := sb.ShellStream(ctx, StreamCommand)
+func watchOnce(ctx context.Context, sb msb.Sandbox, tracker *Tracker, sink Backend, streamCommand string) bool {
+	handle, err := sb.ShellStream(ctx, streamCommand)
 	if err != nil {
 		return true
 	}
