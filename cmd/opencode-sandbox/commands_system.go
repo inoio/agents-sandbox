@@ -295,9 +295,11 @@ func buildConfigCmd(ui termio.UI) *cobra.Command {
 }
 
 // buildConfigAgentCmd returns the config agent subcommand, which prints the
-// agent's merged snippet config and the host drop-in files that provisioning
-// would copy into the VM.
-func buildConfigAgentCmd(ui termio.UI) *cobra.Command {
+// agent's merged snippet config, the host drop-in files, and the verbatim
+// mirror files that provisioning would copy into the VM.
+func buildConfigAgentCmd( //nolint:gocognit // plan-mandated config agent output restructure
+	ui termio.UI,
+) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   cmdAgent,
 		Args:  cobra.MaximumNArgs(1),
