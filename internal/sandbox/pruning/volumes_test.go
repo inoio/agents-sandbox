@@ -29,7 +29,11 @@ func TestPruneVolumes(t *testing.T) {
 			},
 		}
 		msb.WithMsbMock(t, client)
-		stateMap := PruneState{ToPrune: map[string]msb.SandboxHandle{"stale-1mjusbm3wikhb0": &msb.MockSandboxHandle{}}}
+		stateMap := PruneState{
+			ToPrune: map[state.Key]msb.SandboxHandle{
+				{Slug: "stale-1mjusbm3wikhb0", Agent: ""}: &msb.MockSandboxHandle{},
+			},
+		}
 		ui := &termio.Mock{}
 		r, err := PruneVolumes(context.Background(), stateMap, false, ui)
 		if err != nil {
@@ -57,7 +61,9 @@ func TestPruneVolumes(t *testing.T) {
 			Volumes: []msb.VolumeHandle{home("opencode-sandbox-home-stale-1mjusbm3wikhb0-20260806T143022")},
 		}
 		msb.WithMsbMock(t, client)
-		stateMap := PruneState{ToPrune: map[string]msb.SandboxHandle{slug: &msb.MockSandboxHandle{}}}
+		stateMap := PruneState{
+			ToPrune: map[state.Key]msb.SandboxHandle{{Slug: slug, Agent: ""}: &msb.MockSandboxHandle{}},
+		}
 		ui := &termio.Mock{}
 		if _, err := PruneVolumes(context.Background(), stateMap, false, ui); err != nil {
 			t.Fatalf("PruneVolumes: %v", err)
@@ -89,7 +95,9 @@ func TestPruneVolumes(t *testing.T) {
 			},
 		}
 		msb.WithMsbMock(t, client)
-		stateMap := PruneState{ToPrune: map[string]msb.SandboxHandle{slug: &msb.MockSandboxHandle{}}}
+		stateMap := PruneState{
+			ToPrune: map[state.Key]msb.SandboxHandle{{Slug: slug, Agent: ""}: &msb.MockSandboxHandle{}},
+		}
 		ui := &termio.Mock{}
 		if _, err := PruneVolumes(context.Background(), stateMap, false, ui); err != nil {
 			t.Fatalf("PruneVolumes: %v", err)
@@ -105,7 +113,11 @@ func TestPruneVolumes(t *testing.T) {
 			Volumes: []msb.VolumeHandle{home("opencode-sandbox-home-stale-1mjusbm3wikhb0-20260806T143022")},
 		}
 		msb.WithMsbMock(t, client)
-		stateMap := PruneState{ToPrune: map[string]msb.SandboxHandle{"stale-1mjusbm3wikhb0": &msb.MockSandboxHandle{}}}
+		stateMap := PruneState{
+			ToPrune: map[state.Key]msb.SandboxHandle{
+				{Slug: "stale-1mjusbm3wikhb0", Agent: ""}: &msb.MockSandboxHandle{},
+			},
+		}
 		ui := &termio.Mock{}
 		r, err := PruneVolumes(context.Background(), stateMap, true, ui)
 		if err != nil {
@@ -161,7 +173,7 @@ func TestPruneVolumes(t *testing.T) {
 		ui := &termio.Mock{}
 		r, err := PruneVolumes(
 			context.Background(),
-			PruneState{ToPrune: map[string]msb.SandboxHandle{"": &msb.MockSandboxHandle{}}},
+			PruneState{ToPrune: map[state.Key]msb.SandboxHandle{{Slug: "", Agent: ""}: &msb.MockSandboxHandle{}}},
 			false,
 			ui,
 		)

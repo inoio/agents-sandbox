@@ -12,6 +12,7 @@ import (
 	"github.com/inoio/opencode-sandbox/internal/configpaths"
 	"github.com/inoio/opencode-sandbox/internal/sandbox/docker"
 	"github.com/inoio/opencode-sandbox/internal/sandbox/msb"
+	"github.com/inoio/opencode-sandbox/internal/sandbox/state"
 	"github.com/inoio/opencode-sandbox/internal/termio"
 )
 
@@ -24,7 +25,9 @@ func TestPruneImages(t *testing.T) {
 		return &msb.MockImageHandle{Reference_: ref, CreatedAt_: createdAt}
 	}
 	live := func(slug string) PruneState {
-		return PruneState{ToKeep: map[string]msb.SandboxHandle{slug: &msb.MockSandboxHandle{}}}
+		return PruneState{
+			ToKeep: map[state.Key]msb.SandboxHandle{{Slug: slug, Agent: "opencode"}: &msb.MockSandboxHandle{}},
+		}
 	}
 
 	t.Run("prunes VM-less slug and older surplus of a kept slug", func(t *testing.T) {
@@ -39,7 +42,9 @@ func TestPruneImages(t *testing.T) {
 		msb.WithMsbMock(t, client)
 		docker.WithNoopDockerMock(t)
 		ps := live("active-1mjusbm3wikhb0")
-		ps.ToPrune = map[string]msb.SandboxHandle{"orphan-1mjusbm3wikhb0": &msb.MockSandboxHandle{}}
+		ps.ToPrune = map[state.Key]msb.SandboxHandle{
+			{Slug: "orphan-1mjusbm3wikhb0", Agent: ""}: &msb.MockSandboxHandle{},
+		}
 		ui := &termio.Mock{}
 		r, err := PruneImages(context.Background(), ps, false, ui)
 		if err != nil {
@@ -62,7 +67,11 @@ func TestPruneImages(t *testing.T) {
 		}
 		msb.WithMsbMock(t, client)
 		docker.WithNoopDockerMock(t)
-		ps := PruneState{ToPrune: map[string]msb.SandboxHandle{"orphan-1mjusbm3wikhb0": &msb.MockSandboxHandle{}}}
+		ps := PruneState{
+			ToPrune: map[state.Key]msb.SandboxHandle{
+				{Slug: "orphan-1mjusbm3wikhb0", Agent: ""}: &msb.MockSandboxHandle{},
+			},
+		}
 		ui := &termio.Mock{}
 		r, err := PruneImages(context.Background(), ps, true, ui)
 		if err != nil {
@@ -88,7 +97,11 @@ func TestPruneImages(t *testing.T) {
 		msb.WithMsbMock(t, client)
 		docker.WithNoopDockerMock(t)
 		ui := &termio.Mock{}
-		r, err := PruneImages(context.Background(), live("active-1mjusbm3wikhb0"), false, ui)
+		ps := PruneState{ToKeep: map[state.Key]msb.SandboxHandle{
+			{Slug: "active-1mjusbm3wikhb0", Agent: "opencode"}: &msb.MockSandboxHandle{},
+			{Slug: "active-1mjusbm3wikhb0", Agent: "pi"}:       &msb.MockSandboxHandle{},
+		}}
+		r, err := PruneImages(context.Background(), ps, false, ui)
 		if err != nil {
 			t.Fatalf("PruneImages: %v", err)
 		}
@@ -154,9 +167,9 @@ func TestPruneImages(t *testing.T) {
 		msb.WithMsbMock(t, client)
 		docker.WithNoopDockerMock(t)
 		ui := &termio.Mock{}
-		r, err := PruneImages(context.Background(), PruneState{ToPrune: map[string]msb.SandboxHandle{
-			"fail-1mjusbm3wikhb0": &msb.MockSandboxHandle{},
-			"ok-1mjusbm3wikhb0":   &msb.MockSandboxHandle{},
+		r, err := PruneImages(context.Background(), PruneState{ToPrune: map[state.Key]msb.SandboxHandle{
+			{Slug: "fail-1mjusbm3wikhb0", Agent: ""}: &msb.MockSandboxHandle{},
+			{Slug: "ok-1mjusbm3wikhb0", Agent: ""}:   &msb.MockSandboxHandle{},
 		}}, false, ui)
 		if err != nil {
 			t.Fatalf("PruneImages: %v", err)
@@ -192,6 +205,26 @@ func TestPruneImages(t *testing.T) {
 	})
 }
 
+// TestKeepImagePerAgent verifies that image retention is keyed per (slug, agent).
+func TestKeepImagePerAgent(t *testing.T) {
+	// The per-agent "-latest" tag for a kept (slug, opencode) is kept, while the
+	// same project's pi tag is not retained when pi has no kept VM.
+	pruneState := PruneState{
+		ToKeep: map[state.Key]msb.SandboxHandle{
+			{Slug: "proj-1mjusbm3wikhb0", Agent: "opencode"}: &msb.MockSandboxHandle{Name_: "v"},
+		},
+		ToPrune: map[state.Key]msb.SandboxHandle{},
+	}
+	oc := &msb.MockImageHandle{Reference_: "opencode-sandbox/runner-proj-1mjusbm3wikhb0:opencode-latest"}
+	if !keepImage(oc, pruneState, nil) {
+		t.Error("expected opencode-latest to be kept")
+	}
+	pi := &msb.MockImageHandle{Reference_: "opencode-sandbox/runner-proj-1mjusbm3wikhb0:pi-latest"}
+	if keepImage(pi, pruneState, nil) {
+		t.Error("expected pi-latest to be pruned (no kept pi VM)")
+	}
+}
+
 // TestPruneImagesKeepsPerAgentTagsOfLiveSlug verifies that a live slug keeps
 // exactly its per-agent "-latest" refs and reclaims every other (digest) ref.
 func TestPruneImagesKeepsPerAgentTagsOfLiveSlug(t *testing.T) {
@@ -218,7 +251,10 @@ func TestPruneImagesKeepsPerAgentTagsOfLiveSlug(t *testing.T) {
 	msb.WithMsbMock(t, client)
 	docker.WithNoopDockerMock(t)
 	ui := &termio.Mock{}
-	ps := PruneState{ToKeep: map[string]msb.SandboxHandle{"active-1mjusbm3wikhb0": &msb.MockSandboxHandle{}}}
+	ps := PruneState{ToKeep: map[state.Key]msb.SandboxHandle{
+		{Slug: "active-1mjusbm3wikhb0", Agent: "opencode"}: &msb.MockSandboxHandle{},
+		{Slug: "active-1mjusbm3wikhb0", Agent: "pi"}:       &msb.MockSandboxHandle{},
+	}}
 	r, err := PruneImages(context.Background(), ps, false, ui)
 	if err != nil {
 		t.Fatalf("PruneImages: %v", err)
@@ -265,7 +301,10 @@ func TestPruneImagesPreservesFreshSurplus(t *testing.T) {
 	msb.WithMsbMock(t, client)
 	docker.WithNoopDockerMock(t)
 	ui := &termio.Mock{}
-	ps := PruneState{ToKeep: map[string]msb.SandboxHandle{"active-1mjusbm3wikhb0": &msb.MockSandboxHandle{}}}
+	ps := PruneState{ToKeep: map[state.Key]msb.SandboxHandle{
+		{Slug: "active-1mjusbm3wikhb0", Agent: "opencode"}: &msb.MockSandboxHandle{},
+		{Slug: "active-1mjusbm3wikhb0", Agent: "pi"}:       &msb.MockSandboxHandle{},
+	}}
 	r, err := PruneImages(context.Background(), ps, false, ui)
 	if err != nil {
 		t.Fatalf("PruneImages: %v", err)
@@ -329,8 +368,8 @@ func TestPruneImagesKeepsImageReferencedByKeptVM(t *testing.T) {
 	docker.WithNoopDockerMock(t)
 	ui := &termio.Mock{}
 	ps := PruneState{
-		ToKeep: map[string]msb.SandboxHandle{
-			"proj-1mjusbm3wikhb0": &msb.MockSandboxHandle{
+		ToKeep: map[state.Key]msb.SandboxHandle{
+			{Slug: "proj-1mjusbm3wikhb0", Agent: ""}: &msb.MockSandboxHandle{
 				Name_:   "opencode-sandbox-vm-proj-1mjusbm3wikhb0",
 				Status_: msbSdk.SandboxStatusStopped,
 				Image_:  "opencode-sandbox/runner-proj-1mjusbm3wikhb0:4e8oeqohbmalok",

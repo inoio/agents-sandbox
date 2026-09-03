@@ -9,6 +9,7 @@ import (
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 
 	"github.com/inoio/opencode-sandbox/internal/sandbox/msb"
+	"github.com/inoio/opencode-sandbox/internal/sandbox/state"
 	"github.com/inoio/opencode-sandbox/internal/termio"
 )
 
@@ -35,7 +36,7 @@ func TestInvokePruneFunc(t *testing.T) {
 		if err != nil {
 			t.Fatalf("InvokePruneFunc: %v", err)
 		}
-		if _, ok := gotState.ToPrune["proj-1mjusbm3wikhb0"]; !ok {
+		if _, ok := gotState.ToPrune[state.Key{Slug: "proj-1mjusbm3wikhb0", Agent: ""}]; !ok {
 			t.Errorf("pruner did not receive built PruneState, got %v", gotState)
 		}
 	})

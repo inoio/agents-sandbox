@@ -76,7 +76,7 @@ func pruneHomeVolumes(
 			continue
 		}
 		key := state.Key{Slug: volumeArtifact.Slug, Agent: volumeArtifact.Agent}
-		if _, found := pruneState.ToPrune[key.Slug]; !found {
+		if _, found := pruneState.ToPrune[key]; !found {
 			continue
 		}
 		if !dryRun {
@@ -106,7 +106,7 @@ func removeStateForGoneKeys(ui termio.UI, removed, exists map[state.Key]int) {
 			continue
 		}
 		if err := state.RemoveState(key); err != nil {
-			ui.Warnf("failed to remove state file for slug %s: %v", key.Slug, err)
+			ui.Warnf("failed to remove state file for key (slug %s, agent %s): %v", key.Slug, key.Agent, err)
 		}
 	}
 }

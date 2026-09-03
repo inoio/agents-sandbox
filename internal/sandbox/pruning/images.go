@@ -9,6 +9,7 @@ import (
 	"github.com/inoio/opencode-sandbox/internal/sandbox/docker"
 	"github.com/inoio/opencode-sandbox/internal/sandbox/msb"
 	"github.com/inoio/opencode-sandbox/internal/sandbox/naming"
+	"github.com/inoio/opencode-sandbox/internal/sandbox/state"
 	"github.com/inoio/opencode-sandbox/internal/termio"
 )
 
@@ -73,10 +74,11 @@ func keepImage(imageHandle msb.ImageHandle, pruneState PruneState, keptImageRefs
 		return true
 	}
 	artifact := naming.ArtifactFor(ref)
-	if _, live := pruneState.ToKeep[artifact.Slug]; !live {
+	key := state.Key{Slug: artifact.Slug, Agent: artifact.Agent}
+	if _, live := pruneState.ToKeep[key]; !live {
 		return false
 	}
-	if _, pruned := pruneState.ToPrune[artifact.Slug]; pruned {
+	if _, pruned := pruneState.ToPrune[key]; pruned {
 		return false
 	}
 	return artifact.Agent != "" && strings.HasSuffix(ref, "-latest")
@@ -86,7 +88,7 @@ func keepImage(imageHandle msb.ImageHandle, pruneState PruneState, keptImageRefs
 // point at. An image still in use by a kept sandbox must not be removed, even
 // when it is a digest ref rather than a per-agent "-latest" tag (pre-redesign
 // VMs), since msb rejects removal of an image its database still references.
-func referencedImages(kept map[string]msb.SandboxHandle) map[string]struct{} {
+func referencedImages(kept map[state.Key]msb.SandboxHandle) map[string]struct{} {
 	result := make(map[string]struct{}, len(kept))
 	for _, handle := range kept {
 		if ref := handle.Image(); ref != "" {

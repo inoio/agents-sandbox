@@ -9,6 +9,7 @@ import (
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 
 	"github.com/inoio/opencode-sandbox/internal/sandbox/msb"
+	"github.com/inoio/opencode-sandbox/internal/sandbox/state"
 	"github.com/inoio/opencode-sandbox/internal/termio"
 )
 
@@ -36,10 +37,10 @@ func TestPruneSandboxes(t *testing.T) {
 		msb.WithMsbMock(t, client)
 		ui := &termio.Mock{}
 		state := PruneState{
-			ToPrune: map[string]msb.SandboxHandle{
-				"proj1-1mjusbm3wikhb0": stopped,
-				"proj2-1mjusbm3wikhb0": running,
-				"fill-proj":            task,
+			ToPrune: map[state.Key]msb.SandboxHandle{
+				{Slug: "proj1-1mjusbm3wikhb0", Agent: ""}: stopped,
+				{Slug: "proj2-1mjusbm3wikhb0", Agent: ""}: running,
+				{Slug: "fill", Agent: ""}:                 task,
 			},
 		}
 		r, err := PruneSandboxes(context.Background(), state, false, ui)
@@ -69,7 +70,7 @@ func TestPruneSandboxes(t *testing.T) {
 		ui := &termio.Mock{}
 		r, err := PruneSandboxes(
 			context.Background(),
-			PruneState{ToPrune: map[string]msb.SandboxHandle{"proj1-1mjusbm3wikhb0": stopped}},
+			PruneState{ToPrune: map[state.Key]msb.SandboxHandle{{Slug: "proj1-1mjusbm3wikhb0", Agent: ""}: stopped}},
 			true,
 			ui,
 		)
@@ -114,9 +115,9 @@ func TestPruneSandboxes(t *testing.T) {
 		msb.WithMsbMock(t, client)
 		ui := &termio.Mock{}
 		state := PruneState{
-			ToPrune: map[string]msb.SandboxHandle{
-				"proj1-1mjusbm3wikhb0": stopped,
-				"proj2-1mjusbm3wikhb0": &msb.MockSandboxHandle{
+			ToPrune: map[state.Key]msb.SandboxHandle{
+				{Slug: "proj1-1mjusbm3wikhb0", Agent: ""}: stopped,
+				{Slug: "proj2-1mjusbm3wikhb0", Agent: ""}: &msb.MockSandboxHandle{
 					Name_:      "opencode-sandbox-vm-proj2-1mjusbm3wikhb0",
 					Status_:    msbSdk.SandboxStatusStopped,
 					UpdatedAt_: stale,

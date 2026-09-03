@@ -12,6 +12,7 @@ import (
 	"github.com/inoio/opencode-sandbox/internal/sandbox/docker"
 	"github.com/inoio/opencode-sandbox/internal/sandbox/msb"
 	"github.com/inoio/opencode-sandbox/internal/sandbox/naming"
+	"github.com/inoio/opencode-sandbox/internal/sandbox/state"
 	"github.com/inoio/opencode-sandbox/internal/termio"
 )
 
@@ -20,6 +21,7 @@ type slugDigestTest struct {
 	input      string
 	wantSlug   string
 	wantDigest string
+	wantAgent  string
 }
 
 func runSlugDigestTests(t *testing.T, tests []slugDigestTest) {
@@ -31,6 +33,9 @@ func runSlugDigestTests(t *testing.T, tests []slugDigestTest) {
 			}
 			if info.Digest != tt.wantDigest {
 				t.Errorf("naming.ArtifactFor(%q) digest = %q, want %q", tt.input, info.Digest, tt.wantDigest)
+			}
+			if info.Agent != tt.wantAgent {
+				t.Errorf("naming.ArtifactFor(%q) agent = %q, want %q", tt.input, info.Agent, tt.wantAgent)
 			}
 		})
 	}
@@ -164,24 +169,28 @@ func TestArtifactFor_VMWithHashSuffix(t *testing.T) {
 			input:      "opencode-sandbox-vm-opencode-sandbox-1mjusbm3wikhb0",
 			wantSlug:   "opencode-sandbox-1mjusbm3wikhb0",
 			wantDigest: "",
+			wantAgent:  "",
 		},
 		{
 			name:       "vm with 14-char hash and branch",
 			input:      "opencode-sandbox-vm-opencode-sandbox-1mjusbm3wikhb0-main",
 			wantSlug:   "opencode-sandbox-1mjusbm3wikhb0",
-			wantDigest: "main",
+			wantDigest: "",
+			wantAgent:  "main",
 		},
 		{
 			name:       "vm with 14-char hash, slug with dash, and branch",
 			input:      "opencode-sandbox-vm-my-project-1mjusbm3wikhb0-develop",
 			wantSlug:   "my-project-1mjusbm3wikhb0",
-			wantDigest: "develop",
+			wantDigest: "",
+			wantAgent:  "develop",
 		},
 		{
 			name:       "user's case: VM without branch matches image slug",
 			input:      "opencode-sandbox-vm-opencode-sandbox-1mjusbm3wikhb0",
 			wantSlug:   "opencode-sandbox-1mjusbm3wikhb0",
 			wantDigest: "",
+			wantAgent:  "",
 		},
 	}
 	runSlugDigestTests(t, tests)
@@ -303,16 +312,17 @@ func TestParseVMName(t *testing.T) {
 		input      string
 		wantSlug   string
 		wantDigest string
+		wantAgent  string
 	}{
-		{"opencode-sandbox-vm-opencode-sandbox-1mjusbm3wikhb0", "opencode-sandbox-1mjusbm3wikhb0", ""},
-		{"opencode-sandbox-vm-opencode-sandbox-1mjusbm3wikhb0-main", "opencode-sandbox-1mjusbm3wikhb0", "main"},
-		{"opencode-sandbox-vm-my-project-1mjusbm3wikhb0-develop", "my-project-1mjusbm3wikhb0", "develop"},
-		{"opencode-sandbox-vm-projectname-main", "projectname-main", ""},
-		{"opencode-sandbox-vm-myproject-abc1234567890", "myproject-abc1234567890", ""},
-		{"opencode-sandbox-vm-noHash", "noHash", ""},
-		{"opencode-sandbox-home-test", "", ""},
-		{"opencode-sandbox-vm-projectname-aB3cDe4fGhIjKl", "projectname-aB3cDe4fGhIjKl", ""},
-		{"opencode-sandbox-vm-projectname-aB3cDe4fGhIjKl-feature", "projectname-aB3cDe4fGhIjKl-feature", ""},
+		{"opencode-sandbox-vm-opencode-sandbox-1mjusbm3wikhb0", "opencode-sandbox-1mjusbm3wikhb0", "", ""},
+		{"opencode-sandbox-vm-opencode-sandbox-1mjusbm3wikhb0-main", "opencode-sandbox-1mjusbm3wikhb0", "", "main"},
+		{"opencode-sandbox-vm-my-project-1mjusbm3wikhb0-develop", "my-project-1mjusbm3wikhb0", "", "develop"},
+		{"opencode-sandbox-vm-projectname-main", "projectname-main", "", ""},
+		{"opencode-sandbox-vm-myproject-abc1234567890", "myproject-abc1234567890", "", ""},
+		{"opencode-sandbox-vm-noHash", "noHash", "", ""},
+		{"opencode-sandbox-home-test", "", "", ""},
+		{"opencode-sandbox-vm-projectname-aB3cDe4fGhIjKl", "projectname-aB3cDe4fGhIjKl", "", ""},
+		{"opencode-sandbox-vm-projectname-aB3cDe4fGhIjKl-feature", "projectname-aB3cDe4fGhIjKl-feature", "", ""},
 	}
 	for _, tt := range tests {
 		t.Run(tt.input, func(t *testing.T) {
@@ -322,6 +332,9 @@ func TestParseVMName(t *testing.T) {
 			}
 			if info.Digest != tt.wantDigest {
 				t.Errorf("naming.ParseVMName(%q) digest = %q, want %q", tt.input, info.Digest, tt.wantDigest)
+			}
+			if info.Agent != tt.wantAgent {
+				t.Errorf("naming.ParseVMName(%q) agent = %q, want %q", tt.input, info.Agent, tt.wantAgent)
 			}
 		})
 	}
@@ -362,7 +375,7 @@ func TestParseHomeVolumeNameNewFormat(t *testing.T) {
 		wantDigest string
 	}{
 		{"opencode-sandbox-home-myproj-20260806T143022", "myproj", ""},
-		{"opencode-sandbox-home-abc-def-20260806T143022", "abc-def", ""},
+		{"opencode-sandbox-home-abc-def-1mjusbm3wikhb0-20260806T143022", "abc-def-1mjusbm3wikhb0", ""},
 		{"opencode-sandbox-home-proj-20261231T235959", "proj", ""},
 	}
 	for _, tt := range tests {
@@ -402,6 +415,39 @@ func TestStaleTypeString(t *testing.T) {
 		if c.staleType.String() != c.want {
 			t.Errorf("StaleType(%d).String() = %q, want %q", c.staleType, c.staleType.String(), c.want)
 		}
+	}
+}
+
+func TestBuildPruneStateKeysByAgent(t *testing.T) {
+	old := time.Now().Add(-15 * 24 * time.Hour)
+	client := &msb.MockMsbClient{
+		Sandboxes: []msb.SandboxHandle{
+			&msb.MockSandboxHandle{
+				Name_:      "opencode-sandbox-vm-proj-1mjusbm3wikhb0-opencode",
+				Status_:    msbSdk.SandboxStatusRunning,
+				UpdatedAt_: time.Now(),
+			},
+			&msb.MockSandboxHandle{
+				Name_:      "opencode-sandbox-vm-proj-1mjusbm3wikhb0-pi",
+				Status_:    msbSdk.SandboxStatusStopped,
+				UpdatedAt_: old,
+			},
+		},
+	}
+	msb.WithMsbMock(t, client)
+	cp.WithMockConfigPaths(t)
+
+	got, err := buildPruneState(context.Background(), 7*24*time.Hour)
+	if err != nil {
+		t.Fatalf("buildPruneState: %v", err)
+	}
+	ocKey := state.Key{Slug: "proj-1mjusbm3wikhb0", Agent: "opencode"}
+	if _, ok := got.ToKeep[ocKey]; !ok {
+		t.Error("expected opencode VM kept under (slug, opencode)")
+	}
+	piKey := state.Key{Slug: "proj-1mjusbm3wikhb0", Agent: "pi"}
+	if _, ok := got.ToPrune[piKey]; !ok {
+		t.Error("expected pi VM pruned under (slug, pi)")
 	}
 }
 

@@ -39,7 +39,7 @@ func PruneSandboxes(
 		report.Details = append(report.Details, StaleEntry{
 			Type:     StaleTypeVM,
 			Name:     name,
-			Slug:     slug,
+			Slug:     slug.Slug,
 			StaleFor: time.Since(handle.UpdatedAt()),
 			Digest:   "",
 		})

@@ -192,7 +192,7 @@ func TestPrune(t *testing.T) {
 
 					m := &sandboxmsb.MockMsbClient{}
 					m.Sandboxes = append(m.Sandboxes,
-						mkActiveVM("activeproject-1mjusbm3wikhb0"))
+						mkActiveVM("activeproject-1mjusbm3wikhb0-opencode"))
 					m.Sandboxes = append(m.Sandboxes, mkStaleTask(time.Now().Add(-15*24*time.Hour)))
 					m.Volumes = append(m.Volumes,
 						homeVol("opencode-sandbox-home-activeproject-1mjusbm3wikhb0-abc123"))
