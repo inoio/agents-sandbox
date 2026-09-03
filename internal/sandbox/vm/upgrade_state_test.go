@@ -110,10 +110,12 @@ func TestUpgradeStatePerAgentIsolation(t *testing.T) {
 	if err != nil {
 		t.Fatalf("loadUpgradeState: %v", err)
 	}
-	if !st.Agents["opencode"].dueForCheck(now) {
+	oc := st.Agents["opencode"]
+	if !oc.dueForCheck(now) {
 		t.Error("expected opencode to be due for check")
 	}
-	if st.Agents["pi"].dueForCheck(now) {
+	piState := st.Agents["pi"]
+	if piState.dueForCheck(now) {
 		t.Error("expected pi to not be due for check")
 	}
 }

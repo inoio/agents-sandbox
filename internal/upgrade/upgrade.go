@@ -76,9 +76,9 @@ func ParseMode(s string) (Mode, error) {
 // Result describes what Check decided to do.
 type Result struct {
 	HasUpdate bool
-	Latest    string
 	Updated   bool
 	Exit      bool
+	Latest    string
 }
 
 // Options configures a single Check.

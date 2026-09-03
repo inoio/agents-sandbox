@@ -492,6 +492,23 @@ func MergeEnvMaps(mapsToMerge ...map[string]string) map[string]string {
 	return result
 }
 
+// LoadEnvAndSecrets reads the user and project env files and secret-spec files
+// and merges them into the desired env map and built secret entries. The
+// project files override the user files.
+func LoadEnvAndSecrets(ui termio.UI) (map[string]string, []msbSdk.SecretEntry) {
+	env := MergeEnvMaps(
+		BuildEnvMap(cp.Get().UserEnvFile()),
+		BuildEnvMap(cp.Get().ProjectEnvFile()),
+	)
+	secrets := BuildSecretsFromSpecs(MergeSecretSpecs(
+		ParseSecretSpecLegacy(cp.Get().UserEnvSecretFile(), ui),
+		ParseSecretSpecLegacy(cp.Get().ProjectEnvSecretFile(), ui),
+		ParseSecretSpecYAML(cp.Get().UserEnvSecretYAMLFile(), ui),
+		ParseSecretSpecYAML(cp.Get().ProjectEnvSecretYAMLFile(), ui),
+	), ui)
+	return env, secrets
+}
+
 // EnvContentHash returns a SHA-256 hex digest of the env map contents.
 // Keys are sorted and hashed as "K=V" lines for order-independence.
 func EnvContentHash(env map[string]string) string {

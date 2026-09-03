@@ -59,13 +59,13 @@ type agentUpgradeState struct {
 
 // dueForCheck reports whether the last successful check is older than one day
 // (or absent), i.e., a fresh GitHub check is due.
-func (s agentUpgradeState) dueForCheck(t time.Time) bool {
+func (s *agentUpgradeState) dueForCheck(t time.Time) bool {
 	return s.LastChecked.IsZero() || t.Sub(s.LastChecked) >= upgradeCheckInterval
 }
 
 // offered reports whether the given version has already had its rebuild prompt
 // shown.
-func (s agentUpgradeState) offered(v string) bool {
+func (s *agentUpgradeState) offered(v string) bool {
 	return slices.Contains(s.OfferedVersions, v)
 }
 

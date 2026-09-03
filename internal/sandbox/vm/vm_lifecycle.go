@@ -279,21 +279,11 @@ func createProjectVM(
 	}
 	maxMemoryGiB := sysinfo.TotalMemoryGiB()
 
-	envMap := reprovision.MergeEnvMaps(
-		reprovision.BuildEnvMap(configpaths.Get().UserEnvFile()),
-		reprovision.BuildEnvMap(configpaths.Get().ProjectEnvFile()),
-	)
+	envMap, secrets := reprovision.LoadEnvAndSecrets(ui)
 	ui.Verbosef("adding docker env definitions to project VM environment: %s", imageEnvs)
 	buildProjectVMEnv(envMap, imageEnvs)
 
-	secrets := reprovision.BuildSecretsFromSpecs(reprovision.MergeSecretSpecs(
-		reprovision.ParseSecretSpecLegacy(configpaths.Get().UserEnvSecretFile(), ui),
-		reprovision.ParseSecretSpecLegacy(configpaths.Get().ProjectEnvSecretFile(), ui),
-		reprovision.ParseSecretSpecYAML(configpaths.Get().UserEnvSecretYAMLFile(), ui),
-		reprovision.ParseSecretSpecYAML(configpaths.Get().ProjectEnvSecretYAMLFile(), ui),
-	), ui)
-
-	mounts := buildMounts(
+	mountConfigs := buildMounts(
 		homeVol,
 		repoPath,
 		options.ResolveTmpSizeMiB(opts.TmpSize),
@@ -312,7 +302,7 @@ func createProjectVM(
 			naming.LabelProject: k.Slug,
 			naming.LabelImage:   imageRef,
 		}),
-		msbSdk.WithMounts(mounts),
+		msbSdk.WithMounts(mountConfigs),
 		msbSdk.WithSecrets(secrets...),
 		msbSdk.WithEnv(envMap),
 		msbSdk.WithWorkdir(defaultTargetDir),

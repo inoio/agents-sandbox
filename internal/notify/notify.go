@@ -14,10 +14,10 @@ const (
 // Config is the resolved notify setting for a session.
 type Config struct {
 	Desktop bool
-	Audio   AudioMode
 	OnInput bool
 	OnDone  bool
 	OnError bool
+	Audio   AudioMode
 }
 
 // Active reports whether any notification channel is enabled. Only the two

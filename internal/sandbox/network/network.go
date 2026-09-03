@@ -75,12 +75,14 @@ func (p Policy) Config() (*msbSdk.NetworkConfig, error) {
 		// gateway-DNS rule is added manually so named allow-listed hosts can
 		// resolve.
 		cfg, err = msbSdk.NetworkPolicy.FromProfilesChecked()
-		cfg.Rules = append(cfg.Rules, msbSdk.Rule.AllowDNS())
 	} else {
 		cfg, err = msbSdk.NetworkPolicy.FromProfilesChecked(msbSdk.NetworkProfile(p.Profile))
 	}
 	if err != nil {
 		return nil, err
+	}
+	if p.Profile == ProfileNone {
+		cfg.Rules = append(cfg.Rules, msbSdk.Rule.AllowDNS())
 	}
 	for _, d := range dedupe(p.EgressDeny) {
 		cfg.Rules = append(cfg.Rules, egressRule(msbSdk.PolicyActionDeny, d))
