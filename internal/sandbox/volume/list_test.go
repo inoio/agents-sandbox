@@ -6,7 +6,17 @@ import (
 	"time"
 
 	"github.com/inoio/opencode-sandbox/internal/sandbox/msb"
+	"github.com/inoio/opencode-sandbox/internal/sandbox/naming"
+	"github.com/inoio/opencode-sandbox/internal/sandbox/state"
 )
+
+func TestListVolumesParseRoundTrip(t *testing.T) {
+	name := HomeVolumeName(state.Key{Slug: "proj-abc123", Agent: "opencode"})
+	info := naming.ArtifactFor(name)
+	if info.Slug != "proj-abc123" || info.Agent != "opencode" {
+		t.Errorf("ArtifactFor(%q) = %+v, want slug=proj-abc123 agent=opencode", name, info)
+	}
+}
 
 func TestListVolumes_ReturnsOnlyHomeVolumes(t *testing.T) {
 	mockClient := &msb.MockMsbClient{

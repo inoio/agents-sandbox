@@ -72,7 +72,7 @@ func CmdMigrate(
 		dryRun: func(oldVolume string) string {
 			return fmt.Sprintf(
 				"dry-run: Would create volume %q, copy files from %q",
-				HomeVolumeName(k.Slug),
+				HomeVolumeName(k),
 				oldVolume,
 			)
 		},
@@ -99,7 +99,7 @@ func CmdReset(
 		dryRun: func(oldVolume string) string {
 			return fmt.Sprintf(
 				"dry-run: Would create fresh volume %q, remove %q",
-				HomeVolumeName(k.Slug),
+				HomeVolumeName(k),
 				oldVolume,
 			)
 		},
@@ -121,7 +121,7 @@ func CmdEdit(
 		dryRun: func(oldVolume string) string {
 			return fmt.Sprintf(
 				"dry-run: Would create volume %q alongside %q for manual transfer",
-				HomeVolumeName(k.Slug),
+				HomeVolumeName(k),
 				oldVolume,
 			)
 		},
@@ -131,7 +131,10 @@ func CmdEdit(
 				return fmt.Errorf("load runner image: %w", err)
 			}
 			spin := ui.Spinner("Starting interactive session with both volumes")
-			editSandboxName := naming.TaskPrefix + k.Slug + "-" + strconv.FormatInt(time.Now().UnixNano(), 10)
+			editSandboxName := naming.TaskPrefix + k.Slug + "-" + k.Agent + "-" + strconv.FormatInt(
+				time.Now().UnixNano(),
+				10,
+			)
 			editOldMount := msbSdk.Mount.Named(oldVolume, msbSdk.MountOptions{})
 			editNewMount := msbSdk.Mount.Named(newVolumeName, msbSdk.MountOptions{})
 			editSb, editErr := client.CreateSandbox(ctx, editSandboxName,
@@ -201,7 +204,7 @@ func volumeOp(
 		return nil
 	}
 
-	newVolumeName := HomeVolumeName(k.Slug)
+	newVolumeName := HomeVolumeName(k)
 	newVol, err := client.CreateVolume(ctx, newVolumeName,
 		msbSdk.WithVolumeKind(msbSdk.VolumeKindDir),
 	)

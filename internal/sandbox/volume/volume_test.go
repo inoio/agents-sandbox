@@ -21,9 +21,20 @@ import (
 	"github.com/inoio/opencode-sandbox/internal/termio"
 )
 
+func TestHomeVolumeNameScopesAgent(t *testing.T) {
+	got := HomeVolumeName(state.Key{Slug: "proj-abc123", Agent: "pi"})
+	prefix := "opencode-sandbox-home-proj-abc123-pi-"
+	if !strings.HasPrefix(got, prefix) {
+		t.Errorf("HomeVolumeName = %q, want prefix %q", got, prefix)
+	}
+	if len(got) != len(prefix)+15 {
+		t.Errorf("HomeVolumeName = %q, want 15-char timestamp suffix", got)
+	}
+}
+
 func TestHomeVolumeName(t *testing.T) {
-	got := HomeVolumeName("myproj-aBc1234D")
-	expectedPrefix := "opencode-sandbox-home-myproj-aBc1234D-"
+	got := HomeVolumeName(state.Key{Slug: "myproj-aBc1234D", Agent: "opencode"})
+	expectedPrefix := "opencode-sandbox-home-myproj-aBc1234D-opencode-"
 	if !strings.HasPrefix(got, expectedPrefix) {
 		t.Errorf("expected prefix %q, got %q", expectedPrefix, got)
 	}
@@ -34,21 +45,21 @@ func TestHomeVolumeName(t *testing.T) {
 }
 
 func TestHomeVolumeNameDifferentInputs(t *testing.T) {
-	got := HomeVolumeName("myproj-aBc1234D")
-	if !strings.HasPrefix(got, "opencode-sandbox-home-myproj-aBc1234D-") {
+	got := HomeVolumeName(state.Key{Slug: "myproj-aBc1234D", Agent: "opencode"})
+	if !strings.HasPrefix(got, "opencode-sandbox-home-myproj-aBc1234D-opencode-") {
 		t.Errorf("unexpected name format: %q", got)
 	}
 }
 
 func TestHomeVolumeNameTimestamp(t *testing.T) {
 	before := time.Now().UTC().Add(-time.Second)
-	got := HomeVolumeName("myproject")
+	got := HomeVolumeName(state.Key{Slug: "myproject", Agent: "opencode"})
 	after := time.Now().UTC().Add(time.Second)
 
-	if !strings.HasPrefix(got, "opencode-sandbox-home-myproject-") {
+	if !strings.HasPrefix(got, "opencode-sandbox-home-myproject-opencode-") {
 		t.Fatalf("expected prefix, got %q", got)
 	}
-	suffix := strings.TrimPrefix(got, "opencode-sandbox-home-myproject-")
+	suffix := strings.TrimPrefix(got, "opencode-sandbox-home-myproject-opencode-")
 	if len(suffix) != 15 {
 		t.Fatalf("expected 15-char timestamp, got %d chars: %q", len(suffix), suffix)
 	}

@@ -47,7 +47,7 @@ func (vm *Manager) EnsureNewHome(
 	dryRunVM bool,
 	ui termio.UI,
 ) (string, state.HomeState, error) {
-	volName := HomeVolumeName(k.Slug)
+	volName := HomeVolumeName(k)
 	vol, err := client.CreateVolume(ctx, volName,
 		msbSdk.WithVolumeKind(msbSdk.VolumeKindDir),
 	)

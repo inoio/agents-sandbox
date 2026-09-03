@@ -22,11 +22,11 @@ const (
 	dstMount = "/dst"
 )
 
-// HomeVolumeName generates a volume name for the given project slug using the
-// standard home volume prefix and a UTC timestamp.
-func HomeVolumeName(projectSlug string) string {
+// HomeVolumeName generates a volume name for the given project/agent key using
+// the standard home volume prefix and a UTC timestamp.
+func HomeVolumeName(k state.Key) string {
 	ts := time.Now().UTC().Format("20060102T150405")
-	return naming.HomePrefix + projectSlug + "-" + ts
+	return naming.HomePrefix + k.Slug + "-" + k.Agent + "-" + ts
 }
 
 // Manager manages home-volume lifecycle for projects.
@@ -51,7 +51,7 @@ func (vm *Manager) PrefillVolume(
 	if err := image.EnsureLoaded(ctx, client, k.Slug, imageTag, ui); err != nil {
 		return fmt.Errorf("load runner image: %w", err)
 	}
-	prefillName := naming.TaskPrefix + k.Slug + "-" + strconv.FormatInt(time.Now().UnixNano(), 10)
+	prefillName := naming.TaskPrefix + k.Slug + "-" + k.Agent + "-" + strconv.FormatInt(time.Now().UnixNano(), 10)
 	mountConfig := msbSdk.Mount.Named(volumeName, msbSdk.MountOptions{})
 
 	spin := ui.Spinner("Preparing home volume")
@@ -125,7 +125,7 @@ func (vm *Manager) ApplyHomeAction(
 		return oldVolume, nil
 	}
 
-	newVol, err := client.CreateVolume(ctx, HomeVolumeName(k.Slug),
+	newVol, err := client.CreateVolume(ctx, HomeVolumeName(k),
 		msbSdk.WithVolumeKind(msbSdk.VolumeKindDir),
 	)
 	if err != nil {
@@ -172,7 +172,7 @@ func (vm *Manager) CopyVolume(
 	if err := image.EnsureLoaded(ctx, client, k.Slug, imageTag, ui); err != nil {
 		return fmt.Errorf("load runner image: %w", err)
 	}
-	copySbName := naming.TaskPrefix + k.Slug + "-" + strconv.FormatInt(time.Now().UnixNano(), 10)
+	copySbName := naming.TaskPrefix + k.Slug + "-" + k.Agent + "-" + strconv.FormatInt(time.Now().UnixNano(), 10)
 	copySb, err := client.CreateSandbox(ctx, copySbName,
 		msbSdk.WithImage(imageTag),
 		msbSdk.WithMounts(map[string]msbSdk.MountConfig{
