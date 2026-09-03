@@ -103,11 +103,17 @@ func (d *DesktopNotifier) Notify(n Notification) {
 //
 //nolint:unparam // error return kept for the execCommand test seam
 func (d *DesktopNotifier) buildCmd(title, body string) (*exec.Cmd, error) {
-	if runtime.GOOS == "darwin" {
-		script := "display notification " + shellQuote(body) + " with title " + shellQuote(title)
-		return execCommand("osascript", "-e", script), nil
+	return buildDesktopCommand(runtime.GOOS, title, body), nil
+}
+
+// buildDesktopCommand returns the desktop-notification command for the given
+// operating system, kept separate from runtime.GOOS so both branches are testable.
+func buildDesktopCommand(goos, title, body string) *exec.Cmd {
+	if goos == "darwin" {
+		script := "display notification " + appleQuote(body) + " with title " + appleQuote(title)
+		return execCommand("osascript", "-e", script)
 	}
-	return execCommand("notify-send", title, body), nil
+	return execCommand("notify-send", title, body)
 }
 
 // SystemAudioNotifier plays the bundled WAV via the host audio tool.
@@ -164,6 +170,9 @@ func commandExists(name string) bool {
 	return err == nil
 }
 
-func shellQuote(s string) string {
-	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
+// appleQuote wraps s in an AppleScript double-quoted string literal, escaping
+// embedded backslashes and double quotes.
+func appleQuote(s string) string {
+	escaped := strings.ReplaceAll(strings.ReplaceAll(s, `\`, `\\`), `"`, `\"`)
+	return `"` + escaped + `"`
 }

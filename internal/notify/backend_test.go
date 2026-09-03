@@ -2,6 +2,7 @@ package notify
 
 import (
 	"os/exec"
+	"reflect"
 	"testing"
 )
 
@@ -34,21 +35,59 @@ func TestCompositeBackendHonorsTriggerToggles(t *testing.T) {
 	}
 }
 
-func TestDesktopNotifierCommand(t *testing.T) {
+func TestBuildDesktopCommandDarwin(t *testing.T) {
 	orig := execCommand
 	defer func() { execCommand = orig }()
 
-	var ran []string
-	execCommand = func(name string, _ ...string) *exec.Cmd {
-		ran = append(ran, name)
-		return exec.Command("/bin/true") // never actually run via Run below
+	var got []string
+	execCommand = func(name string, args ...string) *exec.Cmd {
+		got = append([]string{name}, args...)
+		return exec.Command("/bin/true")
 	}
 
-	d := &DesktopNotifier{}
-	if _, err := d.buildCmd("opencode", "waiting"); err != nil {
-		t.Fatalf("buildCmd error = %v", err)
+	buildDesktopCommand("darwin", `Ti"tle\`, `Bo"dy\`)
+
+	want := []string{
+		"osascript",
+		"-e",
+		`display notification "Bo\"dy\\" with title "Ti\"tle\\"`,
 	}
-	if len(ran) == 0 {
-		t.Error("buildCmd did not build a command")
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("osascript args mismatch:\n got: %#v\nwant: %#v", got, want)
+	}
+}
+
+func TestBuildDesktopCommandLinux(t *testing.T) {
+	orig := execCommand
+	defer func() { execCommand = orig }()
+
+	var got []string
+	execCommand = func(name string, args ...string) *exec.Cmd {
+		got = append([]string{name}, args...)
+		return exec.Command("/bin/true")
+	}
+
+	buildDesktopCommand("linux", `a"b\c`, "plain body")
+
+	want := []string{"notify-send", `a"b\c`, "plain body"}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("notify-send args mismatch:\n got: %#v\nwant: %#v", got, want)
+	}
+}
+
+func TestAppleQuote(t *testing.T) {
+	tests := []struct {
+		in   string
+		want string
+	}{
+		{`plain`, `"plain"`},
+		{`He said "hi"`, `"He said \"hi\""`},
+		{`C:\path`, `"C:\\path"`},
+		{`a"b\`, `"a\"b\\"`},
+	}
+	for _, tt := range tests {
+		if got := appleQuote(tt.in); got != tt.want {
+			t.Errorf("appleQuote(%q) = %q, want %q", tt.in, got, tt.want)
+		}
 	}
 }
