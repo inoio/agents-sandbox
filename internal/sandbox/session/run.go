@@ -45,12 +45,16 @@ func startNotifyWatcher(
 	cfg notify.Config,
 	ui termio.UI,
 	spec *agent.EventStreamSpec,
+	projectSlug string,
 ) func() {
 	if sb == nil || !cfg.Active() || spec == nil {
 		ui.Verbosef("not starting notify watcher, sandbox %s, active %v, spec %s", sb, cfg.Active(), spec)
 		return func() {}
 	}
 	backend := notify.NewBackend(cfg, ui)
+	if projectSlug != "" {
+		backend = notify.NewDedup(projectSlug, notify.StateClaimer{}, backend)
+	}
 	watchCtx, cancel := context.WithCancel(ctx)
 	done := make(chan struct{})
 	go func() {
@@ -119,16 +123,16 @@ func Run(ctx context.Context, opts options.RunOptions, ui termio.UI) error {
 		return nil
 	}
 
+	projectSlug := git.ProjectSlug()
+
 	a, _ := agent.Lookup(opts.Agent)
 	var streamSpec *agent.EventStreamSpec
 	if provider, ok := agent.AsEventStreamProvider(a); ok {
 		eventStream := provider.EventStream()
 		streamSpec = &eventStream
 	}
-	stopNotify := startNotifyWatcher(ctx, sb, opts.Notify, ui, streamSpec)
+	stopNotify := startNotifyWatcher(ctx, sb, opts.Notify, ui, streamSpec, projectSlug)
 	defer stopNotify()
-
-	projectSlug := git.ProjectSlug()
 
 	if opts.ServeOnly { //nolint:nestif // lease acquire/serve/release/reap sequence requires this structure
 		release, acquireErr := state.AcquireClientLease(projectSlug)

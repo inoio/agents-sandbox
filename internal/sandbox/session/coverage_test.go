@@ -128,6 +128,7 @@ func TestStartNotifyWatcherLogsError(t *testing.T) {
 		notify.Config{Desktop: true, Audio: notify.AudioOff, OnInput: true, OnDone: true, OnError: true},
 		ui,
 		&spec,
+		"slug",
 	)
 	stop()
 

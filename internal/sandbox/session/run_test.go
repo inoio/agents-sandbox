@@ -549,8 +549,20 @@ func TestStartNotifyWatcherNoOpWithoutSpec(t *testing.T) {
 		return nil
 	}
 
-	stop := startNotifyWatcher(context.Background(), msb.NewMockSandbox(msb.SandboxOpts{}),
-		notify.Config{Desktop: true, Audio: notify.AudioOff, OnInput: true, OnDone: true, OnError: true}, ui, nil)
+	stop := startNotifyWatcher(
+		context.Background(),
+		msb.NewMockSandbox(msb.SandboxOpts{}),
+		notify.Config{
+			Desktop: true,
+			Audio:   notify.AudioOff,
+			OnInput: true,
+			OnDone:  true,
+			OnError: true,
+		},
+		ui,
+		nil,
+		"slug",
+	)
 	stop()
 	if called {
 		t.Error("startNotifyWatcher should be a no-op without an EventStreamSpec")
@@ -575,8 +587,20 @@ func TestStartNotifyWatcherUsesSpec(t *testing.T) {
 		ErrorEvents:   []string{"fail.evt"},
 		Name:          "pi",
 	}
-	stop := startNotifyWatcher(context.Background(), msb.NewMockSandbox(msb.SandboxOpts{}),
-		notify.Config{Desktop: true, Audio: notify.AudioOff, OnInput: true, OnDone: true, OnError: true}, ui, &spec)
+	stop := startNotifyWatcher(
+		context.Background(),
+		msb.NewMockSandbox(msb.SandboxOpts{}),
+		notify.Config{
+			Desktop: true,
+			Audio:   notify.AudioOff,
+			OnInput: true,
+			OnDone:  true,
+			OnError: true,
+		},
+		ui,
+		&spec,
+		"slug",
+	)
 	defer stop()
 	select {
 	case received := <-got:
