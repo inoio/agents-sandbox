@@ -21,6 +21,10 @@ command reports the bare version (e.g. `0.1.0`).
   `BuildHomeFiles`, `DescribeManifest`, and `BuildHooks` now take a `reserved` list of home-relative targets the
   manifest must not target (empty reserves nothing). Config provisioning and `config home` reserve the active agent's
   merged-config path (e.g. opencode's `.config/opencode/opencode.jsonc`), so the reservation follows the agent.
+- Internal: `internal/notify` is now agent-driven: the SSE stream command, the event-type mapping, and the
+  notification titles come from the agent's `EventStreamProvider` capability (`internal/agent`) instead of
+  opencode-specific constants. Only the opencode profile implements the capability today, so behavior is unchanged;
+  the notify watcher is a no-op for agents without it. The temp WAV prefix is renamed `opencode-notify-`→`agent-notify-`.
 
 ### Added
 
