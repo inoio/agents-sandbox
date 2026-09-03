@@ -234,6 +234,8 @@ notifications are delivered at most once per opencode session: the first client
 to observe a transition claims a shared per-project token, and other clients
 skip it. A later transition for the same session notifies again.
 
+Note: deduplication is best-effort. If a client's event stream drops and reconnects across a session's busy→done transition, it may retain a stale claim and that one transition may not notify; it self-corrects on the next transition for that session.
+
 ```yaml
 notify:
   desktop: true      # notify-send (Linux) / osascript (macOS)

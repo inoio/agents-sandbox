@@ -37,6 +37,11 @@ command reports the bare version (e.g. `0.1.0`).
   shared per-project claim store keyed by (project, session, trigger), and the
   notify tracker now tracks each session independently. This prevents duplicate
   desktop/audio notifications when more than one `run` instance is attached.
+  Deduplication is best-effort: a client whose event stream reconnects across a
+  busy→done transition may suppress a single notification until the session's
+  next transition.
+- Behavior: the opencode awaiting-input event is now `permission.asked`
+  (matching the current server event) instead of `permission.updated`.
 
 ### Added
 
