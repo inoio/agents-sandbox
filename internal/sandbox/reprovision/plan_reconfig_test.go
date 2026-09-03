@@ -110,3 +110,20 @@ func TestPlanReconfigDecidesRecreate(t *testing.T) {
 		})
 	}
 }
+
+func TestPlanReconfigServeHostPortReuse(t *testing.T) {
+	cfg := &msbSdk.SandboxConfig{
+		Image: "img",
+		PortBindings: []msbSdk.PortBinding{
+			{Bind: "127.0.0.1", HostPort: 4096, GuestPort: 4096, Protocol: msbSdk.PortProtocolTCP},
+		},
+	}
+	opts := options.RunOptions{ServeOnly: true}
+	plan := PlanReconfig(cfg, "img", opts, ChangeFlags{}, "")
+	if plan.Recreate {
+		t.Error("expected no recreate when reusing the existing binding")
+	}
+	if plan.ServeHostPort != 4096 {
+		t.Errorf("ServeHostPort = %d, want 4096", plan.ServeHostPort)
+	}
+}

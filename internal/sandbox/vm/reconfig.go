@@ -134,7 +134,7 @@ func decideReconfig(
 	imageRef, imageDigest, homeVol string, hs state.HomeState,
 	cfs *reprovision.ConfigFiles,
 	ui termio.UI,
-) (bool, bool, string, error) {
+) (bool, bool, string, int, error) {
 	handle, _ := client.GetSandbox(ctx, projectVMName(k))
 
 	var curCfg *msbSdk.SandboxConfig
@@ -197,7 +197,7 @@ func decideReconfig(
 	otherClients := state.CountActiveClients(k)
 	applyRecreate, applyRestart, err := reprovision.ResolveReconfig(ctx, ui, plan, otherClients, plan.Changes)
 	if err != nil {
-		return false, false, homeVol, err
+		return false, false, homeVol, plan.ServeHostPort, err
 	}
 	recreate := applyRecreate
 	restart := applyRestart && !recreate && !plan.Recreate
@@ -210,15 +210,15 @@ func decideReconfig(
 		action := vm.ResolveHomeAction(ui, hs.ImageDigest, imageDigest)
 		if action == volume.ActionQuit {
 			ui.Infof("exiting as requested by user")
-			return false, false, homeVol, &ExitError{Code: 1}
+			return false, false, homeVol, plan.ServeHostPort, &ExitError{Code: 1}
 		}
 		newVol, err := vm.ApplyHomeAction(ctx, client, k, homeVol, imageRef, imageDigest, action, opts, ui)
 		if err != nil {
-			return false, false, homeVol, fmt.Errorf("apply home action: %w", err)
+			return false, false, homeVol, plan.ServeHostPort, fmt.Errorf("apply home action: %w", err)
 		}
 		homeVol = newVol
 	}
-	return recreate, restart, homeVol, nil
+	return recreate, restart, homeVol, plan.ServeHostPort, nil
 }
 
 // restartDaemons provisions config files and restarts the agent's daemon so an

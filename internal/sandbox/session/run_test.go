@@ -83,7 +83,7 @@ func TestRunServeOnlyBlocksUntilCancel(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	got := make(chan error, 1)
 	ui := &termio.Mock{}
-	go func() { got <- runServeOnly(ctx, sb, ui) }()
+	go func() { got <- runServeOnly(ctx, sb, ui, 4096) }()
 	cancel()
 	select {
 	case err := <-got:
@@ -153,13 +153,15 @@ func TestRunAttachDefaultDoesNotUseRoot(t *testing.T) {
 }
 
 type fakePrepared struct {
-	sb     msb.Sandbox
-	target string
+	sb            msb.Sandbox
+	target        string
+	serveHostPort int
 }
 
 func (f *fakePrepared) Cleanup()             {}
 func (f *fakePrepared) Sandbox() msb.Sandbox { return f.sb }
 func (f *fakePrepared) Target() string       { return f.target }
+func (f *fakePrepared) ServeHostPort() int   { return f.serveHostPort }
 
 // --- Run: dry-run ---
 
@@ -230,6 +232,42 @@ func TestRunServeOnlyPath(t *testing.T) {
 	var exitErr *sandbox.ExitError
 	if !errors.As(err, &exitErr) || exitErr.Code != 0 {
 		t.Errorf("err = %v, want ExitError code 0", err)
+	}
+}
+
+func TestRunServeOnlyUsesSessionServeHostPort(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	ui := &termio.Mock{}
+	orig := prepareSandbox
+	prepareSandbox = func(context.Context, options.RunOptions, termio.UI) (preparedSandbox, error) {
+		return &fakePrepared{
+			sb:            msb.NewMockSandbox(msb.SandboxOpts{}),
+			serveHostPort: 4099,
+		}, nil
+	}
+	defer func() { prepareSandbox = orig }()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	done := make(chan error, 1)
+	go func() {
+		done <- Run(ctx, options.RunOptions{ServeOnly: true, ReapPolicy: options.NewReapPolicy(true, 5)}, ui)
+	}()
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("Run serve-only did not return after cancel")
+	}
+	found := false
+	for _, call := range ui.InfoCalls {
+		if strings.Contains(call, "http://127.0.0.1:4099") {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("expected connect URL with session port 4099 in info output, got %v", ui.InfoCalls)
 	}
 }
 

@@ -22,10 +22,11 @@ import (
 // Session is a prepared, ready-to-attach sandbox: the VM, its name, and
 // the agent attach target.
 type Session struct {
-	sb     msb.Sandbox
-	name   string
-	target string
-	cwd    string
+	sb            msb.Sandbox
+	name          string
+	target        string
+	cwd           string
+	serveHostPort int
 }
 
 // Cleanup releases the sandbox handle. It is safe to call on a nil session.
@@ -44,6 +45,12 @@ func (s *Session) Sandbox() msb.Sandbox {
 // Target returns the agent attach target directory.
 func (s *Session) Target() string {
 	return s.target
+}
+
+// ServeHostPort returns the published host port the agent server is reachable
+// at in serve-only mode (0 when not serving).
+func (s *Session) ServeHostPort() int {
+	return s.serveHostPort
 }
 
 // PrepareSandbox builds (or reuses) the project VM, provisions config, and
@@ -111,13 +118,12 @@ func PrepareSandbox(
 		return nil, err
 	}
 
-	recreate, restart, homeVol, err := decideReconfig(
+	recreate, restart, homeVol, serveHostPort, err := decideReconfig(
 		ctx,
 		client,
 		vm,
 		k,
 		opts,
-
 		imageInfo.Tag,
 		imageInfo.Digest,
 		homeVol,
@@ -130,6 +136,8 @@ func PrepareSandbox(
 	}
 	ui.Verbosef("recreate: %v, restart: %v", recreate, restart)
 	opts.Recreate = recreate
+	opts.ServeHostPort = resolveServeHostPort(opts, serveHostPort)
+
 	sb, boot, err := ensureProjectVM(ctx, opts, imageInfo.Tag, homeVol, cwd, imageInfo.Env, k, ui)
 	if err != nil {
 		return nil, err
@@ -138,7 +146,6 @@ func PrepareSandbox(
 		persistConfigHashes(k, opts.Network, opts.Mounts, ui)
 	}
 	name := projectVMName(k)
-
 	var sandboxTarget string
 	var sandboxErr error
 	if sb == nil {
@@ -154,11 +161,24 @@ func PrepareSandbox(
 	ui.Verbosef("attach target: %s", sandboxTarget)
 
 	return &Session{
-		sb:     sb,
-		name:   name,
-		target: sandboxTarget,
-		cwd:    cwd,
+		sb:            sb,
+		name:          name,
+		target:        sandboxTarget,
+		cwd:           cwd,
+		serveHostPort: opts.ServeHostPort,
 	}, nil
+}
+
+// resolveServeHostPort returns the host port to publish in serve-only mode. When
+// the reconfig plan produced one (an existing VM reuses its published port) it
+// is used; otherwise a free host port is probed so the VM-creation port (read
+// from opts.ServeHostPort) and the serve-message port (read from the Session)
+// agree on the very first run.
+func resolveServeHostPort(opts options.RunOptions, planned int) int {
+	if opts.ServeOnly && planned == 0 {
+		return options.FirstFreeHostPort(options.ServeOnlyBasePort)
+	}
+	return planned
 }
 
 // resolveHomeVolume resolves the project home volume, reusing the existing one

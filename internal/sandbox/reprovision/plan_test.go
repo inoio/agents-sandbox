@@ -10,7 +10,7 @@ import (
 )
 
 func TestPlanReconfigServeOnly(t *testing.T) {
-	desired := options.ServeOnlyBindings()
+	desired := options.ServeOnlyBindings(options.ServeOnlyBasePort)
 	tests := []struct {
 		name         string
 		serveOnly    bool
@@ -89,8 +89,11 @@ func TestPlanReconfigTriggersRecreateOnImageChange(t *testing.T) {
 }
 
 func TestDesiredPublishBindingsDelegatesToOptions(t *testing.T) {
-	optsBindings := options.ServeOnlyBindings()
-	planBindings := desiredPublishBindings(true)
+	cfg := &msbSdk.SandboxConfig{PortBindings: []msbSdk.PortBinding{
+		{Bind: "127.0.0.1", HostPort: 4097, GuestPort: 4096, Protocol: msbSdk.PortProtocolTCP},
+	}}
+	optsBindings := options.ServeOnlyBindings(4097)
+	planBindings := desiredPublishBindings(true, cfg)
 	if len(planBindings) != 1 {
 		t.Fatalf("expected 1 binding, got %d", len(planBindings))
 	}
@@ -109,7 +112,7 @@ func TestDesiredPublishBindingsDelegatesToOptions(t *testing.T) {
 }
 
 func TestDesiredPublishBindingsNilWhenNotServeOnly(t *testing.T) {
-	got := desiredPublishBindings(false)
+	got := desiredPublishBindings(false, nil)
 	if got != nil {
 		t.Errorf("expected nil when serveOnly=false, got %+v", got)
 	}

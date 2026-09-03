@@ -22,11 +22,11 @@ import (
 
 // projectPortBindings returns the port bindings to publish on the host for the
 // project VM. Serve-only exposes the agent serve port on the host loopback.
-func projectPortBindings(serveOnly bool) []msbSdk.PortBinding {
+func projectPortBindings(serveOnly bool, hostPort int) []msbSdk.PortBinding {
 	if !serveOnly {
 		return nil
 	}
-	return options.ServeOnlyBindings()
+	return options.ServeOnlyBindings(hostPort)
 }
 
 type vmAction int
@@ -329,7 +329,11 @@ func createProjectVM(
 		optsList = append(optsList, msbSdk.WithRootDisk(msbSdk.RootDisk.Managed(options.ParseMemory(opts.DiskSize))))
 	}
 	if opts.ServeOnly {
-		optsList = append(optsList, msbSdk.WithPortBindings(projectPortBindings(true)...))
+		hostPort := opts.ServeHostPort
+		if hostPort == 0 {
+			hostPort = options.FirstFreeHostPort(options.ServeOnlyBasePort)
+		}
+		optsList = append(optsList, msbSdk.WithPortBindings(projectPortBindings(true, hostPort)...))
 	}
 	if !opts.Network.Empty() {
 		netCfg, err := opts.Network.Config()

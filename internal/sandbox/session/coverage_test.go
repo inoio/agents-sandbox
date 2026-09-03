@@ -205,7 +205,7 @@ func TestRunServeOnlyReturnsDeadlineExceeded(t *testing.T) {
 	sb := msb.NewMockSandbox(msb.SandboxOpts{})
 	orig := prepareSandbox
 	prepareSandbox = func(context.Context, options.RunOptions, termio.UI) (preparedSandbox, error) {
-		return &fakePrepared{sb: sb}, nil
+		return &fakePrepared{sb: sb, serveHostPort: 4096}, nil
 	}
 	defer func() { prepareSandbox = orig }()
 

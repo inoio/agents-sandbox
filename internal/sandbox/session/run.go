@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strconv"
 
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 
@@ -23,6 +24,7 @@ type preparedSandbox interface {
 	Cleanup()
 	Sandbox() msb.Sandbox
 	Target() string
+	ServeHostPort() int
 }
 
 // prepareSandbox is a test seam swapped in tests to avoid real VM setup.
@@ -90,9 +92,9 @@ func serveOnlyMessage(host, port string) string {
 // runServeOnly keeps the VM alive and blocks until ctx is done (CTRL-D or
 // SIGINT), without attaching an in-VM TUI. It holds the VM via a keeper exec so
 // the msb idle timeout does not stop it while serving.
-func runServeOnly(ctx context.Context, sb msb.Sandbox, ui termio.UI) error {
+func runServeOnly(ctx context.Context, sb msb.Sandbox, ui termio.UI, hostPort int) error {
 	host := options.ServeOnlyBindAddr
-	port := options.ServeOnlyPort
+	port := strconv.Itoa(hostPort)
 	ui.Infof("%s", serveOnlyMessage(host, port))
 	keeperCtx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -145,7 +147,7 @@ func Run(ctx context.Context, opts options.RunOptions, ui termio.UI) error {
 				release()
 			}
 		}()
-		if err := runServeOnly(ctx, sb, ui); err != nil && !errors.Is(err, context.Canceled) {
+		if err := runServeOnly(ctx, sb, ui, ses.ServeHostPort()); err != nil && !errors.Is(err, context.Canceled) {
 			return err
 		}
 		if acquireErr == nil {

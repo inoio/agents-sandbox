@@ -86,7 +86,7 @@ func TestDecideReconfigConfigError(t *testing.T) {
 	if err != nil {
 		t.Fatalf("LoadConfigFiles: %v", err)
 	}
-	_, _, _, err = decideReconfig(
+	_, _, _, _, err = decideReconfig(
 		context.Background(),
 		mock,
 		vm,
@@ -139,7 +139,7 @@ func TestDecideReconfigResolveReconfigError(t *testing.T) {
 	if err != nil {
 		t.Fatalf("LoadConfigFiles: %v", err)
 	}
-	_, _, _, err = decideReconfig(
+	_, _, _, _, err = decideReconfig(
 		context.Background(),
 		mock,
 		vm,
@@ -185,7 +185,7 @@ func TestDecideReconfigApplyHomeActionError(t *testing.T) {
 	if err != nil {
 		t.Fatalf("LoadConfigFiles: %v", err)
 	}
-	_, _, _, err = decideReconfig(
+	_, _, _, _, err = decideReconfig(
 		context.Background(),
 		mock,
 		vm,

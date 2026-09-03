@@ -178,7 +178,7 @@ func TestDecideReconfig_NetworkChangedWithPersistedState(t *testing.T) {
 	if err != nil {
 		t.Fatalf("LoadConfigFiles: %v", err)
 	}
-	recreate, restart, _, err := decideReconfig(
+	recreate, restart, _, _, err := decideReconfig(
 		context.Background(),
 		mock,
 		vm,
@@ -223,7 +223,7 @@ func TestDecideReconfig_NetworkUnchangedNoRecreate(t *testing.T) {
 	if err != nil {
 		t.Fatalf("LoadConfigFiles: %v", err)
 	}
-	recreate, restart, _, err := decideReconfig(
+	recreate, restart, _, _, err := decideReconfig(
 		context.Background(),
 		mock,
 		vm,
@@ -325,7 +325,7 @@ func TestDecideReconfig_EnvChangedWithPersistedState(t *testing.T) {
 	if err != nil {
 		t.Fatalf("LoadConfigFiles: %v", err)
 	}
-	recreate, restart, _, err := decideReconfig(
+	recreate, restart, _, _, err := decideReconfig(
 		context.Background(),
 		mock,
 		vm,
@@ -379,7 +379,7 @@ func TestDecideReconfig_EnvUnchangedWithPersistedState(t *testing.T) {
 	if err != nil {
 		t.Fatalf("LoadConfigFiles: %v", err)
 	}
-	recreate, restart, _, err := decideReconfig(
+	recreate, restart, _, _, err := decideReconfig(
 		context.Background(),
 		mock,
 		vm,
@@ -428,7 +428,7 @@ func TestDecideReconfig_SecretsChangedWithPersistedState(t *testing.T) {
 	if err != nil {
 		t.Fatalf("LoadConfigFiles: %v", err)
 	}
-	recreate, restart, _, err := decideReconfig(
+	recreate, restart, _, _, err := decideReconfig(
 		context.Background(),
 		mock,
 		vm,
@@ -473,7 +473,7 @@ func TestDecideReconfig_ZeroPersistedStateNoSpuriousChange(t *testing.T) {
 	if err != nil {
 		t.Fatalf("LoadConfigFiles: %v", err)
 	}
-	recreate, restart, _, err := decideReconfig(
+	recreate, restart, _, _, err := decideReconfig(
 		context.Background(),
 		mock,
 		vm,
@@ -670,7 +670,7 @@ func TestDecideReconfig_PersistedSecretsMatchDesired(t *testing.T) {
 	if err != nil {
 		t.Fatalf("LoadConfigFiles: %v", err)
 	}
-	recreate, restart, _, err := decideReconfig(
+	recreate, restart, _, _, err := decideReconfig(
 		context.Background(),
 		mock,
 		vm,
@@ -720,7 +720,7 @@ func TestDecideReconfig_HomePromptDeferredWhenRebuildDeferred(t *testing.T) {
 	if err != nil {
 		t.Fatalf("LoadConfigFiles: %v", err)
 	}
-	recreate, restart, homeVol, err := decideReconfig(
+	recreate, restart, homeVol, _, err := decideReconfig(
 		context.Background(),
 		mock,
 		vm,
@@ -781,7 +781,7 @@ func TestDecideReconfig_HomePromptAskedWhenRebuildConfirmed(t *testing.T) {
 	if err != nil {
 		t.Fatalf("LoadConfigFiles: %v", err)
 	}
-	recreate, restart, homeVol, err := decideReconfig(
+	recreate, restart, homeVol, _, err := decideReconfig(
 		context.Background(),
 		mock,
 		vm,
@@ -854,7 +854,7 @@ func TestDecideReconfig_OpenCodeConfigChanged_StoppedVM(t *testing.T) {
 	if err != nil {
 		t.Fatalf("LoadConfigFiles: %v", err)
 	}
-	recreate, restart, _, err := decideReconfig(
+	recreate, restart, _, _, err := decideReconfig(
 		context.Background(),
 		mock,
 		vm,

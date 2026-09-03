@@ -716,7 +716,7 @@ func TestEnsureProjectVMReusesWhenNotFlagged(t *testing.T) {
 }
 
 func TestProjectPortBindingsServeOnly(t *testing.T) {
-	canonical := options.ServeOnlyBindings()
+	canonical := options.ServeOnlyBindings(options.ServeOnlyBasePort)
 	tests := []struct {
 		name      string
 		serveOnly bool
@@ -727,7 +727,7 @@ func TestProjectPortBindingsServeOnly(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := projectPortBindings(tt.serveOnly)
+			got := projectPortBindings(tt.serveOnly, options.ServeOnlyBasePort)
 			if !reflect.DeepEqual(got, tt.want) {
 				t.Errorf("projectPortBindings(%v) = %#v, want %#v", tt.serveOnly, got, tt.want)
 			}
@@ -736,8 +736,8 @@ func TestProjectPortBindingsServeOnly(t *testing.T) {
 }
 
 func TestProjectPortBindingsDelegatesToOptions(t *testing.T) {
-	got := projectPortBindings(true)
-	expected := options.ServeOnlyBindings()
+	got := projectPortBindings(true, 4097)
+	expected := options.ServeOnlyBindings(4097)
 	if len(got) != len(expected) {
 		t.Fatalf("expected %d bindings, got %d", len(expected), len(got))
 	}

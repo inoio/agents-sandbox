@@ -1,6 +1,8 @@
 package options
 
 import (
+	"fmt"
+	"net"
 	"time"
 
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
@@ -34,6 +36,10 @@ type RunOptions struct {
 	// Recreate forces a project-VM rebuild on this invocation. It is set by
 	// prepareSandbox from the reconfig decision and is never user-facing.
 	Recreate bool
+	// ServeHostPort is the resolved published host port for serve-only mode
+	// (0 when not serving). It is set by prepareSandbox and is never
+	// user-facing, mirroring Recreate.
+	ServeHostPort int
 	// ServeOnly starts the VM with the agent port published on the host and
 	// serves without attaching the in-VM TUI. Clients (e.g. a desktop app)
 	// connect to the published host port.
@@ -58,15 +64,53 @@ type RunOptions struct {
 // when run in serve-only mode.
 const ServeOnlyBindAddr = "127.0.0.1"
 
-// ServeOnlyPort is the host/guest TCP port used for the agent server in
-// serve-only mode.
-const ServeOnlyPort = "4096"
+// ServeOnlyBasePort is the lowest host port probed when publishing the agent
+// server in serve-only mode, and the guest port the agents serve on.
+const ServeOnlyBasePort = 4096
 
-// ServeOnlyBindings returns the msb port binding for serve-only mode.
-func ServeOnlyBindings() []msbSdk.PortBinding {
-	return []msbSdk.PortBinding{
-		{Bind: ServeOnlyBindAddr, HostPort: 4096, GuestPort: 4096, Protocol: msbSdk.PortProtocolTCP},
+// FirstFreeHostPort returns the first host port at or above base that is not
+// currently bound on the loopback address.
+func FirstFreeHostPort(base int) int {
+	for p := base; p < base+1024; p++ {
+		//nolint:noctx // no context applies to a transient probe of localhost port availability
+		ln, err := net.Listen("tcp", fmt.Sprintf("%s:%d", ServeOnlyBindAddr, p))
+		if err == nil {
+			_ = ln.Close()
+			return p
+		}
 	}
+	return base
+}
+
+// ServeOnlyBindings returns the msb port binding for serve-only mode with the
+// given host port, mapping it to the fixed guest port.
+func ServeOnlyBindings(hostPort int) []msbSdk.PortBinding {
+	return []msbSdk.PortBinding{
+		//nolint:gosec // G115: host ports are well below the uint16 max
+		{
+			Bind:      ServeOnlyBindAddr,
+			HostPort:  uint16(hostPort),
+			GuestPort: ServeOnlyBasePort,
+			Protocol:  msbSdk.PortProtocolTCP,
+		},
+	}
+}
+
+// ResolveServeHostPort returns the host port to publish for serve-only mode:
+// the port an existing VM already publishes (kept stable across runs), or the
+// first free host port at or above ServeOnlyBasePort.
+func ResolveServeHostPort(cfg *msbSdk.SandboxConfig, serveOnly bool) int {
+	if !serveOnly {
+		return 0
+	}
+	if cfg != nil {
+		for _, pb := range cfg.PortBindings {
+			if pb.HostPort != 0 {
+				return int(pb.HostPort)
+			}
+		}
+	}
+	return FirstFreeHostPort(ServeOnlyBasePort)
 }
 
 // ReapPolicy controls what happens after the last client detaches from a VM.

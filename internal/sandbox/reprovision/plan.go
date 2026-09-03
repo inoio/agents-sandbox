@@ -48,6 +48,9 @@ type Plan struct {
 	RestartDaemons bool
 	Resources      *msbSdk.ModifyOptions
 	Changes        []Change
+	// ServeHostPort is the resolved published host port for serve-only mode (0
+	// when not serving).
+	ServeHostPort int
 }
 
 func configChangeList(changes []Change) string {
@@ -158,7 +161,10 @@ func PlanReconfig( //nolint:gocognit,gocyclo,cyclop,funlen // core planner, cogn
 
 	// Port publish state (serve-only) must match; mismatch requires recreate
 	// since microsandbox published ports can only be set at VM creation.
-	wantPorts := desiredPublishBindings(opts.ServeOnly)
+	wantPorts := desiredPublishBindings(opts.ServeOnly, cfg)
+	if len(wantPorts) > 0 {
+		d.ServeHostPort = int(wantPorts[0].HostPort)
+	}
 	if !portBindingsEqual(wantPorts, cfg.PortBindings) {
 		d.Recreate = true
 		d.Changes = append(
@@ -280,11 +286,11 @@ func diskMiBOr0(cfg *msbSdk.SandboxConfig) uint32 {
 // desiredPublishBindings returns the port bindings opencode-sandbox wants on the
 // project VM. Serve-only publishes the agent port on the host loopback;
 // otherwise nothing is published.
-func desiredPublishBindings(serveOnly bool) []msbSdk.PortBinding {
+func desiredPublishBindings(serveOnly bool, cfg *msbSdk.SandboxConfig) []msbSdk.PortBinding {
 	if !serveOnly {
 		return nil
 	}
-	return options.ServeOnlyBindings()
+	return options.ServeOnlyBindings(options.ResolveServeHostPort(cfg, true))
 }
 
 func portBindingsEqual(a, b []msbSdk.PortBinding) bool {
