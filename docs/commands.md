@@ -184,7 +184,8 @@ opencode-sandbox prune --dry-run             # preview only
 ### image prune
 
 Prune cached runner images. Images of stale projects (older than the threshold) are removed entirely; for projects with a
-surviving VM, surplus digests that diverge from the project's current digest are removed.
+surviving VM, the per-agent `-latest` tags and any image a kept VM currently references are retained, while surplus
+digest refs are removed.
 
 ```console
 opencode-sandbox image prune                      # use manual-prune-age from config (default: 7d)

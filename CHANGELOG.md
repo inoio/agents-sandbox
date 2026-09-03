@@ -10,6 +10,9 @@ command reports the bare version (e.g. `0.1.0`).
 
 ### Changed
 
+- Behavior: image prune now retains any msb image a kept VM still references, not just per-agent `-latest` tags. A
+  stopped-not-yet-stale VM created before the per-agent tag redesign references its runner image by digest ref; pruning
+  attempted to reclaim it, which failed in msb with a `FOREIGN KEY constraint failed` error.
 - Docs: `docs/configuration.md` now documents the `notify:` config block (desktop/audio channels and on-input/on-done/on-error
   triggers) in the configuration table, the environment-variable table (`OPENCODE_SANDBOX_NOTIFY`), and a new
   [Notifications](#notifications) section.

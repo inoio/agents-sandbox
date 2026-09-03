@@ -7,6 +7,8 @@ import (
 	"testing"
 	"time"
 
+	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
+
 	"github.com/inoio/opencode-sandbox/internal/configpaths"
 	"github.com/inoio/opencode-sandbox/internal/sandbox/docker"
 	"github.com/inoio/opencode-sandbox/internal/sandbox/msb"
@@ -22,7 +24,7 @@ func TestPruneImages(t *testing.T) {
 		return &msb.MockImageHandle{Reference_: ref, CreatedAt_: createdAt}
 	}
 	live := func(slug string) PruneState {
-		return PruneState{ToKeep: map[string]struct{}{slug: {}}}
+		return PruneState{ToKeep: map[string]msb.SandboxHandle{slug: &msb.MockSandboxHandle{}}}
 	}
 
 	t.Run("prunes VM-less slug and older surplus of a kept slug", func(t *testing.T) {
@@ -216,7 +218,7 @@ func TestPruneImagesKeepsPerAgentTagsOfLiveSlug(t *testing.T) {
 	msb.WithMsbMock(t, client)
 	docker.WithNoopDockerMock(t)
 	ui := &termio.Mock{}
-	ps := PruneState{ToKeep: map[string]struct{}{"active-1mjusbm3wikhb0": {}}}
+	ps := PruneState{ToKeep: map[string]msb.SandboxHandle{"active-1mjusbm3wikhb0": &msb.MockSandboxHandle{}}}
 	r, err := PruneImages(context.Background(), ps, false, ui)
 	if err != nil {
 		t.Fatalf("PruneImages: %v", err)
@@ -263,7 +265,7 @@ func TestPruneImagesPreservesFreshSurplus(t *testing.T) {
 	msb.WithMsbMock(t, client)
 	docker.WithNoopDockerMock(t)
 	ui := &termio.Mock{}
-	ps := PruneState{ToKeep: map[string]struct{}{"active-1mjusbm3wikhb0": {}}}
+	ps := PruneState{ToKeep: map[string]msb.SandboxHandle{"active-1mjusbm3wikhb0": &msb.MockSandboxHandle{}}}
 	r, err := PruneImages(context.Background(), ps, false, ui)
 	if err != nil {
 		t.Fatalf("PruneImages: %v", err)
@@ -305,5 +307,47 @@ func TestPruneImagesReclaimsKilledProjectImages(t *testing.T) {
 	}
 	if len(client.RemovedImages) != 2 {
 		t.Errorf("RemovedImages = %v, want 2 (both killed-project images reclaimed)", client.RemovedImages)
+	}
+}
+
+// TestPruneImagesKeepsImageReferencedByKeptVM reproduces the prune warning
+// "failed to remove msb image ... FOREIGN KEY constraint failed": a kept
+// (running or not-yet-stale stopped) VM may reference its runner image by a
+// digest ref rather than a per-agent "-latest" tag (pre-redesign VMs). Such an
+// image is still in use by the sandbox and must not be pruned.
+func TestPruneImagesKeepsImageReferencedByKeptVM(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	client := &msb.MockMsbClient{
+		Images: []msb.ImageHandle{
+			&msb.MockImageHandle{
+				Reference_: "opencode-sandbox/runner-proj-1mjusbm3wikhb0:4e8oeqohbmalok",
+				CreatedAt_: time.Now().Add(-15 * 24 * time.Hour),
+			},
+		},
+	}
+	msb.WithMsbMock(t, client)
+	docker.WithNoopDockerMock(t)
+	ui := &termio.Mock{}
+	ps := PruneState{
+		ToKeep: map[string]msb.SandboxHandle{
+			"proj-1mjusbm3wikhb0": &msb.MockSandboxHandle{
+				Name_:   "opencode-sandbox-vm-proj-1mjusbm3wikhb0",
+				Status_: msbSdk.SandboxStatusStopped,
+				Image_:  "opencode-sandbox/runner-proj-1mjusbm3wikhb0:4e8oeqohbmalok",
+			},
+		},
+	}
+	r, err := PruneImages(context.Background(), ps, false, ui)
+	if err != nil {
+		t.Fatalf("PruneImages: %v", err)
+	}
+	if r.MSBImagesPruned != 0 {
+		t.Errorf("MSBImagesPruned = %d, want 0 (image referenced by kept VM)", r.MSBImagesPruned)
+	}
+	if len(client.RemovedImages) != 0 {
+		t.Errorf("RemovedImages = %v, want 0 (digest image of kept VM must not be removed)", client.RemovedImages)
+	}
+	if len(ui.WarnCalls) != 0 {
+		t.Errorf("WarnCalls = %v, want 0", ui.WarnCalls)
 	}
 }

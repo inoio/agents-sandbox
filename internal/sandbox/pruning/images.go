@@ -20,8 +20,8 @@ type ImageReport struct {
 }
 
 // PruneImages prunes MSB runner images that are no longer referenced by a live
-// slug (kept only as per-agent "-latest" tags), plus host-side dangling docker
-// images.
+// slug (kept are per-agent "-latest" tags and any image a kept sandbox still
+// references), plus host-side dangling docker images.
 func PruneImages(
 	ctx context.Context,
 	pruneState PruneState,
@@ -33,13 +33,14 @@ func PruneImages(
 	if err != nil {
 		return report, err
 	}
+	keptImageRefs := referencedImages(pruneState.ToKeep)
 	for _, imageHandle := range handles {
 		ref := imageHandle.Reference()
 		if !hasPrefix(ref, naming.ImagePrefix) {
 			continue
 		}
 		imageArtifact := naming.ArtifactFor(ref)
-		if keepImage(imageHandle, pruneState) {
+		if keepImage(imageHandle, pruneState, keptImageRefs) {
 			continue
 		}
 		if !dryRun {
@@ -63,10 +64,14 @@ func PruneImages(
 }
 
 // keepImage reports whether an msb image reference of a live slug should be
-// retained: per-agent "-latest" tags are the current image for that agent;
-// every other ref is surplus (orphaned content or pre-redesign digest refs).
-func keepImage(imageHandle msb.ImageHandle, pruneState PruneState) bool {
+// retained: images referenced by a kept sandbox are always retained, per-agent
+// "-latest" tags are the current image for that agent; every other ref is
+// surplus (orphaned content or pre-redesign digest refs).
+func keepImage(imageHandle msb.ImageHandle, pruneState PruneState, keptImageRefs map[string]struct{}) bool {
 	ref := imageHandle.Reference()
+	if _, used := keptImageRefs[ref]; used {
+		return true
+	}
 	artifact := naming.ArtifactFor(ref)
 	if _, live := pruneState.ToKeep[artifact.Slug]; !live {
 		return false
@@ -75,6 +80,20 @@ func keepImage(imageHandle msb.ImageHandle, pruneState PruneState) bool {
 		return false
 	}
 	return artifact.Agent != "" && strings.HasSuffix(ref, "-latest")
+}
+
+// referencedImages collects the image references that kept sandboxes currently
+// point at. An image still in use by a kept sandbox must not be removed, even
+// when it is a digest ref rather than a per-agent "-latest" tag (pre-redesign
+// VMs), since msb rejects removal of an image its database still references.
+func referencedImages(kept map[string]msb.SandboxHandle) map[string]struct{} {
+	result := make(map[string]struct{}, len(kept))
+	for _, handle := range kept {
+		if ref := handle.Image(); ref != "" {
+			result[ref] = struct{}{}
+		}
+	}
+	return result
 }
 
 // pruneDockerImages removes dangling (untagged) docker images created by us; skipped on dry-run.

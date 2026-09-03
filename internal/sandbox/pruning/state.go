@@ -10,18 +10,19 @@ import (
 
 // PruneState is a point-in-time view of which project slugs have a VM and how it
 // is classified. ToPrune holds the slugs whose VM is being reclaimed (stale VMs
-// and leftover task sandboxes); ToKeep holds the slugs that have a live, kept
-// project VM. A slug in neither set has no project VM at all, so its cached
-// artifacts (e.g. runner images) are dangling and can be reclaimed.
+// and leftover task sandboxes) with their sandbox handle; ToKeep holds the slugs
+// that have a live, kept project VM and its sandbox handle. A slug in neither set
+// has no project VM at all, so its cached artifacts (e.g. runner images) are
+// dangling and can be reclaimed.
 type PruneState struct {
 	ToPrune map[string]msb.SandboxHandle
-	ToKeep  map[string]struct{}
+	ToKeep  map[string]msb.SandboxHandle
 }
 
 func buildPruneState(ctx context.Context, age time.Duration) (PruneState, error) {
 	result := PruneState{
 		ToPrune: map[string]msb.SandboxHandle{},
-		ToKeep:  map[string]struct{}{},
+		ToKeep:  map[string]msb.SandboxHandle{},
 	}
 	handles, err := msb.Get().ListSandboxes(ctx, nil)
 	if err != nil {
@@ -43,7 +44,7 @@ func buildPruneState(ctx context.Context, age time.Duration) (PruneState, error)
 		// A project VM that is not being pruned counts as a kept VM. Task
 		// sandboxes are transient workers and never represent a kept project.
 		if hasPrefix(name, naming.VmPrefix) {
-			result.ToKeep[slug] = struct{}{}
+			result.ToKeep[slug] = h
 		}
 	}
 	return result, nil

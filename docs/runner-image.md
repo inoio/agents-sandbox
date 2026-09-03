@@ -182,8 +182,9 @@ opencode-sandbox image prune --dry-run   # see what's stale
 opencode-sandbox image prune             # actually remove them
 ```
 
-Pruning retains one `-latest` image **per agent** per live project and reclaims all other refs — pre-redesign digest refs,
-orphaned surplus images, and every ref of projects (slugs) that no longer have a live VM. See [Commands]({% link commands.md %}) for details on the prune command.
+Pruning retains the `-latest` images **per agent** per live project and any image a kept VM still references, reclaiming
+every other ref — pre-redesign digest refs no sandbox uses, orphaned surplus images, and every ref of projects (slugs)
+that no longer have a live VM. See [Commands]({% link commands.md %}) for details on the prune command.
 
 opencode-sandbox also auto-prunes all resources that are ephemeral, unused or haven't been in use for more than 30 days by
 default. Cached runner images and home volumes are only pruned once they are older than the threshold, so a recently

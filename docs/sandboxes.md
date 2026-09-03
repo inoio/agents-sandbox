@@ -188,7 +188,9 @@ Pruning removes:
 - Dangling runner images of projects whose VM is gone (e.g. after `kill --force`, or a prune whose image removal
   failed). The prune snapshot tracks which slugs have a live VM, so it can tell a live project apart from a VM-less one
   and reclaim the latter's cached images.
-- Surplus msb images of a project that still has a VM. Surplus images are images older than the VM's current image.
+- Surplus msb images of a project that still has a VM. Retained are the per-agent `-latest` tags plus the images a kept
+  VM currently references (a stopped-not-yet-stale VM may still point at a pre-redesign digest ref); every other ref
+  (orphaned content, old digest refs no sandbox uses) is reclaimed.
 - Dangling Docker images: after a rebuild the previous runner image is no longer referenced by any tag and is reclaimed
   by a scoped Docker image prune. Tagged images (base images and the current `:latest` runner) are left untouched.
 
