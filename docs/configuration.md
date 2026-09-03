@@ -229,6 +229,11 @@ The `notify:` block controls the channels and the triggers:
 Notifications are inactive unless at least one channel is enabled (`desktop` true or `audio` not `off`). When inactive,
 the `on-input`/`on-done`/`on-error` trigger toggles have no effect.
 
+When multiple clients (`run` instances) are attached to the same project VM,
+notifications are delivered at most once per opencode session: the first client
+to observe a transition claims a shared per-project token, and other clients
+skip it. A later transition for the same session notifies again.
+
 ```yaml
 notify:
   desktop: true      # notify-send (Linux) / osascript (macOS)

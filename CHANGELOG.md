@@ -31,6 +31,12 @@ command reports the bare version (e.g. `0.1.0`).
   notification titles come from the agent's `EventStreamProvider` capability (`internal/agent`) instead of
   opencode-specific constants. Only the opencode profile implements the capability today, so behavior is unchanged;
   the notify watcher is a no-op for agents without it. The temp WAV prefix is renamed `opencode-notify-`→`agent-notify-`.
+- Behavior: when multiple clients watch the same project VM, each notify
+  transition (done / needs-input / error) now fires a single host notification
+  per opencode session. Notifications are deduplicated across clients via a
+  shared per-project claim store keyed by (project, session, trigger), and the
+  notify tracker now tracks each session independently. This prevents duplicate
+  desktop/audio notifications when more than one `run` instance is attached.
 
 ### Added
 
