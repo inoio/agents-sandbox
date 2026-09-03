@@ -36,7 +36,7 @@ func ResolveWorktreeSpec(value string) (options.WorktreeSpec, error) {
 	return options.WorktreeSpec{Name: name, Base: base}, nil
 }
 
-// slugify mirrors the opencode daemon's worktree name normalisation so we can
+// slugify mirrors the opencode daemon's worktree name normalization so we can
 // match an existing worktree directory back to the requested --worktree. See the
 // daemon's slugify: lowercase, collapse non-alphanumerics to "-", trim dashes.
 var slugifyPattern = regexp.MustCompile(`[^a-z0-9]+`)
@@ -102,7 +102,7 @@ func findWorktreeDir(listStdout string, slug string) (string, bool) {
 
 // ResolveTarget returns the --dir target for attach. An empty spec → /workspace.
 // With a name → reuse an existing worktree via the provider's HTTP API when one
-// already exists for that name, otherwise create a new one and return its
+// already exists for that name, otherwise create a new one, and return its
 // directory path. When a base is present on an existing (reused) worktree the
 // base is silently ignored with a warning. When a base is present on a fresh
 // create the base is validated (no fetch) and the create body carries a

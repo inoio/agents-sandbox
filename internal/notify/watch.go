@@ -31,7 +31,7 @@ var watchBackoff = time.Second
 
 // Watch relays the in-VM SSE stream to the tracker and backend. When the
 // stream drops (exits, connection reset) it reconnects with a bounded number
-// of attempts and a growing backoff, until ctx is cancelled or the cap is hit.
+// of attempts and a growing backoff, until ctx is canceled or the cap is hit.
 func Watch(ctx context.Context, sb msb.Sandbox, spec agent.EventStreamSpec, sink Backend) error {
 	if sink == nil {
 		return nil
@@ -58,7 +58,7 @@ loop:
 }
 
 // watchOnce opens one SSE stream and feeds the tracker until it drops or ctx
-// is cancelled. It reports whether the stream dropped (vs ctx ending). SSE
+// is canceled. It reports whether the stream dropped (vs ctx ending). SSE
 // events are blocks of `event:`/`data:` lines separated by blank lines, so
 // lines are accumulated and parsed one block at a time.
 func watchOnce(

@@ -3,7 +3,7 @@ package agent
 import "strings"
 
 // ImageSpec carries the structured bits needed to bake an agent into the runner
-// image: the version build ARG, env vars to set in the image (e.g. to disable
+// image: the version build ARG, env vars to set in the image (e.g., to disable
 // runtime auto-update), and the install command.
 type ImageSpec struct {
 	VersionArg     string

@@ -400,8 +400,8 @@ func executablePath() (string, error) {
 // replaceExecutable makes assetPath carry the target's permissions and renames
 // it over exePath. The caller must place assetPath in exePath's directory so
 // the rename is on the same filesystem and therefore atomic. Preserving the
-// old binary's permissions honours installs that used a non-default mode
-// (e.g. a setuid or group-writable binary).
+// old binary's permissions honors installs that used a non-default mode
+// (e.g., a setuid or group-writable binary).
 func replaceExecutable(assetPath, exePath string) error {
 	mode := os.FileMode(0o755)
 	if info, err := os.Stat(exePath); err == nil {

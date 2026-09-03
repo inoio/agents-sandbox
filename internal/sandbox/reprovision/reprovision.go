@@ -22,11 +22,11 @@ import (
 const defaultSandboxUser = "dev"
 
 // Provision writes the merged agent config (when snippets exist), each home
-// file, and the drop-in copy into the sandbox, creates parent directories as
+// file, and the drop-in copy into the sandbox. For that it creates parent directories as
 // needed, removes the marked stale paths, then chowns every written path and
 // created directory to the runtime user so the files are readable by the agent
-// and startup hooks (the SDK's file writes create root-owned files and
-// directories).
+// and startup hooks. The SDK's file writes create root-owned files and
+// directories.
 //
 //nolint:gocognit // four near-identical write loops mandated by the config-mirror plan
 func Provision(ctx context.Context, sb msb.Sandbox, cf *ConfigFiles) (retErr error) {
@@ -46,7 +46,7 @@ func Provision(ctx context.Context, sb msb.Sandbox, cf *ConfigFiles) (retErr err
 	}()
 	// Remove stale config first so it cannot shadow the files written below.
 	// Best-effort: the merged config is written to the last-loaded filename
-	// (e.g. opencode.jsonc), so a failed removal is non-fatal.
+	// (e.g., opencode.jsonc), so a failed removal is non-fatal.
 	removeStalePaths(ctx, fs, cf.Remove)
 	if cf.HasSnippets && len(cf.Merged) > 0 {
 		mergedPath := cf.MergedPath
@@ -99,7 +99,7 @@ func Provision(ctx context.Context, sb msb.Sandbox, cf *ConfigFiles) (retErr err
 // removeStalePaths deletes the marked stale paths so a previous provisioning
 // run's host config cannot shadow the files written by Provision. Failures are
 // ignored: the merged config is written to the last-loaded filename
-// (e.g. opencode.jsonc), so a failed removal is non-fatal.
+// (e.g., opencode.jsonc), so a failed removal is non-fatal.
 func removeStalePaths(ctx context.Context, fs msb.SandboxFS, remove []string) {
 	for _, p := range remove {
 		_ = fs.Remove(ctx, p)

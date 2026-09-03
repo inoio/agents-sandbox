@@ -27,7 +27,7 @@ type ConfigPaths interface {
 
 type realConfigPaths struct{}
 
-// Get is the factory clients can use to obtain an Client.
+// Get is the factory clients can use to get a Client.
 // Tests override Get to inject mocks.
 //
 //nolint:gochecknoglobals // test hook for the otherwise unmockable SDK
@@ -126,7 +126,7 @@ func (c *realConfigPaths) ProjectEnvSecretYAMLFile() string {
 // caller appends "opencode-sandbox".
 //
 // The os package's UserConfigDir/UserCacheDir are deliberately not used: they
-// return platform-specific paths (e.g. $HOME/Library/... on macOS) instead of
+// return platform-specific paths (e.g., $HOME/Library/... on macOS) instead of
 // honoring XDG on every platform. Cross-platform tools like git and curl read
 // the XDG variables unconditionally, so we do the same.
 func xdgBaseDir(env, fallback string) string {

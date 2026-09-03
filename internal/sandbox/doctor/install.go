@@ -18,7 +18,7 @@ func ensureMsbInstalled(ctx context.Context) error {
 	return ensureInstalledFunc(ctx)
 }
 
-// msbBinPath resolves home, the microsandbox bin directory and the msb binary
+// msbBinPath resolves home, the microsandbox bin directory, and the msb binary
 // path, reporting an error when the path cannot be resolved or the binary is
 // missing.
 func msbBinPath() (string, string, string, error) {

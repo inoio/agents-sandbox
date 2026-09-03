@@ -99,7 +99,7 @@ func walkRule(rule ProvisionRule, srcRoot, vmHome string, onCopy func(string, []
 		}
 		if !SelectProvisionRule(rule, rel, d.IsDir()) {
 			if d.IsDir() {
-				return filepath.SkipDir // prune excluded dir (e.g. node_modules)
+				return filepath.SkipDir // prune excluded dir (e.g., node_modules)
 			}
 			return nil
 		}

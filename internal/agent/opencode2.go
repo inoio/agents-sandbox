@@ -59,7 +59,7 @@ func (opencode2Profile) DaemonHealthParse(stdout string) (bool, error) {
 }
 
 // opencode2ProjectIDCmd resolves the current project's id from the running v2
-// server; the worktree routes are scoped by project id.
+// server; project id scopes the worktree routes.
 const opencode2ProjectIDCmd = "$(curl -sf http://127.0.0.1:4096/api/project/current | jq -r .id)"
 
 func (opencode2Profile) WorktreeListCmd() string {

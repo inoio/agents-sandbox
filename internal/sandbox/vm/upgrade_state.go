@@ -58,7 +58,7 @@ type agentUpgradeState struct {
 }
 
 // dueForCheck reports whether the last successful check is older than one day
-// (or absent), i.e. a fresh GitHub check is due.
+// (or absent), i.e., a fresh GitHub check is due.
 func (s agentUpgradeState) dueForCheck(t time.Time) bool {
 	return s.LastChecked.IsZero() || t.Sub(s.LastChecked) >= upgradeCheckInterval
 }

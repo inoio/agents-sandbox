@@ -40,7 +40,7 @@ func NewManager(ui termio.UI) *Manager {
 }
 
 // PrefillVolume builds a throwaway sandbox from the given image, mounts the
-// target home volume at /mnt/home and copies the image's home directory onto it.
+// target home volume at /mnt/home, and copies the image's home directory onto it.
 // The throwaway sandbox is stopped and removed afterwards.
 func (vm *Manager) PrefillVolume(
 	ctx context.Context,

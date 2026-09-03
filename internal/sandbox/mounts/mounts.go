@@ -80,7 +80,7 @@ var managedMountTargets = []string{VMHomeDir, WorkspaceMountPath, TmpMountPath}
 
 // exclusiveMountTargets are managed mounts whose contents must stay visible,
 // so nesting a configured mount inside them is rejected as well. The home
-// volume is absent on purpose: mounting into it (e.g. /home/dev/.m2) is the
+// volume is absent on purpose: mounting into it (e.g., /home/dev/.m2) is the
 // primary use case.
 //
 //nolint:gochecknoglobals // package-level constant slice

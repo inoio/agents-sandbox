@@ -109,7 +109,7 @@ func LoadConfigFilesForHost(
 	if err != nil {
 		return nil, err
 	}
-	reserved := []string{}
+	var reserved []string
 	if mergedPath != "" {
 		rel, relErr := filepath.Rel(vmHome, mergedPath)
 		if relErr != nil {

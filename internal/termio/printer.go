@@ -37,7 +37,7 @@ func (p *printer) write(w io.Writer, color, msg string) {
 		return
 	}
 	// With color disabled, strip any ANSI codes embedded in msg so styled cell
-	// values (e.g. colored statuses) render as plain text on non-TTY output.
+	// values (e.g., colored statuses) render as plain text on non-TTY output.
 	fmt.Fprintln(w, stripANSICodes(msg))
 }
 

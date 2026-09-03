@@ -10,7 +10,7 @@ import (
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 )
 
-// Get is the factory clients can use to obtain an Client.
+// Get is the factory clients can use to get an Client.
 // Tests override Get to inject mocks.
 //
 //nolint:gochecknoglobals // test hook for the otherwise unmockable SDK

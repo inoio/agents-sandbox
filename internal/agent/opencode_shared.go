@@ -25,7 +25,7 @@ func (opencodeConfig) VMConfigPath(home string) string {
 	return filepath.Join(home, ".config", "opencode", "opencode.jsonc")
 }
 
-// opencodeConfigFileNames are the config files opencode reads from its global
+// ConfigFileNames opencodeConfigFileNames are the config files opencode reads from its global
 // config directory (config.json < opencode.json < opencode.jsonc), plus the
 // opencode.* variants it may gain support for. The merged config is written to
 // the last-loaded filename so it wins over the others.

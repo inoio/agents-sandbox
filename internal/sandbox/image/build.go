@@ -404,7 +404,7 @@ func EnsureImage(
 // Build ensures the runner image is built and loaded into the microsandbox
 // cache, so it can be used to create VMs. It composes EnsureImageWithClient
 // (build/inspect) and EnsureLoaded (load into microsandbox). Preflight checks
-// (e.g. docker availability) and dry-run handling are the caller's concern.
+// (e.g., docker availability) and dry-run handling are the caller's concern.
 func Build(
 	ctx context.Context,
 	a agent.Agent,
@@ -420,7 +420,7 @@ func Build(
 }
 
 // baseImageRef returns the normalized image reference that backs the rendered
-// Dockerfile's final stage, i.e. the FROM the tool must inspect/pull for the
+// Dockerfile's final stage, i.e., the FROM the tool must inspect/pull for the
 // base label.
 func baseImageRef(rendered []byte) string {
 	token := finalStageToken(rendered)

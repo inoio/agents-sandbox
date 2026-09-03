@@ -15,7 +15,7 @@ type mockConfigPaths struct {
 
 // InstallFailFastConfigPaths binds the sandbox config-path factory to its
 // fail-fast default. Exported so packages dispatching through the factory —
-// e.g. viperconfig, cmd/opencode-sandbox — can list it in their own InitMocks call.
+// e.g., viperconfig, cmd/opencode-sandbox — can list it in their own InitMocks call.
 var InstallFailFastConfigPaths = func() { Get = FailFastConfigPaths } //nolint:gochecknoglobals // test hook, aligned with Get factory
 
 // FailFastConfigPaths is the ConfigPaths installed by default under tests: any

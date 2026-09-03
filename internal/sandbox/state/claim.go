@@ -11,8 +11,8 @@ import (
 // AcquireClaim atomically claims a named token under the slug's state dir,
 // returning claimed=true and a release func only when this caller won the
 // claim. If another live holder owns it, claimed is false and release is nil.
-// A dead holder's flock auto-releases, so an abandoned claim can always be
-// retaken by a later caller.
+// A dead holder's flock auto-releases, so a later caller can always
+// retake an abandoned claim.
 func AcquireClaim(slug, key string) (func(), bool, error) {
 	dir := filepath.Join(slugDir(slug), "claims")
 	if err := os.MkdirAll(dir, 0o700); err != nil {

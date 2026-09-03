@@ -75,7 +75,7 @@ func resolveBuildVersion(
 
 	current := currentUpgradeVersion(a)
 	if current == "" {
-		// No recorded baseline (e.g. first run): resolve latest at build time
+		// No recorded baseline (e.g., first run): resolve latest at build time
 		// rather than prompting against an unknown version.
 		return "", false, nil
 	}

@@ -43,7 +43,7 @@ func opencode2BetaBuildNumber(v string) (int, bool) {
 // newerOpenCode2Than reports whether a is a strictly newer opencode 2 release
 // than b. Beta versions are "0.0.0-beta-<build>" where <build> is a
 // monotonically increasing integer; comparing them as plain semver breaks
-// across digit-length changes (e.g. 0.0.0-beta-9999 vs 0.0.0-beta-10000), so
+// across digit-length changes (e.g., 0.0.0-beta-9999 vs 0.0.0-beta-10000), so
 // the build number is compared numerically when both versions match the beta
 // shape. Any other version falls back to plain semver comparison.
 func newerOpenCode2Than(a, b string) (bool, error) {

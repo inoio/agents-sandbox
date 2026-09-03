@@ -12,7 +12,7 @@ import (
 // is classified. ToPrune holds the slugs whose VM is being reclaimed (stale VMs
 // and leftover task sandboxes) with their sandbox handle; ToKeep holds the slugs
 // that have a live, kept project VM and its sandbox handle. A slug in neither set
-// has no project VM at all, so its cached artifacts (e.g. runner images) are
+// has no project VM at all, so its cached artifacts (e.g., runner images) are
 // dangling and can be reclaimed.
 type PruneState struct {
 	ToPrune map[string]msb.SandboxHandle

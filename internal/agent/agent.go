@@ -1,5 +1,5 @@
 // Package agent provides built-in coding-agent profiles. The active agent is
-// selected by name; optional capabilities are discovered by type assertion so
+// selected by name; optional capabilities are discovered by type assertion, so
 // agents without a capability simply lack it and degrade gracefully.
 package agent
 
