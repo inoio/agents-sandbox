@@ -80,8 +80,28 @@ func TestTrackerIgnoresEventsOutsideSpec(t *testing.T) {
 	if n := tr.Handle(Event{Type: "some.unknown.event"}); n != nil {
 		t.Fatalf("unknown event should not notify, got %+v", n)
 	}
-	if tr.state != stateIdle {
-		t.Fatalf("unknown event should not change state, got %v", tr.state)
+	if tr.states[""] != stateIdle {
+		t.Fatalf("unknown event should not change state, got %v", tr.states[""])
+	}
+}
+
+func TestTrackerPerSessionIsolation(t *testing.T) {
+	tr := NewTracker(opencodeSpec())
+	// Session A busy; session B idle with no prior busy state must not fire.
+	tr.Handle(Event{Type: "message.part.updated", SessionID: "A"})
+	if n := tr.Handle(Event{Type: "session.idle", SessionID: "B"}); n != nil {
+		t.Fatalf("idle for never-busy session B should not notify, got %+v", n)
+	}
+	// B goes busy then idle -> fires for B only, carrying B's sessionID.
+	tr.Handle(Event{Type: "message.part.updated", SessionID: "B"})
+	n := tr.Handle(Event{Type: "session.idle", SessionID: "B"})
+	if n == nil || n.Trigger != TriggerDone || n.SessionID != "B" {
+		t.Fatalf("expected done for session B, got %+v", n)
+	}
+	// A is still busy; its subsequent idle fires independently.
+	n = tr.Handle(Event{Type: "session.idle", SessionID: "A"})
+	if n == nil || n.SessionID != "A" {
+		t.Fatalf("expected done for session A, got %+v", n)
 	}
 }
 

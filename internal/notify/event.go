@@ -13,10 +13,11 @@ type Event struct {
 	Data      []byte
 }
 
-// Tracker derives notification transitions from a stream of events.
+// Tracker derives notification transitions from a stream of events, tracking
+// each session independently.
 type Tracker struct {
-	spec  agent.EventStreamSpec
-	state state
+	spec   agent.EventStreamSpec
+	states map[string]state
 }
 
 type state int
@@ -28,39 +29,48 @@ const (
 	stateError
 )
 
-// NewTracker returns a Tracker starting in the idle state and driven by spec.
+// NewTracker returns a Tracker starting with no known sessions and driven by
+// spec. An absent session is treated as stateIdle.
 func NewTracker(spec agent.EventStreamSpec) *Tracker {
-	return &Tracker{spec: spec, state: stateIdle}
+	return &Tracker{spec: spec, states: map[string]state{}}
 }
 
 // Handle feeds an event and returns a Notification when a configured
-// transition fires, else nil.
+// transition fires for that event's session, else nil.
 func (t *Tracker) Handle(e Event) *Notification {
+	st := t.states[e.SessionID]
 	switch {
 	case eventTypeIn(e.Type, t.spec.BusyEvents):
-		if t.state != stateError {
-			t.state = stateBusy
+		if st != stateError {
+			t.states[e.SessionID] = stateBusy
 		}
 	case eventTypeIn(e.Type, t.spec.AwaitingInput):
-		if t.state == stateBusy || t.state == stateIdle {
-			t.state = stateAwaitingInput
+		if st == stateBusy || st == stateIdle {
+			t.states[e.SessionID] = stateAwaitingInput
 			return &Notification{
-				Trigger: TriggerInput,
-				Title:   t.spec.Name + ": input needed",
-				Body:    "The agent is waiting for your input.",
+				SessionID: e.SessionID,
+				Trigger:   TriggerInput,
+				Title:     t.spec.Name + ": input needed",
+				Body:      "The agent is waiting for your input.",
 			}
 		}
 	case eventTypeIn(e.Type, t.spec.IdleEvents):
-		if t.state == stateBusy || t.state == stateAwaitingInput {
-			t.state = stateIdle
-			return &Notification{Trigger: TriggerDone, Title: t.spec.Name + ": done", Body: "The agent finished."}
+		if st == stateBusy || st == stateAwaitingInput {
+			t.states[e.SessionID] = stateIdle
+			return &Notification{
+				SessionID: e.SessionID,
+				Trigger:   TriggerDone,
+				Title:     t.spec.Name + ": done",
+				Body:      "The agent finished.",
+			}
 		}
 	case eventTypeIn(e.Type, t.spec.ErrorEvents):
-		t.state = stateError
+		t.states[e.SessionID] = stateError
 		return &Notification{
-			Trigger: TriggerError,
-			Title:   t.spec.Name + ": error",
-			Body:    "The session reported an error.",
+			SessionID: e.SessionID,
+			Trigger:   TriggerError,
+			Title:     t.spec.Name + ": error",
+			Body:      "The session reported an error.",
 		}
 	}
 	return nil

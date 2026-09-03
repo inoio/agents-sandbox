@@ -25,9 +25,10 @@ const (
 
 // Notification is a single user-facing alert.
 type Notification struct {
-	Trigger Trigger
-	Title   string
-	Body    string
+	SessionID string
+	Trigger   Trigger
+	Title     string
+	Body      string
 }
 
 // Backend delivers notifications.

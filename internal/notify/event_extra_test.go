@@ -36,8 +36,8 @@ func TestTrackerStuckOnError(t *testing.T) {
 	if n := tr.Handle(Event{Type: "message.part.updated"}); n != nil {
 		t.Fatalf("busy event after error should not notify, got %+v", n)
 	}
-	if tr.state != stateError {
-		t.Fatalf("state should stay error, got %v", tr.state)
+	if tr.states[""] != stateError {
+		t.Fatalf("state should stay error, got %v", tr.states[""])
 	}
 }
 
