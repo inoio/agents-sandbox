@@ -18,8 +18,11 @@ func (opencodeProfile) ConfigDirName() string { return opencodeName }
 
 func (opencodeProfile) ImageSpec() ImageSpec {
 	return ImageSpec{
-		VersionArg:     versionArgFor(opencodeName),
-		AgentEnv:       map[string]string{"OPENCODE_DISABLE_AUTOUPDATE": "true"},
+		VersionArg: versionArgFor(opencodeName),
+		AgentEnv: map[string]string{
+			"OPENCODE_DISABLE_AUTOUPDATE":      "true",
+			"OPENCODE_EXPERIMENTAL_WORKSPACES": "true",
+		},
 		InstallCommand: `curl -fsSL https://opencode.ai/install | bash -s -- --version "$OPENCODE_VERSION" && cp /root/.opencode/bin/opencode /usr/local/bin`,
 	}
 }

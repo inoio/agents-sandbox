@@ -87,7 +87,7 @@ func TestParseKeyValueLinesHandlesWhitespace(t *testing.T) {
 func TestLoadConfigFilesWithSnippet(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	cp := configpaths.Get()
-	testutil.WriteFile(t, cp.ProjectOpencodeConfigDir(), "opencode-model.json", `{"model":"x"}`)
+	testutil.WriteFile(t, cp.ProjectAgentConfigDir(opencodeTestAgent()), "opencode-model.json", `{"model":"x"}`)
 
 	ui := termio.NewTestMock(t)
 	cf, err := LoadConfigFilesForHost(opencodeTestAgent(), t.TempDir(), VMHomeDir, &ui, true)
@@ -97,10 +97,10 @@ func TestLoadConfigFilesWithSnippet(t *testing.T) {
 	if !cf.HasSnippets {
 		t.Error("expected HasSnippets=true when a snippet exists")
 	}
-	if len(cf.OpenCode) == 0 {
+	if len(cf.Merged) == 0 {
 		t.Error("expected non-empty OpenCode config")
 	}
-	if len(cf.Keys) == 0 || cf.Keys[0] != OpenCodeConfigPath(VMHomeDir) {
+	if len(cf.Keys) == 0 || cf.Keys[0] != AgentConfigPath(opencodeTestAgent(), VMHomeDir) {
 		t.Errorf("expected opencode config key in Keys, got %v", cf.Keys)
 	}
 }
@@ -155,11 +155,11 @@ func TestLoadConfigFilesBuildHooksError(t *testing.T) {
 	}
 }
 
-// TestOpenCodeConfigEqualMissingVMConfig verifies that a missing VM opencode
+// TestAgentConfigEqualMissingVMConfig verifies that a missing VM opencode
 // config is reported as a mismatch.
-func TestOpenCodeConfigEqualMissingVMConfig(t *testing.T) {
-	cf := &ConfigFiles{HasSnippets: true, OpenCode: []byte(`{"model":"x"}`)}
-	if OpenCodeConfigEqual(cf, map[string][]byte{}) {
+func TestAgentConfigEqualMissingVMConfig(t *testing.T) {
+	cf := &ConfigFiles{HasSnippets: true, Merged: []byte(`{"model":"x"}`)}
+	if AgentConfigEqual(cf, map[string][]byte{}) {
 		t.Error("expected mismatch when the VM config is absent")
 	}
 }
@@ -375,7 +375,7 @@ func TestChownPathsReportsUnsuccessfulShell(t *testing.T) {
 // opencode config surfaces an error.
 func TestProvisionWriteOpenCodeError(t *testing.T) {
 	writeErr := errors.New("write boom")
-	cf := &ConfigFiles{HasSnippets: true, OpenCode: []byte(`{"model":"x"}`)}
+	cf := &ConfigFiles{HasSnippets: true, Merged: []byte(`{"model":"x"}`)}
 	fs := msb.NewTestFS(nil, nil)
 	fs.WriteErr = writeErr
 	sb := &msb.MockSandbox{FSValue_: fs, ShellErr: nil}

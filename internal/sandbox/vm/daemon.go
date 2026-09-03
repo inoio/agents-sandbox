@@ -36,16 +36,16 @@ func ensureDaemon(ctx context.Context, a agent.Agent, serveOnly bool, sb msb.San
 	}
 
 	if healthy := checkDaemonHealth(ctx, sb, provider); healthy {
-		ui.Verbosef("opencode daemon already healthy")
+		ui.Verbosef("%s daemon already healthy", a.Name())
 		return nil
 	}
 
-	ui.Verbosef("starting opencode serve daemon")
+	ui.Verbosef("starting %s serve daemon", a.Name())
 	if _, _, err := daemonShellFunc(ctx, sb, provider.DaemonKillCmd()); err != nil {
 		ui.Warnf("kill stale daemon failed (continuing): %v", err)
 	}
 	if _, _, err := daemonShellFunc(ctx, sb, provider.DaemonStartCmd(serveOnly)); err != nil {
-		return fmt.Errorf("start opencode serve: %w", err)
+		return fmt.Errorf("start %s serve: %w", a.Name(), err)
 	}
 
 	deadline := time.Now().Add(daemonReadyTimeout)
@@ -57,11 +57,11 @@ func ensureDaemon(ctx context.Context, a agent.Agent, serveOnly bool, sb msb.San
 		}
 		ui.Verbose("Polling for daemon health")
 		if healthy := checkDaemonHealth(ctx, sb, provider); healthy {
-			ui.Verbosef("opencode daemon is healthy")
+			ui.Verbosef("%s daemon is healthy", a.Name())
 			return nil
 		}
 	}
-	return fmt.Errorf("opencode daemon did not become healthy within %s", daemonReadyTimeout)
+	return fmt.Errorf("%s daemon did not become healthy within %s", a.Name(), daemonReadyTimeout)
 }
 
 func checkDaemonHealth(ctx context.Context, sb msb.Sandbox, provider agent.DaemonProvider) bool {

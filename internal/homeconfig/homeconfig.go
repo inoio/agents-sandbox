@@ -10,6 +10,7 @@ import (
 	"maps"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 
@@ -23,12 +24,6 @@ const manifestName = "home.yaml"
 
 // startupHook is the only supported startup-hook value.
 const startupHook = "startup"
-
-// opencodeConfigPath is the reserved VM path for the snippet-merged opencode
-// config; the manifest must not target it. opencode loads global config as
-// config.json < opencode.json < opencode.jsonc, so the merged config is written
-// to the last-loaded file to stay authoritative.
-const opencodeConfigPath = ".config/opencode/opencode.jsonc"
 
 // Entry describes a single home.yaml mapping: the host source path and the
 // optional startup-hook metadata. A plain-string value is equivalent to an
@@ -158,8 +153,10 @@ func ResolveManifestSource(target, source, manifestDir string) (string, error) {
 // ResolveVMTarget validates a VM-home-relative target and returns its absolute
 // path under homeBase. It rejects empty targets, absolute paths, `~`-prefixed
 // paths (targets are already home-relative), paths that escape homeBase (e.g.
-// ".." traversal), and the reserved opencode config path.
-func ResolveVMTarget(homeBase, relTarget string) (string, error) {
+// ".." traversal), and any target listed in reserved. The reserved entries are
+// home-relative paths the manifest must not target (e.g. the agent's merged
+// config path); when reserved is empty, no target is rejected.
+func ResolveVMTarget(homeBase, relTarget string, reserved []string) (string, error) {
 	if relTarget == "" {
 		return "", errors.New("home manifest target must not be empty")
 	}
@@ -173,8 +170,11 @@ func ResolveVMTarget(homeBase, relTarget string) (string, error) {
 		)
 	}
 	clean := filepath.Clean(relTarget)
-	if clean == opencodeConfigPath {
-		return "", fmt.Errorf("home manifest target %q is reserved for the merged opencode config", relTarget)
+	if slices.Contains(reserved, clean) {
+		return "", fmt.Errorf(
+			"home manifest target %q is reserved and cannot be provisioned from home.yaml",
+			relTarget,
+		)
 	}
 	if clean == ".." || strings.HasPrefix(clean, "../") {
 		return "", fmt.Errorf("home manifest target %q escapes the home directory", relTarget)
@@ -213,8 +213,13 @@ func loadLayers(userConfigDir, projectConfigDir string) ([]Manifest, bool, error
 // It returns the desired home files keyed by absolute VM path, the resolved
 // source paths that could not be read (missing files), and whether any manifest
 // existed. A missing host source file is skipped, not fatal; its resolved path
-// is reported so callers can warn.
-func BuildHomeFiles(userConfigDir, projectConfigDir, homeBase string) (map[string][]byte, []string, bool, error) {
+// is reported so callers can warn. The reserved list holds home-relative VM
+// paths the manifest must not target (e.g. the agent's merged config path);
+// when empty, no target is reserved.
+func BuildHomeFiles(
+	userConfigDir, projectConfigDir, homeBase string,
+	reserved []string,
+) (map[string][]byte, []string, bool, error) {
 	layers, has, err := loadLayers(userConfigDir, projectConfigDir)
 	if err != nil {
 		return nil, nil, false, err
@@ -230,7 +235,7 @@ func BuildHomeFiles(userConfigDir, projectConfigDir, homeBase string) (map[strin
 	files := make(map[string][]byte)
 	var missing []string
 	for target, e := range merged {
-		vmPath, vErr := ResolveVMTarget(homeBase, target)
+		vmPath, vErr := ResolveVMTarget(homeBase, target, reserved)
 		if vErr != nil {
 			return nil, nil, false, vErr
 		}
@@ -247,8 +252,10 @@ func BuildHomeFiles(userConfigDir, projectConfigDir, homeBase string) (map[strin
 // DescribeManifest returns the merged home.yaml manifest as resolved
 // (VM target path, host source path) pairs sorted by VM path, independent of
 // whether the source files exist. The boolean reports whether at least one
-// manifest file exists. It is used by `config home` to list all mappings.
-func DescribeManifest(userConfigDir, projectConfigDir, homeBase string) ([][2]string, bool, error) {
+// manifest file exists. The reserved list holds home-relative VM paths the
+// manifest must not target (e.g. the agent's merged config path); when empty,
+// no target is reserved. It is used by `config home` to list all mappings.
+func DescribeManifest(userConfigDir, projectConfigDir, homeBase string, reserved []string) ([][2]string, bool, error) {
 	layers, has, err := loadLayers(userConfigDir, projectConfigDir)
 	if err != nil {
 		return nil, false, err
@@ -259,7 +266,7 @@ func DescribeManifest(userConfigDir, projectConfigDir, homeBase string) ([][2]st
 	}
 	var pairs [][2]string
 	for target, e := range MergeManifests(resolved...) {
-		vmPath, err := ResolveVMTarget(homeBase, target)
+		vmPath, err := ResolveVMTarget(homeBase, target, reserved)
 		if err != nil {
 			return nil, false, err
 		}
@@ -324,8 +331,10 @@ func shebangInterpreter(path string) string {
 
 // BuildHooks returns the merged manifest's startup-hook entries (Hook ==
 // "startup") whose host source exists, sorted by VM target. A hook whose host
-// source is missing is skipped (its script will not have been provisioned).
-func BuildHooks(userConfigDir, projectConfigDir, homeBase string) ([]HookSpec, error) {
+// source is missing is skipped (its script will not have been provisioned). The
+// reserved list holds home-relative VM paths the manifest must not target (e.g.
+// the agent's merged config path); when empty, no target is reserved.
+func BuildHooks(userConfigDir, projectConfigDir, homeBase string, reserved []string) ([]HookSpec, error) {
 	layers, _, err := loadLayers(userConfigDir, projectConfigDir)
 	if err != nil {
 		return nil, err
@@ -342,7 +351,7 @@ func BuildHooks(userConfigDir, projectConfigDir, homeBase string) ([]HookSpec, e
 		if _, err := os.Stat(e.Source); err != nil {
 			continue
 		}
-		vmPath, vErr := ResolveVMTarget(homeBase, target)
+		vmPath, vErr := ResolveVMTarget(homeBase, target, reserved)
 		if vErr != nil {
 			return nil, vErr
 		}

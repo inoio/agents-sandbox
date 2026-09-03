@@ -22,7 +22,7 @@ import (
 )
 
 // projectPortBindings returns the port bindings to publish on the host for the
-// project VM. Serve-only exposes the opencode serve port on the host loopback.
+// project VM. Serve-only exposes the agent serve port on the host loopback.
 func projectPortBindings(serveOnly bool) []msbSdk.PortBinding {
 	if !serveOnly {
 		return nil

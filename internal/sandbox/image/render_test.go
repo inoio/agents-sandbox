@@ -253,13 +253,11 @@ func (p *projectDockerfilePaths) ProjectDockerfile() string {
 func (p *projectDockerfilePaths) UserConfigDir() string                 { return "" }
 func (p *projectDockerfilePaths) UserCacheDir() string                  { return "" }
 func (p *projectDockerfilePaths) UserStateDir() string                  { return "" }
-func (p *projectDockerfilePaths) UserOpencodeConfigDir() string         { return "" }
 func (p *projectDockerfilePaths) UserAgentConfigDir(agent.Agent) string { return "" }
 func (p *projectDockerfilePaths) UserEnvFile() string                   { return "" }
 func (p *projectDockerfilePaths) UserEnvSecretFile() string             { return "" }
 func (p *projectDockerfilePaths) UserEnvSecretYAMLFile() string         { return "" }
 func (p *projectDockerfilePaths) ProjectConfigDir() string              { return "" }
-func (p *projectDockerfilePaths) ProjectOpencodeConfigDir() string      { return "" }
 func (p *projectDockerfilePaths) ProjectAgentConfigDir(agent.Agent) string {
 	return ""
 }

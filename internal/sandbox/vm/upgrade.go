@@ -12,7 +12,7 @@ import (
 
 // errUpgradeQuit signals the user chose to abort the session because of the
 // pending image upgrade.
-var errUpgradeQuit = errors.New("opencode upgrade cancelled") //nolint:err113 // static sentinel intended
+var errUpgradeQuit = errors.New("agent upgrade cancelled") //nolint:err113 // static sentinel intended
 
 // userProvidedAgentVersion is returned as the build version for a
 // user-provided agent: the install block skips such agents, so the value is
@@ -32,7 +32,7 @@ var agentLatestVersion = func(ctx context.Context, a agent.Agent) (string, error
 	return checker.LatestVersion(ctx)
 }
 
-// resolveBuildVersion decides the opencode version to bake into the runner
+// resolveBuildVersion decides the agent version to bake into the runner
 // image before the image is built, so a normal run never builds twice (once
 // for the current version and once for an upgrade). It returns the target
 // version and whether that version is a freshly chosen upgrade.
@@ -151,7 +151,7 @@ func pendingUpgrade(ctx context.Context, ui termio.UI, a agent.Agent, currentVer
 	if err != nil {
 		// Offline or unreachable: never fail the session, and leave the
 		// once-per-day window open so the next online run retries.
-		ui.Warnf("could not check for opencode updates: %v", err)
+		ui.Warnf("could not check for %s updates: %v", a.Name(), err)
 		return "", false
 	}
 

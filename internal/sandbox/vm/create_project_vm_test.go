@@ -118,7 +118,7 @@ func TestSetUpSandboxProvisionWarn(t *testing.T) {
 
 	ui := termio.NewTestMock(t)
 	configpaths.WithMockConfigPaths(t)
-	cfs := &reprovision.ConfigFiles{HasSnippets: true, OpenCode: []byte(`{"model":"x"}`)}
+	cfs := &reprovision.ConfigFiles{HasSnippets: true, Merged: []byte(`{"model":"x"}`)}
 	_, err := setUpSandbox(context.Background(), sb, options.RunOptions{}, cfs, &ui, false, vmBootCreated)
 	if err != nil {
 		t.Fatalf("setUpSandbox should not fail on provision warning: %v", err)

@@ -54,7 +54,7 @@ func TestLoadConfigFilesNoMergedForNonConfigMerger(t *testing.T) {
 
 	// Even with snippet files present, a non-ConfigMerger agent produces no
 	// merged config because only ConfigMerger agents merge snippets.
-	testutil.WriteFile(t, cp.UserOpencodeConfigDir(), "opencode-model.json", `{"model":"x"}`)
+	testutil.WriteFile(t, cp.UserAgentConfigDir(plainAgent{}), "opencode-model.json", `{"model":"x"}`)
 	cf, err = LoadConfigFilesForHost(plainAgent{}, hostHome, vmHome, &ui, true)
 	if err != nil {
 		t.Fatalf("LoadConfigFilesForHost: %v", err)
@@ -62,8 +62,8 @@ func TestLoadConfigFilesNoMergedForNonConfigMerger(t *testing.T) {
 	if cf.HasSnippets {
 		t.Error("expected HasSnippets=false for a non-ConfigMerger agent")
 	}
-	if cf.OpenCode != nil {
-		t.Errorf("expected nil merged config, got %q", cf.OpenCode)
+	if cf.Merged != nil {
+		t.Errorf("expected nil merged config, got %q", cf.Merged)
 	}
 }
 

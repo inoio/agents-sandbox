@@ -19,7 +19,7 @@ type RunOptions struct {
 	Root     bool
 	Args     []string
 	// Agent selects the coding-agent profile for this session. Empty resolves
-	// to the opencode default via agent.Lookup.
+	// to the default agent via agent.Lookup.
 	Agent       string
 	ReapPolicy  ReapPolicy
 	IdleTimeout time.Duration
@@ -34,8 +34,8 @@ type RunOptions struct {
 	// Recreate forces a project-VM rebuild on this invocation. It is set by
 	// prepareSandbox from the reconfig decision and is never user-facing.
 	Recreate bool
-	// ServeOnly starts the VM with the opencode port published on the host and
-	// serves without attaching the in-VM TUI. Clients (e.g. Opencode Desktop)
+	// ServeOnly starts the VM with the agent port published on the host and
+	// serves without attaching the in-VM TUI. Clients (e.g. a desktop app)
 	// connect to the published host port.
 	ServeOnly bool
 	// Notify is the resolved notify config for the session (channels + triggers).
@@ -54,11 +54,11 @@ type RunOptions struct {
 	ProvisionHostConfig *bool
 }
 
-// ServeOnlyBindAddr is the loopback address the opencode server binds to
+// ServeOnlyBindAddr is the loopback address the agent server binds to
 // when run in serve-only mode.
 const ServeOnlyBindAddr = "127.0.0.1"
 
-// ServeOnlyPort is the host/guest TCP port used for the opencode server in
+// ServeOnlyPort is the host/guest TCP port used for the agent server in
 // serve-only mode.
 const ServeOnlyPort = "4096"
 

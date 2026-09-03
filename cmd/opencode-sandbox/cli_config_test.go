@@ -65,6 +65,21 @@ func TestConfigHomeListsMappings(t *testing.T) {
 	}
 }
 
+func TestConfigHomeRejectsReservedMergedConfigTarget(t *testing.T) {
+	cmd, _ := setupCommandFixtures(t, "config", "home")
+	// The default agent (opencode) reserves its merged-config path, so a
+	// home.yaml target colliding with it is rejected.
+	testutil.WriteFile(t, configpaths.Get().UserConfigDir(), "home.yaml", ".config/opencode/opencode.jsonc:\n")
+
+	err := cmd.Execute()
+	if err == nil {
+		t.Fatal("expected an error for a reserved home.yaml target")
+	}
+	if !strings.Contains(err.Error(), "reserved") {
+		t.Errorf("expected 'reserved' in error, got: %v", err)
+	}
+}
+
 func TestConfigHomeNotFoundManifest(t *testing.T) {
 	cmd, ui := setupCommandFixtures(t, "config", "home")
 	if err := os.MkdirAll(configpaths.Get().UserConfigDir(), 0o755); err != nil {
@@ -98,7 +113,8 @@ func TestConfigHomeEmptyManifest(t *testing.T) {
 
 func TestConfigAgentNoSnippetFiles(t *testing.T) {
 	cmd, ui := setupCommandFixtures(t, "config", "agent", "opencode")
-	if err := os.MkdirAll(configpaths.Get().UserOpencodeConfigDir(), 0o755); err != nil {
+	a, _ := agent.Lookup("opencode")
+	if err := os.MkdirAll(configpaths.Get().UserAgentConfigDir(a), 0o755); err != nil {
 		t.Fatal(err)
 	}
 

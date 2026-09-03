@@ -32,7 +32,7 @@ const defaultHookInterpreter = "/bin/sh"
 // interactive shell. Each script is run through its shebang interpreter (the
 // home-volume mount does not allow chmod, so the script cannot be made
 // executable; invoking the interpreter is what honors the shebang). The hook's
-// HOME is set so scripts can rely on it. opencode waits for the attach to
+// HOME is set so scripts can rely on it. The agent waits for the attach to
 // finish; a hook that must outlive the attach is responsible for daemonizing
 // itself. Failures are logged, not fatal.
 func runStartupHooks(ctx context.Context, sb msb.Sandbox, hooks []homeconfig.HookSpec, ui termio.UI) {
@@ -158,10 +158,10 @@ func decideReconfig(
 	// we are actually switching to the new image.
 	imageChanged := hs.ImageDigest != imageDigest
 
-	var opencfgChanged bool
+	var agentCfgChanged bool
 	if liveSb != nil {
 		vmData := reprovision.ReadVMConfig(ctx, liveSb, cfs.Keys, ui)
-		opencfgChanged = len(vmData) > 0 && !reprovision.OpenCodeConfigEqual(cfs, vmData)
+		agentCfgChanged = len(vmData) > 0 && !reprovision.AgentConfigEqual(cfs, vmData)
 		if detachErr := liveSb.Detach(context.Background()); detachErr != nil {
 			ui.Verbosef("failed to detach live sandbox handle: %v", detachErr)
 		}
@@ -187,11 +187,11 @@ func decideReconfig(
 		imageRef,
 		opts,
 		reprovision.ChangeFlags{
-			Env:            envHasChanged,
-			Secrets:        secretsHasChanged,
-			Network:        networkHasChanged,
-			Mounts:         mountsHaveChanged,
-			OpenCodeConfig: opencfgChanged,
+			Env:         envHasChanged,
+			Secrets:     secretsHasChanged,
+			Network:     networkHasChanged,
+			Mounts:      mountsHaveChanged,
+			AgentConfig: agentCfgChanged,
 		},
 		homeVol,
 	)
@@ -223,10 +223,10 @@ func decideReconfig(
 }
 
 // restartDaemons provisions config files and restarts the agent's daemon so an
-// opencode-config change is picked up. Env/secret changes are never routed
+// agent-config change is picked up. Env/secret changes are never routed
 // here: they require a VM rebuild and are handled by the recreate path instead.
 func restartDaemons(ctx context.Context, a agent.Agent, sb msb.Sandbox, serveOnly bool, ui termio.UI) {
-	ui.Infof("opencode serve restarting…")
+	ui.Infof("%s serve restarting…", a.Name())
 	provider, ok := agent.AsDaemonProvider(a)
 	if !ok {
 		return

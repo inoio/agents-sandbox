@@ -71,7 +71,7 @@ func TestBuildAttachCommandNoAttachRunner(t *testing.T) {
 
 func TestServeOnlyMessage(t *testing.T) {
 	msg := serveOnlyMessage("127.0.0.1", "4096")
-	for _, want := range []string{"Connect Opencode Desktop to", "http://127.0.0.1:4096", "OPENCODE_SERVER_PASSWORD", "Ctrl-D"} {
+	for _, want := range []string{"Connect a client to", "http://127.0.0.1:4096", "OPENCODE_SERVER_PASSWORD", "Ctrl-D"} {
 		if !strings.Contains(msg, want) {
 			t.Errorf("serveOnlyMessage missing %q in:\n%s", want, msg)
 		}
@@ -179,7 +179,7 @@ func TestRunDryRun(t *testing.T) {
 	if len(ui.InfoCalls) == 0 {
 		t.Fatal("expected info output")
 	}
-	if ui.InfoCalls[0] != "dry-run: Would run opencode" {
+	if ui.InfoCalls[0] != "dry-run: Would run agent session" {
 		t.Errorf("info = %q, want dry-run message", ui.InfoCalls[0])
 	}
 }
@@ -197,7 +197,7 @@ func TestRunDryRunVM(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Run dry-run-vm: %v", err)
 	}
-	if len(ui.InfoCalls) == 0 || ui.InfoCalls[0] != "dry-run: Would start opencode in VM" {
+	if len(ui.InfoCalls) == 0 || ui.InfoCalls[0] != "dry-run: Would start agent session in VM" {
 		t.Errorf("info = %v, want dry-run-vm message", ui.InfoCalls)
 	}
 }
@@ -414,7 +414,7 @@ func TestRunAttachPropagatesAttachError(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error when attach fails")
 	}
-	if !strings.Contains(err.Error(), "opencode session failed") {
+	if !strings.Contains(err.Error(), "agent session failed") {
 		t.Errorf("err = %q, want wrapped attach failure", err.Error())
 	}
 }
@@ -466,7 +466,7 @@ func TestFinalizeRun(t *testing.T) {
 	}
 	if err := finalizeRun(errors.New("boom"), 1); err == nil {
 		t.Error("finalizeRun(error, code) should return wrapped error")
-	} else if !strings.Contains(err.Error(), "opencode session failed") {
+	} else if !strings.Contains(err.Error(), "agent session failed") {
 		t.Errorf("finalizeRun error = %q, want wrapped session failure", err.Error())
 	}
 	err := finalizeRun(nil, 3)

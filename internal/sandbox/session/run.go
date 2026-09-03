@@ -66,10 +66,10 @@ func buildAttachCommand(a agent.Agent, target string, args []string) string {
 	return runner.AttachCommand(target, args)
 }
 
-// serveOnlyMessage builds the message printed when serving opencode for
-// external clients such as Opencode Desktop.
+// serveOnlyMessage builds the message printed when serving the agent daemon for
+// external clients such as desktop apps.
 func serveOnlyMessage(host, port string) string {
-	return fmt.Sprintf("Connect Opencode Desktop to: http://%s:%s\n\n"+
+	return fmt.Sprintf("Connect a client to: http://%s:%s\n\n"+
 		"Optional: set OPENCODE_SERVER_PASSWORD (and OPENCODE_SERVER_USERNAME) to protect the server with basic auth.\n"+
 		"Press Ctrl-D to stop serving.", host, port)
 }
@@ -89,8 +89,8 @@ func runServeOnly(ctx context.Context, sb msb.Sandbox, ui termio.UI) error {
 	return ctx.Err()
 }
 
-// Run creates (or reuses) the project VM, provisions config, starts opencode
-// serve, and attaches a TUI client.
+// Run creates (or reuses) the project VM, provisions config, starts the agent
+// serve daemon, and attaches a TUI client.
 //
 // Note: Run is called from cli.go after all flags are resolved.
 func Run(ctx context.Context, opts options.RunOptions, ui termio.UI) error {
@@ -102,11 +102,11 @@ func Run(ctx context.Context, opts options.RunOptions, ui termio.UI) error {
 	sb := ses.Sandbox()
 
 	if opts.DryRun {
-		ui.Infof("dry-run: Would run opencode")
+		ui.Infof("dry-run: Would run agent session")
 		return nil
 	}
 	if opts.DryRunVM && sb == nil {
-		ui.Infof("dry-run: Would start opencode in VM")
+		ui.Infof("dry-run: Would start agent session in VM")
 		return nil
 	}
 
@@ -144,12 +144,12 @@ func Run(ctx context.Context, opts options.RunOptions, ui termio.UI) error {
 	ui.Verbosef("%s", setup)
 	// Run as a login shell so /etc/profile and ~/.profile are sourced,
 	// putting tools installed under /usr/local/go/bin, ~/go/bin and
-	// ~/.microsandbox/bin on PATH for opencode and its child shells.
+	// ~/.microsandbox/bin on PATH for the agent and its child shells.
 	return runAttach(ctx, sb, projectSlug, ui, opts, "-l", "-c", setup)
 }
 
 // Shell creates (or reuses) the project VM and drops the user into an
-// interactive shell session, without starting opencode serve.
+// interactive shell session, without starting the agent serve daemon.
 func Shell(ctx context.Context, opts options.RunOptions, ui termio.UI) error {
 	ses, err := prepareSandbox(ctx, opts, ui)
 	if err != nil {
@@ -173,7 +173,7 @@ func Shell(ctx context.Context, opts options.RunOptions, ui termio.UI) error {
 
 func finalizeRun(attachErr error, exitCode int) error {
 	if attachErr != nil {
-		return fmt.Errorf("opencode session failed: %w", attachErr)
+		return fmt.Errorf("agent session failed: %w", attachErr)
 	}
 	if exitCode == 0 {
 		return nil

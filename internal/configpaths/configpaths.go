@@ -11,7 +11,6 @@ type ConfigPaths interface {
 	UserConfigDir() string
 	UserCacheDir() string
 	UserStateDir() string
-	UserOpencodeConfigDir() string
 	UserAgentConfigDir(a agent.Agent) string
 
 	UserEnvFile() string
@@ -19,7 +18,6 @@ type ConfigPaths interface {
 	UserEnvSecretYAMLFile() string
 
 	ProjectConfigDir() string
-	ProjectOpencodeConfigDir() string
 	ProjectAgentConfigDir(a agent.Agent) string
 	ProjectEnvFile() string
 	ProjectEnvSecretFile() string
@@ -55,13 +53,6 @@ func (c *realConfigPaths) UserStateDir() string {
 	return filepath.Join(xdgBaseDir("XDG_STATE_HOME", ".local/state"), pathPrefix)
 }
 
-// UserOpencodeConfigDir returns the directory of the opencode server's own
-// user config, nested under the tool's user config base.
-func (c *realConfigPaths) UserOpencodeConfigDir() string {
-	a, _ := agent.Lookup("opencode")
-	return c.UserAgentConfigDir(a)
-}
-
 // UserAgentConfigDir returns the directory of the active agent's own user
 // config, nested under the tool's user config base.
 func (c *realConfigPaths) UserAgentConfigDir(a agent.Agent) string {
@@ -92,7 +83,6 @@ const (
 	pathPrefix = "opencode-sandbox"
 	// projectConfigDir is the project-local metadata directory for the tool.
 	projectConfigDir  = "." + pathPrefix
-	ConfigDirName     = "opencode"
 	EnvFileName       = "env"
 	EnvSecretFileName = "env.secret"
 	//nolint:gosec // G101 false positive: filename constant
@@ -109,12 +99,6 @@ const (
 // ProjectDockerfile returns the project Dockerfile path.
 func (c *realConfigPaths) ProjectDockerfile() string {
 	return filepath.Join(projectConfigDir, dockerfileName)
-}
-
-// ProjectOpencodeConfigDir returns the project-local opencode config directory.
-func (c *realConfigPaths) ProjectOpencodeConfigDir() string {
-	a, _ := agent.Lookup("opencode")
-	return c.ProjectAgentConfigDir(a)
 }
 
 // ProjectAgentConfigDir returns the project-local config dir for the agent.

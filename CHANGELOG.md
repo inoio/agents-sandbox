@@ -8,6 +8,20 @@ command reports the bare version (e.g. `0.1.0`).
 
 ## [Unreleased]
 
+### Changed
+
+- Behavior: `OPENCODE_EXPERIMENTAL_WORKSPACES=true` is now baked into the runner image via the opencode agent profile
+  (instead of being set at VM creation), so it is included in the image's own env set. The serve-only prompt now reads
+  "Connect a client to: ...", and dry-run/daemon messages name the active agent rather than opencode.
+- Internal: removed the opencode-specific `UserOpencodeConfigDir`/`ProjectOpencodeConfigDir` config-path helpers
+  (use `UserAgentConfigDir`/`ProjectAgentConfigDir` with an agent), renamed the reprovision merged-config symbols
+  (`ConfigFiles.OpenCode`→`Merged`, `OpenCodeConfigPath`→`AgentConfigPath`, `OpenCodeConfigEqual`→`AgentConfigEqual`,
+  `ChangeFlags.OpenCodeConfig`→`AgentConfig`), and renamed `internal/configmerge/opencodeconfig.go`→`merge.go`.
+- Internal: `internal/homeconfig` no longer hardcodes opencode's merged-config path. `ResolveVMTarget`,
+  `BuildHomeFiles`, `DescribeManifest`, and `BuildHooks` now take a `reserved` list of home-relative targets the
+  manifest must not target (empty reserves nothing). Config provisioning and `config home` reserve the active agent's
+  merged-config path (e.g. opencode's `.config/opencode/opencode.jsonc`), so the reservation follows the agent.
+
 ### Added
 
 - Behavior: the `<agent>` config dirs (`~/.config/opencode-sandbox/<agent>/`, `.opencode-sandbox/<agent>/`) now act as a

@@ -104,20 +104,20 @@ func TestPlanReconfigEnvChangeRebuildsVM(t *testing.T) {
 	}
 }
 
-func TestPlanReconfigOpenCodeConfigChangeRestartsDaemon(t *testing.T) {
+func TestPlanReconfigAgentConfigChangeRestartsDaemon(t *testing.T) {
 	cfg := &msbSdk.SandboxConfig{Image: "a", CPUs: 4, MemoryMiB: 4096}
 	d := PlanReconfig(
 		cfg,
 		"a",
 		options.RunOptions{},
-		ChangeFlags{OpenCodeConfig: true},
+		ChangeFlags{AgentConfig: true},
 		"",
-	) // opencodeConfigChanged=true
+	) // agentConfigChanged=true
 	if !d.RestartDaemons {
-		t.Error("expected restartDaemons on opencode config change")
+		t.Error("expected restartDaemons on agent config change")
 	}
 	if d.Recreate {
-		t.Error("expected NO VM recreate for opencode-config-only change")
+		t.Error("expected NO VM recreate for agent-config-only change")
 	}
 }
 

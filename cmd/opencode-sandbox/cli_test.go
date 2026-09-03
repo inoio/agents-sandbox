@@ -7,6 +7,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/inoio/opencode-sandbox/internal/agent"
 	"github.com/inoio/opencode-sandbox/internal/configpaths"
 	"github.com/inoio/opencode-sandbox/internal/sandbox/docker"
 	"github.com/inoio/opencode-sandbox/internal/sandbox/msb"
@@ -170,14 +171,15 @@ func TestNewConfigSetsUserDirs(t *testing.T) {
 	t.Setenv("XDG_STATE_HOME", "")
 	configpaths.WithRealConfigPaths(t)
 	cfg := configpaths.Get()
+	a, _ := agent.Lookup("")
 	if cfg.UserStateDir() != "/testhome/.local/state/opencode-sandbox" {
 		t.Errorf("unexpected state dir: %q", cfg.UserStateDir())
 	}
 	if cfg.UserConfigDir() != "/testhome/.config/opencode-sandbox" {
 		t.Errorf("unexpected user config dir: %q", cfg.UserConfigDir())
 	}
-	if cfg.UserOpencodeConfigDir() != "/testhome/.config/opencode-sandbox/opencode" {
-		t.Errorf("unexpected opencode config dir: %q", cfg.UserOpencodeConfigDir())
+	if cfg.UserAgentConfigDir(a) != "/testhome/.config/opencode-sandbox/opencode" {
+		t.Errorf("unexpected agent config dir: %q", cfg.UserAgentConfigDir(a))
 	}
 	if cfg.UserCacheDir() != "/testhome/.cache/opencode-sandbox" {
 		t.Errorf("unexpected cache dir: %q", cfg.UserCacheDir())
@@ -191,14 +193,15 @@ func TestNewConfigHonorsXdgEnv(t *testing.T) {
 	t.Setenv("XDG_STATE_HOME", "/xdg/state")
 	configpaths.WithRealConfigPaths(t)
 	cfg := configpaths.Get()
+	a, _ := agent.Lookup("")
 	if cfg.UserStateDir() != "/xdg/state/opencode-sandbox" {
 		t.Errorf("unexpected state dir: %q", cfg.UserStateDir())
 	}
 	if cfg.UserConfigDir() != "/xdg/config/opencode-sandbox" {
 		t.Errorf("unexpected user config dir: %q", cfg.UserConfigDir())
 	}
-	if cfg.UserOpencodeConfigDir() != "/xdg/config/opencode-sandbox/opencode" {
-		t.Errorf("unexpected opencode config dir: %q", cfg.UserOpencodeConfigDir())
+	if cfg.UserAgentConfigDir(a) != "/xdg/config/opencode-sandbox/opencode" {
+		t.Errorf("unexpected agent config dir: %q", cfg.UserAgentConfigDir(a))
 	}
 	if cfg.UserCacheDir() != "/xdg/cache/opencode-sandbox" {
 		t.Errorf("unexpected cache dir: %q", cfg.UserCacheDir())

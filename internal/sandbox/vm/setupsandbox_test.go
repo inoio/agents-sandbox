@@ -165,7 +165,7 @@ func setUpSandboxProvisionsConfig(t *testing.T, provisionMsg string) {
 	sb := &msb.MockSandbox{Name_: "test-vm", FSValue_: fs}
 	configpaths.WithMockConfigPaths(t)
 	cp := configpaths.Get()
-	snippet := filepath.Join(cp.UserOpencodeConfigDir(), "opencode-x.json5")
+	snippet := filepath.Join(cp.UserAgentConfigDir(opencodeAgent(t)), "opencode-x.json5")
 	if err := os.MkdirAll(filepath.Dir(snippet), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -192,7 +192,8 @@ func setUpSandboxProvisionsConfig(t *testing.T, provisionMsg string) {
 		t.Errorf("target = %q, want %q", target, defaultTargetDir)
 	}
 
-	wroteConfig := fs.Writes != nil && fs.Writes[reprovision.OpenCodeConfigPath(reprovision.VMHomeDir)] != nil
+	wroteConfig := fs.Writes != nil &&
+		fs.Writes[reprovision.AgentConfigPath(opencodeAgent(t), reprovision.VMHomeDir)] != nil
 	if !wroteConfig {
 		t.Errorf(
 			"expected config to be provisioned on %s, but opencode.json was never written",
@@ -318,7 +319,7 @@ func TestSetUpSandboxSkipsRestartOnProvisionError(t *testing.T) {
 	fs.WriteErr = errors.New("write denied")
 	sb := &msb.MockSandbox{Name_: "vm", FSValue_: fs}
 
-	cfs := &reprovision.ConfigFiles{HasSnippets: true, OpenCode: []byte("{}")}
+	cfs := &reprovision.ConfigFiles{HasSnippets: true, Merged: []byte("{}")}
 	target, err := setUpSandbox(
 		context.Background(),
 		sb,
@@ -357,7 +358,7 @@ func TestSetUpSandboxProvisionsUpdatedConfigOnKeep(t *testing.T) {
 	// This simulates attaching to a running VM and choosing "keep": no daemon
 	// restart, but the updated config must still be provisioned so the next
 	// daemon start picks it up.
-	ocPath := reprovision.OpenCodeConfigPath(reprovision.VMHomeDir)
+	ocPath := reprovision.AgentConfigPath(opencodeAgent(t), reprovision.VMHomeDir)
 	fs := msb.NewTestFS(map[string][]byte{
 		ocPath: []byte(`{"model":"old"}`),
 	}, nil)
@@ -365,7 +366,7 @@ func TestSetUpSandboxProvisionsUpdatedConfigOnKeep(t *testing.T) {
 
 	configpaths.WithMockConfigPaths(t)
 	cp := configpaths.Get()
-	snippet := filepath.Join(cp.UserOpencodeConfigDir(), "opencode-x.json5")
+	snippet := filepath.Join(cp.UserAgentConfigDir(opencodeAgent(t)), "opencode-x.json5")
 	if err := os.MkdirAll(filepath.Dir(snippet), 0o755); err != nil {
 		t.Fatal(err)
 	}

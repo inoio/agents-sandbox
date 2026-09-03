@@ -12,7 +12,7 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// upgradeCheckInterval is how often the opencode updater may hit the GitHub
+// upgradeCheckInterval is how often the agent updater may hit the GitHub
 // releases endpoint: at most once per day.
 const upgradeCheckInterval = 24 * time.Hour
 

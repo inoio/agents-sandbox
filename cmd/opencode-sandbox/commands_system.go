@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -272,7 +273,13 @@ func buildConfigCmd(ui termio.UI) *cobra.Command {
 		Short: "List home-file mappings from the home.yaml manifest",
 		RunE: func(*cobra.Command, []string) error {
 			cp := configpaths.Get()
-			pairs, has, err := homeconfig.DescribeManifest(cp.UserConfigDir(), cp.ProjectConfigDir(), "/home/dev")
+			a, _ := agent.Lookup("")
+			pairs, has, err := homeconfig.DescribeManifest(
+				cp.UserConfigDir(),
+				cp.ProjectConfigDir(),
+				"/home/dev",
+				reservedHomeConfigTargets(a, "/home/dev"),
+			)
 			if err != nil {
 				return err
 			}
@@ -292,6 +299,20 @@ func buildConfigCmd(ui termio.UI) *cobra.Command {
 	})
 
 	return cmd
+}
+
+// reservedHomeConfigTargets returns the home-relative VM paths the agent
+// reserves for its merged config, or nil for an agent without a ConfigMerger.
+func reservedHomeConfigTargets(a agent.Agent, home string) []string {
+	cm, ok := agent.AsConfigMerger(a)
+	if !ok {
+		return nil
+	}
+	rel, err := filepath.Rel(home, cm.VMConfigPath(home))
+	if err != nil {
+		return nil
+	}
+	return []string{rel}
 }
 
 // buildConfigAgentCmd returns the config agent subcommand, which prints the

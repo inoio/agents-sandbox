@@ -41,35 +41,34 @@ func TestProjectVMNameTruncation(t *testing.T) {
 	}
 }
 
-func TestBuildProjectVMEnvIncludesWorkspaces(t *testing.T) {
-	envMap := map[string]string{
-		"FOO": "bar",
-	}
-	buildProjectVMEnv(envMap, nil)
-	if envMap["OPENCODE_EXPERIMENTAL_WORKSPACES"] != "true" {
-		t.Errorf("expected OPENCODE_EXPERIMENTAL_WORKSPACES=true, got %q", envMap["OPENCODE_EXPERIMENTAL_WORKSPACES"])
-	}
-	if _, ok := envMap["PATH"]; ok {
-		t.Error("expected no PATH set when image envs provide none")
-	}
-}
-
 func TestBuildProjectVMEnvMergesImageEnvs(t *testing.T) {
 	imageEnvs := map[string]string{
-		"MY_KEY": "my_value",
-		"PATH":   "/custom/path",
+		"MY_KEY":                           "my_value",
+		"PATH":                             "/custom/path",
+		"OPENCODE_EXPERIMENTAL_WORKSPACES": "true",
 	}
 	envMap := map[string]string{}
 	buildProjectVMEnv(envMap, imageEnvs)
 	if envMap["MY_KEY"] != "my_value" {
 		t.Errorf("expected MY_KEY=my_value from image envs, got %q", envMap["MY_KEY"])
 	}
-	// Image env PATH should override the fallback PATH that buildProjectVMEnv sets.
+	// Image env PATH should override any envMap default.
 	if envMap["PATH"] != "/custom/path" {
 		t.Errorf("expected PATH=/custom/path from image envs, got %q", envMap["PATH"])
 	}
 	if envMap["OPENCODE_EXPERIMENTAL_WORKSPACES"] != "true" {
-		t.Error("expected OPENCODE_EXPERIMENTAL_WORKSPACES to be set")
+		t.Error("expected OPENCODE_EXPERIMENTAL_WORKSPACES to be passed through from image envs")
+	}
+}
+
+func TestBuildProjectVMEnvKeepsExistingEntries(t *testing.T) {
+	envMap := map[string]string{"FOO": "bar"}
+	buildProjectVMEnv(envMap, map[string]string{"BAZ": "qux"})
+	if envMap["FOO"] != "bar" {
+		t.Errorf("expected FOO=bar preserved, got %q", envMap["FOO"])
+	}
+	if envMap["BAZ"] != "qux" {
+		t.Errorf("expected BAZ=qux from image envs, got %q", envMap["BAZ"])
 	}
 }
 

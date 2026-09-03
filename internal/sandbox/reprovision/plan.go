@@ -68,11 +68,11 @@ func configChangeList(changes []Change) string {
 // these settings when reading an existing VM back. Each flag is computed by
 // comparing a persisted fingerprint against the desired state.
 type ChangeFlags struct {
-	Env            bool
-	Secrets        bool
-	Network        bool
-	Mounts         bool
-	OpenCodeConfig bool
+	Env         bool
+	Secrets     bool
+	Network     bool
+	Mounts      bool
+	AgentConfig bool
 }
 
 // PlanReconfig computes the reconfiguration plan given the current VM config
@@ -195,13 +195,13 @@ func PlanReconfig( //nolint:gocognit,gocyclo,cyclop,funlen // core planner, cogn
 		}
 	}
 
-	// opencode config changes are picked up by restarting the opencode daemon;
+	// Agent config changes are picked up by restarting the agent daemon;
 	// a full VM rebuild is not required.
-	if !d.Recreate && flags.OpenCodeConfig {
+	if !d.Recreate && flags.AgentConfig {
 		d.RestartDaemons = true
 		d.Changes = append(
 			d.Changes,
-			Change{Label: "opencode config"}, //nolint:exhaustruct // label-only for change reporting
+			Change{Label: "agent config"}, //nolint:exhaustruct // label-only for change reporting
 		)
 	}
 
@@ -278,7 +278,7 @@ func diskMiBOr0(cfg *msbSdk.SandboxConfig) uint32 {
 }
 
 // desiredPublishBindings returns the port bindings opencode-sandbox wants on the
-// project VM. Serve-only publishes the opencode port on the host loopback;
+// project VM. Serve-only publishes the agent port on the host loopback;
 // otherwise nothing is published.
 func desiredPublishBindings(serveOnly bool) []msbSdk.PortBinding {
 	if !serveOnly {

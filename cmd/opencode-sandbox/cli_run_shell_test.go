@@ -101,13 +101,13 @@ func TestRunShellDryRunRun(t *testing.T) {
 
 	foundInfo := false
 	for _, call := range ui.InfoCalls {
-		if strings.TrimSpace(call) == "dry-run: Would run opencode" {
+		if strings.TrimSpace(call) == "dry-run: Would run agent session" {
 			foundInfo = true
 			break
 		}
 	}
 	if !foundInfo {
-		t.Errorf("expected info 'dry-run: Would run opencode'; got: %v", ui.InfoCalls)
+		t.Errorf("expected info 'dry-run: Would run agent session'; got: %v", ui.InfoCalls)
 	}
 
 	foundVerbose := false
@@ -154,8 +154,8 @@ func TestRunShellRunAttachError(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error from attach failure; got nil")
 	}
-	if !strings.Contains(err.Error(), "opencode session failed") {
-		t.Errorf("expected error containing 'opencode session failed'; got: %v", err)
+	if !strings.Contains(err.Error(), "agent session failed") {
+		t.Errorf("expected error containing 'agent session failed'; got: %v", err)
 	}
 }
 
@@ -169,8 +169,8 @@ func TestRunShellShellAttachError(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error from attach failure; got nil")
 	}
-	if !strings.Contains(err.Error(), "opencode session failed") {
-		t.Errorf("expected error containing 'opencode session failed'; got: %v", err)
+	if !strings.Contains(err.Error(), "agent session failed") {
+		t.Errorf("expected error containing 'agent session failed'; got: %v", err)
 	}
 }
 

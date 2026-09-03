@@ -3,6 +3,8 @@ package configpaths
 import (
 	"path/filepath"
 	"testing"
+
+	"github.com/inoio/opencode-sandbox/internal/agent"
 )
 
 // TestMockConfigPaths exercises the WithMockConfigPaths helper that other
@@ -13,6 +15,7 @@ func TestMockConfigPaths(t *testing.T) {
 	cfgPaths := Get()
 	m := Get().(*mockConfigPaths)
 	base := m.baseDir
+	a, _ := agent.Lookup("opencode")
 
 	if got := cfgPaths.UserConfigDir(); got != filepath.Join(base, "userconfig") {
 		t.Errorf("UserConfigDir() = %q, want %q", got, filepath.Join(base, "userconfig"))
@@ -23,14 +26,14 @@ func TestMockConfigPaths(t *testing.T) {
 	if got := cfgPaths.UserStateDir(); got != filepath.Join(base, "userstate") {
 		t.Errorf("UserStateDir() = %q, want %q", got, filepath.Join(base, "userstate"))
 	}
-	if got := cfgPaths.UserOpencodeConfigDir(); got != filepath.Join(base, "userconfig", "opencode") {
-		t.Errorf("UserOpencodeConfigDir() = %q, want %q", got, filepath.Join(base, "userconfig", "opencode"))
+	if got := cfgPaths.UserAgentConfigDir(a); got != filepath.Join(base, "userconfig", a.ConfigDirName()) {
+		t.Errorf("UserAgentConfigDir() = %q, want %q", got, filepath.Join(base, "userconfig", a.ConfigDirName()))
 	}
 	if got := cfgPaths.ProjectConfigDir(); got != filepath.Join(base, "projectconfig") {
 		t.Errorf("ProjectConfigDir() = %q, want %q", got, filepath.Join(base, "projectconfig"))
 	}
-	if got := cfgPaths.ProjectOpencodeConfigDir(); got != filepath.Join(base, "projectconfig", "opencode") {
-		t.Errorf("ProjectOpencodeConfigDir() = %q, want %q", got, filepath.Join(base, "projectconfig", "opencode"))
+	if got := cfgPaths.ProjectAgentConfigDir(a); got != filepath.Join(base, "projectconfig", a.ConfigDirName()) {
+		t.Errorf("ProjectAgentConfigDir() = %q, want %q", got, filepath.Join(base, "projectconfig", a.ConfigDirName()))
 	}
 	if got := cfgPaths.UserEnvFile(); got != filepath.Join(base, "userconfig", envFileName) {
 		t.Errorf("UserEnvFile() = %q, want %q", got, filepath.Join(base, "userconfig", envFileName))

@@ -536,8 +536,8 @@ resolved as follows:
 
 Layering: the project manifest overrides the user manifest **per target**. Targets must stay within the VM home
 (`..` traversal, absolute paths, and `~`-prefixed targets are rejected — targets are already relative to the home
-directory, so `~/fdsa` should simply be written as `fdsa`), and `.config/opencode/opencode.jsonc` is reserved for the
-merged opencode config — it cannot be provisioned via `home.yaml`.
+directory, so `~/fdsa` should simply be written as `fdsa`), and the active agent's merged-config path is reserved (for
+opencode, `.config/opencode/opencode.jsonc`) — it cannot be provisioned via `home.yaml`.
 
 Example `.opencode-sandbox/home.yaml`:
 

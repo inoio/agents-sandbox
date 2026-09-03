@@ -20,7 +20,7 @@ import (
 )
 
 // Session is a prepared, ready-to-attach sandbox: the VM, its name, and
-// the opencode attach target.
+// the agent attach target.
 type Session struct {
 	sb     msb.Sandbox
 	name   string
@@ -41,7 +41,7 @@ func (s *Session) Sandbox() msb.Sandbox {
 	return s.sb
 }
 
-// Target returns the opencode attach target directory.
+// Target returns the agent attach target directory.
 func (s *Session) Target() string {
 	return s.target
 }
@@ -61,7 +61,7 @@ func PrepareSandbox(
 		return nil, fmt.Errorf("unknown agent %q", opts.Agent)
 	}
 
-	// Decide the opencode version to bake before touching the image. Without an
+	// Decide the agent version to bake before touching the image. Without an
 	// explicit pin, this checks for (and may offer) an upgrade up front, so a
 	// normal run never rebuilds the image twice (once for the current version,
 	// once for an upgrade). When unpinned and nothing newer is chosen, the
@@ -85,7 +85,7 @@ func PrepareSandbox(
 		return nil, fmt.Errorf("ensuring image failed: %w", err)
 	}
 	if shallUpgrade {
-		ui.Verbosef("runner image rebuilt with a newer opencode version")
+		ui.Verbosef("runner image rebuilt with a newer %s version", a.Name())
 	}
 
 	ui.Verbosef("Using image '%s' (digest=%s)", imageInfo.Tag, imageInfo.Digest)
@@ -103,9 +103,9 @@ func PrepareSandbox(
 		return nil, fmt.Errorf("get current directory: %w", err)
 	}
 
-	// Load the merged opencode config and home files exactly once per startup;
+	// Load the merged agent config and home files exactly once per startup;
 	// the result is shared by the reconfig decision and the provisioning step.
-	cfs, err := reprovision.LoadConfigFiles(a, configpaths.Get().UserOpencodeConfigDir(), ui, provisionHostConfig(opts))
+	cfs, err := reprovision.LoadConfigFiles(a, ui, provisionHostConfig(opts))
 	if err != nil {
 		return nil, err
 	}

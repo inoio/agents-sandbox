@@ -87,20 +87,11 @@ func TestEnvSecretYAMLPaths(t *testing.T) {
 	}
 }
 
-func TestUserOpencodeConfigDir(t *testing.T) {
-	WithRealConfigPaths(t)
-	cfgPaths := Get()
-	want := filepath.Join(cfgPaths.UserConfigDir(), ConfigDirName)
-	if got := cfgPaths.UserOpencodeConfigDir(); got != want {
-		t.Errorf("UserOpencodeConfigDir() = %q, want %q", got, want)
-	}
-}
-
 func TestUserAgentConfigDir(t *testing.T) {
 	WithRealConfigPaths(t)
 	a, _ := agent.Lookup("opencode")
 	got := Get().UserAgentConfigDir(a)
-	want := Get().UserOpencodeConfigDir()
+	want := filepath.Join(Get().UserConfigDir(), a.ConfigDirName())
 	if got != want {
 		t.Errorf("UserAgentConfigDir(opencode) = %q, want %q", got, want)
 	}
@@ -120,9 +111,10 @@ func TestUserEnvFiles(t *testing.T) {
 func TestProjectDirsAndFiles(t *testing.T) {
 	WithRealConfigPaths(t)
 	cfgPaths := Get()
+	a, _ := agent.Lookup("opencode")
 
-	if got := cfgPaths.ProjectOpencodeConfigDir(); got != filepath.Join(projectConfigDir, ConfigDirName) {
-		t.Errorf("ProjectOpencodeConfigDir() = %q", got)
+	if got := cfgPaths.ProjectAgentConfigDir(a); got != filepath.Join(projectConfigDir, a.ConfigDirName()) {
+		t.Errorf("ProjectAgentConfigDir() = %q", got)
 	}
 	if got := cfgPaths.ProjectEnvFile(); got != filepath.Join(projectConfigDir, EnvFileName) {
 		t.Errorf("ProjectEnvFile() = %q", got)
