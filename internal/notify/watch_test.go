@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/inoio/opencode-sandbox/internal/configpaths"
 	"github.com/inoio/opencode-sandbox/internal/sandbox/msb"
 )
 
@@ -96,6 +97,46 @@ func TestWatchDrivesBackend(t *testing.T) {
 	}
 	if backend.count() != 1 || backend.notification(0).Trigger != TriggerDone {
 		t.Fatalf("expected one done notification, got %+v", backend.got)
+	}
+}
+
+func TestWatchDedupClearsOnBusy(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	stream := &streamStub{
+		events: []msb.StreamEvent{
+			{Kind: msb.StreamEventStdout, Data: sseBlockFor("message.part.updated", "ses_A")}, // busy
+			{Kind: msb.StreamEventStdout, Data: sseBlockFor("session.idle", "ses_A")},         // done -> notify
+			{Kind: msb.StreamEventStdout, Data: sseBlockFor("message.part.updated", "ses_A")}, // busy -> clear claim
+			{Kind: msb.StreamEventStdout, Data: sseBlockFor("session.idle", "ses_A")},         // done -> notify again
+		},
+	}
+	sb := msb.NewMockSandbox(msb.SandboxOpts{StreamHandle_: stream})
+	inner := &recordBackend{}
+	dedup := NewDedup("watchslug-a", StateClaimer{}, inner)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	done := make(chan error, 1)
+	go func() { done <- Watch(ctx, sb, opencodeSpec(), dedup) }()
+
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if inner.count() == 2 {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	cancel()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("Watch() error = %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("Watch did not return after cancel")
+	}
+	if inner.count() != 2 {
+		t.Fatalf("expected 2 notifications after clear-on-busy, got %d", inner.count())
 	}
 }
 

@@ -17,6 +17,12 @@ import (
 // maxStreamAttempts caps how many times Watch reconnects before giving up.
 const maxStreamAttempts = 10
 
+// sessionBusyAware is implemented by backends that want to be told when a
+// session returns to work, so in-flight dedup claims can be released.
+type sessionBusyAware interface {
+	SessionBusy(sessionID string)
+}
+
 // watchBackoff is the delay before reconnecting a dropped stream. It is a test
 // seam; production uses the default.
 //
@@ -77,9 +83,7 @@ func watchOnce(
 		line := scanner.Text()
 		if line == "" {
 			if e, ok := parseSSEBlock(block); ok {
-				if n := tracker.Handle(e); n != nil {
-					sink.Notify(*n)
-				}
+				handleEvent(tracker, sink, e)
 			}
 			/*			if err := appendNotifyLog(block); err != nil {
 						ui.Verbosef("notify watcher log: %v", err)
@@ -90,6 +94,21 @@ func watchOnce(
 		block = append(block, line)
 	}
 	return ctx.Err() == nil
+}
+
+// handleEvent feeds one parsed event to the sink. When the session returns to
+// work, a sessionBusyAware sink releases its in-flight dedup claims first, so a
+// later transition for the session can notify again; then the tracker decides
+// whether the event fires a notification.
+func handleEvent(tracker *Tracker, sink Backend, e Event) {
+	if e.SessionID != "" && eventTypeIn(e.Type, tracker.spec.BusyEvents) {
+		if aware, ok := sink.(sessionBusyAware); ok {
+			aware.SessionBusy(e.SessionID)
+		}
+	}
+	if n := tracker.Handle(e); n != nil {
+		sink.Notify(*n)
+	}
 }
 
 // appendNotifyLog appends one SSE block to notify.log in the current working
