@@ -55,7 +55,13 @@ loop:
 // is cancelled. It reports whether the stream dropped (vs ctx ending). SSE
 // events are blocks of `event:`/`data:` lines separated by blank lines, so
 // lines are accumulated and parsed one block at a time.
-func watchOnce(ctx context.Context, sb msb.Sandbox, tracker *Tracker, sink Backend, streamCommand string) bool {
+func watchOnce(
+	ctx context.Context,
+	sb msb.Sandbox,
+	tracker *Tracker,
+	sink Backend,
+	streamCommand string,
+) bool {
 	handle, err := sb.ShellStream(ctx, streamCommand)
 	if err != nil {
 		return true
@@ -66,6 +72,7 @@ func watchOnce(ctx context.Context, sb msb.Sandbox, tracker *Tracker, sink Backe
 	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
 
 	var block []string
+
 	for scanner.Scan() {
 		line := scanner.Text()
 		if line == "" {
@@ -74,6 +81,9 @@ func watchOnce(ctx context.Context, sb msb.Sandbox, tracker *Tracker, sink Backe
 					sink.Notify(*n)
 				}
 			}
+			/*			if err := appendNotifyLog(block); err != nil {
+						ui.Verbosef("notify watcher log: %v", err)
+					}*/
 			block = nil
 			continue
 		}
@@ -81,6 +91,22 @@ func watchOnce(ctx context.Context, sb msb.Sandbox, tracker *Tracker, sink Backe
 	}
 	return ctx.Err() == nil
 }
+
+// appendNotifyLog appends one SSE block to notify.log in the current working
+// directory for debugging.
+/*func appendNotifyLog(block []string) error {
+	f, err := os.OpenFile("notify.log", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	for _, l := range block {
+		if _, err := fmt.Fprintln(f, l); err != nil {
+			return err
+		}
+	}
+	return nil
+}*/
 
 // streamReader adapts a msb.StreamHandle to io.Reader by copying each
 // stdout chunk into the read buffer. A clean stream end is surfaced as io.EOF
@@ -117,34 +143,28 @@ func (r *streamReader) Read(p []byte) (int, error) {
 }
 
 // parseSSEBlock parses one SSE block (the lines between blank lines) into an
-// Event. It honors an "event:" field; if absent, the "data:" payload's JSON
-// "type" names the event. Returns false for comment/empty blocks.
+// Event. opencode's /global/event stream emits a single "data:" line whose
+// JSON carries the event type under "payload.type".
 func parseSSEBlock(lines []string) (Event, bool) {
-	eventType := ""
-	payload := []byte{}
+	var payload []byte
 	for _, l := range lines {
-		switch {
-		case strings.HasPrefix(l, "event:"):
-			eventType = strings.TrimSpace(strings.TrimPrefix(l, "event:"))
-		case strings.HasPrefix(l, "data:"):
-			payload = bytes.TrimSpace([]byte(strings.TrimPrefix(l, "data:")))
+		if rest, ok := strings.CutPrefix(l, "data:"); ok {
+			payload = bytes.TrimSpace([]byte(rest))
 		}
 	}
 	if len(payload) == 0 {
 		return Event{}, false
 	}
-
-	typ := eventType
-	if typ == "" {
-		var raw struct {
+	var raw struct {
+		Payload struct {
 			Type string `json:"type"`
-		}
-		if err := json.Unmarshal(payload, &raw); err == nil {
-			typ = raw.Type
-		}
+		} `json:"payload"`
 	}
-	if typ == "" {
+	if err := json.Unmarshal(payload, &raw); err != nil {
 		return Event{}, false
 	}
-	return Event{Type: typ, Data: payload}, true
+	if raw.Payload.Type == "" {
+		return Event{}, false
+	}
+	return Event{Type: raw.Payload.Type, Data: payload}, true
 }

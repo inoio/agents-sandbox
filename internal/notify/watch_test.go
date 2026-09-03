@@ -10,6 +10,14 @@ import (
 	"github.com/inoio/opencode-sandbox/internal/sandbox/msb"
 )
 
+// sseBlock wraps typ in the envelope shape opencode's /global/event stream
+// emits: a single data line whose type lives under payload.type.
+func sseBlock(typ string) []byte {
+	return []byte(
+		"data: {\"directory\":\"/workspace\",\"project\":\"cb78d2f0026e9b81b438a362c1fc4dd57422a98d\",\"payload\":{\"id\":\"evt\",\"type\":\"" + typ + "\",\"properties\":{}}}\n\n",
+	)
+}
+
 // streamStub implements msb.StreamHandle by replaying buffered events. When
 // out of events it blocks until ctx is cancelled and returns ctx.Err(), so the
 // stream stays open until the test decides to end it.
@@ -57,8 +65,8 @@ func (r *recordBackend) notification(i int) Notification {
 func TestWatchDrivesBackend(t *testing.T) {
 	stream := &streamStub{
 		events: []msb.StreamEvent{
-			{Kind: msb.StreamEventStdout, Data: []byte("event: message.part.updated\ndata: {}\n\n")},
-			{Kind: msb.StreamEventStdout, Data: []byte("event: session.idle\ndata: {}\n\n")},
+			{Kind: msb.StreamEventStdout, Data: sseBlock("message.part.updated")},
+			{Kind: msb.StreamEventStdout, Data: sseBlock("session.idle")},
 		},
 	}
 	sb := msb.NewMockSandbox(msb.SandboxOpts{StreamHandle_: stream})
@@ -109,8 +117,8 @@ func TestWatchReconnectsOnStreamExit(t *testing.T) {
 		if n == 1 {
 			// busy then idle so the tracker fires "done" on the first attempt.
 			events = append(events,
-				msb.StreamEvent{Kind: msb.StreamEventStdout, Data: []byte("event: message.part.updated\ndata: {}\n\n")},
-				msb.StreamEvent{Kind: msb.StreamEventStdout, Data: []byte("event: session.idle\ndata: {}\n\n")},
+				msb.StreamEvent{Kind: msb.StreamEventStdout, Data: sseBlock("message.part.updated")},
+				msb.StreamEvent{Kind: msb.StreamEventStdout, Data: sseBlock("session.idle")},
 			)
 		}
 		events = append(events, msb.StreamEvent{Kind: msb.StreamEventExited, ExitCode: 0})

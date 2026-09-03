@@ -107,3 +107,4 @@ func (opencodeProfile) EventStream() EventStreamSpec {
 		Name:          opencodeName,
 	}
 }
+

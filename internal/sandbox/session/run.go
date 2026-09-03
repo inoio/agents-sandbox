@@ -47,12 +47,15 @@ func startNotifyWatcher(
 	spec *agent.EventStreamSpec,
 ) func() {
 	if sb == nil || !cfg.Active() || spec == nil {
+		ui.Verbosef("not starting notify watcher, sandbox %s, active %v, spec %s", sb, cfg.Active(), spec)
 		return func() {}
 	}
 	backend := notify.NewBackend(cfg, ui)
 	watchCtx, cancel := context.WithCancel(ctx)
 	done := make(chan struct{})
 	go func() {
+		ui.Verbosef("starting notify watcher, sandbox %s, active %v, spec %s", sb, cfg.Active(), spec)
+
 		defer close(done)
 		if err := notifyWatch(watchCtx, sb, *spec, backend); err != nil {
 			ui.Verbosef("notify watcher stopped: %v", err)

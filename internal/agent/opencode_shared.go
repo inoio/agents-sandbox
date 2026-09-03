@@ -19,7 +19,7 @@ const opencodeAutoupdateDisabled = "true"
 
 func (opencodeConfig) ConfigDirName() string { return opencodeName }
 
-func (opencodeConfig) SnippetPattern() string { return "opencode-*.json*" }
+func (opencodeConfig) SnippetPattern() string { return "opencode*.json*" }
 
 func (opencodeConfig) VMConfigPath(home string) string {
 	return filepath.Join(home, ".config", "opencode", "opencode.jsonc")

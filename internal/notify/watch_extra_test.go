@@ -116,23 +116,53 @@ func TestStreamReaderSplitsChunks(t *testing.T) {
 }
 
 func TestParseSSEBlock(t *testing.T) {
+	// Fixtures are data payloads copied verbatim from a captured notify.log of
+	// opencode's /global/event SSE stream. Every block is a single "data:"
+	// line; the event type always lives under "payload.type".
+	sessionDiff := `{"directory":"/workspace","project":"cb78d2f0026e9b81b438a362c1fc4dd57422a98d","payload":{"id":"evt_0678bb9bd0018FCXVXQrtX4I3g","type":"session.diff","properties":{"sessionID":"ses_f987482bcffeiws2F2jQHsI18v","diff":[]}}}`
+	sessionStatusBusy := `{"directory":"/workspace","project":"cb78d2f0026e9b81b438a362c1fc4dd57422a98d","payload":{"id":"evt_0678bba0f001hCPf5iyi5kLegH","type":"session.status","properties":{"sessionID":"ses_f987482bcffeiws2F2jQHsI18v","status":{"type":"busy"}}}}`
+	sessionStatusIdle := `{"directory":"/workspace","project":"cb78d2f0026e9b81b438a362c1fc4dd57422a98d","payload":{"id":"evt_0678bc91b001QnqxY7PC9c2Wum","type":"session.status","properties":{"sessionID":"ses_f987482bcffeiws2F2jQHsI18v","status":{"type":"idle"}}}}`
+	sessionIdle := `{"directory":"/workspace","project":"cb78d2f0026e9b81b438a362c1fc4dd57422a98d","payload":{"id":"evt_0678bc91b0026VCCESi2adL2qk","type":"session.idle","properties":{"sessionID":"ses_f987482bcffeiws2F2jQHsI18v"}}}`
+	serverConnected := `{"payload":{"id":"evt_0678b601c001E0tYa1LEd8TOcp","type":"server.connected","properties":{}}}`
+	syncUpdated := `{"directory":"/workspace","project":"cb78d2f0026e9b81b438a362c1fc4dd57422a98d","payload":{"type":"sync","syncEvent":{"id":"evt_0678b7d66001s60UiMgCEv2U81","type":"session.updated.1","seq":3,"aggregateID":"ses_f987482bcffeiws2F2jQHsI18v","data":{"sessionID":"ses_f987482bcffeiws2F2jQHsI18v","info":{"id":"ses_f987482bcffeiws2F2jQHsI18v","slug":"crisp-nebula","projectID":"cb78d2f0026e9b81b438a362c1fc4dd57422a98d","directory":"/workspace","path":"","title":"New session - 2026-09-03T13:53:09.955Z","agent":"build","model":{"id":"deepseek-v4-flash-0731-aki","providerID":"litellm","variant":"low"},"version":"1.18.26","cost":0,"tokens":{"input":0,"output":0,"reasoning":0,"cache":{"read":0,"write":0}},"time":{"created":1788443589955,"updated":1788443589989}}}},"id":"evt_0678b7d66001s60UiMgCEv2U81"}}`
+
 	cases := []struct {
 		name  string
 		lines []string
 		want  Event
 		ok    bool
 	}{
-		{"event+data", []string{"event: session.idle", "data: {}"},
-			Event{Type: "session.idle", Data: []byte("{}")}, true},
-		{"data json type", []string{"data: {\"type\":\"session.error\"}"},
-			Event{Type: "session.error", Data: []byte("{\"type\":\"session.error\"}")}, true},
-		{"comment ignored", []string{": note", "event: x", "data: {}"},
-			Event{Type: "x", Data: []byte("{}")}, true},
-		{"empty block", nil, Event{}, false},
-		{"no payload", []string{"event: x"}, Event{}, false},
-		{"data no type", []string{"data: {}"}, Event{}, false},
-		{"data invalid json", []string{"data: not-json"}, Event{}, false},
-		{"whitespace trimmed", []string{"event:  y  ", "data:  {}  "}, Event{Type: "y", Data: []byte("{}")}, true},
+		{
+			"session diff",
+			[]string{"data: " + sessionDiff},
+			Event{Type: "session.diff", Data: []byte(sessionDiff)},
+			true,
+		},
+		{
+			"session status busy",
+			[]string{"data: " + sessionStatusBusy},
+			Event{Type: "session.status", Data: []byte(sessionStatusBusy)},
+			true,
+		},
+		{
+			"session status idle",
+			[]string{"data: " + sessionStatusIdle},
+			Event{Type: "session.status", Data: []byte(sessionStatusIdle)},
+			true,
+		},
+		{
+			"session idle",
+			[]string{"data: " + sessionIdle},
+			Event{Type: "session.idle", Data: []byte(sessionIdle)},
+			true,
+		},
+		{
+			"bare envelope",
+			[]string{"data: " + serverConnected},
+			Event{Type: "server.connected", Data: []byte(serverConnected)},
+			true,
+		},
+		{"sync envelope", []string{"data: " + syncUpdated}, Event{Type: "sync", Data: []byte(syncUpdated)}, true},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
