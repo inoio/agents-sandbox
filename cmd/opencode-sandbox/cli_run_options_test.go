@@ -526,6 +526,34 @@ func TestExtractRunOptionsAgentClaudeCode(t *testing.T) {
 	}
 }
 
+func TestExtractRunOptionsAgentOpencode2(t *testing.T) {
+	cmd := buildRunCmd(&termio.Mock{})
+	if err := cmd.Flags().Set(flagAgent, "opencode2"); err != nil {
+		t.Fatalf("set agent: %v", err)
+	}
+	opts, err := extractRunOptions(cmd, &termio.Mock{})
+	if err != nil {
+		t.Fatalf("extractRunOptions: %v", err)
+	}
+	if opts.Agent != "opencode2" {
+		t.Errorf("Agent = %q; want opencode2", opts.Agent)
+	}
+}
+
+func TestValidateAgentFlagsAcceptsWorktreeAndServeOnlyForOpencode2(t *testing.T) {
+	a, ok := agent.Lookup("opencode2")
+	if !ok {
+		t.Fatal("opencode2 agent not registered")
+	}
+	err := validateAgentFlags(a, options.RunOptions{
+		Worktree:  options.WorktreeSpec{Name: "feat"},
+		ServeOnly: true,
+	})
+	if err != nil {
+		t.Errorf("expected opencode2 to support --worktree and --serve-only, got %v", err)
+	}
+}
+
 func TestExtractRunOptionsRejectsWorktreeForPI(t *testing.T) {
 	cmd := buildRunCmd(&termio.Mock{})
 	if err := cmd.Flags().Set(flagAgent, "pi"); err != nil {

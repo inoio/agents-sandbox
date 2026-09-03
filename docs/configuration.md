@@ -398,9 +398,12 @@ echo $GITHUB_TOKEN
 
 opencode-sandbox is agent-aware. A `--agent <name>` flag on `run`, `build`, and the `volume` subcommands selects the
 coding-agent profile to run, build, and provision. The agent can also be selected via the `agent` config key or the
-`OPENCODE_SANDBOX_AGENT` environment variable. Three agents ship as built-in profiles:
+`OPENCODE_SANDBOX_AGENT` environment variable. Four agents ship as built-in profiles:
 
 - **`opencode`** (default) — daemon-based, with serve/attach, worktree sessions, and GitHub-release upgrade checks.
+- **`opencode2`** — opencode 2 (beta), installed from `@opencode-ai/cli@beta` on npm; daemon-based with serve/attach,
+  worktree sessions, and npm beta-tag upgrade checks. It shares the `opencode` config directory (v2 reads the same files
+  as v1).
 - **`pi`** — the pi coding agent, run interactively; upgrade checks via `pi.dev`.
 - **`claude-code`** — Anthropic's Claude Code, run interactively; upgrade checks via the npm registry.
 
@@ -420,6 +423,7 @@ user and project directories, and written to the agent's VM config path:
 
 - **opencode** — snippets match `opencode-*.json*` (e.g. `opencode-model.json`, `opencode-permissions.jsonc`); merged to
   `/home/dev/.config/opencode/opencode.jsonc`. A file named exactly `opencode.json` no longer merges by default.
+- **opencode2** — same snippet pattern and merged config path as `opencode` (v2 reads the same files as v1).
 - **pi** — snippets match `settings*.json*` in the `pi/` subdir; merged to `/home/dev/.pi/agent/settings.json`.
 - **claude-code** — snippets match `settings*.json*` in the `claude/` subdir; merged to `/home/dev/.claude/settings.json`.
 
@@ -472,6 +476,7 @@ The drop-in copy is scoped to the agent's settings file, not its runtime state o
 
 - **opencode** — `~/.config/opencode/**` (excluding `node_modules/`, `package*.json`, and `.gitignore`) plus
   `~/.local/share/opencode/auth.json`.
+- **opencode2** — same drop-in copy as `opencode` (`~/.config/opencode/**` and `~/.local/share/opencode/auth.json`).
 - **pi** — `~/.pi/agent/settings.json`.
 - **claude-code** — `~/.claude/settings.json` (runtime state and the machine-managed `.credentials.json` are not copied).
 

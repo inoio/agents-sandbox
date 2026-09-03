@@ -47,7 +47,7 @@ Arguments after `--` are forwarded to opencode. Arguments before `--` that don't
 | `--workspace-quota` | — | `16G` | Guest-write quota for the `/workspace` bind mount (e.g. `32G`), bounding writes on top of the host repo. Applied at VM creation; a change triggers recreation. An invalid value is rejected with an error. |
 | `--dry-run-vm` | —     | `false`  | Skip VM lifecycle but prepare everything else                                                                                              |
 | `--serve-only` | `-s`  | `false`  | Start opencode server published on host loopback (no in-VM TUI); press `Ctrl-D` to exit. Set `OPENCODE_SERVER_PASSWORD` for basic auth. |
-| `--agent`      | —     | `opencode` | Coding-agent profile to run: `opencode` (default), `pi`, or `claude-code`.                                                                |
+| `--agent`      | —     | `opencode` | Coding-agent profile to run: `opencode` (default), `opencode2`, `pi`, or `claude-code`.                                                                |
 | `--notify`     | —     | `off`     | Notify on session status: `on`, `off`, `desktop`, or `audio` (bare `--notify` = `on`). Overridable via `OPENCODE_SANDBOX_NOTIFY`. Only applies to daemon-based agents (opencode). |
 | `--dind`       | —     | `false`  | Enable Docker-in-Docker in the runner image                                                                                                |
 
@@ -91,7 +91,7 @@ opencode-sandbox build --agent-version 0.5.0  # pin a specific agent version
 |----------------------|-------|----------|-----------------------------------------------------------------|
 | `--rebuild`          | `-r`  | `false`  | Force a clean rebuild                                           |
 | `--dry-run`          | `-n`  | `false`  | Dry run without building                                        |
-| `--agent`            | —     | `opencode` | Coding-agent profile to build: `opencode` (default), `pi`, or `claude-code`. |
+| `--agent`            | —     | `opencode` | Coding-agent profile to build: `opencode` (default), `opencode2`, `pi`, or `claude-code`. |
 | `--agent-version`    | —     | `""`     | Pin the agent version baked into the image (default: latest)    |
 | `--dind`             | —     | `false`  | Enable Docker-in-Docker in the runner image                     |
 

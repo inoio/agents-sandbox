@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"os"
+	"sort"
 	"strings"
 
 	"github.com/inoio/opencode-sandbox/internal/agent"
@@ -172,8 +173,13 @@ RUN groupadd -f docker
 func agentBlock(a agent.Agent) string {
 	spec := a.ImageSpec()
 	var envBlock strings.Builder
-	for k, v := range spec.AgentEnv {
-		fmt.Fprintf(&envBlock, "ENV %s=%s\n", k, v)
+	envKeys := make([]string, 0, len(spec.AgentEnv))
+	for k := range spec.AgentEnv {
+		envKeys = append(envKeys, k)
+	}
+	sort.Strings(envKeys)
+	for _, k := range envKeys {
+		fmt.Fprintf(&envBlock, "ENV %s=%s\n", k, spec.AgentEnv[k])
 	}
 	binary := a.Name()
 	if provider, ok := agent.AsVersionProvider(a); ok {

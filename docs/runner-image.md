@@ -87,8 +87,11 @@ The agent block installs Node.js (`v26.8.1`, official tarball) only if it is abs
 only if its binary is absent — so an existing install is left alone (idempotency). What the block actually did is
 recorded in `/etc/opencode-sandbox/agent-source` and `/etc/opencode-sandbox/docker-source`.
 
-Three agents are built in: `opencode` (default), `pi` (installed via `npm i -g @earendil-works/pi-coding-agent`), and
-`claude-code` (installed via `npm i -g @anthropic-ai/claude-code`).
+Four agents are built in: `opencode` (default), `opencode2` (installed via `npm i -g @opencode-ai/cli@$OPENCODE2_VERSION`,
+the opencode 2 beta), `pi` (installed via `npm i -g @earendil-works/pi-coding-agent`), and `claude-code` (installed via
+`npm i -g @anthropic-ai/claude-code`). All four resolve their latest version for an unpinned build — opencode via its
+GitHub releases endpoint, opencode2 via the npm registry's `beta` dist-tag, pi via `pi.dev`, and claude-code via the npm
+registry's `latest` dist-tag.
 
 ## Labels & provenance
 

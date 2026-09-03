@@ -72,6 +72,27 @@ func TestRenderDockerfileDindEnabled(t *testing.T) {
 	}
 }
 
+// TestRenderDockerfileOpencode2 checks that the opencode2 beta agent renders
+// its npm install block with the correct build ARG and agent label.
+func TestRenderDockerfileOpencode2(t *testing.T) {
+	a, ok := agent.Lookup("opencode2")
+	if !ok {
+		t.Fatal("opencode2 agent not registered")
+	}
+	out := string(RenderDockerfile(a, nil, false))
+	for _, want := range []string{
+		"ARG OPENCODE2_VERSION",
+		"LABEL org.opencode-sandbox.agent=opencode2",
+		"OPENCODE_DISABLE_AUTOUPDATE=true",
+		"npm install -g @opencode-ai/cli@$OPENCODE2_VERSION",
+		"echo tool > /etc/opencode-sandbox/agent-source",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("rendered opencode2 Dockerfile missing %q", want)
+		}
+	}
+}
+
 func TestRenderDockerfileCustomBase(t *testing.T) {
 	a, _ := agent.Lookup("opencode")
 	project := []byte("FROM ubuntu:24.04\nRUN apt-get update && apt-get install -y curl bash\n")
