@@ -230,3 +230,91 @@ func TestBuildMergedSkipsUnparsableSnippet(t *testing.T) {
 		t.Errorf("merged = %v, want ok=true", m)
 	}
 }
+
+func TestScanMirrorBasic(t *testing.T) {
+	user := t.TempDir()
+	dest := t.TempDir()
+	testutil.WriteFile(t, user, "tui.json", `{"theme":"dark"}`)
+	os.MkdirAll(filepath.Join(user, "agents"), 0o755)
+	os.MkdirAll(filepath.Join(user, "themes"), 0o755)
+	testutil.WriteFile(t, filepath.Join(user, "agents"), "coder.md", "# coder\n")
+	testutil.WriteFile(t, filepath.Join(user, "themes"), "dark.json", `{"bg":"#000"}`)
+
+	entries, err := ScanMirror("opencode-*.json*", nil, user, "", dest)
+	if err != nil {
+		t.Fatalf("ScanMirror: %v", err)
+	}
+	if len(entries) != 3 {
+		t.Fatalf("entries = %d, want 3: %+v", len(entries), entries)
+	}
+	want := map[string]string{
+		filepath.Join(dest, "tui.json"):            filepath.Join(user, "tui.json"),
+		filepath.Join(dest, "agents", "coder.md"):  filepath.Join(user, "agents", "coder.md"),
+		filepath.Join(dest, "themes", "dark.json"): filepath.Join(user, "themes", "dark.json"),
+	}
+	for _, e := range entries {
+		wantHost, ok := want[e.VMPath]
+		if !ok {
+			t.Errorf("unexpected VMPath %q", e.VMPath)
+			continue
+		}
+		if e.HostPath != wantHost {
+			t.Errorf("VMPath %q HostPath = %q, want %q", e.VMPath, e.HostPath, wantHost)
+		}
+		if len(e.Data) == 0 {
+			t.Errorf("VMPath %q has empty Data", e.VMPath)
+		}
+	}
+}
+
+func TestScanMirrorSkipsSnippetPatternAndFamily(t *testing.T) {
+	user := t.TempDir()
+	dest := t.TempDir()
+	testutil.WriteFile(t, user, "opencode-model.json", `{"model":"x"}`) // snippet pattern
+	testutil.WriteFile(t, user, "opencode.jsonc", `{"a":1}`)            // config-family name
+	testutil.WriteFile(t, user, "tui.json", `{"theme":"dark"}`)
+
+	family := []string{"config.json", "opencode.json", "opencode.jsonc", "opencode.json5"}
+	entries, err := ScanMirror("opencode-*.json*", family, user, "", dest)
+	if err != nil {
+		t.Fatalf("ScanMirror: %v", err)
+	}
+	if len(entries) != 1 {
+		t.Fatalf("entries = %d, want 1 (only tui.json): %+v", len(entries), entries)
+	}
+	if entries[0].VMPath != filepath.Join(dest, "tui.json") {
+		t.Errorf("VMPath = %q, want %q", entries[0].VMPath, filepath.Join(dest, "tui.json"))
+	}
+}
+
+func TestScanMirrorProjectOverridesUser(t *testing.T) {
+	user := t.TempDir()
+	proj := t.TempDir()
+	dest := t.TempDir()
+	testutil.WriteFile(t, user, "tui.json", `{"theme":"user"}`)
+	testutil.WriteFile(t, proj, "tui.json", `{"theme":"project"}`)
+
+	entries, err := ScanMirror("opencode-*.json*", nil, user, proj, dest)
+	if err != nil {
+		t.Fatalf("ScanMirror: %v", err)
+	}
+	if len(entries) != 1 {
+		t.Fatalf("entries = %d, want 1", len(entries))
+	}
+	if entries[0].HostPath != filepath.Join(proj, "tui.json") {
+		t.Errorf("HostPath = %q, want project path", entries[0].HostPath)
+	}
+	if !bytes.Contains(entries[0].Data, []byte("project")) {
+		t.Errorf("Data = %q, want project content", entries[0].Data)
+	}
+}
+
+func TestScanMirrorEmptyDirs(t *testing.T) {
+	entries, err := ScanMirror("opencode-*.json*", nil, t.TempDir(), t.TempDir(), t.TempDir())
+	if err != nil {
+		t.Fatalf("ScanMirror: %v", err)
+	}
+	if len(entries) != 0 {
+		t.Errorf("entries = %+v, want none", entries)
+	}
+}

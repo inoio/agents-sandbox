@@ -6,6 +6,7 @@ package configmerge
 
 import (
 	"encoding/json"
+	"io/fs"
 	"maps"
 	"os"
 	"path"
@@ -144,4 +145,78 @@ func BuildMerged(pattern string, userDir, projectDir string) ([]byte, []string, 
 		return nil, nil, false, err
 	}
 	return append(data, '\n'), sources, true, nil
+}
+
+// MirrorEntry is one verbatim file the config-dir mirror provisions: its host
+// source path, its VM destination path, and the file content.
+type MirrorEntry struct {
+	HostPath string
+	VMPath   string
+	Data     []byte
+}
+
+// ScanMirror walks userDir then projectDir recursively and returns the verbatim
+// mirror entries: every file except top-level files whose basename matches the
+// snippet pattern (they are merged, not mirrored) and top-level config-family
+// names (reserved for the merged output). Project entries override user entries
+// with the same destination path. Entries are sorted by VMPath for
+// determinism. Unreadable files are skipped, never fatal.
+func ScanMirror(pattern string, family []string, userDir, projectDir, destDir string) ([]MirrorEntry, error) {
+	byDest := make(map[string]MirrorEntry)
+	for _, dir := range []string{userDir, projectDir} {
+		if dir == "" {
+			continue
+		}
+		if err := scanMirrorDir(pattern, family, dir, destDir, byDest); err != nil {
+			return nil, err
+		}
+	}
+	dests := make([]string, 0, len(byDest))
+	for dest := range byDest {
+		dests = append(dests, dest)
+	}
+	sort.Strings(dests)
+	entries := make([]MirrorEntry, 0, len(dests))
+	for _, dest := range dests {
+		entries = append(entries, byDest[dest])
+	}
+	return entries, nil
+}
+
+// scanMirrorDir walks dir and adds every mirrorable file to byDest, keyed by
+// its VM destination path under destDir.
+func scanMirrorDir(pattern string, family []string, dir, destDir string, byDest map[string]MirrorEntry) error {
+	return filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return nil //nolint:nilerr // skip unreadable entries; never fail provisioning
+		}
+		if d.IsDir() {
+			return nil
+		}
+		rel, relErr := filepath.Rel(dir, path)
+		if relErr != nil || rel == "." {
+			return nil //nolint:nilerr // skip entries outside the walk root
+		}
+		topLevel := !strings.Contains(rel, string(filepath.Separator))
+		if topLevel && (snippetFileMatches(pattern, d.Name()) || inFamily(family, d.Name())) {
+			return nil
+		}
+		data, readErr := os.ReadFile(path) //nolint:gosec // reads within the config dir we own
+		if readErr != nil {
+			return nil //nolint:nilerr // skip unreadable file; never fail provisioning
+		}
+		dest := filepath.Join(destDir, rel)
+		byDest[dest] = MirrorEntry{HostPath: path, VMPath: dest, Data: data}
+		return nil
+	})
+}
+
+// inFamily reports whether name is one of the reserved config-family names.
+func inFamily(family []string, name string) bool {
+	for _, f := range family {
+		if f == name {
+			return true
+		}
+	}
+	return false
 }
