@@ -7,22 +7,33 @@ func TestArtifactFor_Dispatch(t *testing.T) {
 		in     string
 		slug   string
 		digest string
+		agent  string
 	}{
-		{"opencode-sandbox-vm-opencode-sandbox-1mjusbm3wikhb0", "opencode-sandbox-1mjusbm3wikhb0", ""},
-		{"opencode-sandbox-vm-opencode-sandbox-1mjusbm3wikhb0-main", "opencode-sandbox-1mjusbm3wikhb0", "main"},
-		{"opencode-sandbox/runner-myproject:xYz1234AbCdEfGh", "myproject", "xYz1234AbCdEfGh"},
-		{"opencode-sandbox/runner-myproject:latest", "myproject", ""},
-		{"opencode-sandbox/runner-myproject", "myproject", ""},
+		{"opencode-sandbox-vm-opencode-sandbox-1mjusbm3wikhb0", "opencode-sandbox-1mjusbm3wikhb0", "", ""},
+		{"opencode-sandbox-vm-opencode-sandbox-1mjusbm3wikhb0-main", "opencode-sandbox-1mjusbm3wikhb0", "", "main"},
+		{"opencode-sandbox/runner-myproject:xYz1234AbCdEfGh", "myproject", "xYz1234AbCdEfGh", ""},
+		{"opencode-sandbox/runner-myproject:latest", "myproject", "", ""},
+		{"opencode-sandbox/runner-myproject", "myproject", "", ""},
 		{
 			"opencode-sandbox-home-myproject-aB3cDe4fGhIjKl-xYz1234AbCdEfGh",
 			"myproject-aB3cDe4fGhIjKl",
 			"xYz1234AbCdEfGh",
+			"",
 		},
 	}
 	for _, c := range cases {
 		info := ArtifactFor(c.in)
-		if info.Slug != c.slug || info.Digest != c.digest {
-			t.Errorf("%q: got (%q,%q) want (%q,%q)", c.in, info.Slug, info.Digest, c.slug, c.digest)
+		if info.Slug != c.slug || info.Digest != c.digest || info.Agent != c.agent {
+			t.Errorf(
+				"%q: got (%q,%q,%q) want (%q,%q,%q)",
+				c.in,
+				info.Slug,
+				info.Digest,
+				info.Agent,
+				c.slug,
+				c.digest,
+				c.agent,
+			)
 		}
 	}
 }
@@ -35,6 +46,7 @@ func TestArtifactFor_SinglePartSlugs(t *testing.T) {
 	}{
 		{"opencode-sandbox-task-prefill-proj-1719432000", "prefill-proj", ""},
 		{"opencode-sandbox-task-fill-proj", "fill", ""},
+		{"opencode-sandbox-task-prefill", "prefill", ""},
 	}
 	for _, c := range cases {
 		info := ArtifactFor(c.in)
@@ -118,9 +130,9 @@ func TestParseImageTag(t *testing.T) {
 
 func TestParseVMName(t *testing.T) {
 	cases := []struct {
-		in         string
-		wantSlug   string
-		wantDigest string
+		in        string
+		wantSlug  string
+		wantAgent string
 	}{
 		{"opencode-sandbox-vm-opencode-sandbox-1mjusbm3wikhb0", "opencode-sandbox-1mjusbm3wikhb0", ""},
 		{"opencode-sandbox-vm-opencode-sandbox-1mjusbm3wikhb0-main", "opencode-sandbox-1mjusbm3wikhb0", "main"},
@@ -137,8 +149,8 @@ func TestParseVMName(t *testing.T) {
 		if info.Slug != c.wantSlug {
 			t.Errorf("ParseVMName(%q) slug = %q, want %q", c.in, info.Slug, c.wantSlug)
 		}
-		if info.Digest != c.wantDigest {
-			t.Errorf("ParseVMName(%q) digest = %q, want %q", c.in, info.Digest, c.wantDigest)
+		if info.Agent != c.wantAgent {
+			t.Errorf("ParseVMName(%q) agent = %q, want %q", c.in, info.Agent, c.wantAgent)
 		}
 	}
 }
@@ -174,7 +186,7 @@ func TestParseHomeVolumeNameNewFormat(t *testing.T) {
 		in       string
 		wantSlug string
 	}{
-		{"opencode-sandbox-home-myproject-aB3cDe4fGhIjKl-20260812T123456", "myproject-aB3cDe4fGhIjKl"},
+		{"opencode-sandbox-home-myproject-1mjusbm3wikhb0-20260812T123456", "myproject-1mjusbm3wikhb0"},
 		{"opencode-sandbox-home-projectname-20260101T000000", "projectname"},
 	}
 	for _, c := range cases {
@@ -208,6 +220,80 @@ func TestArtifactFor(t *testing.T) {
 		}
 		if info.Digest != c.wantDigest {
 			t.Errorf("ArtifactFor(%q) digest = %q, want %q", c.in, info.Digest, c.wantDigest)
+		}
+	}
+}
+
+func TestParseVMNameAgent(t *testing.T) {
+	cases := []struct {
+		in        string
+		wantSlug  string
+		wantAgent string
+	}{
+		{"opencode-sandbox-vm-myproject-1mjusbm3wikhb0", "myproject-1mjusbm3wikhb0", ""},
+		{"opencode-sandbox-vm-myproject-1mjusbm3wikhb0-opencode", "myproject-1mjusbm3wikhb0", "opencode"},
+		{"opencode-sandbox-vm-myproject-1mjusbm3wikhb0-pi", "myproject-1mjusbm3wikhb0", "pi"},
+		{"opencode-sandbox-vm-projectname-main", "projectname-main", ""},
+		{"opencode-sandbox-vm-noHash", "noHash", ""},
+	}
+	for _, c := range cases {
+		info := ParseVMName(c.in)
+		if info.Slug != c.wantSlug || info.Agent != c.wantAgent {
+			t.Errorf("ParseVMName(%q) = (slug=%q agent=%q), want (slug=%q agent=%q)",
+				c.in, info.Slug, info.Agent, c.wantSlug, c.wantAgent)
+		}
+	}
+}
+
+func TestParseHomeVolumeNameAgent(t *testing.T) {
+	cases := []struct {
+		in        string
+		wantSlug  string
+		wantAgent string
+	}{
+		// New format: home-<slug>-<agent>-<ts>.
+		{
+			"opencode-sandbox-home-myproject-1mjusbm3wikhb0-opencode-20260812T123456",
+			"myproject-1mjusbm3wikhb0",
+			"opencode",
+		},
+		{"opencode-sandbox-home-myproject-1mjusbm3wikhb0-pi-20260812T123456", "myproject-1mjusbm3wikhb0", "pi"},
+		// Legacy new-format: home-<slug>-<ts> (segment before ts is the slug hash).
+		{"opencode-sandbox-home-myproject-1mjusbm3wikhb0-20260812T123456", "myproject-1mjusbm3wikhb0", ""},
+		// Legacy digest format: home-<slug>-<digest>.
+		{"opencode-sandbox-home-myproject-1mjusbm3wikhb0-xYz1234AbCdEfGh", "myproject-1mjusbm3wikhb0", ""},
+	}
+	for _, c := range cases {
+		info := ParseHomeVolumeName(c.in)
+		if info.Slug != c.wantSlug || info.Agent != c.wantAgent {
+			t.Errorf("ParseHomeVolumeName(%q) = (slug=%q agent=%q), want (slug=%q agent=%q)",
+				c.in, info.Slug, info.Agent, c.wantSlug, c.wantAgent)
+		}
+	}
+}
+
+func TestIsBase36Hash(t *testing.T) {
+	for _, ok := range []string{"1mjusbm3wikhb0", "a3b4c5d6e7f8g9"} {
+		if !isBase36Hash(ok) {
+			t.Errorf("isBase36Hash(%q) = false, want true", ok)
+		}
+	}
+	for _, bad := range []string{"", "short", "not_a_hash_1234", "1234567890123Z", "a"} {
+		if isBase36Hash(bad) {
+			t.Errorf("isBase36Hash(%q) = true, want false", bad)
+		}
+	}
+}
+
+func TestIsHomeTimestamp(t *testing.T) {
+	for _, ok := range []string{"20260812T123456", "30100101T000000"} {
+		if !isHomeTimestamp(ok) {
+			t.Errorf("isHomeTimestamp(%q) = false, want true", ok)
+		}
+	}
+	for _, bad := range []string{"", "20260812T12A456", "10260812T123456", "20260812X123456", "short"} {
+		if isHomeTimestamp(bad) {
+			t.Errorf("isHomeTimestamp(%q) = true, want false", bad)
 		}
 	}
 }

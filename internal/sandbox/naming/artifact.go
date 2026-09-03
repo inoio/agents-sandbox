@@ -67,13 +67,27 @@ func ParseImageTag(name string) ArtifactInfo {
 	return ArtifactInfo{Slug: slug, Digest: "", Agent: ""}
 }
 
-// ParseVMName extracts the slug and optional branch (digest) from a sandbox name.
-// Examples: "opencode-sandbox-vm-projectname-aB3cDe4fGhIjKl"
+// isBase36Hash reports whether s is a 14-character lowercase-alphanumeric hash
+// such as the ones embedded in project slugs.
+func isBase36Hash(s string) bool {
+	if len(s) != 14 {
+		return false
+	}
+	for _, c := range s {
+		if (c < 'a' || c > 'z') && (c < '0' || c > '9') {
+			return false
+		}
+	}
+	return true
+}
+
+// ParseVMName extracts the slug and optional agent from a sandbox name.
+// Examples: "opencode-sandbox-vm-projectname-1mjusbm3wikhb0"
 //
-//	→ slug="projectname-aB3cDe4fGhIjKl", digest=""
+//	→ slug="projectname-1mjusbm3wikhb0", agent=""
 //
-//	"opencode-sandbox-vm-projectname-aB3cDe4fGhIjKl-feature"
-//	→ slug="projectname-aB3cDe4fGhIjKl", digest="feature"
+//	"opencode-sandbox-vm-projectname-1mjusbm3wikhb0-opencode"
+//	→ slug="projectname-1mjusbm3wikhb0", agent="opencode"
 func ParseVMName(name string) ArtifactInfo {
 	if !strings.HasPrefix(name, VmPrefix) {
 		return ArtifactInfo{}
@@ -89,16 +103,17 @@ func ParseVMName(name string) ArtifactInfo {
 	if hashStart+14 < len(remainder) {
 		rest := remainder[hashStart+14:]
 		if len(rest) > 1 && rest[0] == '-' {
-			return ArtifactInfo{Slug: slug, Digest: rest[1:], Agent: ""}
+			return ArtifactInfo{Slug: slug, Digest: "", Agent: rest[1:]}
 		}
 	}
 	return ArtifactInfo{Slug: slug, Digest: "", Agent: ""}
 }
 
-// ParseHomeVolumeName extracts the slug and timestamp from a home volume name.
-// Examples: "opencode-sandbox-home-myproject-aB3cDe4fGhIjKl-20260812T123456"
+// ParseHomeVolumeName extracts the slug, optional digest, and agent from a
+// home volume name.
+// Examples: "opencode-sandbox-home-myproject-1mjusbm3wikhb0-20260812T123456"
 //
-//	→ slug="myproject-aB3cDe4fGhIjKl", digest="20260812T123456"
+//	→ slug="myproject-1mjusbm3wikhb0", agent=""
 func ParseHomeVolumeName(name string) ArtifactInfo {
 	if !strings.HasPrefix(name, HomePrefix) {
 		return ArtifactInfo{}
@@ -108,31 +123,40 @@ func ParseHomeVolumeName(name string) ArtifactInfo {
 	if len(parts) < 2 {
 		return ArtifactInfo{Slug: remainder, Digest: "", Agent: ""}
 	}
-	// Check if last part looks like a timestamp (YYYYMMDDTHHmmss = 15 chars with 'T' at pos 8)
 	last := parts[len(parts)-1]
-	if len(last) == 15 && last[8] == 'T' && last[0] >= '2' && last[0] <= '3' {
-		// Validate all other chars are digits
-		valid := true
-		for i, c := range last {
-			if i == 8 {
-				continue
-			}
-			if c < '0' || c > '9' {
-				valid = false
-				break
-			}
+	if isHomeTimestamp(last) {
+		// Timestamped format. New: <slug>-<agent>-<ts>; legacy: <slug>-<ts>.
+		agent := ""
+		slugParts := parts[:len(parts)-1]
+		if len(parts) >= 3 && !isBase36Hash(parts[len(parts)-2]) {
+			agent = parts[len(parts)-2]
+			slugParts = parts[:len(parts)-2]
 		}
-		if valid {
-			// Likely a new-format timestamp — treat as slug suffix, not digest
-			return ArtifactInfo{Slug: strings.Join(parts[:len(parts)-1], "-"), Digest: "", Agent: ""}
-		}
+		return ArtifactInfo{Slug: strings.Join(slugParts, "-"), Digest: "", Agent: agent}
 	}
-	// Legacy format — last part is a 14-char base36 digest hash
+	// Legacy digest format — last part is a 14-char base36 digest hash.
 	return ArtifactInfo{
 		Slug:   strings.Join(parts[:len(parts)-1], "-"),
-		Digest: parts[len(parts)-1],
+		Digest: last,
 		Agent:  "",
 	}
+}
+
+// isHomeTimestamp reports whether s looks like a UTC home-volume timestamp
+// (YYYYMMDDTHHmmss, 15 chars with 'T' at index 8).
+func isHomeTimestamp(s string) bool {
+	if len(s) != 15 || s[8] != 'T' || s[0] < '2' || s[0] > '3' {
+		return false
+	}
+	for i, c := range s {
+		if i == 8 {
+			continue
+		}
+		if c < '0' || c > '9' {
+			return false
+		}
+	}
+	return true
 }
 
 // ArtifactFor dispatches to the appropriate parser based on the name prefix.
