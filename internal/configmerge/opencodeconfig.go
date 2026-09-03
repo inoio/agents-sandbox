@@ -11,6 +11,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 
@@ -213,10 +214,5 @@ func scanMirrorDir(pattern string, family []string, dir, destDir string, byDest 
 
 // inFamily reports whether name is one of the reserved config-family names.
 func inFamily(family []string, name string) bool {
-	for _, f := range family {
-		if f == name {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(family, name)
 }
