@@ -45,6 +45,11 @@ command reports the bare version (e.g. `0.1.0`).
   next transition.
 - Behavior: the opencode awaiting-input event is now `permission.asked`
   (matching the current server event) instead of `permission.updated`.
+- Internal: the notify SSE watcher now reconnects forever instead of giving up after a fixed number of
+  attempts, reconnecting immediately for the first two consecutive drops then backing off exponentially
+  (1s→…→30s, with jitter), resetting the backoff after a connection survives 30s. On session end it reports a
+  bounded summary of drops via verbose logging only, after the TUI has closed, so nothing is written while the
+  attach TUI owns the terminal.
 
 ### Added
 
