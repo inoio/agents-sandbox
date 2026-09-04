@@ -96,6 +96,13 @@ command reports the bare version (e.g. `0.1.0`).
   `--agent` flag → positional `[name]` → configured agent → `opencode`; conflicting `--agent` + positional returns an
   "ambiguous" error.
 
+### Docs
+
+- Docs: restructured the documentation around two on-ramps — "Switch from your existing agent" (host-config drop-in) and
+  "Manage config in the sandbox" (declarative config) — and split the configuration reference into per-surface subpages
+  (launcher config file, secrets, networking, mounts, home provisioning & startup hooks, agent configuration,
+  notifications, self-upgrade).
+
 ### Changed
 
 - **Breaking** Image build: opencode-sandbox now builds a single runner image per project instead of
