@@ -226,7 +226,7 @@ func TestPrepareSandboxLoadsHomeYamlOnce(t *testing.T) {
 	// A project home.yaml whose host source does not exist triggers the
 	// "does not exist on the host; skipping" warning. The source is a relative
 	// path, resolved against the (empty) project config dir, so it cannot exist.
-	testutil.WriteFile(t, cp.ProjectConfigDir(), "home.yaml", "missing-file.txt: missing-file.txt\n")
+	testutil.WriteFile(t, cp.ProjectConfigDir(), "config.yaml", "home:\n  missing-file.txt: missing-file.txt\n")
 
 	// Pin the resolved opencode version so image resolution needs no network.
 	sandboximage.WithMockAgentVersion(t, "1.0.0")
@@ -334,8 +334,12 @@ func TestPrepareSandboxRunsStartupHook(t *testing.T) {
 	// A project home.yaml that both provisions a script and marks it a
 	// root-run startup hook.
 	testutil.WritePath(t, filepath.Join(cp.ProjectConfigDir(), "connect.sh"), "#!/bin/sh\nnohup echo vpn &\n")
-	testutil.WriteFile(t, cp.ProjectConfigDir(), "home.yaml",
-		".vpn/connect.sh:\n  source: connect.sh\n  hook: startup\n  root: true\n")
+	testutil.WriteFile(t, cp.ProjectConfigDir(), "config.yaml",
+		"home:\n"+
+			"  .vpn/connect.sh:\n"+
+			"    source: connect.sh\n"+
+			"    hook: startup\n"+
+			"    root: true\n")
 
 	sandboximage.WithMockAgentVersion(t, "1.0.0")
 	origUpgradeInfo := agentLatestVersion

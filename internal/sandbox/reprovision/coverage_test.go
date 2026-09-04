@@ -110,7 +110,10 @@ func TestLoadConfigFilesWithSnippet(t *testing.T) {
 func TestLoadConfigFilesWarnsMissingSource(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	cp := configpaths.Get()
-	testutil.WriteFile(t, cp.ProjectConfigDir(), "home.yaml", ".tool/x:\n  source: does-not-exist\n")
+	testutil.WriteFile(t, cp.ProjectConfigDir(), "config.yaml",
+		"home:\n"+
+			"  .tool/x:\n"+
+			"    source: does-not-exist\n")
 
 	ui := termio.NewTestMock(t)
 	cf, err := LoadConfigFilesForHost(opencodeTestAgent(), t.TempDir(), VMHomeDir, &ui, true)
@@ -131,7 +134,10 @@ func TestLoadConfigFilesBuildHomeFilesError(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	cp := configpaths.Get()
 	// parseEntry rejects a non-string source value, surfacing a BuildHomeFiles error.
-	testutil.WriteFile(t, cp.ProjectConfigDir(), "home.yaml", ".tool/x:\n  source: 123\n")
+	testutil.WriteFile(t, cp.ProjectConfigDir(), "config.yaml",
+		"home:\n"+
+			"  .tool/x:\n"+
+			"    source: 123\n")
 
 	ui := termio.NewTestMock(t)
 	if _, err := LoadConfigFilesForHost(opencodeTestAgent(), t.TempDir(), VMHomeDir, &ui, true); err == nil {
@@ -147,7 +153,11 @@ func TestLoadConfigFilesBuildHooksError(t *testing.T) {
 	// A manifest that BuildHomeFiles accepts but BuildHooks rejects via the
 	// hook validation. An unknown hook value is rejected by parseEntry, so use a
 	// hook value that is invalid for BuildHooks filtering.
-	testutil.WriteFile(t, cp.ProjectConfigDir(), "home.yaml", ".vpn/x:\n  source: s\n  hook: 123\n")
+	testutil.WriteFile(t, cp.ProjectConfigDir(), "config.yaml",
+		"home:\n"+
+			"  .vpn/x:\n"+
+			"    source: s\n"+
+			"    hook: 123\n")
 
 	ui := termio.NewTestMock(t)
 	if _, err := LoadConfigFilesForHost(opencodeTestAgent(), t.TempDir(), VMHomeDir, &ui, true); err == nil {

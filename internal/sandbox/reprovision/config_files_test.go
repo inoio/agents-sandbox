@@ -24,8 +24,12 @@ func TestLoadConfigFilesPopulatesHooks(t *testing.T) {
 	cp := configpaths.Get()
 
 	testutil.WritePath(t, filepath.Join(cp.ProjectConfigDir(), "connect.sh"), "#!/bin/sh\n")
-	testutil.WriteFile(t, cp.ProjectConfigDir(), "home.yaml",
-		".vpn/connect.sh:\n  source: connect.sh\n  hook: startup\n  root: true\n")
+	testutil.WriteFile(t, cp.ProjectConfigDir(), "config.yaml",
+		"home:\n"+
+			"  .vpn/connect.sh:\n"+
+			"    source: connect.sh\n"+
+			"    hook: startup\n"+
+			"    root: true\n")
 
 	ui := termio.NewTestMock(t)
 	a, _ := agent.Lookup("")
@@ -177,8 +181,10 @@ func TestLoadConfigFilesProvisioningPrecedence(t *testing.T) {
 	// must override it.
 	project := cp.ProjectConfigDir()
 	testutil.WriteFile(t, project, "somefile-home.json", `{"home":1}`)
-	testutil.WriteFile(t, project, "home.yaml",
-		".config/opencode/somefile.json:\n  source: somefile-home.json\n")
+	testutil.WriteFile(t, project, "config.yaml",
+		"home:\n"+
+			"  .config/opencode/somefile.json:\n"+
+			"    source: somefile-home.json\n")
 
 	ui := termio.NewTestMock(t)
 	cf, err := LoadConfigFilesForHost(a, hostHome, vmHome, &ui, true)
@@ -451,7 +457,7 @@ func TestLoadConfigFilesRejectsReservedMergedPath(t *testing.T) {
 	vmHome := t.TempDir()
 
 	a, _ := agent.Lookup("opencode")
-	testutil.WriteFile(t, cp.ProjectConfigDir(), "home.yaml", ".config/opencode/opencode.jsonc:\n")
+	testutil.WriteFile(t, cp.ProjectConfigDir(), "config.yaml", "home:\n  .config/opencode/opencode.jsonc:\n")
 
 	ui := termio.NewTestMock(t)
 	_, err := LoadConfigFilesForHost(a, t.TempDir(), vmHome, &ui, true)
@@ -471,7 +477,7 @@ func TestLoadConfigFilesPIMergedPathReserved(t *testing.T) {
 	vmHome := t.TempDir()
 
 	a, _ := agent.Lookup("pi")
-	testutil.WriteFile(t, cp.ProjectConfigDir(), "home.yaml", ".pi/agent/settings.json:\n")
+	testutil.WriteFile(t, cp.ProjectConfigDir(), "config.yaml", "home:\n  .pi/agent/settings.json:\n")
 
 	ui := termio.NewTestMock(t)
 	if _, err := LoadConfigFilesForHost(a, t.TempDir(), vmHome, &ui, true); err == nil {
@@ -487,7 +493,7 @@ func TestLoadConfigFilesNoReservedForNonConfigMerger(t *testing.T) {
 	cp := configpaths.Get()
 	vmHome := t.TempDir()
 
-	testutil.WriteFile(t, cp.ProjectConfigDir(), "home.yaml", ".config/opencode/opencode.jsonc:\n")
+	testutil.WriteFile(t, cp.ProjectConfigDir(), "config.yaml", "home:\n  .config/opencode/opencode.jsonc:\n")
 
 	ui := termio.NewTestMock(t)
 	cf, err := LoadConfigFilesForHost(plainAgent{}, t.TempDir(), vmHome, &ui, true)
@@ -642,8 +648,10 @@ func TestLoadConfigFilesMirrorHomeYAMLWins(t *testing.T) {
 	testutil.WriteFile(t, cp.ProjectAgentConfigDir(a), "tui.json", `{"theme":"mirror"}`)
 	// home.yaml maps the same VM path explicitly; it must win over the mirror.
 	testutil.WriteFile(t, cp.ProjectConfigDir(), "tui-home.json", `{"theme":"home"}`)
-	testutil.WriteFile(t, cp.ProjectConfigDir(), "home.yaml",
-		".config/opencode/tui.json:\n  source: tui-home.json\n")
+	testutil.WriteFile(t, cp.ProjectConfigDir(), "config.yaml",
+		"home:\n"+
+			"  .config/opencode/tui.json:\n"+
+			"    source: tui-home.json\n")
 
 	ui := termio.NewTestMock(t)
 	cf, err := LoadConfigFilesForHost(a, hostHome, vmHome, &ui, true)
