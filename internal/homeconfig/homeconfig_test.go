@@ -532,6 +532,56 @@ func TestShebangInterpreter(t *testing.T) {
 	}
 }
 
+func TestBuildHooksProjectWinsOnOverlap(t *testing.T) {
+	user := t.TempDir()
+	proj := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(proj, "vpn"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(user, "vpn"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	testutil.WritePath(t, filepath.Join(proj, "vpn/connect.sh"), "#!/bin/sh\necho proj\n")
+	testutil.WritePath(t, filepath.Join(user, "vpn/connect.sh"), "#!/bin/sh\necho user\n")
+	writeHomeConfig(t, user, ".vpn/connect.sh:\n  source: vpn/connect.sh\n  hook: startup\n  root: true\n")
+	writeHomeConfig(t, proj, ".vpn/connect.sh:\n  source: vpn/connect.sh\n  hook: startup\n  root: true\n")
+
+	hooks, err := BuildHooks(user, proj, vmHome, nil)
+	if err != nil {
+		t.Fatalf("BuildHooks: %v", err)
+	}
+	if len(hooks) != 1 {
+		t.Fatalf("expected exactly 1 hook (project wins), got %d: %v", len(hooks), hooks)
+	}
+	want := filepath.Join(proj, "vpn/connect.sh")
+	if hooks[0].Source != want {
+		t.Errorf("expected project source %q, got %q", want, hooks[0].Source)
+	}
+}
+
+func TestDescribeLayersProjectWinsOnOverlap(t *testing.T) {
+	user := t.TempDir()
+	proj := t.TempDir()
+	writeHomeConfig(t, user, ".config/tool/cfg.toml: ./user.toml\n")
+	writeHomeConfig(t, proj, ".config/tool/cfg.toml: ./proj.toml\n")
+
+	layers, _, err := LoadLayers([]string{user, proj})
+	if err != nil {
+		t.Fatalf("LoadLayers: %v", err)
+	}
+	pairs, err := DescribeLayers(layers, vmHome, nil)
+	if err != nil {
+		t.Fatalf("DescribeLayers: %v", err)
+	}
+	if len(pairs) != 1 {
+		t.Fatalf("expected exactly 1 pair (project wins), got %d: %v", len(pairs), pairs)
+	}
+	want := filepath.Join(proj, "proj.toml")
+	if pairs[0][1] != want {
+		t.Errorf("expected project source %q, got %q", want, pairs[0][1])
+	}
+}
+
 func TestBuildHooksCapturesInterpreter(t *testing.T) {
 	user := t.TempDir()
 	proj := t.TempDir()

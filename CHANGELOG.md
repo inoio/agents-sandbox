@@ -14,6 +14,8 @@ command reports the bare version (e.g. `0.1.0`).
   (`config.yaml`/`config.yml`/`config.json`/`config.jsonc`/`config.json5`), at the user and project level. Relative
   sources still resolve against the config file that declares them. `config home` reads the config `home:` key; the
   `home.yaml` files are no longer read.
+- Behavior: a malformed `home:` section in a launcher config file is now reported at config-load time (as `mounts` is),
+  not only when provisioning or running `config home`.
 - Behavior: VMs, home volumes, and state are now scoped per agent (`--agent`): switching agents no longer tears down
   the project sandbox, and opencode/opencode2 can serve concurrently. `stop`/`kill` accept `--agent`. Existing
   per-project VMs/home volumes are abandoned (see docs/sandboxes.md).

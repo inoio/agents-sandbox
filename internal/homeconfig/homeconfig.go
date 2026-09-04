@@ -338,15 +338,17 @@ func DescribeLayers(layers []Layer, homeBase string, reserved []string) ([][2]st
 	if err != nil {
 		return nil, err
 	}
-	var pairs [][2]string
+	merged := Manifest{}
 	for _, l := range resolved {
-		for target, e := range l.Manifest {
-			vmPath, err := ResolveVMTarget(homeBase, target, reserved)
-			if err != nil {
-				return nil, err
-			}
-			pairs = append(pairs, [2]string{vmPath, e.Source})
+		maps.Copy(merged, l.Manifest)
+	}
+	var pairs [][2]string
+	for target, e := range merged {
+		vmPath, err := ResolveVMTarget(homeBase, target, reserved)
+		if err != nil {
+			return nil, err
 		}
+		pairs = append(pairs, [2]string{vmPath, e.Source})
 	}
 	sort.Slice(pairs, func(i, j int) bool {
 		return pairs[i][0] < pairs[j][0]
@@ -431,24 +433,26 @@ func BuildHooks(userConfigDir, projectConfigDir, homeBase string, reserved []str
 	if err != nil {
 		return nil, err
 	}
-	var hooks []HookSpec
+	merged := Manifest{}
 	for _, l := range resolved {
-		for target, e := range l.Manifest {
-			if e.Hook != startupHook {
-				continue
-			}
-			if _, err := os.Stat(e.Source); err != nil {
-				continue
-			}
-			vmPath, vErr := ResolveVMTarget(homeBase, target, reserved)
-			if vErr != nil {
-				return nil, vErr
-			}
-			hooks = append(
-				hooks,
-				HookSpec{Target: vmPath, Source: e.Source, Interpreter: shebangInterpreter(e.Source), Root: e.Root},
-			)
+		maps.Copy(merged, l.Manifest)
+	}
+	var hooks []HookSpec
+	for target, e := range merged {
+		if e.Hook != startupHook {
+			continue
 		}
+		if _, err := os.Stat(e.Source); err != nil {
+			continue
+		}
+		vmPath, vErr := ResolveVMTarget(homeBase, target, reserved)
+		if vErr != nil {
+			return nil, vErr
+		}
+		hooks = append(
+			hooks,
+			HookSpec{Target: vmPath, Source: e.Source, Interpreter: shebangInterpreter(e.Source), Root: e.Root},
+		)
 	}
 	sort.Slice(hooks, func(i, j int) bool {
 		return hooks[i].Target < hooks[j].Target
