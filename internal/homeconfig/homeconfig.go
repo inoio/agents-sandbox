@@ -122,7 +122,7 @@ func ReadHomeFromConfigDir(dir string) (Manifest, bool, error) {
 // startupHook is the only supported startup-hook value.
 const startupHook = "startup"
 
-// Entry describes a single home.yaml mapping: the host source path and the
+// Entry describes a single home mapping: the host source path and the
 // optional startup-hook metadata. A plain-string value is equivalent to an
 // Entry with only Source set.
 type Entry struct {
@@ -271,7 +271,7 @@ func ResolveVMTarget(homeBase, relTarget string, reserved []string) (string, err
 	clean := filepath.Clean(relTarget)
 	if slices.Contains(reserved, clean) {
 		return "", fmt.Errorf(
-			"home manifest target %q is reserved and cannot be provisioned from home.yaml",
+			"home manifest target %q is reserved and cannot be provisioned from the config file home: key",
 			relTarget,
 		)
 	}

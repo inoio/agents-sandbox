@@ -449,7 +449,7 @@ func TestLoadConfigFilesPIMergedConfig(t *testing.T) {
 	}
 }
 
-// TestLoadConfigFilesRejectsReservedMergedPath verifies that a home.yaml target
+// TestLoadConfigFilesRejectsReservedMergedPath verifies that a home target
 // colliding with the agent's merged-config path is rejected.
 func TestLoadConfigFilesRejectsReservedMergedPath(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
@@ -470,7 +470,7 @@ func TestLoadConfigFilesRejectsReservedMergedPath(t *testing.T) {
 }
 
 // TestLoadConfigFilesPIMergedPathReserved verifies the reserved path follows the
-// agent: pi's home.yaml may not target its merged settings.json path.
+// agent: pi's home config may not target its merged settings.json path.
 func TestLoadConfigFilesPIMergedPathReserved(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	cp := configpaths.Get()
@@ -646,7 +646,7 @@ func TestLoadConfigFilesMirrorHomeYAMLWins(t *testing.T) {
 
 	a, _ := agent.Lookup("opencode")
 	testutil.WriteFile(t, cp.ProjectAgentConfigDir(a), "tui.json", `{"theme":"mirror"}`)
-	// home.yaml maps the same VM path explicitly; it must win over the mirror.
+	// home maps the same VM path explicitly; it must win over the mirror.
 	testutil.WriteFile(t, cp.ProjectConfigDir(), "tui-home.json", `{"theme":"home"}`)
 	testutil.WriteFile(t, cp.ProjectConfigDir(), "config.yaml",
 		"home:\n"+
@@ -660,7 +660,7 @@ func TestLoadConfigFilesMirrorHomeYAMLWins(t *testing.T) {
 	}
 	wantTUI := filepath.Join(vmHome, ".config", "opencode", "tui.json")
 	if _, ok := cf.Mirror[wantTUI]; ok {
-		t.Errorf("mirror path %s must not be in Mirror (home.yaml wins), got %v", wantTUI, cf.Mirror)
+		t.Errorf("mirror path %s must not be in Mirror (home wins), got %v", wantTUI, cf.Mirror)
 	}
 	if !bytes.Equal(cf.HomeFiles[wantTUI], []byte(`{"theme":"home"}`)) {
 		t.Errorf("HomeFiles[%s] = %q, want home content", wantTUI, cf.HomeFiles[wantTUI])

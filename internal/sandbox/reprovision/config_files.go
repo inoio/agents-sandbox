@@ -76,7 +76,7 @@ type ConfigFiles struct {
 	Merged      []byte                // merged agent config content
 	MergedPath  string                // VM path of the merged config ("" when no snippets)
 	Sources     []string              // host snippet paths merged into Merged
-	HomeFiles   map[string][]byte     // VM absolute path -> content (home.yaml)
+	HomeFiles   map[string][]byte     // VM absolute path -> content (from the home: key)
 	Provisioned map[string][]byte     // VM absolute path -> content (drop-in copy)
 	Mirror      map[string][]byte     // VM absolute path -> content (verbatim <agent> mirror)
 	Remove      []string              // VM absolute paths to delete before writing
@@ -93,12 +93,12 @@ func LoadConfigFiles(a agent.Agent, ui termio.UI, provisionHostConfig bool) (*Co
 
 // LoadConfigFilesForHost builds the desired VM state for the given agent with
 // explicit host and VM home directories: the merged agent config, the home
-// files (from the home.yaml manifests), and the default drop-in copy of the
+// files (from the home: key of the config files), and the default drop-in copy of the
 // agent's host config (per its provision rules, unless host config provisioning
-// is disabled). It warns about any home.yaml source that does not exist on the
+// is disabled). It warns about any home source that does not exist on the
 // host and about malformed provision rules. Home files and the merged config
 // override provisioned defaults for the same VM path. The agent's merged-config
-// path is reserved: a home.yaml target colliding with it is rejected.
+// path is reserved: a home target colliding with it is rejected.
 func LoadConfigFilesForHost(
 	a agent.Agent,
 	hostHome, vmHome string,
@@ -119,7 +119,7 @@ func LoadConfigFilesForHost(
 	}
 	userConfigDir := filepath.Dir(cp.Get().UserAgentConfigDir(a))
 	homeFiles, missing, _, err := homeconfig.BuildHomeFiles(
-		userConfigDir, // user home.yaml lives one level above the agent subdir
+		userConfigDir, // user config lives one level above the agent subdir
 		cp.Get().ProjectConfigDir(),
 		vmHome,
 		reserved,
@@ -128,10 +128,10 @@ func LoadConfigFilesForHost(
 		return nil, fmt.Errorf("build home files: %w", err)
 	}
 	for _, src := range missing {
-		ui.Warnf("home.yaml source %q does not exist on the host; skipping", src)
+		ui.Warnf("home source %q does not exist on the host; skipping", src)
 	}
 	hooks, err := homeconfig.BuildHooks(
-		userConfigDir, // user home.yaml lives one level above the agent subdir
+		userConfigDir, // user config lives one level above the agent subdir
 		cp.Get().ProjectConfigDir(),
 		vmHome,
 		reserved,
@@ -172,7 +172,7 @@ func LoadConfigFilesForHost(
 	if err != nil {
 		return nil, fmt.Errorf("build config mirror: %w", err)
 	}
-	// Precedence: home.yaml overrides the mirror, the merged config overrides
+	// Precedence: home overrides the mirror, the merged config overrides
 	// the mirror, and the mirror overrides the drop-in copy for the same path.
 	applyMirrorPrecedence(mirror, provisioned, homeFiles, mergedPath, hasSnippets)
 	// Remove stale host config so it cannot shadow the merged config: when

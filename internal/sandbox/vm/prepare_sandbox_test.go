@@ -215,7 +215,7 @@ func TestPrepareSandboxUpgradeRebuildsImage(t *testing.T) {
 }
 
 // TestPrepareSandboxLoadsHomeYamlOnce verifies that a full startup loads the
-// home.yaml manifests exactly once: a missing host source is warned about a
+// home manifests exactly once: a missing host source is warned about a
 // single time. This guards against the regression where config files were
 // loaded twice (once in decideReconfig and once in setUpSandbox), which made
 // the warning (and the underlying BuildHomeFiles computation) run twice.
@@ -223,7 +223,7 @@ func TestPrepareSandboxLoadsHomeYamlOnce(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	cp := configpaths.Get()
 
-	// A project home.yaml whose host source does not exist triggers the
+	// A project home config whose host source does not exist triggers the
 	// "does not exist on the host; skipping" warning. The source is a relative
 	// path, resolved against the (empty) project config dir, so it cannot exist.
 	testutil.WriteFile(t, cp.ProjectConfigDir(), "config.yaml", "home:\n  missing-file.txt: missing-file.txt\n")
@@ -319,19 +319,19 @@ func TestPrepareSandboxLoadsHomeYamlOnce(t *testing.T) {
 		}
 	}
 	if missingWarnings != 1 {
-		t.Errorf("expected exactly 1 'missing home.yaml source' warning, got %d (warnings: %v)",
+		t.Errorf("expected exactly 1 'missing home source' warning, got %d (warnings: %v)",
 			missingWarnings, ui.WarnCalls)
 	}
 }
 
-// TestPrepareSandboxRunsStartupHook verifies that a home.yaml entry marked
+// TestPrepareSandboxRunsStartupHook verifies that a home entry marked
 // hook: startup is executed through an interactive AttachWith as the configured
 // user (root) during startup, before the opencode daemon is ensured.
 func TestPrepareSandboxRunsStartupHook(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	cp := configpaths.Get()
 
-	// A project home.yaml that both provisions a script and marks it a
+	// A project home config that both provisions a script and marks it a
 	// root-run startup hook.
 	testutil.WritePath(t, filepath.Join(cp.ProjectConfigDir(), "connect.sh"), "#!/bin/sh\nnohup echo vpn &\n")
 	testutil.WriteFile(t, cp.ProjectConfigDir(), "config.yaml",

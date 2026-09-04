@@ -105,7 +105,7 @@ func TestLoadConfigFilesWithSnippet(t *testing.T) {
 	}
 }
 
-// TestLoadConfigFilesWarnsMissingSource verifies that a home.yaml referencing a
+// TestLoadConfigFilesWarnsMissingSource verifies that a home entry referencing a
 // non-existent source produces a warning.
 func TestLoadConfigFilesWarnsMissingSource(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
@@ -124,12 +124,12 @@ func TestLoadConfigFilesWarnsMissingSource(t *testing.T) {
 		t.Errorf("expected no home files for missing source, got %v", cf.HomeFiles)
 	}
 	if len(ui.WarnCalls) == 0 {
-		t.Error("expected a warning for the missing home.yaml source")
+		t.Error("expected a warning for the missing home source")
 	}
 }
 
 // TestLoadConfigFilesBuildHomeFilesError verifies the error path when the
-// home.yaml manifest is malformed.
+// home config is malformed.
 func TestLoadConfigFilesBuildHomeFilesError(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	cp := configpaths.Get()
@@ -141,7 +141,7 @@ func TestLoadConfigFilesBuildHomeFilesError(t *testing.T) {
 
 	ui := termio.NewTestMock(t)
 	if _, err := LoadConfigFilesForHost(opencodeTestAgent(), t.TempDir(), VMHomeDir, &ui, true); err == nil {
-		t.Error("expected an error for a malformed home.yaml source type")
+		t.Error("expected an error for a malformed home source type")
 	}
 }
 
