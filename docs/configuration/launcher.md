@@ -24,9 +24,9 @@ the [XDG base directory spec](https://specifications.freedesktop.org/basedir-spe
 | `~/.config/opencode-sandbox/env`                           | Environment variables forwarded to every sandbox                                      |
 | `~/.config/opencode-sandbox/env.secret`                    | Secret environment variables (legacy, see [Secrets]({% link configuration/secrets.md %}))                        |
 | `~/.config/opencode-sandbox/env.secret.yaml`               | Secret environment variables (YAML/JSON, see [Secrets]({% link configuration/secrets.md %}))                     |
-| `~/.config/opencode-sandbox/config.(y[a]ml\|json[(c\|5)])` | Configuration file                                                                    |
+| `~/.config/opencode-sandbox/config.(y[a]ml\|json[(c\|5)])` | Configuration file (incl. the `home:` key; see [Home provisioning & startup hooks]({% link configuration/home-provisioning.md %}))                                                                    |
 | `~/.config/opencode-sandbox/<agent>/*`                    | Agent config snippets, one subdir per agent (e.g. `opencode/`; see [Agent configuration]({% link configuration/agent.md %})) |
-| `~/.config/opencode-sandbox/home.yaml`                     | User home-file mappings (see [Home provisioning & startup hooks]({% link configuration/home-provisioning.md %}))                               |
+| `~/.config/opencode-sandbox/home.yaml`                     | User home-file mappings (legacy; see [Home provisioning & startup hooks]({% link configuration/home-provisioning.md %}))                               |
 | `~/.config/opencode-sandbox/<slug>/config.(y[a]ml\|json[(c\|5)])` | Per-project (per-slug) configuration file (see [Per-slug configuration](#per-slug-configuration)) |
 
 `env` uses `KEY=value` format. `env.secret` uses `KEY=value@host` (see [Secrets]({% link configuration/secrets.md %})).
@@ -44,9 +44,9 @@ Place files under `.opencode-sandbox/` in your project directory. These override
 | `.opencode-sandbox/env`                           | Project-specific environment variables                                                            |
 | `.opencode-sandbox/env.secret`                    | Project-specific secrets (legacy)                                                                 |
 | `.opencode-sandbox/env.secret.yaml`               | Project-specific secrets (YAML/JSON)                                                              |
-| `.opencode-sandbox/config.(y[a]ml\|json[(c\|5)])` | Project-specific configuration file                                                               |            
+| `.opencode-sandbox/config.(y[a]ml\|json[(c\|5)])` | Project-specific configuration file (incl. the `home:` key; see [Home provisioning & startup hooks]({% link configuration/home-provisioning.md %}))                                                               |            
 | `.opencode-sandbox/<agent>/*`                    | Project-specific agent config snippets (see [Agent configuration]({% link configuration/agent.md %}))          |
-| `.opencode-sandbox/home.yaml`                     | Project-specific home-file mappings (see [Home provisioning & startup hooks]({% link configuration/home-provisioning.md %}))                               |
+| `.opencode-sandbox/home.yaml`                     | Project-specific home-file mappings (legacy; see [Home provisioning & startup hooks]({% link configuration/home-provisioning.md %}))                               |
 
 ### Custom base images
 
@@ -172,7 +172,7 @@ When **no other client** is attached, config changes apply immediately.
 
 Opencode/home config files are provisioned into the VM on every startup, so a change is picked up by the next daemon start
 even when the current daemon is kept running (see below). Only the `opencode config` change prompts for a daemon restart;
-`home.yaml` file changes are applied on the next startup without any prompt, since they do not require the daemon to restart.
+`home:` file changes are applied on the next startup without any prompt, since they do not require the daemon to restart.
 
 #### Parallel Sessions
 
