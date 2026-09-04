@@ -229,7 +229,7 @@ func TestBuildHomeFilesNoManifest(t *testing.T) {
 func TestBuildHomeFilesRejectsInvalidUserManifest(t *testing.T) {
 	user := t.TempDir()
 	proj := t.TempDir()
-	writeHomeYAML(t, user, ".gitconfig:\n  source: [\n")
+	writeHomeConfig(t, user, ".gitconfig:\n  source: [\n")
 	if _, _, _, err := BuildHomeFiles(user, proj, vmHome, nil); err == nil {
 		t.Fatal("expected an error for an invalid user manifest")
 	}
@@ -238,7 +238,7 @@ func TestBuildHomeFilesRejectsInvalidUserManifest(t *testing.T) {
 func TestDescribeManifestRejectsInvalidUserManifest(t *testing.T) {
 	user := t.TempDir()
 	proj := t.TempDir()
-	writeHomeYAML(t, user, ".gitconfig:\n  source: [\n")
+	writeHomeConfig(t, user, ".gitconfig:\n  source: [\n")
 	if _, _, err := DescribeManifest(user, proj, vmHome, nil); err == nil {
 		t.Fatal("expected an error for an invalid user manifest")
 	}
@@ -247,7 +247,7 @@ func TestDescribeManifestRejectsInvalidUserManifest(t *testing.T) {
 func TestBuildHooksRejectsInvalidUserManifest(t *testing.T) {
 	user := t.TempDir()
 	proj := t.TempDir()
-	writeHomeYAML(t, user, ".gitconfig:\n  source: [\n")
+	writeHomeConfig(t, user, ".gitconfig:\n  source: [\n")
 	if _, err := BuildHooks(user, proj, vmHome, nil); err == nil {
 		t.Fatal("expected an error for an invalid user manifest")
 	}
@@ -257,7 +257,7 @@ func TestBuildHooksRejectsReservedTarget(t *testing.T) {
 	user := t.TempDir()
 	proj := t.TempDir()
 	testutil.WritePath(t, filepath.Join(proj, "s.sh"), "#!/bin/sh\n")
-	writeHomeYAML(t, proj, ".vpn/connect.sh:\n  source: s.sh\n  hook: startup\n")
+	writeHomeConfig(t, proj, ".vpn/connect.sh:\n  source: s.sh\n  hook: startup\n")
 	if _, err := BuildHooks(user, proj, vmHome, []string{".vpn/connect.sh"}); err == nil {
 		t.Fatal("expected an error for a reserved hook target")
 	}
@@ -293,7 +293,7 @@ func TestBuildHomeFilesReadsUserManifest(t *testing.T) {
 	proj := t.TempDir()
 	t.Setenv("HOME", user)
 	testutil.WriteFile(t, user, ".gitconfig", "user=x\n")
-	writeHomeYAML(t, user, ".gitconfig:\n")
+	writeHomeConfig(t, user, ".gitconfig:\n")
 	files, missing, has, err := BuildHomeFiles(user, proj, vmHome, nil)
 	if err != nil {
 		t.Fatalf("BuildHomeFiles: %v", err)

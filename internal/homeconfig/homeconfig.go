@@ -1,7 +1,7 @@
 // Package homeconfig provisions arbitrary user files into a sandbox home
-// directory from an optional YAML manifest (home.yaml) at the user and project
-// level. It supports the project's home-file provisioning without embedding
-// any vendor-specific configuration.
+// directory from an optional home: key in the user and project config files.
+// It supports the project's home-file provisioning without embedding any
+// vendor-specific configuration.
 package homeconfig
 
 import (
@@ -20,9 +20,6 @@ import (
 
 	"github.com/inoio/opencode-sandbox/internal/yamlfmt"
 )
-
-// manifestName is the fixed manifest filename.
-const manifestName = "home.yaml"
 
 // supportedExts are the config-file extensions, tried in order. The order MUST
 // match internal/viperconfig's supportedExts so both packages select the same
@@ -137,32 +134,6 @@ type Entry struct {
 // Manifest maps a VM-home-relative target path to its Entry.
 type Manifest map[string]Entry
 
-// LoadManifest parses a home.yaml manifest into a Manifest. Each value may be
-// either a plain source string (as before) or a mapping with optional
-// source/hook/user fields. Unknown hook values are rejected.
-func LoadManifest(path string) (Manifest, error) {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return nil, err
-	}
-	var raw map[string]any
-	if err := yaml.Unmarshal(data, &raw); err != nil {
-		return nil, yamlfmt.WrapErr(path, err)
-	}
-	if raw == nil {
-		raw = map[string]any{}
-	}
-	m := Manifest{}
-	for target, v := range raw {
-		e, err := parseEntry(v)
-		if err != nil {
-			return nil, fmt.Errorf("parse %s entry %q: %w", path, target, err)
-		}
-		m[target] = e
-	}
-	return m, nil
-}
-
 func parseEntry(v any) (Entry, error) {
 	switch val := v.(type) {
 	case nil:
@@ -211,23 +182,48 @@ func MergeManifests(layers ...Manifest) Manifest {
 	return merged
 }
 
-// resolveManifestSources returns each layer's sources resolved against that layer's own
-// manifest dir, for the dirs passed. The returned resolved layers keep project-wins-per-key when merged.
-func resolveManifestSources(manifests []Manifest, dirs []string) ([]Manifest, error) {
-	resolved := make([]Manifest, 0, len(manifests))
-	for i, layer := range manifests {
-		out := make(Manifest, len(layer))
-		for target, e := range layer {
-			src, err := ResolveManifestSource(target, e.Source, dirs[i])
+// Layer pairs a home manifest with the config dir its relative sources resolve
+// against.
+type Layer struct {
+	Manifest Manifest
+	Dir      string
+}
+
+// LoadLayers reads the home manifest from each config dir's config file, one
+// Layer per dir in order (later layers override earlier ones per target). The
+// boolean reports whether any config file declared a home key.
+func LoadLayers(dirs []string) ([]Layer, bool, error) {
+	layers := make([]Layer, 0, len(dirs))
+	has := false
+	for _, dir := range dirs {
+		m, present, err := ReadHomeFromConfigDir(dir)
+		if err != nil {
+			return nil, false, err
+		}
+		if present {
+			has = true
+		}
+		layers = append(layers, Layer{Manifest: m, Dir: dir})
+	}
+	return layers, has, nil
+}
+
+// resolveLayerSources resolves each layer's sources against that layer's own
+// config dir.
+func resolveLayerSources(layers []Layer) ([]Layer, error) {
+	for i := range layers {
+		out := make(Manifest, len(layers[i].Manifest))
+		for target, e := range layers[i].Manifest {
+			src, err := ResolveManifestSource(target, e.Source, layers[i].Dir)
 			if err != nil {
 				return nil, err
 			}
 			e.Source = src
 			out[target] = e
 		}
-		resolved = append(resolved, out)
+		layers[i].Manifest = out
 	}
-	return resolved, nil
+	return layers, nil
 }
 
 // ResolveManifestSource resolves a manifest source value to a host path.
@@ -287,28 +283,7 @@ func ResolveVMTarget(homeBase, relTarget string, reserved []string) (string, err
 	return abs, nil
 }
 
-// loadLayers reads each present manifest; an absent manifest yields an empty
-// layer. The boolean reports whether at least one manifest file exists.
-func loadLayers(userConfigDir, projectConfigDir string) ([]Manifest, bool, error) {
-	var layers []Manifest
-	has := false
-	for _, dir := range []string{userConfigDir, projectConfigDir} {
-		layer := Manifest{}
-		path := filepath.Join(dir, manifestName)
-		if _, err := os.Stat(path); err == nil {
-			has = true
-			m, err := LoadManifest(path)
-			if err != nil {
-				return nil, false, err
-			}
-			layer = m
-		}
-		layers = append(layers, layer)
-	}
-	return layers, has, nil
-}
-
-// BuildHomeFiles loads the user and project home.yaml manifests, merges them
+// BuildHomeFiles loads the user and project config files' home manifests, merges
 // (project wins per key), resolves each entry, and reads the host source files.
 // It returns the desired home files keyed by absolute VM path, the resolved
 // source paths that could not be read (missing files), and whether any manifest
@@ -320,15 +295,18 @@ func BuildHomeFiles(
 	userConfigDir, projectConfigDir, homeBase string,
 	reserved []string,
 ) (map[string][]byte, []string, bool, error) {
-	layers, has, err := loadLayers(userConfigDir, projectConfigDir)
+	layers, has, err := LoadLayers([]string{userConfigDir, projectConfigDir})
 	if err != nil {
 		return nil, nil, false, err
 	}
-	resolved, err := resolveManifestSources(layers, []string{userConfigDir, projectConfigDir})
+	resolved, err := resolveLayerSources(layers)
 	if err != nil {
 		return nil, nil, false, err
 	}
-	merged := MergeManifests(resolved...)
+	merged := Manifest{}
+	for _, l := range resolved {
+		maps.Copy(merged, l.Manifest)
+	}
 	if len(merged) == 0 {
 		return map[string][]byte{}, nil, has, nil
 	}
@@ -349,32 +327,39 @@ func BuildHomeFiles(
 	return files, missing, has, nil
 }
 
-// DescribeManifest returns the merged home.yaml manifest as resolved
-// (VM target path, host source path) pairs sorted by VM path, independent of
-// whether the source files exist. The boolean reports whether at least one
-// manifest file exists. The reserved list holds home-relative VM paths the
-// manifest must not target (e.g., the agent's merged config path); when empty,
-// no target is reserved. It is used by `config home` to list all mappings.
-func DescribeManifest(userConfigDir, projectConfigDir, homeBase string, reserved []string) ([][2]string, bool, error) {
-	layers, has, err := loadLayers(userConfigDir, projectConfigDir)
+// DescribeLayers resolves each layer's sources and returns the (VM target,
+// host source) pairs sorted by VM target, independent of whether the source
+// files exist.
+func DescribeLayers(layers []Layer, homeBase string, reserved []string) ([][2]string, error) {
+	resolved, err := resolveLayerSources(layers)
 	if err != nil {
-		return nil, false, err
-	}
-	resolved, err := resolveManifestSources(layers, []string{userConfigDir, projectConfigDir})
-	if err != nil {
-		return nil, false, err
+		return nil, err
 	}
 	var pairs [][2]string
-	for target, e := range MergeManifests(resolved...) {
-		vmPath, err := ResolveVMTarget(homeBase, target, reserved)
-		if err != nil {
-			return nil, false, err
+	for _, l := range resolved {
+		for target, e := range l.Manifest {
+			vmPath, err := ResolveVMTarget(homeBase, target, reserved)
+			if err != nil {
+				return nil, err
+			}
+			pairs = append(pairs, [2]string{vmPath, e.Source})
 		}
-		pairs = append(pairs, [2]string{vmPath, e.Source})
 	}
 	sort.Slice(pairs, func(i, j int) bool {
 		return pairs[i][0] < pairs[j][0]
 	})
+	return pairs, nil
+}
+
+func DescribeManifest(userConfigDir, projectConfigDir, homeBase string, reserved []string) ([][2]string, bool, error) {
+	layers, has, err := LoadLayers([]string{userConfigDir, projectConfigDir})
+	if err != nil {
+		return nil, false, err
+	}
+	pairs, err := DescribeLayers(layers, homeBase, reserved)
+	if err != nil {
+		return nil, false, err
+	}
 	return pairs, has, nil
 }
 
@@ -435,30 +420,32 @@ func shebangInterpreter(path string) string {
 // reserved list holds home-relative VM paths the manifest must not target (e.g.,
 // the agent's merged config path); when empty, no target is reserved.
 func BuildHooks(userConfigDir, projectConfigDir, homeBase string, reserved []string) ([]HookSpec, error) {
-	layers, _, err := loadLayers(userConfigDir, projectConfigDir)
+	layers, _, err := LoadLayers([]string{userConfigDir, projectConfigDir})
 	if err != nil {
 		return nil, err
 	}
-	resolved, err := resolveManifestSources(layers, []string{userConfigDir, projectConfigDir})
+	resolved, err := resolveLayerSources(layers)
 	if err != nil {
 		return nil, err
 	}
 	var hooks []HookSpec
-	for target, e := range MergeManifests(resolved...) {
-		if e.Hook != startupHook {
-			continue
+	for _, l := range resolved {
+		for target, e := range l.Manifest {
+			if e.Hook != startupHook {
+				continue
+			}
+			if _, err := os.Stat(e.Source); err != nil {
+				continue
+			}
+			vmPath, vErr := ResolveVMTarget(homeBase, target, reserved)
+			if vErr != nil {
+				return nil, vErr
+			}
+			hooks = append(
+				hooks,
+				HookSpec{Target: vmPath, Source: e.Source, Interpreter: shebangInterpreter(e.Source), Root: e.Root},
+			)
 		}
-		if _, err := os.Stat(e.Source); err != nil {
-			continue
-		}
-		vmPath, vErr := ResolveVMTarget(homeBase, target, reserved)
-		if vErr != nil {
-			return nil, vErr
-		}
-		hooks = append(
-			hooks,
-			HookSpec{Target: vmPath, Source: e.Source, Interpreter: shebangInterpreter(e.Source), Root: e.Root},
-		)
 	}
 	sort.Slice(hooks, func(i, j int) bool {
 		return hooks[i].Target < hooks[j].Target

@@ -12,11 +12,6 @@ import (
 
 const vmHome = "/home/dev"
 
-func writeHomeYAML(t *testing.T, dir, body string) {
-	t.Helper()
-	testutil.WriteFile(t, dir, "home.yaml", body)
-}
-
 // testData wraps an inner home body under a top-level home: key and writes it
 // as the user config file.
 func writeHomeConfig(t *testing.T, dir, body string) {
@@ -254,7 +249,7 @@ func TestBuildHomeFilesSkipsMissingSource(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	user := t.TempDir()
 	proj := t.TempDir()
-	writeHomeYAML(t, user, ".gitconfig:\n")
+	writeHomeConfig(t, user, ".gitconfig:\n")
 	files, missing, _, err := BuildHomeFiles(user, proj, vmHome, nil)
 	if err != nil {
 		t.Fatalf("BuildHomeFiles: %v", err)
@@ -274,7 +269,7 @@ func TestBuildHomeFilesSkipsMissingSource(t *testing.T) {
 func TestBuildHomeFilesRejectsReservedTarget(t *testing.T) {
 	user := t.TempDir()
 	proj := t.TempDir()
-	writeHomeYAML(t, proj, ".config/opencode/opencode.jsonc:\n")
+	writeHomeConfig(t, proj, ".config/opencode/opencode.jsonc:\n")
 	if _, _, _, err := BuildHomeFiles(user, proj, vmHome, []string{".config/opencode/opencode.jsonc"}); err == nil {
 		t.Error("expected an error for a reserved home target")
 	}
@@ -283,41 +278,62 @@ func TestBuildHomeFilesRejectsReservedTarget(t *testing.T) {
 func TestDescribeManifestRejectsReservedTarget(t *testing.T) {
 	user := t.TempDir()
 	proj := t.TempDir()
-	writeHomeYAML(t, proj, ".pi/agent/settings.json:\n")
+	writeHomeConfig(t, proj, ".pi/agent/settings.json:\n")
 	if _, _, err := DescribeManifest(user, proj, vmHome, []string{".pi/agent/settings.json"}); err == nil {
 		t.Error("expected an error for a reserved home target")
 	}
 }
 
-func TestDescribeManifestListsAllMappings(t *testing.T) {
+func TestLoadLayersPerDirResolution(t *testing.T) {
 	user := t.TempDir()
 	proj := t.TempDir()
-	writeHomeYAML(t, user, ".gitconfig:\n")
-	writeHomeYAML(t, proj, ".config/tool/cfg.toml: ./tool/cfg.toml\n")
-	// cfg.toml need NOT exist for DescribeManifest.
-	pairs, has, err := DescribeManifest(user, proj, vmHome, nil)
+	writeHomeConfig(t, user, ".gitconfig:\n")
+	writeHomeConfig(t, proj, ".config/tool/cfg.toml: ./tool/cfg.toml\n")
+
+	layers, has, err := LoadLayers([]string{user, proj})
 	if err != nil {
-		t.Fatalf("DescribeManifest: %v", err)
+		t.Fatalf("LoadLayers: %v", err)
 	}
 	if !has {
 		t.Fatal("expected has=true")
 	}
-	got := map[string]string{}
+	if len(layers) != 2 {
+		t.Fatalf("expected 2 layers, got %d", len(layers))
+	}
+	if layers[0].Dir != user || layers[1].Dir != proj {
+		t.Errorf("layer dirs = %q, %q; want %q, %q", layers[0].Dir, layers[1].Dir, user, proj)
+	}
+}
+
+func TestDescribeLayersResolvesProjectRelativeAgainstProjectDir(t *testing.T) {
+	user := t.TempDir()
+	proj := t.TempDir()
+	writeHomeConfig(t, proj, ".config/tool/cfg.toml: ./tool/cfg.toml\n")
+
+	layers, _, err := LoadLayers([]string{user, proj})
+	if err != nil {
+		t.Fatalf("LoadLayers: %v", err)
+	}
+	pairs, err := DescribeLayers(layers, vmHome, nil)
+	if err != nil {
+		t.Fatalf("DescribeLayers: %v", err)
+	}
+	want := filepath.Join(proj, "tool/cfg.toml")
+	var src string
 	for _, p := range pairs {
-		got[p[0]] = p[1]
+		if p[0] == "/home/dev/.config/tool/cfg.toml" {
+			src = p[1]
+		}
 	}
-	if _, ok := got["/home/dev/.gitconfig"]; !ok {
-		t.Error("expected user .gitconfig mapping")
-	}
-	if _, ok := got["/home/dev/.config/tool/cfg.toml"]; !ok {
-		t.Error("expected project cfg.toml mapping")
+	if src != want {
+		t.Errorf("got source %q, want %q", src, want)
 	}
 }
 
 func TestDescribeManifestSortsPairsByVMPath(t *testing.T) {
 	user := t.TempDir()
 	proj := t.TempDir()
-	writeHomeYAML(t, proj, ""+
+	writeHomeConfig(t, proj, ""+
 		".zshrc:\n"+
 		".a:\n"+
 		".M:\n"+
@@ -362,7 +378,7 @@ func TestDescribeManifestNoManifestHasFalse(t *testing.T) {
 func TestDescribeManifestEmptyManifestHasTrue(t *testing.T) {
 	user := t.TempDir()
 	proj := t.TempDir()
-	writeHomeYAML(t, user, "")
+	writeHomeConfig(t, user, "")
 	pairs, has, err := DescribeManifest(user, proj, vmHome, nil)
 	if err != nil {
 		t.Fatalf("DescribeManifest: %v", err)
@@ -382,7 +398,7 @@ func TestBuildHomeFilesReadsBytesByVMPath(t *testing.T) {
 	// project manifest with an absolute source
 	src := filepath.Join(proj, "cfg.toml")
 	testutil.WritePath(t, src, "k=v\n")
-	writeHomeYAML(t, proj, ".config/tool/cfg.toml: "+src+"\n")
+	writeHomeConfig(t, proj, ".config/tool/cfg.toml: "+src+"\n")
 
 	files, _, has, err := BuildHomeFiles(user, proj, vmHome, nil)
 	if err != nil {
@@ -408,7 +424,7 @@ func TestBuildHomeFilesReadsProjectRelativeSourceFromProjectDir(t *testing.T) {
 		t.Fatal(err)
 	}
 	testutil.WriteFile(t, proj, "tool/cfg.toml", "k=v\n")
-	writeHomeYAML(t, proj, ".config/tool/cfg.toml: ./tool/cfg.toml\n")
+	writeHomeConfig(t, proj, ".config/tool/cfg.toml: ./tool/cfg.toml\n")
 
 	files, _, has, err := BuildHomeFiles(user, proj, vmHome, nil)
 	if err != nil {
@@ -428,7 +444,7 @@ func TestBuildHomeFilesReadsProjectRelativeSourceFromProjectDir(t *testing.T) {
 func TestDescribeManifestResolvesProjectRelativeSourceAgainstProjectDir(t *testing.T) {
 	user := t.TempDir()
 	proj := t.TempDir()
-	writeHomeYAML(t, proj, ".config/tool/cfg.toml: ./tool/cfg.toml\n")
+	writeHomeConfig(t, proj, ".config/tool/cfg.toml: ./tool/cfg.toml\n")
 
 	pairs, _, err := DescribeManifest(user, proj, vmHome, nil)
 	if err != nil {
@@ -455,7 +471,7 @@ func TestBuildHooksFiltersAndSorts(t *testing.T) {
 		t.Fatal(err)
 	}
 	testutil.WritePath(t, filepath.Join(proj, "vpn/connect.sh"), "#!/bin/sh\necho hi\n")
-	writeHomeYAML(t, proj, ""+
+	writeHomeConfig(t, proj, ""+
 		".vpn/connect.sh:\n  source: vpn/connect.sh\n  hook: startup\n  root: true\n"+
 		".zshrc:\n")
 
@@ -480,7 +496,7 @@ func TestBuildHooksSkipsMissingSource(t *testing.T) {
 	user := t.TempDir()
 	proj := t.TempDir()
 	// hook entry whose source file does not exist on the host
-	writeHomeYAML(t, proj, ".vpn/connect.sh:\n  source: vpn/connect.sh\n  hook: startup\n")
+	writeHomeConfig(t, proj, ".vpn/connect.sh:\n  source: vpn/connect.sh\n  hook: startup\n")
 	hooks, err := BuildHooks(user, proj, vmHome, nil)
 	if err != nil {
 		t.Fatalf("BuildHooks: %v", err)
@@ -520,7 +536,7 @@ func TestBuildHooksCapturesInterpreter(t *testing.T) {
 	user := t.TempDir()
 	proj := t.TempDir()
 	testutil.WritePath(t, filepath.Join(proj, "connect.sh"), "#!/bin/bash\n")
-	writeHomeYAML(t, proj, ".vpn/connect.sh:\n  source: connect.sh\n  hook: startup\n")
+	writeHomeConfig(t, proj, ".vpn/connect.sh:\n  source: connect.sh\n  hook: startup\n")
 	hooks, err := BuildHooks(user, proj, vmHome, nil)
 	if err != nil {
 		t.Fatalf("BuildHooks: %v", err)
@@ -535,7 +551,7 @@ func TestBuildHooksSortsByTarget(t *testing.T) {
 	proj := t.TempDir()
 	testutil.WritePath(t, filepath.Join(proj, "a.sh"), "#!/bin/sh\n")
 	testutil.WritePath(t, filepath.Join(proj, "b.sh"), "#!/bin/sh\n")
-	writeHomeYAML(t, proj, ""+
+	writeHomeConfig(t, proj, ""+
 		".b:\n  source: b.sh\n  hook: startup\n"+
 		".a:\n  source: a.sh\n  hook: startup\n")
 	hooks, err := BuildHooks(user, proj, vmHome, nil)
