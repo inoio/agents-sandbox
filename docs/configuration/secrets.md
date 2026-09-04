@@ -75,7 +75,7 @@ with a warning.
 
 ## Accessing secrets inside the VM
 
-Once set as a secret, the variable is available like any environment variable:
+Once set as a secret, the variable is available like any environment variable, but its value is a placeholder:
 
 ```shell
 # Inside the sandbox (shell or opencode)

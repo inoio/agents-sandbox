@@ -6,9 +6,8 @@ nav_order: 40
 
 # Manage config in the sandbox
 
-Own the sandbox's configuration declaratively — self-contained, reproducible, and with secrets
-that are never written into the VM. This is the path whether you're starting fresh or migrating
-off your host-config fallback.
+Own the sandbox's configuration declaratively: Self-contained, reproducible, and with secrets
+that are never written into the VM. Extends on **[Switch from your existing agent]({% link switch.md %})**.
 
 > **New to coding agents?** Set up your agent (opencode, pi, or claude-code) on your host first,
 > then come back here.
@@ -50,22 +49,18 @@ ANTHROPIC_API_KEY:
   host: provider.example
 ```
 
-Then reference it in your config with `{env:ANTHROPIC_API_KEY}` instead of the literal key.
+Then reference it in your config with `{env:ANTHROPIC_API_KEY}` (opencode) instead of the literal key.
 
 ## 4. Provision files & hooks
 
-Map dotfiles and startup scripts into the VM home — see
-[Home provisioning & startup hooks]({% link configuration/home-provisioning.md %}).
-
-## 5. Harden (optional)
-
-- [Networking]({% link configuration/networking.md %}) — egress profiles and allow/deny lists.
-- [Host mounts]({% link configuration/mounts.md %}) — additional host directories.
-- [Worktree Sessions]({% link branch-sessions.md %}) — isolated sessions.
+Map dotfiles and startup hooks into the VM home — see
 
 ## Next steps
 
-- [Launcher config file]({% link configuration/launcher.md %})
-- [Secrets]({% link configuration/secrets.md %})
-- [Home provisioning & startup hooks]({% link configuration/home-provisioning.md %})
-- [Agent configuration]({% link configuration/agent.md %})
+- [Home provisioning & startup hooks]({% link configuration/home-provisioning.md %}) — Map dotfiles and startup hooks into the VM home.
+- [Host mounts]({% link configuration/mounts.md %}) — additional host directories.
+- [Networking]({% link configuration/networking.md %}) — egress profiles and allow/deny lists.
+- [Worktree Sessions]({% link branch-sessions.md %}) — isolated sessions.
+- [Configuration files & Environment variables]({% link configuration/launcher.md %})
+- [Secrets]({% link configuration/secrets.md %}) — learn all about secret management.
+- [Agent configuration]({% link configuration/agent.md %}) - learn all about agent configuration.

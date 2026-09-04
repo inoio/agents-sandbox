@@ -1,11 +1,11 @@
 ---
-title: Launcher config file
+title: Configuration files & Environment variables
 layout: default
 parent: Configuration
 nav_order: 10
 ---
 
-# Launcher config file
+# Configuration files & Environment variables
 
 opencode-sandbox supports configuration at two levels: user-level defaults and project-level overrides. Both can set CLI
 flags and environment variables. This page covers where config lives, the config-file fields, and how values are resolved.

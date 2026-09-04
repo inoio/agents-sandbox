@@ -9,7 +9,7 @@ nav_order: 50
 
 In addition to the agent config, the `home:` key provisions arbitrary files into the VM home directory (`/home/dev`). It
 is an optional YAML map from a **VM-home-relative target path** to a **host source string**, nested under the `home:` key
-in the launcher config file:
+in a config file:
 
 | Config location                        | Purpose                          |
 |----------------------------------------|----------------------------------|

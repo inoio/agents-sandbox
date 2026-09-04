@@ -8,9 +8,9 @@ has_toc: false
 
 # Configuration
 
-opencode-sandbox is configured through the launcher config file and a set of per-surface files.
+opencode-sandbox is configurable through configuration files and environment variables.
 
-- [Launcher config file]({% link configuration/launcher.md %}) — config locations, fields, env vars, precedence
+- [Configuration files & Environment variables]({% link configuration/launcher.md %}) — config locations, fields, env vars, precedence
 - [Secrets]({% link configuration/secrets.md %})
 - [Networking]({% link configuration/networking.md %})
 - [Host mounts]({% link configuration/mounts.md %})

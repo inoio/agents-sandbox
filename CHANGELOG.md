@@ -106,7 +106,7 @@ command reports the bare version (e.g. `0.1.0`).
 
 - Docs: restructured the documentation around two on-ramps — "Switch from your existing agent" (host-config drop-in) and
   "Manage config in the sandbox" (declarative config) — and split the configuration reference into per-surface subpages
-  (launcher config file, secrets, networking, mounts, home provisioning & startup hooks, agent configuration,
+  (Configuration files & Environment variables, secrets, networking, mounts, home provisioning & startup hooks, agent configuration,
   notifications, self-upgrade).
 
 ### Changed
