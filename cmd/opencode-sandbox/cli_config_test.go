@@ -54,7 +54,7 @@ func TestConfigAgentPrintsMergedAndHostFiles(t *testing.T) {
 
 func TestConfigHomeListsMappings(t *testing.T) {
 	cmd, ui := setupCommandFixtures(t, "config", "home")
-	testutil.WriteFile(t, configpaths.Get().UserConfigDir(), "home.yaml", ".gitconfig:\n")
+	testutil.WriteFile(t, configpaths.Get().UserConfigDir(), "config.yaml", "home:\n  .gitconfig:\n")
 
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("config home: %v", err)
@@ -67,13 +67,16 @@ func TestConfigHomeListsMappings(t *testing.T) {
 
 func TestConfigHomeRejectsReservedMergedConfigTarget(t *testing.T) {
 	cmd, _ := setupCommandFixtures(t, "config", "home")
-	// The default agent (opencode) reserves its merged-config path, so a
-	// home.yaml target colliding with it is rejected.
-	testutil.WriteFile(t, configpaths.Get().UserConfigDir(), "home.yaml", ".config/opencode/opencode.jsonc:\n")
+	testutil.WriteFile(
+		t,
+		configpaths.Get().UserConfigDir(),
+		"config.yaml",
+		"home:\n  .config/opencode/opencode.jsonc:\n",
+	)
 
 	err := cmd.Execute()
 	if err == nil {
-		t.Fatal("expected an error for a reserved home.yaml target")
+		t.Fatal("expected an error for a reserved home target")
 	}
 	if !strings.Contains(err.Error(), "reserved") {
 		t.Errorf("expected 'reserved' in error, got: %v", err)
@@ -90,24 +93,24 @@ func TestConfigHomeNotFoundManifest(t *testing.T) {
 		t.Fatalf("config home: %v", err)
 	}
 	joined := strings.Join(ui.OutCalls, "\n")
-	if !strings.Contains(joined, "No home.yaml manifest found.") {
+	if !strings.Contains(joined, "No home configuration found.") {
 		t.Errorf("expected not-found message, got:\n%s", joined)
 	}
 }
 
 func TestConfigHomeEmptyManifest(t *testing.T) {
 	cmd, ui := setupCommandFixtures(t, "config", "home")
-	testutil.WriteFile(t, configpaths.Get().UserConfigDir(), "home.yaml", "")
+	testutil.WriteFile(t, configpaths.Get().UserConfigDir(), "config.yaml", "home:\n")
 
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("config home: %v", err)
 	}
 	joined := strings.Join(ui.OutCalls, "\n")
-	if !strings.Contains(joined, "No home.yaml mappings.") {
+	if !strings.Contains(joined, "No home mappings.") {
 		t.Errorf("expected empty-manifest message, got:\n%s", joined)
 	}
-	if strings.Contains(joined, "No home.yaml manifest found.") {
-		t.Errorf("found misleading not-found message for an existing empty manifest:\n%s", joined)
+	if strings.Contains(joined, "No home configuration found.") {
+		t.Errorf("found misleading not-found message for an existing empty home config:\n%s", joined)
 	}
 }
 
@@ -155,11 +158,11 @@ func TestConfigAgentUnknownAgent(t *testing.T) {
 
 func TestConfigHomeManifestError(t *testing.T) {
 	cmd, _ := setupCommandFixtures(t, "config", "home")
-	testutil.WriteFile(t, configpaths.Get().UserConfigDir(), "home.yaml", "../escape:\n")
+	testutil.WriteFile(t, configpaths.Get().UserConfigDir(), "config.yaml", "home:\n  ../escape:\n")
 
 	err := cmd.Execute()
 	if err == nil {
-		t.Fatal("expected an error for an escaping home.yaml target")
+		t.Fatal("expected an error for an escaping home target")
 	}
 	if !strings.Contains(err.Error(), "escapes the home directory") {
 		t.Errorf("expected 'escapes the home directory' error, got: %v", err)

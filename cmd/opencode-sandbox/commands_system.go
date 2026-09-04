@@ -13,7 +13,6 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/inoio/opencode-sandbox/internal/agent"
-	"github.com/inoio/opencode-sandbox/internal/configpaths"
 	"github.com/inoio/opencode-sandbox/internal/git"
 	"github.com/inoio/opencode-sandbox/internal/homeconfig"
 	"github.com/inoio/opencode-sandbox/internal/humanize"
@@ -280,25 +279,25 @@ func buildConfigCmd(ui termio.UI) *cobra.Command {
 	cmd.AddCommand(&cobra.Command{
 		Use:   cmdHome,
 		Args:  cobra.NoArgs,
-		Short: "List home-file mappings from the home.yaml manifest",
-		RunE: func(*cobra.Command, []string) error {
-			cp := configpaths.Get()
+		Short: "List home-file mappings from the config home: key",
+		RunE: func(cmd *cobra.Command, _ []string) error {
 			a, _ := agent.Lookup("")
-			pairs, has, err := homeconfig.DescribeManifest(
-				cp.UserConfigDir(),
-				cp.ProjectConfigDir(),
+			r := resolverFromContext(cmd.Context())
+			layers, has := r.Home()
+			if !has {
+				ui.Out("No home configuration found.")
+				return nil
+			}
+			pairs, err := homeconfig.DescribeLayers(
+				layers,
 				"/home/dev",
 				reservedHomeConfigTargets(a, "/home/dev"),
 			)
 			if err != nil {
 				return err
 			}
-			if !has {
-				ui.Out("No home.yaml manifest found.")
-				return nil
-			}
 			if len(pairs) == 0 {
-				ui.Out("No home.yaml mappings.")
+				ui.Out("No home mappings.")
 				return nil
 			}
 			for _, p := range pairs {

@@ -143,11 +143,11 @@ func TestResolvePruneAgeFromResolver(t *testing.T) {
 
 func TestConfigAgentHomeManifestError(t *testing.T) {
 	cmd, _ := setupCommandFixtures(t, "config", "agent", "opencode")
-	testutil.WriteFile(t, configpaths.Get().UserConfigDir(), "home.yaml", "../escape:\n")
+	testutil.WriteFile(t, configpaths.Get().UserConfigDir(), "config.yaml", "home:\n  ../escape:\n")
 
 	err := cmd.Execute()
 	if err == nil {
-		t.Fatal("expected an error from an escaping home.yaml target")
+		t.Fatal("expected an error from an escaping home target")
 	}
 }
 
