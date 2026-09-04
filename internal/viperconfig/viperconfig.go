@@ -59,7 +59,7 @@ type Config struct {
 	// Home holds the per-layer home manifests from the config files' home:
 	// key. It is decoded separately (not via viper.Unmarshal) so each layer
 	// keeps its own directory for relative-source resolution.
-	Home []homeconfig.Layer `mapstructure:"-"`
+	Home homeconfig.Layers `mapstructure:"-"`
 	// hasHome reports whether any config file declared a home key.
 	hasHome bool
 
@@ -550,7 +550,7 @@ func (r *Resolver) Mounts() mounts.Mounts {
 
 // Home returns the per-layer home manifests read from the config files' home:
 // key, and whether any config file declared a home key.
-func (r *Resolver) Home() ([]homeconfig.Layer, bool) {
+func (r *Resolver) Home() (homeconfig.Layers, bool) {
 	return r.cfg.Home, r.cfg.hasHome
 }
 

@@ -189,6 +189,9 @@ type Layer struct {
 	Dir      string
 }
 
+// Layers is an ordered set of home layers, one per config dir.
+type Layers []Layer
+
 // LoadLayers reads the home manifest from each config dir's config file, one
 // Layer per dir in order (later layers override earlier ones per target). The
 // boolean reports whether any config file declared a home key.
