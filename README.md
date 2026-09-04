@@ -63,7 +63,7 @@ interactive TUI instead.
 
 By default the launcher copies the active agent's config + credential files from the host into the VM. **Security note:**
 this includes the opencode `auth.json` credential file. If you prefer to deliver credentials via the env-secret mechanism
-(which never writes them into the VM), see the [Configuration docs](/docs/configuration.md) to opt out of the file copy.
+(which never writes them into the VM), see the [Configuration docs](/docs/configuration/) to opt out of the file copy.
 
 ## Documentation
 
