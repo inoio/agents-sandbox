@@ -63,7 +63,7 @@ interactive TUI instead.
 
 By default the launcher copies the active agent's config + credential files from the host into the VM. **Security note:**
 this includes the opencode `auth.json` credential file. If you prefer to deliver credentials via the env-secret mechanism
-(which never writes them into the VM), see the [Configuration docs](/docs/configuration.md) to opt out of the file copy.
+(which never writes them into the VM), see the [Configuration docs](/docs/configuration/) to opt out of the file copy.
 
 ## Documentation
 
@@ -71,10 +71,13 @@ There's dedicated documentation per topic. You can also browse the documentation
 
 | Topic                                         | Description                                                                              |
 |-----------------------------------------------|------------------------------------------------------------------------------------------|
-| [Introduction](/docs/introduction.md)         | Introduction and motivation.                                                             |
-| [Getting Started](/docs/getting-started.md)   | Installation, prerequisites, configuration, first run                                    |
+| [Why?](/docs/introduction.md)                 | Why opencode-sandbox: motivation and threat model.                                            |
+| [How it works](/docs/how-it-works.md)         | Architecture: host ↔ VM, `/workspace`, home volume, secrets, multi-client attach.             |
+| [Install](/docs/install.md)                   | Installation, prerequisites                                                                    |
+| [Switch from your existing agent](/docs/switch.md) | Use opencode-sandbox with your existing agent config and credentials (host-config drop-in). |
+| [Manage config in the sandbox](/docs/manage-config.md) | Declarative, self-contained config: secrets, provisioning, agent snippets.            |
 | [Commands](/docs/commands.md)                 | Complete CLI reference                                                                   |
-| [Configuration](/docs/configuration.md)       | Launcher config, env, secrets, agent snippet merge + verbatim config-dir mirror, drop-in provisioning, `home:` config key (incl. startup hooks) |
+| [Configuration](/docs/configuration/)         | Split into subpages: launcher config file, secrets, networking, host mounts, home provisioning & startup hooks, agent configuration, notifications, self-upgrade |
 | [Runner Image](/docs/runner-image.md)         | Base image, custom tooling                                                               |
 | [Worktree Sessions](/docs/branch-sessions.md) | Isolated worktree sessions for per-feature development                                   |
 | [Recipes](/docs/recipes.md)                   | Hands-on workflows (e.g. connecting Opencode Desktop)                                    |

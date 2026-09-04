@@ -1,7 +1,7 @@
 ---
 title: Runner Image
 layout: default
-nav_order: 50
+nav_order: 80
 ---
 # Runner Image
 
@@ -189,4 +189,4 @@ that no longer have a live VM. See [Commands]({% link commands.md %}) for detail
 opencode-sandbox also auto-prunes all resources that are ephemeral, unused or haven't been in use for more than 30 days by
 default. Cached runner images and home volumes are only pruned once they are older than the threshold, so a recently
 used project keeps its image and home state across restarts. See [Sandboxes]({% link sandboxes.md %}) for more information
-and [Configuration]({% link configuration.md %}) for how to configure auto-pruning.
+and [Configuration]({% link configuration/index.md %}) for how to configure auto-pruning.

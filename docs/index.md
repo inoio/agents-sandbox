@@ -36,24 +36,18 @@ It's also yours to shape: the VM's root is defined by a plain `Dockerfile`, so y
 >
 > opencode-sandbox, by contrast, is **open and account-free**, runs on **any Linux (KVM) and Apple Silicon**, and gives you **one-command disposal** — without the telemetry, login, or vendor lock-in.
 
-- [Introduction]({% link introduction.md %})
-- [Getting Started]({% link getting-started.md %})
-- [Configuration]({% link configuration.md %})
-- [Sandboxes]({% link sandboxes.md %})
-- [Runner Image]({% link runner-image.md %})
-- [Commands]({% link commands.md %})
-- [Worktree Sessions]({% link branch-sessions.md %})
-- [Recipes]({% link recipes.md %})
-- [Troubleshooting]({% link troubleshooting.md %})
+## Choose your path
 
+You already use a coding agent. Start where it's easiest for you — the two paths are equal, just different trade-offs:
 
+- **[Switch from your existing agent]({% link switch.md %})** — keep your normal agent workflow; opencode-sandbox mirrors your host config and credentials into the VM. Running in minutes.
+- **[Manage config in the sandbox]({% link manage-config.md %})** — configure the sandbox declaratively (secrets, provisioning, agent snippets) with no host-config dependency.
 
+Not sure where the pieces fit? Read [How it works]({% link how-it-works.md %}).
 
+## Usage
 
-
-## 
-
-After installation, start a session in your current project:
+Start a session in your current project:
 
 ```console
 opencode-sandbox
@@ -67,7 +61,7 @@ opencode-sandbox -w bugfix-my-fix
 
 Get an overview over commands via `opencode-sandbox tree`.
 
-## Installation
+## Install
 
 Requires **Linux (KVM) or macOS (Apple Silicon)**.
 
@@ -101,8 +95,18 @@ Requires **Linux (KVM) or macOS (Apple Silicon)**.
    opencode-sandbox doctor
    ```
 
-See [Getting Started](/docs/getting-started.md) for prerequisites and a full setup guide.
+See [Install]({% link install.md %}) for prerequisites and the full setup guide.
 
-## Usage
+## Explore
 
-Full [Commands Reference](/docs/commands.md).
+- [Why?]({% link introduction.md %})
+- [How it works]({% link how-it-works.md %})
+- [Switch from your existing agent]({% link switch.md %})
+- [Manage config in the sandbox]({% link manage-config.md %})
+- [Configuration]({% link configuration/index.md %})
+- [Sandboxes]({% link sandboxes.md %})
+- [Runner Image]({% link runner-image.md %})
+- [Commands]({% link commands.md %})
+- [Worktree Sessions]({% link branch-sessions.md %})
+- [Recipes]({% link recipes.md %})
+- [Troubleshooting]({% link troubleshooting.md %})
