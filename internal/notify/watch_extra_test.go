@@ -7,6 +7,7 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/inoio/opencode-sandbox/internal/sandbox/msb"
 )
@@ -17,10 +18,16 @@ func TestWatchNilSinkReturnsImmediately(t *testing.T) {
 	}
 }
 
-func TestWatchGivesUpAfterMaxAttempts(t *testing.T) {
-	origBackoff := watchBackoff
-	defer func() { watchBackoff = origBackoff }()
-	watchBackoff = 0
+func TestWatchRetriesUntilCancelled(t *testing.T) {
+	orig := watchReconnectPolicy
+	watchReconnectPolicy = reconnectPolicy{
+		fastRetries:  100,
+		backoffStart: time.Millisecond,
+		backoffMax:   time.Millisecond,
+		longLived:    0,
+		jitter:       func(d time.Duration) time.Duration { return d },
+	}
+	defer func() { watchReconnectPolicy = orig }()
 
 	var attempts atomic.Int32
 	sb := msb.NewMockSandbox(msb.SandboxOpts{})
@@ -28,16 +35,27 @@ func TestWatchGivesUpAfterMaxAttempts(t *testing.T) {
 		attempts.Add(1)
 		return nil, errors.New("shell failed")
 	}
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() { done <- Watch(ctx, sb, opencodeSpec(), &recordBackend{}) }()
 
-	err := Watch(context.Background(), sb, opencodeSpec(), &recordBackend{})
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if attempts.Load() >= 5 {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	cancel()
+	err := <-done
 	if err == nil {
-		t.Fatal("expected an error after giving up")
+		t.Fatal("expected a compound error after drops")
 	}
-	if !strings.Contains(err.Error(), "giving up") {
-		t.Errorf("unexpected error message: %v", err)
+	if !strings.Contains(err.Error(), "dropped") {
+		t.Errorf("unexpected error: %v", err)
 	}
-	if attempts.Load() != maxStreamAttempts {
-		t.Errorf("expected %d attempts, got %d", maxStreamAttempts, attempts.Load())
+	if attempts.Load() < 5 {
+		t.Errorf("expected >=5 attempts before cancel, got %d", attempts.Load())
 	}
 }
 
@@ -175,5 +193,158 @@ func TestParseSSEBlock(t *testing.T) {
 				t.Errorf("parseSSEBlock = %+v, want %+v", got, tc.want)
 			}
 		})
+	}
+}
+
+func TestNextBackoffPhases(t *testing.T) {
+	orig := watchReconnectPolicy
+	watchReconnectPolicy = reconnectPolicy{
+		fastRetries:  2,
+		backoffStart: time.Second,
+		backoffMax:   4 * time.Second,
+		jitter:       func(d time.Duration) time.Duration { return d },
+	}
+	defer func() { watchReconnectPolicy = orig }()
+
+	cases := []struct {
+		fails int
+		prev  time.Duration
+		want  time.Duration
+	}{
+		{1, 0, 0},               // fast phase: 1st drop reconnects immediately
+		{2, 0, 0},               // fast phase: 2nd drop reconnects immediately
+		{3, 0, 1 * time.Second}, // backoff starts after fastRetries
+		{4, 1 * time.Second, 2 * time.Second},
+		{5, 2 * time.Second, 4 * time.Second}, // capped at backoffMax
+		{6, 4 * time.Second, 4 * time.Second}, // stays capped
+	}
+	for _, tc := range cases {
+		if got := nextBackoff(tc.fails, tc.prev); got != tc.want {
+			t.Errorf("nextBackoff(%d, %v) = %v, want %v", tc.fails, tc.prev, got, tc.want)
+		}
+	}
+}
+
+func TestDropSummaryBounded(t *testing.T) {
+	s := &dropSummary{}
+	for i := 1; i <= 10; i++ {
+		s.record(i, "reason")
+	}
+	if s.count != 10 {
+		t.Fatalf("count = %d, want 10", s.count)
+	}
+	if len(s.first) != summaryFirstDrops {
+		t.Fatalf("first len = %d, want %d", len(s.first), summaryFirstDrops)
+	}
+	err := s.err()
+	if err == nil {
+		t.Fatal("expected an error")
+	}
+	for _, want := range []string{"dropped 10 times", "attempt 10: reason", "7 more"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("error %q missing %q", err.Error(), want)
+		}
+	}
+}
+
+func TestDropSummaryNilWhenNoDrops(t *testing.T) {
+	if err := (&dropSummary{}).err(); err != nil {
+		t.Fatalf("expected nil error, got %v", err)
+	}
+}
+
+// gateHandle blocks on Recv until release fires, then returns event/err. It is
+// used to hold a stream open past the longLived threshold in tests.
+type gateHandle struct {
+	release chan struct{}
+	event   msb.StreamEvent
+	err     error
+}
+
+func (g *gateHandle) Recv(ctx context.Context) (msb.StreamEvent, error) {
+	select {
+	case <-g.release:
+		return g.event, g.err
+	case <-ctx.Done():
+		return msb.StreamEvent{}, ctx.Err()
+	}
+}
+
+func (g *gateHandle) Close() error { return nil }
+
+// failHandle fails immediately on Recv, simulating a stream that drops at once.
+type failHandle struct{}
+
+func (failHandle) Recv(context.Context) (msb.StreamEvent, error) {
+	return msb.StreamEvent{}, errors.New("stream failed")
+}
+
+func (failHandle) Close() error { return nil }
+
+func TestWatchBackoffResetsAfterLongLived(t *testing.T) {
+	orig := watchReconnectPolicy
+	watchReconnectPolicy = reconnectPolicy{
+		fastRetries:  2,
+		backoffStart: 100 * time.Millisecond,
+		backoffMax:   400 * time.Millisecond,
+		longLived:    5 * time.Millisecond,
+		jitter:       func(d time.Duration) time.Duration { return d },
+	}
+	defer func() { watchReconnectPolicy = orig }()
+
+	release := make(chan struct{})
+	invoked := make(chan time.Time, 8)
+	var call int
+	sb := msb.NewMockSandbox(msb.SandboxOpts{})
+	sb.(*msb.MockSandbox).ShellStreamFn = func(string) (msb.StreamHandle, error) {
+		invoked <- time.Now()
+		call++
+		switch {
+		case call <= 3:
+			return failHandle{}, nil
+		case call == 4:
+			// Long-lived connection: held open past longLived, then drops.
+			return &gateHandle{release: release, event: msb.StreamEvent{Kind: msb.StreamEventExited, ExitCode: 0}}, nil
+		default:
+			return failHandle{}, nil
+		}
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() { done <- Watch(ctx, sb, opencodeSpec(), &recordBackend{}) }()
+
+	// Record each ShellStream invocation time as it happens.
+	var times []time.Time
+	record := func(when string) time.Time {
+		select {
+		case ts := <-invoked:
+			times = append(times, ts)
+			return ts
+		case <-time.After(2 * time.Second):
+			t.Fatalf("timeout waiting for %s invocation", when)
+			return time.Time{}
+		}
+	}
+	record("call 1")
+	record("call 2")
+	record("call 3")
+	record("call 4")                  // long-lived connection now being held
+	time.Sleep(10 * time.Millisecond) // exceed longLived (5ms)
+	close(release)
+	record("call 5") // reconnect after the long-lived drop
+	cancel()
+	<-done
+
+	if len(times) != 5 {
+		t.Fatalf("expected 5 invocations, got %d", len(times))
+	}
+	// gap(3->4) reflects backoffStart after the 3rd consecutive failure.
+	gapBackoff := times[3].Sub(times[2])
+	// After the long-lived reset, the next drop reconnects immediately.
+	gapAfterReset := times[4].Sub(times[3])
+	if gapAfterReset >= gapBackoff {
+		t.Errorf("expected backoff reset after long-lived connection: gapBackoff=%v gapAfterReset=%v",
+			gapBackoff, gapAfterReset)
 	}
 }

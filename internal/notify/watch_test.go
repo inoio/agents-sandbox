@@ -2,6 +2,7 @@ package notify
 
 import (
 	"context"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -141,9 +142,15 @@ func TestWatchDedupClearsOnBusy(t *testing.T) {
 }
 
 func TestWatchReconnectsOnStreamExit(t *testing.T) {
-	origBackoff := watchBackoff
-	defer func() { watchBackoff = origBackoff }()
-	watchBackoff = time.Millisecond
+	origPolicy := watchReconnectPolicy
+	defer func() { watchReconnectPolicy = origPolicy }()
+	watchReconnectPolicy = reconnectPolicy{
+		fastRetries:  100,
+		backoffStart: time.Millisecond,
+		backoffMax:   time.Millisecond,
+		longLived:    0,
+		jitter:       func(d time.Duration) time.Duration { return d },
+	}
 
 	var attempts atomic.Int32
 	secondAttempt := make(chan struct{})
@@ -175,7 +182,7 @@ func TestWatchReconnectsOnStreamExit(t *testing.T) {
 		<-secondAttempt
 		cancel()
 	}()
-	if err := Watch(ctx, sb, spec, backend); err != nil {
+	if err := Watch(ctx, sb, spec, backend); err != nil && !strings.Contains(err.Error(), "dropped") {
 		t.Fatalf("Watch() error = %v", err)
 	}
 	if attempts.Load() < 2 {

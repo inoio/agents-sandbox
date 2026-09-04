@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math/rand/v2"
 	"strings"
 	"time"
 
@@ -14,63 +15,151 @@ import (
 	"github.com/inoio/opencode-sandbox/internal/sandbox/msb"
 )
 
-// maxStreamAttempts caps how many times Watch reconnects before giving up.
-const maxStreamAttempts = 10
-
 // sessionBusyAware is implemented by backends that want to be told when a
 // session returns to work, so in-flight dedup claims can be released.
 type sessionBusyAware interface {
 	SessionBusy(sessionID string)
 }
 
-// watchBackoff is the delay before reconnecting a dropped stream. It is a test
-// seam; production uses the default.
+// reconnectPolicy drives Watch's reconnect timing. fastRetries drops reconnect
+// immediately (so we don't miss events on a blip), then backoff grows
+// exponentially from backoffStart up to backoffMax with jitter. A connection
+// that survives past longLived resets the streak, because the endpoint appears
+// healthy again.
+type reconnectPolicy struct {
+	fastRetries  int
+	backoffStart time.Duration
+	backoffMax   time.Duration
+	longLived    time.Duration
+	jitter       func(time.Duration) time.Duration
+}
+
+// watchReconnectPolicy is the production policy. Tests replace it to make
+// timing fast and jitter deterministic.
 //
 //nolint:gochecknoglobals // test seam
-var watchBackoff = time.Second
+var watchReconnectPolicy = reconnectPolicy{
+	fastRetries:  2,
+	backoffStart: time.Second,
+	backoffMax:   30 * time.Second,
+	longLived:    30 * time.Second,
+	jitter: func(d time.Duration) time.Duration {
+		if d <= 0 {
+			return d
+		}
+		//nolint:gosec // G404: jitter needn't be cryptographically secure
+		return d/2 + time.Duration(rand.Int64N(int64(d)/2))
+	},
+}
 
-// Watch relays the in-VM SSE stream to the tracker and backend. When the
-// stream drops (exits, connection reset) it reconnects with a bounded number
-// of attempts and a growing backoff, until ctx is canceled or the cap is hit.
+// nextBackoff returns the delay before the next reconnect given the number of
+// consecutive failed attempts and the previous backoff. The first
+// fastRetries consecutive drops reconnect immediately (0 delay); afterwards
+// backoff doubles from backoffStart up to backoffMax, with jitter applied.
+func nextBackoff(consecutiveFails int, prev time.Duration) time.Duration {
+	p := watchReconnectPolicy
+	if consecutiveFails <= p.fastRetries {
+		return 0
+	}
+	if prev == 0 {
+		prev = p.backoffStart
+	} else if prev < p.backoffMax {
+		prev = min(prev*2, p.backoffMax)
+	}
+	return p.jitter(prev)
+}
+
+// summaryFirstDrops bounds how many early drops dropSummary retains.
+const summaryFirstDrops = 3
+
+// dropSummary accumulates a bounded report of stream drops so a long session
+// with frequent drops doesn't grow an unbounded error. It keeps the first few
+// drops, the running count, and the most recent drop.
+type dropSummary struct {
+	start time.Time
+	count int
+	first []string
+	last  string
+}
+
+func (s *dropSummary) record(attempt int, reason string) {
+	if s.start.IsZero() {
+		s.start = time.Now()
+	}
+	entry := fmt.Sprintf("attempt %d: %s", attempt, reason)
+	s.count++
+	if len(s.first) < summaryFirstDrops {
+		s.first = append(s.first, entry)
+	}
+	s.last = entry
+}
+
+// err returns the compound error summarizing all drops, or nil if none.
+func (s *dropSummary) err() error {
+	if s.count == 0 {
+		return nil
+	}
+	parts := append([]string(nil), s.first...)
+	if more := s.count - len(s.first); more > 0 {
+		parts = append(parts, fmt.Sprintf("... %d more ...", more))
+	}
+	parts = append(parts, "last: "+s.last)
+	over := time.Since(s.start).Round(time.Second)
+	return fmt.Errorf("notify event stream dropped %d times over %s: %s",
+		s.count, over, strings.Join(parts, "; "))
+}
+
+// Watch relays the in-VM SSE stream to the tracker and backend until ctx is
+// cancelled. When the stream drops (clean end, exit, or connection failure) it
+// reconnects with a fast-then-backoff policy (see watchReconnectPolicy). It
+// returns a compound error summarizing the drops, or nil if the stream never
+// dropped.
 func Watch(ctx context.Context, sb msb.Sandbox, spec agent.EventStreamSpec, sink Backend) error {
 	if sink == nil {
 		return nil
 	}
 	tracker := NewTracker(spec)
-	var err error
+	summary := &dropSummary{} //nolint:exhaustruct // fields zeroed, populated by record
+	var consecutiveFails int
+	var backoff time.Duration
 loop:
 	for attempt := 1; ; attempt++ {
-		dropped := watchOnce(ctx, sb, tracker, sink, spec.StreamCommand)
-		switch {
-		case ctx.Err() != nil:
-			break loop
-		case dropped && attempt >= maxStreamAttempts:
-			err = fmt.Errorf("notify stream dropped %d times; giving up", maxStreamAttempts)
+		start := time.Now()
+		reason := watchOnce(ctx, sb, tracker, sink, spec.StreamCommand)
+		if ctx.Err() != nil {
 			break loop
 		}
+		if time.Since(start) > watchReconnectPolicy.longLived {
+			consecutiveFails = 0
+			backoff = 0
+		}
+		consecutiveFails++
+		summary.record(attempt, reason.Error())
+		backoff = nextBackoff(consecutiveFails, backoff)
 		select {
 		case <-ctx.Done():
 			break loop
-		case <-time.After(watchBackoff):
+		case <-time.After(backoff):
 		}
 	}
-	return err
+	return summary.err()
 }
 
 // watchOnce opens one SSE stream and feeds the tracker until it drops or ctx
-// is canceled. It reports whether the stream dropped (vs ctx ending). SSE
-// events are blocks of `event:`/`data:` lines separated by blank lines, so
-// lines are accumulated and parsed one block at a time.
+// is cancelled. It returns nil if ctx was cancelled (not a drop), otherwise a
+// non-nil error describing why the stream ended. SSE events are blocks of
+// `event:`/`data:` lines separated by blank lines, so lines are accumulated
+// and parsed one block at a time.
 func watchOnce(
 	ctx context.Context,
 	sb msb.Sandbox,
 	tracker *Tracker,
 	sink Backend,
 	streamCommand string,
-) bool {
+) error {
 	handle, err := sb.ShellStream(ctx, streamCommand)
 	if err != nil {
-		return true
+		return fmt.Errorf("opening stream: %w", err)
 	}
 	defer handle.Close()
 
@@ -85,15 +174,18 @@ func watchOnce(
 			if e, ok := parseSSEBlock(block); ok {
 				handleEvent(tracker, sink, e)
 			}
-			/*			if err := appendNotifyLog(block); err != nil {
-						ui.Verbosef("notify watcher log: %v", err)
-					}*/
 			block = nil
 			continue
 		}
 		block = append(block, line)
 	}
-	return ctx.Err() == nil
+	if ctx.Err() != nil {
+		return nil
+	}
+	if err := scanner.Err(); err != nil {
+		return fmt.Errorf("reading stream: %w", err)
+	}
+	return errors.New("stream ended cleanly")
 }
 
 // handleEvent feeds one parsed event to the sink. When the session returns to
