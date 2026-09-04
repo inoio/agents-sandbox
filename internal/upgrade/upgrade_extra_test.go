@@ -86,7 +86,7 @@ func TestDownloadAssetCopyFails(t *testing.T) {
 
 func TestReplaceExecutableChmodFails(t *testing.T) {
 	dir := t.TempDir()
-	target := filepath.Join(dir, "opencode-sandbox")
+	target := filepath.Join(dir, "agents-sandbox")
 	_ = os.WriteFile(target, []byte("old"), 0o755)
 
 	asset := filepath.Join(dir, "missing-asset")
@@ -100,7 +100,7 @@ func TestReplaceExecutableRenameFails(t *testing.T) {
 	asset := filepath.Join(dir, "asset")
 	_ = os.WriteFile(asset, []byte("new"), 0o600)
 
-	exePath := filepath.Join(dir, "opencode-sandbox")
+	exePath := filepath.Join(dir, "agents-sandbox")
 	_ = os.MkdirAll(exePath, 0o755)
 
 	if err := replaceExecutable(asset, exePath); err == nil {

@@ -5,9 +5,9 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/inoio/opencode-sandbox/internal/agent"
-	"github.com/inoio/opencode-sandbox/internal/sandbox/options"
-	"github.com/inoio/opencode-sandbox/internal/termio"
+	"github.com/inoio/agents-sandbox/internal/agent"
+	"github.com/inoio/agents-sandbox/internal/sandbox/options"
+	"github.com/inoio/agents-sandbox/internal/termio"
 )
 
 // errUpgradeQuit signals the user chose to abort the session because of the
@@ -101,7 +101,7 @@ func resolveBuildVersion(
 func promptUpgrade(ui termio.UI, a agent.Agent, current, latest string) (string, error) {
 	if !ui.IsInteractive() {
 		ui.Infof(
-			"%s %s available (image has %s); run 'opencode-sandbox build' to upgrade",
+			"%s %s available (image has %s); run 'agents-sandbox build' to upgrade",
 			a.Name(),
 			latest,
 			current,

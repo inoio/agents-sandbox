@@ -12,18 +12,18 @@ import (
 
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 
-	"github.com/inoio/opencode-sandbox/internal/configpaths"
+	"github.com/inoio/agents-sandbox/internal/configpaths"
 
-	"github.com/inoio/opencode-sandbox/internal/sandbox/docker"
-	"github.com/inoio/opencode-sandbox/internal/sandbox/msb"
-	"github.com/inoio/opencode-sandbox/internal/sandbox/options"
-	"github.com/inoio/opencode-sandbox/internal/sandbox/state"
-	"github.com/inoio/opencode-sandbox/internal/termio"
+	"github.com/inoio/agents-sandbox/internal/sandbox/docker"
+	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
+	"github.com/inoio/agents-sandbox/internal/sandbox/options"
+	"github.com/inoio/agents-sandbox/internal/sandbox/state"
+	"github.com/inoio/agents-sandbox/internal/termio"
 )
 
 func TestHomeVolumeNameScopesAgent(t *testing.T) {
 	got := HomeVolumeName(state.Key{Slug: "proj-abc123", Agent: "pi"})
-	prefix := "opencode-sandbox-home-proj-abc123-pi-"
+	prefix := "agents-sandbox-home-proj-abc123-pi-"
 	if !strings.HasPrefix(got, prefix) {
 		t.Errorf("HomeVolumeName = %q, want prefix %q", got, prefix)
 	}
@@ -34,7 +34,7 @@ func TestHomeVolumeNameScopesAgent(t *testing.T) {
 
 func TestHomeVolumeName(t *testing.T) {
 	got := HomeVolumeName(state.Key{Slug: "myproj-aBc1234D", Agent: "opencode"})
-	expectedPrefix := "opencode-sandbox-home-myproj-aBc1234D-opencode-"
+	expectedPrefix := "agents-sandbox-home-myproj-aBc1234D-opencode-"
 	if !strings.HasPrefix(got, expectedPrefix) {
 		t.Errorf("expected prefix %q, got %q", expectedPrefix, got)
 	}
@@ -46,7 +46,7 @@ func TestHomeVolumeName(t *testing.T) {
 
 func TestHomeVolumeNameDifferentInputs(t *testing.T) {
 	got := HomeVolumeName(state.Key{Slug: "myproj-aBc1234D", Agent: "opencode"})
-	if !strings.HasPrefix(got, "opencode-sandbox-home-myproj-aBc1234D-opencode-") {
+	if !strings.HasPrefix(got, "agents-sandbox-home-myproj-aBc1234D-opencode-") {
 		t.Errorf("unexpected name format: %q", got)
 	}
 }
@@ -56,10 +56,10 @@ func TestHomeVolumeNameTimestamp(t *testing.T) {
 	got := HomeVolumeName(state.Key{Slug: "myproject", Agent: "opencode"})
 	after := time.Now().UTC().Add(time.Second)
 
-	if !strings.HasPrefix(got, "opencode-sandbox-home-myproject-opencode-") {
+	if !strings.HasPrefix(got, "agents-sandbox-home-myproject-opencode-") {
 		t.Fatalf("expected prefix, got %q", got)
 	}
-	suffix := strings.TrimPrefix(got, "opencode-sandbox-home-myproject-opencode-")
+	suffix := strings.TrimPrefix(got, "agents-sandbox-home-myproject-opencode-")
 	if len(suffix) != 15 {
 		t.Fatalf("expected 15-char timestamp, got %d chars: %q", len(suffix), suffix)
 	}
@@ -92,7 +92,7 @@ func TestPrefillVolumeRunsCopyCommand(t *testing.T) {
 		client,
 		state.Key{Slug: "myproject", Agent: "opencode"},
 		"test-home-vol",
-		"opencode-sandbox/runner-test:latest",
+		"agents-sandbox/runner-test:latest",
 		ui,
 	)
 	if err != nil {
@@ -176,7 +176,7 @@ func TestRecordHomeImage_UpdatesDigestInState(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 
 	state.WriteState(state.Key{Slug: "myproj", Agent: "opencode"}, state.HomeState{
-		HomeVolume:  "opencode-sandbox-home-myproj-20260806T143022",
+		HomeVolume:  "agents-sandbox-home-myproj-20260806T143022",
 		ImageDigest: "sha256:old",
 	})
 
@@ -196,7 +196,7 @@ func TestRecordHomeImage_UpdatesDigestInState(t *testing.T) {
 	if st.ImageDigest != "sha256:new" {
 		t.Errorf("ImageDigest = %q, want %q", st.ImageDigest, "sha256:new")
 	}
-	if st.HomeVolume != "opencode-sandbox-home-myproj-20260806T143022" {
+	if st.HomeVolume != "agents-sandbox-home-myproj-20260806T143022" {
 		t.Errorf("HomeVolume changed to %q, want unchanged", st.HomeVolume)
 	}
 }
@@ -230,7 +230,7 @@ func TestApplyHomeAction_KeepReturnsOldVolume(t *testing.T) {
 		context.Background(),
 		mock,
 		state.Key{Slug: "myproj", Agent: "opencode"},
-		"opencode-sandbox-home-myproj-old",
+		"agents-sandbox-home-myproj-old",
 		"img-tag",
 		"sha256:new",
 		ActionKeep,
@@ -240,7 +240,7 @@ func TestApplyHomeAction_KeepReturnsOldVolume(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if vol != "opencode-sandbox-home-myproj-old" {
+	if vol != "agents-sandbox-home-myproj-old" {
 		t.Errorf("volume = %q, want old volume", vol)
 	}
 	if len(mock.CreatedSandboxes) != 0 {
@@ -267,7 +267,7 @@ func TestApplyHomeAction_ExecutesAndKeepsOld(t *testing.T) {
 			docker.WithNoopDockerMock(t)
 
 			slug := "myproj"
-			oldVol := "opencode-sandbox-home-myproj-old"
+			oldVol := "agents-sandbox-home-myproj-old"
 			state.WriteState(
 				state.Key{Slug: slug, Agent: "opencode"},
 				state.HomeState{HomeVolume: oldVol, ImageDigest: "sha256:old"},
@@ -323,7 +323,7 @@ func TestApplyHomeAction_Reset_DryRun_NoWrites(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 
 	slug := "myproj"
-	oldVol := "opencode-sandbox-home-myproj-old"
+	oldVol := "agents-sandbox-home-myproj-old"
 	state.WriteState(
 		state.Key{Slug: slug, Agent: "opencode"},
 		state.HomeState{HomeVolume: oldVol, ImageDigest: "sha256:old"},
@@ -375,7 +375,7 @@ func TestApplyHomeAction_Migrate_DryRunVM_NoStateWrite(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 
 	slug := "myproj"
-	oldVol := "opencode-sandbox-home-myproj-old"
+	oldVol := "agents-sandbox-home-myproj-old"
 	state.WriteState(
 		state.Key{Slug: slug, Agent: "opencode"},
 		state.HomeState{HomeVolume: oldVol, ImageDigest: "sha256:old"},
@@ -422,7 +422,7 @@ func TestApplyHomeAction_Migrate_CopyFails_RemovesNewVolume(t *testing.T) {
 	docker.WithNoopDockerMock(t)
 
 	slug := "myproj"
-	oldVol := "opencode-sandbox-home-myproj-old"
+	oldVol := "agents-sandbox-home-myproj-old"
 	state.WriteState(
 		state.Key{Slug: slug, Agent: "opencode"},
 		state.HomeState{HomeVolume: oldVol, ImageDigest: "sha256:old"},
@@ -536,7 +536,7 @@ func TestResolveHomeVolume_FoundInState(t *testing.T) {
 	}
 
 	state.WriteState(state.Key{Slug: "myproj", Agent: "opencode"}, state.HomeState{
-		HomeVolume:  "opencode-sandbox-home-myproj-20260806T143022",
+		HomeVolume:  "agents-sandbox-home-myproj-20260806T143022",
 		ImageDigest: "sha256:abc",
 	})
 
@@ -553,8 +553,8 @@ func TestResolveHomeVolume_FoundInState(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if volName != "opencode-sandbox-home-myproj-20260806T143022" {
-		t.Errorf("volume = %q, want %q", volName, "opencode-sandbox-home-myproj-20260806T143022")
+	if volName != "agents-sandbox-home-myproj-20260806T143022" {
+		t.Errorf("volume = %q, want %q", volName, "agents-sandbox-home-myproj-20260806T143022")
 	}
 	if st.ImageDigest != "sha256:abc" {
 		t.Errorf("digest = %q, want %q", st.ImageDigest, "sha256:abc")
@@ -583,8 +583,8 @@ func TestResolveHomeVolume_NoStateFile(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if !strings.HasPrefix(volName, "opencode-sandbox-home-testproj-") {
-		t.Errorf("volume = %q, expected prefix %q", volName, "opencode-sandbox-home-testproj-")
+	if !strings.HasPrefix(volName, "agents-sandbox-home-testproj-") {
+		t.Errorf("volume = %q, expected prefix %q", volName, "agents-sandbox-home-testproj-")
 	}
 	if st.ImageDigest != "sha256:def" {
 		t.Errorf("digest = %q, want %q", st.ImageDigest, "sha256:def")
@@ -624,8 +624,8 @@ func TestResolveHomeVolume_CorruptStateFile(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if !strings.HasPrefix(volName, "opencode-sandbox-home-corruptproj-") {
-		t.Errorf("volume = %q, expected prefix %q", volName, "opencode-sandbox-home-corruptproj-")
+	if !strings.HasPrefix(volName, "agents-sandbox-home-corruptproj-") {
+		t.Errorf("volume = %q, expected prefix %q", volName, "agents-sandbox-home-corruptproj-")
 	}
 	if st.ImageDigest != "sha256:def" {
 		t.Errorf("digest = %q, want %q", st.ImageDigest, "sha256:def")
@@ -649,7 +649,7 @@ func TestResolveHomeVolume_VolumeNotFoundInSandbox(t *testing.T) {
 	}
 
 	state.WriteState(state.Key{Slug: "orphanproj", Agent: "opencode"}, state.HomeState{
-		HomeVolume:  "opencode-sandbox-home-orphanproj-20260806T143022",
+		HomeVolume:  "agents-sandbox-home-orphanproj-20260806T143022",
 		ImageDigest: "sha256:abc",
 	})
 
@@ -666,8 +666,8 @@ func TestResolveHomeVolume_VolumeNotFoundInSandbox(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if !strings.HasPrefix(volName, "opencode-sandbox-home-orphanproj-") {
-		t.Errorf("volume = %q, expected prefix %q", volName, "opencode-sandbox-home-orphanproj-")
+	if !strings.HasPrefix(volName, "agents-sandbox-home-orphanproj-") {
+		t.Errorf("volume = %q, expected prefix %q", volName, "agents-sandbox-home-orphanproj-")
 	}
 	if st.ImageDigest != "sha256:def" {
 		t.Errorf("digest = %q, want %q", st.ImageDigest, "sha256:def")
@@ -916,7 +916,7 @@ func TestApplyHomeAction_Reset_Success(t *testing.T) {
 	docker.WithNoopDockerMock(t)
 
 	slug := "myproj"
-	oldVol := "opencode-sandbox-home-myproj-old"
+	oldVol := "agents-sandbox-home-myproj-old"
 	state.WriteState(
 		state.Key{Slug: slug, Agent: "opencode"},
 		state.HomeState{HomeVolume: oldVol, ImageDigest: "sha256:old"},
@@ -960,7 +960,7 @@ func TestApplyHomeAction_PrefillFails_RemovesVolume(t *testing.T) {
 	docker.WithNoopDockerMock(t)
 
 	slug := "myproj"
-	oldVol := "opencode-sandbox-home-myproj-old"
+	oldVol := "agents-sandbox-home-myproj-old"
 	state.WriteState(
 		state.Key{Slug: slug, Agent: "opencode"},
 		state.HomeState{HomeVolume: oldVol, ImageDigest: "sha256:old"},
@@ -1032,7 +1032,7 @@ func TestEnsureNewHome_DryRunVM_NoSandbox(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if !strings.HasPrefix(volName, "opencode-sandbox-home-testproj-") {
+	if !strings.HasPrefix(volName, "agents-sandbox-home-testproj-") {
 		t.Errorf("expected home volume prefix, got %q", volName)
 	}
 	if len(mock.CreatedSandboxes) != 0 {

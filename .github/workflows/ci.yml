@@ -109,7 +109,7 @@ jobs:
 
       - name: Validate binary
         run: |
-          f="opencode-sandbox-${{ matrix.target }}"
+          f="agents-sandbox-${{ matrix.target }}"
           test -s "$f"
           # Verify the correct executable format per target via magic header.
           if [ "${{ matrix.goos }}" = "linux" ]; then
@@ -126,8 +126,8 @@ jobs:
       - name: Upload artifact
         uses: actions/upload-artifact@v7
         with:
-          name: opencode-sandbox-${{ matrix.target }}
-          path: opencode-sandbox-${{ matrix.target }}
+          name: agents-sandbox-${{ matrix.target }}
+          path: agents-sandbox-${{ matrix.target }}
           if-no-files-found: error
 
   publish:
@@ -145,6 +145,6 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ github.ref_name }}
-          name: "opencode-sandbox ${{ github.ref_name }}"
+          name: "agents-sandbox ${{ github.ref_name }}"
           generate_release_notes: true
           files: artifacts/*/*

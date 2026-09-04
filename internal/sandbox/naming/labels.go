@@ -1,10 +1,10 @@
 package naming
 
 // Labels the launcher attaches to the project sandbox VM at creation. The
-// org.opencode-sandbox. prefix is shared with the runner-image labels.
+// org.agents-sandbox. prefix is shared with the runner-image labels.
 const (
 	// LabelProject identifies the project the sandbox belongs to.
-	LabelProject = "org.opencode-sandbox.project"
+	LabelProject = "org.agents-sandbox.project"
 	// LabelImage records the runner image reference the sandbox was created with.
-	LabelImage = "org.opencode-sandbox.image"
+	LabelImage = "org.agents-sandbox.image"
 )

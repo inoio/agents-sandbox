@@ -5,11 +5,11 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/inoio/opencode-sandbox/internal/agent"
-	"github.com/inoio/opencode-sandbox/internal/configpaths"
-	sandboximage "github.com/inoio/opencode-sandbox/internal/sandbox/image"
-	"github.com/inoio/opencode-sandbox/internal/sandbox/options"
-	"github.com/inoio/opencode-sandbox/internal/termio"
+	"github.com/inoio/agents-sandbox/internal/agent"
+	"github.com/inoio/agents-sandbox/internal/configpaths"
+	sandboximage "github.com/inoio/agents-sandbox/internal/sandbox/image"
+	"github.com/inoio/agents-sandbox/internal/sandbox/options"
+	"github.com/inoio/agents-sandbox/internal/termio"
 )
 
 // TestPrepareSandboxImageError covers the image-setup failure branch of

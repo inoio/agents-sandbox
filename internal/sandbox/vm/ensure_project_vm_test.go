@@ -11,11 +11,11 @@ import (
 
 	"github.com/moby/moby/client"
 
-	"github.com/inoio/opencode-sandbox/internal/configpaths"
-	"github.com/inoio/opencode-sandbox/internal/sandbox/docker"
-	"github.com/inoio/opencode-sandbox/internal/sandbox/msb"
-	"github.com/inoio/opencode-sandbox/internal/sandbox/options"
-	"github.com/inoio/opencode-sandbox/internal/termio"
+	"github.com/inoio/agents-sandbox/internal/configpaths"
+	"github.com/inoio/agents-sandbox/internal/sandbox/docker"
+	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
+	"github.com/inoio/agents-sandbox/internal/sandbox/options"
+	"github.com/inoio/agents-sandbox/internal/termio"
 )
 
 // TestEnsureProjectVMFlockDirError covers the os.MkdirAll failure branch in
@@ -61,7 +61,7 @@ func TestEnsureProjectVMDecideActionError(t *testing.T) {
 	ui := termio.NewTestMock(t)
 	client := &msb.MockMsbClient{}
 	client.SetGotSandbox(&msb.MockSandboxHandle{
-		Name_:   "opencode-sandbox-vm-test",
+		Name_:   "agents-sandbox-vm-test",
 		Status_: msbSdk.SandboxStatus("unknown-status"),
 	})
 	msb.WithMsbMock(t, client)
@@ -87,7 +87,7 @@ func TestEnsureProjectVMStartError(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	ui := termio.NewTestMock(t)
 	handle := &msb.MockSandboxHandle{
-		Name_:    "opencode-sandbox-vm-test",
+		Name_:    "agents-sandbox-vm-test",
 		Status_:  msbSdk.SandboxStatusStopped,
 		StartErr: errors.New("start failed"),
 	}
@@ -144,7 +144,7 @@ func TestEnsureProjectVMConnectRetryReconnectError(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	ui := termio.NewTestMock(t)
 	handle := &msb.MockSandboxHandle{
-		Name_:      "opencode-sandbox-vm-test",
+		Name_:      "agents-sandbox-vm-test",
 		Status_:    msbSdk.SandboxStatusRunning,
 		ConnectErr: errors.New("connect failed"),
 	}
@@ -179,7 +179,7 @@ func TestEnsureProjectVMConnectRetryStartAfterRefresh(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	ui := termio.NewTestMock(t)
 	handle := &msb.MockSandboxHandle{
-		Name_:      "opencode-sandbox-vm-test",
+		Name_:      "agents-sandbox-vm-test",
 		Status_:    msbSdk.SandboxStatusRunning,
 		ConnectErr: errors.New("connect failed"),
 	}
@@ -213,7 +213,7 @@ func TestEnsureProjectVMPostLockRecheckConnect(t *testing.T) {
 	ui := termio.NewTestMock(t)
 	callCount := 0
 	handle := &msb.MockSandboxHandle{
-		Name_:     "opencode-sandbox-vm-test",
+		Name_:     "agents-sandbox-vm-test",
 		Status_:   msbSdk.SandboxStatusRunning,
 		ConnectSb: &msb.MockSandbox{Name_: "vm"},
 	}
@@ -257,7 +257,7 @@ func TestEnsureProjectVMPostLockRecheckStart(t *testing.T) {
 	ui := termio.NewTestMock(t)
 	callCount := 0
 	handle := &msb.MockSandboxHandle{
-		Name_:   "opencode-sandbox-vm-test",
+		Name_:   "agents-sandbox-vm-test",
 		Status_: msbSdk.SandboxStatusStopped,
 		StartSb: &msb.MockSandbox{Name_: "vm"},
 	}
@@ -301,7 +301,7 @@ func TestEnsureProjectVMRecreateStopError(t *testing.T) {
 	ui := termio.NewTestMock(t)
 	callCount := 0
 	oldHandle := &msb.MockSandboxHandle{
-		Name_:   "opencode-sandbox-vm-test",
+		Name_:   "agents-sandbox-vm-test",
 		Status_: msbSdk.SandboxStatusRunning,
 		StopErr: errors.New("stop failed"),
 	}
@@ -346,7 +346,7 @@ func TestEnsureProjectVMStartSucceedsWithReconcile(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	ui := termio.NewTestMock(t)
 	handle := &msb.MockSandboxHandle{
-		Name_:   "opencode-sandbox-vm-test",
+		Name_:   "agents-sandbox-vm-test",
 		Status_: msbSdk.SandboxStatusStopped,
 		StartSb: &msb.MockSandbox{Name_: "vm"},
 		Cfg:     &msbSdk.SandboxConfig{CPUs: 2, MemoryMiB: 2048},
@@ -383,7 +383,7 @@ func TestEnsureProjectVMConnectReconcileWarn(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	ui := termio.NewTestMock(t)
 	handle := &msb.MockSandboxHandle{
-		Name_:     "opencode-sandbox-vm-test",
+		Name_:     "agents-sandbox-vm-test",
 		Status_:   msbSdk.SandboxStatusRunning,
 		ConnectSb: &msb.MockSandbox{Name_: "vm"},
 		Cfg:       &msbSdk.SandboxConfig{CPUs: 2, MemoryMiB: 2048},
@@ -423,7 +423,7 @@ func TestEnsureProjectVMStartReconcileWarn(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	ui := termio.NewTestMock(t)
 	handle := &msb.MockSandboxHandle{
-		Name_:     "opencode-sandbox-vm-test",
+		Name_:     "agents-sandbox-vm-test",
 		Status_:   msbSdk.SandboxStatusStopped,
 		StartSb:   &msb.MockSandbox{Name_: "vm"},
 		Cfg:       &msbSdk.SandboxConfig{CPUs: 2, MemoryMiB: 2048},
@@ -519,7 +519,7 @@ func TestEnsureProjectVMRecreateRemoveError(t *testing.T) {
 	ui := termio.NewTestMock(t)
 	callCount := 0
 	oldHandle := &msb.MockSandboxHandle{
-		Name_:     "opencode-sandbox-vm-test",
+		Name_:     "agents-sandbox-vm-test",
 		Status_:   msbSdk.SandboxStatusRunning,
 		RemoveErr: errors.New("remove failed"),
 	}

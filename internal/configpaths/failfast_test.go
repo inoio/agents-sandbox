@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/inoio/opencode-sandbox/internal/agent"
+	"github.com/inoio/agents-sandbox/internal/agent"
 )
 
 // TestFailFastConfigPathsPanics verifies that every method of the default

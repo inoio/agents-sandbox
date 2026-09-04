@@ -1,4 +1,4 @@
-# Contributing to opencode-sandbox
+# Contributing to agents-sandbox
 
 Thanks for considering a contribution. This guide explains how to build, test, and submit changes.
 
@@ -6,7 +6,7 @@ Thanks for considering a contribution. This guide explains how to build, test, a
 
 The layout is a standard Go module:
 
-- `cmd/opencode-sandbox` — the CLI entry point
+- `cmd/agents-sandbox` — the CLI entry point
 - `internal/` — packages for sandbox lifecycle, VM control, image building, pruning, config, and more
 - `docs/` — user documentation
 
@@ -15,7 +15,7 @@ The layout is a standard Go module:
 - Go 1.26 (see `go.mod`)
 - `golangci-lint` v2 for linting and formatting
 - `gotestsum` for generating JUnit XML test results (`make coverage-junit`)
-- Docker for building the runner image (`opencode-sandbox build`)
+- Docker for building the runner image (`agents-sandbox build`)
 - `zig` 0.16.0 - only needed for cross-compiling release binaries (`make build-release`)
 
 ## Common commands
@@ -28,7 +28,7 @@ Run these from the module root:
 | `make lint`          | Run the linter                                             |
 | `make fmt`           | Format all source files                                    |
 | `make check`         | Format, lint, and test — run before finalizing any change  |
-| `make build`         | Build the `opencode-sandbox` binary                        |
+| `make build`         | Build the `agents-sandbox` binary                        |
 | `make coverage`      | Run tests and print the coverage total                     |
 | `make coverage-junit`| Run tests, write coverage + JUnit XML (`junit.xml`)        |
 | `go mod tidy`        | Sync `go.mod` / `go.sum` after changing imports            |
@@ -56,7 +56,7 @@ This project defaults to **test-driven development**:
 3. Implement the change.
 4. Confirm the test passes.
 
-- Every new or changed CLI command or flag should be covered in `cmd/opencode-sandbox/cli_*_test.go`.
+- Every new or changed CLI command or flag should be covered in `cmd/agents-sandbox/cli_*_test.go`.
 - Add focused unit tests for internal functionality with each implementation.
 - Do manual tests and run the full suite with `make check` before submitting.
 

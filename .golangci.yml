@@ -39,7 +39,7 @@ formatters:
       # with the given prefixes are grouped after 3rd-party packages.
       # Default: []
       local-prefixes:
-        - github.com/inoio/opencode-sandbox
+        - github.com/inoio/agents-sandbox
 
     golines:
       # Target maximum line length.
@@ -307,10 +307,10 @@ linters:
         # microsandbox SDK errors — Cause is nil for SDK-originated errors
         - ^github.com/superradcompany/microsandbox/sdk/go.Error$
         # project types — intentionally partial init (zero-value fields set later)
-        - ^github.com/inoio/opencode-sandbox/internal/output.Spinner$
-        - ^github.com/inoio/opencode-sandbox/internal/sandbox.RunOptions$
-        - ^github.com/inoio/opencode-sandbox/internal/sandbox/options.RunOptions$
-        - ^github.com/inoio/opencode-sandbox/internal/sandbox.artifactInfo$
+        - ^github.com/inoio/agents-sandbox/internal/output.Spinner$
+        - ^github.com/inoio/agents-sandbox/internal/sandbox.RunOptions$
+        - ^github.com/inoio/agents-sandbox/internal/sandbox/options.RunOptions$
+        - ^github.com/inoio/agents-sandbox/internal/sandbox.artifactInfo$
       # Allows empty structures in return statements.
       # Default: false
       allow-empty-returns: true

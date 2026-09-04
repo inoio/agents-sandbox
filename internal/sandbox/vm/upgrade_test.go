@@ -7,10 +7,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/inoio/opencode-sandbox/internal/agent"
-	"github.com/inoio/opencode-sandbox/internal/configpaths"
-	"github.com/inoio/opencode-sandbox/internal/sandbox/options"
-	"github.com/inoio/opencode-sandbox/internal/termio"
+	"github.com/inoio/agents-sandbox/internal/agent"
+	"github.com/inoio/agents-sandbox/internal/configpaths"
+	"github.com/inoio/agents-sandbox/internal/sandbox/options"
+	"github.com/inoio/agents-sandbox/internal/termio"
 )
 
 func TestResolveBuildVersionSkipsCheckForUserAgentSource(t *testing.T) {
@@ -212,7 +212,7 @@ func TestResolveOpenCodeVersionNonInteractiveLogsUpgradeAvailable(t *testing.T) 
 	if upgraded {
 		t.Error("expected upgraded=false in a non-interactive session")
 	}
-	wantInfo := "opencode 2.0.0 available (image has 1.0.0); run 'opencode-sandbox build' to upgrade"
+	wantInfo := "opencode 2.0.0 available (image has 1.0.0); run 'agents-sandbox build' to upgrade"
 	if !slices.Contains(ui.InfoCalls, wantInfo) {
 		t.Errorf("expected info %q in output, got %v", wantInfo, ui.InfoCalls)
 	}

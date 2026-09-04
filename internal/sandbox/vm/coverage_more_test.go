@@ -10,14 +10,14 @@ import (
 
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 
-	"github.com/inoio/opencode-sandbox/internal/agent"
-	"github.com/inoio/opencode-sandbox/internal/configpaths"
-	"github.com/inoio/opencode-sandbox/internal/sandbox/docker"
-	"github.com/inoio/opencode-sandbox/internal/sandbox/msb"
-	"github.com/inoio/opencode-sandbox/internal/sandbox/network"
-	"github.com/inoio/opencode-sandbox/internal/sandbox/options"
-	"github.com/inoio/opencode-sandbox/internal/termio"
-	"github.com/inoio/opencode-sandbox/internal/testutil"
+	"github.com/inoio/agents-sandbox/internal/agent"
+	"github.com/inoio/agents-sandbox/internal/configpaths"
+	"github.com/inoio/agents-sandbox/internal/sandbox/docker"
+	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
+	"github.com/inoio/agents-sandbox/internal/sandbox/network"
+	"github.com/inoio/agents-sandbox/internal/sandbox/options"
+	"github.com/inoio/agents-sandbox/internal/termio"
+	"github.com/inoio/agents-sandbox/internal/testutil"
 )
 
 func TestProvisionHostConfig(t *testing.T) {
@@ -109,7 +109,7 @@ func TestRecordImageProvenanceLoadError(t *testing.T) {
 		t.Fatal(err)
 	}
 	fs := msb.NewTestFS(map[string][]byte{
-		"/etc/opencode-sandbox/agent-source": []byte("tool\n"),
+		"/etc/agents-sandbox/agent-source": []byte("tool\n"),
 	}, nil)
 	ui := &termio.Mock{}
 	sb := &msb.MockSandbox{FSValue_: fs}
@@ -136,7 +136,7 @@ func TestRecordImageProvenancePersistError(t *testing.T) {
 	t.Cleanup(func() { _ = os.Chmod(dir, 0o700) })
 
 	fs := msb.NewTestFS(map[string][]byte{
-		"/etc/opencode-sandbox/agent-source": []byte("user\n"),
+		"/etc/agents-sandbox/agent-source": []byte("user\n"),
 	}, nil)
 	ui := &termio.Mock{}
 	sb := &msb.MockSandbox{FSValue_: fs}
@@ -348,9 +348,9 @@ func TestCreateProjectVMNetworkError(t *testing.T) {
 	_, _, err := createProjectVM(
 		context.Background(),
 		client,
-		"opencode-sandbox-vm-test",
+		"agents-sandbox-vm-test",
 		testVMKey(),
-		"opencode-sandbox/runner-test:latest",
+		"agents-sandbox/runner-test:latest",
 		"test-home-vol",
 		t.TempDir(),
 		options.RunOptions{
@@ -375,9 +375,9 @@ func TestCreateProjectVMCreateError(t *testing.T) {
 	_, _, err := createProjectVM(
 		context.Background(),
 		client,
-		"opencode-sandbox-vm-test",
+		"agents-sandbox-vm-test",
 		testVMKey(),
-		"opencode-sandbox/runner-test:latest",
+		"agents-sandbox/runner-test:latest",
 		"test-home-vol",
 		t.TempDir(),
 		options.RunOptions{Memory: "1G"},
@@ -428,9 +428,9 @@ func TestCreateProjectVMServeOnlyAndNetwork(t *testing.T) {
 	_, _, err := createProjectVM(
 		context.Background(),
 		client,
-		"opencode-sandbox-vm-test",
+		"agents-sandbox-vm-test",
 		testVMKey(),
-		"opencode-sandbox/runner-test:latest",
+		"agents-sandbox/runner-test:latest",
 		"test-home-vol",
 		t.TempDir(),
 		options.RunOptions{
@@ -471,9 +471,9 @@ func TestCreateProjectVMServeOnlyPublishesExactPort(t *testing.T) {
 	_, _, err := createProjectVM(
 		context.Background(),
 		client,
-		"opencode-sandbox-vm-test",
+		"agents-sandbox-vm-test",
 		testVMKey(),
-		"opencode-sandbox/runner-test:latest",
+		"agents-sandbox/runner-test:latest",
 		"test-home-vol",
 		t.TempDir(),
 		options.RunOptions{

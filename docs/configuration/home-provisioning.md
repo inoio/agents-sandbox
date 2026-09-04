@@ -13,8 +13,8 @@ in a config file:
 
 | Config location                        | Purpose                          |
 |----------------------------------------|----------------------------------|
-| `~/.config/opencode-sandbox/config.yaml` (`home:`) | User-level home-file mappings    |
-| `.opencode-sandbox/config.yaml` (`home:`)          | Project-level home-file mappings |
+| `~/.config/agents-sandbox/config.yaml` (`home:`) | User-level home-file mappings    |
+| `.agents-sandbox/config.yaml` (`home:`)          | Project-level home-file mappings |
 
 Keys (targets) are relative paths within the VM home, e.g. `.config/opencode/opencode.json`. The host source value is
 resolved as follows:
@@ -29,11 +29,11 @@ Layering: the project config overrides the user config **per target**. Targets m
 directory, so `~/fdsa` should simply be written as `fdsa`), and the active agent's merged-config path is reserved (for
 opencode, `.config/opencode/opencode.jsonc`) — it cannot be provisioned via `home:`.
 
-Example project-level `home:` block in `.opencode-sandbox/config.yaml`:
+Example project-level `home:` block in `.agents-sandbox/config.yaml`:
 
 ```yaml
 home:
-  # Relative source resolves against .opencode-sandbox/
+  # Relative source resolves against .agents-sandbox/
   .ssh/config: ssh_config
   # Absolute host path
   .config/tooling/rc: /abs/path/to/rc
@@ -57,17 +57,17 @@ home:
 
 Rules:
 
-- `hook: startup` runs the provisioned script after home files are provisioned and before the opencode server daemon
-  starts, using the interpreter named by the script's shebang (`#!/bin/sh`, `#!/bin/bash`, `#!/usr/bin/env python3`, ...).
+- `hook: startup` runs the provisioned script after home files are provisioned and before the agent session starts,
+  using the interpreter named by the script's shebang (`#!/bin/sh`, `#!/bin/bash`, `#!/usr/bin/env python3`, ...).
   A script with **no shebang** falls back to `/bin/sh`. Any other non-empty `hook` value is rejected as a parse error.
 - The hook runs only when the VM is **started** — freshly created, recreated, or booted from a stopped/crashed state. It
   is **not** re-run when you attach to an already-running VM.
-- The hook runs interactively: it may read from user input (e.g. prompt for passwords or MFA), and opencode blocks
-  startup until the script finishes. A hook that must keep running for the VM's lifetime (e.g. a VPN client) must
+- The hook runs interactively: it may read from user input (e.g. prompt for passwords or MFA), and startup blocks
+  until the script finishes. A hook that must keep running for the VM's lifetime (e.g. a VPN client) must
   daemonize itself (e.g. `nohup openfortivpn ... &`) so it survives the attach; it stops when the VM stops.
 - The script runs as the sandbox user (`dev`) by default; set `root: true` to run it as root.
 
-Example: bring up a VPN with a vpn client (installed via your `.opencode-sandbox/Dockerfile`), with its
+Example: bring up a VPN with a vpn client (installed via your `.agents-sandbox/Dockerfile`), with its
 config (host, port, username, trusted cert) provisioned as a plain entry:
 
 ```yaml
@@ -81,4 +81,4 @@ home:
 
 Any credentials (passwords, MFA) the VPN needs should be interactively read from user input by the script.
 
-Run `opencode-sandbox config home` to list the resolved VM target → host source mappings.
+Run `agents-sandbox config home` to list the resolved VM target → host source mappings.

@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/inoio/opencode-sandbox/internal/agent"
-	"github.com/inoio/opencode-sandbox/internal/sandbox/msb"
-	"github.com/inoio/opencode-sandbox/internal/termio"
+	"github.com/inoio/agents-sandbox/internal/agent"
+	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
+	"github.com/inoio/agents-sandbox/internal/termio"
 )
 
 var daemonReadyTimeout = 60 * time.Second //nolint:gochecknoglobals // test seam, swapped in tests

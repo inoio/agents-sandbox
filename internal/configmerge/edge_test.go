@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/inoio/opencode-sandbox/internal/testutil"
+	"github.com/inoio/agents-sandbox/internal/testutil"
 )
 
 func TestBuildMergedRecursivelyMergesNestedMaps(t *testing.T) {

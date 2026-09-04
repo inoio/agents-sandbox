@@ -7,7 +7,7 @@ has_toc: false
 ---
 # Recipes
 
-Hands-on how-tos for common workflows with opencode-sandbox. Each recipe is
+Hands-on how-tos for common workflows with agents-sandbox. Each recipe is
 self-contained, so you can jump straight to the one you need.
 
 ## Agent Context (AGENTS.md)
@@ -20,7 +20,7 @@ An `AGENTS.md` in the working directory can orient the agent on being in a sandb
 You are running inside a sandbox VM, not on the host. Filesystem layout:
 
 - `/workspace` bind mount of the host CWD, mounted rw.
-- `~/.local/share/opencode/worktree/` git worktrees of `/workspace`, created by opencode
+- `~/.local/share/opencode/worktree/` git worktrees of `/workspace`, created by the opencode daemon
 
 ## Toolchain
 

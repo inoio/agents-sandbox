@@ -3,10 +3,10 @@ package naming
 import "testing"
 
 func TestLabelConstants(t *testing.T) {
-	if LabelProject != "org.opencode-sandbox.project" {
-		t.Errorf("LabelProject = %q, want org.opencode-sandbox.project", LabelProject)
+	if LabelProject != "org.agents-sandbox.project" {
+		t.Errorf("LabelProject = %q, want org.agents-sandbox.project", LabelProject)
 	}
-	if LabelImage != "org.opencode-sandbox.image" {
-		t.Errorf("LabelImage = %q, want org.opencode-sandbox.image", LabelImage)
+	if LabelImage != "org.agents-sandbox.image" {
+		t.Errorf("LabelImage = %q, want org.agents-sandbox.image", LabelImage)
 	}
 }

@@ -11,8 +11,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/inoio/opencode-sandbox/internal/agent"
-	"github.com/inoio/opencode-sandbox/internal/sandbox/msb"
+	"github.com/inoio/agents-sandbox/internal/agent"
+	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
 )
 
 // sessionBusyAware is implemented by backends that want to be told when a

@@ -16,14 +16,14 @@ activityDiagram {
   }
 }
 </style>
-' opencode-sandbox — Configuration precedence (later entries override earlier ones)
-title opencode-sandbox — Configuration precedence
+' agents-sandbox — Configuration precedence (later entries override earlier ones)
+title agents-sandbox — Configuration precedence
 
 start
 :1. Built-in / flag defaults;
-:2. User-level\n\~/.config/opencode-sandbox/;
-:3. User per-slug\n\~/.config/opencode-sandbox/<slug>/;
-:4. Project-level\n.opencode-sandbox/;
+:2. User-level\n\~/.config/agents-sandbox/;
+:3. User per-slug\n\~/.config/agents-sandbox/<slug>/;
+:4. Project-level\n.agents-sandbox/;
 :5. Environment variables\nOPENCODE_SANDBOX_*;
 :6. CLI flags;
 stop

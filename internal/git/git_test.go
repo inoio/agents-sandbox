@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/inoio/opencode-sandbox/internal/testutil"
+	"github.com/inoio/agents-sandbox/internal/testutil"
 )
 
 func TestHashIDReturns14Chars(t *testing.T) {
@@ -162,7 +162,7 @@ func TestLastPathSegment(t *testing.T) {
 	}{
 		{"https with .git", "https://gitlab.example.com/org/repo.git", "repo"},
 		{"https no .git", "https://gitlab.example.com/org/my-repo", "my-repo"},
-		{"ssh scp-like with namespace", "git@github.com:inoio/opencode-sandbox.git", "opencode-sandbox"},
+		{"ssh scp-like with namespace", "git@github.com:inoio/agents-sandbox.git", "agents-sandbox"},
 		{"ssh scp-like no namespace", "git@gitlab.example.com:tool.git", "tool"},
 		{"git protocol", "git://gitlab.example.com/org/repo.git", "repo"},
 	}
@@ -176,23 +176,23 @@ func TestLastPathSegment(t *testing.T) {
 }
 
 func TestProjectSlugUsesOriginRepoName(t *testing.T) {
-	const origin = "git@github.com:inoio/opencode-sandbox.git"
+	const origin = "git@github.com:inoio/agents-sandbox.git"
 	repo := testutil.InitRepo(t)
 	testutil.RunGit(t, repo, "remote", "add", "origin", origin)
 	t.Chdir(repo)
 	got := ProjectSlug()
-	if !strings.HasPrefix(got, "opencode-sandbox-") {
-		t.Errorf("expected slug to start with 'opencode-sandbox-', got %q", got)
+	if !strings.HasPrefix(got, "agents-sandbox-") {
+		t.Errorf("expected slug to start with 'agents-sandbox-', got %q", got)
 	}
-	if len(got) != len("opencode-sandbox-")+14 {
-		t.Errorf("expected slug of %d chars, got %d (%q)", len("opencode-sandbox-")+14, len(got), got)
+	if len(got) != len("agents-sandbox-")+14 {
+		t.Errorf("expected slug of %d chars, got %d (%q)", len("agents-sandbox-")+14, len(got), got)
 	}
 }
 
 func TestProjectSlugStableForSameOrigin(t *testing.T) {
 	// Two clones of the same origin at different paths must share one slug,
 	// so worktrees/checkouts of the same project are not treated as distinct.
-	const origin = "git@github.com:inoio/opencode-sandbox.git"
+	const origin = "git@github.com:inoio/agents-sandbox.git"
 	a := testutil.InitRepo(t)
 	testutil.RunGit(t, a, "remote", "add", "origin", origin)
 	b := testutil.InitRepo(t)
@@ -209,9 +209,9 @@ func TestProjectSlugStableForSameOrigin(t *testing.T) {
 
 func TestProjectSlugDiffersForDifferentOrigins(t *testing.T) {
 	a := testutil.InitRepo(t)
-	testutil.RunGit(t, a, "remote", "add", "origin", "git@github.com:inoio/opencode-sandbox.git")
+	testutil.RunGit(t, a, "remote", "add", "origin", "git@github.com:inoio/agents-sandbox.git")
 	b := testutil.InitRepo(t)
-	testutil.RunGit(t, b, "remote", "add", "origin", "git@github.com:someone/opencode-sandbox.git")
+	testutil.RunGit(t, b, "remote", "add", "origin", "git@github.com:someone/agents-sandbox.git")
 
 	t.Chdir(a)
 	slugA := ProjectSlug()
@@ -223,7 +223,7 @@ func TestProjectSlugDiffersForDifferentOrigins(t *testing.T) {
 }
 
 func TestProjectSlugWorktreeSharesOriginSlug(t *testing.T) {
-	const origin = "git@github.com:inoio/opencode-sandbox.git"
+	const origin = "git@github.com:inoio/agents-sandbox.git"
 	repo := testutil.InitRepo(t)
 	testutil.RunGit(t, repo, "remote", "add", "origin", origin)
 	mainSlug := projectSlugAt(repo)

@@ -3,7 +3,7 @@ package agent_test
 import (
 	"testing"
 
-	"github.com/inoio/opencode-sandbox/internal/agent"
+	"github.com/inoio/agents-sandbox/internal/agent"
 )
 
 // opencode must expose a distinct WorktreeProvider capability, separate from

@@ -8,7 +8,7 @@ import (
 
 	_ "embed"
 
-	"github.com/inoio/opencode-sandbox/internal/termio"
+	"github.com/inoio/agents-sandbox/internal/termio"
 )
 
 //go:embed assets/notify.wav

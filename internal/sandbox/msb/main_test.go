@@ -3,8 +3,8 @@ package msb
 import (
 	"testing"
 
-	"github.com/inoio/opencode-sandbox/internal/configpaths"
-	"github.com/inoio/opencode-sandbox/internal/sandbox/docker"
+	"github.com/inoio/agents-sandbox/internal/configpaths"
+	"github.com/inoio/agents-sandbox/internal/sandbox/docker"
 )
 
 // realGetFactory captures the package's default Client factory before TestMain

@@ -8,8 +8,8 @@ import (
 
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 
-	"github.com/inoio/opencode-sandbox/internal/sandbox/msb"
-	"github.com/inoio/opencode-sandbox/internal/sandbox/state"
+	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
+	"github.com/inoio/agents-sandbox/internal/sandbox/state"
 )
 
 var errBoom = errors.New("boom")
@@ -22,31 +22,31 @@ func TestBuildPruneState(t *testing.T) {
 		Sandboxes: []msb.SandboxHandle{
 			// running -> never stale (kept)
 			&msb.MockSandboxHandle{
-				Name_:      "opencode-sandbox-vm-proj1-1mjusbm3wikhb0",
+				Name_:      "agents-sandbox-vm-proj1-1mjusbm3wikhb0",
 				Status_:    msbSdk.SandboxStatusRunning,
 				UpdatedAt_: recent,
 			},
 			// stopped but fresh -> not yet stale (kept)
 			&msb.MockSandboxHandle{
-				Name_:      "opencode-sandbox-vm-proj2-1mjusbm3wikhb0",
+				Name_:      "agents-sandbox-vm-proj2-1mjusbm3wikhb0",
 				Status_:    msbSdk.SandboxStatusStopped,
 				UpdatedAt_: recent,
 			},
 			// stale stopped -> prunable
 			&msb.MockSandboxHandle{
-				Name_:      "opencode-sandbox-vm-proj3-1mjusbm3wikhb0",
+				Name_:      "agents-sandbox-vm-proj3-1mjusbm3wikhb0",
 				Status_:    msbSdk.SandboxStatusStopped,
 				UpdatedAt_: stale,
 			},
 			// task sandbox -> prunable regardless of age (slug "fill")
 			&msb.MockSandboxHandle{
-				Name_:      "opencode-sandbox-task-fill-proj",
+				Name_:      "agents-sandbox-task-fill-proj",
 				Status_:    msbSdk.SandboxStatusStopped,
 				UpdatedAt_: recent,
 			},
 			// running task -> never stale (slug "fill2")
 			&msb.MockSandboxHandle{
-				Name_:      "opencode-sandbox-task-fill2-proj",
+				Name_:      "agents-sandbox-task-fill2-proj",
 				Status_:    msbSdk.SandboxStatusRunning,
 				UpdatedAt_: stale,
 			},
@@ -96,7 +96,7 @@ func TestBuildPruneState_AgeZero(t *testing.T) {
 	client := &msb.MockMsbClient{
 		Sandboxes: []msb.SandboxHandle{
 			&msb.MockSandboxHandle{
-				Name_:      "opencode-sandbox-vm-proj-1mjusbm3wikhb0",
+				Name_:      "agents-sandbox-vm-proj-1mjusbm3wikhb0",
 				Status_:    msbSdk.SandboxStatusStopped,
 				UpdatedAt_: time.Now(),
 			},
@@ -118,7 +118,7 @@ func TestBuildPruneState_SkipsUnparseableName(t *testing.T) {
 		Sandboxes: []msb.SandboxHandle{
 			// Vm-prefixed but with no slug remainder -> must be skipped.
 			&msb.MockSandboxHandle{
-				Name_:      "opencode-sandbox-vm-",
+				Name_:      "agents-sandbox-vm-",
 				Status_:    msbSdk.SandboxStatusStopped,
 				UpdatedAt_: time.Now().Add(-15 * 24 * time.Hour),
 			},

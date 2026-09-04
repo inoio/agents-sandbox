@@ -3,7 +3,7 @@ package vm
 import (
 	"testing"
 
-	"github.com/inoio/opencode-sandbox/internal/sandbox/options"
+	"github.com/inoio/agents-sandbox/internal/sandbox/options"
 )
 
 func TestResolveServeHostPortNotServeOnly(t *testing.T) {

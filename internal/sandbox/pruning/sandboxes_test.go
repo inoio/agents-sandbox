@@ -8,26 +8,26 @@ import (
 
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 
-	"github.com/inoio/opencode-sandbox/internal/sandbox/msb"
-	"github.com/inoio/opencode-sandbox/internal/sandbox/state"
-	"github.com/inoio/opencode-sandbox/internal/termio"
+	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
+	"github.com/inoio/agents-sandbox/internal/sandbox/state"
+	"github.com/inoio/agents-sandbox/internal/termio"
 )
 
 func TestPruneSandboxes(t *testing.T) {
 	stale := time.Now().Add(-15 * 24 * time.Hour)
 
 	stopped := &msb.MockSandboxHandle{
-		Name_:      "opencode-sandbox-vm-proj1-1mjusbm3wikhb0",
+		Name_:      "agents-sandbox-vm-proj1-1mjusbm3wikhb0",
 		Status_:    msbSdk.SandboxStatusStopped,
 		UpdatedAt_: stale,
 	}
 	running := &msb.MockSandboxHandle{
-		Name_:      "opencode-sandbox-vm-proj2-1mjusbm3wikhb0",
+		Name_:      "agents-sandbox-vm-proj2-1mjusbm3wikhb0",
 		Status_:    msbSdk.SandboxStatusRunning,
 		UpdatedAt_: stale,
 	}
 	task := &msb.MockSandboxHandle{
-		Name_:      "opencode-sandbox-task-fill-proj",
+		Name_:      "agents-sandbox-task-fill-proj",
 		Status_:    msbSdk.SandboxStatusStopped,
 		UpdatedAt_: stale,
 	}
@@ -57,7 +57,7 @@ func TestPruneSandboxes(t *testing.T) {
 		for _, n := range client.RemovedSandboxes {
 			removed[n] = true
 		}
-		for _, want := range []string{"opencode-sandbox-vm-proj1-1mjusbm3wikhb0", "opencode-sandbox-task-fill-proj"} {
+		for _, want := range []string{"agents-sandbox-vm-proj1-1mjusbm3wikhb0", "agents-sandbox-task-fill-proj"} {
 			if !removed[want] {
 				t.Errorf("RemovedSandboxes missing %q, got %v", want, client.RemovedSandboxes)
 			}
@@ -105,7 +105,7 @@ func TestPruneSandboxes(t *testing.T) {
 		removed := make(map[string]bool)
 		client := &msb.MockMsbClient{
 			RemoveSandboxFn: func(_ context.Context, name string) error {
-				if name == "opencode-sandbox-vm-proj1-1mjusbm3wikhb0" {
+				if name == "agents-sandbox-vm-proj1-1mjusbm3wikhb0" {
 					return errors.New("boom")
 				}
 				removed[name] = true
@@ -118,7 +118,7 @@ func TestPruneSandboxes(t *testing.T) {
 			ToPrune: map[state.Key]msb.SandboxHandle{
 				{Slug: "proj1-1mjusbm3wikhb0", Agent: ""}: stopped,
 				{Slug: "proj2-1mjusbm3wikhb0", Agent: ""}: &msb.MockSandboxHandle{
-					Name_:      "opencode-sandbox-vm-proj2-1mjusbm3wikhb0",
+					Name_:      "agents-sandbox-vm-proj2-1mjusbm3wikhb0",
 					Status_:    msbSdk.SandboxStatusStopped,
 					UpdatedAt_: stale,
 				},
@@ -131,7 +131,7 @@ func TestPruneSandboxes(t *testing.T) {
 		if r.VMsPruned != 1 {
 			t.Errorf("VMsPruned = %d, want 1 (failed one is skipped)", r.VMsPruned)
 		}
-		if !removed["opencode-sandbox-vm-proj2-1mjusbm3wikhb0"] {
+		if !removed["agents-sandbox-vm-proj2-1mjusbm3wikhb0"] {
 			t.Errorf("expected the non-failing sandbox to be removed, got %v", removed)
 		}
 		if len(ui.WarnCalls) != 1 {

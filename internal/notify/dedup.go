@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"sync"
 
-	sandboxstate "github.com/inoio/opencode-sandbox/internal/sandbox/state"
+	sandboxstate "github.com/inoio/agents-sandbox/internal/sandbox/state"
 )
 
 // claimer acquires named cross-process claims. It is an interface so tests can

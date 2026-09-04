@@ -284,7 +284,7 @@ func (realMsbClient) ImageRemove(ctx context.Context, ref string, force bool) er
 }
 
 func (realMsbClient) ImageLoad(ctx context.Context, ref string, r io.Reader) (err error) {
-	tmp, err := os.CreateTemp("", "opencode-sandbox-image-*.tar")
+	tmp, err := os.CreateTemp("", "agents-sandbox-image-*.tar")
 	if err != nil {
 		return fmt.Errorf("creating temp file for image load: %w", err)
 	}

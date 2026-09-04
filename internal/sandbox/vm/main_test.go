@@ -3,10 +3,10 @@ package vm
 import (
 	"testing"
 
-	"github.com/inoio/opencode-sandbox/internal/agent"
-	"github.com/inoio/opencode-sandbox/internal/sandbox/state"
+	"github.com/inoio/agents-sandbox/internal/agent"
+	"github.com/inoio/agents-sandbox/internal/sandbox/state"
 
-	termio "github.com/inoio/opencode-sandbox/internal/testutil/mocks"
+	termio "github.com/inoio/agents-sandbox/internal/testutil/mocks"
 )
 
 func TestMain(m *testing.M) {

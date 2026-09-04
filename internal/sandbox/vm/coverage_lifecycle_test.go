@@ -7,10 +7,10 @@ import (
 
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 
-	"github.com/inoio/opencode-sandbox/internal/configpaths"
-	"github.com/inoio/opencode-sandbox/internal/sandbox/msb"
-	"github.com/inoio/opencode-sandbox/internal/sandbox/options"
-	"github.com/inoio/opencode-sandbox/internal/termio"
+	"github.com/inoio/agents-sandbox/internal/configpaths"
+	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
+	"github.com/inoio/agents-sandbox/internal/sandbox/options"
+	"github.com/inoio/agents-sandbox/internal/termio"
 )
 
 // retryConnectHandle is a SandboxHandle whose Connect fails on the first call
@@ -46,13 +46,13 @@ func TestEnsureProjectVMConnectRetryReconnectSucceeds(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	ui := termio.NewTestMock(t)
 	refreshed := &msb.MockSandboxHandle{
-		Name_:     "opencode-sandbox-vm-test",
+		Name_:     "agents-sandbox-vm-test",
 		Status_:   msbSdk.SandboxStatusRunning,
 		ConnectSb: &msb.MockSandbox{Name_: "vm"},
 	}
 	handle := &retryConnectHandle{
 		SandboxHandle: &msb.MockSandboxHandle{
-			Name_:   "opencode-sandbox-vm-test",
+			Name_:   "agents-sandbox-vm-test",
 			Status_: msbSdk.SandboxStatusRunning,
 		},
 		refresh: refreshed,
@@ -88,13 +88,13 @@ func TestEnsureProjectVMConnectRetryThenStart(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	ui := termio.NewTestMock(t)
 	refreshed := &msb.MockSandboxHandle{
-		Name_:   "opencode-sandbox-vm-test",
+		Name_:   "agents-sandbox-vm-test",
 		Status_: msbSdk.SandboxStatusStopped,
 		StartSb: &msb.MockSandbox{Name_: "vm"},
 	}
 	handle := &retryConnectHandle{
 		SandboxHandle: &msb.MockSandboxHandle{
-			Name_:   "opencode-sandbox-vm-test",
+			Name_:   "agents-sandbox-vm-test",
 			Status_: msbSdk.SandboxStatusRunning,
 		},
 		refresh: refreshed,
@@ -131,7 +131,7 @@ func TestEnsureProjectVMPostLockDecideError(t *testing.T) {
 	ui := termio.NewTestMock(t)
 	callCount := 0
 	handle := &msb.MockSandboxHandle{
-		Name_:   "opencode-sandbox-vm-test",
+		Name_:   "agents-sandbox-vm-test",
 		Status_: msbSdk.SandboxStatus("unknown-status"),
 	}
 	client := &msb.MockMsbClient{}
@@ -167,7 +167,7 @@ func TestEnsureProjectVMPostLockConnectFailThenStart(t *testing.T) {
 	ui := termio.NewTestMock(t)
 	callCount := 0
 	handle := &msb.MockSandboxHandle{
-		Name_:      "opencode-sandbox-vm-test",
+		Name_:      "agents-sandbox-vm-test",
 		Status_:    msbSdk.SandboxStatusRunning,
 		ConnectErr: errors.New("connect failed"),
 		StartSb:    &msb.MockSandbox{Name_: "vm"},
@@ -214,7 +214,7 @@ func TestEnsureProjectVMPostLockStartError(t *testing.T) {
 	ui := termio.NewTestMock(t)
 	callCount := 0
 	handle := &msb.MockSandboxHandle{
-		Name_:    "opencode-sandbox-vm-test",
+		Name_:    "agents-sandbox-vm-test",
 		Status_:  msbSdk.SandboxStatusStopped,
 		StartErr: errors.New("start failed"),
 	}
@@ -251,7 +251,7 @@ func TestEnsureProjectVMPostLockConnectReconcileWarn(t *testing.T) {
 	ui := termio.NewTestMock(t)
 	callCount := 0
 	handle := &msb.MockSandboxHandle{
-		Name_:     "opencode-sandbox-vm-test",
+		Name_:     "agents-sandbox-vm-test",
 		Status_:   msbSdk.SandboxStatusRunning,
 		ConnectSb: &msb.MockSandbox{Name_: "vm"},
 		Cfg:       &msbSdk.SandboxConfig{CPUs: 2, MaxCPUs: 8},
@@ -299,7 +299,7 @@ func TestEnsureProjectVMPostLockStartReconcileWarn(t *testing.T) {
 	ui := termio.NewTestMock(t)
 	callCount := 0
 	handle := &msb.MockSandboxHandle{
-		Name_:     "opencode-sandbox-vm-test",
+		Name_:     "agents-sandbox-vm-test",
 		Status_:   msbSdk.SandboxStatusStopped,
 		StartSb:   &msb.MockSandbox{Name_: "vm"},
 		Cfg:       &msbSdk.SandboxConfig{CPUs: 2, MaxCPUs: 8},
@@ -347,7 +347,7 @@ func TestEnsureProjectVMConnectRetryRefreshError(t *testing.T) {
 	ui := termio.NewTestMock(t)
 	handle := &retryConnectHandle{
 		SandboxHandle: &msb.MockSandboxHandle{
-			Name_:   "opencode-sandbox-vm-test",
+			Name_:   "agents-sandbox-vm-test",
 			Status_: msbSdk.SandboxStatusRunning,
 		},
 		refreshErr: errors.New("refresh failed"),
@@ -377,7 +377,7 @@ func TestEnsureProjectVMConnectRetryReconcileWarn(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	ui := termio.NewTestMock(t)
 	refreshed := &msb.MockSandboxHandle{
-		Name_:     "opencode-sandbox-vm-test",
+		Name_:     "agents-sandbox-vm-test",
 		Status_:   msbSdk.SandboxStatusRunning,
 		ConnectSb: &msb.MockSandbox{Name_: "vm"},
 		Cfg:       &msbSdk.SandboxConfig{CPUs: 2, MaxCPUs: 8},
@@ -385,7 +385,7 @@ func TestEnsureProjectVMConnectRetryReconcileWarn(t *testing.T) {
 	}
 	handle := &retryConnectHandle{
 		SandboxHandle: &msb.MockSandboxHandle{
-			Name_:   "opencode-sandbox-vm-test",
+			Name_:   "agents-sandbox-vm-test",
 			Status_: msbSdk.SandboxStatusRunning,
 		},
 		refresh: refreshed,
@@ -424,13 +424,13 @@ func TestEnsureProjectVMConnectRetryStartError(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	ui := termio.NewTestMock(t)
 	refreshed := &msb.MockSandboxHandle{
-		Name_:    "opencode-sandbox-vm-test",
+		Name_:    "agents-sandbox-vm-test",
 		Status_:  msbSdk.SandboxStatusStopped,
 		StartErr: errors.New("start failed"),
 	}
 	handle := &retryConnectHandle{
 		SandboxHandle: &msb.MockSandboxHandle{
-			Name_:   "opencode-sandbox-vm-test",
+			Name_:   "agents-sandbox-vm-test",
 			Status_: msbSdk.SandboxStatusRunning,
 		},
 		refresh: refreshed,
@@ -460,7 +460,7 @@ func TestEnsureProjectVMConnectRetryStartReconcileWarn(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	ui := termio.NewTestMock(t)
 	refreshed := &msb.MockSandboxHandle{
-		Name_:     "opencode-sandbox-vm-test",
+		Name_:     "agents-sandbox-vm-test",
 		Status_:   msbSdk.SandboxStatusStopped,
 		StartSb:   &msb.MockSandbox{Name_: "vm"},
 		Cfg:       &msbSdk.SandboxConfig{CPUs: 2, MaxCPUs: 8},
@@ -468,7 +468,7 @@ func TestEnsureProjectVMConnectRetryStartReconcileWarn(t *testing.T) {
 	}
 	handle := &retryConnectHandle{
 		SandboxHandle: &msb.MockSandboxHandle{
-			Name_:   "opencode-sandbox-vm-test",
+			Name_:   "agents-sandbox-vm-test",
 			Status_: msbSdk.SandboxStatusRunning,
 		},
 		refresh: refreshed,

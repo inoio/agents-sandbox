@@ -18,7 +18,7 @@ import (
 	"github.com/titanous/json5"
 	"gopkg.in/yaml.v3"
 
-	"github.com/inoio/opencode-sandbox/internal/yamlfmt"
+	"github.com/inoio/agents-sandbox/internal/yamlfmt"
 )
 
 // supportedExts are the config-file extensions, tried in order. The order MUST

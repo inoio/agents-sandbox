@@ -11,12 +11,12 @@ import (
 
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 
-	"github.com/inoio/opencode-sandbox/internal/configpaths"
-	"github.com/inoio/opencode-sandbox/internal/sandbox/docker"
-	"github.com/inoio/opencode-sandbox/internal/sandbox/msb"
-	"github.com/inoio/opencode-sandbox/internal/sandbox/options"
-	"github.com/inoio/opencode-sandbox/internal/sandbox/state"
-	"github.com/inoio/opencode-sandbox/internal/termio"
+	"github.com/inoio/agents-sandbox/internal/configpaths"
+	"github.com/inoio/agents-sandbox/internal/sandbox/docker"
+	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
+	"github.com/inoio/agents-sandbox/internal/sandbox/options"
+	"github.com/inoio/agents-sandbox/internal/sandbox/state"
+	"github.com/inoio/agents-sandbox/internal/termio"
 )
 
 func TestCheckForActiveVMs_ListSandboxesError(t *testing.T) {
@@ -32,7 +32,7 @@ func TestCheckForActiveVMs_ListSandboxesError(t *testing.T) {
 func TestCheckForActiveVMs_IgnoresNonVMSandboxes(t *testing.T) {
 	mock, _ := setupVolumeOpsFixtures(t)
 	mock.Sandboxes = []msb.SandboxHandle{
-		&msb.MockSandboxHandle{Name_: "opencode-sandbox-task-someproj", Status_: msbSdk.SandboxStatusRunning},
+		&msb.MockSandboxHandle{Name_: "agents-sandbox-task-someproj", Status_: msbSdk.SandboxStatusRunning},
 	}
 
 	if err := checkForActiveVMs(context.Background(), state.Key{Slug: "someproj", Agent: "opencode"}); err != nil {
@@ -43,7 +43,7 @@ func TestCheckForActiveVMs_IgnoresNonVMSandboxes(t *testing.T) {
 func TestCheckForActiveVMs_OtherSlugVMIsIgnored(t *testing.T) {
 	mock, _ := setupVolumeOpsFixtures(t)
 	mock.Sandboxes = []msb.SandboxHandle{
-		&msb.MockSandboxHandle{Name_: "opencode-sandbox-vm-otherproj", Status_: msbSdk.SandboxStatusRunning},
+		&msb.MockSandboxHandle{Name_: "agents-sandbox-vm-otherproj", Status_: msbSdk.SandboxStatusRunning},
 	}
 
 	if err := checkForActiveVMs(context.Background(), state.Key{Slug: "someproj", Agent: "opencode"}); err != nil {
@@ -54,7 +54,7 @@ func TestCheckForActiveVMs_OtherSlugVMIsIgnored(t *testing.T) {
 func TestCheckForActiveVMs_InactiveVMSameSlugIsIgnored(t *testing.T) {
 	mock, _ := setupVolumeOpsFixtures(t)
 	mock.Sandboxes = []msb.SandboxHandle{
-		&msb.MockSandboxHandle{Name_: "opencode-sandbox-vm-someproj", Status_: msbSdk.SandboxStatusStopped},
+		&msb.MockSandboxHandle{Name_: "agents-sandbox-vm-someproj", Status_: msbSdk.SandboxStatusStopped},
 	}
 
 	if err := checkForActiveVMs(context.Background(), state.Key{Slug: "someproj", Agent: "opencode"}); err != nil {
@@ -223,7 +223,7 @@ func TestVolumeOp_WriteStateFails_Warns(t *testing.T) {
 func TestVolumeOp_RemoveOldFails_Warns(t *testing.T) {
 	mock, ui := setupVolumeOpsFixtures(t)
 	slug := "testproj-aBc1234D"
-	oldVol := "opencode-sandbox-home-" + slug + "-old"
+	oldVol := "agents-sandbox-home-" + slug + "-old"
 	state.WriteState(
 		state.Key{Slug: slug, Agent: "opencode"},
 		state.HomeState{HomeVolume: oldVol, ImageDigest: "sha256:old"},

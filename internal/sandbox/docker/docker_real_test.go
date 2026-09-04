@@ -22,7 +22,7 @@ func TestRealDockerClientPing(t *testing.T) {
 func TestRealDockerClientImageLookupErrors(t *testing.T) {
 	c := &realDockerClient{}
 	ctx := context.Background()
-	const missing = "opencode-sandbox-tests-no-such-image"
+	const missing = "agents-sandbox-tests-no-such-image"
 
 	if _, err := c.ImageInspect(ctx, missing); err == nil {
 		t.Error("ImageInspect() = nil error, want error for missing image")
@@ -35,7 +35,7 @@ func TestRealDockerClientImageLookupErrors(t *testing.T) {
 	}
 	if _, err := c.ImageTag(
 		ctx,
-		client.ImageTagOptions{Source: missing, Target: "opencode-sandbox-tests:nope"},
+		client.ImageTagOptions{Source: missing, Target: "agents-sandbox-tests:nope"},
 	); err == nil {
 		t.Error("ImageTag() = nil error, want error for missing source image")
 	}
@@ -60,7 +60,7 @@ func TestRealDockerClientImagePullError(t *testing.T) {
 	// delegation path without pulling any image.
 	if _, err := c.ImagePull(
 		context.Background(),
-		"opencode-sandbox-tests-no-such-image",
+		"agents-sandbox-tests-no-such-image",
 		client.ImagePullOptions{},
 	); err == nil {
 		t.Error("ImagePull() = nil error, want error for missing image")

@@ -4,7 +4,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/inoio/opencode-sandbox/internal/agent"
+	"github.com/inoio/agents-sandbox/internal/agent"
 )
 
 type ConfigPaths interface {
@@ -36,19 +36,19 @@ var Get = func() ConfigPaths {
 }
 
 // UserConfigDir returns the tool's user-config directory: $XDG_CONFIG_HOME/
-// opencode-sandbox, defaulting to ~/.config/opencode-sandbox.
+// agents-sandbox, defaulting to ~/.config/agents-sandbox.
 func (c *realConfigPaths) UserConfigDir() string {
 	return filepath.Join(xdgBaseDir("XDG_CONFIG_HOME", ".config"), pathPrefix)
 }
 
 // UserCacheDir returns the tool's cache directory: $XDG_CACHE_HOME/
-// opencode-sandbox, defaulting to ~/.cache/opencode-sandbox.
+// agents-sandbox, defaulting to ~/.cache/agents-sandbox.
 func (c *realConfigPaths) UserCacheDir() string {
 	return filepath.Join(xdgBaseDir("XDG_CACHE_HOME", ".cache"), pathPrefix)
 }
 
 // UserStateDir returns the tool's state directory: $XDG_STATE_HOME/
-// opencode-sandbox, defaulting to ~/.local/state/opencode-sandbox.
+// agents-sandbox, defaulting to ~/.local/state/agents-sandbox.
 func (c *realConfigPaths) UserStateDir() string {
 	return filepath.Join(xdgBaseDir("XDG_STATE_HOME", ".local/state"), pathPrefix)
 }
@@ -59,7 +59,7 @@ func (c *realConfigPaths) UserAgentConfigDir(a agent.Agent) string {
 	return filepath.Join(c.UserConfigDir(), a.ConfigDirName())
 }
 
-// ProjectConfigDir returns the tool's project-config directory: $PWD/opencode-sandbox.
+// ProjectConfigDir returns the tool's project-config directory: $PWD/agents-sandbox.
 func (c *realConfigPaths) ProjectConfigDir() string { return projectConfigDir }
 
 // UserEnvFile returns the user-level environment definitions file.
@@ -80,7 +80,7 @@ func (c *realConfigPaths) UserEnvSecretYAMLFile() string {
 // Shared names for config subdirectories and files, used by both the
 // project-local and the user-level config path helpers.
 const (
-	pathPrefix = "opencode-sandbox"
+	pathPrefix = "agents-sandbox"
 	// projectConfigDir is the project-local metadata directory for the tool.
 	projectConfigDir  = "." + pathPrefix
 	EnvFileName       = "env"
@@ -123,7 +123,7 @@ func (c *realConfigPaths) ProjectEnvSecretYAMLFile() string {
 // falling back to $HOME/<fallback> when the variable is unset or holds a
 // relative path (the XDG base directory spec only accepts absolute values). It
 // returns the base directory without the application's own subdirectory; each
-// caller appends "opencode-sandbox".
+// caller appends "agents-sandbox".
 //
 // The os package's UserConfigDir/UserCacheDir are deliberately not used: they
 // return platform-specific paths (e.g., $HOME/Library/... on macOS) instead of

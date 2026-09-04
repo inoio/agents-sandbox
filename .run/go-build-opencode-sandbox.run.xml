@@ -1,9 +1,9 @@
 <component name="ProjectRunConfigurationManager">
-  <configuration default="false" name="go-build-opencode-sandbox" type="GoApplicationRunConfiguration" factoryName="Go Application">
-    <module name="opencode-sandbox" />
+  <configuration default="false" name="go-build-agents-sandbox" type="GoApplicationRunConfiguration" factoryName="Go Application">
+    <module name="agents-sandbox" />
     <working_directory value="$PROJECT_DIR$" />
     <kind value="PACKAGE" />
-    <package value="github.com/inoio/opencode-sandbox/cmd/opencode-sandbox" />
+    <package value="github.com/inoio/agents-sandbox/cmd/agents-sandbox" />
     <directory value="$PROJECT_DIR$" />
     <option name="run" value="false" />
     <method v="2" />

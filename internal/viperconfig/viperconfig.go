@@ -11,13 +11,13 @@ import (
 	"strings"
 	"time"
 
-	"github.com/inoio/opencode-sandbox/internal/configpaths"
-	"github.com/inoio/opencode-sandbox/internal/homeconfig"
-	"github.com/inoio/opencode-sandbox/internal/notify"
-	"github.com/inoio/opencode-sandbox/internal/sandbox/mounts"
-	"github.com/inoio/opencode-sandbox/internal/sandbox/network"
-	"github.com/inoio/opencode-sandbox/internal/upgrade"
-	"github.com/inoio/opencode-sandbox/internal/yamlfmt"
+	"github.com/inoio/agents-sandbox/internal/configpaths"
+	"github.com/inoio/agents-sandbox/internal/homeconfig"
+	"github.com/inoio/agents-sandbox/internal/notify"
+	"github.com/inoio/agents-sandbox/internal/sandbox/mounts"
+	"github.com/inoio/agents-sandbox/internal/sandbox/network"
+	"github.com/inoio/agents-sandbox/internal/upgrade"
+	"github.com/inoio/agents-sandbox/internal/yamlfmt"
 
 	"github.com/go-viper/mapstructure/v2"
 	"github.com/spf13/cobra"
@@ -27,7 +27,7 @@ import (
 )
 
 // Config holds launcher-level defaults that can be set in
-// ~/.config/opencode-sandbox/config.* and .opencode-sandbox/config.*.
+// ~/.config/agents-sandbox/config.* and .agents-sandbox/config.*.
 type Config struct {
 	AutoPruneAge   time.Duration `mapstructure:"auto-prune-age"`
 	ManualPruneAge time.Duration `mapstructure:"manual-prune-age"`
@@ -63,7 +63,7 @@ type Config struct {
 	// hasHome reports whether any config file declared a home key.
 	hasHome bool
 
-	// Upgrade controls checking for and installing newer opencode-sandbox
+	// Upgrade controls checking for and installing newer agents-sandbox
 	// releases. Only Mode and Interval are settable via env.
 	Upgrade UpgradeConfig `mapstructure:"upgrade"`
 	// Notify holds the resolved notify config. It is decoded separately (not

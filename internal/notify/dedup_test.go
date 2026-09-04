@@ -4,7 +4,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/inoio/opencode-sandbox/internal/configpaths"
+	"github.com/inoio/agents-sandbox/internal/configpaths"
 )
 
 // sharedSink records notifications from multiple Dedup instances backed by the

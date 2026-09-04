@@ -3,7 +3,7 @@ package viperconfig
 import (
 	"testing"
 
-	termio "github.com/inoio/opencode-sandbox/internal/testutil/mocks"
+	termio "github.com/inoio/agents-sandbox/internal/testutil/mocks"
 )
 
 func TestMain(m *testing.M) {

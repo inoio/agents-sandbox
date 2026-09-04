@@ -9,8 +9,8 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/inoio/opencode-sandbox/internal/agent"
-	"github.com/inoio/opencode-sandbox/internal/configpaths"
+	"github.com/inoio/agents-sandbox/internal/agent"
+	"github.com/inoio/agents-sandbox/internal/configpaths"
 )
 
 // managedBaseRef and managedBaseDindRef are the pre-redesign base image
@@ -18,17 +18,17 @@ import (
 // replaced with the embedded base tools block for backward compatibility; the
 // -dind variant also implies the dind block.
 const (
-	managedBaseRef     = "opencode-sandbox/runner-base"
-	managedBaseDindRef = "opencode-sandbox/runner-base-dind"
+	managedBaseRef     = "agents-sandbox/runner-base"
+	managedBaseDindRef = "agents-sandbox/runner-base-dind"
 )
 
 // agentLabelKey is the image label carrying the baked agent name.
-const agentLabelKey = "org.opencode-sandbox.agent"
+const agentLabelKey = "org.agents-sandbox.agent"
 
 // dockerfileIDLabelKey is the image label carrying the content identity of the
 // baked runner image, used to skip rebuilds when nothing that affects the
 // image has changed.
-const dockerfileIDLabelKey = "org.opencode-sandbox.dockerfile-id"
+const dockerfileIDLabelKey = "org.agents-sandbox.dockerfile-id"
 
 // computeDockerfileID returns the content identity of a rendered runner
 // Dockerfile combined with the pinned agent version, capturing every input
@@ -147,11 +147,11 @@ func dindBlock() string {
 	return fmt.Sprintf(`USER root
 ARG DOCKER_VERSION=%s
 
-RUN set -e; mkdir -p /etc/opencode-sandbox && \
+RUN set -e; mkdir -p /etc/agents-sandbox && \
     if command -v dockerd >/dev/null 2>&1; then \
-      echo user > /etc/opencode-sandbox/docker-source; \
+      echo user > /etc/agents-sandbox/docker-source; \
     else \
-      echo tool > /etc/opencode-sandbox/docker-source; \
+      echo tool > /etc/agents-sandbox/docker-source; \
       curl -fsSL "https://download.docker.com/linux/static/stable/$(uname -m)/docker-${DOCKER_VERSION}.tgz" \
         | tar -xz -C /usr/local/bin --strip-components=1; \
       for p in iptables git ps xz curl tar; do \
@@ -191,7 +191,7 @@ func agentBlock(a agent.Agent) string {
 ARG %s
 LABEL %s=%s
 ARG DOCKERFILE_ID
-LABEL org.opencode-sandbox.dockerfile-id=$DOCKERFILE_ID
+LABEL org.agents-sandbox.dockerfile-id=$DOCKERFILE_ID
 %sRUN command -v node >/dev/null 2>&1 || { \
       case "$(uname -m)" in \
         x86_64) NODE_ARCH=x64 ;; \
@@ -202,11 +202,11 @@ LABEL org.opencode-sandbox.dockerfile-id=$DOCKERFILE_ID
         | tar -xz -C /usr/local --strip-components=1; \
     }
 
-RUN mkdir -p /etc/opencode-sandbox && \
+RUN mkdir -p /etc/agents-sandbox && \
     if command -v %s >/dev/null 2>&1; then \
-      echo user > /etc/opencode-sandbox/agent-source; \
+      echo user > /etc/agents-sandbox/agent-source; \
     else \
-      echo tool > /etc/opencode-sandbox/agent-source; \
+      echo tool > /etc/agents-sandbox/agent-source; \
       %s; \
     fi
 `,
@@ -228,8 +228,8 @@ ARG BASE_IMAGE
 RUN usermod -aG docker dev 2>/dev/null || true
 USER dev
 WORKDIR /workspace
-LABEL org.opencode-sandbox.managed=true
-LABEL org.opencode-sandbox.base=$BASE_IMAGE
+LABEL org.agents-sandbox.managed=true
+LABEL org.agents-sandbox.base=$BASE_IMAGE
 `
 }
 

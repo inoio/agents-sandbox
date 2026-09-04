@@ -7,7 +7,7 @@ nav_order: 60
 
 # Agent configuration
 
-opencode-sandbox is agent-aware. A `--agent <name>` flag on `run`, `shell`, `build`, `volume`, `stop`, and `kill`
+agents-sandbox is agent-aware. A `--agent <name>` flag on `run`, `shell`, `build`, `volume`, `stop`, and `kill`
 selects the coding-agent profile to run, build, provision, or manage. The agent can also be selected via the `agent`
 config key or the `OPENCODE_SANDBOX_AGENT` environment variable. Four agents ship as built-in profiles:
 
@@ -23,8 +23,8 @@ interactive TUI instead. Passing an unsupported `--agent` name reports the valid
 
 Each agent owns its config directories, one subdir per agent under the tool's config base:
 
-- **User:** `~/.config/opencode-sandbox/<agent>/` (e.g. `~/.config/opencode-sandbox/opencode/`)
-- **Project:** `.opencode-sandbox/<agent>/` (e.g. `.opencode-sandbox/opencode/`)
+- **User:** `~/.config/agents-sandbox/<agent>/` (e.g. `~/.config/agents-sandbox/opencode/`)
+- **Project:** `.agents-sandbox/<agent>/` (e.g. `.agents-sandbox/opencode/`)
 
 VMs, home volumes, and state are also scoped per agent: the VM name, home volume, and state file all carry the agent, so
 switching agents no longer tears down the project sandbox and multiple agents can serve the same project concurrently
@@ -32,7 +32,7 @@ switching agents no longer tears down the project sandbox and multiple agents ca
 
 ## Config snippet merge
 
-opencode-sandbox provisions a single agent config into the VM. No embedded provider or permission config is shipped.
+agents-sandbox provisions a single agent config into the VM. No embedded provider or permission config is shipped.
 Instead, the agent config is assembled from **snippet files** that match the agent's snippet pattern, collected from the
 user and project directories, and written to the agent's VM config path:
 
@@ -49,7 +49,7 @@ like `pi-*.{json,yaml}`). The built-in patterns above match JSON-family extensio
 
 If no snippet files exist, no merged config is produced.
 
-Run `opencode-sandbox config agent` to print the merged config that would be provisioned into the VM.
+Run `agents-sandbox config agent` to print the merged config that would be provisioned into the VM.
 
 > **Note:** the merged config is written to the agent's VM config path (for opencode, `opencode.jsonc`, the last file
 > opencode loads: `config.json` < `opencode.json` < `opencode.jsonc`), so it always wins the deep merge. When snippets
@@ -60,8 +60,8 @@ See the [permissions example](#example-permissions) for a concrete snippet.
 
 ## Verbatim config directory mirror
 
-Beyond the snippet merge, the `<agent>` config directories (`~/.config/opencode-sandbox/<agent>/` and
-`.opencode-sandbox/<agent>/`) act as a **1:1 verbatim mirror** of the agent's VM config directory. Every file and
+Beyond the snippet merge, the `<agent>` config directories (`~/.config/agents-sandbox/<agent>/` and
+`.agents-sandbox/<agent>/`) act as a **1:1 verbatim mirror** of the agent's VM config directory. Every file and
 subdirectory in them is copied verbatim into the VM, preserving its relative path (for opencode: `tui.json`, `AGENTS.md`,
 `agents/`, `commands/`, `themes/`, `plugins/`, `skills/`, `tools/`, …). This makes your whole agent setup available in
 the VM without extra configuration.
@@ -78,7 +78,7 @@ Precedence when the same VM path is reachable from multiple sources:
 `home:` > merged snippet config > verbatim mirror > drop-in provisioning
 
 The mirror is **always active**, independent of `provision-host-config`. Stale mirrored files (deleted from the host)
-are left in place in the VM. Run `opencode-sandbox config agent` to list the mirror files, each shown as its host source
+are left in place in the VM. Run `agents-sandbox config agent` to list the mirror files, each shown as its host source
 path → VM path. Previously non-pattern files in `<agent>/` were silently ignored; they are now mirrored verbatim.
 
 ## Default drop-in provisioning
@@ -100,7 +100,7 @@ Precedence: the merged snippet config and any `home:` mappings override the drop
 When snippets exist, the drop-in copy of the config-file family is skipped entirely (see the note above) so host config
 cannot override the merged snippets. Non-config files — e.g. plugins, custom commands, themes — are still copied.
 
-To switch from your agent's own config to `opencode-sandbox/<agent>` snippet provisioning, create snippet files in the
+To switch from your agent's own config to `agents-sandbox/<agent>` snippet provisioning, create snippet files in the
 user or project snippet directories (see [Config snippet merge](#config-snippet-merge)). Once a snippet matching the
 agent's pattern exists, it wins over the host config for the merged config path. To stop the native-config drop-in
 entirely so only the snippet merge and `home:` mappings apply, set `provision-host-config: false` (below).
@@ -138,14 +138,14 @@ For pi and claude-code, the drop-in copy does not include credential files; auth
 
 ## Example: Permissions
 
-Opencode permissions are configured through opencode config snippets, which opencode-sandbox merges (user-first, then
-project). Place a snippet in your project, e.g. `.opencode-sandbox/opencode/permission.json5`.
+Opencode permissions are configured through opencode config snippets, which agents-sandbox merges (user-first, then
+project). Place a snippet in your project, e.g. `.agents-sandbox/opencode/permission.json5`.
 
 **Quasi-auto:** allow everything except what is explicitly denied:
 
 ```json5
 {
-  // .opencode-sandbox/opencode/permission.json5
+  // .agents-sandbox/opencode/permission.json5
   permission: {
     "*": "allow",
   },
@@ -156,7 +156,7 @@ project). Place a snippet in your project, e.g. `.opencode-sandbox/opencode/perm
 
 ```json5
 {
-  // .opencode-sandbox/opencode/permission.json5
+  // .agents-sandbox/opencode/permission.json5
   permission: {
     denylist: [
       { tool: "read", files: [".env", ".envrc"] },

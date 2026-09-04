@@ -8,9 +8,9 @@ import (
 
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 
-	"github.com/inoio/opencode-sandbox/internal/sandbox/msb"
-	"github.com/inoio/opencode-sandbox/internal/sandbox/state"
-	"github.com/inoio/opencode-sandbox/internal/termio"
+	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
+	"github.com/inoio/agents-sandbox/internal/sandbox/state"
+	"github.com/inoio/agents-sandbox/internal/termio"
 )
 
 func TestInvokePruneFunc(t *testing.T) {
@@ -18,7 +18,7 @@ func TestInvokePruneFunc(t *testing.T) {
 		client := &msb.MockMsbClient{
 			Sandboxes: []msb.SandboxHandle{
 				&msb.MockSandboxHandle{
-					Name_:      "opencode-sandbox-vm-proj-1mjusbm3wikhb0",
+					Name_:      "agents-sandbox-vm-proj-1mjusbm3wikhb0",
 					Status_:    msbSdk.SandboxStatusStopped,
 					UpdatedAt_: time.Now().Add(-15 * 24 * time.Hour),
 				},

@@ -14,7 +14,7 @@ import (
 	"github.com/go-viper/mapstructure/v2"
 )
 
-// Guest mount points that opencode-sandbox manages itself. They are fixed by
+// Guest mount points that agents-sandbox manages itself. They are fixed by
 // the project VM layout and shared by the packages that build or inspect it.
 const (
 	// VMHomeDir is the sandbox home mount point (a named volume).
@@ -72,7 +72,7 @@ func DecodeMounts(raw any) (Mounts, error) {
 	return mounts, nil
 }
 
-// managedMountTargets are the guest paths opencode-sandbox mounts itself. A
+// managedMountTargets are the guest paths agents-sandbox mounts itself. A
 // configured mount may not replace them, nor shadow a parent of them.
 //
 //nolint:gochecknoglobals // package-level constant slice

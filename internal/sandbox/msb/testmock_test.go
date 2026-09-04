@@ -8,7 +8,7 @@ import (
 func TestMockImageHandleNewAccessors(t *testing.T) {
 	bytes := int64(123456)
 	h := MockImageHandle{
-		Reference_:      "opencode-sandbox/runner:latest",
+		Reference_:      "agents-sandbox/runner:latest",
 		ManifestDigest_: "sha256:abc",
 		SizeBytes_:      &bytes,
 		CreatedAt_:      time.Date(2026, 8, 17, 10, 42, 36, 0, time.UTC),
@@ -19,7 +19,7 @@ func TestMockImageHandleNewAccessors(t *testing.T) {
 	if want := "2026-08-17 10:42:36"; h.CreatedAt().Format("2006-01-02 15:04:05") != want {
 		t.Fatalf("CreatedAt() = %v, want %s", h.CreatedAt(), want)
 	}
-	if h.Reference() != "opencode-sandbox/runner:latest" || h.ManifestDigest() != "sha256:abc" {
+	if h.Reference() != "agents-sandbox/runner:latest" || h.ManifestDigest() != "sha256:abc" {
 		t.Fatalf("existing accessors broken: %s %s", h.Reference(), h.ManifestDigest())
 	}
 }

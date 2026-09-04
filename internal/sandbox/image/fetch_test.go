@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/inoio/opencode-sandbox/internal/agent"
+	"github.com/inoio/agents-sandbox/internal/agent"
 )
 
 // plainAgent is an Agent that implements no optional capabilities, so

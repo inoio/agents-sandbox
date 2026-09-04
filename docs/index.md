@@ -4,9 +4,9 @@ layout: home
 nav_order: 0
 ---
 
-# opencode-sandbox
+# agents-sandbox
 
-> **opencode, supercharged — safely.** Run [opencode](https://github.com/anomalyco/opencode) in a near-instant, hardware-isolated VM — your project at `/workspace`, your secrets safe, your agent free to do its best work.
+> **coding agents, supercharged — safely.** Run [opencode](https://opencode.ai), [pi](https://pi.dev), and [claude-code](https://claude.com/de/product/claude-code) in a near-instant, hardware-isolated VM — your project at `/workspace`, your secrets safe, your agent free to do its best work.
 
 ## How to start
 
