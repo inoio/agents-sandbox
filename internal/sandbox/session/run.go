@@ -40,7 +40,9 @@ var notifyWatch = notify.Watch
 // startNotifyWatcher launches the notify watcher in a goroutine and returns a
 // stop function. It is a no-op when notifications are inactive, the sandbox is
 // nil (dry-run), or the agent provides no EventStreamSpec. The watcher runs
-// until the session ctx is done or stop is called, whichever comes first.
+// until the session ctx is done or stop is called, whichever comes first. The
+// stop function cancels the watcher, waits for it to finish, and returns the
+// watcher's error (the drop summary) for the caller to log.
 func startNotifyWatcher(
 	ctx context.Context,
 	sb msb.Sandbox,
@@ -48,10 +50,10 @@ func startNotifyWatcher(
 	ui termio.UI,
 	spec *agent.EventStreamSpec,
 	projectSlug string,
-) func() {
+) func() error {
 	if sb == nil || !cfg.Active() || spec == nil {
 		ui.Verbosef("not starting notify watcher, sandbox %s, active %v, spec %s", sb, cfg.Active(), spec)
-		return func() {}
+		return func() error { return nil }
 	}
 	backend := notify.NewBackend(cfg, ui)
 	if projectSlug != "" {
@@ -59,17 +61,16 @@ func startNotifyWatcher(
 	}
 	watchCtx, cancel := context.WithCancel(ctx)
 	done := make(chan struct{})
+	var watchErr error
 	go func() {
-		ui.Verbosef("starting notify watcher, sandbox %s, active %v, spec %s", sb, cfg.Active(), spec)
-
 		defer close(done)
-		if err := notifyWatch(watchCtx, sb, *spec, backend); err != nil {
-			ui.Verbosef("notify watcher stopped: %v", err)
-		}
+		ui.Verbosef("starting notify watcher, sandbox %s, active %v, spec %s", sb, cfg.Active(), spec)
+		watchErr = notifyWatch(watchCtx, sb, *spec, backend)
 	}()
-	return func() {
+	return func() error {
 		cancel()
 		<-done
+		return watchErr
 	}
 }
 
@@ -79,6 +80,15 @@ func buildAttachCommand(a agent.Agent, target string, args []string) string {
 		return ""
 	}
 	return runner.AttachCommand(target, args)
+}
+
+// logNotifyWatcherError stops the notify watcher and logs its drop-summary
+// error, if any. It is deferred from Run so it runs only after the attach TUI
+// has closed and can no longer be corrupted by the message.
+func logNotifyWatcherError(stop func() error, ui termio.UI) {
+	if err := stop(); err != nil {
+		ui.Verbosef("notify watcher: %v", err)
+	}
 }
 
 // serveOnlyMessage builds the message printed when serving the agent daemon for
@@ -134,7 +144,7 @@ func Run(ctx context.Context, opts options.RunOptions, ui termio.UI) error {
 		streamSpec = &eventStream
 	}
 	stopNotify := startNotifyWatcher(ctx, sb, opts.Notify, ui, streamSpec, projectSlug)
-	defer stopNotify()
+	defer logNotifyWatcherError(stopNotify, ui)
 
 	if opts.ServeOnly { //nolint:nestif // lease acquire/serve/release/reap sequence requires this structure
 		k := state.Key{Slug: projectSlug, Agent: a.Name()}

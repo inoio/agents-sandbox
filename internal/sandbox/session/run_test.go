@@ -650,6 +650,42 @@ func TestStartNotifyWatcherUsesSpec(t *testing.T) {
 	}
 }
 
+func TestRunLogsNotifyWatcherErrorAfterStop(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	ui := &termio.Mock{}
+	origPrepare := prepareSandbox
+	prepareSandbox = func(context.Context, options.RunOptions, termio.UI) (preparedSandbox, error) {
+		return &fakePrepared{sb: msb.NewMockSandbox(msb.SandboxOpts{AttachCode: 0})}, nil
+	}
+	defer func() { prepareSandbox = origPrepare }()
+
+	origWatch := notifyWatch
+	defer func() { notifyWatch = origWatch }()
+	notifyWatch = func(_ context.Context, _ msb.Sandbox, _ agent.EventStreamSpec, _ notify.Backend) error {
+		return errors.New("watch boom")
+	}
+
+	err := Run(context.Background(), options.RunOptions{
+		ReapPolicy: options.NewReapPolicy(true, 5),
+		Notify: notify.Config{
+			Desktop: true, Audio: notify.AudioOff,
+			OnInput: true, OnDone: true, OnError: true,
+		},
+	}, ui)
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	found := false
+	for _, v := range ui.VerboseCalls {
+		if strings.Contains(v, "notify watcher") && strings.Contains(v, "watch boom") {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatal("expected notify watcher error logged via Verbosef after stop")
+	}
+}
+
 func TestRunDoesNotStartNotifyWatcherWithoutEventStreamProvider(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	ui := &termio.Mock{}

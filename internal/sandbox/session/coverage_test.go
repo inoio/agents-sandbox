@@ -110,9 +110,9 @@ func TestPendingQuestionSessionIDs_DecodeError(t *testing.T) {
 	}
 }
 
-// --- startNotifyWatcher: logs when the notify watcher returns an error ---
+// --- startNotifyWatcher: returns the watcher's error from stop() ---
 
-func TestStartNotifyWatcherLogsError(t *testing.T) {
+func TestStartNotifyWatcherReturnsWatchError(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	ui := &termio.Mock{}
 	origWatch := notifyWatch
@@ -137,17 +137,9 @@ func TestStartNotifyWatcherLogsError(t *testing.T) {
 		&spec,
 		"slug",
 	)
-	stop()
-
-	found := false
-	for _, v := range ui.VerboseCalls {
-		if strings.Contains(v, "notify watcher stopped") && strings.Contains(v, "watch boom") {
-			found = true
-			break
-		}
-	}
-	if !found {
-		t.Errorf("expected notify watcher error to be logged, got %v", ui.VerboseCalls)
+	err := stop()
+	if err == nil || !strings.Contains(err.Error(), "watch boom") {
+		t.Fatalf("stop() error = %v, want 'watch boom'", err)
 	}
 }
 
