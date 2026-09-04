@@ -13,10 +13,10 @@ import (
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 
-	"github.com/inoio/opencode-sandbox/internal/configpaths"
-	"github.com/inoio/opencode-sandbox/internal/sandbox/docker"
-	"github.com/inoio/opencode-sandbox/internal/sandbox/msb"
-	"github.com/inoio/opencode-sandbox/internal/termio"
+	"github.com/inoio/agents-sandbox/internal/configpaths"
+	"github.com/inoio/agents-sandbox/internal/sandbox/docker"
+	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
+	"github.com/inoio/agents-sandbox/internal/termio"
 )
 
 func TestReferencesImageSkipsFromWithoutImage(t *testing.T) {
@@ -385,7 +385,7 @@ func TestReplaceFinalStageFromNoFrom(t *testing.T) {
 }
 
 func TestReplaceFinalStageFromBlockWithoutNewline(t *testing.T) {
-	in := []byte("FROM opencode-sandbox/runner-base:latest\nRUN echo hi\n")
+	in := []byte("FROM agents-sandbox/runner-base:latest\nRUN echo hi\n")
 	block := []byte("FROM debian:trixie-slim")
 	got := string(replaceFinalStageFrom(in, block))
 	if !strings.Contains(got, "FROM debian:trixie-slim\nRUN echo hi") {

@@ -6,18 +6,18 @@ nav_order: 30
 
 # Switch from your existing agent
 
-Use opencode-sandbox with the agent setup you already have without writing any config. If you haven't
-installed opencode-sandbox yet, [install it]({% link index.md %}#install) first.
+Use agents-sandbox with the agent setup you already have without writing any config. If you haven't
+installed agents-sandbox yet, [install it]({% link index.md %}#install) first.
 
 ## Run it
 
 In any project directory:
 
 ```console
-opencode-sandbox
+agents-sandbox
 ```
 
-Opencode-sandbox copies your existing agent config (e.g. `~/.config/opencode/**`)
+agents-sandbox copies your existing agent config (e.g. `~/.config/opencode/**`)
 and credentials into the VM by default, so your normal agent,
 models, and permissions are available immediately, now running in a hardware-isolated VM with
 your project at `/workspace`.

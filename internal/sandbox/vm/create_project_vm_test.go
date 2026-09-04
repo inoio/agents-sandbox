@@ -5,14 +5,14 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/inoio/opencode-sandbox/internal/configpaths"
-	"github.com/inoio/opencode-sandbox/internal/homeconfig"
-	"github.com/inoio/opencode-sandbox/internal/sandbox/docker"
-	"github.com/inoio/opencode-sandbox/internal/sandbox/msb"
-	"github.com/inoio/opencode-sandbox/internal/sandbox/network"
-	"github.com/inoio/opencode-sandbox/internal/sandbox/options"
-	"github.com/inoio/opencode-sandbox/internal/sandbox/reprovision"
-	"github.com/inoio/opencode-sandbox/internal/termio"
+	"github.com/inoio/agents-sandbox/internal/configpaths"
+	"github.com/inoio/agents-sandbox/internal/homeconfig"
+	"github.com/inoio/agents-sandbox/internal/sandbox/docker"
+	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
+	"github.com/inoio/agents-sandbox/internal/sandbox/network"
+	"github.com/inoio/agents-sandbox/internal/sandbox/options"
+	"github.com/inoio/agents-sandbox/internal/sandbox/reprovision"
+	"github.com/inoio/agents-sandbox/internal/termio"
 )
 
 // TestCreateProjectVMCreateSandboxError covers the CreateSandbox failure branch
@@ -26,8 +26,8 @@ func TestCreateProjectVMCreateSandboxError(t *testing.T) {
 	ui := &testUI
 
 	_, _, err := createProjectVM(
-		context.Background(), client, "opencode-sandbox-vm-test",
-		testVMKey(), "opencode-sandbox/runner-test:latest", "test-home-vol", t.TempDir(),
+		context.Background(), client, "agents-sandbox-vm-test",
+		testVMKey(), "agents-sandbox/runner-test:latest", "test-home-vol", t.TempDir(),
 		options.RunOptions{Memory: "1G"}, nil, ui,
 	)
 	if err == nil {
@@ -45,8 +45,8 @@ func TestCreateProjectVMNetworkConfigError(t *testing.T) {
 	ui := &testUI
 
 	_, _, err := createProjectVM(
-		context.Background(), client, "opencode-sandbox-vm-test",
-		testVMKey(), "opencode-sandbox/runner-test:latest", "test-home-vol", t.TempDir(),
+		context.Background(), client, "agents-sandbox-vm-test",
+		testVMKey(), "agents-sandbox/runner-test:latest", "test-home-vol", t.TempDir(),
 		options.RunOptions{
 			Memory:  "1G",
 			Network: network.Policy{Profile: network.Profile("bogus-profile")},

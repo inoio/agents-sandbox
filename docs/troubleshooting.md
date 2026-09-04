@@ -7,7 +7,7 @@ nav_order: 110
 
 Common issues and how to resolve them.
 
-## `opencode-sandbox doctor` fails
+## `agents-sandbox doctor` fails
 
 If the doctor command reports missing prerequisites:
 
@@ -67,7 +67,7 @@ When a VM won't start, check the general troubleshooting steps first.
 Try `--log-level verbose` to see the full error:
 
 ```console
-opencode-sandbox run --log-level verbose
+agents-sandbox run --log-level verbose
 ```
 
 Common causes:
@@ -79,18 +79,18 @@ Common causes:
 
 ```console
 # See what's running
-opencode-sandbox list
+agents-sandbox list
 
 # Remove old resources
-opencode-sandbox prune --dry-run    # preview
-opencode-sandbox prune --force      # remove
+agents-sandbox prune --dry-run    # preview
+agents-sandbox prune --force      # remove
 ```
 
 ### Stop a specific VM
 
 ```console
-opencode-sandbox stop               # graceful stop
-opencode-sandbox kill               # force kill
+agents-sandbox stop               # graceful stop
+agents-sandbox kill               # force kill
 ```
 
 ## Branch session issues
@@ -140,16 +140,16 @@ and passed through unchanged.
 
 ## Memory or CPU limits too low
 
-If opencode runs slowly or VMs fail to start with resource errors, increase allocation:
+If the agent runs slowly or VMs fail to start with resource errors, increase allocation:
 
 ```console
-opencode-sandbox run -c 4 -m 8G
+agents-sandbox run -c 4 -m 8G
 ```
 
 Or set defaults in config:
 
 ```yaml
-# ~/.config/opencode-sandbox/config.yaml
+# ~/.config/agents-sandbox/config.yaml
 cpus: 4
 memory: 8G
 ```
@@ -161,8 +161,8 @@ If your config files aren't being picked up:
 1. Verify the file exists in the right location:
 
    ```console
-   ls ~/.config/opencode-sandbox/config.yaml
-   ls .opencode-sandbox/config.yaml
+   ls ~/.config/agents-sandbox/config.yaml
+   ls .agents-sandbox/config.yaml
    ```
 
 2. Check valid syntax:
@@ -180,7 +180,7 @@ If your config files aren't being picked up:
 4. Use `--log-level verbose` to see which config files were loaded:
 
    ```console
-   opencode-sandbox run --log-level verbose
+   agents-sandbox run --log-level verbose
    ```
 
 ## Image build fails
@@ -202,5 +202,5 @@ Docker build failures are usually due to:
 3. **Custom Dockerfile errors** — If using a project Dockerfile, build it manually to isolate the issue:
 
     ```console
-    docker build -f .opencode-sandbox/Dockerfile -t test-image .
+    docker build -f .agents-sandbox/Dockerfile -t test-image .
     ```

@@ -13,15 +13,15 @@ import (
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 
-	"github.com/inoio/opencode-sandbox/internal/agent"
-	"github.com/inoio/opencode-sandbox/internal/configpaths"
-	"github.com/inoio/opencode-sandbox/internal/git"
-	"github.com/inoio/opencode-sandbox/internal/sandbox/docker"
-	sandboximage "github.com/inoio/opencode-sandbox/internal/sandbox/image"
-	"github.com/inoio/opencode-sandbox/internal/sandbox/msb"
-	"github.com/inoio/opencode-sandbox/internal/sandbox/options"
-	"github.com/inoio/opencode-sandbox/internal/sandbox/state"
-	"github.com/inoio/opencode-sandbox/internal/termio"
+	"github.com/inoio/agents-sandbox/internal/agent"
+	"github.com/inoio/agents-sandbox/internal/configpaths"
+	"github.com/inoio/agents-sandbox/internal/git"
+	"github.com/inoio/agents-sandbox/internal/sandbox/docker"
+	sandboximage "github.com/inoio/agents-sandbox/internal/sandbox/image"
+	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
+	"github.com/inoio/agents-sandbox/internal/sandbox/options"
+	"github.com/inoio/agents-sandbox/internal/sandbox/state"
+	"github.com/inoio/agents-sandbox/internal/termio"
 )
 
 // TestPrepareSandboxDryRunVM covers the dry-run-vm branch of PrepareSandbox:
@@ -51,7 +51,7 @@ func TestPrepareSandboxDryRunVM(t *testing.T) {
 					Config: &dockerspec.DockerOCIImageConfig{
 						ImageConfig: ocispec.ImageConfig{
 							Env:    []string{"PATH=/usr/bin"},
-							Labels: map[string]string{"org.opencode-sandbox.agent": "opencode"},
+							Labels: map[string]string{"org.agents-sandbox.agent": "opencode"},
 						},
 					},
 				},
@@ -65,7 +65,7 @@ func TestPrepareSandboxDryRunVM(t *testing.T) {
 		ImageInspectFn: func(_ context.Context, _ string) (*msbSdk.ImageConfig, error) {
 			return &msbSdk.ImageConfig{
 				Env:    []string{"PATH=/usr/bin"},
-				Labels: map[string]string{"org.opencode-sandbox.agent": "opencode"},
+				Labels: map[string]string{"org.agents-sandbox.agent": "opencode"},
 			}, nil
 		},
 		Volumes: []msb.VolumeHandle{&msb.MockVolumeHandle{Name_: "home-vol"}},
@@ -127,7 +127,7 @@ func TestPrepareSandboxVolumeError(t *testing.T) {
 					Config: &dockerspec.DockerOCIImageConfig{
 						ImageConfig: ocispec.ImageConfig{
 							Env:    []string{"PATH=/usr/bin"},
-							Labels: map[string]string{"org.opencode-sandbox.agent": "opencode"},
+							Labels: map[string]string{"org.agents-sandbox.agent": "opencode"},
 						},
 					},
 				},
@@ -140,7 +140,7 @@ func TestPrepareSandboxVolumeError(t *testing.T) {
 		ImageInspectFn: func(_ context.Context, _ string) (*msbSdk.ImageConfig, error) {
 			return &msbSdk.ImageConfig{
 				Env:    []string{"PATH=/usr/bin"},
-				Labels: map[string]string{"org.opencode-sandbox.agent": "opencode"},
+				Labels: map[string]string{"org.agents-sandbox.agent": "opencode"},
 			}, nil
 		},
 	}
@@ -189,7 +189,7 @@ func TestPrepareSandboxEnsureVMError(t *testing.T) {
 					Config: &dockerspec.DockerOCIImageConfig{
 						ImageConfig: ocispec.ImageConfig{
 							Env:    []string{"PATH=/usr/bin"},
-							Labels: map[string]string{"org.opencode-sandbox.agent": "opencode"},
+							Labels: map[string]string{"org.agents-sandbox.agent": "opencode"},
 						},
 					},
 				},
@@ -203,7 +203,7 @@ func TestPrepareSandboxEnsureVMError(t *testing.T) {
 		ImageInspectFn: func(_ context.Context, _ string) (*msbSdk.ImageConfig, error) {
 			return &msbSdk.ImageConfig{
 				Env:    []string{"PATH=/usr/bin"},
-				Labels: map[string]string{"org.opencode-sandbox.agent": "opencode"},
+				Labels: map[string]string{"org.agents-sandbox.agent": "opencode"},
 			}, nil
 		},
 		Volumes: []msb.VolumeHandle{&msb.MockVolumeHandle{Name_: "home-vol"}},
@@ -258,7 +258,7 @@ func TestPrepareSandboxSetUpError(t *testing.T) {
 					Config: &dockerspec.DockerOCIImageConfig{
 						ImageConfig: ocispec.ImageConfig{
 							Env:    []string{"PATH=/usr/bin"},
-							Labels: map[string]string{"org.opencode-sandbox.agent": "opencode"},
+							Labels: map[string]string{"org.agents-sandbox.agent": "opencode"},
 						},
 					},
 				},
@@ -279,7 +279,7 @@ func TestPrepareSandboxSetUpError(t *testing.T) {
 		ImageInspectFn: func(_ context.Context, _ string) (*msbSdk.ImageConfig, error) {
 			return &msbSdk.ImageConfig{
 				Env:    []string{"PATH=/usr/bin"},
-				Labels: map[string]string{"org.opencode-sandbox.agent": "opencode"},
+				Labels: map[string]string{"org.agents-sandbox.agent": "opencode"},
 			}, nil
 		},
 		Volumes: []msb.VolumeHandle{&msb.MockVolumeHandle{Name_: "home-vol"}},

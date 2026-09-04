@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/inoio/opencode-sandbox/internal/humanize"
-	"github.com/inoio/opencode-sandbox/internal/sandbox/msb"
-	"github.com/inoio/opencode-sandbox/internal/sandbox/naming"
+	"github.com/inoio/agents-sandbox/internal/humanize"
+	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
+	"github.com/inoio/agents-sandbox/internal/sandbox/naming"
 )
 
 // Info represents a single runner image.

@@ -13,7 +13,7 @@ import (
 
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 
-	"github.com/inoio/opencode-sandbox/internal/sandbox/msb"
+	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
 )
 
 // defaultSandboxUser is the runtime user inside the project VM that the agent and

@@ -10,13 +10,13 @@ import (
 
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 
-	"github.com/inoio/opencode-sandbox/internal/configpaths"
-	"github.com/inoio/opencode-sandbox/internal/sandbox/msb"
-	"github.com/inoio/opencode-sandbox/internal/sandbox/network"
-	"github.com/inoio/opencode-sandbox/internal/sandbox/options"
-	"github.com/inoio/opencode-sandbox/internal/sandbox/reprovision"
-	"github.com/inoio/opencode-sandbox/internal/sandbox/state"
-	"github.com/inoio/opencode-sandbox/internal/termio"
+	"github.com/inoio/agents-sandbox/internal/configpaths"
+	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
+	"github.com/inoio/agents-sandbox/internal/sandbox/network"
+	"github.com/inoio/agents-sandbox/internal/sandbox/options"
+	"github.com/inoio/agents-sandbox/internal/sandbox/reprovision"
+	"github.com/inoio/agents-sandbox/internal/sandbox/state"
+	"github.com/inoio/agents-sandbox/internal/termio"
 )
 
 func joinStrings(parts []string) string {
@@ -30,12 +30,12 @@ func joinStrings(parts []string) string {
 
 func TestProjectVMNameIncludesAgent(t *testing.T) {
 	got := projectVMName(state.Key{Slug: "myproject-aBc1234DeF", Agent: "pi"})
-	want := "opencode-sandbox-vm-myproject-aBc1234DeF-pi"
+	want := "agents-sandbox-vm-myproject-aBc1234DeF-pi"
 	if got != want {
 		t.Errorf("projectVMName = %q, want %q", got, want)
 	}
 	got = projectVMName(state.Key{Slug: "myproject-aBc1234DeF", Agent: "opencode"})
-	want = "opencode-sandbox-vm-myproject-aBc1234DeF-opencode"
+	want = "agents-sandbox-vm-myproject-aBc1234DeF-opencode"
 	if got != want {
 		t.Errorf("projectVMName = %q, want %q", got, want)
 	}
@@ -180,7 +180,7 @@ func TestStopProjectVMGetSandboxError(t *testing.T) {
 func TestStopProjectVMStopFnError(t *testing.T) {
 	ui := termio.NewTestMock(t)
 	handle := &msb.MockSandboxHandle{
-		Name_:   "opencode-sandbox-vm-test",
+		Name_:   "agents-sandbox-vm-test",
 		Status_: msbSdk.SandboxStatusRunning,
 	}
 	handle.StopErr = errors.New("stop failed")
@@ -201,7 +201,7 @@ func TestKillProjectVMDryRunRemove(t *testing.T) {
 	ui := termio.NewTestMock(t)
 	client := &msb.MockMsbClient{}
 	client.SetGotSandbox(&msb.MockSandboxHandle{
-		Name_:   "opencode-sandbox-vm-test",
+		Name_:   "agents-sandbox-vm-test",
 		Status_: msbSdk.SandboxStatusRunning,
 	})
 	msb.WithMsbMock(t, client)

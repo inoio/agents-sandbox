@@ -7,10 +7,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/inoio/opencode-sandbox/internal/configpaths"
-	"github.com/inoio/opencode-sandbox/internal/sandbox/msb"
-	"github.com/inoio/opencode-sandbox/internal/sandbox/state"
-	"github.com/inoio/opencode-sandbox/internal/termio"
+	"github.com/inoio/agents-sandbox/internal/configpaths"
+	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
+	"github.com/inoio/agents-sandbox/internal/sandbox/state"
+	"github.com/inoio/agents-sandbox/internal/termio"
 )
 
 func TestPruneVolumes(t *testing.T) {
@@ -24,8 +24,8 @@ func TestPruneVolumes(t *testing.T) {
 		configpaths.WithMockConfigPaths(t)
 		client := &msb.MockMsbClient{
 			Volumes: []msb.VolumeHandle{
-				home("opencode-sandbox-home-stale-1mjusbm3wikhb0-20260806T143022"),
-				home("opencode-sandbox-home-kept-1mjusbm3wikhb0-20260806T143022"),
+				home("agents-sandbox-home-stale-1mjusbm3wikhb0-20260806T143022"),
+				home("agents-sandbox-home-kept-1mjusbm3wikhb0-20260806T143022"),
 			},
 		}
 		msb.WithMsbMock(t, client)
@@ -43,7 +43,7 @@ func TestPruneVolumes(t *testing.T) {
 			t.Errorf("VolumesPruned = %d, want 1", r.VolumesPruned)
 		}
 		if len(client.RemovedVolumes) != 1 ||
-			client.RemovedVolumes[0] != "opencode-sandbox-home-stale-1mjusbm3wikhb0-20260806T143022" {
+			client.RemovedVolumes[0] != "agents-sandbox-home-stale-1mjusbm3wikhb0-20260806T143022" {
 			t.Errorf("RemovedVolumes = %v, want stale volume only", client.RemovedVolumes)
 		}
 	})
@@ -53,12 +53,12 @@ func TestPruneVolumes(t *testing.T) {
 		slug := "stale-1mjusbm3wikhb0"
 		if err := state.WriteState(
 			state.Key{Slug: slug, Agent: ""},
-			state.HomeState{HomeVolume: "opencode-sandbox-home-stale-1mjusbm3wikhb0-20260806T143022"},
+			state.HomeState{HomeVolume: "agents-sandbox-home-stale-1mjusbm3wikhb0-20260806T143022"},
 		); err != nil {
 			t.Fatalf("WriteState: %v", err)
 		}
 		client := &msb.MockMsbClient{
-			Volumes: []msb.VolumeHandle{home("opencode-sandbox-home-stale-1mjusbm3wikhb0-20260806T143022")},
+			Volumes: []msb.VolumeHandle{home("agents-sandbox-home-stale-1mjusbm3wikhb0-20260806T143022")},
 		}
 		msb.WithMsbMock(t, client)
 		stateMap := PruneState{
@@ -78,17 +78,17 @@ func TestPruneVolumes(t *testing.T) {
 		slug := "stale-1mjusbm3wikhb0"
 		if err := state.WriteState(
 			state.Key{Slug: slug, Agent: ""},
-			state.HomeState{HomeVolume: "opencode-sandbox-home-stale-1mjusbm3wikhb0-20260806T143022"},
+			state.HomeState{HomeVolume: "agents-sandbox-home-stale-1mjusbm3wikhb0-20260806T143022"},
 		); err != nil {
 			t.Fatalf("WriteState: %v", err)
 		}
 		client := &msb.MockMsbClient{
 			Volumes: []msb.VolumeHandle{
-				home("opencode-sandbox-home-stale-1mjusbm3wikhb0-20260806T143022"),
-				home("opencode-sandbox-home-stale-1mjusbm3wikhb0-20260806T143023"),
+				home("agents-sandbox-home-stale-1mjusbm3wikhb0-20260806T143022"),
+				home("agents-sandbox-home-stale-1mjusbm3wikhb0-20260806T143023"),
 			},
 			RemoveVolumeFn: func(_ context.Context, name string) error {
-				if name == "opencode-sandbox-home-stale-1mjusbm3wikhb0-20260806T143023" {
+				if name == "agents-sandbox-home-stale-1mjusbm3wikhb0-20260806T143023" {
 					return errors.New("boom")
 				}
 				return nil
@@ -110,7 +110,7 @@ func TestPruneVolumes(t *testing.T) {
 	t.Run("dry run counts but does not delete", func(t *testing.T) {
 		configpaths.WithMockConfigPaths(t)
 		client := &msb.MockMsbClient{
-			Volumes: []msb.VolumeHandle{home("opencode-sandbox-home-stale-1mjusbm3wikhb0-20260806T143022")},
+			Volumes: []msb.VolumeHandle{home("agents-sandbox-home-stale-1mjusbm3wikhb0-20260806T143022")},
 		}
 		msb.WithMsbMock(t, client)
 		stateMap := PruneState{
@@ -134,7 +134,7 @@ func TestPruneVolumes(t *testing.T) {
 	t.Run("empty state prunes nothing", func(t *testing.T) {
 		configpaths.WithMockConfigPaths(t)
 		client := &msb.MockMsbClient{
-			Volumes: []msb.VolumeHandle{home("opencode-sandbox-home-kept-1mjusbm3wikhb0-20260806T143022")},
+			Volumes: []msb.VolumeHandle{home("agents-sandbox-home-kept-1mjusbm3wikhb0-20260806T143022")},
 		}
 		msb.WithMsbMock(t, client)
 		ui := &termio.Mock{}
@@ -165,7 +165,7 @@ func TestPruneVolumes(t *testing.T) {
 		configpaths.WithMockConfigPaths(t)
 		client := &msb.MockMsbClient{
 			Volumes: []msb.VolumeHandle{
-				home("opencode-sandbox-home-"),
+				home("agents-sandbox-home-"),
 				&msb.MockVolumeHandle{Name_: "some-other-volume", CreatedAt_: old},
 			},
 		}

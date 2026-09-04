@@ -7,9 +7,9 @@ nav_order: 70
 
 # Notifications
 
-opencode-sandbox can alert you when the opencode session status changes (input needed, done, error) via desktop and/or
-audio notifications. Only daemon-based agents with an event stream support this; for interactive agents (e.g. `pi`,
-`claude-code`) the notify config is ignored.
+agents-sandbox can alert you when the agent session status changes (input needed, done, error) via desktop and/or
+audio notifications. Only the opencode agent exposes a session event stream today; for all other agents (`opencode2`,
+`pi`, `claude-code`) the notify config is ignored.
 
 The `notify:` block controls the channels and the triggers:
 
@@ -25,7 +25,7 @@ Notifications are inactive unless at least one channel is enabled (`desktop` tru
 the `on-input`/`on-done`/`on-error` trigger toggles have no effect.
 
 When multiple clients (`run` instances) are attached to the same project VM,
-notifications are delivered at most once per opencode session: the first client
+notifications are delivered at most once per agent session: the first client
 to observe a transition claims a shared per-project token, and other clients
 skip it. A later transition for the same session notifies again.
 

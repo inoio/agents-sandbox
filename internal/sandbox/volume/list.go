@@ -6,9 +6,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/inoio/opencode-sandbox/internal/humanize"
-	"github.com/inoio/opencode-sandbox/internal/sandbox/msb"
-	"github.com/inoio/opencode-sandbox/internal/sandbox/naming"
+	"github.com/inoio/agents-sandbox/internal/humanize"
+	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
+	"github.com/inoio/agents-sandbox/internal/sandbox/naming"
 )
 
 //nolint:revive // VolumeInfo is the established name from query.go
@@ -29,7 +29,7 @@ func FormatVolumeTime(t time.Time) string {
 	return humanize.FormatTimestamp(t)
 }
 
-// ListVolumes returns a list of home volumes managed by opencode-sandbox.
+// ListVolumes returns a list of home volumes managed by agents-sandbox.
 func ListVolumes(ctx context.Context) ([]VolumeInfo, error) {
 	handles, err := msb.Get().ListVolumes(ctx)
 	if err != nil {

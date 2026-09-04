@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/inoio/opencode-sandbox/internal/testutil"
+	"github.com/inoio/agents-sandbox/internal/testutil"
 )
 
 func TestParseHomeSectionRejectsNonStringSource(t *testing.T) {

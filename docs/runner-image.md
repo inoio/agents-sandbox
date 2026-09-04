@@ -5,7 +5,7 @@ nav_order: 80
 ---
 # Runner Image
 
-opencode-sandbox builds a Docker image for each sandbox. The image contains opencode, Node.js, and common CLI tools.
+agents-sandbox builds a Docker image for each sandbox. The image contains the selected coding agent, Node.js, and common CLI tools.
 Projects can extend the image with their own tooling.
 
 ## Home directory
@@ -21,7 +21,7 @@ actually executed. `volume migrate`, `volume reset` and `volume edit` remain ava
 
 ## One image per project
 
-opencode-sandbox builds a single runner image per project. The rendered Dockerfile is assembled from your project
+agents-sandbox builds a single runner image per project. The rendered Dockerfile is assembled from your project
 Dockerfile (if any) plus tool-owned blocks:
 
 - **Base** — the embedded `debian:trixie-slim` tools block, or your whole custom base. For a managed base
@@ -85,7 +85,7 @@ Dockerfile if you need them. The static tarball is selected by `uname -m` (`x86_
 
 The agent block installs Node.js (`v26.8.1`, official tarball) only if it is absent, and installs the selected agent
 only if its binary is absent — so an existing install is left alone (idempotency). What the block actually did is
-recorded in `/etc/opencode-sandbox/agent-source` and `/etc/opencode-sandbox/docker-source`.
+recorded in `/etc/agents-sandbox/agent-source` and `/etc/agents-sandbox/docker-source`.
 
 Four agents are built in: `opencode` (default), `opencode2` (installed via `npm i -g @opencode-ai/cli@$OPENCODE2_VERSION`,
 the opencode 2 beta), `pi` (installed via `npm i -g @earendil-works/pi-coding-agent`), and `claude-code` (installed via
@@ -97,9 +97,9 @@ registry's `latest` dist-tag.
 
 Each runner image carries these labels:
 
-- `org.opencode-sandbox.managed=true`
-- `org.opencode-sandbox.agent=<name>`
-- `org.opencode-sandbox.base=<ref>@sha256:<digest>`
+- `org.agents-sandbox.managed=true`
+- `org.agents-sandbox.agent=<name>`
+- `org.agents-sandbox.base=<ref>@sha256:<digest>`
 
 There is no tool-version label.
 
@@ -113,13 +113,13 @@ By default the latest release available at build time is used. Pin an explicit v
 `--agent-version`:
 
 ```console
-opencode-sandbox build --agent-version 0.5.0
-opencode-sandbox build          # uses the latest release
+agents-sandbox build --agent-version 0.5.0
+agents-sandbox build          # uses the latest release
 ```
 
-**How to upgrade:** Rebuild the runner image with `opencode-sandbox build`. To pin a specific version, use
+**How to upgrade:** Rebuild the runner image with `agents-sandbox build`. To pin a specific version, use
 `--agent-version`. On `run`/`shell`, when a newer agent release exists than the version baked into the image, the
-launcher offers to rebuild the image (interactive) or prints a notice advising `opencode-sandbox build`
+launcher offers to rebuild the image (interactive) or prints a notice advising `agents-sandbox build`
 (non-interactive). When `agent-source=user`, the tool never checks for upgrades.
 
 > `--agent-version` is only available on the `build` command — it is not supported on `run` or `shell` (which pin the
@@ -130,21 +130,21 @@ launcher offers to rebuild the image (interactive) or prints a notice advising `
 Build the image:
 
 ```console
-opencode-sandbox build        # builds if image is missing or base changed
-opencode-sandbox build -r     # force rebuild
+agents-sandbox build        # builds if image is missing or base changed
+agents-sandbox build -r     # force rebuild
 ```
 
 Preview the exact Dockerfile that would be built (without invoking docker):
 
 ```console
-opencode-sandbox build dockerfile            # default (opencode, no dind)
-opencode-sandbox build dockerfile --dind     # with Docker-in-Docker block
+agents-sandbox build dockerfile            # default agent, no dind
+agents-sandbox build dockerfile --dind     # with Docker-in-Docker block
 ```
 
 List cached images:
 
 ```console
-opencode-sandbox image list
+agents-sandbox image list
 ```
 
 The image name includes the project slug and Docker image hash, so changes to the Dockerfile automatically trigger a
@@ -155,15 +155,15 @@ Runner images are tagged **per agent** on both Docker and microsandbox. The `-la
 so each agent's image can be identified and updated independently:
 
 ```
-opencode-sandbox/runner-<slug>:<agent>-latest
+agents-sandbox/runner-<slug>:<agent>-latest
 ```
 
-For example, with a project slug of `my-project`, the opencode image is `opencode-sandbox/runner-my-project:opencode-latest`
-and the pi image is `opencode-sandbox/runner-my-project:pi-latest`.
+For example, with a project slug of `my-project`, the opencode image is `agents-sandbox/runner-my-project:opencode-latest`
+and the pi image is `agents-sandbox/runner-my-project:pi-latest`.
 
 ### Skip-build when unchanged
 
-The Docker build is skipped when the baked `org.opencode-sandbox.dockerfile-id` label matches the current content. This
+The Docker build is skipped when the baked `org.agents-sandbox.dockerfile-id` label matches the current content. This
 label is a hash of the rendered Dockerfile and the agent version, so an image already built from the exact same
 Dockerfile and agent version is reused instead of being rebuilt.
 
@@ -178,15 +178,15 @@ VM always boots from the correct image.
 Images can be pruned via the `prune` command or, more targeted, the `image prune` subcommand:
 
 ```console
-opencode-sandbox image prune --dry-run   # see what's stale
-opencode-sandbox image prune             # actually remove them
+agents-sandbox image prune --dry-run   # see what's stale
+agents-sandbox image prune             # actually remove them
 ```
 
 Pruning retains the `-latest` images **per agent** per live project and any image a kept VM still references, reclaiming
 every other ref — pre-redesign digest refs no sandbox uses, orphaned surplus images, and every ref of projects (slugs)
 that no longer have a live VM. See [Commands]({% link commands.md %}) for details on the prune command.
 
-opencode-sandbox also auto-prunes all resources that are ephemeral, unused or haven't been in use for more than 30 days by
+agents-sandbox also auto-prunes all resources that are ephemeral, unused or haven't been in use for more than 30 days by
 default. Cached runner images and home volumes are only pruned once they are older than the threshold, so a recently
 used project keeps its image and home state across restarts. See [Sandboxes]({% link sandboxes.md %}) for more information
 and [Configuration]({% link configuration/index.md %}) for how to configure auto-pruning.

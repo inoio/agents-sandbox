@@ -27,7 +27,7 @@ func latestOpenCodeVersion(ctx context.Context) (string, error) {
 		return "", fmt.Errorf("build latest-version request: %w", err)
 	}
 	req.Header.Set("Accept", "application/json")
-	req.Header.Set("User-Agent", "opencode-sandbox")
+	req.Header.Set("User-Agent", "agents-sandbox")
 	client := &http.Client{Timeout: 10 * time.Second}
 	resp, err := client.Do(req)
 	if err != nil {

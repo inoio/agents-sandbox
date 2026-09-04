@@ -8,11 +8,11 @@ import (
 
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 
-	"github.com/inoio/opencode-sandbox/internal/configpaths"
-	"github.com/inoio/opencode-sandbox/internal/sandbox/docker"
-	"github.com/inoio/opencode-sandbox/internal/sandbox/msb"
-	"github.com/inoio/opencode-sandbox/internal/sandbox/state"
-	"github.com/inoio/opencode-sandbox/internal/termio"
+	"github.com/inoio/agents-sandbox/internal/configpaths"
+	"github.com/inoio/agents-sandbox/internal/sandbox/docker"
+	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
+	"github.com/inoio/agents-sandbox/internal/sandbox/state"
+	"github.com/inoio/agents-sandbox/internal/termio"
 )
 
 func TestVolumeOps_DryRun(t *testing.T) {
@@ -101,7 +101,7 @@ func TestCmdReset_Success(t *testing.T) {
 	_, ui := setupVolumeOpsFixtures(t)
 
 	slug := "testproj-aBc1234D"
-	oldVol := "opencode-sandbox-home-" + slug + "-old"
+	oldVol := "agents-sandbox-home-" + slug + "-old"
 	state.WriteState(
 		state.Key{Slug: slug, Agent: "opencode"},
 		state.HomeState{HomeVolume: oldVol, ImageDigest: "sha256:old"},
@@ -146,7 +146,7 @@ func TestVolumeOp_RecordsCurrentImageDigest(t *testing.T) {
 	_, ui := setupVolumeOpsFixtures(t)
 
 	slug := "testproj-aBc1234D"
-	oldVol := "opencode-sandbox-home-" + slug + "-old"
+	oldVol := "agents-sandbox-home-" + slug + "-old"
 	state.WriteState(
 		state.Key{Slug: slug, Agent: "opencode"},
 		state.HomeState{HomeVolume: oldVol, ImageDigest: "sha256:old"},
@@ -182,7 +182,7 @@ func TestVolumeOp_PreservesEnvSecretFingerprints(t *testing.T) {
 	_, ui := setupVolumeOpsFixtures(t)
 
 	slug := "testproj-aBc1234D"
-	oldVol := "opencode-sandbox-home-" + slug + "-old"
+	oldVol := "agents-sandbox-home-" + slug + "-old"
 	oldState := state.HomeState{
 		HomeVolume:  oldVol,
 		ImageDigest: "sha256:old",
@@ -309,7 +309,7 @@ func TestVolumeOp_ActiveVM_ReturnsError(t *testing.T) {
 		state.HomeState{HomeVolume: "old-vol", ImageDigest: "sha256:abc"},
 	)
 	mock.Sandboxes = []msb.SandboxHandle{
-		&msb.MockSandboxHandle{Name_: "opencode-sandbox-vm-testproj-aBc1234D", Status_: msbSdk.SandboxStatusRunning},
+		&msb.MockSandboxHandle{Name_: "agents-sandbox-vm-testproj-aBc1234D", Status_: msbSdk.SandboxStatusRunning},
 	}
 	err := CmdReset(
 		context.Background(),
@@ -614,7 +614,7 @@ func TestCmdReset_RemOldVolume(t *testing.T) {
 	mock, ui := setupVolumeOpsFixtures(t)
 
 	slug := "testproj-aBc1234D"
-	oldVol := "opencode-sandbox-home-" + slug + "-old"
+	oldVol := "agents-sandbox-home-" + slug + "-old"
 	state.WriteState(
 		state.Key{Slug: slug, Agent: "opencode"},
 		state.HomeState{HomeVolume: oldVol, ImageDigest: "sha256:old"},
@@ -695,7 +695,7 @@ func TestResolveHomeVolume_VolumeNotFound_Warns(t *testing.T) {
 	slug := "myproj"
 	state.WriteState(
 		state.Key{Slug: slug, Agent: "opencode"},
-		state.HomeState{HomeVolume: "opencode-sandbox-home-myproj-old", ImageDigest: "sha256:abc"},
+		state.HomeState{HomeVolume: "agents-sandbox-home-myproj-old", ImageDigest: "sha256:abc"},
 	)
 
 	mock := &msb.MockMsbClient{}

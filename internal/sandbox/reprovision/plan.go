@@ -8,8 +8,8 @@ import (
 
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 
-	"github.com/inoio/opencode-sandbox/internal/sandbox/options"
-	"github.com/inoio/opencode-sandbox/internal/termio"
+	"github.com/inoio/agents-sandbox/internal/sandbox/options"
+	"github.com/inoio/agents-sandbox/internal/termio"
 )
 
 const changeLabelPublishedPorts = "published port(s)"
@@ -283,7 +283,7 @@ func diskMiBOr0(cfg *msbSdk.SandboxConfig) uint32 {
 	return cfg.RootDisk.SizeMiB
 }
 
-// desiredPublishBindings returns the port bindings opencode-sandbox wants on the
+// desiredPublishBindings returns the port bindings agents-sandbox wants on the
 // project VM. Serve-only publishes the agent port on the host loopback;
 // otherwise nothing is published.
 func desiredPublishBindings(serveOnly bool, cfg *msbSdk.SandboxConfig) []msbSdk.PortBinding {

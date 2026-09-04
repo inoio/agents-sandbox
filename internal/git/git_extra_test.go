@@ -10,7 +10,7 @@ import (
 	"github.com/go-git/go-git/v5/plumbing/cache"
 	"github.com/go-git/go-git/v5/storage/filesystem"
 
-	"github.com/inoio/opencode-sandbox/internal/testutil"
+	"github.com/inoio/agents-sandbox/internal/testutil"
 )
 
 func TestResolveGitDir(t *testing.T) {
@@ -83,7 +83,7 @@ func TestOriginURL(t *testing.T) {
 	})
 
 	t.Run("returns origin url", func(t *testing.T) {
-		const origin = "git@github.com:inoio/opencode-sandbox.git"
+		const origin = "git@github.com:inoio/agents-sandbox.git"
 		repo := testutil.InitRepo(t)
 		testutil.RunGit(t, repo, "remote", "add", "origin", origin)
 		if got := originURL(repo); got != origin {

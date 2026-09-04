@@ -3,7 +3,7 @@ package image
 import (
 	"testing"
 
-	"github.com/inoio/opencode-sandbox/internal/agent"
+	"github.com/inoio/agents-sandbox/internal/agent"
 )
 
 func agentOpencode(t *testing.T) agent.Agent {

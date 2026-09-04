@@ -9,11 +9,11 @@ import (
 
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 
-	"github.com/inoio/opencode-sandbox/internal/configpaths"
-	"github.com/inoio/opencode-sandbox/internal/sandbox/docker"
-	"github.com/inoio/opencode-sandbox/internal/sandbox/msb"
-	"github.com/inoio/opencode-sandbox/internal/sandbox/state"
-	"github.com/inoio/opencode-sandbox/internal/termio"
+	"github.com/inoio/agents-sandbox/internal/configpaths"
+	"github.com/inoio/agents-sandbox/internal/sandbox/docker"
+	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
+	"github.com/inoio/agents-sandbox/internal/sandbox/state"
+	"github.com/inoio/agents-sandbox/internal/termio"
 )
 
 func TestPruneImages(t *testing.T) {
@@ -34,9 +34,9 @@ func TestPruneImages(t *testing.T) {
 		configpaths.WithMockConfigPaths(t)
 		client := &msb.MockMsbClient{
 			Images: []msb.ImageHandle{
-				img("opencode-sandbox/runner-orphan-1mjusbm3wikhb0:digest1", old),
-				img("opencode-sandbox/runner-active-1mjusbm3wikhb0:opencode-latest", old),
-				img("opencode-sandbox/runner-active-1mjusbm3wikhb0:digestOld", older),
+				img("agents-sandbox/runner-orphan-1mjusbm3wikhb0:digest1", old),
+				img("agents-sandbox/runner-active-1mjusbm3wikhb0:opencode-latest", old),
+				img("agents-sandbox/runner-active-1mjusbm3wikhb0:digestOld", older),
 			},
 		}
 		msb.WithMsbMock(t, client)
@@ -62,7 +62,7 @@ func TestPruneImages(t *testing.T) {
 		configpaths.WithMockConfigPaths(t)
 		client := &msb.MockMsbClient{
 			Images: []msb.ImageHandle{
-				img("opencode-sandbox/runner-orphan-1mjusbm3wikhb0:digest1", old),
+				img("agents-sandbox/runner-orphan-1mjusbm3wikhb0:digest1", old),
 			},
 		}
 		msb.WithMsbMock(t, client)
@@ -89,9 +89,9 @@ func TestPruneImages(t *testing.T) {
 		configpaths.WithMockConfigPaths(t)
 		client := &msb.MockMsbClient{
 			Images: []msb.ImageHandle{
-				img("opencode-sandbox/runner-active-1mjusbm3wikhb0:opencode-latest", old),
-				img("opencode-sandbox/runner-active-1mjusbm3wikhb0:pi-latest", now),
-				img("opencode-sandbox/runner-active-1mjusbm3wikhb0:digestOld", older),
+				img("agents-sandbox/runner-active-1mjusbm3wikhb0:opencode-latest", old),
+				img("agents-sandbox/runner-active-1mjusbm3wikhb0:pi-latest", now),
+				img("agents-sandbox/runner-active-1mjusbm3wikhb0:digestOld", older),
 			},
 		}
 		msb.WithMsbMock(t, client)
@@ -109,7 +109,7 @@ func TestPruneImages(t *testing.T) {
 			t.Errorf("MSBImagesPruned = %d, want 1 (only digestOld)", r.MSBImagesPruned)
 		}
 		if len(client.RemovedImages) != 1 ||
-			client.RemovedImages[0].Ref != "opencode-sandbox/runner-active-1mjusbm3wikhb0:digestOld" {
+			client.RemovedImages[0].Ref != "agents-sandbox/runner-active-1mjusbm3wikhb0:digestOld" {
 			t.Errorf("RemovedImages = %v, want only digestOld", client.RemovedImages)
 		}
 	})
@@ -118,8 +118,8 @@ func TestPruneImages(t *testing.T) {
 		configpaths.WithMockConfigPaths(t)
 		client := &msb.MockMsbClient{
 			Images: []msb.ImageHandle{
-				img("opencode-sandbox/runner-unknown-1mjusbm3wikhb0:digest1", old),
-				img("opencode-sandbox/runner-unknown-1mjusbm3wikhb0:digest2", old),
+				img("agents-sandbox/runner-unknown-1mjusbm3wikhb0:digest1", old),
+				img("agents-sandbox/runner-unknown-1mjusbm3wikhb0:digest2", old),
 			},
 		}
 		msb.WithMsbMock(t, client)
@@ -153,11 +153,11 @@ func TestPruneImages(t *testing.T) {
 		removed := make(map[string]bool)
 		client := &msb.MockMsbClient{
 			Images: []msb.ImageHandle{
-				img("opencode-sandbox/runner-fail-1mjusbm3wikhb0:digest1", old),
-				img("opencode-sandbox/runner-ok-1mjusbm3wikhb0:digest2", old),
+				img("agents-sandbox/runner-fail-1mjusbm3wikhb0:digest1", old),
+				img("agents-sandbox/runner-ok-1mjusbm3wikhb0:digest2", old),
 			},
 			ImageRemoveFn: func(_ context.Context, ref string, _ bool) error {
-				if ref == "opencode-sandbox/runner-fail-1mjusbm3wikhb0:digest1" {
+				if ref == "agents-sandbox/runner-fail-1mjusbm3wikhb0:digest1" {
 					return errors.New("remove boom")
 				}
 				removed[ref] = true
@@ -177,7 +177,7 @@ func TestPruneImages(t *testing.T) {
 		if r.MSBImagesPruned != 1 {
 			t.Errorf("MSBImagesPruned = %d, want 1 (failed one is skipped)", r.MSBImagesPruned)
 		}
-		if !removed["opencode-sandbox/runner-ok-1mjusbm3wikhb0:digest2"] {
+		if !removed["agents-sandbox/runner-ok-1mjusbm3wikhb0:digest2"] {
 			t.Errorf("expected the non-failing image to be removed, got %v", removed)
 		}
 		if len(ui.WarnCalls) != 1 {
@@ -187,7 +187,7 @@ func TestPruneImages(t *testing.T) {
 
 	t.Run("docker prune error is warned but not fatal", func(t *testing.T) {
 		client := &msb.MockMsbClient{
-			Images: []msb.ImageHandle{img("opencode-sandbox/runner-dockererr-1mjusbm3wikhb0:digest1", old)},
+			Images: []msb.ImageHandle{img("agents-sandbox/runner-dockererr-1mjusbm3wikhb0:digest1", old)},
 		}
 		msb.WithMsbMock(t, client)
 		docker.WithDefaultErrorDockerMock(t)
@@ -215,11 +215,11 @@ func TestKeepImagePerAgent(t *testing.T) {
 		},
 		ToPrune: map[state.Key]msb.SandboxHandle{},
 	}
-	oc := &msb.MockImageHandle{Reference_: "opencode-sandbox/runner-proj-1mjusbm3wikhb0:opencode-latest"}
+	oc := &msb.MockImageHandle{Reference_: "agents-sandbox/runner-proj-1mjusbm3wikhb0:opencode-latest"}
 	if !keepImage(oc, pruneState, nil) {
 		t.Error("expected opencode-latest to be kept")
 	}
-	pi := &msb.MockImageHandle{Reference_: "opencode-sandbox/runner-proj-1mjusbm3wikhb0:pi-latest"}
+	pi := &msb.MockImageHandle{Reference_: "agents-sandbox/runner-proj-1mjusbm3wikhb0:pi-latest"}
 	if keepImage(pi, pruneState, nil) {
 		t.Error("expected pi-latest to be pruned (no kept pi VM)")
 	}
@@ -235,15 +235,15 @@ func TestPruneImagesKeepsPerAgentTagsOfLiveSlug(t *testing.T) {
 	client := &msb.MockMsbClient{
 		Images: []msb.ImageHandle{
 			&msb.MockImageHandle{
-				Reference_: "opencode-sandbox/runner-active-1mjusbm3wikhb0:opencode-latest",
+				Reference_: "agents-sandbox/runner-active-1mjusbm3wikhb0:opencode-latest",
 				CreatedAt_: old,
 			},
 			&msb.MockImageHandle{
-				Reference_: "opencode-sandbox/runner-active-1mjusbm3wikhb0:pi-latest",
+				Reference_: "agents-sandbox/runner-active-1mjusbm3wikhb0:pi-latest",
 				CreatedAt_: now,
 			},
 			&msb.MockImageHandle{
-				Reference_: "opencode-sandbox/runner-active-1mjusbm3wikhb0:olddigest",
+				Reference_: "agents-sandbox/runner-active-1mjusbm3wikhb0:olddigest",
 				CreatedAt_: older,
 			},
 		},
@@ -263,7 +263,7 @@ func TestPruneImagesKeepsPerAgentTagsOfLiveSlug(t *testing.T) {
 		t.Errorf("MSBImagesPruned = %d, want 1 (reclaim non -latest ref)", r.MSBImagesPruned)
 	}
 	if len(client.RemovedImages) != 1 ||
-		client.RemovedImages[0].Ref != "opencode-sandbox/runner-active-1mjusbm3wikhb0:olddigest" {
+		client.RemovedImages[0].Ref != "agents-sandbox/runner-active-1mjusbm3wikhb0:olddigest" {
 		t.Errorf("RemovedImages = %v, want only the non -latest ref", client.RemovedImages)
 	}
 }
@@ -283,17 +283,17 @@ func TestPruneImagesPreservesFreshSurplus(t *testing.T) {
 		Images: []msb.ImageHandle{
 			// A per-agent latest tag for the live slug.
 			&msb.MockImageHandle{
-				Reference_: "opencode-sandbox/runner-active-1mjusbm3wikhb0:opencode-latest",
+				Reference_: "agents-sandbox/runner-active-1mjusbm3wikhb0:opencode-latest",
 				CreatedAt_: old,
 			},
 			// A freshly imported replacement for another agent.
 			&msb.MockImageHandle{
-				Reference_: "opencode-sandbox/runner-active-1mjusbm3wikhb0:pi-latest",
+				Reference_: "agents-sandbox/runner-active-1mjusbm3wikhb0:pi-latest",
 				CreatedAt_: now,
 			},
 			// A genuinely old surplus digest: reclaimed.
 			&msb.MockImageHandle{
-				Reference_: "opencode-sandbox/runner-active-1mjusbm3wikhb0:digestOld",
+				Reference_: "agents-sandbox/runner-active-1mjusbm3wikhb0:digestOld",
 				CreatedAt_: older,
 			},
 		},
@@ -313,7 +313,7 @@ func TestPruneImagesPreservesFreshSurplus(t *testing.T) {
 		t.Errorf("MSBImagesPruned = %d, want 1 (only the old surplus digest)", r.MSBImagesPruned)
 	}
 	if len(client.RemovedImages) != 1 ||
-		client.RemovedImages[0].Ref != "opencode-sandbox/runner-active-1mjusbm3wikhb0:digestOld" {
+		client.RemovedImages[0].Ref != "agents-sandbox/runner-active-1mjusbm3wikhb0:digestOld" {
 		t.Errorf("RemovedImages = %v, want only the old surplus digest kept fresh image", client.RemovedImages)
 	}
 }
@@ -328,10 +328,10 @@ func TestPruneImagesReclaimsKilledProjectImages(t *testing.T) {
 	client := &msb.MockMsbClient{
 		Images: []msb.ImageHandle{
 			&msb.MockImageHandle{
-				Reference_: "opencode-sandbox/runner-gone-1mjusbm3wikhb0:opencode-latest",
+				Reference_: "agents-sandbox/runner-gone-1mjusbm3wikhb0:opencode-latest",
 				CreatedAt_: old,
 			},
-			&msb.MockImageHandle{Reference_: "opencode-sandbox/runner-gone-1mjusbm3wikhb0:old", CreatedAt_: old},
+			&msb.MockImageHandle{Reference_: "agents-sandbox/runner-gone-1mjusbm3wikhb0:old", CreatedAt_: old},
 		},
 	}
 	msb.WithMsbMock(t, client)
@@ -359,7 +359,7 @@ func TestPruneImagesKeepsImageReferencedByKeptVM(t *testing.T) {
 	client := &msb.MockMsbClient{
 		Images: []msb.ImageHandle{
 			&msb.MockImageHandle{
-				Reference_: "opencode-sandbox/runner-proj-1mjusbm3wikhb0:4e8oeqohbmalok",
+				Reference_: "agents-sandbox/runner-proj-1mjusbm3wikhb0:4e8oeqohbmalok",
 				CreatedAt_: time.Now().Add(-15 * 24 * time.Hour),
 			},
 		},
@@ -370,9 +370,9 @@ func TestPruneImagesKeepsImageReferencedByKeptVM(t *testing.T) {
 	ps := PruneState{
 		ToKeep: map[state.Key]msb.SandboxHandle{
 			{Slug: "proj-1mjusbm3wikhb0", Agent: ""}: &msb.MockSandboxHandle{
-				Name_:   "opencode-sandbox-vm-proj-1mjusbm3wikhb0",
+				Name_:   "agents-sandbox-vm-proj-1mjusbm3wikhb0",
 				Status_: msbSdk.SandboxStatusStopped,
-				Image_:  "opencode-sandbox/runner-proj-1mjusbm3wikhb0:4e8oeqohbmalok",
+				Image_:  "agents-sandbox/runner-proj-1mjusbm3wikhb0:4e8oeqohbmalok",
 			},
 		},
 	}

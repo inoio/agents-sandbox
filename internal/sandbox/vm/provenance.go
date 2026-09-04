@@ -4,17 +4,17 @@ import (
 	"context"
 	"strings"
 
-	"github.com/inoio/opencode-sandbox/internal/agent"
-	"github.com/inoio/opencode-sandbox/internal/sandbox/msb"
-	"github.com/inoio/opencode-sandbox/internal/termio"
+	"github.com/inoio/agents-sandbox/internal/agent"
+	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
+	"github.com/inoio/agents-sandbox/internal/termio"
 
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 )
 
 // Provenance files baked into the image by the agent and dind blocks.
 const (
-	agentSourcePath  = "/etc/opencode-sandbox/agent-source"
-	dockerSourcePath = "/etc/opencode-sandbox/docker-source"
+	agentSourcePath  = "/etc/agents-sandbox/agent-source"
+	dockerSourcePath = "/etc/agents-sandbox/docker-source"
 )
 
 // Agent-source provenance values baked into the image.

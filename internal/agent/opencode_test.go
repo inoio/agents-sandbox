@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/inoio/opencode-sandbox/internal/agent"
+	"github.com/inoio/agents-sandbox/internal/agent"
 )
 
 func TestOpencodeAttachCommand(t *testing.T) {

@@ -6,11 +6,11 @@ import (
 
 	"github.com/moby/moby/client"
 
-	"github.com/inoio/opencode-sandbox/internal/sandbox/docker"
-	"github.com/inoio/opencode-sandbox/internal/sandbox/msb"
-	"github.com/inoio/opencode-sandbox/internal/sandbox/naming"
-	"github.com/inoio/opencode-sandbox/internal/sandbox/state"
-	"github.com/inoio/opencode-sandbox/internal/termio"
+	"github.com/inoio/agents-sandbox/internal/sandbox/docker"
+	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
+	"github.com/inoio/agents-sandbox/internal/sandbox/naming"
+	"github.com/inoio/agents-sandbox/internal/sandbox/state"
+	"github.com/inoio/agents-sandbox/internal/termio"
 )
 
 // ImageReport summarizes a PruneImages run.
@@ -104,7 +104,7 @@ func pruneDockerImages(ctx context.Context, dryRun bool, ui termio.UI) int {
 		return 0
 	}
 	result, err := docker.Get().
-		ImagePrune(ctx, client.ImagePruneOptions{Filters: client.Filters{}.Add("dangling", "true").Add("label", "org.opencode-sandbox.managed=true").Add("until", "24h")})
+		ImagePrune(ctx, client.ImagePruneOptions{Filters: client.Filters{}.Add("dangling", "true").Add("label", "org.agents-sandbox.managed=true").Add("until", "24h")})
 	if err != nil {
 		ui.Warnf("failed to prune docker images: %v", err)
 		return 0

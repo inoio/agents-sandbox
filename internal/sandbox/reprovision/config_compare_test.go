@@ -7,10 +7,10 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/inoio/opencode-sandbox/internal/sandbox/msb"
-	"github.com/inoio/opencode-sandbox/internal/termio"
+	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
+	"github.com/inoio/agents-sandbox/internal/termio"
 
-	"github.com/inoio/opencode-sandbox/internal/testutil"
+	"github.com/inoio/agents-sandbox/internal/testutil"
 )
 
 // configEqual reports whether the desired state matches the VM state. The
@@ -220,7 +220,7 @@ func TestBuildEnvMap(t *testing.T) {
 func TestReadSandboxEnvMissing(t *testing.T) {
 	env := BuildEnvMap("missing")
 	if len(env) != 0 {
-		t.Errorf("expected 0 env vars when .opencode-sandbox/env missing, got %d", len(env))
+		t.Errorf("expected 0 env vars when .agents-sandbox/env missing, got %d", len(env))
 	}
 }
 

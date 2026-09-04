@@ -3,7 +3,7 @@ package notify
 import (
 	"testing"
 
-	"github.com/inoio/opencode-sandbox/internal/agent"
+	"github.com/inoio/agents-sandbox/internal/agent"
 )
 
 // opencodeSpec returns the EventStreamSpec the opencode profile provides, so

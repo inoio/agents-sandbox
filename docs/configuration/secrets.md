@@ -22,7 +22,7 @@ hosts can access the secret. Values may contain `@` — everything before the la
 define a host explicitly; omitting the host part drops the secret with a warning.
 
 ```shell
-# .opencode-sandbox/env.secret
+# .agents-sandbox/env.secret
 GITHUB_TOKEN=ghp_xxxxxxxxxxxx@github.com
 ANTHROPIC_API_KEY=sk-ant-xxxxxxxxxxxx@anthropic.com
 ```
@@ -35,7 +35,7 @@ required — entries with neither hosts nor a dangerous flag are dropped with a 
 is a JSON superset).
 
 ```yaml
-# .opencode-sandbox/env.secret.yaml
+# .agents-sandbox/env.secret.yaml
 GITHUB_TOKEN:
   value: "ghp_xxx@corp"
   host: microsandbox
@@ -68,16 +68,16 @@ with a warning.
 
 ## Supported files
 
-- `~/.config/opencode-sandbox/env.secret` — user-level, legacy text format
-- `~/.config/opencode-sandbox/env.secret.yaml` — user-level, structured YAML (or JSON)
-- `.opencode-sandbox/env.secret` — project-level, legacy text format
-- `.opencode-sandbox/env.secret.yaml` — project-level, structured YAML (or JSON)
+- `~/.config/agents-sandbox/env.secret` — user-level, legacy text format
+- `~/.config/agents-sandbox/env.secret.yaml` — user-level, structured YAML (or JSON)
+- `.agents-sandbox/env.secret` — project-level, legacy text format
+- `.agents-sandbox/env.secret.yaml` — project-level, structured YAML (or JSON)
 
 ## Accessing secrets inside the VM
 
 Once set as a secret, the variable is available like any environment variable, but its value is a placeholder:
 
 ```shell
-# Inside the sandbox (shell or opencode)
+# Inside the sandbox (shell or run command)
 echo $GITHUB_TOKEN
 ```

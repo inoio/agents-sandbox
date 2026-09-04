@@ -7,7 +7,7 @@ import (
 	"runtime"
 )
 
-// checkPlatform validates that opencode-sandbox is running on Apple Silicon.
+// checkPlatform validates that agents-sandbox is running on Apple Silicon.
 func checkPlatform() error {
 	if runtime.GOARCH != "arm64" {
 		return errors.New("only arm64 macOS (Apple Silicon) is supported")

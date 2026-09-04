@@ -7,26 +7,26 @@ nav_order: 10
 
 # Configuration files & Environment variables
 
-opencode-sandbox supports configuration at two levels: user-level defaults and project-level overrides. Both can set CLI
+agents-sandbox supports configuration at two levels: user-level defaults and project-level overrides. Both can set CLI
 flags and environment variables. This page covers where config lives, the config-file fields, and how values are resolved.
 
 ## User-level defaults
 
-Place files under `~/.config/opencode-sandbox/` to set defaults for all projects:
+Place files under `~/.config/agents-sandbox/` to set defaults for all projects:
 
 The tool follows
 the [XDG base directory spec](https://specifications.freedesktop.org/basedir-spec/basedir-spec-latest.html):
-`~/.config/opencode-sandbox`, `~/.cache/opencode-sandbox`, and `~/.local/state/opencode-sandbox` are the defaults, but the
+`~/.config/agents-sandbox`, `~/.cache/agents-sandbox`, and `~/.local/state/agents-sandbox` are the defaults, but the
 `XDG_CONFIG_HOME`, `XDG_CACHE_HOME`, and `XDG_STATE_HOME` environment variables override them when set (and absolute).
 
 | File                                                       | Purpose                                                                               |
 |------------------------------------------------------------|---------------------------------------------------------------------------------------|
-| `~/.config/opencode-sandbox/env`                           | Environment variables forwarded to every sandbox                                      |
-| `~/.config/opencode-sandbox/env.secret`                    | Secret environment variables (legacy, see [Secrets]({% link configuration/secrets.md %}))                        |
-| `~/.config/opencode-sandbox/env.secret.yaml`               | Secret environment variables (YAML/JSON, see [Secrets]({% link configuration/secrets.md %}))                     |
-| `~/.config/opencode-sandbox/config.(y[a]ml\|json[(c\|5)])` | Configuration file (incl. the `home:` key; see [Home provisioning & startup hooks]({% link configuration/home-provisioning.md %}))                                                                    |
-| `~/.config/opencode-sandbox/<agent>/*`                    | Agent config snippets, one subdir per agent (e.g. `opencode/`; see [Agent configuration]({% link configuration/agent.md %})) |
-| `~/.config/opencode-sandbox/<slug>/config.(y[a]ml\|json[(c\|5)])` | Per-project (per-slug) configuration file (see [Per-slug configuration](#per-slug-configuration)) |
+| `~/.config/agents-sandbox/env`                           | Environment variables forwarded to every sandbox                                      |
+| `~/.config/agents-sandbox/env.secret`                    | Secret environment variables (legacy, see [Secrets]({% link configuration/secrets.md %}))                        |
+| `~/.config/agents-sandbox/env.secret.yaml`               | Secret environment variables (YAML/JSON, see [Secrets]({% link configuration/secrets.md %}))                     |
+| `~/.config/agents-sandbox/config.(y[a]ml\|json[(c\|5)])` | Configuration file (incl. the `home:` key; see [Home provisioning & startup hooks]({% link configuration/home-provisioning.md %}))                                                                    |
+| `~/.config/agents-sandbox/<agent>/*`                    | Agent config snippets, one subdir per agent (e.g. `opencode/`; see [Agent configuration]({% link configuration/agent.md %})) |
+| `~/.config/agents-sandbox/<slug>/config.(y[a]ml\|json[(c\|5)])` | Per-project (per-slug) configuration file (see [Per-slug configuration](#per-slug-configuration)) |
 
 `env` uses `KEY=value` format. `env.secret` uses `KEY=value@host` (see [Secrets]({% link configuration/secrets.md %})).
 
@@ -35,20 +35,20 @@ first one found is used.
 
 ## Project-level configuration
 
-Place files under `.opencode-sandbox/` in your project directory. These override user-level defaults.
+Place files under `.agents-sandbox/` in your project directory. These override user-level defaults.
 
 | File                                              | Purpose                                                                                           |
 |---------------------------------------------------|---------------------------------------------------------------------------------------------------|
-| `.opencode-sandbox/Dockerfile`                    | Custom runner image layers                                                                        |
-| `.opencode-sandbox/env`                           | Project-specific environment variables                                                            |
-| `.opencode-sandbox/env.secret`                    | Project-specific secrets (legacy)                                                                 |
-| `.opencode-sandbox/env.secret.yaml`               | Project-specific secrets (YAML/JSON)                                                              |
-| `.opencode-sandbox/config.(y[a]ml\|json[(c\|5)])` | Project-specific configuration file (incl. the `home:` key; see [Home provisioning & startup hooks]({% link configuration/home-provisioning.md %}))                                                               |            
-| `.opencode-sandbox/<agent>/*`                    | Project-specific agent config snippets (see [Agent configuration]({% link configuration/agent.md %}))          |
+| `.agents-sandbox/Dockerfile`                    | Custom runner image layers                                                                        |
+| `.agents-sandbox/env`                           | Project-specific environment variables                                                            |
+| `.agents-sandbox/env.secret`                    | Project-specific secrets (legacy)                                                                 |
+| `.agents-sandbox/env.secret.yaml`               | Project-specific secrets (YAML/JSON)                                                              |
+| `.agents-sandbox/config.(y[a]ml\|json[(c\|5)])` | Project-specific configuration file (incl. the `home:` key; see [Home provisioning & startup hooks]({% link configuration/home-provisioning.md %}))                                                               |            
+| `.agents-sandbox/<agent>/*`                    | Project-specific agent config snippets (see [Agent configuration]({% link configuration/agent.md %}))          |
 
 ### Custom base images
 
-A `.opencode-sandbox/Dockerfile` whose `FROM` is a specific image is treated as a **custom base** and the agent (and
+A `.agents-sandbox/Dockerfile` whose `FROM` is a specific image is treated as a **custom base** and the agent (and
 optional dind) blocks are layered on top of it. See [Runner Image]({% link runner-image.md %}) for the contract: the base
 must provide `curl` and `bash`, the dind prerequisites when dind runs, and idempotency for an existing docker/node/agent.
 
@@ -59,9 +59,9 @@ Configuration is resolved in this order (later entries override earlier ones):
 ![Configuration precedence diagram]({% link diagrams/config-precedence.svg %})
 
 1. **Built-in / flag defaults** — compiled-in values and CLI flag defaults
-2. **User-level** — `~/.config/opencode-sandbox/`
-3. **User per-slug** — `~/.config/opencode-sandbox/<slug>/`
-4. **Project-level** — `.opencode-sandbox/`
+2. **User-level** — `~/.config/agents-sandbox/`
+3. **User per-slug** — `~/.config/agents-sandbox/<slug>/`
+4. **Project-level** — `.agents-sandbox/`
 5. **Environment variables** — `OPENCODE_SANDBOX_<KEY>`
 6. **CLI flags** — always win when explicitly passed
 
@@ -97,7 +97,7 @@ Configuration is resolved in this order (later entries override earlier ones):
 | `notify.on-done`                 | —                        | Notify when a `busy` session returns to `idle` (default false)                                                                                                                                                               |
 | `notify.on-error`                | —                        | Notify on a `session.error` event (default false)                                                                                                                                                                            |
 
-Example `~/.config/opencode-sandbox/config.yaml`:
+Example `~/.config/agents-sandbox/config.yaml`:
 
 ```yaml
 log-level: verbose
@@ -157,7 +157,7 @@ session. The change type determines the mechanism used to apply the new settings
 | `memory`          | Live Modify    | Applied live via SDK Modify (hotplug)                                                                    |
 | `env`             | VM recreate    | microsandbox cannot apply env live or on a daemon restart, so the VM is rebuilt; env is baked in at creation |
 | `secrets`         | VM recreate    | microsandbox cannot apply secrets live or on a daemon restart, so the VM is rebuilt; secrets are baked in at creation |
-| `opencode config` | Daemon restart | Files are always copied into the VM (provisioning); the opencode daemon is restarted in-place to pick them up   |
+| `agent config` | Daemon restart | Files are always copied into the VM (provisioning); the agent daemon is restarted in-place to pick them up   |
 | `tmp-size`        | VM recreate    | VM is stopped, removed, and rebuilt with new tmpfs size. Home volume is preserved.                       |
 | `disk-size`       | VM recreate    | VM is stopped, removed, and rebuilt with new disk size. Home volume is preserved.                        |
 | `workspace-quota` | VM recreate    | VM is stopped, removed, and rebuilt with new workspace write quota. Home volume is preserved.            |
@@ -168,13 +168,13 @@ session. The change type determines the mechanism used to apply the new settings
 
 When **no other client** is attached, config changes apply immediately.
 
-Opencode/home config files are provisioned into the VM on every startup, so a change is picked up by the next daemon start
-even when the current daemon is kept running (see below). Only the `opencode config` change prompts for a daemon restart;
+Agent/home config files are provisioned into the VM on every startup, so a change is picked up by the next daemon start
+even when the current daemon is kept running (see below). Only the `agent config` change prompts for a daemon restart;
 `home:` file changes are applied on the next startup without any prompt, since they do not require the daemon to restart.
 
 #### Parallel Sessions
 
-When multiple `opencode-sandbox` sessions are actively connected to a VM, applying a resource change by recreating the VM
+When multiple `agents-sandbox` sessions are actively connected to a VM, applying a resource change by recreating the VM
 may disrupt active sessions. In this case, the launcher will prompt you whether to keep the current VM (defer),
 recreate, or quit to abort the change. The default is to keep/defer.
 
@@ -213,13 +213,13 @@ config file or env var.
 ## Per-slug configuration
 
 Beyond the generic user-level config, you can provide config for a **specific project** at
-`~/.config/opencode-sandbox/<slug>/config.yaml` (slug = the project's git project slug). This sits between the generic
+`~/.config/agents-sandbox/<slug>/config.yaml` (slug = the project's git project slug). This sits between the generic
 user-level config and the project-level config in precedence:
 
 1. **Built-in / flag defaults**
-2. **User-level** — `~/.config/opencode-sandbox/config.yaml`
-3. **User per-slug** — `~/.config/opencode-sandbox/<slug>/config.yaml`
-4. **Project-level** — `.opencode-sandbox/config.yaml`
+2. **User-level** — `~/.config/agents-sandbox/config.yaml`
+3. **User per-slug** — `~/.config/agents-sandbox/<slug>/config.yaml`
+4. **Project-level** — `.agents-sandbox/config.yaml`
 5. **Environment variables** — `OPENCODE_SANDBOX_*`
 6. **CLI flags** — always win when explicitly passed
 
@@ -230,15 +230,15 @@ The same formats/filenames as the generic user config are supported (`config.yam
 
 Two files define environment variables passed to the sandbox:
 
-- `~/.config/opencode-sandbox/env` — user-level, every project
-- `.opencode-sandbox/env` — project-level, current project only
+- `~/.config/agents-sandbox/env` — user-level, every project
+- `.agents-sandbox/env` — project-level, current project only
 
 Format: one `KEY=value` per line. Comments (lines starting with `#`) and blank lines are ignored.
 
 ```shell
-# .opencode-sandbox/env
+# .agents-sandbox/env
 FOO=bar
 DATABASE_URL=postgres://localhost/mydb
 ```
 
-These are available to opencode and any child processes inside the sandbox.
+These are available to the agent and any child processes inside the sandbox.

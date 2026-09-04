@@ -6,8 +6,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/inoio/opencode-sandbox/internal/agent"
-	"github.com/inoio/opencode-sandbox/internal/configpaths"
+	"github.com/inoio/agents-sandbox/internal/agent"
+	"github.com/inoio/agents-sandbox/internal/configpaths"
 )
 
 func TestRenderDockerfileDefaultBase(t *testing.T) {
@@ -18,15 +18,15 @@ func TestRenderDockerfileDefaultBase(t *testing.T) {
 		"FROM debian:trixie-slim",
 		"iptables",
 		"ARG OPENCODE_VERSION",
-		"LABEL org.opencode-sandbox.agent=opencode",
+		"LABEL org.agents-sandbox.agent=opencode",
 		"ARG DOCKERFILE_ID",
-		"LABEL org.opencode-sandbox.dockerfile-id=$DOCKERFILE_ID",
+		"LABEL org.agents-sandbox.dockerfile-id=$DOCKERFILE_ID",
 		"OPENCODE_DISABLE_AUTOUPDATE=true",
 		"node-v26.8.1-linux",
-		"echo tool > /etc/opencode-sandbox/agent-source",
-		"echo user > /etc/opencode-sandbox/agent-source",
+		"echo tool > /etc/agents-sandbox/agent-source",
+		"echo user > /etc/agents-sandbox/agent-source",
 		"groupadd -g \"$USER_GID\" dev",
-		"LABEL org.opencode-sandbox.managed=true",
+		"LABEL org.agents-sandbox.managed=true",
 		"USER dev",
 		"WORKDIR /workspace",
 	} {
@@ -36,7 +36,7 @@ func TestRenderDockerfileDefaultBase(t *testing.T) {
 	}
 	for _, unwanted := range []string{
 		"nodesource", "AGENT_INSTALL_BLOCK", "docker-ce", "runner-base",
-		"org.opencode-sandbox.opencode-version", "DOCKER_VERSION",
+		"org.agents-sandbox.opencode-version", "DOCKER_VERSION",
 	} {
 		if strings.Contains(s, unwanted) {
 			t.Errorf("rendered Dockerfile must not contain %q", unwanted)
@@ -51,8 +51,8 @@ func TestRenderDockerfileDindEnabled(t *testing.T) {
 	for _, want := range []string{
 		"ARG DOCKER_VERSION=29.7.2",
 		"download.docker.com/linux/static/stable/$(uname -m)/docker-${DOCKER_VERSION}.tgz",
-		"echo tool > /etc/opencode-sandbox/docker-source",
-		"echo user > /etc/opencode-sandbox/docker-source",
+		"echo tool > /etc/agents-sandbox/docker-source",
+		"echo user > /etc/agents-sandbox/docker-source",
 		`echo '{"storage-driver":"vfs"}' > /etc/docker/daemon.json`,
 		"groupadd -f docker",
 	} {
@@ -61,7 +61,7 @@ func TestRenderDockerfileDindEnabled(t *testing.T) {
 		}
 	}
 	dindIdx := strings.Index(s, "DOCKER_VERSION")
-	agentIdx := strings.Index(s, "LABEL org.opencode-sandbox.agent")
+	agentIdx := strings.Index(s, "LABEL org.agents-sandbox.agent")
 	if dindIdx < 0 || agentIdx < 0 || dindIdx > agentIdx {
 		t.Error("dind block must come before the agent block")
 	}
@@ -82,10 +82,10 @@ func TestRenderDockerfileOpencode2(t *testing.T) {
 	out := string(RenderDockerfile(a, nil, false))
 	for _, want := range []string{
 		"ARG OPENCODE2_VERSION",
-		"LABEL org.opencode-sandbox.agent=opencode2",
+		"LABEL org.agents-sandbox.agent=opencode2",
 		"OPENCODE_DISABLE_AUTOUPDATE=true",
 		"npm install -g @opencode-ai/cli@$OPENCODE2_VERSION",
-		"echo tool > /etc/opencode-sandbox/agent-source",
+		"echo tool > /etc/agents-sandbox/agent-source",
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("rendered opencode2 Dockerfile missing %q", want)
@@ -104,7 +104,7 @@ func TestRenderDockerfileCustomBase(t *testing.T) {
 	if strings.Contains(s, "iptables") {
 		t.Error("custom base must not get the apt base tools block")
 	}
-	for _, want := range []string{"LABEL org.opencode-sandbox.agent=opencode", "WORKDIR /workspace"} {
+	for _, want := range []string{"LABEL org.agents-sandbox.agent=opencode", "WORKDIR /workspace"} {
 		if !strings.Contains(s, want) {
 			t.Errorf("rendered Dockerfile missing %q", want)
 		}
@@ -113,13 +113,13 @@ func TestRenderDockerfileCustomBase(t *testing.T) {
 
 func TestRenderDockerfileManagedBaseFrom(t *testing.T) {
 	a, _ := agent.Lookup("opencode")
-	project := []byte("FROM opencode-sandbox/runner-base:latest\nRUN apt-get install -y tree\n")
+	project := []byte("FROM agents-sandbox/runner-base:latest\nRUN apt-get install -y tree\n")
 	out := RenderDockerfile(a, project, false)
 	s := string(out)
 	if !strings.Contains(s, "FROM debian:trixie-slim") {
 		t.Error("managed FROM must be replaced with the embedded base tools block")
 	}
-	if strings.Contains(s, "opencode-sandbox/runner-base") {
+	if strings.Contains(s, "agents-sandbox/runner-base") {
 		t.Error("managed base reference must be replaced, not kept")
 	}
 	if !strings.Contains(s, "RUN apt-get install -y tree") {
@@ -156,7 +156,7 @@ func TestRenderDockerfileDevUserInFinalStage(t *testing.T) {
 func TestRenderDockerfileManagedMultiStage(t *testing.T) {
 	a, _ := agent.Lookup("opencode")
 	project := []byte(
-		"FROM golang:1.24 AS build\nRUN go build -o /app .\nFROM opencode-sandbox/runner-base-dind:latest\nCOPY --from=build /app /app\n",
+		"FROM golang:1.24 AS build\nRUN go build -o /app .\nFROM agents-sandbox/runner-base-dind:latest\nCOPY --from=build /app /app\n",
 	)
 	out := RenderDockerfile(a, project, false)
 	s := string(out)
@@ -191,7 +191,7 @@ func TestRenderDockerfileDevUserIsFirstInstruction(t *testing.T) {
 
 func TestRenderDockerfileDindFromImpliesDind(t *testing.T) {
 	a, _ := agent.Lookup("opencode")
-	project := []byte("FROM opencode-sandbox/runner-base-dind:latest\nRUN echo hi\n")
+	project := []byte("FROM agents-sandbox/runner-base-dind:latest\nRUN echo hi\n")
 	out := RenderDockerfile(a, project, false)
 	if !strings.Contains(string(out), "DOCKER_VERSION") {
 		t.Error("a runner-base-dind FROM must imply the dind block even without the flag")
@@ -199,10 +199,10 @@ func TestRenderDockerfileDindFromImpliesDind(t *testing.T) {
 }
 
 func TestReplaceFinalStageFrom(t *testing.T) {
-	in := []byte("FROM opencode-sandbox/runner-base:latest\nRUN echo hi\n")
+	in := []byte("FROM agents-sandbox/runner-base:latest\nRUN echo hi\n")
 	block := []byte("FROM debian:trixie-slim\nRUN apt-get update\n")
 	got := string(replaceFinalStageFrom(in, block))
-	if strings.Contains(got, "FROM opencode-sandbox/runner-base") {
+	if strings.Contains(got, "FROM agents-sandbox/runner-base") {
 		t.Errorf("replaceFinalStageFrom must drop the managed FROM, got %q", got)
 	}
 	if !strings.Contains(got, "FROM debian:trixie-slim") {

@@ -5,7 +5,7 @@ nav_order: 60
 ---
 # Commands Reference
 
-This document lists all opencode-sandbox subcommands, aliases, and flags.
+This document lists all agents-sandbox subcommands, aliases, and flags.
 
 ## Global Flags
 
@@ -21,34 +21,34 @@ These flags are available on every command.
 
 ### run
 
-Run opencode in a microsandbox VM. This is the default command — `opencode-sandbox` with no subcommand is equivalent to `opencode-sandbox run`.
+Run a coding agent in a microsandbox VM. This is the default command — `agents-sandbox` with no subcommand is equivalent to `agents-sandbox run`.
 
 ```console
-opencode-sandbox [ARGS...]                          # default: run opencode
-opencode-sandbox -w bugfix-fix-thing [ARGS...]            # worktree session
-opencode-sandbox --dry-run                          # validate only
-opencode-sandbox -m 8G -c 4 -- -c "fix bug"         # CPU/memory + ops
-opencode-sandbox -- -c "fix bug"                    # arguments to opencode
+agents-sandbox [ARGS...]                          # default: run the configured agent
+agents-sandbox -w bugfix-fix-thing [ARGS...]            # worktree session
+agents-sandbox --dry-run                          # validate only
+agents-sandbox -m 8G -c 4 -- -c "fix bug"         # CPU/memory + ops
+agents-sandbox -- -c "fix bug"                    # arguments to the agent
 ```
 
-Arguments after `--` are forwarded to opencode. Arguments before `--` that don't match flags are also forwarded.
+Arguments after `--` are forwarded to the agent. Arguments before `--` that don't match flags are also forwarded.
 
 **Flags:**
 
 | Flag           | Short | Default  | Purpose                                                                                                                                    |
 |----------------|-------|----------|--------------------------------------------------------------------------------------------------------------------------------------------|
-| `--worktree`   | `-w`  | `""`     | Isolated opencode worktree named <name>, optionally starting from base ref <name>:<base>                                  |
+| `--worktree`   | `-w`  | `""`     | Isolated agent worktree named <name>, optionally starting from base ref <name>:<base>                                  |
 | `--rebuild`    | `-r`  | `false`  | Rebuild runner image before starting                                                                                                       |
-| `--dry-run`    | `-n`  | `false`  | Validate setup without running opencode                                                                                                    |
+| `--dry-run`    | `-n`  | `false`  | Validate setup without running the agent                                                                                                    |
 | `--cpus`       | `-c`  | `0`      | vCPUs for the sandbox (0 = all)                                                                                                            |
 | `--memory`     | `-m`  | `4G`     | Memory limit, e.g. `4G`, `512M`                                                                                                            |
 | `--disk-size`  | —     | `""`     | Project VM root disk size (e.g. 16G). Empty = microsandbox runtime default (~4 GiB). Applied at VM creation; a change triggers recreation. An invalid value is rejected with an error. |
 | `--tmp-size`   | —     | `2G`     | Size of `/tmp` tmpfs in the sandbox. An invalid value is rejected with an error. |
 | `--workspace-quota` | — | `16G` | Guest-write quota for the `/workspace` bind mount (e.g. `32G`), bounding writes on top of the host repo. Applied at VM creation; a change triggers recreation. An invalid value is rejected with an error. |
 | `--dry-run-vm` | —     | `false`  | Skip VM lifecycle but prepare everything else                                                                                              |
-| `--serve-only` | `-s`  | `false`  | Start opencode server published on host loopback at a dynamically allocated host port (no in-VM TUI); press `Ctrl-D` to exit. The printed `http://127.0.0.1:<port>` URL is authoritative — use it (rather than assuming a fixed port) to connect from clients like Opencode Desktop. Set `OPENCODE_SERVER_PASSWORD` for basic auth. |
+| `--serve-only` | `-s`  | `false`  | Start the agent server published on host loopback at a dynamically allocated host port (no in-VM TUI); press `Ctrl-D` to exit. The printed `http://127.0.0.1:<port>` URL is authoritative — use it (rather than assuming a fixed port) to connect from clients like Opencode Desktop. Set `OPENCODE_SERVER_PASSWORD` for basic auth. |
 | `--agent`      | —     | `opencode` | Coding-agent profile to run: `opencode` (default), `opencode2`, `pi`, or `claude-code`.                                                                |
-| `--notify`     | —     | `off`     | Notify on session status: `on`, `off`, `desktop`, or `audio` (bare `--notify` = `on`). Overridable via `OPENCODE_SANDBOX_NOTIFY`. Only applies to daemon-based agents (opencode). |
+| `--notify`     | —     | `off`     | Notify on session status: `on`, `off`, `desktop`, or `audio` (bare `--notify` = `on`). Overridable via `OPENCODE_SANDBOX_NOTIFY`. Only applies to the opencode agent (the only agent with a session event stream). |
 | `--dind`       | —     | `false`  | Enable Docker-in-Docker in the runner image                                                                                                |
 
 **Aliases:** `sandbox run`
@@ -60,8 +60,8 @@ Arguments after `--` are forwarded to opencode. Arguments before `--` that don't
 Start a sandbox VM and open an interactive shell. Useful for debugging the sandbox environment. Shares the common run/shell flags with `run`.
 
 ```console
-opencode-sandbox shell
-opencode-sandbox shell -w bugfix-fix-thing
+agents-sandbox shell
+agents-sandbox shell -w bugfix-fix-thing
 ```
 
 **Flags:**
@@ -77,12 +77,12 @@ opencode-sandbox shell -w bugfix-fix-thing
 
 ### build
 
-Build or rebuild the runner Docker image. If `.opencode-sandbox/Dockerfile` exists in the project directory, it's layered on top of the base image.
+Build or rebuild the runner Docker image. If `.agents-sandbox/Dockerfile` exists in the project directory, it's layered on top of the base image.
 
 ```console
-opencode-sandbox build        # build or update if needed
-opencode-sandbox build -r     # force clean rebuild
-opencode-sandbox build --agent-version 0.5.0  # pin a specific agent version
+agents-sandbox build        # build or update if needed
+agents-sandbox build -r     # force clean rebuild
+agents-sandbox build --agent-version 0.5.0  # pin a specific agent version
 ```
 
 **Flags:**
@@ -101,12 +101,12 @@ opencode-sandbox build --agent-version 0.5.0  # pin a specific agent version
 
 #### build dockerfile
 
-Print the runner Dockerfile exactly as it would be built for the current project, without invoking docker. The output reflects the selected agent profile and the dind switch, and layers the project's `.opencode-sandbox/Dockerfile` (if any) on top of the base image.
+Print the runner Dockerfile exactly as it would be built for the current project, without invoking docker. The output reflects the selected agent profile and the dind switch, and layers the project's `.agents-sandbox/Dockerfile` (if any) on top of the base image.
 
 ```console
-opencode-sandbox build dockerfile            # default (opencode, no dind)
-opencode-sandbox build dockerfile --dind     # with Docker-in-Docker block
-opencode-sandbox build dockerfile --agent claude-code
+agents-sandbox build dockerfile            # default agent, no dind
+agents-sandbox build dockerfile --dind     # with Docker-in-Docker block
+agents-sandbox build dockerfile --agent claude-code
 ```
 
 **Flags:**
@@ -125,8 +125,8 @@ opencode-sandbox build dockerfile --agent claude-code
 Gracefully stop the project VM. State remains for future reuse.
 
 ```console
-opencode-sandbox stop
-opencode-sandbox stop -f     # stop and remove VM state
+agents-sandbox stop
+agents-sandbox stop -f     # stop and remove VM state
 ```
 
 **Aliases:** `sandbox stop`
@@ -146,8 +146,8 @@ opencode-sandbox stop -f     # stop and remove VM state
 Force-kill the project VM. Equivalent to powering off. State may be corrupted.
 
 ```console
-opencode-sandbox kill
-opencode-sandbox kill -f     # kill and remove VM state
+agents-sandbox kill
+agents-sandbox kill -f     # kill and remove VM state
 ```
 
 **Aliases:** `sandbox kill`
@@ -169,9 +169,9 @@ are pruned. The summary line reads `Pruned N VMs, N home volumes, N docker image
 artifact type, use the `image prune`, `volume prune`, or `sandbox prune` subcommands below.
 
 ```console
-opencode-sandbox prune                       # use --age, else manual-prune-age from config, else 7d
-opencode-sandbox prune -a 24h                # 24-hour threshold
-opencode-sandbox prune --dry-run             # preview only
+agents-sandbox prune                       # use --age, else manual-prune-age from config, else 7d
+agents-sandbox prune -a 24h                # 24-hour threshold
+agents-sandbox prune --dry-run             # preview only
 ```
 
 **Flags:**
@@ -190,9 +190,9 @@ surviving VM, the per-agent `-latest` tags and any image a kept VM currently ref
 digest refs are removed.
 
 ```console
-opencode-sandbox image prune                      # use manual-prune-age from config (default: 7d)
-opencode-sandbox image prune -a 24h               # 24-hour threshold
-opencode-sandbox image prune --dry-run            # preview only
+agents-sandbox image prune                      # use manual-prune-age from config (default: 7d)
+agents-sandbox image prune -a 24h               # 24-hour threshold
+agents-sandbox image prune --dry-run            # preview only
 ```
 
 **Flags:**
@@ -210,9 +210,9 @@ Prune home volumes of stale projects (older than the threshold). When a project'
 state file is removed too.
 
 ```console
-opencode-sandbox volume prune                     # use manual-prune-age from config (default: 7d)
-opencode-sandbox volume prune -a 24h              # 24-hour threshold
-opencode-sandbox volume prune --dry-run           # preview only
+agents-sandbox volume prune                     # use manual-prune-age from config (default: 7d)
+agents-sandbox volume prune -a 24h              # 24-hour threshold
+agents-sandbox volume prune --dry-run           # preview only
 ```
 
 **Flags:**
@@ -229,9 +229,9 @@ opencode-sandbox volume prune --dry-run           # preview only
 Prune stale sandboxes and leftover task workers. Task sandboxes fold into the VM count.
 
 ```console
-opencode-sandbox sandbox prune                    # use manual-prune-age from config (default: 7d)
-opencode-sandbox sandbox prune -a 24h             # 24-hour threshold
-opencode-sandbox sandbox prune --dry-run          # preview only
+agents-sandbox sandbox prune                    # use manual-prune-age from config (default: 7d)
+agents-sandbox sandbox prune -a 24h             # 24-hour threshold
+agents-sandbox sandbox prune --dry-run          # preview only
 ```
 
 **Flags:**
@@ -248,14 +248,14 @@ opencode-sandbox sandbox prune --dry-run          # preview only
 List all sandboxes on this host (across all projects).
 
 ```console
-opencode-sandbox list
-opencode-sandbox ls
-opencode-sandbox sandbox list
+agents-sandbox list
+agents-sandbox ls
+agents-sandbox sandbox list
 ```
 
 **Aliases:** `ls`, `sandbox list`
 
-Prints a header row followed by one line per opencode-sandbox VM with columns
+Prints a header row followed by one line per agents-sandbox VM with columns
 `NAME`, `IMAGE`, `STATUS`, and `CREATED`. `CREATED` uses `YYYY-MM-DD HH:MM:SS`,
 matching microsandbox's `msb list` output. The `STATUS` cell is colored like
 microsandbox when color is enabled (`running` green, `stopped`/`created` dim,
@@ -279,11 +279,11 @@ plain text.
 
 ### config
 
-Inspect opencode and home configuration.
+Inspect agent and home configuration.
 
 ```console
-opencode-sandbox config
-opencode-sandbox cfg
+agents-sandbox config
+agents-sandbox cfg
 ```
 
 **Aliases:** `cfg`
@@ -293,8 +293,8 @@ opencode-sandbox cfg
 Show the merged snippet config, the verbatim config-dir mirror files, and the host files drop-in-provisioned into the VM for an agent (default: the configured agent, `opencode`).
 
 ```console
-opencode-sandbox config agent opencode
-opencode-sandbox config agent --agent pi
+agents-sandbox config agent opencode
+agents-sandbox config agent --agent pi
 ```
 
 **Flags:**
@@ -312,7 +312,7 @@ Each host file is listed as `merged` (its VM path is the merged config path or p
 List the resolved home-file mappings from the config `home:` key (VM target path ← host source path).
 
 ```console
-opencode-sandbox config home
+agents-sandbox config home
 ```
 
 ---
@@ -322,10 +322,10 @@ opencode-sandbox config home
 Generate the autocompletion script for the specified shell.
 
 ```console
-opencode-sandbox completion bash         # bash completions (fish, powershell, zsh work the same)
-opencode-sandbox completion fish
-opencode-sandbox completion powershell
-opencode-sandbox completion zsh
+agents-sandbox completion bash         # bash completions (fish, powershell, zsh work the same)
+agents-sandbox completion fish
+agents-sandbox completion powershell
+agents-sandbox completion zsh
 ```
 
 ---
@@ -335,8 +335,8 @@ opencode-sandbox completion zsh
 Manage runner images.
 
 ```console
-opencode-sandbox image
-opencode-sandbox img
+agents-sandbox image
+agents-sandbox img
 ```
 
 **Aliases:** `img`
@@ -349,8 +349,8 @@ digest column shows the short form (`sha256:` followed by 12 hex chars) as micro
 reports it.
 
 ```console
-opencode-sandbox image list
-opencode-sandbox image ls
+agents-sandbox image list
+agents-sandbox image ls
 ```
 
 **Aliases:** `image ls`
@@ -360,7 +360,7 @@ opencode-sandbox image ls
 Build or rebuild the runner image. Equivalent to the top-level `build` command.
 
 ```console
-opencode-sandbox image build
+agents-sandbox image build
 ```
 
 ---
@@ -370,11 +370,11 @@ opencode-sandbox image build
 Parent command that groups sandbox-related subcommands. Individual commands (`run`, `shell`, `stop`, `kill`, `list`) are also available at the top level.
 
 ```console
-opencode-sandbox sandbox run
-opencode-sandbox sandbox list
-opencode-sandbox sandbox shell
-opencode-sandbox sandbox stop
-opencode-sandbox sandbox kill
+agents-sandbox sandbox run
+agents-sandbox sandbox list
+agents-sandbox sandbox shell
+agents-sandbox sandbox stop
+agents-sandbox sandbox kill
 ```
 
 **Aliases:** `sb`
@@ -386,7 +386,7 @@ opencode-sandbox sandbox kill
 Print the full command tree, showing every subcommand, alias, and flag.
 
 ```console
-opencode-sandbox tree
+agents-sandbox tree
 ```
 
 ---
@@ -396,7 +396,7 @@ opencode-sandbox tree
 Check prerequisites (Docker, KVM, Git, msb) and exit.
 
 ```console
-opencode-sandbox doctor
+agents-sandbox doctor
 ```
 
 ---
@@ -406,7 +406,7 @@ opencode-sandbox doctor
 Print version.
 
 ```console
-opencode-sandbox version
+agents-sandbox version
 ```
 
 ---
@@ -418,30 +418,30 @@ automatic check on `run`/`shell`. Replaces the running executable with the relea
 version takes effect on the next invocation.
 
 ```console
-opencode-sandbox upgrade
+agents-sandbox upgrade
 ```
 
 ---
 
-### `opencode-sandbox volume <subcommand>`
+### `agents-sandbox volume <subcommand>`
 
 The volume group provides manual home volume management.
 
 **Aliases:** `vol`
 
-#### `opencode-sandbox volume list`
+#### `agents-sandbox volume list`
 
 List all managed home volumes.
 
 ```console
-opencode-sandbox volume list
+agents-sandbox volume list
 ```
 
 Columns: `NAME`, `KIND`, `SIZE`, `CREATED` (`YYYY-MM-DD HH:MM:SS`). `SIZE` shows capacity for disk volumes and quota for directory volumes, or `-` when unavailable.
 
 **Aliases:** `volume ls`
 
-#### `opencode-sandbox volume migrate [volume-name]`
+#### `agents-sandbox volume migrate [volume-name]`
 
 Create a new home volume and copy files from the old volume on top of it.
 
@@ -453,7 +453,7 @@ Create a new home volume and copy files from the old volume on top of it.
   - `--rebuild` — rebuild runner image before migrating
   - `--agent` — coding-agent profile to provision (`opencode` default)
 
-#### `opencode-sandbox volume reset [volume-name]`
+#### `agents-sandbox volume reset [volume-name]`
 
 Create a new home volume from the image contents only (fresh, no copy).
 
@@ -465,7 +465,7 @@ Create a new home volume from the image contents only (fresh, no copy).
   - `--rebuild` — rebuild runner image before resetting
   - `--agent` — coding-agent profile to provision (`opencode` default)
 
-#### `opencode-sandbox volume edit [volume-name]`
+#### `agents-sandbox volume edit [volume-name]`
 
 Create a new volume alongside the old one, for manual data transfer.
 

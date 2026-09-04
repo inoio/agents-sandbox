@@ -4,7 +4,7 @@ import (
 	"context"
 	"strings"
 
-	"github.com/inoio/opencode-sandbox/internal/sandbox/docker"
+	"github.com/inoio/agents-sandbox/internal/sandbox/docker"
 )
 
 // imageHasDockerfileID reports whether the existing runner image carries a

@@ -1,6 +1,6 @@
-title: opencode-sandbox
+title: agents-sandbox
 description: >-
-  Launch opencode inside a nearly instant microsandbox VM with your project mounted at /workspace.
+  Launch coding agents (opencode, pi, claude-code) inside a nearly instant microsandbox VM with your project mounted at /workspace.
 remote_theme: just-the-docs/just-the-docs@v0.10.0
 
 # https://github.com/just-the-docs/just-the-docs
@@ -9,8 +9,8 @@ plugins:
 
 # Project navigation (order matters).
 aux_links:
-  "opencode-sandbox on GitHub":
-    - "https://github.com/inoio/opencode-sandbox"
+  "agents-sandbox on GitHub":
+    - "https://github.com/inoio/agents-sandbox"
 
 # just-the-docs theme options.
 search_enabled: true

@@ -16,23 +16,23 @@ activityDiagram {
   }
 }
 </style>
-' opencode-sandbox — invocation lifecycle (from internal/sandbox/vm/run_orchestrate.go)
-title opencode-sandbox — lifecycle of the run command
+' agents-sandbox — invocation lifecycle (from internal/sandbox/vm/run_orchestrate.go)
+title agents-sandbox — lifecycle of the run command
 
 start
 :Pre-flight checks (doctor)\nDocker, KVM, Git, msb;
 :Auto-prune\nremove stale VMs, volumes, images (once per process);
 
-if (newer opencode available?\nchecked once per day & per version) then (yes)
+if (newer agent available?\nchecked once per day & per version) then (yes)
     :Prompt: rebuild runner image?\nRebuild / Keep / Quit;
     if (rebuild chosen?) then (yes)
-        :Build runner image\nresolve latest opencode if unpinned; base + project layers;
+        :Build runner image\nresolve latest agent version if unpinned; base + project layers;
     else (no)
         :Reuse cached image\nno rebuild needed;
     endif
 else (no)
     if (image not cached or changed) then (yes)
-        :Build runner image\nresolve latest opencode if unpinned; base + project layers;
+        :Build runner image\nresolve latest agent version if unpinned; base + project layers;
     else (no)
         :Reuse cached image\nno rebuild needed;
     endif
@@ -43,7 +43,7 @@ if (volume exists?) then (no)
 else (yes)
 endif
 
-:Detect config changes\ncompare image, env, secrets, network, opencode config;
+:Detect config changes\ncompare image, env, secrets, network, agent config;
 if (config changed?) then (yes: recreate VM)
     if (other clients attached?) then (yes)
         :Prompt: rebuild VM?\nKeep current VM / Quit;
@@ -54,7 +54,7 @@ if (config changed?) then (yes: recreate VM)
         :Prompt: existing home volume?\nKeep / Migrate / Reset / Quit;
     else (no)
     endif
-else (no: opencode daemon restart)
+else (no: agent daemon restart)
     if (other clients attached?) then (yes)
         :Prompt: restart daemon?\nKeep / Restart / Quit;
     else (no)
@@ -73,20 +73,20 @@ else (yes)
     endif
 endif
 
-:Provisioning\ncopy opencode config, home: key;
+:Provisioning\ncopy agent config, home: key;
 if (fresh boot?) then (yes)
     :Run startup hooks;
     :Start dockerd (if present)\nno-op when already running;
 else (no)
 endif
-:Verify / start opencode serve daemon;
+:Verify / start agent serve daemon;
 
 if (--worktree?) then (yes)
     :Resolve or create VM-internal worktree;
 else (no)
 endif
 
-:Interactive opencode session\nopencode attach; work with the agent in the VM;
+:Interactive agent session\nattach to the agent in the VM;
 
 :Cleanup / detach\nrelease client lease; hold VM until sessions quiesce;
 

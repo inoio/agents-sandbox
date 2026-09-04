@@ -5,14 +5,18 @@ nav_order: 90
 ---
 # Worktree Sessions
 
-By default, opencode-sandbox runs in the current directory (`/workspace`). To start an isolated development session in its own worktree, use `--worktree <name>[:<base>]` (`-w`). This creates an isolated git worktree **inside the VM**, leaving the host repository untouched.
+By default, agents-sandbox runs in the current directory (`/workspace`). To start an isolated development session in its own worktree, use `--worktree <name>[:<base>]` (`-w`). This creates an isolated git worktree **inside the VM**, leaving the host repository untouched.
+
+> **Requires a daemon-based agent.** Worktrees are created through the agent daemon's worktree API, so `--worktree` only
+> works with daemon-based agents (opencode, opencode2); it is rejected for `pi` and `claude-code`, which run through the
+> interactive TUI instead.
 
 ## Basic Usage
 
 ```console
-opencode-sandbox                             # run in /workspace
-opencode-sandbox -w bugfix-fix-thing         # run in an isolated worktree
-opencode-sandbox -w bugfix-fix-thing:main -y # worktree from local base ref
+agents-sandbox                             # run in /workspace
+agents-sandbox -w bugfix-fix-thing         # run in an isolated worktree
+agents-sandbox -w bugfix-fix-thing:main -y # worktree from local base ref
 ```
 
 ## How It Works

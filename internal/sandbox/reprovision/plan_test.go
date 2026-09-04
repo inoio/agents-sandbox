@@ -5,8 +5,8 @@ import (
 
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 
-	"github.com/inoio/opencode-sandbox/internal/sandbox/mounts"
-	"github.com/inoio/opencode-sandbox/internal/sandbox/options"
+	"github.com/inoio/agents-sandbox/internal/sandbox/mounts"
+	"github.com/inoio/agents-sandbox/internal/sandbox/options"
 )
 
 func TestPlanReconfigServeOnly(t *testing.T) {
@@ -60,11 +60,11 @@ func TestPlanReconfigServeOnly(t *testing.T) {
 }
 
 func TestPlanReconfigTriggersRecreateOnImageChange(t *testing.T) {
-	cfg := &msbSdk.SandboxConfig{Image: "opencode-sandbox/runner-proj:oldhash"}
+	cfg := &msbSdk.SandboxConfig{Image: "agents-sandbox/runner-proj:oldhash"}
 
 	planSame := PlanReconfig(
 		cfg,
-		"opencode-sandbox/runner-proj:oldhash",
+		"agents-sandbox/runner-proj:oldhash",
 		options.RunOptions{},
 		ChangeFlags{},
 		"",
@@ -75,7 +75,7 @@ func TestPlanReconfigTriggersRecreateOnImageChange(t *testing.T) {
 
 	planNew := PlanReconfig(
 		cfg,
-		"opencode-sandbox/runner-proj:newhash",
+		"agents-sandbox/runner-proj:newhash",
 		options.RunOptions{},
 		ChangeFlags{},
 		"",
@@ -140,11 +140,11 @@ func TestPlanReconfigHomeVolumeChangeTriggersRecreate(t *testing.T) {
 	cfg := &msbSdk.SandboxConfig{
 		Image: "img",
 		Volumes: map[string]msbSdk.MountConfig{
-			VMHomeDir: {Named: "opencode-sandbox-home-proj-old"},
+			VMHomeDir: {Named: "agents-sandbox-home-proj-old"},
 		},
 	}
 	plan := PlanReconfig(cfg, "img", options.RunOptions{}, ChangeFlags{},
-		"opencode-sandbox-home-proj-new")
+		"agents-sandbox-home-proj-new")
 	if !plan.Recreate {
 		t.Fatal("expected Recreate when the desired home volume differs from the mounted one")
 	}
@@ -164,11 +164,11 @@ func TestPlanReconfigHomeVolumeSameNoRecreate(t *testing.T) {
 	cfg := &msbSdk.SandboxConfig{
 		Image: "img",
 		Volumes: map[string]msbSdk.MountConfig{
-			VMHomeDir: {Named: "opencode-sandbox-home-proj-vol"},
+			VMHomeDir: {Named: "agents-sandbox-home-proj-vol"},
 		},
 	}
 	plan := PlanReconfig(cfg, "img", options.RunOptions{}, ChangeFlags{},
-		"opencode-sandbox-home-proj-vol")
+		"agents-sandbox-home-proj-vol")
 	if plan.Recreate {
 		t.Fatal("expected no Recreate when the mounted home volume matches the desired one")
 	}
@@ -176,7 +176,7 @@ func TestPlanReconfigHomeVolumeSameNoRecreate(t *testing.T) {
 
 func TestPlanReconfigNilCfgHomeVolumeSafe(t *testing.T) {
 	plan := PlanReconfig(nil, "img", options.RunOptions{}, ChangeFlags{},
-		"opencode-sandbox-home-proj-vol")
+		"agents-sandbox-home-proj-vol")
 	if plan.Recreate {
 		t.Fatal("expected no Recreate for a nil config (fresh VM creation)")
 	}

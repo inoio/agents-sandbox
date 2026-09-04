@@ -15,7 +15,7 @@ that are never written into the VM. Extends on **[Switch from your existing agen
 ## 1. Turn off host-config fallback
 
 ```yaml
-# ~/.config/opencode-sandbox/config.yaml
+# ~/.config/agents-sandbox/config.yaml
 provision-host-config: false
 ```
 
@@ -24,17 +24,17 @@ provision-host-config: false
 Copy your existing agent config into the sandbox snippet directory and adapt it:
 
 ```shell
-mkdir -p ~/.config/opencode-sandbox/opencode
+mkdir -p ~/.config/agents-sandbox/opencode
 for f in "$HOME"/.config/opencode/* "$HOME"/.config/opencode/.[!.]*; do
   case "$(basename "$f")" in
     node_modules|package.json|bun.lock) continue ;;
   esac
-  cp -R "$f" ~/.config/opencode-sandbox/opencode
+  cp -R "$f" ~/.config/agents-sandbox/opencode
 done
 ```
 
-(For pi / claude-code, use `~/.config/opencode-sandbox/pi/` / `.../claude/`.) Snippets matching
-`opencode*.json*` are deep-merged into the VM config; see
+(For pi / claude-code, use `~/.config/agents-sandbox/pi/` / `.../claude/`.) Snippets matching
+the agent's pattern (e.g. `opencode*.json*`) are deep-merged into the VM config; see
 [Agent configuration]({% link configuration/agent.md %}).
 
 ## 3. Add secrets
@@ -43,7 +43,7 @@ Deliver API keys / tokens so they never touch the VM disk — see
 [Secrets]({% link configuration/secrets.md %}):
 
 ```yaml
-# ~/.config/opencode-sandbox/env.secret.yaml
+# ~/.config/agents-sandbox/env.secret.yaml
 ANTHROPIC_API_KEY:
   value: sk-ant-xxxxxxxx
   host: provider.example

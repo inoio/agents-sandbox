@@ -8,7 +8,7 @@ has_toc: false
 
 # Configuration
 
-opencode-sandbox is configurable through configuration files and environment variables.
+agents-sandbox is configurable through configuration files and environment variables.
 
 - [Configuration files & Environment variables]({% link configuration/launcher.md %}) — config locations, fields, env vars, precedence
 - [Secrets]({% link configuration/secrets.md %})

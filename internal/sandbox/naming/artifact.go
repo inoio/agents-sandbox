@@ -12,7 +12,7 @@ type ArtifactInfo struct {
 }
 
 // findHashSuffix finds the start index of a 14-character base36 hash suffix
-// in the name remainder (e.g. "opencode-sandbox-1mjusbm3wikhb0" -> returns 6, pointing
+// in the name remainder (e.g. "agents-sandbox-1mjusbm3wikhb0" -> returns 6, pointing
 // at the '1' in the 14-char hash). Returns -1 when no such suffix is found.
 func findHashSuffix(name string) int {
 	for i := 1; i < len(name)-13; i++ {
@@ -35,17 +35,17 @@ func findHashSuffix(name string) int {
 }
 
 // ParseImageTag extracts the slug, digest, and agent from a Docker image
-// reference. Examples: "opencode-sandbox/runner-myproject:xYz1234AbCdEfGh"
+// reference. Examples: "agents-sandbox/runner-myproject:xYz1234AbCdEfGh"
 //
 //	→ slug="myproject", digest="xYz1234AbCdEfGh", agent=""
 //
-//	"opencode-sandbox/runner-myproject:opencode-latest"
+//	"agents-sandbox/runner-myproject:opencode-latest"
 //	→ slug="myproject", digest="", agent="opencode"
 //
-//	"opencode-sandbox/runner-myproject:latest"
+//	"agents-sandbox/runner-myproject:latest"
 //	→ slug="myproject", digest="", agent=""
 //
-//	"opencode-sandbox/runner-myproject"
+//	"agents-sandbox/runner-myproject"
 //	→ slug="myproject", digest="", agent=""
 func ParseImageTag(name string) ArtifactInfo {
 	if !strings.HasPrefix(name, ImagePrefix) {
@@ -82,11 +82,11 @@ func isBase36Hash(s string) bool {
 }
 
 // ParseVMName extracts the slug and optional agent from a sandbox name.
-// Examples: "opencode-sandbox-vm-projectname-1mjusbm3wikhb0"
+// Examples: "agents-sandbox-vm-projectname-1mjusbm3wikhb0"
 //
 //	→ slug="projectname-1mjusbm3wikhb0", agent=""
 //
-//	"opencode-sandbox-vm-projectname-1mjusbm3wikhb0-opencode"
+//	"agents-sandbox-vm-projectname-1mjusbm3wikhb0-opencode"
 //	→ slug="projectname-1mjusbm3wikhb0", agent="opencode"
 func ParseVMName(name string) ArtifactInfo {
 	if !strings.HasPrefix(name, VmPrefix) {
@@ -111,7 +111,7 @@ func ParseVMName(name string) ArtifactInfo {
 
 // ParseHomeVolumeName extracts the slug, optional digest, and agent from a
 // home volume name.
-// Examples: "opencode-sandbox-home-myproject-1mjusbm3wikhb0-20260812T123456"
+// Examples: "agents-sandbox-home-myproject-1mjusbm3wikhb0-20260812T123456"
 //
 //	→ slug="myproject-1mjusbm3wikhb0", agent=""
 func ParseHomeVolumeName(name string) ArtifactInfo {

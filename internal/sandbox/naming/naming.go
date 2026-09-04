@@ -1,9 +1,9 @@
 package naming
 
-// Prefix is the canonical base name for all opencode-sandbox naming
+// Prefix is the canonical base name for all agents-sandbox naming
 // conventions. Changing this value renames the tool across all namespaces,
 // annotations, VM names, image references, sandbox names, and volume names.
-const Prefix = "opencode-sandbox"
+const Prefix = "agents-sandbox"
 
 // Sandbox and image name prefixes derived from Prefix.
 const (

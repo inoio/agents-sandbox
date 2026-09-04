@@ -4,8 +4,8 @@ import (
 	"context"
 	"testing"
 
-	"github.com/inoio/opencode-sandbox/internal/sandbox/options"
-	"github.com/inoio/opencode-sandbox/internal/termio"
+	"github.com/inoio/agents-sandbox/internal/sandbox/options"
+	"github.com/inoio/agents-sandbox/internal/termio"
 )
 
 // setUpSandbox must resolve the agent from opts.Agent, not from the hardcoded

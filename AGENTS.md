@@ -2,7 +2,7 @@
 
 ## Project
 
-`opencode-sandbox`: a launcher that runs opencode inside a microsandbox VM, binding a host directory as `/workspace` and
+`agents-sandbox`: a launcher that runs coding agents (opencode, pi, ...) inside a microsandbox VM, binding a host directory as `/workspace` and
 persisting user state via a home directory volume.
 
 ## Code style
@@ -22,14 +22,12 @@ persisting user state via a home directory volume.
 
 ## Design decisions
 
-- One ephemeral microsandbox VM per project serving an opencode server, multiple clients can attach to the vm & connect
+- One ephemeral microsandbox VM per project, multiple clients can attach to the vm & connect
   to the server.
-- The project is exposed as an opencode worktree when -w/--worktree is used, so concurrent isolated sessions are
-  possible.
 
 ## Development
 
-You are dogfooding the project, you are not on the host, but in an opencode-sandbox VM. Filesystem layout:
+You are dogfooding the project, you are not on the host, but in an agents-sandbox VM. Filesystem layout:
 
 - `/workspace` bind mount of the host CWD, mounted rw. When working there, don't commit/revert/stash etc yourself: 
   There's potential for parallel edits by other agents/humans. Always ask the user how to finalize the session.
@@ -59,7 +57,7 @@ Don't install additional tools yourself without permission.
 
 ## Project toolchain
 
-(see .opencode-sandbox/Dockerfile)
+(see .agents-sandbox/Dockerfile)
 
 - go, gofmt, golangci-lint, gcc (for CGO), zig (for cross-compilation)
 - msb (microsandbox cli) - since /dev/kvm is not functional in the VM, you can't actually start VMs yourself. Must be
@@ -69,13 +67,13 @@ Don't install additional tools yourself without permission.
 Common development commands (run from the Go module root):
 
 - `make check` — run fmt, lint, test targets. Execute this when finalizing work.
-- `go run ./cmd/opencode-sandbox --dry-run` — build and run locally without producing a binary or starting interactively
-  (skips launching opencode)
+- `go run ./cmd/agents-sandbox --dry-run` — build and run locally without producing a binary or starting interactively
+  (skips launching the agent)
 - `make test`/`go test ./...` — run all tests.
 - `make lint`/`golangci-lint run` — run the linter. ALWAYS use! DON'T use `go vet`!
 - `make fmt`/`golangci-lint fmt` — format all files. ALWAYS use! DON'T manually rewrite / use `go fmt`!
 - `go mod tidy` — sync `go.mod`/`go.sum` (run after adding/removing imports).
-- `make build` - build binary to `./opencode-sandbox`
+- `make build` - build binary to `./agents-sandbox`
 
 Use the linter as a guide for code style: Run it after every major edit, for smaller edits run it after at most 3 edits.
 
@@ -86,7 +84,7 @@ Always use your superpowers for appropriate tasks, never skip user approval.
 ## Testing
 
 - Default to TDD - writing tests first, validating they compile and fail, implementing changes, validating passing tests
-- Make sure that new/changed CLI commands/flags are thoroughly tested in the cmd/opencode-sandbox/cli_*_test.go tests
+- Make sure that new/changed CLI commands/flags are thoroughly tested in the cmd/agents-sandbox/cli_*_test.go tests
 - Also write valuable unit tests for internal functionality with every implementation.
 
 ## Documentation
@@ -118,5 +116,5 @@ Always use your superpowers for appropriate tasks, never skip user approval.
   docker build -t debian:trixie-slim .
   
   # 2. Build the runner image as usual.
-  go run ./cmd/opencode-sandbox build -r
+  go run ./cmd/agents-sandbox build -r
   ```

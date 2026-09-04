@@ -6,8 +6,8 @@ import (
 	"slices"
 	"time"
 
-	"github.com/inoio/opencode-sandbox/internal/agent"
-	"github.com/inoio/opencode-sandbox/internal/configpaths"
+	"github.com/inoio/agents-sandbox/internal/agent"
+	"github.com/inoio/agents-sandbox/internal/configpaths"
 
 	"gopkg.in/yaml.v3"
 )
@@ -38,7 +38,7 @@ type upgradeState struct {
 	// network.
 	CurrentVersion string `yaml:"current_version"`
 	// AgentSource records where the agent came from (tool | user), read from
-	// the image's /etc/opencode-sandbox/agent-source on first boot.
+	// the image's /etc/agents-sandbox/agent-source on first boot.
 	AgentSource string `yaml:"agent_source"`
 	// DockerSource records where dockerd came from (tool | user), for future
 	// docker-version checks.

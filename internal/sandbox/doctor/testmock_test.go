@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/inoio/opencode-sandbox/internal/termio"
+	"github.com/inoio/agents-sandbox/internal/termio"
 )
 
 func TestCheckAllUsesMockedCheckAll(t *testing.T) {

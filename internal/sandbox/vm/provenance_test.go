@@ -4,16 +4,16 @@ import (
 	"context"
 	"testing"
 
-	"github.com/inoio/opencode-sandbox/internal/configpaths"
-	"github.com/inoio/opencode-sandbox/internal/sandbox/msb"
-	"github.com/inoio/opencode-sandbox/internal/termio"
+	"github.com/inoio/agents-sandbox/internal/configpaths"
+	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
+	"github.com/inoio/agents-sandbox/internal/termio"
 )
 
 func TestRecordImageProvenanceDetectsToolAgentVersion(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	fs := msb.NewTestFS(map[string][]byte{
-		"/etc/opencode-sandbox/agent-source":  []byte("tool\n"),
-		"/etc/opencode-sandbox/docker-source": []byte("user\n"),
+		"/etc/agents-sandbox/agent-source":  []byte("tool\n"),
+		"/etc/agents-sandbox/docker-source": []byte("user\n"),
 	}, nil)
 	sb := &msb.MockSandbox{
 		FSValue_: fs,
@@ -42,7 +42,7 @@ func TestRecordImageProvenanceDetectsToolAgentVersion(t *testing.T) {
 func TestRecordImageProvenanceSkipsVersionForUserAgent(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	fs := msb.NewTestFS(map[string][]byte{
-		"/etc/opencode-sandbox/agent-source": []byte("user\n"),
+		"/etc/agents-sandbox/agent-source": []byte("user\n"),
 	}, nil)
 	sb := &msb.MockSandbox{FSValue_: fs}
 	recordImageProvenance(context.Background(), opencodeAgent(t), sb, &termio.Mock{})

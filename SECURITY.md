@@ -8,7 +8,7 @@ If you find a security vulnerability, **do not open a public issue**. Report it 
 
 Please include:
 
-- The version of `opencode-sandbox` (`opencode-sandbox version`)
+- The version of `agents-sandbox` (`agents-sandbox version`)
 - Your host platform (Linux x86_64 / Linux arm64 / macOS arm64)
 - A description of the issue and its security impact
 - Steps to reproduce or a minimal proof of concept
@@ -19,7 +19,7 @@ You can expect an acknowledgement within a few days and a coordinated fix before
 ## Supported versions
 
 Security fixes are provided for the **latest release** only. Older releases are not patched; upgrade to the current
-release to receive fixes. See [Releases](https://github.com/inoio/opencode-sandbox/releases).
+release to receive fixes. See [Releases](https://github.com/inoio/agents-sandbox/releases).
 
 ## Security-relevant project surface
 

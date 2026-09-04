@@ -8,21 +8,21 @@ import (
 	"testing"
 	"time"
 
-	"github.com/inoio/opencode-sandbox/internal/sandbox/msb"
-	"github.com/inoio/opencode-sandbox/internal/sandbox/naming"
+	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
+	"github.com/inoio/agents-sandbox/internal/sandbox/naming"
 )
 
 func TestListImagesFiltersByImagePrefix(t *testing.T) {
 	mockClient := &msb.MockMsbClient{
 		Images: []msb.ImageHandle{
 			msb.MockImageHandle{
-				Reference_:      "opencode-sandbox/runner-proj-aBc1234D:3k5q07ywpibwp5",
+				Reference_:      "agents-sandbox/runner-proj-aBc1234D:3k5q07ywpibwp5",
 				ManifestDigest_: "sha256:abc123",
 				SizeBytes_:      int64Ptr(1024 * 1024 * 1024),
 				CreatedAt_:      time.Date(2026, 8, 17, 10, 42, 36, 0, time.UTC),
 			},
 			msb.MockImageHandle{
-				Reference_:      "opencode-sandbox/runner-other-de456:def789",
+				Reference_:      "agents-sandbox/runner-other-de456:def789",
 				ManifestDigest_: "sha256:def789",
 			},
 			msb.MockImageHandle{Reference_: "python:3.12", ManifestDigest_: "sha256:python123"},
@@ -38,13 +38,13 @@ func TestListImagesFiltersByImagePrefix(t *testing.T) {
 
 	expected := []Info{
 		{
-			Reference: "opencode-sandbox/runner-proj-aBc1234D:3k5q07ywpibwp5",
+			Reference: "agents-sandbox/runner-proj-aBc1234D:3k5q07ywpibwp5",
 			Digest:    "sha256:abc123",
 			Size:      "1 GiB",
 			CreatedAt: "2026-08-17 10:42:36",
 		},
 		{
-			Reference: "opencode-sandbox/runner-other-de456:def789",
+			Reference: "agents-sandbox/runner-other-de456:def789",
 			Digest:    "sha256:def789",
 			Size:      unknownSize,
 			CreatedAt: "",

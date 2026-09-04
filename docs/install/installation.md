@@ -12,22 +12,22 @@ nav_order: 20
   **Linux (x86_64):**
 
   ```console
-  curl -L -o opencode-sandbox https://github.com/inoio/opencode-sandbox/releases/latest/download/opencode-sandbox-linux-amd64
+  curl -L -o agents-sandbox https://github.com/inoio/agents-sandbox/releases/latest/download/agents-sandbox-linux-amd64
   ```
 
   **macOS (Apple Silicon):**
 
   ```console
-  curl -L -o opencode-sandbox https://github.com/inoio/opencode-sandbox/releases/latest/download/opencode-sandbox-darwin-arm64
+  curl -L -o agents-sandbox https://github.com/inoio/agents-sandbox/releases/latest/download/agents-sandbox-darwin-arm64
   ```
 
   **Linux (arm64):**
 
   ```console
-  curl -L -o opencode-sandbox https://github.com/inoio/opencode-sandbox/releases/latest/download/opencode-sandbox-linux-arm64
+  curl -L -o agents-sandbox https://github.com/inoio/agents-sandbox/releases/latest/download/agents-sandbox-linux-arm64
   ```
 * Install:
   ```console
-  chmod u+x opencode-sandbox
-  mv opencode-sandbox ~/.local/bin # or any other directory in your PATH 
+  chmod u+x agents-sandbox
+  mv agents-sandbox ~/.local/bin # or any other directory in your PATH 
   ```

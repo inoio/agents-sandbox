@@ -8,7 +8,7 @@ has_toc: false
 
 # Install
 
-Install opencode-sandbox, then check your system is ready.
+Install agents-sandbox, then check your system is ready.
 
 - [Prerequisites]({% link install/prerequisites.md %})
 - [Installation]({% link install/installation.md %})

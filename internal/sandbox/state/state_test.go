@@ -7,8 +7,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/inoio/opencode-sandbox/internal/configpaths"
-	"github.com/inoio/opencode-sandbox/internal/testutil"
+	"github.com/inoio/agents-sandbox/internal/configpaths"
+	"github.com/inoio/agents-sandbox/internal/testutil"
 )
 
 func TestStateFile(t *testing.T) {
@@ -43,7 +43,7 @@ func TestWriteAndReadState(t *testing.T) {
 	digest := "sha256:deadbeef1234"
 
 	err := WriteState(k, HomeState{
-		HomeVolume:  "opencode-sandbox-home-myproj-20260806T143022",
+		HomeVolume:  "agents-sandbox-home-myproj-20260806T143022",
 		ImageDigest: digest,
 	})
 	if err != nil {
@@ -54,8 +54,8 @@ func TestWriteAndReadState(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ReadState: %v", err)
 	}
-	if result.HomeVolume != "opencode-sandbox-home-myproj-20260806T143022" {
-		t.Errorf("HomeVolume = %q, want %q", result.HomeVolume, "opencode-sandbox-home-myproj-20260806T143022")
+	if result.HomeVolume != "agents-sandbox-home-myproj-20260806T143022" {
+		t.Errorf("HomeVolume = %q, want %q", result.HomeVolume, "agents-sandbox-home-myproj-20260806T143022")
 	}
 	if result.ImageDigest != digest {
 		t.Errorf("ImageDigest = %q, want %q", result.ImageDigest, digest)
@@ -190,7 +190,7 @@ func TestWriteAndReadState_EnvSecretRoundTrip(t *testing.T) {
 	k := Key{Slug: "myproj-abc123", Agent: "opencode"}
 
 	input := HomeState{
-		HomeVolume:  "opencode-sandbox-home-myproj",
+		HomeVolume:  "agents-sandbox-home-myproj",
 		ImageDigest: "sha256:feedface",
 		EnvState: EnvState{
 			Hash:  "sha256:envhash",
@@ -266,7 +266,7 @@ func TestWriteAndReadState_MountRoundTrip(t *testing.T) {
 	k := Key{Slug: "mountproj-abc123", Agent: "opencode"}
 
 	input := HomeState{
-		HomeVolume:  "opencode-sandbox-home-mountproj",
+		HomeVolume:  "agents-sandbox-home-mountproj",
 		ImageDigest: "sha256:feedface",
 		MountState: MountState{
 			Hash:  "sha256:mounthash",

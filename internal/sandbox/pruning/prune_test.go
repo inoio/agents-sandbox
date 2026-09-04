@@ -8,12 +8,12 @@ import (
 
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 
-	cp "github.com/inoio/opencode-sandbox/internal/configpaths"
-	"github.com/inoio/opencode-sandbox/internal/sandbox/docker"
-	"github.com/inoio/opencode-sandbox/internal/sandbox/msb"
-	"github.com/inoio/opencode-sandbox/internal/sandbox/naming"
-	"github.com/inoio/opencode-sandbox/internal/sandbox/state"
-	"github.com/inoio/opencode-sandbox/internal/termio"
+	cp "github.com/inoio/agents-sandbox/internal/configpaths"
+	"github.com/inoio/agents-sandbox/internal/sandbox/docker"
+	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
+	"github.com/inoio/agents-sandbox/internal/sandbox/naming"
+	"github.com/inoio/agents-sandbox/internal/sandbox/state"
+	"github.com/inoio/agents-sandbox/internal/termio"
 )
 
 type slugDigestTest struct {
@@ -45,47 +45,47 @@ func TestArtifactFor_ImageReferences(t *testing.T) {
 	tests := []slugDigestTest{
 		{
 			name:       "runner with digest tag",
-			input:      "opencode-sandbox/runner-myproject:xYz1234AbCdEfGh",
+			input:      "agents-sandbox/runner-myproject:xYz1234AbCdEfGh",
 			wantSlug:   "myproject",
 			wantDigest: "xYz1234AbCdEfGh",
 		},
 		{
 			name:       "runner with latest tag",
-			input:      "opencode-sandbox/runner-myproject:latest",
+			input:      "agents-sandbox/runner-myproject:latest",
 			wantSlug:   "myproject",
 			wantDigest: "",
 		},
 		{
 			name:       "runner with empty tag",
-			input:      "opencode-sandbox/runner-myproject:",
+			input:      "agents-sandbox/runner-myproject:",
 			wantSlug:   "myproject",
 			wantDigest: "",
 		},
 		{
 			name:       "runner no tag at all",
-			input:      "opencode-sandbox/runner-myproject",
+			input:      "agents-sandbox/runner-myproject",
 			wantSlug:   "myproject",
 			wantDigest: "",
 		},
 		{
 			name:       "runner with complex slug",
-			input:      "opencode-sandbox/runner-my-project-name:xYz1234AbCdEfGh",
+			input:      "agents-sandbox/runner-my-project-name:xYz1234AbCdEfGh",
 			wantSlug:   "my-project-name",
 			wantDigest: "xYz1234AbCdEfGh",
 		},
 		{
 			name:       "runner with multiple colons in tag (uses LastIndex)",
-			input:      "opencode-sandbox/runner-myproject:sha256:abc123",
+			input:      "agents-sandbox/runner-myproject:sha256:abc123",
 			wantSlug:   "myproject:sha256",
 			wantDigest: "abc123",
 		},
 		{
 			name:       "base image excluded-like prefix still parsed",
-			input:      "opencode-sandbox/runner-base",
+			input:      "agents-sandbox/runner-base",
 			wantSlug:   "base",
 			wantDigest: "",
 		},
-		{name: "base image with tag", input: "opencode-sandbox/runner-base:latest", wantSlug: "base", wantDigest: ""},
+		{name: "base image with tag", input: "agents-sandbox/runner-base:latest", wantSlug: "base", wantDigest: ""},
 	}
 	runSlugDigestTests(t, tests)
 }
@@ -94,19 +94,19 @@ func TestArtifactFor_VMNames(t *testing.T) {
 	tests := []slugDigestTest{
 		{
 			name:       "simple vm name without hash suffix",
-			input:      "opencode-sandbox-vm-projectname-main",
+			input:      "agents-sandbox-vm-projectname-main",
 			wantSlug:   "projectname-main",
 			wantDigest: "",
 		},
 		{
 			name:       "slug with dash and branch with dash",
-			input:      "opencode-sandbox-vm-my-project-feature-branch",
+			input:      "agents-sandbox-vm-my-project-feature-branch",
 			wantSlug:   "my-project-feature-branch",
 			wantDigest: "",
 		},
 		{
 			name:       "single word slug with single word branch",
-			input:      "opencode-sandbox-vm-myproject-main",
+			input:      "agents-sandbox-vm-myproject-main",
 			wantSlug:   "myproject-main",
 			wantDigest: "",
 		},
@@ -118,25 +118,25 @@ func TestArtifactFor_HomeVolumes(t *testing.T) {
 	tests := []slugDigestTest{
 		{
 			name:       "home volume with slug and digest",
-			input:      "opencode-sandbox-home-myproject-aB3cDe4fGhIjKl-xYz1234AbCdEfGh",
+			input:      "agents-sandbox-home-myproject-aB3cDe4fGhIjKl-xYz1234AbCdEfGh",
 			wantSlug:   "myproject-aB3cDe4fGhIjKl",
 			wantDigest: "xYz1234AbCdEfGh",
 		},
 		{
 			name:       "home volume slug with dashes",
-			input:      "opencode-sandbox-home-my-project-aB3cDe4fGhIjKl",
+			input:      "agents-sandbox-home-my-project-aB3cDe4fGhIjKl",
 			wantSlug:   "my-project",
 			wantDigest: "aB3cDe4fGhIjKl",
 		},
 		{
 			name:       "home volume single part slug",
-			input:      "opencode-sandbox-home-myproject-xYz1234",
+			input:      "agents-sandbox-home-myproject-xYz1234",
 			wantSlug:   "myproject",
 			wantDigest: "xYz1234",
 		},
 		{
 			name:       "home volume only two parts (slug-digest)",
-			input:      "opencode-sandbox-home-proj-abc123",
+			input:      "agents-sandbox-home-proj-abc123",
 			wantSlug:   "proj",
 			wantDigest: "abc123",
 		},
@@ -148,13 +148,13 @@ func TestArtifactFor_TaskSandboxes(t *testing.T) {
 	tests := []slugDigestTest{
 		{
 			name:       "task sandbox",
-			input:      "opencode-sandbox-task-prefill-proj-1719432000",
+			input:      "agents-sandbox-task-prefill-proj-1719432000",
 			wantSlug:   "prefill-proj",
 			wantDigest: "",
 		},
 		{
 			name:       "task sandbox single slug part before dash",
-			input:      "opencode-sandbox-task-fill-proj",
+			input:      "agents-sandbox-task-fill-proj",
 			wantSlug:   "fill",
 			wantDigest: "",
 		},
@@ -166,29 +166,29 @@ func TestArtifactFor_VMWithHashSuffix(t *testing.T) {
 	tests := []slugDigestTest{
 		{
 			name:       "vm with 14-char hash suffix (no branch)",
-			input:      "opencode-sandbox-vm-opencode-sandbox-1mjusbm3wikhb0",
-			wantSlug:   "opencode-sandbox-1mjusbm3wikhb0",
+			input:      "agents-sandbox-vm-agents-sandbox-1mjusbm3wikhb0",
+			wantSlug:   "agents-sandbox-1mjusbm3wikhb0",
 			wantDigest: "",
 			wantAgent:  "",
 		},
 		{
 			name:       "vm with 14-char hash and branch",
-			input:      "opencode-sandbox-vm-opencode-sandbox-1mjusbm3wikhb0-main",
-			wantSlug:   "opencode-sandbox-1mjusbm3wikhb0",
+			input:      "agents-sandbox-vm-agents-sandbox-1mjusbm3wikhb0-main",
+			wantSlug:   "agents-sandbox-1mjusbm3wikhb0",
 			wantDigest: "",
 			wantAgent:  "main",
 		},
 		{
 			name:       "vm with 14-char hash, slug with dash, and branch",
-			input:      "opencode-sandbox-vm-my-project-1mjusbm3wikhb0-develop",
+			input:      "agents-sandbox-vm-my-project-1mjusbm3wikhb0-develop",
 			wantSlug:   "my-project-1mjusbm3wikhb0",
 			wantDigest: "",
 			wantAgent:  "develop",
 		},
 		{
 			name:       "user's case: VM without branch matches image slug",
-			input:      "opencode-sandbox-vm-opencode-sandbox-1mjusbm3wikhb0",
-			wantSlug:   "opencode-sandbox-1mjusbm3wikhb0",
+			input:      "agents-sandbox-vm-agents-sandbox-1mjusbm3wikhb0",
+			wantSlug:   "agents-sandbox-1mjusbm3wikhb0",
 			wantDigest: "",
 			wantAgent:  "",
 		},
@@ -200,11 +200,11 @@ func TestArtifactFor_UnrecognizedPrefixes(t *testing.T) {
 	tests := []slugDigestTest{
 		{name: "random string", input: "some-random-name", wantSlug: "", wantDigest: ""},
 		{name: "empty string", input: "", wantSlug: "", wantDigest: ""},
-		{name: "similar but wrong prefix", input: "opencode-sandbox-other-myslug", wantSlug: "", wantDigest: ""},
-		{name: "just the prefix no remainder for vm", input: "opencode-sandbox-vm-", wantSlug: "", wantDigest: ""},
+		{name: "similar but wrong prefix", input: "agents-sandbox-other-myslug", wantSlug: "", wantDigest: ""},
+		{name: "just the prefix no remainder for vm", input: "agents-sandbox-vm-", wantSlug: "", wantDigest: ""},
 		{
 			name:       "just the prefix home with single part after",
-			input:      "opencode-sandbox-home-",
+			input:      "agents-sandbox-home-",
 			wantSlug:   "",
 			wantDigest: "",
 		},
@@ -214,7 +214,7 @@ func TestArtifactFor_UnrecognizedPrefixes(t *testing.T) {
 
 func TestArtifactFor_VMOnlyTwoParts(t *testing.T) {
 	// VM with only two parts after prefix (e.g. name-branch, but we have name-branch).
-	// "opencode-sandbox-vm-proj-main" → parts=["proj","main"] → slug = "proj".
+	// "agents-sandbox-vm-proj-main" → parts=["proj","main"] → slug = "proj".
 	tests := []struct {
 		name     string
 		input    string
@@ -222,7 +222,7 @@ func TestArtifactFor_VMOnlyTwoParts(t *testing.T) {
 	}{
 		{
 			name:     "two parts vm",
-			input:    "opencode-sandbox-vm-proj-main",
+			input:    "agents-sandbox-vm-proj-main",
 			wantSlug: "proj-main",
 		},
 	}
@@ -265,13 +265,13 @@ func TestArtifactFor_ComplexSlugNames(t *testing.T) {
 	tests := []slugDigestTest{
 		{
 			name:       "home with long slug containing hashes",
-			input:      "opencode-sandbox-home-abcdef-gH1234AB5678CD-eF9012gH3456iJ",
+			input:      "agents-sandbox-home-abcdef-gH1234AB5678CD-eF9012gH3456iJ",
 			wantSlug:   "abcdef-gH1234AB5678CD",
 			wantDigest: "eF9012gH3456iJ",
 		},
 		{
 			name:       "vm with two-part name",
-			input:      "opencode-sandbox-vm-acme-corp",
+			input:      "agents-sandbox-vm-acme-corp",
 			wantSlug:   "acme-corp",
 			wantDigest: "",
 		},
@@ -286,12 +286,12 @@ func TestParseImageTag(t *testing.T) {
 		wantSlug   string
 		wantDigest string
 	}{
-		{"opencode-sandbox/runner-myproject:xYz1234AbCdEfGh", "myproject", "xYz1234AbCdEfGh"},
-		{"opencode-sandbox/runner-myproject:latest", "myproject", ""},
-		{"opencode-sandbox/runner-myproject:", "myproject", ""},
-		{"opencode-sandbox/runner-myproject", "myproject", ""},
-		{"opencode-sandbox/runner-my-project-name:xYz1234AbCdEfGh", "my-project-name", "xYz1234AbCdEfGh"},
-		{"opencode-sandbox/runner-myproject:sha256:abc123", "myproject:sha256", "abc123"},
+		{"agents-sandbox/runner-myproject:xYz1234AbCdEfGh", "myproject", "xYz1234AbCdEfGh"},
+		{"agents-sandbox/runner-myproject:latest", "myproject", ""},
+		{"agents-sandbox/runner-myproject:", "myproject", ""},
+		{"agents-sandbox/runner-myproject", "myproject", ""},
+		{"agents-sandbox/runner-my-project-name:xYz1234AbCdEfGh", "my-project-name", "xYz1234AbCdEfGh"},
+		{"agents-sandbox/runner-myproject:sha256:abc123", "myproject:sha256", "abc123"},
 		{"other-image/myproject:tag", "", ""},
 	}
 	for _, tt := range tests {
@@ -314,15 +314,15 @@ func TestParseVMName(t *testing.T) {
 		wantDigest string
 		wantAgent  string
 	}{
-		{"opencode-sandbox-vm-opencode-sandbox-1mjusbm3wikhb0", "opencode-sandbox-1mjusbm3wikhb0", "", ""},
-		{"opencode-sandbox-vm-opencode-sandbox-1mjusbm3wikhb0-main", "opencode-sandbox-1mjusbm3wikhb0", "", "main"},
-		{"opencode-sandbox-vm-my-project-1mjusbm3wikhb0-develop", "my-project-1mjusbm3wikhb0", "", "develop"},
-		{"opencode-sandbox-vm-projectname-main", "projectname-main", "", ""},
-		{"opencode-sandbox-vm-myproject-abc1234567890", "myproject-abc1234567890", "", ""},
-		{"opencode-sandbox-vm-noHash", "noHash", "", ""},
-		{"opencode-sandbox-home-test", "", "", ""},
-		{"opencode-sandbox-vm-projectname-aB3cDe4fGhIjKl", "projectname-aB3cDe4fGhIjKl", "", ""},
-		{"opencode-sandbox-vm-projectname-aB3cDe4fGhIjKl-feature", "projectname-aB3cDe4fGhIjKl-feature", "", ""},
+		{"agents-sandbox-vm-agents-sandbox-1mjusbm3wikhb0", "agents-sandbox-1mjusbm3wikhb0", "", ""},
+		{"agents-sandbox-vm-agents-sandbox-1mjusbm3wikhb0-main", "agents-sandbox-1mjusbm3wikhb0", "", "main"},
+		{"agents-sandbox-vm-my-project-1mjusbm3wikhb0-develop", "my-project-1mjusbm3wikhb0", "", "develop"},
+		{"agents-sandbox-vm-projectname-main", "projectname-main", "", ""},
+		{"agents-sandbox-vm-myproject-abc1234567890", "myproject-abc1234567890", "", ""},
+		{"agents-sandbox-vm-noHash", "noHash", "", ""},
+		{"agents-sandbox-home-test", "", "", ""},
+		{"agents-sandbox-vm-projectname-aB3cDe4fGhIjKl", "projectname-aB3cDe4fGhIjKl", "", ""},
+		{"agents-sandbox-vm-projectname-aB3cDe4fGhIjKl-feature", "projectname-aB3cDe4fGhIjKl-feature", "", ""},
 	}
 	for _, tt := range tests {
 		t.Run(tt.input, func(t *testing.T) {
@@ -347,13 +347,13 @@ func TestParseHomeVolumeName(t *testing.T) {
 		wantDigest string
 	}{
 		{
-			"opencode-sandbox-home-myproject-aB3cDe4fGhIjKl-xYz1234AbCdEfGh",
+			"agents-sandbox-home-myproject-aB3cDe4fGhIjKl-xYz1234AbCdEfGh",
 			"myproject-aB3cDe4fGhIjKl",
 			"xYz1234AbCdEfGh",
 		},
-		{"opencode-sandbox-home-myproject-abc1234567890", "myproject", "abc1234567890"},
-		{"opencode-sandbox-home-abc-def-gh", "abc-def", "gh"},
-		{"opencode-sandbox-vm-something", "", ""},
+		{"agents-sandbox-home-myproject-abc1234567890", "myproject", "abc1234567890"},
+		{"agents-sandbox-home-abc-def-gh", "abc-def", "gh"},
+		{"agents-sandbox-vm-something", "", ""},
 	}
 	for _, tt := range tests {
 		t.Run(tt.input, func(t *testing.T) {
@@ -374,9 +374,9 @@ func TestParseHomeVolumeNameNewFormat(t *testing.T) {
 		wantSlug   string
 		wantDigest string
 	}{
-		{"opencode-sandbox-home-myproj-20260806T143022", "myproj", ""},
-		{"opencode-sandbox-home-abc-def-1mjusbm3wikhb0-20260806T143022", "abc-def-1mjusbm3wikhb0", ""},
-		{"opencode-sandbox-home-proj-20261231T235959", "proj", ""},
+		{"agents-sandbox-home-myproj-20260806T143022", "myproj", ""},
+		{"agents-sandbox-home-abc-def-1mjusbm3wikhb0-20260806T143022", "abc-def-1mjusbm3wikhb0", ""},
+		{"agents-sandbox-home-proj-20261231T235959", "proj", ""},
 	}
 	for _, tt := range tests {
 		t.Run(tt.input, func(t *testing.T) {
@@ -392,7 +392,7 @@ func TestParseHomeVolumeNameNewFormat(t *testing.T) {
 }
 
 func TestParseHomeVolumeNameLegacyFormat(t *testing.T) {
-	info := naming.ParseHomeVolumeName("opencode-sandbox-home-myproject-aB3cDe4fGhIjKl-xYz1234AbCdEfGh")
+	info := naming.ParseHomeVolumeName("agents-sandbox-home-myproject-aB3cDe4fGhIjKl-xYz1234AbCdEfGh")
 	if info.Slug != "myproject-aB3cDe4fGhIjKl" {
 		t.Errorf("slug = %q, want %q", info.Slug, "myproject-aB3cDe4fGhIjKl")
 	}
@@ -423,12 +423,12 @@ func TestBuildPruneStateKeysByAgent(t *testing.T) {
 	client := &msb.MockMsbClient{
 		Sandboxes: []msb.SandboxHandle{
 			&msb.MockSandboxHandle{
-				Name_:      "opencode-sandbox-vm-proj-1mjusbm3wikhb0-opencode",
+				Name_:      "agents-sandbox-vm-proj-1mjusbm3wikhb0-opencode",
 				Status_:    msbSdk.SandboxStatusRunning,
 				UpdatedAt_: time.Now(),
 			},
 			&msb.MockSandboxHandle{
-				Name_:      "opencode-sandbox-vm-proj-1mjusbm3wikhb0-pi",
+				Name_:      "agents-sandbox-vm-proj-1mjusbm3wikhb0-pi",
 				Status_:    msbSdk.SandboxStatusStopped,
 				UpdatedAt_: old,
 			},
@@ -456,29 +456,29 @@ func TestPruneAggregateParity(t *testing.T) {
 	client := &msb.MockMsbClient{
 		Sandboxes: []msb.SandboxHandle{
 			&msb.MockSandboxHandle{
-				Name_:      "opencode-sandbox-vm-proj-1mjusbm3wikhb0",
+				Name_:      "agents-sandbox-vm-proj-1mjusbm3wikhb0",
 				Status_:    msbSdk.SandboxStatusStopped,
 				UpdatedAt_: old,
 			},
 			&msb.MockSandboxHandle{
-				Name_:      "opencode-sandbox-vm-live-1mjusbm3wikhb0",
+				Name_:      "agents-sandbox-vm-live-1mjusbm3wikhb0",
 				Status_:    msbSdk.SandboxStatusRunning,
 				UpdatedAt_: old,
-				Image_:     "opencode-sandbox/runner-live-1mjusbm3wikhb0:opencode-latest",
+				Image_:     "agents-sandbox/runner-live-1mjusbm3wikhb0:opencode-latest",
 			},
 		},
 		Volumes: []msb.VolumeHandle{
-			&msb.MockVolumeHandle{Name_: "opencode-sandbox-home-proj-1mjusbm3wikhb0-20260806T143022", CreatedAt_: old},
-			&msb.MockVolumeHandle{Name_: "opencode-sandbox-home-live-1mjusbm3wikhb0-20260806T143022", CreatedAt_: old},
+			&msb.MockVolumeHandle{Name_: "agents-sandbox-home-proj-1mjusbm3wikhb0-20260806T143022", CreatedAt_: old},
+			&msb.MockVolumeHandle{Name_: "agents-sandbox-home-live-1mjusbm3wikhb0-20260806T143022", CreatedAt_: old},
 		},
 		Images: []msb.ImageHandle{
-			&msb.MockImageHandle{Reference_: "opencode-sandbox/runner-proj-1mjusbm3wikhb0:old", CreatedAt_: old},
+			&msb.MockImageHandle{Reference_: "agents-sandbox/runner-proj-1mjusbm3wikhb0:old", CreatedAt_: old},
 			&msb.MockImageHandle{
-				Reference_: "opencode-sandbox/runner-live-1mjusbm3wikhb0:opencode-latest",
+				Reference_: "agents-sandbox/runner-live-1mjusbm3wikhb0:opencode-latest",
 				CreatedAt_: old,
 			},
 			&msb.MockImageHandle{
-				Reference_: "opencode-sandbox/runner-live-1mjusbm3wikhb0:old",
+				Reference_: "agents-sandbox/runner-live-1mjusbm3wikhb0:old",
 				CreatedAt_: time.Now().Add(-30 * 24 * time.Hour),
 			},
 		},

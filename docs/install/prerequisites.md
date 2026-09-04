@@ -9,7 +9,7 @@ nav_order: 10
 
 ## Supported platforms
 
-opencode-sandbox supports the following platforms:
+agents-sandbox supports the following platforms:
 
 * Linux (KVM)
 * macOS (Apple Silicon)
@@ -17,15 +17,15 @@ opencode-sandbox supports the following platforms:
 
 ## Software prerequisites
 
-opencode-sandbox requires the following pre-installed software:
+agents-sandbox requires the following pre-installed software:
 
 - **Docker**, **Docker Desktop** or **colima** for building VM images
 
 ## Doctor check
 
-If you're unsure your system fulfills the prerequisites, you can just install opencode-sandbox and use it to verify your
-setup. It will tell you if your system is ready to use opencode-sandbox.
+If you're unsure your system fulfills the prerequisites, you can just install agents-sandbox and use it to verify your
+setup. It will tell you if your system is ready to use agents-sandbox.
 
 ```shell
-opencode-sandbox doctor
+agents-sandbox doctor
 ```

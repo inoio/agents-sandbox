@@ -1,4 +1,4 @@
-module github.com/inoio/opencode-sandbox
+module github.com/inoio/agents-sandbox
 
 go 1.26
 

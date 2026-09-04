@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/inoio/opencode-sandbox/internal/agent"
+	"github.com/inoio/agents-sandbox/internal/agent"
 )
 
 // resolveAgentVersion returns the requested version when non-empty, otherwise
