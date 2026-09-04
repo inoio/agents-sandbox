@@ -1,7 +1,7 @@
 ---
 title: Installation
 layout: default
-parent: Getting Started
+parent: Install
 nav_order: 20
 ---
 

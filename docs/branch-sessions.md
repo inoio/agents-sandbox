@@ -1,7 +1,7 @@
 ---
 title: Worktree Sessions
 layout: default
-nav_order: 70
+nav_order: 90
 ---
 # Worktree Sessions
 

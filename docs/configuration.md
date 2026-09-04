@@ -490,7 +490,7 @@ Run `opencode-sandbox config agent` to print the merged config that would be pro
 > exist, the config-file family (for opencode: `config.json`, `opencode.json`, `opencode.jsonc`, …) is removed from the
 > VM so a host drop-in copy of any of those files cannot shadow the merged snippet config.
 
-See the [permissions example]({% link getting-started.md %}#example-permissions) for a concrete snippet.
+See the [permissions example]({% link configuration/agent.md %}#example-permissions) for a concrete snippet.
 
 ### Verbatim config directory mirror
 

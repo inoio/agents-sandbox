@@ -1,10 +1,10 @@
 ---
-title: Motivation
+title: Why?
 layout: default
 nav_order: 10
 ---
 
-# Motivation
+# Why?
 opencode-sandbox gives opencode a real, hardware-isolated machine to work on — full agent permissions inside a boundary that can't reach your host, and secrets the agent never gets to see.
 
 Docker, bubblewrap, seatbelt, and bare opencode all share your kernel — a kernel bug or `sudo` is enough for an agent to reach your machine. opencode-sandbox runs a separate kernel under hypervisor isolation (KVM on Linux, Apple Silicon on macOS), so escaping takes a hypervisor-level bug: a much higher bar.

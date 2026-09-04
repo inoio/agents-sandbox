@@ -1,7 +1,7 @@
 ---
 title: Prerequisites
 layout: default
-parent: Getting Started
+parent: Install
 nav_order: 10
 ---
 
