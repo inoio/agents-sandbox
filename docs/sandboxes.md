@@ -135,7 +135,7 @@ immediately stopped**. Instead, the launcher evaluates the `auto-stop-on-active-
   stops promptly via the idle timeout even while sessions are busy.
 
 The idle timeout is configured via `auto-stop-timeout` in launcher config (no CLI flag).
-See [Configuration]({% link configuration.md %})
+See [Configuration]({% link configuration/index.md %})
 for field details.
 
 A `busy` session that is blocked without an associated pending question (and with no client connected) waits under wait
@@ -166,7 +166,7 @@ When another client is attached, config changes that would restart the opencode 
 prompt asking whether to keep the running server/VM (defer), proceed, or quit (abort the apply). The default is always
 to defer — existing sessions are never cut off. Choosing to keep still provisions the updated config files into the VM,
 so the next daemon restart picks them up; only the restart itself is deferred. See
-[Configuration]({% link configuration.md %}#resource-config-application) for details on how resource changes are applied and
+[Configuration]({% link configuration/launcher.md %}#resource-config-application) for details on how resource changes are applied and
 their reconnect semantics.
 
 ## Manual Pruning
