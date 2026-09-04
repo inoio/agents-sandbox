@@ -1,9 +1,9 @@
 <component name="ProjectRunConfigurationManager">
-  <configuration default="false" name="go-test-opencode-sandbox" type="GoTestRunConfiguration" factoryName="Go Test">
-    <module name="opencode-sandbox" />
+  <configuration default="false" name="go-test-agents-sandbox" type="GoTestRunConfiguration" factoryName="Go Test">
+    <module name="agents-sandbox" />
     <working_directory value="$PROJECT_DIR$" />
     <kind value="DIRECTORY" />
-    <package value="github.com/inoio/opencode-sandbox" />
+    <package value="github.com/inoio/agents-sandbox" />
     <directory value="$PROJECT_DIR$" />
     <filePath value="$PROJECT_DIR$" />
     <framework value="gotest" />

@@ -11,10 +11,10 @@ import (
 
 	"github.com/moby/moby/client"
 
-	"github.com/inoio/opencode-sandbox/internal/sandbox/docker"
-	"github.com/inoio/opencode-sandbox/internal/termio"
+	"github.com/inoio/agents-sandbox/internal/sandbox/docker"
+	"github.com/inoio/agents-sandbox/internal/termio"
 
-	"github.com/inoio/opencode-sandbox/internal/testutil"
+	"github.com/inoio/agents-sandbox/internal/testutil"
 )
 
 func TestShellRcFile(t *testing.T) {

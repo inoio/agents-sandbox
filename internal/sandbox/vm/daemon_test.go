@@ -6,34 +6,30 @@ import (
 	"testing"
 	"time"
 
-	"github.com/inoio/opencode-sandbox/internal/sandbox/msb"
-	"github.com/inoio/opencode-sandbox/internal/termio"
+	"github.com/inoio/agents-sandbox/internal/agent"
+	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
+	"github.com/inoio/agents-sandbox/internal/termio"
 )
 
-func TestParseHealthResponseHealthy(t *testing.T) {
-	healthy, err := parseHealthResponse(`{"healthy":true,"version":"1.18.5"}`)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if !healthy {
-		t.Error("expected healthy=true")
-	}
+// fakeAgent implements only the core Agent interface with no capabilities, so
+// the daemon/worktree paths must no-op for it.
+type fakeAgent struct{}
+
+func (fakeAgent) Name() string          { return "fake" }
+func (fakeAgent) ConfigDirName() string { return "fake" }
+func (fakeAgent) ImageSpec() agent.ImageSpec {
+	return agent.ImageSpec{}
 }
 
-func TestParseHealthResponseUnhealthy(t *testing.T) {
-	healthy, err := parseHealthResponse(`{"healthy":false}`)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+func TestEnsureDaemonNoDaemonProvider(t *testing.T) {
+	ui := &termio.Mock{}
+	sb := &msb.MockSandbox{ShellCalls: &[]string{}}
+	a := &fakeAgent{}
+	if err := ensureDaemon(context.Background(), a, false, sb, ui); err != nil {
+		t.Fatalf("expected nil for an agent without a DaemonProvider, got %v", err)
 	}
-	if healthy {
-		t.Error("expected healthy=false")
-	}
-}
-
-func TestParseHealthResponseInvalidJSON(t *testing.T) {
-	_, err := parseHealthResponse("not json")
-	if err == nil {
-		t.Error("expected error for invalid JSON")
+	if len(*sb.ShellCalls) != 0 {
+		t.Errorf("expected no shell calls for an agent without a DaemonProvider, got %v", *sb.ShellCalls)
 	}
 }
 
@@ -65,6 +61,8 @@ func TestEnsureDaemonStartsWhenUnhealthy(t *testing.T) {
 		responses: []mockShellResp{
 			// First healthcheck: unhealthy (daemon not running).
 			{stdout: "", exitCode: 1},
+			// Kill stale daemon (response ignored).
+			{stdout: "", exitCode: 0},
 			// Start command (response ignored).
 			{stdout: "", exitCode: 0},
 			// Poll: still starting.
@@ -80,32 +78,9 @@ func TestEnsureDaemonStartsWhenUnhealthy(t *testing.T) {
 	t.Cleanup(func() { daemonPollInterval = 2 * time.Second })
 	daemonPollInterval = 10 * time.Millisecond
 
-	err := ensureDaemon(context.Background(), false, nil, &testUI)
+	err := ensureDaemon(context.Background(), opencodeAgent(t), false, nil, &testUI)
 	if err != nil {
 		t.Fatalf("EnsureDaemon failed: %v", err)
-	}
-}
-
-// TestDaemonStartCommandServeOnly verifies that serve-only mode binds the
-// opencode daemon to 0.0.0.0 so microsandbox's published-port forwarder (which
-// dials the guest's external interface address) can reach it. Loopback-only
-// (127.0.0.1) would make host clients get an empty reply.
-func TestDaemonStartCommandServeOnly(t *testing.T) {
-	got := daemonStartCommand(true)
-	if !strings.Contains(got, "--hostname 0.0.0.0") {
-		t.Errorf("serve-only daemon start command missing --hostname 0.0.0.0, got %q", got)
-	}
-	if strings.Contains(got, "127.0.0.1") {
-		t.Errorf("serve-only daemon start command must not bind loopback, got %q", got)
-	}
-}
-
-// TestDaemonStartCommandAttach verifies the non-serve-only (attach) path keeps
-// the loopback binding for the in-VM TUI client.
-func TestDaemonStartCommandAttach(t *testing.T) {
-	got := daemonStartCommand(false)
-	if !strings.Contains(got, "--hostname 127.0.0.1") {
-		t.Errorf("attach daemon start command must keep loopback binding, got %q", got)
 	}
 }
 
@@ -115,13 +90,14 @@ func TestDaemonStartCommandAttach(t *testing.T) {
 // (127.0.0.1) binding would make host clients get an empty reply.
 func TestEnsureDaemonStartsServeOnlyOnExternalInterface(t *testing.T) {
 	testUI := termio.NewTestMock(t)
+	provider := opencodeProvider(t)
 	var startCmd string
 	healthChecks := 0
 	prev := SetDaemonShellFunc(func(_ context.Context, _ msb.Sandbox, command string) (string, int, error) {
 		if strings.Contains(command, "opencode serve") && !strings.Contains(command, "pkill") {
 			startCmd = command
 		}
-		if command == "curl -sfm2 "+daemonHealthURL {
+		if command == provider.DaemonHealthCmd() {
 			healthChecks++
 			if healthChecks == 1 {
 				return "", 1, nil
@@ -135,7 +111,7 @@ func TestEnsureDaemonStartsServeOnlyOnExternalInterface(t *testing.T) {
 	t.Cleanup(func() { daemonPollInterval = 2 * time.Second })
 	daemonPollInterval = 10 * time.Millisecond
 
-	err := ensureDaemon(context.Background(), true, nil, &testUI)
+	err := ensureDaemon(context.Background(), opencodeAgent(t), true, nil, &testUI)
 	if err != nil {
 		t.Fatalf("EnsureDaemon failed: %v", err)
 	}
@@ -150,6 +126,7 @@ func TestEnsureDaemonFailsAfterTimeout(t *testing.T) {
 		responses: []mockShellResp{
 			// Always unhealthy.
 			{stdout: "", exitCode: 1},
+			{stdout: "", exitCode: 0},
 			{stdout: "", exitCode: 0},
 			{stdout: "", exitCode: 1},
 			{stdout: "", exitCode: 1},
@@ -168,7 +145,7 @@ func TestEnsureDaemonFailsAfterTimeout(t *testing.T) {
 	t.Cleanup(func() { daemonPollInterval = 2 * time.Second })
 	daemonPollInterval = 1 * time.Millisecond
 
-	err := ensureDaemon(context.Background(), false, nil, &testUI)
+	err := ensureDaemon(context.Background(), opencodeAgent(t), false, nil, &testUI)
 	if err == nil {
 		t.Fatal("expected error after timeout")
 	}

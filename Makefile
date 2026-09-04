@@ -1,4 +1,4 @@
-.PHONY: build build-release build-release-all test coverage lint fmt clean completion user-install check all upgrade-deps docs-diagrams docs-serve
+.PHONY: build build-release build-release-all test coverage coverage-junit lint fmt clean completion user-install check all upgrade-deps docs-diagrams docs-serve
 
 VERSION ?= dev
 
@@ -7,7 +7,7 @@ GOARCH ?= $(shell go env GOARCH)
 ZIG_TARGET ?=
 PLANTUML ?= plantuml
 
-ARTIFACT = opencode-sandbox-$(GOOS)-$(GOARCH)
+ARTIFACT = agents-sandbox-$(GOOS)-$(GOARCH)
 
 RELEASE_TARGETS = \
 	linux/amd64/x86_64-linux-gnu \
@@ -15,7 +15,7 @@ RELEASE_TARGETS = \
 	darwin/arm64/aarch64-macos.11.0-none
 
 build:
-	CGO_ENABLED=1 go build -ldflags "-X main.version=$(VERSION)" -o opencode-sandbox ./cmd/opencode-sandbox
+	CGO_ENABLED=1 go build -ldflags "-X main.version=$(VERSION)" -o agents-sandbox ./cmd/agents-sandbox
 
 build-release: export CC=zig cc -target $(ZIG_TARGET)
 build-release: export CXX=zig c++ -target $(ZIG_TARGET)
@@ -27,10 +27,10 @@ ifeq ($(GOOS),darwin)
 	CGO_ENABLED=1 GOOS=$(GOOS) GOARCH=$(GOARCH) \
 	    CGO_CFLAGS="-isystem $(shell dirname $(shell which zig))/lib/libc/include/any-darwin-any" \
 	    CGO_LDFLAGS="-F $(shell dirname $(shell which zig))/lib/libc/darwin/System/Library/Frameworks -L $(shell dirname $(shell which zig))/lib/libc/darwin/usr/lib -Wl,-undefined,dynamic_lookup" \
-	    go build -trimpath -buildvcs=false -ldflags "-s -w -X main.version=$(VERSION)" -o $(ARTIFACT) ./cmd/opencode-sandbox
+	    go build -trimpath -buildvcs=false -ldflags "-s -w -X main.version=$(VERSION)" -o $(ARTIFACT) ./cmd/agents-sandbox
 else
 	CGO_ENABLED=1 GOOS=$(GOOS) GOARCH=$(GOARCH) \
-	    go build -trimpath -buildvcs=false -ldflags "-s -w -X main.version=$(VERSION)" -o $(ARTIFACT) ./cmd/opencode-sandbox
+	    go build -trimpath -buildvcs=false -ldflags "-s -w -X main.version=$(VERSION)" -o $(ARTIFACT) ./cmd/agents-sandbox
 endif
 
 build-release-all: export VERSION=$(VERSION)
@@ -47,6 +47,11 @@ coverage:
 	CGO_ENABLED=1 go test -coverprofile=coverage.out ./...
 	go tool cover -func=coverage.out | tail -1
 
+# Single test run that also emits JUnit XML (junit.xml) for Codecov Test Analytics.
+coverage-junit:
+	CGO_ENABLED=1 go run gotest.tools/gotestsum@latest --junitfile junit.xml -- -coverprofile=coverage.out ./...
+	go tool cover -func=coverage.out | tail -1
+
 lint:
 	golangci-lint run ./...
 
@@ -57,18 +62,18 @@ validate-fmt:
 	golangci-lint fmt -d ./...
 
 run:
-	go run ./cmd/opencode-sandbox
+	go run ./cmd/agents-sandbox
 
 check: fmt lint test
 
 all: fmt lint test build
 
 clean:
-	rm -f opencode-sandbox
+	rm -f agents-sandbox
 
 completion:
 	mkdir -p ~/.local/share/bash-completion/completions
-	go run ./cmd/opencode-sandbox completion bash > ~/.local/share/bash-completion/completions/opencode-sandbox
+	go run ./cmd/agents-sandbox completion bash > ~/.local/share/bash-completion/completions/agents-sandbox
 
 # Render PlantUML diagrams in docs/diagrams/ to SVG (local preview; CI re-renders on release).
 # Excludes the vendored C4-PlantUML library files (C4*.puml), which are not standalone diagrams.
@@ -81,8 +86,8 @@ docs-serve:
 
 user-install: build
 	mkdir -p ~/.local/bin
-	cp opencode-sandbox ~/.local/bin/opencode-sandbox.tmp
-	mv -f ~/.local/bin/opencode-sandbox.tmp ~/.local/bin/opencode-sandbox
+	cp agents-sandbox ~/.local/bin/agents-sandbox.tmp
+	mv -f ~/.local/bin/agents-sandbox.tmp ~/.local/bin/agents-sandbox
 
 upgrade-deps:
 	go get -u ./...

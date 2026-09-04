@@ -1,4 +1,4 @@
-// Package upgrade checks the opencode-sandbox GitHub releases for a newer
+// Package upgrade checks the agents-sandbox GitHub releases for a newer
 // version than the one running, and optionally installs it. It mirrors how
 // opencode resolves its own latest release (GitHub releases/latest) and
 // compares version strings using semantic versioning.
@@ -20,12 +20,12 @@ import (
 
 	"github.com/Masterminds/semver/v3"
 
-	"github.com/inoio/opencode-sandbox/internal/configpaths"
-	"github.com/inoio/opencode-sandbox/internal/termio"
+	"github.com/inoio/agents-sandbox/internal/configpaths"
+	"github.com/inoio/agents-sandbox/internal/termio"
 )
 
 const (
-	githubRepo = "inoio/opencode-sandbox"
+	githubRepo = "inoio/agents-sandbox"
 
 	// devVersion is the version baked into locally built binaries; we never
 	// auto-upgrade or compare against it meaningfully.
@@ -76,9 +76,9 @@ func ParseMode(s string) (Mode, error) {
 // Result describes what Check decided to do.
 type Result struct {
 	HasUpdate bool
-	Latest    string
 	Updated   bool
 	Exit      bool
+	Latest    string
 }
 
 // Options configures a single Check.
@@ -108,7 +108,7 @@ func (o Options) statePath() string {
 	return filepath.Join(configpaths.Get().UserStateDir(), stateFileName)
 }
 
-// Check looks for a newer opencode-sandbox release than CurrentVersion and
+// Check looks for a newer agents-sandbox release than CurrentVersion and
 // acts on it according to Mode. It is a no-op for development builds and when
 // a check happened within Interval. Transient network or parsing failures are
 // silently ignored so an offline run never blocks startup. An explicitly
@@ -155,7 +155,7 @@ func Check(ctx context.Context, opts Options) (Result, error) {
 
 	res := applyMode(ctx, opts, updateFunc, latest, &st)
 	if res.Updated || res.Exit {
-		opts.UI.Infof("opencode-sandbox updated to %s; restart to use it", latest)
+		opts.UI.Infof("agents-sandbox updated to %s; restart to use it", latest)
 	}
 	st.LastCheck = time.Now()
 	_ = saveState(path, st)
@@ -225,8 +225,8 @@ func applyMode(
 // notify reports a newer release without installing it.
 func notify(ui termio.UI, current, latest string) {
 	ui.Infof(
-		"A new version of opencode-sandbox is available: %s (you have %s). "+
-			"Run `opencode-sandbox upgrade` to install it, or set upgrade.mode in your config.",
+		"A new version of agents-sandbox is available: %s (you have %s). "+
+			"Run `agents-sandbox upgrade` to install it, or set upgrade.mode in your config.",
 		latest, current,
 	)
 }
@@ -254,7 +254,7 @@ func prompt(ui termio.UI, current, latest string) promptAction {
 		{Label: "Upgrade & exit", Key: "x", Description: "install " + latest + " and exit; restart to use it"},
 	}
 	key, err := ui.Select(
-		fmt.Sprintf("A new version of opencode-sandbox is available: %s (you have %s)", latest, current),
+		fmt.Sprintf("A new version of agents-sandbox is available: %s (you have %s)", latest, current),
 		choices,
 		"c",
 	)
@@ -289,10 +289,10 @@ func Upgrade(ctx context.Context, ui termio.UI, current string) error {
 		return err
 	}
 	if !newer {
-		ui.Infof("opencode-sandbox is up to date (%s)", current)
+		ui.Infof("agents-sandbox is up to date (%s)", current)
 		return nil
 	}
-	ui.Infof("upgrading opencode-sandbox %s -> %s", current, latest)
+	ui.Infof("upgrading agents-sandbox %s -> %s", current, latest)
 	if err := Update(ctx, latest); err != nil {
 		return err
 	}
@@ -300,7 +300,7 @@ func Upgrade(ctx context.Context, ui termio.UI, current string) error {
 	return nil
 }
 
-// LatestVersion returns the newest stable opencode-sandbox release string
+// LatestVersion returns the newest stable agents-sandbox release string
 // (leading "v" stripped) by querying the GitHub releases/latest endpoint.
 //
 //nolint:gochecknoglobals // test seam
@@ -312,21 +312,21 @@ func latestRelease(ctx context.Context) (string, error) {
 		return "", fmt.Errorf("build latest release request: %w", err)
 	}
 	req.Header.Set("Accept", "application/json")
-	req.Header.Set("User-Agent", "opencode-sandbox")
+	req.Header.Set("User-Agent", "agents-sandbox")
 	client := &http.Client{Timeout: 10 * time.Second}
 	resp, err := client.Do(req)
 	if err != nil {
-		return "", fmt.Errorf("latest opencode-sandbox release: %w", err)
+		return "", fmt.Errorf("latest agents-sandbox release: %w", err)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("latest opencode-sandbox release: unexpected status %d", resp.StatusCode)
+		return "", fmt.Errorf("latest agents-sandbox release: unexpected status %d", resp.StatusCode)
 	}
 	var release struct {
 		TagName string `json:"tag_name"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&release); err != nil {
-		return "", fmt.Errorf("decode latest opencode-sandbox release: %w", err)
+		return "", fmt.Errorf("decode latest agents-sandbox release: %w", err)
 	}
 	return strings.TrimPrefix(release.TagName, "v"), nil
 }
@@ -356,13 +356,13 @@ func updateExecutable(ctx context.Context, _ string) error {
 // downloadAssetToDir downloads the release binary for the current platform
 // into dir and returns the downloaded file path.
 func downloadAssetToDir(ctx context.Context, dir string) (string, error) {
-	asset := fmt.Sprintf("opencode-sandbox-%s-%s", runtime.GOOS, runtime.GOARCH)
+	asset := fmt.Sprintf("agents-sandbox-%s-%s", runtime.GOOS, runtime.GOARCH)
 	url := fmt.Sprintf("%s/%s", downloadBase, asset)
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return "", fmt.Errorf("build download request: %w", err)
 	}
-	req.Header.Set("User-Agent", "opencode-sandbox")
+	req.Header.Set("User-Agent", "agents-sandbox")
 	client := &http.Client{Timeout: 5 * time.Minute}
 	resp, err := client.Do(req)
 	if err != nil {
@@ -372,7 +372,7 @@ func downloadAssetToDir(ctx context.Context, dir string) (string, error) {
 	if resp.StatusCode != http.StatusOK {
 		return "", fmt.Errorf("download %s: unexpected status %d", asset, resp.StatusCode)
 	}
-	tmp, err := os.CreateTemp(dir, ".opencode-sandbox-update-*")
+	tmp, err := os.CreateTemp(dir, ".agents-sandbox-update-*")
 	if err != nil {
 		return "", fmt.Errorf("create download temp file: %w", err)
 	}
@@ -400,8 +400,8 @@ func executablePath() (string, error) {
 // replaceExecutable makes assetPath carry the target's permissions and renames
 // it over exePath. The caller must place assetPath in exePath's directory so
 // the rename is on the same filesystem and therefore atomic. Preserving the
-// old binary's permissions honours installs that used a non-default mode
-// (e.g. a setuid or group-writable binary).
+// old binary's permissions honors installs that used a non-default mode
+// (e.g., a setuid or group-writable binary).
 func replaceExecutable(assetPath, exePath string) error {
 	mode := os.FileMode(0o755)
 	if info, err := os.Stat(exePath); err == nil {

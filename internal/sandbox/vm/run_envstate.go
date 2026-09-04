@@ -4,14 +4,14 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/inoio/opencode-sandbox/internal/sandbox/mounts"
-	"github.com/inoio/opencode-sandbox/internal/sandbox/network"
-	"github.com/inoio/opencode-sandbox/internal/sandbox/reprovision"
-	"github.com/inoio/opencode-sandbox/internal/sandbox/state"
+	"github.com/inoio/agents-sandbox/internal/sandbox/mounts"
+	"github.com/inoio/agents-sandbox/internal/sandbox/network"
+	"github.com/inoio/agents-sandbox/internal/sandbox/reprovision"
+	"github.com/inoio/agents-sandbox/internal/sandbox/state"
 )
 
-func persistEnvSecrets(slug string, envState state.EnvState, secretState state.SecretState) error {
-	st, err := state.ReadState(slug)
+func persistEnvSecrets(k state.Key, envState state.EnvState, secretState state.SecretState) error {
+	st, err := state.ReadState(k)
 	if err != nil {
 		if errors.Is(err, state.ErrStateNotFound) {
 			st = new(state.HomeState)
@@ -21,11 +21,11 @@ func persistEnvSecrets(slug string, envState state.EnvState, secretState state.S
 	}
 	st.EnvState = envState
 	st.SecretState = secretState
-	return state.WriteState(slug, *st)
+	return state.WriteState(k, *st)
 }
 
-func persistNetworkState(slug string, policy network.Policy) error {
-	st, err := state.ReadState(slug)
+func persistNetworkState(k state.Key, policy network.Policy) error {
+	st, err := state.ReadState(k)
 	if err != nil {
 		if errors.Is(err, state.ErrStateNotFound) {
 			st = new(state.HomeState)
@@ -34,11 +34,11 @@ func persistNetworkState(slug string, policy network.Policy) error {
 		}
 	}
 	st.NetworkState = reprovision.BuildNetworkState(policy)
-	return state.WriteState(slug, *st)
+	return state.WriteState(k, *st)
 }
 
-func persistMountState(slug string, mounts mounts.Mounts) error {
-	st, err := state.ReadState(slug)
+func persistMountState(k state.Key, mounts mounts.Mounts) error {
+	st, err := state.ReadState(k)
 	if err != nil {
 		if errors.Is(err, state.ErrStateNotFound) {
 			st = new(state.HomeState)
@@ -47,5 +47,5 @@ func persistMountState(slug string, mounts mounts.Mounts) error {
 		}
 	}
 	st.MountState = reprovision.BuildMountState(mounts)
-	return state.WriteState(slug, *st)
+	return state.WriteState(k, *st)
 }

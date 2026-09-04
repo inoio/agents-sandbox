@@ -4,15 +4,14 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/inoio/opencode-sandbox/internal/configpaths"
-	"github.com/inoio/opencode-sandbox/internal/git"
-	"github.com/inoio/opencode-sandbox/internal/homeconfig"
-	"github.com/inoio/opencode-sandbox/internal/sandbox/msb"
-	"github.com/inoio/opencode-sandbox/internal/sandbox/options"
-	"github.com/inoio/opencode-sandbox/internal/sandbox/reprovision"
-	"github.com/inoio/opencode-sandbox/internal/sandbox/state"
-	"github.com/inoio/opencode-sandbox/internal/sandbox/volume"
-	"github.com/inoio/opencode-sandbox/internal/termio"
+	"github.com/inoio/agents-sandbox/internal/agent"
+	"github.com/inoio/agents-sandbox/internal/homeconfig"
+	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
+	"github.com/inoio/agents-sandbox/internal/sandbox/options"
+	"github.com/inoio/agents-sandbox/internal/sandbox/reprovision"
+	"github.com/inoio/agents-sandbox/internal/sandbox/state"
+	"github.com/inoio/agents-sandbox/internal/sandbox/volume"
+	"github.com/inoio/agents-sandbox/internal/termio"
 
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 )
@@ -31,7 +30,7 @@ const defaultHookInterpreter = "/bin/sh"
 // interactive shell. Each script is run through its shebang interpreter (the
 // home-volume mount does not allow chmod, so the script cannot be made
 // executable; invoking the interpreter is what honors the shebang). The hook's
-// HOME is set so scripts can rely on it. opencode waits for the attach to
+// HOME is set so scripts can rely on it. The agent waits for the attach to
 // finish; a hook that must outlive the attach is responsible for daemonizing
 // itself. Failures are logged, not fatal.
 func runStartupHooks(ctx context.Context, sb msb.Sandbox, hooks []homeconfig.HookSpec, ui termio.UI) {
@@ -68,6 +67,11 @@ func setUpSandbox(
 	restart bool,
 	boot vmBoot,
 ) (string, error) {
+	a, ok := agent.Lookup(opts.Agent)
+	if !ok {
+		return "", fmt.Errorf("unknown agent %q", opts.Agent)
+	}
+
 	ui.Verbosef("expected config files: %v", cfs.Keys)
 
 	// Provisioning (writing files) is idempotent and non-disruptive, so it is
@@ -76,18 +80,24 @@ func setUpSandbox(
 	// on a "keep" decision the files are still updated on disk so the next
 	// daemon start sees them, without disturbing the running instance.
 	provisioned := true
-	if cfs.HasSnippets || len(cfs.HomeFiles) > 0 {
+	if cfs.HasSnippets || len(cfs.HomeFiles) > 0 || len(cfs.Provisioned) > 0 || len(cfs.Mirror) > 0 ||
+		len(cfs.Remove) > 0 {
 		if provErr := reprovision.Provision(ctx, sb, cfs); provErr != nil {
 			ui.Warnf("provision failed: %v (continuing)", provErr)
 			provisioned = false
 		}
 	}
 
+	// Record image provenance and the agent version baseline on a fresh boot.
+	if boot.booted() {
+		recordImageProvenance(ctx, a, sb, ui)
+	}
+
 	if restart {
 		if provisioned {
-			restartDaemons(ctx, sb, opts.ServeOnly, ui)
+			restartDaemons(ctx, a, sb, opts.ServeOnly, ui)
 		}
-		return ResolveTarget(ctx, sb, opts.Worktree, ui)
+		return ResolveTarget(ctx, a, sb, opts.Worktree, ui)
 	}
 
 	if len(cfs.Hooks) > 0 && boot.booted() {
@@ -98,11 +108,11 @@ func setUpSandbox(
 		return "", fmt.Errorf("docker startup: %w", dockerErr)
 	}
 
-	if daemonErr := ensureDaemon(ctx, opts.ServeOnly, sb, ui); daemonErr != nil {
+	if daemonErr := ensureDaemon(ctx, a, opts.ServeOnly, sb, ui); daemonErr != nil {
 		return "", daemonErr
 	}
 
-	return ResolveTarget(ctx, sb, opts.Worktree, ui)
+	return ResolveTarget(ctx, a, sb, opts.Worktree, ui)
 }
 
 // decideReconfig centralizes all reconfiguration decisions: the image-change
@@ -118,13 +128,13 @@ func decideReconfig(
 	ctx context.Context,
 	client msb.Client,
 	vm *volume.Manager,
+	k state.Key,
 	opts options.RunOptions,
 	imageRef, imageDigest, homeVol string, hs state.HomeState,
 	cfs *reprovision.ConfigFiles,
 	ui termio.UI,
-) (bool, bool, string, error) {
-	slug := git.ProjectSlug()
-	handle, _ := client.GetSandbox(ctx, projectVMName(slug))
+) (bool, bool, string, int, error) {
+	handle, _ := client.GetSandbox(ctx, projectVMName(k))
 
 	var curCfg *msbSdk.SandboxConfig
 	var liveSb msb.Sandbox
@@ -146,25 +156,16 @@ func decideReconfig(
 	// we are actually switching to the new image.
 	imageChanged := hs.ImageDigest != imageDigest
 
-	var opencfgChanged bool
+	var agentCfgChanged bool
 	if liveSb != nil {
 		vmData := reprovision.ReadVMConfig(ctx, liveSb, cfs.Keys, ui)
-		opencfgChanged = len(vmData) > 0 && !reprovision.OpenCodeConfigEqual(cfs, vmData)
+		agentCfgChanged = len(vmData) > 0 && !reprovision.AgentConfigEqual(cfs, vmData)
 		if detachErr := liveSb.Detach(context.Background()); detachErr != nil {
 			ui.Verbosef("failed to detach live sandbox handle: %v", detachErr)
 		}
 	}
 
-	desiredEnv := reprovision.MergeEnvMaps(
-		reprovision.BuildEnvMap(configpaths.Get().UserEnvFile()),
-		reprovision.BuildEnvMap(configpaths.Get().ProjectEnvFile()),
-	)
-	desiredSecrets := reprovision.BuildSecretsFromSpecs(reprovision.MergeSecretSpecs(
-		reprovision.ParseSecretSpecLegacy(configpaths.Get().UserEnvSecretFile(), ui),
-		reprovision.ParseSecretSpecLegacy(configpaths.Get().ProjectEnvSecretFile(), ui),
-		reprovision.ParseSecretSpecYAML(configpaths.Get().UserEnvSecretYAMLFile(), ui),
-		reprovision.ParseSecretSpecYAML(configpaths.Get().ProjectEnvSecretYAMLFile(), ui),
-	), ui)
+	desiredEnv, desiredSecrets := reprovision.LoadEnvAndSecrets(ui)
 	envHasChanged := reprovision.EnvChanged(hs.EnvState, desiredEnv)
 	secretsHasChanged := reprovision.SecretsChanged(hs.SecretState, desiredSecrets)
 	networkHasChanged := reprovision.NetworkChanged(hs.NetworkState, opts.Network)
@@ -175,18 +176,18 @@ func decideReconfig(
 		imageRef,
 		opts,
 		reprovision.ChangeFlags{
-			Env:            envHasChanged,
-			Secrets:        secretsHasChanged,
-			Network:        networkHasChanged,
-			Mounts:         mountsHaveChanged,
-			OpenCodeConfig: opencfgChanged,
+			Env:         envHasChanged,
+			Secrets:     secretsHasChanged,
+			Network:     networkHasChanged,
+			Mounts:      mountsHaveChanged,
+			AgentConfig: agentCfgChanged,
 		},
 		homeVol,
 	)
-	otherClients := state.CountActiveClients(slug)
+	otherClients := state.CountActiveClients(k)
 	applyRecreate, applyRestart, err := reprovision.ResolveReconfig(ctx, ui, plan, otherClients, plan.Changes)
 	if err != nil {
-		return false, false, homeVol, err
+		return false, false, homeVol, plan.ServeHostPort, err
 	}
 	recreate := applyRecreate
 	restart := applyRestart && !recreate && !plan.Recreate
@@ -199,26 +200,30 @@ func decideReconfig(
 		action := vm.ResolveHomeAction(ui, hs.ImageDigest, imageDigest)
 		if action == volume.ActionQuit {
 			ui.Infof("exiting as requested by user")
-			return false, false, homeVol, &ExitError{Code: 1}
+			return false, false, homeVol, plan.ServeHostPort, &ExitError{Code: 1}
 		}
-		newVol, err := vm.ApplyHomeAction(ctx, client, slug, homeVol, imageRef, imageDigest, action, opts, ui)
+		newVol, err := vm.ApplyHomeAction(ctx, client, k, homeVol, imageRef, imageDigest, action, opts, ui)
 		if err != nil {
-			return false, false, homeVol, fmt.Errorf("apply home action: %w", err)
+			return false, false, homeVol, plan.ServeHostPort, fmt.Errorf("apply home action: %w", err)
 		}
 		homeVol = newVol
 	}
-	return recreate, restart, homeVol, nil
+	return recreate, restart, homeVol, plan.ServeHostPort, nil
 }
 
-// restartDaemons provisions config files and restarts the opencode daemon so
-// an opencode-config change is picked up. Env/secret changes are never routed
+// restartDaemons provisions config files and restarts the agent's daemon so an
+// agent-config change is picked up. Env/secret changes are never routed
 // here: they require a VM rebuild and are handled by the recreate path instead.
-func restartDaemons(ctx context.Context, sb msb.Sandbox, serveOnly bool, ui termio.UI) {
-	ui.Infof("opencode serve restarting…")
-	if _, _, err := daemonShellFunc(ctx, sb, daemonKillCmd); err != nil {
+func restartDaemons(ctx context.Context, a agent.Agent, sb msb.Sandbox, serveOnly bool, ui termio.UI) {
+	ui.Infof("%s serve restarting…", a.Name())
+	provider, ok := agent.AsDaemonProvider(a)
+	if !ok {
+		return
+	}
+	if _, _, err := daemonShellFunc(ctx, sb, provider.DaemonKillCmd()); err != nil {
 		ui.Warnf("kill stale daemon failed (continuing): %v", err)
 	}
-	if err := ensureDaemon(ctx, serveOnly, sb, ui); err != nil {
+	if err := ensureDaemon(ctx, a, serveOnly, sb, ui); err != nil {
 		ui.Warnf("daemon restart failed: %v (using existing)", err)
 	}
 }

@@ -2,6 +2,7 @@ package docker
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"github.com/moby/moby/client"
@@ -21,7 +22,7 @@ func TestRealDockerClientPing(t *testing.T) {
 func TestRealDockerClientImageLookupErrors(t *testing.T) {
 	c := &realDockerClient{}
 	ctx := context.Background()
-	const missing = "opencode-sandbox-tests-no-such-image"
+	const missing = "agents-sandbox-tests-no-such-image"
 
 	if _, err := c.ImageInspect(ctx, missing); err == nil {
 		t.Error("ImageInspect() = nil error, want error for missing image")
@@ -34,9 +35,35 @@ func TestRealDockerClientImageLookupErrors(t *testing.T) {
 	}
 	if _, err := c.ImageTag(
 		ctx,
-		client.ImageTagOptions{Source: missing, Target: "opencode-sandbox-tests:nope"},
+		client.ImageTagOptions{Source: missing, Target: "agents-sandbox-tests:nope"},
 	); err == nil {
 		t.Error("ImageTag() = nil error, want error for missing source image")
+	}
+}
+
+func TestRealDockerClientImageBuildError(t *testing.T) {
+	c := &realDockerClient{}
+	// An invalid build context makes the daemon abort the build, exercising the
+	// delegation path without producing a real image.
+	if _, err := c.ImageBuild(
+		context.Background(),
+		strings.NewReader("not a dockerfile"),
+		client.ImageBuildOptions{},
+	); err == nil {
+		t.Error("ImageBuild() = nil error, want error for invalid build context")
+	}
+}
+
+func TestRealDockerClientImagePullError(t *testing.T) {
+	c := &realDockerClient{}
+	// A repository that cannot exist is rejected by the registry, exercising the
+	// delegation path without pulling any image.
+	if _, err := c.ImagePull(
+		context.Background(),
+		"agents-sandbox-tests-no-such-image",
+		client.ImagePullOptions{},
+	); err == nil {
+		t.Error("ImagePull() = nil error, want error for missing image")
 	}
 }
 

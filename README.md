@@ -1,20 +1,21 @@
-# opencode-sandbox
+# agents-sandbox
 
-> **opencode, supercharged — safely.** Run opencode in a near-instant, hardware-isolated VM — your project at `/workspace`, your secrets safe, your agent free to do its best work.
+> **coding agents, supercharged — safely.** Run claude, opencode and pi in a near-instant, hardware-isolated VM — your project at `/workspace`, your secrets safe, your agent free to do its best work.
 
-[![License: GPL-3.0](https://img.shields.io/badge/license-GPL--3.0-blue)](https://github.com/inoio/opencode-sandbox/blob/main/LICENSE.md)
-[![CI](https://github.com/inoio/opencode-sandbox/actions/workflows/ci.yml/badge.svg)](https://github.com/inoio/opencode-sandbox/actions/workflows/ci.yml)
-[![Go](https://img.shields.io/github/go-mod/go-version/inoio/opencode-sandbox)](https://go.dev/)
-[![Release](https://img.shields.io/github/v/release/inoio/opencode-sandbox)](https://github.com/inoio/opencode-sandbox/releases)
-[![Coverage](https://codecov.io/gh/inoio/opencode-sandbox/branch/main/graph/badge.svg)](https://codecov.io/gh/inoio/opencode-sandbox)
+[![License: GPL-3.0](https://img.shields.io/badge/license-GPL--3.0-blue)](https://github.com/inoio/agents-sandbox/blob/main/LICENSE.md)
+[![CI](https://github.com/inoio/agents-sandbox/actions/workflows/ci.yml/badge.svg)](https://github.com/inoio/agents-sandbox/actions/workflows/ci.yml)
+[![Go](https://img.shields.io/github/go-mod/go-version/inoio/agents-sandbox)](https://go.dev/)
+[![Release](https://img.shields.io/github/v/release/inoio/agents-sandbox)](https://github.com/inoio/agents-sandbox/releases)
+[![Coverage](https://codecov.io/gh/inoio/agents-sandbox/branch/main/graph/badge.svg)](https://codecov.io/gh/inoio/agents-sandbox)
 [![Security](https://img.shields.io/badge/security-policy-purple.svg)](SECURITY.md)
-[![Docs](https://img.shields.io/badge/docs-github--pages-blue)](https://inoio.github.io/opencode-sandbox/)
+[![Docs](https://img.shields.io/badge/docs-github--pages-blue)](https://inoio.github.io/agents-sandbox/)
 
-opencode-sandbox gives [opencode](https://github.com/anomalyco/opencode) a real, hardware-isolated machine to work on —
+agents-sandbox provides coding agents ([opencode](https://opencode.ai), [pi](https://pi.dev),
+[claude code](https://claude.com/de/product/claude-code)) in a real, hardware-isolated machine to work on —
 full agent permissions inside a boundary that can't reach your host, and secrets the agent never gets to see.
 
-Docker, bubblewrap, seatbelt, and bare opencode all share your kernel — a kernel bug or `sudo` is enough for an agent to
-reach your machine. opencode-sandbox runs a separate kernel under hypervisor isolation (KVM on Linux, Apple Silicon on
+Docker, bubblewrap, seatbelt, and bare coding agents all share your kernel — a kernel bug or `sudo` is enough for an agent to
+reach your machine. agents-sandbox runs a separate kernel under hypervisor isolation (KVM on Linux, Apple Silicon on
 macOS), so escaping takes a hypervisor-level bug: a much higher bar.
 
 Your project is mounted at `/workspace`, read-write, so the agent works on the same files you do and edits round-trip.
@@ -24,16 +25,16 @@ mechanism as environment variables and never written into the VM, so an agent ca
 case, a session is a disposable VM: wipe it, and the host is untouched.
 
 It's also yours to shape: the VM's root is defined by a plain `Dockerfile`, you bring your own base image and tooling like any OCI
-image you already use — and it's built for opencode first, with support for functionalities like worktree sessions. Just bring your own `opencode.json`.
+image you already use — and it's purpose-built for the agent, with support for functionalities like worktree sessions (in opencode).
 Egress and ingress stay under your control with simple profiles and allow/deny lists, from full network access to complete lockdown.
 
-|  | Bare opencode | Bubblewrap / Seatbelt | Docker (containers) | Docker Sandboxes | **opencode-sandbox** |
-|---|---|---|---|---|---|
-| **Isolation boundary** | ❌ none | ⚠️ shared kernel | ⚠️ shared kernel | ✅ full VM (microVM) | **✅ full VM (hypervisor)** |
-| **How hard to hide secrets?** | ❌ nearly impossible | ⚠️ complex per-project rules | ⚠️ manual per-project tweaking | ✅ built-in (proxy; login-required) | **✅ built-in mechanism** |
-| **Agent edits appear in your local files instantly** | ✅ | ✅ | ✅ | ✅ rw mount (clone mode is read-only) | **✅** |
+|  | Bare agent                      | Bubblewrap / Seatbelt | Docker (containers) | Docker Sandboxes | **agents-sandbox** |
+|---|---------------------------------|---|---|---|---|
+| **Isolation boundary** | ❌ none                         | ⚠️ shared kernel | ⚠️ shared kernel | ✅ full VM (microVM) | **✅ full VM (hypervisor)** |
+| **How hard to hide secrets?** | ❌ nearly impossible            | ⚠️ complex per-project rules | ⚠️ manual per-project tweaking | ✅ built-in (proxy; login-required) | **✅ built-in mechanism** |
+| **Agent edits appear in your local files instantly** | ✅                              | ✅ | ✅ | ✅ rw mount (clone mode is read-only) | **✅** |
 | **Failure cost vs. recovery** | ❌ high damage, hard to restore | ⚠️ potential host damage | ⚠️ potential host damage | ✅ disposable | **✅ disposable, home can persist** |
-| **Ease of use** | ✅ just run it | ⚠️ craft rules | ⚠️ image + mounts | ✅ one command (Docker account login) | **✅ one command** |
+| **Ease of use** | ✅ just run it                  | ⚠️ craft rules | ⚠️ image + mounts | ✅ one command (Docker account login) | **✅ one command** |
 
 > Cells give the typical story for each approach. ✅ = yes / good, ⚠️ = possible but partial / in-between, ❌ = no / poor. "Failure cost vs. recovery" weighs how much damage a rogue agent can cause against how easily you can throw the environment away and start over.
 
@@ -41,21 +42,45 @@ Egress and ingress stay under your control with simple profiles and allow/deny l
 >
 > Its microVM isolation is genuinely strong. But it's a trade: a **mandatory Docker account login** for a tool that runs locally, a **closed-source core** (VMM + policy proxy + credential injection) you're trusting as your security boundary, **org-wide controls behind a paid sales tier**, and **narrower reach** (Ubuntu 24.04+ / Apple silicon / Windows 11 only).
 >
-> opencode-sandbox, by contrast, is **open and account-free**, runs on **any Linux (KVM) and Apple Silicon**, and gives you **one-command disposal** — without the telemetry, login, or vendor lock-in.
+> agents-sandbox, by contrast, is **open and account-free**, runs on **any Linux (KVM) and Apple Silicon**, and gives you **one-command disposal** — without the telemetry, login, or vendor lock-in.
+
+## Agents
+
+agents-sandbox is agent-aware. A `--agent <name>` flag on `run`, `shell`, `build`, `volume`, `stop`, and `kill`
+selects the coding-agent profile to run, provision, or manage; `--agent-version` pins the agent version baked into the
+runner image. Four agents ship as built-in profiles:
+
+- **`opencode`** (default) — a daemon-based agent with serve/attach, worktree sessions, and GitHub-release upgrade checks.
+- **`opencode2`** — opencode 2 (beta), installed from `@opencode-ai/cli@beta` on npm; daemon-based with serve/attach,
+  worktree sessions, and npm beta-tag upgrade checks. It shares the `opencode` config directory (v2 reads the same files
+  as v1).
+- **`pi`** — the pi coding agent (`@earendil-works/pi-coding-agent`), run interactively, with upgrade checks via `pi.dev`.
+- **`claude-code`** — Anthropic's Claude Code (`@anthropic-ai/claude-code`), run interactively, with upgrade checks via the
+  npm registry.
+
+`--worktree` and `--serve-only` are rejected for agents that have no daemon (pi, claude-code); they run through the
+interactive TUI instead.
+
+By default the launcher copies the active agent's config + credential files from the host into the VM. **Security note:**
+this might include credentials (e.g. opencode's `auth.json`). If you prefer to deliver credentials via the env-secret mechanism
+(which never writes them into the VM), see the [Configuration docs](/docs/configuration/) to opt out of the file copy.
 
 ## Documentation
 
-There's dedicated documentation per topic. You can also browse the documentation on [GitHub Pages](https://inoio.github.io/opencode-sandbox/).
+There's dedicated documentation per topic. You can also browse the documentation on [GitHub Pages](https://inoio.github.io/agents-sandbox/).
 
 | Topic                                         | Description                                                                              |
 |-----------------------------------------------|------------------------------------------------------------------------------------------|
-| [Introduction](/docs/introduction.md)         | Introduction and motivation.                                                             |
-| [Getting Started](/docs/getting-started.md)   | Installation, prerequisites, configuration, first run                                    |
+| [Why?](/docs/introduction.md)                 | Why agents-sandbox: motivation and threat model.                                            |
+| [How it works](/docs/how-it-works.md)         | Architecture: host ↔ VM, `/workspace`, home volume, secrets, multi-client attach.             |
+| [Install](/docs/install.md)                   | Installation, prerequisites                                                                    |
+| [Switch from your existing agent](/docs/switch.md) | Use agents-sandbox with your existing agent config and credentials (host-config drop-in). |
+| [Manage config in the sandbox](/docs/manage-config.md) | Declarative, self-contained config: secrets, provisioning, agent snippets.            |
 | [Commands](/docs/commands.md)                 | Complete CLI reference                                                                   |
-| [Configuration](/docs/configuration.md)       | Launcher config, env, secrets, opencode snippet merge, `home.yaml` (incl. startup hooks) |
+| [Configuration](/docs/configuration/)         | Split into subpages: Configuration files & Environment variables, secrets, networking, host mounts, home provisioning & startup hooks, agent configuration, notifications, self-upgrade |
 | [Runner Image](/docs/runner-image.md)         | Base image, custom tooling                                                               |
 | [Worktree Sessions](/docs/branch-sessions.md) | Isolated worktree sessions for per-feature development                                   |
-| [Recipes](/docs/recipes.md)                   | Hands-on workflows (e.g. connecting Opencode Desktop)                                    |
+| [Recipes](/docs/recipes.md)                   | Hands-on workflows                                  |
 | [Sandboxes](/docs/sandboxes.md)               | VM lifecycle, volumes, pruning                                                           |
 | [Troubleshooting](/docs/troubleshooting.md)   | Common issues and fixes                                                                  |
 | [Roadmap](/ROADMAP.md)                        | Public, forward-looking project roadmap                                                  |
@@ -64,7 +89,7 @@ There's dedicated documentation per topic. You can also browse the documentation
 
 | Topic                                  | Description                                     |
 |----------------------------------------|-------------------------------------------------|
-| [Contributing](/CONTRIBUTING.md)       | Guidelines for contributing to opencode-sandbox |
+| [Contributing](/CONTRIBUTING.md)       | Guidelines for contributing to agents-sandbox |
 | [Code of conduct](/CODE_OF_CONDUCT.md) | Our code of conduct                             |
 | [Security](/SECURITYmd)                | Rules for submitting security issues            |
 | [Roadmap](/ROADMAP.md)                 | Public, forward-looking project roadmap         |

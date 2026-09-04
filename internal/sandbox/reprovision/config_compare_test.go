@@ -7,22 +7,22 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/inoio/opencode-sandbox/internal/sandbox/msb"
-	"github.com/inoio/opencode-sandbox/internal/termio"
+	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
+	"github.com/inoio/agents-sandbox/internal/termio"
 
-	"github.com/inoio/opencode-sandbox/internal/testutil"
+	"github.com/inoio/agents-sandbox/internal/testutil"
 )
 
 // configEqual reports whether the desired state matches the VM state. The
 // merged opencode.json is compared semantically; home files byte-for-byte.
 func configEqual(cf *ConfigFiles, vmData map[string][]byte) bool {
 	if cf.HasSnippets {
-		ocPath := OpenCodeConfigPath(VMHomeDir)
+		ocPath := AgentConfigPath(opencodeTestAgent(), VMHomeDir)
 		vm, ok := vmData[ocPath]
 		if !ok {
 			return false
 		}
-		if !jsonEqual(cf.OpenCode, vm) {
+		if !jsonEqual(cf.Merged, vm) {
 			return false
 		}
 	}
@@ -38,15 +38,15 @@ func configEqual(cf *ConfigFiles, vmData map[string][]byte) bool {
 func TestConfigEqualHomeFileByteMatch(t *testing.T) {
 	cf := &ConfigFiles{
 		HasSnippets: true,
-		OpenCode:    []byte(`{"model":"x"}`),
+		Merged:      []byte(`{"model":"x"}`),
 		HomeFiles: map[string][]byte{
 			"/home/dev/.gitconfig": []byte("user.name=X\n"),
 		},
 		Keys: []string{"/home/dev/.gitconfig"},
 	}
 	vmData := map[string][]byte{
-		"/home/dev/.config/opencode/opencode.json": []byte(`{"model":"x"}`),
-		"/home/dev/.gitconfig":                     []byte("user.name=X\n"),
+		AgentConfigPath(opencodeTestAgent(), VMHomeDir): []byte(`{"model":"x"}`),
+		"/home/dev/.gitconfig":                          []byte("user.name=X\n"),
 	}
 	if !configEqual(cf, vmData) {
 		t.Error("expected equality for matching opencode.json and home file")
@@ -56,68 +56,122 @@ func TestConfigEqualHomeFileByteMatch(t *testing.T) {
 func TestConfigEqualHomeFileMismatch(t *testing.T) {
 	cf := &ConfigFiles{
 		HasSnippets: true,
-		OpenCode:    []byte(`{"model":"x"}`),
+		Merged:      []byte(`{"model":"x"}`),
 		HomeFiles: map[string][]byte{
 			"/home/dev/.gitconfig": []byte("user.name=X\n"),
 		},
 		Keys: []string{"/home/dev/.gitconfig"},
 	}
 	vmData := map[string][]byte{
-		"/home/dev/.config/opencode/opencode.json": []byte(`{"model":"x"}`),
-		"/home/dev/.gitconfig":                     []byte("user.name=Y\n"),
+		AgentConfigPath(opencodeTestAgent(), VMHomeDir): []byte(`{"model":"x"}`),
+		"/home/dev/.gitconfig":                          []byte("user.name=Y\n"),
 	}
 	if configEqual(cf, vmData) {
 		t.Error("expected mismatch for differing home file content")
 	}
 }
 
-func TestOpenCodeConfigEqualIgnoresHomeFiles(t *testing.T) {
+func TestAgentConfigEqualIgnoresHomeFiles(t *testing.T) {
 	cf := &ConfigFiles{
 		HasSnippets: true,
-		OpenCode:    []byte(`{"model":"x"}`),
+		Merged:      []byte(`{"model":"x"}`),
+		MergedPath:  AgentConfigPath(opencodeTestAgent(), VMHomeDir),
 		HomeFiles: map[string][]byte{
 			"/home/dev/.gitconfig": []byte("user.name=X\n"),
 		},
 		Keys: []string{"/home/dev/.gitconfig"},
 	}
 	vmData := map[string][]byte{
-		"/home/dev/.config/opencode/opencode.json": []byte(`{"model":"x"}`),
-		"/home/dev/.gitconfig":                     []byte("user.name=Y\n"),
+		AgentConfigPath(opencodeTestAgent(), VMHomeDir): []byte(`{"model":"x"}`),
+		"/home/dev/.gitconfig":                          []byte("user.name=Y\n"),
 	}
-	if !OpenCodeConfigEqual(cf, vmData) {
+	if !AgentConfigEqual(cf, vmData) {
 		t.Error("expected opencode config equality despite differing home file content")
 	}
 }
 
-func TestOpenCodeConfigEqualDetectsConfigChange(t *testing.T) {
+func TestAgentConfigEqualDetectsConfigChange(t *testing.T) {
 	cf := &ConfigFiles{
 		HasSnippets: true,
-		OpenCode:    []byte(`{"model":"x"}`),
+		Merged:      []byte(`{"model":"x"}`),
+		MergedPath:  AgentConfigPath(opencodeTestAgent(), VMHomeDir),
 		HomeFiles:   map[string][]byte{},
 	}
 	vmData := map[string][]byte{
-		"/home/dev/.config/opencode/opencode.json": []byte(`{"model":"y"}`),
+		AgentConfigPath(opencodeTestAgent(), VMHomeDir): []byte(`{"model":"y"}`),
 	}
-	if OpenCodeConfigEqual(cf, vmData) {
+	if AgentConfigEqual(cf, vmData) {
 		t.Error("expected mismatch when the opencode config differs")
 	}
 }
 
-func TestOpenCodeConfigEqualNoSnippets(t *testing.T) {
+func TestAgentConfigEqualNoSnippets(t *testing.T) {
 	cf := &ConfigFiles{
 		HasSnippets: false,
-		OpenCode:    nil,
+		Merged:      nil,
 		HomeFiles:   map[string][]byte{},
 	}
-	if !OpenCodeConfigEqual(cf, nil) {
+	if !AgentConfigEqual(cf, nil) {
 		t.Error("expected equality when no snippets are configured")
+	}
+}
+
+func TestAgentConfigEqualMirrorMatch(t *testing.T) {
+	cf := &ConfigFiles{
+		HasSnippets: true,
+		Merged:      []byte(`{"model":"x"}`),
+		MergedPath:  AgentConfigPath(opencodeTestAgent(), VMHomeDir),
+		Mirror: map[string][]byte{
+			"/home/dev/.config/opencode/tui.json": []byte(`{"theme":"dark"}`),
+		},
+	}
+	vmData := map[string][]byte{
+		AgentConfigPath(opencodeTestAgent(), VMHomeDir): []byte(`{"model":"x"}`),
+		"/home/dev/.config/opencode/tui.json":           []byte(`{"theme":"dark"}`),
+	}
+	if !AgentConfigEqual(cf, vmData) {
+		t.Error("expected equality when merged config and mirror match")
+	}
+}
+
+func TestAgentConfigEqualMirrorMismatch(t *testing.T) {
+	cf := &ConfigFiles{
+		HasSnippets: true,
+		Merged:      []byte(`{"model":"x"}`),
+		MergedPath:  AgentConfigPath(opencodeTestAgent(), VMHomeDir),
+		Mirror: map[string][]byte{
+			"/home/dev/.config/opencode/tui.json": []byte(`{"theme":"dark"}`),
+		},
+	}
+	vmData := map[string][]byte{
+		AgentConfigPath(opencodeTestAgent(), VMHomeDir): []byte(`{"model":"x"}`),
+		"/home/dev/.config/opencode/tui.json":           []byte(`{"theme":"light"}`),
+	}
+	if AgentConfigEqual(cf, vmData) {
+		t.Error("expected mismatch when a mirror file differs")
+	}
+}
+
+func TestAgentConfigEqualMirrorNoSnippets(t *testing.T) {
+	cf := &ConfigFiles{
+		Mirror: map[string][]byte{
+			"/home/dev/.config/opencode/tui.json": []byte(`{"theme":"dark"}`),
+		},
+	}
+	match := map[string][]byte{"/home/dev/.config/opencode/tui.json": []byte(`{"theme":"dark"}`)}
+	if !AgentConfigEqual(cf, match) {
+		t.Error("expected equality when mirror matches without snippets")
+	}
+	if AgentConfigEqual(cf, nil) {
+		t.Error("expected mismatch when the VM mirror is missing")
 	}
 }
 
 func TestProvisionWritesOpenCodeAndHomeFiles(t *testing.T) {
 	cf := &ConfigFiles{
 		HasSnippets: true,
-		OpenCode:    []byte("{\n  \"model\": \"x\"\n}\n"),
+		Merged:      []byte("{\n  \"model\": \"x\"\n}\n"),
+		MergedPath:  AgentConfigPath(opencodeTestAgent(), VMHomeDir),
 		HomeFiles: map[string][]byte{
 			"/home/dev/.config/tool/cfg.toml": []byte("k=v\n"),
 		},
@@ -127,7 +181,7 @@ func TestProvisionWritesOpenCodeAndHomeFiles(t *testing.T) {
 	if err := Provision(context.Background(), sb, cf); err != nil {
 		t.Fatalf("Provision: %v", err)
 	}
-	if fs.Writes[OpenCodeConfigPath(VMHomeDir)] == nil {
+	if fs.Writes[AgentConfigPath(opencodeTestAgent(), VMHomeDir)] == nil {
 		t.Error("expected opencode.json to be written")
 	}
 	if fs.Writes["/home/dev/.config/tool/cfg.toml"] == nil {
@@ -136,13 +190,13 @@ func TestProvisionWritesOpenCodeAndHomeFiles(t *testing.T) {
 }
 
 func TestProvisionNoSnippetsSkipsOpenCode(t *testing.T) {
-	cf := &ConfigFiles{OpenCode: nil, HomeFiles: map[string][]byte{}}
+	cf := &ConfigFiles{Merged: nil, HomeFiles: map[string][]byte{}}
 	fs := msb.NewTestFS(nil, nil)
 	sb := &msb.MockSandbox{FSValue_: fs}
 	if err := Provision(context.Background(), sb, cf); err != nil {
 		t.Fatalf("Provision: %v", err)
 	}
-	if _, ok := fs.Writes[OpenCodeConfigPath(VMHomeDir)]; ok {
+	if _, ok := fs.Writes[AgentConfigPath(opencodeTestAgent(), VMHomeDir)]; ok {
 		t.Error("did not expect opencode.json when HasSnippets=false")
 	}
 }
@@ -166,7 +220,7 @@ func TestBuildEnvMap(t *testing.T) {
 func TestReadSandboxEnvMissing(t *testing.T) {
 	env := BuildEnvMap("missing")
 	if len(env) != 0 {
-		t.Errorf("expected 0 env vars when .opencode-sandbox/env missing, got %d", len(env))
+		t.Errorf("expected 0 env vars when .agents-sandbox/env missing, got %d", len(env))
 	}
 }
 
@@ -189,18 +243,18 @@ func TestReadVMConfigReadsPaths(t *testing.T) {
 		Name_: "test-vm",
 		FSValue_: msb.NewTestFS(
 			map[string][]byte{
-				"/home/dev/.config/opencode/opencode.json": data,
-				"/home/dev/.gitconfig":                     []byte("x=y\n"),
+				AgentConfigPath(opencodeTestAgent(), VMHomeDir): data,
+				"/home/dev/.gitconfig":                          []byte("x=y\n"),
 			},
 			nil,
 		),
 	}
 	want := map[string][]byte{
-		"/home/dev/.config/opencode/opencode.json": data,
-		"/home/dev/.gitconfig":                     []byte("x=y\n"),
+		AgentConfigPath(opencodeTestAgent(), VMHomeDir): data,
+		"/home/dev/.gitconfig":                          []byte("x=y\n"),
 	}
 	got := ReadVMConfig(context.Background(), sb,
-		[]string{"/home/dev/.config/opencode/opencode.json", "/home/dev/.gitconfig", "/home/dev/missing"},
+		[]string{AgentConfigPath(opencodeTestAgent(), VMHomeDir), "/home/dev/.gitconfig", "/home/dev/missing"},
 		&termio.Mock{})
 	if len(got) != 2 {
 		t.Fatalf("expected 2 files read, got %d", len(got))

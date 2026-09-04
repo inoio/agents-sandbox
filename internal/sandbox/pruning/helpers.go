@@ -5,7 +5,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/inoio/opencode-sandbox/internal/termio"
+	"github.com/inoio/agents-sandbox/internal/termio"
 )
 
 func hasPrefix(s, prefix string) bool { return strings.HasPrefix(s, prefix) }

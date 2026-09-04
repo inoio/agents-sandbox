@@ -13,19 +13,22 @@ import (
 
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 
-	"github.com/inoio/opencode-sandbox/internal/sandbox/msb"
+	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
 )
 
-// defaultSandboxUser is the runtime user inside the project VM that opencode and
+// defaultSandboxUser is the runtime user inside the project VM that the agent and
 // startup hooks run as. Provisioned files are chowned to this user because the
 // microsandbox SDK's file writes create files owned by root.
 const defaultSandboxUser = "dev"
 
-// Provision writes the merged opencode config (when snippets exist) and each
-// home file into the sandbox, creating parent directories as needed, then
-// chowns every written path and created directory to the runtime user so the
-// files are readable by opencode and startup hooks (the SDK's file writes
-// create root-owned files and directories).
+// Provision writes the merged agent config (when snippets exist), each home
+// file, and the drop-in copy into the sandbox. For that it creates parent directories as
+// needed, removes the marked stale paths, then chowns every written path and
+// created directory to the runtime user so the files are readable by the agent
+// and startup hooks. The SDK's file writes create root-owned files and
+// directories.
+//
+//nolint:gocognit // four near-identical write loops mandated by the config-mirror plan
 func Provision(ctx context.Context, sb msb.Sandbox, cf *ConfigFiles) (retErr error) {
 	fs := sb.FS()
 	paths := make([]string, 0)
@@ -41,17 +44,21 @@ func Provision(ctx context.Context, sb msb.Sandbox, cf *ConfigFiles) (retErr err
 			retErr = errors.Join(retErr, err)
 		}
 	}()
-	if cf.HasSnippets && len(cf.OpenCode) > 0 {
-		ocPath := OpenCodeConfigPath(VMHomeDir)
-		made, err := mkdirAllFS(ctx, fs, filepath.Dir(ocPath))
+	// Remove stale config first so it cannot shadow the files written below.
+	// Best-effort: the merged config is written to the last-loaded filename
+	// (e.g., opencode.jsonc), so a failed removal is non-fatal.
+	removeStalePaths(ctx, fs, cf.Remove)
+	if cf.HasSnippets && len(cf.Merged) > 0 {
+		mergedPath := cf.MergedPath
+		made, err := mkdirAllFS(ctx, fs, filepath.Dir(mergedPath))
 		if err != nil {
 			return err
 		}
 		paths = append(paths, made...)
-		if err := fs.Write(ctx, ocPath, cf.OpenCode); err != nil {
-			return fmt.Errorf("write opencode config: %w", err)
+		if err := fs.Write(ctx, mergedPath, cf.Merged); err != nil {
+			return fmt.Errorf("write merged agent config: %w", err)
 		}
-		paths = append(paths, ocPath)
+		paths = append(paths, mergedPath)
 	}
 	for path, data := range cf.HomeFiles {
 		made, err := mkdirAllFS(ctx, fs, filepath.Dir(path))
@@ -64,7 +71,39 @@ func Provision(ctx context.Context, sb msb.Sandbox, cf *ConfigFiles) (retErr err
 		}
 		paths = append(paths, path)
 	}
+	for path, data := range cf.Provisioned {
+		made, err := mkdirAllFS(ctx, fs, filepath.Dir(path))
+		if err != nil {
+			return err
+		}
+		paths = append(paths, made...)
+		if err := fs.Write(ctx, path, data); err != nil {
+			return fmt.Errorf("write provisioned file %s: %w", path, err)
+		}
+		paths = append(paths, path)
+	}
+	for path, data := range cf.Mirror {
+		made, err := mkdirAllFS(ctx, fs, filepath.Dir(path))
+		if err != nil {
+			return err
+		}
+		paths = append(paths, made...)
+		if err := fs.Write(ctx, path, data); err != nil {
+			return fmt.Errorf("write mirror file %s: %w", path, err)
+		}
+		paths = append(paths, path)
+	}
 	return nil
+}
+
+// removeStalePaths deletes the marked stale paths so a previous provisioning
+// run's host config cannot shadow the files written by Provision. Failures are
+// ignored: the merged config is written to the last-loaded filename
+// (e.g., opencode.jsonc), so a failed removal is non-fatal.
+func removeStalePaths(ctx context.Context, fs msb.SandboxFS, remove []string) {
+	for _, p := range remove {
+		_ = fs.Remove(ctx, p)
+	}
 }
 
 // chownPaths runs a single chown -R over the given paths so all provisioned

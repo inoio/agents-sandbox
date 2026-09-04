@@ -7,16 +7,23 @@ import (
 	"testing"
 	"time"
 
-	"github.com/inoio/opencode-sandbox/internal/configpaths"
+	"github.com/inoio/agents-sandbox/internal/agent"
+	"github.com/inoio/agents-sandbox/internal/configpaths"
 )
 
 func TestUpgradeStateRoundTrip(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 
 	want := upgradeState{
-		LastChecked:     time.Date(2026, 8, 18, 12, 0, 0, 0, time.UTC),
-		OfferedVersions: []string{"1.2.3", "1.3.0"},
-		CurrentVersion:  "1.3.0",
+		Agents: map[string]agentUpgradeState{
+			"opencode": {
+				LastChecked:     time.Date(2026, 8, 18, 12, 0, 0, 0, time.UTC),
+				OfferedVersions: []string{"1.2.3", "1.3.0"},
+				CurrentVersion:  "1.3.0",
+				AgentSource:     agentSourceTool,
+				DockerSource:    agentSourceUser,
+			},
+		},
 	}
 	if err := saveUpgradeState(want); err != nil {
 		t.Fatalf("saveUpgradeState: %v", err)
@@ -26,14 +33,90 @@ func TestUpgradeStateRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("loadUpgradeState: %v", err)
 	}
-	if !got.LastChecked.Equal(want.LastChecked) {
-		t.Errorf("LastChecked = %v, want %v", got.LastChecked, want.LastChecked)
+	oc := got.Agents["opencode"]
+	wantOC := want.Agents["opencode"]
+	if !oc.LastChecked.Equal(wantOC.LastChecked) {
+		t.Errorf("LastChecked = %v, want %v", oc.LastChecked, wantOC.LastChecked)
 	}
-	if strings.Join(got.OfferedVersions, ",") != strings.Join(want.OfferedVersions, ",") {
-		t.Errorf("OfferedVersions = %v, want %v", got.OfferedVersions, want.OfferedVersions)
+	if strings.Join(oc.OfferedVersions, ",") != strings.Join(wantOC.OfferedVersions, ",") {
+		t.Errorf("OfferedVersions = %v, want %v", oc.OfferedVersions, wantOC.OfferedVersions)
 	}
-	if got.CurrentVersion != want.CurrentVersion {
-		t.Errorf("CurrentVersion = %q, want %q", got.CurrentVersion, want.CurrentVersion)
+	if oc.CurrentVersion != wantOC.CurrentVersion {
+		t.Errorf("CurrentVersion = %q, want %q", oc.CurrentVersion, wantOC.CurrentVersion)
+	}
+	if oc.AgentSource != agentSourceTool || oc.DockerSource != agentSourceUser {
+		t.Errorf("sources = %q/%q, want tool/user", oc.AgentSource, oc.DockerSource)
+	}
+}
+
+func TestUpgradeStateMigrationFoldsLegacyIntoOpencode(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	legacy := "last_checked: 2026-09-01T00:00:00Z\noffered_versions: [\"1.0.0\"]\ncurrent_version: \"0.9.0\"\nagent_source: tool\ndocker_source: tool\n"
+	if err := os.WriteFile(upgradeStatePath(), []byte(legacy), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	state, err := loadUpgradeState()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if state.Agents["opencode"].CurrentVersion != "0.9.0" {
+		t.Errorf("migrated current_version = %q, want 0.9.0", state.Agents["opencode"].CurrentVersion)
+	}
+	if len(state.Agents["opencode"].OfferedVersions) != 1 {
+		t.Errorf("migrated offered_versions = %v", state.Agents["opencode"].OfferedVersions)
+	}
+	if state.Agents["opencode"].AgentSource != agentSourceTool {
+		t.Errorf("migrated agent_source = %q, want tool", state.Agents["opencode"].AgentSource)
+	}
+}
+
+func TestUpgradeStatePerAgentIsolation(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+
+	pi, ok := agent.Lookup("pi")
+	if !ok {
+		t.Fatal("pi agent not registered")
+	}
+
+	if err := saveUpgradeState(upgradeState{
+		Agents: map[string]agentUpgradeState{
+			"opencode": {
+				CurrentVersion: "1.0.0",
+				LastChecked:    time.Date(2026, 8, 18, 12, 0, 0, 0, time.UTC),
+			},
+			"pi": {
+				CurrentVersion: "2.0.0",
+				LastChecked:    time.Date(2026, 8, 19, 12, 0, 0, 0, time.UTC),
+			},
+		},
+	}); err != nil {
+		t.Fatalf("saveUpgradeState: %v", err)
+	}
+
+	if got := currentUpgradeVersion(opencodeAgent(t)); got != "1.0.0" {
+		t.Errorf("opencode version = %q, want 1.0.0", got)
+	}
+	if got := currentUpgradeVersion(pi); got != "2.0.0" {
+		t.Errorf("pi version = %q, want 2.0.0", got)
+	}
+	if got := currentUpgradeVersion(&fakeAgent{}); got != "" {
+		t.Errorf("unrecorded agent version = %q, want empty", got)
+	}
+
+	// dueForCheck uses each agent's own LastChecked: at 8/19 12:00 opencode
+	// (checked 8/18 12:00) is due, pi (checked 8/19 12:00) is not.
+	now := time.Date(2026, 8, 19, 12, 0, 0, 0, time.UTC)
+	st, err := loadUpgradeState()
+	if err != nil {
+		t.Fatalf("loadUpgradeState: %v", err)
+	}
+	oc := st.Agents["opencode"]
+	if !oc.dueForCheck(now) {
+		t.Error("expected opencode to be due for check")
+	}
+	piState := st.Agents["pi"]
+	if piState.dueForCheck(now) {
+		t.Error("expected pi to not be due for check")
 	}
 }
 
@@ -50,7 +133,7 @@ func TestUpgradeStateLoadsVersionWithoutLastChecked(t *testing.T) {
 		t.Fatalf("write state: %v", err)
 	}
 
-	if got := currentUpgradeVersion(); got != "1.2.3" {
+	if got := currentUpgradeVersion(opencodeAgent(t)); got != "1.2.3" {
 		t.Errorf("currentUpgradeVersion() = %q, want %q", got, "1.2.3")
 	}
 }
@@ -58,48 +141,8 @@ func TestUpgradeStateLoadsVersionWithoutLastChecked(t *testing.T) {
 func TestCurrentUpgradeVersionWhenMissing(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 
-	if got := currentUpgradeVersion(); got != "" {
+	if got := currentUpgradeVersion(opencodeAgent(t)); got != "" {
 		t.Errorf("currentUpgradeVersion() = %q, want empty for missing file", got)
-	}
-}
-
-func TestRecordUpgradeVersion(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
-
-	// Recording preserves unrelated fields already persisted in the state.
-	prior := upgradeState{LastChecked: time.Date(2026, 8, 18, 12, 0, 0, 0, time.UTC)}
-	if err := saveUpgradeState(prior); err != nil {
-		t.Fatalf("saveUpgradeState: %v", err)
-	}
-
-	if err := recordUpgradeVersion("2.0.0"); err != nil {
-		t.Fatalf("recordUpgradeVersion: %v", err)
-	}
-
-	got, err := loadUpgradeState()
-	if err != nil {
-		t.Fatalf("loadUpgradeState: %v", err)
-	}
-	if got.CurrentVersion != "2.0.0" {
-		t.Errorf("CurrentVersion = %q, want %q", got.CurrentVersion, "2.0.0")
-	}
-	if !got.LastChecked.Equal(prior.LastChecked) {
-		t.Errorf("LastChecked = %v, want preserved %v", got.LastChecked, prior.LastChecked)
-	}
-}
-
-func TestRecordUpgradeVersionIgnoresEmpty(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
-
-	if err := saveUpgradeState(upgradeState{CurrentVersion: "1.0.0"}); err != nil {
-		t.Fatalf("saveUpgradeState: %v", err)
-	}
-	// Recording an empty version must not clobber an existing stored version.
-	if err := recordUpgradeVersion(""); err != nil {
-		t.Fatalf("recordUpgradeVersion: %v", err)
-	}
-	if got := currentUpgradeVersion(); got != "1.0.0" {
-		t.Errorf("currentUpgradeVersion() = %q, want preserved %q", got, "1.0.0")
 	}
 }
 
@@ -145,12 +188,12 @@ func TestUpgradeStateDueForCheck(t *testing.T) {
 
 	cases := []struct {
 		name  string
-		state upgradeState
+		state agentUpgradeState
 		want  bool
 	}{
-		{name: "zero time is due", state: upgradeState{}, want: true},
-		{name: "checked within 24h not due", state: upgradeState{LastChecked: within}, want: false},
-		{name: "checked over 24h is due", state: upgradeState{LastChecked: overdue}, want: true},
+		{name: "zero time is due", state: agentUpgradeState{}, want: true},
+		{name: "checked within 24h not due", state: agentUpgradeState{LastChecked: within}, want: false},
+		{name: "checked over 24h is due", state: agentUpgradeState{LastChecked: overdue}, want: true},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -162,7 +205,7 @@ func TestUpgradeStateDueForCheck(t *testing.T) {
 }
 
 func TestUpgradeStateOffered(t *testing.T) {
-	s := upgradeState{OfferedVersions: []string{"1.2.3"}}
+	s := agentUpgradeState{OfferedVersions: []string{"1.2.3"}}
 	if !s.offered("1.2.3") {
 		t.Error("expected 1.2.3 to be marked offered")
 	}

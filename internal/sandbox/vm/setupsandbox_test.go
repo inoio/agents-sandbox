@@ -10,14 +10,14 @@ import (
 
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 
-	"github.com/inoio/opencode-sandbox/internal/configpaths"
-	"github.com/inoio/opencode-sandbox/internal/homeconfig"
-	"github.com/inoio/opencode-sandbox/internal/sandbox/mounts"
-	"github.com/inoio/opencode-sandbox/internal/sandbox/msb"
-	"github.com/inoio/opencode-sandbox/internal/sandbox/options"
-	"github.com/inoio/opencode-sandbox/internal/sandbox/reprovision"
-	"github.com/inoio/opencode-sandbox/internal/termio"
-	"github.com/inoio/opencode-sandbox/internal/testutil"
+	"github.com/inoio/agents-sandbox/internal/configpaths"
+	"github.com/inoio/agents-sandbox/internal/homeconfig"
+	"github.com/inoio/agents-sandbox/internal/sandbox/mounts"
+	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
+	"github.com/inoio/agents-sandbox/internal/sandbox/options"
+	"github.com/inoio/agents-sandbox/internal/sandbox/reprovision"
+	"github.com/inoio/agents-sandbox/internal/termio"
+	"github.com/inoio/agents-sandbox/internal/testutil"
 )
 
 func TestBuildMountsIncludesTmpfsAtTmp(t *testing.T) {
@@ -154,7 +154,7 @@ func TestSetUpSandboxProvisionsConfigOnReuseWithEmptyDir(t *testing.T) {
 func setUpSandboxProvisionsConfig(t *testing.T, provisionMsg string) {
 	t.Helper()
 	origDaemon := SetDaemonShellFunc(func(_ context.Context, _ msb.Sandbox, command string) (string, int, error) {
-		if command == "curl -sfm2 "+daemonHealthURL {
+		if command == opencodeProvider(t).DaemonHealthCmd() {
 			return `{"healthy":true,"version":"test"}`, 0, nil
 		}
 		return "", 0, nil
@@ -165,14 +165,14 @@ func setUpSandboxProvisionsConfig(t *testing.T, provisionMsg string) {
 	sb := &msb.MockSandbox{Name_: "test-vm", FSValue_: fs}
 	configpaths.WithMockConfigPaths(t)
 	cp := configpaths.Get()
-	snippet := filepath.Join(cp.UserOpencodeConfigDir(), "opencode.json5")
+	snippet := filepath.Join(cp.UserAgentConfigDir(opencodeAgent(t)), "opencode-x.json5")
 	if err := os.MkdirAll(filepath.Dir(snippet), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	testutil.WritePath(t, snippet, `{"model":"x"}`)
 
 	ui := &termio.Mock{}
-	cfs, err := reprovision.LoadConfigFiles(configpaths.Get().UserOpencodeConfigDir(), ui)
+	cfs, err := reprovision.LoadConfigFilesForHost(opencodeAgent(t), t.TempDir(), reprovision.VMHomeDir, ui, true)
 	if err != nil {
 		t.Fatalf("LoadConfigFiles: %v", err)
 	}
@@ -192,7 +192,8 @@ func setUpSandboxProvisionsConfig(t *testing.T, provisionMsg string) {
 		t.Errorf("target = %q, want %q", target, defaultTargetDir)
 	}
 
-	wroteConfig := fs.Writes != nil && fs.Writes[reprovision.OpenCodeConfigPath(reprovision.VMHomeDir)] != nil
+	wroteConfig := fs.Writes != nil &&
+		fs.Writes[reprovision.AgentConfigPath(opencodeAgent(t), reprovision.VMHomeDir)] != nil
 	if !wroteConfig {
 		t.Errorf(
 			"expected config to be provisioned on %s, but opencode.json was never written",
@@ -205,7 +206,7 @@ func TestRestartDaemonsRestartsServe(t *testing.T) {
 	var cmdCalls []string
 	savedShell := SetDaemonShellFunc(func(_ context.Context, _ msb.Sandbox, command string) (string, int, error) {
 		cmdCalls = append(cmdCalls, command)
-		if command == "curl -sfm2 "+daemonHealthURL {
+		if command == opencodeProvider(t).DaemonHealthCmd() {
 			return `{"healthy":true,"version":"x"}`, 0, nil
 		}
 		return "", 0, nil
@@ -225,6 +226,7 @@ func TestRestartDaemonsRestartsServe(t *testing.T) {
 	ui := termio.NewTestMock(t)
 	restartDaemons(
 		context.Background(),
+		opencodeAgent(t),
 		sb,
 		false,
 		&ui,
@@ -235,7 +237,7 @@ func TestRestartDaemonsRestartsServe(t *testing.T) {
 		joined.WriteString(c)
 		joined.WriteByte('|')
 	}
-	if !containsSubstring(joined.String(), daemonKillCmd) {
+	if !containsSubstring(joined.String(), opencodeProvider(t).DaemonKillCmd()) {
 		t.Errorf("expected serve kill command, got %q", joined.String())
 	}
 	if containsSubstring(joined.String(), dockerdRestartCmd) {
@@ -250,7 +252,7 @@ func TestSetUpSandboxRestartsDaemonsOnReuseDecision(t *testing.T) {
 	var commands []string
 	orig := SetDaemonShellFunc(func(_ context.Context, _ msb.Sandbox, command string) (string, int, error) {
 		commands = append(commands, command)
-		if command == "curl -sfm2 "+daemonHealthURL {
+		if command == opencodeProvider(t).DaemonHealthCmd() {
 			return `{"healthy":true,"version":"x"}`, 0, nil
 		}
 		return "", 0, nil
@@ -267,7 +269,7 @@ func TestSetUpSandboxRestartsDaemonsOnReuseDecision(t *testing.T) {
 	//   (ctx, sb, opts, cfs, ui, restart).
 	// Pass restart=true to force the daemon-restart path on a reused VM.
 	commands = commands[:0]
-	cfs, err := reprovision.LoadConfigFiles(configpaths.Get().UserOpencodeConfigDir(), &ui)
+	cfs, err := reprovision.LoadConfigFilesForHost(opencodeAgent(t), t.TempDir(), reprovision.VMHomeDir, &ui, true)
 	if err != nil {
 		t.Fatalf("LoadConfigFiles: %v", err)
 	}
@@ -286,7 +288,7 @@ func TestSetUpSandboxRestartsDaemonsOnReuseDecision(t *testing.T) {
 		joinedParts = append(joinedParts, c, "|")
 	}
 	joined := strings.Join(joinedParts, "")
-	if len(commands) == 0 || !containsSubstring(joined, daemonKillCmd) {
+	if len(commands) == 0 || !containsSubstring(joined, opencodeProvider(t).DaemonKillCmd()) {
 		t.Errorf("expected opencode serve restart on restartDaemons=true, got %q", joined)
 	}
 }
@@ -303,7 +305,7 @@ func TestSetUpSandboxSkipsRestartOnProvisionError(t *testing.T) {
 	var commands []string
 	orig := SetDaemonShellFunc(func(_ context.Context, _ msb.Sandbox, command string) (string, int, error) {
 		commands = append(commands, command)
-		if command == "curl -sfm2 "+daemonHealthURL {
+		if command == opencodeProvider(t).DaemonHealthCmd() {
 			return `{"healthy":true,"version":"x"}`, 0, nil
 		}
 		return "", 0, nil
@@ -317,7 +319,7 @@ func TestSetUpSandboxSkipsRestartOnProvisionError(t *testing.T) {
 	fs.WriteErr = errors.New("write denied")
 	sb := &msb.MockSandbox{Name_: "vm", FSValue_: fs}
 
-	cfs := &reprovision.ConfigFiles{HasSnippets: true, OpenCode: []byte("{}")}
+	cfs := &reprovision.ConfigFiles{HasSnippets: true, Merged: []byte("{}")}
 	target, err := setUpSandbox(
 		context.Background(),
 		sb,
@@ -345,7 +347,7 @@ func TestSetUpSandboxSkipsRestartOnProvisionError(t *testing.T) {
 
 func TestSetUpSandboxProvisionsUpdatedConfigOnKeep(t *testing.T) {
 	origDaemon := SetDaemonShellFunc(func(_ context.Context, _ msb.Sandbox, command string) (string, int, error) {
-		if command == "curl -sfm2 "+daemonHealthURL {
+		if command == opencodeProvider(t).DaemonHealthCmd() {
 			return `{"healthy":true,"version":"test"}`, 0, nil
 		}
 		return "", 0, nil
@@ -356,7 +358,7 @@ func TestSetUpSandboxProvisionsUpdatedConfigOnKeep(t *testing.T) {
 	// This simulates attaching to a running VM and choosing "keep": no daemon
 	// restart, but the updated config must still be provisioned so the next
 	// daemon start picks it up.
-	ocPath := reprovision.OpenCodeConfigPath(reprovision.VMHomeDir)
+	ocPath := reprovision.AgentConfigPath(opencodeAgent(t), reprovision.VMHomeDir)
 	fs := msb.NewTestFS(map[string][]byte{
 		ocPath: []byte(`{"model":"old"}`),
 	}, nil)
@@ -364,14 +366,14 @@ func TestSetUpSandboxProvisionsUpdatedConfigOnKeep(t *testing.T) {
 
 	configpaths.WithMockConfigPaths(t)
 	cp := configpaths.Get()
-	snippet := filepath.Join(cp.UserOpencodeConfigDir(), "opencode.json5")
+	snippet := filepath.Join(cp.UserAgentConfigDir(opencodeAgent(t)), "opencode-x.json5")
 	if err := os.MkdirAll(filepath.Dir(snippet), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	testutil.WritePath(t, snippet, `{"model":"new"}`)
 
 	ui := &termio.Mock{}
-	cfs, err := reprovision.LoadConfigFiles(configpaths.Get().UserOpencodeConfigDir(), ui)
+	cfs, err := reprovision.LoadConfigFilesForHost(opencodeAgent(t), t.TempDir(), reprovision.VMHomeDir, ui, true)
 	if err != nil {
 		t.Fatalf("LoadConfigFiles: %v", err)
 	}
@@ -399,7 +401,7 @@ func TestSetUpSandboxProvisionsUpdatedConfigOnKeep(t *testing.T) {
 // skipped when the VM was already running and merely connected to.
 func TestSetUpSandboxRunsHooksOnlyOnBoot(t *testing.T) {
 	origDaemon := SetDaemonShellFunc(func(_ context.Context, _ msb.Sandbox, command string) (string, int, error) {
-		if command == "curl -sfm2 "+daemonHealthURL {
+		if command == opencodeProvider(t).DaemonHealthCmd() {
 			return `{"healthy":true,"version":"test"}`, 0, nil
 		}
 		return "", 0, nil
@@ -447,4 +449,34 @@ func contains(s, sub string) bool {
 		}
 	}
 	return false
+}
+
+// TestSetUpSandboxProvisionsMirrorOnly verifies that a ConfigFiles carrying
+// only mirror files still triggers provisioning.
+func TestSetUpSandboxProvisionsMirrorOnly(t *testing.T) {
+	origDaemon := SetDaemonShellFunc(func(_ context.Context, _ msb.Sandbox, command string) (string, int, error) {
+		if command == opencodeProvider(t).DaemonHealthCmd() {
+			return `{"healthy":true,"version":"test"}`, 0, nil
+		}
+		return "", 0, nil
+	})
+	defer SetDaemonShellFunc(origDaemon)
+
+	fs := msb.NewTestFS(nil, nil)
+	sb := &msb.MockSandbox{Name_: "test-vm", FSValue_: fs}
+	configpaths.WithMockConfigPaths(t)
+	ui := &termio.Mock{}
+	cfs := &reprovision.ConfigFiles{
+		Mirror: map[string][]byte{
+			"/home/dev/.config/opencode/tui.json": []byte(`{"theme":"dark"}`),
+		},
+	}
+	if _, err := setUpSandbox(
+		context.Background(), sb, options.RunOptions{}, cfs, ui, false, vmBootStarted,
+	); err != nil {
+		t.Fatalf("setUpSandbox: %v", err)
+	}
+	if fs.Writes["/home/dev/.config/opencode/tui.json"] == nil {
+		t.Error("expected mirror file to be provisioned")
+	}
 }

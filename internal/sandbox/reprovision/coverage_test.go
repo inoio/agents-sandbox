@@ -8,12 +8,20 @@ import (
 
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 
-	"github.com/inoio/opencode-sandbox/internal/configpaths"
-	"github.com/inoio/opencode-sandbox/internal/sandbox/msb"
-	"github.com/inoio/opencode-sandbox/internal/sandbox/options"
-	"github.com/inoio/opencode-sandbox/internal/termio"
-	"github.com/inoio/opencode-sandbox/internal/testutil"
+	"github.com/inoio/agents-sandbox/internal/agent"
+	"github.com/inoio/agents-sandbox/internal/configpaths"
+	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
+	"github.com/inoio/agents-sandbox/internal/sandbox/options"
+	"github.com/inoio/agents-sandbox/internal/termio"
+	"github.com/inoio/agents-sandbox/internal/testutil"
 )
+
+// opencodeTestAgent returns the default opencode profile for LoadConfigFiles
+// tests that do not care which agent is active.
+func opencodeTestAgent() agent.Agent {
+	a, _ := agent.Lookup("")
+	return a
+}
 
 // TestParseKeyValueLinesOnLineError verifies that an error returned by the
 // callback is propagated.
@@ -79,33 +87,36 @@ func TestParseKeyValueLinesHandlesWhitespace(t *testing.T) {
 func TestLoadConfigFilesWithSnippet(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	cp := configpaths.Get()
-	testutil.WriteFile(t, cp.ProjectOpencodeConfigDir(), "model.json", `{"model":"x"}`)
+	testutil.WriteFile(t, cp.ProjectAgentConfigDir(opencodeTestAgent()), "opencode-model.json", `{"model":"x"}`)
 
 	ui := termio.NewTestMock(t)
-	cf, err := LoadConfigFiles(configpaths.Get().UserOpencodeConfigDir(), &ui)
+	cf, err := LoadConfigFilesForHost(opencodeTestAgent(), t.TempDir(), VMHomeDir, &ui, true)
 	if err != nil {
 		t.Fatalf("LoadConfigFiles: %v", err)
 	}
 	if !cf.HasSnippets {
 		t.Error("expected HasSnippets=true when a snippet exists")
 	}
-	if len(cf.OpenCode) == 0 {
+	if len(cf.Merged) == 0 {
 		t.Error("expected non-empty OpenCode config")
 	}
-	if len(cf.Keys) == 0 || cf.Keys[0] != OpenCodeConfigPath(VMHomeDir) {
+	if len(cf.Keys) == 0 || cf.Keys[0] != AgentConfigPath(opencodeTestAgent(), VMHomeDir) {
 		t.Errorf("expected opencode config key in Keys, got %v", cf.Keys)
 	}
 }
 
-// TestLoadConfigFilesWarnsMissingSource verifies that a home.yaml referencing a
+// TestLoadConfigFilesWarnsMissingSource verifies that a home entry referencing a
 // non-existent source produces a warning.
 func TestLoadConfigFilesWarnsMissingSource(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	cp := configpaths.Get()
-	testutil.WriteFile(t, cp.ProjectConfigDir(), "home.yaml", ".tool/x:\n  source: does-not-exist\n")
+	testutil.WriteFile(t, cp.ProjectConfigDir(), "config.yaml",
+		"home:\n"+
+			"  .tool/x:\n"+
+			"    source: does-not-exist\n")
 
 	ui := termio.NewTestMock(t)
-	cf, err := LoadConfigFiles(configpaths.Get().UserOpencodeConfigDir(), &ui)
+	cf, err := LoadConfigFilesForHost(opencodeTestAgent(), t.TempDir(), VMHomeDir, &ui, true)
 	if err != nil {
 		t.Fatalf("LoadConfigFiles: %v", err)
 	}
@@ -113,21 +124,24 @@ func TestLoadConfigFilesWarnsMissingSource(t *testing.T) {
 		t.Errorf("expected no home files for missing source, got %v", cf.HomeFiles)
 	}
 	if len(ui.WarnCalls) == 0 {
-		t.Error("expected a warning for the missing home.yaml source")
+		t.Error("expected a warning for the missing home source")
 	}
 }
 
 // TestLoadConfigFilesBuildHomeFilesError verifies the error path when the
-// home.yaml manifest is malformed.
+// home config is malformed.
 func TestLoadConfigFilesBuildHomeFilesError(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	cp := configpaths.Get()
 	// parseEntry rejects a non-string source value, surfacing a BuildHomeFiles error.
-	testutil.WriteFile(t, cp.ProjectConfigDir(), "home.yaml", ".tool/x:\n  source: 123\n")
+	testutil.WriteFile(t, cp.ProjectConfigDir(), "config.yaml",
+		"home:\n"+
+			"  .tool/x:\n"+
+			"    source: 123\n")
 
 	ui := termio.NewTestMock(t)
-	if _, err := LoadConfigFiles(configpaths.Get().UserOpencodeConfigDir(), &ui); err == nil {
-		t.Error("expected an error for a malformed home.yaml source type")
+	if _, err := LoadConfigFilesForHost(opencodeTestAgent(), t.TempDir(), VMHomeDir, &ui, true); err == nil {
+		t.Error("expected an error for a malformed home source type")
 	}
 }
 
@@ -139,19 +153,23 @@ func TestLoadConfigFilesBuildHooksError(t *testing.T) {
 	// A manifest that BuildHomeFiles accepts but BuildHooks rejects via the
 	// hook validation. An unknown hook value is rejected by parseEntry, so use a
 	// hook value that is invalid for BuildHooks filtering.
-	testutil.WriteFile(t, cp.ProjectConfigDir(), "home.yaml", ".vpn/x:\n  source: s\n  hook: 123\n")
+	testutil.WriteFile(t, cp.ProjectConfigDir(), "config.yaml",
+		"home:\n"+
+			"  .vpn/x:\n"+
+			"    source: s\n"+
+			"    hook: 123\n")
 
 	ui := termio.NewTestMock(t)
-	if _, err := LoadConfigFiles(configpaths.Get().UserOpencodeConfigDir(), &ui); err == nil {
+	if _, err := LoadConfigFilesForHost(opencodeTestAgent(), t.TempDir(), VMHomeDir, &ui, true); err == nil {
 		t.Error("expected an error for an invalid hook value")
 	}
 }
 
-// TestOpenCodeConfigEqualMissingVMConfig verifies that a missing VM opencode
+// TestAgentConfigEqualMissingVMConfig verifies that a missing VM opencode
 // config is reported as a mismatch.
-func TestOpenCodeConfigEqualMissingVMConfig(t *testing.T) {
-	cf := &ConfigFiles{HasSnippets: true, OpenCode: []byte(`{"model":"x"}`)}
-	if OpenCodeConfigEqual(cf, map[string][]byte{}) {
+func TestAgentConfigEqualMissingVMConfig(t *testing.T) {
+	cf := &ConfigFiles{HasSnippets: true, Merged: []byte(`{"model":"x"}`)}
+	if AgentConfigEqual(cf, map[string][]byte{}) {
 		t.Error("expected mismatch when the VM config is absent")
 	}
 }
@@ -367,7 +385,7 @@ func TestChownPathsReportsUnsuccessfulShell(t *testing.T) {
 // opencode config surfaces an error.
 func TestProvisionWriteOpenCodeError(t *testing.T) {
 	writeErr := errors.New("write boom")
-	cf := &ConfigFiles{HasSnippets: true, OpenCode: []byte(`{"model":"x"}`)}
+	cf := &ConfigFiles{HasSnippets: true, Merged: []byte(`{"model":"x"}`)}
 	fs := msb.NewTestFS(nil, nil)
 	fs.WriteErr = writeErr
 	sb := &msb.MockSandbox{FSValue_: fs, ShellErr: nil}

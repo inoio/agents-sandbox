@@ -7,20 +7,20 @@ import (
 
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 
-	"github.com/inoio/opencode-sandbox/internal/configpaths"
-	"github.com/inoio/opencode-sandbox/internal/sandbox/msb"
-	"github.com/inoio/opencode-sandbox/internal/sandbox/options"
-	"github.com/inoio/opencode-sandbox/internal/sandbox/reprovision"
-	"github.com/inoio/opencode-sandbox/internal/sandbox/state"
-	"github.com/inoio/opencode-sandbox/internal/sandbox/volume"
-	"github.com/inoio/opencode-sandbox/internal/termio"
+	"github.com/inoio/agents-sandbox/internal/configpaths"
+	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
+	"github.com/inoio/agents-sandbox/internal/sandbox/options"
+	"github.com/inoio/agents-sandbox/internal/sandbox/reprovision"
+	"github.com/inoio/agents-sandbox/internal/sandbox/state"
+	"github.com/inoio/agents-sandbox/internal/sandbox/volume"
+	"github.com/inoio/agents-sandbox/internal/termio"
 )
 
 // TestRestartDaemonsEnsureDaemonError covers the ensureDaemon failure branch of
 // restartDaemons: the daemon restart fails and is logged as a warning.
 func TestRestartDaemonsEnsureDaemonError(t *testing.T) {
 	orig := SetDaemonShellFunc(func(_ context.Context, _ msb.Sandbox, command string) (string, int, error) {
-		if command == "curl -sfm2 "+daemonHealthURL {
+		if command == opencodeProvider(t).DaemonHealthCmd() {
 			return "", 0, errors.New("health check failed")
 		}
 		return "", 0, errors.New("command failed")
@@ -31,7 +31,7 @@ func TestRestartDaemonsEnsureDaemonError(t *testing.T) {
 	fs := msb.NewTestFS(nil, nil)
 	sb := &msb.MockSandbox{Name_: "vm", FSValue_: fs}
 
-	restartDaemons(context.Background(), sb, false, &ui)
+	restartDaemons(context.Background(), opencodeAgent(t), sb, false, &ui)
 
 	if !contains(joinStrings(ui.WarnCalls), "daemon restart failed") {
 		t.Errorf("expected a daemon-restart-failure warning, got %v", ui.WarnCalls)
@@ -85,14 +85,15 @@ func TestDecideReconfigDetachErrorVerbose(t *testing.T) {
 	persisted := state.HomeState{HomeVolume: "vol", ImageDigest: "sha256:same"}
 
 	ui := termio.NewTestMock(t)
-	cfs, err := reprovision.LoadConfigFiles(configpaths.Get().UserOpencodeConfigDir(), &ui)
+	cfs, err := reprovision.LoadConfigFilesForHost(opencodeAgent(t), t.TempDir(), reprovision.VMHomeDir, &ui, true)
 	if err != nil {
 		t.Fatalf("LoadConfigFiles: %v", err)
 	}
-	_, _, _, err = decideReconfig(
+	_, _, _, _, err = decideReconfig(
 		context.Background(),
 		mock,
 		vm,
+		state.Key{Slug: "testproj", Agent: "opencode"},
 		options.RunOptions{},
 		"img:tag",
 		"sha256:same",

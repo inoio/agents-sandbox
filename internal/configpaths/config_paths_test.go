@@ -3,6 +3,8 @@ package configpaths
 import (
 	"path/filepath"
 	"testing"
+
+	"github.com/inoio/agents-sandbox/internal/agent"
 )
 
 func TestUserDirEnvOverride(t *testing.T) {
@@ -10,8 +12,8 @@ func TestUserDirEnvOverride(t *testing.T) {
 	cfgPaths := Get()
 	state := t.TempDir()
 	t.Setenv("XDG_STATE_HOME", state)
-	if got := cfgPaths.UserStateDir(); got != filepath.Join(state, "opencode-sandbox") {
-		t.Errorf("UserStateDir() = %q, want %q", got, filepath.Join(state, "opencode-sandbox"))
+	if got := cfgPaths.UserStateDir(); got != filepath.Join(state, "agents-sandbox") {
+		t.Errorf("UserStateDir() = %q, want %q", got, filepath.Join(state, "agents-sandbox"))
 	}
 }
 
@@ -24,9 +26,9 @@ func TestUserDirsDefaultToHome(t *testing.T) {
 	t.Setenv("XDG_CACHE_HOME", "")
 	t.Setenv("XDG_STATE_HOME", "")
 
-	wantConfig := filepath.Join(home, ".config", "opencode-sandbox")
-	wantCache := filepath.Join(home, ".cache", "opencode-sandbox")
-	wantState := filepath.Join(home, ".local", "state", "opencode-sandbox")
+	wantConfig := filepath.Join(home, ".config", "agents-sandbox")
+	wantCache := filepath.Join(home, ".cache", "agents-sandbox")
+	wantState := filepath.Join(home, ".local", "state", "agents-sandbox")
 
 	if got := cfgPaths.UserConfigDir(); got != wantConfig {
 		t.Errorf("UserConfigDir() = %q, want %q", got, wantConfig)
@@ -49,14 +51,14 @@ func TestUserDirsUsesSeparateEnvVars(t *testing.T) {
 	t.Setenv("XDG_CACHE_HOME", cache)
 	t.Setenv("XDG_STATE_HOME", state)
 
-	if got := cfgPaths.UserConfigDir(); got != filepath.Join(config, "opencode-sandbox") {
-		t.Errorf("UserConfigDir() = %q, want %q", got, filepath.Join(config, "opencode-sandbox"))
+	if got := cfgPaths.UserConfigDir(); got != filepath.Join(config, "agents-sandbox") {
+		t.Errorf("UserConfigDir() = %q, want %q", got, filepath.Join(config, "agents-sandbox"))
 	}
-	if got := cfgPaths.UserCacheDir(); got != filepath.Join(cache, "opencode-sandbox") {
-		t.Errorf("UserCacheDir() = %q, want %q", got, filepath.Join(cache, "opencode-sandbox"))
+	if got := cfgPaths.UserCacheDir(); got != filepath.Join(cache, "agents-sandbox") {
+		t.Errorf("UserCacheDir() = %q, want %q", got, filepath.Join(cache, "agents-sandbox"))
 	}
-	if got := cfgPaths.UserStateDir(); got != filepath.Join(state, "opencode-sandbox") {
-		t.Errorf("UserStateDir() = %q, want %q", got, filepath.Join(state, "opencode-sandbox"))
+	if got := cfgPaths.UserStateDir(); got != filepath.Join(state, "agents-sandbox") {
+		t.Errorf("UserStateDir() = %q, want %q", got, filepath.Join(state, "agents-sandbox"))
 	}
 }
 
@@ -66,7 +68,7 @@ func TestUserDirIgnoresRelativeEnv(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	t.Setenv("XDG_CONFIG_HOME", "relative/config")
-	want := filepath.Join(home, ".config", "opencode-sandbox")
+	want := filepath.Join(home, ".config", "agents-sandbox")
 	if got := cfgPaths.UserConfigDir(); got != want {
 		t.Errorf("UserConfigDir() = %q, want %q", got, want)
 	}
@@ -85,12 +87,13 @@ func TestEnvSecretYAMLPaths(t *testing.T) {
 	}
 }
 
-func TestUserOpencodeConfigDir(t *testing.T) {
+func TestUserAgentConfigDir(t *testing.T) {
 	WithRealConfigPaths(t)
-	cfgPaths := Get()
-	want := filepath.Join(cfgPaths.UserConfigDir(), ConfigDirName)
-	if got := cfgPaths.UserOpencodeConfigDir(); got != want {
-		t.Errorf("UserOpencodeConfigDir() = %q, want %q", got, want)
+	a, _ := agent.Lookup("opencode")
+	got := Get().UserAgentConfigDir(a)
+	want := filepath.Join(Get().UserConfigDir(), a.ConfigDirName())
+	if got != want {
+		t.Errorf("UserAgentConfigDir(opencode) = %q, want %q", got, want)
 	}
 }
 
@@ -108,9 +111,10 @@ func TestUserEnvFiles(t *testing.T) {
 func TestProjectDirsAndFiles(t *testing.T) {
 	WithRealConfigPaths(t)
 	cfgPaths := Get()
+	a, _ := agent.Lookup("opencode")
 
-	if got := cfgPaths.ProjectOpencodeConfigDir(); got != filepath.Join(projectConfigDir, ConfigDirName) {
-		t.Errorf("ProjectOpencodeConfigDir() = %q", got)
+	if got := cfgPaths.ProjectAgentConfigDir(a); got != filepath.Join(projectConfigDir, a.ConfigDirName()) {
+		t.Errorf("ProjectAgentConfigDir() = %q", got)
 	}
 	if got := cfgPaths.ProjectEnvFile(); got != filepath.Join(projectConfigDir, EnvFileName) {
 		t.Errorf("ProjectEnvFile() = %q", got)
@@ -121,4 +125,55 @@ func TestProjectDirsAndFiles(t *testing.T) {
 	if got := cfgPaths.ProjectDockerfile(); got != filepath.Join(projectConfigDir, DockerFileName) {
 		t.Errorf("ProjectDockerfile() = %q", got)
 	}
+}
+
+func TestMockUserAgentConfigDir(t *testing.T) {
+	WithMockConfigPaths(t)
+	a, _ := agent.Lookup("opencode")
+	got := Get().UserAgentConfigDir(a)
+	want := filepath.Join(Get().UserConfigDir(), a.ConfigDirName())
+	if got != want {
+		t.Errorf("mock UserAgentConfigDir(opencode) = %q, want %q", got, want)
+	}
+}
+
+func TestMockProjectAgentConfigDir(t *testing.T) {
+	WithMockConfigPaths(t)
+	a, _ := agent.Lookup("opencode")
+	got := Get().ProjectAgentConfigDir(a)
+	want := filepath.Join(Get().ProjectConfigDir(), a.ConfigDirName())
+	if got != want {
+		t.Errorf("mock ProjectAgentConfigDir(opencode) = %q, want %q", got, want)
+	}
+}
+
+func TestFailFastUserAgentConfigDirPanics(t *testing.T) {
+	assertPanics(t, func() {
+		(&failFastConfigPaths{}).UserAgentConfigDir(agentAgent(t))
+	})
+}
+
+func TestFailFastProjectAgentConfigDirPanics(t *testing.T) {
+	assertPanics(t, func() {
+		(&failFastConfigPaths{}).ProjectAgentConfigDir(agentAgent(t))
+	})
+}
+
+func agentAgent(t *testing.T) agent.Agent {
+	t.Helper()
+	a, ok := agent.Lookup("opencode")
+	if !ok {
+		t.Fatal("opencode agent not registered")
+	}
+	return a
+}
+
+func assertPanics(t *testing.T, fn func()) {
+	t.Helper()
+	defer func() {
+		if recover() == nil {
+			t.Error("expected panic, got none")
+		}
+	}()
+	fn()
 }

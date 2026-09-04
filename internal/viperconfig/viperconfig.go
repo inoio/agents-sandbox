@@ -11,11 +11,13 @@ import (
 	"strings"
 	"time"
 
-	"github.com/inoio/opencode-sandbox/internal/configpaths"
-	"github.com/inoio/opencode-sandbox/internal/sandbox/mounts"
-	"github.com/inoio/opencode-sandbox/internal/sandbox/network"
-	"github.com/inoio/opencode-sandbox/internal/upgrade"
-	"github.com/inoio/opencode-sandbox/internal/yamlfmt"
+	"github.com/inoio/agents-sandbox/internal/configpaths"
+	"github.com/inoio/agents-sandbox/internal/homeconfig"
+	"github.com/inoio/agents-sandbox/internal/notify"
+	"github.com/inoio/agents-sandbox/internal/sandbox/mounts"
+	"github.com/inoio/agents-sandbox/internal/sandbox/network"
+	"github.com/inoio/agents-sandbox/internal/upgrade"
+	"github.com/inoio/agents-sandbox/internal/yamlfmt"
 
 	"github.com/go-viper/mapstructure/v2"
 	"github.com/spf13/cobra"
@@ -25,7 +27,7 @@ import (
 )
 
 // Config holds launcher-level defaults that can be set in
-// ~/.config/opencode-sandbox/config.* and .opencode-sandbox/config.*.
+// ~/.config/agents-sandbox/config.* and .agents-sandbox/config.*.
 type Config struct {
 	AutoPruneAge   time.Duration `mapstructure:"auto-prune-age"`
 	ManualPruneAge time.Duration `mapstructure:"manual-prune-age"`
@@ -36,7 +38,13 @@ type Config struct {
 	Yes            bool          `mapstructure:"yes"`
 	LogLevel       string        `mapstructure:"log-level"`
 	Quiet          bool          `mapstructure:"quiet"`
-	CPUs           uint8         `mapstructure:"cpus"`
+	Agent          string        `mapstructure:"agent"`
+	// Dind appends the tool's Docker-in-Docker block to the runner image.
+	Dind bool  `mapstructure:"dind"`
+	CPUs uint8 `mapstructure:"cpus"`
+	// ProvisionHostConfig controls whether the agent's host config files are
+	// copied into the VM (drop-in provisioning). Default true.
+	ProvisionHostConfig bool `mapstructure:"provision-host-config"`
 
 	AutoStopOnActiveSessions  bool          `mapstructure:"auto-stop-on-active-sessions"`
 	AutoStopTimeout           time.Duration `mapstructure:"auto-stop-timeout"`
@@ -48,11 +56,25 @@ type Config struct {
 	// from v.Get("mounts") instead: viper flattens dotted guest paths such as
 	// /home/dev/.m2 into nested keys, which would corrupt the map keys.
 	Mounts mounts.Mounts `mapstructure:"-"`
+	// Home holds the per-layer home manifests from the config files' home:
+	// key. It is decoded separately (not via viper.Unmarshal) so each layer
+	// keeps its own directory for relative-source resolution.
+	Home homeconfig.Layers `mapstructure:"-"`
+	// hasHome reports whether any config file declared a home key.
+	hasHome bool
 
-	// Upgrade controls checking for and installing newer opencode-sandbox
+	// Upgrade controls checking for and installing newer agents-sandbox
 	// releases. Only Mode and Interval are settable via env.
 	Upgrade UpgradeConfig `mapstructure:"upgrade"`
+	// Notify holds the resolved notify config. It is decoded separately (not
+	// via viper.Unmarshal) from dotted keys so the OPENCODE_SANDBOX_NOTIFY env
+	// override — the bare "notify" key — cannot collide with the nested
+	// notify.desktop/audio/... keys.
+	Notify NotifyConfig `mapstructure:"-"`
 }
+
+// NotifyConfig is the resolved notify setting for a session.
+type NotifyConfig = notify.Config
 
 // UpgradeConfig holds self-upgrade settings.
 type UpgradeConfig struct {
@@ -105,6 +127,9 @@ func NewResolver(cmd *cobra.Command, slug string) (*Resolver, error) {
 		}
 	}
 
+	// Non-flag defaults: host config provisioning is on unless opted out.
+	v.SetDefault(keyProvisionHostConfig, true)
+
 	if err := validate(v); err != nil {
 		return nil, err
 	}
@@ -118,11 +143,22 @@ func NewResolver(cmd *cobra.Command, slug string) (*Resolver, error) {
 	)); err != nil {
 		return nil, fmt.Errorf("decode launcher config: %w", err)
 	}
-	mounts, err := mounts.DecodeMounts(v.Get("mounts"))
+	decodedMounts, err := mounts.DecodeMounts(v.Get("mounts"))
 	if err != nil {
 		return nil, fmt.Errorf("decode launcher config: %w", err)
 	}
-	cfg.Mounts = mounts
+	cfg.Mounts = decodedMounts
+	cfg.Notify = decodeNotify(v)
+
+	homeLayers, hasHome, err := homeconfig.LoadLayers([]string{
+		configpaths.Get().UserConfigDir(),
+		configpaths.Get().ProjectConfigDir(),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("decode launcher config: %w", err)
+	}
+	cfg.Home = homeLayers
+	cfg.hasHome = hasHome
 	return &Resolver{cfg: cfg}, nil
 }
 
@@ -145,8 +181,16 @@ const (
 	keyAutoStopTimeout           = "auto-stop-timeout"
 	keyAutoStopMaxSessionRetries = "auto-stop-max-session-retries"
 	keyNetworkProfile            = "network.profile"
+	keyAgent                     = "agent"
+	keyDind                      = "dind"
 	keyUpgradeMode               = "upgrade.mode"
 	keyUpgradeInterval           = "upgrade.interval"
+	keyProvisionHostConfig       = "provision-host-config"
+	keyNotifyDesktop             = "notify.desktop"
+	keyNotifyAudio               = "notify.audio"
+	keyNotifyOnInput             = "notify.on-input"
+	keyNotifyOnDone              = "notify.on-done"
+	keyNotifyOnError             = "notify.on-error"
 )
 
 //nolint:gochecknoglobals // package-level constant slice
@@ -158,7 +202,7 @@ var supportedExts = []string{".yaml", ".yml", ".json", extJSONC, extJSON5}
 //nolint:gochecknoglobals,goconst // package-level constant slice
 var configFlagKeys = []string{
 	"cpus", "memory", "tmp-size", "disk-size", "workspace-quota",
-	"yes", "quiet", "log-level",
+	"yes", "quiet", "log-level", "agent", "dind",
 }
 
 // configEnvKeys are all launcher config keys bound to OPENCODE_SANDBOX_ env vars.
@@ -170,7 +214,10 @@ var configEnvKeys = []string{
 	keyAutoPruneAge, keyManualPruneAge,
 	keyAutoStopOnActiveSessions, keyAutoStopTimeout, keyAutoStopMaxSessionRetries,
 	keyNetworkProfile,
+	keyAgent,
+	keyDind,
 	keyUpgradeMode, keyUpgradeInterval,
+	keyProvisionHostConfig,
 }
 
 // bindConfigFlags binds each config-backed flag found on cmd (local or
@@ -331,6 +378,9 @@ func validate(v *viper.Viper) error {
 	if err := validateUpgrade(v); err != nil {
 		return err
 	}
+	if err := validateNotify(v); err != nil {
+		return err
+	}
 	if !v.IsSet("cpus") {
 		return nil
 	}
@@ -370,6 +420,16 @@ func validateUpgrade(v *viper.Viper) error {
 	}
 	if d < upgrade.MinInterval {
 		return fmt.Errorf("launcher config %s must be >= %s, got %v", keyUpgradeInterval, upgrade.MinInterval, d)
+	}
+	return nil
+}
+
+func validateNotify(v *viper.Viper) error {
+	if !v.IsSet(keyNotifyAudio) {
+		return nil
+	}
+	if _, err := notify.ParseAudioMode(v.GetString(keyNotifyAudio)); err != nil {
+		return err
 	}
 	return nil
 }
@@ -442,6 +502,9 @@ func (r *Resolver) WorkspaceQuota() string         { return r.cfg.WorkspaceQuota
 func (r *Resolver) Yes() bool                      { return r.cfg.Yes }
 func (r *Resolver) Quiet() bool                    { return r.cfg.Quiet }
 func (r *Resolver) LogLevel() string               { return r.cfg.LogLevel }
+func (r *Resolver) Agent() string                  { return r.cfg.Agent }
+func (r *Resolver) Dind() bool                     { return r.cfg.Dind }
+func (r *Resolver) ProvisionHostConfig() bool      { return r.cfg.ProvisionHostConfig }
 func (r *Resolver) AutoPruneAge() time.Duration    { return r.cfg.AutoPruneAge }
 func (r *Resolver) ManualPruneAge() time.Duration  { return r.cfg.ManualPruneAge }
 func (r *Resolver) AutoStopOnActiveSessions() bool { return r.cfg.AutoStopOnActiveSessions }
@@ -483,4 +546,50 @@ func (r *Resolver) UpgradeInterval() time.Duration {
 // Mounts returns additional host bind mounts.
 func (r *Resolver) Mounts() mounts.Mounts {
 	return r.cfg.Mounts
+}
+
+// Home returns the per-layer home manifests read from the config files' home:
+// key, and whether any config file declared a home key.
+func (r *Resolver) Home() (homeconfig.Layers, bool) {
+	return r.cfg.Home, r.cfg.hasHome
+}
+
+// Notify returns the resolved notify config. An empty Audio (zero-value Config)
+// is normalized to AudioOff so the feature is inactive by default.
+func (r *Resolver) Notify() notify.Config {
+	cfg := r.cfg.Notify
+	if cfg.Audio == "" {
+		cfg.Audio = notify.AudioOff
+	}
+	return cfg
+}
+
+// decodeNotify reads the notify: section from dotted viper keys. It returns an
+// inactive config when no notify key is set; otherwise channels are read as-is
+// and triggers default to true.
+func decodeNotify(v *viper.Viper) NotifyConfig {
+	cfg := NotifyConfig{Audio: notify.AudioOff} //nolint:exhaustruct // remaining fields zeroed and set below
+	if !v.IsSet(keyNotifyDesktop) && !v.IsSet(keyNotifyAudio) &&
+		!v.IsSet(keyNotifyOnInput) && !v.IsSet(keyNotifyOnDone) && !v.IsSet(keyNotifyOnError) {
+		return cfg
+	}
+	cfg.Desktop = v.GetBool(keyNotifyDesktop)
+	if s := v.GetString(keyNotifyAudio); s != "" {
+		if m, err := notify.ParseAudioMode(s); err == nil {
+			cfg.Audio = m
+		}
+	}
+	cfg.OnInput = true
+	cfg.OnDone = true
+	cfg.OnError = true
+	if v.IsSet(keyNotifyOnInput) {
+		cfg.OnInput = v.GetBool(keyNotifyOnInput)
+	}
+	if v.IsSet(keyNotifyOnDone) {
+		cfg.OnDone = v.GetBool(keyNotifyOnDone)
+	}
+	if v.IsSet(keyNotifyOnError) {
+		cfg.OnError = v.GetBool(keyNotifyOnError)
+	}
+	return cfg
 }

@@ -9,9 +9,9 @@ import (
 
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 
-	"github.com/inoio/opencode-sandbox/internal/termio"
+	"github.com/inoio/agents-sandbox/internal/termio"
 
-	"github.com/inoio/opencode-sandbox/internal/sandbox/msb"
+	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
 )
 
 // countingSandbox is an msb.Sandbox stub that records how many times it ran

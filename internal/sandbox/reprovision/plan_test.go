@@ -5,12 +5,12 @@ import (
 
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 
-	"github.com/inoio/opencode-sandbox/internal/sandbox/mounts"
-	"github.com/inoio/opencode-sandbox/internal/sandbox/options"
+	"github.com/inoio/agents-sandbox/internal/sandbox/mounts"
+	"github.com/inoio/agents-sandbox/internal/sandbox/options"
 )
 
 func TestPlanReconfigServeOnly(t *testing.T) {
-	desired := options.ServeOnlyBindings()
+	desired := options.ServeOnlyBindings(options.ServeOnlyBasePort)
 	tests := []struct {
 		name         string
 		serveOnly    bool
@@ -60,11 +60,11 @@ func TestPlanReconfigServeOnly(t *testing.T) {
 }
 
 func TestPlanReconfigTriggersRecreateOnImageChange(t *testing.T) {
-	cfg := &msbSdk.SandboxConfig{Image: "opencode-sandbox/runner-proj:oldhash"}
+	cfg := &msbSdk.SandboxConfig{Image: "agents-sandbox/runner-proj:oldhash"}
 
 	planSame := PlanReconfig(
 		cfg,
-		"opencode-sandbox/runner-proj:oldhash",
+		"agents-sandbox/runner-proj:oldhash",
 		options.RunOptions{},
 		ChangeFlags{},
 		"",
@@ -75,7 +75,7 @@ func TestPlanReconfigTriggersRecreateOnImageChange(t *testing.T) {
 
 	planNew := PlanReconfig(
 		cfg,
-		"opencode-sandbox/runner-proj:newhash",
+		"agents-sandbox/runner-proj:newhash",
 		options.RunOptions{},
 		ChangeFlags{},
 		"",
@@ -89,8 +89,11 @@ func TestPlanReconfigTriggersRecreateOnImageChange(t *testing.T) {
 }
 
 func TestDesiredPublishBindingsDelegatesToOptions(t *testing.T) {
-	optsBindings := options.ServeOnlyBindings()
-	planBindings := desiredPublishBindings(true)
+	cfg := &msbSdk.SandboxConfig{PortBindings: []msbSdk.PortBinding{
+		{Bind: "127.0.0.1", HostPort: 4097, GuestPort: 4096, Protocol: msbSdk.PortProtocolTCP},
+	}}
+	optsBindings := options.ServeOnlyBindings(4097)
+	planBindings := desiredPublishBindings(true, cfg)
 	if len(planBindings) != 1 {
 		t.Fatalf("expected 1 binding, got %d", len(planBindings))
 	}
@@ -109,7 +112,7 @@ func TestDesiredPublishBindingsDelegatesToOptions(t *testing.T) {
 }
 
 func TestDesiredPublishBindingsNilWhenNotServeOnly(t *testing.T) {
-	got := desiredPublishBindings(false)
+	got := desiredPublishBindings(false, nil)
 	if got != nil {
 		t.Errorf("expected nil when serveOnly=false, got %+v", got)
 	}
@@ -137,11 +140,11 @@ func TestPlanReconfigHomeVolumeChangeTriggersRecreate(t *testing.T) {
 	cfg := &msbSdk.SandboxConfig{
 		Image: "img",
 		Volumes: map[string]msbSdk.MountConfig{
-			VMHomeDir: {Named: "opencode-sandbox-home-proj-old"},
+			VMHomeDir: {Named: "agents-sandbox-home-proj-old"},
 		},
 	}
 	plan := PlanReconfig(cfg, "img", options.RunOptions{}, ChangeFlags{},
-		"opencode-sandbox-home-proj-new")
+		"agents-sandbox-home-proj-new")
 	if !plan.Recreate {
 		t.Fatal("expected Recreate when the desired home volume differs from the mounted one")
 	}
@@ -161,11 +164,11 @@ func TestPlanReconfigHomeVolumeSameNoRecreate(t *testing.T) {
 	cfg := &msbSdk.SandboxConfig{
 		Image: "img",
 		Volumes: map[string]msbSdk.MountConfig{
-			VMHomeDir: {Named: "opencode-sandbox-home-proj-vol"},
+			VMHomeDir: {Named: "agents-sandbox-home-proj-vol"},
 		},
 	}
 	plan := PlanReconfig(cfg, "img", options.RunOptions{}, ChangeFlags{},
-		"opencode-sandbox-home-proj-vol")
+		"agents-sandbox-home-proj-vol")
 	if plan.Recreate {
 		t.Fatal("expected no Recreate when the mounted home volume matches the desired one")
 	}
@@ -173,7 +176,7 @@ func TestPlanReconfigHomeVolumeSameNoRecreate(t *testing.T) {
 
 func TestPlanReconfigNilCfgHomeVolumeSafe(t *testing.T) {
 	plan := PlanReconfig(nil, "img", options.RunOptions{}, ChangeFlags{},
-		"opencode-sandbox-home-proj-vol")
+		"agents-sandbox-home-proj-vol")
 	if plan.Recreate {
 		t.Fatal("expected no Recreate for a nil config (fresh VM creation)")
 	}

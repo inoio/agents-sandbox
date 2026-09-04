@@ -2,34 +2,13 @@ package vm
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"time"
 
-	"github.com/inoio/opencode-sandbox/internal/sandbox/msb"
-	"github.com/inoio/opencode-sandbox/internal/sandbox/options"
-	"github.com/inoio/opencode-sandbox/internal/termio"
+	"github.com/inoio/agents-sandbox/internal/agent"
+	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
+	"github.com/inoio/agents-sandbox/internal/termio"
 )
-
-const (
-	daemonHealthURL = "http://127.0.0.1:4096/global/health"
-	daemonKillCmd   = "pkill -f 'opencode serve' || true"
-)
-
-// daemonStartCommand builds the shell command that starts the opencode serve
-// daemon inside the VM. In serve-only mode it binds 0.0.0.0 so microsandbox's
-// published-port forwarder (which dials the guest's external interface address)
-// can reach the server; otherwise it binds loopback only.
-func daemonStartCommand(serveOnly bool) string {
-	hostname := "127.0.0.1"
-	if serveOnly {
-		hostname = "0.0.0.0"
-	}
-	return fmt.Sprintf(
-		"nohup opencode serve --hostname %s --port %s > /tmp/opencode-serve.log 2>&1 &",
-		hostname, options.ServeOnlyPort,
-	)
-}
 
 var daemonReadyTimeout = 60 * time.Second //nolint:gochecknoglobals // test seam, swapped in tests
 
@@ -45,35 +24,28 @@ var daemonShellFunc = func(ctx context.Context, sb msb.Sandbox, command string) 
 	return out.Stdout(), out.ExitCode(), nil
 }
 
-type healthResponse struct {
-	Healthy bool   `json:"healthy"`
-	Version string `json:"version"`
-}
-
-func parseHealthResponse(stdout string) (bool, error) {
-	var resp healthResponse
-	if err := json.Unmarshal([]byte(stdout), &resp); err != nil {
-		return false, fmt.Errorf("parse health response: %w", err)
-	}
-	return resp.Healthy, nil
-}
-
-// ensureDaemon guarantees the opencode serve daemon is healthy inside the VM.
-// It health checks via curl inside the VM; if unhealthy, it kills any stale
-// daemon process, starts a fresh one bound to the hostname appropriate for
-// serveOnly mode, and polls until healthy or timeout.
-func ensureDaemon(ctx context.Context, serveOnly bool, sb msb.Sandbox, ui termio.UI) error {
-	if healthy := checkDaemonHealth(ctx, sb); healthy {
-		ui.Verbosef("opencode daemon already healthy")
+// ensureDaemon guarantees the agent's serve daemon is healthy inside the VM. It
+// health checks via the provider's command inside the VM; if unhealthy, it
+// kills any stale daemon process, starts a fresh one bound to the hostname
+// appropriate for serveOnly mode, and polls until healthy or timeout. An agent
+// without a daemon provider is a no-op.
+func ensureDaemon(ctx context.Context, a agent.Agent, serveOnly bool, sb msb.Sandbox, ui termio.UI) error {
+	provider, ok := agent.AsDaemonProvider(a)
+	if !ok {
 		return nil
 	}
 
-	ui.Verbosef("starting opencode serve daemon")
-	if _, _, err := daemonShellFunc(ctx, sb, daemonKillCmd); err != nil {
+	if healthy := checkDaemonHealth(ctx, sb, provider); healthy {
+		ui.Verbosef("%s daemon already healthy", a.Name())
+		return nil
+	}
+
+	ui.Verbosef("starting %s serve daemon", a.Name())
+	if _, _, err := daemonShellFunc(ctx, sb, provider.DaemonKillCmd()); err != nil {
 		ui.Warnf("kill stale daemon failed (continuing): %v", err)
 	}
-	if _, _, err := daemonShellFunc(ctx, sb, daemonStartCommand(serveOnly)); err != nil {
-		return fmt.Errorf("start opencode serve: %w", err)
+	if _, _, err := daemonShellFunc(ctx, sb, provider.DaemonStartCmd(serveOnly)); err != nil {
+		return fmt.Errorf("start %s serve: %w", a.Name(), err)
 	}
 
 	deadline := time.Now().Add(daemonReadyTimeout)
@@ -84,20 +56,20 @@ func ensureDaemon(ctx context.Context, serveOnly bool, sb msb.Sandbox, ui termio
 		case <-time.After(daemonPollInterval):
 		}
 		ui.Verbose("Polling for daemon health")
-		if healthy := checkDaemonHealth(ctx, sb); healthy {
-			ui.Verbosef("opencode daemon is healthy")
+		if healthy := checkDaemonHealth(ctx, sb, provider); healthy {
+			ui.Verbosef("%s daemon is healthy", a.Name())
 			return nil
 		}
 	}
-	return fmt.Errorf("opencode daemon did not become healthy within %s", daemonReadyTimeout)
+	return fmt.Errorf("%s daemon did not become healthy within %s", a.Name(), daemonReadyTimeout)
 }
 
-func checkDaemonHealth(ctx context.Context, sb msb.Sandbox) bool {
-	stdout, exitCode, err := daemonShellFunc(ctx, sb, "curl -sfm2 "+daemonHealthURL)
+func checkDaemonHealth(ctx context.Context, sb msb.Sandbox, provider agent.DaemonProvider) bool {
+	stdout, exitCode, err := daemonShellFunc(ctx, sb, provider.DaemonHealthCmd())
 	if err != nil || exitCode != 0 {
 		return false
 	}
-	healthy, err := parseHealthResponse(stdout)
+	healthy, err := provider.DaemonHealthParse(stdout)
 	return err == nil && healthy
 }
 

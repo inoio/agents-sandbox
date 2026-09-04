@@ -1,23 +1,24 @@
 ---
-title: Motivation
+title: Why?
 layout: default
 nav_order: 10
 ---
 
-# Motivation
-opencode-sandbox gives opencode a real, hardware-isolated machine to work on — full agent permissions inside a boundary that can't reach your host, and secrets the agent never gets to see.
+# Why?
 
-Docker, bubblewrap, seatbelt, and bare opencode all share your kernel — a kernel bug or `sudo` is enough for an agent to reach your machine. opencode-sandbox runs a separate kernel under hypervisor isolation (KVM on Linux, Apple Silicon on macOS), so escaping takes a hypervisor-level bug: a much higher bar.
+agents-sandbox gives a coding agent a real, hardware-isolated machine to work on — full agent permissions inside a boundary that can't reach your host, and secrets the agent never gets to see.
+
+Docker, bubblewrap, seatbelt, and running an agent directly on your host all share your kernel — a kernel bug or `sudo` is enough for an agent to reach your machine. agents-sandbox runs a separate kernel under hypervisor isolation (KVM on Linux, Apple Silicon on macOS), so escaping takes a hypervisor-level bug: a much higher bar.
 
 Your project is mounted at `/workspace`, read-write, so the agent works on the same files you do and edits round-trip.
 Everything else on your machine — other projects, your home directory, your keys — simply isn't there, except for what
-you explicitly provision into the VM's home (via `home.yaml`). Secrets are injected at runtime through the secret
+you explicitly provision into the VM's home (via the `home:` config key). Secrets are injected at runtime through the secret
 mechanism as environment variables and never written into the VM, so an agent can't leak what it never possessed. Worst
 case, a session is a disposable VM: wipe it, and the host is untouched.
 
-It's also yours to shape: the VM's root is defined by a plain `Dockerfile`, so you bring your own base image and tooling like any OCI image you already use — and it's built for opencode first, with support for functionalities like worktree sessions. Just bring your own `opencode.json`. Egress and ingress stay under your control with simple profiles and allow/deny lists, from full network access to complete lockdown.
+It's also yours to shape: the VM's root is defined by a plain `Dockerfile`, so you bring your own base image and tooling like any OCI image you already use — and it's built for coding agents, with support for functionalities like worktree sessions. Just bring your own agent config (e.g. an existing `opencode.json`). Egress and ingress stay under your control with simple profiles and allow/deny lists, from full network access to complete lockdown.
 
-|  | Bare opencode | Bubblewrap / Seatbelt | Docker (containers) | Docker Sandboxes | **opencode-sandbox** |
+|  | Bare agent | Bubblewrap / Seatbelt | Docker (containers) | Docker Sandboxes | **agents-sandbox** |
 |---|---|---|---|---|---|
 | **Isolation boundary** | ❌ none | ⚠️ shared kernel | ⚠️ shared kernel | ✅ full VM (microVM) | **✅ full VM (hypervisor)** |
 | **How hard to hide secrets?** | ❌ nearly impossible | ⚠️ complex per-project rules | ⚠️ manual per-project tweaking | ✅ built-in (proxy; login-required) | **✅ built-in mechanism** |
@@ -31,4 +32,4 @@ It's also yours to shape: the VM's root is defined by a plain `Dockerfile`, so y
 >
 > Its microVM isolation is genuinely strong. But it's a trade: a **mandatory Docker account login** for a tool that runs locally, a **closed-source core** (VMM + policy proxy + credential injection) you're trusting as your security boundary, **org-wide controls behind a paid sales tier**, and **narrower reach** (Ubuntu 24.04+ / Apple silicon / Windows 11 only).
 >
-> opencode-sandbox, by contrast, is **open and account-free**, runs on **any Linux (KVM) and Apple Silicon**, and gives you **one-command disposal** — without the telemetry, login, or vendor lock-in.
+> agents-sandbox, by contrast, is **open and account-free**, runs on **any Linux (KVM) and Apple Silicon**, and gives you **one-command disposal** — without the telemetry, login, or vendor lock-in.

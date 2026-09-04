@@ -6,12 +6,33 @@ import (
 	"testing"
 	"time"
 
-	"github.com/inoio/opencode-sandbox/internal/configpaths"
-	"github.com/inoio/opencode-sandbox/internal/sandbox/msb"
-	"github.com/inoio/opencode-sandbox/internal/sandbox/options"
-	"github.com/inoio/opencode-sandbox/internal/sandbox/state"
-	"github.com/inoio/opencode-sandbox/internal/termio"
+	"github.com/inoio/agents-sandbox/internal/agent"
+	"github.com/inoio/agents-sandbox/internal/configpaths"
+	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
+	"github.com/inoio/agents-sandbox/internal/sandbox/options"
+	"github.com/inoio/agents-sandbox/internal/sandbox/state"
+	"github.com/inoio/agents-sandbox/internal/termio"
 )
+
+// opencodeAgent returns the registered opencode profile, which implements
+// SessionStatusProvider (the v1 session-status endpoints the quiescence wait
+// polls).
+func opencodeAgent(t *testing.T) agent.Agent {
+	t.Helper()
+	a, ok := agent.Lookup("opencode")
+	if !ok {
+		t.Fatal("opencode agent not registered")
+	}
+	return a
+}
+
+// noSessionStatusAgent implements agent.Agent without SessionStatusProvider,
+// modeling daemons whose servers expose no v1 session-status endpoints.
+type noSessionStatusAgent struct{}
+
+func (noSessionStatusAgent) Name() string               { return "no-session-status" }
+func (noSessionStatusAgent) ConfigDirName() string      { return "nosessionstatus" }
+func (noSessionStatusAgent) ImageSpec() agent.ImageSpec { return agent.ImageSpec{} }
 
 // --- ReapOnLastClient: no-op when other clients active ---
 
@@ -19,13 +40,20 @@ func TestReapOnLastClient_NoOpWhenOtherClientsActive(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 
 	slug := "otherproj"
-	release, _ := state.AcquireClientLease(slug)
+	release, _ := state.AcquireClientLease(state.Key{Slug: slug, Agent: "opencode"})
 	defer release()
 
 	ui := &termio.Mock{}
 	sb := msb.NewMockSandbox(msb.SandboxOpts{})
 
-	err := reapOnLastClient(context.Background(), slug, sb, options.ReapPolicy{}, ui)
+	err := reapOnLastClient(
+		context.Background(),
+		opencodeAgent(t),
+		state.Key{Slug: slug, Agent: "opencode"},
+		sb,
+		options.ReapPolicy{},
+		ui,
+	)
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
@@ -41,7 +69,7 @@ func TestReapOnLastClient_ClientLeaseHeld_NoReap(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 
 	slug := "leaseproj"
-	release, err := state.AcquireClientLease(slug)
+	release, err := state.AcquireClientLease(state.Key{Slug: slug, Agent: "opencode"})
 	if err != nil {
 		t.Fatalf("state.AcquireClientLease: %v", err)
 	}
@@ -51,7 +79,14 @@ func TestReapOnLastClient_ClientLeaseHeld_NoReap(t *testing.T) {
 	ui := &termio.Mock{}
 	sb := msb.NewMockSandbox(msb.SandboxOpts{})
 
-	err = reapOnLastClient(context.Background(), slug, sb, options.ReapPolicy{}, ui)
+	err = reapOnLastClient(
+		context.Background(),
+		opencodeAgent(t),
+		state.Key{Slug: slug, Agent: "opencode"},
+		sb,
+		options.ReapPolicy{},
+		ui,
+	)
 	if err != nil {
 		t.Fatalf("expected no error (lease held), got %v", err)
 	}
@@ -67,7 +102,14 @@ func TestReapOnLastClient_AutoStopOnActiveSessions_ReturnsImmediately(t *testing
 	ui := &termio.Mock{}
 	sb := msb.NewMockSandbox(msb.SandboxOpts{})
 
-	err := reapOnLastClient(context.Background(), slug, sb, options.ReapPolicy{AutoStopOnActiveSessions: true}, ui)
+	err := reapOnLastClient(
+		context.Background(),
+		opencodeAgent(t),
+		state.Key{Slug: slug, Agent: "opencode"},
+		sb,
+		options.ReapPolicy{AutoStopOnActiveSessions: true},
+		ui,
+	)
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
@@ -112,7 +154,14 @@ func TestReapOnLastClient_WaitMode_IdleFromStart(t *testing.T) {
 		"sleep 1h": msb.NewTestResult(true, 0, "", "", nil),
 	}
 
-	err := reapOnLastClient(context.Background(), slug, sb, options.ReapPolicy{}, ui)
+	err := reapOnLastClient(
+		context.Background(),
+		opencodeAgent(t),
+		state.Key{Slug: slug, Agent: "opencode"},
+		sb,
+		options.ReapPolicy{},
+		ui,
+	)
 	if err != nil {
 		t.Fatalf("ReapOnLastClient: expected no error, got %v", err)
 	}
@@ -134,7 +183,14 @@ func TestReapOnLastClient_WaitMode_EmptyStatus(t *testing.T) {
 		"sleep 1h": msb.NewTestResult(true, 0, "", "", nil),
 	}
 
-	err := reapOnLastClient(context.Background(), slug, sb, options.ReapPolicy{}, ui)
+	err := reapOnLastClient(
+		context.Background(),
+		opencodeAgent(t),
+		state.Key{Slug: slug, Agent: "opencode"},
+		sb,
+		options.ReapPolicy{},
+		ui,
+	)
 	if err != nil {
 		t.Fatalf("ReapOnLastClient: expected no error, got %v", err)
 	}
@@ -165,7 +221,14 @@ func TestReapOnLastClient_ContextCancelled(t *testing.T) {
 		"sleep 1h": msb.NewTestResult(true, 0, "", "", nil),
 	}
 
-	err := reapOnLastClient(shortCtx, "ctxproj", sb, options.ReapPolicy{}, ui)
+	err := reapOnLastClient(
+		shortCtx,
+		opencodeAgent(t),
+		state.Key{Slug: "ctxproj", Agent: "opencode"},
+		sb,
+		options.ReapPolicy{},
+		ui,
+	)
 	if err == nil {
 		t.Fatal("expected error when context times out")
 	}
@@ -189,7 +252,14 @@ func TestReapOnLastClient_WaitMode_BusyWithQuestionReaps(t *testing.T) {
 	sb.ExecOut = map[string]msb.ShellResult{
 		"sleep 1h": msb.NewTestResult(true, 0, "", "", nil),
 	}
-	err := reapOnLastClient(context.Background(), slug, sb, options.ReapPolicy{}, ui)
+	err := reapOnLastClient(
+		context.Background(),
+		opencodeAgent(t),
+		state.Key{Slug: slug, Agent: "opencode"},
+		sb,
+		options.ReapPolicy{},
+		ui,
+	)
 	if err != nil {
 		t.Fatalf("ReapOnLastClient: expected no error, got %v", err)
 	}
@@ -214,7 +284,14 @@ func TestReapOnLastClient_WaitMode_BusyWithQuestionErrorKeepsPolling(t *testing.
 	sb.ExecOut = map[string]msb.ShellResult{
 		"sleep 1h": msb.NewTestResult(true, 0, "", "", nil),
 	}
-	err := reapOnLastClient(shortCtx, slug, sb, options.ReapPolicy{}, ui)
+	err := reapOnLastClient(
+		shortCtx,
+		opencodeAgent(t),
+		state.Key{Slug: slug, Agent: "opencode"},
+		sb,
+		options.ReapPolicy{},
+		ui,
+	)
 	if err == nil {
 		t.Fatal("expected error when context times out (session stays busy)")
 	}
@@ -236,11 +313,45 @@ func TestReapOnLastClient_NilSandbox_AllModes(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			ui := &termio.Mock{}
-			err := reapOnLastClient(context.Background(), "nilproj", nil, tt.policy, ui)
+			err := reapOnLastClient(
+				context.Background(),
+				opencodeAgent(t),
+				state.Key{Slug: "nilproj", Agent: "opencode"},
+				nil,
+				tt.policy,
+				ui,
+			)
 			if err != nil {
 				t.Fatalf("expected no error with nil sb, got %v", err)
 			}
 		})
+	}
+}
+
+// --- ReapOnLastClient: agent without session-status endpoints skips the wait ---
+
+func TestReapOnLastClient_NoSessionStatusProvider_SkipsWait(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+
+	slug := "nosessionproj"
+	ui := &termio.Mock{}
+	sb := msb.NewMockSandbox(msb.SandboxOpts{})
+
+	err := reapOnLastClient(
+		context.Background(),
+		noSessionStatusAgent{},
+		state.Key{Slug: slug, Agent: "opencode"},
+		sb,
+		options.ReapPolicy{},
+		ui,
+	)
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+
+	// Spinner should NOT be created (no polling without session-status endpoints).
+	if len(ui.SpinnerCalls) != 0 {
+		t.Errorf("expected no spinner, got %d spinner calls", len(ui.SpinnerCalls))
 	}
 }
 
@@ -250,7 +361,7 @@ func TestReapDoesNotFailSuccessfulAttach(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 
 	slug := "attachproj"
-	release, err := state.AcquireClientLease(slug)
+	release, err := state.AcquireClientLease(state.Key{Slug: slug, Agent: "opencode"})
 	if err != nil {
 		t.Fatalf("state.AcquireClientLease: %v", err)
 	}
@@ -273,9 +384,44 @@ func TestReapDoesNotFailSuccessfulAttach(t *testing.T) {
 	// Release before calling reaper (simulating last client detaching).
 	release()
 
-	err = reapOnLastClient(context.Background(), slug, sb, options.ReapPolicy{}, ui)
+	err = reapOnLastClient(
+		context.Background(),
+		opencodeAgent(t),
+		state.Key{Slug: slug, Agent: "opencode"},
+		sb,
+		options.ReapPolicy{},
+		ui,
+	)
 	if err != nil {
 		t.Fatalf("ReapOnLastClient should not fail: %v", err)
+	}
+}
+
+// --- ReapOnLastClient: skips agents without session-status endpoints ---
+
+func TestReapOnLastClientSkipsNonDaemonAgent(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	a, ok := agent.Lookup("pi")
+	if !ok {
+		t.Fatal("pi agent not registered")
+	}
+	if _, isStatus := agent.AsSessionStatusProvider(a); isStatus {
+		t.Skip("pi unexpectedly has a session-status provider")
+	}
+	ui := &termio.Mock{}
+	sb := msb.NewMockSandbox(msb.SandboxOpts{})
+	if err := reapOnLastClient(
+		context.Background(),
+		a,
+		state.Key{Slug: "slug", Agent: "opencode"},
+		sb,
+		options.ReapPolicy{},
+		ui,
+	); err != nil {
+		t.Fatalf("reapOnLastClient = %v, want nil for agent without session-status endpoints", err)
+	}
+	if len(ui.SpinnerCalls) != 0 {
+		t.Errorf("expected no spinner, got %d spinner calls", len(ui.SpinnerCalls))
 	}
 }
 
@@ -530,7 +676,7 @@ func TestPendingQuestionSessionIDs_PopulatesSet(t *testing.T) {
 			),
 		},
 	}
-	got, err := pendingQuestionSessionIDs(context.Background(), sb)
+	got, err := pendingQuestionSessionIDs(context.Background(), sb, "curl -sf http://127.0.0.1:4096/question")
 	if err != nil {
 		t.Fatalf("pendingQuestionSessionIDs: %v", err)
 	}
@@ -549,7 +695,7 @@ func TestPendingQuestionSessionIDs_Empty(t *testing.T) {
 			"curl -sf http://127.0.0.1:4096/question": msb.NewTestResult(true, 0, `[]`, "", nil),
 		},
 	}
-	got, err := pendingQuestionSessionIDs(context.Background(), sb)
+	got, err := pendingQuestionSessionIDs(context.Background(), sb, "curl -sf http://127.0.0.1:4096/question")
 	if err != nil {
 		t.Fatalf("pendingQuestionSessionIDs: %v", err)
 	}
@@ -565,7 +711,7 @@ func TestPendingQuestionSessionIDs_CurlFailure(t *testing.T) {
 			"curl -sf http://127.0.0.1:4096/question": msb.NewTestResult(false, 7, "", "curl error", nil),
 		},
 	}
-	_, err := pendingQuestionSessionIDs(context.Background(), sb)
+	_, err := pendingQuestionSessionIDs(context.Background(), sb, "curl -sf http://127.0.0.1:4096/question")
 	if err == nil {
 		t.Fatal("expected error on curl failure")
 	}
@@ -585,7 +731,7 @@ func TestSessionStatesShellError(t *testing.T) {
 	sb := &msb.MockSandbox{Name_: "test-vm"}
 	sb.ShellErr = errors.New("shell failed")
 
-	if _, err := sessionStates(context.Background(), sb); err == nil {
+	if _, err := sessionStates(context.Background(), sb, "curl -sf http://127.0.0.1:4096/session/status"); err == nil {
 		t.Error("sessionStates() with Shell error should return error")
 	}
 }
@@ -596,7 +742,7 @@ func TestSessionStatesNonSuccess(t *testing.T) {
 		"curl -sf http://127.0.0.1:4096/session/status": msb.NewTestResult(false, 7, "", "curl error", nil),
 	}
 
-	if _, err := sessionStates(context.Background(), sb); err == nil {
+	if _, err := sessionStates(context.Background(), sb, "curl -sf http://127.0.0.1:4096/session/status"); err == nil {
 		t.Error("sessionStates() with non-success result should return error")
 	}
 }
@@ -605,7 +751,11 @@ func TestPendingQuestionSessionIDsShellError(t *testing.T) {
 	sb := &msb.MockSandbox{Name_: "test-vm"}
 	sb.ShellErr = errors.New("shell failed")
 
-	if _, err := pendingQuestionSessionIDs(context.Background(), sb); err == nil {
+	if _, err := pendingQuestionSessionIDs(
+		context.Background(),
+		sb,
+		"curl -sf http://127.0.0.1:4096/question",
+	); err == nil {
 		t.Error("pendingQuestionSessionIDs() with Shell error should return error")
 	}
 }

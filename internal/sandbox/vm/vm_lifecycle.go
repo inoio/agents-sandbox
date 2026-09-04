@@ -6,28 +6,26 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/inoio/opencode-sandbox/internal/configpaths"
-	"github.com/inoio/opencode-sandbox/internal/git"
-	"github.com/inoio/opencode-sandbox/internal/sandbox/image"
-	"github.com/inoio/opencode-sandbox/internal/sandbox/mounts"
-	"github.com/inoio/opencode-sandbox/internal/sandbox/msb"
-	"github.com/inoio/opencode-sandbox/internal/sandbox/naming"
-	"github.com/inoio/opencode-sandbox/internal/sandbox/options"
-	"github.com/inoio/opencode-sandbox/internal/sandbox/reprovision"
-	"github.com/inoio/opencode-sandbox/internal/sandbox/state"
-	"github.com/inoio/opencode-sandbox/internal/sysinfo"
-	"github.com/inoio/opencode-sandbox/internal/termio"
+	"github.com/inoio/agents-sandbox/internal/sandbox/image"
+	"github.com/inoio/agents-sandbox/internal/sandbox/mounts"
+	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
+	"github.com/inoio/agents-sandbox/internal/sandbox/naming"
+	"github.com/inoio/agents-sandbox/internal/sandbox/options"
+	"github.com/inoio/agents-sandbox/internal/sandbox/reprovision"
+	"github.com/inoio/agents-sandbox/internal/sandbox/state"
+	"github.com/inoio/agents-sandbox/internal/sysinfo"
+	"github.com/inoio/agents-sandbox/internal/termio"
 
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 )
 
 // projectPortBindings returns the port bindings to publish on the host for the
-// project VM. Serve-only exposes the opencode serve port on the host loopback.
-func projectPortBindings(serveOnly bool) []msbSdk.PortBinding {
+// project VM. Serve-only exposes the agent serve port on the host loopback.
+func projectPortBindings(serveOnly bool, hostPort int) []msbSdk.PortBinding {
 	if !serveOnly {
 		return nil
 	}
-	return options.ServeOnlyBindings()
+	return options.ServeOnlyBindings(hostPort)
 }
 
 type vmAction int
@@ -90,6 +88,7 @@ func ensureProjectVM(
 	opts options.RunOptions,
 	imageRef, homeVol, repoPath string,
 	imageEnvs map[string]string,
+	k state.Key,
 	ui termio.UI,
 ) (msb.Sandbox, vmBoot, error) {
 	if opts.DryRunVM {
@@ -99,10 +98,9 @@ func ensureProjectVM(
 
 	client := msb.Get()
 
-	slug := git.ProjectSlug()
-	name := projectVMName(slug)
+	name := projectVMName(k)
 
-	flockPath := filepath.Join(configpaths.Get().UserStateDir(), slug, "ensure-vm.lock")
+	flockPath := filepath.Join(state.KeyDir(k), "ensure-vm.lock")
 	if err := os.MkdirAll(filepath.Dir(flockPath), 0o750); err != nil {
 		return nil, vmBootConnected, fmt.Errorf("create flock dir: %w", err)
 	}
@@ -249,7 +247,7 @@ func ensureProjectVM(
 		return nil, vmBootConnected, fmt.Errorf("re-check sandbox %q: %w", name, err)
 	}
 
-	sb, created, err := createProjectVM(ctx, client, name, slug, imageRef, homeVol, repoPath, opts, imageEnvs, ui)
+	sb, created, err := createProjectVM(ctx, client, name, k, imageRef, homeVol, repoPath, opts, imageEnvs, ui)
 	if err != nil {
 		return nil, vmBootConnected, err
 	}
@@ -263,12 +261,14 @@ func ensureProjectVM(
 func createProjectVM(
 	ctx context.Context,
 	client msb.Client,
-	name, slug, imageRef, homeVol, repoPath string,
+	name string,
+	k state.Key,
+	imageRef, homeVol, repoPath string,
 	opts options.RunOptions,
 	imageEnvs map[string]string,
 	ui termio.UI,
 ) (msb.Sandbox, bool, error) {
-	if err := image.EnsureLoaded(ctx, client, slug, imageRef, ui); err != nil {
+	if err := image.EnsureLoaded(ctx, client, k.Slug, imageRef, ui); err != nil {
 		return nil, false, fmt.Errorf("load runner image: %w", err)
 	}
 	cpus := opts.CPUs
@@ -278,21 +278,11 @@ func createProjectVM(
 	}
 	maxMemoryGiB := sysinfo.TotalMemoryGiB()
 
-	envMap := reprovision.MergeEnvMaps(
-		reprovision.BuildEnvMap(configpaths.Get().UserEnvFile()),
-		reprovision.BuildEnvMap(configpaths.Get().ProjectEnvFile()),
-	)
+	envMap, secrets := reprovision.LoadEnvAndSecrets(ui)
 	ui.Verbosef("adding docker env definitions to project VM environment: %s", imageEnvs)
 	buildProjectVMEnv(envMap, imageEnvs)
 
-	secrets := reprovision.BuildSecretsFromSpecs(reprovision.MergeSecretSpecs(
-		reprovision.ParseSecretSpecLegacy(configpaths.Get().UserEnvSecretFile(), ui),
-		reprovision.ParseSecretSpecLegacy(configpaths.Get().ProjectEnvSecretFile(), ui),
-		reprovision.ParseSecretSpecYAML(configpaths.Get().UserEnvSecretYAMLFile(), ui),
-		reprovision.ParseSecretSpecYAML(configpaths.Get().ProjectEnvSecretYAMLFile(), ui),
-	), ui)
-
-	mounts := buildMounts(
+	mountConfigs := buildMounts(
 		homeVol,
 		repoPath,
 		options.ResolveTmpSizeMiB(opts.TmpSize),
@@ -308,10 +298,10 @@ func createProjectVM(
 	optsList := []msbSdk.SandboxOption{
 		msbSdk.WithImage(imageRef),
 		msbSdk.WithLabels(map[string]string{
-			naming.LabelProject: slug,
+			naming.LabelProject: k.Slug,
 			naming.LabelImage:   imageRef,
 		}),
-		msbSdk.WithMounts(mounts),
+		msbSdk.WithMounts(mountConfigs),
 		msbSdk.WithSecrets(secrets...),
 		msbSdk.WithEnv(envMap),
 		msbSdk.WithWorkdir(defaultTargetDir),
@@ -328,7 +318,11 @@ func createProjectVM(
 		optsList = append(optsList, msbSdk.WithRootDisk(msbSdk.RootDisk.Managed(options.ParseMemory(opts.DiskSize))))
 	}
 	if opts.ServeOnly {
-		optsList = append(optsList, msbSdk.WithPortBindings(projectPortBindings(true)...))
+		hostPort := opts.ServeHostPort
+		if hostPort == 0 {
+			hostPort = options.FirstFreeHostPort(options.ServeOnlyBasePort)
+		}
+		optsList = append(optsList, msbSdk.WithPortBindings(projectPortBindings(true, hostPort)...))
 	}
 	if !opts.Network.Empty() {
 		netCfg, err := opts.Network.Config()

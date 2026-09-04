@@ -17,21 +17,22 @@ import (
 	"github.com/moby/moby/client"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 
-	"github.com/inoio/opencode-sandbox/internal/opencode"
+	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 
-	"github.com/inoio/opencode-sandbox/internal/configpaths"
-	"github.com/inoio/opencode-sandbox/internal/sandbox/docker"
-	"github.com/inoio/opencode-sandbox/internal/sandbox/msb"
-	"github.com/inoio/opencode-sandbox/internal/sandbox/naming"
-	"github.com/inoio/opencode-sandbox/internal/termio"
+	"github.com/inoio/agents-sandbox/internal/agent"
+
+	"github.com/inoio/agents-sandbox/internal/configpaths"
+	"github.com/inoio/agents-sandbox/internal/sandbox/docker"
+	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
+	"github.com/inoio/agents-sandbox/internal/termio"
 )
 
-// dockerConfigWith builds a Docker image config carrying the given opencode
-// version label and environment for mocked ImageInspect results.
+// dockerConfigWith builds a Docker image config carrying the given agent label
+// and environment for mocked ImageInspect results.
 func dockerConfigWith(version string, env []string) *dockerspec.DockerOCIImageConfig {
 	labels := map[string]string{}
 	if version != "" {
-		labels[OpenCodeVersionLabel] = version
+		labels[agentLabelKey] = version
 	}
 	return &dockerspec.DockerOCIImageConfig{
 		ImageConfig: ocispec.ImageConfig{Env: env, Labels: labels},
@@ -39,87 +40,87 @@ func dockerConfigWith(version string, env []string) *dockerspec.DockerOCIImageCo
 }
 
 func TestReferencesImageDetectsBaseImage(t *testing.T) {
-	dockerfile := []byte("FROM opencode-sandbox/runner-base:latest\nRUN echo hi\n")
-	if !referencesImage(dockerfile, naming.BaseImagePrefix) {
+	dockerfile := []byte("FROM agents-sandbox/runner-base:latest\nRUN echo hi\n")
+	if !referencesImage(dockerfile, "agents-sandbox/runner-base") {
 		t.Error("expected referencesImage=true for Dockerfile with base image")
 	}
 }
 
 func TestReferencesImageReturnsFalseForOtherImage(t *testing.T) {
 	dockerfile := []byte("FROM debian:trixie-slim\nRUN echo hi\n")
-	if referencesImage(dockerfile, naming.BaseImagePrefix) {
+	if referencesImage(dockerfile, "agents-sandbox/runner-base") {
 		t.Error("expected referencesImage=false for non-base Dockerfile")
 	}
 }
 
 func TestReferencesImageIgnoresComments(t *testing.T) {
-	dockerfile := []byte("# FROM opencode-sandbox/runner-base:latest\nFROM debian:trixie-slim\n")
-	if referencesImage(dockerfile, naming.BaseImagePrefix) {
+	dockerfile := []byte("# FROM agents-sandbox/runner-base:latest\nFROM debian:trixie-slim\n")
+	if referencesImage(dockerfile, "agents-sandbox/runner-base") {
 		t.Error("expected referencesImage=false for commented FROM")
 	}
 }
 
 func TestReferencesImageMatchesImageIdentifierRegardlessOfTag(t *testing.T) {
-	dockerfile := []byte("FROM opencode-sandbox/runner-base:custom\nRUN echo hi\n")
-	if !referencesImage(dockerfile, naming.BaseImagePrefix) {
+	dockerfile := []byte("FROM agents-sandbox/runner-base:custom\nRUN echo hi\n")
+	if !referencesImage(dockerfile, "agents-sandbox/runner-base") {
 		t.Error("expected referencesImage=true for base image with a non-default tag")
 	}
 }
 
 func TestReferencesImageMatchesMainImageWithStageAlias(t *testing.T) {
-	dockerfile := []byte("FROM opencode-sandbox/runner-base:latest AS builder\nRUN echo hi\n")
-	if !referencesImage(dockerfile, naming.BaseImagePrefix) {
+	dockerfile := []byte("FROM agents-sandbox/runner-base:latest AS builder\nRUN echo hi\n")
+	if !referencesImage(dockerfile, "agents-sandbox/runner-base") {
 		t.Error("expected referencesImage=true for base image declared as a stage")
 	}
 }
 
 func TestReferencesImageIgnoresStageReference(t *testing.T) {
 	dockerfile := []byte("FROM debian:trixie-slim AS base\nFROM base AS builder\n")
-	if referencesImage(dockerfile, naming.BaseImagePrefix) {
+	if referencesImage(dockerfile, "agents-sandbox/runner-base") {
 		t.Error("expected referencesImage=false when base image is used as a stage reference")
 	}
 }
 
 func TestReferencesImageIgnoresBuildFlag(t *testing.T) {
-	dockerfile := []byte("FROM --platform=linux/amd64 opencode-sandbox/runner-base:latest\nRUN echo hi\n")
-	if !referencesImage(dockerfile, naming.BaseImagePrefix) {
+	dockerfile := []byte("FROM --platform=linux/amd64 agents-sandbox/runner-base:latest\nRUN echo hi\n")
+	if !referencesImage(dockerfile, "agents-sandbox/runner-base") {
 		t.Error("expected referencesImage=true for base image after build flag")
 	}
 }
 
 func TestReferencesImageFalseWhenBaseNotLastStage(t *testing.T) {
-	dockerfile := []byte("FROM opencode-sandbox/runner-base:latest AS base\nFROM debian:trixie-slim AS final\n")
-	if referencesImage(dockerfile, naming.BaseImagePrefix) {
+	dockerfile := []byte("FROM agents-sandbox/runner-base:latest AS base\nFROM debian:trixie-slim AS final\n")
+	if referencesImage(dockerfile, "agents-sandbox/runner-base") {
 		t.Error("expected referencesImage=false when base image is not the last stage")
 	}
 }
 
 func TestReferencesImageTrueWhenBaseIsLastStageViaAlias(t *testing.T) {
 	dockerfile := []byte(
-		"FROM debian:trixie-slim AS base\nFROM opencode-sandbox/runner-base:latest AS builder\nFROM builder\n",
+		"FROM debian:trixie-slim AS base\nFROM agents-sandbox/runner-base:latest AS builder\nFROM builder\n",
 	)
-	if !referencesImage(dockerfile, naming.BaseImagePrefix) {
+	if !referencesImage(dockerfile, "agents-sandbox/runner-base") {
 		t.Error("expected referencesImage=true when base image backs the final stage through an alias")
 	}
 }
 
 func TestReferencesImageIgnoresIntermediateStage(t *testing.T) {
-	dockerfile := []byte("FROM opencode-sandbox/runner-base:latest AS base\nFROM debian:trixie-slim AS final\n")
-	if referencesImage(dockerfile, naming.BaseImagePrefix) {
+	dockerfile := []byte("FROM agents-sandbox/runner-base:latest AS base\nFROM debian:trixie-slim AS final\n")
+	if referencesImage(dockerfile, "agents-sandbox/runner-base") {
 		t.Error("expected referencesImage=false for base image used only as an intermediate stage")
 	}
 }
 
 func TestReferencesImageTrueWhenLastStageReusesAliasOfBase(t *testing.T) {
-	dockerfile := []byte("FROM opencode-sandbox/runner-base:latest AS base\nFROM base\n")
-	if !referencesImage(dockerfile, naming.BaseImagePrefix) {
+	dockerfile := []byte("FROM agents-sandbox/runner-base:latest AS base\nFROM base\n")
+	if !referencesImage(dockerfile, "agents-sandbox/runner-base") {
 		t.Error("expected referencesImage=true when the last stage reuses an alias of the base image")
 	}
 }
 
 func TestImageTag(t *testing.T) {
-	got := imageTag("myproj-aBc1234D", "sha256:abc123def456")
-	expected := "opencode-sandbox/runner-myproj-aBc1234D:3k5q07ywpibwp5"
+	got := runnerTag("myproj-aBc1234D", "opencode")
+	expected := "agents-sandbox/runner-myproj-aBc1234D:opencode-latest"
 	if got != expected {
 		t.Errorf("expected %q, got %q", expected, got)
 	}
@@ -135,7 +136,19 @@ func TestBuildDockerImageSetsHostUserBuildArgs(t *testing.T) {
 	}
 	docker.WithDockerMock(t, m)
 
-	if err := buildImage(context.Background(), dockerfile, "tag", false, "", func(string) {}); err != nil {
+	a, _ := agent.Lookup("opencode")
+	if err := buildImage(
+		context.Background(),
+		a,
+		dockerfile,
+		"tag",
+		false,
+		"",
+		"debian:trixie-slim",
+		"",
+		false,
+		func(string) {},
+	); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
@@ -146,23 +159,6 @@ func TestBuildDockerImageSetsHostUserBuildArgs(t *testing.T) {
 	}
 	if v := capturedBuildArgs["USER_GID"]; v == nil || *v != wantGID {
 		t.Errorf("USER_GID: want %q, got %v", wantGID, v)
-	}
-}
-
-func TestEmbeddedBaseDockerfileBakesVersionLabelAndDisablesAutoupdate(t *testing.T) {
-	base := string(embeddedDockerfile)
-	if !strings.Contains(base, `LABEL org.opencode-sandbox.opencode-version="$OPENCODE_VERSION"`) {
-		t.Error("base Dockerfile must label org.opencode-sandbox.opencode-version with $OPENCODE_VERSION")
-	}
-	if !strings.Contains(base, "OPENCODE_DISABLE_AUTOUPDATE=true") {
-		t.Error("base Dockerfile must set ENV OPENCODE_DISABLE_AUTOUPDATE=true")
-	}
-	if !strings.Contains(base, "--version \"$OPENCODE_VERSION\"") {
-		t.Error("base Dockerfile must install opencode with the pinned version")
-	}
-	dind := string(embeddedDindDockerfile)
-	if !strings.Contains(dind, "ARG OPENCODE_VERSION") {
-		t.Error("dind Dockerfile must declare ARG OPENCODE_VERSION")
 	}
 }
 
@@ -221,11 +217,13 @@ func TestScanBuildOutputReturnsErrorMessage(t *testing.T) {
 }
 
 func TestEnsureImageReturnsErrorWhenBuildFails(t *testing.T) {
+	a, _ := agent.Lookup("opencode")
 	l := &termio.Mock{}
 	docker.WithDefaultErrorDockerMock(t)
 	_, err := EnsureImageWithClient(
 		context.Background(),
-		embeddedDockerfile,
+		a,
+		nil,
 		"test-project",
 		BuildOptions{Force: true},
 		l,
@@ -235,96 +233,43 @@ func TestEnsureImageReturnsErrorWhenBuildFails(t *testing.T) {
 	}
 }
 
-func TestEmbeddedDindDockerfileIsNonEmpty(t *testing.T) {
-	if len(embeddedDindDockerfile) == 0 {
-		t.Error("expected EmbeddedDindDockerfile to be non-empty")
-	}
-}
-
 func TestReferencesImageDetectsDindImage(t *testing.T) {
-	dockerfile := []byte("FROM opencode-sandbox/runner-base-dind:latest\nRUN echo hi\n")
-	if !referencesImage(dockerfile, naming.BaseDindImagePrefix) {
+	dockerfile := []byte("FROM agents-sandbox/runner-base-dind:latest\nRUN echo hi\n")
+	if !referencesImage(dockerfile, "agents-sandbox/runner-base-dind") {
 		t.Error("expected referencesImage=true for Dockerfile with dind FROM")
 	}
 }
 
 func TestReferencesImageReturnsFalseForPlainBase(t *testing.T) {
-	dockerfile := []byte("FROM opencode-sandbox/runner-base:latest\nRUN echo hi\n")
-	if referencesImage(dockerfile, naming.BaseDindImagePrefix) {
+	dockerfile := []byte("FROM agents-sandbox/runner-base:latest\nRUN echo hi\n")
+	if referencesImage(dockerfile, "agents-sandbox/runner-base-dind") {
 		t.Error("expected referencesImage=false for plain base Dockerfile")
 	}
 }
 
 func TestReferencesImageReturnsFalseForDindOtherImage(t *testing.T) {
 	dockerfile := []byte("FROM debian:trixie-slim\nRUN echo hi\n")
-	if referencesImage(dockerfile, naming.BaseDindImagePrefix) {
+	if referencesImage(dockerfile, "agents-sandbox/runner-base-dind") {
 		t.Error("expected referencesImage=false for non-base Dockerfile")
 	}
 }
 
 func TestReferencesImageIgnoresDindComment(t *testing.T) {
-	dockerfile := []byte("# FROM opencode-sandbox/runner-base-dind:latest\nFROM debian:trixie-slim\n")
-	if referencesImage(dockerfile, naming.BaseDindImagePrefix) {
+	dockerfile := []byte("# FROM agents-sandbox/runner-base-dind:latest\nFROM debian:trixie-slim\n")
+	if referencesImage(dockerfile, "agents-sandbox/runner-base-dind") {
 		t.Error("expected referencesImage=false for commented FROM")
 	}
 }
 
 func TestReferencesImageDindDoesNotMatchBase(t *testing.T) {
-	dockerfile := []byte("FROM opencode-sandbox/runner-base-dind:latest\nRUN echo hi\n")
-	if referencesImage(dockerfile, naming.BaseImagePrefix) {
+	dockerfile := []byte("FROM agents-sandbox/runner-base-dind:latest\nRUN echo hi\n")
+	if referencesImage(dockerfile, "agents-sandbox/runner-base") {
 		t.Error("expected referencesImage=false for dind Dockerfile with base image identifier (no false positive)")
 	}
 }
 
-func TestEnsureImageBuildsDindBaseWhenDockerfileReferencesDind(t *testing.T) {
-	dockerfile := []byte("FROM opencode-sandbox/runner-base-dind:latest\nRUN echo hi\n")
-	wantTags := []string{naming.BaseTag, naming.DindBaseTag, "opencode-sandbox/runner-test-project:latest"}
-	runEnsureImageTagTest(t, dockerfile, false, wantTags)
-}
-
-func TestEnsureImageDoesNotBuildDindForPlainBase(t *testing.T) {
-	dockerfile := []byte("FROM opencode-sandbox/runner-base:latest\nRUN echo hi\n")
-	wantTags := []string{naming.BaseTag, "opencode-sandbox/runner-test-project:latest"}
-	runEnsureImageTagTest(t, dockerfile, false, wantTags)
-}
-
-func TestEnsureImageDoesNotBuildDindOnForceWithoutReference(t *testing.T) {
-	dockerfile := []byte("FROM debian:trixie-slim\nRUN echo hi\n")
-	wantTags := []string{naming.BaseTag, "opencode-sandbox/runner-test-project:latest"}
-	runEnsureImageTagTest(t, dockerfile, true, wantTags)
-}
-
-func runEnsureImageTagTest(t *testing.T, dockerfile []byte, force bool, wantTags []string) {
-	t.Helper()
-	configpaths.WithMockConfigPaths(t)
-	m := &docker.MockDockerClient{}
-	var builtTags []string
-	m.ImageBuildFn = func(_ context.Context, _ io.Reader, opts client.ImageBuildOptions) (client.ImageBuildResult, error) {
-		builtTags = append(builtTags, opts.Tags...)
-		return client.ImageBuildResult{Body: io.NopCloser(bytes.NewReader(nil))}, nil
-	}
-
-	opencode.LatestVersion = func(_ context.Context) (string, error) {
-		return "2.3.4", nil
-	}
-	docker.WithDockerMock(t, m)
-
-	_, err := EnsureImageWithClient(
-		context.Background(),
-		dockerfile,
-		"test-project",
-		BuildOptions{Force: force},
-		&termio.Mock{},
-	)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if !reflect.DeepEqual(builtTags, wantTags) {
-		t.Errorf("built tags:\n  got:  %v\n  want: %v", builtTags, wantTags)
-	}
-}
-
 func TestEnsureImageDoesNotCreateDigestAliasTag(t *testing.T) {
+	a, _ := agent.Lookup("opencode")
 	configpaths.WithMockConfigPaths(t)
 	var tagged []string
 	m := &docker.MockDockerClient{
@@ -341,6 +286,7 @@ func TestEnsureImageDoesNotCreateDigestAliasTag(t *testing.T) {
 	dockerfile := []byte("FROM debian:trixie-slim\nRUN echo hi\n")
 	_, err := EnsureImageWithClient(
 		context.Background(),
+		a,
 		dockerfile,
 		"test-project",
 		BuildOptions{},
@@ -355,6 +301,7 @@ func TestEnsureImageDoesNotCreateDigestAliasTag(t *testing.T) {
 }
 
 func TestEnsureImageDoesNotLoadIntoMSB(t *testing.T) {
+	a, _ := agent.Lookup("opencode")
 	configpaths.WithMockConfigPaths(t)
 	docker.WithDockerMock(t, &docker.MockDockerClient{
 		ImageInspectFn: func(_ context.Context, _ string, _ ...client.ImageInspectOption) (client.ImageInspectResult, error) {
@@ -371,9 +318,10 @@ func TestEnsureImageDoesNotLoadIntoMSB(t *testing.T) {
 			return errors.New("image not in cache")
 		},
 	}
-	dockerfile := []byte("FROM opencode-sandbox/runner-base:latest\nRUN echo hi\n")
+	dockerfile := []byte("FROM agents-sandbox/runner-base:latest\nRUN echo hi\n")
 	_, err := EnsureImageWithClient(
 		context.Background(),
+		a,
 		dockerfile,
 		"test-project",
 		BuildOptions{Force: false},
@@ -387,16 +335,20 @@ func TestEnsureImageDoesNotLoadIntoMSB(t *testing.T) {
 	}
 }
 
-func TestBuildImagePassesOpenCodeVersionBuildArg(t *testing.T) {
+func TestBuildImagePassesAgentVersionBuildArg(t *testing.T) {
+	a, _ := agent.Lookup("opencode")
 	configpaths.WithMockConfigPaths(t)
-	orig := resolveOpenCodeVersion
-	resolveOpenCodeVersion = func(_ context.Context, requested string) (string, error) {
+	orig := resolveAgentVersion
+	resolveAgentVersion = func(_ context.Context, _ agent.Agent, requested string) (string, error) {
 		return requested, nil
 	}
-	t.Cleanup(func() { resolveOpenCodeVersion = orig })
+	t.Cleanup(func() { resolveAgentVersion = orig })
 
 	m := &docker.MockDockerClient{}
 	var captured map[string]*string
+	m.ImageInspectFn = func(_ context.Context, _ string, _ ...client.ImageInspectOption) (client.ImageInspectResult, error) {
+		return client.ImageInspectResult{InspectResponse: image.InspectResponse{ID: "sha256:base"}}, nil
+	}
 	m.ImageBuildFn = func(_ context.Context, _ io.Reader, opts client.ImageBuildOptions) (client.ImageBuildResult, error) {
 		captured = opts.BuildArgs
 		return client.ImageBuildResult{Body: io.NopCloser(bytes.NewReader(nil))}, nil
@@ -405,9 +357,10 @@ func TestBuildImagePassesOpenCodeVersionBuildArg(t *testing.T) {
 
 	_, err := EnsureImageWithClient(
 		context.Background(),
-		[]byte("FROM "+naming.BaseTag+":latest\nRUN echo hi\n"),
+		a,
+		[]byte("FROM debian:trixie-slim\nRUN echo hi\n"),
 		"test-project",
-		BuildOptions{Force: true, OpenCodeVersion: "1.2.3"},
+		BuildOptions{Force: true, AgentVersion: "1.2.3"},
 		&termio.Mock{},
 	)
 	if err != nil {
@@ -420,15 +373,19 @@ func TestBuildImagePassesOpenCodeVersionBuildArg(t *testing.T) {
 	if v == nil || *v != "1.2.3" {
 		t.Errorf("OPENCODE_VERSION build arg = %v, want %q", v, "1.2.3")
 	}
+	if base := captured["BASE_IMAGE"]; base == nil || *base != "debian:trixie-slim@sha256:base" {
+		t.Errorf("BASE_IMAGE build arg = %v, want %q", base, "debian:trixie-slim@sha256:base")
+	}
 }
 
 func TestEnsureImageReadsVersionAndEnvFromDocker(t *testing.T) {
+	a, _ := agent.Lookup("opencode")
 	configpaths.WithMockConfigPaths(t)
-	orig := resolveOpenCodeVersion
-	resolveOpenCodeVersion = func(_ context.Context, _ string) (string, error) {
+	orig := resolveAgentVersion
+	resolveAgentVersion = func(_ context.Context, _ agent.Agent, _ string) (string, error) {
 		return "2.0.0", nil
 	}
-	t.Cleanup(func() { resolveOpenCodeVersion = orig })
+	t.Cleanup(func() { resolveAgentVersion = orig })
 
 	docker.WithDockerMock(t, &docker.MockDockerClient{
 		ImageInspectFn: func(_ context.Context, _ string, _ ...client.ImageInspectOption) (client.ImageInspectResult, error) {
@@ -447,6 +404,7 @@ func TestEnsureImageReadsVersionAndEnvFromDocker(t *testing.T) {
 
 	info, err := EnsureImageWithClient(
 		context.Background(),
+		a,
 		[]byte("FROM debian:trixie-slim\nRUN echo hi\n"),
 		"test-project",
 		BuildOptions{Force: false},
@@ -454,9 +412,6 @@ func TestEnsureImageReadsVersionAndEnvFromDocker(t *testing.T) {
 	)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
-	}
-	if info.OpenCodeVersion != "2.0.0" {
-		t.Errorf("info.OpenCodeVersion = %q, want %q", info.OpenCodeVersion, "2.0.0")
 	}
 	if len(msbClient.LoadedImages) != 0 {
 		t.Fatalf("expected no microsandbox load from EnsureImage, got %d", len(msbClient.LoadedImages))
@@ -467,6 +422,7 @@ func TestEnsureImageReadsVersionAndEnvFromDocker(t *testing.T) {
 }
 
 func TestEnsureImageReturnsDigestImageRefAsTag(t *testing.T) {
+	a, _ := agent.Lookup("opencode")
 	configpaths.WithMockConfigPaths(t)
 	docker.WithDockerMock(t, &docker.MockDockerClient{
 		ImageInspectFn: func(_ context.Context, _ string, _ ...client.ImageInspectOption) (client.ImageInspectResult, error) {
@@ -482,6 +438,7 @@ func TestEnsureImageReturnsDigestImageRefAsTag(t *testing.T) {
 	})
 	info, err := EnsureImageWithClient(
 		context.Background(),
+		a,
 		[]byte("FROM debian:trixie-slim\nRUN echo hi\n"),
 		"test-project",
 		BuildOptions{Force: false},
@@ -490,19 +447,20 @@ func TestEnsureImageReturnsDigestImageRefAsTag(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	want := imageTag("test-project", "sha256:abc123")
+	want := "agents-sandbox/runner-test-project:opencode-latest"
 	if info.Tag != want {
-		t.Errorf("info.Tag = %q, want digest-based image ref %q", info.Tag, want)
+		t.Errorf("info.Tag = %q, want agent-based image ref %q", info.Tag, want)
 	}
 }
 
 func TestEnsureImageReadsVersionFromDocker(t *testing.T) {
+	a, _ := agent.Lookup("opencode")
 	configpaths.WithMockConfigPaths(t)
-	orig := resolveOpenCodeVersion
-	resolveOpenCodeVersion = func(_ context.Context, _ string) (string, error) {
+	orig := resolveAgentVersion
+	resolveAgentVersion = func(_ context.Context, _ agent.Agent, _ string) (string, error) {
 		return "3.0.0", nil
 	}
-	t.Cleanup(func() { resolveOpenCodeVersion = orig })
+	t.Cleanup(func() { resolveAgentVersion = orig })
 
 	docker.WithDockerMock(t, &docker.MockDockerClient{
 		ImageInspectFn: func(_ context.Context, _ string, _ ...client.ImageInspectOption) (client.ImageInspectResult, error) {
@@ -519,6 +477,7 @@ func TestEnsureImageReadsVersionFromDocker(t *testing.T) {
 
 	info, err := EnsureImageWithClient(
 		context.Background(),
+		a,
 		[]byte("FROM debian:trixie-slim\nRUN echo hi\n"),
 		"test-project",
 		BuildOptions{Force: false},
@@ -527,33 +486,108 @@ func TestEnsureImageReadsVersionFromDocker(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if info.OpenCodeVersion != "3.0.0" {
-		t.Errorf("info.OpenCodeVersion = %q, want %q", info.OpenCodeVersion, "3.0.0")
-	}
 	if len(msbClient.LoadedImages) != 0 {
 		t.Errorf("expected no load, got %d loads", len(msbClient.LoadedImages))
 	}
+	if info.Env == nil {
+		t.Error("expected a non-nil env map from the built image")
+	}
 }
 
-func TestEnsureLoadedSkipsWhenAlreadyCached(t *testing.T) {
+func TestEnsureLoadedReloadsWhenCachedContentDiffers(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
-	m := &docker.MockDockerClient{}
-	docker.WithDockerMock(t, m)
-
+	a := agentOpencode(t)
+	rTag := runnerTag("test-project", a.Name())
+	docker.WithDockerMock(t, &docker.MockDockerClient{
+		ImageInspectFn: func(_ context.Context, _ string, _ ...client.ImageInspectOption) (client.ImageInspectResult, error) {
+			return client.ImageInspectResult{InspectResponse: image.InspectResponse{ID: "sha256:docker-new"}}, nil
+		},
+		ImageSaveFn: func(_ context.Context, refs []string, _ ...client.ImageSaveOption) (client.ImageSaveResult, error) {
+			if len(refs) != 1 || refs[0] != rTag {
+				t.Errorf("ImageSave refs = %v, want %q", refs, rTag)
+			}
+			return io.NopCloser(strings.NewReader("tar-data")), nil
+		},
+	})
+	removed := false
 	msbClient := &msb.MockMsbClient{
 		ImageGetFn: func(_ context.Context, _ string) error { return nil },
+		ImageInspectFn: func(_ context.Context, _ string) (*msbSdk.ImageConfig, error) {
+			return &msbSdk.ImageConfig{Digest: "sha256:msb-old"}, nil
+		},
+		ImageRemoveFn: func(_ context.Context, _ string, _ bool) error { removed = true; return nil },
 	}
-	if err := EnsureLoaded(
-		context.Background(),
-		msbClient,
-		"test-project",
-		"opencode-sandbox/runner-test-project:abc",
-		&termio.Mock{},
-	); err != nil {
-		t.Fatalf("unexpected error: %v", err)
+	if err := EnsureLoaded(context.Background(), msbClient, "test-project", rTag, &termio.Mock{}); err != nil {
+		t.Fatalf("EnsureLoaded: %v", err)
+	}
+	if !removed {
+		t.Error("expected the stale cached image to be removed before reload")
+	}
+	if len(msbClient.LoadedImages) != 1 || msbClient.LoadedImages[0] != rTag {
+		t.Errorf("LoadedImages = %v, want a reload of %q", msbClient.LoadedImages, rTag)
+	}
+}
+
+func TestEnsureLoadedSkipsWhenCachedContentMatches(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	a := agentOpencode(t)
+	rTag := runnerTag("test-project", a.Name())
+	docker.WithDockerMock(t, &docker.MockDockerClient{
+		ImageInspectFn: func(_ context.Context, _ string, _ ...client.ImageInspectOption) (client.ImageInspectResult, error) {
+			return client.ImageInspectResult{
+				InspectResponse: image.InspectResponse{ID: "sha256:same", Config: dockerConfigWith("", nil)},
+			}, nil
+		},
+	})
+	removed := false
+	msbClient := &msb.MockMsbClient{
+		ImageGetFn: func(_ context.Context, _ string) error { return nil },
+		ImageInspectFn: func(_ context.Context, _ string) (*msbSdk.ImageConfig, error) {
+			return &msbSdk.ImageConfig{Digest: "sha256:same"}, nil
+		},
+		ImageRemoveFn: func(_ context.Context, _ string, _ bool) error { removed = true; return nil },
+	}
+	if err := EnsureLoaded(context.Background(), msbClient, "test-project", rTag, &termio.Mock{}); err != nil {
+		t.Fatalf("EnsureLoaded: %v", err)
+	}
+	if removed {
+		t.Error("expected the matching cached image not to be removed")
 	}
 	if len(msbClient.LoadedImages) != 0 {
-		t.Errorf("expected no load when image is cached, got %d loads", len(msbClient.LoadedImages))
+		t.Errorf("expected no reload when content matches, got %v", msbClient.LoadedImages)
+	}
+}
+
+func TestEnsureLoadedSkipsWhenDockerfileIDLabelMatches(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	a := agentOpencode(t)
+	rTag := runnerTag("test-project", a.Name())
+	labels := map[string]string{dockerfileIDLabelKey: "abc123"}
+	docker.WithDockerMock(t, &docker.MockDockerClient{
+		ImageInspectFn: func(_ context.Context, _ string, _ ...client.ImageInspectOption) (client.ImageInspectResult, error) {
+			return client.ImageInspectResult{
+				InspectResponse: image.InspectResponse{ID: "", Config: &dockerspec.DockerOCIImageConfig{
+					ImageConfig: ocispec.ImageConfig{Labels: labels},
+				}},
+			}, nil
+		},
+	})
+	removed := false
+	msbClient := &msb.MockMsbClient{
+		ImageGetFn: func(_ context.Context, _ string) error { return nil },
+		ImageInspectFn: func(_ context.Context, _ string) (*msbSdk.ImageConfig, error) {
+			return &msbSdk.ImageConfig{Digest: "", Labels: labels}, nil
+		},
+		ImageRemoveFn: func(_ context.Context, _ string, _ bool) error { removed = true; return nil },
+	}
+	if err := EnsureLoaded(context.Background(), msbClient, "test-project", rTag, &termio.Mock{}); err != nil {
+		t.Fatalf("EnsureLoaded: %v", err)
+	}
+	if removed {
+		t.Error("expected the matching cached image not to be removed")
+	}
+	if len(msbClient.LoadedImages) != 0 {
+		t.Errorf("expected no reload when labels match, got %v", msbClient.LoadedImages)
 	}
 }
 
@@ -561,8 +595,8 @@ func TestEnsureLoadedLoadsWhenNotCached(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	docker.WithDockerMock(t, &docker.MockDockerClient{
 		ImageSaveFn: func(_ context.Context, refs []string, _ ...client.ImageSaveOption) (client.ImageSaveResult, error) {
-			if len(refs) != 1 || refs[0] != runnerTag("test-project") {
-				t.Errorf("ImageSave refs = %v, want runner tag %q", refs, runnerTag("test-project"))
+			if len(refs) != 1 || refs[0] != "agents-sandbox/runner-test-project:abc" {
+				t.Errorf("ImageSave refs = %v, want runner tag %q", refs, "agents-sandbox/runner-test-project:abc")
 			}
 			return io.NopCloser(strings.NewReader("tar-data")), nil
 		},
@@ -575,7 +609,7 @@ func TestEnsureLoadedLoadsWhenNotCached(t *testing.T) {
 		context.Background(),
 		msbClient,
 		"test-project",
-		"opencode-sandbox/runner-test-project:abc",
+		"agents-sandbox/runner-test-project:abc",
 		&termio.Mock{},
 	); err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -583,11 +617,11 @@ func TestEnsureLoadedLoadsWhenNotCached(t *testing.T) {
 	if len(msbClient.LoadedImages) != 1 {
 		t.Fatalf("expected 1 image load, got %d", len(msbClient.LoadedImages))
 	}
-	if msbClient.LoadedImages[0] != "opencode-sandbox/runner-test-project:abc" {
+	if msbClient.LoadedImages[0] != "agents-sandbox/runner-test-project:abc" {
 		t.Errorf(
 			"loaded image ref = %q, want %q",
 			msbClient.LoadedImages[0],
-			"opencode-sandbox/runner-test-project:abc",
+			"agents-sandbox/runner-test-project:abc",
 		)
 	}
 }
@@ -607,7 +641,7 @@ func TestEnsureLoadedReturnsErrorWhenSaveFails(t *testing.T) {
 		context.Background(),
 		msbClient,
 		"test-project",
-		"opencode-sandbox/runner-test-project:abc",
+		"agents-sandbox/runner-test-project:abc",
 		&termio.Mock{},
 	)
 	if err == nil {

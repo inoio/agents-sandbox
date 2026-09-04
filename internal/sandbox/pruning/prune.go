@@ -5,8 +5,8 @@ import (
 	"errors"
 	"time"
 
-	"github.com/inoio/opencode-sandbox/internal/sandbox/msb"
-	"github.com/inoio/opencode-sandbox/internal/termio"
+	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
+	"github.com/inoio/agents-sandbox/internal/termio"
 )
 
 // MsbClient is a type alias for msb.Client, matching the original sandbox-level alias.

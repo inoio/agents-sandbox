@@ -9,8 +9,8 @@ import (
 
 	"github.com/go-viper/mapstructure/v2"
 
-	"github.com/inoio/opencode-sandbox/internal/configpaths"
-	"github.com/inoio/opencode-sandbox/internal/testutil"
+	"github.com/inoio/agents-sandbox/internal/configpaths"
+	"github.com/inoio/agents-sandbox/internal/testutil"
 )
 
 // Per-slug mergeDir failure propagates out of NewResolver.

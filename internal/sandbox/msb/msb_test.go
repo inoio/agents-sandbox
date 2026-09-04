@@ -221,7 +221,7 @@ func TestRealMsbClientEnsureInstalled(t *testing.T) {
 func TestRealMsbClientCreateRemoveVolume(t *testing.T) {
 	c := &realMsbClient{}
 	ctx := context.Background()
-	name := "opencode-sandbox-test-" + strconv.FormatInt(time.Now().UnixNano(), 10)
+	name := "agents-sandbox-test-" + strconv.FormatInt(time.Now().UnixNano(), 10)
 
 	if _, err := c.CreateVolume(ctx, name); err != nil {
 		t.Fatalf("CreateVolume() error = %v, want nil", err)

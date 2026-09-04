@@ -5,7 +5,7 @@ import (
 
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 
-	"github.com/inoio/opencode-sandbox/internal/sandbox/options"
+	"github.com/inoio/agents-sandbox/internal/sandbox/options"
 )
 
 func TestPlanReconfigDecidesRecreate(t *testing.T) {
@@ -23,7 +23,7 @@ func TestPlanReconfigDecidesRecreate(t *testing.T) {
 			Volumes: map[string]msbSdk.MountConfig{
 				tmpMountPath:       {SizeMiB: tmpMiB},
 				workspaceMountPath: {QuotaMiB: options.DefaultWorkspaceQuotaMiB},
-				VMHomeDir:          {Named: "opencode-sandbox-home-proj-vol"},
+				VMHomeDir:          {Named: "agents-sandbox-home-proj-vol"},
 			},
 		}
 	}
@@ -41,7 +41,7 @@ func TestPlanReconfigDecidesRecreate(t *testing.T) {
 			cfg:      mkConfig(4, 4096, 0, 2048),
 			imageRef: "image-b",
 			opts:     options.RunOptions{},
-			homeVol:  "opencode-sandbox-home-proj-vol",
+			homeVol:  "agents-sandbox-home-proj-vol",
 			want:     true,
 		},
 		{
@@ -49,7 +49,7 @@ func TestPlanReconfigDecidesRecreate(t *testing.T) {
 			cfg:      mkConfig(4, 4096, 0, 2048),
 			imageRef: "image-a",
 			opts:     options.RunOptions{TmpSize: "1G"},
-			homeVol:  "opencode-sandbox-home-proj-vol",
+			homeVol:  "agents-sandbox-home-proj-vol",
 			want:     true,
 		},
 		{
@@ -57,7 +57,7 @@ func TestPlanReconfigDecidesRecreate(t *testing.T) {
 			cfg:      mkConfig(4, 4096, 0, 2048),
 			imageRef: "image-a",
 			opts:     options.RunOptions{WorkspaceQuota: "32G"},
-			homeVol:  "opencode-sandbox-home-proj-vol",
+			homeVol:  "agents-sandbox-home-proj-vol",
 			want:     true,
 		},
 		{
@@ -65,7 +65,7 @@ func TestPlanReconfigDecidesRecreate(t *testing.T) {
 			cfg:      mkConfig(4, 4096, 0, 2048),
 			imageRef: "image-a",
 			opts:     options.RunOptions{},
-			homeVol:  "opencode-sandbox-home-proj-vol",
+			homeVol:  "agents-sandbox-home-proj-vol",
 			want:     false,
 		},
 		{
@@ -73,7 +73,7 @@ func TestPlanReconfigDecidesRecreate(t *testing.T) {
 			cfg:      mkConfig(4, 4096, 8192, 2048),
 			imageRef: "image-a",
 			opts:     options.RunOptions{DiskSize: "16G"},
-			homeVol:  "opencode-sandbox-home-proj-vol",
+			homeVol:  "agents-sandbox-home-proj-vol",
 			want:     true,
 		},
 		{
@@ -81,7 +81,7 @@ func TestPlanReconfigDecidesRecreate(t *testing.T) {
 			cfg:      mkConfig(4, 4096, 8192, 2048),
 			imageRef: "image-a",
 			opts:     options.RunOptions{},
-			homeVol:  "opencode-sandbox-home-proj-vol",
+			homeVol:  "agents-sandbox-home-proj-vol",
 			want:     false,
 		},
 		{
@@ -89,7 +89,7 @@ func TestPlanReconfigDecidesRecreate(t *testing.T) {
 			cfg:      mkConfig(4, 4096, 0, 2048),
 			imageRef: "image-a",
 			opts:     options.RunOptions{},
-			homeVol:  "opencode-sandbox-home-proj-new",
+			homeVol:  "agents-sandbox-home-proj-new",
 			want:     true,
 		},
 		{
@@ -97,7 +97,7 @@ func TestPlanReconfigDecidesRecreate(t *testing.T) {
 			cfg:      mkConfig(4, 4096, 16384, 2048),
 			imageRef: "image-a",
 			opts:     options.RunOptions{TmpSize: "2G", DiskSize: "16G"},
-			homeVol:  "opencode-sandbox-home-proj-vol",
+			homeVol:  "agents-sandbox-home-proj-vol",
 			want:     false,
 		},
 	}
@@ -108,5 +108,22 @@ func TestPlanReconfigDecidesRecreate(t *testing.T) {
 				t.Errorf("PlanReconfig().Recreate = %v, want %v", got, tc.want)
 			}
 		})
+	}
+}
+
+func TestPlanReconfigServeHostPortReuse(t *testing.T) {
+	cfg := &msbSdk.SandboxConfig{
+		Image: "img",
+		PortBindings: []msbSdk.PortBinding{
+			{Bind: "127.0.0.1", HostPort: 4096, GuestPort: 4096, Protocol: msbSdk.PortProtocolTCP},
+		},
+	}
+	opts := options.RunOptions{ServeOnly: true}
+	plan := PlanReconfig(cfg, "img", opts, ChangeFlags{}, "")
+	if plan.Recreate {
+		t.Error("expected no recreate when reusing the existing binding")
+	}
+	if plan.ServeHostPort != 4096 {
+		t.Errorf("ServeHostPort = %d, want 4096", plan.ServeHostPort)
 	}
 }

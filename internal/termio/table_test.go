@@ -8,7 +8,7 @@ import (
 func TestRenderAlignsColumns(t *testing.T) {
 	tbl := (&Mock{}).NewTable("NAME", "STATUS", "CREATED")
 	tbl.AddRow("alpha", "running", "2026-08-17 09:00:00")
-	tbl.AddRow("opencode-sandbox-vm-beta", "stopped", "2026-08-16 12:00:00")
+	tbl.AddRow("agents-sandbox-vm-beta", "stopped", "2026-08-16 12:00:00")
 
 	rendered := tbl.render()
 	if rendered == "" {

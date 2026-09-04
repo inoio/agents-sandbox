@@ -69,6 +69,9 @@ func newErrorDockerClient(mockErrs mockErrors) *MockDockerClient {
 		ImageSaveFn: func(_ context.Context, _ []string, saveOpts ...client.ImageSaveOption) (client.ImageSaveResult, error) {
 			return nil, saveErr
 		},
+		ImagePullFn: func(_ context.Context, _ string, _ client.ImagePullOptions) (io.ReadCloser, error) {
+			return nil, defaultErr
+		},
 		ImageRemoveFn: func(_ context.Context, _ string, options client.ImageRemoveOptions) (client.ImageRemoveResult, error) {
 			return client.ImageRemoveResult{}, removeErr
 		},
@@ -91,6 +94,7 @@ type MockDockerClient struct {
 	ImageBuildFn   func(ctx context.Context, r io.Reader, options client.ImageBuildOptions) (client.ImageBuildResult, error)
 	ImageInspectFn func(ctx context.Context, ref string, inspectOpts ...client.ImageInspectOption) (client.ImageInspectResult, error)
 	ImageSaveFn    func(ctx context.Context, refs []string, saveOpts ...client.ImageSaveOption) (client.ImageSaveResult, error)
+	ImagePullFn    func(ctx context.Context, ref string, opts client.ImagePullOptions) (io.ReadCloser, error)
 	ImageRemoveFn  func(ctx context.Context, ref string, options client.ImageRemoveOptions) (client.ImageRemoveResult, error)
 	ImageTagFn     func(ctx context.Context, opts client.ImageTagOptions) (client.ImageTagResult, error)
 	ImagePruneFn   func(ctx context.Context, opts client.ImagePruneOptions) (client.ImagePruneResult, error)
@@ -146,6 +150,17 @@ func (m *MockDockerClient) ImageRemove(
 		return m.ImageRemoveFn(ctx, ref, opts)
 	}
 	return client.ImageRemoveResult{}, nil
+}
+
+func (m *MockDockerClient) ImagePull(
+	ctx context.Context,
+	ref string,
+	opts client.ImagePullOptions,
+) (io.ReadCloser, error) {
+	if m.ImagePullFn != nil {
+		return m.ImagePullFn(ctx, ref, opts)
+	}
+	return io.NopCloser(strings.NewReader("")), nil
 }
 
 func (m *MockDockerClient) ImageTag(ctx context.Context, opts client.ImageTagOptions) (client.ImageTagResult, error) {
@@ -212,6 +227,16 @@ func (f *failFastDockerClient) ImageSave(
 	_ []string,
 	_ ...client.ImageSaveOption,
 ) (client.ImageSaveResult, error) {
+	f.mustMock()
+	//nolint:nilnil // panics before returning; keeps failFastDockerClient interface-conformant
+	return nil, nil
+}
+
+func (f *failFastDockerClient) ImagePull(
+	_ context.Context,
+	_ string,
+	_ client.ImagePullOptions,
+) (io.ReadCloser, error) {
 	f.mustMock()
 	//nolint:nilnil // panics before returning; keeps failFastDockerClient interface-conformant
 	return nil, nil

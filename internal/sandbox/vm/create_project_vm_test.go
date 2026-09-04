@@ -5,27 +5,29 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/inoio/opencode-sandbox/internal/configpaths"
-	"github.com/inoio/opencode-sandbox/internal/homeconfig"
-	"github.com/inoio/opencode-sandbox/internal/sandbox/msb"
-	"github.com/inoio/opencode-sandbox/internal/sandbox/network"
-	"github.com/inoio/opencode-sandbox/internal/sandbox/options"
-	"github.com/inoio/opencode-sandbox/internal/sandbox/reprovision"
-	"github.com/inoio/opencode-sandbox/internal/termio"
+	"github.com/inoio/agents-sandbox/internal/configpaths"
+	"github.com/inoio/agents-sandbox/internal/homeconfig"
+	"github.com/inoio/agents-sandbox/internal/sandbox/docker"
+	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
+	"github.com/inoio/agents-sandbox/internal/sandbox/network"
+	"github.com/inoio/agents-sandbox/internal/sandbox/options"
+	"github.com/inoio/agents-sandbox/internal/sandbox/reprovision"
+	"github.com/inoio/agents-sandbox/internal/termio"
 )
 
 // TestCreateProjectVMCreateSandboxError covers the CreateSandbox failure branch
 // in createProjectVM.
 func TestCreateProjectVMCreateSandboxError(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
+	docker.WithNoopDockerMock(t)
 	client := &msb.MockMsbClient{}
 	client.CreateSandboxErr = errors.New("create failed")
 	testUI := termio.NewTestMock(t)
 	ui := &testUI
 
 	_, _, err := createProjectVM(
-		context.Background(), client, "opencode-sandbox-vm-test",
-		"test-slug", "opencode-sandbox/runner-test:latest", "test-home-vol", t.TempDir(),
+		context.Background(), client, "agents-sandbox-vm-test",
+		testVMKey(), "agents-sandbox/runner-test:latest", "test-home-vol", t.TempDir(),
 		options.RunOptions{Memory: "1G"}, nil, ui,
 	)
 	if err == nil {
@@ -37,13 +39,14 @@ func TestCreateProjectVMCreateSandboxError(t *testing.T) {
 // in createProjectVM (an invalid network profile cannot be converted).
 func TestCreateProjectVMNetworkConfigError(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
+	docker.WithNoopDockerMock(t)
 	client := &msb.MockMsbClient{}
 	testUI := termio.NewTestMock(t)
 	ui := &testUI
 
 	_, _, err := createProjectVM(
-		context.Background(), client, "opencode-sandbox-vm-test",
-		"test-slug", "opencode-sandbox/runner-test:latest", "test-home-vol", t.TempDir(),
+		context.Background(), client, "agents-sandbox-vm-test",
+		testVMKey(), "agents-sandbox/runner-test:latest", "test-home-vol", t.TempDir(),
 		options.RunOptions{
 			Memory:  "1G",
 			Network: network.Policy{Profile: network.Profile("bogus-profile")},
@@ -102,7 +105,7 @@ func TestSetUpSandboxEnsureDaemonError(t *testing.T) {
 // logged as a warning and does not fail the sandbox setup).
 func TestSetUpSandboxProvisionWarn(t *testing.T) {
 	orig := SetDaemonShellFunc(func(_ context.Context, _ msb.Sandbox, command string) (string, int, error) {
-		if command == "curl -sfm2 "+daemonHealthURL {
+		if command == opencodeProvider(t).DaemonHealthCmd() {
 			return `{"healthy":true,"version":"test"}`, 0, nil
 		}
 		return "", 0, nil
@@ -115,7 +118,7 @@ func TestSetUpSandboxProvisionWarn(t *testing.T) {
 
 	ui := termio.NewTestMock(t)
 	configpaths.WithMockConfigPaths(t)
-	cfs := &reprovision.ConfigFiles{HasSnippets: true, OpenCode: []byte(`{"model":"x"}`)}
+	cfs := &reprovision.ConfigFiles{HasSnippets: true, Merged: []byte(`{"model":"x"}`)}
 	_, err := setUpSandbox(context.Background(), sb, options.RunOptions{}, cfs, &ui, false, vmBootCreated)
 	if err != nil {
 		t.Fatalf("setUpSandbox should not fail on provision warning: %v", err)

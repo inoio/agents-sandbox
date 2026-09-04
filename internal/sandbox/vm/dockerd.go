@@ -5,14 +5,14 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/inoio/opencode-sandbox/internal/sandbox/msb"
-	"github.com/inoio/opencode-sandbox/internal/termio"
+	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
+	"github.com/inoio/agents-sandbox/internal/termio"
 
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 )
 
 const (
-	dockerdBinaryCheckCmd = "test -x /usr/bin/dockerd"
+	dockerdBinaryCheckCmd = "command -v dockerd >/dev/null 2>&1"
 	dockerdReadyCmd       = "docker info"
 	dockerdRestartCmd     = "pkill dockerd >/dev/null 2>&1 || true; " +
 		"pkill containerd >/dev/null 2>&1 || true; " +

@@ -4,10 +4,10 @@ import (
 	"context"
 	"time"
 
-	"github.com/inoio/opencode-sandbox/internal/sandbox/msb"
-	"github.com/inoio/opencode-sandbox/internal/sandbox/naming"
-	"github.com/inoio/opencode-sandbox/internal/sandbox/state"
-	"github.com/inoio/opencode-sandbox/internal/termio"
+	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
+	"github.com/inoio/agents-sandbox/internal/sandbox/naming"
+	"github.com/inoio/agents-sandbox/internal/sandbox/state"
+	"github.com/inoio/agents-sandbox/internal/termio"
 )
 
 // VolumeReport summarizes a PruneVolumes run.
@@ -30,31 +30,33 @@ func PruneVolumes(
 	if err != nil {
 		return report, err
 	}
-	exists := countVolumesBySlug(handles)
+	exists := countVolumesByKey(handles)
 	removed := pruneHomeVolumes(ctx, handles, pruneState, dryRun, ui, &report)
 	if !dryRun {
-		removeStateForGoneSlugs(ui, removed, exists)
+		removeStateForGoneKeys(ui, removed, exists)
 	}
 	printVolumePruneReport(ui, report, dryRun)
 	return report, nil
 }
 
-// countVolumesBySlug returns how many home volumes each slug currently has.
-func countVolumesBySlug(handles []msb.VolumeHandle) map[string]int {
-	exists := map[string]int{}
+// countVolumesByKey returns how many home volumes each project/agent key
+// currently has.
+func countVolumesByKey(handles []msb.VolumeHandle) map[state.Key]int {
+	exists := map[state.Key]int{}
 	for _, handle := range handles {
 		if !hasPrefix(handle.Name(), naming.HomePrefix) {
 			continue
 		}
-		if slug := naming.ArtifactFor(handle.Name()).Slug; slug != "" {
-			exists[slug]++
+		artifact := naming.ArtifactFor(handle.Name())
+		if artifact.Slug != "" {
+			exists[state.Key{Slug: artifact.Slug, Agent: artifact.Agent}]++
 		}
 	}
 	return exists
 }
 
 // pruneHomeVolumes removes the home volumes of stale slugs and records the
-// number removed per slug.
+// number removed per project/agent key.
 func pruneHomeVolumes(
 	ctx context.Context,
 	handles []msb.VolumeHandle,
@@ -62,8 +64,8 @@ func pruneHomeVolumes(
 	dryRun bool,
 	ui termio.UI,
 	report *VolumeReport,
-) map[string]int {
-	removed := map[string]int{}
+) map[state.Key]int {
+	removed := map[state.Key]int{}
 	for _, handle := range handles {
 		name := handle.Name()
 		if !hasPrefix(name, naming.HomePrefix) {
@@ -73,7 +75,8 @@ func pruneHomeVolumes(
 		if volumeArtifact.Slug == "" {
 			continue
 		}
-		if _, found := pruneState.ToPrune[volumeArtifact.Slug]; !found {
+		key := state.Key{Slug: volumeArtifact.Slug, Agent: volumeArtifact.Agent}
+		if _, found := pruneState.ToPrune[key]; !found {
 			continue
 		}
 		if !dryRun {
@@ -81,7 +84,7 @@ func pruneHomeVolumes(
 				ui.Warnf("failed to remove home volume %s: %v", name, err)
 				continue
 			}
-			removed[volumeArtifact.Slug]++
+			removed[key]++
 		}
 		report.VolumesPruned++
 		report.Details = append(report.Details, StaleEntry{
@@ -95,15 +98,15 @@ func pruneHomeVolumes(
 	return removed
 }
 
-// removeStateForGoneSlugs removes the state file for slugs whose last home
+// removeStateForGoneKeys removes the state file for keys whose last home
 // volume was removed in this run.
-func removeStateForGoneSlugs(ui termio.UI, removed, exists map[string]int) {
-	for slug, count := range removed {
-		if count < exists[slug] {
+func removeStateForGoneKeys(ui termio.UI, removed, exists map[state.Key]int) {
+	for key, count := range removed {
+		if count < exists[key] {
 			continue
 		}
-		if err := state.RemoveState(slug); err != nil {
-			ui.Warnf("failed to remove state file for slug %s: %v", slug, err)
+		if err := state.RemoveState(key); err != nil {
+			ui.Warnf("failed to remove state file for key (slug %s, agent %s): %v", key.Slug, key.Agent, err)
 		}
 	}
 }

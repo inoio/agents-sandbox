@@ -9,11 +9,12 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/inoio/opencode-sandbox/internal/configpaths"
-	"github.com/inoio/opencode-sandbox/internal/sandbox/network"
-	"github.com/inoio/opencode-sandbox/internal/sandbox/options"
-	"github.com/inoio/opencode-sandbox/internal/testutil"
-	"github.com/inoio/opencode-sandbox/internal/upgrade"
+	"github.com/inoio/agents-sandbox/internal/configpaths"
+	"github.com/inoio/agents-sandbox/internal/notify"
+	"github.com/inoio/agents-sandbox/internal/sandbox/network"
+	"github.com/inoio/agents-sandbox/internal/sandbox/options"
+	"github.com/inoio/agents-sandbox/internal/testutil"
+	"github.com/inoio/agents-sandbox/internal/upgrade"
 )
 
 func TestResolverGettersReturnConfig(t *testing.T) {
@@ -23,6 +24,7 @@ func TestResolverGettersReturnConfig(t *testing.T) {
 		Yes: true, LogLevel: "verbose", Quiet: true,
 		AutoPruneAge: 7 * 24 * time.Hour, ManualPruneAge: 14 * 24 * time.Hour,
 		AutoStopOnActiveSessions: true, AutoStopTimeout: 30 * time.Second, AutoStopMaxSessionRetries: 5,
+		Agent: "pi", ProvisionHostConfig: true,
 	}
 	r := NewResolverWithConfig(cfg)
 	if r.CPUs() != 4 || r.Memory() != "8G" || r.TmpSize() != "4G" || r.DiskSize() != "32G" ||
@@ -31,6 +33,9 @@ func TestResolverGettersReturnConfig(t *testing.T) {
 	}
 	if !r.Yes() || r.LogLevel() != "verbose" || !r.Quiet() {
 		t.Error("UI getters mismatch")
+	}
+	if r.Agent() != "pi" || !r.ProvisionHostConfig() {
+		t.Error("agent getters mismatch")
 	}
 	if r.AutoPruneAge() != 7*24*time.Hour || r.ManualPruneAge() != 14*24*time.Hour {
 		t.Error("prune getters mismatch")
@@ -426,6 +431,25 @@ func TestResolverIdleTimeoutDefaultFromConfig(t *testing.T) {
 	}
 }
 
+func TestResolverAgentGetter(t *testing.T) {
+	r := NewResolverWithConfig(Config{Agent: "pi"})
+	if r.Agent() != "pi" {
+		t.Errorf("Agent = %q; want pi", r.Agent())
+	}
+}
+
+func TestResolverAgentEnvVar(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	t.Setenv("OPENCODE_SANDBOX_AGENT", "pi")
+	r, err := NewResolver(nil, "")
+	if err != nil {
+		t.Fatalf("NewResolver: %v", err)
+	}
+	if r.Agent() != "pi" {
+		t.Errorf("Agent = %q; want pi from env", r.Agent())
+	}
+}
+
 func TestNetworkProfileEnvVar(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	t.Setenv("OPENCODE_SANDBOX_NETWORK_PROFILE", "none")
@@ -454,6 +478,35 @@ func TestNetworkInvalidProfileRejected(t *testing.T) {
 	t.Setenv("OPENCODE_SANDBOX_NETWORK_PROFILE", "bogus")
 	if _, err := NewResolver(nil, ""); err == nil {
 		t.Fatal("expected error for invalid network profile")
+	}
+}
+
+func TestDindFromConfig(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	// project-level config.yaml
+	if err := os.MkdirAll(configpaths.Get().ProjectConfigDir(), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(
+		filepath.Join(configpaths.Get().ProjectConfigDir(), "config.yaml"),
+		[]byte("dind: true\n"),
+		0o600,
+	); err != nil {
+		t.Fatal(err)
+	}
+	r, err := NewResolver(nil, "some-slug")
+	if err != nil {
+		t.Fatalf("NewResolver: %v", err)
+	}
+	if !r.Dind() {
+		t.Error("Dind() = false, want true from config")
+	}
+}
+
+func TestDindDefaultsFalse(t *testing.T) {
+	r := NewResolverWithConfig(Config{})
+	if r.Dind() {
+		t.Error("Dind() = true, want default false")
 	}
 }
 
@@ -546,5 +599,104 @@ func TestResolverRejectsTooSmallInterval(t *testing.T) {
 	t.Setenv("OPENCODE_SANDBOX_UPGRADE_INTERVAL", "1m")
 	if _, err := NewResolver(nil, ""); err == nil {
 		t.Fatal("expected error for update interval below minimum")
+	}
+}
+
+func TestResolverNotifyDefaults(t *testing.T) {
+	r := NewResolverWithConfig(Config{})
+	cfg := r.Notify()
+	if cfg.Active() {
+		t.Errorf("default notify should be inactive, got %+v", cfg)
+	}
+	if cfg.Audio != notify.AudioOff {
+		t.Errorf("default audio = %q, want off", cfg.Audio)
+	}
+}
+
+func TestResolverNotifyFromConfigFile(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	testutil.WriteYAML(t, configpaths.Get().UserConfigDir(), "config.yaml", map[string]any{
+		"notify": map[string]any{
+			"desktop":  true,
+			"audio":    "bell",
+			"on-input": false,
+		},
+	})
+	r, err := NewResolver(nil, "")
+	if err != nil {
+		t.Fatalf("NewResolver: %v", err)
+	}
+	cfg := r.Notify()
+	if !cfg.Desktop || cfg.Audio != notify.AudioBell {
+		t.Errorf("channels = desktop:%v audio:%q, want desktop true audio bell", cfg.Desktop, cfg.Audio)
+	}
+	if cfg.OnInput || !cfg.OnDone || !cfg.OnError {
+		t.Errorf("triggers = %+v, want on-input off, on-done/on-error defaulted true", cfg)
+	}
+}
+
+func TestResolverNotifyRejectsInvalidAudio(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	testutil.WriteYAML(t, configpaths.Get().UserConfigDir(), "config.yaml", map[string]any{
+		"notify": map[string]any{"audio": "loud"},
+	})
+	if _, err := NewResolver(nil, ""); err == nil {
+		t.Fatal("expected error for invalid notify.audio mode")
+	}
+}
+
+func TestResolverHome(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	cp := configpaths.Get()
+	testutil.WriteYAML(t, cp.UserConfigDir(), "config.yaml", map[string]any{
+		"home": map[string]any{".gitconfig": ""},
+	})
+	testutil.WriteYAML(t, cp.ProjectConfigDir(), "config.yaml", map[string]any{
+		"home": map[string]any{".config/tool/cfg.toml": "./tool/cfg.toml"},
+	})
+
+	r, err := NewResolver(nil, "")
+	if err != nil {
+		t.Fatalf("NewResolver: %v", err)
+	}
+	layers, has := r.Home()
+	if !has {
+		t.Fatal("expected has=true")
+	}
+	if len(layers) != 2 {
+		t.Fatalf("expected 2 layers, got %d", len(layers))
+	}
+	if _, ok := layers[0].Manifest[".gitconfig"]; !ok {
+		t.Errorf("expected user .gitconfig in layer 0, got %v", layers[0].Manifest)
+	}
+	if _, ok := layers[1].Manifest[".config/tool/cfg.toml"]; !ok {
+		t.Errorf("expected project cfg.toml in layer 1, got %v", layers[1].Manifest)
+	}
+}
+
+func TestResolverHomeNoConfig(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	r, err := NewResolver(nil, "")
+	if err != nil {
+		t.Fatalf("NewResolver: %v", err)
+	}
+	layers, has := r.Home()
+	if has {
+		t.Error("expected has=false when no home key configured")
+	}
+	for i, l := range layers {
+		if len(l.Manifest) != 0 {
+			t.Errorf("expected empty manifest in layer %d, got %v", i, l.Manifest)
+		}
+	}
+}
+
+func TestResolverHomeRejectsInvalidHomeValue(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	testutil.WriteYAML(t, configpaths.Get().UserConfigDir(), "config.yaml", map[string]any{
+		"home": 5,
+	})
+	if _, err := NewResolver(nil, ""); err == nil {
+		t.Fatal("expected error for invalid home value")
 	}
 }

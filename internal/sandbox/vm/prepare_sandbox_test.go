@@ -3,7 +3,6 @@ package vm
 import (
 	"context"
 	"io"
-	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -14,17 +13,18 @@ import (
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 
-	"github.com/inoio/opencode-sandbox/internal/configpaths"
-	"github.com/inoio/opencode-sandbox/internal/git"
-	"github.com/inoio/opencode-sandbox/internal/homeconfig"
-	"github.com/inoio/opencode-sandbox/internal/sandbox/docker"
-	sandboximage "github.com/inoio/opencode-sandbox/internal/sandbox/image"
-	"github.com/inoio/opencode-sandbox/internal/sandbox/mounts"
-	"github.com/inoio/opencode-sandbox/internal/sandbox/msb"
-	"github.com/inoio/opencode-sandbox/internal/sandbox/options"
-	"github.com/inoio/opencode-sandbox/internal/sandbox/state"
-	"github.com/inoio/opencode-sandbox/internal/termio"
-	"github.com/inoio/opencode-sandbox/internal/testutil"
+	"github.com/inoio/agents-sandbox/internal/agent"
+	"github.com/inoio/agents-sandbox/internal/configpaths"
+	"github.com/inoio/agents-sandbox/internal/git"
+	"github.com/inoio/agents-sandbox/internal/homeconfig"
+	"github.com/inoio/agents-sandbox/internal/sandbox/docker"
+	sandboximage "github.com/inoio/agents-sandbox/internal/sandbox/image"
+	"github.com/inoio/agents-sandbox/internal/sandbox/mounts"
+	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
+	"github.com/inoio/agents-sandbox/internal/sandbox/options"
+	"github.com/inoio/agents-sandbox/internal/sandbox/state"
+	"github.com/inoio/agents-sandbox/internal/termio"
+	"github.com/inoio/agents-sandbox/internal/testutil"
 )
 
 // TestPrepareSandboxReusesStoredOpenCodeVersion verifies that a normal run
@@ -41,13 +41,13 @@ func TestPrepareSandboxReusesStoredOpenCodeVersion(t *testing.T) {
 	// The resolver records the requested version and returns it, so the test
 	// observes exactly what PrepareSandbox passed instead of a network lookup.
 	var requested string
-	sandboximage.WithMockOpenCodeVersionResolver(t, func(_ context.Context, req string) (string, error) {
+	sandboximage.WithMockAgentVersionResolver(t, func(_ context.Context, _ agent.Agent, req string) (string, error) {
 		requested = req
 		return req, nil
 	})
-	origUpgradeInfo := openCodeUpgradeInfo
-	openCodeUpgradeInfo = func(_ context.Context) (string, error) { return "1.5.0", nil }
-	t.Cleanup(func() { openCodeUpgradeInfo = origUpgradeInfo })
+	origUpgradeInfo := agentLatestVersion
+	agentLatestVersion = func(_ context.Context, _ agent.Agent) (string, error) { return "1.5.0", nil }
+	t.Cleanup(func() { agentLatestVersion = origUpgradeInfo })
 
 	docker.WithDockerMock(t, &docker.MockDockerClient{
 		ImageBuildFn: func(_ context.Context, _ io.Reader, _ client.ImageBuildOptions) (client.ImageBuildResult, error) {
@@ -60,7 +60,7 @@ func TestPrepareSandboxReusesStoredOpenCodeVersion(t *testing.T) {
 					Config: &dockerspec.DockerOCIImageConfig{
 						ImageConfig: ocispec.ImageConfig{
 							Env:    []string{"PATH=/usr/bin"},
-							Labels: map[string]string{sandboximage.OpenCodeVersionLabel: "1.5.0"},
+							Labels: map[string]string{"org.agents-sandbox.agent": "opencode"},
 						},
 					},
 				},
@@ -74,7 +74,7 @@ func TestPrepareSandboxReusesStoredOpenCodeVersion(t *testing.T) {
 		dockerdBinaryCheckCmd: msb.NewTestResult(false, 1, "", "", nil),
 	}}
 	sh := &msb.MockSandboxHandle{
-		Name_:     projectVMName(slug),
+		Name_:     projectVMName(state.Key{Slug: slug, Agent: "opencode"}),
 		Status_:   msbSdk.SandboxStatusRunning,
 		ConnectSb: connectSb,
 	}
@@ -83,7 +83,7 @@ func TestPrepareSandboxReusesStoredOpenCodeVersion(t *testing.T) {
 		ImageInspectFn: func(_ context.Context, _ string) (*msbSdk.ImageConfig, error) {
 			return &msbSdk.ImageConfig{
 				Env:    []string{"PATH=/usr/bin"},
-				Labels: map[string]string{sandboximage.OpenCodeVersionLabel: "1.5.0"},
+				Labels: map[string]string{"org.agents-sandbox.agent": "opencode"},
 			}, nil
 		},
 		Volumes: []msb.VolumeHandle{&msb.MockVolumeHandle{Name_: "home-vol"}},
@@ -91,10 +91,13 @@ func TestPrepareSandboxReusesStoredOpenCodeVersion(t *testing.T) {
 	mock.SetGotSandbox(sh)
 	msb.WithMsbMock(t, mock)
 
-	state.WriteState(slug, state.HomeState{HomeVolume: "home-vol", ImageDigest: "sha256:abc123"})
+	state.WriteState(
+		state.Key{Slug: slug, Agent: "opencode"},
+		state.HomeState{HomeVolume: "home-vol", ImageDigest: "sha256:abc123"},
+	)
 
 	origDaemon := SetDaemonShellFunc(func(_ context.Context, _ msb.Sandbox, command string) (string, int, error) {
-		if command == "curl -sfm2 "+daemonHealthURL {
+		if command == opencodeProvider(t).DaemonHealthCmd() {
 			return `{"healthy":true,"version":"test"}`, 0, nil
 		}
 		return "", 0, nil
@@ -125,9 +128,9 @@ func TestPrepareSandboxUpgradeRebuildsImage(t *testing.T) {
 		t.Fatalf("saveUpgradeState: %v", err)
 	}
 
-	origUpgradeInfo := openCodeUpgradeInfo
-	openCodeUpgradeInfo = func(_ context.Context) (string, error) { return "2.0.0", nil }
-	t.Cleanup(func() { openCodeUpgradeInfo = origUpgradeInfo })
+	origUpgradeInfo := agentLatestVersion
+	agentLatestVersion = func(_ context.Context, _ agent.Agent) (string, error) { return "2.0.0", nil }
+	t.Cleanup(func() { agentLatestVersion = origUpgradeInfo })
 
 	// The upgrade prompt accepts the rebuild, so shallUpgrade is true.
 	ui := &termio.Mock{
@@ -150,7 +153,7 @@ func TestPrepareSandboxUpgradeRebuildsImage(t *testing.T) {
 					Config: &dockerspec.DockerOCIImageConfig{
 						ImageConfig: ocispec.ImageConfig{
 							Env:    []string{"PATH=/usr/bin"},
-							Labels: map[string]string{sandboximage.OpenCodeVersionLabel: "2.0.0"},
+							Labels: map[string]string{"org.agents-sandbox.agent": "opencode"},
 						},
 					},
 				},
@@ -164,7 +167,7 @@ func TestPrepareSandboxUpgradeRebuildsImage(t *testing.T) {
 		dockerdBinaryCheckCmd: msb.NewTestResult(false, 1, "", "", nil),
 	}}
 	sh := &msb.MockSandboxHandle{
-		Name_:     projectVMName(slug),
+		Name_:     projectVMName(state.Key{Slug: slug, Agent: "opencode"}),
 		Status_:   msbSdk.SandboxStatusRunning,
 		ConnectSb: connectSb,
 	}
@@ -173,7 +176,7 @@ func TestPrepareSandboxUpgradeRebuildsImage(t *testing.T) {
 		ImageInspectFn: func(_ context.Context, _ string) (*msbSdk.ImageConfig, error) {
 			return &msbSdk.ImageConfig{
 				Env:    []string{"PATH=/usr/bin"},
-				Labels: map[string]string{sandboximage.OpenCodeVersionLabel: "2.0.0"},
+				Labels: map[string]string{"org.agents-sandbox.agent": "opencode"},
 			}, nil
 		},
 		Volumes: []msb.VolumeHandle{&msb.MockVolumeHandle{Name_: "home-vol"}},
@@ -181,10 +184,13 @@ func TestPrepareSandboxUpgradeRebuildsImage(t *testing.T) {
 	mock.SetGotSandbox(sh)
 	msb.WithMsbMock(t, mock)
 
-	state.WriteState(slug, state.HomeState{HomeVolume: "home-vol", ImageDigest: "sha256:abc123"})
+	state.WriteState(
+		state.Key{Slug: slug, Agent: "opencode"},
+		state.HomeState{HomeVolume: "home-vol", ImageDigest: "sha256:abc123"},
+	)
 
 	origDaemon := SetDaemonShellFunc(func(_ context.Context, _ msb.Sandbox, command string) (string, int, error) {
-		if command == "curl -sfm2 "+daemonHealthURL {
+		if command == opencodeProvider(t).DaemonHealthCmd() {
 			return `{"healthy":true,"version":"test"}`, 0, nil
 		}
 		return "", 0, nil
@@ -209,7 +215,7 @@ func TestPrepareSandboxUpgradeRebuildsImage(t *testing.T) {
 }
 
 // TestPrepareSandboxLoadsHomeYamlOnce verifies that a full startup loads the
-// home.yaml manifests exactly once: a missing host source is warned about a
+// home manifests exactly once: a missing host source is warned about a
 // single time. This guards against the regression where config files were
 // loaded twice (once in decideReconfig and once in setUpSandbox), which made
 // the warning (and the underlying BuildHomeFiles computation) run twice.
@@ -217,19 +223,19 @@ func TestPrepareSandboxLoadsHomeYamlOnce(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	cp := configpaths.Get()
 
-	// A project home.yaml whose host source does not exist triggers the
+	// A project home config whose host source does not exist triggers the
 	// "does not exist on the host; skipping" warning. The source is a relative
 	// path, resolved against the (empty) project config dir, so it cannot exist.
-	testutil.WriteFile(t, cp.ProjectConfigDir(), "home.yaml", "missing-file.txt: missing-file.txt\n")
+	testutil.WriteFile(t, cp.ProjectConfigDir(), "config.yaml", "home:\n  missing-file.txt: missing-file.txt\n")
 
 	// Pin the resolved opencode version so image resolution needs no network.
-	sandboximage.WithMockOpenCodeVersion(t, "1.0.0")
+	sandboximage.WithMockAgentVersion(t, "1.0.0")
 
 	// The image is considered up to date: the same version is "latest", so
-	// resolveOpenCodeBuildVersion does not offer a rebuild.
-	origUpgradeInfo := openCodeUpgradeInfo
-	openCodeUpgradeInfo = func(_ context.Context) (string, error) { return "1.0.0", nil }
-	t.Cleanup(func() { openCodeUpgradeInfo = origUpgradeInfo })
+	// resolveBuildVersion does not offer a rebuild.
+	origUpgradeInfo := agentLatestVersion
+	agentLatestVersion = func(_ context.Context, _ agent.Agent) (string, error) { return "1.0.0", nil }
+	t.Cleanup(func() { agentLatestVersion = origUpgradeInfo })
 
 	// Docker build + inspect are mocked so EnsureImage can "build" the runner
 	// image and produce a deterministic digest.
@@ -244,7 +250,7 @@ func TestPrepareSandboxLoadsHomeYamlOnce(t *testing.T) {
 					Config: &dockerspec.DockerOCIImageConfig{
 						ImageConfig: ocispec.ImageConfig{
 							Env:    []string{"PATH=/usr/bin"},
-							Labels: map[string]string{sandboximage.OpenCodeVersionLabel: "1.0.0"},
+							Labels: map[string]string{"org.agents-sandbox.agent": "opencode"},
 						},
 					},
 				},
@@ -262,7 +268,7 @@ func TestPrepareSandboxLoadsHomeYamlOnce(t *testing.T) {
 		dockerdBinaryCheckCmd: msb.NewTestResult(false, 1, "", "", nil),
 	}}
 	sh := &msb.MockSandboxHandle{
-		Name_:     projectVMName(slug),
+		Name_:     projectVMName(state.Key{Slug: slug, Agent: "opencode"}),
 		Status_:   msbSdk.SandboxStatusRunning,
 		ConnectSb: connectSb,
 	}
@@ -271,7 +277,7 @@ func TestPrepareSandboxLoadsHomeYamlOnce(t *testing.T) {
 		ImageInspectFn: func(_ context.Context, _ string) (*msbSdk.ImageConfig, error) {
 			return &msbSdk.ImageConfig{
 				Env:    []string{"PATH=/usr/bin"},
-				Labels: map[string]string{sandboximage.OpenCodeVersionLabel: "1.0.0"},
+				Labels: map[string]string{"org.agents-sandbox.agent": "opencode"},
 			}, nil
 		},
 		Volumes: []msb.VolumeHandle{&msb.MockVolumeHandle{Name_: "home-vol"}},
@@ -281,12 +287,15 @@ func TestPrepareSandboxLoadsHomeYamlOnce(t *testing.T) {
 
 	// Seed home state so ResolveHomeVolume reuses the existing volume and
 	// digest matches (no image-change home-volume prompt).
-	state.WriteState(slug, state.HomeState{HomeVolume: "home-vol", ImageDigest: "sha256:abc123"})
+	state.WriteState(
+		state.Key{Slug: slug, Agent: "opencode"},
+		state.HomeState{HomeVolume: "home-vol", ImageDigest: "sha256:abc123"},
+	)
 
 	// The opencode daemon is healthy inside the VM, so ensureDaemon returns
 	// immediately instead of starting and polling.
 	origDaemon := SetDaemonShellFunc(func(_ context.Context, _ msb.Sandbox, command string) (string, int, error) {
-		if command == "curl -sfm2 "+daemonHealthURL {
+		if command == opencodeProvider(t).DaemonHealthCmd() {
 			return `{"healthy":true,"version":"test"}`, 0, nil
 		}
 		return "", 0, nil
@@ -310,28 +319,32 @@ func TestPrepareSandboxLoadsHomeYamlOnce(t *testing.T) {
 		}
 	}
 	if missingWarnings != 1 {
-		t.Errorf("expected exactly 1 'missing home.yaml source' warning, got %d (warnings: %v)",
+		t.Errorf("expected exactly 1 'missing home source' warning, got %d (warnings: %v)",
 			missingWarnings, ui.WarnCalls)
 	}
 }
 
-// TestPrepareSandboxRunsStartupHook verifies that a home.yaml entry marked
+// TestPrepareSandboxRunsStartupHook verifies that a home entry marked
 // hook: startup is executed through an interactive AttachWith as the configured
 // user (root) during startup, before the opencode daemon is ensured.
 func TestPrepareSandboxRunsStartupHook(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	cp := configpaths.Get()
 
-	// A project home.yaml that both provisions a script and marks it a
+	// A project home config that both provisions a script and marks it a
 	// root-run startup hook.
 	testutil.WritePath(t, filepath.Join(cp.ProjectConfigDir(), "connect.sh"), "#!/bin/sh\nnohup echo vpn &\n")
-	testutil.WriteFile(t, cp.ProjectConfigDir(), "home.yaml",
-		".vpn/connect.sh:\n  source: connect.sh\n  hook: startup\n  root: true\n")
+	testutil.WriteFile(t, cp.ProjectConfigDir(), "config.yaml",
+		"home:\n"+
+			"  .vpn/connect.sh:\n"+
+			"    source: connect.sh\n"+
+			"    hook: startup\n"+
+			"    root: true\n")
 
-	sandboximage.WithMockOpenCodeVersion(t, "1.0.0")
-	origUpgradeInfo := openCodeUpgradeInfo
-	openCodeUpgradeInfo = func(_ context.Context) (string, error) { return "1.0.0", nil }
-	t.Cleanup(func() { openCodeUpgradeInfo = origUpgradeInfo })
+	sandboximage.WithMockAgentVersion(t, "1.0.0")
+	origUpgradeInfo := agentLatestVersion
+	agentLatestVersion = func(_ context.Context, _ agent.Agent) (string, error) { return "1.0.0", nil }
+	t.Cleanup(func() { agentLatestVersion = origUpgradeInfo })
 
 	docker.WithDockerMock(t, &docker.MockDockerClient{
 		ImageBuildFn: func(_ context.Context, _ io.Reader, _ client.ImageBuildOptions) (client.ImageBuildResult, error) {
@@ -344,7 +357,7 @@ func TestPrepareSandboxRunsStartupHook(t *testing.T) {
 					Config: &dockerspec.DockerOCIImageConfig{
 						ImageConfig: ocispec.ImageConfig{
 							Env:    []string{"PATH=/usr/bin"},
-							Labels: map[string]string{sandboximage.OpenCodeVersionLabel: "1.0.0"},
+							Labels: map[string]string{"org.agents-sandbox.agent": "opencode"},
 						},
 					},
 				},
@@ -358,7 +371,7 @@ func TestPrepareSandboxRunsStartupHook(t *testing.T) {
 		dockerdBinaryCheckCmd: msb.NewTestResult(false, 1, "", "", nil),
 	}}
 	sh := &msb.MockSandboxHandle{
-		Name_:     projectVMName(slug),
+		Name_:     projectVMName(state.Key{Slug: slug, Agent: "opencode"}),
 		Status_:   msbSdk.SandboxStatusStopped,
 		ConnectSb: connectSb,
 		StartSb:   connectSb,
@@ -368,7 +381,7 @@ func TestPrepareSandboxRunsStartupHook(t *testing.T) {
 		ImageInspectFn: func(_ context.Context, _ string) (*msbSdk.ImageConfig, error) {
 			return &msbSdk.ImageConfig{
 				Env:    []string{"PATH=/usr/bin"},
-				Labels: map[string]string{sandboximage.OpenCodeVersionLabel: "1.0.0"},
+				Labels: map[string]string{"org.agents-sandbox.agent": "opencode"},
 			}, nil
 		},
 		Volumes: []msb.VolumeHandle{&msb.MockVolumeHandle{Name_: "home-vol"}},
@@ -376,10 +389,13 @@ func TestPrepareSandboxRunsStartupHook(t *testing.T) {
 	mock.SetGotSandbox(sh)
 	msb.WithMsbMock(t, mock)
 
-	state.WriteState(slug, state.HomeState{HomeVolume: "home-vol", ImageDigest: "sha256:abc123"})
+	state.WriteState(
+		state.Key{Slug: slug, Agent: "opencode"},
+		state.HomeState{HomeVolume: "home-vol", ImageDigest: "sha256:abc123"},
+	)
 
 	origDaemon := SetDaemonShellFunc(func(_ context.Context, _ msb.Sandbox, command string) (string, int, error) {
-		if command == "curl -sfm2 "+daemonHealthURL {
+		if command == opencodeProvider(t).DaemonHealthCmd() {
 			return `{"healthy":true,"version":"test"}`, 0, nil
 		}
 		return "", 0, nil
@@ -455,88 +471,6 @@ func TestRunStartupHooksRunsAsRoot(t *testing.T) {
 	}
 }
 
-// TestPrepareSandboxWarnsWhenRecordingVersionFails covers the branch where
-// persisting the baked opencode version fails: PrepareSandbox warns and
-// continues rather than failing the run.
-func TestPrepareSandboxWarnsWhenRecordingVersionFails(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
-
-	// Make the updater state file unreadable (a directory in its place) so
-	// recordUpgradeVersion's load fails with a non-not-found error, while the
-	// rest of the state directory remains usable.
-	stateDir := configpaths.Get().UserStateDir()
-	updaterPath := filepath.Join(stateDir, "updater.yaml")
-	if err := os.MkdirAll(updaterPath, 0o700); err != nil {
-		t.Fatal(err)
-	}
-
-	sandboximage.WithMockOpenCodeVersion(t, "1.0.0")
-
-	docker.WithDockerMock(t, &docker.MockDockerClient{
-		ImageBuildFn: func(_ context.Context, _ io.Reader, _ client.ImageBuildOptions) (client.ImageBuildResult, error) {
-			return client.ImageBuildResult{Body: io.NopCloser(strings.NewReader(""))}, nil
-		},
-		ImageInspectFn: func(_ context.Context, _ string, _ ...client.ImageInspectOption) (client.ImageInspectResult, error) {
-			return client.ImageInspectResult{
-				InspectResponse: mobyimage.InspectResponse{
-					ID: "sha256:abc123",
-					Config: &dockerspec.DockerOCIImageConfig{
-						ImageConfig: ocispec.ImageConfig{
-							Env:    []string{"PATH=/usr/bin"},
-							Labels: map[string]string{sandboximage.OpenCodeVersionLabel: "1.0.0"},
-						},
-					},
-				},
-			}, nil
-		},
-	})
-
-	slug := git.ProjectSlug()
-	vmFS := msb.NewTestFS(nil, nil)
-	connectSb := &msb.MockSandbox{Name_: "vm", FSValue_: vmFS, ShellOut: map[string]msb.ShellResult{
-		dockerdBinaryCheckCmd: msb.NewTestResult(false, 1, "", "", nil),
-	}}
-	sh := &msb.MockSandboxHandle{
-		Name_:     projectVMName(slug),
-		Status_:   msbSdk.SandboxStatusRunning,
-		ConnectSb: connectSb,
-	}
-	mock := &msb.MockMsbClient{
-		ImageGetFn: func(_ context.Context, _ string) error { return nil },
-		ImageInspectFn: func(_ context.Context, _ string) (*msbSdk.ImageConfig, error) {
-			return &msbSdk.ImageConfig{
-				Env:    []string{"PATH=/usr/bin"},
-				Labels: map[string]string{sandboximage.OpenCodeVersionLabel: "1.0.0"},
-			}, nil
-		},
-		Volumes: []msb.VolumeHandle{&msb.MockVolumeHandle{Name_: "home-vol"}},
-	}
-	mock.SetGotSandbox(sh)
-	msb.WithMsbMock(t, mock)
-
-	origDaemon := SetDaemonShellFunc(func(_ context.Context, _ msb.Sandbox, command string) (string, int, error) {
-		if command == "curl -sfm2 "+daemonHealthURL {
-			return `{"healthy":true,"version":"test"}`, 0, nil
-		}
-		return "", 0, nil
-	})
-	defer SetDaemonShellFunc(origDaemon)
-
-	ui := termio.NewTestMock(t)
-	sess, err := PrepareSandbox(context.Background(), options.RunOptions{}, &ui)
-	if err != nil {
-		t.Fatalf("PrepareSandbox: %v", err)
-	}
-	if sess == nil {
-		t.Fatal("expected a non-nil session")
-	}
-	defer sess.Cleanup()
-
-	if !contains(joinStrings(ui.WarnCalls), "could not record opencode version in updater state") {
-		t.Errorf("expected a version-recording warning, got %v", ui.WarnCalls)
-	}
-}
-
 // TestPrepareSandboxPersistsMountFingerprintOnVMCreation verifies that a
 // freshly created project VM records the configured bind mounts in the state
 // file. Without this fingerprint the next run would compare against an empty
@@ -544,12 +478,12 @@ func TestPrepareSandboxWarnsWhenRecordingVersionFails(t *testing.T) {
 func TestPrepareSandboxPersistsMountFingerprintOnVMCreation(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 
-	sandboximage.WithMockOpenCodeVersionResolver(t, func(_ context.Context, req string) (string, error) {
+	sandboximage.WithMockAgentVersionResolver(t, func(_ context.Context, _ agent.Agent, req string) (string, error) {
 		return req, nil
 	})
-	origUpgradeInfo := openCodeUpgradeInfo
-	openCodeUpgradeInfo = func(_ context.Context) (string, error) { return "1.5.0", nil }
-	t.Cleanup(func() { openCodeUpgradeInfo = origUpgradeInfo })
+	origUpgradeInfo := agentLatestVersion
+	agentLatestVersion = func(_ context.Context, _ agent.Agent) (string, error) { return "1.5.0", nil }
+	t.Cleanup(func() { agentLatestVersion = origUpgradeInfo })
 	if err := saveUpgradeState(upgradeState{CurrentVersion: "1.5.0"}); err != nil {
 		t.Fatalf("saveUpgradeState: %v", err)
 	}
@@ -564,7 +498,7 @@ func TestPrepareSandboxPersistsMountFingerprintOnVMCreation(t *testing.T) {
 					ID: "sha256:abc123",
 					Config: &dockerspec.DockerOCIImageConfig{
 						ImageConfig: ocispec.ImageConfig{
-							Labels: map[string]string{sandboximage.OpenCodeVersionLabel: "1.5.0"},
+							Labels: map[string]string{"org.agents-sandbox.agent": "opencode"},
 						},
 					},
 				},
@@ -574,9 +508,13 @@ func TestPrepareSandboxPersistsMountFingerprintOnVMCreation(t *testing.T) {
 
 	slug := git.ProjectSlug()
 	vmFS := msb.NewTestFS(nil, nil)
-	createdSb := &msb.MockSandbox{Name_: projectVMName(slug), FSValue_: vmFS, ShellOut: map[string]msb.ShellResult{
-		dockerdBinaryCheckCmd: msb.NewTestResult(false, 1, "", "", nil),
-	}}
+	createdSb := &msb.MockSandbox{
+		Name_:    projectVMName(state.Key{Slug: slug, Agent: "opencode"}),
+		FSValue_: vmFS,
+		ShellOut: map[string]msb.ShellResult{
+			dockerdBinaryCheckCmd: msb.NewTestResult(false, 1, "", "", nil),
+		},
+	}
 	// No sandbox handle is registered, so GetSandbox reports "not found" and
 	// PrepareSandbox takes the create path (boot == vmBootCreated).
 	mock := &msb.MockMsbClient{
@@ -586,7 +524,7 @@ func TestPrepareSandboxPersistsMountFingerprintOnVMCreation(t *testing.T) {
 	}
 	msb.WithMsbMock(t, mock)
 
-	if err := state.WriteState(slug, state.HomeState{
+	if err := state.WriteState(state.Key{Slug: slug, Agent: "opencode"}, state.HomeState{
 		HomeVolume:  "home-vol",
 		ImageDigest: "sha256:abc123",
 	}); err != nil {
@@ -594,7 +532,7 @@ func TestPrepareSandboxPersistsMountFingerprintOnVMCreation(t *testing.T) {
 	}
 
 	origDaemon := SetDaemonShellFunc(func(_ context.Context, _ msb.Sandbox, command string) (string, int, error) {
-		if command == "curl -sfm2 "+daemonHealthURL {
+		if command == opencodeProvider(t).DaemonHealthCmd() {
 			return `{"healthy":true,"version":"test"}`, 0, nil
 		}
 		return "", 0, nil
@@ -615,7 +553,7 @@ func TestPrepareSandboxPersistsMountFingerprintOnVMCreation(t *testing.T) {
 		t.Fatalf("expected the project VM to be created, got %d creations", len(mock.CreatedSandboxes))
 	}
 
-	st, err := state.ReadState(slug)
+	st, err := state.ReadState(state.Key{Slug: slug, Agent: "opencode"})
 	if err != nil {
 		t.Fatalf("ReadState: %v", err)
 	}

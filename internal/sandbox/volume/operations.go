@@ -10,16 +10,16 @@ import (
 
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 
-	"github.com/inoio/opencode-sandbox/internal/sandbox/image"
-	"github.com/inoio/opencode-sandbox/internal/sandbox/msb"
-	"github.com/inoio/opencode-sandbox/internal/sandbox/naming"
-	"github.com/inoio/opencode-sandbox/internal/sandbox/options"
-	"github.com/inoio/opencode-sandbox/internal/sandbox/state"
-	"github.com/inoio/opencode-sandbox/internal/termio"
+	"github.com/inoio/agents-sandbox/internal/sandbox/image"
+	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
+	"github.com/inoio/agents-sandbox/internal/sandbox/naming"
+	"github.com/inoio/agents-sandbox/internal/sandbox/options"
+	"github.com/inoio/agents-sandbox/internal/sandbox/state"
+	"github.com/inoio/agents-sandbox/internal/termio"
 )
 
-// checkForActiveVMs checks if there are active VMs for the given slug.
-func checkForActiveVMs(ctx context.Context, slug string) error {
+// checkForActiveVMs checks if there are active VMs for the given key.
+func checkForActiveVMs(ctx context.Context, k state.Key) error {
 	client := msb.Get()
 	sandboxes, err := client.ListSandboxes(ctx, nil)
 	if err != nil {
@@ -29,12 +29,13 @@ func checkForActiveVMs(ctx context.Context, slug string) error {
 		if !strings.HasPrefix(handle.Name(), naming.VmPrefix) {
 			continue
 		}
-		if naming.ArtifactFor(handle.Name()).Slug == slug {
+		artifact := naming.ArtifactFor(handle.Name())
+		if artifact.Slug == k.Slug && (artifact.Agent == k.Agent || artifact.Agent == "") {
 			status := handle.Status()
 			if msb.IsSandboxActive(status) {
 				return fmt.Errorf(
 					"VM still running for slug %q -- quit all sessions before migrating or resetting",
-					slug,
+					k.Slug,
 				)
 			}
 		}
@@ -63,21 +64,21 @@ type volCallbacks struct {
 // CmdMigrate creates a new home volume, copies old files on top, updates state.
 func CmdMigrate(
 	ctx context.Context,
-	projectSlug, volumeName, imageTag, currentDigest string,
+	k state.Key, volumeName, imageTag, currentDigest string,
 	rmOld, dryRun bool,
 	ui termio.UI,
 ) error {
-	return volumeOp(ctx, projectSlug, volumeName, imageTag, currentDigest, rmOld, dryRun, volCallbacks{
+	return volumeOp(ctx, k, volumeName, imageTag, currentDigest, rmOld, dryRun, volCallbacks{
 		dryRun: func(oldVolume string) string {
 			return fmt.Sprintf(
 				"dry-run: Would create volume %q, copy files from %q",
-				HomeVolumeName(projectSlug),
+				HomeVolumeName(k),
 				oldVolume,
 			)
 		},
 		main: func(oldVolume, newVolumeName string) error {
 			if err := NewManager(ui).CopyVolume(
-				ctx, msb.Get(), projectSlug, oldVolume, newVolumeName, imageTag, ui,
+				ctx, msb.Get(), k, oldVolume, newVolumeName, imageTag, ui,
 			); err != nil {
 				return err
 			}
@@ -90,15 +91,15 @@ func CmdMigrate(
 // CmdReset creates a new home volume from image only, no copy.
 func CmdReset(
 	ctx context.Context,
-	projectSlug, volumeName, imageTag, currentDigest string,
+	k state.Key, volumeName, imageTag, currentDigest string,
 	rmOld, dryRun bool,
 	ui termio.UI,
 ) error {
-	return volumeOp(ctx, projectSlug, volumeName, imageTag, currentDigest, rmOld, dryRun, volCallbacks{
+	return volumeOp(ctx, k, volumeName, imageTag, currentDigest, rmOld, dryRun, volCallbacks{
 		dryRun: func(oldVolume string) string {
 			return fmt.Sprintf(
 				"dry-run: Would create fresh volume %q, remove %q",
-				HomeVolumeName(projectSlug),
+				HomeVolumeName(k),
 				oldVolume,
 			)
 		},
@@ -112,25 +113,28 @@ func CmdReset(
 // CmdEdit creates a new volume alongside the old for manual transfer.
 func CmdEdit(
 	ctx context.Context,
-	projectSlug, volumeName, imageTag, currentDigest string,
+	k state.Key, volumeName, imageTag, currentDigest string,
 	rmOld, dryRun bool,
 	ui termio.UI,
 ) error {
-	return volumeOp(ctx, projectSlug, volumeName, imageTag, currentDigest, rmOld, dryRun, volCallbacks{
+	return volumeOp(ctx, k, volumeName, imageTag, currentDigest, rmOld, dryRun, volCallbacks{
 		dryRun: func(oldVolume string) string {
 			return fmt.Sprintf(
 				"dry-run: Would create volume %q alongside %q for manual transfer",
-				HomeVolumeName(projectSlug),
+				HomeVolumeName(k),
 				oldVolume,
 			)
 		},
 		main: func(oldVolume, newVolumeName string) error {
 			client := msb.Get()
-			if err := image.EnsureLoaded(ctx, client, projectSlug, imageTag, ui); err != nil {
+			if err := image.EnsureLoaded(ctx, client, k.Slug, imageTag, ui); err != nil {
 				return fmt.Errorf("load runner image: %w", err)
 			}
 			spin := ui.Spinner("Starting interactive session with both volumes")
-			editSandboxName := naming.TaskPrefix + projectSlug + "-" + strconv.FormatInt(time.Now().UnixNano(), 10)
+			editSandboxName := naming.TaskPrefix + k.Slug + "-" + k.Agent + "-" + strconv.FormatInt(
+				time.Now().UnixNano(),
+				10,
+			)
 			editOldMount := msbSdk.Mount.Named(oldVolume, msbSdk.MountOptions{})
 			editNewMount := msbSdk.Mount.Named(newVolumeName, msbSdk.MountOptions{})
 			editSb, editErr := client.CreateSandbox(ctx, editSandboxName,
@@ -168,17 +172,17 @@ func CmdEdit(
 // volumeOp is the shared implementation for migrate, reset, and edit operations.
 func volumeOp(
 	ctx context.Context,
-	projectSlug, volumeName, imageTag, currentDigest string,
+	k state.Key, volumeName, imageTag, currentDigest string,
 	rmOld, dryRun bool,
 	cbs volCallbacks,
 	ui termio.UI,
 ) error {
 	client := msb.Get()
 
-	st, err := state.ReadState(projectSlug)
+	st, err := state.ReadState(k)
 	if err != nil {
 		if errors.Is(err, state.ErrStateNotFound) {
-			return fmt.Errorf("no state file found for project %q", projectSlug)
+			return fmt.Errorf("no state file found for project %q", k.Slug)
 		}
 		return fmt.Errorf("read state: %w", err)
 	}
@@ -191,7 +195,7 @@ func volumeOp(
 		}
 	}
 
-	if vmErr := checkForActiveVMs(ctx, projectSlug); vmErr != nil {
+	if vmErr := checkForActiveVMs(ctx, k); vmErr != nil {
 		return vmErr
 	}
 
@@ -200,7 +204,7 @@ func volumeOp(
 		return nil
 	}
 
-	newVolumeName := HomeVolumeName(projectSlug)
+	newVolumeName := HomeVolumeName(k)
 	newVol, err := client.CreateVolume(ctx, newVolumeName,
 		msbSdk.WithVolumeKind(msbSdk.VolumeKindDir),
 	)
@@ -209,7 +213,7 @@ func volumeOp(
 	}
 
 	vm := NewManager(ui)
-	if err := vm.PrefillVolume(ctx, client, projectSlug, newVol.Name(), imageTag, ui); err != nil {
+	if err := vm.PrefillVolume(ctx, client, k, newVol.Name(), imageTag, ui); err != nil {
 		return fmt.Errorf("prefill new volume: %w", err)
 	}
 
@@ -233,7 +237,7 @@ func volumeOp(
 	newState.SecretState = st.SecretState
 	newState.NetworkState = st.NetworkState
 	newState.MountState = st.MountState
-	if err := state.WriteState(projectSlug, newState); err != nil {
+	if err := state.WriteState(k, newState); err != nil {
 		ui.Warnf("failed to write state file: %v", err)
 	}
 

@@ -7,7 +7,7 @@ import (
 
 	"gopkg.in/yaml.v3"
 
-	"github.com/inoio/opencode-sandbox/internal/termio"
+	"github.com/inoio/agents-sandbox/internal/termio"
 )
 
 func TestTermUIMock_ReturnsEmptyMock(t *testing.T) {

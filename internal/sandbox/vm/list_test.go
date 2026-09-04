@@ -7,8 +7,8 @@ import (
 
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 
-	"github.com/inoio/opencode-sandbox/internal/sandbox/msb"
-	"github.com/inoio/opencode-sandbox/internal/sandbox/naming"
+	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
+	"github.com/inoio/agents-sandbox/internal/sandbox/naming"
 )
 
 func intPtr(n uint32) *uint32 { return &n } //nolint:modernize // keep explicit pointer helper for test clarity
@@ -40,11 +40,11 @@ func TestListSandboxesPopulatesInfo(t *testing.T) {
 	mock := &msb.MockMsbClient{}
 	mock.Sandboxes = []msb.SandboxHandle{
 		&msb.MockSandboxHandle{
-			Name_:      "opencode-sandbox-vm-abc",
+			Name_:      "agents-sandbox-vm-abc",
 			Status_:    msbSdk.SandboxStatusRunning,
 			CreatedAt_: now,
 			UpdatedAt_: now,
-			Cfg:        &msbSdk.SandboxConfig{Image: "opencode-sandbox/runner:latest"},
+			Cfg:        &msbSdk.SandboxConfig{Image: "agents-sandbox/runner:latest"},
 		},
 		&msb.MockSandboxHandle{Name_: "myvm-other", Status_: msbSdk.SandboxStatusRunning},
 	}
@@ -58,22 +58,22 @@ func TestListSandboxesPopulatesInfo(t *testing.T) {
 		t.Fatalf("ListSandboxes() got %d infos, want 1 (non-project VM filtered)", len(got))
 	}
 	info := got[0]
-	if info.Name != "opencode-sandbox-vm-abc" || info.Status != "running" {
+	if info.Name != "agents-sandbox-vm-abc" || info.Status != "running" {
 		t.Errorf("unexpected name/status: %+v", info)
 	}
 	if info.CreatedAt != "2026-08-17 10:30:00" {
 		t.Errorf("CreatedAt = %q, want 2026-08-17 10:30:00", info.CreatedAt)
 	}
-	if info.Image != "opencode-sandbox/runner:latest" {
-		t.Errorf("Image = %q, want opencode-sandbox/runner:latest", info.Image)
+	if info.Image != "agents-sandbox/runner:latest" {
+		t.Errorf("Image = %q, want agents-sandbox/runner:latest", info.Image)
 	}
 }
 
 func TestListSandboxesRunningOnly(t *testing.T) {
 	mock := &msb.MockMsbClient{}
 	mock.Sandboxes = []msb.SandboxHandle{
-		&msb.MockSandboxHandle{Name_: "opencode-sandbox-vm-a", Status_: msbSdk.SandboxStatusRunning},
-		&msb.MockSandboxHandle{Name_: "opencode-sandbox-vm-b", Status_: msbSdk.SandboxStatusStopped},
+		&msb.MockSandboxHandle{Name_: "agents-sandbox-vm-a", Status_: msbSdk.SandboxStatusRunning},
+		&msb.MockSandboxHandle{Name_: "agents-sandbox-vm-b", Status_: msbSdk.SandboxStatusStopped},
 		&msb.MockSandboxHandle{Name_: "other-vm-c", Status_: msbSdk.SandboxStatusRunning},
 	}
 	msb.WithMsbMock(t, mock)
@@ -82,7 +82,7 @@ func TestListSandboxesRunningOnly(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ListSandboxes: %v", err)
 	}
-	if len(infos) != 1 || infos[0].Name != "opencode-sandbox-vm-a" {
+	if len(infos) != 1 || infos[0].Name != "agents-sandbox-vm-a" {
 		t.Errorf("expected only running project VM, got %+v", infos)
 	}
 }
@@ -90,8 +90,8 @@ func TestListSandboxesRunningOnly(t *testing.T) {
 func TestListSandboxesStoppedOnly(t *testing.T) {
 	mock := &msb.MockMsbClient{}
 	mock.Sandboxes = []msb.SandboxHandle{
-		&msb.MockSandboxHandle{Name_: "opencode-sandbox-vm-a", Status_: msbSdk.SandboxStatusRunning},
-		&msb.MockSandboxHandle{Name_: "opencode-sandbox-vm-b", Status_: msbSdk.SandboxStatusStopped},
+		&msb.MockSandboxHandle{Name_: "agents-sandbox-vm-a", Status_: msbSdk.SandboxStatusRunning},
+		&msb.MockSandboxHandle{Name_: "agents-sandbox-vm-b", Status_: msbSdk.SandboxStatusStopped},
 		&msb.MockSandboxHandle{Name_: "other-vm-c", Status_: msbSdk.SandboxStatusStopped},
 	}
 	msb.WithMsbMock(t, mock)
@@ -100,7 +100,7 @@ func TestListSandboxesStoppedOnly(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ListSandboxes: %v", err)
 	}
-	if len(infos) != 1 || infos[0].Name != "opencode-sandbox-vm-b" {
+	if len(infos) != 1 || infos[0].Name != "agents-sandbox-vm-b" {
 		t.Errorf("expected only stopped project VM, got %+v", infos)
 	}
 }
@@ -108,8 +108,8 @@ func TestListSandboxesStoppedOnly(t *testing.T) {
 func TestListSandboxesRunningWinsWhenBoth(t *testing.T) {
 	mock := &msb.MockMsbClient{}
 	mock.Sandboxes = []msb.SandboxHandle{
-		&msb.MockSandboxHandle{Name_: "opencode-sandbox-vm-a", Status_: msbSdk.SandboxStatusRunning},
-		&msb.MockSandboxHandle{Name_: "opencode-sandbox-vm-b", Status_: msbSdk.SandboxStatusStopped},
+		&msb.MockSandboxHandle{Name_: "agents-sandbox-vm-a", Status_: msbSdk.SandboxStatusRunning},
+		&msb.MockSandboxHandle{Name_: "agents-sandbox-vm-b", Status_: msbSdk.SandboxStatusStopped},
 	}
 	msb.WithMsbMock(t, mock)
 
@@ -117,7 +117,7 @@ func TestListSandboxesRunningWinsWhenBoth(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ListSandboxes: %v", err)
 	}
-	if len(infos) != 1 || infos[0].Name != "opencode-sandbox-vm-a" {
+	if len(infos) != 1 || infos[0].Name != "agents-sandbox-vm-a" {
 		t.Errorf("expected running-only when both set, got %+v", infos)
 	}
 }
@@ -125,8 +125,8 @@ func TestListSandboxesRunningWinsWhenBoth(t *testing.T) {
 func TestListSandboxesLimit(t *testing.T) {
 	mock := &msb.MockMsbClient{}
 	mock.Sandboxes = []msb.SandboxHandle{
-		&msb.MockSandboxHandle{Name_: "opencode-sandbox-vm-a", Status_: msbSdk.SandboxStatusRunning},
-		&msb.MockSandboxHandle{Name_: "opencode-sandbox-vm-b", Status_: msbSdk.SandboxStatusRunning},
+		&msb.MockSandboxHandle{Name_: "agents-sandbox-vm-a", Status_: msbSdk.SandboxStatusRunning},
+		&msb.MockSandboxHandle{Name_: "agents-sandbox-vm-b", Status_: msbSdk.SandboxStatusRunning},
 	}
 	msb.WithMsbMock(t, mock)
 
@@ -162,12 +162,12 @@ func TestListSandboxesPopulatesInfoFields(t *testing.T) {
 	mock := &msb.MockMsbClient{}
 	mock.Sandboxes = []msb.SandboxHandle{
 		&msb.MockSandboxHandle{
-			Name_:      "opencode-sandbox-vm-a",
+			Name_:      "agents-sandbox-vm-a",
 			Status_:    msbSdk.SandboxStatusRunning,
 			CreatedAt_: now,
 			UpdatedAt_: now.Add(time.Hour),
 			Cfg: &msbSdk.SandboxConfig{
-				Image:  "opencode-sandbox/runner:latest",
+				Image:  "agents-sandbox/runner:latest",
 				Labels: map[string]string{naming.LabelProject: "proj"},
 			},
 		},

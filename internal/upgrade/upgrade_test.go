@@ -11,8 +11,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/inoio/opencode-sandbox/internal/configpaths"
-	"github.com/inoio/opencode-sandbox/internal/termio"
+	"github.com/inoio/agents-sandbox/internal/configpaths"
+	"github.com/inoio/agents-sandbox/internal/termio"
 )
 
 // serveLatest starts an httptest server that serves the latest-release API
@@ -283,7 +283,7 @@ func TestLatestRelease(t *testing.T) {
 func TestDownloadAndReplace(t *testing.T) {
 	serveLatest(t, "2.0.0", []byte("#!/bin/sh\necho new\n"))
 	dir := t.TempDir()
-	target := filepath.Join(dir, "opencode-sandbox")
+	target := filepath.Join(dir, "agents-sandbox")
 	_ = os.WriteFile(target, []byte("old"), 0o750)
 
 	asset, err := downloadAssetToDir(context.Background(), dir)
@@ -309,7 +309,7 @@ func TestDownloadAndReplace(t *testing.T) {
 
 func TestReplaceExecutableDefaultsToExecutable(t *testing.T) {
 	dir := t.TempDir()
-	target := filepath.Join(dir, "opencode-sandbox") // does not exist
+	target := filepath.Join(dir, "agents-sandbox") // does not exist
 	asset := filepath.Join(dir, "asset")
 	_ = os.WriteFile(asset, []byte("new"), 0o600)
 

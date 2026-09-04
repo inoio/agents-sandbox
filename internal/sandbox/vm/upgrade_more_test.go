@@ -6,22 +6,23 @@ import (
 	"os"
 	"testing"
 
-	"github.com/inoio/opencode-sandbox/internal/configpaths"
-	"github.com/inoio/opencode-sandbox/internal/sandbox/options"
-	"github.com/inoio/opencode-sandbox/internal/termio"
+	"github.com/inoio/agents-sandbox/internal/agent"
+	"github.com/inoio/agents-sandbox/internal/configpaths"
+	"github.com/inoio/agents-sandbox/internal/sandbox/options"
+	"github.com/inoio/agents-sandbox/internal/termio"
 )
 
 // TestResolveOpenCodeVersionInteractiveSelectError covers the Select failure
-// branch of resolveOpenCodeBuildVersion: an interactive prompt whose selection
+// branch of resolveBuildVersion: an interactive prompt whose selection
 // errors is propagated.
 func TestResolveOpenCodeVersionInteractiveSelectError(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	if err := saveUpgradeState(upgradeState{CurrentVersion: "1.0.0"}); err != nil {
 		t.Fatalf("saveUpgradeState: %v", err)
 	}
-	origLatest := openCodeUpgradeInfo
-	defer func() { openCodeUpgradeInfo = origLatest }()
-	openCodeUpgradeInfo = func(_ context.Context) (string, error) { return "2.0.0", nil }
+	origLatest := agentLatestVersion
+	defer func() { agentLatestVersion = origLatest }()
+	agentLatestVersion = func(_ context.Context, _ agent.Agent) (string, error) { return "2.0.0", nil }
 
 	ui := &termio.Mock{
 		IsInteractiveResult: true,
@@ -30,7 +31,7 @@ func TestResolveOpenCodeVersionInteractiveSelectError(t *testing.T) {
 		},
 	}
 
-	_, _, err := resolveOpenCodeBuildVersion(context.Background(), ui, options.RunOptions{})
+	_, _, err := resolveBuildVersion(context.Background(), opencodeAgent(t), ui, options.RunOptions{})
 	if err == nil {
 		t.Fatal("expected error when the interactive selection fails")
 	}
@@ -44,9 +45,9 @@ func TestResolveOpenCodeVersionInteractiveDefaultChoice(t *testing.T) {
 	if err := saveUpgradeState(upgradeState{CurrentVersion: "1.0.0"}); err != nil {
 		t.Fatalf("saveUpgradeState: %v", err)
 	}
-	origLatest := openCodeUpgradeInfo
-	defer func() { openCodeUpgradeInfo = origLatest }()
-	openCodeUpgradeInfo = func(_ context.Context) (string, error) { return "2.0.0", nil }
+	origLatest := agentLatestVersion
+	defer func() { agentLatestVersion = origLatest }()
+	agentLatestVersion = func(_ context.Context, _ agent.Agent) (string, error) { return "2.0.0", nil }
 
 	ui := &termio.Mock{
 		IsInteractiveResult: true,
@@ -55,7 +56,7 @@ func TestResolveOpenCodeVersionInteractiveDefaultChoice(t *testing.T) {
 		},
 	}
 
-	got, upgraded, err := resolveOpenCodeBuildVersion(context.Background(), ui, options.RunOptions{})
+	got, upgraded, err := resolveBuildVersion(context.Background(), opencodeAgent(t), ui, options.RunOptions{})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -74,9 +75,9 @@ func TestResolveOpenCodeVersionInteractiveKeep(t *testing.T) {
 	if err := saveUpgradeState(upgradeState{CurrentVersion: "1.0.0"}); err != nil {
 		t.Fatalf("saveUpgradeState: %v", err)
 	}
-	origLatest := openCodeUpgradeInfo
-	defer func() { openCodeUpgradeInfo = origLatest }()
-	openCodeUpgradeInfo = func(_ context.Context) (string, error) { return "2.0.0", nil }
+	origLatest := agentLatestVersion
+	defer func() { agentLatestVersion = origLatest }()
+	agentLatestVersion = func(_ context.Context, _ agent.Agent) (string, error) { return "2.0.0", nil }
 
 	ui := &termio.Mock{
 		IsInteractiveResult: true,
@@ -85,7 +86,7 @@ func TestResolveOpenCodeVersionInteractiveKeep(t *testing.T) {
 		},
 	}
 
-	got, upgraded, err := resolveOpenCodeBuildVersion(context.Background(), ui, options.RunOptions{})
+	got, upgraded, err := resolveBuildVersion(context.Background(), opencodeAgent(t), ui, options.RunOptions{})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -131,5 +132,39 @@ func TestSaveUpgradeStateWriteError(t *testing.T) {
 
 	if err := saveUpgradeState(upgradeState{CurrentVersion: "1.0.0"}); err == nil {
 		t.Error("expected error when writing the updater state file fails")
+	}
+}
+
+// TestResolveBuildVersionWithoutUpgradeChecker covers the fallback branch of
+// resolveBuildVersion: an agent with no upgrade checker reuses the recorded
+// version without prompting.
+func TestResolveBuildVersionWithoutUpgradeChecker(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	if err := saveUpgradeState(upgradeState{
+		Agents: map[string]agentUpgradeState{
+			"fake": {CurrentVersion: "1.5.0"},
+		},
+	}); err != nil {
+		t.Fatalf("saveUpgradeState: %v", err)
+	}
+	got, upgraded, err := resolveBuildVersion(context.Background(), &fakeAgent{}, &termio.Mock{}, options.RunOptions{})
+	if err != nil {
+		t.Fatalf("resolveBuildVersion: %v", err)
+	}
+	if got != "1.5.0" {
+		t.Errorf("resolveBuildVersion = %q, want recorded version 1.5.0", got)
+	}
+	if upgraded {
+		t.Error("expected upgraded=false for an agent without an upgrade checker")
+	}
+}
+
+// TestPendingUpgradeWithoutUpgradeChecker covers the no-checker branch of
+// pendingUpgrade: it never offers an upgrade for an agent lacking a checker.
+func TestPendingUpgradeWithoutUpgradeChecker(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	latest, offer := pendingUpgrade(context.Background(), &termio.Mock{}, &fakeAgent{}, "1.0.0")
+	if offer {
+		t.Errorf("expected no upgrade offer for an agent without a checker, got latest=%q", latest)
 	}
 }

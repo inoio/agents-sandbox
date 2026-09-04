@@ -5,6 +5,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/inoio/agents-sandbox/internal/agent"
 )
 
 type mockConfigPaths struct {
@@ -13,7 +15,7 @@ type mockConfigPaths struct {
 
 // InstallFailFastConfigPaths binds the sandbox config-path factory to its
 // fail-fast default. Exported so packages dispatching through the factory —
-// e.g. viperconfig, cmd/opencode-sandbox — can list it in their own InitMocks call.
+// e.g., viperconfig, cmd/agents-sandbox — can list it in their own InitMocks call.
 var InstallFailFastConfigPaths = func() { Get = FailFastConfigPaths } //nolint:gochecknoglobals // test hook, aligned with Get factory
 
 // FailFastConfigPaths is the ConfigPaths installed by default under tests: any
@@ -59,8 +61,8 @@ func (m *mockConfigPaths) UserStateDir() string {
 	return ensureMockConfigDirectory(filepath.Join(m.baseDir, "userstate"))
 }
 
-func (m *mockConfigPaths) UserOpencodeConfigDir() string {
-	return ensureMockConfigDirectory(filepath.Join(m.UserConfigDir(), "opencode"))
+func (m *mockConfigPaths) UserAgentConfigDir(a agent.Agent) string {
+	return ensureMockConfigDirectory(filepath.Join(m.UserConfigDir(), a.ConfigDirName()))
 }
 
 func (m *mockConfigPaths) ProjectConfigDir() string {
@@ -75,8 +77,8 @@ func (m *mockConfigPaths) UserEnvSecretFile() string {
 	return filepath.Join(m.UserConfigDir(), envSecretFileName)
 }
 
-func (m *mockConfigPaths) ProjectOpencodeConfigDir() string {
-	return ensureMockConfigDirectory(filepath.Join(m.ProjectConfigDir(), "opencode"))
+func (m *mockConfigPaths) ProjectAgentConfigDir(a agent.Agent) string {
+	return ensureMockConfigDirectory(filepath.Join(m.ProjectConfigDir(), a.ConfigDirName()))
 }
 
 func (m *mockConfigPaths) ProjectEnvFile() string {
@@ -114,7 +116,7 @@ func (f *failFastConfigPaths) UserConfigDir() string { f.mustMock(); return "" }
 func (f *failFastConfigPaths) UserCacheDir() string  { f.mustMock(); return "" }
 func (f *failFastConfigPaths) UserStateDir() string  { f.mustMock(); return "" }
 
-func (f *failFastConfigPaths) UserOpencodeConfigDir() string {
+func (f *failFastConfigPaths) UserAgentConfigDir(_ agent.Agent) string {
 	f.mustMock()
 	return ""
 }
@@ -122,7 +124,7 @@ func (f *failFastConfigPaths) UserOpencodeConfigDir() string {
 func (f *failFastConfigPaths) UserEnvFile() string       { f.mustMock(); return "" }
 func (f *failFastConfigPaths) UserEnvSecretFile() string { f.mustMock(); return "" }
 func (f *failFastConfigPaths) ProjectConfigDir() string  { f.mustMock(); return "" }
-func (f *failFastConfigPaths) ProjectOpencodeConfigDir() string {
+func (f *failFastConfigPaths) ProjectAgentConfigDir(_ agent.Agent) string {
 	f.mustMock()
 	return ""
 }

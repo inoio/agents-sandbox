@@ -4,8 +4,8 @@ import (
 	"context"
 	"time"
 
-	"github.com/inoio/opencode-sandbox/internal/sandbox/msb"
-	"github.com/inoio/opencode-sandbox/internal/termio"
+	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
+	"github.com/inoio/agents-sandbox/internal/termio"
 )
 
 // SandboxReport summarizes a PruneSandboxes run.
@@ -39,7 +39,7 @@ func PruneSandboxes(
 		report.Details = append(report.Details, StaleEntry{
 			Type:     StaleTypeVM,
 			Name:     name,
-			Slug:     slug,
+			Slug:     slug.Slug,
 			StaleFor: time.Since(handle.UpdatedAt()),
 			Digest:   "",
 		})

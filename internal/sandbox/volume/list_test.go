@@ -5,20 +5,30 @@ import (
 	"testing"
 	"time"
 
-	"github.com/inoio/opencode-sandbox/internal/sandbox/msb"
+	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
+	"github.com/inoio/agents-sandbox/internal/sandbox/naming"
+	"github.com/inoio/agents-sandbox/internal/sandbox/state"
 )
+
+func TestListVolumesParseRoundTrip(t *testing.T) {
+	name := HomeVolumeName(state.Key{Slug: "proj-abc123", Agent: "opencode"})
+	info := naming.ArtifactFor(name)
+	if info.Slug != "proj-abc123" || info.Agent != "opencode" {
+		t.Errorf("ArtifactFor(%q) = %+v, want slug=proj-abc123 agent=opencode", name, info)
+	}
+}
 
 func TestListVolumes_ReturnsOnlyHomeVolumes(t *testing.T) {
 	mockClient := &msb.MockMsbClient{
 		Volumes: []msb.VolumeHandle{
 			&msb.MockVolumeHandle{
-				Name_: "opencode-sandbox-home-proj-aBc1234D",
-				Path_: "/mnt/volumes/opencode-sandbox-home-proj-aBc1234D",
+				Name_: "agents-sandbox-home-proj-aBc1234D",
+				Path_: "/mnt/volumes/agents-sandbox-home-proj-aBc1234D",
 				Kind_: "project-home",
 			},
 			&msb.MockVolumeHandle{
-				Name_: "opencode-sandbox-clone-proj-aBc1234D-1719432000",
-				Path_: "/mnt/volumes/opencode-sandbox-clone-proj-aBc1234D-1719432000",
+				Name_: "agents-sandbox-clone-proj-aBc1234D-1719432000",
+				Path_: "/mnt/volumes/agents-sandbox-clone-proj-aBc1234D-1719432000",
 				Kind_: "project-clone",
 			},
 			&msb.MockVolumeHandle{Name_: "other-volume", Path_: "/mnt/volumes/other-volume", Kind_: "project-data"},
@@ -34,8 +44,8 @@ func TestListVolumes_ReturnsOnlyHomeVolumes(t *testing.T) {
 	if len(result) != 1 {
 		t.Fatalf("expected 1 home volume, got %d", len(result))
 	}
-	if result[0].Name != "opencode-sandbox-home-proj-aBc1234D" {
-		t.Errorf("expected name opencode-sandbox-home-proj-aBc1234D, got %q", result[0].Name)
+	if result[0].Name != "agents-sandbox-home-proj-aBc1234D" {
+		t.Errorf("expected name agents-sandbox-home-proj-aBc1234D, got %q", result[0].Name)
 	}
 	if result[0].Kind != "project-home" {
 		t.Errorf("expected kind project-home, got %q", result[0].Kind)
@@ -74,7 +84,7 @@ func TestListVolumes_PopulatesMetadata(t *testing.T) {
 	mockClient := &msb.MockMsbClient{
 		Volumes: []msb.VolumeHandle{
 			&msb.MockVolumeHandle{
-				Name_:          "opencode-sandbox-home-proj",
+				Name_:          "agents-sandbox-home-proj",
 				Kind_:          "disk",
 				QuotaMiB_:      &quota,
 				CapacityBytes_: &capacity,

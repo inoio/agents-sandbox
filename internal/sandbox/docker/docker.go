@@ -27,6 +27,11 @@ type Client interface {
 		imageIDs []string,
 		saveOpts ...client.ImageSaveOption,
 	) (client.ImageSaveResult, error)
+	ImagePull(
+		ctx context.Context,
+		ref string,
+		opts client.ImagePullOptions,
+	) (io.ReadCloser, error)
 	ImageRemove(
 		ctx context.Context,
 		imageID string,
@@ -95,6 +100,17 @@ func (realDockerClient) ImageSave(
 		return nil, err
 	}
 	return mobyClient.ImageSave(ctx, imageIDs, saveOpts...)
+}
+
+func (realDockerClient) ImagePull(
+	ctx context.Context,
+	ref string,
+	opts client.ImagePullOptions,
+) (io.ReadCloser, error) {
+	if err := ensureMobyClient(); err != nil {
+		return nil, err
+	}
+	return mobyClient.ImagePull(ctx, ref, opts)
 }
 
 func (realDockerClient) ImageRemove(

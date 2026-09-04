@@ -4,16 +4,18 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"strings"
+	"strconv"
 
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 
-	"github.com/inoio/opencode-sandbox/internal/git"
-	"github.com/inoio/opencode-sandbox/internal/sandbox/msb"
-	"github.com/inoio/opencode-sandbox/internal/sandbox/options"
-	"github.com/inoio/opencode-sandbox/internal/sandbox/state"
-	sandbox "github.com/inoio/opencode-sandbox/internal/sandbox/vm"
-	"github.com/inoio/opencode-sandbox/internal/termio"
+	"github.com/inoio/agents-sandbox/internal/agent"
+	"github.com/inoio/agents-sandbox/internal/git"
+	"github.com/inoio/agents-sandbox/internal/notify"
+	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
+	"github.com/inoio/agents-sandbox/internal/sandbox/options"
+	"github.com/inoio/agents-sandbox/internal/sandbox/state"
+	sandbox "github.com/inoio/agents-sandbox/internal/sandbox/vm"
+	"github.com/inoio/agents-sandbox/internal/termio"
 )
 
 // preparedSandbox is the subset of a prepared session that Run and Shell use.
@@ -22,6 +24,7 @@ type preparedSandbox interface {
 	Cleanup()
 	Sandbox() msb.Sandbox
 	Target() string
+	ServeHostPort() int
 }
 
 // prepareSandbox is a test seam swapped in tests to avoid real VM setup.
@@ -29,17 +32,69 @@ var prepareSandbox = func(ctx context.Context, opts options.RunOptions, ui termi
 	return sandbox.PrepareSandbox(ctx, opts, ui)
 }
 
-func buildAttachCommand(target string, args []string) string {
-	parts := []string{"opencode", "attach", "http://127.0.0.1:4096", "--dir", target}
-	parts = append(parts, args...)
+// notifyWatch is a test seam; production uses notify.Watch.
+//
+//nolint:gochecknoglobals // test seam
+var notifyWatch = notify.Watch
 
-	return strings.Join(parts, " ")
+// startNotifyWatcher launches the notify watcher in a goroutine and returns a
+// stop function. It is a no-op when notifications are inactive, the sandbox is
+// nil (dry-run), or the agent provides no EventStreamSpec. The watcher runs
+// until the session ctx is done or stop is called, whichever comes first. The
+// stop function cancels the watcher, waits for it to finish, and returns the
+// watcher's error (the drop summary) for the caller to log.
+func startNotifyWatcher(
+	ctx context.Context,
+	sb msb.Sandbox,
+	cfg notify.Config,
+	ui termio.UI,
+	spec *agent.EventStreamSpec,
+	projectSlug string,
+) func() error {
+	if sb == nil || !cfg.Active() || spec == nil {
+		ui.Verbosef("not starting notify watcher, sandbox %s, active %v, spec %s", sb, cfg.Active(), spec)
+		return func() error { return nil }
+	}
+	backend := notify.NewBackend(cfg, ui)
+	if projectSlug != "" {
+		backend = notify.NewDedup(projectSlug, notify.StateClaimer{}, backend)
+	}
+	watchCtx, cancel := context.WithCancel(ctx)
+	done := make(chan struct{})
+	var watchErr error
+	go func() {
+		defer close(done)
+		ui.Verbosef("starting notify watcher, sandbox %s, active %v, spec %s", sb, cfg.Active(), spec)
+		watchErr = notifyWatch(watchCtx, sb, *spec, backend)
+	}()
+	return func() error {
+		cancel()
+		<-done
+		return watchErr
+	}
 }
 
-// serveOnlyMessage builds the message printed when serving opencode for
-// external clients such as Opencode Desktop.
+func buildAttachCommand(a agent.Agent, target string, args []string) string {
+	runner, ok := agent.AsAttachRunner(a)
+	if !ok {
+		return ""
+	}
+	return runner.AttachCommand(target, args)
+}
+
+// logNotifyWatcherError stops the notify watcher and logs its drop-summary
+// error, if any. It is deferred from Run so it runs only after the attach TUI
+// has closed and can no longer be corrupted by the message.
+func logNotifyWatcherError(stop func() error, ui termio.UI) {
+	if err := stop(); err != nil {
+		ui.Verbosef("notify watcher: %v", err)
+	}
+}
+
+// serveOnlyMessage builds the message printed when serving the agent daemon for
+// external clients such as desktop apps.
 func serveOnlyMessage(host, port string) string {
-	return fmt.Sprintf("Connect Opencode Desktop to: http://%s:%s\n\n"+
+	return fmt.Sprintf("Connect a client to: http://%s:%s\n\n"+
 		"Optional: set OPENCODE_SERVER_PASSWORD (and OPENCODE_SERVER_USERNAME) to protect the server with basic auth.\n"+
 		"Press Ctrl-D to stop serving.", host, port)
 }
@@ -47,9 +102,9 @@ func serveOnlyMessage(host, port string) string {
 // runServeOnly keeps the VM alive and blocks until ctx is done (CTRL-D or
 // SIGINT), without attaching an in-VM TUI. It holds the VM via a keeper exec so
 // the msb idle timeout does not stop it while serving.
-func runServeOnly(ctx context.Context, sb msb.Sandbox, ui termio.UI) error {
+func runServeOnly(ctx context.Context, sb msb.Sandbox, ui termio.UI, hostPort int) error {
 	host := options.ServeOnlyBindAddr
-	port := options.ServeOnlyPort
+	port := strconv.Itoa(hostPort)
 	ui.Infof("%s", serveOnlyMessage(host, port))
 	keeperCtx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -59,8 +114,8 @@ func runServeOnly(ctx context.Context, sb msb.Sandbox, ui termio.UI) error {
 	return ctx.Err()
 }
 
-// Run creates (or reuses) the project VM, provisions config, starts opencode
-// serve, and attaches a TUI client.
+// Run creates (or reuses) the project VM, provisions config, starts the agent
+// serve daemon, and attaches a TUI client.
 //
 // Note: Run is called from cli.go after all flags are resolved.
 func Run(ctx context.Context, opts options.RunOptions, ui termio.UI) error {
@@ -72,18 +127,28 @@ func Run(ctx context.Context, opts options.RunOptions, ui termio.UI) error {
 	sb := ses.Sandbox()
 
 	if opts.DryRun {
-		ui.Infof("dry-run: Would run opencode")
+		ui.Infof("dry-run: Would run agent session")
 		return nil
 	}
 	if opts.DryRunVM && sb == nil {
-		ui.Infof("dry-run: Would start opencode in VM")
+		ui.Infof("dry-run: Would start agent session in VM")
 		return nil
 	}
 
 	projectSlug := git.ProjectSlug()
 
+	a, _ := agent.Lookup(opts.Agent)
+	var streamSpec *agent.EventStreamSpec
+	if provider, ok := agent.AsEventStreamProvider(a); ok {
+		eventStream := provider.EventStream()
+		streamSpec = &eventStream
+	}
+	stopNotify := startNotifyWatcher(ctx, sb, opts.Notify, ui, streamSpec, projectSlug)
+	defer logNotifyWatcherError(stopNotify, ui)
+
 	if opts.ServeOnly { //nolint:nestif // lease acquire/serve/release/reap sequence requires this structure
-		release, acquireErr := state.AcquireClientLease(projectSlug)
+		k := state.Key{Slug: projectSlug, Agent: a.Name()}
+		release, acquireErr := state.AcquireClientLease(k)
 		if acquireErr != nil {
 			ui.Warnf("client lease failed: %v", acquireErr)
 		}
@@ -92,29 +157,29 @@ func Run(ctx context.Context, opts options.RunOptions, ui termio.UI) error {
 				release()
 			}
 		}()
-		if err := runServeOnly(ctx, sb, ui); err != nil && !errors.Is(err, context.Canceled) {
+		if err := runServeOnly(ctx, sb, ui, ses.ServeHostPort()); err != nil && !errors.Is(err, context.Canceled) {
 			return err
 		}
 		if acquireErr == nil {
 			release()
 			release = nil
 		}
-		if err := reapOnLastClient(ctx, projectSlug, sb, opts.ReapPolicy, ui); err != nil {
+		if err := reapOnLastClient(ctx, a, k, sb, opts.ReapPolicy, ui); err != nil {
 			ui.Warnf("reap failed: %v", err)
 		}
 		return &sandbox.ExitError{Code: 0}
 	}
 
-	setup := buildAttachCommand(ses.Target(), opts.Args)
+	setup := buildAttachCommand(a, ses.Target(), opts.Args)
 	ui.Verbosef("%s", setup)
 	// Run as a login shell so /etc/profile and ~/.profile are sourced,
 	// putting tools installed under /usr/local/go/bin, ~/go/bin and
-	// ~/.microsandbox/bin on PATH for opencode and its child shells.
+	// ~/.microsandbox/bin on PATH for the agent and its child shells.
 	return runAttach(ctx, sb, projectSlug, ui, opts, "-l", "-c", setup)
 }
 
 // Shell creates (or reuses) the project VM and drops the user into an
-// interactive shell session, without starting opencode serve.
+// interactive shell session, without starting the agent serve daemon.
 func Shell(ctx context.Context, opts options.RunOptions, ui termio.UI) error {
 	ses, err := prepareSandbox(ctx, opts, ui)
 	if err != nil {
@@ -138,7 +203,7 @@ func Shell(ctx context.Context, opts options.RunOptions, ui termio.UI) error {
 
 func finalizeRun(attachErr error, exitCode int) error {
 	if attachErr != nil {
-		return fmt.Errorf("opencode session failed: %w", attachErr)
+		return fmt.Errorf("agent session failed: %w", attachErr)
 	}
 	if exitCode == 0 {
 		return nil
@@ -156,8 +221,11 @@ func runAttach(
 	opts options.RunOptions,
 	bashArgs ...string,
 ) error {
+	a, _ := agent.Lookup(opts.Agent)
+	k := state.Key{Slug: projectSlug, Agent: a.Name()}
+
 	// Acquire a client lease so state tracks this session.
-	release, acquireErr := state.AcquireClientLease(projectSlug)
+	release, acquireErr := state.AcquireClientLease(k)
 	if acquireErr != nil {
 		ui.Warnf("client lease failed: %v", acquireErr)
 	}
@@ -184,7 +252,7 @@ func runAttach(
 		release = nil
 	}
 
-	if err := reapOnLastClient(ctx, projectSlug, sb, opts.ReapPolicy, ui); err != nil {
+	if err := reapOnLastClient(ctx, a, k, sb, opts.ReapPolicy, ui); err != nil {
 		ui.Warnf("reap failed: %v", err)
 	}
 

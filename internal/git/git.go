@@ -14,7 +14,7 @@ import (
 // Configuration for slug names/hashes.
 // Names and hashes are shortened to fit the limits (image name/tag: 255/128, sandbox name: 128).
 const (
-	// Lowercase letters are required by docker, therefore base36 was chosen to achieve max entropy per hash length.
+	// Docker requires lowercase letters, therefore base36 was chosen to achieve max entropy per hash length.
 	base = 36
 	// Length of 14 -> ~72 bits entropy, collision probability is below 1e-9 for millions of inputs. Enough for naming.
 	hashIDLen        = 14
@@ -168,7 +168,7 @@ func lastPathSegment(url string) string {
 }
 
 // projectSlug builds the slug from a sanitized folder name and an input for
-// hashing. A sanitized folder name that is empty (e.g. the folder was all
+// hashing. A sanitized folder name that is empty (e.g., the folder was all
 // digits) falls back to "project" so the slug never starts with a bare dash.
 func projectSlug(folderName, id string) string {
 	if folderName == "" {

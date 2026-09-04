@@ -5,10 +5,11 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/inoio/opencode-sandbox/internal/configpaths"
-	sandboximage "github.com/inoio/opencode-sandbox/internal/sandbox/image"
-	"github.com/inoio/opencode-sandbox/internal/sandbox/options"
-	"github.com/inoio/opencode-sandbox/internal/termio"
+	"github.com/inoio/agents-sandbox/internal/agent"
+	"github.com/inoio/agents-sandbox/internal/configpaths"
+	sandboximage "github.com/inoio/agents-sandbox/internal/sandbox/image"
+	"github.com/inoio/agents-sandbox/internal/sandbox/options"
+	"github.com/inoio/agents-sandbox/internal/termio"
 )
 
 // TestPrepareSandboxImageError covers the image-setup failure branch of
@@ -17,7 +18,7 @@ import (
 func TestPrepareSandboxImageError(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 
-	sandboximage.WithMockOpenCodeVersionResolver(t, func(_ context.Context, _ string) (string, error) {
+	sandboximage.WithMockAgentVersionResolver(t, func(_ context.Context, _ agent.Agent, _ string) (string, error) {
 		return "", errors.New("cannot resolve opencode version")
 	})
 
@@ -36,9 +37,9 @@ func TestPrepareSandboxVersionResolutionError(t *testing.T) {
 	if err := saveUpgradeState(upgradeState{CurrentVersion: "1.0.0"}); err != nil {
 		t.Fatalf("saveUpgradeState: %v", err)
 	}
-	origUpgradeInfo := openCodeUpgradeInfo
-	openCodeUpgradeInfo = func(_ context.Context) (string, error) { return "2.0.0", nil }
-	t.Cleanup(func() { openCodeUpgradeInfo = origUpgradeInfo })
+	origUpgradeInfo := agentLatestVersion
+	agentLatestVersion = func(_ context.Context, _ agent.Agent) (string, error) { return "2.0.0", nil }
+	t.Cleanup(func() { agentLatestVersion = origUpgradeInfo })
 
 	ui := &termio.Mock{
 		IsInteractiveResult: true,

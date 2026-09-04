@@ -8,8 +8,8 @@ import (
 
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 
-	"github.com/inoio/opencode-sandbox/internal/sandbox/options"
-	"github.com/inoio/opencode-sandbox/internal/termio"
+	"github.com/inoio/agents-sandbox/internal/sandbox/options"
+	"github.com/inoio/agents-sandbox/internal/termio"
 )
 
 const changeLabelPublishedPorts = "published port(s)"
@@ -48,6 +48,9 @@ type Plan struct {
 	RestartDaemons bool
 	Resources      *msbSdk.ModifyOptions
 	Changes        []Change
+	// ServeHostPort is the resolved published host port for serve-only mode (0
+	// when not serving).
+	ServeHostPort int
 }
 
 func configChangeList(changes []Change) string {
@@ -68,11 +71,11 @@ func configChangeList(changes []Change) string {
 // these settings when reading an existing VM back. Each flag is computed by
 // comparing a persisted fingerprint against the desired state.
 type ChangeFlags struct {
-	Env            bool
-	Secrets        bool
-	Network        bool
-	Mounts         bool
-	OpenCodeConfig bool
+	Env         bool
+	Secrets     bool
+	Network     bool
+	Mounts      bool
+	AgentConfig bool
 }
 
 // PlanReconfig computes the reconfiguration plan given the current VM config
@@ -158,7 +161,10 @@ func PlanReconfig( //nolint:gocognit,gocyclo,cyclop,funlen // core planner, cogn
 
 	// Port publish state (serve-only) must match; mismatch requires recreate
 	// since microsandbox published ports can only be set at VM creation.
-	wantPorts := desiredPublishBindings(opts.ServeOnly)
+	wantPorts := desiredPublishBindings(opts.ServeOnly, cfg)
+	if len(wantPorts) > 0 {
+		d.ServeHostPort = int(wantPorts[0].HostPort)
+	}
 	if !portBindingsEqual(wantPorts, cfg.PortBindings) {
 		d.Recreate = true
 		d.Changes = append(
@@ -195,13 +201,13 @@ func PlanReconfig( //nolint:gocognit,gocyclo,cyclop,funlen // core planner, cogn
 		}
 	}
 
-	// opencode config changes are picked up by restarting the opencode daemon;
+	// Agent config changes are picked up by restarting the agent daemon;
 	// a full VM rebuild is not required.
-	if !d.Recreate && flags.OpenCodeConfig {
+	if !d.Recreate && flags.AgentConfig {
 		d.RestartDaemons = true
 		d.Changes = append(
 			d.Changes,
-			Change{Label: "opencode config"}, //nolint:exhaustruct // label-only for change reporting
+			Change{Label: "agent config"}, //nolint:exhaustruct // label-only for change reporting
 		)
 	}
 
@@ -277,14 +283,14 @@ func diskMiBOr0(cfg *msbSdk.SandboxConfig) uint32 {
 	return cfg.RootDisk.SizeMiB
 }
 
-// desiredPublishBindings returns the port bindings opencode-sandbox wants on the
-// project VM. Serve-only publishes the opencode port on the host loopback;
+// desiredPublishBindings returns the port bindings agents-sandbox wants on the
+// project VM. Serve-only publishes the agent port on the host loopback;
 // otherwise nothing is published.
-func desiredPublishBindings(serveOnly bool) []msbSdk.PortBinding {
+func desiredPublishBindings(serveOnly bool, cfg *msbSdk.SandboxConfig) []msbSdk.PortBinding {
 	if !serveOnly {
 		return nil
 	}
-	return options.ServeOnlyBindings()
+	return options.ServeOnlyBindings(options.ResolveServeHostPort(cfg, true))
 }
 
 func portBindingsEqual(a, b []msbSdk.PortBinding) bool {

@@ -12,17 +12,29 @@ import (
 
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 
-	"github.com/inoio/opencode-sandbox/internal/configpaths"
+	"github.com/inoio/agents-sandbox/internal/configpaths"
 
-	"github.com/inoio/opencode-sandbox/internal/sandbox/msb"
-	"github.com/inoio/opencode-sandbox/internal/sandbox/options"
-	"github.com/inoio/opencode-sandbox/internal/sandbox/state"
-	"github.com/inoio/opencode-sandbox/internal/termio"
+	"github.com/inoio/agents-sandbox/internal/sandbox/docker"
+	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
+	"github.com/inoio/agents-sandbox/internal/sandbox/options"
+	"github.com/inoio/agents-sandbox/internal/sandbox/state"
+	"github.com/inoio/agents-sandbox/internal/termio"
 )
 
+func TestHomeVolumeNameScopesAgent(t *testing.T) {
+	got := HomeVolumeName(state.Key{Slug: "proj-abc123", Agent: "pi"})
+	prefix := "agents-sandbox-home-proj-abc123-pi-"
+	if !strings.HasPrefix(got, prefix) {
+		t.Errorf("HomeVolumeName = %q, want prefix %q", got, prefix)
+	}
+	if len(got) != len(prefix)+15 {
+		t.Errorf("HomeVolumeName = %q, want 15-char timestamp suffix", got)
+	}
+}
+
 func TestHomeVolumeName(t *testing.T) {
-	got := HomeVolumeName("myproj-aBc1234D")
-	expectedPrefix := "opencode-sandbox-home-myproj-aBc1234D-"
+	got := HomeVolumeName(state.Key{Slug: "myproj-aBc1234D", Agent: "opencode"})
+	expectedPrefix := "agents-sandbox-home-myproj-aBc1234D-opencode-"
 	if !strings.HasPrefix(got, expectedPrefix) {
 		t.Errorf("expected prefix %q, got %q", expectedPrefix, got)
 	}
@@ -33,21 +45,21 @@ func TestHomeVolumeName(t *testing.T) {
 }
 
 func TestHomeVolumeNameDifferentInputs(t *testing.T) {
-	got := HomeVolumeName("myproj-aBc1234D")
-	if !strings.HasPrefix(got, "opencode-sandbox-home-myproj-aBc1234D-") {
+	got := HomeVolumeName(state.Key{Slug: "myproj-aBc1234D", Agent: "opencode"})
+	if !strings.HasPrefix(got, "agents-sandbox-home-myproj-aBc1234D-opencode-") {
 		t.Errorf("unexpected name format: %q", got)
 	}
 }
 
 func TestHomeVolumeNameTimestamp(t *testing.T) {
 	before := time.Now().UTC().Add(-time.Second)
-	got := HomeVolumeName("myproject")
+	got := HomeVolumeName(state.Key{Slug: "myproject", Agent: "opencode"})
 	after := time.Now().UTC().Add(time.Second)
 
-	if !strings.HasPrefix(got, "opencode-sandbox-home-myproject-") {
+	if !strings.HasPrefix(got, "agents-sandbox-home-myproject-opencode-") {
 		t.Fatalf("expected prefix, got %q", got)
 	}
-	suffix := strings.TrimPrefix(got, "opencode-sandbox-home-myproject-")
+	suffix := strings.TrimPrefix(got, "agents-sandbox-home-myproject-opencode-")
 	if len(suffix) != 15 {
 		t.Fatalf("expected 15-char timestamp, got %d chars: %q", len(suffix), suffix)
 	}
@@ -69,6 +81,7 @@ func TestNewManager(t *testing.T) {
 }
 
 func TestPrefillVolumeRunsCopyCommand(t *testing.T) {
+	docker.WithNoopDockerMock(t)
 	testUI := termio.NewTestMock(t)
 	ui := &testUI
 	client := &msb.MockMsbClient{}
@@ -77,9 +90,9 @@ func TestPrefillVolumeRunsCopyCommand(t *testing.T) {
 	err := vm.PrefillVolume(
 		context.Background(),
 		client,
-		"myproject",
+		state.Key{Slug: "myproject", Agent: "opencode"},
 		"test-home-vol",
-		"opencode-sandbox/runner-test:latest",
+		"agents-sandbox/runner-test:latest",
 		ui,
 	)
 	if err != nil {
@@ -162,24 +175,28 @@ func TestResolveHomeAction_ActionQuitReturnsQuit(t *testing.T) {
 func TestRecordHomeImage_UpdatesDigestInState(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 
-	state.WriteState("myproj", state.HomeState{
-		HomeVolume:  "opencode-sandbox-home-myproj-20260806T143022",
+	state.WriteState(state.Key{Slug: "myproj", Agent: "opencode"}, state.HomeState{
+		HomeVolume:  "agents-sandbox-home-myproj-20260806T143022",
 		ImageDigest: "sha256:old",
 	})
 
 	vm := NewManager(&termio.Mock{})
-	if err := vm.RecordHomeImage("myproj", "sha256:new", &termio.Mock{}); err != nil {
+	if err := vm.RecordHomeImage(
+		state.Key{Slug: "myproj", Agent: "opencode"},
+		"sha256:new",
+		&termio.Mock{},
+	); err != nil {
 		t.Fatalf("RecordHomeImage: %v", err)
 	}
 
-	st, err := state.ReadState("myproj")
+	st, err := state.ReadState(state.Key{Slug: "myproj", Agent: "opencode"})
 	if err != nil {
 		t.Fatalf("ReadState: %v", err)
 	}
 	if st.ImageDigest != "sha256:new" {
 		t.Errorf("ImageDigest = %q, want %q", st.ImageDigest, "sha256:new")
 	}
-	if st.HomeVolume != "opencode-sandbox-home-myproj-20260806T143022" {
+	if st.HomeVolume != "agents-sandbox-home-myproj-20260806T143022" {
 		t.Errorf("HomeVolume changed to %q, want unchanged", st.HomeVolume)
 	}
 }
@@ -188,7 +205,11 @@ func TestRecordHomeImage_MissingStateIsNoop(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 
 	vm := NewManager(&termio.Mock{})
-	if err := vm.RecordHomeImage("nosuchproj", "sha256:new", &termio.Mock{}); err != nil {
+	if err := vm.RecordHomeImage(
+		state.Key{Slug: "nosuchproj", Agent: "opencode"},
+		"sha256:new",
+		&termio.Mock{},
+	); err != nil {
 		t.Fatalf("RecordHomeImage should not error on missing state, got: %v", err)
 	}
 }
@@ -208,8 +229,8 @@ func TestApplyHomeAction_KeepReturnsOldVolume(t *testing.T) {
 	vol, err := vm.ApplyHomeAction(
 		context.Background(),
 		mock,
-		"myproj",
-		"opencode-sandbox-home-myproj-old",
+		state.Key{Slug: "myproj", Agent: "opencode"},
+		"agents-sandbox-home-myproj-old",
 		"img-tag",
 		"sha256:new",
 		ActionKeep,
@@ -219,7 +240,7 @@ func TestApplyHomeAction_KeepReturnsOldVolume(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if vol != "opencode-sandbox-home-myproj-old" {
+	if vol != "agents-sandbox-home-myproj-old" {
 		t.Errorf("volume = %q, want old volume", vol)
 	}
 	if len(mock.CreatedSandboxes) != 0 {
@@ -243,10 +264,14 @@ func TestApplyHomeAction_ExecutesAndKeepsOld(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			configpaths.WithMockConfigPaths(t)
+			docker.WithNoopDockerMock(t)
 
 			slug := "myproj"
-			oldVol := "opencode-sandbox-home-myproj-old"
-			state.WriteState(slug, state.HomeState{HomeVolume: oldVol, ImageDigest: "sha256:old"})
+			oldVol := "agents-sandbox-home-myproj-old"
+			state.WriteState(
+				state.Key{Slug: slug, Agent: "opencode"},
+				state.HomeState{HomeVolume: oldVol, ImageDigest: "sha256:old"},
+			)
 
 			mock := &msb.MockMsbClient{}
 			vm := NewManager(&termio.Mock{})
@@ -254,7 +279,7 @@ func TestApplyHomeAction_ExecutesAndKeepsOld(t *testing.T) {
 			newVol, err := vm.ApplyHomeAction(
 				context.Background(),
 				mock,
-				slug,
+				state.Key{Slug: slug, Agent: "opencode"},
 				oldVol,
 				"img-tag",
 				"sha256:new",
@@ -280,7 +305,7 @@ func TestApplyHomeAction_ExecutesAndKeepsOld(t *testing.T) {
 				t.Errorf("expected old volume to be kept, removed=%v", mock.RemovedVolumes)
 			}
 
-			st, err := state.ReadState(slug)
+			st, err := state.ReadState(state.Key{Slug: slug, Agent: "opencode"})
 			if err != nil {
 				t.Fatalf("ReadState: %v", err)
 			}
@@ -298,8 +323,11 @@ func TestApplyHomeAction_Reset_DryRun_NoWrites(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 
 	slug := "myproj"
-	oldVol := "opencode-sandbox-home-myproj-old"
-	state.WriteState(slug, state.HomeState{HomeVolume: oldVol, ImageDigest: "sha256:old"})
+	oldVol := "agents-sandbox-home-myproj-old"
+	state.WriteState(
+		state.Key{Slug: slug, Agent: "opencode"},
+		state.HomeState{HomeVolume: oldVol, ImageDigest: "sha256:old"},
+	)
 
 	mock := &msb.MockMsbClient{}
 	vm := NewManager(&termio.Mock{})
@@ -313,7 +341,7 @@ func TestApplyHomeAction_Reset_DryRun_NoWrites(t *testing.T) {
 	newVol, err := vm.ApplyHomeAction(
 		context.Background(),
 		mock,
-		slug,
+		state.Key{Slug: slug, Agent: "opencode"},
 		oldVol,
 		"img-tag",
 		"sha256:new",
@@ -331,7 +359,7 @@ func TestApplyHomeAction_Reset_DryRun_NoWrites(t *testing.T) {
 		t.Errorf("dry-run should not create volumes, got %d", createdVols)
 	}
 
-	st, err := state.ReadState(slug)
+	st, err := state.ReadState(state.Key{Slug: slug, Agent: "opencode"})
 	if err != nil {
 		t.Fatalf("ReadState: %v", err)
 	}
@@ -347,8 +375,11 @@ func TestApplyHomeAction_Migrate_DryRunVM_NoStateWrite(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 
 	slug := "myproj"
-	oldVol := "opencode-sandbox-home-myproj-old"
-	state.WriteState(slug, state.HomeState{HomeVolume: oldVol, ImageDigest: "sha256:old"})
+	oldVol := "agents-sandbox-home-myproj-old"
+	state.WriteState(
+		state.Key{Slug: slug, Agent: "opencode"},
+		state.HomeState{HomeVolume: oldVol, ImageDigest: "sha256:old"},
+	)
 
 	mock := &msb.MockMsbClient{}
 	vm := NewManager(&termio.Mock{})
@@ -356,7 +387,7 @@ func TestApplyHomeAction_Migrate_DryRunVM_NoStateWrite(t *testing.T) {
 	newVol, err := vm.ApplyHomeAction(
 		context.Background(),
 		mock,
-		slug,
+		state.Key{Slug: slug, Agent: "opencode"},
 		oldVol,
 		"img-tag",
 		"sha256:new",
@@ -374,7 +405,7 @@ func TestApplyHomeAction_Migrate_DryRunVM_NoStateWrite(t *testing.T) {
 		t.Errorf("dry-run-vm should not spawn VMs, got %v", mock.CreatedSandboxes)
 	}
 
-	st, err := state.ReadState(slug)
+	st, err := state.ReadState(state.Key{Slug: slug, Agent: "opencode"})
 	if err != nil {
 		t.Fatalf("ReadState: %v", err)
 	}
@@ -388,10 +419,14 @@ func TestApplyHomeAction_Migrate_DryRunVM_NoStateWrite(t *testing.T) {
 
 func TestApplyHomeAction_Migrate_CopyFails_RemovesNewVolume(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
+	docker.WithNoopDockerMock(t)
 
 	slug := "myproj"
-	oldVol := "opencode-sandbox-home-myproj-old"
-	state.WriteState(slug, state.HomeState{HomeVolume: oldVol, ImageDigest: "sha256:old"})
+	oldVol := "agents-sandbox-home-myproj-old"
+	state.WriteState(
+		state.Key{Slug: slug, Agent: "opencode"},
+		state.HomeState{HomeVolume: oldVol, ImageDigest: "sha256:old"},
+	)
 
 	mock := &msb.MockMsbClient{}
 	var createdVol string
@@ -412,7 +447,7 @@ func TestApplyHomeAction_Migrate_CopyFails_RemovesNewVolume(t *testing.T) {
 	_, err := vm.ApplyHomeAction(
 		context.Background(),
 		mock,
-		slug,
+		state.Key{Slug: slug, Agent: "opencode"},
 		oldVol,
 		"img-tag",
 		"sha256:new",
@@ -500,8 +535,8 @@ func TestResolveHomeVolume_FoundInState(t *testing.T) {
 		return msb.MockVolumeHandle{Name_: name}, nil
 	}
 
-	state.WriteState("myproj", state.HomeState{
-		HomeVolume:  "opencode-sandbox-home-myproj-20260806T143022",
+	state.WriteState(state.Key{Slug: "myproj", Agent: "opencode"}, state.HomeState{
+		HomeVolume:  "agents-sandbox-home-myproj-20260806T143022",
 		ImageDigest: "sha256:abc",
 	})
 
@@ -509,7 +544,7 @@ func TestResolveHomeVolume_FoundInState(t *testing.T) {
 	volName, st, err := vm.ResolveHomeVolume(
 		context.Background(),
 		mock,
-		"myproj",
+		state.Key{Slug: "myproj", Agent: "opencode"},
 		"sha256:abc",
 		"",
 		false,
@@ -518,8 +553,8 @@ func TestResolveHomeVolume_FoundInState(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if volName != "opencode-sandbox-home-myproj-20260806T143022" {
-		t.Errorf("volume = %q, want %q", volName, "opencode-sandbox-home-myproj-20260806T143022")
+	if volName != "agents-sandbox-home-myproj-20260806T143022" {
+		t.Errorf("volume = %q, want %q", volName, "agents-sandbox-home-myproj-20260806T143022")
 	}
 	if st.ImageDigest != "sha256:abc" {
 		t.Errorf("digest = %q, want %q", st.ImageDigest, "sha256:abc")
@@ -528,6 +563,7 @@ func TestResolveHomeVolume_FoundInState(t *testing.T) {
 
 func TestResolveHomeVolume_NoStateFile(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
+	docker.WithNoopDockerMock(t)
 
 	mock := &msb.MockMsbClient{}
 	mock.CreateVolumeFn = func(_ context.Context, name string, _ ...msbSdk.VolumeOption) (msb.VolumeHandle, error) {
@@ -538,7 +574,7 @@ func TestResolveHomeVolume_NoStateFile(t *testing.T) {
 	volName, st, err := vm.ResolveHomeVolume(
 		context.Background(),
 		mock,
-		"testproj",
+		state.Key{Slug: "testproj", Agent: "opencode"},
 		"sha256:def",
 		"",
 		false,
@@ -547,8 +583,8 @@ func TestResolveHomeVolume_NoStateFile(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if !strings.HasPrefix(volName, "opencode-sandbox-home-testproj-") {
-		t.Errorf("volume = %q, expected prefix %q", volName, "opencode-sandbox-home-testproj-")
+	if !strings.HasPrefix(volName, "agents-sandbox-home-testproj-") {
+		t.Errorf("volume = %q, expected prefix %q", volName, "agents-sandbox-home-testproj-")
 	}
 	if st.ImageDigest != "sha256:def" {
 		t.Errorf("digest = %q, want %q", st.ImageDigest, "sha256:def")
@@ -560,10 +596,11 @@ func TestResolveHomeVolume_NoStateFile(t *testing.T) {
 // missing state and creates a fresh home volume.
 func TestResolveHomeVolume_CorruptStateFile(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
+	docker.WithNoopDockerMock(t)
 
 	// A directory in place of the state file makes os.ReadFile fail with a
 	// non-not-found error, unlike a genuinely absent file.
-	statePath := filepath.Join(configpaths.Get().UserStateDir(), "corruptproj", "state.yaml")
+	statePath := filepath.Join(configpaths.Get().UserStateDir(), "corruptproj", "opencode", "state.yaml")
 	if err := os.MkdirAll(statePath, 0o700); err != nil {
 		t.Fatal(err)
 	}
@@ -578,7 +615,7 @@ func TestResolveHomeVolume_CorruptStateFile(t *testing.T) {
 	volName, st, err := vm.ResolveHomeVolume(
 		context.Background(),
 		mock,
-		"corruptproj",
+		state.Key{Slug: "corruptproj", Agent: "opencode"},
 		"sha256:def",
 		"",
 		false,
@@ -587,8 +624,8 @@ func TestResolveHomeVolume_CorruptStateFile(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if !strings.HasPrefix(volName, "opencode-sandbox-home-corruptproj-") {
-		t.Errorf("volume = %q, expected prefix %q", volName, "opencode-sandbox-home-corruptproj-")
+	if !strings.HasPrefix(volName, "agents-sandbox-home-corruptproj-") {
+		t.Errorf("volume = %q, expected prefix %q", volName, "agents-sandbox-home-corruptproj-")
 	}
 	if st.ImageDigest != "sha256:def" {
 		t.Errorf("digest = %q, want %q", st.ImageDigest, "sha256:def")
@@ -600,6 +637,7 @@ func TestResolveHomeVolume_CorruptStateFile(t *testing.T) {
 
 func TestResolveHomeVolume_VolumeNotFoundInSandbox(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
+	docker.WithNoopDockerMock(t)
 
 	mock := &msb.MockMsbClient{}
 	mock.GetVolumeFn = func(_ context.Context, name string) (msb.VolumeHandle, error) {
@@ -610,8 +648,8 @@ func TestResolveHomeVolume_VolumeNotFoundInSandbox(t *testing.T) {
 		return msb.MockVolumeHandle{Name_: name}, nil
 	}
 
-	state.WriteState("orphanproj", state.HomeState{
-		HomeVolume:  "opencode-sandbox-home-orphanproj-20260806T143022",
+	state.WriteState(state.Key{Slug: "orphanproj", Agent: "opencode"}, state.HomeState{
+		HomeVolume:  "agents-sandbox-home-orphanproj-20260806T143022",
 		ImageDigest: "sha256:abc",
 	})
 
@@ -619,7 +657,7 @@ func TestResolveHomeVolume_VolumeNotFoundInSandbox(t *testing.T) {
 	volName, st, err := vm.ResolveHomeVolume(
 		context.Background(),
 		mock,
-		"orphanproj",
+		state.Key{Slug: "orphanproj", Agent: "opencode"},
 		"sha256:def",
 		"latest-docker-image",
 		false,
@@ -628,8 +666,8 @@ func TestResolveHomeVolume_VolumeNotFoundInSandbox(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if !strings.HasPrefix(volName, "opencode-sandbox-home-orphanproj-") {
-		t.Errorf("volume = %q, expected prefix %q", volName, "opencode-sandbox-home-orphanproj-")
+	if !strings.HasPrefix(volName, "agents-sandbox-home-orphanproj-") {
+		t.Errorf("volume = %q, expected prefix %q", volName, "agents-sandbox-home-orphanproj-")
 	}
 	if st.ImageDigest != "sha256:def" {
 		t.Errorf("digest = %q, want %q", st.ImageDigest, "sha256:def")
@@ -703,6 +741,7 @@ func TestCleanupVolume_Failure(t *testing.T) {
 }
 
 func TestPrefillVolume_CreateSandboxFails(t *testing.T) {
+	docker.WithNoopDockerMock(t)
 	mock := &msb.MockMsbClient{}
 	mock.CreateSandboxErr = errors.New("sandbox creation failed")
 	vm := NewManager(&termio.Mock{})
@@ -710,7 +749,7 @@ func TestPrefillVolume_CreateSandboxFails(t *testing.T) {
 	err := vm.PrefillVolume(
 		context.Background(),
 		mock,
-		"myproject",
+		state.Key{Slug: "myproject", Agent: "opencode"},
 		"test-home-vol",
 		"img-tag",
 		&termio.Mock{},
@@ -724,6 +763,7 @@ func TestPrefillVolume_CreateSandboxFails(t *testing.T) {
 }
 
 func TestPrefillVolume_ExecFails(t *testing.T) {
+	docker.WithNoopDockerMock(t)
 	mock := &msb.MockMsbClient{}
 	mock.CreateSandboxFn = func(_ context.Context, _ string, _ ...msbSdk.SandboxOption) (msb.Sandbox, error) {
 		return msb.NewMockSandbox(msb.SandboxOpts{
@@ -736,7 +776,7 @@ func TestPrefillVolume_ExecFails(t *testing.T) {
 	err := vm.PrefillVolume(
 		context.Background(),
 		mock,
-		"myproject",
+		state.Key{Slug: "myproject", Agent: "opencode"},
 		"test-home-vol",
 		"img-tag",
 		ui,
@@ -750,6 +790,7 @@ func TestPrefillVolume_ExecFails(t *testing.T) {
 }
 
 func TestPrefillVolume_ExecExitFailure(t *testing.T) {
+	docker.WithNoopDockerMock(t)
 	mock := &msb.MockMsbClient{}
 	mock.CreateSandboxFn = func(_ context.Context, _ string, _ ...msbSdk.SandboxOption) (msb.Sandbox, error) {
 		return msb.NewMockSandbox(msb.SandboxOpts{
@@ -770,7 +811,7 @@ func TestPrefillVolume_ExecExitFailure(t *testing.T) {
 	err := vm.PrefillVolume(
 		context.Background(),
 		mock,
-		"myproject",
+		state.Key{Slug: "myproject", Agent: "opencode"},
 		"test-home-vol",
 		"img-tag",
 		ui,
@@ -784,6 +825,7 @@ func TestPrefillVolume_ExecExitFailure(t *testing.T) {
 }
 
 func TestCopyVolume_CreateSandboxFails(t *testing.T) {
+	docker.WithNoopDockerMock(t)
 	mock := &msb.MockMsbClient{}
 	mock.CreateSandboxErr = errors.New("sandbox creation failed")
 	vm := NewManager(&termio.Mock{})
@@ -791,7 +833,7 @@ func TestCopyVolume_CreateSandboxFails(t *testing.T) {
 	err := vm.CopyVolume(
 		context.Background(),
 		mock,
-		"myproject",
+		state.Key{Slug: "myproject", Agent: "opencode"},
 		"old-vol",
 		"new-vol",
 		"img-tag",
@@ -806,6 +848,7 @@ func TestCopyVolume_CreateSandboxFails(t *testing.T) {
 }
 
 func TestCopyVolume_ExecFails(t *testing.T) {
+	docker.WithNoopDockerMock(t)
 	mock := &msb.MockMsbClient{}
 	mock.CreateSandboxFn = func(_ context.Context, _ string, _ ...msbSdk.SandboxOption) (msb.Sandbox, error) {
 		return msb.NewMockSandbox(msb.SandboxOpts{
@@ -818,7 +861,7 @@ func TestCopyVolume_ExecFails(t *testing.T) {
 	err := vm.CopyVolume(
 		context.Background(),
 		mock,
-		"myproject",
+		state.Key{Slug: "myproject", Agent: "opencode"},
 		"old-vol",
 		"new-vol",
 		"img-tag",
@@ -833,6 +876,7 @@ func TestCopyVolume_ExecFails(t *testing.T) {
 }
 
 func TestCopyVolume_ExecExitFailure(t *testing.T) {
+	docker.WithNoopDockerMock(t)
 	mock := &msb.MockMsbClient{}
 	mock.CreateSandboxFn = func(_ context.Context, _ string, _ ...msbSdk.SandboxOption) (msb.Sandbox, error) {
 		return msb.NewMockSandbox(msb.SandboxOpts{
@@ -853,7 +897,7 @@ func TestCopyVolume_ExecExitFailure(t *testing.T) {
 	err := vm.CopyVolume(
 		context.Background(),
 		mock,
-		"myproject",
+		state.Key{Slug: "myproject", Agent: "opencode"},
 		"old-vol",
 		"new-vol",
 		"img-tag",
@@ -869,10 +913,14 @@ func TestCopyVolume_ExecExitFailure(t *testing.T) {
 
 func TestApplyHomeAction_Reset_Success(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
+	docker.WithNoopDockerMock(t)
 
 	slug := "myproj"
-	oldVol := "opencode-sandbox-home-myproj-old"
-	state.WriteState(slug, state.HomeState{HomeVolume: oldVol, ImageDigest: "sha256:old"})
+	oldVol := "agents-sandbox-home-myproj-old"
+	state.WriteState(
+		state.Key{Slug: slug, Agent: "opencode"},
+		state.HomeState{HomeVolume: oldVol, ImageDigest: "sha256:old"},
+	)
 
 	mock := &msb.MockMsbClient{}
 	vm := NewManager(&termio.Mock{})
@@ -880,7 +928,7 @@ func TestApplyHomeAction_Reset_Success(t *testing.T) {
 	newVol, err := vm.ApplyHomeAction(
 		context.Background(),
 		mock,
-		slug,
+		state.Key{Slug: slug, Agent: "opencode"},
 		oldVol,
 		"img-tag",
 		"sha256:new",
@@ -898,7 +946,7 @@ func TestApplyHomeAction_Reset_Success(t *testing.T) {
 		t.Errorf("expected 1 sandbox for reset, got %d", len(mock.CreatedSandboxes))
 	}
 
-	st, err := state.ReadState(slug)
+	st, err := state.ReadState(state.Key{Slug: slug, Agent: "opencode"})
 	if err != nil {
 		t.Fatalf("ReadState: %v", err)
 	}
@@ -909,10 +957,14 @@ func TestApplyHomeAction_Reset_Success(t *testing.T) {
 
 func TestApplyHomeAction_PrefillFails_RemovesVolume(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
+	docker.WithNoopDockerMock(t)
 
 	slug := "myproj"
-	oldVol := "opencode-sandbox-home-myproj-old"
-	state.WriteState(slug, state.HomeState{HomeVolume: oldVol, ImageDigest: "sha256:old"})
+	oldVol := "agents-sandbox-home-myproj-old"
+	state.WriteState(
+		state.Key{Slug: slug, Agent: "opencode"},
+		state.HomeState{HomeVolume: oldVol, ImageDigest: "sha256:old"},
+	)
 
 	mock := &msb.MockMsbClient{}
 	mock.CreateSandboxErr = errors.New("prefill sandbox creation failed")
@@ -921,7 +973,7 @@ func TestApplyHomeAction_PrefillFails_RemovesVolume(t *testing.T) {
 	_, err := vm.ApplyHomeAction(
 		context.Background(),
 		mock,
-		slug,
+		state.Key{Slug: slug, Agent: "opencode"},
 		oldVol,
 		"img-tag",
 		"sha256:new",
@@ -939,6 +991,7 @@ func TestApplyHomeAction_PrefillFails_RemovesVolume(t *testing.T) {
 
 func TestEnsureNewHome_PrefillFails(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
+	docker.WithNoopDockerMock(t)
 
 	mock := &msb.MockMsbClient{}
 	mock.CreateSandboxErr = errors.New("prefill sandbox creation failed")
@@ -947,7 +1000,7 @@ func TestEnsureNewHome_PrefillFails(t *testing.T) {
 	_, _, err := vm.EnsureNewHome(
 		context.Background(),
 		mock,
-		"testproj",
+		state.Key{Slug: "testproj", Agent: "opencode"},
 		"sha256:abc",
 		"img-tag",
 		false,
@@ -970,7 +1023,7 @@ func TestEnsureNewHome_DryRunVM_NoSandbox(t *testing.T) {
 	volName, _, err := vm.EnsureNewHome(
 		context.Background(),
 		mock,
-		"testproj",
+		state.Key{Slug: "testproj", Agent: "opencode"},
 		"sha256:abc",
 		"img-tag",
 		true, // dryRunVM
@@ -979,7 +1032,7 @@ func TestEnsureNewHome_DryRunVM_NoSandbox(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if !strings.HasPrefix(volName, "opencode-sandbox-home-testproj-") {
+	if !strings.HasPrefix(volName, "agents-sandbox-home-testproj-") {
 		t.Errorf("expected home volume prefix, got %q", volName)
 	}
 	if len(mock.CreatedSandboxes) != 0 {

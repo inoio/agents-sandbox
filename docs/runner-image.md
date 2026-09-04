@@ -1,11 +1,11 @@
 ---
 title: Runner Image
 layout: default
-nav_order: 50
+nav_order: 80
 ---
 # Runner Image
 
-opencode-sandbox builds a Docker image for each sandbox. The image contains opencode, Node.js, and common CLI tools.
+agents-sandbox builds a Docker image for each sandbox. The image contains the selected coding agent, Node.js, and common CLI tools.
 Projects can extend the image with their own tooling.
 
 ## Home directory
@@ -19,83 +19,52 @@ current image). In non-interactive mode the existing home volume is kept and you
 action is applied automatically and the old volume is always kept. The state file is only updated once the action has
 actually executed. `volume migrate`, `volume reset` and `volume edit` remain available for manual management.
 
-## Base Image
+## One image per project
 
-The default runner image `opencode-sandbox/runner-base` is built from `debian:trixie-slim` and includes:
+agents-sandbox builds a single runner image per project. The rendered Dockerfile is assembled from your project
+Dockerfile (if any) plus tool-owned blocks:
 
-- **opencode** — symlinked to `/usr/local/bin/opencode`
-- **Node.js 26.x** — for opencode [LSP servers](https://opencode.ai/docs/lsp/)
-- **CLI tools** — `git`, `ripgrep`, `jq`, `yq`, `curl`, `wget`, `xz-utils`, `file`, `gawk`, `less`, `lz4`, `moreutils`,
-  `net-tools`, `parallel`, `recode`, `uuid`
+- **Base** — the embedded `debian:trixie-slim` tools block, or your whole custom base. For a managed base
+  (`FROM .../runner-base...`), the final stage's `FROM` is replaced **in place** with the embedded tools block, keeping
+  any earlier build stages above it — so multi-stage project Dockerfiles are supported.
+- **Dev user block** — the first instruction of the final stage, inserted right after the final `FROM`: creates the
+  `dev` user (host UID/GID), reserving its identity before anything else in the stage runs.
+- **Docker-in-Docker block** *(optional)* — only when dind is enabled.
+- **Agent block** — Node.js and the coding agent.
+- **Finalize block** — adds `dev` to the docker group, switches to `USER dev`, and sets `WORKDIR /workspace`.
 
-It creates and switches to the `dev` user and sets the workdir to `/workspace` — the mount point for the working
-directories.
+Every tool-owned block is `USER root`-prefixed so agent/dind installs always run as root regardless of what user your
+Dockerfile leaves active. The image always ends with `USER dev` and `WORKDIR /workspace`.
 
-## opencode autoupdate and upgrades
+## Base starting point
 
-opencode is pinned to a specific version at image build time and its runtime autoupdate is disabled via
-`OPENCODE_DISABLE_AUTOUPDATE=true` in the image, so the opencode binary in a sandbox is stable across runs. The
-pinned version is recorded as a Docker label (`org.opencode-sandbox.opencode-version`) on the image.
+By default the base tools block starts from `debian:trixie-slim` and installs the recommended CLI tools: `git`,
+`ripgrep`, `jq`, `yq`, `curl`, `wget`, `xz-utils`, `file`, `gawk`, `less`, `lz4`, `moreutils`, `net-tools`, `parallel`,
+`recode`, `uuid`, and `iptables`.
 
-By default the latest release available at build time is used. Pin an explicit version on the `build` command with
-`--opencode-version`:
+A project Dockerfile whose `FROM` is any other image is treated as a **custom base**, and the agent (and optional dind)
+blocks are layered on top of it:
 
-```console
-opencode-sandbox build --opencode-version 0.5.0
-opencode-sandbox build          # uses the latest release
-```
-
-**How to upgrade:** Rebuild the runner image with `opencode-sandbox build`. To pin a specific version, use
-`--opencode-version`.
-
-On `run`/`shell`, when a newer opencode release exists than the version baked into the image, the launcher offers to
-rebuild the image (interactive) or prints a notice advising `opencode-sandbox build` (non-interactive). Images that
-predated the version label are force-rebuilt to pin a version.
-
-The update check is rate-limited to keep it quiet:
-
-- **Once per day:** the GitHub releases endpoint is queried at most once per 24 hours, machine-wide. The last
-  successful check is recorded in the tool's state directory (`~/.local/state/opencode-sandbox/updater.yaml`). A failed
-  or offline check does not start the window, so the next online session retries.
-- **Once per version:** each opencode version is offered for a rebuild at most once. Once the prompt for a version has
-  been shown, that version is not offered again even on later days.
-
-The opencode version baked into the image is also recorded in `updater.yaml` and reused on `run`/`shell`. This keeps the
-image identity (and therefore the cached microsandbox image) stable across runs: the version is only re-resolved from the
-network when an upgrade is actually performed (via the upgrade prompt or `build`), rather than on every invocation.
-
-> `--opencode-version` is only available on the `build` command — it is not supported on `run` or `shell`.
-
-## Docker-in-Docker Base Image
-
-On top of the base image, opencode-sandbox provides an image with Docker-in-Docker (dind) enabled,
-`opencode-sandbox/runner-base-dind`.
-
-## Custom Runner
-
-To add project-specific tools, create `.opencode-sandbox/Dockerfile` in your project, starting from one of the base images:
-
-```dockerfile
-FROM opencode-sandbox/runner-base:latest
-# or FROM opencode-sandbox/runner-base-dind:latest
-
-# Install your project's toolchain into the dev user directory
-RUN curl -fsSL https://pyenv.run | bash
-```
+- The custom base must provide `curl` and `bash`; the `pi`/`claude-code` agents install Node.js themselves if it is
+  absent.
+- The recommended CLI tools above are documented for your convenience — as a custom base you install your own.
+- `iptables`, `git`, `ps`, `xz`, `curl`, and `tar` are required only when dind runs; if one is missing, the dind build
+  fails and names the missing package.
+- A base that already provides docker, node, or the agent is left alone (idempotency), and a pre-created `dev` user is
+  tolerated.
 
 ### Important: User context
 
-The project image **must** end with `USER dev` active. If you need to run commands as root, switch back:
+The `dev` user (host UID/GID) is created as the first instruction of the final stage, and the image always ends with
+`USER dev` active. Your Dockerfile body runs in the final stage, so it may switch to `USER dev` — but earlier build
+stages in a multi-stage Dockerfile run as root:
 
 ```dockerfile
-FROM opencode-sandbox/runner-base:latest
+FROM debian:trixie-slim
 
 USER root
 # Install your project's toolchain as root, e.g. via apt install
 RUN apt-get update && apt-get install -y python3 && rm -rf /var/lib/apt/lists/*
-
-USER dev
-# everything else as dev
 ```
 
 ### ENV configuration
@@ -103,37 +72,121 @@ USER dev
 ENV definitions in Dockerfiles are applied to running sandboxes. If you need to configure e.g. `PATH`, just set
 `ENV PATH=...:` in your Dockerfile.
 
+## Docker-in-Docker
+
+Enable Docker-in-Docker (dind) in the runner image with the `--dind` flag (on `build`, `run`, or `shell`) or the `dind:
+true` config key. A project Dockerfile still starting `FROM .../runner-base-dind:latest` keeps working and implies it.
+
+The dind block installs the engine from the docker static tarball, pinned to `29.7.2`. The `vfs` storage driver is always
+forced for microsandbox compatibility. `buildx` and `docker compose` are **not** installed — install them in your project
+Dockerfile if you need them. The static tarball is selected by `uname -m` (`x86_64`/`aarch64`).
+
+## Node and the agent
+
+The agent block installs Node.js (`v26.8.1`, official tarball) only if it is absent, and installs the selected agent
+only if its binary is absent — so an existing install is left alone (idempotency). What the block actually did is
+recorded in `/etc/agents-sandbox/agent-source` and `/etc/agents-sandbox/docker-source`.
+
+Four agents are built in: `opencode` (default), `opencode2` (installed via `npm i -g @opencode-ai/cli@$OPENCODE2_VERSION`,
+the opencode 2 beta), `pi` (installed via `npm i -g @earendil-works/pi-coding-agent`), and `claude-code` (installed via
+`npm i -g @anthropic-ai/claude-code`). All four resolve their latest version for an unpinned build — opencode via its
+GitHub releases endpoint, opencode2 via the npm registry's `beta` dist-tag, pi via `pi.dev`, and claude-code via the npm
+registry's `latest` dist-tag.
+
+## Labels & provenance
+
+Each runner image carries these labels:
+
+- `org.agents-sandbox.managed=true`
+- `org.agents-sandbox.agent=<name>`
+- `org.agents-sandbox.base=<ref>@sha256:<digest>`
+
+There is no tool-version label.
+
+## Upgrades
+
+The agent version is pinned at image build time and the agent's runtime autoupdate is disabled per agent, so the agent
+binary in a sandbox is stable across runs. Instead of reading the version from an image label, the version is detected
+on first boot and recorded for upgrade checks.
+
+By default the latest release available at build time is used. Pin an explicit version on the `build` command with
+`--agent-version`:
+
+```console
+agents-sandbox build --agent-version 0.5.0
+agents-sandbox build          # uses the latest release
+```
+
+**How to upgrade:** Rebuild the runner image with `agents-sandbox build`. To pin a specific version, use
+`--agent-version`. On `run`/`shell`, when a newer agent release exists than the version baked into the image, the
+launcher offers to rebuild the image (interactive) or prints a notice advising `agents-sandbox build`
+(non-interactive). When `agent-source=user`, the tool never checks for upgrades.
+
+> `--agent-version` is only available on the `build` command — it is not supported on `run` or `shell` (which pin the
+> version baked into the image). The deprecated `--opencode-version` alias is likewise `build`-only.
+
 ## Building and Managing Images
 
 Build the image:
 
 ```console
-opencode-sandbox build        # builds if image is missing or base changed
-opencode-sandbox build -r     # force rebuild
+agents-sandbox build        # builds if image is missing or base changed
+agents-sandbox build -r     # force rebuild
+```
+
+Preview the exact Dockerfile that would be built (without invoking docker):
+
+```console
+agents-sandbox build dockerfile            # default agent, no dind
+agents-sandbox build dockerfile --dind     # with Docker-in-Docker block
 ```
 
 List cached images:
 
 ```console
-opencode-sandbox image list
+agents-sandbox image list
 ```
 
 The image name includes the project slug and Docker image hash, so changes to the Dockerfile automatically trigger a
 rebuild. When the resulting image digest differs from the image the existing project VM was booted from, the VM is
 recreated on the next run so it uses the new image (the home volume is preserved).
 
+Runner images are tagged **per agent** on both Docker and microsandbox. The `-latest` tag is namespaced by the agent,
+so each agent's image can be identified and updated independently:
+
+```
+agents-sandbox/runner-<slug>:<agent>-latest
+```
+
+For example, with a project slug of `my-project`, the opencode image is `agents-sandbox/runner-my-project:opencode-latest`
+and the pi image is `agents-sandbox/runner-my-project:pi-latest`.
+
+### Skip-build when unchanged
+
+The Docker build is skipped when the baked `org.agents-sandbox.dockerfile-id` label matches the current content. This
+label is a hash of the rendered Dockerfile and the agent version, so an image already built from the exact same
+Dockerfile and agent version is reused instead of being rebuilt.
+
+### Content-verified load
+
+Before skipping a load, `EnsureLoaded` verifies the microsandbox cache content — the config digest (compared against
+the Docker image ID) or the `dockerfile-id` label. If the cached content no longer matches, the image is reloaded so the
+VM always boots from the correct image.
+
 ## Image Lifecycle
 
 Images can be pruned via the `prune` command or, more targeted, the `image prune` subcommand:
 
 ```console
-opencode-sandbox image prune --dry-run   # see what's stale
-opencode-sandbox image prune             # actually remove them
+agents-sandbox image prune --dry-run   # see what's stale
+agents-sandbox image prune             # actually remove them
 ```
 
-See [Commands]({% link commands.md %}) for details on the prune command.
+Pruning retains the `-latest` images **per agent** per live project and any image a kept VM still references, reclaiming
+every other ref — pre-redesign digest refs no sandbox uses, orphaned surplus images, and every ref of projects (slugs)
+that no longer have a live VM. See [Commands]({% link commands.md %}) for details on the prune command.
 
-opencode-sandbox also auto-prunes all resources that are ephemeral, unused or haven't been in use for more than 30 days by
+agents-sandbox also auto-prunes all resources that are ephemeral, unused or haven't been in use for more than 30 days by
 default. Cached runner images and home volumes are only pruned once they are older than the threshold, so a recently
 used project keeps its image and home state across restarts. See [Sandboxes]({% link sandboxes.md %}) for more information
-and [Configuration]({% link configuration.md %}) for how to configure auto-pruning.
+and [Configuration]({% link configuration/index.md %}) for how to configure auto-pruning.

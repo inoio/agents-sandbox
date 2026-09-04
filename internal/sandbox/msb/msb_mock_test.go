@@ -19,8 +19,8 @@ func TestMockSandboxHandleCreatedAtBackendKind(t *testing.T) {
 }
 
 func TestMockSandboxHandleImageFallsBackToConfig(t *testing.T) {
-	viaConfig := &MockSandboxHandle{Cfg: &msbSdk.SandboxConfig{Image: "opencode-sandbox/runner:latest"}}
-	if got := viaConfig.Image(); got != "opencode-sandbox/runner:latest" {
+	viaConfig := &MockSandboxHandle{Cfg: &msbSdk.SandboxConfig{Image: "agents-sandbox/runner:latest"}}
+	if got := viaConfig.Image(); got != "agents-sandbox/runner:latest" {
 		t.Errorf("Image() via Cfg = %q, want image from config", got)
 	}
 	explicit := &MockSandboxHandle{Image_: "img:direct"}

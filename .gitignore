@@ -1,9 +1,10 @@
-/opencode-sandbox*
+/agents-sandbox*
 /.idea/
-/.opencode-sandbox/
-!/.opencode-sandbox/Dockerfile
+/.agents-sandbox/
+!/.agents-sandbox/Dockerfile
 version.env
 *.test
 coverage.out
+junit.xml
 docs/diagrams/*.svg
 /docs/superpowers/

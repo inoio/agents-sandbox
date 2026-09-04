@@ -6,12 +6,12 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/inoio/opencode-sandbox/internal/sandbox/image"
-	"github.com/inoio/opencode-sandbox/internal/sandbox/msb"
-	"github.com/inoio/opencode-sandbox/internal/sandbox/naming"
-	"github.com/inoio/opencode-sandbox/internal/sandbox/options"
-	"github.com/inoio/opencode-sandbox/internal/sandbox/state"
-	"github.com/inoio/opencode-sandbox/internal/termio"
+	"github.com/inoio/agents-sandbox/internal/sandbox/image"
+	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
+	"github.com/inoio/agents-sandbox/internal/sandbox/naming"
+	"github.com/inoio/agents-sandbox/internal/sandbox/options"
+	"github.com/inoio/agents-sandbox/internal/sandbox/state"
+	"github.com/inoio/agents-sandbox/internal/termio"
 
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 )
@@ -22,11 +22,11 @@ const (
 	dstMount = "/dst"
 )
 
-// HomeVolumeName generates a volume name for the given project slug using the
-// standard home volume prefix and a UTC timestamp.
-func HomeVolumeName(projectSlug string) string {
+// HomeVolumeName generates a volume name for the given project/agent key using
+// the standard home volume prefix and a UTC timestamp.
+func HomeVolumeName(k state.Key) string {
 	ts := time.Now().UTC().Format("20060102T150405")
-	return naming.HomePrefix + projectSlug + "-" + ts
+	return naming.HomePrefix + k.Slug + "-" + k.Agent + "-" + ts
 }
 
 // Manager manages home-volume lifecycle for projects.
@@ -40,18 +40,18 @@ func NewManager(ui termio.UI) *Manager {
 }
 
 // PrefillVolume builds a throwaway sandbox from the given image, mounts the
-// target home volume at /mnt/home and copies the image's home directory onto it.
+// target home volume at /mnt/home, and copies the image's home directory onto it.
 // The throwaway sandbox is stopped and removed afterwards.
 func (vm *Manager) PrefillVolume(
 	ctx context.Context,
 	client msb.Client,
-	projectSlug, volumeName, imageTag string,
+	k state.Key, volumeName, imageTag string,
 	ui termio.UI,
 ) error {
-	if err := image.EnsureLoaded(ctx, client, projectSlug, imageTag, ui); err != nil {
+	if err := image.EnsureLoaded(ctx, client, k.Slug, imageTag, ui); err != nil {
 		return fmt.Errorf("load runner image: %w", err)
 	}
-	prefillName := naming.TaskPrefix + projectSlug + "-" + strconv.FormatInt(time.Now().UnixNano(), 10)
+	prefillName := naming.TaskPrefix + k.Slug + "-" + k.Agent + "-" + strconv.FormatInt(time.Now().UnixNano(), 10)
 	mountConfig := msbSdk.Mount.Named(volumeName, msbSdk.MountOptions{})
 
 	spin := ui.Spinner("Preparing home volume")
@@ -100,7 +100,7 @@ func (vm *Manager) PrefillVolume(
 func (vm *Manager) ApplyHomeAction(
 	ctx context.Context,
 	client msb.Client,
-	projectSlug, oldVolume, imageTag, currentDigest string,
+	k state.Key, oldVolume, imageTag, currentDigest string,
 	action VolumeAction,
 	opts options.RunOptions,
 	ui termio.UI,
@@ -109,7 +109,7 @@ func (vm *Manager) ApplyHomeAction(
 		if opts.DryRun {
 			return oldVolume, nil
 		}
-		if err := vm.RecordHomeImage(projectSlug, currentDigest, ui); err != nil {
+		if err := vm.RecordHomeImage(k, currentDigest, ui); err != nil {
 			ui.Warnf("failed to record image digest: %v", err)
 		}
 		return oldVolume, nil
@@ -125,7 +125,7 @@ func (vm *Manager) ApplyHomeAction(
 		return oldVolume, nil
 	}
 
-	newVol, err := client.CreateVolume(ctx, HomeVolumeName(projectSlug),
+	newVol, err := client.CreateVolume(ctx, HomeVolumeName(k),
 		msbSdk.WithVolumeKind(msbSdk.VolumeKindDir),
 	)
 	if err != nil {
@@ -133,20 +133,20 @@ func (vm *Manager) ApplyHomeAction(
 	}
 	newName := newVol.Name()
 
-	if err := vm.PrefillVolume(ctx, client, projectSlug, newName, imageTag, ui); err != nil {
+	if err := vm.PrefillVolume(ctx, client, k, newName, imageTag, ui); err != nil {
 		vm.cleanupVolume(ctx, client, newName, ui)
 		return "", err
 	}
 
 	if action == ActionMigrate {
-		if err := vm.CopyVolume(ctx, client, projectSlug, oldVolume, newName, imageTag, ui); err != nil {
+		if err := vm.CopyVolume(ctx, client, k, oldVolume, newName, imageTag, ui); err != nil {
 			vm.cleanupVolume(ctx, client, newName, ui)
 			return "", err
 		}
 	}
 
 	newState := state.NewHomeState(newName, currentDigest)
-	if err := state.WriteState(projectSlug, newState); err != nil {
+	if err := state.WriteState(k, newState); err != nil {
 		ui.Warnf("failed to write state file: %v", err)
 	}
 	ui.Infof("%s to new home volume %q (old %q kept)", label, newName, oldVolume)
@@ -166,13 +166,13 @@ func (vm *Manager) cleanupVolume(ctx context.Context, client msb.Client, name st
 func (vm *Manager) CopyVolume(
 	ctx context.Context,
 	client msb.Client,
-	projectSlug, oldVolume, newVolume, imageTag string,
+	k state.Key, oldVolume, newVolume, imageTag string,
 	ui termio.UI,
 ) error {
-	if err := image.EnsureLoaded(ctx, client, projectSlug, imageTag, ui); err != nil {
+	if err := image.EnsureLoaded(ctx, client, k.Slug, imageTag, ui); err != nil {
 		return fmt.Errorf("load runner image: %w", err)
 	}
-	copySbName := naming.TaskPrefix + projectSlug + "-" + strconv.FormatInt(time.Now().UnixNano(), 10)
+	copySbName := naming.TaskPrefix + k.Slug + "-" + k.Agent + "-" + strconv.FormatInt(time.Now().UnixNano(), 10)
 	copySb, err := client.CreateSandbox(ctx, copySbName,
 		msbSdk.WithImage(imageTag),
 		msbSdk.WithMounts(map[string]msbSdk.MountConfig{

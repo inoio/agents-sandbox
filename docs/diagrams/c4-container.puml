@@ -1,21 +1,21 @@
 @startuml
-' opencode-sandbox — C4 Container diagram (level 2)
+' agents-sandbox — C4 Container diagram (level 2)
 ' Uses the vendored C4-PlantUML library (v2.14.0) in this directory.
 !include C4_Container.puml
 
 hide stereotype
 %set_variable_value("$system_boundaryElementTagTechn", "")
 
-title opencode-sandbox — System Context
+title agents-sandbox — System Context
 
-Person(dev, "User", "Runs opencode-sandbox in a project directory")
+Person(dev, "User", "Runs agents-sandbox in a project directory")
 
 Container(internet, "Internet", "Network", "External network; the egress forwards to allowed hosts")
 
 System_Boundary(host, "Host machine") {
-    Container(image, "Runner image", "OCI image", "opencode, Node.js, common CLI tools")
+    Container(image, "Runner image", "OCI image", "coding agent, Node.js, common CLI tools")
     Container(cwd, "Project directory", "Filesystem", "The host CWD, bound into the VM")
-    Container(client, "opencode-sandbox client", "CLI", "Launcher that starts the VM and attaches to it")
+    Container(client, "agents-sandbox client", "CLI", "Launcher that starts the VM and attaches to it")
 
     System_Boundary(network, "Network boundary") {
         Container(egress, "Microsandbox ingress/egress", "Firewall, Secret swap", "Swaps secret placeholders for real credentials at the boundary")
@@ -23,8 +23,8 @@ System_Boundary(host, "Host machine") {
         System_Boundary(vm, "Microsandbox VM") {
             Container(ws, "/workspace", "Bind mount", "Same files as the host CWD (rw)")
             Container(home, "/home/dev", "Microsandbox volume", "Persistent editor state, caches, config")
-            Container(oc, "opencode client(s)", "Client", "Session running inside the VM")
-            Container(server, "opencode serve", "Server", "Server inside the VM; the client connects to it")
+            Container(oc, "agent client(s)", "Client", "Session running inside the VM")
+            Container(server, "agent server", "Server", "Server inside the VM; the client connects to it")
         }
     }
 }
