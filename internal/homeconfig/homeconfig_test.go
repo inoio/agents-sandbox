@@ -17,12 +17,29 @@ func writeHomeYAML(t *testing.T, dir, body string) {
 	testutil.WriteFile(t, dir, "home.yaml", body)
 }
 
-func TestLoadManifest(t *testing.T) {
-	dir := t.TempDir()
-	writeHomeYAML(t, dir, ".gitconfig:\n.config/tool/cfg.toml: ./tool/cfg.toml\n")
-	m, err := LoadManifest(filepath.Join(dir, "home.yaml"))
+// testData wraps an inner home body under a top-level home: key and writes it
+// as the user config file.
+func writeHomeConfig(t *testing.T, dir, body string) {
+	t.Helper()
+	var sb strings.Builder
+	sb.WriteString("home:\n")
+	for line := range strings.SplitSeq(body, "\n") {
+		if strings.TrimSpace(line) == "" {
+			continue
+		}
+		sb.WriteString("  " + line + "\n")
+	}
+	testutil.WriteFile(t, dir, "config.yaml", sb.String())
+}
+
+func TestParseHomeSection(t *testing.T) {
+	data := []byte("home:\n  .gitconfig:\n  .config/tool/cfg.toml: ./tool/cfg.toml\n")
+	m, has, err := ParseHomeSection(data, "config.yaml")
 	if err != nil {
-		t.Fatalf("LoadManifest: %v", err)
+		t.Fatalf("ParseHomeSection: %v", err)
+	}
+	if !has {
+		t.Fatal("expected has=true")
 	}
 	want := Manifest{
 		".gitconfig":            Entry{Source: ""},
@@ -30,6 +47,34 @@ func TestLoadManifest(t *testing.T) {
 	}
 	if !reflect.DeepEqual(m, want) {
 		t.Errorf("got %v, want %v", m, want)
+	}
+}
+
+func TestParseHomeSectionNoHomeKey(t *testing.T) {
+	data := []byte("cpus: 2\nmemory: 4G\n")
+	m, has, err := ParseHomeSection(data, "config.yaml")
+	if err != nil {
+		t.Fatalf("ParseHomeSection: %v", err)
+	}
+	if has {
+		t.Error("expected has=false when no home key")
+	}
+	if len(m) != 0 {
+		t.Errorf("expected empty manifest, got %v", m)
+	}
+}
+
+func TestParseHomeSectionEmptyHomeKey(t *testing.T) {
+	data := []byte("home:\n")
+	m, has, err := ParseHomeSection(data, "config.yaml")
+	if err != nil {
+		t.Fatalf("ParseHomeSection: %v", err)
+	}
+	if !has {
+		t.Error("expected has=true for an empty home key")
+	}
+	if len(m) != 0 {
+		t.Errorf("expected empty manifest, got %v", m)
 	}
 }
 
@@ -45,12 +90,14 @@ func TestMergeManifestsProjectWins(t *testing.T) {
 	}
 }
 
-func TestLoadManifestStructuredEntry(t *testing.T) {
-	dir := t.TempDir()
-	writeHomeYAML(t, dir, ".vpn/connect.sh:\n  source: vpn/connect.sh\n  hook: startup\n  root: true\n")
-	m, err := LoadManifest(filepath.Join(dir, "home.yaml"))
+func TestParseHomeSectionStructuredEntry(t *testing.T) {
+	data := []byte("home:\n  .vpn/connect.sh:\n    source: vpn/connect.sh\n    hook: startup\n    root: true\n")
+	m, has, err := ParseHomeSection(data, "config.yaml")
 	if err != nil {
-		t.Fatalf("LoadManifest: %v", err)
+		t.Fatalf("ParseHomeSection: %v", err)
+	}
+	if !has {
+		t.Fatal("expected has=true")
 	}
 	want := Manifest{
 		".vpn/connect.sh": Entry{Source: "vpn/connect.sh", Hook: "startup", Root: true},
@@ -60,34 +107,30 @@ func TestLoadManifestStructuredEntry(t *testing.T) {
 	}
 }
 
-func TestLoadManifestSyntaxErrorIsFriendly(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "home.yaml")
-	writeHomeYAML(t, dir, ".gitconfig:\n  source: [\n")
-
-	_, err := LoadManifest(path)
+func TestParseHomeSectionSyntaxErrorIsFriendly(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	data := []byte("home:\n  .gitconfig:\n    source: [\n")
+	_, _, err := ParseHomeSection(data, path)
 	if err == nil {
-		t.Fatal("expected error for malformed home.yaml")
+		t.Fatal("expected error for malformed home section")
 	}
-	for _, want := range []string{path, "invalid YAML", "line 2"} {
+	for _, want := range []string{path, "invalid YAML", "line"} {
 		if !strings.Contains(err.Error(), want) {
 			t.Errorf("error %q does not mention %q", err, want)
 		}
 	}
 }
 
-func TestLoadManifestRejectsUnknownHook(t *testing.T) {
-	dir := t.TempDir()
-	writeHomeYAML(t, dir, ".x:\n  source: x\n  hook: boot\n")
-	if _, err := LoadManifest(filepath.Join(dir, "home.yaml")); err == nil {
+func TestParseHomeSectionRejectsUnknownHook(t *testing.T) {
+	data := []byte("home:\n  .x:\n    source: x\n    hook: boot\n")
+	if _, _, err := ParseHomeSection(data, "config.yaml"); err == nil {
 		t.Fatal("expected error for unknown hook value")
 	}
 }
 
-func TestLoadManifestRejectsNonBooleanRoot(t *testing.T) {
-	dir := t.TempDir()
-	writeHomeYAML(t, dir, ".x:\n  source: x\n  hook: startup\n  root: yes\n")
-	if _, err := LoadManifest(filepath.Join(dir, "home.yaml")); err == nil {
+func TestParseHomeSectionRejectsNonBooleanRoot(t *testing.T) {
+	data := []byte("home:\n  .x:\n    source: x\n    hook: startup\n    root: yes\n")
+	if _, _, err := ParseHomeSection(data, "config.yaml"); err == nil {
 		t.Fatal("expected error for non-boolean root value")
 	}
 }

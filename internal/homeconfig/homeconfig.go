@@ -5,6 +5,7 @@
 package homeconfig
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"maps"
@@ -14,6 +15,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/titanous/json5"
 	"gopkg.in/yaml.v3"
 
 	"github.com/inoio/opencode-sandbox/internal/yamlfmt"
@@ -21,6 +23,104 @@ import (
 
 // manifestName is the fixed manifest filename.
 const manifestName = "home.yaml"
+
+// supportedExts are the config-file extensions, tried in order. The order MUST
+// match internal/viperconfig's supportedExts so both packages select the same
+// config file for a directory.
+//
+//nolint:gochecknoglobals // package-level constant slice
+var supportedExts = []string{".yaml", ".yml", ".json", ".jsonc", ".json5"}
+
+const (
+	extJSON5 = ".json5"
+	extJSONC = ".jsonc"
+)
+
+// findConfigFile returns the first existing config file in dir.
+func findConfigFile(dir string) (string, string, bool) {
+	if dir == "" {
+		return "", "", false
+	}
+	for _, ext := range supportedExts {
+		path := filepath.Join(dir, "config"+ext)
+		if _, err := os.Stat(path); err == nil {
+			return path, ext, true
+		}
+	}
+	return "", "", false
+}
+
+// ParseHomeSection parses the home manifest from raw config-file data (YAML or
+// JSON; JSON5/JSONC must be normalized first). The boolean reports whether a
+// top-level "home" key was present. path is used only for error messages.
+func ParseHomeSection(data []byte, path string) (Manifest, bool, error) {
+	var root map[string]any
+	if err := yaml.Unmarshal(data, &root); err != nil {
+		return nil, false, yamlfmt.WrapErr(path, err)
+	}
+	homeRaw, ok := root["home"]
+	if !ok {
+		return Manifest{}, false, nil
+	}
+	m, err := parseManifestValue(homeRaw, path)
+	if err != nil {
+		return nil, false, err
+	}
+	return m, true, nil
+}
+
+// parseManifestValue decodes a home value (a map of target to source) into a
+// Manifest.
+func parseManifestValue(raw any, path string) (Manifest, error) {
+	m := Manifest{}
+	if raw == nil {
+		return m, nil
+	}
+	rawMap, ok := raw.(map[string]any)
+	if !ok {
+		// yaml.v3 decodes maps with non-string keys (e.g. numeric targets) into
+		// map[any]any; accept them by stringifying each key.
+		anyMap, ok := raw.(map[any]any)
+		if !ok {
+			return nil, fmt.Errorf("parse %s: home must be a map of target to source", path)
+		}
+		rawMap = make(map[string]any, len(anyMap))
+		for k, v := range anyMap {
+			rawMap[fmt.Sprint(k)] = v
+		}
+	}
+	for target, v := range rawMap {
+		e, err := parseEntry(v)
+		if err != nil {
+			return nil, fmt.Errorf("parse %s entry %q: %w", path, target, err)
+		}
+		m[target] = e
+	}
+	return m, nil
+}
+
+// ReadHomeFromConfigDir reads the config file in dir and returns its home
+// manifest. The boolean reports whether a home key was present.
+func ReadHomeFromConfigDir(dir string) (Manifest, bool, error) {
+	path, ext, ok := findConfigFile(dir)
+	if !ok {
+		return Manifest{}, false, nil
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, false, fmt.Errorf("read config %s: %w", path, err)
+	}
+	if ext == extJSON5 || ext == extJSONC {
+		var m map[string]any
+		if unmarshalErr := json5.Unmarshal(data, &m); unmarshalErr != nil {
+			return nil, false, fmt.Errorf("parse config %s: %w", path, unmarshalErr)
+		}
+		if data, err = json.Marshal(m); err != nil {
+			return nil, false, fmt.Errorf("normalize config %s: %w", path, err)
+		}
+	}
+	return ParseHomeSection(data, path)
+}
 
 // startupHook is the only supported startup-hook value.
 const startupHook = "startup"
