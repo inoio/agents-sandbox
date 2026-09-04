@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/inoio/opencode-sandbox/internal/configpaths"
+	"github.com/inoio/opencode-sandbox/internal/homeconfig"
 	"github.com/inoio/opencode-sandbox/internal/notify"
 	"github.com/inoio/opencode-sandbox/internal/sandbox/mounts"
 	"github.com/inoio/opencode-sandbox/internal/sandbox/network"
@@ -55,6 +56,12 @@ type Config struct {
 	// from v.Get("mounts") instead: viper flattens dotted guest paths such as
 	// /home/dev/.m2 into nested keys, which would corrupt the map keys.
 	Mounts mounts.Mounts `mapstructure:"-"`
+	// Home holds the per-layer home manifests from the config files' home:
+	// key. It is decoded separately (not via viper.Unmarshal) so each layer
+	// keeps its own directory for relative-source resolution.
+	Home []homeconfig.Layer `mapstructure:"-"`
+	// hasHome reports whether any config file declared a home key.
+	hasHome bool
 
 	// Upgrade controls checking for and installing newer opencode-sandbox
 	// releases. Only Mode and Interval are settable via env.
@@ -142,6 +149,16 @@ func NewResolver(cmd *cobra.Command, slug string) (*Resolver, error) {
 	}
 	cfg.Mounts = decodedMounts
 	cfg.Notify = decodeNotify(v)
+
+	homeLayers, hasHome, err := homeconfig.LoadLayers([]string{
+		configpaths.Get().UserConfigDir(),
+		configpaths.Get().ProjectConfigDir(),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("decode launcher config: %w", err)
+	}
+	cfg.Home = homeLayers
+	cfg.hasHome = hasHome
 	return &Resolver{cfg: cfg}, nil
 }
 
@@ -529,6 +546,12 @@ func (r *Resolver) UpgradeInterval() time.Duration {
 // Mounts returns additional host bind mounts.
 func (r *Resolver) Mounts() mounts.Mounts {
 	return r.cfg.Mounts
+}
+
+// Home returns the per-layer home manifests read from the config files' home:
+// key, and whether any config file declared a home key.
+func (r *Resolver) Home() ([]homeconfig.Layer, bool) {
+	return r.cfg.Home, r.cfg.hasHome
 }
 
 // Notify returns the resolved notify config. An empty Audio (zero-value Config)

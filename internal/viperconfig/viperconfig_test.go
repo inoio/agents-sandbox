@@ -644,3 +644,59 @@ func TestResolverNotifyRejectsInvalidAudio(t *testing.T) {
 		t.Fatal("expected error for invalid notify.audio mode")
 	}
 }
+
+func TestResolverHome(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	cp := configpaths.Get()
+	testutil.WriteYAML(t, cp.UserConfigDir(), "config.yaml", map[string]any{
+		"home": map[string]any{".gitconfig": ""},
+	})
+	testutil.WriteYAML(t, cp.ProjectConfigDir(), "config.yaml", map[string]any{
+		"home": map[string]any{".config/tool/cfg.toml": "./tool/cfg.toml"},
+	})
+
+	r, err := NewResolver(nil, "")
+	if err != nil {
+		t.Fatalf("NewResolver: %v", err)
+	}
+	layers, has := r.Home()
+	if !has {
+		t.Fatal("expected has=true")
+	}
+	if len(layers) != 2 {
+		t.Fatalf("expected 2 layers, got %d", len(layers))
+	}
+	if _, ok := layers[0].Manifest[".gitconfig"]; !ok {
+		t.Errorf("expected user .gitconfig in layer 0, got %v", layers[0].Manifest)
+	}
+	if _, ok := layers[1].Manifest[".config/tool/cfg.toml"]; !ok {
+		t.Errorf("expected project cfg.toml in layer 1, got %v", layers[1].Manifest)
+	}
+}
+
+func TestResolverHomeNoConfig(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	r, err := NewResolver(nil, "")
+	if err != nil {
+		t.Fatalf("NewResolver: %v", err)
+	}
+	layers, has := r.Home()
+	if has {
+		t.Error("expected has=false when no home key configured")
+	}
+	for i, l := range layers {
+		if len(l.Manifest) != 0 {
+			t.Errorf("expected empty manifest in layer %d, got %v", i, l.Manifest)
+		}
+	}
+}
+
+func TestResolverHomeRejectsInvalidHomeValue(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	testutil.WriteYAML(t, configpaths.Get().UserConfigDir(), "config.yaml", map[string]any{
+		"home": 5,
+	})
+	if _, err := NewResolver(nil, ""); err == nil {
+		t.Fatal("expected error for invalid home value")
+	}
+}
