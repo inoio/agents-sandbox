@@ -11,7 +11,7 @@ Docker, bubblewrap, seatbelt, and bare opencode all share your kernel — a kern
 
 Your project is mounted at `/workspace`, read-write, so the agent works on the same files you do and edits round-trip.
 Everything else on your machine — other projects, your home directory, your keys — simply isn't there, except for what
-you explicitly provision into the VM's home (via `home.yaml`). Secrets are injected at runtime through the secret
+you explicitly provision into the VM's home (via the `home:` config key). Secrets are injected at runtime through the secret
 mechanism as environment variables and never written into the VM, so an agent can't leak what it never possessed. Worst
 case, a session is a disposable VM: wipe it, and the host is untouched.
 

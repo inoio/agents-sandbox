@@ -24,7 +24,6 @@ the [XDG base directory spec](https://specifications.freedesktop.org/basedir-spe
 | `~/.config/opencode-sandbox/env.secret.yaml`               | Secret environment variables (YAML/JSON, see [Secrets](#secrets))                     |
 | `~/.config/opencode-sandbox/config.(y[a]ml\|json[(c\|5)])` | Configuration file                                                                    |
 | `~/.config/opencode-sandbox/<agent>/*`                    | Agent config snippets, one subdir per agent (e.g. `opencode/`; see [Agent configuration](#agent-configuration)) |
-| `~/.config/opencode-sandbox/home.yaml`                     | User home-file mappings (see [Home files](#home-files))                               |
 | `~/.config/opencode-sandbox/<slug>/config.(y[a]ml\|json[(c\|5)])` | Per-project (per-slug) configuration file (see [Per-slug configuration](#per-slug-configuration)) |
 
 `env` uses `KEY=value` format. `env.secret` uses `KEY=value@host` (see [Secrets](#secrets)).
@@ -44,7 +43,6 @@ Place files under `.opencode-sandbox/` in your project directory. These override
 | `.opencode-sandbox/env.secret.yaml`               | Project-specific secrets (YAML/JSON)                                                              |
 | `.opencode-sandbox/config.(y[a]ml\|json[(c\|5)])` | Project-specific configuration file                                                               |            
 | `.opencode-sandbox/<agent>/*`                    | Project-specific agent config snippets (see [Agent configuration](#agent-configuration))          |
-| `.opencode-sandbox/home.yaml`                     | Project-specific home-file mappings (see [Home files](#home-files))                               |
 
 ### Custom base images
 
@@ -170,7 +168,7 @@ When **no other client** is attached, config changes apply immediately.
 
 Opencode/home config files are provisioned into the VM on every startup, so a change is picked up by the next daemon start
 even when the current daemon is kept running (see below). Only the `opencode config` change prompts for a daemon restart;
-`home.yaml` file changes are applied on the next startup without any prompt, since they do not require the daemon to restart.
+`home:` config changes are applied on the next startup without any prompt, since they do not require the daemon to restart.
 
 #### Parallel Sessions
 
@@ -509,7 +507,7 @@ Two families of files are *not* mirrored:
 
 Precedence when the same VM path is reachable from multiple sources:
 
-`home.yaml` > merged snippet config > verbatim mirror > drop-in provisioning
+the `home:` config section > merged snippet config > verbatim mirror > drop-in provisioning
 
 The mirror is **always active**, independent of `provision-host-config`. Stale mirrored files (deleted from the host)
 are left in place in the VM. Run `opencode-sandbox config agent` to list the mirror files, each shown as its host source
@@ -529,7 +527,7 @@ The drop-in copy is scoped to the agent's settings file, not its runtime state o
 - **pi** — `~/.pi/agent/settings.json`.
 - **claude-code** — `~/.claude/settings.json` (runtime state and the machine-managed `.credentials.json` are not copied).
 
-Precedence: the merged snippet config and any `home.yaml` mappings override the drop-in copy for the same VM path.
+Precedence: the merged snippet config and any `home:` mappings override the drop-in copy for the same VM path.
 
 When snippets exist, the drop-in copy of the config-file family is skipped entirely (see the note above) so host config
 cannot override the merged snippets. Non-config files — e.g. plugins, custom commands, themes — are still copied.
@@ -537,7 +535,7 @@ cannot override the merged snippets. Non-config files — e.g. plugins, custom c
 To switch from your agent's own config to `opencode-sandbox/<agent>` snippet provisioning, create snippet files in the
 user or project snippet directories (see [Config snippet merge](#config-snippet-merge)). Once a snippet matching the
 agent's pattern exists, it wins over the host config for the merged config path. To stop the native-config drop-in
-entirely so only the snippet merge and `home.yaml` mappings apply, set `provision-host-config: false` (below).
+entirely so only the snippet merge and `home:` mappings apply, set `provision-host-config: false` (below).
 
 To turn off the drop-in copy altogether (config **and** credentials), set `provision-host-config: false` in the launcher
 config:
@@ -547,7 +545,7 @@ provision-host-config: false
 ```
 
 This skips the whole host-config copy (for opencode: `~/.config/opencode/**` and `auth.json`), while the snippet merge
-and `home.yaml` mappings keep working. On the next run, previously drop-in-copied config and credential files are removed
+and `home:` mappings keep working. On the next run, previously drop-in-copied config and credential files are removed
 from existing home volumes so they cannot linger.
 
 #### Authentication: file copy vs. env-secret
@@ -557,7 +555,7 @@ from existing home volumes so they cannot linger.
 > writes them into the VM, see [Secrets](#secrets)), you can opt out of the credential file copy. The env-secret channel
 > remains fully supported and unchanged; this does not replace it.
 
-To opt out, exclude `auth.json` from the drop-in copy by placing a `home.yaml` entry that overrides the provisioned path
+To opt out, exclude `auth.json` from the drop-in copy by placing a `home:` entry that overrides the provisioned path
 (see [Home files](#home-files)), or remove the credential file from the host before running. The launcher does not inject
 host secrets in any other way; the env-secret mechanism is the supported channel for secrets you do not want on disk in
 the VM.
@@ -572,13 +570,14 @@ For pi and claude-code, the drop-in copy does not include credential files; auth
 
 ## Home files
 
-In addition to the opencode config, `home.yaml` provisions arbitrary files into the VM home directory (`/home/dev`). A
-manifest is an optional YAML map from a **VM-home-relative target path** to a **host source string**:
+In addition to the opencode config, the `home:` key provisions arbitrary files into the VM home directory (`/home/dev`).
+It is an optional map from a **VM-home-relative target path** to a **host source string**, declared in the launcher
+config file (`config.yaml`/`config.yml`/`config.json`/`config.jsonc`/`config.json5`) at the user or project level:
 
-| Manifest location                      | Purpose                          |
-|----------------------------------------|----------------------------------|
-| `~/.config/opencode-sandbox/home.yaml` | User-level home-file mappings    |
-| `.opencode-sandbox/home.yaml`          | Project-level home-file mappings |
+| Config location                                                    | Purpose                          |
+|--------------------------------------------------------------------|----------------------------------|
+| `home:` in `~/.config/opencode-sandbox/config.(y[a]ml\|json[(c\|5)])` | User-level home-file mappings    |
+| `home:` in `.opencode-sandbox/config.(y[a]ml\|json[(c\|5)])`        | Project-level home-file mappings |
 
 Keys (targets) are relative paths within the VM home, e.g. `.config/opencode/opencode.json`. The host source value is
 resolved as follows:
@@ -586,35 +585,37 @@ resolved as follows:
 - **empty** — read host `$HOME/<target>`
 - **`/`-prefixed** — an absolute host path
 - **`~/`-prefixed** — host `$HOME/<rest>`
-- **otherwise** — relative to the manifest file that declares it
+- **otherwise** — relative to the config file that declares it
 
-Layering: the project manifest overrides the user manifest **per target**. Targets must stay within the VM home
+Layering: the project config overrides the user config **per target**. Targets must stay within the VM home
 (`..` traversal, absolute paths, and `~`-prefixed targets are rejected — targets are already relative to the home
 directory, so `~/fdsa` should simply be written as `fdsa`), and the active agent's merged-config path is reserved (for
-opencode, `.config/opencode/opencode.jsonc`) — it cannot be provisioned via `home.yaml`.
+opencode, `.config/opencode/opencode.jsonc`) — it cannot be provisioned via the `home:` key.
 
-Example `.opencode-sandbox/home.yaml`:
+Example `.opencode-sandbox/config.yaml`:
 
 ```yaml
-# Relative source resolves against .opencode-sandbox/
-.ssh/config: ssh_config
-# Absolute host path
-.config/tooling/rc: /abs/path/to/rc
-# Host $HOME
-.gitconfig: ~/.gitconfig
-# Empty source reads host $HOME/.inputrc
-.inputrc:
+home:
+  # Relative source resolves against .opencode-sandbox/
+  .ssh/config: ssh_config
+  # Absolute host path
+  .config/tooling/rc: /abs/path/to/rc
+  # Host $HOME
+  .gitconfig: ~/.gitconfig
+  # Empty source reads host $HOME/.inputrc
+  .inputrc:
 ```
 
 In addition to the plain string form, a value may be a mapping that provisions the file and optionally runs it at VM
 startup as a startup hook:
 
 ````yaml
-# provision AND run at startup, as root
-.vpn/connect.sh:
-  source: vpn/connect.sh   # resolved exactly like the plain string form
-  hook: startup            # optional; the only supported value is `startup`
-  root: true               # optional; true runs as root, the default (dev) otherwise
+home:
+  # provision AND run at startup, as root
+  .vpn/connect.sh:
+    source: vpn/connect.sh   # resolved exactly like the plain string form
+    hook: startup            # optional; the only supported value is `startup`
+    root: true               # optional; true runs as root, the default (dev) otherwise
 ````
 
 Rules:
@@ -633,11 +634,12 @@ Example: bring up a VPN with a vpn client (installed via your `.opencode-sandbox
 config (host, port, username, trusted cert) provisioned as a plain entry:
 
 ````yaml
-.vpn/connect.sh:
-  source: vpn/connect.sh
-  hook: startup
-  root: true
-.vpn/config: .vpn/config
+home:
+  .vpn/connect.sh:
+    source: vpn/connect.sh
+    hook: startup
+    root: true
+  .vpn/config: .vpn/config
 ````
 
 Any credentials (passwords, MFA) the VPN needs should be interactively read from user input by the script.

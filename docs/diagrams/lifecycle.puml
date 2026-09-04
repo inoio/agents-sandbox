@@ -73,7 +73,7 @@ else (yes)
     endif
 endif
 
-:Provisioning\ncopy opencode config, home.yaml;
+:Provisioning\ncopy opencode config, home: key;
 if (fresh boot?) then (yes)
     :Run startup hooks;
     :Start dockerd (if present)\nno-op when already running;

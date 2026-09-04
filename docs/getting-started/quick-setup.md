@@ -69,11 +69,13 @@ See [Configuration]({% link configuration.md %}#secrets) for more details.
 
 ### FOr providers with oauth credentials
 
-Map your existing `auth.json` into the VM(s). Create a `home.yaml` file in `~/.config/opencode-sandbox`:
+Map your existing `auth.json` into the VM(s) with the `home:` key in `~/.config/opencode-sandbox/config.yaml`:
 
 ```shell
-cat ~/.config/opencode-sandbox <<EOF
-.local/opencode/auth.json: ~/.local/opencode/auth.json
+mkdir -p ~/.config/opencode-sandbox
+cat > ~/.config/opencode-sandbox/config.yaml <<'EOF'
+home:
+  .local/opencode/auth.json: ~/.local/opencode/auth.json
 EOF
 ```
 

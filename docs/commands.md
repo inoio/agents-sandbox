@@ -309,7 +309,7 @@ Each host file is listed as `merged` (its VM path is the merged config path or p
 
 #### config home
 
-List the resolved home-file mappings from the `home.yaml` manifest (VM target path ← host source path).
+List the resolved home-file mappings from the config `home:` key (VM target path ← host source path).
 
 ```console
 opencode-sandbox config home

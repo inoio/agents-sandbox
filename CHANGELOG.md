@@ -10,6 +10,10 @@ command reports the bare version (e.g. `0.1.0`).
 
 ### Changed
 
+- Behavior: the home-file manifest moved from `home.yaml` files into the `home:` key of the launcher config files
+  (`config.yaml`/`config.yml`/`config.json`/`config.jsonc`/`config.json5`), at the user and project level. Relative
+  sources still resolve against the config file that declares them. `config home` reads the config `home:` key; the
+  `home.yaml` files are no longer read.
 - Behavior: VMs, home volumes, and state are now scoped per agent (`--agent`): switching agents no longer tears down
   the project sandbox, and opencode/opencode2 can serve concurrently. `stop`/`kill` accept `--agent`. Existing
   per-project VMs/home volumes are abandoned (see docs/sandboxes.md).
@@ -56,7 +60,7 @@ command reports the bare version (e.g. `0.1.0`).
 - Behavior: the `<agent>` config dirs (`~/.config/opencode-sandbox/<agent>/`, `.opencode-sandbox/<agent>/`) now act as a
   verbatim mirror of the agent's VM config directory. Files matching the agent's snippet pattern are still deep-merged;
   every other file and subdirectory is provisioned verbatim (e.g. `tui.json`, `AGENTS.md`, `agents/`, `commands/`,
-  `themes/`). Precedence: `home.yaml` > merged snippet config > mirror > drop-in provisioning. `config agent` lists the
+  `themes/`). Precedence: `home:` config key > merged snippet config > mirror > drop-in provisioning. `config agent` lists the
   mirrored files. Previously non-pattern files in `<agent>/` were silently ignored.
 
 - CLI: a new `build dockerfile` subcommand prints the runner Dockerfile exactly as it would be built (`--agent`, `--dind`), without invoking docker. Also available as `image build dockerfile`.
