@@ -7,8 +7,20 @@ nav_order: 20
 
 # Secrets
 
-Secrets are environment variables whose values are stored host-side only and delivered to the VM via the microsandbox
-secret mechanism. They never appear in Docker images or environment dumps inside the VM.
+Secrets are environment variables whose real values stay on the host and are delivered through microsandbox's secret
+mechanism. The VM receives a placeholder, not the real value. The network proxy replaces that placeholder only when a
+request is sent to an allowed host over a connection whose destination can be verified.
+
+This is different from an ordinary entry in `env`: values from `env` are copied into the VM as normal environment
+variables. Put credentials in `env.secret` or `env.secret.yaml`, never in `env`.
+
+## Quick start
+
+If you use OpenCode's `/connect` command, follow [OpenCode authentication](#opencode-authentication) below. That is the
+recommended workflow for credentials, which opencode stores in `auth.json`; it uses a literal microsandbox placeholder and an explicit
+`home:` mapping.
+
+The `provision-host-config: false` setting belongs in the top-level launcher configuration in `~/.config/agents-sandbox/config.yaml`.
 
 ## Format
 
@@ -73,11 +85,82 @@ with a warning.
 - `.agents-sandbox/env.secret` — project-level, legacy text format
 - `.agents-sandbox/env.secret.yaml` — project-level, structured YAML (or JSON)
 
-## Accessing secrets inside the VM
+## Placeholder values
 
-Once set as a secret, the variable is available like any environment variable, but its value is a placeholder:
+When no custom placeholder is configured, microsandbox uses the following guest-visible value:
 
-```shell
-# Inside the sandbox (shell or run command)
-echo $GITHUB_TOKEN
+```text
+$MSB_<SECRET_NAME>
 ```
+
+For example, the guest value of `GITHUB_TOKEN` is `$MSB_GITHUB_TOKEN`.
+
+## OpenCode authentication
+
+OpenCode stores credentials created by `/connect` in:
+
+```text
+~/.local/share/opencode/auth.json
+```
+
+That is different from the agents-sandbox input directory:
+
+```text
+~/.config/agents-sandbox/opencode/
+```
+
+An `auth.json` placed in the latter directory is mirrored to `/home/dev/.config/opencode/auth.json`; it is not
+automatically OpenCode's credential store. To use secret placeholders in OpenCode's credential store, provision the
+placeholder file explicitly with the launcher's `home:` key.
+
+For example, for GitHub Copilot:
+
+```yaml
+# ~/.config/agents-sandbox/config.yaml
+provision-host-config: false
+home:
+  # The source is relative to ~/.config/agents-sandbox/config.yaml.
+  .local/share/opencode/auth.json: opencode/auth.json
+```
+
+```json
+// ~/.config/agents-sandbox/opencode/auth.json
+{
+  "github-copilot": {
+    "type": "oauth",
+    "access": "$MSB_GH_COPILOT_ACCESS_TOKEN",
+    "refresh": "$MSB_GH_COPILOT_REFRESH_TOKEN",
+    "expires": 0
+  }
+}
+```
+
+```yaml
+# ~/.config/agents-sandbox/env.secret.yaml
+GH_COPILOT_ACCESS_TOKEN:
+  value: "<access-token>"
+  hosts:
+    - api.githubcopilot.com
+GH_COPILOT_REFRESH_TOKEN:
+  value: "<refresh-token>"
+  hosts:
+    - api.githubcopilot.com
+```
+
+The network policy is separate from the secret allowlist. The VM must be allowed to reach the same endpoint, for example:
+
+```yaml
+# ~/.config/agents-sandbox/config.yaml
+network:
+  egress-allow:
+    - api.githubcopilot.com
+```
+
+Use `agents-sandbox config home` to verify the `home:` mapping. `agents-sandbox config agent` shows the agent mirror and
+drop-in candidates, but does not show `home:` mappings or files already present in the persistent home volume.
+
+> **_NOTE:_**  After running `/connect` with opencode _inside_ the agents-sandbox, you can use `!` to switch to shell mode and then run
+> ```
+> cat ~/.local/share/opencode/auth.json
+> ```
+> to see the credentials stored in the sandbox (to store them outside in `env.secret.yaml`). 
