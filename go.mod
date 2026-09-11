@@ -11,7 +11,7 @@ require (
 	github.com/go-git/go-git/v5 v5.19.2
 	github.com/go-viper/mapstructure/v2 v2.5.0
 	github.com/moby/docker-image-spec v1.3.1
-	github.com/moby/moby/api v1.55.0
+	github.com/moby/moby/api v1.56.0
 	github.com/moby/moby/client v0.5.1
 	github.com/opencontainers/image-spec v1.1.1
 	github.com/spf13/cobra v1.10.2
