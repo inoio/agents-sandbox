@@ -176,6 +176,7 @@ func decideReconfig(
 		imageRef,
 		opts,
 		reprovision.ChangeFlags{
+			Image:       imageChanged,
 			Env:         envHasChanged,
 			Secrets:     secretsHasChanged,
 			Network:     networkHasChanged,

@@ -699,12 +699,24 @@ func TestDecideReconfig_HomePromptDeferredWhenRebuildDeferred(t *testing.T) {
 	msb.WithMsbMock(t, mock)
 	configpaths.WithMockConfigPaths(t)
 
-	prompted := false
+	key := state.Key{Slug: "testproj", Agent: "opencode"}
+	release, err := state.AcquireClientLease(key)
+	if err != nil {
+		t.Fatalf("AcquireClientLease: %v", err)
+	}
+	defer release()
+
+	reconfigPrompted := false
+	homePrompted := false
 	ui := &termio.Mock{
 		IsInteractiveResult: true,
 		SelectFn: func(prompt string, _ []termio.Choice, _ string) (string, error) {
-			if strings.Contains(prompt, "Docker image changed") {
-				prompted = true
+			switch {
+			case strings.Contains(prompt, "Applying requires rebuilding"):
+				reconfigPrompted = true
+				return "k", nil
+			case strings.Contains(prompt, "Docker image changed"):
+				homePrompted = true
 			}
 			return "", nil
 		},
@@ -724,10 +736,10 @@ func TestDecideReconfig_HomePromptDeferredWhenRebuildDeferred(t *testing.T) {
 		context.Background(),
 		mock,
 		vm,
-		state.Key{Slug: "testproj", Agent: "opencode"},
+		key,
 		options.RunOptions{},
-		"img:tag",    // imageRef == cfg.Image -> no image-triggered rebuild
-		"sha256:new", // stored digest differs -> image change detected, but rebuild deferred
+		"img:tag",    // imageRef == cfg.Image; the digest still identifies the image
+		"sha256:new", // stored digest differs -> image-triggered rebuild
 		"vol",
 		persisted,
 		cfs,
@@ -736,14 +748,17 @@ func TestDecideReconfig_HomePromptDeferredWhenRebuildDeferred(t *testing.T) {
 	if err != nil {
 		t.Fatalf("decideReconfig: %v", err)
 	}
-	if prompted {
-		t.Error("expected home-volume prompt to be deferred when the rebuild is deferred")
+	if !reconfigPrompted {
+		t.Error("expected VM-recreate prompt when another client is active")
+	}
+	if homePrompted {
+		t.Error("expected home-volume prompt to be deferred with the VM rebuild")
 	}
 	if homeVol != "vol" {
 		t.Errorf("homeVol = %q, want unchanged %q", homeVol, "vol")
 	}
 	if recreate {
-		t.Error("expected no recreate when no config change triggers a rebuild")
+		t.Error("expected VM rebuild to be deferred when another client keeps the current VM")
 	}
 	if restart {
 		t.Error("expected no restart")
