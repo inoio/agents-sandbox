@@ -34,6 +34,7 @@ type Client interface {
 	RemoveVolume(ctx context.Context, name string) error
 	ImageGet(ctx context.Context, ref string) error
 	ImageList(ctx context.Context) ([]ImageHandle, error)
+	ImagePrune(ctx context.Context) (*msbSdk.ImagePruneReport, error)
 	ImageRemove(ctx context.Context, ref string, force bool) error
 	ImageLoad(ctx context.Context, ref string, r io.Reader) error
 	ImageInspect(ctx context.Context, ref string) (*msbSdk.ImageConfig, error)
@@ -277,6 +278,10 @@ func (realMsbClient) ImageList(ctx context.Context) ([]ImageHandle, error) {
 		result[i] = h
 	}
 	return result, nil
+}
+
+func (realMsbClient) ImagePrune(ctx context.Context) (*msbSdk.ImagePruneReport, error) {
+	return msbSdk.Image.Prune(ctx)
 }
 
 func (realMsbClient) ImageRemove(ctx context.Context, ref string, force bool) error {

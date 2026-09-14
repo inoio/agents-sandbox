@@ -349,14 +349,12 @@ func EnsureImageWithClient(
 // already present, so the image can be used to create VMs. It is idempotent:
 // when the image is already cached (ImageGet succeeds) it returns immediately,
 // unless the cached content no longer matches the Docker image, in which case
-// the stale microsandbox image is removed and reloaded.
+// the Docker image is loaded again under the same reference. Loading directly
+// avoids removing a manifest that an existing VM may still reference.
 func EnsureLoaded(ctx context.Context, mclient msb.Client, _, imageRef string, ui termio.UI) error {
 	if err := mclient.ImageGet(ctx, imageRef); err == nil {
 		if cachedImageMatchesDocker(ctx, mclient, imageRef) {
 			return nil
-		}
-		if err := mclient.ImageRemove(ctx, imageRef, true); err != nil {
-			ui.Warnf("failed to remove stale cached image %s: %v (continuing)", imageRef, err)
 		}
 	}
 

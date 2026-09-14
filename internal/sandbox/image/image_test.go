@@ -509,19 +509,26 @@ func TestEnsureLoadedReloadsWhenCachedContentDiffers(t *testing.T) {
 			return io.NopCloser(strings.NewReader("tar-data")), nil
 		},
 	})
-	removed := false
+	removeCalled := false
 	msbClient := &msb.MockMsbClient{
 		ImageGetFn: func(_ context.Context, _ string) error { return nil },
 		ImageInspectFn: func(_ context.Context, _ string) (*msbSdk.ImageConfig, error) {
 			return &msbSdk.ImageConfig{Digest: "sha256:msb-old"}, nil
 		},
-		ImageRemoveFn: func(_ context.Context, _ string, _ bool) error { removed = true; return nil },
+		ImageRemoveFn: func(_ context.Context, _ string, _ bool) error {
+			removeCalled = true
+			return errors.New("database error: FOREIGN KEY constraint failed")
+		},
 	}
-	if err := EnsureLoaded(context.Background(), msbClient, "test-project", rTag, &termio.Mock{}); err != nil {
+	ui := &termio.Mock{}
+	if err := EnsureLoaded(context.Background(), msbClient, "test-project", rTag, ui); err != nil {
 		t.Fatalf("EnsureLoaded: %v", err)
 	}
-	if !removed {
-		t.Error("expected the stale cached image to be removed before reload")
+	if removeCalled {
+		t.Error("expected the stale cached image to be refreshed without removal")
+	}
+	if len(ui.WarnCalls) != 0 {
+		t.Errorf("WarnCalls = %v, want no stale-image removal warning", ui.WarnCalls)
 	}
 	if len(msbClient.LoadedImages) != 1 || msbClient.LoadedImages[0] != rTag {
 		t.Errorf("LoadedImages = %v, want a reload of %q", msbClient.LoadedImages, rTag)
