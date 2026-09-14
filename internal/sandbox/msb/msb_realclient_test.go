@@ -46,6 +46,16 @@ func TestRealMsbClientListSandboxesWithLabels(t *testing.T) {
 	}
 }
 
+// TestRealMsbClientImagePruneCanceled covers the adapter without pruning the
+// shared microsandbox image cache used by the test environment.
+func TestRealMsbClientImagePruneCanceled(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if _, err := (&realMsbClient{}).ImagePrune(ctx); err == nil {
+		t.Fatal("ImagePrune() with a canceled context = nil error, want cancellation error")
+	}
+}
+
 // TestMockMsbClientGetSandboxInternalBranches covers the getSandboxErr and
 // gotSandbox override branches of MockMsbClient.GetSandbox that are not reached
 // through the Set* helpers.
@@ -142,6 +152,17 @@ func TestFailFastShellStreamPanics(t *testing.T) {
 		}
 	}()
 	_, _ = f.ShellStream(context.Background(), "cmd")
+}
+
+// TestFailFastImagePrunePanics covers the fail-fast ImagePrune method.
+func TestFailFastImagePrunePanics(t *testing.T) {
+	f := &failFastMsbClient{}
+	defer func() {
+		if recover() == nil {
+			t.Fatal("expected panic from fail-fast ImagePrune")
+		}
+	}()
+	_, _ = f.ImagePrune(context.Background())
 }
 
 // TestRealVolumeHandlePathNilVal guards against a nil val.

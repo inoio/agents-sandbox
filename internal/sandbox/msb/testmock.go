@@ -43,6 +43,7 @@ type MockMsbClient struct {
 	RemoveVolumeFn    func(ctx context.Context, name string) error
 	ImageGetFn        func(ctx context.Context, ref string) error
 	ImageListFn       func(ctx context.Context) ([]ImageHandle, error)
+	ImagePruneFn      func(ctx context.Context) (*msbSdk.ImagePruneReport, error)
 	ImageRemoveFn     func(ctx context.Context, ref string, force bool) error
 	ImageLoadFn       func(ctx context.Context, ref string, r io.Reader) error
 	ImageInspectFn    func(ctx context.Context, ref string) (*msbSdk.ImageConfig, error)
@@ -248,6 +249,14 @@ func (m *MockMsbClient) ImageList(ctx context.Context) ([]ImageHandle, error) {
 		return nil, m.ListImagesErr
 	}
 	return m.Images, nil
+}
+
+// ImagePrune implements Client.
+func (m *MockMsbClient) ImagePrune(ctx context.Context) (*msbSdk.ImagePruneReport, error) {
+	if m.ImagePruneFn != nil {
+		return m.ImagePruneFn(ctx)
+	}
+	return &msbSdk.ImagePruneReport{}, nil
 }
 
 // ImageRemove implements Client.
@@ -826,6 +835,12 @@ func (f *failFastMsbClient) ImageGet(_ context.Context, _ string) error {
 
 func (f *failFastMsbClient) ImageList(_ context.Context) ([]ImageHandle, error) {
 	f.mustMock()
+	return nil, nil
+}
+
+func (f *failFastMsbClient) ImagePrune(_ context.Context) (*msbSdk.ImagePruneReport, error) {
+	f.mustMock()
+	//nolint:nilnil // panics before returning; keeps failFastMsbClient interface-conformant
 	return nil, nil
 }
 

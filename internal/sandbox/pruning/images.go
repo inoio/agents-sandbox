@@ -20,9 +20,10 @@ type ImageReport struct {
 	Details            []StaleEntry
 }
 
-// PruneImages prunes MSB runner images that are no longer referenced by a live
-// slug (kept are per-agent "-latest" tags and any image a kept sandbox still
-// references), plus host-side dangling docker images.
+// PruneImages prunes MSB runner-image references that are no longer referenced
+// by a live slug, then asks microsandbox to reclaim unreferenced image data.
+// Kept are per-agent "-latest" tags and any image a kept sandbox still
+// references, plus host-side dangling Docker images.
 func PruneImages(
 	ctx context.Context,
 	pruneState PruneState,
@@ -58,6 +59,11 @@ func PruneImages(
 			Slug:     imageArtifact.Slug,
 			Digest:   imageArtifact.Digest,
 		})
+	}
+	if !dryRun {
+		if _, err := msb.Get().ImagePrune(ctx); err != nil {
+			ui.Warnf("failed to prune unused msb image data: %v", err)
+		}
 	}
 	report.DockerImagesPruned = pruneDockerImages(ctx, dryRun, ui)
 	printImagePruneReport(ui, report, dryRun)
