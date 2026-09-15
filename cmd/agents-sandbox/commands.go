@@ -109,9 +109,15 @@ func extractRunOptions(cmd *cobra.Command, ui termio.UI) (options.RunOptions, er
 		if err != nil {
 			return options.RunOptions{}, err
 		}
-		opts.Network = network.Policy{Profile: prof, EgressAllow: nil, EgressDeny: nil}
+		opts.Network = network.Policy{Profile: prof, EgressAllow: nil, EgressDeny: nil, DNSServers: nil}
 	} else if r := resolverFromContext(cmd.Context()); r != nil {
 		opts.Network = r.Network()
+	}
+
+	// --dns replaces config/env DNS entirely, keeping any profile and egress
+	// lists (whether from the resolver or the --network flag).
+	if dns, _ := cmd.Flags().GetStringSlice(flagDNSServers); len(dns) > 0 {
+		opts.Network.DNSServers = dns
 	}
 
 	if opts.TmpSize != "" {

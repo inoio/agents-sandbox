@@ -3,6 +3,7 @@ package viperconfig
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -139,6 +140,11 @@ func NewResolver(cmd *cobra.Command, slug string) (*Resolver, error) {
 		mapstructure.ComposeDecodeHookFunc(
 			durationDecodeHook(),
 			mapstructure.StringToTimeDurationHookFunc(),
+			// Split comma-separated strings (env vars, CLI StringSlice flags)
+			// into []string fields such as network.egress-allow and
+			// network.dns-servers. It also leniently accepts a scalar string
+			// for those list fields in config files.
+			mapstructure.StringToSliceHookFunc(","),
 		),
 	)); err != nil {
 		return nil, fmt.Errorf("decode launcher config: %w", err)
@@ -181,6 +187,7 @@ const (
 	keyAutoStopTimeout           = "auto-stop-timeout"
 	keyAutoStopMaxSessionRetries = "auto-stop-max-session-retries"
 	keyNetworkProfile            = "network.profile"
+	keyNetworkDNSServers         = "network.dns-servers"
 	keyAgent                     = "agent"
 	keyDind                      = "dind"
 	keyUpgradeMode               = "upgrade.mode"
@@ -213,7 +220,7 @@ var configEnvKeys = []string{
 	"yes", "quiet", "log-level",
 	keyAutoPruneAge, keyManualPruneAge,
 	keyAutoStopOnActiveSessions, keyAutoStopTimeout, keyAutoStopMaxSessionRetries,
-	keyNetworkProfile,
+	keyNetworkProfile, keyNetworkDNSServers,
 	keyAgent,
 	keyDind,
 	keyUpgradeMode, keyUpgradeInterval,
@@ -375,6 +382,9 @@ func validate(v *viper.Viper) error {
 	if err := validateNetworkProfile(v); err != nil {
 		return err
 	}
+	if err := validateNetworkDNSServers(v); err != nil {
+		return err
+	}
 	if err := validateUpgrade(v); err != nil {
 		return err
 	}
@@ -400,6 +410,49 @@ func validateNetworkProfile(v *viper.Viper) error {
 		return err
 	}
 	return nil
+}
+
+// validateNetworkDNSServers rejects malformed network.dns-servers values at
+// config-load time. The raw value may be a comma-separated string (env/flag) or
+// a YAML/JSON list (config file).
+func validateNetworkDNSServers(v *viper.Viper) error {
+	if !v.IsSet(keyNetworkDNSServers) {
+		return nil
+	}
+	entries, err := dnsServerEntries(v.Get(keyNetworkDNSServers))
+	if err != nil {
+		return fmt.Errorf("launcher config %s: %w", keyNetworkDNSServers, err)
+	}
+	if _, err := network.NormalizeDNSServers(entries); err != nil {
+		return fmt.Errorf("launcher config %s: %w", keyNetworkDNSServers, err)
+	}
+	return nil
+}
+
+// dnsServerEntries converts a raw network.dns-servers value (comma-separated
+// string or list) into the individual entries.
+func dnsServerEntries(raw any) ([]string, error) {
+	switch val := raw.(type) {
+	case string:
+		if val == "" {
+			return nil, errors.New("must not be empty")
+		}
+		return strings.Split(val, ","), nil
+	case []string:
+		return val, nil
+	case []any:
+		entries := make([]string, 0, len(val))
+		for _, e := range val {
+			s, ok := e.(string)
+			if !ok {
+				return nil, fmt.Errorf("entries must be strings, got %T", e)
+			}
+			entries = append(entries, s)
+		}
+		return entries, nil
+	default:
+		return nil, fmt.Errorf("must be a list of DNS servers, got %T", raw)
+	}
 }
 
 // validateUpgrade validates the upgrade.mode and upgrade.interval config keys.
