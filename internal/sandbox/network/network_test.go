@@ -201,11 +201,173 @@ func TestProfileString(t *testing.T) {
 	}
 }
 
+func TestNormalizeDNSServers(t *testing.T) {
+	cases := []struct {
+		name    string
+		in      []string
+		want    []string
+		wantErr bool
+	}{
+		{
+			name: "bare IPv4 gets :53",
+			in:   []string{"1.1.1.1", "8.8.8.8"},
+			want: []string{"1.1.1.1:53", "8.8.8.8:53"},
+		},
+		{
+			name: "bare IPv6 gets :53",
+			in:   []string{"2606:4700:4700::1111"},
+			want: []string{"[2606:4700:4700::1111]:53"},
+		},
+		{
+			name: "host:port kept as-is",
+			in:   []string{"1.1.1.1:5353", "dns.example.com:53"},
+			want: []string{"1.1.1.1:5353", "dns.example.com:53"},
+		},
+		{
+			name: "ipv6 with port kept as-is",
+			in:   []string{"[2606:4700:4700::1111]:5353"},
+			want: []string{"[2606:4700:4700::1111]:5353"},
+		},
+		{
+			name: "whitespace trimmed",
+			in:   []string{" 1.1.1.1 "},
+			want: []string{"1.1.1.1:53"},
+		},
+		{name: "empty entry rejected", in: []string{"1.1.1.1", ""}, wantErr: true},
+		{name: "host without port rejected", in: []string{"1.1.1.1:"}, wantErr: true},
+		{name: "empty host rejected", in: []string{":53"}, wantErr: true},
+		{name: "bare hostname rejected", in: []string{"dns.example.com"}, wantErr: true},
+		{name: "garbage rejected", in: []string{"not a dns server"}, wantErr: true},
+		{name: "nil input yields empty", in: nil, want: []string{}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := NormalizeDNSServers(tc.in)
+			if tc.wantErr {
+				if err == nil {
+					t.Fatalf("NormalizeDNSServers(%v) expected error, got %v", tc.in, got)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("NormalizeDNSServers(%v): %v", tc.in, err)
+			}
+			if len(got) != len(tc.want) {
+				t.Fatalf("NormalizeDNSServers(%v) = %v, want %v", tc.in, got, tc.want)
+			}
+			for i := range tc.want {
+				if got[i] != tc.want[i] {
+					t.Fatalf("NormalizeDNSServers(%v) = %v, want %v", tc.in, got, tc.want)
+				}
+			}
+		})
+	}
+}
+
+func TestConfigDNSServersNormalized(t *testing.T) {
+	cfg, err := (Policy{
+		Profile:    ProfilePublic,
+		DNSServers: []string{"1.1.1.1", "8.8.8.8:5353"},
+	}).Config()
+	if err != nil {
+		t.Fatalf("Config: %v", err)
+	}
+	if cfg.DNS == nil {
+		t.Fatal("Config must set DNS when DNSServers configured")
+	}
+	want := []string{"1.1.1.1:53", "8.8.8.8:5353"}
+	if len(cfg.DNS.Nameservers) != len(want) {
+		t.Fatalf("Nameservers = %v, want %v", cfg.DNS.Nameservers, want)
+	}
+	for i := range want {
+		if cfg.DNS.Nameservers[i] != want[i] {
+			t.Fatalf("Nameservers = %v, want %v", cfg.DNS.Nameservers, want)
+		}
+	}
+}
+
+func TestConfigDNSNilWhenAbsent(t *testing.T) {
+	cfg, err := (Policy{Profile: ProfilePublic}).Config()
+	if err != nil {
+		t.Fatalf("Config: %v", err)
+	}
+	if cfg.DNS != nil {
+		t.Fatalf("Config must leave DNS nil without DNSServers, got %+v", cfg.DNS)
+	}
+}
+
+func TestConfigDNSWithNoneProfile(t *testing.T) {
+	cfg, err := (Policy{
+		Profile:    ProfileNone,
+		DNSServers: []string{"1.1.1.1"},
+	}).Config()
+	if err != nil {
+		t.Fatalf("Config: %v", err)
+	}
+	if cfg.DefaultEgress != msbSdk.PolicyActionDeny {
+		t.Fatalf("none must stay deny-by-default, got %v", cfg.DefaultEgress)
+	}
+	if cfg.DNS == nil {
+		t.Fatal("none + DNSServers must set DNS")
+	}
+	if got := cfg.DNS.Nameservers[0]; got != "1.1.1.1:53" {
+		t.Fatalf("Nameservers[0] = %q, want 1.1.1.1:53", got)
+	}
+}
+
+func TestConfigDNSOnlyDefaultsToPublic(t *testing.T) {
+	cfg, err := (Policy{DNSServers: []string{"1.1.1.1"}}).Config()
+	if err != nil {
+		t.Fatalf("Config: %v", err)
+	}
+	// A dns-only policy without a profile must not error and must still produce
+	// the public profile's ruleset (public != none deny-by-default).
+	if cfg.DefaultEgress != msbSdk.PolicyActionDeny {
+		t.Fatalf("public default egress = %v, want deny", cfg.DefaultEgress)
+	}
+	if cfg.DNS == nil {
+		t.Fatal("dns-only policy must set DNS")
+	}
+	if len(cfg.Rules) == 0 {
+		t.Fatal("dns-only policy should produce public profile rules")
+	}
+}
+
+func TestConfigDNSInvalidErrors(t *testing.T) {
+	if _, err := (Policy{
+		Profile:    ProfilePublic,
+		DNSServers: []string{"garbage"},
+	}).Config(); err == nil {
+		t.Fatal("Config with invalid DNS server should error")
+	}
+}
+
 func TestPolicyEmpty(t *testing.T) {
 	if !(Policy{}).Empty() {
 		t.Error("zero Policy should be empty")
 	}
 	if (Policy{Profile: ProfilePublic}).Empty() {
 		t.Error("Policy with a profile should not be empty")
+	}
+	if (Policy{DNSServers: []string{"1.1.1.1"}}).Empty() {
+		t.Error("Policy with only DNSServers should not be empty")
+	}
+}
+
+func TestFingerprintDistinguishesDNSServers(t *testing.T) {
+	base := Policy{Profile: ProfilePublic}
+	withDNS := Policy{Profile: ProfilePublic, DNSServers: []string{"1.1.1.1", "8.8.8.8"}}
+	if base.Fingerprint() == withDNS.Fingerprint() {
+		t.Fatal("adding dns-servers must change the fingerprint")
+	}
+
+	reordered := Policy{Profile: ProfilePublic, DNSServers: []string{"8.8.8.8", "1.1.1.1"}}
+	if reordered.Fingerprint() != withDNS.Fingerprint() {
+		t.Fatal("fingerprint must be independent of dns-servers order")
+	}
+
+	different := Policy{Profile: ProfilePublic, DNSServers: []string{"8.8.8.8"}}
+	if different.Fingerprint() == withDNS.Fingerprint() {
+		t.Fatal("different dns-servers must change the fingerprint")
 	}
 }

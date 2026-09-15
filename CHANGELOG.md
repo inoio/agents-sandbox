@@ -8,6 +8,14 @@ command reports the bare version (e.g. `0.1.0`).
 
 ## [Unreleased]
 
+### Added
+
+- Config: `network.dns-servers` (config `network.dns-servers`, env
+  `OPENCODE_SANDBOX_NETWORK_DNS_SERVERS`, flag `--dns`) sets custom DNS upstream
+  resolvers for the VM. Bare IPs get `:53` appended; `host:port` is used as-is.
+  Invalid entries are rejected at config-load time. A DNS change recreates the
+  VM (like other `network:` settings).
+
 ### Changed
 
 - Bugfix: a rebuilt runner image with the same tag but a new digest now recreates the project VM, so the VM uses the new image.

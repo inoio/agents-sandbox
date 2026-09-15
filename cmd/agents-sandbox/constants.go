@@ -47,6 +47,7 @@ const (
 	flagRoot            = "root"
 	flagServeOnly       = "serve-only"
 	flagNetwork         = "network"
+	flagDNSServers      = "dns"
 	flagAgent           = "agent"
 	flagNotify          = "notify"
 	flagDind            = "dind"
