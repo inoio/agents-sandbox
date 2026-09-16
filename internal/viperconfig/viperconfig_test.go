@@ -481,6 +481,145 @@ func TestNetworkInvalidProfileRejected(t *testing.T) {
 	}
 }
 
+func TestNetworkDNSServersEnvVar(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	t.Setenv("OPENCODE_SANDBOX_NETWORK_DNS_SERVERS", "1.1.1.1,8.8.8.8")
+
+	r, err := NewResolver(nil, "")
+	if err != nil {
+		t.Fatalf("NewResolver: %v", err)
+	}
+	got := r.Network()
+	if got.Profile != "" {
+		t.Fatalf("Network().Profile = %q, want empty (dns-only)", got.Profile)
+	}
+	if len(got.DNSServers) != 2 || got.DNSServers[0] != "1.1.1.1" || got.DNSServers[1] != "8.8.8.8" {
+		t.Fatalf("Network().DNSServers = %v, want [1.1.1.1 8.8.8.8]", got.DNSServers)
+	}
+}
+
+func TestNetworkDNSServersFromConfigFile(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	testutil.WriteYAML(t, configpaths.Get().UserConfigDir(), "config.yaml", map[string]any{
+		"network": map[string]any{
+			"profile":     "none",
+			"dns-servers": []string{"1.1.1.1", "8.8.8.8:5353"},
+		},
+	})
+
+	r, err := NewResolver(nil, "")
+	if err != nil {
+		t.Fatalf("NewResolver: %v", err)
+	}
+	got := r.Network()
+	if got.Profile != network.ProfileNone {
+		t.Fatalf("Network().Profile = %q, want none", got.Profile)
+	}
+	if len(got.DNSServers) != 2 || got.DNSServers[0] != "1.1.1.1" || got.DNSServers[1] != "8.8.8.8:5353" {
+		t.Fatalf("Network().DNSServers = %v, want [1.1.1.1 8.8.8.8:5353]", got.DNSServers)
+	}
+}
+
+func TestNetworkDNSServersScalarConfigFile(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	testutil.WriteYAML(t, configpaths.Get().UserConfigDir(), "config.yaml", map[string]any{
+		"network": map[string]any{"dns-servers": "1.1.1.1,8.8.8.8"},
+	})
+
+	r, err := NewResolver(nil, "")
+	if err != nil {
+		t.Fatalf("NewResolver: %v", err)
+	}
+	got := r.Network().DNSServers
+	if len(got) != 2 || got[0] != "1.1.1.1" || got[1] != "8.8.8.8" {
+		t.Fatalf("Network().DNSServers = %v, want [1.1.1.1 8.8.8.8]", got)
+	}
+}
+
+func TestDNSServerEntries(t *testing.T) {
+	valid := []string{"1.1.1.1", "8.8.8.8:5353"}
+
+	t.Run("empty string rejected", func(t *testing.T) {
+		_, err := dnsServerEntries("")
+		if err == nil {
+			t.Fatal("expected error for empty string")
+		}
+		if !strings.Contains(err.Error(), "must not be empty") {
+			t.Errorf("error %q does not mention empty", err.Error())
+		}
+	})
+
+	t.Run("comma-separated string split", func(t *testing.T) {
+		got, err := dnsServerEntries("1.1.1.1,8.8.8.8:5353")
+		if err != nil {
+			t.Fatalf("dnsServerEntries: %v", err)
+		}
+		if len(got) != 2 || got[0] != "1.1.1.1" || got[1] != "8.8.8.8:5353" {
+			t.Fatalf("dnsServerEntries = %v, want %v", got, valid)
+		}
+	})
+
+	t.Run("string slice passed through", func(t *testing.T) {
+		got, err := dnsServerEntries(valid)
+		if err != nil {
+			t.Fatalf("dnsServerEntries: %v", err)
+		}
+		if len(got) != 2 || got[0] != "1.1.1.1" || got[1] != "8.8.8.8:5353" {
+			t.Fatalf("dnsServerEntries = %v, want %v", got, valid)
+		}
+	})
+
+	t.Run("any slice of strings", func(t *testing.T) {
+		got, err := dnsServerEntries([]any{"1.1.1.1", "8.8.8.8:5353"})
+		if err != nil {
+			t.Fatalf("dnsServerEntries: %v", err)
+		}
+		if len(got) != 2 || got[0] != "1.1.1.1" || got[1] != "8.8.8.8:5353" {
+			t.Fatalf("dnsServerEntries = %v, want %v", got, valid)
+		}
+	})
+
+	t.Run("non-string entry rejected", func(t *testing.T) {
+		if _, err := dnsServerEntries([]any{42}); err == nil {
+			t.Fatal("expected error for non-string entry")
+		}
+	})
+
+	t.Run("unsupported type rejected", func(t *testing.T) {
+		if _, err := dnsServerEntries(42); err == nil {
+			t.Fatal("expected error for unsupported type")
+		}
+	})
+}
+
+func TestNetworkInvalidDNSServersRejected(t *testing.T) {
+	cases := []struct {
+		name string
+		raw  any
+	}{
+		{name: "garbage from env", raw: "1.1.1.1,not a dns server"},
+		{name: "host without port", raw: "1.1.1.1:"},
+		{name: "empty entry from config", raw: []any{"1.1.1.1", ""}},
+		{name: "non-string entry", raw: []any{42}},
+		{name: "scalar number", raw: 42},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			configpaths.WithMockConfigPaths(t)
+			if s, ok := tc.raw.(string); ok {
+				t.Setenv("OPENCODE_SANDBOX_NETWORK_DNS_SERVERS", s)
+			} else {
+				testutil.WriteYAML(t, configpaths.Get().UserConfigDir(), "config.yaml", map[string]any{
+					"network": map[string]any{"dns-servers": tc.raw},
+				})
+			}
+			if _, err := NewResolver(nil, ""); err == nil {
+				t.Fatal("expected error for invalid network.dns-servers")
+			}
+		})
+	}
+}
+
 func TestDindFromConfig(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	// project-level config.yaml
