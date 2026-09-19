@@ -205,6 +205,71 @@ func TestPruneImages(t *testing.T) {
 	})
 }
 
+func TestPruneImagesRunsNativePruneAfterReferenceCleanup(t *testing.T) {
+	t.Run("normal prune", func(t *testing.T) {
+		events := make([]string, 0, 2)
+		client := &msb.MockMsbClient{
+			Images: []msb.ImageHandle{
+				&msb.MockImageHandle{Reference_: "agents-sandbox/runner-project:old"},
+			},
+			ImageRemoveFn: func(_ context.Context, _ string, _ bool) error {
+				events = append(events, "remove")
+				return nil
+			},
+			ImagePruneFn: func(context.Context) (*msbSdk.ImagePruneReport, error) {
+				events = append(events, "prune")
+				return &msbSdk.ImagePruneReport{ManifestsRemoved: 1}, nil
+			},
+		}
+		msb.WithMsbMock(t, client)
+		docker.WithNoopDockerMock(t)
+
+		if _, err := PruneImages(context.Background(), PruneState{}, false, &termio.Mock{}); err != nil {
+			t.Fatalf("PruneImages: %v", err)
+		}
+		if len(events) != 2 || events[0] != "remove" || events[1] != "prune" {
+			t.Errorf("prune events = %v, want [remove prune]", events)
+		}
+	})
+
+	t.Run("dry run", func(t *testing.T) {
+		called := false
+		client := &msb.MockMsbClient{
+			ImagePruneFn: func(context.Context) (*msbSdk.ImagePruneReport, error) {
+				called = true
+				return &msbSdk.ImagePruneReport{}, nil
+			},
+		}
+		msb.WithMsbMock(t, client)
+		docker.WithNoopDockerMock(t)
+
+		if _, err := PruneImages(context.Background(), PruneState{}, true, &termio.Mock{}); err != nil {
+			t.Fatalf("PruneImages dry run: %v", err)
+		}
+		if called {
+			t.Error("dry-run image prune must not invoke native image prune")
+		}
+	})
+
+	t.Run("native prune error", func(t *testing.T) {
+		client := &msb.MockMsbClient{
+			ImagePruneFn: func(context.Context) (*msbSdk.ImagePruneReport, error) {
+				return nil, errors.New("native prune failed")
+			},
+		}
+		msb.WithMsbMock(t, client)
+		docker.WithNoopDockerMock(t)
+		ui := &termio.Mock{}
+
+		if _, err := PruneImages(context.Background(), PruneState{}, false, ui); err != nil {
+			t.Fatalf("PruneImages: %v", err)
+		}
+		if len(ui.WarnCalls) != 1 || !strings.Contains(ui.WarnCalls[0], "native prune failed") {
+			t.Errorf("WarnCalls = %v, want native prune warning", ui.WarnCalls)
+		}
+	})
+}
+
 // TestKeepImagePerAgent verifies that image retention is keyed per (slug, agent).
 func TestKeepImagePerAgent(t *testing.T) {
 	// The per-agent "-latest" tag for a kept (slug, opencode) is kept, while the

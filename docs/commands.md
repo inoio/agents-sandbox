@@ -187,7 +187,8 @@ agents-sandbox prune --dry-run             # preview only
 
 Prune cached runner images. Images of stale projects (older than the threshold) are removed entirely; for projects with a
 surviving VM, the per-agent `-latest` tags and any image a kept VM currently references are retained, while surplus
-digest refs are removed.
+digest refs are removed. Native microsandbox image pruning also reclaims unreferenced manifests and layers left behind by
+refreshing an image tag while an older VM still points at the previous manifest.
 
 ```console
 agents-sandbox image prune                      # use manual-prune-age from config (default: 7d)

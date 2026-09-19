@@ -321,6 +321,19 @@ func TestMockMsbClientImage(t *testing.T) {
 	if cfg, err := m10.ImageInspect(ctx, "ref"); err != nil || cfg == nil {
 		t.Fatalf("ImageInspect default = %v, %v", cfg, err)
 	}
+
+	m11 := &MockMsbClient{ImagePruneFn: func(context.Context) (*msbSdk.ImagePruneReport, error) {
+		return &msbSdk.ImagePruneReport{ManifestsRemoved: 1}, nil
+	}}
+	report, err := m11.ImagePrune(ctx)
+	if err != nil || report == nil || report.ManifestsRemoved != 1 {
+		t.Fatalf("ImagePrune via fn = %v, %v", report, err)
+	}
+	m12 := &MockMsbClient{}
+	report, err = m12.ImagePrune(ctx)
+	if err != nil || report == nil || report.ManifestsRemoved != 0 {
+		t.Fatalf("ImagePrune default = %v, %v", report, err)
+	}
 }
 
 func TestMockSandboxHandleMethods(t *testing.T) {
