@@ -8,8 +8,21 @@ command reports the bare version (e.g. `0.1.0`).
 
 ## [Unreleased]
 
+### Added
+
+- Config: `network.dns-servers` (config `network.dns-servers`, env
+  `OPENCODE_SANDBOX_NETWORK_DNS_SERVERS`, flag `--dns`) sets custom DNS upstream
+  resolvers for the VM. Bare IPs get `:53` appended; `host:port` is used as-is.
+  Invalid entries are rejected at config-load time. A DNS change recreates the
+  VM (like other `network:` settings).
+
 ### Changed
 
+- Bugfix: a rebuilt runner image with the same tag but a new digest now recreates the project VM, so the VM uses the new image.
+- Bugfix: refreshing a rebuilt runner image no longer tries to remove the old microsandbox manifest before loading the new
+  one, avoiding foreign-key errors when an existing VM still references the image tag.
+- Maintenance: image pruning now invokes microsandbox's native image-data prune to reclaim manifests and layers orphaned by
+  runner-image refreshes after the referencing VM has been removed.
 - Behavior: the home-file manifest moved from `home.yaml` files into the `home:` key of the launcher config files
   (`config.yaml`/`config.yml`/`config.json`/`config.jsonc`/`config.json5`), at the user and project level. Relative
   sources still resolve against the config file that declares them. `config home` reads the config `home:` key; the

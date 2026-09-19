@@ -15,6 +15,7 @@ import (
 const changeLabelPublishedPorts = "published port(s)"
 const changeLabelNetworkPolicy = "network policy"
 const changeLabelBindMounts = "host bind mounts"
+const changeLabelImage = "image"
 
 // Change describes one changed setting for prompt display. Values are
 // shown for simple sizes/counts; env/secrets/config carry labels only (Old/New empty).
@@ -71,6 +72,7 @@ func configChangeList(changes []Change) string {
 // these settings when reading an existing VM back. Each flag is computed by
 // comparing a persisted fingerprint against the desired state.
 type ChangeFlags struct {
+	Image       bool
 	Env         bool
 	Secrets     bool
 	Network     bool
@@ -94,11 +96,15 @@ func PlanReconfig( //nolint:gocognit,gocyclo,cyclop,funlen // core planner, cogn
 	}
 
 	// Recreation triggers (cannot be changed live).
+	imageChanged := flags.Image
 	if imageRef != "" && cfg.Image != "" && cfg.Image != imageRef {
+		imageChanged = true
+	}
+	if imageChanged {
 		d.Recreate = true
 		d.Changes = append(
 			d.Changes,
-			Change{Label: "image"}, //nolint:exhaustruct // label-only for change reporting
+			Change{Label: changeLabelImage}, //nolint:exhaustruct // label-only for change reporting
 		)
 	}
 	if wantTmp, ok := options.ParseMemoryOK(opts.TmpSize); ok {

@@ -248,6 +248,8 @@ func registerSharedRunShellFlags(cmd *cobra.Command) {
 	cmd.Flags().String(flagWorkspaceQuota, "16G", "Guest-write quota for the /workspace bind mount (e.g. 32G)")
 	cmd.Flags().
 		String(flagNetwork, "", "Network egress profile for the VM: public, private, host, or none (default public)")
+	cmd.Flags().
+		StringSlice(flagDNSServers, nil, "DNS upstream resolvers for the VM: IP (e.g. 1.1.1.1) or host:port (e.g. 1.1.1.1:53); comma-separated or repeated")
 	cmd.Flags().String(flagAgent, defaultAgentName, "Coding agent profile to run")
 	cmd.Flags().Bool(flagDind, false, "Enable Docker-in-Docker in the runner image")
 }

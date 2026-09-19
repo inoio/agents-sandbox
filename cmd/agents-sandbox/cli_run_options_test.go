@@ -411,6 +411,99 @@ func TestExtractRunOptionsNetworkInvalid(t *testing.T) {
 	}
 }
 
+func TestExtractRunOptionsDNSServersFlag(t *testing.T) {
+	for _, name := range []string{cmdRun, cmdShell} {
+		t.Run(name, func(t *testing.T) {
+			var cmd *cobra.Command
+			if name == cmdRun {
+				cmd = buildRunCmd(&termio.Mock{})
+			} else {
+				cmd = buildShellCmd(&termio.Mock{})
+			}
+			if err := cmd.Flags().Set(flagDNSServers, "1.1.1.1,8.8.8.8"); err != nil {
+				t.Fatalf("set dns: %v", err)
+			}
+			opts, err := extractRunOptions(cmd, &termio.Mock{})
+			if err != nil {
+				t.Fatalf("extractRunOptions: %v", err)
+			}
+			if len(opts.Network.DNSServers) != 2 ||
+				opts.Network.DNSServers[0] != "1.1.1.1" || opts.Network.DNSServers[1] != "8.8.8.8" {
+				t.Fatalf("Network.DNSServers = %v, want [1.1.1.1 8.8.8.8]", opts.Network.DNSServers)
+			}
+		})
+	}
+}
+
+func TestExtractRunOptionsDNSCombinedWithNetworkNone(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	cmd := buildRunCmd(&termio.Mock{})
+	if err := cmd.Flags().Set(flagNetwork, "none"); err != nil {
+		t.Fatalf("set network: %v", err)
+	}
+	if err := cmd.Flags().Set(flagDNSServers, "1.1.1.1"); err != nil {
+		t.Fatalf("set dns: %v", err)
+	}
+	rootCtx := context.WithValue(context.Background(), (*launcherConfigKey)(nil), mustResolver(t, cmd))
+	cmd.SetContext(rootCtx)
+	opts, err := extractRunOptions(cmd, &termio.Mock{})
+	if err != nil {
+		t.Fatalf("extractRunOptions: %v", err)
+	}
+	if opts.Network.Profile != network.ProfileNone {
+		t.Fatalf("Network.Profile = %q, want none", opts.Network.Profile)
+	}
+	if len(opts.Network.DNSServers) != 1 || opts.Network.DNSServers[0] != "1.1.1.1" {
+		t.Fatalf("Network.DNSServers = %v, want [1.1.1.1]", opts.Network.DNSServers)
+	}
+}
+
+func TestExtractRunOptionsDNSFlagOverridesConfig(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	t.Setenv("OPENCODE_SANDBOX_NETWORK_DNS_SERVERS", "9.9.9.9")
+	cmd := buildRunCmd(&termio.Mock{})
+	if err := cmd.Flags().Set(flagDNSServers, "1.1.1.1"); err != nil {
+		t.Fatalf("set dns: %v", err)
+	}
+	rootCtx := context.WithValue(context.Background(), (*launcherConfigKey)(nil), mustResolver(t, cmd))
+	cmd.SetContext(rootCtx)
+	opts, err := extractRunOptions(cmd, &termio.Mock{})
+	if err != nil {
+		t.Fatalf("extractRunOptions: %v", err)
+	}
+	if len(opts.Network.DNSServers) != 1 || opts.Network.DNSServers[0] != "1.1.1.1" {
+		t.Fatalf("Network.DNSServers = %v, want [1.1.1.1] (flag overrides env)", opts.Network.DNSServers)
+	}
+}
+
+func TestExtractRunOptionsDNSFromResolver(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	t.Setenv("OPENCODE_SANDBOX_NETWORK_DNS_SERVERS", "1.1.1.1,8.8.8.8")
+	cmd := buildRunCmd(&termio.Mock{})
+	rootCtx := context.WithValue(context.Background(), (*launcherConfigKey)(nil), mustResolver(t, cmd))
+	cmd.SetContext(rootCtx)
+	opts, err := extractRunOptions(cmd, &termio.Mock{})
+	if err != nil {
+		t.Fatalf("extractRunOptions: %v", err)
+	}
+	if len(opts.Network.DNSServers) != 2 {
+		t.Fatalf("Network.DNSServers = %v, want [1.1.1.1 8.8.8.8] from resolver", opts.Network.DNSServers)
+	}
+}
+
+func TestRunAndShellHaveDNSFlag(t *testing.T) {
+	for _, name := range []string{cmdRun, cmdShell} {
+		cmd, _ := setupCommandFixtures(t, name, "--help")
+		foundCmd, _, err := cmd.Find([]string{name})
+		if err != nil {
+			t.Fatalf("Find %q: %v", name, err)
+		}
+		if flag := foundCmd.Flags().Lookup(flagDNSServers); flag == nil {
+			t.Errorf("%s command must have --dns flag", name)
+		}
+	}
+}
+
 // Configured mounts are resolved into RunOptions, keyed by guest path.
 func TestExtractRunOptionsResolvesMounts(t *testing.T) {
 	ui := &termio.Mock{}

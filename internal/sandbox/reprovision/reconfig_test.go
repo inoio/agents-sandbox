@@ -36,6 +36,22 @@ func TestPlanReconfigRecreateOnImageMismatch(t *testing.T) {
 	}
 }
 
+func TestPlanReconfigRecreateOnImageDigestChange(t *testing.T) {
+	const imageRef = "agents-sandbox/runner-proj:opencode-latest"
+	cfg := &msbSdk.SandboxConfig{Image: imageRef}
+
+	d := PlanReconfig(cfg, imageRef, options.RunOptions{}, ChangeFlags{Image: true}, "")
+	if !d.Recreate {
+		t.Fatal("expected recreate when the image digest changes")
+	}
+	if d.RestartDaemons {
+		t.Error("expected image changes to recreate the VM instead of restarting daemons")
+	}
+	if len(d.Changes) != 1 || d.Changes[0].Label != changeLabelImage {
+		t.Errorf("expected one image change, got %+v", d.Changes)
+	}
+}
+
 func TestPlanReconfigStagesClampedCpus(t *testing.T) {
 	cfg := &msbSdk.SandboxConfig{CPUs: 2, MaxCPUs: 8}
 	d := PlanReconfig(cfg, "img", options.RunOptions{CPUs: 16}, ChangeFlags{}, "")

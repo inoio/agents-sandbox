@@ -19,6 +19,10 @@ current image). In non-interactive mode the existing home volume is kept and you
 action is applied automatically and the old volume is always kept. The state file is only updated once the action has
 actually executed. `volume migrate`, `volume reset` and `volume edit` remain available for manual management.
 
+When a rebuilt image uses the same runner-image tag, agents-sandbox refreshes the microsandbox cache by loading the new
+Docker image directly under that tag. It does not remove the old cached manifest first, because a stopped project VM can
+still reference it. Unused image data is reclaimed later by image pruning.
+
 ## One image per project
 
 agents-sandbox builds a single runner image per project. The rendered Dockerfile is assembled from your project
@@ -184,7 +188,9 @@ agents-sandbox image prune             # actually remove them
 
 Pruning retains the `-latest` images **per agent** per live project and any image a kept VM still references, reclaiming
 every other ref — pre-redesign digest refs no sandbox uses, orphaned surplus images, and every ref of projects (slugs)
-that no longer have a live VM. See [Commands]({% link commands.md %}) for details on the prune command.
+that no longer have a live VM. It also runs microsandbox's native image-data prune so manifests and layers orphaned by a
+runner-image refresh are reclaimed after no VM references them. See [Commands]({% link commands.md %}) for details on the
+prune command.
 
 agents-sandbox also auto-prunes all resources that are ephemeral, unused or haven't been in use for more than 30 days by
 default. Cached runner images and home volumes are only pruned once they are older than the threshold, so a recently

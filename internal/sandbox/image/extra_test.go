@@ -213,36 +213,6 @@ func TestEnsureImageCannotReadImageInfo(t *testing.T) {
 	}
 }
 
-func TestEnsureLoadedWarnsAndContinuesOnRemoveError(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
-	a := agentOpencode(t)
-	rTag := runnerTag("test-project", a.Name())
-	ui := &termio.Mock{}
-	docker.WithDockerMock(t, &docker.MockDockerClient{
-		ImageInspectFn: func(_ context.Context, _ string, _ ...client.ImageInspectOption) (client.ImageInspectResult, error) {
-			return client.ImageInspectResult{InspectResponse: image.InspectResponse{}}, nil
-		},
-		ImageSaveFn: func(_ context.Context, _ []string, _ ...client.ImageSaveOption) (client.ImageSaveResult, error) {
-			return io.NopCloser(strings.NewReader("tar")), nil
-		},
-	})
-	msbClient := &msb.MockMsbClient{
-		ImageGetFn: func(_ context.Context, _ string) error { return nil },
-		ImageRemoveFn: func(_ context.Context, _ string, _ bool) error {
-			return errors.New("remove boom")
-		},
-	}
-	if err := EnsureLoaded(context.Background(), msbClient, "test-project", rTag, ui); err != nil {
-		t.Fatalf("EnsureLoaded: %v", err)
-	}
-	if len(ui.WarnCalls) == 0 {
-		t.Error("expected a warning when removing the stale image fails")
-	}
-	if len(msbClient.LoadedImages) != 1 {
-		t.Errorf("LoadedImages = %v, want a reload despite the remove failure", msbClient.LoadedImages)
-	}
-}
-
 func TestEnsureLoadedReturnsErrorWhenLoadFails(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	a := agentOpencode(t)

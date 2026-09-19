@@ -85,6 +85,7 @@ Configuration is resolved in this order (later entries override earlier ones):
 | `network.profile`               | `--network`              | Network profile: `public`, `private`, `host`, or `none` (see [Networking]({% link configuration/networking.md %}))                                                                                                                                   |
 | `network.egress-allow`          | —                        | Egress destinations to allow: `host`, a CIDR, or a `.suffix` (see [Networking]({% link configuration/networking.md %}))                                                                                                                              |
 | `network.egress-deny`           | —                        | Egress carve-outs, emitted before allow rules (see [Networking]({% link configuration/networking.md %}))                                                                                                                                             
+| `network.dns-servers`           | `--dns`                  | DNS upstream resolvers: bare IP (auto-appends `:53`) or `host:port` (see [Networking]({% link configuration/networking.md %}))                                                                                                                                 |
 | `mounts`                        | —                        | Additional host directories mounted into the VM (see [Host mounts]({% link configuration/mounts.md %}))                                                                                                                               |
 | `agent`                         | `--agent`                | Agent profile name to run, build, and provision (default `opencode`, see [Agent configuration]({% link configuration/agent.md %}))                                                                                                        |
 | `provision-host-config`         | —                        | Copy the agent's host config + credentials into the VM by default (default: true; set false to opt out, see [Default drop-in provisioning]({% link configuration/agent.md %}#default-drop-in-provisioning))                                               |
@@ -200,6 +201,7 @@ precedence over config files but lose to an explicitly passed CLI flag. The pref
 | `auto-stop-timeout`             | `OPENCODE_SANDBOX_AUTO_STOP_TIMEOUT`                              |
 | `auto-stop-max-session-retries` | `OPENCODE_SANDBOX_AUTO_STOP_MAX_SESSION_RETRIES`                  |
 | `network.profile`               | `OPENCODE_SANDBOX_NETWORK_PROFILE`                                |
+| `network.dns-servers`           | `OPENCODE_SANDBOX_NETWORK_DNS_SERVERS`                            |
 | `agent`                         | `OPENCODE_SANDBOX_AGENT`                                          |
 | `provision-host-config`         | `OPENCODE_SANDBOX_PROVISION_HOST_CONFIG`                          |
 | `dind`                          | `OPENCODE_SANDBOX_DIND`                                           |

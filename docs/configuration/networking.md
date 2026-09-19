@@ -16,6 +16,7 @@ microsandbox's default (public) — no behavior change for existing users.
 | `profile`           | string   | `public`, `private`, `host`, or `none`. Defaults to `public` (microsandbox's default) when unset.                    |
 | `egress-allow`      | []string | Egress destinations to allow: `host`, a CIDR (e.g. `123.123.0.0/16`), or a `.suffix` (e.g. `.internal`).              |
 | `egress-deny`       | []string | Egress carve-outs, same destination forms as `egress-allow`. Emitted **before** allow rules (deny-before-allow).     |
+| `dns-servers`       | []string | DNS upstream resolvers: a bare IP (auto-appends `:53`) or `host:port`. Overrides microsandbox's default resolver.     |
 
 - `profile: none` is an **allowlist-only** profile: egress is deny-by-default, ingress is allowed, and only the
   gateway-DNS rule plus your explicit `egress-allow`/`egress-deny` lists apply. This is how you restrict the VM to a
@@ -39,9 +40,21 @@ The profile is also configurable via the `OPENCODE_SANDBOX_NETWORK_PROFILE` envi
 flag on `run`/`shell` (e.g. `agents-sandbox run --network none`). Precedence: **flag > env > config > default**. The
 `egress-allow`/`egress-deny` lists are config-file-only and have no env var or flag.
 
+`dns-servers` sets custom DNS upstreams for the VM's in-VM resolver. Bare IPs (IPv4 or IPv6) get `:53` appended; a
+`host:port` / `ip:port` form is used as-is. An empty entry, a host without a port, or garbage is rejected at config-load
+time. It is also configurable via the `OPENCODE_SANDBOX_NETWORK_DNS_SERVERS` environment variable (comma-separated, e.g.
+`1.1.1.1,8.8.8.8`) and the `--dns` flag on `run`/`shell` (comma-separated or repeated). Precedence:
+**flag > env > config**. A policy that sets only `dns-servers` (no `profile`) still gets the default `public` profile.
+
 ```yaml
 network:
   profile: public
   egress-allow: []          # host, CIDR, or .suffix
   egress-deny: []           # carve-outs; emitted before allow rules
+  dns-servers:              # custom upstream resolvers (default: microsandbox's)
+    - 1.1.1.1
+    - 8.8.8.8:5353
 ```
+
+With `profile: none`, only the gateway DNS is auto-allowed, so a custom resolver's IP must also be listed in
+`egress-allow` (e.g. `egress-allow: [1.1.1.1]`) for DNS lookups to reach it.
