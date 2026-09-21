@@ -74,6 +74,8 @@ func TestListSandboxesRunningOnly(t *testing.T) {
 	mock.Sandboxes = []msb.SandboxHandle{
 		&msb.MockSandboxHandle{Name_: "agents-sandbox-vm-a", Status_: msbSdk.SandboxStatusRunning},
 		&msb.MockSandboxHandle{Name_: "agents-sandbox-vm-b", Status_: msbSdk.SandboxStatusStopped},
+		&msb.MockSandboxHandle{Name_: "agents-sandbox-vm-c", Status_: msbSdk.SandboxStatusStarting},
+		&msb.MockSandboxHandle{Name_: "agents-sandbox-vm-d", Status_: msbSdk.SandboxStatusDraining},
 		&msb.MockSandboxHandle{Name_: "other-vm-c", Status_: msbSdk.SandboxStatusRunning},
 	}
 	msb.WithMsbMock(t, mock)
@@ -92,6 +94,8 @@ func TestListSandboxesStoppedOnly(t *testing.T) {
 	mock.Sandboxes = []msb.SandboxHandle{
 		&msb.MockSandboxHandle{Name_: "agents-sandbox-vm-a", Status_: msbSdk.SandboxStatusRunning},
 		&msb.MockSandboxHandle{Name_: "agents-sandbox-vm-b", Status_: msbSdk.SandboxStatusStopped},
+		&msb.MockSandboxHandle{Name_: "agents-sandbox-vm-c", Status_: msbSdk.SandboxStatusCreated},
+		&msb.MockSandboxHandle{Name_: "agents-sandbox-vm-d", Status_: msbSdk.SandboxStatusCrashed},
 		&msb.MockSandboxHandle{Name_: "other-vm-c", Status_: msbSdk.SandboxStatusStopped},
 	}
 	msb.WithMsbMock(t, mock)

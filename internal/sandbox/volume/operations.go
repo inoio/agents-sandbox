@@ -32,9 +32,16 @@ func checkForActiveVMs(ctx context.Context, k state.Key) error {
 		artifact := naming.ArtifactFor(handle.Name())
 		if artifact.Slug == k.Slug && (artifact.Agent == k.Agent || artifact.Agent == "") {
 			status := handle.Status()
-			if msb.IsSandboxActive(status) {
+			if !msb.IsSandboxInactive(status) {
+				if msb.IsSandboxActive(status) {
+					return fmt.Errorf(
+						"VM still running for slug %q -- quit all sessions before migrating or resetting",
+						k.Slug,
+					)
+				}
 				return fmt.Errorf(
-					"VM still running for slug %q -- quit all sessions before migrating or resetting",
+					"VM status %q is not safely inactive for slug %q -- quit all sessions before migrating or resetting",
+					status,
 					k.Slug,
 				)
 			}

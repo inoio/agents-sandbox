@@ -256,6 +256,33 @@ func TestStopOrKillProjectVMRemoveError(t *testing.T) {
 	}
 }
 
+func TestStopOrKillProjectVMRejectsUnsafeStatuses(t *testing.T) {
+	for _, status := range []msbSdk.SandboxStatus{
+		msbSdk.SandboxStatusPaused,
+		msbSdk.SandboxStatus("future-status"),
+	} {
+		t.Run(string(status), func(t *testing.T) {
+			ui := termio.NewTestMock(t)
+			client := &msb.MockMsbClient{}
+			client.SetGotSandbox(&msb.MockSandboxHandle{Name_: "vm", Status_: status})
+			err := stopOrKillProjectVM(
+				context.Background(),
+				false,
+				false,
+				&ui,
+				testVMKey(),
+				"stop",
+				"Stopping",
+				client,
+				func(msb.SandboxHandle, context.Context) error { return nil },
+			)
+			if err == nil {
+				t.Fatalf("expected unsafe status %q to be rejected", status)
+			}
+		})
+	}
+}
+
 // TestSaveUpgradeStateRenameError covers the atomic-rename failure branch where
 // the destination already exists as a directory.
 func TestSaveUpgradeStateRenameError(t *testing.T) {

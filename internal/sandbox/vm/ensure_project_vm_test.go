@@ -81,6 +81,527 @@ func TestEnsureProjectVMDecideActionError(t *testing.T) {
 	}
 }
 
+func TestEnsureProjectVMWaitsForStartingVM(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	ui := termio.NewTestMock(t)
+	running := &msb.MockSandboxHandle{
+		Name_:     "agents-sandbox-vm-test",
+		Status_:   msbSdk.SandboxStatusRunning,
+		ConnectSb: &msb.MockSandbox{Name_: "vm"},
+	}
+	wasRefreshed := false
+	handle := &msb.MockSandboxHandle{
+		Name_:   "agents-sandbox-vm-test",
+		Status_: msbSdk.SandboxStatusStarting,
+		RefreshFn: func(context.Context) (msb.SandboxHandle, error) {
+			wasRefreshed = true
+			return running, nil
+		},
+	}
+	client := &msb.MockMsbClient{}
+	client.SetGotSandbox(handle)
+	msb.WithMsbMock(t, client)
+
+	sb, boot, err := ensureProjectVM(
+		context.Background(),
+		options.RunOptions{},
+		"img:tag",
+		"vol",
+		"/workspace",
+		nil,
+		testVMKey(),
+		&ui,
+	)
+	if err != nil {
+		t.Fatalf("ensureProjectVM: %v", err)
+	}
+	if !wasRefreshed {
+		t.Fatal("expected a starting VM to be refreshed while waiting")
+	}
+	if sb == nil {
+		t.Fatal("expected a connected sandbox")
+	}
+	if boot != vmBootConnected {
+		t.Errorf("boot = %v, want vmBootConnected", boot)
+	}
+}
+
+func TestEnsureProjectVMStartingReconcileWarning(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	ui := termio.NewTestMock(t)
+	running := &msb.MockSandboxHandle{
+		Name_:     "agents-sandbox-vm-test",
+		Status_:   msbSdk.SandboxStatusRunning,
+		ConnectSb: &msb.MockSandbox{Name_: "vm"},
+		Cfg:       &msbSdk.SandboxConfig{CPUs: 1, MaxCPUs: 2},
+		ModifyErr: errors.New("modify failed"),
+	}
+	handle := &msb.MockSandboxHandle{
+		Name_:     "agents-sandbox-vm-test",
+		Status_:   msbSdk.SandboxStatusStarting,
+		Cfg:       &msbSdk.SandboxConfig{CPUs: 1, MaxCPUs: 2},
+		ModifyErr: errors.New("modify failed"),
+		RefreshFn: func(context.Context) (msb.SandboxHandle, error) {
+			return running, nil
+		},
+	}
+	client := &msb.MockMsbClient{}
+	client.SetGotSandbox(handle)
+	msb.WithMsbMock(t, client)
+
+	_, _, err := ensureProjectVM(
+		context.Background(),
+		options.RunOptions{CPUs: 2},
+		"img:tag",
+		"vol",
+		"/workspace",
+		nil,
+		testVMKey(),
+		&ui,
+	)
+	if err != nil {
+		t.Fatalf("ensureProjectVM: %v", err)
+	}
+	if len(ui.WarnCalls) == 0 {
+		t.Fatal("expected resource reconcile warning")
+	}
+}
+
+func TestEnsureProjectVMStartingStatusError(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	ui := termio.NewTestMock(t)
+	handle := &msb.MockSandboxHandle{
+		Name_:   "agents-sandbox-vm-test",
+		Status_: msbSdk.SandboxStatusStarting,
+		RefreshFn: func(context.Context) (msb.SandboxHandle, error) {
+			return &msb.MockSandboxHandle{Status_: msbSdk.SandboxStatusPaused}, nil
+		},
+	}
+	client := &msb.MockMsbClient{}
+	client.SetGotSandbox(handle)
+	msb.WithMsbMock(t, client)
+
+	_, _, err := ensureProjectVM(
+		context.Background(),
+		options.RunOptions{},
+		"img:tag",
+		"vol",
+		"/workspace",
+		nil,
+		testVMKey(),
+		&ui,
+	)
+	if err == nil {
+		t.Fatal("expected starting VM status error")
+	}
+}
+
+func TestEnsureProjectVMStartsAfterConcurrentBootFails(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	ui := termio.NewTestMock(t)
+	started := &msb.MockSandbox{Name_: "vm"}
+	refreshed := &msb.MockSandboxHandle{
+		Name_:   "agents-sandbox-vm-test",
+		Status_: msbSdk.SandboxStatusStopped,
+		StartSb: started,
+	}
+	handle := &msb.MockSandboxHandle{
+		Name_:   "agents-sandbox-vm-test",
+		Status_: msbSdk.SandboxStatusStarting,
+		RefreshFn: func(context.Context) (msb.SandboxHandle, error) {
+			return refreshed, nil
+		},
+	}
+	client := &msb.MockMsbClient{}
+	client.SetGotSandbox(handle)
+	msb.WithMsbMock(t, client)
+
+	sb, boot, err := ensureProjectVM(
+		context.Background(),
+		options.RunOptions{},
+		"img:tag",
+		"vol",
+		"/workspace",
+		nil,
+		testVMKey(),
+		&ui,
+	)
+	if err != nil {
+		t.Fatalf("ensureProjectVM: %v", err)
+	}
+	if sb != started {
+		t.Fatalf("sandbox = %v, want the restarted sandbox", sb)
+	}
+	if boot != vmBootStarted {
+		t.Errorf("boot = %v, want vmBootStarted", boot)
+	}
+}
+
+func TestEnsureProjectVMConvergesCreatedStartRace(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	ui := termio.NewTestMock(t)
+	running := &msb.MockSandboxHandle{
+		Name_:     "agents-sandbox-vm-test",
+		Status_:   msbSdk.SandboxStatusRunning,
+		ConnectSb: &msb.MockSandbox{Name_: "vm"},
+	}
+	handle := &msb.MockSandboxHandle{
+		Name_:   "agents-sandbox-vm-test",
+		Status_: msbSdk.SandboxStatusCreated,
+		StartFn: func(context.Context) (msb.Sandbox, error) {
+			return nil, &msbSdk.Error{
+				Kind:    msbSdk.ErrSandboxStillRunning,
+				Message: "another caller started the sandbox",
+			}
+		},
+		RefreshFn: func(context.Context) (msb.SandboxHandle, error) {
+			return running, nil
+		},
+	}
+	client := &msb.MockMsbClient{}
+	client.SetGotSandbox(handle)
+	msb.WithMsbMock(t, client)
+
+	sb, boot, err := ensureProjectVM(
+		context.Background(),
+		options.RunOptions{},
+		"img:tag",
+		"vol",
+		"/workspace",
+		nil,
+		testVMKey(),
+		&ui,
+	)
+	if err != nil {
+		t.Fatalf("ensureProjectVM: %v", err)
+	}
+	if sb == nil {
+		t.Fatal("expected a connected sandbox")
+	}
+	if boot != vmBootConnected {
+		t.Errorf("boot = %v, want vmBootConnected for the losing starter", boot)
+	}
+}
+
+func TestEnsureProjectVMConnectRetryRejectsRefreshedPausedVM(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	ui := termio.NewTestMock(t)
+	handle := &msb.MockSandboxHandle{
+		Name_:      "agents-sandbox-vm-test",
+		Status_:    msbSdk.SandboxStatusRunning,
+		ConnectErr: errors.New("connect failed"),
+		RefreshFn: func(context.Context) (msb.SandboxHandle, error) {
+			return &msb.MockSandboxHandle{Status_: msbSdk.SandboxStatusPaused}, nil
+		},
+	}
+	client := &msb.MockMsbClient{}
+	client.SetGotSandbox(handle)
+	msb.WithMsbMock(t, client)
+
+	_, _, err := ensureProjectVM(
+		context.Background(),
+		options.RunOptions{},
+		"img:tag",
+		"vol",
+		"/workspace",
+		nil,
+		testVMKey(),
+		&ui,
+	)
+	if err == nil {
+		t.Fatal("expected paused refresh status error")
+	}
+}
+
+func TestEnsureProjectVMConnectRetryWaitsForStartingVM(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	ui := termio.NewTestMock(t)
+	running := &msb.MockSandboxHandle{
+		Name_:     "agents-sandbox-vm-test",
+		Status_:   msbSdk.SandboxStatusRunning,
+		ConnectSb: &msb.MockSandbox{Name_: "vm"},
+	}
+	refreshed := &msb.MockSandboxHandle{
+		Name_:   "agents-sandbox-vm-test",
+		Status_: msbSdk.SandboxStatusStarting,
+		RefreshFn: func(context.Context) (msb.SandboxHandle, error) {
+			return running, nil
+		},
+	}
+	handle := &msb.MockSandboxHandle{
+		Name_:      "agents-sandbox-vm-test",
+		Status_:    msbSdk.SandboxStatusRunning,
+		ConnectErr: errors.New("connect failed"),
+		RefreshFn: func(context.Context) (msb.SandboxHandle, error) {
+			return refreshed, nil
+		},
+	}
+	client := &msb.MockMsbClient{}
+	client.SetGotSandbox(handle)
+	msb.WithMsbMock(t, client)
+
+	sb, boot, err := ensureProjectVM(
+		context.Background(),
+		options.RunOptions{},
+		"img:tag",
+		"vol",
+		"/workspace",
+		nil,
+		testVMKey(),
+		&ui,
+	)
+	if err != nil || sb == nil || boot != vmBootConnected {
+		t.Fatalf("connect retry convergence = %v, %v, %v", sb, boot, err)
+	}
+}
+
+func TestEnsureProjectVMPostLockWaitsForStartingVM(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	ui := termio.NewTestMock(t)
+	running := &msb.MockSandboxHandle{
+		Name_:     "agents-sandbox-vm-test",
+		Status_:   msbSdk.SandboxStatusRunning,
+		ConnectSb: &msb.MockSandbox{Name_: "vm"},
+	}
+	starting := &msb.MockSandboxHandle{
+		Name_:   "agents-sandbox-vm-test",
+		Status_: msbSdk.SandboxStatusStarting,
+		RefreshFn: func(context.Context) (msb.SandboxHandle, error) {
+			return running, nil
+		},
+	}
+	callCount := 0
+	client := &msb.MockMsbClient{}
+	client.GetSandboxFn = func(context.Context, string) (msb.SandboxHandle, error) {
+		callCount++
+		if callCount == 1 {
+			return nil, &msbSdk.Error{Kind: msbSdk.ErrSandboxNotFound, Message: "not found"}
+		}
+		return starting, nil
+	}
+	client.EnsureInstalledFn = func(context.Context) error { return nil }
+	msb.WithMsbMock(t, client)
+
+	sb, boot, err := ensureProjectVM(
+		context.Background(),
+		options.RunOptions{},
+		"img:tag",
+		"vol",
+		"/workspace",
+		nil,
+		testVMKey(),
+		&ui,
+	)
+	if err != nil {
+		t.Fatalf("ensureProjectVM: %v", err)
+	}
+	if sb == nil || boot != vmBootConnected {
+		t.Fatalf("post-lock convergence = %v, %v", sb, boot)
+	}
+}
+
+func TestEnsureProjectVMPostLockWaitError(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	ui := termio.NewTestMock(t)
+	starting := &msb.MockSandboxHandle{
+		Name_:   "agents-sandbox-vm-test",
+		Status_: msbSdk.SandboxStatusStarting,
+		RefreshFn: func(context.Context) (msb.SandboxHandle, error) {
+			return nil, errors.New("refresh failed")
+		},
+	}
+	callCount := 0
+	client := &msb.MockMsbClient{}
+	client.GetSandboxFn = func(context.Context, string) (msb.SandboxHandle, error) {
+		callCount++
+		if callCount == 1 {
+			return nil, &msbSdk.Error{Kind: msbSdk.ErrSandboxNotFound, Message: "not found"}
+		}
+		return starting, nil
+	}
+	client.EnsureInstalledFn = func(context.Context) error { return nil }
+	msb.WithMsbMock(t, client)
+
+	_, _, err := ensureProjectVM(
+		context.Background(),
+		options.RunOptions{},
+		"img:tag",
+		"vol",
+		"/workspace",
+		nil,
+		testVMKey(),
+		&ui,
+	)
+	if err == nil {
+		t.Fatal("expected post-lock wait error")
+	}
+}
+
+func TestEnsureProjectVMPostLockWaitReconcileWarning(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	ui := termio.NewTestMock(t)
+	running := &msb.MockSandboxHandle{
+		Name_:     "agents-sandbox-vm-test",
+		Status_:   msbSdk.SandboxStatusRunning,
+		ConnectSb: &msb.MockSandbox{Name_: "vm"},
+	}
+	starting := &msb.MockSandboxHandle{
+		Name_:     "agents-sandbox-vm-test",
+		Status_:   msbSdk.SandboxStatusStarting,
+		Cfg:       &msbSdk.SandboxConfig{CPUs: 1, MaxCPUs: 2},
+		ModifyErr: errors.New("modify failed"),
+		RefreshFn: func(context.Context) (msb.SandboxHandle, error) {
+			return running, nil
+		},
+	}
+	callCount := 0
+	client := &msb.MockMsbClient{}
+	client.GetSandboxFn = func(context.Context, string) (msb.SandboxHandle, error) {
+		callCount++
+		if callCount == 1 {
+			return nil, &msbSdk.Error{Kind: msbSdk.ErrSandboxNotFound, Message: "not found"}
+		}
+		return starting, nil
+	}
+	client.EnsureInstalledFn = func(context.Context) error { return nil }
+	msb.WithMsbMock(t, client)
+
+	_, boot, err := ensureProjectVM(
+		context.Background(),
+		options.RunOptions{CPUs: 2},
+		"img:tag",
+		"vol",
+		"/workspace",
+		nil,
+		testVMKey(),
+		&ui,
+	)
+	if err != nil {
+		t.Fatalf("ensureProjectVM: %v", err)
+	}
+	if boot != vmBootConnected {
+		t.Fatalf("boot = %v, want vmBootConnected", boot)
+	}
+	if len(ui.WarnCalls) == 0 {
+		t.Fatal("expected resource reconcile warning")
+	}
+}
+
+func TestConvergeExistingVMRefreshError(t *testing.T) {
+	handle := &msb.MockSandboxHandle{
+		RefreshFn: func(context.Context) (msb.SandboxHandle, error) {
+			return nil, errors.New("refresh failed")
+		},
+	}
+	if _, _, err := convergeExistingVM(context.Background(), handle); err == nil {
+		t.Fatal("expected refresh error")
+	}
+}
+
+func TestConvergeExistingVMStartingContextError(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	handle := &msb.MockSandboxHandle{Status_: msbSdk.SandboxStatusStarting}
+	if _, _, err := convergeExistingVM(ctx, handle); !errors.Is(err, context.Canceled) {
+		t.Fatalf("convergeExistingVM error = %v, want context canceled", err)
+	}
+}
+
+func TestConvergeExistingVMConnectError(t *testing.T) {
+	handle := &msb.MockSandboxHandle{
+		Status_:    msbSdk.SandboxStatusRunning,
+		ConnectErr: errors.New("connect failed"),
+	}
+	if _, _, err := convergeExistingVM(context.Background(), handle); err == nil {
+		t.Fatal("expected connect error")
+	}
+}
+
+func TestConvergeExistingVMWaitsThroughStarting(t *testing.T) {
+	refreshes := 0
+	handle := &msb.MockSandboxHandle{
+		RefreshFn: func(context.Context) (msb.SandboxHandle, error) {
+			refreshes++
+			if refreshes == 1 {
+				return &msb.MockSandboxHandle{Status_: msbSdk.SandboxStatusStarting}, nil
+			}
+			return &msb.MockSandboxHandle{
+				Status_:   msbSdk.SandboxStatusRunning,
+				ConnectSb: &msb.MockSandbox{Name_: "vm"},
+			}, nil
+		},
+	}
+	sb, boot, err := convergeExistingVM(context.Background(), handle)
+	if err != nil || sb == nil || boot != vmBootConnected {
+		t.Fatalf("convergeExistingVM = %v, %v, %v", sb, boot, err)
+	}
+	if refreshes != 2 {
+		t.Fatalf("refreshes = %d, want 2", refreshes)
+	}
+}
+
+func TestConvergeExistingVMRejectsUnavailableStatuses(t *testing.T) {
+	for _, status := range []msbSdk.SandboxStatus{
+		msbSdk.SandboxStatusDraining,
+		msbSdk.SandboxStatusPaused,
+		msbSdk.SandboxStatus("future-status"),
+	} {
+		t.Run(string(status), func(t *testing.T) {
+			handle := &msb.MockSandboxHandle{Status_: status}
+			if _, _, err := convergeExistingVM(context.Background(), handle); err == nil {
+				t.Fatalf("expected status %q to be rejected", status)
+			}
+		})
+	}
+}
+
+func TestConvergeExistingVMStartsInactiveVM(t *testing.T) {
+	started := &msb.MockSandbox{Name_: "vm"}
+	handle := &msb.MockSandboxHandle{Status_: msbSdk.SandboxStatusStopped, StartSb: started}
+	sb, boot, err := convergeExistingVM(context.Background(), handle)
+	if err != nil || sb != started || boot != vmBootStarted {
+		t.Fatalf("convergeExistingVM = %v, %v, %v", sb, boot, err)
+	}
+}
+
+func TestStartExistingVMErrors(t *testing.T) {
+	startErr := errors.New("start failed")
+	handle := &msb.MockSandboxHandle{StartErr: startErr}
+	if _, _, err := startExistingVM(context.Background(), handle); !errors.Is(err, startErr) {
+		t.Fatalf("startExistingVM error = %v, want %v", err, startErr)
+	}
+
+	refreshErr := errors.New("refresh failed")
+	handle = &msb.MockSandboxHandle{
+		StartErr: &msbSdk.Error{Kind: msbSdk.ErrSandboxStillRunning, Message: "already starting"},
+		RefreshFn: func(context.Context) (msb.SandboxHandle, error) {
+			return nil, refreshErr
+		},
+	}
+	if _, _, err := startExistingVM(context.Background(), handle); !errors.Is(err, refreshErr) {
+		t.Fatalf("startExistingVM refresh error = %v, want %v", err, refreshErr)
+	}
+
+	startRaceErr := &msbSdk.Error{Kind: msbSdk.ErrSandboxStillRunning, Message: "already starting"}
+	handle = &msb.MockSandboxHandle{
+		StartErr: startRaceErr,
+		RefreshFn: func(context.Context) (msb.SandboxHandle, error) {
+			return &msb.MockSandboxHandle{Status_: msbSdk.SandboxStatusStopped}, nil
+		},
+	}
+	if _, _, err := startExistingVM(context.Background(), handle); !errors.Is(err, startRaceErr) {
+		t.Fatalf("startExistingVM non-active race error = %v, want %v", err, startRaceErr)
+	}
+}
+
+func TestWaitForSandboxLifecycleCanceled(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if err := waitForSandboxLifecycle(ctx); !errors.Is(err, context.Canceled) {
+		t.Fatalf("waitForSandboxLifecycle error = %v, want context canceled", err)
+	}
+}
+
 // TestEnsureProjectVMStartError covers the Start failure branch when an
 // existing stopped VM fails to start.
 func TestEnsureProjectVMStartError(t *testing.T) {

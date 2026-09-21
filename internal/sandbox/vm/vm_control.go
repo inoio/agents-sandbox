@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 
+	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
+
 	"github.com/inoio/agents-sandbox/internal/agent"
 	"github.com/inoio/agents-sandbox/internal/git"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
@@ -39,9 +41,16 @@ func stopOrKillProjectVM(
 		pastTense = "stopped"
 	}
 
-	if kind, err := msb.GetVMStatus(handle.Status()); err == nil && kind == msb.VMStatusStopped {
+	status := handle.Status()
+	if msb.IsSandboxInactive(status) {
 		ui.Infof("project VM already %s: %s", pastTense, name)
 		return nil
+	}
+	if !msb.IsSandboxActive(status) {
+		return fmt.Errorf("cannot %s sandbox %q with unexpected status %q", action, name, status)
+	}
+	if status == msbSdk.SandboxStatusPaused {
+		return fmt.Errorf("cannot %s paused sandbox %q: resume is not supported", action, name)
 	}
 
 	if dryRun {

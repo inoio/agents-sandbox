@@ -18,6 +18,7 @@ command reports the bare version (e.g. `0.1.0`).
 
 ### Changed
 
+- Behavior: microsandbox `created` and `starting` states are handled according to their lifecycle semantics; starting VMs are waited on and protected from pruning, while unknown statuses fail closed.
 - Bugfix: a rebuilt runner image with the same tag but a new digest now recreates the project VM, so the VM uses the new image.
 - Bugfix: refreshing a rebuilt runner image no longer tries to remove the old microsandbox manifest before loading the new
   one, avoiding foreign-key errors when an existing VM still references the image tag.

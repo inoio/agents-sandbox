@@ -50,6 +50,18 @@ func TestBuildPruneState(t *testing.T) {
 				Status_:    msbSdk.SandboxStatusRunning,
 				UpdatedAt_: stale,
 			},
+			// starting -> never stale while a runtime transition is in progress
+			&msb.MockSandboxHandle{
+				Name_:      "agents-sandbox-vm-proj4-1mjusbm3wikhb0",
+				Status_:    msbSdk.SandboxStatusStarting,
+				UpdatedAt_: stale,
+			},
+			// unknown -> never prunable; fail closed for future statuses
+			&msb.MockSandboxHandle{
+				Name_:      "agents-sandbox-vm-proj5-1mjusbm3wikhb0",
+				Status_:    msbSdk.SandboxStatus("future-status"),
+				UpdatedAt_: stale,
+			},
 		},
 	}
 	msb.WithMsbMock(t, client)
@@ -72,6 +84,12 @@ func TestBuildPruneState(t *testing.T) {
 	}
 	if _, ok := pruneState.ToPrune[state.Key{Slug: "fill2", Agent: ""}]; ok {
 		t.Error("running task sandbox must not be prunable")
+	}
+	if _, ok := pruneState.ToPrune[state.Key{Slug: "proj4-1mjusbm3wikhb0", Agent: ""}]; ok {
+		t.Error("starting VM must not be prunable")
+	}
+	if _, ok := pruneState.ToPrune[state.Key{Slug: "proj5-1mjusbm3wikhb0", Agent: ""}]; ok {
+		t.Error("unknown-status VM must not be prunable")
 	}
 	// Kept VMs: live project VMs (running or not-yet-stale) are kept; a pruned VM
 	// and task sandboxes never count as kept.

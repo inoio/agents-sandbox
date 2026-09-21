@@ -94,6 +94,40 @@ func TestEnsureProjectVMStartsWhenCrashed(t *testing.T) {
 	}
 }
 
+func TestEnsureProjectVMStartsWhenCreated(t *testing.T) {
+	decision, err := decideVMAction(nil, msbSdk.SandboxStatusCreated)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if decision != vmActionStart {
+		t.Errorf("expected vmActionStart for created, got %v", decision)
+	}
+}
+
+func TestEnsureProjectVMWaitsWhenStarting(t *testing.T) {
+	decision, err := decideVMAction(nil, msbSdk.SandboxStatusStarting)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if decision != vmActionWait {
+		t.Errorf("expected vmActionWait for starting, got %v", decision)
+	}
+}
+
+func TestEnsureProjectVMRejectsNonAttachableStatuses(t *testing.T) {
+	for _, status := range []msbSdk.SandboxStatus{
+		msbSdk.SandboxStatusDraining,
+		msbSdk.SandboxStatusPaused,
+		msbSdk.SandboxStatus("unknown-status"),
+	} {
+		t.Run(string(status), func(t *testing.T) {
+			if _, err := decideVMAction(nil, status); err == nil {
+				t.Fatalf("decideVMAction(%q) returned nil error", status)
+			}
+		})
+	}
+}
+
 func TestCreateProjectVMCallsClientCreateSandbox(t *testing.T) {
 	client := &msb.MockMsbClient{}
 	testUI := termio.NewTestMock(t)

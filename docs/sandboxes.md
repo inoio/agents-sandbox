@@ -91,6 +91,13 @@ in green, `stopped`/`created` dim, transitional states (`starting`, `paused`,
 `draining`) in yellow, and `crashed` in red. When color is disabled (e.g. piped output) the status renders as plain
 text.
 
+Lifecycle handling follows microsandbox's state machine: `created` has no live
+runtime and is started on the next run; `starting` is a protected boot in
+progress and concurrent runs wait for it; `running` accepts clients;
+`draining` and `paused` are protected from pruning but reject new clients;
+`stopped` and `crashed` have no live runtime and can be started again. Unknown
+statuses are treated as unsafe and are not pruned or reused automatically.
+
 ### Volume Management
 
 List all volumes:

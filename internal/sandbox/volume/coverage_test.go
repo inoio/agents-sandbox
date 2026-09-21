@@ -62,6 +62,28 @@ func TestCheckForActiveVMs_InactiveVMSameSlugIsIgnored(t *testing.T) {
 	}
 }
 
+func TestCheckForActiveVMs_StartingVMSameSlugIsBlocked(t *testing.T) {
+	mock, _ := setupVolumeOpsFixtures(t)
+	mock.Sandboxes = []msb.SandboxHandle{
+		&msb.MockSandboxHandle{Name_: "agents-sandbox-vm-someproj", Status_: msbSdk.SandboxStatusStarting},
+	}
+
+	if err := checkForActiveVMs(context.Background(), state.Key{Slug: "someproj", Agent: "opencode"}); err == nil {
+		t.Fatal("expected a starting VM to block volume operations")
+	}
+}
+
+func TestCheckForActiveVMs_UnknownVMSameSlugIsBlocked(t *testing.T) {
+	mock, _ := setupVolumeOpsFixtures(t)
+	mock.Sandboxes = []msb.SandboxHandle{
+		&msb.MockSandboxHandle{Name_: "agents-sandbox-vm-someproj", Status_: msbSdk.SandboxStatus("future-status")},
+	}
+
+	if err := checkForActiveVMs(context.Background(), state.Key{Slug: "someproj", Agent: "opencode"}); err == nil {
+		t.Fatal("expected an unknown VM status to block volume operations")
+	}
+}
+
 func TestVolumeOp_ReadStateCorruptError(t *testing.T) {
 	_, ui := setupVolumeOpsFixtures(t)
 	slug := "corruptproj-read"

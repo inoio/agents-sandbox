@@ -256,6 +256,8 @@ func TestIsSandboxActive(t *testing.T) {
 		{"running", msbSdk.SandboxStatusRunning, true},
 		{"draining", msbSdk.SandboxStatusDraining, true},
 		{"paused", msbSdk.SandboxStatusPaused, true},
+		{"starting", msbSdk.SandboxStatusStarting, true},
+		{"created", msbSdk.SandboxStatusCreated, false},
 		{"stopped", msbSdk.SandboxStatusStopped, false},
 		{"crashed", msbSdk.SandboxStatusCrashed, false},
 		{"unknown", msbSdk.SandboxStatus(""), false},
@@ -333,6 +335,8 @@ func TestGetVMStatus(t *testing.T) {
 		{"running", msbSdk.SandboxStatusRunning, VMStatusActive, false},
 		{"draining", msbSdk.SandboxStatusDraining, VMStatusActive, false},
 		{"paused", msbSdk.SandboxStatusPaused, VMStatusActive, false},
+		{"starting", msbSdk.SandboxStatusStarting, VMStatusStarting, false},
+		{"created", msbSdk.SandboxStatusCreated, VMStatusCreated, false},
 		{"stopped", msbSdk.SandboxStatusStopped, VMStatusStopped, false},
 		{"crashed", msbSdk.SandboxStatusCrashed, VMStatusStopped, false},
 		{"unknown", msbSdk.SandboxStatus(""), VMStatusUnknown, true},
@@ -345,6 +349,30 @@ func TestGetVMStatus(t *testing.T) {
 			}
 			if got != tt.want {
 				t.Errorf("GetVMStatus(%q) = %v, want %v", tt.status, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestIsSandboxInactive(t *testing.T) {
+	tests := []struct {
+		name   string
+		status msbSdk.SandboxStatus
+		want   bool
+	}{
+		{"created", msbSdk.SandboxStatusCreated, true},
+		{"stopped", msbSdk.SandboxStatusStopped, true},
+		{"crashed", msbSdk.SandboxStatusCrashed, true},
+		{"starting", msbSdk.SandboxStatusStarting, false},
+		{"running", msbSdk.SandboxStatusRunning, false},
+		{"draining", msbSdk.SandboxStatusDraining, false},
+		{"paused", msbSdk.SandboxStatusPaused, false},
+		{"unknown", msbSdk.SandboxStatus(""), false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := IsSandboxInactive(tt.status); got != tt.want {
+				t.Errorf("IsSandboxInactive(%q) = %v, want %v", tt.status, got, tt.want)
 			}
 		})
 	}
