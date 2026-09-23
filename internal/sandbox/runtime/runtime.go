@@ -2,6 +2,7 @@ package runtime
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -54,6 +55,24 @@ type Inspection struct {
 	External             bool
 }
 
+type persistedRuntimeConfig struct {
+	Home  *string                     `json:"home"`
+	Paths persistedRuntimeConfigPaths `json:"paths"`
+}
+
+type persistedRuntimeConfigPaths struct {
+	MSB       *string `json:"msb"`
+	Libkrunfw *string `json:"libkrunfw"`
+}
+
+type selectedRuntime struct {
+	Home          string
+	MSBPath       string
+	LibkrunfwPath string
+	External      bool
+	Incomplete    bool
+}
+
 // PreparationResult reports whether the caller must exit so a replaced
 // agents-sandbox binary can be used by a fresh process.
 type PreparationResult struct {
@@ -87,7 +106,20 @@ var (
 	latestAgentsSandboxVersion = upgrade.LatestVersion
 	updateAgentsSandbox        = upgrade.Update
 	ensureRuntime              = func(ctx context.Context) error {
-		return msbSdk.EnsureInstalled(ctx)
+		_, err := msbSdk.EnsureRuntime(
+			ctx,
+			msbSdk.RuntimeConfig{},  //nolint:exhaustruct // empty config uses environment/default paths
+			msbSdk.InstallOptions{}, //nolint:exhaustruct // zero options install the SDK-pinned runtime
+		)
+		return err
+	}
+	installRuntime = func(ctx context.Context) error {
+		_, err := msbSdk.InstallRuntime(
+			ctx,
+			msbSdk.RuntimeConfig{},             //nolint:exhaustruct // empty config uses environment/default paths
+			msbSdk.InstallOptions{Force: true}, //nolint:exhaustruct // force replacement of an older managed runtime
+		)
+		return err
 	}
 	validateRuntime = sandboxmsb.ValidateInstalled
 ) //nolint:gochecknoglobals // command seams are required for safe recovery tests
@@ -108,35 +140,42 @@ func InspectRuntime() (Inspection, error) {
 // inspectRuntime contains the version-independent inspection logic so invalid
 // SDK metadata can be tested without mutating the linked SDK package.
 func inspectRuntime(requiredVersion string) (Inspection, error) {
-	home, err := runtimeHome()
-	if err != nil {
-		return Inspection{}, err
-	}
-	msbPath, external, err := runtimeMSBPath(home)
+	selected, err := selectRuntime()
 	if err != nil {
 		return Inspection{}, err
 	}
 	inspection := Inspection{ //nolint:exhaustruct // optional fields are populated below
 		RequiredVersion: requiredVersion,
-		MSBHome:         home,
-		MSBPath:         msbPath,
-		External:        external,
+		MSBHome:         selected.Home,
+		MSBPath:         selected.MSBPath,
+		LibkrunfwPath:   selected.LibkrunfwPath,
+		External:        selected.External,
 		Relation:        RuntimeMissing,
 	}
-	inspection.External = inspection.External || os.Getenv("MSB_LIBKRUNFW_PATH") != ""
-	inspection.LibkrunfwPath = runtimeLibraryPath(home, msbPath)
 
-	if _, statErr := os.Stat(msbPath); statErr != nil {
-		if os.IsNotExist(statErr) {
-			return inspection, nil
-		}
-		return Inspection{}, fmt.Errorf("inspect msb executable %s: %w", msbPath, statErr)
+	msbPresent, statErr := runtimeFilePresent(selected.MSBPath)
+	if statErr != nil {
+		return Inspection{}, fmt.Errorf("inspect msb executable %s: %w", selected.MSBPath, statErr)
 	}
-	if inspection.LibkrunfwPath == "" {
+	libkrunfwPresent, statErr := runtimeFilePresent(selected.LibkrunfwPath)
+	if statErr != nil {
+		return Inspection{}, fmt.Errorf("inspect libkrunfw %s: %w", selected.LibkrunfwPath, statErr)
+	}
+	if selected.Incomplete {
 		inspection.Relation = RuntimeIncomplete
 		return inspection, nil
 	}
-	versionOutput, versionErr := runMSBVersion(msbPath)
+	if !msbPresent && !libkrunfwPresent {
+		if inspection.External {
+			inspection.Relation = RuntimeIncomplete
+		}
+		return inspection, nil
+	}
+	if !msbPresent || !libkrunfwPresent {
+		inspection.Relation = RuntimeIncomplete
+		return inspection, nil
+	}
+	versionOutput, versionErr := runMSBVersion(inspection.MSBPath)
 	if versionErr != nil {
 		inspection.Relation = RuntimeUnknown
 		return inspection, nil //nolint:nilerr // malformed version output is classified as unknown
@@ -152,6 +191,137 @@ func inspectRuntime(requiredVersion string) (Inspection, error) {
 		inspection.Relation = RuntimeUnknown
 	}
 	return inspection, nil
+}
+
+func selectRuntime() (selectedRuntime, error) {
+	defaultHome, err := runtimeHome()
+	if err != nil {
+		return selectedRuntime{}, err
+	}
+	config, err := loadPersistedRuntimeConfig()
+	if err != nil {
+		return selectedRuntime{}, err
+	}
+	home := defaultHome
+	if config.Home != nil {
+		home = *config.Home
+	}
+	defaultMSBPath := filepath.Join(home, "bin", msbFilename())
+
+	if msbPath, configured := os.LookupEnv("MSB_PATH"); configured {
+		if strings.TrimSpace(msbPath) == "" {
+			return selectedRuntime{}, errors.New("MSB_PATH is set but empty")
+		}
+		libkrunfwPath, hasLibrary := os.LookupEnv("MSB_LIBKRUNFW_PATH")
+		if !hasLibrary {
+			libkrunfwPath = runtimeLibraryCandidate(msbPath)
+		}
+		return selectedRuntime{
+			Home:          home,
+			MSBPath:       msbPath,
+			LibkrunfwPath: libkrunfwPath,
+			External:      true,
+			Incomplete:    false,
+		}, nil
+	}
+	if libkrunfwPath, configured := os.LookupEnv("MSB_LIBKRUNFW_PATH"); configured {
+		return selectedRuntime{
+			Home:          home,
+			MSBPath:       defaultMSBPath,
+			LibkrunfwPath: libkrunfwPath,
+			External:      true,
+			Incomplete:    true,
+		}, nil
+	}
+
+	if config.Paths.MSB != nil || config.Paths.Libkrunfw != nil {
+		msbPath := defaultMSBPath
+		if config.Paths.MSB != nil {
+			msbPath = *config.Paths.MSB
+		}
+		libkrunfwPath := runtimeLibraryCandidate(msbPath)
+		if config.Paths.Libkrunfw != nil {
+			libkrunfwPath = *config.Paths.Libkrunfw
+		}
+		return selectedRuntime{
+			Home:          home,
+			MSBPath:       msbPath,
+			LibkrunfwPath: libkrunfwPath,
+			External:      true,
+			Incomplete:    config.Paths.MSB == nil,
+		}, nil
+	}
+
+	return selectedRuntime{
+		Home:          home,
+		MSBPath:       defaultMSBPath,
+		LibkrunfwPath: filepath.Join(home, "lib", libkrunfwFilename()),
+		External:      false,
+		Incomplete:    false,
+	}, nil
+}
+
+func loadPersistedRuntimeConfig() (persistedRuntimeConfig, error) {
+	configPath, err := runtimeConfigPath()
+	if err != nil {
+		return persistedRuntimeConfig{}, err
+	}
+	data, err := os.ReadFile(configPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return persistedRuntimeConfig{}, nil
+		}
+		return persistedRuntimeConfig{}, fmt.Errorf("read microsandbox config %s: %w", configPath, err)
+	}
+	var config persistedRuntimeConfig
+	if err := json.Unmarshal(data, &config); err != nil {
+		return persistedRuntimeConfig{}, fmt.Errorf("parse microsandbox config %s: %w", configPath, err)
+	}
+	return config, nil
+}
+
+func runtimeConfigPath() (string, error) {
+	if configPath, configured := os.LookupEnv("MSB_CONFIG_PATH"); configured {
+		if strings.TrimSpace(configPath) == "" {
+			return "", errors.New("MSB_CONFIG_PATH is set but empty")
+		}
+		return configPath, nil
+	}
+	home, err := runtimeHome()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(home, "config.json"), nil
+}
+
+func runtimeFilePresent(path string) (bool, error) {
+	if path == "" {
+		return false, nil
+	}
+	info, err := os.Stat(path)
+	if err == nil {
+		return info.Mode().IsRegular(), nil
+	}
+	if os.IsNotExist(err) {
+		return false, nil
+	}
+	return false, err
+}
+
+func runtimeLibraryCandidate(msbPath string) string {
+	if msbPath == "" {
+		return ""
+	}
+	filename := libkrunfwFilename()
+	for _, candidate := range []string{
+		filepath.Join(filepath.Dir(msbPath), filename),
+		filepath.Join(filepath.Dir(msbPath), "..", "lib", filename),
+	} {
+		if present, _ := runtimeFilePresent(candidate); present {
+			return candidate
+		}
+	}
+	return filepath.Join(filepath.Dir(msbPath), filename)
 }
 
 //nolint:gochecknoglobals // test seam for pre-SDK runtime inspection
@@ -245,7 +415,7 @@ func recoverRuntimeMismatch(
 		ui.Infof("agents-sandbox upgraded to %s; restart to retry with the new runtime", latest)
 		return PreparationResult{Restart: true}, nil
 	case "u":
-		if err := ensureRuntime(ctx); err != nil {
+		if err := installRuntime(ctx); err != nil {
 			return PreparationResult{}, fmt.Errorf("upgrade msb runtime: %w", err)
 		}
 		return completeRuntimePreparation(ctx)
@@ -308,7 +478,7 @@ func mismatchChoices(ctx context.Context, launcherVersion string, inspection Ins
 			Description: "run the official rollback to " + inspection.RequiredVersion + " with a database backup",
 		})
 	}
-	if (inspection.Relation == RuntimeOlder || inspection.Relation == RuntimeIncomplete) && !inspection.External {
+	if inspection.Relation == RuntimeOlder && !inspection.External {
 		choices = append(choices, termio.Choice{
 			Label:       "Upgrade msb",
 			Key:         "u",
@@ -336,6 +506,12 @@ func mismatchChoices(ctx context.Context, launcherVersion string, inspection Ins
 }
 
 func mismatchPrompt(inspection Inspection) string {
+	if inspection.Relation == RuntimeIncomplete {
+		return fmt.Sprintf(
+			"agents-sandbox found an incomplete msb runtime at %s; reinstall the matching msb/libkrunfw pair before retrying",
+			inspection.MSBPath,
+		)
+	}
 	return fmt.Sprintf(
 		"agents-sandbox requires msb %s, but the selected runtime is %s at %s",
 		inspection.RequiredVersion,
@@ -410,16 +586,6 @@ func runtimeHome() (string, error) {
 	return filepath.Join(home, ".microsandbox"), nil
 }
 
-func runtimeMSBPath(home string) (string, bool, error) {
-	if path, ok := os.LookupEnv("MSB_PATH"); ok {
-		if strings.TrimSpace(path) == "" {
-			return "", true, errors.New("MSB_PATH is set but empty")
-		}
-		return path, true, nil
-	}
-	return filepath.Join(home, "bin", msbFilename()), false, nil
-}
-
 func sanitizeRuntimePath(path, home string) string {
 	if path == "" {
 		return "<unset>"
@@ -444,42 +610,6 @@ func sanitizeRuntimePath(path, home string) string {
 		}
 	}
 	return filepath.Base(cleanPath)
-}
-
-func runtimeLibraryPath(home, msbPath string) string {
-	if path := os.Getenv("MSB_LIBKRUNFW_PATH"); path != "" {
-		if _, err := os.Stat(
-			filepath.Clean(path),
-		); err == nil {
-			return path
-		}
-		return ""
-	}
-	filename := libkrunfwFilename()
-	resolvedMSBPath := msbPath
-	if resolved, err := filepath.EvalSymlinks(msbPath); err == nil {
-		resolvedMSBPath = resolved
-	}
-	candidates := make([]string, 0, 3)
-	if _, explicitPath := os.LookupEnv("MSB_PATH"); explicitPath {
-		candidates = append(candidates,
-			filepath.Join(filepath.Dir(resolvedMSBPath), filename),
-			filepath.Join(filepath.Dir(resolvedMSBPath), "..", "lib", filename),
-			filepath.Join(home, "lib", filename),
-		)
-	} else {
-		candidates = append(candidates,
-			filepath.Join(home, "lib", filename),
-			filepath.Join(filepath.Dir(resolvedMSBPath), filename),
-			filepath.Join(filepath.Dir(resolvedMSBPath), "..", "lib", filename),
-		)
-	}
-	for _, candidate := range candidates {
-		if _, err := os.Stat(candidate); err == nil {
-			return candidate
-		}
-	}
-	return ""
 }
 
 func msbFilename() string {

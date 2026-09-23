@@ -29,10 +29,13 @@ func BuildSecretsFromSpecs(specs map[string]SecretSpec, ui termio.UI) []msbSdk.S
 		if spec.Host != "" {
 			hosts = append(hosts, spec.Host)
 		}
+		if spec.AllowAnyHostDangerous && len(hosts) == 0 {
+			hosts = []string{"*"}
+		}
 		secrets = append(secrets, msbSdk.Secret.Env(
 			envVar,
 			spec.Value,
-			msbSdk.SecretEnvOptions{AllowHosts: hosts},
+			msbSdk.SecretEnvOptions{Allow: hosts},
 		))
 	}
 	return secrets
