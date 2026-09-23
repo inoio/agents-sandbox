@@ -15,6 +15,11 @@ command reports the bare version (e.g. `0.1.0`).
   resolvers for the VM. Bare IPs get `:53` appended; `host:port` is used as-is.
   Invalid entries are rejected at config-load time. A DNS change recreates the
   VM (like other `network:` settings).
+- Distribution: install and update via Homebrew with
+  `brew tap inoio/agents-sandbox https://github.com/inoio/agents-sandbox` and
+  `brew install agents-sandbox`. The formula (`Formula/agents-sandbox.rb`)
+  installs the release binaries; the release workflow opens a formula-bump PR
+  for every new release tag.
 
 ### Changed
 
