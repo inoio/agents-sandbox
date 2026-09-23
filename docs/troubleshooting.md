@@ -128,6 +128,30 @@ git remote add origin https://example.com/repo.git
 
 If you need a tool that isn't in the base image (e.g., `go`, `rustc`, `python3`), add it to your project's custom Dockerfile, see [Runner Image]({% link runner-image.md %}) documentation.
 
+## MCP server fails inside the sandbox
+
+Local (`stdio`) MCP servers from your agent config start **inside the VM**, not on the host. Typical failures and fixes:
+
+### `ENOENT` on a `/Users/...` or `/home/<you>/...` path
+
+The config references a host-absolute path, which does not exist in the VM. The agent config directory is mirrored 1:1 under the VM home (`/home/dev`), so reference scripts `$HOME`-relative via the interpreter: `["sh", "-c", "exec bash \"$HOME/.config/opencode/bin/tool\""]`. See the [MCP recipe]({% link recipes/mcp-servers.md %}).
+
+### `ENOENT`/`command not found` for a launcher binary (`uvx`, `npx`, …)
+
+The VM is its own Linux image; host binaries (different OS and possibly architecture) are not copied over. Install the Linux version via your `.agents-sandbox/Dockerfile`, see [Runner Image]({% link runner-image.md %}).
+
+### `EACCES`/`permission denied` on a script that exists
+
+The host-config drop-in may strip the exec bit from provisioned scripts (see [#69](https://github.com/inoio/agents-sandbox/issues/69)). Launch them through the interpreter (`sh -c 'exec bash "$HOME/..."'`) instead of relying on the exec bit.
+
+### Server needs host integration (USB/adb devices, keychain, host `localhost`)
+
+There is no counterpart inside the hardware-isolated VM; keep such servers enabled on the host only.
+
+### Server loses its login session in the VM
+
+Share its state directory with a [`mounts`]({% link configuration/mounts.md %}) entry (e.g. `/home/dev/.linkedin-mcp: ~/.linkedin-mcp`). Writable mounts let the sandbox modify host files, and host and VM must not drive the same state directory concurrently.
+
 ## Secrets not available
 
 Verify the secret is set with the correct format. For legacy `env.secret`, the format is `KEY=value@host` where the
