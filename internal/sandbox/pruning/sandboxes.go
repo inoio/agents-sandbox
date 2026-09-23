@@ -26,7 +26,7 @@ func PruneSandboxes(
 	report := SandboxReport{VMsPruned: 0, Details: nil}
 	for slug, handle := range pruneState.ToPrune {
 		name := handle.Name()
-		if msb.IsSandboxActive(handle.Status()) {
+		if !msb.IsSandboxInactive(handle.Status()) {
 			continue
 		}
 		if !dryRun {

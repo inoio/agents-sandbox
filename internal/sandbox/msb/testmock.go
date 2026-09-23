@@ -340,7 +340,9 @@ type MockSandboxHandle struct {
 	BackendKind_    msbSdk.BackendKind
 	Image_          string
 	ConnectSb       Sandbox
+	RefreshFn       func(context.Context) (SandboxHandle, error)
 	StartSb         Sandbox
+	StartFn         func(context.Context) (Sandbox, error)
 	DidRmv          bool
 	DidStop         bool
 	DidKill         bool
@@ -379,8 +381,16 @@ func (m *MockSandboxHandle) Connect(_ context.Context) (Sandbox, error) {
 	//nolint:exhaustruct // only Name_ needed
 	return &MockSandbox{Name_: m.Name_}, nil
 }
-func (m *MockSandboxHandle) Refresh(_ context.Context) (SandboxHandle, error) { return m, nil }
-func (m *MockSandboxHandle) Start(_ context.Context) (Sandbox, error) {
+func (m *MockSandboxHandle) Refresh(ctx context.Context) (SandboxHandle, error) {
+	if m.RefreshFn != nil {
+		return m.RefreshFn(ctx)
+	}
+	return m, nil
+}
+func (m *MockSandboxHandle) Start(ctx context.Context) (Sandbox, error) {
+	if m.StartFn != nil {
+		return m.StartFn(ctx)
+	}
 	if m.StartErr != nil {
 		return nil, m.StartErr
 	}

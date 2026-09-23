@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/inoio/agents-sandbox/internal/sandbox/image"
 	"github.com/inoio/agents-sandbox/internal/sandbox/mounts"
@@ -34,6 +35,7 @@ const (
 	vmActionCreate vmAction = iota
 	vmActionConnect
 	vmActionStart
+	vmActionWait
 )
 
 // vmBoot records how the project VM entered the running state this run.
@@ -42,7 +44,8 @@ type vmBoot int
 const (
 	// vmBootConnected means the VM was already running and was merely attached to.
 	vmBootConnected vmBoot = iota
-	// vmBootStarted means the VM was booted this run from a stopped/crashed state.
+	// vmBootStarted means this invocation booted the VM from a created, stopped,
+	// crashed, or failed-start state.
 	vmBootStarted
 	// vmBootCreated means the VM was freshly created (first boot or recreation).
 	vmBootCreated
@@ -65,20 +68,24 @@ func decideVMAction(notFoundErr error, status msbSdk.SandboxStatus) (vmAction, e
 	if notFoundErr != nil {
 		return vmActionCreate, nil
 	}
-	kind, err := msb.GetVMStatus(status)
-	if err != nil {
-		return vmActionCreate, err
-	}
-	if kind == msb.VMStatusActive {
+	switch status {
+	case msbSdk.SandboxStatusCreated, msbSdk.SandboxStatusStopped, msbSdk.SandboxStatusCrashed:
+		return vmActionStart, nil
+	case msbSdk.SandboxStatusStarting:
+		return vmActionWait, nil
+	case msbSdk.SandboxStatusRunning:
 		return vmActionConnect, nil
+	case msbSdk.SandboxStatusDraining, msbSdk.SandboxStatusPaused:
+		return vmActionCreate, fmt.Errorf("sandbox %q is not available for a new client: status is %q", status, status)
+	default:
+		return vmActionCreate, fmt.Errorf("unexpected sandbox status: %q", status)
 	}
-	return vmActionStart, nil
 }
 
 // ensureProjectVM returns a live *msb.Sandbox for the project VM and how it
 // entered the running state this run: vmBootCreated on first boot or
-// recreation, vmBootStarted when an existing stopped/crashed VM was booted,
-// or vmBootConnected when an already-running VM was merely attached to. A
+// recreation, vmBootStarted when this invocation booted an existing VM, or
+// vmBootConnected when an already-running VM was merely attached to. A
 // per-project host-side flock guards the first-boot race between concurrent
 // invocations.
 //
@@ -154,28 +161,31 @@ func ensureProjectVM(
 						refreshErr,
 					)
 				}
-				if msb.IsSandboxActive(handle2.Status()) {
-					sb2, connErr2 := handle2.Connect(ctx)
-					if connErr2 != nil {
-						spin.StopError(connErr2)
-						return nil, vmBootConnected, fmt.Errorf("connect sandbox %q: %w", name, connErr2)
-					}
-					spin.Stop()
-					if recErr := reconcileResourceConfig(ctx, handle2, opts, ui); recErr != nil {
-						ui.Warnf("could not reconcile VM resources: %v", recErr)
-					}
-					return sb2, vmBootConnected, nil
+				retryStatus := handle2.Status()
+				_, retryActionErr := decideVMAction(nil, retryStatus)
+				if retryActionErr != nil {
+					spin.StopError(retryActionErr)
+					return nil, vmBootConnected, retryActionErr
 				}
-				sb2, startErr := handle2.Start(ctx)
-				if startErr != nil {
-					spin.StopError(startErr)
-					return nil, vmBootConnected, fmt.Errorf("start sandbox %q: %w", name, startErr)
+				var sb2 msb.Sandbox
+				var retryBoot vmBoot
+				switch retryStatus { //nolint:exhaustive // decideVMAction validated the status above
+				case msbSdk.SandboxStatusRunning:
+					sb2, connErr = handle2.Connect(ctx)
+				case msbSdk.SandboxStatusStarting:
+					sb2, retryBoot, connErr = convergeExistingVM(ctx, handle2)
+				case msbSdk.SandboxStatusCreated, msbSdk.SandboxStatusStopped, msbSdk.SandboxStatusCrashed:
+					sb2, retryBoot, connErr = startExistingVM(ctx, handle2)
+				}
+				if connErr != nil {
+					spin.StopError(connErr)
+					return nil, vmBootConnected, fmt.Errorf("resume sandbox %q: %w", name, connErr)
 				}
 				spin.Stop()
 				if recErr := reconcileResourceConfig(ctx, handle2, opts, ui); recErr != nil {
 					ui.Warnf("could not reconcile VM resources: %v", recErr)
 				}
-				return sb2, vmBootStarted, nil
+				return sb2, retryBoot, nil
 			}
 			spin.Stop()
 			ui.Infof("connected to existing project VM: %s", name)
@@ -184,9 +194,22 @@ func ensureProjectVM(
 			}
 			return sb, vmBootConnected, nil
 		}
+		if action == vmActionWait {
+			sb, boot, waitErr := convergeExistingVM(ctx, handle)
+			if waitErr != nil {
+				spin.StopError(waitErr)
+				return nil, vmBootConnected, fmt.Errorf("wait for sandbox %q to start: %w", name, waitErr)
+			}
+			spin.Stop()
+			if recErr := reconcileResourceConfig(ctx, handle, opts, ui); recErr != nil {
+				ui.Warnf("could not reconcile VM resources: %v", recErr)
+			}
+			return sb, boot, nil
+		}
 		spin.Stop()
-		// Stopped/crashed → start (no flock needed, Start is idempotent enough).
-		sb, startErr := handle.Start(ctx)
+		// Created/stopped/crashed → start. The helper converges if another caller
+		// wins the start transition.
+		sb, boot, startErr := startExistingVM(ctx, handle)
 		if startErr != nil {
 			spin.StopError(startErr)
 			return nil, vmBootConnected, fmt.Errorf("start sandbox %q: %w", name, startErr)
@@ -195,7 +218,7 @@ func ensureProjectVM(
 		if recErr := reconcileResourceConfig(ctx, handle, opts, ui); recErr != nil {
 			ui.Warnf("could not reconcile VM resources: %v", recErr)
 		}
-		return sb, vmBootStarted, nil
+		return sb, boot, nil
 	}
 
 	spin.Stop()
@@ -234,14 +257,24 @@ func ensureProjectVM(
 				return sb, vmBootConnected, nil
 			}
 		}
-		sb, startErr := handle.Start(ctx)
+		if action == vmActionWait {
+			sb, boot, waitErr := convergeExistingVM(ctx, handle)
+			if waitErr != nil {
+				return nil, vmBootConnected, fmt.Errorf("wait for sandbox %q to start: %w", name, waitErr)
+			}
+			if recErr := reconcileResourceConfig(ctx, handle, opts, ui); recErr != nil {
+				ui.Warnf("could not reconcile VM resources: %v", recErr)
+			}
+			return sb, boot, nil
+		}
+		sb, boot, startErr := startExistingVM(ctx, handle)
 		if startErr != nil {
 			return nil, vmBootConnected, fmt.Errorf("start sandbox %q: %w", name, startErr)
 		}
 		if recErr := reconcileResourceConfig(ctx, handle, opts, ui); recErr != nil {
 			ui.Warnf("could not reconcile VM resources: %v", recErr)
 		}
-		return sb, vmBootStarted, nil
+		return sb, boot, nil
 	}
 	if !msb.IsNotFound(err) {
 		return nil, vmBootConnected, fmt.Errorf("re-check sandbox %q: %w", name, err)
@@ -256,6 +289,68 @@ func ensureProjectVM(
 		boot = vmBootCreated
 	}
 	return sb, boot, nil
+}
+
+const sandboxLifecyclePollInterval = 100 * time.Millisecond
+
+func startExistingVM(ctx context.Context, handle msb.SandboxHandle) (msb.Sandbox, vmBoot, error) {
+	sb, err := handle.Start(ctx)
+	if err == nil {
+		return sb, vmBootStarted, nil
+	}
+	if !msbSdk.IsKind(err, msbSdk.ErrSandboxStillRunning) {
+		return nil, vmBootConnected, err
+	}
+	current, refreshErr := handle.Refresh(ctx)
+	if refreshErr != nil {
+		return nil, vmBootConnected, refreshErr
+	}
+	if current.Status() != msbSdk.SandboxStatusStarting && current.Status() != msbSdk.SandboxStatusRunning {
+		return nil, vmBootConnected, err
+	}
+	return convergeExistingVM(ctx, current)
+}
+
+func convergeExistingVM(ctx context.Context, handle msb.SandboxHandle) (msb.Sandbox, vmBoot, error) {
+	for {
+		current, err := handle.Refresh(ctx)
+		if err != nil {
+			return nil, vmBootConnected, err
+		}
+		switch current.Status() {
+		case msbSdk.SandboxStatusRunning:
+			sb, connectErr := current.Connect(ctx)
+			if connectErr != nil {
+				return nil, vmBootConnected, connectErr
+			}
+			return sb, vmBootConnected, nil
+		case msbSdk.SandboxStatusCreated, msbSdk.SandboxStatusStopped, msbSdk.SandboxStatusCrashed:
+			return startExistingVM(ctx, current)
+		case msbSdk.SandboxStatusStarting:
+			if err := waitForSandboxLifecycle(ctx); err != nil {
+				return nil, vmBootConnected, err
+			}
+			continue
+		case msbSdk.SandboxStatusDraining, msbSdk.SandboxStatusPaused:
+			return nil, vmBootConnected, fmt.Errorf(
+				"sandbox is not available for a new client: status is %q",
+				current.Status(),
+			)
+		default:
+			return nil, vmBootConnected, fmt.Errorf("unexpected sandbox status: %q", current.Status())
+		}
+	}
+}
+
+func waitForSandboxLifecycle(ctx context.Context) error {
+	timer := time.NewTimer(sandboxLifecyclePollInterval)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
+		return nil
+	}
 }
 
 func createProjectVM(

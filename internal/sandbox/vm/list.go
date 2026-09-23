@@ -9,6 +9,8 @@ import (
 	"strings"
 	"time"
 
+	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
+
 	"github.com/inoio/agents-sandbox/internal/humanize"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
 	"github.com/inoio/agents-sandbox/internal/sandbox/naming"
@@ -67,11 +69,10 @@ func ListSandboxes(ctx context.Context, opts ...ListOption) ([]Info, error) { //
 		}
 		status := h.Status()
 		if opt.RunningOnly || opt.StoppedOnly {
-			active := msb.IsSandboxActive(status)
-			if opt.RunningOnly && !active {
+			if opt.RunningOnly && status != msbSdk.SandboxStatusRunning {
 				continue
 			}
-			if !opt.RunningOnly && opt.StoppedOnly && active {
+			if !opt.RunningOnly && opt.StoppedOnly && status != msbSdk.SandboxStatusStopped {
 				continue
 			}
 		}

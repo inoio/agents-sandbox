@@ -355,6 +355,16 @@ func TestMockSandboxHandleMethods(t *testing.T) {
 	if got, err := h.Refresh(context.Background()); err != nil || got != h {
 		t.Fatalf("Refresh = %v, %v", got, err)
 	}
+	refreshed := &MockSandboxHandle{Name_: "refreshed"}
+	h.RefreshFn = func(ctx context.Context) (SandboxHandle, error) {
+		if ctx == nil {
+			t.Fatal("RefreshFn received nil context")
+		}
+		return refreshed, nil
+	}
+	if got, err := h.Refresh(context.Background()); err != nil || got != refreshed {
+		t.Fatalf("Refresh via fn = %v, %v", got, err)
+	}
 	if h.DidRemove() {
 		t.Fatal("DidRemove should be false")
 	}
@@ -393,6 +403,14 @@ func TestMockSandboxHandleConnectStart(t *testing.T) {
 	}
 	if got, err := h.Start(ctx); err != nil || got != sb {
 		t.Fatalf("Start = %v, %v", got, err)
+	}
+	startFnCalled := false
+	h.StartFn = func(gotCtx context.Context) (Sandbox, error) {
+		startFnCalled = gotCtx != nil
+		return sb, nil
+	}
+	if got, err := h.Start(ctx); err != nil || got != sb || !startFnCalled {
+		t.Fatalf("Start via fn = %v, %v, called=%v", got, err, startFnCalled)
 	}
 
 	hErr := &MockSandboxHandle{ConnectErr: errors.New("e"), StartErr: errors.New("e2")}

@@ -247,13 +247,15 @@ func TestIsStoppedStatus(t *testing.T) {
 		{"running", msbSdk.SandboxStatusRunning, false},
 		{"draining", msbSdk.SandboxStatusDraining, false},
 		{"paused", msbSdk.SandboxStatusPaused, false},
-		// Unknown: IsSandboxActive returns false, so !IsSandboxActive = true.
-		{"empty string", msbSdk.SandboxStatus(""), true},
+		{"created", msbSdk.SandboxStatusCreated, true},
+		{"starting", msbSdk.SandboxStatusStarting, false},
+		// Unknown: inactive checks fail closed, so it is not stopped.
+		{"empty string", msbSdk.SandboxStatus(""), false},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := !msb.IsSandboxActive(tt.status)
+			got := msb.IsSandboxInactive(tt.status)
 			if got != tt.want {
 				t.Errorf("IsStoppedStatus(%q) = %v, want %v", tt.status, got, tt.want)
 			}

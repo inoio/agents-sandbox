@@ -55,7 +55,7 @@ func buildPruneState(ctx context.Context, age time.Duration) (PruneState, error)
 // prunable reports whether a sandbox should be reclaimed: an inactive project VM
 // older than the age threshold, or any stopped task sandbox (transient workers).
 func prunable(name string, h msb.SandboxHandle, age time.Duration) bool {
-	if msb.IsSandboxActive(h.Status()) {
+	if !msb.IsSandboxInactive(h.Status()) {
 		return false
 	}
 	return time.Since(h.UpdatedAt()) >= age || hasPrefix(name, naming.TaskPrefix)

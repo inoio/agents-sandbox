@@ -85,6 +85,29 @@ func TestPruneSandboxes(t *testing.T) {
 		}
 	})
 
+	t.Run("skips active, transitional, and unknown statuses", func(t *testing.T) {
+		client := &msb.MockMsbClient{}
+		msb.WithMsbMock(t, client)
+		ui := &termio.Mock{}
+		state := PruneState{ToPrune: map[state.Key]msb.SandboxHandle{
+			{Slug: "starting", Agent: ""}: &msb.MockSandboxHandle{
+				Name_:   "agents-sandbox-vm-starting",
+				Status_: msbSdk.SandboxStatusStarting,
+			},
+			{Slug: "unknown", Agent: ""}: &msb.MockSandboxHandle{
+				Name_:   "agents-sandbox-vm-unknown",
+				Status_: msbSdk.SandboxStatus("future-status"),
+			},
+		}}
+		r, err := PruneSandboxes(context.Background(), state, false, ui)
+		if err != nil {
+			t.Fatalf("PruneSandboxes: %v", err)
+		}
+		if r.VMsPruned != 0 || len(client.RemovedSandboxes) != 0 {
+			t.Fatalf("protected statuses were pruned: report=%+v removed=%v", r, client.RemovedSandboxes)
+		}
+	})
+
 	t.Run("empty state prunes nothing", func(t *testing.T) {
 		client := &msb.MockMsbClient{}
 		msb.WithMsbMock(t, client)

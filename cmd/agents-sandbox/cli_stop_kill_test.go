@@ -140,7 +140,7 @@ func TestStopKillLifecycle(t *testing.T) {
 			t.Run(tc.name+" "+strings.Join(flags, " "), func(t *testing.T) {
 				initTestRepo(t)
 				ui := runStopKill(t, append([]string{tc.cmd}, flags...), func(m *sandboxmsb.MockMsbClient) {
-					m.SetGotSandbox(&sandboxmsb.MockSandboxHandle{})
+					m.SetGotSandbox(&sandboxmsb.MockSandboxHandle{Status_: msb.SandboxStatusRunning})
 				})
 
 				assertInfoHasPrefix(t, ui, tc.infoPrefix)
@@ -159,7 +159,7 @@ func TestStopKillLifecycle(t *testing.T) {
 		t.Run(tc.cmd+" with --force", func(t *testing.T) {
 			initTestRepo(t)
 			ui := runStopKill(t, []string{tc.cmd, "--force"}, func(m *sandboxmsb.MockMsbClient) {
-				m.SetGotSandbox(&sandboxmsb.MockSandboxHandle{})
+				m.SetGotSandbox(&sandboxmsb.MockSandboxHandle{Status_: msb.SandboxStatusRunning})
 			})
 
 			assertSpinnerHas(t, ui, tc.spinner)
@@ -169,7 +169,7 @@ func TestStopKillLifecycle(t *testing.T) {
 		t.Run(tc.cmd+" with -f", func(t *testing.T) {
 			initTestRepo(t)
 			ui := runStopKill(t, []string{tc.cmd, "-f"}, func(m *sandboxmsb.MockMsbClient) {
-				m.SetGotSandbox(&sandboxmsb.MockSandboxHandle{})
+				m.SetGotSandbox(&sandboxmsb.MockSandboxHandle{Status_: msb.SandboxStatusRunning})
 			})
 
 			assertInfoHasPrefix(t, ui, tc.infoPrefix)
@@ -180,7 +180,7 @@ func TestStopKillLifecycle(t *testing.T) {
 		t.Run(cmd+" --force removes persisted state", func(t *testing.T) {
 			initTestRepo(t)
 			ui := runStopKill(t, []string{cmd, "--force"}, func(m *sandboxmsb.MockMsbClient) {
-				m.SetGotSandbox(&sandboxmsb.MockSandboxHandle{})
+				m.SetGotSandbox(&sandboxmsb.MockSandboxHandle{Status_: msb.SandboxStatusRunning})
 			})
 
 			assertVerboseHasPrefix(t, ui, "persisted state removed: ")
@@ -198,7 +198,10 @@ func TestStopKillLifecycle(t *testing.T) {
 			t.Run("dry-run "+tc.cmd+" ignores state removal failure "+strings.Join(flags, " "), func(t *testing.T) {
 				initTestRepo(t)
 				ui := runStopKill(t, append([]string{tc.cmd}, flags...), func(m *sandboxmsb.MockMsbClient) {
-					m.SetGotSandbox(&sandboxmsb.MockSandboxHandle{RemoveErr: errBoom})
+					m.SetGotSandbox(&sandboxmsb.MockSandboxHandle{
+						Status_:   msb.SandboxStatusRunning,
+						RemoveErr: errBoom,
+					})
 				})
 
 				assertInfoHasPrefix(t, ui, tc.infoPrefix)
@@ -211,7 +214,10 @@ func TestStopKillLifecycle(t *testing.T) {
 		t.Run(cmd+" --force warns on state removal failure", func(t *testing.T) {
 			initTestRepo(t)
 			ui := runStopKill(t, []string{cmd, "--force"}, func(m *sandboxmsb.MockMsbClient) {
-				m.SetGotSandbox(&sandboxmsb.MockSandboxHandle{RemoveErr: errBoom})
+				m.SetGotSandbox(&sandboxmsb.MockSandboxHandle{
+					Status_:   msb.SandboxStatusRunning,
+					RemoveErr: errBoom,
+				})
 			})
 
 			assertWarnContains(t, ui, "failed to remove sandbox state")
@@ -341,7 +347,7 @@ func TestStopKillAgentPassThrough(t *testing.T) {
 							if !strings.HasSuffix(name, "-"+agentName) {
 								t.Errorf("GetSandbox name %q does not carry agent suffix %q", name, agentName)
 							}
-							return &sandboxmsb.MockSandboxHandle{}, nil
+							return &sandboxmsb.MockSandboxHandle{Status_: msb.SandboxStatusRunning}, nil
 						}
 					},
 				)
@@ -377,7 +383,7 @@ func TestStopKillActionError(t *testing.T) {
 		t.Run(tc.cmd, func(t *testing.T) {
 			initTestRepo(t)
 			cmd, _ := setupStopKillConfig(t, []string{tc.cmd}, func(m *sandboxmsb.MockMsbClient) {
-				handle := &sandboxmsb.MockSandboxHandle{}
+				handle := &sandboxmsb.MockSandboxHandle{Status_: msb.SandboxStatusRunning}
 				tc.sbErr(handle)
 				m.SetGotSandbox(handle)
 			})
