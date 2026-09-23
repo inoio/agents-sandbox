@@ -15,6 +15,9 @@ command reports the bare version (e.g. `0.1.0`).
   resolvers for the VM. Bare IPs get `:53` appended; `host:port` is used as-is.
   Invalid entries are rejected at config-load time. A DNS change recreates the
   VM (like other `network:` settings).
+- Docs: new recipe "MCP servers in the sandbox" (host-absolute paths vs. `$HOME`-relative
+  commands, VM-side toolchain installation, host-integrated servers, session-state sharing
+  via `mounts`) plus a troubleshooting section for MCP startup failures inside the VM.
 
 ### Changed
 
