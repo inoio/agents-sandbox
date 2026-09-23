@@ -394,7 +394,10 @@ agents-sandbox tree
 
 ### doctor
 
-Check prerequisites (Docker, KVM, Git, msb) and exit.
+Check prerequisites (Docker, KVM, Git, and the microsandbox runtime) and exit.
+The runtime check compares the selected `msb` version with the SDK version
+linked into agents-sandbox. If they differ, an interactive recovery prompt is
+shown before any VM or runtime database operation.
 
 ```console
 agents-sandbox doctor

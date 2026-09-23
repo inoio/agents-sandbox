@@ -33,6 +33,32 @@ func TestMockMsbClientEnsureInstalled(t *testing.T) {
 	}
 }
 
+func TestRuntimePreparationHelpers(t *testing.T) {
+	previousGet := Get
+	Get = realGetFactory
+	t.Cleanup(func() { Get = previousGet })
+	if !IsRealClient() {
+		t.Fatal("default client should be real")
+	}
+	previous := skipRuntimeInstall
+	t.Cleanup(func() { skipRuntimeInstall = previous })
+	SkipRuntimeInstall()
+	if err := (&realMsbClient{}).EnsureInstalled(context.Background()); err != nil {
+		t.Fatalf("EnsureInstalled after skip = %v", err)
+	}
+}
+
+func TestValidateInstalledUsesSDKSkipDownload(t *testing.T) {
+	// The real SDK installer is deliberately not exercised here. This test
+	// covers the production adapter's validation seam without downloading a
+	// runtime into the test environment.
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("MSB_HOME", "")
+	if err := ValidateInstalled(context.Background()); err == nil {
+		t.Fatal("ValidateInstalled() error = nil, want missing runtime error")
+	}
+}
+
 func TestMockMsbClientGetSandbox(t *testing.T) {
 	ctx := context.Background()
 

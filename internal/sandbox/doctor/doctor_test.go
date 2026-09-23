@@ -111,6 +111,78 @@ func TestCheckMsbNotOnPathMessagesAndReturnsTrue(t *testing.T) {
 	}
 }
 
+func TestCheckMsbUsesConfiguredMSBHome(t *testing.T) {
+	MockedEnsureInstalled(t, false)
+
+	home := t.TempDir()
+	runtimeHome := filepath.Join(home, "custom-runtime")
+	binDir := filepath.Join(runtimeHome, "bin")
+	if err := os.MkdirAll(binDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	binPath := filepath.Join(binDir, "msb")
+	testutil.WritePath(t, binPath, "#!/bin/sh\n")
+	if err := os.Chmod(binPath, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("HOME", home)
+	t.Setenv("MSB_HOME", runtimeHome)
+	t.Setenv("MSB_PATH", "")
+	t.Setenv("PATH", "/nonexistent")
+
+	warnings, err := checkMsb(context.Background())
+	if err != nil {
+		t.Fatalf("checkMsb() error = %v", err)
+	}
+	if !strings.Contains(strings.Join(warnings, " "), binDir) {
+		t.Errorf("warnings = %q, want configured runtime path", warnings)
+	}
+}
+
+func TestCheckMsbUsesExplicitMSBPath(t *testing.T) {
+	MockedEnsureInstalled(t, false)
+
+	home := t.TempDir()
+	binDir := filepath.Join(home, "explicit")
+	if err := os.MkdirAll(binDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	binPath := filepath.Join(binDir, "msb")
+	testutil.WritePath(t, binPath, "#!/bin/sh\n")
+	if err := os.Chmod(binPath, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("HOME", home)
+	t.Setenv("MSB_HOME", "")
+	t.Setenv("MSB_PATH", binPath)
+	t.Setenv("PATH", "/nonexistent")
+
+	warnings, err := checkMsb(context.Background())
+	if err != nil {
+		t.Fatalf("checkMsb() error = %v", err)
+	}
+	if !strings.Contains(strings.Join(warnings, " "), binDir) {
+		t.Errorf("warnings = %q, want explicit runtime path", warnings)
+	}
+}
+
+func TestCheckMsbExplicitPathMissingReturnsError(t *testing.T) {
+	MockedEnsureInstalled(t, false)
+
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("MSB_PATH", filepath.Join(t.TempDir(), "missing-msb"))
+	t.Setenv("MSB_HOME", "")
+	t.Setenv("PATH", "/nonexistent")
+
+	_, err := checkMsb(context.Background())
+	if err == nil {
+		t.Fatal("checkMsb() error = nil, want missing explicit path error")
+	}
+	if !strings.Contains(err.Error(), "binary missing") {
+		t.Errorf("error = %q, want binary missing", err)
+	}
+}
+
 func TestCheckMsbNotOnPathAndBinaryMissingReturnsFalse(t *testing.T) {
 	MockedEnsureInstalled(t, false)
 
