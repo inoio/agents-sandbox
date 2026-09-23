@@ -217,6 +217,13 @@ func TestCheckPromptNonInteractiveFallsBackToNotify(t *testing.T) {
 	}
 }
 
+func TestIsNewerExportedWrapper(t *testing.T) {
+	newer, err := IsNewer("0.2.0", "0.3.0")
+	if err != nil || !newer {
+		t.Fatalf("IsNewer() = %v, %v; want true, nil", newer, err)
+	}
+}
+
 func TestCheckPromptSelection(t *testing.T) {
 	tests := []struct {
 		name       string

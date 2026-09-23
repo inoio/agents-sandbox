@@ -176,6 +176,12 @@ func isNewer(current, latest string) (bool, error) {
 	return cv.LessThan(lv), nil
 }
 
+// IsNewer reports whether current is strictly older than latest, comparing
+// versions using semantic versioning.
+func IsNewer(current, latest string) (bool, error) {
+	return isNewer(current, latest)
+}
+
 // applyMode handles a detected newer release according to the configured mode
 // and returns the resulting action. It may mutate st to record a dismissal.
 func applyMode(

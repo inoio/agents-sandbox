@@ -22,13 +22,32 @@ func ensureMsbInstalled(ctx context.Context) error {
 // path, reporting an error when the path cannot be resolved or the binary is
 // missing.
 func msbBinPath() (string, string, string, error) {
+	if configuredPath := os.Getenv("MSB_PATH"); configuredPath != "" {
+		binDir := filepath.Dir(configuredPath)
+		if _, err := os.Stat(
+			filepath.Clean(configuredPath),
+		); err != nil {
+			return "", "", "", fmt.Errorf("msb not on PATH and binary missing at %s: %w", binDir, err)
+		}
+		home := os.Getenv("MSB_HOME")
+		if home == "" {
+			home, _ = os.UserHomeDir()
+		}
+		return home, binDir, configuredPath, nil
+	}
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return "", "", "", fmt.Errorf("msb not on PATH and home directory cannot be resolved: %w", err)
 	}
-	binDir := filepath.Join(home, ".microsandbox", "bin")
+	runtimeHome := os.Getenv("MSB_HOME")
+	if runtimeHome == "" {
+		runtimeHome = filepath.Join(home, ".microsandbox")
+	}
+	binDir := filepath.Join(runtimeHome, "bin")
 	binPath := filepath.Join(binDir, "msb")
-	if _, err := os.Stat(binPath); err != nil {
+	if _, err := os.Stat(
+		filepath.Clean(binPath),
+	); err != nil {
 		return "", "", "", fmt.Errorf("msb not on PATH and binary missing at %s: %w", binDir, err)
 	}
 	return home, binDir, binPath, nil

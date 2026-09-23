@@ -18,6 +18,23 @@ var Get = func() Client {
 	return &realMsbClient{}
 }
 
+var skipRuntimeInstall bool //nolint:gochecknoglobals // process-wide runtime decision
+
+// IsRealClient reports whether production SDK calls are active.
+func IsRealClient() bool {
+	_, ok := Get().(*realMsbClient)
+	return ok
+}
+
+// SkipRuntimeInstall prevents later VM lifecycle calls from invoking the SDK's
+// replacement-capable installer after runtime preparation has made a decision.
+func SkipRuntimeInstall() { skipRuntimeInstall = true }
+
+// ValidateInstalled checks the SDK-managed runtime without downloading it.
+func ValidateInstalled(ctx context.Context) error {
+	return msbSdk.EnsureInstalled(ctx, msbSdk.WithSkipDownload())
+}
+
 // Client is the public abstraction over the microsandbox SDK used by the
 // sandbox package. It covers discovery, creation, and deletion of sandboxes,
 // volumes, and images, plus runtime setup. Production code uses realMsbClient;
@@ -197,6 +214,9 @@ func IsNotFound(err error) bool {
 type realMsbClient struct{}
 
 func (realMsbClient) EnsureInstalled(ctx context.Context) error {
+	if skipRuntimeInstall {
+		return nil
+	}
 	return msbSdk.EnsureInstalled(ctx)
 }
 

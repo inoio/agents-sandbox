@@ -10,6 +10,9 @@ command reports the bare version (e.g. `0.1.0`).
 
 ### Added
 
+- Runtime: compare the selected microsandbox `msb` version with the linked SDK
+  before runtime use. Mismatches now prompt before changing runtime state and
+  offer safe alignment, launcher upgrade, brave mode, issue reporting, or quit.
 - Config: `network.dns-servers` (config `network.dns-servers`, env
   `OPENCODE_SANDBOX_NETWORK_DNS_SERVERS`, flag `--dns`) sets custom DNS upstream
   resolvers for the VM. Bare IPs get `:53` appended; `host:port` is used as-is.

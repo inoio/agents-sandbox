@@ -17,6 +17,35 @@ Start the Docker daemon. How to start it depends on your environment. When using
 
 You can verify afterwards by running `docker info`. It should show a healthy daemon.
 
+### Microsandbox runtime version mismatch
+
+Before using microsandbox, agents-sandbox compares the selected `msb` version
+with the microsandbox SDK version linked into the launcher. A mismatch is
+reported before the runtime database is opened. The interactive recovery menu
+can:
+
+- upgrade agents-sandbox and restart when a newer launcher release is
+  available;
+- upgrade or downgrade `msb` to the required version;
+- use the installed runtime unchanged in unsupported brave mode;
+- print a sanitized diagnostic report and the bug-report URL; or
+- quit without changing anything.
+
+The default choice is always quit. `--yes` does not select a runtime recovery
+action; in a noninteractive invocation the command prints diagnostics and
+exits without modifying the runtime.
+
+Do not replace only `~/.microsandbox/bin/msb` manually. The runtime database,
+`libkrunfw`, FFI library, VM records, volumes, and caches are versioned state
+and must remain compatible with one another. If a newer `msb` has already
+migrated the database, use the official rollback offered by the prompt rather
+than copying an older binary over the newer one.
+
+If no newer agents-sandbox release supports the installed `msb`, submit the
+compatibility report at:
+
+<https://github.com/inoio/agents-sandbox/issues/new?template=bug_report.yml>
+
 ### KVM unavailable
 
 ```console
