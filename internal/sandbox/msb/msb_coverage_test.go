@@ -48,7 +48,7 @@ func TestRuntimePreparationHelpers(t *testing.T) {
 	}
 }
 
-func TestValidateInstalledUsesSDKSkipDownload(t *testing.T) {
+func TestValidateInstalledUsesSDKResolve(t *testing.T) {
 	// The real SDK installer is deliberately not exercised here. This test
 	// covers the production adapter's validation seam without downloading a
 	// runtime into the test environment.

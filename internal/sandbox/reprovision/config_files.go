@@ -525,8 +525,8 @@ func EnvContentHash(env map[string]string) string {
 }
 
 // SecretsContentHash returns a SHA-256 hex digest of the secret entries.
-// Entries are sorted by EnvVar and hashed as "ENVVAR=VALUE|HOSTS|PATTERNS|
-// PLACEHOLDER|TLS|VIOLATION" lines. Every field that microsandbox bakes into
+// Entries are sorted by EnvVar and hashed as a stable set of field values.
+// Every field that microsandbox bakes into
 // the VM at creation is included so a change to any of them (not just the
 // value) triggers the VM recreate that applies it.
 func SecretsContentHash(entries []msbSdk.SecretEntry) string {
@@ -546,17 +546,24 @@ func SecretsContentHash(entries []msbSdk.SecretEntry) string {
 	for _, k := range envVars {
 		e := byEnv[k]
 		tls := ""
-		if e.RequireTLS != nil {
-			tls = strconv.FormatBool(*e.RequireTLS)
+		if e.RequireTLSIdentity != nil {
+			tls = strconv.FormatBool(*e.RequireTLSIdentity)
 		}
-		fmt.Fprintf(&b, "%s=%s|%s|%s|%s|%s|%s\n",
+		headers := ""
+		if e.Substitution.Headers != nil {
+			headers = strconv.FormatBool(*e.Substitution.Headers)
+		}
+		fmt.Fprintf(&b, "%s=%s|%s|%s|%s|%s|%s|%t|%t|%s\n",
 			k,
 			e.Value,
-			strings.Join(e.AllowHosts, ","),
-			strings.Join(e.AllowHostPatterns, ","),
+			strings.Join(e.Allow, ","),
+			strings.Join(e.Passthrough, ","),
 			e.Placeholder,
 			tls,
-			string(e.OnViolation),
+			headers,
+			e.Substitution.Query,
+			e.Substitution.Body,
+			string(e.ViolationAction),
 		)
 	}
 	h := sha256.Sum256([]byte(b.String()))

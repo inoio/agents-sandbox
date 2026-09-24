@@ -80,13 +80,13 @@ func TestBuildSecretsFromSpecsHostListAndHost(t *testing.T) {
 		t.Fatalf("expected 1 secret")
 	}
 	want := []string{"b.example", "a.example"}
-	got := secrets[0].AllowHosts
+	got := secrets[0].Allow
 	if len(got) != len(want) {
-		t.Fatalf("AllowHosts = %v, want %v", got, want)
+		t.Fatalf("Allow = %v, want %v", got, want)
 	}
 	for i := range want {
 		if got[i] != want[i] {
-			t.Errorf("AllowHosts[%d] = %q, want %q", i, got[i], want[i])
+			t.Errorf("Allow[%d] = %q, want %q", i, got[i], want[i])
 		}
 	}
 }
@@ -180,9 +180,20 @@ func TestBuildSecretsFromSpecsAllowAnyHostDangerous(t *testing.T) {
 	if secrets[0].Value != "v" {
 		t.Errorf("Value = %q, want v", secrets[0].Value)
 	}
-	// No hosts when allow_any_host_dangerous: nil/empty AllowHosts
-	if len(secrets[0].AllowHosts) != 0 {
-		t.Errorf("AllowHosts = %v, want empty for dangerous any-host", secrets[0].AllowHosts)
+	if len(secrets[0].Allow) != 1 || secrets[0].Allow[0] != "*" {
+		t.Errorf("Allow = %v, want [*] for dangerous any-host", secrets[0].Allow)
+	}
+}
+
+func TestBuildSecretsFromSpecsAllowAnyHostDangerousWithHostsPreservesHosts(t *testing.T) {
+	testUI := termio.NewTestMock(t)
+	in := map[string]SecretSpec{"K": {Value: "v", AllowAnyHostDangerous: true, Hosts: []string{"h.example"}}}
+	secrets := BuildSecretsFromSpecs(in, &testUI)
+	if len(secrets) != 1 {
+		t.Fatalf("expected 1 secret, got %d", len(secrets))
+	}
+	if len(secrets[0].Allow) != 1 || secrets[0].Allow[0] != "h.example" {
+		t.Errorf("Allow = %v, want [h.example]", secrets[0].Allow)
 	}
 }
 
@@ -248,8 +259,8 @@ func TestBuildSecretsFromSpecsDangerousFlagWithHosts(t *testing.T) {
 	if secrets[0].Value != "v" {
 		t.Errorf("Value = %q, want v", secrets[0].Value)
 	}
-	if secrets[0].AllowHosts[0] != "h.example" {
-		t.Errorf("AllowHosts = %v, want [h.example]", secrets[0].AllowHosts)
+	if secrets[0].Allow[0] != "h.example" {
+		t.Errorf("Allow = %v, want [h.example]", secrets[0].Allow)
 	}
 }
 
@@ -327,8 +338,8 @@ func TestBuildSecretsEmptyHostname(t *testing.T) {
 	if len(secrets) != 1 {
 		t.Fatalf("expected 1 secret, got %d", len(secrets))
 	}
-	if secrets[0].AllowHosts[0] != "" {
-		t.Errorf("AllowHosts = %v, want [\"\"]", secrets[0].AllowHosts)
+	if secrets[0].Allow[0] != "" {
+		t.Errorf("Allow = %v, want [\"\"]", secrets[0].Allow)
 	}
 }
 
@@ -405,7 +416,7 @@ func TestBuildSecretsFromSpecsOnlySingleHost(t *testing.T) {
 	if len(secrets) != 1 {
 		t.Fatalf("expected 1 secret, got %d", len(secrets))
 	}
-	if secrets[0].AllowHosts[0] != "h.example" {
-		t.Errorf("AllowHosts = %v, want [h.example]", secrets[0].AllowHosts)
+	if secrets[0].Allow[0] != "h.example" {
+		t.Errorf("Allow = %v, want [h.example]", secrets[0].Allow)
 	}
 }

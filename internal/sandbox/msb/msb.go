@@ -31,8 +31,12 @@ func IsRealClient() bool {
 func SkipRuntimeInstall() { skipRuntimeInstall = true }
 
 // ValidateInstalled checks the SDK-managed runtime without downloading it.
-func ValidateInstalled(ctx context.Context) error {
-	return msbSdk.EnsureInstalled(ctx, msbSdk.WithSkipDownload())
+func ValidateInstalled(_ context.Context) error {
+	_, err := msbSdk.ResolveRuntime(
+		msbSdk.RuntimeConfig{ //nolint:exhaustruct // empty config uses environment/default paths
+		},
+	)
+	return err
 }
 
 // Client is the public abstraction over the microsandbox SDK used by the
@@ -217,7 +221,12 @@ func (realMsbClient) EnsureInstalled(ctx context.Context) error {
 	if skipRuntimeInstall {
 		return nil
 	}
-	return msbSdk.EnsureInstalled(ctx)
+	_, err := msbSdk.EnsureRuntime(
+		ctx,
+		msbSdk.RuntimeConfig{},  //nolint:exhaustruct // empty config uses environment/default paths
+		msbSdk.InstallOptions{}, //nolint:exhaustruct // zero options install the SDK-pinned runtime
+	)
+	return err
 }
 
 func (realMsbClient) GetSandbox(ctx context.Context, name string) (SandboxHandle, error) {
