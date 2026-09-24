@@ -8,6 +8,8 @@ command reports the bare version (e.g. `0.1.0`).
 
 ## [Unreleased]
 
+## [0.3.1] - 2026-09-24
+
 - Maintenance: updated the microsandbox Go SDK and managed `msb` runtime to v0.7.2.
 - Bugfix: runtime preflight now follows microsandbox's persisted runtime paths, avoids advertising unsupported incomplete-runtime recovery, and preserves dangerous any-host secret configuration.
 
