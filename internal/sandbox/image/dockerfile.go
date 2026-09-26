@@ -85,12 +85,15 @@ func RenderDockerfile(a agent.Agent, projectDockerfile []byte, dind bool) []byte
 }
 
 // devUserBlock creates the dev user as root, leaving the shell as root.
+// groupadd -f tolerates a host GID already taken in the base image (e.g. macOS
+// staff/20 vs dialout): the group then gets the next free GID, so useradd must
+// reference it by name.
 func devUserBlock() string {
 	return `USER root
 ARG USER_UID=1000
 ARG USER_GID=1000
 RUN id -u dev >/dev/null 2>&1 || \
-      { groupadd -g "$USER_GID" dev && useradd -m -u "$USER_UID" -g "$USER_GID" -s /bin/bash dev; }
+      { groupadd -f -g "$USER_GID" dev && useradd -m -u "$USER_UID" -g dev -s /bin/bash dev; }
 `
 }
 

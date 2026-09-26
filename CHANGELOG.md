@@ -8,6 +8,10 @@ command reports the bare version (e.g. `0.1.0`).
 
 ## [Unreleased]
 
+- Bugfix: runner image builds no longer fail on macOS because the host GID 20 (`staff`)
+  collides with `dialout` in the Debian base. `dev` group creation is now collision-tolerant
+  (`groupadd -f`); if the host GID is taken, the group gets the next free GID (#68).
+
 ## [0.3.1] - 2026-09-24
 
 - Maintenance: updated the microsandbox Go SDK and managed `msb` runtime to v0.7.2.
