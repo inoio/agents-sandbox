@@ -16,6 +16,7 @@ import (
 	"github.com/inoio/agents-sandbox/internal/sandbox/naming"
 	"github.com/inoio/agents-sandbox/internal/sandbox/network"
 	"github.com/inoio/agents-sandbox/internal/sandbox/options"
+	msbruntime "github.com/inoio/agents-sandbox/internal/sandbox/runtime"
 	sandbox "github.com/inoio/agents-sandbox/internal/sandbox/vm"
 	"github.com/inoio/agents-sandbox/internal/termio"
 	"github.com/inoio/agents-sandbox/internal/upgrade"
@@ -291,7 +292,20 @@ func buildRootCmd(ui termio.UI) *cobra.Command {
 			return err
 		}
 		cmd.SetContext(context.WithValue(cmd.Context(), (*launcherConfigKey)(nil), r))
-		return applyCLISettings(cmd, ui, r)
+		if settingsErr := applyCLISettings(cmd, ui, r); settingsErr != nil {
+			return settingsErr
+		}
+		if !commandNeedsMSBRuntime(cmd) {
+			return nil
+		}
+		prepared, err := prepareMSBRuntime(cmd.Context(), ui, version)
+		if err != nil {
+			return err
+		}
+		if prepared.Restart {
+			return &sandbox.ExitError{Code: 0}
+		}
+		return nil
 	}
 	extendRunCmd(ui, rootCmd)
 
@@ -315,6 +329,29 @@ func buildRootCmd(ui termio.UI) *cobra.Command {
 	rootCmd.SetErr(ui.StdErr())
 
 	return rootCmd
+}
+
+//nolint:gochecknoglobals // test seam for runtime recovery before SDK startup
+var prepareMSBRuntime = msbruntime.PrepareRuntime
+
+// commandNeedsMSBRuntime reports whether the command can reach the
+// microsandbox SDK. Commands that only inspect launcher state must remain
+// usable when the selected microsandbox runtime is broken.
+func commandNeedsMSBRuntime(cmd *cobra.Command) bool {
+	if cmd == nil {
+		return false
+	}
+	for current := cmd; current != nil; current = current.Parent() {
+		if current.Name() == cmdConfig || current.Name() == cmdCompletion {
+			return false
+		}
+	}
+	switch cmd.Name() {
+	case cmdVersion, cmdUpgrade, cmdTree, cmdHelp, cmdDockerfile:
+		return false
+	default:
+		return true
+	}
 }
 
 func buildTreeCmd(rootCmd *cobra.Command, ui termio.UI) *cobra.Command {

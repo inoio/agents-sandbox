@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -28,7 +29,7 @@ const defaultSandboxUser = "dev"
 // and startup hooks. The SDK's file writes create root-owned files and
 // directories.
 //
-//nolint:gocognit // four near-identical write loops mandated by the config-mirror plan
+//nolint:funlen,gocognit // four near-identical write loops mandated by the config-mirror plan
 func Provision(ctx context.Context, sb msb.Sandbox, cf *ConfigFiles) (retErr error) {
 	fs := sb.FS()
 	paths := make([]string, 0)
@@ -70,6 +71,11 @@ func Provision(ctx context.Context, sb msb.Sandbox, cf *ConfigFiles) (retErr err
 			return fmt.Errorf("write home file %s: %w", path, err)
 		}
 		paths = append(paths, path)
+		if mode, ok := cf.Modes[path]; ok {
+			if err := chmodFile(ctx, sb, path, mode); err != nil {
+				return fmt.Errorf("chmod home file %s: %w", path, err)
+			}
+		}
 	}
 	for path, data := range cf.Provisioned {
 		made, err := mkdirAllFS(ctx, fs, filepath.Dir(path))
@@ -81,6 +87,11 @@ func Provision(ctx context.Context, sb msb.Sandbox, cf *ConfigFiles) (retErr err
 			return fmt.Errorf("write provisioned file %s: %w", path, err)
 		}
 		paths = append(paths, path)
+		if mode, ok := cf.Modes[path]; ok {
+			if err := chmodFile(ctx, sb, path, mode); err != nil {
+				return fmt.Errorf("chmod provisioned file %s: %w", path, err)
+			}
+		}
 	}
 	for path, data := range cf.Mirror {
 		made, err := mkdirAllFS(ctx, fs, filepath.Dir(path))
@@ -92,6 +103,30 @@ func Provision(ctx context.Context, sb msb.Sandbox, cf *ConfigFiles) (retErr err
 			return fmt.Errorf("write mirror file %s: %w", path, err)
 		}
 		paths = append(paths, path)
+		if mode, ok := cf.Modes[path]; ok {
+			if err := chmodFile(ctx, sb, path, mode); err != nil {
+				return fmt.Errorf("chmod mirror file %s: %w", path, err)
+			}
+		}
+	}
+	return nil
+}
+
+// chmodFile applies ordinary host permission bits after the SDK writes a file.
+// The mode and path are separate exec arguments so a host filename cannot alter
+// the command being run in the VM.
+func chmodFile(ctx context.Context, sb msb.Sandbox, path string, mode os.FileMode) error {
+	out, err := sb.Exec(
+		ctx,
+		"chmod",
+		[]string{fmt.Sprintf("%04o", mode.Perm()), path},
+		msbSdk.WithExecUser("root"),
+	)
+	if err != nil {
+		return err
+	}
+	if !out.Success() {
+		return fmt.Errorf("%s", strings.TrimSpace(out.Stderr()))
 	}
 	return nil
 }

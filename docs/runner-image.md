@@ -60,8 +60,9 @@ blocks are layered on top of it:
 ### Important: User context
 
 The `dev` user (host UID/GID) is created as the first instruction of the final stage, and the image always ends with
-`USER dev` active. Your Dockerfile body runs in the final stage, so it may switch to `USER dev` — but earlier build
-stages in a multi-stage Dockerfile run as root:
+`USER dev` active. If the host GID is already taken by another group in the base image (e.g. macOS `staff`/20 vs
+`dialout`), the `dev` group is created with the next free GID. Your Dockerfile body runs in the final stage, so it may
+switch to `USER dev` — but earlier build stages in a multi-stage Dockerfile run as root:
 
 ```dockerfile
 FROM debian:trixie-slim

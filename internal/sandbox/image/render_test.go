@@ -25,7 +25,8 @@ func TestRenderDockerfileDefaultBase(t *testing.T) {
 		"node-v26.8.1-linux",
 		"echo tool > /etc/agents-sandbox/agent-source",
 		"echo user > /etc/agents-sandbox/agent-source",
-		"groupadd -g \"$USER_GID\" dev",
+		"groupadd -f -g \"$USER_GID\" dev",
+		"useradd -m -u \"$USER_UID\" -g dev -s /bin/bash dev",
 		"LABEL org.agents-sandbox.managed=true",
 		"USER dev",
 		"WORKDIR /workspace",
@@ -65,7 +66,7 @@ func TestRenderDockerfileDindEnabled(t *testing.T) {
 	if dindIdx < 0 || agentIdx < 0 || dindIdx > agentIdx {
 		t.Error("dind block must come before the agent block")
 	}
-	devIdx := strings.Index(s, `groupadd -g "$USER_GID" dev`)
+	devIdx := strings.Index(s, `groupadd -f -g "$USER_GID" dev`)
 	dockerIdx := strings.Index(s, "groupadd -f docker")
 	if devIdx < 0 || dockerIdx < 0 || devIdx > dockerIdx {
 		t.Error("dev user must be created before the docker group is added")
@@ -125,7 +126,7 @@ func TestRenderDockerfileManagedBaseFrom(t *testing.T) {
 	if !strings.Contains(s, "RUN apt-get install -y tree") {
 		t.Error("user body must be preserved after the managed FROM")
 	}
-	devIdx := strings.Index(s, `groupadd -g "$USER_GID" dev`)
+	devIdx := strings.Index(s, `groupadd -f -g "$USER_GID" dev`)
 	bodyIdx := strings.Index(s, "apt-get install -y tree")
 	if devIdx < 0 || bodyIdx < 0 || devIdx > bodyIdx {
 		t.Error("dev user must be created before the user-provided Dockerfile body (first in final stage)")
@@ -140,7 +141,7 @@ func TestRenderDockerfileDevUserInFinalStage(t *testing.T) {
 	out := RenderDockerfile(a, project, true)
 	s := string(out)
 	lastFromIdx := strings.LastIndex(s, "FROM ")
-	devIdx := strings.Index(s, `groupadd -g "$USER_GID" dev`)
+	devIdx := strings.Index(s, `groupadd -f -g "$USER_GID" dev`)
 	dockerIdx := strings.Index(s, "groupadd -f docker")
 	if lastFromIdx < 0 || devIdx < 0 || dockerIdx < 0 {
 		t.Fatal("rendered Dockerfile missing expected markers")
@@ -162,7 +163,7 @@ func TestRenderDockerfileManagedMultiStage(t *testing.T) {
 	s := string(out)
 	buildFromIdx := strings.Index(s, "FROM golang:1.24 AS build")
 	baseFromIdx := strings.Index(s, "FROM debian:trixie-slim")
-	devIdx := strings.Index(s, `groupadd -g "$USER_GID" dev`)
+	devIdx := strings.Index(s, `groupadd -f -g "$USER_GID" dev`)
 	bodyIdx := strings.Index(s, "COPY --from=build /app /app")
 	if buildFromIdx < 0 || baseFromIdx < 0 || devIdx < 0 || bodyIdx < 0 {
 		t.Fatal("rendered Dockerfile missing expected markers")
@@ -182,7 +183,7 @@ func TestRenderDockerfileDevUserIsFirstInstruction(t *testing.T) {
 	a, _ := agent.Lookup("opencode")
 	out := RenderDockerfile(a, nil, false)
 	s := string(out)
-	devIdx := strings.Index(s, `groupadd -g "$USER_GID" dev`)
+	devIdx := strings.Index(s, `groupadd -f -g "$USER_GID" dev`)
 	toolsIdx := strings.Index(s, "iptables")
 	if devIdx < 0 || toolsIdx < 0 || devIdx > toolsIdx {
 		t.Error("dev user block must be created before the base tools, as the first instruction of the final stage")

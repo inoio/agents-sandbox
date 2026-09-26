@@ -45,12 +45,12 @@ func splitSegments(rel string) []string {
 // EvalProvisionRules walks each rule's host dir and copies every selected file
 // to the same relative path under vmHome, pruning unselected directories. It
 // returns the count of files copied. onCopy is invoked (when non-nil) with the
-// destination VM path and content for each copied file; when nil the file is
-// copied directly from host to vmHome.
+// destination VM path, content, and ordinary permission bits for each copied
+// file; when nil the file is copied directly from host to vmHome.
 func EvalProvisionRules(
 	rules []ProvisionRule,
 	hostHome, vmHome string,
-	onCopy func(dstPath string, data []byte) error,
+	onCopy func(dstPath string, data []byte, mode os.FileMode) error,
 ) (int, error) {
 	total := 0
 	for _, rule := range rules {
@@ -84,7 +84,8 @@ func ValidateProvisionRules(rules []ProvisionRule) []string {
 	return warnings
 }
 
-func walkRule(rule ProvisionRule, srcRoot, vmHome string, onCopy func(string, []byte) error) (int, error) {
+//nolint:gocognit // rule selection, pruning, and metadata-aware copying are one walk
+func walkRule(rule ProvisionRule, srcRoot, vmHome string, onCopy func(string, []byte, os.FileMode) error) (int, error) {
 	if _, err := os.Stat(srcRoot); err != nil {
 		return 0, nil //nolint:nilerr // host dir absent: nothing to copy
 	}
@@ -106,13 +107,17 @@ func walkRule(rule ProvisionRule, srcRoot, vmHome string, onCopy func(string, []
 		if d.IsDir() {
 			return nil
 		}
+		info, infoErr := os.Stat(path)
+		if infoErr != nil {
+			return nil //nolint:nilerr // skip files whose metadata cannot be read
+		}
 		data, readErr := os.ReadFile(path) //nolint:gosec // reads within the host dir we own
 		if readErr != nil {
 			return nil //nolint:nilerr // skip unreadable file; never fail the session
 		}
 		dst := filepath.Join(vmHome, rule.Dir, rel)
 		if onCopy != nil {
-			if err := onCopy(dst, data); err != nil {
+			if err := onCopy(dst, data, info.Mode().Perm()); err != nil {
 				return err
 			}
 		}

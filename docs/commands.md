@@ -394,7 +394,10 @@ agents-sandbox tree
 
 ### doctor
 
-Check prerequisites (Docker, KVM, Git, msb) and exit.
+Check prerequisites (Docker, KVM, Git, and the microsandbox runtime) and exit.
+The runtime check compares the selected `msb` version with the SDK version
+linked into agents-sandbox. If they differ, an interactive recovery prompt is
+shown before any VM or runtime database operation.
 
 ```console
 agents-sandbox doctor
@@ -416,7 +419,9 @@ agents-sandbox version
 
 Check for and install the latest release, independent of the `upgrade.mode`/`upgrade.interval` settings that govern the
 automatic check on `run`/`shell`. Replaces the running executable with the release binary for your platform; the new
-version takes effect on the next invocation.
+version takes effect on the next invocation. For a Homebrew-managed install the command instead prints
+`brew update && brew upgrade agents-sandbox`, so Homebrew's version bookkeeping stays accurate (see
+[Self-upgrade]({% link configuration/self-upgrade.md %})).
 
 ```console
 agents-sandbox upgrade

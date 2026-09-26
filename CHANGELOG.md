@@ -8,6 +8,30 @@ command reports the bare version (e.g. `0.1.0`).
 
 ## [Unreleased]
 
+### Changed
+
+- Self-upgrade: Homebrew-managed installs (the running binary lives under a
+  `Cellar` directory) are now detected automatically. The `run`/`shell` update
+  check is skipped regardless of `upgrade.mode`, the `msb` runtime-mismatch
+  prompt no longer offers a launcher self-upgrade, and `agents-sandbox upgrade`
+  points to `brew update && brew upgrade agents-sandbox` so Homebrew's version
+  bookkeeping stays accurate (#66).
+
+### Fixed
+
+- Bugfix: home mappings, agent-config drop-in copies, and verbatim config-directory mirrors now preserve ordinary Unix
+  permission bits, including executable bits on launcher scripts.
+- Bugfix: runner image builds no longer fail on macOS because the host GID 20 (`staff`)
+  collides with `dialout` in the Debian base. `dev` group creation is now collision-tolerant
+  (`groupadd -f`); if the host GID is taken, the group gets the next free GID (#68).
+
+## [0.3.1] - 2026-09-24
+
+- Maintenance: updated the microsandbox Go SDK and managed `msb` runtime to v0.7.2.
+- Bugfix: runtime preflight now follows microsandbox's persisted runtime paths, avoids advertising unsupported incomplete-runtime recovery, and preserves dangerous any-host secret configuration.
+
+## [0.3.0] - 2026-09-23
+
 ### Added
 
 - Config: `network.dns-servers` (config `network.dns-servers`, env
@@ -18,15 +42,28 @@ command reports the bare version (e.g. `0.1.0`).
 - Docs: new recipe "MCP servers in the sandbox" (host-absolute paths vs. `$HOME`-relative
   commands, VM-side toolchain installation, host-integrated servers, session-state sharing
   via `mounts`) plus a troubleshooting section for MCP startup failures inside the VM.
+- Distribution: install and update via Homebrew with
+  `brew tap inoio/agents-sandbox https://github.com/inoio/agents-sandbox` and
+  `brew install agents-sandbox`. The formula (`Formula/agents-sandbox.rb`)
+  installs the release binaries; the release workflow opens a formula-bump PR
+  for every new release tag.
 
 ### Changed
 
+- Bugfix: compare the selected microsandbox `msb` version with the linked SDK
+  before runtime use. Mismatches now prompt before changing runtime state and
+  offer safe alignment, launcher upgrade, brave mode, issue reporting, or quit.
 - Behavior: microsandbox `created` and `starting` states are handled according to their lifecycle semantics; starting VMs are waited on and protected from pruning, while unknown statuses fail closed.
 - Bugfix: a rebuilt runner image with the same tag but a new digest now recreates the project VM, so the VM uses the new image.
 - Bugfix: refreshing a rebuilt runner image no longer tries to remove the old microsandbox manifest before loading the new
   one, avoiding foreign-key errors when an existing VM still references the image tag.
 - Maintenance: image pruning now invokes microsandbox's native image-data prune to reclaim manifests and layers orphaned by
   runner-image refreshes after the referencing VM has been removed.
+
+## [0.2.0] - 2026-09-04
+
+### Changed
+
 - Behavior: the home-file manifest moved from `home.yaml` files into the `home:` key of the launcher config files
   (`config.yaml`/`config.yml`/`config.json`/`config.jsonc`/`config.json5`), at the user and project level. Relative
   sources still resolve against the config file that declares them. `config home` reads the config `home:` key; the

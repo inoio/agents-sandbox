@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -30,6 +31,32 @@ func TestMockMsbClientEnsureInstalled(t *testing.T) {
 	}
 	if !called {
 		t.Fatal("EnsureInstalledFn not called")
+	}
+}
+
+func TestRuntimePreparationHelpers(t *testing.T) {
+	previousGet := Get
+	Get = realGetFactory
+	t.Cleanup(func() { Get = previousGet })
+	if !IsRealClient() {
+		t.Fatal("default client should be real")
+	}
+	previous := skipRuntimeInstall
+	t.Cleanup(func() { skipRuntimeInstall = previous })
+	SkipRuntimeInstall()
+	if err := (&realMsbClient{}).EnsureInstalled(context.Background()); err != nil {
+		t.Fatalf("EnsureInstalled after skip = %v", err)
+	}
+}
+
+func TestValidateInstalledUsesSDKResolve(t *testing.T) {
+	// The real SDK installer is deliberately not exercised here. This test
+	// covers the production adapter's validation seam without downloading a
+	// runtime into the test environment.
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("MSB_HOME", "")
+	if err := ValidateInstalled(context.Background()); err == nil {
+		t.Fatal("ValidateInstalled() error = nil, want missing runtime error")
 	}
 }
 
@@ -462,6 +489,8 @@ func TestMockSandboxShellExec(t *testing.T) {
 		ExecOut:    map[string]ShellResult{"cat foo": fail},
 		ShellCalls: calls,
 	}
+	execCalls := &[]string{}
+	m.ExecCalls = execCalls
 
 	if got, err := m.Shell(ctx, "ok"); err != nil || got != success {
 		t.Fatalf("Shell = %v, %v", got, err)
@@ -478,6 +507,9 @@ func TestMockSandboxShellExec(t *testing.T) {
 	}
 	if got, err := m.Exec(ctx, "echo", []string{"hi"}); err != nil || got == nil {
 		t.Fatalf("Exec default = %v, %v", got, err)
+	}
+	if want := []string{"cat foo", "echo hi"}; !reflect.DeepEqual(*execCalls, want) {
+		t.Fatalf("ExecCalls = %v, want %v", *execCalls, want)
 	}
 
 	errM := &MockSandbox{ShellErr: errors.New("s"), ExecErr: errors.New("e")}

@@ -137,7 +137,11 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+      pull-requests: write
     steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: main
       - uses: actions/download-artifact@v8
         with:
           path: artifacts
@@ -148,3 +152,42 @@ jobs:
           name: "agents-sandbox ${{ github.ref_name }}"
           generate_release_notes: true
           files: artifacts/*/*
+
+      - name: Bump Homebrew formula
+        run: |
+          set -euo pipefail
+          version="${GITHUB_REF_NAME#v}"
+          sed -E -i "s|(releases/download/)v[0-9][^/]*/|\1v${version}/|g" Formula/agents-sandbox.rb
+          for target in darwin-arm64 linux-amd64 linux-arm64; do
+            sha="$(sha256sum "artifacts/agents-sandbox-${target}/agents-sandbox-${target}" | cut -d' ' -f1)"
+            awk -v target="$target" -v sha="$sha" '
+              index($0, target) { pending = 1 }
+              pending && /sha256/ { sub(/sha256 "[0-9a-f]*"/, "sha256 \"" sha "\""); pending = 0 }
+              { print }
+            ' Formula/agents-sandbox.rb > Formula/agents-sandbox.rb.tmp
+            mv Formula/agents-sandbox.rb.tmp Formula/agents-sandbox.rb
+          done
+          git --no-pager diff Formula/agents-sandbox.rb
+
+      - name: Open Homebrew formula bump PR
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          if git diff --quiet Formula/agents-sandbox.rb; then
+            echo "Formula already up to date."
+            exit 0
+          fi
+          branch="chore/homebrew-formula-bump"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git switch -c "$branch"
+          git commit -m "chore(release): bump Homebrew formula to ${VERSION}" Formula/agents-sandbox.rb
+          git push -f origin "$branch"
+          gh pr create --base main --head "$branch" \
+            --title "chore(release): bump Homebrew formula to ${VERSION}" \
+            --body "Automated bump of \`Formula/agents-sandbox.rb\` to ${VERSION} so Homebrew installs stay current (see #66). The force-push above refreshed any still-open bump PR." \
+            || echo "An open bump PR already exists; it was updated by the force-push."
+          gh pr merge --auto --squash "$branch" \
+            || echo "Auto-merge not available for this repo; merge the bump PR manually."

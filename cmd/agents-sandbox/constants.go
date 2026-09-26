@@ -16,6 +16,8 @@ const (
 	cmdList       = "list"
 	cmdTree       = "tree"
 	cmdVersion    = "version"
+	cmdHelp       = "help"
+	cmdCompletion = "completion"
 	cmdConfig     = "config"
 	cmdUpgrade    = "upgrade"
 	cmdAgent      = "agent"

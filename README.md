@@ -65,6 +65,8 @@ By default the launcher copies the active agent's config + credential files from
 this might include credentials (e.g. opencode's `auth.json`). If you prefer to deliver credentials via the env-secret mechanism
 (which never writes them into the VM), see the [Configuration docs](/docs/configuration/) to opt out of the file copy.
 
+The config copy preserves ordinary Unix permission bits, including executable bits on launcher scripts.
+
 ## Documentation
 
 There's dedicated documentation per topic. You can also browse the documentation on [GitHub Pages](https://inoio.github.io/agents-sandbox/).

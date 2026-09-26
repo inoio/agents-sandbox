@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 
@@ -11,6 +12,7 @@ import (
 	"github.com/inoio/agents-sandbox/internal/configpaths"
 	"github.com/inoio/agents-sandbox/internal/sandbox/docker"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
+	msbruntime "github.com/inoio/agents-sandbox/internal/sandbox/runtime"
 	"github.com/inoio/agents-sandbox/internal/termio"
 	"github.com/inoio/agents-sandbox/internal/testutil"
 	launcherconfig "github.com/inoio/agents-sandbox/internal/viperconfig"
@@ -25,6 +27,83 @@ func TestRootHasGlobalFlags(t *testing.T) {
 			t.Errorf("expected persistent flag --%s on root", f)
 		}
 	}
+}
+
+func TestCommandNeedsMSBRuntimeSkipsLauncherOnlyCommands(t *testing.T) {
+	if commandNeedsMSBRuntime(nil) {
+		t.Fatal("nil command should not require microsandbox runtime")
+	}
+	tests := []struct {
+		name string
+		cmd  *cobra.Command
+		want bool
+	}{
+		{name: "version", cmd: &cobra.Command{Use: cmdVersion}, want: false},
+		{name: "upgrade", cmd: &cobra.Command{Use: cmdUpgrade}, want: false},
+		{name: "completion", cmd: &cobra.Command{Use: cmdCompletion}, want: false},
+		{name: "config child", cmd: configChildCommand(), want: false},
+		{name: "run", cmd: &cobra.Command{Use: cmdRun}, want: true},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if got := commandNeedsMSBRuntime(test.cmd); got != test.want {
+				t.Errorf("commandNeedsMSBRuntime() = %v, want %v", got, test.want)
+			}
+		})
+	}
+}
+
+func TestRootCommandReturnsRuntimeRestart(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	ui := &termio.Mock{}
+	oldPrepare := prepareMSBRuntime
+	prepareMSBRuntime = func(context.Context, termio.UI, string) (msbruntime.PreparationResult, error) {
+		return msbruntime.PreparationResult{Restart: true}, nil
+	}
+	t.Cleanup(func() { prepareMSBRuntime = oldPrepare })
+	root := buildRootCmd(ui)
+	root.SetArgs([]string{"run", "--dry-run"})
+	if err := root.Execute(); err == nil {
+		t.Fatal("Execute() error = nil, want restart exit error")
+	}
+}
+
+func TestRootCommandReturnsRuntimePreparationError(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	ui := &termio.Mock{}
+	oldPrepare := prepareMSBRuntime
+	prepareMSBRuntime = func(context.Context, termio.UI, string) (msbruntime.PreparationResult, error) {
+		return msbruntime.PreparationResult{}, errors.New("runtime mismatch")
+	}
+	t.Cleanup(func() { prepareMSBRuntime = oldPrepare })
+	root := buildRootCmd(ui)
+	root.SetArgs([]string{"run", "--dry-run"})
+	if err := root.Execute(); err == nil || !strings.Contains(err.Error(), "runtime mismatch") {
+		t.Fatalf("Execute() error = %v, want runtime mismatch", err)
+	}
+}
+
+func TestRootCommandReturnsInvalidCLISettingsError(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	ui := &termio.Mock{}
+	oldPrepare := prepareMSBRuntime
+	prepareMSBRuntime = func(context.Context, termio.UI, string) (msbruntime.PreparationResult, error) {
+		t.Fatal("runtime preparation must not run after invalid CLI settings")
+		return msbruntime.PreparationResult{}, nil
+	}
+	t.Cleanup(func() { prepareMSBRuntime = oldPrepare })
+	root := buildRootCmd(ui)
+	root.SetArgs([]string{"run", "--log-level", "invalid", "--dry-run"})
+	if err := root.Execute(); err == nil || !strings.Contains(err.Error(), "invalid log level") {
+		t.Fatalf("Execute() error = %v, want invalid log level", err)
+	}
+}
+
+func configChildCommand() *cobra.Command {
+	config := &cobra.Command{Use: cmdConfig}
+	child := &cobra.Command{Use: cmdHome}
+	config.AddCommand(child)
+	return child
 }
 
 func TestRunCommandHasExpectedFlags(t *testing.T) {

@@ -55,13 +55,13 @@ func TestSecretsContentHashIncludesHosts(t *testing.T) {
 	// A change to a secret's allowed hosts (with the same value) must produce
 	// a different hash so the launcher recreates the VM. See SecretsContentHash.
 	a := SecretsContentHash([]msbSdk.SecretEntry{
-		{EnvVar: "GITHUB_TOKEN", Value: "t", AllowHosts: []string{"github.com"}},
+		{EnvVar: "GITHUB_TOKEN", Value: "t", Allow: []string{"github.com"}},
 	})
 	b := SecretsContentHash([]msbSdk.SecretEntry{
-		{EnvVar: "GITHUB_TOKEN", Value: "t", AllowHosts: []string{"api.github.com", "github.com"}},
+		{EnvVar: "GITHUB_TOKEN", Value: "t", Allow: []string{"api.github.com", "github.com"}},
 	})
 	if a == b {
-		t.Error("SecretsContentHash should differ when AllowHosts changes with the same value")
+		t.Error("SecretsContentHash should differ when Allow changes with the same value")
 	}
 }
 
@@ -75,12 +75,16 @@ func TestSecretsContentHashIncludesOtherFields(t *testing.T) {
 		mutate func(e *msbSdk.SecretEntry)
 	}{
 		{"Value", func(e *msbSdk.SecretEntry) { e.Value = "2" }},
-		{"AllowHosts", func(e *msbSdk.SecretEntry) { e.AllowHosts = []string{"github.com"} }},
-		{"AllowHostPatterns", func(e *msbSdk.SecretEntry) { e.AllowHostPatterns = []string{"*.github.com"} }},
+		{"Allow", func(e *msbSdk.SecretEntry) { e.Allow = []string{"github.com"} }},
+		{"Passthrough", func(e *msbSdk.SecretEntry) { e.Passthrough = []string{"*.github.com"} }},
 		{"Placeholder", func(e *msbSdk.SecretEntry) { e.Placeholder = "$GITHUB_TOKEN" }},
-		{"RequireTLS true", func(e *msbSdk.SecretEntry) { e.RequireTLS = boolPtr(true) }},
-		{"RequireTLS false", func(e *msbSdk.SecretEntry) { e.RequireTLS = boolPtr(false) }},
-		{"OnViolation", func(e *msbSdk.SecretEntry) { e.OnViolation = msbSdk.ViolationActionBlock }},
+		{"RequireTLSIdentity true", func(e *msbSdk.SecretEntry) { e.RequireTLSIdentity = boolPtr(true) }},
+		{"RequireTLSIdentity false", func(e *msbSdk.SecretEntry) { e.RequireTLSIdentity = boolPtr(false) }},
+		{"Substitution headers true", func(e *msbSdk.SecretEntry) { e.Substitution.Headers = boolPtr(true) }},
+		{"Substitution headers false", func(e *msbSdk.SecretEntry) { e.Substitution.Headers = boolPtr(false) }},
+		{"Substitution query", func(e *msbSdk.SecretEntry) { e.Substitution.Query = true }},
+		{"Substitution body", func(e *msbSdk.SecretEntry) { e.Substitution.Body = true }},
+		{"ViolationAction", func(e *msbSdk.SecretEntry) { e.ViolationAction = msbSdk.ViolationActionBlock }},
 	}
 
 	for _, tt := range tests {

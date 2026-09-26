@@ -7,7 +7,24 @@ nav_order: 20
 
 ## Installation
 
-* Download the latest binary:
+* Via Homebrew (macOS and Linux):
+
+  ```console
+  brew tap inoio/agents-sandbox https://github.com/inoio/agents-sandbox
+  brew install agents-sandbox
+  ```
+
+  Updates ship as ordinary releases; to get one:
+
+  ```console
+  brew update && brew upgrade agents-sandbox
+  ```
+
+  Homebrew installs are detected automatically: the launcher disables its
+  [self-upgrade]({% link configuration/self-upgrade.md %}) so Homebrew's version bookkeeping stays accurate, and
+  `agents-sandbox upgrade` points you back to `brew upgrade`.
+
+* Or download the latest binary:
 
   **Linux (x86_64):**
 

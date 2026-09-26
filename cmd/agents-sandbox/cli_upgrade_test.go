@@ -68,6 +68,29 @@ func TestUpgrade(t *testing.T) {
 		}
 	})
 
+	t.Run("homebrew install defers to brew", func(t *testing.T) {
+		version = "1.0.0"
+		origHomebrew := upgrade.InstalledViaHomebrew
+		upgrade.InstalledViaHomebrew = func() bool { return true }
+		t.Cleanup(func() { upgrade.InstalledViaHomebrew = origHomebrew })
+		upgrade.LatestVersion = func(context.Context) (string, error) {
+			t.Fatal("LatestVersion should not be consulted for a Homebrew install")
+			return "", nil
+		}
+		upgrade.Update = func(context.Context, string) error {
+			t.Fatal("Update should not replace the binary of a Homebrew install")
+			return nil
+		}
+
+		updateCmd, testUI := setupUpgradeTestFixtures(t)
+		if err := updateCmd.RunE(updateCmd, nil); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if !strings.Contains(strings.Join(testUI.InfoCalls, " "), "brew") {
+			t.Fatalf("expected brew upgrade guidance, got %v", testUI.InfoCalls)
+		}
+	})
+
 	t.Run("latest lookup failure", func(t *testing.T) {
 		version = "1.0.0"
 		upgrade.LatestVersion = func(context.Context) (string, error) { return "", errors.New("boom") }

@@ -415,6 +415,35 @@ func TestBuildHomeFilesReadsBytesByVMPath(t *testing.T) {
 	}
 }
 
+func TestBuildHomeFilesWithModesPreservesSourceMode(t *testing.T) {
+	user := t.TempDir()
+	proj := t.TempDir()
+	source := filepath.Join(proj, "launcher.sh")
+	testutil.WritePath(t, source, "#!/bin/sh\n")
+	if err := os.Chmod(source, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeHomeConfig(t, proj, ".config/tool/launcher.sh: ./launcher.sh\n")
+
+	files, missing, has, err := BuildHomeFilesWithModes(user, proj, vmHome, nil)
+	if err != nil {
+		t.Fatalf("BuildHomeFilesWithModes: %v", err)
+	}
+	if !has || len(missing) != 0 {
+		t.Fatalf("has = %v, missing = %v; want manifest without missing sources", has, missing)
+	}
+	file, ok := files["/home/dev/.config/tool/launcher.sh"]
+	if !ok {
+		t.Fatalf("home file missing: %v", files)
+	}
+	if string(file.Data) != "#!/bin/sh\n" {
+		t.Errorf("file content = %q, want shebang", file.Data)
+	}
+	if file.Mode.Perm() != 0o755 {
+		t.Errorf("file mode = %o, want 755", file.Mode.Perm())
+	}
+}
+
 func TestBuildHomeFilesReadsProjectRelativeSourceFromProjectDir(t *testing.T) {
 	user := t.TempDir()
 	proj := t.TempDir()

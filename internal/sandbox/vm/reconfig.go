@@ -27,12 +27,11 @@ const RootUser = "root"
 const defaultHookInterpreter = "/bin/sh"
 
 // runStartupHooks runs each configured startup hook inside the VM via an
-// interactive shell. Each script is run through its shebang interpreter (the
-// home-volume mount does not allow chmod, so the script cannot be made
-// executable; invoking the interpreter is what honors the shebang). The hook's
-// HOME is set so scripts can rely on it. The agent waits for the attach to
-// finish; a hook that must outlive the attach is responsible for daemonizing
-// itself. Failures are logged, not fatal.
+// interactive shell. Each script is run through its shebang interpreter rather
+// than relying on an executable bit, so hooks also work for files delivered by
+// home: mappings. The hook's HOME is set so scripts can rely on it. The agent
+// waits for the attach to finish; a hook that must outlive the attach is
+// responsible for daemonizing itself. Failures are logged, not fatal.
 func runStartupHooks(ctx context.Context, sb msb.Sandbox, hooks []homeconfig.HookSpec, ui termio.UI) {
 	for _, h := range hooks {
 		user := DefaultSandboxUser

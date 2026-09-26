@@ -3,7 +3,8 @@ FROM agents-sandbox/runner-base-dind:latest
 USER root
 # Go & linter
 ENV PATH="/usr/local/go/bin:$PATH"
-RUN curl -fsSL https://go.dev/dl/go1.26.6.linux-amd64.tar.gz | tar -C /usr/local -xzf -
+RUN if [ "$(uname -m)" = aarch64 ]; then GOARCH=arm64; else GOARCH=amd64; fi && \
+    curl -fsSL "https://go.dev/dl/go1.26.6.linux-${GOARCH}.tar.gz" | tar -C /usr/local -xzf -
 RUN curl -sSfL https://golangci-lint.run/install.sh | sh -s -- -b /usr/local/bin v2.12.2
 # gotestsum: emits JUnit XML (junit.xml) for Codecov Test Analytics alongside coverage.
 RUN GOBIN=/usr/local/bin go install gotest.tools/gotestsum@v1.13.0
@@ -13,15 +14,16 @@ RUN apt-get update && \
     apt-get install -y --no-install-recommends build-essential bundler shellcheck default-jre && \
     rm -rf /var/lib/apt/lists/*
 
-# zig
+# zig (tarball and install dir are architecture-specific; a stable symlink keeps PATH fixed)
 ARG ZIG_VERSION=0.16.0
-ARG ZIG_TARBALL=zig-x86_64-linux-${ZIG_VERSION}.tar.xz
 
-RUN curl -fsSL "https://ziglang.org/download/${ZIG_VERSION}/${ZIG_TARBALL}" -o "/tmp/${ZIG_TARBALL}" \
- && tar -xf "/tmp/${ZIG_TARBALL}" -C /usr/local \
- && rm "/tmp/${ZIG_TARBALL}"
+RUN if [ "$(uname -m)" = aarch64 ]; then ZIG_ARCH=aarch64; else ZIG_ARCH=x86_64; fi && \
+    curl -fsSL "https://ziglang.org/download/${ZIG_VERSION}/zig-${ZIG_ARCH}-linux-${ZIG_VERSION}.tar.xz" -o /tmp/zig.tar.xz \
+ && tar -xf /tmp/zig.tar.xz -C /usr/local \
+ && rm /tmp/zig.tar.xz \
+ && ln -s "/usr/local/zig-${ZIG_ARCH}-linux-${ZIG_VERSION}" /usr/local/zig
 
-ENV PATH="/usr/local/zig-x86_64-linux-${ZIG_VERSION}:${PATH}"
+ENV PATH="/usr/local/zig:${PATH}"
 
 # zig 0.16.0 ships macOS C headers but not the framework/library stubs that Go's
 # linker needs (-framework CoreFoundation, -framework Security, -lresolv).
@@ -59,7 +61,7 @@ RUN ZIG_DARWIN="$(dirname "$(which zig)")/lib/libc/darwin" \
 # fi
 # ```
 ARG GH_VERSION=2.62.0
-RUN curl -fsSL "https://github.com/cli/cli/releases/download/v${GH_VERSION}/gh_${GH_VERSION}_linux_amd64.deb" -o /tmp/gh.deb \
+RUN curl -fsSL "https://github.com/cli/cli/releases/download/v${GH_VERSION}/gh_${GH_VERSION}_linux_$(dpkg --print-architecture).deb" -o /tmp/gh.deb \
  && dpkg -i /tmp/gh.deb \
  && rm -f /tmp/gh.deb
 
