@@ -109,13 +109,18 @@ func (o Options) statePath() string {
 }
 
 // Check looks for a newer agents-sandbox release than CurrentVersion and
-// acts on it according to Mode. It is a no-op for development builds and when
-// a check happened within Interval. Transient network or parsing failures are
+// acts on it according to Mode. It is a no-op for development builds, for
+// Homebrew-managed installs (which update via `brew upgrade`), and when a check
+// happened within Interval. Transient network or parsing failures are
 // silently ignored so an offline run never blocks startup. An explicitly
 // configured interval below MinInterval is a misconfiguration and fails
 // loudly rather than being silently clamped.
 func Check(ctx context.Context, opts Options) (Result, error) {
 	if opts.CurrentVersion == "" || opts.CurrentVersion == devVersion {
+		return Result{}, nil
+	}
+	if InstalledViaHomebrew() {
+		opts.UI.Verbosef("agents-sandbox is managed by Homebrew; skipping the self-update check (run `brew upgrade` to update)")
 		return Result{}, nil
 	}
 	interval := opts.Interval
@@ -281,10 +286,15 @@ func prompt(ui termio.UI, current, latest string) promptAction {
 
 // Upgrade checks for a newer release than current and installs it over the
 // running binary, reporting progress via ui. It is the on-demand counterpart
-// to Check's automatic modes.
+// to Check's automatic modes. Homebrew-managed installs are directed to
+// `brew upgrade` instead of replacing the keg binary out from under Homebrew.
 func Upgrade(ctx context.Context, ui termio.UI, current string) error {
 	if current == "" || current == devVersion {
 		return errors.New("cannot upgrade a development build; use the released binary")
+	}
+	if InstalledViaHomebrew() {
+		ui.Infof("agents-sandbox is managed by Homebrew; run `brew update && brew upgrade agents-sandbox` to update it")
+		return nil
 	}
 	latest, err := LatestVersion(ctx)
 	if err != nil {
