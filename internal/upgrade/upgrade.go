@@ -120,7 +120,10 @@ func Check(ctx context.Context, opts Options) (Result, error) {
 		return Result{}, nil
 	}
 	if InstalledViaHomebrew() {
-		opts.UI.Verbosef("agents-sandbox is managed by Homebrew; skipping the self-update check (run `brew upgrade` to update)")
+		opts.UI.Verbosef(
+			"agents-sandbox is managed by Homebrew; skipping the self-update check " +
+				"(run `brew upgrade` to update)",
+		)
 		return Result{}, nil
 	}
 	interval := opts.Interval
