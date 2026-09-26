@@ -77,6 +77,10 @@ Precedence when the same VM path is reachable from multiple sources:
 
 `home:` > merged snippet config > verbatim mirror > drop-in provisioning
 
+> **File modes:** Home mappings, the verbatim mirror, and the default drop-in
+> copy preserve ordinary Unix permission bits, including executable bits.
+> Launcher scripts therefore remain directly executable in the VM.
+
 The mirror is **always active**, independent of `provision-host-config`. Stale mirrored files (deleted from the host)
 are left in place in the VM. Run `agents-sandbox config agent` to list the mirror files, each shown as its host source
 path → VM path. Previously non-pattern files in `<agent>/` were silently ignored; they are now mirrored verbatim.

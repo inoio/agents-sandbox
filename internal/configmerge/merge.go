@@ -154,6 +154,7 @@ type MirrorEntry struct {
 	HostPath string
 	VMPath   string
 	Data     []byte
+	Mode     os.FileMode
 }
 
 // ScanMirror walks userDir then projectDir recursively and returns the verbatim
@@ -202,12 +203,16 @@ func scanMirrorDir(pattern string, family []string, dir, destDir string, byDest 
 		if topLevel && (snippetFileMatches(pattern, d.Name()) || inFamily(family, d.Name())) {
 			return nil
 		}
+		info, infoErr := os.Stat(p)
+		if infoErr != nil {
+			return nil //nolint:nilerr // skip files whose metadata cannot be read
+		}
 		data, readErr := os.ReadFile(p) //nolint:gosec // reads within the config dir we own
 		if readErr != nil {
 			return nil //nolint:nilerr // skip unreadable file; never fail provisioning
 		}
 		dest := filepath.Join(destDir, rel)
-		byDest[dest] = MirrorEntry{HostPath: p, VMPath: dest, Data: data}
+		byDest[dest] = MirrorEntry{HostPath: p, VMPath: dest, Data: data, Mode: info.Mode().Perm()}
 		return nil
 	})
 }

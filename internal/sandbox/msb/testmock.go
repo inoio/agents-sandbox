@@ -440,6 +440,7 @@ type MockSandbox struct {
 	ShellCalls *[]string
 	ExecOut    map[string]ShellResult
 	ExecErr    error
+	ExecCalls  *[]string
 	AttachCode int
 	AttachErr  error
 	AttachUser string
@@ -491,6 +492,9 @@ func (m *MockSandbox) Exec(
 		return nil, m.ExecErr
 	}
 	key := command + " " + strings.Join(args, " ")
+	if m.ExecCalls != nil {
+		*m.ExecCalls = append(*m.ExecCalls, key)
+	}
 	if out, ok := m.ExecOut[key]; ok {
 		return out, nil
 	}

@@ -8,6 +8,11 @@ command reports the bare version (e.g. `0.1.0`).
 
 ## [Unreleased]
 
+### Fixed
+
+- Bugfix: home mappings, agent-config drop-in copies, and verbatim config-directory mirrors now preserve ordinary Unix
+  permission bits, including executable bits on launcher scripts.
+
 ## [0.3.1] - 2026-09-24
 
 - Maintenance: updated the microsandbox Go SDK and managed `msb` runtime to v0.7.2.
