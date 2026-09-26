@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -488,6 +489,8 @@ func TestMockSandboxShellExec(t *testing.T) {
 		ExecOut:    map[string]ShellResult{"cat foo": fail},
 		ShellCalls: calls,
 	}
+	execCalls := &[]string{}
+	m.ExecCalls = execCalls
 
 	if got, err := m.Shell(ctx, "ok"); err != nil || got != success {
 		t.Fatalf("Shell = %v, %v", got, err)
@@ -504,6 +507,9 @@ func TestMockSandboxShellExec(t *testing.T) {
 	}
 	if got, err := m.Exec(ctx, "echo", []string{"hi"}); err != nil || got == nil {
 		t.Fatalf("Exec default = %v, %v", got, err)
+	}
+	if want := []string{"cat foo", "echo hi"}; !reflect.DeepEqual(*execCalls, want) {
+		t.Fatalf("ExecCalls = %v, want %v", *execCalls, want)
 	}
 
 	errM := &MockSandbox{ShellErr: errors.New("s"), ExecErr: errors.New("e")}

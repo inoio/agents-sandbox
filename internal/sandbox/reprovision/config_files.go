@@ -72,16 +72,17 @@ func AgentConfigPath(a agent.Agent, home string) string {
 // provision into the VM, the default drop-in copy from the host, and the VM
 // paths to remove so stale host config cannot shadow the merged config.
 type ConfigFiles struct {
-	HasSnippets bool                  // whether any agent snippet existed
-	Merged      []byte                // merged agent config content
-	MergedPath  string                // VM path of the merged config ("" when no snippets)
-	Sources     []string              // host snippet paths merged into Merged
-	HomeFiles   map[string][]byte     // VM absolute path -> content (from the home: key)
-	Provisioned map[string][]byte     // VM absolute path -> content (drop-in copy)
-	Mirror      map[string][]byte     // VM absolute path -> content (verbatim <agent> mirror)
-	Remove      []string              // VM absolute paths to delete before writing
-	Hooks       []homeconfig.HookSpec // startup hooks to run at setUpSandbox
-	Keys        []string              // sorted VM paths for comparison
+	HasSnippets bool                   // whether any agent snippet existed
+	Merged      []byte                 // merged agent config content
+	MergedPath  string                 // VM path of the merged config ("" when no snippets)
+	Sources     []string               // host snippet paths merged into Merged
+	HomeFiles   map[string][]byte      // VM absolute path -> content (from the home: key)
+	Provisioned map[string][]byte      // VM absolute path -> content (drop-in copy)
+	Mirror      map[string][]byte      // VM absolute path -> content (verbatim <agent> mirror)
+	Modes       map[string]os.FileMode // VM absolute path -> ordinary file permission bits
+	Remove      []string               // VM absolute paths to delete before writing
+	Hooks       []homeconfig.HookSpec  // startup hooks to run at setUpSandbox
+	Keys        []string               // sorted VM paths for comparison
 }
 
 // LoadConfigFiles builds the desired VM state for the given agent using the
@@ -99,6 +100,8 @@ func LoadConfigFiles(a agent.Agent, ui termio.UI, provisionHostConfig bool) (*Co
 // host and about malformed provision rules. Home files and the merged config
 // override provisioned defaults for the same VM path. The agent's merged-config
 // path is reserved: a home target colliding with it is rejected.
+//
+//nolint:funlen,gocognit // config precedence and source loading are intentionally centralized
 func LoadConfigFilesForHost(
 	a agent.Agent,
 	hostHome, vmHome string,
@@ -118,7 +121,7 @@ func LoadConfigFilesForHost(
 		reserved = append(reserved, rel)
 	}
 	userConfigDir := filepath.Dir(cp.Get().UserAgentConfigDir(a))
-	homeFiles, missing, _, err := homeconfig.BuildHomeFiles(
+	homeSources, missing, _, err := homeconfig.BuildHomeFilesWithModes(
 		userConfigDir, // user config lives one level above the agent subdir
 		cp.Get().ProjectConfigDir(),
 		vmHome,
@@ -130,6 +133,10 @@ func LoadConfigFilesForHost(
 	for _, src := range missing {
 		ui.Warnf("home source %q does not exist on the host; skipping", src)
 	}
+	homeFiles := make(map[string][]byte, len(homeSources))
+	for path, source := range homeSources {
+		homeFiles[path] = source.Data
+	}
 	hooks, err := homeconfig.BuildHooks(
 		userConfigDir, // user config lives one level above the agent subdir
 		cp.Get().ProjectConfigDir(),
@@ -140,13 +147,19 @@ func LoadConfigFilesForHost(
 		return nil, fmt.Errorf("build hooks: %w", err)
 	}
 	provisioned := make(map[string][]byte)
+	modes := make(map[string]os.FileMode)
+	homeModes := make(map[string]os.FileMode, len(homeSources))
+	for path, source := range homeSources {
+		homeModes[path] = source.Mode
+	}
 	if provisionHostConfig {
 		if p, ok := agent.AsProvisioner(a); ok {
 			for _, w := range agent.ValidateProvisionRules(p.ProvisionRules()) {
 				ui.Warnf("provision rule: %s", w)
 			}
-			onCopy := func(dst string, data []byte) error {
+			onCopy := func(dst string, data []byte, mode os.FileMode) error {
 				provisioned[dst] = data
+				modes[dst] = mode
 				return nil
 			}
 			if _, provisionErr := agent.EvalProvisionRules(
@@ -164,17 +177,22 @@ func LoadConfigFilesForHost(
 	// (no merged config means the drop-in default is provisioned).
 	for p := range homeFiles {
 		delete(provisioned, p)
+		delete(modes, p)
 	}
 	if hasSnippets {
 		delete(provisioned, mergedPath)
+		delete(modes, mergedPath)
 	}
-	mirror, err := buildMirror(a, vmHome)
+	mirrorEntries, err := buildMirror(a, vmHome)
 	if err != nil {
 		return nil, fmt.Errorf("build config mirror: %w", err)
 	}
+	mirror, mirrorModes := mirrorMaps(mirrorEntries)
 	// Precedence: home overrides the mirror, the merged config overrides
 	// the mirror, and the mirror overrides the drop-in copy for the same path.
-	applyMirrorPrecedence(mirror, provisioned, homeFiles, mergedPath, hasSnippets)
+	maps.Copy(modes, mirrorModes)
+	applyMirrorPrecedence(mirror, provisioned, homeFiles, mergedPath, hasSnippets, modes)
+	maps.Copy(modes, homeModes)
 	// Remove stale host config so it cannot shadow the merged config: when
 	// snippets exist the merged config must be the only config, and when host
 	// config provisioning is disabled no host file may remain.
@@ -192,6 +210,7 @@ func LoadConfigFilesForHost(
 		HomeFiles:   homeFiles,
 		Provisioned: provisioned,
 		Mirror:      mirror,
+		Modes:       modes,
 		Remove:      remove,
 		Hooks:       hooks,
 		Keys:        keys,
@@ -201,15 +220,22 @@ func LoadConfigFilesForHost(
 // applyMirrorPrecedence prunes the mirror and drop-in copy maps so the mirror
 // overrides the drop-in copy for the same VM path, while home files and the
 // merged config override the mirror.
-func applyMirrorPrecedence(mirror, provisioned, homeFiles map[string][]byte, mergedPath string, hasSnippets bool) {
+func applyMirrorPrecedence(
+	mirror, provisioned, homeFiles map[string][]byte,
+	mergedPath string,
+	hasSnippets bool,
+	modes map[string]os.FileMode,
+) {
 	for p := range mirror {
 		delete(provisioned, p)
 	}
 	for p := range homeFiles {
 		delete(mirror, p)
+		delete(modes, p)
 	}
 	if hasSnippets {
 		delete(mirror, mergedPath)
+		delete(modes, mergedPath)
 	}
 }
 
@@ -278,10 +304,10 @@ func buildMergedConfig(a agent.Agent, vmHome string) (string, []byte, []string, 
 // user and project <agent> config dirs that is neither a top-level snippet
 // match nor a top-level config-family name, keyed by VM path under the agent's
 // VM config directory. Agents without a ConfigMerger have no mirror.
-func buildMirror(a agent.Agent, vmHome string) (map[string][]byte, error) {
+func buildMirror(a agent.Agent, vmHome string) (map[string]config.MirrorEntry, error) {
 	cm, ok := agent.AsConfigMerger(a)
 	if !ok {
-		return nil, nil //nolint:nilnil // agents without a ConfigMerger have no mirror to return
+		return map[string]config.MirrorEntry{}, nil
 	}
 	entries, err := config.ScanMirror(
 		cm.SnippetPattern(),
@@ -293,11 +319,21 @@ func buildMirror(a agent.Agent, vmHome string) (map[string][]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	mirror := make(map[string][]byte, len(entries))
+	mirror := make(map[string]config.MirrorEntry, len(entries))
 	for _, e := range entries {
-		mirror[e.VMPath] = e.Data
+		mirror[e.VMPath] = e
 	}
 	return mirror, nil
+}
+
+func mirrorMaps(entries map[string]config.MirrorEntry) (map[string][]byte, map[string]os.FileMode) {
+	mirror := make(map[string][]byte, len(entries))
+	modes := make(map[string]os.FileMode, len(entries))
+	for path, entry := range entries {
+		mirror[path] = entry.Data
+		modes[path] = entry.Mode
+	}
+	return mirror, modes
 }
 
 // provisionDestinations returns the VM paths the agent's provision rules would
@@ -309,10 +345,15 @@ func provisionDestinations(a agent.Agent, hostHome, vmHome string) []string {
 		return nil
 	}
 	var dsts []string
-	_, _ = agent.EvalProvisionRules(p.ProvisionRules(), hostHome, vmHome, func(dst string, _ []byte) error {
-		dsts = append(dsts, dst)
-		return nil
-	})
+	_, _ = agent.EvalProvisionRules(
+		p.ProvisionRules(),
+		hostHome,
+		vmHome,
+		func(dst string, _ []byte, _ os.FileMode) error {
+			dsts = append(dsts, dst)
+			return nil
+		},
+	)
 	return dsts
 }
 
@@ -386,15 +427,20 @@ func hostFilesFromProvisioner(a agent.Agent, hostHome, vmHome string, cf *Config
 		}
 	}
 	var files []HostFile
-	_, _ = agent.EvalProvisionRules(p.ProvisionRules(), hostHome, vmHome, func(dst string, _ []byte) error {
-		_, isMerged := merged[dst]
-		files = append(files, HostFile{
-			HostPath: hostPathForDst(dst, hostHome, vmHome),
-			VMPath:   dst,
-			Merged:   isMerged,
-		})
-		return nil
-	})
+	_, _ = agent.EvalProvisionRules(
+		p.ProvisionRules(),
+		hostHome,
+		vmHome,
+		func(dst string, _ []byte, _ os.FileMode) error {
+			_, isMerged := merged[dst]
+			files = append(files, HostFile{
+				HostPath: hostPathForDst(dst, hostHome, vmHome),
+				VMPath:   dst,
+				Merged:   isMerged,
+			})
+			return nil
+		},
+	)
 	return files
 }
 

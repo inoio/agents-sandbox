@@ -298,6 +298,30 @@ func BuildHomeFiles(
 	userConfigDir, projectConfigDir, homeBase string,
 	reserved []string,
 ) (map[string][]byte, []string, bool, error) {
+	files, missing, has, err := BuildHomeFilesWithModes(userConfigDir, projectConfigDir, homeBase, reserved)
+	if err != nil {
+		return nil, nil, false, err
+	}
+	contents := make(map[string][]byte, len(files))
+	for path, file := range files {
+		contents[path] = file.Data
+	}
+	return contents, missing, has, nil
+}
+
+// HomeFile contains a home-provisioning source's content and ordinary Unix
+// permission bits.
+type HomeFile struct {
+	Data []byte
+	Mode os.FileMode
+}
+
+// BuildHomeFilesWithModes is like BuildHomeFiles but also returns ordinary Unix
+// permission bits for each source file.
+func BuildHomeFilesWithModes(
+	userConfigDir, projectConfigDir, homeBase string,
+	reserved []string,
+) (map[string]HomeFile, []string, bool, error) {
 	layers, has, err := LoadLayers([]string{userConfigDir, projectConfigDir})
 	if err != nil {
 		return nil, nil, false, err
@@ -311,21 +335,26 @@ func BuildHomeFiles(
 		maps.Copy(merged, l.Manifest)
 	}
 	if len(merged) == 0 {
-		return map[string][]byte{}, nil, has, nil
+		return map[string]HomeFile{}, nil, has, nil
 	}
-	files := make(map[string][]byte)
+	files := make(map[string]HomeFile)
 	var missing []string
 	for target, e := range merged {
 		vmPath, vErr := ResolveVMTarget(homeBase, target, reserved)
 		if vErr != nil {
 			return nil, nil, false, vErr
 		}
+		info, infoErr := os.Stat(e.Source)
+		if infoErr != nil {
+			missing = append(missing, e.Source)
+			continue
+		}
 		data, rErr := os.ReadFile(e.Source)
 		if rErr != nil {
 			missing = append(missing, e.Source)
 			continue
 		}
-		files[vmPath] = data
+		files[vmPath] = HomeFile{Data: data, Mode: info.Mode().Perm()}
 	}
 	return files, missing, has, nil
 }

@@ -235,10 +235,16 @@ func TestScanMirrorBasic(t *testing.T) {
 	user := t.TempDir()
 	dest := t.TempDir()
 	testutil.WriteFile(t, user, "tui.json", `{"theme":"dark"}`)
+	if err := os.Chmod(filepath.Join(user, "tui.json"), 0o755); err != nil {
+		t.Fatal(err)
+	}
 	os.MkdirAll(filepath.Join(user, "agents"), 0o755)
 	os.MkdirAll(filepath.Join(user, "themes"), 0o755)
 	testutil.WriteFile(t, filepath.Join(user, "agents"), "coder.md", "# coder\n")
 	testutil.WriteFile(t, filepath.Join(user, "themes"), "dark.json", `{"bg":"#000"}`)
+	if err := os.Symlink("missing-target", filepath.Join(user, "broken-link")); err != nil {
+		t.Fatal(err)
+	}
 
 	entries, err := ScanMirror("opencode*.json*", nil, user, "", dest)
 	if err != nil {
@@ -263,6 +269,9 @@ func TestScanMirrorBasic(t *testing.T) {
 		}
 		if len(e.Data) == 0 {
 			t.Errorf("VMPath %q has empty Data", e.VMPath)
+		}
+		if e.VMPath == filepath.Join(dest, "tui.json") && e.Mode.Perm() != 0o755 {
+			t.Errorf("VMPath %q mode = %o, want 755", e.VMPath, e.Mode.Perm())
 		}
 	}
 }
@@ -293,6 +302,12 @@ func TestScanMirrorProjectOverridesUser(t *testing.T) {
 	dest := t.TempDir()
 	testutil.WriteFile(t, user, "tui.json", `{"theme":"user"}`)
 	testutil.WriteFile(t, proj, "tui.json", `{"theme":"project"}`)
+	if err := os.Chmod(filepath.Join(user, "tui.json"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(filepath.Join(proj, "tui.json"), 0o700); err != nil {
+		t.Fatal(err)
+	}
 
 	entries, err := ScanMirror("opencode*.json*", nil, user, proj, dest)
 	if err != nil {
@@ -306,6 +321,9 @@ func TestScanMirrorProjectOverridesUser(t *testing.T) {
 	}
 	if !bytes.Contains(entries[0].Data, []byte("project")) {
 		t.Errorf("Data = %q, want project content", entries[0].Data)
+	}
+	if entries[0].Mode.Perm() != 0o700 {
+		t.Errorf("Mode = %o, want 700", entries[0].Mode.Perm())
 	}
 }
 

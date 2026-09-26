@@ -80,8 +80,14 @@ func TestEvalProvisionRulesCopiesSelectedFiles(t *testing.T) {
 	// Selected file.
 	mustWrite(t, filepath.Join(hostHome, ".config/opencode/opencode.json"), `{"x":1}`)
 	mustWrite(t, filepath.Join(hostHome, ".config/opencode/auth.json"), "secret")
+	if err := os.Chmod(filepath.Join(hostHome, ".config/opencode/auth.json"), 0o755); err != nil {
+		t.Fatal(err)
+	}
 	// Selected nested subdirectory (must be descended into).
 	mustWrite(t, filepath.Join(hostHome, ".config/opencode/commands/agent.json"), "nested")
+	if err := os.Symlink("missing-target", filepath.Join(hostHome, ".config/opencode/broken-link")); err != nil {
+		t.Fatal(err)
+	}
 	// Excluded dir (pruned) and excluded file.
 	mustWrite(t, filepath.Join(hostHome, ".config/opencode/node_modules/pkg/index.js"), "js")
 	mustWrite(t, filepath.Join(hostHome, ".config/opencode/package.json"), "{}")
@@ -92,8 +98,10 @@ func TestEvalProvisionRulesCopiesSelectedFiles(t *testing.T) {
 	}
 
 	got := map[string]string{}
-	n, err := agent.EvalProvisionRules(rules, hostHome, vmHome, func(dst string, data []byte) error {
+	modes := map[string]os.FileMode{}
+	n, err := agent.EvalProvisionRules(rules, hostHome, vmHome, func(dst string, data []byte, mode os.FileMode) error {
 		got[filepath.ToSlash(dst)] = string(data)
+		modes[filepath.ToSlash(dst)] = mode
 		return nil
 	})
 	if err != nil {
@@ -112,6 +120,12 @@ func TestEvalProvisionRulesCopiesSelectedFiles(t *testing.T) {
 	if got[filepath.ToSlash(filepath.Join(rel, "commands/agent.json"))] != "nested" {
 		t.Errorf("nested file not copied: %v", got)
 	}
+	if modes[filepath.ToSlash(filepath.Join(rel, "opencode.json"))] != 0o644 {
+		t.Errorf("opencode.json mode = %o, want 644", modes[filepath.ToSlash(filepath.Join(rel, "opencode.json"))])
+	}
+	if modes[filepath.ToSlash(filepath.Join(rel, "auth.json"))] != 0o755 {
+		t.Errorf("auth.json mode = %o, want 755", modes[filepath.ToSlash(filepath.Join(rel, "auth.json"))])
+	}
 	if _, ok := got[filepath.ToSlash(filepath.Join(rel, "node_modules/pkg/index.js"))]; ok {
 		t.Error("node_modules file should have been pruned")
 	}
@@ -126,7 +140,7 @@ func TestEvalProvisionRulesOnCopyError(t *testing.T) {
 	rules := []agent.ProvisionRule{{Dir: ".config/opencode", Patterns: []string{"**"}}}
 
 	wantErr := os.ErrClosed
-	_, err := agent.EvalProvisionRules(rules, hostHome, t.TempDir(), func(string, []byte) error {
+	_, err := agent.EvalProvisionRules(rules, hostHome, t.TempDir(), func(string, []byte, os.FileMode) error {
 		return wantErr
 	})
 	if !errors.Is(err, wantErr) {

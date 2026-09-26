@@ -62,10 +62,12 @@ func TestProvisionChownsHomeFiles(t *testing.T) {
 			"/home/dev/.gitconfig":            []byte("user.name=X\n"),
 			"/home/dev/.config/tool/cfg.toml": []byte("k=v\n"),
 		},
+		Modes: map[string]os.FileMode{"/home/dev/.gitconfig": 0o755},
 	}
 	fs := msb.NewTestFS(nil, nil)
 	var calls []string
-	sb := &msb.MockSandbox{FSValue_: fs, ShellCalls: &calls}
+	var execCalls []string
+	sb := &msb.MockSandbox{FSValue_: fs, ShellCalls: &calls, ExecCalls: &execCalls}
 
 	if err := Provision(context.Background(), sb, cf); err != nil {
 		t.Fatalf("Provision: %v", err)
@@ -88,6 +90,29 @@ func TestProvisionChownsHomeFiles(t *testing.T) {
 		"/home/dev/.gitconfig"
 	if calls[0] != wantChown {
 		t.Errorf("shell command = %q, want %q", calls[0], wantChown)
+	}
+	if !slices.Contains(execCalls, "chmod 0755 /home/dev/.gitconfig") {
+		t.Errorf("exec calls = %v, want home-file chmod", execCalls)
+	}
+}
+
+func TestProvisionReturnsHomeChmodError(t *testing.T) {
+	path := "/home/dev/.gitconfig"
+	cf := &ConfigFiles{
+		HomeFiles: map[string][]byte{path: []byte("user.name=X\n")},
+		Modes:     map[string]os.FileMode{path: 0o755},
+	}
+	fs := msb.NewTestFS(nil, nil)
+	sb := &msb.MockSandbox{
+		FSValue_: fs,
+		ExecOut: map[string]msb.ShellResult{
+			"chmod 0755 " + path: msb.NewTestResult(false, 1, "", "chmod failed", nil),
+		},
+	}
+
+	err := Provision(context.Background(), sb, cf)
+	if err == nil || !strings.Contains(err.Error(), "chmod home file") {
+		t.Fatalf("Provision error = %v, want home-file chmod error", err)
 	}
 }
 
@@ -135,6 +160,14 @@ func TestLoadConfigFilesProvisioning(t *testing.T) {
 		t.Fatal(err)
 	}
 	testutil.WriteFile(t, ocConfig, "opencode.json", `{"a":1}`)
+	launcher := filepath.Join(ocConfig, "bin", "launcher")
+	if err := os.MkdirAll(filepath.Dir(launcher), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	testutil.WritePath(t, launcher, "#!/bin/sh\necho launcher\n")
+	if err := os.Chmod(launcher, 0o755); err != nil {
+		t.Fatal(err)
+	}
 	testutil.WriteFile(t, filepath.Join(ocConfig, "node_modules"), "x/index.js", "//x")
 
 	a, _ := agent.Lookup("opencode")
@@ -146,6 +179,10 @@ func TestLoadConfigFilesProvisioning(t *testing.T) {
 	wantKey := filepath.Join(vmHome, ".config", "opencode", "opencode.json")
 	if _, ok := cf.Provisioned[wantKey]; !ok {
 		t.Errorf("expected opencode.json provisioned at %s, got %v", wantKey, cf.Provisioned)
+	}
+	wantLauncher := filepath.Join(vmHome, ".config", "opencode", "bin", "launcher")
+	if cf.Modes[wantLauncher].Perm() != 0o755 {
+		t.Errorf("launcher mode = %o, want 755", cf.Modes[wantLauncher].Perm())
 	}
 	for p := range cf.Provisioned {
 		if strings.Contains(p, "node_modules") {
@@ -181,6 +218,9 @@ func TestLoadConfigFilesProvisioningPrecedence(t *testing.T) {
 	// must override it.
 	project := cp.ProjectConfigDir()
 	testutil.WriteFile(t, project, "somefile-home.json", `{"home":1}`)
+	if err := os.Chmod(filepath.Join(project, "somefile-home.json"), 0o755); err != nil {
+		t.Fatal(err)
+	}
 	testutil.WriteFile(t, project, "config.yaml",
 		"home:\n"+
 			"  .config/opencode/somefile.json:\n"+
@@ -210,6 +250,9 @@ func TestLoadConfigFilesProvisioningPrecedence(t *testing.T) {
 	}
 	if !bytes.Equal(cf.HomeFiles[homePath], []byte(`{"home":1}`)) {
 		t.Errorf("expected home file to override provisioned content at %s, got %q", homePath, cf.HomeFiles[homePath])
+	}
+	if cf.Modes[homePath].Perm() != 0o755 {
+		t.Errorf("home file mode = %o, want 755", cf.Modes[homePath].Perm())
 	}
 }
 
@@ -395,17 +438,98 @@ func TestProvisionWritesProvisioned(t *testing.T) {
 	}
 }
 
+func TestProvisionAppliesProvisionedFileMode(t *testing.T) {
+	path := "/home/dev/.config/opencode/bin/launcher"
+	cf := &ConfigFiles{
+		Provisioned: map[string][]byte{path: []byte("#!/bin/sh\n")},
+		Modes:       map[string]os.FileMode{path: 0o755},
+	}
+	fs := msb.NewTestFS(nil, nil)
+	var execCalls []string
+	sb := &msb.MockSandbox{
+		FSValue_:  fs,
+		ExecCalls: &execCalls,
+	}
+
+	if err := Provision(context.Background(), sb, cf); err != nil {
+		t.Fatalf("Provision: %v", err)
+	}
+	if !slices.Contains(execCalls, "chmod 0755 "+path) {
+		t.Errorf("exec calls = %v, want chmod for %s", execCalls, path)
+	}
+}
+
+func TestProvisionReturnsChmodError(t *testing.T) {
+	path := "/home/dev/.config/opencode/bin/launcher"
+	cf := &ConfigFiles{
+		Provisioned: map[string][]byte{path: []byte("#!/bin/sh\n")},
+		Modes:       map[string]os.FileMode{path: 0o755},
+	}
+	fs := msb.NewTestFS(nil, nil)
+	sb := &msb.MockSandbox{
+		FSValue_: fs,
+		ExecOut: map[string]msb.ShellResult{
+			"chmod 0755 " + path: msb.NewTestResult(false, 1, "", "chmod failed", nil),
+		},
+	}
+
+	err := Provision(context.Background(), sb, cf)
+	if err == nil || !strings.Contains(err.Error(), "chmod") {
+		t.Fatalf("Provision error = %v, want chmod error", err)
+	}
+}
+
+func TestProvisionReturnsChmodExecError(t *testing.T) {
+	path := "/home/dev/.config/opencode/bin/launcher"
+	wantErr := errors.New("exec failed")
+	cf := &ConfigFiles{
+		Provisioned: map[string][]byte{path: []byte("#!/bin/sh\n")},
+		Modes:       map[string]os.FileMode{path: 0o755},
+	}
+	fs := msb.NewTestFS(nil, nil)
+	sb := &msb.MockSandbox{FSValue_: fs, ExecErr: wantErr}
+
+	err := Provision(context.Background(), sb, cf)
+	if !errors.Is(err, wantErr) {
+		t.Fatalf("Provision error = %v, want %v", err, wantErr)
+	}
+}
+
+func TestProvisionReturnsMirrorChmodError(t *testing.T) {
+	path := "/home/dev/.config/opencode/bin/launcher"
+	cf := &ConfigFiles{
+		Mirror: map[string][]byte{path: []byte("#!/bin/sh\n")},
+		Modes:  map[string]os.FileMode{path: 0o755},
+	}
+	fs := msb.NewTestFS(nil, nil)
+	sb := &msb.MockSandbox{
+		FSValue_: fs,
+		ExecOut: map[string]msb.ShellResult{
+			"chmod 0755 " + path: msb.NewTestResult(false, 1, "", "chmod failed", nil),
+		},
+	}
+
+	err := Provision(context.Background(), sb, cf)
+	if err == nil || !strings.Contains(err.Error(), "chmod mirror file") {
+		t.Fatalf("Provision error = %v, want mirror-file chmod error", err)
+	}
+}
+
 // TestProvisionWritesMirror verifies that Provision writes the verbatim mirror
 // files just like home files and drop-in copies.
 func TestProvisionWritesMirror(t *testing.T) {
+	launcherPath := "/home/dev/.config/opencode/bin/launcher"
 	cf := &ConfigFiles{
 		Mirror: map[string][]byte{
 			"/home/dev/.config/opencode/tui.json":        []byte(`{"theme":"dark"}`),
 			"/home/dev/.config/opencode/agents/coder.md": []byte("# coder\n"),
+			launcherPath: []byte("#!/bin/sh\n"),
 		},
+		Modes: map[string]os.FileMode{launcherPath: 0o755},
 	}
 	fs := msb.NewTestFS(nil, nil)
-	sb := &msb.MockSandbox{FSValue_: fs, ShellCalls: &[]string{}}
+	var execCalls []string
+	sb := &msb.MockSandbox{FSValue_: fs, ShellCalls: &[]string{}, ExecCalls: &execCalls}
 
 	if err := Provision(context.Background(), sb, cf); err != nil {
 		t.Fatalf("Provision: %v", err)
@@ -414,6 +538,9 @@ func TestProvisionWritesMirror(t *testing.T) {
 		if _, ok := fs.Writes[p]; !ok {
 			t.Errorf("mirror file %s was not written", p)
 		}
+	}
+	if !slices.Contains(execCalls, "chmod 0755 "+launcherPath) {
+		t.Errorf("exec calls = %v, want chmod for %s", execCalls, launcherPath)
 	}
 }
 
@@ -576,6 +703,9 @@ func TestLoadConfigFilesMirror(t *testing.T) {
 	// Snippet (merged, not mirrored) plus mirror files at top level and nested.
 	testutil.WriteFile(t, cp.ProjectAgentConfigDir(a), "opencode-model.json", `{"model":"x"}`)
 	testutil.WriteFile(t, cp.ProjectAgentConfigDir(a), "tui.json", `{"theme":"dark"}`)
+	if err := os.Chmod(filepath.Join(cp.ProjectAgentConfigDir(a), "tui.json"), 0o755); err != nil {
+		t.Fatal(err)
+	}
 	if err := os.MkdirAll(filepath.Join(cp.ProjectAgentConfigDir(a), "agents"), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -589,6 +719,9 @@ func TestLoadConfigFilesMirror(t *testing.T) {
 	wantTUI := filepath.Join(vmHome, ".config", "opencode", "tui.json")
 	if !bytes.Equal(cf.Mirror[wantTUI], []byte(`{"theme":"dark"}`)) {
 		t.Errorf("Mirror[%s] = %q, want dark theme", wantTUI, cf.Mirror[wantTUI])
+	}
+	if cf.Modes[wantTUI].Perm() != 0o755 {
+		t.Errorf("Mirror[%s] mode = %o, want 755", wantTUI, cf.Modes[wantTUI].Perm())
 	}
 	wantAgent := filepath.Join(vmHome, ".config", "opencode", "agents", "coder.md")
 	if !bytes.Equal(cf.Mirror[wantAgent], []byte("# coder\n")) {
@@ -614,6 +747,9 @@ func TestLoadConfigFilesMirrorPrecedence(t *testing.T) {
 	a, _ := agent.Lookup("opencode")
 	// Mirror file at tui.json, plus a host drop-in copy at the same VM path.
 	testutil.WriteFile(t, cp.ProjectAgentConfigDir(a), "tui.json", `{"theme":"mirror"}`)
+	if err := os.Chmod(filepath.Join(cp.ProjectAgentConfigDir(a), "tui.json"), 0o700); err != nil {
+		t.Fatal(err)
+	}
 	ocConfig := filepath.Join(hostHome, ".config", "opencode")
 	if err := os.MkdirAll(ocConfig, 0o755); err != nil {
 		t.Fatal(err)
@@ -636,6 +772,9 @@ func TestLoadConfigFilesMirrorPrecedence(t *testing.T) {
 	if !bytes.Equal(cf.Mirror[wantTUI], []byte(`{"theme":"mirror"}`)) {
 		t.Errorf("Mirror[%s] = %q, want mirror content", wantTUI, cf.Mirror[wantTUI])
 	}
+	if cf.Modes[wantTUI].Perm() != 0o700 {
+		t.Errorf("Mirror[%s] mode = %o, want 700", wantTUI, cf.Modes[wantTUI].Perm())
+	}
 }
 
 func TestLoadConfigFilesMirrorHomeYAMLWins(t *testing.T) {
@@ -648,6 +787,9 @@ func TestLoadConfigFilesMirrorHomeYAMLWins(t *testing.T) {
 	testutil.WriteFile(t, cp.ProjectAgentConfigDir(a), "tui.json", `{"theme":"mirror"}`)
 	// home maps the same VM path explicitly; it must win over the mirror.
 	testutil.WriteFile(t, cp.ProjectConfigDir(), "tui-home.json", `{"theme":"home"}`)
+	if err := os.Chmod(filepath.Join(cp.ProjectConfigDir(), "tui-home.json"), 0o755); err != nil {
+		t.Fatal(err)
+	}
 	testutil.WriteFile(t, cp.ProjectConfigDir(), "config.yaml",
 		"home:\n"+
 			"  .config/opencode/tui.json:\n"+
@@ -664,6 +806,9 @@ func TestLoadConfigFilesMirrorHomeYAMLWins(t *testing.T) {
 	}
 	if !bytes.Equal(cf.HomeFiles[wantTUI], []byte(`{"theme":"home"}`)) {
 		t.Errorf("HomeFiles[%s] = %q, want home content", wantTUI, cf.HomeFiles[wantTUI])
+	}
+	if cf.Modes[wantTUI].Perm() != 0o755 {
+		t.Errorf("home override mode = %o, want 755", cf.Modes[wantTUI].Perm())
 	}
 }
 

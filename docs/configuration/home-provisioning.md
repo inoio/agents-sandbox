@@ -57,6 +57,9 @@ home:
 
 Rules:
 
+- Home mappings preserve ordinary Unix permission bits from the host source,
+  including executable bits for files that are intended to be run directly in
+  the VM.
 - `hook: startup` runs the provisioned script after home files are provisioned and before the agent session starts,
   using the interpreter named by the script's shebang (`#!/bin/sh`, `#!/bin/bash`, `#!/usr/bin/env python3`, ...).
   A script with **no shebang** falls back to `/bin/sh`. Any other non-empty `hook` value is rejected as a parse error.
