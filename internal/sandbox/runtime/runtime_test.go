@@ -12,6 +12,7 @@ import (
 
 	sandboxmsb "github.com/inoio/agents-sandbox/internal/sandbox/msb"
 	"github.com/inoio/agents-sandbox/internal/termio"
+	"github.com/inoio/agents-sandbox/internal/upgrade"
 )
 
 func TestInspectRuntimeEqual(t *testing.T) {
@@ -1093,6 +1094,28 @@ func TestMismatchChoicesOfferLauncherUpgradeWhenNewerReleaseExists(t *testing.T)
 	})
 	if !containsChoice(choices, "a") {
 		t.Fatal("expected launcher upgrade choice")
+	}
+}
+
+func TestMismatchChoicesDoNotOfferSelfUpgradeForHomebrewInstall(t *testing.T) {
+	oldLatest := latestAgentsSandboxVersion
+	latestAgentsSandboxVersion = func(context.Context) (string, error) { return "0.3.0", nil }
+	t.Cleanup(func() { latestAgentsSandboxVersion = oldLatest })
+
+	oldHomebrew := upgrade.InstalledViaHomebrew
+	upgrade.InstalledViaHomebrew = func() bool { return true }
+	t.Cleanup(func() { upgrade.InstalledViaHomebrew = oldHomebrew })
+
+	choices := mismatchChoices(context.Background(), "0.2.0", Inspection{
+		RequiredVersion:  "0.7.2",
+		InstalledVersion: "0.7.3",
+		Relation:         RuntimeNewer,
+	})
+	if containsChoice(choices, "a") {
+		t.Fatal("a Homebrew-managed launcher must not be offered a self-upgrade that desyncs brew")
+	}
+	if !containsChoice(choices, "i") {
+		t.Fatal("expected the issue choice to remain available")
 	}
 }
 

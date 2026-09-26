@@ -460,13 +460,18 @@ func mismatchChoices(ctx context.Context, launcherVersion string, inspection Ins
 	issueDescription := "show a sanitized compatibility report and issue URL"
 	if inspection.Relation == RuntimeNewer && launcherVersion != "" && launcherVersion != "dev" {
 		if latest, err := latestAgentsSandboxVersion(ctx); err == nil {
-			if newer, compareErr := upgrade.IsNewer(launcherVersion, latest); compareErr == nil && newer {
+			newer, compareErr := upgrade.IsNewer(launcherVersion, latest)
+			switch {
+			case compareErr == nil && newer && !upgrade.InstalledViaHomebrew():
 				choices = append(choices, termio.Choice{
 					Label:       "Upgrade agents-sandbox and restart",
 					Key:         "a",
 					Description: "install " + latest + " and retry with its microsandbox SDK",
 				})
-			} else if compareErr == nil {
+			case compareErr == nil:
+				// Either the launcher is already the newest release, or a newer
+				// release exists but is managed by Homebrew and must be updated
+				// out-of-band; either way a compatibility issue is the fallback.
 				issueDescription = "request an agents-sandbox release supporting msb " + inspection.InstalledVersion
 			}
 		}

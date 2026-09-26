@@ -8,6 +8,15 @@ command reports the bare version (e.g. `0.1.0`).
 
 ## [Unreleased]
 
+### Changed
+
+- Self-upgrade: Homebrew-managed installs (the running binary lives under a
+  `Cellar` directory) are now detected automatically. The `run`/`shell` update
+  check is skipped regardless of `upgrade.mode`, the `msb` runtime-mismatch
+  prompt no longer offers a launcher self-upgrade, and `agents-sandbox upgrade`
+  points to `brew update && brew upgrade agents-sandbox` so Homebrew's version
+  bookkeeping stays accurate (#66).
+
 ### Fixed
 
 - Bugfix: home mappings, agent-config drop-in copies, and verbatim config-directory mirrors now preserve ordinary Unix

@@ -20,8 +20,9 @@ nav_order: 20
   brew update && brew upgrade agents-sandbox
   ```
 
-  If you upgrade via Homebrew, keep using Homebrew (`brew upgrade`) instead of the
-  launcher's [self-upgrade]({% link configuration/self-upgrade.md %}), so Homebrew's version bookkeeping stays accurate.
+  Homebrew installs are detected automatically: the launcher disables its
+  [self-upgrade]({% link configuration/self-upgrade.md %}) so Homebrew's version bookkeeping stays accurate, and
+  `agents-sandbox upgrade` points you back to `brew upgrade`.
 
 * Or download the latest binary:
 

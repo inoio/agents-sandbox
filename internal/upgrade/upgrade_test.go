@@ -96,6 +96,26 @@ func TestCheckSkipsDevAndEmpty(t *testing.T) {
 	}
 }
 
+func TestCheckSkipsHomebrewInstall(t *testing.T) {
+	serveLatest(t, "2.0.0", nil)
+	origHomebrew := InstalledViaHomebrew
+	InstalledViaHomebrew = func() bool { return true }
+	t.Cleanup(func() { InstalledViaHomebrew = origHomebrew })
+
+	opts := mockOptions(t, "1.0.0", ModeAuto)
+	opts.UpdateFunc = func(context.Context, string) error {
+		t.Fatal("must not replace the binary of a Homebrew-managed install")
+		return nil
+	}
+	res, err := Check(context.Background(), opts)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if res.HasUpdate || res.Updated || res.Exit {
+		t.Fatalf("expected a complete no-op for a Homebrew install, got %+v", res)
+	}
+}
+
 func TestCheckThrottled(t *testing.T) {
 	// A failing server proves no network request happens when throttled.
 	serveLatest(t, "9.9.9", nil)
@@ -440,6 +460,30 @@ func TestUpgrade(t *testing.T) {
 		}
 		if installed != "2.0.0" {
 			t.Fatalf("installed = %q, want 2.0.0", installed)
+		}
+	})
+
+	t.Run("homebrew install defers to brew", func(t *testing.T) {
+		origHomebrew := InstalledViaHomebrew
+		InstalledViaHomebrew = func() bool { return true }
+		t.Cleanup(func() { InstalledViaHomebrew = origHomebrew })
+		origLatest, origUpdate := LatestVersion, Update
+		LatestVersion = func(context.Context) (string, error) {
+			t.Fatal("LatestVersion must not be consulted for a Homebrew install")
+			return "", nil
+		}
+		Update = func(context.Context, string) error {
+			t.Fatal("Update must not replace the binary of a Homebrew install")
+			return nil
+		}
+		t.Cleanup(func() { LatestVersion, Update = origLatest, origUpdate })
+
+		ui := termio.Mock{}
+		if err := Upgrade(context.Background(), &ui, "1.0.0"); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if len(ui.InfoCalls) == 0 || !strings.Contains(ui.InfoCalls[0], "brew") {
+			t.Fatalf("expected brew upgrade guidance, got %v", ui.InfoCalls)
 		}
 	})
 
