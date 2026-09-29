@@ -10,6 +10,8 @@ command reports the bare version (e.g. `0.1.0`).
 
 ### Changed
 
+- Docs: `make check` and CI now validate documentation links and linking style via `ci/check-docs.sh`; README links use
+  relative `docs/` paths and `docs/` pages link with Jekyll `{% link %}` tags.
 - Security: VM network egress is now denied by default. Use `--network public`, an explicit `network.profile`, or another
   network profile to opt into broader access. Existing VMs without a recorded network policy are recreated to apply the secure default.
 
