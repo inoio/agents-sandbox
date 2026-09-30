@@ -23,12 +23,13 @@ func TestEnsureImageSkipsBuildWhenDockerfileIDMatches(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	WithMockAgentVersion(t, "1.2.3")
 	a := agentOpencode(t)
+	caCert := resolveTestCACert(t)
 	built := false
 	docker.WithDockerMock(t, &docker.MockDockerClient{
 		ImageInspectFn: func(_ context.Context, ref string, _ ...client.ImageInspectOption) (client.ImageInspectResult, error) {
 			id := "sha256:existing"
 			labels := map[string]string{
-				dockerfileIDLabelKey: computeDockerfileID(RenderDockerfile(a, nil, false), "1.2.3"),
+				dockerfileIDLabelKey: computeDockerfileID(RenderDockerfile(a, nil, false), "1.2.3", caCert),
 			}
 			if ref == "debian:trixie-slim" {
 				return client.ImageInspectResult{InspectResponse: image.InspectResponse{ID: "sha256:base"}}, nil

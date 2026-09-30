@@ -110,6 +110,42 @@ func TestRenderDockerfileCustomBase(t *testing.T) {
 			t.Errorf("rendered Dockerfile missing %q", want)
 		}
 	}
+	if strings.Contains(s, "microsandbox-ca.crt") {
+		t.Error("custom base must not get the CA trust block; the cert is only shipped in the build context")
+	}
+}
+
+func TestRenderDockerfileCACertBlock(t *testing.T) {
+	a, _ := agent.Lookup("opencode")
+	s := string(RenderDockerfile(a, nil, false))
+	for _, want := range []string{
+		"COPY agents-sandbox-ca.crt /usr/local/share/ca-certificates/microsandbox-ca.crt",
+		"RUN update-ca-certificates",
+	} {
+		if !strings.Contains(s, want) {
+			t.Errorf("managed base rendered Dockerfile missing %q", want)
+		}
+	}
+	// The CA must be trusted before the tool-owned HTTPS downloads (node).
+	caIdx := strings.Index(s, "update-ca-certificates")
+	nodeIdx := strings.Index(s, "node-v26.8.1-linux")
+	if caIdx < 0 || nodeIdx < 0 || caIdx > nodeIdx {
+		t.Error("CA trust block must come before the agent/node download")
+	}
+}
+
+func TestRenderDockerfileCACertBlockManagedFrom(t *testing.T) {
+	a, _ := agent.Lookup("opencode")
+	project := []byte("FROM agents-sandbox/runner-base:latest\nRUN apt-get install -y tree\n")
+	s := string(RenderDockerfile(a, project, false))
+	if !strings.Contains(s, "COPY agents-sandbox-ca.crt /usr/local/share/ca-certificates/microsandbox-ca.crt") {
+		t.Error("managed FROM replacement must still get the CA trust block")
+	}
+	caIdx := strings.Index(s, "update-ca-certificates")
+	bodyIdx := strings.Index(s, "apt-get install -y tree")
+	if caIdx < 0 || bodyIdx < 0 || caIdx > bodyIdx {
+		t.Error("CA trust block must come before the user-provided Dockerfile body")
+	}
 }
 
 func TestRenderDockerfileManagedBaseFrom(t *testing.T) {
@@ -202,7 +238,7 @@ func TestRenderDockerfileDindFromImpliesDind(t *testing.T) {
 func TestReplaceFinalStageFrom(t *testing.T) {
 	in := []byte("FROM agents-sandbox/runner-base:latest\nRUN echo hi\n")
 	block := []byte("FROM debian:trixie-slim\nRUN apt-get update\n")
-	got := string(replaceFinalStageFrom(in, block))
+	got := string(replaceFinalStageFrom(in, block, nil))
 	if strings.Contains(got, "FROM agents-sandbox/runner-base") {
 		t.Errorf("replaceFinalStageFrom must drop the managed FROM, got %q", got)
 	}
@@ -217,7 +253,7 @@ func TestReplaceFinalStageFrom(t *testing.T) {
 func TestReplaceFinalStageFromMultiStageUsesLastFrom(t *testing.T) {
 	in := []byte("FROM debian:trixie-slim AS base\nFROM base AS final\nRUN echo hi\n")
 	block := []byte("FROM debian:trixie-slim\nRUN apt-get update\n")
-	got := string(replaceFinalStageFrom(in, block))
+	got := string(replaceFinalStageFrom(in, block, nil))
 	if strings.Contains(got, "FROM base AS final") {
 		t.Errorf("replaceFinalStageFrom must replace only the final stage FROM, got %q", got)
 	}
@@ -226,6 +262,26 @@ func TestReplaceFinalStageFromMultiStageUsesLastFrom(t *testing.T) {
 	}
 	if !strings.Contains(got, "RUN echo hi") {
 		t.Errorf("replaceFinalStageFrom must preserve the final-stage body, got %q", got)
+	}
+}
+
+func TestReplaceFinalStageFromInsertsAfterBlock(t *testing.T) {
+	in := []byte("FROM agents-sandbox/runner-base:latest\nRUN echo body\n")
+	block := []byte("FROM debian:trixie-slim\nRUN apt-get update\n")
+	after := []byte("RUN install-ca\n")
+	got := string(replaceFinalStageFrom(in, block, after))
+	if !strings.Contains(got, "RUN apt-get update\nRUN install-ca\nRUN echo body\n") {
+		t.Errorf("replaceFinalStageFrom must insert afterBlock after the replacement block, got %q", got)
+	}
+}
+
+func TestReplaceFinalStageFromInsertsAfterBlockWithoutTrailingNewline(t *testing.T) {
+	in := []byte("FROM agents-sandbox/runner-base:latest\nRUN echo body\n")
+	block := []byte("FROM debian:trixie-slim\nRUN apt-get update\n")
+	after := []byte("RUN install-ca")
+	got := string(replaceFinalStageFrom(in, block, after))
+	if !strings.Contains(got, "RUN apt-get update\nRUN install-ca\nRUN echo body\n") {
+		t.Errorf("replaceFinalStageFrom must terminate a newline-less afterBlock, got %q", got)
 	}
 }
 

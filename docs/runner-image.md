@@ -33,6 +33,8 @@ Dockerfile (if any) plus tool-owned blocks:
   any earlier build stages above it — so multi-stage project Dockerfiles are supported.
 - **Dev user block** — the first instruction of the final stage, inserted right after the final `FROM`: creates the
   `dev` user (host UID/GID), reserving its identity before anything else in the stage runs.
+- **CA trust block** — bakes the TLS-interception CA into the system trust store (managed bases only, see
+  [TLS interception CA](#tls-interception-ca)).
 - **Docker-in-Docker block** *(optional)* — only when dind is enabled.
 - **Agent block** — Node.js and the coding agent.
 - **Finalize block** — adds `dev` to the docker group, switches to `USER dev`, and sets `WORKDIR /workspace`.
@@ -76,6 +78,48 @@ RUN apt-get update && apt-get install -y python3 && rm -rf /var/lib/apt/lists/*
 
 ENV definitions in Dockerfiles are applied to running sandboxes. If you need to configure e.g. `PATH`, just set
 `ENV PATH=...:` in your Dockerfile.
+
+## TLS interception CA
+
+Microsandbox's transparent HTTPS proxy intercepts outbound TLS using a CA that the launcher generates and manages
+(stored under `~/.local/state/agents-sandbox/tls/`; see [Networking]({% link configuration/networking.md %}#tls-interception)).
+Trusting that CA is handled differently for managed and custom bases:
+
+- **Managed bases** (the embedded `debian:trixie-slim` block or a `FROM .../runner-base...` replacement) bake the CA
+  into the system trust store automatically via a `COPY agents-sandbox-ca.crt /usr/local/share/ca-certificates/…` plus
+  `update-ca-certificates` step. Because `ca-certificates` is guaranteed, nothing else is needed.
+- **Custom bases** are left untouched, but the certificate is still shipped in the docker **build context** as
+  `agents-sandbox-ca.crt`. To trust the interceptor, `COPY` it into any build stage of your Dockerfile before your own
+  trust steps:
+
+  ```dockerfile
+  COPY agents-sandbox-ca.crt /usr/local/share/ca-certificates/microsandbox-ca.crt
+  RUN update-ca-certificates
+  ```
+
+  This works in **any** stage (including earlier builder stages), so a stage that fetches over HTTPS — or bakes the CA
+  into a language-specific trust store — can do so reliably. A custom base that never references the file is unaffected.
+
+At **runtime**, microsandbox additionally installs the active interception CA into the running VM at well-known guest
+paths, so even images that do not bake it at build time can trust (or import) it:
+
+| Path | Notes |
+|------|-------|
+| `/usr/local/share/ca-certificates/microsandbox-ca.crt` | Debian-style trust anchors |
+| `/etc/pki/ca-trust/source/anchors/microsandbox-ca.crt` | RHEL/CentOS/Fedora anchors |
+| `/.msb/tls/ca.pem` | microsandbox's canonical guest copy (`NODE_EXTRA_CA_CERTS` points here) |
+
+The CA is also merged into `/etc/ssl/certs/ca-certificates.crt`, and the guest gets `SSL_CERT_FILE`,
+`CURL_CA_BUNDLE`, `REQUESTS_CA_BUNDLE`, and `NODE_EXTRA_CA_CERTS` set. For a Java trust store, import it at build time:
+
+```dockerfile
+RUN keytool -importcert -noprompt -alias microsandbox \
+  -file /usr/local/share/ca-certificates/microsandbox-ca.crt \
+  -keystore "$JAVA_HOME/lib/security/cacerts" -storepass changeit
+```
+
+> These runtime paths exist only in the *running* VM, not inside `docker build` containers. If your custom base needs
+> the CA during a build-time `RUN` step, `COPY agents-sandbox-ca.crt` from the build context as shown above.
 
 ## Docker-in-Docker
 
@@ -169,8 +213,8 @@ and the pi image is `agents-sandbox/runner-my-project:pi-latest`.
 ### Skip-build when unchanged
 
 The Docker build is skipped when the baked `org.agents-sandbox.dockerfile-id` label matches the current content. This
-label is a hash of the rendered Dockerfile and the agent version, so an image already built from the exact same
-Dockerfile and agent version is reused instead of being rebuilt.
+label is a hash of the rendered Dockerfile, the agent version, and the TLS-interception CA certificate, so an image
+already built from the exact same inputs is reused instead of being rebuilt.
 
 ### Content-verified load
 

@@ -147,6 +147,7 @@ func TestBuildDockerImageSetsHostUserBuildArgs(t *testing.T) {
 		"debian:trixie-slim",
 		"",
 		false,
+		nil,
 		func(string) {},
 	); err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -164,12 +165,12 @@ func TestBuildDockerImageSetsHostUserBuildArgs(t *testing.T) {
 
 func TestDockerfileTarContainsDockerfile(t *testing.T) {
 	dockerfile := []byte("FROM debian:trixie-slim\nRUN echo hi\n")
-	tarBuf, err := dockerfileTar(dockerfile)
-	if err != nil {
-		t.Fatalf("dockerfileTar failed: %v", err)
+	var tarBuf bytes.Buffer
+	if err := writeBuildContext(&tarBuf, dockerfile, nil); err != nil {
+		t.Fatalf("writeBuildContext failed: %v", err)
 	}
 
-	tr := tar.NewReader(tarBuf)
+	tr := tar.NewReader(&tarBuf)
 	header, err := tr.Next()
 	if err != nil {
 		t.Fatalf("unexpected error reading tar: %v", err)
@@ -183,6 +184,123 @@ func TestDockerfileTarContainsDockerfile(t *testing.T) {
 	}
 	if !bytes.Equal(content, dockerfile) {
 		t.Errorf("tar content does not match dockerfile")
+	}
+	if _, err := tr.Next(); err != io.EOF {
+		t.Errorf("expected no further tar entries without a CA cert, got %v", err)
+	}
+}
+
+func TestDockerfileTarIncludesCACert(t *testing.T) {
+	dockerfile := []byte("FROM debian:trixie-slim\n")
+	caCert := []byte("-----BEGIN CERTIFICATE-----\nfake\n-----END CERTIFICATE-----\n")
+	var tarBuf bytes.Buffer
+	if err := writeBuildContext(&tarBuf, dockerfile, caCert); err != nil {
+		t.Fatalf("writeBuildContext failed: %v", err)
+	}
+
+	tr := tar.NewReader(&tarBuf)
+	var foundCert bool
+	for {
+		header, err := tr.Next()
+		if errors.Is(err, io.EOF) {
+			break
+		}
+		if err != nil {
+			t.Fatalf("unexpected error reading tar: %v", err)
+		}
+		if header.Name != caContextFile {
+			continue
+		}
+		foundCert = true
+		if header.Size != int64(len(caCert)) {
+			t.Errorf("CA cert entry size = %d, want %d", header.Size, len(caCert))
+		}
+		content, err := io.ReadAll(tr)
+		if err != nil {
+			t.Fatalf("unexpected error reading tar content: %v", err)
+		}
+		if !bytes.Equal(content, caCert) {
+			t.Errorf("CA cert tar content does not match input")
+		}
+	}
+	if !foundCert {
+		t.Error("expected tar to contain the CA cert file")
+	}
+}
+
+// failAfterWriter accepts bytes up to a cumulative limit and then reports a
+// write error, letting tests force failures at any point in the tar archive.
+type failAfterWriter struct {
+	written int
+	limit   int64
+}
+
+func (w *failAfterWriter) Write(b []byte) (int, error) {
+	w.written += len(b)
+	if int64(w.written) > w.limit {
+		return 0, errors.New("injected write failure")
+	}
+	return len(b), nil
+}
+
+func TestWriteBuildContextWriteFailures(t *testing.T) {
+	dockerfile := []byte("FROM debian:trixie-slim\nRUN echo hi\n")
+	caCert := []byte("-----BEGIN CERTIFICATE-----\nAAAA\n-----END CERTIFICATE-----\n")
+
+	// The tar writer's underlying write sequence is: Dockerfile header (one
+	// 512-byte block), Dockerfile content, its padding, the CA header block,
+	// the CA content, its padding, and the end-of-archive blocks. Failing once
+	// more than limit bytes have been accepted pins the failure to a specific
+	// entry and covers each write-error branch.
+	blockPadding := func(n int) int { return (512 - n%512) % 512 }
+	afterDockerfile := 512 + len(dockerfile)
+	afterCAHeader := afterDockerfile + blockPadding(len(dockerfile)) + 512
+	afterCAContent := afterCAHeader + len(caCert)
+
+	cases := []struct {
+		name    string
+		limit   int64
+		wantErr string
+	}{
+		{name: "dockerfile header", limit: 0, wantErr: "tar write header Dockerfile"},
+		{name: "dockerfile content", limit: 512, wantErr: "tar write Dockerfile"},
+		{name: "ca header", limit: int64(afterDockerfile), wantErr: "tar write header " + caContextFile},
+		{name: "ca content", limit: int64(afterCAHeader), wantErr: "tar write " + caContextFile},
+		{name: "close", limit: int64(afterCAContent), wantErr: "tar close"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			err := writeBuildContext(&failAfterWriter{limit: tc.limit}, dockerfile, caCert)
+			if err == nil {
+				t.Fatal("expected a write error")
+			}
+			if !strings.Contains(err.Error(), tc.wantErr) {
+				t.Errorf("error = %q, want it to mention %q", err, tc.wantErr)
+			}
+		})
+	}
+}
+
+func TestBuildImageErrorWhenBuildContextFails(t *testing.T) {
+	orig := writeBuildContext
+	writeBuildContext = func(io.Writer, []byte, []byte) error { return errors.New("context write failed") }
+	t.Cleanup(func() { writeBuildContext = orig })
+
+	err := buildImage(
+		context.Background(),
+		nil,
+		[]byte("FROM debian:trixie-slim\n"),
+		"proj",
+		false,
+		"1.2.3",
+		"debian:trixie-slim",
+		"dockerfile-id",
+		false,
+		[]byte("ca"),
+		func(string) {},
+	)
+	if err == nil || !strings.Contains(err.Error(), "create build context") {
+		t.Fatalf("buildImage error = %v, want a create-build-context failure", err)
 	}
 }
 
@@ -217,6 +335,7 @@ func TestScanBuildOutputReturnsErrorMessage(t *testing.T) {
 }
 
 func TestEnsureImageReturnsErrorWhenBuildFails(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
 	a, _ := agent.Lookup("opencode")
 	l := &termio.Mock{}
 	docker.WithDefaultErrorDockerMock(t)

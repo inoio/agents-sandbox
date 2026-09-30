@@ -100,21 +100,11 @@ Always use your superpowers for appropriate tasks, never skip user approval.
 ## Current limitations
 
 - No SSH keys in the VM, git cmds against remotes won't work.
-- microsandbox injects a tls cert into the VM for egress inspection. This can cause docker image builds to fail with
-  self-signed cert errors. Workaround (example base image):
-
-  ```
-  # 1. Build a CA-trusting replacement for debian:trixie-slim.
-  mkdir -p /tmp/cabase && cd /tmp/cabase
-  cp /usr/local/share/ca-certificates/microsandbox-ca.crt ./
-  cat > Dockerfile <<'EOF'
-  FROM debian:trixie-slim
-  COPY microsandbox-ca.crt /usr/local/share/ca-certificates/microsandbox-ca.crt
-  RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates && \
-  update-ca-certificates && rm -rf /var/lib/apt/lists/*
-  EOF
-  docker build -t debian:trixie-slim .
-  
-  # 2. Build the runner image as usual.
-  go run ./cmd/agents-sandbox build -r
-  ```
+- The launcher generates and configures the microsandbox TLS-interception CA itself (see
+  `internal/sandbox/tlsca`) and ships the certificate in the docker build context as `agents-sandbox-ca.crt`.
+  Managed runner images bake it into the trust store automatically. The runtime-injected guest paths
+  (`/usr/local/share/ca-certificates/microsandbox-ca.crt`, `/etc/pki/ca-trust/source/anchors/`, `/.msb/tls/ca.pem`)
+  are still the place custom images read the CA from at runtime — but they do **not** exist inside `docker build`
+  containers. A custom base whose earlier build stages fetch over HTTPS (or bake the CA into a language trust store)
+  must `COPY agents-sandbox-ca.crt` from the build context. When the CA changes, `~/.local/state/agents-sandbox/tls/`
+  holds the persisted keypair.

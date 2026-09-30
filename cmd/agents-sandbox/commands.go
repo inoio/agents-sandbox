@@ -110,7 +110,7 @@ func extractRunOptions(cmd *cobra.Command, ui termio.UI) (options.RunOptions, er
 		if err != nil {
 			return options.RunOptions{}, err
 		}
-		opts.Network = network.Policy{Profile: prof, EgressAllow: nil, EgressDeny: nil, DNSServers: nil}
+		opts.Network = network.Policy{Profile: prof, EgressAllow: nil, EgressDeny: nil, DNSServers: nil, TLS: nil}
 	} else if r := resolverFromContext(cmd.Context()); r != nil {
 		opts.Network = r.Network()
 	}

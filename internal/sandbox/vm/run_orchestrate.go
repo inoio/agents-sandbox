@@ -14,6 +14,7 @@ import (
 	"github.com/inoio/agents-sandbox/internal/sandbox/options"
 	"github.com/inoio/agents-sandbox/internal/sandbox/reprovision"
 	"github.com/inoio/agents-sandbox/internal/sandbox/state"
+	"github.com/inoio/agents-sandbox/internal/sandbox/tlsca"
 	"github.com/inoio/agents-sandbox/internal/sandbox/volume"
 	"github.com/inoio/agents-sandbox/internal/termio"
 )
@@ -55,7 +56,7 @@ func (s *Session) ServeHostPort() int {
 // PrepareSandbox builds (or reuses) the project VM, provisions config, and
 // returns a ready-to-attach Session. It is the setup half of a run:
 // Run and Shell in the session package call it and then attach to the result.
-func PrepareSandbox(
+func PrepareSandbox( //nolint:funlen // setup pipeline: agent/image/volume/reconfig steps are cohesive
 	ctx context.Context,
 	opts options.RunOptions,
 	ui termio.UI,
@@ -65,6 +66,14 @@ func PrepareSandbox(
 	a, ok := agent.Lookup(opts.Agent)
 	if !ok {
 		return nil, fmt.Errorf("unknown agent %q", opts.Agent)
+	}
+
+	// Resolve the host's TLS interception CA up front so the runner image bakes
+	// it in and the project VM is configured to use it. Populating the network
+	// policy before the reconfig decision and the creation-time fingerprint
+	// persist keeps those hashes consistent with the applied VM.
+	if err := resolveInterceptionCA(&opts); err != nil {
+		return nil, err
 	}
 
 	// Decide the agent version to bake before touching the image. Without an
@@ -226,4 +235,24 @@ func provisionHostConfig(opts options.RunOptions) bool {
 		return true
 	}
 	return *opts.ProvisionHostConfig
+}
+
+// resolveInterceptionCA resolves the host's TLS interception CA and wires it
+// into the network policy so the project VM is configured to use it.
+func resolveInterceptionCA(opts *options.RunOptions) error {
+	ca, err := tlsca.Ensure()
+	if err != nil {
+		return err
+	}
+	caFingerprint, err := ca.Fingerprint()
+	if err != nil {
+		return err
+	}
+	if opts.Network.TLS == nil {
+		opts.Network.TLS = &network.TLSConfig{} //nolint:exhaustruct // populated below
+	}
+	opts.Network.TLS.CACert = ca.CertPath
+	opts.Network.TLS.CAKey = ca.KeyPath
+	opts.Network.TLS.CAFingerprint = caFingerprint
+	return nil
 }
