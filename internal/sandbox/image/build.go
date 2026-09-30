@@ -316,16 +316,16 @@ func EnsureImageWithClient(
 	rTag := runnerTag(projectSlug, a.Name())
 	rendered := RenderDockerfile(a, projectDockerfile, buildOpts.Dind)
 	dockerfileID := computeDockerfileID(rendered, agentVersion)
+	baseRef := baseImageRef(rendered)
 
-	if buildOpts.Force || !imageHasDockerfileID(ctx, rTag, dockerfileID) {
-		baseRef := baseImageRef(rendered)
+	if buildOpts.Force || !imageHasDockerfileID(ctx, rTag, dockerfileID) || baseMovedLocally(ctx, rTag, baseRef) {
 		baseDigest, baseErr := resolveBaseDigest(ctx, baseRef, ui)
 		if baseErr != nil {
 			return ImageInfo{}, fmt.Errorf("resolve base image %s: %w", baseRef, baseErr)
 		}
 		if buildErr := buildDockerImage(
 			ctx, a, rendered, rTag, "Ensuring runner image",
-			true, agentVersion, baseDigest, dockerfileID, buildOpts.Dind, ui,
+			buildOpts.Force, agentVersion, baseDigest, dockerfileID, buildOpts.Dind, ui,
 		); buildErr != nil {
 			return ImageInfo{}, buildErr
 		}

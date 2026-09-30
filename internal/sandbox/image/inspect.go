@@ -20,6 +20,42 @@ func imageHasDockerfileID(ctx context.Context, rTag, dockerfileID string) bool {
 	return inspect.Config.Labels[dockerfileIDLabelKey] == dockerfileID
 }
 
+// baseMovedLocally reports whether the base image recorded in the existing
+// runner image's base label ("<ref>@<id>" provenance from build time) no
+// longer matches the locally-tagged base image, i.e. the base tag has moved
+// since the runner was built. It returns false on any inspect error or a
+// missing config/label so an unknown state never forces a rebuild, keeping the
+// skip path offline-safe.
+func baseMovedLocally(ctx context.Context, rTag, baseRef string) bool {
+	runner, err := docker.Get().ImageInspect(ctx, rTag)
+	if err != nil || runner.Config == nil {
+		return false
+	}
+	recorded, ok := runner.Config.Labels[baseImageLabelKey]
+	if !ok {
+		return false
+	}
+	recordedID := lastAtSegment(recorded)
+	if recordedID == "" {
+		return false
+	}
+	base, err := docker.Get().ImageInspect(ctx, baseRef)
+	if err != nil {
+		return false
+	}
+	return recordedID != base.ID
+}
+
+// lastAtSegment returns the part of s after the last "@", or "" when s carries
+// no "@" separator.
+func lastAtSegment(s string) string {
+	at := strings.LastIndex(s, "@")
+	if at < 0 {
+		return ""
+	}
+	return s[at+1:]
+}
+
 // readImageInfoFromDocker returns the image env map by inspecting the Docker
 // image. The loaded microsandbox image is a passthrough of the Docker image, so
 // reading from Docker is equivalent to reading from microsandbox and avoids

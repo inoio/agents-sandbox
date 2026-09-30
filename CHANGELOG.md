@@ -10,6 +10,10 @@ command reports the bare version (e.g. `0.1.0`).
 
 ### Changed
 
+- Performance: runner-image rebuilds (project Dockerfile edits, moved base image) now use Docker's layer cache instead
+  of always building with `--no-cache`; only `--rebuild`/`-r` and upgrade-triggered rebuilds stay clean `--no-cache`
+  builds. A locally moved base tag is detected via the recorded `org.agents-sandbox.base` label and still triggers a
+  rebuild (#80).
 - Security: VM network egress is now denied by default. Use `--network public`, an explicit `network.profile`, or another
   network profile to opt into broader access. Existing VMs without a recorded network policy are recreated to apply the secure default.
 

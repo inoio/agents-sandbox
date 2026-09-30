@@ -3,6 +3,7 @@ package image
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"strings"
 	"testing"
@@ -16,6 +17,41 @@ import (
 	"github.com/inoio/agents-sandbox/internal/sandbox/docker"
 	"github.com/inoio/agents-sandbox/internal/termio"
 )
+
+// runnerInspectWith builds a runner-image inspect result carrying the given
+// labels, used to mock the state of an already-built runner image.
+func runnerInspectWith(labels map[string]string) client.ImageInspectResult {
+	return client.ImageInspectResult{InspectResponse: image.InspectResponse{
+		ID:     "sha256:existing",
+		Config: &dockerspec.DockerOCIImageConfig{ImageConfig: ocispec.ImageConfig{Labels: labels}},
+	}}
+}
+
+// buildRecordingDockerMock installs a Docker mock that records whether a build
+// ran and with which NoCache setting, serving runnerImage for runner refs and
+// baseResult for the default debian:trixie-slim base ref.
+func buildRecordingDockerMock(
+	t *testing.T,
+	baseResult func() (client.ImageInspectResult, error),
+	runnerImage func() client.ImageInspectResult,
+	built *bool,
+	gotNoCache *bool,
+) {
+	t.Helper()
+	docker.WithDockerMock(t, &docker.MockDockerClient{
+		ImageInspectFn: func(_ context.Context, ref string, _ ...client.ImageInspectOption) (client.ImageInspectResult, error) {
+			if ref == "debian:trixie-slim" {
+				return baseResult()
+			}
+			return runnerImage(), nil
+		},
+		ImageBuildFn: func(_ context.Context, _ io.Reader, opts client.ImageBuildOptions) (client.ImageBuildResult, error) {
+			*built = true
+			*gotNoCache = opts.NoCache
+			return client.ImageBuildResult{Body: io.NopCloser(strings.NewReader(""))}, nil
+		},
+	})
+}
 
 // TestEnsureImageSkipsBuildWhenDockerfileIDMatches verifies the build is skipped
 // when the existing runner image already carries a matching dockerfile-id label.
@@ -178,5 +214,227 @@ func TestBaseImageRef(t *testing.T) {
 	custom := []byte("FROM ubuntu:24.04\nRUN echo hi\n")
 	if got := baseImageRef(RenderDockerfile(a, custom, false)); got != "ubuntu:24.04" {
 		t.Errorf("custom baseImageRef = %q", got)
+	}
+}
+
+// TestEnsureImageNoCacheMatchesForce verifies rebuilds use Docker's layer cache
+// unless the build was forced: a dockerfile-id mismatch with Force false builds
+// with NoCache false, while Force true keeps the clean --no-cache build.
+func TestEnsureImageNoCacheMatchesForce(t *testing.T) {
+	for _, force := range []bool{false, true} {
+		t.Run(fmt.Sprintf("force=%t", force), func(t *testing.T) {
+			configpaths.WithMockConfigPaths(t)
+			WithMockAgentVersion(t, "1.2.3")
+			a := agentOpencode(t)
+			built := false
+			gotNoCache := !force
+			staleRunner := func() client.ImageInspectResult {
+				return runnerInspectWith(map[string]string{dockerfileIDLabelKey: "stale"})
+			}
+			basePresent := func() (client.ImageInspectResult, error) {
+				return client.ImageInspectResult{InspectResponse: image.InspectResponse{ID: "sha256:base"}}, nil
+			}
+			buildRecordingDockerMock(t, basePresent, staleRunner, &built, &gotNoCache)
+
+			if _, err := EnsureImage(
+				context.Background(),
+				a,
+				"proj",
+				BuildOptions{Force: force},
+				&termio.Mock{},
+			); err != nil {
+				t.Fatalf("EnsureImage: %v", err)
+			}
+			if !built {
+				t.Fatal("expected a rebuild on dockerfile-id mismatch")
+			}
+			if gotNoCache != force {
+				t.Errorf("ImageBuild NoCache = %v, want %v", gotNoCache, force)
+			}
+		})
+	}
+}
+
+// TestEnsureImageRebuildsWhenBaseMovedLocally verifies that a locally moved
+// base tag (recorded base-label digest differs from the local base ID) forces a
+// rebuild even though the dockerfile-id label matches.
+func TestEnsureImageRebuildsWhenBaseMovedLocally(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	WithMockAgentVersion(t, "1.2.3")
+	a := agentOpencode(t)
+	built := false
+	gotNoCache := true
+	matchedRunner := func() client.ImageInspectResult {
+		return runnerInspectWith(map[string]string{
+			dockerfileIDLabelKey: computeDockerfileID(RenderDockerfile(a, nil, false), "1.2.3"),
+			baseImageLabelKey:    "debian:trixie-slim@sha256:old-base",
+		})
+	}
+	movedBase := func() (client.ImageInspectResult, error) {
+		return client.ImageInspectResult{InspectResponse: image.InspectResponse{ID: "sha256:new-base"}}, nil
+	}
+	buildRecordingDockerMock(t, movedBase, matchedRunner, &built, &gotNoCache)
+
+	if _, err := EnsureImage(context.Background(), a, "proj", BuildOptions{}, &termio.Mock{}); err != nil {
+		t.Fatalf("EnsureImage: %v", err)
+	}
+	if !built {
+		t.Error("expected a rebuild when the locally-tagged base image has moved")
+	}
+	if gotNoCache {
+		t.Error("expected the base-move rebuild to use the Docker layer cache (NoCache false)")
+	}
+}
+
+// TestEnsureImageSkipsWhenBaseUnchanged verifies that a runner image whose
+// recorded base digest equals the locally-tagged base ID is not rebuilt.
+func TestEnsureImageSkipsWhenBaseUnchanged(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	WithMockAgentVersion(t, "1.2.3")
+	a := agentOpencode(t)
+	built := false
+	gotNoCache := false
+	matchedRunner := func() client.ImageInspectResult {
+		return runnerInspectWith(map[string]string{
+			dockerfileIDLabelKey: computeDockerfileID(RenderDockerfile(a, nil, false), "1.2.3"),
+			baseImageLabelKey:    "debian:trixie-slim@sha256:base",
+		})
+	}
+	sameBase := func() (client.ImageInspectResult, error) {
+		return client.ImageInspectResult{InspectResponse: image.InspectResponse{ID: "sha256:base"}}, nil
+	}
+	buildRecordingDockerMock(t, sameBase, matchedRunner, &built, &gotNoCache)
+
+	if _, err := EnsureImage(context.Background(), a, "proj", BuildOptions{}, &termio.Mock{}); err != nil {
+		t.Fatalf("EnsureImage: %v", err)
+	}
+	if built {
+		t.Error("expected the build to be skipped when the base image is unchanged")
+	}
+}
+
+// TestEnsureImageSkipsWhenBaseLabelMissing verifies that an existing runner
+// image without the base provenance label is not rebuilt just because the base
+// cannot be compared.
+func TestEnsureImageSkipsWhenBaseLabelMissing(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	WithMockAgentVersion(t, "1.2.3")
+	a := agentOpencode(t)
+	built := false
+	gotNoCache := false
+	matchedRunner := func() client.ImageInspectResult {
+		return runnerInspectWith(map[string]string{
+			dockerfileIDLabelKey: computeDockerfileID(RenderDockerfile(a, nil, false), "1.2.3"),
+		})
+	}
+	basePresent := func() (client.ImageInspectResult, error) {
+		return client.ImageInspectResult{InspectResponse: image.InspectResponse{ID: "sha256:base"}}, nil
+	}
+	buildRecordingDockerMock(t, basePresent, matchedRunner, &built, &gotNoCache)
+
+	if _, err := EnsureImage(context.Background(), a, "proj", BuildOptions{}, &termio.Mock{}); err != nil {
+		t.Fatalf("EnsureImage: %v", err)
+	}
+	if built {
+		t.Error("expected the build to be skipped when the runner image has no base label")
+	}
+}
+
+// TestEnsureImageSkipsWhenBaseUninspectable verifies the skip path stays
+// offline-safe: an uninspectable local base image must not force a rebuild.
+func TestEnsureImageSkipsWhenBaseUninspectable(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	WithMockAgentVersion(t, "1.2.3")
+	a := agentOpencode(t)
+	built := false
+	gotNoCache := false
+	matchedRunner := func() client.ImageInspectResult {
+		return runnerInspectWith(map[string]string{
+			dockerfileIDLabelKey: computeDockerfileID(RenderDockerfile(a, nil, false), "1.2.3"),
+			baseImageLabelKey:    "debian:trixie-slim@sha256:base",
+		})
+	}
+	baseUninspectable := func() (client.ImageInspectResult, error) {
+		return client.ImageInspectResult{}, errors.New("base inspect boom")
+	}
+	buildRecordingDockerMock(t, baseUninspectable, matchedRunner, &built, &gotNoCache)
+
+	if _, err := EnsureImage(context.Background(), a, "proj", BuildOptions{}, &termio.Mock{}); err != nil {
+		t.Fatalf("EnsureImage: %v", err)
+	}
+	if built {
+		t.Error("expected the build to be skipped when the local base image cannot be inspected")
+	}
+}
+
+// TestBaseMovedLocally covers the decision table of the base-move helper.
+func TestBaseMovedLocally(t *testing.T) {
+	const rTag = "agents-sandbox/runner-proj:opencode-latest"
+	const baseRef = "debian:trixie-slim"
+	cases := []struct {
+		name         string
+		runnerResult client.ImageInspectResult
+		runnerErr    error
+		baseResult   client.ImageInspectResult
+		baseErr      error
+		want         bool
+	}{
+		{
+			name:         "digest differs from local base id",
+			runnerResult: runnerInspectWith(map[string]string{baseImageLabelKey: "debian:trixie-slim@sha256:old"}),
+			baseResult:   client.ImageInspectResult{InspectResponse: image.InspectResponse{ID: "sha256:new"}},
+			want:         true,
+		},
+		{
+			name:         "digest equals local base id",
+			runnerResult: runnerInspectWith(map[string]string{baseImageLabelKey: "debian:trixie-slim@sha256:same"}),
+			baseResult:   client.ImageInspectResult{InspectResponse: image.InspectResponse{ID: "sha256:same"}},
+			want:         false,
+		},
+		{
+			name:       "runner inspect error",
+			runnerErr:  errors.New("boom"),
+			baseResult: client.ImageInspectResult{InspectResponse: image.InspectResponse{ID: "sha256:new"}},
+			want:       false,
+		},
+		{
+			name:         "runner has no config",
+			runnerResult: client.ImageInspectResult{InspectResponse: image.InspectResponse{ID: "sha256:existing"}},
+			baseResult:   client.ImageInspectResult{InspectResponse: image.InspectResponse{ID: "sha256:new"}},
+			want:         false,
+		},
+		{
+			name:         "base label missing",
+			runnerResult: runnerInspectWith(map[string]string{dockerfileIDLabelKey: "id"}),
+			baseResult:   client.ImageInspectResult{InspectResponse: image.InspectResponse{ID: "sha256:new"}},
+			want:         false,
+		},
+		{
+			name:         "base label without digest",
+			runnerResult: runnerInspectWith(map[string]string{baseImageLabelKey: "debian:trixie-slim"}),
+			baseResult:   client.ImageInspectResult{InspectResponse: image.InspectResponse{ID: "sha256:new"}},
+			want:         false,
+		},
+		{
+			name:         "base inspect error",
+			runnerResult: runnerInspectWith(map[string]string{baseImageLabelKey: "debian:trixie-slim@sha256:old"}),
+			baseErr:      errors.New("boom"),
+			want:         false,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			docker.WithDockerMock(t, &docker.MockDockerClient{
+				ImageInspectFn: func(_ context.Context, ref string, _ ...client.ImageInspectOption) (client.ImageInspectResult, error) {
+					if ref == baseRef {
+						return tc.baseResult, tc.baseErr
+					}
+					return tc.runnerResult, tc.runnerErr
+				},
+			})
+			if got := baseMovedLocally(context.Background(), rTag, baseRef); got != tc.want {
+				t.Errorf("baseMovedLocally = %v, want %v", got, tc.want)
+			}
+		})
 	}
 }

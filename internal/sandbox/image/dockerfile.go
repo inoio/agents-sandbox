@@ -30,6 +30,10 @@ const agentLabelKey = "org.agents-sandbox.agent"
 // image has changed.
 const dockerfileIDLabelKey = "org.agents-sandbox.dockerfile-id"
 
+// baseImageLabelKey is the image label carrying the "<ref>@<id>" provenance of
+// the base image the runner was built from.
+const baseImageLabelKey = "org.agents-sandbox.base"
+
 // computeDockerfileID returns the content identity of a rendered runner
 // Dockerfile combined with the pinned agent version, capturing every input
 // that affects the baked image while excluding host-dependent build args.

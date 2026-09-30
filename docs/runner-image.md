@@ -172,6 +172,17 @@ The Docker build is skipped when the baked `org.agents-sandbox.dockerfile-id` la
 label is a hash of the rendered Dockerfile and the agent version, so an image already built from the exact same
 Dockerfile and agent version is reused instead of being rebuilt.
 
+A matching label does not hide a moved base image: the runner also compares the recorded `org.agents-sandbox.base`
+provenance against the locally-tagged base image. If the base tag now points at a different image, the runner is
+rebuilt on top of the moved base. This check is purely local — an uninspectable base or a runner without the base label
+never forces a rebuild, so the skip path stays offline-safe.
+
+### Layer caching
+
+Rebuilds (project Dockerfile edits, base moves) run with Docker's layer cache, so unchanged layers — the base tools,
+Node.js, the agent — are reused and only the affected layers are rebuilt. Only forced rebuilds bypass the cache:
+`--rebuild`/`-r` and upgrade-triggered rebuilds build with `--no-cache`, guaranteeing a freshly baked agent version.
+
 ### Content-verified load
 
 Before skipping a load, `EnsureLoaded` verifies the microsandbox cache content — the config digest (compared against
