@@ -167,18 +167,24 @@ func TestBuildDockerfileCommand(t *testing.T) {
 
 				out := ui.StdOutBuffer.String()
 				for _, want := range []string{
-					"FROM debian:trixie-slim",
-					"LABEL org.agents-sandbox.agent=opencode",
+					"FROM agents-sandbox/runner-base:opencode-latest",
 					"USER dev",
 					"WORKDIR /workspace",
+					"LABEL org.agents-sandbox.dockerfile-id=$DOCKERFILE_ID",
 				} {
 					if !strings.Contains(out, want) {
 						t.Errorf("dockerfile output missing %q; got:\n%s", want, out)
 					}
 				}
-				// No --dind flag: the dind block must be absent.
-				if strings.Contains(out, "DOCKER_VERSION") {
-					t.Errorf("dockerfile output must not contain dind block without --dind; got:\n%s", out)
+				// The shared base carries the infra layers, so the thin runner
+				// preview must not contain them.
+				for _, unwanted := range []string{
+					"FROM debian:trixie-slim", "DOCKER_VERSION", "iptables",
+					"node-v26.8.1-linux", "LABEL org.agents-sandbox.agent=",
+				} {
+					if strings.Contains(out, unwanted) {
+						t.Errorf("thin runner preview must not contain %q; got:\n%s", unwanted, out)
+					}
 				}
 			},
 		)
@@ -193,8 +199,11 @@ func TestBuildDockerfileCommand(t *testing.T) {
 				}
 
 				out := ui.StdOutBuffer.String()
-				if !strings.Contains(out, "DOCKER_VERSION") {
-					t.Errorf("dockerfile output with --dind must contain the dind block; got:\n%s", out)
+				if !strings.Contains(out, "FROM agents-sandbox/runner-base:opencode-latest-dind") {
+					t.Errorf("dockerfile output with --dind must reference the -dind shared base; got:\n%s", out)
+				}
+				if strings.Contains(out, "DOCKER_VERSION") {
+					t.Errorf("thin runner preview must not inline the dind block; got:\n%s", out)
 				}
 			},
 		)

@@ -118,6 +118,27 @@ func TestReferencesImageTrueWhenLastStageReusesAliasOfBase(t *testing.T) {
 	}
 }
 
+func TestIsManagedBaseRef(t *testing.T) {
+	a, _ := agent.Lookup("opencode")
+	managed := []string{baseTag(a, false), baseTag(a, true)}
+	for _, ref := range managed {
+		if !isManagedBaseRef(ref) {
+			t.Errorf("isManagedBaseRef(%q) = false, want true", ref)
+		}
+	}
+	for _, ref := range []string{
+		"debian:trixie-slim",
+		"ubuntu:24.04",
+		"agents-sandbox/runner-base-custom:latest",
+		"agents-sandbox/runner-other:latest",
+		"",
+	} {
+		if isManagedBaseRef(ref) {
+			t.Errorf("isManagedBaseRef(%q) = true, want false", ref)
+		}
+	}
+}
+
 func TestImageTag(t *testing.T) {
 	got := runnerTag("myproj-aBc1234D", "opencode")
 	expected := "agents-sandbox/runner-myproj-aBc1234D:opencode-latest"

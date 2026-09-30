@@ -10,3 +10,13 @@ func TestRunnerTagIsPerAgent(t *testing.T) {
 		t.Errorf("runnerTag(pi) = %q", got)
 	}
 }
+
+func TestBaseTag(t *testing.T) {
+	a := agentOpencode(t)
+	if got := baseTag(a, false); got != "agents-sandbox/runner-base:opencode-latest" {
+		t.Errorf("baseTag(opencode) = %q", got)
+	}
+	if got := baseTag(a, true); got != "agents-sandbox/runner-base:opencode-latest-dind" {
+		t.Errorf("baseTag(opencode, dind) = %q", got)
+	}
+}

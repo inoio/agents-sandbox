@@ -15,6 +15,56 @@ func TestRenderDockerfileDefaultBase(t *testing.T) {
 	out := RenderDockerfile(a, nil, false)
 	s := string(out)
 	for _, want := range []string{
+		"FROM agents-sandbox/runner-base:opencode-latest",
+		"groupadd -f -g \"$USER_GID\" dev",
+		"useradd -m -u \"$USER_UID\" -g dev -s /bin/bash dev",
+		"ARG DOCKERFILE_ID",
+		"LABEL org.agents-sandbox.dockerfile-id=$DOCKERFILE_ID",
+		"LABEL org.agents-sandbox.managed=true",
+		"LABEL org.agents-sandbox.base=$BASE_IMAGE",
+		"USER dev",
+		"WORKDIR /workspace",
+	} {
+		if !strings.Contains(s, want) {
+			t.Errorf("rendered Dockerfile missing %q", want)
+		}
+	}
+	for _, unwanted := range []string{
+		"FROM debian:trixie-slim", "iptables", "nodesource", "AGENT_INSTALL_BLOCK",
+		"docker-ce", "org.agents-sandbox.opencode-version", "DOCKER_VERSION",
+		"node-v26.8.1-linux", "echo tool > /etc/agents-sandbox/agent-source",
+		"echo user > /etc/agents-sandbox/agent-source", "LABEL org.agents-sandbox.agent=",
+	} {
+		if strings.Contains(s, unwanted) {
+			t.Errorf("thin runner Dockerfile must not contain %q", unwanted)
+		}
+	}
+}
+
+func TestRenderDockerfileDindEnabled(t *testing.T) {
+	a, _ := agent.Lookup("opencode")
+	out := RenderDockerfile(a, nil, true)
+	s := string(out)
+	if !strings.Contains(s, "FROM agents-sandbox/runner-base:opencode-latest-dind") {
+		t.Errorf("dind runner must reference the -dind shared base, got %q", firstLine(s))
+	}
+	for _, unwanted := range []string{
+		"ARG DOCKER_VERSION", "download.docker.com", "echo tool > /etc/agents-sandbox/docker-source",
+		"groupadd -f docker", `echo '{"storage-driver":"vfs"}'`,
+	} {
+		if strings.Contains(s, unwanted) {
+			t.Errorf("thin dind runner Dockerfile must not contain the dind block text %q", unwanted)
+		}
+	}
+}
+
+// TestRenderBaseDockerfile checks the shared base carries the debian tools,
+// node+agent, and the managed label, ending as root with no host-specific dev
+// user or finalize content.
+func TestRenderBaseDockerfile(t *testing.T) {
+	a, _ := agent.Lookup("opencode")
+	out := string(renderBaseDockerfile(a, false))
+	for _, want := range []string{
 		"FROM debian:trixie-slim",
 		"iptables",
 		"ARG OPENCODE_VERSION",
@@ -25,30 +75,31 @@ func TestRenderDockerfileDefaultBase(t *testing.T) {
 		"node-v26.8.1-linux",
 		"echo tool > /etc/agents-sandbox/agent-source",
 		"echo user > /etc/agents-sandbox/agent-source",
-		"groupadd -f -g \"$USER_GID\" dev",
-		"useradd -m -u \"$USER_UID\" -g dev -s /bin/bash dev",
 		"LABEL org.agents-sandbox.managed=true",
-		"USER dev",
-		"WORKDIR /workspace",
 	} {
-		if !strings.Contains(s, want) {
-			t.Errorf("rendered Dockerfile missing %q", want)
+		if !strings.Contains(out, want) {
+			t.Errorf("base Dockerfile missing %q", want)
 		}
 	}
 	for _, unwanted := range []string{
-		"nodesource", "AGENT_INSTALL_BLOCK", "docker-ce", "runner-base",
-		"org.agents-sandbox.opencode-version", "DOCKER_VERSION",
+		`groupadd -f -g "$USER_GID" dev`,
+		"useradd -m -u \"$USER_UID\"",
+		"USER dev",
+		"WORKDIR /workspace",
+		"usermod -aG docker",
+		"LABEL org.agents-sandbox.base=",
 	} {
-		if strings.Contains(s, unwanted) {
-			t.Errorf("rendered Dockerfile must not contain %q", unwanted)
+		if strings.Contains(out, unwanted) {
+			t.Errorf("base Dockerfile must not contain %q", unwanted)
 		}
 	}
 }
 
-func TestRenderDockerfileDindEnabled(t *testing.T) {
+// TestRenderBaseDockerfileDindBlockBeforeAgent checks the optional dind block
+// sits between the debian tools and the node+agent block.
+func TestRenderBaseDockerfileDindBlockBeforeAgent(t *testing.T) {
 	a, _ := agent.Lookup("opencode")
-	out := RenderDockerfile(a, nil, true)
-	s := string(out)
+	s := string(renderBaseDockerfile(a, true))
 	for _, want := range []string{
 		"ARG DOCKER_VERSION=29.7.2",
 		"download.docker.com/linux/static/stable/$(uname -m)/docker-${DOCKER_VERSION}.tgz",
@@ -58,7 +109,7 @@ func TestRenderDockerfileDindEnabled(t *testing.T) {
 		"groupadd -f docker",
 	} {
 		if !strings.Contains(s, want) {
-			t.Errorf("rendered Dockerfile missing %q", want)
+			t.Errorf("base Dockerfile missing %q", want)
 		}
 	}
 	dindIdx := strings.Index(s, "DOCKER_VERSION")
@@ -66,21 +117,21 @@ func TestRenderDockerfileDindEnabled(t *testing.T) {
 	if dindIdx < 0 || agentIdx < 0 || dindIdx > agentIdx {
 		t.Error("dind block must come before the agent block")
 	}
-	devIdx := strings.Index(s, `groupadd -f -g "$USER_GID" dev`)
-	dockerIdx := strings.Index(s, "groupadd -f docker")
-	if devIdx < 0 || dockerIdx < 0 || devIdx > dockerIdx {
-		t.Error("dev user must be created before the docker group is added")
-	}
 }
 
-// TestRenderDockerfileOpencode2 checks that the opencode2 beta agent renders
-// its npm install block with the correct build ARG and agent label.
+// TestRenderDockerfileOpencode2 checks that the opencode2 beta agent references
+// its per-agent shared base tag, and that the base render carries its npm
+// install block and agent label.
 func TestRenderDockerfileOpencode2(t *testing.T) {
 	a, ok := agent.Lookup("opencode2")
 	if !ok {
 		t.Fatal("opencode2 agent not registered")
 	}
 	out := string(RenderDockerfile(a, nil, false))
+	if !strings.Contains(out, "FROM agents-sandbox/runner-base:opencode2-latest") {
+		t.Errorf("opencode2 runner must reference its shared base tag, got %q", firstLine(out))
+	}
+	base := string(renderBaseDockerfile(a, false))
 	for _, want := range []string{
 		"ARG OPENCODE2_VERSION",
 		"LABEL org.agents-sandbox.agent=opencode2",
@@ -88,8 +139,8 @@ func TestRenderDockerfileOpencode2(t *testing.T) {
 		"npm install -g @opencode-ai/cli@$OPENCODE2_VERSION",
 		"echo tool > /etc/agents-sandbox/agent-source",
 	} {
-		if !strings.Contains(out, want) {
-			t.Errorf("rendered opencode2 Dockerfile missing %q", want)
+		if !strings.Contains(base, want) {
+			t.Errorf("base Dockerfile missing %q", want)
 		}
 	}
 }
@@ -117,11 +168,14 @@ func TestRenderDockerfileManagedBaseFrom(t *testing.T) {
 	project := []byte("FROM agents-sandbox/runner-base:latest\nRUN apt-get install -y tree\n")
 	out := RenderDockerfile(a, project, false)
 	s := string(out)
-	if !strings.Contains(s, "FROM debian:trixie-slim") {
-		t.Error("managed FROM must be replaced with the embedded base tools block")
+	if !strings.Contains(s, "FROM agents-sandbox/runner-base:opencode-latest") {
+		t.Error("managed FROM must be replaced with the per-agent shared base tag")
 	}
-	if strings.Contains(s, "agents-sandbox/runner-base") {
-		t.Error("managed base reference must be replaced, not kept")
+	if strings.Contains(s, "FROM agents-sandbox/runner-base:latest") {
+		t.Error("the old managed base reference must be replaced, not kept")
+	}
+	if strings.Contains(s, "FROM debian:trixie-slim") {
+		t.Error("the managed base's debian tools block must live in the shared base, not the runner")
 	}
 	if !strings.Contains(s, "RUN apt-get install -y tree") {
 		t.Error("user body must be preserved after the managed FROM")
@@ -162,14 +216,14 @@ func TestRenderDockerfileManagedMultiStage(t *testing.T) {
 	out := RenderDockerfile(a, project, false)
 	s := string(out)
 	buildFromIdx := strings.Index(s, "FROM golang:1.24 AS build")
-	baseFromIdx := strings.Index(s, "FROM debian:trixie-slim")
+	baseFromIdx := strings.Index(s, "FROM agents-sandbox/runner-base:opencode-latest-dind")
 	devIdx := strings.Index(s, `groupadd -f -g "$USER_GID" dev`)
 	bodyIdx := strings.Index(s, "COPY --from=build /app /app")
 	if buildFromIdx < 0 || baseFromIdx < 0 || devIdx < 0 || bodyIdx < 0 {
 		t.Fatal("rendered Dockerfile missing expected markers")
 	}
 	if baseFromIdx < buildFromIdx {
-		t.Error("embedded base tools block must replace the managed FROM in the final stage, after the build stage")
+		t.Error("shared base tag must replace the managed FROM in the final stage, after the build stage")
 	}
 	if devIdx < baseFromIdx {
 		t.Error("dev user block must be the first instruction of the final stage")
@@ -177,16 +231,24 @@ func TestRenderDockerfileManagedMultiStage(t *testing.T) {
 	if devIdx > bodyIdx {
 		t.Error("dev user must be created before the user's final-stage body")
 	}
+	if strings.Contains(s, "FROM debian:trixie-slim") {
+		t.Error("the managed base's debian tools block must live in the shared base, not the runner")
+	}
 }
 
 func TestRenderDockerfileDevUserIsFirstInstruction(t *testing.T) {
 	a, _ := agent.Lookup("opencode")
-	out := RenderDockerfile(a, nil, false)
-	s := string(out)
-	devIdx := strings.Index(s, `groupadd -f -g "$USER_GID" dev`)
-	toolsIdx := strings.Index(s, "iptables")
-	if devIdx < 0 || toolsIdx < 0 || devIdx > toolsIdx {
-		t.Error("dev user block must be created before the base tools, as the first instruction of the final stage")
+	s := string(RenderDockerfile(a, nil, false))
+	fromIdx := strings.Index(s, "\n")
+	if fromIdx < 0 || !strings.HasPrefix(s, "FROM ") {
+		t.Fatalf("rendered Dockerfile must start with a FROM, got %q", firstLine(s))
+	}
+	rest := s[fromIdx+1:]
+	if !strings.HasPrefix(rest, "USER root\n") {
+		t.Error("dev user block must be the first instruction of the final stage, right after the FROM")
+	}
+	if !strings.Contains(rest, `groupadd -f -g "$USER_GID" dev`) {
+		t.Error("dev user creation must be the first instruction of the final stage")
 	}
 }
 
@@ -194,8 +256,8 @@ func TestRenderDockerfileDindFromImpliesDind(t *testing.T) {
 	a, _ := agent.Lookup("opencode")
 	project := []byte("FROM agents-sandbox/runner-base-dind:latest\nRUN echo hi\n")
 	out := RenderDockerfile(a, project, false)
-	if !strings.Contains(string(out), "DOCKER_VERSION") {
-		t.Error("a runner-base-dind FROM must imply the dind block even without the flag")
+	if !strings.Contains(string(out), "FROM agents-sandbox/runner-base:opencode-latest-dind") {
+		t.Error("a runner-base-dind FROM must imply the -dind shared base even without the flag")
 	}
 }
 
@@ -319,7 +381,7 @@ func TestRenderProjectDockerfileNoProjectFile(t *testing.T) {
 	t.Cleanup(func() { configpaths.Get = orig })
 
 	out := string(RenderProjectDockerfile(a, false))
-	if !strings.Contains(out, "FROM debian:trixie-slim") {
-		t.Errorf("without a project Dockerfile the embedded debian base is used; got:\n%s", out)
+	if !strings.Contains(out, "FROM agents-sandbox/runner-base:opencode-latest") {
+		t.Errorf("without a project Dockerfile the shared base is used; got:\n%s", out)
 	}
 }
