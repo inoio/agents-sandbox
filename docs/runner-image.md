@@ -25,26 +25,32 @@ still reference it. Unused image data is reclaimed later by image pruning.
 
 ## One image per project
 
-agents-sandbox builds a single runner image per project. The rendered Dockerfile is assembled from your project
-Dockerfile (if any) plus tool-owned blocks:
+agents-sandbox builds a single runner image per project on top of a **shared base image**. The rendered Dockerfile is
+assembled from your project Dockerfile (if any) plus tool-owned blocks:
 
-- **Base** — the embedded `debian:trixie-slim` tools block, or your whole custom base. For a managed base
-  (`FROM .../runner-base...`), the final stage's `FROM` is replaced **in place** with the embedded tools block, keeping
-  any earlier build stages above it — so multi-stage project Dockerfiles are supported.
+- **Base** — the shared base image (`agents-sandbox/runner-base:<agent>-latest[-dind]`, carrying the `debian:trixie-slim`
+  tools, Node.js, the agent, and optionally docker-in-docker), or your whole custom base. For a managed base
+  (`FROM .../runner-base...`), the final stage's `FROM` is replaced **in place** with the per-agent shared base tag,
+  keeping any earlier build stages above it — so multi-stage project Dockerfiles are supported. A custom base
+  (`FROM` any other image) keeps the docker-in-docker and agent blocks inline, exactly as before.
 - **Dev user block** — the first instruction of the final stage, inserted right after the final `FROM`: creates the
   `dev` user (host UID/GID), reserving its identity before anything else in the stage runs.
-- **Docker-in-Docker block** *(optional)* — only when dind is enabled.
-- **Agent block** — Node.js and the coding agent.
+- **Docker-in-Docker block** *(optional, custom base only)* — only when dind is enabled.
+- **Agent block** *(custom base only)* — Node.js and the coding agent.
 - **Finalize block** — adds `dev` to the docker group, switches to `USER dev`, and sets `WORKDIR /workspace`.
 
-Every tool-owned block is `USER root`-prefixed so agent/dind installs always run as root regardless of what user your
-Dockerfile leaves active. The image always ends with `USER dev` and `WORKDIR /workspace`.
+The default and managed-base paths render a thin runner that only adds the dev user, the project body, and the
+finalize block on top of the shared base. Every tool-owned block is `USER root`-prefixed so agent/dind installs always
+run as root regardless of what user your Dockerfile leaves active. The image always ends with `USER dev` and
+`WORKDIR /workspace`.
 
 ## Base starting point
 
-By default the base tools block starts from `debian:trixie-slim` and installs the recommended CLI tools: `git`,
+By default the runner image is built `FROM agents-sandbox/runner-base:<agent>-latest` (with a `-dind` suffix when
+docker is enabled). That shared base starts from `debian:trixie-slim`, installs the recommended CLI tools: `git`,
 `ripgrep`, `jq`, `yq`, `curl`, `wget`, `xz-utils`, `file`, `gawk`, `less`, `lz4`, `moreutils`, `net-tools`, `parallel`,
-`recode`, `uuid`, and `iptables`.
+`recode`, `uuid`, and `iptables` — and then bakes in Node.js and the agent (plus the docker engine for the `-dind`
+variant). It is built once per machine and reused across projects, so onboarding a new project is a thin, fast build.
 
 A project Dockerfile whose `FROM` is any other image is treated as a **custom base**, and the agent (and optional dind)
 blocks are layered on top of it:
@@ -56,6 +62,20 @@ blocks are layered on top of it:
   fails and names the missing package.
 - A base that already provides docker, node, or the agent is left alone (idempotency), and a pre-created `dev` user is
   tolerated.
+
+### Shared base image
+
+The default and managed-base runner images build on a shared base that is created lazily once per machine:
+`agents-sandbox/runner-base:<agent>-latest` (or `...-latest-dind` with Docker-in-Docker). The base carries the debian
+tools, Node.js, and the agent — the expensive layers that used to be rebuilt for every project.
+
+The `-latest` tag is a moving tag: the base is rebuilt whenever its content identity changes (its render plus the
+pinned agent version, e.g. after a Node/tool bump or a version upgrade). Old base content becomes dangling and is
+reclaimed by docker image pruning; the runner's own `dockerfile-id` still encodes the agent version, so a version bump
+rebuilds the runner on top of the refreshed base.
+
+Only the per-project runner tag is ever loaded into the microsandbox cache — the base layers travel inside it — so the
+microsandbox image cache, list, and prune logic are unchanged.
 
 ### Important: User context
 
@@ -171,6 +191,19 @@ and the pi image is `agents-sandbox/runner-my-project:pi-latest`.
 The Docker build is skipped when the baked `org.agents-sandbox.dockerfile-id` label matches the current content. This
 label is a hash of the rendered Dockerfile and the agent version, so an image already built from the exact same
 Dockerfile and agent version is reused instead of being rebuilt.
+
+The shared-base path checks this at two levels: the shared base image is skipped when its own `dockerfile-id` matches,
+and the runner image is skipped when its `dockerfile-id` matches. A matching runner label does not hide a moved base
+image: the runner also compares the recorded `org.agents-sandbox.base` provenance against the locally-tagged base
+image. If the base tag now points at a different image, the runner is rebuilt on top of the moved base. This check is
+purely local — an uninspectable base or a runner without the base label never forces a rebuild, so the skip path stays
+offline-safe.
+
+### Layer caching
+
+Rebuilds (project Dockerfile edits, base moves) run with Docker's layer cache, so unchanged layers — the base tools,
+Node.js, the agent — are reused and only the affected layers are rebuilt. Only forced rebuilds bypass the cache:
+`--rebuild`/`-r` and upgrade-triggered rebuilds build with `--no-cache`, guaranteeing a freshly baked agent version.
 
 ### Content-verified load
 

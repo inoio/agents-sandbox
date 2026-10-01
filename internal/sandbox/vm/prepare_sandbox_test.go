@@ -140,10 +140,12 @@ func TestPrepareSandboxUpgradeRebuildsImage(t *testing.T) {
 		},
 	}
 
-	var buildNoCache bool
+	var buildNoCaches []bool
+	var buildTags []string
 	docker.WithDockerMock(t, &docker.MockDockerClient{
 		ImageBuildFn: func(_ context.Context, _ io.Reader, opts client.ImageBuildOptions) (client.ImageBuildResult, error) {
-			buildNoCache = opts.NoCache
+			buildNoCaches = append(buildNoCaches, opts.NoCache)
+			buildTags = append(buildTags, strings.Join(opts.Tags, ","))
 			return client.ImageBuildResult{Body: io.NopCloser(strings.NewReader(""))}, nil
 		},
 		ImageInspectFn: func(_ context.Context, _ string, _ ...client.ImageInspectOption) (client.ImageInspectResult, error) {
@@ -209,8 +211,13 @@ func TestPrepareSandboxUpgradeRebuildsImage(t *testing.T) {
 	if !contains(joinStrings(ui.VerboseCalls), "runner image rebuilt with a newer opencode version") {
 		t.Errorf("expected a 'rebuilt with newer opencode' verbose, got %v", ui.VerboseCalls)
 	}
-	if !buildNoCache {
-		t.Error("expected the image build to bypass cache when upgrading")
+	if len(buildNoCaches) == 0 {
+		t.Fatal("expected at least one image build on upgrade")
+	}
+	for i, noCache := range buildNoCaches {
+		if !noCache {
+			t.Errorf("build %d (tag %q) must bypass cache when upgrading", i, buildTags[i])
+		}
 	}
 }
 

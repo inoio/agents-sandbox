@@ -316,16 +316,34 @@ func EnsureImageWithClient(
 	rTag := runnerTag(projectSlug, a.Name())
 	rendered := RenderDockerfile(a, projectDockerfile, buildOpts.Dind)
 	dockerfileID := computeDockerfileID(rendered, agentVersion)
+	baseRef := baseImageRef(rendered)
 
-	if buildOpts.Force || !imageHasDockerfileID(ctx, rTag, dockerfileID) {
-		baseRef := baseImageRef(rendered)
+	// Shared-base path: lazily ensure the base image before the runner, so
+	// per-project runners become thin builds on top of it. The base is rebuilt
+	// when its content identity (render + agent version) changes; old base
+	// content becomes dangling and is reclaimed by docker pruning.
+	if isManagedBaseRef(baseRef) {
+		baseDind := buildOpts.Dind || strings.HasSuffix(baseRef, "-dind")
+		baseRender := renderBaseDockerfile(a, baseDind)
+		baseID := computeDockerfileID(baseRender, agentVersion)
+		if buildOpts.Force || !imageHasDockerfileID(ctx, baseRef, baseID) {
+			if baseErr := buildDockerImage(
+				ctx, a, baseRender, baseRef, "Ensuring shared base image",
+				buildOpts.Force, agentVersion, "", baseID, baseDind, ui,
+			); baseErr != nil {
+				return ImageInfo{}, baseErr
+			}
+		}
+	}
+
+	if buildOpts.Force || !imageHasDockerfileID(ctx, rTag, dockerfileID) || baseMovedLocally(ctx, rTag, baseRef) {
 		baseDigest, baseErr := resolveBaseDigest(ctx, baseRef, ui)
 		if baseErr != nil {
 			return ImageInfo{}, fmt.Errorf("resolve base image %s: %w", baseRef, baseErr)
 		}
 		if buildErr := buildDockerImage(
 			ctx, a, rendered, rTag, "Ensuring runner image",
-			true, agentVersion, baseDigest, dockerfileID, buildOpts.Dind, ui,
+			buildOpts.Force, agentVersion, baseDigest, dockerfileID, buildOpts.Dind, ui,
 		); buildErr != nil {
 			return ImageInfo{}, buildErr
 		}

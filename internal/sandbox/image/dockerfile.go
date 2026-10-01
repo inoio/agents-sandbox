@@ -30,6 +30,10 @@ const agentLabelKey = "org.agents-sandbox.agent"
 // image has changed.
 const dockerfileIDLabelKey = "org.agents-sandbox.dockerfile-id"
 
+// baseImageLabelKey is the image label carrying the "<ref>@<id>" provenance of
+// the base image the runner was built from.
+const baseImageLabelKey = "org.agents-sandbox.base"
+
 // computeDockerfileID returns the content identity of a rendered runner
 // Dockerfile combined with the pinned agent version, capturing every input
 // that affects the baked image while excluding host-dependent build args.
@@ -45,24 +49,30 @@ const (
 )
 
 // RenderDockerfile composes the single per-project runner Dockerfile from the
-// agent, the project Dockerfile (if any), and the dind switch. Tool-owned
-// blocks are appended after the base/user content; the base is either the
-// embedded debian tools block (default, or after replacing a managed FROM) or
-// the user's own custom base.
+// agent, the project Dockerfile (if any), and the dind switch. The default and
+// managed-base paths reference the shared base image (which carries the debian
+// tools, optional dind, node, and agent) and only add the dev user, the
+// project body, and the finalize block. A custom base keeps the inline dind and
+// agent blocks exactly as before.
 func RenderDockerfile(a agent.Agent, projectDockerfile []byte, dind bool) []byte {
-	base := embeddedBaseToolsBlock
+	var base []byte
+	sharedBase := false
 
 	switch {
 	case len(bytes.TrimSpace(projectDockerfile)) == 0:
-		// No project Dockerfile: the embedded debian base tools block is the whole base.
+		// No project Dockerfile: the shared base image is the whole base.
+		base = []byte("FROM " + baseTag(a, dind) + "\n")
+		sharedBase = true
 	case referencesImage(projectDockerfile, managedBaseRef) ||
 		referencesImage(projectDockerfile, managedBaseDindRef):
-		// Managed FROM: replace the final stage's FROM with the embedded base
-		// tools block, keeping earlier build stages and the body in place.
+		// Managed FROM: replace the final stage's FROM with the per-agent shared
+		// base tag, keeping earlier build stages and the body in place. The
+		// -dind variant implies the dind base.
 		if referencesImage(projectDockerfile, managedBaseDindRef) {
 			dind = true
 		}
-		base = replaceFinalStageFrom(projectDockerfile, embeddedBaseToolsBlock)
+		base = replaceFinalStageFrom(projectDockerfile, []byte("FROM "+baseTag(a, dind)+"\n"))
+		sharedBase = true
 	default:
 		// Custom base: keep the user's whole Dockerfile.
 		base = projectDockerfile
@@ -71,17 +81,45 @@ func RenderDockerfile(a agent.Agent, projectDockerfile []byte, dind bool) []byte
 	var out strings.Builder
 	out.Write(base)
 	out.WriteString("\n")
+	if !sharedBase {
+		if dind {
+			out.WriteString(dindBlock())
+			out.WriteString("\n")
+		}
+		out.WriteString(agentBlock(a))
+		out.WriteString("\n")
+	}
+	out.WriteString(finalizeBlock())
+
+	// Create the dev user as the first instruction of the final stage so its
+	// UID/GID is reserved before any stage body or tool-owned block runs.
+	return insertAfterLastFrom([]byte(out.String()), []byte(devUserBlock()))
+}
+
+// renderBaseDockerfile renders the shared runner base image for the agent and
+// dind switch: the embedded debian tools, the optional dind block, then the
+// node+agent block, ending as root. The dev user and finalize blocks are
+// host/project-specific and stay in the per-project runner.
+func renderBaseDockerfile(a agent.Agent, dind bool) []byte {
+	var out strings.Builder
+	out.Write(embeddedBaseToolsBlock)
+	out.WriteString("\n")
 	if dind {
 		out.WriteString(dindBlock())
 		out.WriteString("\n")
 	}
 	out.WriteString(agentBlock(a))
 	out.WriteString("\n")
-	out.WriteString(finalizeBlock())
+	out.WriteString("LABEL org.agents-sandbox.managed=true\n")
+	return []byte(out.String())
+}
 
-	// Create the dev user as the first instruction of the final stage so its
-	// UID/GID is reserved before any stage body or tool-owned block runs.
-	return insertAfterLastFrom([]byte(out.String()), []byte(devUserBlock()))
+// isManagedBaseRef reports whether a base image reference is one of the shared
+// runner base tags managed by the tool (as opposed to a user-chosen custom
+// base). The colon keeps e.g. agents-sandbox/runner-base-custom:... from
+// matching.
+func isManagedBaseRef(baseRef string) bool {
+	return strings.HasPrefix(baseRef, managedBaseRef+":")
 }
 
 // devUserBlock creates the dev user as root, leaving the shell as root.
@@ -223,16 +261,20 @@ RUN mkdir -p /etc/agents-sandbox && \
 }
 
 // finalizeBlock records the image contract labels and makes dev the runtime
-// user. The dev user itself is created earlier by devUserBlock.
+// user, overriding the dockerfile-id label inherited from the shared base with
+// the runner's own content identity. The dev user itself is created earlier by
+// devUserBlock.
 func finalizeBlock() string {
 	return `USER root
 ARG BASE_IMAGE
+ARG DOCKERFILE_ID
 
 RUN usermod -aG docker dev 2>/dev/null || true
 USER dev
 WORKDIR /workspace
 LABEL org.agents-sandbox.managed=true
 LABEL org.agents-sandbox.base=$BASE_IMAGE
+LABEL org.agents-sandbox.dockerfile-id=$DOCKERFILE_ID
 `
 }
 
