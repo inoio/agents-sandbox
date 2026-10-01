@@ -153,20 +153,25 @@ func resolveMountTarget(target string) (string, error) {
 	return clean, nil
 }
 
-// resolveMountSource expands a host source path and verifies it is a directory.
+// resolveMountSource expands a host source path, canonicalizes it (resolving
+// symlinks), and verifies it is a directory.
 func resolveMountSource(source string) (string, error) {
 	path, err := expandHome(source)
 	if err != nil {
 		return "", err
 	}
-	info, err := os.Stat(path)
+	resolved, err := filepath.EvalSymlinks(path)
+	if err != nil {
+		return "", err
+	}
+	info, err := os.Stat(resolved)
 	if err != nil {
 		return "", err
 	}
 	if !info.IsDir() {
-		return "", fmt.Errorf("source %q must be a directory", path)
+		return "", fmt.Errorf("source %q must be a directory", resolved)
 	}
-	return path, nil
+	return resolved, nil
 }
 
 // isWithin reports whether path lies inside base.

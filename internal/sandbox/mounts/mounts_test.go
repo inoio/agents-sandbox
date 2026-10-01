@@ -12,6 +12,18 @@ import (
 // branch, which a plain string never reaches.
 type namedString string
 
+// mustEvalSymlinks returns path with symlinks resolved, for asserting against
+// the canonicalized mount source. Test temp dirs may themselves contain
+// symlinks (e.g. macOS /var -> /private/var).
+func mustEvalSymlinks(t *testing.T, path string) string {
+	t.Helper()
+	resolved, err := filepath.EvalSymlinks(path)
+	if err != nil {
+		t.Fatalf("EvalSymlinks(%q): %v", path, err)
+	}
+	return resolved
+}
+
 func TestDecodeMountsShortAndLongForms(t *testing.T) {
 	got, err := DecodeMounts(map[string]any{
 		"/home/dev/.m2": "~/.m2",
@@ -80,6 +92,32 @@ func TestStringToBindMountHookRejectsNonStringSource(t *testing.T) {
 	}
 }
 
+// TestResolveBindMountsResolvesSymlinkSource guards against handing microsandbox
+// a bind-mount source whose path contains a symlink: virtiofs rejects it with a
+// cryptic "Not a directory" error (e.g. macOS /tmp -> /private/tmp).
+func TestResolveBindMountsResolvesSymlinkSource(t *testing.T) {
+	realDir := t.TempDir()
+	nested := filepath.Join(realDir, "nested")
+	if err := os.Mkdir(nested, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	linkDir := filepath.Join(t.TempDir(), "link")
+	if err := os.Symlink(realDir, linkDir); err != nil {
+		t.Skipf("symlinks not supported: %v", err)
+	}
+
+	got, err := ResolveBindMounts(Mounts{
+		"/home/dev/.m2": {Source: filepath.Join(linkDir, "nested")},
+	})
+	if err != nil {
+		t.Fatalf("ResolveBindMounts: %v", err)
+	}
+	source := got["/home/dev/.m2"].Source
+	if want := mustEvalSymlinks(t, nested); source != want {
+		t.Errorf("source = %q, want resolved %q", source, want)
+	}
+}
+
 func TestResolveBindMountsExpandsHome(t *testing.T) {
 	home := t.TempDir()
 	source := filepath.Join(home, ".m2")
@@ -98,8 +136,8 @@ func TestResolveBindMountsExpandsHome(t *testing.T) {
 	if !ok {
 		t.Fatalf("missing resolved mount: %+v", got)
 	}
-	if mount.Source != source {
-		t.Errorf("source = %q, want %q", mount.Source, source)
+	if want := mustEvalSymlinks(t, source); mount.Source != want {
+		t.Errorf("source = %q, want %q", mount.Source, want)
 	}
 	if mount.Readonly {
 		t.Error("expected a writable mount by default")
@@ -116,8 +154,9 @@ func TestResolveBindMountsExpandsBareTilde(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ResolveBindMounts: %v", err)
 	}
-	if got["/home/dev/host"].Source != home {
-		t.Errorf("source = %q, want %q", got["/home/dev/host"].Source, home)
+	source := got["/home/dev/host"].Source
+	if want := mustEvalSymlinks(t, home); source != want {
+		t.Errorf("source = %q, want %q", source, want)
 	}
 }
 
