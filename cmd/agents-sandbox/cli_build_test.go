@@ -171,6 +171,8 @@ func TestBuildDockerfileCommand(t *testing.T) {
 					"LABEL org.agents-sandbox.agent=opencode",
 					"USER dev",
 					"WORKDIR /workspace",
+					"COPY agents-sandbox-ca.crt /usr/local/share/ca-certificates/microsandbox-ca.crt",
+					"RUN update-ca-certificates",
 				} {
 					if !strings.Contains(out, want) {
 						t.Errorf("dockerfile output missing %q; got:\n%s", want, out)

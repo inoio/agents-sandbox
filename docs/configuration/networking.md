@@ -17,6 +17,7 @@ the VM uses the `none` profile and denies egress by default.
 | `egress-allow`      | []string | Egress destinations to allow: `host`, a CIDR (e.g. `123.123.0.0/16`), or a `.suffix` (e.g. `.internal`).              |
 | `egress-deny`       | []string | Egress carve-outs, same destination forms as `egress-allow`. Emitted **before** allow rules (deny-before-allow).     |
 | `dns-servers`       | []string | DNS upstream resolvers: a bare IP (auto-appends `:53`) or `host:port`. Overrides microsandbox's default resolver.     |
+| `tls`               | object   | TLS interception settings (see below).                                                                               |
 
 - `profile: none` is an **allowlist-only** profile: egress is deny-by-default, ingress is allowed, and only the
   gateway-DNS rule plus your explicit `egress-allow`/`egress-deny` lists apply. This is how you restrict the VM to a
@@ -58,3 +59,34 @@ network:
 
 With `profile: none`, only the gateway DNS is auto-allowed, so a custom resolver's IP must also be listed in
 `egress-allow` (e.g. `egress-allow: [1.1.1.1]`) for DNS lookups to reach it.
+
+### TLS interception
+
+Microsandbox's transparent HTTPS proxy intercepts outbound TLS to inspect egress traffic. The launcher generates a
+machine-wide interception CA on first use (stored under `~/.local/state/agents-sandbox/tls/`) and configures the proxy
+to use it, instead of relying on the runtime's default certificate. The CA certificate is baked into managed runner
+images (see [Runner image](../runner-image.md#tls-interception-ca)); changing the CA (or any TLS setting) recreates
+the VM because the network policy is baked in at creation.
+
+The `network.tls` block exposes the interceptor settings:
+
+| Field              | Type     | Description                                                                          |
+|--------------------|----------|--------------------------------------------------------------------------------------|
+| `bypass`           | []string | Domain patterns (`*.suffix`) to skip MITM.                                            |
+| `intercepted-ports`| []int    | Ports on which TLS is intercepted (default `[443]`).                                  |
+| `block-quic`       | bool     | Block QUIC/HTTP3 on intercepted ports to force TLS fallback (default `true`).         |
+| `verify-upstream`  | bool     | Verify upstream TLS certificates against the system bundle (default `true`).          |
+
+```yaml
+network:
+  profile: public
+  tls:
+    bypass:
+      - "*.internal.example.com"
+    intercepted-ports:
+      - 443
+    block-quic: true
+```
+
+The `tls` block is config-file-only; it has no env var or flag. The generated CA certificate and its private key live
+on the host and never enter the VM — only the certificate is shipped into images or guests.

@@ -59,7 +59,7 @@ func TestBuildDockerImageError(t *testing.T) {
 	})
 	err := buildDockerImage(
 		context.Background(), a, []byte("FROM debian:trixie-slim\n"),
-		"tag", "label", false, "v", "base", "id", false, &termio.Mock{},
+		"tag", "label", false, "v", "base", "id", false, nil, &termio.Mock{},
 	)
 	if err == nil {
 		t.Fatal("expected buildDockerImage to return an error when the build fails")
@@ -78,7 +78,7 @@ func TestBuildDockerImageForwardsStreamLines(t *testing.T) {
 	})
 	if err := buildDockerImage(
 		context.Background(), a, []byte("FROM debian:trixie-slim\n"),
-		"tag", "label", false, "v", "base", "id", false, ui,
+		"tag", "label", false, "v", "base", "id", false, nil, ui,
 	); err != nil {
 		t.Fatalf("buildDockerImage: %v", err)
 	}
@@ -102,7 +102,7 @@ func TestBuildImageReturnsErrorOnImageBuild(t *testing.T) {
 	})
 	err := buildImage(
 		context.Background(), a, []byte("FROM debian:trixie-slim\n"),
-		"tag", false, "v", "base", "id", false, func(string) {},
+		"tag", false, "v", "base", "id", false, nil, func(string) {},
 	)
 	if err == nil || !strings.Contains(err.Error(), "docker image build failed") {
 		t.Errorf("buildImage error = %v, want a docker build failure", err)
@@ -122,7 +122,7 @@ func TestBuildImageDetectsPullAccessDenied(t *testing.T) {
 	})
 	err := buildImage(
 		context.Background(), a, []byte("FROM debian:trixie-slim\n"),
-		"tag", false, "v", "base", "id", false, func(string) {},
+		"tag", false, "v", "base", "id", false, nil, func(string) {},
 	)
 	if err == nil || !strings.Contains(err.Error(), "base image not found or not logged in") {
 		t.Errorf("buildImage error = %v, want a pull-access-denied hint", err)
@@ -140,7 +140,7 @@ func TestBuildImageReturnsGenericBuildError(t *testing.T) {
 	})
 	err := buildImage(
 		context.Background(), a, []byte("FROM debian:trixie-slim\n"),
-		"tag", false, "v", "base", "id", false, func(string) {},
+		"tag", false, "v", "base", "id", false, nil, func(string) {},
 	)
 	if err == nil || !strings.Contains(err.Error(), "some other failure") ||
 		strings.Contains(err.Error(), "not found or not logged in") {
@@ -349,7 +349,7 @@ func TestCachedImageMatchesDockerLabelMismatch(t *testing.T) {
 
 func TestReplaceFinalStageFromNoFrom(t *testing.T) {
 	in := []byte("RUN echo hi\n")
-	if got := string(replaceFinalStageFrom(in, []byte("FROM debian:trixie-slim\n"))); got != string(in) {
+	if got := string(replaceFinalStageFrom(in, []byte("FROM debian:trixie-slim\n"), nil)); got != string(in) {
 		t.Errorf("replaceFinalStageFrom without a FROM must return input unchanged, got %q", got)
 	}
 }
@@ -357,7 +357,7 @@ func TestReplaceFinalStageFromNoFrom(t *testing.T) {
 func TestReplaceFinalStageFromBlockWithoutNewline(t *testing.T) {
 	in := []byte("FROM agents-sandbox/runner-base:latest\nRUN echo hi\n")
 	block := []byte("FROM debian:trixie-slim")
-	got := string(replaceFinalStageFrom(in, block))
+	got := string(replaceFinalStageFrom(in, block, nil))
 	if !strings.Contains(got, "FROM debian:trixie-slim\nRUN echo hi") {
 		t.Errorf("block without trailing newline must be separated from the body, got %q", got)
 	}

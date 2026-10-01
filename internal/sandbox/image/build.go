@@ -18,6 +18,7 @@ import (
 	"github.com/inoio/agents-sandbox/internal/agent"
 	"github.com/inoio/agents-sandbox/internal/sandbox/docker"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
+	"github.com/inoio/agents-sandbox/internal/sandbox/tlsca"
 	"github.com/inoio/agents-sandbox/internal/termio"
 )
 
@@ -143,6 +144,7 @@ func buildDockerImage(
 	baseImage string,
 	dockerfileID string,
 	dind bool,
+	caCert []byte,
 	ui termio.UI,
 ) error {
 	spinner := ui.Spinner(label)
@@ -158,6 +160,7 @@ func buildDockerImage(
 		baseImage,
 		dockerfileID,
 		dind,
+		caCert,
 		line,
 	); err != nil {
 		spinner.StopError(err)
@@ -179,13 +182,14 @@ func buildImage(
 	baseImage string,
 	dockerfileID string,
 	dind bool,
+	caCert []byte,
 	line func(string),
 ) error {
-	tarBuf, err := dockerfileTar(dockerfile)
-	if err != nil {
+	var tarBuf bytes.Buffer
+	if err := writeBuildContext(&tarBuf, dockerfile, caCert); err != nil {
 		return fmt.Errorf("create build context: %w", err)
 	}
-	buildResp, err := docker.Get().ImageBuild(ctx, tarBuf, client.ImageBuildOptions{
+	buildResp, err := docker.Get().ImageBuild(ctx, &tarBuf, client.ImageBuildOptions{
 		Tags:      []string{tag},
 		Remove:    true,
 		NoCache:   force,
@@ -234,25 +238,45 @@ func scanBuildOutput(r io.Reader, line func(string)) error {
 
 const dockerfileMode = 0o644
 
-func dockerfileTar(dockerfile []byte) (*bytes.Buffer, error) {
-	var buf bytes.Buffer
-	tw := tar.NewWriter(&buf)
-	if err := tw.WriteHeader(&tar.Header{
-		Name: "Dockerfile",
-		Mode: dockerfileMode,
-		Size: int64(len(dockerfile)),
-	}); err != nil {
+const caContextFileMode = 0o644
+
+// writeBuildContext streams the build context (Dockerfile plus the optional CA
+// certificate) as a tar archive into w. It is a var so tests can exercise the
+// build-context failure path in buildImage.
+//
+//nolint:gochecknoglobals // test seam, swapped in tests
+var writeBuildContext = func(w io.Writer, dockerfile, caCert []byte) error {
+	tw := tar.NewWriter(w)
+	if err := writeEntry(tw, "Dockerfile", dockerfileMode, dockerfile); err != nil {
 		_ = tw.Close()
-		return nil, fmt.Errorf("tar write header: %w", err)
+		return err
 	}
-	if _, err := io.Copy(tw, bytes.NewReader(dockerfile)); err != nil {
-		_ = tw.Close()
-		return nil, fmt.Errorf("tar write dockerfile: %w", err)
+	if len(caCert) > 0 {
+		if err := writeEntry(tw, caContextFile, caContextFileMode, caCert); err != nil {
+			_ = tw.Close()
+			return err
+		}
 	}
 	if err := tw.Close(); err != nil {
-		return nil, fmt.Errorf("tar close: %w", err)
+		return fmt.Errorf("tar close: %w", err)
 	}
-	return &buf, nil
+	return nil
+}
+
+// writeEntry writes a single file entry (header followed by content) to the tar
+// archive, naming the entry in any error so failures are identifiable.
+func writeEntry(tw *tar.Writer, name string, mode int64, data []byte) error {
+	if err := tw.WriteHeader(&tar.Header{
+		Name: name,
+		Mode: mode,
+		Size: int64(len(data)),
+	}); err != nil {
+		return fmt.Errorf("tar write header %s: %w", name, err)
+	}
+	if _, err := tw.Write(data); err != nil {
+		return fmt.Errorf("tar write %s: %w", name, err)
+	}
+	return nil
 }
 
 // userBuildArgs returns Docker build arguments that align the in-image dev
@@ -291,6 +315,16 @@ type dockerBuildMessage struct {
 	Stream string `json:"stream"`
 }
 
+// caCertForBuild returns the TLS interception CA certificate PEM to ship in
+// the build context, resolving (and on first use generating) the host CA.
+func caCertForBuild() ([]byte, error) {
+	ca, err := tlsca.Ensure()
+	if err != nil {
+		return nil, err
+	}
+	return ca.Cert()
+}
+
 // EnsureImageWithClient builds/inspects the runner Docker image. The resulting
 // env map is read back from the Docker image config. It does not load the image
 // into microsandbox; callers load it lazily via EnsureLoaded when a VM needs it.
@@ -315,7 +349,11 @@ func EnsureImageWithClient(
 
 	rTag := runnerTag(projectSlug, a.Name())
 	rendered := RenderDockerfile(a, projectDockerfile, buildOpts.Dind)
-	dockerfileID := computeDockerfileID(rendered, agentVersion)
+	caCert, err := caCertForBuild()
+	if err != nil {
+		return ImageInfo{}, fmt.Errorf("resolve TLS interception CA: %w", err)
+	}
+	dockerfileID := computeDockerfileID(rendered, agentVersion, caCert)
 
 	if buildOpts.Force || !imageHasDockerfileID(ctx, rTag, dockerfileID) {
 		baseRef := baseImageRef(rendered)
@@ -325,7 +363,7 @@ func EnsureImageWithClient(
 		}
 		if buildErr := buildDockerImage(
 			ctx, a, rendered, rTag, "Ensuring runner image",
-			true, agentVersion, baseDigest, dockerfileID, buildOpts.Dind, ui,
+			true, agentVersion, baseDigest, dockerfileID, buildOpts.Dind, caCert, ui,
 		); buildErr != nil {
 			return ImageInfo{}, buildErr
 		}

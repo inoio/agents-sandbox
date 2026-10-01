@@ -15,6 +15,7 @@ import (
 	"github.com/inoio/agents-sandbox/internal/sandbox/network"
 	"github.com/inoio/agents-sandbox/internal/sandbox/options"
 	"github.com/inoio/agents-sandbox/internal/termio"
+	"github.com/inoio/agents-sandbox/internal/testutil"
 	launcherconfig "github.com/inoio/agents-sandbox/internal/viperconfig"
 )
 
@@ -411,6 +412,50 @@ func TestExtractRunOptionsNetworkInvalid(t *testing.T) {
 	cmd.SetContext(rootCtx)
 	if _, err := extractRunOptions(cmd, &termio.Mock{}); err == nil {
 		t.Fatal("expected error for invalid --network profile")
+	}
+}
+
+func TestExtractRunOptionsNetworkTLSFromConfig(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	testutil.WriteFile(
+		t,
+		configpaths.Get().UserConfigDir(),
+		"config.yaml",
+		"network:\n  profile: none\n  tls:\n    bypass:\n      - \"*.internal.com\"\n    intercepted-ports:\n      - 443\n      - 8443\n    block-quic: true\n",
+	)
+	cmd := buildRunCmd(&termio.Mock{})
+	rootCtx := context.WithValue(context.Background(), (*launcherConfigKey)(nil), mustResolver(t, cmd))
+	cmd.SetContext(rootCtx)
+	opts, err := extractRunOptions(cmd, &termio.Mock{})
+	if err != nil {
+		t.Fatalf("extractRunOptions: %v", err)
+	}
+	if opts.Network.TLS == nil {
+		t.Fatal("network.tls from config must populate opts.Network.TLS")
+	}
+	tls := opts.Network.TLS
+	if len(tls.Bypass) != 1 || tls.Bypass[0] != "*.internal.com" {
+		t.Errorf("TLS.Bypass = %v, want [*.internal.com]", tls.Bypass)
+	}
+	if len(tls.InterceptedPorts) != 2 || tls.InterceptedPorts[1] != 8443 {
+		t.Errorf("TLS.InterceptedPorts = %v, want [443 8443]", tls.InterceptedPorts)
+	}
+	if tls.BlockQUIC == nil || !*tls.BlockQUIC {
+		t.Errorf("TLS.BlockQUIC = %v, want true", tls.BlockQUIC)
+	}
+}
+
+func TestExtractRunOptionsNoTLSWithoutConfig(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	cmd := buildRunCmd(&termio.Mock{})
+	rootCtx := context.WithValue(context.Background(), (*launcherConfigKey)(nil), mustResolver(t, cmd))
+	cmd.SetContext(rootCtx)
+	opts, err := extractRunOptions(cmd, &termio.Mock{})
+	if err != nil {
+		t.Fatalf("extractRunOptions: %v", err)
+	}
+	if opts.Network.TLS != nil {
+		t.Error("network.tls must be nil when no tls: block is configured")
 	}
 }
 

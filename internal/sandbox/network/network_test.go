@@ -1,6 +1,7 @@
 package network
 
 import (
+	"strings"
 	"testing"
 
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
@@ -366,6 +367,125 @@ func TestPolicyEmpty(t *testing.T) {
 	}
 	if (Policy{DNSServers: []string{"1.1.1.1"}}).Empty() {
 		t.Error("Policy with only DNSServers should not be empty")
+	}
+	if (Policy{TLS: &TLSConfig{Bypass: []string{"*.internal.com"}}}).Empty() {
+		t.Error("Policy with only TLS should not be empty")
+	}
+}
+
+func TestConfigTLSMapsToNetworkConfig(t *testing.T) {
+	blockQUIC := true
+	verify := false
+	p := Policy{
+		Profile: ProfilePublic,
+		TLS: &TLSConfig{
+			Bypass:           []string{"*.internal.com"},
+			InterceptedPorts: []uint16{443, 8443},
+			BlockQUIC:        &blockQUIC,
+			VerifyUpstream:   &verify,
+			CACert:           "/state/tls/ca.crt",
+			CAKey:            "/state/tls/ca.key",
+		},
+	}
+	cfg, err := p.Config()
+	if err != nil {
+		t.Fatalf("Config: %v", err)
+	}
+	if cfg.TLS == nil {
+		t.Fatal("Config with TLS set must produce a TLS config")
+	}
+	if cfg.TLS.CACert != "/state/tls/ca.crt" || cfg.TLS.CAKey != "/state/tls/ca.key" {
+		t.Errorf("TLS CA paths = %q/%q, want the resolved launcher CA", cfg.TLS.CACert, cfg.TLS.CAKey)
+	}
+	if len(cfg.TLS.Bypass) != 1 || cfg.TLS.Bypass[0] != "*.internal.com" {
+		t.Errorf("TLS Bypass = %v, want [*.internal.com]", cfg.TLS.Bypass)
+	}
+	if len(cfg.TLS.InterceptedPorts) != 2 || cfg.TLS.InterceptedPorts[1] != 8443 {
+		t.Errorf("TLS InterceptedPorts = %v, want [443 8443]", cfg.TLS.InterceptedPorts)
+	}
+	if cfg.TLS.BlockQUIC == nil || *cfg.TLS.BlockQUIC != blockQUIC {
+		t.Errorf("TLS BlockQUIC = %v, want %v", cfg.TLS.BlockQUIC, blockQUIC)
+	}
+	if cfg.TLS.VerifyUpstream == nil || *cfg.TLS.VerifyUpstream != verify {
+		t.Errorf("TLS VerifyUpstream = %v, want %v", cfg.TLS.VerifyUpstream, verify)
+	}
+}
+
+func TestConfigNilTLSLeavesConfigUnset(t *testing.T) {
+	cfg, err := (Policy{Profile: ProfilePublic}).Config()
+	if err != nil {
+		t.Fatalf("Config: %v", err)
+	}
+	if cfg.TLS != nil {
+		t.Error("Config without TLS must leave the network TLS config unset")
+	}
+}
+
+func TestFingerprintDistinguishesTLS(t *testing.T) {
+	base := Policy{Profile: ProfilePublic}
+	withTLS := Policy{Profile: ProfilePublic, TLS: &TLSConfig{Bypass: []string{"*.internal.com"}}}
+	if base.Fingerprint() == withTLS.Fingerprint() {
+		t.Fatal("adding TLS interception must change the fingerprint")
+	}
+	withCA := Policy{Profile: ProfilePublic, TLS: &TLSConfig{CAFingerprint: "abc"}}
+	otherCA := Policy{Profile: ProfilePublic, TLS: &TLSConfig{CAFingerprint: "def"}}
+	if withCA.Fingerprint() == otherCA.Fingerprint() {
+		t.Fatal("a different CA fingerprint must change the policy fingerprint")
+	}
+	if withCA.Fingerprint() == base.Fingerprint() {
+		t.Fatal("enabling TLS with a CA fingerprint must change the policy fingerprint")
+	}
+	reordered := Policy{Profile: ProfilePublic, TLS: &TLSConfig{Bypass: []string{"b.example.com", "a.example.com"}}}
+	ordered := Policy{Profile: ProfilePublic, TLS: &TLSConfig{Bypass: []string{"a.example.com", "b.example.com"}}}
+	if reordered.Fingerprint() != ordered.Fingerprint() {
+		t.Fatal("fingerprint must be independent of TLS bypass order")
+	}
+}
+
+func TestTLSFingerprintLinesIncludesPortsAndFlags(t *testing.T) {
+	blockQUIC := true
+	verifyUpstream := false
+	lines := tlsFingerprintLines(&TLSConfig{
+		CAFingerprint:    "fp123",
+		Bypass:           []string{"*.internal.com"},
+		InterceptedPorts: []uint16{443, 8443},
+		BlockQUIC:        &blockQUIC,
+		VerifyUpstream:   &verifyUpstream,
+	})
+	joined := strings.Join(lines, "\n")
+	for _, want := range []string{
+		"tls=on",
+		"tls-ca=fp123",
+		"tls-bypass=*.internal.com",
+		"tls-port=443",
+		"tls-port=8443",
+		"tls-block-quic=true",
+		"tls-verify-upstream=false",
+	} {
+		if !strings.Contains(joined, want) {
+			t.Errorf("tlsFingerprintLines missing %q in %q", want, lines)
+		}
+	}
+	for i := range len(lines) - 1 {
+		if lines[i] > lines[i+1] {
+			t.Errorf("tlsFingerprintLines must be sorted, got %q", lines)
+		}
+	}
+}
+
+func TestFingerprintTLSInterceptedPortsAndFlagsChangeFingerprint(t *testing.T) {
+	blockQUIC := false
+	base := Policy{Profile: ProfilePublic, TLS: &TLSConfig{CAFingerprint: "fp"}}
+	withPorts := Policy{Profile: ProfilePublic, TLS: &TLSConfig{CAFingerprint: "fp", InterceptedPorts: []uint16{443}}}
+	if base.Fingerprint() == withPorts.Fingerprint() {
+		t.Fatal("adding intercepted ports must change the fingerprint")
+	}
+	withFlags := Policy{
+		Profile: ProfilePublic,
+		TLS:     &TLSConfig{CAFingerprint: "fp", BlockQUIC: &blockQUIC, VerifyUpstream: &blockQUIC},
+	}
+	if base.Fingerprint() == withFlags.Fingerprint() {
+		t.Fatal("setting block-quic / verify-upstream must change the fingerprint")
 	}
 }
 

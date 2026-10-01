@@ -31,11 +31,15 @@ const agentLabelKey = "org.agents-sandbox.agent"
 const dockerfileIDLabelKey = "org.agents-sandbox.dockerfile-id"
 
 // computeDockerfileID returns the content identity of a rendered runner
-// Dockerfile combined with the pinned agent version, capturing every input
-// that affects the baked image while excluding host-dependent build args.
-func computeDockerfileID(rendered []byte, agentVersion string) string {
-	h := sha256.Sum256(append(rendered, []byte(agentVersion)...))
-	return hex.EncodeToString(h[:])
+// Dockerfile combined with the pinned agent version and the TLS interception CA
+// certificate, capturing every input that affects the baked image while
+// excluding host-dependent build args.
+func computeDockerfileID(rendered []byte, agentVersion string, caCert []byte) string {
+	h := sha256.New()
+	h.Write(rendered)
+	h.Write([]byte(agentVersion))
+	h.Write(caCert)
+	return hex.EncodeToString(h.Sum(nil))
 }
 
 // Pinned third-party versions baked into the image.
@@ -44,27 +48,40 @@ const (
 	dockerVersion = "29.7.2"
 )
 
+// caContextFile is the name the TLS interception CA certificate is added to
+// the docker build context under, referenced by caTrustBlock. Custom bases can
+// COPY it into any stage of their own Dockerfile to trust the interceptor.
+const caContextFile = "agents-sandbox-ca.crt"
+
 // RenderDockerfile composes the single per-project runner Dockerfile from the
 // agent, the project Dockerfile (if any), and the dind switch. Tool-owned
 // blocks are appended after the base/user content; the base is either the
 // embedded debian tools block (default, or after replacing a managed FROM) or
-// the user's own custom base.
+// the user's own custom base. Managed bases get the interception CA baked into
+// the system trust store; custom bases are left untouched (the certificate is
+// still shipped in the build context for their own COPY use).
 func RenderDockerfile(a agent.Agent, projectDockerfile []byte, dind bool) []byte {
-	base := embeddedBaseToolsBlock
+	var base []byte
 
 	switch {
 	case len(bytes.TrimSpace(projectDockerfile)) == 0:
-		// No project Dockerfile: the embedded debian base tools block is the whole base.
+		// No project Dockerfile: the embedded debian base tools block is the
+		// whole base, immediately followed by the CA trust block so the
+		// interception CA is trusted before the tool-owned HTTPS downloads.
+		base = withTrustedCA(embeddedBaseToolsBlock)
 	case referencesImage(projectDockerfile, managedBaseRef) ||
 		referencesImage(projectDockerfile, managedBaseDindRef):
 		// Managed FROM: replace the final stage's FROM with the embedded base
-		// tools block, keeping earlier build stages and the body in place.
+		// tools block, keeping earlier build stages and the body in place. The
+		// CA trust block is inserted between the embedded tools and the user
+		// body so build-time HTTPS steps in the body also trust the interceptor.
 		if referencesImage(projectDockerfile, managedBaseDindRef) {
 			dind = true
 		}
-		base = replaceFinalStageFrom(projectDockerfile, embeddedBaseToolsBlock)
+		base = replaceFinalStageFrom(projectDockerfile, embeddedBaseToolsBlock, []byte(caTrustBlock()))
 	default:
-		// Custom base: keep the user's whole Dockerfile.
+		// Custom base: keep the user's whole Dockerfile untouched; the CA cert
+		// is still shipped in the build context for their own COPY use.
 		base = projectDockerfile
 	}
 
@@ -84,6 +101,27 @@ func RenderDockerfile(a agent.Agent, projectDockerfile []byte, dind bool) []byte
 	return insertAfterLastFrom([]byte(out.String()), []byte(devUserBlock()))
 }
 
+// withTrustedCA returns block followed by the CA trust block, installing the
+// interception CA right after the base tools (which install ca-certificates)
+// and before any HTTPS download.
+func withTrustedCA(block []byte) []byte {
+	out := make([]byte, 0, len(block)+len(caTrustBlock()))
+	out = append(out, block...)
+	return append(out, caTrustBlock()...)
+}
+
+// caTrustBlock installs the host's TLS interception CA into the system trust
+// store so the VM and build-time HTTPS steps trust the interceptor. It is
+// emitted only for managed bases, which guarantee the ca-certificates package.
+// The certificate itself is provided by the build context.
+func caTrustBlock() string {
+	return `USER root
+RUN mkdir -p /usr/local/share/ca-certificates
+COPY ` + caContextFile + ` /usr/local/share/ca-certificates/microsandbox-ca.crt
+RUN update-ca-certificates
+`
+}
+
 // devUserBlock creates the dev user as root, leaving the shell as root.
 // groupadd -f tolerates a host GID already taken in the base image (e.g. macOS
 // staff/20 vs dialout): the group then gets the next free GID, so useradd must
@@ -98,9 +136,9 @@ RUN id -u dev >/dev/null 2>&1 || \
 }
 
 // replaceFinalStageFrom swaps a project Dockerfile's final stage FROM for the
-// given block (which carries its own FROM), keeping earlier build stages and
-// the body that follows the FROM.
-func replaceFinalStageFrom(dockerfile []byte, block []byte) []byte {
+// given block (which carries its own FROM), inserting afterBlock immediately
+// after that block, keeping earlier build stages and the body that follows.
+func replaceFinalStageFrom(dockerfile, block, afterBlock []byte) []byte {
 	lines := bytes.SplitAfter(dockerfile, []byte("\n"))
 	lastFrom := lastFromLine(lines)
 	if lastFrom < 0 {
@@ -110,6 +148,10 @@ func replaceFinalStageFrom(dockerfile []byte, block []byte) []byte {
 	out.Write(bytes.Join(lines[:lastFrom], nil))
 	out.Write(block)
 	if !bytes.HasSuffix(block, []byte("\n")) {
+		out.WriteByte('\n')
+	}
+	out.Write(afterBlock)
+	if len(afterBlock) > 0 && !bytes.HasSuffix(afterBlock, []byte("\n")) {
 		out.WriteByte('\n')
 	}
 	out.Write(bytes.Join(lines[lastFrom+1:], nil))

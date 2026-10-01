@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net"
 	"sort"
+	"strconv"
 	"strings"
 
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
@@ -37,17 +38,41 @@ func ParseProfile(s string) (Profile, error) {
 
 // Policy is the resolved launcher network policy. The mapstructure tags let
 // viper decode the nested `network:` YAML block (profile, egress-allow,
-// egress-deny, dns-servers) directly into this struct.
+// egress-deny, dns-servers, tls) directly into this struct.
 type Policy struct {
-	Profile     Profile  `mapstructure:"profile"`
-	EgressAllow []string `mapstructure:"egress-allow"`
-	EgressDeny  []string `mapstructure:"egress-deny"`
-	DNSServers  []string `mapstructure:"dns-servers"`
+	Profile     Profile    `mapstructure:"profile"`
+	EgressAllow []string   `mapstructure:"egress-allow"`
+	EgressDeny  []string   `mapstructure:"egress-deny"`
+	DNSServers  []string   `mapstructure:"dns-servers"`
+	TLS         *TLSConfig `mapstructure:"tls"`
 }
 
 // Empty reports whether the policy is unset (zero value).
 func (p Policy) Empty() bool {
-	return p.Profile == "" && len(p.EgressAllow) == 0 && len(p.EgressDeny) == 0 && len(p.DNSServers) == 0
+	return p.Profile == "" && len(p.EgressAllow) == 0 && len(p.EgressDeny) == 0 && len(p.DNSServers) == 0 &&
+		p.TLS == nil
+}
+
+// TLSConfig configures the transparent HTTPS inspection proxy. The CA cert and
+// key paths plus the fingerprint are launcher-managed (resolved from the
+// persisted tlsca keypair at VM-preparation time); the remaining fields are
+// user-configurable via the `tls:` network block.
+type TLSConfig struct {
+	// Bypass is a list of domain patterns (supports "*.suffix") to skip MITM.
+	Bypass []string `mapstructure:"bypass"`
+	// InterceptedPorts lists ports on which TLS is intercepted (default [443]).
+	InterceptedPorts []uint16 `mapstructure:"intercepted-ports"`
+	// BlockQUIC blocks QUIC on intercepted ports to force TLS fallback.
+	BlockQUIC *bool `mapstructure:"block-quic"`
+	// VerifyUpstream verifies upstream TLS certificates (default true).
+	VerifyUpstream *bool `mapstructure:"verify-upstream"`
+	// CACert and CAKey are the host paths to the interception CA, resolved from
+	// the persisted tlsca keypair. They are launcher-set, not config-backed.
+	CACert string
+	CAKey  string
+	// CAFingerprint is the SHA-256 of the CA certificate, folded into the
+	// policy fingerprint so a CA rotation recreates the VM.
+	CAFingerprint string
 }
 
 // Effective applies the secure default profile when no profile was selected.
@@ -60,7 +85,8 @@ func (p Policy) Effective() Policy {
 
 // Fingerprint returns a stable SHA-256 hex digest of the policy, for detecting
 // changes across runs. It hashes the profile and the sorted allow/deny/dns
-// lists, independent of the microsandbox SDK's canonical NetworkConfig shape.
+// lists plus the TLS interception settings, independent of the microsandbox
+// SDK's canonical NetworkConfig shape.
 func (p Policy) Fingerprint() string {
 	p = p.Effective()
 	var lines []string
@@ -74,9 +100,36 @@ func (p Policy) Fingerprint() string {
 	for _, d := range p.EgressDeny {
 		lines = append(lines, "deny="+d)
 	}
+	if p.TLS != nil {
+		lines = append(lines, tlsFingerprintLines(p.TLS)...)
+	}
 	sort.Strings(lines)
 	sum := sha256.Sum256([]byte(strings.Join(lines, "\n")))
 	return hex.EncodeToString(sum[:])
+}
+
+// tlsFingerprintLines renders the TLS interception settings as sorted
+// fingerprint lines. The CA identity enters through the launcher-resolved
+// fingerprint rather than the (machine-specific) cert/key paths.
+func tlsFingerprintLines(t *TLSConfig) []string {
+	lines := []string{"tls=on"}
+	if t.CAFingerprint != "" {
+		lines = append(lines, "tls-ca="+t.CAFingerprint)
+	}
+	for _, b := range t.Bypass {
+		lines = append(lines, "tls-bypass="+b)
+	}
+	for _, p := range t.InterceptedPorts {
+		lines = append(lines, "tls-port="+strconv.FormatUint(uint64(p), 10))
+	}
+	if t.BlockQUIC != nil {
+		lines = append(lines, "tls-block-quic="+strconv.FormatBool(*t.BlockQUIC))
+	}
+	if t.VerifyUpstream != nil {
+		lines = append(lines, "tls-verify-upstream="+strconv.FormatBool(*t.VerifyUpstream))
+	}
+	sort.Strings(lines)
+	return lines
 }
 
 // NormalizeDNSServers validates and normalizes DNS upstream resolvers. Bare IPs
@@ -149,6 +202,19 @@ func (p Policy) Config() (*msbSdk.NetworkConfig, error) {
 	}
 	for _, d := range dedupe(p.EgressAllow) {
 		cfg.Rules = append(cfg.Rules, egressRule(msbSdk.PolicyActionAllow, d))
+	}
+	if p.TLS != nil {
+		cfg.TLS = &msbSdk.TLSConfig{
+			Bypass:                append([]string(nil), p.TLS.Bypass...),
+			VerifyUpstream:        p.TLS.VerifyUpstream,
+			InterceptedPorts:      append([]uint16(nil), p.TLS.InterceptedPorts...),
+			BlockQUIC:             p.TLS.BlockQUIC,
+			CACert:                p.TLS.CACert,
+			CAKey:                 p.TLS.CAKey,
+			UpstreamCACerts:       nil,
+			ScopedUpstreamCACerts: nil,
+			ScopedVerifyUpstream:  nil,
+		}
 	}
 	return cfg, nil
 }

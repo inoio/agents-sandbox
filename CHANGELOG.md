@@ -8,6 +8,15 @@ command reports the bare version (e.g. `0.1.0`).
 
 ## [Unreleased]
 
+### Added
+
+- Networking: the launcher now generates and manages its own TLS-interception CA (stored under
+  `~/.local/state/agents-sandbox/tls/`) and configures microsandbox's HTTPS proxy to use it instead of the
+  runtime's default certificate. Managed runner images bake the CA into the system trust store; the certificate is
+  also shipped in the docker build context (`agents-sandbox-ca.crt`) so custom base images can `COPY` it at any
+  build stage. A new optional `network.tls` block (bypass, intercepted-ports, block-quic, verify-upstream) exposes
+  the interceptor settings.
+
 ### Changed
 
 - Security: VM network egress is now denied by default. Use `--network public`, an explicit `network.profile`, or another

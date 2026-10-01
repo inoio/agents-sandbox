@@ -4,6 +4,9 @@ import (
 	"context"
 	"errors"
 	"io"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/moby/moby/api/types/image"
@@ -123,6 +126,25 @@ func TestBuildReturnsErrorWhenLoadFails(t *testing.T) {
 
 	if err := Build(context.Background(), a, "test-project", BuildOptions{}, &termio.Mock{}); err == nil {
 		t.Error("expected Build to return an error when loading the image into microsandbox fails")
+	}
+}
+
+func TestEnsureImageWithClientErrorWhenInterceptionCAUnavailable(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	WithMockAgentVersion(t, "1.2.3")
+	a, _ := agent.Lookup("opencode")
+	blocked := filepath.Join(configpaths.Get().UserStateDir(), "tls")
+	if err := os.WriteFile(blocked, []byte("not a dir"), 0o644); err != nil {
+		t.Fatalf("write blocking file: %v", err)
+	}
+	_, err := EnsureImageWithClient(
+		context.Background(), a, nil, "test-project", BuildOptions{}, &termio.Mock{},
+	)
+	if err == nil {
+		t.Fatal("expected error when the TLS interception CA cannot be resolved")
+	}
+	if !strings.Contains(err.Error(), "resolve TLS interception CA") {
+		t.Errorf("error = %q, want it to mention the CA resolution", err)
 	}
 }
 
