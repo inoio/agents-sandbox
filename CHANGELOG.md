@@ -12,8 +12,17 @@ command reports the bare version (e.g. `0.1.0`).
 
 - Docs: `make check` and CI now validate documentation links and linking style via `ci/check-docs.sh`; README links use
   relative `docs/` paths and `docs/` pages link with Jekyll `{% link %}` tags.
+- Maintenance: updated the microsandbox Go SDK and managed `msb` runtime to v0.7.6.
 - Security: VM network egress is now denied by default. Use `--network public`, an explicit `network.profile`, or another
   network profile to opt into broader access. Existing VMs without a recorded network policy are recreated to apply the secure default.
+- Docs: the comparison matrix in the README and docs home page gains an "Access restrictions" row noting Docker Sandboxes' sign-in requirement.
+
+### Fixed
+
+- Bugfix: bind-mount sources (the workspace directory and any configured `mounts`) are now canonicalized
+  (`filepath.EvalSymlinks`) before they are handed to microsandbox. A path containing a symlink (e.g. macOS
+  `/tmp` → `/private/tmp`) previously made the VM fail to start with `mount workspace_...: Not a directory
+  (os error 20)` (#92).
 
 ## [0.4.0] - 2026-09-26
 

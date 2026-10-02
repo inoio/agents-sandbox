@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"path/filepath"
 
 	"github.com/inoio/agents-sandbox/internal/agent"
 	"github.com/inoio/agents-sandbox/internal/git"
@@ -60,6 +61,11 @@ func PrepareSandbox(
 	opts options.RunOptions,
 	ui termio.UI,
 ) (*Session, error) {
+	cwd, err := resolveWorkspaceDir()
+	if err != nil {
+		return nil, err
+	}
+
 	projectSlug := git.ProjectSlug()
 
 	a, ok := agent.Lookup(opts.Agent)
@@ -104,11 +110,6 @@ func PrepareSandbox(
 		return nil, fmt.Errorf("volume setup failed: %w", err)
 	}
 	ui.Verbosef("home volume: %s", homeVol)
-
-	cwd, err := os.Getwd()
-	if err != nil {
-		return nil, fmt.Errorf("get current directory: %w", err)
-	}
 
 	// Load the merged agent config and home files exactly once per startup;
 	// the result is shared by the reconfig decision and the provisioning step.
@@ -166,6 +167,30 @@ func PrepareSandbox(
 		cwd:           cwd,
 		serveHostPort: opts.ServeHostPort,
 	}, nil
+}
+
+// resolveWorkspaceDir returns the current working directory with all symlinks
+// resolved to their physical path. It is used as the workspace bind-mount
+// source. microsandbox's virtiofs bind mount rejects a host source whose path
+// contains a symlink with a cryptic "Not a directory" error (e.g. macOS
+// resolves /tmp to /private/tmp), so the physical path must be passed.
+func resolveWorkspaceDir() (string, error) {
+	cwd, err := os.Getwd()
+	if err != nil {
+		return "", fmt.Errorf("get current directory: %w", err)
+	}
+	return resolveWorkspacePath(cwd)
+}
+
+// resolveWorkspacePath resolves all symlinks in dir to their physical path.
+// It is split out from resolveWorkspaceDir so the symlink-resolution step and
+// its error handling can be unit-tested without touching the process cwd.
+func resolveWorkspacePath(dir string) (string, error) {
+	resolved, err := filepath.EvalSymlinks(dir)
+	if err != nil {
+		return "", fmt.Errorf("resolve symlinks in %q: %w", dir, err)
+	}
+	return resolved, nil
 }
 
 // resolveServeHostPort returns the host port to publish in serve-only mode. When
