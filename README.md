@@ -68,7 +68,7 @@ Use agents-sandbox when you already use a supported coding agent and want:
 
 ## Quick start
 
-Install agents-sandbox using the [installation guide](https://inoio.github.io/agents-sandbox/docs/install/installation/), then
+Install agents-sandbox using the [installation guide](docs/install/installation.md), then
 check the host prerequisites and start the configured agent:
 
 ```console
@@ -82,7 +82,7 @@ handling, start with [Manage config in the sandbox](docs/manage-config.md) inste
 ## Agent selection
 
 You can use the `--agent <name>` flag (available on `run`, `shell`, `build`, `volume`, `stop`, and `kill`) to
-select the coding-agent to run, provision, or manage. This is also available as a setting in the [configuration file](configuration/launcher.md). `--agent-version` can be used to pin the agent version.
+select the coding-agent to run, provision, or manage. This is also available as a setting in the [configuration file](docs/configuration/launcher.md). `--agent-version` can be used to pin the agent version.
 
 Four agents ship as built-in profiles:
 
@@ -100,25 +100,25 @@ There's dedicated documentation per topic. You can also browse the documentation
 
 | Topic                                         | Description                                                                              |
 |-----------------------------------------------|------------------------------------------------------------------------------------------|
-| [Why?](/docs/introduction.md)                 | Motivation, isolation boundary, shared data, and limitations.                            |
-| [How it works](/docs/how-it-works.md)         | Architecture: host to VM, `/workspace`, home volume, secrets, and multi-client attach.   |
-| [Install](/docs/install.md)                   | Installation and prerequisites.                                                           |
-| [Switch from your existing agent](/docs/switch.md) | Use agents-sandbox with your existing agent config and credentials (host-config drop-in). |
-| [Manage config in the sandbox](/docs/manage-config.md) | Declarative, self-contained config: secrets, provisioning, agent snippets.            |
-| [Commands](/docs/commands.md)                 | Complete CLI reference                                                                   |
-| [Configuration](/docs/configuration/)         | Split into subpages: Configuration files & Environment variables, secrets, networking, host mounts, home provisioning & startup hooks, agent configuration, notifications, self-upgrade |
-| [Runner Image](/docs/runner-image.md)         | Base image, custom tooling                                                               |
-| [Worktree Sessions](/docs/branch-sessions.md) | Isolated worktree sessions for per-feature development                                   |
-| [Recipes](/docs/recipes.md)                   | Hands-on workflows                                  |
-| [Sandboxes](/docs/sandboxes.md)               | VM lifecycle, volumes, pruning                                                           |
-| [Troubleshooting](/docs/troubleshooting.md)   | Common issues and fixes                                                                  |
-| [Roadmap](/ROADMAP.md)                        | Public, forward-looking project roadmap                                                  |
+| [Why?](docs/introduction.md)                 | Motivation, isolation boundary, shared data, and limitations.                            |
+| [How it works](docs/how-it-works.md)         | Architecture: host to VM, `/workspace`, home volume, secrets, and multi-client attach.   |
+| [Install](docs/install.md)                   | Installation and prerequisites.                                                           |
+| [Switch from your existing agent](docs/switch.md) | Use agents-sandbox with your existing agent config and credentials (host-config drop-in). |
+| [Manage config in the sandbox](docs/manage-config.md) | Declarative, self-contained config: secrets, provisioning, agent snippets.            |
+| [Commands](docs/commands.md)                 | Complete CLI reference                                                                   |
+| [Configuration](docs/configuration/index.md) | Split into subpages: Configuration files & Environment variables, secrets, networking, host mounts, home provisioning & startup hooks, agent configuration, notifications, self-upgrade |
+| [Runner Image](docs/runner-image.md)         | Base image, custom tooling                                                               |
+| [Worktree Sessions](docs/branch-sessions.md) | Isolated worktree sessions for per-feature development                                   |
+| [Recipes](docs/recipes.md)                   | Hands-on workflows                                  |
+| [Sandboxes](docs/sandboxes.md)               | VM lifecycle, volumes, pruning                                                           |
+| [Troubleshooting](docs/troubleshooting.md)   | Common issues and fixes                                                                  |
+| [Roadmap](ROADMAP.md)                        | Public, forward-looking project roadmap                                                  |
 
 ## Contributing  
 
 | Topic                                  | Description                                     |
 |----------------------------------------|-------------------------------------------------|
-| [Contributing](/CONTRIBUTING.md)       | Guidelines for contributing to agents-sandbox |
-| [Code of conduct](/CODE_OF_CONDUCT.md) | Our code of conduct                             |
-| [Security](/SECURITY.md)               | Rules for submitting security issues            |
-| [Roadmap](/ROADMAP.md)                 | Public, forward-looking project roadmap         |
+| [Contributing](CONTRIBUTING.md)       | Guidelines for contributing to agents-sandbox |
+| [Code of conduct](CODE_OF_CONDUCT.md) | Our code of conduct                             |
+| [Security](SECURITY.md)               | Rules for submitting security issues            |
+| [Roadmap](ROADMAP.md)                 | Public, forward-looking project roadmap         |

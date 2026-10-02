@@ -1,4 +1,4 @@
-.PHONY: build build-release build-release-all test coverage coverage-junit lint fmt clean completion user-install check all upgrade-deps docs-diagrams docs-serve
+.PHONY: build build-release build-release-all test coverage coverage-junit lint fmt clean completion user-install check all upgrade-deps docs-diagrams docs-linkcheck docs-serve
 
 VERSION ?= dev
 
@@ -64,7 +64,7 @@ validate-fmt:
 run:
 	go run ./cmd/agents-sandbox
 
-check: fmt lint test
+check: fmt lint test docs-linkcheck
 
 all: fmt lint test build
 
@@ -79,6 +79,10 @@ completion:
 # Excludes the vendored C4-PlantUML library files (C4*.puml), which are not standalone diagrams.
 docs-diagrams:
 	cd docs/diagrams && for f in *.puml; do case "$$f" in C4*) ;; *) $(PLANTUML) -DRELATIVE_INCLUDE -tsvg -o . "$$f" || exit 1;; esac; done
+
+# Validate documentation links and linking style (run by `make check` and CI).
+docs-linkcheck:
+	bash ci/check-docs.sh
 
 # Serve the docs locally the same way GitHub Pages does (Jekyll build + live reload) at http://localhost:4000/.
 docs-serve:
