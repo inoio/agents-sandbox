@@ -23,7 +23,7 @@ import (
 const defaultSandboxUser = "dev"
 
 // Provision writes the merged agent config (when snippets exist), each home
-// file, and the drop-in copy into the sandbox. For that it creates parent directories as
+// file, and the optional host drop-in copy into the sandbox. For that it creates parent directories as
 // needed, removes the marked stale paths, then chowns every written path and
 // created directory to the runtime user so the files are readable by the agent
 // and startup hooks. The SDK's file writes create root-owned files and

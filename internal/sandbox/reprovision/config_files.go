@@ -69,15 +69,15 @@ func AgentConfigPath(a agent.Agent, home string) string {
 }
 
 // ConfigFiles holds the merged agent config, the set of home files to
-// provision into the VM, the default drop-in copy from the host, and the VM
-// paths to remove so stale host config cannot shadow the merged config.
+// provision into the VM, the optional host drop-in copy, and the VM paths to
+// remove so stale host config cannot shadow the merged config.
 type ConfigFiles struct {
 	HasSnippets bool                   // whether any agent snippet existed
 	Merged      []byte                 // merged agent config content
 	MergedPath  string                 // VM path of the merged config ("" when no snippets)
 	Sources     []string               // host snippet paths merged into Merged
 	HomeFiles   map[string][]byte      // VM absolute path -> content (from the home: key)
-	Provisioned map[string][]byte      // VM absolute path -> content (drop-in copy)
+	Provisioned map[string][]byte      // VM absolute path -> content (host drop-in copy)
 	Mirror      map[string][]byte      // VM absolute path -> content (verbatim <agent> mirror)
 	Modes       map[string]os.FileMode // VM absolute path -> ordinary file permission bits
 	Remove      []string               // VM absolute paths to delete before writing
@@ -94,9 +94,8 @@ func LoadConfigFiles(a agent.Agent, ui termio.UI, provisionHostConfig bool) (*Co
 
 // LoadConfigFilesForHost builds the desired VM state for the given agent with
 // explicit host and VM home directories: the merged agent config, the home
-// files (from the home: key of the config files), and the default drop-in copy of the
-// agent's host config (per its provision rules, unless host config provisioning
-// is disabled). It warns about any home source that does not exist on the
+// files (from the home: key of the config files), and the optional host-config
+// drop-in (per its provision rules). It warns about any home source that does not exist on the
 // host and about malformed provision rules. Home files and the merged config
 // override provisioned defaults for the same VM path. The agent's merged-config
 // path is reserved: a home target colliding with it is rejected.
@@ -174,7 +173,7 @@ func LoadConfigFilesForHost(
 	}
 	// Precedence: home files always override provisioned defaults, and the
 	// merged agent config overrides the provisioned config when snippets exist
-	// (no merged config means the drop-in default is provisioned).
+	// (no merged config means the host drop-in is provisioned when enabled).
 	for p := range homeFiles {
 		delete(provisioned, p)
 		delete(modes, p)
@@ -240,8 +239,8 @@ func applyMirrorPrecedence(
 }
 
 // configKeys returns the sorted VM paths to provision and compare: the merged
-// config (when snippets exist), then home files, mirror files, and drop-in
-// provisioned files.
+// config (when snippets exist), then home files, mirror files, and host drop-in
+// files.
 func configKeys(mergedPath string, hasSnippets bool, homeFiles, mirror, provisioned map[string][]byte) []string {
 	keys := make([]string, 0, len(homeFiles)+len(provisioned)+len(mirror)+1)
 	if hasSnippets {

@@ -292,7 +292,7 @@ agents-sandbox cfg
 
 #### config agent [name]
 
-Show the merged snippet config, the verbatim config-dir mirror files, and the host files drop-in-provisioned into the VM for an agent (default: the configured agent, `opencode`).
+Show the merged snippet config, the verbatim config-dir mirror files, and the host drop-in candidates for an agent (default: the configured agent, `opencode`). The output includes the resolved `provision-host-config` setting; native host files are copied only when it is `true`.
 
 ```console
 agents-sandbox config agent opencode
@@ -307,7 +307,7 @@ agents-sandbox config agent --agent pi
 
 The agent is resolved from the `--agent` flag, then the positional `[name]`, then the configured agent, then `opencode`. Passing both `--agent` and a positional `[name]` (conflicting values) returns an "ambiguous" error.
 
-Each host file is listed as `merged` (its VM path is the merged config path or part of the removed config-file family) or `not merged` (copied verbatim). Verbatim mirror files are listed as their host source path → VM path.
+Each host-file candidate is listed as `merged` (its VM path is the merged config path or part of the removed config-file family) or `not merged` (copied verbatim when provisioning is enabled). Verbatim mirror files are listed as their host source path → VM path.
 
 #### config home
 

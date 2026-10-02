@@ -46,6 +46,22 @@ func TestExtractRunOptionsDefaults(t *testing.T) {
 	if opts.Network.Profile != network.ProfileNone {
 		t.Errorf("Network.Profile = %q; want %q by default", opts.Network.Profile, network.ProfileNone)
 	}
+	if opts.ProvisionHostConfig == nil || *opts.ProvisionHostConfig {
+		t.Errorf("ProvisionHostConfig = %v; want pointer to false by default", opts.ProvisionHostConfig)
+	}
+}
+
+func TestExtractRunOptionsProvisionHostConfigOptIn(t *testing.T) {
+	ui := &termio.Mock{}
+	cmd := buildCommandWithLauncherConfig(ui, launcherconfig.Config{ProvisionHostConfig: true})
+
+	opts, err := extractRunOptions(cmd, ui)
+	if err != nil {
+		t.Fatalf("extractRunOptions: %v", err)
+	}
+	if opts.ProvisionHostConfig == nil || !*opts.ProvisionHostConfig {
+		t.Errorf("ProvisionHostConfig = %v; want pointer to true", opts.ProvisionHostConfig)
+	}
 }
 
 // AutoStopOnActiveSessions: true propagates to ReapPolicy.

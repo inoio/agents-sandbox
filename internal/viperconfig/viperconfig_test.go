@@ -145,6 +145,51 @@ func TestResolverEnvPrecedenceOverConfig(t *testing.T) {
 	}
 }
 
+func TestResolverProvisionHostConfigDefaultsFalse(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+
+	r, err := NewResolver(nil, "")
+	if err != nil {
+		t.Fatalf("NewResolver: %v", err)
+	}
+	if r.ProvisionHostConfig() {
+		t.Error("ProvisionHostConfig() = true; want false by default")
+	}
+}
+
+func TestResolverProvisionHostConfigConfigAndEnv(t *testing.T) {
+	cases := []struct {
+		name   string
+		config bool
+		env    string
+		want   bool
+	}{
+		{name: "config true", config: true, want: true},
+		{name: "config false", config: false, want: false},
+		{name: "env true overrides config false", config: false, env: "true", want: true},
+		{name: "env false overrides config true", config: true, env: "false", want: false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			configpaths.WithMockConfigPaths(t)
+			testutil.WriteYAML(t, configpaths.Get().UserConfigDir(), "config.yaml", map[string]any{
+				"provision-host-config": tc.config,
+			})
+			if tc.env != "" {
+				t.Setenv("OPENCODE_SANDBOX_PROVISION_HOST_CONFIG", tc.env)
+			}
+
+			r, err := NewResolver(nil, "")
+			if err != nil {
+				t.Fatalf("NewResolver: %v", err)
+			}
+			if got := r.ProvisionHostConfig(); got != tc.want {
+				t.Errorf("ProvisionHostConfig() = %v; want %v", got, tc.want)
+			}
+		})
+	}
+}
+
 func TestResolverConfigNoFlag(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	cp := configpaths.Get()

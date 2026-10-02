@@ -8,6 +8,9 @@ command reports the bare version (e.g. `0.1.0`).
 
 ## [Unreleased]
 
+- Security: `provision-host-config` now defaults to `false`, so native agent config and credential files are not copied into the
+  VM unless explicitly enabled. Set it to `true` to retain the previous host-config drop-in behavior.
+
 ## [0.5.0] - 2026-10-03
 
 ### Changed

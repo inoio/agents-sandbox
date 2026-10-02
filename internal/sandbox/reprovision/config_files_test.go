@@ -148,7 +148,7 @@ func TestProvisionJoinsErrors(t *testing.T) {
 	}
 }
 
-// TestLoadConfigFilesProvisioning verifies the default drop-in copy: host files
+// TestLoadConfigFilesProvisioning verifies the enabled host drop-in copy: host files
 // under the agent's config dirs are provisioned into the VM home, while
 // excluded paths (node_modules) are not.
 func TestLoadConfigFilesProvisioning(t *testing.T) {
@@ -310,7 +310,7 @@ func TestLoadConfigFilesRemovesStaleConfigWithSnippets(t *testing.T) {
 }
 
 // TestLoadConfigFilesShadowingCopiedWithoutSnippets verifies that without
-// snippets the host opencode.jsonc is drop-in copied as the default config.
+// snippets the host opencode.jsonc is drop-in copied as the config.
 func TestLoadConfigFilesShadowingCopiedWithoutSnippets(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	hostHome := t.TempDir()
@@ -417,8 +417,8 @@ func TestProvisionRemovesStalePaths(t *testing.T) {
 	}
 }
 
-// TestProvisionWritesProvisioned verifies that Provision writes the default
-// drop-in copy just like home files.
+// TestProvisionWritesProvisioned verifies that Provision writes host drop-in
+// files just like home files.
 func TestProvisionWritesProvisioned(t *testing.T) {
 	cf := &ConfigFiles{
 		Provisioned: map[string][]byte{

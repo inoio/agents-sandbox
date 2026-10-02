@@ -46,11 +46,11 @@ Legend for the first four rows: ✅ = stronger isolation or host-side handling; 
 | Network                   | Egress is denied by default. Profiles and allow/deny rules can grant access; `profile: none` is deny-by-default egress, not a complete air gap.                                                              |
 | Raw credentials           | `env.secret` and `env.secret.yaml` keep the real value on the host and expose a placeholder to the guest. This is separate from ordinary file provisioning. |
 
-> **Credential warning:** The convenience setup copies the active agent's host configuration into the VM by default. For
-> opencode, that can include `~/.local/share/opencode/auth.json`. If credentials must not be stored in the VM, set
-> `provision-host-config: false`, use the secret mechanism, and keep credentials out of `/workspace`, `home:`, `env`, and
-> writable mounts. See the [Secrets](docs/configuration/secrets.md) and [Agent configuration](docs/configuration/agent.md)
-> documentation.
+> **Credential warning:** Native host-agent configuration is not copied into the VM by default. To use the convenience
+> workflow with an existing host setup, set `provision-host-config: true`. For opencode, that can include
+> `~/.local/share/opencode/auth.json`. If credentials must not be stored in the VM, keep host-config provisioning disabled,
+> use the secret mechanism, and keep credentials out of `/workspace`, `home:`, `env`, and writable mounts. See the
+> [Secrets](docs/configuration/secrets.md) and [Agent configuration](docs/configuration/agent.md) documentation.
 
 ## Why this model?
 
@@ -76,8 +76,9 @@ agents-sandbox doctor
 agents-sandbox
 ```
 
-The default path uses the agent configuration already present on the host. For a self-contained setup with explicit secret
-handling, start with [Manage config in the sandbox](docs/manage-config.md) instead.
+The default path does not copy native host-agent configuration. To use an existing host setup, opt in with
+`provision-host-config: true`; for a self-contained setup with explicit secret handling, start with
+[Manage config in the sandbox](docs/manage-config.md) instead.
 
 ## Agent selection
 
@@ -105,7 +106,7 @@ There's dedicated documentation per topic. You can also browse the documentation
 | [Why?](/docs/introduction.md)                 | Motivation, isolation boundary, shared data, and limitations.                            |
 | [How it works](/docs/how-it-works.md)         | Architecture: host to VM, `/workspace`, home volume, secrets, and multi-client attach.   |
 | [Install](/docs/install.md)                   | Installation and prerequisites.                                                           |
-| [Switch from your existing agent](/docs/switch.md) | Use agents-sandbox with your existing agent config and credentials (host-config drop-in). |
+| [Switch from your existing agent](/docs/switch.md) | Opt in to using your existing agent config and credentials (host-config drop-in). |
 | [Manage config in the sandbox](/docs/manage-config.md) | Declarative, self-contained config: secrets, provisioning, agent snippets.            |
 | [Commands](/docs/commands.md)                 | Complete CLI reference                                                                   |
 | [Configuration](/docs/configuration/)         | Split into subpages: Configuration files & Environment variables, secrets, networking, host mounts, home provisioning & startup hooks, agent configuration, notifications, self-upgrade |

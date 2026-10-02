@@ -12,10 +12,12 @@ This extends **[Switch from your existing agent]({% link switch.md %})**.
 > **New to coding agents?** Set up your agent (opencode, pi, or claude-code) on your host first,
 > then come back here.
 
-## 1. Turn off host-config fallback
+## 1. Keep native host config disabled
 
 ```yaml
 # ~/.config/agents-sandbox/config.yaml
+# This is already the secure default; keep it explicit when overriding
+# inherited configuration or cleaning up a previous opt-in.
 provision-host-config: false
 ```
 

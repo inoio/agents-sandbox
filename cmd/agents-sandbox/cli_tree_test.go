@@ -90,7 +90,7 @@ func TestPrintTreeContainsCommandDescriptions(t *testing.T) {
 		"Manage runner images",
 		"Manage home volumes",
 		"Manage sandboxes",
-		"Show the merged agent config and the host files provisioned into the VM",
+		"Show the merged agent config and host drop-in candidates",
 		"List cached runner images",
 		"List managed volumes",
 		"Stop the project VM",

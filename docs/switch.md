@@ -9,6 +9,15 @@ nav_order: 30
 Use agents-sandbox with the agent setup you already have without writing any config. If you haven't
 installed agents-sandbox yet, [install it]({% link index.md %}#install) first.
 
+## Opt in to host config
+
+The native host-config drop-in is disabled by default. To use the existing agent setup, add this to the top-level launcher
+configuration at `~/.config/agents-sandbox/config.yaml`:
+
+```yaml
+provision-host-config: true
+```
+
 ## Run it
 
 In any project directory:
@@ -17,8 +26,8 @@ In any project directory:
 agents-sandbox
 ```
 
-agents-sandbox copies your existing agent config (e.g. `~/.config/opencode/**`)
-and credentials into the VM by default, so your normal agent,
+With host-config provisioning enabled, agents-sandbox copies your existing agent config (e.g. `~/.config/opencode/**`)
+and credentials into the VM, so your normal agent,
 models, and permissions are available immediately, now running in a hardware-isolated VM with
 your project at `/workspace`.
 
@@ -28,9 +37,9 @@ your project at `/workspace`.
 
 ## ⚠️ What to know
 
-The fast path shares your host config **and** credentials (for opencode, `auth.json`) into the
-VM. This is fine for trying it out or low-sensitivity work. When you want no secrets exposed to agents, 
-not even the provider API keys, or you want a self-contained, reproducible setup, see
+The opt-in path shares your host config **and** credentials (for opencode, `auth.json`) into the VM. This is fine for trying
+it out or low-sensitivity work. When you want no secrets exposed to agents, not even the provider API keys, or you want a
+self-contained, reproducible setup, see
 [Manage config in the sandbox]({% link manage-config.md %}) and
 [Secrets]({% link configuration/secrets.md %}).
 

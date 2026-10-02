@@ -254,10 +254,10 @@ func persistConfigHashes(
 }
 
 // provisionHostConfig reports whether the agent's host config files should be
-// copied into the VM. A nil option enables it (the launcher default).
+// copied into the VM. A nil option disables it (the launcher default).
 func provisionHostConfig(opts options.RunOptions) bool {
 	if opts.ProvisionHostConfig == nil {
-		return true
+		return false
 	}
 	return *opts.ProvisionHostConfig
 }
