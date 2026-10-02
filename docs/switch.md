@@ -18,6 +18,16 @@ configuration at `~/.config/agents-sandbox/config.yaml`:
 provision-host-config: true
 ```
 
+For OpenCode, the recommended secure transition is instead:
+
+```console
+agents-sandbox config migrate
+```
+
+This keeps native host provisioning disabled, creates managed settings, and replaces supported credentials with
+microsandbox placeholders. The raw values remain in the user-level secret file. The first interactive run also offers
+this migration when it detects native OpenCode configuration.
+
 ## Run it
 
 In any project directory:

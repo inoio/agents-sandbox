@@ -109,6 +109,12 @@ user or project snippet directories (see [Config snippet merge](#config-snippet-
 agent's pattern exists, it wins over the host config for the merged config path. Native host-config drop-in provisioning is
 disabled by default; enable it explicitly when you want the host setup copied.
 
+For an existing OpenCode setup, `agents-sandbox config migrate` provides a safer transition. It writes supported native
+settings to a managed snippet and converts credential values to microsandbox placeholders backed by user-level secrets.
+OpenCode and OpenCode 2 share this migration. Pi and Claude Code currently use the manual snippet and env-secret workflow.
+The migration shows generated files for review, confirms any new network egress hosts, and leaves a retryable manifest if
+writing is interrupted.
+
 To enable the host-config drop-in copy (config **and** credentials), set `provision-host-config: true` in the launcher config:
 
 ```yaml

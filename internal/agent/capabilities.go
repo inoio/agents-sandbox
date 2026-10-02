@@ -57,6 +57,43 @@ type Provisioner interface {
 	ProvisionRules() []ProvisionRule
 }
 
+// AuthMigrationSpec describes the provider/auth fields that a migration can
+// safely transform for an agent.
+type AuthMigrationSpec struct {
+	SecretPrefix            string
+	AuthFields              map[string][]string
+	SensitiveFields         []string
+	SafeFields              []string
+	ConfigSensitiveFields   []string
+	EndpointFields          []string
+	AuthPlaceholderPrefix   string
+	ConfigPlaceholderPrefix string
+	ConfigPlaceholderSuffix string
+}
+
+// ConfigMigrationSpec describes the native and managed paths used by a safe
+// configuration migration.
+type ConfigMigrationSpec struct {
+	NativeConfigDir    string
+	NativeConfigEnv    string
+	NativeConfigSubdir string
+	NativeCredential   string
+	NativeDataEnv      string
+	NativeDataSubdir   string
+	CredentialTarget   string
+	ManagedCredential  string
+	ManagedSnippet     string
+	NativeConfigFiles  []string
+	KnownProviderHosts map[string]string
+	Auth               AuthMigrationSpec
+}
+
+// MigrationSpecProvider exposes agent-specific migration metadata without
+// coupling agent profiles to the migration implementation.
+type MigrationSpecProvider interface {
+	MigrationSpec() ConfigMigrationSpec
+}
+
 // AsDaemonProvider returns the agent's DaemonProvider, if it implements one.
 func AsDaemonProvider(a Agent) (DaemonProvider, bool) {
 	p, ok := a.(DaemonProvider)
@@ -87,6 +124,13 @@ func AsAttachRunner(a Agent) (AttachRunner, bool) { p, ok := a.(AttachRunner); r
 
 // AsProvisioner returns the agent's Provisioner, if it implements one.
 func AsProvisioner(a Agent) (Provisioner, bool) { p, ok := a.(Provisioner); return p, ok }
+
+// AsMigrationSpecProvider returns the agent's migration metadata, if it has a
+// safe config migration implementation.
+func AsMigrationSpecProvider(a Agent) (MigrationSpecProvider, bool) {
+	p, ok := a.(MigrationSpecProvider)
+	return p, ok
+}
 
 // VersionProvider exposes how to read the installed agent version from a
 // running image: the shell command to run and a parser for its output. Agents

@@ -271,13 +271,15 @@ func TestLoadConfigFilesRemovesStaleConfigWithSnippets(t *testing.T) {
 	// Snippets exist so hasSnippets=true and the merged config is written.
 	testutil.WriteFile(t, cp.ProjectAgentConfigDir(a), "opencode-model.json", `{"model":"x"}`)
 
-	// Host files the drop-in copy would pick up: opencode.jsonc is the merged
-	// config filename, other.json is unrelated.
+	// Host files the drop-in copy would pick up: every config-family filename
+	// must be excluded, while other.json remains a normal drop-in file.
 	ocConfig := filepath.Join(hostHome, ".config/opencode")
 	if err := os.MkdirAll(ocConfig, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	testutil.WriteFile(t, ocConfig, "opencode.jsonc", `{"model":"host"}`)
+	for _, name := range configFamilyNames(opencodeTestAgent()) {
+		testutil.WriteFile(t, ocConfig, name, `{"model":"host"}`)
+	}
 	testutil.WriteFile(t, ocConfig, "other.json", `{"host":1}`)
 
 	ui := termio.NewTestMock(t)

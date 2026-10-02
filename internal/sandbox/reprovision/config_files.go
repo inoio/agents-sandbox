@@ -179,8 +179,10 @@ func LoadConfigFilesForHost(
 		delete(modes, p)
 	}
 	if hasSnippets {
-		delete(provisioned, mergedPath)
-		delete(modes, mergedPath)
+		for _, path := range configFileFamilyPaths(mergedPath, configFamilyNames(a)) {
+			delete(provisioned, path)
+			delete(modes, path)
+		}
 	}
 	mirrorEntries, err := buildMirror(a, vmHome)
 	if err != nil {

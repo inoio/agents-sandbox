@@ -24,6 +24,12 @@ Native host-config provisioning is disabled by default. The `provision-host-conf
 launcher configuration in `~/.config/agents-sandbox/config.yaml` when you need to override inherited opt-in configuration or
 clean up a previous opt-in.
 
+For an existing OpenCode installation, use `agents-sandbox config migrate` to create a managed copy safely. The command
+replaces supported values in `auth.json` and native OpenCode settings with placeholders, writes the raw values only to
+the user-level `~/.config/agents-sandbox/env.secret.yaml`, and maps the sanitized file to OpenCode's actual credential
+store with `home:`. It does not modify the native files. Unknown provider hosts require an explicit host at migration
+time; the migration never defaults to unrestricted secret forwarding.
+
 ## Format
 
 Two file formats are supported: legacy text and structured YAML. YAML files take precedence over legacy files for

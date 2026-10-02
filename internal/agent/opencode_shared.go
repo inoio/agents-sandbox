@@ -40,6 +40,68 @@ func (opencodeConfig) ProvisionRules() []ProvisionRule {
 	}
 }
 
+// MigrationSpec describes the OpenCode files that can be migrated without
+// copying native credentials into the VM. Both OpenCode profiles use the same
+// auth format and paths.
+//
+//nolint:gosec // these are public provider hostnames, not credentials
+func (opencodeConfig) MigrationSpec() ConfigMigrationSpec {
+	const wellKnownAuthType = "wellknown"
+	const tokenField = "token"
+	return ConfigMigrationSpec{
+		NativeConfigDir:    ".config/opencode",
+		NativeConfigEnv:    "XDG_CONFIG_HOME",
+		NativeConfigSubdir: opencodeName,
+		NativeCredential:   ".local/share/opencode/auth.json",
+		NativeDataEnv:      "XDG_DATA_HOME",
+		NativeDataSubdir:   opencodeName,
+		CredentialTarget:   ".local/share/opencode/auth.json",
+		ManagedCredential:  "auth.json",
+		ManagedSnippet:     "opencode-migrated.jsonc",
+		NativeConfigFiles: []string{
+			"config.json",
+			"opencode.json",
+			"opencode.jsonc",
+			"opencode.json5",
+			"opencode.yaml",
+			"opencode.yml",
+		},
+		KnownProviderHosts: map[string]string{
+			"anthropic":      "api.anthropic.com",
+			"github-copilot": "api.githubcopilot.com",
+			"openai":         "api.openai.com",
+			"openrouter":     "openrouter.ai",
+		},
+		Auth: AuthMigrationSpec{
+			SecretPrefix: "OPENCODE",
+			AuthFields: map[string][]string{
+				"oauth":           {"access", "refresh"},
+				"api":             {"key"},
+				wellKnownAuthType: {tokenField},
+			},
+			SensitiveFields: []string{
+				"access", "accesskey", "accesstoken", "api_key", "apikey", "apitoken", "authorization",
+				"bearertoken", "clientsecret", "cookie", "credential", "credentials", "idtoken", "key",
+				"password", "privatekey", "privatetoken", "refresh", "refreshtoken", "secret", "session",
+				"sessiontoken", "token", "xapikey",
+			},
+			SafeFields: []string{
+				"accountid", "enterpriseurl", "expires", "scopes", "type",
+			},
+			ConfigSensitiveFields: []string{
+				"accesskey", "accesstoken", "apikey", "apitoken", "authorization", "bearertoken", "clientsecret",
+				"credential", "credentials", "idtoken", "oauthaccess", "oauthrefresh", "password", "privatekey",
+				"privatetoken", "refreshtoken", "secret", "secretaccesskey", "session", "sessiontoken", "token",
+				"xapikey",
+			},
+			EndpointFields:          []string{"baseURL", "endpoint", "enterpriseUrl", "url"},
+			AuthPlaceholderPrefix:   "$MSB_",
+			ConfigPlaceholderPrefix: "{env:",
+			ConfigPlaceholderSuffix: "}",
+		},
+	}
+}
+
 // parseDaemonHealth decodes the shared {"healthy": bool} health response used
 // by the opencode and opencode2 daemon agents.
 func parseDaemonHealth(stdout string) (bool, error) {

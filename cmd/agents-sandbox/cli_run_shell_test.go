@@ -3,16 +3,23 @@ package main
 import (
 	"context"
 	"errors"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/spf13/cobra"
 	msb "github.com/superradcompany/microsandbox/sdk/go"
 
+	"github.com/inoio/agents-sandbox/internal/configmigration"
+	"github.com/inoio/agents-sandbox/internal/configpaths"
 	"github.com/inoio/agents-sandbox/internal/sandbox/doctor"
 	sandboxmsb "github.com/inoio/agents-sandbox/internal/sandbox/msb"
+	"github.com/inoio/agents-sandbox/internal/sandbox/options"
 	sandbox "github.com/inoio/agents-sandbox/internal/sandbox/vm"
 	"github.com/inoio/agents-sandbox/internal/termio"
+	"github.com/inoio/agents-sandbox/internal/testutil"
+	launcherconfig "github.com/inoio/agents-sandbox/internal/viperconfig"
 )
 
 // setupRunMocks configures all mock dependencies needed for run/shell tests,
@@ -360,5 +367,88 @@ func TestRunShellInvalidSizeFlags(t *testing.T) {
 				t.Errorf("expected error containing %q, got: %v", tc.wantErrPart, err)
 			}
 		})
+	}
+}
+
+func TestHandleMigrationError(t *testing.T) {
+	if err := handleMigrationError(configmigration.ErrRerunRequired); err == nil {
+		t.Fatal("expected exit error")
+	}
+	want := errors.New("migration failed")
+	if err := handleMigrationError(want); !errors.Is(err, want) {
+		t.Fatalf("handleMigrationError = %v, want original error", err)
+	}
+}
+
+func TestGuideConfigMigrationErrorBranches(t *testing.T) {
+	ui := &termio.Mock{}
+	if err := guideConfigMigration(options.RunOptions{DryRun: false}, ui, true); err != nil {
+		t.Fatalf("dry-run guidance error = %v", err)
+	}
+	if err := guideConfigMigration(
+		options.RunOptions{Agent: "unknown"},
+		ui,
+		false,
+	); err == nil ||
+		!strings.Contains(err.Error(), "unknown agent") {
+		t.Fatalf("unknown agent guidance error = %v", err)
+	}
+	originalHome := migrationHomeDir
+	t.Cleanup(func() { migrationHomeDir = originalHome })
+	migrationHomeDir = func() (string, error) { return "", errors.New("home failed") }
+	if err := guideConfigMigration(
+		options.RunOptions{Agent: "opencode"},
+		ui,
+		false,
+	); err == nil ||
+		!strings.Contains(err.Error(), "home failed") {
+		t.Fatalf("home guidance error = %v", err)
+	}
+}
+
+func TestRunPropagatesMigrationGuidanceError(t *testing.T) {
+	initTestRepo(t)
+	originalHome := migrationHomeDir
+	t.Cleanup(func() { migrationHomeDir = originalHome })
+	migrationHomeDir = func() (string, error) { return "", errors.New("home failed") }
+
+	mock := &sandboxmsb.MockMsbClient{}
+	root, _ := setupRunMocks(t, mock, &sandboxmsb.MockSandbox{}, "run")
+	err := root.Execute()
+	if err == nil || !strings.Contains(err.Error(), "resolve host home: home failed") {
+		t.Fatalf("run migration guidance error = %v", err)
+	}
+}
+
+func TestRunPropagatesPostMigrationRefreshError(t *testing.T) {
+	originalRefresh := refreshRunOptionsAfterMigrationFn
+	t.Cleanup(func() { refreshRunOptionsAfterMigrationFn = originalRefresh })
+	refreshRunOptionsAfterMigrationFn = func(*cobra.Command, []string, termio.UI) (options.RunOptions, *launcherconfig.Resolver, error) {
+		return options.RunOptions{}, nil, errors.New("refresh failed")
+	}
+	initTestRepo(t)
+	mock := &sandboxmsb.MockMsbClient{}
+	root, _ := setupRunMocks(t, mock, &sandboxmsb.MockSandbox{}, "run", "ping")
+	if err := root.Execute(); err == nil || !strings.Contains(err.Error(), "refresh failed") {
+		t.Fatalf("post-migration refresh error = %v", err)
+	}
+}
+
+func TestRefreshRunOptionsAfterMigrationErrors(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	cmd := buildRunCmd(&termio.Mock{})
+	cmd.SetContext(context.WithValue(
+		context.Background(),
+		(*launcherConfigKey)(nil),
+		launcherconfig.NewResolverWithConfig(launcherconfig.Config{}),
+	))
+	oldHome := migrationHomeDir
+	t.Cleanup(func() { migrationHomeDir = oldHome })
+	if err := os.MkdirAll(configpaths.Get().UserConfigDir(), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	testutil.WritePath(t, filepath.Join(configpaths.Get().UserConfigDir(), "config.yaml"), "network: [")
+	if _, _, err := refreshRunOptionsAfterMigration(cmd, nil, &termio.Mock{}); err == nil {
+		t.Fatal("expected resolver refresh error")
 	}
 }

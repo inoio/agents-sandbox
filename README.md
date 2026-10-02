@@ -80,6 +80,10 @@ The default path does not copy native host-agent configuration. To use an existi
 `provision-host-config: true`; for a self-contained setup with explicit secret handling, start with
 [Manage config in the sandbox](docs/manage-config.md) instead.
 
+For an existing OpenCode setup, run `agents-sandbox config migrate` to create managed configuration while replacing
+supported credentials with microsandbox placeholders. The first interactive run offers the same migration when native
+configuration is detected.
+
 ## Agent selection
 
 You can use the `--agent <name>` flag (available on `run`, `shell`, `build`, `volume`, `stop`, and `kill`) to

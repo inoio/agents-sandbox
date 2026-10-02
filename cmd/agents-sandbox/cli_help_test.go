@@ -68,6 +68,7 @@ func TestEveryLeafCommandHelpRenders(t *testing.T) {
 		{"version"},
 		{"prune"},
 		{"config", "show"},
+		{"config", "migrate"},
 		{"config", "home"},
 		{"image", "list"},
 		{"image", "build"},
@@ -96,7 +97,7 @@ func TestGroupCommandHelpListsSubcommands(t *testing.T) {
 		path []string
 		subs []string
 	}{
-		{path: []string{"config"}, subs: []string{"show", "home"}},
+		{path: []string{"config"}, subs: []string{"agent", "migrate", "home"}},
 		{path: []string{"image"}, subs: []string{"list", "build"}},
 		{path: []string{"volume"}, subs: []string{"list", "migrate", "reset", "edit"}},
 		{path: []string{"sandbox"}, subs: []string{"list", "shell", "run", "stop", "kill"}},

@@ -33,3 +33,18 @@ func TestOnlyOpencodeImplementsEventStreamProvider(t *testing.T) {
 		}
 	}
 }
+
+func TestOpenCodeMigrationCapability(t *testing.T) {
+	a, ok := agent.Lookup("opencode")
+	if !ok {
+		t.Fatal("opencode agent not registered")
+	}
+	provider, ok := agent.AsMigrationSpecProvider(a)
+	if !ok {
+		t.Fatal("opencode should implement MigrationSpecProvider")
+	}
+	spec := provider.MigrationSpec()
+	if spec.NativeConfigEnv != "XDG_CONFIG_HOME" || spec.NativeDataEnv != "XDG_DATA_HOME" {
+		t.Errorf("migration XDG envs = %q, %q", spec.NativeConfigEnv, spec.NativeDataEnv)
+	}
+}
