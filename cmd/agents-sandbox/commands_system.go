@@ -110,7 +110,7 @@ func buildVolumeOpsCmd(
 				c.Context(),
 				a,
 				projectSlug,
-				image.BuildOptions{Force: rebuild, AgentVersion: "", Dind: dind},
+				image.BuildOptions{Force: rebuild, AgentVersion: "", UserProvided: false, Dind: dind},
 				ui,
 			)
 			if err != nil {
@@ -452,7 +452,7 @@ func buildBuildCmd(ui termio.UI) *cobra.Command {
 				return err
 			}
 			return image.Build(cmd.Context(), a, git.ProjectSlug(), image.BuildOptions{
-				Force: force, AgentVersion: openCodeVersion, Dind: resolveBuildDind(cmd),
+				Force: force, AgentVersion: openCodeVersion, UserProvided: false, Dind: resolveBuildDind(cmd),
 			}, ui)
 		},
 	}

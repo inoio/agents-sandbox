@@ -251,3 +251,8 @@ Docker build failures are usually due to:
     ```console
     docker build -f .agents-sandbox/Dockerfile -t test-image .
     ```
+
+If an older image or updater state reports `Release vuser-provided not found`, update agents-sandbox and rebuild the
+runner image. `user-provided` identifies an agent that was previously found in a custom base; it is not a valid release
+version. A rebuilt image will keep an agent supplied by the base, or install a real resolved release if that binary is
+no longer present.

@@ -12,6 +12,7 @@ import (
 	"github.com/moby/moby/client"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 
+	"github.com/inoio/agents-sandbox/internal/agent"
 	"github.com/inoio/agents-sandbox/internal/configpaths"
 	"github.com/inoio/agents-sandbox/internal/sandbox/docker"
 	"github.com/inoio/agents-sandbox/internal/termio"
@@ -114,6 +115,134 @@ func TestEnsureImageBuildArgsIncludeBaseAndAgentVersion(t *testing.T) {
 		if gotArgs == nil || gotArgs[key] == nil || *gotArgs[key] != want {
 			t.Errorf("build arg %s = %v, want %q", key, gotArgs, want)
 		}
+	}
+}
+
+// TestEnsureImageResolvesAnUnpinnedAgentVersion verifies that an empty version
+// is resolved to a real release before it is passed to the Docker build.
+func TestEnsureImageResolvesAnUnpinnedAgentVersion(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	a := agentOpencode(t)
+	var requested string
+	var gotArgs map[string]*string
+	WithMockAgentVersionResolver(t, func(_ context.Context, _ agent.Agent, req string) (string, error) {
+		requested = req
+		return "1.2.3", nil
+	})
+	docker.WithDockerMock(t, &docker.MockDockerClient{
+		ImageInspectFn: func(_ context.Context, _ string, _ ...client.ImageInspectOption) (client.ImageInspectResult, error) {
+			return client.ImageInspectResult{InspectResponse: image.InspectResponse{ID: "sha256:base"}}, nil
+		},
+		ImageBuildFn: func(_ context.Context, _ io.Reader, opts client.ImageBuildOptions) (client.ImageBuildResult, error) {
+			gotArgs = opts.BuildArgs
+			return client.ImageBuildResult{Body: io.NopCloser(strings.NewReader(""))}, nil
+		},
+	})
+	if _, err := EnsureImage(context.Background(), a, "proj", BuildOptions{}, &termio.Mock{}); err != nil {
+		t.Fatalf("EnsureImage: %v", err)
+	}
+	if requested != "" {
+		t.Errorf("resolver requested = %q, want empty version", requested)
+	}
+	if gotArgs == nil || gotArgs["OPENCODE_VERSION"] == nil {
+		t.Fatalf("OPENCODE_VERSION build arg missing: %v", gotArgs)
+	}
+	if got := *gotArgs["OPENCODE_VERSION"]; got != "1.2.3" {
+		t.Errorf("OPENCODE_VERSION build arg = %q, want 1.2.3", got)
+	}
+}
+
+// TestEnsureImageReusesUnknownUserAgentWithoutResolvingVersion verifies that
+// an existing user-provided image can be reused without contacting the release
+// endpoint when its version was not recorded.
+func TestEnsureImageReusesUnknownUserAgentWithoutResolvingVersion(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	a := agentOpencode(t)
+	rendered := RenderDockerfile(a, nil, false)
+	wantID := computeDockerfileID(rendered, userProvidedImageIdentity)
+	buildCalled := false
+	resolverCalled := false
+	WithMockAgentVersionResolver(t, func(_ context.Context, _ agent.Agent, _ string) (string, error) {
+		resolverCalled = true
+		return "1.2.3", nil
+	})
+	docker.WithDockerMock(t, &docker.MockDockerClient{
+		ImageInspectFn: func(_ context.Context, _ string, _ ...client.ImageInspectOption) (client.ImageInspectResult, error) {
+			return client.ImageInspectResult{InspectResponse: image.InspectResponse{
+				ID: "sha256:existing",
+				Config: &dockerspec.DockerOCIImageConfig{ImageConfig: ocispec.ImageConfig{
+					Labels: map[string]string{dockerfileIDLabelKey: wantID},
+				}},
+			}}, nil
+		},
+		ImageBuildFn: func(_ context.Context, _ io.Reader, _ client.ImageBuildOptions) (client.ImageBuildResult, error) {
+			buildCalled = true
+			return client.ImageBuildResult{Body: io.NopCloser(strings.NewReader(""))}, nil
+		},
+	})
+	if _, err := EnsureImage(
+		context.Background(),
+		a,
+		"proj",
+		BuildOptions{UserProvided: true},
+		&termio.Mock{},
+	); err != nil {
+		t.Fatalf("EnsureImage: %v", err)
+	}
+	if resolverCalled {
+		t.Error("user-provided image reuse must not resolve an agent version")
+	}
+	if buildCalled {
+		t.Error("user-provided image reuse must not rebuild a matching image")
+	}
+}
+
+// TestEnsureImageResolvesUnknownUserAgentOnlyForARebuild verifies that a stale
+// user-provided image gets a real installer version and records that resolved
+// version in the image identity for subsequent reuse.
+func TestEnsureImageResolvesUnknownUserAgentOnlyForARebuild(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	a := agentOpencode(t)
+	var gotArgs map[string]*string
+	var gotDockerfileID string
+	WithMockAgentVersionResolver(t, func(_ context.Context, _ agent.Agent, requested string) (string, error) {
+		if requested != "" {
+			t.Errorf("resolver requested = %q, want empty version", requested)
+		}
+		return "1.2.3", nil
+	})
+	docker.WithDockerMock(t, &docker.MockDockerClient{
+		ImageInspectFn: func(_ context.Context, _ string, _ ...client.ImageInspectOption) (client.ImageInspectResult, error) {
+			return client.ImageInspectResult{InspectResponse: image.InspectResponse{
+				ID: "sha256:existing",
+				Config: &dockerspec.DockerOCIImageConfig{ImageConfig: ocispec.ImageConfig{
+					Labels: map[string]string{dockerfileIDLabelKey: "stale"},
+				}},
+			}}, nil
+		},
+		ImageBuildFn: func(_ context.Context, _ io.Reader, opts client.ImageBuildOptions) (client.ImageBuildResult, error) {
+			gotArgs = opts.BuildArgs
+			if value := opts.BuildArgs["DOCKERFILE_ID"]; value != nil {
+				gotDockerfileID = *value
+			}
+			return client.ImageBuildResult{Body: io.NopCloser(strings.NewReader(""))}, nil
+		},
+	})
+	if _, err := EnsureImage(
+		context.Background(),
+		a,
+		"proj",
+		BuildOptions{UserProvided: true},
+		&termio.Mock{},
+	); err != nil {
+		t.Fatalf("EnsureImage: %v", err)
+	}
+	if gotArgs == nil || gotArgs["OPENCODE_VERSION"] == nil || *gotArgs["OPENCODE_VERSION"] != "1.2.3" {
+		t.Errorf("OPENCODE_VERSION build arg = %v, want 1.2.3", gotArgs)
+	}
+	wantID := computeDockerfileID(RenderDockerfile(a, nil, false), "1.2.3")
+	if gotDockerfileID != wantID {
+		t.Errorf("DOCKERFILE_ID = %q, want resolved-version identity %q", gotDockerfileID, wantID)
 	}
 }
 

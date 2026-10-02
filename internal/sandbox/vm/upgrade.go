@@ -14,12 +14,6 @@ import (
 // pending image upgrade.
 var errUpgradeQuit = errors.New("agent upgrade cancelled") //nolint:err113 // static sentinel intended
 
-// userProvidedAgentVersion is returned as the build version for a
-// user-provided agent: the install block skips such agents, so the value is
-// never consumed, and a non-empty value keeps resolveAgentVersion from hitting
-// the network.
-const userProvidedAgentVersion = "user-provided"
-
 // agentLatestVersion returns the newest release version for the agent via its
 // own UpgradeChecker.
 //
@@ -53,13 +47,11 @@ func resolveBuildVersion(
 	}
 
 	// A user-provided agent is not owned by the tool: a rebuild would not
-	// change its version, so never check or offer an upgrade.
+	// change its version, so never check or offer an upgrade. If no version was
+	// recorded, leave it empty so the image build can resolve a real version if
+	// the current base image does not provide the agent.
 	if currentAgentSource(a) == agentSourceUser {
-		version := currentUpgradeVersion(a)
-		if version == "" {
-			version = userProvidedAgentVersion
-		}
-		return version, false, nil
+		return currentUpgradeVersion(a), false, nil
 	}
 
 	// Without an upgrade checker there is nothing to check against; reuse the

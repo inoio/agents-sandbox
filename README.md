@@ -82,7 +82,9 @@ handling, start with [Manage config in the sandbox](docs/manage-config.md) inste
 ## Agent selection
 
 You can use the `--agent <name>` flag (available on `run`, `shell`, `build`, `volume`, `stop`, and `kill`) to
-select the coding-agent to run, provision, or manage. This is also available as a setting in the [configuration file](configuration/launcher.md). `--agent-version` can be used to pin the agent version.
+select the coding-agent to run, provision, or manage. This is also available as a setting in the [configuration file](configuration/launcher.md).
+`--agent-version` pins the version agents-sandbox installs into the runner image; it does not replace an agent already
+provided by a custom base or project Dockerfile.
 
 Four agents ship as built-in profiles:
 
