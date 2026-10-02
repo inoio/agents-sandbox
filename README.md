@@ -20,22 +20,15 @@ At the same time, agents-sandbox moves out of the way as much as possible, so th
 
 ## Comparison
 
-The table compares local execution models, not hosted services. Bubblewrap/Seatbelt and Docker are policy-dependent building
-blocks, so the entries summarize their usual mechanisms rather than assigning a security score.
+In short, agents-sandbox:
 
-| Category | Direct host execution | Bubblewrap / Seatbelt                                       | Docker containers                                           | Docker Sandboxes                                                   | agents-sandbox                                                   |
-|---|---|-------------------------------------------------------------|-------------------------------------------------------------|--------------------------------------------------------------------|------------------------------------------------------------------|
-| **Isolation boundary** | ❌ No boundary; host kernel and user permissions. | ⚠️ Shared host kernel; policy-defined OS sandbox.           | ⚠️ Shared host kernel; policy-defined OS sandbox.           | ✅ Separate microVM and Linux kernel.                               | ✅ Separate microVM and Linux kernel.                             |
-| **Secrets handling** | ❌ Host environment, files, and agent credentials are available. | ⚠️ No host-only broker; supplied values are visible.        | ⚠️ No host-only broker; supplied values are visible.        | ✅ Host proxy injects credentials; VM sees a sentinel.              | ✅ Host proxy injects credentials; VM sees a sentinel.   |
-| **Filesystem isolation** | ❌ Host user files are accessible. | ⚠️ Private sandbox view; configured host mounts are shared. | ⚠️ Private sandbox view; configured host mounts are shared. | ✅ Private VM; workspace sharing depends on direct/clone/mountless mode. | ✅ Private VM; only workspace directory is read-write by default; |
-| **Network isolation** | ❌ Host network stack. | ⚠️ Manual firewalling.                                      | ⚠️ Manual firewalling.                                      | ✅ Policy-defined network isolation.                                                         | ✅ Policy-defined network isolation.                    |
-| **Platform/OS Support** | Any OS supported by the agent. | Linux (bubblewrap); macOS (Seatbelt/App Sandbox).           | Linux Engine; Docker Desktop on macOS/Windows.              | macOS Apple silicon, Windows 11, Ubuntu 24.04+ with KVM.           | Linux with KVM, macOS Apple Silicon.       |
-| **Access restrictions** | None. | None. | None. | ⚠️ Docker account sign-in required. | None. |
+- runs each agent in its own microVM with a separate kernel, not just a container or process sandbox,
+- is open source and needs no account,
+- denies network egress by default and keeps secrets on the host,
+- runs on Linux (KVM) and Apple Silicon Macs.
 
-Sources: [bubblewrap](https://github.com/containers/bubblewrap#sandbox-security), [Apple App Sandbox](https://developer.apple.com/documentation/security/app-sandbox),
-[Docker](https://docs.docker.com/engine/security/), and [Docker Sandboxes](https://docs.docker.com/ai/sandboxes/security/). Platform requirements change; check upstream docs.
-
-Legend for the first four rows: ✅ = stronger isolation or host-side handling; ⚠️ = policy-dependent or deliberately shared; ❌ = no isolation in that category. The platform and access rows are descriptive.
+The [alternatives page](https://inoio.github.io/agents-sandbox/alternatives.html) compares it with NVIDIA OpenShell, Anthropic sandbox-runtime,
+nono, smolvm, Docker Sandboxes, and others, and helps you pick the right tool.
 
 ## Boundary and tradeoffs
 
@@ -135,6 +128,7 @@ There's dedicated documentation per topic. You can also browse the documentation
 | Topic                                         | Description                                                                              |
 |-----------------------------------------------|------------------------------------------------------------------------------------------|
 | [Why?](https://inoio.github.io/agents-sandbox/introduction.html)                 | Motivation, isolation boundary, shared data, and limitations.                            |
+| [Alternatives](https://inoio.github.io/agents-sandbox/alternatives.html)         | Comparison of agents-sandbox with other local agent sandboxes and runtimes.              |
 | [How it works](https://inoio.github.io/agents-sandbox/how-it-works.html)         | Architecture: host to VM, `/workspace`, home volume, secrets, and multi-client attach.   |
 | [Get started](https://inoio.github.io/agents-sandbox/get-started.html)         | Installation, system requirements, and first run.                                        |
 | [Switch from your existing agent](https://inoio.github.io/agents-sandbox/switch.html) | Use agents-sandbox with your existing agent config and credentials (host-config drop-in). |
