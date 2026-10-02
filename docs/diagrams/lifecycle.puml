@@ -23,16 +23,16 @@ start
 :Pre-flight checks (doctor)\nDocker, KVM, Git, msb;
 :Auto-prune\nremove stale VMs, volumes, images (once per process);
 
-if (newer agent available?\nchecked once per day & per version) then (yes)
+if (newer agent available?\nchecked once per day & per version;\nuser-provided agents skip this check) then (yes)
     :Prompt: rebuild runner image?\nRebuild / Keep / Quit;
     if (rebuild chosen?) then (yes)
-        :Build runner image\nresolve latest agent version if unpinned; base + project layers;
+        :Build runner image\nresolve a real version if unpinned;\nbase + project layers;
     else (no)
         :Reuse cached image\nno rebuild needed;
     endif
 else (no)
     if (image not cached or changed) then (yes)
-        :Build runner image\nresolve latest agent version if unpinned; base + project layers;
+        :Build runner image\nresolve a real version if unpinned;\nbase + project layers;
     else (no)
         :Reuse cached image\nno rebuild needed;
     endif

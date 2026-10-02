@@ -6,8 +6,10 @@ import (
 	"io"
 	"testing"
 
+	dockerspec "github.com/moby/docker-image-spec/specs-go/v1"
 	"github.com/moby/moby/api/types/image"
 	"github.com/moby/moby/client"
+	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 
 	"github.com/inoio/agents-sandbox/internal/agent"
 	"github.com/inoio/agents-sandbox/internal/configpaths"
@@ -138,5 +140,33 @@ func TestEnsureImageReturnsErrorWhenVersionResolveFails(t *testing.T) {
 	)
 	if err == nil {
 		t.Error("expected error when resolving agent version fails")
+	}
+}
+
+func TestEnsureImageReturnsErrorWhenDeferredVersionResolveFails(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	a, _ := agent.Lookup("opencode")
+	WithMockAgentVersionResolver(t, func(_ context.Context, _ agent.Agent, requested string) (string, error) {
+		if requested != "" {
+			t.Errorf("resolver requested = %q, want empty version", requested)
+		}
+		return "", errors.New("resolve boom")
+	})
+	docker.WithDockerMock(t, &docker.MockDockerClient{
+		ImageInspectFn: func(_ context.Context, _ string, _ ...client.ImageInspectOption) (client.ImageInspectResult, error) {
+			return client.ImageInspectResult{InspectResponse: image.InspectResponse{
+				ID: "sha256:existing",
+				Config: &dockerspec.DockerOCIImageConfig{ImageConfig: ocispec.ImageConfig{
+					Labels: map[string]string{dockerfileIDLabelKey: "stale"},
+				}},
+			}}, nil
+		},
+	})
+	_, err := EnsureImageWithClient(
+		context.Background(), a, []byte("FROM x\n"), "test-project",
+		BuildOptions{UserProvided: true}, &termio.Mock{},
+	)
+	if err == nil {
+		t.Error("expected error when resolving the deferred agent version fails")
 	}
 }

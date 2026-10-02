@@ -27,10 +27,20 @@ type BuildOptions struct {
 	Force bool
 	// Dind appends the tool's Docker-in-Docker block when the image is built.
 	Dind bool
-	// AgentVersion pins the agent version baked into the image. When empty,
-	// the latest release is resolved at build time.
+	// AgentVersion pins the agent version baked into the image. When empty, the
+	// latest release is resolved at build time unless UserProvided allows image
+	// reuse to defer resolution until a rebuild is needed.
 	AgentVersion string
+	// UserProvided indicates that the selected agent was supplied by the
+	// existing image provenance. When its version is unknown, image reuse keeps
+	// a stable identity and release resolution is deferred until a rebuild is
+	// needed.
+	UserProvided bool
 }
+
+// userProvidedImageIdentity keeps an unknown user-provided version stable
+// without treating the identity as an installer release.
+const userProvidedImageIdentity = "user-provided"
 
 // ImageInfo describes the built or existing runner image.
 //
@@ -302,22 +312,42 @@ func EnsureImageWithClient(
 	buildOpts BuildOptions,
 	ui termio.UI,
 ) (ImageInfo, error) {
-	agentVersion, err := resolveAgentVersion(ctx, a, buildOpts.AgentVersion)
+	agentVersion := buildOpts.AgentVersion
+	var identityVersion string
+	deferVersionResolution := buildOpts.UserProvided && agentVersion == ""
+	if deferVersionResolution {
+		identityVersion = userProvidedImageIdentity
+	} else {
+		var err error
+		agentVersion, err = resolveAgentVersion(ctx, a, agentVersion)
+		if err != nil {
+			return ImageInfo{}, fmt.Errorf("resolve agent version: %w", err)
+		}
+		identityVersion = agentVersion
+	}
+
+	rTag := runnerTag(projectSlug, a.Name())
+	rendered := RenderDockerfile(a, projectDockerfile, buildOpts.Dind)
+	dockerfileID := computeDockerfileID(rendered, identityVersion)
+	needsBuild := buildOpts.Force || !imageHasDockerfileID(ctx, rTag, dockerfileID)
+	if needsBuild {
+		if deferVersionResolution {
+			var err error
+			agentVersion, err = resolveAgentVersion(ctx, a, "")
+			if err != nil {
+				return ImageInfo{}, fmt.Errorf("resolve agent version: %w", err)
+			}
+			dockerfileID = computeDockerfileID(rendered, agentVersion)
+		}
+	}
 	ui.Verbosef(
 		"Resolved agent version for agent %s to %s, requested %s",
 		a.Name(),
 		agentVersion,
 		buildOpts.AgentVersion,
 	)
-	if err != nil {
-		return ImageInfo{}, fmt.Errorf("resolve agent version: %w", err)
-	}
 
-	rTag := runnerTag(projectSlug, a.Name())
-	rendered := RenderDockerfile(a, projectDockerfile, buildOpts.Dind)
-	dockerfileID := computeDockerfileID(rendered, agentVersion)
-
-	if buildOpts.Force || !imageHasDockerfileID(ctx, rTag, dockerfileID) {
+	if needsBuild {
 		baseRef := baseImageRef(rendered)
 		baseDigest, baseErr := resolveBaseDigest(ctx, baseRef, ui)
 		if baseErr != nil {

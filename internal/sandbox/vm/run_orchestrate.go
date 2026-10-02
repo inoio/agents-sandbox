@@ -90,7 +90,7 @@ func PrepareSandbox(
 		ctx,
 		a,
 		projectSlug,
-		image.BuildOptions{Force: opts.Rebuild || shallUpgrade, AgentVersion: agentVersion, Dind: opts.Dind},
+		buildOptions(opts, agentVersion, opts.Rebuild || shallUpgrade, currentAgentSource(a) == agentSourceUser),
 		ui,
 	)
 	if err != nil {
@@ -167,6 +167,15 @@ func PrepareSandbox(
 		cwd:           cwd,
 		serveHostPort: opts.ServeHostPort,
 	}, nil
+}
+
+func buildOptions(opts options.RunOptions, agentVersion string, force, userProvided bool) image.BuildOptions {
+	return image.BuildOptions{
+		Force:        force,
+		AgentVersion: agentVersion,
+		UserProvided: userProvided,
+		Dind:         opts.Dind,
+	}
 }
 
 // resolveWorkspaceDir returns the current working directory with all symlinks

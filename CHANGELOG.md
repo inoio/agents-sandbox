@@ -21,6 +21,9 @@ command reports the bare version (e.g. `0.1.0`).
   (`filepath.EvalSymlinks`) before they are handed to microsandbox. A path containing a symlink (e.g. macOS
   `/tmp` → `/private/tmp`) previously made the VM fail to start with `mount workspace_...: Not a directory
   (os error 20)` (#92).
+- Runner image rebuilds no longer pass the internal `user-provided` provenance marker to an agent installer as a release
+  version. Matching user-provided images are reused without release lookup; if the agent is missing from a later base
+  image, a real release version is resolved before installation.
 
 ## [0.4.0] - 2026-09-26
 

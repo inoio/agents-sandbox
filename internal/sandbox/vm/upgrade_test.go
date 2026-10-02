@@ -46,7 +46,7 @@ func TestResolveBuildVersionSkipsCheckForUserAgentSource(t *testing.T) {
 	}
 }
 
-func TestResolveBuildVersionUserAgentEmptyVersionUsesSentinel(t *testing.T) {
+func TestResolveBuildVersionUserAgentEmptyVersionLeavesResolutionToImageBuild(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	if err := saveUpgradeState(upgradeState{AgentSource: agentSourceUser}); err != nil {
 		t.Fatal(err)
@@ -71,8 +71,8 @@ func TestResolveBuildVersionUserAgentEmptyVersionUsesSentinel(t *testing.T) {
 	if upgraded {
 		t.Error("expected upgraded=false for a user-provided agent")
 	}
-	if got != userProvidedAgentVersion {
-		t.Errorf("resolveBuildVersion = %q, want sentinel %q", got, userProvidedAgentVersion)
+	if got != "" {
+		t.Errorf("resolveBuildVersion = %q, want empty version", got)
 	}
 	if latestCalled {
 		t.Error("agentLatestVersion must not be called for a user-provided agent")

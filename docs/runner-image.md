@@ -57,6 +57,11 @@ blocks are layered on top of it:
 - A base that already provides docker, node, or the agent is left alone (idempotency), and a pre-created `dev` user is
   tolerated.
 
+When a base image already contains the selected agent, the image records the agent as **user-provided** and
+agents-sandbox does not manage its upgrades. If that provenance has no recorded version and a later rebuild no longer
+contains the agent, the image builder resolves a real release version before installing it; `user-provided` is provenance
+metadata, not an agent release version. A matching user-provided image is reused without resolving a release first.
+
 ### Important: User context
 
 The `dev` user (host UID/GID) is created as the first instruction of the final stage, and the image always ends with
@@ -114,8 +119,8 @@ The agent version is pinned at image build time and the agent's runtime autoupda
 binary in a sandbox is stable across runs. Instead of reading the version from an image label, the version is detected
 on first boot and recorded for upgrade checks.
 
-By default the latest release available at build time is used. Pin an explicit version on the `build` command with
-`--agent-version`:
+By default the latest release available at build time is used for agents installed by agents-sandbox. Pin an explicit
+version on the `build` command with `--agent-version`:
 
 ```console
 agents-sandbox build --agent-version 0.5.0
@@ -126,6 +131,10 @@ agents-sandbox build          # uses the latest release
 `--agent-version`. On `run`/`shell`, when a newer agent release exists than the version baked into the image, the
 launcher offers to rebuild the image (interactive) or prints a notice advising `agents-sandbox build`
 (non-interactive). When `agent-source=user`, the tool never checks for upgrades.
+
+`--agent-version` applies when agents-sandbox installs the selected agent. It does not replace an agent already supplied
+by a custom base or project Dockerfile. If a user-provided agent has no recorded version, a rebuild that needs to install
+the missing binary resolves a normal release version rather than passing the internal provenance value to the installer.
 
 > `--agent-version` is only available on the `build` command — it is not supported on `run` or `shell` (which pin the
 > version baked into the image). The deprecated `--opencode-version` alias is likewise `build`-only.

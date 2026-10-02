@@ -271,6 +271,7 @@ func TestReferencesImageDindDoesNotMatchBase(t *testing.T) {
 func TestEnsureImageDoesNotCreateDigestAliasTag(t *testing.T) {
 	a, _ := agent.Lookup("opencode")
 	configpaths.WithMockConfigPaths(t)
+	WithMockAgentVersion(t, "1.2.3")
 	var tagged []string
 	m := &docker.MockDockerClient{
 		ImageInspectFn: func(_ context.Context, _ string, _ ...client.ImageInspectOption) (client.ImageInspectResult, error) {
@@ -303,6 +304,7 @@ func TestEnsureImageDoesNotCreateDigestAliasTag(t *testing.T) {
 func TestEnsureImageDoesNotLoadIntoMSB(t *testing.T) {
 	a, _ := agent.Lookup("opencode")
 	configpaths.WithMockConfigPaths(t)
+	WithMockAgentVersion(t, "1.2.3")
 	docker.WithDockerMock(t, &docker.MockDockerClient{
 		ImageInspectFn: func(_ context.Context, _ string, _ ...client.ImageInspectOption) (client.ImageInspectResult, error) {
 			return client.ImageInspectResult{
@@ -424,6 +426,7 @@ func TestEnsureImageReadsVersionAndEnvFromDocker(t *testing.T) {
 func TestEnsureImageReturnsDigestImageRefAsTag(t *testing.T) {
 	a, _ := agent.Lookup("opencode")
 	configpaths.WithMockConfigPaths(t)
+	WithMockAgentVersion(t, "1.2.3")
 	docker.WithDockerMock(t, &docker.MockDockerClient{
 		ImageInspectFn: func(_ context.Context, _ string, _ ...client.ImageInspectOption) (client.ImageInspectResult, error) {
 			return client.ImageInspectResult{
