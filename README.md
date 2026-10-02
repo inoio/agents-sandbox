@@ -68,7 +68,7 @@ Use agents-sandbox when you already use a supported coding agent and want:
 
 ## Quick start
 
-Install agents-sandbox using the [installation guide](https://inoio.github.io/agents-sandbox/docs/install/installation/), then
+Install agents-sandbox using the [installation guide](https://inoio.github.io/agents-sandbox/install.html), then
 check the host prerequisites and start the configured agent:
 
 ```console
