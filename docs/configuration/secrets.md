@@ -20,7 +20,9 @@ If you use OpenCode's `/connect` command, follow [OpenCode authentication](#open
 recommended workflow for credentials, which opencode stores in `auth.json`; it uses a literal microsandbox placeholder and an explicit
 `home:` mapping.
 
-The `provision-host-config: false` setting belongs in the top-level launcher configuration in `~/.config/agents-sandbox/config.yaml`.
+Native host-config provisioning is disabled by default. The `provision-host-config: false` setting belongs in the top-level
+launcher configuration in `~/.config/agents-sandbox/config.yaml` when you need to override inherited opt-in configuration or
+clean up a previous opt-in.
 
 ## Format
 
@@ -117,6 +119,7 @@ For example, for GitHub Copilot:
 
 ```yaml
 # ~/.config/agents-sandbox/config.yaml
+# Native host config is disabled by default; keep this explicit when needed.
 provision-host-config: false
 home:
   # The source is relative to ~/.config/agents-sandbox/config.yaml.
@@ -163,4 +166,4 @@ drop-in candidates, but does not show `home:` mappings or files already present 
 > ```
 > cat ~/.local/share/opencode/auth.json
 > ```
-> to see the credentials stored in the sandbox (to store them outside in `env.secret.yaml`). 
+> to see the credentials stored in the sandbox (to store them outside in `env.secret.yaml`).

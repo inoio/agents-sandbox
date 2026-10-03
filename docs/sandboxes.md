@@ -20,7 +20,8 @@ Each agents-sandbox invocation follows this lifecycle:
 - Image verify/build: `.agents-sandbox/Dockerfile` (or default image) → Docker image -> microsandbox image
 - Home volume verify/build: Persistent msb volume (`agents-sandbox-home-<slug>-<timestamp>`) per project
 - VM creation or reuse: New or existing project-specific VM
-- Provisioning: Copy agent config etc. (updated configs are re-provisioned).
+- Provisioning: Provision config snippets, mirrors, and `home:` files; the native host-config drop-in is conditional on
+  `provision-host-config: true` (updated configs are re-provisioned).
 - Daemon verify/start: Ensure/start microsandbox internal services
 - Branch resolve: If `--worktree` (`-w`) specified, reuse or create an agent VM-internal worktree via daemon API
 - Agent run: Execute the agent's attach command (e.g. `opencode attach`) against the worktree inside the sandbox

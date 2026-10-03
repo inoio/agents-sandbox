@@ -325,7 +325,7 @@ func reservedHomeConfigTargets(a agent.Agent, home string) []string {
 }
 
 // buildConfigAgentCmd returns the config agent subcommand, which prints the
-// agent's merged snippet config, the host drop-in files, and the verbatim
+// agent's merged snippet config, host drop-in candidates, and the verbatim
 // mirror files that provisioning would copy into the VM.
 func buildConfigAgentCmd( //nolint:gocognit // plan-mandated config agent output restructure
 	ui termio.UI,
@@ -333,7 +333,7 @@ func buildConfigAgentCmd( //nolint:gocognit // plan-mandated config agent output
 	cmd := &cobra.Command{
 		Use:   cmdAgent,
 		Args:  cobra.MaximumNArgs(1),
-		Short: "Show the merged agent config and the host files provisioned into the VM",
+		Short: "Show the merged agent config and host drop-in candidates",
 		RunE: func(c *cobra.Command, args []string) error {
 			name, err := resolveConfigAgentName(c, args)
 			if err != nil {
@@ -343,7 +343,7 @@ func buildConfigAgentCmd( //nolint:gocognit // plan-mandated config agent output
 			if !ok {
 				return fmt.Errorf("unknown agent %q: must be one of %s", name, strings.Join(agent.Names(), ", "))
 			}
-			provision := true
+			provision := false
 			if r := resolverFromContext(c.Context()); r != nil {
 				provision = r.ProvisionHostConfig()
 			}
@@ -377,7 +377,7 @@ func buildConfigAgentCmd( //nolint:gocognit // plan-mandated config agent output
 					ui.Outf("  %s  ->  %s", mf.HostPath, mf.VMPath)
 				}
 			}
-			ui.Outf("host files (drop-in, provision-host-config=%v):", provision)
+			ui.Outf("host files (drop-in candidates, provision-host-config=%v):", provision)
 			for _, hf := range hostFiles {
 				status := "not merged"
 				if hf.Merged {

@@ -88,7 +88,7 @@ Configuration is resolved in this order (later entries override earlier ones):
 | `network.dns-servers`           | `--dns`                  | DNS upstream resolvers: bare IP (auto-appends `:53`) or `host:port` (see [Networking]({% link configuration/networking.md %}))                                                                                                                                 |
 | `mounts`                        | —                        | Additional host directories mounted into the VM (see [Host mounts]({% link configuration/mounts.md %}))                                                                                                                               |
 | `agent`                         | `--agent`                | Agent profile name to run, build, and provision (default `opencode`, see [Agent configuration]({% link configuration/agent.md %}))                                                                                                        |
-| `provision-host-config`         | —                        | Copy the agent's host config + credentials into the VM by default (default: true; set false to opt out, see [Default drop-in provisioning]({% link configuration/agent.md %}#default-drop-in-provisioning))                                               |
+| `provision-host-config`         | —                        | Copy the agent's host config + credentials into the VM when enabled (default: false; set true to opt in, see [Host-config drop-in provisioning]({% link configuration/agent.md %}#host-config-drop-in-provisioning)) |
 | `dind`                          | `--dind`                 | Append the Docker-in-Docker block to the runner image (overridable with `--dind`)                                                                                                                                             |
 | `upgrade.mode`                   | —                        | How to handle a newer release when one is found: `prompt`, `notify`, `auto`, or `auto-exit` (default `prompt`, see [Self-upgrade]({% link configuration/self-upgrade.md %}))                                                            |
 | `upgrade.interval`               | —                        | How often to check for a newer release (default `1d`, minimum `1h`, see [Self-upgrade]({% link configuration/self-upgrade.md %}))                                                                                                                        |
@@ -158,7 +158,7 @@ session. The change type determines the mechanism used to apply the new settings
 | `memory`          | Live Modify    | Applied live via SDK Modify (hotplug)                                                                    |
 | `env`             | VM recreate    | microsandbox cannot apply env live or on a daemon restart, so the VM is rebuilt; env is baked in at creation |
 | `secrets`         | VM recreate    | microsandbox cannot apply secrets live or on a daemon restart, so the VM is rebuilt; secrets are baked in at creation |
-| `agent config` | Daemon restart | Files are always copied into the VM (provisioning); the agent daemon is restarted in-place to pick them up   |
+| `agent config` | Daemon restart | Config snippets and mirror files are provisioned into the VM; the agent daemon is restarted in-place to pick them up |
 | `tmp-size`        | VM recreate    | VM is stopped, removed, and rebuilt with new tmpfs size. Home volume is preserved.                       |
 | `disk-size`       | VM recreate    | VM is stopped, removed, and rebuilt with new disk size. Home volume is preserved.                        |
 | `workspace-quota` | VM recreate    | VM is stopped, removed, and rebuilt with new workspace write quota. Home volume is preserved.            |
@@ -169,8 +169,9 @@ session. The change type determines the mechanism used to apply the new settings
 
 When **no other client** is attached, config changes apply immediately.
 
-Agent/home config files are provisioned into the VM on every startup, so a change is picked up by the next daemon start
-even when the current daemon is kept running (see below). Only the `agent config` change prompts for a daemon restart;
+Agent snippets, mirror files, and `home:` mappings are provisioned into the VM on every startup, so a change is picked up by
+the next daemon start even when the current daemon is kept running (see below). Native host-config drop-in files are also
+provisioned on startup only when `provision-host-config: true`. Only the `agent config` change prompts for a daemon restart;
 `home:` file changes are applied on the next startup without any prompt, since they do not require the daemon to restart.
 
 #### Parallel Sessions

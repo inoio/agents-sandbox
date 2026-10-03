@@ -50,6 +50,22 @@ func TestConfigAgentPrintsMergedAndHostFiles(t *testing.T) {
 	if !strings.Contains(joined, "opencode.jsonc") {
 		t.Errorf("expected host drop-in file in output, got:\n%s", joined)
 	}
+	if !strings.Contains(joined, "provision-host-config=false") {
+		t.Errorf("expected secure default in output, got:\n%s", joined)
+	}
+}
+
+func TestConfigAgentReportsProvisionHostConfigOptIn(t *testing.T) {
+	cmd, ui := setupCommandFixtures(t, "config", "agent", "opencode")
+	testutil.WriteFile(t, configpaths.Get().UserConfigDir(), "config.yaml", "provision-host-config: true\n")
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("config agent: %v", err)
+	}
+	joined := strings.Join(ui.OutCalls, "\n")
+	if !strings.Contains(joined, "provision-host-config=true") {
+		t.Errorf("expected explicit opt-in in output, got:\n%s", joined)
+	}
 }
 
 func TestConfigHomeListsMappings(t *testing.T) {

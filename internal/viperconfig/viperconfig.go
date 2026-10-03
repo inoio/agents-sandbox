@@ -44,7 +44,7 @@ type Config struct {
 	Dind bool  `mapstructure:"dind"`
 	CPUs uint8 `mapstructure:"cpus"`
 	// ProvisionHostConfig controls whether the agent's host config files are
-	// copied into the VM (drop-in provisioning). Default true.
+	// copied into the VM (drop-in provisioning). Default false.
 	ProvisionHostConfig bool `mapstructure:"provision-host-config"`
 
 	AutoStopOnActiveSessions  bool          `mapstructure:"auto-stop-on-active-sessions"`
@@ -128,8 +128,8 @@ func NewResolver(cmd *cobra.Command, slug string) (*Resolver, error) {
 		}
 	}
 
-	// Non-flag defaults: host config provisioning is on unless opted out.
-	v.SetDefault(keyProvisionHostConfig, true)
+	// Non-flag defaults: host config provisioning is off unless opted in.
+	v.SetDefault(keyProvisionHostConfig, false)
 
 	if err := validate(v); err != nil {
 		return nil, err

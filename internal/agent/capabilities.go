@@ -52,7 +52,7 @@ type AttachRunner interface {
 	AttachCommand(target string, args []string) string
 }
 
-// Provisioner declares host files to copy into the VM by default (drop-in).
+// Provisioner declares host files for the optional host-config drop-in.
 type Provisioner interface {
 	ProvisionRules() []ProvisionRule
 }
