@@ -417,6 +417,16 @@ func TestListSandboxesFormatJSON(t *testing.T) {
 	}
 }
 
+func TestListSandboxesFormatJSONMarshalError(t *testing.T) {
+	original := marshalSandboxesJSON
+	t.Cleanup(func() { marshalSandboxesJSON = original })
+	marshalSandboxesJSON = func(any, string, string) ([]byte, error) { return nil, errors.New("marshal failed") }
+	cmd, _ := setupCommandFixtures(t, cmdList, "--format", "json")
+	if err := cmd.Execute(); err == nil || !strings.Contains(err.Error(), "marshal failed") {
+		t.Fatalf("JSON marshal error = %v", err)
+	}
+}
+
 func TestListSandboxesFormatJSONAndNamesConflict(t *testing.T) {
 	runListCmdTest(t, []string{cmdList, "--names", "--format", "json"},
 		func(_ *sandboxmsb.MockMsbClient) {}, nil, nil, true, "mutually exclusive")

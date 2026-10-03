@@ -135,6 +135,161 @@ func TestPlanPiSettingsAndAuthReplacesCredentialsWithPlaceholders(t *testing.T) 
 	}
 }
 
+func TestPlanClaudeSettingsMigratesEnvCredentials(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	t.Setenv("CLAUDE_CONFIG_DIR", "")
+	hostHome := t.TempDir()
+	a, ok := agent.Lookup("claude-code")
+	if !ok {
+		t.Fatal("claude-code agent not registered")
+	}
+	nativeDir := filepath.Join(hostHome, ".claude")
+	if err := os.MkdirAll(nativeDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	testutil.WriteFile(t, nativeDir, "settings.json", `{
+  "model": "claude-sonnet",
+  "env": {
+    "ANTHROPIC_API_KEY": "claude-secret",
+    "ANTHROPIC_BASE_URL": "https://gateway.example.test/v1"
+  }
+}`)
+
+	plan, err := Build(a, hostHome)
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	settings, ok := plan.fileAt(filepath.Join(configpaths.Get().UserAgentConfigDir(a), "settings-migrated.json"))
+	if !ok || bytes.Contains(settings.Data, []byte("claude-secret")) ||
+		!bytes.Contains(settings.Data, []byte("$MSB_CLAUDE_ENV_ANTHROPIC_API_KEY")) {
+		t.Fatalf("Claude settings were not sanitized: %s", settings.Data)
+	}
+	secret, ok := plan.Secrets["CLAUDE_ENV_ANTHROPIC_API_KEY"]
+	if !ok || secret.Value != "claude-secret" || !slicesEqual(secret.Hosts, []string{"gateway.example.test"}) {
+		t.Fatalf("Claude secret = %+v", secret)
+	}
+	if !bytes.Contains(plan.ConfigData, []byte("gateway.example.test")) {
+		t.Fatalf("planned launcher config has no Claude egress host: %s", plan.ConfigData)
+	}
+}
+
+func TestReviewClaudeLoginDropsEgressHostsOfRemovedSecrets(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	t.Setenv("CLAUDE_CONFIG_DIR", "")
+	hostHome := t.TempDir()
+	a, _ := agent.Lookup("claude-code")
+	nativeDir := filepath.Join(hostHome, ".claude")
+	if err := os.MkdirAll(nativeDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	testutil.WriteFile(t, nativeDir, "settings.json", `{
+  "env": {
+    "ANTHROPIC_API_KEY": "claude-secret",
+    "ANTHROPIC_BASE_URL": "https://proxy.corp.example"
+  }
+}`)
+	userConfigDir := configpaths.Get().UserConfigDir()
+	if err := os.MkdirAll(userConfigDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	testutil.WriteFile(t, userConfigDir, "config.yaml", "network:\n  egress-allow:\n    - existing.test\n")
+	plan, err := Build(a, hostHome)
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	ui := termio.NewTestMock(t)
+	ui.IsInteractiveResult = true
+	ui.SelectFn = func(string, []termio.Choice, string) (string, error) { return claudeAuthLoginChoice, nil }
+	if err := Review(plan, &ui); err != nil {
+		t.Fatalf("Review: %v", err)
+	}
+	if bytes.Contains(plan.ConfigData, []byte("proxy.corp.example")) {
+		t.Fatalf("launcher config still allows the endpoint of the removed secret: %s", plan.ConfigData)
+	}
+	if !bytes.Contains(plan.ConfigData, []byte("existing.test")) {
+		t.Fatalf("launcher config lost the pre-existing egress host: %s", plan.ConfigData)
+	}
+	if slices.Contains(plan.NetworkAllowHosts, "proxy.corp.example") {
+		t.Fatalf("NetworkAllowHosts = %v, want no endpoint of the removed secret", plan.NetworkAllowHosts)
+	}
+}
+
+func TestPlanClaudeRejectsNonStrictSettingsAndCredentialHelpers(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	t.Setenv("CLAUDE_CONFIG_DIR", "")
+	hostHome := t.TempDir()
+	a, _ := agent.Lookup("claude-code")
+	nativeDir := filepath.Join(hostHome, ".claude")
+	if err := os.MkdirAll(nativeDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	testutil.WriteFile(t, nativeDir, "settings.json", `{ // comment
+  "model": "claude-sonnet",
+}`)
+	if _, err := Build(a, hostHome); err == nil {
+		t.Fatal("expected strict JSON parse failure")
+	}
+	testutil.WriteFile(t, nativeDir, "settings.json", `{"apiKeyHelper":"vault read anthropic"}`)
+	if _, err := Build(a, hostHome); err == nil || !strings.Contains(err.Error(), "unsupported") {
+		t.Fatalf("credential helper error = %v", err)
+	}
+}
+
+func TestPlanClaudeUsesConfigDirOverride(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	hostHome := t.TempDir()
+	configDir := filepath.Join(hostHome, "claude-alt")
+	t.Setenv("CLAUDE_CONFIG_DIR", configDir)
+	a, _ := agent.Lookup("claude-code")
+	if err := os.MkdirAll(configDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	testutil.WriteFile(t, configDir, "settings.json", `{"model":"claude-opus"}`)
+	plan, err := Build(a, hostHome)
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	if !plan.HasNativeConfig || len(plan.Files) != 1 {
+		t.Fatalf("Claude config directory override was not discovered: %+v", plan)
+	}
+}
+
+func TestPlanClaudeDoesNotTreatCredentialStoreAsNativeConfig(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	t.Setenv("CLAUDE_CONFIG_DIR", "")
+	hostHome := t.TempDir()
+	a, _ := agent.Lookup("claude-code")
+	credentialPath := filepath.Join(hostHome, ".claude", ".credentials.json")
+	if err := os.MkdirAll(filepath.Dir(credentialPath), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	testutil.WritePath(t, credentialPath, `{"claudeAiOauth":{"accessToken":"secret"}}`)
+	plan, err := Build(a, hostHome)
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	if plan.HasNativeConfig || len(plan.Files) != 0 {
+		t.Fatalf("Claude credential store was treated as settings: %+v", plan)
+	}
+}
+
+func TestPlanClaudeSetupOnlyIncludesRequiredEgress(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	hostHome := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", "")
+	a, _ := agent.Lookup("claude-code")
+	plan, err := Build(a, hostHome)
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	if !plan.SetupOnly || plan.HasNativeConfig || !slicesEqual(
+		plan.RequiredNetworkHosts,
+		[]string{"api.anthropic.com", "platform.claude.com", "claude.ai", "claude.com"},
+	) {
+		t.Fatalf("Claude setup-only plan = %+v", plan)
+	}
+}
+
 func TestBuildUsesPiAgentDirectoryOverride(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	hostHome := t.TempDir()
@@ -313,6 +468,35 @@ func TestPlanPiRejectsUnresolvedCredentialReferences(t *testing.T) {
 	}
 }
 
+func TestPlanPiRejectsAuthEnvironmentOverrides(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	t.Setenv("PI_CODING_AGENT_DIR", "")
+	hostHome := t.TempDir()
+	a, _ := agent.Lookup("pi")
+	nativeDir := filepath.Join(hostHome, ".pi", "agent")
+	if err := os.MkdirAll(nativeDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	testutil.WriteFile(
+		t,
+		nativeDir,
+		"auth.json",
+		`{"openai":{"type":"api_key","key":"token","env":{"SOURCE":"$OTHER"}}}`,
+	)
+	if _, err := Build(a, hostHome); err == nil || !strings.Contains(err.Error(), "unresolved") {
+		t.Fatalf("unresolved Pi auth environment error = %v", err)
+	}
+	testutil.WriteFile(
+		t,
+		nativeDir,
+		"auth.json",
+		`{"openai":{"type":"api_key","key":"token","env":{"SOURCE":"literal"}}}`,
+	)
+	if _, err := Build(a, hostHome); err == nil || !strings.Contains(err.Error(), "unsupported environment") {
+		t.Fatalf("raw Pi auth environment error = %v", err)
+	}
+}
+
 func TestPlanPiRejectsCredentialHeadersAndQueryParameters(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	t.Setenv("PI_CODING_AGENT_DIR", "")
@@ -339,6 +523,218 @@ func TestPlanPiRejectsCredentialHeadersAndQueryParameters(t *testing.T) {
 	)
 	if _, err := Build(a, hostHome); err == nil || !strings.Contains(err.Error(), "header override") {
 		t.Fatalf("header credential error = %v", err)
+	}
+}
+
+func TestSupplementalMigrationBranches(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	t.Setenv("PI_CODING_AGENT_DIR", "")
+	hostHome := t.TempDir()
+	a, _ := agent.Lookup("pi")
+	spec := a.(agent.MigrationSpecProvider).MigrationSpec()
+	nativeDir := filepath.Join(hostHome, ".pi", "agent")
+	if err := os.MkdirAll(nativeDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	modelsPath := filepath.Join(nativeDir, "models.json")
+	testutil.WritePath(t, modelsPath, "{")
+	files, _, warnings, _, err := migrateNativeSupplementalConfig(hostHome, spec)
+	if err != nil || len(files) != 0 || len(warnings) != 1 {
+		t.Fatalf("malformed supplemental migration = files=%v warnings=%v err=%v", files, warnings, err)
+	}
+	if err := os.Remove(modelsPath); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(modelsPath, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, _, _, err := migrateNativeSupplementalConfig(hostHome, spec); err == nil {
+		t.Fatal("expected supplemental read error")
+	}
+	if err := os.Remove(modelsPath); err != nil {
+		t.Fatal(err)
+	}
+	testutil.WritePath(t, modelsPath, `{"providers":{"gateway":{"apiKey":"secret"}}}`)
+	withMigrationSeams(t)
+	marshalErr := errors.New("supplemental marshal failed")
+	marshalJSONIndentFn = func(any, string, string) ([]byte, error) { return nil, marshalErr }
+	if _, _, _, _, err := migrateNativeSupplementalConfig(hostHome, spec); !errors.Is(err, marshalErr) {
+		t.Fatalf("supplemental marshal error = %v", err)
+	}
+}
+
+func TestSupplementalMigrationSecretCollision(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	pi, _ := agent.Lookup("pi")
+	spec := pi.(agent.MigrationSpecProvider).MigrationSpec()
+	spec.NativeSupplementalFiles = []string{"models.json", "models-extra.json"}
+	spec.ManagedSupplementalFiles = []string{"models.json", "models-extra.json"}
+	hostHome := t.TempDir()
+	nativeDir := filepath.Join(hostHome, ".pi", "agent")
+	if err := os.MkdirAll(nativeDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	testutil.WriteFile(t, nativeDir, "models.json", `{"providers":{"gateway":{"apiKey":"one"}}}`)
+	testutil.WriteFile(t, nativeDir, "models-extra.json", `{"providers":{"gateway":{"apiKey":"two"}}}`)
+	if _, _, _, _, err := migrateNativeSupplementalConfig(
+		hostHome,
+		spec,
+	); err == nil ||
+		!strings.Contains(err.Error(), "collision") {
+		t.Fatalf("supplemental secret collision error = %v", err)
+	}
+}
+
+func TestClaudeSecretFieldAndEndpointTraversalBranches(t *testing.T) {
+	claude, _ := agent.Lookup("claude-code")
+	spec := claude.(agent.MigrationSpecProvider).MigrationSpec()
+	secrets := make(map[string]Secret)
+	values := map[string]any{"ANTHROPIC_API_KEY": "one"}
+	if err := migrateClaudeSecretField(
+		values,
+		"ANTHROPIC_API_KEY",
+		"one",
+		"",
+		spec.Auth,
+		spec.KnownProviderHosts,
+		nil,
+		secrets,
+	); err != nil {
+		t.Fatal(err)
+	}
+	if err := migrateClaudeSecretField(
+		values,
+		"ANTHROPIC_API_KEY",
+		"two",
+		"",
+		spec.Auth,
+		spec.KnownProviderHosts,
+		nil,
+		secrets,
+	); err == nil {
+		t.Fatal("expected Claude secret collision")
+	}
+	endpointValues := map[string]any{"ANTHROPIC_BASE_URL": "https://gateway.example.test/v1"}
+	if err := migrateClaudeSecretField(
+		endpointValues,
+		"ANTHROPIC_BASE_URL",
+		"https://gateway.example.test/v1",
+		"",
+		spec.Auth,
+		spec.KnownProviderHosts,
+		nil,
+		make(map[string]Secret),
+	); err != nil {
+		t.Fatal(err)
+	}
+	if got := findEndpointHost(
+		map[string]any{"items": []any{map[string]any{"baseUrl": "https://array.example.test"}}},
+		spec.Auth.EndpointFields,
+	); got != "array.example.test" {
+		t.Fatalf("array endpoint host = %q", got)
+	}
+}
+
+func TestNormalizeClaudeEndpoint(t *testing.T) {
+	tests := []struct {
+		name, input, wantHost, wantURL, wantError string
+	}{
+		{name: "default", input: "", wantHost: "api.anthropic.com", wantURL: "https://api.anthropic.com"},
+		{
+			name:     "host",
+			input:    "gateway.example.test/v1",
+			wantHost: "gateway.example.test",
+			wantURL:  "https://gateway.example.test/v1",
+		},
+		{
+			name:     "url",
+			input:    "http://gateway.example.test/api",
+			wantHost: "gateway.example.test",
+			wantURL:  "http://gateway.example.test/api",
+		},
+		{name: "userinfo", input: "https://user:pass@gateway.example.test", wantError: "URL credentials"},
+		{name: "query", input: "https://gateway.example.test?api-key=secret", wantError: "query parameters"},
+		{name: "scheme", input: "ftp://gateway.example.test", wantError: "http(s)"},
+	}
+	for _, testCase := range tests {
+		t.Run(testCase.name, func(t *testing.T) {
+			host, endpoint, err := normalizeClaudeEndpoint(testCase.input)
+			if testCase.wantError != "" {
+				if err == nil || !strings.Contains(err.Error(), testCase.wantError) {
+					t.Fatalf("error = %v, want %q", err, testCase.wantError)
+				}
+				return
+			}
+			if err != nil || host != testCase.wantHost || endpoint != testCase.wantURL {
+				t.Fatalf("normalize = %q, %q, %v", host, endpoint, err)
+			}
+		})
+	}
+}
+
+func TestSanitizeClaudeSettingBranches(t *testing.T) {
+	claude, _ := agent.Lookup("claude-code")
+	spec := claude.(agent.MigrationSpecProvider).MigrationSpec()
+	known := spec.KnownProviderHosts
+	for _, testCase := range []struct {
+		name string
+		data map[string]any
+		want string
+	}{
+		{name: "unresolved", data: map[string]any{"value": "$OTHER"}, want: "unresolved"},
+		{name: "endpoint credentials", data: map[string]any{"ANTHROPIC_BASE_URL": "https://user:pass@example.test"}, want: "URL credentials"},
+		{name: "helper", data: map[string]any{"apiKeyHelper": "vault read key"}, want: "credential helper"},
+		{name: "header", data: map[string]any{"env": map[string]any{"CUSTOM_HEADER": "literal"}}, want: "header override"},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			if err := sanitizeConfigMapWithSpec(
+				testCase.data,
+				"",
+				"",
+				spec.Auth,
+				known,
+				nil,
+				map[string]Secret{},
+			); err == nil ||
+				!strings.Contains(err.Error(), testCase.want) {
+				t.Fatalf("error = %v, want %q", err, testCase.want)
+			}
+		})
+	}
+}
+
+func TestSanitizeClaudeNestedEnvSecretCollision(t *testing.T) {
+	claude, _ := agent.Lookup("claude-code")
+	spec := claude.(agent.MigrationSpecProvider).MigrationSpec()
+	values := map[string]any{
+		"first":  map[string]any{"ANTHROPIC_API_KEY": "one"},
+		"second": map[string]any{"ANTHROPIC_API_KEY": "two"},
+	}
+	if err := sanitizeConfigMapWithSpec(
+		values,
+		"",
+		"",
+		spec.Auth,
+		spec.KnownProviderHosts,
+		nil,
+		map[string]Secret{},
+	); err == nil ||
+		!strings.Contains(err.Error(), "collision") {
+		t.Fatalf("nested Claude secret collision error = %v", err)
+	}
+}
+
+func TestConfigSecretHostsUsesGlobalEndpointFallback(t *testing.T) {
+	if got := configSecretHosts(
+		"",
+		map[string]any{},
+		nil,
+		map[string]string{"": "gateway.example.test"},
+	); !slicesEqual(
+		got,
+		[]string{"gateway.example.test"},
+	) {
+		t.Fatalf("global endpoint host = %v", got)
 	}
 }
 
@@ -1994,6 +2390,62 @@ func TestGuideDefersStartAfterMigrationReview(t *testing.T) {
 	}
 	if !strings.Contains(startPrompt, "already written") || len(startChoices) != 2 || startChoices[1].Key != "n" {
 		t.Fatalf("start prompt = %q, choices = %+v", startPrompt, startChoices)
+	}
+}
+
+func TestGuideOffersSetupForFreshClaudeCodeUser(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	t.Setenv("CLAUDE_CONFIG_DIR", "")
+	a, _ := agent.Lookup("claude-code")
+	ui := termio.NewTestMock(t)
+	ui.IsInteractiveResult = true
+	choices := []string{guideSetupChoice, claudeAuthLoginChoice, "y"}
+	var setupChoices []termio.Choice
+	ui.SelectFn = func(_ string, available []termio.Choice, _ string) (string, error) {
+		if setupChoices == nil {
+			setupChoices = available
+		}
+		choice := choices[0]
+		choices = choices[1:]
+		return choice, nil
+	}
+	if err := Guide(a, t.TempDir(), false, &ui); err != nil {
+		t.Fatalf("Guide: %v", err)
+	}
+	if len(choices) != 0 {
+		t.Fatalf("Guide skipped prompts, remaining choices = %v", choices)
+	}
+	for _, choice := range setupChoices {
+		if choice.Key == "p" {
+			t.Fatalf("setup offered native host config without native config: %+v", setupChoices)
+		}
+	}
+	launcherConfig, err := os.ReadFile(filepath.Join(configpaths.Get().UserConfigDir(), "config.yaml"))
+	if err != nil || !bytes.Contains(launcherConfig, []byte("platform.claude.com")) {
+		t.Fatalf("launcher config = %s, %v, want Claude login egress", launcherConfig, err)
+	}
+}
+
+func TestGuideRemembersDismissedClaudeCodeSetup(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	t.Setenv("CLAUDE_CONFIG_DIR", "")
+	hostHome := t.TempDir()
+	a, _ := agent.Lookup("claude-code")
+	ui := termio.NewTestMock(t)
+	ui.IsInteractiveResult = true
+	selectCalls := 0
+	ui.SelectFn = func(string, []termio.Choice, string) (string, error) {
+		selectCalls++
+		return "d", nil
+	}
+	if err := Guide(a, hostHome, false, &ui); err != nil {
+		t.Fatalf("first Guide: %v", err)
+	}
+	if err := Guide(a, hostHome, false, &ui); err != nil {
+		t.Fatalf("second Guide: %v", err)
+	}
+	if selectCalls != 1 {
+		t.Fatalf("Select calls = %d, want the dismissed setup not to be offered again", selectCalls)
 	}
 }
 

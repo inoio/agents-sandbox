@@ -33,8 +33,9 @@ type Mock struct {
 	quiet               bool
 	IsInteractiveResult bool
 
-	SelectFn func(prompt string, choices []Choice, defaultKey string) (string, error)
-	InputFn  func(prompt, defaultValue string) (string, error)
+	SelectFn      func(prompt string, choices []Choice, defaultKey string) (string, error)
+	InputFn       func(prompt, defaultValue string) (string, error)
+	SecretInputFn func(prompt string) (string, error)
 }
 
 type mockSpinner struct{}
@@ -145,6 +146,13 @@ func (m *Mock) Input(prompt, defaultValue string) (string, error) {
 		return m.InputFn(prompt, defaultValue)
 	}
 	return defaultValue, nil
+}
+
+func (m *Mock) SecretInput(prompt string) (string, error) {
+	if m.SecretInputFn != nil {
+		return m.SecretInputFn(prompt)
+	}
+	return "", nil
 }
 
 func (m *Mock) StdOut() io.Writer {

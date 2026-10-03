@@ -113,7 +113,8 @@ disabled by default; enable it explicitly when you want the host setup copied.
 For an existing OpenCode or Pi setup, `agents-sandbox config migrate` provides a safer transition. It writes supported native
 settings to a managed snippet and converts credential values to microsandbox placeholders backed by user-level secrets.
 OpenCode and OpenCode 2 share this migration. Pi also migrates `auth.json` and `models.json` without copying raw
-credentials into the VM. Claude Code currently uses the manual snippet and env-secret workflow.
+credentials into the VM. Claude Code migrates only portable `settings.json` values; `.credentials.json`, `~/.claude.json`,
+OS-keychain credentials, and command-based credential helpers require manual review.
 The migration shows generated files for review, confirms any new network egress hosts, and leaves a retryable manifest if
 writing is interrupted.
 
@@ -143,8 +144,9 @@ For pi and claude-code, the drop-in copy does not include credential files; auth
 
 - **pi** — per-provider env vars, e.g. `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GEMINI_API_KEY` (see pi's docs for the
   full list). Put them in an `env.secret` / `env.secret.yaml` file (below).
-- **claude-code** — `ANTHROPIC_AUTH_TOKEN`, `ANTHROPIC_API_KEY`, or `CLAUDE_CODE_OAUTH_TOKEN`. Claude's
-  `.credentials.json` is machine-managed and not hand-provisioned, so env vars are the supported channel here.
+- **claude-code** — either log in normally inside the persistent sandbox home, or use
+  `ANTHROPIC_AUTH_TOKEN`, `ANTHROPIC_API_KEY`, or `CLAUDE_CODE_OAUTH_TOKEN` through `env.secret.yaml`. The host's
+  `.credentials.json` is not copied.
 - **opencode** — `OPENCODE_API_KEY`.
 
 ## Example: Permissions

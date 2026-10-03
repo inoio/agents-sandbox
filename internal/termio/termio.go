@@ -96,6 +96,7 @@ type UI interface {
 	IsInteractive() bool
 	Select(prompt string, choices []Choice, defaultKey string) (string, error)
 	Input(prompt, defaultValue string) (string, error)
+	SecretInput(prompt string) (string, error)
 }
 
 // New creates a production ui backed by the given streams.

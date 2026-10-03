@@ -11,23 +11,34 @@ const (
 	authKeyField               = "key"
 	authAccessKeyField         = "accesskey"
 	authAPIKeyType             = "api_key"
+	authAnthropicProvider      = "anthropic"
 	authAPIKeyField            = "apikey"
 	authAPITokenField          = "apitoken"
 	authAuthorizationField     = "authorization"
 	authBearerTokenField       = "bearertoken"
 	authClientSecretField      = "clientsecret"
+	authCookieField            = "cookie"
 	authCredentialField        = "credential"
 	authCredentialsField       = "credentials"
 	authIDTokenField           = "idtoken"
+	authTypeField              = "type"
 	authPasswordField          = "password"
 	authPrivateKeyField        = "privatekey"
 	authPrivateTokenField      = "privatetoken"
+	authOAuthAccessField       = "oauthaccess"
+	authOAuthRefreshField      = "oauthrefresh"
 	authRefreshTokenField      = "refreshtoken"
 	authSecretField            = "secret"
+	authSecretAccessKeyField   = "secretaccesskey"
 	authSessionField           = "session"
 	authTokenField             = "token"
 	authXAPIKeyField           = "xapikey"
 	authSessionTokenField      = "sessiontoken"
+	authBaseURLField           = "baseURL"
+	authBaseURLLowerField      = "baseUrl"
+	authEndpointField          = "endpoint"
+	authURLField               = "url"
+	anthropicAPIHost           = "api.anthropic.com"
 	migrationPlaceholderPrefix = "$MSB_"
 )
 
@@ -117,6 +128,8 @@ type ConfigMigrationSpec struct {
 	ManagedCredential         string
 	ManagedSnippet            string
 	NativeConfigFiles         []string
+	NativeConfigStrictJSON    bool
+	RequiredNetworkHosts      []string
 	NativeSupplementalFiles   []string
 	ManagedSupplementalFiles  []string
 	ProvisioningExcludedFiles []string

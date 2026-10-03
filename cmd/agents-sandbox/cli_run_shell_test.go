@@ -406,6 +406,28 @@ func TestGuideConfigMigrationErrorBranches(t *testing.T) {
 	}
 }
 
+func TestGuideConfigMigrationOffersClaudeCodeSetupWithoutNativeConfig(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	t.Setenv("CLAUDE_CONFIG_DIR", "")
+	hostHome := t.TempDir()
+	originalHome := migrationHomeDir
+	t.Cleanup(func() { migrationHomeDir = originalHome })
+	migrationHomeDir = func() (string, error) { return hostHome, nil }
+	ui := termio.NewTestMock(t)
+	ui.IsInteractiveResult = true
+	var prompts []string
+	ui.SelectFn = func(prompt string, _ []termio.Choice, _ string) (string, error) {
+		prompts = append(prompts, prompt)
+		return "d", nil
+	}
+	if err := guideConfigMigration(options.RunOptions{Agent: "claude-code"}, &ui, false); err != nil {
+		t.Fatalf("guideConfigMigration: %v", err)
+	}
+	if len(prompts) != 1 || !strings.Contains(prompts[0], "Set up") {
+		t.Fatalf("prompts = %v, want the Claude Code setup prompt", prompts)
+	}
+}
+
 func TestRunPropagatesMigrationGuidanceError(t *testing.T) {
 	initTestRepo(t)
 	originalHome := migrationHomeDir

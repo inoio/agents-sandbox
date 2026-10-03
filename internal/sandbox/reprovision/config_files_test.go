@@ -485,6 +485,22 @@ func TestProvisionRemovesOnlyStaleHostCopies(t *testing.T) {
 	}
 }
 
+func TestClaudeCredentialsAreNotRemovedFromPersistentHome(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	a, _ := agent.Lookup("claude-code")
+	hostHome := t.TempDir()
+	vmHome := t.TempDir()
+	ui := termio.NewTestMock(t)
+	cf, err := LoadConfigFilesForHost(a, hostHome, vmHome, &ui, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	credentialsPath := filepath.Join(vmHome, ".claude", ".credentials.json")
+	if slices.Contains(cf.Remove, credentialsPath) {
+		t.Fatalf("Claude credentials would be removed from persistent home: %v", cf.Remove)
+	}
+}
+
 // TestProvisionWritesProvisioned verifies that Provision writes host drop-in
 // files just like home files.
 func TestProvisionWritesProvisioned(t *testing.T) {

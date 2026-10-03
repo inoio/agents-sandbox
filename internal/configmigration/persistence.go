@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"net/url"
 	"os"
 	"path/filepath"
 	"slices"
@@ -31,12 +32,14 @@ const (
 	extJSON                 = ".json"
 	extJSONC                = ".jsonc"
 	extJSON5                = ".json5"
+	homeConfigKey           = "home"
 	extYAML                 = ".yaml"
 	extYML                  = ".yml"
 	manifestVersion         = 1
 	migrationStateApplying  = "applying"
 	migrationStateCompleted = "completed"
 	migrationStateDismissed = "dismissed"
+	claudeCodeAgentName     = "claude-code"
 )
 
 //nolint:gochecknoglobals // package-local seams restored by tests
@@ -51,11 +54,11 @@ var (
 	dismissMigrationFn                = Dismiss
 	marshalJSONFn                     = json.Marshal
 	marshalJSONIndentFn               = json.MarshalIndent
-	marshalYAMLFn                     = yaml.Marshal
+	marshalYAMLFn                     = marshalYAML
 )
 
 func migrationHomeMapping(root map[string]any, target string) (string, bool) {
-	home, ok := root["home"].(map[string]any)
+	home, ok := root[homeConfigKey].(map[string]any)
 	if !ok {
 		return "", false
 	}
@@ -297,15 +300,21 @@ func Build(
 	retrying := migrationManifestFor(a).State == migrationStateApplying &&
 		migrationManifestFor(a).SourceHash == hashNativeFiles(nativeFiles)
 	result := &Plan{ //nolint:exhaustruct // remaining fields are populated during planning
-		AgentName:        a.Name(),
-		Secrets:          make(map[string]Secret),
-		SourceHash:       hashNativeFiles(nativeFiles),
-		HasNativeConfig:  len(nativeFiles) > 0,
-		HasManagedConfig: hasManagedConfig(a, spec) && !retrying,
-		SecretPath:       cp.Get().UserEnvSecretYAMLFile(),
-		Retrying:         retrying,
+		AgentName:            a.Name(),
+		Secrets:              make(map[string]Secret),
+		SourceHash:           hashNativeFiles(nativeFiles),
+		HasNativeConfig:      len(nativeFiles) > 0,
+		HasManagedConfig:     hasManagedConfig(a, spec) && !retrying,
+		SecretPath:           cp.Get().UserEnvSecretYAMLFile(),
+		Retrying:             retrying,
+		RequiredNetworkHosts: append([]string(nil), spec.RequiredNetworkHosts...),
+		SetupOnly:            a.Name() == claudeCodeAgentName && len(nativeFiles) == 0,
 	}
 	if !result.HasNativeConfig {
+		if err := applyRequiredNetworkPlan(result); err != nil {
+			return nil, err
+		}
+		result.Handled, result.Dismissed = migrationStatusFor(a, result.SourceHash)
 		return result, nil
 	}
 	configPath := filepath.Join(cp.Get().UserConfigDir(), defaultConfigFile)
@@ -359,7 +368,7 @@ func Build(
 	); err != nil {
 		return nil, err
 	}
-	result.NetworkHosts = plannedNetworkHosts(result.Secrets)
+	result.NetworkHosts = appendUniqueHosts(result.RequiredNetworkHosts, plannedNetworkHosts(result.Secrets)...)
 	authGenerated := hasGeneratedCredential(result.Files, spec.ManagedCredential)
 	supplementalNames = generatedSupplementalNames(result.Files, spec.ManagedSupplementalFiles)
 	launcherSpec := spec
@@ -373,6 +382,7 @@ func Build(
 		if launcherErr != nil {
 			return nil, launcherErr
 		}
+		result.configBaseData = launcherData
 		launcherPath, launcherData, networkAllowHosts, launcherErr := updateLauncherNetwork(
 			launcherPath,
 			launcherData,
@@ -400,6 +410,26 @@ func Build(
 		)
 	}
 	return result, nil
+}
+
+func applyRequiredNetworkPlan(plan *Plan) error {
+	plan.NetworkHosts = appendUniqueHosts(append([]string(nil), plan.RequiredNetworkHosts...))
+	if len(plan.NetworkHosts) == 0 {
+		return nil
+	}
+	path, data, err := migrationLoadLauncherConfig()
+	if err != nil {
+		return err
+	}
+	plan.configBaseData = data
+	path, data, _, err = updateLauncherNetwork(path, data, plan.NetworkHosts)
+	if err != nil {
+		return err
+	}
+	plan.ConfigPath = path
+	plan.ConfigData = data
+	plan.NetworkAllowHosts = plan.NetworkHosts
+	return nil
 }
 
 func applyAuthMigration(
@@ -501,22 +531,11 @@ func updateLauncherNetwork(path string, data []byte, hosts []string) (string, []
 	if len(hosts) == 0 {
 		return path, data, nil, nil
 	}
-	var root map[string]any
-	if migrationIsJSONConfig(path) {
-		if err := json5.Unmarshal(data, &root); err != nil {
-			return "", nil, nil, fmt.Errorf("parse launcher config %s: %w", path, err)
-		}
-	} else if err := yaml.Unmarshal(data, &root); err != nil {
-		return "", nil, nil, fmt.Errorf("parse launcher config %s: %w", path, err)
+	config, err := parseLauncherConfig(path, data)
+	if err != nil {
+		return "", nil, nil, err
 	}
-	if root == nil {
-		root = make(map[string]any)
-	}
-	networkConfig, ok := root["network"].(map[string]any)
-	if !ok {
-		networkConfig = make(map[string]any)
-		root["network"] = networkConfig
-	}
+	networkConfig, _ := config.values["network"].(map[string]any)
 	allow := stringList(networkConfig["egress-allow"])
 	deny := stringList(networkConfig["egress-deny"])
 	deny = append(deny, projectNetworkDenyHosts()...)
@@ -527,23 +546,17 @@ func updateLauncherNetwork(path string, data []byte, hosts []string) (string, []
 				return "", nil, nil, fmt.Errorf("network host %q is denied by network.egress-deny", host)
 			}
 		}
-		if !slicesContains(allow, host) {
-			allow = append(allow, host)
+		if !slicesContains(allow, host) && !slicesContains(added, host) {
 			added = append(added, host)
 		}
 	}
-	sort.Strings(allow)
-	networkConfig["egress-allow"] = allow
-	if migrationIsJSONConfig(path) {
-		updated, err := json.MarshalIndent(root, "", "  ")
-		if err != nil {
-			return "", nil, nil, fmt.Errorf("marshal launcher config: %w", err)
-		}
-		return path, append(updated, '\n'), added, nil
+	if len(added) == 0 {
+		return path, data, nil, nil
 	}
-	updated, err := yaml.Marshal(root)
+	config.appendListItems([]string{"network", "egress-allow"}, added)
+	updated, err := config.marshal()
 	if err != nil {
-		return "", nil, nil, fmt.Errorf("marshal launcher config: %w", err)
+		return "", nil, nil, err
 	}
 	return path, updated, added, nil
 }
@@ -678,9 +691,14 @@ func writeIfChanged(path string, data []byte, mode os.FileMode) error {
 
 // Review presents generated files and asks for confirmation of warnings and
 // network policy changes before Apply writes anything.
-func Review(plan *Plan, ui termio.UI) error {
+func Review(plan *Plan, ui termio.UI) error { //nolint:gocognit // review flow keeps user decisions visible
 	if plan == nil {
 		return errors.New("nil migration plan")
+	}
+	if plan.AgentName == claudeCodeAgentName {
+		if err := reviewClaudeAuthentication(plan, ui); err != nil {
+			return err
+		}
 	}
 	secrets := cloneSecrets(plan.Secrets)
 	if err := completeSecretHostsAtPath(secrets, plan.SecretPath, ui); err != nil {
@@ -726,6 +744,9 @@ func Review(plan *Plan, ui termio.UI) error {
 			return errors.New("migration aborted after auth field review")
 		}
 	}
+	if len(plan.ConfigData) > 0 {
+		warnIfLauncherConfigLosesComments(plan.ConfigPath, ui)
+	}
 	if len(plan.NetworkAllowHosts) > 0 {
 		ui.Outf(
 			"VM egress will be allowed to: %s (derived from the confirmed secret destinations)",
@@ -742,6 +763,14 @@ func Report(plan *Plan, ui termio.UI) {
 	reportMigrationFiles(plan, ui, "Generated migration files (not written yet):")
 }
 
+// warnIfLauncherConfigLosesComments warns that a JSON-family launcher config
+// is rewritten as plain JSON; YAML configs keep their comments.
+func warnIfLauncherConfigLosesComments(path string, ui termio.UI) {
+	if migrationIsJSONConfig(path) {
+		ui.Warnf("%s will be rewritten as plain JSON; its comments and formatting are not preserved", path)
+	}
+}
+
 func reportMigrationFiles(plan *Plan, ui termio.UI, heading string) {
 	ui.Out(heading)
 	for _, file := range plan.Files {
@@ -754,12 +783,17 @@ func reportMigrationFiles(plan *Plan, ui termio.UI, heading string) {
 }
 
 func refreshNetworkPlan(plan *Plan) error {
-	plan.NetworkHosts = plannedNetworkHosts(plan.Secrets)
+	plan.NetworkHosts = appendUniqueHosts(
+		append([]string(nil), plan.RequiredNetworkHosts...),
+		plannedNetworkHosts(plan.Secrets)...)
 	if len(plan.NetworkHosts) == 0 {
 		return nil
 	}
 	path := plan.ConfigPath
 	data := plan.ConfigData
+	if plan.configBaseData != nil {
+		data = plan.configBaseData
+	}
 	if path == "" {
 		var err error
 		path, data, err = migrationLoadLauncherConfig()
@@ -776,6 +810,175 @@ func refreshNetworkPlan(plan *Plan) error {
 	_ = added
 	plan.NetworkAllowHosts = plan.NetworkHosts
 	return nil
+}
+
+func reviewClaudeAuthentication(plan *Plan, ui termio.UI) error {
+	if !ui.IsInteractive() {
+		return nil
+	}
+	choice, err := ui.Select(
+		"How should Claude Code authenticate inside the sandbox?",
+		[]termio.Choice{
+			{
+				Key:         claudeAuthLoginChoice,
+				Label:       "Normal Claude login",
+				Description: "log in inside the sandbox after it starts",
+			},
+			{
+				Key:         claudeAuthAPIKeyChoice,
+				Label:       "Anthropic API key",
+				Description: "store an API key in env.secret.yaml",
+			},
+		},
+		claudeAuthLoginChoice,
+	)
+	if err != nil {
+		return err
+	}
+	if choice == claudeAuthLoginChoice {
+		ui.Info("Claude Code will use its normal login flow inside the sandbox.")
+		return removeClaudeAuthentication(plan)
+	}
+	if choice != claudeAuthAPIKeyChoice {
+		return fmt.Errorf("unknown Claude authentication choice %q", choice)
+	}
+	if removeErr := removeClaudeAuthentication(plan); removeErr != nil {
+		return removeErr
+	}
+	endpoint, err := ui.Input("Claude API endpoint", "api.anthropic.com")
+	if err != nil {
+		return err
+	}
+	endpointHost, normalizedEndpoint, err := normalizeClaudeEndpoint(endpoint)
+	if err != nil {
+		return err
+	}
+	apiKey, err := ui.SecretInput("Anthropic API key")
+	if err != nil {
+		return err
+	}
+	apiKey = strings.TrimSpace(apiKey)
+	if apiKey == "" {
+		return errors.New("anthropic API key must not be empty")
+	}
+	ui.Info("Claude Code will use the API key through env.secret.yaml.")
+	secretName := "CLAUDE_ENV_ANTHROPIC_" + "API_KEY"
+	plan.Secrets[secretName] = Secret{ //nolint:exhaustruct // host policy is filled below
+		Value: apiKey,
+		Hosts: []string{endpointHost},
+	}
+	plan.RequiredNetworkHosts = appendUniqueHosts(plan.RequiredNetworkHosts, endpointHost)
+	plan.RequiredNetworkHosts = appendUniqueHosts(plan.RequiredNetworkHosts, claudeAnthropicAPIHost)
+	claude, ok := agent.Lookup(plan.AgentName)
+	if !ok {
+		return fmt.Errorf("unknown agent %q", plan.AgentName)
+	}
+	updatedFiles, err := appendClaudeSettingsEnv(plan.Files, claude, secretName, normalizedEndpoint)
+	if err != nil {
+		return err
+	}
+	plan.Files = updatedFiles
+	return nil
+}
+
+func removeClaudeAuthentication(plan *Plan) error {
+	for name := range plan.Secrets {
+		if strings.HasPrefix(name, "CLAUDE_ENV_") {
+			delete(plan.Secrets, name)
+		}
+	}
+	for index := range plan.Files {
+		if filepath.Base(plan.Files[index].Path) != "settings-migrated.json" {
+			continue
+		}
+		var settings map[string]any
+		if err := json.Unmarshal(plan.Files[index].Data, &settings); err != nil {
+			return fmt.Errorf("parse generated Claude settings: %w", err)
+		}
+		env, ok := settings["env"].(map[string]any)
+		if !ok {
+			continue
+		}
+		for name := range env {
+			if claudeSecretVariable(name) {
+				delete(env, name)
+			}
+		}
+		data, err := marshalJSONIndentFn(settings, "", "  ")
+		if err != nil {
+			return fmt.Errorf("marshal generated Claude settings: %w", err)
+		}
+		plan.Files[index].Data = append(append([]byte(nil), data...), '\n')
+	}
+	return nil
+}
+
+func appendClaudeSettingsEnv(files []File, claude agent.Agent, secretName, endpoint string) ([]File, error) {
+	path := filepath.Join(cp.Get().UserAgentConfigDir(claude), "settings-migrated.json")
+	settings := make(map[string]any)
+	for _, file := range files {
+		if file.Path != path {
+			continue
+		}
+		if err := json.Unmarshal(file.Data, &settings); err != nil {
+			return nil, fmt.Errorf("parse generated Claude settings: %w", err)
+		}
+		break
+	}
+	env, ok := settings["env"].(map[string]any)
+	if !ok {
+		env = make(map[string]any)
+		settings["env"] = env
+	}
+	env["ANTHROPIC_API_KEY"] = "$MSB_" + secretName
+	env["ANTHROPIC_BASE_URL"] = endpoint
+	data, err := marshalJSONIndentFn(settings, "", "  ")
+	if err != nil {
+		return nil, fmt.Errorf("marshal generated Claude settings: %w", err)
+	}
+	data = append(data, '\n')
+	for index := range files {
+		if files[index].Path == path {
+			files[index].Data = data
+			return files, nil
+		}
+	}
+	return append(files, File{Path: path, Data: data, Mode: defaultConfigMode}), nil
+}
+
+func appendUniqueHosts(hosts []string, additions ...string) []string {
+	seen := make(map[string]struct{}, len(hosts)+len(additions))
+	result := make([]string, 0, len(hosts)+len(additions))
+	for _, host := range append(hosts, additions...) {
+		if host == "" {
+			continue
+		}
+		if _, ok := seen[host]; ok {
+			continue
+		}
+		seen[host] = struct{}{}
+		result = append(result, host)
+	}
+	sort.Strings(result)
+	return result
+}
+
+func normalizeClaudeEndpoint(value string) (string, string, error) {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		value = claudeAnthropicAPIHost
+	}
+	if !strings.Contains(value, "://") {
+		value = "https://" + value
+	}
+	parsed, err := url.Parse(value)
+	if err != nil || parsed.Hostname() == "" || (parsed.Scheme != "http" && parsed.Scheme != "https") {
+		return "", "", errors.New("claude API endpoint must be a host or an http(s) URL")
+	}
+	if err := rejectEmbeddedEndpointCredential(value); err != nil {
+		return "", "", fmt.Errorf("claude API endpoint: %w", err)
+	}
+	return parsed.Hostname(), parsed.String(), nil
 }
 
 func validatePlanOutputs(plan *Plan, secrets map[string]Secret) error {
@@ -874,7 +1077,6 @@ func Dismiss(plan *Plan) error {
 	return migrationWriteStatus(plan.AgentName, plan.SourceHash, true)
 }
 
-//nolint:gocognit // user-facing migration choices intentionally remain visible
 func Guide(
 	a agent.Agent,
 	hostHome string,
@@ -908,6 +1110,9 @@ func Guide(
 	if !plan.HasChanges() {
 		return nil
 	}
+	if plan.SetupOnly {
+		return guideSetup(a, plan, ui)
+	}
 	ui.Warnf("native %s configuration was found, but host-config provisioning is disabled", a.Name())
 	key, err := ui.Select("Choose how to configure the sandbox", []termio.Choice{
 		{
@@ -927,51 +1132,87 @@ func Guide(
 	}
 	switch key {
 	case "m":
-		if err := Review(plan, ui); err != nil {
-			return err
-		}
-		if err := Apply(plan, ui); err != nil {
-			return err
-		}
-		ui.Infof("safe %s configuration migration completed", a.Name())
-		ui.Info("")
-		choice, err := ui.Select(
-			"Start agents-sandbox now? The files are already written and can be reviewed or edited either way.",
-			[]termio.Choice{
-				{Key: "y", Label: "Start now", Description: "start the sandbox with the generated configuration"},
-				{
-					Key:         "n",
-					Label:       "Quit",
-					Description: "exit (and keep generated files)",
-				},
-			},
-			"y",
-		)
-		if err != nil {
-			return err
-		}
-		if choice == "n" {
-			return ErrStartDeferred
-		}
-		if choice != "y" {
-			return fmt.Errorf("unknown start choice %q", choice)
-		}
-		return nil
+		return reviewApplyAndConfirmStart(a, plan, ui)
 	case "p":
+		if path, _, err := migrationLoadLauncherConfig(); err == nil {
+			warnIfLauncherConfigLosesComments(path, ui)
+		}
 		if err := enableNativeProvisioningFn(); err != nil {
 			return err
 		}
 		ui.Warn("native host-config provisioning is now enabled; rerun agents-sandbox to apply it")
 		return ErrRerunRequired
 	case "d":
-		if err := dismissMigrationFn(plan); err != nil {
-			return err
-		}
-		ui.Info("continuing without migrated agent configuration")
-		return nil
+		return dismissGuidedMigration(plan, ui)
 	default:
 		return fmt.Errorf("unknown migration choice %q", key)
 	}
+}
+
+// guideSetup offers the setup of an agent without native host config, e.g.
+// the VM egress a fresh Claude Code user needs to log in inside the sandbox.
+func guideSetup(a agent.Agent, plan *Plan, ui termio.UI) error {
+	ui.Infof("no native %s configuration was found; the sandbox needs a one-time setup", a.Name())
+	key, err := ui.Select("Set up the sandbox now?", []termio.Choice{
+		{
+			Key:         guideSetupChoice,
+			Label:       "Set up now",
+			Description: "choose how to authenticate and allow the required VM egress",
+		},
+		{Key: "d", Label: "Continue without setup", Description: "configure the agent manually later"},
+	}, guideSetupChoice)
+	if err != nil {
+		return err
+	}
+	switch key {
+	case guideSetupChoice:
+		return reviewApplyAndConfirmStart(a, plan, ui)
+	case "d":
+		return dismissGuidedMigration(plan, ui)
+	default:
+		return fmt.Errorf("unknown setup choice %q", key)
+	}
+}
+
+func reviewApplyAndConfirmStart(a agent.Agent, plan *Plan, ui termio.UI) error {
+	if err := Review(plan, ui); err != nil {
+		return err
+	}
+	if err := Apply(plan, ui); err != nil {
+		return err
+	}
+	ui.Infof("safe %s configuration migration completed", a.Name())
+	ui.Info("")
+	choice, err := ui.Select(
+		"Start agents-sandbox now? The files are already written and can be reviewed or edited either way.",
+		[]termio.Choice{
+			{Key: "y", Label: "Start now", Description: "start the sandbox with the generated configuration"},
+			{
+				Key:         "n",
+				Label:       "Quit",
+				Description: "exit (and keep generated files)",
+			},
+		},
+		"y",
+	)
+	if err != nil {
+		return err
+	}
+	if choice == "n" {
+		return ErrStartDeferred
+	}
+	if choice != "y" {
+		return fmt.Errorf("unknown start choice %q", choice)
+	}
+	return nil
+}
+
+func dismissGuidedMigration(plan *Plan, ui termio.UI) error {
+	if err := dismissMigrationFn(plan); err != nil {
+		return err
+	}
+	ui.Info("continuing without migrated agent configuration")
+	return nil
 }
 
 func nativeConfigExists(a agent.Agent, hostHome string) bool {
@@ -988,6 +1229,9 @@ func nativeConfigExists(a agent.Agent, hostHome string) bool {
 			return true
 		}
 	}
+	if spec.NativeCredential == "" {
+		return false
+	}
 	_, err := os.Stat(authPath)
 	return err == nil
 }
@@ -997,27 +1241,14 @@ func EnableNativeProvisioning() error {
 	if err != nil {
 		return err
 	}
-	var root map[string]any
-	if migrationIsJSONConfig(path) {
-		if unmarshalErr := json5.Unmarshal(data, &root); unmarshalErr != nil {
-			return fmt.Errorf("parse launcher config: %w", unmarshalErr)
-		}
-	} else if unmarshalErr := yaml.Unmarshal(data, &root); unmarshalErr != nil {
-		return fmt.Errorf("parse launcher config: %w", unmarshalErr)
-	}
-	if root == nil {
-		root = make(map[string]any)
-	}
-	root["provision-host-config"] = true
-	var updated []byte
-	if migrationIsJSONConfig(path) {
-		updated, err = json.MarshalIndent(root, "", "  ")
-		updated = append(updated, '\n')
-	} else {
-		updated, err = yaml.Marshal(root)
-	}
+	config, err := parseLauncherConfig(path, data)
 	if err != nil {
-		return fmt.Errorf("marshal launcher config: %w", err)
+		return err
+	}
+	config.setBool([]string{"provision-host-config"}, true)
+	updated, err := config.marshal()
+	if err != nil {
+		return err
 	}
 	return atomicWriteFn(path, updated, defaultConfigMode)
 }
@@ -1034,7 +1265,9 @@ func collectNativeFiles(hostHome string, spec agent.ConfigMigrationSpec) ([]nati
 	for _, name := range append(spec.NativeConfigFiles, spec.NativeSupplementalFiles...) {
 		paths = append(paths, filepath.Join(configDir, name))
 	}
-	paths = append(paths, authPath)
+	if spec.NativeCredential != "" {
+		paths = append(paths, authPath)
+	}
 	for _, path := range paths {
 		data, err := os.ReadFile(path)
 		if err != nil {
@@ -1057,6 +1290,9 @@ func nativeAgentPaths(hostHome string, spec agent.ConfigMigrationSpec) (string, 
 		} else if !spec.NativeConfigEnvIsPath {
 			configDir = filepath.Join(hostHome, filepath.Dir(spec.NativeConfigDir), spec.NativeConfigSubdir)
 		}
+	}
+	if spec.NativeCredential == "" {
+		return configDir, ""
 	}
 
 	credentialDir := filepath.Join(hostHome, filepath.Dir(spec.NativeCredential))

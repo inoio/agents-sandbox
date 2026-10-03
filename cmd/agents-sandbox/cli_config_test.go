@@ -229,7 +229,7 @@ func TestConfigMigrateWithoutNativeConfig(t *testing.T) {
 	}
 }
 
-func TestConfigMigrateUnsupportedAgent(t *testing.T) {
+func TestConfigMigrateClaudeWithoutNativeConfig(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	t.Setenv("XDG_CONFIG_HOME", "")
 	t.Setenv("XDG_DATA_HOME", "")
@@ -237,8 +237,9 @@ func TestConfigMigrateUnsupportedAgent(t *testing.T) {
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("config migrate claude-code: %v", err)
 	}
-	if got := strings.Join(ui.WarnCalls, "\n"); !strings.Contains(got, "safe migration is not available") {
-		t.Errorf("unexpected migration warning: %s", got)
+	if got := strings.Join(ui.OutCalls, "\n"); !strings.Contains(got, "api.anthropic.com") ||
+		!strings.Contains(got, "platform.claude.com") || !strings.Contains(got, "claude.ai") {
+		t.Errorf("expected default Claude egress output, got: %s", got)
 	}
 }
 
@@ -254,7 +255,12 @@ func TestConfigMigrateWritesSanitizedOpenCodeAuth(t *testing.T) {
 	}
 	testutil.WriteFile(t, authDir, "auth.json", `{"openrouter":{"type":"api","key":"secret-key"}}`)
 	ui.IsInteractiveResult = true
-	ui.SelectFn = func(string, []termio.Choice, string) (string, error) { return "y", nil }
+	choices := []string{"login", "y"}
+	ui.SelectFn = func(string, []termio.Choice, string) (string, error) {
+		choice := choices[0]
+		choices = choices[1:]
+		return choice, nil
+	}
 
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("config migrate opencode: %v", err)
@@ -308,6 +314,80 @@ func TestConfigMigrateWritesSanitizedPiFiles(t *testing.T) {
 	}
 	if !strings.Contains(strings.Join(ui.OutCalls, "\n"), "Safe migration completed") {
 		t.Errorf("missing Pi completion output: %v", ui.OutCalls)
+	}
+}
+
+func TestConfigMigrateWritesSanitizedClaudeSettings(t *testing.T) {
+	hostHome := t.TempDir()
+	t.Setenv("HOME", hostHome)
+	t.Setenv("XDG_CONFIG_HOME", "")
+	t.Setenv("XDG_DATA_HOME", "")
+	cmd, ui := setupCommandFixtures(t, "config", "migrate", "claude-code")
+	nativeDir := filepath.Join(hostHome, ".claude")
+	if err := os.MkdirAll(nativeDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	testutil.WriteFile(t, nativeDir, "settings.json", `{"env":{"ANTHROPIC_API_KEY":"claude-secret"}}`)
+	ui.IsInteractiveResult = true
+	choices := []string{"login", "y"}
+	ui.SelectFn = func(string, []termio.Choice, string) (string, error) {
+		choice := choices[0]
+		choices = choices[1:]
+		return choice, nil
+	}
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("config migrate claude-code: %v", err)
+	}
+	claude, _ := agent.Lookup("claude-code")
+	managed := filepath.Join(configpaths.Get().UserAgentConfigDir(claude), "settings-migrated.json")
+	data, err := os.ReadFile(managed)
+	if err != nil || strings.Contains(string(data), "claude-secret") ||
+		strings.Contains(string(data), "ANTHROPIC_API_KEY") {
+		t.Fatalf("managed Claude settings = %s, err=%v", data, err)
+	}
+}
+
+func TestConfigMigrateClaudePromptsForAPIKeyAndPreservesExistingSecrets(t *testing.T) {
+	hostHome := t.TempDir()
+	t.Setenv("HOME", hostHome)
+	t.Setenv("XDG_CONFIG_HOME", "")
+	t.Setenv("XDG_DATA_HOME", "")
+	cmd, ui := setupCommandFixtures(t, "config", "migrate", "claude-code")
+	testutil.WritePath(
+		t,
+		configpaths.Get().UserEnvSecretYAMLFile(),
+		"EXISTING:\n  value: keep\n  hosts: [existing.example]\n",
+	)
+	ui.IsInteractiveResult = true
+	choices := []string{"api-key", "y"}
+	ui.SelectFn = func(string, []termio.Choice, string) (string, error) {
+		choice := choices[0]
+		choices = choices[1:]
+		return choice, nil
+	}
+	ui.InputFn = func(string, string) (string, error) { return "gateway.example.test/v1", nil }
+	ui.SecretInputFn = func(string) (string, error) { return "claude-secret", nil }
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("config migrate claude-code API key: %v", err)
+	}
+	secretData, err := os.ReadFile(configpaths.Get().UserEnvSecretYAMLFile())
+	if err != nil || !strings.Contains(string(secretData), "EXISTING:") ||
+		!strings.Contains(string(secretData), "CLAUDE_ENV_ANTHROPIC_API_KEY:") {
+		t.Fatalf("merged Claude secret file = %s, err=%v", secretData, err)
+	}
+	claude, _ := agent.Lookup("claude-code")
+	settingsData, err := os.ReadFile(
+		filepath.Join(configpaths.Get().UserAgentConfigDir(claude), "settings-migrated.json"),
+	)
+	if err != nil || strings.Contains(string(settingsData), "claude-secret") ||
+		!strings.Contains(string(settingsData), "$MSB_CLAUDE_ENV_ANTHROPIC_API_KEY") ||
+		!strings.Contains(string(settingsData), "gateway.example.test") {
+		t.Fatalf("generated Claude API settings = %s, err=%v", settingsData, err)
+	}
+	configData, err := os.ReadFile(filepath.Join(configpaths.Get().UserConfigDir(), "config.yaml"))
+	if err != nil || !strings.Contains(string(configData), "gateway.example.test") ||
+		!strings.Contains(string(configData), "api.anthropic.com") {
+		t.Fatalf("Claude egress config = %s, err=%v", configData, err)
 	}
 }
 
@@ -398,6 +478,13 @@ func TestConfigMigrateCommandOutcomes(t *testing.T) {
 		t.Fatalf("warning result = %v, %v", err, ui.WarnCalls)
 	}
 	buildMigrationPlan = func(agent.Agent, string) (*configmigration.Plan, error) {
+		return nil, configmigration.ErrUnsupported
+	}
+	cmd, ui = setupCommandFixtures(t, "config", "migrate", "opencode")
+	if err := cmd.Execute(); err != nil || !strings.Contains(strings.Join(ui.WarnCalls, "\n"), "not available") {
+		t.Fatalf("unsupported result = %v, %v", err, ui.WarnCalls)
+	}
+	buildMigrationPlan = func(agent.Agent, string) (*configmigration.Plan, error) {
 		return &configmigration.Plan{
 			HasNativeConfig:  true,
 			Files:            []configmigration.File{{Path: "x"}},
@@ -408,6 +495,28 @@ func TestConfigMigrateCommandOutcomes(t *testing.T) {
 	if err := cmd.Execute(); err != nil || len(ui.WarnCalls) == 0 ||
 		!strings.Contains(strings.Join(ui.WarnCalls, "\n"), "refusing") {
 		t.Fatalf("managed config result = %v, %v", err, ui.WarnCalls)
+	}
+}
+
+func TestConfigMigratePrintsNoSupportedCredentialWarning(t *testing.T) {
+	originalBuild := buildMigrationPlan
+	originalHome := migrationHomeDir
+	t.Cleanup(func() {
+		buildMigrationPlan = originalBuild
+		migrationHomeDir = originalHome
+	})
+	migrationHomeDir = func() (string, error) { return t.TempDir(), nil }
+	buildMigrationPlan = func(agent.Agent, string) (*configmigration.Plan, error) {
+		return &configmigration.Plan{
+			AgentName:       "opencode",
+			HasNativeConfig: true,
+			Warnings:        []string{"native values require review"},
+		}, nil
+	}
+	cmd, ui := setupCommandFixtures(t, "config", "migrate", "opencode")
+	if err := cmd.Execute(); err != nil ||
+		!strings.Contains(strings.Join(ui.WarnCalls, "\n"), "no supported credential") {
+		t.Fatalf("unsupported credential result = %v, %v", err, ui.WarnCalls)
 	}
 }
 

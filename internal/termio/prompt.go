@@ -4,8 +4,11 @@ import (
 	"bufio"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"strings"
+
+	"golang.org/x/term"
 )
 
 func (p *printer) getStdinReader() *bufio.Reader {
@@ -25,6 +28,12 @@ func (p *printer) IsInteractive() bool {
 const maxRetries = 5
 
 var errTooManyInvalidInputs = errors.New("too many invalid inputs")
+
+//nolint:gochecknoglobals // test seams for terminal input
+var (
+	makeRawTerminal = term.MakeRaw
+	restoreTerminal = term.Restore
+)
 
 func (p *printer) Select(prompt string, choices []Choice, defaultKey string) (string, error) {
 	if !p.IsInteractive() {
@@ -88,4 +97,50 @@ func (p *printer) Input(prompt, defaultValue string) (string, error) {
 		return defaultValue, nil
 	}
 	return line, nil
+}
+
+func (p *printer) SecretInput(prompt string) (string, error) {
+	if !p.IsInteractive() {
+		return "", errors.New("secret input requires an interactive terminal")
+	}
+	f, ok := p.stdin.(*os.File)
+	if !ok {
+		return "", errors.New("secret input requires a terminal-backed stdin")
+	}
+	fmt.Fprintf(p.stderr, "%s: ", prompt)
+	state, err := makeRawTerminal(int(f.Fd()))
+	if err != nil {
+		return "", err
+	}
+	defer func() {
+		_ = restoreTerminal(int(f.Fd()), state)
+		_, _ = fmt.Fprintln(p.stderr)
+	}()
+	return readMaskedSecret(f, p.stderr)
+}
+
+func readMaskedSecret(reader io.Reader, output io.Writer) (string, error) {
+	var value []byte
+	buffer := []byte{0}
+	for {
+		if _, err := reader.Read(buffer); err != nil {
+			return "", err
+		}
+		switch buffer[0] {
+		case '\r', '\n':
+			return strings.TrimSpace(string(value)), nil
+		case 3:
+			return "", errors.New("secret input interrupted")
+		case 127, 8:
+			if len(value) > 0 {
+				value = value[:len(value)-1]
+				_, _ = io.WriteString(output, "\b \b")
+			}
+		default:
+			if buffer[0] >= 32 {
+				value = append(value, buffer[0])
+				_, _ = io.WriteString(output, "*")
+			}
+		}
+	}
 }

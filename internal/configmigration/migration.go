@@ -12,6 +12,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"unicode"
@@ -23,13 +24,15 @@ import (
 )
 
 const (
-	authTypeWellKnown = "wellknown"
-	authTypeField     = "type"
-	endpointKey       = "endpoint"
-	urlKey            = "url"
-	providerKey       = "provider"
-	secretKey         = "secret"
-	baseURLKey        = "baseURL"
+	authTypeWellKnown        = "wellknown"
+	authTypeField            = "type"
+	endpointKey              = "endpoint"
+	urlKey                   = "url"
+	providerKey              = "provider"
+	secretKey                = "secret"
+	baseURLKey               = "baseURL"
+	claudeAnthropicAPIKeyEnv = "ANTHROPIC_" + "API_KEY"
+	claudeAnthropicAPIHost   = "api.anthropic.com"
 )
 
 // ErrUnsupported is returned when an agent has no safe migration provider.
@@ -63,34 +66,48 @@ type File struct {
 // Plan contains all changes needed for a safe migration. It is intentionally
 // host-side: applying it does not contact or modify a VM.
 type Plan struct {
-	AgentName         string
-	Files             []File
-	Secrets           map[string]Secret
-	ConfigPath        string
-	ConfigData        []byte
-	SecretPath        string
-	SourceHash        string
-	HasNativeConfig   bool
-	HasManagedConfig  bool
-	AlreadyConfigured bool
-	Handled           bool
-	Dismissed         bool
-	Warnings          []string
-	ReviewRequired    bool
-	NetworkHosts      []string
-	NetworkPath       string
-	NetworkData       []byte
-	NetworkAllowHosts []string
-	ReviewWarnings    []string
-	Retrying          bool
+	AgentName  string
+	Files      []File
+	Secrets    map[string]Secret
+	ConfigPath string
+	ConfigData []byte
+	// configBaseData is the launcher config before any egress hosts were
+	// added, so the network policy can be recomputed when secrets change.
+	configBaseData       []byte
+	SecretPath           string
+	SourceHash           string
+	HasNativeConfig      bool
+	HasManagedConfig     bool
+	AlreadyConfigured    bool
+	Handled              bool
+	Dismissed            bool
+	Warnings             []string
+	ReviewRequired       bool
+	NetworkHosts         []string
+	NetworkPath          string
+	NetworkData          []byte
+	NetworkAllowHosts    []string
+	RequiredNetworkHosts []string
+	ReviewWarnings       []string
+	Retrying             bool
+	SetupOnly            bool
 }
 
 // HasChanges reports whether the plan has something useful to migrate.
 func (p *Plan) HasChanges() bool {
-	return p != nil && p.HasNativeConfig && len(p.Files) > 0 && !p.HasManagedConfig && !p.AlreadyConfigured &&
+	return p != nil && (p.HasNativeConfig || p.SetupOnly) && (len(p.Files) > 0 || len(p.RequiredNetworkHosts) > 0) &&
+		!p.HasManagedConfig &&
+		!p.AlreadyConfigured &&
 		!p.Handled &&
 		!p.Dismissed
 }
+
+const (
+	claudeAuthLoginChoice  = "login"
+	claudeAuthAPIKeyChoice = "api-key"
+	guideSetupChoice       = "s"
+)
+
 func sanitizeAuth(
 	data []byte,
 	knownHosts, providerHosts map[string]string,
@@ -382,8 +399,11 @@ func migrateNativeConfig(
 			}
 			return nil, nil, nil, nil, fmt.Errorf("read native config %s: %w", name, err)
 		}
-		parsed, parseErr := parseNativeConfig(name, data)
+		parsed, parseErr := parseNativeConfigWithStrictJSON(name, data, spec.NativeConfigStrictJSON)
 		if parseErr != nil {
+			if spec.NativeConfigStrictJSON {
+				return nil, nil, nil, nil, fmt.Errorf("parse native config %s: %w", name, parseErr)
+			}
 			warnings = append(warnings, fmt.Sprintf("skipped malformed native config %q", name))
 			continue
 		}
@@ -394,6 +414,9 @@ func migrateNativeConfig(
 	}
 	secrets := make(map[string]Secret)
 	providerHosts := providerEndpointHostsWithSpec(merged, spec.Auth.EndpointFields)
+	if host := findEndpointHost(merged, spec.Auth.EndpointFields); host != "" {
+		providerHosts[""] = host
+	}
 	if sanitizeErr := sanitizeConfigMapWithSpec(
 		merged,
 		"",
@@ -465,6 +488,10 @@ func migrateNativeSupplementalConfig(
 }
 
 func parseNativeConfig(name string, data []byte) (map[string]any, error) {
+	return parseNativeConfigWithStrictJSON(name, data, false)
+}
+
+func parseNativeConfigWithStrictJSON(name string, data []byte, strictJSON bool) (map[string]any, error) {
 	var result map[string]any
 	switch strings.ToLower(filepath.Ext(name)) {
 	case extYAML, extYML:
@@ -472,7 +499,13 @@ func parseNativeConfig(name string, data []byte) (map[string]any, error) {
 			return nil, err
 		}
 	default:
-		if err := json5.Unmarshal(data, &result); err != nil {
+		var err error
+		if strictJSON {
+			err = json.Unmarshal(data, &result)
+		} else {
+			err = json5.Unmarshal(data, &result)
+		}
+		if err != nil {
 			return nil, err
 		}
 	}
@@ -516,7 +549,7 @@ func sanitizeConfigMap(
 	)
 }
 
-//nolint:gocognit // recursive traversal keeps redaction and path context together
+//nolint:funlen,gocognit,gocyclo,cyclop // recursive traversal keeps redaction and path context together
 func sanitizeConfigMapWithSpec(
 	values map[string]any,
 	provider string,
@@ -573,8 +606,32 @@ func sanitizeConfigMapWithSpec(
 		if ok && spec.RejectUnresolvedValues && isUnresolvedPiConfigValue(text) {
 			return fmt.Errorf("config field %s contains an unresolved environment or command reference", currentPath)
 		}
+		if ok && spec.RejectUnresolvedValues && isClaudeEndpointVariable(key) {
+			if err := rejectEmbeddedEndpointCredential(text); err != nil {
+				return fmt.Errorf("config field %s: %w", currentPath, err)
+			}
+			continue
+		}
+		if ok && spec.RejectUnresolvedValues && isClaudeUnsafeSettingKey(key) {
+			return fmt.Errorf("config field %s contains an unsupported credential helper or command", currentPath)
+		}
+		if ok && spec.RejectUnresolvedValues && claudeSecretVariable(key) {
+			if err := migrateClaudeSecretField(
+				values,
+				key,
+				text,
+				provider,
+				spec,
+				knownHosts,
+				providerHosts,
+				secrets,
+			); err != nil {
+				return err
+			}
+			continue
+		}
 		if ok && spec.RejectUnresolvedValues && isCredentialContainerPath(path) &&
-			!isPlaceholderWithAuthSpec(text, spec) {
+			!isPlaceholderWithAuthSpec(text, spec) && !isClaudeEndpointVariable(key) {
 			return fmt.Errorf("config field %s contains an unsupported credential or header override", currentPath)
 		}
 		if !ok || !isSensitiveField(key, spec.ConfigSensitiveFields) ||
@@ -599,10 +656,68 @@ func sanitizeConfigMapWithSpec(
 	return nil
 }
 
+func migrateClaudeSecretField(
+	values map[string]any,
+	key, text, provider string,
+	spec agent.AuthMigrationSpec,
+	knownHosts, providerHosts map[string]string,
+	secrets map[string]Secret,
+) error {
+	name := spec.SecretPrefix + "_ENV_" + secretPart(key)
+	if existing, exists := secrets[name]; exists && existing.Value != text {
+		return fmt.Errorf("secret name collision for %s", name)
+	}
+	hosts := configSecretHosts(provider, values, knownHosts, providerHosts)
+	if isClaudeEndpointVariable(key) {
+		if parsed, parseErr := url.Parse(text); parseErr == nil && parsed.Hostname() != "" {
+			hosts = []string{parsed.Hostname()}
+		}
+	}
+	if len(hosts) == 0 {
+		hosts = knownHost("anthropic", knownHosts)
+	}
+	secrets[name] = Secret{Value: text, Host: "", Hosts: hosts, AllowAnyHostDangerous: false}
+	values[key] = spec.ConfigPlaceholderPrefix + name + spec.ConfigPlaceholderSuffix
+	return nil
+}
+
 func isCredentialContainerPath(path string) bool {
 	normalized := strings.ToLower(path)
 	return normalized == "env" || strings.HasSuffix(normalized, "_env") ||
 		normalized == "headers" || strings.HasSuffix(normalized, "_headers")
+}
+
+func claudeSecretVariable(value string) bool {
+	switch strings.ToUpper(value) {
+	case claudeAnthropicAPIKeyEnv, "ANTHROPIC_AUTH_TOKEN", "CLAUDE_CODE_OAUTH_TOKEN",
+		"ANTHROPIC_AWS_API_KEY", "ANTHROPIC_FOUNDRY_API_KEY", "ANTHROPIC_FOUNDRY_AUTH_TOKEN",
+		"ANTHROPIC_IDENTITY_TOKEN", "AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "AWS_SESSION_TOKEN",
+		"AWS_BEARER_TOKEN_BEDROCK":
+		return true
+	default:
+		return false
+	}
+}
+
+func isClaudeEndpointVariable(value string) bool {
+	return strings.EqualFold(value, "ANTHROPIC_BASE_URL") ||
+		strings.EqualFold(value, "ANTHROPIC_BEDROCK_BASE_URL") ||
+		strings.EqualFold(value, "ANTHROPIC_FOUNDRY_BASE_URL") ||
+		strings.EqualFold(value, "ANTHROPIC_VERTEX_BASE_URL")
+}
+
+func isClaudeUnsafeSettingKey(value string) bool {
+	switch strings.ToLower(strings.Map(func(r rune) rune {
+		if unicode.IsLetter(r) || unicode.IsDigit(r) {
+			return r
+		}
+		return -1
+	}, value)) {
+	case "apikeyhelper", "awsauthrefresh", "awscredentialexport", "gpcauthrefresh":
+		return true
+	default:
+		return false
+	}
 }
 
 func isSensitiveConfigKey(key string) bool {
@@ -626,12 +741,31 @@ func isPlaceholder(value string) bool {
 	return strings.Contains(value, "$MSB_") || strings.Contains(value, "{env:") || strings.Contains(value, "{file:")
 }
 
-func configSecretHosts(provider string, values map[string]any, knownHosts, providerHosts map[string]string) []string {
+//nolint:gocognit // host inference checks several documented endpoint forms
+func configSecretHosts(
+	provider string,
+	values map[string]any,
+	knownHosts, providerHosts map[string]string,
+) []string {
+	for key, raw := range values {
+		if isClaudeEndpointVariable(key) {
+			if text, ok := raw.(string); ok {
+				if parsed, err := url.Parse(text); err == nil && parsed.Hostname() != "" {
+					return []string{parsed.Hostname()}
+				}
+			}
+		}
+	}
 	for _, key := range []string{baseURLKey, "baseUrl", endpointKey, urlKey, "enterpriseUrl"} {
 		if raw, ok := values[key].(string); ok {
 			if parsed, err := url.Parse(raw); err == nil && parsed.Hostname() != "" {
 				return []string{parsed.Hostname()}
 			}
+		}
+	}
+	if provider == "" {
+		if host := providerHosts[""]; host != "" {
+			return []string{host}
 		}
 	}
 	if host := knownHosts[strings.ToLower(provider)]; host != "" {
@@ -641,6 +775,31 @@ func configSecretHosts(provider string, values map[string]any, knownHosts, provi
 		return []string{host}
 	}
 	return nil
+}
+
+func findEndpointHost(value any, endpointFields []string) string { //nolint:gocognit // recursive document traversal
+	switch current := value.(type) {
+	case map[string]any:
+		for key, nested := range current {
+			if isEndpointField(key, endpointFields) {
+				if text, ok := nested.(string); ok {
+					if parsed, err := url.Parse(text); err == nil && parsed.Hostname() != "" {
+						return parsed.Hostname()
+					}
+				}
+			}
+			if host := findEndpointHost(nested, endpointFields); host != "" {
+				return host
+			}
+		}
+	case []any:
+		for _, nested := range current {
+			if host := findEndpointHost(nested, endpointFields); host != "" {
+				return host
+			}
+		}
+	}
+	return ""
 }
 
 func providerEndpointHosts(values map[string]any) map[string]string {
@@ -861,21 +1020,9 @@ func buildLauncherConfig(a agent.Agent, spec agent.ConfigMigrationSpec) (string,
 	if err != nil {
 		return "", nil, err
 	}
-	var root map[string]any
-	if migrationIsJSONConfig(path) {
-		if unmarshalErr := json5.Unmarshal(data, &root); unmarshalErr != nil {
-			return "", nil, fmt.Errorf("parse launcher config %s: %w", path, unmarshalErr)
-		}
-	} else if unmarshalErr := yaml.Unmarshal(data, &root); unmarshalErr != nil {
-		return "", nil, fmt.Errorf("parse launcher config %s: %w", path, unmarshalErr)
-	}
-	if root == nil {
-		root = make(map[string]any)
-	}
-	home, ok := root["home"].(map[string]any)
-	if !ok {
-		home = make(map[string]any)
-		root["home"] = home
+	config, err := parseLauncherConfig(path, data)
+	if err != nil {
+		return "", nil, err
 	}
 	mappings := make(map[string]string)
 	if spec.CredentialTarget != "" && spec.ManagedCredential != "" {
@@ -885,28 +1032,23 @@ func buildLauncherConfig(a agent.Agent, spec agent.ConfigMigrationSpec) (string,
 		mappings[filepath.Join(filepath.Dir(spec.CredentialTarget), name)] = filepath.Join(a.ConfigDirName(), name)
 	}
 	changed := false
-	for target, source := range mappings {
-		if existing, ok := migrationHomeMapping(root, target); ok {
+	for _, target := range slices.Sorted(maps.Keys(mappings)) {
+		source := mappings[target]
+		if existing, ok := migrationHomeMapping(config.values, target); ok {
 			if existing != source {
 				return "", nil, fmt.Errorf("home mapping %q already points to %q", target, existing)
 			}
 			continue
 		}
-		home[target] = source
+		config.setString([]string{homeConfigKey, target}, source)
 		changed = true
 	}
 	if !changed {
 		return path, nil, nil
 	}
-	var updated []byte
-	if migrationIsJSONConfig(path) {
-		updated, err = marshalJSONIndentFn(root, "", "  ")
-		updated = append(updated, '\n')
-	} else {
-		updated, err = marshalYAMLFn(root)
-	}
+	updated, err := config.marshal()
 	if err != nil {
-		return "", nil, fmt.Errorf("marshal launcher config: %w", err)
+		return "", nil, err
 	}
 	return path, updated, nil
 }

@@ -183,3 +183,53 @@ user-level `env.secret.yaml`; custom endpoint hosts are added to the network pol
 
 Pi `auth.json` values that reference an environment variable or shell command, and raw custom headers in `models.json`,
 are not resolved automatically. Review those values and migrate them manually through the env-secret workflow instead.
+
+## Claude Code authentication
+
+Claude Code stores settings in `~/.claude/settings.json` (or `$CLAUDE_CONFIG_DIR/settings.json`) and login credentials in
+`.credentials.json` or the operating-system keychain. `agents-sandbox config migrate --agent claude-code` lets you choose
+between a normal login inside the sandbox and API-key mode. In API-key mode it asks for the endpoint (default
+`api.anthropic.com`) and the key. Supported credential variables in its `env` block, such as `ANTHROPIC_API_KEY`,
+`ANTHROPIC_AUTH_TOKEN`, and `CLAUDE_CODE_OAUTH_TOKEN`, become `$MSB_CLAUDE_*` placeholders backed by
+`env.secret.yaml`. Stored login credentials, credential helpers, cloud credential refresh commands, and raw custom headers
+are never copied automatically.
+
+### Claude Code authentication choices during migration
+
+Run:
+
+```console
+agents-sandbox config migrate --agent claude-code
+```
+
+The migration asks how Claude Code should authenticate in the sandbox:
+
+- **Normal Claude login** keeps the API key out of the generated files. Start the sandbox with
+  `agents-sandbox run --agent claude-code`, then run Claude Code's normal `/login` flow inside the sandbox. The
+  Claude home is persistent for the project, so the login is retained there. The host's `.credentials.json` and
+  macOS Keychain are not copied.
+- **Anthropic API key** asks for an API endpoint (default `api.anthropic.com`) and then reads the API key through a
+  hidden prompt. The generated settings use a `$MSB_CLAUDE_*` placeholder, and the real value is added to the
+  host-side `env.secret.yaml`.
+
+For API-key mode, a custom endpoint can be entered as a host or URL:
+
+```text
+gateway.example.com/v1
+```
+
+The endpoint host is added to `network.egress-allow`. For normal Claude login, `api.anthropic.com`,
+`platform.claude.com`, `claude.ai`, and `claude.com` are allowed because Claude uses them for API traffic, OAuth
+token exchange/refresh, and browser login. Existing `env.secret.yaml` entries are preserved and the new Claude secret is merged into the file rather
+than replacing it. Existing entries with the same name but a different value cause a conflict instead of being
+overwritten.
+
+Example result for the default endpoint:
+
+```yaml
+# ~/.config/agents-sandbox/env.secret.yaml
+CLAUDE_ENV_ANTHROPIC_API_KEY:
+  value: sk-ant-xxxxxxxx
+  hosts:
+    - api.anthropic.com
+```

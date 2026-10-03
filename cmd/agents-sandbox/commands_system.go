@@ -248,6 +248,9 @@ type jsonSandbox struct {
 	Labels  map[string]string `json:"labels"`
 }
 
+//nolint:gochecknoglobals // test seam for the JSON output error path
+var marshalSandboxesJSON = json.MarshalIndent
+
 func printSandboxesJSON(ui termio.UI, infos []sandbox.Info) error {
 	out := make([]jsonSandbox, 0, len(infos))
 	for _, s := range infos {
@@ -260,7 +263,7 @@ func printSandboxesJSON(ui termio.UI, infos []sandbox.Info) error {
 			Labels:  s.Labels,
 		})
 	}
-	data, err := json.MarshalIndent(out, "", "  ")
+	data, err := marshalSandboxesJSON(out, "", "  ")
 	if err != nil {
 		return err
 	}
@@ -351,7 +354,7 @@ func buildConfigMigrateCmd(
 				}
 				return err
 			}
-			if !plan.HasNativeConfig {
+			if !plan.HasNativeConfig && !plan.SetupOnly {
 				ui.Outf("No native %s configuration found.", a.Name())
 				return nil
 			}
@@ -359,7 +362,7 @@ func buildConfigMigrateCmd(
 				ui.Warnf("managed %s configuration already exists; refusing to overwrite it", a.Name())
 				return nil
 			}
-			if len(plan.Files) == 0 {
+			if len(plan.Files) == 0 && !plan.SetupOnly {
 				ui.Warnf(
 					"native %s configuration was found, but no supported credential migration is available",
 					a.Name(),
