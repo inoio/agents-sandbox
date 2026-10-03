@@ -16,19 +16,9 @@ variables. Put credentials in `env.secret` or `env.secret.yaml`, never in `env`.
 
 ## Quick start
 
-If you use OpenCode's `/connect` command, follow [OpenCode authentication](#opencode-authentication) below. That is the
-recommended workflow for credentials, which opencode stores in `auth.json`; it uses a literal microsandbox placeholder and an explicit
-`home:` mapping.
-
-Native host-config provisioning is disabled by default. The `provision-host-config: false` setting belongs in the top-level
-launcher configuration in `~/.config/agents-sandbox/config.yaml` when you need to override inherited opt-in configuration or
-clean up a previous opt-in.
-
-For an existing OpenCode installation, use `agents-sandbox config migrate` to create a managed copy safely. The command
-replaces supported values in `auth.json` and native OpenCode settings with placeholders, writes the raw values only to
-the user-level `~/.config/agents-sandbox/env.secret.yaml`, and maps the sanitized file to OpenCode's actual credential
-store with `home:`. It does not modify the native files. Unknown provider hosts require an explicit host at migration
-time; the migration never defaults to unrestricted secret forwarding.
+For the complete configuration decision tree, including `config migrate`, manual snippets, Claude Code login/API-key choices,
+and `home:` provisioning, see [Manage config in the sandbox]({% link manage-config.md %}). This page focuses on the secret
+file formats and the runtime behavior shared by all agents.
 
 ## Format
 
@@ -168,63 +158,26 @@ network:
 Use `agents-sandbox config home` to verify the `home:` mapping. `agents-sandbox config agent` shows the agent mirror and
 drop-in candidates, but does not show `home:` mappings or files already present in the persistent home volume.
 
-> **_NOTE:_**  After running `/connect` with opencode _inside_ the agents-sandbox, you can use `!` to switch to shell mode and then run
+> **_NOTE:_**  After running `/connect` with OpenCode _inside_ the agents-sandbox, you can use `!` to switch to shell mode and then run
 > ```
 > cat ~/.local/share/opencode/auth.json
 > ```
 > to see the credentials stored in the sandbox (to store them outside in `env.secret.yaml`).
 
-## Pi Authentication
+## Pi authentication
 
 Pi stores user settings and credentials in `~/.pi/agent/settings.json` and `~/.pi/agent/auth.json`; custom providers and
 endpoints are stored in `~/.pi/agent/models.json`. Use `agents-sandbox config migrate --agent pi` to create managed copies
-of these files. Credential values are replaced with `$MSB_*` placeholders and raw values are written only to the
+of these files. Credential values are replaced with `$MSB_PI_*` placeholders and raw values are written only to the
 user-level `env.secret.yaml`; custom endpoint hosts are added to the network policy after review.
 
-Pi `auth.json` values that reference an environment variable or shell command, and raw custom headers in `models.json`,
-are not resolved automatically. Review those values and migrate them manually through the env-secret workflow instead.
+The migration aborts when `auth.json` values reference an environment variable or shell command (`"$MY_KEY"`,
+`"!op read ..."`), or when `models.json` contains raw custom credential headers. Move those values to `env.secret.yaml`
+manually first (see [Limitations]({% link manage-config.md %}#limitations)).
 
 ## Claude Code authentication
 
-Claude Code stores settings in `~/.claude/settings.json` (or `$CLAUDE_CONFIG_DIR/settings.json`) and login credentials in
-`.credentials.json` or the operating-system keychain. `agents-sandbox config migrate --agent claude-code` lets you choose
-between a normal login inside the sandbox and API-key mode. In API-key mode it asks for the endpoint (default
-`api.anthropic.com`) and the key. Supported credential variables in its `env` block, such as `ANTHROPIC_API_KEY`,
-`ANTHROPIC_AUTH_TOKEN`, and `CLAUDE_CODE_OAUTH_TOKEN`, become `$MSB_CLAUDE_*` placeholders backed by
-`env.secret.yaml`. Stored login credentials, credential helpers, cloud credential refresh commands, and raw custom headers
-are never copied automatically.
-
-### Claude Code authentication choices during migration
-
-Run:
-
-```console
-agents-sandbox config migrate --agent claude-code
-```
-
-The migration asks how Claude Code should authenticate in the sandbox:
-
-- **Normal Claude login** keeps the API key out of the generated files. Start the sandbox with
-  `agents-sandbox run --agent claude-code`, then run Claude Code's normal `/login` flow inside the sandbox. The
-  Claude home is persistent for the project, so the login is retained there. The host's `.credentials.json` and
-  macOS Keychain are not copied.
-- **Anthropic API key** asks for an API endpoint (default `api.anthropic.com`) and then reads the API key through a
-  hidden prompt. The generated settings use a `$MSB_CLAUDE_*` placeholder, and the real value is added to the
-  host-side `env.secret.yaml`.
-
-For API-key mode, a custom endpoint can be entered as a host or URL:
-
-```text
-gateway.example.com/v1
-```
-
-The endpoint host is added to `network.egress-allow`. For normal Claude login, `api.anthropic.com`,
-`platform.claude.com`, `claude.ai`, and `claude.com` are allowed because Claude uses them for API traffic, OAuth
-token exchange/refresh, and browser login. Existing `env.secret.yaml` entries are preserved and the new Claude secret is merged into the file rather
-than replacing it. Existing entries with the same name but a different value cause a conflict instead of being
-overwritten.
-
-Example result for the default endpoint:
+Claude Code can consume credentials through secret environment variables:
 
 ```yaml
 # ~/.config/agents-sandbox/env.secret.yaml
@@ -233,3 +186,9 @@ CLAUDE_ENV_ANTHROPIC_API_KEY:
   hosts:
     - api.anthropic.com
 ```
+
+The migration creates this kind of entry in API-key mode. A normal Claude login is performed inside the persistent sandbox
+home instead. The host's `.credentials.json`, `~/.claude.json`, and operating-system keychain are not copied: they are
+machine-bound/runtime-managed state, not a portable credential interface, and copying them would turn credential material
+into ordinary files inside the VM. See [Manage config in the sandbox]({% link manage-config.md %}) for the complete migration
+workflow and its authentication choices.

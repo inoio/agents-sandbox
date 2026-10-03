@@ -16,7 +16,7 @@ nav_order: 105
    restart it if it stopped).
 4. **Provisioning** — Merges your agent's config snippets into a single config in the VM home (e.g. `opencode.jsonc`),
    provisions config-directory mirrors and `home:` mappings, and optionally copies the native host-agent config when
-   `provision-host-config: true`.
+   `provision-host-config: true` ([unsafe host-config drop-in]({% link provision-host-config.md %})).
 5. **Agent** — Runs the agent's attach command (e.g. `opencode attach`) inside the VM, forwarding any arguments after
    `--` to the AI agent.
 6. **Cleanup** — On exit, the client detaches and the VM remains available for reuse or is stopped by its idle policy. In a

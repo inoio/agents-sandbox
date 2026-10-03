@@ -11,8 +11,7 @@ command reports the bare version (e.g. `0.1.0`).
 - Security: `provision-host-config` now defaults to `false`, so native agent config and credential files are not copied into the
   VM unless explicitly enabled. Set it to `true` to retain the previous host-config drop-in behavior.
 - Config: added `config migrate` and first-run guidance for safely migrating supported OpenCode, Pi and Claude Code configuration with
-  microsandbox secret placeholders while keeping native host-config provisioning disabled.
-- Config: Claude Code migration now offers normal sandbox login or a prompted API-key setup with endpoint-specific egress.
+  microsandbox secret placeholders while keeping native host-config provisioning disabled. Reworked documentation to reflect the changes.
 
 ## [0.5.0] - 2026-10-03
 
