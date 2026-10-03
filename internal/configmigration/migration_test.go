@@ -6,6 +6,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -84,6 +85,274 @@ func TestPlanOpenCodeAuthReplacesCredentialsWithPlaceholders(t *testing.T) {
 
 	if !strings.Contains(string(plan.ConfigData), ".local/share/opencode/auth.json") {
 		t.Errorf("planned launcher config has no OpenCode auth mapping: %s", plan.ConfigData)
+	}
+}
+
+func TestPlanPiSettingsAndAuthReplacesCredentialsWithPlaceholders(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	t.Setenv("PI_CODING_AGENT_DIR", "")
+	hostHome := t.TempDir()
+	a, ok := agent.Lookup("pi")
+	if !ok {
+		t.Fatal("pi agent not registered")
+	}
+
+	nativeDir := filepath.Join(hostHome, ".pi", "agent")
+	if err := os.MkdirAll(nativeDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	testutil.WriteFile(t, nativeDir, "settings.json", `{"defaultProvider":"anthropic","theme":"dark"}`)
+	testutil.WriteFile(t, nativeDir, "auth.json", `{
+  "anthropic": {
+    "type": "api_key",
+    "key": "anthropic-token"
+  }
+}`)
+
+	plan, err := Build(a, hostHome)
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+
+	configFile, ok := plan.fileAt(filepath.Join(configpaths.Get().UserAgentConfigDir(a), "settings-migrated.json"))
+	if !ok || !bytes.Contains(configFile.Data, []byte(`"defaultProvider": "anthropic"`)) {
+		t.Fatalf("planned pi settings file missing or incomplete: %+v", plan.Files)
+	}
+	authFile, ok := plan.fileAt(filepath.Join(configpaths.Get().UserAgentConfigDir(a), "auth.json"))
+	if !ok {
+		t.Fatalf("planned pi auth file missing: %+v", plan.Files)
+	}
+	if bytes.Contains(authFile.Data, []byte("anthropic-token")) ||
+		!bytes.Contains(authFile.Data, []byte(`$MSB_PI_ANTHROPIC_KEY`)) {
+		t.Fatalf("planned pi auth file contains an unsafe credential transformation: %s", authFile.Data)
+	}
+	secret, ok := plan.Secrets["PI_ANTHROPIC_KEY"]
+	if !ok || secret.Value != "anthropic-token" || !slicesEqual(secret.Hosts, []string{"api.anthropic.com"}) {
+		t.Fatalf("pi secret = %+v, want anthropic host and source value", secret)
+	}
+	if !bytes.Contains(plan.ConfigData, []byte(`.pi/agent/auth.json`)) {
+		t.Fatalf("planned launcher config has no Pi auth mapping: %s", plan.ConfigData)
+	}
+}
+
+func TestBuildUsesPiAgentDirectoryOverride(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	hostHome := t.TempDir()
+	piDir := filepath.Join(hostHome, "custom-pi-agent")
+	t.Setenv("PI_CODING_AGENT_DIR", piDir)
+	a, _ := agent.Lookup("pi")
+	if err := os.MkdirAll(piDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	testutil.WriteFile(t, piDir, "settings.json", `{"defaultModel":"anthropic/claude-sonnet"}`)
+	testutil.WriteFile(t, piDir, "auth.json", `{"anthropic":{"type":"api_key","key":"custom-token"}}`)
+
+	plan, err := Build(a, hostHome)
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	if !plan.HasNativeConfig || len(plan.Files) != 2 {
+		t.Fatalf("Pi agent directory override was not discovered: %+v", plan)
+	}
+}
+
+func TestBuildUsesPiTildeAgentDirectoryOverride(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	hostHome := t.TempDir()
+	t.Setenv("PI_CODING_AGENT_DIR", "~/.pi-alt")
+	a, _ := agent.Lookup("pi")
+	piDir := filepath.Join(hostHome, ".pi-alt")
+	if err := os.MkdirAll(piDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	testutil.WriteFile(t, piDir, "settings.json", `{"theme":"dark"}`)
+	plan, err := Build(a, hostHome)
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	if !plan.HasNativeConfig || len(plan.Files) != 1 {
+		t.Fatalf("Pi tilde agent directory override was not discovered: %+v", plan)
+	}
+}
+
+func TestPlanPiMigratesOAuthCredentials(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	t.Setenv("PI_CODING_AGENT_DIR", "")
+	hostHome := t.TempDir()
+	a, _ := agent.Lookup("pi")
+	nativeDir := filepath.Join(hostHome, ".pi", "agent")
+	if err := os.MkdirAll(nativeDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	testutil.WriteFile(t, nativeDir, "auth.json", `{
+  "anthropic": {
+    "type": "oauth",
+    "access": "access-token",
+    "refresh": "refresh-token",
+    "expires": 123
+  }
+}`)
+
+	plan, err := Build(a, hostHome)
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	authFile, ok := plan.fileAt(filepath.Join(configpaths.Get().UserAgentConfigDir(a), "auth.json"))
+	if !ok || bytes.Contains(authFile.Data, []byte("access-token")) ||
+		bytes.Contains(authFile.Data, []byte("refresh-token")) {
+		t.Fatalf("Pi OAuth credentials were not sanitized: %+v", plan)
+	}
+	for _, placeholder := range []string{"$MSB_PI_ANTHROPIC_ACCESS", "$MSB_PI_ANTHROPIC_REFRESH"} {
+		if !bytes.Contains(authFile.Data, []byte(placeholder)) {
+			t.Errorf("Pi OAuth placeholder %q missing from %s", placeholder, authFile.Data)
+		}
+	}
+}
+
+func TestPlanPiMigratesModelsAndCustomProviderEndpoint(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	t.Setenv("PI_CODING_AGENT_DIR", "")
+	hostHome := t.TempDir()
+	a, _ := agent.Lookup("pi")
+	nativeDir := filepath.Join(hostHome, ".pi", "agent")
+	if err := os.MkdirAll(nativeDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	testutil.WriteFile(t, nativeDir, "models.json", `{
+  "providers": {
+    "gateway": {
+      "baseUrl": "https://gateway.example.test/v1",
+      "apiKey": "gateway-token",
+      "models": [{"id": "custom-model"}]
+    }
+  }
+}`)
+
+	plan, err := Build(a, hostHome)
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	modelsFile, ok := plan.fileAt(filepath.Join(configpaths.Get().UserAgentConfigDir(a), "models.json"))
+	if !ok || bytes.Contains(modelsFile.Data, []byte("gateway-token")) ||
+		!bytes.Contains(modelsFile.Data, []byte("$MSB_PI_CONFIG_PROVIDERS_GATEWAY_APIKEY")) {
+		t.Fatalf("planned Pi models file was not sanitized: %s", modelsFile.Data)
+	}
+	secret, ok := plan.Secrets["PI_CONFIG_PROVIDERS_GATEWAY_APIKEY"]
+	if !ok || secret.Value != "gateway-token" || !slicesEqual(secret.Hosts, []string{"gateway.example.test"}) {
+		t.Fatalf("custom Pi provider secret = %+v", secret)
+	}
+	if !bytes.Contains(plan.ConfigData, []byte(`.pi/agent/models.json`)) {
+		t.Fatalf("planned launcher config has no Pi models mapping: %s", plan.ConfigData)
+	}
+}
+
+func TestPlanPiUsesModelsEndpointForAuthHost(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	t.Setenv("PI_CODING_AGENT_DIR", "")
+	hostHome := t.TempDir()
+	a, _ := agent.Lookup("pi")
+	nativeDir := filepath.Join(hostHome, ".pi", "agent")
+	if err := os.MkdirAll(nativeDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	testutil.WriteFile(
+		t,
+		nativeDir,
+		"models.json",
+		`{"providers":{"gateway":{"baseUrl":"https://gateway.example.test/v1"}}}`,
+	)
+	testutil.WriteFile(t, nativeDir, "auth.json", `{"gateway":{"type":"api_key","key":"gateway-token"}}`)
+
+	plan, err := Build(a, hostHome)
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	secret, ok := plan.Secrets["PI_GATEWAY_KEY"]
+	if !ok || !slicesEqual(secret.Hosts, []string{"gateway.example.test"}) {
+		t.Fatalf("Pi auth host inference = %+v", secret)
+	}
+}
+
+func TestPlanPiModelsRejectsEmbeddedEndpointCredentials(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	t.Setenv("PI_CODING_AGENT_DIR", "")
+	hostHome := t.TempDir()
+	a, _ := agent.Lookup("pi")
+	nativeDir := filepath.Join(hostHome, ".pi", "agent")
+	if err := os.MkdirAll(nativeDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	testutil.WriteFile(
+		t,
+		nativeDir,
+		"models.json",
+		`{"providers":{"gateway":{"baseUrl":"https://user:pass@gateway.example.test/v1"}}}`,
+	)
+
+	if _, err := Build(a, hostHome); err == nil || !strings.Contains(err.Error(), "URL credentials") {
+		t.Fatalf("embedded endpoint credential error = %v", err)
+	}
+}
+
+func TestPlanPiRejectsUnresolvedCredentialReferences(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	t.Setenv("PI_CODING_AGENT_DIR", "")
+	hostHome := t.TempDir()
+	a, _ := agent.Lookup("pi")
+	nativeDir := filepath.Join(hostHome, ".pi", "agent")
+	if err := os.MkdirAll(nativeDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	testutil.WriteFile(t, nativeDir, "auth.json", `{"openai":{"type":"api_key","key":"$OPENAI_API_KEY"}}`)
+	if _, err := Build(a, hostHome); err == nil || !strings.Contains(err.Error(), "unresolved") {
+		t.Fatalf("unresolved Pi auth reference error = %v", err)
+	}
+	testutil.WriteFile(t, nativeDir, "auth.json", `{"openai":{"type":"api_key","key":"!security-tool"}}`)
+	if _, err := Build(a, hostHome); err == nil || !strings.Contains(err.Error(), "unresolved") {
+		t.Fatalf("command Pi auth reference error = %v", err)
+	}
+}
+
+func TestPlanPiRejectsCredentialHeadersAndQueryParameters(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	t.Setenv("PI_CODING_AGENT_DIR", "")
+	hostHome := t.TempDir()
+	a, _ := agent.Lookup("pi")
+	nativeDir := filepath.Join(hostHome, ".pi", "agent")
+	if err := os.MkdirAll(nativeDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	testutil.WriteFile(
+		t,
+		nativeDir,
+		"models.json",
+		`{"providers":{"gateway":{"baseUrl":"https://gateway.example.test/v1?api-key=secret"}}}`,
+	)
+	if _, err := Build(a, hostHome); err == nil || !strings.Contains(err.Error(), "credential query") {
+		t.Fatalf("query credential error = %v", err)
+	}
+	testutil.WriteFile(
+		t,
+		nativeDir,
+		"models.json",
+		`{"providers":{"gateway":{"headers":{"X-Workspace-Token":"secret"}}}}`,
+	)
+	if _, err := Build(a, hostHome); err == nil || !strings.Contains(err.Error(), "header override") {
+		t.Fatalf("header credential error = %v", err)
+	}
+}
+
+func TestPiModelsAreNotCopiedByNativeProvisioning(t *testing.T) {
+	a, _ := agent.Lookup("pi")
+	provisioner, ok := agent.AsProvisioner(a)
+	if !ok {
+		t.Fatal("pi should implement Provisioner")
+	}
+	patterns := provisioner.ProvisionRules()[0].Patterns
+	for _, excluded := range []string{"!auth.json", "!models.json"} {
+		if !slices.Contains(patterns, excluded) {
+			t.Errorf("Pi provision patterns = %v, missing %q", patterns, excluded)
+		}
 	}
 }
 
@@ -1376,12 +1645,12 @@ func TestMigrationAlreadyConfiguredMalformedStateBranches(t *testing.T) {
 	spec := a.(interface {
 		MigrationSpec() agent.ConfigMigrationSpec
 	}).MigrationSpec()
-	if migrationAlreadyConfigured(a, spec, "/missing/auth", "/missing/config", "/missing/launcher", true) {
+	if migrationAlreadyConfigured(a, spec, "/missing/auth", "/missing/config", "/missing/launcher", true, false, nil) {
 		t.Fatal("missing migration should not be configured")
 	}
 	configPath := filepath.Join(configpaths.Get().UserConfigDir(), "config.yaml")
 	testutil.WritePath(t, configPath, "home: [")
-	if migrationAlreadyConfigured(a, spec, "/missing/auth", "/missing/config", configPath, true) {
+	if migrationAlreadyConfigured(a, spec, "/missing/auth", "/missing/config", configPath, true, false, nil) {
 		t.Fatal("malformed launcher config should not be configured")
 	}
 }

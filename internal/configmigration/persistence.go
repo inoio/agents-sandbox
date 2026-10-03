@@ -41,16 +41,17 @@ const (
 
 //nolint:gochecknoglobals // package-local seams restored by tests
 var (
-	migrateNativeConfigFn      = migrateNativeConfig
-	sanitizeAuthFn             = sanitizeAuth
-	sanitizeAuthWithSpecFn     = sanitizeAuthWithSpec
-	buildLauncherConfigFn      = buildLauncherConfig
-	atomicWriteFn              = migrationAtomicWrite
-	enableNativeProvisioningFn = EnableNativeProvisioning
-	dismissMigrationFn         = Dismiss
-	marshalJSONFn              = json.Marshal
-	marshalJSONIndentFn        = json.MarshalIndent
-	marshalYAMLFn              = yaml.Marshal
+	migrateNativeConfigFn             = migrateNativeConfig
+	migrateNativeSupplementalConfigFn = migrateNativeSupplementalConfig
+	sanitizeAuthFn                    = sanitizeAuth
+	sanitizeAuthWithSpecFn            = sanitizeAuthWithSpec
+	buildLauncherConfigFn             = buildLauncherConfig
+	atomicWriteFn                     = migrationAtomicWrite
+	enableNativeProvisioningFn        = EnableNativeProvisioning
+	dismissMigrationFn                = Dismiss
+	marshalJSONFn                     = json.Marshal
+	marshalJSONIndentFn               = json.MarshalIndent
+	marshalYAMLFn                     = yaml.Marshal
 )
 
 func migrationHomeMapping(root map[string]any, target string) (string, bool) {
@@ -229,20 +230,25 @@ func migrationStatusFor(a interface{ Name() string }, sourceHash string) (bool, 
 		manifest.State == migrationStateDismissed
 }
 
-func migrationAlreadyConfigured(
+func migrationAlreadyConfigured( //nolint:gocognit // validates independent output and mapping states
 	a agent.Agent,
 	spec agent.ConfigMigrationSpec,
 	managedAuthPath, managedConfigPath, configPath string,
-	configRequired bool,
+	authRequired, configRequired bool,
+	supplementalNames []string,
 ) bool {
-	authExists := false
-	if _, err := os.Stat(managedAuthPath); err == nil {
-		authExists = true
-	} else if !os.IsNotExist(err) {
-		return false
+	if authRequired {
+		if _, err := os.Stat(managedAuthPath); err != nil {
+			return false
+		}
 	}
 	if configRequired && spec.ManagedSnippet != "" {
 		if _, err := os.Stat(managedConfigPath); err != nil {
+			return false
+		}
+	}
+	for _, name := range supplementalNames {
+		if _, err := os.Stat(filepath.Join(filepath.Dir(managedConfigPath), name)); err != nil {
 			return false
 		}
 	}
@@ -258,14 +264,27 @@ func migrationAlreadyConfigured(
 	} else if unmarshalErr := yaml.Unmarshal(data, &root); unmarshalErr != nil {
 		return false
 	}
-	if !authExists {
-		return true
+	mappings := map[string]string{}
+	if authRequired {
+		mappings[spec.CredentialTarget] = filepath.Join(a.ConfigDirName(), spec.ManagedCredential)
 	}
-	mapping, ok := migrationHomeMapping(root, spec.CredentialTarget)
-	return ok && mapping == filepath.Join(a.ConfigDirName(), spec.ManagedCredential)
+	for _, name := range supplementalNames {
+		mappings[filepath.Join(filepath.Dir(spec.CredentialTarget), name)] = filepath.Join(a.ConfigDirName(), name)
+	}
+	for target, source := range mappings {
+		mapping, ok := migrationHomeMapping(root, target)
+		if !ok || mapping != source {
+			return false
+		}
+	}
+	return true
 }
 
-func Build(a agent.Agent, hostHome string) (*Plan, error) {
+//nolint:funlen,gocognit // migration planning keeps all output decisions together
+func Build(
+	a agent.Agent,
+	hostHome string,
+) (*Plan, error) {
 	provider, ok := agent.AsMigrationSpecProvider(a)
 	if !ok {
 		return nil, fmt.Errorf("%w: %s", ErrUnsupported, a.Name())
@@ -293,7 +312,7 @@ func Build(a agent.Agent, hostHome string) (*Plan, error) {
 	if launcherPath, _, loadErr := migrationLoadLauncherConfig(); loadErr == nil {
 		configPath = launcherPath
 	}
-	_, nativeAuthPath := nativeOpenCodePaths(hostHome, spec)
+	_, nativeAuthPath := nativeAgentPaths(hostHome, spec)
 	managedAuthPath := filepath.Join(cp.Get().UserAgentConfigDir(a), spec.ManagedCredential)
 	managedConfigPath := filepath.Join(cp.Get().UserAgentConfigDir(a), spec.ManagedSnippet)
 	configData, configSecrets, configWarnings, providerHosts, configErr := migrateNativeConfigFn(hostHome, spec)
@@ -305,6 +324,31 @@ func Build(a agent.Agent, hostHome string) (*Plan, error) {
 		maps.Copy(result.Secrets, configSecrets)
 		result.Warnings = append(result.Warnings, configWarnings...)
 	}
+	supplementalFiles, supplementalSecrets, supplementalWarnings, supplementalHosts, supplementalErr :=
+		migrateNativeSupplementalConfigFn(hostHome, spec)
+	if supplementalErr != nil {
+		return nil, supplementalErr
+	}
+	supplementalNames := make([]string, 0, len(supplementalFiles))
+	for name := range supplementalFiles {
+		supplementalNames = append(supplementalNames, name)
+	}
+	sort.Strings(supplementalNames)
+	for _, name := range supplementalNames {
+		result.Files = append(result.Files, File{
+			Path: filepath.Join(cp.Get().UserAgentConfigDir(a), name),
+			Data: supplementalFiles[name],
+			Mode: defaultConfigMode,
+		})
+	}
+	if err := mergePlannedSecrets(result.Secrets, supplementalSecrets); err != nil {
+		return nil, err
+	}
+	result.Warnings = append(result.Warnings, supplementalWarnings...)
+	if providerHosts == nil {
+		providerHosts = make(map[string]string)
+	}
+	maps.Copy(providerHosts, supplementalHosts)
 	if err := applyAuthMigration(
 		result,
 		spec,
@@ -316,9 +360,16 @@ func Build(a agent.Agent, hostHome string) (*Plan, error) {
 		return nil, err
 	}
 	result.NetworkHosts = plannedNetworkHosts(result.Secrets)
-	needsCredentialMapping := hasGeneratedCredential(result.Files, spec.ManagedCredential)
+	authGenerated := hasGeneratedCredential(result.Files, spec.ManagedCredential)
+	supplementalNames = generatedSupplementalNames(result.Files, spec.ManagedSupplementalFiles)
+	launcherSpec := spec
+	launcherSpec.ManagedSupplementalFiles = supplementalNames
+	if !authGenerated {
+		launcherSpec.ManagedCredential = ""
+	}
+	needsCredentialMapping := authGenerated || len(supplementalNames) > 0
 	if needsCredentialMapping || len(result.NetworkHosts) > 0 {
-		launcherPath, launcherData, launcherErr := buildLauncherConfigForPlan(a, spec, needsCredentialMapping)
+		launcherPath, launcherData, launcherErr := buildLauncherConfigForPlan(a, launcherSpec, needsCredentialMapping)
 		if launcherErr != nil {
 			return nil, launcherErr
 		}
@@ -337,7 +388,7 @@ func Build(a agent.Agent, hostHome string) (*Plan, error) {
 	}
 	result.Handled, result.Dismissed = migrationStatusFor(a, result.SourceHash)
 	result.AlreadyConfigured = result.Handled && migrationAlreadyConfigured(
-		a, spec, managedAuthPath, managedConfigPath, configPath, len(configData) > 0,
+		a, spec, managedAuthPath, managedConfigPath, configPath, authGenerated, len(configData) > 0, supplementalNames,
 	)
 	if result.AlreadyConfigured {
 		result.Warnings = append(result.Warnings, "managed configuration already contains a safe migration")
@@ -394,6 +445,16 @@ func hasGeneratedCredential(files []File, credentialName string) bool {
 		}
 	}
 	return false
+}
+
+func generatedSupplementalNames(files []File, names []string) []string {
+	var generated []string
+	for _, name := range names {
+		if hasGeneratedCredential(files, name) {
+			generated = append(generated, name)
+		}
+	}
+	return generated
 }
 
 func buildLauncherConfigForPlan(
@@ -919,8 +980,10 @@ func nativeConfigExists(a agent.Agent, hostHome string) bool {
 		return false
 	}
 	spec := provider.MigrationSpec()
-	configDir, authPath := nativeOpenCodePaths(hostHome, spec)
-	for _, name := range spec.NativeConfigFiles {
+	configDir, authPath := nativeAgentPaths(hostHome, spec)
+	pathsToCheck := append([]string{}, spec.NativeConfigFiles...)
+	pathsToCheck = append(pathsToCheck, spec.NativeSupplementalFiles...)
+	for _, name := range pathsToCheck {
 		if _, err := os.Stat(filepath.Join(configDir, name)); err == nil {
 			return true
 		}
@@ -966,9 +1029,9 @@ type nativeFile struct {
 
 func collectNativeFiles(hostHome string, spec agent.ConfigMigrationSpec) ([]nativeFile, error) {
 	var files []nativeFile
-	configDir, authPath := nativeOpenCodePaths(hostHome, spec)
-	paths := make([]string, 0, len(spec.NativeConfigFiles)+1)
-	for _, name := range spec.NativeConfigFiles {
+	configDir, authPath := nativeAgentPaths(hostHome, spec)
+	paths := make([]string, 0, len(spec.NativeConfigFiles)+len(spec.NativeSupplementalFiles)+1)
+	for _, name := range append(spec.NativeConfigFiles, spec.NativeSupplementalFiles...) {
 		paths = append(paths, filepath.Join(configDir, name))
 	}
 	paths = append(paths, authPath)
@@ -986,27 +1049,40 @@ func collectNativeFiles(hostHome string, spec agent.ConfigMigrationSpec) ([]nati
 	return files, nil
 }
 
-func nativeOpenCodePaths(hostHome string, spec agent.ConfigMigrationSpec) (string, string) {
-	configBase := filepath.Join(hostHome, filepath.Dir(spec.NativeConfigDir))
+func nativeAgentPaths(hostHome string, spec agent.ConfigMigrationSpec) (string, string) {
+	configDir := filepath.Join(hostHome, spec.NativeConfigDir)
 	if spec.NativeConfigEnv != "" {
 		if value := os.Getenv(spec.NativeConfigEnv); value != "" {
-			configBase = value
+			configDir = migrationEnvPath(hostHome, value, spec.NativeConfigEnvIsPath, spec.NativeConfigSubdir)
+		} else if !spec.NativeConfigEnvIsPath {
+			configDir = filepath.Join(hostHome, filepath.Dir(spec.NativeConfigDir), spec.NativeConfigSubdir)
 		}
 	}
-	dataBase := filepath.Join(hostHome, filepath.Dir(filepath.Dir(spec.NativeCredential)))
+
+	credentialDir := filepath.Join(hostHome, filepath.Dir(spec.NativeCredential))
 	if spec.NativeDataEnv != "" {
 		if value := os.Getenv(spec.NativeDataEnv); value != "" {
-			dataBase = value
+			credentialDir = migrationEnvPath(hostHome, value, spec.NativeDataEnvIsPath, spec.NativeDataSubdir)
+		} else if !spec.NativeDataEnvIsPath {
+			credentialDir = filepath.Join(
+				hostHome,
+				filepath.Dir(filepath.Dir(spec.NativeCredential)),
+				spec.NativeDataSubdir,
+			)
 		}
 	}
-	return filepath.Join(
-			configBase,
-			spec.NativeConfigSubdir,
-		), filepath.Join(
-			dataBase,
-			spec.NativeDataSubdir,
-			filepath.Base(spec.NativeCredential),
-		)
+	return configDir, filepath.Join(credentialDir, filepath.Base(spec.NativeCredential))
+}
+
+func migrationEnvPath(hostHome, value string, isPath bool, subdir string) string {
+	value = strings.TrimPrefix(strings.TrimSpace(value), "~/")
+	if !filepath.IsAbs(value) {
+		value = filepath.Join(hostHome, value)
+	}
+	if isPath {
+		return value
+	}
+	return filepath.Join(value, subdir)
 }
 
 func hasManagedConfig(a agent.Agent, spec agent.ConfigMigrationSpec) bool {
@@ -1015,7 +1091,10 @@ func hasManagedConfig(a agent.Agent, spec agent.ConfigMigrationSpec) bool {
 		return false
 	}
 	for _, dir := range []string{cp.Get().UserAgentConfigDir(a), cp.Get().ProjectAgentConfigDir(a)} {
-		for _, name := range []string{spec.ManagedCredential, spec.ManagedSnippet} {
+		for _, name := range append(
+			[]string{spec.ManagedCredential, spec.ManagedSnippet},
+			spec.ManagedSupplementalFiles...,
+		) {
 			if name == "" {
 				continue
 			}

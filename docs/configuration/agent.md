@@ -96,7 +96,8 @@ The drop-in copy is scoped to the agent's settings and, for opencode, its creden
 - **opencode** — `~/.config/opencode/**` (excluding `node_modules/`, `package*.json`, and `.gitignore`) plus
   `~/.local/share/opencode/auth.json`.
 - **opencode2** — same drop-in copy as `opencode` (`~/.config/opencode/**` and `~/.local/share/opencode/auth.json`).
-- **pi** — `~/.pi/agent/settings.json`.
+- **pi** — `~/.pi/agent/settings.json` and non-credential files. `auth.json` and `models.json` are excluded from the
+  host-config drop-in; use safe migration or env secrets for them.
 - **claude-code** — `~/.claude/settings.json` (runtime state and the machine-managed `.credentials.json` are not copied).
 
 Precedence: the merged snippet config and any `home:` mappings override the drop-in copy for the same VM path.
@@ -109,9 +110,10 @@ user or project snippet directories (see [Config snippet merge](#config-snippet-
 agent's pattern exists, it wins over the host config for the merged config path. Native host-config drop-in provisioning is
 disabled by default; enable it explicitly when you want the host setup copied.
 
-For an existing OpenCode setup, `agents-sandbox config migrate` provides a safer transition. It writes supported native
+For an existing OpenCode or Pi setup, `agents-sandbox config migrate` provides a safer transition. It writes supported native
 settings to a managed snippet and converts credential values to microsandbox placeholders backed by user-level secrets.
-OpenCode and OpenCode 2 share this migration. Pi and Claude Code currently use the manual snippet and env-secret workflow.
+OpenCode and OpenCode 2 share this migration. Pi also migrates `auth.json` and `models.json` without copying raw
+credentials into the VM. Claude Code currently uses the manual snippet and env-secret workflow.
 The migration shows generated files for review, confirms any new network egress hosts, and leaves a retryable manifest if
 writing is interrupted.
 

@@ -173,3 +173,13 @@ drop-in candidates, but does not show `home:` mappings or files already present 
 > cat ~/.local/share/opencode/auth.json
 > ```
 > to see the credentials stored in the sandbox (to store them outside in `env.secret.yaml`).
+
+## Pi Authentication
+
+Pi stores user settings and credentials in `~/.pi/agent/settings.json` and `~/.pi/agent/auth.json`; custom providers and
+endpoints are stored in `~/.pi/agent/models.json`. Use `agents-sandbox config migrate --agent pi` to create managed copies
+of these files. Credential values are replaced with `$MSB_*` placeholders and raw values are written only to the
+user-level `env.secret.yaml`; custom endpoint hosts are added to the network policy after review.
+
+Pi `auth.json` values that reference an environment variable or shell command, and raw custom headers in `models.json`,
+are not resolved automatically. Review those values and migrate them manually through the env-secret workflow instead.

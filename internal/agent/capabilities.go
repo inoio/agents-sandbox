@@ -2,6 +2,35 @@ package agent
 
 import "context"
 
+const (
+	authFileName               = "auth.json"
+	modelsFileName             = "models.json"
+	authAccessField            = "access"
+	authRefreshField           = "refresh"
+	authAccessTokenField       = "accesstoken"
+	authKeyField               = "key"
+	authAccessKeyField         = "accesskey"
+	authAPIKeyType             = "api_key"
+	authAPIKeyField            = "apikey"
+	authAPITokenField          = "apitoken"
+	authAuthorizationField     = "authorization"
+	authBearerTokenField       = "bearertoken"
+	authClientSecretField      = "clientsecret"
+	authCredentialField        = "credential"
+	authCredentialsField       = "credentials"
+	authIDTokenField           = "idtoken"
+	authPasswordField          = "password"
+	authPrivateKeyField        = "privatekey"
+	authPrivateTokenField      = "privatetoken"
+	authRefreshTokenField      = "refreshtoken"
+	authSecretField            = "secret"
+	authSessionField           = "session"
+	authTokenField             = "token"
+	authXAPIKeyField           = "xapikey"
+	authSessionTokenField      = "sessiontoken"
+	migrationPlaceholderPrefix = "$MSB_"
+)
+
 // settingsFileName is the settings filename shared by the pi and claude-code
 // agents, whose merged snippet config is written to <config dir>/settings.json.
 const settingsFileName = "settings.json"
@@ -69,23 +98,30 @@ type AuthMigrationSpec struct {
 	AuthPlaceholderPrefix   string
 	ConfigPlaceholderPrefix string
 	ConfigPlaceholderSuffix string
+	RejectUnresolvedValues  bool
 }
 
 // ConfigMigrationSpec describes the native and managed paths used by a safe
-// configuration migration.
+// configuration migration. Supplemental files are migrated independently when
+// an agent has multiple native configuration documents.
 type ConfigMigrationSpec struct {
-	NativeConfigDir    string
-	NativeConfigEnv    string
-	NativeConfigSubdir string
-	NativeCredential   string
-	NativeDataEnv      string
-	NativeDataSubdir   string
-	CredentialTarget   string
-	ManagedCredential  string
-	ManagedSnippet     string
-	NativeConfigFiles  []string
-	KnownProviderHosts map[string]string
-	Auth               AuthMigrationSpec
+	NativeConfigDir           string
+	NativeConfigEnv           string
+	NativeConfigEnvIsPath     bool
+	NativeConfigSubdir        string
+	NativeCredential          string
+	NativeDataEnv             string
+	NativeDataEnvIsPath       bool
+	NativeDataSubdir          string
+	CredentialTarget          string
+	ManagedCredential         string
+	ManagedSnippet            string
+	NativeConfigFiles         []string
+	NativeSupplementalFiles   []string
+	ManagedSupplementalFiles  []string
+	ProvisioningExcludedFiles []string
+	KnownProviderHosts        map[string]string
+	Auth                      AuthMigrationSpec
 }
 
 // MigrationSpecProvider exposes agent-specific migration metadata without

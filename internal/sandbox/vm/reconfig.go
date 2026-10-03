@@ -80,7 +80,7 @@ func setUpSandbox(
 	// daemon start sees them, without disturbing the running instance.
 	provisioned := true
 	if cfs.HasSnippets || len(cfs.HomeFiles) > 0 || len(cfs.Provisioned) > 0 || len(cfs.Mirror) > 0 ||
-		len(cfs.Remove) > 0 {
+		len(cfs.Remove) > 0 || len(cfs.RemoveHostCopies) > 0 {
 		if provErr := reprovision.Provision(ctx, sb, cfs); provErr != nil {
 			ui.Warnf("provision failed: %v (continuing)", provErr)
 			provisioned = false

@@ -224,7 +224,17 @@ func sanitizeAuthMapWithSpec( //nolint:gocognit // recursive redaction handles n
 			isPlaceholderWithAuthSpec(text, spec) {
 			continue
 		}
+		if spec.RejectUnresolvedValues && isUnresolvedPiConfigValue(text) {
+			return fmt.Errorf(
+				"auth field %s.%s contains an unresolved environment or command reference",
+				provider,
+				fieldPath,
+			)
+		}
 		if !isSensitiveField(key, spec.SensitiveFields) {
+			if spec.RejectUnresolvedValues && isCredentialContainerPath(path) && text != "" {
+				return fmt.Errorf("auth field %s.%s contains an unsupported environment override", provider, fieldPath)
+			}
 			if !isSafeField(key, spec.SafeFields) {
 				continue
 			}
@@ -317,6 +327,9 @@ func replaceAuthField(
 	if isPlaceholderWithAuthSpec(value, spec) || value == "opencode-oauth-dummy-key" {
 		return nil
 	}
+	if spec.RejectUnresolvedValues && isUnresolvedPiConfigValue(value) {
+		return fmt.Errorf("auth field %s.%s contains an unresolved environment or command reference", provider, field)
+	}
 	name := spec.SecretPrefix + "_" + secretPart(provider) + "_" + strings.ToUpper(field)
 	if existing, ok := secrets[name]; ok && existing.Value != value {
 		return fmt.Errorf("secret name collision for %s", name)
@@ -358,7 +371,7 @@ func migrateNativeConfig(
 	hostHome string,
 	spec agent.ConfigMigrationSpec,
 ) ([]byte, map[string]Secret, []string, map[string]string, error) {
-	configDir, _ := nativeOpenCodePaths(hostHome, spec)
+	configDir, _ := nativeAgentPaths(hostHome, spec)
 	var merged map[string]any
 	var warnings []string
 	for _, name := range spec.NativeConfigFiles {
@@ -397,6 +410,58 @@ func migrateNativeConfig(
 		return nil, nil, nil, nil, fmt.Errorf("marshal migrated agent config: %w", err)
 	}
 	return append(data, '\n'), secrets, warnings, providerHosts, nil
+}
+
+func migrateNativeSupplementalConfig(
+	hostHome string,
+	spec agent.ConfigMigrationSpec,
+) (map[string][]byte, map[string]Secret, []string, map[string]string, error) {
+	configDir, _ := nativeAgentPaths(hostHome, spec)
+	files := make(map[string][]byte)
+	secrets := make(map[string]Secret)
+	var warnings []string
+	providerHosts := make(map[string]string)
+	for index, name := range spec.NativeSupplementalFiles {
+		data, err := os.ReadFile(filepath.Join(configDir, name))
+		if err != nil {
+			if os.IsNotExist(err) {
+				continue
+			}
+			return nil, nil, nil, nil, fmt.Errorf("read native config %s: %w", name, err)
+		}
+		parsed, parseErr := parseNativeConfig(name, data)
+		if parseErr != nil {
+			warnings = append(warnings, fmt.Sprintf("skipped malformed native config %q", name))
+			continue
+		}
+		fileSecrets := make(map[string]Secret)
+		fileHosts := providerEndpointHostsWithSpec(parsed, spec.Auth.EndpointFields)
+		if sanitizeErr := sanitizeConfigMapWithSpec(
+			parsed,
+			"",
+			"",
+			spec.Auth,
+			spec.KnownProviderHosts,
+			fileHosts,
+			fileSecrets,
+		); sanitizeErr != nil {
+			return nil, nil, nil, nil, sanitizeErr
+		}
+		if err := mergePlannedSecrets(secrets, fileSecrets); err != nil {
+			return nil, nil, nil, nil, err
+		}
+		maps.Copy(providerHosts, fileHosts)
+		encoded, marshalErr := marshalJSONIndentFn(parsed, "", "  ")
+		if marshalErr != nil {
+			return nil, nil, nil, nil, fmt.Errorf("marshal migrated agent config %q: %w", name, marshalErr)
+		}
+		managedName := name
+		if index < len(spec.ManagedSupplementalFiles) && spec.ManagedSupplementalFiles[index] != "" {
+			managedName = spec.ManagedSupplementalFiles[index]
+		}
+		files[managedName] = append(encoded, '\n')
+	}
+	return files, secrets, warnings, providerHosts, nil
 }
 
 func parseNativeConfig(name string, data []byte) (map[string]any, error) {
@@ -467,10 +532,10 @@ func sanitizeConfigMapWithSpec(
 		}
 		if nested, ok := value.(map[string]any); ok {
 			nestedProvider := provider
-			if path == "" && key == providerKey {
+			if path == "" && (key == providerKey || key == "providers") {
 				nestedProvider = ""
 			}
-			if path == providerKey {
+			if path == providerKey || path == "providers" {
 				nestedProvider = key
 			}
 			if err := sanitizeConfigMapWithSpec(
@@ -505,6 +570,13 @@ func sanitizeConfigMapWithSpec(
 			continue
 		}
 		text, ok := value.(string)
+		if ok && spec.RejectUnresolvedValues && isUnresolvedPiConfigValue(text) {
+			return fmt.Errorf("config field %s contains an unresolved environment or command reference", currentPath)
+		}
+		if ok && spec.RejectUnresolvedValues && isCredentialContainerPath(path) &&
+			!isPlaceholderWithAuthSpec(text, spec) {
+			return fmt.Errorf("config field %s contains an unsupported credential or header override", currentPath)
+		}
 		if !ok || !isSensitiveField(key, spec.ConfigSensitiveFields) ||
 			isPlaceholderWithAuthSpec(text, spec) {
 			if ok && isEndpointField(key, spec.EndpointFields) {
@@ -525,6 +597,12 @@ func sanitizeConfigMapWithSpec(
 		values[key] = spec.ConfigPlaceholderPrefix + name + spec.ConfigPlaceholderSuffix
 	}
 	return nil
+}
+
+func isCredentialContainerPath(path string) bool {
+	normalized := strings.ToLower(path)
+	return normalized == "env" || strings.HasSuffix(normalized, "_env") ||
+		normalized == "headers" || strings.HasSuffix(normalized, "_headers")
 }
 
 func isSensitiveConfigKey(key string) bool {
@@ -549,7 +627,7 @@ func isPlaceholder(value string) bool {
 }
 
 func configSecretHosts(provider string, values map[string]any, knownHosts, providerHosts map[string]string) []string {
-	for _, key := range []string{baseURLKey, endpointKey, urlKey, "enterpriseUrl"} {
+	for _, key := range []string{baseURLKey, "baseUrl", endpointKey, urlKey, "enterpriseUrl"} {
 		if raw, ok := values[key].(string); ok {
 			if parsed, err := url.Parse(raw); err == nil && parsed.Hostname() != "" {
 				return []string{parsed.Hostname()}
@@ -573,6 +651,9 @@ func providerEndpointHostsWithSpec(values map[string]any, endpointFields []strin
 	result := make(map[string]string)
 	providers, ok := values["provider"].(map[string]any)
 	if !ok {
+		providers, ok = values["providers"].(map[string]any)
+	}
+	if !ok {
 		return result
 	}
 	for provider, raw := range providers {
@@ -580,12 +661,13 @@ func providerEndpointHostsWithSpec(values map[string]any, endpointFields []strin
 		if !ok {
 			continue
 		}
-		options, ok := config["options"].(map[string]any)
-		if !ok {
-			continue
-		}
+		options, _ := config["options"].(map[string]any)
 		for _, key := range endpointFields {
-			if endpoint, ok := options[key].(string); ok {
+			endpoint, endpointOK := config[key].(string)
+			if !endpointOK && options != nil {
+				endpoint, endpointOK = options[key].(string)
+			}
+			if endpointOK {
 				if parsed, err := url.Parse(endpoint); err == nil && parsed.Hostname() != "" {
 					result[strings.ToLower(provider)] = parsed.Hostname()
 					break
@@ -621,8 +703,8 @@ func rejectEmbeddedEndpointCredential(value string) error {
 		return errors.New("endpoint contains URL credentials")
 	}
 	for key := range parsed.Query() {
-		switch strings.ToLower(key) {
-		case "api_key", "apikey", "token", "access_token", "signature", "sig", "password", secretKey:
+		switch strings.ToLower(strings.ReplaceAll(key, "-", "_")) {
+		case "api_key", "apikey", "key", "token", "access_token", "signature", "sig", "password", secretKey:
 			return errors.New("endpoint contains credential query parameters")
 		}
 	}
@@ -708,6 +790,11 @@ func isPlaceholderWithAuthSpec(value string, spec agent.AuthMigrationSpec) bool 
 	return strings.Contains(value, spec.AuthPlaceholderPrefix) || strings.Contains(value, spec.ConfigPlaceholderPrefix)
 }
 
+func isUnresolvedPiConfigValue(value string) bool {
+	return strings.HasPrefix(value, "!") ||
+		(strings.HasPrefix(value, "$") && !strings.HasPrefix(value, "$MSB_"))
+}
+
 func defaultMigrationSpec() agent.ConfigMigrationSpec {
 	spec, ok := migrationSpecProviderFn()
 	if ok {
@@ -785,20 +872,32 @@ func buildLauncherConfig(a agent.Agent, spec agent.ConfigMigrationSpec) (string,
 	if root == nil {
 		root = make(map[string]any)
 	}
-	target := spec.CredentialTarget
-	source := filepath.Join(a.ConfigDirName(), spec.ManagedCredential)
-	if existing, ok := migrationHomeMapping(root, target); ok {
-		if existing != source {
-			return "", nil, fmt.Errorf("home mapping %q already points to %q", target, existing)
-		}
-		return path, nil, nil
-	}
 	home, ok := root["home"].(map[string]any)
 	if !ok {
 		home = make(map[string]any)
 		root["home"] = home
 	}
-	home[target] = source
+	mappings := make(map[string]string)
+	if spec.CredentialTarget != "" && spec.ManagedCredential != "" {
+		mappings[spec.CredentialTarget] = filepath.Join(a.ConfigDirName(), spec.ManagedCredential)
+	}
+	for _, name := range spec.ManagedSupplementalFiles {
+		mappings[filepath.Join(filepath.Dir(spec.CredentialTarget), name)] = filepath.Join(a.ConfigDirName(), name)
+	}
+	changed := false
+	for target, source := range mappings {
+		if existing, ok := migrationHomeMapping(root, target); ok {
+			if existing != source {
+				return "", nil, fmt.Errorf("home mapping %q already points to %q", target, existing)
+			}
+			continue
+		}
+		home[target] = source
+		changed = true
+	}
+	if !changed {
+		return path, nil, nil
+	}
 	var updated []byte
 	if migrationIsJSONConfig(path) {
 		updated, err = marshalJSONIndentFn(root, "", "  ")

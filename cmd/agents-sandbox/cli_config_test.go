@@ -233,9 +233,9 @@ func TestConfigMigrateUnsupportedAgent(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	t.Setenv("XDG_CONFIG_HOME", "")
 	t.Setenv("XDG_DATA_HOME", "")
-	cmd, ui := setupCommandFixtures(t, "config", "migrate", "pi")
+	cmd, ui := setupCommandFixtures(t, "config", "migrate", "claude-code")
 	if err := cmd.Execute(); err != nil {
-		t.Fatalf("config migrate pi: %v", err)
+		t.Fatalf("config migrate claude-code: %v", err)
 	}
 	if got := strings.Join(ui.WarnCalls, "\n"); !strings.Contains(got, "safe migration is not available") {
 		t.Errorf("unexpected migration warning: %s", got)
@@ -269,6 +269,45 @@ func TestConfigMigrateWritesSanitizedOpenCodeAuth(t *testing.T) {
 	}
 	if !strings.Contains(strings.Join(ui.OutCalls, "\n"), "Safe migration completed") {
 		t.Errorf("missing completion output: %v", ui.OutCalls)
+	}
+}
+
+func TestConfigMigrateWritesSanitizedPiFiles(t *testing.T) {
+	hostHome := t.TempDir()
+	t.Setenv("HOME", hostHome)
+	t.Setenv("XDG_CONFIG_HOME", "")
+	t.Setenv("XDG_DATA_HOME", "")
+	cmd, ui := setupCommandFixtures(t, "config", "migrate", "pi")
+	nativeDir := filepath.Join(hostHome, ".pi", "agent")
+	if err := os.MkdirAll(nativeDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	testutil.WriteFile(t, nativeDir, "settings.json", `{"defaultProvider":"anthropic"}`)
+	testutil.WriteFile(t, nativeDir, "auth.json", `{"anthropic":{"type":"api_key","key":"pi-secret"}}`)
+	testutil.WriteFile(
+		t,
+		nativeDir,
+		"models.json",
+		`{"providers":{"gateway":{"baseUrl":"https://gateway.example.test/v1","apiKey":"gateway-secret"}}}`,
+	)
+	ui.IsInteractiveResult = true
+	ui.SelectFn = func(string, []termio.Choice, string) (string, error) { return "y", nil }
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("config migrate pi: %v", err)
+	}
+	pi, _ := agent.Lookup("pi")
+	for _, name := range []string{"auth.json", "models.json", "settings-migrated.json"} {
+		data, err := os.ReadFile(filepath.Join(configpaths.Get().UserAgentConfigDir(pi), name))
+		if err != nil {
+			t.Fatalf("read managed Pi %s: %v", name, err)
+		}
+		if strings.Contains(string(data), "pi-secret") || strings.Contains(string(data), "gateway-secret") {
+			t.Errorf("managed Pi %s contains a raw credential: %s", name, data)
+		}
+	}
+	if !strings.Contains(strings.Join(ui.OutCalls, "\n"), "Safe migration completed") {
+		t.Errorf("missing Pi completion output: %v", ui.OutCalls)
 	}
 }
 

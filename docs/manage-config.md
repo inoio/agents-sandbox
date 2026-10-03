@@ -21,18 +21,18 @@ This extends **[Switch from your existing agent]({% link switch.md %})**.
 provision-host-config: false
 ```
 
-When an existing OpenCode installation is detected with native provisioning disabled, the first interactive run offers
+When an existing OpenCode or Pi installation is detected with native provisioning disabled, the first interactive run offers
 the same safe migration automatically. You can also start it explicitly without starting a VM:
 
 ```shell
 agents-sandbox config migrate
 ```
 
-The migration copies supported OpenCode settings into the managed configuration, replaces recognized credential values
+The migration copies supported OpenCode or Pi settings into the managed configuration, replaces recognized credential values
 with `$MSB_*` placeholders, and stores the raw values in the user-level `env.secret.yaml`. It never modifies the native
 OpenCode files. Provider hosts are inferred for known providers or requested interactively; an unknown host is never
-allowed implicitly. Inferred hosts are added to `network.egress-allow` after confirmation. Pi and Claude Code
-currently require the manual setup below.
+allowed implicitly. Inferred hosts are added to `network.egress-allow` after confirmation. Claude Code
+currently requires the manual setup below.
 
 The migration pauses for review when an auth field is not recognized as safe metadata or a credential field. Inspect the
 generated auth file and submit an issue if the field should be migrated automatically. A partially applied migration is
