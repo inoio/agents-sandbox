@@ -11,6 +11,7 @@ command reports the bare version (e.g. `0.1.0`).
 ### Changed
 
 - Docs: pages declare absolute canonical URLs, so copies of the site (e.g. on forks) point search engines to inoio.github.io/agents-sandbox.
+- Docs: the documentation site publishes a `sitemap.xml` for search engines.
 
 ## [0.5.0] - 2026-10-03
 
