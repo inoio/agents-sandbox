@@ -1,6 +1,10 @@
 title: agents-sandbox
 description: >-
   Run supported coding agents inside a local microsandbox VM with a separate guest kernel and your project mounted at /workspace.
+# Absolute URLs for canonical links, sitemap and structured data.
+url: https://inoio.github.io
+baseurl: /agents-sandbox
+
 remote_theme: just-the-docs/just-the-docs@v0.10.0
 
 # https://github.com/just-the-docs/just-the-docs
