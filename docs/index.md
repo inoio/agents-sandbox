@@ -1,5 +1,5 @@
 ---
-title: Home
+title: agents-sandbox
 layout: home
 nav_order: 0
 ---

@@ -1,6 +1,9 @@
 title: agents-sandbox
+tagline: Sandbox for Claude Code, opencode & pi in a microVM
 description: >-
-  Run supported coding agents inside a local microsandbox VM with a separate guest kernel and your project mounted at /workspace.
+  Sandbox for AI coding agents: run Claude Code, opencode or pi in an isolated microVM on Linux or macOS, with your
+  project mounted and secrets kept on the host.
+
 # Absolute URLs for canonical links, sitemap and structured data.
 url: https://inoio.github.io
 baseurl: /agents-sandbox
