@@ -1,5 +1,6 @@
 ---
 title: Connect Opencode Desktop
+description: "Serve opencode from the agents-sandbox VM to the host and attach the Opencode Desktop client."
 layout: default
 parent: Recipes
 nav_order: 10

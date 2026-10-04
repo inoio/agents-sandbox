@@ -1,5 +1,6 @@
 ---
 title: Agent configuration
+description: "Select and configure the coding agent run by agents-sandbox: opencode, opencode2, pi or Claude Code."
 layout: default
 parent: Configuration
 nav_order: 60

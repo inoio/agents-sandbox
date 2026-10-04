@@ -1,5 +1,6 @@
 ---
 title: Networking
+description: "Control the sandbox VM's network egress: deny-by-default, public, private or host profiles and explicit allow lists."
 layout: default
 parent: Configuration
 nav_order: 30

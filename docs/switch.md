@@ -1,5 +1,6 @@
 ---
 title: Switch from your existing agent
+description: "Run your existing Claude Code, opencode or pi setup inside an agents-sandbox microVM without writing any config."
 layout: default
 nav_order: 30
 ---

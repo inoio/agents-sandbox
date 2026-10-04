@@ -8,6 +8,10 @@ command reports the bare version (e.g. `0.1.0`).
 
 ## [Unreleased]
 
+### Changed
+
+- Docs: improve SEO, e.g. canonical URL to inoio.github.io/agents-sandbox, publish a `sitemap.xml`, home page with descriptive title and site description.
+
 ## [0.5.0] - 2026-10-03
 
 ### Changed
