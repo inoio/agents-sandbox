@@ -35,15 +35,15 @@ Legend for the first four rows: ✅ = stronger isolation or host-side handling; 
 
 ## Start here
 
-- If you already have a supported agent configured, start with **[Switch from your existing agent]({% link switch.md %})**.
-- If you want reproducible configuration and explicit credential handling, start with **[Manage config in the sandbox]({% link manage-config.md %})**.
+- If you already have a supported agent configured, simply start `agents-sandbox`. It detects native config for the selected
+  agent and offers the safe migration automatically. See **[Manage config in the sandbox]({% link manage-config.md %})** for details.
+- If you want to build a clean, reproducible setup without reading native host files, use the manual configuration path on that page.
 - If you have not used a supported agent before, set it up using its normal host installation first, then return here.
 
 ## Explore
 
 - [Why?]({% link introduction.md %})
 - [Installation]({% link install/installation.md %})
-- [Switch from your existing agent]({% link switch.md %})
 - [Manage config in the sandbox]({% link manage-config.md %})
 - [Configuration]({% link configuration/index.md %})
 - [Sandboxes]({% link sandboxes.md %})

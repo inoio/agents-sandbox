@@ -16,13 +16,9 @@ variables. Put credentials in `env.secret` or `env.secret.yaml`, never in `env`.
 
 ## Quick start
 
-If you use OpenCode's `/connect` command, follow [OpenCode authentication](#opencode-authentication) below. That is the
-recommended workflow for credentials, which opencode stores in `auth.json`; it uses a literal microsandbox placeholder and an explicit
-`home:` mapping.
-
-Native host-config provisioning is disabled by default. The `provision-host-config: false` setting belongs in the top-level
-launcher configuration in `~/.config/agents-sandbox/config.yaml` when you need to override inherited opt-in configuration or
-clean up a previous opt-in.
+For the complete configuration decision tree, including `config migrate`, manual snippets, Claude Code login/API-key choices,
+and `home:` provisioning, see [Manage config in the sandbox]({% link manage-config.md %}). This page focuses on the secret
+file formats and the runtime behavior shared by all agents.
 
 ## Format
 
@@ -162,8 +158,37 @@ network:
 Use `agents-sandbox config home` to verify the `home:` mapping. `agents-sandbox config agent` shows the agent mirror and
 drop-in candidates, but does not show `home:` mappings or files already present in the persistent home volume.
 
-> **_NOTE:_**  After running `/connect` with opencode _inside_ the agents-sandbox, you can use `!` to switch to shell mode and then run
+> **_NOTE:_**  After running `/connect` with OpenCode _inside_ the agents-sandbox, you can use `!` to switch to shell mode and then run
 > ```
 > cat ~/.local/share/opencode/auth.json
 > ```
 > to see the credentials stored in the sandbox (to store them outside in `env.secret.yaml`).
+
+## Pi authentication
+
+Pi stores user settings and credentials in `~/.pi/agent/settings.json` and `~/.pi/agent/auth.json`; custom providers and
+endpoints are stored in `~/.pi/agent/models.json`. Use `agents-sandbox config migrate --agent pi` to create managed copies
+of these files. Credential values are replaced with `$MSB_PI_*` placeholders and raw values are written only to the
+user-level `env.secret.yaml`; custom endpoint hosts are added to the network policy after review.
+
+The migration aborts when `auth.json` values reference an environment variable or shell command (`"$MY_KEY"`,
+`"!op read ..."`), or when `models.json` contains raw custom credential headers. Move those values to `env.secret.yaml`
+manually first (see [Limitations]({% link manage-config.md %}#limitations)).
+
+## Claude Code authentication
+
+Claude Code can consume credentials through secret environment variables:
+
+```yaml
+# ~/.config/agents-sandbox/env.secret.yaml
+CLAUDE_ENV_ANTHROPIC_API_KEY:
+  value: sk-ant-xxxxxxxx
+  hosts:
+    - api.anthropic.com
+```
+
+The migration creates this kind of entry in API-key mode. A normal Claude login is performed inside the persistent sandbox
+home instead. The host's `.credentials.json`, `~/.claude.json`, and operating-system keychain are not copied: they are
+machine-bound/runtime-managed state, not a portable credential interface, and copying them would turn credential material
+into ordinary files inside the VM. See [Manage config in the sandbox]({% link manage-config.md %}) for the complete migration
+workflow and its authentication choices.

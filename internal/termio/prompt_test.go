@@ -3,8 +3,11 @@ package termio
 import (
 	"bytes"
 	"errors"
+	"os"
 	"strings"
 	"testing"
+
+	"golang.org/x/term"
 )
 
 func TestIsInteractive(t *testing.T) {
@@ -49,11 +52,108 @@ func TestIsInteractive(t *testing.T) {
 	})
 }
 
+func TestSecretInputRequiresInteractiveTerminal(t *testing.T) {
+	ui := New(strings.NewReader("secret\n"), &bytes.Buffer{}, &bytes.Buffer{}, false, LevelInfo, false, false)
+	p := ui.(*printer)
+	p.isTerminal = func(int) bool { return false }
+	if _, err := ui.SecretInput("secret"); err == nil || !strings.Contains(err.Error(), "interactive") {
+		t.Fatalf("SecretInput error = %v", err)
+	}
+}
+
+func TestSecretInputWithPipeBackedStdinRejectsBeforeEcho(t *testing.T) {
+	ui := New(strings.NewReader("secret\n"), &bytes.Buffer{}, &bytes.Buffer{}, false, LevelInfo, false, false)
+	p := ui.(*printer)
+	p.isTerminal = func(int) bool { return true }
+	if _, err := ui.SecretInput("secret"); err == nil || !strings.Contains(err.Error(), "terminal-backed") {
+		t.Fatalf("SecretInput error = %v", err)
+	}
+}
+
+func TestReadMaskedSecretEchoesStarsAndHandlesBackspace(t *testing.T) {
+	var output bytes.Buffer
+	value, err := readMaskedSecret(strings.NewReader("ab\bcd\n"), &output)
+	if err != nil || value != "acd" {
+		t.Fatalf("masked secret = %q, %v", value, err)
+	}
+	if output.String() != "**\b \b**" {
+		t.Fatalf("masked output = %q", output.String())
+	}
+}
+
+func TestReadMaskedSecretIgnoresControlAndInterrupts(t *testing.T) {
+	var output bytes.Buffer
+	value, err := readMaskedSecret(strings.NewReader("\x01a\x03"), &output)
+	if err == nil || !strings.Contains(err.Error(), "interrupted") || value != "" {
+		t.Fatalf("interrupt result = %q, %v", value, err)
+	}
+	if output.String() != "*" {
+		t.Fatalf("control-key output = %q", output.String())
+	}
+}
+
+func TestSecretInputRestoresTerminalAfterReaderError(t *testing.T) {
+	stdin, writer, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = writer.Close()
+	t.Cleanup(func() { _ = stdin.Close() })
+	oldMakeRaw, oldRestore := makeRawTerminal, restoreTerminal
+	t.Cleanup(func() {
+		makeRawTerminal = oldMakeRaw
+		restoreTerminal = oldRestore
+	})
+	makeRawTerminal = func(int) (*term.State, error) { return &term.State{}, nil }
+	restored := false
+	restoreTerminal = func(int, *term.State) error { restored = true; return nil }
+	ui := New(stdin, &bytes.Buffer{}, &bytes.Buffer{}, false, LevelInfo, false, false)
+	p := ui.(*printer)
+	p.isTerminal = func(int) bool { return true }
+	// The process stdin is not readable in this test; raw setup and restoration
+	// are verified before the read fails.
+	_, _ = ui.SecretInput("secret")
+	if !restored {
+		t.Fatal("terminal state was not restored")
+	}
+}
+
+func TestSecretInputReturnsRawModeError(t *testing.T) {
+	stdin, writer, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = writer.Close()
+	_ = stdin.Close()
+	oldMakeRaw := makeRawTerminal
+	t.Cleanup(func() { makeRawTerminal = oldMakeRaw })
+	makeRawTerminal = func(int) (*term.State, error) { return nil, errors.New("raw mode failed") }
+	ui := New(stdin, &bytes.Buffer{}, &bytes.Buffer{}, false, LevelInfo, false, false)
+	p := ui.(*printer)
+	p.isTerminal = func(int) bool { return true }
+	if _, err := ui.SecretInput("secret"); err == nil || !strings.Contains(err.Error(), "raw mode failed") {
+		t.Fatalf("raw mode error = %v", err)
+	}
+}
+
 func TestSelect(t *testing.T) {
 	choices := []Choice{
 		{Label: "Keep", Key: "k", Description: "Keep the worktree"},
 		{Label: "Remove", Key: "r", Description: "Remove the worktree"},
 	}
+
+	t.Run("prints default info in interactive mode", func(t *testing.T) {
+		var stderr bytes.Buffer
+		ui := New(strings.NewReader("k\n"), &bytes.Buffer{}, &stderr, false, LevelInfo, false, false)
+		p := ui.(*printer)
+		p.isTerminal = func(int) bool { return true }
+		if _, err := ui.Select("What to do?", choices, "k"); err != nil {
+			t.Fatal(err)
+		}
+		if !strings.Contains(stderr.String(), "default [k]") {
+			t.Fatalf("interactive default output = %q", stderr.String())
+		}
+	})
 
 	t.Run("returns default in non-interactive mode", func(t *testing.T) {
 		var stderr bytes.Buffer

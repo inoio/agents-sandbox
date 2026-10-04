@@ -43,8 +43,20 @@ nav_order: 20
   ```console
   curl -L -o agents-sandbox https://github.com/inoio/agents-sandbox/releases/latest/download/agents-sandbox-linux-arm64
   ```
-* Install:
-  ```console
-  chmod u+x agents-sandbox
-  mv agents-sandbox ~/.local/bin # or any other directory in your PATH 
-  ```
+ * Install:
+   ```console
+   chmod u+x agents-sandbox
+   mv agents-sandbox ~/.local/bin # or any other directory in your PATH
+   ```
+
+## Next steps
+
+Verify the host setup, then start agents-sandbox:
+
+```console
+agents-sandbox doctor
+agents-sandbox
+```
+
+If the selected agent already has native configuration, the first interactive start offers a safe migration before the VM starts.
+See [Manage config in the sandbox]({% link manage-config.md %}) for migration, manual configuration, secrets, and file provisioning.

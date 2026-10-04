@@ -90,6 +90,24 @@ func TestClaudeCodeProvisionRules(t *testing.T) {
 	}
 }
 
+func TestClaudeCodeMigrationSpec(t *testing.T) {
+	a, _ := agent.Lookup("claude-code")
+	provider, ok := agent.AsMigrationSpecProvider(a)
+	if !ok {
+		t.Fatal("claude-code should implement MigrationSpecProvider")
+	}
+	spec := provider.MigrationSpec()
+	if !spec.NativeConfigStrictJSON || spec.NativeConfigEnv != "CLAUDE_CONFIG_DIR" {
+		t.Errorf("unexpected Claude migration paths: %+v", spec)
+	}
+	if spec.NativeCredential != "" || spec.ManagedCredential != "" {
+		t.Errorf("Claude migration must not migrate credential files: %+v", spec)
+	}
+	if spec.ManagedSnippet != "settings-migrated.json" || spec.Auth.SecretPrefix != "CLAUDE" {
+		t.Errorf("unexpected Claude migration spec: %+v", spec)
+	}
+}
+
 func TestClaudeCodeLatestVersionCancelledCtx(t *testing.T) {
 	a, _ := agent.Lookup("claude-code")
 	checker, ok := agent.AsUpgradeChecker(a)

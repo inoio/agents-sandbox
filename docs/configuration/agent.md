@@ -87,57 +87,48 @@ path → VM path. Previously non-pattern files in `<agent>/` were silently ignor
 
 ## Host-config drop-in provisioning
 
-Beyond the snippet merge, when running the launcher with `provision-host-config: true`, it **copies the active agent's config +
-credential files from the host into the VM**, driven by a per-agent gitignore-style include-list manifest (provision rules).
-This opt-in workflow makes your normal agent setup (e.g. an existing opencode config) available in the VM.
+This section is the technical reference for the per-agent provision rules. The rules are only evaluated when
+`provision-host-config: true`; the setting is disabled by default. For when to use this opt-in, how to enable it, and its security
+tradeoff, see [Unsafe host-config drop-in]({% link provision-host-config.md %}).
 
-The drop-in copy is scoped to the agent's settings and, for opencode, its credential file. Runtime state is not copied:
+The drop-in copy is limited to the native paths below; files outside these paths are not copied:
 
 - **opencode** — `~/.config/opencode/**` (excluding `node_modules/`, `package*.json`, and `.gitignore`) plus
   `~/.local/share/opencode/auth.json`.
 - **opencode2** — same drop-in copy as `opencode` (`~/.config/opencode/**` and `~/.local/share/opencode/auth.json`).
-- **pi** — `~/.pi/agent/settings.json`.
-- **claude-code** — `~/.claude/settings.json` (runtime state and the machine-managed `.credentials.json` are not copied).
+- **pi** — files under `~/.pi/agent/` except `auth.json` and `models.json`.
+- **claude-code** — `~/.claude/settings.json`; the host's machine-managed `.credentials.json` is not copied. A user can
+  either log in inside the persistent sandbox home or use secret-backed environment credentials.
 
-Precedence: the merged snippet config and any `home:` mappings override the drop-in copy for the same VM path.
+Precedence is, from strongest to weakest: `home:` mappings, merged snippet config, the verbatim config-directory mirror, and the
+host-config drop-in.
 
 When snippets exist, the drop-in copy of the config-file family is skipped entirely (see the note above) so host config
 cannot override the merged snippets. Non-config files — e.g. plugins, custom commands, themes — are still copied.
 
-To switch from your agent's own config to `agents-sandbox/<agent>` snippet provisioning, create snippet files in the
-user or project snippet directories (see [Config snippet merge](#config-snippet-merge)). Once a snippet matching the
-agent's pattern exists, it wins over the host config for the merged config path. Native host-config drop-in provisioning is
-disabled by default; enable it explicitly when you want the host setup copied.
+When disabled, no host-config files are copied; snippet merging, the mirror, and `home:` mappings remain active. Because the VM
+home is persistent, files copied by an earlier drop-in can remain. On start, copies that still match the host file are removed;
+files that differ, such as an `auth.json` written by a login inside the VM, are kept until you delete them or reset the home
+volume.
 
-To enable the host-config drop-in copy (config **and** credentials), set `provision-host-config: true` in the launcher config:
+### Credential boundaries
 
-```yaml
-provision-host-config: true
-```
-
-When disabled, the whole host-config copy is skipped (for opencode: `~/.config/opencode/**` and `auth.json`), while the
-snippet merge, mirror, and `home:` mappings keep working. On the next run, previously drop-in-copied config and credential
-files are removed from existing home volumes so they cannot linger.
-
-### Authentication: file copy vs. env-secret
-
-> **Security note:** when host-config drop-in provisioning is enabled, the opencode `auth.json` credential file is copied into
+> **Security note:** when host-config drop-in provisioning is enabled, the OpenCode `auth.json` credential file is copied into
 > the VM. To deliver credentials exclusively through the env-secret mechanism (which never writes them into the VM, see
 > [Secrets]({% link configuration/secrets.md %})), leave host-config provisioning disabled. The env-secret channel remains
 > fully supported and unchanged; this does not replace it.
 
-If the drop-in is enabled, exclude `auth.json` from the copy by placing a `home:` entry that overrides the provisioned path
-(see [Home provisioning & startup hooks]({% link configuration/home-provisioning.md %})), or remove the credential file from
-the host before running. The launcher does not inject host secrets in any other way; the env-secret mechanism is the supported
-channel for secrets you do not want on disk in the VM.
+If the drop-in is enabled, exclude OpenCode's `auth.json` by placing a `home:` entry that overrides the provisioned path (see
+[Home provisioning & startup hooks]({% link configuration/home-provisioning.md %})), or remove the credential file from the host
+before running. The launcher does not inject host secrets in any other way; the env-secret mechanism is the supported channel for
+secrets you do not want on disk in the VM.
 
-For pi and claude-code, the drop-in copy does not include credential files; authenticate them with env secrets instead:
-
-- **pi** — per-provider env vars, e.g. `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GEMINI_API_KEY` (see pi's docs for the
-  full list). Put them in an `env.secret` / `env.secret.yaml` file (below).
-- **claude-code** — `ANTHROPIC_AUTH_TOKEN`, `ANTHROPIC_API_KEY`, or `CLAUDE_CODE_OAUTH_TOKEN`. Claude's
-  `.credentials.json` is machine-managed and not hand-provisioned, so env vars are the supported channel here.
-- **opencode** — `OPENCODE_API_KEY`.
+Pi's `auth.json` and `models.json` are excluded from the drop-in. Copies of these files left in the sandbox home by an earlier
+drop-in are removed on start when they still match the host file; files created inside the VM, such as by a Pi login, are
+kept. Claude Code's host `.credentials.json`, `~/.claude.json`, and
+operating-system keychain state are also excluded; use Claude Code's normal login inside the persistent sandbox home or the secret
+mechanism instead. See [Secrets]({% link configuration/secrets.md %}) for the supported secret formats and agent-specific
+authentication details.
 
 ## Example: Permissions
 

@@ -15,6 +15,7 @@ import (
 	"github.com/inoio/agents-sandbox/internal/sandbox/network"
 	"github.com/inoio/agents-sandbox/internal/sandbox/options"
 	"github.com/inoio/agents-sandbox/internal/termio"
+	"github.com/inoio/agents-sandbox/internal/testutil"
 	launcherconfig "github.com/inoio/agents-sandbox/internal/viperconfig"
 )
 
@@ -414,6 +415,83 @@ func TestExtractRunOptionsNetworkFromResolver(t *testing.T) {
 	}
 	if opts.Network.Profile != network.ProfilePrivate {
 		t.Fatalf("Network.Profile = %q, want private (from resolver)", opts.Network.Profile)
+	}
+}
+
+func TestRefreshRunOptionsAfterMigrationReloadsNetworkAndPreservesArgs(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	cmd := buildRunCmd(&termio.Mock{})
+	cmd.SetContext(context.WithValue(
+		context.Background(),
+		(*launcherConfigKey)(nil),
+		launcherconfig.NewResolverWithConfig(launcherconfig.Config{}),
+	))
+	testutil.WriteFile(
+		t,
+		configpaths.Get().UserConfigDir(),
+		"config.yaml",
+		"network:\n  egress-allow:\n    - litellm.inoio.de\n",
+	)
+	opts, resolver, err := refreshRunOptionsAfterMigration(cmd, []string{"ping", "--verbose"}, &termio.Mock{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resolver.Network().EgressAllow[0] != "litellm.inoio.de" || opts.Network.EgressAllow[0] != "litellm.inoio.de" {
+		t.Fatalf("refreshed network = %+v, opts = %+v", resolver.Network(), opts.Network)
+	}
+	if len(opts.Args) != 2 || opts.Args[0] != "ping" {
+		t.Fatalf("args = %v", opts.Args)
+	}
+}
+
+func TestRefreshRunOptionsAfterMigrationPreservesNetworkFlag(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	cmd := buildRunCmd(&termio.Mock{})
+	if err := cmd.Flags().Set(flagNetwork, "public"); err != nil {
+		t.Fatal(err)
+	}
+	cmd.SetContext(context.WithValue(
+		context.Background(),
+		(*launcherConfigKey)(nil),
+		launcherconfig.NewResolverWithConfig(launcherconfig.Config{}),
+	))
+	testutil.WriteFile(t, configpaths.Get().UserConfigDir(), "config.yaml", "network:\n  profile: private\n")
+	opts, _, err := refreshRunOptionsAfterMigration(cmd, nil, &termio.Mock{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if opts.Network.Profile != network.ProfilePublic {
+		t.Fatalf("network profile = %q, want public", opts.Network.Profile)
+	}
+}
+
+func TestRefreshRunOptionsAfterMigrationResolverError(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	cmd := buildRunCmd(&termio.Mock{})
+	cmd.SetContext(context.WithValue(
+		context.Background(),
+		(*launcherConfigKey)(nil),
+		launcherconfig.NewResolverWithConfig(launcherconfig.Config{}),
+	))
+	testutil.WriteFile(t, configpaths.Get().UserConfigDir(), "config.yaml", "home: [")
+	if _, _, err := refreshRunOptionsAfterMigration(cmd, nil, &termio.Mock{}); err == nil {
+		t.Fatal("expected resolver error")
+	}
+}
+
+func TestRefreshRunOptionsAfterMigrationExtractError(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	cmd := buildRunCmd(&termio.Mock{})
+	if err := cmd.Flags().Set(flagNetwork, "invalid-profile"); err != nil {
+		t.Fatal(err)
+	}
+	cmd.SetContext(context.WithValue(
+		context.Background(),
+		(*launcherConfigKey)(nil),
+		launcherconfig.NewResolverWithConfig(launcherconfig.Config{}),
+	))
+	if _, _, err := refreshRunOptionsAfterMigration(cmd, nil, &termio.Mock{}); err == nil {
+		t.Fatal("expected options refresh error")
 	}
 }
 

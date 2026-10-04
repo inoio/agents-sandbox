@@ -58,3 +58,7 @@ network:
 
 With `profile: none`, only the gateway DNS is auto-allowed, so a custom resolver's IP must also be listed in
 `egress-allow` (e.g. `egress-allow: [1.1.1.1]`) for DNS lookups to reach it.
+
+Claude Code normal login also requires egress to `platform.claude.com`, `claude.ai`, and `claude.com` in addition to
+`api.anthropic.com`. `agents-sandbox config migrate --agent claude-code` adds these hosts automatically; the first interactive start with Claude Code
+offers the same setup.

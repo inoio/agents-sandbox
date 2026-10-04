@@ -88,6 +88,39 @@ func TestPIProvisionRules(t *testing.T) {
 	if !found {
 		t.Errorf("ProvisionRules missing .pi/agent: %+v", provisioner.ProvisionRules())
 	}
+	patterns := provisioner.ProvisionRules()[0].Patterns
+	for _, excluded := range []string{"!auth.json", "!models.json"} {
+		if !slices.Contains(patterns, excluded) {
+			t.Errorf("ProvisionRules = %v, want %q excluded", patterns, excluded)
+		}
+	}
+}
+
+func TestPIMigrationSpec(t *testing.T) {
+	a, ok := agent.Lookup("pi")
+	if !ok {
+		t.Fatal("pi agent not registered")
+	}
+	provider, ok := agent.AsMigrationSpecProvider(a)
+	if !ok {
+		t.Fatal("pi should implement MigrationSpecProvider")
+	}
+	spec := provider.MigrationSpec()
+	if spec.NativeConfigDir != ".pi/agent" || spec.NativeConfigEnv != "PI_CODING_AGENT_DIR" {
+		t.Errorf("unexpected pi native config paths: %+v", spec)
+	}
+	if spec.NativeCredential != ".pi/agent/auth.json" || spec.ManagedCredential != "auth.json" {
+		t.Errorf("unexpected pi credential paths: %+v", spec)
+	}
+	if spec.CredentialTarget != ".pi/agent/auth.json" || spec.ManagedSnippet != "settings-migrated.json" {
+		t.Errorf("unexpected pi managed paths: %+v", spec)
+	}
+	if fields := spec.Auth.AuthFields["api_key"]; len(fields) != 1 || fields[0] != "key" {
+		t.Errorf("unexpected pi api-key fields: %v", fields)
+	}
+	if spec.Auth.AuthPlaceholderPrefix != "$MSB_" || len(spec.KnownProviderHosts) == 0 {
+		t.Errorf("unexpected pi auth migration settings: %+v", spec.Auth)
+	}
 }
 
 func TestPILatestVersionCancelledCtx(t *testing.T) {

@@ -317,6 +317,36 @@ List the resolved home-file mappings from the config `home:` key (VM target path
 agents-sandbox config home
 ```
 
+#### config migrate [name]
+
+Safely migrate supported native agent configuration without starting a VM. OpenCode, OpenCode 2, Pi, and Claude Code are
+supported. Credential values are replaced with microsandbox placeholders and raw values are written to the user-level secret
+file; native agent files are not modified. For Claude Code, only portable `settings.json` values are migrated; credentials in
+`.credentials.json`, the OS keychain, or runtime state are never copied.
+
+The agent is selected by the positional `name` or `--agent` (both must match if given), otherwise by the configured `agent`.
+
+Before writing, the command reviews generated files, asks for the destination of unknown provider hosts, asks for confirmation
+of inferred network egress hosts, and warns about auth fields that are not recognized automatically. After success it prints
+generated paths and the generated non-secret file contents.
+
+The command refuses to run while managed files from an earlier migration exist, so it never overwrites them. A migration that
+was dismissed at the first start can still be applied with this command. See
+[Manage config in the sandbox]({% link manage-config.md %}#start-from-existing-agent-config) for the generated files,
+limitations, and how to migrate again.
+
+```console
+agents-sandbox config migrate
+agents-sandbox config migrate pi
+agents-sandbox config migrate --agent opencode2
+```
+
+**Flags:**
+
+| Flag      | Short | Default                         | Purpose                         |
+|-----------|-------|---------------------------------|---------------------------------|
+| `--agent` | —     | configured `agent` (`opencode`) | Coding-agent profile to migrate |
+
 ---
 
 ### completion

@@ -13,6 +13,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/inoio/agents-sandbox/internal/agent"
+	"github.com/inoio/agents-sandbox/internal/configmigration"
 	"github.com/inoio/agents-sandbox/internal/git"
 	"github.com/inoio/agents-sandbox/internal/homeconfig"
 	"github.com/inoio/agents-sandbox/internal/humanize"
@@ -247,6 +248,9 @@ type jsonSandbox struct {
 	Labels  map[string]string `json:"labels"`
 }
 
+//nolint:gochecknoglobals // test seam for the JSON output error path
+var marshalSandboxesJSON = json.MarshalIndent
+
 func printSandboxesJSON(ui termio.UI, infos []sandbox.Info) error {
 	out := make([]jsonSandbox, 0, len(infos))
 	for _, s := range infos {
@@ -259,7 +263,7 @@ func printSandboxesJSON(ui termio.UI, infos []sandbox.Info) error {
 			Labels:  s.Labels,
 		})
 	}
-	data, err := json.MarshalIndent(out, "", "  ")
+	data, err := marshalSandboxesJSON(out, "", "  ")
 	if err != nil {
 		return err
 	}
@@ -275,6 +279,7 @@ func buildConfigCmd(ui termio.UI) *cobra.Command {
 	}
 
 	cmd.AddCommand(buildConfigAgentCmd(ui))
+	cmd.AddCommand(buildConfigMigrateCmd(ui))
 
 	cmd.AddCommand(&cobra.Command{
 		Use:   cmdHome,
@@ -307,6 +312,87 @@ func buildConfigCmd(ui termio.UI) *cobra.Command {
 		},
 	})
 
+	return cmd
+}
+
+//nolint:gochecknoglobals // command seams restored by tests
+var (
+	buildMigrationPlan = configmigration.Build
+	applyMigrationPlan = configmigration.Apply
+	migrationHomeDir   = os.UserHomeDir
+)
+
+// buildConfigMigrateCmd creates the host-only safe migration command. It never
+// starts a VM and never enables native host-config provisioning implicitly.
+//
+//nolint:gocognit // command flow keeps migration decisions visible
+func buildConfigMigrateCmd(
+	ui termio.UI,
+) *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   cmdConfigMigrate,
+		Args:  cobra.MaximumNArgs(1),
+		Short: "Migrate native agent config without copying raw credentials",
+		RunE: func(c *cobra.Command, args []string) error {
+			name, err := resolveConfigAgentName(c, args)
+			if err != nil {
+				return err
+			}
+			a, ok := agent.Lookup(name)
+			if !ok {
+				return fmt.Errorf("unknown agent %q: must be one of %s", name, strings.Join(agent.Names(), ", "))
+			}
+			hostHome, err := migrationHomeDir()
+			if err != nil {
+				return fmt.Errorf("resolve host home: %w", err)
+			}
+			plan, err := buildMigrationPlan(a, hostHome)
+			if err != nil {
+				if errors.Is(err, configmigration.ErrUnsupported) {
+					ui.Warnf("safe migration is not available for agent %q; configure it manually", a.Name())
+					return nil
+				}
+				return err
+			}
+			if !plan.HasNativeConfig && !plan.SetupOnly {
+				ui.Outf("No native %s configuration found.", a.Name())
+				return nil
+			}
+			if plan.HasManagedConfig && !plan.AlreadyConfigured {
+				ui.Warnf("managed %s configuration already exists; refusing to overwrite it", a.Name())
+				return nil
+			}
+			if len(plan.Files) == 0 && !plan.SetupOnly {
+				ui.Warnf(
+					"native %s configuration was found, but no supported credential migration is available",
+					a.Name(),
+				)
+				for _, warning := range plan.Warnings {
+					ui.Warn(warning)
+				}
+				return nil
+			}
+			if plan.AlreadyConfigured {
+				ui.Outf("A safe %s migration is already configured.", a.Name())
+				return nil
+			}
+			if plan.Dismissed {
+				ui.Outf(
+					"Migration was previously dismissed for the current native configuration; applying it explicitly now.",
+				)
+			}
+			ui.Outf("Migrating %s configuration without copying raw credentials.", a.Name())
+			if err := configmigration.Review(plan, ui); err != nil {
+				return err
+			}
+			if err := applyMigrationPlan(plan, ui); err != nil {
+				return err
+			}
+			ui.Outf("Safe migration completed. Secret values are stored in %s.", plan.SecretPath)
+			return nil
+		},
+	}
+	cmd.Flags().String(flagAgent, defaultAgentName, "Coding agent profile")
 	return cmd
 }
 

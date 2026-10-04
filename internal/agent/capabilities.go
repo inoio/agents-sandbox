@@ -2,6 +2,46 @@ package agent
 
 import "context"
 
+const (
+	authFileName               = "auth.json"
+	modelsFileName             = "models.json"
+	authAccessField            = "access"
+	authRefreshField           = "refresh"
+	authAccessTokenField       = "accesstoken"
+	authKeyField               = "key"
+	authAccessKeyField         = "accesskey"
+	authAPIKeyType             = "api_key"
+	authAnthropicProvider      = "anthropic"
+	authAPIKeyField            = "apikey"
+	authAPITokenField          = "apitoken"
+	authAuthorizationField     = "authorization"
+	authBearerTokenField       = "bearertoken"
+	authClientSecretField      = "clientsecret"
+	authCookieField            = "cookie"
+	authCredentialField        = "credential"
+	authCredentialsField       = "credentials"
+	authIDTokenField           = "idtoken"
+	authTypeField              = "type"
+	authPasswordField          = "password"
+	authPrivateKeyField        = "privatekey"
+	authPrivateTokenField      = "privatetoken"
+	authOAuthAccessField       = "oauthaccess"
+	authOAuthRefreshField      = "oauthrefresh"
+	authRefreshTokenField      = "refreshtoken"
+	authSecretField            = "secret"
+	authSecretAccessKeyField   = "secretaccesskey"
+	authSessionField           = "session"
+	authTokenField             = "token"
+	authXAPIKeyField           = "xapikey"
+	authSessionTokenField      = "sessiontoken"
+	authBaseURLField           = "baseURL"
+	authBaseURLLowerField      = "baseUrl"
+	authEndpointField          = "endpoint"
+	authURLField               = "url"
+	anthropicAPIHost           = "api.anthropic.com"
+	migrationPlaceholderPrefix = "$MSB_"
+)
+
 // settingsFileName is the settings filename shared by the pi and claude-code
 // agents, whose merged snippet config is written to <config dir>/settings.json.
 const settingsFileName = "settings.json"
@@ -57,6 +97,52 @@ type Provisioner interface {
 	ProvisionRules() []ProvisionRule
 }
 
+// AuthMigrationSpec describes the provider/auth fields that a migration can
+// safely transform for an agent.
+type AuthMigrationSpec struct {
+	SecretPrefix            string
+	AuthFields              map[string][]string
+	SensitiveFields         []string
+	SafeFields              []string
+	ConfigSensitiveFields   []string
+	EndpointFields          []string
+	AuthPlaceholderPrefix   string
+	ConfigPlaceholderPrefix string
+	ConfigPlaceholderSuffix string
+	RejectUnresolvedValues  bool
+}
+
+// ConfigMigrationSpec describes the native and managed paths used by a safe
+// configuration migration. Supplemental files are migrated independently when
+// an agent has multiple native configuration documents.
+type ConfigMigrationSpec struct {
+	NativeConfigDir           string
+	NativeConfigEnv           string
+	NativeConfigEnvIsPath     bool
+	NativeConfigSubdir        string
+	NativeCredential          string
+	NativeDataEnv             string
+	NativeDataEnvIsPath       bool
+	NativeDataSubdir          string
+	CredentialTarget          string
+	ManagedCredential         string
+	ManagedSnippet            string
+	NativeConfigFiles         []string
+	NativeConfigStrictJSON    bool
+	RequiredNetworkHosts      []string
+	NativeSupplementalFiles   []string
+	ManagedSupplementalFiles  []string
+	ProvisioningExcludedFiles []string
+	KnownProviderHosts        map[string]string
+	Auth                      AuthMigrationSpec
+}
+
+// MigrationSpecProvider exposes agent-specific migration metadata without
+// coupling agent profiles to the migration implementation.
+type MigrationSpecProvider interface {
+	MigrationSpec() ConfigMigrationSpec
+}
+
 // AsDaemonProvider returns the agent's DaemonProvider, if it implements one.
 func AsDaemonProvider(a Agent) (DaemonProvider, bool) {
 	p, ok := a.(DaemonProvider)
@@ -87,6 +173,13 @@ func AsAttachRunner(a Agent) (AttachRunner, bool) { p, ok := a.(AttachRunner); r
 
 // AsProvisioner returns the agent's Provisioner, if it implements one.
 func AsProvisioner(a Agent) (Provisioner, bool) { p, ok := a.(Provisioner); return p, ok }
+
+// AsMigrationSpecProvider returns the agent's migration metadata, if it has a
+// safe config migration implementation.
+func AsMigrationSpecProvider(a Agent) (MigrationSpecProvider, bool) {
+	p, ok := a.(MigrationSpecProvider)
+	return p, ok
+}
 
 // VersionProvider exposes how to read the installed agent version from a
 // running image: the shell command to run and a parser for its output. Agents

@@ -36,7 +36,115 @@ func (opencodeConfig) ConfigFileNames() []string {
 func (opencodeConfig) ProvisionRules() []ProvisionRule {
 	return []ProvisionRule{
 		{Dir: ".config/opencode", Patterns: []string{"**", "!node_modules/", "!package*.json", "!.gitignore"}},
-		{Dir: ".local/share/opencode", Patterns: []string{"auth.json"}},
+		{Dir: ".local/share/opencode", Patterns: []string{authFileName}},
+	}
+}
+
+// MigrationSpec describes the OpenCode files that can be migrated without
+// copying native credentials into the VM. Both OpenCode profiles use the same
+// auth format and paths.
+//
+//nolint:gosec // these are public provider hostnames, not credentials
+func (opencodeConfig) MigrationSpec() ConfigMigrationSpec {
+	const wellKnownAuthType = "wellknown"
+	const tokenField = authTokenField
+	return ConfigMigrationSpec{
+		NativeConfigDir:       ".config/opencode",
+		NativeConfigEnv:       "XDG_CONFIG_HOME",
+		NativeConfigEnvIsPath: false,
+		NativeConfigSubdir:    opencodeName,
+		NativeCredential:      ".local/share/opencode/auth.json",
+		NativeDataEnv:         "XDG_DATA_HOME",
+		NativeDataEnvIsPath:   false,
+		NativeDataSubdir:      opencodeName,
+		CredentialTarget:      ".local/share/opencode/auth.json",
+		ManagedCredential:     authFileName,
+		ManagedSnippet:        "opencode-migrated.jsonc",
+		NativeConfigFiles: []string{
+			"config.json",
+			"opencode.json",
+			"opencode.jsonc",
+			"opencode.json5",
+			"opencode.yaml",
+			"opencode.yml",
+		},
+		NativeConfigStrictJSON:    false,
+		RequiredNetworkHosts:      nil,
+		NativeSupplementalFiles:   nil,
+		ManagedSupplementalFiles:  nil,
+		ProvisioningExcludedFiles: nil,
+		KnownProviderHosts: map[string]string{
+			authAnthropicProvider: anthropicAPIHost,
+			"github-copilot":      "api.githubcopilot.com",
+			"openai":              "api.openai.com",
+			"openrouter":          "openrouter.ai",
+		},
+		Auth: AuthMigrationSpec{
+			SecretPrefix: "OPENCODE",
+			AuthFields: map[string][]string{
+				"oauth":           {authAccessField, authRefreshField},
+				"api":             {authKeyField},
+				wellKnownAuthType: {tokenField},
+			},
+			SensitiveFields: []string{
+				authAccessField,
+				authAccessKeyField,
+				authAccessTokenField,
+				authAPIKeyType,
+				authAPIKeyField,
+				authAPITokenField,
+				authAuthorizationField,
+				authBearerTokenField,
+				authClientSecretField,
+				authCookieField,
+				authCredentialField,
+				authCredentialsField,
+				authIDTokenField,
+				authKeyField,
+				authPasswordField,
+				authPrivateKeyField,
+				authPrivateTokenField,
+				authRefreshField,
+				authRefreshTokenField,
+				authSecretField,
+				authSessionField,
+				authSessionTokenField,
+				authTokenField,
+				authXAPIKeyField,
+			},
+			SafeFields: []string{
+				"accountid", "enterpriseurl", "expires", "scopes", authTypeField,
+			},
+			ConfigSensitiveFields: []string{
+				authAccessKeyField,
+				authAccessTokenField,
+				authAPIKeyField,
+				authAPITokenField,
+				authAuthorizationField,
+				authBearerTokenField,
+				authClientSecretField,
+				authCredentialField,
+				authCredentialsField,
+				authIDTokenField,
+				authOAuthAccessField,
+				authOAuthRefreshField,
+				authPasswordField,
+				authPrivateKeyField,
+				authPrivateTokenField,
+				authRefreshTokenField,
+				authSecretField,
+				authSecretAccessKeyField,
+				authSessionField,
+				authSessionTokenField,
+				authTokenField,
+				authXAPIKeyField,
+			},
+			EndpointFields:          []string{authBaseURLField, authEndpointField, "enterpriseUrl", authURLField},
+			AuthPlaceholderPrefix:   migrationPlaceholderPrefix,
+			ConfigPlaceholderPrefix: "{env:",
+			ConfigPlaceholderSuffix: "}",
+			RejectUnresolvedValues:  false,
+		},
 	}
 }
 
