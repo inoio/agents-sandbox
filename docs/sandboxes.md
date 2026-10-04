@@ -1,5 +1,6 @@
 ---
 title: Sandboxes
+description: "Lifecycle and management of agents-sandbox VMs and their persistent home volumes: identity, idle timeout, concurrency and pruning."
 layout: default
 nav_order: 70
 ---

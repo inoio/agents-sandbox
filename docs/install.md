@@ -1,5 +1,6 @@
 ---
 title: Install
+description: "Install agents-sandbox on Linux (KVM) or macOS (Apple Silicon) and check that your system is ready to run sandboxed coding agents."
 layout: default
 nav_order: 20
 has_children: true
