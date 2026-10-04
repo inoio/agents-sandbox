@@ -1,5 +1,6 @@
 ---
 title: agents-sandbox
+title_category: Sandbox for Claude Code, opencode & pi in a microVM
 layout: home
 nav_order: 0
 ---
