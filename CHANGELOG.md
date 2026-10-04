@@ -10,10 +10,7 @@ command reports the bare version (e.g. `0.1.0`).
 
 ### Changed
 
-- Docs: pages declare absolute canonical URLs, so copies of the site (e.g. on forks) point search engines to inoio.github.io/agents-sandbox.
-- Docs: the documentation site publishes a `sitemap.xml` for search engines.
-- Docs: the documentation home page gets a descriptive title and the site description names the supported agents.
-- Docs: every documentation page has its own search-engine description.
+- Docs: improve SEO, e.g. canonical URL to inoio.github.io/agents-sandbox, publish a `sitemap.xml`, home page with descriptive title and site description.
 
 ## [0.5.0] - 2026-10-03
 
