@@ -34,7 +34,7 @@ type launcherConfigKey struct{}
 func extractRunOptions(cmd *cobra.Command, ui termio.UI) (options.RunOptions, error) {
 	opts := options.RunOptions{}
 	rawWorktree, _ := cmd.Flags().GetString(flagWorktree)
-	worktree, err := sandbox.ResolveWorktreeSpec(rawWorktree)
+	worktree, err := options.ResolveWorktreeSpec(rawWorktree)
 	if err != nil {
 		return options.RunOptions{}, err
 	}
