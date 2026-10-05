@@ -11,6 +11,7 @@ command reports the bare version (e.g. `0.1.0`).
 ### Changed
 
 - Docs: improve SEO, e.g. canonical URL to inoio.github.io/agents-sandbox, publish a `sitemap.xml`, home page with descriptive title, site description and link-preview title (`og:title`).
+- Internal: collapse run/shell option resolution into `viperconfig.Resolver.BuildRunOptions` (no behavior change).
 
 ## [0.5.0] - 2026-10-03
 
