@@ -571,15 +571,14 @@ func (c Config) IdleTimeout() time.Duration {
 	return 10 * time.Second
 }
 
-func (r *Resolver) Yes() bool                      { return r.cfg.Yes }
-func (r *Resolver) Quiet() bool                    { return r.cfg.Quiet }
-func (r *Resolver) LogLevel() string               { return r.cfg.LogLevel }
-func (r *Resolver) Agent() string                  { return r.cfg.Agent }
-func (r *Resolver) Dind() bool                     { return r.cfg.Dind }
-func (r *Resolver) ProvisionHostConfig() bool      { return r.cfg.ProvisionHostConfig }
-func (r *Resolver) AutoPruneAge() time.Duration    { return r.cfg.AutoPruneAge }
-func (r *Resolver) ManualPruneAge() time.Duration  { return r.cfg.ManualPruneAge }
-func (r *Resolver) AutoStopTimeout() time.Duration { return r.cfg.AutoStopTimeout }
+func (r *Resolver) Yes() bool                     { return r.cfg.Yes }
+func (r *Resolver) Quiet() bool                   { return r.cfg.Quiet }
+func (r *Resolver) LogLevel() string              { return r.cfg.LogLevel }
+func (r *Resolver) Agent() string                 { return r.cfg.Agent }
+func (r *Resolver) Dind() bool                    { return r.cfg.Dind }
+func (r *Resolver) ProvisionHostConfig() bool     { return r.cfg.ProvisionHostConfig }
+func (r *Resolver) AutoPruneAge() time.Duration   { return r.cfg.AutoPruneAge }
+func (r *Resolver) ManualPruneAge() time.Duration { return r.cfg.ManualPruneAge }
 
 // UpgradeMode returns the configured upgrade mode, defaulting to prompt. An
 // unparsable value (possible via NewResolverWithConfig, which skips

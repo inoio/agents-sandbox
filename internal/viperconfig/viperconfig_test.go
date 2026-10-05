@@ -41,7 +41,7 @@ func TestResolverGettersReturnConfig(t *testing.T) {
 		t.Error("prune getters mismatch")
 	}
 	if !r.cfg.AutoStopOnActiveSessions ||
-		r.AutoStopTimeout() != 30*time.Second || r.cfg.AutoStopMaxSessionRetries != 5 {
+		r.cfg.AutoStopTimeout != 30*time.Second || r.cfg.AutoStopMaxSessionRetries != 5 {
 		t.Error("autostop getters mismatch")
 	}
 	if r.cfg.IdleTimeout() != 30*time.Second {
