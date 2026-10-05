@@ -770,7 +770,10 @@ func (r *Resolver) resolveNotify(cmd *cobra.Command, ui termio.UI, opts *options
 func (r *Resolver) resolveNotifyConfig(cmd *cobra.Command) (notify.Config, error) {
 	cfg := notify.Config{Audio: notify.AudioOff} //nolint:exhaustruct // zero channels, populated below
 	if r != nil {
-		cfg = r.Notify()
+		cfg = r.cfg.Notify
+		if cfg.Audio == "" {
+			cfg.Audio = notify.AudioOff
+		}
 	}
 	if raw := os.Getenv(notifyEnvVar); raw != "" {
 		override, err := notify.ParseOverride(raw)
@@ -800,7 +803,7 @@ func (r *Resolver) resolveNetwork(cmd *cobra.Command, opts *options.RunOptions) 
 		}
 		opts.Network = network.Policy{Profile: prof, EgressAllow: nil, EgressDeny: nil, DNSServers: nil}
 	} else if r != nil {
-		opts.Network = r.Network()
+		opts.Network = r.cfg.Network.Effective()
 	}
 	if dns, _ := cmd.Flags().GetStringSlice(FlagDNSServers); len(dns) > 0 {
 		opts.Network.DNSServers = dns
