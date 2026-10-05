@@ -571,11 +571,6 @@ func (c Config) IdleTimeout() time.Duration {
 	return 10 * time.Second
 }
 
-func (r *Resolver) CPUs() uint8                    { return r.cfg.CPUs }
-func (r *Resolver) Memory() string                 { return r.cfg.Memory }
-func (r *Resolver) TmpSize() string                { return r.cfg.TmpSize }
-func (r *Resolver) DiskSize() string               { return r.cfg.DiskSize }
-func (r *Resolver) WorkspaceQuota() string         { return r.cfg.WorkspaceQuota }
 func (r *Resolver) Yes() bool                      { return r.cfg.Yes }
 func (r *Resolver) Quiet() bool                    { return r.cfg.Quiet }
 func (r *Resolver) LogLevel() string               { return r.cfg.LogLevel }
@@ -584,16 +579,7 @@ func (r *Resolver) Dind() bool                     { return r.cfg.Dind }
 func (r *Resolver) ProvisionHostConfig() bool      { return r.cfg.ProvisionHostConfig }
 func (r *Resolver) AutoPruneAge() time.Duration    { return r.cfg.AutoPruneAge }
 func (r *Resolver) ManualPruneAge() time.Duration  { return r.cfg.ManualPruneAge }
-func (r *Resolver) AutoStopOnActiveSessions() bool { return r.cfg.AutoStopOnActiveSessions }
 func (r *Resolver) AutoStopTimeout() time.Duration { return r.cfg.AutoStopTimeout }
-func (r *Resolver) AutoStopMaxSessionRetries() int { return r.cfg.AutoStopMaxSessionRetries }
-func (r *Resolver) IdleTimeout() time.Duration     { return r.cfg.IdleTimeout() }
-
-// Network returns the configured network policy, applying the secure default
-// profile when no profile is set.
-func (r *Resolver) Network() network.Policy {
-	return r.cfg.Network.Effective()
-}
 
 // UpgradeMode returns the configured upgrade mode, defaulting to prompt. An
 // unparsable value (possible via NewResolverWithConfig, which skips
@@ -619,25 +605,10 @@ func (r *Resolver) UpgradeInterval() time.Duration {
 	}
 }
 
-// Mounts returns additional host bind mounts.
-func (r *Resolver) Mounts() mounts.Mounts {
-	return r.cfg.Mounts
-}
-
 // Home returns the per-layer home manifests read from the config files' home:
 // key, and whether any config file declared a home key.
 func (r *Resolver) Home() (homeconfig.Layers, bool) {
 	return r.cfg.Home, r.cfg.hasHome
-}
-
-// Notify returns the resolved notify config. An empty Audio (zero-value Config)
-// is normalized to AudioOff so the feature is inactive by default.
-func (r *Resolver) Notify() notify.Config {
-	cfg := r.cfg.Notify
-	if cfg.Audio == "" {
-		cfg.Audio = notify.AudioOff
-	}
-	return cfg
 }
 
 // BuildRunOptions resolves the shared run/shell options from the command's

@@ -27,8 +27,8 @@ func TestResolverGettersReturnConfig(t *testing.T) {
 		Agent: "pi", ProvisionHostConfig: true,
 	}
 	r := NewResolverWithConfig(cfg)
-	if r.CPUs() != 4 || r.Memory() != "8G" || r.TmpSize() != "4G" || r.DiskSize() != "32G" ||
-		r.WorkspaceQuota() != "64G" {
+	if r.cfg.CPUs != 4 || r.cfg.Memory != "8G" || r.cfg.TmpSize != "4G" || r.cfg.DiskSize != "32G" ||
+		r.cfg.WorkspaceQuota != "64G" {
 		t.Errorf("resource getters mismatch: %+v", cfg)
 	}
 	if !r.Yes() || r.LogLevel() != "verbose" || !r.Quiet() {
@@ -40,18 +40,19 @@ func TestResolverGettersReturnConfig(t *testing.T) {
 	if r.AutoPruneAge() != 7*24*time.Hour || r.ManualPruneAge() != 14*24*time.Hour {
 		t.Error("prune getters mismatch")
 	}
-	if !r.AutoStopOnActiveSessions() || r.AutoStopTimeout() != 30*time.Second || r.AutoStopMaxSessionRetries() != 5 {
+	if !r.cfg.AutoStopOnActiveSessions ||
+		r.AutoStopTimeout() != 30*time.Second || r.cfg.AutoStopMaxSessionRetries != 5 {
 		t.Error("autostop getters mismatch")
 	}
-	if r.IdleTimeout() != 30*time.Second {
-		t.Errorf("IdleTimeout = %v; want 30s", r.IdleTimeout())
+	if r.cfg.IdleTimeout() != 30*time.Second {
+		t.Errorf("IdleTimeout = %v; want 30s", r.cfg.IdleTimeout())
 	}
 }
 
 func TestResolverIdleTimeoutDefault(t *testing.T) {
 	r := NewResolverWithConfig(Config{})
-	if r.IdleTimeout() != 10*time.Second {
-		t.Errorf("IdleTimeout default = %v; want 10s", r.IdleTimeout())
+	if r.cfg.IdleTimeout() != 10*time.Second {
+		t.Errorf("IdleTimeout default = %v; want 10s", r.cfg.IdleTimeout())
 	}
 }
 
@@ -69,14 +70,14 @@ func TestResolverMounts(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewResolver: %v", err)
 	}
-	if len(r.Mounts()) != 2 {
-		t.Fatalf("Mounts = %+v", r.Mounts())
+	if len(r.cfg.Mounts) != 2 {
+		t.Fatalf("Mounts = %+v", r.cfg.Mounts)
 	}
-	if got := r.Mounts()["/home/dev/.m2"]; got.Source != "~/.m2" || got.Readonly {
-		t.Errorf("Mounts = %+v", r.Mounts())
+	if got := r.cfg.Mounts["/home/dev/.m2"]; got.Source != "~/.m2" || got.Readonly {
+		t.Errorf("Mounts = %+v", r.cfg.Mounts)
 	}
-	if got := r.Mounts()["/home/dev/ref"]; got.Source != "/opt/company/reference" || !got.Readonly {
-		t.Errorf("Mounts = %+v", r.Mounts())
+	if got := r.cfg.Mounts["/home/dev/ref"]; got.Source != "/opt/company/reference" || !got.Readonly {
+		t.Errorf("Mounts = %+v", r.cfg.Mounts)
 	}
 }
 
@@ -99,13 +100,13 @@ func TestResolverMountsMergeByTarget(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewResolver: %v", err)
 	}
-	if len(r.Mounts()) != 2 {
-		t.Fatalf("Mounts = %+v", r.Mounts())
+	if len(r.cfg.Mounts) != 2 {
+		t.Fatalf("Mounts = %+v", r.cfg.Mounts)
 	}
-	if got := r.Mounts()["/home/dev/.m2"]; got.Source != "/project/.m2" || !got.Readonly {
+	if got := r.cfg.Mounts["/home/dev/.m2"]; got.Source != "/project/.m2" || !got.Readonly {
 		t.Errorf("project override = %+v", got)
 	}
-	if got := r.Mounts()["/home/dev/shared"]; got.Source != "/host/shared" {
+	if got := r.cfg.Mounts["/home/dev/shared"]; got.Source != "/host/shared" {
 		t.Errorf("user mount = %+v", got)
 	}
 }
@@ -140,8 +141,8 @@ func TestResolverEnvPrecedenceOverConfig(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewResolver: %v", err)
 	}
-	if r.CPUs() != 6 {
-		t.Errorf("CPUs = %d; want 6 (env overrides config)", r.CPUs())
+	if r.cfg.CPUs != 6 {
+		t.Errorf("CPUs = %d; want 6 (env overrides config)", r.cfg.CPUs)
 	}
 }
 
@@ -154,8 +155,8 @@ func TestResolverConfigNoFlag(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewResolver: %v", err)
 	}
-	if r.CPUs() != 3 {
-		t.Errorf("CPUs = %d; want 3", r.CPUs())
+	if r.cfg.CPUs != 3 {
+		t.Errorf("CPUs = %d; want 3", r.cfg.CPUs)
 	}
 }
 
@@ -183,7 +184,7 @@ func TestResolverEnvKeyReplacement(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewResolver: %v", err)
 	}
-	if !r.AutoStopOnActiveSessions() {
+	if !r.cfg.AutoStopOnActiveSessions {
 		t.Error("expected AutoStopOnActiveSessions true from env")
 	}
 }
@@ -214,8 +215,8 @@ func TestResolverFlagOverridesEnv(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewResolver: %v", err)
 	}
-	if r.CPUs() != 6 {
-		t.Errorf("CPUs = %d; want 6 (explicit flag overrides env/config)", r.CPUs())
+	if r.cfg.CPUs != 6 {
+		t.Errorf("CPUs = %d; want 6 (explicit flag overrides env/config)", r.cfg.CPUs)
 	}
 }
 
@@ -231,8 +232,8 @@ func TestResolverUnspecifiedFlagDefaultDoesNotOverride(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewResolver: %v", err)
 	}
-	if r.Memory() != "8G" {
-		t.Errorf("Memory = %q; want 8G (config beats unspecified flag default)", r.Memory())
+	if r.cfg.Memory != "8G" {
+		t.Errorf("Memory = %q; want 8G (config beats unspecified flag default)", r.cfg.Memory)
 	}
 }
 
@@ -245,8 +246,8 @@ func TestResolverFlagDefaultUsedWhenNothingElse(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewResolver: %v", err)
 	}
-	if r.Memory() != "4G" {
-		t.Errorf("Memory = %q; want 4G (flag default)", r.Memory())
+	if r.cfg.Memory != "4G" {
+		t.Errorf("Memory = %q; want 4G (flag default)", r.cfg.Memory)
 	}
 }
 
@@ -260,8 +261,8 @@ func TestResolverIgnoresRebuildKey(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewResolver: %v", err)
 	}
-	if r.CPUs() != 2 {
-		t.Errorf("CPUs = %d; want 2", r.CPUs())
+	if r.cfg.CPUs != 2 {
+		t.Errorf("CPUs = %d; want 2", r.cfg.CPUs)
 	}
 	// There is no Rebuild getter; the field is dropped silently.
 }
@@ -283,11 +284,11 @@ func TestResolverProjectOverridesUser(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewResolver: %v", err)
 	}
-	if r.CPUs() != 2 {
-		t.Errorf("CPUs = %d; want 2 from user config", r.CPUs())
+	if r.cfg.CPUs != 2 {
+		t.Errorf("CPUs = %d; want 2 from user config", r.cfg.CPUs)
 	}
-	if r.Memory() != "8G" {
-		t.Errorf("Memory = %q; want 8G from project override", r.Memory())
+	if r.cfg.Memory != "8G" {
+		t.Errorf("Memory = %q; want 8G from project override", r.cfg.Memory)
 	}
 	if r.Yes() {
 		t.Error("expected yes=false from project override")
@@ -349,8 +350,8 @@ func TestResolverJSON5Config(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewResolver: %v", err)
 	}
-	if r.CPUs() != 2 || r.Memory() != "512M" || !r.Yes() {
-		t.Errorf("unexpected config: cpus=%d memory=%q yes=%v", r.CPUs(), r.Memory(), r.Yes())
+	if r.cfg.CPUs != 2 || r.cfg.Memory != "512M" || !r.Yes() {
+		t.Errorf("unexpected config: cpus=%d memory=%q yes=%v", r.cfg.CPUs, r.cfg.Memory, r.Yes())
 	}
 }
 
@@ -363,8 +364,8 @@ func TestResolverDiskSizeConfig(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewResolver: %v", err)
 	}
-	if r.DiskSize() != "24G" {
-		t.Errorf("DiskSize = %q; want 24G", r.DiskSize())
+	if r.cfg.DiskSize != "24G" {
+		t.Errorf("DiskSize = %q; want 24G", r.cfg.DiskSize)
 	}
 }
 
@@ -377,8 +378,8 @@ func TestResolverWorkspaceQuotaConfig(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewResolver: %v", err)
 	}
-	if r.WorkspaceQuota() != "32G" {
-		t.Errorf("WorkspaceQuota = %q; want 32G", r.WorkspaceQuota())
+	if r.cfg.WorkspaceQuota != "32G" {
+		t.Errorf("WorkspaceQuota = %q; want 32G", r.cfg.WorkspaceQuota)
 	}
 }
 
@@ -390,8 +391,8 @@ func TestResolverWorkspaceQuotaEnv(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewResolver: %v", err)
 	}
-	if r.WorkspaceQuota() != "48G" {
-		t.Errorf("WorkspaceQuota = %q; want 48G from env", r.WorkspaceQuota())
+	if r.cfg.WorkspaceQuota != "48G" {
+		t.Errorf("WorkspaceQuota = %q; want 48G from env", r.cfg.WorkspaceQuota)
 	}
 }
 
@@ -399,8 +400,8 @@ func TestResolverWorkspaceQuotaGetter(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	cfg := Config{WorkspaceQuota: "16G"}
 	r := NewResolverWithConfig(cfg)
-	if r.WorkspaceQuota() != "16G" {
-		t.Errorf("WorkspaceQuota = %q; want 16G", r.WorkspaceQuota())
+	if r.cfg.WorkspaceQuota != "16G" {
+		t.Errorf("WorkspaceQuota = %q; want 16G", r.cfg.WorkspaceQuota)
 	}
 }
 
@@ -411,7 +412,7 @@ func TestResolverReapPolicyDefaults(t *testing.T) {
 		t.Fatalf("NewResolver: %v", err)
 	}
 
-	rp := options.NewReapPolicy(r.AutoStopOnActiveSessions(), r.AutoStopMaxSessionRetries())
+	rp := options.NewReapPolicy(r.cfg.AutoStopOnActiveSessions, r.cfg.AutoStopMaxSessionRetries)
 	if rp.AutoStopOnActiveSessions {
 		t.Error("expected AutoStopOnActiveSessions false by default")
 	}
@@ -426,8 +427,8 @@ func TestResolverIdleTimeoutDefaultFromConfig(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewResolver: %v", err)
 	}
-	if r.IdleTimeout() != 10*time.Second {
-		t.Errorf("IdleTimeout default = %v; want 10s", r.IdleTimeout())
+	if r.cfg.IdleTimeout() != 10*time.Second {
+		t.Errorf("IdleTimeout default = %v; want 10s", r.cfg.IdleTimeout())
 	}
 }
 
@@ -457,7 +458,7 @@ func TestNetworkProfileEnvVar(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewResolver: %v", err)
 	}
-	if got := r.Network(); got.Profile != network.ProfileNone {
+	if got := r.cfg.Network.Effective(); got.Profile != network.ProfileNone {
 		t.Fatalf("Network().Profile = %q, want %q", got.Profile, network.ProfileNone)
 	}
 }
@@ -468,7 +469,7 @@ func TestNetworkDefaultNone(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewResolver: %v", err)
 	}
-	if got := r.Network(); got.Profile != network.ProfileNone {
+	if got := r.cfg.Network.Effective(); got.Profile != network.ProfileNone {
 		t.Errorf("with no network config, Network().Profile = %q, want %q", got.Profile, network.ProfileNone)
 	}
 }
@@ -489,7 +490,7 @@ func TestNetworkDNSServersEnvVar(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewResolver: %v", err)
 	}
-	got := r.Network()
+	got := r.cfg.Network.Effective()
 	if got.Profile != network.ProfileNone {
 		t.Fatalf("Network().Profile = %q, want none (dns-only)", got.Profile)
 	}
@@ -511,7 +512,7 @@ func TestNetworkDNSServersFromConfigFile(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewResolver: %v", err)
 	}
-	got := r.Network()
+	got := r.cfg.Network.Effective()
 	if got.Profile != network.ProfileNone {
 		t.Fatalf("Network().Profile = %q, want none", got.Profile)
 	}
@@ -530,7 +531,7 @@ func TestNetworkDNSServersScalarConfigFile(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewResolver: %v", err)
 	}
-	got := r.Network().DNSServers
+	got := r.cfg.Network.Effective().DNSServers
 	if len(got) != 2 || got[0] != "1.1.1.1" || got[1] != "8.8.8.8" {
 		t.Fatalf("Network().DNSServers = %v, want [1.1.1.1 8.8.8.8]", got)
 	}
@@ -665,8 +666,8 @@ func TestPerSlugConfigPrecedence(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewResolver: %v", err)
 	}
-	if r.CPUs() != 4 {
-		t.Fatalf("CPUs = %d; want 4 (project overrides per-slug user)", r.CPUs())
+	if r.cfg.CPUs != 4 {
+		t.Fatalf("CPUs = %d; want 4 (project overrides per-slug user)", r.cfg.CPUs)
 	}
 
 	// Remove the project file; per-slug user must now win over generic user.
@@ -675,8 +676,8 @@ func TestPerSlugConfigPrecedence(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewResolver: %v", err)
 	}
-	if r2.CPUs() != 3 {
-		t.Fatalf("CPUs = %d; want 3 (per-slug user overrides generic user)", r2.CPUs())
+	if r2.cfg.CPUs != 3 {
+		t.Fatalf("CPUs = %d; want 3 (per-slug user overrides generic user)", r2.cfg.CPUs)
 	}
 }
 
@@ -741,9 +742,19 @@ func TestResolverRejectsTooSmallInterval(t *testing.T) {
 	}
 }
 
+// resolverNotify returns the resolver's notify config, normalizing an empty
+// Audio to AudioOff just as the removed Resolver.Notify getter did.
+func resolverNotify(r *Resolver) notify.Config {
+	cfg := r.cfg.Notify
+	if cfg.Audio == "" {
+		cfg.Audio = notify.AudioOff
+	}
+	return cfg
+}
+
 func TestResolverNotifyDefaults(t *testing.T) {
 	r := NewResolverWithConfig(Config{})
-	cfg := r.Notify()
+	cfg := resolverNotify(r)
 	if cfg.Active() {
 		t.Errorf("default notify should be inactive, got %+v", cfg)
 	}
@@ -765,7 +776,7 @@ func TestResolverNotifyFromConfigFile(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewResolver: %v", err)
 	}
-	cfg := r.Notify()
+	cfg := resolverNotify(r)
 	if !cfg.Desktop || cfg.Audio != notify.AudioBell {
 		t.Errorf("channels = desktop:%v audio:%q, want desktop true audio bell", cfg.Desktop, cfg.Audio)
 	}
