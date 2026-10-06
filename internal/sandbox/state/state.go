@@ -68,7 +68,7 @@ type HomeState struct {
 // NewHomeState returns a HomeState with a zeroed EnvState/SecretState, ready
 // for write-after-creation or write-after-action flows.
 func NewHomeState(homeVolume, digest string) HomeState {
-	return HomeState{ //nolint:exhaustruct // EnvState/SecretState zeroed intentionally; serialized with omitempty
+	return HomeState{ //nolint:exhaustruct_v5 // EnvState/SecretState zeroed intentionally; serialized with omitempty
 		HomeVolume:  homeVolume,
 		ImageDigest: digest,
 	}

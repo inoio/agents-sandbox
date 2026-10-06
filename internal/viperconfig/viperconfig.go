@@ -620,7 +620,7 @@ func (r *Resolver) Notify() notify.Config {
 // inactive config when no notify key is set; otherwise channels are read as-is
 // and triggers default to true.
 func decodeNotify(v *viper.Viper) NotifyConfig {
-	cfg := NotifyConfig{Audio: notify.AudioOff} //nolint:exhaustruct // remaining fields zeroed and set below
+	cfg := NotifyConfig{Audio: notify.AudioOff} //nolint:exhaustruct_v5 // remaining fields zeroed and set below
 	if !v.IsSet(keyNotifyDesktop) && !v.IsSet(keyNotifyAudio) &&
 		!v.IsSet(keyNotifyOnInput) && !v.IsSet(keyNotifyOnDone) && !v.IsSet(keyNotifyOnError) {
 		return cfg

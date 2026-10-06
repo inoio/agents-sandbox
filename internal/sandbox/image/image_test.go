@@ -13,9 +13,7 @@ import (
 	"testing"
 
 	dockerspec "github.com/moby/docker-image-spec/specs-go/v1"
-	"github.com/moby/moby/api/types/image"
 	"github.com/moby/moby/client"
-	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 
@@ -35,7 +33,7 @@ func dockerConfigWith(version string, env []string) *dockerspec.DockerOCIImageCo
 		labels[agentLabelKey] = version
 	}
 	return &dockerspec.DockerOCIImageConfig{
-		ImageConfig: ocispec.ImageConfig{Env: env, Labels: labels},
+		Env: env, Labels: labels,
 	}
 }
 
@@ -275,7 +273,7 @@ func TestEnsureImageDoesNotCreateDigestAliasTag(t *testing.T) {
 	var tagged []string
 	m := &docker.MockDockerClient{
 		ImageInspectFn: func(_ context.Context, _ string, _ ...client.ImageInspectOption) (client.ImageInspectResult, error) {
-			return client.ImageInspectResult{InspectResponse: image.InspectResponse{ID: "sha256:abc123"}}, nil
+			return client.ImageInspectResult{ID: "sha256:abc123"}, nil
 		},
 		ImageTagFn: func(_ context.Context, opts client.ImageTagOptions) (client.ImageTagResult, error) {
 			tagged = append(tagged, opts.Target)
@@ -308,10 +306,8 @@ func TestEnsureImageDoesNotLoadIntoMSB(t *testing.T) {
 	docker.WithDockerMock(t, &docker.MockDockerClient{
 		ImageInspectFn: func(_ context.Context, _ string, _ ...client.ImageInspectOption) (client.ImageInspectResult, error) {
 			return client.ImageInspectResult{
-				InspectResponse: image.InspectResponse{
-					ID:     "sha256:abc123",
-					Config: dockerConfigWith("1.0.0", []string{"PATH=/usr/bin"}),
-				},
+				ID:     "sha256:abc123",
+				Config: dockerConfigWith("1.0.0", []string{"PATH=/usr/bin"}),
 			}, nil
 		},
 	})
@@ -349,7 +345,7 @@ func TestBuildImagePassesAgentVersionBuildArg(t *testing.T) {
 	m := &docker.MockDockerClient{}
 	var captured map[string]*string
 	m.ImageInspectFn = func(_ context.Context, _ string, _ ...client.ImageInspectOption) (client.ImageInspectResult, error) {
-		return client.ImageInspectResult{InspectResponse: image.InspectResponse{ID: "sha256:base"}}, nil
+		return client.ImageInspectResult{ID: "sha256:base"}, nil
 	}
 	m.ImageBuildFn = func(_ context.Context, _ io.Reader, opts client.ImageBuildOptions) (client.ImageBuildResult, error) {
 		captured = opts.BuildArgs
@@ -392,10 +388,8 @@ func TestEnsureImageReadsVersionAndEnvFromDocker(t *testing.T) {
 	docker.WithDockerMock(t, &docker.MockDockerClient{
 		ImageInspectFn: func(_ context.Context, _ string, _ ...client.ImageInspectOption) (client.ImageInspectResult, error) {
 			return client.ImageInspectResult{
-				InspectResponse: image.InspectResponse{
-					ID:     "sha256:abc123",
-					Config: dockerConfigWith("2.0.0", []string{"PATH=/usr/bin"}),
-				},
+				ID:     "sha256:abc123",
+				Config: dockerConfigWith("2.0.0", []string{"PATH=/usr/bin"}),
 			}, nil
 		},
 	})
@@ -430,11 +424,9 @@ func TestEnsureImageReturnsDigestImageRefAsTag(t *testing.T) {
 	docker.WithDockerMock(t, &docker.MockDockerClient{
 		ImageInspectFn: func(_ context.Context, _ string, _ ...client.ImageInspectOption) (client.ImageInspectResult, error) {
 			return client.ImageInspectResult{
-				InspectResponse: image.InspectResponse{
-					ID: "sha256:abc123",
-					Config: &dockerspec.DockerOCIImageConfig{
-						ImageConfig: ocispec.ImageConfig{Env: []string{"PATH=/usr/bin"}},
-					},
+				ID: "sha256:abc123",
+				Config: &dockerspec.DockerOCIImageConfig{
+					Env: []string{"PATH=/usr/bin"},
 				},
 			}, nil
 		},
@@ -468,10 +460,8 @@ func TestEnsureImageReadsVersionFromDocker(t *testing.T) {
 	docker.WithDockerMock(t, &docker.MockDockerClient{
 		ImageInspectFn: func(_ context.Context, _ string, _ ...client.ImageInspectOption) (client.ImageInspectResult, error) {
 			return client.ImageInspectResult{
-				InspectResponse: image.InspectResponse{
-					ID:     "sha256:abc123",
-					Config: dockerConfigWith("3.0.0", nil),
-				},
+				ID:     "sha256:abc123",
+				Config: dockerConfigWith("3.0.0", nil),
 			}, nil
 		},
 	})
@@ -503,7 +493,7 @@ func TestEnsureLoadedReloadsWhenCachedContentDiffers(t *testing.T) {
 	rTag := runnerTag("test-project", a.Name())
 	docker.WithDockerMock(t, &docker.MockDockerClient{
 		ImageInspectFn: func(_ context.Context, _ string, _ ...client.ImageInspectOption) (client.ImageInspectResult, error) {
-			return client.ImageInspectResult{InspectResponse: image.InspectResponse{ID: "sha256:docker-new"}}, nil
+			return client.ImageInspectResult{ID: "sha256:docker-new"}, nil
 		},
 		ImageSaveFn: func(_ context.Context, refs []string, _ ...client.ImageSaveOption) (client.ImageSaveResult, error) {
 			if len(refs) != 1 || refs[0] != rTag {
@@ -545,7 +535,7 @@ func TestEnsureLoadedSkipsWhenCachedContentMatches(t *testing.T) {
 	docker.WithDockerMock(t, &docker.MockDockerClient{
 		ImageInspectFn: func(_ context.Context, _ string, _ ...client.ImageInspectOption) (client.ImageInspectResult, error) {
 			return client.ImageInspectResult{
-				InspectResponse: image.InspectResponse{ID: "sha256:same", Config: dockerConfigWith("", nil)},
+				ID: "sha256:same", Config: dockerConfigWith("", nil),
 			}, nil
 		},
 	})
@@ -576,9 +566,9 @@ func TestEnsureLoadedSkipsWhenDockerfileIDLabelMatches(t *testing.T) {
 	docker.WithDockerMock(t, &docker.MockDockerClient{
 		ImageInspectFn: func(_ context.Context, _ string, _ ...client.ImageInspectOption) (client.ImageInspectResult, error) {
 			return client.ImageInspectResult{
-				InspectResponse: image.InspectResponse{ID: "", Config: &dockerspec.DockerOCIImageConfig{
-					ImageConfig: ocispec.ImageConfig{Labels: labels},
-				}},
+				ID: "", Config: &dockerspec.DockerOCIImageConfig{
+					Labels: labels,
+				},
 			}, nil
 		},
 	})

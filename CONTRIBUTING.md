@@ -12,11 +12,13 @@ The layout is a standard Go module:
 
 ## Requirements
 
-- Go 1.26 (see `go.mod`)
-- `golangci-lint` v2 for linting and formatting
+- Go 1.27.1 (pinned in `.go-version`, managed via goenv; see `docs/development.md`)
+- `golangci-lint` v2.14.0 for linting and formatting
 - `gotestsum` for generating JUnit XML test results (`make coverage-junit`)
 - Docker for building the runner image (`agents-sandbox build`)
-- `zig` 0.16.0 - only needed for cross-compiling release binaries (`make build-release`)
+- `zig` 0.17.0 - only needed for cross-compiling release binaries (`make build-release`)
+
+Run `make bootstrap` once to install the pinned Go, golangci-lint, and Zig.
 
 ## Common commands
 

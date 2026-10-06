@@ -113,7 +113,7 @@ func (p *printer) Header(msg string) {
 
 // NewTable returns an empty aligned Table that prints through p.
 func (p *printer) NewTable(headers ...string) *Table {
-	//nolint:exhaustruct // rows starts empty (nil slice is the zero value)
+	//nolint:exhaustruct_v5 // rows starts empty (nil slice is the zero value)
 	return &Table{ui: p, headers: headers}
 }
 

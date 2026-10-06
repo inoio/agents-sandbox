@@ -26,7 +26,7 @@ type spinner struct {
 }
 
 func newSpinner(w io.Writer, color bool, level Level, msg string) *spinner {
-	//nolint:exhaustruct // fields are lazily initialized by Start()
+	//nolint:exhaustruct_v5 // fields are lazily initialized by Start()
 	s := &spinner{w: w, color: color, level: level}
 	s.Start(msg)
 	return s

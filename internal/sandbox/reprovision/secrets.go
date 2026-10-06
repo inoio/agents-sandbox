@@ -53,13 +53,13 @@ func ParseSecretSpecLegacy(filename string, ui termio.UI) map[string]SecretSpec 
 			return nil
 		}
 		valueAndHost := value
-		atIdx := strings.LastIndex(valueAndHost, "@")
-		if atIdx < 0 {
+		before, after, ok := strings.CutLast(valueAndHost, "@")
+		if !ok {
 			ui.Warnf("Value of secret '%s' not defined in format 'value@host': '%s'", key, valueAndHost)
 			return nil
 		}
-		specs[key] = SecretSpec{ //nolint:exhaustruct // missing field uses zero-value default
-			Value: valueAndHost[:atIdx], Host: "", Hosts: []string{valueAndHost[atIdx+1:]},
+		specs[key] = SecretSpec{ //nolint:exhaustruct_v5 // missing field uses zero-value default
+			Value: before, Host: "", Hosts: []string{after},
 		}
 		return nil
 	})

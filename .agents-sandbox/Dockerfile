@@ -1,13 +1,21 @@
 FROM agents-sandbox/runner-base-dind:latest
 
+# default versions, keep in sync with versions in Makefile
+ARG GO_VERSION=1.27.1
+ARG GOLANGCI_LINT_VERSION=2.14.0
+ARG GOTESTSUM_VERSION=1.13.0
+ARG ZIG_VERSION=0.17.0
+ARG GH_VERSION=2.100.0
+ARG PLANTUML_VERSION=1.2026.7
+
 USER root
 # Go & linter
 ENV PATH="/usr/local/go/bin:$PATH"
 RUN if [ "$(uname -m)" = aarch64 ]; then GOARCH=arm64; else GOARCH=amd64; fi && \
-    curl -fsSL "https://go.dev/dl/go1.26.6.linux-${GOARCH}.tar.gz" | tar -C /usr/local -xzf -
-RUN curl -sSfL https://golangci-lint.run/install.sh | sh -s -- -b /usr/local/bin v2.12.2
+    curl -fsSL "https://go.dev/dl/go${GO_VERSION}.linux-${GOARCH}.tar.gz" | tar -C /usr/local -xzf -
+RUN curl -sSfL https://golangci-lint.run/install.sh | sh -s -- -b /usr/local/bin v${GOLANGCI_LINT_VERSION}
 # gotestsum: emits JUnit XML (junit.xml) for Codecov Test Analytics alongside coverage.
-RUN GOBIN=/usr/local/bin go install gotest.tools/gotestsum@v1.13.0
+RUN GOBIN=/usr/local/bin go install gotest.tools/gotestsum@v${GOTESTSUM_VERSION}
 # build-essential for CGO, shellcheck for shell script linting, default-jre for the PlantUML jar
 # (the full JRE, not -headless: PlantUML renders fonts and needs libharfbuzz/libfontmanager)
 RUN apt-get update && \
@@ -15,7 +23,6 @@ RUN apt-get update && \
     rm -rf /var/lib/apt/lists/*
 
 # zig (tarball and install dir are architecture-specific; a stable symlink keeps PATH fixed)
-ARG ZIG_VERSION=0.16.0
 
 RUN if [ "$(uname -m)" = aarch64 ]; then ZIG_ARCH=aarch64; else ZIG_ARCH=x86_64; fi && \
     curl -fsSL "https://ziglang.org/download/${ZIG_VERSION}/zig-${ZIG_ARCH}-linux-${ZIG_VERSION}.tar.xz" -o /tmp/zig.tar.xz \
@@ -25,10 +32,10 @@ RUN if [ "$(uname -m)" = aarch64 ]; then ZIG_ARCH=aarch64; else ZIG_ARCH=x86_64;
 
 ENV PATH="/usr/local/zig:${PATH}"
 
-# zig 0.16.0 ships macOS C headers but not the framework/library stubs that Go's
+# zig ships macOS C headers but not the framework/library stubs that Go's
 # linker needs (-framework CoreFoundation, -framework Security, -lresolv).
 # These empty stubs satisfy the linker; symbols resolve at runtime on macOS.
-# The build context here contains only the Dockerfile, so the stubs are inlined
+# The build context set up by build.go#dockerfileTar contains only the Dockerfile, so the stubs are inlined
 # as printf(1) output (works on legacy and BuildKit builders alike) instead of
 # heredoc syntax (fails on legacy builder).
 RUN ZIG_DARWIN="$(dirname "$(which zig)")/lib/libc/darwin" \
@@ -60,13 +67,11 @@ RUN ZIG_DARWIN="$(dirname "$(which zig)")/lib/libc/darwin" \
 #   gh auth setup-git
 # fi
 # ```
-ARG GH_VERSION=2.62.0
 RUN curl -fsSL "https://github.com/cli/cli/releases/download/v${GH_VERSION}/gh_${GH_VERSION}_linux_$(dpkg --print-architecture).deb" -o /tmp/gh.deb \
  && dpkg -i /tmp/gh.deb \
  && rm -f /tmp/gh.deb
 
 # PlantUML (standalone jar; the apt package is too old for C4-PlantUML)
-ARG PLANTUML_VERSION=1.2026.7
 RUN mkdir -p /usr/local/plantuml \
  && curl -fsSL "https://github.com/plantuml/plantuml/releases/download/v${PLANTUML_VERSION}/plantuml.jar" -o /usr/local/plantuml/plantuml.jar \
  && printf '%b' \

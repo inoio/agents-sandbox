@@ -159,7 +159,7 @@ func checkForUpgrade(ctx context.Context, r *launcherconfig.Resolver, ui termio.
 	if r == nil {
 		return false, nil
 	}
-	res, err := upgradeCheck(ctx, upgrade.Options{ //nolint:exhaustruct // StatePath/UpdateFunc use their defaults
+	res, err := upgradeCheck(ctx, upgrade.Options{ //nolint:exhaustruct_v5 // StatePath/UpdateFunc use their defaults
 		CurrentVersion: version,
 		Mode:           r.UpgradeMode(),
 		Interval:       r.UpgradeInterval(),

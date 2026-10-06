@@ -86,7 +86,7 @@ func (relErrConfigMerger) VMConfigPath(_ string) string { return "relative/path"
 func (relErrConfigMerger) ConfigFileNames() []string    { return nil }
 
 func TestReservedHomeConfigTargetsRelError(t *testing.T) {
-	got := reservedHomeConfigTargets(relErrConfigMerger{noDaemonAgent: noDaemonAgent{name: "x"}}, "/different/home")
+	got := reservedHomeConfigTargets(relErrConfigMerger{name: "x"}, "/different/home")
 	if got != nil {
 		t.Errorf("reservedHomeConfigTargets = %v, want nil on filepath.Rel error", got)
 	}

@@ -81,7 +81,7 @@ func extractRunOptions(cmd *cobra.Command, ui termio.UI) (options.RunOptions, er
 				)
 			}
 			ui.Warnf("notifications not supported by agent %q (no daemon/event stream); ignoring", a.Name())
-			opts.Notify = notify.Config{Audio: notify.AudioOff} //nolint:exhaustruct // channels disabled
+			opts.Notify = notify.Config{Audio: notify.AudioOff} //nolint:exhaustruct_v5 // channels disabled
 		}
 	}
 
@@ -164,7 +164,7 @@ const notifyEnvVar = "OPENCODE_SANDBOX_NOTIFY"
 // resolveNotifyConfig resolves the effective notify config with precedence
 // flag > env > config, then validates the value and agent support.
 func resolveNotifyConfig(cmd *cobra.Command) (notify.Config, error) {
-	cfg := notify.Config{Audio: notify.AudioOff} //nolint:exhaustruct // zero channels, populated below
+	cfg := notify.Config{Audio: notify.AudioOff} //nolint:exhaustruct_v5 // zero channels, populated below
 	if r := resolverFromContext(cmd.Context()); r != nil {
 		cfg = r.Notify()
 	}

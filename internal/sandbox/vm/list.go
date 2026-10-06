@@ -44,7 +44,7 @@ func FormatTime(t time.Time) string {
 // ListSandboxes returns a list of sandbox VMs for the current host, filtered
 // by the given options.
 func ListSandboxes(ctx context.Context, opts ...ListOption) ([]Info, error) { //nolint:gocognit
-	opt := ListOption{} //nolint:exhaustruct // filter fields are accumulated from opts below
+	opt := ListOption{} //nolint:exhaustruct_v5 // filter fields are accumulated from opts below
 	for _, o := range opts {
 		if o.Labels != nil {
 			opt.Labels = o.Labels

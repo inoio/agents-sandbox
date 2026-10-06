@@ -154,7 +154,7 @@ func (m *MockMsbClient) CreateSandbox(ctx context.Context, name string, opts ...
 	if m.CreatedSandbox != nil {
 		return m.CreatedSandbox, nil
 	}
-	//nolint:exhaustruct // tests set only Name_
+	//nolint:exhaustruct_v5 // tests set only Name_
 	return &MockSandbox{Name_: name}, nil
 }
 
@@ -203,7 +203,7 @@ func (m *MockMsbClient) CreateVolume(
 	if m.createVolumeErr != nil {
 		return nil, m.createVolumeErr
 	}
-	//nolint:exhaustruct // tests set only Name_
+	//nolint:exhaustruct_v5 // tests set only Name_
 	return &MockVolumeHandle{Name_: name}, nil
 }
 
@@ -378,7 +378,7 @@ func (m *MockSandboxHandle) Connect(_ context.Context) (Sandbox, error) {
 	if m.ConnectSb != nil {
 		return m.ConnectSb, nil
 	}
-	//nolint:exhaustruct // only Name_ needed
+	//nolint:exhaustruct_v5 // only Name_ needed
 	return &MockSandbox{Name_: m.Name_}, nil
 }
 func (m *MockSandboxHandle) Refresh(ctx context.Context) (SandboxHandle, error) {
@@ -397,7 +397,7 @@ func (m *MockSandboxHandle) Start(ctx context.Context) (Sandbox, error) {
 	if m.StartSb != nil {
 		return m.StartSb, nil
 	}
-	//nolint:exhaustruct // only Name_ needed
+	//nolint:exhaustruct_v5 // only Name_ needed
 	return &MockSandbox{Name_: m.Name_}, nil
 }
 func (m *MockSandboxHandle) Stop(_ context.Context, _ ...msbSdk.StopOption) error {
@@ -479,7 +479,7 @@ func (m *MockSandbox) Shell(_ context.Context, command string, _ ...msbSdk.ExecO
 		return out, nil
 	}
 	// Return successful result when no override is configured.
-	//nolint:exhaustruct // success-only default
+	//nolint:exhaustruct_v5 // success-only default
 	return &TestResult{success: true}, nil
 }
 func (m *MockSandbox) Exec(
@@ -499,7 +499,7 @@ func (m *MockSandbox) Exec(
 		return out, nil
 	}
 	// Return successful result when no override is configured.
-	//nolint:exhaustruct // success-only default
+	//nolint:exhaustruct_v5 // success-only default
 	return &TestResult{success: true}, nil
 }
 
@@ -516,7 +516,7 @@ func (m *MockSandbox) AttachWith(
 	m.AttachCmd = command
 	m.AttachArgs = args
 	if len(opts) > 0 {
-		//nolint:exhaustruct // only User_ is relevant for this mock
+		//nolint:exhaustruct_v5 // only User_ is relevant for this mock
 		cfg := msbSdk.AttachConfig{}
 		for _, opt := range opts {
 			opt(&cfg)
@@ -582,7 +582,7 @@ type SandboxOpts struct {
 // NewMockSandbox returns a Sandbox configured by opts. Zero/unset values produce
 // sensible defaults so callers only name the fields they care about.
 func NewMockSandbox(opts SandboxOpts) Sandbox {
-	//nolint:exhaustruct // Name_ is optional for mock construction
+	//nolint:exhaustruct_v5 // Name_ is optional for mock construction
 	return &MockSandbox{
 		FSValue_:        opts.FSValue,
 		ShellOut:        opts.ShellOut,
@@ -617,7 +617,7 @@ type TestFS struct {
 // path to file content; ls is the return value for List. Nil map values
 // produce sensible defaults.
 func NewTestFS(files map[string][]byte, ls []msbSdk.FsEntry) *TestFS {
-	//nolint:exhaustruct // ReadErr and ListErr default to zero value (nil)
+	//nolint:exhaustruct_v5 // ReadErr and ListErr default to zero value (nil)
 	return &TestFS{Contents: files, LS: ls}
 }
 
