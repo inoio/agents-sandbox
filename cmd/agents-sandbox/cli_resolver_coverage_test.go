@@ -103,16 +103,17 @@ func TestReservedHomeConfigTargetsOK(t *testing.T) {
 	}
 }
 
-// TestExtractRunOptionsInvalidNotifyFlag exercises the --notify flag override
-// error branch in resolveNotifyConfig (an invalid value passed directly on the
-// flag, not via the env var).
-func TestExtractRunOptionsInvalidNotifyFlag(t *testing.T) {
+// TestBuildRunOptionsInvalidNotifyFlag exercises the --notify flag override
+// error branch in BuildRunOptions (an invalid value passed directly on the
+// flag, not via the env var), with a nil resolver.
+func TestBuildRunOptionsInvalidNotifyFlag(t *testing.T) {
 	ui := &termio.Mock{}
 	cmd := buildRunCmd(ui)
 	if err := cmd.Flags().Set(flagNotify, "loud"); err != nil {
 		t.Fatalf("set notify: %v", err)
 	}
-	if _, err := extractRunOptions(cmd, ui); err == nil {
+	var r *launcherconfig.Resolver
+	if _, err := r.BuildRunOptions(cmd, ui); err == nil {
 		t.Fatal("expected error for invalid --notify flag value")
 	}
 }

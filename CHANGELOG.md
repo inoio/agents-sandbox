@@ -13,6 +13,7 @@ command reports the bare version (e.g. `0.1.0`).
 - Development: add a `make bootstrap` target that installs the pinned toolchain (Go from `.go-version` via goenv, plus golangci-lint and Zig for cross-compilation) and a read-only `make verify` target for CI parity. Bump the toolchain to Go 1.27.1, golangci-lint 2.14.0, gotestsum 1.13.0, and Zig 0.17.0. The `.agents-sandbox/Dockerfile` pins matching versions for the runtime runner image.
 - Development: move the macOS linker stubs from `ci/builder/stubs/` to `.github/stubs/` and drop the now-unused `ci/builder/Dockerfile`.
 - Docs: improve SEO, e.g. canonical URL to inoio.github.io/agents-sandbox, publish a `sitemap.xml`, home page with descriptive title, site description and link-preview title (`og:title`).
+- Internal: collapse run/shell option resolution into `viperconfig.Resolver.BuildRunOptions` (no behavior change).
 
 ## [0.5.0] - 2026-10-03
 

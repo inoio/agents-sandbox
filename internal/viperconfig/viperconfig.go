@@ -8,15 +8,19 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
 
+	"github.com/inoio/agents-sandbox/internal/agent"
 	"github.com/inoio/agents-sandbox/internal/configpaths"
 	"github.com/inoio/agents-sandbox/internal/homeconfig"
 	"github.com/inoio/agents-sandbox/internal/notify"
 	"github.com/inoio/agents-sandbox/internal/sandbox/mounts"
 	"github.com/inoio/agents-sandbox/internal/sandbox/network"
+	"github.com/inoio/agents-sandbox/internal/sandbox/options"
+	"github.com/inoio/agents-sandbox/internal/termio"
 	"github.com/inoio/agents-sandbox/internal/upgrade"
 	"github.com/inoio/agents-sandbox/internal/yamlfmt"
 
@@ -76,6 +80,26 @@ type Config struct {
 
 // NotifyConfig is the resolved notify setting for a session.
 type NotifyConfig = notify.Config
+
+// Exported flag names that BuildRunOptions reads directly from the command.
+const (
+	FlagWorktree   = "worktree"
+	FlagRebuild    = "rebuild"
+	FlagDryRun     = "dry-run"
+	FlagDryRunVM   = "dry-run-vm"
+	FlagServeOnly  = "serve-only"
+	FlagRoot       = "root"
+	FlagAgent      = "agent"
+	FlagNetwork    = "network"
+	FlagDNSServers = "dns"
+	FlagNotify     = "notify"
+)
+
+// notifyEnvVar is the environment variable override for --notify.
+const notifyEnvVar = "OPENCODE_SANDBOX_NOTIFY"
+
+// defaultAgentName is the fallback agent used when --agent is not provided.
+const defaultAgentName = "opencode"
 
 // UpgradeConfig holds self-upgrade settings.
 type UpgradeConfig struct {
@@ -547,29 +571,14 @@ func (c Config) IdleTimeout() time.Duration {
 	return 10 * time.Second
 }
 
-func (r *Resolver) CPUs() uint8                    { return r.cfg.CPUs }
-func (r *Resolver) Memory() string                 { return r.cfg.Memory }
-func (r *Resolver) TmpSize() string                { return r.cfg.TmpSize }
-func (r *Resolver) DiskSize() string               { return r.cfg.DiskSize }
-func (r *Resolver) WorkspaceQuota() string         { return r.cfg.WorkspaceQuota }
-func (r *Resolver) Yes() bool                      { return r.cfg.Yes }
-func (r *Resolver) Quiet() bool                    { return r.cfg.Quiet }
-func (r *Resolver) LogLevel() string               { return r.cfg.LogLevel }
-func (r *Resolver) Agent() string                  { return r.cfg.Agent }
-func (r *Resolver) Dind() bool                     { return r.cfg.Dind }
-func (r *Resolver) ProvisionHostConfig() bool      { return r.cfg.ProvisionHostConfig }
-func (r *Resolver) AutoPruneAge() time.Duration    { return r.cfg.AutoPruneAge }
-func (r *Resolver) ManualPruneAge() time.Duration  { return r.cfg.ManualPruneAge }
-func (r *Resolver) AutoStopOnActiveSessions() bool { return r.cfg.AutoStopOnActiveSessions }
-func (r *Resolver) AutoStopTimeout() time.Duration { return r.cfg.AutoStopTimeout }
-func (r *Resolver) AutoStopMaxSessionRetries() int { return r.cfg.AutoStopMaxSessionRetries }
-func (r *Resolver) IdleTimeout() time.Duration     { return r.cfg.IdleTimeout() }
-
-// Network returns the configured network policy, applying the secure default
-// profile when no profile is set.
-func (r *Resolver) Network() network.Policy {
-	return r.cfg.Network.Effective()
-}
+func (r *Resolver) Yes() bool                     { return r.cfg.Yes }
+func (r *Resolver) Quiet() bool                   { return r.cfg.Quiet }
+func (r *Resolver) LogLevel() string              { return r.cfg.LogLevel }
+func (r *Resolver) Agent() string                 { return r.cfg.Agent }
+func (r *Resolver) Dind() bool                    { return r.cfg.Dind }
+func (r *Resolver) ProvisionHostConfig() bool     { return r.cfg.ProvisionHostConfig }
+func (r *Resolver) AutoPruneAge() time.Duration   { return r.cfg.AutoPruneAge }
+func (r *Resolver) ManualPruneAge() time.Duration { return r.cfg.ManualPruneAge }
 
 // UpgradeMode returns the configured upgrade mode, defaulting to prompt. An
 // unparsable value (possible via NewResolverWithConfig, which skips
@@ -595,25 +604,211 @@ func (r *Resolver) UpgradeInterval() time.Duration {
 	}
 }
 
-// Mounts returns additional host bind mounts.
-func (r *Resolver) Mounts() mounts.Mounts {
-	return r.cfg.Mounts
-}
-
 // Home returns the per-layer home manifests read from the config files' home:
 // key, and whether any config file declared a home key.
 func (r *Resolver) Home() (homeconfig.Layers, bool) {
 	return r.cfg.Home, r.cfg.hasHome
 }
 
-// Notify returns the resolved notify config. An empty Audio (zero-value Config)
-// is normalized to AudioOff so the feature is inactive by default.
-func (r *Resolver) Notify() notify.Config {
-	cfg := r.cfg.Notify
-	if cfg.Audio == "" {
-		cfg.Audio = notify.AudioOff
+// BuildRunOptions resolves the shared run/shell options from the command's
+// flags and this resolver's config, with precedence flag > env > config >
+// default. A nil resolver resolves flag-only options with zero-value policy
+// fields (no config, env, or defaults applied).
+func (r *Resolver) BuildRunOptions(cmd *cobra.Command, ui termio.UI) (options.RunOptions, error) {
+	opts, err := r.resolveFlags(cmd, ui)
+	if err != nil {
+		return options.RunOptions{}, err
 	}
-	return cfg
+
+	if err = r.resolveAgentAndValidate(cmd, &opts); err != nil {
+		return options.RunOptions{}, err
+	}
+
+	if err = r.resolveNotify(cmd, ui, &opts); err != nil {
+		return options.RunOptions{}, err
+	}
+
+	if r != nil {
+		opts.CPUs = r.cfg.CPUs
+		opts.Memory = r.cfg.Memory
+		opts.TmpSize = r.cfg.TmpSize
+		opts.DiskSize = r.cfg.DiskSize
+		opts.WorkspaceQuota = r.cfg.WorkspaceQuota
+		opts.ReapPolicy = options.NewReapPolicy(r.cfg.AutoStopOnActiveSessions, r.cfg.AutoStopMaxSessionRetries)
+		opts.IdleTimeout = r.cfg.IdleTimeout()
+		opts.Dind = r.cfg.Dind
+		opts.Mounts, err = mounts.ResolveBindMounts(r.cfg.Mounts)
+		if err != nil {
+			return options.RunOptions{}, err
+		}
+		provisionHostConfig := r.cfg.ProvisionHostConfig
+		opts.ProvisionHostConfig = &provisionHostConfig
+	}
+
+	if err := r.resolveNetwork(cmd, &opts); err != nil {
+		return options.RunOptions{}, err
+	}
+
+	if err := r.resolveSizes(&opts); err != nil {
+		return options.RunOptions{}, err
+	}
+
+	return opts, nil
+}
+
+// resolveFlags reads the direct-run flags off the command and returns the
+// starting RunOptions, resolving the worktree spec and the dry-run auto-enable.
+func (r *Resolver) resolveFlags(cmd *cobra.Command, ui termio.UI) (options.RunOptions, error) {
+	opts := options.RunOptions{}
+	rawWorktree, _ := cmd.Flags().GetString(FlagWorktree)
+	worktree, err := options.ResolveWorktreeSpec(rawWorktree)
+	if err != nil {
+		return options.RunOptions{}, err
+	}
+	opts.Worktree = worktree
+	opts.Rebuild, _ = cmd.Flags().GetBool(FlagRebuild)
+	opts.DryRun, _ = cmd.Flags().GetBool(FlagDryRun)
+	opts.DryRunVM, _ = cmd.Flags().GetBool(FlagDryRunVM)
+	if opts.DryRun {
+		opts.DryRunVM = true
+		ui.Verbosef("dry-run-vm: auto-enabled (--dry-run)")
+	}
+	opts.ServeOnly, _ = cmd.Flags().GetBool(FlagServeOnly)
+	if cmd.Flags().Lookup(FlagRoot) != nil {
+		opts.Root, _ = cmd.Flags().GetBool(FlagRoot)
+	}
+	return opts, nil
+}
+
+// resolveAgentAndValidate resolves the agent (default > config > flag) and
+// rejects unknown names and unsupported --worktree/--serve-only combinations.
+func (r *Resolver) resolveAgentAndValidate(cmd *cobra.Command, opts *options.RunOptions) error {
+	opts.Agent = defaultAgentName
+	if r != nil && r.cfg.Agent != "" {
+		opts.Agent = r.cfg.Agent
+	}
+	if name, _ := cmd.Flags().GetString(FlagAgent); name != "" && cmd.Flags().Changed(FlagAgent) {
+		opts.Agent = name
+	}
+	if !slices.Contains(agent.Names(), opts.Agent) {
+		return fmt.Errorf(
+			"unknown agent %q: must be one of %s",
+			opts.Agent,
+			strings.Join(agent.Names(), ", "),
+		)
+	}
+	a, _ := agent.Lookup(opts.Agent)
+	if opts.Worktree.Name != "" {
+		if _, ok := agent.AsWorktreeProvider(a); !ok {
+			return fmt.Errorf("--worktree is not supported by agent %q", a.Name())
+		}
+	}
+	if opts.ServeOnly {
+		if _, ok := agent.AsDaemonProvider(a); !ok {
+			return fmt.Errorf("--serve-only is not supported by agent %q", a.Name())
+		}
+	}
+	return nil
+}
+
+// resolveNotify resolves the effective notify config (flag > env > config),
+// then validates agent support, warning or failing for agents without a daemon.
+func (r *Resolver) resolveNotify(cmd *cobra.Command, ui termio.UI, opts *options.RunOptions) error {
+	nc, err := r.resolveNotifyConfig(cmd)
+	if err != nil {
+		return err
+	}
+	opts.Notify = nc
+	if nc.Active() {
+		a, _ := agent.Lookup(opts.Agent)
+		if _, ok := agent.AsDaemonProvider(a); !ok {
+			if cmd.Flags().Changed(FlagNotify) || os.Getenv(notifyEnvVar) != "" {
+				return fmt.Errorf(
+					"--notify is not supported by agent %q (no daemon/event stream)",
+					a.Name(),
+				)
+			}
+			ui.Warnf("notifications not supported by agent %q (no daemon/event stream); ignoring", a.Name())
+			opts.Notify = notify.Config{Audio: notify.AudioOff} //nolint:exhaustruct_v5 // channels disabled
+		}
+	}
+	return nil
+}
+
+// resolveNotifyConfig resolves the effective notify config with precedence
+// flag > env > config, then validates the value.
+func (r *Resolver) resolveNotifyConfig(cmd *cobra.Command) (notify.Config, error) {
+	cfg := notify.Config{Audio: notify.AudioOff} //nolint:exhaustruct_v5 // zero channels, populated below
+	if r != nil {
+		cfg = r.cfg.Notify
+		if cfg.Audio == "" {
+			cfg.Audio = notify.AudioOff
+		}
+	}
+	if raw := os.Getenv(notifyEnvVar); raw != "" {
+		override, err := notify.ParseOverride(raw)
+		if err != nil {
+			return notify.Config{}, fmt.Errorf("%s: %w", notifyEnvVar, err)
+		}
+		cfg = notify.ApplyOverride(cfg, override)
+	}
+	if raw, _ := cmd.Flags().GetString(FlagNotify); cmd.Flags().Changed(FlagNotify) && raw != "" {
+		override, err := notify.ParseOverride(raw)
+		if err != nil {
+			return notify.Config{}, err
+		}
+		cfg = notify.ApplyOverride(cfg, override)
+	}
+	return cfg, nil
+}
+
+// resolveNetwork resolves the egress policy: the --network flag wins over the
+// resolver's policy; --dns then replaces the DNS servers while keeping any
+// profile and egress lists.
+func (r *Resolver) resolveNetwork(cmd *cobra.Command, opts *options.RunOptions) error {
+	if raw, _ := cmd.Flags().GetString(FlagNetwork); raw != "" {
+		prof, err := network.ParseProfile(raw)
+		if err != nil {
+			return err
+		}
+		opts.Network = network.Policy{Profile: prof, EgressAllow: nil, EgressDeny: nil, DNSServers: nil}
+	} else if r != nil {
+		opts.Network = r.cfg.Network.Effective()
+	}
+	if dns, _ := cmd.Flags().GetStringSlice(FlagDNSServers); len(dns) > 0 {
+		opts.Network.DNSServers = dns
+	}
+	return nil
+}
+
+// resolveSizes validates the resolved tmp-size, disk-size, and workspace-quota
+// values against the shared size grammar.
+func (r *Resolver) resolveSizes(opts *options.RunOptions) error {
+	if opts.TmpSize != "" {
+		if _, ok := options.ParseMemoryOK(opts.TmpSize); !ok {
+			return fmt.Errorf(
+				"invalid --tmp-size %q: expected a size like 4G, 512M, or 2048",
+				opts.TmpSize,
+			)
+		}
+	}
+	if opts.DiskSize != "" {
+		if _, ok := options.ParseMemoryOK(opts.DiskSize); !ok {
+			return fmt.Errorf(
+				"invalid --disk-size %q: expected a size like 16G, 512M, or 4096",
+				opts.DiskSize,
+			)
+		}
+	}
+	if opts.WorkspaceQuota != "" {
+		if _, ok := options.ParseMemoryOK(opts.WorkspaceQuota); !ok {
+			return fmt.Errorf(
+				"invalid --workspace-quota %q: expected a size like 16G, 512M, or 4096",
+				opts.WorkspaceQuota,
+			)
+		}
+	}
+	return nil
 }
 
 // decodeNotify reads the notify: section from dotted viper keys. It returns an
