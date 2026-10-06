@@ -10,15 +10,36 @@ The layout is a standard Go module:
 - `internal/` — packages for sandbox lifecycle, VM control, image building, pruning, config, and more
 - `docs/` — user documentation
 
-## Requirements
+## Development environment
 
-- Go 1.27.1 (pinned in `.go-version`, managed via goenv; see `docs/development.md`)
-- `golangci-lint` v2.14.0 for linting and formatting
-- `gotestsum` for generating JUnit XML test results (`make coverage-junit`)
-- Docker for building the runner image (`agents-sandbox build`)
-- `zig` 0.17.0 - only needed for cross-compiling release binaries (`make build-release`)
+- **Go** — version pinned in `.go-version`, managed via goenv
+- **golangci-lint** — used by `make lint` and `make fmt`
+- **Docker** — for building the runner image (`agents-sandbox build`)
+- **zig** — only needed for cross-compiling release binaries (`make build-release`)
 
-Run `make bootstrap` once to install the pinned Go, golangci-lint, and Zig.
+Run `make bootstrap` once to install the pinned Go, golangci-lint, and Zig. `gotestsum` is fetched on demand via
+`go run` for `make coverage-junit`, so no separate install is needed.
+
+### Bootstrap
+
+`make bootstrap` requires [goenv](https://github.com/go-nv/goenv) (install via
+[Homebrew](https://github.com/go-nv/goenv#installing) or [manually](https://github.com/go-nv/goenv/blob/master/INSTALL.md))
+and installs:
+
+- **Go**, at the version pinned in [`.go-version`](.go-version) — via goenv.
+- **golangci-lint**, at the version pinned in the [`Makefile`](Makefile) — via goenv tools.
+- **zig**, at the version pinned in the [`Makefile`](Makefile) — for cross-compiling release binaries
+  (`make build-release-all`).
+
+`make bootstrap` is idempotent: it skips a tool that is already installed at the pinned version. The `Makefile` is the
+source of truth for the golangci-lint, Zig, and gotestsum versions; the Go version lives in `.go-version`. The
+`.agents-sandbox/Dockerfile` carries its own matching versions for the runtime runner image, which is built separately.
+
+#### Platform notes
+
+- **Linux**: Zig is installed under `/usr/local` and symlinked as `/usr/local/zig`.
+- **macOS**: Zig is installed under `~/.local` and symlinked as `~/.local/zig`, avoiding the need for `sudo`. Add
+  `~/.local/zig` to your `PATH` so `zig` is on the command line.
 
 ## Common commands
 
@@ -30,6 +51,7 @@ Run these from the module root:
 | `make lint`          | Run the linter                                             |
 | `make fmt`           | Format all source files                                    |
 | `make check`         | Format, lint, and test — run before finalizing any change  |
+| `make verify`        | Read-only CI-parity check: format-check, lint, test        |
 | `make build`         | Build the `agents-sandbox` binary                        |
 | `make coverage`      | Run tests and print the coverage total                     |
 | `make coverage-junit`| Run tests, write coverage + JUnit XML (`junit.xml`)        |

@@ -48,21 +48,29 @@ build-release-all:
 # One-shot dev environment bootstrap: requires goenv; installs the pinned Go
 # version, golangci-lint, and Zig (for cross-compilation). Idempotent.
 bootstrap:
-	@command -v goenv >/dev/null 2>&1 || { echo "goenv is required; see docs/development.md"; exit 1; }
+	@command -v goenv >/dev/null 2>&1 || { echo "goenv is required; see CONTRIBUTING.md"; exit 1; }
 	@if goenv versions 2>/dev/null | grep -qw "$(GO_VERSION)"; then \
 	    echo "go $(GO_VERSION) already installed"; \
 	else \
 	    goenv install "$(GO_VERSION)"; \
 	fi
 	goenv tools install "golangci-lint@v$(GOLANGCI_LINT_VERSION)"
-	@if command -v zig >/dev/null 2>&1; then \
+	@if command -v zig >/dev/null 2>&1 && [ "$$(zig version)" = "$(ZIG_VERSION)" ]; then \
 	    echo "zig $(ZIG_VERSION) already installed"; \
 	else \
 	    ZIG_ARCH=$$(if [ "$$(uname -m)" = aarch64 ]; then echo aarch64; else echo x86_64; fi); \
-	    curl -fsSL "https://ziglang.org/download/$(ZIG_VERSION)/zig-$${ZIG_ARCH}-linux-$(ZIG_VERSION).tar.xz" -o /tmp/zig.tar.xz \
-	 && tar -xf /tmp/zig.tar.xz -C /usr/local \
+	    if [ "$$(uname -s)" = "Darwin" ]; then \
+	        ZIG_OS=macos; ZIG_PREFIX="$${HOME}/.local"; \
+	    else \
+	        ZIG_OS=linux; ZIG_PREFIX=/usr/local; \
+	    fi; \
+	    ZIG_TARBALL=zig-$${ZIG_ARCH}-$${ZIG_OS}-$(ZIG_VERSION).tar.xz; \
+	    ZIG_DIR=zig-$${ZIG_ARCH}-$${ZIG_OS}-$(ZIG_VERSION); \
+	    mkdir -p "$$ZIG_PREFIX"; \
+	    curl -fsSL "https://ziglang.org/download/$(ZIG_VERSION)/$${ZIG_TARBALL}" -o /tmp/zig.tar.xz \
+	 && tar -xf /tmp/zig.tar.xz -C "$$ZIG_PREFIX" \
 	 && rm /tmp/zig.tar.xz \
-	 && ln -s "/usr/local/zig-$${ZIG_ARCH}-linux-$(ZIG_VERSION)" /usr/local/zig; \
+	 && ln -sfn "$$ZIG_PREFIX/$${ZIG_DIR}" "$$ZIG_PREFIX/zig"; \
 	fi
 
 test:
