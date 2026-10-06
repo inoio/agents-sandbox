@@ -840,3 +840,62 @@ func TestBuildRunOptionsNotifyConfigOnlyWarnsForInteractiveAgent(t *testing.T) {
 		t.Errorf("expected a warning about unsupported notifications, got %v", ui.WarnCalls)
 	}
 }
+
+// --dry-run auto-enables --dry-run-vm so a dry run exercises the full VM boot.
+func TestBuildRunOptionsDryRunAutoEnablesDryRunVM(t *testing.T) {
+	ui := &termio.Mock{}
+	r := NewResolverWithConfig(Config{})
+	cmd := newRunCommand()
+	if err := cmd.Flags().Set(FlagDryRun, "true"); err != nil {
+		t.Fatalf("set dry-run: %v", err)
+	}
+
+	opts, err := r.BuildRunOptions(cmd, ui)
+	if err != nil {
+		t.Fatalf("BuildRunOptions: %v", err)
+	}
+	if !opts.DryRun {
+		t.Error("DryRun = false; want true")
+	}
+	if !opts.DryRunVM {
+		t.Error("DryRunVM = false; want auto-enabled true by --dry-run")
+	}
+	found := false
+	for _, v := range ui.VerboseCalls {
+		if strings.Contains(v, "dry-run-vm: auto-enabled") {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("expected a verbose note about auto-enabling dry-run-vm, got %v", ui.VerboseCalls)
+	}
+}
+
+// An invalid --worktree slug fails at the earliest resolveFlags step.
+func TestBuildRunOptionsRejectsInvalidWorktreeSpec(t *testing.T) {
+	cmd := newRunCommand()
+	if err := cmd.Flags().Set(FlagWorktree, "Not A Slug"); err != nil {
+		t.Fatalf("set worktree: %v", err)
+	}
+	var r *Resolver
+	if _, err := r.BuildRunOptions(cmd, &termio.Mock{}); err == nil {
+		t.Fatal("expected error for a non-slug --worktree value")
+	} else if !strings.Contains(err.Error(), "not a valid slug") {
+		t.Errorf("error = %q; want to mention not a valid slug", err)
+	}
+}
+
+// An invalid --notify flag value fails in resolveNotifyConfig.
+func TestBuildRunOptionsNotifyFlagInvalidValue(t *testing.T) {
+	cmd := newRunCommand()
+	if err := cmd.Flags().Set(FlagNotify, "bogus"); err != nil {
+		t.Fatalf("set notify: %v", err)
+	}
+	var r *Resolver
+	if _, err := r.BuildRunOptions(cmd, &termio.Mock{}); err == nil {
+		t.Fatal("expected error for invalid --notify value")
+	} else if !strings.Contains(err.Error(), "invalid --notify value") {
+		t.Errorf("error = %q; want to mention invalid --notify value", err)
+	}
+}

@@ -795,6 +795,46 @@ func TestResolverNotifyRejectsInvalidAudio(t *testing.T) {
 	}
 }
 
+// Each per-trigger notify key is read independently and defaults to true.
+func TestResolverNotifyTriggersFromConfigFile(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	testutil.WriteYAML(t, configpaths.Get().UserConfigDir(), "config.yaml", map[string]any{
+		"notify": map[string]any{
+			"desktop":  true,
+			"on-input": false,
+			"on-done":  false,
+			"on-error": false,
+		},
+	})
+	r, err := NewResolver(nil, "")
+	if err != nil {
+		t.Fatalf("NewResolver: %v", err)
+	}
+	cfg := resolverNotify(r)
+	if !cfg.Desktop {
+		t.Errorf("desktop = false, want true")
+	}
+	if cfg.OnInput || cfg.OnDone || cfg.OnError {
+		t.Errorf("triggers = input:%v done:%v error:%v, want all false", cfg.OnInput, cfg.OnDone, cfg.OnError)
+	}
+}
+
+// A valid Go-style duration (parsed directly by GetDuration) passes
+// validatePruneAges via the d > 0 fast path.
+func TestResolverPruneAgeValidGoDuration(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	testutil.WriteYAML(t, configpaths.Get().UserConfigDir(), "config.yaml", map[string]any{
+		"auto-prune-age": "1h",
+	})
+	r, err := NewResolver(nil, "")
+	if err != nil {
+		t.Fatalf("NewResolver: %v", err)
+	}
+	if r.AutoPruneAge() != time.Hour {
+		t.Errorf("AutoPruneAge = %v, want 1h", r.AutoPruneAge())
+	}
+}
+
 func TestResolverHome(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	cp := configpaths.Get()
