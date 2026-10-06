@@ -152,12 +152,12 @@ func TestConfigAgentHomeManifestError(t *testing.T) {
 }
 
 // TestRunFuncServeOnlyContextError drives runFunc directly with --serve-only
-// and an invalid resolver value so it takes the serve-only context branch and
-// then fails inside runFunc's own launcherconfig.NewResolver.
+// and a failing preflight so it takes the serve-only context branch and then
+// returns the preflight error from runFunc itself.
 func TestRunFuncServeOnlyContextError(t *testing.T) {
 	initTestRepo(t)
 	configpaths.WithMockConfigPaths(t)
-	t.Setenv("OPENCODE_SANDBOX_CPUS", "999")
+	doctor.MockedCheckAll(t, false)
 	ui := &termio.Mock{}
 
 	cmd := buildRunCmd(ui)
@@ -166,7 +166,7 @@ func TestRunFuncServeOnlyContextError(t *testing.T) {
 		t.Fatalf("set serve-only: %v", err)
 	}
 	fn := runFunc(ui)
-	if err := fn(cmd, nil); err == nil {
-		t.Fatal("expected an error from the invalid resolver config")
+	if err := fn(cmd, nil); err == nil || err.Error() != "preflight failed" {
+		t.Fatalf("expected preflight failure, got %v", err)
 	}
 }

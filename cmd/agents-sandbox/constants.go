@@ -1,6 +1,9 @@
 package main
 
-import "github.com/inoio/agents-sandbox/internal/sandbox/naming"
+import (
+	"github.com/inoio/agents-sandbox/internal/sandbox/naming"
+	launcherconfig "github.com/inoio/agents-sandbox/internal/viperconfig"
+)
 
 const (
 	pFlagYes      = "yes"
@@ -34,24 +37,24 @@ const (
 
 	flagRemove = "rm"
 
-	flagRebuild         = "rebuild"
+	flagRebuild         = launcherconfig.FlagRebuild
 	flagCpus            = "cpus"
 	flagMemory          = "memory"
 	flagTmpSize         = "tmp-size"
 	flagDiskSize        = "disk-size"
 	flagWorkspaceQuota  = "workspace-quota"
-	flagDryRun          = "dry-run"
+	flagDryRun          = launcherconfig.FlagDryRun
 	flagDryRunShort     = "n"
-	flagDryRunVM        = "dry-run-vm"
+	flagDryRunVM        = launcherconfig.FlagDryRunVM
 	flagForce           = "force"
 	flagAge             = "age"
-	flagWorktree        = "worktree"
-	flagRoot            = "root"
-	flagServeOnly       = "serve-only"
-	flagNetwork         = "network"
-	flagDNSServers      = "dns"
-	flagAgent           = "agent"
-	flagNotify          = "notify"
+	flagWorktree        = launcherconfig.FlagWorktree
+	flagRoot            = launcherconfig.FlagRoot
+	flagServeOnly       = launcherconfig.FlagServeOnly
+	flagNetwork         = launcherconfig.FlagNetwork
+	flagDNSServers      = launcherconfig.FlagDNSServers
+	flagAgent           = launcherconfig.FlagAgent
+	flagNotify          = launcherconfig.FlagNotify
 	flagDind            = "dind"
 	flagAgentVersion    = "agent-version"
 	flagOpenCodeVersion = "opencode-version"

@@ -380,9 +380,10 @@ func TestCLIConfigPrecedenceViaResolver(t *testing.T) {
 	rootCtx := context.WithValue(context.Background(), (*launcherConfigKey)(nil), mustResolver(t, runCmd))
 	runCmd.SetContext(rootCtx)
 
-	opts, err := extractRunOptions(runCmd, ui)
+	r := resolverFromContext(runCmd.Context())
+	opts, err := r.BuildRunOptions(runCmd, ui)
 	if err != nil {
-		t.Fatalf("extractRunOptions: %v", err)
+		t.Fatalf("BuildRunOptions: %v", err)
 	}
 	if opts.CPUs != 6 {
 		t.Errorf("CPUs = %d; want 6 (flag overrides config)", opts.CPUs)

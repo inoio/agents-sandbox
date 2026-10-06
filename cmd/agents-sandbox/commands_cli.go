@@ -12,7 +12,6 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/inoio/agents-sandbox/internal/git"
 	"github.com/inoio/agents-sandbox/internal/sandbox/pruning"
 	"github.com/inoio/agents-sandbox/internal/upgrade"
 	launcherconfig "github.com/inoio/agents-sandbox/internal/viperconfig"
@@ -118,7 +117,8 @@ func rpad(s string, padding int) string {
 
 func runFunc(ui termio.UI) func(cmd *cobra.Command, args []string) error {
 	return func(cmd *cobra.Command, args []string) error {
-		opts, err := extractRunOptions(cmd, ui)
+		r := resolverFromContext(cmd.Context())
+		opts, err := r.BuildRunOptions(cmd, ui)
 		if err != nil {
 			return err
 		}
@@ -127,10 +127,6 @@ func runFunc(ui termio.UI) func(cmd *cobra.Command, args []string) error {
 		ctx := cmd.Context()
 		if opts.ServeOnly {
 			ctx, _ = serveOnlyContext(ctx)
-		}
-		r, rerr := launcherconfig.NewResolver(cmd, git.ProjectSlug())
-		if rerr != nil {
-			return rerr
 		}
 		isDryRun, _ := cmd.Flags().GetBool(flagDryRun)
 		if !isDryRun {
@@ -145,7 +141,9 @@ func runFunc(ui termio.UI) func(cmd *cobra.Command, args []string) error {
 				return nil
 			}
 		}
-		pruning.AutoPrune(cmd.Context(), r.AutoPruneAge(), isDryRun, &autoPruneOutToVerboseRedirect{UI: ui})
+		if r != nil {
+			pruning.AutoPrune(cmd.Context(), r.AutoPruneAge(), isDryRun, &autoPruneOutToVerboseRedirect{UI: ui})
+		}
 		return session.Run(ctx, opts, ui)
 	}
 }
@@ -210,7 +208,7 @@ func buildShellCmd(ui termio.UI) *cobra.Command {
 					return nil
 				}
 			}
-			opts, err := extractRunOptions(cmd, ui)
+			opts, err := resolverFromContext(cmd.Context()).BuildRunOptions(cmd, ui)
 			if err != nil {
 				return err
 			}
