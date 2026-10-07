@@ -92,8 +92,8 @@ func applyNativeConfigMigration(
 	if len(configData) > 0 {
 		result.Files = append(result.Files, File{Path: managedConfigPath, Data: configData, Mode: defaultConfigMode})
 		maps.Copy(result.Secrets, configSecrets)
-		result.Warnings = append(result.Warnings, configWarnings...)
 	}
+	result.Warnings = append(result.Warnings, configWarnings...)
 	supplementalFiles, supplementalSecrets, supplementalWarnings, supplementalHosts, supplementalErr :=
 		migrateNativeSupplementalConfigFn(hostHome, spec)
 	if supplementalErr != nil {

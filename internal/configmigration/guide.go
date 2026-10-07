@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 
@@ -14,6 +15,18 @@ import (
 	cp "github.com/inoio/agents-sandbox/internal/configpaths"
 	"github.com/inoio/agents-sandbox/internal/sandbox/network"
 	"github.com/inoio/agents-sandbox/internal/termio"
+)
+
+const (
+	guideMigrationChoice = "m"
+	guideNativeChoice    = "p"
+	guideDismissChoice   = "d"
+	guideHostFirstChoice = "host-first"
+	guideManualChoice    = "manual"
+	guideStartChoice     = "start"
+	guideLoginChoice     = "login"
+	guideHostFirstLabel  = "Set up on the host"
+	guideManualLabel     = "Configure manually"
 )
 
 func Guide(
@@ -27,17 +40,7 @@ func Guide(
 		return nil
 	}
 	if !ui.IsInteractive() {
-		provider, supported := agent.AsMigrationSpecProvider(a)
-		managed := false
-		if supported {
-			managed = hasManagedConfig(a, provider.MigrationSpec())
-		}
-		if nativeConfigExists(a, hostHome) && !managed {
-			ui.Warnf(
-				"native %s configuration was found but was not migrated; run 'agents-sandbox config migrate' interactively",
-				a.Name(),
-			)
-		}
+		warnUnmigratedNativeConfig(a, hostHome, ui)
 		return nil
 	}
 	plan, err := Build(a, hostHome, policy)
@@ -47,33 +50,64 @@ func Guide(
 		}
 		return err
 	}
-	if !plan.HasChanges() {
+	if !plan.HasNativeConfig && !plan.HasManagedConfig && !plan.SetupOnly {
+		return guideHostFirst(a, ui)
+	}
+	if !plan.NeedsAttention() {
 		return nil
 	}
 	if plan.SetupOnly {
 		return guideSetup(a, plan, ui)
 	}
+	if plan.HasLogin() && len(plan.Files) == 0 {
+		return guideLoginHandoff(a, plan, ui)
+	}
+	if len(plan.Files) == 0 {
+		return guideReviewHandoff(plan, ui)
+	}
+	return guideMigrationSelect(a, plan, ui)
+}
+
+func warnUnmigratedNativeConfig(a agent.Agent, hostHome string, ui termio.UI) {
+	provider, supported := agent.AsMigrationSpecProvider(a)
+	managed := false
+	if supported {
+		managed = hasManagedConfig(a, provider.MigrationSpec())
+	}
+	if nativeConfigExists(a, hostHome) && !managed {
+		ui.Warnf(
+			"native %s configuration was found but was not migrated; run 'agents-sandbox config migrate' interactively",
+			a.Name(),
+		)
+	}
+}
+
+func guideMigrationSelect(a agent.Agent, plan *Plan, ui termio.UI) error {
 	ui.Warnf("native %s configuration was found, but host-config provisioning is disabled", a.Name())
 	key, err := ui.Select("Choose how to configure the sandbox", []termio.Choice{
 		{
-			Key:         "m",
+			Key:         guideMigrationChoice,
 			Label:       "Migrate safely",
 			Description: "replace supported credentials with microsandbox placeholders",
 		},
 		{
-			Key:         "p",
+			Key:         guideNativeChoice,
 			Label:       "Use native host config",
 			Description: "enable copying raw host config and credentials into the VM",
 		},
-		{Key: "d", Label: "Continue without migration", Description: "configure the agent manually later"},
-	}, "m")
+		{
+			Key:         guideDismissChoice,
+			Label:       "Continue without migration",
+			Description: "configure the agent manually later",
+		},
+	}, guideMigrationChoice)
 	if err != nil {
 		return err
 	}
 	switch key {
-	case "m":
+	case guideMigrationChoice:
 		return reviewApplyAndConfirmStart(a, plan, ui)
-	case "p":
+	case guideNativeChoice:
 		if path, _, err := migrationLoadLauncherConfig(); err == nil {
 			warnIfLauncherConfigLosesComments(path, ui)
 		}
@@ -82,10 +116,141 @@ func Guide(
 		}
 		ui.Warn("native host-config provisioning is now enabled; rerun agents-sandbox to apply it")
 		return ErrRerunRequired
-	case "d":
+	case guideDismissChoice:
 		return dismissGuidedMigration(plan, ui)
 	default:
 		return fmt.Errorf("unknown migration choice %q", key)
+	}
+}
+
+// guideHostFirst guides a user who has no native configuration yet: set the
+// agent up on the host, then rerun so agents-sandbox can migrate it.
+func guideHostFirst(a agent.Agent, ui termio.UI) error {
+	ui.Infof("no native %s configuration was found", a.Name())
+	ui.Infof(
+		"set up %s on the host, then rerun agents-sandbox; it will migrate the configuration without copying credentials",
+		a.Name(),
+	)
+	key, err := ui.Select("Choose how to continue", []termio.Choice{
+		{
+			Key:         guideHostFirstChoice,
+			Label:       guideHostFirstLabel,
+			Description: "exit and rerun after configuring the agent on the host",
+		},
+		{
+			Key:         guideManualChoice,
+			Label:       guideManualLabel,
+			Description: "start the sandbox and configure the agent yourself",
+		},
+		{
+			Key:         guideStartChoice,
+			Label:       "Start anyway",
+			Description: "start the sandbox with the current configuration",
+		},
+	}, guideHostFirstChoice)
+	if err != nil {
+		return err
+	}
+	switch key {
+	case guideHostFirstChoice:
+		return ErrStartDeferred
+	case guideManualChoice, guideStartChoice:
+		return nil
+	default:
+		return fmt.Errorf("unknown host-first choice %q", key)
+	}
+}
+
+// guideReviewHandoff surfaces everything a plan found but could not migrate,
+// then offers explicit host-first, manual, or start-anyway outcomes.
+func guideReviewHandoff(plan *Plan, ui termio.UI) error {
+	ui.Warnf("native %s configuration was found, but nothing could be migrated automatically", plan.AgentName)
+	surfacePlanWarnings(plan, ui)
+	key, err := ui.Select("Choose how to configure the sandbox", []termio.Choice{
+		{
+			Key:         guideHostFirstChoice,
+			Label:       guideHostFirstLabel,
+			Description: "configure the agent on the host and rerun agents-sandbox to migrate it",
+		},
+		{
+			Key:         guideManualChoice,
+			Label:       guideManualLabel,
+			Description: "start the sandbox and add managed configuration yourself later",
+		},
+		{
+			Key:         guideStartChoice,
+			Label:       "Start anyway",
+			Description: "start the sandbox with the current configuration",
+		},
+	}, guideHostFirstChoice)
+	if err != nil {
+		return err
+	}
+	switch key {
+	case guideHostFirstChoice:
+		return ErrStartDeferred
+	case guideManualChoice:
+		return dismissGuidedMigration(plan, ui)
+	case guideStartChoice:
+		return nil
+	default:
+		return fmt.Errorf("unknown review choice %q", key)
+	}
+}
+
+// guideLoginHandoff explains that refreshable logins are never copied and
+// offers to allow the login hosts so the user can authenticate in the sandbox.
+func guideLoginHandoff(a agent.Agent, plan *Plan, ui termio.UI) error {
+	ui.Warnf(
+		"native %s credentials for %s are refreshable logins; they are not copied into the sandbox",
+		a.Name(),
+		strings.Join(plan.LoginProviders, ", "),
+	)
+	surfacePlanWarnings(plan, ui)
+	key, err := ui.Select("Choose how to continue with the required in-sandbox login", []termio.Choice{
+		{
+			Key:         guideLoginChoice,
+			Label:       "Log in inside the sandbox",
+			Description: "allow the login hosts and authenticate after the sandbox starts",
+		},
+		{
+			Key:         guideHostFirstChoice,
+			Label:       guideHostFirstLabel,
+			Description: "exit and rerun after configuring an API key on the host",
+		},
+		{
+			Key:         guideManualChoice,
+			Label:       guideManualLabel,
+			Description: "configure the agent yourself later",
+		},
+	}, guideLoginChoice)
+	if err != nil {
+		return err
+	}
+	switch key {
+	case guideLoginChoice:
+		if err := Apply(plan, ui); err != nil {
+			return err
+		}
+		ui.Infof("%s login hosts were allowed; authenticate inside the sandbox once it starts", a.Name())
+		return nil
+	case guideHostFirstChoice:
+		return ErrStartDeferred
+	case guideManualChoice:
+		return dismissGuidedMigration(plan, ui)
+	default:
+		return fmt.Errorf("unknown login choice %q", key)
+	}
+}
+
+func surfacePlanWarnings(plan *Plan, ui termio.UI) {
+	for _, warning := range plan.Warnings {
+		ui.Warn(warning)
+	}
+	for _, warning := range plan.ReviewWarnings {
+		if !slices.Contains(plan.Warnings, warning) {
+			ui.Warn(warning)
+		}
 	}
 }
 

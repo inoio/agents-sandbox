@@ -511,6 +511,110 @@ func TestGuideReportsUnreadableNativeConfig(t *testing.T) {
 	}
 }
 
+func recordOfferedChoices(ui *termio.Mock, choose string) *[]string {
+	offered := new([]string)
+	ui.SelectFn = func(_ string, choices []termio.Choice, _ string) (string, error) {
+		for _, choice := range choices {
+			*offered = append(*offered, choice.Key)
+		}
+		return choose, nil
+	}
+	return offered
+}
+
+func TestGuideSurfacesWarningsWhenNothingToMigrate(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	clearOpenCodeXDG(t)
+	hostHome := t.TempDir()
+	configDir := filepath.Join(hostHome, ".config", "opencode")
+	if err := os.MkdirAll(configDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	testutil.WriteFile(t, configDir, "config.json", "{{{")
+	a, _ := agent.Lookup("opencode")
+	ui := termio.NewTestMock(t)
+	ui.IsInteractiveResult = true
+	offered := recordOfferedChoices(&ui, guideStartChoice)
+
+	if err := Guide(a, hostHome, testNetworkPolicy(), false, &ui); err != nil {
+		t.Fatalf("Guide: %v", err)
+	}
+	if !strings.Contains(strings.Join(ui.WarnCalls, "\n"), "skipped malformed native config") {
+		t.Errorf("warnings = %v, want the malformed-config warning surfaced", ui.WarnCalls)
+	}
+	if !slices.Contains(*offered, guideHostFirstChoice) {
+		t.Errorf("offered choices = %v, want an explicit host-first hand-off", *offered)
+	}
+}
+
+func TestGuideReviewHandoffSurfacesReviewWarnings(t *testing.T) {
+	ui := termio.NewTestMock(t)
+	ui.IsInteractiveResult = true
+	offered := recordOfferedChoices(&ui, guideStartChoice)
+	warning := "review required: auth field custom.note is not recognized"
+	plan := &Plan{
+		AgentName:      "opencode",
+		Warnings:       []string{warning},
+		ReviewWarnings: []string{warning},
+	}
+
+	if err := guideReviewHandoff(plan, &ui); err != nil {
+		t.Fatalf("guideReviewHandoff: %v", err)
+	}
+	if !strings.Contains(strings.Join(ui.WarnCalls, "\n"), "review required") {
+		t.Errorf("warnings = %v, want the review-required warning surfaced", ui.WarnCalls)
+	}
+	if !slices.Contains(*offered, guideHostFirstChoice) || !slices.Contains(*offered, guideManualChoice) {
+		t.Errorf("offered choices = %v, want host-first and manual outcomes", *offered)
+	}
+}
+
+func TestGuideOffersHostFirstWhenNoNativeConfig(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	t.Setenv("PI_CODING_AGENT_DIR", "")
+	a, _ := agent.Lookup("pi")
+	ui := termio.NewTestMock(t)
+	ui.IsInteractiveResult = true
+	offered := recordOfferedChoices(&ui, guideStartChoice)
+
+	if err := Guide(a, t.TempDir(), testNetworkPolicy(), false, &ui); err != nil {
+		t.Fatalf("Guide: %v", err)
+	}
+	if !slices.Contains(*offered, guideHostFirstChoice) {
+		t.Errorf("offered choices = %v, want an explicit host-first hand-off", *offered)
+	}
+}
+
+func TestGuideOffersLoginHandoffForOAuthOnlyConfig(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	clearOpenCodeXDG(t)
+	hostHome := t.TempDir()
+	authDir := filepath.Join(hostHome, ".local", "share", "opencode")
+	if err := os.MkdirAll(authDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	testutil.WriteFile(
+		t,
+		authDir,
+		"auth.json",
+		`{"github-copilot":{"type":"oauth","access":"a","refresh":"r"}}`,
+	)
+	a, _ := agent.Lookup("opencode")
+	ui := termio.NewTestMock(t)
+	ui.IsInteractiveResult = true
+	offered := recordOfferedChoices(&ui, guideManualChoice)
+
+	if err := Guide(a, hostHome, testNetworkPolicy(), false, &ui); err != nil {
+		t.Fatalf("Guide: %v", err)
+	}
+	if !strings.Contains(strings.Join(ui.WarnCalls, "\n"), "github-copilot") {
+		t.Errorf("warnings = %v, want the login provider surfaced", ui.WarnCalls)
+	}
+	if !slices.Contains(*offered, guideLoginChoice) {
+		t.Errorf("offered choices = %v, want an explicit login hand-off", *offered)
+	}
+}
+
 func TestNativeConfigExists(t *testing.T) {
 	clearOpenCodeXDG(t)
 	if nativeConfigExists(unsupportedMigrationAgent{}, t.TempDir()) {

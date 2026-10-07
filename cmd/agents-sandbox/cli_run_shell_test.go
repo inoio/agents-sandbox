@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -425,6 +426,33 @@ func TestGuideConfigMigrationOffersClaudeCodeSetupWithoutNativeConfig(t *testing
 	}
 	if len(prompts) != 1 || !strings.Contains(prompts[0], "Set up") {
 		t.Fatalf("prompts = %v, want the Claude Code setup prompt", prompts)
+	}
+}
+
+func TestGuideConfigMigrationOffersHostFirstWithoutNativeConfig(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	t.Setenv("XDG_CONFIG_HOME", "")
+	t.Setenv("XDG_DATA_HOME", "")
+	t.Setenv("PI_CODING_AGENT_DIR", "")
+	hostHome := t.TempDir()
+	originalHome := migrationHomeDir
+	t.Cleanup(func() { migrationHomeDir = originalHome })
+	migrationHomeDir = func() (string, error) { return hostHome, nil }
+	ui := termio.NewTestMock(t)
+	ui.IsInteractiveResult = true
+	var offered []string
+	ui.SelectFn = func(_ string, choices []termio.Choice, _ string) (string, error) {
+		for _, choice := range choices {
+			offered = append(offered, choice.Key)
+		}
+		return "start", nil
+	}
+
+	if err := guideConfigMigration(options.RunOptions{Agent: "pi"}, &ui, false); err != nil {
+		t.Fatalf("guideConfigMigration: %v", err)
+	}
+	if !slices.Contains(offered, "host-first") {
+		t.Fatalf("offered choices = %v, want the host-first hand-off", offered)
 	}
 }
 
