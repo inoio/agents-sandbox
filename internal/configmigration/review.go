@@ -32,6 +32,7 @@ func Review(plan *Plan, ui termio.UI) error {
 		return err
 	}
 	reportPlanWarnings(plan, ui)
+	reportLoginProviders(plan, ui)
 	if err := confirmAuthFieldReview(plan, ui); err != nil {
 		return err
 	}
@@ -168,6 +169,19 @@ func reportPlanWarnings(plan *Plan, ui termio.UI) {
 	}
 }
 
+// reportLoginProviders discloses providers whose refreshable credentials were
+// dropped from the generated files and must be authenticated inside the
+// sandbox, including when migratable static credentials also produced files.
+func reportLoginProviders(plan *Plan, ui termio.UI) {
+	if !plan.HasLogin() {
+		return
+	}
+	ui.Warnf(
+		"native credentials for %s are refreshable logins and are not copied into the sandbox; log in inside the sandbox instead",
+		strings.Join(plan.LoginProviders, ", "),
+	)
+}
+
 func confirmAuthFieldReview(plan *Plan, ui termio.UI) error {
 	if len(plan.ReviewWarnings) == 0 {
 		return nil
@@ -230,9 +244,8 @@ func reportMigrationFiles(plan *Plan, ui termio.UI, heading string) {
 }
 
 func refreshNetworkPlan(plan *Plan) error {
-	hosts := appendUniqueHosts(
-		append([]string(nil), plan.RequiredNetworkHosts...),
-		plannedNetworkHosts(plan.Secrets)...)
+	networkHosts := append(append([]string(nil), plan.RequiredNetworkHosts...), plannedNetworkHosts(plan.Secrets)...)
+	hosts := appendUniqueHosts(networkHosts, plan.LoginHosts...)
 	plan.NetworkHosts = hostsExcluding(hosts, plan.skippedNetworkHosts)
 	plan.NetworkAllowHosts = nil
 	plan.NetworkConflicts = nil
@@ -241,6 +254,7 @@ func refreshNetworkPlan(plan *Plan) error {
 	}
 	if plan.publicNetwork {
 		plan.NetworkAllowHosts = append([]string(nil), plan.NetworkHosts...)
+		plan.NetworkConflicts = networkConflictsForHosts(plan.NetworkHosts, planNetworkDeny(plan))
 		return nil
 	}
 	path := plan.ConfigPath

@@ -532,8 +532,16 @@ func TestReviewResolveNetworkConflictsPublic(t *testing.T) {
 	if err != nil {
 		t.Fatalf("parse updated launcher config: %v", err)
 	}
-	if networkValues, _ := config.values["network"].(map[string]any); networkValues["profile"] != "public" {
+	networkValues, _ := config.values["network"].(map[string]any)
+	if networkValues["profile"] != "public" {
 		t.Errorf("network.profile = %v, want public", networkValues["profile"])
+	}
+	deny := stringList(networkValues["egress-deny"])
+	if hostDeniedByAny(deny, "a.test") {
+		t.Errorf("egress-deny = %v, still shadows a.test after choosing public", deny)
+	}
+	if !slices.Contains(deny, "keep.test") {
+		t.Errorf("egress-deny = %v, want keep.test preserved", deny)
 	}
 	if len(plan.NetworkConflicts) != 0 {
 		t.Errorf("NetworkConflicts = %v, want none after choosing public", plan.NetworkConflicts)
@@ -544,6 +552,27 @@ func TestReviewResolveNetworkConflictsPublic(t *testing.T) {
 			plan.NetworkHosts,
 			plan.NetworkAllowHosts,
 		)
+	}
+}
+
+func TestReviewResolveNetworkConflictsPublicClearsDenyAllRule(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	plan := newNetworkConflictPlan(t, "network:\n  egress-deny:\n    - \"*\"\n")
+	ui := interactiveNetworkUI(t, "public")
+	if err := Review(plan, &ui); err != nil {
+		t.Fatalf("Review: %v", err)
+	}
+	config, err := parseLauncherConfig(plan.ConfigPath, plan.ConfigData)
+	if err != nil {
+		t.Fatalf("parse updated launcher config: %v", err)
+	}
+	networkValues, _ := config.values["network"].(map[string]any)
+	deny := stringList(networkValues["egress-deny"])
+	if hostDeniedByAny(deny, "a.test") {
+		t.Errorf("egress-deny = %v, still shadows a.test after choosing public", deny)
+	}
+	if len(plan.NetworkConflicts) != 0 {
+		t.Errorf("NetworkConflicts = %v, want none after choosing public", plan.NetworkConflicts)
 	}
 }
 
@@ -657,6 +686,57 @@ func TestRefreshNetworkPlanRecordsDenyConflicts(t *testing.T) {
 	}
 	if !slices.Equal(plan.NetworkConflicts, []string{"a.test"}) {
 		t.Errorf("NetworkConflicts = %v, want [a.test]", plan.NetworkConflicts)
+	}
+}
+
+func TestRefreshNetworkPlanKeepsLoginHosts(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	writeUserLauncherConfig(t, "config.yaml", "agent: opencode\n")
+	plan := &Plan{
+		RequiredNetworkHosts: []string{"openrouter.ai"},
+		LoginHosts:           []string{"github.com"},
+	}
+	if err := refreshNetworkPlan(plan); err != nil {
+		t.Fatalf("refreshNetworkPlan: %v", err)
+	}
+	if !slices.Contains(plan.NetworkAllowHosts, "github.com") {
+		t.Errorf("NetworkAllowHosts = %v, want login host github.com retained", plan.NetworkAllowHosts)
+	}
+	if !strings.Contains(string(plan.ConfigData), "github.com") {
+		t.Errorf("written config does not allow the login host:\n%s", plan.ConfigData)
+	}
+}
+
+func TestReviewDisclosesDroppedLoginProviderForMixedConfig(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	clearOpenCodeXDG(t)
+	hostHome := t.TempDir()
+	authPath := filepath.Join(hostHome, ".local", "share", "opencode", "auth.json")
+	if err := os.MkdirAll(filepath.Dir(authPath), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	testutil.WritePath(
+		t,
+		authPath,
+		`{"openrouter":{"type":"api","key":"secret-key"},"github-copilot":{"type":"oauth","access":"a","refresh":"r"}}`,
+	)
+	a, _ := agent.Lookup("opencode")
+	plan, err := Build(a, hostHome, testNetworkPolicy())
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	if len(plan.Files) == 0 {
+		t.Fatalf("mixed config produced no generated files: %+v", plan)
+	}
+	ui := termio.NewTestMock(t)
+	if err := Review(plan, &ui); err != nil {
+		t.Fatalf("Review: %v", err)
+	}
+	if !strings.Contains(strings.Join(ui.WarnCalls, "\n"), "github-copilot") {
+		t.Errorf("warnings = %v, want the dropped login provider named", ui.WarnCalls)
+	}
+	if !strings.Contains(string(plan.ConfigData), "github.com") {
+		t.Errorf("written config does not allow the login host:\n%s", plan.ConfigData)
 	}
 }
 

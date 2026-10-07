@@ -18,7 +18,10 @@ import (
 	"github.com/inoio/agents-sandbox/internal/sandbox/network"
 )
 
-const launcherNetworkSection = "network"
+const (
+	launcherNetworkSection = "network"
+	launcherEgressDenyKey  = "egress-deny"
+)
 
 func migrationHomeMapping(root map[string]any, target string) (string, bool) {
 	home, ok := root[homeConfigKey].(map[string]any)
@@ -78,7 +81,7 @@ func updateLauncherNetwork(
 	}
 	networkConfig, _ := config.values[launcherNetworkSection].(map[string]any)
 	allow := stringList(networkConfig["egress-allow"])
-	deny = appendUniqueHosts(deny, stringList(networkConfig["egress-deny"])...)
+	deny = appendUniqueHosts(deny, stringList(networkConfig[launcherEgressDenyKey])...)
 	var added, skipped []string
 	for _, host := range hosts {
 		if hostDeniedByAny(deny, host) {
@@ -147,12 +150,12 @@ func removeLauncherNetworkDeny(plan *Plan, host string) ([]string, error) {
 	}
 	var removedBroad []string
 	networkValues, _ := config.values[launcherNetworkSection].(map[string]any)
-	for _, rule := range stringList(networkValues["egress-deny"]) {
+	for _, rule := range stringList(networkValues[launcherEgressDenyKey]) {
 		if rule != host && network.MatchesDestination(rule, host) {
 			removedBroad = append(removedBroad, rule)
 		}
 	}
-	config.filterListItems([]string{launcherNetworkSection, "egress-deny"}, func(rule string) bool {
+	config.filterListItems([]string{launcherNetworkSection, launcherEgressDenyKey}, func(rule string) bool {
 		return !network.MatchesDestination(rule, host)
 	})
 	updated, err := config.marshal()
@@ -168,7 +171,10 @@ func removeLauncherNetworkDeny(plan *Plan, host string) ([]string, error) {
 }
 
 // choosePublicNetwork sets the launcher config to the public posture, which
-// makes the conflicted hosts reachable without per-host egress rules.
+// makes the conflicted hosts reachable without per-host egress rules. Deny is
+// emitted before allow, so the deny rules that shadow the conflicted hosts are
+// removed too; otherwise the emitted config would still block them while the
+// plan reported the conflict resolved.
 func choosePublicNetwork(plan *Plan) error {
 	path, data, err := planNetworkConfigSource(plan)
 	if err != nil {
@@ -179,6 +185,7 @@ func choosePublicNetwork(plan *Plan) error {
 		return err
 	}
 	config.setString([]string{launcherNetworkSection, "profile"}, network.ProfilePublic.String())
+	removed := removeDenyRulesMatching(config, plan.NetworkConflicts)
 	updated, err := config.marshal()
 	if err != nil {
 		return err
@@ -188,9 +195,45 @@ func choosePublicNetwork(plan *Plan) error {
 	if plan.configBaseData != nil {
 		plan.configBaseData = updated
 	}
+	plan.policy.EgressDeny = hostsExcluding(plan.policy.EgressDeny, removed)
 	plan.publicNetwork = true
-	plan.NetworkConflicts = nil
+	plan.NetworkConflicts = networkConflictsForHosts(plan.NetworkHosts, planNetworkDeny(plan))
 	return nil
+}
+
+// removeDenyRulesMatching drops every egress-deny rule that shadows one of
+// hosts from the launcher config and returns the removed rules.
+func removeDenyRulesMatching(config *launcherConfig, hosts []string) []string {
+	networkValues, _ := config.values[launcherNetworkSection].(map[string]any)
+	var removed []string
+	for _, rule := range stringList(networkValues[launcherEgressDenyKey]) {
+		if conflictRuleMatchesHost(rule, hosts) {
+			removed = append(removed, rule)
+		}
+	}
+	if len(removed) == 0 {
+		return nil
+	}
+	config.filterListItems([]string{launcherNetworkSection, launcherEgressDenyKey}, func(rule string) bool {
+		return !conflictRuleMatchesHost(rule, hosts)
+	})
+	return appendUniqueHosts(nil, removed...)
+}
+
+func conflictRuleMatchesHost(rule string, hosts []string) bool {
+	return slices.ContainsFunc(hosts, func(host string) bool {
+		return network.MatchesDestination(rule, host)
+	})
+}
+
+func networkConflictsForHosts(hosts, deny []string) []string {
+	var conflicts []string
+	for _, host := range hosts {
+		if hostDeniedByAny(deny, host) {
+			conflicts = append(conflicts, host)
+		}
+	}
+	return conflicts
 }
 
 func planNetworkConfigSource(plan *Plan) (string, []byte, error) {
@@ -263,7 +306,7 @@ func projectNetworkDenyHosts() []string {
 	if !ok {
 		return nil
 	}
-	return stringList(networkConfig["egress-deny"])
+	return stringList(networkConfig[launcherEgressDenyKey])
 }
 
 func migrationFindLauncherConfig(dir string) (string, []byte, bool) {
