@@ -46,6 +46,65 @@ const (
 // agents, whose merged snippet config is written to <config dir>/settings.json.
 const settingsFileName = "settings.json"
 
+// defaultSensitiveAuthFields and defaultConfigSensitiveFields are the credential
+// field names every agent spec treats as sensitive, in the native auth document
+// and the merged config respectively. They are read-only package constants in
+// effect; Go has no slice constants.
+//
+//nolint:gochecknoglobals // shared immutable credential-field sets
+var (
+	defaultSensitiveAuthFields = []string{
+		authAccessField,
+		authAccessKeyField,
+		authAccessTokenField,
+		authAPIKeyType,
+		authAPIKeyField,
+		authAPITokenField,
+		authAuthorizationField,
+		authBearerTokenField,
+		authClientSecretField,
+		authCookieField,
+		authCredentialField,
+		authCredentialsField,
+		authIDTokenField,
+		authKeyField,
+		authPasswordField,
+		authPrivateKeyField,
+		authPrivateTokenField,
+		authRefreshField,
+		authRefreshTokenField,
+		authSecretField,
+		authSessionField,
+		authSessionTokenField,
+		authTokenField,
+		authXAPIKeyField,
+	}
+	defaultConfigSensitiveFields = []string{
+		authAccessKeyField,
+		authAccessTokenField,
+		authAPIKeyField,
+		authAPITokenField,
+		authAuthorizationField,
+		authBearerTokenField,
+		authClientSecretField,
+		authCredentialField,
+		authCredentialsField,
+		authIDTokenField,
+		authOAuthAccessField,
+		authOAuthRefreshField,
+		authPasswordField,
+		authPrivateKeyField,
+		authPrivateTokenField,
+		authRefreshTokenField,
+		authSecretField,
+		authSecretAccessKeyField,
+		authSessionField,
+		authSessionTokenField,
+		authTokenField,
+		authXAPIKeyField,
+	}
+)
+
 // DaemonProvider runs a long-lived server that clients attach to (opencode).
 type DaemonProvider interface {
 	DaemonStartCmd(serveOnly bool) string
