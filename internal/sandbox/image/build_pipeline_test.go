@@ -8,9 +8,7 @@ import (
 	"testing"
 
 	dockerspec "github.com/moby/docker-image-spec/specs-go/v1"
-	"github.com/moby/moby/api/types/image"
 	"github.com/moby/moby/client"
-	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 
 	"github.com/inoio/agents-sandbox/internal/agent"
 	"github.com/inoio/agents-sandbox/internal/configpaths"
@@ -32,12 +30,11 @@ func TestEnsureImageSkipsBuildWhenDockerfileIDMatches(t *testing.T) {
 				dockerfileIDLabelKey: computeDockerfileID(RenderDockerfile(a, nil, false), "1.2.3"),
 			}
 			if ref == "debian:trixie-slim" {
-				return client.ImageInspectResult{InspectResponse: image.InspectResponse{ID: "sha256:base"}}, nil
+				return client.ImageInspectResult{ID: "sha256:base"}, nil
 			}
-			return client.ImageInspectResult{InspectResponse: image.InspectResponse{
+			return client.ImageInspectResult{
 				ID:     id,
-				Config: &dockerspec.DockerOCIImageConfig{ImageConfig: ocispec.ImageConfig{Labels: labels}},
-			}}, nil
+				Config: &dockerspec.DockerOCIImageConfig{Labels: labels}}, nil
 		},
 		ImageBuildFn: func(_ context.Context, _ io.Reader, _ client.ImageBuildOptions) (client.ImageBuildResult, error) {
 			built = true
@@ -66,14 +63,13 @@ func TestEnsureImageBuildsWhenDockerfileIDMismatches(t *testing.T) {
 	docker.WithDockerMock(t, &docker.MockDockerClient{
 		ImageInspectFn: func(_ context.Context, ref string, _ ...client.ImageInspectOption) (client.ImageInspectResult, error) {
 			if ref == "debian:trixie-slim" {
-				return client.ImageInspectResult{InspectResponse: image.InspectResponse{ID: "sha256:base"}}, nil
+				return client.ImageInspectResult{ID: "sha256:base"}, nil
 			}
-			return client.ImageInspectResult{InspectResponse: image.InspectResponse{
+			return client.ImageInspectResult{
 				ID: "sha256:existing",
 				Config: &dockerspec.DockerOCIImageConfig{
-					ImageConfig: ocispec.ImageConfig{Labels: map[string]string{dockerfileIDLabelKey: "stale"}},
-				},
-			}}, nil
+					Labels: map[string]string{dockerfileIDLabelKey: "stale"},
+				}}, nil
 		},
 		ImageBuildFn: func(_ context.Context, _ io.Reader, _ client.ImageBuildOptions) (client.ImageBuildResult, error) {
 			built = true
@@ -97,7 +93,7 @@ func TestEnsureImageBuildArgsIncludeBaseAndAgentVersion(t *testing.T) {
 	var gotArgs map[string]*string
 	docker.WithDockerMock(t, &docker.MockDockerClient{
 		ImageInspectFn: func(_ context.Context, _ string, _ ...client.ImageInspectOption) (client.ImageInspectResult, error) {
-			return client.ImageInspectResult{InspectResponse: image.InspectResponse{ID: "sha256:base"}}, nil
+			return client.ImageInspectResult{ID: "sha256:base"}, nil
 		},
 		ImageBuildFn: func(_ context.Context, _ io.Reader, opts client.ImageBuildOptions) (client.ImageBuildResult, error) {
 			gotArgs = opts.BuildArgs
@@ -131,7 +127,7 @@ func TestEnsureImageResolvesAnUnpinnedAgentVersion(t *testing.T) {
 	})
 	docker.WithDockerMock(t, &docker.MockDockerClient{
 		ImageInspectFn: func(_ context.Context, _ string, _ ...client.ImageInspectOption) (client.ImageInspectResult, error) {
-			return client.ImageInspectResult{InspectResponse: image.InspectResponse{ID: "sha256:base"}}, nil
+			return client.ImageInspectResult{ID: "sha256:base"}, nil
 		},
 		ImageBuildFn: func(_ context.Context, _ io.Reader, opts client.ImageBuildOptions) (client.ImageBuildResult, error) {
 			gotArgs = opts.BuildArgs
@@ -168,12 +164,10 @@ func TestEnsureImageReusesUnknownUserAgentWithoutResolvingVersion(t *testing.T) 
 	})
 	docker.WithDockerMock(t, &docker.MockDockerClient{
 		ImageInspectFn: func(_ context.Context, _ string, _ ...client.ImageInspectOption) (client.ImageInspectResult, error) {
-			return client.ImageInspectResult{InspectResponse: image.InspectResponse{
+			return client.ImageInspectResult{
 				ID: "sha256:existing",
-				Config: &dockerspec.DockerOCIImageConfig{ImageConfig: ocispec.ImageConfig{
-					Labels: map[string]string{dockerfileIDLabelKey: wantID},
-				}},
-			}}, nil
+				Config: &dockerspec.DockerOCIImageConfig{
+					Labels: map[string]string{dockerfileIDLabelKey: wantID}}}, nil
 		},
 		ImageBuildFn: func(_ context.Context, _ io.Reader, _ client.ImageBuildOptions) (client.ImageBuildResult, error) {
 			buildCalled = true
@@ -213,12 +207,10 @@ func TestEnsureImageResolvesUnknownUserAgentOnlyForARebuild(t *testing.T) {
 	})
 	docker.WithDockerMock(t, &docker.MockDockerClient{
 		ImageInspectFn: func(_ context.Context, _ string, _ ...client.ImageInspectOption) (client.ImageInspectResult, error) {
-			return client.ImageInspectResult{InspectResponse: image.InspectResponse{
+			return client.ImageInspectResult{
 				ID: "sha256:existing",
-				Config: &dockerspec.DockerOCIImageConfig{ImageConfig: ocispec.ImageConfig{
-					Labels: map[string]string{dockerfileIDLabelKey: "stale"},
-				}},
-			}}, nil
+				Config: &dockerspec.DockerOCIImageConfig{
+					Labels: map[string]string{dockerfileIDLabelKey: "stale"}}}, nil
 		},
 		ImageBuildFn: func(_ context.Context, _ io.Reader, opts client.ImageBuildOptions) (client.ImageBuildResult, error) {
 			gotArgs = opts.BuildArgs
@@ -255,7 +247,7 @@ func TestEnsureImageDindAddsDockerVersionArg(t *testing.T) {
 	var gotArgs map[string]*string
 	docker.WithDockerMock(t, &docker.MockDockerClient{
 		ImageInspectFn: func(_ context.Context, _ string, _ ...client.ImageInspectOption) (client.ImageInspectResult, error) {
-			return client.ImageInspectResult{InspectResponse: image.InspectResponse{ID: "sha256:base"}}, nil
+			return client.ImageInspectResult{ID: "sha256:base"}, nil
 		},
 		ImageBuildFn: func(_ context.Context, _ io.Reader, opts client.ImageBuildOptions) (client.ImageBuildResult, error) {
 			gotArgs = opts.BuildArgs
@@ -280,7 +272,7 @@ func TestResolveBaseDigestPullsAbsentBase(t *testing.T) {
 			if inspects == 1 {
 				return client.ImageInspectResult{}, errors.New("not found")
 			}
-			return client.ImageInspectResult{InspectResponse: image.InspectResponse{ID: "sha256:pulled"}}, nil
+			return client.ImageInspectResult{ID: "sha256:pulled"}, nil
 		},
 		ImagePullFn: func(_ context.Context, ref string, _ client.ImagePullOptions) (io.ReadCloser, error) {
 			pulled = ref

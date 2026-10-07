@@ -10,7 +10,6 @@ import (
 	dockerspec "github.com/moby/docker-image-spec/specs-go/v1"
 	"github.com/moby/moby/api/types/image"
 	"github.com/moby/moby/client"
-	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 
 	"github.com/inoio/agents-sandbox/internal/configpaths"
@@ -164,7 +163,7 @@ func TestEnsureImageCannotInspectBuiltImage(t *testing.T) {
 		ImageInspectFn: func(_ context.Context, _ string, _ ...client.ImageInspectOption) (client.ImageInspectResult, error) {
 			calls++
 			if calls == 1 {
-				return client.ImageInspectResult{InspectResponse: image.InspectResponse{ID: "sha256:base"}}, nil
+				return client.ImageInspectResult{ID: "sha256:base"}, nil
 			}
 			return client.ImageInspectResult{}, errors.New("inspect boom")
 		},
@@ -191,10 +190,10 @@ func TestEnsureImageCannotReadImageInfo(t *testing.T) {
 			calls++
 			switch calls {
 			case 1:
-				return client.ImageInspectResult{InspectResponse: image.InspectResponse{ID: "sha256:base"}}, nil
+				return client.ImageInspectResult{ID: "sha256:base"}, nil
 			case 2:
 				return client.ImageInspectResult{
-					InspectResponse: image.InspectResponse{ID: "sha256:built", Config: dockerConfigWith("", nil)},
+					ID: "sha256:built", Config: dockerConfigWith("", nil),
 				}, nil
 			default:
 				return client.ImageInspectResult{}, errors.New("read env boom")
@@ -262,10 +261,8 @@ func TestCachedImageMatchesDockerMsbInspectError(t *testing.T) {
 	docker.WithDockerMock(t, &docker.MockDockerClient{
 		ImageInspectFn: func(_ context.Context, _ string, _ ...client.ImageInspectOption) (client.ImageInspectResult, error) {
 			return client.ImageInspectResult{
-				InspectResponse: image.InspectResponse{
-					ID:     "sha256:x",
-					Config: dockerConfigWith("", nil),
-				},
+				ID:     "sha256:x",
+				Config: dockerConfigWith("", nil),
 			}, nil
 		},
 	})
@@ -283,10 +280,8 @@ func TestCachedImageMatchesDockerByDigest(t *testing.T) {
 	docker.WithDockerMock(t, &docker.MockDockerClient{
 		ImageInspectFn: func(_ context.Context, _ string, _ ...client.ImageInspectOption) (client.ImageInspectResult, error) {
 			return client.ImageInspectResult{
-				InspectResponse: image.InspectResponse{
-					ID:     "sha256:same",
-					Config: dockerConfigWith("", nil),
-				},
+				ID:     "sha256:same",
+				Config: dockerConfigWith("", nil),
 			}, nil
 		},
 	})
@@ -305,11 +300,9 @@ func TestCachedImageMatchesDockerByLabel(t *testing.T) {
 	docker.WithDockerMock(t, &docker.MockDockerClient{
 		ImageInspectFn: func(_ context.Context, _ string, _ ...client.ImageInspectOption) (client.ImageInspectResult, error) {
 			return client.ImageInspectResult{
-				InspectResponse: image.InspectResponse{
-					ID: "",
-					Config: &dockerspec.DockerOCIImageConfig{
-						ImageConfig: ocispec.ImageConfig{Labels: labels},
-					},
+				ID: "",
+				Config: &dockerspec.DockerOCIImageConfig{
+					Labels: labels,
 				},
 			}, nil
 		},
@@ -328,11 +321,9 @@ func TestCachedImageMatchesDockerLabelMismatch(t *testing.T) {
 	docker.WithDockerMock(t, &docker.MockDockerClient{
 		ImageInspectFn: func(_ context.Context, _ string, _ ...client.ImageInspectOption) (client.ImageInspectResult, error) {
 			return client.ImageInspectResult{
-				InspectResponse: image.InspectResponse{
-					ID: "",
-					Config: &dockerspec.DockerOCIImageConfig{
-						ImageConfig: ocispec.ImageConfig{Labels: map[string]string{dockerfileIDLabelKey: "abc"}},
-					},
+				ID: "",
+				Config: &dockerspec.DockerOCIImageConfig{
+					Labels: map[string]string{dockerfileIDLabelKey: "abc"},
 				},
 			}, nil
 		},
@@ -457,7 +448,7 @@ func TestEnsureImageReturnsBuildError(t *testing.T) {
 	a := agentOpencode(t)
 	docker.WithDockerMock(t, &docker.MockDockerClient{
 		ImageInspectFn: func(_ context.Context, _ string, _ ...client.ImageInspectOption) (client.ImageInspectResult, error) {
-			return client.ImageInspectResult{InspectResponse: image.InspectResponse{ID: "sha256:base"}}, nil
+			return client.ImageInspectResult{ID: "sha256:base"}, nil
 		},
 		ImageBuildFn: func(_ context.Context, _ io.Reader, _ client.ImageBuildOptions) (client.ImageBuildResult, error) {
 			return client.ImageBuildResult{}, errors.New("build boom")

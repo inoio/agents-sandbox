@@ -140,7 +140,7 @@ func (p Policy) Config() (*msbSdk.NetworkConfig, error) {
 		if err != nil {
 			return nil, err
 		}
-		cfg.DNS = &msbSdk.DNSConfig{ //nolint:exhaustruct // rebind/query-timeout settings are out of scope
+		cfg.DNS = &msbSdk.DNSConfig{ //nolint:exhaustruct_v5 // rebind/query-timeout settings are out of scope
 			Nameservers: nameservers,
 		}
 	}

@@ -1,8 +1,6 @@
 module github.com/inoio/agents-sandbox
 
-go 1.26.0
-
-require github.com/titanous/json5 v1.0.0
+go 1.27.1
 
 require (
 	github.com/Masterminds/semver/v3 v3.5.0
@@ -19,6 +17,7 @@ require (
 	github.com/spf13/viper v1.21.0
 	github.com/stretchr/testify v1.12.1
 	github.com/superradcompany/microsandbox/sdk/go v0.7.6
+	github.com/titanous/json5 v1.0.0
 	golang.org/x/term v0.46.0
 	gopkg.in/yaml.v3 v3.0.1
 )

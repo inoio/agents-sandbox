@@ -52,12 +52,12 @@ func ParseImageTag(name string) ArtifactInfo {
 		return ArtifactInfo{}
 	}
 	afterPrefix := name[len(ImagePrefix):]
-	lastColon := strings.LastIndex(afterPrefix, ":")
-	if lastColon == -1 {
+	before, after, ok := strings.CutLast(afterPrefix, ":")
+	if !ok {
 		return ArtifactInfo{Slug: afterPrefix, Digest: "", Agent: ""}
 	}
-	tag := afterPrefix[lastColon+1:]
-	slug := afterPrefix[:lastColon]
+	tag := after
+	slug := before
 	if agent, ok := strings.CutSuffix(tag, "-latest"); ok {
 		return ArtifactInfo{Slug: slug, Digest: "", Agent: agent}
 	}

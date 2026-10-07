@@ -731,7 +731,7 @@ func (r *Resolver) resolveNotify(cmd *cobra.Command, ui termio.UI, opts *options
 				)
 			}
 			ui.Warnf("notifications not supported by agent %q (no daemon/event stream); ignoring", a.Name())
-			opts.Notify = notify.Config{Audio: notify.AudioOff} //nolint:exhaustruct // channels disabled
+			opts.Notify = notify.Config{Audio: notify.AudioOff} //nolint:exhaustruct_v5 // channels disabled
 		}
 	}
 	return nil
@@ -740,7 +740,7 @@ func (r *Resolver) resolveNotify(cmd *cobra.Command, ui termio.UI, opts *options
 // resolveNotifyConfig resolves the effective notify config with precedence
 // flag > env > config, then validates the value.
 func (r *Resolver) resolveNotifyConfig(cmd *cobra.Command) (notify.Config, error) {
-	cfg := notify.Config{Audio: notify.AudioOff} //nolint:exhaustruct // zero channels, populated below
+	cfg := notify.Config{Audio: notify.AudioOff} //nolint:exhaustruct_v5 // zero channels, populated below
 	if r != nil {
 		cfg = r.cfg.Notify
 		if cfg.Audio == "" {
@@ -817,7 +817,7 @@ func (r *Resolver) resolveSizes(opts *options.RunOptions) error {
 // inactive config when no notify key is set; otherwise channels are read as-is
 // and triggers default to true.
 func decodeNotify(v *viper.Viper) NotifyConfig {
-	cfg := NotifyConfig{Audio: notify.AudioOff} //nolint:exhaustruct // remaining fields zeroed and set below
+	cfg := NotifyConfig{Audio: notify.AudioOff} //nolint:exhaustruct_v5 // remaining fields zeroed and set below
 	if !v.IsSet(keyNotifyDesktop) && !v.IsSet(keyNotifyAudio) &&
 		!v.IsSet(keyNotifyOnInput) && !v.IsSet(keyNotifyOnDone) && !v.IsSet(keyNotifyOnError) {
 		return cfg
