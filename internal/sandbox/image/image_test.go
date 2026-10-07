@@ -160,6 +160,35 @@ func TestBuildDockerImageSetsHostUserBuildArgs(t *testing.T) {
 	}
 }
 
+func TestBuildImageNoCacheFollowsParameter(t *testing.T) {
+	dockerfile := []byte("FROM debian:trixie-slim\nRUN echo hi\n")
+	a, _ := agent.Lookup("opencode")
+
+	for _, noCache := range []bool{true, false} {
+		t.Run(strconv.FormatBool(noCache), func(t *testing.T) {
+			m := &docker.MockDockerClient{}
+			var capturedNoCache bool
+			m.ImageBuildFn = func(
+				_ context.Context, _ io.Reader, opts client.ImageBuildOptions,
+			) (client.ImageBuildResult, error) {
+				capturedNoCache = opts.NoCache
+				return client.ImageBuildResult{Body: io.NopCloser(bytes.NewReader(nil))}, nil
+			}
+			docker.WithDockerMock(t, m)
+
+			if err := buildImage(
+				context.Background(), a, dockerfile, "tag",
+				noCache, "", "debian:trixie-slim", "", false, func(string) {},
+			); err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if capturedNoCache != noCache {
+				t.Errorf("NoCache = %v, want %v", capturedNoCache, noCache)
+			}
+		})
+	}
+}
+
 func TestDockerfileTarContainsDockerfile(t *testing.T) {
 	dockerfile := []byte("FROM debian:trixie-slim\nRUN echo hi\n")
 	tarBuf, err := dockerfileTar(dockerfile)

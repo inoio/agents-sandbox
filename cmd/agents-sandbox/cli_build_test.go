@@ -151,6 +151,21 @@ func TestBuildCommandHasAgentVersionFlag(t *testing.T) {
 	}
 }
 
+func TestRunAndShellHaveAgentVersionFlag(t *testing.T) {
+	for _, name := range []string{cmdRun, cmdShell} {
+		t.Run(name, func(t *testing.T) {
+			cmd, _ := setupCommandFixtures(t, name, "--help")
+			foundCmd, _, err := cmd.Find([]string{name})
+			if err != nil {
+				t.Fatalf("Find %q: %v", name, err)
+			}
+			if flag := foundCmd.Flags().Lookup(flagAgentVersion); flag == nil {
+				t.Errorf("%s command must have --agent-version flag", name)
+			}
+		})
+	}
+}
+
 func TestBuildDockerfileCommand(t *testing.T) {
 	for _, commands := range [][]string{
 		{cmdBuild, cmdDockerfile},

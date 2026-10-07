@@ -8,8 +8,34 @@ command reports the bare version (e.g. `0.1.0`).
 
 ## [Unreleased]
 
+### Added
+
+- Internal: add `make test-integration` — docker-build integration tests (tagged `integration`, excluded from the main
+  suite) that build a real image for every `RenderDockerfile` composition case (no project Dockerfile, managed base, and
+  custom Fedora base, each with and without dind). Wired into CI as a selective job (main/release/manual).
+- Internal: `devUserBlock` now sets the dev login shell to the first of `bash`, `zsh`, `sh` found (falling back to
+  `/bin/sh`) instead of hardcoding bash, widening custom-base compatibility.
+- Custom project Dockerfiles can place a `# agents-sandbox:dind` marker line in the final stage to control where the
+  Docker-in-Docker install block is injected, e.g. to run `buildx`/`docker compose` setup after the engine is installed.
+  Without the marker the block is still appended after the Dockerfile body.
+- `run` and `shell` now accept `--agent-version` to pin the agent version baked into the runner image, matching `build`.
+
 ### Changed
 
+- Internal: the dev user block is now inserted after the embedded base tools (or after the final `FROM` for a custom base)
+  instead of as the first instruction of the final stage. A host UID/GID change no longer invalidates the cached base tools
+  layer.
+- Internal: the `org.agents-sandbox.dockerfile-id` label moved to the finalization block, after the agent install, so an
+  agent-version bump no longer invalidates the cached Node.js and agent install layers.
+- Internal: `RenderDockerfile` now splits the project's final stage into earlier stages, base, and body and concatenates the
+  tool-owned blocks around them, replacing the FROM/insertion helpers with `splitFinalStage`, `injectDindBlock`, and `joinBlocks`.
+- Internal: a rebuild triggered by a stale image (changed Dockerfile, agent version, or base) now reuses Docker's layer cache;
+  only an explicit `--rebuild` bypasses it. An accepted agent upgrade is a version change, so it rebuilds the install layer
+  while keeping earlier layers cached.
+- Internal: `volume migrate`, `volume reset`, and `volume edit` no longer expose `--rebuild`; they ensure the runner image but
+  never force a clean rebuild.
+- `--rebuild` on `run`/`shell` now only forces a clean rebuild; it no longer suppresses the agent upgrade check. A pinned
+  `--agent-version` is now ignored for a user-provided agent, matching the documented contract.
 - Development: add a `make bootstrap` target that installs the pinned toolchain (Go from `.go-version` via goenv, plus golangci-lint and Zig for cross-compilation) and a read-only `make verify` target for CI parity. Bump the toolchain to Go 1.27.1, golangci-lint 2.14.0, gotestsum 1.13.0, and Zig 0.17.0. The `.agents-sandbox/Dockerfile` pins matching versions for the runtime runner image.
 - Development: move the macOS linker stubs from `ci/builder/stubs/` to `.github/stubs/` and drop the now-unused `ci/builder/Dockerfile`.
 - Docs: improve SEO, e.g. canonical URL to inoio.github.io/agents-sandbox, publish a `sitemap.xml`, home page with descriptive title, site description and link-preview title (`og:title`).

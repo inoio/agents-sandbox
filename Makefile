@@ -1,4 +1,4 @@
-.PHONY: build build-release build-release-all bootstrap test coverage coverage-junit lint fmt validate-fmt run check verify all clean install-bash-completion install-head install-head-and-bash-completion upgrade-deps docs-diagrams docs-linkcheck docs-linkcheck-test docs-serve
+.PHONY: build build-release build-release-all bootstrap test test-integration coverage coverage-junit lint fmt validate-fmt run check verify all clean install-bash-completion install-head install-head-and-bash-completion upgrade-deps docs-diagrams docs-linkcheck docs-linkcheck-test docs-serve
 
 VERSION ?= dev
 
@@ -75,6 +75,12 @@ bootstrap:
 
 test:
 	CGO_ENABLED=1 go test ./...
+
+# Docker-build integration tests for RenderDockerfile composition. Excluded from
+# `test`/`check` via the `integration` build tag. Requires a working docker
+# daemon and network access (base image pulls, agent installs).
+test-integration:
+	CGO_ENABLED=1 go test -tags integration -count=1 ./internal/sandbox/image/
 
 coverage:
 	CGO_ENABLED=1 go test -coverprofile=coverage.out ./...

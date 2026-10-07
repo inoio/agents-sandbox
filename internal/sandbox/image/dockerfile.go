@@ -44,91 +44,96 @@ const (
 	dockerVersion = "29.7.2"
 )
 
+// dindMarker is the comment a project Dockerfile can place in its final stage to
+// control where the Docker-in-Docker install block runs, e.g. after installing the
+// dind prerequisites and before configuring docker.
+const dindMarker = "# agents-sandbox:dind"
+
 // RenderDockerfile composes the single per-project runner Dockerfile from the
-// agent, the project Dockerfile (if any), and the dind switch. Tool-owned
-// blocks are appended after the base/user content; the base is either the
-// embedded debian tools block (default, or after replacing a managed FROM) or
-// the user's own custom base.
+// agent, the project Dockerfile (if any), and the dind switch. The project's
+// final stage is split into its base and body, then the tool-owned blocks are
+// concatenated around it.
 func RenderDockerfile(a agent.Agent, projectDockerfile []byte, dind bool) []byte {
-	base := embeddedBaseToolsBlock
-
-	switch {
-	case len(bytes.TrimSpace(projectDockerfile)) == 0:
-		// No project Dockerfile: the embedded debian base tools block is the whole base.
-	case referencesImage(projectDockerfile, managedBaseRef) ||
-		referencesImage(projectDockerfile, managedBaseDindRef):
-		// Managed FROM: replace the final stage's FROM with the embedded base
-		// tools block, keeping earlier build stages and the body in place.
-		if referencesImage(projectDockerfile, managedBaseDindRef) {
-			dind = true
-		}
-		base = replaceFinalStageFrom(projectDockerfile, embeddedBaseToolsBlock)
-	default:
-		// Custom base: keep the user's whole Dockerfile.
-		base = projectDockerfile
+	if referencesImage(projectDockerfile, managedBaseDindRef) {
+		dind = true
 	}
-
-	var out strings.Builder
-	out.Write(base)
-	out.WriteString("\n")
+	earlier, base, body := splitFinalStage(projectDockerfile)
 	if dind {
-		out.WriteString(dindBlock())
-		out.WriteString("\n")
+		body = injectDindBlock(body, dindBlock())
 	}
-	out.WriteString(agentBlock(a))
-	out.WriteString("\n")
-	out.WriteString(finalizeBlock())
+	return []byte(joinBlocks(
+		earlier,
+		base,
+		devUserBlock(),
+		body,
+		dindFinalizationBlock(),
+		agentBlock(a),
+		finalizationBlock(),
+	))
+}
 
-	// Create the dev user as the first instruction of the final stage so its
-	// UID/GID is reserved before any stage body or tool-owned block runs.
-	return insertAfterLastFrom([]byte(out.String()), []byte(devUserBlock()))
+// splitFinalStage splits a project Dockerfile into the earlier build stages, the
+// final stage's base, and the body after it. Without a project Dockerfile the
+// embedded tools block is the whole base. A managed base has its final FROM
+// replaced by the embedded tools block, keeping earlier stages; a custom base keeps
+// its own FROM.
+func splitFinalStage(projectDockerfile []byte) (string, string, string) {
+	if len(bytes.TrimSpace(projectDockerfile)) == 0 {
+		return "", string(embeddedBaseToolsBlock), ""
+	}
+	lines := bytes.SplitAfter(projectDockerfile, []byte("\n"))
+	lastFrom := lastFromLine(lines)
+	if lastFrom < 0 {
+		return "", string(projectDockerfile), ""
+	}
+	earlier := string(bytes.Join(lines[:lastFrom], nil))
+	body := string(bytes.Join(lines[lastFrom+1:], nil))
+	if referencesImage(projectDockerfile, managedBaseRef) ||
+		referencesImage(projectDockerfile, managedBaseDindRef) {
+		return earlier, string(embeddedBaseToolsBlock), body
+	}
+	return earlier, string(lines[lastFrom]), body
+}
+
+// injectDindBlock replaces the first dind marker line in body with block, or
+// appends block when no marker is present. body is the final stage's body, so a
+// marker in an earlier build stage is never seen.
+func injectDindBlock(body, block string) string {
+	lines := strings.SplitAfter(body, "\n")
+	for i, line := range lines {
+		if strings.TrimSpace(line) == dindMarker {
+			return strings.Join(lines[:i], "") + block + strings.Join(lines[i+1:], "")
+		}
+	}
+	return body + block
+}
+
+// joinBlocks concatenates non-empty blocks with a newline between them, so empty
+// segments (earlier stages, the body, or the dind block) leave no blank lines.
+func joinBlocks(blocks ...string) string {
+	nonEmpty := blocks[:0]
+	for _, block := range blocks {
+		if strings.TrimSpace(block) != "" {
+			nonEmpty = append(nonEmpty, block)
+		}
+	}
+	return strings.Join(nonEmpty, "\n")
 }
 
 // devUserBlock creates the dev user as root, leaving the shell as root.
 // groupadd -f tolerates a host GID already taken in the base image (e.g. macOS
 // staff/20 vs dialout): the group then gets the next free GID, so useradd must
-// reference it by name.
+// reference it by name. The login shell prefers bash, then zsh, then sh, so a
+// custom base need only provide a POSIX shell.
 func devUserBlock() string {
 	return `USER root
 ARG USER_UID=1000
 ARG USER_GID=1000
 RUN id -u dev >/dev/null 2>&1 || \
-      { groupadd -f -g "$USER_GID" dev && useradd -m -u "$USER_UID" -g dev -s /bin/bash dev; }
+      { groupadd -f -g "$USER_GID" dev && \
+        p=/bin/sh; for sh in bash zsh sh; do q="$(command -v "$sh" 2>/dev/null)" && { p="$q"; break; }; done; \
+        useradd -m -u "$USER_UID" -g dev -s "$p" dev; }
 `
-}
-
-// replaceFinalStageFrom swaps a project Dockerfile's final stage FROM for the
-// given block (which carries its own FROM), keeping earlier build stages and
-// the body that follows the FROM.
-func replaceFinalStageFrom(dockerfile []byte, block []byte) []byte {
-	lines := bytes.SplitAfter(dockerfile, []byte("\n"))
-	lastFrom := lastFromLine(lines)
-	if lastFrom < 0 {
-		return dockerfile
-	}
-	var out bytes.Buffer
-	out.Write(bytes.Join(lines[:lastFrom], nil))
-	out.Write(block)
-	if !bytes.HasSuffix(block, []byte("\n")) {
-		out.WriteByte('\n')
-	}
-	out.Write(bytes.Join(lines[lastFrom+1:], nil))
-	return out.Bytes()
-}
-
-// insertAfterLastFrom inserts block immediately after the last FROM
-// instruction, making it the first instruction of the final stage.
-func insertAfterLastFrom(dockerfile []byte, block []byte) []byte {
-	lines := bytes.SplitAfter(dockerfile, []byte("\n"))
-	lastFrom := lastFromLine(lines)
-	if lastFrom < 0 {
-		return dockerfile
-	}
-	var out bytes.Buffer
-	out.Write(bytes.Join(lines[:lastFrom+1], nil))
-	out.Write(block)
-	out.Write(bytes.Join(lines[lastFrom+1:], nil))
-	return out.Bytes()
 }
 
 // lastFromLine returns the index of the last FROM instruction in lines, or -1.
@@ -144,8 +149,7 @@ func lastFromLine(lines [][]byte) int {
 
 // dindBlock returns the idempotent docker-engine install block, appended when
 // dind is enabled (or implied by a runner-base-dind FROM). A base that already
-// provides dockerd is deferred to (docker-source=user) but the vfs storage
-// driver is still forced for microsandbox compatibility.
+// provides dockerd is deferred to (docker-source=user).
 func dindBlock() string {
 	return fmt.Sprintf(`USER root
 ARG DOCKER_VERSION=%s
@@ -163,12 +167,19 @@ RUN set -e; mkdir -p /etc/agents-sandbox && \
       done; \
     fi
 
-# Microsandbox compatibility: always force the vfs storage driver, even for a
-# user-provided dockerd.
-RUN mkdir -p /etc/docker && \
-    echo '{"storage-driver":"vfs"}' > /etc/docker/daemon.json
 RUN groupadd -f docker
 `, dockerVersion)
+}
+
+// dindFinalizationBlock finalizes docker for both dind=true and a user-defined Dockerfile that installs docker.
+func dindFinalizationBlock() string {
+	return `USER root
+# Microsandbox compatibility: always force the vfs storage driver
+RUN mkdir -p /etc/docker && \
+    echo '{"storage-driver":"vfs"}' > /etc/docker/daemon.json
+# if docker group exists, add dev user to it
+RUN usermod -aG docker dev 2>/dev/null || true
+`
 }
 
 // agentBlock renders the idempotent node+agent install block. A base that
@@ -193,8 +204,6 @@ func agentBlock(a agent.Agent) string {
 	return fmt.Sprintf(`USER root
 ARG %s
 LABEL %s=%s
-ARG DOCKERFILE_ID
-LABEL org.agents-sandbox.dockerfile-id=$DOCKERFILE_ID
 %sRUN command -v node >/dev/null 2>&1 || { \
       case "$(uname -m)" in \
         x86_64) NODE_ARCH=x64 ;; \
@@ -222,17 +231,22 @@ RUN mkdir -p /etc/agents-sandbox && \
 	)
 }
 
-// finalizeBlock records the image contract labels and makes dev the runtime
-// user. The dev user itself is created earlier by devUserBlock.
-func finalizeBlock() string {
+// finalizationBlock records the image contract labels and makes dev the runtime
+// user. The dev user itself is created earlier by devUserBlock. The
+// dockerfile-id label lives here, after the agent install, so an agent upgrade
+// does not invalidate the cached node and agent install layers.
+func finalizationBlock() string {
 	return `USER root
 ARG BASE_IMAGE
+ARG DOCKERFILE_ID
 
-RUN usermod -aG docker dev 2>/dev/null || true
 USER dev
+# extend PATH with ~/.local/bin
+ENV PATH="/home/dev/.local/bin:${PATH}"
 WORKDIR /workspace
 LABEL org.agents-sandbox.managed=true
 LABEL org.agents-sandbox.base=$BASE_IMAGE
+LABEL org.agents-sandbox.dockerfile-id=$DOCKERFILE_ID
 `
 }
 

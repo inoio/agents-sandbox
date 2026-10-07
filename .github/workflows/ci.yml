@@ -46,6 +46,20 @@ jobs:
           files: junit.xml
           fail_ci_if_error: false
 
+  integration:
+    name: integration (docker build)
+    # Costly full-image builds: run only on main, releases, and manual dispatch,
+    # not on every PR.
+    if: github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version: "1.27"
+          cache: true
+      - run: make test-integration
+
   release:
     name: release (${{ matrix.target }})
     if: startsWith(github.ref, 'refs/tags/')
