@@ -8,9 +8,7 @@ import (
 	"testing"
 
 	dockerspec "github.com/moby/docker-image-spec/specs-go/v1"
-	mobyimage "github.com/moby/moby/api/types/image"
 	"github.com/moby/moby/client"
-	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 
 	"github.com/inoio/agents-sandbox/internal/agent"
@@ -46,14 +44,10 @@ func TestPrepareSandboxDryRunVM(t *testing.T) {
 		},
 		ImageInspectFn: func(_ context.Context, _ string, _ ...client.ImageInspectOption) (client.ImageInspectResult, error) {
 			return client.ImageInspectResult{
-				InspectResponse: mobyimage.InspectResponse{
-					ID: "sha256:abc123",
-					Config: &dockerspec.DockerOCIImageConfig{
-						ImageConfig: ocispec.ImageConfig{
-							Env:    []string{"PATH=/usr/bin"},
-							Labels: map[string]string{"org.agents-sandbox.agent": "opencode"},
-						},
-					},
+				ID: "sha256:abc123",
+				Config: &dockerspec.DockerOCIImageConfig{
+					Env:    []string{"PATH=/usr/bin"},
+					Labels: map[string]string{"org.agents-sandbox.agent": "opencode"},
 				},
 			}, nil
 		},
@@ -83,7 +77,7 @@ func TestPrepareSandboxDryRunVM(t *testing.T) {
 		}
 		return "", 0, nil
 	})
-	defer SetDaemonShellFunc(origDaemon)
+	t.Cleanup(func() { SetDaemonShellFunc(origDaemon) })
 
 	ui := termio.NewTestMock(t)
 	sess, err := PrepareSandbox(context.Background(), options.RunOptions{DryRunVM: true}, &ui)
@@ -122,14 +116,10 @@ func TestPrepareSandboxVolumeError(t *testing.T) {
 		},
 		ImageInspectFn: func(_ context.Context, _ string, _ ...client.ImageInspectOption) (client.ImageInspectResult, error) {
 			return client.ImageInspectResult{
-				InspectResponse: mobyimage.InspectResponse{
-					ID: "sha256:abc123",
-					Config: &dockerspec.DockerOCIImageConfig{
-						ImageConfig: ocispec.ImageConfig{
-							Env:    []string{"PATH=/usr/bin"},
-							Labels: map[string]string{"org.agents-sandbox.agent": "opencode"},
-						},
-					},
+				ID: "sha256:abc123",
+				Config: &dockerspec.DockerOCIImageConfig{
+					Env:    []string{"PATH=/usr/bin"},
+					Labels: map[string]string{"org.agents-sandbox.agent": "opencode"},
 				},
 			}, nil
 		},
@@ -155,7 +145,7 @@ func TestPrepareSandboxVolumeError(t *testing.T) {
 		}
 		return "", 0, nil
 	})
-	defer SetDaemonShellFunc(origDaemon)
+	t.Cleanup(func() { SetDaemonShellFunc(origDaemon) })
 
 	ui := termio.NewTestMock(t)
 	if _, err := PrepareSandbox(context.Background(), options.RunOptions{DryRunVM: true}, &ui); err == nil {
@@ -184,14 +174,10 @@ func TestPrepareSandboxEnsureVMError(t *testing.T) {
 		},
 		ImageInspectFn: func(_ context.Context, _ string, _ ...client.ImageInspectOption) (client.ImageInspectResult, error) {
 			return client.ImageInspectResult{
-				InspectResponse: mobyimage.InspectResponse{
-					ID: "sha256:abc123",
-					Config: &dockerspec.DockerOCIImageConfig{
-						ImageConfig: ocispec.ImageConfig{
-							Env:    []string{"PATH=/usr/bin"},
-							Labels: map[string]string{"org.agents-sandbox.agent": "opencode"},
-						},
-					},
+				ID: "sha256:abc123",
+				Config: &dockerspec.DockerOCIImageConfig{
+					Env:    []string{"PATH=/usr/bin"},
+					Labels: map[string]string{"org.agents-sandbox.agent": "opencode"},
 				},
 			}, nil
 		},
@@ -224,7 +210,7 @@ func TestPrepareSandboxEnsureVMError(t *testing.T) {
 		}
 		return "", 0, nil
 	})
-	defer SetDaemonShellFunc(origDaemon)
+	t.Cleanup(func() { SetDaemonShellFunc(origDaemon) })
 
 	ui := termio.NewTestMock(t)
 	if _, err := PrepareSandbox(context.Background(), options.RunOptions{}, &ui); err == nil {
@@ -253,14 +239,10 @@ func TestPrepareSandboxSetUpError(t *testing.T) {
 		},
 		ImageInspectFn: func(_ context.Context, _ string, _ ...client.ImageInspectOption) (client.ImageInspectResult, error) {
 			return client.ImageInspectResult{
-				InspectResponse: mobyimage.InspectResponse{
-					ID: "sha256:abc123",
-					Config: &dockerspec.DockerOCIImageConfig{
-						ImageConfig: ocispec.ImageConfig{
-							Env:    []string{"PATH=/usr/bin"},
-							Labels: map[string]string{"org.agents-sandbox.agent": "opencode"},
-						},
-					},
+				ID: "sha256:abc123",
+				Config: &dockerspec.DockerOCIImageConfig{
+					Env:    []string{"PATH=/usr/bin"},
+					Labels: map[string]string{"org.agents-sandbox.agent": "opencode"},
 				},
 			}, nil
 		},
@@ -298,7 +280,7 @@ func TestPrepareSandboxSetUpError(t *testing.T) {
 		}
 		return "", 0, nil
 	})
-	defer SetDaemonShellFunc(origDaemon)
+	t.Cleanup(func() { SetDaemonShellFunc(origDaemon) })
 
 	ui := termio.NewTestMock(t)
 	if _, err := PrepareSandbox(context.Background(), options.RunOptions{}, &ui); err == nil {

@@ -119,7 +119,7 @@ func Watch(ctx context.Context, sb msb.Sandbox, spec agent.EventStreamSpec, sink
 		return nil
 	}
 	tracker := NewTracker(spec)
-	summary := &dropSummary{} //nolint:exhaustruct // fields zeroed, populated by record
+	summary := &dropSummary{} //nolint:exhaustruct_v5 // fields zeroed, populated by record
 	var consecutiveFails int
 	var backoff time.Duration
 loop:

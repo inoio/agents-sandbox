@@ -81,7 +81,7 @@ func TestSetUpSandboxEnsureDaemonError(t *testing.T) {
 	orig := SetDaemonShellFunc(func(_ context.Context, _ msb.Sandbox, _ string) (string, int, error) {
 		return "", 0, errors.New("daemon shell failed")
 	})
-	defer SetDaemonShellFunc(orig)
+	t.Cleanup(func() { SetDaemonShellFunc(orig) })
 
 	ui := termio.NewTestMock(t)
 	sb := &msb.MockSandbox{
@@ -110,7 +110,7 @@ func TestSetUpSandboxProvisionWarn(t *testing.T) {
 		}
 		return "", 0, nil
 	})
-	defer SetDaemonShellFunc(orig)
+	t.Cleanup(func() { SetDaemonShellFunc(orig) })
 
 	fs := msb.NewTestFS(nil, nil)
 	fs.WriteErr = errors.New("write denied")

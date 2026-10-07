@@ -24,7 +24,7 @@ func ensureMsbInstalled(ctx context.Context) error {
 func msbBinPath() (string, string, string, error) {
 	if configuredPath := os.Getenv("MSB_PATH"); configuredPath != "" {
 		binDir := filepath.Dir(configuredPath)
-		if _, err := os.Stat(
+		if _, err := os.Stat( //nolint:gosec // G703: path comes from the user-set MSB_PATH env var, already cleaned.
 			filepath.Clean(configuredPath),
 		); err != nil {
 			return "", "", "", fmt.Errorf("msb not on PATH and binary missing at %s: %w", binDir, err)
@@ -45,7 +45,7 @@ func msbBinPath() (string, string, string, error) {
 	}
 	binDir := filepath.Join(runtimeHome, "bin")
 	binPath := filepath.Join(binDir, "msb")
-	if _, err := os.Stat(
+	if _, err := os.Stat( //nolint:gosec // G703: path derives from the user-set MSB_HOME env var, already cleaned.
 		filepath.Clean(binPath),
 	); err != nil {
 		return "", "", "", fmt.Errorf("msb not on PATH and binary missing at %s: %w", binDir, err)

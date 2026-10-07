@@ -90,7 +90,7 @@ func PlanReconfig( //nolint:gocognit,gocyclo,cyclop,funlen // core planner, cogn
 	flags ChangeFlags,
 	homeVol string,
 ) *Plan {
-	d := &Plan{} //nolint:exhaustruct // fields zeroed intentionally
+	d := &Plan{} //nolint:exhaustruct_v5 // fields zeroed intentionally
 	if cfg == nil {
 		return d
 	}
@@ -104,7 +104,7 @@ func PlanReconfig( //nolint:gocognit,gocyclo,cyclop,funlen // core planner, cogn
 		d.Recreate = true
 		d.Changes = append(
 			d.Changes,
-			Change{Label: changeLabelImage}, //nolint:exhaustruct // label-only for change reporting
+			Change{Label: changeLabelImage}, //nolint:exhaustruct_v5 // label-only for change reporting
 		)
 	}
 	if wantTmp, ok := options.ParseMemoryOK(opts.TmpSize); ok {
@@ -133,7 +133,7 @@ func PlanReconfig( //nolint:gocognit,gocyclo,cyclop,funlen // core planner, cogn
 			d.Recreate = true
 			d.Changes = append(
 				d.Changes,
-				Change{Label: "home volume"}, //nolint:exhaustruct // label-only for change reporting
+				Change{Label: "home volume"}, //nolint:exhaustruct_v5 // label-only for change reporting
 			)
 		}
 	}
@@ -144,7 +144,7 @@ func PlanReconfig( //nolint:gocognit,gocyclo,cyclop,funlen // core planner, cogn
 		d.Recreate = true
 		d.Changes = append(
 			d.Changes,
-			Change{Label: changeLabelBindMounts}, //nolint:exhaustruct // label-only for change reporting
+			Change{Label: changeLabelBindMounts}, //nolint:exhaustruct_v5 // label-only for change reporting
 		)
 	}
 	if wantDisk, ok := options.ParseMemoryOK(opts.DiskSize); ok {
@@ -175,7 +175,7 @@ func PlanReconfig( //nolint:gocognit,gocyclo,cyclop,funlen // core planner, cogn
 		d.Recreate = true
 		d.Changes = append(
 			d.Changes,
-			Change{Label: changeLabelPublishedPorts}, //nolint:exhaustruct // label-only for change reporting
+			Change{Label: changeLabelPublishedPorts}, //nolint:exhaustruct_v5 // label-only for change reporting
 		)
 	}
 
@@ -187,7 +187,7 @@ func PlanReconfig( //nolint:gocognit,gocyclo,cyclop,funlen // core planner, cogn
 		d.Recreate = true
 		d.Changes = append(
 			d.Changes,
-			Change{Label: changeLabelNetworkPolicy}, //nolint:exhaustruct // label-only for change reporting
+			Change{Label: changeLabelNetworkPolicy}, //nolint:exhaustruct_v5 // label-only for change reporting
 		)
 	}
 
@@ -196,13 +196,13 @@ func PlanReconfig( //nolint:gocognit,gocyclo,cyclop,funlen // core planner, cogn
 		if flags.Env {
 			d.Changes = append(
 				d.Changes,
-				Change{Label: "environment variables"}, //nolint:exhaustruct // label-only for change reporting
+				Change{Label: "environment variables"}, //nolint:exhaustruct_v5 // label-only for change reporting
 			)
 		}
 		if flags.Secrets {
 			d.Changes = append(
 				d.Changes,
-				Change{Label: "secrets"}, //nolint:exhaustruct // label-only for change reporting
+				Change{Label: "secrets"}, //nolint:exhaustruct_v5 // label-only for change reporting
 			)
 		}
 	}
@@ -213,7 +213,7 @@ func PlanReconfig( //nolint:gocognit,gocyclo,cyclop,funlen // core planner, cogn
 		d.RestartDaemons = true
 		d.Changes = append(
 			d.Changes,
-			Change{Label: "agent config"}, //nolint:exhaustruct // label-only for change reporting
+			Change{Label: "agent config"}, //nolint:exhaustruct_v5 // label-only for change reporting
 		)
 	}
 
