@@ -56,6 +56,8 @@ type Plan struct {
 	Warnings             []string
 	ReviewRequired       bool
 	NetworkHosts         []string
+	LoginProviders       []string
+	LoginHosts           []string
 	NetworkPath          string
 	NetworkData          []byte
 	NetworkAllowHosts    []string
@@ -72,6 +74,18 @@ func (p *Plan) HasChanges() bool {
 		!p.AlreadyConfigured &&
 		!p.Handled &&
 		!p.Dismissed
+}
+
+// HasLogin reports whether the plan needs an in-sandbox login for one or more
+// providers whose credentials cannot be migrated as static secrets.
+func (p *Plan) HasLogin() bool {
+	return p != nil && len(p.LoginProviders) > 0
+}
+
+// NeedsAttention reports whether the plan has something the user must review,
+// apply, or act on: migratable changes, a required login, or any warning.
+func (p *Plan) NeedsAttention() bool {
+	return p != nil && (p.HasChanges() || p.HasLogin() || len(p.Warnings) > 0 || len(p.ReviewWarnings) > 0)
 }
 
 const (

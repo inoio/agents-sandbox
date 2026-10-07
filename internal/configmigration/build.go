@@ -121,7 +121,10 @@ func applyNativeConfigMigration(
 	); err != nil {
 		return nil, false, err
 	}
-	result.NetworkHosts = appendUniqueHosts(result.RequiredNetworkHosts, plannedNetworkHosts(result.Secrets)...)
+	result.NetworkHosts = appendUniqueHosts(
+		result.RequiredNetworkHosts,
+		append(plannedNetworkHosts(result.Secrets), result.LoginHosts...)...,
+	)
 	return supplementalNames, len(configData) > 0, nil
 }
 
@@ -213,7 +216,7 @@ func applyAuthMigration(
 	if !ok {
 		return nil
 	}
-	generated, secrets, warnings, _, transformErr := sanitizeAuthWithSpecFn(
+	generated, secrets, warnings, login, transformErr := sanitizeAuthWithSpecFn(
 		authData,
 		spec,
 		spec.KnownProviderHosts,
@@ -228,6 +231,7 @@ func applyAuthMigration(
 			result.ReviewWarnings = append(result.ReviewWarnings, warning)
 		}
 	}
+	applyLoginProviders(result, login)
 	if len(generated) == 0 {
 		return nil
 	}
@@ -236,6 +240,21 @@ func applyAuthMigration(
 		return mergeErr
 	}
 	return nil
+}
+
+func applyLoginProviders(result *Plan, login []LoginProvider) {
+	if len(login) == 0 {
+		return
+	}
+	seenProviders := make(map[string]struct{}, len(login))
+	for _, provider := range login {
+		if _, ok := seenProviders[provider.Name]; !ok {
+			seenProviders[provider.Name] = struct{}{}
+			result.LoginProviders = append(result.LoginProviders, provider.Name)
+		}
+		result.LoginHosts = appendUniqueHosts(result.LoginHosts, provider.Hosts...)
+	}
+	sort.Strings(result.LoginProviders)
 }
 
 func hasGeneratedCredential(files []File, credentialName string) bool {

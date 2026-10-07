@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -150,6 +151,42 @@ func TestBuildFailsOnSecretNameCollisionBetweenConfigAndAuth(t *testing.T) {
 	a, _ := agent.Lookup("opencode")
 	if _, err := Build(a, hostHome); err == nil || !strings.Contains(err.Error(), "collision") {
 		t.Errorf("Build error = %v, want a secret name collision", err)
+	}
+}
+
+func TestBuildReportsLoginForOAuthOnlyConfig(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	clearOpenCodeXDG(t)
+	hostHome := t.TempDir()
+	authPath := filepath.Join(hostHome, ".local", "share", "opencode", "auth.json")
+	if err := os.MkdirAll(filepath.Dir(authPath), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	testutil.WritePath(t, authPath, `{"github-copilot":{"type":"oauth","access":"a","refresh":"r"}}`)
+	a, _ := agent.Lookup("opencode")
+	plan, err := Build(a, hostHome)
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	if plan.HasChanges() {
+		t.Errorf("HasChanges = true for an OAuth-only config, want false")
+	}
+	if !plan.HasLogin() {
+		t.Errorf("HasLogin = false, want true: %+v", plan.LoginProviders)
+	}
+	if !plan.NeedsAttention() {
+		t.Errorf("NeedsAttention = false, want true")
+	}
+	if got := plan.LoginProviders; !slicesEqual(got, []string{"github-copilot"}) {
+		t.Errorf("LoginProviders = %v, want [github-copilot]", got)
+	}
+	if got := plan.LoginHosts; !slicesEqual(got, []string{"api.githubcopilot.com", "github.com"}) {
+		t.Errorf("LoginHosts = %v, want [api.githubcopilot.com github.com]", got)
+	}
+	for _, host := range plan.LoginHosts {
+		if !slices.Contains(plan.NetworkHosts, host) {
+			t.Errorf("NetworkHosts = %v, want login host %q allowed", plan.NetworkHosts, host)
+		}
 	}
 }
 

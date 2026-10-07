@@ -17,6 +17,7 @@ const (
 	authTypeField         = "type"
 	oauthAuthType         = "oauth"
 	opencodeOAuthDummyKey = "opencode-oauth-dummy-key"
+	githubCopilotProvider = "github-copilot"
 )
 
 // LoginProvider is a provider whose credentials are acquired by logging in
@@ -349,7 +350,7 @@ func jsonFieldString(values map[string]json.RawMessage, key string) string {
 }
 
 func authHosts(provider string, auth map[string]json.RawMessage, knownHosts, providerHosts map[string]string) []string {
-	if provider == "github-copilot" {
+	if provider == githubCopilotProvider {
 		if enterprise := jsonFieldString(auth, "enterpriseUrl"); enterprise != "" {
 			if parsed, err := url.Parse(enterprise); err == nil && parsed.Hostname() != "" {
 				return []string{"copilot-api." + parsed.Hostname()}
