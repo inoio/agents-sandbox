@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/url"
+	"slices"
 	"sort"
 	"strings"
 	"unicode"
@@ -14,13 +15,21 @@ import (
 const (
 	authTypeWellKnown     = "wellknown"
 	authTypeField         = "type"
+	oauthAuthType         = "oauth"
 	opencodeOAuthDummyKey = "opencode-oauth-dummy-key"
 )
+
+// LoginProvider is a provider whose credentials are acquired by logging in
+// inside the sandbox rather than by migrating a static secret.
+type LoginProvider struct {
+	Name  string
+	Hosts []string
+}
 
 func sanitizeAuth(
 	data []byte,
 	knownHosts, providerHosts map[string]string,
-) ([]byte, map[string]Secret, []string, error) {
+) ([]byte, map[string]Secret, []string, []LoginProvider, error) {
 	spec := defaultMigrationSpec()
 	return sanitizeAuthWithSpec(data, spec, knownHosts, providerHosts)
 }
@@ -29,20 +38,31 @@ func sanitizeAuthWithSpec(
 	data []byte,
 	spec agent.ConfigMigrationSpec,
 	knownHosts, providerHosts map[string]string,
-) ([]byte, map[string]Secret, []string, error) {
+) ([]byte, map[string]Secret, []string, []LoginProvider, error) {
 	var providers map[string]json.RawMessage
 	if err := json.Unmarshal(data, &providers); err != nil {
-		return nil, nil, nil, fmt.Errorf("parse auth.json: %w", err)
+		return nil, nil, nil, nil, fmt.Errorf("parse auth.json: %w", err)
 	}
 	result := make(map[string]json.RawMessage)
 	secrets := make(map[string]Secret)
 	var warnings []string
+	var login []LoginProvider
 	providerNames := make([]string, 0, len(providers))
 	for provider := range providers {
 		providerNames = append(providerNames, provider)
 	}
 	sort.Strings(providerNames)
 	for _, provider := range providerNames {
+		if providerLogin, isLogin := detectLoginProvider(
+			provider,
+			providers[provider],
+			spec,
+			knownHosts,
+			providerHosts,
+		); isLogin {
+			login = append(login, providerLogin)
+			continue
+		}
 		auth, fields, warning := parseAuthEntry(provider, providers[provider], spec.Auth)
 		if warning != "" {
 			warnings = append(warnings, warning)
@@ -58,7 +78,7 @@ func sanitizeAuthWithSpec(
 				providerHosts,
 				secrets,
 			); replaceErr != nil {
-				return nil, nil, nil, replaceErr
+				return nil, nil, nil, nil, replaceErr
 			}
 		}
 		if err := sanitizeAuthMapWithSpec(
@@ -70,23 +90,61 @@ func sanitizeAuthWithSpec(
 			providerHosts,
 			secrets,
 		); err != nil {
-			return nil, nil, nil, err
+			return nil, nil, nil, nil, err
 		}
 		warnings = append(warnings, unsupportedAuthFieldWarnings(auth, provider, "", spec.Auth)...)
 		encoded, err := marshalJSONFn(auth)
 		if err != nil {
-			return nil, nil, nil, fmt.Errorf("marshal auth entry %q: %w", provider, err)
+			return nil, nil, nil, nil, fmt.Errorf("marshal auth entry %q: %w", provider, err)
 		}
 		result[provider] = encoded
 	}
 	if len(result) == 0 {
-		return nil, secrets, warnings, nil
+		return nil, secrets, warnings, login, nil
 	}
 	encoded, err := marshalJSONIndentFn(result, "", "  ")
 	if err != nil {
-		return nil, nil, nil, fmt.Errorf("marshal migrated auth: %w", err)
+		return nil, nil, nil, nil, fmt.Errorf("marshal migrated auth: %w", err)
 	}
-	return append(encoded, '\n'), secrets, warnings, nil
+	return append(encoded, '\n'), secrets, warnings, login, nil
+}
+
+func detectLoginProvider(
+	provider string,
+	data json.RawMessage,
+	spec agent.ConfigMigrationSpec,
+	knownHosts, providerHosts map[string]string,
+) (LoginProvider, bool) {
+	var auth map[string]json.RawMessage
+	if err := json.Unmarshal(data, &auth); err != nil {
+		return LoginProvider{}, false
+	}
+	if !slices.Contains(loginAuthTypes(spec.Auth), jsonFieldString(auth, authTypeField)) {
+		return LoginProvider{}, false
+	}
+	return LoginProvider{
+		Name:  provider,
+		Hosts: loginProviderHosts(provider, auth, spec, knownHosts, providerHosts),
+	}, true
+}
+
+func loginAuthTypes(spec agent.AuthMigrationSpec) []string {
+	if len(spec.LoginAuthTypes) > 0 {
+		return spec.LoginAuthTypes
+	}
+	return []string{oauthAuthType}
+}
+
+func loginProviderHosts(
+	provider string,
+	auth map[string]json.RawMessage,
+	spec agent.ConfigMigrationSpec,
+	knownHosts, providerHosts map[string]string,
+) []string {
+	if hosts, ok := spec.LoginHosts[provider]; ok {
+		return hosts
+	}
+	return authHosts(provider, auth, knownHosts, providerHosts)
 }
 
 func sanitizeAuthMapWithSpec(
@@ -311,7 +369,7 @@ func authHosts(provider string, auth map[string]json.RawMessage, knownHosts, pro
 
 func authFields(authType string) []string {
 	switch authType {
-	case "oauth":
+	case oauthAuthType:
 		return []string{"access", "refresh"}
 	case "api":
 		return []string{"key"}

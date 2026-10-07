@@ -213,7 +213,7 @@ func applyAuthMigration(
 	if !ok {
 		return nil
 	}
-	generated, secrets, warnings, transformErr := sanitizeAuthWithSpecFn(
+	generated, secrets, warnings, _, transformErr := sanitizeAuthWithSpecFn(
 		authData,
 		spec,
 		spec.KnownProviderHosts,
@@ -222,18 +222,18 @@ func applyAuthMigration(
 	if transformErr != nil {
 		return fmt.Errorf("migrate %s: %w", nativeAuthPath, transformErr)
 	}
+	result.Warnings = append(result.Warnings, warnings...)
+	for _, warning := range warnings {
+		if strings.HasPrefix(warning, "review required:") {
+			result.ReviewWarnings = append(result.ReviewWarnings, warning)
+		}
+	}
 	if len(generated) == 0 {
 		return nil
 	}
 	result.Files = append(result.Files, File{Path: managedAuthPath, Data: generated, Mode: defaultAuthMode})
 	if mergeErr := mergePlannedSecrets(result.Secrets, secrets); mergeErr != nil {
 		return mergeErr
-	}
-	result.Warnings = append(result.Warnings, warnings...)
-	for _, warning := range warnings {
-		if strings.HasPrefix(warning, "review required:") {
-			result.ReviewWarnings = append(result.ReviewWarnings, warning)
-		}
 	}
 	return nil
 }

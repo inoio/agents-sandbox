@@ -58,27 +58,14 @@ func TestPlanOpenCodeAuthReplacesCredentialsWithPlaceholders(t *testing.T) {
 		bytes.Contains(authFile.Data, []byte("api-token")) {
 		t.Fatalf("planned auth file contains a raw credential: %s", authFile.Data)
 	}
-	for _, placeholder := range []string{
-		"$MSB_OPENCODE_GITHUB_COPILOT_ACCESS",
-		"$MSB_OPENCODE_GITHUB_COPILOT_REFRESH",
-		"$MSB_OPENCODE_OPENAI_KEY",
-	} {
-		if !bytes.Contains(authFile.Data, []byte(placeholder)) {
-			t.Errorf("planned auth file does not contain %q: %s", placeholder, authFile.Data)
-		}
+	if bytes.Contains(authFile.Data, []byte("github-copilot")) {
+		t.Errorf("oauth provider should be dropped from generated auth: %s", authFile.Data)
 	}
-	if !bytes.Contains(authFile.Data, []byte(`"expires": 123`)) {
-		t.Errorf("planned auth file lost non-secret fields: %s", authFile.Data)
+	if !bytes.Contains(authFile.Data, []byte("$MSB_OPENCODE_OPENAI_KEY")) {
+		t.Errorf("planned auth file does not contain the static placeholder: %s", authFile.Data)
 	}
-
-	if got := plan.Secrets["OPENCODE_GITHUB_COPILOT_ACCESS"].Value; got != "access-token" {
-		t.Errorf("access secret = %q, want raw source value", got)
-	}
-	if got := plan.Secrets["OPENCODE_GITHUB_COPILOT_ACCESS"].Hosts; !slicesEqual(
-		got,
-		[]string{"api.githubcopilot.com"},
-	) {
-		t.Errorf("access hosts = %v, want known provider host", got)
+	if _, ok := plan.Secrets["OPENCODE_GITHUB_COPILOT_ACCESS"]; ok {
+		t.Errorf("oauth secret should not be migrated: %+v", plan.Secrets)
 	}
 	if got := plan.Secrets["OPENCODE_OPENAI_KEY"].Hosts; !slicesEqual(got, []string{"api.openai.com"}) {
 		t.Errorf("api key hosts = %v, want known provider host", got)
@@ -331,7 +318,7 @@ func TestBuildUsesPiTildeAgentDirectoryOverride(t *testing.T) {
 	}
 }
 
-func TestPlanPiMigratesOAuthCredentials(t *testing.T) {
+func TestPlanPiDropsOAuthCredentials(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	t.Setenv("PI_CODING_AGENT_DIR", "")
 	hostHome := t.TempDir()
@@ -353,14 +340,13 @@ func TestPlanPiMigratesOAuthCredentials(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Build: %v", err)
 	}
-	authFile, ok := plan.fileAt(filepath.Join(configpaths.Get().UserAgentConfigDir(a), "auth.json"))
-	if !ok || bytes.Contains(authFile.Data, []byte("access-token")) ||
-		bytes.Contains(authFile.Data, []byte("refresh-token")) {
-		t.Fatalf("Pi OAuth credentials were not sanitized: %+v", plan)
+	if _, ok := plan.fileAt(filepath.Join(configpaths.Get().UserAgentConfigDir(a), "auth.json")); ok {
+		t.Fatalf("Pi oauth credentials should be dropped, not migrated: %+v", plan.Files)
 	}
-	for _, placeholder := range []string{"$MSB_PI_ANTHROPIC_ACCESS", "$MSB_PI_ANTHROPIC_REFRESH"} {
-		if !bytes.Contains(authFile.Data, []byte(placeholder)) {
-			t.Errorf("Pi OAuth placeholder %q missing from %s", placeholder, authFile.Data)
+	for _, file := range plan.Files {
+		if bytes.Contains(file.Data, []byte("access-token")) ||
+			bytes.Contains(file.Data, []byte("refresh-token")) {
+			t.Fatalf("Pi oauth credentials leaked into %s: %s", file.Path, file.Data)
 		}
 	}
 }
@@ -782,7 +768,7 @@ func TestBuildUsesOpenCodeXDGPaths(t *testing.T) {
 	}
 }
 
-func TestPlanDerivesEnterpriseAndCustomHosts(t *testing.T) {
+func TestPlanDropsOAuthProviderAndDerivesCustomHosts(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	clearOpenCodeXDG(t)
 	hostHome := t.TempDir()
@@ -819,11 +805,8 @@ func TestPlanDerivesEnterpriseAndCustomHosts(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Build: %v", err)
 	}
-	if got := plan.Secrets["OPENCODE_GITHUB_COPILOT_ACCESS"].Hosts; !slicesEqual(
-		got,
-		[]string{"copilot-api.ghe.example.test"},
-	) {
-		t.Errorf("enterprise host = %v", got)
+	if _, ok := plan.Secrets["OPENCODE_GITHUB_COPILOT_ACCESS"]; ok {
+		t.Errorf("oauth provider should not migrate a secret: %+v", plan.Secrets)
 	}
 	if got := plan.Secrets["OPENCODE_CONFIG_PROVIDER_CUSTOM_OPTIONS_APIKEY"].Hosts; !slicesEqual(
 		got,
@@ -1277,10 +1260,10 @@ func TestGuideEarlyAndUnknownChoices(t *testing.T) {
 }
 
 func TestSanitizeAuthRejectsMalformedAndUnsupportedValues(t *testing.T) {
-	if _, _, _, err := sanitizeAuth([]byte("{"), nil, nil); err == nil {
+	if _, _, _, _, err := sanitizeAuth([]byte("{"), nil, nil); err == nil {
 		t.Fatal("expected malformed auth error")
 	}
-	if generated, _, warnings, err := sanitizeAuth(
+	if generated, _, warnings, _, err := sanitizeAuth(
 		[]byte(`{"bad":1}`),
 		nil,
 		nil,
@@ -1288,8 +1271,97 @@ func TestSanitizeAuthRejectsMalformedAndUnsupportedValues(t *testing.T) {
 		len(warnings) == 0 {
 		t.Fatalf("unsupported auth result = %q, %v, %v", generated, warnings, err)
 	}
-	if _, _, _, err := sanitizeAuth([]byte(`{"openai":{"type":"api","key":1}}`), nil, nil); err == nil {
+	if _, _, _, _, err := sanitizeAuth([]byte(`{"openai":{"type":"api","key":1}}`), nil, nil); err == nil {
 		t.Fatal("expected non-string auth field error")
+	}
+}
+
+func TestSanitizeAuthDropsOAuthAndReportsLogin(t *testing.T) {
+	opencode, _ := agent.Lookup("opencode")
+	spec := opencode.(agent.MigrationSpecProvider).MigrationSpec()
+	data := []byte(`{
+	  "github-copilot": {"type":"oauth","access":"a","refresh":"r"},
+	  "openai": {"type":"api","key":"sk-x"}
+	}`)
+	out, secrets, _, login, err := sanitizeAuthWithSpec(
+		data,
+		spec,
+		map[string]string{"openai": "api.openai.com"},
+		nil,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(login) != 1 || login[0].Name != "github-copilot" {
+		t.Fatalf("login = %+v", login)
+	}
+	if !slices.Contains(login[0].Hosts, "github.com") {
+		t.Errorf("login hosts = %v; want github.com", login[0].Hosts)
+	}
+	if strings.Contains(string(out), "github-copilot") || strings.Contains(string(out), `"access"`) ||
+		strings.Contains(string(out), `"refresh"`) {
+		t.Errorf("generated auth still contains oauth material: %s", out)
+	}
+	if v := secrets["OPENCODE_OPENAI_KEY"].Value; v != "sk-x" {
+		t.Errorf("static key not migrated: %+v", secrets)
+	}
+}
+
+func TestLoginProviderHostsPrefersSpecLoginHosts(t *testing.T) {
+	opencode, _ := agent.Lookup("opencode")
+	spec := opencode.(agent.MigrationSpecProvider).MigrationSpec()
+	auth := map[string]json.RawMessage{
+		"type":          json.RawMessage(`"oauth"`),
+		"enterpriseUrl": json.RawMessage(`"https://ghe.example.test"`),
+	}
+	hosts := loginProviderHosts(
+		"github-copilot",
+		auth,
+		spec,
+		spec.KnownProviderHosts,
+		nil,
+	)
+	if !slicesEqual(hosts, []string{"github.com", "api.githubcopilot.com"}) {
+		t.Errorf("login hosts = %v; want the spec login hosts", hosts)
+	}
+	unknown := loginProviderHosts("anthropic", auth, spec, spec.KnownProviderHosts, nil)
+	if !slicesEqual(unknown, []string{"api.anthropic.com"}) {
+		t.Errorf("fallback login hosts = %v; want the known provider host", unknown)
+	}
+	specNoLoginHosts := spec
+	specNoLoginHosts.LoginHosts = nil
+	enterprise := loginProviderHosts(
+		"github-copilot",
+		auth,
+		specNoLoginHosts,
+		spec.KnownProviderHosts,
+		nil,
+	)
+	if !slicesEqual(enterprise, []string{"copilot-api.ghe.example.test"}) {
+		t.Errorf("enterprise login hosts = %v; want the derived enterprise host", enterprise)
+	}
+}
+
+func TestApplyAuthMigrationKeepsWarningsWhenNothingGenerated(t *testing.T) {
+	opencode, _ := agent.Lookup("opencode")
+	spec := opencode.(agent.MigrationSpecProvider).MigrationSpec()
+	result := &Plan{Secrets: map[string]Secret{}}
+	nativePath := filepath.Join(t.TempDir(), "auth.json")
+	nativeFiles := []nativeFile{{Path: nativePath, Data: []byte(`{"provider":{}}`)}}
+	if err := applyAuthMigration(result, spec, nativeFiles, nativePath, "managed.json", nil); err != nil {
+		t.Fatalf("applyAuthMigration: %v", err)
+	}
+	if len(result.Files) != 0 {
+		t.Fatalf("expected no generated auth file: %+v", result.Files)
+	}
+	found := false
+	for _, warning := range result.Warnings {
+		if strings.Contains(warning, "without a supported type") {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("warning was dropped when nothing was generated: %v", result.Warnings)
 	}
 }
 
@@ -1353,20 +1425,21 @@ func TestSanitizeAuthVariants(t *testing.T) {
 		wantError string
 		wantWarn  bool
 		wantFile  bool
+		wantLogin bool
 	}{
 		{name: "missing type", data: `{"provider":{}}`, wantWarn: true},
 		{name: "unsupported type", data: `{"provider":{"type":"other"}}`, wantWarn: true},
 		{name: "non string field", data: `{"provider":{"type":"api","key":1}}`, wantError: "not a string"},
 		{name: "placeholder", data: `{"provider":{"type":"api","key":"Bearer {env:TOKEN}"}}`, wantFile: true},
 		{
-			name:     "dummy oauth",
-			data:     `{"provider":{"type":"oauth","access":"opencode-oauth-dummy-key","refresh":"$MSB_REFRESH"}}`,
-			wantFile: true,
+			name:      "dummy oauth",
+			data:      `{"provider":{"type":"oauth","access":"opencode-oauth-dummy-key","refresh":"$MSB_REFRESH"}}`,
+			wantLogin: true,
 		},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			generated, _, warnings, err := sanitizeAuth([]byte(tc.data), nil, nil)
+			generated, _, warnings, login, err := sanitizeAuth([]byte(tc.data), nil, nil)
 			if tc.wantError != "" {
 				if err == nil || !strings.Contains(err.Error(), tc.wantError) {
 					t.Fatalf("error = %v, want %q", err, tc.wantError)
@@ -1382,12 +1455,15 @@ func TestSanitizeAuthVariants(t *testing.T) {
 			if tc.wantFile != (len(generated) > 0) {
 				t.Errorf("generated file length = %d, want file=%v", len(generated), tc.wantFile)
 			}
+			if tc.wantLogin != (len(login) > 0) {
+				t.Errorf("login = %+v, want login=%v", login, tc.wantLogin)
+			}
 		})
 	}
-	if _, _, _, err := sanitizeAuth([]byte(`{"provider":{"type":"api"}}`), nil, nil); err != nil {
+	if _, _, _, _, err := sanitizeAuth([]byte(`{"provider":{"type":"api"}}`), nil, nil); err != nil {
 		t.Fatalf("missing auth field should be ignored: %v", err)
 	}
-	if _, _, _, err := sanitizeAuth(
+	if _, _, _, _, err := sanitizeAuth(
 		[]byte(`{"provider":{"type":"api","key":"one","metadata":{"client-secret":"two","client_secret":"three"}}}`),
 		nil,
 		nil,
@@ -1395,7 +1471,7 @@ func TestSanitizeAuthVariants(t *testing.T) {
 		t.Fatal("expected recursive auth collision")
 	}
 
-	if _, _, _, err := sanitizeAuth(
+	if _, _, _, _, err := sanitizeAuth(
 		[]byte(`{"a-b":{"type":"api","key":"one"},"a_b":{"type":"api","key":"two"}}`),
 		nil,
 		nil,
@@ -1681,7 +1757,7 @@ func TestBuildConfigAndAuthErrors(t *testing.T) {
 	}
 	_ = os.Remove(configFile)
 	writeNativeAuth(t, hostHome)
-	if _, _, _, err := sanitizeAuth([]byte(`{"provider":{"type":"api","key":1}}`), nil, nil); err == nil {
+	if _, _, _, _, err := sanitizeAuth([]byte(`{"provider":{"type":"api","key":1}}`), nil, nil); err == nil {
 		t.Fatal("expected non-string auth error")
 	}
 }
@@ -2091,7 +2167,7 @@ func TestMigrationMarshalErrors(t *testing.T) {
 	withMigrationSeams(t)
 	marshalErr := errors.New("marshal failed")
 	marshalJSONFn = func(any) ([]byte, error) { return nil, marshalErr }
-	if _, _, _, err := sanitizeAuth(
+	if _, _, _, _, err := sanitizeAuth(
 		[]byte(`{"provider":{"type":"api","key":"secret"}}`),
 		nil,
 		nil,
@@ -2134,7 +2210,7 @@ func TestMigrationMarshalErrors(t *testing.T) {
 
 	marshalJSONFn = json.Marshal
 	marshalJSONIndentFn = func(any, string, string) ([]byte, error) { return nil, marshalErr }
-	if _, _, _, err := sanitizeAuth(
+	if _, _, _, _, err := sanitizeAuth(
 		[]byte(`{"provider":{"type":"api","key":"secret"}}`),
 		nil,
 		nil,
@@ -2185,8 +2261,8 @@ func TestBuildSeamErrors(t *testing.T) {
 	}
 	migrateNativeConfigFn = migrateNativeConfig
 	authErr := errors.New("auth transform failed")
-	sanitizeAuthWithSpecFn = func([]byte, agent.ConfigMigrationSpec, map[string]string, map[string]string) ([]byte, map[string]Secret, []string, error) {
-		return nil, nil, nil, authErr
+	sanitizeAuthWithSpecFn = func([]byte, agent.ConfigMigrationSpec, map[string]string, map[string]string) ([]byte, map[string]Secret, []string, []LoginProvider, error) {
+		return nil, nil, nil, nil, authErr
 	}
 	if _, err := Build(a, hostHome); !errors.Is(err, authErr) {
 		t.Fatalf("auth transform error = %v", err)

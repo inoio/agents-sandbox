@@ -144,8 +144,8 @@ func TestBuildFailsOnSecretNameCollisionBetweenConfigAndAuth(t *testing.T) {
 	migrateNativeConfigFn = func(string, agent.ConfigMigrationSpec) ([]byte, map[string]Secret, []string, map[string]string, error) {
 		return []byte("{}\n"), map[string]Secret{"OPENCODE_SHARED": {Value: "from-config"}}, nil, nil, nil
 	}
-	sanitizeAuthWithSpecFn = func([]byte, agent.ConfigMigrationSpec, map[string]string, map[string]string) ([]byte, map[string]Secret, []string, error) {
-		return []byte("{}\n"), map[string]Secret{"OPENCODE_SHARED": {Value: "from-auth"}}, nil, nil
+	sanitizeAuthWithSpecFn = func([]byte, agent.ConfigMigrationSpec, map[string]string, map[string]string) ([]byte, map[string]Secret, []string, []LoginProvider, error) {
+		return []byte("{}\n"), map[string]Secret{"OPENCODE_SHARED": {Value: "from-auth"}}, nil, nil, nil
 	}
 	a, _ := agent.Lookup("opencode")
 	if _, err := Build(a, hostHome); err == nil || !strings.Contains(err.Error(), "collision") {
