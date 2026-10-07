@@ -83,16 +83,17 @@ type NotifyConfig = notify.Config
 
 // Exported flag names that BuildRunOptions reads directly from the command.
 const (
-	FlagWorktree   = "worktree"
-	FlagRebuild    = "rebuild"
-	FlagDryRun     = "dry-run"
-	FlagDryRunVM   = "dry-run-vm"
-	FlagServeOnly  = "serve-only"
-	FlagRoot       = "root"
-	FlagAgent      = "agent"
-	FlagNetwork    = "network"
-	FlagDNSServers = "dns"
-	FlagNotify     = "notify"
+	FlagWorktree     = "worktree"
+	FlagRebuild      = "rebuild"
+	FlagDryRun       = "dry-run"
+	FlagDryRunVM     = "dry-run-vm"
+	FlagServeOnly    = "serve-only"
+	FlagRoot         = "root"
+	FlagAgent        = "agent"
+	FlagAgentVersion = "agent-version"
+	FlagNetwork      = "network"
+	FlagDNSServers   = "dns"
+	FlagNotify       = "notify"
 )
 
 // notifyEnvVar is the environment variable override for --notify.
@@ -667,6 +668,7 @@ func (r *Resolver) resolveFlags(cmd *cobra.Command, ui termio.UI) (options.RunOp
 	}
 	opts.Worktree = worktree
 	opts.Rebuild, _ = cmd.Flags().GetBool(FlagRebuild)
+	opts.AgentVersion, _ = cmd.Flags().GetString(FlagAgentVersion)
 	opts.DryRun, _ = cmd.Flags().GetBool(FlagDryRun)
 	opts.DryRunVM, _ = cmd.Flags().GetBool(FlagDryRunVM)
 	if opts.DryRun {

@@ -237,6 +237,8 @@ func registerRunFlags(cmd *cobra.Command) {
 
 func registerSharedRunShellFlags(cmd *cobra.Command) {
 	cmd.Flags().BoolP(flagRebuild, flagRebuild[:1], false, "Rebuild the runner image before starting")
+	cmd.Flags().
+		String(flagAgentVersion, "", "Pin the agent version baked into the runner image (default: latest release)")
 	cmd.Flags().BoolP(flagDryRun, flagDryRunShort, false, "Dry run without starting anything")
 	cmd.Flags().Bool(flagDryRunVM, false, "Skip VM lifecycle but prepare everything else")
 	cmd.Flags().Uint8P(flagCpus, flagCpus[:1], 0, "Number of CPUs (default: all)")

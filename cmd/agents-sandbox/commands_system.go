@@ -85,7 +85,6 @@ func buildVolumeOpsCmd(
 	fn volumeOpFunc,
 	short, rmFlag, rmHelp string,
 	rmVar *bool,
-	buildImage bool,
 ) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   name,
@@ -97,7 +96,6 @@ func buildVolumeOpsCmd(
 			}
 			projectSlug := git.ProjectSlug()
 			dryRun, _ := c.Flags().GetBool(flagDryRun)
-			rebuild, _ := c.Flags().GetBool(flagRebuild)
 			a, err := resolveAgentFlag(c)
 			if err != nil {
 				return err
@@ -110,7 +108,7 @@ func buildVolumeOpsCmd(
 				c.Context(),
 				a,
 				projectSlug,
-				image.BuildOptions{Force: rebuild, AgentVersion: "", UserProvided: false, Dind: dind},
+				image.BuildOptions{Force: false, AgentVersion: "", UserProvided: false, Dind: dind},
 				ui,
 			)
 			if err != nil {
@@ -134,9 +132,6 @@ func buildVolumeOpsCmd(
 	}
 	cmd.Flags().BoolVar(rmVar, rmFlag, false, rmHelp)
 	cmd.Flags().Bool(flagDryRun, false, "Show what would be done")
-	if buildImage {
-		cmd.Flags().Bool(flagRebuild, false, "Rebuild runner image first")
-	}
 	cmd.Flags().String(flagAgent, defaultAgentName, "Coding agent profile")
 	return cmd
 }
@@ -561,7 +556,6 @@ func buildVolumeCmd(ui termio.UI) *cobra.Command {
 			flagRemove,
 			"Remove the old home volume after migration",
 			&migrateRmOld,
-			true,
 		),
 	)
 
@@ -575,7 +569,6 @@ func buildVolumeCmd(ui termio.UI) *cobra.Command {
 			flagRemove,
 			"Remove the old home volume after reset",
 			&resetRmOld,
-			true,
 		),
 	)
 
@@ -589,7 +582,6 @@ func buildVolumeCmd(ui termio.UI) *cobra.Command {
 			flagRemove,
 			"Remove the old home volume after editing",
 			&editRmOld,
-			false,
 		),
 	)
 

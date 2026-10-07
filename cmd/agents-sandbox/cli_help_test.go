@@ -112,6 +112,17 @@ func TestGroupCommandHelpListsSubcommands(t *testing.T) {
 	}
 }
 
+func TestVolumeSubcommandsDoNotExposeRebuild(t *testing.T) {
+	for _, sub := range []string{"migrate", "reset", "edit"} {
+		t.Run(sub, func(t *testing.T) {
+			out := commandOut(t, "volume", sub, "--help")
+			if strings.Contains(out, "--rebuild") {
+				t.Errorf("volume %s must not expose --rebuild:\n%s", sub, out)
+			}
+		})
+	}
+}
+
 func TestHelpCommandShowsHelp(t *testing.T) {
 	for _, args := range [][]string{
 		{"help"},

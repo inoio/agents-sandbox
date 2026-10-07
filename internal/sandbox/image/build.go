@@ -142,13 +142,14 @@ func nextField(s string) (string, string) {
 }
 
 // buildDockerImage builds the given Dockerfile as a tag, wrapping the build
-// with a spinner and verbose output.
+// with a spinner and verbose output. noCache bypasses Docker's layer cache; it is
+// independent of whether a build is needed at all.
 func buildDockerImage(
 	ctx context.Context,
 	a agent.Agent,
 	dockerfile []byte,
 	tag, label string,
-	force bool,
+	noCache bool,
 	agentVersion string,
 	baseImage string,
 	dockerfileID string,
@@ -157,13 +158,13 @@ func buildDockerImage(
 ) error {
 	spinner := ui.Spinner(label)
 	line := func(s string) { ui.Verbose(s) }
-	ui.Verbosef("Building Docker image (force=%v)", force)
+	ui.Verbosef("Building Docker image (noCache=%v)", noCache)
 	if err := buildImage(
 		ctx,
 		a,
 		dockerfile,
 		tag,
-		force,
+		noCache,
 		agentVersion,
 		baseImage,
 		dockerfileID,
@@ -178,13 +179,14 @@ func buildDockerImage(
 }
 
 // buildImage builds a Docker image via docker.Get().ImageBuild and reports each
-// decoded build output line to the given callback.
+// decoded build output line to the given callback. noCache bypasses Docker's layer
+// cache; it is independent of whether a build is needed at all.
 func buildImage(
 	ctx context.Context,
 	a agent.Agent,
 	dockerfile []byte,
 	tag string,
-	force bool,
+	noCache bool,
 	agentVersion string,
 	baseImage string,
 	dockerfileID string,
@@ -198,7 +200,7 @@ func buildImage(
 	buildResp, err := docker.Get().ImageBuild(ctx, tarBuf, client.ImageBuildOptions{
 		Tags:      []string{tag},
 		Remove:    true,
-		NoCache:   force,
+		NoCache:   noCache,
 		BuildArgs: userBuildArgs(os.Getuid(), os.Getgid(), a.ImageSpec(), agentVersion, baseImage, dockerfileID, dind),
 	})
 	if err != nil {
@@ -355,7 +357,7 @@ func EnsureImageWithClient(
 		}
 		if buildErr := buildDockerImage(
 			ctx, a, rendered, rTag, "Ensuring runner image",
-			true, agentVersion, baseDigest, dockerfileID, buildOpts.Dind, ui,
+			buildOpts.Force, agentVersion, baseDigest, dockerfileID, buildOpts.Dind, ui,
 		); buildErr != nil {
 			return ImageInfo{}, buildErr
 		}

@@ -90,7 +90,7 @@ func PrepareSandbox(
 		ctx,
 		a,
 		projectSlug,
-		buildOptions(opts, agentVersion, opts.Rebuild || shallUpgrade, currentAgentSource(a) == agentSourceUser),
+		buildOptions(opts, agentVersion, opts.Rebuild, currentAgentSource(a) == agentSourceUser),
 		ui,
 	)
 	if err != nil {

@@ -53,6 +53,11 @@ var Get = func() Client {
 	return &realDockerClient{}
 }
 
+// RealClient returns a Client backed by the real moby client, bypassing the
+// fail-fast Get installed under tests. Integration tests opt back into the real
+// docker daemon with it.
+func RealClient() Client { return &realDockerClient{} }
+
 //nolint:gochecknoglobals // needed for lazy, thread-safe Docker client init
 var (
 	mobyClient     *client.Client

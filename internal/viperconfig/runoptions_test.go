@@ -21,6 +21,7 @@ import (
 func registerRunFlags(cmd *cobra.Command) {
 	cmd.Flags().String(FlagWorktree, "", "worktree")
 	cmd.Flags().Bool(FlagRebuild, false, "rebuild")
+	cmd.Flags().String(FlagAgentVersion, "", "agent-version")
 	cmd.Flags().Bool(FlagDryRun, false, "dry-run")
 	cmd.Flags().Bool(FlagDryRunVM, false, "dry-run-vm")
 	cmd.Flags().Bool(FlagServeOnly, false, "serve-only")
@@ -341,6 +342,22 @@ func TestBuildRunOptionsPropagatesDind(t *testing.T) {
 	}
 	if !opts.Dind {
 		t.Error("opts.Dind = false, want true from resolver")
+	}
+}
+
+func TestBuildRunOptionsAgentVersionFlag(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	cmd := newRunCommand()
+	if err := cmd.Flags().Set(FlagAgentVersion, "1.2.3"); err != nil {
+		t.Fatalf("set agent-version: %v", err)
+	}
+	r := mustResolver(t, cmd)
+	opts, err := r.BuildRunOptions(cmd, &termio.Mock{})
+	if err != nil {
+		t.Fatalf("BuildRunOptions: %v", err)
+	}
+	if opts.AgentVersion != "1.2.3" {
+		t.Fatalf("AgentVersion = %q, want 1.2.3", opts.AgentVersion)
 	}
 }
 

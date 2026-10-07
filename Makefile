@@ -1,4 +1,4 @@
-.PHONY: build build-release build-release-all test coverage coverage-junit lint fmt clean completion user-install check all upgrade-deps docs-diagrams docs-serve
+.PHONY: build build-release build-release-all test test-integration coverage coverage-junit lint fmt clean completion user-install check all upgrade-deps docs-diagrams docs-serve
 
 VERSION ?= dev
 
@@ -42,6 +42,12 @@ build-release-all:
 
 test:
 	CGO_ENABLED=1 go test ./...
+
+# Docker-build integration tests for RenderDockerfile composition. Excluded from
+# `test`/`check` via the `integration` build tag. Requires a working docker
+# daemon and network access (base image pulls, agent installs).
+test-integration:
+	CGO_ENABLED=1 go test -tags integration -count=1 ./internal/sandbox/image/
 
 coverage:
 	CGO_ENABLED=1 go test -coverprofile=coverage.out ./...

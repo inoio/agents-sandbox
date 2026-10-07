@@ -347,19 +347,26 @@ func TestCachedImageMatchesDockerLabelMismatch(t *testing.T) {
 	}
 }
 
-func TestReplaceFinalStageFromNoFrom(t *testing.T) {
-	in := []byte("RUN echo hi\n")
-	if got := string(replaceFinalStageFrom(in, []byte("FROM debian:trixie-slim\n"))); got != string(in) {
-		t.Errorf("replaceFinalStageFrom without a FROM must return input unchanged, got %q", got)
+func TestSplitFinalStageNoFrom(t *testing.T) {
+	earlier, base, body := splitFinalStage([]byte("RUN echo hi\n"))
+	if earlier != "" || body != "" {
+		t.Errorf(
+			"splitFinalStage without a FROM must return the input as the base, got earlier=%q base=%q body=%q",
+			earlier,
+			base,
+			body,
+		)
+	}
+	if base != "RUN echo hi\n" {
+		t.Errorf("base = %q, want the input", base)
 	}
 }
 
-func TestReplaceFinalStageFromBlockWithoutNewline(t *testing.T) {
-	in := []byte("FROM agents-sandbox/runner-base:latest\nRUN echo hi\n")
-	block := []byte("FROM debian:trixie-slim")
-	got := string(replaceFinalStageFrom(in, block))
-	if !strings.Contains(got, "FROM debian:trixie-slim\nRUN echo hi") {
-		t.Errorf("block without trailing newline must be separated from the body, got %q", got)
+func TestInjectDindBlockMarkerWithoutTrailingNewline(t *testing.T) {
+	got := injectDindBlock("RUN prereq\n# agents-sandbox:dind", "DIND\n")
+	want := "RUN prereq\nDIND\n"
+	if got != want {
+		t.Errorf("injectDindBlock = %q, want %q", got, want)
 	}
 }
 
