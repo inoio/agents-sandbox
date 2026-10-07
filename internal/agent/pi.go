@@ -46,7 +46,7 @@ func (piProfile) MigrationSpec() ConfigMigrationSpec {
 			"cerebras":            "api.cerebras.ai",
 			"deepseek":            "api.deepseek.com",
 			"fireworks":           "api.fireworks.ai",
-			"github-copilot":      "api.githubcopilot.com",
+			githubCopilotProvider: githubCopilotAPIHost,
 			"google":              "generativelanguage.googleapis.com",
 			"google-vertex":       "aiplatform.googleapis.com",
 			"groq":                "api.groq.com",
@@ -61,12 +61,15 @@ func (piProfile) MigrationSpec() ConfigMigrationSpec {
 			"opencode":            "opencode.ai",
 			"opencode-go":         "opencode.ai",
 		},
+		LoginHosts: map[string][]string{
+			githubCopilotProvider: {githubCopilotLoginHost, githubCopilotAPIHost},
+		},
 		Auth: AuthMigrationSpec{
 			SecretPrefix: "PI",
 			AuthFields: map[string][]string{
 				authAPIKeyType: {authKeyField},
-				"oauth":        {authAccessField, authRefreshField},
 			},
+			LoginAuthTypes:  []string{oauthAuthType},
 			SensitiveFields: defaultSensitiveAuthFields,
 			SafeFields: []string{
 				"accountid", "clientid", "expires", "ratelimittier", "scopes", "subscriptiontype", authTypeField,

@@ -42,11 +42,13 @@ func (claudeCodeProfile) MigrationSpec() ConfigMigrationSpec {
 		KnownProviderHosts: map[string]string{
 			authAnthropicProvider: anthropicAPIHost,
 		},
+		LoginHosts: nil,
 		Auth: AuthMigrationSpec{
 			SecretPrefix: "CLAUDE",
 			AuthFields: map[string][]string{
 				authAPIKeyType: {authKeyField},
 			},
+			LoginAuthTypes:  []string{oauthAuthType},
 			SensitiveFields: defaultSensitiveAuthFields,
 			SafeFields: []string{
 				"model", "permissions", "sandbox", "theme", authTypeField,

@@ -39,6 +39,10 @@ const (
 	authEndpointField          = "endpoint"
 	authURLField               = "url"
 	anthropicAPIHost           = "api.anthropic.com"
+	githubCopilotProvider      = "github-copilot"
+	githubCopilotAPIHost       = "api.githubcopilot.com"
+	githubCopilotLoginHost     = "github.com"
+	oauthAuthType              = "oauth"
 	migrationPlaceholderPrefix = "$MSB_"
 )
 
@@ -161,6 +165,7 @@ type Provisioner interface {
 type AuthMigrationSpec struct {
 	SecretPrefix            string
 	AuthFields              map[string][]string
+	LoginAuthTypes          []string
 	SensitiveFields         []string
 	SafeFields              []string
 	ConfigSensitiveFields   []string
@@ -193,6 +198,7 @@ type ConfigMigrationSpec struct {
 	ManagedSupplementalFiles  []string
 	ProvisioningExcludedFiles []string
 	KnownProviderHosts        map[string]string
+	LoginHosts                map[string][]string
 	Auth                      AuthMigrationSpec
 }
 

@@ -75,17 +75,20 @@ func (opencodeConfig) MigrationSpec() ConfigMigrationSpec {
 		ProvisioningExcludedFiles: nil,
 		KnownProviderHosts: map[string]string{
 			authAnthropicProvider: anthropicAPIHost,
-			"github-copilot":      "api.githubcopilot.com",
+			githubCopilotProvider: githubCopilotAPIHost,
 			"openai":              "api.openai.com",
 			"openrouter":          "openrouter.ai",
+		},
+		LoginHosts: map[string][]string{
+			githubCopilotProvider: {githubCopilotLoginHost, githubCopilotAPIHost},
 		},
 		Auth: AuthMigrationSpec{
 			SecretPrefix: "OPENCODE",
 			AuthFields: map[string][]string{
-				"oauth":           {authAccessField, authRefreshField},
 				"api":             {authKeyField},
 				wellKnownAuthType: {tokenField},
 			},
+			LoginAuthTypes:  []string{oauthAuthType},
 			SensitiveFields: defaultSensitiveAuthFields,
 			SafeFields: []string{
 				"accountid", "enterpriseurl", "expires", "scopes", authTypeField,

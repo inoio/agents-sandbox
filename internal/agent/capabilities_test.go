@@ -34,6 +34,23 @@ func TestOnlyOpencodeImplementsEventStreamProvider(t *testing.T) {
 	}
 }
 
+func TestMigrationSpecDeclaresOAuthAsLoginType(t *testing.T) {
+	for _, name := range []string{"opencode", "opencode2", "pi"} {
+		a, ok := agent.Lookup(name)
+		if !ok {
+			t.Fatalf("agent %q not registered", name)
+		}
+		spec := a.(agent.MigrationSpecProvider).MigrationSpec()
+		if _, ok := spec.Auth.AuthFields["oauth"]; ok {
+			t.Errorf("%s still lists oauth in AuthFields", name)
+		}
+		types := spec.Auth.LoginAuthTypes
+		if len(types) != 1 || types[0] != "oauth" {
+			t.Errorf("%s LoginAuthTypes = %v; want [oauth]", name, types)
+		}
+	}
+}
+
 func TestOpenCodeMigrationCapability(t *testing.T) {
 	a, ok := agent.Lookup("opencode")
 	if !ok {
