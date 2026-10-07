@@ -9,11 +9,13 @@ import (
 
 	"github.com/inoio/agents-sandbox/internal/agent"
 	cp "github.com/inoio/agents-sandbox/internal/configpaths"
+	"github.com/inoio/agents-sandbox/internal/sandbox/network"
 )
 
 func Build(
 	a agent.Agent,
 	hostHome string,
+	policy network.Policy,
 ) (*Plan, error) {
 	spec, err := migrationProviderSpec(a)
 	if err != nil {
@@ -23,7 +25,7 @@ func Build(
 	if err != nil {
 		return nil, err
 	}
-	result := newMigrationPlan(a, spec, nativeFiles)
+	result := newMigrationPlan(a, spec, nativeFiles, policy)
 	if !result.HasNativeConfig {
 		if networkErr := applyRequiredNetworkPlan(result); networkErr != nil {
 			return nil, networkErr
@@ -50,7 +52,12 @@ func migrationProviderSpec(a agent.Agent) (agent.ConfigMigrationSpec, error) {
 	return provider.MigrationSpec(), nil
 }
 
-func newMigrationPlan(a agent.Agent, spec agent.ConfigMigrationSpec, nativeFiles []nativeFile) *Plan {
+func newMigrationPlan(
+	a agent.Agent,
+	spec agent.ConfigMigrationSpec,
+	nativeFiles []nativeFile,
+	policy network.Policy,
+) *Plan {
 	manifest := migrationManifestFor(a)
 	sourceHash := hashNativeFiles(nativeFiles)
 	retrying := manifest.State == migrationStateApplying && manifest.SourceHash == sourceHash
@@ -64,6 +71,7 @@ func newMigrationPlan(a agent.Agent, spec agent.ConfigMigrationSpec, nativeFiles
 		Retrying:             retrying,
 		RequiredNetworkHosts: append([]string(nil), spec.RequiredNetworkHosts...),
 		SetupOnly:            a.Name() == claudeCodeAgentName && len(nativeFiles) == 0,
+		policy:               policy,
 	}
 }
 

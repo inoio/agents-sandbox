@@ -13,9 +13,12 @@ import (
 
 	"github.com/inoio/agents-sandbox/internal/agent"
 	"github.com/inoio/agents-sandbox/internal/configpaths"
+	"github.com/inoio/agents-sandbox/internal/sandbox/network"
 	"github.com/inoio/agents-sandbox/internal/termio"
 	"github.com/inoio/agents-sandbox/internal/testutil"
 )
+
+func testNetworkPolicy() network.Policy { return network.Policy{} }
 
 func TestPlanOpenCodeAuthReplacesCredentialsWithPlaceholders(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
@@ -44,7 +47,7 @@ func TestPlanOpenCodeAuthReplacesCredentialsWithPlaceholders(t *testing.T) {
   }
 }`)
 
-	plan, err := Build(a, hostHome)
+	plan, err := Build(a, hostHome, testNetworkPolicy())
 	if err != nil {
 		t.Fatalf("Plan: %v", err)
 	}
@@ -97,7 +100,7 @@ func TestPlanPiSettingsAndAuthReplacesCredentialsWithPlaceholders(t *testing.T) 
   }
 }`)
 
-	plan, err := Build(a, hostHome)
+	plan, err := Build(a, hostHome, testNetworkPolicy())
 	if err != nil {
 		t.Fatalf("Build: %v", err)
 	}
@@ -143,7 +146,7 @@ func TestPlanClaudeSettingsMigratesEnvCredentials(t *testing.T) {
   }
 }`)
 
-	plan, err := Build(a, hostHome)
+	plan, err := Build(a, hostHome, testNetworkPolicy())
 	if err != nil {
 		t.Fatalf("Build: %v", err)
 	}
@@ -181,7 +184,7 @@ func TestReviewClaudeLoginDropsEgressHostsOfRemovedSecrets(t *testing.T) {
 		t.Fatal(err)
 	}
 	testutil.WriteFile(t, userConfigDir, "config.yaml", "network:\n  egress-allow:\n    - existing.test\n")
-	plan, err := Build(a, hostHome)
+	plan, err := Build(a, hostHome, testNetworkPolicy())
 	if err != nil {
 		t.Fatalf("Build: %v", err)
 	}
@@ -214,11 +217,11 @@ func TestPlanClaudeRejectsNonStrictSettingsAndCredentialHelpers(t *testing.T) {
 	testutil.WriteFile(t, nativeDir, "settings.json", `{ // comment
   "model": "claude-sonnet",
 }`)
-	if _, err := Build(a, hostHome); err == nil {
+	if _, err := Build(a, hostHome, testNetworkPolicy()); err == nil {
 		t.Fatal("expected strict JSON parse failure")
 	}
 	testutil.WriteFile(t, nativeDir, "settings.json", `{"apiKeyHelper":"vault read anthropic"}`)
-	if _, err := Build(a, hostHome); err == nil || !strings.Contains(err.Error(), "unsupported") {
+	if _, err := Build(a, hostHome, testNetworkPolicy()); err == nil || !strings.Contains(err.Error(), "unsupported") {
 		t.Fatalf("credential helper error = %v", err)
 	}
 }
@@ -233,7 +236,7 @@ func TestPlanClaudeUsesConfigDirOverride(t *testing.T) {
 		t.Fatal(err)
 	}
 	testutil.WriteFile(t, configDir, "settings.json", `{"model":"claude-opus"}`)
-	plan, err := Build(a, hostHome)
+	plan, err := Build(a, hostHome, testNetworkPolicy())
 	if err != nil {
 		t.Fatalf("Build: %v", err)
 	}
@@ -252,7 +255,7 @@ func TestPlanClaudeDoesNotTreatCredentialStoreAsNativeConfig(t *testing.T) {
 		t.Fatal(err)
 	}
 	testutil.WritePath(t, credentialPath, `{"claudeAiOauth":{"accessToken":"secret"}}`)
-	plan, err := Build(a, hostHome)
+	plan, err := Build(a, hostHome, testNetworkPolicy())
 	if err != nil {
 		t.Fatalf("Build: %v", err)
 	}
@@ -266,7 +269,7 @@ func TestPlanClaudeSetupOnlyIncludesRequiredEgress(t *testing.T) {
 	hostHome := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", "")
 	a, _ := agent.Lookup("claude-code")
-	plan, err := Build(a, hostHome)
+	plan, err := Build(a, hostHome, testNetworkPolicy())
 	if err != nil {
 		t.Fatalf("Build: %v", err)
 	}
@@ -290,7 +293,7 @@ func TestBuildUsesPiAgentDirectoryOverride(t *testing.T) {
 	testutil.WriteFile(t, piDir, "settings.json", `{"defaultModel":"anthropic/claude-sonnet"}`)
 	testutil.WriteFile(t, piDir, "auth.json", `{"anthropic":{"type":"api_key","key":"custom-token"}}`)
 
-	plan, err := Build(a, hostHome)
+	plan, err := Build(a, hostHome, testNetworkPolicy())
 	if err != nil {
 		t.Fatalf("Build: %v", err)
 	}
@@ -309,7 +312,7 @@ func TestBuildUsesPiTildeAgentDirectoryOverride(t *testing.T) {
 		t.Fatal(err)
 	}
 	testutil.WriteFile(t, piDir, "settings.json", `{"theme":"dark"}`)
-	plan, err := Build(a, hostHome)
+	plan, err := Build(a, hostHome, testNetworkPolicy())
 	if err != nil {
 		t.Fatalf("Build: %v", err)
 	}
@@ -336,7 +339,7 @@ func TestPlanPiDropsOAuthCredentials(t *testing.T) {
   }
 }`)
 
-	plan, err := Build(a, hostHome)
+	plan, err := Build(a, hostHome, testNetworkPolicy())
 	if err != nil {
 		t.Fatalf("Build: %v", err)
 	}
@@ -370,7 +373,7 @@ func TestPlanPiMigratesModelsAndCustomProviderEndpoint(t *testing.T) {
   }
 }`)
 
-	plan, err := Build(a, hostHome)
+	plan, err := Build(a, hostHome, testNetworkPolicy())
 	if err != nil {
 		t.Fatalf("Build: %v", err)
 	}
@@ -405,7 +408,7 @@ func TestPlanPiUsesModelsEndpointForAuthHost(t *testing.T) {
 	)
 	testutil.WriteFile(t, nativeDir, "auth.json", `{"gateway":{"type":"api_key","key":"gateway-token"}}`)
 
-	plan, err := Build(a, hostHome)
+	plan, err := Build(a, hostHome, testNetworkPolicy())
 	if err != nil {
 		t.Fatalf("Build: %v", err)
 	}
@@ -431,7 +434,12 @@ func TestPlanPiModelsRejectsEmbeddedEndpointCredentials(t *testing.T) {
 		`{"providers":{"gateway":{"baseUrl":"https://user:pass@gateway.example.test/v1"}}}`,
 	)
 
-	if _, err := Build(a, hostHome); err == nil || !strings.Contains(err.Error(), "URL credentials") {
+	if _, err := Build(
+		a,
+		hostHome,
+		testNetworkPolicy(),
+	); err == nil ||
+		!strings.Contains(err.Error(), "URL credentials") {
 		t.Fatalf("embedded endpoint credential error = %v", err)
 	}
 }
@@ -446,11 +454,11 @@ func TestPlanPiRejectsUnresolvedCredentialReferences(t *testing.T) {
 		t.Fatal(err)
 	}
 	testutil.WriteFile(t, nativeDir, "auth.json", `{"openai":{"type":"api_key","key":"$OPENAI_API_KEY"}}`)
-	if _, err := Build(a, hostHome); err == nil || !strings.Contains(err.Error(), "unresolved") {
+	if _, err := Build(a, hostHome, testNetworkPolicy()); err == nil || !strings.Contains(err.Error(), "unresolved") {
 		t.Fatalf("unresolved Pi auth reference error = %v", err)
 	}
 	testutil.WriteFile(t, nativeDir, "auth.json", `{"openai":{"type":"api_key","key":"!security-tool"}}`)
-	if _, err := Build(a, hostHome); err == nil || !strings.Contains(err.Error(), "unresolved") {
+	if _, err := Build(a, hostHome, testNetworkPolicy()); err == nil || !strings.Contains(err.Error(), "unresolved") {
 		t.Fatalf("command Pi auth reference error = %v", err)
 	}
 }
@@ -470,7 +478,7 @@ func TestPlanPiRejectsAuthEnvironmentOverrides(t *testing.T) {
 		"auth.json",
 		`{"openai":{"type":"api_key","key":"token","env":{"SOURCE":"$OTHER"}}}`,
 	)
-	if _, err := Build(a, hostHome); err == nil || !strings.Contains(err.Error(), "unresolved") {
+	if _, err := Build(a, hostHome, testNetworkPolicy()); err == nil || !strings.Contains(err.Error(), "unresolved") {
 		t.Fatalf("unresolved Pi auth environment error = %v", err)
 	}
 	testutil.WriteFile(
@@ -479,7 +487,12 @@ func TestPlanPiRejectsAuthEnvironmentOverrides(t *testing.T) {
 		"auth.json",
 		`{"openai":{"type":"api_key","key":"token","env":{"SOURCE":"literal"}}}`,
 	)
-	if _, err := Build(a, hostHome); err == nil || !strings.Contains(err.Error(), "unsupported environment") {
+	if _, err := Build(
+		a,
+		hostHome,
+		testNetworkPolicy(),
+	); err == nil ||
+		!strings.Contains(err.Error(), "unsupported environment") {
 		t.Fatalf("raw Pi auth environment error = %v", err)
 	}
 }
@@ -499,7 +512,12 @@ func TestPlanPiRejectsCredentialHeadersAndQueryParameters(t *testing.T) {
 		"models.json",
 		`{"providers":{"gateway":{"baseUrl":"https://gateway.example.test/v1?api-key=secret"}}}`,
 	)
-	if _, err := Build(a, hostHome); err == nil || !strings.Contains(err.Error(), "credential query") {
+	if _, err := Build(
+		a,
+		hostHome,
+		testNetworkPolicy(),
+	); err == nil ||
+		!strings.Contains(err.Error(), "credential query") {
 		t.Fatalf("query credential error = %v", err)
 	}
 	testutil.WriteFile(
@@ -508,7 +526,12 @@ func TestPlanPiRejectsCredentialHeadersAndQueryParameters(t *testing.T) {
 		"models.json",
 		`{"providers":{"gateway":{"headers":{"X-Workspace-Token":"secret"}}}}`,
 	)
-	if _, err := Build(a, hostHome); err == nil || !strings.Contains(err.Error(), "header override") {
+	if _, err := Build(
+		a,
+		hostHome,
+		testNetworkPolicy(),
+	); err == nil ||
+		!strings.Contains(err.Error(), "header override") {
 		t.Fatalf("header credential error = %v", err)
 	}
 }
@@ -759,7 +782,7 @@ func TestBuildUsesOpenCodeXDGPaths(t *testing.T) {
 	}
 	testutil.WriteFile(t, authDir, "auth.json", `{"openai":{"type":"api","key":"xdg-token"}}`)
 
-	plan, err := Build(a, hostHome)
+	plan, err := Build(a, hostHome, testNetworkPolicy())
 	if err != nil {
 		t.Fatalf("Build: %v", err)
 	}
@@ -801,7 +824,7 @@ func TestPlanDropsOAuthProviderAndDerivesCustomHosts(t *testing.T) {
   }
 }`)
 
-	plan, err := Build(a, hostHome)
+	plan, err := Build(a, hostHome, testNetworkPolicy())
 	if err != nil {
 		t.Fatalf("Build: %v", err)
 	}
@@ -826,7 +849,7 @@ func TestPlanReportsUnsupportedAuthFields(t *testing.T) {
 		t.Fatal(err)
 	}
 	testutil.WritePath(t, authPath, `{"openai":{"type":"api","key":"secret","customCredential":"review-me"}}`)
-	plan, err := Build(a, hostHome)
+	plan, err := Build(a, hostHome, testNetworkPolicy())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -863,7 +886,7 @@ func TestPlanDoesNotMigrateUnsupportedOnlyAuth(t *testing.T) {
 	}
 	testutil.WritePath(t, authPath, `{"custom":{"type":"unsupported","token":"raw-token"}}`)
 
-	plan, err := Build(a, hostHome)
+	plan, err := Build(a, hostHome, testNetworkPolicy())
 	if err != nil {
 		t.Fatalf("Build: %v", err)
 	}
@@ -887,7 +910,7 @@ func TestPlanPreservesWellKnownAuthKey(t *testing.T) {
 		`{"https://provider.example":{"type":"wellknown","key":"TOKEN_NAME","token":"token-value"}}`,
 	)
 
-	plan, err := Build(a, hostHome)
+	plan, err := Build(a, hostHome, testNetworkPolicy())
 	if err != nil {
 		t.Fatalf("Build: %v", err)
 	}
@@ -924,7 +947,7 @@ func TestPlanRedactsCredentialLikeConfigFields(t *testing.T) {
   }
 }`)
 
-	plan, err := Build(a, hostHome)
+	plan, err := Build(a, hostHome, testNetworkPolicy())
 	if err != nil {
 		t.Fatalf("Build: %v", err)
 	}
@@ -945,7 +968,7 @@ func TestApplyWritesUserSecretFileAndHomeMapping(t *testing.T) {
 	}
 	testutil.WritePath(t, authPath, `{"openrouter":{"type":"api","key":"secret-key"}}`)
 
-	plan, err := Build(a, hostHome)
+	plan, err := Build(a, hostHome, testNetworkPolicy())
 	if err != nil {
 		t.Fatalf("Plan: %v", err)
 	}
@@ -997,7 +1020,7 @@ func TestApplyRejectsUnknownSecretHostInNonInteractiveMode(t *testing.T) {
 	}
 	testutil.WritePath(t, authPath, `{"custom":{"type":"api","key":"secret-key"}}`)
 
-	plan, err := Build(a, hostHome)
+	plan, err := Build(a, hostHome, testNetworkPolicy())
 	if err != nil {
 		t.Fatalf("Plan: %v", err)
 	}
@@ -1014,7 +1037,7 @@ func TestPlanDetectsNoNativeConfiguration(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	clearOpenCodeXDG(t)
 	a, _ := agent.Lookup("opencode")
-	plan, err := Build(a, t.TempDir())
+	plan, err := Build(a, t.TempDir(), testNetworkPolicy())
 	if err != nil {
 		t.Fatalf("Plan: %v", err)
 	}
@@ -1039,7 +1062,7 @@ func TestPlanMigratesNativeOpenCodeConfigAsManagedSnippet(t *testing.T) {
 		`{"model":"openai/gpt-5","provider":{"openai":{"options":{"baseURL":"https://api.openai.com/v1"}}}}`,
 	)
 
-	plan, err := Build(a, hostHome)
+	plan, err := Build(a, hostHome, testNetworkPolicy())
 	if err != nil {
 		t.Fatalf("Build: %v", err)
 	}
@@ -1066,7 +1089,7 @@ func TestGuideNonInteractiveDoesNotWrite(t *testing.T) {
 	testutil.WritePath(t, authPath, `{"openrouter":{"type":"api","key":"secret-key"}}`)
 
 	ui := termio.NewTestMock(t)
-	if err := Guide(a, hostHome, false, &ui); err != nil {
+	if err := Guide(a, hostHome, testNetworkPolicy(), false, &ui); err != nil {
 		t.Fatalf("Guide: %v", err)
 	}
 	if _, err := os.Stat(configpaths.Get().UserEnvSecretYAMLFile()); !os.IsNotExist(err) {
@@ -1091,7 +1114,7 @@ func TestGuideNativeProvisioningChoiceRequiresRerun(t *testing.T) {
 	ui.IsInteractiveResult = true
 	ui.SelectFn = func(string, []termio.Choice, string) (string, error) { return "p", nil }
 
-	err := Guide(a, hostHome, false, &ui)
+	err := Guide(a, hostHome, testNetworkPolicy(), false, &ui)
 	if !errors.Is(err, ErrRerunRequired) {
 		t.Fatalf("Guide error = %v, want ErrRerunRequired", err)
 	}
@@ -1114,14 +1137,14 @@ func TestDismissRecordsAndDetectsDismissedMigration(t *testing.T) {
 	}
 	testutil.WritePath(t, path, `{"custom":{"type":"api","key":"secret"}}`)
 	a, _ := agent.Lookup("opencode")
-	plan, err := Build(a, hostHome)
+	plan, err := Build(a, hostHome, testNetworkPolicy())
 	if err != nil {
 		t.Fatal(err)
 	}
 	if err := Dismiss(plan); err != nil {
 		t.Fatalf("Dismiss: %v", err)
 	}
-	updated, err := Build(a, hostHome)
+	updated, err := Build(a, hostHome, testNetworkPolicy())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1143,7 +1166,7 @@ func TestGuideDismissChoiceContinues(t *testing.T) {
 	ui := termio.NewTestMock(t)
 	ui.IsInteractiveResult = true
 	ui.SelectFn = func(string, []termio.Choice, string) (string, error) { return "d", nil }
-	if err := Guide(a, hostHome, false, &ui); err != nil {
+	if err := Guide(a, hostHome, testNetworkPolicy(), false, &ui); err != nil {
 		t.Fatalf("Guide: %v", err)
 	}
 	if len(ui.InfoCalls) == 0 || !strings.Contains(ui.InfoCalls[0], "without migrated") {
@@ -1165,7 +1188,7 @@ func TestGuideSafeMigrationChoiceApplies(t *testing.T) {
 		choices = choices[1:]
 		return choice, nil
 	}
-	if err := Guide(a, hostHome, false, &ui); err != nil {
+	if err := Guide(a, hostHome, testNetworkPolicy(), false, &ui); err != nil {
 		t.Fatalf("Guide: %v", err)
 	}
 	if len(ui.InfoCalls) < 2 || !strings.Contains(ui.InfoCalls[0], "migration completed") || ui.InfoCalls[1] != "" {
@@ -1179,7 +1202,7 @@ func TestBuildRecognizesAppliedMigration(t *testing.T) {
 	hostHome := t.TempDir()
 	writeNativeAuth(t, hostHome)
 	a, _ := agent.Lookup("opencode")
-	plan, err := Build(a, hostHome)
+	plan, err := Build(a, hostHome, testNetworkPolicy())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1187,7 +1210,7 @@ func TestBuildRecognizesAppliedMigration(t *testing.T) {
 	if err := Apply(plan, &ui); err != nil {
 		t.Fatal(err)
 	}
-	updated, err := Build(a, hostHome)
+	updated, err := Build(a, hostHome, testNetworkPolicy())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1241,12 +1264,12 @@ func TestGuideEarlyAndUnknownChoices(t *testing.T) {
 	clearOpenCodeXDG(t)
 	a, _ := agent.Lookup("opencode")
 	ui := termio.NewTestMock(t)
-	if err := Guide(a, t.TempDir(), true, &ui); err != nil {
+	if err := Guide(a, t.TempDir(), testNetworkPolicy(), true, &ui); err != nil {
 		t.Fatal(err)
 	}
 	unsupported, _ := agent.Lookup("pi")
 	ui = termio.NewTestMock(t)
-	if err := Guide(unsupported, t.TempDir(), false, &ui); err != nil {
+	if err := Guide(unsupported, t.TempDir(), testNetworkPolicy(), false, &ui); err != nil {
 		t.Fatal(err)
 	}
 	hostHome := t.TempDir()
@@ -1254,7 +1277,14 @@ func TestGuideEarlyAndUnknownChoices(t *testing.T) {
 	ui = termio.NewTestMock(t)
 	ui.IsInteractiveResult = true
 	ui.SelectFn = func(string, []termio.Choice, string) (string, error) { return "x", nil }
-	if err := Guide(a, hostHome, false, &ui); err == nil || !strings.Contains(err.Error(), "unknown migration choice") {
+	if err := Guide(
+		a,
+		hostHome,
+		testNetworkPolicy(),
+		false,
+		&ui,
+	); err == nil ||
+		!strings.Contains(err.Error(), "unknown migration choice") {
 		t.Fatalf("unknown choice error = %v", err)
 	}
 }
@@ -1705,7 +1735,7 @@ func (unsupportedMigrationAgent) ImageSpec() agent.ImageSpec { return agent.Imag
 func TestBuildAndNativeReadErrors(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	clearOpenCodeXDG(t)
-	if _, err := Build(unsupportedMigrationAgent{}, t.TempDir()); !errors.Is(err, ErrUnsupported) {
+	if _, err := Build(unsupportedMigrationAgent{}, t.TempDir(), testNetworkPolicy()); !errors.Is(err, ErrUnsupported) {
 		t.Fatalf("unsupported agent error = %v", err)
 	}
 	hostHome := t.TempDir()
@@ -1714,7 +1744,7 @@ func TestBuildAndNativeReadErrors(t *testing.T) {
 	if err := os.MkdirAll(configPath, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := Build(a, hostHome); err == nil {
+	if _, err := Build(a, hostHome, testNetworkPolicy()); err == nil {
 		t.Fatal("expected native config directory read error")
 	}
 	if err := os.RemoveAll(configPath); err != nil {
@@ -1728,7 +1758,7 @@ func TestBuildAndNativeReadErrors(t *testing.T) {
 	if err := os.Mkdir(authPath, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := Build(a, hostHome); err == nil {
+	if _, err := Build(a, hostHome, testNetworkPolicy()); err == nil {
 		t.Fatal("expected auth file read error")
 	}
 }
@@ -1743,7 +1773,7 @@ func TestBuildConfigAndAuthErrors(t *testing.T) {
 		t.Fatal(err)
 	}
 	testutil.WriteFile(t, filepath.Join(hostHome, ".config", "opencode"), "opencode.json", `{`)
-	plan, err := Build(a, hostHome)
+	plan, err := Build(a, hostHome, testNetworkPolicy())
 	if err != nil || plan == nil || len(plan.Files) != 1 {
 		t.Fatalf("malformed native config result = %+v, %v", plan, err)
 	}
@@ -1752,7 +1782,7 @@ func TestBuildConfigAndAuthErrors(t *testing.T) {
 	}
 	configFile := filepath.Join(configpaths.Get().UserConfigDir(), "config.yaml")
 	testutil.WritePath(t, configFile, "home: [")
-	if _, err := Build(a, hostHome); err == nil {
+	if _, err := Build(a, hostHome, testNetworkPolicy()); err == nil {
 		t.Fatal("expected malformed launcher config error")
 	}
 	_ = os.Remove(configFile)
@@ -1800,7 +1830,7 @@ func TestApplyWriteAndSecretValidationErrors(t *testing.T) {
 func TestBuildRejectsUnsupportedAndUnreadableSources(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	clearOpenCodeXDG(t)
-	if _, err := Build(unsupportedMigrationAgent{}, t.TempDir()); !errors.Is(err, ErrUnsupported) {
+	if _, err := Build(unsupportedMigrationAgent{}, t.TempDir(), testNetworkPolicy()); !errors.Is(err, ErrUnsupported) {
 		t.Fatalf("unsupported error = %v", err)
 	}
 	a, _ := agent.Lookup("opencode")
@@ -1818,7 +1848,7 @@ func TestBuildRejectsUnsupportedAndUnreadableSources(t *testing.T) {
 	if err := os.Mkdir(filepath.Join(configDir, "opencode.json"), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := Build(a, hostHome); err == nil {
+	if _, err := Build(a, hostHome, testNetworkPolicy()); err == nil {
 		t.Fatal("expected source inspection error")
 	}
 }
@@ -1859,13 +1889,27 @@ func TestGuidePromptAndApplyErrors(t *testing.T) {
 	ui.IsInteractiveResult = true
 	ui.SelectFn = func(string, []termio.Choice, string) (string, error) { return "m", nil }
 	ui.InputFn = func(string, string) (string, error) { return "", errors.New("host input failed") }
-	if err := Guide(a, hostHome, false, &ui); err == nil || !strings.Contains(err.Error(), "host input failed") {
+	if err := Guide(
+		a,
+		hostHome,
+		testNetworkPolicy(),
+		false,
+		&ui,
+	); err == nil ||
+		!strings.Contains(err.Error(), "host input failed") {
 		t.Fatalf("Guide apply error = %v", err)
 	}
 	ui = termio.NewTestMock(t)
 	ui.IsInteractiveResult = true
 	ui.SelectFn = func(string, []termio.Choice, string) (string, error) { return "q", errors.New("selection failed") }
-	if err := Guide(a, hostHome, false, &ui); err == nil || !strings.Contains(err.Error(), "selection failed") {
+	if err := Guide(
+		a,
+		hostHome,
+		testNetworkPolicy(),
+		false,
+		&ui,
+	); err == nil ||
+		!strings.Contains(err.Error(), "selection failed") {
 		t.Fatalf("Guide selection error = %v", err)
 	}
 }
@@ -1953,7 +1997,7 @@ func TestBuildAlreadyConfiguredWithoutAuthFile(t *testing.T) {
 	hostHome := t.TempDir()
 	writeNativeAuth(t, hostHome)
 	a, _ := agent.Lookup("opencode")
-	plan, err := Build(a, hostHome)
+	plan, err := Build(a, hostHome, testNetworkPolicy())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1961,7 +2005,7 @@ func TestBuildAlreadyConfiguredWithoutAuthFile(t *testing.T) {
 	if err := Apply(plan, &ui); err != nil {
 		t.Fatal(err)
 	}
-	updated, err := Build(a, hostHome)
+	updated, err := Build(a, hostHome, testNetworkPolicy())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -2256,7 +2300,7 @@ func TestBuildSeamErrors(t *testing.T) {
 	migrateNativeConfigFn = func(string, agent.ConfigMigrationSpec) ([]byte, map[string]Secret, []string, map[string]string, error) {
 		return nil, nil, nil, nil, configErr
 	}
-	if _, err := Build(a, hostHome); !errors.Is(err, configErr) {
+	if _, err := Build(a, hostHome, testNetworkPolicy()); !errors.Is(err, configErr) {
 		t.Fatalf("config planning error = %v", err)
 	}
 	migrateNativeConfigFn = migrateNativeConfig
@@ -2264,7 +2308,7 @@ func TestBuildSeamErrors(t *testing.T) {
 	sanitizeAuthWithSpecFn = func([]byte, agent.ConfigMigrationSpec, map[string]string, map[string]string) ([]byte, map[string]Secret, []string, []LoginProvider, error) {
 		return nil, nil, nil, nil, authErr
 	}
-	if _, err := Build(a, hostHome); !errors.Is(err, authErr) {
+	if _, err := Build(a, hostHome, testNetworkPolicy()); !errors.Is(err, authErr) {
 		t.Fatalf("auth transform error = %v", err)
 	}
 	sanitizeAuthWithSpecFn = sanitizeAuthWithSpec
@@ -2272,7 +2316,7 @@ func TestBuildSeamErrors(t *testing.T) {
 	buildLauncherConfigFn = func(agent.Agent, agent.ConfigMigrationSpec) (string, []byte, error) {
 		return "", nil, launcherErr
 	}
-	if _, err := Build(a, hostHome); !errors.Is(err, launcherErr) {
+	if _, err := Build(a, hostHome, testNetworkPolicy()); !errors.Is(err, launcherErr) {
 		t.Fatalf("launcher config error = %v", err)
 	}
 }
@@ -2296,14 +2340,14 @@ func TestApplyAndGuideSeamErrors(t *testing.T) {
 	enableNativeProvisioningFn = func() error { return enableErr }
 	ui.IsInteractiveResult = true
 	ui.SelectFn = func(string, []termio.Choice, string) (string, error) { return "p", nil }
-	if err := Guide(a, hostHome, false, &ui); !errors.Is(err, enableErr) {
+	if err := Guide(a, hostHome, testNetworkPolicy(), false, &ui); !errors.Is(err, enableErr) {
 		t.Fatalf("enable error = %v", err)
 	}
 	dismissErr := errors.New("dismiss failed")
 	dismissMigrationFn = func(*Plan) error { return dismissErr }
 	ui.SelectFn = func(string, []termio.Choice, string) (string, error) { return "d", nil }
 	enableNativeProvisioningFn = EnableNativeProvisioning
-	if err := Guide(a, hostHome, false, &ui); !errors.Is(err, dismissErr) {
+	if err := Guide(a, hostHome, testNetworkPolicy(), false, &ui); !errors.Is(err, dismissErr) {
 		t.Fatalf("dismiss error = %v", err)
 	}
 }
@@ -2459,7 +2503,7 @@ func TestGuideDefersStartAfterMigrationReview(t *testing.T) {
 		}
 		return choice, nil
 	}
-	if err := Guide(a, hostHome, false, &ui); !errors.Is(err, ErrStartDeferred) {
+	if err := Guide(a, hostHome, testNetworkPolicy(), false, &ui); !errors.Is(err, ErrStartDeferred) {
 		t.Fatalf("Guide error = %v, want start deferred", err)
 	}
 	if !strings.Contains(startPrompt, "already written") || len(startChoices) != 2 || startChoices[1].Key != "n" {
@@ -2483,7 +2527,7 @@ func TestGuideOffersSetupForFreshClaudeCodeUser(t *testing.T) {
 		choices = choices[1:]
 		return choice, nil
 	}
-	if err := Guide(a, t.TempDir(), false, &ui); err != nil {
+	if err := Guide(a, t.TempDir(), testNetworkPolicy(), false, &ui); err != nil {
 		t.Fatalf("Guide: %v", err)
 	}
 	if len(choices) != 0 {
@@ -2512,10 +2556,10 @@ func TestGuideRemembersDismissedClaudeCodeSetup(t *testing.T) {
 		selectCalls++
 		return "d", nil
 	}
-	if err := Guide(a, hostHome, false, &ui); err != nil {
+	if err := Guide(a, hostHome, testNetworkPolicy(), false, &ui); err != nil {
 		t.Fatalf("first Guide: %v", err)
 	}
-	if err := Guide(a, hostHome, false, &ui); err != nil {
+	if err := Guide(a, hostHome, testNetworkPolicy(), false, &ui); err != nil {
 		t.Fatalf("second Guide: %v", err)
 	}
 	if selectCalls != 1 {

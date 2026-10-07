@@ -62,7 +62,7 @@ func TestBuildFailsOnSecretNameCollisionWithSupplementalConfig(t *testing.T) {
 		return nil, map[string]Secret{"PI_SHARED": {Value: "from-models"}}, nil, nil, nil
 	}
 	a, _ := agent.Lookup("pi")
-	if _, err := Build(a, hostHome); err == nil || !strings.Contains(err.Error(), "collision") {
+	if _, err := Build(a, hostHome, testNetworkPolicy()); err == nil || !strings.Contains(err.Error(), "collision") {
 		t.Errorf("Build error = %v, want a secret name collision", err)
 	}
 }

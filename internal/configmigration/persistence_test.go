@@ -10,6 +10,7 @@ import (
 
 	"github.com/inoio/agents-sandbox/internal/agent"
 	"github.com/inoio/agents-sandbox/internal/configpaths"
+	"github.com/inoio/agents-sandbox/internal/sandbox/network"
 	"github.com/inoio/agents-sandbox/internal/termio"
 	"github.com/inoio/agents-sandbox/internal/testutil"
 )
@@ -131,7 +132,7 @@ func TestBuildFailsWhenProviderHostIsDenied(t *testing.T) {
 	hostHome := t.TempDir()
 	writeNativeAuth(t, hostHome)
 	a, _ := agent.Lookup("opencode")
-	if _, err := Build(a, hostHome); err == nil || !strings.Contains(err.Error(), "denied") {
+	if _, err := Build(a, hostHome, testNetworkPolicy()); err == nil || !strings.Contains(err.Error(), "denied") {
 		t.Errorf("Build error = %v, want a denied host error", err)
 	}
 }
@@ -149,8 +150,28 @@ func TestBuildFailsOnSecretNameCollisionBetweenConfigAndAuth(t *testing.T) {
 		return []byte("{}\n"), map[string]Secret{"OPENCODE_SHARED": {Value: "from-auth"}}, nil, nil, nil
 	}
 	a, _ := agent.Lookup("opencode")
-	if _, err := Build(a, hostHome); err == nil || !strings.Contains(err.Error(), "collision") {
+	if _, err := Build(a, hostHome, testNetworkPolicy()); err == nil || !strings.Contains(err.Error(), "collision") {
 		t.Errorf("Build error = %v, want a secret name collision", err)
+	}
+}
+
+func TestBuildStoresEffectiveNetworkPolicy(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	clearOpenCodeXDG(t)
+	a, ok := agent.Lookup("opencode")
+	if !ok {
+		t.Fatal("opencode agent not registered")
+	}
+	policy := network.Policy{
+		Profile:    network.ProfilePrivate,
+		EgressDeny: []string{"example.com"},
+	}
+	plan, err := Build(a, t.TempDir(), policy)
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	if plan.policy.Profile != policy.Profile || !slices.Equal(plan.policy.EgressDeny, policy.EgressDeny) {
+		t.Errorf("plan.policy = %+v, want %+v", plan.policy, policy)
 	}
 }
 
@@ -164,7 +185,7 @@ func TestBuildReportsLoginForOAuthOnlyConfig(t *testing.T) {
 	}
 	testutil.WritePath(t, authPath, `{"github-copilot":{"type":"oauth","access":"a","refresh":"r"}}`)
 	a, _ := agent.Lookup("opencode")
-	plan, err := Build(a, hostHome)
+	plan, err := Build(a, hostHome, testNetworkPolicy())
 	if err != nil {
 		t.Fatalf("Build: %v", err)
 	}
@@ -424,7 +445,7 @@ func TestGuideIgnoresAgentsWithoutSafeMigration(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	ui := termio.NewTestMock(t)
 	ui.IsInteractiveResult = true
-	if err := Guide(unsupportedMigrationAgent{}, t.TempDir(), false, &ui); err != nil {
+	if err := Guide(unsupportedMigrationAgent{}, t.TempDir(), testNetworkPolicy(), false, &ui); err != nil {
 		t.Errorf("Guide: %v", err)
 	}
 }
@@ -439,7 +460,7 @@ func TestGuideReportsUnreadableNativeConfig(t *testing.T) {
 	a, _ := agent.Lookup("opencode")
 	ui := termio.NewTestMock(t)
 	ui.IsInteractiveResult = true
-	if err := Guide(a, hostHome, false, &ui); err == nil {
+	if err := Guide(a, hostHome, testNetworkPolicy(), false, &ui); err == nil {
 		t.Error("Guide succeeded with an unreadable native auth file, want an error")
 	}
 }

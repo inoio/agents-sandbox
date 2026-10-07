@@ -207,7 +207,7 @@ func guideConfigMigration(opts options.RunOptions, ui termio.UI, dryRun bool) er
 		return fmt.Errorf("resolve host home: %w", err)
 	}
 	provisionHostConfig := opts.ProvisionHostConfig != nil && *opts.ProvisionHostConfig
-	return configmigration.Guide(a, hostHome, provisionHostConfig, ui)
+	return configmigration.Guide(a, hostHome, opts.Network, provisionHostConfig, ui)
 }
 
 //nolint:gochecknoglobals // test seam for the otherwise hard-to-reach upgrade check

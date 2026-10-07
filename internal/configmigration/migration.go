@@ -5,6 +5,8 @@ package configmigration
 import (
 	"errors"
 	"os"
+
+	"github.com/inoio/agents-sandbox/internal/sandbox/network"
 )
 
 // ErrUnsupported is returned when an agent has no safe migration provider.
@@ -65,6 +67,7 @@ type Plan struct {
 	ReviewWarnings       []string
 	Retrying             bool
 	SetupOnly            bool
+	policy               network.Policy
 }
 
 // HasChanges reports whether the plan has something useful to migrate.

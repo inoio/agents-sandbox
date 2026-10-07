@@ -10,6 +10,7 @@ import (
 	"github.com/inoio/agents-sandbox/internal/agent"
 	"github.com/inoio/agents-sandbox/internal/configmigration"
 	"github.com/inoio/agents-sandbox/internal/configpaths"
+	"github.com/inoio/agents-sandbox/internal/sandbox/network"
 	"github.com/inoio/agents-sandbox/internal/termio"
 	"github.com/inoio/agents-sandbox/internal/testutil"
 )
@@ -449,7 +450,7 @@ func TestConfigMigrateCommandOutcomes(t *testing.T) {
 		}
 	}
 	migrationHomeDir = func() (string, error) { return t.TempDir(), nil }
-	buildMigrationPlan = func(agent.Agent, string) (*configmigration.Plan, error) {
+	buildMigrationPlan = func(agent.Agent, string, network.Policy) (*configmigration.Plan, error) {
 		plan := basePlan()
 		plan.AlreadyConfigured = true
 		return plan, nil
@@ -458,7 +459,7 @@ func TestConfigMigrateCommandOutcomes(t *testing.T) {
 	if err := cmd.Execute(); err != nil || !strings.Contains(strings.Join(ui.OutCalls, "\n"), "already configured") {
 		t.Fatalf("already configured result = %v, %v", err, ui.OutCalls)
 	}
-	buildMigrationPlan = func(agent.Agent, string) (*configmigration.Plan, error) {
+	buildMigrationPlan = func(agent.Agent, string, network.Policy) (*configmigration.Plan, error) {
 		plan := basePlan()
 		plan.Dismissed = true
 		return plan, nil
@@ -468,7 +469,7 @@ func TestConfigMigrateCommandOutcomes(t *testing.T) {
 	if err := cmd.Execute(); err != nil || !strings.Contains(strings.Join(ui.OutCalls, "\n"), "previously dismissed") {
 		t.Fatalf("dismissed result = %v, %v", err, ui.OutCalls)
 	}
-	buildMigrationPlan = func(agent.Agent, string) (*configmigration.Plan, error) {
+	buildMigrationPlan = func(agent.Agent, string, network.Policy) (*configmigration.Plan, error) {
 		plan := basePlan()
 		plan.Warnings = []string{"warning"}
 		return plan, nil
@@ -477,14 +478,14 @@ func TestConfigMigrateCommandOutcomes(t *testing.T) {
 	if err := cmd.Execute(); err != nil || len(ui.WarnCalls) == 0 {
 		t.Fatalf("warning result = %v, %v", err, ui.WarnCalls)
 	}
-	buildMigrationPlan = func(agent.Agent, string) (*configmigration.Plan, error) {
+	buildMigrationPlan = func(agent.Agent, string, network.Policy) (*configmigration.Plan, error) {
 		return nil, configmigration.ErrUnsupported
 	}
 	cmd, ui = setupCommandFixtures(t, "config", "migrate", "opencode")
 	if err := cmd.Execute(); err != nil || !strings.Contains(strings.Join(ui.WarnCalls, "\n"), "not available") {
 		t.Fatalf("unsupported result = %v, %v", err, ui.WarnCalls)
 	}
-	buildMigrationPlan = func(agent.Agent, string) (*configmigration.Plan, error) {
+	buildMigrationPlan = func(agent.Agent, string, network.Policy) (*configmigration.Plan, error) {
 		return &configmigration.Plan{
 			HasNativeConfig:  true,
 			Files:            []configmigration.File{{Path: "x"}},
@@ -506,7 +507,7 @@ func TestConfigMigratePrintsNoSupportedCredentialWarning(t *testing.T) {
 		migrationHomeDir = originalHome
 	})
 	migrationHomeDir = func() (string, error) { return t.TempDir(), nil }
-	buildMigrationPlan = func(agent.Agent, string) (*configmigration.Plan, error) {
+	buildMigrationPlan = func(agent.Agent, string, network.Policy) (*configmigration.Plan, error) {
 		return &configmigration.Plan{
 			AgentName:       "opencode",
 			HasNativeConfig: true,
@@ -535,14 +536,14 @@ func TestConfigMigrateCommandErrorBranches(t *testing.T) {
 		t.Fatalf("home error = %v", err)
 	}
 	migrationHomeDir = os.UserHomeDir
-	buildMigrationPlan = func(agent.Agent, string) (*configmigration.Plan, error) {
+	buildMigrationPlan = func(agent.Agent, string, network.Policy) (*configmigration.Plan, error) {
 		return nil, errors.New("plan failed")
 	}
 	cmd, _ = setupCommandFixtures(t, "config", "migrate", "opencode")
 	if err := cmd.Execute(); err == nil || !strings.Contains(err.Error(), "plan failed") {
 		t.Fatalf("plan error = %v", err)
 	}
-	buildMigrationPlan = func(agent.Agent, string) (*configmigration.Plan, error) {
+	buildMigrationPlan = func(agent.Agent, string, network.Policy) (*configmigration.Plan, error) {
 		return &configmigration.Plan{HasNativeConfig: true, Files: []configmigration.File{{Path: "x"}}}, nil
 	}
 	applyMigrationPlan = func(*configmigration.Plan, termio.UI) error { return errors.New("apply failed") }
@@ -560,7 +561,7 @@ func TestConfigMigrateReviewError(t *testing.T) {
 		migrationHomeDir = originalHome
 	})
 	migrationHomeDir = func() (string, error) { return t.TempDir(), nil }
-	buildMigrationPlan = func(agent.Agent, string) (*configmigration.Plan, error) {
+	buildMigrationPlan = func(agent.Agent, string, network.Policy) (*configmigration.Plan, error) {
 		return &configmigration.Plan{
 			AgentName:       "opencode",
 			HasNativeConfig: true,

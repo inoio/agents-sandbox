@@ -346,7 +346,11 @@ func buildConfigMigrateCmd(
 			if err != nil {
 				return fmt.Errorf("resolve host home: %w", err)
 			}
-			plan, err := buildMigrationPlan(a, hostHome)
+			resolver, err := viperconfig.NewResolver(c, git.ProjectSlug())
+			if err != nil {
+				return err
+			}
+			plan, err := buildMigrationPlan(a, hostHome, resolver.Network())
 			if err != nil {
 				if errors.Is(err, configmigration.ErrUnsupported) {
 					ui.Warnf("safe migration is not available for agent %q; configure it manually", a.Name())

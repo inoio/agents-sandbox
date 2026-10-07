@@ -57,7 +57,7 @@ func TestBuildFailsWhenClaudeLoginHostsAreDenied(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", "")
 	denyAllEgressInLauncherConfig(t)
 	a, _ := agent.Lookup("claude-code")
-	if _, err := Build(a, t.TempDir()); err == nil || !strings.Contains(err.Error(), "denied") {
+	if _, err := Build(a, t.TempDir(), testNetworkPolicy()); err == nil || !strings.Contains(err.Error(), "denied") {
 		t.Errorf("Build error = %v, want a denied host error", err)
 	}
 }
@@ -315,7 +315,7 @@ func TestGuideSetupForFreshClaudeCodeUser(t *testing.T) {
 			configpaths.WithMockConfigPaths(t)
 			t.Setenv("CLAUDE_CONFIG_DIR", "")
 			a, _ := agent.Lookup("claude-code")
-			err := Guide(a, t.TempDir(), false, freshClaudeGuideUI(t, test.choices...))
+			err := Guide(a, t.TempDir(), testNetworkPolicy(), false, freshClaudeGuideUI(t, test.choices...))
 			if err == nil || (test.wantErr != nil && !errors.Is(err, test.wantErr)) {
 				t.Errorf("Guide error = %v, want %v", err, test.wantErr)
 			}
@@ -329,7 +329,13 @@ func TestGuideSetupReportsApplyError(t *testing.T) {
 	withMigrationSeams(t)
 	atomicWriteFn = func(string, []byte, os.FileMode) error { return errInjected }
 	a, _ := agent.Lookup("claude-code")
-	err := Guide(a, t.TempDir(), false, freshClaudeGuideUI(t, guideSetupChoice, claudeAuthLoginChoice))
+	err := Guide(
+		a,
+		t.TempDir(),
+		testNetworkPolicy(),
+		false,
+		freshClaudeGuideUI(t, guideSetupChoice, claudeAuthLoginChoice),
+	)
 	if !errors.Is(err, errInjected) {
 		t.Errorf("Guide error = %v, want %v", err, errInjected)
 	}

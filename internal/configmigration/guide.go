@@ -12,12 +12,14 @@ import (
 
 	"github.com/inoio/agents-sandbox/internal/agent"
 	cp "github.com/inoio/agents-sandbox/internal/configpaths"
+	"github.com/inoio/agents-sandbox/internal/sandbox/network"
 	"github.com/inoio/agents-sandbox/internal/termio"
 )
 
 func Guide(
 	a agent.Agent,
 	hostHome string,
+	policy network.Policy,
 	provisionHostConfig bool,
 	ui termio.UI,
 ) error {
@@ -38,7 +40,7 @@ func Guide(
 		}
 		return nil
 	}
-	plan, err := Build(a, hostHome)
+	plan, err := Build(a, hostHome, policy)
 	if err != nil {
 		if errors.Is(err, ErrUnsupported) {
 			return nil

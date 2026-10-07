@@ -164,7 +164,7 @@ func TestGuideWarnsBeforeEnablingProvisioningInJSONLauncherConfig(t *testing.T) 
 	ui := termio.NewTestMock(t)
 	ui.IsInteractiveResult = true
 	ui.SelectFn = func(string, []termio.Choice, string) (string, error) { return "p", nil }
-	_ = Guide(a, hostHome, false, &ui)
+	_ = Guide(a, hostHome, testNetworkPolicy(), false, &ui)
 	if !strings.Contains(strings.Join(ui.WarnCalls, "\n"), "comments") {
 		t.Errorf("warnings = %v, want a warning about lost comments", ui.WarnCalls)
 	}
