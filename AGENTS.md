@@ -91,6 +91,10 @@ Always use your superpowers for appropriate tasks, never skip user approval.
 
 - When changing or adding behavior, keep `README.md` and `docs` directory (except `docs/superpowers`) in sync and
   current, and add a line to the `[Unreleased]` section in `CHANGELOG.md`.
+- Linking style: root-level docs (README.md, SECURITY.md, ...) link into `docs/` with rendered HTML links
+  (`https://inoio.github.io/agents-sandbox/<page>.html`, or `.../<dir>/` for an `index.md` page); non-docs relative links
+  must resolve to a repo file. Pages under `docs/` link to each other with Jekyll `{% link %}` tags. `make check` runs
+  `ci/check-docs.sh` (and its tests in `ci/test-check-docs.sh`) to enforce this.
 - When you struggled with something non-obvious, propose to the user to document it in `AGENTS.md`.
 - The Jekyll build (used by `make docs-serve` and GitHub Pages) minifies output HTML onto a single line. An inline
   `<script>` in `docs/_includes/` that starts with a `//` line comment silently disables the whole script (the comment
