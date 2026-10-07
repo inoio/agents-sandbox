@@ -181,7 +181,7 @@ func sanitizeAuthWithSpec(
 	return append(encoded, '\n'), secrets, warnings, nil
 }
 
-func sanitizeAuthMapWithSpec( //nolint:gocognit // recursive redaction handles nested auth metadata
+func sanitizeAuthMapWithSpec(
 	values map[string]json.RawMessage,
 	provider, path string,
 	spec agent.AuthMigrationSpec,
@@ -189,69 +189,106 @@ func sanitizeAuthMapWithSpec( //nolint:gocognit // recursive redaction handles n
 	secrets map[string]Secret,
 ) error {
 	for key, raw := range values {
-		fieldPath := key
-		if path != "" {
-			fieldPath = path + "_" + key
-		}
-		var nested map[string]json.RawMessage
-		if err := json.Unmarshal(raw, &nested); err == nil && nested != nil {
-			if err := sanitizeAuthMapWithSpec(
-				nested,
-				provider,
-				fieldPath,
-				spec,
-				knownHosts,
-				providerHosts,
-				secrets,
-			); err != nil {
-				return err
-			}
-			data, marshalErr := marshalJSONFn(nested)
-			if marshalErr != nil {
-				return marshalErr
-			}
-			values[key] = data
-			continue
-		}
-		var text string
-		if jsonFieldString(values, "type") == authTypeWellKnown && strings.EqualFold(key, "key") {
-			continue
-		}
-		if err := json.Unmarshal(
+		if err := sanitizeAuthEntry(
+			key,
 			raw,
-			&text,
-		); err != nil ||
-			isPlaceholderWithAuthSpec(text, spec) {
-			continue
+			values,
+			provider,
+			path,
+			spec,
+			knownHosts,
+			providerHosts,
+			secrets,
+		); err != nil {
+			return err
 		}
-		if spec.RejectUnresolvedValues && isUnresolvedPiConfigValue(text) {
-			return fmt.Errorf(
-				"auth field %s.%s contains an unresolved environment or command reference",
-				provider,
-				fieldPath,
-			)
+	}
+	return nil
+}
+
+func sanitizeAuthEntry(
+	key string,
+	raw json.RawMessage,
+	values map[string]json.RawMessage,
+	provider, path string,
+	spec agent.AuthMigrationSpec,
+	knownHosts, providerHosts map[string]string,
+	secrets map[string]Secret,
+) error {
+	fieldPath := key
+	if path != "" {
+		fieldPath = path + "_" + key
+	}
+	var nested map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &nested); err == nil && nested != nil {
+		if err := sanitizeAuthMapWithSpec(
+			nested,
+			provider,
+			fieldPath,
+			spec,
+			knownHosts,
+			providerHosts,
+			secrets,
+		); err != nil {
+			return err
 		}
-		if !isSensitiveField(key, spec.SensitiveFields) {
-			if spec.RejectUnresolvedValues && isCredentialContainerPath(path) && text != "" {
-				return fmt.Errorf("auth field %s.%s contains an unsupported environment override", provider, fieldPath)
-			}
-			continue
-		}
-		name := spec.SecretPrefix + "_" + secretPart(provider+"_"+fieldPath)
-		if existing, ok := secrets[name]; ok && existing.Value != text {
-			return fmt.Errorf("secret name collision for %s", name)
-		}
-		secrets[name] = Secret{ //nolint:exhaustruct // auth migrations only set value and inferred hosts
-			Value: text,
-			Hosts: authHosts(provider, values, knownHosts, providerHosts),
-		}
-		encoded, marshalErr := marshalJSONFn(spec.AuthPlaceholderPrefix + name)
+		data, marshalErr := marshalJSONFn(nested)
 		if marshalErr != nil {
 			return marshalErr
 		}
-		values[key] = encoded
+		values[key] = data
+		return nil
 	}
+	return redactAuthField(key, raw, values, provider, path, fieldPath, spec, knownHosts, providerHosts, secrets)
+}
+
+func redactAuthField(
+	key string,
+	raw json.RawMessage,
+	values map[string]json.RawMessage,
+	provider, path, fieldPath string,
+	spec agent.AuthMigrationSpec,
+	knownHosts, providerHosts map[string]string,
+	secrets map[string]Secret,
+) error {
+	var text string
+	if jsonFieldString(values, "type") == authTypeWellKnown && strings.EqualFold(key, "key") {
+		return nil
+	}
+	if !isJSONString(raw, &text) || isPlaceholderWithAuthSpec(text, spec) {
+		return nil
+	}
+	if spec.RejectUnresolvedValues && isUnresolvedPiConfigValue(text) {
+		return fmt.Errorf(
+			"auth field %s.%s contains an unresolved environment or command reference",
+			provider,
+			fieldPath,
+		)
+	}
+	if !isSensitiveField(key, spec.SensitiveFields) {
+		if spec.RejectUnresolvedValues && isCredentialContainerPath(path) && text != "" {
+			return fmt.Errorf("auth field %s.%s contains an unsupported environment override", provider, fieldPath)
+		}
+		return nil
+	}
+	name := spec.SecretPrefix + "_" + secretPart(provider+"_"+fieldPath)
+	if existing, ok := secrets[name]; ok && existing.Value != text {
+		return fmt.Errorf("secret name collision for %s", name)
+	}
+	secrets[name] = Secret{ //nolint:exhaustruct // auth migrations only set value and inferred hosts
+		Value: text,
+		Hosts: authHosts(provider, values, knownHosts, providerHosts),
+	}
+	encoded, marshalErr := marshalJSONFn(spec.AuthPlaceholderPrefix + name)
+	if marshalErr != nil {
+		return marshalErr
+	}
+	values[key] = encoded
 	return nil
+}
+
+func isJSONString(raw json.RawMessage, target *string) bool {
+	return json.Unmarshal(raw, target) == nil
 }
 
 func unsupportedAuthFieldWarnings(
@@ -510,7 +547,6 @@ func mergeConfigMaps(base, override map[string]any) map[string]any {
 	return result
 }
 
-//nolint:funlen,gocognit,gocyclo,cyclop // recursive traversal keeps redaction and path context together
 func sanitizeConfigMapWithSpec(
 	values map[string]any,
 	provider string,
@@ -524,95 +560,175 @@ func sanitizeConfigMapWithSpec(
 		if path != "" {
 			currentPath = path + "_" + key
 		}
-		if nested, ok := value.(map[string]any); ok {
-			nestedProvider := provider
-			if path == "" && (key == providerKey || key == "providers") {
-				nestedProvider = ""
-			}
-			if path == providerKey || path == "providers" {
-				nestedProvider = key
-			}
-			if err := sanitizeConfigMapWithSpec(
-				nested,
-				nestedProvider,
-				currentPath,
-				spec,
-				knownHosts,
-				providerHosts,
-				secrets,
-			); err != nil {
-				return err
-			}
+		handled, err := sanitizeNestedConfigValue(
+			key,
+			value,
+			provider,
+			path,
+			currentPath,
+			spec,
+			knownHosts,
+			providerHosts,
+			secrets,
+		)
+		if err != nil {
+			return err
+		}
+		if handled {
 			continue
 		}
-		if array, ok := value.([]any); ok {
-			for index, item := range array {
-				if nested, nestedOK := item.(map[string]any); nestedOK {
-					if err := sanitizeConfigMapWithSpec(
-						nested,
-						provider,
-						fmt.Sprintf("%s_%d", currentPath, index),
-						spec,
-						knownHosts,
-						providerHosts,
-						secrets,
-					); err != nil {
-						return err
-					}
+		if err := sanitizeConfigField(
+			values,
+			key,
+			value,
+			provider,
+			path,
+			currentPath,
+			spec,
+			knownHosts,
+			providerHosts,
+			secrets,
+		); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func sanitizeNestedConfigValue(
+	key string,
+	value any,
+	provider, path, currentPath string,
+	spec agent.AuthMigrationSpec,
+	knownHosts, providerHosts map[string]string,
+	secrets map[string]Secret,
+) (bool, error) {
+	if nested, ok := value.(map[string]any); ok {
+		nestedProvider := provider
+		if path == "" && (key == providerKey || key == "providers") {
+			nestedProvider = ""
+		}
+		if path == providerKey || path == "providers" {
+			nestedProvider = key
+		}
+		if err := sanitizeConfigMapWithSpec(
+			nested,
+			nestedProvider,
+			currentPath,
+			spec,
+			knownHosts,
+			providerHosts,
+			secrets,
+		); err != nil {
+			return true, err
+		}
+		return true, nil
+	}
+	if array, ok := value.([]any); ok {
+		for index, item := range array {
+			if nested, nestedOK := item.(map[string]any); nestedOK {
+				if err := sanitizeConfigMapWithSpec(
+					nested,
+					provider,
+					fmt.Sprintf("%s_%d", currentPath, index),
+					spec,
+					knownHosts,
+					providerHosts,
+					secrets,
+				); err != nil {
+					return true, err
 				}
 			}
-			continue
 		}
-		text, ok := value.(string)
-		if ok && spec.RejectUnresolvedValues && isUnresolvedPiConfigValue(text) {
-			return fmt.Errorf("config field %s contains an unresolved environment or command reference", currentPath)
+		return true, nil
+	}
+	return false, nil
+}
+
+func sanitizeConfigField(
+	values map[string]any,
+	key string,
+	value any,
+	provider, path, currentPath string,
+	spec agent.AuthMigrationSpec,
+	knownHosts, providerHosts map[string]string,
+	secrets map[string]Secret,
+) error {
+	text, isText := value.(string)
+	if isText && spec.RejectUnresolvedValues {
+		if err := rejectUnresolvedConfigField(
+			values,
+			key,
+			text,
+			provider,
+			path,
+			currentPath,
+			spec,
+			knownHosts,
+			providerHosts,
+			secrets,
+		); err != nil {
+			return err
 		}
-		if ok && spec.RejectUnresolvedValues && isClaudeEndpointVariable(key) {
+		if isClaudeEndpointVariable(key) || claudeSecretVariable(key) || isUnresolvedPiConfigValue(text) {
+			return nil
+		}
+	}
+	if !isText || !isSensitiveField(key, spec.ConfigSensitiveFields) ||
+		isPlaceholderWithAuthSpec(text, spec) {
+		if isText && isEndpointField(key, spec.EndpointFields) {
 			if err := rejectEmbeddedEndpointCredential(text); err != nil {
 				return fmt.Errorf("config field %s: %w", currentPath, err)
 			}
-			continue
 		}
-		if ok && spec.RejectUnresolvedValues && isClaudeUnsafeSettingKey(key) {
-			return fmt.Errorf("config field %s contains an unsupported credential helper or command", currentPath)
+		return nil
+	}
+	name := spec.SecretPrefix + "_CONFIG_" + secretPart(currentPath)
+	if existing, exists := secrets[name]; exists && existing.Value != text {
+		name += "_" + shortHash(text)
+	}
+	secrets[name] = Secret{ //nolint:exhaustruct // config migrations only set value and inferred hosts
+		Value: text,
+		Hosts: configSecretHosts(provider, values, knownHosts, providerHosts),
+	}
+	values[key] = spec.ConfigPlaceholderPrefix + name + spec.ConfigPlaceholderSuffix
+	return nil
+}
+
+func rejectUnresolvedConfigField(
+	values map[string]any,
+	key, text, provider, path, currentPath string,
+	spec agent.AuthMigrationSpec,
+	knownHosts, providerHosts map[string]string,
+	secrets map[string]Secret,
+) error {
+	if isUnresolvedPiConfigValue(text) {
+		return fmt.Errorf("config field %s contains an unresolved environment or command reference", currentPath)
+	}
+	if isClaudeEndpointVariable(key) {
+		if err := rejectEmbeddedEndpointCredential(text); err != nil {
+			return fmt.Errorf("config field %s: %w", currentPath, err)
 		}
-		if ok && spec.RejectUnresolvedValues && claudeSecretVariable(key) {
-			if err := migrateClaudeSecretField(
-				values,
-				key,
-				text,
-				provider,
-				spec,
-				knownHosts,
-				providerHosts,
-				secrets,
-			); err != nil {
-				return err
-			}
-			continue
-		}
-		if ok && spec.RejectUnresolvedValues && isCredentialContainerPath(path) &&
-			!isPlaceholderWithAuthSpec(text, spec) && !isClaudeEndpointVariable(key) {
-			return fmt.Errorf("config field %s contains an unsupported credential or header override", currentPath)
-		}
-		if !ok || !isSensitiveField(key, spec.ConfigSensitiveFields) ||
-			isPlaceholderWithAuthSpec(text, spec) {
-			if ok && isEndpointField(key, spec.EndpointFields) {
-				if err := rejectEmbeddedEndpointCredential(text); err != nil {
-					return fmt.Errorf("config field %s: %w", currentPath, err)
-				}
-			}
-			continue
-		}
-		name := spec.SecretPrefix + "_CONFIG_" + secretPart(currentPath)
-		if existing, exists := secrets[name]; exists && existing.Value != text {
-			name += "_" + shortHash(text)
-		}
-		secrets[name] = Secret{ //nolint:exhaustruct // config migrations only set value and inferred hosts
-			Value: text,
-			Hosts: configSecretHosts(provider, values, knownHosts, providerHosts),
-		}
-		values[key] = spec.ConfigPlaceholderPrefix + name + spec.ConfigPlaceholderSuffix
+		return nil
+	}
+	if isClaudeUnsafeSettingKey(key) {
+		return fmt.Errorf("config field %s contains an unsupported credential helper or command", currentPath)
+	}
+	if claudeSecretVariable(key) {
+		return migrateClaudeSecretField(
+			values,
+			key,
+			text,
+			provider,
+			spec,
+			knownHosts,
+			providerHosts,
+			secrets,
+		)
+	}
+	if isCredentialContainerPath(path) &&
+		!isPlaceholderWithAuthSpec(text, spec) && !isClaudeEndpointVariable(key) {
+		return fmt.Errorf("config field %s contains an unsupported credential or header override", currentPath)
 	}
 	return nil
 }
@@ -681,27 +797,13 @@ func isClaudeUnsafeSettingKey(value string) bool {
 	}
 }
 
-//nolint:gocognit // host inference checks several documented endpoint forms
 func configSecretHosts(
 	provider string,
 	values map[string]any,
 	knownHosts, providerHosts map[string]string,
 ) []string {
-	for key, raw := range values {
-		if isClaudeEndpointVariable(key) {
-			if text, ok := raw.(string); ok {
-				if parsed, err := url.Parse(text); err == nil && parsed.Hostname() != "" {
-					return []string{parsed.Hostname()}
-				}
-			}
-		}
-	}
-	for _, key := range []string{baseURLKey, "baseUrl", endpointKey, urlKey, "enterpriseUrl"} {
-		if raw, ok := values[key].(string); ok {
-			if parsed, err := url.Parse(raw); err == nil && parsed.Hostname() != "" {
-				return []string{parsed.Hostname()}
-			}
-		}
+	if host := endpointHostFromValues(values); host != "" {
+		return []string{host}
 	}
 	if provider == "" {
 		if host := providerHosts[""]; host != "" {
@@ -711,32 +813,61 @@ func configSecretHosts(
 	if host := knownHosts[strings.ToLower(provider)]; host != "" {
 		return []string{host}
 	}
-	if host := providerHosts[strings.ToLower(provider)]; host != "" {
-		return []string{host}
-	}
-	return nil
+	return knownHost(provider, providerHosts)
 }
 
-func findEndpointHost(value any, endpointFields []string) string { //nolint:gocognit // recursive document traversal
-	switch current := value.(type) {
-	case map[string]any:
-		for key, nested := range current {
-			if isEndpointField(key, endpointFields) {
-				if text, ok := nested.(string); ok {
-					if parsed, err := url.Parse(text); err == nil && parsed.Hostname() != "" {
-						return parsed.Hostname()
-					}
-				}
-			}
-			if host := findEndpointHost(nested, endpointFields); host != "" {
-				return host
+func endpointHostFromValues(values map[string]any) string {
+	for key, raw := range values {
+		if !isClaudeEndpointVariable(key) {
+			continue
+		}
+		if text, ok := raw.(string); ok {
+			if parsed, err := url.Parse(text); err == nil && parsed.Hostname() != "" {
+				return parsed.Hostname()
 			}
 		}
-	case []any:
-		for _, nested := range current {
-			if host := findEndpointHost(nested, endpointFields); host != "" {
-				return host
+	}
+	for _, key := range []string{baseURLKey, "baseUrl", endpointKey, urlKey, "enterpriseUrl"} {
+		if raw, ok := values[key].(string); ok {
+			if parsed, err := url.Parse(raw); err == nil && parsed.Hostname() != "" {
+				return parsed.Hostname()
 			}
+		}
+	}
+	return ""
+}
+
+func findEndpointHost(value any, endpointFields []string) string {
+	switch current := value.(type) {
+	case map[string]any:
+		return findEndpointHostInMap(current, endpointFields)
+	case []any:
+		return findEndpointHostInSlice(current, endpointFields)
+	default:
+		return ""
+	}
+}
+
+func findEndpointHostInMap(values map[string]any, endpointFields []string) string {
+	for key, nested := range values {
+		if isEndpointField(key, endpointFields) {
+			if text, ok := nested.(string); ok {
+				if parsed, err := url.Parse(text); err == nil && parsed.Hostname() != "" {
+					return parsed.Hostname()
+				}
+			}
+		}
+		if host := findEndpointHost(nested, endpointFields); host != "" {
+			return host
+		}
+	}
+	return ""
+}
+
+func findEndpointHostInSlice(values []any, endpointFields []string) string {
+	for _, nested := range values {
+		if host := findEndpointHost(nested, endpointFields); host != "" {
+			return host
 		}
 	}
 	return ""
