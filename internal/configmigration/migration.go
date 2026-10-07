@@ -55,6 +55,9 @@ type Plan struct {
 	AlreadyConfigured    bool
 	Handled              bool
 	Dismissed            bool
+	PersistedState       string
+	Manual               bool
+	LoginPending         bool
 	Warnings             []string
 	NetworkHosts         []string
 	LoginProviders       []string

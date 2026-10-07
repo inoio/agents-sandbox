@@ -1,6 +1,7 @@
 package configmigration
 
 import (
+	"bytes"
 	"errors"
 	"os"
 	"path/filepath"
@@ -272,6 +273,195 @@ func TestApplyRecordsLoginPendingForMixedConfig(t *testing.T) {
 	}
 	if len(manifest.Pending) != 1 || manifest.Pending[0].Provider != "github-copilot" {
 		t.Fatalf("pending = %+v, want github-copilot", manifest.Pending)
+	}
+}
+
+func TestGuideLoginPendingVerificationYesCompletes(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	clearOpenCodeXDG(t)
+	hostHome := t.TempDir()
+	a, _ := agent.Lookup("opencode")
+	writeNativeAuthContent(t, hostHome, `{"github-copilot": {"type": "oauth", "access": "a", "refresh": "r"}}`)
+
+	handoff := termio.NewTestMock(t)
+	handoff.IsInteractiveResult = true
+	handoff.SelectFn = func(string, []termio.Choice, string) (string, error) {
+		return guideLoginChoice, nil
+	}
+	if err := Guide(a, hostHome, testNetworkPolicy(), false, &handoff); err != nil {
+		t.Fatalf("first Guide: %v", err)
+	}
+	if migrationManifestFor(a).State != migrationStateLoginPending {
+		t.Fatalf("after handoff state = %q", migrationManifestFor(a).State)
+	}
+
+	verification := termio.NewTestMock(t)
+	verification.IsInteractiveResult = true
+	verification.SelectFn = func(string, []termio.Choice, string) (string, error) { return "yes", nil }
+	if err := Guide(a, hostHome, testNetworkPolicy(), false, &verification); err != nil {
+		t.Fatalf("verify Guide: %v", err)
+	}
+	if got := migrationManifestFor(a).State; got != migrationStateCompleted {
+		t.Fatalf("state after confirmation = %q, want completed", got)
+	}
+}
+
+// loginPendingGuide runs the first interactive Guide over an OAuth-only native
+// config and selects the in-sandbox login, recording the login-pending state.
+func loginPendingGuide(t *testing.T, a agent.Agent, hostHome string) {
+	t.Helper()
+	handoff := termio.NewTestMock(t)
+	handoff.IsInteractiveResult = true
+	handoff.SelectFn = func(string, []termio.Choice, string) (string, error) {
+		return guideLoginChoice, nil
+	}
+	if err := Guide(a, hostHome, testNetworkPolicy(), false, &handoff); err != nil {
+		t.Fatalf("login handoff Guide: %v", err)
+	}
+}
+
+func sequencedChoices(choices ...string) func(string, []termio.Choice, string) (string, error) {
+	return func(string, []termio.Choice, string) (string, error) {
+		choice := choices[0]
+		choices = choices[1:]
+		return choice, nil
+	}
+}
+
+func TestGuideLoginPendingVerificationLaterStaysQuiet(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	clearOpenCodeXDG(t)
+	hostHome := t.TempDir()
+	a, _ := agent.Lookup("opencode")
+	writeNativeAuthContent(t, hostHome, `{"github-copilot": {"type": "oauth", "access": "a", "refresh": "r"}}`)
+	loginPendingGuide(t, a, hostHome)
+
+	manifestPath := migrationManifestPath(a.Name())
+	before, err := os.ReadFile(manifestPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	ui := termio.NewTestMock(t)
+	ui.IsInteractiveResult = true
+	prompts := 0
+	ui.SelectFn = func(string, []termio.Choice, string) (string, error) {
+		prompts++
+		return "later", nil
+	}
+	if err := Guide(a, hostHome, testNetworkPolicy(), false, &ui); err != nil {
+		t.Fatalf("later Guide: %v", err)
+	}
+	if prompts != 1 {
+		t.Errorf("later run prompted %d times, want exactly the verification question", prompts)
+	}
+	if got := migrationManifestFor(a).State; got != migrationStateLoginPending {
+		t.Errorf("state = %q, want login-pending", got)
+	}
+	after, err := os.ReadFile(manifestPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(before, after) {
+		t.Errorf("later run rewrote the manifest: %s", after)
+	}
+}
+
+func TestGuideLoginPendingVerificationNoReentersHandoff(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	clearOpenCodeXDG(t)
+	hostHome := t.TempDir()
+	a, _ := agent.Lookup("opencode")
+	writeNativeAuthContent(t, hostHome, `{"github-copilot": {"type": "oauth", "access": "a", "refresh": "r"}}`)
+	loginPendingGuide(t, a, hostHome)
+
+	ui := termio.NewTestMock(t)
+	ui.IsInteractiveResult = true
+	ui.SelectFn = sequencedChoices("no", guideLoginChoice)
+	if err := Guide(a, hostHome, testNetworkPolicy(), false, &ui); err != nil {
+		t.Fatalf("no Guide: %v", err)
+	}
+	if got := migrationManifestFor(a).State; got != migrationStateLoginPending {
+		t.Errorf("state = %q, want login-pending after re-handoff", got)
+	}
+}
+
+func TestGuideLoginPendingVerificationAfterMixedMigration(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	clearOpenCodeXDG(t)
+	hostHome := t.TempDir()
+	a, _ := agent.Lookup("opencode")
+	writeNativeAuthContent(t, hostHome, `{
+  "openai": {"type": "api", "key": "sk-static"},
+  "github-copilot": {"type": "oauth", "access": "a", "refresh": "r"}
+}`)
+
+	first := termio.NewTestMock(t)
+	first.IsInteractiveResult = true
+	first.SelectFn = sequencedChoices(guideMigrationChoice, "y")
+	if err := Guide(a, hostHome, testNetworkPolicy(), false, &first); err != nil {
+		t.Fatalf("mixed migration Guide: %v", err)
+	}
+	if got := migrationManifestFor(a).State; got != migrationStateLoginPending {
+		t.Fatalf("state = %q, want login-pending", got)
+	}
+
+	verification := termio.NewTestMock(t)
+	verification.IsInteractiveResult = true
+	verification.SelectFn = func(string, []termio.Choice, string) (string, error) { return "yes", nil }
+	if err := Guide(a, hostHome, testNetworkPolicy(), false, &verification); err != nil {
+		t.Fatalf("verify Guide: %v", err)
+	}
+	if got := migrationManifestFor(a).State; got != migrationStateCompleted {
+		t.Errorf("state = %q, want completed despite managed config", got)
+	}
+}
+
+func TestGuideLoginPendingRearmedBySourceHashChange(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	clearOpenCodeXDG(t)
+	hostHome := t.TempDir()
+	a, _ := agent.Lookup("opencode")
+	writeNativeAuthContent(t, hostHome, `{"github-copilot": {"type": "oauth", "access": "a", "refresh": "r"}}`)
+	loginPendingGuide(t, a, hostHome)
+
+	writeNativeAuthContent(t, hostHome, `{"github-copilot": {"type": "oauth", "access": "b", "refresh": "s"}}`)
+	ui := termio.NewTestMock(t)
+	ui.IsInteractiveResult = true
+	offered := recordOfferedChoices(&ui, guideLoginChoice)
+	if err := Guide(a, hostHome, testNetworkPolicy(), false, &ui); err != nil {
+		t.Fatalf("re-armed Guide: %v", err)
+	}
+	if !slices.Contains(*offered, guideLoginChoice) {
+		t.Errorf("offered choices = %v, want the login hand-off after a source change", *offered)
+	}
+}
+
+func TestGuideNonInteractiveWarnsPendingLoginOnce(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	clearOpenCodeXDG(t)
+	hostHome := t.TempDir()
+	a, _ := agent.Lookup("opencode")
+	writeNativeAuthContent(t, hostHome, `{"github-copilot": {"type": "oauth", "access": "a", "refresh": "r"}}`)
+	loginPendingGuide(t, a, hostHome)
+
+	ui := termio.NewTestMock(t)
+	ui.IsInteractiveResult = false
+	if err := Guide(a, hostHome, testNetworkPolicy(), false, &ui); err != nil {
+		t.Fatalf("non-interactive Guide: %v", err)
+	}
+	if len(ui.WarnCalls) != 1 {
+		t.Errorf("warnings = %v, want exactly one pending-login reminder", ui.WarnCalls)
+	}
+	if !strings.Contains(ui.WarnCalls[0], "still pending") {
+		t.Errorf("warning = %q, want the pending-login reminder", ui.WarnCalls[0])
+	}
+}
+
+func TestLoginProviderNames(t *testing.T) {
+	got := loginProviderNames([]LoginProvider{{Name: "github-copilot"}, {Name: "openai"}})
+	if got != "github-copilot, openai" {
+		t.Errorf("loginProviderNames = %q, want %q", got, "github-copilot, openai")
 	}
 }
 

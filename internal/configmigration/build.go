@@ -31,6 +31,7 @@ func Build(
 			return nil, networkErr
 		}
 		result.Handled, result.Dismissed = migrationStatusFor(a, result.SourceHash)
+		applyDerivedMigrationState(a, result)
 		return result, nil
 	}
 	supplementalNames, configRequired, err := applyNativeConfigMigration(a, result, spec, nativeFiles, hostHome)
@@ -180,6 +181,7 @@ func finalizeMigrationPlan(
 	managedAuthPath := filepath.Join(cp.Get().UserAgentConfigDir(a), spec.ManagedCredential)
 	managedConfigPath := filepath.Join(cp.Get().UserAgentConfigDir(a), spec.ManagedSnippet)
 	result.Handled, result.Dismissed = migrationStatusFor(a, result.SourceHash)
+	applyDerivedMigrationState(a, result)
 	result.AlreadyConfigured = result.Handled && migrationAlreadyConfigured(
 		a, spec, managedAuthPath, managedConfigPath, configPath,
 		hasGeneratedCredential(result.Files, spec.ManagedCredential), configRequired, supplementalNames,
@@ -192,6 +194,15 @@ func finalizeMigrationPlan(
 			result.Warnings,
 			"native agent settings were found but are not copied automatically; review them and add managed snippets manually",
 		)
+	}
+}
+
+func applyDerivedMigrationState(a agent.Agent, result *Plan) {
+	result.PersistedState = migrationStateFor(a, result.SourceHash)
+	result.Manual = result.PersistedState == migrationStateManual
+	result.LoginPending = result.PersistedState == migrationStateLoginPending
+	if result.LoginPending {
+		result.PendingLogins = pendingLoginsFromManifest(a)
 	}
 }
 

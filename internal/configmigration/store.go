@@ -106,6 +106,21 @@ func pendingLoginsFromPlan(plan *Plan) []pendingLogin {
 	return logins
 }
 
+func pendingLoginsFromManifest(a agent.Agent) []LoginProvider {
+	manifest := migrationManifestFor(a)
+	logins := make([]LoginProvider, 0, len(manifest.Pending))
+	for _, pending := range manifest.Pending {
+		logins = append(logins, LoginProvider{Name: pending.Provider, Hosts: pending.Hosts})
+	}
+	return logins
+}
+
+// Complete persists the completed onboarding decision once the user confirms
+// that the in-sandbox login succeeded.
+func Complete(plan *Plan) error {
+	return migrationWriteDecision(plan.AgentName, plan.SourceHash, migrationStateCompleted, nil)
+}
+
 func migrationAtomicWrite(path string, data []byte, mode os.FileMode) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return err
@@ -127,6 +142,14 @@ func commitTempFile(tmp *os.File, path string, data []byte, mode os.FileMode) er
 		return err
 	}
 	return os.Rename(tmp.Name(), path)
+}
+
+func migrationStateFor(a agent.Agent, sourceHash string) string {
+	manifest := migrationManifestFor(a)
+	if manifest.Version == 0 || manifest.SourceHash != sourceHash {
+		return ""
+	}
+	return manifest.State
 }
 
 func migrationStatusFor(a agent.Agent, sourceHash string) (bool, bool) {

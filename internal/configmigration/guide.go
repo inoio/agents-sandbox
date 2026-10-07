@@ -40,7 +40,9 @@ func Guide(
 		return nil
 	}
 	if !ui.IsInteractive() {
-		warnUnmigratedNativeConfig(a, hostHome, ui)
+		if !warnLoginPending(a, ui) {
+			warnUnmigratedNativeConfig(a, hostHome, ui)
+		}
 		return nil
 	}
 	plan, err := Build(a, hostHome, policy)
@@ -52,6 +54,9 @@ func Guide(
 	}
 	if !plan.HasNativeConfig && !plan.HasManagedConfig && !plan.SetupOnly {
 		return guideHostFirst(a, ui)
+	}
+	if plan.LoginPending {
+		return guideLoginVerification(a, plan, ui)
 	}
 	if plan.HasManagedConfig || plan.Dismissed || plan.Handled {
 		return nil
@@ -69,6 +74,17 @@ func Guide(
 		return guideReviewHandoff(plan, ui)
 	}
 	return guideMigrationSelect(a, plan, ui)
+}
+
+func warnLoginPending(a agent.Agent, ui termio.UI) bool {
+	if migrationManifestFor(a).State != migrationStateLoginPending {
+		return false
+	}
+	ui.Warnf(
+		"%s login is still pending; start agents-sandbox interactively to confirm it succeeded",
+		a.Name(),
+	)
+	return true
 }
 
 func warnUnmigratedNativeConfig(a agent.Agent, hostHome string, ui termio.UI) {
@@ -243,6 +259,45 @@ func guideLoginHandoff(a agent.Agent, plan *Plan, ui termio.UI) error {
 		return dismissGuidedMigration(plan, ui)
 	default:
 		return fmt.Errorf("unknown login choice %q", key)
+	}
+}
+
+func loginProviderNames(logins []LoginProvider) string {
+	names := make([]string, 0, len(logins))
+	for _, provider := range logins {
+		names = append(names, provider.Name)
+	}
+	return strings.Join(names, ", ")
+}
+
+// guideLoginVerification closes the login-pending loop: it asks whether the
+// in-sandbox login worked and either completes onboarding, re-enters the host
+// hand-off, or defers the reminder to a later run.
+func guideLoginVerification(a agent.Agent, plan *Plan, ui termio.UI) error {
+	names := loginProviderNames(plan.PendingLogins)
+	key, err := ui.Select(
+		fmt.Sprintf("Did the in-sandbox login for %s succeed?", names),
+		[]termio.Choice{
+			{Key: "yes", Label: "Yes", Description: "mark onboarding complete"},
+			{Key: "no", Label: "No", Description: "review the host configuration again"},
+			{Key: "later", Label: "Not yet", Description: "remind me next time"},
+		},
+		"yes",
+	)
+	if err != nil {
+		return err
+	}
+	switch key {
+	case "yes":
+		ui.Infof("%s login confirmed", a.Name())
+		return Complete(plan)
+	case "no":
+		return guideLoginHandoff(a, plan, ui)
+	case "later":
+		ui.Infof("%s login is still pending; agents-sandbox will ask again next time", a.Name())
+		return nil
+	default:
+		return fmt.Errorf("unknown login verification choice %q", key)
 	}
 }
 
