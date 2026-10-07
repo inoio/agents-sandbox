@@ -44,9 +44,10 @@ func Review(plan *Plan, ui termio.UI) error {
 }
 
 const (
-	networkConflictAllowChoice = "allow-anyway"
-	networkConflictSkipChoice  = "skip"
-	networkConflictAbortChoice = "abort"
+	networkConflictAllowChoice  = "allow-anyway"
+	networkConflictSkipChoice   = "skip"
+	networkConflictPublicChoice = "public"
+	networkConflictAbortChoice  = "abort"
 )
 
 // resolveNetworkConflicts asks the user how to handle derived egress hosts that
@@ -62,6 +63,7 @@ func resolveNetworkConflicts(plan *Plan, ui termio.UI) error {
 		)
 	}
 	conflicts := append([]string(nil), plan.NetworkConflicts...)
+resolveLoop:
 	for _, host := range conflicts {
 		choice, err := ui.Select(
 			fmt.Sprintf("Egress deny rules block required host %s; how should the migration proceed?", host),
@@ -77,6 +79,11 @@ func resolveNetworkConflicts(plan *Plan, ui termio.UI) error {
 					Description: "do not allow " + host,
 				},
 				{
+					Key:         networkConflictPublicChoice,
+					Label:       "Use public network posture",
+					Description: "allow egress broadly instead of narrowing by host",
+				},
+				{
 					Key:         networkConflictAbortChoice,
 					Label:       "Abort",
 					Description: "leave the configuration unchanged",
@@ -89,18 +96,44 @@ func resolveNetworkConflicts(plan *Plan, ui termio.UI) error {
 		}
 		switch choice {
 		case networkConflictAllowChoice:
-			if err := allowNetworkConflict(plan, host); err != nil {
+			removedBroad, err := allowNetworkConflict(plan, host)
+			if err != nil {
 				return err
+			}
+			if len(removedBroad) > 0 {
+				ui.Warnf(
+					"Allowing %s also removed broader egress-deny rules (%s); the public posture is the way to allow broad egress",
+					host,
+					strings.Join(removedBroad, ", "),
+				)
 			}
 		case networkConflictSkipChoice:
 			skipNetworkConflict(plan, host)
+		case networkConflictPublicChoice:
+			if err := choosePublicNetwork(plan); err != nil {
+				return err
+			}
+			break resolveLoop
 		case networkConflictAbortChoice:
 			return fmt.Errorf("migration aborted: egress deny rules block %s", host)
 		default:
 			return fmt.Errorf("unknown network conflict choice %q", choice)
 		}
 	}
-	return refreshNetworkPlan(plan)
+	if err := refreshNetworkPlan(plan); err != nil {
+		return err
+	}
+	return ensureNetworkConflictsResolved(plan)
+}
+
+func ensureNetworkConflictsResolved(plan *Plan) error {
+	if len(plan.NetworkConflicts) == 0 {
+		return nil
+	}
+	return fmt.Errorf(
+		"network egress conflicts remain unresolved: %s",
+		strings.Join(plan.NetworkConflicts, ", "),
+	)
 }
 
 func prepareSecretReview(plan *Plan, ui termio.UI) error {
@@ -204,6 +237,10 @@ func refreshNetworkPlan(plan *Plan) error {
 	plan.NetworkAllowHosts = nil
 	plan.NetworkConflicts = nil
 	if len(plan.NetworkHosts) == 0 {
+		return nil
+	}
+	if plan.publicNetwork {
+		plan.NetworkAllowHosts = append([]string(nil), plan.NetworkHosts...)
 		return nil
 	}
 	path := plan.ConfigPath

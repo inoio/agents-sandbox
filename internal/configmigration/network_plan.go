@@ -18,6 +18,8 @@ import (
 	"github.com/inoio/agents-sandbox/internal/sandbox/network"
 )
 
+const launcherNetworkSection = "network"
+
 func migrationHomeMapping(root map[string]any, target string) (string, bool) {
 	home, ok := root[homeConfigKey].(map[string]any)
 	if !ok {
@@ -74,7 +76,7 @@ func updateLauncherNetwork(
 	if err != nil {
 		return "", nil, nil, nil, err
 	}
-	networkConfig, _ := config.values["network"].(map[string]any)
+	networkConfig, _ := config.values[launcherNetworkSection].(map[string]any)
 	allow := stringList(networkConfig["egress-allow"])
 	deny = appendUniqueHosts(deny, stringList(networkConfig["egress-deny"])...)
 	var added, skipped []string
@@ -90,7 +92,7 @@ func updateLauncherNetwork(
 	if len(added) == 0 {
 		return path, data, nil, skipped, nil
 	}
-	config.appendListItems([]string{"network", "egress-allow"}, added)
+	config.appendListItems([]string{launcherNetworkSection, "egress-allow"}, added)
 	updated, err := config.marshal()
 	if err != nil {
 		return "", nil, nil, nil, err
@@ -123,16 +125,51 @@ func denyRulesExcludingHosts(rules, hosts []string) []string {
 }
 
 // allowNetworkConflict removes the deny rules that match host from the launcher
-// config and drops them from the in-memory deny source, allowing the host.
-func allowNetworkConflict(plan *Plan, host string) error {
-	if err := removeLauncherNetworkDeny(plan, host); err != nil {
-		return err
+// config and drops them from the in-memory deny source, allowing the host. It
+// returns any removed rules that were broader than the host itself.
+func allowNetworkConflict(plan *Plan, host string) ([]string, error) {
+	removedBroad, err := removeLauncherNetworkDeny(plan, host)
+	if err != nil {
+		return nil, err
 	}
 	plan.allowedNetworkConflicts = appendUniqueHosts(plan.allowedNetworkConflicts, host)
-	return nil
+	return removedBroad, nil
 }
 
-func removeLauncherNetworkDeny(plan *Plan, host string) error {
+func removeLauncherNetworkDeny(plan *Plan, host string) ([]string, error) {
+	path, data, err := planNetworkConfigSource(plan)
+	if err != nil {
+		return nil, err
+	}
+	config, err := parseLauncherConfig(path, data)
+	if err != nil {
+		return nil, err
+	}
+	var removedBroad []string
+	networkValues, _ := config.values[launcherNetworkSection].(map[string]any)
+	for _, rule := range stringList(networkValues["egress-deny"]) {
+		if rule != host && network.MatchesDestination(rule, host) {
+			removedBroad = append(removedBroad, rule)
+		}
+	}
+	config.filterListItems([]string{launcherNetworkSection, "egress-deny"}, func(rule string) bool {
+		return !network.MatchesDestination(rule, host)
+	})
+	updated, err := config.marshal()
+	if err != nil {
+		return nil, err
+	}
+	plan.ConfigPath = path
+	plan.ConfigData = updated
+	if plan.configBaseData != nil {
+		plan.configBaseData = updated
+	}
+	return appendUniqueHosts(nil, removedBroad...), nil
+}
+
+// choosePublicNetwork sets the launcher config to the public posture, which
+// makes the conflicted hosts reachable without per-host egress rules.
+func choosePublicNetwork(plan *Plan) error {
 	path, data, err := planNetworkConfigSource(plan)
 	if err != nil {
 		return err
@@ -141,9 +178,7 @@ func removeLauncherNetworkDeny(plan *Plan, host string) error {
 	if err != nil {
 		return err
 	}
-	config.filterListItems([]string{"network", "egress-deny"}, func(rule string) bool {
-		return !network.MatchesDestination(rule, host)
-	})
+	config.setString([]string{launcherNetworkSection, "profile"}, network.ProfilePublic.String())
 	updated, err := config.marshal()
 	if err != nil {
 		return err
@@ -153,6 +188,8 @@ func removeLauncherNetworkDeny(plan *Plan, host string) error {
 	if plan.configBaseData != nil {
 		plan.configBaseData = updated
 	}
+	plan.publicNetwork = true
+	plan.NetworkConflicts = nil
 	return nil
 }
 
@@ -222,7 +259,7 @@ func projectNetworkDenyHosts() []string {
 	} else if yaml.Unmarshal(data, &root) != nil {
 		return nil
 	}
-	networkConfig, ok := root["network"].(map[string]any)
+	networkConfig, ok := root[launcherNetworkSection].(map[string]any)
 	if !ok {
 		return nil
 	}

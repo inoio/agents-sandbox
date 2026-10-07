@@ -75,6 +75,9 @@ type Plan struct {
 	// skippedNetworkHosts records conflicts the user resolved by choosing skip,
 	// so host re-derivation does not readd them after review.
 	skippedNetworkHosts []string
+	// publicNetwork records that the user chose the public posture, which makes
+	// per-host egress rules moot and suppresses conflict detection.
+	publicNetwork bool
 }
 
 // HasChanges reports whether the plan has something useful to migrate.

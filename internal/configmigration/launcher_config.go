@@ -92,7 +92,7 @@ func (c *launcherConfig) appendListItems(keyPath []string, items []string) {
 
 // filterListItems drops items from the list at the nested key path for which
 // keep returns false. An existing YAML sequence is filtered in place to keep
-// its comments; an emptied list has its key removed.
+// its comments; any other value is replaced by a sequence of the kept entries.
 func (c *launcherConfig) filterListItems(keyPath []string, keep func(string) bool) {
 	parentValues := mapAt(c.values, keyPath[:len(keyPath)-1])
 	key := keyPath[len(keyPath)-1]
@@ -113,6 +113,17 @@ func (c *launcherConfig) filterListItems(keyPath []string, keep func(string) boo
 	parent := yamlMappingAt(c.yamlRoot(), keyPath[:len(keyPath)-1])
 	sequence := yamlMappingValue(parent, key)
 	if sequence == nil || sequence.Kind != yaml.SequenceNode {
+		if len(kept) == 0 {
+			removeYAMLMappingKey(parent, key)
+			return
+		}
+		sequence = &yaml.Node{Kind: yaml.SequenceNode, Tag: "!!seq"}
+		setYAMLMappingValue(parent, key, sequence)
+		for _, item := range kept {
+			itemNode := &yaml.Node{}
+			itemNode.SetString(item)
+			sequence.Content = append(sequence.Content, itemNode)
+		}
 		return
 	}
 	var content []*yaml.Node
