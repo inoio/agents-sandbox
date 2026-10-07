@@ -59,6 +59,7 @@ type Plan struct {
 	NetworkHosts         []string
 	LoginProviders       []string
 	LoginHosts           []string
+	PendingLogins        []LoginProvider
 	NetworkAllowHosts    []string
 	NetworkConflicts     []string
 	RequiredNetworkHosts []string

@@ -2579,11 +2579,16 @@ func TestGuideRemembersDismissedClaudeCodeSetup(t *testing.T) {
 
 func writeNativeAuth(t *testing.T, hostHome string) {
 	t.Helper()
+	writeNativeAuthContent(t, hostHome, `{"openrouter":{"type":"api","key":"secret-key"}}`)
+}
+
+func writeNativeAuthContent(t *testing.T, hostHome, content string) {
+	t.Helper()
 	path := filepath.Join(hostHome, ".local", "share", "opencode", "auth.json")
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	testutil.WritePath(t, path, `{"openrouter":{"type":"api","key":"secret-key"}}`)
+	testutil.WritePath(t, path, content)
 }
 
 func clearOpenCodeXDG(t *testing.T) {

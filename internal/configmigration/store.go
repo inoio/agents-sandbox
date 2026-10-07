@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"github.com/titanous/json5"
@@ -26,6 +27,12 @@ type migrationManifest struct {
 	Agent      string            `yaml:"agent"`
 	SourceHash string            `yaml:"source_hash"`
 	Outputs    []migrationOutput `yaml:"outputs,omitempty"`
+	Pending    []pendingLogin    `yaml:"pending,omitempty"`
+}
+
+type pendingLogin struct {
+	Provider string   `yaml:"provider"`
+	Hosts    []string `yaml:"hosts,omitempty"`
 }
 
 type migrationOutput struct {
@@ -57,18 +64,46 @@ func writeMigrationManifest(manifest migrationManifest) error {
 	return atomicWriteFn(migrationManifestPath(manifest.Agent), data, defaultAuthMode)
 }
 
-func migrationWriteStatus(agentName, sourceHash string, dismissed bool) error {
-	state := migrationStateCompleted
-	if dismissed {
-		state = migrationStateDismissed
-	}
+func migrationWriteDecision(agentName, sourceHash, state string, pending []pendingLogin) error {
 	return writeMigrationManifest(migrationManifest{
 		Version:    manifestVersion,
 		State:      state,
 		Agent:      agentName,
 		SourceHash: sourceHash,
 		Outputs:    nil,
+		Pending:    pending,
 	})
+}
+
+func migrationWriteStatus(agentName, sourceHash string, dismissed bool) error {
+	state := migrationStateCompleted
+	if dismissed {
+		state = migrationStateDismissed
+	}
+	return migrationWriteDecision(agentName, sourceHash, state, nil)
+}
+
+// RecordLoginPending persists the login-pending decision together with the
+// providers whose in-sandbox login must be verified on a later run.
+func RecordLoginPending(plan *Plan) error {
+	return migrationWriteDecision(
+		plan.AgentName,
+		plan.SourceHash,
+		migrationStateLoginPending,
+		pendingLoginsFromPlan(plan),
+	)
+}
+
+func pendingLoginsFromPlan(plan *Plan) []pendingLogin {
+	logins := make([]pendingLogin, 0, len(plan.PendingLogins))
+	for _, provider := range plan.PendingLogins {
+		logins = append(logins, pendingLogin{
+			Provider: provider.Name,
+			Hosts:    provider.Hosts,
+		})
+	}
+	sort.Slice(logins, func(i, j int) bool { return logins[i].Provider < logins[j].Provider })
+	return logins
 }
 
 func migrationAtomicWrite(path string, data []byte, mode os.FileMode) error {

@@ -247,6 +247,34 @@ func TestBuildReportsLoginForOAuthOnlyConfig(t *testing.T) {
 	}
 }
 
+func TestApplyRecordsLoginPendingForMixedConfig(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	clearOpenCodeXDG(t)
+	hostHome := t.TempDir()
+	a, _ := agent.Lookup("opencode")
+	writeNativeAuthContent(t, hostHome, `{
+  "openai": {"type": "api", "key": "sk-static"},
+  "github-copilot": {"type": "oauth", "access": "a", "refresh": "r"}
+}`)
+
+	plan, err := Build(a, hostHome, testNetworkPolicy())
+	if err != nil {
+		t.Fatal(err)
+	}
+	ui := termio.NewTestMock(t)
+	if err := Apply(plan, &ui); err != nil {
+		t.Fatal(err)
+	}
+
+	manifest := migrationManifestFor(a)
+	if manifest.State != migrationStateLoginPending {
+		t.Fatalf("state = %q, want %q", manifest.State, migrationStateLoginPending)
+	}
+	if len(manifest.Pending) != 1 || manifest.Pending[0].Provider != "github-copilot" {
+		t.Fatalf("pending = %+v, want github-copilot", manifest.Pending)
+	}
+}
+
 func TestBuildLauncherConfigForPlanReportsReadErrors(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	withMigrationSeams(t)

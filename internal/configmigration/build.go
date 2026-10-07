@@ -267,6 +267,10 @@ func applyLoginProviders(result *Plan, login []LoginProvider) {
 		if _, ok := seenProviders[provider.Name]; !ok {
 			seenProviders[provider.Name] = struct{}{}
 			result.LoginProviders = append(result.LoginProviders, provider.Name)
+			result.PendingLogins = append(
+				result.PendingLogins,
+				LoginProvider{Name: provider.Name, Hosts: provider.Hosts},
+			)
 		}
 		result.LoginHosts = appendUniqueHosts(result.LoginHosts, provider.Hosts...)
 	}

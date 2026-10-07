@@ -31,6 +31,7 @@ func Apply(plan *Plan, ui termio.UI) error {
 		Agent:      plan.AgentName,
 		SourceHash: plan.SourceHash,
 		Outputs:    outputs,
+		Pending:    nil,
 	}); err != nil {
 		return fmt.Errorf("record migration state: %w", err)
 	}
@@ -49,12 +50,19 @@ func Apply(plan *Plan, ui termio.UI) error {
 			return fmt.Errorf("write launcher config: %w", err)
 		}
 	}
+	state := migrationStateCompleted
+	var pending []pendingLogin
+	if plan.HasLogin() {
+		state = migrationStateLoginPending
+		pending = pendingLoginsFromPlan(plan)
+	}
 	if err := writeMigrationManifest(migrationManifest{
 		Version:    manifestVersion,
-		State:      migrationStateCompleted,
+		State:      state,
 		Agent:      plan.AgentName,
 		SourceHash: plan.SourceHash,
 		Outputs:    outputs,
+		Pending:    pending,
 	}); err != nil {
 		return fmt.Errorf("complete migration state: %w", err)
 	}

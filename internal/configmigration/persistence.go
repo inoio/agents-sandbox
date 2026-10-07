@@ -8,21 +8,23 @@ import (
 )
 
 const (
-	defaultAuthMode         = 0o600
-	defaultConfigMode       = 0o600
-	defaultConfigFile       = "config.yaml"
-	statusFileName          = "config-migration.yaml"
-	extJSON                 = ".json"
-	extJSONC                = ".jsonc"
-	extJSON5                = ".json5"
-	homeConfigKey           = "home"
-	extYAML                 = ".yaml"
-	extYML                  = ".yml"
-	manifestVersion         = 1
-	migrationStateApplying  = "applying"
-	migrationStateCompleted = "completed"
-	migrationStateDismissed = "dismissed"
-	claudeCodeAgentName     = "claude-code"
+	defaultAuthMode            = 0o600
+	defaultConfigMode          = 0o600
+	defaultConfigFile          = "config.yaml"
+	statusFileName             = "config-migration.yaml"
+	extJSON                    = ".json"
+	extJSONC                   = ".jsonc"
+	extJSON5                   = ".json5"
+	homeConfigKey              = "home"
+	extYAML                    = ".yaml"
+	extYML                     = ".yml"
+	manifestVersion            = 1
+	migrationStateApplying     = "applying"
+	migrationStateCompleted    = "completed"
+	migrationStateDismissed    = "dismissed"
+	migrationStateManual       = "manual"
+	migrationStateLoginPending = "login-pending"
+	claudeCodeAgentName        = "claude-code"
 )
 
 //nolint:gochecknoglobals // package-local seams restored by tests
