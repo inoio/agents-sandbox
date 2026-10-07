@@ -35,9 +35,72 @@ func Review(plan *Plan, ui termio.UI) error {
 	if err := confirmAuthFieldReview(plan, ui); err != nil {
 		return err
 	}
+	if err := resolveNetworkConflicts(plan, ui); err != nil {
+		return err
+	}
 	reportPlanNetwork(plan, ui)
 	Report(plan, ui)
 	return nil
+}
+
+const (
+	networkConflictAllowChoice = "allow-anyway"
+	networkConflictSkipChoice  = "skip"
+	networkConflictAbortChoice = "abort"
+)
+
+// resolveNetworkConflicts asks the user how to handle derived egress hosts that
+// are shadowed by egress-deny rules, then recomputes the launcher network.
+func resolveNetworkConflicts(plan *Plan, ui termio.UI) error {
+	if len(plan.NetworkConflicts) == 0 {
+		return nil
+	}
+	if !ui.IsInteractive() {
+		return fmt.Errorf(
+			"network egress conflicts require interactive resolution: %s",
+			strings.Join(plan.NetworkConflicts, ", "),
+		)
+	}
+	conflicts := append([]string(nil), plan.NetworkConflicts...)
+	for _, host := range conflicts {
+		choice, err := ui.Select(
+			fmt.Sprintf("Egress deny rules block required host %s; how should the migration proceed?", host),
+			[]termio.Choice{
+				{
+					Key:         networkConflictAllowChoice,
+					Label:       "Allow anyway",
+					Description: "remove the matching egress-deny rule for " + host,
+				},
+				{
+					Key:         networkConflictSkipChoice,
+					Label:       "Skip",
+					Description: "do not allow " + host,
+				},
+				{
+					Key:         networkConflictAbortChoice,
+					Label:       "Abort",
+					Description: "leave the configuration unchanged",
+				},
+			},
+			networkConflictSkipChoice,
+		)
+		if err != nil {
+			return err
+		}
+		switch choice {
+		case networkConflictAllowChoice:
+			if err := allowNetworkConflict(plan, host); err != nil {
+				return err
+			}
+		case networkConflictSkipChoice:
+			skipNetworkConflict(plan, host)
+		case networkConflictAbortChoice:
+			return fmt.Errorf("migration aborted: egress deny rules block %s", host)
+		default:
+			return fmt.Errorf("unknown network conflict choice %q", choice)
+		}
+	}
+	return refreshNetworkPlan(plan)
 }
 
 func prepareSecretReview(plan *Plan, ui termio.UI) error {
@@ -134,9 +197,12 @@ func reportMigrationFiles(plan *Plan, ui termio.UI, heading string) {
 }
 
 func refreshNetworkPlan(plan *Plan) error {
-	plan.NetworkHosts = appendUniqueHosts(
+	hosts := appendUniqueHosts(
 		append([]string(nil), plan.RequiredNetworkHosts...),
 		plannedNetworkHosts(plan.Secrets)...)
+	plan.NetworkHosts = hostsExcluding(hosts, plan.skippedNetworkHosts)
+	plan.NetworkAllowHosts = nil
+	plan.NetworkConflicts = nil
 	if len(plan.NetworkHosts) == 0 {
 		return nil
 	}
@@ -152,7 +218,7 @@ func refreshNetworkPlan(plan *Plan) error {
 			return err
 		}
 	}
-	updatedPath, updatedData, added, skipped, err := updateLauncherNetwork(
+	updatedPath, updatedData, _, skipped, err := updateLauncherNetwork(
 		path,
 		data,
 		plan.NetworkHosts,
@@ -163,7 +229,6 @@ func refreshNetworkPlan(plan *Plan) error {
 	}
 	plan.ConfigPath = updatedPath
 	plan.ConfigData = updatedData
-	_ = added
 	plan.NetworkAllowHosts = hostsExcluding(plan.NetworkHosts, skipped)
 	plan.NetworkConflicts = skipped
 	return nil

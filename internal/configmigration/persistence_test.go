@@ -368,7 +368,7 @@ func TestReviewRejectsNilPlan(t *testing.T) {
 	}
 }
 
-func TestReviewRecordsSecretHostDenyConflict(t *testing.T) {
+func TestReviewSkipsSecretHostDenyConflict(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	denyAllEgressInLauncherConfig(t)
 	plan := &Plan{
@@ -377,12 +377,125 @@ func TestReviewRecordsSecretHostDenyConflict(t *testing.T) {
 		Secrets:    map[string]Secret{"OPENCODE_KEY": {Value: "secret", Hosts: []string{"a.test"}}},
 	}
 	ui := termio.NewTestMock(t)
+	ui.IsInteractiveResult = true
+	ui.SelectFn = func(string, []termio.Choice, string) (string, error) { return "skip", nil }
 	if err := Review(plan, &ui); err != nil {
 		t.Fatalf("Review: %v", err)
 	}
-	if !slices.Equal(plan.NetworkConflicts, []string{"a.test"}) {
-		t.Errorf("NetworkConflicts = %v, want [a.test]", plan.NetworkConflicts)
+	if len(plan.NetworkConflicts) != 0 || slices.Contains(plan.NetworkAllowHosts, "a.test") {
+		t.Errorf(
+			"NetworkConflicts = %v, NetworkAllowHosts = %v, want the conflict skipped",
+			plan.NetworkConflicts,
+			plan.NetworkAllowHosts,
+		)
 	}
+}
+
+func TestReviewResolveNetworkConflicts(t *testing.T) {
+	const denyLauncherConfig = "network:\n  egress-deny:\n    - a.test\n    - keep.test\n"
+	interactiveChoice := func(t *testing.T, choice string) termio.Mock {
+		t.Helper()
+		ui := termio.NewTestMock(t)
+		ui.IsInteractiveResult = true
+		ui.SelectFn = func(string, []termio.Choice, string) (string, error) { return choice, nil }
+		return ui
+	}
+	newConflictedPlan := func(t *testing.T) *Plan {
+		t.Helper()
+		writeUserLauncherConfig(t, "config.yaml", denyLauncherConfig)
+		return &Plan{
+			AgentName:            "opencode",
+			ConfigPath:           filepath.Join(configpaths.Get().UserConfigDir(), "config.yaml"),
+			ConfigData:           []byte(denyLauncherConfig),
+			SecretPath:           filepath.Join(t.TempDir(), "env.secret.yaml"),
+			RequiredNetworkHosts: []string{"a.test"},
+		}
+	}
+
+	t.Run("skip removes the host and proceeds", func(t *testing.T) {
+		configpaths.WithMockConfigPaths(t)
+		plan := newConflictedPlan(t)
+		ui := interactiveChoice(t, "skip")
+		if err := Review(plan, &ui); err != nil {
+			t.Fatalf("Review: %v", err)
+		}
+		if slices.Contains(plan.NetworkHosts, "a.test") || slices.Contains(plan.NetworkAllowHosts, "a.test") {
+			t.Errorf(
+				"skipped host still present: NetworkHosts = %v, NetworkAllowHosts = %v",
+				plan.NetworkHosts,
+				plan.NetworkAllowHosts,
+			)
+		}
+		if len(plan.NetworkConflicts) != 0 {
+			t.Errorf("NetworkConflicts = %v, want none after resolution", plan.NetworkConflicts)
+		}
+	})
+
+	t.Run("allow-anyway removes the matching deny entry", func(t *testing.T) {
+		configpaths.WithMockConfigPaths(t)
+		plan := newConflictedPlan(t)
+		ui := interactiveChoice(t, "allow-anyway")
+		if err := Review(plan, &ui); err != nil {
+			t.Fatalf("Review: %v", err)
+		}
+		config, err := parseLauncherConfig(plan.ConfigPath, plan.ConfigData)
+		if err != nil {
+			t.Fatalf("parse updated launcher config: %v", err)
+		}
+		networkValues, _ := config.values["network"].(map[string]any)
+		deny := stringList(networkValues["egress-deny"])
+		if slices.Contains(deny, "a.test") {
+			t.Errorf("egress-deny = %v, want a.test removed", deny)
+		}
+		if !slices.Contains(deny, "keep.test") {
+			t.Errorf("egress-deny = %v, want keep.test preserved", deny)
+		}
+		if !slices.Contains(plan.NetworkAllowHosts, "a.test") {
+			t.Errorf("NetworkAllowHosts = %v, want a.test allowed", plan.NetworkAllowHosts)
+		}
+		if len(plan.NetworkConflicts) != 0 {
+			t.Errorf("NetworkConflicts = %v, want none after resolution", plan.NetworkConflicts)
+		}
+	})
+
+	t.Run("abort stops the migration", func(t *testing.T) {
+		configpaths.WithMockConfigPaths(t)
+		plan := newConflictedPlan(t)
+		ui := interactiveChoice(t, "abort")
+		if err := Review(plan, &ui); err == nil || !strings.Contains(err.Error(), "a.test") {
+			t.Fatalf("Review error = %v, want abort naming a.test", err)
+		}
+	})
+
+	t.Run("allow-anyway clears an in-memory policy deny", func(t *testing.T) {
+		configpaths.WithMockConfigPaths(t)
+		plan := &Plan{
+			AgentName:            "opencode",
+			SecretPath:           filepath.Join(t.TempDir(), "env.secret.yaml"),
+			RequiredNetworkHosts: []string{"a.test"},
+			policy:               network.Policy{EgressDeny: []string{"a.test"}},
+		}
+		ui := interactiveChoice(t, "allow-anyway")
+		if err := Review(plan, &ui); err != nil {
+			t.Fatalf("Review: %v", err)
+		}
+		if !slices.Contains(plan.NetworkAllowHosts, "a.test") || len(plan.NetworkConflicts) != 0 {
+			t.Errorf(
+				"NetworkAllowHosts = %v, NetworkConflicts = %v, want a.test allowed",
+				plan.NetworkAllowHosts,
+				plan.NetworkConflicts,
+			)
+		}
+	})
+
+	t.Run("non-interactive names the conflicting host", func(t *testing.T) {
+		configpaths.WithMockConfigPaths(t)
+		plan := newConflictedPlan(t)
+		ui := termio.NewTestMock(t)
+		if err := Review(plan, &ui); err == nil || !strings.Contains(err.Error(), "a.test") {
+			t.Fatalf("Review error = %v, want the conflicting host named", err)
+		}
+	})
 }
 
 func TestReviewListsSecretHostsAndWarnings(t *testing.T) {

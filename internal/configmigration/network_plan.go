@@ -105,7 +105,81 @@ func hostDeniedByAny(deny []string, host string) bool {
 }
 
 func planNetworkDeny(plan *Plan) []string {
-	return appendUniqueHosts(append([]string(nil), plan.policy.EgressDeny...), projectNetworkDenyHosts()...)
+	deny := appendUniqueHosts(append([]string(nil), plan.policy.EgressDeny...), projectNetworkDenyHosts()...)
+	return denyRulesExcludingHosts(deny, plan.allowedNetworkConflicts)
+}
+
+func denyRulesExcludingHosts(rules, hosts []string) []string {
+	var kept []string
+	for _, rule := range rules {
+		if slices.ContainsFunc(hosts, func(host string) bool {
+			return network.MatchesDestination(rule, host)
+		}) {
+			continue
+		}
+		kept = append(kept, rule)
+	}
+	return kept
+}
+
+// allowNetworkConflict removes the deny rules that match host from the launcher
+// config and drops them from the in-memory deny source, allowing the host.
+func allowNetworkConflict(plan *Plan, host string) error {
+	if err := removeLauncherNetworkDeny(plan, host); err != nil {
+		return err
+	}
+	plan.allowedNetworkConflicts = appendUniqueHosts(plan.allowedNetworkConflicts, host)
+	return nil
+}
+
+func removeLauncherNetworkDeny(plan *Plan, host string) error {
+	path, data, err := planNetworkConfigSource(plan)
+	if err != nil {
+		return err
+	}
+	config, err := parseLauncherConfig(path, data)
+	if err != nil {
+		return err
+	}
+	config.filterListItems([]string{"network", "egress-deny"}, func(rule string) bool {
+		return !network.MatchesDestination(rule, host)
+	})
+	updated, err := config.marshal()
+	if err != nil {
+		return err
+	}
+	plan.ConfigPath = path
+	plan.ConfigData = updated
+	if plan.configBaseData != nil {
+		plan.configBaseData = updated
+	}
+	return nil
+}
+
+func planNetworkConfigSource(plan *Plan) (string, []byte, error) {
+	if plan.configBaseData != nil {
+		return plan.ConfigPath, plan.configBaseData, nil
+	}
+	if plan.ConfigPath != "" && plan.ConfigData != nil {
+		return plan.ConfigPath, plan.ConfigData, nil
+	}
+	if plan.ConfigPath != "" {
+		data, err := os.ReadFile(plan.ConfigPath)
+		if err != nil {
+			return "", nil, fmt.Errorf("read launcher config %s: %w", plan.ConfigPath, err)
+		}
+		return plan.ConfigPath, data, nil
+	}
+	return migrationLoadLauncherConfig()
+}
+
+// skipNetworkConflict drops host from the derived network hosts so it is not
+// allowed, and remembers the choice for later re-derivation.
+func skipNetworkConflict(plan *Plan, host string) {
+	plan.RequiredNetworkHosts = hostsExcluding(plan.RequiredNetworkHosts, []string{host})
+	plan.NetworkHosts = hostsExcluding(plan.NetworkHosts, []string{host})
+	plan.NetworkConflicts = hostsExcluding(plan.NetworkConflicts, []string{host})
+	plan.skippedNetworkHosts = appendUniqueHosts(plan.skippedNetworkHosts, host)
 }
 
 func hostsExcluding(hosts, excluded []string) []string {

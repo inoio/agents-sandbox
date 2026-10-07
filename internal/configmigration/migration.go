@@ -69,6 +69,12 @@ type Plan struct {
 	Retrying             bool
 	SetupOnly            bool
 	policy               network.Policy
+	// allowedNetworkConflicts records conflicts the user resolved by choosing
+	// allow-anyway, so their matching deny rules no longer shadow the host.
+	allowedNetworkConflicts []string
+	// skippedNetworkHosts records conflicts the user resolved by choosing skip,
+	// so host re-derivation does not readd them after review.
+	skippedNetworkHosts []string
 }
 
 // HasChanges reports whether the plan has something useful to migrate.

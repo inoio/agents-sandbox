@@ -90,6 +90,43 @@ func (c *launcherConfig) appendListItems(keyPath []string, items []string) {
 	}
 }
 
+// filterListItems drops items from the list at the nested key path for which
+// keep returns false. An existing YAML sequence is filtered in place to keep
+// its comments; an emptied list has its key removed.
+func (c *launcherConfig) filterListItems(keyPath []string, keep func(string) bool) {
+	parentValues := mapAt(c.values, keyPath[:len(keyPath)-1])
+	key := keyPath[len(keyPath)-1]
+	var kept []string
+	for _, item := range stringList(parentValues[key]) {
+		if keep(item) {
+			kept = append(kept, item)
+		}
+	}
+	if len(kept) == 0 {
+		delete(parentValues, key)
+	} else {
+		parentValues[key] = kept
+	}
+	if c.yamlDocument == nil {
+		return
+	}
+	parent := yamlMappingAt(c.yamlRoot(), keyPath[:len(keyPath)-1])
+	sequence := yamlMappingValue(parent, key)
+	if sequence == nil || sequence.Kind != yaml.SequenceNode {
+		return
+	}
+	var content []*yaml.Node
+	for _, item := range sequence.Content {
+		if keep(item.Value) {
+			content = append(content, item)
+		}
+	}
+	sequence.Content = content
+	if len(sequence.Content) == 0 {
+		removeYAMLMappingKey(parent, key)
+	}
+}
+
 func (c *launcherConfig) marshal() ([]byte, error) {
 	if c.yamlDocument == nil {
 		data, err := marshalJSONIndentFn(c.values, "", "  ")
@@ -189,4 +226,14 @@ func setYAMLMappingValue(mapping *yaml.Node, key string, value *yaml.Node) {
 	mapping.Style &^= yaml.FlowStyle
 	keyNode := &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: key}
 	mapping.Content = append(mapping.Content, keyNode, value)
+}
+
+func removeYAMLMappingKey(mapping *yaml.Node, key string) {
+	for index := 0; index+1 < len(mapping.Content); index += 2 {
+		if mapping.Content[index].Value != key {
+			continue
+		}
+		mapping.Content = append(mapping.Content[:index], mapping.Content[index+2:]...)
+		return
+	}
 }
