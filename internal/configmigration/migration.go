@@ -56,12 +56,9 @@ type Plan struct {
 	Handled              bool
 	Dismissed            bool
 	Warnings             []string
-	ReviewRequired       bool
 	NetworkHosts         []string
 	LoginProviders       []string
 	LoginHosts           []string
-	NetworkPath          string
-	NetworkData          []byte
 	NetworkAllowHosts    []string
 	NetworkConflicts     []string
 	RequiredNetworkHosts []string

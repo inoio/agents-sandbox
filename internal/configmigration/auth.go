@@ -142,8 +142,10 @@ func loginProviderHosts(
 	spec agent.ConfigMigrationSpec,
 	knownHosts, providerHosts map[string]string,
 ) []string {
-	if hosts, ok := spec.LoginHosts[provider]; ok {
-		return hosts
+	for configuredProvider, hosts := range spec.LoginHosts {
+		if strings.EqualFold(configuredProvider, provider) {
+			return hosts
+		}
 	}
 	return authHosts(provider, auth, knownHosts, providerHosts)
 }

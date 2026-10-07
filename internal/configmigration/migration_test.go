@@ -1358,6 +1358,10 @@ func TestLoginProviderHostsPrefersSpecLoginHosts(t *testing.T) {
 	if !slicesEqual(unknown, []string{"api.anthropic.com"}) {
 		t.Errorf("fallback login hosts = %v; want the known provider host", unknown)
 	}
+	cased := loginProviderHosts("GitHub-Copilot", auth, spec, spec.KnownProviderHosts, nil)
+	if !slicesEqual(cased, []string{"github.com", "api.githubcopilot.com"}) {
+		t.Errorf("case-insensitive login hosts = %v; want the spec login hosts", cased)
+	}
 	specNoLoginHosts := spec
 	specNoLoginHosts.LoginHosts = nil
 	enterprise := loginProviderHosts(
