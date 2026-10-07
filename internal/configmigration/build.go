@@ -61,7 +61,7 @@ func newMigrationPlan(
 	manifest := migrationManifestFor(a)
 	sourceHash := hashNativeFiles(nativeFiles)
 	retrying := manifest.State == migrationStateApplying && manifest.SourceHash == sourceHash
-	return &Plan{ //nolint:exhaustruct // remaining fields are populated during planning
+	return &Plan{ //nolint:exhaustruct_v5 // remaining fields are populated during planning
 		AgentName:            a.Name(),
 		Secrets:              make(map[string]Secret),
 		SourceHash:           sourceHash,

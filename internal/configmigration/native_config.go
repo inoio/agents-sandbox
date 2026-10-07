@@ -313,7 +313,7 @@ func sanitizeConfigField(
 	if existing, exists := secrets[name]; exists && existing.Value != text {
 		name += "_" + shortHash(text)
 	}
-	secrets[name] = Secret{ //nolint:exhaustruct // config migrations only set value and inferred hosts
+	secrets[name] = Secret{ //nolint:exhaustruct_v5 // config migrations only set value and inferred hosts
 		Value: text,
 		Hosts: configSecretHosts(provider, values, knownHosts, providerHosts),
 	}

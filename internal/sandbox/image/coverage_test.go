@@ -7,9 +7,7 @@ import (
 	"testing"
 
 	dockerspec "github.com/moby/docker-image-spec/specs-go/v1"
-	"github.com/moby/moby/api/types/image"
 	"github.com/moby/moby/client"
-	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 
 	"github.com/inoio/agents-sandbox/internal/agent"
 	"github.com/inoio/agents-sandbox/internal/configpaths"
@@ -25,10 +23,8 @@ func TestEnsureImageSuccess(t *testing.T) {
 	docker.WithDockerMock(t, &docker.MockDockerClient{
 		ImageInspectFn: func(_ context.Context, _ string, _ ...client.ImageInspectOption) (client.ImageInspectResult, error) {
 			return client.ImageInspectResult{
-				InspectResponse: image.InspectResponse{
-					ID:     "sha256:abc123",
-					Config: dockerConfigWith("1.2.3", []string{"PATH=/usr/bin"}),
-				},
+				ID:     "sha256:abc123",
+				Config: dockerConfigWith("1.2.3", []string{"PATH=/usr/bin"}),
 			}, nil
 		},
 	})
@@ -67,10 +63,8 @@ func TestBuildSuccess(t *testing.T) {
 	docker.WithDockerMock(t, &docker.MockDockerClient{
 		ImageInspectFn: func(_ context.Context, _ string, _ ...client.ImageInspectOption) (client.ImageInspectResult, error) {
 			return client.ImageInspectResult{
-				InspectResponse: image.InspectResponse{
-					ID:     "sha256:abc123",
-					Config: dockerConfigWith("1.2.3", []string{"PATH=/usr/bin"}),
-				},
+				ID:     "sha256:abc123",
+				Config: dockerConfigWith("1.2.3", []string{"PATH=/usr/bin"}),
 			}, nil
 		},
 		ImageSaveFn: func(_ context.Context, _ []string, _ ...client.ImageSaveOption) (client.ImageSaveResult, error) {
@@ -109,10 +103,8 @@ func TestBuildReturnsErrorWhenLoadFails(t *testing.T) {
 	docker.WithDockerMock(t, &docker.MockDockerClient{
 		ImageInspectFn: func(_ context.Context, _ string, _ ...client.ImageInspectOption) (client.ImageInspectResult, error) {
 			return client.ImageInspectResult{
-				InspectResponse: image.InspectResponse{
-					ID:     "sha256:abc123",
-					Config: dockerConfigWith("1.2.3", nil),
-				},
+				ID:     "sha256:abc123",
+				Config: dockerConfigWith("1.2.3", nil),
 			}, nil
 		},
 		ImageSaveFn: func(_ context.Context, _ []string, _ ...client.ImageSaveOption) (client.ImageSaveResult, error) {
@@ -154,12 +146,10 @@ func TestEnsureImageReturnsErrorWhenDeferredVersionResolveFails(t *testing.T) {
 	})
 	docker.WithDockerMock(t, &docker.MockDockerClient{
 		ImageInspectFn: func(_ context.Context, _ string, _ ...client.ImageInspectOption) (client.ImageInspectResult, error) {
-			return client.ImageInspectResult{InspectResponse: image.InspectResponse{
+			return client.ImageInspectResult{
 				ID: "sha256:existing",
-				Config: &dockerspec.DockerOCIImageConfig{ImageConfig: ocispec.ImageConfig{
-					Labels: map[string]string{dockerfileIDLabelKey: "stale"},
-				}},
-			}}, nil
+				Config: &dockerspec.DockerOCIImageConfig{
+					Labels: map[string]string{dockerfileIDLabelKey: "stale"}}}, nil
 		},
 	})
 	_, err := EnsureImageWithClient(

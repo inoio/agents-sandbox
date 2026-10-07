@@ -199,7 +199,7 @@ func applyMode(
 	latest string,
 	st *state,
 ) Result {
-	//nolint:exhaustruct // Updated/Exit default false until set below
+	//nolint:exhaustruct_v5 // Updated/Exit default false until set below
 	res := Result{HasUpdate: true, Latest: latest}
 	install := func() bool {
 		if err := updateFunc(ctx, latest); err != nil {

@@ -1,5 +1,6 @@
 ---
 title: Configuration files & Environment variables
+description: "agents-sandbox config file locations, fields, environment variables and how user-level and project-level values are resolved."
 layout: default
 parent: Configuration
 nav_order: 10

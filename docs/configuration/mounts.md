@@ -1,5 +1,6 @@
 ---
 title: Host mounts
+description: "Expose additional host directories inside the agents-sandbox VM, writable or read-only."
 layout: default
 parent: Configuration
 nav_order: 40

@@ -1,5 +1,6 @@
 ---
 title: Secrets
+description: "Keep API keys and tokens on the host: agents-sandbox passes secrets as placeholders that the microsandbox proxy replaces only for allowed hosts."
 layout: default
 parent: Configuration
 nav_order: 20

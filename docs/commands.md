@@ -1,5 +1,6 @@
 ---
 title: Commands
+description: "Reference of all agents-sandbox subcommands, aliases and flags."
 layout: default
 nav_order: 60
 ---
@@ -38,7 +39,8 @@ Arguments after `--` are forwarded to the agent. Arguments before `--` that don'
 | Flag           | Short | Default  | Purpose                                                                                                                                    |
 |----------------|-------|----------|--------------------------------------------------------------------------------------------------------------------------------------------|
 | `--worktree`   | `-w`  | `""`     | Isolated agent worktree named <name>, optionally starting from base ref <name>:<base>                                  |
-| `--rebuild`    | `-r`  | `false`  | Rebuild runner image before starting                                                                                                       |
+| `--rebuild`    | `-r`  | `false`  | Rebuild runner image before starting (clean rebuild; still offers an agent upgrade if one is available)                                                                                                       |
+| `--agent-version` | —  | `""`     | Pin the version agents-sandbox installs into the runner image (default: latest). Ignored for a user-provided agent. |
 | `--dry-run`    | `-n`  | `false`  | Validate setup without running the agent                                                                                                    |
 | `--cpus`       | `-c`  | `0`      | vCPUs for the sandbox (0 = all)                                                                                                            |
 | `--memory`     | `-m`  | `4G`     | Memory limit, e.g. `4G`, `512M`                                                                                                            |
@@ -488,7 +490,6 @@ Create a new home volume and copy files from the old volume on top of it.
 - **Flags:**
   - `--rm` — remove old volume after successful migration
   - `--dry-run` — show what would be done
-  - `--rebuild` — rebuild runner image before migrating
   - `--agent` — coding-agent profile to provision (`opencode` default)
 
 #### `agents-sandbox volume reset [volume-name]`
@@ -500,7 +501,6 @@ Create a new home volume from the image contents only (fresh, no copy).
 - **Flags:**
   - `--rm` — remove old volume after reset
   - `--dry-run` — show what would be done
-  - `--rebuild` — rebuild runner image before resetting
   - `--agent` — coding-agent profile to provision (`opencode` default)
 
 #### `agents-sandbox volume edit [volume-name]`

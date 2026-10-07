@@ -244,7 +244,7 @@ func redactAuthField(
 	if existing, ok := secrets[name]; ok && existing.Value != text {
 		return fmt.Errorf("secret name collision for %s", name)
 	}
-	secrets[name] = Secret{ //nolint:exhaustruct // auth migrations only set value and inferred hosts
+	secrets[name] = Secret{ //nolint:exhaustruct_v5 // auth migrations only set value and inferred hosts
 		Value: text,
 		Hosts: authHosts(provider, values, knownHosts, providerHosts),
 	}
@@ -337,7 +337,7 @@ func replaceAuthField(
 	if existing, ok := secrets[name]; ok && existing.Value != value {
 		return fmt.Errorf("secret name collision for %s", name)
 	}
-	secrets[name] = Secret{ //nolint:exhaustruct // auth migrations only set value and inferred hosts
+	secrets[name] = Secret{ //nolint:exhaustruct_v5 // auth migrations only set value and inferred hosts
 		Value: value,
 		Hosts: authHosts(provider, auth, knownHosts, providerHosts),
 	}

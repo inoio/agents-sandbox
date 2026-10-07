@@ -26,7 +26,8 @@ func TestRenderDockerfileDefaultBase(t *testing.T) {
 		"echo tool > /etc/agents-sandbox/agent-source",
 		"echo user > /etc/agents-sandbox/agent-source",
 		"groupadd -f -g \"$USER_GID\" dev",
-		"useradd -m -u \"$USER_UID\" -g dev -s /bin/bash dev",
+		"useradd -m -u \"$USER_UID\" -g dev -s \"$p\" dev",
+		"for sh in bash zsh sh; do",
 		"LABEL org.agents-sandbox.managed=true",
 		"USER dev",
 		"WORKDIR /workspace",
@@ -179,14 +180,14 @@ func TestRenderDockerfileManagedMultiStage(t *testing.T) {
 	}
 }
 
-func TestRenderDockerfileDevUserIsFirstInstruction(t *testing.T) {
+func TestRenderDockerfileDevUserAfterBaseTools(t *testing.T) {
 	a, _ := agent.Lookup("opencode")
 	out := RenderDockerfile(a, nil, false)
 	s := string(out)
 	devIdx := strings.Index(s, `groupadd -f -g "$USER_GID" dev`)
 	toolsIdx := strings.Index(s, "iptables")
-	if devIdx < 0 || toolsIdx < 0 || devIdx > toolsIdx {
-		t.Error("dev user block must be created before the base tools, as the first instruction of the final stage")
+	if devIdx < 0 || toolsIdx < 0 || devIdx < toolsIdx {
+		t.Error("dev user must be created after the base tools so a host UID/GID change keeps the tools layer cached")
 	}
 }
 
@@ -199,61 +200,139 @@ func TestRenderDockerfileDindFromImpliesDind(t *testing.T) {
 	}
 }
 
-func TestReplaceFinalStageFrom(t *testing.T) {
-	in := []byte("FROM agents-sandbox/runner-base:latest\nRUN echo hi\n")
-	block := []byte("FROM debian:trixie-slim\nRUN apt-get update\n")
-	got := string(replaceFinalStageFrom(in, block))
-	if strings.Contains(got, "FROM agents-sandbox/runner-base") {
-		t.Errorf("replaceFinalStageFrom must drop the managed FROM, got %q", got)
+func TestRenderDockerfileDindMarker(t *testing.T) {
+	a, _ := agent.Lookup("opencode")
+	project := []byte(
+		"FROM ubuntu:24.04\n" +
+			"RUN apt-get install -y iptables\n" +
+			"# agents-sandbox:dind\n" +
+			"RUN echo post-dind\n",
+	)
+	out := string(RenderDockerfile(a, project, true))
+	if strings.Contains(out, "# agents-sandbox:dind") {
+		t.Error("the dind marker must be replaced in the rendered Dockerfile")
 	}
-	if !strings.Contains(got, "FROM debian:trixie-slim") {
-		t.Errorf("replaceFinalStageFrom must substitute the replacement block, got %q", got)
+	prereqIdx := strings.Index(out, "RUN apt-get install -y iptables")
+	dindIdx := strings.Index(out, "DOCKER_VERSION")
+	tailIdx := strings.Index(out, "RUN echo post-dind")
+	if prereqIdx < 0 || dindIdx < 0 || tailIdx < 0 {
+		t.Fatal("rendered Dockerfile missing expected markers")
 	}
-	if !strings.HasSuffix(got, "RUN echo hi\n") {
-		t.Errorf("replaceFinalStageFrom must preserve the body after the block, got %q", got)
-	}
-}
-
-func TestReplaceFinalStageFromMultiStageUsesLastFrom(t *testing.T) {
-	in := []byte("FROM debian:trixie-slim AS base\nFROM base AS final\nRUN echo hi\n")
-	block := []byte("FROM debian:trixie-slim\nRUN apt-get update\n")
-	got := string(replaceFinalStageFrom(in, block))
-	if strings.Contains(got, "FROM base AS final") {
-		t.Errorf("replaceFinalStageFrom must replace only the final stage FROM, got %q", got)
-	}
-	if !strings.Contains(got, "FROM debian:trixie-slim AS base") {
-		t.Errorf("replaceFinalStageFrom must keep earlier stages, got %q", got)
-	}
-	if !strings.Contains(got, "RUN echo hi") {
-		t.Errorf("replaceFinalStageFrom must preserve the final-stage body, got %q", got)
+	if prereqIdx >= dindIdx || dindIdx >= tailIdx {
+		t.Error("dind block must be injected at the marker, after prerequisites and before the tail")
 	}
 }
 
-func TestInsertAfterLastFrom(t *testing.T) {
-	in := []byte("FROM debian:trixie-slim\nRUN echo hi\n")
-	block := []byte("RUN echo dev\n")
-	got := string(insertAfterLastFrom(in, block))
-	want := "FROM debian:trixie-slim\nRUN echo dev\nRUN echo hi\n"
+func TestRenderDockerfileDindMarkerAbsent(t *testing.T) {
+	a, _ := agent.Lookup("opencode")
+	project := []byte("FROM ubuntu:24.04\nRUN echo custom\n")
+	out := string(RenderDockerfile(a, project, true))
+	bodyIdx := strings.Index(out, "RUN echo custom")
+	dindIdx := strings.Index(out, "DOCKER_VERSION")
+	if bodyIdx < 0 || dindIdx < 0 || dindIdx < bodyIdx {
+		t.Error("without a marker the dind block must be appended after the user body")
+	}
+}
+
+func TestRenderDockerfileDockerfileIDLabelAfterAgentInstall(t *testing.T) {
+	a, _ := agent.Lookup("opencode")
+	out := string(RenderDockerfile(a, nil, false))
+	installIdx := strings.Index(out, "https://opencode.ai/install")
+	labelIdx := strings.Index(out, "LABEL org.agents-sandbox.dockerfile-id")
+	if installIdx < 0 || labelIdx < 0 || labelIdx < installIdx {
+		t.Error(
+			"dockerfile-id label must come after the agent install so an agent upgrade keeps the install layer cached",
+		)
+	}
+}
+
+func TestSplitFinalStageNoProjectDockerfile(t *testing.T) {
+	earlier, base, body := splitFinalStage(nil)
+	if earlier != "" {
+		t.Errorf("earlier = %q, want empty", earlier)
+	}
+	if base != string(embeddedBaseToolsBlock) {
+		t.Errorf("base = %q, want the embedded tools block", base)
+	}
+	if body != "" {
+		t.Errorf("body = %q, want empty", body)
+	}
+}
+
+func TestSplitFinalStageManagedBase(t *testing.T) {
+	project := []byte("FROM agents-sandbox/runner-base:latest\nRUN echo managed\n")
+	earlier, base, body := splitFinalStage(project)
+	if earlier != "" {
+		t.Errorf("earlier = %q, want empty", earlier)
+	}
+	if base != string(embeddedBaseToolsBlock) {
+		t.Errorf("base = %q, want the embedded tools block", base)
+	}
+	if body != "RUN echo managed\n" {
+		t.Errorf("body = %q, want the user body", body)
+	}
+}
+
+func TestSplitFinalStageCustomBase(t *testing.T) {
+	project := []byte("FROM ubuntu:24.04\nRUN echo custom\n")
+	earlier, base, body := splitFinalStage(project)
+	if earlier != "" {
+		t.Errorf("earlier = %q, want empty", earlier)
+	}
+	if base != "FROM ubuntu:24.04\n" {
+		t.Errorf("base = %q, want the user's final FROM", base)
+	}
+	if body != "RUN echo custom\n" {
+		t.Errorf("body = %q, want the user body", body)
+	}
+}
+
+func TestSplitFinalStageMultiStage(t *testing.T) {
+	project := []byte(
+		"FROM golang:1.24 AS build\nRUN go build\n" +
+			"FROM debian:trixie-slim AS final\nCOPY --from=build /app /app\n",
+	)
+	earlier, base, body := splitFinalStage(project)
+	wantEarlier := "FROM golang:1.24 AS build\nRUN go build\n"
+	if earlier != wantEarlier {
+		t.Errorf("earlier = %q, want %q", earlier, wantEarlier)
+	}
+	if base != "FROM debian:trixie-slim AS final\n" {
+		t.Errorf("base = %q, want the final FROM", base)
+	}
+	if body != "COPY --from=build /app /app\n" {
+		t.Errorf("body = %q, want the final-stage body", body)
+	}
+}
+
+func TestInjectDindBlockAtMarker(t *testing.T) {
+	body := "RUN install-prereqs\n# agents-sandbox:dind\nRUN configure\n"
+	got := injectDindBlock(body, "DIND\n")
+	want := "RUN install-prereqs\nDIND\nRUN configure\n"
 	if got != want {
-		t.Errorf("insertAfterLastFrom must insert block after the FROM, got %q", got)
+		t.Errorf("injectDindBlock = %q, want %q", got, want)
 	}
 }
 
-func TestInsertAfterLastFromMultiStage(t *testing.T) {
-	in := []byte("FROM golang:1.24 AS build\nRUN go build\nFROM debian:trixie-slim AS final\nRUN echo hi\n")
-	block := []byte("RUN echo dev\n")
-	got := string(insertAfterLastFrom(in, block))
-	want := "FROM golang:1.24 AS build\nRUN go build\nFROM debian:trixie-slim AS final\nRUN echo dev\nRUN echo hi\n"
+func TestInjectDindBlockAppendsWithoutMarker(t *testing.T) {
+	got := injectDindBlock("RUN install-prereqs\n", "DIND\n")
+	want := "RUN install-prereqs\nDIND\n"
 	if got != want {
-		t.Errorf("insertAfterLastFrom must insert after the final stage FROM, got %q", got)
+		t.Errorf("injectDindBlock = %q, want %q", got, want)
 	}
 }
 
-func TestInsertAfterLastFromNoFrom(t *testing.T) {
-	in := []byte("RUN echo hi\n")
-	got := string(insertAfterLastFrom(in, []byte("RUN echo dev\n")))
-	if got != "RUN echo hi\n" {
-		t.Errorf("insertAfterLastFrom without a FROM must return input unchanged, got %q", got)
+func TestInjectDindBlockAppendsToEmptyBody(t *testing.T) {
+	if got := injectDindBlock("", "DIND\n"); got != "DIND\n" {
+		t.Errorf("injectDindBlock = %q, want %q", got, "DIND\n")
+	}
+}
+
+func TestJoinBlocksSkipsEmpty(t *testing.T) {
+	got := joinBlocks("", "FROM debian\n", "", "RUN x\n")
+	want := "FROM debian\n\nRUN x\n"
+	if got != want {
+		t.Errorf("joinBlocks = %q, want %q", got, want)
 	}
 }
 

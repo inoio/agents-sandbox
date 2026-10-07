@@ -41,8 +41,8 @@ Legend for the first four rows: ✅ = stronger isolation or host-side handling; 
 |---------|----------|
 | VM kernel and root filesystem  | Separate from the host, using the microsandbox VM boundary.                                                                                                                                                  |
 | Agent home                | Stored in a persistent `/home/dev` volume scoped to the project and agent. Recreating the VM does not remove this volume unless you reset or prune it.                                                       |
-| `/workspace`              | The host project directory, mounted read-write in a normal session. Some agents allow you to optionally use a  [worktree-session](docs/branch-sessions.md) for a VM-internal worktree instead. |
-| Other host files          | Not visible unless they are copied, provisioned with `home:`, or exposed through an explicit host mount. The opt-in [host-config drop-in](docs/provision-host-config.md) (`provision-host-config: true`) copies native agent files, possibly including credentials, into the VM.                                                                                                     |
+| `/workspace`              | The host project directory, mounted read-write in a normal session. Some agents allow you to optionally use a  [worktree-session](https://inoio.github.io/agents-sandbox/branch-sessions.html) for a VM-internal worktree instead. |
+| Other host files          | Not visible unless they are copied, provisioned with `home:`, or exposed through an explicit host mount. The opt-in [host-config drop-in](https://inoio.github.io/agents-sandbox/provision-host-config.html) (`provision-host-config: true`) copies native agent files, possibly including credentials, into the VM.                                                                                                     |
 | Network                   | Egress is denied by default. Profiles and allow/deny rules can grant access; `profile: none` is deny-by-default egress, not a complete air gap.                                                              |
 | Raw credentials           | `env.secret` and `env.secret.yaml` keep the real value on the host and expose a placeholder to the guest. This is separate from ordinary file provisioning. |
 
@@ -72,13 +72,13 @@ agents-sandbox
 
 If the selected agent already has native configuration on the host, the first interactive start offers a safe config
 migration: credentials are replaced with microsandbox placeholders, and the raw values stay in the host-side
-`env.secret.yaml`. See [Manage config in the sandbox](docs/manage-config.md) for the migration, the manual configuration
+`env.secret.yaml`. See [Manage config in the sandbox](https://inoio.github.io/agents-sandbox/manage-config.html) for the migration, the manual configuration
 alternative, secrets, and file provisioning.
 
 ## Agent selection
 
 You can use the `--agent <name>` flag (available on `run`, `shell`, `build`, `volume`, `stop`, and `kill`) to
-select the coding-agent to run, provision, or manage. This is also available as a setting in the [configuration file](configuration/launcher.md).
+select the coding-agent to run, provision, or manage. This is also available as a setting in the [configuration file](https://inoio.github.io/agents-sandbox/configuration/launcher.html).
 `--agent-version` pins the version agents-sandbox installs into the runner image; it does not replace an agent already
 provided by a custom base or project Dockerfile.
 
@@ -98,24 +98,24 @@ There's dedicated documentation per topic. You can also browse the documentation
 
 | Topic                                         | Description                                                                              |
 |-----------------------------------------------|------------------------------------------------------------------------------------------|
-| [Why?](/docs/introduction.md)                 | Motivation, isolation boundary, shared data, and limitations.                            |
-| [How it works](/docs/how-it-works.md)         | Architecture: host to VM, `/workspace`, home volume, secrets, and multi-client attach.   |
-| [Install](/docs/install.md)                   | Installation and prerequisites.                                                           |
-| [Manage config in the sandbox](/docs/manage-config.md) | Start from existing config or configure manually with snippets and secrets. |
-| [Commands](/docs/commands.md)                 | Complete CLI reference                                                                   |
-| [Configuration Details](/docs/configuration/) | Configuration files & Environment variables, secrets, networking, host mounts, home provisioning & startup hooks, agent configuration, notifications, self-upgrade |
-| [Runner Image](/docs/runner-image.md)         | Base image, custom tooling                                                               |
-| [Worktree Sessions](/docs/branch-sessions.md) | Isolated worktree sessions for per-feature development                                   |
-| [Recipes](/docs/recipes.md)                   | Hands-on workflows                                  |
-| [Sandboxes](/docs/sandboxes.md)               | VM lifecycle, volumes, pruning                                                           |
-| [Troubleshooting](/docs/troubleshooting.md)   | Common issues and fixes                                                                  |
-| [Roadmap](/ROADMAP.md)                        | Public, forward-looking project roadmap                                                  |
+| [Why?](https://inoio.github.io/agents-sandbox/introduction.html)                 | Motivation, isolation boundary, shared data, and limitations.                            |
+| [How it works](https://inoio.github.io/agents-sandbox/how-it-works.html)         | Architecture: host to VM, `/workspace`, home volume, secrets, and multi-client attach.   |
+| [Install](https://inoio.github.io/agents-sandbox/install.html)                   | Installation and prerequisites.                                                           |
+| [Manage config in the sandbox](https://inoio.github.io/agents-sandbox/manage-config.html) | Start from existing config or configure manually with snippets and secrets. |
+| [Commands](https://inoio.github.io/agents-sandbox/commands.html)                 | Complete CLI reference                                                                   |
+| [Configuration Details](https://inoio.github.io/agents-sandbox/configuration/) | Configuration files & Environment variables, secrets, networking, host mounts, home provisioning & startup hooks, agent configuration, notifications, self-upgrade |
+| [Runner Image](https://inoio.github.io/agents-sandbox/runner-image.html)         | Base image, custom tooling                                                               |
+| [Worktree Sessions](https://inoio.github.io/agents-sandbox/branch-sessions.html) | Isolated worktree sessions for per-feature development                                   |
+| [Recipes](https://inoio.github.io/agents-sandbox/recipes.html)                   | Hands-on workflows                                  |
+| [Sandboxes](https://inoio.github.io/agents-sandbox/sandboxes.html)               | VM lifecycle, volumes, pruning                                                           |
+| [Troubleshooting](https://inoio.github.io/agents-sandbox/troubleshooting.html)   | Common issues and fixes                                                                  |
+| [Roadmap](ROADMAP.md)                        | Public, forward-looking project roadmap                                                  |
 
 ## Contributing  
 
 | Topic                                  | Description                                     |
 |----------------------------------------|-------------------------------------------------|
-| [Contributing](/CONTRIBUTING.md)       | Guidelines for contributing to agents-sandbox |
-| [Code of conduct](/CODE_OF_CONDUCT.md) | Our code of conduct                             |
-| [Security](/SECURITY.md)               | Rules for submitting security issues            |
-| [Roadmap](/ROADMAP.md)                 | Public, forward-looking project roadmap         |
+| [Contributing](CONTRIBUTING.md)       | Guidelines for contributing to agents-sandbox |
+| [Code of conduct](CODE_OF_CONDUCT.md) | Our code of conduct                             |
+| [Security](SECURITY.md)               | Rules for submitting security issues            |
+| [Roadmap](ROADMAP.md)                 | Public, forward-looking project roadmap         |

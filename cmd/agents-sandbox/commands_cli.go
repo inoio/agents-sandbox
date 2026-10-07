@@ -124,7 +124,8 @@ func runFunc(
 	ui termio.UI,
 ) func(cmd *cobra.Command, args []string) error {
 	return func(cmd *cobra.Command, args []string) error {
-		opts, err := extractRunOptions(cmd, ui)
+		r := resolverFromContext(cmd.Context())
+		opts, err := r.BuildRunOptions(cmd, ui)
 		if err != nil {
 			return err
 		}
@@ -133,10 +134,6 @@ func runFunc(
 		ctx := cmd.Context()
 		if opts.ServeOnly {
 			ctx, _ = serveOnlyContext(ctx)
-		}
-		r, rerr := launcherconfig.NewResolver(cmd, git.ProjectSlug())
-		if rerr != nil {
-			return rerr
 		}
 		isDryRun, _ := cmd.Flags().GetBool(flagDryRun)
 		if !isDryRun {
@@ -158,7 +155,9 @@ func runFunc(
 		if err != nil {
 			return err
 		}
-		pruning.AutoPrune(cmd.Context(), r.AutoPruneAge(), isDryRun, &autoPruneOutToVerboseRedirect{UI: ui})
+		if r != nil {
+			pruning.AutoPrune(cmd.Context(), r.AutoPruneAge(), isDryRun, &autoPruneOutToVerboseRedirect{UI: ui})
+		}
 		return session.Run(ctx, opts, ui)
 	}
 }
@@ -168,7 +167,7 @@ var refreshRunOptionsAfterMigrationFn = refreshRunOptionsAfterMigration
 
 // refreshRunOptionsAfterMigration reloads launcher configuration after the
 // first-run migration may have written new network, home, or agent settings.
-// Reusing extractRunOptions preserves normal flag-over-config precedence.
+// Rebuilding through the resolver preserves normal flag-over-config precedence.
 func refreshRunOptionsAfterMigration(
 	cmd *cobra.Command,
 	args []string,
@@ -179,7 +178,7 @@ func refreshRunOptionsAfterMigration(
 		return options.RunOptions{}, nil, err
 	}
 	cmd.SetContext(context.WithValue(cmd.Context(), (*launcherConfigKey)(nil), resolver))
-	runOptions, err := extractRunOptions(cmd, ui)
+	runOptions, err := resolver.BuildRunOptions(cmd, ui)
 	if err != nil {
 		return options.RunOptions{}, nil, err
 	}
@@ -219,7 +218,7 @@ func checkForUpgrade(ctx context.Context, r *launcherconfig.Resolver, ui termio.
 	if r == nil {
 		return false, nil
 	}
-	res, err := upgradeCheck(ctx, upgrade.Options{ //nolint:exhaustruct // StatePath/UpdateFunc use their defaults
+	res, err := upgradeCheck(ctx, upgrade.Options{ //nolint:exhaustruct_v5 // StatePath/UpdateFunc use their defaults
 		CurrentVersion: version,
 		Mode:           r.UpgradeMode(),
 		Interval:       r.UpgradeInterval(),
@@ -270,7 +269,7 @@ func buildShellCmd(ui termio.UI) *cobra.Command {
 					return nil
 				}
 			}
-			opts, err := extractRunOptions(cmd, ui)
+			opts, err := resolverFromContext(cmd.Context()).BuildRunOptions(cmd, ui)
 			if err != nil {
 				return err
 			}
@@ -299,6 +298,8 @@ func registerRunFlags(cmd *cobra.Command) {
 
 func registerSharedRunShellFlags(cmd *cobra.Command) {
 	cmd.Flags().BoolP(flagRebuild, flagRebuild[:1], false, "Rebuild the runner image before starting")
+	cmd.Flags().
+		String(flagAgentVersion, "", "Pin the agent version baked into the runner image (default: latest release)")
 	cmd.Flags().BoolP(flagDryRun, flagDryRunShort, false, "Dry run without starting anything")
 	cmd.Flags().Bool(flagDryRunVM, false, "Skip VM lifecycle but prepare everything else")
 	cmd.Flags().Uint8P(flagCpus, flagCpus[:1], 0, "Number of CPUs (default: all)")

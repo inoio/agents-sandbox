@@ -123,10 +123,10 @@ func (m *MockDockerClient) ImageInspect(
 	if m.ImageInspectFn != nil {
 		return m.ImageInspectFn(ctx, ref, opts...)
 	}
-	//nolint:exhaustruct // DockerOCIImageConfig has unexported fields
-	result := client.ImageInspectResult{}
-	//nolint:exhaustruct // DockerOCIImageConfig has unexported fields
-	result.Config = &dockerspec.DockerOCIImageConfig{}
+	//nolint:exhaustruct_v5 // DockerOCIImageConfig has unexported fields
+	result := client.ImageInspectResult{
+		//nolint:exhaustruct_v5 // DockerOCIImageConfig has unexported fields
+		Config: &dockerspec.DockerOCIImageConfig{}}
 	return result, nil
 }
 
@@ -187,7 +187,7 @@ func (m *MockDockerClient) Ping(
 	if m.PingFn != nil {
 		return m.PingFn(ctx, opts)
 	}
-	//nolint:exhaustruct // Experimental/BuilderVersion/SwarmStatus are set from HTTP headers, not struct literals
+	//nolint:exhaustruct_v5 // Experimental/BuilderVersion/SwarmStatus are set from HTTP headers, not struct literals
 	return client.PingResult{
 		APIVersion: "1.44",
 		OSType:     "linux",

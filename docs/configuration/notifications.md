@@ -1,5 +1,6 @@
 ---
 title: Notifications
+description: "Get desktop or audio notifications when a sandboxed agent session needs input, finishes or fails."
 layout: default
 parent: Configuration
 nav_order: 70

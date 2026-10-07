@@ -58,7 +58,7 @@ func DecodeMounts(raw any) (Mounts, error) {
 		return Mounts{}, nil
 	}
 	var mounts Mounts
-	//nolint:exhaustruct // DecoderConfig has many optional fields we leave zeroed.
+	//nolint:exhaustruct_v5 // DecoderConfig has many optional fields we leave zeroed.
 	decoder, err := mapstructure.NewDecoder(&mapstructure.DecoderConfig{
 		DecodeHook: stringToBindMountHook(),
 		Result:     &mounts,

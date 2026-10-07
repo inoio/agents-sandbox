@@ -336,7 +336,7 @@ func reviewClaudeAuthentication(plan *Plan, ui termio.UI) error {
 	}
 	ui.Info("Claude Code will use the API key through env.secret.yaml.")
 	secretName := "CLAUDE_ENV_ANTHROPIC_" + "API_KEY"
-	plan.Secrets[secretName] = Secret{ //nolint:exhaustruct // host policy is filled below
+	plan.Secrets[secretName] = Secret{ //nolint:exhaustruct_v5 // host policy is filled below
 		Value: apiKey,
 		Hosts: []string{endpointHost},
 	}

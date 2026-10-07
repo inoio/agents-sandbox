@@ -15,7 +15,7 @@ func defaultMigrationSpec() agent.ConfigMigrationSpec {
 	if ok {
 		return spec
 	}
-	return agent.ConfigMigrationSpec{Auth: agent.AuthMigrationSpec{ //nolint:exhaustruct // test fallback
+	return agent.ConfigMigrationSpec{Auth: agent.AuthMigrationSpec{ //nolint:exhaustruct_v5 // test fallback
 		SecretPrefix:            "OPENCODE",
 		AuthPlaceholderPrefix:   "$MSB_",
 		ConfigPlaceholderPrefix: "{env:",
