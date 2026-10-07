@@ -1,4 +1,4 @@
-.PHONY: build build-release build-release-all bootstrap test coverage coverage-junit lint fmt validate-fmt run check verify all clean install-bash-completion install-head install-head-and-bash-completion upgrade-deps docs-diagrams docs-serve
+.PHONY: build build-release build-release-all bootstrap test coverage coverage-junit lint fmt validate-fmt run check verify all clean install-bash-completion install-head install-head-and-bash-completion upgrade-deps docs-diagrams docs-linkcheck docs-linkcheck-test docs-serve
 
 VERSION ?= dev
 
@@ -97,12 +97,12 @@ validate-fmt:
 run:
 	go run ./cmd/agents-sandbox
 
-check: fmt lint test
+check: fmt lint test docs-linkcheck docs-linkcheck-test
 
 # Read-only check for CI parity: fmt-check + lint + test (does not modify files).
-verify: validate-fmt lint test
+verify: validate-fmt lint test docs-linkcheck docs-linkcheck-test
 
-all: fmt lint test build
+all: fmt lint test docs-linkcheck docs-linkcheck-test build
 
 clean:
 	rm -f agents-sandbox
@@ -117,6 +117,14 @@ install-bash-completion:
 # Excludes the vendored C4-PlantUML library files (C4*.puml), which are not standalone diagrams.
 docs-diagrams:
 	cd docs/diagrams && for f in *.puml; do case "$$f" in C4*) ;; *) $(PLANTUML) -DRELATIVE_INCLUDE -tsvg -o . "$$f" || exit 1;; esac; done
+
+# Validate documentation links and linking style (run by `make check` and CI).
+docs-linkcheck:
+	ci/check-docs.sh
+
+# Test the documentation link checker itself.
+docs-linkcheck-test:
+	ci/test-check-docs.sh
 
 # Serve the docs locally the same way GitHub Pages does (Jekyll build + live reload) at http://localhost:4000/.
 docs-serve:
