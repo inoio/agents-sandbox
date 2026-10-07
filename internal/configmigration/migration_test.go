@@ -1627,31 +1627,37 @@ func TestLauncherConfigAndSecretFileBranches(t *testing.T) {
 }
 
 func TestUpdateLauncherNetworkAndConflict(t *testing.T) {
-	path, data, added, err := updateLauncherNetwork(
+	path, data, added, skipped, err := updateLauncherNetwork(
 		"config.yaml",
 		[]byte("network:\n  egress-allow:\n    - existing.test\n"),
 		[]string{"api.example.test"},
+		nil,
 	)
-	if err != nil || path != "config.yaml" || len(added) != 1 || !bytes.Contains(data, []byte("api.example.test")) {
+	if err != nil || path != "config.yaml" || len(added) != 1 || len(skipped) != 0 ||
+		!bytes.Contains(data, []byte("api.example.test")) {
 		t.Fatalf("network update = %q, %s, %v", path, data, err)
 	}
-	if _, _, _, err := updateLauncherNetwork(
+	path, data, added, skipped, err = updateLauncherNetwork(
 		"config.yaml",
 		[]byte("network:\n  egress-deny:\n    - api.example.test\n"),
 		[]string{"api.example.test"},
-	); err == nil {
-		t.Fatal("expected network deny conflict")
+		nil,
+	)
+	if err != nil || path != "config.yaml" || len(added) != 0 || !slicesEqual(skipped, []string{"api.example.test"}) ||
+		bytes.Contains(data, []byte("egress-allow")) {
+		t.Fatalf("network conflict = %q, %s, %v, %v", path, data, added, err)
 	}
 }
 
-func TestUpdateLauncherNetworkRejectsHostDeniedInCommaSeparatedString(t *testing.T) {
-	_, _, _, err := updateLauncherNetwork(
+func TestUpdateLauncherNetworkSkipsHostDeniedInCommaSeparatedString(t *testing.T) {
+	_, _, added, skipped, err := updateLauncherNetwork(
 		"config.yaml",
 		[]byte("network:\n  egress-deny: \"evil.test, api.example.test\"\n"),
 		[]string{"api.example.test"},
+		nil,
 	)
-	if err == nil || !strings.Contains(err.Error(), "denied") {
-		t.Fatalf("updateLauncherNetwork error = %v, want deny conflict", err)
+	if err != nil || len(added) != 0 || !slicesEqual(skipped, []string{"api.example.test"}) {
+		t.Fatalf("updateLauncherNetwork = %v, %v, %v, want the denied host skipped", added, skipped, err)
 	}
 }
 

@@ -125,15 +125,22 @@ func TestMigrationAlreadyConfiguredIsFalseWhenPrerequisitesFail(t *testing.T) {
 	}
 }
 
-func TestBuildFailsWhenProviderHostIsDenied(t *testing.T) {
+func TestBuildReportsProviderHostDenyConflict(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	clearOpenCodeXDG(t)
 	denyAllEgressInLauncherConfig(t)
 	hostHome := t.TempDir()
 	writeNativeAuth(t, hostHome)
 	a, _ := agent.Lookup("opencode")
-	if _, err := Build(a, hostHome, testNetworkPolicy()); err == nil || !strings.Contains(err.Error(), "denied") {
-		t.Errorf("Build error = %v, want a denied host error", err)
+	plan, err := Build(a, hostHome, testNetworkPolicy())
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	if !slices.Equal(plan.NetworkConflicts, []string{"openrouter.ai"}) {
+		t.Errorf("NetworkConflicts = %v, want [openrouter.ai]", plan.NetworkConflicts)
+	}
+	if len(plan.NetworkAllowHosts) != 0 {
+		t.Errorf("NetworkAllowHosts = %v, want the denied host omitted", plan.NetworkAllowHosts)
 	}
 }
 
@@ -172,6 +179,35 @@ func TestBuildStoresEffectiveNetworkPolicy(t *testing.T) {
 	}
 	if plan.policy.Profile != policy.Profile || !slices.Equal(plan.policy.EgressDeny, policy.EgressDeny) {
 		t.Errorf("plan.policy = %+v, want %+v", plan.policy, policy)
+	}
+}
+
+func TestBuildReportsNetworkDenyConflicts(t *testing.T) {
+	tests := map[string]network.Policy{
+		"deny all":       {Profile: network.ProfilePrivate, EgressDeny: []string{"*"}},
+		"deny by suffix": {Profile: network.ProfilePrivate, EgressDeny: []string{".openrouter.ai"}},
+	}
+	for name, policy := range tests {
+		t.Run(name, func(t *testing.T) {
+			configpaths.WithMockConfigPaths(t)
+			clearOpenCodeXDG(t)
+			hostHome := t.TempDir()
+			writeNativeAuth(t, hostHome)
+			a, _ := agent.Lookup("opencode")
+			plan, err := Build(a, hostHome, policy)
+			if err != nil {
+				t.Fatalf("Build: %v", err)
+			}
+			if !slices.Equal(plan.NetworkConflicts, []string{"openrouter.ai"}) {
+				t.Errorf("NetworkConflicts = %v, want [openrouter.ai]", plan.NetworkConflicts)
+			}
+			if len(plan.NetworkAllowHosts) != 0 {
+				t.Errorf("NetworkAllowHosts = %v, want no shadowed host", plan.NetworkAllowHosts)
+			}
+			if strings.Contains(string(plan.ConfigData), "openrouter.ai") {
+				t.Errorf("launcher config allows a denied host:\n%s", plan.ConfigData)
+			}
+		})
 	}
 }
 
@@ -235,10 +271,11 @@ func TestUpdateLauncherNetworkReportsMarshalError(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	withMigrationSeams(t)
 	marshalJSONIndentFn = func(any, string, string) ([]byte, error) { return nil, errInjected }
-	if _, _, _, err := updateLauncherNetwork(
+	if _, _, _, _, err := updateLauncherNetwork(
 		"config.json",
 		[]byte("{}"),
 		[]string{"a.test"},
+		nil,
 	); !errors.Is(
 		err,
 		errInjected,
@@ -331,7 +368,7 @@ func TestReviewRejectsNilPlan(t *testing.T) {
 	}
 }
 
-func TestReviewFailsWhenSecretHostIsDenied(t *testing.T) {
+func TestReviewRecordsSecretHostDenyConflict(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	denyAllEgressInLauncherConfig(t)
 	plan := &Plan{
@@ -340,8 +377,11 @@ func TestReviewFailsWhenSecretHostIsDenied(t *testing.T) {
 		Secrets:    map[string]Secret{"OPENCODE_KEY": {Value: "secret", Hosts: []string{"a.test"}}},
 	}
 	ui := termio.NewTestMock(t)
-	if err := Review(plan, &ui); err == nil || !strings.Contains(err.Error(), "denied") {
-		t.Errorf("Review error = %v, want a denied host error", err)
+	if err := Review(plan, &ui); err != nil {
+		t.Fatalf("Review: %v", err)
+	}
+	if !slices.Equal(plan.NetworkConflicts, []string{"a.test"}) {
+		t.Errorf("NetworkConflicts = %v, want [a.test]", plan.NetworkConflicts)
 	}
 }
 
@@ -416,11 +456,17 @@ func TestRefreshNetworkPlanReportsLauncherConfigErrors(t *testing.T) {
 	if err := refreshNetworkPlan(&Plan{RequiredNetworkHosts: []string{"a.test"}}); err == nil {
 		t.Error("unreadable launcher config: want an error")
 	}
+}
 
+func TestRefreshNetworkPlanRecordsDenyConflicts(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	denyAllEgressInLauncherConfig(t)
-	if err := refreshNetworkPlan(&Plan{RequiredNetworkHosts: []string{"a.test"}}); err == nil {
-		t.Error("denied host: want an error")
+	plan := &Plan{RequiredNetworkHosts: []string{"a.test"}}
+	if err := refreshNetworkPlan(plan); err != nil {
+		t.Fatalf("refreshNetworkPlan: %v", err)
+	}
+	if !slices.Equal(plan.NetworkConflicts, []string{"a.test"}) {
+		t.Errorf("NetworkConflicts = %v, want [a.test]", plan.NetworkConflicts)
 	}
 }
 

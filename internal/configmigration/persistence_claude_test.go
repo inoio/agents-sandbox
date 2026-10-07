@@ -52,13 +52,20 @@ func decodeClaudeSettingsEnv(t *testing.T, data []byte) map[string]any {
 	return env
 }
 
-func TestBuildFailsWhenClaudeLoginHostsAreDenied(t *testing.T) {
+func TestBuildReportsClaudeLoginHostDenyConflicts(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	t.Setenv("CLAUDE_CONFIG_DIR", "")
 	denyAllEgressInLauncherConfig(t)
 	a, _ := agent.Lookup("claude-code")
-	if _, err := Build(a, t.TempDir(), testNetworkPolicy()); err == nil || !strings.Contains(err.Error(), "denied") {
-		t.Errorf("Build error = %v, want a denied host error", err)
+	plan, err := Build(a, t.TempDir(), testNetworkPolicy())
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	if len(plan.NetworkConflicts) == 0 || len(plan.NetworkConflicts) != len(plan.NetworkHosts) {
+		t.Errorf("NetworkConflicts = %v, want all derived hosts %v", plan.NetworkConflicts, plan.NetworkHosts)
+	}
+	if len(plan.NetworkAllowHosts) != 0 {
+		t.Errorf("NetworkAllowHosts = %v, want all denied hosts omitted", plan.NetworkAllowHosts)
 	}
 }
 
@@ -72,7 +79,12 @@ func TestApplyRequiredNetworkPlanReportsUnreadableLauncherConfig(t *testing.T) {
 
 func TestUpdateLauncherNetworkRejectsMalformedConfig(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
-	if _, _, _, err := updateLauncherNetwork("config.yaml", []byte("network: ["), []string{"claude.ai"}); err == nil {
+	if _, _, _, _, err := updateLauncherNetwork(
+		"config.yaml",
+		[]byte("network: ["),
+		[]string{"claude.ai"},
+		nil,
+	); err == nil {
 		t.Error("updateLauncherNetwork succeeded with malformed YAML, want an error")
 	}
 }

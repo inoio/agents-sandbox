@@ -62,10 +62,11 @@ func TestBuildLauncherConfigPreservesYAMLCommentsAndOrder(t *testing.T) {
 
 func TestUpdateLauncherNetworkPreservesYAMLCommentsAndOrder(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
-	_, updated, added, err := updateLauncherNetwork(
+	_, updated, added, _, err := updateLauncherNetwork(
 		"config.yaml",
 		[]byte(commentedLauncherConfig),
 		[]string{"existing.test", "new.test"},
+		nil,
 	)
 	if err != nil {
 		t.Fatalf("updateLauncherNetwork: %v", err)
@@ -81,10 +82,11 @@ func TestUpdateLauncherNetworkPreservesYAMLCommentsAndOrder(t *testing.T) {
 
 func TestUpdateLauncherNetworkReplacesCommaSeparatedYAMLString(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
-	_, updated, _, err := updateLauncherNetwork(
+	_, updated, _, _, err := updateLauncherNetwork(
 		"config.yaml",
 		[]byte("network:\n  egress-allow: \"a.test, b.test\"\n"),
 		[]string{"c.test"},
+		nil,
 	)
 	if err != nil {
 		t.Fatalf("updateLauncherNetwork: %v", err)
@@ -97,7 +99,7 @@ func TestUpdateLauncherNetworkReplacesCommaSeparatedYAMLString(t *testing.T) {
 
 func TestUpdateLauncherNetworkStartsBlockStyleConfigFromEmptyDefault(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
-	_, updated, _, err := updateLauncherNetwork("config.yaml", []byte("{}\n"), []string{"a.test"})
+	_, updated, _, _, err := updateLauncherNetwork("config.yaml", []byte("{}\n"), []string{"a.test"}, nil)
 	if err != nil {
 		t.Fatalf("updateLauncherNetwork: %v", err)
 	}

@@ -63,6 +63,7 @@ type Plan struct {
 	NetworkPath          string
 	NetworkData          []byte
 	NetworkAllowHosts    []string
+	NetworkConflicts     []string
 	RequiredNetworkHosts []string
 	ReviewWarnings       []string
 	Retrying             bool

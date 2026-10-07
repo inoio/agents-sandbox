@@ -15,6 +15,7 @@ import (
 
 	"github.com/inoio/agents-sandbox/internal/agent"
 	cp "github.com/inoio/agents-sandbox/internal/configpaths"
+	"github.com/inoio/agents-sandbox/internal/sandbox/network"
 )
 
 func migrationHomeMapping(root map[string]any, target string) (string, bool) {
@@ -60,38 +61,61 @@ func buildLauncherConfigForPlan(
 	return path, data, nil
 }
 
-func updateLauncherNetwork(path string, data []byte, hosts []string) (string, []byte, []string, error) {
+func updateLauncherNetwork(
+	path string,
+	data []byte,
+	hosts []string,
+	deny []string,
+) (string, []byte, []string, []string, error) {
 	if len(hosts) == 0 {
-		return path, data, nil, nil
+		return path, data, nil, nil, nil
 	}
 	config, err := parseLauncherConfig(path, data)
 	if err != nil {
-		return "", nil, nil, err
+		return "", nil, nil, nil, err
 	}
 	networkConfig, _ := config.values["network"].(map[string]any)
 	allow := stringList(networkConfig["egress-allow"])
-	deny := stringList(networkConfig["egress-deny"])
-	deny = append(deny, projectNetworkDenyHosts()...)
-	var added []string
+	deny = appendUniqueHosts(deny, stringList(networkConfig["egress-deny"])...)
+	var added, skipped []string
 	for _, host := range hosts {
-		for _, blocked := range deny {
-			if blocked == host || blocked == "*" {
-				return "", nil, nil, fmt.Errorf("network host %q is denied by network.egress-deny", host)
-			}
+		if hostDeniedByAny(deny, host) {
+			skipped = append(skipped, host)
+			continue
 		}
 		if !slices.Contains(allow, host) && !slices.Contains(added, host) {
 			added = append(added, host)
 		}
 	}
 	if len(added) == 0 {
-		return path, data, nil, nil
+		return path, data, nil, skipped, nil
 	}
 	config.appendListItems([]string{"network", "egress-allow"}, added)
 	updated, err := config.marshal()
 	if err != nil {
-		return "", nil, nil, err
+		return "", nil, nil, nil, err
 	}
-	return path, updated, added, nil
+	return path, updated, added, skipped, nil
+}
+
+func hostDeniedByAny(deny []string, host string) bool {
+	return slices.ContainsFunc(deny, func(rule string) bool {
+		return network.MatchesDestination(rule, host)
+	})
+}
+
+func planNetworkDeny(plan *Plan) []string {
+	return appendUniqueHosts(append([]string(nil), plan.policy.EgressDeny...), projectNetworkDenyHosts()...)
+}
+
+func hostsExcluding(hosts, excluded []string) []string {
+	var survivors []string
+	for _, host := range hosts {
+		if !slices.Contains(excluded, host) {
+			survivors = append(survivors, host)
+		}
+	}
+	return survivors
 }
 
 func plannedNetworkHosts(secrets map[string]Secret) []string {

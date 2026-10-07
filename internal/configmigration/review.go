@@ -152,14 +152,20 @@ func refreshNetworkPlan(plan *Plan) error {
 			return err
 		}
 	}
-	updatedPath, updatedData, added, err := updateLauncherNetwork(path, data, plan.NetworkHosts)
+	updatedPath, updatedData, added, skipped, err := updateLauncherNetwork(
+		path,
+		data,
+		plan.NetworkHosts,
+		planNetworkDeny(plan),
+	)
 	if err != nil {
 		return err
 	}
 	plan.ConfigPath = updatedPath
 	plan.ConfigData = updatedData
 	_ = added
-	plan.NetworkAllowHosts = plan.NetworkHosts
+	plan.NetworkAllowHosts = hostsExcluding(plan.NetworkHosts, skipped)
+	plan.NetworkConflicts = skipped
 	return nil
 }
 

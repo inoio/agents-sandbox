@@ -153,17 +153,19 @@ func applyLauncherPlan(a agent.Agent, result *Plan, spec agent.ConfigMigrationSp
 		return launcherErr
 	}
 	result.configBaseData = launcherData
-	launcherPath, launcherData, _, launcherErr = updateLauncherNetwork(
+	launcherPath, launcherData, _, skipped, launcherErr := updateLauncherNetwork(
 		launcherPath,
 		launcherData,
 		result.NetworkHosts,
+		planNetworkDeny(result),
 	)
 	if launcherErr != nil {
 		return launcherErr
 	}
 	result.ConfigPath = launcherPath
 	result.ConfigData = launcherData
-	result.NetworkAllowHosts = result.NetworkHosts
+	result.NetworkAllowHosts = hostsExcluding(result.NetworkHosts, skipped)
+	result.NetworkConflicts = skipped
 	return nil
 }
 
@@ -203,13 +205,19 @@ func applyRequiredNetworkPlan(plan *Plan) error {
 		return err
 	}
 	plan.configBaseData = data
-	path, data, _, err = updateLauncherNetwork(path, data, plan.NetworkHosts)
+	updatedPath, updatedData, _, skipped, err := updateLauncherNetwork(
+		path,
+		data,
+		plan.NetworkHosts,
+		planNetworkDeny(plan),
+	)
 	if err != nil {
 		return err
 	}
-	plan.ConfigPath = path
-	plan.ConfigData = data
-	plan.NetworkAllowHosts = plan.NetworkHosts
+	plan.ConfigPath = updatedPath
+	plan.ConfigData = updatedData
+	plan.NetworkAllowHosts = hostsExcluding(plan.NetworkHosts, skipped)
+	plan.NetworkConflicts = skipped
 	return nil
 }
 
