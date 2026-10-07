@@ -23,7 +23,7 @@ func (a VolumeAction) String() string {
 	case ActionReset:
 		return "reset" //nolint:goconst // repeated in String() switch
 	case ActionQuit:
-		return "quit" //nolint:goconst // repeated in String() switch
+		return "quit"
 	default:
 		return "unknown"
 	}

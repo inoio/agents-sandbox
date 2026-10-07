@@ -102,7 +102,7 @@ func TestPrepareSandboxReusesStoredOpenCodeVersion(t *testing.T) {
 		}
 		return "", 0, nil
 	})
-	defer SetDaemonShellFunc(origDaemon)
+	defer func() { SetDaemonShellFunc(origDaemon) }()
 
 	ui := termio.NewTestMock(t)
 	sess, err := PrepareSandbox(context.Background(), options.RunOptions{}, &ui)
@@ -195,7 +195,7 @@ func TestPrepareSandboxUpgradeRebuildsImage(t *testing.T) {
 		}
 		return "", 0, nil
 	})
-	defer SetDaemonShellFunc(origDaemon)
+	defer func() { SetDaemonShellFunc(origDaemon) }()
 
 	sess, err := PrepareSandbox(context.Background(), options.RunOptions{}, ui)
 	if err != nil {
@@ -300,7 +300,7 @@ func TestPrepareSandboxLoadsHomeYamlOnce(t *testing.T) {
 		}
 		return "", 0, nil
 	})
-	defer SetDaemonShellFunc(origDaemon)
+	defer func() { SetDaemonShellFunc(origDaemon) }()
 
 	ui := termio.NewTestMock(t)
 	sess, err := PrepareSandbox(context.Background(), options.RunOptions{}, &ui)
@@ -400,7 +400,7 @@ func TestPrepareSandboxRunsStartupHook(t *testing.T) {
 		}
 		return "", 0, nil
 	})
-	defer SetDaemonShellFunc(origDaemon)
+	defer func() { SetDaemonShellFunc(origDaemon) }()
 
 	ui := termio.NewTestMock(t)
 	sess, err := PrepareSandbox(context.Background(), options.RunOptions{}, &ui)
@@ -537,7 +537,7 @@ func TestPrepareSandboxPersistsMountFingerprintOnVMCreation(t *testing.T) {
 		}
 		return "", 0, nil
 	})
-	defer SetDaemonShellFunc(origDaemon)
+	defer func() { SetDaemonShellFunc(origDaemon) }()
 
 	mnts := mounts.Mounts{
 		"/home/dev/.m2": {Source: filepath.Join(t.TempDir(), "m2")},

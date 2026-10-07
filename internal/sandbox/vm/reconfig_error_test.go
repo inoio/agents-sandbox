@@ -25,7 +25,7 @@ func TestRestartDaemonsEnsureDaemonError(t *testing.T) {
 		}
 		return "", 0, errors.New("command failed")
 	})
-	defer SetDaemonShellFunc(orig)
+	defer func() { SetDaemonShellFunc(orig) }()
 
 	ui := termio.NewTestMock(t)
 	fs := msb.NewTestFS(nil, nil)

@@ -13,7 +13,7 @@ const (
 
 func NumCPUs() uint8 {
 	n := min(max(runtime.NumCPU(), 1), maxCPUs)
-	return uint8(n) //nolint:gosec // G115: n is bounded by min(_, maxCPUs) where maxCPUs=255
+	return uint8(n)
 }
 
 func parseMemInfo(data []byte) (int, bool) {

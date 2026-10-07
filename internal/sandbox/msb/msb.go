@@ -615,8 +615,9 @@ func mapExecEvent(ev msbSdk.ExecEvent) (StreamEvent, bool, error) {
 		return StreamEvent{Kind: StreamEventFailed}, true, nil
 	case msbSdk.ExecEventDone:
 		return StreamEvent{}, false, io.EOF
+	case msbSdk.ExecEventStarted, msbSdk.ExecEventStdinError:
+		return StreamEvent{}, false, nil
 	default:
-		// ExecEventStarted / ExecEventStdinError: skip and keep reading.
 		return StreamEvent{}, false, nil
 	}
 }

@@ -106,7 +106,7 @@ func TestEnsureDaemonStartsServeOnlyOnExternalInterface(t *testing.T) {
 		}
 		return "", 0, nil
 	})
-	defer SetDaemonShellFunc(prev)
+	defer func() { SetDaemonShellFunc(prev) }()
 
 	t.Cleanup(func() { daemonPollInterval = 2 * time.Second })
 	daemonPollInterval = 10 * time.Millisecond

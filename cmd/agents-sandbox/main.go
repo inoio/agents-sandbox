@@ -16,8 +16,7 @@ func main() {
 		term.IsTerminal(int(os.Stderr.Fd())), termio.LevelInfo, false, false)
 
 	if err := execute(args, ui); err != nil {
-		var exitErr *sandbox.ExitError
-		if errors.As(err, &exitErr) {
+		if exitErr, ok := errors.AsType[*sandbox.ExitError](err); ok {
 			os.Exit(exitErr.Code)
 		}
 		ui.Error("Error", err)

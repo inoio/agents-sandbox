@@ -83,7 +83,7 @@ func TestPrepareSandboxDryRunVM(t *testing.T) {
 		}
 		return "", 0, nil
 	})
-	defer SetDaemonShellFunc(origDaemon)
+	defer func() { SetDaemonShellFunc(origDaemon) }()
 
 	ui := termio.NewTestMock(t)
 	sess, err := PrepareSandbox(context.Background(), options.RunOptions{DryRunVM: true}, &ui)
@@ -155,7 +155,7 @@ func TestPrepareSandboxVolumeError(t *testing.T) {
 		}
 		return "", 0, nil
 	})
-	defer SetDaemonShellFunc(origDaemon)
+	defer func() { SetDaemonShellFunc(origDaemon) }()
 
 	ui := termio.NewTestMock(t)
 	if _, err := PrepareSandbox(context.Background(), options.RunOptions{DryRunVM: true}, &ui); err == nil {
@@ -224,7 +224,7 @@ func TestPrepareSandboxEnsureVMError(t *testing.T) {
 		}
 		return "", 0, nil
 	})
-	defer SetDaemonShellFunc(origDaemon)
+	defer func() { SetDaemonShellFunc(origDaemon) }()
 
 	ui := termio.NewTestMock(t)
 	if _, err := PrepareSandbox(context.Background(), options.RunOptions{}, &ui); err == nil {
@@ -298,7 +298,7 @@ func TestPrepareSandboxSetUpError(t *testing.T) {
 		}
 		return "", 0, nil
 	})
-	defer SetDaemonShellFunc(origDaemon)
+	defer func() { SetDaemonShellFunc(origDaemon) }()
 
 	ui := termio.NewTestMock(t)
 	if _, err := PrepareSandbox(context.Background(), options.RunOptions{}, &ui); err == nil {
