@@ -615,6 +615,66 @@ func TestGuideOffersLoginHandoffForOAuthOnlyConfig(t *testing.T) {
 	}
 }
 
+func TestGuideRemembersDismissedLoginHandoff(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	clearOpenCodeXDG(t)
+	hostHome := t.TempDir()
+	authDir := filepath.Join(hostHome, ".local", "share", "opencode")
+	if err := os.MkdirAll(authDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	testutil.WriteFile(t, authDir, "auth.json", `{"github-copilot":{"type":"oauth","access":"a","refresh":"r"}}`)
+	a, _ := agent.Lookup("opencode")
+
+	first := termio.NewTestMock(t)
+	first.IsInteractiveResult = true
+	recordOfferedChoices(&first, guideManualChoice)
+	if err := Guide(a, hostHome, testNetworkPolicy(), false, &first); err != nil {
+		t.Fatalf("first Guide: %v", err)
+	}
+
+	second := termio.NewTestMock(t)
+	second.IsInteractiveResult = true
+	prompts := 0
+	second.SelectFn = func(string, []termio.Choice, string) (string, error) {
+		prompts++
+		return guideStartChoice, nil
+	}
+	if err := Guide(a, hostHome, testNetworkPolicy(), false, &second); err != nil {
+		t.Fatalf("second Guide: %v", err)
+	}
+	if prompts != 0 {
+		t.Errorf("dismissed login plan re-prompted %d times, want quiet until the source hash changes", prompts)
+	}
+}
+
+func TestGuideSkipsLoginHandoffWhenManagedConfigPresent(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	clearOpenCodeXDG(t)
+	hostHome := t.TempDir()
+	authDir := filepath.Join(hostHome, ".local", "share", "opencode")
+	if err := os.MkdirAll(authDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	testutil.WriteFile(t, authDir, "auth.json", `{"github-copilot":{"type":"oauth","access":"a","refresh":"r"}}`)
+	a, _ := agent.Lookup("opencode")
+	testutil.WriteFile(t, configpaths.Get().UserAgentConfigDir(a), "auth.json", "{}")
+
+	ui := termio.NewTestMock(t)
+	ui.IsInteractiveResult = true
+	prompts := 0
+	ui.SelectFn = func(string, []termio.Choice, string) (string, error) {
+		prompts++
+		return guideStartChoice, nil
+	}
+	if err := Guide(a, hostHome, testNetworkPolicy(), false, &ui); err != nil {
+		t.Fatalf("Guide: %v", err)
+	}
+	if prompts != 0 {
+		t.Errorf("managed config plan prompted %d times, want completed without a login hand-off", prompts)
+	}
+}
+
 func TestNativeConfigExists(t *testing.T) {
 	clearOpenCodeXDG(t)
 	if nativeConfigExists(unsupportedMigrationAgent{}, t.TempDir()) {

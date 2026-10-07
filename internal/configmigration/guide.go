@@ -53,6 +53,9 @@ func Guide(
 	if !plan.HasNativeConfig && !plan.HasManagedConfig && !plan.SetupOnly {
 		return guideHostFirst(a, ui)
 	}
+	if plan.HasManagedConfig || plan.Dismissed || plan.Handled {
+		return nil
+	}
 	if !plan.NeedsAttention() {
 		return nil
 	}
