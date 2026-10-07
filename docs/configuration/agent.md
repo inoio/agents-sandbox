@@ -130,6 +130,22 @@ operating-system keychain state are also excluded; use Claude Code's normal logi
 mechanism instead. See [Secrets]({% link configuration/secrets.md %}) for the supported secret formats and agent-specific
 authentication details.
 
+### Migration and credential kinds
+
+Safe migration (the default, and what first-run guidance offers) classifies native credentials into two kinds:
+
+- **Static** API keys and tokens (`type: "api"` / `"api_key"`, `"wellknown"`, bearer tokens) **are migrated**: the
+  generated file carries a microsandbox placeholder, the raw value stays in the host `env.secret.yaml`, and the
+  destination host is added to the network allowlist.
+- **Login** credentials — refreshable OAuth (`type: "oauth"`) and machine-bound login state such as Claude Code's
+  `.credentials.json`, `~/.claude.json`, or OS keychain — are **never copied**. Migration omits them from the generated
+  files, allows the login hosts, and you authenticate inside the persistent sandbox home. Claude Code is the login-only
+  case: it declares no migratable credential file and pre-allows its login hosts.
+
+This is independent of `provision-host-config`: the unsafe drop-in copies whole files (including raw `auth.json`
+credentials), whereas migration only ever exports static secrets through the placeholder mechanism. See
+[Secrets]({% link configuration/secrets.md %}) and [Manage config in the sandbox]({% link manage-config.md %}) for details.
+
 ## Example: Permissions
 
 Opencode permissions are configured through opencode config snippets, which agents-sandbox merges (user-first, then

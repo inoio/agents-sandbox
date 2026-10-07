@@ -27,17 +27,30 @@ copies for the sandbox. The native agent files are never modified.
 
 ### First start
 
-When you start `agents-sandbox` interactively and native configuration for the selected agent exists, agents-sandbox asks before
-the VM starts:
+When you start `agents-sandbox` interactively, agents-sandbox inspects both the native configuration for the selected agent
+and the managed configuration you already have. It never returns silently when something needs your attention: every
+interactive first run ends in one of these explicit outcomes.
+
+| Situation | Outcome |
+| --- | --- |
+| Managed config already present, or you previously dismissed this native config | Quiet; nothing is asked. |
+| Native config with migratable content | **Migrate**: review the generated files, placeholders, and login-required providers, then confirm; afterwards you are asked whether to start. |
+| Native config whose credentials are login-only (refreshable OAuth) | **Login hand-off**: explains why the credentials are not copied, allows the login hosts, and you authenticate inside the sandbox after it starts. Never a silent no-op. |
+| Native config that is only unsupported or malformed | **Review hand-off**: surfaces every warning ("review required", "skipped malformed", "found but not copied") and offers host-first, manual config, or start-anyway. |
+| No native config (agent supports migration) | **Host-first hand-off**: asks you to set up the agent on the host and rerun, or to configure manually or start anyway. |
+| No native config (Claude Code) | **Setup hand-off**: offers a one-time setup that allows the login hosts before you log in inside the sandbox. |
+
+When migration actually has something to write, it shows the result for review before writing:
 
 | Choice | Effect |
 | --- | --- |
-| **Migrate safely** (default) | Runs the migration described below, shows the result for review, and writes it after confirmation. |
+| **Migrate safely** (default) | Runs the migration, shows the result for review, and writes it after confirmation. |
 | **Use native host config** | Sets `provision-host-config: true` and exits; rerun `agents-sandbox` to start with the [unsafe drop-in](#unsafe-host-config-drop-in). |
 | **Continue without migration** | Starts without native config. The choice is remembered until the native files change; then you are asked again. |
 
-The question is not asked when `provision-host-config: true` is set or managed files for the agent already exist. A
-non-interactive start only prints a warning.
+The setup question is not asked when `provision-host-config: true` is set or managed files for the agent already exist. A
+non-interactive start never prompts and never hangs: it prints a warning (native config found but not migrated) and
+continues.
 
 To run the same migration without starting a VM, use the host-only command (see [`config migrate`]({% link commands.md %}#config-migrate-name)):
 
@@ -103,6 +116,10 @@ Both OpenCode profiles share the native config and auth format, so they migrate 
 regular [config snippets]({% link configuration/agent.md %}#config-snippet-merge). Hosts of custom provider endpoints, such as a
 `baseURL`, are added to the secret's `hosts` and to `network.egress-allow`.
 
+Only **static** credentials are written to the managed files, as placeholders. **Login** credentials — refreshable OAuth and
+machine-bound state such as Claude Code's `.credentials.json` — are never placed in these files; you log in inside the
+persistent sandbox home instead. See [Credential kinds]({% link configuration/secrets.md %}#credential-kinds).
+
 ### Claude Code authentication choices
 
 Claude Code migration supports two authentication paths:
@@ -125,6 +142,25 @@ allowed before you run `/login` in the sandbox.
 Before writing, the migration shows the generated paths and non-secret file contents, asks you to confirm inferred network hosts,
 and warns about auth fields it does not recognize. Raw secret values are never shown. Nothing is written until you confirm.
 
+Credentials are classified by kind (see [Secrets]({% link configuration/secrets.md %}#credential-kinds)):
+
+- **Static** API keys and tokens are replaced with a microsandbox placeholder in the generated file; the raw value is written
+  only to `env.secret.yaml`, and the destination host is allowed for secret substitution and egress.
+- **Login** credentials — refreshable OAuth (`type: "oauth"`) and machine-bound state such as Claude Code's
+  `.credentials.json` — are never copied. They are dropped from the generated files, the login hosts are allowed, and you
+  authenticate inside the persistent sandbox home. Migration warns when this happened; it is never a silent no-op.
+
+If a derived host is shadowed by an `egress-deny` rule in the effective network policy (the resolved profile plus any
+`egress-deny` entries, matched with msb destination semantics — exact host, CIDR, `.suffix`, and `*`), the conflict is
+surfaced during review instead of silently defeating the migration. You choose per host:
+
+| Choice | Effect |
+| --- | --- |
+| **Skip** | Do not allow that host; the migration proceeds with it omitted. |
+| **Allow anyway** | Remove the matching `egress-deny` rule so the host is reachable (warns if a broader rule was removed too). |
+| **Use public network posture** | Set `network.profile: public`, allowing egress broadly instead of narrowing by host. |
+| **Abort** | Leave the configuration unchanged. |
+
 When writing:
 
 - `env.secret.yaml` is merged: existing entries are kept, and the file stays mode `0600`. An existing entry with the same name
@@ -133,6 +169,9 @@ When writing:
   rewritten as plain JSON and loses its comments and formatting; the review warns about this beforehand.
 - Progress is recorded in `~/.local/state/agents-sandbox/<agent>/config-migration.yaml`. If a write is interrupted, rerunning
   retries the migration for the current native configuration.
+
+A non-interactive `config migrate` cannot ask about conflicts and aborts if any remain, rather than writing a host that a deny
+rule would silently shadow.
 
 Afterwards, start the agent normally and inspect the result with `agents-sandbox config agent` (managed agent configuration) and
 `agents-sandbox config home` (resolved `home:` mappings).

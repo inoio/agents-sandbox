@@ -320,9 +320,10 @@ agents-sandbox config home
 #### config migrate [name]
 
 Safely migrate supported native agent configuration without starting a VM. OpenCode, OpenCode 2, Pi, and Claude Code are
-supported. Credential values are replaced with microsandbox placeholders and raw values are written to the user-level secret
-file; native agent files are not modified. For Claude Code, only portable `settings.json` values are migrated; credentials in
-`.credentials.json`, the OS keychain, or runtime state are never copied.
+supported. Static credential values are replaced with microsandbox placeholders and raw values are written to the user-level
+secret file; refreshable OAuth logins are not copied and are authenticated inside the sandbox instead; native agent files are
+not modified. For Claude Code, only portable `settings.json` values are migrated; credentials in `.credentials.json`, the OS
+keychain, or runtime state are never copied.
 
 The agent is selected by the positional `name` or `--agent` (both must match if given), otherwise by the configured `agent`.
 

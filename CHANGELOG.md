@@ -12,6 +12,12 @@ command reports the bare version (e.g. `0.1.0`).
   VM unless explicitly enabled. Set it to `true` to retain the previous host-config drop-in behavior.
 - Config: added `config migrate` and first-run guidance for safely migrating supported OpenCode, Pi and Claude Code configuration with
   microsandbox secret placeholders while keeping native host-config provisioning disabled. Reworked documentation to reflect the changes.
+- Config: refreshable OAuth credentials are no longer placeholder-migrated. They are classified as **Login** and routed to an
+  in-sandbox login in the persistent home (their login hosts are allowed); only static API keys and tokens are migrated to
+  `env.secret.yaml`. Claude Code's keychain/`.credentials.json` state is the login-only case.
+- Config: first-run guidance is now always explicit — migrate, login hand-off, host-first hand-off, or review hand-off — and
+  never silently no-ops when config is missing or unmigratable. Egress-deny rules that would shadow a required host are surfaced
+  interactively at review, with choices to skip the host, remove the deny rule, use the public posture, or abort.
 
 ## [0.5.0] - 2026-10-03
 
