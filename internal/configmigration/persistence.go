@@ -77,6 +77,22 @@ func migrationHomeMapping(root map[string]any, target string) (string, bool) {
 	}
 }
 
+func migrationHomeMappings(
+	a agent.Agent,
+	spec agent.ConfigMigrationSpec,
+	includeCredential bool,
+	supplementalNames []string,
+) map[string]string {
+	mappings := make(map[string]string)
+	if includeCredential {
+		mappings[spec.CredentialTarget] = filepath.Join(a.ConfigDirName(), spec.ManagedCredential)
+	}
+	for _, name := range supplementalNames {
+		mappings[filepath.Join(filepath.Dir(spec.CredentialTarget), name)] = filepath.Join(a.ConfigDirName(), name)
+	}
+	return mappings
+}
+
 func migrationLoadLauncherConfig() (string, []byte, error) {
 	dir := cp.Get().UserConfigDir()
 	for _, ext := range []string{extYAML, extYML, extJSON, extJSONC, extJSON5} {
@@ -153,7 +169,7 @@ func migrationManifestPath(agentName string) string {
 	return filepath.Join(cp.Get().UserStateDir(), agentName, statusFileName)
 }
 
-func migrationManifestFor(a interface{ Name() string }) migrationManifest {
+func migrationManifestFor(a agent.Agent) migrationManifest {
 	data, err := os.ReadFile(migrationManifestPath(a.Name()))
 	if err != nil {
 		return migrationManifest{}
@@ -187,10 +203,6 @@ func migrationWriteStatus(agentName, sourceHash string, dismissed bool) error {
 	})
 }
 
-func migrationStatusPath(a interface{ Name() string }) string {
-	return filepath.Join(cp.Get().UserStateDir(), a.Name(), statusFileName)
-}
-
 func migrationAtomicWrite(path string, data []byte, mode os.FileMode) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return err
@@ -214,10 +226,10 @@ func commitTempFile(tmp *os.File, path string, data []byte, mode os.FileMode) er
 	return os.Rename(tmp.Name(), path)
 }
 
-func migrationStatusFor(a interface{ Name() string }, sourceHash string) (bool, bool) {
+func migrationStatusFor(a agent.Agent, sourceHash string) (bool, bool) {
 	manifest := migrationManifestFor(a)
 	if manifest.Version == 0 {
-		data, err := os.ReadFile(migrationStatusPath(a))
+		data, err := os.ReadFile(migrationManifestPath(a.Name()))
 		if err != nil {
 			return false, false
 		}
@@ -233,7 +245,7 @@ func migrationStatusFor(a interface{ Name() string }, sourceHash string) (bool, 
 		manifest.State == migrationStateDismissed
 }
 
-func migrationAlreadyConfigured( //nolint:gocognit // validates independent output and mapping states
+func migrationAlreadyConfigured(
 	a agent.Agent,
 	spec agent.ConfigMigrationSpec,
 	managedAuthPath, managedConfigPath, configPath string,
@@ -267,14 +279,7 @@ func migrationAlreadyConfigured( //nolint:gocognit // validates independent outp
 	} else if unmarshalErr := yaml.Unmarshal(data, &root); unmarshalErr != nil {
 		return false
 	}
-	mappings := map[string]string{}
-	if authRequired {
-		mappings[spec.CredentialTarget] = filepath.Join(a.ConfigDirName(), spec.ManagedCredential)
-	}
-	for _, name := range supplementalNames {
-		mappings[filepath.Join(filepath.Dir(spec.CredentialTarget), name)] = filepath.Join(a.ConfigDirName(), name)
-	}
-	for target, source := range mappings {
+	for target, source := range migrationHomeMappings(a, spec, authRequired, supplementalNames) {
 		mapping, ok := migrationHomeMapping(root, target)
 		if !ok || mapping != source {
 			return false
@@ -297,12 +302,13 @@ func Build(
 	if err != nil {
 		return nil, err
 	}
-	retrying := migrationManifestFor(a).State == migrationStateApplying &&
-		migrationManifestFor(a).SourceHash == hashNativeFiles(nativeFiles)
+	manifest := migrationManifestFor(a)
+	sourceHash := hashNativeFiles(nativeFiles)
+	retrying := manifest.State == migrationStateApplying && manifest.SourceHash == sourceHash
 	result := &Plan{ //nolint:exhaustruct // remaining fields are populated during planning
 		AgentName:            a.Name(),
 		Secrets:              make(map[string]Secret),
-		SourceHash:           hashNativeFiles(nativeFiles),
+		SourceHash:           sourceHash,
 		HasNativeConfig:      len(nativeFiles) > 0,
 		HasManagedConfig:     hasManagedConfig(a, spec) && !retrying,
 		SecretPath:           cp.Get().UserEnvSecretYAMLFile(),
@@ -546,7 +552,7 @@ func updateLauncherNetwork(path string, data []byte, hosts []string) (string, []
 				return "", nil, nil, fmt.Errorf("network host %q is denied by network.egress-deny", host)
 			}
 		}
-		if !slicesContains(allow, host) && !slicesContains(added, host) {
+		if !slices.Contains(allow, host) && !slices.Contains(added, host) {
 			added = append(added, host)
 		}
 	}
@@ -615,10 +621,6 @@ func stringList(value any) []string {
 		}
 	}
 	return result
-}
-
-func slicesContains(values []string, wanted string) bool {
-	return slices.Contains(values, wanted)
 }
 
 func nativeFileData(files []nativeFile, path string) ([]byte, bool) {

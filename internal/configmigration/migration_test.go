@@ -9,6 +9,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"unicode"
 
 	"github.com/inoio/agents-sandbox/internal/agent"
 	"github.com/inoio/agents-sandbox/internal/configpaths"
@@ -1621,10 +1622,6 @@ func TestEnableNativeProvisioningJSONAndStatusBranches(t *testing.T) {
 
 type unsupportedMigrationAgent struct{}
 
-type migrationStatusAgent struct{ name string }
-
-func (a migrationStatusAgent) Name() string { return a.name }
-
 func (unsupportedMigrationAgent) Name() string               { return "unsupported" }
 func (unsupportedMigrationAgent) ConfigDirName() string      { return "unsupported" }
 func (unsupportedMigrationAgent) ImageSpec() agent.ImageSpec { return agent.ImageSpec{} }
@@ -2286,7 +2283,8 @@ func TestApplyWritesRetryableManifestAndSkipsIdenticalOutputs(t *testing.T) {
 	if err := Apply(plan, &ui); err != nil {
 		t.Fatal(err)
 	}
-	manifest := migrationManifestFor(migrationStatusAgent{name: "opencode"})
+	a, _ := agent.Lookup("opencode")
+	manifest := migrationManifestFor(a)
 	if manifest.State != migrationStateCompleted || manifest.SourceHash != "hash" {
 		t.Fatalf("manifest = %+v", manifest)
 	}
@@ -2509,4 +2507,70 @@ func slicesEqual(a, b []string) bool {
 		}
 	}
 	return true
+}
+
+//nolint:unparam // compatibility wrapper used by existing package tests
+func sanitizeAuthMap(
+	values map[string]json.RawMessage,
+	provider, path string,
+	knownHosts, providerHosts map[string]string,
+	secrets map[string]Secret,
+) error {
+	return sanitizeAuthMapWithSpec(
+		values,
+		provider,
+		path,
+		defaultMigrationSpec().Auth,
+		knownHosts,
+		providerHosts,
+		secrets,
+	)
+}
+
+//nolint:unparam // compatibility wrapper used by existing package tests
+func sanitizeConfigMap(
+	values map[string]any,
+	provider string,
+	path string,
+	knownHosts, providerHosts map[string]string,
+	secrets map[string]Secret,
+) error {
+	return sanitizeConfigMapWithSpec(
+		values,
+		provider,
+		path,
+		defaultMigrationSpec().Auth,
+		knownHosts,
+		providerHosts,
+		secrets,
+	)
+}
+
+func providerEndpointHosts(values map[string]any) map[string]string {
+	return providerEndpointHostsWithSpec(values, defaultMigrationSpec().Auth.EndpointFields)
+}
+
+func isSensitiveConfigKey(key string) bool {
+	normalized := strings.ToLower(strings.Map(func(r rune) rune {
+		if unicode.IsLetter(r) || unicode.IsDigit(r) {
+			return r
+		}
+		return -1
+	}, key))
+	switch normalized {
+	case "apikey", "xapikey", "apitoken", "authtoken", "accesstoken", "refreshtoken", "idtoken",
+		"bearertoken", "sessiontoken", "oauthtoken", "oauthaccess", "oauthrefresh", secretKey, "clientsecret",
+		"secretaccesskey", "privatekey", "password", "authorization", "proxyauthorization", "credential", "credentials":
+		return true
+	default:
+		return false
+	}
+}
+
+func isPlaceholder(value string) bool {
+	return strings.Contains(value, "$MSB_") || strings.Contains(value, "{env:") || strings.Contains(value, "{file:")
+}
+
+func isEndpointKey(key string) bool {
+	return isEndpointField(key, defaultMigrationSpec().Auth.EndpointFields)
 }

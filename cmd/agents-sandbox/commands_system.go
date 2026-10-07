@@ -330,7 +330,7 @@ func buildConfigMigrateCmd(
 	ui termio.UI,
 ) *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   cmdConfigMigrate,
+		Use:   cmdMigrate,
 		Args:  cobra.MaximumNArgs(1),
 		Short: "Migrate native agent config without copying raw credentials",
 		RunE: func(c *cobra.Command, args []string) error {

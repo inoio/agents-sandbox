@@ -33,6 +33,7 @@ const (
 	baseURLKey               = "baseURL"
 	claudeAnthropicAPIKeyEnv = "ANTHROPIC_" + "API_KEY"
 	claudeAnthropicAPIHost   = "api.anthropic.com"
+	opencodeOAuthDummyKey    = "opencode-oauth-dummy-key"
 )
 
 // ErrUnsupported is returned when an agent has no safe migration provider.
@@ -180,24 +181,6 @@ func sanitizeAuthWithSpec(
 	return append(encoded, '\n'), secrets, warnings, nil
 }
 
-//nolint:unparam // compatibility wrapper used by existing package tests
-func sanitizeAuthMap(
-	values map[string]json.RawMessage,
-	provider, path string,
-	knownHosts, providerHosts map[string]string,
-	secrets map[string]Secret,
-) error {
-	return sanitizeAuthMapWithSpec(
-		values,
-		provider,
-		path,
-		defaultMigrationSpec().Auth,
-		knownHosts,
-		providerHosts,
-		secrets,
-	)
-}
-
 func sanitizeAuthMapWithSpec( //nolint:gocognit // recursive redaction handles nested auth metadata
 	values map[string]json.RawMessage,
 	provider, path string,
@@ -251,9 +234,6 @@ func sanitizeAuthMapWithSpec( //nolint:gocognit // recursive redaction handles n
 		if !isSensitiveField(key, spec.SensitiveFields) {
 			if spec.RejectUnresolvedValues && isCredentialContainerPath(path) && text != "" {
 				return fmt.Errorf("auth field %s.%s contains an unsupported environment override", provider, fieldPath)
-			}
-			if !isSafeField(key, spec.SafeFields) {
-				continue
 			}
 			continue
 		}
@@ -341,7 +321,7 @@ func replaceAuthField(
 	if err := json.Unmarshal(raw, &value); err != nil {
 		return fmt.Errorf("auth field %s.%s is not a string", provider, field)
 	}
-	if isPlaceholderWithAuthSpec(value, spec) || value == "opencode-oauth-dummy-key" {
+	if isPlaceholderWithAuthSpec(value, spec) || value == opencodeOAuthDummyKey {
 		return nil
 	}
 	if spec.RejectUnresolvedValues && isUnresolvedPiConfigValue(value) {
@@ -530,25 +510,6 @@ func mergeConfigMaps(base, override map[string]any) map[string]any {
 	return result
 }
 
-//nolint:unparam // compatibility wrapper used by existing package tests
-func sanitizeConfigMap(
-	values map[string]any,
-	provider string,
-	path string,
-	knownHosts, providerHosts map[string]string,
-	secrets map[string]Secret,
-) error {
-	return sanitizeConfigMapWithSpec(
-		values,
-		provider,
-		path,
-		defaultMigrationSpec().Auth,
-		knownHosts,
-		providerHosts,
-		secrets,
-	)
-}
-
 //nolint:funlen,gocognit,gocyclo,cyclop // recursive traversal keeps redaction and path context together
 func sanitizeConfigMapWithSpec(
 	values map[string]any,
@@ -720,27 +681,6 @@ func isClaudeUnsafeSettingKey(value string) bool {
 	}
 }
 
-func isSensitiveConfigKey(key string) bool {
-	normalized := strings.ToLower(strings.Map(func(r rune) rune {
-		if unicode.IsLetter(r) || unicode.IsDigit(r) {
-			return r
-		}
-		return -1
-	}, key))
-	switch normalized {
-	case "apikey", "xapikey", "apitoken", "authtoken", "accesstoken", "refreshtoken", "idtoken",
-		"bearertoken", "sessiontoken", "oauthtoken", "oauthaccess", "oauthrefresh", secretKey, "clientsecret",
-		"secretaccesskey", "privatekey", "password", "authorization", "proxyauthorization", "credential", "credentials":
-		return true
-	default:
-		return false
-	}
-}
-
-func isPlaceholder(value string) bool {
-	return strings.Contains(value, "$MSB_") || strings.Contains(value, "{env:") || strings.Contains(value, "{file:")
-}
-
 //nolint:gocognit // host inference checks several documented endpoint forms
 func configSecretHosts(
 	provider string,
@@ -802,10 +742,6 @@ func findEndpointHost(value any, endpointFields []string) string { //nolint:goco
 	return ""
 }
 
-func providerEndpointHosts(values map[string]any) map[string]string {
-	return providerEndpointHostsWithSpec(values, defaultMigrationSpec().Auth.EndpointFields)
-}
-
 func providerEndpointHostsWithSpec(values map[string]any, endpointFields []string) map[string]string {
 	result := make(map[string]string)
 	providers, ok := values["provider"].(map[string]any)
@@ -835,10 +771,6 @@ func providerEndpointHostsWithSpec(values map[string]any, endpointFields []strin
 		}
 	}
 	return result
-}
-
-func isEndpointKey(key string) bool {
-	return isEndpointField(key, defaultMigrationSpec().Auth.EndpointFields)
 }
 
 func isEndpointField(key string, endpointFields []string) bool {
@@ -1024,13 +956,12 @@ func buildLauncherConfig(a agent.Agent, spec agent.ConfigMigrationSpec) (string,
 	if err != nil {
 		return "", nil, err
 	}
-	mappings := make(map[string]string)
-	if spec.CredentialTarget != "" && spec.ManagedCredential != "" {
-		mappings[spec.CredentialTarget] = filepath.Join(a.ConfigDirName(), spec.ManagedCredential)
-	}
-	for _, name := range spec.ManagedSupplementalFiles {
-		mappings[filepath.Join(filepath.Dir(spec.CredentialTarget), name)] = filepath.Join(a.ConfigDirName(), name)
-	}
+	mappings := migrationHomeMappings(
+		a,
+		spec,
+		spec.CredentialTarget != "" && spec.ManagedCredential != "",
+		spec.ManagedSupplementalFiles,
+	)
 	changed := false
 	for _, target := range slices.Sorted(maps.Keys(mappings)) {
 		source := mappings[target]
