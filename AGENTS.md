@@ -104,6 +104,8 @@ Always use your superpowers for appropriate tasks, never skip user approval.
 ## Current limitations
 
 - No SSH keys in the VM, git cmds against remotes won't work.
+- `golangci-lint` caches by module/package path, so linting in a git worktree can return results for the main checkout
+  (diagnostics show `../../../workspace/...`). Run `golangci-lint cache clean` before linting in a worktree.
 - microsandbox injects a tls cert into the VM for egress inspection. This can cause docker image builds to fail with
   self-signed cert errors. Workaround (example base image):
 
