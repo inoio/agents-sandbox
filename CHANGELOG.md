@@ -26,6 +26,9 @@ command reports the bare version (e.g. `0.1.0`).
   `OPENCODE_SANDBOX_`. The old prefix still works as a deprecated alias — it resolves with lower
   precedence than `AGENTS_SANDBOX_` and prints a one-time warning — so existing setups keep working;
   migrate your configuration to `AGENTS_SANDBOX_*` (#120).
+- Maintenance: bump Go module dependencies — direct bumps to go-git v5.19.3, go-billy v5.9.2, moby api v1.56.1,
+  moby client v0.6.1, and the microsandbox Go SDK v0.7.7, plus transitive updates (ProtonMail go-crypto v1.5.2,
+  OpenTelemetry v1.47.0, golang.org/x/crypto v0.57.0, golang.org/x/net v0.59.0, golang.org/x/text v0.42.0).
 - Internal: split the `reprovision` package by concern. VM reconfiguration planning moved to
   `internal/sandbox/reconfig`, host env/secret loading to `internal/sandbox/envsecret`, and the
   env/secret/network/mount fingerprint change detection to `internal/sandbox/state`; `reprovision`
