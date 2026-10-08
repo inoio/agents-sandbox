@@ -81,7 +81,7 @@ func resourceQuestions() []SetupQuestion {
 			[]string{"disk-size"},
 			TierResources,
 			StringValue,
-			"Disk image size for the sandbox (e.g. 16G)?",
+			"How large should the sandbox disk image be (e.g. 16G)?",
 			"16G",
 			resourcesGroup,
 			validateMemorySize,
