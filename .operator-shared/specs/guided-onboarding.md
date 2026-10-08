@@ -140,7 +140,7 @@ A declarative, extensible catalog of `SetupQuestion`s (key path, tier, prompt, d
 a default; accepting defaults is one keystroke.
 
 - Tier membership (fixed; the catalog stays re-tierable without structural change — see
-  `.operator-shared/plans/2026-10-08-guided-onboarding-c-tiered-wizard.md` for the concrete catalog):
+  `internal/configwizard/catalog.go` for the concrete catalog):
   - **T1 essentials** — `agent` (only when unset) and `network.profile`.
   - **T2 resources** — `cpus`, `memory`, `disk-size`, `workspace-quota`, collapsed behind one "resource defaults ok?"
     confirmation.

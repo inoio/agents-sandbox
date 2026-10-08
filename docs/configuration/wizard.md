@@ -13,8 +13,8 @@ so the essentials are in place without hand-editing YAML. The same wizard is re-
 `agents-sandbox config wizard` (see [Commands]({% link commands.md %}#config-wizard)).
 
 Answers are written to your user-level [configuration file]({% link configuration/launcher.md %}#user-level-defaults),
-preserving comments and key order. Nothing is written when every question already has a value or every question is
-skipped.
+preserving comments and key order. Nothing is written when every question in the selected tiers has already been
+answered (or skipped) in an earlier run.
 
 ## Tiers
 
@@ -52,7 +52,7 @@ agents-sandbox config wizard            # every unanswered tier
 agents-sandbox config wizard --tier=4   # integrations only
 ```
 
-Non-interactive runs (including `--quiet`/piped input) skip the wizard entirely rather than hanging.
+Non-interactive runs (stdin is not a terminal, e.g. piped input) skip the wizard entirely rather than hanging.
 
 ## Answering questions
 
@@ -60,9 +60,11 @@ Every question has a default. Value questions (like `memory`) offer "Use default
 confirm questions present their options with the default preselected. Custom values are validated; an invalid entry is
 rejected and re-asked.
 
-Related resource questions are **collapsed behind one confirmation**: the resources tier first asks "Use the recommended
-resource defaults?", and only expands `cpus`/`memory`/`disk-size`/`workspace-quota` into individual questions when you
-decline. The integrations tier collapses its notify/upgrade questions the same way.
+Related resource questions are **collapsed behind one confirmation**: the resources tier first asks whether to use the
+recommended resource defaults (4 CPUs, 8G memory, 16G disk, 16G quota), and only expands
+`cpus`/`memory`/`disk-size`/`workspace-quota` into individual questions when you decline. The notify questions
+(`notify.desktop`, `notify.audio`) collapse behind the notification-defaults confirmation the same way;
+`upgrade.mode`, `upgrade.interval`, and `auto-prune-age` are asked individually.
 
 **Early exit:** every non-essential question also offers "Enough questions — use defaults for the rest", which stops
 the interview immediately and applies defaults to all remaining questions. The essentials (agent selection when unset,
