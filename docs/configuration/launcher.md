@@ -49,9 +49,9 @@ Place files under `.agents-sandbox/` in your project directory. These override u
 
 ### Custom base images
 
-A `.agents-sandbox/Dockerfile` whose `FROM` is a specific image is treated as a **custom base** and the agent (and
-optional dind) blocks are layered on top of it. See [Runner Image]({% link runner-image.md %}) for the contract: the base
-must provide `curl` and `bash`, the dind prerequisites when dind runs, and idempotency for an existing docker/node/agent.
+A `.agents-sandbox/Dockerfile` whose `FROM` is a specific image is treated as a **custom base** and the node, agent (and
+optional docker) stages are layered on top of it. See [Runner Image]({% link runner-image.md %}) for the contract: the base
+must provide `curl` and `bash`, the docker prerequisites when docker runs, and idempotency for an existing docker/node/agent.
 
 ## Precedence
 
@@ -91,7 +91,7 @@ Configuration is resolved in this order (later entries override earlier ones):
 | `mounts`                        | —                        | Additional host directories mounted into the VM (see [Host mounts]({% link configuration/mounts.md %}))                                                                                                                               |
 | `agent`                         | `--agent`                | Agent profile name to run, build, and provision (default `opencode`, see [Agent configuration]({% link configuration/agent.md %}))                                                                                                        |
 | `provision-host-config`         | —                        | Copy the agent's host config + credentials into the VM by default (default: true; set false to opt out, see [Default drop-in provisioning]({% link configuration/agent.md %}#default-drop-in-provisioning))                                               |
-| `dind`                          | `--dind`                 | Append the Docker-in-Docker block to the runner image (overridable with `--dind`)                                                                                                                                             |
+| `docker`                        | `--docker`               | Append the Docker engine block to the runner image (overridable with `--docker`; `dind` is a deprecated alias)                                                                                                             |
 | `upgrade.mode`                   | —                        | How to handle a newer release when one is found: `prompt`, `notify`, `auto`, or `auto-exit` (default `prompt`, see [Self-upgrade]({% link configuration/self-upgrade.md %}))                                                            |
 | `upgrade.interval`               | —                        | How often to check for a newer release (default `1d`, minimum `1h`, see [Self-upgrade]({% link configuration/self-upgrade.md %}))                                                                                                                        |
 | `notify.desktop`                 | —                        | Show desktop notifications via `notify-send` (Linux) / `osascript` (macOS) (default false, see [Notifications]({% link configuration/notifications.md %}))                                                                                                |
@@ -212,7 +212,7 @@ configuration to `AGENTS_SANDBOX_`.
 | `network.dns-servers`           | `AGENTS_SANDBOX_NETWORK_DNS_SERVERS`                            |
 | `agent`                         | `AGENTS_SANDBOX_AGENT`                                          |
 | `provision-host-config`         | `AGENTS_SANDBOX_PROVISION_HOST_CONFIG`                          |
-| `dind`                          | `AGENTS_SANDBOX_DIND`                                           |
+| `docker`                        | `AGENTS_SANDBOX_DOCKER`                                         |
 | `upgrade.mode`                   | `AGENTS_SANDBOX_UPGRADE_MODE`                                    |
 | `upgrade.interval`               | `AGENTS_SANDBOX_UPGRADE_INTERVAL`                                |
 | `notify` (override)              | `AGENTS_SANDBOX_NOTIFY`                                          |

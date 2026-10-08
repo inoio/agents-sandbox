@@ -10,18 +10,30 @@ command reports the bare version (e.g. `0.1.0`).
 
 ### Added
 
+- Runner image: per-tool multistage composition so tool layers (apt tools, Node, agent, Docker) cache independently of
+  the user body and each other, reusing the same tool layers across projects on one machine.
+- Runner image: the `# agents-sandbox:docker` marker (the legacy `# agents-sandbox:dind` marker is still recognized) lets
+  a custom project Dockerfile control where the Docker engine is injected.
+- Runner image: the `agents-sandbox/runner-base-docker` base reference is recognized (alongside the deprecated
+  `agents-sandbox/runner-base-dind`).
 - Internal: add `make test-integration` — docker-build integration tests (tagged `integration`, excluded from the main
   suite) that build a real image for every `RenderDockerfile` composition case (no project Dockerfile, managed base, and
   custom Fedora base, each with and without dind). Wired into CI as a selective job (main/release/manual).
 - Internal: `devUserBlock` now sets the dev login shell to the first of `bash`, `zsh`, `sh` found (falling back to
   `/bin/sh`) instead of hardcoding bash, widening custom-base compatibility.
-- Custom project Dockerfiles can place a `# agents-sandbox:dind` marker line in the final stage to control where the
-  Docker-in-Docker install block is injected, e.g. to run `buildx`/`docker compose` setup after the engine is installed.
-  Without the marker the block is still appended after the Dockerfile body.
+- Custom project Dockerfiles can place a `# agents-sandbox:docker` marker line in the final stage to control where the
+  Docker install block is injected, e.g. to run `buildx`/`docker compose` setup after the engine is installed. Without the
+  marker the block is still appended after the Dockerfile body.
 - `run` and `shell` now accept `--agent-version` to pin the agent version baked into the runner image, matching `build`.
 
 ### Changed
 
+- Runner image: renamed the `dind` capability to `docker` — canonical `--docker` (on `build`, `run`, `shell`, and
+  `build dockerfile`), the `docker` config key, and `AGENTS_SANDBOX_DOCKER`. The old `--dind` flag, `dind` config key,
+  and `AGENTS_SANDBOX_DIND` env var remain as deprecated aliases with lower precedence and a one-time warning. The legacy
+  `# agents-sandbox:dind` marker and a `FROM .../runner-base-dind` still imply docker without a warning.
+- Runner image: `vfs` is now forced by adding `--storage-driver=vfs` to the dockerd start command inside the VM, instead
+  of writing `/etc/docker/daemon.json` at image build time, so a user's edits to `daemon.json` are preserved.
 - Launcher environment variables now use the `AGENTS_SANDBOX_` prefix instead of the historical
   `OPENCODE_SANDBOX_`. The old prefix still works as a deprecated alias — it resolves with lower
   precedence than `AGENTS_SANDBOX_` and prints a one-time warning — so existing setups keep working;
