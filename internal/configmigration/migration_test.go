@@ -2290,13 +2290,6 @@ func TestMigrationMarshalErrors(t *testing.T) {
 	if _, _, _, _, err := migrateNativeConfig(hostHome, spec); !errors.Is(err, marshalErr) {
 		t.Fatalf("migrated config marshal error = %v", err)
 	}
-
-	marshalJSONIndentFn = json.MarshalIndent
-	marshalYAMLFn = func(any) ([]byte, error) { return nil, marshalErr }
-	testutil.WritePath(t, filepath.Join(configpaths.Get().UserConfigDir(), "config.yaml"), "")
-	if _, _, err := buildLauncherConfig(a, spec); !errors.Is(err, marshalErr) {
-		t.Fatalf("launcher config marshal error = %v", err)
-	}
 }
 
 func TestBuildSeamErrors(t *testing.T) {

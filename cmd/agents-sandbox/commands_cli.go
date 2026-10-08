@@ -14,6 +14,7 @@ import (
 
 	"github.com/inoio/agents-sandbox/internal/agent"
 	"github.com/inoio/agents-sandbox/internal/configmigration"
+	"github.com/inoio/agents-sandbox/internal/configwizard"
 	"github.com/inoio/agents-sandbox/internal/git"
 	"github.com/inoio/agents-sandbox/internal/sandbox/options"
 	"github.com/inoio/agents-sandbox/internal/sandbox/pruning"
@@ -148,7 +149,16 @@ func runFunc(
 				return nil
 			}
 		}
-		if migrationErr := guideConfigMigration(opts, ui, isDryRun); migrationErr != nil {
+		if !isDryRun {
+			if wizardErr := runConfigWizardFn(r, ui); wizardErr != nil {
+				return wizardErr
+			}
+			opts, _, err = refreshRunOptionsAfterMigrationFn(cmd, args, ui)
+			if err != nil {
+				return err
+			}
+		}
+		if migrationErr := guideConfigMigrationFn(opts, ui, isDryRun); migrationErr != nil {
 			return handleMigrationError(migrationErr)
 		}
 		opts, r, err = refreshRunOptionsAfterMigrationFn(cmd, args, ui)
@@ -160,6 +170,15 @@ func runFunc(
 		}
 		return session.Run(ctx, opts, ui)
 	}
+}
+
+//nolint:gochecknoglobals // test seam for the first-run setup wizard
+var runConfigWizardFn = runConfigWizard
+
+// runConfigWizard runs the essentials-tier setup wizard on first launch so the
+// agent and network posture are chosen before credential migration.
+func runConfigWizard(r *launcherconfig.Resolver, ui termio.UI) error {
+	return configwizard.Run(r, ui, configwizard.Selection{FirstRun: true, Tier: 0})
 }
 
 //nolint:gochecknoglobals // test seam for post-migration resolver refresh
@@ -192,6 +211,9 @@ func handleMigrationError(err error) error {
 	}
 	return err
 }
+
+//nolint:gochecknoglobals // test seam for the credential migration guide
+var guideConfigMigrationFn = guideConfigMigration
 
 func guideConfigMigration(opts options.RunOptions, ui termio.UI, dryRun bool) error {
 	if dryRun {

@@ -634,6 +634,36 @@ func TestConfigMigrateReviewError(t *testing.T) {
 	}
 }
 
+func TestConfigWizardAsksSelectedTier(t *testing.T) {
+	cmd, ui := setupCommandFixtures(t, "config", "wizard", "--tier=3")
+	ui.IsInteractiveResult = true
+	ui.SelectFn = func(_ string, _ []termio.Choice, def string) (string, error) { return def, nil }
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("config wizard: %v", err)
+	}
+	cfg, err := os.ReadFile(filepath.Join(configpaths.Get().UserConfigDir(), "config.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(cfg), "tmp-size") {
+		t.Errorf("runtime tier not written:\n%s", cfg)
+	}
+}
+
+func TestConfigWizardRejectsUnknownTier(t *testing.T) {
+	cmd, _ := setupCommandFixtures(t, "config", "wizard", "--tier=9")
+	if err := cmd.Execute(); err == nil {
+		t.Fatal("expected an error for tier 9")
+	}
+}
+
+func TestConfigWizardRejectsNegativeTier(t *testing.T) {
+	cmd, _ := setupCommandFixtures(t, "config", "wizard", "--tier=-1")
+	if err := cmd.Execute(); err == nil {
+		t.Fatal("expected an error for tier -1")
+	}
+}
+
 func TestConfigMigrateUnknownAgentAndHomeErrors(t *testing.T) {
 	originalHome := migrationHomeDir
 	t.Cleanup(func() { migrationHomeDir = originalHome })

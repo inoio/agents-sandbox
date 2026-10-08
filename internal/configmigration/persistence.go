@@ -8,13 +8,10 @@ import (
 )
 
 const (
+	yamlIndent                 = 2
 	defaultAuthMode            = 0o600
 	defaultConfigMode          = 0o600
-	defaultConfigFile          = "config.yaml"
 	statusFileName             = "config-migration.yaml"
-	extJSON                    = ".json"
-	extJSONC                   = ".jsonc"
-	extJSON5                   = ".json5"
 	homeConfigKey              = "home"
 	extYAML                    = ".yaml"
 	extYML                     = ".yml"

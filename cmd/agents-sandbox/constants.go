@@ -34,8 +34,10 @@ const (
 	cmdMigrate    = "migrate"
 	cmdReset      = "reset"
 	cmdEdit       = "edit"
+	cmdWizard     = "wizard"
 
 	flagRemove = "rm"
+	flagTier   = "tier"
 
 	flagRebuild         = launcherconfig.FlagRebuild
 	flagCpus            = "cpus"

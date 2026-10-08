@@ -1,6 +1,7 @@
 package configmigration
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"os"
@@ -12,6 +13,7 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/inoio/agents-sandbox/internal/agent"
+	"github.com/inoio/agents-sandbox/internal/configfile"
 	cp "github.com/inoio/agents-sandbox/internal/configpaths"
 )
 
@@ -128,26 +130,18 @@ func RecordManual(plan *Plan) error {
 }
 
 func migrationAtomicWrite(path string, data []byte, mode os.FileMode) error {
-	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
-		return err
-	}
-	tmp, err := os.CreateTemp(filepath.Dir(path), ".agents-sandbox-migrate-*")
-	if err != nil {
-		return err
-	}
-	defer func() { _ = os.Remove(tmp.Name()) }()
-	return commitTempFile(tmp, path, data, mode)
+	return configfile.WriteAtomic(path, data, mode)
 }
 
-// commitTempFile writes data to the temporary file, syncs and closes it, and
-// moves it to path. The file is always closed, also when an earlier step fails.
-func commitTempFile(tmp *os.File, path string, data []byte, mode os.FileMode) error {
-	chmodErr := tmp.Chmod(mode)
-	_, writeErr := tmp.Write(data)
-	if err := errors.Join(chmodErr, writeErr, tmp.Sync(), tmp.Close()); err != nil {
-		return err
+func marshalYAML(value any) ([]byte, error) {
+	var buffer bytes.Buffer
+	encoder := yaml.NewEncoder(&buffer)
+	encoder.SetIndent(yamlIndent)
+	encodeErr := encoder.Encode(value)
+	if err := errors.Join(encodeErr, encoder.Close()); err != nil {
+		return nil, err
 	}
-	return os.Rename(tmp.Name(), path)
+	return buffer.Bytes(), nil
 }
 
 func migrationStateFor(a agent.Agent, sourceHash string) string {
@@ -221,30 +215,19 @@ func migrationAlreadyConfigured(
 }
 
 func migrationLoadLauncherConfig() (string, []byte, error) {
-	dir := cp.Get().UserConfigDir()
-	for _, ext := range []string{extYAML, extYML, extJSON, extJSONC, extJSON5} {
-		path := filepath.Join(dir, "config"+ext)
-		data, err := os.ReadFile(path)
-		if err == nil {
-			return path, data, nil
-		}
-		if !os.IsNotExist(err) {
-			return "", nil, fmt.Errorf("read launcher config %s: %w", path, err)
-		}
-	}
-	return filepath.Join(dir, defaultConfigFile), []byte("{}\n"), nil
+	return configfile.LoadDir(cp.Get().UserConfigDir())
 }
 
 func migrationLauncherConfigPath() string {
-	if path, _, err := migrationLoadLauncherConfig(); err == nil {
-		return path
+	path, _, err := migrationLoadLauncherConfig()
+	if err != nil {
+		path = filepath.Join(cp.Get().UserConfigDir(), "config.yaml")
 	}
-	return filepath.Join(cp.Get().UserConfigDir(), defaultConfigFile)
+	return path
 }
 
 func migrationIsJSONConfig(path string) bool {
-	ext := strings.ToLower(filepath.Ext(path))
-	return ext == extJSON || ext == extJSONC || ext == extJSON5
+	return configfile.IsJSON(path)
 }
 
 func migrationMergeSecretFile(path string, generated map[string]Secret) ([]byte, error) {
@@ -285,12 +268,12 @@ func EnableNativeProvisioning() error {
 	if err != nil {
 		return err
 	}
-	config, err := parseLauncherConfig(path, data)
+	config, err := configfile.Parse(path, data)
 	if err != nil {
 		return err
 	}
-	config.setBool([]string{"provision-host-config"}, true)
-	updated, err := config.marshal()
+	config.SetBool([]string{"provision-host-config"}, true)
+	updated, err := config.Marshal()
 	if err != nil {
 		return err
 	}

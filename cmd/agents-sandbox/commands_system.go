@@ -14,6 +14,7 @@ import (
 
 	"github.com/inoio/agents-sandbox/internal/agent"
 	"github.com/inoio/agents-sandbox/internal/configmigration"
+	"github.com/inoio/agents-sandbox/internal/configwizard"
 	"github.com/inoio/agents-sandbox/internal/git"
 	"github.com/inoio/agents-sandbox/internal/homeconfig"
 	"github.com/inoio/agents-sandbox/internal/humanize"
@@ -275,6 +276,7 @@ func buildConfigCmd(ui termio.UI) *cobra.Command {
 
 	cmd.AddCommand(buildConfigAgentCmd(ui))
 	cmd.AddCommand(buildConfigMigrateCmd(ui))
+	cmd.AddCommand(buildConfigWizardCmd(ui))
 
 	cmd.AddCommand(&cobra.Command{
 		Use:   cmdHome,
@@ -408,6 +410,29 @@ func buildConfigMigrateCmd(
 		},
 	}
 	cmd.Flags().String(flagAgent, defaultAgentName, "Coding agent profile")
+	return cmd
+}
+
+// buildConfigWizardCmd returns the interactive setup-wizard command. It runs
+// without an msb runtime because commandNeedsMSBRuntime exempts the config tree.
+func buildConfigWizardCmd(ui termio.UI) *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   cmdWizard,
+		Args:  cobra.NoArgs,
+		Short: "Interactively set launcher configuration",
+		RunE: func(c *cobra.Command, _ []string) error {
+			tier, _ := c.Flags().GetInt(flagTier)
+			if tier < 0 || tier > configwizard.TierIntegrations {
+				return fmt.Errorf("invalid tier %d: must be between 0 and %d", tier, configwizard.TierIntegrations)
+			}
+			return configwizard.Run(
+				resolverFromContext(c.Context()),
+				ui,
+				configwizard.Selection{FirstRun: false, Tier: tier},
+			)
+		},
+	}
+	cmd.Flags().Int(flagTier, 0, "Configuration tier to ask (0 asks all unanswered tiers)")
 	return cmd
 }
 

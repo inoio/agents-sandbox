@@ -484,6 +484,103 @@ func TestRunPropagatesPostMigrationRefreshError(t *testing.T) {
 	}
 }
 
+func TestRunInvokesFirstRunWizard(t *testing.T) {
+	initTestRepo(t)
+
+	originalWizard := runConfigWizardFn
+	originalRefresh := refreshRunOptionsAfterMigrationFn
+	originalGuide := guideConfigMigrationFn
+	t.Cleanup(func() {
+		runConfigWizardFn = originalWizard
+		refreshRunOptionsAfterMigrationFn = originalRefresh
+		guideConfigMigrationFn = originalGuide
+	})
+
+	var wizardCalls int
+	var events []string
+	runConfigWizardFn = func(*launcherconfig.Resolver, termio.UI) error {
+		wizardCalls++
+		events = append(events, "wizard")
+		return nil
+	}
+	const refreshedAgent = "claude-code"
+	refreshRunOptionsAfterMigrationFn = func(*cobra.Command, []string, termio.UI) (options.RunOptions, *launcherconfig.Resolver, error) {
+		events = append(events, "refresh")
+		return options.RunOptions{Agent: refreshedAgent}, nil, nil
+	}
+	var observed options.RunOptions
+	guideConfigMigrationFn = func(opts options.RunOptions, _ termio.UI, _ bool) error {
+		events = append(events, "migration")
+		observed = opts
+		return nil
+	}
+
+	mock := &sandboxmsb.MockMsbClient{}
+	root, _ := setupRunMocks(t, mock, &sandboxmsb.MockSandbox{AttachErr: errors.New("fail")}, "run")
+	if err := root.Execute(); err == nil {
+		t.Fatal("expected the session to fail after wizard, refresh, and migration")
+	}
+	if wizardCalls != 1 {
+		t.Errorf("wizard invoked %d times, want exactly once", wizardCalls)
+	}
+	if len(events) < 3 || events[0] != "wizard" || events[1] != "refresh" || events[2] != "migration" {
+		t.Errorf("events = %v, want wizard, refresh, migration to lead", events)
+	}
+	if observed.Agent != refreshedAgent {
+		t.Errorf("migration observed agent %q, want refreshed %q", observed.Agent, refreshedAgent)
+	}
+}
+
+func TestRunPropagatesFirstRunWizardError(t *testing.T) {
+	initTestRepo(t)
+
+	originalWizard := runConfigWizardFn
+	originalRefresh := refreshRunOptionsAfterMigrationFn
+	t.Cleanup(func() {
+		runConfigWizardFn = originalWizard
+		refreshRunOptionsAfterMigrationFn = originalRefresh
+	})
+
+	wantErr := errors.New("wizard failed")
+	runConfigWizardFn = func(*launcherconfig.Resolver, termio.UI) error { return wantErr }
+	refreshCalled := false
+	refreshRunOptionsAfterMigrationFn = func(*cobra.Command, []string, termio.UI) (options.RunOptions, *launcherconfig.Resolver, error) {
+		refreshCalled = true
+		return options.RunOptions{}, nil, nil
+	}
+
+	mock := &sandboxmsb.MockMsbClient{}
+	root, _ := setupRunMocks(t, mock, &sandboxmsb.MockSandbox{}, "run")
+	if err := root.Execute(); !errors.Is(err, wantErr) {
+		t.Fatalf("wizard error = %v, want %v", err, wantErr)
+	}
+	if refreshCalled {
+		t.Error("post-wizard refresh ran even though the wizard failed")
+	}
+}
+
+func TestRunSkipsWizardOnDryRun(t *testing.T) {
+	initTestRepo(t)
+
+	originalWizard := runConfigWizardFn
+	t.Cleanup(func() { runConfigWizardFn = originalWizard })
+
+	wizardCalled := false
+	runConfigWizardFn = func(*launcherconfig.Resolver, termio.UI) error {
+		wizardCalled = true
+		return nil
+	}
+
+	mock := &sandboxmsb.MockMsbClient{}
+	root, _ := setupRunMocks(t, mock, &sandboxmsb.MockSandbox{}, "run", "--dry-run")
+	if err := root.Execute(); err != nil {
+		t.Fatalf("dry-run execute: %v", err)
+	}
+	if wizardCalled {
+		t.Error("wizard ran on a dry run")
+	}
+}
+
 func TestRefreshRunOptionsAfterMigrationErrors(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	cmd := buildRunCmd(&termio.Mock{})

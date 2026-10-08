@@ -73,6 +73,19 @@ func TestMockPromptDefaults(t *testing.T) {
 	}
 }
 
+func TestMockRecordsPrompts(t *testing.T) {
+	m := &Mock{}
+	_, _ = m.Select("pick one", []Choice{{Key: "a"}}, "a")
+	_, _ = m.Input("type value", "default")
+
+	if len(m.SelectCalls) != 1 || m.SelectCalls[0] != "pick one" {
+		t.Errorf("SelectCalls = %v, want [pick one]", m.SelectCalls)
+	}
+	if len(m.InputCalls) != 1 || m.InputCalls[0] != "type value" {
+		t.Errorf("InputCalls = %v, want [type value]", m.InputCalls)
+	}
+}
+
 func TestMockPromptFnsOverrideDefaults(t *testing.T) {
 	m := &Mock{
 		SelectFn:      func(string, []Choice, string) (string, error) { return "x", nil },

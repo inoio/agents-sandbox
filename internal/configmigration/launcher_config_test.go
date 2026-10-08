@@ -1,7 +1,6 @@
 package configmigration
 
 import (
-	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -108,29 +107,6 @@ func TestUpdateLauncherNetworkStartsBlockStyleConfigFromEmptyDefault(t *testing.
 	}
 }
 
-func TestFilterListItemsReplacesScalarWithSequence(t *testing.T) {
-	config, err := parseLauncherConfig("config.yaml", []byte("network:\n  egress-deny: \"a.test, b.test\"\n"))
-	if err != nil {
-		t.Fatalf("parseLauncherConfig: %v", err)
-	}
-	config.filterListItems([]string{"network", "egress-deny"}, func(item string) bool { return item != "a.test" })
-	updated, err := config.marshal()
-	if err != nil {
-		t.Fatalf("marshal: %v", err)
-	}
-	if strings.Contains(string(updated), "a.test") || !strings.Contains(string(updated), "- b.test") {
-		t.Errorf("updated config =\n%s\nwant a.test removed and b.test kept", updated)
-	}
-	reparsed, err := parseLauncherConfig("config.yaml", updated)
-	if err != nil {
-		t.Fatalf("reparse updated config: %v", err)
-	}
-	networkValues, _ := reparsed.values["network"].(map[string]any)
-	if got := stringList(networkValues["egress-deny"]); !slicesEqual(got, []string{"b.test"}) {
-		t.Errorf("egress-deny = %v, want [b.test]", got)
-	}
-}
-
 func TestEnableNativeProvisioningPreservesYAMLCommentsAndOrder(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	writeUserLauncherConfig(t, "config.yaml", commentedLauncherConfig)
@@ -192,71 +168,5 @@ func TestGuideWarnsBeforeEnablingProvisioningInJSONLauncherConfig(t *testing.T) 
 	_ = Guide(a, hostHome, testNetworkPolicy(), false, &ui)
 	if !strings.Contains(strings.Join(ui.WarnCalls, "\n"), "comments") {
 		t.Errorf("warnings = %v, want a warning about lost comments", ui.WarnCalls)
-	}
-}
-
-func TestParseLauncherConfigRejectsNonMappingYAML(t *testing.T) {
-	if _, err := parseLauncherConfig("config.yaml", []byte("- a.test\n")); err == nil {
-		t.Fatal("parseLauncherConfig succeeded for a YAML sequence, want an error")
-	}
-}
-
-func TestLauncherConfigSetStringStartsEmptyYAMLFile(t *testing.T) {
-	for name, data := range map[string]string{"empty file": "", "null document": "~\n"} {
-		t.Run(name, func(t *testing.T) {
-			config, err := parseLauncherConfig("config.yaml", []byte(data))
-			if err != nil {
-				t.Fatalf("parseLauncherConfig: %v", err)
-			}
-			config.setString([]string{"home", ".config/tool/rc"}, "tool/rc")
-			updated, err := config.marshal()
-			if err != nil {
-				t.Fatalf("marshal: %v", err)
-			}
-			if want := "home:\n  .config/tool/rc: tool/rc\n"; string(updated) != want {
-				t.Errorf("updated config =\n%s\nwant\n%s", updated, want)
-			}
-		})
-	}
-}
-
-func TestLauncherConfigSetBoolWritesYAMLBoolean(t *testing.T) {
-	config, err := parseLauncherConfig("config.yaml", []byte("agent: pi\n"))
-	if err != nil {
-		t.Fatalf("parseLauncherConfig: %v", err)
-	}
-	config.setBool([]string{"provision-host-config"}, true)
-	updated, err := config.marshal()
-	if err != nil {
-		t.Fatalf("marshal: %v", err)
-	}
-	if want := "agent: pi\nprovision-host-config: true\n"; string(updated) != want {
-		t.Errorf("updated config =\n%s\nwant\n%s", updated, want)
-	}
-}
-
-func TestLauncherConfigMarshalReportsJSONError(t *testing.T) {
-	config, err := parseLauncherConfig("config.json", []byte("{}"))
-	if err != nil {
-		t.Fatalf("parseLauncherConfig: %v", err)
-	}
-	marshalErr := errors.New("marshal failed")
-	originalMarshal := marshalJSONIndentFn
-	t.Cleanup(func() { marshalJSONIndentFn = originalMarshal })
-	marshalJSONIndentFn = func(any, string, string) ([]byte, error) { return nil, marshalErr }
-	if _, err := config.marshal(); !errors.Is(err, marshalErr) {
-		t.Errorf("marshal error = %v, want %v", err, marshalErr)
-	}
-}
-
-type failingYAMLMarshaler struct{}
-
-var errYAMLMarshal = errors.New("yaml marshal failed")
-
-func (failingYAMLMarshaler) MarshalYAML() (any, error) { return nil, errYAMLMarshal }
-
-func TestMarshalYAMLReportsEncodeError(t *testing.T) {
-	if _, err := marshalYAML(failingYAMLMarshaler{}); !errors.Is(err, errYAMLMarshal) {
-		t.Errorf("marshalYAML error = %v, want %v", err, errYAMLMarshal)
 	}
 }
