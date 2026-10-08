@@ -503,9 +503,10 @@ func TestRunInvokesFirstRunWizard(t *testing.T) {
 		events = append(events, "wizard")
 		return nil
 	}
+	const refreshedAgent = "claude-code"
 	refreshRunOptionsAfterMigrationFn = func(*cobra.Command, []string, termio.UI) (options.RunOptions, *launcherconfig.Resolver, error) {
 		events = append(events, "refresh")
-		return options.RunOptions{Agent: defaultAgentName}, nil, nil
+		return options.RunOptions{Agent: refreshedAgent}, nil, nil
 	}
 	var observed options.RunOptions
 	guideConfigMigrationFn = func(opts options.RunOptions, _ termio.UI, _ bool) error {
@@ -525,8 +526,8 @@ func TestRunInvokesFirstRunWizard(t *testing.T) {
 	if len(events) < 3 || events[0] != "wizard" || events[1] != "refresh" || events[2] != "migration" {
 		t.Errorf("events = %v, want wizard, refresh, migration to lead", events)
 	}
-	if observed.Agent != defaultAgentName {
-		t.Errorf("migration observed agent %q, want refreshed %q", observed.Agent, defaultAgentName)
+	if observed.Agent != refreshedAgent {
+		t.Errorf("migration observed agent %q, want refreshed %q", observed.Agent, refreshedAgent)
 	}
 }
 
