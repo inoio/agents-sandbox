@@ -12,6 +12,8 @@ const (
 )
 
 // Config is the resolved notify setting for a session.
+//
+//exhaustruct:ignore
 type Config struct {
 	Desktop bool
 	OnInput bool

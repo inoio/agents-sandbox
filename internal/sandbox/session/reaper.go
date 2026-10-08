@@ -23,8 +23,6 @@ const defaultMaxSessionRetries = 10
 
 // SessionStatus is the decoded server-side /session/status entry. Busy and idle are
 // plain states; retry carries the server-maintained attempt counter.
-//
-//nolint:revive // session.SessionStatus avoids stutter with session.Status in a session package
 type SessionStatus struct {
 	Type    string `json:"type"`
 	Attempt int    `json:"attempt"`

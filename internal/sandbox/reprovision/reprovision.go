@@ -28,8 +28,6 @@ const defaultSandboxUser = "dev"
 // created directory to the runtime user so the files are readable by the agent
 // and startup hooks. The SDK's file writes create root-owned files and
 // directories.
-//
-//nolint:funlen,gocognit // four near-identical write loops mandated by the config-mirror plan
 func Provision(ctx context.Context, sb msb.Sandbox, cf *ConfigFiles) (retErr error) {
 	fs := sb.FS()
 	paths := make([]string, 0)
@@ -61,55 +59,53 @@ func Provision(ctx context.Context, sb msb.Sandbox, cf *ConfigFiles) (retErr err
 		}
 		paths = append(paths, mergedPath)
 	}
-	for path, data := range cf.HomeFiles {
-		made, err := mkdirAllFS(ctx, fs, filepath.Dir(path))
-		if err != nil {
-			return err
-		}
-		paths = append(paths, made...)
-		if err := fs.Write(ctx, path, data); err != nil {
-			return fmt.Errorf("write home file %s: %w", path, err)
-		}
-		paths = append(paths, path)
-		if mode, ok := cf.Modes[path]; ok {
-			if err := chmodFile(ctx, sb, path, mode); err != nil {
-				return fmt.Errorf("chmod home file %s: %w", path, err)
-			}
-		}
+	groups := []struct {
+		files map[string][]byte
+		kind  string
+	}{
+		{cf.HomeFiles, "home file"},
+		{cf.Provisioned, "provisioned file"},
+		{cf.Mirror, "mirror file"},
 	}
-	for path, data := range cf.Provisioned {
-		made, err := mkdirAllFS(ctx, fs, filepath.Dir(path))
+	for _, group := range groups {
+		written, err := writeFileGroup(ctx, sb, fs, group.files, cf.Modes, group.kind)
+		paths = append(paths, written...)
 		if err != nil {
 			return err
-		}
-		paths = append(paths, made...)
-		if err := fs.Write(ctx, path, data); err != nil {
-			return fmt.Errorf("write provisioned file %s: %w", path, err)
-		}
-		paths = append(paths, path)
-		if mode, ok := cf.Modes[path]; ok {
-			if err := chmodFile(ctx, sb, path, mode); err != nil {
-				return fmt.Errorf("chmod provisioned file %s: %w", path, err)
-			}
-		}
-	}
-	for path, data := range cf.Mirror {
-		made, err := mkdirAllFS(ctx, fs, filepath.Dir(path))
-		if err != nil {
-			return err
-		}
-		paths = append(paths, made...)
-		if err := fs.Write(ctx, path, data); err != nil {
-			return fmt.Errorf("write mirror file %s: %w", path, err)
-		}
-		paths = append(paths, path)
-		if mode, ok := cf.Modes[path]; ok {
-			if err := chmodFile(ctx, sb, path, mode); err != nil {
-				return fmt.Errorf("chmod mirror file %s: %w", path, err)
-			}
 		}
 	}
 	return nil
+}
+
+// writeFileGroup writes each file's data, creating parent directories and
+// applying any configured mode. It returns every created directory and written
+// file for the caller's final chown.
+func writeFileGroup(
+	ctx context.Context,
+	sb msb.Sandbox,
+	fs msb.SandboxFS,
+	files map[string][]byte,
+	modes map[string]os.FileMode,
+	kind string,
+) ([]string, error) {
+	var written []string
+	for path, data := range files {
+		made, err := mkdirAllFS(ctx, fs, filepath.Dir(path))
+		if err != nil {
+			return written, err
+		}
+		written = append(written, made...)
+		if err := fs.Write(ctx, path, data); err != nil {
+			return written, fmt.Errorf("write %s %s: %w", kind, path, err)
+		}
+		written = append(written, path)
+		if mode, ok := modes[path]; ok {
+			if err := chmodFile(ctx, sb, path, mode); err != nil {
+				return written, fmt.Errorf("chmod %s %s: %w", kind, path, err)
+			}
+		}
+	}
+	return written, nil
 }
 
 // chmodFile applies ordinary host permission bits after the SDK writes a file.

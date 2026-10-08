@@ -36,8 +36,6 @@ type reconnectPolicy struct {
 
 // watchReconnectPolicy is the production policy. Tests replace it to make
 // timing fast and jitter deterministic.
-//
-//nolint:gochecknoglobals // test seam
 var watchReconnectPolicy = reconnectPolicy{
 	fastRetries:  2,
 	backoffStart: time.Second,
@@ -75,6 +73,8 @@ const summaryFirstDrops = 3
 // dropSummary accumulates a bounded report of stream drops so a long session
 // with frequent drops doesn't grow an unbounded error. It keeps the first few
 // drops, the running count, and the most recent drop.
+//
+//exhaustruct:ignore
 type dropSummary struct {
 	start time.Time
 	count int
@@ -119,7 +119,7 @@ func Watch(ctx context.Context, sb msb.Sandbox, spec agent.EventStreamSpec, sink
 		return nil
 	}
 	tracker := NewTracker(spec)
-	summary := &dropSummary{} //nolint:exhaustruct_v5 // fields zeroed, populated by record
+	summary := &dropSummary{}
 	var consecutiveFails int
 	var backoff time.Duration
 loop:

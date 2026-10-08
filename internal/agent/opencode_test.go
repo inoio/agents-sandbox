@@ -235,3 +235,24 @@ func TestOpencodeEventStream(t *testing.T) {
 		t.Errorf("EventStream() = %+v, want %+v", got, want)
 	}
 }
+
+func TestOpencodeImplementsSessionStatusProvider(t *testing.T) {
+	a, _ := agent.Lookup("opencode")
+	p, ok := agent.AsSessionStatusProvider(a)
+	if !ok {
+		t.Fatal("opencode should implement SessionStatusProvider")
+	}
+	if got, want := p.SessionStatusCmd(), "curl -sf http://127.0.0.1:4096/session/status"; got != want {
+		t.Errorf("SessionStatusCmd() = %q, want %q", got, want)
+	}
+	if got, want := p.QuestionListCmd(), "curl -sf http://127.0.0.1:4096/question"; got != want {
+		t.Errorf("QuestionListCmd() = %q, want %q", got, want)
+	}
+}
+
+func TestPiLacksSessionStatusProvider(t *testing.T) {
+	a, _ := agent.Lookup("pi")
+	if _, ok := agent.AsSessionStatusProvider(a); ok {
+		t.Error("pi should not implement SessionStatusProvider")
+	}
+}

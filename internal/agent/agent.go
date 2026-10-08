@@ -22,16 +22,34 @@ type Agent interface {
 
 // WorktreeSpec describes a git worktree to create in the VM. It is a minimal,
 // local type so the agent package does not depend on internal/sandbox/options.
+//
+//exhaustruct:ignore
 type WorktreeSpec struct {
 	Name   string
 	Base   string
 	Target string
 }
 
-//nolint:gochecknoglobals // built-in agent registry, populated once at init
-var registry = map[string]Agent{}
+// builtinRegistry returns the built-in agent profiles keyed by canonical name.
+func builtinRegistry() map[string]Agent {
+	profiles := []Agent{
+		opencodeProfile{opencodeConfig: opencodeConfig{}},
+		opencode2Profile{opencodeConfig: opencodeConfig{}},
+		claudeCodeProfile{},
+		piProfile{},
+	}
+	registry := make(map[string]Agent, len(profiles))
+	for _, a := range profiles {
+		registry[a.Name()] = a
+	}
+	return registry
+}
 
-// Register adds an agent profile to the registry. Built-ins call this in init.
+// registry holds the built-in agent profiles, plus any added via Register.
+var registry = builtinRegistry()
+
+// Register adds an agent profile to the registry, overriding a built-in of the
+// same name.
 func Register(a Agent) {
 	registry[a.Name()] = a
 }

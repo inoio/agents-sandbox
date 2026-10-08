@@ -56,6 +56,8 @@ type NetworkState = FingerprintState
 type MountState = FingerprintState
 
 // HomeState represents the per-project state file contents.
+//
+//exhaustruct:ignore
 type HomeState struct {
 	HomeVolume   string       `yaml:"home_volume"`
 	ImageDigest  string       `yaml:"image_digest"`
@@ -68,7 +70,7 @@ type HomeState struct {
 // NewHomeState returns a HomeState with a zeroed EnvState/SecretState, ready
 // for write-after-creation or write-after-action flows.
 func NewHomeState(homeVolume, digest string) HomeState {
-	return HomeState{ //nolint:exhaustruct_v5 // EnvState/SecretState zeroed intentionally; serialized with omitempty
+	return HomeState{
 		HomeVolume:  homeVolume,
 		ImageDigest: digest,
 	}

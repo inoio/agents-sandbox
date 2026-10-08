@@ -31,7 +31,7 @@ func buildPruneState(ctx context.Context, age time.Duration) (PruneState, error)
 	}
 	for _, h := range handles {
 		name := h.Name()
-		if !hasPrefix(name, naming.VmPrefix) && !hasPrefix(name, naming.TaskPrefix) {
+		if !hasPrefix(name, naming.VMPrefix) && !hasPrefix(name, naming.TaskPrefix) {
 			continue
 		}
 		info := naming.ArtifactFor(name)
@@ -45,7 +45,7 @@ func buildPruneState(ctx context.Context, age time.Duration) (PruneState, error)
 		}
 		// A project VM that is not being pruned counts as a kept VM. Task
 		// sandboxes are transient workers and never represent a kept project.
-		if hasPrefix(name, naming.VmPrefix) {
+		if hasPrefix(name, naming.VMPrefix) {
 			result.ToKeep[key] = h
 		}
 	}

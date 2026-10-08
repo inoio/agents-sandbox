@@ -7,7 +7,7 @@ const Prefix = "agents-sandbox"
 
 // Sandbox and image name prefixes derived from Prefix.
 const (
-	VmPrefix    = Prefix + "-vm-" //nolint:staticcheck,revive // follows existing brief naming convention (ST1003, var-naming)
+	VMPrefix    = Prefix + "-vm-"
 	HomePrefix  = Prefix + "-home-"
 	TaskPrefix  = Prefix + "-task-"
 	ImagePrefix = Prefix + "/runner-"

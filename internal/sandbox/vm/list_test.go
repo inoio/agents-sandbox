@@ -11,7 +11,7 @@ import (
 	"github.com/inoio/agents-sandbox/internal/sandbox/naming"
 )
 
-func intPtr(n uint32) *uint32 { return &n } //nolint:modernize // keep explicit pointer helper for test clarity
+func intPtr(n uint32) *uint32 { return new(n) }
 
 func TestFormatTime(t *testing.T) {
 	tests := []struct {

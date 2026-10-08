@@ -19,6 +19,8 @@ func TestStripANSICodes(t *testing.T) {
 		{"mixed", "a\x1b[1;32mb\x1b[0mc", "abc"},
 		{"no escapes", "hello world", "hello world"},
 		{"empty", "", ""},
+		{"lone trailing esc", "x\x1b", "x"},
+		{"two-byte escape", "a\x1bMb", "ab"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

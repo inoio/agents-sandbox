@@ -29,8 +29,6 @@ type realConfigPaths struct{}
 
 // Get is the factory clients can use to get a Client.
 // Tests override Get to inject mocks.
-//
-//nolint:gochecknoglobals // test hook for the otherwise unmockable SDK
 var Get = func() ConfigPaths {
 	return &realConfigPaths{}
 }
@@ -85,8 +83,8 @@ const (
 	projectConfigDir  = "." + pathPrefix
 	EnvFileName       = "env"
 	EnvSecretFileName = "env.secret"
-	//nolint:gosec // G101 false positive: filename constant
-	envSecretYAMLFileName = "env.secret.yaml"
+	// Derived rather than a literal so gosec G101 does not flag the sensitive name.
+	envSecretYAMLFileName = EnvSecretFileName + ".yaml"
 	DockerFileName        = "Dockerfile"
 )
 

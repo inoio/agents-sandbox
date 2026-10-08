@@ -79,6 +79,8 @@ type Config struct {
 }
 
 // NotifyConfig is the resolved notify setting for a session.
+//
+//exhaustruct:ignore
 type NotifyConfig = notify.Config
 
 // Exported flag names that BuildRunOptions reads directly from the command.
@@ -215,6 +217,9 @@ const (
 	keyNetworkDNSServers         = "network.dns-servers"
 	keyAgent                     = "agent"
 	keyDind                      = "dind"
+	keyCPUs                      = "cpus"
+	keyQuiet                     = "quiet"
+	keyYes                       = "yes"
 	keyUpgradeMode               = "upgrade.mode"
 	keyUpgradeInterval           = "upgrade.interval"
 	keyProvisionHostConfig       = "provision-host-config"
@@ -225,24 +230,19 @@ const (
 	keyNotifyOnError             = "notify.on-error"
 )
 
-//nolint:gochecknoglobals // package-level constant slice
 var supportedExts = []string{".yaml", ".yml", ".json", extJSONC, extJSON5}
 
 // configFlagKeys are the config-backed keys that are also exposed as CLI flags.
 // Their env vars use the OPENCODE_SANDBOX_ prefix.
-//
-//nolint:gochecknoglobals,goconst // package-level constant slice
 var configFlagKeys = []string{
-	"cpus", "memory", "tmp-size", "disk-size", "workspace-quota",
-	"yes", "quiet", "log-level", "agent", "dind",
+	keyCPUs, "memory", "tmp-size", "disk-size", "workspace-quota",
+	keyYes, keyQuiet, "log-level", "agent", "dind",
 }
 
 // configEnvKeys are all launcher config keys bound to OPENCODE_SANDBOX_ env vars.
-//
-//nolint:gochecknoglobals // package-level constant slice
 var configEnvKeys = []string{
-	"cpus", "memory", "tmp-size", "disk-size", "workspace-quota",
-	"yes", "quiet", "log-level",
+	keyCPUs, "memory", "tmp-size", "disk-size", "workspace-quota",
+	keyYes, keyQuiet, "log-level",
 	keyAutoPruneAge, keyManualPruneAge,
 	keyAutoStopOnActiveSessions, keyAutoStopTimeout, keyAutoStopMaxSessionRetries,
 	keyNetworkProfile, keyNetworkDNSServers,
@@ -278,12 +278,12 @@ func findFlag(cmd *cobra.Command, name string) *pflag.Flag {
 
 func flagTypedDefault(key string, flag *pflag.Flag) any {
 	switch key {
-	case "cpus":
+	case keyCPUs:
 		n, _ := strconv.ParseUint(flag.DefValue, 10, 8)
 		return uint8(n)
-	case "yes":
+	case keyYes:
 		return flag.DefValue == strTrue
-	case "quiet":
+	case keyQuiet:
 		return flag.DefValue == strTrue
 	default:
 		return flag.DefValue
@@ -416,10 +416,10 @@ func validate(v *viper.Viper) error {
 	if err := validateNotify(v); err != nil {
 		return err
 	}
-	if !v.IsSet("cpus") {
+	if !v.IsSet(keyCPUs) {
 		return nil
 	}
-	cpus := v.GetInt("cpus")
+	cpus := v.GetInt(keyCPUs)
 	if cpus < 0 || cpus > 255 {
 		return fmt.Errorf("launcher config cpus must be between 0 and 255, got %d", cpus)
 	}
@@ -731,7 +731,7 @@ func (r *Resolver) resolveNotify(cmd *cobra.Command, ui termio.UI, opts *options
 				)
 			}
 			ui.Warnf("notifications not supported by agent %q (no daemon/event stream); ignoring", a.Name())
-			opts.Notify = notify.Config{Audio: notify.AudioOff} //nolint:exhaustruct_v5 // channels disabled
+			opts.Notify = notify.Config{Audio: notify.AudioOff}
 		}
 	}
 	return nil
@@ -740,7 +740,7 @@ func (r *Resolver) resolveNotify(cmd *cobra.Command, ui termio.UI, opts *options
 // resolveNotifyConfig resolves the effective notify config with precedence
 // flag > env > config, then validates the value.
 func (r *Resolver) resolveNotifyConfig(cmd *cobra.Command) (notify.Config, error) {
-	cfg := notify.Config{Audio: notify.AudioOff} //nolint:exhaustruct_v5 // zero channels, populated below
+	cfg := notify.Config{Audio: notify.AudioOff}
 	if r != nil {
 		cfg = r.cfg.Notify
 		if cfg.Audio == "" {
@@ -817,7 +817,7 @@ func (r *Resolver) resolveSizes(opts *options.RunOptions) error {
 // inactive config when no notify key is set; otherwise channels are read as-is
 // and triggers default to true.
 func decodeNotify(v *viper.Viper) NotifyConfig {
-	cfg := NotifyConfig{Audio: notify.AudioOff} //nolint:exhaustruct_v5 // remaining fields zeroed and set below
+	cfg := NotifyConfig{Audio: notify.AudioOff}
 	if !v.IsSet(keyNotifyDesktop) && !v.IsSet(keyNotifyAudio) &&
 		!v.IsSet(keyNotifyOnInput) && !v.IsSet(keyNotifyOnDone) && !v.IsSet(keyNotifyOnError) {
 		return cfg

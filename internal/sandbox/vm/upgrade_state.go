@@ -21,8 +21,6 @@ const upgradeCheckInterval = 24 * time.Hour
 const upgradeStateFile = "updater.yaml"
 
 // now is a test seam for the current time.
-//
-//nolint:gochecknoglobals // test seam
 var now = time.Now
 
 // upgradeState is the persisted record gating the updater per agent. It is

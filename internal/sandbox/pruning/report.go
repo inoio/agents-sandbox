@@ -31,7 +31,7 @@ const (
 	StaleTypeMsbImage
 )
 
-var typeName = map[StaleType]string{ //nolint:gochecknoglobals // fmt.stringer pattern
+var typeName = map[StaleType]string{
 	StaleTypeVM:          "vm",
 	StaleTypeVolume:      "volume",
 	StaleTypeDockerImage: "docker-image",

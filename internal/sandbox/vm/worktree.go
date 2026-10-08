@@ -111,7 +111,7 @@ func ResolveTarget(
 	}
 
 	ui.Verbosef("creating worktree %q", spec.Name)
-	createSpec := agent.WorktreeSpec{ //nolint:exhaustruct_v5 // Target is unused by the create command
+	createSpec := agent.WorktreeSpec{
 		Name: spec.Name,
 		Base: spec.Base,
 	}

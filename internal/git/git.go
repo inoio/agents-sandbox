@@ -61,7 +61,7 @@ func ProjectSlug() string {
 // projectSlugAt returns the project slug for the repository at cwd; see
 // ProjectSlug.
 func projectSlugAt(cwd string) string {
-	repo, err := git.PlainOpenWithOptions(cwd, &git.PlainOpenOptions{ //nolint:exhaustruct_v5 // DetectDotGit only
+	repo, err := git.PlainOpenWithOptions(cwd, &git.PlainOpenOptions{
 		DetectDotGit: true,
 	})
 	if err != nil {

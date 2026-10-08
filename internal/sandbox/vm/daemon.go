@@ -10,13 +10,13 @@ import (
 	"github.com/inoio/agents-sandbox/internal/termio"
 )
 
-var daemonReadyTimeout = 60 * time.Second //nolint:gochecknoglobals // test seam, swapped in tests
+var daemonReadyTimeout = 60 * time.Second
 
-var daemonPollInterval = 2 * time.Second //nolint:gochecknoglobals // test seam, swapped in tests
+var daemonPollInterval = 2 * time.Second
 
 // daemonShellFunc is the test seam for sb.Shell, matching the ensureInstalled
 // pattern in doctor.go. Tests override this; production code leaves the default.
-var daemonShellFunc = func(ctx context.Context, sb msb.Sandbox, command string) (string, int, error) { //nolint:gochecknoglobals // test seam, swapped in tests
+var daemonShellFunc = func(ctx context.Context, sb msb.Sandbox, command string) (string, int, error) {
 	out, err := sb.Shell(ctx, command)
 	if err != nil {
 		return "", -1, err

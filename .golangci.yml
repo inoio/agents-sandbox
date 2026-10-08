@@ -80,7 +80,7 @@ linters:
     #- funcorder # checks the order of functions, methods, and constructors # DISABLED: too opinionated
     - funlen # tool for detection of long functions
     - gocheckcompilerdirectives # validates go compiler directive comments (//go:)
-    - gochecknoglobals # checks that no global variables exist
+    #- gochecknoglobals # checks that no global variables exist # DISABLED: only test seams and immutable tables; no allow-list support
     - gochecknoinits # checks that no init functions are present in Go code
     - gochecksumtype # checks exhaustiveness on Go "sum types"
     - gocognit # computes and checks the cognitive complexity of functions
@@ -299,9 +299,13 @@ linters:
         # std libs (project-specific)
         - ^archive/tar.Header$
         # third-party libs (project-specific)
+        - ^github.com/go-git/go-git/v5.PlainOpenOptions$
+        - ^github.com/go-viper/mapstructure/v2.DecoderConfig$
         - ^github.com/moby/moby/client.ImageBuildOptions$
         - ^github.com/moby/moby/client.ImageRemoveOptions$
         - ^github.com/moby/moby/client.ImagePullOptions$
+        - ^github.com/moby/moby/client.PingOptions$
+        - ^github.com/superradcompany/microsandbox/sdk/go\.(RuntimeConfig|InstallOptions|DNSConfig)$
         - ^github.com/superradcompany/microsandbox/sdk/go.MountOptions$
         - ^github.com/superradcompany/microsandbox/sdk/go.SecretEnvOptions$
         # microsandbox SDK errors — Cause is nil for SDK-originated errors
@@ -429,6 +433,13 @@ linters:
       patterns:
         - ".*"
 
+    revive:
+      rules:
+        # The exported rule's stutter detection (image.ImageInfo, volume.VolumeInfo, ...)
+        # and its comment checks are intentionally not enforced.
+        - name: exported
+          disabled: true
+
     rowserrcheck:
       # database/sql is always checked.
       # Default: []
@@ -487,16 +498,18 @@ linters:
     rules:
       #- source: "TODO"
       #  linters: [godot]
-      - text: "should have a package comment"
-        linters: [revive]
-      - text: 'exported \S+ \S+ should have comment( \(or a comment on this block\))? or be unexported'
-        linters: [revive]
       #- text: 'package comment should be of the form ".+"'
       #  source: "// ?(nolint|TODO)"
       #  linters: [revive]
       #- text: 'comment on exported \S+ \S+ should be of the form ".+"'
       #  source: "// ?(nolint|TODO)"
       #  linters: [revive, staticcheck]
+      - path: '(testmock|mock)\.go$'
+        linters:
+          - dupl
+          - exhaustruct_v5
+          - nilnil
+          - revive
       - path: '_test\.go'
         linters:
           - bodyclose

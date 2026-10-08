@@ -6,6 +6,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/spf13/cobra"
+
 	"github.com/inoio/agents-sandbox/internal/agent"
 	"github.com/inoio/agents-sandbox/internal/configpaths"
 	"github.com/inoio/agents-sandbox/internal/testutil"
@@ -186,5 +188,11 @@ func TestConfigAgentPrintsMirrorFiles(t *testing.T) {
 	}
 	if !strings.Contains(joined, "/home/dev/.config/opencode/tui.json") {
 		t.Errorf("expected mirror VM path, got:\n%s", joined)
+	}
+}
+
+func TestProvisionHostConfigEnabledDefaultsTrueWithoutResolver(t *testing.T) {
+	if !provisionHostConfigEnabled(&cobra.Command{}) {
+		t.Error("provisionHostConfigEnabled() = false, want true without a resolver")
 	}
 }

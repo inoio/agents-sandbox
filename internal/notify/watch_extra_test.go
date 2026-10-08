@@ -181,6 +181,9 @@ func TestParseSSEBlock(t *testing.T) {
 			true,
 		},
 		{"sync envelope", []string{"data: " + syncUpdated}, Event{Type: "sync", Data: []byte(syncUpdated)}, true},
+		{"no data line", []string{"event: ping", ": comment"}, Event{}, false},
+		{"undecodable payload", []string{"data: not json"}, Event{}, false},
+		{"missing payload type", []string{`data: {"payload":{"properties":{"sessionID":"ses_1"}}}`}, Event{}, false},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

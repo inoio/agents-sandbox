@@ -134,7 +134,7 @@ func TestListImagesPrefixMatchesNamingImagePrefix(t *testing.T) {
 	}
 }
 
-func int64Ptr(n int64) *int64 { return &n } //nolint:modernize // address-of-value is the intended pattern
+func int64Ptr(n int64) *int64 { return new(n) }
 
 func TestImageSize(t *testing.T) {
 	tests := []struct {

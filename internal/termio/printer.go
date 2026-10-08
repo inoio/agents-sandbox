@@ -19,6 +19,7 @@ const (
 	ansiDim          = "\x1b[2m"
 )
 
+//exhaustruct:ignore
 type printer struct {
 	stdin       io.Reader
 	stdinReader *bufio.Reader
@@ -113,7 +114,6 @@ func (p *printer) Header(msg string) {
 
 // NewTable returns an empty aligned Table that prints through p.
 func (p *printer) NewTable(headers ...string) *Table {
-	//nolint:exhaustruct_v5 // rows starts empty (nil slice is the zero value)
 	return &Table{ui: p, headers: headers}
 }
 

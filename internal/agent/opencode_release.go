@@ -11,8 +11,6 @@ import (
 
 // opencodeGitHubLatestURL is a var (not const) so the tests can point it at an httptest
 // server via overrideLatestURL.
-//
-//nolint:gochecknoglobals // test hook for the otherwise unmockable endpoint URL
 var opencodeGitHubLatestURL = "https://api.github.com/repos/anomalyco/opencode/releases/latest"
 
 type githubRelease struct {

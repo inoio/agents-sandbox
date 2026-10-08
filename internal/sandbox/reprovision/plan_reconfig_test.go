@@ -111,6 +111,39 @@ func TestPlanReconfigDecidesRecreate(t *testing.T) {
 	}
 }
 
+func TestWorkspaceQuotaChange(t *testing.T) {
+	vol := func(quotaMiB uint32) map[string]msbSdk.MountConfig {
+		return map[string]msbSdk.MountConfig{workspaceMountPath: {QuotaMiB: quotaMiB}}
+	}
+	tests := []struct {
+		name    string
+		volumes map[string]msbSdk.MountConfig
+		spec    string
+		want    bool
+	}{
+		{name: "missing volume", volumes: nil, spec: "32G", want: false},
+		{name: "invalid spec", volumes: vol(1024), spec: "not-a-size", want: false},
+		{
+			name:    "equal quota",
+			volumes: vol(options.DefaultWorkspaceQuotaMiB),
+			spec:    FormatSizeSpec(options.DefaultWorkspaceQuotaMiB, ""),
+			want:    false,
+		},
+		{name: "different quota", volumes: vol(1024), spec: "32G", want: true},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := &msbSdk.SandboxConfig{Volumes: tc.volumes}
+			if _, changed := workspaceQuotaChange(
+				cfg,
+				options.RunOptions{WorkspaceQuota: tc.spec},
+			); changed != tc.want {
+				t.Errorf("workspaceQuotaChange() changed = %v, want %v", changed, tc.want)
+			}
+		})
+	}
+}
+
 func TestPlanReconfigServeHostPortReuse(t *testing.T) {
 	cfg := &msbSdk.SandboxConfig{
 		Image: "img",

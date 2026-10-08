@@ -554,7 +554,7 @@ func TestSandboxListHeadersOrder(t *testing.T) {
 	}
 }
 
-func int64PtrCLI(n int64) *int64 { return &n } //nolint:modernize // address-of-value is the intended pattern
+func int64PtrCLI(n int64) *int64 { return new(n) }
 
 func TestImageListHeadersOrder(t *testing.T) {
 	want := []string{"REFERENCE", "DIGEST", "SIZE", "CREATED"}

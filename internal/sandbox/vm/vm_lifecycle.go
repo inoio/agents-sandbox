@@ -88,8 +88,6 @@ func decideVMAction(notFoundErr error, status msbSdk.SandboxStatus) (vmAction, e
 // vmBootConnected when an already-running VM was merely attached to. A
 // per-project host-side flock guards the first-boot race between concurrent
 // invocations.
-//
-//nolint:gocognit,funlen,gocyclo,cyclop // Complex lifecycle logic with multiple paths (connect, start, create) is inherently complex
 func ensureProjectVM(
 	ctx context.Context,
 	opts options.RunOptions,
@@ -121,104 +119,16 @@ func ensureProjectVM(
 		return nil, vmBootConnected, fmt.Errorf("check sandbox %q: %w", name, err)
 	}
 
-	// Fast path: VM is already running → connect without flock.
-	//nolint:nestif // Complex nested logic for handling connect/start/retry is necessary for lifecycle management
-	if !notFound {
-		if opts.Recreate {
-			ui.Verbosef("config changed; replacing project VM %s", name)
-			if stopErr := handle.Stop(context.Background()); stopErr != nil {
-				ui.Verbosef("stop old VM on reconfig failed (continuing): %v", stopErr)
-			}
-			if removeErr := handle.Remove(context.Background()); removeErr != nil {
-				spin.StopError(removeErr)
-				return nil, vmBootConnected, fmt.Errorf("remove old project VM %q: %w", name, removeErr)
-			}
-			ui.Verbosef("replaced project VM %s; recreating from new config", name)
-			notFound = true
-			handle = nil
+	// Fast path: attach to or start an existing VM without the flock, replacing
+	// it first when the config changed.
+	if !notFound && opts.Recreate {
+		notFound, err = replaceSandboxForReconfig(handle, name, ui, spin)
+		if err != nil {
+			return nil, vmBootConnected, err
 		}
 	}
-
-	//nolint:nestif // Complex nested logic for handling connect/start/retry is necessary for lifecycle management
 	if !notFound {
-		action, actionErr := decideVMAction(nil, handle.Status())
-		if actionErr != nil {
-			spin.StopError(actionErr)
-			return nil, vmBootConnected, actionErr
-		}
-		if action == vmActionConnect {
-			sb, connErr := handle.Connect(ctx)
-			if connErr != nil {
-				// Idle-timeout race: the VM may have auto-stopped between
-				// GetSandbox and Connect. Retry once via Start.
-				ui.Verbosef("connect failed (%v), retrying via Start", connErr)
-				handle2, refreshErr := handle.Refresh(ctx)
-				if refreshErr != nil {
-					spin.StopError(refreshErr)
-					return nil, vmBootConnected, fmt.Errorf(
-						"connect sandbox %q (refresh after connect failure): %w",
-						name,
-						refreshErr,
-					)
-				}
-				retryStatus := handle2.Status()
-				_, retryActionErr := decideVMAction(nil, retryStatus)
-				if retryActionErr != nil {
-					spin.StopError(retryActionErr)
-					return nil, vmBootConnected, retryActionErr
-				}
-				var sb2 msb.Sandbox
-				var retryBoot vmBoot
-				switch retryStatus { //nolint:exhaustive // decideVMAction validated the status above
-				case msbSdk.SandboxStatusRunning:
-					sb2, connErr = handle2.Connect(ctx)
-				case msbSdk.SandboxStatusStarting:
-					sb2, retryBoot, connErr = convergeExistingVM(ctx, handle2)
-				case msbSdk.SandboxStatusCreated, msbSdk.SandboxStatusStopped, msbSdk.SandboxStatusCrashed:
-					sb2, retryBoot, connErr = startExistingVM(ctx, handle2)
-				}
-				if connErr != nil {
-					spin.StopError(connErr)
-					return nil, vmBootConnected, fmt.Errorf("resume sandbox %q: %w", name, connErr)
-				}
-				spin.Stop()
-				if recErr := reconcileResourceConfig(ctx, handle2, opts, ui); recErr != nil {
-					ui.Warnf("could not reconcile VM resources: %v", recErr)
-				}
-				return sb2, retryBoot, nil
-			}
-			spin.Stop()
-			ui.Infof("connected to existing project VM: %s", name)
-			if recErr := reconcileResourceConfig(ctx, handle, opts, ui); recErr != nil {
-				ui.Warnf("could not reconcile VM resources: %v", recErr)
-			}
-			return sb, vmBootConnected, nil
-		}
-		if action == vmActionWait {
-			sb, boot, waitErr := convergeExistingVM(ctx, handle)
-			if waitErr != nil {
-				spin.StopError(waitErr)
-				return nil, vmBootConnected, fmt.Errorf("wait for sandbox %q to start: %w", name, waitErr)
-			}
-			spin.Stop()
-			if recErr := reconcileResourceConfig(ctx, handle, opts, ui); recErr != nil {
-				ui.Warnf("could not reconcile VM resources: %v", recErr)
-			}
-			return sb, boot, nil
-		}
-		spin.Stop()
-		// Created/stopped/crashed → start. The helper converges if another caller
-		// wins the start transition.
-		sb, boot, startErr := startExistingVM(ctx, handle)
-		if startErr != nil {
-			spin.StopError(startErr)
-			return nil, vmBootConnected, fmt.Errorf("start sandbox %q: %w", name, startErr)
-		}
-		ui.Infof("started existing project VM: %s", name)
-		if recErr := reconcileResourceConfig(ctx, handle, opts, ui); recErr != nil {
-			ui.Warnf("could not reconcile VM resources: %v", recErr)
-		}
-		return sb, boot, nil
+		return resolveExistingVM(ctx, handle, opts, name, ui, spin)
 	}
 
 	spin.Stop()
@@ -236,45 +146,162 @@ func ensureProjectVM(
 	}
 	defer release()
 
-	// Re-check after acquiring the flock — another invocation may have created it.
-	handle, err = client.GetSandbox(ctx, name)
-	//nolint:nestif // Nested logic for handling post-lock connect/start is necessary
-	if err == nil {
-		// Someone else created it while we waited for the lock.
-		action, actionErr := decideVMAction(nil, handle.Status())
-		if actionErr != nil {
-			return nil, vmBootConnected, actionErr
+	return createOrAttachAfterLock(ctx, client, name, k, imageRef, homeVol, repoPath, opts, imageEnvs, ui)
+}
+
+// replaceSandboxForReconfig stops and removes an existing VM whose config
+// changed, reporting notFound=true so the caller recreates it.
+func replaceSandboxForReconfig(
+	handle msb.SandboxHandle,
+	name string,
+	ui termio.UI,
+	spin termio.Spinner,
+) (bool, error) {
+	ui.Verbosef("config changed; replacing project VM %s", name)
+	if stopErr := handle.Stop(context.Background()); stopErr != nil {
+		ui.Verbosef("stop old VM on reconfig failed (continuing): %v", stopErr)
+	}
+	if removeErr := handle.Remove(context.Background()); removeErr != nil {
+		spin.StopError(removeErr)
+		return false, fmt.Errorf("remove old project VM %q: %w", name, removeErr)
+	}
+	ui.Verbosef("replaced project VM %s; recreating from new config", name)
+	return true, nil
+}
+
+// resolveExistingVM attaches to, waits for, or starts an already-existing VM.
+func resolveExistingVM(
+	ctx context.Context,
+	handle msb.SandboxHandle,
+	opts options.RunOptions,
+	name string,
+	ui termio.UI,
+	spin termio.Spinner,
+) (msb.Sandbox, vmBoot, error) {
+	action, actionErr := decideVMAction(nil, handle.Status())
+	if actionErr != nil {
+		spin.StopError(actionErr)
+		return nil, vmBootConnected, actionErr
+	}
+	if action == vmActionConnect {
+		return connectRunningVM(ctx, handle, opts, name, ui, spin)
+	}
+	if action == vmActionWait {
+		sb, boot, waitErr := convergeExistingVM(ctx, handle)
+		if waitErr != nil {
+			spin.StopError(waitErr)
+			return nil, vmBootConnected, fmt.Errorf("wait for sandbox %q to start: %w", name, waitErr)
 		}
-		if action == vmActionConnect {
-			sb, connErr := handle.Connect(ctx)
-			if connErr != nil {
-				ui.Verbosef("post-lock connect failed: %v", connErr)
-			}
-			if sb != nil {
-				if recErr := reconcileResourceConfig(ctx, handle, opts, ui); recErr != nil {
-					ui.Warnf("could not reconcile VM resources: %v", recErr)
-				}
-				return sb, vmBootConnected, nil
-			}
-		}
-		if action == vmActionWait {
-			sb, boot, waitErr := convergeExistingVM(ctx, handle)
-			if waitErr != nil {
-				return nil, vmBootConnected, fmt.Errorf("wait for sandbox %q to start: %w", name, waitErr)
-			}
-			if recErr := reconcileResourceConfig(ctx, handle, opts, ui); recErr != nil {
-				ui.Warnf("could not reconcile VM resources: %v", recErr)
-			}
-			return sb, boot, nil
-		}
-		sb, boot, startErr := startExistingVM(ctx, handle)
-		if startErr != nil {
-			return nil, vmBootConnected, fmt.Errorf("start sandbox %q: %w", name, startErr)
-		}
-		if recErr := reconcileResourceConfig(ctx, handle, opts, ui); recErr != nil {
-			ui.Warnf("could not reconcile VM resources: %v", recErr)
-		}
+		spin.Stop()
+		reconcileResources(ctx, handle, opts, ui)
 		return sb, boot, nil
+	}
+	spin.Stop()
+	// Created/stopped/crashed → start. The helper converges if another caller
+	// wins the start transition.
+	sb, boot, startErr := startExistingVM(ctx, handle)
+	if startErr != nil {
+		spin.StopError(startErr)
+		return nil, vmBootConnected, fmt.Errorf("start sandbox %q: %w", name, startErr)
+	}
+	ui.Infof("started existing project VM: %s", name)
+	reconcileResources(ctx, handle, opts, ui)
+	return sb, boot, nil
+}
+
+// connectRunningVM connects to a running VM, retrying once via Start when the
+// VM auto-stopped between the status check and Connect.
+func connectRunningVM(
+	ctx context.Context,
+	handle msb.SandboxHandle,
+	opts options.RunOptions,
+	name string,
+	ui termio.UI,
+	spin termio.Spinner,
+) (msb.Sandbox, vmBoot, error) {
+	sb, connErr := handle.Connect(ctx)
+	if connErr != nil {
+		return resumeAfterConnectFailure(ctx, handle, opts, name, ui, spin, connErr)
+	}
+	spin.Stop()
+	ui.Infof("connected to existing project VM: %s", name)
+	reconcileResources(ctx, handle, opts, ui)
+	return sb, vmBootConnected, nil
+}
+
+// resumeAfterConnectFailure handles the idle-timeout race where the VM
+// auto-stopped between the status check and Connect.
+func resumeAfterConnectFailure(
+	ctx context.Context,
+	handle msb.SandboxHandle,
+	opts options.RunOptions,
+	name string,
+	ui termio.UI,
+	spin termio.Spinner,
+	connErr error,
+) (msb.Sandbox, vmBoot, error) {
+	ui.Verbosef("connect failed (%v), retrying via Start", connErr)
+	handle2, refreshErr := handle.Refresh(ctx)
+	if refreshErr != nil {
+		spin.StopError(refreshErr)
+		return nil, vmBootConnected, fmt.Errorf(
+			"connect sandbox %q (refresh after connect failure): %w",
+			name,
+			refreshErr,
+		)
+	}
+	retryStatus := handle2.Status()
+	if _, retryActionErr := decideVMAction(nil, retryStatus); retryActionErr != nil {
+		spin.StopError(retryActionErr)
+		return nil, vmBootConnected, retryActionErr
+	}
+	sb2, retryBoot, resumeErr := resumeSandboxByStatus(ctx, handle2, retryStatus, name)
+	if resumeErr != nil {
+		spin.StopError(resumeErr)
+		return nil, vmBootConnected, fmt.Errorf("resume sandbox %q: %w", name, resumeErr)
+	}
+	spin.Stop()
+	reconcileResources(ctx, handle2, opts, ui)
+	return sb2, retryBoot, nil
+}
+
+// resumeSandboxByStatus brings a sandbox to a connected state based on its
+// current lifecycle status.
+func resumeSandboxByStatus(
+	ctx context.Context,
+	handle msb.SandboxHandle,
+	status msbSdk.SandboxStatus,
+	name string,
+) (msb.Sandbox, vmBoot, error) {
+	switch status {
+	case msbSdk.SandboxStatusRunning:
+		sb, err := handle.Connect(ctx)
+		return sb, vmBootConnected, err
+	case msbSdk.SandboxStatusStarting:
+		return convergeExistingVM(ctx, handle)
+	case msbSdk.SandboxStatusCreated, msbSdk.SandboxStatusStopped, msbSdk.SandboxStatusCrashed:
+		return startExistingVM(ctx, handle)
+	case msbSdk.SandboxStatusDraining, msbSdk.SandboxStatusPaused:
+		return nil, vmBootConnected, fmt.Errorf("resume sandbox %q: status %q is not available", name, status)
+	}
+	return nil, vmBootConnected, fmt.Errorf("resume sandbox %q: unexpected status %q", name, status)
+}
+
+// createOrAttachAfterLock re-checks for the VM after the flock was acquired,
+// attaching to one another invocation created, or creating it.
+func createOrAttachAfterLock(
+	ctx context.Context,
+	client msb.Client,
+	name string,
+	k state.Key,
+	imageRef, homeVol, repoPath string,
+	opts options.RunOptions,
+	imageEnvs map[string]string,
+	ui termio.UI,
+) (msb.Sandbox, vmBoot, error) {
+	handle, err := client.GetSandbox(ctx, name)
+	if err == nil {
+		return resolveExistingVMPostLock(ctx, handle, opts, name, ui)
 	}
 	if !msb.IsNotFound(err) {
 		return nil, vmBootConnected, fmt.Errorf("re-check sandbox %q: %w", name, err)
@@ -289,6 +316,52 @@ func ensureProjectVM(
 		boot = vmBootCreated
 	}
 	return sb, boot, nil
+}
+
+// resolveExistingVMPostLock attaches to or starts the VM another invocation may
+// have created while this one waited for the flock.
+func resolveExistingVMPostLock(
+	ctx context.Context,
+	handle msb.SandboxHandle,
+	opts options.RunOptions,
+	name string,
+	ui termio.UI,
+) (msb.Sandbox, vmBoot, error) {
+	action, actionErr := decideVMAction(nil, handle.Status())
+	if actionErr != nil {
+		return nil, vmBootConnected, actionErr
+	}
+	if action == vmActionConnect {
+		sb, connErr := handle.Connect(ctx)
+		if connErr != nil {
+			ui.Verbosef("post-lock connect failed: %v", connErr)
+		}
+		if sb != nil {
+			reconcileResources(ctx, handle, opts, ui)
+			return sb, vmBootConnected, nil
+		}
+	}
+	if action == vmActionWait {
+		sb, boot, waitErr := convergeExistingVM(ctx, handle)
+		if waitErr != nil {
+			return nil, vmBootConnected, fmt.Errorf("wait for sandbox %q to start: %w", name, waitErr)
+		}
+		reconcileResources(ctx, handle, opts, ui)
+		return sb, boot, nil
+	}
+	sb, boot, startErr := startExistingVM(ctx, handle)
+	if startErr != nil {
+		return nil, vmBootConnected, fmt.Errorf("start sandbox %q: %w", name, startErr)
+	}
+	reconcileResources(ctx, handle, opts, ui)
+	return sb, boot, nil
+}
+
+// reconcileResources best-effort reconciles live VM resources with opts.
+func reconcileResources(ctx context.Context, handle msb.SandboxHandle, opts options.RunOptions, ui termio.UI) {
+	if recErr := reconcileResourceConfig(ctx, handle, opts, ui); recErr != nil {
+		ui.Warnf("could not reconcile VM resources: %v", recErr)
+	}
 }
 
 const sandboxLifecyclePollInterval = 100 * time.Millisecond

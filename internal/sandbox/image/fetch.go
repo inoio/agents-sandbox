@@ -10,8 +10,6 @@ import (
 // resolveAgentVersion returns the requested version when non-empty, otherwise
 // resolves the latest release for the agent via its own UpgradeChecker. Agents
 // without an UpgradeChecker fall back to the requested (or empty) version.
-//
-//nolint:gochecknoglobals // test seam, swapped in tests
 var resolveAgentVersion = func(ctx context.Context, a agent.Agent, requested string) (string, error) {
 	if requested != "" {
 		return requested, nil

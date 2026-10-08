@@ -19,6 +19,8 @@ const changeLabelImage = "image"
 
 // Change describes one changed setting for prompt display. Values are
 // shown for simple sizes/counts; env/secrets/config carry labels only (Old/New empty).
+//
+//exhaustruct:ignore
 type Change struct {
 	Label string
 	Old   string
@@ -44,6 +46,8 @@ func SizeChange(label string, old, newSize uint32, oldRaw, newRaw string) Change
 }
 
 // Plan captures the reconfiguration decision for a project VM.
+//
+//exhaustruct:ignore
 type Plan struct {
 	Recreate       bool
 	RestartDaemons bool
@@ -83,145 +87,168 @@ type ChangeFlags struct {
 // PlanReconfig computes the reconfiguration plan given the current VM config
 // and the desired state. Returns a nil Plan when there is no existing config
 // (first creation) or nothing needs to change.
-func PlanReconfig( //nolint:gocognit,gocyclo,cyclop,funlen // core planner, cognitive and cyclomatic complexity acceptable for now
+func PlanReconfig(
 	cfg *msbSdk.SandboxConfig,
 	imageRef string,
 	opts options.RunOptions,
 	flags ChangeFlags,
 	homeVol string,
 ) *Plan {
-	d := &Plan{} //nolint:exhaustruct_v5 // fields zeroed intentionally
+	d := &Plan{}
 	if cfg == nil {
 		return d
 	}
 
 	// Recreation triggers (cannot be changed live).
-	imageChanged := flags.Image
-	if imageRef != "" && cfg.Image != "" && cfg.Image != imageRef {
-		imageChanged = true
+	if imageRecreate(cfg, imageRef, flags.Image) {
+		d.addRecreate(Change{Label: changeLabelImage})
 	}
-	if imageChanged {
-		d.Recreate = true
-		d.Changes = append(
-			d.Changes,
-			Change{Label: changeLabelImage}, //nolint:exhaustruct_v5 // label-only for change reporting
-		)
+	if change, ok := tmpSizeChange(cfg, opts); ok {
+		d.addRecreate(change)
 	}
-	if wantTmp, ok := options.ParseMemoryOK(opts.TmpSize); ok {
-		if tmp, ok := cfg.Volumes[tmpMountPath]; ok && tmp.SizeMiB != wantTmp {
-			d.Recreate = true
-			oldRaw := FormatSizeSpec(tmp.SizeMiB, "")
-			d.Changes = append(d.Changes, SizeChange("/tmp tmpfs size", tmp.SizeMiB, wantTmp, oldRaw, opts.TmpSize))
-		}
+	if change, ok := workspaceQuotaChange(cfg, opts); ok {
+		d.addRecreate(change)
 	}
-	if wantQuota, ok := options.ParseMemoryOK(opts.WorkspaceQuota); ok {
-		if ws, ok := cfg.Volumes[workspaceMountPath]; ok && ws.QuotaMiB != wantQuota {
-			d.Recreate = true
-			oldRaw := FormatSizeSpec(ws.QuotaMiB, "")
-			d.Changes = append(
-				d.Changes,
-				SizeChange("/workspace write quota", ws.QuotaMiB, wantQuota, oldRaw, opts.WorkspaceQuota),
-			)
-		}
+	if homeVolumeChange(cfg, homeVol) {
+		d.addRecreate(Change{Label: "home volume"})
 	}
-
-	// A home-volume migration/reset points state at a new volume, but the
-	// mount is baked into the VM at creation time. A change can only be
-	// applied by recreating the VM with the new volume mounted.
-	if homeVol != "" {
-		if home, ok := cfg.Volumes[VMHomeDir]; ok && home.Named != homeVol {
-			d.Recreate = true
-			d.Changes = append(
-				d.Changes,
-				Change{Label: "home volume"}, //nolint:exhaustruct_v5 // label-only for change reporting
-			)
-		}
-	}
-	// Host bind mounts are baked into the VM at creation time. The comparison
-	// is fingerprint-based (MountsChanged) for the same reason as the network
-	// policy: the SDK does not round-trip volumes when reading a VM back.
 	if flags.Mounts {
-		d.Recreate = true
-		d.Changes = append(
-			d.Changes,
-			Change{Label: changeLabelBindMounts}, //nolint:exhaustruct_v5 // label-only for change reporting
-		)
+		d.addRecreate(Change{Label: changeLabelBindMounts})
 	}
-	if wantDisk, ok := options.ParseMemoryOK(opts.DiskSize); ok {
-		if cfg.RootDisk == nil || cfg.RootDisk.SizeMiB != wantDisk {
-			d.Recreate = true
-			oldRaw := ""
-			if cfg.RootDisk != nil {
-				oldRaw = FormatSizeSpec(cfg.RootDisk.SizeMiB, "")
-			}
-			d.Changes = append(
-				d.Changes,
-				SizeChange("root disk size", diskMiBOr0(cfg), wantDisk, oldRaw, opts.DiskSize),
-			)
-		}
+	if change, ok := rootDiskChange(cfg, opts); ok {
+		d.addRecreate(change)
 	}
 
-	// Env/secret changes cannot be applied live or on a daemon restart:
-	// microsandbox requires a VM (re)start for them, so they are folded into the
-	// rebuild tier (they are baked into the VM at creation, see createProjectVM).
-
-	// Port publish state (serve-only) must match; mismatch requires recreate
+	// Port publish state (serve-only) must match; a mismatch requires recreate
 	// since microsandbox published ports can only be set at VM creation.
-	wantPorts := desiredPublishBindings(opts.ServeOnly, cfg)
-	if len(wantPorts) > 0 {
-		d.ServeHostPort = int(wantPorts[0].HostPort)
+	// Network policy is creation-only too; its comparison is fingerprint-based
+	// (NetworkChanged) because the SDK does not round-trip network config.
+	hostPort, portsChanged := publishReconfig(opts, cfg)
+	d.ServeHostPort = hostPort
+	if portsChanged {
+		d.addRecreate(Change{Label: changeLabelPublishedPorts})
 	}
-	if !portBindingsEqual(wantPorts, cfg.PortBindings) {
-		d.Recreate = true
-		d.Changes = append(
-			d.Changes,
-			Change{Label: changeLabelPublishedPorts}, //nolint:exhaustruct_v5 // label-only for change reporting
-		)
-	}
-
-	// Network policy is creation-only in microsandbox; a change requires a
-	// recreate (same tier as env/secrets/ports). The comparison is based on a
-	// persisted fingerprint (NetworkChanged), because the microsandbox SDK does
-	// not round-trip the network config when reading back an existing VM.
 	if flags.Network {
-		d.Recreate = true
-		d.Changes = append(
-			d.Changes,
-			Change{Label: changeLabelNetworkPolicy}, //nolint:exhaustruct_v5 // label-only for change reporting
-		)
+		d.addRecreate(Change{Label: changeLabelNetworkPolicy})
 	}
 
-	if !d.Recreate && (flags.Env || flags.Secrets) {
-		d.Recreate = true
-		if flags.Env {
-			d.Changes = append(
-				d.Changes,
-				Change{Label: "environment variables"}, //nolint:exhaustruct_v5 // label-only for change reporting
-			)
-		}
-		if flags.Secrets {
-			d.Changes = append(
-				d.Changes,
-				Change{Label: "secrets"}, //nolint:exhaustruct_v5 // label-only for change reporting
-			)
-		}
+	// Env/secret changes are folded into the rebuild tier (baked into the VM at
+	// creation); agent config changes only need a daemon restart.
+	if !d.Recreate {
+		d.applyEnvSecretRecreate(flags)
 	}
-
-	// Agent config changes are picked up by restarting the agent daemon;
-	// a full VM rebuild is not required.
 	if !d.Recreate && flags.AgentConfig {
 		d.RestartDaemons = true
-		d.Changes = append(
-			d.Changes,
-			Change{Label: "agent config"}, //nolint:exhaustruct_v5 // label-only for change reporting
-		)
+		d.Changes = append(d.Changes, Change{Label: "agent config"})
 	}
 
-	// cpu/memory always staged for live Modify (clamped to boot max).
+	// cpu/memory are always staged for live Modify (clamped to boot max).
+	if mo := resourceModification(cfg, opts); mo != nil {
+		d.Resources = mo
+	}
+	return d
+}
+
+// addRecreate records a change that can only be applied by recreating the VM.
+func (d *Plan) addRecreate(change Change) {
+	d.Recreate = true
+	d.Changes = append(d.Changes, change)
+}
+
+// applyEnvSecretRecreate adds env/secret changes as recreation triggers.
+func (d *Plan) applyEnvSecretRecreate(flags ChangeFlags) {
+	if flags.Env {
+		d.addRecreate(Change{Label: "environment variables"})
+	}
+	if flags.Secrets {
+		d.addRecreate(Change{Label: "secrets"})
+	}
+}
+
+// imageRecreate reports whether the runner image differs from the configured one.
+func imageRecreate(cfg *msbSdk.SandboxConfig, imageRef string, flag bool) bool {
+	if flag {
+		return true
+	}
+	return imageRef != "" && cfg.Image != "" && cfg.Image != imageRef
+}
+
+// tmpSizeChange reports the /tmp tmpfs size change, if any.
+func tmpSizeChange(cfg *msbSdk.SandboxConfig, opts options.RunOptions) (Change, bool) {
+	want, ok := options.ParseMemoryOK(opts.TmpSize)
+	if !ok {
+		return Change{}, false
+	}
+	tmp, ok := cfg.Volumes[tmpMountPath]
+	if !ok || tmp.SizeMiB == want {
+		return Change{}, false
+	}
+	return SizeChange("/tmp tmpfs size", tmp.SizeMiB, want, FormatSizeSpec(tmp.SizeMiB, ""), opts.TmpSize), true
+}
+
+// workspaceQuotaChange reports the /workspace write-quota change, if any.
+func workspaceQuotaChange(cfg *msbSdk.SandboxConfig, opts options.RunOptions) (Change, bool) {
+	want, ok := options.ParseMemoryOK(opts.WorkspaceQuota)
+	if !ok {
+		return Change{}, false
+	}
+	ws, ok := cfg.Volumes[workspaceMountPath]
+	if !ok || ws.QuotaMiB == want {
+		return Change{}, false
+	}
+	return SizeChange(
+		"/workspace write quota",
+		ws.QuotaMiB,
+		want,
+		FormatSizeSpec(ws.QuotaMiB, ""),
+		opts.WorkspaceQuota,
+	), true
+}
+
+// homeVolumeChange reports whether the requested home volume differs from the
+// one baked into the VM. A migration/reset points state at a new volume, which
+// can only take effect by recreating the VM with the new volume mounted.
+func homeVolumeChange(cfg *msbSdk.SandboxConfig, homeVol string) bool {
+	if homeVol == "" {
+		return false
+	}
+	home, ok := cfg.Volumes[VMHomeDir]
+	return ok && home.Named != homeVol
+}
+
+// rootDiskChange reports the root-disk size change, if any.
+func rootDiskChange(cfg *msbSdk.SandboxConfig, opts options.RunOptions) (Change, bool) {
+	want, ok := options.ParseMemoryOK(opts.DiskSize)
+	if !ok {
+		return Change{}, false
+	}
+	if cfg.RootDisk != nil && cfg.RootDisk.SizeMiB == want {
+		return Change{}, false
+	}
+	oldRaw := ""
+	if cfg.RootDisk != nil {
+		oldRaw = FormatSizeSpec(cfg.RootDisk.SizeMiB, "")
+	}
+	return SizeChange("root disk size", diskMiBOr0(cfg), want, oldRaw, opts.DiskSize), true
+}
+
+// publishReconfig returns the resolved serve-only host port and whether the
+// published port bindings differ from the configured ones.
+func publishReconfig(opts options.RunOptions, cfg *msbSdk.SandboxConfig) (int, bool) {
+	wantPorts := desiredPublishBindings(opts.ServeOnly, cfg)
+	hostPort := 0
+	if len(wantPorts) > 0 {
+		hostPort = int(wantPorts[0].HostPort)
+	}
+	return hostPort, !portBindingsEqual(wantPorts, cfg.PortBindings)
+}
+
+// resourceModification returns the live cpu/memory modification to stage, or nil
+// when neither changes. Values are clamped to the boot maximum.
+func resourceModification(cfg *msbSdk.SandboxConfig, opts options.RunOptions) *msbSdk.ModifyOptions {
 	var mo msbSdk.ModifyOptions
 	if opts.CPUs != 0 && cfg.MaxCPUs > 0 {
-		want := min(opts.CPUs, cfg.MaxCPUs)
-		if want != cfg.CPUs {
+		if want := min(opts.CPUs, cfg.MaxCPUs); want != cfg.CPUs {
 			mo.CPUs = want
 		}
 	}
@@ -234,11 +261,11 @@ func PlanReconfig( //nolint:gocognit,gocyclo,cyclop,funlen // core planner, cogn
 			mo.MemoryMiB = want
 		}
 	}
-	if mo.CPUs != 0 || mo.MemoryMiB != 0 {
-		mo.Policy = msbSdk.ModificationPolicyNoRestart
-		d.Resources = &mo
+	if mo.CPUs == 0 && mo.MemoryMiB == 0 {
+		return nil
 	}
-	return d
+	mo.Policy = msbSdk.ModificationPolicyNoRestart
+	return &mo
 }
 
 // ResolveReconfig resolves a Plan into concrete apply actions based on the

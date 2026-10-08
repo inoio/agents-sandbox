@@ -11,6 +11,9 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+// SecretSpec describes a secret to provision into the VM.
+//
+//exhaustruct:ignore
 type SecretSpec struct {
 	Value                 string   `yaml:"value"`
 	Host                  string   `yaml:"host"`
@@ -58,7 +61,7 @@ func ParseSecretSpecLegacy(filename string, ui termio.UI) map[string]SecretSpec 
 			ui.Warnf("Value of secret '%s' not defined in format 'value@host': '%s'", key, valueAndHost)
 			return nil
 		}
-		specs[key] = SecretSpec{ //nolint:exhaustruct_v5 // missing field uses zero-value default
+		specs[key] = SecretSpec{
 			Value: before, Host: "", Hosts: []string{after},
 		}
 		return nil

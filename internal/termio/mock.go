@@ -64,7 +64,6 @@ func (m *Mock) Error(msg string, err error) {
 }
 
 func (m *Mock) Errorf(format string, args ...any) {
-	//nolint:exhaustruct_v5 // Err intentionally nil (set only via Error method)
 	m.ErrorCalls = append(m.ErrorCalls, ErrorCall{Msg: fmt.Sprintf(format, args...)})
 }
 
@@ -88,7 +87,6 @@ func (m *Mock) Header(msg string) {
 
 // NewTable returns an empty aligned Table that records output in the mock.
 func (m *Mock) NewTable(headers ...string) *Table {
-	//nolint:exhaustruct_v5 // rows starts empty (nil slice is the zero value)
 	return &Table{ui: m, headers: headers}
 }
 

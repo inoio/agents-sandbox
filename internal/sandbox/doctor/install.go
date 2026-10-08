@@ -9,7 +9,7 @@ import (
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
 )
 
-var ensureInstalledFunc = func(ctx context.Context) error { //nolint:gochecknoglobals // test seam, swapped in tests
+var ensureInstalledFunc = func(ctx context.Context) error {
 	return msb.Get().EnsureInstalled(ctx)
 }
 
