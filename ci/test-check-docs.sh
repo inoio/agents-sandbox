@@ -144,5 +144,23 @@ printf '\n[ext](https://opencode.ai)\n' >>"$d/docs/introduction.md"
 expect "external links ignored" 0 "all internal links are valid" "$d"
 rm -rf "$d"
 
+# Jekyll build output under docs/_site/ is not project documentation.
+d="$(new_fixture)"
+mkdir -p "$d/docs/_site/superpowers/plans"
+cat >"$d/docs/_site/superpowers/plans/note.md" <<'EOF'
+[Missing]({% link nope.md %})
+EOF
+expect "docs _site build output ignored" 0 "all internal links are valid" "$d"
+rm -rf "$d"
+
+# Vendored dependencies under docs/vendor/ are not project documentation.
+d="$(new_fixture)"
+mkdir -p "$d/docs/vendor/bundle"
+cat >"$d/docs/vendor/bundle/README.md" <<'EOF'
+[Missing](missing.md)
+EOF
+expect "docs vendor dependency ignored" 0 "all internal links are valid" "$d"
+rm -rf "$d"
+
 printf '\n%d passed, %d failed\n' "$pass" "$fail"
 [[ "$fail" -eq 0 ]]

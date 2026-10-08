@@ -175,8 +175,14 @@ check_files() {
 check_files root "$ROOT" -maxdepth 1
 
 # Files under docs/: internal links must be Jekyll {% link %} tags.
-# docs/superpowers/ is gitignored tooling (see AGENTS.md) and out of scope.
-check_files docs "$DOCS" -not -path "$DOCS/superpowers/*"
+# Skip gitignored trees that are not project documentation: docs/superpowers/
+# is local tooling (see AGENTS.md), docs/_site/ is Jekyll build output, and
+# docs/vendor/ is the Ruby gem bundle. They are absent in CI but present
+# locally, and their markdown would otherwise produce false violations.
+check_files docs "$DOCS" \
+  -not -path "$DOCS/superpowers/*" \
+  -not -path "$DOCS/_site/*" \
+  -not -path "$DOCS/vendor/*"
 
 if [[ "$violations" -gt 0 ]]; then
   printf 'docs: %d violation(s) found\n' "$violations"
