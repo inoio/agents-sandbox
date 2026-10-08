@@ -120,6 +120,44 @@ func TestLoadDirFindsConfigInOrder(t *testing.T) {
 	}
 }
 
+func TestGetBoolAndGetInt(t *testing.T) {
+	config, err := Parse("config.yaml", []byte("dind: true\ncpus: 16\nnested:\n  flag: false\n"))
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	if got, ok := config.GetBool([]string{"dind"}); !ok || !got {
+		t.Errorf("GetBool dind = %v, %v; want true, true", got, ok)
+	}
+	if got, ok := config.GetBool([]string{"nested", "flag"}); !ok || got {
+		t.Errorf("GetBool nested.flag = %v, %v; want false, true", got, ok)
+	}
+	if _, ok := config.GetBool([]string{"cpus"}); ok {
+		t.Error("GetBool reported an integer as a boolean")
+	}
+	if _, ok := config.GetBool([]string{"absent"}); ok {
+		t.Error("GetBool reported an absent key as present")
+	}
+	if got, ok := config.GetInt([]string{"cpus"}); !ok || got != 16 {
+		t.Errorf("GetInt cpus = %d, %v; want 16, true", got, ok)
+	}
+	if _, ok := config.GetInt([]string{"dind"}); ok {
+		t.Error("GetInt reported a boolean as an integer")
+	}
+	if _, ok := config.GetInt([]string{"absent"}); ok {
+		t.Error("GetInt reported an absent key as present")
+	}
+}
+
+func TestGetIntReadsJSONNumbers(t *testing.T) {
+	config, err := Parse("config.json", []byte(`{"cpus": 16}`))
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	if got, ok := config.GetInt([]string{"cpus"}); !ok || got != 16 {
+		t.Errorf("GetInt cpus = %d, %v; want 16, true", got, ok)
+	}
+}
+
 func TestGetStringOnNestedPath(t *testing.T) {
 	config, err := Parse("config.yaml", []byte("network:\n  profile: none\n"))
 	if err != nil {

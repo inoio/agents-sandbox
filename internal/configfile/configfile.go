@@ -94,17 +94,9 @@ func (c *Config) Values() map[string]any {
 // GetString returns the value at the nested key path as a string and whether
 // the key is present.
 func (c *Config) GetString(keyPath []string) (string, bool) {
-	current := any(c.values)
-	for _, key := range keyPath {
-		mapping, ok := current.(map[string]any)
-		if !ok {
-			return "", false
-		}
-		value, ok := mapping[key]
-		if !ok {
-			return "", false
-		}
-		current = value
+	current, ok := c.lookup(keyPath)
+	if !ok {
+		return "", false
 	}
 	switch value := current.(type) {
 	case string:
@@ -114,6 +106,53 @@ func (c *Config) GetString(keyPath []string) (string, bool) {
 	default:
 		return fmt.Sprint(value), true
 	}
+}
+
+// GetBool returns the value at the nested key path as a boolean and whether the
+// key is present with a boolean value.
+func (c *Config) GetBool(keyPath []string) (bool, bool) {
+	current, ok := c.lookup(keyPath)
+	if !ok {
+		return false, false
+	}
+	value, ok := current.(bool)
+	return value, ok
+}
+
+// GetInt returns the value at the nested key path as an integer and whether the
+// key is present with an integer value. JSON-family files decode numbers as
+// float64, so those are accepted too.
+func (c *Config) GetInt(keyPath []string) (int, bool) {
+	current, ok := c.lookup(keyPath)
+	if !ok {
+		return 0, false
+	}
+	switch value := current.(type) {
+	case int:
+		return value, true
+	case int64:
+		return int(value), true
+	case float64:
+		return int(value), true
+	default:
+		return 0, false
+	}
+}
+
+func (c *Config) lookup(keyPath []string) (any, bool) {
+	current := any(c.values)
+	for _, key := range keyPath {
+		mapping, ok := current.(map[string]any)
+		if !ok {
+			return nil, false
+		}
+		value, ok := mapping[key]
+		if !ok {
+			return nil, false
+		}
+		current = value
+	}
+	return current, true
 }
 
 // SetString sets the string at the nested key path, creating missing mappings.
