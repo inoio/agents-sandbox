@@ -139,10 +139,17 @@ Non-interactive runs: warn (native config found but not migrated, etc.) and cont
 A declarative, extensible catalog of `SetupQuestion`s (key path, tier, prompt, default, validation). Every question has
 a default; accepting defaults is one keystroke.
 
-- First run asks a shallow tier set (essentials + resources + runtime). Deeper tiers are opt-in later via
-  `config wizard --tier=N`; `config wizard` with no flag asks all unanswered tiers.
-- Exact tier membership is deliberately not fixed by this spec; the catalog is designed so it can be re-tiered without
-  structural change.
+- Tier membership (fixed; the catalog stays re-tierable without structural change — see
+  `.operator-shared/plans/2026-10-08-guided-onboarding-c-tiered-wizard.md` for the concrete catalog):
+  - **T1 essentials** — `agent` (only when unset) and `network.profile`.
+  - **T2 resources** — `cpus`, `memory`, `disk-size`, `workspace-quota`, collapsed behind one "resource defaults ok?"
+    confirmation.
+  - **T3 runtime** — `dind`, `tmp-size`, `log-level`.
+  - **T4 integrations** — `notify.*`, `upgrade.*`, `auto-prune-age`.
+- First run asks T1–T3. Deeper tiers are opt-in later via `config wizard --tier=N`; `config wizard` with no flag asks
+  all unanswered tiers.
+- The wizard runs as a first-run step **before** credential migration, then run options are re-resolved so migration sees
+  the chosen agent and network posture.
 - A value already set at a more specific scope (project / per-slug / env / flag) is never overwritten; the question is
   skipped and this is reported.
 - A group of related value questions may be collapsed behind one confirmation: e.g. a single "resource defaults ok?"
@@ -215,7 +222,8 @@ This spec is delivered in four sequential plans; each produces working software 
   `Guide`, effective-policy deny detection/resolution, plus the necessary refactorings (shared credential metadata,
   dead-code/duplication removal, file decomposition). Plan document: `.operator-shared/plans/2026-10-07-guided-onboarding-a-credential-kind.md`.
 - **Plan B — Onboarding state machine** (see "Onboarding state machine").
-- **Plan C — Tiered setup wizard** (see "Tiered setup wizard").
+- **Plan C — Tiered setup wizard** (see "Tiered setup wizard"). Plan document:
+  `.operator-shared/plans/2026-10-08-guided-onboarding-c-tiered-wizard.md`.
 - **Plan D — `config harden`** (see "`config harden`").
 
 To resume: read the spec section named for the plan, then expand it into the same TDD-shaped plan as Plan A.
@@ -231,6 +239,5 @@ CLI command/flag changes covered in `cmd/agents-sandbox/cli_*_test.go`.
 ## Deferred / open
 
 - Auto-confirming in-sandbox login by statting the VM home (enhancement only).
-- Exact tier membership (intentionally flexible).
 - Whether `LoginHosts` needs a richer per-provider structure than a host list (e.g. device-flow hosts) after
   real-provider testing.

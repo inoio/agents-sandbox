@@ -11,6 +11,9 @@ nav_order: 10
 agents-sandbox supports configuration at two levels: user-level defaults and project-level overrides. Both can set CLI
 flags and environment variables. This page covers where config lives, the config-file fields, and how values are resolved.
 
+On first run an interactive [setup wizard]({% link configuration/wizard.md %}) walks you through the essentials and
+writes them to your user-level config file; `agents-sandbox config wizard` re-runs it on demand.
+
 ## User-level defaults
 
 Place files under `~/.config/agents-sandbox/` to set defaults for all projects:

@@ -10,6 +10,12 @@ command reports the bare version (e.g. `0.1.0`).
 
 ### Added
 
+- Config: added an interactive tiered setup wizard. On the first interactive `run`/`shell` it asks the essentials,
+  resource, and runtime tiers (agent when unset, network profile, resources, and runtime defaults) before credential
+  migration; `config wizard [--tier=N]` asks one tier or every unanswered tier on demand. Answers are written to the
+  user-level config file preserving comments and key order, related resource/integration questions collapse behind one
+  confirmation, an "enough questions — use defaults for the rest" option exits early, values already fixed at a more
+  specific scope are skipped and reported, and answered/first-run state is remembered so the wizard never nags.
 - Config: added `config migrate` and first-run guidance for safely migrating supported OpenCode, Pi and Claude Code configuration with
   microsandbox secret placeholders while keeping native host-config provisioning disabled. Reworked documentation to reflect the changes.
 - Internal: add `make test-integration` — docker-build integration tests (tagged `integration`, excluded from the main

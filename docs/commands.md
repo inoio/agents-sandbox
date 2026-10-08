@@ -350,6 +350,24 @@ agents-sandbox config migrate --agent opencode2
 |-----------|-------|---------------------------------|---------------------------------|
 | `--agent` | —     | configured `agent` (`opencode`) | Coding-agent profile to migrate |
 
+#### config wizard
+
+Interactively set launcher configuration in your user-level config file, preserving comments and key order. With no
+flag it asks every tier that still has unanswered questions; `--tier=N` asks exactly one tier (1 = essentials, 2 =
+resources, 3 = runtime, 4 = integrations). Non-interactive runs skip the wizard. Runs automatically on the first
+interactive `run`/`shell` (tiers 1–3 only). See [Setup wizard]({% link configuration/wizard.md %}).
+
+```console
+agents-sandbox config wizard
+agents-sandbox config wizard --tier=4
+```
+
+**Flags:**
+
+| Flag     | Short | Default | Purpose                                                        |
+|----------|-------|---------|----------------------------------------------------------------|
+| `--tier` | —     | `0`     | Tier to ask (1–4); `0` asks all unanswered tiers               |
+
 ---
 
 ### completion
