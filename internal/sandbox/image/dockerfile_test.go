@@ -14,3 +14,13 @@ func agentOpencode(t *testing.T) agent.Agent {
 	}
 	return a
 }
+
+// renderBytes renders a runner Dockerfile for tests, failing on a render error.
+func renderBytes(t *testing.T, a agent.Agent, project []byte, docker bool) []byte {
+	t.Helper()
+	out, err := RenderDockerfile(a, project, docker)
+	if err != nil {
+		t.Fatalf("RenderDockerfile: %v", err)
+	}
+	return out
+}

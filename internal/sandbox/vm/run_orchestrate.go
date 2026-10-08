@@ -175,7 +175,7 @@ func buildOptions(opts options.RunOptions, agentVersion string, force, userProvi
 		Force:        force,
 		AgentVersion: agentVersion,
 		UserProvided: userProvided,
-		Dind:         opts.Dind,
+		Docker:       opts.Docker,
 	}
 }
 

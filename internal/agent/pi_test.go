@@ -41,6 +41,9 @@ func TestPIImageSpec(t *testing.T) {
 	if !strings.Contains(spec.InstallCommand, "@earendil-works/pi-coding-agent") {
 		t.Errorf("InstallCommand = %q, want pi npm install", spec.InstallCommand)
 	}
+	if !strings.Contains(spec.InstallCommand, "--prefix /opt/agents-sandbox") {
+		t.Errorf("InstallCommand = %q, want the /opt/agents-sandbox prefix", spec.InstallCommand)
+	}
 }
 
 func TestPIAttachCommand(t *testing.T) {

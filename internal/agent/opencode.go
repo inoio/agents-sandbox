@@ -21,7 +21,7 @@ func (opencodeProfile) ImageSpec() ImageSpec {
 			"OPENCODE_DISABLE_AUTOUPDATE":      opencodeAutoupdateDisabled,
 			"OPENCODE_EXPERIMENTAL_WORKSPACES": "true",
 		},
-		InstallCommand: `curl -fsSL https://opencode.ai/install | bash -s -- --version "$OPENCODE_VERSION" && cp /root/.opencode/bin/opencode /usr/local/bin`,
+		InstallCommand: `curl -fsSL https://opencode.ai/install | bash -s -- --version "$OPENCODE_VERSION" && cp /root/.opencode/bin/opencode /opt/agents-sandbox/bin`,
 	}
 }
 

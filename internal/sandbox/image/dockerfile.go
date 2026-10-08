@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"os"
+	"slices"
 	"sort"
 	"strings"
 
@@ -13,13 +14,38 @@ import (
 	"github.com/inoio/agents-sandbox/internal/configpaths"
 )
 
-// managedBaseRef and managedBaseDindRef are the pre-redesign base image
-// references recognized in a project Dockerfile's final stage. They are
-// replaced with the embedded base tools block for backward compatibility; the
-// -dind variant also implies the dind block.
+// managedBaseRef, managedBaseDindRef, and managedBaseDockerRef are the base
+// image references recognized in a project Dockerfile's final stage. They are
+// replaced with the embedded base tools block; the docker variants also imply
+// docker support. The -dind spelling is the deprecated alias of -docker.
 const (
-	managedBaseRef     = "agents-sandbox/runner-base"
-	managedBaseDindRef = "agents-sandbox/runner-base-dind"
+	managedBaseRef       = "agents-sandbox/runner-base"
+	managedBaseDindRef   = "agents-sandbox/runner-base-dind"
+	managedBaseDockerRef = "agents-sandbox/runner-base-docker"
+)
+
+// Fixed, reserved stage aliases the renderer emits. They are deterministic
+// (never uuid/hash-suffixed) because dockerfile-id is a content hash of the
+// rendered Dockerfile. A project Dockerfile declaring one is a hard error.
+const (
+	baseStageAlias   = "agents-sandbox-base"
+	nodeStageAlias   = "agents-sandbox-node"
+	agentStageAlias  = "agents-sandbox-agent"
+	dockerStageAlias = "agents-sandbox-docker"
+	runnerStageAlias = "agents-sandbox-runner"
+)
+
+// reservedStageAliases is the set of stage aliases the renderer owns.
+var reservedStageAliases = []string{
+	baseStageAlias, nodeStageAlias, agentStageAlias, dockerStageAlias, runnerStageAlias,
+}
+
+// Tool artifact contract: every tool lands under toolDir and is exposed through
+// toolBin, which the runner appends to PATH so a base-provided binary keeps
+// precedence.
+const (
+	toolDir = "/opt/agents-sandbox"
+	toolBin = "/opt/agents-sandbox/bin"
 )
 
 // agentLabelKey is the image label carrying the baked agent name.
@@ -44,39 +70,79 @@ const (
 	dockerVersion = "29.7.2"
 )
 
-// dindMarker is the comment a project Dockerfile can place in its final stage to
-// control where the Docker-in-Docker install block runs, e.g. after installing the
-// dind prerequisites and before configuring docker.
-const dindMarker = "# agents-sandbox:dind"
+// dockerMarker and legacyDockerMarker are the comment lines a project
+// Dockerfile can place in its final stage to control where the thin docker
+// copy/adopt block runs. The dind spelling is the deprecated alias.
+const (
+	dockerMarker       = "# agents-sandbox:docker"
+	legacyDockerMarker = "# agents-sandbox:dind"
+)
 
-// RenderDockerfile composes the single per-project runner Dockerfile from the
-// agent, the project Dockerfile (if any), and the dind switch. The project's
-// final stage is split into its base and body, then the tool-owned blocks are
-// concatenated around it.
-func RenderDockerfile(a agent.Agent, projectDockerfile []byte, dind bool) []byte {
-	if referencesImage(projectDockerfile, managedBaseDindRef) {
-		dind = true
+// RenderDockerfile composes the per-project runner Dockerfile from per-tool
+// multistage stages. Tool-owned layers cache independently of the user body,
+// the base, and each other; the runner stage merges the tool trees with COPY
+// after the user body. It returns an error when the project Dockerfile
+// declares a reserved stage alias.
+func RenderDockerfile(a agent.Agent, projectDockerfile []byte, docker bool) ([]byte, error) {
+	if err := checkReservedAliases(projectDockerfile); err != nil {
+		return nil, err
 	}
-	earlier, base, body := splitFinalStage(projectDockerfile)
-	if dind {
-		body = injectDindBlock(body, dindBlock())
+	if referencesImage(projectDockerfile, managedBaseDindRef) ||
+		referencesImage(projectDockerfile, managedBaseDockerRef) {
+		docker = true
 	}
-	return []byte(joinBlocks(
-		earlier,
-		base,
-		devUserBlock(),
-		body,
-		dindFinalizationBlock(),
-		agentBlock(a),
-		finalizationBlock(),
-	))
+
+	managed := len(bytes.TrimSpace(projectDockerfile)) == 0 || isManagedBase(projectDockerfile)
+	earlier, baseFrom, body := splitFinalStage(projectDockerfile)
+
+	var baseStage, baseAlias string
+	if managed {
+		baseStage, baseAlias = managedBaseStage(), baseStageAlias
+	} else {
+		baseStage, baseAlias = customBaseStage(baseFrom)
+	}
+
+	body, dockerInjected := injectDockerBlock(body, docker)
+
+	blocks := make([]string, 0, 6)
+	blocks = append(blocks, earlier, baseStage, nodeStage(baseAlias), agentStage(a))
+	if docker {
+		blocks = append(blocks, dockerStage(baseAlias))
+	}
+	blocks = append(blocks, runnerStage(a, baseAlias, body, docker, dockerInjected))
+	return []byte(joinBlocks(blocks...)), nil
+}
+
+// checkReservedAliases rejects a project Dockerfile that declares one of the
+// renderer's reserved stage aliases.
+func checkReservedAliases(projectDockerfile []byte) error {
+	_, stageBase := scanFromStages(projectDockerfile)
+	var collided []string
+	for alias := range stageBase {
+		if slices.Contains(reservedStageAliases, alias) {
+			collided = append(collided, alias)
+		}
+	}
+	if len(collided) == 0 {
+		return nil
+	}
+	sort.Strings(collided)
+	return fmt.Errorf("project Dockerfile declares reserved stage alias(es): %s", strings.Join(collided, ", "))
+}
+
+// isManagedBase reports whether the project Dockerfile's final stage uses one
+// of the managed base references.
+func isManagedBase(projectDockerfile []byte) bool {
+	return referencesImage(projectDockerfile, managedBaseRef) ||
+		referencesImage(projectDockerfile, managedBaseDindRef) ||
+		referencesImage(projectDockerfile, managedBaseDockerRef)
 }
 
 // splitFinalStage splits a project Dockerfile into the earlier build stages, the
 // final stage's base, and the body after it. Without a project Dockerfile the
 // embedded tools block is the whole base. A managed base has its final FROM
-// replaced by the embedded tools block, keeping earlier stages; a custom base keeps
-// its own FROM.
+// replaced by the embedded tools block, keeping earlier stages; a custom base
+// keeps its own FROM.
 func splitFinalStage(projectDockerfile []byte) (string, string, string) {
 	if len(bytes.TrimSpace(projectDockerfile)) == 0 {
 		return "", string(embeddedBaseToolsBlock), ""
@@ -88,28 +154,190 @@ func splitFinalStage(projectDockerfile []byte) (string, string, string) {
 	}
 	earlier := string(bytes.Join(lines[:lastFrom], nil))
 	body := string(bytes.Join(lines[lastFrom+1:], nil))
-	if referencesImage(projectDockerfile, managedBaseRef) ||
-		referencesImage(projectDockerfile, managedBaseDindRef) {
+	if isManagedBase(projectDockerfile) {
 		return earlier, string(embeddedBaseToolsBlock), body
 	}
 	return earlier, string(lines[lastFrom]), body
 }
 
-// injectDindBlock replaces the first dind marker line in body with block, or
-// appends block when no marker is present. body is the final stage's body, so a
-// marker in an earlier build stage is never seen.
-func injectDindBlock(body, block string) string {
+// managedBaseStage renders the embedded tools block with its FROM given the
+// reserved base alias.
+func managedBaseStage() string {
+	block := string(embeddedBaseToolsBlock)
+	lines := strings.SplitAfter(block, "\n")
+	if len(lines) > 0 && strings.HasPrefix(strings.TrimSpace(lines[0]), "FROM") {
+		lines[0] = strings.TrimRight(lines[0], "\n") + " AS " + baseStageAlias + "\n"
+	}
+	return strings.Join(lines, "")
+}
+
+// customBaseStage gives the user's final FROM the base stage alias, reusing an
+// alias the user already declared. It returns the stage and the alias the tool
+// stages must start from.
+func customBaseStage(fromLine string) (string, string) {
+	line := strings.TrimRight(fromLine, "\n")
+	_, alias := parseFrom(line)
+	if alias == "" {
+		return line + " AS " + baseStageAlias + "\n", baseStageAlias
+	}
+	return line + "\n", alias
+}
+
+// nodeStage renders the Node.js tool stage. It installs Node into toolDir only
+// when the base does not already provide it.
+func nodeStage(baseAlias string) string {
+	return fmt.Sprintf(`FROM %s AS %s
+USER root
+RUN mkdir -p %s && \
+    if command -v node >/dev/null 2>&1; then \
+      :; \
+    else \
+      case "$(uname -m)" in \
+        x86_64) NODE_ARCH=x64 ;; \
+        aarch64) NODE_ARCH=arm64 ;; \
+        *) echo "error: unsupported architecture: $(uname -m)" >&2; exit 1 ;; \
+      esac; \
+      curl -fsSL "https://nodejs.org/dist/%s/node-%s-linux-${NODE_ARCH}.tar.gz" \
+        | tar -xz -C %s --strip-components=1; \
+    fi
+ENV PATH="%s:${PATH}"
+`, baseAlias, nodeStageAlias, toolBin, nodeVersion, nodeVersion, toolDir, toolBin)
+}
+
+// agentStage renders the agent tool stage. It installs the agent into toolDir
+// only when the base does not already provide its binary. The stage starts from
+// the node stage so the agent install can use whichever npm is on PATH.
+func agentStage(a agent.Agent) string {
+	spec := a.ImageSpec()
+	var envBlock strings.Builder
+	envKeys := make([]string, 0, len(spec.AgentEnv))
+	for k := range spec.AgentEnv {
+		envKeys = append(envKeys, k)
+	}
+	sort.Strings(envKeys)
+	for _, k := range envKeys {
+		fmt.Fprintf(&envBlock, "ENV %s=%s\n", k, spec.AgentEnv[k])
+	}
+	return fmt.Sprintf(`FROM %s AS %s
+USER root
+ARG %s
+LABEL %s=%s
+%sRUN if command -v %s >/dev/null 2>&1; then \
+      :; \
+    else \
+      %s; \
+    fi
+`,
+		nodeStageAlias, agentStageAlias,
+		spec.VersionArg,
+		agentLabelKey, a.Name(),
+		envBlock.String(),
+		agentBinary(a),
+		spec.InstallCommand,
+	)
+}
+
+// dockerStage renders the optional Docker tool stage. It installs the static
+// Docker binaries into toolBin only when the base does not already provide
+// dockerd.
+func dockerStage(baseAlias string) string {
+	return fmt.Sprintf(`FROM %s AS %s
+USER root
+ARG DOCKER_VERSION=%s
+RUN set -e; mkdir -p %s && \
+    if command -v dockerd >/dev/null 2>&1; then \
+      :; \
+    else \
+      curl -fsSL "https://download.docker.com/linux/static/stable/$(uname -m)/docker-${DOCKER_VERSION}.tgz" \
+        | tar -xz -C %s --strip-components=1; \
+      for p in iptables git ps xz curl tar; do \
+        command -v "$p" >/dev/null 2>&1 || \
+          { echo "error: docker prerequisite missing: $p" >&2; exit 1; }; \
+      done; \
+    fi
+RUN groupadd -f docker
+`, baseAlias, dockerStageAlias, dockerVersion, toolBin, toolBin)
+}
+
+// runnerStage renders the final image stage: it creates the dev user, runs the
+// user body without the tool trees available, merges the tool trees with COPY,
+// records provenance, and finalizes the image contract.
+func runnerStage(a agent.Agent, baseAlias, body string, docker, dockerInjected bool) string {
+	parts := []string{
+		fmt.Sprintf("FROM %s AS %s\n", baseAlias, runnerStageAlias),
+		devUserBlock(),
+		fmt.Sprintf("ENV PATH=\"%s:${PATH}\"\n", toolBin),
+		body,
+	}
+	if docker && !dockerInjected {
+		parts = append(parts, dockerMergeBlock())
+	}
+	parts = append(parts,
+		fmt.Sprintf("COPY --from=%s %s %s\n", agentStageAlias, toolDir, toolDir),
+		agentAdoptionBlock(a),
+		finalizationBlock(),
+	)
+	return joinBlocks(parts...)
+}
+
+// injectDockerBlock replaces the first docker marker line in body with the
+// thin docker copy/adopt block, or appends it when no marker is present. It
+// reports whether the block was injected at a marker.
+func injectDockerBlock(body string, docker bool) (string, bool) {
+	if !docker {
+		return body, false
+	}
+	block := dockerMergeBlock()
 	lines := strings.SplitAfter(body, "\n")
 	for i, line := range lines {
-		if strings.TrimSpace(line) == dindMarker {
-			return strings.Join(lines[:i], "") + block + strings.Join(lines[i+1:], "")
+		if marker := strings.TrimSpace(line); marker == dockerMarker || marker == legacyDockerMarker {
+			return strings.Join(lines[:i], "") + block + strings.Join(lines[i+1:], ""), true
 		}
 	}
-	return body + block
+	return body, false
+}
+
+// dockerMergeBlock copies the docker tool tree into the runner and records its
+// provenance, so steps after the marker see docker.
+func dockerMergeBlock() string {
+	return fmt.Sprintf("COPY --from=%s %s %s\n%s", dockerStageAlias, toolDir, toolDir, dockerAdoptionBlock())
+}
+
+// dockerAdoptionBlock records whether dockerd was provided by the base (user)
+// or the tool, and ensures the docker group exists. PATH prefers base binaries,
+// so a base-provided dockerd resolves outside toolDir.
+func dockerAdoptionBlock() string {
+	return fmt.Sprintf(`RUN set -e; mkdir -p /etc/agents-sandbox; \
+    bin="$(command -v dockerd 2>/dev/null || true)"; \
+    case "$bin" in %s/*) echo tool ;; *) echo user ;; esac \
+      > /etc/agents-sandbox/docker-source; \
+    groupadd -f docker
+`, toolDir)
+}
+
+// agentAdoptionBlock records whether the agent was provided by the base (user)
+// or the tool. PATH prefers base binaries, so a base-provided agent resolves
+// outside toolDir.
+func agentAdoptionBlock(a agent.Agent) string {
+	return fmt.Sprintf(`RUN set -e; mkdir -p /etc/agents-sandbox; \
+    bin="$(command -v %s 2>/dev/null || true)"; \
+    case "$bin" in %s/*) echo tool ;; *) echo user ;; esac \
+      > /etc/agents-sandbox/agent-source
+`, agentBinary(a), toolDir)
+}
+
+// agentBinary returns the command name the agent installs.
+func agentBinary(a agent.Agent) string {
+	if provider, ok := agent.AsVersionProvider(a); ok {
+		if fields := strings.Fields(provider.VersionCmd()); len(fields) > 0 {
+			return fields[0]
+		}
+	}
+	return a.Name()
 }
 
 // joinBlocks concatenates non-empty blocks with a newline between them, so empty
-// segments (earlier stages, the body, or the dind block) leave no blank lines.
+// segments (earlier stages or the body) leave no blank lines.
 func joinBlocks(blocks ...string) string {
 	nonEmpty := blocks[:0]
 	for _, block := range blocks {
@@ -147,90 +375,6 @@ func lastFromLine(lines [][]byte) int {
 	return lastFrom
 }
 
-// dindBlock returns the idempotent docker-engine install block, appended when
-// dind is enabled (or implied by a runner-base-dind FROM). A base that already
-// provides dockerd is deferred to (docker-source=user).
-func dindBlock() string {
-	return fmt.Sprintf(`USER root
-ARG DOCKER_VERSION=%s
-
-RUN set -e; mkdir -p /etc/agents-sandbox && \
-    if command -v dockerd >/dev/null 2>&1; then \
-      echo user > /etc/agents-sandbox/docker-source; \
-    else \
-      echo tool > /etc/agents-sandbox/docker-source; \
-      curl -fsSL "https://download.docker.com/linux/static/stable/$(uname -m)/docker-${DOCKER_VERSION}.tgz" \
-        | tar -xz -C /usr/local/bin --strip-components=1; \
-      for p in iptables git ps xz curl tar; do \
-        command -v "$p" >/dev/null 2>&1 || \
-          { echo "error: docker prerequisite missing: $p" >&2; exit 1; }; \
-      done; \
-    fi
-
-RUN groupadd -f docker
-`, dockerVersion)
-}
-
-// dindFinalizationBlock finalizes docker for both dind=true and a user-defined Dockerfile that installs docker.
-func dindFinalizationBlock() string {
-	return `USER root
-# Microsandbox compatibility: always force the vfs storage driver
-RUN mkdir -p /etc/docker && \
-    echo '{"storage-driver":"vfs"}' > /etc/docker/daemon.json
-# if docker group exists, add dev user to it
-RUN usermod -aG docker dev 2>/dev/null || true
-`
-}
-
-// agentBlock renders the idempotent node+agent install block. A base that
-// already provides node or the agent is left untouched (provenance recorded).
-func agentBlock(a agent.Agent) string {
-	spec := a.ImageSpec()
-	var envBlock strings.Builder
-	envKeys := make([]string, 0, len(spec.AgentEnv))
-	for k := range spec.AgentEnv {
-		envKeys = append(envKeys, k)
-	}
-	sort.Strings(envKeys)
-	for _, k := range envKeys {
-		fmt.Fprintf(&envBlock, "ENV %s=%s\n", k, spec.AgentEnv[k])
-	}
-	binary := a.Name()
-	if provider, ok := agent.AsVersionProvider(a); ok {
-		if fields := strings.Fields(provider.VersionCmd()); len(fields) > 0 {
-			binary = fields[0]
-		}
-	}
-	return fmt.Sprintf(`USER root
-ARG %s
-LABEL %s=%s
-%sRUN command -v node >/dev/null 2>&1 || { \
-      case "$(uname -m)" in \
-        x86_64) NODE_ARCH=x64 ;; \
-        aarch64) NODE_ARCH=arm64 ;; \
-        *) echo "error: unsupported architecture: $(uname -m)" >&2; exit 1 ;; \
-      esac; \
-      curl -fsSL "https://nodejs.org/dist/%s/node-%s-linux-${NODE_ARCH}.tar.gz" \
-        | tar -xz -C /usr/local --strip-components=1; \
-    }
-
-RUN mkdir -p /etc/agents-sandbox && \
-    if command -v %s >/dev/null 2>&1; then \
-      echo user > /etc/agents-sandbox/agent-source; \
-    else \
-      echo tool > /etc/agents-sandbox/agent-source; \
-      %s; \
-    fi
-`,
-		spec.VersionArg,
-		agentLabelKey, a.Name(),
-		envBlock.String(),
-		nodeVersion, nodeVersion,
-		binary,
-		spec.InstallCommand,
-	)
-}
-
 // finalizationBlock records the image contract labels and makes dev the runtime
 // user. The dev user itself is created earlier by devUserBlock. The
 // dockerfile-id label lives here, after the agent install, so an agent upgrade
@@ -252,10 +396,10 @@ LABEL org.agents-sandbox.dockerfile-id=$DOCKERFILE_ID
 
 // RenderProjectDockerfile renders the runner Dockerfile exactly as it would be
 // built for the current project: the agent profile, the on-disk project
-// Dockerfile (if any), and the dind switch. It is the single source of truth
+// Dockerfile (if any), and the docker switch. It is the single source of truth
 // for previewing and building the image.
-func RenderProjectDockerfile(a agent.Agent, dind bool) []byte {
-	return RenderDockerfile(a, readProjectDockerfile(), dind)
+func RenderProjectDockerfile(a agent.Agent, docker bool) ([]byte, error) {
+	return RenderDockerfile(a, readProjectDockerfile(), docker)
 }
 
 // readProjectDockerfile returns the project Dockerfile bytes, or nil when none

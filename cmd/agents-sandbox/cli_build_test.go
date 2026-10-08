@@ -118,14 +118,17 @@ func TestBuildCommand(t *testing.T) {
 	}
 }
 
-func TestBuildCommandHasDindFlag(t *testing.T) {
+func TestBuildCommandHasDockerFlags(t *testing.T) {
 	cmd, _ := setupCommandFixtures(t, cmdBuild, "--help")
 	foundCmd, _, err := cmd.Find([]string{cmdBuild})
 	if err != nil {
 		t.Fatalf("Find %q: %v", cmdBuild, err)
 	}
+	if flag := foundCmd.Flags().Lookup(flagDocker); flag == nil {
+		t.Error("build command must have --docker flag")
+	}
 	if flag := foundCmd.Flags().Lookup(flagDind); flag == nil {
-		t.Error("build command must have --dind flag")
+		t.Error("build command must keep the deprecated --dind alias")
 	}
 }
 
@@ -191,15 +194,33 @@ func TestBuildDockerfileCommand(t *testing.T) {
 						t.Errorf("dockerfile output missing %q; got:\n%s", want, out)
 					}
 				}
-				// No --dind flag: the dind block must be absent.
-				if strings.Contains(out, "DOCKER_VERSION") {
-					t.Errorf("dockerfile output must not contain dind block without --dind; got:\n%s", out)
+				// No --docker flag: the docker stage must be absent.
+				if strings.Contains(out, "agents-sandbox-docker") {
+					t.Errorf("dockerfile output must not contain the docker stage without --docker; got:\n%s", out)
 				}
 			},
 		)
 
 		t.Run(
-			fmt.Sprintf("%s --dind appends the dind block", strings.Join(commands, " ")),
+			fmt.Sprintf("%s --docker adds the docker stage", strings.Join(commands, " ")),
+			func(t *testing.T) {
+				cmd, ui := setupCommandFixtures(t, append(commands, "--docker")...)
+
+				if err := cmd.Execute(); err != nil {
+					t.Fatalf("unexpected error: %v", err)
+				}
+
+				out := ui.StdOutBuffer.String()
+				for _, want := range []string{"agents-sandbox-docker", "DOCKER_VERSION"} {
+					if !strings.Contains(out, want) {
+						t.Errorf("dockerfile output with --docker missing %q; got:\n%s", want, out)
+					}
+				}
+			},
+		)
+
+		t.Run(
+			fmt.Sprintf("%s --dind (deprecated) adds the docker stage", strings.Join(commands, " ")),
 			func(t *testing.T) {
 				cmd, ui := setupCommandFixtures(t, append(commands, "--dind")...)
 
@@ -208,8 +229,8 @@ func TestBuildDockerfileCommand(t *testing.T) {
 				}
 
 				out := ui.StdOutBuffer.String()
-				if !strings.Contains(out, "DOCKER_VERSION") {
-					t.Errorf("dockerfile output with --dind must contain the dind block; got:\n%s", out)
+				if !strings.Contains(out, "agents-sandbox-docker") {
+					t.Errorf("dockerfile output with deprecated --dind must contain the docker stage; got:\n%s", out)
 				}
 			},
 		)
@@ -231,14 +252,17 @@ func TestBuildDockerfileCommand(t *testing.T) {
 	}
 }
 
-func TestBuildDockerfileCommandHasDindFlag(t *testing.T) {
+func TestBuildDockerfileCommandHasDockerFlags(t *testing.T) {
 	cmd, _ := setupCommandFixtures(t, cmdBuild, "--help")
 	foundCmd, _, err := cmd.Find([]string{cmdBuild, cmdDockerfile})
 	if err != nil {
 		t.Fatalf("Find %q: %v", cmdDockerfile, err)
 	}
+	if flag := foundCmd.Flags().Lookup(flagDocker); flag == nil {
+		t.Error("build dockerfile command must have --docker flag")
+	}
 	if flag := foundCmd.Flags().Lookup(flagDind); flag == nil {
-		t.Error("build dockerfile command must have --dind flag")
+		t.Error("build dockerfile command must keep the deprecated --dind alias")
 	}
 	if flag := foundCmd.Flags().Lookup(flagAgent); flag == nil {
 		t.Error("build dockerfile command must have --agent flag")

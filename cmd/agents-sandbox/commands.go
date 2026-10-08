@@ -38,14 +38,15 @@ const defaultAgentName = "opencode"
 // warnLegacyEnvVars emits a one-time deprecation warning for each
 // OPENCODE_SANDBOX_ variable still in effect.
 func warnLegacyEnvVars(ui termio.UI, r *launcherconfig.Resolver) {
-	legacy := r.LegacyEnvVars()
-	if len(legacy) == 0 {
-		return
+	if legacy := r.LegacyEnvVars(); len(legacy) > 0 {
+		ui.Warnf(
+			"deprecated environment variable(s) %s in use; switch to the AGENTS_SANDBOX_ prefix",
+			strings.Join(legacy, ", "),
+		)
 	}
-	ui.Warnf(
-		"deprecated environment variable(s) %s in use; switch to the AGENTS_SANDBOX_ prefix",
-		strings.Join(legacy, ", "),
-	)
+	if alias := r.DockerLegacyAlias(); alias != "" {
+		ui.Warnf("deprecated %s in use; switch to the docker/AGENTS_SANDBOX_DOCKER spelling", alias)
+	}
 }
 
 // resolveAgent validates a resolved agent name (from flag, env, or config)

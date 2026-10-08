@@ -621,9 +621,34 @@ func TestNetworkInvalidDNSServersRejected(t *testing.T) {
 	}
 }
 
-func TestDindFromConfig(t *testing.T) {
+func TestDockerFromConfig(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
-	// project-level config.yaml
+	if err := os.MkdirAll(configpaths.Get().ProjectConfigDir(), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(
+		filepath.Join(configpaths.Get().ProjectConfigDir(), "config.yaml"),
+		[]byte("docker: true\n"),
+		0o600,
+	); err != nil {
+		t.Fatal(err)
+	}
+	r, err := NewResolver(nil, "some-slug")
+	if err != nil {
+		t.Fatalf("NewResolver: %v", err)
+	}
+	if !r.Docker() {
+		t.Error("Docker() = false, want true from config")
+	}
+	if r.DockerLegacyAlias() != "" {
+		t.Errorf("DockerLegacyAlias() = %q, want empty for the canonical key", r.DockerLegacyAlias())
+	}
+}
+
+// TestDindConfigAlias verifies the deprecated dind config key still enables
+// docker and is surfaced as a legacy alias for a one-time warning.
+func TestDindConfigAlias(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
 	if err := os.MkdirAll(configpaths.Get().ProjectConfigDir(), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -638,15 +663,40 @@ func TestDindFromConfig(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewResolver: %v", err)
 	}
-	if !r.Dind() {
-		t.Error("Dind() = false, want true from config")
+	if !r.Docker() {
+		t.Error("Docker() = false, want true from the deprecated dind key")
+	}
+	if r.DockerLegacyAlias() == "" {
+		t.Error("DockerLegacyAlias() = empty, want the deprecated dind source")
 	}
 }
 
-func TestDindDefaultsFalse(t *testing.T) {
+// TestDockerConfigWinsOverDindAlias verifies the canonical key has precedence.
+func TestDockerConfigWinsOverDindAlias(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	if err := os.MkdirAll(configpaths.Get().ProjectConfigDir(), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(
+		filepath.Join(configpaths.Get().ProjectConfigDir(), "config.yaml"),
+		[]byte("docker: false\ndind: true\n"),
+		0o600,
+	); err != nil {
+		t.Fatal(err)
+	}
+	r, err := NewResolver(nil, "some-slug")
+	if err != nil {
+		t.Fatalf("NewResolver: %v", err)
+	}
+	if r.Docker() {
+		t.Error("Docker() = true, want the canonical docker key to win")
+	}
+}
+
+func TestDockerDefaultsFalse(t *testing.T) {
 	r := NewResolverWithConfig(Config{})
-	if r.Dind() {
-		t.Error("Dind() = true, want default false")
+	if r.Docker() {
+		t.Error("Docker() = true, want default false")
 	}
 }
 

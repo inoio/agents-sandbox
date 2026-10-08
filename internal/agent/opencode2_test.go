@@ -45,7 +45,7 @@ func TestOpencode2ImageSpec(t *testing.T) {
 	if _, ok := spec.AgentEnv["OPENCODE_DISABLE_AUTOUPDATE"]; !ok {
 		t.Errorf("AgentEnv = %v, want OPENCODE_DISABLE_AUTOUPDATE key", spec.AgentEnv)
 	}
-	wantInstall := "npm install -g @opencode-ai/cli@$OPENCODE2_VERSION"
+	wantInstall := "npm install -g --prefix /opt/agents-sandbox @opencode-ai/cli@$OPENCODE2_VERSION"
 	if spec.InstallCommand != wantInstall {
 		t.Errorf("InstallCommand = %q, want %q", spec.InstallCommand, wantInstall)
 	}

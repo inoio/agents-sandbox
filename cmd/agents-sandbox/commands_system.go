@@ -100,15 +100,15 @@ func buildVolumeOpsCmd(
 			if err != nil {
 				return err
 			}
-			dind := false
+			docker := false
 			if r := resolverFromContext(c.Context()); r != nil {
-				dind = r.Dind()
+				docker = r.Docker()
 			}
 			info, err := image.EnsureImage(
 				c.Context(),
 				a,
 				projectSlug,
-				image.BuildOptions{Force: false, AgentVersion: "", UserProvided: false, Dind: dind},
+				image.BuildOptions{Force: false, AgentVersion: "", UserProvided: false, Docker: docker},
 				ui,
 			)
 			if err != nil {
@@ -438,15 +438,20 @@ func resolveConfigAgentName(c *cobra.Command, args []string) (string, error) {
 	return name, nil
 }
 
-// resolveBuildDind returns the effective dind switch for a build: the --dind
-// flag when set, else the configured resolver value (false when absent).
-func resolveBuildDind(cmd *cobra.Command) bool {
+// resolveBuildDocker returns the effective docker switch for a build: the
+// --docker flag when set, else the deprecated --dind alias when set, else the
+// configured resolver value (false when absent).
+func resolveBuildDocker(cmd *cobra.Command) bool {
+	if cmd.Flags().Changed(flagDocker) {
+		docker, _ := cmd.Flags().GetBool(flagDocker)
+		return docker
+	}
 	if cmd.Flags().Changed(flagDind) {
 		dind, _ := cmd.Flags().GetBool(flagDind)
 		return dind
 	}
 	if r := resolverFromContext(cmd.Context()); r != nil {
-		return r.Dind()
+		return r.Docker()
 	}
 	return false
 }
@@ -475,14 +480,14 @@ func buildBuildCmd(ui termio.UI) *cobra.Command {
 				return err
 			}
 			return image.Build(cmd.Context(), a, git.ProjectSlug(), image.BuildOptions{
-				Force: force, AgentVersion: openCodeVersion, UserProvided: false, Dind: resolveBuildDind(cmd),
+				Force: force, AgentVersion: openCodeVersion, UserProvided: false, Docker: resolveBuildDocker(cmd),
 			}, ui)
 		},
 	}
 	cmd.Flags().BoolP(flagRebuild, flagRebuild[:1], false, "Force a clean rebuild")
 	cmd.Flags().BoolP(flagDryRun, flagDryRunShort, false, "Dry run without building")
 	cmd.Flags().String(flagAgent, defaultAgentName, "Coding agent profile to build")
-	cmd.Flags().Bool(flagDind, false, "Enable Docker-in-Docker in the runner image")
+	registerDockerFlags(cmd)
 	cmd.Flags().
 		String(flagAgentVersion, "", "Pin the agent version baked into the runner image (default: latest release)")
 	cmd.Flags().
@@ -505,7 +510,10 @@ func buildDockerfileCmd(ui termio.UI) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			out := image.RenderProjectDockerfile(a, resolveBuildDind(cmd))
+			out, err := image.RenderProjectDockerfile(a, resolveBuildDocker(cmd))
+			if err != nil {
+				return err
+			}
 			if _, err := ui.StdOut().Write(out); err != nil {
 				return err
 			}
@@ -513,7 +521,7 @@ func buildDockerfileCmd(ui termio.UI) *cobra.Command {
 		},
 	}
 	cmd.Flags().String(flagAgent, defaultAgentName, "Coding agent profile to build")
-	cmd.Flags().Bool(flagDind, false, "Enable Docker-in-Docker in the runner image")
+	registerDockerFlags(cmd)
 	return cmd
 }
 

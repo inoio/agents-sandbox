@@ -25,8 +25,8 @@ import (
 type BuildOptions struct {
 	// Force rebuilds the image regardless of cache state.
 	Force bool
-	// Dind appends the tool's Docker-in-Docker block when the image is built.
-	Dind bool
+	// Docker bakes the tool's Docker engine block when the image is built.
+	Docker bool
 	// AgentVersion pins the agent version baked into the image. When empty, the
 	// latest release is resolved at build time unless UserProvided allows image
 	// reuse to defer resolution until a rebuild is needed.
@@ -151,7 +151,7 @@ func buildDockerImage(
 	agentVersion string,
 	baseImage string,
 	dockerfileID string,
-	dind bool,
+	dockerEnabled bool,
 	ui termio.UI,
 ) error {
 	spinner := ui.Spinner(label)
@@ -166,7 +166,7 @@ func buildDockerImage(
 		agentVersion,
 		baseImage,
 		dockerfileID,
-		dind,
+		dockerEnabled,
 		line,
 	); err != nil {
 		spinner.StopError(err)
@@ -188,7 +188,7 @@ func buildImage(
 	agentVersion string,
 	baseImage string,
 	dockerfileID string,
-	dind bool,
+	dockerEnabled bool,
 	line func(string),
 ) error {
 	tarBuf, err := dockerfileTar(dockerfile)
@@ -196,10 +196,18 @@ func buildImage(
 		return fmt.Errorf("create build context: %w", err)
 	}
 	buildResp, err := docker.Get().ImageBuild(ctx, tarBuf, client.ImageBuildOptions{
-		Tags:      []string{tag},
-		Remove:    true,
-		NoCache:   noCache,
-		BuildArgs: userBuildArgs(os.Getuid(), os.Getgid(), a.ImageSpec(), agentVersion, baseImage, dockerfileID, dind),
+		Tags:    []string{tag},
+		Remove:  true,
+		NoCache: noCache,
+		BuildArgs: userBuildArgs(
+			os.Getuid(),
+			os.Getgid(),
+			a.ImageSpec(),
+			agentVersion,
+			baseImage,
+			dockerfileID,
+			dockerEnabled,
+		),
 	})
 	if err != nil {
 		return fmt.Errorf("docker image build failed: %w", err)
@@ -272,7 +280,7 @@ func userBuildArgs(
 	uid, gid int,
 	spec agent.ImageSpec,
 	version, baseImage, dockerfileID string,
-	dind bool,
+	docker bool,
 ) map[string]*string {
 	u := strconv.Itoa(uid)
 	g := strconv.Itoa(gid)
@@ -283,7 +291,7 @@ func userBuildArgs(
 		"BASE_IMAGE":    &baseImage,
 		"DOCKERFILE_ID": &dockerfileID,
 	}
-	if dind {
+	if docker {
 		v := dockerVersion
 		args["DOCKER_VERSION"] = &v
 	}
@@ -327,12 +335,14 @@ func EnsureImageWithClient(
 	}
 
 	rTag := runnerTag(projectSlug, a.Name())
-	rendered := RenderDockerfile(a, projectDockerfile, buildOpts.Dind)
+	rendered, err := RenderDockerfile(a, projectDockerfile, buildOpts.Docker)
+	if err != nil {
+		return ImageInfo{}, fmt.Errorf("render Dockerfile: %w", err)
+	}
 	dockerfileID := computeDockerfileID(rendered, identityVersion)
 	needsBuild := buildOpts.Force || !imageHasDockerfileID(ctx, rTag, dockerfileID)
 	if needsBuild {
 		if deferVersionResolution {
-			var err error
 			agentVersion, err = resolveAgentVersion(ctx, a, "")
 			if err != nil {
 				return ImageInfo{}, fmt.Errorf("resolve agent version: %w", err)
@@ -355,7 +365,7 @@ func EnsureImageWithClient(
 		}
 		if buildErr := buildDockerImage(
 			ctx, a, rendered, rTag, "Ensuring runner image",
-			buildOpts.Force, agentVersion, baseDigest, dockerfileID, buildOpts.Dind, ui,
+			buildOpts.Force, agentVersion, baseDigest, dockerfileID, buildOpts.Docker, ui,
 		); buildErr != nil {
 			return ImageInfo{}, buildErr
 		}

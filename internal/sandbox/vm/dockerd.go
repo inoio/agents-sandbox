@@ -18,7 +18,7 @@ const (
 		"pkill containerd >/dev/null 2>&1 || true; " +
 		"find /run /var/run -iname 'docker*.pid' -delete >/dev/null 2>&1 || true; " +
 		"find /run /var/run \\( -iname '*containerd*.sock' -o -iname '*containerd*.pid' \\) -delete >/dev/null 2>&1 || true; " +
-		"nohup dockerd -H unix:///var/run/docker.sock > /var/log/dockerd.log 2>&1 &"
+		"nohup dockerd -H unix:///var/run/docker.sock --storage-driver=vfs > /var/log/dockerd.log 2>&1 &"
 )
 
 var (
@@ -26,7 +26,7 @@ var (
 	dockerdPollInterval = time.Second
 )
 
-// startDockerdIfPresent starts dockerd inside the VM if the dind image is in
+// startDockerdIfPresent starts dockerd inside the VM if the docker image is in
 // use, or does nothing otherwise. It is safe to call on every VM bootstrap
 // because it checks for the dockerd binary and handles the case where dockerd
 // is already running.
