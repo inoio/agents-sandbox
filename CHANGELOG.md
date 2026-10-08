@@ -12,18 +12,17 @@ command reports the bare version (e.g. `0.1.0`).
 
 - Runner image: per-tool multistage composition so tool layers (apt tools, Node, agent, Docker) cache independently of
   the user body and each other, reusing the same tool layers across projects on one machine.
-- Runner image: the `# agents-sandbox:docker` marker (the legacy `# agents-sandbox:dind` marker is still recognized) lets
-  a custom project Dockerfile control where the Docker engine is injected.
 - Runner image: the `agents-sandbox/runner-base-docker` base reference is recognized (alongside the deprecated
   `agents-sandbox/runner-base-dind`).
 - Internal: add `make test-integration` — docker-build integration tests (tagged `integration`, excluded from the main
   suite) that build a real image for every `RenderDockerfile` composition case (no project Dockerfile, managed base, and
-  custom Fedora base, each with and without dind). Wired into CI as a selective job (main/release/manual).
+  custom Fedora base, each with and without docker). Wired into CI as a selective job (main/release/manual).
 - Internal: `devUserBlock` now sets the dev login shell to the first of `bash`, `zsh`, `sh` found (falling back to
   `/bin/sh`) instead of hardcoding bash, widening custom-base compatibility.
 - Custom project Dockerfiles can place a `# agents-sandbox:docker` marker line in the final stage to control where the
-  Docker install block is injected, e.g. to run `buildx`/`docker compose` setup after the engine is installed. Without the
-  marker the block is still appended after the Dockerfile body.
+  Docker install block is injected, e.g. to run `buildx`/`docker compose` setup after the engine is installed (the legacy
+  `# agents-sandbox:dind` marker is still recognized). Without the marker the block is still appended after the
+  Dockerfile body.
 - `run` and `shell` now accept `--agent-version` to pin the agent version baked into the runner image, matching `build`.
 
 ### Changed
@@ -56,7 +55,7 @@ command reports the bare version (e.g. `0.1.0`).
 - Internal: the `org.agents-sandbox.dockerfile-id` label moved to the finalization block, after the agent install, so an
   agent-version bump no longer invalidates the cached Node.js and agent install layers.
 - Internal: `RenderDockerfile` now splits the project's final stage into earlier stages, base, and body and concatenates the
-  tool-owned blocks around them, replacing the FROM/insertion helpers with `splitFinalStage`, `injectDindBlock`, and `joinBlocks`.
+  tool-owned blocks around them, replacing the FROM/insertion helpers with `splitFinalStage`, `injectDockerBlock`, and `joinBlocks`.
 - Internal: a rebuild triggered by a stale image (changed Dockerfile, agent version, or base) now reuses Docker's layer cache;
   only an explicit `--rebuild` bypasses it. An accepted agent upgrade is a version change, so it rebuilds the install layer
   while keeping earlier layers cached.

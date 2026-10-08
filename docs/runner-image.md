@@ -64,7 +64,7 @@ above the base stage. The custom base must meet these requirements:
 - **shadow-utils** providing `groupadd`, `useradd`, and `usermod` (used to create the `dev` user and docker group).
 - **A POSIX shell** — the `dev` user's login shell is set to the first of `bash`, `zsh`, `sh` found, falling back to
   `/bin/sh`.
-- **`curl` and `tar`** (used to fetch and extract the Node.js tarball.
+- **`curl` and `tar`** (used to fetch and extract the Node.js tarball).
 - **For Docker only**: `iptables`, `git`, `ps`, `xz`, `curl`, and `tar` — the exact binary-install prerequisites
   documented by Docker. If one is missing, the Docker build fails and names the missing package.
 - The recommended CLI tools above are documented for your convenience — as a custom base you install your own.
@@ -141,9 +141,10 @@ or `dockerd`, and the `/etc/agents-sandbox/agent-source` and `/etc/agents-sandbo
 (`tool` | `user`), are resolved after the user body; a base-provided binary wins over the tool's copy.
 
 Four agents are built in: `opencode` (default), `opencode2` (installed via
-`npm i -g @opencode-ai/cli@$OPENCODE2_VERSION`,
-the opencode 2 beta), `pi` (installed via `npm i -g @earendil-works/pi-coding-agent`), and `claude-code` (installed via
-`npm i -g @anthropic-ai/claude-code`). All four resolve their latest version for an unpinned build — opencode via its
+`npm install -g --prefix /opt/agents-sandbox @opencode-ai/cli@$OPENCODE2_VERSION`,
+the opencode 2 beta), `pi` (installed via `npm install -g --prefix /opt/agents-sandbox @earendil-works/pi-coding-agent`),
+and `claude-code` (installed via `npm install -g --prefix /opt/agents-sandbox @anthropic-ai/claude-code`). All four
+resolve their latest version for an unpinned build — opencode via its
 GitHub releases endpoint, opencode2 via the npm registry's `beta` dist-tag, pi via `pi.dev`, and claude-code via the npm
 registry's `latest` dist-tag.
 
