@@ -20,15 +20,16 @@ const (
 )
 
 type printer struct {
-	stdin       io.Reader
-	stdinReader *bufio.Reader
-	stdout      io.Writer
-	stderr      io.Writer
-	level       Level
-	color       bool
-	assumeYes   bool
-	quiet       bool
-	isTerminal  func(int) bool
+	stdin         io.Reader
+	stdinReader   *bufio.Reader
+	stdout        io.Writer
+	stderr        io.Writer
+	level         Level
+	color         bool
+	assumeYes     bool
+	quiet         bool
+	isTerminal    func(int) bool
+	promptBackend PromptBackend
 }
 
 func (p *printer) write(w io.Writer, color, msg string) {

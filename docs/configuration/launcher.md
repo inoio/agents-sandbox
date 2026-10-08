@@ -213,6 +213,16 @@ precedence over config files but lose to an explicitly passed CLI flag. The pref
 Action toggles (`--rebuild`, `--dry-run`, `--force`, ...) are CLI-only and cannot be set via
 config file or env var.
 
+The interactive prompt style is selected with the `OPENCODE_SANDBOX_PROMPT` environment variable:
+
+| Value                    | Behavior                                                                   |
+|--------------------------|----------------------------------------------------------------------------|
+| `line` (default)         | Line-based prompts: choices are printed and the option key is typed.       |
+| `huh`                    | Arrow-key menu prompts backed by charmbracelet/huh (needs a real terminal).|
+| `huh-accessible`         | huh's numbered, line-based prompts (screen-reader friendly).               |
+
+Non-interactive invocations (piped input or `--yes`) always use the default choice regardless of this setting.
+
 ## Per-slug configuration
 
 Beyond the generic user-level config, you can provide config for a **specific project** at

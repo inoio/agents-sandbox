@@ -32,6 +32,19 @@ func (p *printer) Select(prompt string, choices []Choice, defaultKey string) (st
 		return defaultKey, nil
 	}
 
+	switch p.promptBackend {
+	case PromptHuh:
+		return p.huhSelect(prompt, choices, defaultKey, false)
+	case PromptHuhAccessible:
+		return p.huhSelect(prompt, choices, defaultKey, true)
+	case PromptLine:
+		return p.lineSelect(prompt, choices, defaultKey)
+	default:
+		return p.lineSelect(prompt, choices, defaultKey)
+	}
+}
+
+func (p *printer) lineSelect(prompt string, choices []Choice, defaultKey string) (string, error) {
 	fmt.Fprintf(p.stderr, "%s\n", prompt)
 	for _, c := range choices {
 		desc := c.Description
@@ -76,6 +89,19 @@ func (p *printer) Input(prompt, defaultValue string) (string, error) {
 		return defaultValue, nil
 	}
 
+	switch p.promptBackend {
+	case PromptHuh:
+		return p.huhInput(prompt, defaultValue, false)
+	case PromptHuhAccessible:
+		return p.huhInput(prompt, defaultValue, true)
+	case PromptLine:
+		return p.lineInput(prompt, defaultValue)
+	default:
+		return p.lineInput(prompt, defaultValue)
+	}
+}
+
+func (p *printer) lineInput(prompt, defaultValue string) (string, error) {
 	fmt.Fprintf(p.stderr, "%s [%s]: ", prompt, defaultValue)
 
 	reader := p.getStdinReader()

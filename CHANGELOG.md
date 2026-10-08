@@ -19,6 +19,9 @@ command reports the bare version (e.g. `0.1.0`).
   Docker-in-Docker install block is injected, e.g. to run `buildx`/`docker compose` setup after the engine is installed.
   Without the marker the block is still appended after the Dockerfile body.
 - `run` and `shell` now accept `--agent-version` to pin the agent version baked into the runner image, matching `build`.
+- Interactive prompts can render as arrow-key menus via `OPENCODE_SANDBOX_PROMPT=huh` (or `huh-accessible` for numbered,
+  line-based, screen-reader-friendly prompts). The default remains the original line-based prompts, and non-interactive
+  invocations still use the default choice.
 
 ### Changed
 
