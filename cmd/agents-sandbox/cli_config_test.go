@@ -657,6 +657,13 @@ func TestConfigWizardRejectsUnknownTier(t *testing.T) {
 	}
 }
 
+func TestConfigWizardRejectsNegativeTier(t *testing.T) {
+	cmd, _ := setupCommandFixtures(t, "config", "wizard", "--tier=-1")
+	if err := cmd.Execute(); err == nil {
+		t.Fatal("expected an error for tier -1")
+	}
+}
+
 func TestConfigMigrateUnknownAgentAndHomeErrors(t *testing.T) {
 	originalHome := migrationHomeDir
 	t.Cleanup(func() { migrationHomeDir = originalHome })
