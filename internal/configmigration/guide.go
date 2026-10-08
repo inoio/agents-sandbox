@@ -52,13 +52,13 @@ func Guide(
 		}
 		return err
 	}
-	if !plan.HasNativeConfig && !plan.HasManagedConfig && !plan.SetupOnly {
-		return guideHostFirst(a, ui)
+	if !plan.HasNativeConfig && !plan.HasManagedConfig && !plan.SetupOnly && !plan.Manual {
+		return guideHostFirst(a, plan, ui)
 	}
 	if plan.LoginPending {
 		return guideLoginVerification(a, plan, ui)
 	}
-	if plan.HasManagedConfig || plan.Dismissed || plan.Handled {
+	if plan.HasManagedConfig || plan.Dismissed || plan.Handled || plan.Manual {
 		return nil
 	}
 	if !plan.NeedsAttention() {
@@ -144,7 +144,7 @@ func guideMigrationSelect(a agent.Agent, plan *Plan, ui termio.UI) error {
 
 // guideHostFirst guides a user who has no native configuration yet: set the
 // agent up on the host, then rerun so agents-sandbox can migrate it.
-func guideHostFirst(a agent.Agent, ui termio.UI) error {
+func guideHostFirst(a agent.Agent, plan *Plan, ui termio.UI) error {
 	ui.Infof("no native %s configuration was found", a.Name())
 	ui.Infof(
 		"set up %s on the host, then rerun agents-sandbox; it will migrate the configuration without copying credentials",
@@ -174,7 +174,7 @@ func guideHostFirst(a agent.Agent, ui termio.UI) error {
 	case guideHostFirstChoice:
 		return ErrStartDeferred
 	case guideManualChoice, guideStartChoice:
-		return nil
+		return persistManual(plan, ui)
 	default:
 		return fmt.Errorf("unknown host-first choice %q", key)
 	}
@@ -208,10 +208,8 @@ func guideReviewHandoff(plan *Plan, ui termio.UI) error {
 	switch key {
 	case guideHostFirstChoice:
 		return ErrStartDeferred
-	case guideManualChoice:
-		return dismissGuidedMigration(plan, ui)
-	case guideStartChoice:
-		return nil
+	case guideManualChoice, guideStartChoice:
+		return persistManual(plan, ui)
 	default:
 		return fmt.Errorf("unknown review choice %q", key)
 	}
@@ -256,7 +254,7 @@ func guideLoginHandoff(a agent.Agent, plan *Plan, ui termio.UI) error {
 	case guideHostFirstChoice:
 		return ErrStartDeferred
 	case guideManualChoice:
-		return dismissGuidedMigration(plan, ui)
+		return persistManual(plan, ui)
 	default:
 		return fmt.Errorf("unknown login choice %q", key)
 	}
@@ -375,6 +373,14 @@ func dismissGuidedMigration(plan *Plan, ui termio.UI) error {
 		return err
 	}
 	ui.Info("continuing without migrated agent configuration")
+	return nil
+}
+
+func persistManual(plan *Plan, ui termio.UI) error {
+	if err := RecordManual(plan); err != nil {
+		return err
+	}
+	ui.Info("continuing with manual configuration")
 	return nil
 }
 

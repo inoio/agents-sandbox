@@ -121,6 +121,12 @@ func Complete(plan *Plan) error {
 	return migrationWriteDecision(plan.AgentName, plan.SourceHash, migrationStateCompleted, nil)
 }
 
+// RecordManual persists the manual onboarding decision so later runs stay
+// quiet until the native configuration changes.
+func RecordManual(plan *Plan) error {
+	return migrationWriteDecision(plan.AgentName, plan.SourceHash, migrationStateManual, nil)
+}
+
 func migrationAtomicWrite(path string, data []byte, mode os.FileMode) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return err

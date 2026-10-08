@@ -1136,6 +1136,139 @@ func TestGuideRemembersDismissedLoginHandoff(t *testing.T) {
 	}
 }
 
+func TestGuideHostFirstManualIsRemembered(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	clearOpenCodeXDG(t)
+	hostHome := t.TempDir()
+	a, _ := agent.Lookup("opencode")
+
+	first := termio.NewTestMock(t)
+	first.IsInteractiveResult = true
+	first.SelectFn = func(string, []termio.Choice, string) (string, error) {
+		return guideManualChoice, nil
+	}
+	if err := Guide(a, hostHome, testNetworkPolicy(), false, &first); err != nil {
+		t.Fatalf("host-first Guide: %v", err)
+	}
+	if got := migrationManifestFor(a).State; got != migrationStateManual {
+		t.Fatalf("state = %q, want manual", got)
+	}
+
+	second := termio.NewTestMock(t)
+	second.IsInteractiveResult = true
+	prompts := 0
+	second.SelectFn = func(string, []termio.Choice, string) (string, error) {
+		prompts++
+		return guideManualChoice, nil
+	}
+	if err := Guide(a, hostHome, testNetworkPolicy(), false, &second); err != nil {
+		t.Fatalf("second Guide: %v", err)
+	}
+	if prompts != 0 {
+		t.Fatalf("second run prompted %d times, want quiet", prompts)
+	}
+}
+
+func TestGuideManualIsRememberedForReviewHandoff(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	clearOpenCodeXDG(t)
+	hostHome := t.TempDir()
+	configDir := filepath.Join(hostHome, ".config", "opencode")
+	if err := os.MkdirAll(configDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	testutil.WriteFile(t, configDir, "config.json", "{{{")
+	a, _ := agent.Lookup("opencode")
+
+	first := termio.NewTestMock(t)
+	first.IsInteractiveResult = true
+	first.SelectFn = func(string, []termio.Choice, string) (string, error) {
+		return guideManualChoice, nil
+	}
+	if err := Guide(a, hostHome, testNetworkPolicy(), false, &first); err != nil {
+		t.Fatalf("review handoff Guide: %v", err)
+	}
+	if got := migrationManifestFor(a).State; got != migrationStateManual {
+		t.Fatalf("state = %q, want manual", got)
+	}
+
+	second := termio.NewTestMock(t)
+	second.IsInteractiveResult = true
+	prompts := 0
+	second.SelectFn = func(string, []termio.Choice, string) (string, error) {
+		prompts++
+		return guideStartChoice, nil
+	}
+	if err := Guide(a, hostHome, testNetworkPolicy(), false, &second); err != nil {
+		t.Fatalf("second Guide: %v", err)
+	}
+	if prompts != 0 {
+		t.Fatalf("second run prompted %d times, want quiet", prompts)
+	}
+}
+
+func TestGuideManualIsRememberedForLoginHandoff(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	clearOpenCodeXDG(t)
+	hostHome := t.TempDir()
+	a, _ := agent.Lookup("opencode")
+	writeNativeAuthContent(t, hostHome, `{"github-copilot": {"type": "oauth", "access": "a", "refresh": "r"}}`)
+
+	first := termio.NewTestMock(t)
+	first.IsInteractiveResult = true
+	first.SelectFn = func(string, []termio.Choice, string) (string, error) {
+		return guideManualChoice, nil
+	}
+	if err := Guide(a, hostHome, testNetworkPolicy(), false, &first); err != nil {
+		t.Fatalf("login handoff Guide: %v", err)
+	}
+	if got := migrationManifestFor(a).State; got != migrationStateManual {
+		t.Fatalf("state = %q, want manual", got)
+	}
+
+	second := termio.NewTestMock(t)
+	second.IsInteractiveResult = true
+	prompts := 0
+	second.SelectFn = func(string, []termio.Choice, string) (string, error) {
+		prompts++
+		return guideLoginChoice, nil
+	}
+	if err := Guide(a, hostHome, testNetworkPolicy(), false, &second); err != nil {
+		t.Fatalf("second Guide: %v", err)
+	}
+	if prompts != 0 {
+		t.Fatalf("second run prompted %d times, want quiet", prompts)
+	}
+}
+
+func TestGuideManualRearmedBySourceHashChange(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	clearOpenCodeXDG(t)
+	hostHome := t.TempDir()
+	a, _ := agent.Lookup("opencode")
+	writeNativeAuthContent(t, hostHome, `{"github-copilot": {"type": "oauth", "access": "a", "refresh": "r"}}`)
+
+	first := termio.NewTestMock(t)
+	first.IsInteractiveResult = true
+	first.SelectFn = func(string, []termio.Choice, string) (string, error) {
+		return guideManualChoice, nil
+	}
+	if err := Guide(a, hostHome, testNetworkPolicy(), false, &first); err != nil {
+		t.Fatalf("manual Guide: %v", err)
+	}
+
+	writeNativeAuthContent(t, hostHome, `{"github-copilot": {"type": "oauth", "access": "b", "refresh": "s"}}`)
+	second := termio.NewTestMock(t)
+	second.IsInteractiveResult = true
+	offered := recordOfferedChoices(&second, guideManualChoice)
+	if err := Guide(a, hostHome, testNetworkPolicy(), false, &second); err != nil {
+		t.Fatalf("re-armed Guide: %v", err)
+	}
+	if !slices.Contains(*offered, guideLoginChoice) {
+		t.Errorf("offered choices = %v, want the flow re-armed after a source change", *offered)
+	}
+}
+
 func TestGuideSkipsLoginHandoffWhenManagedConfigPresent(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	clearOpenCodeXDG(t)
