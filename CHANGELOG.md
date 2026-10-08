@@ -53,6 +53,12 @@ command reports the bare version (e.g. `0.1.0`).
   `{% link %}` tags.
 - Internal: collapse run/shell option resolution into `viperconfig.Resolver.BuildRunOptions` (no behavior change).
 
+### Fixed
+
+- Docs: `ci/check-docs.sh` no longer reports false link violations from local, gitignored build artefacts (`docs/_site/`
+  Jekyll output and `docs/vendor/` gem bundle), and `docs/_config.yml` excludes the untracked `superpowers/` and `vendor/`
+  trees from the deployed site.
+
 ## [0.5.0] - 2026-10-03
 
 ### Changed
