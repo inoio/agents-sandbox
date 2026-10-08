@@ -379,7 +379,7 @@ func TestBuildRunOptionsNetworkFlag(t *testing.T) {
 
 func TestBuildRunOptionsNetworkFromResolver(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
-	t.Setenv("OPENCODE_SANDBOX_NETWORK_PROFILE", "private")
+	t.Setenv("AGENTS_SANDBOX_NETWORK_PROFILE", "private")
 	cmd := newRunCommand()
 	r := mustResolver(t, cmd)
 	opts, err := r.BuildRunOptions(cmd, &termio.Mock{})
@@ -452,7 +452,7 @@ func TestBuildRunOptionsDNSCombinedWithNetworkNone(t *testing.T) {
 
 func TestBuildRunOptionsDNSFlagOverridesConfig(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
-	t.Setenv("OPENCODE_SANDBOX_NETWORK_DNS_SERVERS", "9.9.9.9")
+	t.Setenv("AGENTS_SANDBOX_NETWORK_DNS_SERVERS", "9.9.9.9")
 	cmd := newRunCommand()
 	if err := cmd.Flags().Set(FlagDNSServers, "1.1.1.1"); err != nil {
 		t.Fatalf("set dns: %v", err)
@@ -469,7 +469,7 @@ func TestBuildRunOptionsDNSFlagOverridesConfig(t *testing.T) {
 
 func TestBuildRunOptionsDNSFromResolver(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
-	t.Setenv("OPENCODE_SANDBOX_NETWORK_DNS_SERVERS", "1.1.1.1,8.8.8.8")
+	t.Setenv("AGENTS_SANDBOX_NETWORK_DNS_SERVERS", "1.1.1.1,8.8.8.8")
 	cmd := newRunCommand()
 	r := mustResolver(t, cmd)
 	opts, err := r.BuildRunOptions(cmd, &termio.Mock{})
@@ -554,10 +554,10 @@ func TestBuildRunOptionsUnknownAgent(t *testing.T) {
 	}
 }
 
-// The agent can be selected via the OPENCODE_SANDBOX_AGENT env var.
+// The agent can be selected via the AGENTS_SANDBOX_AGENT env var.
 func TestBuildRunOptionsAgentFromEnv(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
-	t.Setenv("OPENCODE_SANDBOX_AGENT", defaultAgentName)
+	t.Setenv("AGENTS_SANDBOX_AGENT", defaultAgentName)
 	cmd := newRunCommand()
 	r := mustResolver(t, cmd)
 	opts, err := r.BuildRunOptions(cmd, &termio.Mock{})
@@ -809,7 +809,40 @@ func TestBuildRunOptionsNotifyInvalidValue(t *testing.T) {
 	r := NewResolverWithConfig(Config{})
 	cmd := newRunCommand()
 	if _, err := r.BuildRunOptions(cmd, ui); err == nil {
-		t.Fatal("expected error for invalid OPENCODE_SANDBOX_NOTIFY value")
+		t.Fatal("expected error for invalid AGENTS_SANDBOX_NOTIFY value")
+	}
+}
+
+func TestBuildRunOptionsNotifyLegacyEnvOverridesConfig(t *testing.T) {
+	t.Setenv(legacyNotifyEnvVar, "audio")
+	ui := &termio.Mock{}
+	r := NewResolverWithConfig(Config{Notify: NotifyConfig{
+		Desktop: true,
+		Audio:   notify.AudioSystem,
+		OnInput: true, OnDone: true, OnError: true,
+	}})
+	cmd := newRunCommand()
+	opts, err := r.BuildRunOptions(cmd, ui)
+	if err != nil {
+		t.Fatalf("BuildRunOptions: %v", err)
+	}
+	if opts.Notify.Desktop || opts.Notify.Audio != notify.AudioSystem {
+		t.Errorf("legacy env override audio: got %+v, want desktop off audio system", opts.Notify)
+	}
+}
+
+func TestBuildRunOptionsNotifyAgentsEnvTakesPrecedenceOverLegacy(t *testing.T) {
+	t.Setenv(notifyEnvVar, "audio")
+	t.Setenv(legacyNotifyEnvVar, "desktop")
+	ui := &termio.Mock{}
+	r := NewResolverWithConfig(Config{})
+	cmd := newRunCommand()
+	opts, err := r.BuildRunOptions(cmd, ui)
+	if err != nil {
+		t.Fatalf("BuildRunOptions: %v", err)
+	}
+	if opts.Notify.Desktop || opts.Notify.Audio != notify.AudioSystem {
+		t.Errorf("AGENTS_ should win: got %+v, want desktop off audio system", opts.Notify)
 	}
 }
 

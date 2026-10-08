@@ -37,13 +37,13 @@ network:
 
 Profile and lists can be combined, e.g. a `private` profile with an `egress-allow: [.internal]` exception.
 
-The profile is also configurable via the `OPENCODE_SANDBOX_NETWORK_PROFILE` environment variable and the `--network`
+The profile is also configurable via the `AGENTS_SANDBOX_NETWORK_PROFILE` environment variable and the `--network`
 flag on `run`/`shell` (e.g. `agents-sandbox run --network public`). Precedence: **flag > env > config > default**. The
 `egress-allow`/`egress-deny` lists are config-file-only and have no env var or flag.
 
 `dns-servers` sets custom DNS upstreams for the VM's in-VM resolver. Bare IPs (IPv4 or IPv6) get `:53` appended; a
 `host:port` / `ip:port` form is used as-is. An empty entry, a host without a port, or garbage is rejected at config-load
-time. It is also configurable via the `OPENCODE_SANDBOX_NETWORK_DNS_SERVERS` environment variable (comma-separated, e.g.
+time. It is also configurable via the `AGENTS_SANDBOX_NETWORK_DNS_SERVERS` environment variable (comma-separated, e.g.
 `1.1.1.1,8.8.8.8`) and the `--dns` flag on `run`/`shell` (comma-separated or repeated). Precedence:
 **flag > env > config**. A policy that sets only `dns-servers` (no `profile`) still gets the default `none` profile.
 

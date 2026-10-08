@@ -50,7 +50,7 @@ Arguments after `--` are forwarded to the agent. Arguments before `--` that don'
 | `--dry-run-vm` | —     | `false`  | Skip VM lifecycle but prepare everything else                                                                                              |
 | `--serve-only` | `-s`  | `false`  | Start the agent server published on host loopback at a dynamically allocated host port (no in-VM TUI); press `Ctrl-D` to exit. The printed `http://127.0.0.1:<port>` URL is authoritative — use it (rather than assuming a fixed port) to connect from clients like Opencode Desktop. Set `OPENCODE_SERVER_PASSWORD` for basic auth. |
 | `--agent`      | —     | `opencode` | Coding-agent profile to run: `opencode` (default), `opencode2`, `pi`, or `claude-code`.                                                                |
-| `--notify`     | —     | `off`     | Notify on session status: `on`, `off`, `desktop`, or `audio` (bare `--notify` = `on`). Overridable via `OPENCODE_SANDBOX_NOTIFY`. Only applies to the opencode agent (the only agent with a session event stream). |
+| `--notify`     | —     | `off`     | Notify on session status: `on`, `off`, `desktop`, or `audio` (bare `--notify` = `on`). Overridable via `AGENTS_SANDBOX_NOTIFY`. Only applies to the opencode agent (the only agent with a session event stream). |
 | `--dind`       | —     | `false`  | Enable Docker-in-Docker in the runner image                                                                                                |
 
 **Aliases:** `sandbox run`

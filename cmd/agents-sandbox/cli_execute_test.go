@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"os/exec"
+	"slices"
 	"strings"
 	"testing"
 
@@ -47,11 +48,29 @@ func TestExecuteTree(t *testing.T) {
 // launcherconfig.NewResolver fail, so execute must surface that error.
 func TestExecuteRootPreRunResolverError(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
-	t.Setenv("OPENCODE_SANDBOX_CPUS", "999")
+	t.Setenv("AGENTS_SANDBOX_CPUS", "999")
 	ui := &termio.Mock{}
 
 	if err := execute([]string{"version"}, ui); err == nil {
 		t.Fatal("expected an error from an invalid resolver config")
+	}
+}
+
+// TestExecuteWarnsOnLegacyEnvPrefix verifies that a deprecated
+// OPENCODE_SANDBOX_ variable still resolves and surfaces a warning once.
+func TestExecuteWarnsOnLegacyEnvPrefix(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	t.Setenv("OPENCODE_SANDBOX_CPUS", "4")
+	ui := &termio.Mock{}
+
+	if err := execute([]string{"version"}, ui); err != nil {
+		t.Fatalf("execute version: %v", err)
+	}
+	found := slices.ContainsFunc(ui.WarnCalls, func(w string) bool {
+		return strings.Contains(w, "OPENCODE_SANDBOX_CPUS")
+	})
+	if !found {
+		t.Errorf("expected deprecation warning mentioning OPENCODE_SANDBOX_CPUS, got %v", ui.WarnCalls)
 	}
 }
 

@@ -72,7 +72,7 @@ type Config struct {
 	// releases. Only Mode and Interval are settable via env.
 	Upgrade UpgradeConfig `mapstructure:"upgrade"`
 	// Notify holds the resolved notify config. It is decoded separately (not
-	// via viper.Unmarshal) from dotted keys so the OPENCODE_SANDBOX_NOTIFY env
+	// via viper.Unmarshal) from dotted keys so the AGENTS_SANDBOX_NOTIFY env
 	// override — the bare "notify" key — cannot collide with the nested
 	// notify.desktop/audio/... keys.
 	Notify NotifyConfig `mapstructure:"-"`
@@ -98,8 +98,40 @@ const (
 	FlagNotify       = "notify"
 )
 
-// notifyEnvVar is the environment variable override for --notify.
-const notifyEnvVar = "OPENCODE_SANDBOX_NOTIFY"
+const (
+	// envPrefix is the primary launcher environment-variable prefix.
+	envPrefix = "AGENTS_SANDBOX"
+	// legacyEnvPrefix is the deprecated prefix kept as an alias during the
+	// rename. It resolves with lower precedence than envPrefix.
+	legacyEnvPrefix = "OPENCODE_SANDBOX"
+)
+
+// notifyEnvVar is the primary environment variable override for --notify.
+const notifyEnvVar = envPrefix + "_NOTIFY"
+
+// legacyNotifyEnvVar is the deprecated --notify override.
+const legacyNotifyEnvVar = legacyEnvPrefix + "_NOTIFY"
+
+// envKeyReplacer maps config-key separators to the underscore used in env
+// var names.
+var envKeyReplacer = strings.NewReplacer("-", "_", ".", "_")
+
+// envVarName returns the environment variable name for key under prefix.
+func envVarName(prefix, key string) string {
+	return strings.ToUpper(prefix + "_" + envKeyReplacer.Replace(key))
+}
+
+// notifyEnvOverride returns the effective --notify environment override and the
+// variable name it came from, preferring AGENTS_SANDBOX_NOTIFY over the
+// deprecated OPENCODE_SANDBOX_NOTIFY. Both are empty when neither is set.
+func notifyEnvOverride() (string, string) {
+	for _, candidate := range []string{notifyEnvVar, legacyNotifyEnvVar} {
+		if v := os.Getenv(candidate); v != "" {
+			return v, candidate
+		}
+	}
+	return "", ""
+}
 
 // defaultAgentName is the fallback agent used when --agent is not provided.
 const defaultAgentName = "opencode"
@@ -113,13 +145,17 @@ type UpgradeConfig struct {
 // Resolver resolves launcher config with precedence flag > env > config > default.
 type Resolver struct {
 	cfg Config
+	// legacyEnv holds deprecated-prefix variables that were in effect when the
+	// resolver was built. The CLI surfaces them once as a deprecation warning.
+	legacyEnv []string
 }
 
 // NewResolver builds a Resolver, loading config files, configuring the
-// OPENCODE_SANDBOX_ env prefix, binding config-backed flags on cmd, and
+// AGENTS_SANDBOX_ env prefix (with the deprecated OPENCODE_SANDBOX_ aliases as
+// a lower-precedence fallback), binding config-backed flags on cmd, and
 // validating. Config precedence (lowest to highest): generic user dir,
-// per-slug user dir (when slug is non-empty), project dir, env, flags.
-// cmd may be nil to skip flag binding.
+// per-slug user dir (when slug is non-empty), project dir, legacy env, env,
+// flags. cmd may be nil to skip flag binding.
 func NewResolver(cmd *cobra.Command, slug string) (*Resolver, error) {
 	v := viper.New()
 
@@ -135,16 +171,16 @@ func NewResolver(cmd *cobra.Command, slug string) (*Resolver, error) {
 		return nil, err
 	}
 
-	v.SetEnvPrefix("OPENCODE_SANDBOX")
+	v.SetEnvPrefix(envPrefix)
 	// Env-var keys are all top-level and dash-separated; only the nested
 	// "network.profile" key uses a dot, which maps to "_" here. This is a
 	// repo-wide replacement, so a future dotted top-level key (e.g.
 	// "auto.stop") would collide with a dashed one ("auto-stop") and must be
 	// avoided.
-	v.SetEnvKeyReplacer(strings.NewReplacer("-", "_", ".", "_"))
+	v.SetEnvKeyReplacer(envKeyReplacer)
 	v.AutomaticEnv()
 	for _, key := range configEnvKeys {
-		if err := v.BindEnv(key); err != nil {
+		if err := v.BindEnv(key, envVarName(legacyEnvPrefix, key)); err != nil {
 			return nil, err
 		}
 	}
@@ -192,14 +228,39 @@ func NewResolver(cmd *cobra.Command, slug string) (*Resolver, error) {
 	}
 	cfg.Home = homeLayers
 	cfg.hasHome = hasHome
-	return &Resolver{cfg: cfg}, nil
+	return &Resolver{cfg: cfg, legacyEnv: legacyEnvVarsInUse()}, nil
+}
+
+// LegacyEnvVars returns the deprecated-prefix environment variables that were
+// in effect (their AGENTS_SANDBOX_ counterpart was unset) when the resolver
+// was built, so the CLI can warn once.
+func (r *Resolver) LegacyEnvVars() []string {
+	return r.legacyEnv
+}
+
+// legacyEnvVarsInUse reports which deprecated-prefix variables are in effect.
+// A legacy variable is ignored when its AGENTS_SANDBOX_ counterpart is set.
+func legacyEnvVarsInUse() []string {
+	keys := slices.Concat(configEnvKeys, []string{"notify"})
+	var inUse []string
+	for _, key := range keys {
+		legacy := envVarName(legacyEnvPrefix, key)
+		if os.Getenv(legacy) == "" {
+			continue
+		}
+		if os.Getenv(envVarName(envPrefix, key)) != "" {
+			continue
+		}
+		inUse = append(inUse, legacy)
+	}
+	return inUse
 }
 
 // NewResolverWithConfig builds a Resolver from an explicit Config. It is
 // used by callers (notably cmd tests) that need a resolver with known values
 // without touching config files or env.
 func NewResolverWithConfig(cfg Config) *Resolver {
-	return &Resolver{cfg: cfg}
+	return &Resolver{cfg: cfg, legacyEnv: nil}
 }
 
 const (
@@ -233,13 +294,13 @@ const (
 var supportedExts = []string{".yaml", ".yml", ".json", extJSONC, extJSON5}
 
 // configFlagKeys are the config-backed keys that are also exposed as CLI flags.
-// Their env vars use the OPENCODE_SANDBOX_ prefix.
+// Their env vars use the AGENTS_SANDBOX_ prefix.
 var configFlagKeys = []string{
 	keyCPUs, "memory", "tmp-size", "disk-size", "workspace-quota",
 	keyYes, keyQuiet, "log-level", "agent", "dind",
 }
 
-// configEnvKeys are all launcher config keys bound to OPENCODE_SANDBOX_ env vars.
+// configEnvKeys are all launcher config keys bound to env vars.
 var configEnvKeys = []string{
 	keyCPUs, "memory", "tmp-size", "disk-size", "workspace-quota",
 	keyYes, keyQuiet, "log-level",
@@ -724,7 +785,7 @@ func (r *Resolver) resolveNotify(cmd *cobra.Command, ui termio.UI, opts *options
 	if nc.Active() {
 		a, _ := agent.Lookup(opts.Agent)
 		if _, ok := agent.AsDaemonProvider(a); !ok {
-			if cmd.Flags().Changed(FlagNotify) || os.Getenv(notifyEnvVar) != "" {
+			if override, _ := notifyEnvOverride(); cmd.Flags().Changed(FlagNotify) || override != "" {
 				return fmt.Errorf(
 					"--notify is not supported by agent %q (no daemon/event stream)",
 					a.Name(),
@@ -747,10 +808,10 @@ func (r *Resolver) resolveNotifyConfig(cmd *cobra.Command) (notify.Config, error
 			cfg.Audio = notify.AudioOff
 		}
 	}
-	if raw := os.Getenv(notifyEnvVar); raw != "" {
+	if raw, name := notifyEnvOverride(); raw != "" {
 		override, err := notify.ParseOverride(raw)
 		if err != nil {
-			return notify.Config{}, fmt.Errorf("%s: %w", notifyEnvVar, err)
+			return notify.Config{}, fmt.Errorf("%s: %w", name, err)
 		}
 		cfg = notify.ApplyOverride(cfg, override)
 	}

@@ -38,7 +38,7 @@ func ParseAudioMode(s string) (AudioMode, error) {
 	}
 }
 
-// OverrideMode is a --notify / OPENCODE_SANDBOX_NOTIFY value.
+// OverrideMode is a --notify / AGENTS_SANDBOX_NOTIFY value.
 type OverrideMode string
 
 const (

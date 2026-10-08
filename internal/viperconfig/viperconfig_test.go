@@ -135,7 +135,7 @@ func TestResolverEnvPrecedenceOverConfig(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	cp := configpaths.Get()
 	testutil.WriteYAML(t, cp.UserConfigDir(), "config.yaml", map[string]any{"cpus": 2})
-	t.Setenv("OPENCODE_SANDBOX_CPUS", "6")
+	t.Setenv("AGENTS_SANDBOX_CPUS", "6")
 
 	r, err := NewResolver(nil, "")
 	if err != nil {
@@ -178,7 +178,7 @@ func TestResolverConfigSyntaxErrorIsFriendly(t *testing.T) {
 
 func TestResolverEnvKeyReplacement(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
-	t.Setenv("OPENCODE_SANDBOX_AUTO_STOP_ON_ACTIVE_SESSIONS", "true")
+	t.Setenv("AGENTS_SANDBOX_AUTO_STOP_ON_ACTIVE_SESSIONS", "true")
 
 	r, err := NewResolver(nil, "")
 	if err != nil {
@@ -191,7 +191,7 @@ func TestResolverEnvKeyReplacement(t *testing.T) {
 
 func TestResolverEnvInvalidCPUs(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
-	t.Setenv("OPENCODE_SANDBOX_CPUS", "300")
+	t.Setenv("AGENTS_SANDBOX_CPUS", "300")
 
 	if _, err := NewResolver(nil, ""); err == nil {
 		t.Fatal("expected error for cpus=300 from env")
@@ -203,7 +203,7 @@ func TestResolverFlagOverridesEnv(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	cp := configpaths.Get()
 	testutil.WriteYAML(t, cp.UserConfigDir(), "config.yaml", map[string]any{"cpus": 2})
-	t.Setenv("OPENCODE_SANDBOX_CPUS", "4")
+	t.Setenv("AGENTS_SANDBOX_CPUS", "4")
 
 	root := &cobra.Command{Use: "root"}
 	root.PersistentFlags().Uint8("cpus", 0, "")
@@ -385,7 +385,7 @@ func TestResolverWorkspaceQuotaConfig(t *testing.T) {
 
 func TestResolverWorkspaceQuotaEnv(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
-	t.Setenv("OPENCODE_SANDBOX_WORKSPACE_QUOTA", "48G")
+	t.Setenv("AGENTS_SANDBOX_WORKSPACE_QUOTA", "48G")
 
 	r, err := NewResolver(nil, "")
 	if err != nil {
@@ -441,7 +441,7 @@ func TestResolverAgentGetter(t *testing.T) {
 
 func TestResolverAgentEnvVar(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
-	t.Setenv("OPENCODE_SANDBOX_AGENT", "pi")
+	t.Setenv("AGENTS_SANDBOX_AGENT", "pi")
 	r, err := NewResolver(nil, "")
 	if err != nil {
 		t.Fatalf("NewResolver: %v", err)
@@ -453,7 +453,7 @@ func TestResolverAgentEnvVar(t *testing.T) {
 
 func TestNetworkProfileEnvVar(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
-	t.Setenv("OPENCODE_SANDBOX_NETWORK_PROFILE", "none")
+	t.Setenv("AGENTS_SANDBOX_NETWORK_PROFILE", "none")
 	r, err := NewResolver(nil, "")
 	if err != nil {
 		t.Fatalf("NewResolver: %v", err)
@@ -476,7 +476,7 @@ func TestNetworkDefaultNone(t *testing.T) {
 
 func TestNetworkInvalidProfileRejected(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
-	t.Setenv("OPENCODE_SANDBOX_NETWORK_PROFILE", "bogus")
+	t.Setenv("AGENTS_SANDBOX_NETWORK_PROFILE", "bogus")
 	if _, err := NewResolver(nil, ""); err == nil {
 		t.Fatal("expected error for invalid network profile")
 	}
@@ -484,7 +484,7 @@ func TestNetworkInvalidProfileRejected(t *testing.T) {
 
 func TestNetworkDNSServersEnvVar(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
-	t.Setenv("OPENCODE_SANDBOX_NETWORK_DNS_SERVERS", "1.1.1.1,8.8.8.8")
+	t.Setenv("AGENTS_SANDBOX_NETWORK_DNS_SERVERS", "1.1.1.1,8.8.8.8")
 
 	r, err := NewResolver(nil, "")
 	if err != nil {
@@ -608,7 +608,7 @@ func TestNetworkInvalidDNSServersRejected(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			configpaths.WithMockConfigPaths(t)
 			if s, ok := tc.raw.(string); ok {
-				t.Setenv("OPENCODE_SANDBOX_NETWORK_DNS_SERVERS", s)
+				t.Setenv("AGENTS_SANDBOX_NETWORK_DNS_SERVERS", s)
 			} else {
 				testutil.WriteYAML(t, configpaths.Get().UserConfigDir(), "config.yaml", map[string]any{
 					"network": map[string]any{"dns-servers": tc.raw},
@@ -712,8 +712,8 @@ func TestResolverUpgradeIntervalClampsMin(t *testing.T) {
 
 func TestResolverUpgradeEnvVars(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
-	t.Setenv("OPENCODE_SANDBOX_UPGRADE_MODE", "notify")
-	t.Setenv("OPENCODE_SANDBOX_UPGRADE_INTERVAL", "2h")
+	t.Setenv("AGENTS_SANDBOX_UPGRADE_MODE", "notify")
+	t.Setenv("AGENTS_SANDBOX_UPGRADE_INTERVAL", "2h")
 	r, err := NewResolver(nil, "")
 	if err != nil {
 		t.Fatalf("NewResolver: %v", err)
@@ -728,7 +728,7 @@ func TestResolverUpgradeEnvVars(t *testing.T) {
 
 func TestResolverRejectsInvalidUpgradeMode(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
-	t.Setenv("OPENCODE_SANDBOX_UPGRADE_MODE", "bogus")
+	t.Setenv("AGENTS_SANDBOX_UPGRADE_MODE", "bogus")
 	if _, err := NewResolver(nil, ""); err == nil {
 		t.Fatal("expected error for invalid update mode")
 	}
@@ -736,7 +736,7 @@ func TestResolverRejectsInvalidUpgradeMode(t *testing.T) {
 
 func TestResolverRejectsTooSmallInterval(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
-	t.Setenv("OPENCODE_SANDBOX_UPGRADE_INTERVAL", "1m")
+	t.Setenv("AGENTS_SANDBOX_UPGRADE_INTERVAL", "1m")
 	if _, err := NewResolver(nil, ""); err == nil {
 		t.Fatal("expected error for update interval below minimum")
 	}
