@@ -24,6 +24,8 @@ type Mock struct {
 	ErrorCalls   []ErrorCall
 	VerboseCalls []string
 	OutCalls     []string
+	SelectCalls  []string
+	InputCalls   []string
 	SpinnerCalls []string
 	StdOutBuffer bytes.Buffer
 	StdErrBuffer bytes.Buffer
@@ -135,6 +137,7 @@ func (m *Mock) IsInteractive() bool {
 }
 
 func (m *Mock) Select(prompt string, choices []Choice, defaultKey string) (string, error) {
+	m.SelectCalls = append(m.SelectCalls, prompt)
 	if m.SelectFn != nil {
 		return m.SelectFn(prompt, choices, defaultKey)
 	}
@@ -142,6 +145,7 @@ func (m *Mock) Select(prompt string, choices []Choice, defaultKey string) (strin
 }
 
 func (m *Mock) Input(prompt, defaultValue string) (string, error) {
+	m.InputCalls = append(m.InputCalls, prompt)
 	if m.InputFn != nil {
 		return m.InputFn(prompt, defaultValue)
 	}
