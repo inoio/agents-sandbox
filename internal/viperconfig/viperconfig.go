@@ -29,6 +29,7 @@ import (
 	"github.com/spf13/pflag"
 	"github.com/spf13/viper"
 	"github.com/titanous/json5"
+	"gopkg.in/yaml.v3"
 )
 
 // Config holds launcher-level defaults that can be set in
@@ -110,7 +111,8 @@ type UpgradeConfig struct {
 
 // Resolver resolves launcher config with precedence flag > env > config > default.
 type Resolver struct {
-	cfg Config
+	cfg         Config
+	higherScope map[string]bool
 }
 
 // NewResolver builds a Resolver, loading config files, configuring the
@@ -121,15 +123,18 @@ type Resolver struct {
 func NewResolver(cmd *cobra.Command, slug string) (*Resolver, error) {
 	v := viper.New()
 
-	if err := mergeDir(v, configpaths.Get().UserConfigDir()); err != nil {
+	userConfigDir := configpaths.Get().UserConfigDir()
+	projectConfigDir := configpaths.Get().ProjectConfigDir()
+
+	if err := mergeDir(v, userConfigDir); err != nil {
 		return nil, err
 	}
 	if slug != "" {
-		if err := mergeDir(v, filepath.Join(configpaths.Get().UserConfigDir(), slug)); err != nil {
+		if err := mergeDir(v, filepath.Join(userConfigDir, slug)); err != nil {
 			return nil, err
 		}
 	}
-	if err := mergeDir(v, configpaths.Get().ProjectConfigDir()); err != nil {
+	if err := mergeDir(v, projectConfigDir); err != nil {
 		return nil, err
 	}
 
@@ -182,22 +187,114 @@ func NewResolver(cmd *cobra.Command, slug string) (*Resolver, error) {
 	cfg.Notify = decodeNotify(v)
 
 	homeLayers, hasHome, err := homeconfig.LoadLayers([]string{
-		configpaths.Get().UserConfigDir(),
-		configpaths.Get().ProjectConfigDir(),
+		userConfigDir,
+		projectConfigDir,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("decode launcher config: %w", err)
 	}
 	cfg.Home = homeLayers
 	cfg.hasHome = hasHome
-	return &Resolver{cfg: cfg}, nil
+
+	higherScope, err := higherScopeKeys(cmd, userConfigDir, projectConfigDir, slug)
+	if err != nil {
+		return nil, err
+	}
+	return &Resolver{cfg: cfg, higherScope: higherScope}, nil
 }
 
 // NewResolverWithConfig builds a Resolver from an explicit Config. It is
 // used by callers (notably cmd tests) that need a resolver with known values
 // without touching config files or env.
 func NewResolverWithConfig(cfg Config) *Resolver {
-	return &Resolver{cfg: cfg}
+	return &Resolver{cfg: cfg, higherScope: map[string]bool{}}
+}
+
+// KeySetAboveUserConfig reports whether key is set at a scope more specific
+// than the generic user config: the per-slug user config or project config
+// file, an OPENCODE_SANDBOX_ env var, or an explicit command-line flag.
+func (r *Resolver) KeySetAboveUserConfig(key string) bool {
+	return r.higherScope[key]
+}
+
+func higherScopeKeys(cmd *cobra.Command, userConfigDir, projectConfigDir, slug string) (map[string]bool, error) {
+	keys := map[string]bool{}
+	if slug != "" {
+		if err := addConfigFileKeys(keys, filepath.Join(userConfigDir, slug)); err != nil {
+			return nil, err
+		}
+	}
+	if err := addConfigFileKeys(keys, projectConfigDir); err != nil {
+		return nil, err
+	}
+	for _, key := range configEnvKeys {
+		if os.Getenv(configEnvName(key)) != "" {
+			keys[key] = true
+		}
+	}
+	if cmd != nil {
+		for _, key := range configFlagKeys {
+			if flag := findFlag(cmd, key); flag != nil && flag.Changed {
+				keys[key] = true
+			}
+		}
+		if flag := findFlag(cmd, FlagNetwork); flag != nil && flag.Changed {
+			keys[keyNetworkProfile] = true
+		}
+	}
+	return keys, nil
+}
+
+func addConfigFileKeys(keys map[string]bool, dir string) error {
+	leafKeys, err := configFileLeafKeys(dir)
+	if err != nil {
+		return err
+	}
+	for _, key := range leafKeys {
+		keys[key] = true
+	}
+	return nil
+}
+
+func configFileLeafKeys(dir string) ([]string, error) {
+	path, ext, ok := findConfigFile(dir)
+	if !ok {
+		return nil, nil
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("read launcher config %s: %w", path, err)
+	}
+	var raw map[string]any
+	if configType(ext) == ctYAML {
+		if unmarshalErr := yaml.Unmarshal(data, &raw); unmarshalErr != nil {
+			return nil, yamlfmt.WrapErr(path, unmarshalErr)
+		}
+	} else if unmarshalErr := json5.Unmarshal(data, &raw); unmarshalErr != nil {
+		return nil, fmt.Errorf("parse launcher config %s: %w", path, unmarshalErr)
+	}
+	var keys []string
+	collectLeafKeys(raw, "", &keys)
+	return keys, nil
+}
+
+func collectLeafKeys(node map[string]any, prefix string, keys *[]string) {
+	for name, value := range node {
+		key := name
+		if prefix != "" {
+			key = prefix + "." + name
+		}
+		if child, ok := value.(map[string]any); ok {
+			collectLeafKeys(child, key, keys)
+			continue
+		}
+		*keys = append(*keys, key)
+	}
+}
+
+func configEnvName(key string) string {
+	replaced := strings.NewReplacer("-", "_", ".", "_").Replace(strings.ToUpper(key))
+	return "OPENCODE_SANDBOX_" + replaced
 }
 
 const (
