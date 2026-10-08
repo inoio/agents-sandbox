@@ -48,7 +48,7 @@ interactive start asks whether the in-sandbox login worked.
 | Answer | Effect |
 | --- | --- |
 | **Yes** | The outcome becomes `completed`; you are not asked again. |
-| **No** | You re-enter the host review; `login-pending` is kept so you can try again later. |
+| **No** | You re-enter the login hand-off; `login-pending` is kept so you can try again later. |
 | **Not yet** | A quiet one-line reminder is shown; no host review is opened. |
 
 If you chose **Continue without migration** or **Configure manually**, the manual outcome is remembered and not
@@ -68,9 +68,9 @@ non-interactive start never prompts and never hangs: it prints a warning (native
 continues.
 
 To run the same migration without starting a VM, use the host-only command (see [`config migrate`]({% link commands.md %}#config-migrate-name)).
-Running it explicitly always applies the migration, even after you previously deferred onboarding for the current native
-configuration (a remembered manual setup or a pending login); in that case it prints a note that onboarding was deferred
-and applies it now:
+Running it explicitly always re-enters onboarding for the current native configuration, even after you previously deferred it
+(a remembered manual setup or a pending login): for migratable configuration it applies the migration now, and for login-only
+configuration it records the pending login and reminds you to authenticate inside the sandbox:
 
 ```console
 agents-sandbox config migrate --agent opencode

@@ -539,6 +539,47 @@ func TestConfigMigratePrintsNoSupportedCredentialWarning(t *testing.T) {
 	}
 }
 
+func TestConfigMigrateRecordsLoginPendingForOAuthOnlyPlan(t *testing.T) {
+	originalBuild := buildMigrationPlan
+	originalHome := migrationHomeDir
+	t.Cleanup(func() {
+		buildMigrationPlan = originalBuild
+		migrationHomeDir = originalHome
+	})
+	migrationHomeDir = func() (string, error) { return t.TempDir(), nil }
+	buildMigrationPlan = func(agent.Agent, string, network.Policy) (*configmigration.Plan, error) {
+		return &configmigration.Plan{
+			AgentName:       "opencode",
+			SourceHash:      "oauth-only-hash",
+			HasNativeConfig: true,
+			LoginProviders:  []string{"github-copilot"},
+			LoginPending:    true,
+			PendingLogins: []configmigration.LoginProvider{
+				{Name: "github-copilot", Hosts: []string{"github.com"}},
+			},
+		}, nil
+	}
+	cmd, ui := setupCommandFixtures(t, "config", "migrate", "opencode")
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("config migrate: %v", err)
+	}
+	if strings.Contains(strings.Join(ui.WarnCalls, "\n"), "no supported credential migration") {
+		t.Errorf("login-only config wrongly reported as unmigratable: %v", ui.WarnCalls)
+	}
+	joined := strings.Join(ui.OutCalls, "\n")
+	if !strings.Contains(joined, "authenticate inside") {
+		t.Errorf("missing in-sandbox login guidance, got:\n%s", joined)
+	}
+	manifestPath := filepath.Join(configpaths.Get().UserStateDir(), "opencode", "config-migration.yaml")
+	data, err := os.ReadFile(manifestPath)
+	if err != nil {
+		t.Fatalf("read manifest: %v", err)
+	}
+	if !strings.Contains(string(data), "login-pending") || !strings.Contains(string(data), "github-copilot") {
+		t.Errorf("manifest = %s, want login-pending with github-copilot", data)
+	}
+}
+
 func TestConfigMigrateCommandErrorBranches(t *testing.T) {
 	originalBuild := buildMigrationPlan
 	originalApply := applyMigrationPlan

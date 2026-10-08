@@ -276,6 +276,26 @@ func TestApplyRecordsLoginPendingForMixedConfig(t *testing.T) {
 	}
 }
 
+func TestRecordLoginPendingWritesProviders(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	a, _ := agent.Lookup("opencode")
+	plan := &Plan{
+		AgentName:     a.Name(),
+		SourceHash:    "oauth-only-hash",
+		PendingLogins: []LoginProvider{{Name: "github-copilot", Hosts: []string{"github.com"}}},
+	}
+	if err := RecordLoginPending(plan); err != nil {
+		t.Fatal(err)
+	}
+	manifest := migrationManifestFor(a)
+	if manifest.State != migrationStateLoginPending {
+		t.Fatalf("state = %q, want %q", manifest.State, migrationStateLoginPending)
+	}
+	if len(manifest.Pending) != 1 || manifest.Pending[0].Provider != "github-copilot" {
+		t.Fatalf("pending = %+v, want github-copilot", manifest.Pending)
+	}
+}
+
 func TestGuideLoginPendingVerificationYesCompletes(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	clearOpenCodeXDG(t)

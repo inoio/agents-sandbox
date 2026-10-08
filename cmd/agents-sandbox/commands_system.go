@@ -366,6 +366,13 @@ func buildConfigMigrateCmd(
 				return nil
 			}
 			if len(plan.Files) == 0 && !plan.SetupOnly {
+				handled, err := migrateLoginOnly(plan, a, ui)
+				if err != nil {
+					return err
+				}
+				if handled {
+					return nil
+				}
 				ui.Warnf(
 					"native %s configuration was found, but no supported credential migration is available",
 					a.Name(),
@@ -402,6 +409,27 @@ func buildConfigMigrateCmd(
 	}
 	cmd.Flags().String(flagAgent, defaultAgentName, "Coding agent profile")
 	return cmd
+}
+
+// migrateLoginOnly re-arms the in-sandbox login for a login-only native
+// configuration and reports whether it handled the plan.
+func migrateLoginOnly(plan *configmigration.Plan, a agent.Agent, ui termio.UI) (bool, error) {
+	if !plan.HasLogin() {
+		return false, nil
+	}
+	if plan.Manual || plan.LoginPending || plan.Dismissed {
+		ui.Out(
+			"Onboarding was previously deferred for the current native configuration; re-arming the in-sandbox login.",
+		)
+	}
+	if err := configmigration.RecordLoginPending(plan); err != nil {
+		return false, err
+	}
+	ui.Outf(
+		"Refreshable %s credentials are not copied; start the sandbox and authenticate inside it.",
+		a.Name(),
+	)
+	return true, nil
 }
 
 // reservedHomeConfigTargets returns the home-relative VM paths the agent

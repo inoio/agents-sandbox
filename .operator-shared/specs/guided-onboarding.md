@@ -191,7 +191,8 @@ one-time, non-nagging prompt rather than automatic.
      silently defeating the migration.
   A host that survives must actually be reachable; a shadowed host is surfaced to the user, never silently added.
 - **Dismissal** is explicit, remembered, and re-armed by source-hash change; `config migrate` and `config wizard`
-  re-enter voluntarily.
+  re-enter voluntarily. In particular, explicit `config migrate` on a login-only native configuration records
+  `login-pending` and directs the user to authenticate in the sandbox, rather than reporting nothing to migrate.
 
 ## Relationship to PR #103
 
