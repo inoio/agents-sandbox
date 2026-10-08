@@ -471,6 +471,24 @@ func TestConfigMigrateCommandOutcomes(t *testing.T) {
 	}
 	buildMigrationPlan = func(agent.Agent, string, network.Policy) (*configmigration.Plan, error) {
 		plan := basePlan()
+		plan.Manual = true
+		return plan, nil
+	}
+	cmd, ui = setupCommandFixtures(t, "config", "migrate", "opencode")
+	if err := cmd.Execute(); err != nil || !strings.Contains(strings.Join(ui.OutCalls, "\n"), "previously deferred") {
+		t.Fatalf("manual result = %v, %v", err, ui.OutCalls)
+	}
+	buildMigrationPlan = func(agent.Agent, string, network.Policy) (*configmigration.Plan, error) {
+		plan := basePlan()
+		plan.LoginPending = true
+		return plan, nil
+	}
+	cmd, ui = setupCommandFixtures(t, "config", "migrate", "opencode")
+	if err := cmd.Execute(); err != nil || !strings.Contains(strings.Join(ui.OutCalls, "\n"), "previously deferred") {
+		t.Fatalf("login-pending result = %v, %v", err, ui.OutCalls)
+	}
+	buildMigrationPlan = func(agent.Agent, string, network.Policy) (*configmigration.Plan, error) {
+		plan := basePlan()
 		plan.Warnings = []string{"warning"}
 		return plan, nil
 	}

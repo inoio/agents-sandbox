@@ -384,6 +384,11 @@ func buildConfigMigrateCmd(
 					"Migration was previously dismissed for the current native configuration; applying it explicitly now.",
 				)
 			}
+			if plan.Manual || plan.LoginPending {
+				ui.Outf(
+					"Onboarding was previously deferred for the current native configuration; applying it explicitly now.",
+				)
+			}
 			ui.Outf("Migrating %s configuration without copying raw credentials.", a.Name())
 			if err := configmigration.Review(plan, ui); err != nil {
 				return err

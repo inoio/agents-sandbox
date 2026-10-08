@@ -32,6 +32,10 @@ command reports the bare version (e.g. `0.1.0`).
 - Config: first-run guidance is now always explicit — migrate, login hand-off, host-first hand-off, or review hand-off — and
   never silently no-ops when config is missing or unmigratable. Egress-deny rules that would shadow a required host are surfaced
   interactively at review, with choices to skip the host, remove the deny rule, use the public posture, or abort.
+- Config: a login hand-off is remembered as `login-pending` and verified on the next interactive start (ask whether the
+  in-sandbox login worked; "No" re-enters the host review, "Not yet" shows a quiet reminder). A manual setup is remembered and
+  not re-prompted until the native config changes, and an explicit `config migrate` always re-enters onboarding for a deferred
+  or pending configuration.
 - Internal: the dev user block is now inserted after the embedded base tools (or after the final `FROM` for a custom base)
   instead of as the first instruction of the final stage. A host UID/GID change no longer invalidates the cached base tools
   layer.

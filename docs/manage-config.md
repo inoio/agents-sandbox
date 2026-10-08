@@ -41,6 +41,20 @@ interactive first run ends in one of these explicit outcomes.
 | No native config (agent supports migration) | **Host-first hand-off**: asks you to set up the agent on the host and rerun, or to configure manually or start anyway. |
 | No native config (Claude Code) | **Setup hand-off**: offers a one-time setup that allows the login hosts before you log in inside the sandbox. |
 
+When a run ends in the **Login hand-off** (login-only credentials) or in a mixed migration that also drops login
+credentials, the outcome is remembered as `login-pending`. This is a verification loop, not a terminal choice: the next
+interactive start asks whether the in-sandbox login worked.
+
+| Answer | Effect |
+| --- | --- |
+| **Yes** | The outcome becomes `completed`; you are not asked again. |
+| **No** | You re-enter the host review; `login-pending` is kept so you can try again later. |
+| **Not yet** | A quiet one-line reminder is shown; no host review is opened. |
+
+If you chose **Continue without migration** or **Configure manually**, the manual outcome is remembered and not
+re-prompted until the native configuration changes (its source hash is re-armed). A non-interactive start prints a
+one-line reminder for a pending login and never prompts.
+
 When migration actually has something to write, it shows the result for review before writing:
 
 | Choice | Effect |
@@ -53,7 +67,10 @@ The setup question is not asked when `provision-host-config: true` is set or man
 non-interactive start never prompts and never hangs: it prints a warning (native config found but not migrated) and
 continues.
 
-To run the same migration without starting a VM, use the host-only command (see [`config migrate`]({% link commands.md %}#config-migrate-name)):
+To run the same migration without starting a VM, use the host-only command (see [`config migrate`]({% link commands.md %}#config-migrate-name)).
+Running it explicitly always applies the migration, even after you previously deferred onboarding for the current native
+configuration (a remembered manual setup or a pending login); in that case it prints a note that onboarding was deferred
+and applies it now:
 
 ```console
 agents-sandbox config migrate --agent opencode
