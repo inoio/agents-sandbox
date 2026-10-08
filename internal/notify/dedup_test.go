@@ -1,6 +1,7 @@
 package notify
 
 import (
+	"errors"
 	"sync"
 	"testing"
 
@@ -95,4 +96,34 @@ func sseBlockFor(typ, sessionID string) []byte {
 	return []byte(
 		"data: {\"directory\":\"/workspace\",\"project\":\"p\",\"payload\":{\"id\":\"evt\",\"type\":\"" + typ + "\",\"properties\":{\"sessionID\":\"" + sessionID + "\"}}}\n\n",
 	)
+}
+
+func TestDedupSameClientSecondNotifyDropped(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	sink := &sharedSink{}
+	c := NewDedup("dedupheld-a", StateClaimer{}, sink)
+
+	n := Notification{SessionID: "ses_A", Trigger: TriggerDone}
+	c.Notify(n) // claims and delivers
+	c.Notify(n) // held locally -> dropped
+	if sink.count() != 1 {
+		t.Fatalf("expected 1 notification after a repeat, got %d", sink.count())
+	}
+}
+
+// errorClaimer simulates a claim backend that is unavailable.
+type errorClaimer struct{}
+
+func (errorClaimer) Acquire(string, string) (func(), bool, error) {
+	return nil, false, errors.New("claim backend unavailable")
+}
+
+func TestDedupFailsOpenOnClaimError(t *testing.T) {
+	sink := &sharedSink{}
+	c := NewDedup("deduperr-a", errorClaimer{}, sink)
+
+	c.Notify(Notification{SessionID: "ses_A", Trigger: TriggerDone})
+	if sink.count() != 1 {
+		t.Fatalf("expected fail-open delivery on claim error, got %d", sink.count())
+	}
 }

@@ -1,12 +1,13 @@
 package agent
 
 import (
-	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
 
 	"github.com/go-git/go-git/v5/plumbing/format/gitignore"
+
+	"github.com/inoio/agents-sandbox/internal/filewalk"
 )
 
 // ProvisionRule scopes a gitignore-style pattern list to a home-relative dir.
@@ -84,45 +85,23 @@ func ValidateProvisionRules(rules []ProvisionRule) []string {
 	return warnings
 }
 
-//nolint:gocognit // rule selection, pruning, and metadata-aware copying are one walk
+// walkRule copies every selected file under srcRoot into vmHome, pruning
+// unselected directories (e.g., node_modules).
 func walkRule(rule ProvisionRule, srcRoot, vmHome string, onCopy func(string, []byte, os.FileMode) error) (int, error) {
-	if _, err := os.Stat(srcRoot); err != nil {
-		return 0, nil //nolint:nilerr // host dir absent: nothing to copy
-	}
 	var count int
-	err := filepath.WalkDir(srcRoot, func(path string, d fs.DirEntry, err error) error {
-		if err != nil {
-			return nil //nolint:nilerr // skip unreadable entries; never fail the session
-		}
-		rel, relErr := filepath.Rel(srcRoot, path)
-		if relErr != nil || rel == "." {
-			return nil //nolint:nilerr // skip entries outside the walk root
-		}
-		if !SelectProvisionRule(rule, rel, d.IsDir()) {
-			if d.IsDir() {
-				return filepath.SkipDir // prune excluded dir (e.g., node_modules)
+	err := filewalk.Walk(
+		srcRoot,
+		func(rel string, isDir bool) bool { return SelectProvisionRule(rule, rel, isDir) },
+		func(entry filewalk.Entry) error {
+			dst := filepath.Join(vmHome, rule.Dir, entry.Rel)
+			if onCopy != nil {
+				if err := onCopy(dst, entry.Data, entry.Mode); err != nil {
+					return err
+				}
 			}
+			count++
 			return nil
-		}
-		if d.IsDir() {
-			return nil
-		}
-		info, infoErr := os.Stat(path)
-		if infoErr != nil {
-			return nil //nolint:nilerr // skip files whose metadata cannot be read
-		}
-		data, readErr := os.ReadFile(path) //nolint:gosec // reads within the host dir we own
-		if readErr != nil {
-			return nil //nolint:nilerr // skip unreadable file; never fail the session
-		}
-		dst := filepath.Join(vmHome, rule.Dir, rel)
-		if onCopy != nil {
-			if err := onCopy(dst, data, info.Mode().Perm()); err != nil {
-				return err
-			}
-		}
-		count++
-		return nil
-	})
+		},
+	)
 	return count, err
 }

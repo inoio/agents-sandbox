@@ -322,26 +322,17 @@ func reservedHomeConfigTargets(a agent.Agent, home string) []string {
 // buildConfigAgentCmd returns the config agent subcommand, which prints the
 // agent's merged snippet config, the host drop-in files, and the verbatim
 // mirror files that provisioning would copy into the VM.
-func buildConfigAgentCmd( //nolint:gocognit // plan-mandated config agent output restructure
-	ui termio.UI,
-) *cobra.Command {
+func buildConfigAgentCmd(ui termio.UI) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   cmdAgent,
 		Args:  cobra.MaximumNArgs(1),
 		Short: "Show the merged agent config and the host files provisioned into the VM",
 		RunE: func(c *cobra.Command, args []string) error {
-			name, err := resolveConfigAgentName(c, args)
+			a, err := configAgentFor(c, args)
 			if err != nil {
 				return err
 			}
-			a, ok := agent.Lookup(name)
-			if !ok {
-				return fmt.Errorf("unknown agent %q: must be one of %s", name, strings.Join(agent.Names(), ", "))
-			}
-			provision := true
-			if r := resolverFromContext(c.Context()); r != nil {
-				provision = r.ProvisionHostConfig()
-			}
+			provision := provisionHostConfigEnabled(c)
 			hostHome, _ := os.UserHomeDir()
 			merged, sources, hostFiles, mirrorFiles, err := reprovision.Describe(
 				a,
@@ -353,38 +344,75 @@ func buildConfigAgentCmd( //nolint:gocognit // plan-mandated config agent output
 			if err != nil {
 				return err
 			}
-			ui.Outf("agent: %s", a.Name())
-			if len(sources) == 0 {
-				ui.Out("No snippet files found; no merged config is provisioned.")
-			} else {
-				ui.Out("merged files:")
-				for _, src := range sources {
-					ui.Outf("  %s", src)
-				}
-				ui.Out("merged agent config:")
-				for line := range strings.SplitSeq(string(merged), "\n") {
-					ui.Outf("  %s", line)
-				}
-			}
-			if len(mirrorFiles) > 0 {
-				ui.Out("mirror files:")
-				for _, mf := range mirrorFiles {
-					ui.Outf("  %s  ->  %s", mf.HostPath, mf.VMPath)
-				}
-			}
-			ui.Outf("host files (drop-in, provision-host-config=%v):", provision)
-			for _, hf := range hostFiles {
-				status := "not merged"
-				if hf.Merged {
-					status = "merged"
-				}
-				ui.Outf("  %-9s %s  ->  %s", status, hf.HostPath, hf.VMPath)
-			}
+			printConfigAgent(ui, a, merged, sources, hostFiles, mirrorFiles, provision)
 			return nil
 		},
 	}
 	cmd.Flags().String(flagAgent, defaultAgentName, "Coding agent profile")
 	return cmd
+}
+
+// configAgentFor resolves the agent for the config agent command, or errors if
+// the resolved name is unknown.
+func configAgentFor(c *cobra.Command, args []string) (agent.Agent, error) {
+	name, err := resolveConfigAgentName(c, args)
+	if err != nil {
+		return nil, err
+	}
+	a, ok := agent.Lookup(name)
+	if !ok {
+		return nil, fmt.Errorf("unknown agent %q: must be one of %s", name, strings.Join(agent.Names(), ", "))
+	}
+	return a, nil
+}
+
+// provisionHostConfigEnabled reports whether host config provisioning is on,
+// defaulting to true when no resolver is present.
+func provisionHostConfigEnabled(c *cobra.Command) bool {
+	if r := resolverFromContext(c.Context()); r != nil {
+		return r.ProvisionHostConfig()
+	}
+	return true
+}
+
+// printConfigAgent renders the merged config, mirror files, and drop-in host
+// files that provisioning would copy into the VM.
+func printConfigAgent(
+	ui termio.UI,
+	a agent.Agent,
+	merged []byte,
+	sources []string,
+	hostFiles []reprovision.HostFile,
+	mirrorFiles []reprovision.MirrorFile,
+	provision bool,
+) {
+	ui.Outf("agent: %s", a.Name())
+	if len(sources) == 0 {
+		ui.Out("No snippet files found; no merged config is provisioned.")
+	} else {
+		ui.Out("merged files:")
+		for _, src := range sources {
+			ui.Outf("  %s", src)
+		}
+		ui.Out("merged agent config:")
+		for line := range strings.SplitSeq(string(merged), "\n") {
+			ui.Outf("  %s", line)
+		}
+	}
+	if len(mirrorFiles) > 0 {
+		ui.Out("mirror files:")
+		for _, mf := range mirrorFiles {
+			ui.Outf("  %s  ->  %s", mf.HostPath, mf.VMPath)
+		}
+	}
+	ui.Outf("host files (drop-in, provision-host-config=%v):", provision)
+	for _, hf := range hostFiles {
+		status := "not merged"
+		if hf.Merged {
+			status = "merged"
+		}
+		ui.Outf("  %-9s %s  ->  %s", status, hf.HostPath, hf.VMPath)
+	}
 }
 
 // resolveConfigAgentName resolves the agent name for the config agent command:

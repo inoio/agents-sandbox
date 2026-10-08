@@ -43,8 +43,6 @@ type BuildOptions struct {
 const userProvidedImageIdentity = "user-provided"
 
 // ImageInfo describes the built or existing runner image.
-//
-//nolint:revive // unavoidable stutter: image.Info already exists (list.go)
 type ImageInfo struct {
 	Tag    string
 	Digest string

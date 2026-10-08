@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/inoio/agents-sandbox/internal/agent"
@@ -33,6 +34,88 @@ type badProvisionerAgent struct {
 func (badProvisionerAgent) ProvisionRules() []agent.ProvisionRule {
 	return []agent.ProvisionRule{
 		{Dir: ".config/tool", Patterns: []string{"", "**", "!"}},
+	}
+}
+
+// relMergedConfigAgent is a ConfigMerger whose merged-config path is always
+// relative, so deriving the reserved home target against an absolute vmHome
+// fails in filepath.Rel.
+type relMergedConfigAgent struct {
+	plainAgent
+}
+
+func (relMergedConfigAgent) SnippetPattern() string { return "nomatch*.json" }
+func (relMergedConfigAgent) VMConfigPath(string) string {
+	return "relative/merged.jsonc"
+}
+func (relMergedConfigAgent) ConfigFileNames() []string { return []string{"merged.jsonc"} }
+
+// TestLoadConfigFilesReservedTargetError verifies the error path when the
+// merged-config path cannot be made relative to the VM home.
+func TestLoadConfigFilesReservedTargetError(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	ui := termio.NewTestMock(t)
+	_, err := LoadConfigFilesForHost(relMergedConfigAgent{}, t.TempDir(), t.TempDir(), &ui, true)
+	if err == nil || !strings.Contains(err.Error(), "reserved home target") {
+		t.Fatalf("LoadConfigFilesForHost error = %v, want reserved home target error", err)
+	}
+}
+
+// TestLoadConfigFilesHomeFilesError verifies that a non-hook home target that
+// fails VM-target resolution surfaces from the home-files loader (which runs
+// after the hook loader).
+func TestLoadConfigFilesHomeFilesError(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	cp := configpaths.Get()
+	testutil.WriteFile(t, cp.ProjectConfigDir(), "config.yaml",
+		"home:\n"+
+			"  /absolute/target:\n"+
+			"    source: somefile\n")
+
+	ui := termio.NewTestMock(t)
+	_, err := LoadConfigFilesForHost(opencodeTestAgent(), t.TempDir(), t.TempDir(), &ui, true)
+	if err == nil || !strings.Contains(err.Error(), "must be relative to the home directory") {
+		t.Fatalf("LoadConfigFilesForHost error = %v, want home-target resolution error", err)
+	}
+}
+
+// TestLoadConfigFilesProvisionError verifies the error path when evaluating the
+// agent's provision rules fails.
+func TestLoadConfigFilesProvisionError(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	restore := evalProvisionRules
+	t.Cleanup(func() { evalProvisionRules = restore })
+	boom := errors.New("provision boom")
+	evalProvisionRules = func(
+		[]agent.ProvisionRule,
+		string,
+		string,
+		func(string, []byte, os.FileMode) error,
+	) (int, error) {
+		return 0, boom
+	}
+
+	ui := termio.NewTestMock(t)
+	_, err := LoadConfigFilesForHost(badProvisionerAgent{}, t.TempDir(), t.TempDir(), &ui, true)
+	if !errors.Is(err, boom) {
+		t.Fatalf("LoadConfigFilesForHost error = %v, want %v", err, boom)
+	}
+}
+
+// TestProvisionReturnsMkdirError verifies that a failure creating a parent
+// directory surfaces from Provision.
+func TestProvisionReturnsMkdirError(t *testing.T) {
+	mkdirErr := errors.New("mkdir boom")
+	cf := &ConfigFiles{
+		HomeFiles: map[string][]byte{"/home/dev/.config/tool/cfg.toml": []byte("k=v\n")},
+	}
+	fs := msb.NewTestFS(nil, nil)
+	fs.MkdirErr = mkdirErr
+	sb := &msb.MockSandbox{FSValue_: fs, ShellCalls: &[]string{}}
+
+	err := Provision(context.Background(), sb, cf)
+	if !errors.Is(err, mkdirErr) {
+		t.Fatalf("Provision error = %v, want %v", err, mkdirErr)
 	}
 }
 

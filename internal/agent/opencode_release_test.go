@@ -61,6 +61,15 @@ func TestLatestVersionPropagatesRequestError(t *testing.T) {
 	}
 }
 
+func TestLatestVersionBuildRequestError(t *testing.T) {
+	restore := overrideLatestURL("://bad")
+	t.Cleanup(restore)
+
+	if _, err := latestOpenCodeVersion(context.Background()); err == nil {
+		t.Fatal("expected error for malformed endpoint URL")
+	}
+}
+
 func TestLatestVersionNon200(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		http.Error(w, "nope", http.StatusInternalServerError)

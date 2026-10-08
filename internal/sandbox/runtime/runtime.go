@@ -44,6 +44,8 @@ const (
 // Inspection contains the runtime paths and version information used by
 // the mismatch decision. It is collected before the SDK is allowed to load its
 // FFI library or open the runtime database.
+//
+//exhaustruct:ignore
 type Inspection struct {
 	AgentsSandboxVersion string
 	RequiredVersion      string
@@ -79,7 +81,6 @@ type PreparationResult struct {
 	Restart bool
 }
 
-//nolint:gochecknoglobals // process-wide SDK initialization is intentional
 var runtimeState = struct {
 	mutex    sync.Mutex
 	prepared bool
@@ -87,8 +88,6 @@ var runtimeState = struct {
 
 // Command seams keep runtime recovery unit-testable without touching the host
 // runtime or replacing the test executable.
-//
-//nolint:gochecknoglobals // command seams are required for safe recovery tests
 var (
 	runMSBVersion = func(path string) (string, error) {
 		output, err := exec.Command(path, "--version").Output()
@@ -108,27 +107,27 @@ var (
 	ensureRuntime              = func(ctx context.Context) error {
 		_, err := msbSdk.EnsureRuntime(
 			ctx,
-			msbSdk.RuntimeConfig{},  //nolint:exhaustruct_v5 // empty config uses environment/default paths
-			msbSdk.InstallOptions{}, //nolint:exhaustruct_v5 // zero options install the SDK-pinned runtime
+			msbSdk.RuntimeConfig{},
+			msbSdk.InstallOptions{},
 		)
 		return err
 	}
 	installRuntime = func(ctx context.Context) error {
 		_, err := msbSdk.InstallRuntime(
 			ctx,
-			msbSdk.RuntimeConfig{},             //nolint:exhaustruct_v5 // empty config uses environment/default paths
-			msbSdk.InstallOptions{Force: true}, //nolint:exhaustruct_v5 // force replacement of an older managed runtime
+			msbSdk.RuntimeConfig{},
+			msbSdk.InstallOptions{Force: true},
 		)
 		return err
 	}
 	validateRuntime = sandboxmsb.ValidateInstalled
-) //nolint:gochecknoglobals // command seams are required for safe recovery tests
+)
 
 // runtimeClientIsReal is a seam for testing the public preparation gate while
 // keeping normal command tests on their mocked msb client.
-var runtimeClientIsReal = sandboxmsb.IsRealClient //nolint:gochecknoglobals // test seam
+var runtimeClientIsReal = sandboxmsb.IsRealClient
 
-var userHomeDir = os.UserHomeDir //nolint:gochecknoglobals // test seam
+var userHomeDir = os.UserHomeDir
 
 // InspectRuntime identifies the msb executable selected by the SDK before the
 // SDK itself initializes. It intentionally does not call any SDK operation.
@@ -144,7 +143,7 @@ func inspectRuntime(requiredVersion string) (Inspection, error) {
 	if err != nil {
 		return Inspection{}, err
 	}
-	inspection := Inspection{ //nolint:exhaustruct_v5 // optional fields are populated below
+	inspection := Inspection{
 		RequiredVersion: requiredVersion,
 		MSBHome:         selected.Home,
 		MSBPath:         selected.MSBPath,
@@ -324,7 +323,6 @@ func runtimeLibraryCandidate(msbPath string) string {
 	return filepath.Join(filepath.Dir(msbPath), filename)
 }
 
-//nolint:gochecknoglobals // test seam for pre-SDK runtime inspection
 var inspectRuntimeFunc = inspectRuntime
 
 // PrepareRuntime inspects and resolves the runtime before any SDK operation.

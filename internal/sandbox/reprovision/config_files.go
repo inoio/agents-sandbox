@@ -33,6 +33,11 @@ import (
 // key=value lines.
 const EnvKeyValueParts = 2
 
+// evalProvisionRules is a seam over agent.EvalProvisionRules so tests can
+// exercise the provisioning-error path. A direct call cannot fail because the
+// copy callback only records files in memory.
+var evalProvisionRules = agent.EvalProvisionRules
+
 // parseKeyValueLines splits data into trimmed, non-blank, non-comment
 // "key=value" lines and hands each split pair to onLine. The key and value are
 // passed exactly as SplitN produced them (not re-trimmed); callers that need
@@ -100,8 +105,6 @@ func LoadConfigFiles(a agent.Agent, ui termio.UI, provisionHostConfig bool) (*Co
 // host and about malformed provision rules. Home files and the merged config
 // override provisioned defaults for the same VM path. The agent's merged-config
 // path is reserved: a home target colliding with it is rejected.
-//
-//nolint:funlen,gocognit // config precedence and source loading are intentionally centralized
 func LoadConfigFilesForHost(
 	a agent.Agent,
 	hostHome, vmHome string,
@@ -112,66 +115,23 @@ func LoadConfigFilesForHost(
 	if err != nil {
 		return nil, err
 	}
-	var reserved []string
-	if mergedPath != "" {
-		rel, relErr := filepath.Rel(vmHome, mergedPath)
-		if relErr != nil {
-			return nil, fmt.Errorf("derive reserved home target: %w", relErr)
-		}
-		reserved = append(reserved, rel)
-	}
-	userConfigDir := filepath.Dir(cp.Get().UserAgentConfigDir(a))
-	homeSources, missing, _, err := homeconfig.BuildHomeFilesWithModes(
-		userConfigDir, // user config lives one level above the agent subdir
-		cp.Get().ProjectConfigDir(),
-		vmHome,
-		reserved,
-	)
+	reserved, err := reservedHomeTargets(mergedPath, vmHome)
 	if err != nil {
-		return nil, fmt.Errorf("build home files: %w", err)
+		return nil, err
 	}
-	for _, src := range missing {
-		ui.Warnf("home source %q does not exist on the host; skipping", src)
-	}
-	homeFiles := make(map[string][]byte, len(homeSources))
-	for path, source := range homeSources {
-		homeFiles[path] = source.Data
-	}
-	hooks, err := homeconfig.BuildHooks(
-		userConfigDir, // user config lives one level above the agent subdir
-		cp.Get().ProjectConfigDir(),
-		vmHome,
-		reserved,
-	)
+	hooks, err := loadHooks(a, vmHome, reserved)
 	if err != nil {
-		return nil, fmt.Errorf("build hooks: %w", err)
+		return nil, err
 	}
-	provisioned := make(map[string][]byte)
-	modes := make(map[string]os.FileMode)
-	homeModes := make(map[string]os.FileMode, len(homeSources))
-	for path, source := range homeSources {
-		homeModes[path] = source.Mode
+	homeFiles, homeModes, err := loadHomeFiles(a, vmHome, reserved, ui)
+	if err != nil {
+		return nil, err
 	}
-	if provisionHostConfig {
-		if p, ok := agent.AsProvisioner(a); ok {
-			for _, w := range agent.ValidateProvisionRules(p.ProvisionRules()) {
-				ui.Warnf("provision rule: %s", w)
-			}
-			onCopy := func(dst string, data []byte, mode os.FileMode) error {
-				provisioned[dst] = data
-				modes[dst] = mode
-				return nil
-			}
-			if _, provisionErr := agent.EvalProvisionRules(
-				p.ProvisionRules(),
-				hostHome,
-				vmHome,
-				onCopy,
-			); provisionErr != nil {
-				return nil, fmt.Errorf("eval provision rules: %w", provisionErr)
-			}
-		}
+	provisioned, modes, err := loadProvisioned(a, hostHome, vmHome, ui, provisionHostConfig)
+	if err != nil {
+		return nil, err
 	}
+
 	// Precedence: home files always override provisioned defaults, and the
 	// merged agent config overrides the provisioned config when snippets exist
 	// (no merged config means the drop-in default is provisioned).
@@ -215,6 +175,95 @@ func LoadConfigFilesForHost(
 		Hooks:       hooks,
 		Keys:        keys,
 	}, nil
+}
+
+// reservedHomeTargets returns the VM-relative merged-config path, if any, that
+// home targets may not collide with.
+func reservedHomeTargets(mergedPath, vmHome string) ([]string, error) {
+	if mergedPath == "" {
+		return nil, nil
+	}
+	rel, err := filepath.Rel(vmHome, mergedPath)
+	if err != nil {
+		return nil, fmt.Errorf("derive reserved home target: %w", err)
+	}
+	return []string{rel}, nil
+}
+
+// loadHomeFiles builds the home files and their modes, warning about any home
+// source missing on the host.
+func loadHomeFiles(
+	a agent.Agent,
+	vmHome string,
+	reserved []string,
+	ui termio.UI,
+) (map[string][]byte, map[string]os.FileMode, error) {
+	userConfigDir := filepath.Dir(cp.Get().UserAgentConfigDir(a))
+	homeSources, missing, _, err := homeconfig.BuildHomeFilesWithModes(
+		userConfigDir, // user config lives one level above the agent subdir
+		cp.Get().ProjectConfigDir(),
+		vmHome,
+		reserved,
+	)
+	if err != nil {
+		return nil, nil, fmt.Errorf("build home files: %w", err)
+	}
+	for _, src := range missing {
+		ui.Warnf("home source %q does not exist on the host; skipping", src)
+	}
+	homeFiles := make(map[string][]byte, len(homeSources))
+	homeModes := make(map[string]os.FileMode, len(homeSources))
+	for path, source := range homeSources {
+		homeFiles[path] = source.Data
+		homeModes[path] = source.Mode
+	}
+	return homeFiles, homeModes, nil
+}
+
+// loadHooks builds the merged startup hooks for the agent.
+func loadHooks(a agent.Agent, vmHome string, reserved []string) ([]homeconfig.HookSpec, error) {
+	userConfigDir := filepath.Dir(cp.Get().UserAgentConfigDir(a))
+	hooks, err := homeconfig.BuildHooks(
+		userConfigDir, // user config lives one level above the agent subdir
+		cp.Get().ProjectConfigDir(),
+		vmHome,
+		reserved,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("build hooks: %w", err)
+	}
+	return hooks, nil
+}
+
+// loadProvisioned evaluates the agent's provision rules into the drop-in copy
+// maps, unless host config provisioning is disabled.
+func loadProvisioned(
+	a agent.Agent,
+	hostHome, vmHome string,
+	ui termio.UI,
+	enabled bool,
+) (map[string][]byte, map[string]os.FileMode, error) {
+	provisioned := make(map[string][]byte)
+	modes := make(map[string]os.FileMode)
+	if !enabled {
+		return provisioned, modes, nil
+	}
+	p, ok := agent.AsProvisioner(a)
+	if !ok {
+		return provisioned, modes, nil
+	}
+	for _, w := range agent.ValidateProvisionRules(p.ProvisionRules()) {
+		ui.Warnf("provision rule: %s", w)
+	}
+	onCopy := func(dst string, data []byte, mode os.FileMode) error {
+		provisioned[dst] = data
+		modes[dst] = mode
+		return nil
+	}
+	if _, err := evalProvisionRules(p.ProvisionRules(), hostHome, vmHome, onCopy); err != nil {
+		return nil, nil, fmt.Errorf("eval provision rules: %w", err)
+	}
+	return provisioned, modes, nil
 }
 
 // applyMirrorPrecedence prunes the mirror and drop-in copy maps so the mirror

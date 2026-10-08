@@ -12,12 +12,10 @@ import (
 
 // errUpgradeQuit signals the user chose to abort the session because of the
 // pending image upgrade.
-var errUpgradeQuit = errors.New("agent upgrade cancelled") //nolint:err113 // static sentinel intended
+var errUpgradeQuit = errors.New("agent upgrade cancelled")
 
 // agentLatestVersion returns the newest release version for the agent via its
 // own UpgradeChecker.
-//
-//nolint:gochecknoglobals // test seam
 var agentLatestVersion = func(ctx context.Context, a agent.Agent) (string, error) {
 	checker, ok := agent.AsUpgradeChecker(a)
 	if !ok {
@@ -95,7 +93,7 @@ func promptUpgrade(ui termio.UI, a agent.Agent, current, latest string) (string,
 			a.Name(),
 			latest,
 			current,
-		) //nolint:lll // user-facing line
+		)
 		return current, nil
 	}
 

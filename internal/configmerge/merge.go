@@ -6,7 +6,6 @@ package configmerge
 
 import (
 	"encoding/json"
-	"io/fs"
 	"maps"
 	"os"
 	"path"
@@ -17,6 +16,8 @@ import (
 
 	"github.com/titanous/json5"
 	"gopkg.in/yaml.v3"
+
+	"github.com/inoio/agents-sandbox/internal/filewalk"
 )
 
 // snippetFileMatches reports whether name matches the agent's snippet pattern
@@ -188,33 +189,29 @@ func ScanMirror(pattern string, family []string, userDir, projectDir, destDir st
 // scanMirrorDir walks dir and adds every mirrorable file to byDest, keyed by
 // its VM destination path under destDir.
 func scanMirrorDir(pattern string, family []string, dir, destDir string, byDest map[string]MirrorEntry) error {
-	return filepath.WalkDir(dir, func(p string, d fs.DirEntry, err error) error {
-		if err != nil {
-			return nil //nolint:nilerr // skip unreadable entries; never fail provisioning
-		}
-		if d.IsDir() {
+	return filewalk.Walk(
+		dir,
+		func(rel string, isDir bool) bool {
+			if isDir {
+				return true
+			}
+			if strings.Contains(rel, string(filepath.Separator)) {
+				return true
+			}
+			name := filepath.Base(rel)
+			return !snippetFileMatches(pattern, name) && !inFamily(family, name)
+		},
+		func(entry filewalk.Entry) error {
+			dest := filepath.Join(destDir, entry.Rel)
+			byDest[dest] = MirrorEntry{
+				HostPath: entry.Path,
+				VMPath:   dest,
+				Data:     entry.Data,
+				Mode:     entry.Mode,
+			}
 			return nil
-		}
-		rel, relErr := filepath.Rel(dir, p)
-		if relErr != nil || rel == "." {
-			return nil //nolint:nilerr // skip entries outside the walk root
-		}
-		topLevel := !strings.Contains(rel, string(filepath.Separator))
-		if topLevel && (snippetFileMatches(pattern, d.Name()) || inFamily(family, d.Name())) {
-			return nil
-		}
-		info, infoErr := os.Stat(p)
-		if infoErr != nil {
-			return nil //nolint:nilerr // skip files whose metadata cannot be read
-		}
-		data, readErr := os.ReadFile(p) //nolint:gosec // reads within the config dir we own
-		if readErr != nil {
-			return nil //nolint:nilerr // skip unreadable file; never fail provisioning
-		}
-		dest := filepath.Join(destDir, rel)
-		byDest[dest] = MirrorEntry{HostPath: p, VMPath: dest, Data: data, Mode: info.Mode().Perm()}
-		return nil
-	})
+		},
+	)
 }
 
 // inFamily reports whether name is one of the reserved config-family names.

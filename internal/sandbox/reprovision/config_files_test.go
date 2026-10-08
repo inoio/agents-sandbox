@@ -892,3 +892,9 @@ func TestDescribe(t *testing.T) {
 		t.Errorf("Describe mirror files = %+v, want to include %+v", mirrorFiles, wantMirror)
 	}
 }
+
+func TestReservedHomeTargetsRejectsMixedRelAbs(t *testing.T) {
+	if _, err := reservedHomeTargets("relative/config.json", "/absolute/vmhome"); err == nil {
+		t.Fatal("expected error when mergedPath is not relative to an absolute vmHome")
+	}
+}

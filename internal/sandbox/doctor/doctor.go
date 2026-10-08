@@ -12,7 +12,6 @@ import (
 	"github.com/inoio/agents-sandbox/internal/termio"
 )
 
-//nolint:gochecknoglobals // test seams
 var (
 	checkAllFunc      = realCheckAll
 	checkDockerFunc   = realCheckDocker
@@ -67,7 +66,6 @@ func collectChecks(ctx context.Context) ([]string, []error) {
 
 // realCheckDocker pings the Docker daemon, describing how to fix it on failure.
 func realCheckDocker(ctx context.Context) error {
-	//nolint:exhaustruct_v5 // NegotiateAPIVersion/ForceNegotiate not needed for a simple ping check
 	_, err := docker.Get().Ping(ctx, client.PingOptions{})
 	if err != nil {
 		return fmt.Errorf(

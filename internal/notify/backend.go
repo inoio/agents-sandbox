@@ -37,8 +37,6 @@ type Backend interface {
 }
 
 // execCommand is a test seam; production uses exec.Command.
-//
-//nolint:gochecknoglobals // test seam
 var execCommand = exec.Command
 
 // NewBackend builds the effective backend for cfg, or nil when inactive.
@@ -93,18 +91,12 @@ func (c *compositeBackend) triggerEnabled(t Trigger) bool {
 type DesktopNotifier struct{}
 
 func (d *DesktopNotifier) Notify(n Notification) {
-	cmd, err := d.buildCmd(n.Title, n.Body)
-	if err != nil {
-		return
-	}
-	_ = cmd.Run()
+	_ = d.buildCmd(n.Title, n.Body).Run()
 }
 
 // buildCmd constructs the platform desktop-notification command.
-//
-//nolint:unparam // error return kept for the execCommand test seam
-func (d *DesktopNotifier) buildCmd(title, body string) (*exec.Cmd, error) {
-	return buildDesktopCommand(runtime.GOOS, title, body), nil
+func (d *DesktopNotifier) buildCmd(title, body string) *exec.Cmd {
+	return buildDesktopCommand(runtime.GOOS, title, body)
 }
 
 // buildDesktopCommand returns the desktop-notification command for the given

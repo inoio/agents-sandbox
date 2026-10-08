@@ -22,6 +22,11 @@ command reports the bare version (e.g. `0.1.0`).
 
 ### Changed
 
+- Internal: cut `//nolint` directives from ~180 to 19 by disabling `gochecknoglobals`, using per-type `//exhaustruct:ignore`
+  and config `ignore-patterns`, extracting complexity in `PlanReconfig`, `ensureProjectVM`, `Provision`, and
+  `LoadConfigFilesForHost`, and removing stale directives for disabled linters.
+- Internal: `Provision` now surfaces a failure to create a provisioned parent directory instead of silently ignoring it,
+  and added test coverage for the extracted `Provision`/`LoadConfigFilesForHost` helpers.
 - Internal: the dev user block is now inserted after the embedded base tools (or after the final `FROM` for a custom base)
   instead of as the first instruction of the final stage. A host UID/GID change no longer invalidates the cached base tools
   layer.

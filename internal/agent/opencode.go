@@ -6,9 +6,6 @@ import (
 	"strings"
 )
 
-//nolint:gochecknoinits // built-in agent self-registration
-func init() { Register(opencodeProfile{opencodeConfig: opencodeConfig{}}) }
-
 // opencodeProfile is the opencode (v1) coding agent. It embeds opencodeConfig
 // for the config handling it shares with opencode2.
 type opencodeProfile struct {

@@ -24,8 +24,6 @@ import (
 // supportedExts are the config-file extensions, tried in order. The order MUST
 // match internal/viperconfig's supportedExts so both packages select the same
 // config file for a directory.
-//
-//nolint:gochecknoglobals // package-level constant slice
 var supportedExts = []string{".yaml", ".yml", ".json", ".jsonc", ".json5"}
 
 const (

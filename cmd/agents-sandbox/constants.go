@@ -69,7 +69,6 @@ const (
 	annotationArgs   = naming.Prefix + "/args"
 )
 
-//nolint:gochecknoglobals // undeclarable as consts, but used as such
 var (
 	cmdListAliases    = []string{"ls"}
 	cmdShellAliases   = []string{"sh"}

@@ -100,7 +100,6 @@ type UI interface {
 
 // New creates a production ui backed by the given streams.
 func New(stdin io.Reader, stdout, stderr io.Writer, color bool, level Level, quiet bool, assumeYes bool) UI {
-	//nolint:exhaustruct_v5 // stdinReader not needed in production
 	return &printer{
 		stdin:      stdin,
 		stdout:     stdout,

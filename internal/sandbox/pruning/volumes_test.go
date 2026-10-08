@@ -3,6 +3,8 @@ package pruning
 import (
 	"context"
 	"errors"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -187,4 +189,23 @@ func TestPruneVolumes(t *testing.T) {
 			t.Errorf("RemovedVolumes = %v, want none", client.RemovedVolumes)
 		}
 	})
+}
+
+func TestRemoveStateForGoneKeysWarnsOnRemoveError(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	k := state.Key{Slug: "prunewarn-a"}
+	// A non-empty directory named state.yaml makes the legacy agent-less remove
+	// fail, exercising the warn branch.
+	stateYAML := filepath.Join(state.KeyDir(k), "state.yaml")
+	if err := os.MkdirAll(stateYAML, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(stateYAML, "keep"), []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	ui := &termio.Mock{}
+	removeStateForGoneKeys(ui, map[state.Key]int{k: 1}, nil)
+	if len(ui.WarnCalls) == 0 {
+		t.Error("expected a warning when state removal fails")
+	}
 }

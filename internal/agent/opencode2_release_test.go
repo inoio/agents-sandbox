@@ -99,6 +99,25 @@ func TestOpencode2NewerThanBetaBuilds(t *testing.T) {
 	}
 }
 
+func TestOpencode2BetaBuildNumber(t *testing.T) {
+	tests := []struct {
+		in   string
+		want int
+		ok   bool
+	}{
+		{in: "0.0.0-beta-18866", want: 18866, ok: true},
+		{in: "v0.0.0-beta-5", want: 5, ok: true},
+		{in: "0.0.0-beta-x", want: 0, ok: false},
+		{in: "1.2.3", want: 0, ok: false},
+	}
+	for _, tc := range tests {
+		got, ok := opencode2BetaBuildNumber(tc.in)
+		if got != tc.want || ok != tc.ok {
+			t.Errorf("opencode2BetaBuildNumber(%q) = (%d, %v), want (%d, %v)", tc.in, got, ok, tc.want, tc.ok)
+		}
+	}
+}
+
 func TestOpencode2NewerThanFallsBackToSemver(t *testing.T) {
 	got, err := newerOpenCode2Than("1.2.0", "1.1.0")
 	if err != nil || !got {

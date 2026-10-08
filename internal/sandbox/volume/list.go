@@ -11,7 +11,7 @@ import (
 	"github.com/inoio/agents-sandbox/internal/sandbox/naming"
 )
 
-//nolint:revive // VolumeInfo is the established name from query.go
+// VolumeInfo describes a persistent volume.
 type VolumeInfo struct {
 	Name          string
 	Kind          string

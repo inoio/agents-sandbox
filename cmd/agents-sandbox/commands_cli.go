@@ -57,8 +57,7 @@ func runUsageFunc(cmd *cobra.Command) error {
 	maxLen := minUsagePadding
 	args := argsFromAnnotations(cmd)
 	for _, a := range args {
-		//nolint:staticcheck // using strings.Builder, false positive
-		out.WriteString(fmt.Sprintf(" %s", a.Name))
+		fmt.Fprintf(&out, " %s", a.Name)
 		if len(a.Name) > maxLen {
 			maxLen = len(a.Name)
 		}
@@ -148,7 +147,6 @@ func runFunc(ui termio.UI) func(cmd *cobra.Command, args []string) error {
 	}
 }
 
-//nolint:gochecknoglobals // test seam for the otherwise hard-to-reach upgrade check
 var upgradeCheck = upgrade.Check
 
 // checkForUpgrade runs the self-upgrade check for the current version and
@@ -157,7 +155,7 @@ func checkForUpgrade(ctx context.Context, r *launcherconfig.Resolver, ui termio.
 	if r == nil {
 		return false, nil
 	}
-	res, err := upgradeCheck(ctx, upgrade.Options{ //nolint:exhaustruct_v5 // StatePath/UpdateFunc use their defaults
+	res, err := upgradeCheck(ctx, upgrade.Options{
 		CurrentVersion: version,
 		Mode:           r.UpgradeMode(),
 		Interval:       r.UpgradeInterval(),

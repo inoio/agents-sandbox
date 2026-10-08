@@ -22,8 +22,8 @@ const (
 )
 
 var (
-	dockerdReadyTimeout = 30 * time.Second //nolint:gochecknoglobals // test seam, swapped in tests
-	dockerdPollInterval = time.Second      //nolint:gochecknoglobals // test seam, swapped in tests
+	dockerdReadyTimeout = 30 * time.Second
+	dockerdPollInterval = time.Second
 )
 
 // startDockerdIfPresent starts dockerd inside the VM if the dind image is in

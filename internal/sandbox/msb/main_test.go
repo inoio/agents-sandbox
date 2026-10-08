@@ -9,8 +9,6 @@ import (
 
 // realGetFactory captures the package's default Client factory before TestMain
 // installs the fail-fast mock, so tests can exercise the real closure body.
-//
-//nolint:gochecknoglobals // test hook mirroring the Get override pattern
 var realGetFactory = Get
 
 func TestMain(m *testing.M) {

@@ -12,13 +12,11 @@ import (
 
 // Get is the factory clients can use to get an Client.
 // Tests override Get to inject mocks.
-//
-//nolint:gochecknoglobals // test hook for the otherwise unmockable SDK
 var Get = func() Client {
 	return &realMsbClient{}
 }
 
-var skipRuntimeInstall bool //nolint:gochecknoglobals // process-wide runtime decision
+var skipRuntimeInstall bool
 
 // IsRealClient reports whether production SDK calls are active.
 func IsRealClient() bool {
@@ -33,8 +31,7 @@ func SkipRuntimeInstall() { skipRuntimeInstall = true }
 // ValidateInstalled checks the SDK-managed runtime without downloading it.
 func ValidateInstalled(_ context.Context) error {
 	_, err := msbSdk.ResolveRuntime(
-		msbSdk.RuntimeConfig{ //nolint:exhaustruct_v5 // empty config uses environment/default paths
-		},
+		msbSdk.RuntimeConfig{},
 	)
 	return err
 }
@@ -112,6 +109,8 @@ const (
 )
 
 // StreamEvent is one event from a streaming exec session.
+//
+//exhaustruct:ignore
 type StreamEvent struct {
 	Kind     StreamEventKind
 	Data     []byte
@@ -223,8 +222,8 @@ func (realMsbClient) EnsureInstalled(ctx context.Context) error {
 	}
 	_, err := msbSdk.EnsureRuntime(
 		ctx,
-		msbSdk.RuntimeConfig{},  //nolint:exhaustruct_v5 // empty config uses environment/default paths
-		msbSdk.InstallOptions{}, //nolint:exhaustruct_v5 // zero options install the SDK-pinned runtime
+		msbSdk.RuntimeConfig{},
+		msbSdk.InstallOptions{},
 	)
 	return err
 }
@@ -602,16 +601,12 @@ func (h *realStreamHandle) Recv(ctx context.Context) (StreamEvent, error) {
 func mapExecEvent(ev msbSdk.ExecEvent) (StreamEvent, bool, error) {
 	switch ev.Kind {
 	case msbSdk.ExecEventStdout:
-		//nolint:exhaustruct_v5 // stdout events carry no ExitCode
 		return StreamEvent{Kind: StreamEventStdout, Data: ev.Data}, true, nil
 	case msbSdk.ExecEventStderr:
-		//nolint:exhaustruct_v5 // stderr events carry no ExitCode
 		return StreamEvent{Kind: StreamEventStderr, Data: ev.Data}, true, nil
 	case msbSdk.ExecEventExited:
-		//nolint:exhaustruct_v5 // exited events carry no Data
 		return StreamEvent{Kind: StreamEventExited, ExitCode: ev.ExitCode}, true, nil
 	case msbSdk.ExecEventFailed:
-		//nolint:exhaustruct_v5 // failed events carry neither Data nor ExitCode
 		return StreamEvent{Kind: StreamEventFailed}, true, nil
 	case msbSdk.ExecEventDone:
 		return StreamEvent{}, false, io.EOF

@@ -10,8 +10,6 @@ import (
 // registry's "beta" dist-tag (the version `npm install -g @opencode-ai/cli@beta`
 // would fetch). It is a var (not const) so the tests can point it at an
 // httptest server.
-//
-//nolint:gochecknoglobals // test hook for the otherwise unmockable endpoint URL
 var opencode2NpmBetaURL = "https://registry.npmjs.org/@opencode-ai/cli/beta"
 
 // latestOpenCode2Version returns the newest opencode 2 beta release string by

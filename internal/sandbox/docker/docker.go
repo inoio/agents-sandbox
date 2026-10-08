@@ -48,7 +48,6 @@ type Client interface {
 	Ping(ctx context.Context, opts client.PingOptions) (client.PingResult, error)
 }
 
-//nolint:gochecknoglobals // test hook for the otherwise unmockable docker client
 var Get = func() Client {
 	return &realDockerClient{}
 }
@@ -58,7 +57,6 @@ var Get = func() Client {
 // docker daemon with it.
 func RealClient() Client { return &realDockerClient{} }
 
-//nolint:gochecknoglobals // needed for lazy, thread-safe Docker client init
 var (
 	mobyClient     *client.Client
 	mobyClientOnce sync.Once

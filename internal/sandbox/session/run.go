@@ -28,13 +28,11 @@ type preparedSandbox interface {
 }
 
 // prepareSandbox is a test seam swapped in tests to avoid real VM setup.
-var prepareSandbox = func(ctx context.Context, opts options.RunOptions, ui termio.UI) (preparedSandbox, error) { //nolint:gochecknoglobals // test seam
+var prepareSandbox = func(ctx context.Context, opts options.RunOptions, ui termio.UI) (preparedSandbox, error) {
 	return sandbox.PrepareSandbox(ctx, opts, ui)
 }
 
 // notifyWatch is a test seam; production uses notify.Watch.
-//
-//nolint:gochecknoglobals // test seam
 var notifyWatch = notify.Watch
 
 // startNotifyWatcher launches the notify watcher in a goroutine and returns a
@@ -146,28 +144,8 @@ func Run(ctx context.Context, opts options.RunOptions, ui termio.UI) error {
 	stopNotify := startNotifyWatcher(ctx, sb, opts.Notify, ui, streamSpec, projectSlug)
 	defer logNotifyWatcherError(stopNotify, ui)
 
-	if opts.ServeOnly { //nolint:nestif // lease acquire/serve/release/reap sequence requires this structure
-		k := state.Key{Slug: projectSlug, Agent: a.Name()}
-		release, acquireErr := state.AcquireClientLease(k)
-		if acquireErr != nil {
-			ui.Warnf("client lease failed: %v", acquireErr)
-		}
-		defer func() {
-			if acquireErr == nil && release != nil {
-				release()
-			}
-		}()
-		if err := runServeOnly(ctx, sb, ui, ses.ServeHostPort()); err != nil && !errors.Is(err, context.Canceled) {
-			return err
-		}
-		if acquireErr == nil {
-			release()
-			release = nil
-		}
-		if err := reapOnLastClient(ctx, a, k, sb, opts.ReapPolicy, ui); err != nil {
-			ui.Warnf("reap failed: %v", err)
-		}
-		return &sandbox.ExitError{Code: 0}
+	if opts.ServeOnly {
+		return runServeOnlySession(ctx, a, sb, opts, ui, ses.ServeHostPort(), projectSlug)
 	}
 
 	setup := buildAttachCommand(a, ses.Target(), opts.Args)
@@ -176,6 +154,40 @@ func Run(ctx context.Context, opts options.RunOptions, ui termio.UI) error {
 	// putting tools installed under /usr/local/go/bin, ~/go/bin and
 	// ~/.microsandbox/bin on PATH for the agent and its child shells.
 	return runAttach(ctx, sb, projectSlug, ui, opts, "-l", "-c", setup)
+}
+
+// runServeOnlySession owns the lease acquire/serve/release/reap sequence for
+// serve-only mode.
+func runServeOnlySession(
+	ctx context.Context,
+	a agent.Agent,
+	sb msb.Sandbox,
+	opts options.RunOptions,
+	ui termio.UI,
+	hostPort int,
+	projectSlug string,
+) error {
+	k := state.Key{Slug: projectSlug, Agent: a.Name()}
+	release, acquireErr := state.AcquireClientLease(k)
+	if acquireErr != nil {
+		ui.Warnf("client lease failed: %v", acquireErr)
+	}
+	defer func() {
+		if acquireErr == nil && release != nil {
+			release()
+		}
+	}()
+	if err := runServeOnly(ctx, sb, ui, hostPort); err != nil && !errors.Is(err, context.Canceled) {
+		return err
+	}
+	if acquireErr == nil {
+		release()
+		release = nil
+	}
+	if err := reapOnLastClient(ctx, a, k, sb, opts.ReapPolicy, ui); err != nil {
+		ui.Warnf("reap failed: %v", err)
+	}
+	return &sandbox.ExitError{Code: 0}
 }
 
 // Shell creates (or reuses) the project VM and drops the user into an

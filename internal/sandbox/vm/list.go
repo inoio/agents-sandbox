@@ -28,6 +28,8 @@ type Info struct {
 }
 
 // ListOption carries optional filters/format controls for ListSandboxes.
+//
+//exhaustruct:ignore
 type ListOption struct {
 	Labels      map[string]string
 	Limit       *uint32
@@ -43,18 +45,8 @@ func FormatTime(t time.Time) string {
 
 // ListSandboxes returns a list of sandbox VMs for the current host, filtered
 // by the given options.
-func ListSandboxes(ctx context.Context, opts ...ListOption) ([]Info, error) { //nolint:gocognit
-	opt := ListOption{} //nolint:exhaustruct_v5 // filter fields are accumulated from opts below
-	for _, o := range opts {
-		if o.Labels != nil {
-			opt.Labels = o.Labels
-		}
-		if o.Limit != nil {
-			opt.Limit = o.Limit
-		}
-		opt.RunningOnly = opt.RunningOnly || o.RunningOnly
-		opt.StoppedOnly = opt.StoppedOnly || o.StoppedOnly
-	}
+func ListSandboxes(ctx context.Context, opts ...ListOption) ([]Info, error) {
+	opt := mergeListOptions(opts)
 
 	handles, err := msb.Get().ListSandboxes(ctx, opt.Labels)
 	if err != nil {
@@ -64,17 +56,12 @@ func ListSandboxes(ctx context.Context, opts ...ListOption) ([]Info, error) { //
 	var result []Info
 	for _, h := range handles {
 		name := h.Name()
-		if !strings.HasPrefix(name, naming.VmPrefix) {
+		if !strings.HasPrefix(name, naming.VMPrefix) {
 			continue
 		}
 		status := h.Status()
-		if opt.RunningOnly || opt.StoppedOnly {
-			if opt.RunningOnly && status != msbSdk.SandboxStatusRunning {
-				continue
-			}
-			if !opt.RunningOnly && opt.StoppedOnly && status != msbSdk.SandboxStatusStopped {
-				continue
-			}
+		if !statusMatchesFilter(status, opt) {
+			continue
 		}
 		cfg, _ := h.Config()
 		var labels map[string]string
@@ -96,4 +83,33 @@ func ListSandboxes(ctx context.Context, opts ...ListOption) ([]Info, error) { //
 		result = result[:*opt.Limit]
 	}
 	return result, nil
+}
+
+// mergeListOptions folds the variadic options into one; later values win, and
+// the running/stopped flags accumulate.
+func mergeListOptions(opts []ListOption) ListOption {
+	var opt ListOption
+	for _, o := range opts {
+		if o.Labels != nil {
+			opt.Labels = o.Labels
+		}
+		if o.Limit != nil {
+			opt.Limit = o.Limit
+		}
+		opt.RunningOnly = opt.RunningOnly || o.RunningOnly
+		opt.StoppedOnly = opt.StoppedOnly || o.StoppedOnly
+	}
+	return opt
+}
+
+// statusMatchesFilter reports whether a sandbox status passes the running/
+// stopped filter. RunningOnly takes precedence when both are set.
+func statusMatchesFilter(status msbSdk.SandboxStatus, opt ListOption) bool {
+	if opt.RunningOnly {
+		return status == msbSdk.SandboxStatusRunning
+	}
+	if opt.StoppedOnly {
+		return status == msbSdk.SandboxStatusStopped
+	}
+	return true
 }

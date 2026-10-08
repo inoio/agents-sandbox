@@ -15,6 +15,8 @@ const tableGap = 4
 // color is enabled. Alignment is computed on plain text before styling, so
 // ANSI codes never shift columns. Build a Table with ui.NewTable, add rows with
 // AddRow, then print with Print.
+//
+//exhaustruct:ignore
 type Table struct {
 	ui      UI
 	headers []string

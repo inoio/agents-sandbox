@@ -6,9 +6,6 @@ import (
 	"strings"
 )
 
-//nolint:gochecknoinits // built-in agent self-registration
-func init() { Register(claudeCodeProfile{}) }
-
 // claudeCodeName is the canonical registry name of the claude-code agent.
 const claudeCodeName = "claude-code"
 

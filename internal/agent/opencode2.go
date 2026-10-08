@@ -6,9 +6,6 @@ import (
 	"strings"
 )
 
-//nolint:gochecknoinits // built-in agent self-registration
-func init() { Register(opencode2Profile{opencodeConfig: opencodeConfig{}}) }
-
 // opencode2Name is the canonical registry name of the opencode 2 agent.
 const opencode2Name = "opencode2"
 

@@ -43,7 +43,6 @@ func newDefaultErrorDockerClient() *MockDockerClient {
 	return newErrorDockerClient(mockErrors{nil, nil, nil, nil})
 }
 
-//nolint:revive // callbacks always return errors; params required by interface signatures
 func newErrorDockerClient(mockErrs mockErrors) *MockDockerClient {
 	defaultErr := errors.New("cannot connect to Docker daemon")
 	var buildErr, inspectErr, saveErr, removeErr = defaultErr, defaultErr, defaultErr, defaultErr
@@ -88,8 +87,6 @@ func newErrorDockerClient(mockErrs mockErrors) *MockDockerClient {
 // MockDockerClient is the zero implementation of docker.Client.
 // All methods succeed with nil/empty returns. Use newErrorDockerClient
 // to override specific methods with errors.
-//
-//nolint:dupl // mirrors the docker.Client interface by design
 type MockDockerClient struct {
 	ImageBuildFn   func(ctx context.Context, r io.Reader, options client.ImageBuildOptions) (client.ImageBuildResult, error)
 	ImageInspectFn func(ctx context.Context, ref string, inspectOpts ...client.ImageInspectOption) (client.ImageInspectResult, error)
@@ -123,9 +120,7 @@ func (m *MockDockerClient) ImageInspect(
 	if m.ImageInspectFn != nil {
 		return m.ImageInspectFn(ctx, ref, opts...)
 	}
-	//nolint:exhaustruct_v5 // DockerOCIImageConfig has unexported fields
 	result := client.ImageInspectResult{
-		//nolint:exhaustruct_v5 // DockerOCIImageConfig has unexported fields
 		Config: &dockerspec.DockerOCIImageConfig{}}
 	return result, nil
 }
@@ -187,7 +182,6 @@ func (m *MockDockerClient) Ping(
 	if m.PingFn != nil {
 		return m.PingFn(ctx, opts)
 	}
-	//nolint:exhaustruct_v5 // Experimental/BuilderVersion/SwarmStatus are set from HTTP headers, not struct literals
 	return client.PingResult{
 		APIVersion: "1.44",
 		OSType:     "linux",
@@ -228,7 +222,6 @@ func (f *failFastDockerClient) ImageSave(
 	_ ...client.ImageSaveOption,
 ) (client.ImageSaveResult, error) {
 	f.mustMock()
-	//nolint:nilnil // panics before returning; keeps failFastDockerClient interface-conformant
 	return nil, nil
 }
 
@@ -238,7 +231,6 @@ func (f *failFastDockerClient) ImagePull(
 	_ client.ImagePullOptions,
 ) (io.ReadCloser, error) {
 	f.mustMock()
-	//nolint:nilnil // panics before returning; keeps failFastDockerClient interface-conformant
 	return nil, nil
 }
 

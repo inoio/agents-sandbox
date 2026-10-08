@@ -58,7 +58,6 @@ func DecodeMounts(raw any) (Mounts, error) {
 		return Mounts{}, nil
 	}
 	var mounts Mounts
-	//nolint:exhaustruct_v5 // DecoderConfig has many optional fields we leave zeroed.
 	decoder, err := mapstructure.NewDecoder(&mapstructure.DecoderConfig{
 		DecodeHook: stringToBindMountHook(),
 		Result:     &mounts,
@@ -74,16 +73,12 @@ func DecodeMounts(raw any) (Mounts, error) {
 
 // managedMountTargets are the guest paths agents-sandbox mounts itself. A
 // configured mount may not replace them, nor shadow a parent of them.
-//
-//nolint:gochecknoglobals // package-level constant slice
 var managedMountTargets = []string{VMHomeDir, WorkspaceMountPath, TmpMountPath}
 
 // exclusiveMountTargets are managed mounts whose contents must stay visible,
 // so nesting a configured mount inside them is rejected as well. The home
 // volume is absent on purpose: mounting into it (e.g., /home/dev/.m2) is the
 // primary use case.
-//
-//nolint:gochecknoglobals // package-level constant slice
 var exclusiveMountTargets = []string{WorkspaceMountPath, TmpMountPath}
 
 // ResolveBindMounts expands host paths and validates configured bind mounts,

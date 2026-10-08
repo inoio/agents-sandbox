@@ -154,7 +154,6 @@ func (m *MockMsbClient) CreateSandbox(ctx context.Context, name string, opts ...
 	if m.CreatedSandbox != nil {
 		return m.CreatedSandbox, nil
 	}
-	//nolint:exhaustruct_v5 // tests set only Name_
 	return &MockSandbox{Name_: name}, nil
 }
 
@@ -203,7 +202,6 @@ func (m *MockMsbClient) CreateVolume(
 	if m.createVolumeErr != nil {
 		return nil, m.createVolumeErr
 	}
-	//nolint:exhaustruct_v5 // tests set only Name_
 	return &MockVolumeHandle{Name_: name}, nil
 }
 
@@ -330,8 +328,6 @@ func (m *MockMsbClient) SetGetVolumeErr(err error) *MockMsbClient {
 // -- Domain mocks --
 
 // MockSandboxHandle is a test double for SandboxHandle.
-//
-//nolint:revive // underscore names avoid conflicts with interface methods like Status()
 type MockSandboxHandle struct {
 	Name_           string
 	Status_         msbSdk.SandboxStatus
@@ -378,7 +374,6 @@ func (m *MockSandboxHandle) Connect(_ context.Context) (Sandbox, error) {
 	if m.ConnectSb != nil {
 		return m.ConnectSb, nil
 	}
-	//nolint:exhaustruct_v5 // only Name_ needed
 	return &MockSandbox{Name_: m.Name_}, nil
 }
 func (m *MockSandboxHandle) Refresh(ctx context.Context) (SandboxHandle, error) {
@@ -397,7 +392,6 @@ func (m *MockSandboxHandle) Start(ctx context.Context) (Sandbox, error) {
 	if m.StartSb != nil {
 		return m.StartSb, nil
 	}
-	//nolint:exhaustruct_v5 // only Name_ needed
 	return &MockSandbox{Name_: m.Name_}, nil
 }
 func (m *MockSandboxHandle) Stop(_ context.Context, _ ...msbSdk.StopOption) error {
@@ -430,8 +424,6 @@ func (m *MockSandboxHandle) Modify(
 }
 
 // MockSandbox is a test double for Sandbox.
-//
-//nolint:revive // underscore names avoid conflicts with interface methods
 type MockSandbox struct {
 	Name_      string
 	FSValue_   any
@@ -479,7 +471,6 @@ func (m *MockSandbox) Shell(_ context.Context, command string, _ ...msbSdk.ExecO
 		return out, nil
 	}
 	// Return successful result when no override is configured.
-	//nolint:exhaustruct_v5 // success-only default
 	return &TestResult{success: true}, nil
 }
 func (m *MockSandbox) Exec(
@@ -499,7 +490,6 @@ func (m *MockSandbox) Exec(
 		return out, nil
 	}
 	// Return successful result when no override is configured.
-	//nolint:exhaustruct_v5 // success-only default
 	return &TestResult{success: true}, nil
 }
 
@@ -516,7 +506,6 @@ func (m *MockSandbox) AttachWith(
 	m.AttachCmd = command
 	m.AttachArgs = args
 	if len(opts) > 0 {
-		//nolint:exhaustruct_v5 // only User_ is relevant for this mock
 		cfg := msbSdk.AttachConfig{}
 		for _, opt := range opts {
 			opt(&cfg)
@@ -558,8 +547,6 @@ func (emptyStreamHandle) Close() error { return nil }
 
 // SandboxOpts configures a MockSandbox via NewMockSandbox.
 // Zero/unset values produce sensible defaults.
-//
-//nolint:revive // StreamHandle_ uses an underscore to mirror the MockSandbox field
 type SandboxOpts struct {
 	FSValue    any
 	ShellOut   map[string]ShellResult
@@ -582,7 +569,6 @@ type SandboxOpts struct {
 // NewMockSandbox returns a Sandbox configured by opts. Zero/unset values produce
 // sensible defaults so callers only name the fields they care about.
 func NewMockSandbox(opts SandboxOpts) Sandbox {
-	//nolint:exhaustruct_v5 // Name_ is optional for mock construction
 	return &MockSandbox{
 		FSValue_:        opts.FSValue,
 		ShellOut:        opts.ShellOut,
@@ -608,6 +594,7 @@ type TestFS struct {
 	ReadErr  error
 	ListErr  error
 	WriteErr error
+	MkdirErr error
 	Writes   map[string][]byte
 	Mkdirs   []string
 	Removed  []string
@@ -617,7 +604,6 @@ type TestFS struct {
 // path to file content; ls is the return value for List. Nil map values
 // produce sensible defaults.
 func NewTestFS(files map[string][]byte, ls []msbSdk.FsEntry) *TestFS {
-	//nolint:exhaustruct_v5 // ReadErr and ListErr default to zero value (nil)
 	return &TestFS{Contents: files, LS: ls}
 }
 
@@ -655,6 +641,9 @@ func (t *TestFS) ReadStream(_ context.Context, _ string) (*msbSdk.FsReadStream, 
 }
 
 func (t *TestFS) Mkdir(_ context.Context, path string) error {
+	if t.MkdirErr != nil {
+		return t.MkdirErr
+	}
 	t.Mkdirs = append(t.Mkdirs, path)
 	return nil
 }
@@ -707,7 +696,6 @@ func (t *TestResult) StdoutBytes() []byte {
 	return []byte(t.stdout)
 }
 
-//nolint:revive // underscore names avoid conflicts with interface methods
 type MockVolumeHandle struct {
 	Name_          string
 	Path_          string
@@ -741,7 +729,6 @@ func (m MockVolumeHandle) Labels() map[string]string {
 	return m.Labels_
 }
 
-//nolint:revive // underscore names avoid conflicts with interface methods
 type MockImageHandle struct {
 	Reference_      string
 	ManifestDigest_ string
@@ -792,7 +779,6 @@ func (f *failFastMsbClient) EnsureInstalled(_ context.Context) error {
 
 func (f *failFastMsbClient) GetSandbox(_ context.Context, _ string) (SandboxHandle, error) {
 	f.mustMock()
-	//nolint:nilnil // panics before returning; keeps failFastMsbClient interface-conformant
 	return nil, nil
 }
 
@@ -802,7 +788,6 @@ func (f *failFastMsbClient) CreateSandbox(
 	_ ...msbSdk.SandboxOption,
 ) (Sandbox, error) {
 	f.mustMock()
-	//nolint:nilnil // panics before returning; keeps failFastMsbClient interface-conformant
 	return nil, nil
 }
 
@@ -818,7 +803,6 @@ func (f *failFastMsbClient) RemoveSandbox(_ context.Context, _ string) error {
 
 func (f *failFastMsbClient) GetVolume(_ context.Context, _ string) (VolumeHandle, error) {
 	f.mustMock()
-	//nolint:nilnil // panics before returning; keeps failFastMsbClient interface-conformant
 	return nil, nil
 }
 
@@ -828,7 +812,6 @@ func (f *failFastMsbClient) CreateVolume(
 	_ ...msbSdk.VolumeOption,
 ) (VolumeHandle, error) {
 	f.mustMock()
-	//nolint:nilnil // panics before returning; keeps failFastMsbClient interface-conformant
 	return nil, nil
 }
 
@@ -854,7 +837,6 @@ func (f *failFastMsbClient) ImageList(_ context.Context) ([]ImageHandle, error) 
 
 func (f *failFastMsbClient) ImagePrune(_ context.Context) (*msbSdk.ImagePruneReport, error) {
 	f.mustMock()
-	//nolint:nilnil // panics before returning; keeps failFastMsbClient interface-conformant
 	return nil, nil
 }
 
@@ -870,12 +852,10 @@ func (f *failFastMsbClient) ImageLoad(_ context.Context, _ string, _ io.Reader) 
 
 func (f *failFastMsbClient) ImageInspect(_ context.Context, _ string) (*msbSdk.ImageConfig, error) {
 	f.mustMock()
-	//nolint:nilnil // panics before returning; keeps failFastMsbClient interface-conformant
 	return nil, nil
 }
 
 func (f *failFastMsbClient) ShellStream(_ context.Context, _ string, _ ...msbSdk.ExecOption) (StreamHandle, error) {
 	f.mustMock()
-	//nolint:nilnil // panics before returning; keeps failFastMsbClient interface-conformant
 	return nil, nil
 }

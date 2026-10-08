@@ -8,7 +8,6 @@ import (
 	"github.com/inoio/agents-sandbox/internal/termio"
 )
 
-//nolint:gochecknoglobals // once-per-process singleton is the right pattern
 var autoPruneOnce sync.Once
 
 // AutoPrune runs the prune logic once per process with the given threshold.

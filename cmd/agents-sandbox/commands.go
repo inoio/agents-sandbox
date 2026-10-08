@@ -162,7 +162,6 @@ func buildRootCmd(ui termio.UI) *cobra.Command {
 	return rootCmd
 }
 
-//nolint:gochecknoglobals // test seam for runtime recovery before SDK startup
 var prepareMSBRuntime = msbruntime.PrepareRuntime
 
 // commandNeedsMSBRuntime reports whether the command can reach the

@@ -26,7 +26,7 @@ func checkForActiveVMs(ctx context.Context, k state.Key) error {
 		return fmt.Errorf("list sandboxes: %w", err)
 	}
 	for _, handle := range sandboxes {
-		if !strings.HasPrefix(handle.Name(), naming.VmPrefix) {
+		if !strings.HasPrefix(handle.Name(), naming.VMPrefix) {
 			continue
 		}
 		artifact := naming.ArtifactFor(handle.Name())

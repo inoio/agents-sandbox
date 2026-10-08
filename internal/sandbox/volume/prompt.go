@@ -3,8 +3,6 @@ package volume
 import "github.com/inoio/agents-sandbox/internal/termio"
 
 // VolumeAction is the user-selected disposition for an existing home volume.
-//
-//nolint:revive // VolumeAction is the intended name per the remediation plan
 type VolumeAction int
 
 const (
@@ -14,16 +12,23 @@ const (
 	ActionQuit
 )
 
+const (
+	labelKeep    = "keep"
+	labelMigrate = "migrate"
+	labelReset   = "reset"
+	labelQuit    = "quit"
+)
+
 func (a VolumeAction) String() string {
 	switch a {
 	case ActionKeep:
-		return "keep" //nolint:goconst // repeated in String() switch
+		return labelKeep
 	case ActionMigrate:
-		return "migrate" //nolint:goconst // repeated in String() switch
+		return labelMigrate
 	case ActionReset:
-		return "reset" //nolint:goconst // repeated in String() switch
+		return labelReset
 	case ActionQuit:
-		return "quit"
+		return labelQuit
 	default:
 		return "unknown"
 	}
@@ -52,12 +57,12 @@ func (e *invalidKeyError) Error() string { return "invalid action key: " + e.key
 // actionLabel returns a human-friendly label for a home volume action.
 func actionLabel(action VolumeAction) string {
 	if action == ActionReset {
-		return "reset"
+		return labelReset
 	}
 	if action == ActionMigrate {
-		return "migrate"
+		return labelMigrate
 	}
-	return "keep"
+	return labelKeep
 }
 
 // ResolveHomeAction compares the stored image digest with the current one.
@@ -79,10 +84,10 @@ func (vm *Manager) ResolveHomeAction(
 
 	prompt := "Docker image changed for project. The image's home directory is different from your current one."
 	choices := []termio.Choice{
-		{Key: "k", Label: "keep", Description: "continue with existing home volume"},
-		{Key: "m", Label: "migrate", Description: "create fresh volume, copy all files on top"},
-		{Key: "r", Label: "reset", Description: "replace with fresh volume from image (lose local changes)"},
-		{Key: "q", Label: "quit", Description: "exit without starting a session"},
+		{Key: "k", Label: labelKeep, Description: "continue with existing home volume"},
+		{Key: "m", Label: labelMigrate, Description: "create fresh volume, copy all files on top"},
+		{Key: "r", Label: labelReset, Description: "replace with fresh volume from image (lose local changes)"},
+		{Key: "q", Label: labelQuit, Description: "exit without starting a session"},
 	}
 	selected, err := ui.Select(prompt, choices, "k")
 	if err != nil {

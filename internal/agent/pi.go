@@ -6,9 +6,6 @@ import (
 	"strings"
 )
 
-//nolint:gochecknoinits // built-in agent self-registration
-func init() { Register(piProfile{}) }
-
 // piName is the canonical registry name of the pi agent.
 const piName = "pi"
 

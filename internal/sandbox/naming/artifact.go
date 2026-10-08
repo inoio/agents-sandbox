@@ -89,10 +89,10 @@ func isBase36Hash(s string) bool {
 //	"agents-sandbox-vm-projectname-1mjusbm3wikhb0-opencode"
 //	→ slug="projectname-1mjusbm3wikhb0", agent="opencode"
 func ParseVMName(name string) ArtifactInfo {
-	if !strings.HasPrefix(name, VmPrefix) {
+	if !strings.HasPrefix(name, VMPrefix) {
 		return ArtifactInfo{}
 	}
-	remainder := name[len(VmPrefix):]
+	remainder := name[len(VMPrefix):]
 	hashStart := findHashSuffix(remainder)
 	if hashStart == -1 {
 		return ArtifactInfo{Slug: remainder, Digest: "", Agent: ""}
@@ -171,7 +171,7 @@ func ArtifactFor(name string) ArtifactInfo {
 			return ArtifactInfo{Slug: remainder, Digest: "", Agent: ""}
 		}
 		return ArtifactInfo{Slug: strings.Join(parts[:len(parts)-1], "-"), Digest: "", Agent: ""}
-	case strings.HasPrefix(name, VmPrefix):
+	case strings.HasPrefix(name, VMPrefix):
 		return ParseVMName(name)
 	case strings.HasPrefix(name, HomePrefix):
 		return ParseHomeVolumeName(name)

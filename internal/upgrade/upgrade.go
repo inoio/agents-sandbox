@@ -40,7 +40,6 @@ const (
 	stateFileName = "upgrade.json"
 )
 
-//nolint:gochecknoglobals // test seams for the otherwise unmockable endpoints
 var (
 	latestURL    = fmt.Sprintf("https://api.github.com/repos/%s/releases/latest", githubRepo)
 	downloadBase = fmt.Sprintf("https://github.com/%s/releases/latest/download", githubRepo)
@@ -74,6 +73,8 @@ func ParseMode(s string) (Mode, error) {
 }
 
 // Result describes what Check decided to do.
+//
+//exhaustruct:ignore
 type Result struct {
 	HasUpdate bool
 	Updated   bool
@@ -82,6 +83,8 @@ type Result struct {
 }
 
 // Options configures a single Check.
+//
+//exhaustruct:ignore
 type Options struct {
 	CurrentVersion string
 	Mode           Mode
@@ -199,7 +202,6 @@ func applyMode(
 	latest string,
 	st *state,
 ) Result {
-	//nolint:exhaustruct_v5 // Updated/Exit default false until set below
 	res := Result{HasUpdate: true, Latest: latest}
 	install := func() bool {
 		if err := updateFunc(ctx, latest); err != nil {
@@ -321,8 +323,6 @@ func Upgrade(ctx context.Context, ui termio.UI, current string) error {
 
 // LatestVersion returns the newest stable agents-sandbox release string
 // (leading "v" stripped) by querying the GitHub releases/latest endpoint.
-//
-//nolint:gochecknoglobals // test seam
 var LatestVersion = latestRelease
 
 func latestRelease(ctx context.Context) (string, error) {
@@ -352,8 +352,6 @@ func latestRelease(ctx context.Context) (string, error) {
 
 // Update downloads and installs the release binary for the given version over
 // the running executable.
-//
-//nolint:gochecknoglobals // test seam
 var Update = updateExecutable
 
 // updateExecutable downloads the latest release binary for the current

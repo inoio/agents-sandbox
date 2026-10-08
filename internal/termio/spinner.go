@@ -10,9 +10,9 @@ import (
 
 const spinnerInterval = 100 * time.Millisecond
 
-//nolint:gochecknoglobals // static lookup table, never mutated
 var spinnerChars = []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
 
+//exhaustruct:ignore
 type spinner struct {
 	w      io.Writer
 	level  Level
@@ -26,7 +26,6 @@ type spinner struct {
 }
 
 func newSpinner(w io.Writer, color bool, level Level, msg string) *spinner {
-	//nolint:exhaustruct_v5 // fields are lazily initialized by Start()
 	s := &spinner{w: w, color: color, level: level}
 	s.Start(msg)
 	return s
