@@ -1,31 +1,51 @@
-package configmigration
+package configfile
 
 import (
 	"bytes"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strconv"
+	"strings"
 
 	"github.com/titanous/json5"
 	"gopkg.in/yaml.v3"
 )
 
-const yamlIndent = 2
+const (
+	yamlIndent        = 2
+	defaultConfigFile = "config.yaml"
+	extYAML           = ".yaml"
+	extYML            = ".yml"
+	extJSON           = ".json"
+	extJSONC          = ".jsonc"
+	extJSON5          = ".json5"
+)
 
-// launcherConfig is a parsed launcher config file that can be edited and
-// written back. YAML files are edited on their node tree, so comments and key
-// order survive; JSON-family files are rewritten from their decoded values and
-// lose comments and formatting.
-type launcherConfig struct {
+//nolint:gochecknoglobals // package-local seams restored by tests
+var (
+	marshalJSONIndentFn = json.MarshalIndent
+	marshalYAMLFn       = marshalYAML
+)
+
+// Config is a parsed launcher config file that can be edited and written back.
+// YAML files are edited on their node tree, so comments and key order survive;
+// JSON-family files are rewritten from their decoded values and lose comments
+// and formatting.
+type Config struct {
 	values map[string]any
 	// yamlDocument is nil for JSON-family files.
 	yamlDocument *yaml.Node
 }
 
-func parseLauncherConfig(path string, data []byte) (*launcherConfig, error) {
+// Parse decodes a launcher config file. The path only selects the parser:
+// JSON-family extensions are parsed as JSON5, everything else as YAML.
+func Parse(path string, data []byte) (*Config, error) {
 	var values map[string]any
 	var yamlDocument *yaml.Node
-	if migrationIsJSONConfig(path) {
+	if IsJSON(path) {
 		if err := json5.Unmarshal(data, &values); err != nil {
 			return nil, fmt.Errorf("parse launcher config %s: %w", path, err)
 		}
@@ -41,22 +61,79 @@ func parseLauncherConfig(path string, data []byte) (*launcherConfig, error) {
 	if values == nil {
 		values = make(map[string]any)
 	}
-	return &launcherConfig{values: values, yamlDocument: yamlDocument}, nil
+	return &Config{values: values, yamlDocument: yamlDocument}, nil
 }
 
-// setString sets the string at the nested key path, creating missing mappings.
-func (c *launcherConfig) setString(keyPath []string, value string) {
+// IsJSON reports whether the path has a JSON-family extension.
+func IsJSON(path string) bool {
+	ext := strings.ToLower(filepath.Ext(path))
+	return ext == extJSON || ext == extJSONC || ext == extJSON5
+}
+
+// LoadDir finds config.{yaml,yml,json,jsonc,json5} in dir in that order,
+// returning the default path and an empty mapping when none exists.
+func LoadDir(dir string) (string, []byte, error) {
+	for _, ext := range []string{extYAML, extYML, extJSON, extJSONC, extJSON5} {
+		path := filepath.Join(dir, "config"+ext)
+		data, err := os.ReadFile(path)
+		if err == nil {
+			return path, data, nil
+		}
+		if !os.IsNotExist(err) {
+			return "", nil, fmt.Errorf("read launcher config %s: %w", path, err)
+		}
+	}
+	return filepath.Join(dir, defaultConfigFile), []byte("{}\n"), nil
+}
+
+// Values returns the decoded config mapping.
+func (c *Config) Values() map[string]any {
+	return c.values
+}
+
+// GetString returns the value at the nested key path as a string and whether
+// the key is present.
+func (c *Config) GetString(keyPath []string) (string, bool) {
+	current := any(c.values)
+	for _, key := range keyPath {
+		mapping, ok := current.(map[string]any)
+		if !ok {
+			return "", false
+		}
+		value, ok := mapping[key]
+		if !ok {
+			return "", false
+		}
+		current = value
+	}
+	switch value := current.(type) {
+	case string:
+		return value, true
+	case nil:
+		return "", true
+	default:
+		return fmt.Sprint(value), true
+	}
+}
+
+// SetString sets the string at the nested key path, creating missing mappings.
+func (c *Config) SetString(keyPath []string, value string) {
 	valueNode := &yaml.Node{}
 	valueNode.SetString(value)
 	c.setValue(keyPath, value, valueNode)
 }
 
-// setBool sets the boolean at the nested key path, creating missing mappings.
-func (c *launcherConfig) setBool(keyPath []string, value bool) {
+// SetBool sets the boolean at the nested key path, creating missing mappings.
+func (c *Config) SetBool(keyPath []string, value bool) {
 	c.setValue(keyPath, value, &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!bool", Value: strconv.FormatBool(value)})
 }
 
-func (c *launcherConfig) setValue(keyPath []string, value any, valueNode *yaml.Node) {
+// SetInt sets the integer at the nested key path, creating missing mappings.
+func (c *Config) SetInt(keyPath []string, value int) {
+	c.setValue(keyPath, value, &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!int", Value: strconv.Itoa(value)})
+}
+
+func (c *Config) setValue(keyPath []string, value any, valueNode *yaml.Node) {
 	setMapValue(c.values, keyPath, value)
 	if c.yamlDocument == nil {
 		return
@@ -65,10 +142,10 @@ func (c *launcherConfig) setValue(keyPath []string, value any, valueNode *yaml.N
 	setYAMLMappingValue(parent, keyPath[len(keyPath)-1], valueNode)
 }
 
-// appendListItems appends items to the list at the nested key path. An
+// AppendListItems appends items to the list at the nested key path. An
 // existing YAML sequence is extended in place to keep its comments; any other
 // value is replaced by a sequence of its entries followed by the items.
-func (c *launcherConfig) appendListItems(keyPath []string, items []string) {
+func (c *Config) AppendListItems(keyPath []string, items []string) {
 	parentValues := mapAt(c.values, keyPath[:len(keyPath)-1])
 	key := keyPath[len(keyPath)-1]
 	list := append(stringList(parentValues[key]), items...)
@@ -90,10 +167,10 @@ func (c *launcherConfig) appendListItems(keyPath []string, items []string) {
 	}
 }
 
-// filterListItems drops items from the list at the nested key path for which
+// FilterListItems drops items from the list at the nested key path for which
 // keep returns false. An existing YAML sequence is filtered in place to keep
 // its comments; any other value is replaced by a sequence of the kept entries.
-func (c *launcherConfig) filterListItems(keyPath []string, keep func(string) bool) {
+func (c *Config) FilterListItems(keyPath []string, keep func(string) bool) {
 	parentValues := mapAt(c.values, keyPath[:len(keyPath)-1])
 	key := keyPath[len(keyPath)-1]
 	var kept []string
@@ -138,7 +215,8 @@ func (c *launcherConfig) filterListItems(keyPath []string, keep func(string) boo
 	}
 }
 
-func (c *launcherConfig) marshal() ([]byte, error) {
+// Marshal encodes the config, preserving YAML comments and key order.
+func (c *Config) Marshal() ([]byte, error) {
 	if c.yamlDocument == nil {
 		data, err := marshalJSONIndentFn(c.values, "", "  ")
 		if err != nil {
@@ -153,9 +231,34 @@ func (c *launcherConfig) marshal() ([]byte, error) {
 	return data, nil
 }
 
+// WriteAtomic writes data to path through a temporary file in the same
+// directory, then renames it into place.
+func WriteAtomic(path string, data []byte, mode os.FileMode) error {
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		return err
+	}
+	tmp, err := os.CreateTemp(filepath.Dir(path), ".agents-sandbox-migrate-*")
+	if err != nil {
+		return err
+	}
+	defer func() { _ = os.Remove(tmp.Name()) }()
+	return commitTempFile(tmp, path, data, mode)
+}
+
+// commitTempFile writes data to the temporary file, syncs and closes it, and
+// moves it to path. The file is always closed, also when an earlier step fails.
+func commitTempFile(tmp *os.File, path string, data []byte, mode os.FileMode) error {
+	chmodErr := tmp.Chmod(mode)
+	_, writeErr := tmp.Write(data)
+	if err := errors.Join(chmodErr, writeErr, tmp.Sync(), tmp.Close()); err != nil {
+		return err
+	}
+	return os.Rename(tmp.Name(), path)
+}
+
 // yamlRoot returns the document's top-level mapping, creating it for an
 // empty file.
-func (c *launcherConfig) yamlRoot() *yaml.Node {
+func (c *Config) yamlRoot() *yaml.Node {
 	if c.yamlDocument.Kind != yaml.DocumentNode || len(c.yamlDocument.Content) == 0 {
 		c.yamlDocument.Kind = yaml.DocumentNode
 		c.yamlDocument.Content = []*yaml.Node{newYAMLMapping()}
@@ -247,4 +350,29 @@ func removeYAMLMappingKey(mapping *yaml.Node, key string) {
 		mapping.Content = append(mapping.Content[:index], mapping.Content[index+2:]...)
 		return
 	}
+}
+
+// stringList reads a config list given as a sequence or a comma-separated
+// string, trimming each entry and dropping empty ones.
+func stringList(value any) []string {
+	var entries []string
+	switch values := value.(type) {
+	case []string:
+		entries = values
+	case []any:
+		for _, value := range values {
+			if text, ok := value.(string); ok {
+				entries = append(entries, text)
+			}
+		}
+	case string:
+		entries = strings.Split(values, ",")
+	}
+	var result []string
+	for _, entry := range entries {
+		if trimmed := strings.TrimSpace(entry); trimmed != "" {
+			result = append(result, trimmed)
+		}
+	}
+	return result
 }

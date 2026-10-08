@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/inoio/agents-sandbox/internal/agent"
+	"github.com/inoio/agents-sandbox/internal/configfile"
 	"github.com/inoio/agents-sandbox/internal/configpaths"
 	"github.com/inoio/agents-sandbox/internal/sandbox/network"
 	"github.com/inoio/agents-sandbox/internal/termio"
@@ -79,18 +80,6 @@ func TestMigrationAtomicWriteFailsInReadOnlyDirectory(t *testing.T) {
 	t.Cleanup(func() { _ = os.Chmod(dir, 0o700) })
 	if err := migrationAtomicWrite(filepath.Join(dir, "out.yaml"), []byte("x"), 0o600); err == nil {
 		t.Error("migrationAtomicWrite succeeded in a read-only directory, want an error")
-	}
-}
-
-func TestCommitTempFileReportsErrorsOfClosedFile(t *testing.T) {
-	dir := t.TempDir()
-	file, err := os.CreateTemp(dir, "closed-*")
-	if err != nil {
-		t.Fatal(err)
-	}
-	_ = file.Close()
-	if err := commitTempFile(file, filepath.Join(dir, "out.yaml"), []byte("x"), 0o600); !errors.Is(err, os.ErrClosed) {
-		t.Errorf("error = %v, want %v", err, os.ErrClosed)
 	}
 }
 
@@ -505,20 +494,14 @@ func TestBuildLauncherConfigForPlanReportsReadErrors(t *testing.T) {
 	}
 }
 
-func TestUpdateLauncherNetworkReportsMarshalError(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
-	withMigrationSeams(t)
-	marshalJSONIndentFn = func(any, string, string) ([]byte, error) { return nil, errInjected }
+func TestUpdateLauncherNetworkReportsParseError(t *testing.T) {
 	if _, _, _, _, err := updateLauncherNetwork(
-		"config.json",
-		[]byte("{}"),
+		"config.yaml",
+		[]byte("- not a mapping\n"),
 		[]string{"a.test"},
 		nil,
-	); !errors.Is(
-		err,
-		errInjected,
-	) {
-		t.Errorf("error = %v, want %v", err, errInjected)
+	); err == nil {
+		t.Error("updateLauncherNetwork succeeded for an invalid config, want an error")
 	}
 }
 
@@ -677,11 +660,11 @@ func TestReviewResolveNetworkConflictsAllowAnyway(t *testing.T) {
 	if err := Review(plan, &ui); err != nil {
 		t.Fatalf("Review: %v", err)
 	}
-	config, err := parseLauncherConfig(plan.ConfigPath, plan.ConfigData)
+	config, err := configfile.Parse(plan.ConfigPath, plan.ConfigData)
 	if err != nil {
 		t.Fatalf("parse updated launcher config: %v", err)
 	}
-	networkValues, _ := config.values["network"].(map[string]any)
+	networkValues, _ := config.Values()["network"].(map[string]any)
 	deny := stringList(networkValues["egress-deny"])
 	if slices.Contains(deny, "a.test") {
 		t.Errorf("egress-deny = %v, want a.test removed", deny)
@@ -708,11 +691,11 @@ func TestReviewResolveNetworkConflictsAllowAnywayRemovesScalarDeny(t *testing.T)
 	if strings.Contains(string(plan.ConfigData), "a.test, keep.test") {
 		t.Errorf("scalar egress-deny was not rewritten:\n%s", plan.ConfigData)
 	}
-	config, err := parseLauncherConfig(plan.ConfigPath, plan.ConfigData)
+	config, err := configfile.Parse(plan.ConfigPath, plan.ConfigData)
 	if err != nil {
 		t.Fatalf("parse updated launcher config: %v", err)
 	}
-	networkValues, _ := config.values["network"].(map[string]any)
+	networkValues, _ := config.Values()["network"].(map[string]any)
 	deny := stringList(networkValues["egress-deny"])
 	if slices.Contains(deny, "a.test") || !slices.Contains(deny, "keep.test") {
 		t.Errorf("egress-deny = %v, want a.test removed and keep.test kept", deny)
@@ -766,11 +749,11 @@ func TestReviewResolveNetworkConflictsPublic(t *testing.T) {
 	if err := Review(plan, &ui); err != nil {
 		t.Fatalf("Review: %v", err)
 	}
-	config, err := parseLauncherConfig(plan.ConfigPath, plan.ConfigData)
+	config, err := configfile.Parse(plan.ConfigPath, plan.ConfigData)
 	if err != nil {
 		t.Fatalf("parse updated launcher config: %v", err)
 	}
-	networkValues, _ := config.values["network"].(map[string]any)
+	networkValues, _ := config.Values()["network"].(map[string]any)
 	if networkValues["profile"] != "public" {
 		t.Errorf("network.profile = %v, want public", networkValues["profile"])
 	}
@@ -800,11 +783,11 @@ func TestReviewResolveNetworkConflictsPublicClearsDenyAllRule(t *testing.T) {
 	if err := Review(plan, &ui); err != nil {
 		t.Fatalf("Review: %v", err)
 	}
-	config, err := parseLauncherConfig(plan.ConfigPath, plan.ConfigData)
+	config, err := configfile.Parse(plan.ConfigPath, plan.ConfigData)
 	if err != nil {
 		t.Fatalf("parse updated launcher config: %v", err)
 	}
-	networkValues, _ := config.values["network"].(map[string]any)
+	networkValues, _ := config.Values()["network"].(map[string]any)
 	deny := stringList(networkValues["egress-deny"])
 	if hostDeniedByAny(deny, "a.test") {
 		t.Errorf("egress-deny = %v, still shadows a.test after choosing public", deny)
@@ -1368,9 +1351,9 @@ func TestEnableNativeProvisioningReportsErrors(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	withMigrationSeams(t)
 	writeUserLauncherConfig(t, "config.json", "{}")
-	marshalJSONIndentFn = func(any, string, string) ([]byte, error) { return nil, errInjected }
+	atomicWriteFn = func(string, []byte, os.FileMode) error { return errInjected }
 	if err := EnableNativeProvisioning(); !errors.Is(err, errInjected) {
-		t.Errorf("marshal error = %v, want %v", err, errInjected)
+		t.Errorf("write error = %v, want %v", err, errInjected)
 	}
 }
 

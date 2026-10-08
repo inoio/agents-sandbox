@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"net/url"
 	"os"
-	"path/filepath"
 	"slices"
 	"sort"
 	"strings"
@@ -14,6 +13,7 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/inoio/agents-sandbox/internal/agent"
+	"github.com/inoio/agents-sandbox/internal/configfile"
 	cp "github.com/inoio/agents-sandbox/internal/configpaths"
 	"github.com/inoio/agents-sandbox/internal/sandbox/network"
 )
@@ -75,11 +75,11 @@ func updateLauncherNetwork(
 	if len(hosts) == 0 {
 		return path, data, nil, nil, nil
 	}
-	config, err := parseLauncherConfig(path, data)
+	config, err := configfile.Parse(path, data)
 	if err != nil {
 		return "", nil, nil, nil, err
 	}
-	networkConfig, _ := config.values[launcherNetworkSection].(map[string]any)
+	networkConfig, _ := config.Values()[launcherNetworkSection].(map[string]any)
 	allow := stringList(networkConfig["egress-allow"])
 	deny = appendUniqueHosts(deny, stringList(networkConfig[launcherEgressDenyKey])...)
 	var added, skipped []string
@@ -95,8 +95,8 @@ func updateLauncherNetwork(
 	if len(added) == 0 {
 		return path, data, nil, skipped, nil
 	}
-	config.appendListItems([]string{launcherNetworkSection, "egress-allow"}, added)
-	updated, err := config.marshal()
+	config.AppendListItems([]string{launcherNetworkSection, "egress-allow"}, added)
+	updated, err := config.Marshal()
 	if err != nil {
 		return "", nil, nil, nil, err
 	}
@@ -144,21 +144,21 @@ func removeLauncherNetworkDeny(plan *Plan, host string) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	config, err := parseLauncherConfig(path, data)
+	config, err := configfile.Parse(path, data)
 	if err != nil {
 		return nil, err
 	}
 	var removedBroad []string
-	networkValues, _ := config.values[launcherNetworkSection].(map[string]any)
+	networkValues, _ := config.Values()[launcherNetworkSection].(map[string]any)
 	for _, rule := range stringList(networkValues[launcherEgressDenyKey]) {
 		if rule != host && network.MatchesDestination(rule, host) {
 			removedBroad = append(removedBroad, rule)
 		}
 	}
-	config.filterListItems([]string{launcherNetworkSection, launcherEgressDenyKey}, func(rule string) bool {
+	config.FilterListItems([]string{launcherNetworkSection, launcherEgressDenyKey}, func(rule string) bool {
 		return !network.MatchesDestination(rule, host)
 	})
-	updated, err := config.marshal()
+	updated, err := config.Marshal()
 	if err != nil {
 		return nil, err
 	}
@@ -180,13 +180,13 @@ func choosePublicNetwork(plan *Plan) error {
 	if err != nil {
 		return err
 	}
-	config, err := parseLauncherConfig(path, data)
+	config, err := configfile.Parse(path, data)
 	if err != nil {
 		return err
 	}
-	config.setString([]string{launcherNetworkSection, "profile"}, network.ProfilePublic.String())
+	config.SetString([]string{launcherNetworkSection, "profile"}, network.ProfilePublic.String())
 	removed := removeDenyRulesMatching(config, plan.NetworkConflicts)
-	updated, err := config.marshal()
+	updated, err := config.Marshal()
 	if err != nil {
 		return err
 	}
@@ -203,8 +203,8 @@ func choosePublicNetwork(plan *Plan) error {
 
 // removeDenyRulesMatching drops every egress-deny rule that shadows one of
 // hosts from the launcher config and returns the removed rules.
-func removeDenyRulesMatching(config *launcherConfig, hosts []string) []string {
-	networkValues, _ := config.values[launcherNetworkSection].(map[string]any)
+func removeDenyRulesMatching(config *configfile.Config, hosts []string) []string {
+	networkValues, _ := config.Values()[launcherNetworkSection].(map[string]any)
 	var removed []string
 	for _, rule := range stringList(networkValues[launcherEgressDenyKey]) {
 		if conflictRuleMatchesHost(rule, hosts) {
@@ -214,7 +214,7 @@ func removeDenyRulesMatching(config *launcherConfig, hosts []string) []string {
 	if len(removed) == 0 {
 		return nil
 	}
-	config.filterListItems([]string{launcherNetworkSection, launcherEgressDenyKey}, func(rule string) bool {
+	config.FilterListItems([]string{launcherNetworkSection, launcherEgressDenyKey}, func(rule string) bool {
 		return !conflictRuleMatchesHost(rule, hosts)
 	})
 	return appendUniqueHosts(nil, removed...)
@@ -290,12 +290,12 @@ func plannedNetworkHosts(secrets map[string]Secret) []string {
 }
 
 func projectNetworkDenyHosts() []string {
-	path, data, ok := migrationFindLauncherConfig(cp.Get().ProjectConfigDir())
-	if !ok {
+	path, data, err := configfile.LoadDir(cp.Get().ProjectConfigDir())
+	if err != nil {
 		return nil
 	}
 	var root map[string]any
-	if migrationIsJSONConfig(path) {
+	if configfile.IsJSON(path) {
 		if json5.Unmarshal(data, &root) != nil {
 			return nil
 		}
@@ -307,17 +307,6 @@ func projectNetworkDenyHosts() []string {
 		return nil
 	}
 	return stringList(networkConfig[launcherEgressDenyKey])
-}
-
-func migrationFindLauncherConfig(dir string) (string, []byte, bool) {
-	for _, ext := range []string{extYAML, extYML, extJSON, extJSONC, extJSON5} {
-		path := filepath.Join(dir, "config"+ext)
-		data, err := os.ReadFile(path)
-		if err == nil {
-			return path, data, true
-		}
-	}
-	return "", nil, false
 }
 
 // stringList reads a config list given as a sequence or a comma-separated
