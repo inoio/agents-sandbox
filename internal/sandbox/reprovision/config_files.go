@@ -33,6 +33,11 @@ import (
 // key=value lines.
 const EnvKeyValueParts = 2
 
+// evalProvisionRules is a seam over agent.EvalProvisionRules so tests can
+// exercise the provisioning-error path. A direct call cannot fail because the
+// copy callback only records files in memory.
+var evalProvisionRules = agent.EvalProvisionRules
+
 // parseKeyValueLines splits data into trimmed, non-blank, non-comment
 // "key=value" lines and hands each split pair to onLine. The key and value are
 // passed exactly as SplitN produced them (not re-trimmed); callers that need
@@ -114,11 +119,11 @@ func LoadConfigFilesForHost(
 	if err != nil {
 		return nil, err
 	}
-	homeFiles, homeModes, err := loadHomeFiles(a, vmHome, reserved, ui)
+	hooks, err := loadHooks(a, vmHome, reserved)
 	if err != nil {
 		return nil, err
 	}
-	hooks, err := loadHooks(a, vmHome, reserved)
+	homeFiles, homeModes, err := loadHomeFiles(a, vmHome, reserved, ui)
 	if err != nil {
 		return nil, err
 	}
@@ -255,7 +260,7 @@ func loadProvisioned(
 		modes[dst] = mode
 		return nil
 	}
-	if _, err := agent.EvalProvisionRules(p.ProvisionRules(), hostHome, vmHome, onCopy); err != nil {
+	if _, err := evalProvisionRules(p.ProvisionRules(), hostHome, vmHome, onCopy); err != nil {
 		return nil, nil, fmt.Errorf("eval provision rules: %w", err)
 	}
 	return provisioned, modes, nil

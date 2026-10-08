@@ -594,6 +594,7 @@ type TestFS struct {
 	ReadErr  error
 	ListErr  error
 	WriteErr error
+	MkdirErr error
 	Writes   map[string][]byte
 	Mkdirs   []string
 	Removed  []string
@@ -640,6 +641,9 @@ func (t *TestFS) ReadStream(_ context.Context, _ string) (*msbSdk.FsReadStream, 
 }
 
 func (t *TestFS) Mkdir(_ context.Context, path string) error {
+	if t.MkdirErr != nil {
+		return t.MkdirErr
+	}
 	t.Mkdirs = append(t.Mkdirs, path)
 	return nil
 }

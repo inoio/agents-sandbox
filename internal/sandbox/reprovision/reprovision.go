@@ -172,9 +172,9 @@ func mkdirAllFS(ctx context.Context, fs msb.SandboxFS, path string) ([]string, e
 	if prevErr != nil {
 		return nil, prevErr
 	}
-	err := fs.Mkdir(ctx, path)
-	if err == nil {
-		made = append(made, path)
+	if err := fs.Mkdir(ctx, path); err != nil {
+		return made, err
 	}
-	return made, prevErr
+	made = append(made, path)
+	return made, nil
 }

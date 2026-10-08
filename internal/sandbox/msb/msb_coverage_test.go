@@ -648,7 +648,12 @@ func TestTestFS(t *testing.T) {
 
 func TestTestFSErrors(t *testing.T) {
 	ctx := context.Background()
-	fs := &TestFS{ListErr: errors.New("l"), ReadErr: errors.New("r"), WriteErr: errors.New("w")}
+	fs := &TestFS{
+		ListErr:  errors.New("l"),
+		ReadErr:  errors.New("r"),
+		WriteErr: errors.New("w"),
+		MkdirErr: errors.New("m"),
+	}
 	if _, err := fs.List(ctx, "/"); err == nil {
 		t.Fatal("expected ListErr")
 	}
@@ -660,6 +665,9 @@ func TestTestFSErrors(t *testing.T) {
 	}
 	if err := fs.Write(ctx, "x", []byte("d")); err == nil {
 		t.Fatal("expected WriteErr")
+	}
+	if err := fs.Mkdir(ctx, "/d"); err == nil {
+		t.Fatal("expected MkdirErr")
 	}
 	if _, err := fs.Read(ctx, "x"); err == nil {
 		t.Fatal("expected ReadErr on Read")
