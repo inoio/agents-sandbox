@@ -28,22 +28,16 @@ func statePath() string {
 }
 
 func LoadState() State {
+	var zero State
 	data, err := os.ReadFile(statePath())
 	if err != nil {
-		return emptyState()
+		return zero
 	}
 	var state State
 	if yaml.Unmarshal(data, &state) != nil {
-		return emptyState()
-	}
-	if state.Version == 0 {
-		state.Version = stateVersion
+		return zero
 	}
 	return state
-}
-
-func emptyState() State {
-	return State{Version: stateVersion, FirstRunDone: false, Asked: nil}
 }
 
 func SaveState(state State) error {
