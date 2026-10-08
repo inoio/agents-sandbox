@@ -56,9 +56,10 @@ Non-interactive runs (stdin is not a terminal, e.g. piped input) skip the wizard
 
 ## Answering questions
 
-Every question has a default. Value questions (like `memory`) offer "Use default" or "Enter a custom value"; choice and
-confirm questions present their options with the default preselected. Custom values are validated; an invalid entry is
-rejected and re-asked.
+Every question has a default. When a value is already set in your user config it is offered as the default, so accepting
+it leaves that value unchanged. Value questions (like `memory`) offer "Use default" or "Enter a custom value"; choice
+and confirm questions present their options with the default preselected. Custom values are validated; an invalid entry
+is rejected and re-asked.
 
 Related resource questions are **collapsed behind one confirmation**: the resources tier first asks whether to use the
 recommended resource defaults (4 CPUs, 8G memory, 16G disk, 16G quota), and only expands

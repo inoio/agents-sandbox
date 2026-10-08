@@ -147,11 +147,16 @@ a default; accepting defaults is one keystroke.
   - **T3 runtime** — `dind`, `tmp-size`, `log-level`.
   - **T4 integrations** — `notify.*`, `upgrade.*`, `auto-prune-age`.
 - First run asks T1–T3. Deeper tiers are opt-in later via `config wizard --tier=N`; `config wizard` with no flag asks
-  all unanswered tiers.
+  all unanswered tiers. Only the first run or the no-flag full wizard marks the first run done; an explicit
+  `config wizard --tier=1` must not suppress the later first-run tiers.
 - The wizard runs as a first-run step **before** credential migration, then run options are re-resolved so migration sees
   the chosen agent and network posture.
 - A value already set at a more specific scope (project / per-slug / env / flag) is never overwritten; the question is
   skipped and this is reported.
+- Accepting a default is a no-op for an existing value: the offered default is the value already set in the user config
+  when present (for choice questions only when it is one of that question's choice keys), otherwise the catalog default.
+  A value is written only when it differs from the current user-config value, so pressing Enter through an existing
+  config leaves the file untouched and reports zero writes.
 - A group of related value questions may be collapsed behind one confirmation: e.g. a single "resource defaults ok?"
   accepts `cpus` / `memory` / `disk-size` / `workspace-quota` together, and only expands them into individual questions
   when declined.
