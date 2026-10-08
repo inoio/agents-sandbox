@@ -134,7 +134,7 @@ func integrationQuestions() []SetupQuestion {
 		groupConfirmQuestion(
 			TierIntegrations,
 			notifyGroup,
-			"Use the recommended notification and upgrade defaults?",
+			"Use the recommended notification defaults?",
 			"yes",
 		),
 		confirmQuestion(

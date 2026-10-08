@@ -38,12 +38,12 @@ func Run(scope ScopeResolver, ui termio.UI, sel Selection) error {
 		state:     state,
 		ui:        ui,
 		config:    cfg,
-		changed:   false,
+		written:   0,
 	}
 	if _, err := wizard.run(); err != nil {
 		return err
 	}
-	if wizard.tiers[TierEssentials] {
+	if (sel.FirstRun || sel.Tier == 0) && wizard.tiers[TierEssentials] {
 		wizard.state.FirstRunDone = true
 	}
 	if err := writeAnswers(path, wizard); err != nil {
@@ -81,6 +81,6 @@ func writeAnswers(path string, wizard *runner) error {
 	if err := configfile.WriteAtomic(path, data, userConfigFileMode); err != nil {
 		return err
 	}
-	wizard.ui.Infof("Wrote %d setting(s) to %s", len(wizard.state.Asked), path)
+	wizard.ui.Infof("Wrote %d setting(s) to %s", wizard.Written(), path)
 	return nil
 }

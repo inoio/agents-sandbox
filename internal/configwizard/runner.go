@@ -30,7 +30,7 @@ type runner struct {
 	state     State
 	ui        termio.UI
 	config    *configfile.Config
-	changed   bool
+	written   int
 }
 
 func (r *runner) run() (int, error) {
@@ -59,7 +59,11 @@ func (r *runner) run() (int, error) {
 }
 
 func (r *runner) Changed() bool {
-	return r.changed
+	return r.written > 0
+}
+
+func (r *runner) Written() int {
+	return r.written
 }
 
 func (r *runner) shouldSkip(question SetupQuestion) bool {
@@ -88,23 +92,65 @@ func (r *runner) questionStateKey(question SetupQuestion) string {
 }
 
 func (r *runner) ask(question SetupQuestion) (string, bool, error) {
+	defaultValue := r.promptDefault(question)
 	switch question.Kind {
 	case ChoiceKind:
-		return r.askChoice(question)
+		return r.askChoice(question, defaultValue)
 	case ValueKind:
-		return r.askValue(question)
+		return r.askValue(question, defaultValue)
 	case ConfirmKind:
-		return r.askConfirm(question)
+		return r.askConfirm(question, defaultValue)
 	case GroupConfirmKind:
-		return r.askGroupConfirm(question)
+		return r.askGroupConfirm(question, defaultValue)
 	default:
 		return "", false, fmt.Errorf("unsupported question kind %d", question.Kind)
 	}
 }
 
-func (r *runner) askChoice(question SetupQuestion) (string, bool, error) {
+// promptDefault is the value offered when the user accepts a question without
+// editing: the value already set in the user config when present, otherwise the
+// catalog default. Accepting it therefore never changes an existing value.
+func (r *runner) promptDefault(question SetupQuestion) string {
+	if question.Kind == GroupConfirmKind || QuestionKey(question) == "" {
+		return question.Default
+	}
+	value, ok := r.currentValue(question)
+	if !ok {
+		return question.Default
+	}
+	if question.Kind == ChoiceKind && !questionAllowsChoice(question, value) {
+		return question.Default
+	}
+	return value
+}
+
+func (r *runner) currentValue(question SetupQuestion) (string, bool) {
+	switch question.ValueType {
+	case BoolValue:
+		value, ok := r.config.GetBool(question.KeyPath)
+		return strconv.FormatBool(value), ok
+	case IntValue:
+		value, ok := r.config.GetInt(question.KeyPath)
+		return strconv.Itoa(value), ok
+	case StringValue:
+		return r.config.GetString(question.KeyPath)
+	default:
+		return "", false
+	}
+}
+
+func questionAllowsChoice(question SetupQuestion, value string) bool {
+	for _, choice := range question.Choices {
+		if choice.Key == value {
+			return true
+		}
+	}
+	return false
+}
+
+func (r *runner) askChoice(question SetupQuestion, defaultValue string) (string, bool, error) {
 	choices := r.withStopChoice(question, question.Choices)
-	selected, err := r.ui.Select(question.Prompt, choices, question.Default)
+	selected, err := r.ui.Select(question.Prompt, choices, defaultValue)
 	if err != nil {
 		return "", false, err
 	}
@@ -114,12 +160,12 @@ func (r *runner) askChoice(question SetupQuestion) (string, bool, error) {
 	return selected, false, nil
 }
 
-func (r *runner) askValue(question SetupQuestion) (string, bool, error) {
+func (r *runner) askValue(question SetupQuestion, defaultValue string) (string, bool, error) {
 	choices := r.withStopChoice(question, []termio.Choice{
-		{Key: question.Default, Label: "Use default (" + question.Default + ")", Description: ""},
+		{Key: defaultValue, Label: "Use default (" + defaultValue + ")", Description: ""},
 		{Key: customChoice, Label: "Enter a custom value", Description: ""},
 	})
-	selected, err := r.ui.Select(question.Prompt, choices, question.Default)
+	selected, err := r.ui.Select(question.Prompt, choices, defaultValue)
 	if err != nil {
 		return "", false, err
 	}
@@ -129,17 +175,17 @@ func (r *runner) askValue(question SetupQuestion) (string, bool, error) {
 	if selected != customChoice {
 		return selected, false, nil
 	}
-	return r.askCustomValue(question)
+	return r.askCustomValue(question, defaultValue)
 }
 
-func (r *runner) askCustomValue(question SetupQuestion) (string, bool, error) {
+func (r *runner) askCustomValue(question SetupQuestion, defaultValue string) (string, bool, error) {
 	for {
-		input, err := r.ui.Input(question.Prompt, question.Default)
+		input, err := r.ui.Input(question.Prompt, defaultValue)
 		if err != nil {
 			return "", false, err
 		}
 		if input == "" {
-			return question.Default, false, nil
+			return defaultValue, false, nil
 		}
 		if question.Validate != nil {
 			if err := question.Validate(input); err != nil {
@@ -151,16 +197,16 @@ func (r *runner) askCustomValue(question SetupQuestion) (string, bool, error) {
 	}
 }
 
-func (r *runner) askConfirm(question SetupQuestion) (string, bool, error) {
-	return r.askBool(question, yesNoChoices(confirmYes, confirmNo))
+func (r *runner) askConfirm(question SetupQuestion, defaultValue string) (string, bool, error) {
+	return r.askBool(question, defaultValue, yesNoChoices(confirmYes, confirmNo))
 }
 
-func (r *runner) askGroupConfirm(question SetupQuestion) (string, bool, error) {
-	return r.askBool(question, yesNoChoices(groupYes, groupNo))
+func (r *runner) askGroupConfirm(question SetupQuestion, defaultValue string) (string, bool, error) {
+	return r.askBool(question, defaultValue, yesNoChoices(groupYes, groupNo))
 }
 
-func (r *runner) askBool(question SetupQuestion, choices []termio.Choice) (string, bool, error) {
-	selected, err := r.ui.Select(question.Prompt, r.withStopChoice(question, choices), question.Default)
+func (r *runner) askBool(question SetupQuestion, defaultValue string, choices []termio.Choice) (string, bool, error) {
+	selected, err := r.ui.Select(question.Prompt, r.withStopChoice(question, choices), defaultValue)
 	if err != nil {
 		return "", false, err
 	}
@@ -194,12 +240,7 @@ func (r *runner) applyAnswer(question SetupQuestion, value string) error {
 		r.state.MarkAsked(r.questionStateKey(question))
 		return nil
 	}
-	if err := setQuestionValue(r.config, question, value); err != nil {
-		return err
-	}
-	r.state.MarkAsked(r.questionStateKey(question))
-	r.changed = true
-	return nil
+	return r.writeValue(question, value)
 }
 
 func (r *runner) applyDefault(question SetupQuestion) error {
@@ -209,11 +250,19 @@ func (r *runner) applyDefault(question SetupQuestion) error {
 	if question.Kind == GroupConfirmKind {
 		return r.applyGroupDefaults(question)
 	}
-	if err := setQuestionValue(r.config, question, question.Default); err != nil {
+	return r.writeValue(question, r.promptDefault(question))
+}
+
+func (r *runner) writeValue(question SetupQuestion, value string) error {
+	if current, ok := r.currentValue(question); ok && current == value {
+		r.state.MarkAsked(r.questionStateKey(question))
+		return nil
+	}
+	if err := setQuestionValue(r.config, question, value); err != nil {
 		return err
 	}
 	r.state.MarkAsked(r.questionStateKey(question))
-	r.changed = true
+	r.written++
 	return nil
 }
 
@@ -265,6 +314,8 @@ func setQuestionValue(cfg *configfile.Config, question SetupQuestion, value stri
 		cfg.SetInt(question.KeyPath, parsed)
 	case StringValue:
 		cfg.SetString(question.KeyPath, value)
+	default:
+		return fmt.Errorf("unsupported value type %d for %s", question.ValueType, QuestionKey(question))
 	}
 	return nil
 }

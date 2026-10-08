@@ -90,4 +90,46 @@ func TestRunnerSkipsHigherScopeAndUnsetCollapses(t *testing.T) {
 	if len(mock.WarnCalls)+len(mock.InfoCalls) == 0 {
 		t.Error("expected a skip to be reported")
 	}
+	if got, _ := cfg.GetInt([]string{"cpus"}); got != 12 {
+		t.Errorf("cpus = %d, want the higher-scope value 12 retained", got)
+	}
+}
+
+func TestRunnerAskOnlyIfUnsetSkipsSetKey(t *testing.T) {
+	cfg := mustConfig(t, "agent: pi\n")
+	mock := &termio.Mock{IsInteractiveResult: true}
+	r := &runner{
+		questions: DefaultCatalog(), tiers: map[int]bool{TierEssentials: true},
+		scope: noScope{}, state: State{}, ui: mock, config: cfg,
+	}
+	if _, err := r.run(); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := cfg.GetString([]string{"agent"}); got != "pi" {
+		t.Errorf("agent = %q, want the existing value pi", got)
+	}
+	for _, prompt := range mock.SelectCalls {
+		if strings.Contains(prompt, "coding agent") {
+			t.Errorf("agent was asked despite being set: %q", prompt)
+		}
+	}
+}
+
+func TestRunnerWrittenCountsOnlyChangedValues(t *testing.T) {
+	cfg := mustConfig(t, "cpus: 12\n")
+	mock := &termio.Mock{IsInteractiveResult: true}
+	mock.SelectFn = func(_ string, _ []termio.Choice, def string) (string, error) { return def, nil }
+	r := &runner{
+		questions: DefaultCatalog(), tiers: map[int]bool{TierResources: true},
+		scope: noScope{}, state: State{}, ui: mock, config: cfg,
+	}
+	if _, err := r.run(); err != nil {
+		t.Fatal(err)
+	}
+	if r.Written() != 3 {
+		t.Errorf("Written() = %d, want 3 (memory, disk-size, workspace-quota)", r.Written())
+	}
+	if !r.Changed() {
+		t.Error("Changed() = false, want true")
+	}
 }
