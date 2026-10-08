@@ -6,7 +6,6 @@ import (
 	"encoding/hex"
 	"fmt"
 	"os"
-	"slices"
 	"sort"
 	"strings"
 
@@ -117,9 +116,13 @@ func RenderDockerfile(a agent.Agent, projectDockerfile []byte, docker bool) ([]b
 // renderer's reserved stage aliases.
 func checkReservedAliases(projectDockerfile []byte) error {
 	_, stageBase := scanFromStages(projectDockerfile)
+	reserved := make(map[string]struct{}, len(reservedStageAliases))
+	for _, alias := range reservedStageAliases {
+		reserved[strings.ToLower(alias)] = struct{}{}
+	}
 	var collided []string
 	for alias := range stageBase {
-		if slices.Contains(reservedStageAliases, alias) {
+		if _, ok := reserved[strings.ToLower(alias)]; ok {
 			collided = append(collided, alias)
 		}
 	}
@@ -206,23 +209,16 @@ ENV PATH="%s:${PATH}"
 
 // agentStage renders the agent tool stage. It installs the agent into toolDir
 // only when the base does not already provide its binary. The stage starts from
-// the node stage so the agent install can use whichever npm is on PATH.
+// the node stage so the agent install can use whichever npm is on PATH. The
+// agent ENV and label are not set here: this stage is not in the final image's
+// FROM lineage, so Docker would drop them. They are emitted by
+// agentImageConfigBlock in the runner stage instead.
 func agentStage(a agent.Agent) string {
 	spec := a.ImageSpec()
-	var envBlock strings.Builder
-	envKeys := make([]string, 0, len(spec.AgentEnv))
-	for k := range spec.AgentEnv {
-		envKeys = append(envKeys, k)
-	}
-	sort.Strings(envKeys)
-	for _, k := range envKeys {
-		fmt.Fprintf(&envBlock, "ENV %s=%s\n", k, spec.AgentEnv[k])
-	}
 	return fmt.Sprintf(`FROM %s AS %s
 USER root
 ARG %s
-LABEL %s=%s
-%sRUN if command -v %s >/dev/null 2>&1; then \
+RUN if command -v %s >/dev/null 2>&1; then \
       :; \
     else \
       %s; \
@@ -230,8 +226,6 @@ LABEL %s=%s
 `,
 		nodeStageAlias, agentStageAlias,
 		spec.VersionArg,
-		agentLabelKey, a.Name(),
-		envBlock.String(),
 		agentBinary(a),
 		spec.InstallCommand,
 	)
@@ -255,7 +249,6 @@ RUN set -e; mkdir -p %s && \
           { echo "error: docker prerequisite missing: $p" >&2; exit 1; }; \
       done; \
     fi
-RUN groupadd -f docker
 `, baseAlias, dockerStageAlias, dockerVersion, toolBin, toolBin)
 }
 
@@ -266,7 +259,7 @@ func runnerStage(a agent.Agent, baseAlias, body string, docker, dockerInjected b
 	parts := []string{
 		fmt.Sprintf("FROM %s AS %s\n", baseAlias, runnerStageAlias),
 		devUserBlock(),
-		fmt.Sprintf("ENV PATH=\"%s:${PATH}\"\n", toolBin),
+		fmt.Sprintf("ENV PATH=\"${PATH}:%s\"\n", toolBin),
 		body,
 	}
 	if docker && !dockerInjected {
@@ -275,6 +268,7 @@ func runnerStage(a agent.Agent, baseAlias, body string, docker, dockerInjected b
 	parts = append(parts,
 		fmt.Sprintf("COPY --from=%s %s %s\n", agentStageAlias, toolDir, toolDir),
 		agentAdoptionBlock(a),
+		agentImageConfigBlock(a),
 		finalizationBlock(),
 	)
 	return joinBlocks(parts...)
@@ -304,26 +298,50 @@ func dockerMergeBlock() string {
 }
 
 // dockerAdoptionBlock records whether dockerd was provided by the base (user)
-// or the tool, and ensures the docker group exists. PATH prefers base binaries,
-// so a base-provided dockerd resolves outside toolDir.
+// or the tool, ensures the docker group exists, and adds dev to it so the dev
+// user can reach the root:docker 0660 socket. It resets to root so a project
+// body ending in a non-root USER cannot break the block. PATH prefers base
+// binaries, so a base-provided dockerd resolves outside toolDir.
 func dockerAdoptionBlock() string {
-	return fmt.Sprintf(`RUN set -e; mkdir -p /etc/agents-sandbox; \
+	return fmt.Sprintf(`USER root
+RUN set -e; mkdir -p /etc/agents-sandbox; \
     bin="$(command -v dockerd 2>/dev/null || true)"; \
     case "$bin" in %s/*) echo tool ;; *) echo user ;; esac \
       > /etc/agents-sandbox/docker-source; \
-    groupadd -f docker
+    groupadd -f docker; \
+    usermod -aG docker dev 2>/dev/null || true
 `, toolDir)
 }
 
 // agentAdoptionBlock records whether the agent was provided by the base (user)
-// or the tool. PATH prefers base binaries, so a base-provided agent resolves
-// outside toolDir.
+// or the tool. It resets to root so a project body ending in a non-root USER
+// cannot break the block. PATH prefers base binaries, so a base-provided agent
+// resolves outside toolDir.
 func agentAdoptionBlock(a agent.Agent) string {
-	return fmt.Sprintf(`RUN set -e; mkdir -p /etc/agents-sandbox; \
+	return fmt.Sprintf(`USER root
+RUN set -e; mkdir -p /etc/agents-sandbox; \
     bin="$(command -v %s 2>/dev/null || true)"; \
     case "$bin" in %s/*) echo tool ;; *) echo user ;; esac \
       > /etc/agents-sandbox/agent-source
 `, agentBinary(a), toolDir)
+}
+
+// agentImageConfigBlock renders the sorted ENV lines for the agent's ImageSpec
+// AgentEnv plus the agent provenance LABEL. It is emitted in the final runner
+// stage because Docker drops config directives set in non-final stages.
+func agentImageConfigBlock(a agent.Agent) string {
+	spec := a.ImageSpec()
+	envKeys := make([]string, 0, len(spec.AgentEnv))
+	for k := range spec.AgentEnv {
+		envKeys = append(envKeys, k)
+	}
+	sort.Strings(envKeys)
+	var block strings.Builder
+	for _, k := range envKeys {
+		fmt.Fprintf(&block, "ENV %s=%s\n", k, spec.AgentEnv[k])
+	}
+	fmt.Fprintf(&block, "LABEL %s=%s\n", agentLabelKey, a.Name())
+	return block.String()
 }
 
 // agentBinary returns the command name the agent installs.

@@ -11,7 +11,7 @@ import (
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 )
 
-// Provenance files baked into the image by the agent and dind blocks.
+// Provenance files baked into the image by the agent and docker blocks.
 const (
 	agentSourcePath  = "/etc/agents-sandbox/agent-source"
 	dockerSourcePath = "/etc/agents-sandbox/docker-source"

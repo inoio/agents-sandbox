@@ -3,6 +3,7 @@ package image
 import (
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -10,9 +11,24 @@ import (
 	"github.com/inoio/agents-sandbox/internal/configpaths"
 )
 
+var runnerStageFromLine = regexp.MustCompile(`(?m)^FROM \S+ AS ` + regexp.QuoteMeta(runnerStageAlias) + `$`)
+
 func mustRender(t *testing.T, a agent.Agent, project []byte, docker bool) string {
 	t.Helper()
 	return string(renderBytes(t, a, project, docker))
+}
+
+// finalStage returns the text after the last "FROM ... AS agents-sandbox-runner"
+// line, so a test can assert on the final image stage only. Docker drops ENV,
+// LABEL, and other config directives set in non-final stages, so regressions
+// that move them out of the final stage must not be visible here.
+func finalStage(t *testing.T, rendered string) string {
+	t.Helper()
+	matches := runnerStageFromLine.FindAllStringIndex(rendered, -1)
+	if len(matches) == 0 {
+		t.Fatalf("rendered Dockerfile missing runner stage FROM line; got:\n%s", rendered)
+	}
+	return rendered[matches[len(matches)-1][1]:]
 }
 
 func TestRenderDockerfileManagedComposition(t *testing.T) {
@@ -24,14 +40,12 @@ func TestRenderDockerfileManagedComposition(t *testing.T) {
 		"FROM agents-sandbox-node AS agents-sandbox-agent",
 		"FROM agents-sandbox-base AS agents-sandbox-runner",
 		"ARG OPENCODE_VERSION",
-		"LABEL org.agents-sandbox.agent=opencode",
 		"ARG DOCKERFILE_ID",
 		"LABEL org.agents-sandbox.dockerfile-id=$DOCKERFILE_ID",
-		"OPENCODE_DISABLE_AUTOUPDATE=true",
 		"nodejs.org/dist/v26.8.1",
 		"> /etc/agents-sandbox/agent-source",
 		"COPY --from=agents-sandbox-agent /opt/agents-sandbox /opt/agents-sandbox",
-		`ENV PATH="/opt/agents-sandbox/bin:${PATH}"`,
+		`ENV PATH="${PATH}:/opt/agents-sandbox/bin"`,
 		"groupadd -f -g \"$USER_GID\" dev",
 		"LABEL org.agents-sandbox.managed=true",
 		"WORKDIR /workspace",
@@ -42,6 +56,51 @@ func TestRenderDockerfileManagedComposition(t *testing.T) {
 	}
 	if strings.Contains(s, "agents-sandbox-docker") {
 		t.Error("docker stage must be absent when docker is disabled")
+	}
+}
+
+// TestRenderDockerfileAgentConfigInFinalStage guards the multistage regression
+// where the agent ENV and label were emitted into a non-final stage: Docker
+// drops config directives not reachable from the final FROM, so agent env (read
+// back from image inspect) and provenance must live in the runner stage.
+func TestRenderDockerfileAgentConfigInFinalStage(t *testing.T) {
+	a, _ := agent.Lookup("opencode")
+	s := mustRender(t, a, nil, false)
+	final := finalStage(t, s)
+	spec := a.ImageSpec()
+	for _, want := range []string{
+		"LABEL org.agents-sandbox.agent=" + a.Name(),
+	} {
+		if !strings.Contains(final, want) {
+			t.Errorf("final runner stage missing %q; got:\n%s", want, final)
+		}
+	}
+	if len(spec.AgentEnv) == 0 {
+		t.Fatal("test agent has no AgentEnv to assert")
+	}
+	for k, v := range spec.AgentEnv {
+		want := "ENV " + k + "=" + v
+		if !strings.Contains(final, want) {
+			t.Errorf("final runner stage missing %q; got:\n%s", want, final)
+		}
+	}
+	if !strings.Contains(final, "OPENCODE_DISABLE_AUTOUPDATE=true") {
+		t.Errorf("final runner stage missing OPENCODE_DISABLE_AUTOUPDATE=true; got:\n%s", final)
+	}
+}
+
+// TestRenderDockerfileFinalStageUsesAppendingPath guards requirement 2: the
+// runner appends /opt/agents-sandbox/bin so a base-provided binary keeps
+// precedence. The node stage may still prepend internally.
+func TestRenderDockerfileFinalStageUsesAppendingPath(t *testing.T) {
+	a, _ := agent.Lookup("opencode")
+	s := mustRender(t, a, nil, false)
+	final := finalStage(t, s)
+	if !strings.Contains(final, `ENV PATH="${PATH}:/opt/agents-sandbox/bin"`) {
+		t.Errorf("final runner stage must append toolBin to PATH; got:\n%s", final)
+	}
+	if strings.Contains(final, `ENV PATH="/opt/agents-sandbox/bin:${PATH}"`) {
+		t.Errorf("final runner stage must not prepend toolBin to PATH; got:\n%s", final)
 	}
 }
 
@@ -78,6 +137,7 @@ func TestRenderDockerfileDockerStage(t *testing.T) {
 		"COPY --from=agents-sandbox-docker /opt/agents-sandbox /opt/agents-sandbox",
 		"> /etc/agents-sandbox/docker-source",
 		"groupadd -f docker",
+		"usermod -aG docker dev",
 	} {
 		if !strings.Contains(s, want) {
 			t.Errorf("rendered Dockerfile missing %q", want)
@@ -85,6 +145,72 @@ func TestRenderDockerfileDockerStage(t *testing.T) {
 	}
 	if strings.Contains(s, "daemon.json") {
 		t.Error("the vfs storage driver must not be written to daemon.json at build time")
+	}
+}
+
+// TestRenderDockerfileDockerAdoptionAddsDevToGroup guards C1: the docker
+// adoption block in the final stage must add dev to the docker group, or the
+// root:docker 0660 socket leaves dev unable to run `docker info`.
+func TestRenderDockerfileDockerAdoptionAddsDevToGroup(t *testing.T) {
+	a, _ := agent.Lookup("opencode")
+	s := mustRender(t, a, nil, true)
+	final := finalStage(t, s)
+	if !strings.Contains(final, "usermod -aG docker dev") {
+		t.Errorf("final runner stage must add dev to the docker group; got:\n%s", final)
+	}
+}
+
+// TestRenderDockerfilePostBodyBlocksResetUserRoot guards I2: a user body ending
+// in a non-root USER must not leak into the tool-owned adoption RUN blocks.
+func TestRenderDockerfilePostBodyBlocksResetUserRoot(t *testing.T) {
+	a, _ := agent.Lookup("opencode")
+	project := []byte("FROM ubuntu:24.04\nRUN echo custom\nUSER 1000\n")
+
+	// The agent adoption block is isolated by slicing from its preceding COPY
+	// (which resets the copy context, not the user) up to the agent-source RUN.
+	// The docker merge block sits in between when docker is enabled, so slicing
+	// from the body would pick up docker's own USER root and make the agent
+	// assertion vacuous.
+	t.Run("agent block with docker enabled", func(t *testing.T) {
+		s := mustRender(t, a, project, true)
+		agentCopyIdx := strings.Index(s, "COPY --from="+agentStageAlias)
+		agentIdx := strings.Index(s, "> /etc/agents-sandbox/agent-source")
+		if agentCopyIdx < 0 || agentIdx < 0 || agentCopyIdx > agentIdx {
+			t.Fatalf("rendered Dockerfile missing expected agent markers; got:\n%s", s)
+		}
+		agentBlock := s[agentCopyIdx:agentIdx]
+		if !strings.Contains(agentBlock, "USER root") {
+			t.Errorf("agent adoption block must reset to USER root after a non-root body; got:\n%s", agentBlock)
+		}
+	})
+
+	t.Run("agent block with docker disabled", func(t *testing.T) {
+		s := mustRender(t, a, project, false)
+		bodyIdx := strings.Index(s, "RUN echo custom")
+		agentIdx := strings.Index(s, "> /etc/agents-sandbox/agent-source")
+		if bodyIdx < 0 || agentIdx < 0 || bodyIdx > agentIdx {
+			t.Fatalf("rendered Dockerfile missing expected markers; got:\n%s", s)
+		}
+		agentBlock := s[bodyIdx:agentIdx]
+		if strings.Contains(agentBlock, dockerAdoptionBlock()) {
+			t.Fatalf("agent block slice unexpectedly contains the docker block; got:\n%s", agentBlock)
+		}
+		if !strings.Contains(agentBlock, "USER root") {
+			t.Errorf("agent adoption block must reset to USER root after a non-root body; got:\n%s", agentBlock)
+		}
+	})
+
+	// The docker adoption block follows the docker merge COPY, which is the
+	// nearest preceding reset; slice from the body through the docker-source RUN.
+	s := mustRender(t, a, project, true)
+	bodyIdx := strings.Index(s, "RUN echo custom")
+	dockerIdx := strings.Index(s, "> /etc/agents-sandbox/docker-source")
+	if bodyIdx < 0 || dockerIdx < 0 || bodyIdx > dockerIdx {
+		t.Fatalf("rendered Dockerfile missing expected docker markers; got:\n%s", s)
+	}
+	dockerBlock := s[bodyIdx:dockerIdx]
+	if !strings.Contains(dockerBlock, "USER root") {
+		t.Errorf("docker adoption block must reset to USER root after a non-root body; got:\n%s", dockerBlock)
 	}
 }
 
@@ -259,6 +385,20 @@ func TestRenderDockerfileReservedAliasCollision(t *testing.T) {
 	}
 }
 
+// TestRenderDockerfileReservedAliasCaseInsensitive guards the minor finding:
+// Docker lower-cases stage names, so an upper-case reserved alias collides too.
+func TestRenderDockerfileReservedAliasCaseInsensitive(t *testing.T) {
+	a, _ := agent.Lookup("opencode")
+	project := []byte("FROM ubuntu:24.04 AS AGENTS-SANDBOX-BASE\nRUN echo hi\n")
+	_, err := RenderDockerfile(a, project, false)
+	if err == nil {
+		t.Fatal("declaring reserved alias AGENTS-SANDBOX-BASE must be a hard error")
+	}
+	if !strings.Contains(err.Error(), "AGENTS-SANDBOX-BASE") {
+		t.Errorf("error must report the alias spelling from the Dockerfile; got %q", err)
+	}
+}
+
 func TestRenderDockerfileDeterministic(t *testing.T) {
 	a, _ := agent.Lookup("opencode")
 	project := []byte("FROM ubuntu:24.04\n# agents-sandbox:docker\nRUN echo hi\n")
@@ -345,6 +485,23 @@ func TestCustomBaseStageReusesDeclaredAlias(t *testing.T) {
 	}
 	if stage != "FROM ubuntu:24.04 AS base\n" {
 		t.Errorf("stage = %q, want the line unchanged", stage)
+	}
+}
+
+func TestAgentImageConfigBlock(t *testing.T) {
+	a, _ := agent.Lookup("opencode")
+	block := agentImageConfigBlock(a)
+	for _, want := range []string{
+		"ENV OPENCODE_DISABLE_AUTOUPDATE=true",
+		"ENV OPENCODE_EXPERIMENTAL_WORKSPACES=true",
+		"LABEL org.agents-sandbox.agent=opencode",
+	} {
+		if !strings.Contains(block, want) {
+			t.Errorf("agentImageConfigBlock missing %q; got:\n%s", want, block)
+		}
+	}
+	if strings.Index(block, "OPENCODE_DISABLE_AUTOUPDATE") > strings.Index(block, "OPENCODE_EXPERIMENTAL_WORKSPACES") {
+		t.Errorf("ENV keys must be sorted; got:\n%s", block)
 	}
 }
 
