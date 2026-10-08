@@ -22,6 +22,10 @@ command reports the bare version (e.g. `0.1.0`).
 
 ### Changed
 
+- Internal: split the `reprovision` package by concern. VM reconfiguration planning moved to
+  `internal/sandbox/reconfig`, host env/secret loading to `internal/sandbox/envsecret`, and the
+  env/secret/network/mount fingerprint change detection to `internal/sandbox/state`; `reprovision`
+  now owns config provisioning and live-VM config comparison only. No behavior change.
 - Internal: cut `//nolint` directives from ~180 to 19 by disabling `gochecknoglobals`, using per-type `//exhaustruct:ignore`
   and config `ignore-patterns`, extracting complexity in `PlanReconfig`, `ensureProjectVM`, `Provision`, and
   `LoadConfigFilesForHost`, and removing stale directives for disabled linters.

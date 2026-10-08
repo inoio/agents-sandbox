@@ -12,6 +12,7 @@ import (
 
 	"github.com/inoio/agents-sandbox/internal/configpaths"
 	"github.com/inoio/agents-sandbox/internal/git"
+	"github.com/inoio/agents-sandbox/internal/sandbox/envsecret"
 	"github.com/inoio/agents-sandbox/internal/sandbox/mounts"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
 	"github.com/inoio/agents-sandbox/internal/sandbox/network"
@@ -151,7 +152,7 @@ func TestPersistNetworkState_RoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ReadState after persist: %v", err)
 	}
-	want := reprovision.BuildNetworkState(policy)
+	want := state.BuildNetworkState(policy)
 	if got.NetworkState.Hash != want.Hash {
 		t.Errorf("NetworkState.Hash = %q, want %q", got.NetworkState.Hash, want.Hash)
 	}
@@ -214,7 +215,7 @@ func TestDecideReconfig_NetworkUnchangedNoRecreate(t *testing.T) {
 	persistedState := state.HomeState{
 		HomeVolume:   "vol",
 		ImageDigest:  "sha256:samedigest",
-		NetworkState: reprovision.BuildNetworkState(policy),
+		NetworkState: state.BuildNetworkState(policy),
 	}
 	opts := options.RunOptions{Network: policy}
 
@@ -248,14 +249,14 @@ func TestDecideReconfig_NetworkUnchangedNoRecreate(t *testing.T) {
 }
 
 func TestNetworkChanged_ZeroApplied_NonEmptyDesired(t *testing.T) {
-	got := reprovision.NetworkChanged(state.NetworkState{}, network.Policy{Profile: network.ProfileNone})
+	got := state.NetworkChanged(state.NetworkState{}, network.Policy{Profile: network.ProfileNone})
 	if !got {
 		t.Error("expected change when applied is zero and desired is non-empty")
 	}
 }
 
 func TestNetworkChanged_ZeroApplied_EmptyDesired(t *testing.T) {
-	got := reprovision.NetworkChanged(state.NetworkState{}, network.Policy{})
+	got := state.NetworkChanged(state.NetworkState{}, network.Policy{})
 	if !got {
 		t.Error("expected change when applied is zero so the secure default can be applied")
 	}
@@ -263,16 +264,16 @@ func TestNetworkChanged_ZeroApplied_EmptyDesired(t *testing.T) {
 
 func TestNetworkChanged_MatchingHash(t *testing.T) {
 	policy := network.Policy{Profile: network.ProfileNone, EgressAllow: []string{"api.example.com"}}
-	applied := reprovision.BuildNetworkState(policy)
-	if got := reprovision.NetworkChanged(applied, policy); got {
+	applied := state.BuildNetworkState(policy)
+	if got := state.NetworkChanged(applied, policy); got {
 		t.Error("expected NO change when fingerprints match")
 	}
 }
 
 func TestNetworkChanged_DifferentHash(t *testing.T) {
 	policy := network.Policy{Profile: network.ProfileNone, EgressAllow: []string{"api.example.com"}}
-	applied := reprovision.BuildNetworkState(network.Policy{Profile: network.ProfileNone})
-	if got := reprovision.NetworkChanged(applied, policy); !got {
+	applied := state.BuildNetworkState(network.Policy{Profile: network.ProfileNone})
+	if got := state.NetworkChanged(applied, policy); !got {
 		t.Error("expected change when fingerprints differ")
 	}
 }
@@ -302,7 +303,7 @@ func TestPersistEnvSecrets_ReadFailsReturnsError(t *testing.T) {
 func TestDecideReconfig_EnvChangedWithPersistedState(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 
-	// Set up handle so reprovision.PlanReconfig gets a non-nil cfg
+	// Set up handle so reconfig.PlanReconfig gets a non-nil cfg
 	mock := reconfigMockClient()
 	msb.WithMsbMock(t, mock)
 	configpaths.WithMockConfigPaths(t)
@@ -498,28 +499,28 @@ func TestDecideReconfig_ZeroPersistedStateNoSpuriousChange(t *testing.T) {
 }
 
 func TestSecretsChanged_ZeroApplied_NilDesired(t *testing.T) {
-	got := reprovision.SecretsChanged(state.SecretState{}, nil)
+	got := state.SecretsChanged(state.SecretState{}, nil)
 	if got {
 		t.Error("expected NO change when applied is zero and desired is nil")
 	}
 }
 
 func TestSecretsChanged_ZeroApplied_EmptyDesired(t *testing.T) {
-	got := reprovision.SecretsChanged(state.SecretState{}, []msbSdk.SecretEntry{})
+	got := state.SecretsChanged(state.SecretState{}, []msbSdk.SecretEntry{})
 	if got {
 		t.Error("expected NO change when applied is zero and desired is empty")
 	}
 }
 
 func TestSecretsChanged_NonZeroApplied_DifferentHash(t *testing.T) {
-	got := reprovision.SecretsChanged(state.SecretState{Hash: "h1"}, []msbSdk.SecretEntry{{EnvVar: "K", Value: "v"}})
+	got := state.SecretsChanged(state.SecretState{Hash: "h1"}, []msbSdk.SecretEntry{{EnvVar: "K", Value: "v"}})
 	if !got {
 		t.Error("expected change when hashes differ")
 	}
 }
 
 func TestEnvChanged_ZeroApplied_NonEmptyDesired(t *testing.T) {
-	got := reprovision.EnvChanged(state.EnvState{}, map[string]string{"FOO": "bar"})
+	got := state.EnvChanged(state.EnvState{}, map[string]string{"FOO": "bar"})
 	if !got {
 		t.Error("expected change when applied is zero and desired is non-empty")
 	}
@@ -527,15 +528,15 @@ func TestEnvChanged_ZeroApplied_NonEmptyDesired(t *testing.T) {
 
 func TestEnvChanged_MatchingHash(t *testing.T) {
 	desired := map[string]string{"FOO": "bar"}
-	wantHash := reprovision.EnvContentHash(desired)
-	got := reprovision.EnvChanged(state.EnvState{Hash: wantHash}, desired)
+	wantHash := state.EnvContentHash(desired)
+	got := state.EnvChanged(state.EnvState{Hash: wantHash}, desired)
 	if got {
 		t.Error("expected NO change when hashes match")
 	}
 }
 
 func TestSecretState_NilEntries_RendersEmpty(t *testing.T) {
-	got := reprovision.SecretsContentHash(nil)
+	got := state.SecretsContentHash(nil)
 	if got == "" {
 		t.Error("expected non-empty hash for nil entries")
 	}
@@ -544,8 +545,8 @@ func TestSecretState_NilEntries_RendersEmpty(t *testing.T) {
 func TestEnvContentHash_OrderIndependent(t *testing.T) {
 	a := map[string]string{"A": "1", "B": "2"}
 	b := map[string]string{"B": "2", "A": "1"}
-	hA := reprovision.EnvContentHash(a)
-	hB := reprovision.EnvContentHash(b)
+	hA := state.EnvContentHash(a)
+	hB := state.EnvContentHash(b)
 	if hA != hB {
 		t.Errorf("hashes differ for same content in different order: %q vs %q", hA, hB)
 	}
@@ -650,8 +651,8 @@ func TestDecideReconfig_PersistedSecretsMatchDesired(t *testing.T) {
 	vm := volume.NewManager(&termio.Mock{})
 
 	testutil.WriteFile(t, userDir, configpaths.EnvFileName, "K=V\n")
-	desiredEnv := reprovision.MergeEnvMaps(reprovision.BuildEnvMap(filepath.Join(userDir, configpaths.EnvFileName)))
-	envHash := reprovision.EnvContentHash(desiredEnv)
+	desiredEnv := envsecret.MergeEnvMaps(envsecret.BuildEnvMap(filepath.Join(userDir, configpaths.EnvFileName)))
+	envHash := state.EnvContentHash(desiredEnv)
 
 	state.WriteState(state.Key{Slug: "myproj5", Agent: "opencode"}, state.HomeState{
 		HomeVolume:  "vol",
@@ -862,7 +863,7 @@ func TestDecideReconfig_OpenCodeConfigChanged_StoppedVM(t *testing.T) {
 	persisted := state.HomeState{
 		HomeVolume:   "vol",
 		ImageDigest:  "sha256:same",
-		NetworkState: reprovision.BuildNetworkState(network.Policy{}),
+		NetworkState: state.BuildNetworkState(network.Policy{}),
 	}
 
 	ui := termio.NewTestMock(t)
@@ -909,8 +910,8 @@ func reconfigMockClient() *msb.MockMsbClient {
 }
 
 func computeEnvHash(envFile string) string {
-	env := reprovision.BuildEnvMap(envFile)
-	return reprovision.EnvContentHash(env)
+	env := envsecret.BuildEnvMap(envFile)
+	return state.EnvContentHash(env)
 }
 
 func makeSlug() string {

@@ -1,4 +1,7 @@
-package reprovision
+// Package reconfig plans and resolves the reconfiguration of a project VM:
+// which changes force a recreate, a daemon restart, or a live modification,
+// and how to apply them given other attached clients.
+package reconfig
 
 import (
 	"context"
@@ -8,6 +11,7 @@ import (
 
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 
+	"github.com/inoio/agents-sandbox/internal/sandbox/mounts"
 	"github.com/inoio/agents-sandbox/internal/sandbox/options"
 	"github.com/inoio/agents-sandbox/internal/termio"
 )
@@ -179,7 +183,7 @@ func tmpSizeChange(cfg *msbSdk.SandboxConfig, opts options.RunOptions) (Change, 
 	if !ok {
 		return Change{}, false
 	}
-	tmp, ok := cfg.Volumes[tmpMountPath]
+	tmp, ok := cfg.Volumes[mounts.TmpMountPath]
 	if !ok || tmp.SizeMiB == want {
 		return Change{}, false
 	}
@@ -192,7 +196,7 @@ func workspaceQuotaChange(cfg *msbSdk.SandboxConfig, opts options.RunOptions) (C
 	if !ok {
 		return Change{}, false
 	}
-	ws, ok := cfg.Volumes[workspaceMountPath]
+	ws, ok := cfg.Volumes[mounts.WorkspaceMountPath]
 	if !ok || ws.QuotaMiB == want {
 		return Change{}, false
 	}
@@ -212,7 +216,7 @@ func homeVolumeChange(cfg *msbSdk.SandboxConfig, homeVol string) bool {
 	if homeVol == "" {
 		return false
 	}
-	home, ok := cfg.Volumes[VMHomeDir]
+	home, ok := cfg.Volumes[mounts.VMHomeDir]
 	return ok && home.Named != homeVol
 }
 

@@ -1,6 +1,6 @@
-// Package reprovision provides sandbox reprovisioning capabilities, including
-// config file loading/provisioning, environment and secret management, and
-// VM reconfiguration planning and resolution.
+// Package reprovision provisions a project VM's agent config: it loads the
+// merged agent config, home files, drop-in copy, and config mirror, writes them
+// into the sandbox, and compares the provisioned config against the live VM.
 package reprovision
 
 import (

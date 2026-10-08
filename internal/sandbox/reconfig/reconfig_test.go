@@ -1,4 +1,4 @@
-package reprovision
+package reconfig
 
 import (
 	"context"
@@ -6,13 +6,14 @@ import (
 
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 
+	"github.com/inoio/agents-sandbox/internal/sandbox/mounts"
 	"github.com/inoio/agents-sandbox/internal/sandbox/options"
 	"github.com/inoio/agents-sandbox/internal/termio"
 )
 
 func TestPlanReconfigRecreateOnTmpMismatch(t *testing.T) {
 	cfg := &msbSdk.SandboxConfig{
-		Volumes: map[string]msbSdk.MountConfig{tmpMountPath: {SizeMiB: 2048}},
+		Volumes: map[string]msbSdk.MountConfig{mounts.TmpMountPath: {SizeMiB: 2048}},
 	}
 	d := PlanReconfig(cfg, "img:tag", options.RunOptions{TmpSize: "4G"},
 		ChangeFlags{}, "")
@@ -150,7 +151,7 @@ func TestPlanReconfigSecretsChangeRebuildsVM(t *testing.T) {
 
 func TestPlanReconfigEnvWithRecreateNoRestartFlag(t *testing.T) {
 	cfg := &msbSdk.SandboxConfig{Image: "old", CPUs: 4, MemoryMiB: 4096, Volumes: map[string]msbSdk.MountConfig{
-		tmpMountPath: {SizeMiB: 2048},
+		mounts.TmpMountPath: {SizeMiB: 2048},
 	}}
 	// image mismatch triggers recreate, env change would add restartDaemons
 	d := PlanReconfig(cfg, "new:tag", options.RunOptions{TmpSize: "4G"}, ChangeFlags{Env: true}, "")

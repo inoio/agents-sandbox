@@ -1,4 +1,4 @@
-package reprovision
+package reconfig
 
 import "testing"
 

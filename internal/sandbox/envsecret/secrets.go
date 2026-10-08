@@ -1,4 +1,4 @@
-package reprovision
+package envsecret
 
 import (
 	"maps"
