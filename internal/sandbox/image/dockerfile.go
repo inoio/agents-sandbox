@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/inoio/agents-sandbox/internal/agent"
@@ -30,6 +31,70 @@ const agentLabelKey = "org.agents-sandbox.agent"
 // image has changed.
 const dockerfileIDLabelKey = "org.agents-sandbox.dockerfile-id"
 
+// Image identity labels record the individual inputs that determine the content
+// identity, so a rebuild can name which input changed. Tool-owned render
+// templates are intentionally not represented: a mismatch with matching
+// components is reported as a generic content change.
+const (
+	projectDockerfileHashLabelKey = "org.agents-sandbox.identity.dockerfile-hash"
+	agentVersionLabelKey          = "org.agents-sandbox.identity.agent-version"
+	dockerLabelKey                = "org.agents-sandbox.identity.docker"
+)
+
+// Build args carrying the identity components to the finalization block.
+const (
+	projectDockerfileHashArg = "IDENTITY_PROJECT_DOCKERFILE_HASH"
+	agentVersionArg          = "IDENTITY_AGENT_VERSION"
+	dockerArg                = "IDENTITY_DOCKER"
+)
+
+// identityNone normalizes an absent identity input (e.g. no project Dockerfile
+// or no recorded agent version) so it round-trips through an image label.
+const identityNone = "none"
+
+// imageIdentity holds the individual inputs baked into the runner image. Values
+// are normalized strings so they can be recorded as labels and compared back.
+type imageIdentity struct {
+	ProjectDockerfileHash string
+	AgentVersion          string
+	Docker                string
+}
+
+// computeImageIdentity derives the identity components from the build inputs.
+func computeImageIdentity(projectDockerfile []byte, agentVersion string, dind bool) imageIdentity {
+	return imageIdentity{
+		ProjectDockerfileHash: hashOrNone(projectDockerfile),
+		AgentVersion:          valueOrNone(agentVersion),
+		Docker:                strconv.FormatBool(dind),
+	}
+}
+
+// values returns the identity as a label map.
+func (id imageIdentity) values() map[string]string {
+	return map[string]string{
+		projectDockerfileHashLabelKey: id.ProjectDockerfileHash,
+		agentVersionLabelKey:          id.AgentVersion,
+		dockerLabelKey:                id.Docker,
+	}
+}
+
+// hashOrNone returns the SHA-256 of data, or identityNone when data is empty.
+func hashOrNone(data []byte) string {
+	if len(bytes.TrimSpace(data)) == 0 {
+		return identityNone
+	}
+	sum := sha256.Sum256(data)
+	return hex.EncodeToString(sum[:])
+}
+
+// valueOrNone returns s, or identityNone when s is empty.
+func valueOrNone(s string) string {
+	if s == "" {
+		return identityNone
+	}
+	return s
+}
+
 // computeDockerfileID returns the content identity of a rendered runner
 // Dockerfile combined with the pinned agent version, capturing every input
 // that affects the baked image while excluding host-dependent build args.
@@ -49,14 +114,18 @@ const (
 // dind prerequisites and before configuring docker.
 const dindMarker = "# agents-sandbox:dind"
 
+// effectiveDind reports whether Docker-in-Docker is enabled, either by the flag
+// or implied by a project Dockerfile that extends the managed dind base.
+func effectiveDind(projectDockerfile []byte, dind bool) bool {
+	return dind || referencesImage(projectDockerfile, managedBaseDindRef)
+}
+
 // RenderDockerfile composes the single per-project runner Dockerfile from the
 // agent, the project Dockerfile (if any), and the dind switch. The project's
 // final stage is split into its base and body, then the tool-owned blocks are
 // concatenated around it.
 func RenderDockerfile(a agent.Agent, projectDockerfile []byte, dind bool) []byte {
-	if referencesImage(projectDockerfile, managedBaseDindRef) {
-		dind = true
-	}
+	dind = effectiveDind(projectDockerfile, dind)
 	earlier, base, body := splitFinalStage(projectDockerfile)
 	if dind {
 		body = injectDindBlock(body, dindBlock())
@@ -239,6 +308,9 @@ func finalizationBlock() string {
 	return `USER root
 ARG BASE_IMAGE
 ARG DOCKERFILE_ID
+ARG IDENTITY_PROJECT_DOCKERFILE_HASH
+ARG IDENTITY_AGENT_VERSION
+ARG IDENTITY_DOCKER
 
 USER dev
 # extend PATH with ~/.local/bin
@@ -247,6 +319,9 @@ WORKDIR /workspace
 LABEL org.agents-sandbox.managed=true
 LABEL org.agents-sandbox.base=$BASE_IMAGE
 LABEL org.agents-sandbox.dockerfile-id=$DOCKERFILE_ID
+LABEL org.agents-sandbox.identity.dockerfile-hash=$IDENTITY_PROJECT_DOCKERFILE_HASH
+LABEL org.agents-sandbox.identity.agent-version=$IDENTITY_AGENT_VERSION
+LABEL org.agents-sandbox.identity.docker=$IDENTITY_DOCKER
 `
 }
 

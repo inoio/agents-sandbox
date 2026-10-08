@@ -156,6 +156,9 @@ func decideReconfig(
 	// home-volume prompt is deferred until the rebuild decision below confirms
 	// we are actually switching to the new image.
 	imageChanged := hs.ImageDigest != imageDigest
+	if imageChanged {
+		ui.Verbosef("image digest changed: %s -> %s", hs.ImageDigest, imageDigest)
+	}
 
 	var agentCfgChanged bool
 	if liveSb != nil {

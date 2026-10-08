@@ -764,6 +764,9 @@ func TestDecideReconfig_HomePromptDeferredWhenRebuildDeferred(t *testing.T) {
 	if restart {
 		t.Error("expected no restart")
 	}
+	if joined := strings.Join(ui.VerboseCalls, "\n"); !strings.Contains(joined, "image digest changed") {
+		t.Errorf("verbose calls = %v, want the image-digest change reason", ui.VerboseCalls)
+	}
 }
 
 func TestDecideReconfig_HomePromptAskedWhenRebuildConfirmed(t *testing.T) {

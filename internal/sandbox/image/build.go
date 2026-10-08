@@ -152,6 +152,7 @@ func buildDockerImage(
 	baseImage string,
 	dockerfileID string,
 	dind bool,
+	identity imageIdentity,
 	ui termio.UI,
 ) error {
 	spinner := ui.Spinner(label)
@@ -167,6 +168,7 @@ func buildDockerImage(
 		baseImage,
 		dockerfileID,
 		dind,
+		identity,
 		line,
 	); err != nil {
 		spinner.StopError(err)
@@ -189,6 +191,7 @@ func buildImage(
 	baseImage string,
 	dockerfileID string,
 	dind bool,
+	identity imageIdentity,
 	line func(string),
 ) error {
 	tarBuf, err := dockerfileTar(dockerfile)
@@ -196,10 +199,19 @@ func buildImage(
 		return fmt.Errorf("create build context: %w", err)
 	}
 	buildResp, err := docker.Get().ImageBuild(ctx, tarBuf, client.ImageBuildOptions{
-		Tags:      []string{tag},
-		Remove:    true,
-		NoCache:   noCache,
-		BuildArgs: userBuildArgs(os.Getuid(), os.Getgid(), a.ImageSpec(), agentVersion, baseImage, dockerfileID, dind),
+		Tags:    []string{tag},
+		Remove:  true,
+		NoCache: noCache,
+		BuildArgs: userBuildArgs(
+			os.Getuid(),
+			os.Getgid(),
+			a.ImageSpec(),
+			agentVersion,
+			baseImage,
+			dockerfileID,
+			dind,
+			identity,
+		),
 	})
 	if err != nil {
 		return fmt.Errorf("docker image build failed: %w", err)
@@ -267,21 +279,26 @@ func dockerfileTar(dockerfile []byte) (*bytes.Buffer, error) {
 
 // userBuildArgs returns Docker build arguments that align the in-image dev
 // user with the host user that owns the bind-mounted /workspace, pin the agent
-// version, and record the base image provenance label.
+// version, record the base image provenance label, and carry the identity
+// components recorded as image labels.
 func userBuildArgs(
 	uid, gid int,
 	spec agent.ImageSpec,
 	version, baseImage, dockerfileID string,
 	dind bool,
+	identity imageIdentity,
 ) map[string]*string {
 	u := strconv.Itoa(uid)
 	g := strconv.Itoa(gid)
 	args := map[string]*string{
-		"USER_UID":      &u,
-		"USER_GID":      &g,
-		spec.VersionArg: &version,
-		"BASE_IMAGE":    &baseImage,
-		"DOCKERFILE_ID": &dockerfileID,
+		"USER_UID":               &u,
+		"USER_GID":               &g,
+		spec.VersionArg:          &version,
+		"BASE_IMAGE":             &baseImage,
+		"DOCKERFILE_ID":          &dockerfileID,
+		projectDockerfileHashArg: &identity.ProjectDockerfileHash,
+		agentVersionArg:          &identity.AgentVersion,
+		dockerArg:                &identity.Docker,
 	}
 	if dind {
 		v := dockerVersion
@@ -328,8 +345,11 @@ func EnsureImageWithClient(
 
 	rTag := runnerTag(projectSlug, a.Name())
 	rendered := RenderDockerfile(a, projectDockerfile, buildOpts.Dind)
+	dind := effectiveDind(projectDockerfile, buildOpts.Dind)
+	identity := computeImageIdentity(projectDockerfile, identityVersion, dind)
 	dockerfileID := computeDockerfileID(rendered, identityVersion)
-	needsBuild := buildOpts.Force || !imageHasDockerfileID(ctx, rTag, dockerfileID)
+
+	needsBuild, reasons := buildDecision(ctx, rTag, buildOpts.Force, dockerfileID, identity)
 	if needsBuild {
 		if deferVersionResolution {
 			var err error
@@ -337,8 +357,13 @@ func EnsureImageWithClient(
 			if err != nil {
 				return ImageInfo{}, fmt.Errorf("resolve agent version: %w", err)
 			}
-			dockerfileID = computeDockerfileID(rendered, agentVersion)
+			identityVersion = agentVersion
+			identity = computeImageIdentity(projectDockerfile, identityVersion, dind)
+			dockerfileID = computeDockerfileID(rendered, identityVersion)
 		}
+		ui.Verbosef("rebuilding runner image %s: %s", rTag, strings.Join(reasons, "; "))
+	} else {
+		ui.Verbosef("reusing runner image %s: content identity unchanged", rTag)
 	}
 	ui.Verbosef(
 		"Resolved agent version for agent %s to %s, requested %s",
@@ -355,7 +380,7 @@ func EnsureImageWithClient(
 		}
 		if buildErr := buildDockerImage(
 			ctx, a, rendered, rTag, "Ensuring runner image",
-			buildOpts.Force, agentVersion, baseDigest, dockerfileID, buildOpts.Dind, ui,
+			buildOpts.Force, agentVersion, baseDigest, dockerfileID, buildOpts.Dind, identity, ui,
 		); buildErr != nil {
 			return ImageInfo{}, buildErr
 		}
@@ -382,11 +407,15 @@ func EnsureImageWithClient(
 // the Docker image is loaded again under the same reference. Loading directly
 // avoids removing a manifest that an existing VM may still reference.
 func EnsureLoaded(ctx context.Context, mclient msb.Client, _, imageRef string, ui termio.UI) error {
+	loadReason := "not present in microsandbox cache"
 	if err := mclient.ImageGet(ctx, imageRef); err == nil {
 		if cachedImageMatchesDocker(ctx, mclient, imageRef) {
+			ui.Verbosef("microsandbox image %s is up to date", imageRef)
 			return nil
 		}
+		loadReason = "cached content differs from the Docker image"
 	}
+	ui.Verbosef("loading image %s into microsandbox: %s", imageRef, loadReason)
 
 	spin := ui.Spinner("Loading image into microsandbox")
 	saveResult, err := docker.Get().ImageSave(ctx, []string{imageRef})

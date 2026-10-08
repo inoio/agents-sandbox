@@ -75,6 +75,24 @@ func configChangeList(changes []Change) string {
 	return strings.Join(lines, "\n")
 }
 
+// changeLabelList joins the change labels into a single comma-separated line.
+func changeLabelList(changes []Change) string {
+	labels := make([]string, 0, len(changes))
+	for _, c := range changes {
+		labels = append(labels, c.Label)
+	}
+	return strings.Join(labels, ", ")
+}
+
+// reportAloneChange logs the informational apply decision made without other
+// attached clients and, at verbose level, the change labels that drove it.
+func reportAloneChange(ui termio.UI, message, reasonLabel string, changes []Change) {
+	ui.Infof("VM/config changed; %s (no other client attached)", message)
+	if summary := changeLabelList(changes); summary != "" {
+		ui.Verbosef("%s reasons: %s", reasonLabel, summary)
+	}
+}
+
 // ChangeFlags carries the change detections that PlanReconfig cannot derive
 // from the live VM config, because the microsandbox SDK does not round-trip
 // these settings when reading an existing VM back. Each flag is computed by
@@ -284,7 +302,7 @@ func ResolveReconfig(
 	_ = ctx
 	if plan.Recreate {
 		if otherClientCount == 0 {
-			ui.Infof("VM/config changed; rebuilding project VM (no other client attached)")
+			reportAloneChange(ui, "rebuilding project VM", "rebuild", changes)
 			return true, false, nil
 		}
 		key, err := PromptA(ui, changes, otherClientCount)
@@ -298,7 +316,7 @@ func ResolveReconfig(
 	}
 	if plan.RestartDaemons {
 		if otherClientCount == 0 {
-			ui.Infof("VM/config changed; restarting daemons (no other client attached)")
+			reportAloneChange(ui, "restarting daemons", "restart", changes)
 			return false, true, nil
 		}
 		key, err := PromptB(ui, changes, otherClientCount)

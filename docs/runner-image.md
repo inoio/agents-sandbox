@@ -213,11 +213,19 @@ The Docker build is skipped when the baked `org.agents-sandbox.dockerfile-id` la
 label is a hash of the rendered Dockerfile and the agent version, so an image already built from the exact same
 Dockerfile and agent version is reused instead of being rebuilt.
 
+With `--log-level verbose`, the launcher reports why a build happens on every rebuild path. Before building, each image
+also records its individual inputs as `org.agents-sandbox.identity.*` labels (project Dockerfile hash, agent version, and
+Docker-in-Docker), so the verbose line names the changed input — for example `rebuilding runner image
+…: project Dockerfile changed; agent version changed` — or `forced by --rebuild` / `runner image not present locally`.
+A reuse logs `reusing runner image …: content identity unchanged`; an image without these identity labels (built by an
+older version) is reported as a generic content change.
+
 ### Content-verified load
 
 Before skipping a load, `EnsureLoaded` verifies the microsandbox cache content — the config digest (compared against
 the Docker image ID) or the `dockerfile-id` label. If the cached content no longer matches, the image is reloaded so the
-VM always boots from the correct image.
+VM always boots from the correct image. At verbose level the load states whether the image was absent from the cache or
+its cached content was stale.
 
 ## Image Lifecycle
 
