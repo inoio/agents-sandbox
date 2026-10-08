@@ -10,6 +10,10 @@ command reports the bare version (e.g. `0.1.0`).
 
 ### Added
 
+- Verbose output now states why the runner image is rebuilt on every rebuild path: the Docker image build names the
+  changed identity inputs (project Dockerfile, agent version, Docker-in-Docker) or `--rebuild`/missing image, the
+  microsandbox load reports whether the cached image is absent or stale, and a project VM recreate/daemon restart lists
+  the config changes that triggered it.
 - Internal: add `make test-integration` — docker-build integration tests (tagged `integration`, excluded from the main
   suite) that build a real image for every `RenderDockerfile` composition case (no project Dockerfile, managed base, and
   custom Fedora base, each with and without dind). Wired into CI as a selective job (main/release/manual).

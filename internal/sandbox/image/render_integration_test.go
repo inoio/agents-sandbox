@@ -84,7 +84,19 @@ func buildDockerfile(t *testing.T, a agent.Agent, dockerfile []byte, agentVersio
 	}
 
 	tag := "agents-sandbox/it-" + sanitizeTag(t.Name())
-	if err := buildImage(ctx, a, dockerfile, tag, false, agentVersion, "", "", dind, func(string) {}); err != nil {
+	if err := buildImage(
+		ctx,
+		a,
+		dockerfile,
+		tag,
+		false,
+		agentVersion,
+		"",
+		"",
+		dind,
+		imageIdentity{},
+		func(string) {},
+	); err != nil {
 		t.Fatalf("docker image build failed: %v", err)
 	}
 
