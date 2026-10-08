@@ -7,12 +7,12 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/inoio/agents-sandbox/internal/sandbox/envsecret"
 	"github.com/inoio/agents-sandbox/internal/sandbox/image"
 	"github.com/inoio/agents-sandbox/internal/sandbox/mounts"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
 	"github.com/inoio/agents-sandbox/internal/sandbox/naming"
 	"github.com/inoio/agents-sandbox/internal/sandbox/options"
-	"github.com/inoio/agents-sandbox/internal/sandbox/reprovision"
 	"github.com/inoio/agents-sandbox/internal/sandbox/state"
 	"github.com/inoio/agents-sandbox/internal/sysinfo"
 	"github.com/inoio/agents-sandbox/internal/termio"
@@ -446,7 +446,7 @@ func createProjectVM(
 	}
 	maxMemoryGiB := sysinfo.TotalMemoryGiB()
 
-	envMap, secrets := reprovision.LoadEnvAndSecrets(ui)
+	envMap, secrets := envsecret.LoadEnvAndSecrets(ui)
 	ui.Verbosef("adding docker env definitions to project VM environment: %s", imageEnvs)
 	buildProjectVMEnv(envMap, imageEnvs)
 

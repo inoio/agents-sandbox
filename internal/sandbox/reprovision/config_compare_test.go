@@ -3,14 +3,11 @@ package reprovision
 import (
 	"bytes"
 	"context"
-	"path/filepath"
 	"reflect"
 	"testing"
 
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
 	"github.com/inoio/agents-sandbox/internal/termio"
-
-	"github.com/inoio/agents-sandbox/internal/testutil"
 )
 
 // configEqual reports whether the desired state matches the VM state. The
@@ -198,42 +195,6 @@ func TestProvisionNoSnippetsSkipsOpenCode(t *testing.T) {
 	}
 	if _, ok := fs.Writes[AgentConfigPath(opencodeTestAgent(), VMHomeDir)]; ok {
 		t.Error("did not expect opencode.json when HasSnippets=false")
-	}
-}
-
-func TestBuildEnvMap(t *testing.T) {
-	envFile := filepath.Join(t.TempDir(), "env")
-	testutil.WritePath(t, envFile, "FOO=bar\n# comment\n\nBAZ=qux\n")
-	got := BuildEnvMap(envFile)
-
-	if len(got) != 2 {
-		t.Fatalf("expected 2 env vars, got %d: %v", len(got), got)
-	}
-	if got["FOO"] != "bar" {
-		t.Errorf("expected FOO=bar, got %q", got["FOO"])
-	}
-	if got["BAZ"] != "qux" {
-		t.Errorf("expected BAZ=qux, got %q", got["BAZ"])
-	}
-}
-
-func TestReadSandboxEnvMissing(t *testing.T) {
-	env := BuildEnvMap("missing")
-	if len(env) != 0 {
-		t.Errorf("expected 0 env vars when .agents-sandbox/env missing, got %d", len(env))
-	}
-}
-
-func TestMergeEnvMapsProjectOverridesUser(t *testing.T) {
-	userFile := filepath.Join(t.TempDir(), "env")
-	testutil.WritePath(t, userFile, "FOO=user\nBAR=user\n")
-	projectFile := filepath.Join(t.TempDir(), "env")
-	testutil.WritePath(t, projectFile, "FOO=project\n")
-
-	got := MergeEnvMaps(BuildEnvMap(userFile), BuildEnvMap(projectFile))
-	want := map[string]string{"FOO": "project", "BAR": "user"}
-	if !reflect.DeepEqual(got, want) {
-		t.Errorf("got %v, want %v", got, want)
 	}
 }
 

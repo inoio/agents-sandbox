@@ -6,8 +6,10 @@ import (
 
 	"github.com/inoio/agents-sandbox/internal/agent"
 	"github.com/inoio/agents-sandbox/internal/homeconfig"
+	"github.com/inoio/agents-sandbox/internal/sandbox/envsecret"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
 	"github.com/inoio/agents-sandbox/internal/sandbox/options"
+	"github.com/inoio/agents-sandbox/internal/sandbox/reconfig"
 	"github.com/inoio/agents-sandbox/internal/sandbox/reprovision"
 	"github.com/inoio/agents-sandbox/internal/sandbox/state"
 	"github.com/inoio/agents-sandbox/internal/sandbox/volume"
@@ -164,17 +166,17 @@ func decideReconfig(
 		}
 	}
 
-	desiredEnv, desiredSecrets := reprovision.LoadEnvAndSecrets(ui)
-	envHasChanged := reprovision.EnvChanged(hs.EnvState, desiredEnv)
-	secretsHasChanged := reprovision.SecretsChanged(hs.SecretState, desiredSecrets)
-	networkHasChanged := reprovision.NetworkChanged(hs.NetworkState, opts.Network)
-	mountsHaveChanged := reprovision.MountsChanged(hs.MountState, opts.Mounts)
+	desiredEnv, desiredSecrets := envsecret.LoadEnvAndSecrets(ui)
+	envHasChanged := state.EnvChanged(hs.EnvState, desiredEnv)
+	secretsHasChanged := state.SecretsChanged(hs.SecretState, desiredSecrets)
+	networkHasChanged := state.NetworkChanged(hs.NetworkState, opts.Network)
+	mountsHaveChanged := state.MountsChanged(hs.MountState, opts.Mounts)
 
-	plan := reprovision.PlanReconfig(
+	plan := reconfig.PlanReconfig(
 		curCfg,
 		imageRef,
 		opts,
-		reprovision.ChangeFlags{
+		reconfig.ChangeFlags{
 			Image:       imageChanged,
 			Env:         envHasChanged,
 			Secrets:     secretsHasChanged,
@@ -185,7 +187,7 @@ func decideReconfig(
 		homeVol,
 	)
 	otherClients := state.CountActiveClients(k)
-	applyRecreate, applyRestart, err := reprovision.ResolveReconfig(ctx, ui, plan, otherClients, plan.Changes)
+	applyRecreate, applyRestart, err := reconfig.ResolveReconfig(ctx, ui, plan, otherClients, plan.Changes)
 	if err != nil {
 		return false, false, homeVol, plan.ServeHostPort, err
 	}

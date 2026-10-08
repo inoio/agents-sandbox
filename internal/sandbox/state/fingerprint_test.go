@@ -1,4 +1,4 @@
-package reprovision
+package state
 
 import (
 	"testing"
@@ -7,7 +7,6 @@ import (
 
 	"github.com/inoio/agents-sandbox/internal/sandbox/mounts"
 	"github.com/inoio/agents-sandbox/internal/sandbox/network"
-	"github.com/inoio/agents-sandbox/internal/sandbox/state"
 )
 
 func TestEnvContentHashOrderIndependent(t *testing.T) {
@@ -37,16 +36,16 @@ func TestSecretsContentHashStable(t *testing.T) {
 
 func TestEnvChanged(t *testing.T) {
 	hash := EnvContentHash(map[string]string{"A": "1"})
-	if EnvChanged(state.EnvState{Hash: hash}, map[string]string{"A": "1"}) {
+	if EnvChanged(EnvState{Hash: hash}, map[string]string{"A": "1"}) {
 		t.Error("EnvChanged should be false when hashes match")
 	}
-	if !EnvChanged(state.EnvState{Hash: hash}, map[string]string{"A": "2"}) {
+	if !EnvChanged(EnvState{Hash: hash}, map[string]string{"A": "2"}) {
 		t.Error("EnvChanged should be true when a value changes")
 	}
-	if !EnvChanged(state.EnvState{}, map[string]string{"A": "1"}) {
+	if !EnvChanged(EnvState{}, map[string]string{"A": "1"}) {
 		t.Error("EnvChanged with empty applied and non-empty desired should be true")
 	}
-	if EnvChanged(state.EnvState{}, nil) {
+	if EnvChanged(EnvState{}, nil) {
 		t.Error("EnvChanged with empty applied and empty desired should be false")
 	}
 }
@@ -100,16 +99,16 @@ func TestSecretsContentHashIncludesOtherFields(t *testing.T) {
 
 func TestSecretsChanged(t *testing.T) {
 	hash := SecretsContentHash([]msbSdk.SecretEntry{{EnvVar: "A", Value: "1"}})
-	if SecretsChanged(state.SecretState{Hash: hash}, []msbSdk.SecretEntry{{EnvVar: "A", Value: "1"}}) {
+	if SecretsChanged(SecretState{Hash: hash}, []msbSdk.SecretEntry{{EnvVar: "A", Value: "1"}}) {
 		t.Error("SecretsChanged should be false when hashes match")
 	}
-	if !SecretsChanged(state.SecretState{Hash: hash}, []msbSdk.SecretEntry{{EnvVar: "A", Value: "2"}}) {
+	if !SecretsChanged(SecretState{Hash: hash}, []msbSdk.SecretEntry{{EnvVar: "A", Value: "2"}}) {
 		t.Error("SecretsChanged should be true when a value changes")
 	}
-	if !SecretsChanged(state.SecretState{}, []msbSdk.SecretEntry{{EnvVar: "A", Value: "1"}}) {
+	if !SecretsChanged(SecretState{}, []msbSdk.SecretEntry{{EnvVar: "A", Value: "1"}}) {
 		t.Error("SecretsChanged with empty applied and non-empty desired should be true")
 	}
-	if SecretsChanged(state.SecretState{}, nil) {
+	if SecretsChanged(SecretState{}, nil) {
 		t.Error("SecretsChanged with empty applied and nil desired should be false")
 	}
 }
@@ -137,16 +136,16 @@ func TestBuildSecretState(t *testing.T) {
 func TestNetworkChanged(t *testing.T) {
 	policy := network.Policy{Profile: network.ProfilePublic}
 	fp := policy.Fingerprint()
-	if NetworkChanged(state.NetworkState{Hash: fp}, policy) {
+	if NetworkChanged(NetworkState{Hash: fp}, policy) {
 		t.Error("NetworkChanged should be false when hashes match")
 	}
-	if !NetworkChanged(state.NetworkState{Hash: fp}, network.Policy{Profile: network.ProfileNone}) {
+	if !NetworkChanged(NetworkState{Hash: fp}, network.Policy{Profile: network.ProfileNone}) {
 		t.Error("NetworkChanged should be true when profile changes")
 	}
-	if !NetworkChanged(state.NetworkState{}, policy) {
+	if !NetworkChanged(NetworkState{}, policy) {
 		t.Error("NetworkChanged with empty applied and non-empty desired should be true")
 	}
-	if !NetworkChanged(state.NetworkState{}, network.Policy{}) {
+	if !NetworkChanged(NetworkState{}, network.Policy{}) {
 		t.Error("NetworkChanged with empty applied and empty desired should migrate to the secure default")
 	}
 }
@@ -184,10 +183,10 @@ func TestMountsChanged(t *testing.T) {
 // TestMountsChangedEmptyAppliedState covers VMs created before mounts existed:
 // no persisted fingerprint must only count as changed when mounts are set.
 func TestMountsChangedEmptyAppliedState(t *testing.T) {
-	if MountsChanged(state.MountState{}, nil) {
+	if MountsChanged(MountState{}, nil) {
 		t.Error("MountsChanged with no persisted state and no mounts should be false")
 	}
-	if !MountsChanged(state.MountState{}, mounts.Mounts{
+	if !MountsChanged(MountState{}, mounts.Mounts{
 		"/home/dev/.m2": {Source: "/host/.m2"},
 	}) {
 		t.Error("MountsChanged with no persisted state and configured mounts should be true")

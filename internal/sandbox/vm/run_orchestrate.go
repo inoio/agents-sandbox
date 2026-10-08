@@ -8,6 +8,7 @@ import (
 
 	"github.com/inoio/agents-sandbox/internal/agent"
 	"github.com/inoio/agents-sandbox/internal/git"
+	"github.com/inoio/agents-sandbox/internal/sandbox/envsecret"
 	"github.com/inoio/agents-sandbox/internal/sandbox/image"
 	"github.com/inoio/agents-sandbox/internal/sandbox/mounts"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
@@ -237,11 +238,11 @@ func persistConfigHashes(
 	mounts mounts.Mounts,
 	ui termio.UI,
 ) {
-	desiredEnv, desiredSecrets := reprovision.LoadEnvAndSecrets(ui)
+	desiredEnv, desiredSecrets := envsecret.LoadEnvAndSecrets(ui)
 	if err := persistEnvSecrets(
 		k,
-		reprovision.BuildEnvState(desiredEnv),
-		reprovision.BuildSecretState(desiredSecrets),
+		state.BuildEnvState(desiredEnv),
+		state.BuildSecretState(desiredSecrets),
 	); err != nil {
 		ui.Warnf("persisting env/secret fingerprints on VM creation: %v (continuing)", err)
 	}

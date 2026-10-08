@@ -6,7 +6,6 @@ import (
 
 	"github.com/inoio/agents-sandbox/internal/sandbox/mounts"
 	"github.com/inoio/agents-sandbox/internal/sandbox/network"
-	"github.com/inoio/agents-sandbox/internal/sandbox/reprovision"
 	"github.com/inoio/agents-sandbox/internal/sandbox/state"
 )
 
@@ -33,7 +32,7 @@ func persistNetworkState(k state.Key, policy network.Policy) error {
 			return fmt.Errorf("read state for network persistence: %w", err)
 		}
 	}
-	st.NetworkState = reprovision.BuildNetworkState(policy)
+	st.NetworkState = state.BuildNetworkState(policy)
 	return state.WriteState(k, *st)
 }
 
@@ -46,6 +45,6 @@ func persistMountState(k state.Key, mounts mounts.Mounts) error {
 			return fmt.Errorf("read state for mount persistence: %w", err)
 		}
 	}
-	st.MountState = reprovision.BuildMountState(mounts)
+	st.MountState = state.BuildMountState(mounts)
 	return state.WriteState(k, *st)
 }

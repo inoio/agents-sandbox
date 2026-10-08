@@ -1,10 +1,11 @@
-package reprovision
+package reconfig
 
 import (
 	"testing"
 
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 
+	"github.com/inoio/agents-sandbox/internal/sandbox/mounts"
 	"github.com/inoio/agents-sandbox/internal/sandbox/options"
 )
 
@@ -21,9 +22,9 @@ func TestPlanReconfigDecidesRecreate(t *testing.T) {
 			RootDisk:  rootDisk,
 			Image:     "image-a",
 			Volumes: map[string]msbSdk.MountConfig{
-				tmpMountPath:       {SizeMiB: tmpMiB},
-				workspaceMountPath: {QuotaMiB: options.DefaultWorkspaceQuotaMiB},
-				VMHomeDir:          {Named: "agents-sandbox-home-proj-vol"},
+				mounts.TmpMountPath:       {SizeMiB: tmpMiB},
+				mounts.WorkspaceMountPath: {QuotaMiB: options.DefaultWorkspaceQuotaMiB},
+				mounts.VMHomeDir:          {Named: "agents-sandbox-home-proj-vol"},
 			},
 		}
 	}
@@ -113,7 +114,7 @@ func TestPlanReconfigDecidesRecreate(t *testing.T) {
 
 func TestWorkspaceQuotaChange(t *testing.T) {
 	vol := func(quotaMiB uint32) map[string]msbSdk.MountConfig {
-		return map[string]msbSdk.MountConfig{workspaceMountPath: {QuotaMiB: quotaMiB}}
+		return map[string]msbSdk.MountConfig{mounts.WorkspaceMountPath: {QuotaMiB: quotaMiB}}
 	}
 	tests := []struct {
 		name    string

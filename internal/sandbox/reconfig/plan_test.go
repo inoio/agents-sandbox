@@ -1,4 +1,4 @@
-package reprovision
+package reconfig
 
 import (
 	"testing"
@@ -140,7 +140,7 @@ func TestPlanReconfigHomeVolumeChangeTriggersRecreate(t *testing.T) {
 	cfg := &msbSdk.SandboxConfig{
 		Image: "img",
 		Volumes: map[string]msbSdk.MountConfig{
-			VMHomeDir: {Named: "agents-sandbox-home-proj-old"},
+			mounts.VMHomeDir: {Named: "agents-sandbox-home-proj-old"},
 		},
 	}
 	plan := PlanReconfig(cfg, "img", options.RunOptions{}, ChangeFlags{},
@@ -164,7 +164,7 @@ func TestPlanReconfigHomeVolumeSameNoRecreate(t *testing.T) {
 	cfg := &msbSdk.SandboxConfig{
 		Image: "img",
 		Volumes: map[string]msbSdk.MountConfig{
-			VMHomeDir: {Named: "agents-sandbox-home-proj-vol"},
+			mounts.VMHomeDir: {Named: "agents-sandbox-home-proj-vol"},
 		},
 	}
 	plan := PlanReconfig(cfg, "img", options.RunOptions{}, ChangeFlags{},
