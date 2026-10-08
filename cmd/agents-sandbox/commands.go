@@ -35,6 +35,19 @@ func resolverFromContext(ctx context.Context) *launcherconfig.Resolver {
 // defaultAgentName is the fallback agent used when --agent is not provided.
 const defaultAgentName = "opencode"
 
+// warnLegacyEnvVars emits a one-time deprecation warning for each
+// OPENCODE_SANDBOX_ variable still in effect.
+func warnLegacyEnvVars(ui termio.UI, r *launcherconfig.Resolver) {
+	legacy := r.LegacyEnvVars()
+	if len(legacy) == 0 {
+		return
+	}
+	ui.Warnf(
+		"deprecated environment variable(s) %s in use; switch to the AGENTS_SANDBOX_ prefix",
+		strings.Join(legacy, ", "),
+	)
+}
+
 // resolveAgent validates a resolved agent name (from flag, env, or config)
 // against the registered agents, returning the matching agent and rejecting
 // unknown names.
@@ -122,6 +135,7 @@ func buildRootCmd(ui termio.UI) *cobra.Command {
 		if err != nil {
 			return err
 		}
+		warnLegacyEnvVars(ui, r)
 		cmd.SetContext(context.WithValue(cmd.Context(), (*launcherConfigKey)(nil), r))
 		if settingsErr := applyCLISettings(cmd, ui, r); settingsErr != nil {
 			return settingsErr

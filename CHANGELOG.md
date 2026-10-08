@@ -22,6 +22,10 @@ command reports the bare version (e.g. `0.1.0`).
 
 ### Changed
 
+- Launcher environment variables now use the `AGENTS_SANDBOX_` prefix instead of the historical
+  `OPENCODE_SANDBOX_`. The old prefix still works as a deprecated alias — it resolves with lower
+  precedence than `AGENTS_SANDBOX_` and prints a one-time warning — so existing setups keep working;
+  migrate your configuration to `AGENTS_SANDBOX_*` (#120).
 - Internal: split the `reprovision` package by concern. VM reconfiguration planning moved to
   `internal/sandbox/reconfig`, host env/secret loading to `internal/sandbox/envsecret`, and the
   env/secret/network/mount fingerprint change detection to `internal/sandbox/state`; `reprovision`

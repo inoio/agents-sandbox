@@ -42,5 +42,5 @@ notify:
 ```
 
 The whole thing can be overridden with the `--notify` flag (`on`, `off`, `desktop`, or `audio`; bare `--notify` = `on`)
-or the `OPENCODE_SANDBOX_NOTIFY` environment variable. The override sets the **channels only**; it leaves the
+or the `AGENTS_SANDBOX_NOTIFY` environment variable. The override sets the **channels only**; it leaves the
 `on-input`/`on-done`/`on-error` trigger toggles from the config file unchanged. Precedence: **flag > env > config**.

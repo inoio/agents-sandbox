@@ -63,8 +63,9 @@ Configuration is resolved in this order (later entries override earlier ones):
 2. **User-level** — `~/.config/agents-sandbox/`
 3. **User per-slug** — `~/.config/agents-sandbox/<slug>/`
 4. **Project-level** — `.agents-sandbox/`
-5. **Environment variables** — `OPENCODE_SANDBOX_<KEY>`
-6. **CLI flags** — always win when explicitly passed
+5. **Legacy environment variables** — `OPENCODE_SANDBOX_<KEY>` (deprecated)
+6. **Environment variables** — `AGENTS_SANDBOX_<KEY>`
+7. **CLI flags** — always win when explicitly passed
 
 ## Configuration file
 
@@ -184,31 +185,37 @@ recreate, or quit to abort the change. The default is to keep/defer.
 
 Every config-file field above can also be set with an environment variable. Env vars take
 precedence over config files but lose to an explicitly passed CLI flag. The prefix is
-`OPENCODE_SANDBOX_`; dashes in the field name become underscores.
+`AGENTS_SANDBOX_`; dashes in the field name become underscores.
+
+The historical `OPENCODE_SANDBOX_` prefix (from before the rename to agents-sandbox) is still
+accepted as a deprecated alias. It sits between config files and `AGENTS_SANDBOX_` in precedence,
+and using one prints a one-time deprecation warning. When both prefixes set the same field, the
+`AGENTS_SANDBOX_` value wins. The alias will be removed in a future release; migrate your
+configuration to `AGENTS_SANDBOX_`.
 
 | Field                           | Environment variable                                              |
 |---------------------------------|-------------------------------------------------------------------|
-| `yes`                           | `OPENCODE_SANDBOX_YES`                                            |
-| `quiet`                         | `OPENCODE_SANDBOX_QUIET`                                          |
-| `log-level`                     | `OPENCODE_SANDBOX_LOG_LEVEL`                                      |
-| `cpus`                          | `OPENCODE_SANDBOX_CPUS`                                           |
-| `memory`                        | `OPENCODE_SANDBOX_MEMORY`                                         |
-| `disk-size`                     | `OPENCODE_SANDBOX_DISK_SIZE`                                      |
-| `tmp-size`                      | `OPENCODE_SANDBOX_TMP_SIZE`                                       |
-| `workspace-quota`               | `OPENCODE_SANDBOX_WORKSPACE_QUOTA`                                |
-| `auto-prune-age`                | `OPENCODE_SANDBOX_AUTO_PRUNE_AGE`                                 |
-| `manual-prune-age`              | `OPENCODE_SANDBOX_MANUAL_PRUNE_AGE`                               |
-| `auto-stop-on-active-sessions`  | `OPENCODE_SANDBOX_AUTO_STOP_ON_ACTIVE_SESSIONS`                   |
-| `auto-stop-timeout`             | `OPENCODE_SANDBOX_AUTO_STOP_TIMEOUT`                              |
-| `auto-stop-max-session-retries` | `OPENCODE_SANDBOX_AUTO_STOP_MAX_SESSION_RETRIES`                  |
-| `network.profile`               | `OPENCODE_SANDBOX_NETWORK_PROFILE`                                |
-| `network.dns-servers`           | `OPENCODE_SANDBOX_NETWORK_DNS_SERVERS`                            |
-| `agent`                         | `OPENCODE_SANDBOX_AGENT`                                          |
-| `provision-host-config`         | `OPENCODE_SANDBOX_PROVISION_HOST_CONFIG`                          |
-| `dind`                          | `OPENCODE_SANDBOX_DIND`                                           |
-| `upgrade.mode`                   | `OPENCODE_SANDBOX_UPGRADE_MODE`                                    |
-| `upgrade.interval`               | `OPENCODE_SANDBOX_UPGRADE_INTERVAL`                                |
-| `notify` (override)              | `OPENCODE_SANDBOX_NOTIFY`                                          |
+| `yes`                           | `AGENTS_SANDBOX_YES`                                            |
+| `quiet`                         | `AGENTS_SANDBOX_QUIET`                                          |
+| `log-level`                     | `AGENTS_SANDBOX_LOG_LEVEL`                                      |
+| `cpus`                          | `AGENTS_SANDBOX_CPUS`                                           |
+| `memory`                        | `AGENTS_SANDBOX_MEMORY`                                         |
+| `disk-size`                     | `AGENTS_SANDBOX_DISK_SIZE`                                      |
+| `tmp-size`                      | `AGENTS_SANDBOX_TMP_SIZE`                                       |
+| `workspace-quota`               | `AGENTS_SANDBOX_WORKSPACE_QUOTA`                                |
+| `auto-prune-age`                | `AGENTS_SANDBOX_AUTO_PRUNE_AGE`                                 |
+| `manual-prune-age`              | `AGENTS_SANDBOX_MANUAL_PRUNE_AGE`                               |
+| `auto-stop-on-active-sessions`  | `AGENTS_SANDBOX_AUTO_STOP_ON_ACTIVE_SESSIONS`                   |
+| `auto-stop-timeout`             | `AGENTS_SANDBOX_AUTO_STOP_TIMEOUT`                              |
+| `auto-stop-max-session-retries` | `AGENTS_SANDBOX_AUTO_STOP_MAX_SESSION_RETRIES`                  |
+| `network.profile`               | `AGENTS_SANDBOX_NETWORK_PROFILE`                                |
+| `network.dns-servers`           | `AGENTS_SANDBOX_NETWORK_DNS_SERVERS`                            |
+| `agent`                         | `AGENTS_SANDBOX_AGENT`                                          |
+| `provision-host-config`         | `AGENTS_SANDBOX_PROVISION_HOST_CONFIG`                          |
+| `dind`                          | `AGENTS_SANDBOX_DIND`                                           |
+| `upgrade.mode`                   | `AGENTS_SANDBOX_UPGRADE_MODE`                                    |
+| `upgrade.interval`               | `AGENTS_SANDBOX_UPGRADE_INTERVAL`                                |
+| `notify` (override)              | `AGENTS_SANDBOX_NOTIFY`                                          |
 
 Action toggles (`--rebuild`, `--dry-run`, `--force`, ...) are CLI-only and cannot be set via
 config file or env var.
@@ -223,8 +230,9 @@ user-level config and the project-level config in precedence:
 2. **User-level** — `~/.config/agents-sandbox/config.yaml`
 3. **User per-slug** — `~/.config/agents-sandbox/<slug>/config.yaml`
 4. **Project-level** — `.agents-sandbox/config.yaml`
-5. **Environment variables** — `OPENCODE_SANDBOX_*`
-6. **CLI flags** — always win when explicitly passed
+5. **Legacy environment variables** — `OPENCODE_SANDBOX_*` (deprecated)
+6. **Environment variables** — `AGENTS_SANDBOX_*`
+7. **CLI flags** — always win when explicitly passed
 
 The same formats/filenames as the generic user config are supported (`config.yaml`, `config.yml`, `config.json`,
 `config.jsonc`, `config.json5`).
