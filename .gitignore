@@ -8,3 +8,4 @@ coverage.out
 junit.xml
 docs/diagrams/*.svg
 /docs/superpowers/
+/.operator/
