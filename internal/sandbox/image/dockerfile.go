@@ -63,11 +63,17 @@ const agentLabelKey = "org.agents-sandbox.agent"
 const dockerfileIDLabelKey = "org.agents-sandbox.dockerfile-id"
 
 // computeDockerfileID returns the content identity of a rendered runner
-// Dockerfile combined with the pinned agent version, capturing every input
-// that affects the baked image while excluding host-dependent build args.
+// Dockerfile combined with the pinned agent version and the profile.d merge
+// script, capturing every input that affects the baked image while excluding
+// host-dependent build args. The merge script travels in the build-context tar
+// under an invariant COPY line, so its bytes must be folded in here for an edit
+// to invalidate an existing image.
 func computeDockerfileID(rendered []byte, agentVersion string) string {
-	h := sha256.Sum256(append(rendered, []byte(agentVersion)...))
-	return hex.EncodeToString(h[:])
+	h := sha256.New()
+	h.Write(rendered)
+	h.Write(pathMergeScript())
+	h.Write([]byte(agentVersion))
+	return hex.EncodeToString(h.Sum(nil))
 }
 
 // Pinned third-party versions baked into the image.

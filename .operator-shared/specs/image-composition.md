@@ -1,6 +1,6 @@
 ---
 description: Contract for how the per-project runner Dockerfile is composed into per-tool multistage stages so tool-owned layers (apt tools, node, agent, docker) cache independently of the user body, the base, and each other; includes the `dind` → `docker` rename with deprecated aliases.
-read_if: Changing RenderDockerfile/stage composition, image layer caching, the dind/docker switch or marker, custom-base handling, tool install paths (/opt/agents-sandbox), or the dockerd vfs storage driver.
+read_if: Changing RenderDockerfile/stage composition, image layer caching, the dind/docker switch or marker, custom-base handling, tool install paths (/opt/agents-sandbox), login-shell PATH handling (AGENTS_SANDBOX_IMAGE_PATH, the /etc/profile.d merge script), or the dockerd vfs storage driver.
 ---
 
 # Runner image composition and tool-layer caching

@@ -16,6 +16,25 @@ import (
 	"github.com/inoio/agents-sandbox/internal/termio"
 )
 
+// TestComputeDockerfileIDFoldsMergeScript asserts the identity is stable for
+// identical inputs and changes when the embedded profile.d merge script changes,
+// so editing the shipped script invalidates existing runner images.
+func TestComputeDockerfileIDFoldsMergeScript(t *testing.T) {
+	rendered := []byte("FROM scratch\n")
+	original := embeddedPathMergeScript
+	t.Cleanup(func() { embeddedPathMergeScript = original })
+
+	before := computeDockerfileID(rendered, "1.2.3")
+	if again := computeDockerfileID(rendered, "1.2.3"); again != before {
+		t.Fatalf("computeDockerfileID not stable for identical inputs: %q vs %q", before, again)
+	}
+
+	embeddedPathMergeScript = append(append([]byte(nil), original...), []byte("\n# changed\n")...)
+	if after := computeDockerfileID(rendered, "1.2.3"); after == before {
+		t.Error("computeDockerfileID did not change after the merge script changed")
+	}
+}
+
 // TestEnsureImageSkipsBuildWhenDockerfileIDMatches verifies the build is skipped
 // when the existing runner image already carries a matching dockerfile-id label.
 func TestEnsureImageSkipsBuildWhenDockerfileIDMatches(t *testing.T) {
