@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 
@@ -518,6 +519,10 @@ func TestConvergeExistingVMConnectError(t *testing.T) {
 }
 
 func TestConvergeExistingVMWaitsThroughStarting(t *testing.T) {
+	orig := sandboxLifecyclePollInterval
+	t.Cleanup(func() { sandboxLifecyclePollInterval = orig })
+	sandboxLifecyclePollInterval = time.Millisecond
+
 	refreshes := 0
 	handle := &msb.MockSandboxHandle{
 		RefreshFn: func(context.Context) (msb.SandboxHandle, error) {

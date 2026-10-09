@@ -49,17 +49,20 @@ func ensureDaemon(ctx context.Context, a agent.Agent, serveOnly bool, sb msb.San
 	}
 
 	deadline := time.Now().Add(daemonReadyTimeout)
-	for time.Now().Before(deadline) {
+	for {
+		if healthy := checkDaemonHealth(ctx, sb, provider); healthy {
+			ui.Verbosef("%s daemon is healthy", a.Name())
+			return nil
+		}
+		if !time.Now().Before(deadline) {
+			break
+		}
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
 		case <-time.After(daemonPollInterval):
 		}
 		ui.Verbose("Polling for daemon health")
-		if healthy := checkDaemonHealth(ctx, sb, provider); healthy {
-			ui.Verbosef("%s daemon is healthy", a.Name())
-			return nil
-		}
 	}
 	return fmt.Errorf("%s daemon did not become healthy within %s", a.Name(), daemonReadyTimeout)
 }

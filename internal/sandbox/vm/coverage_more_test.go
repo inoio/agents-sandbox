@@ -328,7 +328,8 @@ func TestEnsureDaemonContextCancelled(t *testing.T) {
 	})
 	t.Cleanup(func() { SetDaemonShellFunc(orig) })
 
-	t.Cleanup(func() { daemonPollInterval = 2 * time.Second })
+	origPoll := daemonPollInterval
+	t.Cleanup(func() { daemonPollInterval = origPoll })
 	daemonPollInterval = time.Millisecond
 
 	err := ensureDaemon(ctx, opencodeAgent(t), false, nil, &termio.Mock{})
