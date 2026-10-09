@@ -40,6 +40,10 @@ func blockClientLease(t *testing.T, slug string) {
 func TestReapOnLastClient_ClientReattachesDuringWait(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 
+	origInterval := waitQuiescentPollInterval
+	waitQuiescentPollInterval = 10 * time.Millisecond
+	t.Cleanup(func() { waitQuiescentPollInterval = origInterval })
+
 	slug := "reattachproj"
 	ui := &termio.Mock{}
 	sb := &msb.MockSandbox{
@@ -54,12 +58,12 @@ func TestReapOnLastClient_ClientReattachesDuringWait(t *testing.T) {
 		"sleep 1h": msb.NewTestResult(true, 0, "", "", nil),
 	}
 
-	// A client reattaches 100ms into the 2s poll interval, so the second poll
-	// sees an active client and aborts the reaper.
+	// A client reattaches 20ms into the wait, so a later poll sees an active
+	// client and aborts the reaper.
 	hold := make(chan struct{})
 	defer close(hold)
 	go func() {
-		time.Sleep(100 * time.Millisecond)
+		time.Sleep(20 * time.Millisecond)
 		release, _ := state.AcquireClientLease(state.Key{Slug: slug, Agent: "opencode"})
 		<-hold
 		if release != nil {

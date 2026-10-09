@@ -194,11 +194,11 @@ func buildImage(
 	identity imageIdentity,
 	line func(string),
 ) error {
-	tarBuf, err := dockerfileTar(dockerfile)
-	if err != nil {
+	var tarBuf bytes.Buffer
+	if err := writeDockerfileTar(&tarBuf, dockerfile); err != nil {
 		return fmt.Errorf("create build context: %w", err)
 	}
-	buildResp, err := docker.Get().ImageBuild(ctx, tarBuf, client.ImageBuildOptions{
+	buildResp, err := docker.Get().ImageBuild(ctx, &tarBuf, client.ImageBuildOptions{
 		Tags:    []string{tag},
 		Remove:  true,
 		NoCache: noCache,
@@ -256,9 +256,10 @@ func scanBuildOutput(r io.Reader, line func(string)) error {
 
 const dockerfileMode = 0o644
 
-func dockerfileTar(dockerfile []byte) (*bytes.Buffer, error) {
-	var buf bytes.Buffer
-	tw := tar.NewWriter(&buf)
+// writeDockerfileTar writes the synthetic build context — the rendered Dockerfile
+// followed by the profile.d merge script — to w as a tar stream.
+func writeDockerfileTar(w io.Writer, dockerfile []byte) error {
+	tw := tar.NewWriter(w)
 	for _, entry := range []struct {
 		name    string
 		content []byte
@@ -272,17 +273,17 @@ func dockerfileTar(dockerfile []byte) (*bytes.Buffer, error) {
 			Size: int64(len(entry.content)),
 		}); err != nil {
 			_ = tw.Close()
-			return nil, fmt.Errorf("tar write header: %w", err)
+			return fmt.Errorf("tar write header: %w", err)
 		}
 		if _, err := io.Copy(tw, bytes.NewReader(entry.content)); err != nil {
 			_ = tw.Close()
-			return nil, fmt.Errorf("tar write %s: %w", entry.name, err)
+			return fmt.Errorf("tar write %s: %w", entry.name, err)
 		}
 	}
 	if err := tw.Close(); err != nil {
-		return nil, fmt.Errorf("tar close: %w", err)
+		return fmt.Errorf("tar close: %w", err)
 	}
-	return &buf, nil
+	return nil
 }
 
 // userBuildArgs returns Docker build arguments that align the in-image dev

@@ -72,6 +72,20 @@ func TestEnsureImageSkipsBuildWhenDockerfileIDMatches(t *testing.T) {
 	}
 }
 
+// TestEnsureImageReportsRenderError verifies a project Dockerfile that declares
+// a reserved stage alias surfaces the render error before any build runs.
+func TestEnsureImageReportsRenderError(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	WithMockAgentVersion(t, "1.2.3")
+	a := agentOpencode(t)
+	project := []byte("FROM debian:trixie-slim AS agents-sandbox-base\n")
+
+	_, err := EnsureImageWithClient(context.Background(), a, project, "proj", BuildOptions{}, &termio.Mock{})
+	if err == nil || !strings.Contains(err.Error(), "render Dockerfile") {
+		t.Fatalf("EnsureImageWithClient error = %v, want a render Dockerfile error", err)
+	}
+}
+
 // TestEnsureImageBuildsWhenDockerfileIDMismatches verifies the build runs when
 // the existing runner image's dockerfile-id label differs from the current one.
 func TestEnsureImageBuildsWhenDockerfileIDMismatches(t *testing.T) {

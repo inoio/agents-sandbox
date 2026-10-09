@@ -693,6 +693,78 @@ func TestDockerConfigWinsOverDindAlias(t *testing.T) {
 	}
 }
 
+// TestDockerExplicitFromEnv verifies AGENTS_SANDBOX_DOCKER marks docker as
+// explicitly set, so the deprecated dind alias is not surfaced.
+func TestDockerExplicitFromEnv(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	t.Setenv("AGENTS_SANDBOX_DOCKER", "true")
+	r, err := NewResolver(nil, "some-slug")
+	if err != nil {
+		t.Fatalf("NewResolver: %v", err)
+	}
+	if !r.Docker() {
+		t.Error("Docker() = false, want true from AGENTS_SANDBOX_DOCKER")
+	}
+	if r.DockerLegacyAlias() != "" {
+		t.Errorf("DockerLegacyAlias() = %q, want empty when docker is explicit", r.DockerLegacyAlias())
+	}
+}
+
+// TestDockerExplicitFromFlag verifies the --docker flag marks docker as
+// explicitly set.
+func TestDockerExplicitFromFlag(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	root := &cobra.Command{Use: "root"}
+	root.PersistentFlags().Bool(keyDocker, false, "")
+	if err := root.ParseFlags([]string{"--" + keyDocker}); err != nil {
+		t.Fatalf("ParseFlags: %v", err)
+	}
+	r, err := NewResolver(root, "some-slug")
+	if err != nil {
+		t.Fatalf("NewResolver: %v", err)
+	}
+	if !r.Docker() {
+		t.Error("Docker() = false, want true from --docker")
+	}
+	if r.DockerLegacyAlias() != "" {
+		t.Errorf("DockerLegacyAlias() = %q, want empty for the --docker flag", r.DockerLegacyAlias())
+	}
+}
+
+// TestDindFromEnvAlias verifies AGENTS_SANDBOX_DIND enables docker and is
+// reported as the deprecated source.
+func TestDindFromEnvAlias(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	t.Setenv("AGENTS_SANDBOX_DIND", "true")
+	r, err := NewResolver(nil, "some-slug")
+	if err != nil {
+		t.Fatalf("NewResolver: %v", err)
+	}
+	if !r.Docker() {
+		t.Error("Docker() = false, want true from AGENTS_SANDBOX_DIND")
+	}
+	if got := r.DockerLegacyAlias(); got != "AGENTS_SANDBOX_DIND" {
+		t.Errorf("DockerLegacyAlias() = %q, want AGENTS_SANDBOX_DIND", got)
+	}
+}
+
+// TestDindFromLegacyEnvAlias verifies the deprecated OPENCODE_SANDBOX_DIND
+// prefix enables docker and is reported with the generic dind source name.
+func TestDindFromLegacyEnvAlias(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	t.Setenv("OPENCODE_SANDBOX_DIND", "true")
+	r, err := NewResolver(nil, "some-slug")
+	if err != nil {
+		t.Fatalf("NewResolver: %v", err)
+	}
+	if !r.Docker() {
+		t.Error("Docker() = false, want true from OPENCODE_SANDBOX_DIND")
+	}
+	if got := r.DockerLegacyAlias(); got != "dind" {
+		t.Errorf("DockerLegacyAlias() = %q, want the generic dind source for the legacy env prefix", got)
+	}
+}
+
 func TestDockerDefaultsFalse(t *testing.T) {
 	r := NewResolverWithConfig(Config{})
 	if r.Docker() {

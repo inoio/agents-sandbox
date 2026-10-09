@@ -74,6 +74,24 @@ func TestExecuteWarnsOnLegacyEnvPrefix(t *testing.T) {
 	}
 }
 
+// TestExecuteWarnsOnDockerDindAlias verifies the deprecated dind setting
+// surfaces a one-time docker-alias warning.
+func TestExecuteWarnsOnDockerDindAlias(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	t.Setenv("AGENTS_SANDBOX_DIND", "true")
+	ui := &termio.Mock{}
+
+	if err := execute([]string{"version"}, ui); err != nil {
+		t.Fatalf("execute version: %v", err)
+	}
+	found := slices.ContainsFunc(ui.WarnCalls, func(w string) bool {
+		return strings.Contains(w, "AGENTS_SANDBOX_DIND")
+	})
+	if !found {
+		t.Errorf("expected docker deprecation warning mentioning AGENTS_SANDBOX_DIND, got %v", ui.WarnCalls)
+	}
+}
+
 func TestAutoPruneOutToVerboseRedirect(t *testing.T) {
 	ui := &termio.Mock{}
 	redirect := &autoPruneOutToVerboseRedirect{UI: ui}
@@ -168,7 +186,7 @@ func TestMainHelperProcessExitError(t *testing.T) {
 	if os.Getenv("GO_WANT_MAIN_HELPER") != "1" {
 		t.Skip("helper process only")
 	}
-	initTestRepo(t)
+	initTestProjectDir(t)
 	mock := &sandboxmsb.MockMsbClient{}
 	setupRunMocks(t, mock, &sandboxmsb.MockSandbox{AttachCode: 5}, "run")
 	os.Args = []string{"agents-sandbox", "run"}

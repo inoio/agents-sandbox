@@ -2,10 +2,12 @@ package main
 
 import (
 	"fmt"
+	"os"
 	"slices"
 	"strings"
 	"testing"
 
+	"github.com/inoio/agents-sandbox/internal/configpaths"
 	"github.com/inoio/agents-sandbox/internal/sandbox/doctor"
 
 	"github.com/inoio/agents-sandbox/internal/sandbox/docker"
@@ -266,5 +268,24 @@ func TestBuildDockerfileCommandHasDockerFlags(t *testing.T) {
 	}
 	if flag := foundCmd.Flags().Lookup(flagAgent); flag == nil {
 		t.Error("build dockerfile command must have --agent flag")
+	}
+}
+
+// TestBuildDockerfileCommandReportsReservedAlias verifies a project Dockerfile
+// declaring a reserved stage alias makes `build dockerfile` fail instead of
+// printing a broken Dockerfile.
+func TestBuildDockerfileCommandReportsReservedAlias(t *testing.T) {
+	cmd, _ := setupCommandFixtures(t, cmdBuild, cmdDockerfile)
+	if err := os.WriteFile(
+		configpaths.Get().ProjectDockerfile(),
+		[]byte("FROM debian:trixie-slim AS agents-sandbox-base\n"),
+		0o644,
+	); err != nil {
+		t.Fatalf("write project dockerfile: %v", err)
+	}
+
+	err := cmd.Execute()
+	if err == nil || !strings.Contains(err.Error(), "reserved stage alias") {
+		t.Fatalf("Execute error = %v, want a reserved-stage-alias error", err)
 	}
 }

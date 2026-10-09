@@ -22,7 +22,7 @@ import (
 )
 
 func TestVolumeMigrateUnknownAgent(t *testing.T) {
-	initTestRepo(t)
+	initTestProjectDir(t)
 	cmd, _ := setupCommandFixtures(t, "volume", "migrate", "--agent", "bogus")
 	err := cmd.Execute()
 	if err == nil || !strings.Contains(err.Error(), "unknown agent") {
@@ -31,7 +31,7 @@ func TestVolumeMigrateUnknownAgent(t *testing.T) {
 }
 
 func TestVolumeMigrateWithPositionalArg(t *testing.T) {
-	initTestRepo(t)
+	initTestProjectDir(t)
 	configpaths.WithMockConfigPaths(t)
 	ui := &termio.Mock{}
 	mock := &msb.MockMsbClient{}
@@ -155,7 +155,7 @@ func TestConfigAgentHomeManifestError(t *testing.T) {
 // and a failing preflight so it takes the serve-only context branch and then
 // returns the preflight error from runFunc itself.
 func TestRunFuncServeOnlyContextError(t *testing.T) {
-	initTestRepo(t)
+	initTestProjectDir(t)
 	configpaths.WithMockConfigPaths(t)
 	doctor.MockedCheckAll(t, false)
 	ui := &termio.Mock{}

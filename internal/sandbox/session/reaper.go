@@ -21,6 +21,11 @@ const (
 
 const defaultMaxSessionRetries = 10
 
+// waitQuiescentPollInterval is the delay between session-status polls while
+// waiting for active sessions to finish. It is a variable so tests can shrink
+// it instead of waiting out the production interval.
+var waitQuiescentPollInterval = 2 * time.Second
+
 // SessionStatus is the decoded server-side /session/status entry. Busy and idle are
 // plain states; retry carries the server-maintained attempt counter.
 type SessionStatus struct {
@@ -87,10 +92,10 @@ func waitQuiescent(
 	keeperDone := keepVMAlive(keeperCtx, sb)
 	defer func() { _ = keeperDone() }()
 
-	ticker := time.NewTicker(2 * time.Second)
+	ticker := time.NewTicker(waitQuiescentPollInterval)
 	defer ticker.Stop()
 
-	// First poll happens immediately, then on the 2s interval.
+	// First poll happens immediately, then on waitQuiescentPollInterval.
 	first := true
 	waiting := ui.Spinner("waiting for active sessions to finish")
 	defer waiting.Stop()

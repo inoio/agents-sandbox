@@ -90,7 +90,7 @@ func setupShellRunMocks(t *testing.T, mock *sandboxmsb.MockMsbClient, sandboxToR
 }
 
 func TestRunShellDryRunRun(t *testing.T) {
-	initTestRepo(t)
+	initTestProjectDir(t)
 
 	mock := &sandboxmsb.MockMsbClient{}
 	root, ui := setupRunMocks(t, mock, &sandboxmsb.MockSandbox{}, "run", "--dry-run")
@@ -123,7 +123,7 @@ func TestRunShellDryRunRun(t *testing.T) {
 }
 
 func TestRunShellDryRunShell(t *testing.T) {
-	initTestRepo(t)
+	initTestProjectDir(t)
 
 	mock := &sandboxmsb.MockMsbClient{}
 	root, ui := setupRunMocks(t, mock, &sandboxmsb.MockSandbox{}, "shell", "--dry-run")
@@ -145,7 +145,7 @@ func TestRunShellDryRunShell(t *testing.T) {
 }
 
 func TestRunShellRunAttachError(t *testing.T) {
-	initTestRepo(t)
+	initTestProjectDir(t)
 
 	mock := &sandboxmsb.MockMsbClient{}
 	root, _ := setupRunMocks(t, mock, &sandboxmsb.MockSandbox{AttachErr: errors.New("connection refused")}, "run")
@@ -160,7 +160,7 @@ func TestRunShellRunAttachError(t *testing.T) {
 }
 
 func TestRunShellShellAttachError(t *testing.T) {
-	initTestRepo(t)
+	initTestProjectDir(t)
 
 	mock := &sandboxmsb.MockMsbClient{}
 	root, _ := setupRunMocks(t, mock, &sandboxmsb.MockSandbox{AttachErr: errors.New("shell error")}, "shell")
@@ -175,7 +175,7 @@ func TestRunShellShellAttachError(t *testing.T) {
 }
 
 func TestRunShellRunWithAllFlags(t *testing.T) {
-	initTestRepo(t)
+	initTestProjectDir(t)
 
 	mock := &sandboxmsb.MockMsbClient{}
 	root, _ := setupShellRunMocks(t, mock, &sandboxmsb.MockSandbox{AttachErr: errors.New("fail")},
@@ -189,7 +189,7 @@ func TestRunShellRunWithAllFlags(t *testing.T) {
 }
 
 func TestRunShellRunWithShortFlags(t *testing.T) {
-	initTestRepo(t)
+	initTestProjectDir(t)
 
 	mock := &sandboxmsb.MockMsbClient{}
 	root, _ := setupShellRunMocks(t, mock, &sandboxmsb.MockSandbox{AttachErr: errors.New("fail")},
@@ -203,7 +203,7 @@ func TestRunShellRunWithShortFlags(t *testing.T) {
 }
 
 func TestRunShellCleanExitNoError(t *testing.T) {
-	initTestRepo(t)
+	initTestProjectDir(t)
 
 	mock := &sandboxmsb.MockMsbClient{}
 	root, _ := setupRunMocks(t, mock, &sandboxmsb.MockSandbox{AttachCode: 0, AttachErr: nil}, "run")
@@ -215,7 +215,7 @@ func TestRunShellCleanExitNoError(t *testing.T) {
 }
 
 func TestRunShellWorktreeReusesExisting(t *testing.T) {
-	initTestRepo(t)
+	initTestProjectDir(t)
 
 	mock := &sandboxmsb.MockMsbClient{}
 	sb := &sandboxmsb.MockSandbox{
@@ -251,7 +251,7 @@ func TestRunShellWorktreeReusesExisting(t *testing.T) {
 }
 
 func TestRunShellWithCpus(t *testing.T) {
-	initTestRepo(t)
+	initTestProjectDir(t)
 
 	mock := &sandboxmsb.MockMsbClient{}
 	root, _ := setupShellRunMocks(
@@ -271,7 +271,7 @@ func TestRunShellWithCpus(t *testing.T) {
 }
 
 func TestRunShellWorktreeRejectsNonSlug(t *testing.T) {
-	initTestRepo(t)
+	initTestProjectDir(t)
 	mock := &sandboxmsb.MockMsbClient{}
 	sb := &sandboxmsb.MockSandbox{AttachErr: errors.New("fail")}
 	root, _ := setupRunMocks(t, mock, sb, "run", "--worktree", "feature/foo")
@@ -293,7 +293,7 @@ type runShellScenario struct {
 
 func runRunShellErrorScenario(t *testing.T, tc runShellScenario) {
 	t.Helper()
-	initTestRepo(t)
+	initTestProjectDir(t)
 	mock := &sandboxmsb.MockMsbClient{}
 	if tc.sandbox == nil {
 		tc.sandbox = &sandboxmsb.MockSandbox{}
@@ -324,7 +324,7 @@ func TestRunShellPreflightFailure(t *testing.T) {
 }
 
 func TestRunShellRunNonZeroExit(t *testing.T) {
-	initTestRepo(t)
+	initTestProjectDir(t)
 	mock := &sandboxmsb.MockMsbClient{}
 	root, _ := setupRunMocks(t, mock, &sandboxmsb.MockSandbox{AttachCode: 5}, "run")
 	err := root.Execute()
@@ -347,7 +347,7 @@ func TestRunShellInvalidSizeFlags(t *testing.T) {
 		{name: "disk-size", args: []string{"run", "--disk-size", "bogus"}, wantErrPart: "invalid --disk-size"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			initTestRepo(t)
+			initTestProjectDir(t)
 			mock := &sandboxmsb.MockMsbClient{}
 			root, _ := setupRunMocks(t, mock, &sandboxmsb.MockSandbox{}, tc.args...)
 
