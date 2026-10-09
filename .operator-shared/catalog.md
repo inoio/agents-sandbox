@@ -42,5 +42,5 @@
   - Description: Plan C (tiered setup wizard: `internal/configfile` writer extraction, `internal/configwizard` catalog/runner/state, viperconfig higher-scope detection, `config wizard [--tier=N]`, first-run integration) — implemented and merged into `issue-99-guided-config-setup`.
   - Read If: Implementing or resuming Plan C of `specs/guided-onboarding.md`, or working on the setup wizard.
 - `2026-10-09-login-shell-path.md`
-  - Description: Plan for `specs/login-shell-path.md`: the POSIX-sh `mergePaths` profile.d script (+ sh behaviour tests), image wiring (`AGENTS_SANDBOX_IMAGE_PATH`, build-context `COPY`), removing the `/usr/local/bin` symlink stopgap, an end-to-end login-shell integration test, and docs/spec/CHANGELOG updates.
-  - Read If: Implementing or reviewing the login-shell PATH (mergePaths) work.
+  - Description: Plan for `specs/login-shell-path.md`: the POSIX-sh profile.d merge script (+ sh behaviour tests), image wiring (`AGENTS_SANDBOX_IMAGE_PATH`, build-context `COPY`), removing the `/usr/local/bin` symlink stopgap, an end-to-end login-shell integration test, and docs/spec/CHANGELOG updates — implemented on `opencode/speed-up-image-builds` (PR #126).
+  - Read If: Reviewing the login-shell PATH (mergePaths) work; the plan is complete.
