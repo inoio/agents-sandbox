@@ -76,11 +76,12 @@ bootstrap:
 test:
 	CGO_ENABLED=1 go test ./...
 
-# Docker-build integration tests for RenderDockerfile composition. Excluded from
-# `test`/`check` via the `integration` build tag. Requires a working docker
-# daemon and network access (base image pulls, agent installs).
+# Integration tests across the module, currently the RenderDockerfile
+# docker-build tests in internal/sandbox/image. Excluded from `test`/`check` via
+# the `integration` build tag. Requires a working docker daemon and network
+# access (base image pulls, agent installs).
 test-integration:
-	CGO_ENABLED=1 go test -tags integration -count=1 ./internal/sandbox/image/
+	CGO_ENABLED=1 go test -tags integration -count=1 ./...
 
 coverage:
 	CGO_ENABLED=1 go test -coverprofile=coverage.out ./...

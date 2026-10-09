@@ -27,8 +27,8 @@ import (
 // They exist to give refactoring safety for the per-tool multistage composition
 // in dockerfile.go RenderDockerfile: each case renders a Dockerfile and asserts
 // the whole thing actually builds. The custom-base cases use Fedora (dnf) so
-// they exercise a non-Debian distro; they install the prerequisites the tool's
-// stages require.
+// they exercise a non-Debian distro; the docker cases install the engine's
+// runtime prerequisites in the body, which the final-stage check must accept.
 func TestRenderDockerfileBuilds(t *testing.T) {
 	origGet := docker.Get
 	docker.Get = docker.RealClient
@@ -66,8 +66,9 @@ func TestRenderDockerfileBuilds(t *testing.T) {
 				"RUN dnf install -y curl tar iptables git procps-ng xz && dnf clean all\n"), true},
 		{"custom-base-docker-marker", []byte(
 			"FROM fedora:latest\n" +
+				"RUN dnf install -y curl tar iptables git procps-ng xz && dnf clean all\n" +
 				"# agents-sandbox:docker\n" +
-				"RUN dnf install -y curl tar iptables git procps-ng xz && dnf clean all\n"), true},
+				"RUN echo after-docker\n"), true},
 	}
 
 	for _, tc := range cases {
@@ -126,12 +127,27 @@ func TestRenderDockerfileToolLayersStayCached(t *testing.T) {
 	}
 }
 
+// stageInstallMarkers maps each tool stage to a substring unique to its install
+// RUN, so the streamed build output can be scanned for that step. The classic
+// builder (what buildImage uses) prints "Step N/M : <instruction>" followed by
+// " ---> Using cache", with no stage label; BuildKit prints "#N [<stage> ...]"
+// followed by "#N CACHED". Keying on the instruction text works for both.
+var stageInstallMarkers = map[string]string{
+	nodeStageAlias:   "nodejs.org/dist",
+	agentStageAlias:  "opencode.ai/install",
+	dockerStageAlias: "download.docker.com",
+}
+
 // stageStepCached reports whether the install RUN step of the given stage was a
 // cache hit in a streamed build, handling both BuildKit (#N CACHED) and classic
 // (---> Using cache) output.
 func stageStepCached(lines []string, stage string) bool {
+	marker, ok := stageInstallMarkers[stage]
+	if !ok {
+		return false
+	}
 	for i, line := range lines {
-		if !strings.Contains(line, "["+stage+" ") {
+		if !strings.Contains(line, marker) {
 			continue
 		}
 		if len(lines) > i+1 && (strings.Contains(lines[i+1], "CACHED") || strings.Contains(lines[i+1], "Using cache")) {

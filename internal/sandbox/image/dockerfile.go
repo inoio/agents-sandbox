@@ -233,7 +233,10 @@ RUN if command -v %s >/dev/null 2>&1; then \
 
 // dockerStage renders the optional Docker tool stage. It installs the static
 // Docker binaries into toolBin only when the base does not already provide
-// dockerd.
+// dockerd. It does not check the runtime prerequisites (iptables, git, ps, xz,
+// curl, tar): the stage starts from the raw base, before the user body, so a
+// body that installs them is not yet visible. The check runs in the final stage
+// instead (dockerAdoptionBlock), after the body.
 func dockerStage(baseAlias string) string {
 	return fmt.Sprintf(`FROM %s AS %s
 USER root
@@ -244,10 +247,6 @@ RUN set -e; mkdir -p %s && \
     else \
       curl -fsSL "https://download.docker.com/linux/static/stable/$(uname -m)/docker-${DOCKER_VERSION}.tgz" \
         | tar -xz -C %s --strip-components=1; \
-      for p in iptables git ps xz curl tar; do \
-        command -v "$p" >/dev/null 2>&1 || \
-          { echo "error: docker prerequisite missing: $p" >&2; exit 1; }; \
-      done; \
     fi
 `, baseAlias, dockerStageAlias, dockerVersion, toolBin, toolBin)
 }
@@ -269,9 +268,26 @@ func runnerStage(a agent.Agent, baseAlias, body string, docker, dockerInjected b
 		fmt.Sprintf("COPY --from=%s %s %s\n", agentStageAlias, toolDir, toolDir),
 		agentAdoptionBlock(a),
 		agentImageConfigBlock(a),
+		toolBinLinksBlock(),
 		finalizationBlock(),
 	)
 	return joinBlocks(parts...)
+}
+
+// toolBinLinksBlock links every tool binary into /usr/local/bin so it also
+// resolves in a login shell. The session attaches through "/bin/bash -l", and
+// Debian's (and most distributions') /etc/profile resets PATH, discarding the
+// runner's appended toolBin. /usr/local/bin is on the default and login PATH on
+// every supported distribution, so the links keep the agent, node/npm and
+// docker reachable regardless of shell type or a custom base's profile setup.
+func toolBinLinksBlock() string {
+	return fmt.Sprintf(`USER root
+RUN set -e; mkdir -p /usr/local/bin; \
+    for tool in %s/*; do \
+      [ -e "$tool" ] || continue; \
+      ln -sf "$tool" "/usr/local/bin/${tool##*/}"; \
+    done
+`, toolBin)
 }
 
 // injectDockerBlock replaces the first docker marker line in body with the
@@ -298,16 +314,26 @@ func dockerMergeBlock() string {
 }
 
 // dockerAdoptionBlock records whether dockerd was provided by the base (user)
-// or the tool, ensures the docker group exists, and adds dev to it so the dev
-// user can reach the root:docker 0660 socket. It resets to root so a project
-// body ending in a non-root USER cannot break the block. PATH prefers base
-// binaries, so a base-provided dockerd resolves outside toolDir.
+// or the tool, checks the static-install runtime prerequisites when the tool
+// installed the engine, ensures the docker group exists, and adds dev to it so
+// the dev user can reach the root:docker 0660 socket. It resets to root so a
+// project body ending in a non-root USER cannot break the block, and it runs in
+// the final stage after the user body so a base that installs the prerequisites
+// in the body is accepted. PATH prefers base binaries, so a base-provided
+// dockerd resolves outside toolDir; a base that ships its own engine is not
+// required to carry the static-tarball prerequisites.
 func dockerAdoptionBlock() string {
 	return fmt.Sprintf(`USER root
 RUN set -e; mkdir -p /etc/agents-sandbox; \
     bin="$(command -v dockerd 2>/dev/null || true)"; \
     case "$bin" in %s/*) echo tool ;; *) echo user ;; esac \
       > /etc/agents-sandbox/docker-source; \
+    if [ "$(cat /etc/agents-sandbox/docker-source)" = tool ]; then \
+      for p in iptables git ps xz curl tar; do \
+        command -v "$p" >/dev/null 2>&1 || \
+          { echo "error: docker prerequisite missing: $p" >&2; exit 1; }; \
+      done; \
+    fi; \
     groupadd -f docker; \
     usermod -aG docker dev 2>/dev/null || true
 `, toolDir)

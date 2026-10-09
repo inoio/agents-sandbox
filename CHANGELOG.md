@@ -14,9 +14,10 @@ command reports the bare version (e.g. `0.1.0`).
   the user body and each other, reusing the same tool layers across projects on one machine.
 - Runner image: the `agents-sandbox/runner-base-docker` base reference is recognized (alongside the deprecated
   `agents-sandbox/runner-base-dind`).
-- Internal: add `make test-integration` — docker-build integration tests (tagged `integration`, excluded from the main
-  suite) that build a real image for every `RenderDockerfile` composition case (no project Dockerfile, managed base, and
-  custom Fedora base, each with and without docker). Wired into CI as a selective job (main/release/manual).
+- Internal: add `make test-integration` — runs every `integration`-tagged test across the module (excluded from the main
+  suite), currently the docker-build tests that build a real image for every `RenderDockerfile` composition case (no
+  project Dockerfile, managed base, and custom Fedora base, each with and without docker). Wired into CI as a selective
+  job (main/release/manual).
 - Internal: `devUserBlock` now sets the dev login shell to the first of `bash`, `zsh`, `sh` found (falling back to
   `/bin/sh`) instead of hardcoding bash, widening custom-base compatibility.
 - Custom project Dockerfiles can place a `# agents-sandbox:docker` marker line in the final stage to control where the
@@ -73,6 +74,12 @@ command reports the bare version (e.g. `0.1.0`).
 
 ### Fixed
 
+- Runner image: tool binaries (`opencode`, node/npm, docker) are now also linked into `/usr/local/bin`, so they resolve in
+  a login shell. The agent attach and interactive shell run `/bin/bash -l`, and `/etc/profile` resets `PATH`, which dropped
+  the appended `/opt/agents-sandbox/bin` and made the relocated `opencode` binary (previously `/usr/local/bin`) unfindable.
+- Runner image: the Docker runtime prerequisite check (`iptables`, `git`, `ps`, `xz`, `curl`, `tar`) now runs in the final
+  stage after the user body instead of the Docker install stage, so a custom base that installs them in its Dockerfile body
+  builds again. `curl` and `tar` are still required in the base image for the download.
 - Docs: `ci/check-docs.sh` no longer reports false link violations from local, gitignored build artefacts (`docs/_site/`
   Jekyll output and `docs/vendor/` gem bundle), and `docs/_config.yml` excludes the untracked `superpowers/` and `vendor/`
   trees from the deployed site.

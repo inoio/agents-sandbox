@@ -31,6 +31,27 @@ func finalStage(t *testing.T, rendered string) string {
 	return rendered[matches[len(matches)-1][1]:]
 }
 
+// stageFromLine matches a stage's "FROM <image> AS <alias>" line for an alias.
+func stageFromLine(alias string) *regexp.Regexp {
+	return regexp.MustCompile(`(?m)^FROM \S+ AS ` + regexp.QuoteMeta(alias) + `$`)
+}
+
+// stageBlock returns the text of the named stage: from its FROM line up to the
+// next FROM line (or the end of the render). It lets a test assert that an
+// instruction lives in one stage and not another.
+func stageBlock(t *testing.T, rendered, alias string) string {
+	t.Helper()
+	loc := stageFromLine(alias).FindStringIndex(rendered)
+	if loc == nil {
+		t.Fatalf("rendered Dockerfile missing stage %q; got:\n%s", alias, rendered)
+	}
+	rest := rendered[loc[1]:]
+	if next := regexp.MustCompile(`(?m)^FROM `).FindStringIndex(rest); next != nil {
+		return rest[:next[0]]
+	}
+	return rest
+}
+
 func TestRenderDockerfileManagedComposition(t *testing.T) {
 	a, _ := agent.Lookup("opencode")
 	s := mustRender(t, a, nil, false)
@@ -104,6 +125,30 @@ func TestRenderDockerfileFinalStageUsesAppendingPath(t *testing.T) {
 	}
 }
 
+// TestRenderDockerfileToolBinLinkedIntoLoginPath guards the login-shell
+// regression: the session attaches through "/bin/bash -l", and /etc/profile
+// resets PATH, discarding the toolBin the runner appended. Every tool binary
+// must also be linked into /usr/local/bin, which is on the login PATH for every
+// supported distribution.
+func TestRenderDockerfileToolBinLinkedIntoLoginPath(t *testing.T) {
+	a, _ := agent.Lookup("opencode")
+	final := finalStage(t, mustRender(t, a, nil, true))
+	for _, want := range []string{
+		"mkdir -p /usr/local/bin",
+		"for tool in " + toolBin + "/*",
+		`ln -sf "$tool" "/usr/local/bin/${tool##*/}"`,
+	} {
+		if !strings.Contains(final, want) {
+			t.Errorf("final runner stage missing %q; got:\n%s", want, final)
+		}
+	}
+	copyIdx := strings.Index(final, "COPY --from="+agentStageAlias)
+	linkIdx := strings.Index(final, "for tool in "+toolBin)
+	if copyIdx < 0 || linkIdx < 0 || linkIdx < copyIdx {
+		t.Errorf("tool links must run after the tool COPY; got:\n%s", final)
+	}
+}
+
 func TestRenderDockerfileStageOrder(t *testing.T) {
 	a, _ := agent.Lookup("opencode")
 	s := mustRender(t, a, nil, true)
@@ -157,6 +202,39 @@ func TestRenderDockerfileDockerAdoptionAddsDevToGroup(t *testing.T) {
 	final := finalStage(t, s)
 	if !strings.Contains(final, "usermod -aG docker dev") {
 		t.Errorf("final runner stage must add dev to the docker group; got:\n%s", final)
+	}
+}
+
+// TestRenderDockerfileDockerPrereqsCheckedInFinalStage guards the custom-base
+// regression where the runtime prerequisite check (iptables, git, ps, xz, curl,
+// tar) lived in the download stage, which starts from the raw base image and so
+// cannot see prerequisites a project body installs later. The check must run in
+// the final stage, after the user body; the download stage must not reject a
+// base that only gains the runtime prerequisites in the body.
+func TestRenderDockerfileDockerPrereqsCheckedInFinalStage(t *testing.T) {
+	a, _ := agent.Lookup("opencode")
+	project := []byte("FROM fedora:latest\nRUN dnf install -y iptables git procps-ng xz curl tar\n")
+	s := mustRender(t, a, project, true)
+
+	docker := stageBlock(t, s, dockerStageAlias)
+	if strings.Contains(docker, "docker prerequisite missing") {
+		t.Errorf("the docker install stage must not check runtime prerequisites; got:\n%s", docker)
+	}
+
+	final := finalStage(t, s)
+	bodyIdx := strings.Index(final, "RUN dnf install")
+	checkIdx := strings.Index(final, "docker prerequisite missing")
+	if checkIdx < 0 {
+		t.Fatalf("the final stage must check docker runtime prerequisites; got:\n%s", final)
+	}
+	if bodyIdx < 0 || checkIdx < bodyIdx {
+		t.Errorf("the prerequisite check must run after the user body; got:\n%s", final)
+	}
+	// A base that ships its own engine must not be forced to carry the static
+	// tarball prerequisites, so the check is guarded by the tool provenance.
+	guardIdx := strings.Index(final, `"$(cat /etc/agents-sandbox/docker-source)" = tool`)
+	if guardIdx < 0 || guardIdx > checkIdx {
+		t.Errorf("the prerequisite check must be guarded by the docker-source=tool provenance; got:\n%s", final)
 	}
 }
 

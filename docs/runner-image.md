@@ -48,8 +48,14 @@ Each tool layer caches independently of the user body, the base, and each other.
 the Node/Docker/agent installs, and the same tool layers are reused across projects on one machine.
 
 Every tool lands under `/opt/agents-sandbox`; its binaries are exposed from `/opt/agents-sandbox/bin`, which the runner
-**appends** to `PATH` (append, so a base-provided binary keeps precedence). `mkdir -p /opt/agents-sandbox/bin` always runs
-so the `COPY` source exists. The image always ends with `USER dev` and `WORKDIR /workspace`.
+**appends** to `PATH` (append, so a base-provided binary keeps precedence). Each tool binary is also symlinked into
+`/usr/local/bin`: the agent attach and the interactive shell run `/bin/bash -l`, and `/etc/profile` on Debian and most
+distributions **resets** `PATH`, so the appended `/opt/agents-sandbox/bin` alone would not survive a login shell.
+`/usr/local/bin` is on the login `PATH` on every supported distribution, so the links keep the agent, node/npm, and docker
+reachable regardless of shell type or a custom base's profile setup. Only binaries the tool actually installed are linked
+(an install is skipped when the base already provides the binary, so the base's copy keeps precedence).
+`mkdir -p /opt/agents-sandbox/bin` always runs so the `COPY` source exists. The image always ends with `USER dev` and
+`WORKDIR /workspace`.
 
 ## Base starting point
 
@@ -64,9 +70,11 @@ above the base stage. The custom base must meet these requirements:
 - **shadow-utils** providing `groupadd`, `useradd`, and `usermod` (used to create the `dev` user and docker group).
 - **A POSIX shell** — the `dev` user's login shell is set to the first of `bash`, `zsh`, `sh` found, falling back to
   `/bin/sh`.
-- **`curl` and `tar`** (used to fetch and extract the Node.js tarball).
-- **For Docker only**: `iptables`, `git`, `ps`, `xz`, `curl`, and `tar` — the exact binary-install prerequisites
-  documented by Docker. If one is missing, the Docker build fails and names the missing package.
+- **`curl` and `tar` in the base image itself** — the node and docker install stages start from the raw base and use them
+  to fetch and extract their tarballs, so installing them later in the body is too late.
+- **For Docker only**: the runtime prerequisites `iptables`, `git`, `ps`, `xz`, `curl`, and `tar`. These are checked after
+  your Dockerfile body runs, so `iptables`, `git`, `ps`, and `xz` may be installed in the body or an earlier stage; `curl`
+  and `tar` must already be in the base for the download. If one is missing, the build fails and names the missing package.
 - The recommended CLI tools above are documented for your convenience — as a custom base you install your own.
 - A base that already provides docker, node, or the agent is left alone (idempotency), and a pre-created `dev` user is
   tolerated.
@@ -121,10 +129,16 @@ immediately after the engine is installed, place a `# agents-sandbox:docker` com
 block should be injected (the legacy `# agents-sandbox:dind` marker is still recognized):
 
 ```dockerfile
-FROM ubuntu:24.04
+# The tool stages start from the raw base and use curl and tar to download their
+# tarballs, so put them in the base stage itself.
+FROM ubuntu:24.04 AS base
+RUN apt-get update && apt-get install -y curl tar && rm -rf /var/lib/apt/lists/*
 
-# The Docker block installs the engine here, after these prerequisites
-RUN apt-get update && apt-get install -y iptables git procps xz-utils curl tar
+FROM base
+
+# The Docker runtime prerequisites are checked after this body runs, so install
+# them here (curl and tar are already in the base stage above).
+RUN apt-get update && apt-get install -y iptables git procps xz-utils && rm -rf /var/lib/apt/lists/*
 
 # agents-sandbox:docker
 
