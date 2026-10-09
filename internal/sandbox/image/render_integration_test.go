@@ -4,6 +4,7 @@ package image
 
 import (
 	"context"
+	"os/exec"
 	"strings"
 	"testing"
 
@@ -205,6 +206,41 @@ func buildDockerfileTagOutput(
 	}
 	if err := buildImage(ctx, a, dockerfile, tag, false, agentVersion, "", "", dockerEnabled, line); err != nil {
 		t.Fatalf("docker image build failed: %v", err)
+	}
+}
+
+// TestRenderDockerfileLoginShellHasImagePath proves the profile.d merge fires
+// in a real login shell: /etc/profile resets PATH, and the installed script
+// re-adds the image's entries. Covers the managed base (its /opt/agents-sandbox
+// is the entry the reset drops) and a project ENV PATH entry.
+func TestRenderDockerfileLoginShellHasImagePath(t *testing.T) {
+	origGet := docker.Get
+	docker.Get = docker.RealClient
+	t.Cleanup(func() { docker.Get = origGet })
+
+	a, _ := agent.Lookup("opencode")
+	version, err := resolveAgentVersion(context.Background(), a, "")
+	if err != nil {
+		t.Fatalf("resolve agent version: %v", err)
+	}
+	project := []byte("FROM agents-sandbox/runner-base:latest\nENV PATH=\"/opt/my-tools:${PATH}\"\n")
+
+	tag := "agents-sandbox/it-login-path"
+	t.Cleanup(func() {
+		_, _ = docker.Get().
+			ImageRemove(context.Background(), tag, client.ImageRemoveOptions{Force: true, PruneChildren: true})
+	})
+	buildDockerfileTag(t, a, renderBytes(t, a, project, false), version, false, tag)
+
+	out, err := exec.Command("docker", "run", "--rm", tag, "bash", "-lc", `printf '%s' "$PATH"`).Output()
+	if err != nil {
+		t.Fatalf("docker run: %v", err)
+	}
+	loginPath := string(out)
+	for _, want := range []string{"/opt/agents-sandbox/bin", "/opt/my-tools"} {
+		if !strings.Contains(loginPath, want) {
+			t.Errorf("login PATH %q missing %q", loginPath, want)
+		}
 	}
 }
 
