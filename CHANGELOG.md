@@ -78,6 +78,8 @@ command reports the bare version (e.g. `0.1.0`).
 
 ### Fixed
 
+- CI: the `release` job now depends on the `integration` job, so tagged releases wait for the full-image integration
+  tests before publishing.
 - Runner image: the composed `PATH` is now restored in login shells. The image records its composed `PATH` in
   `AGENTS_SANDBOX_IMAGE_PATH` and installs `/etc/profile.d/agents-sandbox-path.sh`, which `/etc/profile` sources after its
   `PATH` reset and uses to re-append missing entries. This supersedes the `/usr/local/bin` symlink stopgap; a custom

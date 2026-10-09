@@ -63,7 +63,7 @@ jobs:
   release:
     name: release (${{ matrix.target }})
     if: startsWith(github.ref, 'refs/tags/')
-    needs: [lint, test]
+    needs: [lint, test, integration]
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
