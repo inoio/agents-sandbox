@@ -47,6 +47,13 @@ const (
 	toolBin = "/opt/agents-sandbox/bin"
 )
 
+// pathMergeAsset is the build-context file carrying the profile.d merge script;
+// pathMergeDest is where the final stage installs it inside the image.
+const (
+	pathMergeAsset = "agents-sandbox-path.sh"
+	pathMergeDest  = "/etc/profile.d/agents-sandbox-path.sh"
+)
+
 // agentLabelKey is the image label carrying the baked agent name.
 const agentLabelKey = "org.agents-sandbox.agent"
 
@@ -268,26 +275,9 @@ func runnerStage(a agent.Agent, baseAlias, body string, docker, dockerInjected b
 		fmt.Sprintf("COPY --from=%s %s %s\n", agentStageAlias, toolDir, toolDir),
 		agentAdoptionBlock(a),
 		agentImageConfigBlock(a),
-		toolBinLinksBlock(),
 		finalizationBlock(),
 	)
 	return joinBlocks(parts...)
-}
-
-// toolBinLinksBlock links every tool binary into /usr/local/bin so it also
-// resolves in a login shell. The session attaches through "/bin/bash -l", and
-// Debian's (and most distributions') /etc/profile resets PATH, discarding the
-// runner's appended toolBin. /usr/local/bin is on the default and login PATH on
-// every supported distribution, so the links keep the agent, node/npm and
-// docker reachable regardless of shell type or a custom base's profile setup.
-func toolBinLinksBlock() string {
-	return fmt.Sprintf(`USER root
-RUN set -e; mkdir -p /usr/local/bin; \
-    for tool in %s/*; do \
-      [ -e "$tool" ] || continue; \
-      ln -sf "$tool" "/usr/local/bin/${tool##*/}"; \
-    done
-`, toolBin)
 }
 
 // injectDockerBlock replaces the first docker marker line in body with the
@@ -424,18 +414,20 @@ func lastFromLine(lines [][]byte) int {
 // dockerfile-id label lives here, after the agent install, so an agent upgrade
 // does not invalidate the cached node and agent install layers.
 func finalizationBlock() string {
-	return `USER root
+	return fmt.Sprintf(`USER root
+COPY %s %s
 ARG BASE_IMAGE
 ARG DOCKERFILE_ID
 
 USER dev
 # extend PATH with ~/.local/bin
 ENV PATH="/home/dev/.local/bin:${PATH}"
+ENV AGENTS_SANDBOX_IMAGE_PATH="${PATH}"
 WORKDIR /workspace
 LABEL org.agents-sandbox.managed=true
 LABEL org.agents-sandbox.base=$BASE_IMAGE
 LABEL org.agents-sandbox.dockerfile-id=$DOCKERFILE_ID
-`
+`, pathMergeAsset, pathMergeDest)
 }
 
 // RenderProjectDockerfile renders the runner Dockerfile exactly as it would be

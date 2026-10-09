@@ -255,17 +255,25 @@ const dockerfileMode = 0o644
 func dockerfileTar(dockerfile []byte) (*bytes.Buffer, error) {
 	var buf bytes.Buffer
 	tw := tar.NewWriter(&buf)
-	if err := tw.WriteHeader(&tar.Header{
-		Name: "Dockerfile",
-		Mode: dockerfileMode,
-		Size: int64(len(dockerfile)),
-	}); err != nil {
-		_ = tw.Close()
-		return nil, fmt.Errorf("tar write header: %w", err)
-	}
-	if _, err := io.Copy(tw, bytes.NewReader(dockerfile)); err != nil {
-		_ = tw.Close()
-		return nil, fmt.Errorf("tar write dockerfile: %w", err)
+	for _, entry := range []struct {
+		name    string
+		content []byte
+	}{
+		{"Dockerfile", dockerfile},
+		{pathMergeAsset, pathMergeScript()},
+	} {
+		if err := tw.WriteHeader(&tar.Header{
+			Name: entry.name,
+			Mode: dockerfileMode,
+			Size: int64(len(entry.content)),
+		}); err != nil {
+			_ = tw.Close()
+			return nil, fmt.Errorf("tar write header: %w", err)
+		}
+		if _, err := io.Copy(tw, bytes.NewReader(entry.content)); err != nil {
+			_ = tw.Close()
+			return nil, fmt.Errorf("tar write %s: %w", entry.name, err)
+		}
 	}
 	if err := tw.Close(); err != nil {
 		return nil, fmt.Errorf("tar close: %w", err)

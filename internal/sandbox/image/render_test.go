@@ -125,27 +125,30 @@ func TestRenderDockerfileFinalStageUsesAppendingPath(t *testing.T) {
 	}
 }
 
-// TestRenderDockerfileToolBinLinkedIntoLoginPath guards the login-shell
-// regression: the session attaches through "/bin/bash -l", and /etc/profile
-// resets PATH, discarding the toolBin the runner appended. Every tool binary
-// must also be linked into /usr/local/bin, which is on the login PATH for every
-// supported distribution.
-func TestRenderDockerfileToolBinLinkedIntoLoginPath(t *testing.T) {
+// TestRenderDockerfileSetsAuthoritativeImagePath guards that the composed PATH
+// is recorded for the profile.d merge, after the final PATH directive so it
+// captures every ENV PATH contribution.
+func TestRenderDockerfileSetsAuthoritativeImagePath(t *testing.T) {
 	a, _ := agent.Lookup("opencode")
 	final := finalStage(t, mustRender(t, a, nil, true))
-	for _, want := range []string{
-		"mkdir -p /usr/local/bin",
-		"for tool in " + toolBin + "/*",
-		`ln -sf "$tool" "/usr/local/bin/${tool##*/}"`,
-	} {
-		if !strings.Contains(final, want) {
-			t.Errorf("final runner stage missing %q; got:\n%s", want, final)
-		}
+	pathIdx := strings.Index(final, `ENV PATH="/home/dev/.local/bin:${PATH}"`)
+	imgIdx := strings.Index(final, `ENV AGENTS_SANDBOX_IMAGE_PATH="${PATH}"`)
+	if imgIdx < 0 {
+		t.Fatalf("final stage must record AGENTS_SANDBOX_IMAGE_PATH; got:\n%s", final)
 	}
-	copyIdx := strings.Index(final, "COPY --from="+agentStageAlias)
-	linkIdx := strings.Index(final, "for tool in "+toolBin)
-	if copyIdx < 0 || linkIdx < 0 || linkIdx < copyIdx {
-		t.Errorf("tool links must run after the tool COPY; got:\n%s", final)
+	if pathIdx < 0 || imgIdx < pathIdx {
+		t.Errorf("AGENTS_SANDBOX_IMAGE_PATH must be set after the final PATH directive; got:\n%s", final)
+	}
+}
+
+// TestRenderDockerfileInstallsProfilePathScript guards that the merge script is
+// installed into /etc/profile.d so login shells (which source it after the PATH
+// reset) pick up the image's entries.
+func TestRenderDockerfileInstallsProfilePathScript(t *testing.T) {
+	a, _ := agent.Lookup("opencode")
+	final := finalStage(t, mustRender(t, a, nil, true))
+	if !strings.Contains(final, "COPY "+pathMergeAsset+" "+pathMergeDest) {
+		t.Errorf("final stage must COPY %s to %s; got:\n%s", pathMergeAsset, pathMergeDest, final)
 	}
 }
 

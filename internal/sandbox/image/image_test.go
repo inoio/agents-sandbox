@@ -189,27 +189,39 @@ func TestBuildImageNoCacheFollowsParameter(t *testing.T) {
 	}
 }
 
-func TestDockerfileTarContainsDockerfile(t *testing.T) {
+func TestDockerfileTarContents(t *testing.T) {
 	dockerfile := []byte("FROM debian:trixie-slim\nRUN echo hi\n")
 	tarBuf, err := dockerfileTar(dockerfile)
 	if err != nil {
 		t.Fatalf("dockerfileTar failed: %v", err)
 	}
 
+	entries := map[string]string{}
+	var names []string
 	tr := tar.NewReader(tarBuf)
-	header, err := tr.Next()
-	if err != nil {
-		t.Fatalf("unexpected error reading tar: %v", err)
+	for {
+		header, err := tr.Next()
+		if errors.Is(err, io.EOF) {
+			break
+		}
+		if err != nil {
+			t.Fatalf("read tar: %v", err)
+		}
+		content, err := io.ReadAll(tr)
+		if err != nil {
+			t.Fatalf("read tar entry: %v", err)
+		}
+		names = append(names, header.Name)
+		entries[header.Name] = string(content)
 	}
-	if header.Name != "Dockerfile" {
-		t.Errorf("expected tar entry 'Dockerfile', got %q", header.Name)
+	if len(names) == 0 || names[0] != "Dockerfile" {
+		t.Errorf("first tar entry = %v, want Dockerfile first", names)
 	}
-	content, err := io.ReadAll(tr)
-	if err != nil {
-		t.Fatalf("unexpected error reading tar content: %v", err)
+	if !bytes.Equal([]byte(entries["Dockerfile"]), dockerfile) {
+		t.Error("Dockerfile tar content does not match")
 	}
-	if !bytes.Equal(content, dockerfile) {
-		t.Errorf("tar content does not match dockerfile")
+	if got := entries[pathMergeAsset]; got != string(pathMergeScript()) {
+		t.Errorf("tar entry %q = %q, want embedded script", pathMergeAsset, got)
 	}
 }
 
