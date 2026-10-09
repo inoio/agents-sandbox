@@ -140,13 +140,41 @@ func TestSpinnerFinishDefaultResultColor(t *testing.T) {
 }
 
 func TestSpinnerAnimateIterates(t *testing.T) {
+	orig := spinnerInterval
+	spinnerInterval = time.Millisecond
+	t.Cleanup(func() { spinnerInterval = orig })
+
 	var stderr bytes.Buffer
 	s := newSpinner(&stderr, true, LevelInfo, "step")
-	time.Sleep(3 * spinnerInterval)
+	time.Sleep(5 * spinnerInterval)
 	s.finish("done")
 	out := stderr.String()
 	if !strings.Contains(out, "step") {
 		t.Errorf("expected spinner msg in animated output, got %q", out)
+	}
+}
+
+// TestSpinnerFinishStopsPromptly verifies that finishing a spinner does not
+// block for the animation interval: finish signals the goroutine, which must
+// wake immediately instead of sleeping out the current frame.
+func TestSpinnerFinishStopsPromptly(t *testing.T) {
+	orig := spinnerInterval
+	spinnerInterval = time.Hour
+	t.Cleanup(func() { spinnerInterval = orig })
+
+	var stderr bytes.Buffer
+	s := newSpinner(&stderr, true, LevelInfo, "step")
+
+	done := make(chan struct{})
+	go func() {
+		s.finish("done")
+		close(done)
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("finish blocked on the animation interval instead of stopping promptly")
 	}
 }
 

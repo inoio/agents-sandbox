@@ -129,6 +129,30 @@ func TestStartDockerdIfPresentNeverReady(t *testing.T) {
 	}
 }
 
+func TestStartDockerdIfPresentProbesBeforeWaiting(t *testing.T) {
+	ui := termio.NewTestMock(t)
+	// The pre-restart check fails once; the first post-restart probe is healthy.
+	// A long poll interval proves that probe happens immediately, not after the
+	// interval.
+	sb := newCountingSandbox(1)
+
+	origTimeout, origInterval := dockerdReadyTimeout, dockerdPollInterval
+	t.Cleanup(func() {
+		dockerdReadyTimeout = origTimeout
+		dockerdPollInterval = origInterval
+	})
+	dockerdReadyTimeout = 2 * time.Second
+	dockerdPollInterval = 2 * time.Second
+
+	start := time.Now()
+	if err := startDockerdIfPresent(context.Background(), sb, &ui); err != nil {
+		t.Fatalf("startDockerdIfPresent: %v", err)
+	}
+	if elapsed := time.Since(start); elapsed >= 500*time.Millisecond {
+		t.Fatalf("startDockerdIfPresent waited %v before its first readiness probe, want immediate", elapsed)
+	}
+}
+
 func TestDockerdRestartCmdTearsDownContainerd(t *testing.T) {
 	for _, want := range []string{
 		"pkill dockerd",

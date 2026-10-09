@@ -78,6 +78,10 @@ command reports the bare version (e.g. `0.1.0`).
 
 ### Fixed
 
+- The progress spinner stops promptly. Its animation loop now waits on an interruptible ticker instead of an
+  uninterruptible `time.Sleep`, so stopping a spinner no longer blocks for up to a full animation frame.
+- The agent serve-daemon readiness loop now probes health as soon as it starts the daemon, instead of waiting one poll
+  interval (previously 2s) before the first check, cutting the delay before a healthy daemon is detected.
 - CI: the `release` job now depends on the `integration` job, so tagged releases wait for the full-image integration
   tests before publishing.
 - Runner image: the composed `PATH` is now restored in login shells. The image records its composed `PATH` in

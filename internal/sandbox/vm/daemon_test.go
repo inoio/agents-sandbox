@@ -75,7 +75,8 @@ func TestEnsureDaemonStartsWhenUnhealthy(t *testing.T) {
 	t.Cleanup(func() { daemonShellFunc = prev })
 	daemonShellFunc = mock.run
 
-	t.Cleanup(func() { daemonPollInterval = 2 * time.Second })
+	origPoll := daemonPollInterval
+	t.Cleanup(func() { daemonPollInterval = origPoll })
 	daemonPollInterval = 10 * time.Millisecond
 
 	err := ensureDaemon(context.Background(), opencodeAgent(t), false, nil, &testUI)
@@ -108,7 +109,8 @@ func TestEnsureDaemonStartsServeOnlyOnExternalInterface(t *testing.T) {
 	})
 	t.Cleanup(func() { SetDaemonShellFunc(prev) })
 
-	t.Cleanup(func() { daemonPollInterval = 2 * time.Second })
+	origPoll := daemonPollInterval
+	t.Cleanup(func() { daemonPollInterval = origPoll })
 	daemonPollInterval = 10 * time.Millisecond
 
 	err := ensureDaemon(context.Background(), opencodeAgent(t), true, nil, &testUI)
@@ -117,6 +119,43 @@ func TestEnsureDaemonStartsServeOnlyOnExternalInterface(t *testing.T) {
 	}
 	if startCmd == "" || !strings.Contains(startCmd, "--hostname 0.0.0.0") {
 		t.Errorf("serve-only daemon was not started with external-interface binding, got %q", startCmd)
+	}
+}
+
+// TestEnsureDaemonProbesBeforeWaiting verifies that after starting the daemon
+// the first health probe runs immediately rather than after a full poll
+// interval; a long interval must not delay discovering an already-healthy
+// daemon.
+func TestEnsureDaemonProbesBeforeWaiting(t *testing.T) {
+	testUI := termio.NewTestMock(t)
+	provider := opencodeProvider(t)
+	healthChecks := 0
+	prev := SetDaemonShellFunc(func(_ context.Context, _ msb.Sandbox, command string) (string, int, error) {
+		if command == provider.DaemonHealthCmd() {
+			healthChecks++
+			if healthChecks == 1 {
+				return "", 1, nil
+			}
+			return `{"healthy":true}`, 0, nil
+		}
+		return "", 0, nil
+	})
+	t.Cleanup(func() { SetDaemonShellFunc(prev) })
+
+	origTimeout, origInterval := daemonReadyTimeout, daemonPollInterval
+	t.Cleanup(func() {
+		daemonReadyTimeout = origTimeout
+		daemonPollInterval = origInterval
+	})
+	daemonReadyTimeout = 2 * time.Second
+	daemonPollInterval = 2 * time.Second
+
+	start := time.Now()
+	if err := ensureDaemon(context.Background(), opencodeAgent(t), false, nil, &testUI); err != nil {
+		t.Fatalf("ensureDaemon: %v", err)
+	}
+	if elapsed := time.Since(start); elapsed >= 500*time.Millisecond {
+		t.Fatalf("ensureDaemon waited %v before its first health probe, want immediate", elapsed)
 	}
 }
 
@@ -139,10 +178,12 @@ func TestEnsureDaemonFailsAfterTimeout(t *testing.T) {
 	t.Cleanup(func() { daemonShellFunc = prev })
 	daemonShellFunc = mock.run
 
-	t.Cleanup(func() { daemonReadyTimeout = 60 * time.Second })
+	origTimeout, origInterval := daemonReadyTimeout, daemonPollInterval
+	t.Cleanup(func() {
+		daemonReadyTimeout = origTimeout
+		daemonPollInterval = origInterval
+	})
 	daemonReadyTimeout = 10 * time.Millisecond
-
-	t.Cleanup(func() { daemonPollInterval = 2 * time.Second })
 	daemonPollInterval = 1 * time.Millisecond
 
 	err := ensureDaemon(context.Background(), opencodeAgent(t), false, nil, &testUI)
