@@ -48,14 +48,14 @@ Each tool layer caches independently of the user body, the base, and each other.
 the Node/Docker/agent installs, and the same tool layers are reused across projects on one machine.
 
 Every tool lands under `/opt/agents-sandbox`; its binaries are exposed from `/opt/agents-sandbox/bin`, which the runner
-**appends** to `PATH` (append, so a base-provided binary keeps precedence). Each tool binary is also symlinked into
-`/usr/local/bin`: the agent attach and the interactive shell run `/bin/bash -l`, and `/etc/profile` on Debian and most
-distributions **resets** `PATH`, so the appended `/opt/agents-sandbox/bin` alone would not survive a login shell.
-`/usr/local/bin` is on the login `PATH` on every supported distribution, so the links keep the agent, node/npm, and docker
-reachable regardless of shell type or a custom base's profile setup. Only binaries the tool actually installed are linked
-(an install is skipped when the base already provides the binary, so the base's copy keeps precedence).
-`mkdir -p /opt/agents-sandbox/bin` always runs so the `COPY` source exists. The image always ends with `USER dev` and
-`WORKDIR /workspace`.
+**appends** to `PATH` (append, so a base-provided binary keeps precedence). The agent attach and the interactive shell run
+`/bin/bash -l`, and `/etc/profile` on Debian and most distributions **resets** `PATH`, so the appended
+`/opt/agents-sandbox/bin` (and any project `ENV PATH` entry) would not survive a login shell. To keep the composed `PATH`
+effective there, the image records its composed `PATH` in the `AGENTS_SANDBOX_IMAGE_PATH` environment variable and installs
+`/etc/profile.d/agents-sandbox-path.sh`. `/etc/profile` sources `/etc/profile.d/*.sh` after its `PATH` reset, so the script
+re-appends any `AGENTS_SANDBOX_IMAGE_PATH` entry that is missing from the reset `PATH` (existing entries keep their
+position; nothing is duplicated). `mkdir -p /opt/agents-sandbox/bin` always runs so the `COPY` source exists. The image
+always ends with `USER dev` and `WORKDIR /workspace`.
 
 ## Base starting point
 
@@ -70,6 +70,9 @@ above the base stage. The custom base must meet these requirements:
 - **shadow-utils** providing `groupadd`, `useradd`, and `usermod` (used to create the `dev` user and docker group).
 - **A POSIX shell** — the `dev` user's login shell is set to the first of `bash`, `zsh`, `sh` found, falling back to
   `/bin/sh`.
+- **A login profile that sources `/etc/profile.d/*.sh`** — the runner installs `/etc/profile.d/agents-sandbox-path.sh`
+  to restore the composed `PATH` in login shells, so a base whose profile does not source `/etc/profile.d` will not get
+  the merged `PATH`.
 - **`curl` and `tar` in the base image itself** — the node and docker install stages start from the raw base and use them
   to fetch and extract their tarballs, so installing them later in the body is too late.
 - **For Docker only**: the runtime prerequisites `iptables`, `git`, `ps`, `xz`, `curl`, and `tar`. These are checked after
@@ -107,7 +110,9 @@ RUN apt-get update && apt-get install -y python3 && rm -rf /var/lib/apt/lists/*
 ### ENV configuration
 
 ENV definitions in Dockerfiles are applied to running sandboxes. If you need to configure e.g. `PATH`, just set
-`ENV PATH=...:` in your Dockerfile.
+`ENV PATH=...:` in your Dockerfile. The image's composed `PATH` is restored into login shells by the
+`/etc/profile.d/agents-sandbox-path.sh` merge, so a project `ENV PATH` entry stays effective in `shell` and in `!`
+commands, not only in non-login agent-executed commands.
 
 ## Docker-in-Docker
 

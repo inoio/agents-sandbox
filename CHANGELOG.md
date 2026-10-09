@@ -74,9 +74,11 @@ command reports the bare version (e.g. `0.1.0`).
 
 ### Fixed
 
-- Runner image: tool binaries (`opencode`, node/npm, docker) are now also linked into `/usr/local/bin`, so they resolve in
-  a login shell. The agent attach and interactive shell run `/bin/bash -l`, and `/etc/profile` resets `PATH`, which dropped
-  the appended `/opt/agents-sandbox/bin` and made the relocated `opencode` binary (previously `/usr/local/bin`) unfindable.
+- Runner image: the composed `PATH` is now restored in login shells. The image records its composed `PATH` in
+  `AGENTS_SANDBOX_IMAGE_PATH` and installs `/etc/profile.d/agents-sandbox-path.sh`, which `/etc/profile` sources after its
+  `PATH` reset and uses to re-append missing entries. This supersedes the `/usr/local/bin` symlink stopgap; a custom
+  Dockerfile's `ENV PATH` (and the toolchain it points at) now stays effective in `shell` and in `!` commands, not only in
+  non-login agent-executed commands.
 - Runner image: the Docker runtime prerequisite check (`iptables`, `git`, `ps`, `xz`, `curl`, `tar`) now runs in the final
   stage after the user body instead of the Docker install stage, so a custom base that installs them in its Dockerfile body
   builds again. `curl` and `tar` are still required in the base image for the download.

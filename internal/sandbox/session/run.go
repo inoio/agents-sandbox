@@ -151,8 +151,9 @@ func Run(ctx context.Context, opts options.RunOptions, ui termio.UI) error {
 	setup := buildAttachCommand(a, ses.Target(), opts.Args)
 	ui.Verbosef("%s", setup)
 	// Run as a login shell so /etc/profile and ~/.profile are sourced,
-	// putting tools installed under /usr/local/go/bin, ~/go/bin and
-	// ~/.microsandbox/bin on PATH for the agent and its child shells.
+	// putting tools installed under /usr/local/go/bin and ~/go/bin on
+	// PATH for the agent and its child shells. The image's composed PATH
+	// is restored by the /etc/profile.d/agents-sandbox-path.sh merge.
 	return runAttach(ctx, sb, projectSlug, ui, opts, "-l", "-c", setup)
 }
 
