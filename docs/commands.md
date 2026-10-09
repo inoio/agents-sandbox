@@ -51,7 +51,7 @@ Arguments after `--` are forwarded to the agent. Arguments before `--` that don'
 | `--serve-only` | `-s`  | `false`  | Start the agent server published on host loopback at a dynamically allocated host port (no in-VM TUI); press `Ctrl-D` to exit. The printed `http://127.0.0.1:<port>` URL is authoritative — use it (rather than assuming a fixed port) to connect from clients like Opencode Desktop. Set `OPENCODE_SERVER_PASSWORD` for basic auth. |
 | `--agent`      | —     | `opencode` | Coding-agent profile to run: `opencode` (default), `opencode2`, `pi`, or `claude-code`.                                                                |
 | `--notify`     | —     | `off`     | Notify on session status: `on`, `off`, `desktop`, or `audio` (bare `--notify` = `on`). Overridable via `AGENTS_SANDBOX_NOTIFY`. Only applies to the opencode agent (the only agent with a session event stream). |
-| `--dind`       | —     | `false`  | Enable Docker-in-Docker in the runner image                                                                                                |
+| `--docker`     | —     | `false`  | Bake the Docker engine into the runner image (`--dind` is a deprecated alias)                                                               |
 
 **Aliases:** `sandbox run`
 
@@ -71,7 +71,7 @@ agents-sandbox shell -w bugfix-fix-thing
 | Flag       | Short | Default | Purpose                                                          |
 |------------|-------|---------|------------------------------------------------------------------|
 | `--root`   | —     | `false` | Attach the shell as root (debug/maintenance). Only available on shell. |
-| `--dind`   | —     | `false` | Enable Docker-in-Docker in the runner image                      |
+| `--docker` | —     | `false` | Bake the Docker engine into the runner image (`--dind` is a deprecated alias) |
 
 **Aliases:** `sh`, `sandbox shell`
 
@@ -95,7 +95,7 @@ agents-sandbox build --agent-version 0.5.0  # pin a specific agent version
 | `--dry-run`          | `-n`  | `false`  | Dry run without building                                        |
 | `--agent`            | —     | `opencode` | Coding-agent profile to build: `opencode` (default), `opencode2`, `pi`, or `claude-code`. |
 | `--agent-version`    | —     | `""`     | Pin the version agents-sandbox installs into the image (default: latest) |
-| `--dind`             | —     | `false`  | Enable Docker-in-Docker in the runner image                     |
+| `--docker`           | —     | `false`  | Bake the Docker engine into the runner image (`--dind` is a deprecated alias) |
 
 > The deprecated `--opencode-version` flag remains as an alias for `--agent-version`.
 > The version flag does not replace an agent already supplied by a custom base or project Dockerfile.
@@ -104,11 +104,11 @@ agents-sandbox build --agent-version 0.5.0  # pin a specific agent version
 
 #### build dockerfile
 
-Print the runner Dockerfile exactly as it would be built for the current project, without invoking docker. The output reflects the selected agent profile and the dind switch, and layers the project's `.agents-sandbox/Dockerfile` (if any) on top of the base image.
+Print the runner Dockerfile exactly as it would be built for the current project, without invoking docker. The output reflects the selected agent profile and the docker switch, and layers the project's `.agents-sandbox/Dockerfile` (if any) on top of the base image.
 
 ```console
-agents-sandbox build dockerfile            # default agent, no dind
-agents-sandbox build dockerfile --dind     # with Docker-in-Docker block
+agents-sandbox build dockerfile            # default agent, no docker
+agents-sandbox build dockerfile --docker   # with the Docker engine block
 agents-sandbox build dockerfile --agent claude-code
 ```
 
@@ -117,7 +117,7 @@ agents-sandbox build dockerfile --agent claude-code
 | Flag      | Short | Default    | Purpose                                                     |
 |-----------|-------|------------|-------------------------------------------------------------|
 | `--agent` | —     | `opencode` | Coding-agent profile to build: `opencode`, `pi`, or `claude-code`. |
-| `--dind`  | —     | `false`    | Enable Docker-in-Docker in the runner image                 |
+| `--docker` | —    | `false`    | Bake the Docker engine into the runner image (`--dind` is a deprecated alias) |
 
 **Aliases:** `image build dockerfile`
 

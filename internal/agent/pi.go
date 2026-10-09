@@ -22,7 +22,7 @@ func (piProfile) ImageSpec() ImageSpec {
 		AgentEnv: map[string]string{"PI_SKIP_VERSION_CHECK": "1"},
 		// --ignore-scripts avoids running the package's postinstall (which may
 		// phone home); the version is pinned so the baked release is exact.
-		InstallCommand: "npm install -g --ignore-scripts @earendil-works/pi-coding-agent@$PI_VERSION",
+		InstallCommand: "npm install -g --ignore-scripts --prefix /opt/agents-sandbox @earendil-works/pi-coding-agent@$PI_VERSION",
 	}
 }
 

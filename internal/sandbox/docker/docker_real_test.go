@@ -1,3 +1,5 @@
+//go:build integration
+
 package docker
 
 import (
@@ -8,9 +10,12 @@ import (
 	"github.com/moby/moby/client"
 )
 
-// These tests exercise the real delegation layer against a live Docker
-// daemon. Stateful operations are only invoked with image IDs that cannot
-// exist, so their error paths are covered without mutating daemon state.
+// These integration tests exercise the real delegation layer against a live
+// Docker daemon. Stateful operations are only invoked with image IDs that
+// cannot exist, so their error paths are covered without mutating daemon state.
+// They are excluded from the main suite via the `integration` build tag (see
+// `make test-integration`) because they require a working Docker daemon, and
+// TestRealDockerClientImagePullError also needs network access to a registry.
 
 func TestRealDockerClientPing(t *testing.T) {
 	c := RealClient()

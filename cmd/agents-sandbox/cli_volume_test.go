@@ -41,7 +41,7 @@ type volumeOpScenario struct {
 
 func runVolumeOpScenario(t *testing.T, tc volumeOpScenario) {
 	t.Helper()
-	initTestRepo(t)
+	initTestProjectDir(t)
 	configpaths.WithMockConfigPaths(t)
 	ui := &termio.Mock{}
 	mock := &msb.MockMsbClient{}

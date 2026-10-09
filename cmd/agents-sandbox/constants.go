@@ -37,24 +37,26 @@ const (
 
 	flagRemove = "rm"
 
-	flagRebuild         = launcherconfig.FlagRebuild
-	flagCpus            = "cpus"
-	flagMemory          = "memory"
-	flagTmpSize         = "tmp-size"
-	flagDiskSize        = "disk-size"
-	flagWorkspaceQuota  = "workspace-quota"
-	flagDryRun          = launcherconfig.FlagDryRun
-	flagDryRunShort     = "n"
-	flagDryRunVM        = launcherconfig.FlagDryRunVM
-	flagForce           = "force"
-	flagAge             = "age"
-	flagWorktree        = launcherconfig.FlagWorktree
-	flagRoot            = launcherconfig.FlagRoot
-	flagServeOnly       = launcherconfig.FlagServeOnly
-	flagNetwork         = launcherconfig.FlagNetwork
-	flagDNSServers      = launcherconfig.FlagDNSServers
-	flagAgent           = launcherconfig.FlagAgent
-	flagNotify          = launcherconfig.FlagNotify
+	flagRebuild        = launcherconfig.FlagRebuild
+	flagCpus           = "cpus"
+	flagMemory         = "memory"
+	flagTmpSize        = "tmp-size"
+	flagDiskSize       = "disk-size"
+	flagWorkspaceQuota = "workspace-quota"
+	flagDryRun         = launcherconfig.FlagDryRun
+	flagDryRunShort    = "n"
+	flagDryRunVM       = launcherconfig.FlagDryRunVM
+	flagForce          = "force"
+	flagAge            = "age"
+	flagWorktree       = launcherconfig.FlagWorktree
+	flagRoot           = launcherconfig.FlagRoot
+	flagServeOnly      = launcherconfig.FlagServeOnly
+	flagNetwork        = launcherconfig.FlagNetwork
+	flagDNSServers     = launcherconfig.FlagDNSServers
+	flagAgent          = launcherconfig.FlagAgent
+	flagNotify         = launcherconfig.FlagNotify
+	flagDocker         = "docker"
+	// flagDind is the deprecated alias for --docker.
 	flagDind            = "dind"
 	flagAgentVersion    = "agent-version"
 	flagOpenCodeVersion = "opencode-version"

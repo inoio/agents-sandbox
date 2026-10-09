@@ -169,7 +169,7 @@ func TestCheckForUpgrade(t *testing.T) {
 func TestRunShellUpgradeExit(t *testing.T) {
 	for _, cmdName := range []string{"run", "shell"} {
 		t.Run(cmdName, func(t *testing.T) {
-			initTestRepo(t)
+			initTestProjectDir(t)
 			origCheck := upgradeCheck
 			t.Cleanup(func() { upgradeCheck = origCheck })
 			upgradeCheck = func(context.Context, upgrade.Options) (upgrade.Result, error) {
@@ -194,7 +194,7 @@ func TestRunShellUpgradeExit(t *testing.T) {
 func TestRunShellUpgradeError(t *testing.T) {
 	for _, cmdName := range []string{"run", "shell"} {
 		t.Run(cmdName, func(t *testing.T) {
-			initTestRepo(t)
+			initTestProjectDir(t)
 			origCheck := upgradeCheck
 			t.Cleanup(func() { upgradeCheck = origCheck })
 			upgradeCheck = func(context.Context, upgrade.Options) (upgrade.Result, error) {

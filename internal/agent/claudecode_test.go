@@ -41,6 +41,9 @@ func TestClaudeCodeImageSpec(t *testing.T) {
 	if !strings.Contains(spec.InstallCommand, "@anthropic-ai/claude-code") {
 		t.Errorf("InstallCommand = %q, want claude-code npm install", spec.InstallCommand)
 	}
+	if !strings.Contains(spec.InstallCommand, "--prefix /opt/agents-sandbox") {
+		t.Errorf("InstallCommand = %q, want the /opt/agents-sandbox prefix", spec.InstallCommand)
+	}
 }
 
 func TestClaudeCodeAttachCommand(t *testing.T) {

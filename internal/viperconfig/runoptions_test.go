@@ -36,6 +36,7 @@ func registerRunFlags(cmd *cobra.Command) {
 	cmd.Flags().String("tmp-size", "2G", "tmp-size")
 	cmd.Flags().String("disk-size", "", "disk-size")
 	cmd.Flags().String("workspace-quota", "16G", "workspace-quota")
+	cmd.Flags().Bool("docker", false, "docker")
 	cmd.Flags().Bool("dind", false, "dind")
 }
 
@@ -333,15 +334,46 @@ func TestBuildRunOptionsWorkspaceQuotaDefault(t *testing.T) {
 	}
 }
 
-func TestBuildRunOptionsPropagatesDind(t *testing.T) {
+func TestBuildRunOptionsPropagatesDocker(t *testing.T) {
 	cmd := newRunCommand()
-	r := NewResolverWithConfig(Config{Dind: true})
+	r := NewResolverWithConfig(Config{Docker: true})
 	opts, err := r.BuildRunOptions(cmd, &termio.Mock{})
 	if err != nil {
 		t.Fatalf("BuildRunOptions: %v", err)
 	}
-	if !opts.Dind {
-		t.Error("opts.Dind = false, want true from resolver")
+	if !opts.Docker {
+		t.Error("opts.Docker = false, want true from resolver")
+	}
+}
+
+func TestBuildRunOptionsDeprecatedDindFlag(t *testing.T) {
+	cmd := newRunCommand()
+	if err := cmd.Flags().Set("dind", "true"); err != nil {
+		t.Fatalf("set dind: %v", err)
+	}
+	opts, err := NewResolverWithConfig(Config{}).BuildRunOptions(cmd, &termio.Mock{})
+	if err != nil {
+		t.Fatalf("BuildRunOptions: %v", err)
+	}
+	if !opts.Docker {
+		t.Error("opts.Docker = false, want true from the deprecated --dind flag")
+	}
+}
+
+func TestBuildRunOptionsDockerFlagWinsOverDind(t *testing.T) {
+	cmd := newRunCommand()
+	if err := cmd.Flags().Set("dind", "true"); err != nil {
+		t.Fatalf("set dind: %v", err)
+	}
+	if err := cmd.Flags().Set("docker", "false"); err != nil {
+		t.Fatalf("set docker: %v", err)
+	}
+	opts, err := NewResolverWithConfig(Config{}).BuildRunOptions(cmd, &termio.Mock{})
+	if err != nil {
+		t.Fatalf("BuildRunOptions: %v", err)
+	}
+	if opts.Docker {
+		t.Error("opts.Docker = true, want --docker to win over --dind")
 	}
 }
 

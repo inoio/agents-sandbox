@@ -353,11 +353,14 @@ func TestSplitFinalStageNoFrom(t *testing.T) {
 	}
 }
 
-func TestInjectDindBlockMarkerWithoutTrailingNewline(t *testing.T) {
-	got := injectDindBlock("RUN prereq\n# agents-sandbox:dind", "DIND\n")
-	want := "RUN prereq\nDIND\n"
+func TestInjectDockerBlockMarkerWithoutTrailingNewline(t *testing.T) {
+	got, injected := injectDockerBlock("RUN prereq\n# agents-sandbox:dind", true)
+	if !injected {
+		t.Fatal("expected injection at the legacy dind marker")
+	}
+	want := "RUN prereq\n" + dockerMergeBlock()
 	if got != want {
-		t.Errorf("injectDindBlock = %q, want %q", got, want)
+		t.Errorf("injectDockerBlock = %q, want %q", got, want)
 	}
 }
 

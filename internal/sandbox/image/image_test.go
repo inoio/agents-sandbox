@@ -190,27 +190,105 @@ func TestBuildImageNoCacheFollowsParameter(t *testing.T) {
 	}
 }
 
-func TestDockerfileTarContainsDockerfile(t *testing.T) {
+func TestDockerfileTarContents(t *testing.T) {
 	dockerfile := []byte("FROM debian:trixie-slim\nRUN echo hi\n")
-	tarBuf, err := dockerfileTar(dockerfile)
-	if err != nil {
-		t.Fatalf("dockerfileTar failed: %v", err)
+	var tarBuf bytes.Buffer
+	if err := writeDockerfileTar(&tarBuf, dockerfile); err != nil {
+		t.Fatalf("writeDockerfileTar failed: %v", err)
 	}
 
-	tr := tar.NewReader(tarBuf)
-	header, err := tr.Next()
-	if err != nil {
-		t.Fatalf("unexpected error reading tar: %v", err)
+	entries := map[string]string{}
+	var names []string
+	tr := tar.NewReader(&tarBuf)
+	for {
+		header, err := tr.Next()
+		if errors.Is(err, io.EOF) {
+			break
+		}
+		if err != nil {
+			t.Fatalf("read tar: %v", err)
+		}
+		content, err := io.ReadAll(tr)
+		if err != nil {
+			t.Fatalf("read tar entry: %v", err)
+		}
+		names = append(names, header.Name)
+		entries[header.Name] = string(content)
 	}
-	if header.Name != "Dockerfile" {
-		t.Errorf("expected tar entry 'Dockerfile', got %q", header.Name)
+	if len(names) == 0 || names[0] != "Dockerfile" {
+		t.Errorf("first tar entry = %v, want Dockerfile first", names)
 	}
-	content, err := io.ReadAll(tr)
-	if err != nil {
-		t.Fatalf("unexpected error reading tar content: %v", err)
+	if !bytes.Equal([]byte(entries["Dockerfile"]), dockerfile) {
+		t.Error("Dockerfile tar content does not match")
 	}
-	if !bytes.Equal(content, dockerfile) {
-		t.Errorf("tar content does not match dockerfile")
+	if got := entries[pathMergeAsset]; got != string(pathMergeScript()) {
+		t.Errorf("tar entry %q = %q, want embedded script", pathMergeAsset, got)
+	}
+}
+
+// failAfterBytes fails the first write once limit bytes have already been
+// written, reaching the header and content write error paths in
+// writeDockerfileTar (a bytes.Buffer never fails). A tar header block is 512
+// bytes, so limit 0 fails the header and limit 512 the content.
+type failAfterBytes struct {
+	limit int
+	seen  int
+}
+
+func (w *failAfterBytes) Write(p []byte) (int, error) {
+	if w.seen >= w.limit {
+		return 0, errors.New("synthetic write failure")
+	}
+	w.seen += len(p)
+	return len(p), nil
+}
+
+// failOnCall fails the nth write, reaching the tar close (trailer) error path.
+type failOnCall struct {
+	failOn int
+	calls  int
+}
+
+func (w *failOnCall) Write(p []byte) (int, error) {
+	w.calls++
+	if w.calls == w.failOn {
+		return 0, errors.New("synthetic write failure")
+	}
+	return len(p), nil
+}
+
+// callCounter records how many write calls a tar stream makes.
+type callCounter struct{ calls int }
+
+func (w *callCounter) Write(p []byte) (int, error) {
+	w.calls++
+	return len(p), nil
+}
+
+func TestWriteDockerfileTarWriteErrors(t *testing.T) {
+	dockerfile := []byte("FROM debian:trixie-slim\nRUN echo hi\n")
+
+	counter := &callCounter{}
+	if err := writeDockerfileTar(counter, dockerfile); err != nil {
+		t.Fatalf("baseline writeDockerfileTar: %v", err)
+	}
+
+	cases := []struct {
+		name    string
+		writer  io.Writer
+		wantErr string
+	}{
+		{"header write fails", &failAfterBytes{limit: 0}, "tar write header"},
+		{"content write fails", &failAfterBytes{limit: 512}, "tar write Dockerfile"},
+		{"close write fails", &failOnCall{failOn: counter.calls}, "tar close"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			err := writeDockerfileTar(tc.writer, dockerfile)
+			if err == nil || !strings.Contains(err.Error(), tc.wantErr) {
+				t.Errorf("writeDockerfileTar error = %v, want containing %q", err, tc.wantErr)
+			}
+		})
 	}
 }
 

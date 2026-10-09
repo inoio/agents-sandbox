@@ -41,31 +41,54 @@ func TestResolveConfigAgentNameResolverEmptyAgent(t *testing.T) {
 	}
 }
 
-func TestResolveBuildDindDefault(t *testing.T) {
+func TestResolveBuildDockerDefault(t *testing.T) {
 	cmd := buildDockerfileCmd(&termio.Mock{})
-	if resolveBuildDind(cmd) {
-		t.Error("resolveBuildDind = true, want false (no flag, no resolver)")
+	if resolveBuildDocker(cmd) {
+		t.Error("resolveBuildDocker = true, want false (no flag, no resolver)")
 	}
 }
 
-func TestResolveBuildDindFlag(t *testing.T) {
+func TestResolveBuildDockerFlag(t *testing.T) {
+	cmd := buildDockerfileCmd(&termio.Mock{})
+	if err := cmd.Flags().Set(flagDocker, "true"); err != nil {
+		t.Fatalf("set docker: %v", err)
+	}
+	if !resolveBuildDocker(cmd) {
+		t.Error("resolveBuildDocker = false, want true (flag set)")
+	}
+}
+
+func TestResolveBuildDeprecatedDindFlag(t *testing.T) {
 	cmd := buildDockerfileCmd(&termio.Mock{})
 	if err := cmd.Flags().Set(flagDind, "true"); err != nil {
 		t.Fatalf("set dind: %v", err)
 	}
-	if !resolveBuildDind(cmd) {
-		t.Error("resolveBuildDind = false, want true (flag set)")
+	if !resolveBuildDocker(cmd) {
+		t.Error("resolveBuildDocker = false, want true (deprecated --dind flag set)")
 	}
 }
 
-func TestResolveBuildDindFromResolver(t *testing.T) {
+func TestResolveBuildDockerFlagWinsOverDind(t *testing.T) {
+	cmd := buildDockerfileCmd(&termio.Mock{})
+	if err := cmd.Flags().Set(flagDind, "true"); err != nil {
+		t.Fatalf("set dind: %v", err)
+	}
+	if err := cmd.Flags().Set(flagDocker, "false"); err != nil {
+		t.Fatalf("set docker: %v", err)
+	}
+	if resolveBuildDocker(cmd) {
+		t.Error("resolveBuildDocker = true, want --docker to win over --dind")
+	}
+}
+
+func TestResolveBuildDockerFromResolver(t *testing.T) {
 	ui := &termio.Mock{}
 	cmd := buildDockerfileCmd(ui)
 	ctx := context.WithValue(context.Background(), (*launcherConfigKey)(nil),
-		launcherconfig.NewResolverWithConfig(launcherconfig.Config{Dind: true}))
+		launcherconfig.NewResolverWithConfig(launcherconfig.Config{Docker: true}))
 	cmd.SetContext(ctx)
-	if !resolveBuildDind(cmd) {
-		t.Error("resolveBuildDind = false, want true (from resolver)")
+	if !resolveBuildDocker(cmd) {
+		t.Error("resolveBuildDocker = false, want true (from resolver)")
 	}
 }
 

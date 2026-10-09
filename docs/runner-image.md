@@ -28,23 +28,34 @@ still reference it. Unused image data is reclaimed later by image pruning.
 
 ## One image per project
 
-agents-sandbox builds a single runner image per project. The rendered Dockerfile is assembled from your project
-Dockerfile (if any) plus tool-owned blocks:
+agents-sandbox builds a single runner image per project. The rendered Dockerfile is composed of per-tool multistage
+stages with fixed parents, merged into the final stage with `COPY` **after** the user body:
 
-- **Base** — the embedded `debian:trixie-slim` tools block, or your whole custom base. For a managed base
-  (`FROM .../runner-base...`), the final stage's `FROM` is replaced **in place** with the embedded tools block, keeping
-  any earlier build stages above it — so multi-stage project Dockerfiles are supported.
-- **Dev user block** — inserted right after the base tools (or the final `FROM` for a custom base): creates the `dev` user
-  (host UID/GID), reserving its identity before the user body runs. Sitting after the embedded tools keeps that large layer
-  cached across host UID/GID changes.
-- **Docker-in-Docker block** *(optional)* — only when dind is enabled; injected at the `# agents-sandbox:dind` marker in the
-  user body when present, otherwise appended after it.
-- **Agent block** — Node.js and the coding agent.
-- **Finalize block** — forces the `vfs` storage driver, adds `dev` to the docker group, switches to `USER dev`, and sets
-  `WORKDIR /workspace`.
+- **`agents-sandbox-base`** — the embedded `debian:trixie-slim` tools block for a managed base, or your whole custom base
+  (`FROM` image) for a custom base. For a managed base (`FROM .../runner-base...`), the final stage's `FROM` is replaced
+  **in place** with the embedded tools block; for a custom base, any earlier build stages in your project Dockerfile are
+  preserved above it — so multi-stage project Dockerfiles are supported.
+- **`agents-sandbox-node`** *(conditional)* — installs Node.js into `/opt/agents-sandbox`, only when the base lacks
+  `node`.
+- **`agents-sandbox-agent`** *(conditional)* — installs the selected agent into `/opt/agents-sandbox`, only when the base
+  lacks its binary. npm agents install with `npm install -g --prefix /opt/agents-sandbox <pkg>@$VERSION`.
+- **`agents-sandbox-docker`** *(optional)* — installs the Docker static binaries into `/opt/agents-sandbox/bin`, only
+  when the base lacks `dockerd`.
+- **`agents-sandbox-runner`** — `FROM agents-sandbox-base`, creates the `dev` user, runs your Dockerfile body **without**
+  the tool trees available, then `COPY`s the tool trees in.
 
-Every tool-owned block is `USER root`-prefixed so agent/dind installs always run as root regardless of what user your
-Dockerfile leaves active. The image always ends with `USER dev` and `WORKDIR /workspace`.
+Each tool layer caches independently of the user body, the base, and each other. Editing the user body no longer re-runs
+the Node/Docker/agent installs, and the same tool layers are reused across projects on one machine.
+
+Every tool lands under `/opt/agents-sandbox`; its binaries are exposed from `/opt/agents-sandbox/bin`, which the runner
+**appends** to `PATH` (append, so a base-provided binary keeps precedence). The agent attach and the interactive shell run
+`/bin/bash -l`, and `/etc/profile` on Debian and most distributions **resets** `PATH`, so the appended
+`/opt/agents-sandbox/bin` (and any project `ENV PATH` entry) would not survive a login shell. To keep the composed `PATH`
+effective there, the image records its composed `PATH` in the `AGENTS_SANDBOX_IMAGE_PATH` environment variable and installs
+`/etc/profile.d/agents-sandbox-path.sh`. `/etc/profile` sources `/etc/profile.d/*.sh` after its `PATH` reset, so the script
+re-appends any `AGENTS_SANDBOX_IMAGE_PATH` entry that is missing from the reset `PATH` (existing entries keep their
+position; nothing is duplicated). `mkdir -p /opt/agents-sandbox/bin` always runs so the `COPY` source exists. The image
+always ends with `USER dev` and `WORKDIR /workspace`.
 
 ## Base starting point
 
@@ -52,15 +63,21 @@ By default the base tools block starts from `debian:trixie-slim` and installs th
 `ripgrep`, `jq`, `yq`, `curl`, `wget`, `xz-utils`, `file`, `gawk`, `less`, `lz4`, `moreutils`, `net-tools`, `parallel`,
 `recode`, `uuid`, and `iptables`.
 
-A project Dockerfile whose `FROM` is any other image is treated as a **custom base**, and the agent (and optional dind)
-blocks are layered on top of it. The custom base must meet these requirements:
+A project Dockerfile whose `FROM` is any other image is treated as a **custom base**, and the node, agent (and optional
+docker) stages are layered on top of it. For a custom base, the earlier build stages in your project Dockerfile are kept
+above the base stage. The custom base must meet these requirements:
 
 - **shadow-utils** providing `groupadd`, `useradd`, and `usermod` (used to create the `dev` user and docker group).
 - **A POSIX shell** — the `dev` user's login shell is set to the first of `bash`, `zsh`, `sh` found, falling back to
   `/bin/sh`.
-- **`curl` and `tar`** (used to fetch and extract the Node.js tarball.
-- **For dind only**: `iptables`, `git`, `ps`, `xz`, `curl`, and `tar` — the exact binary-install prerequisites
-  documented by Docker. If one is missing, the dind build fails and names the missing package.
+- **A login profile that sources `/etc/profile.d/*.sh`** — the runner installs `/etc/profile.d/agents-sandbox-path.sh`
+  to restore the composed `PATH` in login shells, so a base whose profile does not source `/etc/profile.d` will not get
+  the merged `PATH`.
+- **`curl` and `tar` in the base image itself** — the node and docker install stages start from the raw base and use them
+  to fetch and extract their tarballs, so installing them later in the body is too late.
+- **For Docker only**: the runtime prerequisites `iptables`, `git`, `ps`, `xz`, `curl`, and `tar`. These are checked after
+  your Dockerfile body runs, so `iptables`, `git`, `ps`, and `xz` may be installed in the body or an earlier stage; `curl`
+  and `tar` must already be in the base for the download. If one is missing, the build fails and names the missing package.
 - The recommended CLI tools above are documented for your convenience — as a custom base you install your own.
 - A base that already provides docker, node, or the agent is left alone (idempotency), and a pre-created `dev` user is
   tolerated.
@@ -93,27 +110,42 @@ RUN apt-get update && apt-get install -y python3 && rm -rf /var/lib/apt/lists/*
 ### ENV configuration
 
 ENV definitions in Dockerfiles are applied to running sandboxes. If you need to configure e.g. `PATH`, just set
-`ENV PATH=...:` in your Dockerfile.
+`ENV PATH=...:` in your Dockerfile. The image's composed `PATH` is restored into login shells by the
+`/etc/profile.d/agents-sandbox-path.sh` merge, so a project `ENV PATH` entry stays effective in `shell` and in `!`
+commands, not only in non-login agent-executed commands.
 
 ## Docker-in-Docker
 
-Enable Docker-in-Docker (dind) in the runner image with the `--dind` flag (on `build`, `run`, or `shell`) or the `dind:
-true` config key. A project Dockerfile still starting `FROM .../runner-base-dind:latest` keeps working and implies it.
+Enable the Docker engine (Docker-in-Docker) in the runner image with the `--docker` flag (on `build`, `run`, `shell`, or
+`build dockerfile`) or the `docker: true` config key, or the `AGENTS_SANDBOX_DOCKER` environment variable. The
+deprecated aliases `--dind`, the `dind` config key, and `AGENTS_SANDBOX_DIND` still work with lower precedence and print a
+one-time warning. A project Dockerfile still starting `FROM .../runner-base-dind:latest` keeps working and implies it, as
+does the newer `FROM .../runner-base-docker:latest`; neither prints a warning.
 
-The dind block installs the engine from a docker static binary tarball. The `vfs` storage driver is always forced for
-microsandbox compatibility. `buildx` and `docker compose` are **not** installed — install them in your project
-Dockerfile if you need them. The static tarball's platform is selected by `uname -m` (`x86_64`/`aarch64`).
+The Docker stage installs the engine from a docker static binary tarball. The `vfs` storage driver is always forced by
+adding `--storage-driver=vfs` to the dockerd start command **inside the VM** — the image no longer writes
+`/etc/docker/daemon.json`, so a user's edits to it are preserved. `buildx` and `docker compose` are **not** installed —
+install them in your project Dockerfile if you need them. The static tarball's platform is selected by `uname -m`
+(`x86_64`/`aarch64`).
 
-With a custom base, the dind block is appended after your Dockerfile body by default. To run your own steps after the
-engine is installed, place a `# agents-sandbox:dind` comment line in the final stage where the block should be injected:
+With a custom base, a thin `COPY --from=agents-sandbox-docker` plus an adopt step is appended after your Dockerfile body
+by default, so steps after it see `docker` (the heavy download stays in the cacheable Docker stage). To run your own steps
+immediately after the engine is installed, place a `# agents-sandbox:docker` comment line in the final stage where the
+block should be injected (the legacy `# agents-sandbox:dind` marker is still recognized):
 
 ```dockerfile
-FROM ubuntu:24.04
+# The tool stages start from the raw base and use curl and tar to download their
+# tarballs, so put them in the base stage itself.
+FROM ubuntu:24.04 AS base
+RUN apt-get update && apt-get install -y curl tar && rm -rf /var/lib/apt/lists/*
 
-# The dind block installs the engine here, after these prerequisites
-RUN apt-get update && apt-get install -y iptables git procps xz-utils curl tar
+FROM base
 
-# agents-sandbox:dind
+# The Docker runtime prerequisites are checked after this body runs, so install
+# them here (curl and tar are already in the base stage above).
+RUN apt-get update && apt-get install -y iptables git procps xz-utils && rm -rf /var/lib/apt/lists/*
+
+# agents-sandbox:docker
 
 # Steps that need docker, e.g. buildx and docker compose
 RUN install -Dm755 /usr/local/bin/docker-buildx /usr/libexec/docker/cli-plugins/docker-buildx
@@ -121,14 +153,17 @@ RUN install -Dm755 /usr/local/bin/docker-buildx /usr/libexec/docker/cli-plugins/
 
 ## Node and the agent
 
-The agent block installs Node.js (`v26.8.1`, official tarball) only if it is absent, and installs the selected agent
-only if its binary is absent — so an existing install is left alone (idempotency). What the block actually did is
-recorded in `/etc/agents-sandbox/agent-source` and `/etc/agents-sandbox/docker-source`.
+The `agents-sandbox-node` stage installs Node.js (`v26.8.1`, official tarball) into `/opt/agents-sandbox` only if the
+base lacks `node`, and the `agents-sandbox-agent` stage installs the selected agent into `/opt/agents-sandbox` only if its
+binary is absent — so an existing install is left alone (idempotency). Whether the base already provides node, the agent,
+or `dockerd`, and the `/etc/agents-sandbox/agent-source` and `/etc/agents-sandbox/docker-source` provenance files
+(`tool` | `user`), are resolved after the user body; a base-provided binary wins over the tool's copy.
 
 Four agents are built in: `opencode` (default), `opencode2` (installed via
-`npm i -g @opencode-ai/cli@$OPENCODE2_VERSION`,
-the opencode 2 beta), `pi` (installed via `npm i -g @earendil-works/pi-coding-agent`), and `claude-code` (installed via
-`npm i -g @anthropic-ai/claude-code`). All four resolve their latest version for an unpinned build — opencode via its
+`npm install -g --prefix /opt/agents-sandbox @opencode-ai/cli@$OPENCODE2_VERSION`,
+the opencode 2 beta), `pi` (installed via `npm install -g --prefix /opt/agents-sandbox @earendil-works/pi-coding-agent`),
+and `claude-code` (installed via `npm install -g --prefix /opt/agents-sandbox @anthropic-ai/claude-code`). All four
+resolve their latest version for an unpinned build — opencode via its
 GitHub releases endpoint, opencode2 via the npm registry's `beta` dist-tag, pi via `pi.dev`, and claude-code via the npm
 registry's `latest` dist-tag.
 
@@ -182,8 +217,8 @@ agents-sandbox build -r     # force rebuild
 Preview the exact Dockerfile that would be built (without invoking docker):
 
 ```console
-agents-sandbox build dockerfile            # default agent, no dind
-agents-sandbox build dockerfile --dind     # with Docker-in-Docker block
+agents-sandbox build dockerfile            # default agent, no docker
+agents-sandbox build dockerfile --docker   # with the Docker engine block
 ```
 
 List cached images:

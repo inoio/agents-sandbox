@@ -17,15 +17,18 @@ func TestRunCommandHasNoOpenCodeVersionFlag(t *testing.T) {
 	}
 }
 
-func TestRunAndShellHaveDindFlag(t *testing.T) {
+func TestRunAndShellHaveDockerFlags(t *testing.T) {
 	for _, name := range []string{cmdRun, cmdShell} {
 		cmd, _ := setupCommandFixtures(t, name, "--help")
 		foundCmd, _, err := cmd.Find([]string{name})
 		if err != nil {
 			t.Fatalf("Find %q: %v", name, err)
 		}
+		if flag := foundCmd.Flags().Lookup(flagDocker); flag == nil {
+			t.Errorf("%s command must have --docker flag", name)
+		}
 		if flag := foundCmd.Flags().Lookup(flagDind); flag == nil {
-			t.Errorf("%s command must have --dind flag", name)
+			t.Errorf("%s command must keep the deprecated --dind alias", name)
 		}
 	}
 }

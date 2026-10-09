@@ -66,8 +66,12 @@ func TestEnsureImageVerboseReportsReuse(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	WithMockAgentVersion(t, "1.2.3")
 	a := agentOpencode(t)
+	rendered, err := RenderDockerfile(a, nil, false)
+	if err != nil {
+		t.Fatalf("render Dockerfile: %v", err)
+	}
 	labels := map[string]string{
-		dockerfileIDLabelKey: computeDockerfileID(RenderDockerfile(a, nil, false), "1.2.3"),
+		dockerfileIDLabelKey: computeDockerfileID(rendered, "1.2.3"),
 	}
 	docker.WithDockerMock(t, &docker.MockDockerClient{
 		ImageInspectFn: func(

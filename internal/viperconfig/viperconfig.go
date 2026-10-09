@@ -44,9 +44,9 @@ type Config struct {
 	LogLevel       string        `mapstructure:"log-level"`
 	Quiet          bool          `mapstructure:"quiet"`
 	Agent          string        `mapstructure:"agent"`
-	// Dind appends the tool's Docker-in-Docker block to the runner image.
-	Dind bool  `mapstructure:"dind"`
-	CPUs uint8 `mapstructure:"cpus"`
+	// Docker bakes the tool's Docker engine block into the runner image.
+	Docker bool  `mapstructure:"docker"`
+	CPUs   uint8 `mapstructure:"cpus"`
 	// ProvisionHostConfig controls whether the agent's host config files are
 	// copied into the VM (drop-in provisioning). Default true.
 	ProvisionHostConfig bool `mapstructure:"provision-host-config"`
@@ -148,6 +148,9 @@ type Resolver struct {
 	// legacyEnv holds deprecated-prefix variables that were in effect when the
 	// resolver was built. The CLI surfaces them once as a deprecation warning.
 	legacyEnv []string
+	// dockerLegacy names the deprecated dind source in effect (empty when the
+	// canonical docker setting is used). The CLI surfaces it once.
+	dockerLegacy string
 }
 
 // NewResolver builds a Resolver, loading config files, configuring the
@@ -228,7 +231,52 @@ func NewResolver(cmd *cobra.Command, slug string) (*Resolver, error) {
 	}
 	cfg.Home = homeLayers
 	cfg.hasHome = hasHome
-	return &Resolver{cfg: cfg, legacyEnv: legacyEnvVarsInUse()}, nil
+	docker, dockerLegacy := resolveDockerAlias(v, cmd, cfg.Docker)
+	cfg.Docker = docker
+	return &Resolver{cfg: cfg, legacyEnv: legacyEnvVarsInUse(), dockerLegacy: dockerLegacy}, nil
+}
+
+// resolveDockerAlias folds the deprecated dind alias into the docker setting.
+// The canonical docker value wins whenever it is explicitly set; otherwise a
+// deprecated dind value (config key or AGENTS_SANDBOX_DIND) is used. It returns
+// the effective value and the deprecated source name, if any.
+func resolveDockerAlias(v *viper.Viper, cmd *cobra.Command, value bool) (bool, string) {
+	if dockerExplicit(v, cmd) {
+		return value, ""
+	}
+	if !v.IsSet(keyDind) {
+		return value, ""
+	}
+	return v.GetBool(keyDind), dockerLegacySource(v)
+}
+
+// dockerExplicit reports whether the canonical docker setting is explicitly set
+// via env, config file, or the --docker flag, so it takes precedence over the
+// deprecated dind alias.
+func dockerExplicit(v *viper.Viper, cmd *cobra.Command) bool {
+	if os.Getenv(envVarName(envPrefix, keyDocker)) != "" {
+		return true
+	}
+	if v.InConfig(keyDocker) {
+		return true
+	}
+	if cmd != nil {
+		if flag := findFlag(cmd, keyDocker); flag != nil && flag.Changed {
+			return true
+		}
+	}
+	return false
+}
+
+// dockerLegacySource names where the deprecated dind value came from.
+func dockerLegacySource(v *viper.Viper) string {
+	if env := envVarName(envPrefix, keyDind); os.Getenv(env) != "" {
+		return env
+	}
+	if v.InConfig(keyDind) {
+		return "the dind config key"
+	}
+	return "dind"
 }
 
 // LegacyEnvVars returns the deprecated-prefix environment variables that were
@@ -236,6 +284,12 @@ func NewResolver(cmd *cobra.Command, slug string) (*Resolver, error) {
 // was built, so the CLI can warn once.
 func (r *Resolver) LegacyEnvVars() []string {
 	return r.legacyEnv
+}
+
+// DockerLegacyAlias returns the deprecated dind source that was in effect
+// (empty when the canonical docker setting is used), so the CLI can warn once.
+func (r *Resolver) DockerLegacyAlias() string {
+	return r.dockerLegacy
 }
 
 // legacyEnvVarsInUse reports which deprecated-prefix variables are in effect.
@@ -260,7 +314,7 @@ func legacyEnvVarsInUse() []string {
 // used by callers (notably cmd tests) that need a resolver with known values
 // without touching config files or env.
 func NewResolverWithConfig(cfg Config) *Resolver {
-	return &Resolver{cfg: cfg, legacyEnv: nil}
+	return &Resolver{cfg: cfg, legacyEnv: nil, dockerLegacy: ""}
 }
 
 const (
@@ -277,18 +331,20 @@ const (
 	keyNetworkProfile            = "network.profile"
 	keyNetworkDNSServers         = "network.dns-servers"
 	keyAgent                     = "agent"
-	keyDind                      = "dind"
-	keyCPUs                      = "cpus"
-	keyQuiet                     = "quiet"
-	keyYes                       = "yes"
-	keyUpgradeMode               = "upgrade.mode"
-	keyUpgradeInterval           = "upgrade.interval"
-	keyProvisionHostConfig       = "provision-host-config"
-	keyNotifyDesktop             = "notify.desktop"
-	keyNotifyAudio               = "notify.audio"
-	keyNotifyOnInput             = "notify.on-input"
-	keyNotifyOnDone              = "notify.on-done"
-	keyNotifyOnError             = "notify.on-error"
+	keyDocker                    = "docker"
+	// keyDind is the deprecated alias for the docker capability.
+	keyDind                = "dind"
+	keyCPUs                = "cpus"
+	keyQuiet               = "quiet"
+	keyYes                 = "yes"
+	keyUpgradeMode         = "upgrade.mode"
+	keyUpgradeInterval     = "upgrade.interval"
+	keyProvisionHostConfig = "provision-host-config"
+	keyNotifyDesktop       = "notify.desktop"
+	keyNotifyAudio         = "notify.audio"
+	keyNotifyOnInput       = "notify.on-input"
+	keyNotifyOnDone        = "notify.on-done"
+	keyNotifyOnError       = "notify.on-error"
 )
 
 var supportedExts = []string{".yaml", ".yml", ".json", extJSONC, extJSON5}
@@ -297,7 +353,7 @@ var supportedExts = []string{".yaml", ".yml", ".json", extJSONC, extJSON5}
 // Their env vars use the AGENTS_SANDBOX_ prefix.
 var configFlagKeys = []string{
 	keyCPUs, "memory", "tmp-size", "disk-size", "workspace-quota",
-	keyYes, keyQuiet, "log-level", "agent", "dind",
+	keyYes, keyQuiet, "log-level", "agent", keyDocker,
 }
 
 // configEnvKeys are all launcher config keys bound to env vars.
@@ -308,7 +364,7 @@ var configEnvKeys = []string{
 	keyAutoStopOnActiveSessions, keyAutoStopTimeout, keyAutoStopMaxSessionRetries,
 	keyNetworkProfile, keyNetworkDNSServers,
 	keyAgent,
-	keyDind,
+	keyDocker, keyDind,
 	keyUpgradeMode, keyUpgradeInterval,
 	keyProvisionHostConfig,
 }
@@ -637,7 +693,7 @@ func (r *Resolver) Yes() bool                     { return r.cfg.Yes }
 func (r *Resolver) Quiet() bool                   { return r.cfg.Quiet }
 func (r *Resolver) LogLevel() string              { return r.cfg.LogLevel }
 func (r *Resolver) Agent() string                 { return r.cfg.Agent }
-func (r *Resolver) Dind() bool                    { return r.cfg.Dind }
+func (r *Resolver) Docker() bool                  { return r.cfg.Docker }
 func (r *Resolver) ProvisionHostConfig() bool     { return r.cfg.ProvisionHostConfig }
 func (r *Resolver) AutoPruneAge() time.Duration   { return r.cfg.AutoPruneAge }
 func (r *Resolver) ManualPruneAge() time.Duration { return r.cfg.ManualPruneAge }
@@ -698,7 +754,7 @@ func (r *Resolver) BuildRunOptions(cmd *cobra.Command, ui termio.UI) (options.Ru
 		opts.WorkspaceQuota = r.cfg.WorkspaceQuota
 		opts.ReapPolicy = options.NewReapPolicy(r.cfg.AutoStopOnActiveSessions, r.cfg.AutoStopMaxSessionRetries)
 		opts.IdleTimeout = r.cfg.IdleTimeout()
-		opts.Dind = r.cfg.Dind
+		opts.Docker = r.cfg.Docker
 		opts.Mounts, err = mounts.ResolveBindMounts(r.cfg.Mounts)
 		if err != nil {
 			return options.RunOptions{}, err
@@ -706,6 +762,8 @@ func (r *Resolver) BuildRunOptions(cmd *cobra.Command, ui termio.UI) (options.Ru
 		provisionHostConfig := r.cfg.ProvisionHostConfig
 		opts.ProvisionHostConfig = &provisionHostConfig
 	}
+
+	applyDeprecatedDindFlag(cmd, &opts)
 
 	if err := r.resolveNetwork(cmd, &opts); err != nil {
 		return options.RunOptions{}, err
@@ -716,6 +774,22 @@ func (r *Resolver) BuildRunOptions(cmd *cobra.Command, ui termio.UI) (options.Ru
 	}
 
 	return opts, nil
+}
+
+// applyDeprecatedDindFlag folds the deprecated --dind flag into opts.Docker.
+// The canonical --docker flag wins when both are set. The deprecated flag is
+// not bound to viper, so it is resolved here. Cobra emits the deprecation
+// warning for the flag itself.
+func applyDeprecatedDindFlag(cmd *cobra.Command, opts *options.RunOptions) {
+	dindFlag := cmd.Flags().Lookup(keyDind)
+	if dindFlag == nil || !dindFlag.Changed {
+		return
+	}
+	if dockerFlag := cmd.Flags().Lookup(keyDocker); dockerFlag != nil && dockerFlag.Changed {
+		return
+	}
+	dind, _ := cmd.Flags().GetBool(keyDind)
+	opts.Docker = dind
 }
 
 // resolveFlags reads the direct-run flags off the command and returns the

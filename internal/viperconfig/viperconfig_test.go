@@ -621,9 +621,34 @@ func TestNetworkInvalidDNSServersRejected(t *testing.T) {
 	}
 }
 
-func TestDindFromConfig(t *testing.T) {
+func TestDockerFromConfig(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
-	// project-level config.yaml
+	if err := os.MkdirAll(configpaths.Get().ProjectConfigDir(), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(
+		filepath.Join(configpaths.Get().ProjectConfigDir(), "config.yaml"),
+		[]byte("docker: true\n"),
+		0o600,
+	); err != nil {
+		t.Fatal(err)
+	}
+	r, err := NewResolver(nil, "some-slug")
+	if err != nil {
+		t.Fatalf("NewResolver: %v", err)
+	}
+	if !r.Docker() {
+		t.Error("Docker() = false, want true from config")
+	}
+	if r.DockerLegacyAlias() != "" {
+		t.Errorf("DockerLegacyAlias() = %q, want empty for the canonical key", r.DockerLegacyAlias())
+	}
+}
+
+// TestDindConfigAlias verifies the deprecated dind config key still enables
+// docker and is surfaced as a legacy alias for a one-time warning.
+func TestDindConfigAlias(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
 	if err := os.MkdirAll(configpaths.Get().ProjectConfigDir(), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -638,15 +663,112 @@ func TestDindFromConfig(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewResolver: %v", err)
 	}
-	if !r.Dind() {
-		t.Error("Dind() = false, want true from config")
+	if !r.Docker() {
+		t.Error("Docker() = false, want true from the deprecated dind key")
+	}
+	if r.DockerLegacyAlias() == "" {
+		t.Error("DockerLegacyAlias() = empty, want the deprecated dind source")
 	}
 }
 
-func TestDindDefaultsFalse(t *testing.T) {
+// TestDockerConfigWinsOverDindAlias verifies the canonical key has precedence.
+func TestDockerConfigWinsOverDindAlias(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	if err := os.MkdirAll(configpaths.Get().ProjectConfigDir(), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(
+		filepath.Join(configpaths.Get().ProjectConfigDir(), "config.yaml"),
+		[]byte("docker: false\ndind: true\n"),
+		0o600,
+	); err != nil {
+		t.Fatal(err)
+	}
+	r, err := NewResolver(nil, "some-slug")
+	if err != nil {
+		t.Fatalf("NewResolver: %v", err)
+	}
+	if r.Docker() {
+		t.Error("Docker() = true, want the canonical docker key to win")
+	}
+}
+
+// TestDockerExplicitFromEnv verifies AGENTS_SANDBOX_DOCKER marks docker as
+// explicitly set, so the deprecated dind alias is not surfaced.
+func TestDockerExplicitFromEnv(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	t.Setenv("AGENTS_SANDBOX_DOCKER", "true")
+	r, err := NewResolver(nil, "some-slug")
+	if err != nil {
+		t.Fatalf("NewResolver: %v", err)
+	}
+	if !r.Docker() {
+		t.Error("Docker() = false, want true from AGENTS_SANDBOX_DOCKER")
+	}
+	if r.DockerLegacyAlias() != "" {
+		t.Errorf("DockerLegacyAlias() = %q, want empty when docker is explicit", r.DockerLegacyAlias())
+	}
+}
+
+// TestDockerExplicitFromFlag verifies the --docker flag marks docker as
+// explicitly set.
+func TestDockerExplicitFromFlag(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	root := &cobra.Command{Use: "root"}
+	root.PersistentFlags().Bool(keyDocker, false, "")
+	if err := root.ParseFlags([]string{"--" + keyDocker}); err != nil {
+		t.Fatalf("ParseFlags: %v", err)
+	}
+	r, err := NewResolver(root, "some-slug")
+	if err != nil {
+		t.Fatalf("NewResolver: %v", err)
+	}
+	if !r.Docker() {
+		t.Error("Docker() = false, want true from --docker")
+	}
+	if r.DockerLegacyAlias() != "" {
+		t.Errorf("DockerLegacyAlias() = %q, want empty for the --docker flag", r.DockerLegacyAlias())
+	}
+}
+
+// TestDindFromEnvAlias verifies AGENTS_SANDBOX_DIND enables docker and is
+// reported as the deprecated source.
+func TestDindFromEnvAlias(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	t.Setenv("AGENTS_SANDBOX_DIND", "true")
+	r, err := NewResolver(nil, "some-slug")
+	if err != nil {
+		t.Fatalf("NewResolver: %v", err)
+	}
+	if !r.Docker() {
+		t.Error("Docker() = false, want true from AGENTS_SANDBOX_DIND")
+	}
+	if got := r.DockerLegacyAlias(); got != "AGENTS_SANDBOX_DIND" {
+		t.Errorf("DockerLegacyAlias() = %q, want AGENTS_SANDBOX_DIND", got)
+	}
+}
+
+// TestDindFromLegacyEnvAlias verifies the deprecated OPENCODE_SANDBOX_DIND
+// prefix enables docker and is reported with the generic dind source name.
+func TestDindFromLegacyEnvAlias(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	t.Setenv("OPENCODE_SANDBOX_DIND", "true")
+	r, err := NewResolver(nil, "some-slug")
+	if err != nil {
+		t.Fatalf("NewResolver: %v", err)
+	}
+	if !r.Docker() {
+		t.Error("Docker() = false, want true from OPENCODE_SANDBOX_DIND")
+	}
+	if got := r.DockerLegacyAlias(); got != "dind" {
+		t.Errorf("DockerLegacyAlias() = %q, want the generic dind source for the legacy env prefix", got)
+	}
+}
+
+func TestDockerDefaultsFalse(t *testing.T) {
 	r := NewResolverWithConfig(Config{})
-	if r.Dind() {
-		t.Error("Dind() = true, want default false")
+	if r.Docker() {
+		t.Error("Docker() = true, want default false")
 	}
 }
 

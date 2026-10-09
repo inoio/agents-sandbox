@@ -249,7 +249,15 @@ func registerSharedRunShellFlags(cmd *cobra.Command) {
 	cmd.Flags().
 		StringSlice(flagDNSServers, nil, "DNS upstream resolvers for the VM: IP (e.g. 1.1.1.1) or host:port (e.g. 1.1.1.1:53); comma-separated or repeated")
 	cmd.Flags().String(flagAgent, defaultAgentName, "Coding agent profile to run")
-	cmd.Flags().Bool(flagDind, false, "Enable Docker-in-Docker in the runner image")
+	registerDockerFlags(cmd)
+}
+
+// registerDockerFlags registers the canonical --docker flag and the deprecated
+// --dind alias on cmd.
+func registerDockerFlags(cmd *cobra.Command) {
+	cmd.Flags().Bool(flagDocker, false, "Bake the Docker engine into the runner image")
+	cmd.Flags().Bool(flagDind, false, "Deprecated alias for --docker")
+	_ = cmd.Flags().MarkDeprecated(flagDind, "use --docker instead")
 }
 
 func buildStopCmd(ui termio.UI) *cobra.Command {

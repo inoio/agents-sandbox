@@ -16,6 +16,25 @@ import (
 	"github.com/inoio/agents-sandbox/internal/termio"
 )
 
+// TestComputeDockerfileIDFoldsMergeScript asserts the identity is stable for
+// identical inputs and changes when the embedded profile.d merge script changes,
+// so editing the shipped script invalidates existing runner images.
+func TestComputeDockerfileIDFoldsMergeScript(t *testing.T) {
+	rendered := []byte("FROM scratch\n")
+	original := embeddedPathMergeScript
+	t.Cleanup(func() { embeddedPathMergeScript = original })
+
+	before := computeDockerfileID(rendered, "1.2.3")
+	if again := computeDockerfileID(rendered, "1.2.3"); again != before {
+		t.Fatalf("computeDockerfileID not stable for identical inputs: %q vs %q", before, again)
+	}
+
+	embeddedPathMergeScript = append(append([]byte(nil), original...), []byte("\n# changed\n")...)
+	if after := computeDockerfileID(rendered, "1.2.3"); after == before {
+		t.Error("computeDockerfileID did not change after the merge script changed")
+	}
+}
+
 // TestEnsureImageSkipsBuildWhenDockerfileIDMatches verifies the build is skipped
 // when the existing runner image already carries a matching dockerfile-id label.
 func TestEnsureImageSkipsBuildWhenDockerfileIDMatches(t *testing.T) {
@@ -27,7 +46,7 @@ func TestEnsureImageSkipsBuildWhenDockerfileIDMatches(t *testing.T) {
 		ImageInspectFn: func(_ context.Context, ref string, _ ...client.ImageInspectOption) (client.ImageInspectResult, error) {
 			id := "sha256:existing"
 			labels := map[string]string{
-				dockerfileIDLabelKey: computeDockerfileID(RenderDockerfile(a, nil, false), "1.2.3"),
+				dockerfileIDLabelKey: computeDockerfileID(renderBytes(t, a, nil, false), "1.2.3"),
 			}
 			if ref == "debian:trixie-slim" {
 				return client.ImageInspectResult{ID: "sha256:base"}, nil
@@ -50,6 +69,20 @@ func TestEnsureImageSkipsBuildWhenDockerfileIDMatches(t *testing.T) {
 	}
 	if info.Digest != "sha256:existing" {
 		t.Errorf("Digest = %q, want the existing image ID", info.Digest)
+	}
+}
+
+// TestEnsureImageReportsRenderError verifies a project Dockerfile that declares
+// a reserved stage alias surfaces the render error before any build runs.
+func TestEnsureImageReportsRenderError(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	WithMockAgentVersion(t, "1.2.3")
+	a := agentOpencode(t)
+	project := []byte("FROM debian:trixie-slim AS agents-sandbox-base\n")
+
+	_, err := EnsureImageWithClient(context.Background(), a, project, "proj", BuildOptions{}, &termio.Mock{})
+	if err == nil || !strings.Contains(err.Error(), "render Dockerfile") {
+		t.Fatalf("EnsureImageWithClient error = %v, want a render Dockerfile error", err)
 	}
 }
 
@@ -154,7 +187,7 @@ func TestEnsureImageResolvesAnUnpinnedAgentVersion(t *testing.T) {
 func TestEnsureImageReusesUnknownUserAgentWithoutResolvingVersion(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	a := agentOpencode(t)
-	rendered := RenderDockerfile(a, nil, false)
+	rendered := renderBytes(t, a, nil, false)
 	wantID := computeDockerfileID(rendered, userProvidedImageIdentity)
 	buildCalled := false
 	resolverCalled := false
@@ -232,15 +265,15 @@ func TestEnsureImageResolvesUnknownUserAgentOnlyForARebuild(t *testing.T) {
 	if gotArgs == nil || gotArgs["OPENCODE_VERSION"] == nil || *gotArgs["OPENCODE_VERSION"] != "1.2.3" {
 		t.Errorf("OPENCODE_VERSION build arg = %v, want 1.2.3", gotArgs)
 	}
-	wantID := computeDockerfileID(RenderDockerfile(a, nil, false), "1.2.3")
+	wantID := computeDockerfileID(renderBytes(t, a, nil, false), "1.2.3")
 	if gotDockerfileID != wantID {
 		t.Errorf("DOCKERFILE_ID = %q, want resolved-version identity %q", gotDockerfileID, wantID)
 	}
 }
 
-// TestEnsureImageDindAddsDockerVersionArg verifies the dind build arg is only
+// TestEnsureImageDockerAddsDockerVersionArg verifies the docker build arg is only
 // passed when dind is enabled.
-func TestEnsureImageDindAddsDockerVersionArg(t *testing.T) {
+func TestEnsureImageDockerAddsDockerVersionArg(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	WithMockAgentVersion(t, "1.2.3")
 	a := agentOpencode(t)
@@ -254,7 +287,7 @@ func TestEnsureImageDindAddsDockerVersionArg(t *testing.T) {
 			return client.ImageBuildResult{Body: io.NopCloser(strings.NewReader(""))}, nil
 		},
 	})
-	if _, err := EnsureImage(context.Background(), a, "proj", BuildOptions{Dind: true}, &termio.Mock{}); err != nil {
+	if _, err := EnsureImage(context.Background(), a, "proj", BuildOptions{Docker: true}, &termio.Mock{}); err != nil {
 		t.Fatalf("EnsureImage: %v", err)
 	}
 	if gotArgs == nil || gotArgs["DOCKER_VERSION"] == nil || *gotArgs["DOCKER_VERSION"] != "29.7.2" {
@@ -293,11 +326,11 @@ func TestResolveBaseDigestPullsAbsentBase(t *testing.T) {
 
 func TestBaseImageRef(t *testing.T) {
 	a := agentOpencode(t)
-	if got := baseImageRef(RenderDockerfile(a, nil, false)); got != "debian:trixie-slim" {
+	if got := baseImageRef(renderBytes(t, a, nil, false)); got != "debian:trixie-slim" {
 		t.Errorf("default baseImageRef = %q", got)
 	}
 	custom := []byte("FROM ubuntu:24.04\nRUN echo hi\n")
-	if got := baseImageRef(RenderDockerfile(a, custom, false)); got != "ubuntu:24.04" {
+	if got := baseImageRef(renderBytes(t, a, custom, false)); got != "ubuntu:24.04" {
 		t.Errorf("custom baseImageRef = %q", got)
 	}
 }
