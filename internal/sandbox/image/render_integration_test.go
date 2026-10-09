@@ -204,7 +204,19 @@ func buildDockerfileTagOutput(
 			*lines = append(*lines, s)
 		}
 	}
-	if err := buildImage(ctx, a, dockerfile, tag, false, agentVersion, "", "", dockerEnabled, line); err != nil {
+	if err := buildImage(
+		ctx,
+		a,
+		dockerfile,
+		tag,
+		false,
+		agentVersion,
+		"",
+		"",
+		dockerEnabled,
+		imageIdentity{},
+		line,
+	); err != nil {
 		t.Fatalf("docker image build failed: %v", err)
 	}
 }

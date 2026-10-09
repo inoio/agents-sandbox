@@ -14,6 +14,10 @@ command reports the bare version (e.g. `0.1.0`).
   the user body and each other, reusing the same tool layers across projects on one machine.
 - Runner image: the `agents-sandbox/runner-base-docker` base reference is recognized (alongside the deprecated
   `agents-sandbox/runner-base-dind`).
+- Verbose output now states why the runner image is rebuilt on every rebuild path: the Docker image build names the
+  changed identity inputs (project Dockerfile, agent version, Docker-in-Docker) or `--rebuild`/missing image, the
+  microsandbox load reports whether the cached image is absent or stale, and a project VM recreate/daemon restart lists
+  the config changes that triggered it.
 - Internal: add `make test-integration` — runs every `integration`-tagged test across the module (excluded from the main
   suite), currently the docker-build tests that build a real image for every `RenderDockerfile` composition case (no
   project Dockerfile, managed base, and custom Fedora base, each with and without docker). Wired into CI as a selective

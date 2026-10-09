@@ -145,6 +145,7 @@ func TestBuildDockerImageSetsHostUserBuildArgs(t *testing.T) {
 		"debian:trixie-slim",
 		"",
 		false,
+		imageIdentity{},
 		func(string) {},
 	); err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -178,7 +179,7 @@ func TestBuildImageNoCacheFollowsParameter(t *testing.T) {
 
 			if err := buildImage(
 				context.Background(), a, dockerfile, "tag",
-				noCache, "", "debian:trixie-slim", "", false, func(string) {},
+				noCache, "", "debian:trixie-slim", "", false, imageIdentity{}, func(string) {},
 			); err != nil {
 				t.Fatalf("unexpected error: %v", err)
 			}

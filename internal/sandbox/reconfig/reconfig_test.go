@@ -2,6 +2,7 @@ package reconfig
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
@@ -79,6 +80,37 @@ func TestResolveReconfigSilentWhenAlone(t *testing.T) {
 	}
 	if len(ui.InfoCalls) == 0 {
 		t.Error("expected at least an informational line when recreating silently")
+	}
+}
+
+func TestResolveReconfigVerboseReportsRebuildReasons(t *testing.T) {
+	plan := &Plan{
+		Recreate: true,
+		Changes:  []Change{{Label: "image"}, {Label: "secrets"}},
+	}
+	ui := &termio.Mock{}
+	if _, _, err := ResolveReconfig(context.Background(), ui, plan, 0, plan.Changes); err != nil {
+		t.Fatalf("ResolveReconfig: %v", err)
+	}
+	joined := strings.Join(ui.VerboseCalls, "\n")
+	if !strings.Contains(joined, "rebuild reasons:") ||
+		!strings.Contains(joined, "image") || !strings.Contains(joined, "secrets") {
+		t.Errorf("verbose calls = %v, want the rebuild reasons", ui.VerboseCalls)
+	}
+}
+
+func TestResolveReconfigVerboseReportsRestartReasons(t *testing.T) {
+	plan := &Plan{
+		RestartDaemons: true,
+		Changes:        []Change{{Label: "agent config"}},
+	}
+	ui := &termio.Mock{}
+	if _, _, err := ResolveReconfig(context.Background(), ui, plan, 0, plan.Changes); err != nil {
+		t.Fatalf("ResolveReconfig: %v", err)
+	}
+	joined := strings.Join(ui.VerboseCalls, "\n")
+	if !strings.Contains(joined, "restart reasons: agent config") {
+		t.Errorf("verbose calls = %v, want the restart reasons", ui.VerboseCalls)
 	}
 }
 
