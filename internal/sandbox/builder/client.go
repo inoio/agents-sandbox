@@ -257,10 +257,20 @@ func (c *Client) Build(ctx context.Context, req BuildRequest) (BuildResult, erro
 	buildSucceeded = true
 	return BuildResult{
 		ArchivePath: archivePath,
-		Digest:      resp.ExporterResponse["containerimage.digest"],
+		Digest:      imageDigest(resp.ExporterResponse),
 		Env:         metadata.Config.Env,
 		BaseDigest:  baseDigest,
 	}, nil
+}
+
+// imageDigest returns the image's config digest, which is what microsandbox's
+// ImageConfig.Digest reports on reuse, so both paths compare equal. It falls
+// back to the manifest digest when BuildKit omits the config digest.
+func imageDigest(exporterResponse map[string]string) string {
+	if digest := exporterResponse["containerimage.config.digest"]; digest != "" {
+		return digest
+	}
+	return exporterResponse["containerimage.digest"]
 }
 
 // PruneCache reclaims stale BuildKit cache inside the shared builder VM.

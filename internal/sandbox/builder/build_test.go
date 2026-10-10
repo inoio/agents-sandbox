@@ -270,6 +270,33 @@ func TestBuildParsesExporterMetadata(t *testing.T) {
 	}
 }
 
+// TestBuildPrefersConfigDigest verifies the returned Digest is the OCI config
+// digest, matching what microsandbox's ImageConfig.Digest reports on reuse, so
+// the reuse and build paths agree and do not trigger a spurious image-changed
+// prompt. Falls back to the manifest digest only when the config digest is
+// absent.
+func TestBuildPrefersConfigDigest(t *testing.T) {
+	stubResolveBaseDigest(t, "base@sha256:x", nil)
+
+	fake := &fakeBuildkitClient{}
+	fake.solveFn = func(client.SolveOpt) (*client.SolveResponse, error) {
+		return &client.SolveResponse{ExporterResponse: map[string]string{
+			"containerimage.digest":        "sha256:manifest",
+			"containerimage.config.digest": "sha256:config",
+		}}, nil
+	}
+	result, err := newBuildTestClient(t, fake).Build(context.Background(), BuildRequest{
+		ContextDir: "/tmp/context",
+		Platform:   "linux/amd64",
+	})
+	if err != nil {
+		t.Fatalf("Build failed: %v", err)
+	}
+	if result.Digest != "sha256:config" {
+		t.Errorf("Digest = %q, want the config digest sha256:config", result.Digest)
+	}
+}
+
 func TestBuildAcceptsOCIExportType(t *testing.T) {
 	stubResolveBaseDigest(t, "base@sha256:x", nil)
 
