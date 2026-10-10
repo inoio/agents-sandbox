@@ -18,8 +18,7 @@ import (
 
 // setupRunMocks configures all mock dependencies needed for run/shell tests,
 // builds the root command for the given args, and returns it with the UI so
-// callers can Execute and assert. The common configpaths/noop-docker/doctor
-// mocks come from the command fixture. It always registers the given mock so
+// callers can Execute and assert. The common configpaths/doctor mocks come from the command fixture. It always registers the given mock so
 // callers can inspect its call history, and installs a daemon shell stub that
 // reports the sandbox healthy.
 func setupRunMocks(t *testing.T, mock *sandboxmsb.MockMsbClient, sandboxToReturn sandboxmsb.Sandbox,

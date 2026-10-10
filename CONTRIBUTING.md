@@ -14,7 +14,6 @@ The layout is a standard Go module:
 
 - **Go** — version pinned in `.go-version`, managed via goenv
 - **golangci-lint** — used by `make lint` and `make fmt`
-- **Docker** — for building the runner image (`agents-sandbox build`)
 - **zig** — only needed for cross-compiling release binaries (`make build-release`)
 
 Run `make bootstrap` once to install the pinned Go, golangci-lint, and Zig. `gotestsum` is fetched on demand via

@@ -1,6 +1,6 @@
 ---
 title: Prerequisites
-description: "Supported platforms and required software for agents-sandbox: Linux with KVM, macOS on Apple Silicon or Windows (experimental), plus Docker."
+description: "Supported platforms and required hardware for agents-sandbox: Linux with KVM, macOS on Apple Silicon or Windows (experimental), plus the microsandbox runtime."
 layout: default
 parent: Install
 nav_order: 10
@@ -18,13 +18,9 @@ agents-sandbox supports the following platforms:
 
 ## Software prerequisites
 
-agents-sandbox requires the following pre-installed software:
-
-- **Docker**, **Docker Desktop** or **colima** for building VM images
-
-The Docker endpoint is resolved like the `docker` CLI resolves it: `DOCKER_HOST` first, then the active
-docker context (`docker context ls`), then the default `/var/run/docker.sock`. A colima or Docker Desktop
-install that publishes its socket through a docker context therefore needs no extra configuration.
+agents-sandbox needs no separate container runtime. Runner images are built inside a microsandbox VM, and the
+microsandbox runtime (`msb`) is installed and managed by agents-sandbox itself on first use. The host only has to
+provide hardware virtualization and outbound network access.
 
 ## Doctor check
 

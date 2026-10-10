@@ -53,7 +53,7 @@ func TestDoctorAllChecksPass(t *testing.T) {
 
 	// msb must be resolvable for a clean pass: put a fake msb binary on PATH.
 	binDir := t.TempDir()
-	for _, name := range []string{"docker", "git", "msb"} {
+	for _, name := range []string{"msb"} {
 		f, err := os.OpenFile(filepath.Join(binDir, name), os.O_CREATE|os.O_WRONLY, 0o755)
 		if err != nil {
 			t.Fatal(err)

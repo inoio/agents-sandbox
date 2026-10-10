@@ -29,6 +29,10 @@ command reports the bare version (e.g. `0.1.0`).
   `# agents-sandbox:dind` marker is still recognized). Without the marker the block is still appended after the
   Dockerfile body.
 - `run` and `shell` now accept `--agent-version` to pin the agent version baked into the runner image, matching `build`.
+- Runner image: a Docker-free BuildKit builder VM. The runner image is built by a `buildkitd` running inside a shared
+  microsandbox VM, driven by a host-side BuildKit client over a published loopback port, so building or refreshing the
+  image no longer needs the host Docker daemon. The BuildKit cache persists in a global `agents-sandbox-buildkit-cache`
+  volume across projects and invocations, and image pruning reclaims it.
 
 ### Changed
 
@@ -75,6 +79,12 @@ command reports the bare version (e.g. `0.1.0`).
   `ci/test-check-docs.sh`); root-level files link into the docs with rendered HTML links and `docs/` pages link with Jekyll
   `{% link %}` tags.
 - Internal: collapse run/shell option resolution into `viperconfig.Resolver.BuildRunOptions` (no behavior change).
+
+### Removed
+
+- Host Docker/container-runtime requirement. Image builds now run in the BuildKit builder VM, so the
+  `internal/sandbox/docker` client and the `doctor` Docker preflight check are gone; `doctor` verifies the platform
+  (KVM / Apple Silicon) and the microsandbox runtime only.
 
 ### Fixed
 

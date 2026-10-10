@@ -188,8 +188,8 @@ func TestPrepareSandboxLoadsHomeYamlOnce(t *testing.T) {
 	agentLatestVersion = func(_ context.Context, _ agent.Agent) (string, error) { return "1.0.0", nil }
 	t.Cleanup(func() { agentLatestVersion = origUpgradeInfo })
 
-	// Docker build + inspect are mocked so EnsureImage can "build" the runner
-	// image and produce a deterministic digest.
+	// The BuildKit build and msb image inspect are mocked so EnsureImage can
+	// "build" the runner image and produce a deterministic digest.
 	slug := git.ProjectSlug()
 
 	// The msb image cache already holds the digest image (ImageGet succeeds),

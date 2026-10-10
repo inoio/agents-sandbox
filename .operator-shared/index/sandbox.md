@@ -1,6 +1,6 @@
 ---
-description: The internal/sandbox package tree - microsandbox VM, docker, image, session, state, volume, and related subsystems.
-read_if: Working in internal/sandbox (VM lifecycle, image building, docker/msb clients, volumes, pruning, state locking, sessions).
+description: The internal/sandbox package tree - microsandbox VM, BuildKit builder, image, session, state, volume, and related subsystems.
+read_if: Working in internal/sandbox (VM lifecycle, image building, BuildKit builder/msb clients, volumes, pruning, state locking, sessions).
 ---
 
 # Sandbox
@@ -13,25 +13,26 @@ read_if: Working in internal/sandbox (VM lifecycle, image building, docker/msb c
 
 - `internal/sandbox/` is the largest area of the codebase; it drives VM lifecycle, runner-image builds, docker & microsandbox (msb) clients, volumes, pruning, sessions, and state locking.
 - The `vm/` package is the biggest: it orchestrates project-VM creation/ensure, the dockerd sidecar, run execution, upgrades, worktree handling, and VM env/control.
-- Cross-cutting dependencies: `msb/` (microsandbox SDK client) and `docker/` are the external system clients; `naming/`, `options/`, `state/`, `network/`, `mounts/` provide shared configuration/locking primitives used across sandbox subpackages.
+- Cross-cutting dependencies: `msb/` (microsandbox SDK client) is the external runtime client and `builder/` drives the BuildKit builder VM for image builds; `naming/`, `options/`, `state/`, `network/`, `mounts/` provide shared configuration/locking primitives used across sandbox subpackages.
 - Heavily test-driven (many `*_test.go` / `coverage_*.go` files per package); most integration seams are mockable via `testmock.go` / `main_test.go` per package.
 
 ## `internal/sandbox` Index
 
-### `docker/` — Docker client wrapper and guards
+### `builder/` — BuildKit builder VM and image build
 
-- `docker.go`, `dockercontext.go` — Docker client/context
+- `builder.go`, `vm.go` — shared builder-VM lifecycle (ensure/start `buildkitd`, readiness, cache volume, teardown)
+- `client.go`, `build.go`, `auth.go` — host-side BuildKit client: `Solve` the rendered Dockerfile, OCI export, gateway base-digest resolution, registry auth
 - `testmock.go`, `*_test.go` — mocks and tests
 
 ### `doctor/` — Environment diagnostics and shell rc
 
-- `doctor.go`, `install.go`, `shell_rc.go` — health checks and shell setup
+- `doctor.go`, `install.go`, `shell_rc.go` — health checks (platform virtualization + msb runtime; no Docker check) and shell setup
 - `doctor_darwin.go`, `doctor_linux.go` — platform variants
 
 ### `image/` — Runner image build, Dockerfile, fetch, inspect, tags
 
-- `build.go`, `dockerfile.go`, `fetch.go`, `format.go`, `image.go`, `inspect.go`, `list.go`, `tags.go`, `embed.go` — image pipeline
-- `render_integration_test.go` — `//go:build integration` docker-build tests for `RenderDockerfile` composition (no Dockerfile / managed base / custom Fedora base, each ± dind). Run via `make test-integration`; wired into CI as a selective job (main/release/manual). **Cannot run inside the agents-sandbox VM** — microsandbox's egress-inspection CA makes in-image downloads (apt/dnf/node) fail; must run on a host with a normal docker daemon.
+- `build.go`, `dockerfile.go`, `fetch.go`, `format.go`, `image.go`, `inspect.go`, `list.go`, `tags.go`, `embed.go` — image pipeline (rendering, identity/cache decision; delegates the actual build to `builder/`)
+- `integration_build_test.go` — `//go:build integration` end-to-end tests for the real BuildKit build pipeline and cache reuse. Run via `make test-integration`; wired into CI as a selective job (main/release/manual). **Cannot run inside the agents-sandbox VM** (no `/dev/kvm`); run on a KVM host with msb and network access.
 - Custom-base requirements (shadow-utils, POSIX shell bash→zsh→sh, curl+tar, dind prereqs) and unsupported bases (Alpine/distroless/scratch) are documented in `docs/runner-image.md`.
 
 ### `mounts/` — Filesystem mount handling

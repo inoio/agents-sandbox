@@ -79,7 +79,7 @@ agents-sandbox shell -w bugfix-fix-thing
 
 ### build
 
-Build or rebuild the runner Docker image. If `.agents-sandbox/Dockerfile` exists in the project directory, it's layered on top of the base image.
+Build or rebuild the runner image. If `.agents-sandbox/Dockerfile` exists in the project directory, it's layered on top of the base image.
 
 ```console
 agents-sandbox build        # build or update if needed
@@ -104,7 +104,7 @@ agents-sandbox build --agent-version 0.5.0  # pin a specific agent version
 
 #### build dockerfile
 
-Print the runner Dockerfile exactly as it would be built for the current project, without invoking docker. The output reflects the selected agent profile and the docker switch, and layers the project's `.agents-sandbox/Dockerfile` (if any) on top of the base image.
+Print the runner Dockerfile exactly as it would be built for the current project, without building an image. The output reflects the selected agent profile and the docker switch, and layers the project's `.agents-sandbox/Dockerfile` (if any) on top of the base image.
 
 ```console
 agents-sandbox build dockerfile            # default agent, no docker
@@ -168,7 +168,7 @@ agents-sandbox kill -f     # kill and remove VM state
 ### prune
 
 Remove stale VMs, volumes, and images in one pass. Staleness is determined by age — resources older than the threshold
-are pruned. The summary line reads `Pruned N VMs, N home volumes, N docker images, N msb images`. To prune a single
+are pruned. The summary line reads `Pruned N VMs, N home volumes, N msb images, buildkit cache pruned: <bool>`. To prune a single
 artifact type, use the `image prune`, `volume prune`, or `sandbox prune` subcommands below.
 
 ```console
@@ -347,7 +347,7 @@ agents-sandbox img
 
 #### image list
 
-List cached runner Docker images with reference, digest, size, and creation time. The
+List cached runner images with reference, digest, size, and creation time. The
 reference ends in the short content hash the image is keyed under in microsandbox; the
 digest column shows the short form (`sha256:` followed by 12 hex chars) as microsandbox
 reports it.
@@ -397,7 +397,7 @@ agents-sandbox tree
 
 ### doctor
 
-Check prerequisites (Docker, KVM, Git, and the microsandbox runtime) and exit.
+Check prerequisites (platform virtualization and the microsandbox runtime) and exit.
 The runtime check compares the selected `msb` version with the SDK version
 linked into agents-sandbox. If they differ, an interactive recovery prompt is
 shown before any VM or runtime database operation.

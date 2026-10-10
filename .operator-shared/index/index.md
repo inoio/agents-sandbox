@@ -8,7 +8,7 @@ read_if: Navigating the codebase.
 ## Architecture
 
 - `agents-sandbox` is a Go CLI (module `github.com/inoio/agents-sandbox`, Go 1.26) that isolates coding agents (opencode, opencode2, pi, Claude Code) inside a dedicated microsandbox VM per project/agent.
-- It uses `msb` (the microsandbox CLI / SDK) and Docker to build/reuse the VM, and Viper + Cobra for config and CLI.
+- It uses `msb` (the microsandbox CLI / SDK) and BuildKit (running in a builder VM) to build/reuse the VM, and Viper + Cobra for config and CLI.
 - Layout: `cmd/agents-sandbox/` is the Cobra CLI; `internal/` holds the packages, dominated by `internal/sandbox/` (see its subindex). `docs/` is a Jekyll (just-the-docs) site; `ci/builder/`, `Formula/`, `.github/` handle cross-compile, Homebrew, and CI.
 - Target platforms: Linux (KVM) and macOS (Apple Silicon); platform-specific code lives in `_darwin.go`/`_linux.go` files.
 - Heavily test-driven; each `internal/` package pairs source files with `*_test.go` (and often `main_test.go`/`testmock.go`/`coverage_*.go`) for mocks and integration seams.
@@ -27,7 +27,7 @@ read_if: Navigating the codebase.
 ### `cmd/agents-sandbox/` — Cobra CLI entry and command implementations
 
 - `main.go` — Entry point; wires termio UI and calls `execute`.
-- `cli.go` — Cobra root, `execute`, injection seams (msb/docker mocks).
+- `cli.go` — Cobra root, `execute`, injection seams (msb/builder mocks).
 - `commands.go` — Root/tree/version/upgrade commands and wiring.
 - `commands_cli.go` — run/shell/stop/kill commands.
 - `commands_system.go` — doctor/list/config/home/agent/build/dockerfile/image/volume/sandbox/prune commands.
@@ -45,7 +45,7 @@ read_if: Navigating the codebase.
 - `homeconfig/` — Home config provisioning.
 - `humanize/` — Human-readable formatting.
 - `notify/` — Desktop notifications (backend, dedup, events, watch).
-- `sandbox/` — **See [sandbox subindex](sandbox.md)** (VM lifecycle, docker, image, msb, volumes, pruning, sessions, state).
+- `sandbox/` — **See [sandbox subindex](sandbox.md)** (VM lifecycle, builder, image, msb, volumes, pruning, sessions, state).
 - `sysinfo/` — Platform system info (`_darwin.go`/`_linux.go`).
 - `termio/` — Terminal UI (printer, table, prompt, spinner, ansi, levels).
 - `testutil/` — Test helpers (mocks, testgit).

@@ -1,6 +1,6 @@
 ---
 title: Troubleshooting
-description: "Fixes for common agents-sandbox problems, such as failing doctor checks, Docker and microsandbox runtime issues."
+description: "Fixes for common agents-sandbox problems, such as failing doctor checks and microsandbox runtime issues."
 layout: default
 nav_order: 110
 ---
@@ -11,12 +11,6 @@ Common issues and how to resolve them.
 ## `agents-sandbox doctor` fails
 
 If the doctor command reports missing prerequisites:
-
-### Docker not running
-
-Start the Docker daemon. How to start it depends on your environment. When using Docker Desktop, start it. With Docker installed as system wide package on Linux, the normal startup procedure is to execute `sudo systemctl start docker`
-
-You can verify afterwards by running `docker info`. It should show a healthy daemon.
 
 ### Microsandbox runtime version mismatch
 
@@ -73,38 +67,6 @@ uname -m
 ```
 
 Expected output on supported hardware: `arm64`.
-
-### Docker socket not found
-
-On macOS, the Docker socket is managed by Docker Desktop or colima. Verify it is running:
-
-```
-docker info
-```
-
-If Docker Desktop is installed but not running, launch it from Applications. If using colima:
-
-```
-colima start
-```
-
-agents-sandbox finds the socket the same way the `docker` CLI does: `DOCKER_HOST` wins, then the active
-docker context, then the default `/var/run/docker.sock`. If `docker info` works but agents-sandbox reports
-the socket as unreachable, check which context is active and where it points:
-
-```
-docker context ls
-```
-
-A context marked `*` that points at a stopped provider explains the failure — switch it with
-`docker context use <name>`, or point agents-sandbox at the socket directly:
-
-```
-export DOCKER_HOST=unix://$HOME/.colima/default/docker.sock
-```
-
-Note that `DOCKER_HOST` takes precedence over the active context, so an outdated value in your shell
-profile overrides a correct context.
 
 ## VM won't start
 
@@ -233,25 +195,17 @@ If your config files aren't being picked up:
 
 ## Image build fails
 
-Docker build failures are usually due to:
+The runner image is built by a BuildKit daemon running inside a microsandbox VM, so no host Docker runtime is
+involved. Build failures are usually due to:
 
-1. **Network issues** — The base image downloads packages from the internet. Ensure outbound access:
+1. **Network issues** — The base image and its packages are downloaded inside the builder VM. Ensure outbound access:
 
     ```console
     curl -fsSL https://debian.org | head -c 100
     ```
 
-2. **Docker daemon memory** — Large builds may need more memory:
-
-    ```console
-    docker info | grep "Total Memory"
-    ```
-
-3. **Custom Dockerfile errors** — If using a project Dockerfile, build it manually to isolate the issue:
-
-    ```console
-    docker build -f .agents-sandbox/Dockerfile -t test-image .
-    ```
+2. **Custom Dockerfile errors** — Run `agents-sandbox build --log-level verbose` to stream the BuildKit progress and
+   the failing step, and `agents-sandbox build dockerfile` to print the exact rendered Dockerfile that is built.
 
 If an older image or updater state reports `Release vuser-provided not found`, update agents-sandbox and rebuild the
 runner image. `user-provided` identifies an agent that was previously found in a custom base; it is not a valid release

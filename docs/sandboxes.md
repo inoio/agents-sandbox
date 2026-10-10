@@ -17,8 +17,8 @@ Each agents-sandbox invocation follows this lifecycle:
 
 ```
 - Auto-prune: Remove stale VMs, volumes, and images
-- Pre-flight checks (doctor): Docker, KVM, Git, msb
-- Image verify/build: `.agents-sandbox/Dockerfile` (or default image) → Docker image -> microsandbox image
+- Pre-flight checks (doctor): platform virtualization (KVM / Apple Silicon) and msb
+- Image verify/build: `.agents-sandbox/Dockerfile` (or default image) → BuildKit build → microsandbox image
 - Home volume verify/build: Persistent msb volume (`agents-sandbox-home-<slug>-<timestamp>`) per project
 - VM creation or reuse: New or existing project-specific VM
 - Provisioning: Copy agent config etc. (updated configs are re-provisioned).
@@ -48,7 +48,7 @@ worktree of the same remote shares the same project (and therefore the same VM, 
 agent.
 
 The VM is **per-(project, agent), not per-invocation**. Subsequent runs connect to the existing VM (or start it if
-stopped) rather than creating a new one. When the Docker image's Dockerfile has changed, the existing VM has to be
+stopped) rather than creating a new one. When the runner image's Dockerfile has changed, the existing VM has to be
 recreated, but it keeps its name. The home volume is untouched, so no user state is lost (see [Volumes](#volumes)).
 
 VMs, home volumes, and state are scoped per `--agent`, so switching agents no longer tears down the project sandbox, and
@@ -207,8 +207,8 @@ Pruning removes:
 - Surplus msb images of a project that still has a VM. Retained are the per-agent `-latest` tags plus the images a kept
   VM currently references (a stopped-not-yet-stale VM may still point at a pre-redesign digest ref); every other ref
   (orphaned content, old digest refs no sandbox uses) is reclaimed.
-- Dangling Docker images: after a rebuild the previous runner image is no longer referenced by any tag and is reclaimed
-  by a scoped Docker image prune. Tagged images (base images and the current `:latest` runner) are left untouched.
+- The BuildKit builder cache: after a rebuild the previous layers are no longer referenced and are reclaimed by the
+  scoped BuildKit cache prune. Tagged runner images (base images and the current `:latest` runner) are left untouched.
 
 Age is applied when deciding which VMs are stale, and that decision is shared across VMs and home volumes: a project
 whose VM has activity in the age threshold is left alone entirely. Home volumes are reclaimed only when the project's VM

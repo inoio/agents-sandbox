@@ -1,14 +1,14 @@
 ---
 title: Runner Image
-description: "The Docker image agents-sandbox builds for each sandbox, and how to extend it with your project's tooling."
+description: "The runner image agents-sandbox builds for each sandbox, and how to extend it with your project's tooling."
 layout: default
 nav_order: 80
 ---
 
 # Runner Image
 
-agents-sandbox builds a Docker image for each sandbox. The image contains the selected coding agent, Node.js, and common
-CLI tools.
+agents-sandbox builds a runner image for each sandbox with BuildKit (in a microsandbox builder VM). The image contains
+the selected coding agent, Node.js, and common CLI tools.
 Projects can extend the image with their own tooling.
 
 ## Home directory
@@ -23,7 +23,7 @@ action is applied automatically and the old volume is always kept. The state fil
 actually executed. `volume migrate`, `volume reset` and `volume edit` remain available for manual management.
 
 When a rebuilt image uses the same runner-image tag, agents-sandbox refreshes the microsandbox cache by loading the new
-Docker image directly under that tag. It does not remove the old cached manifest first, because a stopped project VM can
+image directly under that tag. It does not remove the old cached manifest first, because a stopped project VM can
 still reference it. Unused image data is reclaimed later by image pruning.
 
 ## One image per project
@@ -214,7 +214,7 @@ agents-sandbox build        # builds if image is missing or base changed
 agents-sandbox build -r     # force rebuild
 ```
 
-Preview the exact Dockerfile that would be built (without invoking docker):
+Preview the exact Dockerfile that would be built (without building an image):
 
 ```console
 agents-sandbox build dockerfile            # default agent, no docker
@@ -227,11 +227,11 @@ List cached images:
 agents-sandbox image list
 ```
 
-The image name includes the project slug and Docker image hash, so changes to the Dockerfile automatically trigger a
+The image name includes the project slug and image hash, so changes to the Dockerfile automatically trigger a
 rebuild. When the resulting image digest differs from the image the existing project VM was booted from, the VM is
 recreated on the next run so it uses the new image (the home volume is preserved).
 
-Runner images are tagged **per agent** on both Docker and microsandbox. The `-latest` tag is namespaced by the agent,
+Runner images are tagged **per agent** in the microsandbox cache. The `-latest` tag is namespaced by the agent,
 so each agent's image can be identified and updated independently:
 
 ```
@@ -244,7 +244,7 @@ and the pi image is `agents-sandbox/runner-my-project:pi-latest`.
 
 ### Skip-build when unchanged
 
-The Docker build is skipped when the baked `org.agents-sandbox.dockerfile-id` label matches the current content. This
+The image build is skipped when the baked `org.agents-sandbox.dockerfile-id` label matches the current content. This
 label is a hash of the rendered Dockerfile and the agent version, so an image already built from the exact same
 Dockerfile and agent version is reused instead of being rebuilt.
 
@@ -258,7 +258,7 @@ older version) is reported as a generic content change.
 ### Content-verified load
 
 Before skipping a load, `EnsureLoaded` verifies the microsandbox cache content — the config digest (compared against
-the Docker image ID) or the `dockerfile-id` label. If the cached content no longer matches, the image is reloaded so the
+the built image's config digest) or the `dockerfile-id` label. If the cached content no longer matches, the image is reloaded so the
 VM always boots from the correct image. At verbose level the load states whether the image was absent from the cache or
 its cached content was stale.
 
