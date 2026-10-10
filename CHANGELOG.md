@@ -14,14 +14,14 @@ command reports the bare version (e.g. `0.1.0`).
   the user body and each other, reusing the same tool layers across projects on one machine.
 - Runner image: the `agents-sandbox/runner-base-docker` base reference is recognized (alongside the deprecated
   `agents-sandbox/runner-base-dind`).
-- Verbose output now states why the runner image is rebuilt on every rebuild path: the Docker image build names the
+- Verbose output now states why the runner image is rebuilt on every rebuild path: the image build names the
   changed identity inputs (project Dockerfile, agent version, Docker-in-Docker) or `--rebuild`/missing image, the
   microsandbox load reports whether the cached image is absent or stale, and a project VM recreate/daemon restart lists
   the config changes that triggered it.
 - Internal: add `make test-integration` — runs every `integration`-tagged test across the module (excluded from the main
-  suite), currently the docker-build tests that build a real image for every `RenderDockerfile` composition case (no
-  project Dockerfile, managed base, and custom Fedora base, each with and without docker). Wired into CI as a selective
-  job (main/release/manual).
+  suite), currently the real BuildKit builder-VM image-build, cache-reuse, and login-shell PATH tests in
+  `internal/sandbox/image`. They need no Docker daemon — only the msb runtime, a functional `/dev/kvm`, and network
+  access. Wired into CI as a selective job (main/release/manual).
 - Internal: `devUserBlock` now sets the dev login shell to the first of `bash`, `zsh`, `sh` found (falling back to
   `/bin/sh`) instead of hardcoding bash, widening custom-base compatibility.
 - Custom project Dockerfiles can place a `# agents-sandbox:docker` marker line in the final stage to control where the
@@ -65,7 +65,7 @@ command reports the bare version (e.g. `0.1.0`).
   agent-version bump no longer invalidates the cached Node.js and agent install layers.
 - Internal: `RenderDockerfile` now splits the project's final stage into earlier stages, base, and body and concatenates the
   tool-owned blocks around them, replacing the FROM/insertion helpers with `splitFinalStage`, `injectDockerBlock`, and `joinBlocks`.
-- Internal: a rebuild triggered by a stale image (changed Dockerfile, agent version, or base) now reuses Docker's layer cache;
+- Internal: a rebuild triggered by a stale image (changed Dockerfile, agent version, or base) now reuses BuildKit's layer cache;
   only an explicit `--rebuild` bypasses it. An accepted agent upgrade is a version change, so it rebuilds the install layer
   while keeping earlier layers cached.
 - Internal: `volume migrate`, `volume reset`, and `volume edit` no longer expose `--rebuild`; they ensure the runner image but

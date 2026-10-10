@@ -63,8 +63,8 @@ with `options.FirstFreeHostPort` (as serve-only already does).
 New `internal/sandbox/builder` package owns the BuildKit builder lifecycle and
 the build, exposing a narrow interface to `internal/sandbox/image`. The
 `image` package keeps its orchestration (version resolution, Dockerfile
-rendering, identity/cache decision) but delegates the actual `docker build` +
-`docker save` to the builder.
+rendering, identity/cache decision) but delegates the actual build (`Solve` +
+OCI export) to the builder.
 
 Components:
 
@@ -123,7 +123,7 @@ Components:
        enabled). The exact arg set is preserved so the image content and
        identity labels are byte-for-byte compatible with today.
      - `platform=linux/<host arch>` (amd64 on x86_64, arm64 on Apple Silicon).
-   - `Exports`: a single `type=docker` (or `type=oci`) export whose `Output`
+   - `Exports`: a single `type=oci` export whose `Output`
      writes the archive to a host temp file.
    - `Session`: a Docker auth provider (see "Registry auth").
 4. Consume `SolveStatus` to drive the existing spinner/verbose output
@@ -228,14 +228,13 @@ not to punch through the network policy.
 
 ## Prerequisites, pruning, dry-run
 
-- **doctor**: drop the Docker check; `CheckAll` should verify the msb runtime
-  only (plus existing checks). Update preflight messaging and docs.
-- **Pruning**: `pruning/images.go` currently prunes dangling managed images via
-  the Docker daemon. Replace with BuildKit cache GC (automatic) and/or a
-  `buildctl prune` step against the builder, plus the existing msb image prune.
-  Define retention consistently with current 24h/dangling semantics.
-- **Dry-run**: `--dry-run` must remain side-effect free — in particular it must
-  not boot a builder VM or start `buildkitd`. Dry-run reports the build plan
+- **doctor**: `CheckAll` verifies the platform (KVM / Apple Silicon) and the
+  microsandbox runtime only; there is no Docker check.
+- **Pruning**: `pruning/images.go` reclaims the BuildKit cache through
+  `buildctl prune` against the shared builder VM, alongside the msb image
+  prune; the previous host-Docker dangling-image prune is gone.
+- **Dry-run**: `--dry-run` stays side-effect free — in particular it does not
+  boot a builder VM or start `buildkitd`. Dry-run reports the build plan
   (tag, identity, cache decision) only.
 
 ## Interfaces and seams

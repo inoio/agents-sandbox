@@ -11,7 +11,7 @@ read_if: Working in internal/sandbox (VM lifecycle, image building, BuildKit bui
 
 ## Architecture
 
-- `internal/sandbox/` is the largest area of the codebase; it drives VM lifecycle, runner-image builds, docker & microsandbox (msb) clients, volumes, pruning, sessions, and state locking.
+- `internal/sandbox/` is the largest area of the codebase; it drives VM lifecycle, runner-image builds, microsandbox (msb) runtime and BuildKit `builder/` clients, volumes, pruning, sessions, and state locking.
 - The `vm/` package is the biggest: it orchestrates project-VM creation/ensure, the dockerd sidecar, run execution, upgrades, worktree handling, and VM env/control.
 - Cross-cutting dependencies: `msb/` (microsandbox SDK client) is the external runtime client and `builder/` drives the BuildKit builder VM for image builds; `naming/`, `options/`, `state/`, `network/`, `mounts/` provide shared configuration/locking primitives used across sandbox subpackages.
 - Heavily test-driven (many `*_test.go` / `coverage_*.go` files per package); most integration seams are mockable via `testmock.go` / `main_test.go` per package.
