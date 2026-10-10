@@ -4,7 +4,6 @@ import (
 	"testing"
 
 	"github.com/inoio/agents-sandbox/internal/configpaths"
-	"github.com/inoio/agents-sandbox/internal/sandbox/docker"
 	"github.com/inoio/agents-sandbox/internal/sandbox/doctor"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
 )
@@ -13,7 +12,6 @@ import (
 // of using real implementations.
 func InitFailFastMocks(m *testing.M) {
 	configpaths.InstallFailFastConfigPaths()
-	docker.InstallFailFastGet()
 	doctor.InstallFailFast()
 	msb.InstallFailFastGet()
 	m.Run()

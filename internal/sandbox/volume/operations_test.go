@@ -9,7 +9,6 @@ import (
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 
 	"github.com/inoio/agents-sandbox/internal/configpaths"
-	"github.com/inoio/agents-sandbox/internal/sandbox/docker"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
 	"github.com/inoio/agents-sandbox/internal/sandbox/state"
 	"github.com/inoio/agents-sandbox/internal/termio"
@@ -708,7 +707,6 @@ func TestVolumeOp_ExplicitOldVolume(t *testing.T) {
 
 func TestResolveHomeVolume_VolumeNotFound_Warns(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
-	docker.WithNoopDockerMock(t)
 
 	slug := "myproj"
 	state.WriteState(

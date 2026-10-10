@@ -5,17 +5,15 @@ import (
 	"testing"
 	"time"
 
-	"github.com/inoio/agents-sandbox/internal/sandbox/docker"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
 	"github.com/inoio/agents-sandbox/internal/termio"
 )
 
-// withAutoPruneMocks opts a smoke test into isolated msb and docker factories so
-// AutoPrune does not reach real microsandbox or Docker.
+// withAutoPruneMocks opts a smoke test into an isolated msb factory so
+// AutoPrune does not reach real microsandbox.
 func withAutoPruneMocks(t *testing.T) {
 	t.Helper()
 	msb.WithMsbMock(t, &msb.MockMsbClient{})
-	docker.WithNoopDockerMock(t)
 }
 
 func TestAutoPruneDoesNotPanic(t *testing.T) {

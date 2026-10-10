@@ -473,9 +473,6 @@ func buildBuildCmd(ui termio.UI) *cobra.Command {
 				ui.Infof("dry-run: Would build runner image")
 				return nil
 			}
-			if err := doctor.CheckDocker(cmd.Context()); err != nil {
-				return fmt.Errorf("docker not available: %w", err)
-			}
 			a, err := resolveAgentFlag(cmd)
 			if err != nil {
 				return err

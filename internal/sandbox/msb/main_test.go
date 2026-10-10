@@ -4,7 +4,6 @@ import (
 	"testing"
 
 	"github.com/inoio/agents-sandbox/internal/configpaths"
-	"github.com/inoio/agents-sandbox/internal/sandbox/docker"
 )
 
 // realGetFactory captures the package's default Client factory before TestMain
@@ -15,7 +14,6 @@ func TestMain(m *testing.M) {
 	// can't call testutil.InitFailFastMocks(m) because of cyclic dependency. Keep in sync with
 	// testutil.InitFailFastMocks' body
 	configpaths.InstallFailFastConfigPaths()
-	docker.InstallFailFastGet()
 	// cyclic dependency on msb
 	// doctor.InstallFailFast()
 	InstallFailFastGet()

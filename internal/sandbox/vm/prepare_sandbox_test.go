@@ -2,20 +2,16 @@ package vm
 
 import (
 	"context"
-	"io"
 	"path/filepath"
 	"strings"
 	"testing"
 
-	dockerspec "github.com/moby/docker-image-spec/specs-go/v1"
-	"github.com/moby/moby/client"
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 
 	"github.com/inoio/agents-sandbox/internal/agent"
 	"github.com/inoio/agents-sandbox/internal/configpaths"
 	"github.com/inoio/agents-sandbox/internal/git"
 	"github.com/inoio/agents-sandbox/internal/homeconfig"
-	"github.com/inoio/agents-sandbox/internal/sandbox/docker"
 	sandboximage "github.com/inoio/agents-sandbox/internal/sandbox/image"
 	"github.com/inoio/agents-sandbox/internal/sandbox/mounts"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
@@ -46,21 +42,6 @@ func TestPrepareSandboxReusesStoredOpenCodeVersion(t *testing.T) {
 	origUpgradeInfo := agentLatestVersion
 	agentLatestVersion = func(_ context.Context, _ agent.Agent) (string, error) { return "1.5.0", nil }
 	t.Cleanup(func() { agentLatestVersion = origUpgradeInfo })
-
-	docker.WithDockerMock(t, &docker.MockDockerClient{
-		ImageBuildFn: func(_ context.Context, _ io.Reader, _ client.ImageBuildOptions) (client.ImageBuildResult, error) {
-			return client.ImageBuildResult{Body: io.NopCloser(strings.NewReader(""))}, nil
-		},
-		ImageInspectFn: func(_ context.Context, _ string, _ ...client.ImageInspectOption) (client.ImageInspectResult, error) {
-			return client.ImageInspectResult{
-				ID: "sha256:abc123",
-				Config: &dockerspec.DockerOCIImageConfig{
-					Env:    []string{"PATH=/usr/bin"},
-					Labels: map[string]string{"org.agents-sandbox.agent": "opencode"},
-				},
-			}, nil
-		},
-	})
 
 	slug := git.ProjectSlug()
 	vmFS := msb.NewTestFS(nil, nil)
@@ -133,21 +114,6 @@ func TestPrepareSandboxUpgradeRebuildsImage(t *testing.T) {
 			return "r", nil
 		},
 	}
-
-	docker.WithDockerMock(t, &docker.MockDockerClient{
-		ImageBuildFn: func(_ context.Context, _ io.Reader, _ client.ImageBuildOptions) (client.ImageBuildResult, error) {
-			return client.ImageBuildResult{Body: io.NopCloser(strings.NewReader(""))}, nil
-		},
-		ImageInspectFn: func(_ context.Context, _ string, _ ...client.ImageInspectOption) (client.ImageInspectResult, error) {
-			return client.ImageInspectResult{
-				ID: "sha256:abc123",
-				Config: &dockerspec.DockerOCIImageConfig{
-					Env:    []string{"PATH=/usr/bin"},
-					Labels: map[string]string{"org.agents-sandbox.agent": "opencode"},
-				},
-			}, nil
-		},
-	})
 
 	slug := git.ProjectSlug()
 	vmFS := msb.NewTestFS(nil, nil)
@@ -224,21 +190,6 @@ func TestPrepareSandboxLoadsHomeYamlOnce(t *testing.T) {
 
 	// Docker build + inspect are mocked so EnsureImage can "build" the runner
 	// image and produce a deterministic digest.
-	docker.WithDockerMock(t, &docker.MockDockerClient{
-		ImageBuildFn: func(_ context.Context, _ io.Reader, _ client.ImageBuildOptions) (client.ImageBuildResult, error) {
-			return client.ImageBuildResult{Body: io.NopCloser(strings.NewReader(""))}, nil
-		},
-		ImageInspectFn: func(_ context.Context, _ string, _ ...client.ImageInspectOption) (client.ImageInspectResult, error) {
-			return client.ImageInspectResult{
-				ID: "sha256:abc123",
-				Config: &dockerspec.DockerOCIImageConfig{
-					Env:    []string{"PATH=/usr/bin"},
-					Labels: map[string]string{"org.agents-sandbox.agent": "opencode"},
-				},
-			}, nil
-		},
-	})
-
 	slug := git.ProjectSlug()
 
 	// The msb image cache already holds the digest image (ImageGet succeeds),
@@ -326,21 +277,6 @@ func TestPrepareSandboxRunsStartupHook(t *testing.T) {
 	origUpgradeInfo := agentLatestVersion
 	agentLatestVersion = func(_ context.Context, _ agent.Agent) (string, error) { return "1.0.0", nil }
 	t.Cleanup(func() { agentLatestVersion = origUpgradeInfo })
-
-	docker.WithDockerMock(t, &docker.MockDockerClient{
-		ImageBuildFn: func(_ context.Context, _ io.Reader, _ client.ImageBuildOptions) (client.ImageBuildResult, error) {
-			return client.ImageBuildResult{Body: io.NopCloser(strings.NewReader(""))}, nil
-		},
-		ImageInspectFn: func(_ context.Context, _ string, _ ...client.ImageInspectOption) (client.ImageInspectResult, error) {
-			return client.ImageInspectResult{
-				ID: "sha256:abc123",
-				Config: &dockerspec.DockerOCIImageConfig{
-					Env:    []string{"PATH=/usr/bin"},
-					Labels: map[string]string{"org.agents-sandbox.agent": "opencode"},
-				},
-			}, nil
-		},
-	})
 
 	slug := git.ProjectSlug()
 	vmFS := msb.NewTestFS(nil, nil)
@@ -464,20 +400,6 @@ func TestPrepareSandboxPersistsMountFingerprintOnVMCreation(t *testing.T) {
 	if err := saveUpgradeState(upgradeState{CurrentVersion: "1.5.0"}); err != nil {
 		t.Fatalf("saveUpgradeState: %v", err)
 	}
-
-	docker.WithDockerMock(t, &docker.MockDockerClient{
-		ImageBuildFn: func(_ context.Context, _ io.Reader, _ client.ImageBuildOptions) (client.ImageBuildResult, error) {
-			return client.ImageBuildResult{Body: io.NopCloser(strings.NewReader(""))}, nil
-		},
-		ImageInspectFn: func(_ context.Context, _ string, _ ...client.ImageInspectOption) (client.ImageInspectResult, error) {
-			return client.ImageInspectResult{
-				ID: "sha256:abc123",
-				Config: &dockerspec.DockerOCIImageConfig{
-					Labels: map[string]string{"org.agents-sandbox.agent": "opencode"},
-				},
-			}, nil
-		},
-	})
 
 	slug := git.ProjectSlug()
 	vmFS := msb.NewTestFS(nil, nil)

@@ -6,22 +6,13 @@ import (
 	"os"
 	"os/exec"
 
-	"github.com/moby/moby/client"
-
-	"github.com/inoio/agents-sandbox/internal/sandbox/docker"
 	"github.com/inoio/agents-sandbox/internal/termio"
 )
 
 var (
 	checkAllFunc      = realCheckAll
-	checkDockerFunc   = realCheckDocker
 	collectChecksFunc = collectChecks
 )
-
-// CheckDocker reports whether the docker binary is on PATH.
-func CheckDocker(ctx context.Context) error {
-	return checkDockerFunc(ctx)
-}
 
 // CheckAll runs every prerequisite check, rendering all failures and any
 // non-fatal warnings through ui. It returns true only when all checks pass.
@@ -46,35 +37,16 @@ func realCheckAll(ctx context.Context, ui termio.UI) bool {
 // CheckAll can report them together. checkPlatform is the only platform
 // specific check and comes first.
 func collectChecks(ctx context.Context) ([]string, []error) {
-	var infos []string
 	var errs []error
-	for _, err := range []error{
-		checkPlatform(),
-		CheckDocker(ctx),
-	} {
-		if err != nil {
-			errs = append(errs, err)
-		}
+	if err := checkPlatform(); err != nil {
+		errs = append(errs, err)
 	}
 	msbMessages, err := checkMsb(ctx)
-	infos = append(infos, msbMessages...)
+	infos := append([]string{}, msbMessages...)
 	if err != nil {
 		errs = append(errs, err)
 	}
 	return infos, errs
-}
-
-// realCheckDocker pings the Docker daemon, describing how to fix it on failure.
-func realCheckDocker(ctx context.Context) error {
-	_, err := docker.Get().Ping(ctx, client.PingOptions{})
-	if err != nil {
-		return fmt.Errorf(
-			"docker API unreachable: %w; ensure Docker Desktop or colima is running, "+
-				"then check DOCKER_HOST and the active docker context (docker context ls)",
-			err,
-		)
-	}
-	return nil
 }
 
 // checkMsb ensures the msb runtime is installed, returning non-fatal PATH

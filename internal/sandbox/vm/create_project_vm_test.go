@@ -7,7 +7,6 @@ import (
 
 	"github.com/inoio/agents-sandbox/internal/configpaths"
 	"github.com/inoio/agents-sandbox/internal/homeconfig"
-	"github.com/inoio/agents-sandbox/internal/sandbox/docker"
 	"github.com/inoio/agents-sandbox/internal/sandbox/image"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
 	"github.com/inoio/agents-sandbox/internal/sandbox/network"
@@ -20,7 +19,6 @@ import (
 // in createProjectVM.
 func TestCreateProjectVMCreateSandboxError(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
-	docker.WithNoopDockerMock(t)
 	client := &msb.MockMsbClient{}
 	client.CreateSandboxErr = errors.New("create failed")
 	testUI := termio.NewTestMock(t)
@@ -46,7 +44,6 @@ func TestCreateProjectVMCreateSandboxError(t *testing.T) {
 // in createProjectVM (an invalid network profile cannot be converted).
 func TestCreateProjectVMNetworkConfigError(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
-	docker.WithNoopDockerMock(t)
 	client := &msb.MockMsbClient{}
 	testUI := termio.NewTestMock(t)
 	ui := &testUI

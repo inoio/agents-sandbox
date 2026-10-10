@@ -37,33 +37,15 @@ func checkAllMockFunc(success bool) func(context.Context, termio.UI) bool {
 	return func(_ context.Context, _ termio.UI) bool { return success }
 }
 
-func checkDockerMockFunc(success bool) func(context.Context) error {
-	return func(context.Context) error {
-		if success {
-			return nil
-		}
-		return errors.New("mocked docker not available")
-	}
-}
-
 func MockedCheckAll(t *testing.T, success bool) {
 	orig := checkAllFunc
 	checkAllFunc = checkAllMockFunc(success)
 	t.Cleanup(func() { checkAllFunc = orig })
 }
 
-func MockedCheckDocker(t *testing.T, success bool) {
-	orig := checkDockerFunc
-	checkDockerFunc = checkDockerMockFunc(success)
-	t.Cleanup(func() { checkDockerFunc = orig })
-}
-
 func InstallFailFast() {
 	checkAllFunc = func(context.Context, termio.UI) bool {
 		panic("doctor.CheckAll not mocked; use doctor.MockedCheckAll(t, ...) in the test")
-	}
-	checkDockerFunc = func(context.Context) error {
-		panic("doctor.CheckDocker not mocked; use doctor.MockedCheckDocker(t, ...) in the test")
 	}
 	ensureInstalledFunc = func(context.Context) error {
 		panic("doctor.EnsureInstalled not mocked; use doctor.SetEnsureInstalled(t, ...) in the test")

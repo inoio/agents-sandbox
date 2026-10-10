@@ -40,7 +40,6 @@ func TestInstallFailFastFactoriesPanic(t *testing.T) {
 		fn()
 	}
 
-	assertPanics("CheckDocker", func() { _ = CheckDocker(context.Background()) })
 	assertPanics("CheckAll", func() {
 		testUI := termio.NewTestMock(t)
 		_ = CheckAll(context.Background(), &testUI)

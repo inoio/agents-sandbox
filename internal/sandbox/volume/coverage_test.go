@@ -12,7 +12,6 @@ import (
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 
 	"github.com/inoio/agents-sandbox/internal/configpaths"
-	"github.com/inoio/agents-sandbox/internal/sandbox/docker"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
 	"github.com/inoio/agents-sandbox/internal/sandbox/options"
 	"github.com/inoio/agents-sandbox/internal/sandbox/state"
@@ -557,7 +556,6 @@ func TestApplyHomeAction_CreateVolumeFails(t *testing.T) {
 
 func TestApplyHomeAction_WriteStateFails_Warns(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
-	docker.WithNoopDockerMock(t)
 
 	slug := "writefail-apply"
 	state.WriteState(

@@ -9,7 +9,6 @@ import (
 
 	"github.com/inoio/agents-sandbox/internal/configpaths"
 	"github.com/inoio/agents-sandbox/internal/sandbox/builder"
-	"github.com/inoio/agents-sandbox/internal/sandbox/doctor"
 )
 
 func TestBuildCommand(t *testing.T) {
@@ -89,22 +88,6 @@ func TestBuildCommand(t *testing.T) {
 
 			if !slices.Contains(ui.InfoCalls, "dry-run: Would build runner image") {
 				t.Errorf("expected info 'dry-run: Would build runner image' via image build; got: %v", ui.InfoCalls)
-			}
-		})
-
-		t.Run(fmt.Sprintf(
-			"%s with docker not available → error 'docker not available'",
-			strings.Join(commands, " "),
-		), func(t *testing.T) {
-			cmd, _ := setupCommandFixtures(t, commands...)
-			doctor.MockedCheckDocker(t, false)
-
-			err := cmd.Execute()
-			if err == nil {
-				t.Fatal("expected error, got none")
-			}
-			if !strings.Contains(err.Error(), "docker not available") {
-				t.Errorf("expected 'docker not available'; got: %v", err)
 			}
 		})
 	}

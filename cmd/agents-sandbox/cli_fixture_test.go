@@ -6,7 +6,6 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/inoio/agents-sandbox/internal/configpaths"
-	"github.com/inoio/agents-sandbox/internal/sandbox/docker"
 	"github.com/inoio/agents-sandbox/internal/sandbox/doctor"
 	"github.com/inoio/agents-sandbox/internal/sandbox/image"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
@@ -38,9 +37,7 @@ func setupCommandFixtures(t *testing.T, args ...string) (*cobra.Command, *termio
 	configpaths.WithMockConfigPaths(t)
 	image.WithMockAgentVersion(t, "0.0.0-test")
 	msb.WithMsbMock(t, &msb.MockMsbClient{})
-	docker.WithNoopDockerMock(t)
 	doctor.MockedCheckAll(t, true)
-	doctor.MockedCheckDocker(t, true)
 	ui := &termio.Mock{}
 	cmd := buildRootCmd(ui)
 	cmd.SetArgs(args)

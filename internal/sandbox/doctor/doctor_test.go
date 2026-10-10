@@ -9,9 +9,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/moby/moby/client"
-
-	"github.com/inoio/agents-sandbox/internal/sandbox/docker"
 	"github.com/inoio/agents-sandbox/internal/termio"
 
 	"github.com/inoio/agents-sandbox/internal/testutil"
@@ -240,57 +237,25 @@ func TestCheckAllRendersWarningsWhenAllPass(t *testing.T) {
 	}
 }
 
-func TestRealCheckDockerPingUnreachable(t *testing.T) {
-	docker.WithDockerMock(t, &docker.MockDockerClient{
-		PingFn: func(context.Context, client.PingOptions) (client.PingResult, error) {
-			return client.PingResult{}, errors.New("boom")
-		},
-	})
-
-	err := realCheckDocker(context.Background())
-	if err == nil {
-		t.Fatal("expected realCheckDocker to fail when the daemon is unreachable")
-	}
-	if !strings.Contains(err.Error(), "docker API unreachable") {
-		t.Errorf("expected error to mention 'docker API unreachable', got %q", err.Error())
-	}
-	if !strings.Contains(err.Error(), "boom") {
-		t.Errorf("expected error to wrap the underlying ping failure, got %q", err.Error())
-	}
-}
-
-func TestRealCheckDockerPingOK(t *testing.T) {
-	docker.WithDockerMock(t, &docker.MockDockerClient{})
-
-	if err := realCheckDocker(context.Background()); err != nil {
-		t.Errorf("expected realCheckDocker to succeed when the ping succeeds, got %v", err)
-	}
-}
-
 func TestCollectChecksAggregatesFailures(t *testing.T) {
-	MockedCheckDocker(t, false)
 	MockedEnsureInstalled(t, false)
 	t.Setenv("HOME", t.TempDir())
 	t.Setenv("PATH", "/nonexistent")
 
 	warnings, errs := collectChecks(context.Background())
 	if len(errs) == 0 {
-		t.Fatal("expected collectChecks to collect the docker and msb failures")
+		t.Fatal("expected collectChecks to collect the msb failures")
 	}
 	if len(warnings) != 0 {
-		t.Errorf("expected no warnings when both checks fail, got %q", warnings)
+		t.Errorf("expected no warnings when the check fails, got %q", warnings)
 	}
 	joined := strings.Join(errStrings(errs), " ")
-	if !strings.Contains(joined, "docker not available") {
-		t.Errorf("expected a docker failure, got %q", joined)
-	}
 	if !strings.Contains(joined, "binary missing") {
 		t.Errorf("expected an msb failure, got %q", joined)
 	}
 }
 
 func TestCollectChecksMsbWarning(t *testing.T) {
-	MockedCheckDocker(t, true)
 	MockedEnsureInstalled(t, false)
 
 	home := t.TempDir()

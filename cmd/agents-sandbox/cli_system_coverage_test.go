@@ -12,7 +12,6 @@ import (
 	"github.com/inoio/agents-sandbox/internal/configpaths"
 	"github.com/inoio/agents-sandbox/internal/git"
 	"github.com/inoio/agents-sandbox/internal/sandbox/builder"
-	"github.com/inoio/agents-sandbox/internal/sandbox/docker"
 	"github.com/inoio/agents-sandbox/internal/sandbox/doctor"
 	"github.com/inoio/agents-sandbox/internal/sandbox/image"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
@@ -38,7 +37,6 @@ func TestVolumeMigrateWithPositionalArg(t *testing.T) {
 	mock := &msb.MockMsbClient{}
 	doctor.MockedCheckAll(t, true)
 	image.WithMockAgentVersion(t, "0.0.0-test")
-	docker.WithNoopDockerMock(t)
 	withMockBuilder(t, builder.BuildResult{Digest: "sha256:abc"}, nil)
 	slug := git.ProjectSlug()
 	state.WriteState(state.Key{Slug: slug, Agent: "opencode"}, state.HomeState{

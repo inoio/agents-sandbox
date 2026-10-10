@@ -10,7 +10,6 @@ import (
 
 	"github.com/inoio/agents-sandbox/internal/agent"
 	"github.com/inoio/agents-sandbox/internal/configpaths"
-	"github.com/inoio/agents-sandbox/internal/sandbox/docker"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
 	msbruntime "github.com/inoio/agents-sandbox/internal/sandbox/runtime"
 	"github.com/inoio/agents-sandbox/internal/termio"
@@ -167,7 +166,6 @@ func TestCLILogLevelFlagSetsLevel(t *testing.T) {
 			ui := &termio.Mock{}
 			mock := &msb.MockMsbClient{}
 			msb.WithMsbMock(t, mock)
-			docker.WithNoopDockerMock(t)
 
 			root := buildRootCmd(ui)
 			root.SetArgs(args)
@@ -187,7 +185,6 @@ func TestCLIPersistentYesAffectsUIAfterSubcommand(t *testing.T) {
 	ui := &termio.Mock{}
 	mock := &msb.MockMsbClient{}
 	msb.WithMsbMock(t, mock)
-	docker.WithNoopDockerMock(t)
 
 	root := buildRootCmd(ui)
 	root.SetArgs([]string{"prune", "--age", "1m", "-n", "-y"})
@@ -210,7 +207,6 @@ func TestCLIQuietFlagSetsQuiet(t *testing.T) {
 			ui := &termio.Mock{}
 			mock := &msb.MockMsbClient{}
 			msb.WithMsbMock(t, mock)
-			docker.WithNoopDockerMock(t)
 
 			root := buildRootCmd(ui)
 			root.SetArgs(args)
@@ -230,7 +226,6 @@ func TestCLIQuietFlagFalseByDefault(t *testing.T) {
 	ui := &termio.Mock{}
 	mock := &msb.MockMsbClient{}
 	msb.WithMsbMock(t, mock)
-	docker.WithNoopDockerMock(t)
 
 	root := buildRootCmd(ui)
 	root.SetArgs([]string{"prune", "--age", "1m"})

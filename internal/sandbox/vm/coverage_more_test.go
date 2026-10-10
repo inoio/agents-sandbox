@@ -12,7 +12,6 @@ import (
 
 	"github.com/inoio/agents-sandbox/internal/agent"
 	"github.com/inoio/agents-sandbox/internal/configpaths"
-	"github.com/inoio/agents-sandbox/internal/sandbox/docker"
 	"github.com/inoio/agents-sandbox/internal/sandbox/image"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
 	"github.com/inoio/agents-sandbox/internal/sandbox/network"
@@ -370,7 +369,6 @@ func TestDefaultDaemonShellFuncSuccess(t *testing.T) {
 // cannot be converted to a config.
 func TestCreateProjectVMNetworkError(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
-	docker.WithNoopDockerMock(t)
 	client := &msb.MockMsbClient{}
 	ui := termio.NewTestMock(t)
 
@@ -396,7 +394,6 @@ func TestCreateProjectVMNetworkError(t *testing.T) {
 // TestCreateProjectVMCreateError covers the branch where CreateSandbox fails.
 func TestCreateProjectVMCreateError(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
-	docker.WithNoopDockerMock(t)
 	client := &msb.MockMsbClient{CreateSandboxErr: errors.New("create failed")}
 	ui := termio.NewTestMock(t)
 
@@ -448,7 +445,6 @@ func TestPrepareSandboxUnknownAgent(t *testing.T) {
 // attached when configured.
 func TestCreateProjectVMServeOnlyAndNetwork(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
-	docker.WithNoopDockerMock(t)
 	client := &msb.MockMsbClient{}
 	ui := termio.NewTestMock(t)
 
@@ -490,7 +486,6 @@ func TestCreateProjectVMServeOnlyAndNetwork(t *testing.T) {
 // opts.ServeHostPort: the created VM must publish exactly that host port.
 func TestCreateProjectVMServeOnlyPublishesExactPort(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
-	docker.WithNoopDockerMock(t)
 	client := &msb.MockMsbClient{}
 	ui := termio.NewTestMock(t)
 

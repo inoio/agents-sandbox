@@ -14,7 +14,6 @@ import (
 
 	"github.com/inoio/agents-sandbox/internal/configpaths"
 
-	"github.com/inoio/agents-sandbox/internal/sandbox/docker"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
 	"github.com/inoio/agents-sandbox/internal/sandbox/options"
 	"github.com/inoio/agents-sandbox/internal/sandbox/state"
@@ -81,7 +80,6 @@ func TestNewManager(t *testing.T) {
 }
 
 func TestPrefillVolumeRunsCopyCommand(t *testing.T) {
-	docker.WithNoopDockerMock(t)
 	testUI := termio.NewTestMock(t)
 	ui := &testUI
 	client := &msb.MockMsbClient{}
@@ -266,7 +264,6 @@ func TestApplyHomeAction_ExecutesAndKeepsOld(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			configpaths.WithMockConfigPaths(t)
-			docker.WithNoopDockerMock(t)
 
 			slug := "myproj"
 			oldVol := "agents-sandbox-home-myproj-old"
@@ -424,7 +421,6 @@ func TestApplyHomeAction_Migrate_DryRunVM_NoStateWrite(t *testing.T) {
 
 func TestApplyHomeAction_Migrate_CopyFails_RemovesNewVolume(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
-	docker.WithNoopDockerMock(t)
 
 	slug := "myproj"
 	oldVol := "agents-sandbox-home-myproj-old"
@@ -570,7 +566,6 @@ func TestResolveHomeVolume_FoundInState(t *testing.T) {
 
 func TestResolveHomeVolume_NoStateFile(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
-	docker.WithNoopDockerMock(t)
 
 	mock := &msb.MockMsbClient{}
 	mock.CreateVolumeFn = func(_ context.Context, name string, _ ...msbSdk.VolumeOption) (msb.VolumeHandle, error) {
@@ -604,7 +599,6 @@ func TestResolveHomeVolume_NoStateFile(t *testing.T) {
 // missing state and creates a fresh home volume.
 func TestResolveHomeVolume_CorruptStateFile(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
-	docker.WithNoopDockerMock(t)
 
 	// A directory in place of the state file makes os.ReadFile fail with a
 	// non-not-found error, unlike a genuinely absent file.
@@ -646,7 +640,6 @@ func TestResolveHomeVolume_CorruptStateFile(t *testing.T) {
 
 func TestResolveHomeVolume_VolumeNotFoundInSandbox(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
-	docker.WithNoopDockerMock(t)
 
 	mock := &msb.MockMsbClient{}
 	mock.GetVolumeFn = func(_ context.Context, name string) (msb.VolumeHandle, error) {
@@ -751,7 +744,6 @@ func TestCleanupVolume_Failure(t *testing.T) {
 }
 
 func TestPrefillVolume_CreateSandboxFails(t *testing.T) {
-	docker.WithNoopDockerMock(t)
 	mock := &msb.MockMsbClient{}
 	mock.CreateSandboxErr = errors.New("sandbox creation failed")
 	vm := NewManager(&termio.Mock{})
@@ -774,7 +766,6 @@ func TestPrefillVolume_CreateSandboxFails(t *testing.T) {
 }
 
 func TestPrefillVolume_ExecFails(t *testing.T) {
-	docker.WithNoopDockerMock(t)
 	mock := &msb.MockMsbClient{}
 	mock.CreateSandboxFn = func(_ context.Context, _ string, _ ...msbSdk.SandboxOption) (msb.Sandbox, error) {
 		return msb.NewMockSandbox(msb.SandboxOpts{
@@ -802,7 +793,6 @@ func TestPrefillVolume_ExecFails(t *testing.T) {
 }
 
 func TestPrefillVolume_ExecExitFailure(t *testing.T) {
-	docker.WithNoopDockerMock(t)
 	mock := &msb.MockMsbClient{}
 	mock.CreateSandboxFn = func(_ context.Context, _ string, _ ...msbSdk.SandboxOption) (msb.Sandbox, error) {
 		return msb.NewMockSandbox(msb.SandboxOpts{
@@ -838,7 +828,6 @@ func TestPrefillVolume_ExecExitFailure(t *testing.T) {
 }
 
 func TestCopyVolume_CreateSandboxFails(t *testing.T) {
-	docker.WithNoopDockerMock(t)
 	mock := &msb.MockMsbClient{}
 	mock.CreateSandboxErr = errors.New("sandbox creation failed")
 	vm := NewManager(&termio.Mock{})
@@ -862,7 +851,6 @@ func TestCopyVolume_CreateSandboxFails(t *testing.T) {
 }
 
 func TestCopyVolume_ExecFails(t *testing.T) {
-	docker.WithNoopDockerMock(t)
 	mock := &msb.MockMsbClient{}
 	mock.CreateSandboxFn = func(_ context.Context, _ string, _ ...msbSdk.SandboxOption) (msb.Sandbox, error) {
 		return msb.NewMockSandbox(msb.SandboxOpts{
@@ -891,7 +879,6 @@ func TestCopyVolume_ExecFails(t *testing.T) {
 }
 
 func TestCopyVolume_ExecExitFailure(t *testing.T) {
-	docker.WithNoopDockerMock(t)
 	mock := &msb.MockMsbClient{}
 	mock.CreateSandboxFn = func(_ context.Context, _ string, _ ...msbSdk.SandboxOption) (msb.Sandbox, error) {
 		return msb.NewMockSandbox(msb.SandboxOpts{
@@ -929,7 +916,6 @@ func TestCopyVolume_ExecExitFailure(t *testing.T) {
 
 func TestApplyHomeAction_Reset_Success(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
-	docker.WithNoopDockerMock(t)
 
 	slug := "myproj"
 	oldVol := "agents-sandbox-home-myproj-old"
@@ -974,7 +960,6 @@ func TestApplyHomeAction_Reset_Success(t *testing.T) {
 
 func TestApplyHomeAction_PrefillFails_RemovesVolume(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
-	docker.WithNoopDockerMock(t)
 
 	slug := "myproj"
 	oldVol := "agents-sandbox-home-myproj-old"
@@ -1009,7 +994,6 @@ func TestApplyHomeAction_PrefillFails_RemovesVolume(t *testing.T) {
 
 func TestEnsureNewHome_PrefillFails(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
-	docker.WithNoopDockerMock(t)
 
 	mock := &msb.MockMsbClient{}
 	mock.CreateSandboxErr = errors.New("prefill sandbox creation failed")

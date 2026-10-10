@@ -27,15 +27,13 @@ type StaleType int
 const (
 	StaleTypeVM StaleType = iota
 	StaleTypeVolume
-	StaleTypeDockerImage
 	StaleTypeMsbImage
 )
 
 var typeName = map[StaleType]string{
-	StaleTypeVM:          "vm",
-	StaleTypeVolume:      "volume",
-	StaleTypeDockerImage: "docker-image",
-	StaleTypeMsbImage:    "msb-image",
+	StaleTypeVM:       "vm",
+	StaleTypeVolume:   "volume",
+	StaleTypeMsbImage: "msb-image",
 }
 
 func (ss StaleType) String() string { return typeName[ss] }

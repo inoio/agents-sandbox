@@ -3,6 +3,7 @@ package vm
 import (
 	"context"
 	"errors"
+	"io"
 	"os"
 	"path/filepath"
 	"testing"
@@ -10,10 +11,7 @@ import (
 
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 
-	"github.com/moby/moby/client"
-
 	"github.com/inoio/agents-sandbox/internal/configpaths"
-	"github.com/inoio/agents-sandbox/internal/sandbox/docker"
 	"github.com/inoio/agents-sandbox/internal/sandbox/image"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
 	"github.com/inoio/agents-sandbox/internal/sandbox/options"
@@ -806,7 +804,6 @@ func TestEnsureProjectVMPostLockRecheckStart(t *testing.T) {
 // VM's Stop fails: the failure is logged as verbose and recreation continues.
 func TestEnsureProjectVMRecreateStopError(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
-	docker.WithNoopDockerMock(t)
 	ui := termio.NewTestMock(t)
 	callCount := 0
 	oldHandle := &msb.MockSandboxHandle{
@@ -994,7 +991,6 @@ func TestEnsureProjectVMRecheckNonNotFoundError(t *testing.T) {
 // ensureProjectVM (createProjectVM fails after the post-lock recheck).
 func TestEnsureProjectVMCreateError(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
-	docker.WithNoopDockerMock(t)
 	ui := termio.NewTestMock(t)
 	client := &msb.MockMsbClient{}
 	client.CreateSandboxErr = errors.New("create failed")
@@ -1057,14 +1053,15 @@ func TestEnsureProjectVMCreateEnsureLoadedError(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	ui := termio.NewTestMock(t)
 
-	docker.WithDockerMock(t, &docker.MockDockerClient{
-		ImageSaveFn: func(_ context.Context, _ []string, _ ...client.ImageSaveOption) (client.ImageSaveResult, error) {
-			return nil, errors.New("image export failed")
-		},
-	})
-
+	archivePath := filepath.Join(t.TempDir(), "image.tar")
+	if err := os.WriteFile(archivePath, []byte("tar"), 0o600); err != nil {
+		t.Fatalf("write archive: %v", err)
+	}
 	client := &msb.MockMsbClient{
 		ImageGetFn: func(_ context.Context, _ string) error { return errors.New("not cached") },
+		ImageLoadFn: func(_ context.Context, _ string, _ io.Reader) error {
+			return errors.New("image load failed")
+		},
 	}
 	client.EnsureInstalledFn = func(context.Context) error { return nil }
 	msb.WithMsbMock(t, client)
@@ -1072,7 +1069,7 @@ func TestEnsureProjectVMCreateEnsureLoadedError(t *testing.T) {
 	_, _, err := ensureProjectVM(
 		context.Background(),
 		options.RunOptions{Memory: "1G"},
-		image.ImageInfo{Tag: "img:tag"},
+		image.ImageInfo{Tag: "img:tag", ArchivePath: archivePath},
 		"vol",
 		"/workspace",
 		testVMKey(),

@@ -17,7 +17,6 @@ import (
 
 	"github.com/inoio/agents-sandbox/internal/configpaths"
 	"github.com/inoio/agents-sandbox/internal/git"
-	"github.com/inoio/agents-sandbox/internal/sandbox/docker"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
 	"github.com/inoio/agents-sandbox/internal/sandbox/state"
 	"github.com/inoio/agents-sandbox/internal/termio"
@@ -65,10 +64,8 @@ func runVolumeOpScenario(t *testing.T, tc volumeOpScenario) {
 	doctor.MockedCheckAll(t, !tc.preflightFail)
 	image.WithMockAgentVersion(t, "0.0.0-test")
 	if tc.ensureImageErr {
-		docker.WithDefaultErrorDockerMock(t)
 		withMockBuilder(t, builder.BuildResult{}, errBoom)
 	} else {
-		docker.WithNoopDockerMock(t)
 		withMockBuilder(t, builder.BuildResult{Digest: "sha256:abc123", Env: []string{}}, nil)
 	}
 

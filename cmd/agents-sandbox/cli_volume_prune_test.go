@@ -8,7 +8,6 @@ import (
 
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 
-	"github.com/inoio/agents-sandbox/internal/sandbox/docker"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
 )
 
@@ -31,7 +30,6 @@ func TestVolumePrune(t *testing.T) {
 		}
 		cmd, ui := setupCommandFixtures(t, "volume", "prune")
 		msb.WithMsbMock(t, m)
-		docker.WithNoopDockerMock(t)
 		if err := cmd.Execute(); err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}

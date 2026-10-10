@@ -9,7 +9,6 @@ import (
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 
 	cp "github.com/inoio/agents-sandbox/internal/configpaths"
-	"github.com/inoio/agents-sandbox/internal/sandbox/docker"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
 	"github.com/inoio/agents-sandbox/internal/sandbox/naming"
 	"github.com/inoio/agents-sandbox/internal/sandbox/state"
@@ -410,7 +409,6 @@ func TestStaleTypeString(t *testing.T) {
 	}{
 		{StaleTypeVM, "vm"},
 		{StaleTypeVolume, "volume"},
-		{StaleTypeDockerImage, "docker-image"},
 		{StaleTypeMsbImage, "msb-image"},
 	}
 	for _, c := range cases {
@@ -486,7 +484,6 @@ func TestPruneAggregateParity(t *testing.T) {
 		},
 	}
 	msb.WithMsbMock(t, client)
-	docker.WithNoopDockerMock(t)
 	cp.WithMockConfigPaths(t)
 
 	testUI := termio.NewTestMock(t)

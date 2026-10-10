@@ -16,8 +16,8 @@ var version = devVersion
 // execute runs the CLI with the given arguments and UI.
 //
 // For integration testing, override the injection seams using:
-//   - msb:   msb.ResetGetFn (replaces the msb.Client factory)
-//   - docker:  docker.WithNoopDockerMock / docker.WithDefaultErrorDockerMock / docker.WithDockerMock
+//   - msb:     msb.ResetGetFn (replaces the msb.Client factory)
+//   - builder: builder.WithMockBuilder (replaces the BuildKit builder factory)
 //
 // Example:
 //
