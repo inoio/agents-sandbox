@@ -1,22 +1,19 @@
 package image
 
 import (
-	"archive/tar"
 	"bufio"
 	"bytes"
 	"context"
-	"encoding/json"
 	"fmt"
-	"io"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 
 	"github.com/distribution/reference"
-	"github.com/moby/moby/client"
 
 	"github.com/inoio/agents-sandbox/internal/agent"
-	"github.com/inoio/agents-sandbox/internal/sandbox/docker"
+	"github.com/inoio/agents-sandbox/internal/sandbox/builder"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
 	"github.com/inoio/agents-sandbox/internal/termio"
 )
@@ -42,11 +39,14 @@ type BuildOptions struct {
 // without treating the identity as an installer release.
 const userProvidedImageIdentity = "user-provided"
 
-// ImageInfo describes the built or existing runner image.
+// ImageInfo describes the built or existing runner image. ArchivePath is set
+// only when a build produced an archive this invocation; it is empty on a cache
+// hit, where callers can skip loading into the microsandbox cache.
 type ImageInfo struct {
-	Tag    string
-	Digest string
-	Env    map[string]string
+	Tag         string
+	Digest      string
+	Env         map[string]string
+	ArchivePath string
 }
 
 // referencesImage reports whether the Dockerfile uses the given image
@@ -139,127 +139,11 @@ func nextField(s string) (string, string) {
 	return s[:i], strings.TrimLeft(s[i+1:], " \t")
 }
 
-// buildDockerImage builds the given Dockerfile as a tag, wrapping the build
-// with a spinner and verbose output. noCache bypasses Docker's layer cache; it is
-// independent of whether a build is needed at all.
-func buildDockerImage(
-	ctx context.Context,
-	a agent.Agent,
-	dockerfile []byte,
-	tag, label string,
-	noCache bool,
-	agentVersion string,
-	baseImage string,
-	dockerfileID string,
-	dockerEnabled bool,
-	identity imageIdentity,
-	ui termio.UI,
-) error {
-	spinner := ui.Spinner(label)
-	line := func(s string) { ui.Verbose(s) }
-	ui.Verbosef("Building Docker image (noCache=%v)", noCache)
-	if err := buildImage(
-		ctx,
-		a,
-		dockerfile,
-		tag,
-		noCache,
-		agentVersion,
-		baseImage,
-		dockerfileID,
-		dockerEnabled,
-		identity,
-		line,
-	); err != nil {
-		spinner.StopError(err)
-		return err
-	}
-	spinner.Stop()
-	return nil
-}
-
-// buildImage builds a Docker image via docker.Get().ImageBuild and reports each
-// decoded build output line to the given callback. noCache bypasses Docker's layer
-// cache; it is independent of whether a build is needed at all.
-func buildImage(
-	ctx context.Context,
-	a agent.Agent,
-	dockerfile []byte,
-	tag string,
-	noCache bool,
-	agentVersion string,
-	baseImage string,
-	dockerfileID string,
-	dockerEnabled bool,
-	identity imageIdentity,
-	line func(string),
-) error {
-	var tarBuf bytes.Buffer
-	if err := writeDockerfileTar(&tarBuf, dockerfile); err != nil {
-		return fmt.Errorf("create build context: %w", err)
-	}
-	buildResp, err := docker.Get().ImageBuild(ctx, &tarBuf, client.ImageBuildOptions{
-		Tags:    []string{tag},
-		Remove:  true,
-		NoCache: noCache,
-		BuildArgs: userBuildArgs(
-			os.Getuid(),
-			os.Getgid(),
-			a.ImageSpec(),
-			agentVersion,
-			baseImage,
-			dockerfileID,
-			dockerEnabled,
-			identity,
-		),
-	})
-	if err != nil {
-		return fmt.Errorf("docker image build failed: %w", err)
-	}
-	defer buildResp.Body.Close()
-
-	buildErr := scanBuildOutput(buildResp.Body, line)
-	if buildErr != nil {
-		if strings.Contains(buildErr.Error(), "pull access denied") {
-			return fmt.Errorf("docker image build failed (base image not found or not logged in): %w", buildErr)
-		}
-		return fmt.Errorf("docker image build failed: %w", buildErr)
-	}
-
-	return nil
-}
-
-// scanBuildOutput decodes the Docker build API stream and returns errors,
-// forwarding each non-empty line of output to the given callback.
-func scanBuildOutput(r io.Reader, line func(string)) error {
-	dec := json.NewDecoder(r)
-	for {
-		var msg dockerBuildMessage
-		if err := dec.Decode(&msg); err != nil {
-			if err == io.EOF {
-				return nil
-			}
-			return fmt.Errorf("unexpected Docker build output: %w", err)
-		}
-		if msg.Error != "" {
-			return fmt.Errorf("%s", msg.Error)
-		}
-		if msg.ErrorDetail.Message != "" {
-			return fmt.Errorf("%s", msg.ErrorDetail.Message)
-		}
-		trimmedMsg := strings.Trim(msg.Stream, " \n")
-		if trimmedMsg != "" {
-			line(trimmedMsg)
-		}
-	}
-}
-
 const dockerfileMode = 0o644
 
-// writeDockerfileTar writes the synthetic build context — the rendered Dockerfile
-// followed by the profile.d merge script — to w as a tar stream.
-func writeDockerfileTar(w io.Writer, dockerfile []byte) error {
-	tw := tar.NewWriter(w)
+// writeDockerfileContext writes the synthetic build context — the rendered
+// Dockerfile followed by the profile.d merge script — into dir.
+func writeDockerfileContext(dir string, dockerfile []byte) error {
 	for _, entry := range []struct {
 		name    string
 		content []byte
@@ -267,33 +151,79 @@ func writeDockerfileTar(w io.Writer, dockerfile []byte) error {
 		{"Dockerfile", dockerfile},
 		{pathMergeAsset, pathMergeScript()},
 	} {
-		if err := tw.WriteHeader(&tar.Header{
-			Name: entry.name,
-			Mode: dockerfileMode,
-			Size: int64(len(entry.content)),
-		}); err != nil {
-			_ = tw.Close()
-			return fmt.Errorf("tar write header: %w", err)
+		if err := os.WriteFile(filepath.Join(dir, entry.name), entry.content, dockerfileMode); err != nil {
+			return fmt.Errorf("write %s: %w", entry.name, err)
 		}
-		if _, err := io.Copy(tw, bytes.NewReader(entry.content)); err != nil {
-			_ = tw.Close()
-			return fmt.Errorf("tar write %s: %w", entry.name, err)
-		}
-	}
-	if err := tw.Close(); err != nil {
-		return fmt.Errorf("tar close: %w", err)
 	}
 	return nil
 }
 
-// userBuildArgs returns Docker build arguments that align the in-image dev
-// user with the host user that owns the bind-mounted /workspace, pin the agent
-// version, record the base image provenance label, and carry the identity
-// components recorded as image labels.
+// buildRunnerImage assembles the synthetic build context, solves it through the
+// BuildKit builder, and returns the produced archive with image metadata. The
+// archive outlives the temporary context directory, which is removed here.
+func buildRunnerImage(
+	ctx context.Context,
+	a agent.Agent,
+	rendered []byte,
+	rTag, dockerfileID string,
+	noCache, dockerEnabled bool,
+	agentVersion string,
+	identity imageIdentity,
+	ui termio.UI,
+) (builder.BuildResult, error) {
+	spinner := ui.Spinner("Ensuring runner image")
+
+	contextDir, err := os.MkdirTemp("", "agents-sandbox-build-")
+	if err != nil {
+		spinner.StopError(err)
+		return builder.BuildResult{}, fmt.Errorf("create build context: %w", err)
+	}
+	defer os.RemoveAll(contextDir)
+	if err = writeDockerfileContext(contextDir, rendered); err != nil {
+		spinner.StopError(err)
+		return builder.BuildResult{}, err
+	}
+
+	ui.Verbosef("Building runner image (noCache=%v)", noCache)
+	res, err := builder.Get().Build(ctx, builder.BuildRequest{
+		ContextDir: contextDir,
+		Tag:        rTag,
+		BaseRef:    baseImageRef(rendered),
+		BuildArgs: buildArgStrings(
+			userBuildArgs(os.Getuid(), os.Getgid(), a.ImageSpec(), agentVersion, dockerfileID, dockerEnabled, identity),
+		),
+		NoCache:  noCache,
+		Platform: builder.HostPlatform(),
+		Progress: func(line string) { ui.Verbose(line) },
+	})
+	if err != nil {
+		spinner.StopError(err)
+		return builder.BuildResult{}, err
+	}
+	spinner.Stop()
+	return res, nil
+}
+
+// buildArgStrings dereferences a pointer-valued build-arg map, dropping nil
+// entries, so it can be handed to the builder.
+func buildArgStrings(args map[string]*string) map[string]string {
+	out := make(map[string]string, len(args))
+	for key, value := range args {
+		if value != nil {
+			out[key] = *value
+		}
+	}
+	return out
+}
+
+// userBuildArgs returns build arguments that align the in-image dev user with
+// the host user that owns the bind-mounted /workspace, pin the agent version,
+// and carry the identity components recorded as image labels. BASE_IMAGE is
+// supplied by the builder from the resolved base reference.
 func userBuildArgs(
 	uid, gid int,
 	spec agent.ImageSpec,
-	version, baseImage, dockerfileID string,
+	version, dockerfileID string,
 	docker bool,
 	identity imageIdentity,
 ) map[string]*string {
@@ -303,7 +233,6 @@ func userBuildArgs(
 		"USER_UID":               &u,
 		"USER_GID":               &g,
 		spec.VersionArg:          &version,
-		"BASE_IMAGE":             &baseImage,
 		"DOCKERFILE_ID":          &dockerfileID,
 		projectDockerfileHashArg: &identity.ProjectDockerfileHash,
 		agentVersionArg:          &identity.AgentVersion,
@@ -316,20 +245,10 @@ func userBuildArgs(
 	return args
 }
 
-// dockerBuildMessage represents a single line from the Docker build API
-// streaming response, decoding both progress and error output.
-// Docker returns either an ErrorDetail with a Message or an Error.
-type dockerBuildMessage struct {
-	ErrorDetail struct {
-		Message string `json:"message"`
-	} `json:"errorDetail"`
-	Error  string `json:"error"`
-	Stream string `json:"stream"`
-}
-
-// EnsureImageWithClient builds/inspects the runner Docker image. The resulting
-// env map is read back from the Docker image config. It does not load the image
-// into microsandbox; callers load it lazily via EnsureLoaded when a VM needs it.
+// EnsureImageWithClient builds or inspects the runner image. A build returns the
+// builder's archive for subsequent loading; a cache hit reads the digest and env
+// from the microsandbox image cache. It does not load the image into
+// microsandbox; callers load it lazily via EnsureLoaded when a VM needs it.
 func EnsureImageWithClient(
 	ctx context.Context,
 	a agent.Agent,
@@ -383,59 +302,51 @@ func EnsureImageWithClient(
 		buildOpts.AgentVersion,
 	)
 
+	var info ImageInfo
 	if needsBuild {
-		baseRef := baseImageRef(rendered)
-		baseDigest, baseErr := resolveBaseDigest(ctx, baseRef, ui)
-		if baseErr != nil {
-			return ImageInfo{}, fmt.Errorf("resolve base image %s: %w", baseRef, baseErr)
-		}
-		if buildErr := buildDockerImage(
-			ctx, a, rendered, rTag, "Ensuring runner image",
-			buildOpts.Force, agentVersion, baseDigest, dockerfileID, buildOpts.Docker, identity, ui,
-		); buildErr != nil {
+		res, buildErr := buildRunnerImage(
+			ctx, a, rendered, rTag, dockerfileID, buildOpts.Force, dockerEnabled, agentVersion, identity, ui,
+		)
+		if buildErr != nil {
 			return ImageInfo{}, buildErr
 		}
+		info = ImageInfo{Tag: rTag, Digest: res.Digest, Env: parseImageEnv(res.Env), ArchivePath: res.ArchivePath}
+	} else {
+		inspect, inspectErr := msb.Get().ImageInspect(ctx, rTag)
+		if inspectErr != nil {
+			return ImageInfo{}, fmt.Errorf("cannot inspect cached image: %w", inspectErr)
+		}
+		info = ImageInfo{Tag: rTag, Digest: inspect.Digest, Env: parseImageEnv(inspect.Env), ArchivePath: ""}
 	}
-
-	inspect, err := docker.Get().ImageInspect(ctx, rTag)
-	if err != nil {
-		return ImageInfo{}, fmt.Errorf("cannot inspect built image: %w", err)
-	}
-	imageDigest := inspect.ID
-	ui.Verbosef("image %s (digest %s)", rTag, imageDigest)
-
-	env, err := readImageInfoFromDocker(ctx, rTag)
-	if err != nil {
-		return ImageInfo{}, fmt.Errorf("inspect built image: %w", err)
-	}
-	return ImageInfo{Tag: rTag, Digest: imageDigest, Env: env}, nil
+	ui.Verbosef("image %s (digest %s)", rTag, info.Digest)
+	return info, nil
 }
 
-// EnsureLoaded loads the runner image into the microsandbox cache if it is not
-// already present, so the image can be used to create VMs. It is idempotent:
-// when the image is already cached (ImageGet succeeds) it returns immediately,
-// unless the cached content no longer matches the Docker image, in which case
-// the Docker image is loaded again under the same reference. Loading directly
-// avoids removing a manifest that an existing VM may still reference.
-func EnsureLoaded(ctx context.Context, mclient msb.Client, _, imageRef string, ui termio.UI) error {
-	loadReason := "not present in microsandbox cache"
+// EnsureLoaded loads archivePath into the microsandbox cache under imageRef if
+// the image is not already present. It is idempotent: a successful ImageGet
+// returns immediately. When the image is absent and no archive is available
+// (e.g. an earlier cache hit), it returns an error naming the missing archive.
+func EnsureLoaded(ctx context.Context, mclient msb.Client, archivePath, imageRef string, ui termio.UI) error {
 	if err := mclient.ImageGet(ctx, imageRef); err == nil {
-		if cachedImageMatchesDocker(ctx, mclient, imageRef) {
-			ui.Verbosef("microsandbox image %s is up to date", imageRef)
-			return nil
-		}
-		loadReason = "cached content differs from the Docker image"
+		ui.Verbosef("microsandbox image %s is up to date", imageRef)
+		return nil
 	}
-	ui.Verbosef("loading image %s into microsandbox: %s", imageRef, loadReason)
+	if archivePath == "" {
+		return fmt.Errorf(
+			"runner image %s is not in the microsandbox cache and no build archive is available to load",
+			imageRef,
+		)
+	}
+	ui.Verbosef("loading image %s into microsandbox: not present in microsandbox cache", imageRef)
 
 	spin := ui.Spinner("Loading image into microsandbox")
-	saveResult, err := docker.Get().ImageSave(ctx, []string{imageRef})
+	archive, err := os.Open(archivePath)
 	if err != nil {
 		spin.StopError(err)
-		return fmt.Errorf("cannot export Docker image: %w", err)
+		return fmt.Errorf("open image archive: %w", err)
 	}
-	defer saveResult.Close()
-	if err = mclient.ImageLoad(ctx, imageRef, saveResult); err != nil {
+	defer func() { _ = archive.Close() }()
+	if err := mclient.ImageLoad(ctx, imageRef, archive); err != nil {
 		spin.StopError(err)
 		return err
 	}
@@ -443,29 +354,8 @@ func EnsureLoaded(ctx context.Context, mclient msb.Client, _, imageRef string, u
 	return nil
 }
 
-// cachedImageMatchesDocker reports whether the microsandbox image under ref
-// matches the Docker image under ref. It compares the microsandbox config
-// digest against the Docker image ID, falling back to the dockerfile-id label
-// when the digest is unavailable.
-func cachedImageMatchesDocker(ctx context.Context, mclient msb.Client, ref string) bool {
-	dInspect, err := docker.Get().ImageInspect(ctx, ref)
-	if err != nil || dInspect.Config == nil {
-		return false
-	}
-	mInspect, err := mclient.ImageInspect(ctx, ref)
-	if err != nil {
-		return false
-	}
-	if mInspect.Digest != "" && mInspect.Digest == dInspect.ID {
-		return true
-	}
-	dID := dInspect.Config.Labels[dockerfileIDLabelKey]
-	return dID != "" && mInspect.Labels[dockerfileIDLabelKey] == dID
-}
-
 // EnsureImage builds/inspects the runner Docker image and returns an ImageInfo
-// describing its tag, digest, and ENV map (read from the Docker image config).
-// It does not load the image into microsandbox.
+// describing its tag, digest, and ENV map.
 func EnsureImage(
 	ctx context.Context,
 	a agent.Agent,
@@ -478,8 +368,9 @@ func EnsureImage(
 
 // Build ensures the runner image is built and loaded into the microsandbox
 // cache, so it can be used to create VMs. It composes EnsureImageWithClient
-// (build/inspect) and EnsureLoaded (load into microsandbox). Preflight checks
-// (e.g., docker availability) and dry-run handling are the caller's concern.
+// (build/inspect) and EnsureLoaded (load into microsandbox), removing the
+// builder's archive once it has been loaded. Preflight checks and dry-run
+// handling are the caller's concern.
 func Build(
 	ctx context.Context,
 	a agent.Agent,
@@ -491,12 +382,14 @@ func Build(
 	if err != nil {
 		return err
 	}
-	return EnsureLoaded(ctx, msb.Get(), projectSlug, info.Tag, ui)
+	if info.ArchivePath != "" {
+		defer os.Remove(info.ArchivePath)
+	}
+	return EnsureLoaded(ctx, msb.Get(), info.ArchivePath, info.Tag, ui)
 }
 
 // baseImageRef returns the normalized image reference that backs the rendered
-// Dockerfile's final stage, i.e., the FROM the tool must inspect/pull for the
-// base label.
+// Dockerfile's final stage, i.e., the FROM the builder resolves and pulls.
 func baseImageRef(rendered []byte) string {
 	token := finalStageToken(rendered)
 	if ref, err := reference.ParseNormalizedNamed(token); err == nil {
@@ -510,28 +403,4 @@ func baseImageRef(rendered []byte) string {
 func finalStageToken(rendered []byte) string {
 	lastImage, stageBase := scanFromStages(rendered)
 	return resolveStageBase(lastImage, stageBase)
-}
-
-// resolveBaseDigest returns "<ref>@sha256:<digest>" for the base image, pulling
-// it first when not present locally. The FROM itself stays a tag so it floats;
-// the digest only records what the image was built from.
-func resolveBaseDigest(ctx context.Context, baseRef string, ui termio.UI) (string, error) {
-	inspect, err := docker.Get().ImageInspect(ctx, baseRef)
-	if err != nil {
-		ui.Verbosef("base image %s not present locally, pulling", baseRef)
-		pull, pullErr := docker.Get().ImagePull(ctx, baseRef, client.ImagePullOptions{})
-		if pullErr != nil {
-			return "", fmt.Errorf("pull base image %s: %w", baseRef, pullErr)
-		}
-		if _, drainErr := io.Copy(io.Discard, pull); drainErr != nil {
-			_ = pull.Close()
-			return "", fmt.Errorf("pull base image %s: %w", baseRef, drainErr)
-		}
-		_ = pull.Close()
-		inspect, err = docker.Get().ImageInspect(ctx, baseRef)
-		if err != nil {
-			return "", fmt.Errorf("inspect pulled base image %s: %w", baseRef, err)
-		}
-	}
-	return baseRef + "@" + inspect.ID, nil
 }

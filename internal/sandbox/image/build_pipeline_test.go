@@ -3,16 +3,15 @@ package image
 import (
 	"context"
 	"errors"
-	"io"
 	"strings"
 	"testing"
 
-	dockerspec "github.com/moby/docker-image-spec/specs-go/v1"
-	"github.com/moby/moby/client"
+	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 
 	"github.com/inoio/agents-sandbox/internal/agent"
 	"github.com/inoio/agents-sandbox/internal/configpaths"
-	"github.com/inoio/agents-sandbox/internal/sandbox/docker"
+	"github.com/inoio/agents-sandbox/internal/sandbox/builder"
+	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
 	"github.com/inoio/agents-sandbox/internal/termio"
 )
 
@@ -35,40 +34,36 @@ func TestComputeDockerfileIDFoldsMergeScript(t *testing.T) {
 	}
 }
 
+// msbInspector installs an msb mock whose ImageInspect reports present images
+// from labels (absent when labels is nil) and reads digest/env from the config.
+func msbInspector(t *testing.T, inspectFn func(context.Context, string) (*msbSdk.ImageConfig, error)) {
+	t.Helper()
+	msb.WithMsbMock(t, &msb.MockMsbClient{ImageInspectFn: inspectFn})
+}
+
 // TestEnsureImageSkipsBuildWhenDockerfileIDMatches verifies the build is skipped
 // when the existing runner image already carries a matching dockerfile-id label.
 func TestEnsureImageSkipsBuildWhenDockerfileIDMatches(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	WithMockAgentVersion(t, "1.2.3")
 	a := agentOpencode(t)
-	built := false
-	docker.WithDockerMock(t, &docker.MockDockerClient{
-		ImageInspectFn: func(_ context.Context, ref string, _ ...client.ImageInspectOption) (client.ImageInspectResult, error) {
-			id := "sha256:existing"
-			labels := map[string]string{
-				dockerfileIDLabelKey: computeDockerfileID(renderBytes(t, a, nil, false), "1.2.3"),
-			}
-			if ref == "debian:trixie-slim" {
-				return client.ImageInspectResult{ID: "sha256:base"}, nil
-			}
-			return client.ImageInspectResult{
-				ID:     id,
-				Config: &dockerspec.DockerOCIImageConfig{Labels: labels}}, nil
-		},
-		ImageBuildFn: func(_ context.Context, _ io.Reader, _ client.ImageBuildOptions) (client.ImageBuildResult, error) {
-			built = true
-			return client.ImageBuildResult{Body: io.NopCloser(strings.NewReader(""))}, nil
-		},
+	labels := map[string]string{
+		dockerfileIDLabelKey: computeDockerfileID(renderBytes(t, a, nil, false), "1.2.3"),
+	}
+	msbInspector(t, func(context.Context, string) (*msbSdk.ImageConfig, error) {
+		return msbImageConfig("sha256:existing", labels, nil), nil
 	})
+	mock := fakeBuilder(t, builder.BuildResult{ArchivePath: "/tmp/should-not-use"}, nil)
+
 	info, err := EnsureImage(context.Background(), a, "proj", BuildOptions{}, &termio.Mock{})
 	if err != nil {
 		t.Fatalf("EnsureImage: %v", err)
 	}
-	if built {
-		t.Error("expected the docker build to be skipped when the dockerfile-id label matches")
+	if len(mock.Calls) != 0 {
+		t.Error("expected the build to be skipped when the dockerfile-id label matches")
 	}
 	if info.Digest != "sha256:existing" {
-		t.Errorf("Digest = %q, want the existing image ID", info.Digest)
+		t.Errorf("Digest = %q, want the existing msb digest", info.Digest)
 	}
 }
 
@@ -92,91 +87,66 @@ func TestEnsureImageBuildsWhenDockerfileIDMismatches(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	WithMockAgentVersion(t, "1.2.3")
 	a := agentOpencode(t)
-	built := false
-	docker.WithDockerMock(t, &docker.MockDockerClient{
-		ImageInspectFn: func(_ context.Context, ref string, _ ...client.ImageInspectOption) (client.ImageInspectResult, error) {
-			if ref == "debian:trixie-slim" {
-				return client.ImageInspectResult{ID: "sha256:base"}, nil
-			}
-			return client.ImageInspectResult{
-				ID: "sha256:existing",
-				Config: &dockerspec.DockerOCIImageConfig{
-					Labels: map[string]string{dockerfileIDLabelKey: "stale"},
-				}}, nil
-		},
-		ImageBuildFn: func(_ context.Context, _ io.Reader, _ client.ImageBuildOptions) (client.ImageBuildResult, error) {
-			built = true
-			return client.ImageBuildResult{Body: io.NopCloser(strings.NewReader(""))}, nil
-		},
+	msbInspector(t, func(context.Context, string) (*msbSdk.ImageConfig, error) {
+		return msbImageConfig("sha256:existing", map[string]string{dockerfileIDLabelKey: "stale"}, nil), nil
 	})
+	mock := fakeBuilder(t, builder.BuildResult{
+		ArchivePath: "/tmp/a", Digest: "sha256:new", Env: []string{"PATH=/usr/bin"},
+	}, nil)
+
 	if _, err := EnsureImage(context.Background(), a, "proj", BuildOptions{}, &termio.Mock{}); err != nil {
 		t.Fatalf("EnsureImage: %v", err)
 	}
-	if !built {
-		t.Error("expected the docker build to run when the dockerfile-id label mismatches")
+	if len(mock.Calls) != 1 {
+		t.Errorf("builder calls = %d, want 1 when the dockerfile-id label mismatches", len(mock.Calls))
 	}
 }
 
-// TestEnsureImageBuildArgsIncludeBaseAndAgentVersion asserts the BASE_IMAGE
-// provenance build arg and the pinned agent version arg.
-func TestEnsureImageBuildArgsIncludeBaseAndAgentVersion(t *testing.T) {
+// TestEnsureImageBuildArgsIncludeAgentVersion asserts the pinned agent version
+// arg is passed to the builder and BASE_IMAGE is left to the builder.
+func TestEnsureImageBuildArgsIncludeAgentVersion(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	WithMockAgentVersion(t, "1.2.3")
 	a := agentOpencode(t)
-	var gotArgs map[string]*string
-	docker.WithDockerMock(t, &docker.MockDockerClient{
-		ImageInspectFn: func(_ context.Context, _ string, _ ...client.ImageInspectOption) (client.ImageInspectResult, error) {
-			return client.ImageInspectResult{ID: "sha256:base"}, nil
-		},
-		ImageBuildFn: func(_ context.Context, _ io.Reader, opts client.ImageBuildOptions) (client.ImageBuildResult, error) {
-			gotArgs = opts.BuildArgs
-			return client.ImageBuildResult{Body: io.NopCloser(strings.NewReader(""))}, nil
-		},
+	msbInspector(t, func(context.Context, string) (*msbSdk.ImageConfig, error) {
+		return nil, errors.New("image not found")
 	})
-	_, err := EnsureImage(context.Background(), a, "proj", BuildOptions{}, &termio.Mock{})
-	if err != nil {
+	mock := fakeBuilder(t, builder.BuildResult{ArchivePath: "/tmp/a", Digest: "sha256:new"}, nil)
+
+	if _, err := EnsureImage(context.Background(), a, "proj", BuildOptions{}, &termio.Mock{}); err != nil {
 		t.Fatalf("EnsureImage: %v", err)
 	}
-	for key, want := range map[string]string{
-		"BASE_IMAGE":       "debian:trixie-slim@sha256:base",
-		"OPENCODE_VERSION": "1.2.3",
-	} {
-		if gotArgs == nil || gotArgs[key] == nil || *gotArgs[key] != want {
-			t.Errorf("build arg %s = %v, want %q", key, gotArgs, want)
-		}
+	args := mock.Calls[0].BuildArgs
+	if args["OPENCODE_VERSION"] != "1.2.3" {
+		t.Errorf("OPENCODE_VERSION = %q, want 1.2.3", args["OPENCODE_VERSION"])
+	}
+	if _, ok := args["BASE_IMAGE"]; ok {
+		t.Error("BASE_IMAGE must not be set by the image package")
 	}
 }
 
 // TestEnsureImageResolvesAnUnpinnedAgentVersion verifies that an empty version
-// is resolved to a real release before it is passed to the Docker build.
+// is resolved to a real release before it is passed to the builder.
 func TestEnsureImageResolvesAnUnpinnedAgentVersion(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	a := agentOpencode(t)
 	var requested string
-	var gotArgs map[string]*string
 	WithMockAgentVersionResolver(t, func(_ context.Context, _ agent.Agent, req string) (string, error) {
 		requested = req
 		return "1.2.3", nil
 	})
-	docker.WithDockerMock(t, &docker.MockDockerClient{
-		ImageInspectFn: func(_ context.Context, _ string, _ ...client.ImageInspectOption) (client.ImageInspectResult, error) {
-			return client.ImageInspectResult{ID: "sha256:base"}, nil
-		},
-		ImageBuildFn: func(_ context.Context, _ io.Reader, opts client.ImageBuildOptions) (client.ImageBuildResult, error) {
-			gotArgs = opts.BuildArgs
-			return client.ImageBuildResult{Body: io.NopCloser(strings.NewReader(""))}, nil
-		},
+	msbInspector(t, func(context.Context, string) (*msbSdk.ImageConfig, error) {
+		return nil, errors.New("image not found")
 	})
+	mock := fakeBuilder(t, builder.BuildResult{ArchivePath: "/tmp/a", Digest: "sha256:new"}, nil)
+
 	if _, err := EnsureImage(context.Background(), a, "proj", BuildOptions{}, &termio.Mock{}); err != nil {
 		t.Fatalf("EnsureImage: %v", err)
 	}
 	if requested != "" {
 		t.Errorf("resolver requested = %q, want empty version", requested)
 	}
-	if gotArgs == nil || gotArgs["OPENCODE_VERSION"] == nil {
-		t.Fatalf("OPENCODE_VERSION build arg missing: %v", gotArgs)
-	}
-	if got := *gotArgs["OPENCODE_VERSION"]; got != "1.2.3" {
+	if got := mock.Calls[0].BuildArgs["OPENCODE_VERSION"]; got != "1.2.3" {
 		t.Errorf("OPENCODE_VERSION build arg = %q, want 1.2.3", got)
 	}
 }
@@ -189,37 +159,25 @@ func TestEnsureImageReusesUnknownUserAgentWithoutResolvingVersion(t *testing.T) 
 	a := agentOpencode(t)
 	rendered := renderBytes(t, a, nil, false)
 	wantID := computeDockerfileID(rendered, userProvidedImageIdentity)
-	buildCalled := false
 	resolverCalled := false
 	WithMockAgentVersionResolver(t, func(_ context.Context, _ agent.Agent, _ string) (string, error) {
 		resolverCalled = true
 		return "1.2.3", nil
 	})
-	docker.WithDockerMock(t, &docker.MockDockerClient{
-		ImageInspectFn: func(_ context.Context, _ string, _ ...client.ImageInspectOption) (client.ImageInspectResult, error) {
-			return client.ImageInspectResult{
-				ID: "sha256:existing",
-				Config: &dockerspec.DockerOCIImageConfig{
-					Labels: map[string]string{dockerfileIDLabelKey: wantID}}}, nil
-		},
-		ImageBuildFn: func(_ context.Context, _ io.Reader, _ client.ImageBuildOptions) (client.ImageBuildResult, error) {
-			buildCalled = true
-			return client.ImageBuildResult{Body: io.NopCloser(strings.NewReader(""))}, nil
-		},
+	msbInspector(t, func(context.Context, string) (*msbSdk.ImageConfig, error) {
+		return msbImageConfig("sha256:existing", map[string]string{dockerfileIDLabelKey: wantID}, nil), nil
 	})
+	mock := fakeBuilder(t, builder.BuildResult{ArchivePath: "/tmp/a"}, nil)
+
 	if _, err := EnsureImage(
-		context.Background(),
-		a,
-		"proj",
-		BuildOptions{UserProvided: true},
-		&termio.Mock{},
+		context.Background(), a, "proj", BuildOptions{UserProvided: true}, &termio.Mock{},
 	); err != nil {
 		t.Fatalf("EnsureImage: %v", err)
 	}
 	if resolverCalled {
 		t.Error("user-provided image reuse must not resolve an agent version")
 	}
-	if buildCalled {
+	if len(mock.Calls) != 0 {
 		t.Error("user-provided image reuse must not rebuild a matching image")
 	}
 }
@@ -230,44 +188,29 @@ func TestEnsureImageReusesUnknownUserAgentWithoutResolvingVersion(t *testing.T) 
 func TestEnsureImageResolvesUnknownUserAgentOnlyForARebuild(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	a := agentOpencode(t)
-	var gotArgs map[string]*string
-	var gotDockerfileID string
 	WithMockAgentVersionResolver(t, func(_ context.Context, _ agent.Agent, requested string) (string, error) {
 		if requested != "" {
 			t.Errorf("resolver requested = %q, want empty version", requested)
 		}
 		return "1.2.3", nil
 	})
-	docker.WithDockerMock(t, &docker.MockDockerClient{
-		ImageInspectFn: func(_ context.Context, _ string, _ ...client.ImageInspectOption) (client.ImageInspectResult, error) {
-			return client.ImageInspectResult{
-				ID: "sha256:existing",
-				Config: &dockerspec.DockerOCIImageConfig{
-					Labels: map[string]string{dockerfileIDLabelKey: "stale"}}}, nil
-		},
-		ImageBuildFn: func(_ context.Context, _ io.Reader, opts client.ImageBuildOptions) (client.ImageBuildResult, error) {
-			gotArgs = opts.BuildArgs
-			if value := opts.BuildArgs["DOCKERFILE_ID"]; value != nil {
-				gotDockerfileID = *value
-			}
-			return client.ImageBuildResult{Body: io.NopCloser(strings.NewReader(""))}, nil
-		},
+	msbInspector(t, func(context.Context, string) (*msbSdk.ImageConfig, error) {
+		return msbImageConfig("sha256:existing", map[string]string{dockerfileIDLabelKey: "stale"}, nil), nil
 	})
+	mock := fakeBuilder(t, builder.BuildResult{ArchivePath: "/tmp/a", Digest: "sha256:new"}, nil)
+
 	if _, err := EnsureImage(
-		context.Background(),
-		a,
-		"proj",
-		BuildOptions{UserProvided: true},
-		&termio.Mock{},
+		context.Background(), a, "proj", BuildOptions{UserProvided: true}, &termio.Mock{},
 	); err != nil {
 		t.Fatalf("EnsureImage: %v", err)
 	}
-	if gotArgs == nil || gotArgs["OPENCODE_VERSION"] == nil || *gotArgs["OPENCODE_VERSION"] != "1.2.3" {
-		t.Errorf("OPENCODE_VERSION build arg = %v, want 1.2.3", gotArgs)
+	args := mock.Calls[0].BuildArgs
+	if args["OPENCODE_VERSION"] != "1.2.3" {
+		t.Errorf("OPENCODE_VERSION build arg = %q, want 1.2.3", args["OPENCODE_VERSION"])
 	}
 	wantID := computeDockerfileID(renderBytes(t, a, nil, false), "1.2.3")
-	if gotDockerfileID != wantID {
-		t.Errorf("DOCKERFILE_ID = %q, want resolved-version identity %q", gotDockerfileID, wantID)
+	if args["DOCKERFILE_ID"] != wantID {
+		t.Errorf("DOCKERFILE_ID = %q, want resolved-version identity %q", args["DOCKERFILE_ID"], wantID)
 	}
 }
 
@@ -277,50 +220,16 @@ func TestEnsureImageDockerAddsDockerVersionArg(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	WithMockAgentVersion(t, "1.2.3")
 	a := agentOpencode(t)
-	var gotArgs map[string]*string
-	docker.WithDockerMock(t, &docker.MockDockerClient{
-		ImageInspectFn: func(_ context.Context, _ string, _ ...client.ImageInspectOption) (client.ImageInspectResult, error) {
-			return client.ImageInspectResult{ID: "sha256:base"}, nil
-		},
-		ImageBuildFn: func(_ context.Context, _ io.Reader, opts client.ImageBuildOptions) (client.ImageBuildResult, error) {
-			gotArgs = opts.BuildArgs
-			return client.ImageBuildResult{Body: io.NopCloser(strings.NewReader(""))}, nil
-		},
+	msbInspector(t, func(context.Context, string) (*msbSdk.ImageConfig, error) {
+		return nil, errors.New("image not found")
 	})
+	mock := fakeBuilder(t, builder.BuildResult{ArchivePath: "/tmp/a", Digest: "sha256:new"}, nil)
+
 	if _, err := EnsureImage(context.Background(), a, "proj", BuildOptions{Docker: true}, &termio.Mock{}); err != nil {
 		t.Fatalf("EnsureImage: %v", err)
 	}
-	if gotArgs == nil || gotArgs["DOCKER_VERSION"] == nil || *gotArgs["DOCKER_VERSION"] != "29.7.2" {
-		t.Errorf("DOCKER_VERSION build arg = %v, want 29.7.2", gotArgs)
-	}
-}
-
-// TestResolveBaseDigestPullsAbsentBase verifies the pull-then-inspect path.
-func TestResolveBaseDigestPullsAbsentBase(t *testing.T) {
-	var pulled string
-	inspects := 0
-	docker.WithDockerMock(t, &docker.MockDockerClient{
-		ImageInspectFn: func(_ context.Context, _ string, _ ...client.ImageInspectOption) (client.ImageInspectResult, error) {
-			inspects++
-			if inspects == 1 {
-				return client.ImageInspectResult{}, errors.New("not found")
-			}
-			return client.ImageInspectResult{ID: "sha256:pulled"}, nil
-		},
-		ImagePullFn: func(_ context.Context, ref string, _ client.ImagePullOptions) (io.ReadCloser, error) {
-			pulled = ref
-			return io.NopCloser(strings.NewReader("")), nil
-		},
-	})
-	got, err := resolveBaseDigest(context.Background(), "debian:trixie-slim", &termio.Mock{})
-	if err != nil {
-		t.Fatalf("resolveBaseDigest: %v", err)
-	}
-	if pulled != "debian:trixie-slim" {
-		t.Errorf("ImagePull called with %q, want %q", pulled, "debian:trixie-slim")
-	}
-	if got != "debian:trixie-slim@sha256:pulled" {
-		t.Errorf("resolveBaseDigest = %q", got)
+	if got := mock.Calls[0].BuildArgs["DOCKER_VERSION"]; got != "29.7.2" {
+		t.Errorf("DOCKER_VERSION build arg = %q, want 29.7.2", got)
 	}
 }
 

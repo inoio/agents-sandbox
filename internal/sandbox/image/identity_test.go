@@ -113,7 +113,7 @@ func TestUserBuildArgsCarryIdentityComponents(t *testing.T) {
 		AgentVersion:          "1.2.3",
 		Docker:                "false",
 	}
-	args := userBuildArgs(1000, 1000, agentOpencode(t).ImageSpec(), "1.2.3", "base", "id", false, id)
+	args := userBuildArgs(1000, 1000, agentOpencode(t).ImageSpec(), "1.2.3", "id", false, id)
 	for key, want := range map[string]string{
 		projectDockerfileHashArg: "hash",
 		agentVersionArg:          "1.2.3",
@@ -122,5 +122,8 @@ func TestUserBuildArgsCarryIdentityComponents(t *testing.T) {
 		if args[key] == nil || *args[key] != want {
 			t.Errorf("build arg %s = %v, want %q", key, args[key], want)
 		}
+	}
+	if _, ok := args["BASE_IMAGE"]; ok {
+		t.Error("BASE_IMAGE must be supplied by the builder, not userBuildArgs")
 	}
 }

@@ -4,7 +4,7 @@ import (
 	"context"
 	"strings"
 
-	"github.com/inoio/agents-sandbox/internal/sandbox/docker"
+	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
 )
 
 // runnerImageState is the inspected identity of an existing runner image.
@@ -14,14 +14,15 @@ type runnerImageState struct {
 	Labels       map[string]string
 }
 
-// inspectRunnerImage reads the runner image's identity labels. A missing image
-// or one without config is reported as absent so the caller rebuilds.
+// inspectRunnerImage reads the runner image's identity labels from the
+// microsandbox image cache. A missing image is reported as absent so the caller
+// rebuilds.
 func inspectRunnerImage(ctx context.Context, rTag string) runnerImageState {
-	inspect, err := docker.Get().ImageInspect(ctx, rTag)
-	if err != nil || inspect.Config == nil {
+	inspect, err := msb.Get().ImageInspect(ctx, rTag)
+	if err != nil || inspect == nil {
 		return runnerImageState{}
 	}
-	labels := inspect.Config.Labels
+	labels := inspect.Labels
 	return runnerImageState{
 		Present:      true,
 		DockerfileID: labels[dockerfileIDLabelKey],
@@ -90,22 +91,6 @@ func hasIdentityLabels(labels map[string]string) bool {
 		}
 	}
 	return false
-}
-
-// readImageInfoFromDocker returns the image env map by inspecting the Docker
-// image. The loaded microsandbox image is a passthrough of the Docker image, so
-// reading from Docker is equivalent to reading from microsandbox and avoids
-// requiring the image to be loaded first.
-func readImageInfoFromDocker(ctx context.Context, rTag string) (map[string]string, error) {
-	inspect, err := docker.Get().ImageInspect(ctx, rTag)
-	if err != nil {
-		return nil, err
-	}
-	if inspect.Config == nil {
-		//nolint:nilnil // a missing config means no env, which is not an error
-		return nil, nil
-	}
-	return parseImageEnv(inspect.Config.Env), nil
 }
 
 func parseImageEnv(envs []string) map[string]string {

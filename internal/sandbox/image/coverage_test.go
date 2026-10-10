@@ -4,14 +4,14 @@ import (
 	"context"
 	"errors"
 	"io"
+	"os"
 	"testing"
 
-	dockerspec "github.com/moby/docker-image-spec/specs-go/v1"
-	"github.com/moby/moby/client"
+	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 
 	"github.com/inoio/agents-sandbox/internal/agent"
 	"github.com/inoio/agents-sandbox/internal/configpaths"
-	"github.com/inoio/agents-sandbox/internal/sandbox/docker"
+	"github.com/inoio/agents-sandbox/internal/sandbox/builder"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
 	"github.com/inoio/agents-sandbox/internal/termio"
 )
@@ -20,14 +20,14 @@ func TestEnsureImageSuccess(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	WithMockAgentVersion(t, "1.2.3")
 	a, _ := agent.Lookup("opencode")
-	docker.WithDockerMock(t, &docker.MockDockerClient{
-		ImageInspectFn: func(_ context.Context, _ string, _ ...client.ImageInspectOption) (client.ImageInspectResult, error) {
-			return client.ImageInspectResult{
-				ID:     "sha256:abc123",
-				Config: dockerConfigWith("1.2.3", []string{"PATH=/usr/bin"}),
-			}, nil
+	msb.WithMsbMock(t, &msb.MockMsbClient{
+		ImageInspectFn: func(context.Context, string) (*msbSdk.ImageConfig, error) {
+			return nil, errors.New("image not found")
 		},
 	})
+	fakeBuilder(t, builder.BuildResult{
+		ArchivePath: "/tmp/a", Digest: "sha256:abc123", Env: []string{"PATH=/usr/bin"},
+	}, nil)
 
 	info, err := EnsureImage(context.Background(), a, "test-project", BuildOptions{}, &termio.Mock{})
 	if err != nil {
@@ -42,17 +42,14 @@ func TestEnsureImageReturnsError(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	WithMockAgentVersion(t, "1.2.3")
 	a, _ := agent.Lookup("opencode")
-	docker.WithDefaultErrorDockerMock(t)
+	fakeBuilder(t, builder.BuildResult{}, errors.New("build boom"))
+	msb.WithMsbMock(t, &msb.MockMsbClient{})
 
 	_, err := EnsureImage(
-		context.Background(),
-		a,
-		"test-project",
-		BuildOptions{Force: true},
-		&termio.Mock{},
+		context.Background(), a, "test-project", BuildOptions{Force: true}, &termio.Mock{},
 	)
 	if err == nil {
-		t.Error("expected EnsureImage to return an error when Docker build fails")
+		t.Error("expected EnsureImage to return an error when the builder fails")
 	}
 }
 
@@ -60,19 +57,12 @@ func TestBuildSuccess(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	WithMockAgentVersion(t, "1.2.3")
 	a, _ := agent.Lookup("opencode")
-	docker.WithDockerMock(t, &docker.MockDockerClient{
-		ImageInspectFn: func(_ context.Context, _ string, _ ...client.ImageInspectOption) (client.ImageInspectResult, error) {
-			return client.ImageInspectResult{
-				ID:     "sha256:abc123",
-				Config: dockerConfigWith("1.2.3", []string{"PATH=/usr/bin"}),
-			}, nil
-		},
-		ImageSaveFn: func(_ context.Context, _ []string, _ ...client.ImageSaveOption) (client.ImageSaveResult, error) {
-			return io.NopCloser(io.LimitReader(nil, 0)), nil
-		},
-	})
+	archivePath := newArchiveFile(t)
+	fakeBuilder(t, builder.BuildResult{
+		ArchivePath: archivePath, Digest: "sha256:abc123", Env: []string{"PATH=/usr/bin"},
+	}, nil)
 	msbClient := &msb.MockMsbClient{
-		ImageGetFn: func(_ context.Context, _ string) error { return errors.New("not cached") },
+		ImageGetFn: func(context.Context, string) error { return errors.New("not cached") },
 	}
 	msb.WithMsbMock(t, msbClient)
 
@@ -84,11 +74,29 @@ func TestBuildSuccess(t *testing.T) {
 	}
 }
 
+func TestBuildRemovesArchiveAfterLoad(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	WithMockAgentVersion(t, "1.2.3")
+	a, _ := agent.Lookup("opencode")
+	archivePath := newArchiveFile(t)
+	fakeBuilder(t, builder.BuildResult{ArchivePath: archivePath, Digest: "sha256:abc123"}, nil)
+	msb.WithMsbMock(t, &msb.MockMsbClient{
+		ImageGetFn: func(context.Context, string) error { return errors.New("not cached") },
+	})
+
+	if err := Build(context.Background(), a, "test-project", BuildOptions{}, &termio.Mock{}); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if _, err := os.Stat(archivePath); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("archive %s still present after Build; err = %v", archivePath, err)
+	}
+}
+
 func TestBuildReturnsErrorWhenImageBuildFails(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	WithMockAgentVersion(t, "1.2.3")
 	a, _ := agent.Lookup("opencode")
-	docker.WithDefaultErrorDockerMock(t)
+	fakeBuilder(t, builder.BuildResult{}, errors.New("build boom"))
 	msb.WithMsbMock(t, &msb.MockMsbClient{})
 
 	if err := Build(context.Background(), a, "test-project", BuildOptions{Force: true}, &termio.Mock{}); err == nil {
@@ -100,19 +108,12 @@ func TestBuildReturnsErrorWhenLoadFails(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	WithMockAgentVersion(t, "1.2.3")
 	a, _ := agent.Lookup("opencode")
-	docker.WithDockerMock(t, &docker.MockDockerClient{
-		ImageInspectFn: func(_ context.Context, _ string, _ ...client.ImageInspectOption) (client.ImageInspectResult, error) {
-			return client.ImageInspectResult{
-				ID:     "sha256:abc123",
-				Config: dockerConfigWith("1.2.3", nil),
-			}, nil
-		},
-		ImageSaveFn: func(_ context.Context, _ []string, _ ...client.ImageSaveOption) (client.ImageSaveResult, error) {
-			return nil, errors.New("docker save failed")
-		},
-	})
+	fakeBuilder(t, builder.BuildResult{ArchivePath: newArchiveFile(t), Digest: "sha256:abc123"}, nil)
 	msb.WithMsbMock(t, &msb.MockMsbClient{
-		ImageGetFn: func(_ context.Context, _ string) error { return errors.New("not cached") },
+		ImageGetFn: func(context.Context, string) error { return errors.New("not cached") },
+		ImageLoadFn: func(context.Context, string, io.Reader) error {
+			return errors.New("load boom")
+		},
 	})
 
 	if err := Build(context.Background(), a, "test-project", BuildOptions{}, &termio.Mock{}); err == nil {
@@ -127,8 +128,7 @@ func TestEnsureImageReturnsErrorWhenVersionResolveFails(t *testing.T) {
 		return "", errors.New("resolve boom")
 	})
 	_, err := EnsureImageWithClient(
-		context.Background(), a, []byte("FROM x\n"), "test-project",
-		BuildOptions{}, &termio.Mock{},
+		context.Background(), a, []byte("FROM x\n"), "test-project", BuildOptions{}, &termio.Mock{},
 	)
 	if err == nil {
 		t.Error("expected error when resolving agent version fails")
@@ -144,12 +144,9 @@ func TestEnsureImageReturnsErrorWhenDeferredVersionResolveFails(t *testing.T) {
 		}
 		return "", errors.New("resolve boom")
 	})
-	docker.WithDockerMock(t, &docker.MockDockerClient{
-		ImageInspectFn: func(_ context.Context, _ string, _ ...client.ImageInspectOption) (client.ImageInspectResult, error) {
-			return client.ImageInspectResult{
-				ID: "sha256:existing",
-				Config: &dockerspec.DockerOCIImageConfig{
-					Labels: map[string]string{dockerfileIDLabelKey: "stale"}}}, nil
+	msb.WithMsbMock(t, &msb.MockMsbClient{
+		ImageInspectFn: func(context.Context, string) (*msbSdk.ImageConfig, error) {
+			return msbImageConfig("sha256:existing", map[string]string{dockerfileIDLabelKey: "stale"}, nil), nil
 		},
 	})
 	_, err := EnsureImageWithClient(
