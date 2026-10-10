@@ -114,10 +114,3 @@ func TestGetReturnsBuilder(t *testing.T) {
 		t.Fatal("Get returned nil Builder")
 	}
 }
-
-func TestBuildNotImplementedYet(t *testing.T) {
-	c := &Client{}
-	if _, err := c.Build(context.Background(), BuildRequest{}); err == nil {
-		t.Fatal("Build returned nil error, want not-implemented error")
-	}
-}

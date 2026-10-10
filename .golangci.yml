@@ -305,6 +305,9 @@ linters:
         - ^github.com/moby/moby/client.ImageRemoveOptions$
         - ^github.com/moby/moby/client.ImagePullOptions$
         - ^github.com/moby/moby/client.PingOptions$
+        - ^github.com/moby/buildkit/client.SolveOpt$
+        - ^github.com/moby/buildkit/client.ExportEntry$
+        - ^github.com/moby/buildkit/client/llb/sourceresolver.Opt$
         - ^github.com/superradcompany/microsandbox/sdk/go\.(RuntimeConfig|InstallOptions|DNSConfig)$
         - ^github.com/superradcompany/microsandbox/sdk/go.MountOptions$
         - ^github.com/superradcompany/microsandbox/sdk/go.SecretEnvOptions$

@@ -2,13 +2,17 @@ package builder
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
+	"os"
 	"time"
 
 	"github.com/moby/buildkit/client"
 	"github.com/moby/buildkit/client/llb"
 	"github.com/moby/buildkit/client/llb/sourceresolver"
+	gwclient "github.com/moby/buildkit/frontend/gateway/client"
 	"github.com/opencontainers/go-digest"
 
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
@@ -71,12 +75,36 @@ func (c *realBuildkitClient) Solve(
 	return c.client.Solve(ctx, def, opt, status)
 }
 
-// ResolveImageConfig is unsupported on the bare client; the gateway resolver
-// created inside Build performs base-image resolution.
+// ResolveImageConfig resolves base-image metadata through a BuildKit gateway
+// session, the BuildKit-native replacement for a pre-build `docker inspect`.
 func (c *realBuildkitClient) ResolveImageConfig(
-	context.Context, string, sourceresolver.Opt,
+	ctx context.Context,
+	ref string,
+	opt sourceresolver.Opt,
 ) (string, digest.Digest, []byte, error) {
-	return "", "", nil, errors.New("ResolveImageConfig is not supported on the bare buildkit client")
+	var (
+		resolvedRef  string
+		resolvedDgst digest.Digest
+		resolvedCfg  []byte
+	)
+	_, err := c.client.Build(
+		ctx,
+		client.SolveOpt{Session: registryAuthSession()},
+		"",
+		func(ctx context.Context, gw gwclient.Client) (*gwclient.Result, error) {
+			var err error
+			resolvedRef, resolvedDgst, resolvedCfg, err = gw.ResolveImageConfig(ctx, ref, opt)
+			if err != nil {
+				return nil, err
+			}
+			return gwclient.NewResult(), nil
+		},
+		nil,
+	)
+	if err != nil {
+		return "", "", nil, err
+	}
+	return resolvedRef, resolvedDgst, resolvedCfg, nil
 }
 
 func (c *realBuildkitClient) Close() error {
@@ -144,6 +172,85 @@ func newClient() *Client {
 	return &Client{Msb: vm.Msb, vm: vm}
 }
 
-func (c *Client) Build(context.Context, BuildRequest) (BuildResult, error) {
-	return BuildResult{}, errors.New("buildkit builder: Build not implemented")
+func (c *Client) Build(ctx context.Context, req BuildRequest) (BuildResult, error) {
+	hostPort, err := c.vm.Ensure(ctx)
+	if err != nil {
+		return BuildResult{}, fmt.Errorf("ensure builder VM: %w", err)
+	}
+
+	bc, err := newBuildkitClient(ctx, fmt.Sprintf("tcp://127.0.0.1:%d", hostPort))
+	if err != nil {
+		return BuildResult{}, fmt.Errorf("connect to builder at %d: %w", hostPort, err)
+	}
+	defer func() { _ = bc.Close() }()
+
+	baseDigest, err := resolveBaseDigest(ctx, bc, req.BaseRef, req.Platform)
+	if err != nil {
+		return BuildResult{}, fmt.Errorf("resolve base image %s: %w", req.BaseRef, err)
+	}
+
+	archive, err := os.CreateTemp("", "agents-sandbox-image-*.tar")
+	if err != nil {
+		return BuildResult{}, fmt.Errorf("create image archive: %w", err)
+	}
+	archivePath := archive.Name()
+
+	attributes := map[string]string{"platform": req.Platform}
+	for key, value := range req.BuildArgs {
+		attributes["build-arg:"+key] = value
+	}
+	attributes["build-arg:BASE_IMAGE"] = baseDigest
+	if req.NoCache {
+		attributes["no-cache"] = ""
+	}
+
+	statusCh := make(chan *client.SolveStatus)
+	progressDone := make(chan struct{})
+	go func() {
+		defer close(progressDone)
+		for status := range statusCh {
+			forwardProgress(status, req.Progress)
+		}
+	}()
+
+	resp, solveErr := bc.Solve(ctx, nil, client.SolveOpt{
+		Frontend:      "dockerfile.v0",
+		LocalDirs:     map[string]string{"context": req.ContextDir, "dockerfile": req.ContextDir},
+		FrontendAttrs: attributes,
+		Exports: []client.ExportEntry{{
+			Type: "oci",
+			Output: func(map[string]string) (io.WriteCloser, error) {
+				return archive, nil
+			},
+		}},
+		Session: registryAuthSession(),
+	}, statusCh)
+	// Solve owns closing statusCh, which ends the progress loop.
+	<-progressDone
+
+	closeErr := archive.Close()
+	if solveErr != nil {
+		return BuildResult{}, fmt.Errorf("solve image build: %w", solveErr)
+	}
+	if closeErr != nil {
+		return BuildResult{}, fmt.Errorf("close image archive: %w", closeErr)
+	}
+
+	var metadata struct {
+		Config struct {
+			Env []string `json:"Env"`
+		} `json:"config"`
+	}
+	if configJSON := resp.ExporterResponse["containerimage.config"]; configJSON != "" {
+		if err := json.Unmarshal([]byte(configJSON), &metadata); err != nil {
+			return BuildResult{}, fmt.Errorf("parse image config: %w", err)
+		}
+	}
+
+	return BuildResult{
+		ArchivePath: archivePath,
+		Digest:      resp.ExporterResponse["containerimage.digest"],
+		Env:         metadata.Config.Env,
+		BaseDigest:  baseDigest,
+	}, nil
 }
