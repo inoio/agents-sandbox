@@ -522,6 +522,28 @@ func TestEnsureLoadedSkipsWhenCached(t *testing.T) {
 	}
 }
 
+// TestEnsureLoadedReloadsFreshArchiveWhenCached verifies that a freshly built
+// archive is loaded even when a same-tag image is already in the microsandbox
+// cache: the tag is stable across rebuilds, so a cached hit must not mask a
+// rebuilt image with different content.
+func TestEnsureLoadedReloadsFreshArchiveWhenCached(t *testing.T) {
+	archivePath := filepath.Join(t.TempDir(), "image.tar")
+	if err := os.WriteFile(archivePath, []byte("fresh-tar-data"), 0o600); err != nil {
+		t.Fatalf("write archive: %v", err)
+	}
+	mclient := &msb.MockMsbClient{
+		ImageGetFn: func(context.Context, string) error { return nil },
+	}
+	if err := EnsureLoaded(
+		context.Background(), mclient, archivePath, "agents-sandbox/runner-p:opencode", &termio.Mock{},
+	); err != nil {
+		t.Fatalf("EnsureLoaded: %v", err)
+	}
+	if len(mclient.LoadedImages) != 1 || mclient.LoadedImages[0] != "agents-sandbox/runner-p:opencode" {
+		t.Errorf("LoadedImages = %v, want the fresh archive reloaded for the runner ref", mclient.LoadedImages)
+	}
+}
+
 func TestEnsureLoadedErrorsWithoutArchive(t *testing.T) {
 	mclient := &msb.MockMsbClient{
 		ImageGetFn: func(context.Context, string) error { return errors.New("not cached") },

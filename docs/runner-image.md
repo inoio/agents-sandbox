@@ -255,12 +255,12 @@ Docker-in-Docker), so the verbose line names the changed input — for example `
 A reuse logs `reusing runner image …: content identity unchanged`; an image without these identity labels (built by an
 older version) is reported as a generic content change.
 
-### Content-verified load
+### Fresh-archive load
 
-Before skipping a load, `EnsureLoaded` verifies the microsandbox cache content — the config digest (compared against
-the built image's config digest) or the `dockerfile-id` label. If the cached content no longer matches, the image is reloaded so the
-VM always boots from the correct image. At verbose level the load states whether the image was absent from the cache or
-its cached content was stale.
+When a build produces a new archive, `EnsureLoaded` always loads it into the microsandbox cache — the runner tag is
+stable across rebuilds, so a cached same-tag image may hold stale content. Only a reuse (no archive) skips the load, and
+then only when the image is already present; a missing image with no archive is an error. At verbose level the load
+reports that it is loading from the build archive.
 
 ## Image Lifecycle
 

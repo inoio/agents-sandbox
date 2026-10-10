@@ -33,6 +33,9 @@ type BuildOptions struct {
 	// a stable identity and release resolution is deferred until a rebuild is
 	// needed.
 	UserProvided bool
+	// DryRun reports the build plan without booting the builder VM or
+	// producing an archive.
+	DryRun bool
 }
 
 // userProvidedImageIdentity keeps an unknown user-provided version stable
@@ -302,6 +305,11 @@ func EnsureImageWithClient(
 		buildOpts.AgentVersion,
 	)
 
+	if needsBuild && buildOpts.DryRun {
+		ui.Verbosef("dry-run: would build runner image %s", rTag)
+		return ImageInfo{Tag: rTag, Digest: "", Env: nil, ArchivePath: ""}, nil
+	}
+
 	var info ImageInfo
 	if needsBuild {
 		res, buildErr := buildRunnerImage(
@@ -322,22 +330,24 @@ func EnsureImageWithClient(
 	return info, nil
 }
 
-// EnsureLoaded loads archivePath into the microsandbox cache under imageRef if
-// the image is not already present. It is idempotent: a successful ImageGet
-// returns immediately. When the image is absent and no archive is available
-// (e.g. an earlier cache hit), it returns an error naming the missing archive.
+// EnsureLoaded loads archivePath into the microsandbox cache under imageRef. An
+// archive is always loaded when present, because the runner tag is stable
+// across rebuilds and a same-tag cached image may hold stale content. Only when
+// no archive is available (e.g. an earlier cache hit) does it fall back to a
+// cache presence check, and it errors when the image is missing and there is
+// nothing to load.
 func EnsureLoaded(ctx context.Context, mclient msb.Client, archivePath, imageRef string, ui termio.UI) error {
-	if err := mclient.ImageGet(ctx, imageRef); err == nil {
-		ui.Verbosef("microsandbox image %s is up to date", imageRef)
-		return nil
-	}
 	if archivePath == "" {
+		if err := mclient.ImageGet(ctx, imageRef); err == nil {
+			ui.Verbosef("microsandbox image %s is up to date", imageRef)
+			return nil
+		}
 		return fmt.Errorf(
 			"runner image %s is not in the microsandbox cache and no build archive is available to load",
 			imageRef,
 		)
 	}
-	ui.Verbosef("loading image %s into microsandbox: not present in microsandbox cache", imageRef)
+	ui.Verbosef("loading image %s into microsandbox from build archive", imageRef)
 
 	spin := ui.Spinner("Loading image into microsandbox")
 	archive, err := os.Open(archivePath)

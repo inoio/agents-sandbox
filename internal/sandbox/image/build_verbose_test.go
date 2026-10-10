@@ -95,7 +95,7 @@ func TestEnsureLoadedVerboseReportsUpToDate(t *testing.T) {
 	}
 }
 
-func TestEnsureLoadedVerboseReportsNotPresent(t *testing.T) {
+func TestEnsureLoadedVerboseReportsArchiveLoad(t *testing.T) {
 	ui := &termio.Mock{}
 	msbClient := &msb.MockMsbClient{
 		ImageGetFn: func(context.Context, string) error { return errors.New("not cached") },
@@ -105,7 +105,7 @@ func TestEnsureLoadedVerboseReportsNotPresent(t *testing.T) {
 	); err != nil {
 		t.Fatalf("EnsureLoaded: %v", err)
 	}
-	if !verboseContains(ui, "not present in microsandbox cache") {
-		t.Errorf("verbose calls = %v, want a not-present reason", ui.VerboseCalls)
+	if !verboseContains(ui, "from build archive") {
+		t.Errorf("verbose calls = %v, want a build-archive load reason", ui.VerboseCalls)
 	}
 }
