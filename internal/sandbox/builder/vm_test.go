@@ -280,10 +280,11 @@ func TestBuilderSandboxNameIncludesVersion(t *testing.T) {
 }
 
 func TestPruneCacheSkipsWhenNoBuilderVM(t *testing.T) {
-	shellCmds := []string{}
+	var queried string
 	client := &msb.MockMsbClient{
-		GetSandboxFn: func(context.Context, string) (msb.SandboxHandle, error) {
-			return nil, &msbSdk.Error{Kind: msbSdk.ErrSandboxNotFound, Message: builderSandboxName()}
+		GetSandboxFn: func(_ context.Context, name string) (msb.SandboxHandle, error) {
+			queried = name
+			return nil, &msbSdk.Error{Kind: msbSdk.ErrSandboxNotFound, Message: name}
 		},
 	}
 	vm := &VM{Msb: client}
@@ -291,8 +292,8 @@ func TestPruneCacheSkipsWhenNoBuilderVM(t *testing.T) {
 	if err := vm.PruneCache(context.Background()); err != nil {
 		t.Fatalf("PruneCache: %v", err)
 	}
-	if len(shellCmds) != 0 {
-		t.Errorf("Shell called %v, want no calls when no builder VM exists", shellCmds)
+	if queried != builderSandboxName() {
+		t.Errorf("GetSandbox queried %q, want %q", queried, builderSandboxName())
 	}
 }
 

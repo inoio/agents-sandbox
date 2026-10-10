@@ -2,6 +2,7 @@ package builder
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
@@ -11,15 +12,26 @@ import (
 )
 
 const (
-	buildkitVersion             = "v0.25.2"
-	builderImage                = "moby/buildkit:" + buildkitVersion
-	builderGuestPort     uint16 = 1234
-	cacheVolumeName             = "agents-sandbox-buildkit-cache"
-	cacheMountPath              = "/var/lib/buildkit"
-	builderHostPortBase         = 11234
-	builderIdleTimeout          = 5 * time.Minute
-	buildkitdCommand            = "exec buildkitd --oci-worker-snapshotter native --addr tcp://0.0.0.0:1234"
-	buildctlPruneCommand        = "buildctl --addr tcp://127.0.0.1:1234 prune --filter until=24h --all"
+	buildkitVersion            = "v0.25.2"
+	builderImage               = "moby/buildkit:" + buildkitVersion
+	builderGuestPort    uint16 = 1234
+	cacheVolumeName            = "agents-sandbox-buildkit-cache"
+	cacheMountPath             = "/var/lib/buildkit"
+	builderHostPortBase        = 11234
+	builderIdleTimeout         = 5 * time.Minute
+)
+
+// buildkitdCommand and buildctlPruneCommand bind to the guest port so a port
+// change cannot silently drift from builderGuestPort.
+var (
+	buildkitdCommand = fmt.Sprintf(
+		"exec buildkitd --oci-worker-snapshotter native --addr tcp://0.0.0.0:%d",
+		builderGuestPort,
+	)
+	buildctlPruneCommand = fmt.Sprintf(
+		"buildctl --addr tcp://127.0.0.1:%d prune --filter until=24h --all",
+		builderGuestPort,
+	)
 )
 
 func builderSandboxName() string {
