@@ -7,6 +7,7 @@ import (
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
+	"github.com/inoio/agents-sandbox/internal/sandbox/naming"
 )
 
 const (
@@ -19,8 +20,6 @@ const (
 	builderIdleTimeout         = 5 * time.Minute
 	buildkitdCommand           = "exec buildkitd --oci-worker-snapshotter native --addr tcp://0.0.0.0:1234"
 )
-
-const builderComponentLabel = "agents-sandbox.component"
 
 func builderSandboxName() string {
 	return "agents-sandbox-buildkit-" + buildkitVersion
@@ -48,6 +47,6 @@ func builderSandboxOptions(hostPort int) []msbSdk.SandboxOption {
 		msbSdk.WithDetached(),
 		msbSdk.WithIdleTimeout(builderIdleTimeout),
 		msbSdk.WithReplace(),
-		msbSdk.WithLabels(map[string]string{builderComponentLabel: "buildkit"}),
+		msbSdk.WithLabels(map[string]string{naming.LabelComponent: "buildkit"}),
 	}
 }

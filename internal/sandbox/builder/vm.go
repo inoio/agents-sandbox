@@ -17,10 +17,24 @@ import (
 
 // Ensure returns the published host port of a ready shared BuildKit builder VM,
 // creating and starting it if absent. A host-wide flock serializes concurrent
-// callers so only one creates the VM.
+// callers so only one creates the VM; readiness is probed after the lock is
+// released so a slow buildkitd does not serialize every caller.
 func (v *VM) Ensure(ctx context.Context) (int, error) {
-	name := builderSandboxName()
+	hostPort, err := v.resolveBuilderPort(ctx, builderSandboxName())
+	if err != nil {
+		return 0, err
+	}
+	if err := v.ready(ctx, hostPort); err != nil {
+		return 0, err
+	}
+	return hostPort, nil
+}
 
+// resolveBuilderPort returns the published host port of the shared builder VM,
+// creating and starting it if absent. It holds the host-wide flock for the
+// whole discovery/create coordination, so callers must not block on readiness
+// while holding it.
+func (v *VM) resolveBuilderPort(ctx context.Context, name string) (int, error) {
 	release, err := acquireBuilderFlock()
 	if err != nil {
 		return 0, err
@@ -30,9 +44,6 @@ func (v *VM) Ensure(ctx context.Context) (int, error) {
 	handle, getErr := v.Msb.GetSandbox(ctx, name)
 	if getErr == nil {
 		if hostPort := publishedHostPort(handle); hostPort > 0 {
-			if readyErr := v.ready(ctx, hostPort); readyErr != nil {
-				return 0, readyErr
-			}
 			return hostPort, nil
 		}
 	} else if !msb.IsNotFound(getErr) {
@@ -51,10 +62,6 @@ func (v *VM) Ensure(ctx context.Context) (int, error) {
 
 	if startErr := startBuildkitd(ctx, sb); startErr != nil {
 		return 0, startErr
-	}
-
-	if readyErr := v.ready(ctx, hostPort); readyErr != nil {
-		return 0, readyErr
 	}
 	return hostPort, nil
 }

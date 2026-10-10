@@ -2,10 +2,12 @@ package builder
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 
@@ -172,14 +174,21 @@ func TestEnsureSerializesConcurrentCreation(t *testing.T) {
 	const callers = 2
 	ports := make([]int, callers)
 	errs := make([]error, callers)
+	var atStart sync.WaitGroup
+	atStart.Add(callers)
+	start := make(chan struct{})
 	var wg sync.WaitGroup
 	for i := range callers {
 		wg.Add(1)
 		go func(i int) {
 			defer wg.Done()
+			atStart.Done()
+			<-start
 			ports[i], errs[i] = vm.Ensure(context.Background())
 		}(i)
 	}
+	atStart.Wait()
+	close(start)
 	wg.Wait()
 
 	for i, err := range errs {
@@ -195,6 +204,71 @@ func TestEnsureSerializesConcurrentCreation(t *testing.T) {
 	}
 	if ports[0] < builderHostPortBase {
 		t.Errorf("port %d below base %d", ports[0], builderHostPortBase)
+	}
+}
+
+func TestEnsureReadinessRunsOutsideFlock(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+
+	handle := &msb.MockSandboxHandle{
+		Name_: builderSandboxName(),
+		Cfg: &msbSdk.SandboxConfig{
+			PortBindings: []msbSdk.PortBinding{
+				{Bind: "127.0.0.1", HostPort: 4242, GuestPort: builderGuestPort},
+			},
+		},
+	}
+	client := &msb.MockMsbClient{
+		GetSandboxFn: func(context.Context, string) (msb.SandboxHandle, error) {
+			return handle, nil
+		},
+	}
+
+	var entered sync.WaitGroup
+	entered.Add(2)
+	bothReady := make(chan struct{})
+	go func() {
+		entered.Wait()
+		close(bothReady)
+	}()
+	vm := &VM{
+		Msb: client,
+		Ready: func(ctx context.Context, _ int) error {
+			entered.Done()
+			select {
+			case <-bothReady:
+				return nil
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-time.After(5 * time.Second):
+				return errors.New("readiness ran serially; the builder flock was held during Ready")
+			}
+		},
+	}
+
+	const callers = 2
+	errs := make([]error, callers)
+	var atStart sync.WaitGroup
+	atStart.Add(callers)
+	start := make(chan struct{})
+	var wg sync.WaitGroup
+	for i := range callers {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			atStart.Done()
+			<-start
+			_, errs[i] = vm.Ensure(context.Background())
+		}(i)
+	}
+	atStart.Wait()
+	close(start)
+	wg.Wait()
+
+	for i, err := range errs {
+		if err != nil {
+			t.Fatalf("Ensure[%d] failed: %v", i, err)
+		}
 	}
 }
 

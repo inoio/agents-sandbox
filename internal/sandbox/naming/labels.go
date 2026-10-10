@@ -7,4 +7,6 @@ const (
 	LabelProject = "org.agents-sandbox.project"
 	// LabelImage records the runner image reference the sandbox was created with.
 	LabelImage = "org.agents-sandbox.image"
+	// LabelComponent identifies a non-project, shared component sandbox.
+	LabelComponent = "org.agents-sandbox.component"
 )
