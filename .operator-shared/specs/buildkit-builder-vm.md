@@ -104,7 +104,8 @@ Components:
 - **Command**: `ShellStream("exec buildkitd --oci-worker-snapshotter native
   --addr tcp://0.0.0.0:<builderGuestPort>")`. The `native` snapshotter avoids
   overlayfs/`fuse` requirements inside the microVM. `buildkitd` output is
-  mirrored to verbose UI.
+  drained so the stream is not left unread, but is **not** mirrored to the
+  verbose UI (deferred; known divergence from the original intent).
 
 ### Build flow (replaces the Docker flow)
 
@@ -129,8 +130,11 @@ Components:
 4. Consume `SolveStatus` to drive the existing spinner/verbose output
    (replacing `scanBuildOutput`).
 5. Read image metadata from the exporter response: the config JSON
-   (`containerimage.config`) and digest (`containerimage.digest`) give
-   `ImageInfo.Env` and `ImageInfo.Digest`, without a host image store. The base
+   (`containerimage.config`) gives `ImageInfo.Env`, and the config digest
+   (`containerimage.config.digest`, falling back to `containerimage.digest`)
+   gives `ImageInfo.Digest`. The config digest matches what microsandbox's
+   `ImageConfig.Digest` reports on reuse, so the build and reuse paths agree and
+   do not trigger a spurious image-changed prompt. The base
    image digest is resolved separately, before the build (see "Identity, reuse
    and base image").
 6. `msb.Client.ImageLoad(tag, archive)` loads the image into the cache.

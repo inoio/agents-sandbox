@@ -88,6 +88,14 @@ command reports the bare version (e.g. `0.1.0`).
 
 ### Fixed
 
+- Runner image: a rebuilt image is now always loaded into the microsandbox cache. The runner tag is stable across
+  rebuilds, so a cached same-tag image no longer masks a fresh build archive — the VM boots the rebuilt image instead of
+  rebuilding on every run.
+- Runner image: the build path now reports the OCI config digest (matching microsandbox's reused-image digest), so the
+  home-volume "image changed" prompt no longer fires once after every rebuild.
+- Runner image: the builder's temporary image archive is removed after `run`/`shell` and the `volume` commands, not just
+  after `build`, so it no longer leaks into the host temp directory.
+- `--dry-run` no longer boots the BuildKit builder VM: a dry run reports the build plan only.
 - The progress spinner stops promptly. Its animation loop now waits on an interruptible ticker instead of an
   uninterruptible `time.Sleep`, so stopping a spinner no longer blocks for up to a full animation frame.
 - The agent serve-daemon readiness loop now probes health as soon as it starts the daemon, instead of waiting one poll
