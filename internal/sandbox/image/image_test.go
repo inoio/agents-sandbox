@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -287,6 +288,105 @@ func TestEnsureImageBuildPassesBuilderRequest(t *testing.T) {
 	}
 	if req.BuildArgs["DOCKERFILE_ID"] == "" {
 		t.Error("DOCKERFILE_ID build arg missing")
+	}
+}
+
+func TestEnsureImageBuildArgsCarryHostUser(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	WithMockAgentVersion(t, "1.2.3")
+	a := agentOpencode(t)
+	msb.WithMsbMock(t, &msb.MockMsbClient{
+		ImageInspectFn: func(context.Context, string) (*msbSdk.ImageConfig, error) {
+			return nil, errors.New("image not found")
+		},
+	})
+	mock := fakeBuilder(t, builder.BuildResult{ArchivePath: "/tmp/a", Digest: "sha256:new"}, nil)
+
+	if _, err := EnsureImageWithClient(
+		context.Background(), a, nil, "test-project", BuildOptions{Force: true}, &termio.Mock{},
+	); err != nil {
+		t.Fatalf("EnsureImageWithClient: %v", err)
+	}
+	args := mock.Calls[0].BuildArgs
+	if args["USER_UID"] != strconv.Itoa(os.Getuid()) {
+		t.Errorf("USER_UID = %q, want %d", args["USER_UID"], os.Getuid())
+	}
+	if args["USER_GID"] != strconv.Itoa(os.Getgid()) {
+		t.Errorf("USER_GID = %q, want %d", args["USER_GID"], os.Getgid())
+	}
+}
+
+func TestEnsureImageBuildNoCacheFalseWithoutForce(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	WithMockAgentVersion(t, "1.2.3")
+	a := agentOpencode(t)
+	msb.WithMsbMock(t, &msb.MockMsbClient{
+		ImageInspectFn: func(context.Context, string) (*msbSdk.ImageConfig, error) {
+			return nil, errors.New("image not found")
+		},
+	})
+	mock := fakeBuilder(t, builder.BuildResult{ArchivePath: "/tmp/a", Digest: "sha256:new"}, nil)
+
+	if _, err := EnsureImageWithClient(
+		context.Background(), a, nil, "test-project", BuildOptions{}, &termio.Mock{},
+	); err != nil {
+		t.Fatalf("EnsureImageWithClient: %v", err)
+	}
+	if mock.Calls[0].NoCache {
+		t.Error("NoCache = true, want false when building without force")
+	}
+}
+
+func TestEnsureImageBuildForwardsProgress(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	WithMockAgentVersion(t, "1.2.3")
+	a := agentOpencode(t)
+	msb.WithMsbMock(t, &msb.MockMsbClient{
+		ImageInspectFn: func(context.Context, string) (*msbSdk.ImageConfig, error) {
+			return nil, errors.New("image not found")
+		},
+	})
+	builder.WithMockBuilder(t, &builder.MockBuilder{
+		BuildFn: func(_ context.Context, req builder.BuildRequest) (builder.BuildResult, error) {
+			req.Progress("Step 1/1 : FROM x")
+			return builder.BuildResult{ArchivePath: "/tmp/a", Digest: "sha256:new"}, nil
+		},
+	})
+	ui := &termio.Mock{}
+	if _, err := EnsureImageWithClient(
+		context.Background(), a, nil, "test-project", BuildOptions{}, ui,
+	); err != nil {
+		t.Fatalf("EnsureImageWithClient: %v", err)
+	}
+	if !verboseContains(ui, "Step 1/1 : FROM x") {
+		t.Errorf("verbose calls = %v, want the forwarded build progress line", ui.VerboseCalls)
+	}
+}
+
+func TestEnsureImageCacheHitInspectError(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	WithMockAgentVersion(t, "1.2.3")
+	a := agentOpencode(t)
+	labels := map[string]string{
+		dockerfileIDLabelKey: computeDockerfileID(renderBytes(t, a, nil, false), "1.2.3"),
+	}
+	calls := 0
+	msb.WithMsbMock(t, &msb.MockMsbClient{
+		ImageInspectFn: func(context.Context, string) (*msbSdk.ImageConfig, error) {
+			calls++
+			if calls == 1 {
+				return msbImageConfig("sha256:cached", labels, nil), nil
+			}
+			return nil, errors.New("inspect boom")
+		},
+	})
+	fakeBuilder(t, builder.BuildResult{ArchivePath: "/tmp/unused"}, nil)
+
+	_, err := EnsureImageWithClient(
+		context.Background(), a, nil, "test-project", BuildOptions{}, &termio.Mock{},
+	)
+	if err == nil || !strings.Contains(err.Error(), "cannot inspect cached image") {
+		t.Fatalf("error = %v, want a cannot-inspect-cached-image error", err)
 	}
 }
 
