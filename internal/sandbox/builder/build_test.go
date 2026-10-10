@@ -373,3 +373,42 @@ func TestHostPlatform(t *testing.T) {
 		t.Errorf("HostPlatform() = %q, want %q", got, want)
 	}
 }
+
+// TestForwardProgressEmitsCachedVertices asserts cached vertices are surfaced
+// (as "<name> CACHED") alongside trimmed, non-empty log lines, so callers can
+// observe BuildKit layer-cache reuse.
+func TestForwardProgressEmitsCachedVertices(t *testing.T) {
+	var lines []string
+	forwardProgress(&client.SolveStatus{
+		Logs: []*client.VertexLog{
+			{Data: []byte("installing node\n")},
+			{Data: []byte("   \n")},
+		},
+		Vertexes: []*client.Vertex{
+			{Name: "dockerfile.v0", Cached: false},
+			{Name: "[node 4/5] RUN install", Cached: true},
+		},
+	}, func(line string) { lines = append(lines, line) })
+
+	if len(lines) != 2 {
+		t.Fatalf("progress lines = %v, want the trimmed log line and the cached vertex", lines)
+	}
+	if lines[0] != "installing node" {
+		t.Errorf("lines[0] = %q, want the trimmed log line", lines[0])
+	}
+	if !strings.Contains(lines[1], "CACHED") {
+		t.Errorf("lines[1] = %q, want a CACHED marker for the cached vertex", lines[1])
+	}
+}
+
+// TestForwardProgressSkipsUncachedVertices asserts uncached vertices produce no
+// progress line.
+func TestForwardProgressSkipsUncachedVertices(t *testing.T) {
+	var lines []string
+	forwardProgress(&client.SolveStatus{
+		Vertexes: []*client.Vertex{{Name: "dockerfile.v0", Cached: false}},
+	}, func(line string) { lines = append(lines, line) })
+	if len(lines) != 0 {
+		t.Errorf("progress lines = %v, want none for an uncached vertex", lines)
+	}
+}

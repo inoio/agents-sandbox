@@ -97,11 +97,11 @@ func TestBuildRunnerImageInBuilderVM(t *testing.T) {
 	}
 }
 
-// TestBuilderCacheReuseAcrossVMs builds the same runner image twice, removing
-// the builder sandbox between runs so a fresh buildkitd starts, and asserts the
-// second build reuses the persistent BuildKit cache volume. Cache reuse shows up
-// as far fewer command-log lines (cached RUN steps are not re-executed) and/or a
-// materially faster build.
+// TestBuilderCacheReuseAcrossVMs builds the same runner image twice, stopping
+// and removing the builder sandbox between runs so a fresh buildkitd starts,
+// and asserts the warm build reuses the persistent BuildKit cache volume. Cache
+// reuse is a CACHED marker the builder surfaces for cached vertices (cached RUN
+// steps emit no logs).
 func TestBuilderCacheReuseAcrossVMs(t *testing.T) {
 	requireIntegration(t)
 	useRealHostRuntime(t)
@@ -138,14 +138,25 @@ func TestBuilderCacheReuseAcrossVMs(t *testing.T) {
 	t.Logf("cold build: %s, %d progress lines", coldDuration, len(coldLines))
 	t.Logf("warm build: %s, %d progress lines", warmDuration, len(warmLines))
 
-	reusedFromLogs := len(coldLines) > 0 && len(warmLines) < len(coldLines)
-	reusedFromTime := coldDuration > 20*time.Second && warmDuration < coldDuration*3/4
-	if !reusedFromLogs && !reusedFromTime {
+	if !containsCachedLine(warmLines) {
 		t.Fatalf(
-			"expected the second build to reuse the BuildKit cache; cold=%s/%d lines, warm=%s/%d lines",
+			"warm build reported no CACHED layers after the builder VM was recreated; "+
+				"either the BuildKit cache volume did not persist or the builder did not surface cache hits "+
+				"(cold=%s/%d lines, warm=%s/%d lines)",
 			coldDuration, len(coldLines), warmDuration, len(warmLines),
 		)
 	}
+}
+
+// containsCachedLine reports whether the builder surfaced a BuildKit cache-hit
+// marker in its progress output.
+func containsCachedLine(lines []string) bool {
+	for _, line := range lines {
+		if strings.Contains(line, "CACHED") {
+			return true
+		}
+	}
+	return false
 }
 
 // timeBuilderBuild runs one build through the real builder, recording its
@@ -171,8 +182,10 @@ func timeBuilderBuild(t *testing.T, request builder.BuildRequest, noCache bool) 
 	return duration, lines
 }
 
-// removeBuilderSandboxes deletes the shared builder VM so the next build boots a
-// fresh buildkitd; the named cache volume it mounted persists.
+// removeBuilderSandboxes stops and removes the shared builder VM so the next
+// build boots a fresh buildkitd; the named cache volume it mounted persists. A
+// graceful stop lets buildkitd flush its Bolt cache to the volume before the
+// sandbox is torn down.
 func removeBuilderSandboxes(t *testing.T, ctx context.Context) {
 	t.Helper()
 	handles, err := msb.Get().ListSandboxes(ctx, map[string]string{naming.LabelComponent: "buildkit"})
@@ -180,7 +193,10 @@ func removeBuilderSandboxes(t *testing.T, ctx context.Context) {
 		t.Fatalf("list builder sandboxes: %v", err)
 	}
 	for _, handle := range handles {
-		if err := msb.Get().RemoveSandbox(ctx, handle.Name()); err != nil {
+		if err := handle.Stop(ctx, msbSdk.WithStopTimeout(30*time.Second)); err != nil {
+			t.Fatalf("stop builder sandbox %s: %v", handle.Name(), err)
+		}
+		if err := handle.Remove(ctx); err != nil {
 			t.Fatalf("remove builder sandbox %s: %v", handle.Name(), err)
 		}
 	}

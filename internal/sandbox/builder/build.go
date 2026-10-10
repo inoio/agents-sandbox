@@ -2,6 +2,7 @@ package builder
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"runtime"
 	"strings"
@@ -56,8 +57,9 @@ func realResolveBaseDigest(
 	return baseRef + "@" + digest.String(), nil
 }
 
-// forwardProgress reports non-empty log lines from a build status to the
-// caller's progress callback.
+// forwardProgress reports non-empty log lines and cache hits from a build status
+// to the caller's progress callback. Cached vertices are surfaced so callers can
+// observe BuildKit layer-cache reuse (the cached RUN steps emit no logs).
 func forwardProgress(status *client.SolveStatus, progress func(string)) {
 	if progress == nil {
 		return
@@ -65,6 +67,11 @@ func forwardProgress(status *client.SolveStatus, progress func(string)) {
 	for _, log := range status.Logs {
 		if line := strings.TrimSpace(string(log.Data)); line != "" {
 			progress(line)
+		}
+	}
+	for _, vertex := range status.Vertexes {
+		if vertex.Cached {
+			progress(fmt.Sprintf("%s CACHED", vertex.Name))
 		}
 	}
 }
