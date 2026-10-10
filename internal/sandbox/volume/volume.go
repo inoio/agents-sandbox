@@ -45,10 +45,10 @@ func NewManager(ui termio.UI) *Manager {
 func (vm *Manager) PrefillVolume(
 	ctx context.Context,
 	client msb.Client,
-	k state.Key, volumeName, imageTag string,
+	k state.Key, volumeName, imageTag, archivePath string,
 	ui termio.UI,
 ) error {
-	if err := image.EnsureLoaded(ctx, client, k.Slug, imageTag, ui); err != nil {
+	if err := image.EnsureLoaded(ctx, client, archivePath, imageTag, ui); err != nil {
 		return fmt.Errorf("load runner image: %w", err)
 	}
 	prefillName := naming.TaskPrefix + k.Slug + "-" + k.Agent + "-" + strconv.FormatInt(time.Now().UnixNano(), 10)
@@ -100,7 +100,7 @@ func (vm *Manager) PrefillVolume(
 func (vm *Manager) ApplyHomeAction(
 	ctx context.Context,
 	client msb.Client,
-	k state.Key, oldVolume, imageTag, currentDigest string,
+	k state.Key, oldVolume, imageTag, archivePath, currentDigest string,
 	action VolumeAction,
 	opts options.RunOptions,
 	ui termio.UI,
@@ -133,13 +133,13 @@ func (vm *Manager) ApplyHomeAction(
 	}
 	newName := newVol.Name()
 
-	if err := vm.PrefillVolume(ctx, client, k, newName, imageTag, ui); err != nil {
+	if err := vm.PrefillVolume(ctx, client, k, newName, imageTag, archivePath, ui); err != nil {
 		vm.cleanupVolume(ctx, client, newName, ui)
 		return "", err
 	}
 
 	if action == ActionMigrate {
-		if err := vm.CopyVolume(ctx, client, k, oldVolume, newName, imageTag, ui); err != nil {
+		if err := vm.CopyVolume(ctx, client, k, oldVolume, newName, imageTag, archivePath, ui); err != nil {
 			vm.cleanupVolume(ctx, client, newName, ui)
 			return "", err
 		}
@@ -166,10 +166,10 @@ func (vm *Manager) cleanupVolume(ctx context.Context, client msb.Client, name st
 func (vm *Manager) CopyVolume(
 	ctx context.Context,
 	client msb.Client,
-	k state.Key, oldVolume, newVolume, imageTag string,
+	k state.Key, oldVolume, newVolume, imageTag, archivePath string,
 	ui termio.UI,
 ) error {
-	if err := image.EnsureLoaded(ctx, client, k.Slug, imageTag, ui); err != nil {
+	if err := image.EnsureLoaded(ctx, client, archivePath, imageTag, ui); err != nil {
 		return fmt.Errorf("load runner image: %w", err)
 	}
 	copySbName := naming.TaskPrefix + k.Slug + "-" + k.Agent + "-" + strconv.FormatInt(time.Now().UnixNano(), 10)

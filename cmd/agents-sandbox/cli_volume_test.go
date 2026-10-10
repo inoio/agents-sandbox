@@ -2,12 +2,16 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 
+	"github.com/inoio/agents-sandbox/internal/sandbox/builder"
 	"github.com/inoio/agents-sandbox/internal/sandbox/doctor"
 	"github.com/inoio/agents-sandbox/internal/sandbox/image"
 
@@ -18,6 +22,18 @@ import (
 	"github.com/inoio/agents-sandbox/internal/sandbox/state"
 	"github.com/inoio/agents-sandbox/internal/termio"
 )
+
+// withMockBuilder installs a BuildKit builder mock so image operations never
+// reach a real builder VM. resultErr, when non-nil, is returned for every build.
+func withMockBuilder(t *testing.T, result builder.BuildResult, resultErr error) {
+	t.Helper()
+	mock := &builder.MockBuilder{
+		BuildFn: func(context.Context, builder.BuildRequest) (builder.BuildResult, error) {
+			return result, resultErr
+		},
+	}
+	builder.WithMockBuilder(t, mock)
+}
 
 // volumeOpScenario describes how to run a volume command and what to expect.
 type volumeOpScenario struct {
@@ -50,8 +66,10 @@ func runVolumeOpScenario(t *testing.T, tc volumeOpScenario) {
 	image.WithMockAgentVersion(t, "0.0.0-test")
 	if tc.ensureImageErr {
 		docker.WithDefaultErrorDockerMock(t)
+		withMockBuilder(t, builder.BuildResult{}, errBoom)
 	} else {
 		docker.WithNoopDockerMock(t)
+		withMockBuilder(t, builder.BuildResult{Digest: "sha256:abc123", Env: []string{}}, nil)
 	}
 
 	if tc.createVolumeErr {
@@ -171,5 +189,42 @@ func TestVolumeEdit(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			runVolumeOpScenario(t, tc)
 		})
+	}
+}
+
+// TestVolumeCommandUsesBuiltArchive verifies the image build archive is
+// threaded from image.EnsureImage through the volume command into the image
+// load. With the msb cache reporting the image absent, a successful volume
+// reset must load the built archive.
+func TestVolumeCommandUsesBuiltArchive(t *testing.T) {
+	initTestProjectDir(t)
+	configpaths.WithMockConfigPaths(t)
+	doctor.MockedCheckAll(t, true)
+	image.WithMockAgentVersion(t, "0.0.0-test")
+
+	archivePath := filepath.Join(t.TempDir(), "image.tar")
+	if err := os.WriteFile(archivePath, []byte("tar"), 0o600); err != nil {
+		t.Fatalf("write archive: %v", err)
+	}
+	withMockBuilder(t, builder.BuildResult{ArchivePath: archivePath, Digest: "sha256:abc"}, nil)
+
+	mock := &msb.MockMsbClient{
+		ImageGetFn: func(_ context.Context, _ string) error { return errors.New("not cached") },
+	}
+	msb.WithMsbMock(t, mock)
+
+	slug := git.ProjectSlug()
+	state.WriteState(state.Key{Slug: slug, Agent: "opencode"}, state.HomeState{
+		HomeVolume:  fmt.Sprintf("agents-sandbox-home-%s-20260814T132349", slug),
+		ImageDigest: "sha256:0000",
+	})
+
+	root := buildRootCmd(&termio.Mock{})
+	root.SetArgs([]string{cmdVolume, cmdReset})
+	if err := root.Execute(); err != nil {
+		t.Fatalf("execute volume reset: %v", err)
+	}
+	if len(mock.LoadedImages) == 0 {
+		t.Fatal("expected the built image archive to be loaded into the msb cache")
 	}
 }

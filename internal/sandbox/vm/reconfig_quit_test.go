@@ -59,6 +59,7 @@ func TestDecideReconfigHomeQuit(t *testing.T) {
 		state.Key{Slug: "testproj", Agent: "opencode"},
 		options.RunOptions{},
 		"img:new",
+		"",
 		"sha256:new",
 		"vol",
 		persisted,

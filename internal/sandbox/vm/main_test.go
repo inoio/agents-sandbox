@@ -1,15 +1,26 @@
 package vm
 
 import (
+	"context"
 	"testing"
 
 	"github.com/inoio/agents-sandbox/internal/agent"
+	"github.com/inoio/agents-sandbox/internal/sandbox/builder"
 	"github.com/inoio/agents-sandbox/internal/sandbox/state"
 
 	termio "github.com/inoio/agents-sandbox/internal/testutil/mocks"
 )
 
 func TestMain(m *testing.M) {
+	// Image builds go through the BuildKit builder; install a deterministic
+	// in-process builder so PrepareSandbox tests never reach a real builder VM.
+	builder.Get = func() builder.Builder {
+		return &builder.MockBuilder{
+			BuildFn: func(context.Context, builder.BuildRequest) (builder.BuildResult, error) {
+				return builder.BuildResult{Digest: "sha256:abc123", Env: []string{"PATH=/usr/bin"}}, nil
+			},
+		}
+	}
 	termio.InitFailFastMocks(m)
 }
 

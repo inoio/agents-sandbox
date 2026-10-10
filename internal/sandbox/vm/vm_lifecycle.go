@@ -91,8 +91,8 @@ func decideVMAction(notFoundErr error, status msbSdk.SandboxStatus) (vmAction, e
 func ensureProjectVM(
 	ctx context.Context,
 	opts options.RunOptions,
-	imageRef, homeVol, repoPath string,
-	imageEnvs map[string]string,
+	info image.ImageInfo,
+	homeVol, repoPath string,
 	k state.Key,
 	ui termio.UI,
 ) (msb.Sandbox, vmBoot, error) {
@@ -146,7 +146,7 @@ func ensureProjectVM(
 	}
 	defer release()
 
-	return createOrAttachAfterLock(ctx, client, name, k, imageRef, homeVol, repoPath, opts, imageEnvs, ui)
+	return createOrAttachAfterLock(ctx, client, name, k, info, homeVol, repoPath, opts, ui)
 }
 
 // replaceSandboxForReconfig stops and removes an existing VM whose config
@@ -294,9 +294,9 @@ func createOrAttachAfterLock(
 	client msb.Client,
 	name string,
 	k state.Key,
-	imageRef, homeVol, repoPath string,
+	info image.ImageInfo,
+	homeVol, repoPath string,
 	opts options.RunOptions,
-	imageEnvs map[string]string,
 	ui termio.UI,
 ) (msb.Sandbox, vmBoot, error) {
 	handle, err := client.GetSandbox(ctx, name)
@@ -307,7 +307,7 @@ func createOrAttachAfterLock(
 		return nil, vmBootConnected, fmt.Errorf("re-check sandbox %q: %w", name, err)
 	}
 
-	sb, created, err := createProjectVM(ctx, client, name, k, imageRef, homeVol, repoPath, opts, imageEnvs, ui)
+	sb, created, err := createProjectVM(ctx, client, name, k, info, homeVol, repoPath, opts, ui)
 	if err != nil {
 		return nil, vmBootConnected, err
 	}
@@ -434,12 +434,12 @@ func createProjectVM(
 	client msb.Client,
 	name string,
 	k state.Key,
-	imageRef, homeVol, repoPath string,
+	info image.ImageInfo,
+	homeVol, repoPath string,
 	opts options.RunOptions,
-	imageEnvs map[string]string,
 	ui termio.UI,
 ) (msb.Sandbox, bool, error) {
-	if err := image.EnsureLoaded(ctx, client, k.Slug, imageRef, ui); err != nil {
+	if err := image.EnsureLoaded(ctx, client, info.ArchivePath, info.Tag, ui); err != nil {
 		return nil, false, fmt.Errorf("load runner image: %w", err)
 	}
 	cpus := opts.CPUs
@@ -450,8 +450,8 @@ func createProjectVM(
 	maxMemoryGiB := sysinfo.TotalMemoryGiB()
 
 	envMap, secrets := envsecret.LoadEnvAndSecrets(ui)
-	ui.Verbosef("adding docker env definitions to project VM environment: %s", imageEnvs)
-	buildProjectVMEnv(envMap, imageEnvs)
+	ui.Verbosef("adding docker env definitions to project VM environment: %s", info.Env)
+	buildProjectVMEnv(envMap, info.Env)
 
 	mountConfigs := buildMounts(
 		homeVol,
@@ -467,10 +467,10 @@ func createProjectVM(
 		idleTimeout = options.DefaultVMIdleTimeout
 	}
 	optsList := []msbSdk.SandboxOption{
-		msbSdk.WithImage(imageRef),
+		msbSdk.WithImage(info.Tag),
 		msbSdk.WithLabels(map[string]string{
 			naming.LabelProject: k.Slug,
-			naming.LabelImage:   imageRef,
+			naming.LabelImage:   info.Tag,
 		}),
 		msbSdk.WithMounts(mountConfigs),
 		msbSdk.WithSecrets(secrets...),

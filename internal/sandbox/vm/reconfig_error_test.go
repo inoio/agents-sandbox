@@ -96,6 +96,7 @@ func TestDecideReconfigDetachErrorVerbose(t *testing.T) {
 		state.Key{Slug: "testproj", Agent: "opencode"},
 		options.RunOptions{},
 		"img:tag",
+		"",
 		"sha256:same",
 		"vol",
 		persisted,

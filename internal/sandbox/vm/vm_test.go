@@ -3,19 +3,19 @@ package vm
 import (
 	"context"
 	"errors"
-	"io"
+	"os"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
 
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 
-	"github.com/moby/moby/client"
-
 	"github.com/inoio/agents-sandbox/internal/termio"
 
 	"github.com/inoio/agents-sandbox/internal/configpaths"
 	"github.com/inoio/agents-sandbox/internal/sandbox/docker"
+	"github.com/inoio/agents-sandbox/internal/sandbox/image"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
 	"github.com/inoio/agents-sandbox/internal/sandbox/naming"
 	"github.com/inoio/agents-sandbox/internal/sandbox/options"
@@ -139,11 +139,10 @@ func TestCreateProjectVMCallsClientCreateSandbox(t *testing.T) {
 		client,
 		"agents-sandbox-vm-test",
 		testVMKey(),
-		"agents-sandbox/runner-test:latest",
+		image.ImageInfo{Tag: "agents-sandbox/runner-test:latest"},
 		"test-home-vol",
 		t.TempDir(),
 		options.RunOptions{Memory: "1G"},
-		nil,
 		ui,
 	)
 	if err != nil {
@@ -176,12 +175,11 @@ func TestCreateProjectVMCallsClientCreateSandbox(t *testing.T) {
 func TestCreateProjectVMLoadsImageWhenNotCached(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	// The image is not yet in microsandbox (ImageGet fails), so EnsureLoaded
-	// must export it from Docker and load it before creating the VM.
-	docker.WithDockerMock(t, &docker.MockDockerClient{
-		ImageSaveFn: func(_ context.Context, _ []string, _ ...client.ImageSaveOption) (client.ImageSaveResult, error) {
-			return io.NopCloser(strings.NewReader("tar")), nil
-		},
-	})
+	// must load the build archive before creating the VM.
+	archivePath := filepath.Join(t.TempDir(), "image.tar")
+	if err := os.WriteFile(archivePath, []byte("tar"), 0o600); err != nil {
+		t.Fatalf("write archive: %v", err)
+	}
 
 	client := &msb.MockMsbClient{
 		ImageGetFn: func(_ context.Context, _ string) error { return errors.New("not cached") },
@@ -194,11 +192,10 @@ func TestCreateProjectVMLoadsImageWhenNotCached(t *testing.T) {
 		client,
 		"agents-sandbox-vm-test",
 		testVMKey(),
-		"agents-sandbox/runner-test:abc",
+		image.ImageInfo{Tag: "agents-sandbox/runner-test:abc", ArchivePath: archivePath},
 		"test-home-vol",
 		t.TempDir(),
 		options.RunOptions{Memory: "1G"},
-		nil,
 		ui,
 	)
 	if err != nil {
@@ -262,10 +259,9 @@ func TestEnsureProjectVM_CreatePath(t *testing.T) {
 	sb, created, err := ensureProjectVM(
 		context.Background(),
 		options.RunOptions{Memory: "1G", TmpSize: "512M"},
-		"agents-sandbox/runner-test:latest",
+		image.ImageInfo{Tag: "agents-sandbox/runner-test:latest"},
 		"test-home-vol",
 		tmpRepo,
-		nil,
 		testVMKey(),
 		ui,
 	)
@@ -280,6 +276,48 @@ func TestEnsureProjectVM_CreatePath(t *testing.T) {
 	}
 	if len(client.CreatedSandboxes) != 1 {
 		t.Fatalf("expected 1 created sandbox, got %d: %v", len(client.CreatedSandboxes), client.CreatedSandboxes)
+	}
+}
+
+// TestEnsureProjectVMUsesArchiveForFirstBoot verifies that a first-boot VM
+// creation loads the built image archive under the tag from ImageInfo.
+func TestEnsureProjectVMUsesArchiveForFirstBoot(t *testing.T) {
+	testUI := termio.NewTestMock(t)
+	ui := &testUI
+
+	archivePath := filepath.Join(t.TempDir(), "image.tar")
+	if err := os.WriteFile(archivePath, []byte("tar"), 0o600); err != nil {
+		t.Fatalf("write archive: %v", err)
+	}
+
+	client := &msb.MockMsbClient{
+		ImageGetFn: func(_ context.Context, _ string) error { return errors.New("not cached") },
+	}
+	client.GetSandboxFn = func(_ context.Context, _ string) (msb.SandboxHandle, error) {
+		return nil, &msbSdk.Error{Kind: msbSdk.ErrSandboxNotFound, Message: "not found"}
+	}
+	client.CreateSandboxFn = func(_ context.Context, _ string, _ ...msbSdk.SandboxOption) (msb.Sandbox, error) {
+		return msb.NewMockSandbox(msb.SandboxOpts{}), nil
+	}
+	msb.WithMsbMock(t, client)
+	configpaths.WithMockConfigPaths(t)
+
+	tmpRepo := testutil.InitRepo(t)
+	t.Chdir(tmpRepo)
+
+	if _, _, err := ensureProjectVM(
+		context.Background(),
+		options.RunOptions{Memory: "1G", TmpSize: "512M"},
+		image.ImageInfo{Tag: "agents-sandbox/runner-test:abc", ArchivePath: archivePath},
+		"test-home-vol",
+		tmpRepo,
+		testVMKey(),
+		ui,
+	); err != nil {
+		t.Fatalf("ensureProjectVM (first boot): %v", err)
+	}
+	if len(client.LoadedImages) != 1 || client.LoadedImages[0] != "agents-sandbox/runner-test:abc" {
+		t.Fatalf("loaded images = %v, want [agents-sandbox/runner-test:abc]", client.LoadedImages)
 	}
 }
 
@@ -314,10 +352,9 @@ func TestEnsureProjectVMAppliesLabels(t *testing.T) {
 	sb, created, err := ensureProjectVM(
 		context.Background(),
 		options.RunOptions{Memory: "1G", TmpSize: "512M"},
-		"agents-sandbox/runner-test:latest",
+		image.ImageInfo{Tag: "agents-sandbox/runner-test:latest"},
 		"test-home-vol",
 		tmpRepo,
-		nil,
 		testVMKey(),
 		ui,
 	)
@@ -350,10 +387,9 @@ func TestEnsureProjectVM_ReconnectPath(t *testing.T) {
 	sb, created, err := ensureProjectVM(
 		context.Background(),
 		options.RunOptions{Memory: "1G", TmpSize: "512M"},
-		"agents-sandbox/runner-test:latest",
+		image.ImageInfo{Tag: "agents-sandbox/runner-test:latest"},
 		"test-home-vol",
 		tmpRepo,
-		nil,
 		testVMKey(),
 		ui,
 	)
@@ -398,10 +434,9 @@ func TestEnsureProjectVM_ConnectOutcomeIsInfo(t *testing.T) {
 	if _, _, err := ensureProjectVM(
 		context.Background(),
 		options.RunOptions{Memory: "1G", TmpSize: "512M"},
-		"agents-sandbox/runner-test:latest",
+		image.ImageInfo{Tag: "agents-sandbox/runner-test:latest"},
 		"test-home-vol",
 		tmpRepo,
-		nil,
 		testVMKey(),
 		ui,
 	); err != nil {
@@ -427,10 +462,9 @@ func TestEnsureProjectVM_StartOutcomeIsInfo(t *testing.T) {
 	if _, _, err := ensureProjectVM(
 		context.Background(),
 		options.RunOptions{Memory: "1G", TmpSize: "512M"},
-		"agents-sandbox/runner-test:latest",
+		image.ImageInfo{Tag: "agents-sandbox/runner-test:latest"},
 		"test-home-vol",
 		tmpRepo,
-		nil,
 		testVMKey(),
 		ui,
 	); err != nil {
@@ -460,10 +494,9 @@ func TestEnsureProjectVM_CreateOutcomeIsInfo(t *testing.T) {
 	if _, _, err := ensureProjectVM(
 		context.Background(),
 		options.RunOptions{Memory: "1G", TmpSize: "512M"},
-		"agents-sandbox/runner-test:latest",
+		image.ImageInfo{Tag: "agents-sandbox/runner-test:latest"},
 		"test-home-vol",
 		tmpRepo,
-		nil,
 		testVMKey(),
 		ui,
 	); err != nil {
@@ -495,10 +528,9 @@ func TestEnsureProjectVM_ReconnectWhenImageUnchanged(t *testing.T) {
 	sb, created, err := ensureProjectVM(
 		context.Background(),
 		options.RunOptions{Memory: "1G", TmpSize: "512M"},
-		"agents-sandbox/runner-test:abc123",
+		image.ImageInfo{Tag: "agents-sandbox/runner-test:abc123"},
 		"test-home-vol",
 		tmpRepo,
-		nil,
 		testVMKey(),
 		ui,
 	)
@@ -597,10 +629,15 @@ func TestCreateProjectVMAppliesRootDiskWhenDiskSizeSet(t *testing.T) {
 	docker.WithNoopDockerMock(t)
 
 	if _, _, err := createProjectVM(
-		context.Background(), client, "agents-sandbox-vm-test",
+		context.Background(),
+		client,
+		"agents-sandbox-vm-test",
 		testVMKey(),
-		"agents-sandbox/runner-test:latest", "test-home-vol", t.TempDir(),
-		options.RunOptions{Memory: "1G", DiskSize: "16G"}, nil, ui,
+		image.ImageInfo{Tag: "agents-sandbox/runner-test:latest"},
+		"test-home-vol",
+		t.TempDir(),
+		options.RunOptions{Memory: "1G", DiskSize: "16G"},
+		ui,
 	); err != nil {
 		t.Fatalf("createProjectVM failed: %v", err)
 	}
@@ -645,10 +682,9 @@ func TestEnsureProjectVM_NoReplacementWhenExistingImageUnknown(t *testing.T) {
 	sb, created, err := ensureProjectVM(
 		context.Background(),
 		options.RunOptions{Memory: "1G", TmpSize: "512M"},
-		"agents-sandbox/runner-test:newDigest",
+		image.ImageInfo{Tag: "agents-sandbox/runner-test:newDigest"},
 		"test-home-vol",
 		tmpRepo,
-		nil,
 		testVMKey(),
 		ui,
 	)
@@ -696,10 +732,9 @@ func TestEnsureProjectVMRecreatesWhenFlagged(t *testing.T) {
 	sb, created, err := ensureProjectVM(
 		context.Background(),
 		opts,
-		"new:tag",
+		image.ImageInfo{Tag: "new:tag"},
 		"homevol",
 		"/workspace",
-		map[string]string{},
 		testVMKey(),
 		ui,
 	)
@@ -738,10 +773,9 @@ func TestEnsureProjectVMReusesWhenNotFlagged(t *testing.T) {
 	sb, created, err := ensureProjectVM(
 		context.Background(),
 		options.RunOptions{},
-		"old:tag",
+		image.ImageInfo{Tag: "old:tag"},
 		"homevol",
 		"/workspace",
-		map[string]string{},
 		testVMKey(),
 		ui,
 	)

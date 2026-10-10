@@ -93,6 +93,7 @@ func TestPrefillVolumeRunsCopyCommand(t *testing.T) {
 		state.Key{Slug: "myproject", Agent: "opencode"},
 		"test-home-vol",
 		"agents-sandbox/runner-test:latest",
+		"",
 		ui,
 	)
 	if err != nil {
@@ -232,6 +233,7 @@ func TestApplyHomeAction_KeepReturnsOldVolume(t *testing.T) {
 		state.Key{Slug: "myproj", Agent: "opencode"},
 		"agents-sandbox-home-myproj-old",
 		"img-tag",
+		"",
 		"sha256:new",
 		ActionKeep,
 		options.RunOptions{},
@@ -282,6 +284,7 @@ func TestApplyHomeAction_ExecutesAndKeepsOld(t *testing.T) {
 				state.Key{Slug: slug, Agent: "opencode"},
 				oldVol,
 				"img-tag",
+				"",
 				"sha256:new",
 				tt.action,
 				options.RunOptions{},
@@ -344,6 +347,7 @@ func TestApplyHomeAction_Reset_DryRun_NoWrites(t *testing.T) {
 		state.Key{Slug: slug, Agent: "opencode"},
 		oldVol,
 		"img-tag",
+		"",
 		"sha256:new",
 		ActionReset,
 		options.RunOptions{DryRun: true},
@@ -390,6 +394,7 @@ func TestApplyHomeAction_Migrate_DryRunVM_NoStateWrite(t *testing.T) {
 		state.Key{Slug: slug, Agent: "opencode"},
 		oldVol,
 		"img-tag",
+		"",
 		"sha256:new",
 		ActionMigrate,
 		options.RunOptions{DryRunVM: true},
@@ -450,6 +455,7 @@ func TestApplyHomeAction_Migrate_CopyFails_RemovesNewVolume(t *testing.T) {
 		state.Key{Slug: slug, Agent: "opencode"},
 		oldVol,
 		"img-tag",
+		"",
 		"sha256:new",
 		ActionMigrate,
 		options.RunOptions{},
@@ -547,6 +553,7 @@ func TestResolveHomeVolume_FoundInState(t *testing.T) {
 		state.Key{Slug: "myproj", Agent: "opencode"},
 		"sha256:abc",
 		"",
+		"",
 		false,
 		&termio.Mock{},
 	)
@@ -576,6 +583,7 @@ func TestResolveHomeVolume_NoStateFile(t *testing.T) {
 		mock,
 		state.Key{Slug: "testproj", Agent: "opencode"},
 		"sha256:def",
+		"",
 		"",
 		false,
 		&termio.Mock{},
@@ -617,6 +625,7 @@ func TestResolveHomeVolume_CorruptStateFile(t *testing.T) {
 		mock,
 		state.Key{Slug: "corruptproj", Agent: "opencode"},
 		"sha256:def",
+		"",
 		"",
 		false,
 		ui,
@@ -660,6 +669,7 @@ func TestResolveHomeVolume_VolumeNotFoundInSandbox(t *testing.T) {
 		state.Key{Slug: "orphanproj", Agent: "opencode"},
 		"sha256:def",
 		"latest-docker-image",
+		"",
 		false,
 		&termio.Mock{},
 	)
@@ -752,6 +762,7 @@ func TestPrefillVolume_CreateSandboxFails(t *testing.T) {
 		state.Key{Slug: "myproject", Agent: "opencode"},
 		"test-home-vol",
 		"img-tag",
+		"",
 		&termio.Mock{},
 	)
 	if err == nil {
@@ -779,6 +790,7 @@ func TestPrefillVolume_ExecFails(t *testing.T) {
 		state.Key{Slug: "myproject", Agent: "opencode"},
 		"test-home-vol",
 		"img-tag",
+		"",
 		ui,
 	)
 	if err == nil {
@@ -814,6 +826,7 @@ func TestPrefillVolume_ExecExitFailure(t *testing.T) {
 		state.Key{Slug: "myproject", Agent: "opencode"},
 		"test-home-vol",
 		"img-tag",
+		"",
 		ui,
 	)
 	if err == nil {
@@ -837,6 +850,7 @@ func TestCopyVolume_CreateSandboxFails(t *testing.T) {
 		"old-vol",
 		"new-vol",
 		"img-tag",
+		"",
 		&termio.Mock{},
 	)
 	if err == nil {
@@ -865,6 +879,7 @@ func TestCopyVolume_ExecFails(t *testing.T) {
 		"old-vol",
 		"new-vol",
 		"img-tag",
+		"",
 		ui,
 	)
 	if err == nil {
@@ -901,6 +916,7 @@ func TestCopyVolume_ExecExitFailure(t *testing.T) {
 		"old-vol",
 		"new-vol",
 		"img-tag",
+		"",
 		ui,
 	)
 	if err == nil {
@@ -931,6 +947,7 @@ func TestApplyHomeAction_Reset_Success(t *testing.T) {
 		state.Key{Slug: slug, Agent: "opencode"},
 		oldVol,
 		"img-tag",
+		"",
 		"sha256:new",
 		ActionReset,
 		options.RunOptions{},
@@ -976,6 +993,7 @@ func TestApplyHomeAction_PrefillFails_RemovesVolume(t *testing.T) {
 		state.Key{Slug: slug, Agent: "opencode"},
 		oldVol,
 		"img-tag",
+		"",
 		"sha256:new",
 		ActionReset,
 		options.RunOptions{},
@@ -1003,6 +1021,7 @@ func TestEnsureNewHome_PrefillFails(t *testing.T) {
 		state.Key{Slug: "testproj", Agent: "opencode"},
 		"sha256:abc",
 		"img-tag",
+		"",
 		false,
 		&termio.Mock{},
 	)
@@ -1026,6 +1045,7 @@ func TestEnsureNewHome_DryRunVM_NoSandbox(t *testing.T) {
 		state.Key{Slug: "testproj", Agent: "opencode"},
 		"sha256:abc",
 		"img-tag",
+		"",
 		true, // dryRunVM
 		&termio.Mock{},
 	)

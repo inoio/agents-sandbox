@@ -8,9 +8,8 @@ import (
 	"testing"
 
 	"github.com/inoio/agents-sandbox/internal/configpaths"
+	"github.com/inoio/agents-sandbox/internal/sandbox/builder"
 	"github.com/inoio/agents-sandbox/internal/sandbox/doctor"
-
-	"github.com/inoio/agents-sandbox/internal/sandbox/docker"
 )
 
 func TestBuildCommand(t *testing.T) {
@@ -63,26 +62,17 @@ func TestBuildCommand(t *testing.T) {
 
 		t.Run(
 			fmt.Sprintf(
-				"%s (no flags) with docker client error → non-nil error (docker preflight fails first)",
+				"%s (no flags) with a failing builder → non-nil error",
 				strings.Join(commands, " "),
 			),
 			func(t *testing.T) {
-				cmd, ui := setupCommandFixtures(t, commands...)
-				docker.WithDefaultErrorDockerMock(t)
+				cmd, _ := setupCommandFixtures(t, commands...)
+				withMockBuilder(t, builder.BuildResult{}, errBoom)
 
 				err := cmd.Execute()
 
 				if err == nil {
 					t.Error("expected non-nil error from build image failure")
-				}
-				// With a broken docker client, the docker preflight (Ping) fails
-				// before the build spinner is started; base-image resolution is
-				// never reached.
-				if slices.Contains(ui.SpinnerCalls, "Ensuring runner image") {
-					t.Errorf(
-						"expected no 'Ensuring runner image' spinner when the docker preflight fails first; got: %v",
-						ui.SpinnerCalls,
-					)
 				}
 			},
 		)

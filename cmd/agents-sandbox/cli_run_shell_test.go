@@ -9,6 +9,7 @@ import (
 	"github.com/spf13/cobra"
 	msb "github.com/superradcompany/microsandbox/sdk/go"
 
+	"github.com/inoio/agents-sandbox/internal/sandbox/builder"
 	"github.com/inoio/agents-sandbox/internal/sandbox/doctor"
 	sandboxmsb "github.com/inoio/agents-sandbox/internal/sandbox/msb"
 	sandbox "github.com/inoio/agents-sandbox/internal/sandbox/vm"
@@ -27,6 +28,10 @@ func setupRunMocks(t *testing.T, mock *sandboxmsb.MockMsbClient, sandboxToReturn
 	mock.CreatedSandbox = sandboxToReturn
 
 	cmd, ui := setupCommandFixtures(t, args...)
+
+	// A successful in-process builder keeps image setup off a real BuildKit
+	// builder VM.
+	withMockBuilder(t, builder.BuildResult{Digest: "sha256:abc123", Env: []string{}}, nil)
 
 	// The default GetSandbox error must be an msb.Error with ErrSandboxNotFound
 	// so EnsureProjectVM treats it as "not found → create" rather than a real error.

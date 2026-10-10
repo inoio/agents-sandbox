@@ -97,6 +97,7 @@ func TestVolumeOp_ReadStateCorruptError(t *testing.T) {
 		state.Key{Slug: slug, Agent: "opencode"},
 		"",
 		"img-tag",
+		"",
 		"sha256:new",
 		false,
 		false,
@@ -117,6 +118,7 @@ func TestVolumeOp_NoVolumeToOperate(t *testing.T) {
 		state.Key{Slug: slug, Agent: "opencode"},
 		"",
 		"img-tag",
+		"",
 		"sha256:new",
 		false,
 		false,
@@ -141,6 +143,7 @@ func TestVolumeOp_PrefillFails(t *testing.T) {
 		state.Key{Slug: slug, Agent: "opencode"},
 		"",
 		"img-tag",
+		"",
 		"sha256:new",
 		false,
 		false,
@@ -179,6 +182,7 @@ func TestVolumeOp_MainFails_CleanupVolumeFailsWarns(t *testing.T) {
 		state.Key{Slug: slug, Agent: "opencode"},
 		"",
 		"img-tag",
+		"",
 		"sha256:new",
 		false,
 		false,
@@ -223,6 +227,7 @@ func TestVolumeOp_WriteStateFails_Warns(t *testing.T) {
 		state.Key{Slug: slug, Agent: "opencode"},
 		"",
 		"img-tag",
+		"",
 		"sha256:new",
 		false,
 		false,
@@ -269,6 +274,7 @@ func TestVolumeOp_RemoveOldFails_Warns(t *testing.T) {
 		state.Key{Slug: slug, Agent: "opencode"},
 		"",
 		"img-tag",
+		"",
 		"sha256:new",
 		true,
 		false,
@@ -289,8 +295,12 @@ func TestVolumeOp_RemoveOldFails_Warns(t *testing.T) {
 }
 
 func TestCmdEdit_LoadImageFails(t *testing.T) {
-	_, ui := setupVolumeOpsFixtures(t)
-	docker.WithDefaultErrorDockerMock(t)
+	mock, ui := setupVolumeOpsFixtures(t)
+	mock.ImageGetFn = func(_ context.Context, _ string) error { return errors.New("not cached") }
+	mock.ImageLoadFn = func(_ context.Context, _ string, _ io.Reader) error {
+		return errors.New("image load failed")
+	}
+	archivePath := writeArchive(t)
 
 	slug := "testproj-aBc1234D"
 	state.WriteState(
@@ -303,6 +313,7 @@ func TestCmdEdit_LoadImageFails(t *testing.T) {
 		state.Key{Slug: slug, Agent: "opencode"},
 		"",
 		"img-tag",
+		archivePath,
 		"sha256:abc",
 		false,
 		false,
@@ -315,9 +326,13 @@ func TestCmdEdit_LoadImageFails(t *testing.T) {
 
 func TestPrefillVolume_LoadImageFails(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
-	docker.WithDefaultErrorDockerMock(t)
 
-	mock := &msb.MockMsbClient{}
+	mock := &msb.MockMsbClient{
+		ImageGetFn: func(_ context.Context, _ string) error { return errors.New("not cached") },
+		ImageLoadFn: func(_ context.Context, _ string, _ io.Reader) error {
+			return errors.New("image load failed")
+		},
+	}
 	vm := NewManager(&termio.Mock{})
 	err := vm.PrefillVolume(
 		context.Background(),
@@ -325,6 +340,7 @@ func TestPrefillVolume_LoadImageFails(t *testing.T) {
 		state.Key{Slug: "myproject", Agent: "opencode"},
 		"vol",
 		"img-tag",
+		writeArchive(t),
 		&termio.Mock{},
 	)
 	if err == nil || !strings.Contains(err.Error(), "load runner image") {
@@ -334,9 +350,13 @@ func TestPrefillVolume_LoadImageFails(t *testing.T) {
 
 func TestCopyVolume_LoadImageFails(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
-	docker.WithDefaultErrorDockerMock(t)
 
-	mock := &msb.MockMsbClient{}
+	mock := &msb.MockMsbClient{
+		ImageGetFn: func(_ context.Context, _ string) error { return errors.New("not cached") },
+		ImageLoadFn: func(_ context.Context, _ string, _ io.Reader) error {
+			return errors.New("image load failed")
+		},
+	}
 	vm := NewManager(&termio.Mock{})
 	err := vm.CopyVolume(
 		context.Background(),
@@ -345,11 +365,23 @@ func TestCopyVolume_LoadImageFails(t *testing.T) {
 		"old-vol",
 		"new-vol",
 		"img-tag",
+		writeArchive(t),
 		&termio.Mock{},
 	)
 	if err == nil || !strings.Contains(err.Error(), "load runner image") {
 		t.Fatalf("expected load runner image error, got: %v", err)
 	}
+}
+
+// writeArchive writes a small image archive file for EnsureLoaded tests and
+// returns its path.
+func writeArchive(t *testing.T) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "image.tar")
+	if err := os.WriteFile(path, []byte("tar"), 0o600); err != nil {
+		t.Fatalf("write archive: %v", err)
+	}
+	return path
 }
 
 func TestEnsureNewHome_CreateVolumeFails(t *testing.T) {
@@ -366,6 +398,7 @@ func TestEnsureNewHome_CreateVolumeFails(t *testing.T) {
 		state.Key{Slug: "testproj", Agent: "opencode"},
 		"sha256:abc",
 		"img-tag",
+		"",
 		false,
 		&termio.Mock{},
 	)
@@ -437,6 +470,7 @@ func TestApplyHomeAction_KeepDryRun_ReturnsOldVolume(t *testing.T) {
 		state.Key{Slug: "myproj", Agent: "opencode"},
 		"old-vol",
 		"img-tag",
+		"",
 		"sha256:new",
 		ActionKeep,
 		options.RunOptions{DryRun: true},
@@ -472,6 +506,7 @@ func TestApplyHomeAction_KeepRecordImageFails_Warns(t *testing.T) {
 		state.Key{Slug: slug, Agent: "opencode"},
 		"old-vol",
 		"img-tag",
+		"",
 		"sha256:new",
 		ActionKeep,
 		options.RunOptions{},
@@ -509,6 +544,7 @@ func TestApplyHomeAction_CreateVolumeFails(t *testing.T) {
 		state.Key{Slug: "myproj", Agent: "opencode"},
 		"old-vol",
 		"img-tag",
+		"",
 		"sha256:new",
 		ActionReset,
 		options.RunOptions{},
@@ -549,6 +585,7 @@ func TestApplyHomeAction_WriteStateFails_Warns(t *testing.T) {
 		state.Key{Slug: slug, Agent: "opencode"},
 		"old-vol",
 		"img-tag",
+		"",
 		"sha256:new",
 		ActionReset,
 		options.RunOptions{},
@@ -578,6 +615,7 @@ func TestCmdEdit_LoadImageFailsInMain(t *testing.T) {
 	)
 
 	loadCalls := 0
+	mock.ImageGetFn = func(_ context.Context, _ string) error { return errors.New("not cached") }
 	mock.ImageLoadFn = func(_ context.Context, _ string, _ io.Reader) error {
 		loadCalls++
 		if loadCalls == 2 {
@@ -591,6 +629,7 @@ func TestCmdEdit_LoadImageFailsInMain(t *testing.T) {
 		state.Key{Slug: slug, Agent: "opencode"},
 		"",
 		"img-tag",
+		writeArchive(t),
 		"sha256:abc",
 		false,
 		false,

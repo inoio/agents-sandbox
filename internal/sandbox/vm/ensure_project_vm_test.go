@@ -14,6 +14,7 @@ import (
 
 	"github.com/inoio/agents-sandbox/internal/configpaths"
 	"github.com/inoio/agents-sandbox/internal/sandbox/docker"
+	"github.com/inoio/agents-sandbox/internal/sandbox/image"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
 	"github.com/inoio/agents-sandbox/internal/sandbox/options"
 	"github.com/inoio/agents-sandbox/internal/termio"
@@ -43,10 +44,9 @@ func TestEnsureProjectVMFlockDirError(t *testing.T) {
 	_, _, err := ensureProjectVM(
 		context.Background(),
 		options.RunOptions{},
-		"img:tag",
+		image.ImageInfo{Tag: "img:tag"},
 		"vol",
 		"/workspace",
-		nil,
 		testVMKey(),
 		&ui,
 	)
@@ -70,10 +70,9 @@ func TestEnsureProjectVMDecideActionError(t *testing.T) {
 	_, _, err := ensureProjectVM(
 		context.Background(),
 		options.RunOptions{},
-		"img:tag",
+		image.ImageInfo{Tag: "img:tag"},
 		"vol",
 		"/workspace",
-		nil,
 		testVMKey(),
 		&ui,
 	)
@@ -106,10 +105,9 @@ func TestEnsureProjectVMWaitsForStartingVM(t *testing.T) {
 	sb, boot, err := ensureProjectVM(
 		context.Background(),
 		options.RunOptions{},
-		"img:tag",
+		image.ImageInfo{Tag: "img:tag"},
 		"vol",
 		"/workspace",
-		nil,
 		testVMKey(),
 		&ui,
 	)
@@ -153,10 +151,9 @@ func TestEnsureProjectVMStartingReconcileWarning(t *testing.T) {
 	_, _, err := ensureProjectVM(
 		context.Background(),
 		options.RunOptions{CPUs: 2},
-		"img:tag",
+		image.ImageInfo{Tag: "img:tag"},
 		"vol",
 		"/workspace",
-		nil,
 		testVMKey(),
 		&ui,
 	)
@@ -185,10 +182,9 @@ func TestEnsureProjectVMStartingStatusError(t *testing.T) {
 	_, _, err := ensureProjectVM(
 		context.Background(),
 		options.RunOptions{},
-		"img:tag",
+		image.ImageInfo{Tag: "img:tag"},
 		"vol",
 		"/workspace",
-		nil,
 		testVMKey(),
 		&ui,
 	)
@@ -220,10 +216,9 @@ func TestEnsureProjectVMStartsAfterConcurrentBootFails(t *testing.T) {
 	sb, boot, err := ensureProjectVM(
 		context.Background(),
 		options.RunOptions{},
-		"img:tag",
+		image.ImageInfo{Tag: "img:tag"},
 		"vol",
 		"/workspace",
-		nil,
 		testVMKey(),
 		&ui,
 	)
@@ -266,10 +261,9 @@ func TestEnsureProjectVMConvergesCreatedStartRace(t *testing.T) {
 	sb, boot, err := ensureProjectVM(
 		context.Background(),
 		options.RunOptions{},
-		"img:tag",
+		image.ImageInfo{Tag: "img:tag"},
 		"vol",
 		"/workspace",
-		nil,
 		testVMKey(),
 		&ui,
 	)
@@ -302,10 +296,9 @@ func TestEnsureProjectVMConnectRetryRejectsRefreshedPausedVM(t *testing.T) {
 	_, _, err := ensureProjectVM(
 		context.Background(),
 		options.RunOptions{},
-		"img:tag",
+		image.ImageInfo{Tag: "img:tag"},
 		"vol",
 		"/workspace",
-		nil,
 		testVMKey(),
 		&ui,
 	)
@@ -344,10 +337,9 @@ func TestEnsureProjectVMConnectRetryWaitsForStartingVM(t *testing.T) {
 	sb, boot, err := ensureProjectVM(
 		context.Background(),
 		options.RunOptions{},
-		"img:tag",
+		image.ImageInfo{Tag: "img:tag"},
 		"vol",
 		"/workspace",
-		nil,
 		testVMKey(),
 		&ui,
 	)
@@ -386,10 +378,9 @@ func TestEnsureProjectVMPostLockWaitsForStartingVM(t *testing.T) {
 	sb, boot, err := ensureProjectVM(
 		context.Background(),
 		options.RunOptions{},
-		"img:tag",
+		image.ImageInfo{Tag: "img:tag"},
 		"vol",
 		"/workspace",
-		nil,
 		testVMKey(),
 		&ui,
 	)
@@ -426,10 +417,9 @@ func TestEnsureProjectVMPostLockWaitError(t *testing.T) {
 	_, _, err := ensureProjectVM(
 		context.Background(),
 		options.RunOptions{},
-		"img:tag",
+		image.ImageInfo{Tag: "img:tag"},
 		"vol",
 		"/workspace",
-		nil,
 		testVMKey(),
 		&ui,
 	)
@@ -470,10 +460,9 @@ func TestEnsureProjectVMPostLockWaitReconcileWarning(t *testing.T) {
 	_, boot, err := ensureProjectVM(
 		context.Background(),
 		options.RunOptions{CPUs: 2},
-		"img:tag",
+		image.ImageInfo{Tag: "img:tag"},
 		"vol",
 		"/workspace",
-		nil,
 		testVMKey(),
 		&ui,
 	)
@@ -624,10 +613,9 @@ func TestEnsureProjectVMStartError(t *testing.T) {
 	_, _, err := ensureProjectVM(
 		context.Background(),
 		options.RunOptions{},
-		"img:tag",
+		image.ImageInfo{Tag: "img:tag"},
 		"vol",
 		"/workspace",
-		nil,
 		testVMKey(),
 		&ui,
 	)
@@ -651,10 +639,9 @@ func TestEnsureProjectVMEnsureInstalledError(t *testing.T) {
 	_, _, err := ensureProjectVM(
 		context.Background(),
 		options.RunOptions{},
-		"img:tag",
+		image.ImageInfo{Tag: "img:tag"},
 		"vol",
 		"/workspace",
-		nil,
 		testVMKey(),
 		&ui,
 	)
@@ -681,10 +668,9 @@ func TestEnsureProjectVMConnectRetryReconnectError(t *testing.T) {
 	_, _, err := ensureProjectVM(
 		context.Background(),
 		options.RunOptions{},
-		"img:tag",
+		image.ImageInfo{Tag: "img:tag"},
 		"vol",
 		"/workspace",
-		nil,
 		testVMKey(),
 		&ui,
 	)
@@ -719,10 +705,9 @@ func TestEnsureProjectVMConnectRetryStartAfterRefresh(t *testing.T) {
 	_, _, err := ensureProjectVM(
 		context.Background(),
 		options.RunOptions{},
-		"img:tag",
+		image.ImageInfo{Tag: "img:tag"},
 		"vol",
 		"/workspace",
-		nil,
 		testVMKey(),
 		&ui,
 	)
@@ -757,10 +742,9 @@ func TestEnsureProjectVMPostLockRecheckConnect(t *testing.T) {
 	sb, boot, err := ensureProjectVM(
 		context.Background(),
 		options.RunOptions{},
-		"img:tag",
+		image.ImageInfo{Tag: "img:tag"},
 		"vol",
 		"/workspace",
-		nil,
 		testVMKey(),
 		&ui,
 	)
@@ -801,10 +785,9 @@ func TestEnsureProjectVMPostLockRecheckStart(t *testing.T) {
 	sb, boot, err := ensureProjectVM(
 		context.Background(),
 		options.RunOptions{},
-		"img:tag",
+		image.ImageInfo{Tag: "img:tag"},
 		"vol",
 		"/workspace",
-		nil,
 		testVMKey(),
 		&ui,
 	)
@@ -848,10 +831,9 @@ func TestEnsureProjectVMRecreateStopError(t *testing.T) {
 	sb, boot, err := ensureProjectVM(
 		context.Background(),
 		options.RunOptions{Recreate: true, CPUs: 1, Memory: "2G"},
-		"new:tag",
+		image.ImageInfo{Tag: "new:tag"},
 		"homevol",
 		"/workspace",
-		map[string]string{},
 		testVMKey(),
 		&ui,
 	)
@@ -884,10 +866,9 @@ func TestEnsureProjectVMStartSucceedsWithReconcile(t *testing.T) {
 	sb, boot, err := ensureProjectVM(
 		context.Background(),
 		options.RunOptions{CPUs: 2, Memory: "2048"},
-		"img:tag",
+		image.ImageInfo{Tag: "img:tag"},
 		"vol",
 		"/workspace",
-		nil,
 		testVMKey(),
 		&ui,
 	)
@@ -922,10 +903,9 @@ func TestEnsureProjectVMConnectReconcileWarn(t *testing.T) {
 	sb, boot, err := ensureProjectVM(
 		context.Background(),
 		options.RunOptions{CPUs: 4},
-		"img:tag",
+		image.ImageInfo{Tag: "img:tag"},
 		"vol",
 		"/workspace",
-		nil,
 		testVMKey(),
 		&ui,
 	)
@@ -962,10 +942,9 @@ func TestEnsureProjectVMStartReconcileWarn(t *testing.T) {
 	sb, _, err := ensureProjectVM(
 		context.Background(),
 		options.RunOptions{CPUs: 4},
-		"img:tag",
+		image.ImageInfo{Tag: "img:tag"},
 		"vol",
 		"/workspace",
-		nil,
 		testVMKey(),
 		&ui,
 	)
@@ -1000,10 +979,9 @@ func TestEnsureProjectVMRecheckNonNotFoundError(t *testing.T) {
 	_, _, err := ensureProjectVM(
 		context.Background(),
 		options.RunOptions{},
-		"img:tag",
+		image.ImageInfo{Tag: "img:tag"},
 		"vol",
 		"/workspace",
-		nil,
 		testVMKey(),
 		&ui,
 	)
@@ -1026,10 +1004,9 @@ func TestEnsureProjectVMCreateError(t *testing.T) {
 	_, _, err := ensureProjectVM(
 		context.Background(),
 		options.RunOptions{Memory: "1G"},
-		"img:tag",
+		image.ImageInfo{Tag: "img:tag"},
 		"vol",
 		"/workspace",
-		nil,
 		testVMKey(),
 		&ui,
 	)
@@ -1063,10 +1040,9 @@ func TestEnsureProjectVMRecreateRemoveError(t *testing.T) {
 	_, _, err := ensureProjectVM(
 		context.Background(),
 		options.RunOptions{Recreate: true, CPUs: 1, Memory: "2G"},
-		"new:tag",
+		image.ImageInfo{Tag: "new:tag"},
 		"homevol",
 		"/workspace",
-		map[string]string{},
 		testVMKey(),
 		&ui,
 	)
@@ -1096,10 +1072,9 @@ func TestEnsureProjectVMCreateEnsureLoadedError(t *testing.T) {
 	_, _, err := ensureProjectVM(
 		context.Background(),
 		options.RunOptions{Memory: "1G"},
-		"img:tag",
+		image.ImageInfo{Tag: "img:tag"},
 		"vol",
 		"/workspace",
-		nil,
 		testVMKey(),
 		&ui,
 	)

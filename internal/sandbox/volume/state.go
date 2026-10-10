@@ -18,7 +18,7 @@ import (
 func (vm *Manager) ResolveHomeVolume(
 	ctx context.Context,
 	client msb.Client,
-	k state.Key, imageDigest, imageTag string,
+	k state.Key, imageDigest, imageTag, archivePath string,
 	dryRunVM bool,
 	ui termio.UI,
 ) (string, state.HomeState, error) {
@@ -27,13 +27,13 @@ func (vm *Manager) ResolveHomeVolume(
 		if !errors.Is(err, state.ErrStateNotFound) {
 			ui.Warnf("missing state file, creating fresh home volume")
 		}
-		return vm.EnsureNewHome(ctx, client, k, imageDigest, imageTag, dryRunVM, ui)
+		return vm.EnsureNewHome(ctx, client, k, imageDigest, imageTag, archivePath, dryRunVM, ui)
 	}
 
 	_, err = client.GetVolume(ctx, st.HomeVolume)
 	if err != nil {
 		ui.Warnf("existing home volume %q not found, creating fresh", st.HomeVolume)
-		return vm.EnsureNewHome(ctx, client, k, imageDigest, imageTag, dryRunVM, ui)
+		return vm.EnsureNewHome(ctx, client, k, imageDigest, imageTag, archivePath, dryRunVM, ui)
 	}
 
 	return st.HomeVolume, *st, nil
@@ -43,7 +43,7 @@ func (vm *Manager) ResolveHomeVolume(
 func (vm *Manager) EnsureNewHome(
 	ctx context.Context,
 	client msb.Client,
-	k state.Key, imageDigest, imageTag string,
+	k state.Key, imageDigest, imageTag, archivePath string,
 	dryRunVM bool,
 	ui termio.UI,
 ) (string, state.HomeState, error) {
@@ -56,7 +56,7 @@ func (vm *Manager) EnsureNewHome(
 	}
 
 	if !dryRunVM {
-		if err := vm.PrefillVolume(ctx, client, k, vol.Name(), imageTag, ui); err != nil {
+		if err := vm.PrefillVolume(ctx, client, k, vol.Name(), imageTag, archivePath, ui); err != nil {
 			return "", state.HomeState{}, err
 		}
 	} else {

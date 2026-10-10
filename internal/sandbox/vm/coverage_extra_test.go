@@ -11,6 +11,7 @@ import (
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 
 	"github.com/inoio/agents-sandbox/internal/configpaths"
+	"github.com/inoio/agents-sandbox/internal/sandbox/image"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
 	"github.com/inoio/agents-sandbox/internal/sandbox/network"
 	"github.com/inoio/agents-sandbox/internal/sandbox/options"
@@ -312,10 +313,9 @@ func TestEnsureProjectVMDryRunVM(t *testing.T) {
 	sb, boot, err := ensureProjectVM(
 		context.Background(),
 		options.RunOptions{DryRunVM: true},
-		"img:tag",
+		image.ImageInfo{Tag: "img:tag"},
 		"vol",
 		"/workspace",
-		nil,
 		testVMKey(),
 		&ui,
 	)
@@ -342,10 +342,9 @@ func TestEnsureProjectVMGetSandboxFatalError(t *testing.T) {
 	_, _, err := ensureProjectVM(
 		context.Background(),
 		options.RunOptions{},
-		"img:tag",
+		image.ImageInfo{Tag: "img:tag"},
 		"vol",
 		"/workspace",
-		nil,
 		testVMKey(),
 		&ui,
 	)

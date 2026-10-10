@@ -131,7 +131,7 @@ func decideReconfig(
 	vm *volume.Manager,
 	k state.Key,
 	opts options.RunOptions,
-	imageRef, imageDigest, homeVol string, hs state.HomeState,
+	imageRef, archivePath, imageDigest, homeVol string, hs state.HomeState,
 	cfs *reprovision.ConfigFiles,
 	ui termio.UI,
 ) (bool, bool, string, int, error) {
@@ -207,7 +207,7 @@ func decideReconfig(
 			ui.Infof("exiting as requested by user")
 			return false, false, homeVol, plan.ServeHostPort, &ExitError{Code: 1}
 		}
-		newVol, err := vm.ApplyHomeAction(ctx, client, k, homeVol, imageRef, imageDigest, action, opts, ui)
+		newVol, err := vm.ApplyHomeAction(ctx, client, k, homeVol, imageRef, archivePath, imageDigest, action, opts, ui)
 		if err != nil {
 			return false, false, homeVol, plan.ServeHostPort, fmt.Errorf("apply home action: %w", err)
 		}
