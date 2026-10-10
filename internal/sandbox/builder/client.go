@@ -194,6 +194,12 @@ func (c *Client) Build(ctx context.Context, req BuildRequest) (BuildResult, erro
 		return BuildResult{}, fmt.Errorf("create image archive: %w", err)
 	}
 	archivePath := archive.Name()
+	buildSucceeded := false
+	defer func() {
+		if !buildSucceeded {
+			_ = os.Remove(archivePath)
+		}
+	}()
 
 	attributes := map[string]string{"platform": req.Platform}
 	for key, value := range req.BuildArgs {
@@ -220,7 +226,7 @@ func (c *Client) Build(ctx context.Context, req BuildRequest) (BuildResult, erro
 		Exports: []client.ExportEntry{{
 			Type: "oci",
 			Output: func(map[string]string) (io.WriteCloser, error) {
-				return archive, nil
+				return nopWriteCloser{Writer: archive}, nil
 			},
 		}},
 		Session: registryAuthSession(),
@@ -247,6 +253,7 @@ func (c *Client) Build(ctx context.Context, req BuildRequest) (BuildResult, erro
 		}
 	}
 
+	buildSucceeded = true
 	return BuildResult{
 		ArchivePath: archivePath,
 		Digest:      resp.ExporterResponse["containerimage.digest"],

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"os"
 	"runtime"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -145,8 +146,8 @@ func TestBuildSolveOptsAndExports(t *testing.T) {
 	if opt.FrontendAttrs["platform"] != req.Platform {
 		t.Errorf("platform attr = %q, want %q", opt.FrontendAttrs["platform"], req.Platform)
 	}
-	if _, ok := opt.FrontendAttrs["no-cache"]; !ok {
-		t.Errorf("no-cache attr missing when NoCache is true: %v", opt.FrontendAttrs)
+	if value, ok := opt.FrontendAttrs["no-cache"]; !ok || value != "" {
+		t.Errorf("no-cache attr = %q (present=%v), want present and empty when NoCache is true", value, ok)
 	}
 	for key, value := range req.BuildArgs {
 		if got := opt.FrontendAttrs["build-arg:"+key]; got != value {
@@ -155,6 +156,9 @@ func TestBuildSolveOptsAndExports(t *testing.T) {
 	}
 	if got := opt.FrontendAttrs["build-arg:BASE_IMAGE"]; got != baseDigest {
 		t.Errorf("build-arg:BASE_IMAGE = %q, want %q", got, baseDigest)
+	}
+	if len(opt.Session) == 0 {
+		t.Error("SolveOpt.Session is empty, want registry auth attachables")
 	}
 	if len(opt.Exports) != 1 || opt.Exports[0].Type != "oci" {
 		t.Fatalf("Exports = %+v, want a single oci export", opt.Exports)
@@ -189,6 +193,42 @@ func TestBuildSolveOmitsNoCacheWhenFalse(t *testing.T) {
 	}
 	if _, ok := fake.solveOpt(t).FrontendAttrs["no-cache"]; ok {
 		t.Error("no-cache attr present when NoCache is false")
+	}
+}
+
+func TestBuildToleratesSessionClosingExportWriter(t *testing.T) {
+	stubResolveBaseDigest(t, "base@sha256:x", nil)
+
+	fake := &fakeBuildkitClient{}
+	fake.solveFn = func(opt client.SolveOpt) (*client.SolveResponse, error) {
+		writer, err := opt.Exports[0].Output(nil)
+		if err != nil {
+			return nil, err
+		}
+		if _, err := writer.Write([]byte("oci-archive-bytes")); err != nil {
+			return nil, err
+		}
+		// BuildKit's filesync session closes every writer it streams; the file
+		// behind the export writer must survive so Build can close it once.
+		if err := writer.Close(); err != nil {
+			return nil, err
+		}
+		return &client.SolveResponse{ExporterResponse: map[string]string{}}, nil
+	}
+
+	result, err := newBuildTestClient(t, fake).Build(context.Background(), BuildRequest{
+		ContextDir: "/tmp/context",
+		Platform:   "linux/amd64",
+	})
+	if err != nil {
+		t.Fatalf("Build failed after the session closed the export writer: %v", err)
+	}
+	info, statErr := os.Stat(result.ArchivePath)
+	if statErr != nil {
+		t.Fatalf("ArchivePath missing after build: %v", statErr)
+	}
+	if info.Size() == 0 {
+		t.Error("archive is empty on disk")
 	}
 }
 
@@ -291,7 +331,7 @@ func TestResolveBaseDigestWrapsResolutionError(t *testing.T) {
 	if err == nil {
 		t.Fatal("Build returned nil error, want wrapped resolution error")
 	}
-	if want := "resolve base image " + baseRef + ":"; !hasPrefix(err.Error(), want) {
+	if want := "resolve base image " + baseRef + ":"; !strings.HasPrefix(err.Error(), want) {
 		t.Errorf("error = %q, want prefix %q", err.Error(), want)
 	}
 	fake.mu.Lock()
@@ -299,10 +339,6 @@ func TestResolveBaseDigestWrapsResolutionError(t *testing.T) {
 	if len(fake.solve) != 0 {
 		t.Errorf("Solve called %d times despite resolution failure", len(fake.solve))
 	}
-}
-
-func hasPrefix(s, prefix string) bool {
-	return len(s) >= len(prefix) && s[:len(prefix)] == prefix
 }
 
 func TestRealResolveBaseDigestReturnsRefAtDigest(t *testing.T) {

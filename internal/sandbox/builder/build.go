@@ -2,6 +2,7 @@ package builder
 
 import (
 	"context"
+	"io"
 	"runtime"
 	"strings"
 
@@ -67,3 +68,13 @@ func forwardProgress(status *client.SolveStatus, progress func(string)) {
 		}
 	}
 }
+
+// nopWriteCloser lets BuildKit's session stream the export and call Close on
+// the writer without closing the underlying archive file: the session closes
+// every writer it is handed, and a second close of the *os.File would fail the
+// build. Build owns the single real Close after Solve returns.
+type nopWriteCloser struct {
+	io.Writer
+}
+
+func (nopWriteCloser) Close() error { return nil }
