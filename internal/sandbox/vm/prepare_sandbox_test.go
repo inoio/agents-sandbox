@@ -2,6 +2,8 @@ package vm
 
 import (
 	"context"
+	"errors"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -12,6 +14,7 @@ import (
 	"github.com/inoio/agents-sandbox/internal/configpaths"
 	"github.com/inoio/agents-sandbox/internal/git"
 	"github.com/inoio/agents-sandbox/internal/homeconfig"
+	"github.com/inoio/agents-sandbox/internal/sandbox/builder"
 	sandboximage "github.com/inoio/agents-sandbox/internal/sandbox/image"
 	"github.com/inoio/agents-sandbox/internal/sandbox/mounts"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
@@ -253,6 +256,82 @@ func TestPrepareSandboxLoadsHomeYamlOnce(t *testing.T) {
 	if missingWarnings != 1 {
 		t.Errorf("expected exactly 1 'missing home source' warning, got %d (warnings: %v)",
 			missingWarnings, ui.WarnCalls)
+	}
+}
+
+// TestPrepareSandboxRemovesBuildArchive verifies the builder's temporary image
+// archive is removed once the run has loaded it, so a normal run does not leak
+// archives into the host temp dir.
+func TestPrepareSandboxRemovesBuildArchive(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+
+	sandboximage.WithMockAgentVersion(t, "1.0.0")
+	origUpgradeInfo := agentLatestVersion
+	agentLatestVersion = func(_ context.Context, _ agent.Agent) (string, error) { return "1.0.0", nil }
+	t.Cleanup(func() { agentLatestVersion = origUpgradeInfo })
+
+	archivePath := filepath.Join(t.TempDir(), "image.tar")
+	if err := os.WriteFile(archivePath, []byte("tar"), 0o600); err != nil {
+		t.Fatalf("write archive: %v", err)
+	}
+	builder.WithMockBuilder(t, &builder.MockBuilder{
+		BuildFn: func(context.Context, builder.BuildRequest) (builder.BuildResult, error) {
+			return builder.BuildResult{
+				ArchivePath: archivePath,
+				Digest:      "sha256:built",
+				Env:         []string{"PATH=/usr/bin"},
+			}, nil
+		},
+	})
+
+	slug := git.ProjectSlug()
+	vmFS := msb.NewTestFS(nil, nil)
+	createdSb := &msb.MockSandbox{
+		Name_:    projectVMName(state.Key{Slug: slug, Agent: "opencode"}),
+		FSValue_: vmFS,
+		ShellOut: map[string]msb.ShellResult{
+			dockerdBinaryCheckCmd: msb.NewTestResult(false, 1, "", "", nil),
+		},
+	}
+	// No sandbox handle is registered, so GetSandbox reports not-found and the
+	// create path runs, loading the built archive into the msb cache.
+	mock := &msb.MockMsbClient{
+		ImageGetFn: func(_ context.Context, _ string) error { return nil },
+		ImageInspectFn: func(_ context.Context, _ string) (*msbSdk.ImageConfig, error) {
+			return nil, errors.New("image not found")
+		},
+		CreatedSandbox: createdSb,
+		Volumes:        []msb.VolumeHandle{&msb.MockVolumeHandle{Name_: "home-vol"}},
+	}
+	msb.WithMsbMock(t, mock)
+
+	if err := state.WriteState(state.Key{Slug: slug, Agent: "opencode"}, state.HomeState{
+		HomeVolume:  "home-vol",
+		ImageDigest: "sha256:built",
+	}); err != nil {
+		t.Fatalf("WriteState: %v", err)
+	}
+
+	origDaemon := SetDaemonShellFunc(func(_ context.Context, _ msb.Sandbox, command string) (string, int, error) {
+		if command == opencodeProvider(t).DaemonHealthCmd() {
+			return `{"healthy":true,"version":"test"}`, 0, nil
+		}
+		return "", 0, nil
+	})
+	t.Cleanup(func() { SetDaemonShellFunc(origDaemon) })
+
+	ui := termio.NewTestMock(t)
+	sess, err := PrepareSandbox(context.Background(), options.RunOptions{}, &ui)
+	if err != nil {
+		t.Fatalf("PrepareSandbox: %v", err)
+	}
+	if sess == nil {
+		t.Fatal("expected a non-nil session")
+	}
+	defer sess.Cleanup()
+
+	if _, statErr := os.Stat(archivePath); !os.IsNotExist(statErr) {
+		t.Errorf("expected the build archive to be removed, os.Stat err = %v", statErr)
 	}
 }
 

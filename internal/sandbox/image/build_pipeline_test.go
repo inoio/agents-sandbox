@@ -67,6 +67,33 @@ func TestEnsureImageSkipsBuildWhenDockerfileIDMatches(t *testing.T) {
 	}
 }
 
+// TestEnsureImageDryRunSkipsBuilder verifies that a dry run reports the build
+// plan (tag) without booting the builder VM: when a build would be needed, the
+// builder is not called and no archive is produced.
+func TestEnsureImageDryRunSkipsBuilder(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	WithMockAgentVersion(t, "1.2.3")
+	a := agentOpencode(t)
+	msbInspector(t, func(context.Context, string) (*msbSdk.ImageConfig, error) {
+		return nil, errors.New("image not found")
+	})
+	mock := fakeBuilder(t, builder.BuildResult{ArchivePath: "/tmp/a", Digest: "sha256:new"}, nil)
+
+	info, err := EnsureImage(context.Background(), a, "proj", BuildOptions{DryRun: true}, &termio.Mock{})
+	if err != nil {
+		t.Fatalf("EnsureImage: %v", err)
+	}
+	if len(mock.Calls) != 0 {
+		t.Errorf("builder calls = %d, want 0 for a dry run", len(mock.Calls))
+	}
+	if info.Tag == "" {
+		t.Error("expected the computed runner tag in a dry-run ImageInfo")
+	}
+	if info.ArchivePath != "" || info.Digest != "" {
+		t.Errorf("dry-run ImageInfo = %+v, want empty Digest and ArchivePath", info)
+	}
+}
+
 // TestEnsureImageReportsRenderError verifies a project Dockerfile that declares
 // a reserved stage alias surfaces the render error before any build runs.
 func TestEnsureImageReportsRenderError(t *testing.T) {

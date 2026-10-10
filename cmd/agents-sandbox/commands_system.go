@@ -108,11 +108,14 @@ func buildVolumeOpsCmd(
 				c.Context(),
 				a,
 				projectSlug,
-				image.BuildOptions{Force: false, AgentVersion: "", UserProvided: false, Docker: docker},
+				image.BuildOptions{Force: false, AgentVersion: "", UserProvided: false, Docker: docker, DryRun: dryRun},
 				ui,
 			)
 			if err != nil {
 				return fmt.Errorf("ensure image: %w", err)
+			}
+			if info.ArchivePath != "" {
+				defer os.Remove(info.ArchivePath)
 			}
 			var volName string
 			if len(args) > 0 {
@@ -479,6 +482,7 @@ func buildBuildCmd(ui termio.UI) *cobra.Command {
 			}
 			return image.Build(cmd.Context(), a, git.ProjectSlug(), image.BuildOptions{
 				Force: force, AgentVersion: openCodeVersion, UserProvided: false, Docker: resolveBuildDocker(cmd),
+				DryRun: dryRun,
 			}, ui)
 		},
 	}

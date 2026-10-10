@@ -224,4 +224,41 @@ func TestVolumeCommandUsesBuiltArchive(t *testing.T) {
 	if len(mock.LoadedImages) == 0 {
 		t.Fatal("expected the built image archive to be loaded into the msb cache")
 	}
+	if _, statErr := os.Stat(archivePath); !os.IsNotExist(statErr) {
+		t.Errorf("expected the build archive to be removed after the command, os.Stat err = %v", statErr)
+	}
+}
+
+// TestVolumeCommandDryRunSkipsBuild verifies a dry-run volume command reports
+// the plan without booting the builder VM: it must not call builder.Build even
+// when a build would otherwise be needed.
+func TestVolumeCommandDryRunSkipsBuild(t *testing.T) {
+	initTestProjectDir(t)
+	configpaths.WithMockConfigPaths(t)
+	doctor.MockedCheckAll(t, true)
+	image.WithMockAgentVersion(t, "0.0.0-test")
+
+	mock := &builder.MockBuilder{
+		BuildFn: func(context.Context, builder.BuildRequest) (builder.BuildResult, error) {
+			t.Error("builder.Build must not run during a dry run")
+			return builder.BuildResult{}, nil
+		},
+	}
+	builder.WithMockBuilder(t, mock)
+	msb.WithMsbMock(t, &msb.MockMsbClient{})
+
+	slug := git.ProjectSlug()
+	state.WriteState(state.Key{Slug: slug, Agent: "opencode"}, state.HomeState{
+		HomeVolume:  fmt.Sprintf("agents-sandbox-home-%s-20260814T132349", slug),
+		ImageDigest: "sha256:0000",
+	})
+
+	root := buildRootCmd(&termio.Mock{})
+	root.SetArgs([]string{cmdVolume, cmdReset, "--" + flagDryRun})
+	if err := root.Execute(); err != nil {
+		t.Fatalf("execute volume reset --dry-run: %v", err)
+	}
+	if len(mock.Calls) != 0 {
+		t.Errorf("builder calls = %d, want 0 during a dry run", len(mock.Calls))
+	}
 }

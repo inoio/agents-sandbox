@@ -67,7 +67,7 @@ func (v *VM) resolveBuilderPort(ctx context.Context, name string) (int, error) {
 }
 
 // ready runs the readiness seam when configured. A nil Ready treats the VM as
-// ready; Task 2 constructs the real client with a default implementation.
+// ready.
 func (v *VM) ready(ctx context.Context, hostPort int) error {
 	if v.Ready == nil {
 		return nil
@@ -89,6 +89,7 @@ func (v *VM) PruneCache(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("connect builder sandbox: %w", err)
 	}
+	defer func() { _ = sb.Close() }()
 	result, err := sb.Shell(ctx, buildctlPruneCommand)
 	if err != nil {
 		return fmt.Errorf("prune buildkit cache: %w", err)

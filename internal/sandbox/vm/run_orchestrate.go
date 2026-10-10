@@ -97,6 +97,7 @@ func PrepareSandbox(
 	if err != nil {
 		return nil, fmt.Errorf("ensuring image failed: %w", err)
 	}
+	defer removeBuildArchive(imageInfo.ArchivePath)
 	if shallUpgrade {
 		ui.Verbosef("runner image rebuilt with a newer %s version", a.Name())
 	}
@@ -175,6 +176,15 @@ func buildOptions(opts options.RunOptions, agentVersion string, force, userProvi
 		AgentVersion: agentVersion,
 		UserProvided: userProvided,
 		Docker:       opts.Docker,
+		DryRun:       opts.DryRun,
+	}
+}
+
+// removeBuildArchive deletes the builder's temporary image archive once the run
+// has loaded it. An empty path (a cache hit or dry run) is a no-op.
+func removeBuildArchive(path string) {
+	if path != "" {
+		_ = os.Remove(path)
 	}
 }
 
