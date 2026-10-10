@@ -7,7 +7,6 @@ import (
 
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 
-	"github.com/inoio/agents-sandbox/internal/sandbox/docker"
 	sandboxmsb "github.com/inoio/agents-sandbox/internal/sandbox/msb"
 )
 
@@ -31,11 +30,10 @@ func TestImagePrune(t *testing.T) {
 		}
 		cmd, ui := setupCommandFixtures(t, "image", "prune", "--age", "1d")
 		sandboxmsb.WithMsbMock(t, m)
-		docker.WithNoopDockerMock(t)
 		if err := cmd.Execute(); err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
-		if !slices.Contains(ui.OutCalls, "Pruned 1 runner image(s), 0 dangling docker image(s)") {
+		if !slices.Contains(ui.OutCalls, "Pruned 1 runner image(s), buildkit cache pruned: true") {
 			t.Errorf("expected prune summary, got: %v", ui.OutCalls)
 		}
 	})
@@ -58,11 +56,10 @@ func TestImagePrune(t *testing.T) {
 		}
 		cmd, ui := setupCommandFixtures(t, "image", "prune")
 		sandboxmsb.WithMsbMock(t, m)
-		docker.WithNoopDockerMock(t)
 		if err := cmd.Execute(); err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
-		if !slices.Contains(ui.OutCalls, "Pruned 1 runner image(s), 0 dangling docker image(s)") {
+		if !slices.Contains(ui.OutCalls, "Pruned 1 runner image(s), buildkit cache pruned: true") {
 			t.Errorf("expected prune summary, got: %v", ui.OutCalls)
 		}
 	})

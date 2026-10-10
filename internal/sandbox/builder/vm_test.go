@@ -278,3 +278,53 @@ func TestBuilderSandboxNameIncludesVersion(t *testing.T) {
 		t.Errorf("builderSandboxName() = %q, want %q", got, want)
 	}
 }
+
+func TestPruneCacheSkipsWhenNoBuilderVM(t *testing.T) {
+	shellCmds := []string{}
+	client := &msb.MockMsbClient{
+		GetSandboxFn: func(context.Context, string) (msb.SandboxHandle, error) {
+			return nil, &msbSdk.Error{Kind: msbSdk.ErrSandboxNotFound, Message: builderSandboxName()}
+		},
+	}
+	vm := &VM{Msb: client}
+
+	if err := vm.PruneCache(context.Background()); err != nil {
+		t.Fatalf("PruneCache: %v", err)
+	}
+	if len(shellCmds) != 0 {
+		t.Errorf("Shell called %v, want no calls when no builder VM exists", shellCmds)
+	}
+}
+
+func TestPruneCacheRunsBuildctl(t *testing.T) {
+	shellCmds := []string{}
+	sb := &msb.MockSandbox{ShellCalls: &shellCmds}
+	client := &msb.MockMsbClient{
+		GetSandboxFn: func(context.Context, string) (msb.SandboxHandle, error) {
+			return &msb.MockSandboxHandle{Name_: builderSandboxName(), ConnectSb: sb}, nil
+		},
+	}
+	vm := &VM{Msb: client}
+
+	if err := vm.PruneCache(context.Background()); err != nil {
+		t.Fatalf("PruneCache: %v", err)
+	}
+	want := "buildctl --addr tcp://127.0.0.1:1234 prune --filter until=24h --all"
+	if len(shellCmds) != 1 || shellCmds[0] != want {
+		t.Errorf("Shell calls = %v, want [%q]", shellCmds, want)
+	}
+}
+
+func TestPruneCacheErrorsOnFailedPrune(t *testing.T) {
+	sb := &msb.MockSandbox{ShellErr: errors.New("buildctl boom")}
+	client := &msb.MockMsbClient{
+		GetSandboxFn: func(context.Context, string) (msb.SandboxHandle, error) {
+			return &msb.MockSandboxHandle{Name_: builderSandboxName(), ConnectSb: sb}, nil
+		},
+	}
+	vm := &VM{Msb: client}
+
+	if err := vm.PruneCache(context.Background()); err == nil {
+		t.Fatal("expected an error when buildctl prune fails")
+	}
+}

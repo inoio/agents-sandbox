@@ -155,6 +155,7 @@ type BuildResult struct {
 
 type Builder interface {
 	Build(ctx context.Context, req BuildRequest) (BuildResult, error)
+	PruneCache(ctx context.Context) error
 }
 
 var Get = func() Builder {
@@ -260,4 +261,9 @@ func (c *Client) Build(ctx context.Context, req BuildRequest) (BuildResult, erro
 		Env:         metadata.Config.Env,
 		BaseDigest:  baseDigest,
 	}, nil
+}
+
+// PruneCache reclaims stale BuildKit cache inside the shared builder VM.
+func (c *Client) PruneCache(ctx context.Context) error {
+	return c.vm.PruneCache(ctx)
 }

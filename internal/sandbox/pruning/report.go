@@ -7,7 +7,7 @@ import "time"
 type StaleReport struct {
 	PrunedSandboxes     int
 	PrunedVolumes       int
-	PrunedDockerImages  int
+	BuildkitCachePruned bool
 	PrunedSandboxImages int
 	Details             []StaleEntry
 }

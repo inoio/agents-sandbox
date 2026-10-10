@@ -75,6 +75,30 @@ func (v *VM) ready(ctx context.Context, hostPort int) error {
 	return v.Ready(ctx, hostPort)
 }
 
+// PruneCache reclaims stale BuildKit cache inside the shared builder VM. When no
+// builder VM exists there is nothing to reclaim and it is a no-op.
+func (v *VM) PruneCache(ctx context.Context) error {
+	handle, err := v.Msb.GetSandbox(ctx, builderSandboxName())
+	if err != nil {
+		if msb.IsNotFound(err) {
+			return nil
+		}
+		return fmt.Errorf("find builder sandbox: %w", err)
+	}
+	sb, err := handle.Connect(ctx)
+	if err != nil {
+		return fmt.Errorf("connect builder sandbox: %w", err)
+	}
+	result, err := sb.Shell(ctx, buildctlPruneCommand)
+	if err != nil {
+		return fmt.Errorf("prune buildkit cache: %w", err)
+	}
+	if !result.Success() {
+		return fmt.Errorf("prune buildkit cache: buildctl exited with code %d", result.ExitCode())
+	}
+	return nil
+}
+
 // publishedHostPort reads the first published host port from an existing VM's
 // config, or 0 when none is published.
 func publishedHostPort(handle msb.SandboxHandle) int {

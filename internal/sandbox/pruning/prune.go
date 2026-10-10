@@ -30,7 +30,7 @@ func Prune(ctx context.Context, threshold time.Duration, dryRun bool, ui termio.
 	report := &StaleReport{
 		PrunedSandboxes:     vmReport.VMsPruned,
 		PrunedVolumes:       volReport.VolumesPruned,
-		PrunedDockerImages:  imgReport.DockerImagesPruned,
+		BuildkitCachePruned: imgReport.BuildkitCachePruned,
 		PrunedSandboxImages: imgReport.MSBImagesPruned,
 		Details:             append(append(vmReport.Details, volReport.Details...), imgReport.Details...),
 	}
@@ -47,11 +47,11 @@ func printPruneSummary(ui termio.UI, report *StaleReport, dryRun bool) {
 		action = "dry-run: Would prune"
 	}
 	ui.Outf(
-		"%s %d VMs, %d home volumes, %d docker images, %d msb images",
+		"%s %d VMs, %d home volumes, %d msb images, buildkit cache pruned: %t",
 		action,
 		report.PrunedSandboxes,
 		report.PrunedVolumes,
-		report.PrunedDockerImages,
 		report.PrunedSandboxImages,
+		report.BuildkitCachePruned,
 	)
 }

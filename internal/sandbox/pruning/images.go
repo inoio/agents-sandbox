@@ -4,33 +4,37 @@ import (
 	"context"
 	"strings"
 
-	"github.com/moby/moby/client"
-
-	"github.com/inoio/agents-sandbox/internal/sandbox/docker"
+	"github.com/inoio/agents-sandbox/internal/sandbox/builder"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
 	"github.com/inoio/agents-sandbox/internal/sandbox/naming"
 	"github.com/inoio/agents-sandbox/internal/sandbox/state"
 	"github.com/inoio/agents-sandbox/internal/termio"
 )
 
+// pruneBuilderCache reclaims stale BuildKit cache via the shared builder VM. It
+// is a variable so tests can substitute a fake without a live builder.
+var pruneBuilderCache = func(ctx context.Context) error {
+	return builder.Get().PruneCache(ctx)
+}
+
 // ImageReport summarizes a PruneImages run.
 type ImageReport struct {
-	MSBImagesPruned    int
-	DockerImagesPruned int
-	Details            []StaleEntry
+	MSBImagesPruned     int
+	BuildkitCachePruned bool
+	Details             []StaleEntry
 }
 
 // PruneImages prunes MSB runner-image references that are no longer referenced
-// by a live slug, then asks microsandbox to reclaim unreferenced image data.
-// Kept are per-agent "-latest" tags and any image a kept sandbox still
-// references, plus host-side dangling Docker images.
+// by a live slug, asks microsandbox to reclaim unreferenced image data, and
+// reclaims stale BuildKit cache from the shared builder VM. Kept are per-agent
+// "-latest" tags and any image a kept sandbox still references.
 func PruneImages(
 	ctx context.Context,
 	pruneState PruneState,
 	dryRun bool,
 	ui termio.UI,
 ) (ImageReport, error) {
-	report := ImageReport{MSBImagesPruned: 0, DockerImagesPruned: 0, Details: nil}
+	report := ImageReport{MSBImagesPruned: 0, BuildkitCachePruned: false, Details: nil}
 	handles, err := msb.Get().ImageList(ctx)
 	if err != nil {
 		return report, err
@@ -64,8 +68,12 @@ func PruneImages(
 		if _, err := msb.Get().ImagePrune(ctx); err != nil {
 			ui.Warnf("failed to prune unused msb image data: %v", err)
 		}
+		if err := pruneBuilderCache(ctx); err != nil {
+			ui.Warnf("failed to prune buildkit cache: %v", err)
+		} else {
+			report.BuildkitCachePruned = true
+		}
 	}
-	report.DockerImagesPruned = pruneDockerImages(ctx, dryRun, ui)
 	printImagePruneReport(ui, report, dryRun)
 	return report, nil
 }
@@ -104,26 +112,12 @@ func referencedImages(kept map[state.Key]msb.SandboxHandle) map[string]struct{} 
 	return result
 }
 
-// pruneDockerImages removes dangling (untagged) docker images created by us; skipped on dry-run.
-func pruneDockerImages(ctx context.Context, dryRun bool, ui termio.UI) int {
-	if dryRun {
-		return 0
-	}
-	result, err := docker.Get().
-		ImagePrune(ctx, client.ImagePruneOptions{Filters: client.Filters{}.Add("dangling", "true").Add("label", "org.agents-sandbox.managed=true").Add("until", "24h")})
-	if err != nil {
-		ui.Warnf("failed to prune docker images: %v", err)
-		return 0
-	}
-	return len(result.Report.ImagesDeleted)
-}
-
 func printImagePruneReport(ui termio.UI, r ImageReport, dryRun bool) {
 	ui.Outf(
-		"%s %d runner image(s), %d dangling docker image(s)",
+		"%s %d runner image(s), buildkit cache pruned: %t",
 		pruneReportPrefix(dryRun),
 		r.MSBImagesPruned,
-		r.DockerImagesPruned,
+		r.BuildkitCachePruned,
 	)
 	for _, d := range r.Details {
 		ui.Verbosef("  %s (%s)", d.Name, d.Slug)

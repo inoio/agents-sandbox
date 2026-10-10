@@ -8,8 +8,10 @@ import (
 // MockBuilder is a test double for Builder. BuildFn customizes the result;
 // nil returns an empty BuildResult. Every request is recorded in Calls.
 type MockBuilder struct {
-	BuildFn func(ctx context.Context, req BuildRequest) (BuildResult, error)
-	Calls   []BuildRequest
+	BuildFn      func(ctx context.Context, req BuildRequest) (BuildResult, error)
+	PruneCacheFn func(ctx context.Context) error
+	Calls        []BuildRequest
+	PruneCalls   int
 }
 
 // Compile-time check.
@@ -22,6 +24,15 @@ func (m *MockBuilder) Build(ctx context.Context, req BuildRequest) (BuildResult,
 		return m.BuildFn(ctx, req)
 	}
 	return BuildResult{}, nil
+}
+
+// PruneCache implements Builder, recording the call and delegating to PruneCacheFn.
+func (m *MockBuilder) PruneCache(ctx context.Context) error {
+	m.PruneCalls++
+	if m.PruneCacheFn != nil {
+		return m.PruneCacheFn(ctx)
+	}
+	return nil
 }
 
 // WithMockBuilder swaps the global Get factory with mock, restoring it when the

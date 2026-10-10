@@ -10,7 +10,6 @@ import (
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 
 	"github.com/inoio/agents-sandbox/internal/configpaths"
-	"github.com/inoio/agents-sandbox/internal/sandbox/docker"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
 	"github.com/inoio/agents-sandbox/internal/sandbox/state"
 	"github.com/inoio/agents-sandbox/internal/termio"
@@ -40,7 +39,6 @@ func TestPruneImages(t *testing.T) {
 			},
 		}
 		msb.WithMsbMock(t, client)
-		docker.WithNoopDockerMock(t)
 		ps := live("active-1mjusbm3wikhb0")
 		ps.ToPrune = map[state.Key]msb.SandboxHandle{
 			{Slug: "orphan-1mjusbm3wikhb0", Agent: ""}: &msb.MockSandboxHandle{},
@@ -66,7 +64,6 @@ func TestPruneImages(t *testing.T) {
 			},
 		}
 		msb.WithMsbMock(t, client)
-		docker.WithNoopDockerMock(t)
 		ps := PruneState{
 			ToPrune: map[state.Key]msb.SandboxHandle{
 				{Slug: "orphan-1mjusbm3wikhb0", Agent: ""}: &msb.MockSandboxHandle{},
@@ -95,7 +92,6 @@ func TestPruneImages(t *testing.T) {
 			},
 		}
 		msb.WithMsbMock(t, client)
-		docker.WithNoopDockerMock(t)
 		ui := &termio.Mock{}
 		ps := PruneState{ToKeep: map[state.Key]msb.SandboxHandle{
 			{Slug: "active-1mjusbm3wikhb0", Agent: "opencode"}: &msb.MockSandboxHandle{},
@@ -123,7 +119,6 @@ func TestPruneImages(t *testing.T) {
 			},
 		}
 		msb.WithMsbMock(t, client)
-		docker.WithNoopDockerMock(t)
 		ui := &termio.Mock{}
 		r, err := PruneImages(context.Background(), PruneState{}, false, ui)
 		if err != nil {
@@ -165,7 +160,6 @@ func TestPruneImages(t *testing.T) {
 			},
 		}
 		msb.WithMsbMock(t, client)
-		docker.WithNoopDockerMock(t)
 		ui := &termio.Mock{}
 		r, err := PruneImages(context.Background(), PruneState{ToPrune: map[state.Key]msb.SandboxHandle{
 			{Slug: "fail-1mjusbm3wikhb0", Agent: ""}: &msb.MockSandboxHandle{},
@@ -182,25 +176,6 @@ func TestPruneImages(t *testing.T) {
 		}
 		if len(ui.WarnCalls) != 1 {
 			t.Errorf("WarnCalls = %v, want 1 warn about the failed removal", ui.WarnCalls)
-		}
-	})
-
-	t.Run("docker prune error is warned but not fatal", func(t *testing.T) {
-		client := &msb.MockMsbClient{
-			Images: []msb.ImageHandle{img("agents-sandbox/runner-dockererr-1mjusbm3wikhb0:digest1", old)},
-		}
-		msb.WithMsbMock(t, client)
-		docker.WithDefaultErrorDockerMock(t)
-		ui := &termio.Mock{}
-		r, err := PruneImages(context.Background(), PruneState{}, false, ui)
-		if err != nil {
-			t.Fatalf("PruneImages: %v", err)
-		}
-		if r.DockerImagesPruned != 0 {
-			t.Errorf("DockerImagesPruned = %d, want 0 on error", r.DockerImagesPruned)
-		}
-		if len(ui.WarnCalls) == 0 {
-			t.Errorf("expected a warn about the docker prune failure, got %v", ui.WarnCalls)
 		}
 	})
 }
@@ -222,7 +197,6 @@ func TestPruneImagesRunsNativePruneAfterReferenceCleanup(t *testing.T) {
 			},
 		}
 		msb.WithMsbMock(t, client)
-		docker.WithNoopDockerMock(t)
 
 		if _, err := PruneImages(context.Background(), PruneState{}, false, &termio.Mock{}); err != nil {
 			t.Fatalf("PruneImages: %v", err)
@@ -241,7 +215,6 @@ func TestPruneImagesRunsNativePruneAfterReferenceCleanup(t *testing.T) {
 			},
 		}
 		msb.WithMsbMock(t, client)
-		docker.WithNoopDockerMock(t)
 
 		if _, err := PruneImages(context.Background(), PruneState{}, true, &termio.Mock{}); err != nil {
 			t.Fatalf("PruneImages dry run: %v", err)
@@ -258,7 +231,6 @@ func TestPruneImagesRunsNativePruneAfterReferenceCleanup(t *testing.T) {
 			},
 		}
 		msb.WithMsbMock(t, client)
-		docker.WithNoopDockerMock(t)
 		ui := &termio.Mock{}
 
 		if _, err := PruneImages(context.Background(), PruneState{}, false, ui); err != nil {
@@ -314,7 +286,6 @@ func TestPruneImagesKeepsPerAgentTagsOfLiveSlug(t *testing.T) {
 		},
 	}
 	msb.WithMsbMock(t, client)
-	docker.WithNoopDockerMock(t)
 	ui := &termio.Mock{}
 	ps := PruneState{ToKeep: map[state.Key]msb.SandboxHandle{
 		{Slug: "active-1mjusbm3wikhb0", Agent: "opencode"}: &msb.MockSandboxHandle{},
@@ -364,7 +335,6 @@ func TestPruneImagesPreservesFreshSurplus(t *testing.T) {
 		},
 	}
 	msb.WithMsbMock(t, client)
-	docker.WithNoopDockerMock(t)
 	ui := &termio.Mock{}
 	ps := PruneState{ToKeep: map[state.Key]msb.SandboxHandle{
 		{Slug: "active-1mjusbm3wikhb0", Agent: "opencode"}: &msb.MockSandboxHandle{},
@@ -400,7 +370,6 @@ func TestPruneImagesReclaimsKilledProjectImages(t *testing.T) {
 		},
 	}
 	msb.WithMsbMock(t, client)
-	docker.WithNoopDockerMock(t)
 	ui := &termio.Mock{}
 	r, err := PruneImages(context.Background(), PruneState{}, false, ui)
 	if err != nil {
@@ -430,7 +399,6 @@ func TestPruneImagesKeepsImageReferencedByKeptVM(t *testing.T) {
 		},
 	}
 	msb.WithMsbMock(t, client)
-	docker.WithNoopDockerMock(t)
 	ui := &termio.Mock{}
 	ps := PruneState{
 		ToKeep: map[state.Key]msb.SandboxHandle{

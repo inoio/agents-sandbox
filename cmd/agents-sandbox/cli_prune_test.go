@@ -7,10 +7,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/stretchr/testify/assert"
 	msb "github.com/superradcompany/microsandbox/sdk/go"
 
-	"github.com/inoio/agents-sandbox/internal/sandbox/docker"
 	sandboxmsb "github.com/inoio/agents-sandbox/internal/sandbox/msb"
 	"github.com/inoio/agents-sandbox/internal/sandbox/state"
 )
@@ -65,16 +63,16 @@ func msbImg(ref string) sandboxmsb.ImageHandle {
 }
 
 // staleSummary returns the aggregate prune summary line for the given counts.
-func staleSummary(dryRun string, vms, vols, msbImgs int) string {
-	return fmt.Sprintf("%s %d VMs, %d home volumes, 0 docker images, %d msb images",
-		dryRun, vms, vols, msbImgs)
+func staleSummary(dryRun string, vms, vols, msbImgs int, buildkitPruned bool) string {
+	return fmt.Sprintf("%s %d VMs, %d home volumes, %d msb images, buildkit cache pruned: %t",
+		dryRun, vms, vols, msbImgs, buildkitPruned)
 }
 
 func TestPrune(t *testing.T) {
 	t.Run("no stale items", func(t *testing.T) {
 		for _, flags := range pruneAgeFlags {
 			t.Run(strings.Join(flags, " "), func(t *testing.T) {
-				runPruneTest(t, flags, nil, staleSummary("Pruned", 0, 0, 0))
+				runPruneTest(t, flags, nil, staleSummary("Pruned", 0, 0, 0, true))
 			})
 		}
 	})
@@ -92,7 +90,7 @@ func TestPrune(t *testing.T) {
 					m.Images = append(m.Images,
 						msbImg("agents-sandbox/runner-projectname-1mjusbm3wikhb0:xyz789"))
 					sandboxmsb.WithMsbMock(t, m)
-				}, staleSummary("dry-run: Would prune", 1, 1, 1))
+				}, staleSummary("dry-run: Would prune", 1, 1, 1, false))
 			})
 		}
 	})
@@ -117,7 +115,7 @@ func TestPrune(t *testing.T) {
 					m.Images = append(m.Images,
 						msbImg("agents-sandbox/runner-second-1mjusbm3wikhb0:v1"))
 					sandboxmsb.WithMsbMock(t, m)
-				}, staleSummary("Pruned", 2, 1, 1))
+				}, staleSummary("Pruned", 2, 1, 1, true))
 			})
 		}
 	})
@@ -129,35 +127,12 @@ func TestPrune(t *testing.T) {
 				Status_:    msb.SandboxStatusStopped,
 				UpdatedAt_: time.Now().Add(-15 * 24 * time.Hour),
 			})
-		}, staleSummary("Pruned", 1, 0, 0))
+		}, staleSummary("Pruned", 1, 0, 0, true))
 	})
 
 	t.Run("invalid age error", func(t *testing.T) {
 		// --age "invalid" must not be overridden by fixture flags.
 		runPruneTestError(t, []string{"prune", "--age", "invalid"}, "invalid age")
-	})
-
-	t.Run("docker client error", func(t *testing.T) {
-		for _, flags := range pruneAgeFlags {
-			t.Run(strings.Join(flags, " "), func(t *testing.T) {
-				mock := &sandboxmsb.MockMsbClient{}
-				mock.Images = append(mock.Images,
-					msbImg("agents-sandbox/runner-stale-1mjusbm3wikhb0:v2"))
-
-				cmd, ui := setupCommandFixtures(t, append([]string{"prune"}, flags...)...)
-				sandboxmsb.WithMsbMock(t, mock)
-				docker.WithDefaultErrorDockerMock(t)
-
-				err := cmd.Execute()
-
-				if err != nil {
-					t.Fatalf("expected no error; got %s", err)
-				}
-				assert.True(t, slices.ContainsFunc(ui.WarnCalls, func(s string) bool {
-					return strings.Contains(s, "cannot connect to Docker daemon")
-				}), "No 'cannot connect to Docker daemon' found in warn messages")
-			})
-		}
 	})
 
 	t.Run("stale VMs and task sandboxes pruned", func(t *testing.T) {
@@ -172,7 +147,7 @@ func TestPrune(t *testing.T) {
 					m.Images = append(m.Images,
 						msbImg("agents-sandbox/runner-projectname-1mjusbm3wikhb0:v2"))
 					sandboxmsb.WithMsbMock(t, m)
-				}, staleSummary("Pruned", 2, 1, 1))
+				}, staleSummary("Pruned", 2, 1, 1, true))
 			})
 		}
 	})
@@ -199,7 +174,7 @@ func TestPrune(t *testing.T) {
 					m.Images = append(m.Images,
 						msbImg("agents-sandbox/runner-activeproject-1mjusbm3wikhb0:opencode-latest"))
 					sandboxmsb.WithMsbMock(t, m)
-				}, staleSummary("Pruned", 1, 0, 0))
+				}, staleSummary("Pruned", 1, 0, 0, true))
 			})
 		}
 	})
@@ -218,7 +193,7 @@ func TestPrune(t *testing.T) {
 					m.Images = append(m.Images,
 						msbImg("agents-sandbox/runner-projectname-1mjusbm3wikhb0:v2"))
 					sandboxmsb.WithMsbMock(t, m)
-				}, staleSummary("Pruned", 1, 1, 1))
+				}, staleSummary("Pruned", 1, 1, 1, true))
 			})
 		}
 	})
