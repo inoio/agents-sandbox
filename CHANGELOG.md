@@ -18,17 +18,15 @@ command reports the bare version (e.g. `0.1.0`).
   changed identity inputs (project Dockerfile, agent version, Docker-in-Docker) or `--rebuild`/missing image, the
   microsandbox load reports whether the cached image is absent or stale, and a project VM recreate/daemon restart lists
   the config changes that triggered it.
-- Internal: add `make test-integration` — runs every `integration`-tagged test across the module (excluded from the main
-  suite), currently the real BuildKit builder-VM image-build, cache-reuse, and login-shell PATH tests in
-  `internal/sandbox/image`. They need no Docker daemon — only the msb runtime, a functional `/dev/kvm`, and network
-  access. Wired into CI as a selective job (main/release/manual).
-- Internal: split integration testing into two tiers. `make test-integration` runs the `integration`-tagged tests against
-  a Docker-backed BuildKit harness (`AGENTS_SANDBOX_BUILDER=docker`, no KVM) and now runs on every PR via the CI
-  `integration` job; the former KVM+msb job is renamed `integration-msb` and run by `make test-integration-msb` (still
-  gated to main/release/manual).
+- Internal: add two integration test targets, both running every `integration`-tagged test across the module (excluded
+  from the main suite — the real BuildKit builder-VM image-build, cache-reuse, and login-shell PATH tests in
+  `internal/sandbox/image`). `make test-integration` uses a Docker-backed BuildKit harness
+  (`AGENTS_SANDBOX_BUILDER=docker`, no `/dev/kvm`) and runs in CI as the `integration` job on every PR; the msb/KVM tier
+  needs the msb runtime, a functional `/dev/kvm`, and network access, and runs via `make test-integration-msb` in the
+  gated `integration-msb` job (main/release/manual).
 - Internal: add `make compile-all` — compiles every test binary including `integration`-tagged files without a docker
   daemon, and run it in the CI lint job so a tagged-only compile regression fails on PRs instead of only on main.
-- Internal: the CI `integration` job now installs the microsandbox runtime and enables `/dev/kvm` on the x64 runner, and
+- Internal: the CI `integration-msb` job installs the microsandbox runtime and enables `/dev/kvm` on the x64 runner, and
   sets `AGENTS_SANDBOX_INTEGRATION=1`, so the builder-VM integration tests actually execute instead of skipping.
 - Internal: `devUserBlock` now sets the dev login shell to the first of `bash`, `zsh`, `sh` found (falling back to
   `/bin/sh`) instead of hardcoding bash, widening custom-base compatibility.
