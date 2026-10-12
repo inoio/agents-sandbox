@@ -109,14 +109,18 @@ func (c *realBuildkitClient) Close() error {
 	return c.client.Close()
 }
 
-// defaultReady retries dialing the builder until it answers or the readiness
-// budget elapses, closing each probed connection.
+// defaultReady waits for the builder VM's published port to serve BuildKit.
 func (v *VM) defaultReady(ctx context.Context, hostPort int) error {
-	addr := fmt.Sprintf("tcp://127.0.0.1:%d", hostPort)
+	return waitForBuildkit(ctx, fmt.Sprintf("tcp://127.0.0.1:%d", hostPort))
+}
+
+// waitForBuildkit retries dialing a buildkitd endpoint until it answers or the
+// readiness budget elapses, closing each probed connection.
+func waitForBuildkit(ctx context.Context, address string) error {
 	deadline := time.Now().Add(builderReadyTimeout)
 	var lastErr error
 	for time.Now().Before(deadline) {
-		probe, err := newBuildkitClient(ctx, addr)
+		probe, err := newBuildkitClient(ctx, address)
 		if err == nil {
 			_ = probe.Close()
 			return nil
@@ -124,14 +128,14 @@ func (v *VM) defaultReady(ctx context.Context, hostPort int) error {
 		lastErr = err
 		select {
 		case <-ctx.Done():
-			return fmt.Errorf("wait for buildkitd at %s: %w", addr, ctx.Err())
+			return fmt.Errorf("wait for buildkitd at %s: %w", address, ctx.Err())
 		case <-time.After(builderDialBackoff):
 		}
 	}
 	if lastErr == nil {
 		lastErr = errors.New("no connection attempt succeeded")
 	}
-	return fmt.Errorf("wait for buildkitd at %s within %s: %w", addr, builderReadyTimeout, lastErr)
+	return fmt.Errorf("wait for buildkitd at %s within %s: %w", address, builderReadyTimeout, lastErr)
 }
 
 type BuildRequest struct {

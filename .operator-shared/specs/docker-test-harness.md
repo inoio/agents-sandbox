@@ -184,12 +184,18 @@ idle timeout.
 
 - **OCI `docker load`**: whether Docker 29.7.2 with the `vfs`/classic store loads a `type=oci` archive. If not,
   the docker backend exports `type=docker`. `buildx` (if supplied) is the quickest way to produce a sample.
-- **`--privileged` + `native` snapshotter**: confirm the in-container `buildkitd` runs under the dev VM's `vfs`
-  daemon and CI's overlay2. Adjust the command if the snapshotter must change.
-- **Dev-VM egress TLS**: `AGENTS.md` documents that microsandbox's injected inspection CA can break `docker`
-  pulls/builds in the dev VM. Confirm the daemon trusts it (or images are pre-pulled); if not, the docker tier
-  needs the same CA-trust workaround — otherwise the harness fails exactly where it is most needed. This is a
-  feasibility risk for the dev-VM half of the goal.
+- **`--privileged` + `native` snapshotter** (verified 2026-10-12, Task 3 spike): `docker run -d --privileged ...
+  moby/buildkit:v0.25.2 --oci-worker-snapshotter native --addr tcp://0.0.0.0:1234` starts under the dev VM's
+  `vfs` store (Docker 29.7.2); the worker registers and the published endpoint `127.0.0.1:11234` answers. Without
+  `--privileged` the container exits immediately (exit 1) — `--privileged` is required. CI overlay2 still to confirm.
+- **Dev-VM egress TLS** (cleared for `moby/buildkit` on 2026-10-12): `docker pull moby/buildkit:v0.25.2` succeeded
+  in the dev VM despite the injected inspection CA, so this instance of the risk did not materialize.
+- **`buildctl ... prune --filter until=24h` is rejected by buildkit v0.25.2** (found 2026-10-12, Task 3 spike):
+  both `--filter until=24h` and `--filter=until=24h` fail with `failed to parse prune filters ... unsupported
+  operator "="`. The working equivalent is `--keep-duration 24h --all`. This same filter string is shared by the
+  msb backend's `buildctlPruneCommand` (`internal/sandbox/builder/builder.go`), so **production `PruneCache` is
+  also broken** — a latent bug outside the harness. Task 3 implements the docker backend with the specified
+  verbatim command to keep both backends consistent; a follow-up should switch both to `--keep-duration 24h --all`.
 
 ## Resolved calls
 
