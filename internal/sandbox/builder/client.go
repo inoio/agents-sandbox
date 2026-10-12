@@ -14,8 +14,6 @@ import (
 	"github.com/moby/buildkit/client/llb/sourceresolver"
 	gwclient "github.com/moby/buildkit/frontend/gateway/client"
 	"github.com/opencontainers/go-digest"
-
-	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
 )
 
 const (
@@ -163,18 +161,15 @@ var Get = func() Builder {
 }
 
 type Client struct {
-	Msb msb.Client
-	vm  *VM
+	backend backend
 }
 
 func newClient() *Client {
-	vm := &VM{Msb: msb.Get(), Ready: nil}
-	vm.Ready = vm.defaultReady
-	return &Client{Msb: vm.Msb, vm: vm}
+	return &Client{backend: newBackend()}
 }
 
 func (c *Client) Build(ctx context.Context, req BuildRequest) (BuildResult, error) {
-	hostPort, err := c.vm.Ensure(ctx)
+	hostPort, err := c.backend.Ensure(ctx)
 	if err != nil {
 		return BuildResult{}, fmt.Errorf("ensure builder VM: %w", err)
 	}
@@ -220,12 +215,14 @@ func (c *Client) Build(ctx context.Context, req BuildRequest) (BuildResult, erro
 		}
 	}()
 
+	spec := c.backend.Export(req.Tag)
 	resp, solveErr := bc.Solve(ctx, nil, client.SolveOpt{
 		Frontend:      "dockerfile.v0",
 		LocalDirs:     map[string]string{"context": req.ContextDir, "dockerfile": req.ContextDir},
 		FrontendAttrs: attributes,
 		Exports: []client.ExportEntry{{
-			Type: "oci",
+			Type:  spec.Type,
+			Attrs: spec.Attrs,
 			Output: func(map[string]string) (io.WriteCloser, error) {
 				return nopWriteCloser{Writer: archive}, nil
 			},
@@ -273,7 +270,7 @@ func imageDigest(exporterResponse map[string]string) string {
 	return exporterResponse["containerimage.digest"]
 }
 
-// PruneCache reclaims stale BuildKit cache inside the shared builder VM.
+// PruneCache reclaims stale BuildKit cache through the active backend.
 func (c *Client) PruneCache(ctx context.Context) error {
-	return c.vm.PruneCache(ctx)
+	return c.backend.PruneCache(ctx)
 }

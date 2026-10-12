@@ -94,7 +94,7 @@ func newBuildTestClient(t *testing.T, fake buildkitClient) *Client {
 			return handle, nil
 		},
 	}
-	return &Client{Msb: msbClient, vm: &VM{Msb: msbClient}}
+	return &Client{backend: &msbBackend{vm: &VM{Msb: msbClient}}}
 }
 
 func stubResolveBaseDigest(t *testing.T, resolved string, resolveErr error) {

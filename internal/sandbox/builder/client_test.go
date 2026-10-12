@@ -98,13 +98,17 @@ func TestNewClientWiresReadySeam(t *testing.T) {
 	if c == nil {
 		t.Fatal("newClient returned nil")
 	}
-	if c.vm == nil {
+	mb, ok := c.backend.(*msbBackend)
+	if !ok {
+		t.Fatalf("newClient backend = %T, want *msbBackend", c.backend)
+	}
+	if mb.vm == nil {
 		t.Fatal("newClient did not construct a VM")
 	}
-	if c.vm.Ready == nil {
+	if mb.vm.Ready == nil {
 		t.Fatal("newClient left VM.Ready nil; readiness would be silently skipped")
 	}
-	if c.Msb == nil {
+	if mb.vm.Msb == nil {
 		t.Fatal("newClient did not wire an msb.Client")
 	}
 }
