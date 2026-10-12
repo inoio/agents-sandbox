@@ -168,6 +168,40 @@ func TestDockerBackendPruneExecsWhenRunning(t *testing.T) {
 	}
 }
 
+func TestRemoveDockerHarnessRemovesContainerAndVolume(t *testing.T) {
+	fake := &fakeDockerCLI{}
+	if err := removeDockerHarness(context.Background(), fake); err != nil {
+		t.Fatalf("removeDockerHarness: %v", err)
+	}
+	if fake.findCall("rm", "-f", dockerBuilderContainer) == nil {
+		t.Errorf("no docker rm -f %s call recorded: %v", dockerBuilderContainer, fake.calls)
+	}
+	if fake.findCall("volume", "rm", "-f", dockerBuilderVolume) == nil {
+		t.Errorf("no docker volume rm -f %s call recorded: %v", dockerBuilderVolume, fake.calls)
+	}
+}
+
+func TestRemoveDockerHarnessIgnoresMissingResources(t *testing.T) {
+	fake := &fakeDockerCLI{err: errors.New("Error: No such container: x")}
+	if err := removeDockerHarness(context.Background(), fake); err != nil {
+		t.Fatalf("removeDockerHarness should ignore missing resources, got %v", err)
+	}
+}
+
+func TestRemoveDockerHarnessReturnsLastNonMissingError(t *testing.T) {
+	fake := &fakeDockerCLI{errs: map[string]error{
+		"rm:-f":     errors.New("Error: No such container: x"),
+		"volume:rm": errors.New("permission denied"),
+	}}
+	err := removeDockerHarness(context.Background(), fake)
+	if err == nil {
+		t.Fatal("want the non-missing error to be returned")
+	}
+	if !strings.Contains(err.Error(), "permission denied") {
+		t.Errorf("error = %q, want it to wrap the non-missing error", err)
+	}
+}
+
 func TestDockerBackendExportIsDockerTagged(t *testing.T) {
 	spec := (&dockerBackend{}).Export("my/image:latest")
 	if spec.Type != "docker" {

@@ -34,6 +34,34 @@ func (realDockerCLI) run(ctx context.Context, args ...string) (string, error) {
 	return string(out), nil
 }
 
+// ResetDockerHarness removes the Docker test-harness builder container and its
+// cache volume, treating already-absent resources as success. The integration
+// harness calls it before and after a run so a stale container cannot leak.
+func ResetDockerHarness(ctx context.Context) error {
+	return removeDockerHarness(ctx, realDockerCLI{})
+}
+
+// removeDockerHarness removes the harness container and cache volume through the
+// given CLI. Missing resources are ignored; the last other error is returned.
+func removeDockerHarness(ctx context.Context, d dockerCLI) error {
+	var lastErr error
+	for _, args := range [][]string{
+		{"rm", "-f", dockerBuilderContainer},
+		{"volume", "rm", "-f", dockerBuilderVolume},
+	} {
+		if _, err := d.run(ctx, args...); err != nil && !isMissingResourceError(err) {
+			lastErr = err
+		}
+	}
+	return lastErr
+}
+
+// isMissingResourceError reports whether a docker error indicates the target
+// container or volume does not exist.
+func isMissingResourceError(err error) bool {
+	return strings.Contains(strings.ToLower(err.Error()), "no such")
+}
+
 // dockerBackend drives a buildkitd endpoint running in a plain Docker container,
 // used by the test harness. It mirrors the msb backend's cache mount and native
 // snapshotter so builds behave the same on either backend.
