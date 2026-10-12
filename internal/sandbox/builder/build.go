@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/containerd/platforms"
+	distreference "github.com/distribution/reference"
 	"github.com/moby/buildkit/client"
 	"github.com/moby/buildkit/client/llb/sourceresolver"
 	ocispecs "github.com/opencontainers/image-spec/specs-go/v1"
@@ -49,12 +50,26 @@ func realResolveBaseDigest(
 	platform string,
 ) (string, error) {
 	_, digest, _, err := bc.ResolveImageConfig(
-		ctx, baseRef, sourceresolver.Opt{Platform: normalizePlatform(platform)},
+		ctx, qualifyBaseRef(baseRef), sourceresolver.Opt{Platform: normalizePlatform(platform)},
 	)
 	if err != nil {
 		return "", err
 	}
 	return baseRef + "@" + digest.String(), nil
+}
+
+// qualifyBaseRef normalizes a short image reference (e.g. "debian:trixie-slim")
+// into its fully-qualified form (e.g. "docker.io/library/debian:trixie-slim").
+// The gateway's source-metadata resolver parses the reference into a URL and
+// rejects a bare tag as an invalid host port, so the base must be qualified
+// before it is resolved. The unqualified reference is returned unchanged when it
+// cannot be parsed.
+func qualifyBaseRef(baseRef string) string {
+	named, err := distreference.ParseNormalizedNamed(baseRef)
+	if err != nil {
+		return baseRef
+	}
+	return named.String()
 }
 
 // forwardProgress reports non-empty log lines and cache hits from a build status

@@ -391,6 +391,26 @@ func TestRealResolveBaseDigestReturnsRefAtDigest(t *testing.T) {
 	}
 }
 
+func TestRealResolveBaseDigestQualifiesShortRef(t *testing.T) {
+	fake := &fakeBuildkitClient{
+		resolveImageConfigFn: func(ref string, _ sourceresolver.Opt) (string, digest.Digest, []byte, error) {
+			if ref != "docker.io/library/debian:trixie-slim" {
+				t.Errorf("resolved ref = %q, want the fully-qualified form", ref)
+			}
+			return ref, digest.FromString("config"), []byte("{}"), nil
+		},
+	}
+
+	got, err := realResolveBaseDigest(context.Background(), fake, "debian:trixie-slim", HostPlatform())
+	if err != nil {
+		t.Fatalf("realResolveBaseDigest failed: %v", err)
+	}
+	want := "debian:trixie-slim@" + digest.FromString("config").String()
+	if got != want {
+		t.Errorf("resolved = %q, want %q", got, want)
+	}
+}
+
 func TestHostPlatform(t *testing.T) {
 	want := "linux/amd64"
 	if runtime.GOARCH == "arm64" {
