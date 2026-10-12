@@ -556,8 +556,11 @@ func TestRenderDockerfileAgentVersionRebuildsInstall(t *testing.T) {
 		"FROM fedora:latest\n" +
 			"RUN dnf install -y curl tar iptables git procps-ng xz && dnf clean all\n")
 
+	// Use two existing releases that are not the resolved latest: the matrix
+	// tests above build the latest release, and a shared harness cache would
+	// otherwise make the newer version's agent layer a false cache hit.
 	tag := "agents-sandbox/it-agent-version"
-	oldVersion, newVersion := "1.18.35", "1.19.0"
+	oldVersion, newVersion := "1.18.33", "1.18.34"
 	buildBuilderDockerfile(t, a, project, oldVersion, true, tag, nil)
 	var lines []string
 	buildBuilderDockerfile(t, a, project, newVersion, true, tag, &lines)
