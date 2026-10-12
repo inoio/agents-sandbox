@@ -3,9 +3,11 @@
 package image
 
 import (
+	"bytes"
 	"context"
+	"errors"
 	"os"
-	"path/filepath"
+	"os/exec"
 	"strings"
 	"testing"
 	"time"
@@ -40,6 +42,16 @@ func requireIntegration(t *testing.T) {
 	}
 }
 
+// requireMsbBackend skips a test that depends on microsandbox-only behavior
+// (the msb image cache, sandbox lifecycle, or the persistent msb cache volume)
+// when the Docker test backend is active.
+func requireMsbBackend(t *testing.T) {
+	t.Helper()
+	if activeBackend() == backendDocker {
+		t.Skip("msb-only test: requires the microsandbox backend")
+	}
+}
+
 // realMsbFactory captures the production msb factory at package initialization,
 // before TestMain installs the fail-fast mock, so integration tests can opt back
 // into the real runtime.
@@ -60,6 +72,7 @@ func useRealHostRuntime(t *testing.T) {
 // and confirms the image is then inspectable.
 func TestBuildRunnerImageInBuilderVM(t *testing.T) {
 	requireIntegration(t)
+	requireMsbBackend(t)
 	useRealHostRuntime(t)
 	ctx := context.Background()
 	ui := termio.NewTestMock(t)
@@ -105,6 +118,7 @@ func TestBuildRunnerImageInBuilderVM(t *testing.T) {
 // steps emit no logs).
 func TestBuilderCacheReuseAcrossVMs(t *testing.T) {
 	requireIntegration(t)
+	requireMsbBackend(t)
 	useRealHostRuntime(t)
 	ctx := context.Background()
 	a := agentOpencode(t)
@@ -203,6 +217,137 @@ func removeBuilderSandboxes(t *testing.T, ctx context.Context) {
 	}
 }
 
+// shellResult is the backend-agnostic outcome of running a command in a built
+// image, mirroring the fields the microsandbox shell result exposes.
+type shellResult struct {
+	success  bool
+	exitCode int
+	stdout   string
+	stderr   string
+}
+
+// buildImageForRun renders and builds the runner image for a, then makes it
+// runnable on the active backend: the Docker backend loads the exported archive
+// into the daemon, the microsandbox backend loads it into the msb image cache.
+// It returns the image reference to run and registers cleanup for the archive
+// and the loaded image.
+func buildImageForRun(t *testing.T, a agent.Agent, project []byte, docker bool, tag string) string {
+	t.Helper()
+	ctx := context.Background()
+	version, err := resolveAgentVersion(ctx, a, "")
+	if err != nil {
+		t.Fatalf("resolve agent version: %v", err)
+	}
+	dockerEnabled := effectiveDocker(project, docker)
+	rendered := renderBytesVersion(t, a, version, project, docker)
+	contextDir := t.TempDir()
+	if err := writeDockerfileContext(contextDir, rendered); err != nil {
+		t.Fatalf("write build context: %v", err)
+	}
+
+	result, err := builder.Get().Build(ctx, builder.BuildRequest{
+		ContextDir: contextDir,
+		Tag:        tag,
+		BaseRef:    baseImageRef(rendered),
+		BuildArgs: buildArgStrings(userBuildArgs(
+			os.Getuid(), os.Getgid(), a.ImageSpec(), version,
+			computeDockerfileID(rendered, version), dockerEnabled,
+			computeImageIdentity(project, version, dockerEnabled),
+		)),
+		Platform: builder.HostPlatform(),
+	})
+	if err != nil {
+		t.Fatalf("builder build %s: %v", tag, err)
+	}
+	archivePath := result.ArchivePath
+	t.Cleanup(func() { _ = os.Remove(archivePath) })
+
+	if activeBackend() == backendDocker {
+		loadDockerArchive(t, archivePath)
+		t.Cleanup(func() { removeDockerImage(tag) })
+		return tag
+	}
+
+	ui := termio.NewTestMock(t)
+	if err := EnsureLoaded(ctx, msb.Get(), archivePath, tag, &ui); err != nil {
+		t.Fatalf("EnsureLoaded: %v", err)
+	}
+	t.Cleanup(func() { _ = msb.Get().ImageRemove(context.Background(), tag, true) })
+	return tag
+}
+
+// loadDockerArchive loads a build archive (docker exporter format) into the
+// Docker daemon so its tagged image can be run.
+func loadDockerArchive(t *testing.T, archivePath string) {
+	t.Helper()
+	output, err := exec.Command("docker", "load", "-i", archivePath).CombinedOutput()
+	if err != nil {
+		t.Fatalf("docker load -i %s: %v: %s", archivePath, err, strings.TrimSpace(string(output)))
+	}
+}
+
+// removeDockerImage best-effort removes a loaded image; a cleanup failure must
+// not fail an otherwise passing test.
+func removeDockerImage(tag string) {
+	_, _ = exec.Command("docker", "rmi", tag).CombinedOutput()
+}
+
+// runInImage runs command in the image referenced by ref on the active backend.
+// Docker uses a throwaway container; microsandbox creates a sandbox from the
+// image.
+func runInImage(t *testing.T, ref, command string) shellResult {
+	t.Helper()
+	if activeBackend() == backendDocker {
+		return dockerRun(t, ref, command)
+	}
+
+	ctx := context.Background()
+	sandboxName := "agents-sandbox-it-run-" + sanitizeTag(ref)
+	sb, err := msb.Get().CreateSandbox(ctx, sandboxName, msbSdk.WithImage(ref), msbSdk.WithReplace())
+	if err != nil {
+		t.Fatalf("create sandbox for %s: %v", ref, err)
+	}
+	t.Cleanup(func() {
+		_ = sb.Stop(context.Background())
+		_ = sb.Close()
+		_ = msb.Get().RemoveSandbox(context.Background(), sandboxName)
+	})
+
+	result, err := sb.Shell(ctx, command)
+	if err != nil {
+		t.Fatalf("shell %q in %s: %v", command, ref, err)
+	}
+	return shellResult{
+		success:  result.Success(),
+		exitCode: result.ExitCode(),
+		stdout:   result.Stdout(),
+		stderr:   result.Stderr(),
+	}
+}
+
+// dockerRun runs command inside a throwaway container from ref, capturing
+// stdout, stderr, and the exit code (the builder's docker CLI seam discards the
+// exit code, so this shells out directly).
+func dockerRun(t *testing.T, ref, command string) shellResult {
+	t.Helper()
+	cmd := exec.Command("docker", "run", "--rm", ref, "sh", "-c", command)
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	err := cmd.Run()
+	result := shellResult{stdout: stdout.String(), stderr: stderr.String()}
+	if err == nil {
+		result.success = true
+		return result
+	}
+	var exitErr *exec.ExitError
+	if !errors.As(err, &exitErr) {
+		t.Fatalf("docker run %s: %v", ref, err)
+	}
+	result.exitCode = exitErr.ExitCode()
+	return result
+}
+
 // TestRunnerImageNodeAgentNodeRuns is the BuildKit regression guard for #132: a
 // node-dependent agent installed onto the managed base must leave a working
 // node/npm. The managed base does not install libatomic1, so a node tarball with
@@ -217,45 +362,17 @@ func removeBuilderSandboxes(t *testing.T, ctx context.Context) {
 func TestRunnerImageNodeAgentNodeRuns(t *testing.T) {
 	requireIntegration(t)
 	useRealHostRuntime(t)
-	ctx := context.Background()
-	ui := termio.NewTestMock(t)
 	a, ok := agent.Lookup("pi")
 	if !ok {
 		t.Fatal("pi agent not registered")
 	}
 
-	info, err := EnsureImageWithClient(ctx, a, nil, "it-buildkit-node-agent", BuildOptions{Force: true}, &ui)
-	if err != nil {
-		t.Fatalf("EnsureImageWithClient: %v", err)
-	}
-	archivePath, tag := info.ArchivePath, info.Tag
-	t.Cleanup(func() {
-		_ = os.Remove(archivePath)
-		_ = msb.Get().ImageRemove(context.Background(), tag, true)
-	})
-	if err := EnsureLoaded(ctx, msb.Get(), archivePath, tag, &ui); err != nil {
-		t.Fatalf("EnsureLoaded: %v", err)
-	}
-
-	sandboxName := "agents-sandbox-it-node-agent"
-	sb, err := msb.Get().CreateSandbox(ctx, sandboxName, msbSdk.WithImage(tag), msbSdk.WithReplace())
-	if err != nil {
-		t.Fatalf("create node-agent sandbox: %v", err)
-	}
-	t.Cleanup(func() {
-		_ = sb.Stop(context.Background())
-		_ = sb.Close()
-		_ = msb.Get().RemoveSandbox(context.Background(), sandboxName)
-	})
+	ref := buildImageForRun(t, a, nil, false, "agents-sandbox/it-node-agent-"+sanitizeTag(t.Name()))
 
 	for _, command := range []string{"node --version", "npm --version"} {
-		result, shellErr := sb.Shell(ctx, "bash -lc '"+command+"'")
-		if shellErr != nil {
-			t.Errorf("%q: shell error: %v", command, shellErr)
-			continue
-		}
-		if !result.Success() {
-			t.Errorf("%q failed in the built image (exit %d): %s", command, result.ExitCode(), result.Stderr())
+		result := runInImage(t, ref, "bash -lc '"+command+"'")
+		if !result.success {
+			t.Errorf("%q failed in the built image (exit %d): %s", command, result.exitCode, result.stderr)
 		}
 	}
 }
@@ -461,45 +578,16 @@ func TestRenderDockerfileAgentVersionRebuildsInstall(t *testing.T) {
 func TestRunnerImageLoginShellPath(t *testing.T) {
 	requireIntegration(t)
 	useRealHostRuntime(t)
-	ctx := context.Background()
-	ui := termio.NewTestMock(t)
 	a := agentOpencode(t)
 
-	const projectSlug = "it-buildkit-login"
 	project := []byte("FROM agents-sandbox/runner-base:latest\nENV PATH=\"/opt/my-tools:${PATH}\"\n")
-	projectFile := configpaths.Get().ProjectDockerfile()
-	if err := os.MkdirAll(filepath.Dir(projectFile), 0o750); err != nil {
-		t.Fatalf("create project config dir: %v", err)
-	}
-	if err := os.WriteFile(projectFile, project, 0o644); err != nil {
-		t.Fatalf("write project Dockerfile: %v", err)
-	}
+	ref := buildImageForRun(t, a, project, false, "agents-sandbox/it-login-path-"+sanitizeTag(t.Name()))
 
-	tag := runnerTag(projectSlug, a.Name())
-	if err := Build(ctx, a, projectSlug, BuildOptions{Force: true}, &ui); err != nil {
-		t.Fatalf("Build: %v", err)
+	result := runInImage(t, ref, `bash -lc 'printf %s "$PATH"'`)
+	if !result.success {
+		t.Fatalf("login shell failed (exit %d): %s", result.exitCode, result.stderr)
 	}
-	t.Cleanup(func() { _ = msb.Get().ImageRemove(context.Background(), tag, true) })
-
-	sandboxName := "agents-sandbox-it-login-path"
-	sb, err := msb.Get().CreateSandbox(ctx, sandboxName, msbSdk.WithImage(tag), msbSdk.WithReplace())
-	if err != nil {
-		t.Fatalf("create login-shell sandbox: %v", err)
-	}
-	t.Cleanup(func() {
-		_ = sb.Stop(context.Background())
-		_ = sb.Close()
-		_ = msb.Get().RemoveSandbox(context.Background(), sandboxName)
-	})
-
-	result, err := sb.Shell(ctx, `bash -lc 'printf %s "$PATH"'`)
-	if err != nil {
-		t.Fatalf("login shell: %v", err)
-	}
-	if !result.Success() {
-		t.Fatalf("login shell failed (exit %d): %s", result.ExitCode(), result.Stderr())
-	}
-	loginPath := result.Stdout()
+	loginPath := result.stdout
 	for _, want := range []string{"/opt/agents-sandbox/bin", "/opt/my-tools"} {
 		if !strings.Contains(loginPath, want) {
 			t.Errorf("login PATH %q missing %q", loginPath, want)
