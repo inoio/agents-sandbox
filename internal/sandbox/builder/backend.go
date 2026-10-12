@@ -2,8 +2,19 @@ package builder
 
 import (
 	"context"
+	"os"
 
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
+)
+
+// builderBackendEnv selects the active backend at construction time. Only the
+// exact value docker selects the Docker harness backend; anything else, including
+// an empty or unknown value, falls back to the production msb backend.
+const builderBackendEnv = "AGENTS_SANDBOX_BUILDER"
+
+const (
+	builderBackendMsb    = "msb"
+	builderBackendDocker = "docker"
 )
 
 // exportSpec describes how the client exports a solved image: the exporter type
@@ -42,10 +53,13 @@ func (b *msbBackend) Export(string) exportSpec {
 	return exportSpec{Type: "oci", Attrs: nil}
 }
 
-// newBackend is the single construction point for the active backend. It
-// currently always returns the msb backend; a later change will select a
-// Docker backend from the environment here.
+// newBackend is the single construction point for the active backend. It reads
+// the selection environment variable at call time so tests and embedded callers
+// can choose a backend without package-level state.
 func newBackend() backend {
+	if os.Getenv(builderBackendEnv) == builderBackendDocker {
+		return &dockerBackend{docker: realDockerCLI{}}
+	}
 	vm := newVM()
 	return &msbBackend{vm: vm}
 }
