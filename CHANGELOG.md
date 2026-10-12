@@ -24,6 +24,8 @@ command reports the bare version (e.g. `0.1.0`).
   access. Wired into CI as a selective job (main/release/manual).
 - Internal: add `make compile-all` — compiles every test binary including `integration`-tagged files without a docker
   daemon, and run it in the CI lint job so a tagged-only compile regression fails on PRs instead of only on main.
+- Internal: the CI `integration` job now installs the microsandbox runtime and enables `/dev/kvm` on the x64 runner, and
+  sets `AGENTS_SANDBOX_INTEGRATION=1`, so the builder-VM integration tests actually execute instead of skipping.
 - Internal: `devUserBlock` now sets the dev login shell to the first of `bash`, `zsh`, `sh` found (falling back to
   `/bin/sh`) instead of hardcoding bash, widening custom-base compatibility.
 - Custom project Dockerfiles can place a `# agents-sandbox:docker` marker line in the final stage to control where the

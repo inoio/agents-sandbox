@@ -275,6 +275,12 @@ not to punch through the network policy.
   `TestRenderDockerfileToolLayersStayCached`, and `TestRenderDockerfileAgentVersionRebuildsInstall`.
   Cache hits are read from the builder's progress lines by stage bracket
   (`"[<stage> n/m] RUN ... CACHED"`), replacing the classic builder's marker scan.
+- **CI**: the `integration` job runs these on an x64 `ubuntu-latest` runner. It enables `/dev/kvm`
+  via the `99-kvm4all.rules` udev step (`static_node=kvm`, mode 0666) and asserts `test -w /dev/kvm`
+  fail-fast, installs the msb runtime through `agents-sandbox doctor` (the SDK's `EnsureRuntime`
+  pulls the pinned libkrun + libkrunfw), and sets `AGENTS_SANDBOX_INTEGRATION=1`. The job is x64-only
+  and gated to main/tags/manual: hosted arm64 runners expose no KVM, and the builds are costly. This
+  tier needs KVM, so it cannot run on PRs or in the KVM-less dev VM/agent sandbox.
 
 ## Alternatives considered
 
