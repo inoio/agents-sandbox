@@ -22,6 +22,10 @@ command reports the bare version (e.g. `0.1.0`).
   suite), currently the real BuildKit builder-VM image-build, cache-reuse, and login-shell PATH tests in
   `internal/sandbox/image`. They need no Docker daemon — only the msb runtime, a functional `/dev/kvm`, and network
   access. Wired into CI as a selective job (main/release/manual).
+- Internal: split integration testing into two tiers. `make test-integration` runs the `integration`-tagged tests against
+  a Docker-backed BuildKit harness (`AGENTS_SANDBOX_BUILDER=docker`, no KVM) and now runs on every PR via the CI
+  `integration` job; the former KVM+msb job is renamed `integration-msb` and run by `make test-integration-msb` (still
+  gated to main/release/manual).
 - Internal: add `make compile-all` — compiles every test binary including `integration`-tagged files without a docker
   daemon, and run it in the CI lint job so a tagged-only compile regression fails on PRs instead of only on main.
 - Internal: the CI `integration` job now installs the microsandbox runtime and enables `/dev/kvm` on the x64 runner, and

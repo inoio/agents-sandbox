@@ -76,13 +76,19 @@ bootstrap:
 test:
 	CGO_ENABLED=1 go test ./...
 
-# Integration tests across the module: the real BuildKit builder-VM image-build,
-# cache-reuse, and login-shell PATH tests in internal/sandbox/image. Excluded
-# from `test`/`check` via the `integration` build tag. Requires no Docker daemon:
-# only the msb runtime, a functional /dev/kvm, and network access (base image and
-# registry pulls, agent installs). Set AGENTS_SANDBOX_INTEGRATION=1 to run them.
+# Integration tests across the module, Docker backend: the builder harness running
+# buildkitd via `docker run`, so no /dev/kvm or msb runtime is needed. Runs on any
+# host with a Docker daemon (the PR tier). Excluded from `test`/`check` via the
+# `integration` build tag. AGENTS_SANDBOX_INTEGRATION is set here.
 test-integration:
-	CGO_ENABLED=1 go test -tags integration -count=1 ./...
+	AGENTS_SANDBOX_INTEGRATION=1 AGENTS_SANDBOX_BUILDER=docker CGO_ENABLED=1 go test -tags integration -count=1 ./...
+
+# Integration tests across the module, msb backend: the real BuildKit builder-VM
+# image-build, cache-reuse, and login-shell PATH tests in internal/sandbox/image.
+# Requires the msb runtime, a functional /dev/kvm, and network access (base image
+# and registry pulls, agent installs). The gated tier (main/tags/manual).
+test-integration-msb:
+	AGENTS_SANDBOX_INTEGRATION=1 AGENTS_SANDBOX_BUILDER=msb CGO_ENABLED=1 go test -tags integration -count=1 ./...
 
 # Compile every test binary including build-tagged files (`//go:build
 # integration`) so a regression that only breaks tagged code is caught without a
