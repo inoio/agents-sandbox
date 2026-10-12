@@ -266,9 +266,15 @@ not to punch through the network policy.
   mapping, the export→`ImageLoad` handoff, cache-hit skip, and teardown.
 - **CLI**: `build -r`, `run`/`shell` image-ensure paths, and `doctor` (no Docker
   requirement) in `cmd/agents-sandbox/cli_*_test.go`.
-- **Integration** (build-tagged, requires KVM/msb): build the real rendered
-  Dockerfile in a builder VM and load it into the msb cache; verify cache reuse
-  on a second run. Follow existing integration patterns.
+- **Integration** (build-tagged `integration`, requires KVM/msb, gated by
+  `AGENTS_SANDBOX_INTEGRATION=1`) in `internal/sandbox/image/integration_build_test.go`:
+  `TestBuildRunnerImageInBuilderVM` (build + load + inspect), `TestBuilderCacheReuseAcrossVMs`
+  (stopping the builder VM between runs asserts the persistent cache volume),
+  `TestRunnerImageLoginShellPath`, `TestRunnerImageNodeAgentNodeRuns` (the #132 node/`npm`
+  guard), and the ported render guards `TestRenderDockerfileBuilds` (composition matrix),
+  `TestRenderDockerfileToolLayersStayCached`, and `TestRenderDockerfileAgentVersionRebuildsInstall`.
+  Cache hits are read from the builder's progress lines by stage bracket
+  (`"[<stage> n/m] RUN ... CACHED"`), replacing the classic builder's marker scan.
 
 ## Alternatives considered
 

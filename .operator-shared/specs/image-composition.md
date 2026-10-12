@@ -147,10 +147,11 @@ that constrain the stage:
   `node`/`npx` that could not start ([#132](https://github.com/inoio/agents-sandbox/issues/132)). v24 has no libatomic
   dependency on x86_64 or arm64. Every npm agent satisfies it (`pi` `>=22.19.0`, `claude-code` `>=22.0.0`; `opencode2`
   unconstrained) — the earlier `v22.14.0` pin failed only because it was below pi's `>=22.19.0`.
-- Regression guard: `TestRenderDockerfileNpmAgentNodeRuns` (integration) builds an npm agent on the managed base and runs
-  `node --version`/`npm --version` in the image; `TestRenderDockerfileBuilds` builds only the native `opencode`, so it
-  cannot catch a broken node. A future pin that reintroduces libatomic must add `libatomic1` to the embedded base (a
-  documented custom-base requirement) or the test fails.
+- Regression guard: `TestRunnerImageNodeAgentNodeRuns` (integration, `internal/sandbox/image/integration_build_test.go`)
+  builds `pi` on the managed base through the real builder VM and runs `node --version`/`npm --version` in a sandbox; the
+  composition matrix `TestRenderDockerfileBuilds` builds only the native `opencode`, so it cannot catch a broken node. A
+  future pin that reintroduces libatomic must add `libatomic1` to the embedded base (a documented custom-base requirement)
+  or the test fails.
 - Direction: don't depend on node where possible, for image size/build speed
   ([#133](https://github.com/inoio/agents-sandbox/issues/133)). opencode v1, opencode2, and claude-code each ship a native
   installer (`curl | bash`) needing no node at install or runtime; **pi still needs node** (its installer calls
@@ -159,18 +160,13 @@ that constrain the stage:
 
 ## Integration-test cache
 
-The `integration` docker-build tests rely on the **classic builder's** layer cache (they use `client.ImageBuild`, whose
-cache is separate from BuildKit's) and must not prune it. `ImageRemove` with `PruneChildren: true` selects Docker's
-"prune" default, which also deletes the untagged parent images that *are* the cache. Cleanup therefore removes the test
-tag with `PruneChildren: false` (the `removeTestImage` helper). With pruning, every subtest — and every
-`make test-integration` rerun — re-ran the node/agent/docker installs (the uncached managed composition costs ~13s);
-without it, later builds reuse those layers (~0.2s).
-
-`TestRealDockerClientImagePrune` must prune with a **no-match filter**, not empty options. `go test ./...` runs the
-`docker` and `image` integration binaries **in parallel** against one daemon, and an empty-option `ImagePrune` deletes
-the dangling cache images the image tests are actively reusing, causing `No such image`/missing-layer failures. An
-empty-option prune is also destructive to a developer's unrelated dangling images and build cache, so it is wrong
-independently of the tests.
+Composition is exercised through the **BuildKit builder VM** (see `specs/buildkit-builder-vm.md`); there is no host
+Docker store or classic builder. The layer cache is BuildKit's, persisted in the global `agents-sandbox-buildkit-cache`
+volume, so the render tests build through `builder.Get().Build` and read cache hits from the progress lines by stage
+bracket (`"[<stage> n/m] RUN ... CACHED"`). They never load into the msb image cache and only remove their exported
+archives on cleanup, so nothing prunes the shared layer cache. `TestRenderDockerfileToolLayersStayCached` (only the user
+body changes → node/agent/docker installs stay cached) and `TestRenderDockerfileAgentVersionRebuildsInstall` (agent
+version bump re-runs the agent install, docker install stays cached) guard the composition's caching contract.
 
 ## Non-goals
 
