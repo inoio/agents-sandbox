@@ -161,7 +161,7 @@ func TestDockerBackendPruneExecsWhenRunning(t *testing.T) {
 		t.Fatal("no docker exec call recorded")
 	}
 	joined := strings.Join(call, " ")
-	for _, want := range []string{"buildctl", "prune", "--filter", "until=24h", "--all"} {
+	for _, want := range []string{"buildctl", "prune", "--keep-duration", "24h", "--all"} {
 		if !strings.Contains(joined, want) {
 			t.Errorf("exec args %q missing %q", joined, want)
 		}

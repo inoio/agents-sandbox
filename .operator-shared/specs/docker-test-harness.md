@@ -190,12 +190,12 @@ idle timeout.
   `--privileged` the container exits immediately (exit 1) — `--privileged` is required. CI overlay2 still to confirm.
 - **Dev-VM egress TLS** (cleared for `moby/buildkit` on 2026-10-12): `docker pull moby/buildkit:v0.25.2` succeeded
   in the dev VM despite the injected inspection CA, so this instance of the risk did not materialize.
-- **`buildctl ... prune --filter until=24h` is rejected by buildkit v0.25.2** (found 2026-10-12, Task 3 spike):
+- **`buildctl ... prune --filter until=24h` was rejected by buildkit v0.25.2** (found and fixed 2026-10-12, Task 3):
   both `--filter until=24h` and `--filter=until=24h` fail with `failed to parse prune filters ... unsupported
-  operator "="`. The working equivalent is `--keep-duration 24h --all`. This same filter string is shared by the
-  msb backend's `buildctlPruneCommand` (`internal/sandbox/builder/builder.go`), so **production `PruneCache` is
-  also broken** — a latent bug outside the harness. Task 3 implements the docker backend with the specified
-  verbatim command to keep both backends consistent; a follow-up should switch both to `--keep-duration 24h --all`.
+  operator "="`; `--keep-duration 24h --all` is the working equivalent. The invalid filter was shared by the msb
+  backend's `buildctlPruneCommand` (`internal/sandbox/builder/builder.go`), so production `PruneCache` was
+  latently broken too. Both invoke sites (msb `buildctlPruneCommand` and the docker backend's `PruneCache` args)
+  now use `prune --keep-duration 24h --all`, with `vm_test.go`/`docker_test.go` pinning the new command.
 
 ## Resolved calls
 

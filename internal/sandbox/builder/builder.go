@@ -29,7 +29,7 @@ var (
 		builderGuestPort,
 	)
 	buildctlPruneCommand = fmt.Sprintf(
-		"buildctl --addr tcp://127.0.0.1:%d prune --filter until=24h --all",
+		"buildctl --addr tcp://127.0.0.1:%d prune --keep-duration 24h --all",
 		builderGuestPort,
 	)
 )

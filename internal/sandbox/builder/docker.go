@@ -97,7 +97,7 @@ func (b *dockerBackend) PruneCache(ctx context.Context) error {
 	}
 	_, err := b.docker.run(ctx, "exec", dockerBuilderContainer, "buildctl",
 		"--addr", fmt.Sprintf("tcp://127.0.0.1:%d", builderGuestPort),
-		"prune", "--filter", "until=24h", "--all")
+		"prune", "--keep-duration", "24h", "--all")
 	return err
 }
 

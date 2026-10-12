@@ -310,7 +310,7 @@ func TestPruneCacheRunsBuildctl(t *testing.T) {
 	if err := vm.PruneCache(context.Background()); err != nil {
 		t.Fatalf("PruneCache: %v", err)
 	}
-	want := "buildctl --addr tcp://127.0.0.1:1234 prune --filter until=24h --all"
+	want := "buildctl --addr tcp://127.0.0.1:1234 prune --keep-duration 24h --all"
 	if len(shellCmds) != 1 || shellCmds[0] != want {
 		t.Errorf("Shell calls = %v, want [%q]", shellCmds, want)
 	}
