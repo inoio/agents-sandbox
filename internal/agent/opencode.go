@@ -22,6 +22,7 @@ func (opencodeProfile) ImageSpec() ImageSpec {
 			"OPENCODE_EXPERIMENTAL_WORKSPACES": "true",
 		},
 		InstallCommand: `curl -fsSL https://opencode.ai/install | bash -s -- --version "$OPENCODE_VERSION" && cp /root/.opencode/bin/opencode /opt/agents-sandbox/bin`,
+		RequiresNode:   false,
 	}
 }
 

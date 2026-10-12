@@ -260,50 +260,36 @@ func EnsureImageWithClient(
 	buildOpts BuildOptions,
 	ui termio.UI,
 ) (ImageInfo, error) {
-	agentVersion := buildOpts.AgentVersion
-	var identityVersion string
-	deferVersionResolution := buildOpts.UserProvided && agentVersion == ""
-	if deferVersionResolution {
-		identityVersion = userProvidedImageIdentity
-	} else {
-		var err error
-		agentVersion, err = resolveAgentVersion(ctx, a, agentVersion)
+	agentVersion, identityVersion, deferResolve := initialBuildVersions(buildOpts)
+	if !deferResolve {
+		resolved, err := resolveAgentVersion(ctx, a, agentVersion)
 		if err != nil {
 			return ImageInfo{}, fmt.Errorf("resolve agent version: %w", err)
 		}
-		identityVersion = agentVersion
+		agentVersion, identityVersion = resolved, resolved
 	}
 
 	rTag := runnerTag(projectSlug, a.Name())
-	rendered, err := RenderDockerfile(a, projectDockerfile, buildOpts.Docker)
+	plan, err := renderBuildPlan(a, projectDockerfile, buildOpts.Docker, agentVersion, identityVersion)
 	if err != nil {
 		return ImageInfo{}, fmt.Errorf("render Dockerfile: %w", err)
 	}
-	dockerEnabled := effectiveDocker(projectDockerfile, buildOpts.Docker)
-	identity := computeImageIdentity(projectDockerfile, identityVersion, dockerEnabled)
-	dockerfileID := computeDockerfileID(rendered, identityVersion)
 
-	needsBuild, reasons := buildDecision(ctx, rTag, buildOpts.Force, dockerfileID, identity)
-	if needsBuild {
-		if deferVersionResolution {
-			agentVersion, err = resolveAgentVersion(ctx, a, "")
-			if err != nil {
-				return ImageInfo{}, fmt.Errorf("resolve agent version: %w", err)
-			}
-			identityVersion = agentVersion
-			identity = computeImageIdentity(projectDockerfile, identityVersion, dockerEnabled)
-			dockerfileID = computeDockerfileID(rendered, identityVersion)
+	needsBuild, reasons := buildDecision(ctx, rTag, buildOpts.Force, plan.dockerfileID, plan.identity)
+	if needsBuild && deferResolve {
+		resolved, resolveErr := resolveAgentVersion(ctx, a, "")
+		if resolveErr != nil {
+			return ImageInfo{}, fmt.Errorf("resolve agent version: %w", resolveErr)
 		}
-		ui.Verbosef("rebuilding runner image %s: %s", rTag, strings.Join(reasons, "; "))
-	} else {
-		ui.Verbosef("reusing runner image %s: content identity unchanged", rTag)
+		agentVersion, identityVersion = resolved, resolved
+		// Re-render so the resolved version becomes the agent stage's ARG
+		// default (the deferred render above had no version).
+		plan, err = renderBuildPlan(a, projectDockerfile, buildOpts.Docker, agentVersion, identityVersion)
+		if err != nil {
+			return ImageInfo{}, fmt.Errorf("render Dockerfile: %w", err)
+		}
 	}
-	ui.Verbosef(
-		"Resolved agent version for agent %s to %s, requested %s",
-		a.Name(),
-		agentVersion,
-		buildOpts.AgentVersion,
-	)
+	logBuildDecision(ui, rTag, needsBuild, reasons, a.Name(), agentVersion, buildOpts.AgentVersion)
 
 	if needsBuild && buildOpts.DryRun {
 		ui.Verbosef("dry-run: would build runner image %s", rTag)
@@ -313,7 +299,8 @@ func EnsureImageWithClient(
 	var info ImageInfo
 	if needsBuild {
 		res, buildErr := buildRunnerImage(
-			ctx, a, rendered, rTag, dockerfileID, buildOpts.Force, dockerEnabled, agentVersion, identity, ui,
+			ctx, a, plan.rendered, rTag, plan.dockerfileID, buildOpts.Force,
+			effectiveDocker(projectDockerfile, buildOpts.Docker), agentVersion, plan.identity, ui,
 		)
 		if buildErr != nil {
 			return ImageInfo{}, buildErr
@@ -328,6 +315,69 @@ func EnsureImageWithClient(
 	}
 	ui.Verbosef("image %s (digest %s)", rTag, info.Digest)
 	return info, nil
+}
+
+// initialBuildVersions returns the requested agent version, the version baked
+// into the image content identity, and whether release resolution is deferred.
+// A user-provided agent with no recorded version defers resolution: the identity
+// uses the user-provided marker and no release is resolved until a rebuild needs
+// one.
+func initialBuildVersions(buildOpts BuildOptions) (string, string, bool) {
+	if buildOpts.UserProvided && buildOpts.AgentVersion == "" {
+		return "", userProvidedImageIdentity, true
+	}
+	return buildOpts.AgentVersion, buildOpts.AgentVersion, false
+}
+
+// buildPlan is the rendered Dockerfile and the content identity it bakes.
+type buildPlan struct {
+	rendered     []byte
+	identity     imageIdentity
+	dockerfileID string
+}
+
+// renderBuildPlan renders the runner Dockerfile for the pinned agent version and
+// derives the image content identity from the same inputs. The version is the
+// agent stage's ARG default, so the rendered content changes with the version.
+func renderBuildPlan(
+	a agent.Agent,
+	projectDockerfile []byte,
+	docker bool,
+	agentVersion, identityVersion string,
+) (buildPlan, error) {
+	rendered, err := RenderDockerfile(a, agentVersion, projectDockerfile, docker)
+	if err != nil {
+		return buildPlan{}, err
+	}
+	return buildPlan{
+		rendered: rendered,
+		identity: computeImageIdentity(
+			projectDockerfile, identityVersion, effectiveDocker(projectDockerfile, docker),
+		),
+		dockerfileID: computeDockerfileID(rendered, identityVersion),
+	}, nil
+}
+
+// logBuildDecision reports whether the image was rebuilt and which release
+// version was resolved, at verbose level.
+func logBuildDecision(
+	ui termio.UI,
+	rTag string,
+	needsBuild bool,
+	reasons []string,
+	agentName, agentVersion, requestedVersion string,
+) {
+	if needsBuild {
+		ui.Verbosef("rebuilding runner image %s: %s", rTag, strings.Join(reasons, "; "))
+	} else {
+		ui.Verbosef("reusing runner image %s: content identity unchanged", rTag)
+	}
+	ui.Verbosef(
+		"Resolved agent version for agent %s to %s, requested %s",
+		agentName,
+		agentVersion,
+		requestedVersion,
+	)
 }
 
 // EnsureLoaded loads archivePath into the microsandbox cache under imageRef. An

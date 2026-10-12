@@ -184,7 +184,9 @@ func TestEnsureImageResolvesAnUnpinnedAgentVersion(t *testing.T) {
 func TestEnsureImageReusesUnknownUserAgentWithoutResolvingVersion(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	a := agentOpencode(t)
-	rendered := renderBytes(t, a, nil, false)
+	// The deferred path renders before the version is known, so the identity
+	// uses the version-less render.
+	rendered := renderBytesVersion(t, a, "", nil, false)
 	wantID := computeDockerfileID(rendered, userProvidedImageIdentity)
 	resolverCalled := false
 	WithMockAgentVersionResolver(t, func(_ context.Context, _ agent.Agent, _ string) (string, error) {

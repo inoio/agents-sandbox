@@ -1,4 +1,4 @@
-.PHONY: build build-release build-release-all bootstrap test test-integration coverage coverage-junit lint fmt validate-fmt run check verify all clean install-bash-completion install-head install-head-and-bash-completion upgrade-deps docs-diagrams docs-linkcheck docs-linkcheck-test docs-serve
+.PHONY: build build-release build-release-all bootstrap test test-integration compile-all coverage coverage-junit lint fmt validate-fmt run check verify all clean install-bash-completion install-head install-head-and-bash-completion upgrade-deps docs-diagrams docs-linkcheck docs-linkcheck-test docs-serve
 
 VERSION ?= dev
 
@@ -84,6 +84,12 @@ test:
 test-integration:
 	CGO_ENABLED=1 go test -tags integration -count=1 ./...
 
+# Compile every test binary including build-tagged files (`//go:build
+# integration`) so a regression that only breaks tagged code is caught without a
+# docker daemon. `-run=^$` matches no test, so nothing is executed.
+compile-all:
+	CGO_ENABLED=1 go test -tags integration -run='^$$' ./...
+
 coverage:
 	CGO_ENABLED=1 go test -coverprofile=coverage.out ./...
 	go tool cover -func=coverage.out | tail -1
@@ -105,10 +111,10 @@ validate-fmt:
 run:
 	go run ./cmd/agents-sandbox
 
-check: fmt lint test docs-linkcheck docs-linkcheck-test
+check: fmt lint test compile-all docs-linkcheck docs-linkcheck-test
 
 # Read-only check for CI parity: fmt-check + lint + test (does not modify files).
-verify: validate-fmt lint test docs-linkcheck docs-linkcheck-test
+verify: validate-fmt lint test compile-all docs-linkcheck docs-linkcheck-test
 
 all: fmt lint test docs-linkcheck docs-linkcheck-test build
 

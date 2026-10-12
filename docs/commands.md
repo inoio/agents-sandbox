@@ -114,10 +114,11 @@ agents-sandbox build dockerfile --agent claude-code
 
 **Flags:**
 
-| Flag      | Short | Default    | Purpose                                                     |
-|-----------|-------|------------|-------------------------------------------------------------|
-| `--agent` | —     | `opencode` | Coding-agent profile to build: `opencode`, `pi`, or `claude-code`. |
-| `--docker` | —    | `false`    | Bake the Docker engine into the runner image (`--dind` is a deprecated alias) |
+| Flag              | Short | Default    | Purpose                                                     |
+|-------------------|-------|------------|-------------------------------------------------------------|
+| `--agent`         | —     | `opencode` | Coding-agent profile to build: `opencode`, `pi`, or `claude-code`. |
+| `--agent-version` | —     | `""`       | Pin the agent version rendered into the preview (default: no pinned default) |
+| `--docker`        | —     | `false`    | Bake the Docker engine into the runner image (`--dind` is a deprecated alias) |
 
 **Aliases:** `image build dockerfile`
 

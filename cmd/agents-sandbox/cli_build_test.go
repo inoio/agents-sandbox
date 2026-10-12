@@ -242,6 +242,22 @@ func TestBuildDockerfileCommandHasDockerFlags(t *testing.T) {
 	if flag := foundCmd.Flags().Lookup(flagAgent); flag == nil {
 		t.Error("build dockerfile command must have --agent flag")
 	}
+	if flag := foundCmd.Flags().Lookup(flagAgentVersion); flag == nil {
+		t.Error("build dockerfile command must have --agent-version flag")
+	}
+}
+
+// TestBuildDockerfileCommandRendersAgentVersion verifies the preview carries a
+// pinned --agent-version into the rendered agent stage, so the printed
+// Dockerfile reflects the version that would be baked.
+func TestBuildDockerfileCommandRendersAgentVersion(t *testing.T) {
+	cmd, ui := setupCommandFixtures(t, cmdBuild, cmdDockerfile, "--agent-version", "9.9.9")
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if out := ui.StdOutBuffer.String(); !strings.Contains(out, "ARG OPENCODE_VERSION=9.9.9") {
+		t.Errorf("dockerfile output must pin the agent version; got:\n%s", out)
+	}
 }
 
 // TestBuildDockerfileCommandReportsReservedAlias verifies a project Dockerfile

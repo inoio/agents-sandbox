@@ -57,8 +57,7 @@ func TestRenderDockerfileManagedComposition(t *testing.T) {
 	s := mustRender(t, a, nil, false)
 	for _, want := range []string{
 		"FROM debian:trixie-slim AS agents-sandbox-base",
-		"FROM agents-sandbox-base AS agents-sandbox-node",
-		"FROM agents-sandbox-node AS agents-sandbox-agent",
+		"FROM agents-sandbox-base AS agents-sandbox-agent",
 		"FROM agents-sandbox-base AS agents-sandbox-runner",
 		"ARG OPENCODE_VERSION",
 		"ARG DOCKERFILE_ID",
@@ -69,7 +68,6 @@ func TestRenderDockerfileManagedComposition(t *testing.T) {
 		"LABEL org.agents-sandbox.identity.dockerfile-hash=$IDENTITY_PROJECT_DOCKERFILE_HASH",
 		"LABEL org.agents-sandbox.identity.agent-version=$IDENTITY_AGENT_VERSION",
 		"LABEL org.agents-sandbox.identity.docker=$IDENTITY_DOCKER",
-		"nodejs.org/dist/v26.8.1",
 		"> /etc/agents-sandbox/agent-source",
 		"COPY --from=agents-sandbox-agent /opt/agents-sandbox /opt/agents-sandbox",
 		`ENV PATH="${PATH}:/opt/agents-sandbox/bin"`,
@@ -86,10 +84,82 @@ func TestRenderDockerfileManagedComposition(t *testing.T) {
 	}
 }
 
+// TestRenderDockerfileOmitsNodeStageForNodeFreeAgent guards #133: an agent that
+// does not need node (opencode) must not emit the node stage at all, the agent
+// stage must start from the base stage, and the agent stage must create
+// /opt/agents-sandbox/bin itself since it no longer inherits the node stage.
+func TestRenderDockerfileOmitsNodeStageForNodeFreeAgent(t *testing.T) {
+	a, _ := agent.Lookup("opencode")
+	s := mustRender(t, a, nil, false)
+	if strings.Contains(s, "AS "+nodeStageAlias) || strings.Contains(s, "nodejs.org/dist") {
+		t.Errorf("a node-free agent must not emit the node stage; got:\n%s", s)
+	}
+	if !strings.Contains(s, "FROM agents-sandbox-base AS "+agentStageAlias) {
+		t.Errorf("agent stage must start from the base stage without node; got:\n%s", s)
+	}
+	if !strings.Contains(s, "mkdir -p "+toolBin) {
+		t.Errorf("agent stage must create %s so the tool COPY source exists; got:\n%s", toolBin, s)
+	}
+}
+
+// TestRenderDockerfileEmitsNodeStageForPi guards that the one node-dependent
+// agent (pi, an npm-installed node bundle) still gets the node stage and that
+// its agent stage starts from it.
+func TestRenderDockerfileEmitsNodeStageForPi(t *testing.T) {
+	a, ok := agent.Lookup("pi")
+	if !ok {
+		t.Fatal("pi agent not registered")
+	}
+	s := mustRender(t, a, nil, false)
+	for _, want := range []string{
+		"FROM agents-sandbox-base AS " + nodeStageAlias,
+		"FROM " + nodeStageAlias + " AS " + agentStageAlias,
+		"ARG NODE_VERSION=" + nodeVersion,
+	} {
+		if !strings.Contains(s, want) {
+			t.Errorf("pi render missing %q; got:\n%s", want, s)
+		}
+	}
+}
+
 // TestRenderDockerfileAgentConfigInFinalStage guards the multistage regression
 // where the agent ENV and label were emitted into a non-final stage: Docker
 // drops config directives not reachable from the final FROM, so agent env (read
 // back from image inspect) and provenance must live in the runner stage.
+// TestRenderDockerfileToolVersionsInContent guards that every tool stage carries
+// its pinned version as an ARG default in the rendered Dockerfile content. A
+// bump then changes the build's content identity and Docker invalidates that
+// stage's install layer from the ARG line, independent of whether the builder
+// tracks the version build arg.
+func TestRenderDockerfileToolVersionsInContent(t *testing.T) {
+	a, _ := agent.Lookup("opencode")
+	s := mustRender(t, a, nil, true)
+	for _, want := range []string{
+		"ARG OPENCODE_VERSION=" + testAgentVersion,
+		"ARG DOCKER_VERSION=" + dockerVersion,
+	} {
+		if !strings.Contains(s, want) {
+			t.Errorf("rendered Dockerfile missing %q; got:\n%s", want, s)
+		}
+	}
+}
+
+// TestRenderDockerfileAgentVersionChangesContent guards the fix for the
+// stale-agent-layer bug: changing the agent version must change the rendered
+// Dockerfile content, so the agent install layer is invalidated even when the
+// builder does not put the OPENCODE_VERSION build arg into the cache key.
+func TestRenderDockerfileAgentVersionChangesContent(t *testing.T) {
+	a, _ := agent.Lookup("opencode")
+	first := string(renderBytesVersion(t, a, "1.0.0", nil, false))
+	second := string(renderBytesVersion(t, a, "2.0.0", nil, false))
+	if first == second {
+		t.Error("changing the agent version must change the rendered Dockerfile content")
+	}
+	if !strings.Contains(second, "ARG OPENCODE_VERSION=2.0.0") {
+		t.Errorf("rendered Dockerfile must carry the pinned agent version; got:\n%s", second)
+	}
+}
+
 func TestRenderDockerfileAgentConfigInFinalStage(t *testing.T) {
 	a, _ := agent.Lookup("opencode")
 	s := mustRender(t, a, nil, false)
@@ -163,8 +233,7 @@ func TestRenderDockerfileStageOrder(t *testing.T) {
 	s := mustRender(t, a, nil, true)
 	order := []string{
 		"FROM debian:trixie-slim AS agents-sandbox-base",
-		"FROM agents-sandbox-base AS agents-sandbox-node",
-		"FROM agents-sandbox-node AS agents-sandbox-agent",
+		"FROM agents-sandbox-base AS agents-sandbox-agent",
 		"FROM agents-sandbox-base AS agents-sandbox-docker",
 		"FROM agents-sandbox-base AS agents-sandbox-runner",
 	}
@@ -310,11 +379,37 @@ func TestRenderDockerfileOpencode2(t *testing.T) {
 	for _, want := range []string{
 		"ARG OPENCODE2_VERSION",
 		"LABEL org.agents-sandbox.agent=opencode2",
-		"npm install -g --prefix /opt/agents-sandbox @opencode-ai/cli@$OPENCODE2_VERSION",
+		"https://opencode.ai/v2/install",
+		`cp /root/.opencode/bin/opencode /opt/agents-sandbox/bin/opencode2`,
 	} {
 		if !strings.Contains(s, want) {
 			t.Errorf("rendered opencode2 Dockerfile missing %q", want)
 		}
+	}
+	if strings.Contains(s, "AS "+nodeStageAlias) || strings.Contains(s, "nodejs.org/dist") {
+		t.Errorf("opencode2 must not emit the node stage; got:\n%s", s)
+	}
+}
+
+// TestRenderDockerfileClaudeCodeNodeFree guards that claude-code renders its
+// native installer and, like opencode/opencode2, emits no node stage.
+func TestRenderDockerfileClaudeCodeNodeFree(t *testing.T) {
+	a, ok := agent.Lookup("claude-code")
+	if !ok {
+		t.Fatal("claude-code agent not registered")
+	}
+	s := mustRender(t, a, nil, false)
+	for _, want := range []string{
+		"ARG CLAUDE_CODE_VERSION",
+		"https://claude.ai/install.sh",
+		`cp -L /root/.local/bin/claude /opt/agents-sandbox/bin/claude`,
+	} {
+		if !strings.Contains(s, want) {
+			t.Errorf("rendered claude-code Dockerfile missing %q; got:\n%s", want, s)
+		}
+	}
+	if strings.Contains(s, "AS "+nodeStageAlias) || strings.Contains(s, "nodejs.org/dist") {
+		t.Errorf("claude-code must not emit the node stage; got:\n%s", s)
 	}
 }
 
@@ -363,7 +458,7 @@ func TestRenderDockerfileCustomBaseReusesAlias(t *testing.T) {
 	for _, want := range []string{
 		"FROM golang:1.24 AS build",
 		"FROM debian:trixie-slim AS final",
-		"FROM final AS agents-sandbox-node",
+		"FROM final AS agents-sandbox-agent",
 		"FROM final AS agents-sandbox-runner",
 		"COPY --from=build /app /app",
 	} {
@@ -466,7 +561,7 @@ func TestRenderDockerfileReservedAliasCollision(t *testing.T) {
 		baseStageAlias, nodeStageAlias, agentStageAlias, dockerStageAlias, runnerStageAlias,
 	} {
 		project := []byte("FROM ubuntu:24.04 AS " + alias + "\nRUN echo hi\n")
-		if _, err := RenderDockerfile(a, project, false); err == nil {
+		if _, err := RenderDockerfile(a, testAgentVersion, project, false); err == nil {
 			t.Errorf("declaring reserved alias %q must be a hard error", alias)
 		}
 	}
@@ -477,7 +572,7 @@ func TestRenderDockerfileReservedAliasCollision(t *testing.T) {
 func TestRenderDockerfileReservedAliasCaseInsensitive(t *testing.T) {
 	a, _ := agent.Lookup("opencode")
 	project := []byte("FROM ubuntu:24.04 AS AGENTS-SANDBOX-BASE\nRUN echo hi\n")
-	_, err := RenderDockerfile(a, project, false)
+	_, err := RenderDockerfile(a, testAgentVersion, project, false)
 	if err == nil {
 		t.Fatal("declaring reserved alias AGENTS-SANDBOX-BASE must be a hard error")
 	}
@@ -681,7 +776,7 @@ func TestRenderProjectDockerfileReadsProjectFile(t *testing.T) {
 	configpaths.Get = func() configpaths.ConfigPaths { return &projectDockerfilePaths{dir: dir} }
 	t.Cleanup(func() { configpaths.Get = orig })
 
-	out, err := RenderProjectDockerfile(a, false)
+	out, err := RenderProjectDockerfile(a, testAgentVersion, false)
 	if err != nil {
 		t.Fatalf("RenderProjectDockerfile: %v", err)
 	}
@@ -703,7 +798,7 @@ func TestRenderProjectDockerfileNoProjectFile(t *testing.T) {
 	configpaths.Get = func() configpaths.ConfigPaths { return &projectDockerfilePaths{dir: dir} }
 	t.Cleanup(func() { configpaths.Get = orig })
 
-	out, err := RenderProjectDockerfile(a, false)
+	out, err := RenderProjectDockerfile(a, testAgentVersion, false)
 	if err != nil {
 		t.Fatalf("RenderProjectDockerfile: %v", err)
 	}

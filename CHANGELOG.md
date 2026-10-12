@@ -22,6 +22,8 @@ command reports the bare version (e.g. `0.1.0`).
   suite), currently the real BuildKit builder-VM image-build, cache-reuse, and login-shell PATH tests in
   `internal/sandbox/image`. They need no Docker daemon — only the msb runtime, a functional `/dev/kvm`, and network
   access. Wired into CI as a selective job (main/release/manual).
+- Internal: add `make compile-all` — compiles every test binary including `integration`-tagged files without a docker
+  daemon, and run it in the CI lint job so a tagged-only compile regression fails on PRs instead of only on main.
 - Internal: `devUserBlock` now sets the dev login shell to the first of `bash`, `zsh`, `sh` found (falling back to
   `/bin/sh`) instead of hardcoding bash, widening custom-base compatibility.
 - Custom project Dockerfiles can place a `# agents-sandbox:docker` marker line in the final stage to control where the
@@ -36,6 +38,10 @@ command reports the bare version (e.g. `0.1.0`).
 
 ### Changed
 
+- Runner image: `opencode`, `opencode2`, and `claude-code` images are now node-free. The `agents-sandbox-node` stage is
+  emitted only for agents that need node (today only `pi`, an npm-installed node bundle), and opencode2 and claude-code
+  install from their upstream native installers instead of npm. This cuts image size and cold-build time; version pinning,
+  upgrade resolution, and `dockerfile-id` identity are unchanged (#133).
 - Runner image: renamed the `dind` capability to `docker` — canonical `--docker` (on `build`, `run`, `shell`, and
   `build dockerfile`), the `docker` config key, and `AGENTS_SANDBOX_DOCKER`. The old `--dind` flag, `dind` config key,
   and `AGENTS_SANDBOX_DIND` env var remain as deprecated aliases with lower precedence and a one-time warning. The legacy
@@ -96,6 +102,15 @@ command reports the bare version (e.g. `0.1.0`).
 - Runner image: the builder's temporary image archive is removed after `run`/`shell` and the `volume` commands, not just
   after `build`, so it no longer leaks into the host temp directory.
 - `--dry-run` no longer boots the BuildKit builder VM: a dry run reports the build plan only.
+- Runner image: pinned Node.js to the v24 LTS line (`v24.21.0`) instead of v26, whose official tarballs require
+  `libatomic.so.1` that the managed base does not provide. The npm-installed agents (opencode2, pi, claude-code) now build
+  and run on the managed base — previously the agent install failed and `node`/`npm` could not start. `opencode` (native)
+  was unaffected (#132).
+- Runner image: each tool stage now pins its version as an `ARG` default in the rendered Dockerfile (Node, agent, Docker),
+  so a version bump changes the build content and reliably invalidates that stage's install layer. Previously only the
+  agent version build arg carried the version, which could leave the agent layer cached (and the image on the old release)
+  on builders that do not fold the build arg into the cache key. `build dockerfile` gained `--agent-version` to render a
+  pinned agent version in the preview.
 - The progress spinner stops promptly. Its animation loop now waits on an interruptible ticker instead of an
   uninterruptible `time.Sleep`, so stopping a spinner no longer blocks for up to a full animation frame.
 - The agent serve-daemon readiness loop now probes health as soon as it starts the daemon, instead of waiting one poll
@@ -113,6 +128,11 @@ command reports the bare version (e.g. `0.1.0`).
 - Docs: `ci/check-docs.sh` no longer reports false link violations from local, gitignored build artefacts (`docs/_site/`
   Jekyll output and `docs/vendor/` gem bundle), and `docs/_config.yml` excludes the untracked `superpowers/` and `vendor/`
   trees from the deployed site.
+- Internal: the `integration` docker-build tests no longer wipe the classic builder's layer cache when they clean up.
+  Removing an image with `PruneChildren: true` also deletes the untagged parent images that are the cache, so every
+  subtest (and every rerun) rebuilt the node/agent/docker installs from scratch; cleanup now removes only the tag.
+  `TestRealDockerClientImagePrune` now prunes with a filter that matches nothing, so it exercises the delegation path
+  without deleting that cache (or a developer's unrelated dangling images/build cache) from the shared daemon.
 
 ## [0.5.0] - 2026-10-03
 

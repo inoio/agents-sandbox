@@ -4,7 +4,6 @@ import (
 	"context"
 	"path/filepath"
 	"slices"
-	"strings"
 	"testing"
 
 	"github.com/inoio/agents-sandbox/internal/agent"
@@ -38,11 +37,12 @@ func TestClaudeCodeImageSpec(t *testing.T) {
 	if _, ok := spec.AgentEnv["DISABLE_AUTOUPDATER"]; !ok {
 		t.Errorf("AgentEnv = %v, want DISABLE_AUTOUPDATER key", spec.AgentEnv)
 	}
-	if !strings.Contains(spec.InstallCommand, "@anthropic-ai/claude-code") {
-		t.Errorf("InstallCommand = %q, want claude-code npm install", spec.InstallCommand)
+	wantInstall := `curl -fsSL https://claude.ai/install.sh | bash -s -- "$CLAUDE_CODE_VERSION" && cp -L /root/.local/bin/claude /opt/agents-sandbox/bin/claude`
+	if spec.InstallCommand != wantInstall {
+		t.Errorf("InstallCommand = %q, want %q", spec.InstallCommand, wantInstall)
 	}
-	if !strings.Contains(spec.InstallCommand, "--prefix /opt/agents-sandbox") {
-		t.Errorf("InstallCommand = %q, want the /opt/agents-sandbox prefix", spec.InstallCommand)
+	if spec.RequiresNode {
+		t.Error("RequiresNode = true, want false (claude-code ships a native binary)")
 	}
 }
 

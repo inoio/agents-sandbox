@@ -141,9 +141,12 @@ func computeDockerfileID(rendered []byte, agentVersion string) string {
 	return hex.EncodeToString(h.Sum(nil))
 }
 
-// Pinned third-party versions baked into the image.
+// Pinned third-party versions baked into the image. Node stays on the v24 line:
+// the v26 tarballs gained a hard libatomic.so.1 dependency the managed base does
+// not provide, while v24 (no libatomic on x86_64/arm64) satisfies every npm
+// agent (#132).
 const (
-	nodeVersion   = "v26.8.1"
+	nodeVersion   = "v24.21.0"
 	dockerVersion = "29.7.2"
 )
 
@@ -167,9 +170,17 @@ func effectiveDocker(projectDockerfile []byte, docker bool) bool {
 // RenderDockerfile composes the per-project runner Dockerfile from per-tool
 // multistage stages. Tool-owned layers cache independently of the user body,
 // the base, and each other; the runner stage merges the tool trees with COPY
-// after the user body. It returns an error when the project Dockerfile
-// declares a reserved stage alias.
-func RenderDockerfile(a agent.Agent, projectDockerfile []byte, docker bool) ([]byte, error) {
+// after the user body.
+//
+// agentVersion is the resolved agent release baked into the agent stage's
+// install ARG default. Every tool stage (node, agent, docker) states its pinned
+// version as an ARG default in the rendered content, so a version bump changes
+// the content identity and invalidates that stage's install layer even when the
+// builder does not fold the version build arg into the cache key.
+//
+// It returns an error when the project Dockerfile declares a reserved stage
+// alias.
+func RenderDockerfile(a agent.Agent, agentVersion string, projectDockerfile []byte, docker bool) ([]byte, error) {
 	if err := checkReservedAliases(projectDockerfile); err != nil {
 		return nil, err
 	}
@@ -188,7 +199,13 @@ func RenderDockerfile(a agent.Agent, projectDockerfile []byte, docker bool) ([]b
 	body, dockerInjected := injectDockerBlock(body, docker)
 
 	blocks := make([]string, 0, 6)
-	blocks = append(blocks, earlier, baseStage, nodeStage(baseAlias), agentStage(a))
+	blocks = append(blocks, earlier, baseStage)
+	agentParent := baseAlias
+	if a.ImageSpec().RequiresNode {
+		blocks = append(blocks, nodeStage(baseAlias))
+		agentParent = nodeStageAlias
+	}
+	blocks = append(blocks, agentStage(a, agentParent, agentVersion))
 	if docker {
 		blocks = append(blocks, dockerStage(baseAlias))
 	}
@@ -271,10 +288,12 @@ func customBaseStage(fromLine string) (string, string) {
 }
 
 // nodeStage renders the Node.js tool stage. It installs Node into toolDir only
-// when the base does not already provide it.
+// when the base does not already provide it. The pinned version is the ARG
+// default so a bump changes the rendered content and invalidates this stage.
 func nodeStage(baseAlias string) string {
 	return fmt.Sprintf(`FROM %s AS %s
 USER root
+ARG NODE_VERSION=%s
 RUN mkdir -p %s && \
     if command -v node >/dev/null 2>&1; then \
       :; \
@@ -284,32 +303,44 @@ RUN mkdir -p %s && \
         aarch64) NODE_ARCH=arm64 ;; \
         *) echo "error: unsupported architecture: $(uname -m)" >&2; exit 1 ;; \
       esac; \
-      curl -fsSL "https://nodejs.org/dist/%s/node-%s-linux-${NODE_ARCH}.tar.gz" \
+      curl -fsSL "https://nodejs.org/dist/${NODE_VERSION}/node-${NODE_VERSION}-linux-${NODE_ARCH}.tar.gz" \
         | tar -xz -C %s --strip-components=1; \
     fi
 ENV PATH="%s:${PATH}"
-`, baseAlias, nodeStageAlias, toolBin, nodeVersion, nodeVersion, toolDir, toolBin)
+`, baseAlias, nodeStageAlias, nodeVersion, toolBin, toolDir, toolBin)
 }
 
 // agentStage renders the agent tool stage. It installs the agent into toolDir
 // only when the base does not already provide its binary. The stage starts from
-// the node stage so the agent install can use whichever npm is on PATH. The
-// agent ENV and label are not set here: this stage is not in the final image's
-// FROM lineage, so Docker would drop them. They are emitted by
-// agentImageConfigBlock in the runner stage instead.
-func agentStage(a agent.Agent) string {
+// parentAlias: the node stage when the agent needs node (so its install can use
+// whichever npm is on PATH), otherwise the base stage. It creates toolBin
+// itself so the runner's COPY source exists without the node stage. The agent
+// ENV and label are not set here: this stage is not in the final image's FROM
+// lineage, so Docker would drop them. They are emitted by agentImageConfigBlock
+// in the runner stage instead.
+//
+// The resolved version is the install ARG's default, so a version bump changes
+// the rendered content and invalidates the install layer even when the builder
+// does not fold the version build arg into the cache key. An empty version
+// (e.g. a preview) leaves the ARG without a default.
+func agentStage(a agent.Agent, parentAlias, agentVersion string) string {
 	spec := a.ImageSpec()
+	versionArg := fmt.Sprintf("ARG %s", spec.VersionArg)
+	if agentVersion != "" {
+		versionArg = fmt.Sprintf("ARG %s=%s", spec.VersionArg, agentVersion)
+	}
 	return fmt.Sprintf(`FROM %s AS %s
 USER root
-ARG %s
-RUN if command -v %s >/dev/null 2>&1; then \
+%s
+RUN mkdir -p %s && if command -v %s >/dev/null 2>&1; then \
       :; \
     else \
       %s; \
     fi
 `,
-		nodeStageAlias, agentStageAlias,
-		spec.VersionArg,
+		parentAlias, agentStageAlias,
+		versionArg,
+		toolBin,
 		agentBinary(a),
 		spec.InstallCommand,
 	)
@@ -514,11 +545,12 @@ LABEL org.agents-sandbox.identity.docker=$IDENTITY_DOCKER
 }
 
 // RenderProjectDockerfile renders the runner Dockerfile exactly as it would be
-// built for the current project: the agent profile, the on-disk project
-// Dockerfile (if any), and the docker switch. It is the single source of truth
-// for previewing and building the image.
-func RenderProjectDockerfile(a agent.Agent, docker bool) ([]byte, error) {
-	return RenderDockerfile(a, readProjectDockerfile(), docker)
+// built for the current project: the agent profile, the pinned agent version,
+// the on-disk project Dockerfile (if any), and the docker switch. It is the
+// single source of truth for previewing and building the image. An empty
+// version renders the agent instance stage without a pinned default.
+func RenderProjectDockerfile(a agent.Agent, agentVersion string, docker bool) ([]byte, error) {
+	return RenderDockerfile(a, agentVersion, readProjectDockerfile(), docker)
 }
 
 // readProjectDockerfile returns the project Dockerfile bytes, or nil when none

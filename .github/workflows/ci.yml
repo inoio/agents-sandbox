@@ -20,7 +20,12 @@ jobs:
         with:
           version: v2.14
           args: ./...
+      # Compile every package including build-tagged files (`integration`) so a
+      # tagged-only compile regression fails on PRs, not just on main/releases.
+      - run: make compile-all
       - run: make validate-fmt
+      - run: make docs-linkcheck
+      - run: make docs-linkcheck-test
 
   test:
     name: test

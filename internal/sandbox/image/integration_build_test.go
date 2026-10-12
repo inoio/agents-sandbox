@@ -112,7 +112,7 @@ func TestBuilderCacheReuseAcrossVMs(t *testing.T) {
 	if err != nil {
 		t.Fatalf("resolve agent version: %v", err)
 	}
-	rendered, err := RenderDockerfile(a, nil, false)
+	rendered, err := RenderDockerfile(a, version, nil, false)
 	if err != nil {
 		t.Fatalf("RenderDockerfile: %v", err)
 	}

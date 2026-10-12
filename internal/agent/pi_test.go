@@ -44,6 +44,9 @@ func TestPIImageSpec(t *testing.T) {
 	if !strings.Contains(spec.InstallCommand, "--prefix /opt/agents-sandbox") {
 		t.Errorf("InstallCommand = %q, want the /opt/agents-sandbox prefix", spec.InstallCommand)
 	}
+	if !spec.RequiresNode {
+		t.Error("RequiresNode = false, want true (pi is an npm node bundle)")
+	}
 }
 
 func TestPIAttachCommand(t *testing.T) {

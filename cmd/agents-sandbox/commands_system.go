@@ -512,7 +512,8 @@ func buildDockerfileCmd(ui termio.UI) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			out, err := image.RenderProjectDockerfile(a, resolveBuildDocker(cmd))
+			agentVersion, _ := cmd.Flags().GetString(flagAgentVersion)
+			out, err := image.RenderProjectDockerfile(a, agentVersion, resolveBuildDocker(cmd))
 			if err != nil {
 				return err
 			}
@@ -523,6 +524,8 @@ func buildDockerfileCmd(ui termio.UI) *cobra.Command {
 		},
 	}
 	cmd.Flags().String(flagAgent, defaultAgentName, "Coding agent profile to build")
+	cmd.Flags().
+		String(flagAgentVersion, "", "Pin the agent version rendered into the preview (default: no pinned default)")
 	registerDockerFlags(cmd)
 	return cmd
 }

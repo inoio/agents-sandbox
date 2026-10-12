@@ -29,7 +29,8 @@ func (opencode2Profile) ImageSpec() ImageSpec {
 		// The sandbox pins the baked version and resolves upgrades itself; the
 		// env var disables opencode's own auto-update checks at startup.
 		AgentEnv:       map[string]string{"OPENCODE_DISABLE_AUTOUPDATE": opencodeAutoupdateDisabled},
-		InstallCommand: "npm install -g --prefix /opt/agents-sandbox @opencode-ai/cli@$OPENCODE2_VERSION",
+		InstallCommand: `curl -fsSL https://opencode.ai/v2/install | bash -s -- --version "$OPENCODE2_VERSION" && cp /root/.opencode/bin/opencode /opt/agents-sandbox/bin/opencode2`,
+		RequiresNode:   false,
 	}
 }
 

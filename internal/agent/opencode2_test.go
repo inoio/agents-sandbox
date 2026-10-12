@@ -45,9 +45,12 @@ func TestOpencode2ImageSpec(t *testing.T) {
 	if _, ok := spec.AgentEnv["OPENCODE_DISABLE_AUTOUPDATE"]; !ok {
 		t.Errorf("AgentEnv = %v, want OPENCODE_DISABLE_AUTOUPDATE key", spec.AgentEnv)
 	}
-	wantInstall := "npm install -g --prefix /opt/agents-sandbox @opencode-ai/cli@$OPENCODE2_VERSION"
+	wantInstall := `curl -fsSL https://opencode.ai/v2/install | bash -s -- --version "$OPENCODE2_VERSION" && cp /root/.opencode/bin/opencode /opt/agents-sandbox/bin/opencode2`
 	if spec.InstallCommand != wantInstall {
 		t.Errorf("InstallCommand = %q, want %q", spec.InstallCommand, wantInstall)
+	}
+	if spec.RequiresNode {
+		t.Error("RequiresNode = true, want false (opencode2 ships a native binary)")
 	}
 }
 

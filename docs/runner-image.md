@@ -35,10 +35,14 @@ stages with fixed parents, merged into the final stage with `COPY` **after** the
   (`FROM` image) for a custom base. For a managed base (`FROM .../runner-base...`), the final stage's `FROM` is replaced
   **in place** with the embedded tools block; for a custom base, any earlier build stages in your project Dockerfile are
   preserved above it — so multi-stage project Dockerfiles are supported.
-- **`agents-sandbox-node`** *(conditional)* — installs Node.js into `/opt/agents-sandbox`, only when the base lacks
-  `node`.
+- **`agents-sandbox-node`** *(only for agents that need node)* — installs Node.js into `/opt/agents-sandbox`, only when
+  the base lacks `node`. It is emitted only when the selected agent requires node (today only `pi`, an npm-installed
+  node bundle); `opencode`, `opencode2`, and `claude-code` install native binaries and their images contain no node/npm.
 - **`agents-sandbox-agent`** *(conditional)* — installs the selected agent into `/opt/agents-sandbox`, only when the base
-  lacks its binary. npm agents install with `npm install -g --prefix /opt/agents-sandbox <pkg>@$VERSION`.
+  lacks its binary. It starts from the node stage when one was emitted, otherwise from the base stage, and creates
+  `/opt/agents-sandbox/bin` itself. npm agents (`pi`) install with
+  `npm install -g --prefix /opt/agents-sandbox <pkg>@$VERSION`; the rest copy the binary produced by their upstream
+  installer into `/opt/agents-sandbox/bin`.
 - **`agents-sandbox-docker`** *(optional)* — installs the Docker static binaries into `/opt/agents-sandbox/bin`, only
   when the base lacks `dockerd`.
 - **`agents-sandbox-runner`** — `FROM agents-sandbox-base`, creates the `dev` user, runs your Dockerfile body **without**
@@ -73,8 +77,8 @@ above the base stage. The custom base must meet these requirements:
 - **A login profile that sources `/etc/profile.d/*.sh`** — the runner installs `/etc/profile.d/agents-sandbox-path.sh`
   to restore the composed `PATH` in login shells, so a base whose profile does not source `/etc/profile.d` will not get
   the merged `PATH`.
-- **`curl` and `tar` in the base image itself** — the node and docker install stages start from the raw base and use them
-  to fetch and extract their tarballs, so installing them later in the body is too late.
+- **`curl` and `tar` in the base image itself** — the node (when required) and docker install stages start from the raw
+  base and use them to fetch and extract their tarballs, so installing them later in the body is too late.
 - **For Docker only**: the runtime prerequisites `iptables`, `git`, `ps`, `xz`, `curl`, and `tar`. These are checked after
   your Dockerfile body runs, so `iptables`, `git`, `ps`, and `xz` may be installed in the body or an earlier stage; `curl`
   and `tar` must already be in the base for the download. If one is missing, the build fails and names the missing package.
@@ -153,19 +157,25 @@ RUN install -Dm755 /usr/local/bin/docker-buildx /usr/libexec/docker/cli-plugins/
 
 ## Node and the agent
 
-The `agents-sandbox-node` stage installs Node.js (`v26.8.1`, official tarball) into `/opt/agents-sandbox` only if the
-base lacks `node`, and the `agents-sandbox-agent` stage installs the selected agent into `/opt/agents-sandbox` only if its
-binary is absent — so an existing install is left alone (idempotency). Whether the base already provides node, the agent,
-or `dockerd`, and the `/etc/agents-sandbox/agent-source` and `/etc/agents-sandbox/docker-source` provenance files
-(`tool` | `user`), are resolved after the user body; a base-provided binary wins over the tool's copy.
+The `agents-sandbox-node` stage installs Node.js (`v24.21.0`, official tarball) into `/opt/agents-sandbox` only if the
+base lacks `node`, and it is emitted only when the selected agent requires node — today only `pi`. The
+`agents-sandbox-agent` stage installs the selected agent into `/opt/agents-sandbox` only if its binary is absent — so an
+existing install is left alone (idempotency). Whether the base already provides node, the agent, or `dockerd`, and the
+`/etc/agents-sandbox/agent-source` and `/etc/agents-sandbox/docker-source` provenance files (`tool` | `user`), are
+resolved after the user body; a base-provided binary wins over the tool's copy. The pinned node stays on the v24 line:
+the v26 tarballs gained a hard `libatomic.so.1` runtime dependency the managed base does not provide, while v24 has no
+such dependency on either target architecture, so a custom base needs no extra library to run the tool-installed node.
 
-Four agents are built in: `opencode` (default), `opencode2` (installed via
-`npm install -g --prefix /opt/agents-sandbox @opencode-ai/cli@$OPENCODE2_VERSION`,
-the opencode 2 beta), `pi` (installed via `npm install -g --prefix /opt/agents-sandbox @earendil-works/pi-coding-agent`),
-and `claude-code` (installed via `npm install -g --prefix /opt/agents-sandbox @anthropic-ai/claude-code`). All four
-resolve their latest version for an unpinned build — opencode via its
-GitHub releases endpoint, opencode2 via the npm registry's `beta` dist-tag, pi via `pi.dev`, and claude-code via the npm
-registry's `latest` dist-tag.
+Four agents are built in: `opencode` (default), `opencode2` (the opencode 2 beta), `pi`, and `claude-code`. Only `pi`
+needs node: its published package is an npm-installed `#!/usr/bin/env node` bundle, so it installs through
+`npm install -g --prefix /opt/agents-sandbox @earendil-works/pi-coding-agent@$PI_VERSION`. The other three ship
+self-contained native binaries and install through their upstream installers — `opencode` and `opencode2` via
+`https://opencode.ai/install` and `https://opencode.ai/v2/install`, `claude-code` via `https://claude.ai/install.sh` —
+copying the binary into `/opt/agents-sandbox/bin`; their images contain no node/npm. All four resolve their latest
+version for an unpinned build — opencode via its GitHub releases endpoint, opencode2 via the npm registry's `beta`
+dist-tag, pi via `pi.dev`, and claude-code via the npm registry's `latest` dist-tag — as a host-side HTTP query, never
+inside the image. JS-based LSP servers are expected to run on the agent's embedded JS runtime (Bun) or on node that a
+project installs in its own Dockerfile.
 
 ## Labels & provenance
 
@@ -217,8 +227,9 @@ agents-sandbox build -r     # force rebuild
 Preview the exact Dockerfile that would be built (without building an image):
 
 ```console
-agents-sandbox build dockerfile            # default agent, no docker
-agents-sandbox build dockerfile --docker   # with the Docker engine block
+agents-sandbox build dockerfile                        # default agent, no docker
+agents-sandbox build dockerfile --docker               # with the Docker engine block
+agents-sandbox build dockerfile --agent-version 1.2.3  # pin the agent version in the preview
 ```
 
 List cached images:
@@ -247,6 +258,11 @@ and the pi image is `agents-sandbox/runner-my-project:pi-latest`.
 The image build is skipped when the baked `org.agents-sandbox.dockerfile-id` label matches the current content. This
 label is a hash of the rendered Dockerfile and the agent version, so an image already built from the exact same
 Dockerfile and agent version is reused instead of being rebuilt.
+
+Each tool stage pins its version as an `ARG` default in the rendered Dockerfile (`NODE_VERSION`, the agent's
+`<AGENT>_VERSION`, `DOCKER_VERSION`). The version is therefore part of the build content, so bumping it changes the
+build identity and invalidates that stage's install layer — the agent layer re-runs on an agent upgrade while the node
+and Docker layers stay cached — regardless of how the builder tracks version build arguments.
 
 With `--log-level verbose`, the launcher reports why a build happens on every rebuild path. Before building, each image
 also records its individual inputs as `org.agents-sandbox.identity.*` labels (project Dockerfile hash, agent version, and

@@ -21,9 +21,11 @@ So `Force` means **clean rebuild**: rebuild even when the identity matches, with
 explicit user `--rebuild` on `build`, `run`, or `shell`.
 
 A build triggered by a stale identity (changed project Dockerfile, agent version, or base) reuses Docker's layer cache. This is
-safe because each change is visible to Docker's cache key: the agent version is a build `ARG` referenced by the install `RUN`,
-and the `dockerfile-id` label lives after the agent install. An accepted agent upgrade is a version change, not a force: it
-rebuilds the install layer while keeping earlier layers cached.
+safe because each change is visible to Docker's cache key: the agent version is rendered as the agent stage's install `ARG`
+default (and also passed as a build arg), so it is part of the Dockerfile content and invalidates the agent install layer, and
+the `dockerfile-id` label lives after the agent install. An accepted agent upgrade is a version change, not a force: it
+rebuilds the install layer while keeping earlier layers cached. The node and docker stages render their pinned versions the
+same way (see `specs/image-composition.md`).
 
 ## Version selection
 

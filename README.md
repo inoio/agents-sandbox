@@ -89,12 +89,12 @@ provided by a custom base or project Dockerfile.
 Four agents ship as built-in profiles:
 
 - **`opencode`** (default) — a daemon-based agent with serve/attach, worktree sessions, and GitHub-release upgrade checks.
-- **`opencode2`** — opencode 2 (beta), installed from `@opencode-ai/cli@beta` on npm; daemon-based with serve/attach,
-  worktree sessions, and npm beta-tag upgrade checks. It shares the `opencode` config directory (v2 reads the same files
-  as v1).
-- **`pi`** — the pi coding agent (`@earendil-works/pi-coding-agent`), run interactively, with upgrade checks via `pi.dev`.
-- **`claude-code`** — Anthropic's Claude Code (`@anthropic-ai/claude-code`), run interactively, with upgrade checks via the
-  npm registry.
+- **`opencode2`** — opencode 2 (beta), installed from its native installer; daemon-based with serve/attach, worktree
+  sessions, and npm beta-tag upgrade checks. It shares the `opencode` config directory (v2 reads the same files as v1).
+- **`pi`** — the pi coding agent (`@earendil-works/pi-coding-agent`, an npm-installed node bundle — the only agent that
+  needs node), run interactively, with upgrade checks via `pi.dev`.
+- **`claude-code`** — Anthropic's Claude Code, installed from its native installer, run interactively, with upgrade
+  checks via the npm registry.
 
 ## Documentation
 

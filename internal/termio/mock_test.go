@@ -2,6 +2,7 @@ package termio
 
 import (
 	"errors"
+	"sync"
 	"testing"
 )
 
@@ -70,6 +71,33 @@ func TestMockPromptDefaults(t *testing.T) {
 	value, err := m.Input("prompt", "default")
 	if err != nil || value != "default" {
 		t.Errorf("expected default input, got %q, %v", value, err)
+	}
+}
+
+func TestMockIsSafeForConcurrentUse(t *testing.T) {
+	m := &Mock{}
+	const workers = 8
+	const callsPerWorker = 50
+	var wg sync.WaitGroup
+	for range workers {
+		wg.Go(func() {
+			for range callsPerWorker {
+				m.Verbose("v")
+				m.Verbosef("v %d", 1)
+				m.Info("i")
+				m.Warn("w")
+				m.Out("o")
+				m.Spinner("s")
+				_ = m.Level()
+				_ = m.AssumeYes()
+				_ = m.Quiet()
+				_ = m.IsInteractive()
+			}
+		})
+	}
+	wg.Wait()
+	if want := workers * callsPerWorker; len(m.VerboseCalls) != want*2 {
+		t.Errorf("VerboseCalls = %d, want %d", len(m.VerboseCalls), want*2)
 	}
 }
 

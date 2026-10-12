@@ -21,7 +21,8 @@ func (claudeCodeProfile) ImageSpec() ImageSpec {
 		// version and resolves upgrades itself, so disable the in-agent
 		// auto-updater.
 		AgentEnv:       map[string]string{"DISABLE_AUTOUPDATER": "1"},
-		InstallCommand: "npm install -g --prefix /opt/agents-sandbox @anthropic-ai/claude-code@$CLAUDE_CODE_VERSION",
+		InstallCommand: `curl -fsSL https://claude.ai/install.sh | bash -s -- "$CLAUDE_CODE_VERSION" && cp -L /root/.local/bin/claude /opt/agents-sandbox/bin/claude`,
+		RequiresNode:   false,
 	}
 }
 

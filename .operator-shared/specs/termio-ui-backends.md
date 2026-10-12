@@ -22,6 +22,10 @@ read_if: Changing interactive prompts or spinners, swapping in or scoping a UI l
 interface** - a backend swap changes only how `Select`/`Input`/`Spinner` render internally; callers and tests keep driving a
 `termio.UI`. This is why the huh prompt backend required no `termio.UI` or caller changes.
 
+**Concurrency invariant:** callers may drive a UI from background goroutines while the main goroutine also uses it (e.g.
+`session.startNotifyWatcher` logs from a watcher goroutine alongside `Run`). The `Mock` therefore guards its recorded calls with a
+mutex; any new `termio.UI` implementation must tolerate concurrent use.
+
 ## Prompt switch
 
 `OPENCODE_SANDBOX_PROMPT` (env only, parsed by `termio.ParsePromptBackend`) selects the **prompt** backend. Values: `line`

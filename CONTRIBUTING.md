@@ -47,6 +47,7 @@ Run these from the module root:
 | Command              | Purpose                                                    |
 |----------------------|------------------------------------------------------------|
 | `make test`          | Run the test suite                                         |
+| `make compile-all`   | Compile all code incl. `integration`-tagged test files      |
 | `make lint`          | Run the linter                                             |
 | `make fmt`           | Format all source files                                    |
 | `make check`         | Format, lint, and test — run before finalizing any change  |
