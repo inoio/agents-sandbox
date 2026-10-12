@@ -50,6 +50,9 @@
 - `2026-10-09-login-shell-path.md`
   - Description: Plan for `specs/login-shell-path.md`: the POSIX-sh profile.d merge script (+ sh behaviour tests), image wiring (`AGENTS_SANDBOX_IMAGE_PATH`, build-context `COPY`), removing the `/usr/local/bin` symlink stopgap, an end-to-end login-shell integration test, and docs/spec/CHANGELOG updates — implemented on `opencode/speed-up-image-builds` (PR #126).
   - Read If: Reviewing the login-shell PATH (mergePaths) work; the plan is complete.
+- `2026-10-12-docker-test-harness.md`
+  - Description: TDD plan for `specs/docker-test-harness.md`: extract a `backend` seam in `internal/sandbox/builder` (msb vs docker), a `dockerCLI` seam, a `dockerBackend` (`docker run moby/buildkit`), env-based selection, harness lifecycle/TestMain hook, porting the node/npm and login-shell tests to `docker run`, gating the msb-only tests, and Makefile/CI/docs. Not yet implemented.
+  - Read If: Implementing or resuming the Docker test harness.
 - `2026-10-10-buildkit-builder-vm.md`
   - Description: TDD plan for `specs/buildkit-builder-vm.md` (issue #15): new `internal/sandbox/builder` package (shared builder VM lifecycle, host-side BuildKit client seam/readiness, solve+OCI export+metadata, gateway `ResolveImageConfig` base-digest route, registry auth), add the `moby/buildkit`/`docker/cli` deps, rewire `image` onto the builder, thread the archive through VM creation, BuildKit-cache pruning, remove `internal/sandbox/docker` + `doctor.CheckDocker`, integration + docs. Implemented on `opencode/buildkit-builder-vm` (all ten tasks). Resolved the spec's open decisions (OCI export, `~/.docker/config.json` creds, global cache) and overrode the spec's buildinfo base-digest route with the gateway resolver.
   - Read If: Reviewing or resuming the Docker-free BuildKit builder (issue #15 / `internal/sandbox/builder`).
