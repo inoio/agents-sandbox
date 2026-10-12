@@ -33,6 +33,7 @@ read_if: Working in internal/sandbox (VM lifecycle, image building, BuildKit bui
 
 - `build.go`, `dockerfile.go`, `fetch.go`, `format.go`, `image.go`, `inspect.go`, `list.go`, `tags.go`, `embed.go` — image pipeline (rendering, identity/cache decision; delegates the actual build to `builder/`)
 - `integration_build_test.go` — `//go:build integration` end-to-end tests for the real BuildKit build pipeline and cache reuse. Two tiers: `make test-integration` (Docker backend, `AGENTS_SANDBOX_BUILDER=docker`, no `/dev/kvm`; CI `integration` job on every PR) and `make test-integration-msb` (msb backend, needs a KVM host with msb and network access; gated CI `integration-msb` job, main/release/manual). **The Docker tier cannot run inside the agents-sandbox VM** (microsandbox egress TLS interception breaks in-build registry pulls); the msb tier needs `/dev/kvm`.
+- `integration_harness_test.go` — `//go:build integration` per-run Docker-harness setup: resolves the active backend from `AGENTS_SANDBOX_BUILDER` and, for the Docker tier, resets the harness container/volume via `builder.ResetDockerHarness` around the suite; no-op for the msb tier.
 - Custom-base requirements (shadow-utils, POSIX shell bash→zsh→sh, curl+tar, dind prereqs) and unsupported bases (Alpine/distroless/scratch) are documented in `docs/runner-image.md`.
 
 ### `mounts/` — Filesystem mount handling

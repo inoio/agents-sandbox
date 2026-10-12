@@ -78,9 +78,14 @@ fallback.
 - `internal/sandbox/builder/vm.go`: msb-specific endpoint acquisition (`GetSandbox`/`CreateSandbox`, port
   binding, named-volume mount, `exec buildkitd --oci-worker-snapshotter native --addr tcp://0.0.0.0:1234`)
   and `PruneCache` (`buildctl ... prune` in the VM). A host-wide flock serializes creation.
-- `internal/sandbox/image/integration_build_test.go`: the only integration-tagged file. It builds via
-  `builder.Get().Build` and, for behavior, creates msb sandboxes; gated by `requireIntegration`
-  (`AGENTS_SANDBOX_INTEGRATION`). `useRealHostRuntime` restores the real msb client.
+- `internal/sandbox/image/integration_build_test.go`: the integration-tagged end-to-end tests. They build via
+  `builder.Get().Build` and, for behavior, run the image via `docker run` (docker tier) or an msb sandbox (msb
+  tier); gated by `requireIntegration` (`AGENTS_SANDBOX_INTEGRATION`). `useRealHostRuntime` restores the real msb
+  client.
+- `internal/sandbox/image/integration_harness_test.go`: the per-run harness setup. It resolves `activeBackend`
+  from `AGENTS_SANDBOX_BUILDER` (default `msb`) and, when the docker backend is under test, exposes
+  `setupIntegrationHarness` — invoked by the `image` package `TestMain` around the suite — which resets the docker
+  harness (container + volume) via `builder.ResetDockerHarness`. A no-op for the msb tier.
 - Dev VM: Docker 29.7.2, `vfs` storage driver (classic image store). `buildx` may be supplied for
   debugging/spikes but the harness does not require it.
 - MSB runtime install is SDK-driven and non-interactive (`EnsureRuntime` → libkrun + libkrunfw); CI triggers
@@ -177,8 +182,9 @@ volume, `native` snapshotter, and idle timeout.
 
 - **`integration` (docker-backed, PR):** the composition matrix, the tool-layer/agent-version cache guards,
   a builder-backend test (endpoint + solve + export), and both behavior tests
-  (`TestRunnerImageNodeAgentNodeRuns`, `TestRunnerImageLoginShellPath`) via `docker run`. Runs on every PR on
-  hosted runners (x64 and arm64) and on any host with Docker + normal TLS egress.
+  (`TestRunnerImageNodeAgentNodeRuns`, `TestRunnerImageLoginShellPath`) via `docker run`. The tier itself is
+  arch-agnostic (any host with Docker + normal TLS egress), but CI currently runs it on x64 only
+  (`runs-on: ubuntu-latest`) on every PR.
 - **`integration-msb` (KVM):** `TestBuildRunnerImageInBuilderVM` (build → `msb.ImageLoad` → inspect) and
   `TestBuilderCacheReuseAcrossVMs` (msb VM teardown proves the persistent cache volume), plus any pure msb
   lifecycle tests. Stays on the x64 `ubuntu-latest` job with the KVM/msb setup, gated to main/tags/manual.

@@ -42,15 +42,9 @@ command reports the bare version (e.g. `0.1.0`).
 - Runner image: a Docker-free BuildKit builder VM. The runner image is built by a `buildkitd` running inside a shared
   microsandbox VM, driven by a host-side BuildKit client over a published loopback port, so building or refreshing the
   image no longer needs the host Docker daemon. The BuildKit cache persists in a global `agents-sandbox-buildkit-cache`
-  volume across projects and invocations, and image pruning reclaims it.
-
-### Fixed
-
-- Runner image: BuildKit cache pruning now runs `buildctl prune --keep-duration 24h --all`; the previous
-  `--filter until=24h` is rejected by buildkit v0.25.2 (`unsupported operator "="`), so pruning the BuildKit cache
-  was broken.
-- Runner image: base-image digests are now resolved for short references (e.g. `debian:trixie-slim`), which are
-  qualified to their canonical `docker.io/library/...` form before the BuildKit gateway resolves them.
+  volume across projects and invocations, and image pruning reclaims it (`buildctl prune --keep-duration 24h --all`).
+  Short base-image references (e.g. `debian:trixie-slim`) are qualified to their canonical `docker.io/library/...` form
+  before the gateway resolves their digests.
 
 ### Changed
 
