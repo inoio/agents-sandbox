@@ -33,3 +33,35 @@ func TestOnlyOpencodeImplementsEventStreamProvider(t *testing.T) {
 		}
 	}
 }
+
+func TestMigrationSpecDeclaresOAuthAsLoginType(t *testing.T) {
+	for _, name := range []string{"opencode", "opencode2", "pi"} {
+		a, ok := agent.Lookup(name)
+		if !ok {
+			t.Fatalf("agent %q not registered", name)
+		}
+		spec := a.(agent.MigrationSpecProvider).MigrationSpec()
+		if _, ok := spec.Auth.AuthFields["oauth"]; ok {
+			t.Errorf("%s still lists oauth in AuthFields", name)
+		}
+		types := spec.Auth.LoginAuthTypes
+		if len(types) != 1 || types[0] != "oauth" {
+			t.Errorf("%s LoginAuthTypes = %v; want [oauth]", name, types)
+		}
+	}
+}
+
+func TestOpenCodeMigrationCapability(t *testing.T) {
+	a, ok := agent.Lookup("opencode")
+	if !ok {
+		t.Fatal("opencode agent not registered")
+	}
+	provider, ok := agent.AsMigrationSpecProvider(a)
+	if !ok {
+		t.Fatal("opencode should implement MigrationSpecProvider")
+	}
+	spec := provider.MigrationSpec()
+	if spec.NativeConfigEnv != "XDG_CONFIG_HOME" || spec.NativeDataEnv != "XDG_DATA_HOME" {
+		t.Errorf("migration XDG envs = %q, %q", spec.NativeConfigEnv, spec.NativeDataEnv)
+	}
+}

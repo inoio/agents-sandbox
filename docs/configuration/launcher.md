@@ -1,5 +1,6 @@
 ---
 title: Configuration files & Environment variables
+description: "agents-sandbox config file locations, fields, environment variables and how user-level and project-level values are resolved."
 layout: default
 parent: Configuration
 nav_order: 10
@@ -9,6 +10,9 @@ nav_order: 10
 
 agents-sandbox supports configuration at two levels: user-level defaults and project-level overrides. Both can set CLI
 flags and environment variables. This page covers where config lives, the config-file fields, and how values are resolved.
+
+On first run an interactive [setup wizard]({% link configuration/wizard.md %}) walks you through the essentials and
+writes them to your user-level config file; `agents-sandbox config wizard` re-runs it on demand.
 
 ## User-level defaults
 
@@ -88,7 +92,7 @@ Configuration is resolved in this order (later entries override earlier ones):
 | `network.dns-servers`           | `--dns`                  | DNS upstream resolvers: bare IP (auto-appends `:53`) or `host:port` (see [Networking]({% link configuration/networking.md %}))                                                                                                                                 |
 | `mounts`                        | —                        | Additional host directories mounted into the VM (see [Host mounts]({% link configuration/mounts.md %}))                                                                                                                               |
 | `agent`                         | `--agent`                | Agent profile name to run, build, and provision (default `opencode`, see [Agent configuration]({% link configuration/agent.md %}))                                                                                                        |
-| `provision-host-config`         | —                        | Copy the agent's host config + credentials into the VM when enabled (default: false; set true to opt in, see [Host-config drop-in provisioning]({% link configuration/agent.md %}#host-config-drop-in-provisioning)) |
+| `provision-host-config`         | —                        | Copy selected native agent files into the VM when enabled (default: false; see [Unsafe host-config drop-in]({% link provision-host-config.md %}) and [Agent configuration]({% link configuration/agent.md %}#host-config-drop-in-provisioning)) |
 | `dind`                          | `--dind`                 | Append the Docker-in-Docker block to the runner image (overridable with `--dind`)                                                                                                                                             |
 | `upgrade.mode`                   | —                        | How to handle a newer release when one is found: `prompt`, `notify`, `auto`, or `auto-exit` (default `prompt`, see [Self-upgrade]({% link configuration/self-upgrade.md %}))                                                            |
 | `upgrade.interval`               | —                        | How often to check for a newer release (default `1d`, minimum `1h`, see [Self-upgrade]({% link configuration/self-upgrade.md %}))                                                                                                                        |

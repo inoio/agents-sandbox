@@ -68,6 +68,7 @@ func TestEveryLeafCommandHelpRenders(t *testing.T) {
 		{"version"},
 		{"prune"},
 		{"config", "show"},
+		{"config", "migrate"},
 		{"config", "home"},
 		{"image", "list"},
 		{"image", "build"},
@@ -96,7 +97,7 @@ func TestGroupCommandHelpListsSubcommands(t *testing.T) {
 		path []string
 		subs []string
 	}{
-		{path: []string{"config"}, subs: []string{"show", "home"}},
+		{path: []string{"config"}, subs: []string{"agent", "migrate", "home"}},
 		{path: []string{"image"}, subs: []string{"list", "build"}},
 		{path: []string{"volume"}, subs: []string{"list", "migrate", "reset", "edit"}},
 		{path: []string{"sandbox"}, subs: []string{"list", "shell", "run", "stop", "kill"}},
@@ -107,6 +108,17 @@ func TestGroupCommandHelpListsSubcommands(t *testing.T) {
 				if !strings.Contains(out, sub) {
 					t.Errorf("expected %q help to list subcommand %q:\n%s", strings.Join(tc.path, " "), sub, out)
 				}
+			}
+		})
+	}
+}
+
+func TestVolumeSubcommandsDoNotExposeRebuild(t *testing.T) {
+	for _, sub := range []string{"migrate", "reset", "edit"} {
+		t.Run(sub, func(t *testing.T) {
+			out := commandOut(t, "volume", sub, "--help")
+			if strings.Contains(out, "--rebuild") {
+				t.Errorf("volume %s must not expose --rebuild:\n%s", sub, out)
 			}
 		})
 	}

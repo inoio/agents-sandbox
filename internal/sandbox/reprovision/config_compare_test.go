@@ -167,6 +167,15 @@ func TestAgentConfigEqualMirrorNoSnippets(t *testing.T) {
 	}
 }
 
+func TestAgentConfigEqualDetectsMissingMirrorFile(t *testing.T) {
+	cf := &ConfigFiles{
+		Mirror: map[string][]byte{"/home/dev/.config/opencode/tui.json": []byte(`{"theme":"dark"}`)},
+	}
+	if AgentConfigEqual(cf, nil) {
+		t.Error("expected missing mirror file to trigger a config mismatch")
+	}
+}
+
 func TestProvisionWritesOpenCodeAndHomeFiles(t *testing.T) {
 	cf := &ConfigFiles{
 		HasSnippets: true,

@@ -13,6 +13,8 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/inoio/agents-sandbox/internal/agent"
+	"github.com/inoio/agents-sandbox/internal/configmigration"
+	"github.com/inoio/agents-sandbox/internal/configwizard"
 	"github.com/inoio/agents-sandbox/internal/git"
 	"github.com/inoio/agents-sandbox/internal/homeconfig"
 	"github.com/inoio/agents-sandbox/internal/humanize"
@@ -85,7 +87,6 @@ func buildVolumeOpsCmd(
 	fn volumeOpFunc,
 	short, rmFlag, rmHelp string,
 	rmVar *bool,
-	buildImage bool,
 ) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   name,
@@ -97,7 +98,6 @@ func buildVolumeOpsCmd(
 			}
 			projectSlug := git.ProjectSlug()
 			dryRun, _ := c.Flags().GetBool(flagDryRun)
-			rebuild, _ := c.Flags().GetBool(flagRebuild)
 			a, err := resolveAgentFlag(c)
 			if err != nil {
 				return err
@@ -110,7 +110,7 @@ func buildVolumeOpsCmd(
 				c.Context(),
 				a,
 				projectSlug,
-				image.BuildOptions{Force: rebuild, AgentVersion: "", UserProvided: false, Dind: dind},
+				image.BuildOptions{Force: false, AgentVersion: "", UserProvided: false, Dind: dind},
 				ui,
 			)
 			if err != nil {
@@ -134,9 +134,6 @@ func buildVolumeOpsCmd(
 	}
 	cmd.Flags().BoolVar(rmVar, rmFlag, false, rmHelp)
 	cmd.Flags().Bool(flagDryRun, false, "Show what would be done")
-	if buildImage {
-		cmd.Flags().Bool(flagRebuild, false, "Rebuild runner image first")
-	}
 	cmd.Flags().String(flagAgent, defaultAgentName, "Coding agent profile")
 	return cmd
 }
@@ -247,6 +244,9 @@ type jsonSandbox struct {
 	Labels  map[string]string `json:"labels"`
 }
 
+//nolint:gochecknoglobals // test seam for the JSON output error path
+var marshalSandboxesJSON = json.MarshalIndent
+
 func printSandboxesJSON(ui termio.UI, infos []sandbox.Info) error {
 	out := make([]jsonSandbox, 0, len(infos))
 	for _, s := range infos {
@@ -259,7 +259,7 @@ func printSandboxesJSON(ui termio.UI, infos []sandbox.Info) error {
 			Labels:  s.Labels,
 		})
 	}
-	data, err := json.MarshalIndent(out, "", "  ")
+	data, err := marshalSandboxesJSON(out, "", "  ")
 	if err != nil {
 		return err
 	}
@@ -275,6 +275,8 @@ func buildConfigCmd(ui termio.UI) *cobra.Command {
 	}
 
 	cmd.AddCommand(buildConfigAgentCmd(ui))
+	cmd.AddCommand(buildConfigMigrateCmd(ui))
+	cmd.AddCommand(buildConfigWizardCmd(ui))
 
 	cmd.AddCommand(&cobra.Command{
 		Use:   cmdHome,
@@ -308,6 +310,151 @@ func buildConfigCmd(ui termio.UI) *cobra.Command {
 	})
 
 	return cmd
+}
+
+//nolint:gochecknoglobals // command seams restored by tests
+var (
+	buildMigrationPlan = configmigration.Build
+	applyMigrationPlan = configmigration.Apply
+	migrationHomeDir   = os.UserHomeDir
+)
+
+// buildConfigMigrateCmd creates the host-only safe migration command. It never
+// starts a VM and never enables native host-config provisioning implicitly.
+//
+//nolint:gocognit // command flow keeps migration decisions visible
+func buildConfigMigrateCmd(
+	ui termio.UI,
+) *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   cmdMigrate,
+		Args:  cobra.MaximumNArgs(1),
+		Short: "Migrate native agent config without copying raw credentials",
+		RunE: func(c *cobra.Command, args []string) error {
+			name, err := resolveConfigAgentName(c, args)
+			if err != nil {
+				return err
+			}
+			a, ok := agent.Lookup(name)
+			if !ok {
+				return fmt.Errorf("unknown agent %q: must be one of %s", name, strings.Join(agent.Names(), ", "))
+			}
+			hostHome, err := migrationHomeDir()
+			if err != nil {
+				return fmt.Errorf("resolve host home: %w", err)
+			}
+			resolver, err := viperconfig.NewResolver(c, git.ProjectSlug())
+			if err != nil {
+				return err
+			}
+			runOptions, err := resolver.BuildRunOptions(c, ui)
+			if err != nil {
+				return err
+			}
+			plan, err := buildMigrationPlan(a, hostHome, runOptions.Network)
+			if err != nil {
+				if errors.Is(err, configmigration.ErrUnsupported) {
+					ui.Warnf("safe migration is not available for agent %q; configure it manually", a.Name())
+					return nil
+				}
+				return err
+			}
+			if !plan.HasNativeConfig && !plan.SetupOnly {
+				ui.Outf("No native %s configuration found.", a.Name())
+				return nil
+			}
+			if plan.HasManagedConfig && !plan.AlreadyConfigured {
+				ui.Warnf("managed %s configuration already exists; refusing to overwrite it", a.Name())
+				return nil
+			}
+			if len(plan.Files) == 0 && !plan.SetupOnly {
+				handled, err := migrateLoginOnly(plan, a, ui)
+				if err != nil {
+					return err
+				}
+				if handled {
+					return nil
+				}
+				ui.Warnf(
+					"native %s configuration was found, but no supported credential migration is available",
+					a.Name(),
+				)
+				for _, warning := range plan.Warnings {
+					ui.Warn(warning)
+				}
+				return nil
+			}
+			if plan.AlreadyConfigured {
+				ui.Outf("A safe %s migration is already configured.", a.Name())
+				return nil
+			}
+			if plan.Dismissed {
+				ui.Outf(
+					"Migration was previously dismissed for the current native configuration; applying it explicitly now.",
+				)
+			}
+			if plan.Manual || plan.LoginPending {
+				ui.Outf(
+					"Onboarding was previously deferred for the current native configuration; applying it explicitly now.",
+				)
+			}
+			ui.Outf("Migrating %s configuration without copying raw credentials.", a.Name())
+			if err := configmigration.Review(plan, ui); err != nil {
+				return err
+			}
+			if err := applyMigrationPlan(plan, ui); err != nil {
+				return err
+			}
+			ui.Outf("Safe migration completed. Secret values are stored in %s.", plan.SecretPath)
+			return nil
+		},
+	}
+	cmd.Flags().String(flagAgent, defaultAgentName, "Coding agent profile")
+	return cmd
+}
+
+// buildConfigWizardCmd returns the interactive setup-wizard command. It runs
+// without an msb runtime because commandNeedsMSBRuntime exempts the config tree.
+func buildConfigWizardCmd(ui termio.UI) *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   cmdWizard,
+		Args:  cobra.NoArgs,
+		Short: "Interactively set launcher configuration",
+		RunE: func(c *cobra.Command, _ []string) error {
+			tier, _ := c.Flags().GetInt(flagTier)
+			if tier < 0 || tier > configwizard.TierIntegrations {
+				return fmt.Errorf("invalid tier %d: must be between 0 and %d", tier, configwizard.TierIntegrations)
+			}
+			return configwizard.Run(
+				resolverFromContext(c.Context()),
+				ui,
+				configwizard.Selection{FirstRun: false, Tier: tier},
+			)
+		},
+	}
+	cmd.Flags().Int(flagTier, 0, "Configuration tier to ask (0 asks all unanswered tiers)")
+	return cmd
+}
+
+// migrateLoginOnly re-arms the in-sandbox login for a login-only native
+// configuration and reports whether it handled the plan.
+func migrateLoginOnly(plan *configmigration.Plan, a agent.Agent, ui termio.UI) (bool, error) {
+	if !plan.HasLogin() {
+		return false, nil
+	}
+	if plan.Manual || plan.LoginPending || plan.Dismissed {
+		ui.Out(
+			"Onboarding was previously deferred for the current native configuration; re-arming the in-sandbox login.",
+		)
+	}
+	if err := configmigration.RecordLoginPending(plan); err != nil {
+		return false, err
+	}
+	ui.Outf(
+		"Refreshable %s credentials are not copied; start the sandbox and authenticate inside it.",
+		a.Name(),
+	)
+	return true, nil
 }
 
 // reservedHomeConfigTargets returns the home-relative VM paths the agent
@@ -561,7 +708,6 @@ func buildVolumeCmd(ui termio.UI) *cobra.Command {
 			flagRemove,
 			"Remove the old home volume after migration",
 			&migrateRmOld,
-			true,
 		),
 	)
 
@@ -575,7 +721,6 @@ func buildVolumeCmd(ui termio.UI) *cobra.Command {
 			flagRemove,
 			"Remove the old home volume after reset",
 			&resetRmOld,
-			true,
 		),
 	)
 
@@ -589,7 +734,6 @@ func buildVolumeCmd(ui termio.UI) *cobra.Command {
 			flagRemove,
 			"Remove the old home volume after editing",
 			&editRmOld,
-			false,
 		),
 	)
 

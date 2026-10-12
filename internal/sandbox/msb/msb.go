@@ -33,7 +33,7 @@ func SkipRuntimeInstall() { skipRuntimeInstall = true }
 // ValidateInstalled checks the SDK-managed runtime without downloading it.
 func ValidateInstalled(_ context.Context) error {
 	_, err := msbSdk.ResolveRuntime(
-		msbSdk.RuntimeConfig{ //nolint:exhaustruct // empty config uses environment/default paths
+		msbSdk.RuntimeConfig{ //nolint:exhaustruct_v5 // empty config uses environment/default paths
 		},
 	)
 	return err
@@ -223,8 +223,8 @@ func (realMsbClient) EnsureInstalled(ctx context.Context) error {
 	}
 	_, err := msbSdk.EnsureRuntime(
 		ctx,
-		msbSdk.RuntimeConfig{},  //nolint:exhaustruct // empty config uses environment/default paths
-		msbSdk.InstallOptions{}, //nolint:exhaustruct // zero options install the SDK-pinned runtime
+		msbSdk.RuntimeConfig{},  //nolint:exhaustruct_v5 // empty config uses environment/default paths
+		msbSdk.InstallOptions{}, //nolint:exhaustruct_v5 // zero options install the SDK-pinned runtime
 	)
 	return err
 }
@@ -602,21 +602,24 @@ func (h *realStreamHandle) Recv(ctx context.Context) (StreamEvent, error) {
 func mapExecEvent(ev msbSdk.ExecEvent) (StreamEvent, bool, error) {
 	switch ev.Kind {
 	case msbSdk.ExecEventStdout:
-		//nolint:exhaustruct // stdout events carry no ExitCode
+		//nolint:exhaustruct_v5 // stdout events carry no ExitCode
 		return StreamEvent{Kind: StreamEventStdout, Data: ev.Data}, true, nil
 	case msbSdk.ExecEventStderr:
-		//nolint:exhaustruct // stderr events carry no ExitCode
+		//nolint:exhaustruct_v5 // stderr events carry no ExitCode
 		return StreamEvent{Kind: StreamEventStderr, Data: ev.Data}, true, nil
 	case msbSdk.ExecEventExited:
-		//nolint:exhaustruct // exited events carry no Data
+		//nolint:exhaustruct_v5 // exited events carry no Data
 		return StreamEvent{Kind: StreamEventExited, ExitCode: ev.ExitCode}, true, nil
 	case msbSdk.ExecEventFailed:
-		//nolint:exhaustruct // failed events carry neither Data nor ExitCode
+		//nolint:exhaustruct_v5 // failed events carry neither Data nor ExitCode
 		return StreamEvent{Kind: StreamEventFailed}, true, nil
 	case msbSdk.ExecEventDone:
 		return StreamEvent{}, false, io.EOF
+	case msbSdk.ExecEventStarted, msbSdk.ExecEventStdinError:
+		// carry no payload; skip and keep reading.
+		return StreamEvent{}, false, nil
 	default:
-		// ExecEventStarted / ExecEventStdinError: skip and keep reading.
+		// unknown event kind: skip and keep reading.
 		return StreamEvent{}, false, nil
 	}
 }

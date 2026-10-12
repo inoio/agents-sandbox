@@ -80,7 +80,7 @@ func setUpSandbox(
 	// daemon start sees them, without disturbing the running instance.
 	provisioned := true
 	if cfs.HasSnippets || len(cfs.HomeFiles) > 0 || len(cfs.Provisioned) > 0 || len(cfs.Mirror) > 0 ||
-		len(cfs.Remove) > 0 {
+		len(cfs.Remove) > 0 || len(cfs.RemoveHostCopies) > 0 {
 		if provErr := reprovision.Provision(ctx, sb, cfs); provErr != nil {
 			ui.Warnf("provision failed: %v (continuing)", provErr)
 			provisioned = false
@@ -158,7 +158,7 @@ func decideReconfig(
 	var agentCfgChanged bool
 	if liveSb != nil {
 		vmData := reprovision.ReadVMConfig(ctx, liveSb, cfs.Keys, ui)
-		agentCfgChanged = len(vmData) > 0 && !reprovision.AgentConfigEqual(cfs, vmData)
+		agentCfgChanged = !reprovision.AgentConfigEqual(cfs, vmData)
 		if detachErr := liveSb.Detach(context.Background()); detachErr != nil {
 			ui.Verbosef("failed to detach live sandbox handle: %v", detachErr)
 		}

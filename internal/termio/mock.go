@@ -24,6 +24,8 @@ type Mock struct {
 	ErrorCalls   []ErrorCall
 	VerboseCalls []string
 	OutCalls     []string
+	SelectCalls  []string
+	InputCalls   []string
 	SpinnerCalls []string
 	StdOutBuffer bytes.Buffer
 	StdErrBuffer bytes.Buffer
@@ -33,8 +35,9 @@ type Mock struct {
 	quiet               bool
 	IsInteractiveResult bool
 
-	SelectFn func(prompt string, choices []Choice, defaultKey string) (string, error)
-	InputFn  func(prompt, defaultValue string) (string, error)
+	SelectFn      func(prompt string, choices []Choice, defaultKey string) (string, error)
+	InputFn       func(prompt, defaultValue string) (string, error)
+	SecretInputFn func(prompt string) (string, error)
 }
 
 type mockSpinner struct{}
@@ -64,7 +67,7 @@ func (m *Mock) Error(msg string, err error) {
 }
 
 func (m *Mock) Errorf(format string, args ...any) {
-	//nolint:exhaustruct // Err intentionally nil (set only via Error method)
+	//nolint:exhaustruct_v5 // Err intentionally nil (set only via Error method)
 	m.ErrorCalls = append(m.ErrorCalls, ErrorCall{Msg: fmt.Sprintf(format, args...)})
 }
 
@@ -88,7 +91,7 @@ func (m *Mock) Header(msg string) {
 
 // NewTable returns an empty aligned Table that records output in the mock.
 func (m *Mock) NewTable(headers ...string) *Table {
-	//nolint:exhaustruct // rows starts empty (nil slice is the zero value)
+	//nolint:exhaustruct_v5 // rows starts empty (nil slice is the zero value)
 	return &Table{ui: m, headers: headers}
 }
 
@@ -134,6 +137,7 @@ func (m *Mock) IsInteractive() bool {
 }
 
 func (m *Mock) Select(prompt string, choices []Choice, defaultKey string) (string, error) {
+	m.SelectCalls = append(m.SelectCalls, prompt)
 	if m.SelectFn != nil {
 		return m.SelectFn(prompt, choices, defaultKey)
 	}
@@ -141,10 +145,18 @@ func (m *Mock) Select(prompt string, choices []Choice, defaultKey string) (strin
 }
 
 func (m *Mock) Input(prompt, defaultValue string) (string, error) {
+	m.InputCalls = append(m.InputCalls, prompt)
 	if m.InputFn != nil {
 		return m.InputFn(prompt, defaultValue)
 	}
 	return defaultValue, nil
+}
+
+func (m *Mock) SecretInput(prompt string) (string, error) {
+	if m.SecretInputFn != nil {
+		return m.SecretInputFn(prompt)
+	}
+	return "", nil
 }
 
 func (m *Mock) StdOut() io.Writer {

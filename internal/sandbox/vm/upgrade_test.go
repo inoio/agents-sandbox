@@ -107,7 +107,7 @@ func TestResolveOpenCodeVersionPinnedSkipsUpdateCheck(t *testing.T) {
 	}
 }
 
-func TestResolveOpenCodeVersionRebuildSkipsUpdateCheck(t *testing.T) {
+func TestResolveOpenCodeVersionRebuildStillChecksUpdate(t *testing.T) {
 	origLatest := agentLatestVersion
 	defer func() { agentLatestVersion = origLatest }()
 	latestCalled := false
@@ -128,13 +128,48 @@ func TestResolveOpenCodeVersionRebuildSkipsUpdateCheck(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if got != "1.0.0" {
-		t.Errorf("expected current version 1.0.0, got %q", got)
+		t.Errorf("expected current version 1.0.0 for a non-interactive keep, got %q", got)
 	}
 	if upgraded {
-		t.Error("expected upgraded=false when Rebuild is set")
+		t.Error("expected upgraded=false for a non-interactive keep")
+	}
+	if !latestCalled {
+		t.Error("agentLatestVersion should be called when Rebuild is set; --rebuild only bypasses the cache")
+	}
+}
+
+func TestResolveOpenCodeVersionUserProvidedWinsOverPin(t *testing.T) {
+	origLatest := agentLatestVersion
+	defer func() { agentLatestVersion = origLatest }()
+	latestCalled := false
+	agentLatestVersion = func(_ context.Context, _ agent.Agent) (string, error) {
+		latestCalled = true
+		return "2.0.0", nil
+	}
+
+	configpaths.WithMockConfigPaths(t)
+	if err := saveUpgradeState(upgradeState{
+		Agents: map[string]agentUpgradeState{
+			"opencode": {AgentSource: agentSourceUser, CurrentVersion: "1.0.0"},
+		},
+	}); err != nil {
+		t.Fatalf("saveUpgradeState: %v", err)
+	}
+	opts := options.RunOptions{AgentVersion: "9.9.9"}
+	ui := &termio.Mock{}
+
+	got, upgraded, err := resolveBuildVersion(context.Background(), opencodeAgent(t), ui, opts)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got != "1.0.0" {
+		t.Errorf("expected recorded user-provided version 1.0.0, got %q", got)
+	}
+	if upgraded {
+		t.Error("expected upgraded=false for a user-provided agent")
 	}
 	if latestCalled {
-		t.Error("agentLatestVersion should NOT have been called when Rebuild is set")
+		t.Error("agentLatestVersion must not be called for a user-provided agent")
 	}
 }
 

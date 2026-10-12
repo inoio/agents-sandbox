@@ -17,6 +17,52 @@ type claudeCodeProfile struct{}
 func (claudeCodeProfile) Name() string          { return claudeCodeName }
 func (claudeCodeProfile) ConfigDirName() string { return "claude" }
 
+// MigrationSpec describes the portable Claude Code settings file. Claude Code
+// stores login credentials separately in .credentials.json or the OS keychain;
+// those credentials are intentionally not migration inputs.
+func (claudeCodeProfile) MigrationSpec() ConfigMigrationSpec {
+	return ConfigMigrationSpec{
+		NativeConfigDir:           ".claude",
+		NativeConfigEnv:           "CLAUDE_CONFIG_DIR",
+		NativeConfigEnvIsPath:     true,
+		NativeConfigSubdir:        "",
+		NativeCredential:          "",
+		NativeDataEnv:             "",
+		NativeDataEnvIsPath:       false,
+		NativeDataSubdir:          "",
+		CredentialTarget:          "",
+		ManagedCredential:         "",
+		ManagedSnippet:            "settings-migrated.json",
+		NativeConfigFiles:         []string{"settings.json"},
+		NativeConfigStrictJSON:    true,
+		RequiredNetworkHosts:      []string{anthropicAPIHost, "platform.claude.com", "claude.ai", "claude.com"},
+		NativeSupplementalFiles:   nil,
+		ManagedSupplementalFiles:  nil,
+		ProvisioningExcludedFiles: nil,
+		KnownProviderHosts: map[string]string{
+			authAnthropicProvider: anthropicAPIHost,
+		},
+		LoginHosts: nil,
+		Auth: AuthMigrationSpec{
+			SecretPrefix: "CLAUDE",
+			AuthFields: map[string][]string{
+				authAPIKeyType: {authKeyField},
+			},
+			LoginAuthTypes:  []string{oauthAuthType},
+			SensitiveFields: defaultSensitiveAuthFields,
+			SafeFields: []string{
+				"model", "permissions", "sandbox", "theme", authTypeField,
+			},
+			ConfigSensitiveFields:   defaultConfigSensitiveFields,
+			EndpointFields:          []string{authBaseURLField, authBaseURLLowerField, authEndpointField, authURLField},
+			AuthPlaceholderPrefix:   migrationPlaceholderPrefix,
+			ConfigPlaceholderPrefix: migrationPlaceholderPrefix,
+			ConfigPlaceholderSuffix: "",
+			RejectUnresolvedValues:  true,
+		},
+	}
+}
+
 func (claudeCodeProfile) ImageSpec() ImageSpec {
 	return ImageSpec{
 		VersionArg: versionArgFor(claudeCodeName),

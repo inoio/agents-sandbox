@@ -96,11 +96,12 @@ type UI interface {
 	IsInteractive() bool
 	Select(prompt string, choices []Choice, defaultKey string) (string, error)
 	Input(prompt, defaultValue string) (string, error)
+	SecretInput(prompt string) (string, error)
 }
 
 // New creates a production ui backed by the given streams.
 func New(stdin io.Reader, stdout, stderr io.Writer, color bool, level Level, quiet bool, assumeYes bool) UI {
-	//nolint:exhaustruct // stdinReader not needed in production
+	//nolint:exhaustruct_v5 // stdinReader not needed in production
 	return &printer{
 		stdin:      stdin,
 		stdout:     stdout,

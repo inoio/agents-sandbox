@@ -13,14 +13,14 @@ import (
 // exist, so their error paths are covered without mutating daemon state.
 
 func TestRealDockerClientPing(t *testing.T) {
-	c := &realDockerClient{}
+	c := RealClient()
 	if _, err := c.Ping(context.Background(), client.PingOptions{}); err != nil {
 		t.Errorf("Ping() error = %v, want nil", err)
 	}
 }
 
 func TestRealDockerClientImageLookupErrors(t *testing.T) {
-	c := &realDockerClient{}
+	c := RealClient()
 	ctx := context.Background()
 	const missing = "agents-sandbox-tests-no-such-image"
 
@@ -42,7 +42,7 @@ func TestRealDockerClientImageLookupErrors(t *testing.T) {
 }
 
 func TestRealDockerClientImageBuildError(t *testing.T) {
-	c := &realDockerClient{}
+	c := RealClient()
 	// An invalid build context makes the daemon abort the build, exercising the
 	// delegation path without producing a real image.
 	if _, err := c.ImageBuild(
@@ -55,7 +55,7 @@ func TestRealDockerClientImageBuildError(t *testing.T) {
 }
 
 func TestRealDockerClientImagePullError(t *testing.T) {
-	c := &realDockerClient{}
+	c := RealClient()
 	// A repository that cannot exist is rejected by the registry, exercising the
 	// delegation path without pulling any image.
 	if _, err := c.ImagePull(
@@ -68,7 +68,7 @@ func TestRealDockerClientImagePullError(t *testing.T) {
 }
 
 func TestRealDockerClientImagePrune(t *testing.T) {
-	c := &realDockerClient{}
+	c := RealClient()
 	if _, err := c.ImagePrune(context.Background(), client.ImagePruneOptions{}); err != nil {
 		t.Errorf("ImagePrune() error = %v, want nil", err)
 	}

@@ -100,8 +100,7 @@ func TestMainProcess(t *testing.T) {
 		out, err := cmd.CombinedOutput()
 		exitCode := 0
 		if err != nil {
-			var exitErr *exec.ExitError
-			if errors.As(err, &exitErr) {
+			if exitErr, ok := errors.AsType[*exec.ExitError](err); ok {
 				exitCode = exitErr.ExitCode()
 			} else {
 				t.Fatalf("running helper: %v", err)
@@ -124,8 +123,7 @@ func runMainHelper(t *testing.T, args []string) (string, int) {
 	)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
-		var exitErr *exec.ExitError
-		if errors.As(err, &exitErr) {
+		if exitErr, ok := errors.AsType[*exec.ExitError](err); ok {
 			return string(out), exitErr.ExitCode()
 		}
 		t.Fatalf("running helper: %v", err)

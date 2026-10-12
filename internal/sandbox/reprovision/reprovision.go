@@ -4,6 +4,7 @@
 package reprovision
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -49,6 +50,7 @@ func Provision(ctx context.Context, sb msb.Sandbox, cf *ConfigFiles) (retErr err
 	// Best-effort: the merged config is written to the last-loaded filename
 	// (e.g., opencode.jsonc), so a failed removal is non-fatal.
 	removeStalePaths(ctx, fs, cf.Remove)
+	removeStaleHostCopies(ctx, fs, cf.RemoveHostCopies)
 	if cf.HasSnippets && len(cf.Merged) > 0 {
 		mergedPath := cf.MergedPath
 		made, err := mkdirAllFS(ctx, fs, filepath.Dir(mergedPath))
@@ -138,6 +140,19 @@ func chmodFile(ctx context.Context, sb msb.Sandbox, path string, mode os.FileMod
 func removeStalePaths(ctx context.Context, fs msb.SandboxFS, remove []string) {
 	for _, p := range remove {
 		_ = fs.Remove(ctx, p)
+	}
+}
+
+// removeStaleHostCopies deletes each VM file whose content equals the given
+// host content, so stale host secrets are removed while VM-local files with
+// the same path survive. Failures are ignored like in removeStalePaths.
+func removeStaleHostCopies(ctx context.Context, fs msb.SandboxFS, hostCopies map[string][]byte) {
+	for path, hostContent := range hostCopies {
+		vmContent, err := fs.Read(ctx, path)
+		if err != nil || !bytes.Equal(vmContent, hostContent) {
+			continue
+		}
+		_ = fs.Remove(ctx, path)
 	}
 }
 

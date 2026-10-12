@@ -1,4 +1,4 @@
-.PHONY: build build-release build-release-all test coverage coverage-junit lint fmt clean completion user-install check all upgrade-deps docs-diagrams docs-serve
+.PHONY: build build-release build-release-all bootstrap test test-integration coverage coverage-junit lint fmt validate-fmt run check verify all clean install-bash-completion install-head install-head-and-bash-completion upgrade-deps docs-diagrams docs-linkcheck docs-linkcheck-test docs-serve
 
 VERSION ?= dev
 
@@ -6,6 +6,11 @@ GOOS ?= $(shell go env GOOS)
 GOARCH ?= $(shell go env GOARCH)
 ZIG_TARGET ?=
 PLANTUML ?= plantuml
+# keep in sync with versions in .agents-sandbox/Dockerfile
+GO_VERSION = $(shell cat .go-version)
+GOLANGCI_LINT_VERSION = 2.14.0
+ZIG_VERSION ?= 0.17.0
+GOTESTSUM_VERSION = 1.13.0
 
 ARTIFACT = agents-sandbox-$(GOOS)-$(GOARCH)
 
@@ -33,15 +38,49 @@ else
 	    go build -trimpath -buildvcs=false -ldflags "-s -w -X main.version=$(VERSION)" -o $(ARTIFACT) ./cmd/agents-sandbox
 endif
 
-build-release-all: export VERSION=$(VERSION)
 build-release-all:
 	@for t in $(RELEASE_TARGETS); do \
 	    goos=$${t%/*/*}; rest=$${t#*/}; goarch=$${rest%/*}; zig=$${t##*/}; \
 	    $(MAKE) build-release GOOS=$$goos GOARCH=$$goarch ZIG_TARGET=$$zig; \
 	done
 
+
+# One-shot dev environment bootstrap: requires goenv; installs the pinned Go
+# version, golangci-lint, and Zig (for cross-compilation). Idempotent.
+bootstrap:
+	@command -v goenv >/dev/null 2>&1 || { echo "goenv is required; see CONTRIBUTING.md"; exit 1; }
+	@if goenv versions 2>/dev/null | grep -qw "$(GO_VERSION)"; then \
+	    echo "go $(GO_VERSION) already installed"; \
+	else \
+	    goenv install "$(GO_VERSION)"; \
+	fi
+	goenv tools install "golangci-lint@v$(GOLANGCI_LINT_VERSION)"
+	@if command -v zig >/dev/null 2>&1 && [ "$$(zig version)" = "$(ZIG_VERSION)" ]; then \
+	    echo "zig $(ZIG_VERSION) already installed"; \
+	else \
+	    ZIG_ARCH=$$(if [ "$$(uname -m)" = aarch64 ]; then echo aarch64; else echo x86_64; fi); \
+	    if [ "$$(uname -s)" = "Darwin" ]; then \
+	        ZIG_OS=macos; ZIG_PREFIX="$${HOME}/.local"; \
+	    else \
+	        ZIG_OS=linux; ZIG_PREFIX=/usr/local; \
+	    fi; \
+	    ZIG_TARBALL=zig-$${ZIG_ARCH}-$${ZIG_OS}-$(ZIG_VERSION).tar.xz; \
+	    ZIG_DIR=zig-$${ZIG_ARCH}-$${ZIG_OS}-$(ZIG_VERSION); \
+	    mkdir -p "$$ZIG_PREFIX"; \
+	    curl -fsSL "https://ziglang.org/download/$(ZIG_VERSION)/$${ZIG_TARBALL}" -o /tmp/zig.tar.xz \
+	 && tar -xf /tmp/zig.tar.xz -C "$$ZIG_PREFIX" \
+	 && rm /tmp/zig.tar.xz \
+	 && ln -sfn "$$ZIG_PREFIX/$${ZIG_DIR}" "$$ZIG_PREFIX/zig"; \
+	fi
+
 test:
 	CGO_ENABLED=1 go test ./...
+
+# Docker-build integration tests for RenderDockerfile composition. Excluded from
+# `test`/`check` via the `integration` build tag. Requires a working docker
+# daemon and network access (base image pulls, agent installs).
+test-integration:
+	CGO_ENABLED=1 go test -tags integration -count=1 ./internal/sandbox/image/
 
 coverage:
 	CGO_ENABLED=1 go test -coverprofile=coverage.out ./...
@@ -49,7 +88,7 @@ coverage:
 
 # Single test run that also emits JUnit XML (junit.xml) for Codecov Test Analytics.
 coverage-junit:
-	CGO_ENABLED=1 go run gotest.tools/gotestsum@latest --junitfile junit.xml -- -coverprofile=coverage.out ./...
+	CGO_ENABLED=1 go run gotest.tools/gotestsum@v$(GOTESTSUM_VERSION) --junitfile junit.xml -- -coverprofile=coverage.out ./...
 	go tool cover -func=coverage.out | tail -1
 
 lint:
@@ -64,14 +103,19 @@ validate-fmt:
 run:
 	go run ./cmd/agents-sandbox
 
-check: fmt lint test
+check: fmt lint test docs-linkcheck docs-linkcheck-test
 
-all: fmt lint test build
+# Read-only check for CI parity: fmt-check + lint + test (does not modify files).
+verify: validate-fmt lint test docs-linkcheck docs-linkcheck-test
+
+all: fmt lint test docs-linkcheck docs-linkcheck-test build
 
 clean:
 	rm -f agents-sandbox
+	rm -f agents-sandbox-linux-* agents-sandbox-darwin-*
+	rm -f coverage.out junit.xml
 
-completion:
+install-bash-completion:
 	mkdir -p ~/.local/share/bash-completion/completions
 	go run ./cmd/agents-sandbox completion bash > ~/.local/share/bash-completion/completions/agents-sandbox
 
@@ -80,14 +124,24 @@ completion:
 docs-diagrams:
 	cd docs/diagrams && for f in *.puml; do case "$$f" in C4*) ;; *) $(PLANTUML) -DRELATIVE_INCLUDE -tsvg -o . "$$f" || exit 1;; esac; done
 
+# Validate documentation links and linking style (run by `make check` and CI).
+docs-linkcheck:
+	ci/check-docs.sh
+
+# Test the documentation link checker itself.
+docs-linkcheck-test:
+	ci/test-check-docs.sh
+
 # Serve the docs locally the same way GitHub Pages does (Jekyll build + live reload) at http://localhost:4000/.
 docs-serve:
 	cd docs && bundle install && bundle exec jekyll serve --livereload
 
-user-install: build
+install-head:
 	mkdir -p ~/.local/bin
 	cp agents-sandbox ~/.local/bin/agents-sandbox.tmp
 	mv -f ~/.local/bin/agents-sandbox.tmp ~/.local/bin/agents-sandbox
+
+install-head-and-bash-completion: build install-head install-bash-completion
 
 upgrade-deps:
 	go get -u ./...

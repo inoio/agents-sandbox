@@ -3,16 +3,24 @@ package main
 import (
 	"context"
 	"errors"
+	"os"
+	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
 	"github.com/spf13/cobra"
 	msb "github.com/superradcompany/microsandbox/sdk/go"
 
+	"github.com/inoio/agents-sandbox/internal/configmigration"
+	"github.com/inoio/agents-sandbox/internal/configpaths"
 	"github.com/inoio/agents-sandbox/internal/sandbox/doctor"
 	sandboxmsb "github.com/inoio/agents-sandbox/internal/sandbox/msb"
+	"github.com/inoio/agents-sandbox/internal/sandbox/options"
 	sandbox "github.com/inoio/agents-sandbox/internal/sandbox/vm"
 	"github.com/inoio/agents-sandbox/internal/termio"
+	"github.com/inoio/agents-sandbox/internal/testutil"
+	launcherconfig "github.com/inoio/agents-sandbox/internal/viperconfig"
 )
 
 // setupRunMocks configures all mock dependencies needed for run/shell tests,
@@ -360,5 +368,234 @@ func TestRunShellInvalidSizeFlags(t *testing.T) {
 				t.Errorf("expected error containing %q, got: %v", tc.wantErrPart, err)
 			}
 		})
+	}
+}
+
+func TestHandleMigrationError(t *testing.T) {
+	if err := handleMigrationError(configmigration.ErrRerunRequired); err == nil {
+		t.Fatal("expected exit error")
+	}
+	want := errors.New("migration failed")
+	if err := handleMigrationError(want); !errors.Is(err, want) {
+		t.Fatalf("handleMigrationError = %v, want original error", err)
+	}
+}
+
+func TestGuideConfigMigrationErrorBranches(t *testing.T) {
+	ui := &termio.Mock{}
+	if err := guideConfigMigration(options.RunOptions{DryRun: false}, ui, true); err != nil {
+		t.Fatalf("dry-run guidance error = %v", err)
+	}
+	if err := guideConfigMigration(
+		options.RunOptions{Agent: "unknown"},
+		ui,
+		false,
+	); err == nil ||
+		!strings.Contains(err.Error(), "unknown agent") {
+		t.Fatalf("unknown agent guidance error = %v", err)
+	}
+	originalHome := migrationHomeDir
+	t.Cleanup(func() { migrationHomeDir = originalHome })
+	migrationHomeDir = func() (string, error) { return "", errors.New("home failed") }
+	if err := guideConfigMigration(
+		options.RunOptions{Agent: "opencode"},
+		ui,
+		false,
+	); err == nil ||
+		!strings.Contains(err.Error(), "home failed") {
+		t.Fatalf("home guidance error = %v", err)
+	}
+}
+
+func TestGuideConfigMigrationOffersClaudeCodeSetupWithoutNativeConfig(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	t.Setenv("CLAUDE_CONFIG_DIR", "")
+	hostHome := t.TempDir()
+	originalHome := migrationHomeDir
+	t.Cleanup(func() { migrationHomeDir = originalHome })
+	migrationHomeDir = func() (string, error) { return hostHome, nil }
+	ui := termio.NewTestMock(t)
+	ui.IsInteractiveResult = true
+	var prompts []string
+	ui.SelectFn = func(prompt string, _ []termio.Choice, _ string) (string, error) {
+		prompts = append(prompts, prompt)
+		return "d", nil
+	}
+	if err := guideConfigMigration(options.RunOptions{Agent: "claude-code"}, &ui, false); err != nil {
+		t.Fatalf("guideConfigMigration: %v", err)
+	}
+	if len(prompts) != 1 || !strings.Contains(prompts[0], "Set up") {
+		t.Fatalf("prompts = %v, want the Claude Code setup prompt", prompts)
+	}
+}
+
+func TestGuideConfigMigrationOffersHostFirstWithoutNativeConfig(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	t.Setenv("XDG_CONFIG_HOME", "")
+	t.Setenv("XDG_DATA_HOME", "")
+	t.Setenv("PI_CODING_AGENT_DIR", "")
+	hostHome := t.TempDir()
+	originalHome := migrationHomeDir
+	t.Cleanup(func() { migrationHomeDir = originalHome })
+	migrationHomeDir = func() (string, error) { return hostHome, nil }
+	ui := termio.NewTestMock(t)
+	ui.IsInteractiveResult = true
+	var offered []string
+	ui.SelectFn = func(_ string, choices []termio.Choice, _ string) (string, error) {
+		for _, choice := range choices {
+			offered = append(offered, choice.Key)
+		}
+		return "start", nil
+	}
+
+	if err := guideConfigMigration(options.RunOptions{Agent: "pi"}, &ui, false); err != nil {
+		t.Fatalf("guideConfigMigration: %v", err)
+	}
+	if !slices.Contains(offered, "host-first") {
+		t.Fatalf("offered choices = %v, want the host-first hand-off", offered)
+	}
+}
+
+func TestRunPropagatesMigrationGuidanceError(t *testing.T) {
+	initTestRepo(t)
+	originalHome := migrationHomeDir
+	t.Cleanup(func() { migrationHomeDir = originalHome })
+	migrationHomeDir = func() (string, error) { return "", errors.New("home failed") }
+
+	mock := &sandboxmsb.MockMsbClient{}
+	root, _ := setupRunMocks(t, mock, &sandboxmsb.MockSandbox{}, "run")
+	err := root.Execute()
+	if err == nil || !strings.Contains(err.Error(), "resolve host home: home failed") {
+		t.Fatalf("run migration guidance error = %v", err)
+	}
+}
+
+func TestRunPropagatesPostMigrationRefreshError(t *testing.T) {
+	originalRefresh := refreshRunOptionsAfterMigrationFn
+	t.Cleanup(func() { refreshRunOptionsAfterMigrationFn = originalRefresh })
+	refreshRunOptionsAfterMigrationFn = func(*cobra.Command, []string, termio.UI) (options.RunOptions, *launcherconfig.Resolver, error) {
+		return options.RunOptions{}, nil, errors.New("refresh failed")
+	}
+	initTestRepo(t)
+	mock := &sandboxmsb.MockMsbClient{}
+	root, _ := setupRunMocks(t, mock, &sandboxmsb.MockSandbox{}, "run", "ping")
+	if err := root.Execute(); err == nil || !strings.Contains(err.Error(), "refresh failed") {
+		t.Fatalf("post-migration refresh error = %v", err)
+	}
+}
+
+func TestRunInvokesFirstRunWizard(t *testing.T) {
+	initTestRepo(t)
+
+	originalWizard := runConfigWizardFn
+	originalRefresh := refreshRunOptionsAfterMigrationFn
+	originalGuide := guideConfigMigrationFn
+	t.Cleanup(func() {
+		runConfigWizardFn = originalWizard
+		refreshRunOptionsAfterMigrationFn = originalRefresh
+		guideConfigMigrationFn = originalGuide
+	})
+
+	var wizardCalls int
+	var events []string
+	runConfigWizardFn = func(*launcherconfig.Resolver, termio.UI) error {
+		wizardCalls++
+		events = append(events, "wizard")
+		return nil
+	}
+	const refreshedAgent = "claude-code"
+	refreshRunOptionsAfterMigrationFn = func(*cobra.Command, []string, termio.UI) (options.RunOptions, *launcherconfig.Resolver, error) {
+		events = append(events, "refresh")
+		return options.RunOptions{Agent: refreshedAgent}, nil, nil
+	}
+	var observed options.RunOptions
+	guideConfigMigrationFn = func(opts options.RunOptions, _ termio.UI, _ bool) error {
+		events = append(events, "migration")
+		observed = opts
+		return nil
+	}
+
+	mock := &sandboxmsb.MockMsbClient{}
+	root, _ := setupRunMocks(t, mock, &sandboxmsb.MockSandbox{AttachErr: errors.New("fail")}, "run")
+	if err := root.Execute(); err == nil {
+		t.Fatal("expected the session to fail after wizard, refresh, and migration")
+	}
+	if wizardCalls != 1 {
+		t.Errorf("wizard invoked %d times, want exactly once", wizardCalls)
+	}
+	if len(events) < 3 || events[0] != "wizard" || events[1] != "refresh" || events[2] != "migration" {
+		t.Errorf("events = %v, want wizard, refresh, migration to lead", events)
+	}
+	if observed.Agent != refreshedAgent {
+		t.Errorf("migration observed agent %q, want refreshed %q", observed.Agent, refreshedAgent)
+	}
+}
+
+func TestRunPropagatesFirstRunWizardError(t *testing.T) {
+	initTestRepo(t)
+
+	originalWizard := runConfigWizardFn
+	originalRefresh := refreshRunOptionsAfterMigrationFn
+	t.Cleanup(func() {
+		runConfigWizardFn = originalWizard
+		refreshRunOptionsAfterMigrationFn = originalRefresh
+	})
+
+	wantErr := errors.New("wizard failed")
+	runConfigWizardFn = func(*launcherconfig.Resolver, termio.UI) error { return wantErr }
+	refreshCalled := false
+	refreshRunOptionsAfterMigrationFn = func(*cobra.Command, []string, termio.UI) (options.RunOptions, *launcherconfig.Resolver, error) {
+		refreshCalled = true
+		return options.RunOptions{}, nil, nil
+	}
+
+	mock := &sandboxmsb.MockMsbClient{}
+	root, _ := setupRunMocks(t, mock, &sandboxmsb.MockSandbox{}, "run")
+	if err := root.Execute(); !errors.Is(err, wantErr) {
+		t.Fatalf("wizard error = %v, want %v", err, wantErr)
+	}
+	if refreshCalled {
+		t.Error("post-wizard refresh ran even though the wizard failed")
+	}
+}
+
+func TestRunSkipsWizardOnDryRun(t *testing.T) {
+	initTestRepo(t)
+
+	originalWizard := runConfigWizardFn
+	t.Cleanup(func() { runConfigWizardFn = originalWizard })
+
+	wizardCalled := false
+	runConfigWizardFn = func(*launcherconfig.Resolver, termio.UI) error {
+		wizardCalled = true
+		return nil
+	}
+
+	mock := &sandboxmsb.MockMsbClient{}
+	root, _ := setupRunMocks(t, mock, &sandboxmsb.MockSandbox{}, "run", "--dry-run")
+	if err := root.Execute(); err != nil {
+		t.Fatalf("dry-run execute: %v", err)
+	}
+	if wizardCalled {
+		t.Error("wizard ran on a dry run")
+	}
+}
+
+func TestRefreshRunOptionsAfterMigrationErrors(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	cmd := buildRunCmd(&termio.Mock{})
+	cmd.SetContext(context.WithValue(
+		context.Background(),
+		(*launcherConfigKey)(nil),
+		launcherconfig.NewResolverWithConfig(launcherconfig.Config{}),
+	))
+	oldHome := migrationHomeDir
+	t.Cleanup(func() { migrationHomeDir = oldHome })
+	if err := os.MkdirAll(configpaths.Get().UserConfigDir(), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	testutil.WritePath(t, filepath.Join(configpaths.Get().UserConfigDir(), "config.yaml"), "network: [")
+	if _, _, err := refreshRunOptionsAfterMigration(cmd, nil, &termio.Mock{}); err == nil {
+		t.Fatal("expected resolver refresh error")
 	}
 }

@@ -1,5 +1,6 @@
 ---
 title: Commands
+description: "Reference of all agents-sandbox subcommands, aliases and flags."
 layout: default
 nav_order: 60
 ---
@@ -38,7 +39,8 @@ Arguments after `--` are forwarded to the agent. Arguments before `--` that don'
 | Flag           | Short | Default  | Purpose                                                                                                                                    |
 |----------------|-------|----------|--------------------------------------------------------------------------------------------------------------------------------------------|
 | `--worktree`   | `-w`  | `""`     | Isolated agent worktree named <name>, optionally starting from base ref <name>:<base>                                  |
-| `--rebuild`    | `-r`  | `false`  | Rebuild runner image before starting                                                                                                       |
+| `--rebuild`    | `-r`  | `false`  | Rebuild runner image before starting (clean rebuild; still offers an agent upgrade if one is available)                                                                                                       |
+| `--agent-version` | —  | `""`     | Pin the version agents-sandbox installs into the runner image (default: latest). Ignored for a user-provided agent. |
 | `--dry-run`    | `-n`  | `false`  | Validate setup without running the agent                                                                                                    |
 | `--cpus`       | `-c`  | `0`      | vCPUs for the sandbox (0 = all)                                                                                                            |
 | `--memory`     | `-m`  | `4G`     | Memory limit, e.g. `4G`, `512M`                                                                                                            |
@@ -317,6 +319,55 @@ List the resolved home-file mappings from the config `home:` key (VM target path
 agents-sandbox config home
 ```
 
+#### config migrate [name]
+
+Safely migrate supported native agent configuration without starting a VM. OpenCode, OpenCode 2, Pi, and Claude Code are
+supported. Static credential values are replaced with microsandbox placeholders and raw values are written to the user-level
+secret file; refreshable OAuth logins are not copied and are authenticated inside the sandbox instead; native agent files are
+not modified. For Claude Code, only portable `settings.json` values are migrated; credentials in `.credentials.json`, the OS
+keychain, or runtime state are never copied.
+
+The agent is selected by the positional `name` or `--agent` (both must match if given), otherwise by the configured `agent`.
+
+Before writing, the command reviews generated files, asks for the destination of unknown provider hosts, asks for confirmation
+of inferred network egress hosts, and warns about auth fields that are not recognized automatically. After success it prints
+generated paths and the generated non-secret file contents.
+
+The command refuses to run while managed files from an earlier migration exist, so it never overwrites them. A migration that
+was dismissed at the first start can still be applied with this command. See
+[Manage config in the sandbox]({% link manage-config.md %}#start-from-existing-agent-config) for the generated files,
+limitations, and how to migrate again.
+
+```console
+agents-sandbox config migrate
+agents-sandbox config migrate pi
+agents-sandbox config migrate --agent opencode2
+```
+
+**Flags:**
+
+| Flag      | Short | Default                         | Purpose                         |
+|-----------|-------|---------------------------------|---------------------------------|
+| `--agent` | —     | configured `agent` (`opencode`) | Coding-agent profile to migrate |
+
+#### config wizard
+
+Interactively set launcher configuration in your user-level config file, preserving comments and key order. With no
+flag it asks every tier that still has unanswered questions; `--tier=N` asks exactly one tier (1 = essentials, 2 =
+resources, 3 = runtime, 4 = integrations). Non-interactive runs skip the wizard. Runs automatically on the first
+interactive `run`/`shell` (tiers 1–3 only). See [Setup wizard]({% link configuration/wizard.md %}).
+
+```console
+agents-sandbox config wizard
+agents-sandbox config wizard --tier=4
+```
+
+**Flags:**
+
+| Flag     | Short | Default | Purpose                                                        |
+|----------|-------|---------|----------------------------------------------------------------|
+| `--tier` | —     | `0`     | Tier to ask (1–4); `0` asks all unanswered tiers               |
+
 ---
 
 ### completion
@@ -457,7 +508,6 @@ Create a new home volume and copy files from the old volume on top of it.
 - **Flags:**
   - `--rm` — remove old volume after successful migration
   - `--dry-run` — show what would be done
-  - `--rebuild` — rebuild runner image before migrating
   - `--agent` — coding-agent profile to provision (`opencode` default)
 
 #### `agents-sandbox volume reset [volume-name]`
@@ -469,7 +519,6 @@ Create a new home volume from the image contents only (fresh, no copy).
 - **Flags:**
   - `--rm` — remove old volume after reset
   - `--dry-run` — show what would be done
-  - `--rebuild` — rebuild runner image before resetting
   - `--agent` — coding-agent profile to provision (`opencode` default)
 
 #### `agents-sandbox volume edit [volume-name]`

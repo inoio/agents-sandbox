@@ -108,16 +108,16 @@ var (
 	ensureRuntime              = func(ctx context.Context) error {
 		_, err := msbSdk.EnsureRuntime(
 			ctx,
-			msbSdk.RuntimeConfig{},  //nolint:exhaustruct // empty config uses environment/default paths
-			msbSdk.InstallOptions{}, //nolint:exhaustruct // zero options install the SDK-pinned runtime
+			msbSdk.RuntimeConfig{},  //nolint:exhaustruct_v5 // empty config uses environment/default paths
+			msbSdk.InstallOptions{}, //nolint:exhaustruct_v5 // zero options install the SDK-pinned runtime
 		)
 		return err
 	}
 	installRuntime = func(ctx context.Context) error {
 		_, err := msbSdk.InstallRuntime(
 			ctx,
-			msbSdk.RuntimeConfig{},             //nolint:exhaustruct // empty config uses environment/default paths
-			msbSdk.InstallOptions{Force: true}, //nolint:exhaustruct // force replacement of an older managed runtime
+			msbSdk.RuntimeConfig{},             //nolint:exhaustruct_v5 // empty config uses environment/default paths
+			msbSdk.InstallOptions{Force: true}, //nolint:exhaustruct_v5 // force replacement of an older managed runtime
 		)
 		return err
 	}
@@ -144,7 +144,7 @@ func inspectRuntime(requiredVersion string) (Inspection, error) {
 	if err != nil {
 		return Inspection{}, err
 	}
-	inspection := Inspection{ //nolint:exhaustruct // optional fields are populated below
+	inspection := Inspection{ //nolint:exhaustruct_v5 // optional fields are populated below
 		RequiredVersion: requiredVersion,
 		MSBHome:         selected.Home,
 		MSBPath:         selected.MSBPath,

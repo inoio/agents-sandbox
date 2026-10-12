@@ -233,7 +233,7 @@ func TestSetUpSandboxProvisionError(t *testing.T) {
 		}
 		return "", 0, nil
 	})
-	defer SetDaemonShellFunc(orig)
+	t.Cleanup(func() { SetDaemonShellFunc(orig) })
 
 	configpaths.WithMockConfigPaths(t)
 
@@ -279,7 +279,7 @@ func TestRestartDaemonsKillError(t *testing.T) {
 		}
 		return "", 0, nil
 	})
-	defer SetDaemonShellFunc(orig)
+	t.Cleanup(func() { SetDaemonShellFunc(orig) })
 
 	ui := termio.NewTestMock(t)
 	fs := msb.NewTestFS(nil, nil)

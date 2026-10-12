@@ -190,6 +190,21 @@ func TestOpencodeProvisionRules(t *testing.T) {
 	}
 }
 
+func TestOpencodeMigrationSpec(t *testing.T) {
+	a, _ := agent.Lookup("opencode")
+	provider, ok := agent.AsMigrationSpecProvider(a)
+	if !ok {
+		t.Fatal("opencode should implement MigrationSpecProvider")
+	}
+	spec := provider.MigrationSpec()
+	if spec.ManagedCredential != "auth.json" || spec.CredentialTarget != ".local/share/opencode/auth.json" {
+		t.Errorf("unexpected migration paths: %+v", spec)
+	}
+	if len(spec.KnownProviderHosts) == 0 {
+		t.Fatal("expected known provider hosts")
+	}
+}
+
 func mustDaemon(t *testing.T, a agent.Agent) agent.DaemonProvider {
 	t.Helper()
 	daemon, ok := agent.AsDaemonProvider(a)

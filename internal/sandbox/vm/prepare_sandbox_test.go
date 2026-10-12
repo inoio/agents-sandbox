@@ -8,9 +8,7 @@ import (
 	"testing"
 
 	dockerspec "github.com/moby/docker-image-spec/specs-go/v1"
-	mobyimage "github.com/moby/moby/api/types/image"
 	"github.com/moby/moby/client"
-	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 
 	"github.com/inoio/agents-sandbox/internal/agent"
@@ -55,14 +53,10 @@ func TestPrepareSandboxReusesStoredOpenCodeVersion(t *testing.T) {
 		},
 		ImageInspectFn: func(_ context.Context, _ string, _ ...client.ImageInspectOption) (client.ImageInspectResult, error) {
 			return client.ImageInspectResult{
-				InspectResponse: mobyimage.InspectResponse{
-					ID: "sha256:abc123",
-					Config: &dockerspec.DockerOCIImageConfig{
-						ImageConfig: ocispec.ImageConfig{
-							Env:    []string{"PATH=/usr/bin"},
-							Labels: map[string]string{"org.agents-sandbox.agent": "opencode"},
-						},
-					},
+				ID: "sha256:abc123",
+				Config: &dockerspec.DockerOCIImageConfig{
+					Env:    []string{"PATH=/usr/bin"},
+					Labels: map[string]string{"org.agents-sandbox.agent": "opencode"},
 				},
 			}, nil
 		},
@@ -102,7 +96,7 @@ func TestPrepareSandboxReusesStoredOpenCodeVersion(t *testing.T) {
 		}
 		return "", 0, nil
 	})
-	defer SetDaemonShellFunc(origDaemon)
+	t.Cleanup(func() { SetDaemonShellFunc(origDaemon) })
 
 	ui := termio.NewTestMock(t)
 	sess, err := PrepareSandbox(context.Background(), options.RunOptions{}, &ui)
@@ -140,22 +134,16 @@ func TestPrepareSandboxUpgradeRebuildsImage(t *testing.T) {
 		},
 	}
 
-	var buildNoCache bool
 	docker.WithDockerMock(t, &docker.MockDockerClient{
-		ImageBuildFn: func(_ context.Context, _ io.Reader, opts client.ImageBuildOptions) (client.ImageBuildResult, error) {
-			buildNoCache = opts.NoCache
+		ImageBuildFn: func(_ context.Context, _ io.Reader, _ client.ImageBuildOptions) (client.ImageBuildResult, error) {
 			return client.ImageBuildResult{Body: io.NopCloser(strings.NewReader(""))}, nil
 		},
 		ImageInspectFn: func(_ context.Context, _ string, _ ...client.ImageInspectOption) (client.ImageInspectResult, error) {
 			return client.ImageInspectResult{
-				InspectResponse: mobyimage.InspectResponse{
-					ID: "sha256:abc123",
-					Config: &dockerspec.DockerOCIImageConfig{
-						ImageConfig: ocispec.ImageConfig{
-							Env:    []string{"PATH=/usr/bin"},
-							Labels: map[string]string{"org.agents-sandbox.agent": "opencode"},
-						},
-					},
+				ID: "sha256:abc123",
+				Config: &dockerspec.DockerOCIImageConfig{
+					Env:    []string{"PATH=/usr/bin"},
+					Labels: map[string]string{"org.agents-sandbox.agent": "opencode"},
 				},
 			}, nil
 		},
@@ -195,7 +183,7 @@ func TestPrepareSandboxUpgradeRebuildsImage(t *testing.T) {
 		}
 		return "", 0, nil
 	})
-	defer SetDaemonShellFunc(origDaemon)
+	t.Cleanup(func() { SetDaemonShellFunc(origDaemon) })
 
 	sess, err := PrepareSandbox(context.Background(), options.RunOptions{}, ui)
 	if err != nil {
@@ -208,9 +196,6 @@ func TestPrepareSandboxUpgradeRebuildsImage(t *testing.T) {
 
 	if !contains(joinStrings(ui.VerboseCalls), "runner image rebuilt with a newer opencode version") {
 		t.Errorf("expected a 'rebuilt with newer opencode' verbose, got %v", ui.VerboseCalls)
-	}
-	if !buildNoCache {
-		t.Error("expected the image build to bypass cache when upgrading")
 	}
 }
 
@@ -245,14 +230,10 @@ func TestPrepareSandboxLoadsHomeYamlOnce(t *testing.T) {
 		},
 		ImageInspectFn: func(_ context.Context, _ string, _ ...client.ImageInspectOption) (client.ImageInspectResult, error) {
 			return client.ImageInspectResult{
-				InspectResponse: mobyimage.InspectResponse{
-					ID: "sha256:abc123",
-					Config: &dockerspec.DockerOCIImageConfig{
-						ImageConfig: ocispec.ImageConfig{
-							Env:    []string{"PATH=/usr/bin"},
-							Labels: map[string]string{"org.agents-sandbox.agent": "opencode"},
-						},
-					},
+				ID: "sha256:abc123",
+				Config: &dockerspec.DockerOCIImageConfig{
+					Env:    []string{"PATH=/usr/bin"},
+					Labels: map[string]string{"org.agents-sandbox.agent": "opencode"},
 				},
 			}, nil
 		},
@@ -300,7 +281,7 @@ func TestPrepareSandboxLoadsHomeYamlOnce(t *testing.T) {
 		}
 		return "", 0, nil
 	})
-	defer SetDaemonShellFunc(origDaemon)
+	t.Cleanup(func() { SetDaemonShellFunc(origDaemon) })
 
 	ui := termio.NewTestMock(t)
 	sess, err := PrepareSandbox(context.Background(), options.RunOptions{}, &ui)
@@ -352,14 +333,10 @@ func TestPrepareSandboxRunsStartupHook(t *testing.T) {
 		},
 		ImageInspectFn: func(_ context.Context, _ string, _ ...client.ImageInspectOption) (client.ImageInspectResult, error) {
 			return client.ImageInspectResult{
-				InspectResponse: mobyimage.InspectResponse{
-					ID: "sha256:abc123",
-					Config: &dockerspec.DockerOCIImageConfig{
-						ImageConfig: ocispec.ImageConfig{
-							Env:    []string{"PATH=/usr/bin"},
-							Labels: map[string]string{"org.agents-sandbox.agent": "opencode"},
-						},
-					},
+				ID: "sha256:abc123",
+				Config: &dockerspec.DockerOCIImageConfig{
+					Env:    []string{"PATH=/usr/bin"},
+					Labels: map[string]string{"org.agents-sandbox.agent": "opencode"},
 				},
 			}, nil
 		},
@@ -400,7 +377,7 @@ func TestPrepareSandboxRunsStartupHook(t *testing.T) {
 		}
 		return "", 0, nil
 	})
-	defer SetDaemonShellFunc(origDaemon)
+	t.Cleanup(func() { SetDaemonShellFunc(origDaemon) })
 
 	ui := termio.NewTestMock(t)
 	sess, err := PrepareSandbox(context.Background(), options.RunOptions{}, &ui)
@@ -494,13 +471,9 @@ func TestPrepareSandboxPersistsMountFingerprintOnVMCreation(t *testing.T) {
 		},
 		ImageInspectFn: func(_ context.Context, _ string, _ ...client.ImageInspectOption) (client.ImageInspectResult, error) {
 			return client.ImageInspectResult{
-				InspectResponse: mobyimage.InspectResponse{
-					ID: "sha256:abc123",
-					Config: &dockerspec.DockerOCIImageConfig{
-						ImageConfig: ocispec.ImageConfig{
-							Labels: map[string]string{"org.agents-sandbox.agent": "opencode"},
-						},
-					},
+				ID: "sha256:abc123",
+				Config: &dockerspec.DockerOCIImageConfig{
+					Labels: map[string]string{"org.agents-sandbox.agent": "opencode"},
 				},
 			}, nil
 		},
@@ -537,7 +510,7 @@ func TestPrepareSandboxPersistsMountFingerprintOnVMCreation(t *testing.T) {
 		}
 		return "", 0, nil
 	})
-	defer SetDaemonShellFunc(origDaemon)
+	t.Cleanup(func() { SetDaemonShellFunc(origDaemon) })
 
 	mnts := mounts.Mounts{
 		"/home/dev/.m2": {Source: filepath.Join(t.TempDir(), "m2")},

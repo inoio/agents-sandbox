@@ -31,37 +31,35 @@ var agentLatestVersion = func(ctx context.Context, a agent.Agent) (string, error
 // for the current version and once for an upgrade). It returns the target
 // version and whether that version is a freshly chosen upgrade.
 //
-// An explicitly pinned version skips the update check entirely. An agent
-// without an upgrade checker uses the current recorded version without any
-// check. Otherwise the update check runs first and may offer to rebuild with a
-// newer release, deciding the final version up front.
+// A user-provided agent wins over an explicit pin: the tool does not own such an
+// agent, so a rebuild would not change its version and any pin is ignored. An
+// explicit pin on a tool-managed agent skips the update check entirely. An agent
+// without an upgrade checker uses the current recorded version without any check.
+// Otherwise the update check runs first and may offer to rebuild with a newer
+// release, deciding the final version up front. A forced rebuild (--rebuild) only
+// bypasses the cache; it does not suppress the update check.
 func resolveBuildVersion(
 	ctx context.Context,
 	a agent.Agent,
 	ui termio.UI,
 	opts options.RunOptions,
 ) (string, bool, error) {
+	// A user-provided agent is not owned by the tool: a rebuild would not
+	// change its version, so never check or offer an upgrade, and ignore any pin.
+	// If no version was recorded, leave it empty so the image build can resolve a
+	// real version if the current base image does not provide the agent.
+	if currentAgentSource(a) == agentSourceUser {
+		return currentUpgradeVersion(a), false, nil
+	}
+
 	// An explicitly pinned version is authoritative: never prompt for an upgrade.
 	if opts.AgentVersion != "" {
 		return opts.AgentVersion, false, nil
 	}
 
-	// A user-provided agent is not owned by the tool: a rebuild would not
-	// change its version, so never check or offer an upgrade. If no version was
-	// recorded, leave it empty so the image build can resolve a real version if
-	// the current base image does not provide the agent.
-	if currentAgentSource(a) == agentSourceUser {
-		return currentUpgradeVersion(a), false, nil
-	}
-
 	// Without an upgrade checker there is nothing to check against; reuse the
 	// recorded version so the image identity stays stable.
 	if _, ok := agent.AsUpgradeChecker(a); !ok {
-		return currentUpgradeVersion(a), false, nil
-	}
-
-	// A forced rebuild uses whatever version is current; no upgrade prompt.
-	if opts.Rebuild {
 		return currentUpgradeVersion(a), false, nil
 	}
 

@@ -271,13 +271,15 @@ func TestLoadConfigFilesRemovesStaleConfigWithSnippets(t *testing.T) {
 	// Snippets exist so hasSnippets=true and the merged config is written.
 	testutil.WriteFile(t, cp.ProjectAgentConfigDir(a), "opencode-model.json", `{"model":"x"}`)
 
-	// Host files the drop-in copy would pick up: opencode.jsonc is the merged
-	// config filename, other.json is unrelated.
+	// Host files the drop-in copy would pick up: every config-family filename
+	// must be excluded, while other.json remains a normal drop-in file.
 	ocConfig := filepath.Join(hostHome, ".config/opencode")
 	if err := os.MkdirAll(ocConfig, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	testutil.WriteFile(t, ocConfig, "opencode.jsonc", `{"model":"host"}`)
+	for _, name := range configFamilyNames(opencodeTestAgent()) {
+		testutil.WriteFile(t, ocConfig, name, `{"model":"host"}`)
+	}
 	testutil.WriteFile(t, ocConfig, "other.json", `{"host":1}`)
 
 	ui := termio.NewTestMock(t)
@@ -377,9 +379,15 @@ func TestLoadConfigFilesProvisioningDisabled(t *testing.T) {
 			t.Errorf("expected config file %s in Remove, got %v", want, cf.Remove)
 		}
 	}
+	// A login inside the VM must survive restarts: only VM files identical
+	// to the host file, i.e. copies from an earlier provisioning run, are
+	// marked for removal.
 	authPath := filepath.Join(vmHome, ".local", "share", "opencode", "auth.json")
-	if !slices.Contains(cf.Remove, authPath) {
-		t.Errorf("expected auth.json in Remove when provisioning disabled, got %v", cf.Remove)
+	if slices.Contains(cf.Remove, authPath) {
+		t.Errorf("Remove = %v, must not unconditionally contain auth.json", cf.Remove)
+	}
+	if got := string(cf.RemoveHostCopies[authPath]); got != `{"t":"x"}` {
+		t.Errorf("RemoveHostCopies[auth.json] = %q, want host content", got)
 	}
 	if !cf.HasSnippets || len(cf.Merged) == 0 {
 		t.Error("expected merged config to be built despite disabled provisioning")
@@ -414,6 +422,82 @@ func TestProvisionRemovesStalePaths(t *testing.T) {
 	}
 	if fs.Writes[AgentConfigPath(opencodeTestAgent(), VMHomeDir)] == nil {
 		t.Error("expected merged config written after removal")
+	}
+}
+
+// TestPiSensitiveFilesAreOnlyRemovedWhenTheyAreHostCopies verifies that Pi's
+// provisioning-excluded secrets are never removed unconditionally (a login
+// inside the VM must survive restarts); only VM files identical to the host
+// file, i.e. stale copies from an older provisioning run, are marked.
+func TestPiSensitiveFilesAreOnlyRemovedWhenTheyAreHostCopies(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	a, _ := agent.Lookup("pi")
+	hostHome := t.TempDir()
+	vmHome := t.TempDir()
+	hostPiDir := filepath.Join(hostHome, ".pi", "agent")
+	if err := os.MkdirAll(hostPiDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	testutil.WriteFile(t, hostPiDir, "auth.json", `{"secret":"host"}`)
+	ui := termio.NewTestMock(t)
+	cf, err := LoadConfigFilesForHost(a, hostHome, vmHome, &ui, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	authPath := filepath.Join(vmHome, ".pi", "agent", "auth.json")
+	modelsPath := filepath.Join(vmHome, ".pi", "agent", "models.json")
+	for _, path := range []string{authPath, modelsPath} {
+		if slices.Contains(cf.Remove, path) {
+			t.Errorf("Remove = %v, must not unconditionally contain %s", cf.Remove, path)
+		}
+	}
+	if got := string(cf.RemoveHostCopies[authPath]); got != `{"secret":"host"}` {
+		t.Errorf("RemoveHostCopies[auth.json] = %q, want host content", got)
+	}
+	if _, ok := cf.RemoveHostCopies[modelsPath]; ok {
+		t.Errorf("RemoveHostCopies = %v, want no entry for models.json missing on the host", cf.RemoveHostCopies)
+	}
+}
+
+// TestProvisionRemovesOnlyStaleHostCopies verifies that Provision removes a
+// VM file marked as a potential host copy only when its content matches.
+func TestProvisionRemovesOnlyStaleHostCopies(t *testing.T) {
+	staleCopy := "/home/agent/.pi/agent/auth.json"
+	vmLogin := "/home/agent/.pi/agent/models.json"
+	missing := "/home/agent/.pi/agent/other.json"
+	cf := &ConfigFiles{
+		RemoveHostCopies: map[string][]byte{
+			staleCopy: []byte("host"),
+			vmLogin:   []byte("host"),
+			missing:   []byte("host"),
+		},
+	}
+	fs := msb.NewTestFS(map[string][]byte{
+		staleCopy: []byte("host"),
+		vmLogin:   []byte("logged in inside the VM"),
+	}, nil)
+	sb := &msb.MockSandbox{FSValue_: fs, ShellCalls: &[]string{}}
+	if err := Provision(context.Background(), sb, cf); err != nil {
+		t.Fatalf("Provision: %v", err)
+	}
+	if !slices.Equal(fs.Removed, []string{staleCopy}) {
+		t.Errorf("Removed = %v, want only %s", fs.Removed, staleCopy)
+	}
+}
+
+func TestClaudeCredentialsAreNotRemovedFromPersistentHome(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	a, _ := agent.Lookup("claude-code")
+	hostHome := t.TempDir()
+	vmHome := t.TempDir()
+	ui := termio.NewTestMock(t)
+	cf, err := LoadConfigFilesForHost(a, hostHome, vmHome, &ui, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	credentialsPath := filepath.Join(vmHome, ".claude", ".credentials.json")
+	if slices.Contains(cf.Remove, credentialsPath) {
+		t.Fatalf("Claude credentials would be removed from persistent home: %v", cf.Remove)
 	}
 }
 
@@ -629,6 +713,21 @@ func TestLoadConfigFilesNoReservedForNonConfigMerger(t *testing.T) {
 	}
 	if cf.HasSnippets {
 		t.Error("expected HasSnippets=false for a non-ConfigMerger agent")
+	}
+}
+
+// TestLoadConfigFilesNoHostCopiesForNonProvisioner verifies that an agent
+// without provision rules has no stale host copies to remove when host config
+// provisioning is disabled.
+func TestLoadConfigFilesNoHostCopiesForNonProvisioner(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	ui := termio.NewTestMock(t)
+	cf, err := LoadConfigFilesForHost(plainAgent{}, t.TempDir(), t.TempDir(), &ui, false)
+	if err != nil {
+		t.Fatalf("LoadConfigFilesForHost: %v", err)
+	}
+	if len(cf.RemoveHostCopies) != 0 {
+		t.Errorf("RemoveHostCopies = %v, want none for a non-Provisioner agent", cf.RemoveHostCopies)
 	}
 }
 

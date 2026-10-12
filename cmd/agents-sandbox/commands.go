@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"fmt"
-	"os"
 	"slices"
 	"strings"
 
@@ -11,11 +10,7 @@ import (
 
 	"github.com/inoio/agents-sandbox/internal/agent"
 	"github.com/inoio/agents-sandbox/internal/git"
-	"github.com/inoio/agents-sandbox/internal/notify"
-	"github.com/inoio/agents-sandbox/internal/sandbox/mounts"
 	"github.com/inoio/agents-sandbox/internal/sandbox/naming"
-	"github.com/inoio/agents-sandbox/internal/sandbox/network"
-	"github.com/inoio/agents-sandbox/internal/sandbox/options"
 	msbruntime "github.com/inoio/agents-sandbox/internal/sandbox/runtime"
 	sandbox "github.com/inoio/agents-sandbox/internal/sandbox/vm"
 	"github.com/inoio/agents-sandbox/internal/termio"
@@ -27,127 +22,6 @@ import (
 // viperconfig.Resolver between PersistentPreRunE and command RunE.
 type launcherConfigKey struct{}
 
-// extractRunOptions extracts shared run/shell flags from the given command
-// and returns a populated options.RunOptions.
-//
-//nolint:gocognit,funlen // TODO refactor
-func extractRunOptions(cmd *cobra.Command, ui termio.UI) (options.RunOptions, error) {
-	opts := options.RunOptions{}
-	rawWorktree, _ := cmd.Flags().GetString(flagWorktree)
-	worktree, err := sandbox.ResolveWorktreeSpec(rawWorktree)
-	if err != nil {
-		return options.RunOptions{}, err
-	}
-	opts.Worktree = worktree
-	opts.Rebuild, _ = cmd.Flags().GetBool(flagRebuild)
-	opts.DryRun, _ = cmd.Flags().GetBool(flagDryRun)
-	opts.DryRunVM, _ = cmd.Flags().GetBool(flagDryRunVM)
-	if opts.DryRun {
-		opts.DryRunVM = true
-		ui.Verbosef("dry-run-vm: auto-enabled (--dry-run)")
-	}
-	opts.ServeOnly, _ = cmd.Flags().GetBool(flagServeOnly)
-	if cmd.Flags().Lookup(flagRoot) != nil {
-		opts.Root, _ = cmd.Flags().GetBool(flagRoot)
-	}
-
-	opts.Agent = defaultAgentName
-	if r := resolverFromContext(cmd.Context()); r != nil && r.Agent() != "" {
-		opts.Agent = r.Agent()
-	}
-	if name, _ := cmd.Flags().GetString(flagAgent); name != "" && cmd.Flags().Changed(flagAgent) {
-		opts.Agent = name
-	}
-	resolvedAgent, err := resolveAgent(opts.Agent)
-	if err != nil {
-		return options.RunOptions{}, err
-	}
-	if agentErr := validateAgentFlags(resolvedAgent, opts); agentErr != nil {
-		return options.RunOptions{}, agentErr
-	}
-
-	nc, err := resolveNotifyConfig(cmd)
-	if err != nil {
-		return options.RunOptions{}, err
-	}
-	opts.Notify = nc
-	if nc.Active() {
-		a, _ := agent.Lookup(opts.Agent)
-		if _, ok := agent.AsDaemonProvider(a); !ok {
-			if cmd.Flags().Changed(flagNotify) || os.Getenv(notifyEnvVar) != "" {
-				return options.RunOptions{}, fmt.Errorf(
-					"--notify is not supported by agent %q (no daemon/event stream)",
-					a.Name(),
-				)
-			}
-			ui.Warnf("notifications not supported by agent %q (no daemon/event stream); ignoring", a.Name())
-			opts.Notify = notify.Config{Audio: notify.AudioOff} //nolint:exhaustruct // channels disabled
-		}
-	}
-
-	r := resolverFromContext(cmd.Context())
-	if r != nil {
-		opts.CPUs = r.CPUs()
-		opts.Memory = r.Memory()
-		opts.TmpSize = r.TmpSize()
-		opts.DiskSize = r.DiskSize()
-		opts.WorkspaceQuota = r.WorkspaceQuota()
-		opts.ReapPolicy = options.NewReapPolicy(r.AutoStopOnActiveSessions(), r.AutoStopMaxSessionRetries())
-		opts.IdleTimeout = r.IdleTimeout()
-		opts.Dind = r.Dind()
-		opts.Mounts, err = mounts.ResolveBindMounts(r.Mounts())
-		if err != nil {
-			return options.RunOptions{}, err
-		}
-		provisionHostConfig := r.ProvisionHostConfig()
-		opts.ProvisionHostConfig = &provisionHostConfig
-	}
-
-	// CLI flag wins over resolver/env/config; otherwise use the resolver's
-	// resolved policy (which defaults to deny-by-default when unset).
-	if raw, _ := cmd.Flags().GetString(flagNetwork); raw != "" {
-		prof, err := network.ParseProfile(raw)
-		if err != nil {
-			return options.RunOptions{}, err
-		}
-		opts.Network = network.Policy{Profile: prof, EgressAllow: nil, EgressDeny: nil, DNSServers: nil}
-	} else if r := resolverFromContext(cmd.Context()); r != nil {
-		opts.Network = r.Network()
-	}
-
-	// --dns replaces config/env DNS entirely, keeping any profile and egress
-	// lists (whether from the resolver or the --network flag).
-	if dns, _ := cmd.Flags().GetStringSlice(flagDNSServers); len(dns) > 0 {
-		opts.Network.DNSServers = dns
-	}
-
-	if opts.TmpSize != "" {
-		if _, ok := options.ParseMemoryOK(opts.TmpSize); !ok {
-			return options.RunOptions{}, fmt.Errorf(
-				"invalid --tmp-size %q: expected a size like 4G, 512M, or 2048",
-				opts.TmpSize,
-			)
-		}
-	}
-	if opts.DiskSize != "" {
-		if _, ok := options.ParseMemoryOK(opts.DiskSize); !ok {
-			return options.RunOptions{}, fmt.Errorf(
-				"invalid --disk-size %q: expected a size like 16G, 512M, or 4096",
-				opts.DiskSize,
-			)
-		}
-	}
-	if opts.WorkspaceQuota != "" {
-		if _, ok := options.ParseMemoryOK(opts.WorkspaceQuota); !ok {
-			return options.RunOptions{}, fmt.Errorf(
-				"invalid --workspace-quota %q: expected a size like 16G, 512M, or 4096",
-				opts.WorkspaceQuota,
-			)
-		}
-	}
-	return opts, nil
-}
-
 // resolverFromContext returns the viperconfig.Resolver stored on the context,
 // or nil if absent.
 func resolverFromContext(ctx context.Context) *launcherconfig.Resolver {
@@ -156,33 +30,6 @@ func resolverFromContext(ctx context.Context) *launcherconfig.Resolver {
 	}
 	r, _ := ctx.Value((*launcherConfigKey)(nil)).(*launcherconfig.Resolver)
 	return r
-}
-
-// notifyEnvVar is the environment variable override for --notify.
-const notifyEnvVar = "OPENCODE_SANDBOX_NOTIFY"
-
-// resolveNotifyConfig resolves the effective notify config with precedence
-// flag > env > config, then validates the value and agent support.
-func resolveNotifyConfig(cmd *cobra.Command) (notify.Config, error) {
-	cfg := notify.Config{Audio: notify.AudioOff} //nolint:exhaustruct // zero channels, populated below
-	if r := resolverFromContext(cmd.Context()); r != nil {
-		cfg = r.Notify()
-	}
-	if raw := os.Getenv(notifyEnvVar); raw != "" {
-		override, err := notify.ParseOverride(raw)
-		if err != nil {
-			return notify.Config{}, fmt.Errorf("%s: %w", notifyEnvVar, err)
-		}
-		cfg = notify.ApplyOverride(cfg, override)
-	}
-	if raw, _ := cmd.Flags().GetString(flagNotify); cmd.Flags().Changed(flagNotify) && raw != "" {
-		override, err := notify.ParseOverride(raw)
-		if err != nil {
-			return notify.Config{}, err
-		}
-		cfg = notify.ApplyOverride(cfg, override)
-	}
-	return cfg, nil
 }
 
 // defaultAgentName is the fallback agent used when --agent is not provided.
@@ -213,22 +60,6 @@ func bindAgentFlag(cmd *cobra.Command) {
 func resolveAgentFlag(cmd *cobra.Command) (agent.Agent, error) {
 	name, _ := cmd.Flags().GetString(flagAgent)
 	return resolveAgent(name)
-}
-
-// validateAgentFlags rejects --worktree for agents without a worktree provider
-// and --serve-only for agents without a daemon provider.
-func validateAgentFlags(a agent.Agent, opts options.RunOptions) error {
-	if opts.Worktree.Name != "" {
-		if _, ok := agent.AsWorktreeProvider(a); !ok {
-			return fmt.Errorf("--worktree is not supported by agent %q", a.Name())
-		}
-	}
-	if opts.ServeOnly {
-		if _, ok := agent.AsDaemonProvider(a); !ok {
-			return fmt.Errorf("--serve-only is not supported by agent %q", a.Name())
-		}
-	}
-	return nil
 }
 
 // printItems renders a list of items as an aligned table with a styled header

@@ -1,5 +1,6 @@
 ---
 title: Home provisioning & startup hooks
+description: "Provision files into the sandbox VM's home directory and run startup hooks when the VM boots."
 layout: default
 parent: Configuration
 nav_order: 50

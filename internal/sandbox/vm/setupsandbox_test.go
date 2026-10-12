@@ -159,7 +159,7 @@ func setUpSandboxProvisionsConfig(t *testing.T, provisionMsg string) {
 		}
 		return "", 0, nil
 	})
-	defer SetDaemonShellFunc(origDaemon)
+	t.Cleanup(func() { SetDaemonShellFunc(origDaemon) })
 
 	fs := msb.NewTestFS(nil, nil) // empty FS simulates a VM with empty config dir
 	sb := &msb.MockSandbox{Name_: "test-vm", FSValue_: fs}
@@ -211,7 +211,7 @@ func TestRestartDaemonsRestartsServe(t *testing.T) {
 		}
 		return "", 0, nil
 	})
-	defer SetDaemonShellFunc(savedShell)
+	t.Cleanup(func() { SetDaemonShellFunc(savedShell) })
 
 	fs := msb.NewTestFS(nil, nil)
 	sb := &msb.MockSandbox{
@@ -257,7 +257,7 @@ func TestSetUpSandboxRestartsDaemonsOnReuseDecision(t *testing.T) {
 		}
 		return "", 0, nil
 	})
-	defer SetDaemonShellFunc(orig)
+	t.Cleanup(func() { SetDaemonShellFunc(orig) })
 
 	fs := msb.NewTestFS(nil, nil)
 	sb := &msb.MockSandbox{Name_: "test-vm", FSValue_: fs}
@@ -310,7 +310,7 @@ func TestSetUpSandboxSkipsRestartOnProvisionError(t *testing.T) {
 		}
 		return "", 0, nil
 	})
-	defer SetDaemonShellFunc(orig)
+	t.Cleanup(func() { SetDaemonShellFunc(orig) })
 
 	configpaths.WithMockConfigPaths(t)
 
@@ -352,7 +352,7 @@ func TestSetUpSandboxProvisionsUpdatedConfigOnKeep(t *testing.T) {
 		}
 		return "", 0, nil
 	})
-	defer SetDaemonShellFunc(origDaemon)
+	t.Cleanup(func() { SetDaemonShellFunc(origDaemon) })
 
 	// The VM already contains an OLD opencode.json (content differs from desired).
 	// This simulates attaching to a running VM and choosing "keep": no daemon
@@ -406,7 +406,7 @@ func TestSetUpSandboxRunsHooksOnlyOnBoot(t *testing.T) {
 		}
 		return "", 0, nil
 	})
-	defer SetDaemonShellFunc(origDaemon)
+	t.Cleanup(func() { SetDaemonShellFunc(origDaemon) })
 
 	fs := msb.NewTestFS(nil, nil)
 	sb := &msb.MockSandbox{Name_: "test-vm", FSValue_: fs}
@@ -460,7 +460,7 @@ func TestSetUpSandboxProvisionsMirrorOnly(t *testing.T) {
 		}
 		return "", 0, nil
 	})
-	defer SetDaemonShellFunc(origDaemon)
+	t.Cleanup(func() { SetDaemonShellFunc(origDaemon) })
 
 	fs := msb.NewTestFS(nil, nil)
 	sb := &msb.MockSandbox{Name_: "test-vm", FSValue_: fs}

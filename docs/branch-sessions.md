@@ -1,5 +1,6 @@
 ---
 title: Worktree Sessions
+description: "Start isolated agent sessions in git worktrees created inside the sandbox VM, leaving the host repository untouched."
 layout: default
 nav_order: 90
 ---

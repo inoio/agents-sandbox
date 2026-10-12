@@ -326,7 +326,7 @@ func TestEnsureDaemonContextCancelled(t *testing.T) {
 		}
 		return "", 0, nil
 	})
-	defer SetDaemonShellFunc(orig)
+	t.Cleanup(func() { SetDaemonShellFunc(orig) })
 
 	t.Cleanup(func() { daemonPollInterval = 2 * time.Second })
 	daemonPollInterval = time.Millisecond
@@ -343,7 +343,7 @@ func TestDefaultDaemonShellFuncSuccess(t *testing.T) {
 	orig := SetDaemonShellFunc(func(_ context.Context, _ msb.Sandbox, _ string) (string, int, error) {
 		return "", 0, nil
 	})
-	defer SetDaemonShellFunc(orig)
+	t.Cleanup(func() { SetDaemonShellFunc(orig) })
 
 	sb := &msb.MockSandbox{
 		ShellOut: map[string]msb.ShellResult{
@@ -536,7 +536,7 @@ func TestDefaultDaemonShellFuncErrorBranch(t *testing.T) {
 	orig := SetDaemonShellFunc(func(_ context.Context, _ msb.Sandbox, _ string) (string, int, error) {
 		return "", 0, nil
 	})
-	defer SetDaemonShellFunc(orig)
+	t.Cleanup(func() { SetDaemonShellFunc(orig) })
 
 	sb := &msb.MockSandbox{ShellErr: errors.New("shell failed")}
 	stdout, code, err := orig(context.Background(), sb, "cmd")

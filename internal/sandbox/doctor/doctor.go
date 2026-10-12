@@ -67,7 +67,7 @@ func collectChecks(ctx context.Context) ([]string, []error) {
 
 // realCheckDocker pings the Docker daemon, describing how to fix it on failure.
 func realCheckDocker(ctx context.Context) error {
-	//nolint:exhaustruct // NegotiateAPIVersion/ForceNegotiate not needed for a simple ping check
+	//nolint:exhaustruct_v5 // NegotiateAPIVersion/ForceNegotiate not needed for a simple ping check
 	_, err := docker.Get().Ping(ctx, client.PingOptions{})
 	if err != nil {
 		return fmt.Errorf(
