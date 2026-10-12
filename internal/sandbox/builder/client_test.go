@@ -94,6 +94,7 @@ func TestRegistryAuthSessionNonNil(t *testing.T) {
 }
 
 func TestNewClientWiresReadySeam(t *testing.T) {
+	t.Setenv(builderBackendEnv, builderBackendMsb)
 	c := newClient()
 	if c == nil {
 		t.Fatal("newClient returned nil")
