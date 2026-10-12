@@ -164,8 +164,9 @@ idle timeout.
 ### Test tiers and CI
 
 - **`integration` (docker-backed, PR):** the composition matrix, the tool-layer/agent-version cache guards,
-  a builder-backend test (endpoint + solve + export), and the behavior tests via `docker run`. Runs on every
-  PR on hosted runners (x64 and arm64) and in the dev VM.
+  a builder-backend test (endpoint + solve + export), and both behavior tests
+  (`TestRunnerImageNodeAgentNodeRuns`, `TestRunnerImageLoginShellPath`) via `docker run`. Runs on every PR on
+  hosted runners (x64 and arm64) and in the dev VM.
 - **`integration-msb` (KVM):** `TestBuildRunnerImageInBuilderVM` (build → `msb.ImageLoad` → inspect) and
   `TestBuilderCacheReuseAcrossVMs` (msb VM teardown proves the persistent cache volume), plus any pure msb
   lifecycle tests. Stays on the x64 `ubuntu-latest` job with the KVM/msb setup already added.
@@ -197,18 +198,16 @@ idle timeout.
 2. **Docker-backend client**: shell out to the `docker` CLI behind a small interface; no new dependency.
 3. **Tier mechanism**: env vars (`AGENTS_SANDBOX_BUILDER`, `AGENTS_SANDBOX_INTEGRATION`) with call-time reads and
    `t.Setenv`; one binary compiles once. No build-tag split.
-
-## Open question (needs the maintainer)
-
-- **Behavior-test runtime.** Do we port the node/npm and login-shell tests to `docker run` so the PR tier is
-  fully KVM-free (most coverage, needs a small run/runtime abstraction in the tests), or keep them msb-only and
-  have the docker tier cover build/cache only (less code, but the #132-style behavior regressions stay
-  PR-uncovered and unrunnable from an agent's VM)?
+4. **Behavior tests move to `docker run`.** `TestRunnerImageNodeAgentNodeRuns` (node/npm starts) and
+   `TestRunnerImageLoginShellPath` run the built image via `docker run` in the docker tier, so the PR tier is
+   fully KVM-free and covers the #132 class of behavior regressions. Under the msb tier they still run via an
+   msb sandbox. This requires a small run/runtime abstraction in the tests (msb sandbox vs `docker run`) and
+   the docker backend's `docker load` path.
 
 ## What's left to the builder
 
 - The concrete `backend` interface shape and where `Client` is constructed.
-- The `dockerCLI` seam and its fake.
+- The `dockerCLI` seam and its fake, and the test-side run/runtime abstraction (msb sandbox vs `docker run`).
 - Port/name/run-id/flock details for the container, and how the existing `builderSandboxName()` versioning
   maps to a container name.
-- Exact test-tier split and Makefile/CI wiring once the open question is answered.
+- Exact Makefile/CI wiring for the two tiers.
