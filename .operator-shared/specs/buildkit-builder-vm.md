@@ -282,6 +282,12 @@ not to punch through the network policy.
   and gated to main/tags/manual: hosted arm64 runners expose no KVM, and the builds are costly. This
   tier needs KVM, so it cannot run on PRs or in the KVM-less dev VM/agent sandbox.
 
+A **test-only Docker backend** now complements this msb path: `AGENTS_SANDBOX_BUILDER=docker` runs `buildkitd` in
+a `docker run moby/buildkit` container (no KVM) and drives the same host-side client, so the build/composition
+integration tests also run as a KVM-free PR tier (`make test-integration`); the msb tier becomes
+`make test-integration-msb`. Production is unchanged (msb is the default). See
+`specs/docker-test-harness.md` for the contract.
+
 ## Alternatives considered
 
 - **In-process BuildKit** (`spike/buildkit-inprocess/`): works on Linux only,

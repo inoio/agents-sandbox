@@ -26,6 +26,10 @@ command reports the bare version (e.g. `0.1.0`).
   gated `integration-msb` job (main/release/manual).
 - Internal: add `make compile-all` — compiles every test binary including `integration`-tagged files without a docker
   daemon, and run it in the CI lint job so a tagged-only compile regression fails on PRs instead of only on main.
+- Internal: a test-only Docker-backed BuildKit backend for the runner-image pipeline. `AGENTS_SANDBOX_BUILDER=docker`
+  drives a `buildkitd` in a `docker run moby/buildkit` container over the same host-side client, exporting
+  `type=docker` so built images can be `docker run`; unset/other values keep the production msb backend. Used only by
+  the integration tests, not by end users.
 - Internal: the CI `integration-msb` job installs the microsandbox runtime and enables `/dev/kvm` on the x64 runner, and
   sets `AGENTS_SANDBOX_INTEGRATION=1`, so the builder-VM integration tests actually execute instead of skipping.
 - Internal: `devUserBlock` now sets the dev login shell to the first of `bash`, `zsh`, `sh` found (falling back to
@@ -39,6 +43,14 @@ command reports the bare version (e.g. `0.1.0`).
   microsandbox VM, driven by a host-side BuildKit client over a published loopback port, so building or refreshing the
   image no longer needs the host Docker daemon. The BuildKit cache persists in a global `agents-sandbox-buildkit-cache`
   volume across projects and invocations, and image pruning reclaims it.
+
+### Fixed
+
+- Runner image: BuildKit cache pruning now runs `buildctl prune --keep-duration 24h --all`; the previous
+  `--filter until=24h` is rejected by buildkit v0.25.2 (`unsupported operator "="`), so pruning the BuildKit cache
+  was broken.
+- Runner image: base-image digests are now resolved for short references (e.g. `debian:trixie-slim`), which are
+  qualified to their canonical `docker.io/library/...` form before the BuildKit gateway resolves them.
 
 ### Changed
 

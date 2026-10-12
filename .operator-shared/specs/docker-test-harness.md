@@ -1,6 +1,14 @@
-# Docker-backed test harness for the BuildKit builder (design)
+# Docker-backed test harness for the BuildKit builder
 
-**Status: proposed** — not implemented. A plan and code follow once the open decisions below are settled.
+**Status: implemented** — a test-only `dockerBackend` in `internal/sandbox/builder` builds via a `docker run
+moby/buildkit` container, selected by `AGENTS_SANDBOX_BUILDER=docker`; production keeps the msb builder VM (default).
+Two tiers exist: `make test-integration` (docker, no KVM) and `make test-integration-msb` (KVM). Implemented on
+`opencode/buildkit-builder-vm`; see `plans/2026-10-12-docker-test-harness.md`.
+
+**Environment caveat (R2).** The docker tier does not pass in this dev VM: microsandbox injects an egress-inspection
+TLS CA that registry-pulled base images do not trust, so in-build `curl`/`dnf` fail (the limitation in `AGENTS.md`
+"Current limitations"). The tier is expected to pass on CI (`ubuntu-latest`, normal TLS egress). Compilation and
+non-network tests run anywhere.
 
 ## Why
 
@@ -9,9 +17,10 @@
 places developers and CI most need them:
 
 - **GitHub PR CI**: hosted arm64 runners expose no KVM, and hosted x64 KVM is undocumented and gated to
-  main/tags/manual (see `.github/workflows/ci.yml`). PRs never exercise the build path.
+  main/tags/manual (see `.github/workflows/ci.yml`). Before this harness, PRs never exercised the build path.
 - **Agent sessions**: the agents-sandbox dev VM has a working Docker daemon but no functional `/dev/kvm`,
-  so an agent cannot run the integration tests that validate its own change.
+  so an agent cannot run the msb integration tests that validate its own change (it can still run the docker
+  tier for non-network paths, with the R2 caveat above).
 
 The build pipeline itself does not need KVM. Only two things do:
 
@@ -60,9 +69,12 @@ fallback.
   `var Get = func() Builder` is the injection seam (`var Get` in `client.go`). Constants: builder image
   `moby/buildkit:v0.25.2`, guest port `1234`, cache volume `agents-sandbox-buildkit-cache` →
   `/var/lib/buildkit`, host port base `11234`, idle timeout `5m`.
-- `internal/sandbox/builder/client.go`: `Client.Build` = `c.vm.Ensure(ctx)` (endpoint) → `newBuildkitClient`,
-  then `resolveBaseDigest` + `Solve` with the `dockerfile.v0` frontend, `type=oci` export written to a temp
-  file, and `registryAuthSession()`.
+- `internal/sandbox/builder/client.go`: `Client.Build` = `c.backend.Ensure(ctx)` (port) → `newBuildkitClient`,
+  then `resolveBaseDigest` + `Solve` with the `dockerfile.v0` frontend, an export per `backend.Export(tag)`
+  (`type=oci` for msb, `type=docker name=<tag>` for docker) written to a temp file, and `registryAuthSession()`.
+  `resolveBaseDigest` now qualifies short base refs (`qualifyBaseRef`, e.g. `debian:trixie-slim` →
+  `docker.io/library/debian:trixie-slim`) before the gateway resolves them, fixing base-digest resolution for
+  unqualified refs.
 - `internal/sandbox/builder/vm.go`: msb-specific endpoint acquisition (`GetSandbox`/`CreateSandbox`, port
   binding, named-volume mount, `exec buildkitd --oci-worker-snapshotter native --addr tcp://0.0.0.0:1234`)
   and `PruneCache` (`buildctl ... prune` in the VM). A host-wide flock serializes creation.
@@ -83,54 +95,55 @@ backend that answers "give me a ready `buildkitd` TCP endpoint (and its cache vo
 
 ```
 type backend interface {
-    // Ensure returns the TCP endpoint (host:port) of a ready buildkitd.
-    Ensure(ctx) (endpoint string, err error)
+    // Ensure returns the host TCP port of a ready buildkitd.
+    Ensure(ctx) (port int, err error)
+    // Export describes how a solved image leaves the builder (type + attrs).
+    Export(tag string) exportSpec
     // PruneCache reclaims buildkitd's cache.
     PruneCache(ctx) error
 }
 
-type msbBackend struct{ vm *VM }          // current VM.Ensure / VM.PruneCache
-type dockerBackend struct{ ... }          // docker run moby/buildkit, reuse, prune
+type msbBackend struct{ vm *VM }          // VM.Ensure / VM.PruneCache; Export = type=oci
+type dockerBackend struct{ ... }          // docker run moby/buildkit; Export = type=docker (name=tag)
 ```
 
-`Client.Build` becomes: `endpoint := backend.Ensure(ctx)` → the existing `newBuildkitClient(endpoint)` →
-unchanged solve path. The msb backend preserves the flock, named cache volume, `native` snapshotter, and
-idle timeout.
+`Client.Build` becomes: `port := backend.Ensure(ctx)` → the existing `newBuildkitClient(hostPort)` →
+`backend.Export(tag)` drives the export → unchanged solve path. The msb backend preserves the flock, named cache
+volume, `native` snapshotter, and idle timeout.
 
 ### Docker backend
 
 - Start `moby/buildkit:v0.25.2` detached with a published loopback port:
-  `docker run -d --privileged --name agents-sandbox-buildkit-<run-id> -p 127.0.0.1:<freePort>:1234 -v
-  agents-sandbox-buildkit-cache-<run-id>:/var/lib/buildkit moby/buildkit:v0.25.2 --oci-worker-snapshotter
+  `docker run -d --privileged --name agents-sandbox-buildkit-harness -p 127.0.0.1:<freePort>:1234 -v
+  agents-sandbox-buildkit-harness-cache:/var/lib/buildkit moby/buildkit:v0.25.2 --oci-worker-snapshotter
   native --addr tcp://0.0.0.0:1234`. `--privileged` is required for the in-container worker; the `native`
-  snapshotter avoids overlayfs constraints under the dev VM's `vfs` driver (**verify**).
-- **Ephemeral cache volume per test invocation**, named with a run id, so the tier starts from a clean cache
-  and cross-run state cannot leak. This makes the negative-cache guard
+  snapshotter avoids overlayfs constraints under the dev VM's `vfs` driver.
+- **Ephemeral cache volume**, fixed name `agents-sandbox-buildkit-harness-cache`, reset between runs via
+  `builder.ResetDockerHarness` (removes the container and volume) from the integration `TestMain`, so the tier
+  starts from a clean cache and cross-run state cannot leak. This makes the negative-cache guard
   (`TestRenderDockerfileAgentVersionRebuildsInstall`) deterministic: with a persistent shared volume that
-  layer could already exist on a warm dev-VM/CI run and the "must not be cached" assertion would flake. Cross-
+  layer could already exist on a warm run and the "must not be cached" assertion would flake. Cross-
   run cache persistence is a property of the msb backend and is tested there
   (`TestBuilderCacheReuseAcrossVMs`), not in the docker tier.
-- Reuse the running container across builds within one invocation (find by name/label); allocate a free host
-  port only on create. Wrap creation in the same kind of host-wide flock the msb path uses.
+- Reuse the running container across builds within one invocation; allocate a free host port only on create.
 - Readiness: retry `newBuildkitClient` (`ListWorkers`) until it answers or the existing `builderReadyTimeout`
   elapses.
-- Prune: `docker exec <name> buildctl --addr tcp://127.0.0.1:1234 prune ...` (or an ephemeral
-  `moby/buildkit` container sharing the cache volume). No-op when no container exists.
-- **Lifecycle and cleanup**: one container + one volume per `go test` invocation, owned by the integration
-  `TestMain` (there is already a `TestMain` in `internal/sandbox/image`), which removes them on exit and can
-  reap leftovers from an interrupted run at start. No idle-timeout equivalent is needed because the harness
-  tears down at process end; a `make` reaper covers a killed run.
-- Drive the `docker` CLI through a small injectable interface (e.g. `dockerCLI`) so the backend is unit-testable
+- Prune: `docker exec <name> buildctl --addr tcp://127.0.0.1:1234 prune --keep-duration 24h --all`. No-op when
+  no container exists.
+- **Lifecycle and cleanup**: one container + one volume per `go test` invocation, reset by the integration
+  `TestMain` (there is already a `TestMain` in `internal/sandbox/image`), which removes them at start and exit.
+  No idle-timeout equivalent is needed because the harness tears down at process end.
+- Drive the `docker` CLI through a small injectable `dockerCLI` interface so the backend is unit-testable
   with a fake, mirroring the existing `buildkitClient`/`msb` seams. Do not re-add the moby SDK client.
 - Requires: `docker` on PATH and a reachable daemon. On macOS this is Docker Desktop; on the dev VM it is the
   in-VM daemon.
 
 ### Selection
 
-- Env `AGENTS_SANDBOX_BUILDER` = `msb` (default, production) | `docker` (harness).
-- `newClient()` reads the env **at call time** (not once at init), so a test's `t.Setenv` before calling
-  `builder.Get()` selects the backend for that test. msb-specific tests select `msb` explicitly rather than
-  relying on the default, so the KVM tier does not depend on a default that must stay flipped.
+- Env `AGENTS_SANDBOX_BUILDER` (`builderBackendEnv`) = `docker` (harness) | anything else / unset (msb,
+  production). `newBackend()` reads the env **at call time** (not once at init), so a test's `t.Setenv` before
+  calling `builder.Get()` selects the backend for that test. msb-specific tests select `msb` explicitly rather
+  than relying on the default, so the KVM tier does not depend on a default that must stay flipped.
 
 ### Test boundary (the `image` package stays untouched)
 
@@ -150,14 +163,13 @@ idle timeout.
 
 ### Export and running the built image
 
-- The docker backend should make the built image available to the Docker daemon so behavior tests can
-  `docker run` it without msb. Two candidate mechanisms; the export format for the docker backend may differ
-  from production's `type=oci`:
-  - export `type=docker` (a `docker load`-able tar), or
-  - keep `type=oci` and `docker load` the OCI layout.
-- **Must be verified during implementation**: whether the target Docker (29.7.2, `vfs`, classic store) can
-  `docker load` a `type=oci` archive. If not, the docker backend uses `type=docker`. This is a test-only
-  choice; production stays `type=oci` + `msb.ImageLoad`.
+- The docker backend exports `type=docker` with `name=<req.Tag>` (verified during implementation: Docker 29.7.2
+  with the `vfs`/classic store is used via `docker load`/`docker run`), so behavior tests can `docker run` the
+  tagged image without msb. Production stays `type=oci` + `msb.ImageLoad` (untagged archive + explicit ref).
+- Consequence: a docker-tier `BuildResult.Digest`/`Env` is not asserted, because `type=docker` does not populate
+  the `containerimage.config[.digest]` response keys that production `type=oci` does. The docker tier therefore
+  asserts build/cache *behavior* only, not digest/env; those are not used to predict production values. This is
+  the one place the tiers intentionally differ.
 - Behavior tests (node/npm runs, login-shell PATH) run the image via `docker run` under the docker backend and
   via an msb sandbox under the msb backend.
 
@@ -166,31 +178,33 @@ idle timeout.
 - **`integration` (docker-backed, PR):** the composition matrix, the tool-layer/agent-version cache guards,
   a builder-backend test (endpoint + solve + export), and both behavior tests
   (`TestRunnerImageNodeAgentNodeRuns`, `TestRunnerImageLoginShellPath`) via `docker run`. Runs on every PR on
-  hosted runners (x64 and arm64) and in the dev VM.
+  hosted runners (x64 and arm64) and on any host with Docker + normal TLS egress.
 - **`integration-msb` (KVM):** `TestBuildRunnerImageInBuilderVM` (build → `msb.ImageLoad` → inspect) and
   `TestBuilderCacheReuseAcrossVMs` (msb VM teardown proves the persistent cache volume), plus any pure msb
-  lifecycle tests. Stays on the x64 `ubuntu-latest` job with the KVM/msb setup already added.
+  lifecycle tests. Stays on the x64 `ubuntu-latest` job with the KVM/msb setup, gated to main/tags/manual.
 - msb-only tests skip explicitly (named skip reason) when the backend is `docker` or KVM is absent; the
-  docker tier never silently skip.
-- Make targets: `make test-integration` (docker, default) and `make test-integration-msb` (KVM). CI wires the
-  former into PRs and the latter into the existing gated job.
+  docker tier never silently skips.
+- Make targets: `make test-integration` (docker, `AGENTS_SANDBOX_BUILDER=docker`) and `make test-integration-msb`
+  (`AGENTS_SANDBOX_BUILDER=msb`). CI wires the former into the `integration` job on every PR and the latter into
+  the gated `integration-msb` job; `release.needs` includes both.
 
 ## Production impact
 
 - None intended. `AGENTS_SANDBOX_BUILDER` defaults to `msb`; the msb backend is the current code path.
 - The `Builder` interface and `var Get` seam are unchanged, so `internal/sandbox/image` callers are untouched.
 
-## Verification risks (spike during implementation, not user decisions)
+## Verification outcomes
 
-- **OCI `docker load`**: whether Docker 29.7.2 with the `vfs`/classic store loads a `type=oci` archive. If not,
-  the docker backend exports `type=docker`. `buildx` (if supplied) is the quickest way to produce a sample.
-- **`--privileged` + `native` snapshotter** (verified 2026-10-12, Task 3 spike): `docker run -d --privileged ...
+- **OCI vs docker `docker load`**: resolved to `type=docker` with `name=<tag>` for the docker backend (Docker
+  29.7.2, `vfs`/classic store). Digest/env assertions are docker-tier-local; the build/cache behavioral
+  assertions still run identically in both tiers.
+- **`--privileged` + `native` snapshotter** (verified 2026-10-12): `docker run -d --privileged ...
   moby/buildkit:v0.25.2 --oci-worker-snapshotter native --addr tcp://0.0.0.0:1234` starts under the dev VM's
-  `vfs` store (Docker 29.7.2); the worker registers and the published endpoint `127.0.0.1:11234` answers. Without
-  `--privileged` the container exits immediately (exit 1) — `--privileged` is required. CI overlay2 still to confirm.
-- **Dev-VM egress TLS** (cleared for `moby/buildkit` on 2026-10-12): `docker pull moby/buildkit:v0.25.2` succeeded
-  in the dev VM despite the injected inspection CA, so this instance of the risk did not materialize.
-- **`buildctl ... prune --filter until=24h` was rejected by buildkit v0.25.2** (found and fixed 2026-10-12, Task 3):
+  `vfs` store; the worker registers and the published endpoint answers. Without `--privileged` the container
+  exits immediately (exit 1) — `--privileged` is required.
+- **Dev-VM egress TLS**: `docker pull moby/buildkit:v0.25.2` succeeds in the dev VM despite the injected
+  inspection CA. The R2 caveat above is about in-build pulls inside the built image, not the buildkit image.
+- **`buildctl ... prune --filter until=24h` was rejected by buildkit v0.25.2** (found and fixed 2026-10-12):
   both `--filter until=24h` and `--filter=until=24h` fail with `failed to parse prune filters ... unsupported
   operator "="`; `--keep-duration 24h --all` is the working equivalent. The invalid filter was shared by the msb
   backend's `buildctlPruneCommand` (`internal/sandbox/builder/builder.go`), so production `PruneCache` was
@@ -199,21 +213,12 @@ idle timeout.
 
 ## Resolved calls
 
-1. **Export format**: keep `type=oci` parity where `docker load` allows; fall back to `type=docker` otherwise.
-   The divergence is test-only; digest/env assertions degrade per the "Test boundary" section.
-2. **Docker-backend client**: shell out to the `docker` CLI behind a small interface; no new dependency.
+1. **Export format**: production keeps `type=oci`; the docker backend uses `type=docker` with `name=<tag>`. The
+   divergence is test-only; digest/env assertions degrade per the "Test boundary" section.
+2. **Docker-backend client**: shell out to the `docker` CLI behind a small `dockerCLI` interface; no new dependency.
 3. **Tier mechanism**: env vars (`AGENTS_SANDBOX_BUILDER`, `AGENTS_SANDBOX_INTEGRATION`) with call-time reads and
    `t.Setenv`; one binary compiles once. No build-tag split.
 4. **Behavior tests move to `docker run`.** `TestRunnerImageNodeAgentNodeRuns` (node/npm starts) and
    `TestRunnerImageLoginShellPath` run the built image via `docker run` in the docker tier, so the PR tier is
    fully KVM-free and covers the #132 class of behavior regressions. Under the msb tier they still run via an
-   msb sandbox. This requires a small run/runtime abstraction in the tests (msb sandbox vs `docker run`) and
-   the docker backend's `docker load` path.
-
-## What's left to the builder
-
-- The concrete `backend` interface shape and where `Client` is constructed.
-- The `dockerCLI` seam and its fake, and the test-side run/runtime abstraction (msb sandbox vs `docker run`).
-- Port/name/run-id/flock details for the container, and how the existing `builderSandboxName()` versioning
-  maps to a container name.
-- Exact Makefile/CI wiring for the two tiers.
+   msb sandbox.

@@ -1,4 +1,4 @@
-.PHONY: build build-release build-release-all bootstrap test test-integration compile-all coverage coverage-junit lint fmt validate-fmt run check verify all clean install-bash-completion install-head install-head-and-bash-completion upgrade-deps docs-diagrams docs-linkcheck docs-linkcheck-test docs-serve
+.PHONY: build build-release build-release-all bootstrap test test-integration test-integration-msb compile-all coverage coverage-junit lint fmt validate-fmt run check verify all clean install-bash-completion install-head install-head-and-bash-completion upgrade-deps docs-diagrams docs-linkcheck docs-linkcheck-test docs-serve
 
 VERSION ?= dev
 
