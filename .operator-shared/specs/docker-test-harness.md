@@ -149,6 +149,10 @@ volume, `native` snapshotter, and idle timeout.
   production). `newBackend()` reads the env **at call time** (not once at init), so a test's `t.Setenv` before
   calling `builder.Get()` selects the backend for that test. msb-specific tests select `msb` explicitly rather
   than relying on the default, so the KVM tier does not depend on a default that must stay flipped.
+- **Unit tests must not assume the msb default.** Because `make test-integration` exports
+  `AGENTS_SANDBOX_BUILDER=docker` for the whole `./...` run, any unit test that constructs the production client
+  (`newClient()`/`Get()`) must pin the backend it asserts on via `t.Setenv(builderBackendEnv, builderBackendMsb)`
+  (or `...Docker`). `TestNewClientWiresReadySeam` pins msb this way; its assertion is unchanged.
 
 ### Test boundary (the `image` package stays untouched)
 
