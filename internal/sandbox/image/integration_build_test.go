@@ -12,6 +12,7 @@ import (
 
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 
+	"github.com/inoio/agents-sandbox/internal/agent"
 	"github.com/inoio/agents-sandbox/internal/configpaths"
 	"github.com/inoio/agents-sandbox/internal/sandbox/builder"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
@@ -28,7 +29,7 @@ import (
 //
 //	AGENTS_SANDBOX_INTEGRATION=1 CGO_ENABLED=1 \
 //	  go test -tags integration -count=1 -timeout 40m \
-//	  -run 'TestBuildRunnerImage|TestBuilderCacheReuse|TestRunnerImageLoginShell' \
+//	  -run 'TestBuildRunnerImage|TestBuilderCacheReuse|TestRunnerImage' \
 //	  ./internal/sandbox/image/
 const integrationEnvVar = "AGENTS_SANDBOX_INTEGRATION"
 
@@ -198,6 +199,63 @@ func removeBuilderSandboxes(t *testing.T, ctx context.Context) {
 		}
 		if err := handle.Remove(ctx); err != nil {
 			t.Fatalf("remove builder sandbox %s: %v", handle.Name(), err)
+		}
+	}
+}
+
+// TestRunnerImageNodeAgentNodeRuns is the BuildKit regression guard for #132: a
+// node-dependent agent installed onto the managed base must leave a working
+// node/npm. The managed base does not install libatomic1, so a node tarball with
+// a hard DT_NEEDED on libatomic.so.1 builds (for a native agent like opencode)
+// but cannot start, and the npm agent's install RUN then fails the whole build.
+// The pinned node must therefore be a release without that dependency; here we
+// build pi (the only agent that needs node, an npm-installed node bundle) on the
+// managed base and run node/npm in a sandbox created from the resulting image.
+//
+// TestBuildRunnerImageInBuilderVM only builds opencode, a native Bun binary that
+// does not exercise node at all, which is why it did not catch #132.
+func TestRunnerImageNodeAgentNodeRuns(t *testing.T) {
+	requireIntegration(t)
+	useRealHostRuntime(t)
+	ctx := context.Background()
+	ui := termio.NewTestMock(t)
+	a, ok := agent.Lookup("pi")
+	if !ok {
+		t.Fatal("pi agent not registered")
+	}
+
+	info, err := EnsureImageWithClient(ctx, a, nil, "it-buildkit-node-agent", BuildOptions{Force: true}, &ui)
+	if err != nil {
+		t.Fatalf("EnsureImageWithClient: %v", err)
+	}
+	archivePath, tag := info.ArchivePath, info.Tag
+	t.Cleanup(func() {
+		_ = os.Remove(archivePath)
+		_ = msb.Get().ImageRemove(context.Background(), tag, true)
+	})
+	if err := EnsureLoaded(ctx, msb.Get(), archivePath, tag, &ui); err != nil {
+		t.Fatalf("EnsureLoaded: %v", err)
+	}
+
+	sandboxName := "agents-sandbox-it-node-agent"
+	sb, err := msb.Get().CreateSandbox(ctx, sandboxName, msbSdk.WithImage(tag), msbSdk.WithReplace())
+	if err != nil {
+		t.Fatalf("create node-agent sandbox: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = sb.Stop(context.Background())
+		_ = sb.Close()
+		_ = msb.Get().RemoveSandbox(context.Background(), sandboxName)
+	})
+
+	for _, command := range []string{"node --version", "npm --version"} {
+		result, shellErr := sb.Shell(ctx, "bash -lc '"+command+"'")
+		if shellErr != nil {
+			t.Errorf("%q: shell error: %v", command, shellErr)
+			continue
+		}
+		if !result.Success() {
+			t.Errorf("%q failed in the built image (exit %d): %s", command, result.ExitCode(), result.Stderr())
 		}
 	}
 }
