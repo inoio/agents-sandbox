@@ -9,6 +9,13 @@ import (
 	"testing"
 )
 
+func TestRegistryHostIncludesPort(t *testing.T) {
+	endpoint := Endpoint{Host: "172.30.0.1", Port: 5000}
+	if got, want := endpoint.RegistryHost(), "172.30.0.1:5000"; got != want {
+		t.Errorf("RegistryHost() = %q, want %q", got, want)
+	}
+}
+
 func TestCacheRefDeterministicAndDistinct(t *testing.T) {
 	endpoint := Endpoint{Host: "172.30.0.1", Port: 5000, Token: "t"}
 
@@ -17,7 +24,7 @@ func TestCacheRefDeterministicAndDistinct(t *testing.T) {
 	if first != second {
 		t.Fatalf("CacheRef not deterministic: %q vs %q", first, second)
 	}
-	if !strings.HasPrefix(first, "172.30.0.1:5000/agents-sandbox/") {
+	if !strings.HasPrefix(first, endpoint.RegistryHost()+"/agents-sandbox/") {
 		t.Errorf("CacheRef %q missing registry host/repository prefix", first)
 	}
 	if !strings.HasSuffix(first, "-amd64:cache") {

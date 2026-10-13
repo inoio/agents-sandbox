@@ -1,28 +1,91 @@
 package builder
 
 import (
+	"context"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/docker/cli/cli/config/types"
+
+	"github.com/inoio/agents-sandbox/internal/sandbox/builder/cacheregistry"
 )
 
 func TestRegistryAuthSessionIncludesCacheToken(t *testing.T) {
+	endpoint := cacheregistry.Endpoint{Host: "172.30.0.1", Port: 5000, Token: "cache-token-abc"}
+
+	configFile := registryAuthConfig(cacheRegistryCredentials(endpoint))
+	got, ok := configFile.AuthConfigs[endpoint.RegistryHost()]
+	if !ok {
+		t.Fatalf("merged config has no credential for %q", endpoint.RegistryHost())
+	}
+	if got.RegistryToken != endpoint.Token {
+		t.Errorf("credential RegistryToken = %q, want %q", got.RegistryToken, endpoint.Token)
+	}
+
+	attachable := registryAuthSession(cacheRegistryCredentials(endpoint))
+	if len(attachable) != 1 || attachable[0] == nil {
+		t.Fatalf("registryAuthSession returned %v, want one non-nil attachable", attachable)
+	}
+}
+
+// TestCacheRegistryAuthKeysCredentialByRegistryHost drives the production
+// derivation: the credential key must be the full host:port that both the cache
+// reference authority and BuildKit's auth lookup use, never the bare host.
+func TestCacheRegistryAuthKeysCredentialByRegistryHost(t *testing.T) {
+	endpoint := cacheregistry.Endpoint{Host: "172.30.0.1", Port: 5000, Token: "tok"}
+	stubCacheRegistry(t, endpoint)
+
+	cacheRef, session, err := (&Client{}).cacheRegistryAuth(context.Background(), BuildRequest{
+		Tag:      "project/opencode:1.2.3",
+		Platform: "linux/amd64",
+	})
+	if err != nil {
+		t.Fatalf("cacheRegistryAuth: %v", err)
+	}
+	if len(session) != 1 || session[0] == nil {
+		t.Fatalf("cacheRegistryAuth session = %v, want one non-nil attachable", session)
+	}
+
+	refHost, _, _ := strings.Cut(cacheRef, "/")
+	if refHost != endpoint.RegistryHost() {
+		t.Errorf("cache ref host = %q, want %q", refHost, endpoint.RegistryHost())
+	}
+
+	credentials := cacheRegistryCredentials(endpoint)
+	if _, ok := credentials[endpoint.RegistryHost()]; !ok {
+		t.Errorf("credentials keyed by %q, want %q", credentials, endpoint.RegistryHost())
+	}
+	if _, ok := credentials[endpoint.Host]; ok {
+		t.Errorf("credentials keyed by the bare host %q; the port is required", endpoint.Host)
+	}
+}
+
+// TestRegistryAuthConfigBypassesCredentialStore asserts the embedded token still
+// resolves when the user's Docker config sets a global credsStore (the default on
+// Docker Desktop), which would otherwise shadow the in-memory entry.
+func TestRegistryAuthConfigBypassesCredentialStore(t *testing.T) {
 	const host = "172.30.0.1:5000"
-	const token = "cache-token-abc"
+	const token = "cache-token"
+	dir := t.TempDir()
+	if err := os.WriteFile(
+		filepath.Join(dir, "config.json"),
+		[]byte(`{"credsStore":"desktop"}`),
+		0o600,
+	); err != nil {
+		t.Fatalf("write docker config: %v", err)
+	}
+	t.Setenv("DOCKER_CONFIG", dir)
 
 	configFile := registryAuthConfig(map[string]types.AuthConfig{
 		host: {RegistryToken: token},
 	})
-	got, ok := configFile.AuthConfigs[host]
-	if !ok {
-		t.Fatalf("merged config has no credential for %q", host)
+	got, err := configFile.GetAuthConfig(host)
+	if err != nil {
+		t.Fatalf("GetAuthConfig(%q): %v", host, err)
 	}
 	if got.RegistryToken != token {
-		t.Errorf("credential RegistryToken = %q, want %q", got.RegistryToken, token)
-	}
-
-	attachable := registryAuthSession(map[string]types.AuthConfig{host: {RegistryToken: token}})
-	if len(attachable) != 1 || attachable[0] == nil {
-		t.Fatalf("registryAuthSession returned %v, want one non-nil attachable", attachable)
+		t.Errorf("RegistryToken = %q, want %q despite credsStore", got.RegistryToken, token)
 	}
 }

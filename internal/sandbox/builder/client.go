@@ -198,10 +198,16 @@ func (c *Client) cacheRegistryAuth(
 		return "", nil, fmt.Errorf("ensure cache registry: %w", err)
 	}
 	cacheRef := builderCacheRef(endpoint, req.Tag, req.Platform)
+	return cacheRef, registryAuthSession(cacheRegistryCredentials(endpoint)), nil
+}
+
+// cacheRegistryCredentials maps the registry's host:port to its static bearer
+// token. The key must match the cache reference authority (RegistryHost), which
+// is what BuildKit passes to the session auth provider.
+func cacheRegistryCredentials(endpoint cacheregistry.Endpoint) map[string]types.AuthConfig {
 	//exhaustruct:ignore // only the static bearer token matters for the embedded registry
 	authConfig := types.AuthConfig{RegistryToken: endpoint.Token}
-	authSession := registryAuthSession(map[string]types.AuthConfig{endpoint.Host: authConfig})
-	return cacheRef, authSession, nil
+	return map[string]types.AuthConfig{endpoint.RegistryHost(): authConfig}
 }
 
 func (c *Client) Build(ctx context.Context, req BuildRequest) (BuildResult, error) {

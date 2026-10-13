@@ -27,6 +27,12 @@ func registryAuthSession(extra map[string]types.AuthConfig) []session.Attachable
 
 // registryAuthConfig loads the host's default Docker config and merges the extra
 // per-host credentials into it.
+//
+// A global credsStore or a per-host credHelper makes configfile.GetAuthConfig
+// consult the credential helper instead of the in-memory AuthConfigs, which
+// would silently drop an extra entry. Pin an empty helper for each extra host so
+// it resolves from AuthConfigs, without touching the user's global credential
+// configuration (those entries are added to the loaded in-memory copy only).
 func registryAuthConfig(extra map[string]types.AuthConfig) *configfile.ConfigFile {
 	configFile := config.LoadDefaultConfigFile(os.Stderr)
 	if len(extra) == 0 {
@@ -36,5 +42,11 @@ func registryAuthConfig(extra map[string]types.AuthConfig) *configfile.ConfigFil
 		configFile.AuthConfigs = map[string]types.AuthConfig{}
 	}
 	maps.Copy(configFile.AuthConfigs, extra)
+	if configFile.CredentialHelpers == nil {
+		configFile.CredentialHelpers = map[string]string{}
+	}
+	for host := range extra {
+		configFile.CredentialHelpers[host] = ""
+	}
 	return configFile
 }

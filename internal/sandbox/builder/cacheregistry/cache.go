@@ -42,7 +42,7 @@ func registryRequest(
 	path string,
 	accept string,
 ) (*http.Response, error) {
-	requestURL := "http://" + net.JoinHostPort(endpoint.Host, strconv.Itoa(endpoint.Port)) + path
+	requestURL := "http://" + endpoint.RegistryHost() + path
 	request, err := http.NewRequestWithContext(ctx, method, requestURL, nil)
 	if err != nil {
 		return nil, fmt.Errorf("build registry request %s %s: %w", method, path, err)
@@ -58,13 +58,20 @@ func registryRequest(
 	return response, nil
 }
 
+// RegistryHost is the "host:port" the registry is reachable at. It is both the
+// authority of the cache reference and the key BuildKit resolves registry auth
+// against, so the two must always agree.
+func (e Endpoint) RegistryHost() string {
+	return net.JoinHostPort(e.Host, strconv.Itoa(e.Port))
+}
+
 // CacheRef derives the deterministic OCI reference BuildKit uses as the
 // registry cache target for an image identity (tag + platform), so caches are
 // reusable across builds and distinct between projects/agents/platforms.
 func (e Endpoint) CacheRef(imageTag, platform string) string {
 	return fmt.Sprintf(
 		"%s/agents-sandbox/%s-%s:cache",
-		net.JoinHostPort(e.Host, strconv.Itoa(e.Port)),
+		e.RegistryHost(),
 		sanitizeCacheComponent(imageTag),
 		sanitizeCacheComponent(platformArch(platform)),
 	)
