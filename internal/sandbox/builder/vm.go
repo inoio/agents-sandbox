@@ -22,12 +22,50 @@ import (
 // callers so only one creates the VM; readiness is probed after the lock is
 // released so a slow buildkitd does not serialize every caller.
 func (v *VM) Ensure(ctx context.Context) (int, error) {
-	hostPort, err := v.resolveBuilderPort(ctx, builderSandboxName())
+	name := builderSandboxName()
+	hostPort, err := v.resolveBuilderPort(ctx, name)
 	if err != nil {
 		return 0, err
 	}
 	if err := v.ready(ctx, hostPort); err != nil {
+		builderTracef("builder readiness failed on port %d: %v; recreating", hostPort, err)
+		_ = clearBuilderRecord()
+		recreatedPort, recreateErr := v.recreateBuilder(ctx, name)
+		if recreateErr != nil {
+			return 0, recreateErr
+		}
+		if retryErr := v.ready(ctx, recreatedPort); retryErr != nil {
+			return 0, retryErr
+		}
+		return recreatedPort, nil
+	}
+	return hostPort, nil
+}
+
+// recreateBuilder replaces a builder VM whose buildkitd failed its readiness
+// probe. It re-enters the creation flock so a concurrent caller observes the
+// same single VM, and rewrites the port record before returning.
+func (v *VM) recreateBuilder(ctx context.Context, name string) (int, error) {
+	release, err := acquireBuilderFlock()
+	if err != nil {
 		return 0, err
+	}
+	defer release()
+
+	if cacheErr := v.ensureCacheStorage(ctx); cacheErr != nil {
+		return 0, cacheErr
+	}
+	hostPort := options.FirstFreeHostPort(builderHostPortBase)
+	builderTracef("recreate builder sandbox %q port %d", name, hostPort)
+	sb, createErr := v.Msb.CreateSandbox(ctx, name, builderSandboxOptions(hostPort)...)
+	if createErr != nil {
+		return 0, fmt.Errorf("recreate builder sandbox: %w", createErr)
+	}
+	if startErr := startBuildkitd(ctx, sb); startErr != nil {
+		return 0, startErr
+	}
+	if recordErr := writeBuilderRecord(name, hostPort); recordErr != nil {
+		return 0, recordErr
 	}
 	return hostPort, nil
 }
@@ -45,9 +83,9 @@ func (v *VM) resolveBuilderPort(ctx context.Context, name string) (int, error) {
 
 	handle, getErr := v.Msb.GetSandbox(ctx, name)
 	if getErr == nil {
-		hostPort := publishedHostPort(handle)
-		builderTracef("found builder sandbox %q port %d", name, hostPort)
-		if hostPort > 0 {
+		if hostPort, reused, reuseErr := v.reusedBuilderPort(name, handle); reuseErr != nil {
+			return 0, reuseErr
+		} else if reused {
 			return hostPort, nil
 		}
 	} else {
@@ -71,6 +109,9 @@ func (v *VM) resolveBuilderPort(ctx context.Context, name string) (int, error) {
 	if startErr := startBuildkitd(ctx, sb); startErr != nil {
 		return 0, startErr
 	}
+	if recordErr := writeBuilderRecord(name, hostPort); recordErr != nil {
+		return 0, recordErr
+	}
 	return hostPort, nil
 }
 
@@ -81,6 +122,27 @@ func (v *VM) ready(ctx context.Context, hostPort int) error {
 		return nil
 	}
 	return v.Ready(ctx, hostPort)
+}
+
+// reusedBuilderPort reports whether an existing sandbox can be reused and, if
+// so, its host port. The port comes from the sandbox config when available,
+// else from the persisted record written at creation (the SDK drops port
+// bindings from SandboxHandle.Config()). A stale record for a different
+// sandbox is cleared so the caller recreates the VM.
+func (v *VM) reusedBuilderPort(name string, handle msb.SandboxHandle) (int, bool, error) {
+	hostPort := publishedHostPort(handle)
+	builderTracef("found builder sandbox %q port %d", name, hostPort)
+	if hostPort > 0 {
+		return hostPort, true, nil
+	}
+	if record, ok := readBuilderRecord(); ok && record.Name == name && record.HostPort > 0 {
+		builderTracef("using recorded builder port %d for %q", record.HostPort, name)
+		return record.HostPort, true, nil
+	}
+	if err := clearBuilderRecord(); err != nil {
+		return 0, false, fmt.Errorf("clear stale builder record: %w", err)
+	}
+	return 0, false, nil
 }
 
 // KeepAlive refreshes the shared builder VM's idle-activity timer on an

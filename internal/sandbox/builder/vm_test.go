@@ -162,6 +162,127 @@ func TestEnsureReusesExistingBuilderVM(t *testing.T) {
 	}
 }
 
+func TestEnsureReusesRecordedPortWhenConfigEmpty(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+
+	handle := &msb.MockSandboxHandle{Name_: builderSandboxName()}
+	client := &msb.MockMsbClient{
+		GetSandboxFn: func(context.Context, string) (msb.SandboxHandle, error) {
+			return handle, nil
+		},
+	}
+	if err := writeBuilderRecord(builderSandboxName(), 4242); err != nil {
+		t.Fatalf("seed builder record: %v", err)
+	}
+
+	readyPort := -1
+	vm := &VM{
+		Msb: client,
+		Ready: func(_ context.Context, hostPort int) error {
+			readyPort = hostPort
+			return nil
+		},
+	}
+
+	port, err := vm.Ensure(context.Background())
+	if err != nil {
+		t.Fatalf("Ensure failed: %v", err)
+	}
+	if port != 4242 {
+		t.Errorf("Ensure returned port %d, want 4242 from the recorded port", port)
+	}
+	if readyPort != 4242 {
+		t.Errorf("Ready called with port %d, want 4242", readyPort)
+	}
+	if len(client.CreatedSandboxCalls) != 0 {
+		t.Errorf("expected no CreateSandbox call, got %d", len(client.CreatedSandboxCalls))
+	}
+}
+
+func TestEnsureRecreatesWhenNoPortAndNoRecord(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+
+	handle := &msb.MockSandboxHandle{Name_: builderSandboxName()}
+	shellCmds := []string{}
+	client := &msb.MockMsbClient{
+		GetSandboxFn: func(context.Context, string) (msb.SandboxHandle, error) {
+			return handle, nil
+		},
+		CreatedSandbox: msb.NewMockSandbox(msb.SandboxOpts{ShellStreamCmds: &shellCmds}),
+	}
+
+	vm := &VM{Msb: client, Ready: func(context.Context, int) error { return nil }}
+
+	port, err := vm.Ensure(context.Background())
+	if err != nil {
+		t.Fatalf("Ensure failed: %v", err)
+	}
+	if len(client.CreatedSandboxCalls) != 1 {
+		t.Fatalf("expected 1 CreateSandbox call, got %d", len(client.CreatedSandboxCalls))
+	}
+	record, ok := readBuilderRecord()
+	if !ok {
+		t.Fatal("expected a builder record to be written after recreation")
+	}
+	if record.Name != builderSandboxName() || record.HostPort != port {
+		t.Errorf("builder record = %+v, want {Name:%s HostPort:%d}", record, builderSandboxName(), port)
+	}
+}
+
+func TestEnsureRecreatesOnFailedReadiness(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+
+	const stalePort = 4242
+	handle := &msb.MockSandboxHandle{
+		Name_: builderSandboxName(),
+		Cfg: &msbSdk.SandboxConfig{
+			PortBindings: []msbSdk.PortBinding{
+				{Bind: "127.0.0.1", HostPort: stalePort, GuestPort: builderGuestPort},
+			},
+		},
+	}
+	shellCmds := []string{}
+	client := &msb.MockMsbClient{
+		GetSandboxFn: func(context.Context, string) (msb.SandboxHandle, error) {
+			return handle, nil
+		},
+		CreatedSandbox: msb.NewMockSandbox(msb.SandboxOpts{ShellStreamCmds: &shellCmds}),
+	}
+
+	probes := 0
+	vm := &VM{
+		Msb: client,
+		Ready: func(_ context.Context, hostPort int) error {
+			probes++
+			if hostPort == stalePort {
+				return fmt.Errorf("buildkitd on port %d is dead", hostPort)
+			}
+			return nil
+		},
+	}
+
+	port, err := vm.Ensure(context.Background())
+	if err != nil {
+		t.Fatalf("Ensure failed: %v", err)
+	}
+	if port == stalePort {
+		t.Errorf("Ensure returned the stale port %d instead of a fresh one", stalePort)
+	}
+	if len(client.CreatedSandboxCalls) != 1 {
+		t.Fatalf("expected exactly 1 recreation, got %d", len(client.CreatedSandboxCalls))
+	}
+	if probes != 2 {
+		t.Errorf("readiness probed %d times, want 2 (stale then fresh)", probes)
+	}
+	record, ok := readBuilderRecord()
+	if !ok {
+		t.Fatal("expected a rewritten builder record after recreation")
+	}
+	if record.HostPort != port {
+		t.Errorf("builder record port = %d, want the fresh port %d", record.HostPort, port)
+	}
+}
+
 func TestEnsureSerializesConcurrentCreation(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 
