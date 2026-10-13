@@ -47,7 +47,7 @@ func printPruneSummary(ui termio.UI, report *StaleReport, dryRun bool) {
 		action = "dry-run: Would prune"
 	}
 	ui.Outf(
-		"%s %d VMs, %d home volumes, %d msb images, buildkit cache pruned: %t",
+		"%s %d VMs, %d home volumes, %d msb images, builder cache pruned: %t",
 		action,
 		report.PrunedSandboxes,
 		report.PrunedVolumes,

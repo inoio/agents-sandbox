@@ -333,6 +333,24 @@ func TestMobyPruneMapsToImagePrune(t *testing.T) {
 	}
 }
 
+func TestMobyPruneCachePrunesDaemon(t *testing.T) {
+	pruneCalls := 0
+	engine := &fakeMobyEngine{
+		pruneFn: func(context.Context, client.ImagePruneOptions) (client.ImagePruneResult, error) {
+			pruneCalls++
+			return client.ImagePruneResult{}, nil
+		},
+	}
+	builder := &mobyBuilder{engine: engine}
+
+	if err := builder.PruneCache(context.Background()); err != nil {
+		t.Fatalf("PruneCache() error = %v", err)
+	}
+	if pruneCalls != 1 {
+		t.Errorf("ImagePrune calls = %d, want 1", pruneCalls)
+	}
+}
+
 func TestMobyBuildResultPopulatesDigestEnv(t *testing.T) {
 	env := []string{"PATH=/usr/bin", "HOME=/root"}
 	engine := &fakeMobyEngine{}

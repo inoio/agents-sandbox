@@ -110,14 +110,21 @@ func testCacheEndpoint() cacheregistry.Endpoint {
 	return cacheregistry.Endpoint{Host: "172.30.0.1", Port: 5000, Token: "test-token"}
 }
 
-// stubCacheRegistry replaces the embedded-registry acquisition seam so Build
-// tests never spawn the registry daemon.
+// stubCacheRegistry replaces the embedded-registry acquisition and prune seams
+// so tests never spawn the registry daemon.
 func stubCacheRegistry(t *testing.T, endpoint cacheregistry.Endpoint) {
 	t.Helper()
-	restore := ensureCacheRegistry
-	t.Cleanup(func() { ensureCacheRegistry = restore })
+	restoreEnsure := ensureCacheRegistry
+	restorePrune := pruneCacheRegistry
+	t.Cleanup(func() {
+		ensureCacheRegistry = restoreEnsure
+		pruneCacheRegistry = restorePrune
+	})
 	ensureCacheRegistry = func(context.Context) (cacheregistry.Endpoint, error) {
 		return endpoint, nil
+	}
+	pruneCacheRegistry = func(context.Context, cacheregistry.Endpoint, func(string) bool) error {
+		return nil
 	}
 }
 

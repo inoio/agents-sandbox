@@ -13,6 +13,7 @@ import (
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 
 	"github.com/inoio/agents-sandbox/internal/configpaths"
+	"github.com/inoio/agents-sandbox/internal/sandbox/builder/cacheregistry"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
 	"github.com/inoio/agents-sandbox/internal/sandbox/options"
 	"github.com/inoio/agents-sandbox/internal/sysinfo"
@@ -523,6 +524,8 @@ func TestPruneCacheSkipsWhenNoBuilderVM(t *testing.T) {
 }
 
 func TestPruneCacheRunsBuildctl(t *testing.T) {
+	stubCacheRegistry(t, testCacheEndpoint())
+
 	shellCmds := []string{}
 	sb := &msb.MockSandbox{ShellCalls: &shellCmds}
 	client := &msb.MockMsbClient{
@@ -542,6 +545,8 @@ func TestPruneCacheRunsBuildctl(t *testing.T) {
 }
 
 func TestPruneCacheErrorsOnFailedPrune(t *testing.T) {
+	stubCacheRegistry(t, testCacheEndpoint())
+
 	sb := &msb.MockSandbox{ShellErr: errors.New("buildctl boom")}
 	client := &msb.MockMsbClient{
 		GetSandboxFn: func(context.Context, string) (msb.SandboxHandle, error) {
@@ -552,5 +557,58 @@ func TestPruneCacheErrorsOnFailedPrune(t *testing.T) {
 
 	if err := vm.PruneCache(context.Background()); err == nil {
 		t.Fatal("expected an error when buildctl prune fails")
+	}
+}
+
+// TestMsbPruneCacheAlsoPrunesRegistry asserts the msb backend reclaims both the
+// buildkit worker cache (buildctl) and the embedded registry's agents-sandbox
+// cache repos, scoped by an agents-sandbox/ prefix predicate.
+func TestMsbPruneCacheAlsoPrunesRegistry(t *testing.T) {
+	endpoint := cacheregistry.Endpoint{Host: "172.30.0.1", Port: 5000, Token: "prune-token"}
+	restoreEnsure := ensureCacheRegistry
+	ensureCacheRegistry = func(context.Context) (cacheregistry.Endpoint, error) {
+		return endpoint, nil
+	}
+	t.Cleanup(func() { ensureCacheRegistry = restoreEnsure })
+
+	var (
+		prunedEndpoint cacheregistry.Endpoint
+		pruneCalls     int
+		matchedManaged bool
+		matchedOther   bool
+	)
+	restorePrune := pruneCacheRegistry
+	pruneCacheRegistry = func(_ context.Context, got cacheregistry.Endpoint, match func(string) bool) error {
+		pruneCalls++
+		prunedEndpoint = got
+		matchedManaged = match("agents-sandbox/runner-project-opencode-amd64:cache")
+		matchedOther = match("library/nginx")
+		return nil
+	}
+	t.Cleanup(func() { pruneCacheRegistry = restorePrune })
+
+	shellCmds := []string{}
+	sb := &msb.MockSandbox{ShellCalls: &shellCmds}
+	client := &msb.MockMsbClient{
+		GetSandboxFn: func(context.Context, string) (msb.SandboxHandle, error) {
+			return &msb.MockSandboxHandle{Name_: builderSandboxName(), ConnectSb: sb}, nil
+		},
+	}
+	vm := &VM{Msb: client}
+
+	if err := vm.PruneCache(context.Background()); err != nil {
+		t.Fatalf("PruneCache: %v", err)
+	}
+	if len(shellCmds) != 1 || shellCmds[0] != buildctlPruneCommand {
+		t.Errorf("Shell calls = %v, want [%q]", shellCmds, buildctlPruneCommand)
+	}
+	if pruneCalls != 1 {
+		t.Fatalf("registry prune calls = %d, want 1", pruneCalls)
+	}
+	if prunedEndpoint != endpoint {
+		t.Errorf("registry prune endpoint = %+v, want %+v", prunedEndpoint, endpoint)
+	}
+	if !matchedManaged || matchedOther {
+		t.Errorf("registry prune predicate: agents-sandbox=%t other=%t, want true/false", matchedManaged, matchedOther)
 	}
 }

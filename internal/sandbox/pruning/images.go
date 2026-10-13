@@ -11,8 +11,8 @@ import (
 	"github.com/inoio/agents-sandbox/internal/termio"
 )
 
-// pruneBuilderCache reclaims stale BuildKit cache via the shared builder VM. It
-// is a variable so tests can substitute a fake without a live builder.
+// pruneBuilderCache reclaims stale builder cache through the selected backend.
+// It is a variable so tests can substitute a fake without a live builder.
 var pruneBuilderCache = func(ctx context.Context) error {
 	return builder.Get().PruneCache(ctx)
 }
@@ -69,7 +69,7 @@ func PruneImages(
 			ui.Warnf("failed to prune unused msb image data: %v", err)
 		}
 		if err := pruneBuilderCache(ctx); err != nil {
-			ui.Warnf("failed to prune buildkit cache: %v", err)
+			ui.Warnf("failed to prune builder cache: %v", err)
 		} else {
 			report.BuildkitCachePruned = true
 		}
@@ -114,7 +114,7 @@ func referencedImages(kept map[state.Key]msb.SandboxHandle) map[string]struct{} 
 
 func printImagePruneReport(ui termio.UI, r ImageReport, dryRun bool) {
 	ui.Outf(
-		"%s %d runner image(s), buildkit cache pruned: %t",
+		"%s %d runner image(s), builder cache pruned: %t",
 		pruneReportPrefix(dryRun),
 		r.MSBImagesPruned,
 		r.BuildkitCachePruned,

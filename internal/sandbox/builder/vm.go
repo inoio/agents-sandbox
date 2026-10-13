@@ -2,13 +2,16 @@ package builder
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
 	"github.com/inoio/agents-sandbox/internal/configpaths"
+	"github.com/inoio/agents-sandbox/internal/sandbox/builder/cacheregistry"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
 	"github.com/inoio/agents-sandbox/internal/sandbox/options"
 	"github.com/inoio/agents-sandbox/internal/sandbox/state"
@@ -172,8 +175,14 @@ func (v *VM) touch(ctx context.Context) {
 	_ = handle.Touch(ctx)
 }
 
-// PruneCache reclaims stale BuildKit cache inside the shared builder VM. When no
-// builder VM exists there is nothing to reclaim and it is a no-op.
+// pruneCacheRegistry reclaims the embedded cache registry's agents-sandbox cache
+// repositories. It is a variable so tests can exercise the prune without a live
+// registry.
+var pruneCacheRegistry = cacheregistry.Prune
+
+// PruneCache reclaims the shared builder VM's stale cache: the buildkit worker
+// cache inside the VM and the embedded registry's agents-sandbox cache repos.
+// When no builder VM exists there is nothing to reclaim and it is a no-op.
 func (v *VM) PruneCache(ctx context.Context) error {
 	handle, err := v.Msb.GetSandbox(ctx, builderSandboxName())
 	if err != nil {
@@ -187,6 +196,13 @@ func (v *VM) PruneCache(ctx context.Context) error {
 		return fmt.Errorf("connect builder sandbox: %w", err)
 	}
 	defer func() { _ = sb.Close() }()
+
+	return errors.Join(pruneBuildkitWorker(ctx, sb), pruneCacheRegistryRepositories(ctx))
+}
+
+// pruneBuildkitWorker runs `buildctl prune` inside the builder VM to reclaim its
+// worker cache.
+func pruneBuildkitWorker(ctx context.Context, sb msb.Sandbox) error {
 	result, err := sb.Shell(ctx, buildctlPruneCommand)
 	if err != nil {
 		return fmt.Errorf("prune buildkit cache: %w", err)
@@ -195,6 +211,25 @@ func (v *VM) PruneCache(ctx context.Context) error {
 		return fmt.Errorf("prune buildkit cache: buildctl exited with code %d", result.ExitCode())
 	}
 	return nil
+}
+
+// pruneCacheRegistryRepositories reclaims every agents-sandbox cache repository
+// from the embedded registry, which holds the persistent BuildKit layer cache.
+func pruneCacheRegistryRepositories(ctx context.Context) error {
+	endpoint, err := ensureCacheRegistry(ctx)
+	if err != nil {
+		return fmt.Errorf("ensure cache registry: %w", err)
+	}
+	if err := pruneCacheRegistry(ctx, endpoint, isAgentSandboxCacheRepository); err != nil {
+		return fmt.Errorf("prune cache registry: %w", err)
+	}
+	return nil
+}
+
+// isAgentSandboxCacheRepository scopes registry pruning to this tool's caches,
+// leaving any unrelated repository in the shared registry untouched.
+func isAgentSandboxCacheRepository(reference string) bool {
+	return strings.HasPrefix(reference, "agents-sandbox/")
 }
 
 // publishedHostPort reads the first published host port from an existing VM's

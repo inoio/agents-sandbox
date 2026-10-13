@@ -64,7 +64,7 @@ func msbImg(ref string) sandboxmsb.ImageHandle {
 
 // staleSummary returns the aggregate prune summary line for the given counts.
 func staleSummary(dryRun string, vms, vols, msbImgs int, buildkitPruned bool) string {
-	return fmt.Sprintf("%s %d VMs, %d home volumes, %d msb images, buildkit cache pruned: %t",
+	return fmt.Sprintf("%s %d VMs, %d home volumes, %d msb images, builder cache pruned: %t",
 		dryRun, vms, vols, msbImgs, buildkitPruned)
 }
 

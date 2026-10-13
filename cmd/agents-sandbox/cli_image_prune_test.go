@@ -33,7 +33,7 @@ func TestImagePrune(t *testing.T) {
 		if err := cmd.Execute(); err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
-		if !slices.Contains(ui.OutCalls, "Pruned 1 runner image(s), buildkit cache pruned: true") {
+		if !slices.Contains(ui.OutCalls, "Pruned 1 runner image(s), builder cache pruned: true") {
 			t.Errorf("expected prune summary, got: %v", ui.OutCalls)
 		}
 	})
@@ -59,7 +59,7 @@ func TestImagePrune(t *testing.T) {
 		if err := cmd.Execute(); err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
-		if !slices.Contains(ui.OutCalls, "Pruned 1 runner image(s), buildkit cache pruned: true") {
+		if !slices.Contains(ui.OutCalls, "Pruned 1 runner image(s), builder cache pruned: true") {
 			t.Errorf("expected prune summary, got: %v", ui.OutCalls)
 		}
 	})
