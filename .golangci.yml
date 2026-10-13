@@ -311,6 +311,9 @@ linters:
         - ^github.com/superradcompany/microsandbox/sdk/go\.(RuntimeConfig|InstallOptions|DNSConfig)$
         - ^github.com/superradcompany/microsandbox/sdk/go.MountOptions$
         - ^github.com/superradcompany/microsandbox/sdk/go.SecretEnvOptions$
+        - ^github.com/distribution/distribution/v3/configuration.Configuration$
+        - ^github.com/distribution/distribution/v3/configuration.Log$
+        - ^github.com/distribution/distribution/v3/configuration.HTTP$
         # microsandbox SDK errors — Cause is nil for SDK-originated errors
         - ^github.com/superradcompany/microsandbox/sdk/go.Error$
         # project types — intentionally partial init (zero-value fields set later)

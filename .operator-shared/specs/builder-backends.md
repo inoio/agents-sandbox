@@ -152,6 +152,13 @@ isolation for the host daemon and is intentionally presented as a fallback.
   reachable from the sandbox but not broadly exposed. Bind scope is the most
   security-sensitive detail and must be confined to the sandbox's host gateway
   (not `0.0.0.0`) for the daemon's lifetime.
+- **Reachability / Bind scope (design; unvalidated on a KVM host):** the builder
+  VM's `IPv4Pool` is pinned to a dedicated `/30` (`172.30.0.0/30`) and the
+  registry binds that subnet's gateway address (`172.30.0.1`, network+1), never
+  `0.0.0.0`. The address is isolated in `cacheregistry.registryBindHost()` so it
+  is a one-line change once validated end-to-end against a running KVM host. It
+  has **not** been validated in a dev VM without `/dev/kvm`; this is a design
+  decision, not a proven result.
 - **On-demand, shared lifecycle:** the registry is a **per-user singleton
   daemon**, not one-per-build. The first agents-sandbox process that needs it
   re-execs itself in a hidden internal serve mode, detached from the parent, bound

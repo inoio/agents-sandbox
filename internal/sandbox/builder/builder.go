@@ -12,6 +12,7 @@ import (
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 
 	"github.com/inoio/agents-sandbox/internal/configpaths"
+	"github.com/inoio/agents-sandbox/internal/sandbox/builder/cacheregistry"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
 	"github.com/inoio/agents-sandbox/internal/sandbox/naming"
 	"github.com/inoio/agents-sandbox/internal/sandbox/options"
@@ -244,10 +245,12 @@ func builderCacheSizeMiB() uint32 {
 	return builderCacheTmpfsSizeMiB
 }
 
-// builderNetworkPolicy returns the builder VM's network policy, optionally
-// disabling or narrowing TLS interception for the spike knob.
+// builderNetworkPolicy returns the builder VM's network policy, pinning the
+// guest subnet pool to the dedicated /30 the cache registry binds its gateway
+// on, and optionally narrowing TLS interception for the spike knob.
 func builderNetworkPolicy() *msbSdk.NetworkConfig {
 	policy := msbSdk.NetworkPolicy.AllowAll()
+	policy.IPv4Pool = cacheregistry.BuilderIPv4Pool
 	if tls := builderTLSConfig(); tls != nil {
 		policy.TLS = tls
 	}
