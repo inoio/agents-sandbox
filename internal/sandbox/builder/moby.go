@@ -15,10 +15,6 @@ import (
 	"github.com/moby/moby/client"
 )
 
-// managedImageLabel matches the runner images agents-sandbox builds, so a prune
-// reclaims only our own dangling layers.
-const managedImageLabel = "org.agents-sandbox.managed=true"
-
 // mobyEngine is the subset of the Docker Engine client the moby backend uses.
 // It is an interface so the backend can be exercised without a Docker daemon.
 type mobyEngine interface {
@@ -212,7 +208,6 @@ func (b *mobyBuilder) PruneCache(ctx context.Context) error {
 	}
 	filters := client.Filters{}.
 		Add("dangling", "true").
-		Add("label", managedImageLabel).
 		Add("until", "24h")
 	//exhaustruct:ignore // only the filter set matters for a dangling-image prune
 	options := client.ImagePruneOptions{Filters: filters}

@@ -325,8 +325,8 @@ func TestMobyPruneMapsToImagePrune(t *testing.T) {
 	if _, ok := filters["dangling"]["true"]; !ok {
 		t.Errorf("prune filters = %v, want dangling=true", filters)
 	}
-	if _, ok := filters["label"]["org.agents-sandbox.managed=true"]; !ok {
-		t.Errorf("prune filters = %v, want managed label", filters)
+	if _, ok := filters["label"]; ok {
+		t.Errorf("prune filters = %v, want no label filter (managed label is only on the tagged image)", filters)
 	}
 	if _, ok := filters["until"]["24h"]; !ok {
 		t.Errorf("prune filters = %v, want until=24h", filters)
