@@ -173,7 +173,13 @@ isolation for the host daemon and is intentionally presented as a fallback.
   reachability from the builder VM at `host.microsandbox.internal` remains a
   design decision to confirm — if the synthetic gateway address does not bind or
   is unreachable, change `registryBindHost` to the address that works (still not
-  `0.0.0.0`).
+  `0.0.0.0`). A direct integration test now asserts this invariant on a KVM host:
+  `TestBuilderVMReachesEmbeddedRegistry` (in `internal/sandbox/builder`, msb tier)
+  starts the real `cacheregistry.Serve` bind on the pinned gateway and proves the
+  builder VM can TCP-reach that gateway host:port from inside the VM. It fails
+  loudly (`Serve` bind error, or guest unreachable) rather than surfacing only as
+  a missing cache hit. `TestMsbSecondBuildHitsRegistryCache` remains the
+  end-to-end proxy; this test isolates the bind/reachability half.
 - **On-demand, shared lifecycle:** the registry is a **per-user singleton
   daemon**, not one-per-build. The first agents-sandbox process that needs it
   re-execs itself in a hidden internal serve mode, detached from the parent, bound
