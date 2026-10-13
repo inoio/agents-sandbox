@@ -130,6 +130,7 @@ func TestPruneImages(t *testing.T) {
 	})
 
 	t.Run("returns ImageList error", func(t *testing.T) {
+		configpaths.WithMockConfigPaths(t)
 		client := &msb.MockMsbClient{
 			ImageListFn: func(context.Context) ([]msb.ImageHandle, error) {
 				return nil, errors.New("list boom")
@@ -182,6 +183,7 @@ func TestPruneImages(t *testing.T) {
 
 func TestPruneImagesRunsNativePruneAfterReferenceCleanup(t *testing.T) {
 	t.Run("normal prune", func(t *testing.T) {
+		configpaths.WithMockConfigPaths(t)
 		events := make([]string, 0, 2)
 		client := &msb.MockMsbClient{
 			Images: []msb.ImageHandle{
@@ -207,6 +209,7 @@ func TestPruneImagesRunsNativePruneAfterReferenceCleanup(t *testing.T) {
 	})
 
 	t.Run("dry run", func(t *testing.T) {
+		configpaths.WithMockConfigPaths(t)
 		called := false
 		client := &msb.MockMsbClient{
 			ImagePruneFn: func(context.Context) (*msbSdk.ImagePruneReport, error) {
@@ -225,6 +228,7 @@ func TestPruneImagesRunsNativePruneAfterReferenceCleanup(t *testing.T) {
 	})
 
 	t.Run("native prune error", func(t *testing.T) {
+		configpaths.WithMockConfigPaths(t)
 		client := &msb.MockMsbClient{
 			ImagePruneFn: func(context.Context) (*msbSdk.ImagePruneReport, error) {
 				return nil, errors.New("native prune failed")
