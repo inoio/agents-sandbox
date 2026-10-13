@@ -161,8 +161,13 @@ isolation for the host daemon and is intentionally presented as a fallback.
   (`cacheregistry.BuilderIPv4Pool = "172.30.0.0/30"`, set on the builder network
   policy in `builderNetworkPolicy`) and the registry binds that subnet's gateway
   address (`172.30.0.1`, network+1, derived in `cacheregistry.builderGatewayHost()`),
-  never `0.0.0.0`. The bind host/port are vars (`registryBindHost`/`registryBindPort`)
-  so tests rebind to loopback; production uses the gateway. This is the
+  never `0.0.0.0`. `builderGatewayHost()` returns an error (never an empty host,
+  which would bind all interfaces) so a malformed pool fails the start instead of
+  widening the bind. The free port is probed on the **actual bind host** (not
+  loopback, which `options.FirstFreeHostPort` uses), so a port free on loopback but
+  taken on the gateway cannot cause a listen failure. The bind host/port are vars
+  (`registryBindHost`/`registryBindPort`) so tests rebind to loopback; production
+  uses the gateway. This is the
   security-sensitive Task 2 Step 1 decision and it has **not** been validated
   against a running KVM host (the dev VM has no `/dev/kvm`), so the gateway-bind
   reachability from the builder VM at `host.microsandbox.internal` remains a
@@ -227,6 +232,10 @@ isolation for the host daemon and is intentionally presented as a fallback.
 - Cache import/export uses `type=registry` against the embedded registry
   (`mode=max`, since the runner image is multi-stage and `mode=min` would drop
   intermediate stages' layers).
+- Both the import and export entries must set `registry.insecure=true`: the
+  embedded registry serves **plain HTTP** on a non-loopback gateway and buildkitd
+  has no insecure-registry config, so without it BuildKit defaults to HTTPS and
+  every cache import/export against the HTTP registry fails.
 - The cache export runs only on a real Dockerfile-step miss (existing
   export-on-miss detection), so a full cache hit skips it.
 - Folding image export and cache export into a single solve to hide the

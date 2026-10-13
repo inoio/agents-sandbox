@@ -70,12 +70,13 @@ Common development commands (run from the Go module root):
 - `go run ./cmd/agents-sandbox --dry-run` — build and run locally without producing a binary or starting interactively
   (skips launching the agent)
 - `make test`/`go test ./...` — run all tests.
-- `make test-integration` — run all `integration`-tagged tests on the Docker-backed BuildKit harness
-  (`AGENTS_SANDBOX_BUILDER=docker`, no `/dev/kvm`). Runs on any host with Docker and normal TLS egress
-  (e.g. CI `ubuntu-latest`); in this dev VM microsandbox egress TLS interception can break in-build registry pulls
-  (see "Current limitations").
-- `make test-integration-msb` — run the same tagged tests on the production msb BuildKit builder VM
-  (`AGENTS_SANDBOX_BUILDER=msb`); needs the msb runtime, a functional `/dev/kvm`, and network access.
+- `make test-integration` — run all `integration`-tagged tests on the moby builder backend
+  (`AGENTS_SANDBOX_BUILDER=moby`), which builds through the Docker Engine API and needs no `/dev/kvm`. Runs on any
+  host with a Docker daemon and normal TLS egress (e.g. CI `ubuntu-latest`); in this dev VM microsandbox egress TLS
+  interception can break in-build registry pulls (see "Current limitations").
+- `make test-integration-msb` — run the same tagged tests on the default msb BuildKit backend
+  (`AGENTS_SANDBOX_BUILDER=msb`), a builder VM running `buildkitd`; needs the msb runtime, a functional `/dev/kvm`,
+  and network access.
 - `make compile-all` — compile every test binary including `integration`-tagged files without running them or needing
   a docker daemon (catches tagged-only compile regressions; run by CI on every PR).
 - `make lint`/`golangci-lint run` — run the linter. ALWAYS use! DON'T use `go vet`!
