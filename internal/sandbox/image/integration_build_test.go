@@ -42,6 +42,7 @@ func requireIntegration(t *testing.T) {
 // builder cache) when the moby backend is selected.
 func requireMsbBackend(t *testing.T) {
 	t.Helper()
+	configpaths.WithMockConfigPaths(t)
 	if builder.SelectedName() != "msb" {
 		t.Skip("msb-only test: requires the microsandbox backend")
 	}
@@ -51,6 +52,7 @@ func requireMsbBackend(t *testing.T) {
 // when the msb backend is selected.
 func requireMobyBackend(t *testing.T) {
 	t.Helper()
+	configpaths.WithMockConfigPaths(t)
 	if builder.SelectedName() != "moby" {
 		t.Skip("moby-only test: requires the Docker Engine API backend")
 	}
