@@ -201,6 +201,17 @@ isolation for the host daemon and is intentionally presented as a fallback.
   (multi-service platforms, not embeddable); zot (a standalone server, not an
   embeddable library — only usable as a co-shipped second binary/subprocess); a
   hand-rolled OCI subset (smallest, but owns digest/media-type correctness).
+- **distribution/v3 embedding mechanics (non-obvious):**
+  - The registry config is built in Go, not parsed from YAML, so
+    `Catalog.MaxEntries` and `Tags.MaxTags` must be set explicitly — their YAML
+    defaults do not apply and the `_catalog`/tags endpoints return empty when
+    they are left at the zero value.
+  - The filesystem storage driver must be blank-imported
+    (`.../registry/storage/driver/filesystem`) or `handlers.NewApp` panics with
+    `StorageDriver not registered`.
+  - Prune requires `storage.delete.enabled=true`; the HTTP delete removes
+    manifests/blobs but leaves the repository directory, so dropping a repo from
+    `_catalog` additionally requires removing that directory on disk.
 
 ### BuildKit cache/export contract
 - Cache import/export uses `type=registry` against the embedded registry
