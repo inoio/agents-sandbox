@@ -48,6 +48,13 @@ command reports the bare version (e.g. `0.1.0`).
 
 ### Changed
 
+- BuildKit builder VM now gets the same default resources as an agent VM: all host CPUs (with matching live-hotplug
+  ceilings) and 4 GiB memory (up to physical RAM), so image builds are not throttled by the microsandbox defaults. Its
+  idle timeout is 5s, and an in-flight build holds the VM's idle timer open via a `Touch` keep-alive so the short
+  timeout cannot reap it mid-build.
+- BuildKit builder VM: `buildkitd` stdout/stderr are appended to
+  `/var/lib/buildkit/buildkitd.log` on the persistent cache volume for debugging, surviving the builder VM's short
+  idle reaping.
 - Runner image: `opencode`, `opencode2`, and `claude-code` images are now node-free. The `agents-sandbox-node` stage is
   emitted only for agents that need node (today only `pi`, an npm-installed node bundle), and opencode2 and claude-code
   install from their upstream native installers instead of npm. This cuts image size and cold-build time; version pinning,

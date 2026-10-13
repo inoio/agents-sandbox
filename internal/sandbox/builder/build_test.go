@@ -10,6 +10,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/moby/buildkit/client"
 	"github.com/moby/buildkit/client/llb"
@@ -26,6 +27,9 @@ type fakeBuildkitClient struct {
 	solve []client.SolveOpt
 	// solveFn overrides the default solve behavior when set.
 	solveFn func(opt client.SolveOpt) (*client.SolveResponse, error)
+	// emitVertices are sent on the status channel during Solve, simulating
+	// build step progress for cache-hit detection tests.
+	emitVertices []*client.Vertex
 	// resolveImageConfigFn overrides the default ResolveImageConfig behavior.
 	resolveImageConfigFn func(ref string, opt sourceresolver.Opt) (string, digest.Digest, []byte, error)
 	closeCalls           atomic.Int32
@@ -41,6 +45,9 @@ func (f *fakeBuildkitClient) Solve(
 	f.mu.Lock()
 	f.solve = append(f.solve, opt)
 	f.mu.Unlock()
+	for _, v := range f.emitVertices {
+		status <- &client.SolveStatus{Vertexes: []*client.Vertex{v}}
+	}
 	if f.solveFn != nil {
 		return f.solveFn(opt)
 	}
@@ -76,10 +83,7 @@ func (f *fakeBuildkitClient) solveOpt(t *testing.T) client.SolveOpt {
 func newBuildTestClient(t *testing.T, fake buildkitClient) *Client {
 	t.Helper()
 	configpaths.WithMockConfigPaths(t)
-
-	restore := newBuildkitClient
-	t.Cleanup(func() { newBuildkitClient = restore })
-	newBuildkitClient = func(context.Context, string) (buildkitClient, error) { return fake, nil }
+	stubBuildkitDial(t, fake)
 
 	handle := &msb.MockSandboxHandle{
 		Name_: builderSandboxName(),
@@ -95,6 +99,53 @@ func newBuildTestClient(t *testing.T, fake buildkitClient) *Client {
 		},
 	}
 	return &Client{backend: &msbBackend{vm: &VM{Msb: msbClient}}}
+}
+
+// stubBuildkitDial makes newBuildkitClient return fake without dialing.
+func stubBuildkitDial(t *testing.T, fake buildkitClient) {
+	t.Helper()
+	restore := newBuildkitClient
+	t.Cleanup(func() { newBuildkitClient = restore })
+	newBuildkitClient = func(context.Context, string) (buildkitClient, error) { return fake, nil }
+}
+
+// fakeBackend records the keep-alive lifecycle so a Build test can assert the
+// builder VM is held open for the duration of the build.
+type fakeBackend struct {
+	keptAlive bool
+	stopped   bool
+}
+
+func (b *fakeBackend) Ensure(context.Context) (int, error) { return 4242, nil }
+func (b *fakeBackend) PruneCache(context.Context) error    { return nil }
+func (b *fakeBackend) Export(string) exportSpec            { return exportSpec{Type: "oci"} }
+func (b *fakeBackend) KeepAlive(context.Context) func() {
+	b.keptAlive = true
+	return func() { b.stopped = true }
+}
+
+// TestBuildKeepsBuilderAlive asserts Build starts the keep-alive before solving
+// and stops it when the build returns, so a short builder idle timeout does not
+// reap the VM mid-build.
+func TestBuildKeepsBuilderAlive(t *testing.T) {
+	stubResolveBaseDigest(t, "base@sha256:x", nil)
+
+	fake := &fakeBuildkitClient{}
+	stubBuildkitDial(t, fake)
+
+	backend := &fakeBackend{}
+	if _, err := (&Client{backend: backend}).Build(context.Background(), BuildRequest{
+		ContextDir: "/tmp/context",
+		Platform:   "linux/amd64",
+	}); err != nil {
+		t.Fatalf("Build failed: %v", err)
+	}
+	if !backend.keptAlive {
+		t.Error("Build did not start the builder keep-alive")
+	}
+	if !backend.stopped {
+		t.Error("Build did not stop the builder keep-alive")
+	}
 }
 
 func stubResolveBaseDigest(t *testing.T, resolved string, resolveErr error) {
@@ -457,5 +508,186 @@ func TestForwardProgressSkipsUncachedVertices(t *testing.T) {
 	}, func(line string) { lines = append(lines, line) })
 	if len(lines) != 0 {
 		t.Errorf("progress lines = %v, want none for an uncached vertex", lines)
+	}
+}
+
+// archiveSolveFn returns a solve function that writes a stub image archive when
+// an image export is configured and tolerates a cache-only solve (no image).
+func archiveSolveFn() func(client.SolveOpt) (*client.SolveResponse, error) {
+	return func(opt client.SolveOpt) (*client.SolveResponse, error) {
+		if len(opt.Exports) == 0 {
+			return &client.SolveResponse{ExporterResponse: map[string]string{}}, nil
+		}
+		writer, err := opt.Exports[0].Output(nil)
+		if err != nil {
+			return nil, err
+		}
+		if _, err := writer.Write([]byte("oci-archive-bytes")); err != nil {
+			return nil, err
+		}
+		return &client.SolveResponse{ExporterResponse: map[string]string{}}, nil
+	}
+}
+
+func cacheExportTestRequest(t *testing.T) BuildRequest {
+	t.Helper()
+	return BuildRequest{
+		ContextDir: t.TempDir(),
+		Tag:        "agents-sandbox:test",
+		BaseRef:    "docker.io/library/base:latest",
+		Platform:   "linux/amd64",
+	}
+}
+
+func TestBuildSkipsCacheExportOnFullHit(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	t.Setenv(builderCacheModeEnv, cacheModeTmpfsExport)
+	stubResolveBaseDigest(t, "base@sha256:x", nil)
+
+	completed := time.Now()
+	fake := &fakeBuildkitClient{
+		emitVertices: []*client.Vertex{
+			{Name: "[internal] load metadata for base", Cached: false, Completed: &completed},
+			{Name: "[1/1] RUN echo cached", Cached: true, Completed: &completed},
+		},
+		solveFn: archiveSolveFn(),
+	}
+
+	if _, err := newBuildTestClient(t, fake).Build(context.Background(), cacheExportTestRequest(t)); err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	if len(fake.solve) != 1 {
+		t.Fatalf("Solve called %d times, want 1 (no export pass on a full hit)", len(fake.solve))
+	}
+	if len(fake.solve[0].CacheImports) != 1 {
+		t.Errorf("first solve CacheImports = %+v, want the import", fake.solve[0].CacheImports)
+	}
+	if len(fake.solve[0].CacheExports) != 0 {
+		t.Errorf("first solve CacheExports = %+v, want none", fake.solve[0].CacheExports)
+	}
+}
+
+func TestBuildExportsCacheOnMiss(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	t.Setenv(builderCacheModeEnv, cacheModeTmpfsExport)
+	stubResolveBaseDigest(t, "base@sha256:x", nil)
+
+	completed := time.Now()
+	fake := &fakeBuildkitClient{
+		emitVertices: []*client.Vertex{
+			{Name: "[1/1] RUN echo rebuilt", Cached: false, Completed: &completed},
+		},
+		solveFn: archiveSolveFn(),
+	}
+
+	if _, err := newBuildTestClient(t, fake).Build(context.Background(), cacheExportTestRequest(t)); err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	if len(fake.solve) != 2 {
+		t.Fatalf("Solve called %d times, want 2 (image solve + cache export)", len(fake.solve))
+	}
+	first, second := fake.solve[0], fake.solve[1]
+	if len(first.CacheExports) != 0 || len(first.Exports) != 1 {
+		t.Errorf(
+			"first solve exports image only, got CacheExports=%v Exports=%d",
+			first.CacheExports,
+			len(first.Exports),
+		)
+	}
+	if len(second.CacheExports) != 1 {
+		t.Errorf("second solve CacheExports = %+v, want one", second.CacheExports)
+	}
+	if len(second.Exports) != 0 {
+		t.Errorf("second solve Exports = %+v, want none (cache-only)", second.Exports)
+	}
+}
+
+func TestBuildStepCacheDetector(t *testing.T) {
+	completed := time.Now()
+	detector := newBuildStepCacheDetector()
+	detector.observe(&client.SolveStatus{Vertexes: []*client.Vertex{
+		{Name: "[internal] load metadata", Cached: false, Completed: &completed},
+		{Name: "[1/2] FROM debian:trixie", Cached: false, Completed: &completed},
+		{Name: "[2/2] RUN a", Cached: false, Completed: &completed},
+		{Name: "[2/2] RUN a", Cached: true, Completed: &completed},
+	}})
+	if !detector.fullHit() {
+		t.Errorf(
+			"fullHit() = false, want true (FROM/internal excluded; RUN transiently false then cached); steps=%d",
+			detector.steps(),
+		)
+	}
+	if detector.steps() != 1 {
+		t.Errorf("steps = %d, want 1 (only the RUN step)", detector.steps())
+	}
+
+	missed := newBuildStepCacheDetector()
+	missed.observe(&client.SolveStatus{Vertexes: []*client.Vertex{
+		{Name: "[1/1] RUN a", Cached: false, Completed: &completed},
+	}})
+	if missed.fullHit() {
+		t.Error("fullHit() = true for a step that never cached, want false")
+	}
+}
+
+func TestIsDockerfileStep(t *testing.T) {
+	cases := map[string]bool{
+		"[1/2] RUN echo":           true,
+		"[node 3/5] RUN npm":       true,
+		"[1/2] FROM debian:trixie": false,
+		"[internal] load metadata": false,
+		"dockerfile.v0":            false,
+	}
+	for name, want := range cases {
+		if got := isDockerfileStep(name); got != want {
+			t.Errorf("isDockerfileStep(%q) = %v, want %v", name, got, want)
+		}
+	}
+}
+
+func TestCacheEnabledAttrsDropsNoCache(t *testing.T) {
+	in := map[string]string{"platform": "linux/amd64", "no-cache": ""}
+	out := cacheEnabledAttrs(in)
+	if _, ok := out["no-cache"]; ok {
+		t.Error("no-cache attribute was not removed")
+	}
+	if out["platform"] != "linux/amd64" {
+		t.Errorf("platform = %q, want preserved", out["platform"])
+	}
+	if _, ok := in["no-cache"]; !ok {
+		t.Error("input map was mutated")
+	}
+	plain := map[string]string{"platform": "linux/amd64"}
+	if got := cacheEnabledAttrs(plain); len(got) != 1 || got["platform"] != "linux/amd64" {
+		t.Errorf("cacheEnabledAttrs(no no-cache) = %v, want unchanged", got)
+	}
+}
+
+func TestBuildExportPassDropsNoCache(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	t.Setenv(builderCacheModeEnv, cacheModeTmpfsExport)
+	stubResolveBaseDigest(t, "base@sha256:x", nil)
+
+	completed := time.Now()
+	fake := &fakeBuildkitClient{
+		emitVertices: []*client.Vertex{
+			{Name: "[1/1] RUN x", Cached: false, Completed: &completed},
+		},
+		solveFn: archiveSolveFn(),
+	}
+	req := cacheExportTestRequest(t)
+	req.NoCache = true
+
+	if _, err := newBuildTestClient(t, fake).Build(context.Background(), req); err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	if len(fake.solve) != 2 {
+		t.Fatalf("Solve called %d times, want 2", len(fake.solve))
+	}
+	if _, ok := fake.solve[0].FrontendAttrs["no-cache"]; !ok {
+		t.Error("first solve should carry the no-cache attribute")
+	}
+	if _, ok := fake.solve[1].FrontendAttrs["no-cache"]; ok {
+		t.Error("export pass must drop no-cache so it reuses the just-built cache")
 	}
 }

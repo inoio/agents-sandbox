@@ -6,6 +6,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
+	"time"
 
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 
@@ -43,18 +45,24 @@ func (v *VM) resolveBuilderPort(ctx context.Context, name string) (int, error) {
 
 	handle, getErr := v.Msb.GetSandbox(ctx, name)
 	if getErr == nil {
-		if hostPort := publishedHostPort(handle); hostPort > 0 {
+		hostPort := publishedHostPort(handle)
+		builderTracef("found builder sandbox %q port %d", name, hostPort)
+		if hostPort > 0 {
 			return hostPort, nil
 		}
-	} else if !msb.IsNotFound(getErr) {
-		return 0, fmt.Errorf("check builder sandbox %q: %w", name, getErr)
+	} else {
+		builderTracef("GetSandbox %q error: %v (notFound=%v)", name, getErr, msb.IsNotFound(getErr))
+		if !msb.IsNotFound(getErr) {
+			return 0, fmt.Errorf("check builder sandbox %q: %w", name, getErr)
+		}
 	}
 
-	if volumeErr := v.ensureCacheVolume(ctx); volumeErr != nil {
-		return 0, volumeErr
+	if cacheErr := v.ensureCacheStorage(ctx); cacheErr != nil {
+		return 0, cacheErr
 	}
 
 	hostPort := options.FirstFreeHostPort(builderHostPortBase)
+	builderTracef("create builder sandbox %q port %d", name, hostPort)
 	sb, createErr := v.Msb.CreateSandbox(ctx, name, builderSandboxOptions(hostPort)...)
 	if createErr != nil {
 		return 0, fmt.Errorf("create builder sandbox: %w", createErr)
@@ -73,6 +81,49 @@ func (v *VM) ready(ctx context.Context, hostPort int) error {
 		return nil
 	}
 	return v.Ready(ctx, hostPort)
+}
+
+// KeepAlive refreshes the shared builder VM's idle-activity timer on an
+// interval until the returned stop function is called or ctx is done. A short
+// idle timeout would otherwise reap the VM mid-build, since builds talk to
+// buildkitd over the forwarded port rather than through a tracked exec session.
+// The stop function blocks until the loop has exited, so no touch occurs after
+// it returns; it is safe to call more than once.
+func (v *VM) KeepAlive(ctx context.Context) func() {
+	done := make(chan struct{})
+	exited := make(chan struct{})
+	ticker := time.NewTicker(builderKeepAliveInterval)
+	go func() {
+		defer close(exited)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-done:
+				return
+			case <-ticker.C:
+				v.touch(ctx)
+			}
+		}
+	}()
+	var once sync.Once
+	return func() {
+		once.Do(func() {
+			close(done)
+			<-exited
+		})
+	}
+}
+
+// touch refreshes the builder VM's idle timer, ignoring errors: a missed touch
+// is only a risk if it persists, and the next tick retries.
+func (v *VM) touch(ctx context.Context) {
+	handle, err := v.Msb.GetSandbox(ctx, builderSandboxName())
+	if err != nil {
+		return
+	}
+	_ = handle.Touch(ctx)
 }
 
 // PruneCache reclaims stale BuildKit cache inside the shared builder VM. When no
@@ -115,6 +166,22 @@ func publishedHostPort(handle msb.SandboxHandle) int {
 	return 0
 }
 
+// ensureCacheStorage prepares the BuildKit cache backing for the selected mode:
+// the named msb volume, or the host directory a bind cache mounts.
+func (v *VM) ensureCacheStorage(ctx context.Context) error {
+	switch builderCacheMode() {
+	case cacheModeBind:
+		if err := os.MkdirAll(builderCacheBindPath(), 0o750); err != nil {
+			return fmt.Errorf("create buildkit cache bind dir: %w", err)
+		}
+		return nil
+	case cacheModeTmpfs, cacheModeTmpfsExport, cacheModeRegistry:
+		return nil
+	default:
+		return v.ensureCacheVolume(ctx)
+	}
+}
+
 // ensureCacheVolume creates the shared BuildKit cache volume, tolerating an
 // already-exists result.
 func (v *VM) ensureCacheVolume(ctx context.Context) error {
@@ -131,7 +198,8 @@ func (v *VM) ensureCacheVolume(ctx context.Context) error {
 // startBuildkitd launches buildkitd inside the sandbox and drains its output so
 // the stream is not left unread.
 func startBuildkitd(ctx context.Context, sb msb.Sandbox) error {
-	stream, err := sb.ShellStream(ctx, buildkitdCommand)
+	builderTracef("start buildkitd: %s", buildkitdCommand())
+	stream, err := sb.ShellStream(ctx, buildkitdCommand())
 	if err != nil {
 		return fmt.Errorf("start buildkitd: %w", err)
 	}

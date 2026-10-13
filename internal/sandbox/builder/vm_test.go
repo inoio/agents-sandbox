@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -13,6 +14,8 @@ import (
 
 	"github.com/inoio/agents-sandbox/internal/configpaths"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
+	"github.com/inoio/agents-sandbox/internal/sandbox/options"
+	"github.com/inoio/agents-sandbox/internal/sysinfo"
 )
 
 func applySandboxOpts(cfg *msbSdk.SandboxConfig, opts []msbSdk.SandboxOption) {
@@ -90,12 +93,27 @@ func TestEnsureCreatesBuilderVM(t *testing.T) {
 	if binding.GuestPort != builderGuestPort {
 		t.Errorf("port binding guest port = %d, want %d", binding.GuestPort, builderGuestPort)
 	}
+	if want := sysinfo.NumCPUs(); cfg.CPUs != want {
+		t.Errorf("sandbox CPUs = %d, want %d (agent VM default)", cfg.CPUs, want)
+	}
+	if want := sysinfo.NumCPUs(); cfg.MaxCPUs != want {
+		t.Errorf("sandbox max CPUs = %d, want %d (agent VM default)", cfg.MaxCPUs, want)
+	}
+	if want := options.DefaultMemoryMiB; cfg.MemoryMiB != want {
+		t.Errorf("sandbox memory = %d MiB, want %d (agent VM default)", cfg.MemoryMiB, want)
+	}
+	if want := options.ParseMemoryGiB(uint32(sysinfo.TotalMemoryGiB())); cfg.MaxMemoryMiB != want {
+		t.Errorf("sandbox max memory = %d MiB, want %d (agent VM default)", cfg.MaxMemoryMiB, want)
+	}
+	if want := builderIdleTimeout(); cfg.IdleTimeout != want {
+		t.Errorf("sandbox idle timeout = %s, want %s", cfg.IdleTimeout, want)
+	}
 
 	if len(createdVolumes) != 1 || createdVolumes[0] != cacheVolumeName {
 		t.Errorf("created volumes = %v, want [%s]", createdVolumes, cacheVolumeName)
 	}
-	if len(shellCmds) != 1 || shellCmds[0] != buildkitdCommand {
-		t.Errorf("shell stream commands = %v, want [%s]", shellCmds, buildkitdCommand)
+	if len(shellCmds) != 1 || shellCmds[0] != buildkitdCommand() {
+		t.Errorf("shell stream commands = %v, want [%s]", shellCmds, buildkitdCommand())
 	}
 }
 
@@ -277,6 +295,100 @@ func TestBuilderSandboxNameIncludesVersion(t *testing.T) {
 	if got := builderSandboxName(); got != want {
 		t.Errorf("builderSandboxName() = %q, want %q", got, want)
 	}
+}
+
+// TestBuildkitdCommandLogsToCacheVolume asserts buildkitd's output is appended
+// to a log file on the persistent cache volume, so the log survives the builder
+// VM's short idle reaping and can be inspected for debugging.
+func TestBuildkitdCommandLogsToCacheVolume(t *testing.T) {
+	if !strings.Contains(buildkitdCommand(), ">> "+builderLogPath+" 2>&1") {
+		t.Errorf("buildkitdCommand() = %q, want stdout+stderr appended to %s", buildkitdCommand(), builderLogPath)
+	}
+	if !strings.HasPrefix(builderLogPath, cacheMountPath+"/") {
+		t.Errorf("builderLogPath = %q, want a file under the persistent cache mount %q", builderLogPath, cacheMountPath)
+	}
+}
+
+func TestBuilderKeepAliveIntervalBelowIdleTimeout(t *testing.T) {
+	if idle := builderIdleTimeout(); builderKeepAliveInterval >= idle {
+		t.Errorf("keep-alive interval %s must be below idle timeout %s",
+			builderKeepAliveInterval, idle)
+	}
+}
+
+// TestKeepAliveRefreshesBuilderVMUntilStopped asserts the keep-alive loop
+// touches the shared builder VM on its interval and that stop() is
+// deterministic (no touch happens afterwards) and idempotent.
+func TestKeepAliveRefreshesBuilderVMUntilStopped(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+
+	restore := builderKeepAliveInterval
+	builderKeepAliveInterval = time.Millisecond
+	t.Cleanup(func() { builderKeepAliveInterval = restore })
+
+	var touches atomic.Int32
+	handle := &msb.MockSandboxHandle{
+		Name_:   builderSandboxName(),
+		TouchFn: func(context.Context) error { touches.Add(1); return nil },
+	}
+	client := &msb.MockMsbClient{
+		GetSandboxFn: func(context.Context, string) (msb.SandboxHandle, error) {
+			return handle, nil
+		},
+	}
+	vm := &VM{Msb: client}
+
+	stop := vm.KeepAlive(context.Background())
+	waitForTouches(t, &touches, 1)
+	stop()
+	stop() // idempotent: must not panic or block
+
+	after := touches.Load()
+	time.Sleep(20 * time.Millisecond)
+	if got := touches.Load(); got != after {
+		t.Errorf("builder VM touched %d more times after stop", got-after)
+	}
+}
+
+// TestKeepAliveStopsWhenContextCancelled asserts a cancelled build context ends
+// the loop, so stop() returns without waiting on a live goroutine.
+func TestKeepAliveStopsWhenContextCancelled(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+
+	restore := builderKeepAliveInterval
+	builderKeepAliveInterval = time.Millisecond
+	t.Cleanup(func() { builderKeepAliveInterval = restore })
+
+	client := &msb.MockMsbClient{
+		GetSandboxFn: func(context.Context, string) (msb.SandboxHandle, error) {
+			return &msb.MockSandboxHandle{Name_: builderSandboxName()}, nil
+		},
+	}
+	vm := &VM{Msb: client}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	stop := vm.KeepAlive(ctx)
+	cancel()
+
+	done := make(chan struct{})
+	go func() { stop(); close(done) }()
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("stop did not return after the context was cancelled")
+	}
+}
+
+func waitForTouches(t *testing.T, touches *atomic.Int32, want int32) {
+	t.Helper()
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if touches.Load() >= want {
+			return
+		}
+		time.Sleep(time.Millisecond)
+	}
+	t.Fatalf("builder VM touched %d times, want >= %d", touches.Load(), want)
 }
 
 func TestPruneCacheSkipsWhenNoBuilderVM(t *testing.T) {

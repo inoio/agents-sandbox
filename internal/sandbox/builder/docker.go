@@ -78,6 +78,12 @@ func (b *dockerBackend) Export(tag string) exportSpec {
 	return exportSpec{Type: "docker", Attrs: map[string]string{"name": tag}}
 }
 
+// KeepAlive is a no-op: the Docker harness container has no idle reaper, so it
+// stays up regardless.
+func (b *dockerBackend) KeepAlive(context.Context) func() {
+	return func() {}
+}
+
 // Ensure returns the host port of a ready Docker-backed buildkitd, starting and
 // waiting for a container when none is already running.
 func (b *dockerBackend) Ensure(ctx context.Context) (int, error) {

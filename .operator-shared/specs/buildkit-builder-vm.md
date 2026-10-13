@@ -100,12 +100,26 @@ Components:
   deliberately separate concerns; restricting builder egress (e.g. registries
   only) is a possible later refinement, not part of this change.
 - **Detached** with a short idle timeout so a crashed launcher cannot leak the
-  VM.
+  VM. The idle timeout is **5 seconds** — so short that the idle reaper would
+  otherwise stop the VM mid-build. msb counts *exec* activity, and builds talk
+  to `buildkitd` over the forwarded TCP port, not through a tracked exec, so the
+  launcher must actively hold the timer open: `builder.VM.KeepAlive` calls the
+  msb handle's `Touch` every 2 seconds for the duration of a `Solve` (started by
+  `Client.Build`, stopped when the build returns or the build context ends). The
+  cache lives in the named volume, so a reaped VM only costs a reboot, not the
+  cache.
+- **Resources**: the builder VM gets the same boot resources as the default
+  agent VM — full CPU (`sysinfo.NumCPUs()`), 4 GiB memory
+  (`options.DefaultMemoryMiB`), and matching live-hotplug ceilings
+  (`MaxCPUs = sysinfo.NumCPUs()`, `MaxMemory = sysinfo.TotalMemoryGiB()`).
 - **Command**: `ShellStream("exec buildkitd --oci-worker-snapshotter native
-  --addr tcp://0.0.0.0:<builderGuestPort>")`. The `native` snapshotter avoids
-  overlayfs/`fuse` requirements inside the microVM. `buildkitd` output is
-  drained so the stream is not left unread, but is **not** mirrored to the
-  verbose UI (deferred; known divergence from the original intent).
+  --addr tcp://0.0.0.0:<builderGuestPort> >> <builderLogPath> 2>&1")`. The
+  `native` snapshotter avoids overlayfs/`fuse` requirements inside the microVM.
+  buildkitd's stdout+stderr are appended to `builderLogPath`
+  (`/var/lib/buildkit/buildkitd.log`), which lives on the persistent cache
+  volume so logs survive the builder VM's short idle reaping and remain
+  inspectable for debugging; the stream is drained but nothing is mirrored to
+  the verbose UI.
 
 ### Build flow (replaces the Docker flow)
 
@@ -169,6 +183,10 @@ Components:
   wait for readiness before dialing.
 - **Cache persistence**: the BuildKit cache lives only in the named msb volume;
   builder VMs are ephemeral. Cache survives across invocations.
+- **Builder VM keep-alive**: the builder's idle timeout is far shorter than a
+  build, so every in-flight `Build` must hold the VM's idle timer open via
+  `Touch` (see "Builder VM configuration"). A build that bypasses the keep-alive
+  risks being reaped mid-`Solve`.
 - **Delivery boundary unchanged**: images enter the VM cache only through
   `msb.Client.ImageLoad`. No new image transport is introduced.
 - **Identity compatibility**: the rendered Dockerfile, build args, and resulting
@@ -196,10 +214,12 @@ writer for the cache volume.
   name and its published host port read from its config (mirroring
   `ResolveServeHostPort`). Clients then connect to that port; parallel builds
   simply issue concurrent `Solve` calls to the same daemon.
-- **Reaping**: the shared VM carries an idle timeout; a crashed launcher cannot
-  leak it, and it is removed when idle. It is host-level infrastructure (like a
-  Docker daemon today), not per-project, so a single instance is consistent with
-  the "one VM per project" rule that governs the *agent* VM.
+- **Reaping**: the shared VM carries a 5-second idle timeout; a crashed launcher
+  cannot leak it, and it is reaped when idle. In-flight builds are protected by
+  the keep-alive (below); a build failure caused by a reap is avoided because the
+  keep-alive `Touch`es faster than the timeout. It is host-level infrastructure
+  (like a Docker daemon today), not per-project, so a single instance is
+  consistent with the "one VM per project" rule that governs the *agent* VM.
 
 If a shared VM proves operationally awkward (e.g. version skew across launcher
 versions), an ephemeral builder per build with a host flock serializing cache

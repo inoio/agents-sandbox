@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/moby/buildkit/client"
@@ -178,6 +179,12 @@ func (c *Client) Build(ctx context.Context, req BuildRequest) (BuildResult, erro
 		return BuildResult{}, fmt.Errorf("ensure builder VM: %w", err)
 	}
 
+	// Hold the builder VM's idle timer open for the whole build: the client
+	// talks to buildkitd over the forwarded port, which msb does not count as
+	// exec activity, so a short idle timeout could otherwise reap it mid-build.
+	stopKeepAlive := c.backend.KeepAlive(ctx)
+	defer stopKeepAlive()
+
 	bc, err := newBuildkitClient(ctx, fmt.Sprintf("tcp://127.0.0.1:%d", hostPort))
 	if err != nil {
 		return BuildResult{}, fmt.Errorf("connect to builder at %d: %w", hostPort, err)
@@ -210,32 +217,15 @@ func (c *Client) Build(ctx context.Context, req BuildRequest) (BuildResult, erro
 		attributes["no-cache"] = ""
 	}
 
-	statusCh := make(chan *client.SolveStatus)
-	progressDone := make(chan struct{})
-	go func() {
-		defer close(progressDone)
-		for status := range statusCh {
-			forwardProgress(status, req.Progress)
-		}
-	}()
-
 	spec := c.backend.Export(req.Tag)
-	resp, solveErr := bc.Solve(ctx, nil, client.SolveOpt{
-		Frontend:      "dockerfile.v0",
-		LocalDirs:     map[string]string{"context": req.ContextDir, "dockerfile": req.ContextDir},
-		FrontendAttrs: attributes,
-		Exports: []client.ExportEntry{{
-			Type:  spec.Type,
-			Attrs: spec.Attrs,
-			Output: func(map[string]string) (io.WriteCloser, error) {
-				return nopWriteCloser{Writer: archive}, nil
-			},
-		}},
-		Session: registryAuthSession(),
-	}, statusCh)
-	// Solve owns closing statusCh, which ends the progress loop.
-	<-progressDone
+	cacheImports, cacheExports, cacheErr := builderCacheExportOptions()
+	if cacheErr != nil {
+		return BuildResult{}, cacheErr
+	}
 
+	passStart := time.Now()
+	outcome, solveErr := c.solve(ctx, bc, req, attributes, spec, archive, cacheImports, nil)
+	builderTracef("pass1 solve took %s (fullHit=%v steps=%d)", time.Since(passStart), outcome.fullHit, outcome.steps)
 	closeErr := archive.Close()
 	if solveErr != nil {
 		return BuildResult{}, fmt.Errorf("solve image build: %w", solveErr)
@@ -244,12 +234,39 @@ func (c *Client) Build(ctx context.Context, req BuildRequest) (BuildResult, erro
 		return BuildResult{}, fmt.Errorf("close image archive: %w", closeErr)
 	}
 
+	// Persist the BuildKit cache only when the build actually missed part of it.
+	// On a full cache hit the previously exported cache is still valid, so
+	// re-exporting would only pay the (large) export cost for nothing.
+	if len(cacheExports) > 0 {
+		if outcome.fullHit {
+			builderTracef("cache export skipped: full build-cache hit (%d steps)", outcome.steps)
+		} else {
+			builderTracef("cache export: build missed (%d steps)", outcome.steps)
+			// The export pass must reuse the cache pass 1 just wrote, so it drops
+			// the no-cache attribute; otherwise it would rebuild everything.
+			passStart = time.Now()
+			if _, exportErr := c.solve(
+				ctx,
+				bc,
+				req,
+				cacheEnabledAttrs(attributes),
+				spec,
+				nil,
+				cacheImports,
+				cacheExports,
+			); exportErr != nil {
+				return BuildResult{}, fmt.Errorf("export build cache: %w", exportErr)
+			}
+			builderTracef("pass2 (export) solve took %s", time.Since(passStart))
+		}
+	}
+
 	var metadata struct {
 		Config struct {
 			Env []string `json:"Env"`
 		} `json:"config"`
 	}
-	if configJSON := resp.ExporterResponse["containerimage.config"]; configJSON != "" {
+	if configJSON := outcome.response["containerimage.config"]; configJSON != "" {
 		if err := json.Unmarshal([]byte(configJSON), &metadata); err != nil {
 			return BuildResult{}, fmt.Errorf("parse image config: %w", err)
 		}
@@ -258,10 +275,180 @@ func (c *Client) Build(ctx context.Context, req BuildRequest) (BuildResult, erro
 	buildSucceeded = true
 	return BuildResult{
 		ArchivePath: archivePath,
-		Digest:      imageDigest(resp.ExporterResponse),
+		Digest:      imageDigest(outcome.response),
 		Env:         metadata.Config.Env,
 		BaseDigest:  baseDigest,
 	}, nil
+}
+
+// cacheEnabledAttrs returns a copy of the frontend attributes with the no-cache
+// marker removed, so a pass reuses BuildKit's cache rather than rebuilding.
+func cacheEnabledAttrs(attributes map[string]string) map[string]string {
+	if _, ok := attributes["no-cache"]; !ok {
+		return attributes
+	}
+	copied := make(map[string]string, len(attributes))
+	for key, value := range attributes {
+		if key == "no-cache" {
+			continue
+		}
+		copied[key] = value
+	}
+	return copied
+}
+
+// solveOutcome is the result of one BuildKit solve.
+type solveOutcome struct {
+	response map[string]string
+	fullHit  bool
+	steps    int
+}
+
+// solve runs one BuildKit solve, forwarding progress and reporting whether every
+// Dockerfile step was served from cache. When imageOut is nil the solve exports
+// no image, which is used for the cache-only export pass.
+func (c *Client) solve(
+	ctx context.Context,
+	bc buildkitClient,
+	req BuildRequest,
+	attributes map[string]string,
+	spec exportSpec,
+	imageOut io.Writer,
+	cacheImports, cacheExports []client.CacheOptionsEntry,
+) (solveOutcome, error) {
+	opt := client.SolveOpt{
+		Frontend:      "dockerfile.v0",
+		LocalDirs:     map[string]string{"context": req.ContextDir, "dockerfile": req.ContextDir},
+		FrontendAttrs: attributes,
+		CacheImports:  cacheImports,
+		CacheExports:  cacheExports,
+		Session:       registryAuthSession(),
+	}
+	if imageOut != nil {
+		opt.Exports = []client.ExportEntry{{
+			Type:  spec.Type,
+			Attrs: spec.Attrs,
+			Output: func(map[string]string) (io.WriteCloser, error) {
+				return nopWriteCloser{Writer: imageOut}, nil
+			},
+		}}
+	}
+
+	statusCh := make(chan *client.SolveStatus)
+	progressDone := make(chan struct{})
+	detector := newBuildStepCacheDetector()
+	go func() {
+		defer close(progressDone)
+		for status := range statusCh {
+			detector.observe(status)
+			forwardProgress(status, req.Progress)
+		}
+	}()
+
+	resp, err := bc.Solve(ctx, nil, opt, statusCh)
+	// Solve owns closing statusCh, which ends the progress loop.
+	<-progressDone
+	if err != nil {
+		return solveOutcome{}, err
+	}
+	return solveOutcome{response: resp.ExporterResponse, fullHit: detector.fullHit(), steps: detector.steps()}, nil
+}
+
+// buildStepCacheDetector records whether any Dockerfile step had to execute
+// (a cache miss) by watching completed vertices whose names are step-scoped
+// rather than buildkit-internal. BuildKit can emit a transient uncached update
+// before a cache lookup resolves, so a step counts as a hit once it is ever
+// reported cached.
+type buildStepCacheDetector struct {
+	cacheState map[string]bool // step name -> ever reported cached
+}
+
+func newBuildStepCacheDetector() *buildStepCacheDetector {
+	return &buildStepCacheDetector{cacheState: map[string]bool{}}
+}
+
+func (d *buildStepCacheDetector) observe(status *client.SolveStatus) {
+	for _, v := range status.Vertexes {
+		if v.Completed == nil || !isDockerfileStep(v.Name) {
+			continue
+		}
+		if _, seen := d.cacheState[v.Name]; !seen {
+			d.cacheState[v.Name] = false
+			builderTracef("build step %q cached=%v", v.Name, v.Cached)
+		}
+		if v.Cached {
+			d.cacheState[v.Name] = true
+		}
+	}
+}
+
+// steps returns the number of distinct Dockerfile steps observed.
+func (d *buildStepCacheDetector) steps() int {
+	return len(d.cacheState)
+}
+
+// fullHit reports whether at least one Dockerfile step completed and none missed.
+func (d *buildStepCacheDetector) fullHit() bool {
+	if len(d.cacheState) == 0 {
+		return false
+	}
+	for _, cached := range d.cacheState {
+		if !cached {
+			return false
+		}
+	}
+	return true
+}
+
+// isDockerfileStep reports whether a vertex is a real build instruction rather
+// than a buildkit-internal vertex or the FROM source. Its name carries a
+// "[<platform> <stage> N/M] " progress prefix (e.g. "[1/2] RUN ..."); the FROM
+// vertex always reports uncached because the base image is re-resolved each
+// build, so it must not count as a step.
+func isDockerfileStep(name string) bool {
+	if !strings.HasPrefix(name, "[") || strings.Contains(name, "[internal]") {
+		return false
+	}
+	_, command, ok := strings.Cut(name, "] ")
+	if !ok {
+		return false
+	}
+	return !strings.HasPrefix(command, "FROM")
+}
+
+// builderCacheExportOptions returns the BuildKit local cache import/export
+// entries for the tmpfs-export spike mode, or nil when it is disabled. Both
+// point at the persistent cache path mounted in the builder VM; mode=max keeps
+// intermediate layers so a source change can still warm-hit its unchanged prefix.
+func builderCacheExportOptions() ([]client.CacheOptionsEntry, []client.CacheOptionsEntry, error) {
+	if builderCacheMode() == cacheModeRegistry {
+		ref := builderCacheRegistryRef()
+		if ref == "" {
+			return nil, nil, fmt.Errorf("cache mode %q requires %s", cacheModeRegistry, builderCacheRefEnv)
+		}
+		importAttrs := map[string]string{"ref": ref}
+		exportAttrs := map[string]string{"ref": ref, "mode": "max"}
+		if builderCacheRegistryInsecure() {
+			importAttrs["registry.insecure"] = "true"
+			exportAttrs["registry.insecure"] = "true"
+		}
+		return []client.CacheOptionsEntry{{Type: "registry", Attrs: importAttrs}},
+			[]client.CacheOptionsEntry{{Type: "registry", Attrs: exportAttrs}}, nil
+	}
+	if !builderCacheExportEnabled() {
+		return nil, nil, nil
+	}
+	dir := builderCacheExportPath()
+	if err := os.MkdirAll(dir, 0o750); err != nil {
+		return nil, nil, fmt.Errorf("prepare buildkit cache export dir: %w", err)
+	}
+	imports := []client.CacheOptionsEntry{
+		{Type: "local", Attrs: map[string]string{"src": dir}},
+	}
+	exports := []client.CacheOptionsEntry{
+		{Type: "local", Attrs: map[string]string{"dest": dir, "mode": "max"}},
+	}
+	return imports, exports, nil
 }
 
 // imageDigest returns the image's config digest, which is what microsandbox's

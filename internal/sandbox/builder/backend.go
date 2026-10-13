@@ -31,6 +31,10 @@ type backend interface {
 	Ensure(ctx context.Context) (int, error)
 	PruneCache(ctx context.Context) error
 	Export(tag string) exportSpec
+	// KeepAlive refreshes the builder's idle-activity timer while a build is in
+	// flight so a short idle timeout does not reap it mid-build. It returns a
+	// stop function to call when the build finishes.
+	KeepAlive(ctx context.Context) func()
 }
 
 // msbBackend acquires a buildkitd endpoint from a microsandbox VM. It is the
@@ -45,6 +49,12 @@ func (b *msbBackend) Ensure(ctx context.Context) (int, error) {
 
 func (b *msbBackend) PruneCache(ctx context.Context) error {
 	return b.vm.PruneCache(ctx)
+}
+
+// KeepAlive keeps the shared builder VM's idle timer refreshed from the VM's
+// own touch loop.
+func (b *msbBackend) KeepAlive(ctx context.Context) func() {
+	return b.vm.KeepAlive(ctx)
 }
 
 // Export selects the untagged OCI archive that microsandbox's ImageLoad

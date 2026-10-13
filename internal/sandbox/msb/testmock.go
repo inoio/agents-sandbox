@@ -339,6 +339,7 @@ type MockSandboxHandle struct {
 	RefreshFn       func(context.Context) (SandboxHandle, error)
 	StartSb         Sandbox
 	StartFn         func(context.Context) (Sandbox, error)
+	TouchFn         func(context.Context) error
 	DidRmv          bool
 	DidStop         bool
 	DidKill         bool
@@ -401,6 +402,12 @@ func (m *MockSandboxHandle) Stop(_ context.Context, _ ...msbSdk.StopOption) erro
 func (m *MockSandboxHandle) Kill(_ context.Context, _ ...msbSdk.KillOption) error {
 	m.DidKill = true
 	return m.KillErr
+}
+func (m *MockSandboxHandle) Touch(ctx context.Context) error {
+	if m.TouchFn != nil {
+		return m.TouchFn(ctx)
+	}
+	return nil
 }
 func (m *MockSandboxHandle) Remove(_ context.Context) error {
 	if m.RemoveErr != nil {

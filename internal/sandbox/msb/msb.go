@@ -69,6 +69,7 @@ type SandboxHandle interface {
 	Connect(ctx context.Context) (Sandbox, error)
 	Refresh(ctx context.Context) (SandboxHandle, error)
 	Start(ctx context.Context) (Sandbox, error)
+	Touch(ctx context.Context) error
 	Stop(ctx context.Context, opts ...msbSdk.StopOption) error
 	Kill(ctx context.Context, opts ...msbSdk.KillOption) error
 	Remove(ctx context.Context) error
@@ -509,6 +510,13 @@ func (w realSandboxHandle) Start(ctx context.Context) (Sandbox, error) {
 		return nil, err
 	}
 	return realSandbox{sandbox: sb}, nil
+}
+
+// Touch refreshes the sandbox's idle-activity timer via the SDK, keeping a
+// short idle-timeout sandbox alive while a caller is actively using it.
+func (w realSandboxHandle) Touch(ctx context.Context) error {
+	_, err := w.handle.Touch(ctx)
+	return err
 }
 
 func (w realSandboxHandle) Stop(ctx context.Context, opts ...msbSdk.StopOption) error {
