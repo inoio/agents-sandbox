@@ -6,6 +6,7 @@ import (
 	"context"
 	"os"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -19,17 +20,14 @@ import (
 	"github.com/inoio/agents-sandbox/internal/termio"
 )
 
-// These tests exercise the real build pipeline end to end: a real microsandbox
-// (msb) builder VM running buildkitd, real base-image and registry pulls, and
-// the real msb image cache. They need a functional /dev/kvm, an installed msb
-// runtime, and network access, so they cannot run inside the agents-sandbox dev
-// VM (no KVM). They are excluded from the default suite by the integration build
-// tag; run them on a KVM host:
-//
-//	AGENTS_SANDBOX_INTEGRATION=1 CGO_ENABLED=1 \
-//	  go test -tags integration -count=1 -timeout 40m \
-//	  -run 'TestBuildRunnerImage|TestBuilderCacheReuse|TestRunnerImage' \
-//	  ./internal/sandbox/image/
+// These tests exercise the real build pipeline end to end: real base-image and
+// registry pulls, real image builds, and the real msb image cache. The msb tier
+// runs buildkitd inside a microsandbox VM (needs a functional /dev/kvm and the
+// msb runtime plus network access); the moby tier builds through an existing
+// Docker daemon's Engine API (needs only Docker). Both are excluded from the
+// default suite by the integration build tag; run the tiers via
+// `make test-integration` (moby, any Docker host) and `make test-integration-msb`
+// (msb, a KVM host with msb and network access).
 const integrationEnvVar = "AGENTS_SANDBOX_INTEGRATION"
 
 func requireIntegration(t *testing.T) {
@@ -40,12 +38,21 @@ func requireIntegration(t *testing.T) {
 }
 
 // requireMsbBackend skips a test that depends on microsandbox-only behavior
-// (the msb image cache, sandbox lifecycle, or the persistent msb cache volume)
-// when the moby backend is selected.
+// (the msb image cache, the shared builder sandbox, or the registry-backed
+// builder cache) when the moby backend is selected.
 func requireMsbBackend(t *testing.T) {
 	t.Helper()
 	if builder.SelectedName() != "msb" {
 		t.Skip("msb-only test: requires the microsandbox backend")
+	}
+}
+
+// requireMobyBackend skips a test that depends on the Docker Engine API backend
+// when the msb backend is selected.
+func requireMobyBackend(t *testing.T) {
+	t.Helper()
+	if builder.SelectedName() != "moby" {
+		t.Skip("moby-only test: requires the Docker Engine API backend")
 	}
 }
 
@@ -108,18 +115,108 @@ func TestBuildRunnerImageInBuilderVM(t *testing.T) {
 	}
 }
 
-// TestBuilderCacheReuseAcrossVMs builds the same runner image twice, stopping
-// and removing the builder sandbox between runs so a fresh buildkitd starts,
-// and asserts the warm build reuses the persistent BuildKit cache volume. Cache
-// reuse is a CACHED marker the builder surfaces for cached vertices (cached RUN
-// steps emit no logs).
-func TestBuilderCacheReuseAcrossVMs(t *testing.T) {
+// TestMsbSecondBuildHitsRegistryCache builds the same runner image twice,
+// stopping and removing the builder sandbox between runs so a fresh buildkitd
+// starts, and asserts the warm build reuses the embedded registry's persistent
+// cache. Cache reuse is a CACHED marker the builder surfaces for cached vertices
+// (cached RUN steps emit no logs).
+func TestMsbSecondBuildHitsRegistryCache(t *testing.T) {
 	requireIntegration(t)
 	requireMsbBackend(t)
 	useRealHostRuntime(t)
 	ctx := context.Background()
-	a := agentOpencode(t)
 
+	request := integrationBuildRequest(t, agentOpencode(t), "agents-sandbox/integration-cache:opencode-latest")
+
+	coldDuration, coldLines := timeBuilderBuild(t, request, true)
+	removeBuilderSandboxes(t, ctx)
+	warmDuration, warmLines := timeBuilderBuild(t, request, false)
+
+	t.Logf("cold build: %s, %d progress lines", coldDuration, len(coldLines))
+	t.Logf("warm build: %s, %d progress lines", warmDuration, len(warmLines))
+
+	if !containsCachedLine(warmLines) {
+		t.Fatalf(
+			"warm build reported no CACHED layers after the builder VM was recreated; "+
+				"either the embedded registry cache did not persist or the builder did not surface cache hits "+
+				"(cold=%s/%d lines, warm=%s/%d lines)",
+			coldDuration, len(coldLines), warmDuration, len(warmLines),
+		)
+	}
+}
+
+// TestMsbParallelBuildsShareOneBuilderVM starts two concurrent builds after
+// clearing any existing builder sandbox and asserts both succeed while a single
+// shared builder sandbox serves them (the host-wide flock serializes creation
+// and the persisted port record lets the second build reuse it).
+func TestMsbParallelBuildsShareOneBuilderVM(t *testing.T) {
+	requireIntegration(t)
+	requireMsbBackend(t)
+	useRealHostRuntime(t)
+	ctx := context.Background()
+	removeBuilderSandboxes(t, ctx)
+
+	a := agentOpencode(t)
+	requests := []builder.BuildRequest{
+		integrationBuildRequest(t, a, "agents-sandbox/it-parallel-a"),
+		integrationBuildRequest(t, a, "agents-sandbox/it-parallel-b"),
+	}
+
+	results := make([]builder.BuildResult, len(requests))
+	errs := make([]error, len(requests))
+	var wg sync.WaitGroup
+	for i, request := range requests {
+		wg.Add(1)
+		go func(i int, request builder.BuildRequest) {
+			defer wg.Done()
+			results[i], errs[i] = builder.Get().Build(ctx, request)
+		}(i, request)
+	}
+	wg.Wait()
+
+	for i, err := range errs {
+		if err != nil {
+			t.Errorf("concurrent build %d: %v", i, err)
+		}
+		if archivePath := results[i].ArchivePath; archivePath != "" {
+			_ = os.Remove(archivePath)
+		}
+	}
+
+	handles, err := msb.Get().ListSandboxes(ctx, map[string]string{naming.LabelComponent: "buildkit"})
+	if err != nil {
+		t.Fatalf("list builder sandboxes: %v", err)
+	}
+	if len(handles) != 1 {
+		t.Fatalf("expected one shared builder sandbox for concurrent builds, got %d", len(handles))
+	}
+}
+
+// TestMobyBuildLoadsIntoMicrosandbox builds the runner image through the real
+// Docker Engine API and loads the resulting archive into the microsandbox image
+// cache, confirming the moby delivery path produces an inspectable image.
+func TestMobyBuildLoadsIntoMicrosandbox(t *testing.T) {
+	requireIntegration(t)
+	requireMobyBackend(t)
+	useRealHostRuntime(t)
+
+	a := agentOpencode(t)
+	ref := buildImageForRun(t, a, nil, false, "agents-sandbox/it-moby-"+sanitizeTag(t.Name()))
+
+	inspect, err := msb.Get().ImageInspect(context.Background(), ref)
+	if err != nil {
+		t.Fatalf("ImageInspect(%s) after moby build and load: %v", ref, err)
+	}
+	if inspect == nil || inspect.Digest == "" {
+		t.Fatalf("ImageInspect(%s) returned no digest: %+v", ref, inspect)
+	}
+}
+
+// integrationBuildRequest renders the runner Dockerfile for a and assembles the
+// builder request for tag, resolving the current agent version.
+func integrationBuildRequest(t *testing.T, a agent.Agent, tag string) builder.BuildRequest {
+	t.Helper()
+	ctx := context.Background()
 	version, err := resolveAgentVersion(ctx, a, "")
 	if err != nil {
 		t.Fatalf("resolve agent version: %v", err)
@@ -132,31 +229,15 @@ func TestBuilderCacheReuseAcrossVMs(t *testing.T) {
 	if err := writeDockerfileContext(contextDir, rendered); err != nil {
 		t.Fatalf("write build context: %v", err)
 	}
-	request := builder.BuildRequest{
+	return builder.BuildRequest{
 		ContextDir: contextDir,
-		Tag:        "agents-sandbox/integration-cache:opencode-latest",
+		Tag:        tag,
 		BaseRef:    baseImageRef(rendered),
 		BuildArgs: buildArgStrings(userBuildArgs(
 			os.Getuid(), os.Getgid(), a.ImageSpec(), version,
 			computeDockerfileID(rendered, version), false, computeImageIdentity(nil, version, false),
 		)),
 		Platform: builder.HostPlatform(),
-	}
-
-	coldDuration, coldLines := timeBuilderBuild(t, request, true)
-	removeBuilderSandboxes(t, ctx)
-	warmDuration, warmLines := timeBuilderBuild(t, request, false)
-
-	t.Logf("cold build: %s, %d progress lines", coldDuration, len(coldLines))
-	t.Logf("warm build: %s, %d progress lines", warmDuration, len(warmLines))
-
-	if !containsCachedLine(warmLines) {
-		t.Fatalf(
-			"warm build reported no CACHED layers after the builder VM was recreated; "+
-				"either the BuildKit cache volume did not persist or the builder did not surface cache hits "+
-				"(cold=%s/%d lines, warm=%s/%d lines)",
-			coldDuration, len(coldLines), warmDuration, len(warmLines),
-		)
 	}
 }
 
@@ -307,6 +388,7 @@ func runInImage(t *testing.T, ref, command string) shellResult {
 // does not exercise node at all, which is why it did not catch #132.
 func TestRunnerImageNodeAgentNodeRuns(t *testing.T) {
 	requireIntegration(t)
+	requireMsbBackend(t)
 	useRealHostRuntime(t)
 	a, ok := agent.Lookup("pi")
 	if !ok {
@@ -457,6 +539,7 @@ func TestRenderDockerfileBuilds(t *testing.T) {
 // docker).
 func TestRenderDockerfileToolLayersStayCached(t *testing.T) {
 	requireIntegration(t)
+	requireMsbBackend(t)
 	useRealHostRuntime(t)
 	a, ok := agent.Lookup("pi")
 	if !ok {
@@ -495,6 +578,7 @@ func TestRenderDockerfileToolLayersStayCached(t *testing.T) {
 // cached.
 func TestRenderDockerfileAgentVersionRebuildsInstall(t *testing.T) {
 	requireIntegration(t)
+	requireMsbBackend(t)
 	useRealHostRuntime(t)
 	a := agentOpencode(t)
 
@@ -526,6 +610,7 @@ func TestRenderDockerfileAgentVersionRebuildsInstall(t *testing.T) {
 // re-merged by the profile.d script) survives the login-shell PATH reset.
 func TestRunnerImageLoginShellPath(t *testing.T) {
 	requireIntegration(t)
+	requireMsbBackend(t)
 	useRealHostRuntime(t)
 	a := agentOpencode(t)
 

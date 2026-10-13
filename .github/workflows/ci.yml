@@ -53,10 +53,10 @@ jobs:
           fail_ci_if_error: false
 
   integration:
-    name: integration (buildkit / docker)
-    # Docker backend: the builder harness runs buildkitd via `docker run`, so no
-    # /dev/kvm or msb runtime is needed. Runs on every PR and push. The msb tier
-    # (integration-msb) is gated separately because it needs KVM.
+    name: integration (buildkit / moby)
+    # moby backend: builds run through the runner's Docker daemon Engine API, so
+    # no /dev/kvm or msb runtime is needed. Runs on every PR and push. The msb
+    # tier (integration-msb) is gated separately because it needs KVM.
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
