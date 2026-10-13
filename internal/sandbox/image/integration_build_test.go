@@ -3,11 +3,8 @@
 package image
 
 import (
-	"bytes"
 	"context"
-	"errors"
 	"os"
-	"os/exec"
 	"strings"
 	"testing"
 	"time"
@@ -44,10 +41,10 @@ func requireIntegration(t *testing.T) {
 
 // requireMsbBackend skips a test that depends on microsandbox-only behavior
 // (the msb image cache, sandbox lifecycle, or the persistent msb cache volume)
-// when the Docker test backend is active.
+// when the moby backend is selected.
 func requireMsbBackend(t *testing.T) {
 	t.Helper()
-	if activeBackend() == backendDocker {
+	if builder.SelectedName() != "msb" {
 		t.Skip("msb-only test: requires the microsandbox backend")
 	}
 }
@@ -226,9 +223,8 @@ type shellResult struct {
 	stderr   string
 }
 
-// buildImageForRun renders and builds the runner image for a, then makes it
-// runnable on the active backend: the Docker backend loads the exported archive
-// into the daemon, the microsandbox backend loads it into the msb image cache.
+// buildImageForRun renders and builds the runner image for a, then loads the
+// exported archive into the microsandbox image cache so the image is runnable.
 // It returns the image reference to run and registers cleanup for the archive
 // and the loaded image.
 func buildImageForRun(t *testing.T, a agent.Agent, project []byte, docker bool, tag string) string {
@@ -262,12 +258,6 @@ func buildImageForRun(t *testing.T, a agent.Agent, project []byte, docker bool, 
 	archivePath := result.ArchivePath
 	t.Cleanup(func() { _ = os.Remove(archivePath) })
 
-	if activeBackend() == backendDocker {
-		loadDockerArchive(t, archivePath)
-		t.Cleanup(func() { removeDockerImage(tag) })
-		return tag
-	}
-
 	ui := termio.NewTestMock(t)
 	if err := EnsureLoaded(ctx, msb.Get(), archivePath, tag, &ui); err != nil {
 		t.Fatalf("EnsureLoaded: %v", err)
@@ -276,31 +266,10 @@ func buildImageForRun(t *testing.T, a agent.Agent, project []byte, docker bool, 
 	return tag
 }
 
-// loadDockerArchive loads a build archive (docker exporter format) into the
-// Docker daemon so its tagged image can be run.
-func loadDockerArchive(t *testing.T, archivePath string) {
-	t.Helper()
-	output, err := exec.Command("docker", "load", "-i", archivePath).CombinedOutput()
-	if err != nil {
-		t.Fatalf("docker load -i %s: %v: %s", archivePath, err, strings.TrimSpace(string(output)))
-	}
-}
-
-// removeDockerImage best-effort removes a loaded image; a cleanup failure must
-// not fail an otherwise passing test.
-func removeDockerImage(tag string) {
-	_, _ = exec.Command("docker", "rmi", tag).CombinedOutput()
-}
-
-// runInImage runs command in the image referenced by ref on the active backend.
-// Docker uses a throwaway container; microsandbox creates a sandbox from the
-// image.
+// runInImage runs command in the image referenced by ref by creating a
+// microsandbox from the image.
 func runInImage(t *testing.T, ref, command string) shellResult {
 	t.Helper()
-	if activeBackend() == backendDocker {
-		return dockerRun(t, ref, command)
-	}
-
 	ctx := context.Background()
 	sandboxName := "agents-sandbox-it-run-" + sanitizeTag(ref)
 	sb, err := msb.Get().CreateSandbox(ctx, sandboxName, msbSdk.WithImage(ref), msbSdk.WithReplace())
@@ -323,29 +292,6 @@ func runInImage(t *testing.T, ref, command string) shellResult {
 		stdout:   result.Stdout(),
 		stderr:   result.Stderr(),
 	}
-}
-
-// dockerRun runs command inside a throwaway container from ref, capturing
-// stdout, stderr, and the exit code (the builder's docker CLI seam discards the
-// exit code, so this shells out directly).
-func dockerRun(t *testing.T, ref, command string) shellResult {
-	t.Helper()
-	cmd := exec.Command("docker", "run", "--rm", ref, "sh", "-c", command)
-	var stdout, stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
-	err := cmd.Run()
-	result := shellResult{stdout: stdout.String(), stderr: stderr.String()}
-	if err == nil {
-		result.success = true
-		return result
-	}
-	var exitErr *exec.ExitError
-	if !errors.As(err, &exitErr) {
-		t.Fatalf("docker run %s: %v", ref, err)
-	}
-	result.exitCode = exitErr.ExitCode()
-	return result
 }
 
 // TestRunnerImageNodeAgentNodeRuns is the BuildKit regression guard for #132: a
