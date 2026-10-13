@@ -382,12 +382,6 @@ func mustDockerBuild(
 // is genuinely cold.
 func wipeBuilderCache(t *testing.T, ctx context.Context, backend string) {
 	t.Helper()
-	if backend == "docker" {
-		if err := builder.ResetDockerHarness(ctx); err != nil {
-			t.Fatalf("reset docker harness: %v", err)
-		}
-		return
-	}
 	removeBuilderSandboxes(t, ctx)
 	if err := msbRemoveVolume(ctx, benchCacheVolumeMsb); err != nil {
 		t.Logf("remove msb cache volume (continuing, may be absent): %v", err)

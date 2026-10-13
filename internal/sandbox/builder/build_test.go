@@ -19,6 +19,7 @@ import (
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 
 	"github.com/inoio/agents-sandbox/internal/configpaths"
+	"github.com/inoio/agents-sandbox/internal/sandbox/builder/cacheregistry"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
 )
 
@@ -68,12 +69,14 @@ func (f *fakeBuildkitClient) Close() error {
 	return nil
 }
 
+// solveOpt returns the image-export solve, which is the first solve Build
+// issues; the optional cache-export pass is a second, image-less solve.
 func (f *fakeBuildkitClient) solveOpt(t *testing.T) client.SolveOpt {
 	t.Helper()
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	if len(f.solve) != 1 {
-		t.Fatalf("Solve called %d times, want 1", len(f.solve))
+	if len(f.solve) == 0 {
+		t.Fatal("Solve was not called")
 	}
 	return f.solve[0]
 }
@@ -84,6 +87,7 @@ func newBuildTestClient(t *testing.T, fake buildkitClient) *Client {
 	t.Helper()
 	configpaths.WithMockConfigPaths(t)
 	stubBuildkitDial(t, fake)
+	stubCacheRegistry(t, testCacheEndpoint())
 
 	handle := &msb.MockSandboxHandle{
 		Name_: builderSandboxName(),
@@ -99,6 +103,22 @@ func newBuildTestClient(t *testing.T, fake buildkitClient) *Client {
 		},
 	}
 	return &Client{backend: &msbBackend{vm: &VM{Msb: msbClient}}}
+}
+
+// testCacheEndpoint is a fixed embedded-registry endpoint for build tests.
+func testCacheEndpoint() cacheregistry.Endpoint {
+	return cacheregistry.Endpoint{Host: "172.30.0.1", Port: 5000, Token: "test-token"}
+}
+
+// stubCacheRegistry replaces the embedded-registry acquisition seam so Build
+// tests never spawn the registry daemon.
+func stubCacheRegistry(t *testing.T, endpoint cacheregistry.Endpoint) {
+	t.Helper()
+	restore := ensureCacheRegistry
+	t.Cleanup(func() { ensureCacheRegistry = restore })
+	ensureCacheRegistry = func(context.Context) (cacheregistry.Endpoint, error) {
+		return endpoint, nil
+	}
 }
 
 // stubBuildkitDial makes newBuildkitClient return fake without dialing.
@@ -129,6 +149,7 @@ func (b *fakeBackend) KeepAlive(context.Context) func() {
 // reap the VM mid-build.
 func TestBuildKeepsBuilderAlive(t *testing.T) {
 	stubResolveBaseDigest(t, "base@sha256:x", nil)
+	stubCacheRegistry(t, testCacheEndpoint())
 
 	fake := &fakeBuildkitClient{}
 	stubBuildkitDial(t, fake)
@@ -163,6 +184,9 @@ func TestBuildSolveOptsAndExports(t *testing.T) {
 
 	fake := &fakeBuildkitClient{}
 	fake.solveFn = func(opt client.SolveOpt) (*client.SolveResponse, error) {
+		if len(opt.Exports) == 0 {
+			return &client.SolveResponse{ExporterResponse: map[string]string{}}, nil
+		}
 		writer, err := opt.Exports[0].Output(nil)
 		if err != nil {
 			return nil, err
@@ -252,6 +276,9 @@ func TestBuildToleratesSessionClosingExportWriter(t *testing.T) {
 
 	fake := &fakeBuildkitClient{}
 	fake.solveFn = func(opt client.SolveOpt) (*client.SolveResponse, error) {
+		if len(opt.Exports) == 0 {
+			return &client.SolveResponse{ExporterResponse: map[string]string{}}, nil
+		}
 		writer, err := opt.Exports[0].Output(nil)
 		if err != nil {
 			return nil, err
@@ -353,6 +380,9 @@ func TestBuildAcceptsOCIExportType(t *testing.T) {
 
 	fake := &fakeBuildkitClient{}
 	fake.solveFn = func(opt client.SolveOpt) (*client.SolveResponse, error) {
+		if len(opt.Exports) == 0 {
+			return &client.SolveResponse{ExporterResponse: map[string]string{}}, nil
+		}
 		writer, err := opt.Exports[0].Output(nil)
 		if err != nil {
 			return nil, err
@@ -541,7 +571,6 @@ func cacheExportTestRequest(t *testing.T) BuildRequest {
 
 func TestBuildSkipsCacheExportOnFullHit(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
-	t.Setenv(builderCacheModeEnv, cacheModeTmpfsExport)
 	stubResolveBaseDigest(t, "base@sha256:x", nil)
 
 	completed := time.Now()
@@ -569,7 +598,6 @@ func TestBuildSkipsCacheExportOnFullHit(t *testing.T) {
 
 func TestBuildExportsCacheOnMiss(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
-	t.Setenv(builderCacheModeEnv, cacheModeTmpfsExport)
 	stubResolveBaseDigest(t, "base@sha256:x", nil)
 
 	completed := time.Now()
@@ -665,7 +693,6 @@ func TestCacheEnabledAttrsDropsNoCache(t *testing.T) {
 
 func TestBuildExportPassDropsNoCache(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
-	t.Setenv(builderCacheModeEnv, cacheModeTmpfsExport)
 	stubResolveBaseDigest(t, "base@sha256:x", nil)
 
 	completed := time.Now()

@@ -9,23 +9,8 @@ func TestMsbBackendExportIsOCI(t *testing.T) {
 	}
 }
 
-func TestNewBackendDefaultsToMsb(t *testing.T) {
-	t.Setenv(builderBackendEnv, "")
+func TestNewBackendConstructsMsb(t *testing.T) {
 	if _, ok := newBackend().(*msbBackend); !ok {
-		t.Fatal("want msbBackend")
-	}
-}
-
-func TestNewBackendDockerEnv(t *testing.T) {
-	t.Setenv(builderBackendEnv, builderBackendDocker)
-	if _, ok := newBackend().(*dockerBackend); !ok {
-		t.Fatal("want dockerBackend")
-	}
-}
-
-func TestNewBackendUnknownFallsBackToMsb(t *testing.T) {
-	t.Setenv(builderBackendEnv, "podman")
-	if _, ok := newBackend().(*msbBackend); !ok {
-		t.Fatal("unknown value must fall back to msb")
+		t.Fatal("newBackend must construct the msb backend")
 	}
 }

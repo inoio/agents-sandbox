@@ -10,11 +10,15 @@ import (
 	"strings"
 	"time"
 
+	"github.com/docker/cli/cli/config/types"
 	"github.com/moby/buildkit/client"
 	"github.com/moby/buildkit/client/llb"
 	"github.com/moby/buildkit/client/llb/sourceresolver"
 	gwclient "github.com/moby/buildkit/frontend/gateway/client"
+	"github.com/moby/buildkit/session"
 	"github.com/opencontainers/go-digest"
+
+	"github.com/inoio/agents-sandbox/internal/sandbox/builder/cacheregistry"
 )
 
 const (
@@ -88,7 +92,7 @@ func (c *realBuildkitClient) ResolveImageConfig(
 	)
 	_, err := c.client.Build(
 		ctx,
-		client.SolveOpt{Session: registryAuthSession()},
+		client.SolveOpt{Session: registryAuthSession(nil)},
 		"",
 		func(ctx context.Context, gw gwclient.Client) (*gwclient.Result, error) {
 			var err error
@@ -173,6 +177,33 @@ func newClient() *Client {
 	return &Client{backend: newBackend()}
 }
 
+// ensureCacheRegistry acquires the embedded cache registry endpoint. It is a
+// seam so tests can supply an endpoint without spawning the registry daemon.
+var ensureCacheRegistry = cacheregistry.Ensure
+
+// builderCacheRef is the deterministic registry cache reference for an image
+// identity (tag + platform), keyed by the running registry's address.
+func builderCacheRef(endpoint cacheregistry.Endpoint, imageTag, platform string) string {
+	return endpoint.CacheRef(imageTag, platform)
+}
+
+// cacheRegistryAuth acquires the embedded cache registry and returns the image's
+// cache reference plus a BuildKit auth session carrying the registry's token.
+func (c *Client) cacheRegistryAuth(
+	ctx context.Context,
+	req BuildRequest,
+) (string, []session.Attachable, error) {
+	endpoint, err := ensureCacheRegistry(ctx)
+	if err != nil {
+		return "", nil, fmt.Errorf("ensure cache registry: %w", err)
+	}
+	cacheRef := builderCacheRef(endpoint, req.Tag, req.Platform)
+	//exhaustruct:ignore // only the static bearer token matters for the embedded registry
+	authConfig := types.AuthConfig{RegistryToken: endpoint.Token}
+	authSession := registryAuthSession(map[string]types.AuthConfig{endpoint.Host: authConfig})
+	return cacheRef, authSession, nil
+}
+
 func (c *Client) Build(ctx context.Context, req BuildRequest) (BuildResult, error) {
 	hostPort, err := c.backend.Ensure(ctx)
 	if err != nil {
@@ -184,6 +215,11 @@ func (c *Client) Build(ctx context.Context, req BuildRequest) (BuildResult, erro
 	// exec activity, so a short idle timeout could otherwise reap it mid-build.
 	stopKeepAlive := c.backend.KeepAlive(ctx)
 	defer stopKeepAlive()
+
+	cacheRef, authSession, err := c.cacheRegistryAuth(ctx, req)
+	if err != nil {
+		return BuildResult{}, err
+	}
 
 	bc, err := newBuildkitClient(ctx, fmt.Sprintf("tcp://127.0.0.1:%d", hostPort))
 	if err != nil {
@@ -218,14 +254,12 @@ func (c *Client) Build(ctx context.Context, req BuildRequest) (BuildResult, erro
 	}
 
 	spec := c.backend.Export(req.Tag)
-	cacheImports, cacheExports, cacheErr := builderCacheExportOptions()
+	cacheImports, cacheExports, cacheErr := builderCacheExportOptions(ctx, cacheRef)
 	if cacheErr != nil {
 		return BuildResult{}, cacheErr
 	}
 
-	passStart := time.Now()
-	outcome, solveErr := c.solve(ctx, bc, req, attributes, spec, archive, cacheImports, nil)
-	builderTracef("pass1 solve took %s (fullHit=%v steps=%d)", time.Since(passStart), outcome.fullHit, outcome.steps)
+	outcome, solveErr := c.solve(ctx, bc, req, attributes, spec, archive, cacheImports, nil, authSession)
 	closeErr := archive.Close()
 	if solveErr != nil {
 		return BuildResult{}, fmt.Errorf("solve image build: %w", solveErr)
@@ -237,27 +271,21 @@ func (c *Client) Build(ctx context.Context, req BuildRequest) (BuildResult, erro
 	// Persist the BuildKit cache only when the build actually missed part of it.
 	// On a full cache hit the previously exported cache is still valid, so
 	// re-exporting would only pay the (large) export cost for nothing.
-	if len(cacheExports) > 0 {
-		if outcome.fullHit {
-			builderTracef("cache export skipped: full build-cache hit (%d steps)", outcome.steps)
-		} else {
-			builderTracef("cache export: build missed (%d steps)", outcome.steps)
-			// The export pass must reuse the cache pass 1 just wrote, so it drops
-			// the no-cache attribute; otherwise it would rebuild everything.
-			passStart = time.Now()
-			if _, exportErr := c.solve(
-				ctx,
-				bc,
-				req,
-				cacheEnabledAttrs(attributes),
-				spec,
-				nil,
-				cacheImports,
-				cacheExports,
-			); exportErr != nil {
-				return BuildResult{}, fmt.Errorf("export build cache: %w", exportErr)
-			}
-			builderTracef("pass2 (export) solve took %s", time.Since(passStart))
+	if len(cacheExports) > 0 && !outcome.fullHit {
+		// The export pass must reuse the cache pass 1 just wrote, so it drops
+		// the no-cache attribute; otherwise it would rebuild everything.
+		if _, exportErr := c.solve(
+			ctx,
+			bc,
+			req,
+			cacheEnabledAttrs(attributes),
+			spec,
+			nil,
+			cacheImports,
+			cacheExports,
+			authSession,
+		); exportErr != nil {
+			return BuildResult{}, fmt.Errorf("export build cache: %w", exportErr)
 		}
 	}
 
@@ -315,6 +343,7 @@ func (c *Client) solve(
 	spec exportSpec,
 	imageOut io.Writer,
 	cacheImports, cacheExports []client.CacheOptionsEntry,
+	authSession []session.Attachable,
 ) (solveOutcome, error) {
 	opt := client.SolveOpt{
 		Frontend:      "dockerfile.v0",
@@ -322,7 +351,7 @@ func (c *Client) solve(
 		FrontendAttrs: attributes,
 		CacheImports:  cacheImports,
 		CacheExports:  cacheExports,
-		Session:       registryAuthSession(),
+		Session:       authSession,
 	}
 	if imageOut != nil {
 		opt.Exports = []client.ExportEntry{{
@@ -374,7 +403,6 @@ func (d *buildStepCacheDetector) observe(status *client.SolveStatus) {
 		}
 		if _, seen := d.cacheState[v.Name]; !seen {
 			d.cacheState[v.Name] = false
-			builderTracef("build step %q cached=%v", v.Name, v.Cached)
 		}
 		if v.Cached {
 			d.cacheState[v.Name] = true
@@ -416,37 +444,22 @@ func isDockerfileStep(name string) bool {
 	return !strings.HasPrefix(command, "FROM")
 }
 
-// builderCacheExportOptions returns the BuildKit local cache import/export
-// entries for the tmpfs-export spike mode, or nil when it is disabled. Both
-// point at the persistent cache path mounted in the builder VM; mode=max keeps
+// builderCacheExportOptions returns the BuildKit registry cache import/export
+// entries for the embedded registry's cache reference. mode=max keeps
 // intermediate layers so a source change can still warm-hit its unchanged prefix.
-func builderCacheExportOptions() ([]client.CacheOptionsEntry, []client.CacheOptionsEntry, error) {
-	if builderCacheMode() == cacheModeRegistry {
-		ref := builderCacheRegistryRef()
-		if ref == "" {
-			return nil, nil, fmt.Errorf("cache mode %q requires %s", cacheModeRegistry, builderCacheRefEnv)
-		}
-		importAttrs := map[string]string{"ref": ref}
-		exportAttrs := map[string]string{"ref": ref, "mode": "max"}
-		if builderCacheRegistryInsecure() {
-			importAttrs["registry.insecure"] = "true"
-			exportAttrs["registry.insecure"] = "true"
-		}
-		return []client.CacheOptionsEntry{{Type: "registry", Attrs: importAttrs}},
-			[]client.CacheOptionsEntry{{Type: "registry", Attrs: exportAttrs}}, nil
-	}
-	if !builderCacheExportEnabled() {
-		return nil, nil, nil
-	}
-	dir := builderCacheExportPath()
-	if err := os.MkdirAll(dir, 0o750); err != nil {
-		return nil, nil, fmt.Errorf("prepare buildkit cache export dir: %w", err)
+func builderCacheExportOptions(_ context.Context, cacheRef string) (
+	[]client.CacheOptionsEntry,
+	[]client.CacheOptionsEntry,
+	error,
+) {
+	if cacheRef == "" {
+		return nil, nil, errors.New("cache ref is empty")
 	}
 	imports := []client.CacheOptionsEntry{
-		{Type: "local", Attrs: map[string]string{"src": dir}},
+		{Type: "registry", Attrs: map[string]string{"ref": cacheRef}},
 	}
 	exports := []client.CacheOptionsEntry{
-		{Type: "local", Attrs: map[string]string{"dest": dir, "mode": "max"}},
+		{Type: "registry", Attrs: map[string]string{"ref": cacheRef, "mode": "max"}},
 	}
 	return imports, exports, nil
 }

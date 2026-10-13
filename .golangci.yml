@@ -321,7 +321,6 @@ linters:
         - ^github.com/inoio/agents-sandbox/internal/sandbox.RunOptions$
         - ^github.com/inoio/agents-sandbox/internal/sandbox/options.RunOptions$
         - ^github.com/inoio/agents-sandbox/internal/sandbox.artifactInfo$
-        - ^github.com/inoio/agents-sandbox/internal/sandbox/builder.dockerBackend$
       # Allows empty structures in return statements.
       # Default: false
       allow-empty-returns: true

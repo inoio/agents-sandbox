@@ -12,6 +12,8 @@ import (
 	"github.com/moby/buildkit/client/llb"
 	"github.com/moby/buildkit/client/llb/sourceresolver"
 	"github.com/opencontainers/go-digest"
+
+	"github.com/inoio/agents-sandbox/internal/sandbox/builder/cacheregistry"
 )
 
 type closeCountingClient struct {
@@ -83,18 +85,60 @@ func TestDefaultReadyTimesOut(t *testing.T) {
 	}
 }
 
-func TestRegistryAuthSessionNonNil(t *testing.T) {
-	attachable := registryAuthSession()
-	if len(attachable) != 1 {
-		t.Fatalf("registryAuthSession returned %d attachables, want 1", len(attachable))
+func TestBuilderCacheExportOptionsUseRegistry(t *testing.T) {
+	const cacheRef = "172.30.0.1:5000/agents-sandbox/project-opencode-amd64:cache"
+
+	imports, exports, err := builderCacheExportOptions(context.Background(), cacheRef)
+	if err != nil {
+		t.Fatalf("builderCacheExportOptions: %v", err)
 	}
-	if attachable[0] == nil {
-		t.Fatal("registryAuthSession returned a nil attachable")
+
+	if len(imports) != 1 || imports[0].Type != "registry" || imports[0].Attrs["ref"] != cacheRef {
+		t.Errorf("imports = %+v, want a single registry import of %q", imports, cacheRef)
+	}
+	if len(exports) != 1 || exports[0].Type != "registry" {
+		t.Fatalf("exports = %+v, want a single registry export", exports)
+	}
+	if exports[0].Attrs["ref"] != cacheRef || exports[0].Attrs["mode"] != "max" {
+		t.Errorf("export attrs = %+v, want ref %q mode max", exports[0].Attrs, cacheRef)
+	}
+	for _, entry := range append(imports, exports...) {
+		if entry.Type == "local" || entry.Type == "inline" {
+			t.Errorf("cache entry %+v is not a registry entry", entry)
+		}
+	}
+}
+
+func TestBuilderCacheRefDelegatesToEndpoint(t *testing.T) {
+	endpoint := cacheregistry.Endpoint{Host: "172.30.0.1", Port: 5000, Token: "t"}
+
+	got := builderCacheRef(endpoint, "project/opencode:1.2.3", "linux/amd64")
+	if want := endpoint.CacheRef("project/opencode:1.2.3", "linux/amd64"); got != want {
+		t.Errorf("builderCacheRef = %q, want endpoint.CacheRef %q", got, want)
+	}
+}
+
+func TestBuildkitdCommandPinsNativeSnapshotter(t *testing.T) {
+	command := buildkitdCommand()
+	if !strings.Contains(command, "--oci-worker-snapshotter native") {
+		t.Errorf("buildkitdCommand() = %q, want native snapshotter", command)
+	}
+	if !strings.Contains(command, "--addr tcp://0.0.0.0:") {
+		t.Errorf("buildkitdCommand() = %q, want the guest-port bind", command)
+	}
+}
+
+func TestBuilderCacheMountIsTmpfs(t *testing.T) {
+	mount := builderCacheMount()
+	if !mount.Tmpfs {
+		t.Fatalf("builderCacheMount() = %+v, want tmpfs", mount)
+	}
+	if mount.SizeMiB != builderCacheTmpfsSizeMiB {
+		t.Errorf("tmpfs size = %d MiB, want %d", mount.SizeMiB, builderCacheTmpfsSizeMiB)
 	}
 }
 
 func TestNewClientWiresReadySeam(t *testing.T) {
-	t.Setenv(builderBackendEnv, builderBackendMsb)
 	c := newClient()
 	if c == nil {
 		t.Fatal("newClient returned nil")

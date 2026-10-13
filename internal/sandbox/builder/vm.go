@@ -5,11 +5,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
 	"sync"
 	"time"
-
-	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 
 	"github.com/inoio/agents-sandbox/internal/configpaths"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
@@ -28,7 +25,6 @@ func (v *VM) Ensure(ctx context.Context) (int, error) {
 		return 0, err
 	}
 	if err := v.ready(ctx, hostPort); err != nil {
-		builderTracef("builder readiness failed on port %d: %v; recreating", hostPort, err)
 		_ = clearBuilderRecord()
 		recreatedPort, recreateErr := v.recreateBuilder(ctx, name)
 		if recreateErr != nil {
@@ -52,11 +48,7 @@ func (v *VM) recreateBuilder(ctx context.Context, name string) (int, error) {
 	}
 	defer release()
 
-	if cacheErr := v.ensureCacheStorage(ctx); cacheErr != nil {
-		return 0, cacheErr
-	}
 	hostPort := options.FirstFreeHostPort(builderHostPortBase)
-	builderTracef("recreate builder sandbox %q port %d", name, hostPort)
 	sb, createErr := v.Msb.CreateSandbox(ctx, name, builderSandboxOptions(hostPort)...)
 	if createErr != nil {
 		return 0, fmt.Errorf("recreate builder sandbox: %w", createErr)
@@ -89,18 +81,12 @@ func (v *VM) resolveBuilderPort(ctx context.Context, name string) (int, error) {
 			return hostPort, nil
 		}
 	} else {
-		builderTracef("GetSandbox %q error: %v (notFound=%v)", name, getErr, msb.IsNotFound(getErr))
 		if !msb.IsNotFound(getErr) {
 			return 0, fmt.Errorf("check builder sandbox %q: %w", name, getErr)
 		}
 	}
 
-	if cacheErr := v.ensureCacheStorage(ctx); cacheErr != nil {
-		return 0, cacheErr
-	}
-
 	hostPort := options.FirstFreeHostPort(builderHostPortBase)
-	builderTracef("create builder sandbox %q port %d", name, hostPort)
 	sb, createErr := v.Msb.CreateSandbox(ctx, name, builderSandboxOptions(hostPort)...)
 	if createErr != nil {
 		return 0, fmt.Errorf("create builder sandbox: %w", createErr)
@@ -131,12 +117,10 @@ func (v *VM) ready(ctx context.Context, hostPort int) error {
 // sandbox is cleared so the caller recreates the VM.
 func (v *VM) reusedBuilderPort(name string, handle msb.SandboxHandle) (int, bool, error) {
 	hostPort := publishedHostPort(handle)
-	builderTracef("found builder sandbox %q port %d", name, hostPort)
 	if hostPort > 0 {
 		return hostPort, true, nil
 	}
 	if record, ok := readBuilderRecord(); ok && record.Name == name && record.HostPort > 0 {
-		builderTracef("using recorded builder port %d for %q", record.HostPort, name)
 		return record.HostPort, true, nil
 	}
 	if err := clearBuilderRecord(); err != nil {
@@ -228,39 +212,9 @@ func publishedHostPort(handle msb.SandboxHandle) int {
 	return 0
 }
 
-// ensureCacheStorage prepares the BuildKit cache backing for the selected mode:
-// the named msb volume, or the host directory a bind cache mounts.
-func (v *VM) ensureCacheStorage(ctx context.Context) error {
-	switch builderCacheMode() {
-	case cacheModeBind:
-		if err := os.MkdirAll(builderCacheBindPath(), 0o750); err != nil {
-			return fmt.Errorf("create buildkit cache bind dir: %w", err)
-		}
-		return nil
-	case cacheModeTmpfs, cacheModeTmpfsExport, cacheModeRegistry:
-		return nil
-	default:
-		return v.ensureCacheVolume(ctx)
-	}
-}
-
-// ensureCacheVolume creates the shared BuildKit cache volume, tolerating an
-// already-exists result.
-func (v *VM) ensureCacheVolume(ctx context.Context) error {
-	_, err := v.Msb.CreateVolume(ctx, cacheVolumeName)
-	if err == nil || msbSdk.IsKind(err, msbSdk.ErrVolumeAlreadyExists) {
-		return nil
-	}
-	if strings.Contains(err.Error(), "exists") {
-		return nil
-	}
-	return fmt.Errorf("create buildkit cache volume: %w", err)
-}
-
 // startBuildkitd launches buildkitd inside the sandbox and drains its output so
 // the stream is not left unread.
 func startBuildkitd(ctx context.Context, sb msb.Sandbox) error {
-	builderTracef("start buildkitd: %s", buildkitdCommand())
 	stream, err := sb.ShellStream(ctx, buildkitdCommand())
 	if err != nil {
 		return fmt.Errorf("start buildkitd: %w", err)

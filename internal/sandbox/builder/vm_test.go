@@ -27,15 +27,10 @@ func applySandboxOpts(cfg *msbSdk.SandboxConfig, opts []msbSdk.SandboxOption) {
 func TestEnsureCreatesBuilderVM(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 
-	var createdVolumes []string
 	shellCmds := []string{}
 	client := &msb.MockMsbClient{
 		GetSandboxFn: func(context.Context, string) (msb.SandboxHandle, error) {
 			return nil, &msbSdk.Error{Kind: msbSdk.ErrSandboxNotFound, Message: builderSandboxName()}
-		},
-		CreateVolumeFn: func(_ context.Context, name string, _ ...msbSdk.VolumeOption) (msb.VolumeHandle, error) {
-			createdVolumes = append(createdVolumes, name)
-			return &msb.MockVolumeHandle{Name_: name}, nil
 		},
 		CreatedSandbox: msb.NewMockSandbox(msb.SandboxOpts{ShellStreamCmds: &shellCmds}),
 	}
@@ -77,8 +72,11 @@ func TestEnsureCreatesBuilderVM(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected mount at %q, got %v", cacheMountPath, cfg.Volumes)
 	}
-	if mount.Named != cacheVolumeName {
-		t.Errorf("mount %q named volume = %q, want %q", cacheMountPath, mount.Named, cacheVolumeName)
+	if !mount.Tmpfs {
+		t.Errorf("mount %q = %+v, want tmpfs worker storage", cacheMountPath, mount)
+	}
+	if mount.SizeMiB != builderCacheTmpfsSizeMiB {
+		t.Errorf("mount %q tmpfs size = %d MiB, want %d", cacheMountPath, mount.SizeMiB, builderCacheTmpfsSizeMiB)
 	}
 	if len(cfg.PortBindings) != 1 {
 		t.Fatalf("expected 1 port binding, got %d", len(cfg.PortBindings))
@@ -105,13 +103,10 @@ func TestEnsureCreatesBuilderVM(t *testing.T) {
 	if want := options.ParseMemoryGiB(uint32(sysinfo.TotalMemoryGiB())); cfg.MaxMemoryMiB != want {
 		t.Errorf("sandbox max memory = %d MiB, want %d (agent VM default)", cfg.MaxMemoryMiB, want)
 	}
-	if want := builderIdleTimeout(); cfg.IdleTimeout != want {
-		t.Errorf("sandbox idle timeout = %s, want %s", cfg.IdleTimeout, want)
+	if cfg.IdleTimeout != builderIdleTimeout {
+		t.Errorf("sandbox idle timeout = %s, want %s", cfg.IdleTimeout, builderIdleTimeout)
 	}
 
-	if len(createdVolumes) != 1 || createdVolumes[0] != cacheVolumeName {
-		t.Errorf("created volumes = %v, want [%s]", createdVolumes, cacheVolumeName)
-	}
 	if len(shellCmds) != 1 || shellCmds[0] != buildkitdCommand() {
 		t.Errorf("shell stream commands = %v, want [%s]", shellCmds, buildkitdCommand())
 	}
@@ -132,9 +127,6 @@ func TestEnsureReusesExistingBuilderVM(t *testing.T) {
 	client := &msb.MockMsbClient{
 		GetSandboxFn: func(context.Context, string) (msb.SandboxHandle, error) {
 			return handle, nil
-		},
-		CreateVolumeFn: func(_ context.Context, name string, _ ...msbSdk.VolumeOption) (msb.VolumeHandle, error) {
-			return nil, fmt.Errorf("CreateVolume must not be called for an existing builder VM (called with %q)", name)
 		},
 	}
 
@@ -431,7 +423,7 @@ func TestBuildkitdCommandLogsToCacheVolume(t *testing.T) {
 }
 
 func TestBuilderKeepAliveIntervalBelowIdleTimeout(t *testing.T) {
-	if idle := builderIdleTimeout(); builderKeepAliveInterval >= idle {
+	if idle := builderIdleTimeout; builderKeepAliveInterval >= idle {
 		t.Errorf("keep-alive interval %s must be below idle timeout %s",
 			builderKeepAliveInterval, idle)
 	}
