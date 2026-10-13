@@ -8,7 +8,7 @@ nav_order: 80
 # Runner Image
 
 agents-sandbox builds a runner image for each sandbox with BuildKit (in a microsandbox builder VM). The image contains
-the selected coding agent, Node.js, and common CLI tools.
+the selected coding agent, Node.js only for agents that need it (today only `pi`), and common CLI tools.
 Projects can extend the image with their own tooling.
 
 By default the build runs entirely inside a microsandbox VM, so no host Docker runtime is needed. The builder VM's

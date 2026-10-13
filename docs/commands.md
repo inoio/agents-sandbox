@@ -169,7 +169,7 @@ agents-sandbox kill -f     # kill and remove VM state
 ### prune
 
 Remove stale VMs, volumes, and images in one pass. Staleness is determined by age — resources older than the threshold
-are pruned. The summary line reads `Pruned N VMs, N home volumes, N msb images, buildkit cache pruned: <bool>`. To prune a single
+are pruned. The summary line reads `Pruned N VMs, N home volumes, N msb images, builder cache pruned: <bool>`. To prune a single
 artifact type, use the `image prune`, `volume prune`, or `sandbox prune` subcommands below.
 
 ```console
