@@ -11,6 +11,11 @@ agents-sandbox builds a runner image for each sandbox with BuildKit (in a micros
 the selected coding agent, Node.js, and common CLI tools.
 Projects can extend the image with their own tooling.
 
+By default the build runs entirely inside a microsandbox VM, so no host Docker runtime is needed. The builder VM's
+BuildKit layer cache is kept in an OCI registry embedded in the agents-sandbox binary (started on demand and idle-reaped),
+and the builder VM is reused across builds and shared by parallel builds. See [Builder backends](#builder-backends) for
+the opt-in Docker alternative.
+
 ## Home directory
 
 When rebuilding an image, all state in the VM's home directory (`/home/dev/`) would get lost. Therefore, the home
@@ -214,6 +219,30 @@ provenance value to the installer.
 
 `--agent-version` is available on `build`, `run`, and `shell`. On `run`/`shell` it pins the version baked into the image and
 skips the upgrade check. The deprecated `--opencode-version` alias remains `build`-only.
+
+## Builder backends
+
+The runner image is built by one of two backends, both of which load the resulting image into the microsandbox cache:
+
+- **`msb` (default)** — `buildkitd` runs inside a shared, reused microsandbox VM driven by a host-side BuildKit client.
+  It needs only the tool itself (plus the microsandbox runtime/KVM), isolates the Dockerfile `RUN` steps in the microVM,
+  and keeps its layer cache in an embedded per-user OCI registry (`type=registry`, `mode=max`). The builder VM is reused
+  across invocations and shared by concurrent builds, discovered through a persisted port record.
+- **`moby` (alternative)** — builds via the Docker Engine API on your host daemon (`ImageBuild` → `ImageSave`), then
+  loads the saved archive into the microsandbox cache. It has no build isolation and requires a reachable Docker daemon.
+
+Select the backend with the `builder` key in the [launcher configuration]({% link configuration/launcher.md %}) or the
+`AGENTS_SANDBOX_BUILDER` environment variable (environment overrides config; empty or unknown values fall back to `msb`).
+There is no CLI flag. `moby` is not recommended; it is an explicit opt-in for users who already run Docker and prefer a
+native host build.
+
+```yaml
+# ~/.config/agents-sandbox/config.yaml
+builder: moby   # msb (default) | moby
+```
+
+`agents-sandbox doctor` reports the prerequisites of the selected backend: the microsandbox runtime for `msb`, and a
+reachable Docker daemon for `moby`.
 
 ## Building and Managing Images
 

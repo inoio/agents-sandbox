@@ -20,16 +20,20 @@ command reports the bare version (e.g. `0.1.0`).
   the config changes that triggered it.
 - Internal: add two integration test targets, both running every `integration`-tagged test across the module (excluded
   from the main suite — the real BuildKit builder-VM image-build, cache-reuse, and login-shell PATH tests in
-  `internal/sandbox/image`). `make test-integration` uses a Docker-backed BuildKit harness
-  (`AGENTS_SANDBOX_BUILDER=docker`, no `/dev/kvm`) and runs in CI as the `integration` job on every PR; the msb/KVM tier
+  `internal/sandbox/image`). `make test-integration` runs against a Docker daemon on any host
+  (`AGENTS_SANDBOX_BUILDER=moby`, no `/dev/kvm`) and runs in CI as the `integration` job on every PR; the msb/KVM tier
   needs the msb runtime, a functional `/dev/kvm`, and network access, and runs via `make test-integration-msb` in the
   gated `integration-msb` job (main/release/manual).
 - Internal: add `make compile-all` — compiles every test binary including `integration`-tagged files without a docker
   daemon, and run it in the CI lint job so a tagged-only compile regression fails on PRs instead of only on main.
-- Internal: a test-only Docker-backed BuildKit backend for the runner-image pipeline. `AGENTS_SANDBOX_BUILDER=docker`
-  drives a `buildkitd` in a `docker run moby/buildkit` container over the same host-side client, exporting
-  `type=docker` so built images can be `docker run`; unset/other values keep the production msb backend. Used only by
-  the integration tests, not by end users.
+- Runner image: two selectable builder backends. The default `msb` backend builds inside a shared, reused microsandbox
+  VM with its BuildKit layer cache in an OCI registry embedded in the agents-sandbox binary (`distribution/v3`,
+  `type=registry`, on demand and idle-reaped); the opt-in `moby` backend builds via the Docker Engine API on the host
+  daemon. Select with the `builder` launcher-config key or `AGENTS_SANDBOX_BUILDER` (env over config, default `msb`; no
+  CLI flag). `doctor` reports the selected backend's prerequisites (microsandbox runtime for msb; a reachable Docker
+  daemon for moby).
+- Runner image: the `msb` builder VM is reused across invocations and shared by parallel builds, discovered through a
+  persisted port record; a stale record or a failed readiness probe recreates it.
 - Internal: the CI `integration-msb` job installs the microsandbox runtime and enables `/dev/kvm` on the x64 runner, and
   sets `AGENTS_SANDBOX_INTEGRATION=1`, so the builder-VM integration tests actually execute instead of skipping.
 - Internal: `devUserBlock` now sets the dev login shell to the first of `bash`, `zsh`, `sh` found (falling back to
@@ -41,10 +45,9 @@ command reports the bare version (e.g. `0.1.0`).
 - `run` and `shell` now accept `--agent-version` to pin the agent version baked into the runner image, matching `build`.
 - Runner image: a Docker-free BuildKit builder VM. The runner image is built by a `buildkitd` running inside a shared
   microsandbox VM, driven by a host-side BuildKit client over a published loopback port, so building or refreshing the
-  image no longer needs the host Docker daemon. The BuildKit cache persists in a global `agents-sandbox-buildkit-cache`
-  volume across projects and invocations, and image pruning reclaims it (`buildctl prune --keep-duration 24h --all`).
-  Short base-image references (e.g. `debian:trixie-slim`) are qualified to their canonical `docker.io/library/...` form
-  before the gateway resolves their digests.
+  image no longer needs the host Docker daemon. The BuildKit worker storage is a `tmpfs`; the persistent layer cache is
+  the embedded registry (see above). Short base-image references (e.g. `debian:trixie-slim`) are qualified to their
+  canonical `docker.io/library/...` form before the gateway resolves their digests.
 
 ### Changed
 
@@ -52,9 +55,8 @@ command reports the bare version (e.g. `0.1.0`).
   ceilings) and 4 GiB memory (up to physical RAM), so image builds are not throttled by the microsandbox defaults. Its
   idle timeout is 5s, and an in-flight build holds the VM's idle timer open via a `Touch` keep-alive so the short
   timeout cannot reap it mid-build.
-- BuildKit builder VM: `buildkitd` stdout/stderr are appended to
-  `/var/lib/buildkit/buildkitd.log` on the persistent cache volume for debugging, surviving the builder VM's short
-  idle reaping.
+- BuildKit builder VM: `buildkitd` stdout/stderr are appended to `/var/lib/buildkit/buildkitd.log` on the `tmpfs` worker
+  storage for debugging; the log is recreated on each builder boot.
 - Runner image: `opencode`, `opencode2`, and `claude-code` images are now node-free. The `agents-sandbox-node` stage is
   emitted only for agents that need node (today only `pi`, an npm-installed node bundle), and opencode2 and claude-code
   install from their upstream native installers instead of npm. This cuts image size and cold-build time; version pinning,
@@ -102,12 +104,18 @@ command reports the bare version (e.g. `0.1.0`).
   `ci/test-check-docs.sh`); root-level files link into the docs with rendered HTML links and `docs/` pages link with Jekyll
   `{% link %}` tags.
 - Internal: collapse run/shell option resolution into `viperconfig.Resolver.BuildRunOptions` (no behavior change).
+- Prune report: the aggregated `prune`/`image prune` summary no longer names a specific cache technology — it now reads
+  `builder cache pruned: <bool>` for whichever backend is selected, instead of `buildkit cache pruned`.
 
 ### Removed
 
 - Host Docker/container-runtime requirement. Image builds now run in the BuildKit builder VM, so the
   `internal/sandbox/docker` client and the `doctor` Docker preflight check are gone; `doctor` verifies the platform
-  (KVM / Apple Silicon) and the microsandbox runtime only.
+  (KVM / Apple Silicon) and the microsandbox runtime only (for the default `msb` backend).
+- The throwaway build-performance spike (`spike/`, the `TestBenchBuildBackends` benchmarks and `BENCH_*` scaffolding),
+  every `AGENTS_SANDBOX_BUILDER_*` experiment knob, and the test-only Docker-container buildkit backend (the `docker`
+  selection value, `dockerBackend`, `dockerCLI`, `ResetDockerHarness`). The production `builder` value now accepts only
+  `msb` and `moby`.
 
 ### Fixed
 

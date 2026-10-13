@@ -5,6 +5,10 @@ read_if: Working on builder backend selection, the embedded cache registry, buil
 
 # Builder backends (msb default, moby opt-in)
 
+**Status: implemented** — `builder.Get()` selects the `msb` (default) or `moby` backend from config/env; the embedded
+cache registry, builder-VM reuse, the restored moby Engine-API path, backend-aware `doctor`/prune, and the removal of the
+spike/harness all ship. One clause remains to validate on a KVM host (registry bind; see "Reachability / Bind scope").
+
 ## Problem Statement
 
 Building the per-project runner image currently has to pick a single strategy with
@@ -152,13 +156,19 @@ isolation for the host daemon and is intentionally presented as a fallback.
   reachable from the sandbox but not broadly exposed. Bind scope is the most
   security-sensitive detail and must be confined to the sandbox's host gateway
   (not `0.0.0.0`) for the daemon's lifetime.
-- **Reachability / Bind scope (design; unvalidated on a KVM host):** the builder
-  VM's `IPv4Pool` is pinned to a dedicated `/30` (`172.30.0.0/30`) and the
-  registry binds that subnet's gateway address (`172.30.0.1`, network+1), never
-  `0.0.0.0`. The address is isolated in `cacheregistry.registryBindHost()` so it
-  is a one-line change once validated end-to-end against a running KVM host. It
-  has **not** been validated in a dev VM without `/dev/kvm`; this is a design
-  decision, not a proven result.
+- **Reachability / Bind scope (implemented; not yet validated end-to-end on a KVM
+  host):** the builder VM's `IPv4Pool` is pinned to a dedicated `/30`
+  (`cacheregistry.BuilderIPv4Pool = "172.30.0.0/30"`, set on the builder network
+  policy in `builderNetworkPolicy`) and the registry binds that subnet's gateway
+  address (`172.30.0.1`, network+1, derived in `cacheregistry.builderGatewayHost()`),
+  never `0.0.0.0`. The bind host/port are vars (`registryBindHost`/`registryBindPort`)
+  so tests rebind to loopback; production uses the gateway. This is the
+  security-sensitive Task 2 Step 1 decision and it has **not** been validated
+  against a running KVM host (the dev VM has no `/dev/kvm`), so the gateway-bind
+  reachability from the builder VM at `host.microsandbox.internal` remains a
+  design decision to confirm — if the synthetic gateway address does not bind or
+  is unreachable, change `registryBindHost` to the address that works (still not
+  `0.0.0.0`).
 - **On-demand, shared lifecycle:** the registry is a **per-user singleton
   daemon**, not one-per-build. The first agents-sandbox process that needs it
   re-execs itself in a hidden internal serve mode, detached from the parent, bound

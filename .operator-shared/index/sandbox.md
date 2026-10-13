@@ -18,23 +18,25 @@ read_if: Working in internal/sandbox (VM lifecycle, image building, BuildKit bui
 
 ## `internal/sandbox` Index
 
-### `builder/` — BuildKit builder VM and image build
+### `builder/` — runner-image builder backends (msb default, moby opt-in)
 
-- `builder.go`, `vm.go` — shared builder-VM lifecycle (ensure/start `buildkitd`, readiness, teardown); worker storage is a tmpfs, the layer cache lives in `cacheregistry/`
+- `builder.go`, `vm.go`, `vmstate.go` — shared builder-VM lifecycle (ensure/start `buildkitd`, readiness probe, teardown, keep-alive); worker storage is a tmpfs, the layer cache lives in `cacheregistry/`; `vmstate.go` persists the builder-VM host port so a running VM is rediscovered and reused
 - `client.go`, `build.go`, `auth.go` — host-side BuildKit client: `Solve` the rendered Dockerfile, OCI export, gateway base-digest resolution, `type=registry` cache import/export, registry auth (host docker config + embedded cache-registry token)
+- `selection.go`, `backend.go` — `Get()`/`SelectedName()`: resolve `msb` (default) or `moby` from viperconfig `builder`/`AGENTS_SANDBOX_BUILDER`; the buildkit-only `backend` interface (`msbBackend`) stays internal
+- `moby.go`, `mobycontext.go` — opt-in Docker Engine API backend (`ImageBuild` → `ImageSave` archive loaded via the shared `EnsureLoaded`); no `msb.Client`, no buildkit
 - `cacheregistry/` — embedded per-user OCI cache registry (`distribution/v3`): `Ensure` a daemon endpoint, deterministic `CacheRef`, token auth, prune
 - `testmock.go`, `*_test.go` — mocks and tests
 
 ### `doctor/` — Environment diagnostics and shell rc
 
-- `doctor.go`, `install.go`, `shell_rc.go` — health checks (platform virtualization + msb runtime; no Docker check) and shell setup
+- `doctor.go`, `install.go`, `shell_rc.go` — health checks (platform virtualization + msb runtime, plus a Docker check gated on the selected `moby` backend) and shell setup
 - `doctor_darwin.go`, `doctor_linux.go` — platform variants
 
 ### `image/` — Runner image build, Dockerfile, fetch, inspect, tags
 
 - `build.go`, `dockerfile.go`, `fetch.go`, `format.go`, `image.go`, `inspect.go`, `list.go`, `tags.go`, `embed.go` — image pipeline (rendering, identity/cache decision; delegates the actual build to `builder/`)
-- `integration_build_test.go` — `//go:build integration` end-to-end tests for the real BuildKit build pipeline and cache reuse. Two tiers: `make test-integration` (Docker backend, `AGENTS_SANDBOX_BUILDER=docker`, no `/dev/kvm`; CI `integration` job on every PR) and `make test-integration-msb` (msb backend, needs a KVM host with msb and network access; gated CI `integration-msb` job, main/release/manual). **The Docker tier cannot run inside the agents-sandbox VM** (microsandbox egress TLS interception breaks in-build registry pulls); the msb tier needs `/dev/kvm`.
-- `integration_harness_test.go` — `//go:build integration` harness helper: resolves the active backend from `AGENTS_SANDBOX_BUILDER`; the Docker-container harness has been removed.
+- `integration_build_test.go` — `//go:build integration` end-to-end tests for the real build pipeline and cache reuse. Two tiers: `make test-integration` (moby backend against a Docker daemon, `AGENTS_SANDBOX_BUILDER=moby`, no `/dev/kvm`; CI `integration` job on every PR) and `make test-integration-msb` (msb backend, registry cache + shared builder VM, needs a KVM host with msb and network access; gated CI `integration-msb` job, main/release/manual). **The moby tier cannot run inside the agents-sandbox VM** (microsandbox egress TLS interception breaks in-build registry pulls); the msb tier needs `/dev/kvm`.
+
 - Custom-base requirements (shadow-utils, POSIX shell bash→zsh→sh, curl+tar, dind prereqs) and unsupported bases (Alpine/distroless/scratch) are documented in `docs/runner-image.md`.
 
 ### `mounts/` — Filesystem mount handling

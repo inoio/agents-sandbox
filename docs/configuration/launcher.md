@@ -92,6 +92,7 @@ Configuration is resolved in this order (later entries override earlier ones):
 | `agent`                         | `--agent`                | Agent profile name to run, build, and provision (default `opencode`, see [Agent configuration]({% link configuration/agent.md %}))                                                                                                        |
 | `provision-host-config`         | —                        | Copy the agent's host config + credentials into the VM by default (default: true; set false to opt out, see [Default drop-in provisioning]({% link configuration/agent.md %}#default-drop-in-provisioning))                                               |
 | `docker`                        | `--docker`               | Append the Docker engine block to the runner image (overridable with `--docker`; `dind` is a deprecated alias)                                                                                                             |
+| `builder`                       | —                        | Runner-image builder backend: `msb` (default; no host Docker needed) or `moby` (Docker Engine API; requires a reachable Docker daemon). No CLI flag (see [Runner Image]({% link runner-image.md %}))                                                                                                            |
 | `upgrade.mode`                   | —                        | How to handle a newer release when one is found: `prompt`, `notify`, `auto`, or `auto-exit` (default `prompt`, see [Self-upgrade]({% link configuration/self-upgrade.md %}))                                                            |
 | `upgrade.interval`               | —                        | How often to check for a newer release (default `1d`, minimum `1h`, see [Self-upgrade]({% link configuration/self-upgrade.md %}))                                                                                                                        |
 | `notify.desktop`                 | —                        | Show desktop notifications via `notify-send` (Linux) / `osascript` (macOS) (default false, see [Notifications]({% link configuration/notifications.md %}))                                                                                                |
@@ -213,6 +214,7 @@ configuration to `AGENTS_SANDBOX_`.
 | `agent`                         | `AGENTS_SANDBOX_AGENT`                                          |
 | `provision-host-config`         | `AGENTS_SANDBOX_PROVISION_HOST_CONFIG`                          |
 | `docker`                        | `AGENTS_SANDBOX_DOCKER`                                         |
+| `builder`                       | `AGENTS_SANDBOX_BUILDER`                                        |
 | `upgrade.mode`                   | `AGENTS_SANDBOX_UPGRADE_MODE`                                    |
 | `upgrade.interval`               | `AGENTS_SANDBOX_UPGRADE_INTERVAL`                                |
 | `notify` (override)              | `AGENTS_SANDBOX_NOTIFY`                                          |

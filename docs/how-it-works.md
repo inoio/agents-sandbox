@@ -9,8 +9,9 @@ nav_order: 105
 
 ## How It Works
 
-1. **Image build** — Builds a runner image with BuildKit from `.agents-sandbox/Dockerfile` if present, or uses the base image. The image
-   contains the selected coding agent, Node.js 26, and common CLI tools.
+1. **Image build** — Builds a runner image with BuildKit (in a microsandbox builder VM by default, so no host Docker is
+   required) from `.agents-sandbox/Dockerfile` if present, or uses the base image. The image contains the selected coding
+   agent and common CLI tools; Node.js is included only for agents that need it (today only `pi`).
 2. **Volume setup** — Creates a persistent home volume (managed by msb, name: `agents-sandbox-home-<project-slug>-<timestamp>`) for the
    project, preserving editor state, caches, and config across sessions.
 3. **VM creation or reuse** — Creates a new project VM on first boot; subsequent runs connect to the existing VM (or

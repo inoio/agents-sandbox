@@ -3,6 +3,11 @@
 **Status: implemented** — the runner image is built by a `buildkitd` in a shared microsandbox VM, driven by a
 host-side BuildKit client; `internal/sandbox/docker` and `doctor.CheckDocker` are removed.
 
+**Superseded clauses (builder-backends):** two contracts in this spec have since changed. The BuildKit cache no longer
+lives in a named msb volume — it is now the embedded per-user OCI registry (`type=registry`; worker storage is `tmpfs`).
+And the test-only Docker-container harness is removed, replaced by the production moby backend as the KVM-free tier. See
+`specs/builder-backends.md`; the clauses below are kept as the record of the original decision.
+
 ## Goal
 
 Build the per-project runner image **without requiring Docker/Podman on the
@@ -302,11 +307,12 @@ not to punch through the network policy.
   and gated to main/tags/manual: hosted arm64 runners expose no KVM, and the builds are costly. This
   tier needs KVM, so it cannot run on PRs or in the KVM-less dev VM/agent sandbox.
 
-A **test-only Docker backend** now complements this msb path: `AGENTS_SANDBOX_BUILDER=docker` runs `buildkitd` in
-a `docker run moby/buildkit` container (no KVM) and drives the same host-side client, so the build/composition
-integration tests also run as a KVM-free PR tier (`make test-integration`); the msb tier becomes
-`make test-integration-msb`. Production is unchanged (msb is the default). See
-`specs/docker-test-harness.md` for the contract.
+**Superseded (builder-backends):** the test-only Docker-container harness described here — the `docker` selection value,
+`dockerBackend`/`dockerCLI`, `ResetDockerHarness`, and the container/volume — has been removed. The KVM-free PR tier
+(`make test-integration`) now runs against a real Docker daemon through the production **moby** backend
+(`AGENTS_SANDBOX_BUILDER=moby`), and the BuildKit path's integration coverage is KVM-only via
+`make test-integration-msb`. `specs/docker-test-harness.md` no longer exists; see
+`specs/builder-backends.md` for the two-backend contract.
 
 ## Alternatives considered
 

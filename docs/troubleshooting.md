@@ -211,3 +211,10 @@ If an older image or updater state reports `Release vuser-provided not found`, u
 runner image. `user-provided` identifies an agent that was previously found in a custom base; it is not a valid release
 version. A rebuilt image will keep an agent supplied by the base, or install a real resolved release if that binary is
 no longer present.
+
+### `moby` backend: Docker daemon unreachable
+
+The default `msb` backend needs no host Docker. If you opted into `moby` (the `builder` config key or
+`AGENTS_SANDBOX_BUILDER=moby`) and builds fail because the Docker daemon is not reachable, start Docker (or point
+`DOCKER_HOST` at it), or switch back to the default by unsetting the variable or setting `builder: msb`. Run
+`agents-sandbox doctor` to see the prerequisite for the selected backend.
