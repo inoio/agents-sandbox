@@ -155,8 +155,8 @@ func startFakeRegistry(t *testing.T, host string, port int, token string) (func(
 func stubRegistryBind(t *testing.T, host string, port int) {
 	t.Helper()
 	originalHost, originalPort := registryBindHost, registryBindPort
-	registryBindHost = func() string { return host }
-	registryBindPort = func() int { return port }
+	registryBindHost = func() (string, error) { return host, nil }
+	registryBindPort = func(string) (int, error) { return port, nil }
 	t.Cleanup(func() {
 		registryBindHost, registryBindPort = originalHost, originalPort
 	})

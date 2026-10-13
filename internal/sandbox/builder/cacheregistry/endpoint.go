@@ -94,10 +94,18 @@ func newChildConfig() (registryConfig, error) {
 	if err != nil {
 		return registryConfig{}, err
 	}
+	host, err := registryBindHost()
+	if err != nil {
+		return registryConfig{}, err
+	}
+	port, err := registryBindPort(host)
+	if err != nil {
+		return registryConfig{}, err
+	}
 	return registryConfig{
 		Root:        cacheDirPath(),
-		Host:        registryBindHost(),
-		Port:        registryBindPort(),
+		Host:        host,
+		Port:        port,
 		Token:       token,
 		IdleTimeout: registryIdleTimeout,
 	}, nil

@@ -21,7 +21,6 @@ import (
 	_ "github.com/distribution/distribution/v3/registry/storage/driver/filesystem"
 
 	"github.com/inoio/agents-sandbox/internal/configpaths"
-	"github.com/inoio/agents-sandbox/internal/sandbox/options"
 )
 
 const (
@@ -71,19 +70,37 @@ type registryConfig struct {
 // builder pool's gateway address, never 0.0.0.0.
 var (
 	registryBindHost = builderGatewayHost
-	registryBindPort = func() int { return options.FirstFreeHostPort(registryBasePort) }
+	registryBindPort = firstFreeRegistryPort
 )
 
 // registrySpawnFunc starts the detached serve process and returns its pid.
 type registrySpawnFunc func(ctx context.Context, configPath string) (int, error)
 
-// builderGatewayHost derives the pinned pool's gateway address (network+1).
-func builderGatewayHost() string {
+// builderGatewayHost derives the pinned pool's gateway address (network+1). It
+// fails rather than returning an empty host, which would bind every interface.
+func builderGatewayHost() (string, error) {
 	prefix, err := netip.ParsePrefix(BuilderIPv4Pool)
 	if err != nil {
-		return ""
+		return "", fmt.Errorf("parse builder pool %q: %w", BuilderIPv4Pool, err)
 	}
-	return prefix.Addr().Next().String()
+	return prefix.Addr().Next().String(), nil
+}
+
+// firstFreeRegistryPort returns the first port at or above registryBasePort that
+// can be bound on host, the address the registry will actually serve on.
+func firstFreeRegistryPort(host string) (int, error) {
+	var lastErr error
+	for port := registryBasePort; port < registryBasePort+1024; port++ {
+		//nolint:noctx // a transient probe of host port availability needs no context
+		listener, err := net.Listen("tcp", net.JoinHostPort(host, strconv.Itoa(port)))
+		if err != nil {
+			lastErr = err
+			continue
+		}
+		_ = listener.Close()
+		return port, nil
+	}
+	return 0, fmt.Errorf("find free registry port on %s: %w", host, lastErr)
 }
 
 // Serve runs the cache registry until ctx is cancelled or it has been quiet for
@@ -108,7 +125,15 @@ func Serve(ctx context.Context, configPath string) error {
 		ReadHeaderTimeout: registryReadHeaderTimeout,
 	}
 
-	address := net.JoinHostPort(bindHost(cfg), strconv.Itoa(bindPort(cfg)))
+	host, err := bindHost(cfg)
+	if err != nil {
+		return err
+	}
+	port, err := bindPort(cfg, host)
+	if err != nil {
+		return err
+	}
+	address := net.JoinHostPort(host, strconv.Itoa(port))
 	var listenConfig net.ListenConfig
 	listener, err := listenConfig.Listen(ctx, "tcp", address)
 	if err != nil {
@@ -173,18 +198,18 @@ func readRegistryConfig(path string) (registryConfig, error) {
 	return cfg, nil
 }
 
-func bindHost(cfg registryConfig) string {
+func bindHost(cfg registryConfig) (string, error) {
 	if cfg.Host != "" {
-		return cfg.Host
+		return cfg.Host, nil
 	}
 	return registryBindHost()
 }
 
-func bindPort(cfg registryConfig) int {
+func bindPort(cfg registryConfig, host string) (int, error) {
 	if cfg.Port > 0 {
-		return cfg.Port
+		return cfg.Port, nil
 	}
-	return registryBindPort()
+	return registryBindPort(host)
 }
 
 func idleSchedule(configured time.Duration) (time.Duration, time.Duration) {
