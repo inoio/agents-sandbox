@@ -457,11 +457,14 @@ func builderCacheExportOptions(_ context.Context, cacheRef string) (
 	if cacheRef == "" {
 		return nil, nil, errors.New("cache ref is empty")
 	}
+	// The embedded registry serves plain HTTP on a non-loopback gateway address,
+	// so BuildKit's registry remotecache must be told the endpoint is insecure;
+	// otherwise it defaults to HTTPS and every import/export fails.
 	imports := []client.CacheOptionsEntry{
-		{Type: "registry", Attrs: map[string]string{"ref": cacheRef}},
+		{Type: "registry", Attrs: map[string]string{"ref": cacheRef, "registry.insecure": "true"}},
 	}
 	exports := []client.CacheOptionsEntry{
-		{Type: "registry", Attrs: map[string]string{"ref": cacheRef, "mode": "max"}},
+		{Type: "registry", Attrs: map[string]string{"ref": cacheRef, "mode": "max", "registry.insecure": "true"}},
 	}
 	return imports, exports, nil
 }

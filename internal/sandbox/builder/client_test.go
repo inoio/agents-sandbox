@@ -102,6 +102,11 @@ func TestBuilderCacheExportOptionsUseRegistry(t *testing.T) {
 	if exports[0].Attrs["ref"] != cacheRef || exports[0].Attrs["mode"] != "max" {
 		t.Errorf("export attrs = %+v, want ref %q mode max", exports[0].Attrs, cacheRef)
 	}
+	for name, entry := range map[string]client.CacheOptionsEntry{"import": imports[0], "export": exports[0]} {
+		if entry.Attrs["registry.insecure"] != "true" {
+			t.Errorf("%s attrs = %+v, want registry.insecure=true for the plain-HTTP registry", name, entry.Attrs)
+		}
+	}
 	for _, entry := range append(imports, exports...) {
 		if entry.Type == "local" || entry.Type == "inline" {
 			t.Errorf("cache entry %+v is not a registry entry", entry)
