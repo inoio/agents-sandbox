@@ -10,6 +10,14 @@
 
 **Spec:** `.operator-shared/specs/builder-backends.md`
 
+> **Superseded (2026-10-13):** Resolved Decision 4 and Task 2 Step 1's pinned-`/30`
+> synthetic-gateway bind was **invalid**. On a real KVM host microsandbox rejected
+> the single-`/30` pool ("cannot assign network slot 3"), and a diagnostic showed
+> the runtime forwards `host.microsandbox.internal` to the host's **loopback**.
+> The registry now binds loopback (`127.0.0.1`, best-effort `::1`); the guest
+> reaches it by name. See `specs/builder-backends.md` → "Reachability / Bind
+> scope", which is the current truth.
+
 ## Global Constraints
 
 - Idiomatic Go; self-documenting non-abbreviated identifiers; no comments unless they carry durable decision value.

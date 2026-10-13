@@ -13,7 +13,7 @@ import (
 )
 
 func TestRegistryAuthSessionIncludesCacheToken(t *testing.T) {
-	endpoint := cacheregistry.Endpoint{Host: "172.30.0.1", Port: 5000, Token: "cache-token-abc"}
+	endpoint := cacheregistry.Endpoint{Host: cacheregistry.GuestHost, Port: 5000, Token: "cache-token-abc"}
 
 	configFile := registryAuthConfig(cacheRegistryCredentials(endpoint))
 	got, ok := configFile.AuthConfigs[endpoint.RegistryHost()]
@@ -34,7 +34,7 @@ func TestRegistryAuthSessionIncludesCacheToken(t *testing.T) {
 // derivation: the credential key must be the full host:port that both the cache
 // reference authority and BuildKit's auth lookup use, never the bare host.
 func TestCacheRegistryAuthKeysCredentialByRegistryHost(t *testing.T) {
-	endpoint := cacheregistry.Endpoint{Host: "172.30.0.1", Port: 5000, Token: "tok"}
+	endpoint := cacheregistry.Endpoint{Host: cacheregistry.GuestHost, Port: 5000, Token: "tok"}
 	stubCacheRegistry(t, endpoint)
 
 	cacheRef, session, err := (&Client{}).cacheRegistryAuth(context.Background(), BuildRequest{
@@ -68,7 +68,7 @@ func TestCacheRegistryAuthKeysCredentialByRegistryHost(t *testing.T) {
 // the dockerConfigDir seam at a temp dir so it is hermetic and independent of the
 // process-global config.Dir() memoization (and thus of test order).
 func TestRegistryAuthConfigBypassesCredentialStore(t *testing.T) {
-	const host = "172.30.0.1:5000"
+	const host = cacheregistry.GuestHost + ":5000"
 	const token = "cache-token"
 	dir := t.TempDir()
 	configPath := filepath.Join(dir, "config.json")

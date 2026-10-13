@@ -9,10 +9,10 @@ import (
 	"fmt"
 	"net"
 	"net/http"
-	"net/netip"
 	"os"
 	"path/filepath"
 	"strconv"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -37,16 +37,32 @@ const (
 	registryStateFileMode     = 0o600
 )
 
-// BuilderIPv4Pool is the dedicated /30 the builder VM's network pool is pinned
-// to. The cache registry binds that pool's gateway address (network+1), which
-// the builder VM reaches at host.microsandbox.internal, and nothing else.
-const BuilderIPv4Pool = "172.30.0.0/30"
+// GuestHost is the name a builder VM resolves to the host. The cache
+// reference and BuildKit auth key use it, and the VM reaches it at the host's
+// loopback (microsandbox forwards the host alias there).
+const GuestHost = "host.microsandbox.internal"
+
+// registryLoopbackBind is the host address the registry binds. Loopback is
+// reachable from the builder VM and never exposed beyond the host, satisfying
+// the "never 0.0.0.0" invariant.
+const registryLoopbackBind = "127.0.0.1"
+
+// registryLoopbackBind6 is the IPv6 loopback, bound best-effort so a guest that
+// resolves the host alias to its AAAA record is also served.
+const registryLoopbackBind6 = "::1"
 
 // Endpoint is a ready builder cache registry reachable from the builder VM.
 type Endpoint struct {
+	// Host is the guest-visible registry host (the sandbox host alias), the
+	// authority of the cache reference and the BuildKit auth key.
 	Host  string
 	Port  int
 	Token string
+
+	// dialHost is the host-side address the registry listens on. It differs
+	// from Host (loopback vs. the guest alias); host-side callers dial it.
+	// Empty falls back to Host.
+	dialHost string
 
 	// root is the registry's filesystem storage root. It is unexported because
 	// callers address the registry over HTTP; Prune uses it only to drop the
@@ -66,24 +82,19 @@ type registryConfig struct {
 }
 
 // registryBindHost and registryBindPort are variables so tests can rebind the
-// registry to a loopback endpoint without a KVM host. Production binds the
-// builder pool's gateway address, never 0.0.0.0.
+// registry without a real host; production binds loopback, never 0.0.0.0.
 var (
-	registryBindHost = builderGatewayHost
+	registryBindHost = defaultRegistryBindHost
 	registryBindPort = firstFreeRegistryPort
 )
 
 // registrySpawnFunc starts the detached serve process and returns its pid.
 type registrySpawnFunc func(ctx context.Context, configPath string) (int, error)
 
-// builderGatewayHost derives the pinned pool's gateway address (network+1). It
-// fails rather than returning an empty host, which would bind every interface.
-func builderGatewayHost() (string, error) {
-	prefix, err := netip.ParsePrefix(BuilderIPv4Pool)
-	if err != nil {
-		return "", fmt.Errorf("parse builder pool %q: %w", BuilderIPv4Pool, err)
-	}
-	return prefix.Addr().Next().String(), nil
+// defaultRegistryBindHost returns the host address the registry binds: the
+// host's loopback, which the builder VM reaches through the sandbox host alias.
+func defaultRegistryBindHost() (string, error) {
+	return registryLoopbackBind, nil
 }
 
 // firstFreeRegistryPort returns the first port at or above registryBasePort that
@@ -133,20 +144,49 @@ func Serve(ctx context.Context, configPath string) error {
 	if err != nil {
 		return err
 	}
-	address := net.JoinHostPort(host, strconv.Itoa(port))
-	var listenConfig net.ListenConfig
-	listener, err := listenConfig.Listen(ctx, "tcp", address)
+	listeners, err := listenLoopback(ctx, host, port)
 	if err != nil {
-		return fmt.Errorf("listen for builder registry on %s: %w", address, err)
+		return err
 	}
 
 	idleTimeout, checkInterval := idleSchedule(cfg.IdleTimeout)
 	go reapWhenIdle(ctx, server, activity, idleTimeout, checkInterval)
 
-	if err := server.Serve(listener); err != nil && !errors.Is(err, http.ErrServerClosed) {
-		return fmt.Errorf("serve builder registry: %w", err)
+	var serving sync.WaitGroup
+	for _, listener := range listeners {
+		serving.Add(1)
+		go func(listener net.Listener) {
+			defer serving.Done()
+			if serveErr := server.Serve(listener); serveErr != nil && !errors.Is(serveErr, http.ErrServerClosed) {
+				_ = server.Close()
+			}
+		}(listener)
 	}
+	serving.Wait()
 	return nil
+}
+
+// listenLoopback binds the configured host address and, when that is IPv4
+// loopback, also best-effort binds IPv6 loopback so a guest resolving the host
+// alias to its AAAA record is served too. It never binds a wildcard address.
+func listenLoopback(ctx context.Context, host string, port int) ([]net.Listener, error) {
+	addresses := []string{net.JoinHostPort(host, strconv.Itoa(port))}
+	if host == registryLoopbackBind {
+		addresses = append(addresses, net.JoinHostPort(registryLoopbackBind6, strconv.Itoa(port)))
+	}
+	var listenConfig net.ListenConfig
+	listeners := make([]net.Listener, 0, len(addresses))
+	for index, address := range addresses {
+		listener, err := listenConfig.Listen(ctx, "tcp", address)
+		if err != nil {
+			if index == 0 {
+				return nil, fmt.Errorf("listen for builder registry on %s: %w", address, err)
+			}
+			continue
+		}
+		listeners = append(listeners, listener)
+	}
+	return listeners, nil
 }
 
 // newRegistryHandler assembles the distribution registry app and wraps it in

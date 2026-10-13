@@ -564,7 +564,7 @@ func TestPruneCacheErrorsOnFailedPrune(t *testing.T) {
 // buildkit worker cache (buildctl) and the embedded registry's agents-sandbox
 // cache repos, scoped by an agents-sandbox/ prefix predicate.
 func TestMsbPruneCacheAlsoPrunesRegistry(t *testing.T) {
-	endpoint := cacheregistry.Endpoint{Host: "172.30.0.1", Port: 5000, Token: "prune-token"}
+	endpoint := cacheregistry.Endpoint{Host: cacheregistry.GuestHost, Port: 5000, Token: "prune-token"}
 	restoreEnsure := ensureCacheRegistry
 	ensureCacheRegistry = func(context.Context) (cacheregistry.Endpoint, error) {
 		return endpoint, nil

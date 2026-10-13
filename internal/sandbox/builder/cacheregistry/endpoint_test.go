@@ -112,8 +112,8 @@ func TestEnsureRestartsOnDeadEndpoint(t *testing.T) {
 	if len(shutdowns) != 1 {
 		t.Fatalf("spawn count = %d, want 1 (dead endpoint not restarted)", len(shutdowns))
 	}
-	if endpoint.Host != host || endpoint.Port != port {
-		t.Errorf("endpoint = %+v, want host %s port %d", endpoint, host, port)
+	if endpoint.Host != GuestHost || endpoint.Port != port || endpoint.dialHost != host {
+		t.Errorf("endpoint = %+v, want guest host %s dial host %s port %d", endpoint, GuestHost, host, port)
 	}
 	if endpoint.Token == "stale-token" {
 		t.Error("endpoint still reports the stale token after restart")

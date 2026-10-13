@@ -7,12 +7,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"net"
 	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
-	"strconv"
 	"syscall"
 	"time"
 
@@ -57,7 +55,10 @@ func Ensure(ctx context.Context) (Endpoint, error) {
 	defer release()
 
 	if record, ok := readEndpointFile(); ok {
-		endpoint := Endpoint{Host: record.Host, Port: record.Port, Token: record.Token, root: cacheDirPath()}
+		endpoint := Endpoint{
+			Host: GuestHost, Port: record.Port, Token: record.Token,
+			dialHost: record.Host, root: cacheDirPath(),
+		}
 		if registryHealthy(ctx, endpoint) {
 			return endpoint, nil
 		}
@@ -78,11 +79,14 @@ func startRegistry(ctx context.Context) (Endpoint, error) {
 	if err != nil {
 		return Endpoint{}, fmt.Errorf("spawn builder registry: %w", err)
 	}
-	endpoint := Endpoint{Host: config.Host, Port: config.Port, Token: config.Token, root: config.Root}
+	endpoint := Endpoint{
+		Host: GuestHost, Port: config.Port, Token: config.Token,
+		dialHost: config.Host, root: config.Root,
+	}
 	if err := waitHealthy(ctx, endpoint); err != nil {
 		return Endpoint{}, err
 	}
-	record := endpointRecord{Host: endpoint.Host, Port: endpoint.Port, Token: endpoint.Token, Pid: pid}
+	record := endpointRecord{Host: config.Host, Port: endpoint.Port, Token: endpoint.Token, Pid: pid}
 	if err := writeEndpointFile(record); err != nil {
 		return Endpoint{}, err
 	}
@@ -122,7 +126,7 @@ func mintToken() (string, error) {
 func registryHealthy(ctx context.Context, endpoint Endpoint) bool {
 	probeCtx, cancel := context.WithTimeout(ctx, registryHealthTimeout)
 	defer cancel()
-	probeURL := "http://" + net.JoinHostPort(endpoint.Host, strconv.Itoa(endpoint.Port)) + "/v2/"
+	probeURL := "http://" + endpoint.dialAddress() + "/v2/"
 	request, err := http.NewRequestWithContext(probeCtx, http.MethodGet, probeURL, nil)
 	if err != nil {
 		return false
@@ -146,7 +150,7 @@ func waitHealthy(ctx context.Context, endpoint Endpoint) error {
 		if time.Now().After(deadline) {
 			return fmt.Errorf(
 				"builder registry at %s did not become ready",
-				net.JoinHostPort(endpoint.Host, strconv.Itoa(endpoint.Port)),
+				endpoint.dialAddress(),
 			)
 		}
 		select {

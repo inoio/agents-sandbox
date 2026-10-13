@@ -25,8 +25,8 @@ command reports the bare version (e.g. `0.1.0`).
   needs the msb runtime, a functional `/dev/kvm`, and network access, and runs via `make test-integration-msb` in the
   gated `integration-msb` job (main/release/manual).
 - Internal: `TestBuilderVMReachesEmbeddedRegistry` directly asserts, on a KVM host, that the embedded cache registry's
-  pinned gateway bind is reachable from inside the builder VM (rather than only inferring it from a warm-build cache
-  hit), so a broken bind/reachability fails loudly.
+  loopback bind is reachable from inside the builder VM through the sandbox host alias (rather than only inferring it
+  from a warm-build cache hit), so a broken bind/reachability fails loudly.
 - Internal: add `make compile-all` — compiles every test binary including `integration`-tagged files without a docker
   daemon, and run it in the CI lint job so a tagged-only compile regression fails on PRs instead of only on main.
 - Runner image: two selectable builder backends. The default `msb` backend builds inside a shared, reused microsandbox

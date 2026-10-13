@@ -7,7 +7,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"net"
-	"net/netip"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -20,18 +19,17 @@ import (
 )
 
 // TestBuilderVMReachesEmbeddedRegistry proves the bind + reachability invariant
-// the registry-backed cache depends on: the embedded cache registry must bind
-// the pinned builder pool's gateway address (never 0.0.0.0), and the builder VM
-// must be able to reach it there at the same host:port the BuildKit cache ref
-// uses. Without this, warm builds can never reuse the registry cache.
+// the registry-backed cache depends on: the embedded cache registry binds the
+// host loopback (never 0.0.0.0), and the builder VM reaches it through the
+// sandbox host alias at the exact host:port the BuildKit cache ref uses.
+// Without this, warm builds can never reuse the registry cache.
 //
 // It drives the real Serve bind path (an empty configured host falls back to
-// registryBindHost, i.e. the pinned pool's gateway) and probes reachability from
-// inside the builder VM with a plain TCP connect. Run on a KVM host via
+// registryBindHost, i.e. loopback) and probes reachability from inside the
+// builder VM with a plain TCP connect. Run on a KVM host via
 // `make test-integration-msb`.
 func TestBuilderVMReachesEmbeddedRegistry(t *testing.T) {
 	requireMsbIntegrationHost(t)
-	configpaths.WithMockConfigPaths(t)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
@@ -40,19 +38,18 @@ func TestBuilderVMReachesEmbeddedRegistry(t *testing.T) {
 		t.Fatalf("ensure builder VM: %v", err)
 	}
 
-	gateway := builderGatewayAddress(t)
-	port := freePortOn(t, gateway)
+	port := freePortOn(t, "127.0.0.1")
 	configPath := writeRegistryProbeConfig(t, port)
-	address := net.JoinHostPort(gateway, strconv.Itoa(port))
+	address := net.JoinHostPort(cacheregistry.GuestHost, strconv.Itoa(port))
 
 	serveErr := make(chan error, 1)
 	go func() { serveErr <- cacheregistry.Serve(ctx, configPath) }()
 
-	probe := fmt.Sprintf("nc -z -w 5 %s %d", gateway, port)
+	probe := fmt.Sprintf("nc -z -w 5 %s %d", cacheregistry.GuestHost, port)
 	if reached, status := waitForGuestReach(ctx, t, probe, serveErr); !reached {
 		t.Fatalf(
 			"builder VM could not reach the embedded registry at %s; "+
-				"the pinned /30 gateway bind is not working (%s)",
+				"the loopback bind is not reachable through the sandbox host alias (%s)",
 			address, status,
 		)
 	}
@@ -65,20 +62,10 @@ func requireMsbIntegrationHost(t *testing.T) {
 	if os.Getenv("AGENTS_SANDBOX_INTEGRATION") == "" {
 		t.Skipf("integration test: set AGENTS_SANDBOX_INTEGRATION=1 on a KVM host with msb")
 	}
+	configpaths.WithMockConfigPaths(t)
 	if SelectedName() != "msb" {
 		t.Skip("msb-only test: requires the microsandbox backend")
 	}
-}
-
-// builderGatewayAddress is the pinned pool's gateway (network+1), the address
-// the registry binds and the builder VM reaches.
-func builderGatewayAddress(t *testing.T) string {
-	t.Helper()
-	prefix, err := netip.ParsePrefix(cacheregistry.BuilderIPv4Pool)
-	if err != nil {
-		t.Fatalf("parse builder pool %q: %v", cacheregistry.BuilderIPv4Pool, err)
-	}
-	return prefix.Addr().Next().String()
 }
 
 // freePortOn returns a currently free port on host, the interface the registry
@@ -94,7 +81,7 @@ func freePortOn(t *testing.T, host string) int {
 }
 
 // writeRegistryProbeConfig writes a Serve config that pins only the port; the
-// empty host makes Serve fall back to the production registryBindHost.
+// empty host makes Serve fall back to the production registryBindHost (loopback).
 func writeRegistryProbeConfig(t *testing.T, port int) string {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "registry-config.json")
@@ -137,7 +124,7 @@ func waitForGuestReach(
 	for time.Now().Before(deadline) {
 		select {
 		case err := <-serveErr:
-			t.Fatalf("cache registry failed to bind the gateway: %v", err)
+			t.Fatalf("cache registry failed to bind: %v", err)
 		default:
 		}
 		result, shellErr := sb.Shell(ctx, probe)

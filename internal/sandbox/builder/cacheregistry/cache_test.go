@@ -10,14 +10,14 @@ import (
 )
 
 func TestRegistryHostIncludesPort(t *testing.T) {
-	endpoint := Endpoint{Host: "172.30.0.1", Port: 5000}
-	if got, want := endpoint.RegistryHost(), "172.30.0.1:5000"; got != want {
+	endpoint := Endpoint{Host: GuestHost, Port: 5000}
+	if got, want := endpoint.RegistryHost(), GuestHost+":5000"; got != want {
 		t.Errorf("RegistryHost() = %q, want %q", got, want)
 	}
 }
 
 func TestCacheRefDeterministicAndDistinct(t *testing.T) {
-	endpoint := Endpoint{Host: "172.30.0.1", Port: 5000, Token: "t"}
+	endpoint := Endpoint{Host: GuestHost, Port: 5000, Token: "t"}
 
 	first := endpoint.CacheRef("proj-a/opencode:1.2.3", "linux/amd64")
 	second := endpoint.CacheRef("proj-a/opencode:1.2.3", "linux/amd64")

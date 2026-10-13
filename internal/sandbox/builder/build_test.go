@@ -107,7 +107,7 @@ func newBuildTestClient(t *testing.T, fake buildkitClient) *Client {
 
 // testCacheEndpoint is a fixed embedded-registry endpoint for build tests.
 func testCacheEndpoint() cacheregistry.Endpoint {
-	return cacheregistry.Endpoint{Host: "172.30.0.1", Port: 5000, Token: "test-token"}
+	return cacheregistry.Endpoint{Host: cacheregistry.GuestHost, Port: 5000, Token: "test-token"}
 }
 
 // stubCacheRegistry replaces the embedded-registry acquisition and prune seams

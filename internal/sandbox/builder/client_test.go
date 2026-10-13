@@ -86,7 +86,7 @@ func TestDefaultReadyTimesOut(t *testing.T) {
 }
 
 func TestBuilderCacheExportOptionsUseRegistry(t *testing.T) {
-	const cacheRef = "172.30.0.1:5000/agents-sandbox/project-opencode-amd64:cache"
+	const cacheRef = cacheregistry.GuestHost + ":5000/agents-sandbox/project-opencode-amd64:cache"
 
 	imports, exports, err := builderCacheExportOptions(context.Background(), cacheRef)
 	if err != nil {
@@ -115,7 +115,7 @@ func TestBuilderCacheExportOptionsUseRegistry(t *testing.T) {
 }
 
 func TestBuilderCacheRefDelegatesToEndpoint(t *testing.T) {
-	endpoint := cacheregistry.Endpoint{Host: "172.30.0.1", Port: 5000, Token: "t"}
+	endpoint := cacheregistry.Endpoint{Host: cacheregistry.GuestHost, Port: 5000, Token: "t"}
 
 	got := builderCacheRef(endpoint, "project/opencode:1.2.3", "linux/amd64")
 	if want := endpoint.CacheRef("project/opencode:1.2.3", "linux/amd64"); got != want {

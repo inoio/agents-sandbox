@@ -7,7 +7,6 @@ import (
 
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 
-	"github.com/inoio/agents-sandbox/internal/sandbox/builder/cacheregistry"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
 	"github.com/inoio/agents-sandbox/internal/sandbox/naming"
 	"github.com/inoio/agents-sandbox/internal/sandbox/options"
@@ -99,10 +98,9 @@ func builderMaxMemoryMiB() uint32 {
 	return options.ParseMemoryGiB(uint32(sysinfo.TotalMemoryGiB()))
 }
 
-// builderNetworkPolicy returns the builder VM's network policy, pinning the
-// guest subnet pool to the dedicated /30 the cache registry binds its gateway on.
+// builderNetworkPolicy returns the builder VM's network policy: permissive
+// egress on microsandbox's default pool, so buildkitd can reach public
+// registries and the embedded cache registry through the sandbox host alias.
 func builderNetworkPolicy() *msbSdk.NetworkConfig {
-	policy := msbSdk.NetworkPolicy.AllowAll()
-	policy.IPv4Pool = cacheregistry.BuilderIPv4Pool
-	return policy
+	return msbSdk.NetworkPolicy.AllowAll()
 }

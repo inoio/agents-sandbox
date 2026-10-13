@@ -42,7 +42,7 @@ func registryRequest(
 	path string,
 	accept string,
 ) (*http.Response, error) {
-	requestURL := "http://" + endpoint.RegistryHost() + path
+	requestURL := "http://" + endpoint.dialAddress() + path
 	request, err := http.NewRequestWithContext(ctx, method, requestURL, nil)
 	if err != nil {
 		return nil, fmt.Errorf("build registry request %s %s: %w", method, path, err)
@@ -58,11 +58,21 @@ func registryRequest(
 	return response, nil
 }
 
-// RegistryHost is the "host:port" the registry is reachable at. It is both the
-// authority of the cache reference and the key BuildKit resolves registry auth
-// against, so the two must always agree.
+// RegistryHost is the "host:port" the registry is reachable at from the
+// builder VM. It is both the authority of the cache reference and the key
+// BuildKit resolves registry auth against, so the two must always agree.
 func (e Endpoint) RegistryHost() string {
 	return net.JoinHostPort(e.Host, strconv.Itoa(e.Port))
+}
+
+// dialAddress is the "host:port" host-side callers use to reach the registry.
+// It is the loopback the daemon listens on, which differs from the guest-visible
+// RegistryHost. It falls back to RegistryHost when no separate dial host is set.
+func (e Endpoint) dialAddress() string {
+	if e.dialHost == "" {
+		return e.RegistryHost()
+	}
+	return net.JoinHostPort(e.dialHost, strconv.Itoa(e.Port))
 }
 
 // CacheRef derives the deterministic OCI reference BuildKit uses as the

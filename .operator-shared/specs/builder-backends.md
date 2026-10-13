@@ -151,39 +151,42 @@ isolation for the host daemon and is intentionally presented as a fallback.
   (once per user) when an msb build needs `type=registry` cache import/export.
 - Properties: pure-Go, cross-platform (Linux + macOS), unprivileged, plain HTTP,
   filesystem-backed storage under the agents-sandbox user state directory.
-- **Reachability:** the builder VM reaches the host via
-  `host.microsandbox.internal`; the registry must bind a host port/interface
-  reachable from the sandbox but not broadly exposed. Bind scope is the most
-  security-sensitive detail and must be confined to the sandbox's host gateway
-  (not `0.0.0.0`) for the daemon's lifetime.
-- **Reachability / Bind scope (implemented; not yet validated end-to-end on a KVM
-  host):** the builder VM's `IPv4Pool` is pinned to a dedicated `/30`
-  (`cacheregistry.BuilderIPv4Pool = "172.30.0.0/30"`, set on the builder network
-  policy in `builderNetworkPolicy`) and the registry binds that subnet's gateway
-  address (`172.30.0.1`, network+1, derived in `cacheregistry.builderGatewayHost()`),
-  never `0.0.0.0`. `builderGatewayHost()` returns an error (never an empty host,
-  which would bind all interfaces) so a malformed pool fails the start instead of
-  widening the bind. The free port is probed on the **actual bind host** (not
-  loopback, which `options.FirstFreeHostPort` uses), so a port free on loopback but
-  taken on the gateway cannot cause a listen failure. The bind host/port are vars
-  (`registryBindHost`/`registryBindPort`) so tests rebind to loopback; production
-  uses the gateway. This is the
-  security-sensitive Task 2 Step 1 decision and it has **not** been validated
-  against a running KVM host (the dev VM has no `/dev/kvm`), so the gateway-bind
-  reachability from the builder VM at `host.microsandbox.internal` remains a
-  design decision to confirm — if the synthetic gateway address does not bind or
-  is unreachable, change `registryBindHost` to the address that works (still not
-  `0.0.0.0`). A direct integration test now asserts this invariant on a KVM host:
+- **Reachability:** the builder VM reaches the host through the sandbox host
+  alias `host.microsandbox.internal`, which microsandbox forwards to the host's
+  loopback. The registry therefore binds loopback on the host; bind scope is the
+  most security-sensitive detail and is confined to loopback (never `0.0.0.0`)
+  for the daemon's lifetime.
+- **Reachability / Bind scope (implemented; validated on a KVM host):** the
+  registry binds the host **loopback** — `cacheregistry.registryLoopbackBind`
+  (`127.0.0.1`), plus a best-effort `::1` bind so a guest that resolves the host
+  alias to its AAAA record is served too — and never `0.0.0.0`. This was
+  validated on a KVM host: a diagnostic proved that a sandbox connecting to
+  `host.microsandbox.internal:<port>` is delivered to the host's loopback (the
+  accepted connection's local address is `127.0.0.1`), and a listener bound on
+  `127.0.0.1` only is reachable from inside the sandbox. An earlier plan pinned
+  the builder VM's `IPv4Pool` to a dedicated `/30` and bound the subnet gateway
+  (network+1); that was **wrong** — microsandbox carves the pool into per-sandbox
+  `/30` subnets and rejected the single-`/30` pool at VM creation ("cannot assign
+  network slot 3"), and the host is not the owner of the guest's subnet gateway
+  anyway. The pin was removed (`builderNetworkPolicy` now uses the default pool,
+  `NetworkPolicy.AllowAll()`).
+  Two addresses are deliberately distinct in `Endpoint`: `Host` is the
+  guest-visible name `host.microsandbox.internal` (the authority of the cache
+  reference and the BuildKit auth key, so buildkitd resolves and authenticates
+  against it), while the unexported `dialHost` is the host-side loopback the
+  daemon listens on, used by the host-side health probe and `Prune`. The free
+  port is probed on the actual bind host; the bind host/port are vars
+  (`registryBindHost`/`registryBindPort`) so tests rebind without a real host.
   `TestBuilderVMReachesEmbeddedRegistry` (in `internal/sandbox/builder`, msb tier)
-  starts the real `cacheregistry.Serve` bind on the pinned gateway and proves the
-  builder VM can TCP-reach that gateway host:port from inside the VM. It fails
-  loudly (`Serve` bind error, or guest unreachable) rather than surfacing only as
-  a missing cache hit. `TestMsbSecondBuildHitsRegistryCache` remains the
+  asserts this invariant: it starts the real `cacheregistry.Serve` bind and proves
+  the builder VM can TCP-reach `host.microsandbox.internal:<port>` from inside the
+  VM; it fails loudly (bind error, or guest unreachable) rather than surfacing
+  only as a missing cache hit. `TestMsbSecondBuildHitsRegistryCache` remains the
   end-to-end proxy; this test isolates the bind/reachability half.
 - **On-demand, shared lifecycle:** the registry is a **per-user singleton
   daemon**, not one-per-build. The first agents-sandbox process that needs it
   re-execs itself in a hidden internal serve mode, detached from the parent, bound
-  to the sandbox gateway; it idle-reaps after a quiet period. All instances of
+  to the host loopback; it idle-reaps after a quiet period. All instances of
   that user connect to the same daemon → one storage, one cache, no duplicate
   caches and no misses between processes. Only its **storage** persists on disk
   under the agents-sandbox state dir.
@@ -197,7 +200,7 @@ isolation for the host daemon and is intentionally presented as a fallback.
   authenticate (constant-time comparison); ASB injects the token for the embedded
   registry's host into the BuildKit session auth provider (the same mechanism the
   base-image pull path uses). Mode-`0600` restricts the token to the same user,
-  and the gateway-confined bind plus token keeps other local processes out; other
+  and the loopback-confined bind plus token keeps other local processes out; other
   *users* cannot read the token. Plain HTTP over the sandbox channel is
   acceptable, so no TLS/pinning is added.
 - The cache reference is derived deterministically from image identity
@@ -239,9 +242,10 @@ isolation for the host daemon and is intentionally presented as a fallback.
   (`mode=max`, since the runner image is multi-stage and `mode=min` would drop
   intermediate stages' layers).
 - Both the import and export entries must set `registry.insecure=true`: the
-  embedded registry serves **plain HTTP** on a non-loopback gateway and buildkitd
-  has no insecure-registry config, so without it BuildKit defaults to HTTPS and
-  every cache import/export against the HTTP registry fails.
+  embedded registry serves **plain HTTP** on the host loopback (reached from the
+  guest through the host alias) and buildkitd has no insecure-registry config, so
+  without it BuildKit defaults to HTTPS and every cache import/export against the
+  HTTP registry fails.
 - The cache export runs only on a real Dockerfile-step miss (existing
   export-on-miss detection), so a full cache hit skips it.
 - Folding image export and cache export into a single solve to hide the
