@@ -1,15 +1,21 @@
 package builder
 
 import (
+	"fmt"
 	"maps"
 	"os"
 
 	"github.com/docker/cli/cli/config"
 	"github.com/docker/cli/cli/config/configfile"
+	"github.com/docker/cli/cli/config/credentials"
 	"github.com/docker/cli/cli/config/types"
 	"github.com/moby/buildkit/session"
 	"github.com/moby/buildkit/session/auth/authprovider"
 )
+
+// dockerConfigDir resolves the Docker config directory. It is a seam so tests
+// can point at a temp config without the process-global config.Dir() memoization.
+var dockerConfigDir = config.Dir
 
 // registryAuthSession supplies registry credentials from the host's default
 // Docker config to the BuildKit session, merged with any extra per-host
@@ -34,7 +40,7 @@ func registryAuthSession(extra map[string]types.AuthConfig) []session.Attachable
 // it resolves from AuthConfigs, without touching the user's global credential
 // configuration (those entries are added to the loaded in-memory copy only).
 func registryAuthConfig(extra map[string]types.AuthConfig) *configfile.ConfigFile {
-	configFile := config.LoadDefaultConfigFile(os.Stderr)
+	configFile := loadDockerConfig()
 	if len(extra) == 0 {
 		return configFile
 	}
@@ -47,6 +53,21 @@ func registryAuthConfig(extra map[string]types.AuthConfig) *configfile.ConfigFil
 	}
 	for host := range extra {
 		configFile.CredentialHelpers[host] = ""
+	}
+	return configFile
+}
+
+// loadDockerConfig loads the Docker config from dockerConfigDir(), mirroring
+// config.LoadDefaultConfigFile: a missing file yields a default config, a
+// malformed one warns on stderr, and a config with no credentials-store set
+// falls back to the platform default.
+func loadDockerConfig() *configfile.ConfigFile {
+	configFile, err := config.Load(dockerConfigDir())
+	if err != nil {
+		_, _ = fmt.Fprintln(os.Stderr, "WARNING: Error", err)
+	}
+	if !configFile.ContainsAuth() {
+		configFile.CredentialsStore = credentials.DetectDefaultStore(configFile.CredentialsStore)
 	}
 	return configFile
 }

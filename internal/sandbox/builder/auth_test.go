@@ -64,19 +64,21 @@ func TestCacheRegistryAuthKeysCredentialByRegistryHost(t *testing.T) {
 
 // TestRegistryAuthConfigBypassesCredentialStore asserts the embedded token still
 // resolves when the user's Docker config sets a global credsStore (the default on
-// Docker Desktop), which would otherwise shadow the in-memory entry.
+// Docker Desktop), which would otherwise shadow the in-memory entry. It points
+// the dockerConfigDir seam at a temp dir so it is hermetic and independent of the
+// process-global config.Dir() memoization (and thus of test order).
 func TestRegistryAuthConfigBypassesCredentialStore(t *testing.T) {
 	const host = "172.30.0.1:5000"
 	const token = "cache-token"
 	dir := t.TempDir()
-	if err := os.WriteFile(
-		filepath.Join(dir, "config.json"),
-		[]byte(`{"credsStore":"desktop"}`),
-		0o600,
-	); err != nil {
+	configPath := filepath.Join(dir, "config.json")
+	credsStoreConfig := []byte(`{"credsStore":"desktop"}`)
+	if err := os.WriteFile(configPath, credsStoreConfig, 0o600); err != nil {
 		t.Fatalf("write docker config: %v", err)
 	}
-	t.Setenv("DOCKER_CONFIG", dir)
+	restore := dockerConfigDir
+	t.Cleanup(func() { dockerConfigDir = restore })
+	dockerConfigDir = func() string { return dir }
 
 	configFile := registryAuthConfig(map[string]types.AuthConfig{
 		host: {RegistryToken: token},
@@ -87,5 +89,13 @@ func TestRegistryAuthConfigBypassesCredentialStore(t *testing.T) {
 	}
 	if got.RegistryToken != token {
 		t.Errorf("RegistryToken = %q, want %q despite credsStore", got.RegistryToken, token)
+	}
+
+	onDisk, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatalf("read back docker config: %v", err)
+	}
+	if string(onDisk) != string(credsStoreConfig) {
+		t.Errorf("on-disk docker config changed: %q", onDisk)
 	}
 }
