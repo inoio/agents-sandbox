@@ -43,6 +43,29 @@ func MockedCheckAll(t *testing.T, success bool) {
 	t.Cleanup(func() { checkAllFunc = orig })
 }
 
+// MockedSelectedBackend overrides the selected-backend seam so a test can
+// exercise both the msb and moby check collections hermetically.
+func MockedSelectedBackend(t *testing.T, name string) {
+	orig := selectedBackend
+	selectedBackend = func() string { return name }
+	t.Cleanup(func() { selectedBackend = orig })
+}
+
+// MockedCheckDocker replaces the Docker prerequisite check with one returning err.
+func MockedCheckDocker(t *testing.T, err error) {
+	orig := checkDocker
+	checkDocker = func(context.Context) error { return err }
+	t.Cleanup(func() { checkDocker = orig })
+}
+
+// MockedRealCheckAll restores the real CheckAll aggregation, so a test can
+// exercise full check collection through the CLI despite the fail-fast default.
+func MockedRealCheckAll(t *testing.T) {
+	orig := checkAllFunc
+	checkAllFunc = realCheckAll
+	t.Cleanup(func() { checkAllFunc = orig })
+}
+
 func InstallFailFast() {
 	checkAllFunc = func(context.Context, termio.UI) bool {
 		panic("doctor.CheckAll not mocked; use doctor.MockedCheckAll(t, ...) in the test")

@@ -239,6 +239,7 @@ func TestCheckAllRendersWarningsWhenAllPass(t *testing.T) {
 
 func TestCollectChecksAggregatesFailures(t *testing.T) {
 	MockedEnsureInstalled(t, false)
+	MockedSelectedBackend(t, "msb")
 	t.Setenv("HOME", t.TempDir())
 	t.Setenv("PATH", "/nonexistent")
 
@@ -257,6 +258,7 @@ func TestCollectChecksAggregatesFailures(t *testing.T) {
 
 func TestCollectChecksMsbWarning(t *testing.T) {
 	MockedEnsureInstalled(t, false)
+	MockedSelectedBackend(t, "msb")
 
 	home := t.TempDir()
 	binDir := filepath.Join(home, ".microsandbox", "bin")
@@ -278,6 +280,45 @@ func TestCollectChecksMsbWarning(t *testing.T) {
 	}
 	if !strings.Contains(strings.Join(messages, " "), "not in PATH") {
 		t.Errorf("expected a 'not in PATH' warning, got %q", messages)
+	}
+}
+
+func putFakeMsbOnPath(t *testing.T) string {
+	t.Helper()
+	dir := t.TempDir()
+	binPath := filepath.Join(dir, "msb")
+	testutil.WritePath(t, binPath, "#!/bin/sh\n")
+	if err := os.Chmod(binPath, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	return dir
+}
+
+func TestCollectChecksSkipsDockerForMsb(t *testing.T) {
+	MockedEnsureInstalled(t, false)
+	MockedSelectedBackend(t, "msb")
+	MockedCheckDocker(t, errors.New("mocked docker failure"))
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("PATH", putFakeMsbOnPath(t))
+
+	_, errs := collectChecks(context.Background())
+	for _, err := range errs {
+		if strings.Contains(strings.ToLower(err.Error()), "docker") {
+			t.Fatalf("msb backend must not report a docker failure, got %q", err)
+		}
+	}
+}
+
+func TestCollectChecksRunsDockerForMoby(t *testing.T) {
+	MockedEnsureInstalled(t, false)
+	MockedSelectedBackend(t, "moby")
+	MockedCheckDocker(t, errors.New("mocked docker failure"))
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("PATH", putFakeMsbOnPath(t))
+
+	_, errs := collectChecks(context.Background())
+	if !strings.Contains(strings.Join(errStrings(errs), " "), "mocked docker failure") {
+		t.Fatalf("moby backend must report the docker failure, got %q", errStrings(errs))
 	}
 }
 

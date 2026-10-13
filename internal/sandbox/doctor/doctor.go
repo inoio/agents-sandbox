@@ -6,12 +6,17 @@ import (
 	"os"
 	"os/exec"
 
+	"github.com/inoio/agents-sandbox/internal/sandbox/builder"
 	"github.com/inoio/agents-sandbox/internal/termio"
 )
+
+const backendMoby = "moby"
 
 var (
 	checkAllFunc      = realCheckAll
 	collectChecksFunc = collectChecks
+	selectedBackend   = builder.SelectedName
+	checkDocker       = realCheckDocker
 )
 
 // CheckAll runs every prerequisite check, rendering all failures and any
@@ -35,11 +40,17 @@ func realCheckAll(ctx context.Context, ui termio.UI) bool {
 
 // collectChecks runs every prerequisite check, collecting all failures so
 // CheckAll can report them together. checkPlatform is the only platform
-// specific check and comes first.
+// specific check and comes first. The Docker check applies only to the moby
+// builder backend; the default msb backend needs no host Docker.
 func collectChecks(ctx context.Context) ([]string, []error) {
 	var errs []error
 	if err := checkPlatform(); err != nil {
 		errs = append(errs, err)
+	}
+	if selectedBackend() == backendMoby {
+		if err := checkDocker(ctx); err != nil {
+			errs = append(errs, err)
+		}
 	}
 	msbMessages, err := checkMsb(ctx)
 	infos := append([]string{}, msbMessages...)
@@ -47,6 +58,12 @@ func collectChecks(ctx context.Context) ([]string, []error) {
 		errs = append(errs, err)
 	}
 	return infos, errs
+}
+
+// realCheckDocker reports whether the Docker daemon the moby backend targets is
+// reachable.
+func realCheckDocker(ctx context.Context) error {
+	return builder.PingDocker(ctx)
 }
 
 // checkMsb ensures the msb runtime is installed, returning non-fatal PATH

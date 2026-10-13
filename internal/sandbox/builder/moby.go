@@ -133,6 +133,15 @@ func (b *mobyBuilder) resolveEngine(ctx context.Context) (mobyEngine, error) {
 	return engine, nil
 }
 
+// PingDocker verifies the Docker daemon the moby backend targets is reachable,
+// reporting the same actionable error a moby build would on failure. It is the
+// prerequisite other packages gate the moby backend on.
+func PingDocker(ctx context.Context) error {
+	//exhaustruct:ignore // engine is resolved lazily by resolveEngine
+	_, err := (&mobyBuilder{}).resolveEngine(ctx)
+	return err
+}
+
 // dockerUnavailableError names the missing dependency and the way back to the
 // default microsandbox BuildKit backend.
 func dockerUnavailableError(cause error) error {

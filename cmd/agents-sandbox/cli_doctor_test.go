@@ -47,6 +47,37 @@ func TestDoctorAllChecksFail(t *testing.T) {
 	expectDoctorFailure(t, err)
 }
 
+func TestDoctorMobyReportsDocker(t *testing.T) {
+	cmd, ui := setupCommandFixtures(t, "doctor")
+	doctor.MockedRealCheckAll(t)
+	doctor.MockedEnsureInstalled(t, false)
+	t.Setenv("AGENTS_SANDBOX_BUILDER", "moby")
+	t.Setenv("DOCKER_HOST", "tcp://127.0.0.1:1")
+	t.Setenv("HOME", t.TempDir())
+
+	binDir := t.TempDir()
+	f, err := os.OpenFile(filepath.Join(binDir, "msb"), os.O_CREATE|os.O_WRONLY, 0o755)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.WriteString("#!/bin/sh\n"); err != nil {
+		t.Fatal(err)
+	}
+	f.Close()
+	t.Setenv("PATH", binDir)
+
+	err = cmd.Execute()
+
+	expectDoctorFailure(t, err)
+	messages := make([]string, 0, len(ui.ErrorCalls))
+	for _, call := range ui.ErrorCalls {
+		messages = append(messages, call.Msg)
+	}
+	if !strings.Contains(strings.ToLower(strings.Join(messages, "\n")), "docker") {
+		t.Fatalf("expected a docker prerequisite error, got %q", messages)
+	}
+}
+
 func TestDoctorAllChecksPass(t *testing.T) {
 	cmd, ui := setupCommandFixtures(t, "doctor")
 	doctor.MockedEnsureInstalled(t, false)
