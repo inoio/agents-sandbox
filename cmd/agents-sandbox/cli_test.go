@@ -388,6 +388,24 @@ func TestCLIConfigPrecedenceViaResolver(t *testing.T) {
 	}
 }
 
+func TestNoBuilderFlag(t *testing.T) {
+	testUI := termio.NewTestMock(t)
+	root := buildRootCmd(&testUI)
+	var walk func(*cobra.Command)
+	walk = func(cmd *cobra.Command) {
+		if cmd.Flags().Lookup("builder") != nil {
+			t.Errorf(
+				"command %q exposes a --builder flag; backend selection must be config/env only",
+				cmd.CommandPath(),
+			)
+		}
+		for _, child := range cmd.Commands() {
+			walk(child)
+		}
+	}
+	walk(root)
+}
+
 // mustResolver builds a resolver from a real command, failing the test on error.
 func mustResolver(t *testing.T, cmd *cobra.Command) *launcherconfig.Resolver {
 	t.Helper()

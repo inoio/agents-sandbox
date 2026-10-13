@@ -1012,3 +1012,31 @@ func TestResolverHomeRejectsInvalidHomeValue(t *testing.T) {
 		t.Fatal("expected error for invalid home value")
 	}
 }
+
+func TestBuilderBackendFromEnvAndConfig(t *testing.T) {
+	t.Run("config", func(t *testing.T) {
+		configpaths.WithMockConfigPaths(t)
+		t.Setenv("AGENTS_SANDBOX_BUILDER", "")
+		testutil.WriteYAML(t, configpaths.Get().UserConfigDir(), "config.yaml", map[string]any{"builder": "moby"})
+		if got := BuilderBackend(); got != "moby" {
+			t.Errorf("BuilderBackend() = %q; want moby from config", got)
+		}
+	})
+
+	t.Run("env over config", func(t *testing.T) {
+		configpaths.WithMockConfigPaths(t)
+		testutil.WriteYAML(t, configpaths.Get().UserConfigDir(), "config.yaml", map[string]any{"builder": "moby"})
+		t.Setenv("AGENTS_SANDBOX_BUILDER", "msb")
+		if got := BuilderBackend(); got != "msb" {
+			t.Errorf("BuilderBackend() = %q; want msb from env", got)
+		}
+	})
+
+	t.Run("neither", func(t *testing.T) {
+		configpaths.WithMockConfigPaths(t)
+		t.Setenv("AGENTS_SANDBOX_BUILDER", "")
+		if got := BuilderBackend(); got != "" {
+			t.Errorf("BuilderBackend() = %q; want empty default", got)
+		}
+	})
+}

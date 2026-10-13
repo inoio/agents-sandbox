@@ -165,10 +165,6 @@ type Builder interface {
 	PruneCache(ctx context.Context) error
 }
 
-var Get = func() Builder {
-	return newClient()
-}
-
 type Client struct {
 	backend backend
 }

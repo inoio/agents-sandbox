@@ -44,6 +44,8 @@ type Config struct {
 	LogLevel       string        `mapstructure:"log-level"`
 	Quiet          bool          `mapstructure:"quiet"`
 	Agent          string        `mapstructure:"agent"`
+	// Builder selects the runner-image builder backend ("msb" or "moby").
+	Builder string `mapstructure:"builder"`
 	// Docker bakes the tool's Docker engine block into the runner image.
 	Docker bool  `mapstructure:"docker"`
 	CPUs   uint8 `mapstructure:"cpus"`
@@ -160,32 +162,9 @@ type Resolver struct {
 // per-slug user dir (when slug is non-empty), project dir, legacy env, env,
 // flags. cmd may be nil to skip flag binding.
 func NewResolver(cmd *cobra.Command, slug string) (*Resolver, error) {
-	v := viper.New()
-
-	if err := mergeDir(v, configpaths.Get().UserConfigDir()); err != nil {
-		return nil, err
-	}
-	if slug != "" {
-		if err := mergeDir(v, filepath.Join(configpaths.Get().UserConfigDir(), slug)); err != nil {
-			return nil, err
-		}
-	}
-	if err := mergeDir(v, configpaths.Get().ProjectConfigDir()); err != nil {
-		return nil, err
-	}
-
-	v.SetEnvPrefix(envPrefix)
-	// Env-var keys are all top-level and dash-separated; only the nested
-	// "network.profile" key uses a dot, which maps to "_" here. This is a
-	// repo-wide replacement, so a future dotted top-level key (e.g.
-	// "auto.stop") would collide with a dashed one ("auto-stop") and must be
-	// avoided.
-	v.SetEnvKeyReplacer(envKeyReplacer)
-	v.AutomaticEnv()
-	for _, key := range configEnvKeys {
-		if err := v.BindEnv(key, envVarName(legacyEnvPrefix, key)); err != nil {
-			return nil, err
-		}
+	v, loadErr := newLauncherViper(slug)
+	if loadErr != nil {
+		return nil, loadErr
 	}
 
 	if cmd != nil {
@@ -234,6 +213,52 @@ func NewResolver(cmd *cobra.Command, slug string) (*Resolver, error) {
 	docker, dockerLegacy := resolveDockerAlias(v, cmd, cfg.Docker)
 	cfg.Docker = docker
 	return &Resolver{cfg: cfg, legacyEnv: legacyEnvVarsInUse(), dockerLegacy: dockerLegacy}, nil
+}
+
+// newLauncherViper merges the launcher config dirs and binds the environment
+// overrides shared by NewResolver and BuilderBackend, without binding flags or
+// validating.
+func newLauncherViper(slug string) (*viper.Viper, error) {
+	v := viper.New()
+
+	if err := mergeDir(v, configpaths.Get().UserConfigDir()); err != nil {
+		return nil, err
+	}
+	if slug != "" {
+		if err := mergeDir(v, filepath.Join(configpaths.Get().UserConfigDir(), slug)); err != nil {
+			return nil, err
+		}
+	}
+	if err := mergeDir(v, configpaths.Get().ProjectConfigDir()); err != nil {
+		return nil, err
+	}
+
+	v.SetEnvPrefix(envPrefix)
+	// Env-var keys are all top-level and dash-separated; only the nested
+	// "network.profile" key uses a dot, which maps to "_" here. This is a
+	// repo-wide replacement, so a future dotted top-level key (e.g.
+	// "auto.stop") would collide with a dashed one ("auto-stop") and must be
+	// avoided.
+	v.SetEnvKeyReplacer(envKeyReplacer)
+	v.AutomaticEnv()
+	for _, key := range configEnvKeys {
+		if err := v.BindEnv(key, envVarName(legacyEnvPrefix, key)); err != nil {
+			return nil, err
+		}
+	}
+	return v, nil
+}
+
+// BuilderBackend resolves the selected builder backend from the launcher
+// config dirs and the AGENTS_SANDBOX_BUILDER environment override, returning ""
+// when neither sets it. It skips validation so an unrelated invalid config
+// value cannot fail backend selection.
+func BuilderBackend() string {
+	v, err := newLauncherViper("")
+	if err != nil {
+		return ""
+	}
+	return v.GetString(keyBuilder)
 }
 
 // resolveDockerAlias folds the deprecated dind alias into the docker setting.
@@ -331,6 +356,7 @@ const (
 	keyNetworkProfile            = "network.profile"
 	keyNetworkDNSServers         = "network.dns-servers"
 	keyAgent                     = "agent"
+	keyBuilder                   = "builder"
 	keyDocker                    = "docker"
 	// keyDind is the deprecated alias for the docker capability.
 	keyDind                = "dind"
@@ -364,6 +390,7 @@ var configEnvKeys = []string{
 	keyAutoStopOnActiveSessions, keyAutoStopTimeout, keyAutoStopMaxSessionRetries,
 	keyNetworkProfile, keyNetworkDNSServers,
 	keyAgent,
+	keyBuilder,
 	keyDocker, keyDind,
 	keyUpgradeMode, keyUpgradeInterval,
 	keyProvisionHostConfig,
@@ -693,6 +720,7 @@ func (r *Resolver) Yes() bool                     { return r.cfg.Yes }
 func (r *Resolver) Quiet() bool                   { return r.cfg.Quiet }
 func (r *Resolver) LogLevel() string              { return r.cfg.LogLevel }
 func (r *Resolver) Agent() string                 { return r.cfg.Agent }
+func (r *Resolver) Builder() string               { return r.cfg.Builder }
 func (r *Resolver) Docker() bool                  { return r.cfg.Docker }
 func (r *Resolver) ProvisionHostConfig() bool     { return r.cfg.ProvisionHostConfig }
 func (r *Resolver) AutoPruneAge() time.Duration   { return r.cfg.AutoPruneAge }
