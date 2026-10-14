@@ -87,6 +87,19 @@ func (e Endpoint) CacheRef(imageTag, platform string) string {
 	)
 }
 
+// PushRef is the guest-visible reference the builder pushes imageTag to. It uses
+// the same authority as the cache reference, which BuildKit resolves auth for.
+func (e Endpoint) PushRef(imageTag string) string {
+	return e.RegistryHost() + "/" + imageTag
+}
+
+// PullRef is the host-side reference microsandbox pulls imageTag from. msb's
+// runtime runs on the host and reaches the registry over loopback, so the
+// authority differs from the guest-visible PushRef but names the same repository.
+func (e Endpoint) PullRef(imageTag string) string {
+	return e.dialAddress() + "/" + imageTag
+}
+
 func platformArch(platform string) string {
 	if _, arch, found := strings.CutLast(platform, "/"); found {
 		return arch

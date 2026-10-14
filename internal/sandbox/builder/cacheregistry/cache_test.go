@@ -44,6 +44,20 @@ func TestCacheRefDeterministicAndDistinct(t *testing.T) {
 	}
 }
 
+func TestEndpointRefsShareRepository(t *testing.T) {
+	e := Endpoint{Host: GuestHost, Port: 5000, dialHost: "127.0.0.1"}
+	if got := e.PushRef(
+		"agents-sandbox/runner-p:opencode-latest",
+	); got != "host.microsandbox.internal:5000/agents-sandbox/runner-p:opencode-latest" {
+		t.Fatalf("PushRef = %q", got)
+	}
+	if got := e.PullRef(
+		"agents-sandbox/runner-p:opencode-latest",
+	); got != "127.0.0.1:5000/agents-sandbox/runner-p:opencode-latest" {
+		t.Fatalf("PullRef = %q", got)
+	}
+}
+
 func TestPruneDeletesMatchingRepos(t *testing.T) {
 	root := t.TempDir()
 	handler, cleanup := newTestRegistryHandler(t, root)

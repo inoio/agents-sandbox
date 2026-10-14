@@ -24,24 +24,26 @@ func TestBuildRegistryConfigurationEnablesBlobDescriptorCache(t *testing.T) {
 	}
 }
 
-func TestServeRejectsMissingOrWrongToken(t *testing.T) {
+func TestServeAllowsAnonymousReadRejectsBadToken(t *testing.T) {
 	handler, cleanup := newTestRegistryHandler(t, t.TempDir())
 	defer cleanup()
 	server := httptest.NewServer(handler)
 	defer server.Close()
 
 	tests := []struct {
-		name  string
-		token string
-		want  int
+		name   string
+		method string
+		token  string
+		want   int
 	}{
-		{name: "missing", token: "", want: http.StatusUnauthorized},
-		{name: "wrong", token: "not-the-token", want: http.StatusUnauthorized},
-		{name: "correct", token: testRegistryToken, want: http.StatusOK},
+		{name: "anonymous read", method: http.MethodGet, token: "", want: http.StatusOK},
+		{name: "wrong token on write", method: http.MethodPost, token: "not-the-token", want: http.StatusUnauthorized},
+		{name: "missing token on write", method: http.MethodPost, token: "", want: http.StatusUnauthorized},
+		{name: "correct token", method: http.MethodGet, token: testRegistryToken, want: http.StatusOK},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			request, err := http.NewRequestWithContext(t.Context(), http.MethodGet, server.URL+"/v2/", nil)
+			request, err := http.NewRequestWithContext(t.Context(), test.method, server.URL+"/v2/", nil)
 			if err != nil {
 				t.Fatalf("build request: %v", err)
 			}
