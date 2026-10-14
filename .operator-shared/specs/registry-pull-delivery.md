@@ -95,13 +95,13 @@ covers the project VM (`vm_lifecycle.go`), the home-volume prefill/copy VMs
 - **Pull ref** (msb, on the host) uses the host-dial authority:
   `127.0.0.1:<port>/<repo>:<tag>`.
 - Both address the same registry repository (distribution keys by repo path,
-  not authority). `cacheregistry.Endpoint` gains an exported host-dial accessor
-  (e.g. `PullRef(repoTag) string`), since `dialAddress()` is currently
-  unexported.
+  not authority). *(implemented)* `cacheregistry.Endpoint` exposes `PushRef(repoTag)`
+  (guest authority) and `PullRef(repoTag)` (host-dial authority) alongside the
+  unexported `dialAddress()`.
 
 ### D4. Registry auth: anonymous read, token write
 
-`cacheregistry.tokenAuth` is changed to allow unauthenticated `GET`/`HEAD`
+*(implemented)* `cacheregistry.tokenAuth` allows unauthenticated `GET`/`HEAD`
 (pulls and BuildKit blob-existence checks) while requiring the bearer token for
 mutating methods (`POST`/`PUT`/`PATCH`/`DELETE`) — the BuildKit cache export
 still authenticates. Rationale: the registry binds loopback only, and the
