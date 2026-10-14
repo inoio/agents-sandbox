@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"path/filepath"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -69,15 +70,18 @@ func TestEnsureCreatesBuilderVM(t *testing.T) {
 	if !cfg.Detached {
 		t.Error("expected detached sandbox")
 	}
+	if cfg.User != "root" {
+		t.Errorf("sandbox user = %q, want root so buildkitd owns the worker volume", cfg.User)
+	}
 	mount, ok := cfg.Volumes[cacheMountPath]
 	if !ok {
 		t.Fatalf("expected mount at %q, got %v", cacheMountPath, cfg.Volumes)
 	}
-	if !mount.Tmpfs {
-		t.Errorf("mount %q = %+v, want tmpfs worker storage", cacheMountPath, mount)
+	if mount.Kind() != msbSdk.MountKindOwned || mount.Owned != string(msbSdk.VolumeKindDisk) {
+		t.Errorf("mount %q = %+v, want a disk-backed owned worker volume", cacheMountPath, mount)
 	}
-	if mount.SizeMiB != builderCacheTmpfsSizeMiB {
-		t.Errorf("mount %q tmpfs size = %d MiB, want %d", cacheMountPath, mount.SizeMiB, builderCacheTmpfsSizeMiB)
+	if mount.SizeMiB != builderCacheDiskSizeMiB {
+		t.Errorf("mount %q size = %d MiB, want %d", cacheMountPath, mount.SizeMiB, builderCacheDiskSizeMiB)
 	}
 	if len(cfg.PortBindings) != 1 {
 		t.Fatalf("expected 1 port binding, got %d", len(cfg.PortBindings))
@@ -118,7 +122,8 @@ func TestEnsureReusesExistingBuilderVM(t *testing.T) {
 
 	const existingHostPort = 4242
 	handle := &msb.MockSandboxHandle{
-		Name_: builderSandboxName(),
+		Name_:   builderSandboxName(),
+		Status_: msbSdk.SandboxStatusRunning,
 		Cfg: &msbSdk.SandboxConfig{
 			PortBindings: []msbSdk.PortBinding{
 				{Bind: "127.0.0.1", HostPort: existingHostPort, GuestPort: builderGuestPort},
@@ -158,7 +163,7 @@ func TestEnsureReusesExistingBuilderVM(t *testing.T) {
 func TestEnsureReusesRecordedPortWhenConfigEmpty(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 
-	handle := &msb.MockSandboxHandle{Name_: builderSandboxName()}
+	handle := &msb.MockSandboxHandle{Name_: builderSandboxName(), Status_: msbSdk.SandboxStatusRunning}
 	client := &msb.MockMsbClient{
 		GetSandboxFn: func(context.Context, string) (msb.SandboxHandle, error) {
 			return handle, nil
@@ -189,6 +194,94 @@ func TestEnsureReusesRecordedPortWhenConfigEmpty(t *testing.T) {
 	}
 	if len(client.CreatedSandboxCalls) != 0 {
 		t.Errorf("expected no CreateSandbox call, got %d", len(client.CreatedSandboxCalls))
+	}
+}
+
+func TestEnsureResumesStoppedBuilderVM(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+
+	const stoppedPort = 4242
+	shellCmds := []string{}
+	pruneCmds := []string{}
+	resumed := &msb.MockSandbox{ShellStreamCmds: &shellCmds, ShellCalls: &pruneCmds}
+	started := false
+	handle := &msb.MockSandboxHandle{
+		Name_:   builderSandboxName(),
+		Status_: msbSdk.SandboxStatusStopped,
+		Cfg: &msbSdk.SandboxConfig{
+			PortBindings: []msbSdk.PortBinding{
+				{Bind: "127.0.0.1", HostPort: stoppedPort, GuestPort: builderGuestPort},
+			},
+		},
+		StartFn: func(context.Context) (msb.Sandbox, error) {
+			started = true
+			return resumed, nil
+		},
+	}
+	client := &msb.MockMsbClient{
+		GetSandboxFn: func(context.Context, string) (msb.SandboxHandle, error) {
+			return handle, nil
+		},
+	}
+	vm := &VM{Msb: client, Ready: func(context.Context, int) error { return nil }}
+
+	port, err := vm.Ensure(context.Background())
+	if err != nil {
+		t.Fatalf("Ensure failed: %v", err)
+	}
+	if port != stoppedPort {
+		t.Errorf("Ensure returned port %d, want the resumed %d", port, stoppedPort)
+	}
+	if !started {
+		t.Error("expected the stopped builder to be started in place, not replaced")
+	}
+	if len(client.CreatedSandboxCalls) != 0 {
+		t.Errorf("expected no CreateSandbox when resuming, got %d", len(client.CreatedSandboxCalls))
+	}
+	if len(shellCmds) != 1 || shellCmds[0] != buildkitdCommand() {
+		t.Errorf("shell stream commands = %v, want [%s]", shellCmds, buildkitdCommand())
+	}
+	if len(pruneCmds) != 1 || pruneCmds[0] != buildctlPruneCommand {
+		t.Errorf("worker prune calls = %v, want [%q]", pruneCmds, buildctlPruneCommand)
+	}
+	record, ok := readBuilderRecord()
+	if !ok || record.HostPort != stoppedPort {
+		t.Errorf("builder record = %+v, want a record for the resumed port %d", record, stoppedPort)
+	}
+}
+
+func TestEnsureRecreatesWhenResumeFails(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+
+	const stoppedPort = 4242
+	shellCmds := []string{}
+	handle := &msb.MockSandboxHandle{
+		Name_:   builderSandboxName(),
+		Status_: msbSdk.SandboxStatusStopped,
+		Cfg: &msbSdk.SandboxConfig{
+			PortBindings: []msbSdk.PortBinding{
+				{Bind: "127.0.0.1", HostPort: stoppedPort, GuestPort: builderGuestPort},
+			},
+		},
+		StartErr: errors.New("cannot start"),
+	}
+	client := &msb.MockMsbClient{
+		GetSandboxFn: func(context.Context, string) (msb.SandboxHandle, error) {
+			return handle, nil
+		},
+		CreatedSandbox: msb.NewMockSandbox(msb.SandboxOpts{ShellStreamCmds: &shellCmds}),
+	}
+	vm := &VM{Msb: client, Ready: func(context.Context, int) error { return nil }}
+
+	port, err := vm.Ensure(context.Background())
+	if err != nil {
+		t.Fatalf("Ensure failed: %v", err)
+	}
+	if port == stoppedPort {
+		t.Errorf("Ensure returned the stopped port %d; expected a fresh builder after a failed resume", stoppedPort)
+	}
+	if len(client.CreatedSandboxCalls) != 1 {
+		t.Fatalf("expected 1 CreateSandbox after a failed resume, got %d", len(client.CreatedSandboxCalls))
 	}
 }
 
@@ -227,7 +320,8 @@ func TestEnsureRecreatesOnFailedReadiness(t *testing.T) {
 
 	const stalePort = 4242
 	handle := &msb.MockSandboxHandle{
-		Name_: builderSandboxName(),
+		Name_:   builderSandboxName(),
+		Status_: msbSdk.SandboxStatusRunning,
 		Cfg: &msbSdk.SandboxConfig{
 			PortBindings: []msbSdk.PortBinding{
 				{Bind: "127.0.0.1", HostPort: stalePort, GuestPort: builderGuestPort},
@@ -404,10 +498,24 @@ func TestEnsureReadinessRunsOutsideFlock(t *testing.T) {
 	}
 }
 
-func TestBuilderSandboxNameIncludesVersion(t *testing.T) {
-	want := "agents-sandbox-buildkit-" + buildkitVersion
-	if got := builderSandboxName(); got != want {
-		t.Errorf("builderSandboxName() = %q, want %q", got, want)
+// TestBuilderSandboxNameNamespacedByStateDir asserts the builder name and
+// component label carry a namespace derived from the state directory, and that
+// the name changes across state dirs — so integration tests and a concurrent
+// real binary do not fight over a single fixed-name builder VM.
+func TestBuilderSandboxNameNamespacedByStateDir(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	suffix := stateNamespace()
+	wantName := "agents-sandbox-buildkit-" + buildkitVersion + "-" + suffix
+	if got := builderSandboxName(); got != wantName {
+		t.Errorf("builderSandboxName() = %q, want %q", got, wantName)
+	}
+	if want := "buildkit-" + suffix; BuilderComponentLabelValue() != want {
+		t.Errorf("BuilderComponentLabelValue() = %q, want %q", BuilderComponentLabelValue(), want)
+	}
+
+	configpaths.WithMockConfigPathsAt(t, filepath.Join(t.TempDir(), "other-state"))
+	if builderSandboxName() == wantName {
+		t.Errorf("builderSandboxName() unchanged across state dirs: %q", wantName)
 	}
 }
 
@@ -538,7 +646,7 @@ func TestPruneCacheRunsBuildctl(t *testing.T) {
 	if err := vm.PruneCache(context.Background()); err != nil {
 		t.Fatalf("PruneCache: %v", err)
 	}
-	want := "buildctl --addr tcp://127.0.0.1:1234 prune --keep-duration 24h --all"
+	want := "buildctl --addr tcp://127.0.0.1:1234 prune --keep-duration 24h --keep-storage 50GB --all"
 	if len(shellCmds) != 1 || shellCmds[0] != want {
 		t.Errorf("Shell calls = %v, want [%q]", shellCmds, want)
 	}

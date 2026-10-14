@@ -123,23 +123,74 @@ func TestBuilderCacheRefDelegatesToEndpoint(t *testing.T) {
 	}
 }
 
-func TestBuildkitdCommandPinsNativeSnapshotter(t *testing.T) {
+func TestBuildkitdCommandDefaultsToFuseOverlayfs(t *testing.T) {
 	command := buildkitdCommand()
-	if !strings.Contains(command, "--oci-worker-snapshotter native") {
-		t.Errorf("buildkitdCommand() = %q, want native snapshotter", command)
+	if !strings.Contains(command, "--oci-worker-snapshotter "+snapshotterFuseOverlayfs) {
+		t.Errorf("buildkitdCommand() = %q, want the fuse-overlayfs snapshotter", command)
 	}
 	if !strings.Contains(command, "--addr tcp://0.0.0.0:") {
 		t.Errorf("buildkitdCommand() = %q, want the guest-port bind", command)
 	}
+	if !strings.Contains(command, "command -v fuse-overlayfs") {
+		t.Errorf("buildkitdCommand() = %q, want the fuse-overlayfs binary fallback", command)
+	}
+	if !strings.Contains(command, workerSnapshotterMarker) {
+		t.Errorf("buildkitdCommand() = %q, want the snapshotter-change worker reset", command)
+	}
+	if !strings.Contains(command, "--oci-worker-gc-keepstorage "+builderCacheGCKeepStorage) {
+		t.Errorf("buildkitdCommand() = %q, want the GC keep-storage budget", command)
+	}
+	if strings.Contains(command, "--oci-worker-no-process-sandbox") {
+		t.Errorf("buildkitdCommand() = %q, must not disable the process sandbox by default", command)
+	}
 }
 
-func TestBuilderCacheMountIsTmpfs(t *testing.T) {
-	mount := builderCacheMount()
-	if !mount.Tmpfs {
-		t.Fatalf("builderCacheMount() = %+v, want tmpfs", mount)
+func TestBuildkitdCommandNoProcessSandbox(t *testing.T) {
+	t.Setenv(builderNoProcessSandboxEnv, "1")
+	if command := buildkitdCommand(); !strings.Contains(command, "--oci-worker-no-process-sandbox") {
+		t.Errorf("buildkitdCommand() = %q, want the process-sandbox opt-out from the env", command)
 	}
-	if mount.SizeMiB != builderCacheTmpfsSizeMiB {
-		t.Errorf("tmpfs size = %d MiB, want %d", mount.SizeMiB, builderCacheTmpfsSizeMiB)
+	t.Setenv(builderNoProcessSandboxEnv, "false")
+	if command := buildkitdCommand(); strings.Contains(command, "--oci-worker-no-process-sandbox") {
+		t.Errorf("buildkitdCommand() = %q, want the process sandbox kept for a false env", command)
+	}
+}
+
+func TestBuildkitdCommandHonorsSnapshotterOverride(t *testing.T) {
+	t.Setenv(builderSnapshotterEnv, snapshotterNative)
+	command := buildkitdCommand()
+	if !strings.Contains(command, "--oci-worker-snapshotter native") {
+		t.Errorf("buildkitdCommand() = %q, want the native snapshotter from the override", command)
+	}
+	if strings.Contains(command, "apk add") {
+		t.Errorf("buildkitdCommand() = %q, native must not install a snapshotter", command)
+	}
+	if !strings.Contains(command, workerSnapshotterMarker) {
+		t.Errorf("buildkitdCommand() = %q, want the snapshotter-change worker reset", command)
+	}
+}
+
+func TestSnapshotterPrepareCommand(t *testing.T) {
+	if got := snapshotterPrepareCommand(""); got != "" {
+		t.Errorf("snapshotterPrepareCommand(\"\") = %q, want empty", got)
+	}
+	native := snapshotterPrepareCommand(snapshotterNative)
+	if !strings.Contains(native, workerSnapshotterMarker) || strings.Contains(native, "apk add") {
+		t.Errorf("snapshotterPrepareCommand(native) = %q, want only the worker reset", native)
+	}
+	fuse := snapshotterPrepareCommand(snapshotterFuseOverlayfs)
+	if !strings.Contains(fuse, "apk add --no-cache fuse-overlayfs") {
+		t.Errorf("snapshotterPrepareCommand(fuse-overlayfs) = %q, want the install fallback", fuse)
+	}
+}
+
+func TestBuilderCacheMountIsDiskBackedOwnedVolume(t *testing.T) {
+	mount := builderCacheMount()
+	if mount.Tmpfs || mount.Owned != "disk" {
+		t.Fatalf("builderCacheMount() = %+v, want a disk-backed owned volume (not tmpfs)", mount)
+	}
+	if mount.SizeMiB != builderCacheDiskSizeMiB {
+		t.Errorf("cache size = %d MiB, want %d", mount.SizeMiB, builderCacheDiskSizeMiB)
 	}
 }
 

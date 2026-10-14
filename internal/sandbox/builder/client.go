@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"sort"
 	"strings"
 	"time"
 
@@ -153,11 +154,46 @@ type BuildRequest struct {
 	Progress   func(line string)
 }
 
+// VertexTiming is one BuildKit vertex's reported duration. A Dockerfile step can
+// be slow while cached (BuildKit materializes its layer), and buildkit-internal
+// vertices (`[internal] exporting layers`, cache import, …) are where a solve's
+// time goes when the Dockerfile steps are cheap — so both are recorded, tagged by
+// Step.
+type VertexTiming struct {
+	Name     string
+	Duration time.Duration
+	Cached   bool
+	Step     bool
+}
+
 type BuildResult struct {
-	ArchivePath string
-	Digest      string
-	Env         []string
-	BaseDigest  string
+	ArchivePath   string
+	Digest        string
+	Env           []string
+	BaseDigest    string
+	Timings       BuildTimings
+	VertexTimings []VertexTiming
+}
+
+// BuildTimings breaks a build into its phases for verbose diagnostics. A zero
+// field means that phase did not run (e.g. a backend that does not report it).
+type BuildTimings struct {
+	// Ensure is backend/registry bring-up: the builder VM (boot or reuse) and
+	// the embedded cache registry.
+	Ensure time.Duration
+	// BaseResolve connects to BuildKit and resolves the base image digest.
+	BaseResolve time.Duration
+	// Solve is the whole image solve, including the image export to the archive
+	// and the registry cache export (both run in the same solve).
+	Solve time.Duration
+	// SolveWarmup is Solve's start up to the first progress update: BuildKit's
+	// cache import and graph setup, before any Dockerfile step runs.
+	SolveWarmup time.Duration
+	// Export is the tail of Solve after the last Dockerfile step, i.e.
+	// finalizing the image archive, plus archive close.
+	Export time.Duration
+	// Total is the wall-clock time from Build entry to return.
+	Total time.Duration
 }
 
 type Builder interface {
@@ -177,24 +213,32 @@ func newClient() *Client {
 // seam so tests can supply an endpoint without spawning the registry daemon.
 var ensureCacheRegistry = cacheregistry.Ensure
 
+// registryKeepAlive holds the cache registry daemon's idle timer open for the
+// duration of a build. It is a seam so tests can observe the lifecycle without a
+// live registry.
+var registryKeepAlive = func(ctx context.Context, endpoint cacheregistry.Endpoint) func() {
+	return endpoint.KeepAlive(ctx)
+}
+
 // builderCacheRef is the deterministic registry cache reference for an image
 // identity (tag + platform), keyed by the running registry's address.
 func builderCacheRef(endpoint cacheregistry.Endpoint, imageTag, platform string) string {
 	return endpoint.CacheRef(imageTag, platform)
 }
 
-// cacheRegistryAuth acquires the embedded cache registry and returns the image's
-// cache reference plus a BuildKit auth session carrying the registry's token.
+// cacheRegistryAuth acquires the embedded cache registry and returns its
+// endpoint, the image's cache reference, and a BuildKit auth session carrying
+// the registry's token.
 func (c *Client) cacheRegistryAuth(
 	ctx context.Context,
 	req BuildRequest,
-) (string, []session.Attachable, error) {
+) (cacheregistry.Endpoint, string, []session.Attachable, error) {
 	endpoint, err := ensureCacheRegistry(ctx)
 	if err != nil {
-		return "", nil, fmt.Errorf("ensure cache registry: %w", err)
+		return cacheregistry.Endpoint{}, "", nil, fmt.Errorf("ensure cache registry: %w", err)
 	}
 	cacheRef := builderCacheRef(endpoint, req.Tag, req.Platform)
-	return cacheRef, registryAuthSession(cacheRegistryCredentials(endpoint)), nil
+	return endpoint, cacheRef, registryAuthSession(cacheRegistryCredentials(endpoint)), nil
 }
 
 // cacheRegistryCredentials maps the registry's host:port to its static bearer
@@ -207,6 +251,9 @@ func cacheRegistryCredentials(endpoint cacheregistry.Endpoint) map[string]types.
 }
 
 func (c *Client) Build(ctx context.Context, req BuildRequest) (BuildResult, error) {
+	buildStart := time.Now()
+
+	ensureStart := time.Now()
 	hostPort, err := c.backend.Ensure(ctx)
 	if err != nil {
 		return BuildResult{}, fmt.Errorf("ensure builder VM: %w", err)
@@ -218,11 +265,21 @@ func (c *Client) Build(ctx context.Context, req BuildRequest) (BuildResult, erro
 	stopKeepAlive := c.backend.KeepAlive(ctx)
 	defer stopKeepAlive()
 
-	cacheRef, authSession, err := c.cacheRegistryAuth(ctx, req)
+	cacheEndpoint, cacheRef, authSession, err := c.cacheRegistryAuth(ctx, req)
 	if err != nil {
 		return BuildResult{}, err
 	}
+	//exhaustruct:ignore // phases are filled in progressively
+	timings := BuildTimings{Ensure: time.Since(ensureStart)}
 
+	// Hold the cache registry's idle timer open for the whole build too: the
+	// registry only sees HTTP traffic at cache import and export, so a build
+	// that runs longer than the shared idle timeout would let the reaper shut
+	// the daemon down mid-build and reset the connection at export time.
+	stopRegistryKeepAlive := registryKeepAlive(ctx, cacheEndpoint)
+	defer stopRegistryKeepAlive()
+
+	prepareStart := time.Now()
 	bc, err := newBuildkitClient(ctx, fmt.Sprintf("tcp://127.0.0.1:%d", hostPort))
 	if err != nil {
 		return BuildResult{}, fmt.Errorf("connect to builder at %d: %w", hostPort, err)
@@ -233,6 +290,7 @@ func (c *Client) Build(ctx context.Context, req BuildRequest) (BuildResult, erro
 	if err != nil {
 		return BuildResult{}, fmt.Errorf("resolve base image %s: %w", req.BaseRef, err)
 	}
+	timings.BaseResolve = time.Since(prepareStart)
 
 	archive, err := os.CreateTemp("", "agents-sandbox-image-*.tar")
 	if err != nil {
@@ -246,6 +304,78 @@ func (c *Client) Build(ctx context.Context, req BuildRequest) (BuildResult, erro
 		}
 	}()
 
+	spec := c.backend.Export(req.Tag)
+	cacheImports, cacheExports, cacheErr := builderCacheExportOptions(ctx, cacheRef)
+	if cacheErr != nil {
+		return BuildResult{}, cacheErr
+	}
+
+	outcome, err := c.solveAndExport(
+		ctx,
+		bc,
+		req,
+		buildAttributes(req, baseDigest),
+		spec,
+		archive,
+		cacheImports,
+		cacheExports,
+		authSession,
+		&timings,
+	)
+	if err != nil {
+		return BuildResult{}, err
+	}
+
+	result, err := buildResultFromOutcome(outcome, archivePath, baseDigest)
+	if err != nil {
+		return BuildResult{}, err
+	}
+	timings.Total = time.Since(buildStart)
+	result.Timings = timings
+	result.VertexTimings = outcome.vertexTimings
+
+	buildSucceeded = true
+	return result, nil
+}
+
+// solveAndExport runs the image solve, which also persists the BuildKit cache
+// to the registry in the same pass (BuildKit runs the cache export after the
+// build graph completes, alongside the image export). Folding both into one
+// solve avoids a second, redundant cache import and graph traversal. The image
+// archive is closed here (its close time is part of the export tail), so callers
+// must not close it again.
+func (c *Client) solveAndExport(
+	ctx context.Context,
+	bc buildkitClient,
+	req BuildRequest,
+	attributes map[string]string,
+	spec exportSpec,
+	archive *os.File,
+	cacheImports, cacheExports []client.CacheOptionsEntry,
+	authSession []session.Attachable,
+	timings *BuildTimings,
+) (solveOutcome, error) {
+	solveStart := time.Now()
+	outcome, solveErr := c.solve(ctx, bc, req, attributes, spec, archive, cacheImports, cacheExports, authSession)
+	timings.Solve = time.Since(solveStart)
+	timings.SolveWarmup = outcome.firstStatus
+	timings.Export = timings.Solve - outcome.lastStatus
+
+	closeStart := time.Now()
+	closeErr := archive.Close()
+	timings.Export += time.Since(closeStart)
+	if solveErr != nil {
+		return solveOutcome{}, fmt.Errorf("solve image build: %w", solveErr)
+	}
+	if closeErr != nil {
+		return solveOutcome{}, fmt.Errorf("close image archive: %w", closeErr)
+	}
+	return outcome, nil
+}
+
+// buildAttributes assembles the BuildKit frontend attributes: the platform, the
+// caller's build args, the resolved base digest, and the no-cache marker.
+func buildAttributes(req BuildRequest, baseDigest string) map[string]string {
 	attributes := map[string]string{"platform": req.Platform}
 	for key, value := range req.BuildArgs {
 		attributes["build-arg:"+key] = value
@@ -254,43 +384,12 @@ func (c *Client) Build(ctx context.Context, req BuildRequest) (BuildResult, erro
 	if req.NoCache {
 		attributes["no-cache"] = ""
 	}
+	return attributes
+}
 
-	spec := c.backend.Export(req.Tag)
-	cacheImports, cacheExports, cacheErr := builderCacheExportOptions(ctx, cacheRef)
-	if cacheErr != nil {
-		return BuildResult{}, cacheErr
-	}
-
-	outcome, solveErr := c.solve(ctx, bc, req, attributes, spec, archive, cacheImports, nil, authSession)
-	closeErr := archive.Close()
-	if solveErr != nil {
-		return BuildResult{}, fmt.Errorf("solve image build: %w", solveErr)
-	}
-	if closeErr != nil {
-		return BuildResult{}, fmt.Errorf("close image archive: %w", closeErr)
-	}
-
-	// Persist the BuildKit cache only when the build actually missed part of it.
-	// On a full cache hit the previously exported cache is still valid, so
-	// re-exporting would only pay the (large) export cost for nothing.
-	if len(cacheExports) > 0 && !outcome.fullHit {
-		// The export pass must reuse the cache pass 1 just wrote, so it drops
-		// the no-cache attribute; otherwise it would rebuild everything.
-		if _, exportErr := c.solve(
-			ctx,
-			bc,
-			req,
-			cacheEnabledAttrs(attributes),
-			spec,
-			nil,
-			cacheImports,
-			cacheExports,
-			authSession,
-		); exportErr != nil {
-			return BuildResult{}, fmt.Errorf("export build cache: %w", exportErr)
-		}
-	}
-
+// buildResultFromOutcome assembles the BuildResult from a solve's exporter
+// response, parsing the image config's Env when BuildKit supplied it.
+func buildResultFromOutcome(outcome solveOutcome, archivePath, baseDigest string) (BuildResult, error) {
 	var metadata struct {
 		Config struct {
 			Env []string `json:"Env"`
@@ -301,8 +400,7 @@ func (c *Client) Build(ctx context.Context, req BuildRequest) (BuildResult, erro
 			return BuildResult{}, fmt.Errorf("parse image config: %w", err)
 		}
 	}
-
-	buildSucceeded = true
+	//exhaustruct:ignore // Timings are attached by Build after the outcome is assembled
 	return BuildResult{
 		ArchivePath: archivePath,
 		Digest:      imageDigest(outcome.response),
@@ -311,32 +409,22 @@ func (c *Client) Build(ctx context.Context, req BuildRequest) (BuildResult, erro
 	}, nil
 }
 
-// cacheEnabledAttrs returns a copy of the frontend attributes with the no-cache
-// marker removed, so a pass reuses BuildKit's cache rather than rebuilding.
-func cacheEnabledAttrs(attributes map[string]string) map[string]string {
-	if _, ok := attributes["no-cache"]; !ok {
-		return attributes
-	}
-	copied := make(map[string]string, len(attributes))
-	for key, value := range attributes {
-		if key == "no-cache" {
-			continue
-		}
-		copied[key] = value
-	}
-	return copied
-}
-
 // solveOutcome is the result of one BuildKit solve.
 type solveOutcome struct {
 	response map[string]string
-	fullHit  bool
 	steps    int
+	// firstStatus is the time from solve start to the first status update:
+	// BuildKit's cache import and graph setup, before any Dockerfile step runs.
+	firstStatus time.Duration
+	// lastStatus is the time from solve start to the last status update. The
+	// gap to the solve's return is the image archive export after the build.
+	lastStatus time.Duration
+	// vertexTimings are the per-vertex durations, longest first.
+	vertexTimings []VertexTiming
 }
 
-// solve runs one BuildKit solve, forwarding progress and reporting whether every
-// Dockerfile step was served from cache. When imageOut is nil the solve exports
-// no image, which is used for the cache-only export pass.
+// solve runs one BuildKit solve, forwarding progress. It exports the image when
+// imageOut is non-nil and the registry cache when cacheExports is non-empty.
 func (c *Client) solve(
 	ctx context.Context,
 	bc buildkitClient,
@@ -365,14 +453,22 @@ func (c *Client) solve(
 		}}
 	}
 
+	solveStart := time.Now()
 	statusCh := make(chan *client.SolveStatus)
 	progressDone := make(chan struct{})
 	detector := newBuildStepCacheDetector()
+	reporter := newBuildProgressReporter(req.Progress)
+	var firstStatus, lastStatus time.Duration
 	go func() {
 		defer close(progressDone)
 		for status := range statusCh {
+			elapsed := time.Since(solveStart)
+			if firstStatus == 0 {
+				firstStatus = elapsed
+			}
+			lastStatus = elapsed
 			detector.observe(status)
-			forwardProgress(status, req.Progress)
+			reporter.report(status)
 		}
 	}()
 
@@ -382,32 +478,50 @@ func (c *Client) solve(
 	if err != nil {
 		return solveOutcome{}, err
 	}
-	return solveOutcome{response: resp.ExporterResponse, fullHit: detector.fullHit(), steps: detector.steps()}, nil
+	return solveOutcome{
+		response:      resp.ExporterResponse,
+		steps:         detector.steps(),
+		firstStatus:   firstStatus,
+		lastStatus:    lastStatus,
+		vertexTimings: detector.vertexTimings(),
+	}, nil
 }
 
 // buildStepCacheDetector records whether any Dockerfile step had to execute
 // (a cache miss) by watching completed vertices whose names are step-scoped
 // rather than buildkit-internal. BuildKit can emit a transient uncached update
 // before a cache lookup resolves, so a step counts as a hit once it is ever
-// reported cached.
+// reported cached. It also records each step's reported duration so a solve can
+// be attributed to individual steps.
 type buildStepCacheDetector struct {
 	cacheState map[string]bool // step name -> ever reported cached
+	durations  map[string]time.Duration
 }
 
 func newBuildStepCacheDetector() *buildStepCacheDetector {
-	return &buildStepCacheDetector{cacheState: map[string]bool{}}
+	return &buildStepCacheDetector{
+		cacheState: map[string]bool{},
+		durations:  map[string]time.Duration{},
+	}
 }
 
 func (d *buildStepCacheDetector) observe(status *client.SolveStatus) {
 	for _, v := range status.Vertexes {
-		if v.Completed == nil || !isDockerfileStep(v.Name) {
+		if v.Completed == nil {
 			continue
 		}
-		if _, seen := d.cacheState[v.Name]; !seen {
-			d.cacheState[v.Name] = false
+		if isDockerfileStep(v.Name) {
+			if _, seen := d.cacheState[v.Name]; !seen {
+				d.cacheState[v.Name] = false
+			}
+			if v.Cached {
+				d.cacheState[v.Name] = true
+			}
 		}
-		if v.Cached {
-			d.cacheState[v.Name] = true
+		if v.Started != nil {
+			if elapsed := v.Completed.Sub(*v.Started); elapsed > d.durations[v.Name] {
+				d.durations[v.Name] = elapsed
+			}
 		}
 	}
 }
@@ -417,17 +531,20 @@ func (d *buildStepCacheDetector) steps() int {
 	return len(d.cacheState)
 }
 
-// fullHit reports whether at least one Dockerfile step completed and none missed.
-func (d *buildStepCacheDetector) fullHit() bool {
-	if len(d.cacheState) == 0 {
-		return false
+// vertexTimings returns every observed vertex duration, longest first, tagged as a
+// Dockerfile step or a buildkit-internal vertex.
+func (d *buildStepCacheDetector) vertexTimings() []VertexTiming {
+	timings := make([]VertexTiming, 0, len(d.durations))
+	for name, duration := range d.durations {
+		timings = append(timings, VertexTiming{
+			Name:     name,
+			Duration: duration,
+			Cached:   d.cacheState[name],
+			Step:     isDockerfileStep(name),
+		})
 	}
-	for _, cached := range d.cacheState {
-		if !cached {
-			return false
-		}
-	}
-	return true
+	sort.Slice(timings, func(i, j int) bool { return timings[i].Duration > timings[j].Duration })
+	return timings
 }
 
 // isDockerfileStep reports whether a vertex is a real build instruction rather
@@ -461,11 +578,13 @@ func builderCacheExportOptions(_ context.Context, cacheRef string) (
 	// so BuildKit's registry remotecache must be told the endpoint is insecure;
 	// otherwise it defaults to HTTPS and every import/export fails.
 	imports := []client.CacheOptionsEntry{
-		{Type: "registry", Attrs: map[string]string{"ref": cacheRef, "registry.insecure": "true"}},
+		{Type: "registry", Attrs: map[string]string{"ref": cacheRef, "registry.insecure": buildkitAttrTrue}},
 	}
-	exports := []client.CacheOptionsEntry{
-		{Type: "registry", Attrs: map[string]string{"ref": cacheRef, "mode": "max", "registry.insecure": "true"}},
+	exportAttrs := map[string]string{
+		"ref": cacheRef, "mode": "max", "registry.insecure": buildkitAttrTrue,
 	}
+	applyCompressionAttrs(exportAttrs)
+	exports := []client.CacheOptionsEntry{{Type: "registry", Attrs: exportAttrs}}
 	return imports, exports, nil
 }
 

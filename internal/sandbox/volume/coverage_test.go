@@ -3,7 +3,6 @@ package volume
 import (
 	"context"
 	"errors"
-	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -296,7 +295,7 @@ func TestVolumeOp_RemoveOldFails_Warns(t *testing.T) {
 func TestCmdEdit_LoadImageFails(t *testing.T) {
 	mock, ui := setupVolumeOpsFixtures(t)
 	mock.ImageGetFn = func(_ context.Context, _ string) error { return errors.New("not cached") }
-	mock.ImageLoadFn = func(_ context.Context, _ string, _ io.Reader) error {
+	mock.ImageLoadFn = func(_ context.Context, _, _ string) error {
 		return errors.New("image load failed")
 	}
 	archivePath := writeArchive(t)
@@ -328,7 +327,7 @@ func TestPrefillVolume_LoadImageFails(t *testing.T) {
 
 	mock := &msb.MockMsbClient{
 		ImageGetFn: func(_ context.Context, _ string) error { return errors.New("not cached") },
-		ImageLoadFn: func(_ context.Context, _ string, _ io.Reader) error {
+		ImageLoadFn: func(_ context.Context, _, _ string) error {
 			return errors.New("image load failed")
 		},
 	}
@@ -352,7 +351,7 @@ func TestCopyVolume_LoadImageFails(t *testing.T) {
 
 	mock := &msb.MockMsbClient{
 		ImageGetFn: func(_ context.Context, _ string) error { return errors.New("not cached") },
-		ImageLoadFn: func(_ context.Context, _ string, _ io.Reader) error {
+		ImageLoadFn: func(_ context.Context, _, _ string) error {
 			return errors.New("image load failed")
 		},
 	}
@@ -614,7 +613,7 @@ func TestCmdEdit_LoadImageFailsInMain(t *testing.T) {
 
 	loadCalls := 0
 	mock.ImageGetFn = func(_ context.Context, _ string) error { return errors.New("not cached") }
-	mock.ImageLoadFn = func(_ context.Context, _ string, _ io.Reader) error {
+	mock.ImageLoadFn = func(_ context.Context, _, _ string) error {
 		loadCalls++
 		if loadCalls == 2 {
 			return errors.New("image load failed")

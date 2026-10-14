@@ -3,7 +3,6 @@ package image
 import (
 	"context"
 	"errors"
-	"io"
 	"os"
 	"testing"
 
@@ -111,7 +110,7 @@ func TestBuildReturnsErrorWhenLoadFails(t *testing.T) {
 	fakeBuilder(t, builder.BuildResult{ArchivePath: newArchiveFile(t), Digest: "sha256:abc123"}, nil)
 	msb.WithMsbMock(t, &msb.MockMsbClient{
 		ImageGetFn: func(context.Context, string) error { return errors.New("not cached") },
-		ImageLoadFn: func(context.Context, string, io.Reader) error {
+		ImageLoadFn: func(context.Context, string, string) error {
 			return errors.New("load boom")
 		},
 	})

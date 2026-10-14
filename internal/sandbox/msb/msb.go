@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"os"
 	"time"
 
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
@@ -54,7 +53,7 @@ type Client interface {
 	ImageList(ctx context.Context) ([]ImageHandle, error)
 	ImagePrune(ctx context.Context) (*msbSdk.ImagePruneReport, error)
 	ImageRemove(ctx context.Context, ref string, force bool) error
-	ImageLoad(ctx context.Context, ref string, r io.Reader) error
+	ImageLoad(ctx context.Context, ref, archivePath string) error
 	ImageInspect(ctx context.Context, ref string) (*msbSdk.ImageConfig, error)
 }
 
@@ -334,26 +333,8 @@ func (realMsbClient) ImageRemove(ctx context.Context, ref string, force bool) er
 	return msbSdk.Image.Remove(ctx, ref, force)
 }
 
-func (realMsbClient) ImageLoad(ctx context.Context, ref string, r io.Reader) (err error) {
-	tmp, err := os.CreateTemp("", "agents-sandbox-image-*.tar")
-	if err != nil {
-		return fmt.Errorf("creating temp file for image load: %w", err)
-	}
-	defer os.Remove(tmp.Name())
-	defer func() {
-		if closeErr := tmp.Close(); closeErr != nil && err == nil {
-			err = fmt.Errorf("closing image archive: %w", closeErr)
-		}
-	}()
-
-	if _, err := io.Copy(tmp, r); err != nil {
-		return fmt.Errorf("spooling image archive: %w", err)
-	}
-	if err := tmp.Sync(); err != nil {
-		return fmt.Errorf("syncing image archive: %w", err)
-	}
-
-	if _, err := msbSdk.Image.Load(ctx, tmp.Name(), ref); err != nil {
+func (realMsbClient) ImageLoad(ctx context.Context, ref, archivePath string) error {
+	if _, err := msbSdk.Image.Load(ctx, archivePath, ref); err != nil {
 		return fmt.Errorf("loading image into microsandbox: %w", err)
 	}
 	return nil

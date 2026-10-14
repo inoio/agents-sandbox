@@ -2,7 +2,6 @@ package builder
 
 import (
 	"context"
-	"fmt"
 	"io"
 	"runtime"
 	"strings"
@@ -72,23 +71,58 @@ func qualifyBaseRef(baseRef string) string {
 	return named.String()
 }
 
-// forwardProgress reports non-empty log lines and cache hits from a build status
-// to the caller's progress callback. Cached vertices are surfaced so callers can
-// observe BuildKit layer-cache reuse (the cached RUN steps emit no logs).
-func forwardProgress(status *client.SolveStatus, progress func(string)) {
-	if progress == nil {
+// buildProgressReporter forwards BuildKit solve status to the caller's progress
+// callback: non-empty log lines (the RUN output), plus each Dockerfile step's
+// name as it starts and a CACHED marker for steps served from cache. BuildKit
+// re-sends every vertex in each status update, so the reporter emits each step
+// (and each CACHED marker) once.
+type buildProgressReporter struct {
+	progress  func(string)
+	announced map[string]bool
+}
+
+func newBuildProgressReporter(progress func(string)) *buildProgressReporter {
+	return &buildProgressReporter{progress: progress, announced: map[string]bool{}}
+}
+
+func (r *buildProgressReporter) report(status *client.SolveStatus) {
+	if r.progress == nil {
 		return
 	}
-	for _, log := range status.Logs {
-		if line := strings.TrimSpace(string(log.Data)); line != "" {
-			progress(line)
+	for _, logLine := range status.Logs {
+		if line := strings.TrimSpace(string(logLine.Data)); line != "" {
+			r.progress(line)
 		}
 	}
 	for _, vertex := range status.Vertexes {
-		if vertex.Cached {
-			progress(fmt.Sprintf("%s CACHED", vertex.Name))
-		}
+		r.reportVertex(vertex)
 	}
+}
+
+// reportVertex surfaces a Dockerfile step once. BuildKit sends a vertex queued
+// (no timestamps) before it runs, so a step is reported only once it has started,
+// completed, or been recognized as cached. Internal vertices (metadata loads,
+// etc.) are skipped.
+func (r *buildProgressReporter) reportVertex(vertex *client.Vertex) {
+	if !isBuildVertex(vertex.Name) || r.announced[vertex.Name] {
+		return
+	}
+	if vertex.Started == nil && vertex.Completed == nil && !vertex.Cached {
+		return
+	}
+	r.announced[vertex.Name] = true
+	if vertex.Cached {
+		r.progress(vertex.Name + " CACHED")
+		return
+	}
+	r.progress(vertex.Name)
+}
+
+// isBuildVertex reports whether a vertex is a real Dockerfile step rather than a
+// buildkit-internal vertex ("[internal] ...") or the frontend root
+// ("dockerfile.v0"). Dockerfile steps carry a "[<platform> <stage> N/M] " prefix.
+func isBuildVertex(name string) bool {
+	return strings.HasPrefix(name, "[") && !strings.Contains(name, "[internal]")
 }
 
 // nopWriteCloser lets BuildKit's session stream the export and call Close on

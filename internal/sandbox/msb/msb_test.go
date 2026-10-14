@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"strconv"
-	"strings"
 	"testing"
 	"time"
 
@@ -235,17 +234,13 @@ func TestRealMsbClientImageLoadErrors(t *testing.T) {
 	c := &realMsbClient{}
 	ctx := context.Background()
 
-	if err := c.ImageLoad(ctx, "ref", errReader{}); err == nil {
-		t.Error("ImageLoad() with failing reader = nil error, want spooling error")
+	if err := c.ImageLoad(ctx, "ref", "/nonexistent/agents-sandbox-image.tar"); err == nil {
+		t.Error("ImageLoad() with a missing archive = nil error, want load error")
 	}
-	if err := c.ImageLoad(ctx, "ref", strings.NewReader("")); err == nil {
-		t.Error("ImageLoad() with empty archive = nil error, want SDK load error")
+	if err := c.ImageLoad(ctx, "ref", ""); err == nil {
+		t.Error("ImageLoad() with an empty path = nil error, want load error")
 	}
 }
-
-type errReader struct{}
-
-func (errReader) Read([]byte) (int, error) { return 0, errors.New("boom") }
 
 func TestIsSandboxActive(t *testing.T) {
 	tests := []struct {

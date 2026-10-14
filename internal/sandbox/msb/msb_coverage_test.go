@@ -3,9 +3,7 @@ package msb
 import (
 	"context"
 	"errors"
-	"io"
 	"reflect"
-	"strings"
 	"testing"
 	"time"
 
@@ -320,20 +318,20 @@ func TestMockMsbClientImage(t *testing.T) {
 	}
 
 	m7 := &MockMsbClient{}
-	if err := m7.ImageLoad(ctx, "ref", strings.NewReader("x")); err != nil {
+	if err := m7.ImageLoad(ctx, "ref", "archive.tar"); err != nil {
 		t.Fatalf("ImageLoad error = %v", err)
 	}
 	if len(m7.LoadedImages) != 1 || m7.LoadedImages[0] != "ref" {
 		t.Fatalf("LoadedImages = %v", m7.LoadedImages)
 	}
 	m7.imageLoadErr = errors.New("fail")
-	if err := m7.ImageLoad(ctx, "ref", strings.NewReader("x")); err == nil {
+	if err := m7.ImageLoad(ctx, "ref", "archive.tar"); err == nil {
 		t.Fatal("expected imageLoadErr")
 	}
-	m8 := &MockMsbClient{ImageLoadFn: func(_ context.Context, _ string, _ io.Reader) error {
+	m8 := &MockMsbClient{ImageLoadFn: func(_ context.Context, _, _ string) error {
 		return errors.New("fn")
 	}}
-	if err := m8.ImageLoad(ctx, "ref", strings.NewReader("x")); err == nil {
+	if err := m8.ImageLoad(ctx, "ref", "archive.tar"); err == nil {
 		t.Fatal("expected ImageLoadFn error")
 	}
 
@@ -756,7 +754,7 @@ func TestFailFastClientPanics(t *testing.T) {
 		{"ImageGet", func() { _ = f.ImageGet(ctx, "x") }},
 		{"ImageList", func() { _, _ = f.ImageList(ctx) }},
 		{"ImageRemove", func() { _ = f.ImageRemove(ctx, "x", false) }},
-		{"ImageLoad", func() { _ = f.ImageLoad(ctx, "x", strings.NewReader("")) }},
+		{"ImageLoad", func() { _ = f.ImageLoad(ctx, "x", "") }},
 		{"ImageInspect", func() { _, _ = f.ImageInspect(ctx, "x") }},
 	}
 	for _, tc := range cases {

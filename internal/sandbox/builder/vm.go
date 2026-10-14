@@ -50,11 +50,16 @@ func (v *VM) recreateBuilder(ctx context.Context, name string) (int, error) {
 		return 0, err
 	}
 	defer release()
+	return v.createBuilder(ctx, name)
+}
 
+// createBuilder creates the builder VM (replacing any same-name sandbox) and
+// starts buildkitd. The caller must hold the builder creation flock.
+func (v *VM) createBuilder(ctx context.Context, name string) (int, error) {
 	hostPort := options.FirstFreeHostPort(builderHostPortBase)
 	sb, createErr := v.Msb.CreateSandbox(ctx, name, builderSandboxOptions(hostPort)...)
 	if createErr != nil {
-		return 0, fmt.Errorf("recreate builder sandbox: %w", createErr)
+		return 0, fmt.Errorf("create builder sandbox: %w", createErr)
 	}
 	if startErr := startBuildkitd(ctx, sb); startErr != nil {
 		return 0, startErr
@@ -63,6 +68,55 @@ func (v *VM) recreateBuilder(ctx context.Context, name string) (int, error) {
 		return 0, recordErr
 	}
 	return hostPort, nil
+}
+
+// resumeBuilder restarts a stopped builder VM in place. Its owned worker volume
+// survives stop/start, so buildkitd returns to a warm BuildKit cache instead of
+// an empty one; the recreate path (WithReplace) would discard the volume and
+// force the cache to be re-fetched from the registry. A resume failure is not
+// fatal: the caller falls back to recreating. The caller must hold the builder
+// creation flock.
+func (v *VM) resumeBuilder(
+	ctx context.Context,
+	name string,
+	handle msb.SandboxHandle,
+	hostPort int,
+) error {
+	sb, startErr := handle.Start(ctx)
+	if startErr != nil {
+		return fmt.Errorf("start builder sandbox: %w", startErr)
+	}
+	if startErr := startBuildkitd(ctx, sb); startErr != nil {
+		return startErr
+	}
+	if recordErr := writeBuilderRecord(name, hostPort); recordErr != nil {
+		return recordErr
+	}
+	pruneResumedWorker(ctx, sb)
+	return nil
+}
+
+// resumeBuilderPruneAttempts bounds how many times the post-resume prune retries
+// while buildkitd finishes starting.
+const resumeBuilderPruneAttempts = 20
+
+// pruneResumedWorker bounds the resumed worker cache by size. A resumed worker
+// keeps its cache across reaps, so without this it would grow past the volume
+// capacity; the registry holds the authoritative persistent cache, so pruning
+// the worker by size is safe. Best-effort: buildkitd may still be starting (the
+// prune retries briefly), and a failure only defers the bound to a later resume.
+func pruneResumedWorker(ctx context.Context, sb msb.Sandbox) {
+	for range resumeBuilderPruneAttempts {
+		result, err := sb.Shell(ctx, buildctlPruneCommand)
+		if err == nil && result.Success() {
+			return
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(builderDialBackoff):
+		}
+	}
 }
 
 // resolveBuilderPort returns the published host port of the shared builder VM,
@@ -76,32 +130,43 @@ func (v *VM) resolveBuilderPort(ctx context.Context, name string) (int, error) {
 	}
 	defer release()
 
+	hostPort, reused, reuseErr := v.reuseBuilderPort(ctx, name)
+	if reuseErr != nil {
+		return 0, reuseErr
+	}
+	if reused {
+		return hostPort, nil
+	}
+	return v.createBuilder(ctx, name)
+}
+
+// reuseBuilderPort returns a usable port for an existing builder VM, resuming a
+// stopped one in place so its warm worker cache survives (a recreate would
+// discard the owned volume and force a registry re-import). ok is false when
+// there is no reusable builder — missing, no recorded port, or a resume that
+// failed — signalling the caller to create a fresh one.
+func (v *VM) reuseBuilderPort(ctx context.Context, name string) (int, bool, error) {
 	handle, getErr := v.Msb.GetSandbox(ctx, name)
-	if getErr == nil {
-		if hostPort, reused, reuseErr := v.reusedBuilderPort(name, handle); reuseErr != nil {
-			return 0, reuseErr
-		} else if reused {
-			return hostPort, nil
+	if getErr != nil {
+		if msb.IsNotFound(getErr) {
+			return 0, false, nil
 		}
-	} else {
-		if !msb.IsNotFound(getErr) {
-			return 0, fmt.Errorf("check builder sandbox %q: %w", name, getErr)
-		}
+		return 0, false, fmt.Errorf("check builder sandbox %q: %w", name, getErr)
 	}
-
-	hostPort := options.FirstFreeHostPort(builderHostPortBase)
-	sb, createErr := v.Msb.CreateSandbox(ctx, name, builderSandboxOptions(hostPort)...)
-	if createErr != nil {
-		return 0, fmt.Errorf("create builder sandbox: %w", createErr)
+	hostPort, reused, reuseErr := v.reusedBuilderPort(name, handle)
+	if reuseErr != nil {
+		return 0, false, reuseErr
 	}
-
-	if startErr := startBuildkitd(ctx, sb); startErr != nil {
-		return 0, startErr
+	if !reused {
+		return 0, false, nil
 	}
-	if recordErr := writeBuilderRecord(name, hostPort); recordErr != nil {
-		return 0, recordErr
+	if msb.IsSandboxActive(handle.Status()) {
+		return hostPort, true, nil
 	}
-	return hostPort, nil
+	if resumeErr := v.resumeBuilder(ctx, name, handle, hostPort); resumeErr == nil {
+		return hostPort, true, nil
+	}
+	return 0, false, nil
 }
 
 // ready runs the readiness seam when configured. A nil Ready treats the VM as

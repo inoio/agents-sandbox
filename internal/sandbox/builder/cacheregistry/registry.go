@@ -29,13 +29,17 @@ const (
 	lockFileName     = "builder-registry.lock"
 	cacheDirName     = "builder-registry-cache"
 
-	registryIdleTimeout       = 5 * time.Minute
 	registryIdleCheckInterval = 5 * time.Second
 	registryReadHeaderTimeout = 10 * time.Second
 	registryBasePort          = 5000
 	registryCatalogMaxEntries = 1000
 	registryStateFileMode     = 0o600
 )
+
+// IdleTimeout is how long the builder-side singletons stay alive without
+// activity: the embedded cache registry daemon and the shared builder VM both
+// use it, so they expire together rather than one outliving the other.
+const IdleTimeout = 30 * time.Second
 
 // GuestHost is the name a builder VM resolves to the host. The cache
 // reference and BuildKit auth key use it, and the VM reaches it at the host's
@@ -112,6 +116,37 @@ func firstFreeRegistryPort(host string) (int, error) {
 		return port, nil
 	}
 	return 0, fmt.Errorf("find free registry port on %s: %w", host, lastErr)
+}
+
+// ConfigFlagName is the flag the daemon child is launched with to locate its
+// persisted registry config.
+const ConfigFlagName = "config"
+
+// ServeCommandArgs runs the registry daemon from the hidden command's argument
+// list (the args after the command name), reading the --config path. It is the
+// single entry point shared by the real CLI command and a test binary's TestMain,
+// which must serve the daemon that Ensure re-execs: under `go test` the spawner's
+// os.Executable() is the test binary, not the agents-sandbox binary.
+func ServeCommandArgs(ctx context.Context, args []string) error {
+	configPath, err := configPathFromArgs(args)
+	if err != nil {
+		return err
+	}
+	return Serve(ctx, configPath)
+}
+
+func configPathFromArgs(args []string) (string, error) {
+	flag := "--" + ConfigFlagName
+	for index, arg := range args {
+		if arg != flag {
+			continue
+		}
+		if index+1 >= len(args) {
+			return "", fmt.Errorf("%s requires a config path", flag)
+		}
+		return args[index+1], nil
+	}
+	return "", fmt.Errorf("missing %s", flag)
 }
 
 // Serve runs the cache registry until ctx is cancelled or it has been quiet for
@@ -213,6 +248,10 @@ func buildRegistryConfiguration(root string) (*configuration.Configuration, erro
 		Storage: configuration.Storage{
 			"filesystem": configuration.Parameters{"rootdirectory": root},
 			"delete":     configuration.Parameters{"enabled": true},
+			// Enable the in-memory blob-descriptor cache. Without it every blob
+			// descriptor lookup during cache import/export hits the filesystem
+			// driver, which is the registry's hottest path.
+			"cache": configuration.Parameters{"blobdescriptor": "inmemory"},
 		},
 		HTTP:    configuration.HTTP{Secret: hex.EncodeToString(secret)},
 		Catalog: configuration.Catalog{MaxEntries: registryCatalogMaxEntries},
@@ -255,7 +294,7 @@ func bindPort(cfg registryConfig, host string) (int, error) {
 func idleSchedule(configured time.Duration) (time.Duration, time.Duration) {
 	idleTimeout := configured
 	if idleTimeout <= 0 {
-		idleTimeout = registryIdleTimeout
+		idleTimeout = IdleTimeout
 	}
 	checkInterval := min(registryIdleCheckInterval, idleTimeout/2)
 	if checkInterval <= 0 {

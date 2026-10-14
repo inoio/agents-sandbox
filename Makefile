@@ -82,7 +82,7 @@ test:
 # `test`/`check` via the `integration` build tag. AGENTS_SANDBOX_INTEGRATION is
 # set here.
 test-integration:
-	AGENTS_SANDBOX_INTEGRATION=1 AGENTS_SANDBOX_BUILDER=moby CGO_ENABLED=1 go test -tags integration -count=1 ./...
+	AGENTS_SANDBOX_INTEGRATION=1 AGENTS_SANDBOX_BUILDER=moby CGO_ENABLED=1 go test -tags integration -count=1 -timeout=60m ./...
 
 # Integration tests across the module, msb backend: the real BuildKit builder-VM
 # image-build, registry cache-reuse, shared builder-VM, and login-shell PATH tests
@@ -90,7 +90,7 @@ test-integration:
 # network access (base image and registry pulls, agent installs). The gated tier
 # (main/tags/manual).
 test-integration-msb:
-	AGENTS_SANDBOX_INTEGRATION=1 AGENTS_SANDBOX_BUILDER=msb CGO_ENABLED=1 go test -tags integration -count=1 ./...
+	AGENTS_SANDBOX_INTEGRATION=1 AGENTS_SANDBOX_BUILDER=msb CGO_ENABLED=1 go test -tags integration -count=1 -timeout=60m ./...
 
 # Compile every test binary including build-tagged files (`//go:build
 # integration`) so a regression that only breaks tagged code is caught without a

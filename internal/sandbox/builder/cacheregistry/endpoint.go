@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sync"
 	"syscall"
 	"time"
 
@@ -42,6 +43,19 @@ type endpointRecord struct {
 var (
 	registryHTTPClient                   = &http.Client{Timeout: registryHealthTimeout}
 	spawnRegistry      registrySpawnFunc = realSpawnRegistry
+
+	// registryKeepAliveInterval is the client-side keep-alive cadence that
+	// refreshes the daemon's idle timer during a build. It is well below
+	// IdleTimeout so the quiet phase between a build's cache import and export
+	// cannot let the idle reaper fire. It is a variable so tests can shorten it.
+	registryKeepAliveInterval = 5 * time.Second
+
+	// touchRegistry refreshes the daemon's idle-activity timer with a health
+	// probe. It is a variable so tests can observe keep-alive ticks without a
+	// live daemon.
+	touchRegistry = func(ctx context.Context, endpoint Endpoint) {
+		_ = registryHealthy(ctx, endpoint)
+	}
 )
 
 // Ensure returns a ready cache registry endpoint, starting the per-user
@@ -111,7 +125,7 @@ func newChildConfig() (registryConfig, error) {
 		Host:        host,
 		Port:        port,
 		Token:       token,
-		IdleTimeout: registryIdleTimeout,
+		IdleTimeout: IdleTimeout,
 	}, nil
 }
 
@@ -139,6 +153,39 @@ func registryHealthy(ctx context.Context, endpoint Endpoint) bool {
 	defer func() { _ = response.Body.Close() }()
 	_, _ = io.Copy(io.Discard, response.Body)
 	return response.StatusCode == http.StatusOK
+}
+
+// KeepAlive refreshes the daemon's idle-activity timer on an interval until the
+// returned stop function is called or ctx is done. The registry only sees HTTP
+// traffic at cache import and export, so a build that runs longer than
+// IdleTimeout would otherwise let the reaper shut the daemon down mid-build and
+// fail the cache export with a reset connection. The stop function blocks until
+// the loop has exited and is safe to call more than once.
+func (e Endpoint) KeepAlive(ctx context.Context) func() {
+	done := make(chan struct{})
+	exited := make(chan struct{})
+	ticker := time.NewTicker(registryKeepAliveInterval)
+	go func() {
+		defer close(exited)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-done:
+				return
+			case <-ticker.C:
+				touchRegistry(ctx, e)
+			}
+		}
+	}()
+	var once sync.Once
+	return func() {
+		once.Do(func() {
+			close(done)
+			<-exited
+		})
+	}
 }
 
 func waitHealthy(ctx context.Context, endpoint Endpoint) error {
@@ -177,13 +224,21 @@ func realSpawnRegistry(ctx context.Context, configPath string) (int, error) {
 	command := exec.CommandContext(context.WithoutCancel(ctx), executable, CommandName, "--config", configPath)
 	command.Stdout = logFile
 	command.Stderr = logFile
+	return startDetachedCommand(command)
+}
+
+// startDetachedCommand starts command in its own session (so it survives the
+// launcher) and reaps it in the background once it exits. Reaping matters because
+// the launcher can stay alive long after the daemon idle-reaps: without a Wait,
+// the exited child lingers as a zombie until the launcher itself exits.
+func startDetachedCommand(command *exec.Cmd) (int, error) {
 	//exhaustruct:ignore // only Setsid matters: detach into a new session
 	command.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
 	if err := command.Start(); err != nil {
-		return 0, fmt.Errorf("start builder registry: %w", err)
+		return 0, fmt.Errorf("start detached command: %w", err)
 	}
 	pid := command.Process.Pid
-	_ = command.Process.Release()
+	go func() { _ = command.Wait() }()
 	return pid, nil
 }
 

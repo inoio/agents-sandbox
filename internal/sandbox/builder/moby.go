@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/moby/moby/client"
 )
@@ -149,21 +150,28 @@ func dockerUnavailableError(cause error) error {
 }
 
 func (b *mobyBuilder) Build(ctx context.Context, req BuildRequest) (BuildResult, error) {
+	buildStart := time.Now()
+	var timings BuildTimings
+
+	ensureStart := time.Now()
 	engine, err := b.resolveEngine(ctx)
 	if err != nil {
 		return BuildResult{}, err
 	}
+	timings.Ensure = time.Since(ensureStart)
 
+	prepareStart := time.Now()
 	baseDigest, err := resolveMobyBaseDigest(ctx, engine, req.BaseRef)
 	if err != nil {
 		return BuildResult{}, fmt.Errorf("resolve base image %s: %w", req.BaseRef, err)
 	}
-
 	buildContext, err := buildContextTar(req.ContextDir)
 	if err != nil {
 		return BuildResult{}, err
 	}
+	timings.BaseResolve = time.Since(prepareStart)
 
+	solveStart := time.Now()
 	buildResult, err := engine.ImageBuild(ctx, buildContext, client.ImageBuildOptions{
 		Tags:      []string{req.Tag},
 		Remove:    true,
@@ -182,22 +190,28 @@ func (b *mobyBuilder) Build(ctx context.Context, req BuildRequest) (BuildResult,
 	if err != nil {
 		return BuildResult{}, fmt.Errorf("inspect built image %s: %w", req.Tag, err)
 	}
+	timings.Solve = time.Since(solveStart)
 
+	archiveStart := time.Now()
 	archivePath, err := writeImageSaveArchive(ctx, engine, req.Tag)
 	if err != nil {
 		return BuildResult{}, err
 	}
+	timings.Export = time.Since(archiveStart)
 
 	env := []string(nil)
 	if inspect.Config != nil {
 		env = inspect.Config.Env
 	}
 
+	timings.Total = time.Since(buildStart)
 	return BuildResult{
-		ArchivePath: archivePath,
-		Digest:      inspect.ID,
-		Env:         env,
-		BaseDigest:  baseDigest,
+		ArchivePath:   archivePath,
+		Digest:        inspect.ID,
+		Env:           env,
+		BaseDigest:    baseDigest,
+		Timings:       timings,
+		VertexTimings: nil,
 	}, nil
 }
 

@@ -47,9 +47,13 @@ func (b *msbBackend) KeepAlive(ctx context.Context) func() {
 }
 
 // Export selects the untagged OCI archive that microsandbox's ImageLoad
-// consumes; the tag is carried explicitly on load rather than in the export.
+// consumes; the tag is carried explicitly on load rather than in the export. The
+// archival compression is overridden (see builderCompression): the default gzip
+// dominates a large image's export time.
 func (b *msbBackend) Export(string) exportSpec {
-	return exportSpec{Type: "oci", Attrs: nil}
+	attrs := map[string]string{"oci-mediatypes": buildkitAttrTrue}
+	applyCompressionAttrs(attrs)
+	return exportSpec{Type: "oci", Attrs: attrs}
 }
 
 // newBackend is the single construction point for the active backend.

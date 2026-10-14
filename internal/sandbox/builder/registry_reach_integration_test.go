@@ -13,6 +13,8 @@ import (
 	"testing"
 	"time"
 
+	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
+
 	"github.com/inoio/agents-sandbox/internal/configpaths"
 	"github.com/inoio/agents-sandbox/internal/sandbox/builder/cacheregistry"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
@@ -37,6 +39,10 @@ func TestBuilderVMReachesEmbeddedRegistry(t *testing.T) {
 	if _, err := newVM().Ensure(ctx); err != nil {
 		t.Fatalf("ensure builder VM: %v", err)
 	}
+	// This test's per-test state dir namespaces its builder VM, so the idle
+	// reaper (which only stops an idle builder) would leak it — and its owned
+	// worker volume — for every run. Remove it.
+	t.Cleanup(func() { removeBuilderSandbox() })
 
 	port := freePortOn(t, "127.0.0.1")
 	configPath := writeRegistryProbeConfig(t, port)
@@ -66,6 +72,19 @@ func requireMsbIntegrationHost(t *testing.T) {
 	if SelectedName() != "msb" {
 		t.Skip("msb-only test: requires the microsandbox backend")
 	}
+}
+
+// removeBuilderSandbox stops and removes this state dir's builder VM, ignoring
+// errors: it is best-effort cleanup after the test, and a missing builder is not
+// a failure.
+func removeBuilderSandbox() {
+	ctx := context.Background()
+	handle, err := msb.Get().GetSandbox(ctx, builderSandboxName())
+	if err != nil {
+		return
+	}
+	_ = handle.Stop(ctx, msbSdk.WithStopTimeout(30*time.Second))
+	_ = handle.Remove(ctx)
 }
 
 // freePortOn returns a currently free port on host, the interface the registry

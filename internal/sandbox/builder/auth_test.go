@@ -37,7 +37,7 @@ func TestCacheRegistryAuthKeysCredentialByRegistryHost(t *testing.T) {
 	endpoint := cacheregistry.Endpoint{Host: cacheregistry.GuestHost, Port: 5000, Token: "tok"}
 	stubCacheRegistry(t, endpoint)
 
-	cacheRef, session, err := (&Client{}).cacheRegistryAuth(context.Background(), BuildRequest{
+	_, cacheRef, session, err := (&Client{}).cacheRegistryAuth(context.Background(), BuildRequest{
 		Tag:      "project/opencode:1.2.3",
 		Platform: "linux/amd64",
 	})

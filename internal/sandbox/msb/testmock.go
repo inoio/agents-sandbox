@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io"
 	"strings"
 	"sync"
 	"testing"
@@ -45,7 +44,7 @@ type MockMsbClient struct {
 	ImageListFn       func(ctx context.Context) ([]ImageHandle, error)
 	ImagePruneFn      func(ctx context.Context) (*msbSdk.ImagePruneReport, error)
 	ImageRemoveFn     func(ctx context.Context, ref string, force bool) error
-	ImageLoadFn       func(ctx context.Context, ref string, r io.Reader) error
+	ImageLoadFn       func(ctx context.Context, ref, archivePath string) error
 	ImageInspectFn    func(ctx context.Context, ref string) (*msbSdk.ImageConfig, error)
 
 	// Pre-populated collections — List* methods return these when the callback is nil.
@@ -272,12 +271,12 @@ func (m *MockMsbClient) ImageRemove(ctx context.Context, ref string, force bool)
 }
 
 // ImageLoad implements Client.
-func (m *MockMsbClient) ImageLoad(ctx context.Context, ref string, r io.Reader) error {
+func (m *MockMsbClient) ImageLoad(ctx context.Context, ref, archivePath string) error {
 	m.mu.Lock()
 	m.LoadedImages = append(m.LoadedImages, ref)
 	m.mu.Unlock()
 	if m.ImageLoadFn != nil {
-		return m.ImageLoadFn(ctx, ref, r)
+		return m.ImageLoadFn(ctx, ref, archivePath)
 	}
 	return m.imageLoadErr
 }
@@ -852,7 +851,7 @@ func (f *failFastMsbClient) ImageRemove(_ context.Context, _ string, _ bool) err
 	return nil
 }
 
-func (f *failFastMsbClient) ImageLoad(_ context.Context, _ string, _ io.Reader) error {
+func (f *failFastMsbClient) ImageLoad(_ context.Context, _, _ string) error {
 	f.mustMock()
 	return nil
 }

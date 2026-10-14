@@ -20,7 +20,7 @@ read_if: Working in internal/sandbox (VM lifecycle, image building, BuildKit bui
 
 ### `builder/` — runner-image builder backends (msb default, moby opt-in)
 
-- `builder.go`, `vm.go`, `vmstate.go` — shared builder-VM lifecycle (ensure/start `buildkitd`, readiness probe, teardown, keep-alive); worker storage is a tmpfs, the layer cache lives in `cacheregistry/`; `vmstate.go` persists the builder-VM host port so a running VM is rediscovered and reused
+- `builder.go`, `vm.go`, `vmstate.go` — shared builder-VM lifecycle (ensure/start `buildkitd`, readiness probe, teardown, keep-alive); worker storage is a disk-backed owned volume, the layer cache lives in `cacheregistry/`; `vmstate.go` persists the builder-VM host port so a running VM is rediscovered and reused
 - `client.go`, `build.go`, `auth.go` — host-side BuildKit client: `Solve` the rendered Dockerfile, OCI export, gateway base-digest resolution, `type=registry` cache import/export, registry auth (host docker config + embedded cache-registry token)
 - `selection.go`, `backend.go` — `Get()`/`SelectedName()`: resolve `msb` (default) or `moby` from viperconfig `builder`/`AGENTS_SANDBOX_BUILDER`; the buildkit-only `backend` interface (`msbBackend`) stays internal
 - `moby.go`, `mobycontext.go` — opt-in Docker Engine API backend (`ImageBuild` → `ImageSave` archive loaded via the shared `EnsureLoaded`); no `msb.Client`, no buildkit

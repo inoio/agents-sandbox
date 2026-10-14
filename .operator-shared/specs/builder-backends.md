@@ -123,6 +123,13 @@ isolation for the host daemon and is intentionally presented as a fallback.
   buildkit; it builds via the Docker Engine API and returns a `docker save`
   archive that the shared `EnsureLoaded` path loads into the microsandbox image
   store (the same delivery path the buildkit OCI archive uses).
+- The image load is **by path, not streamed through a reader**:
+  `msb.Client.ImageLoad(ctx, ref, archivePath)` hands the builder's `ArchivePath`
+  straight to `msb.Image.Load`. It previously took an `io.Reader` and spooled a
+  second full copy of the (multi-GB) archive to a temp file plus an fsync before
+  loading; both backends already produce a file, so the spool was pure overhead.
+  msb exposes no registry pull (only `Image.Load` from a tar, `Get`, `Remove`,
+  `Prune`, `Save`), so loading the exported archive is the only delivery route.
 - Selection reads config/env at construction so callers and tests can choose a
   backend without package-level mutable state (matching the current approach).
 
@@ -130,27 +137,56 @@ isolation for the host daemon and is intentionally presented as a fallback.
 - The builder VM is a **single, shared, reused singleton per user**. Multiple
   parallel builds from any number of agents-sandbox processes connect to the same
   buildkitd; BuildKit serves concurrent solves.
+- **Per-state-dir identity**: the builder VM's msb name and component label are
+  namespaced by a short hash of the state dir (`builderSandboxName`,
+  `BuilderComponentLabelValue`), so processes with different state dirs get
+  distinct builder VMs. Without it, an integration test's temp state dir and a
+  concurrent real binary share one fixed name; each, unable to recognize the
+  other's port record and flock (both live in their own state dir), recreates the
+  VM with `WithReplace`, thrashing the running builder and its worker cache — and
+  a label-based list would match both. The registry is already isolated this way:
+  its endpoint, config, lock, and storage root all live under the state dir.
 - **Port persistence is the fix**: the current reuse branch (`vm.go:47-52`) is dead
   only because `publishedHostPort` reads `SandboxHandle.Config()`, which drops
   port bindings. Record the chosen host port (with the sandbox name) in an
   agents-sandbox state file, written atomically at creation, and read it back on
   the reuse branch when the SDK returns no port. No msb SDK change is required.
-- **Discovery/lifetime**: under the existing host-wide flock, look up the sandbox
-  and the recorded port; if the sandbox exists and buildkitd answers its readiness
-  probe, **reuse** it; otherwise (absent, stale record, or failed probe) create a
-  fresh VM and rewrite the record. The VM is idle-reaped when no build is active,
-  so a stale record is expected and handled by recreation.
+- **Discovery/lifetime**: under the host-wide flock, look up the sandbox and the
+  recorded port. If it exists and is **active**, reuse it (the readiness probe
+  validates buildkitd). If it exists but is **stopped/created** (the idle reaper
+  only *stops* an idle builder, never removes it), **resume it in place** —
+  `SandboxHandle.Start` then restart buildkitd — because an owned worker volume
+  survives stop/start, so the BuildKit cache is preserved instead of re-fetched
+  from the registry. Only if the sandbox is missing, the port record is absent, or
+  the resume fails does it create a fresh VM with `WithReplace` and rewrite the
+  record.
+- **Worker is resumed, not discarded — bound it by size**: since the worker cache
+  now survives reaps, `buildctl prune` carries `--keep-storage` (`50GB`,
+  `builderCacheKeepStorage`) so the 128 GiB worker volume cannot fill; the embedded
+  registry remains the authoritative persistent cache, so size-bounded worker
+  pruning is safe. Prune still requires the builder running to connect (`PruneCache`).
 - **Keep-alive across parallel builds**: every in-flight build refreshes the idle
   timer (existing `KeepAlive`), so a shared VM is not reaped while any build is
   running.
 - This makes the builder VM a per-user singleton; the cache registry daemon is a
-  separate per-user singleton.
+  separate per-user singleton. Both share one idle timeout
+  (`cacheregistry.IdleTimeout`, 30s) so they expire together rather than one
+  outliving the other. Each is held open by the launcher for the duration of a
+  build: the VM via `KeepAlive`, and the registry via a client-side keep-alive
+  (`Endpoint.KeepAlive`, `registryKeepAlive` in the builder). The registry only
+  sees HTTP traffic at cache import and export, so without this a build longer
+  than the idle timeout would let the daemon reap mid-build and reset the
+  cache-export connection.
 
 ### Embedded cache registry (msb)
 - An OCI registry is embedded in the agents-sandbox binary and started on demand
   (once per user) when an msb build needs `type=registry` cache import/export.
 - Properties: pure-Go, cross-platform (Linux + macOS), unprivileged, plain HTTP,
-  filesystem-backed storage under the agents-sandbox user state directory.
+  filesystem-backed storage under the agents-sandbox user state directory. The
+  filesystem storage enables the **in-memory blob-descriptor cache**
+  (`storage.cache.blobdescriptor=inmemory`) — the registry's hottest lookup path,
+  which is otherwise disabled and hits the filesystem for every blob during cache
+  import/export.
 - **Reachability:** the builder VM reaches the host through the sandbox host
   alias `host.microsandbox.internal`, which microsandbox forwards to the host's
   loopback. The registry therefore binds loopback on the host; bind scope is the
@@ -190,6 +226,43 @@ isolation for the host daemon and is intentionally presented as a fallback.
   that user connect to the same daemon → one storage, one cache, no duplicate
   caches and no misses between processes. Only its **storage** persists on disk
   under the agents-sandbox state dir.
+- **Integration-test state dir:** the msb tier runs against a mocked state dir
+  that is **shared across the whole test binary run**
+  (`configpaths.WithMockConfigPathsAt` → one `os.MkdirTemp` created on first use,
+  removed by `integrationTestCleanup` after the run), never the live user
+  registry (the store stays under a temp dir). Sharing is the point: the persisted
+  builder-VM record (`builder-vm.json`) survives between tests, so
+  `resolveBuilderPort` **reuses the running builder VM** instead of recreating it
+  (`WithReplace`), and with it BuildKit's **worker cache** (native snapshotter in
+  the VM) — identical build steps across tests then hit cache. A per-test dir (the
+  general `configpaths.WithMockConfigPaths` default) left no record, so every test
+  recreated the VM and rebuilt from scratch, making the tier far slower. Note the
+  registry store also persists across tests, but registry cache refs are
+  per-image-tag (`Endpoint.CacheRef(tag, platform)`), so registry-cache reuse
+  across tests holds only when tags match; its role is surviving a VM reap/restart
+  (the VM idle-reaps after 30s of inactivity; a stopped VM is now **resumed** with
+  its worker cache intact rather than recreated). Tests that deliberately remove the
+  builder sandbox
+  (`removeBuilderSandboxes`) still reset the worker cache for their successors.
+  Consequence for cache-invalidation tests: a test asserting that a changed input
+  re-runs a layer must use inputs **disjoint from those warmed by earlier tests**,
+  or the rebuild is a legitimate cache hit. `TestRenderDockerfileAgentVersionRebuildsInstall`
+  therefore bumps between opencode releases other than the pinned
+  `defaultIntegrationOpencodeVersion` (which the rest of the suite bakes) — a
+  guard fatals if the pinned default is changed onto the test's versions.
+  Because the shared dir is also hashed into the builder name and label, the test
+  run's builder is distinct from a concurrently running real binary's, so the two
+  never recreate each other's VM (see "Per-state-dir identity").
+- **Integration tests must remove their builder VM.** The idle reaper only *stops*
+  an idle builder, never removes it (production relies on this: the builder name is
+  stable per state dir, so at most one exists and it is resumed in place on next
+  use). A test run's state dir is a fresh temp dir per `go test`, so its hashed
+  builder name is new every run and would leak a stopped builder — plus its owned
+  128 GiB worker volume — forever. `internal/sandbox/image`'s `integrationTestCleanup`
+  therefore removes the run's builder (by its cached per-state-dir label) before
+  deleting the shared dir, and `internal/sandbox/builder`'s
+  `TestBuilderVMReachesEmbeddedRegistry` removes the builder it creates via
+  `t.Cleanup`.
 - **Discovery:** the daemon publishes its endpoint (and token) to an
   agents-sandbox state file written atomically with mode `0600`; a start-lock
   (flock) serializes racing starters, and a stale/mismatched entry (dead pid or
@@ -246,10 +319,77 @@ isolation for the host daemon and is intentionally presented as a fallback.
   guest through the host alias) and buildkitd has no insecure-registry config, so
   without it BuildKit defaults to HTTPS and every cache import/export against the
   HTTP registry fails.
-- The cache export runs only on a real Dockerfile-step miss (existing
-  export-on-miss detection), so a full cache hit skips it.
-- Folding image export and cache export into a single solve to hide the
-  export latency is **out of scope** for this spec.
+- The registry cache export is folded into the **single image solve**: `solve`
+  receives both the image `Exports` and the registry `CacheExports`, and BuildKit
+  runs the cache export after the build graph completes. An earlier design ran a
+  second, cache-only solve gated on a step miss; folding removes a redundant cache
+  import and graph traversal and lets BuildKit share layer compression between the
+  two exports. The cost is that a full cache hit now also exports the cache (cheap:
+  the registry already holds the blobs, so only the manifest is re-pushed).
+- **Compression**: both the OCI image archive (`msbBackend.Export`) and the
+  registry cache export use `compression=zstd` (`builderCompression`,
+  `oci-mediatypes=true` for the image) instead of BuildKit's default gzip. On large
+  images the in-VM `[internal] exporting to oci image format` vertex dominates a
+  rebuild (measured ~1m30s→~61s for the heavy dev image), and that cost is
+  compression CPU + streaming the whole tar through the microVM's published port.
+  The measured cache-push delta (~8s) against the full-image stream (~61s) indicates
+  the export is **transfer-bound**. Env overrides for A/B measurement:
+  `AGENTS_SANDBOX_BUILDER_COMPRESSION` (e.g. `uncompressed`) and
+  `AGENTS_SANDBOX_BUILDER_COMPRESSION_LEVEL`.
+- **Process sandbox**: `AGENTS_SANDBOX_BUILDER_NO_PROCESS_SANDBOX` (opt-in) adds
+  buildkitd's `--oci-worker-no-process-sandbox`, dropping the per-step PID/mount
+  namespace setup (and the guest cgroup-controller warning) at the cost of steps
+  sharing buildkitd's PID namespace — acceptable in the throwaway per-user builder
+  VM.
+- **Phase timings** are recorded on every `BuildResult.Timings` and logged at
+  verbose level by the image layer (`Build timings: ensure / base / solve /
+  export / total`, plus `solve warmup`). `solve warmup` is solve start → first
+  status update: the registry cache import and graph setup, which is invisible in
+  Dockerfile-step progress and was the largest unaccounted gap before this
+  instrumentation. `export` is the solve tail after the last step (finalizing the
+  image archive) plus archive close. `BuildResult.VertexTimings` carries **every**
+  BuildKit vertex's reported duration (from `Started`/`Completed`) tagged as a
+  Dockerfile step or a buildkit-internal vertex, with its cached flag, and the image
+  layer logs them all plus the cumulative step and internal totals. This exists
+  because a solve's time is often **not** in the Dockerfile steps: `[internal]`
+  vertices (layer export to the OCI archive, registry cache import/export) can
+  dominate, and a **cached** step can be slow because BuildKit materializes its layer
+  inside the vertex window. The "solve minus cumulative" figure is the residual.
+
+### BuildKit worker storage
+- The builder VM mounts its BuildKit worker storage (`/var/lib/buildkit`) as a
+  **disk-backed owned volume** (`Mount.Owned{Kind: disk}`, removed with the
+  sandbox) — **not `tmpfs`**. A `tmpfs` worker is guest-RAM-backed, and BuildKit's
+  native snapshotter materializes every layer into it, so a large build (node/npm
+  agents, Fedora tool installs) exhausts the VM's memory and `buildkitd` is
+  OOM-killed mid-solve. That surfaced as either `ResourceExhausted: ... cannot
+  allocate memory` (when a `RUN` process itself could not allocate) or
+  `failed to receive status: ... EOF` (when `buildkitd` died). The volume is
+  sized generously (128 GiB, `builderCacheDiskSizeMiB`): the native snapshotter
+  keeps a full copy of every unpacked layer, so one test process building many
+  image variants accumulates well beyond the low tens of GiB and can otherwise
+  fill the worker and fail a copy with `copy_file_range: no space left on
+  device`. The worker survives an idle reap (the VM is resumed, not recreated) and
+  is size-bounded by the prune `--keep-storage`; the persistent layer cache is the
+  embedded registry, so a cleared or pruned worker only costs a re-import.
+- **Snapshotter**: buildkitd runs `--oci-worker-snapshotter fuse-overlayfs` by
+  default. The guest fs cannot host a kernel overlay mount (`mount ... "overlay"
+  ... invalid argument`), and the copy-based `native` snapshotter was the dominant
+  rebuild cost (full-rootfs copies per changed layer). The guest provides FUSE
+  (`/dev/fuse`, `fuse` in `/proc/filesystems`), so the userspace `fuse-overlayfs`
+  snapshotter works and roughly halves build-step time on large images; the builder
+  image is the upstream **rootless** BuildKit image because it bundles
+  `fuse-overlayfs` (and `buildkit-runc`), and the sandbox pins `User=root` since
+  that image defaults to uid 1000. `AGENTS_SANDBOX_BUILDER_SNAPSHOTTER` overrides
+  the snapshotter (e.g. `native`) for troubleshooting. The start command installs
+  `fuse-overlayfs` as a fallback if absent and resets the worker when a marker file
+  shows it was formatted by a different snapshotter (BuildKit snapshot data is
+  snapshotter-specific).
+- **Daemon GC budget**: buildkitd runs `--oci-worker-gc-keepstorage
+  50000,50000,50000` (`builderCacheGCKeepStorage`, MB) instead of the 2 GiB default,
+  so multi-GB images are not evicted continuously during a build (re-unpack churn +
+  GC IO). It aligns with the 50 GB `buildctl prune` bound; the worker volume is
+  128 GiB so the budget leaves headroom.
 
 ### moby backend
 - Restores the pre-BuildKit path: tar the build context (Dockerfile plus any
@@ -293,6 +433,26 @@ isolation for the host daemon and is intentionally presented as a fallback.
   the shared daemon starts on demand, is idempotent for a second client, idle-reaps,
   rejects unauthenticated requests, and restarts on a stale endpoint/token. Prior
   art: `internal/sandbox/builder/vm_test.go`, `tuning_test.go`.
+- **The daemon spawner is test-binary aware only at the consumer.** `Ensure`
+  re-execs `os.Executable()`, which under `go test` is the *test* binary, not the
+  agents-sandbox CLI; a test binary that triggers a real build (`internal/sandbox/image`)
+  must therefore dispatch the hidden `__builder-registry` command in its
+  `TestMain` (via `cacheregistry.ServeCommandArgs`) or the child re-runs the whole
+  suite and the daemon never becomes ready.   `TestTestBinaryServesRegistryDaemon`
+  in `internal/sandbox/image` guards this by re-execing itself as the daemon and
+  asserting `/v2/` answers. The msb integration tier also runs packages serially
+  (`-p 1`): the builder VM is a user-global singleton with a fixed name while each
+  test package isolates its own state dir, so parallel packages race to
+  stop/recreate it (`... was replaced (expected identity ...)`).
+- **Integration builds pin the agent version**: resolving "latest" hits agent
+  release APIs (opencode's GitHub `releases/latest` is unauthenticated and
+  rate-limited to 60/hr per IP), which flakes the tier. `internal/sandbox/image`'s
+  integration helper returns a pinned opencode release
+  (`AGENTS_SANDBOX_INTEGRATION_OPENCODE_VERSION` overrides it) and only resolves
+  through the network for other agents; the resolver itself is covered by unit
+  tests. Failed integration builds dump the builder VM's status and the in-VM
+  `buildkitd` log tail (`dumpBuilderFailure`) — the only trace of a crashed or
+  reaped builder.
 - **moby backend** is unit-tested with the engine client stubbed: builds invoke
   `ImageBuild` with the expected options and return an `ImageSave` archive, which
   the shared `EnsureLoaded` path loads into a mocked microsandbox client. Prior
@@ -319,9 +479,10 @@ isolation for the host daemon and is intentionally presented as a fallback.
 
 - A `docker build` CLI / "host" backend; it was only ever a benchmark baseline.
 - Reintroducing any Docker-container buildkit backend.
-- Single-solve combined image+cache export.
-- Cache-hit-rate tuning beyond `mode=max` export-on-miss.
+- Cache-hit-rate tuning beyond `mode=max` cache export.
 - Auto-detection of Docker to switch backends silently (moby is explicit only).
+- Incremental image delivery (registry-pull or partial export): the whole-image
+  tar stream to `msb.Image.Load` is the current floor (see the perf guide).
 
 ## Keep vs Remove inventory
 
@@ -339,13 +500,13 @@ residue.
   image package or CLI, and it is the one seam tests mock. Rebuilding selection
   lower would duplicate it.
 - The BuildKit path (solve, OCI export, gateway base-digest resolution, the
-  `type=registry` cache export/import, and export-on-miss detection incl. the
-  "cached if ever reported so" fix and `FROM`/`[internal]` exclusions) — this *is*
+  `type=registry` cache export/import folded into the image solve, and the
+  cached-step reporting incl. the "cached if ever reported so" fix and
+  `FROM`/`[internal]` exclusions) — this *is*
   the default backend. The registry cache is what makes it viable (the old volume
-  cache was ~3.6× slower on misses), export-on-miss avoids paying the ~13s export
-  on a full hit, and the gateway base-digest route is required for image
-  identity/inspection under daemonless builds. Removing any of it means full
-  rebuilds or broken identity. (Only the non-registry cache modes are trimmed.)
+  cache was ~3.6× slower on misses), and the gateway base-digest route is required
+  for image identity/inspection under daemonless builds. Removing any of it means
+  full rebuilds or broken identity. (Only the non-registry cache modes are trimmed.)
 - The msb builder-VM lifecycle and its `KeepAlive` handling — required to run
   buildkitd in the microVM at all, and `KeepAlive` specifically prevents the idle
   reaper from killing the VM mid-build, since builds use the forwarded port which
@@ -372,7 +533,8 @@ residue.
 - The non-shipping cache modes and their helpers: named volume, host bind, and
   `tmpfs-export` (local `CacheExports`/`CacheImports`), including the host
   cache-dir preparation and the bind/export path helpers. Only the worker
-  (tmpfs) storage and the registry cache remain.
+  storage and the registry cache remain — and the worker storage is a
+  **disk-backed owned volume**, not `tmpfs` (see "BuildKit worker storage").
 - Diagnostic trace helpers added for the spike, unless deliberately re-adopted as
   a documented debug facility (default: remove).
 - The TLS-bypass branch of the builder network/TLS config (keep the production

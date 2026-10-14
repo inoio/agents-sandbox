@@ -10,6 +10,20 @@ import (
 	"time"
 )
 
+func TestBuildRegistryConfigurationEnablesBlobDescriptorCache(t *testing.T) {
+	config, err := buildRegistryConfiguration(t.TempDir())
+	if err != nil {
+		t.Fatalf("buildRegistryConfiguration: %v", err)
+	}
+	cache, ok := config.Storage["cache"]
+	if !ok {
+		t.Fatal("registry config missing the storage cache section")
+	}
+	if cache["blobdescriptor"] != "inmemory" {
+		t.Errorf("blobdescriptor = %v, want inmemory", cache["blobdescriptor"])
+	}
+}
+
 func TestServeRejectsMissingOrWrongToken(t *testing.T) {
 	handler, cleanup := newTestRegistryHandler(t, t.TempDir())
 	defer cleanup()

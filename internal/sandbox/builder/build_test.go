@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"os"
+	"reflect"
 	"runtime"
 	"strings"
 	"sync"
@@ -31,6 +32,9 @@ type fakeBuildkitClient struct {
 	// emitVertices are sent on the status channel during Solve, simulating
 	// build step progress for cache-hit detection tests.
 	emitVertices []*client.Vertex
+	// emitDelay is slept before emitting vertices, so timing tests can observe
+	// a non-trivial solve warmup.
+	emitDelay time.Duration
 	// resolveImageConfigFn overrides the default ResolveImageConfig behavior.
 	resolveImageConfigFn func(ref string, opt sourceresolver.Opt) (string, digest.Digest, []byte, error)
 	closeCalls           atomic.Int32
@@ -46,6 +50,9 @@ func (f *fakeBuildkitClient) Solve(
 	f.mu.Lock()
 	f.solve = append(f.solve, opt)
 	f.mu.Unlock()
+	if f.emitDelay > 0 {
+		time.Sleep(f.emitDelay)
+	}
 	for _, v := range f.emitVertices {
 		status <- &client.SolveStatus{Vertexes: []*client.Vertex{v}}
 	}
@@ -69,8 +76,8 @@ func (f *fakeBuildkitClient) Close() error {
 	return nil
 }
 
-// solveOpt returns the image-export solve, which is the first solve Build
-// issues; the optional cache-export pass is a second, image-less solve.
+// solveOpt returns the single solve Build issues, which carries the image
+// export and the registry cache export together.
 func (f *fakeBuildkitClient) solveOpt(t *testing.T) client.SolveOpt {
 	t.Helper()
 	f.mu.Lock()
@@ -173,6 +180,36 @@ func TestBuildKeepsBuilderAlive(t *testing.T) {
 	}
 	if !backend.stopped {
 		t.Error("Build did not stop the builder keep-alive")
+	}
+}
+
+// TestBuildKeepsCacheRegistryAlive asserts Build holds the cache registry's idle
+// timer open for the duration of the build, so the shared idle timeout cannot
+// reap the daemon mid-build and reset the cache-export connection.
+func TestBuildKeepsCacheRegistryAlive(t *testing.T) {
+	stubResolveBaseDigest(t, "base@sha256:x", nil)
+	stubCacheRegistry(t, testCacheEndpoint())
+	stubBuildkitDial(t, &fakeBuildkitClient{})
+
+	var started, stopped bool
+	restore := registryKeepAlive
+	t.Cleanup(func() { registryKeepAlive = restore })
+	registryKeepAlive = func(context.Context, cacheregistry.Endpoint) func() {
+		started = true
+		return func() { stopped = true }
+	}
+
+	if _, err := (&Client{backend: &fakeBackend{}}).Build(context.Background(), BuildRequest{
+		ContextDir: "/tmp/context",
+		Platform:   "linux/amd64",
+	}); err != nil {
+		t.Fatalf("Build failed: %v", err)
+	}
+	if !started {
+		t.Error("Build did not start the registry keep-alive")
+	}
+	if !stopped {
+		t.Error("Build did not stop the registry keep-alive")
 	}
 }
 
@@ -509,42 +546,57 @@ func TestHostPlatform(t *testing.T) {
 	}
 }
 
-// TestForwardProgressEmitsCachedVertices asserts cached vertices are surfaced
-// (as "<name> CACHED") alongside trimmed, non-empty log lines, so callers can
-// observe BuildKit layer-cache reuse.
-func TestForwardProgressEmitsCachedVertices(t *testing.T) {
+// TestBuildProgressReportsStepsAndCachedMarkers asserts a report surfaces trimmed
+// log lines, each Dockerfile step's name as it starts, and a CACHED marker for a
+// step served from cache — and that a repeated status update for the same vertex
+// (BuildKit re-sends every vertex) emits the step only once.
+func TestBuildProgressReportsStepsAndCachedMarkers(t *testing.T) {
 	var lines []string
-	forwardProgress(&client.SolveStatus{
+	reporter := newBuildProgressReporter(func(line string) { lines = append(lines, line) })
+
+	started := time.Now()
+	status := &client.SolveStatus{
 		Logs: []*client.VertexLog{
 			{Data: []byte("installing node\n")},
 			{Data: []byte("   \n")},
 		},
 		Vertexes: []*client.Vertex{
-			{Name: "dockerfile.v0", Cached: false},
+			{Name: "dockerfile.v0"},
+			{Name: "[internal] load metadata for base"},
+			{Name: "[2/5] RUN apt-get update", Started: &started},
 			{Name: "[node 4/5] RUN install", Cached: true},
 		},
-	}, func(line string) { lines = append(lines, line) })
+	}
+	reporter.report(status)
+	// BuildKit re-sends vertices in later updates (logs are incremental), so a
+	// repeated vertex must not yield a duplicate step line.
+	reporter.report(&client.SolveStatus{Vertexes: status.Vertexes})
 
-	if len(lines) != 2 {
-		t.Fatalf("progress lines = %v, want the trimmed log line and the cached vertex", lines)
+	want := []string{
+		"installing node",
+		"[2/5] RUN apt-get update",
+		"[node 4/5] RUN install CACHED",
 	}
-	if lines[0] != "installing node" {
-		t.Errorf("lines[0] = %q, want the trimmed log line", lines[0])
-	}
-	if !strings.Contains(lines[1], "CACHED") {
-		t.Errorf("lines[1] = %q, want a CACHED marker for the cached vertex", lines[1])
+	if !reflect.DeepEqual(lines, want) {
+		t.Errorf("progress lines = %v, want %v", lines, want)
 	}
 }
 
-// TestForwardProgressSkipsUncachedVertices asserts uncached vertices produce no
-// progress line.
-func TestForwardProgressSkipsUncachedVertices(t *testing.T) {
+// TestBuildProgressSkipsQueuedAndInternalVertices asserts a queued step (no
+// timestamps yet, not cached) and buildkit-internal vertices produce no progress
+// line.
+func TestBuildProgressSkipsQueuedAndInternalVertices(t *testing.T) {
 	var lines []string
-	forwardProgress(&client.SolveStatus{
-		Vertexes: []*client.Vertex{{Name: "dockerfile.v0", Cached: false}},
-	}, func(line string) { lines = append(lines, line) })
+	reporter := newBuildProgressReporter(func(line string) { lines = append(lines, line) })
+	reporter.report(&client.SolveStatus{
+		Vertexes: []*client.Vertex{
+			{Name: "dockerfile.v0"},
+			{Name: "[internal] load metadata for base"},
+			{Name: "[1/5] FROM debian:trixie-slim"},
+		},
+	})
 	if len(lines) != 0 {
-		t.Errorf("progress lines = %v, want none for an uncached vertex", lines)
+		t.Errorf("progress lines = %v, want none", lines)
 	}
 }
 
@@ -576,7 +628,7 @@ func cacheExportTestRequest(t *testing.T) BuildRequest {
 	}
 }
 
-func TestBuildSkipsCacheExportOnFullHit(t *testing.T) {
+func TestBuildExportsCacheInSingleSolve(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	stubResolveBaseDigest(t, "base@sha256:x", nil)
 
@@ -592,14 +644,16 @@ func TestBuildSkipsCacheExportOnFullHit(t *testing.T) {
 	if _, err := newBuildTestClient(t, fake).Build(context.Background(), cacheExportTestRequest(t)); err != nil {
 		t.Fatalf("Build: %v", err)
 	}
+	// Image and cache export are folded into one solve, so the cache is exported
+	// even on a full hit without a second, redundant graph traversal.
 	if len(fake.solve) != 1 {
-		t.Fatalf("Solve called %d times, want 1 (no export pass on a full hit)", len(fake.solve))
+		t.Fatalf("Solve called %d times, want 1 (image and cache export in one solve)", len(fake.solve))
 	}
 	if len(fake.solve[0].CacheImports) != 1 {
-		t.Errorf("first solve CacheImports = %+v, want the import", fake.solve[0].CacheImports)
+		t.Errorf("solve CacheImports = %+v, want the import", fake.solve[0].CacheImports)
 	}
-	if len(fake.solve[0].CacheExports) != 0 {
-		t.Errorf("first solve CacheExports = %+v, want none", fake.solve[0].CacheExports)
+	if len(fake.solve[0].CacheExports) != 1 {
+		t.Errorf("solve CacheExports = %+v, want one", fake.solve[0].CacheExports)
 	}
 }
 
@@ -615,25 +669,98 @@ func TestBuildExportsCacheOnMiss(t *testing.T) {
 		solveFn: archiveSolveFn(),
 	}
 
-	if _, err := newBuildTestClient(t, fake).Build(context.Background(), cacheExportTestRequest(t)); err != nil {
+	var lines []string
+	req := cacheExportTestRequest(t)
+	req.Progress = func(line string) { lines = append(lines, line) }
+
+	if _, err := newBuildTestClient(t, fake).Build(context.Background(), req); err != nil {
 		t.Fatalf("Build: %v", err)
 	}
-	if len(fake.solve) != 2 {
-		t.Fatalf("Solve called %d times, want 2 (image solve + cache export)", len(fake.solve))
+	if len(lines) != 1 || lines[0] != "[1/1] RUN echo rebuilt" {
+		t.Errorf("progress lines = %v, want only the image solve's step", lines)
 	}
-	first, second := fake.solve[0], fake.solve[1]
-	if len(first.CacheExports) != 0 || len(first.Exports) != 1 {
+	// The image and cache exports run in the same solve: one solve carrying both
+	// the image export and the registry cache export.
+	if len(fake.solve) != 1 {
+		t.Fatalf("Solve called %d times, want 1", len(fake.solve))
+	}
+	first := fake.solve[0]
+	if len(first.Exports) != 1 || len(first.CacheExports) != 1 {
 		t.Errorf(
-			"first solve exports image only, got CacheExports=%v Exports=%d",
-			first.CacheExports,
+			"solve should export image and cache, got Exports=%d CacheExports=%v",
 			len(first.Exports),
+			first.CacheExports,
 		)
 	}
-	if len(second.CacheExports) != 1 {
-		t.Errorf("second solve CacheExports = %+v, want one", second.CacheExports)
+}
+
+// TestBuildRecordsTimings asserts a build records its phase timings: total and
+// solve are non-zero, and the solve warmup captures the delay before the first
+// status (the cache import + graph setup).
+func TestBuildRecordsTimings(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	stubResolveBaseDigest(t, "base@sha256:x", nil)
+
+	completed := time.Now()
+	fake := &fakeBuildkitClient{
+		emitVertices: []*client.Vertex{
+			{Name: "[1/1] RUN echo rebuilt", Cached: false, Completed: &completed},
+		},
+		emitDelay: 20 * time.Millisecond,
+		solveFn:   archiveSolveFn(),
 	}
-	if len(second.Exports) != 0 {
-		t.Errorf("second solve Exports = %+v, want none (cache-only)", second.Exports)
+
+	result, err := newBuildTestClient(t, fake).Build(context.Background(), cacheExportTestRequest(t))
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	timings := result.Timings
+	if timings.Total <= 0 || timings.Solve <= 0 {
+		t.Fatalf("timings not recorded: %+v", timings)
+	}
+	if timings.SolveWarmup < 20*time.Millisecond {
+		t.Errorf(
+			"SolveWarmup = %s, want >= %s (the delay before the first status)",
+			timings.SolveWarmup,
+			20*time.Millisecond,
+		)
+	}
+	if timings.Export < 0 {
+		t.Errorf("Export = %s, want non-negative", timings.Export)
+	}
+}
+
+// TestBuildRecordsStepTimings asserts a build surfaces each Dockerfile step's
+// reported duration, so a solve that is large despite few changed layers can be
+// attributed to specific steps.
+func TestBuildRecordsStepTimings(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	stubResolveBaseDigest(t, "base@sha256:x", nil)
+
+	started := time.Now()
+	completed := started.Add(250 * time.Millisecond)
+	fake := &fakeBuildkitClient{
+		emitVertices: []*client.Vertex{
+			{Name: "[agents-sandbox-agent 1/1] RUN install", Started: &started, Completed: &completed, Cached: true},
+		},
+		solveFn: archiveSolveFn(),
+	}
+
+	result, err := newBuildTestClient(t, fake).Build(context.Background(), cacheExportTestRequest(t))
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	if len(result.VertexTimings) != 1 {
+		t.Fatalf("VertexTimings = %v, want one entry", result.VertexTimings)
+	}
+	if result.VertexTimings[0].Duration != 250*time.Millisecond {
+		t.Errorf("vertex duration = %s, want 250ms", result.VertexTimings[0].Duration)
+	}
+	if !result.VertexTimings[0].Cached {
+		t.Error("vertex should be reported cached")
+	}
+	if !result.VertexTimings[0].Step {
+		t.Error("vertex should be tagged as a Dockerfile step")
 	}
 }
 
@@ -646,22 +773,8 @@ func TestBuildStepCacheDetector(t *testing.T) {
 		{Name: "[2/2] RUN a", Cached: false, Completed: &completed},
 		{Name: "[2/2] RUN a", Cached: true, Completed: &completed},
 	}})
-	if !detector.fullHit() {
-		t.Errorf(
-			"fullHit() = false, want true (FROM/internal excluded; RUN transiently false then cached); steps=%d",
-			detector.steps(),
-		)
-	}
 	if detector.steps() != 1 {
 		t.Errorf("steps = %d, want 1 (only the RUN step)", detector.steps())
-	}
-
-	missed := newBuildStepCacheDetector()
-	missed.observe(&client.SolveStatus{Vertexes: []*client.Vertex{
-		{Name: "[1/1] RUN a", Cached: false, Completed: &completed},
-	}})
-	if missed.fullHit() {
-		t.Error("fullHit() = true for a step that never cached, want false")
 	}
 }
 
@@ -680,25 +793,7 @@ func TestIsDockerfileStep(t *testing.T) {
 	}
 }
 
-func TestCacheEnabledAttrsDropsNoCache(t *testing.T) {
-	in := map[string]string{"platform": "linux/amd64", "no-cache": ""}
-	out := cacheEnabledAttrs(in)
-	if _, ok := out["no-cache"]; ok {
-		t.Error("no-cache attribute was not removed")
-	}
-	if out["platform"] != "linux/amd64" {
-		t.Errorf("platform = %q, want preserved", out["platform"])
-	}
-	if _, ok := in["no-cache"]; !ok {
-		t.Error("input map was mutated")
-	}
-	plain := map[string]string{"platform": "linux/amd64"}
-	if got := cacheEnabledAttrs(plain); len(got) != 1 || got["platform"] != "linux/amd64" {
-		t.Errorf("cacheEnabledAttrs(no no-cache) = %v, want unchanged", got)
-	}
-}
-
-func TestBuildExportPassDropsNoCache(t *testing.T) {
+func TestBuildNoCacheSingleSolveStillExportsCache(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	stubResolveBaseDigest(t, "base@sha256:x", nil)
 
@@ -715,13 +810,15 @@ func TestBuildExportPassDropsNoCache(t *testing.T) {
 	if _, err := newBuildTestClient(t, fake).Build(context.Background(), req); err != nil {
 		t.Fatalf("Build: %v", err)
 	}
-	if len(fake.solve) != 2 {
-		t.Fatalf("Solve called %d times, want 2", len(fake.solve))
+	// With the exports folded, the single solve carries the no-cache attribute
+	// (rebuild everything) and still exports the freshly built cache.
+	if len(fake.solve) != 1 {
+		t.Fatalf("Solve called %d times, want 1", len(fake.solve))
 	}
 	if _, ok := fake.solve[0].FrontendAttrs["no-cache"]; !ok {
-		t.Error("first solve should carry the no-cache attribute")
+		t.Error("solve should carry the no-cache attribute")
 	}
-	if _, ok := fake.solve[1].FrontendAttrs["no-cache"]; ok {
-		t.Error("export pass must drop no-cache so it reuses the just-built cache")
+	if len(fake.solve[0].CacheExports) != 1 {
+		t.Errorf("solve CacheExports = %+v, want one", fake.solve[0].CacheExports)
 	}
 }

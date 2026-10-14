@@ -24,9 +24,18 @@ func FailFastConfigPaths() ConfigPaths { return &failFastConfigPaths{} }
 
 func WithMockConfigPaths(t *testing.T) {
 	t.Helper()
+	WithMockConfigPathsAt(t, t.TempDir())
+}
+
+// WithMockConfigPathsAt installs a config-paths mock rooted at baseDir instead
+// of a per-test temp directory. Use it to share a single state directory (and
+// thus the embedded registry cache and builder-VM record) across an entire test
+// binary run; the caller owns baseDir's lifecycle. Only the Get factory is
+// restored on cleanup.
+func WithMockConfigPathsAt(t *testing.T, baseDir string) {
+	t.Helper()
 	orig := Get
-	tempDir := t.TempDir()
-	Get = func() ConfigPaths { return &mockConfigPaths{baseDir: tempDir} }
+	Get = func() ConfigPaths { return &mockConfigPaths{baseDir: baseDir} }
 	t.Cleanup(func() { Get = orig })
 }
 

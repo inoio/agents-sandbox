@@ -5,6 +5,7 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
 
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 
@@ -79,6 +80,36 @@ func TestEnsureImageVerboseReportsForcedRebuild(t *testing.T) {
 	}
 	if !verboseContains(ui, "forced by --rebuild") {
 		t.Errorf("verbose calls = %v, want a forced-rebuild reason", ui.VerboseCalls)
+	}
+}
+
+func TestEnsureImageVerboseReportsBuildTimings(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	WithMockAgentVersion(t, "1.2.3")
+	a := agentOpencode(t)
+	msb.WithMsbMock(t, &msb.MockMsbClient{})
+	fakeBuilder(t, builder.BuildResult{
+		ArchivePath: "/tmp/a",
+		Digest:      "sha256:new",
+		Timings:     builder.BuildTimings{Ensure: 36 * time.Second, Solve: 160 * time.Second, Total: 268 * time.Second},
+		VertexTimings: []builder.VertexTiming{
+			{
+				Name:     "[agents-sandbox-runner 12/15] COPY --from=agents-sandbox-agent /opt/agents-sandbox /opt/agents-sandbox",
+				Duration: 30 * time.Second,
+				Step:     true,
+			},
+		},
+	}, nil)
+
+	ui := &termio.Mock{}
+	if _, err := EnsureImage(context.Background(), a, "proj", BuildOptions{Force: true}, ui); err != nil {
+		t.Fatalf("EnsureImage: %v", err)
+	}
+	if !verboseContains(ui, "Build timings") {
+		t.Errorf("verbose calls = %v, want a build-timings line", ui.VerboseCalls)
+	}
+	if !verboseContains(ui, "COPY --from=agents-sandbox-agent") {
+		t.Errorf("verbose calls = %v, want a per-step timing line", ui.VerboseCalls)
 	}
 }
 

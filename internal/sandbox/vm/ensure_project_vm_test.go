@@ -3,7 +3,6 @@ package vm
 import (
 	"context"
 	"errors"
-	"io"
 	"os"
 	"path/filepath"
 	"testing"
@@ -1059,7 +1058,7 @@ func TestEnsureProjectVMCreateEnsureLoadedError(t *testing.T) {
 	}
 	client := &msb.MockMsbClient{
 		ImageGetFn: func(_ context.Context, _ string) error { return errors.New("not cached") },
-		ImageLoadFn: func(_ context.Context, _ string, _ io.Reader) error {
+		ImageLoadFn: func(_ context.Context, _, _ string) error {
 			return errors.New("image load failed")
 		},
 	}

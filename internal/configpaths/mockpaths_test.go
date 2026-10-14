@@ -70,3 +70,14 @@ func TestWithMockConfigPathsInstallsMock(t *testing.T) {
 		t.Fatal("Get did not install a mockConfigPaths")
 	}
 }
+
+// TestWithMockConfigPathsAtRootsAtGivenDir verifies the run-wide variant roots
+// every path at the caller-provided base dir (so tests can share one state dir)
+// rather than a per-test temp dir.
+func TestWithMockConfigPathsAtRootsAtGivenDir(t *testing.T) {
+	base := t.TempDir()
+	WithMockConfigPathsAt(t, base)
+	if got := Get().UserStateDir(); got != filepath.Join(base, "userstate") {
+		t.Errorf("UserStateDir() = %q, want %q", got, filepath.Join(base, "userstate"))
+	}
+}

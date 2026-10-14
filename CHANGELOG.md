@@ -18,6 +18,12 @@ command reports the bare version (e.g. `0.1.0`).
   changed identity inputs (project Dockerfile, agent version, Docker-in-Docker) or `--rebuild`/missing image, the
   microsandbox load reports whether the cached image is absent or stale, and a project VM recreate/daemon restart lists
   the config changes that triggered it.
+- Runner image: verbose builds now report a per-phase timing summary
+  (`Build timings: ensure=… base=… solve=… export=… cache-export=… total=… (solve warmup=…)`), so a slow rebuild can
+  be attributed to builder bring-up, the image solve (and the cache import before its first step), the post-build image
+  export, or the cache export pass, instead of being lumped into one spinner. It also lists every BuildKit vertex's
+  duration — Dockerfile steps and `[internal]` vertices (layer export, cache import) — with the step/ran-vs-cached state
+  and the cumulative step and internal totals.
 - Internal: add two integration test targets, both running every `integration`-tagged test across the module (excluded
   from the main suite — the real BuildKit builder-VM image-build, cache-reuse, and login-shell PATH tests in
   `internal/sandbox/image`). `make test-integration` runs against a Docker daemon on any host
@@ -48,17 +54,44 @@ command reports the bare version (e.g. `0.1.0`).
 - `run` and `shell` now accept `--agent-version` to pin the agent version baked into the runner image, matching `build`.
 - Runner image: a Docker-free BuildKit builder VM. The runner image is built by a `buildkitd` running inside a shared
   microsandbox VM, driven by a host-side BuildKit client over a published loopback port, so building or refreshing the
-  image no longer needs the host Docker daemon. The BuildKit worker storage is a `tmpfs`; the persistent layer cache is
-  the embedded registry (see above). Short base-image references (e.g. `debian:trixie-slim`) are qualified to their
-  canonical `docker.io/library/...` form before the gateway resolves their digests.
+  image no longer needs the host Docker daemon. The BuildKit worker storage is a disk-backed owned volume; the
+  persistent layer cache is the embedded registry (see above). Short base-image references (e.g. `debian:trixie-slim`)
+  are qualified to their canonical `docker.io/library/...` form before the gateway resolves their digests.
 
 ### Changed
 
+- Runner image: the builder's BuildKit automatic GC budget is raised from the 2 GiB default to 50 GiB
+  (`--oci-worker-gc-keepstorage 50000,50000,50000`, MB) so multi-GB image layers are not evicted continuously during a
+  build; it aligns with the 50 GB worker prune bound. The embedded cache registry also enables its in-memory
+  blob-descriptor cache (`storage.cache.blobdescriptor=inmemory`) — the registry's hottest lookup path, previously
+  hitting the filesystem for every blob during cache import/export.
+- Runner image: the registry cache export is now folded into the image solve instead of a second, cache-only solve, so
+  a miss no longer pays a redundant cache import and graph traversal.
+- Runner image: the OCI/cache layer compression (`AGENTS_SANDBOX_BUILDER_COMPRESSION`, default `zstd`;
+  `AGENTS_SANDBOX_BUILDER_COMPRESSION_LEVEL` for a level) and BuildKit's per-step process sandbox
+  (`AGENTS_SANDBOX_BUILDER_NO_PROCESS_SANDBOX`, opt-in) are overridable via env for A/B measurement.
+- Runner image: the OCI image archive loaded into microsandbox and the BuildKit registry cache are now
+  **zstd-compressed** (`oci-mediatypes=true, compression=zstd`) instead of BuildKit's default gzip. On large images the
+  in-VM `[internal] exporting to oci image format` step dominates a rebuild (measured ~1m30s for the heavy dev image);
+  zstd compresses far faster for a similar size.
+- Runner image: the BuildKit builder VM now uses the upstream **rootless** BuildKit image (which bundles `fuse-overlayfs`)
+  with the **fuse-overlayfs** worker snapshotter by default, running it as root. The guest filesystem cannot host a
+  kernel overlay mount, so builds previously fell back to the copy-based native snapshotter; fuse-overlayfs roughly
+  halves build-step time on large images (e.g. ~3m45s → ~2m, and ~9s for a fully cached solve). Set
+  `AGENTS_SANDBOX_BUILDER_SNAPSHOTTER=native` to restore the old snapshotter; a snapshotter change clears the worker
+  once (BuildKit snapshot data is snapshotter-specific).
+- Runner image: a stopped (idle-reaped) BuildKit builder VM is now **resumed in place** instead of recreated, so its
+  owned worker volume — and BuildKit's layer cache — survives the 30s idle reap and the next build does not re-fetch the
+  cache from the registry. Only a missing VM, an absent port record, or a failed resume recreates the VM.
+- Runner image: the builder worker-cache prune now keeps at most 50 GB (`buildctl prune --keep-storage 50GB`) in
+  addition to the 24h age bound, since a resumed worker would otherwise grow without limit; the embedded registry stays
+  the authoritative persistent cache. The bounded prune runs after a builder resume as well as via the existing `prune`
+  command.
 - BuildKit builder VM now gets the same default resources as an agent VM: all host CPUs (with matching live-hotplug
   ceilings) and 4 GiB memory (up to physical RAM), so image builds are not throttled by the microsandbox defaults. Its
-  idle timeout is 5s, and an in-flight build holds the VM's idle timer open via a `Touch` keep-alive so the short
-  timeout cannot reap it mid-build.
-- BuildKit builder VM: `buildkitd` stdout/stderr are appended to `/var/lib/buildkit/buildkitd.log` on the `tmpfs` worker
+  idle timeout is 30s (shared with the cache registry so both expire together), and an in-flight build holds the VM's
+  idle timer open via a `Touch` keep-alive so the timeout cannot reap it mid-build.
+- BuildKit builder VM: `buildkitd` stdout/stderr are appended to `/var/lib/buildkit/buildkitd.log` on the worker
   storage for debugging; the log is recreated on each builder boot.
 - Runner image: `opencode`, `opencode2`, and `claude-code` images are now node-free. The `agents-sandbox-node` stage is
   emitted only for agents that need node (today only `pi`, an npm-installed node bundle), and opencode2 and claude-code
@@ -122,6 +155,47 @@ command reports the bare version (e.g. `0.1.0`).
 
 ### Fixed
 
+- Runner image: verbose builds again report each Dockerfile step (`[N/M] RUN ...`, `[N/M] COPY ...`) as it runs, not
+  just the step logs. The BuildKit progress reporter now surfaces step vertices (with a `CACHED` marker for cache hits),
+  each once, restoring the step information visible before the BuildKit builder migration.
+- Runner image: verbose builds no longer print the whole Dockerfile a second time (every step `CACHED`). The BuildKit
+  cache-export pass re-solves the build to persist the cache; it now forwards no progress, so it neither replays the
+  steps to the user nor masks which steps the image build actually ran.
+- Builder: the shared builder VM is now namespaced by the state directory (its msb name and component label carry a
+  short hash of the state dir), so processes using different state dirs — an integration test's temp dir and a
+  concurrently running real binary — get distinct builder VMs instead of sharing one fixed name, recreating each other
+  with `WithReplace` (thrashing the running builder and its worker cache) and matching each other in label-based
+  listings.
+- Runner image: the BuildKit builder VM's worker storage is now a disk-backed owned volume instead of a memory-backed
+  `tmpfs`. The `tmpfs` worker let BuildKit materialize every layer into guest RAM, so large builds (node/npm agents,
+  Fedora tool installs) exhausted the VM's memory: `buildkitd` was OOM-killed mid-solve, surfacing as
+  `ResourceExhausted ... cannot allocate memory` or a dropped solve stream (`error reading from server: EOF`). The
+  worker volume is sized generously (128 GiB) because the native snapshotter keeps a full copy of every unpacked layer,
+  so one test process building many image variants can otherwise fill it and fail with `copy_file_range: no space left
+  on device`. The persistent layer cache is the embedded registry, so an ephemeral disk-backed worker loses nothing.
+- Builder: the embedded cache registry's idle timer is now held open for the duration of a build. The registry only sees
+  HTTP traffic at cache import and export, so with the shared 30s idle timeout a build running longer than that let the
+  daemon reap mid-build and fail the cache export with `connection reset by peer`. A client-side keep-alive
+  (`Endpoint.KeepAlive`) now refreshes the timer while the launcher's build is in flight.
+- Internal: the msb integration tier now serves the embedded cache registry from the test binary itself. The registry
+  daemon is spawned via `os.Executable()`, which under `go test` is the test binary rather than the agents-sandbox CLI;
+  the image integration tests' `TestMain` now dispatches the hidden `__builder-registry` command, so the daemon becomes
+  ready instead of the child re-running the whole suite. The msb tier also runs packages serially (`-p 1`) to avoid
+  racing the user-global builder VM across packages, and pins the opencode release the integration builds bake
+  (`AGENTS_SANDBOX_INTEGRATION_OPENCODE_VERSION`) instead of resolving "latest" from the rate-limited GitHub releases
+  API. Integration tests share one state directory across the whole test binary run
+  (`configpaths.WithMockConfigPathsAt`), so the persisted builder-VM record survives between tests and the running
+  builder VM — and its BuildKit worker cache — is reused instead of recreated; previously each test got a fresh temp
+  state dir and rebuilt from scratch.
+- Internal: the integration tier now removes the builder VM it creates, so a test run no longer leaks a stopped builder
+  VM (and its owned 128 GiB worker volume). Each run gets a fresh temp state dir, so the state-dir-namespaced builder
+  name is new every run; the idle reaper only stops an idle builder (production reuses one stable name), so nothing
+  removed the test builder. `internal/sandbox/image`'s `TestMain` cleanup removes the run's builder before deleting the
+  shared dir, and `internal/sandbox/builder`'s `TestBuilderVMReachesEmbeddedRegistry` removes its builder via
+  `t.Cleanup`.
+- Runner image: the built image archive is loaded into the microsandbox cache by path instead of through a reader. The
+  load path previously spooled a second full copy of the (multi-gigabyte) archive to a temp file and fsynced it before
+  `msb.Image.Load`; both backends already produce an archive file, so that copy is gone.
 - Runner image: a rebuilt image is now always loaded into the microsandbox cache. The runner tag is stable across
   rebuilds, so a cached same-tag image no longer masks a fresh build archive — the VM boots the rebuilt image instead of
   rebuilding on every run.

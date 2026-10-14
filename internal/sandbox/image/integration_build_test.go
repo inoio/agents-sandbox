@@ -30,6 +30,47 @@ import (
 // (msb, a KVM host with msb and network access).
 const integrationEnvVar = "AGENTS_SANDBOX_INTEGRATION"
 
+// integrationOpencodeVersionEnv overrides the opencode release the integration
+// builds bake. The version is pinned by default because resolving "latest"
+// queries the GitHub releases API, which is rate-limited (unauthenticated, 60
+// requests/hour per IP) and flakes the tier; unit tests cover the resolver.
+const integrationOpencodeVersionEnv = "AGENTS_SANDBOX_INTEGRATION_OPENCODE_VERSION"
+
+// defaultIntegrationOpencodeVersion is a known-good opencode release baked by the
+// integration tier. TestRenderDockerfileAgentVersionRebuildsInstall must NOT use
+// it (see that test): the run-wide shared worker cache would make it warm.
+const defaultIntegrationOpencodeVersion = "1.18.34"
+
+func integrationOpencodeVersion() string {
+	if version := os.Getenv(integrationOpencodeVersionEnv); version != "" {
+		return version
+	}
+	return defaultIntegrationOpencodeVersion
+}
+
+// integrationAgentVersion returns the release to bake for a. It pins opencode to
+// avoid the rate-limited GitHub releases API; other agents (pi, ...) resolve
+// through their own release source.
+func integrationAgentVersion(t *testing.T, a agent.Agent) string {
+	t.Helper()
+	if a.Name() == "opencode" {
+		return integrationOpencodeVersion()
+	}
+	version, err := resolveAgentVersion(context.Background(), a, "")
+	if err != nil {
+		t.Fatalf("resolve %s version: %v", a.Name(), err)
+	}
+	return version
+}
+
+// pinOpencodeVersion forces the image package's production version resolver to
+// the pinned opencode release for the duration of the test, so a code path that
+// resolves internally (EnsureImageWithClient) never reaches GitHub.
+func pinOpencodeVersion(t *testing.T) {
+	t.Helper()
+	WithMockAgentVersion(t, integrationOpencodeVersion())
+}
+
 func requireIntegration(t *testing.T) {
 	t.Helper()
 	if os.Getenv(integrationEnvVar) == "" {
@@ -42,7 +83,7 @@ func requireIntegration(t *testing.T) {
 // builder cache) when the moby backend is selected.
 func requireMsbBackend(t *testing.T) {
 	t.Helper()
-	configpaths.WithMockConfigPaths(t)
+	sharedConfigPaths(t)
 	if builder.SelectedName() != "msb" {
 		t.Skip("msb-only test: requires the microsandbox backend")
 	}
@@ -52,7 +93,7 @@ func requireMsbBackend(t *testing.T) {
 // when the msb backend is selected.
 func requireMobyBackend(t *testing.T) {
 	t.Helper()
-	configpaths.WithMockConfigPaths(t)
+	sharedConfigPaths(t)
 	if builder.SelectedName() != "moby" {
 		t.Skip("moby-only test: requires the Docker Engine API backend")
 	}
@@ -63,14 +104,125 @@ func requireMobyBackend(t *testing.T) {
 // into the real runtime.
 var realMsbFactory = msb.Get
 
-// useRealHostRuntime restores the real msb client and isolates config-path
-// resolution in a temporary directory for the duration of the test.
+// sharedIntegrationConfigDir is one state directory shared by every integration
+// test in this binary, so the embedded registry's layer cache and the
+// builder-VM record persist across tests. A per-test state dir would force every
+// test to rebuild from scratch (only a test's own two builds could hit cache),
+// making the tier far slower. The directory is removed after the binary exits
+// via integrationTestCleanup.
+var (
+	sharedIntegrationConfigDirOnce sync.Once
+	sharedIntegrationConfigDir     string
+	sharedBuilderLabelOnce         sync.Once
+	sharedBuilderLabel             string
+)
+
+func init() {
+	integrationTestCleanup = func() {
+		removeSharedBuilderSandbox()
+		if sharedIntegrationConfigDir != "" {
+			_ = os.RemoveAll(sharedIntegrationConfigDir)
+		}
+	}
+}
+
+// removeSharedBuilderSandbox removes the run-wide builder VM before its state
+// directory is deleted. The builder VM is namespaced by the state directory, so
+// each test run would otherwise leak a stopped builder VM — and its 128 GiB owned
+// worker volume — forever: the idle reaper only stops an idle builder, it never
+// removes it. In production the name is stable per state dir, so at most one
+// builder exists; only the per-run temp state dirs of the integration tier
+// accumulate. Uses the real msb factory (captured before the fail-fast mock is
+// installed) and the label cached while the shared config paths were active.
+func removeSharedBuilderSandbox() {
+	if sharedBuilderLabel == "" {
+		return
+	}
+	ctx := context.Background()
+	handles, err := realMsbFactory().
+		ListSandboxes(ctx, map[string]string{naming.LabelComponent: sharedBuilderLabel})
+	if err != nil {
+		return
+	}
+	for _, handle := range handles {
+		_ = handle.Stop(ctx, msbSdk.WithStopTimeout(30*time.Second))
+		_ = handle.Remove(ctx)
+	}
+}
+
+// sharedConfigPaths installs config-path mocks rooted at the run-wide shared
+// directory, so every integration test reads and writes the same registry cache
+// and builder record.
+func sharedConfigPaths(t *testing.T) {
+	t.Helper()
+	configpaths.WithMockConfigPathsAt(t, sharedIntegrationConfigPath())
+	sharedBuilderLabelOnce.Do(func() { sharedBuilderLabel = builder.BuilderComponentLabelValue() })
+}
+
+func sharedIntegrationConfigPath() string {
+	sharedIntegrationConfigDirOnce.Do(func() {
+		dir, err := os.MkdirTemp("", "agents-sandbox-integration-config-")
+		if err != nil {
+			panic(err)
+		}
+		sharedIntegrationConfigDir = dir
+	})
+	return sharedIntegrationConfigDir
+}
+
+// useRealHostRuntime restores the real msb client and points config-path
+// resolution at the run-wide shared directory for the duration of the test.
 func useRealHostRuntime(t *testing.T) {
 	t.Helper()
 	original := msb.Get
 	msb.Get = realMsbFactory
-	configpaths.WithMockConfigPaths(t)
+	sharedConfigPaths(t)
 	t.Cleanup(func() { msb.Get = original })
+}
+
+// integrationUI returns a termio.UI that writes build progress and stage
+// markers to the test log. The tests run against a real builder VM, where a
+// build can take minutes with no output; forwarding to t.Log makes progress
+// visible under `go test -v` instead of a silent stall.
+func integrationUI(t *testing.T) termio.UI {
+	t.Helper()
+	mock := termio.NewTestMock(t)
+	return &loggingUI{Mock: &mock, t: t}
+}
+
+// loggingUI embeds the recording mock, so tests can still inspect recorded
+// calls, and additionally mirrors the verbose stream and spinner markers to the
+// test log.
+type loggingUI struct {
+	*termio.Mock
+	t *testing.T
+}
+
+func (u *loggingUI) Verbose(msg string) {
+	u.Mock.Verbose(msg)
+	u.t.Log(msg)
+}
+
+func (u *loggingUI) Verbosef(format string, args ...any) {
+	u.Mock.Verbosef(format, args...)
+	u.t.Logf(format, args...)
+}
+
+func (u *loggingUI) Spinner(msg string) termio.Spinner {
+	u.t.Log(msg)
+	return u.Mock.Spinner(msg)
+}
+
+func (u *loggingUI) Spinnerf(format string, args ...any) termio.Spinner {
+	u.t.Logf(format, args...)
+	return u.Mock.Spinnerf(format, args...)
+}
+
+// logProgress returns a builder progress callback that logs each line, so a
+// long build shows its progress live under `go test -v`.
+func logProgress(t *testing.T) func(string) {
+	t.Helper()
+	return func(line string) { t.Log(line) }
 }
 
 // TestBuildRunnerImageInBuilderVM builds the managed runner Dockerfile for
@@ -81,10 +233,11 @@ func TestBuildRunnerImageInBuilderVM(t *testing.T) {
 	requireMsbBackend(t)
 	useRealHostRuntime(t)
 	ctx := context.Background()
-	ui := termio.NewTestMock(t)
+	ui := integrationUI(t)
 	a := agentOpencode(t)
+	pinOpencodeVersion(t)
 
-	info, err := EnsureImageWithClient(ctx, a, nil, "it-buildkit-full", BuildOptions{Force: true}, &ui)
+	info, err := EnsureImageWithClient(ctx, a, nil, "it-buildkit-full", BuildOptions{Force: true}, ui)
 	if err != nil {
 		t.Fatalf("EnsureImageWithClient: %v", err)
 	}
@@ -104,7 +257,7 @@ func TestBuildRunnerImageInBuilderVM(t *testing.T) {
 	if _, err := os.Stat(archivePath); err != nil {
 		t.Fatalf("expected the build to produce an archive at %s: %v", archivePath, err)
 	}
-	if err := EnsureLoaded(ctx, msb.Get(), archivePath, tag, &ui); err != nil {
+	if err := EnsureLoaded(ctx, msb.Get(), archivePath, tag, ui); err != nil {
 		t.Fatalf("EnsureLoaded: %v", err)
 	}
 
@@ -184,8 +337,12 @@ func TestMsbParallelBuildsShareOneBuilderVM(t *testing.T) {
 			_ = os.Remove(archivePath)
 		}
 	}
+	if t.Failed() {
+		dumpBuilderFailure(t, ctx)
+	}
 
-	handles, err := msb.Get().ListSandboxes(ctx, map[string]string{naming.LabelComponent: "buildkit"})
+	handles, err := msb.Get().
+		ListSandboxes(ctx, map[string]string{naming.LabelComponent: builder.BuilderComponentLabelValue()})
 	if err != nil {
 		t.Fatalf("list builder sandboxes: %v", err)
 	}
@@ -218,11 +375,7 @@ func TestMobyBuildLoadsIntoMicrosandbox(t *testing.T) {
 // builder request for tag, resolving the current agent version.
 func integrationBuildRequest(t *testing.T, a agent.Agent, tag string) builder.BuildRequest {
 	t.Helper()
-	ctx := context.Background()
-	version, err := resolveAgentVersion(ctx, a, "")
-	if err != nil {
-		t.Fatalf("resolve agent version: %v", err)
-	}
+	version := integrationAgentVersion(t, a)
 	rendered, err := RenderDockerfile(a, version, nil, false)
 	if err != nil {
 		t.Fatalf("RenderDockerfile: %v", err)
@@ -240,6 +393,7 @@ func integrationBuildRequest(t *testing.T, a agent.Agent, tag string) builder.Bu
 			computeDockerfileID(rendered, version), false, computeImageIdentity(nil, version, false),
 		)),
 		Platform: builder.HostPlatform(),
+		Progress: logProgress(t),
 	}
 }
 
@@ -261,12 +415,16 @@ func timeBuilderBuild(t *testing.T, request builder.BuildRequest, noCache bool) 
 	t.Helper()
 	var lines []string
 	request.NoCache = noCache
-	request.Progress = func(line string) { lines = append(lines, line) }
+	request.Progress = func(line string) {
+		lines = append(lines, line)
+		t.Log(line)
+	}
 
 	start := time.Now()
 	result, err := builder.Get().Build(context.Background(), request)
 	duration := time.Since(start)
 	if err != nil {
+		dumpBuilderFailure(t, context.Background())
 		t.Fatalf("builder build (noCache=%v): %v", noCache, err)
 	}
 	if result.ArchivePath == "" || result.Digest == "" {
@@ -283,7 +441,8 @@ func timeBuilderBuild(t *testing.T, request builder.BuildRequest, noCache bool) 
 // sandbox is torn down.
 func removeBuilderSandboxes(t *testing.T, ctx context.Context) {
 	t.Helper()
-	handles, err := msb.Get().ListSandboxes(ctx, map[string]string{naming.LabelComponent: "buildkit"})
+	handles, err := msb.Get().
+		ListSandboxes(ctx, map[string]string{naming.LabelComponent: builder.BuilderComponentLabelValue()})
 	if err != nil {
 		t.Fatalf("list builder sandboxes: %v", err)
 	}
@@ -294,6 +453,43 @@ func removeBuilderSandboxes(t *testing.T, ctx context.Context) {
 		if err := handle.Remove(ctx); err != nil {
 			t.Fatalf("remove builder sandbox %s: %v", handle.Name(), err)
 		}
+	}
+}
+
+// buildkitdLogPath mirrors the builder's unexported builderLogPath: buildkitd
+// appends its output there on the builder VM's worker storage.
+const buildkitdLogPath = "/var/lib/buildkit/buildkitd.log"
+
+// dumpBuilderFailure logs the builder sandbox state and the buildkitd log tail
+// after a failed build. A build solve that fails with a dropped BuildKit stream
+// ("error reading from server: EOF") means buildkitd died or the sandbox was
+// reaped; this is the only trace the launcher keeps, so surface it in the test.
+func dumpBuilderFailure(t *testing.T, ctx context.Context) {
+	t.Helper()
+	handles, err := msb.Get().
+		ListSandboxes(ctx, map[string]string{naming.LabelComponent: builder.BuilderComponentLabelValue()})
+	if err != nil {
+		t.Logf("builder diagnostics: list sandboxes: %v", err)
+		return
+	}
+	if len(handles) == 0 {
+		t.Log("builder diagnostics: no builder sandbox present (reaped or never created)")
+		return
+	}
+	for _, handle := range handles {
+		t.Logf("builder diagnostics: sandbox %s status=%v", handle.Name(), handle.Status())
+		sandbox, connectErr := handle.Connect(ctx)
+		if connectErr != nil {
+			t.Logf("builder diagnostics: connect %s: %v", handle.Name(), connectErr)
+			continue
+		}
+		result, shellErr := sandbox.Shell(ctx, "tail -n 80 "+buildkitdLogPath)
+		_ = sandbox.Close()
+		if shellErr != nil {
+			t.Logf("builder diagnostics: read buildkitd log: %v", shellErr)
+			continue
+		}
+		t.Logf("builder diagnostics: buildkitd log:\n%s", result.Stdout())
 	}
 }
 
@@ -313,10 +509,7 @@ type shellResult struct {
 func buildImageForRun(t *testing.T, a agent.Agent, project []byte, docker bool, tag string) string {
 	t.Helper()
 	ctx := context.Background()
-	version, err := resolveAgentVersion(ctx, a, "")
-	if err != nil {
-		t.Fatalf("resolve agent version: %v", err)
-	}
+	version := integrationAgentVersion(t, a)
 	dockerEnabled := effectiveDocker(project, docker)
 	rendered := renderBytesVersion(t, a, version, project, docker)
 	contextDir := t.TempDir()
@@ -334,15 +527,17 @@ func buildImageForRun(t *testing.T, a agent.Agent, project []byte, docker bool, 
 			computeImageIdentity(project, version, dockerEnabled),
 		)),
 		Platform: builder.HostPlatform(),
+		Progress: logProgress(t),
 	})
 	if err != nil {
+		dumpBuilderFailure(t, ctx)
 		t.Fatalf("builder build %s: %v", tag, err)
 	}
 	archivePath := result.ArchivePath
 	t.Cleanup(func() { _ = os.Remove(archivePath) })
 
-	ui := termio.NewTestMock(t)
-	if err := EnsureLoaded(ctx, msb.Get(), archivePath, tag, &ui); err != nil {
+	ui := integrationUI(t)
+	if err := EnsureLoaded(ctx, msb.Get(), archivePath, tag, ui); err != nil {
 		t.Fatalf("EnsureLoaded: %v", err)
 	}
 	t.Cleanup(func() { _ = msb.Get().ImageRemove(context.Background(), tag, true) })
@@ -445,6 +640,7 @@ func buildBuilderDockerfile(
 		if lines != nil {
 			*lines = append(*lines, line)
 		}
+		//t.Log(line)
 	}
 	result, err := builder.Get().Build(context.Background(), builder.BuildRequest{
 		ContextDir: contextDir,
@@ -459,6 +655,7 @@ func buildBuilderDockerfile(
 		Progress: progress,
 	})
 	if err != nil {
+		dumpBuilderFailure(t, context.Background())
 		t.Fatalf("builder build %s: %v", tag, err)
 	}
 	t.Cleanup(func() { _ = os.Remove(result.ArchivePath) })
@@ -493,10 +690,7 @@ func TestRenderDockerfileBuilds(t *testing.T) {
 	requireIntegration(t)
 	useRealHostRuntime(t)
 	a := agentOpencode(t)
-	version, err := resolveAgentVersion(context.Background(), a, "")
-	if err != nil {
-		t.Fatalf("resolve agent version: %v", err)
-	}
+	version := integrationAgentVersion(t, a)
 
 	cases := []struct {
 		name              string
@@ -547,10 +741,7 @@ func TestRenderDockerfileToolLayersStayCached(t *testing.T) {
 	if !ok {
 		t.Fatal("pi agent not registered")
 	}
-	version, err := resolveAgentVersion(context.Background(), a, "")
-	if err != nil {
-		t.Fatalf("resolve agent version: %v", err)
-	}
+	version := integrationAgentVersion(t, a)
 
 	base := []byte(
 		"FROM fedora:latest\n" +
@@ -588,11 +779,17 @@ func TestRenderDockerfileAgentVersionRebuildsInstall(t *testing.T) {
 		"FROM fedora:latest\n" +
 			"RUN dnf install -y curl tar iptables git procps-ng xz && dnf clean all\n")
 
-	// Use two existing releases that are not the resolved latest: the matrix
-	// tests above build the latest release, and a shared harness cache would
-	// otherwise make the newer version's agent layer a false cache hit.
+	// The run-wide shared config dir (sharedIntegrationConfigDir) also shares the
+	// builder's worker cache across every test, so any release the rest of the
+	// suite baked is already warm. The suite pins opencode to
+	// defaultIntegrationOpencodeVersion, so the "new" version here must be a
+	// different release or its agent layer is a false cache hit. Use two older
+	// releases: defaults only move forward, so older ones never collide.
+	oldVersion, newVersion := "1.18.32", "1.18.33"
+	if oldVersion == integrationOpencodeVersion() || newVersion == integrationOpencodeVersion() {
+		t.Fatalf("test versions must differ from the pinned default %q", integrationOpencodeVersion())
+	}
 	tag := "agents-sandbox/it-agent-version"
-	oldVersion, newVersion := "1.18.33", "1.18.34"
 	buildBuilderDockerfile(t, a, project, oldVersion, true, tag, nil)
 	var lines []string
 	buildBuilderDockerfile(t, a, project, newVersion, true, tag, &lines)

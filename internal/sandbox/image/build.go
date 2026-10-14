@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/distribution/reference"
 
@@ -203,8 +204,65 @@ func buildRunnerImage(
 		spinner.StopError(err)
 		return builder.BuildResult{}, err
 	}
+	logBuildTimings(ui, res.Timings, res.VertexTimings)
 	spinner.Stop()
 	return res, nil
+}
+
+// logBuildTimings reports the builder's per-phase durations at verbose level, so
+// a slow rebuild can be attributed to builder bring-up, the solve (and its
+// pre-step warmup), or the post-build image export, plus every BuildKit vertex's
+// reported duration, longest first.
+func logBuildTimings(ui termio.UI, t builder.BuildTimings, vertices []builder.VertexTiming) {
+	if t.Total == 0 {
+		return
+	}
+	ui.Verbosef(
+		"Build timings: ensure=%s base=%s solve=%s export=%s total=%s (solve warmup=%s)",
+		roundTiming(t.Ensure),
+		roundTiming(t.BaseResolve),
+		roundTiming(t.Solve),
+		roundTiming(t.Export),
+		roundTiming(t.Total),
+		roundTiming(t.SolveWarmup),
+	)
+	var stepSum, internalSum time.Duration
+	for _, v := range vertices {
+		kind := "internal"
+		if v.Step {
+			kind = "step"
+			stepSum += v.Duration
+		} else {
+			internalSum += v.Duration
+		}
+		state := "ran"
+		if v.Cached {
+			state = "cached"
+		}
+		ui.Verbosef("  %-8s %-8s %-6s %s", kind, roundTiming(v.Duration), state, oneLine(v.Name))
+	}
+	if len(vertices) > 0 {
+		// cumulative can exceed solve (parallel stages, or cache lookup sharing a
+		// vertex window); the gap solve-cumulative is time outside any vertex.
+		ui.Verbosef(
+			"  vertices: %d, steps %s, internal %s, cumulative %s (solve minus cumulative %s)",
+			len(vertices),
+			roundTiming(stepSum),
+			roundTiming(internalSum),
+			roundTiming(stepSum+internalSum),
+			roundTiming(t.Solve-stepSum-internalSum),
+		)
+	}
+}
+
+// oneLine collapses a BuildKit vertex name so it prints on a single line.
+func oneLine(name string) string {
+	return strings.ReplaceAll(name, "\n", " ")
+}
+
+// roundTiming rounds a phase duration to a readable tenth of a second.
+func roundTiming(d time.Duration) time.Duration {
+	return d.Round(100 * time.Millisecond)
 }
 
 // buildArgStrings dereferences a pointer-valued build-arg map, dropping nil
@@ -400,13 +458,7 @@ func EnsureLoaded(ctx context.Context, mclient msb.Client, archivePath, imageRef
 	ui.Verbosef("loading image %s into microsandbox from build archive", imageRef)
 
 	spin := ui.Spinner("Loading image into microsandbox")
-	archive, err := os.Open(archivePath)
-	if err != nil {
-		spin.StopError(err)
-		return fmt.Errorf("open image archive: %w", err)
-	}
-	defer func() { _ = archive.Close() }()
-	if err := mclient.ImageLoad(ctx, imageRef, archive); err != nil {
+	if err := mclient.ImageLoad(ctx, imageRef, archivePath); err != nil {
 		spin.StopError(err)
 		return err
 	}

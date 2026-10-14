@@ -3,7 +3,6 @@ package image
 import (
 	"context"
 	"errors"
-	"io"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -585,7 +584,7 @@ func TestEnsureLoadedReturnsErrorWhenLoadFails(t *testing.T) {
 	}
 	mclient := &msb.MockMsbClient{
 		ImageGetFn: func(context.Context, string) error { return errors.New("not cached") },
-		ImageLoadFn: func(context.Context, string, io.Reader) error {
+		ImageLoadFn: func(context.Context, string, string) error {
 			return errors.New("load boom")
 		},
 	}
