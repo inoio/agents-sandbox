@@ -17,11 +17,9 @@ import (
 	"github.com/moby/buildkit/client/llb"
 	"github.com/moby/buildkit/client/llb/sourceresolver"
 	"github.com/opencontainers/go-digest"
-	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 
 	"github.com/inoio/agents-sandbox/internal/configpaths"
 	"github.com/inoio/agents-sandbox/internal/sandbox/builder/cacheregistry"
-	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
 )
 
 type fakeBuildkitClient struct {
@@ -88,28 +86,84 @@ func (f *fakeBuildkitClient) solveOpt(t *testing.T) client.SolveOpt {
 	return f.solve[0]
 }
 
-// newBuildTestClient wires a Client whose builder VM resolves to a fixed host
-// port and whose dial returns the supplied fake, so Build tests never boot a VM.
+// newBuildTestClient wires a Client whose backend streams an OCI archive and
+// whose dial returns the supplied fake, so Build tests never boot a VM. Tests
+// exercising the archive path use this; the registry-push path is covered by
+// pushBackend.
 func newBuildTestClient(t *testing.T, fake buildkitClient) *Client {
 	t.Helper()
 	configpaths.WithMockConfigPaths(t)
 	stubBuildkitDial(t, fake)
 	stubCacheRegistry(t, testCacheEndpoint())
+	return &Client{backend: &fakeBackend{}}
+}
 
-	handle := &msb.MockSandboxHandle{
-		Name_: builderSandboxName(),
-		Cfg: &msbSdk.SandboxConfig{
-			PortBindings: []msbSdk.PortBinding{
-				{Bind: "127.0.0.1", HostPort: 4242, GuestPort: builderGuestPort},
-			},
-		},
+// pushBackend is a backend whose Export requests a registry push (Stream false),
+// mirroring the msb backend, so Build's push path can be tested without a live
+// registry. It reuses fakeBackend's Ensure/KeepAlive and records the push ref
+// Build derives for the solved image.
+type pushBackend struct {
+	fakeBackend
+
+	pushRef string
+}
+
+func (b *pushBackend) Export(pushRef string) exportSpec {
+	b.pushRef = pushRef
+	return exportSpec{Type: "image", Attrs: map[string]string{
+		"name":              pushRef,
+		"push":              buildkitAttrTrue,
+		"oci-mediatypes":    buildkitAttrTrue,
+		"registry.insecure": buildkitAttrTrue,
+	}, Stream: false}
+}
+
+// TestBuildPushesImageToRegistryWithoutArchive asserts that on the msb backend's
+// push path Build emits a single image export with no Output writer, names it
+// with the guest-authority push ref, and produces no local archive.
+func TestBuildPushesImageToRegistryWithoutArchive(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	stubResolveBaseDigest(t, "base@sha256:x", nil)
+
+	fake := &fakeBuildkitClient{}
+	stubBuildkitDial(t, fake)
+	stubCacheRegistry(t, testCacheEndpoint())
+
+	const tag = "project/opencode:latest"
+	backend := &pushBackend{}
+	result, err := (&Client{backend: backend}).Build(context.Background(), BuildRequest{
+		ContextDir: t.TempDir(),
+		Tag:        tag,
+		Platform:   "linux/amd64",
+	})
+	if err != nil {
+		t.Fatalf("Build failed: %v", err)
 	}
-	msbClient := &msb.MockMsbClient{
-		GetSandboxFn: func(context.Context, string) (msb.SandboxHandle, error) {
-			return handle, nil
-		},
+	if result.ArchivePath != "" {
+		t.Errorf("ArchivePath = %q, want empty on the registry-push path", result.ArchivePath)
 	}
-	return &Client{backend: &msbBackend{vm: &VM{Msb: msbClient}}}
+
+	opt := fake.solveOpt(t)
+	if len(opt.Exports) != 1 {
+		t.Fatalf("Exports = %+v, want a single image export", opt.Exports)
+	}
+	entry := opt.Exports[0]
+	if entry.Type != "image" {
+		t.Errorf("export type = %q, want image", entry.Type)
+	}
+	if entry.Output != nil {
+		t.Error("export Output is set, want nil on the registry-push path")
+	}
+	if entry.Attrs["push"] != buildkitAttrTrue {
+		t.Errorf("export push attr = %q, want %q", entry.Attrs["push"], buildkitAttrTrue)
+	}
+	wantRef := testCacheEndpoint().PushRef(tag)
+	if entry.Attrs["name"] != wantRef {
+		t.Errorf("export name = %q, want the guest push ref %q", entry.Attrs["name"], wantRef)
+	}
+	if backend.pushRef != wantRef {
+		t.Errorf("backend received push ref %q, want %q", backend.pushRef, wantRef)
+	}
 }
 
 // testCacheEndpoint is a fixed embedded-registry endpoint for build tests.
@@ -152,7 +206,14 @@ type fakeBackend struct {
 
 func (b *fakeBackend) Ensure(context.Context) (int, error) { return 4242, nil }
 func (b *fakeBackend) PruneCache(context.Context) error    { return nil }
-func (b *fakeBackend) Export(string) exportSpec            { return exportSpec{Type: "oci"} }
+
+// Export streams an OCI archive to the solve's output writer, mirroring a
+// backend that delivers a local archive (the moby backend). The msb backend
+// pushes to the registry instead, which pushBackend models.
+func (b *fakeBackend) Export(string) exportSpec {
+	return exportSpec{Type: "oci", Stream: true}
+}
+
 func (b *fakeBackend) KeepAlive(context.Context) func() {
 	b.keptAlive = true
 	return func() { b.stopped = true }

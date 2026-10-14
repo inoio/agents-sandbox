@@ -88,13 +88,13 @@ const (
 	// snapshotter change clears the (snapshotter-specific) worker once.
 	workerSnapshotterMarker = cacheMountPath + "/.agents-sandbox-snapshotter"
 
-	// builderCompression is the layer compression for both the OCI image archive
-	// microsandbox loads and the registry cache export. zstd compresses multi-GB
-	// images far faster than BuildKit's default gzip, cutting the dominant
-	// "[internal] exporting to oci image format" cost (measured ~1m30s on the
-	// heavy dev image) and the cache-export push. builderCompressionEnv overrides
-	// the algorithm (e.g. "uncompressed", "gzip") for A/B measurement, and
-	// builderCompressionLevelEnv sets a zstd/gzip level.
+	// builderCompression is the layer compression for both the runner-image push
+	// (or OCI archive on the moby path) and the registry cache export. zstd
+	// compresses multi-GB images far faster than BuildKit's default gzip, cutting
+	// the dominant "[internal] exporting to oci image format" cost (measured
+	// ~1m30s on the heavy dev image) and the cache-export push.
+	// builderCompressionEnv overrides the algorithm (e.g. "uncompressed", "gzip")
+	// for A/B measurement, and builderCompressionLevelEnv sets a zstd/gzip level.
 	builderCompression         = "zstd"
 	builderCompressionEnv      = "AGENTS_SANDBOX_BUILDER_COMPRESSION"
 	builderCompressionLevelEnv = "AGENTS_SANDBOX_BUILDER_COMPRESSION_LEVEL"
@@ -102,6 +102,10 @@ const (
 	// buildkitAttrTrue is the string value BuildKit expects for boolean frontend
 	// and exporter attributes.
 	buildkitAttrTrue = "true"
+
+	// buildkitAttrRegistryInsecure marks a registry export/cache endpoint as
+	// plain HTTP, which the embedded registry is.
+	buildkitAttrRegistryInsecure = "registry.insecure"
 )
 
 // builderSnapshotter returns the BuildKit worker snapshotter: fuse-overlayfs

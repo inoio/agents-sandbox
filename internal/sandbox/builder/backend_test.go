@@ -2,16 +2,26 @@ package builder
 
 import "testing"
 
-func TestMsbBackendExportIsOCI(t *testing.T) {
-	spec := (&msbBackend{}).Export("any")
-	if spec.Type != "oci" {
-		t.Fatalf("msb export type = %q, want oci", spec.Type)
+func TestMsbBackendExportPushesToRegistry(t *testing.T) {
+	spec := (&msbBackend{}).Export("host.microsandbox.internal:5000/agents-sandbox/runner-p:opencode-latest")
+	if spec.Type != "image" {
+		t.Fatalf("type = %q, want image", spec.Type)
+	}
+	if spec.Stream {
+		t.Fatal("registry push must not stream a local output")
+	}
+	for key, want := range map[string]string{
+		"name":              "host.microsandbox.internal:5000/agents-sandbox/runner-p:opencode-latest",
+		"push":              "true",
+		"oci-mediatypes":    "true",
+		"registry.insecure": "true",
+	} {
+		if got := spec.Attrs[key]; got != want {
+			t.Fatalf("attr %s = %q, want %q", key, got, want)
+		}
 	}
 	if spec.Attrs["compression"] != builderCompression {
 		t.Errorf("export compression = %q, want %q", spec.Attrs["compression"], builderCompression)
-	}
-	if spec.Attrs["oci-mediatypes"] != "true" {
-		t.Errorf("export oci-mediatypes = %q, want true", spec.Attrs["oci-mediatypes"])
 	}
 }
 

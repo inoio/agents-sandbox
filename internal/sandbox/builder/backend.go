@@ -12,6 +12,9 @@ import (
 type exportSpec struct {
 	Type  string
 	Attrs map[string]string
+	// Stream is true when the exporter writes an OCI archive to the solve's
+	// output writer (moby/archive); false when BuildKit pushes to a registry.
+	Stream bool
 }
 
 // backend acquires a ready buildkitd endpoint and owns backend-specific cache
@@ -19,7 +22,7 @@ type exportSpec struct {
 type backend interface {
 	Ensure(ctx context.Context) (int, error)
 	PruneCache(ctx context.Context) error
-	Export(tag string) exportSpec
+	Export(pushRef string) exportSpec
 	// KeepAlive refreshes the builder's idle-activity timer while a build is in
 	// flight so a short idle timeout does not reap it mid-build. It returns a
 	// stop function to call when the build finishes.
@@ -46,14 +49,21 @@ func (b *msbBackend) KeepAlive(ctx context.Context) func() {
 	return b.vm.KeepAlive(ctx)
 }
 
-// Export selects the untagged OCI archive that microsandbox's ImageLoad
-// consumes; the tag is carried explicitly on load rather than in the export. The
-// archival compression is overridden (see builderCompression): the default gzip
+// Export selects the containerimage exporter that pushes the solved image to the
+// embedded registry. The name authority is the guest-visible registry the
+// builder VM reaches; the build's auth session (shared with the cache export)
+// supplies the bearer token and lets BuildKit HEAD-skip already-pushed blobs. The
+// image compression is overridden (see builderCompression): the default gzip
 // dominates a large image's export time.
-func (b *msbBackend) Export(string) exportSpec {
-	attrs := map[string]string{"oci-mediatypes": buildkitAttrTrue}
+func (b *msbBackend) Export(pushRef string) exportSpec {
+	attrs := map[string]string{
+		"name":                       pushRef,
+		"push":                       buildkitAttrTrue,
+		"oci-mediatypes":             buildkitAttrTrue,
+		buildkitAttrRegistryInsecure: buildkitAttrTrue,
+	}
 	applyCompressionAttrs(attrs)
-	return exportSpec{Type: "oci", Attrs: attrs}
+	return exportSpec{Type: "image", Attrs: attrs, Stream: false}
 }
 
 // newBackend is the single construction point for the active backend.

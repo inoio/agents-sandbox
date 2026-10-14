@@ -183,14 +183,14 @@ type BuildTimings struct {
 	Ensure time.Duration
 	// BaseResolve connects to BuildKit and resolves the base image digest.
 	BaseResolve time.Duration
-	// Solve is the whole image solve, including the image export to the archive
-	// and the registry cache export (both run in the same solve).
+	// Solve is the whole image solve, including the image export (to the archive
+	// or the registry) and the registry cache export (both run in the same solve).
 	Solve time.Duration
 	// SolveWarmup is Solve's start up to the first progress update: BuildKit's
 	// cache import and graph setup, before any Dockerfile step runs.
 	SolveWarmup time.Duration
 	// Export is the tail of Solve after the last Dockerfile step, i.e.
-	// finalizing the image archive, plus archive close.
+	// finalizing the image export, plus archive close on the streaming path.
 	Export time.Duration
 	// Total is the wall-clock time from Build entry to return.
 	Total time.Duration
@@ -292,19 +292,28 @@ func (c *Client) Build(ctx context.Context, req BuildRequest) (BuildResult, erro
 	}
 	timings.BaseResolve = time.Since(prepareStart)
 
-	archive, err := os.CreateTemp("", "agents-sandbox-image-*.tar")
-	if err != nil {
-		return BuildResult{}, fmt.Errorf("create image archive: %w", err)
+	pushRef := cacheEndpoint.PushRef(req.Tag)
+	spec := c.backend.Export(pushRef)
+
+	// Only a streaming backend (moby/archive) needs a local file to export into;
+	// the msb backend pushes the solved image straight to the embedded registry,
+	// so no archive is produced.
+	var archive *os.File
+	var archivePath string
+	if spec.Stream {
+		archive, err = os.CreateTemp("", "agents-sandbox-image-*.tar")
+		if err != nil {
+			return BuildResult{}, fmt.Errorf("create image archive: %w", err)
+		}
+		archivePath = archive.Name()
 	}
-	archivePath := archive.Name()
 	buildSucceeded := false
 	defer func() {
-		if !buildSucceeded {
+		if !buildSucceeded && archivePath != "" {
 			_ = os.Remove(archivePath)
 		}
 	}()
 
-	spec := c.backend.Export(req.Tag)
 	cacheImports, cacheExports, cacheErr := builderCacheExportOptions(ctx, cacheRef)
 	if cacheErr != nil {
 		return BuildResult{}, cacheErr
@@ -341,9 +350,9 @@ func (c *Client) Build(ctx context.Context, req BuildRequest) (BuildResult, erro
 // solveAndExport runs the image solve, which also persists the BuildKit cache
 // to the registry in the same pass (BuildKit runs the cache export after the
 // build graph completes, alongside the image export). Folding both into one
-// solve avoids a second, redundant cache import and graph traversal. The image
-// archive is closed here (its close time is part of the export tail), so callers
-// must not close it again.
+// solve avoids a second, redundant cache import and graph traversal. A non-nil
+// image archive is closed here (its close time is part of the export tail), so
+// callers must not close it again; the registry-push path has no archive.
 func (c *Client) solveAndExport(
 	ctx context.Context,
 	bc buildkitClient,
@@ -355,15 +364,22 @@ func (c *Client) solveAndExport(
 	authSession []session.Attachable,
 	timings *BuildTimings,
 ) (solveOutcome, error) {
+	var imageOut io.Writer
+	if archive != nil {
+		imageOut = archive
+	}
 	solveStart := time.Now()
-	outcome, solveErr := c.solve(ctx, bc, req, attributes, spec, archive, cacheImports, cacheExports, authSession)
+	outcome, solveErr := c.solve(ctx, bc, req, attributes, spec, imageOut, cacheImports, cacheExports, authSession)
 	timings.Solve = time.Since(solveStart)
 	timings.SolveWarmup = outcome.firstStatus
 	timings.Export = timings.Solve - outcome.lastStatus
 
-	closeStart := time.Now()
-	closeErr := archive.Close()
-	timings.Export += time.Since(closeStart)
+	var closeErr error
+	if archive != nil {
+		closeStart := time.Now()
+		closeErr = archive.Close()
+		timings.Export += time.Since(closeStart)
+	}
 	if solveErr != nil {
 		return solveOutcome{}, fmt.Errorf("solve image build: %w", solveErr)
 	}
@@ -423,8 +439,10 @@ type solveOutcome struct {
 	vertexTimings []VertexTiming
 }
 
-// solve runs one BuildKit solve, forwarding progress. It exports the image when
-// imageOut is non-nil and the registry cache when cacheExports is non-empty.
+// solve runs one BuildKit solve, forwarding progress. It always emits one image
+// export: a streaming one that writes to imageOut (moby/archive) when
+// spec.Stream is set, or a registry push (msb) with no local Output otherwise.
+// The registry cache is exported when cacheExports is non-empty.
 func (c *Client) solve(
 	ctx context.Context,
 	bc buildkitClient,
@@ -443,15 +461,13 @@ func (c *Client) solve(
 		CacheExports:  cacheExports,
 		Session:       authSession,
 	}
-	if imageOut != nil {
-		opt.Exports = []client.ExportEntry{{
-			Type:  spec.Type,
-			Attrs: spec.Attrs,
-			Output: func(map[string]string) (io.WriteCloser, error) {
-				return nopWriteCloser{Writer: imageOut}, nil
-			},
-		}}
+	export := client.ExportEntry{Type: spec.Type, Attrs: spec.Attrs}
+	if spec.Stream {
+		export.Output = func(map[string]string) (io.WriteCloser, error) {
+			return nopWriteCloser{Writer: imageOut}, nil
+		}
 	}
+	opt.Exports = []client.ExportEntry{export}
 
 	solveStart := time.Now()
 	statusCh := make(chan *client.SolveStatus)
@@ -578,10 +594,10 @@ func builderCacheExportOptions(_ context.Context, cacheRef string) (
 	// so BuildKit's registry remotecache must be told the endpoint is insecure;
 	// otherwise it defaults to HTTPS and every import/export fails.
 	imports := []client.CacheOptionsEntry{
-		{Type: "registry", Attrs: map[string]string{"ref": cacheRef, "registry.insecure": buildkitAttrTrue}},
+		{Type: "registry", Attrs: map[string]string{"ref": cacheRef, buildkitAttrRegistryInsecure: buildkitAttrTrue}},
 	}
 	exportAttrs := map[string]string{
-		"ref": cacheRef, "mode": "max", "registry.insecure": buildkitAttrTrue,
+		"ref": cacheRef, "mode": "max", buildkitAttrRegistryInsecure: buildkitAttrTrue,
 	}
 	applyCompressionAttrs(exportAttrs)
 	exports := []client.CacheOptionsEntry{{Type: "registry", Attrs: exportAttrs}}
