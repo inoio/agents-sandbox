@@ -262,6 +262,54 @@ func TestEnsureImageDockerAddsDockerVersionArg(t *testing.T) {
 	}
 }
 
+// TestEnsureImageSetsRefreshOnlyOnBuild is Review Focus 2: a rebuilt same-tag
+// image must carry Refresh so the VM create re-resolves the ref; a cache hit must
+// not, so the cached msb ref keeps serving.
+func TestEnsureImageSetsRefreshOnlyOnBuild(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	WithMockAgentVersion(t, "1.2.3")
+	a := agentOpencode(t)
+
+	restore := imagePullRef
+	t.Cleanup(func() { imagePullRef = restore })
+	imagePullRef = func(context.Context, string) (string, bool, error) {
+		return "127.0.0.1:5000/agents-sandbox/runner", true, nil
+	}
+
+	msbInspector(t, func(context.Context, string) (*msbSdk.ImageConfig, error) {
+		return nil, errors.New("image not found")
+	})
+	fakeBuilder(t, builder.BuildResult{Digest: "sha256:new"}, nil)
+
+	built, err := EnsureImage(context.Background(), a, "proj", BuildOptions{}, &termio.Mock{})
+	if err != nil {
+		t.Fatalf("EnsureImage: %v", err)
+	}
+	if !built.Refresh {
+		t.Error("a freshly built image must set Refresh so the VM create re-resolves the ref")
+	}
+	if built.Ref != "127.0.0.1:5000/agents-sandbox/runner" {
+		t.Errorf("built.Ref = %q, want the resolved registry ref", built.Ref)
+	}
+
+	labels := map[string]string{
+		dockerfileIDLabelKey: computeDockerfileID(renderBytes(t, a, nil, false), "1.2.3"),
+	}
+	msbInspector(t, func(context.Context, string) (*msbSdk.ImageConfig, error) {
+		return msbImageConfig("sha256:existing", labels, nil), nil
+	})
+	reused, err := EnsureImage(context.Background(), a, "proj", BuildOptions{}, &termio.Mock{})
+	if err != nil {
+		t.Fatalf("EnsureImage: %v", err)
+	}
+	if reused.Refresh {
+		t.Error("a cache hit must not set Refresh; the cached msb ref is valid")
+	}
+	if reused.Ref != "127.0.0.1:5000/agents-sandbox/runner" {
+		t.Errorf("reused.Ref = %q, want the resolved registry ref", reused.Ref)
+	}
+}
+
 func TestBaseImageRef(t *testing.T) {
 	a := agentOpencode(t)
 	if got := baseImageRef(renderBytes(t, a, nil, false)); got != "debian:trixie-slim" {

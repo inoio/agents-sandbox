@@ -24,6 +24,15 @@ func verboseContains(ui *termio.Mock, substr string) bool {
 	return false
 }
 
+func verboseSpinnerContains(ui *termio.Mock, substr string) bool {
+	for _, call := range ui.SpinnerCalls {
+		if strings.Contains(call, substr) {
+			return true
+		}
+	}
+	return false
+}
+
 func TestEnsureImageVerboseNamesChangedInputs(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	WithMockAgentVersion(t, "2.0.0")
@@ -113,7 +122,9 @@ func TestEnsureImageVerboseReportsBuildTimings(t *testing.T) {
 	}
 }
 
-func TestEnsureLoadedVerboseReportsUpToDate(t *testing.T) {
+// TestEnsureLoadedCacheHitLoadsNothing covers the archive-less path: a cached
+// image needs no load, so EnsureLoaded succeeds without touching the archive.
+func TestEnsureLoadedCacheHitLoadsNothing(t *testing.T) {
 	ui := &termio.Mock{}
 	msbClient := &msb.MockMsbClient{
 		ImageGetFn: func(context.Context, string) error { return nil },
@@ -121,8 +132,8 @@ func TestEnsureLoadedVerboseReportsUpToDate(t *testing.T) {
 	if err := EnsureLoaded(context.Background(), msbClient, "", "ref", ui); err != nil {
 		t.Fatalf("EnsureLoaded: %v", err)
 	}
-	if !verboseContains(ui, "is up to date") {
-		t.Errorf("verbose calls = %v, want an up-to-date line", ui.VerboseCalls)
+	if len(msbClient.LoadedImages) != 0 {
+		t.Errorf("LoadedImages = %v, want none for a cache hit", msbClient.LoadedImages)
 	}
 }
 
@@ -136,7 +147,7 @@ func TestEnsureLoadedVerboseReportsArchiveLoad(t *testing.T) {
 	); err != nil {
 		t.Fatalf("EnsureLoaded: %v", err)
 	}
-	if !verboseContains(ui, "from build archive") {
-		t.Errorf("verbose calls = %v, want a build-archive load reason", ui.VerboseCalls)
+	if !verboseSpinnerContains(ui, "Loading image into microsandbox") {
+		t.Errorf("spinner calls = %v, want a load spinner", ui.SpinnerCalls)
 	}
 }

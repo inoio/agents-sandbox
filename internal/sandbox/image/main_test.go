@@ -21,11 +21,27 @@ func TestMain(m *testing.M) {
 		runRegistryDaemon()
 	}
 	termio.InstallFailFastMocks()
+	if os.Getenv(integrationEnv) == "" {
+		installOfflineImagePullRef()
+	}
 	code := m.Run()
 	if integrationTestCleanup != nil {
 		integrationTestCleanup()
 	}
 	os.Exit(code)
+}
+
+// integrationEnv gates the tagged integration tier that drives the real builder
+// and registry. It duplicates integration_build_test.go's constant because that
+// file is build-tagged and unavailable to this default-build file.
+const integrationEnv = "AGENTS_SANDBOX_INTEGRATION"
+
+// installOfflineImagePullRef keeps the un-tagged unit suite hermetic: resolving a
+// pull ref would otherwise spawn the embedded registry daemon. The tagged
+// integration tier (AGENTS_SANDBOX_INTEGRATION=1) keeps the real seam so it can
+// exercise registry-pull delivery end to end.
+func installOfflineImagePullRef() {
+	imagePullRef = func(context.Context, string) (string, bool, error) { return "", false, nil }
 }
 
 // isRegistryDaemonInvocation reports whether this test binary was re-exec'd as

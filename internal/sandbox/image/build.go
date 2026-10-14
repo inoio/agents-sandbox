@@ -51,6 +51,16 @@ type ImageInfo struct {
 	Digest      string
 	Env         map[string]string
 	ArchivePath string
+	// Ref is the reference callers pass to msb's WithImage. It is the
+	// registry-qualified pull ref for registry-pull backends and empty when the
+	// image is delivered as an archive (moby), where Tag is used instead.
+	Ref string
+	// RegistryInsecure marks Ref as pulled over the embedded registry's plain
+	// HTTP endpoint.
+	RegistryInsecure bool
+	// Refresh reports that a build ran this invocation, so msb must re-resolve
+	// the ref (its default IfMissing short-circuits a same-tag re-push).
+	Refresh bool
 }
 
 // referencesImage reports whether the Dockerfile uses the given image
@@ -333,7 +343,16 @@ func EnsureImageWithClient(
 		return ImageInfo{}, fmt.Errorf("render Dockerfile: %w", err)
 	}
 
-	needsBuild, reasons := buildDecision(ctx, rTag, buildOpts.Force, plan.dockerfileID, plan.identity)
+	ref, insecure, err := resolveImageRef(ctx, rTag)
+	if err != nil {
+		return ImageInfo{}, fmt.Errorf("resolve image ref: %w", err)
+	}
+	probeRef := rTag
+	if ref != "" {
+		probeRef = ref
+	}
+
+	needsBuild, reasons := buildDecision(ctx, probeRef, buildOpts.Force, plan.dockerfileID, plan.identity)
 	if needsBuild && deferResolve {
 		resolved, resolveErr := resolveAgentVersion(ctx, a, "")
 		if resolveErr != nil {
@@ -363,13 +382,16 @@ func EnsureImageWithClient(
 		if buildErr != nil {
 			return ImageInfo{}, buildErr
 		}
-		info = ImageInfo{Tag: rTag, Digest: res.Digest, Env: parseImageEnv(res.Env), ArchivePath: res.ArchivePath}
+		info = ImageInfo{
+			Tag: rTag, Ref: ref, RegistryInsecure: insecure, Refresh: true,
+			Digest: res.Digest, Env: parseImageEnv(res.Env), ArchivePath: res.ArchivePath,
+		}
 	} else {
-		inspect, inspectErr := msb.Get().ImageInspect(ctx, rTag)
+		inspect, inspectErr := msb.Get().ImageInspect(ctx, probeRef)
 		if inspectErr != nil {
 			return ImageInfo{}, fmt.Errorf("cannot inspect cached image: %w", inspectErr)
 		}
-		info = ImageInfo{Tag: rTag, Digest: inspect.Digest, Env: parseImageEnv(inspect.Env), ArchivePath: ""}
+		info = ImageInfo{Tag: rTag, Ref: ref, RegistryInsecure: insecure, Digest: inspect.Digest, Env: parseImageEnv(inspect.Env)}
 	}
 	ui.Verbosef("image %s (digest %s)", rTag, info.Digest)
 	return info, nil
@@ -438,31 +460,17 @@ func logBuildDecision(
 	)
 }
 
-// EnsureLoaded loads archivePath into the microsandbox cache under imageRef. An
-// archive is always loaded when present, because the runner tag is stable
-// across rebuilds and a same-tag cached image may hold stale content. Only when
-// no archive is available (e.g. an earlier cache hit) does it fall back to a
-// cache presence check, and it errors when the image is missing and there is
-// nothing to load.
+// EnsureLoaded makes an archive-backed runner image available to microsandbox.
+// It is a thin wrapper over EnsureAvailable that discards the registry
+// keep-alive, which archive delivery does not use; it exists only for the moby
+// callers that still pass an archive path and is retired when they thread
+// ImageInfo directly.
 func EnsureLoaded(ctx context.Context, mclient msb.Client, archivePath, imageRef string, ui termio.UI) error {
-	if archivePath == "" {
-		if err := mclient.ImageGet(ctx, imageRef); err == nil {
-			ui.Verbosef("microsandbox image %s is up to date", imageRef)
-			return nil
-		}
-		return fmt.Errorf(
-			"runner image %s is not in the microsandbox cache and no build archive is available to load",
-			imageRef,
-		)
-	}
-	ui.Verbosef("loading image %s into microsandbox from build archive", imageRef)
-
-	spin := ui.Spinner("Loading image into microsandbox")
-	if err := mclient.ImageLoad(ctx, imageRef, archivePath); err != nil {
-		spin.StopError(err)
+	stop, err := EnsureAvailable(ctx, mclient, ImageInfo{Tag: imageRef, ArchivePath: archivePath}, ui)
+	if err != nil {
 		return err
 	}
-	spin.Stop()
+	stop()
 	return nil
 }
 
@@ -478,11 +486,12 @@ func EnsureImage(
 	return EnsureImageWithClient(ctx, a, readProjectDockerfile(), projectSlug, buildOpts, ui)
 }
 
-// Build ensures the runner image is built and loaded into the microsandbox
-// cache, so it can be used to create VMs. It composes EnsureImageWithClient
-// (build/inspect) and EnsureLoaded (load into microsandbox), removing the
-// builder's archive once it has been loaded. Preflight checks and dry-run
-// handling are the caller's concern.
+// Build ensures the runner image is built and made available to the
+// microsandbox cache so it can be used to create VMs. It composes
+// EnsureImageWithClient (build/inspect) and EnsureAvailable (archive load or
+// registry hold), removing the builder's archive once it has been loaded and
+// releasing the registry keep-alive immediately (no sandbox is created here).
+// Preflight checks and dry-run handling are the caller's concern.
 func Build(
 	ctx context.Context,
 	a agent.Agent,
@@ -497,7 +506,12 @@ func Build(
 	if info.ArchivePath != "" {
 		defer os.Remove(info.ArchivePath)
 	}
-	return EnsureLoaded(ctx, msb.Get(), info.ArchivePath, info.Tag, ui)
+	stop, err := EnsureAvailable(ctx, msb.Get(), info, ui)
+	if err != nil {
+		return err
+	}
+	stop()
+	return nil
 }
 
 // baseImageRef returns the normalized image reference that backs the rendered
