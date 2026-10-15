@@ -7,6 +7,7 @@ import (
 	"github.com/inoio/agents-sandbox/internal/agent"
 	"github.com/inoio/agents-sandbox/internal/homeconfig"
 	"github.com/inoio/agents-sandbox/internal/sandbox/envsecret"
+	"github.com/inoio/agents-sandbox/internal/sandbox/image"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
 	"github.com/inoio/agents-sandbox/internal/sandbox/options"
 	"github.com/inoio/agents-sandbox/internal/sandbox/reconfig"
@@ -131,7 +132,7 @@ func decideReconfig(
 	vm *volume.Manager,
 	k state.Key,
 	opts options.RunOptions,
-	imageRef, archivePath, imageDigest, homeVol string, hs state.HomeState,
+	info image.ImageInfo, homeVol string, hs state.HomeState,
 	cfs *reprovision.ConfigFiles,
 	ui termio.UI,
 ) (bool, bool, string, int, error) {
@@ -155,9 +156,9 @@ func decideReconfig(
 	// Detect whether the project's image digest changed since the last run. The
 	// home-volume prompt is deferred until the rebuild decision below confirms
 	// we are actually switching to the new image.
-	imageChanged := hs.ImageDigest != imageDigest
+	imageChanged := hs.ImageDigest != info.Digest
 	if imageChanged {
-		ui.Verbosef("image digest changed: %s -> %s", hs.ImageDigest, imageDigest)
+		ui.Verbosef("image digest changed: %s -> %s", hs.ImageDigest, info.Digest)
 	}
 
 	var agentCfgChanged bool
@@ -177,7 +178,7 @@ func decideReconfig(
 
 	plan := reconfig.PlanReconfig(
 		curCfg,
-		imageRef,
+		info.ImageRef(),
 		opts,
 		reconfig.ChangeFlags{
 			Image:       imageChanged,
@@ -202,12 +203,12 @@ func decideReconfig(
 	// front. When the rebuild is deferred (keep current VM) or no state exists
 	// yet (fresh home already created), the prompt is skipped.
 	if imageChanged && recreate {
-		action := vm.ResolveHomeAction(ui, hs.ImageDigest, imageDigest)
+		action := vm.ResolveHomeAction(ui, hs.ImageDigest, info.Digest)
 		if action == volume.ActionQuit {
 			ui.Infof("exiting as requested by user")
 			return false, false, homeVol, plan.ServeHostPort, &ExitError{Code: 1}
 		}
-		newVol, err := vm.ApplyHomeAction(ctx, client, k, homeVol, imageRef, archivePath, imageDigest, action, opts, ui)
+		newVol, err := vm.ApplyHomeAction(ctx, client, k, homeVol, info, info.Digest, action, opts, ui)
 		if err != nil {
 			return false, false, homeVol, plan.ServeHostPort, fmt.Errorf("apply home action: %w", err)
 		}

@@ -10,6 +10,7 @@ import (
 	"github.com/inoio/agents-sandbox/internal/agent"
 	"github.com/inoio/agents-sandbox/internal/configpaths"
 	"github.com/inoio/agents-sandbox/internal/git"
+	"github.com/inoio/agents-sandbox/internal/sandbox/image"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
 	"github.com/inoio/agents-sandbox/internal/sandbox/options"
 	"github.com/inoio/agents-sandbox/internal/sandbox/reprovision"
@@ -92,9 +93,7 @@ func TestDecideReconfigConfigError(t *testing.T) {
 		vm,
 		state.Key{Slug: "testproj", Agent: "opencode"},
 		options.RunOptions{},
-		"img:tag",
-		"",
-		"sha256:same",
+		image.ImageInfo{Tag: "img:tag", Digest: "sha256:same"},
 		"vol",
 		persisted,
 		cfs,
@@ -146,9 +145,7 @@ func TestDecideReconfigResolveReconfigError(t *testing.T) {
 		vm,
 		state.Key{Slug: slug, Agent: "opencode"},
 		options.RunOptions{},
-		"img:new",
-		"",
-		"sha256:new",
+		image.ImageInfo{Tag: "img:new", Digest: "sha256:new"},
 		"vol",
 		persisted,
 		cfs,
@@ -193,9 +190,7 @@ func TestDecideReconfigApplyHomeActionError(t *testing.T) {
 		vm,
 		state.Key{Slug: "testproj", Agent: "opencode"},
 		options.RunOptions{},
-		"img:new",
-		"",
-		"sha256:new",
+		image.ImageInfo{Tag: "img:new", Digest: "sha256:new"},
 		"vol",
 		persisted,
 		cfs,

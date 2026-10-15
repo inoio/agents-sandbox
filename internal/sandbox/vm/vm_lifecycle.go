@@ -439,9 +439,11 @@ func createProjectVM(
 	opts options.RunOptions,
 	ui termio.UI,
 ) (msb.Sandbox, bool, error) {
-	if err := image.EnsureLoaded(ctx, client, info.ArchivePath, info.Tag, ui); err != nil {
+	stop, err := image.EnsureAvailable(ctx, client, info, ui)
+	if err != nil {
 		return nil, false, fmt.Errorf("load runner image: %w", err)
 	}
+	defer stop()
 	cpus := opts.CPUs
 	numCPUs := sysinfo.NumCPUs()
 	if cpus == 0 {
@@ -466,8 +468,7 @@ func createProjectVM(
 	if idleTimeout <= 0 {
 		idleTimeout = options.DefaultVMIdleTimeout
 	}
-	optsList := []msbSdk.SandboxOption{
-		msbSdk.WithImage(info.Tag),
+	optsList := append(image.SandboxImageOptions(info),
 		msbSdk.WithLabels(map[string]string{
 			naming.LabelProject: k.Slug,
 			naming.LabelImage:   info.Tag,
@@ -484,7 +485,7 @@ func createProjectVM(
 		msbSdk.WithDetached(),
 		msbSdk.WithIdleTimeout(idleTimeout),
 		msbSdk.WithReplace(),
-	}
+	)
 	if opts.DiskSize != "" {
 		optsList = append(optsList, msbSdk.WithRootDisk(msbSdk.RootDisk.Managed(options.ParseMemory(opts.DiskSize))))
 	}

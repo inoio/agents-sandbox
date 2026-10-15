@@ -14,6 +14,7 @@ import (
 	"github.com/inoio/agents-sandbox/internal/git"
 	"github.com/inoio/agents-sandbox/internal/sandbox/envsecret"
 	"github.com/inoio/agents-sandbox/internal/sandbox/mounts"
+	"github.com/inoio/agents-sandbox/internal/sandbox/image"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
 	"github.com/inoio/agents-sandbox/internal/sandbox/network"
 	"github.com/inoio/agents-sandbox/internal/sandbox/options"
@@ -185,9 +186,7 @@ func TestDecideReconfig_NetworkChangedWithPersistedState(t *testing.T) {
 		vm,
 		state.Key{Slug: "testproj", Agent: "opencode"},
 		opts,
-		"img:tag",
-		"",
-		"sha256:samedigest",
+		image.ImageInfo{Tag: "img:tag", Digest: "sha256:samedigest"},
 		"vol",
 		persistedState,
 		cfs,
@@ -231,9 +230,7 @@ func TestDecideReconfig_NetworkUnchangedNoRecreate(t *testing.T) {
 		vm,
 		state.Key{Slug: "testproj", Agent: "opencode"},
 		opts,
-		"img:tag",
-		"",
-		"sha256:samedigest",
+		image.ImageInfo{Tag: "img:tag", Digest: "sha256:samedigest"},
 		"vol",
 		persistedState,
 		cfs,
@@ -334,9 +331,7 @@ func TestDecideReconfig_EnvChangedWithPersistedState(t *testing.T) {
 		vm,
 		state.Key{Slug: "testproj", Agent: "opencode"},
 		options.RunOptions{},
-		"img:tag",
-		"",
-		"sha256:samedigest",
+		image.ImageInfo{Tag: "img:tag", Digest: "sha256:samedigest"},
 		"vol",
 		persistedState,
 		cfs,
@@ -389,9 +384,7 @@ func TestDecideReconfig_EnvUnchangedWithPersistedState(t *testing.T) {
 		vm,
 		state.Key{Slug: "testproj", Agent: "opencode"},
 		options.RunOptions{},
-		"img:tag",
-		"",
-		"sha256:samedigest",
+		image.ImageInfo{Tag: "img:tag", Digest: "sha256:samedigest"},
 		"vol",
 		persistedState,
 		cfs,
@@ -439,9 +432,7 @@ func TestDecideReconfig_SecretsChangedWithPersistedState(t *testing.T) {
 		vm,
 		state.Key{Slug: "testproj", Agent: "opencode"},
 		options.RunOptions{},
-		"img:tag",
-		"",
-		"sha256:samedigest",
+		image.ImageInfo{Tag: "img:tag", Digest: "sha256:samedigest"},
 		"vol",
 		persistedState,
 		cfs,
@@ -485,9 +476,7 @@ func TestDecideReconfig_ZeroPersistedStateNoSpuriousChange(t *testing.T) {
 		vm,
 		state.Key{Slug: "testproj", Agent: "opencode"},
 		options.RunOptions{},
-		"img:tag",
-		"",
-		"sha256:samedigest",
+		image.ImageInfo{Tag: "img:tag", Digest: "sha256:samedigest"},
 		"vol",
 		state.HomeState{},
 		cfs,
@@ -683,9 +672,7 @@ func TestDecideReconfig_PersistedSecretsMatchDesired(t *testing.T) {
 		vm,
 		state.Key{Slug: "testproj", Agent: "opencode"},
 		options.RunOptions{},
-		"img",
-		"",
-		"sha256:img",
+		image.ImageInfo{Tag: "img", Digest: "sha256:img"},
 		"vol",
 		persistedState,
 		cfs,
@@ -748,9 +735,7 @@ func TestDecideReconfig_HomePromptDeferredWhenRebuildDeferred(t *testing.T) {
 		vm,
 		key,
 		options.RunOptions{},
-		"img:tag",
-		"",           // imageRef == cfg.Image; the digest still identifies the image
-		"sha256:new", // stored digest differs -> image-triggered rebuild
+		image.ImageInfo{Tag: "img:tag", Digest: "sha256:new"}, // stored digest differs -> image-triggered rebuild
 		"vol",
 		persisted,
 		cfs,
@@ -816,9 +801,7 @@ func TestDecideReconfig_HomePromptAskedWhenRebuildConfirmed(t *testing.T) {
 		vm,
 		state.Key{Slug: slug, Agent: "opencode"},
 		options.RunOptions{},
-		"img:new",
-		"",           // imageRef != cfg.Image("img:tag") -> image-triggered rebuild
-		"sha256:new", // stored digest differs -> image change detected
+		image.ImageInfo{Tag: "img:new", Digest: "sha256:new"}, // stored digest differs -> image change detected
 		"vol",
 		persisted,
 		cfs,
@@ -891,9 +874,7 @@ func TestDecideReconfig_OpenCodeConfigChanged_StoppedVM(t *testing.T) {
 		vm,
 		state.Key{Slug: "testproj", Agent: "opencode"},
 		options.RunOptions{},
-		"img:tag",
-		"",
-		"sha256:same",
+		image.ImageInfo{Tag: "img:tag", Digest: "sha256:same"},
 		"vol",
 		persisted,
 		cfs,

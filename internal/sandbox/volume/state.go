@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/inoio/agents-sandbox/internal/sandbox/image"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
 	"github.com/inoio/agents-sandbox/internal/sandbox/state"
 	"github.com/inoio/agents-sandbox/internal/termio"
@@ -18,7 +19,7 @@ import (
 func (vm *Manager) ResolveHomeVolume(
 	ctx context.Context,
 	client msb.Client,
-	k state.Key, imageDigest, imageTag, archivePath string,
+	k state.Key, info image.ImageInfo,
 	dryRunVM bool,
 	ui termio.UI,
 ) (string, state.HomeState, error) {
@@ -27,13 +28,13 @@ func (vm *Manager) ResolveHomeVolume(
 		if !errors.Is(err, state.ErrStateNotFound) {
 			ui.Warnf("missing state file, creating fresh home volume")
 		}
-		return vm.EnsureNewHome(ctx, client, k, imageDigest, imageTag, archivePath, dryRunVM, ui)
+		return vm.EnsureNewHome(ctx, client, k, info, dryRunVM, ui)
 	}
 
 	_, err = client.GetVolume(ctx, st.HomeVolume)
 	if err != nil {
 		ui.Warnf("existing home volume %q not found, creating fresh", st.HomeVolume)
-		return vm.EnsureNewHome(ctx, client, k, imageDigest, imageTag, archivePath, dryRunVM, ui)
+		return vm.EnsureNewHome(ctx, client, k, info, dryRunVM, ui)
 	}
 
 	return st.HomeVolume, *st, nil
@@ -43,7 +44,7 @@ func (vm *Manager) ResolveHomeVolume(
 func (vm *Manager) EnsureNewHome(
 	ctx context.Context,
 	client msb.Client,
-	k state.Key, imageDigest, imageTag, archivePath string,
+	k state.Key, info image.ImageInfo,
 	dryRunVM bool,
 	ui termio.UI,
 ) (string, state.HomeState, error) {
@@ -56,14 +57,14 @@ func (vm *Manager) EnsureNewHome(
 	}
 
 	if !dryRunVM {
-		if err := vm.PrefillVolume(ctx, client, k, vol.Name(), imageTag, archivePath, ui); err != nil {
+		if err := vm.PrefillVolume(ctx, client, k, vol.Name(), info, ui); err != nil {
 			return "", state.HomeState{}, err
 		}
 	} else {
 		ui.Infof("dry-run: Would prefill home volume")
 	}
 
-	hs := state.NewHomeState(volName, imageDigest)
+	hs := state.NewHomeState(volName, info.Digest)
 	if err := state.WriteState(k, hs); err != nil {
 		ui.Warnf("failed to write state file: %v", err)
 	}

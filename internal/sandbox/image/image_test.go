@@ -491,7 +491,7 @@ func TestEnsureImageReturnsErrorWhenBuildFails(t *testing.T) {
 	}
 }
 
-func TestEnsureLoadedLoadsArchive(t *testing.T) {
+func TestEnsureAvailableLoadsArchiveForTag(t *testing.T) {
 	archivePath := filepath.Join(t.TempDir(), "image.tar")
 	if err := os.WriteFile(archivePath, []byte("tar-data"), 0o600); err != nil {
 		t.Fatalf("write archive: %v", err)
@@ -499,33 +499,37 @@ func TestEnsureLoadedLoadsArchive(t *testing.T) {
 	mclient := &msb.MockMsbClient{
 		ImageGetFn: func(context.Context, string) error { return errors.New("not cached") },
 	}
-	if err := EnsureLoaded(
-		context.Background(), mclient, archivePath, "agents-sandbox/runner-p:opencode", &termio.Mock{},
-	); err != nil {
-		t.Fatalf("EnsureLoaded: %v", err)
+	stop, err := EnsureAvailable(
+		context.Background(), mclient, ImageInfo{Tag: "agents-sandbox/runner-p:opencode", ArchivePath: archivePath}, &termio.Mock{},
+	)
+	if err != nil {
+		t.Fatalf("EnsureAvailable: %v", err)
 	}
+	defer stop()
 	if len(mclient.LoadedImages) != 1 || mclient.LoadedImages[0] != "agents-sandbox/runner-p:opencode" {
 		t.Errorf("LoadedImages = %v, want the runner ref", mclient.LoadedImages)
 	}
 }
 
-func TestEnsureLoadedSkipsWhenCached(t *testing.T) {
+func TestEnsureAvailableSkipsWhenCached(t *testing.T) {
 	mclient := &msb.MockMsbClient{
 		ImageGetFn: func(context.Context, string) error { return nil },
 	}
-	if err := EnsureLoaded(context.Background(), mclient, "", "ref", &termio.Mock{}); err != nil {
-		t.Fatalf("EnsureLoaded: %v", err)
+	stop, err := EnsureAvailable(context.Background(), mclient, ImageInfo{Tag: "ref"}, &termio.Mock{})
+	if err != nil {
+		t.Fatalf("EnsureAvailable: %v", err)
 	}
+	defer stop()
 	if len(mclient.LoadedImages) != 0 {
 		t.Errorf("expected no load when cached, got %v", mclient.LoadedImages)
 	}
 }
 
-// TestEnsureLoadedReloadsFreshArchiveWhenCached verifies that a freshly built
-// archive is loaded even when a same-tag image is already in the microsandbox
-// cache: the tag is stable across rebuilds, so a cached hit must not mask a
-// rebuilt image with different content.
-func TestEnsureLoadedReloadsFreshArchiveWhenCached(t *testing.T) {
+// TestEnsureAvailableReloadsFreshArchiveWhenCached verifies that a freshly
+// built archive is loaded even when a same-tag image is already in the
+// microsandbox cache: the tag is stable across rebuilds, so a cached hit must
+// not mask a rebuilt image with different content.
+func TestEnsureAvailableReloadsFreshArchiveWhenCached(t *testing.T) {
 	archivePath := filepath.Join(t.TempDir(), "image.tar")
 	if err := os.WriteFile(archivePath, []byte("fresh-tar-data"), 0o600); err != nil {
 		t.Fatalf("write archive: %v", err)
@@ -533,23 +537,25 @@ func TestEnsureLoadedReloadsFreshArchiveWhenCached(t *testing.T) {
 	mclient := &msb.MockMsbClient{
 		ImageGetFn: func(context.Context, string) error { return nil },
 	}
-	if err := EnsureLoaded(
-		context.Background(), mclient, archivePath, "agents-sandbox/runner-p:opencode", &termio.Mock{},
-	); err != nil {
-		t.Fatalf("EnsureLoaded: %v", err)
+	stop, err := EnsureAvailable(
+		context.Background(), mclient, ImageInfo{Tag: "agents-sandbox/runner-p:opencode", ArchivePath: archivePath}, &termio.Mock{},
+	)
+	if err != nil {
+		t.Fatalf("EnsureAvailable: %v", err)
 	}
+	defer stop()
 	if len(mclient.LoadedImages) != 1 || mclient.LoadedImages[0] != "agents-sandbox/runner-p:opencode" {
 		t.Errorf("LoadedImages = %v, want the fresh archive reloaded for the runner ref", mclient.LoadedImages)
 	}
 }
 
-func TestEnsureLoadedErrorsWithoutArchive(t *testing.T) {
+func TestEnsureAvailableErrorsWithoutArchive(t *testing.T) {
 	mclient := &msb.MockMsbClient{
 		ImageGetFn: func(context.Context, string) error { return errors.New("not cached") },
 	}
-	err := EnsureLoaded(context.Background(), mclient, "", "ref", &termio.Mock{})
+	_, err := EnsureAvailable(context.Background(), mclient, ImageInfo{Tag: "ref"}, &termio.Mock{})
 	if err == nil || !strings.Contains(err.Error(), "archive") {
-		t.Fatalf("EnsureLoaded error = %v, want a missing-archive error", err)
+		t.Fatalf("EnsureAvailable error = %v, want a missing-archive error", err)
 	}
 	if len(mclient.LoadedImages) != 0 {
 		t.Errorf("expected no load when the archive is missing, got %v", mclient.LoadedImages)
@@ -577,7 +583,7 @@ func TestBuildDecisionReadsMsbCache(t *testing.T) {
 	}
 }
 
-func TestEnsureLoadedReturnsErrorWhenLoadFails(t *testing.T) {
+func TestEnsureAvailableReturnsErrorWhenLoadFails(t *testing.T) {
 	archivePath := filepath.Join(t.TempDir(), "image.tar")
 	if err := os.WriteFile(archivePath, []byte("tar-data"), 0o600); err != nil {
 		t.Fatalf("write archive: %v", err)
@@ -588,7 +594,9 @@ func TestEnsureLoadedReturnsErrorWhenLoadFails(t *testing.T) {
 			return errors.New("load boom")
 		},
 	}
-	if err := EnsureLoaded(context.Background(), mclient, archivePath, "ref", &termio.Mock{}); err == nil {
-		t.Fatal("expected EnsureLoaded to return an error when ImageLoad fails")
+	if _, err := EnsureAvailable(
+		context.Background(), mclient, ImageInfo{Tag: "ref", ArchivePath: archivePath}, &termio.Mock{},
+	); err == nil {
+		t.Fatal("expected EnsureAvailable to return an error when ImageLoad fails")
 	}
 }

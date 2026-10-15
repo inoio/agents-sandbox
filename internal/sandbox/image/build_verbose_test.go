@@ -122,31 +122,36 @@ func TestEnsureImageVerboseReportsBuildTimings(t *testing.T) {
 	}
 }
 
-// TestEnsureLoadedCacheHitLoadsNothing covers the archive-less path: a cached
-// image needs no load, so EnsureLoaded succeeds without touching the archive.
-func TestEnsureLoadedCacheHitLoadsNothing(t *testing.T) {
+// TestEnsureAvailableCacheHitLoadsNothing covers the archive-less path: a
+// cached image needs no load, so EnsureAvailable succeeds without touching the
+// archive.
+func TestEnsureAvailableCacheHitLoadsNothing(t *testing.T) {
 	ui := &termio.Mock{}
 	msbClient := &msb.MockMsbClient{
 		ImageGetFn: func(context.Context, string) error { return nil },
 	}
-	if err := EnsureLoaded(context.Background(), msbClient, "", "ref", ui); err != nil {
-		t.Fatalf("EnsureLoaded: %v", err)
+	stop, err := EnsureAvailable(context.Background(), msbClient, ImageInfo{Tag: "ref"}, ui)
+	if err != nil {
+		t.Fatalf("EnsureAvailable: %v", err)
 	}
+	defer stop()
 	if len(msbClient.LoadedImages) != 0 {
 		t.Errorf("LoadedImages = %v, want none for a cache hit", msbClient.LoadedImages)
 	}
 }
 
-func TestEnsureLoadedVerboseReportsArchiveLoad(t *testing.T) {
+func TestEnsureAvailableVerboseReportsArchiveLoad(t *testing.T) {
 	ui := &termio.Mock{}
 	msbClient := &msb.MockMsbClient{
 		ImageGetFn: func(context.Context, string) error { return errors.New("not cached") },
 	}
-	if err := EnsureLoaded(
-		context.Background(), msbClient, newArchiveFile(t), "agents-sandbox/runner-p:opencode", ui,
-	); err != nil {
-		t.Fatalf("EnsureLoaded: %v", err)
+	stop, err := EnsureAvailable(
+		context.Background(), msbClient, ImageInfo{Tag: "agents-sandbox/runner-p:opencode", ArchivePath: newArchiveFile(t)}, ui,
+	)
+	if err != nil {
+		t.Fatalf("EnsureAvailable: %v", err)
 	}
+	defer stop()
 	if !verboseSpinnerContains(ui, "Loading image into microsandbox") {
 		t.Errorf("spinner calls = %v, want a load spinner", ui.SpinnerCalls)
 	}

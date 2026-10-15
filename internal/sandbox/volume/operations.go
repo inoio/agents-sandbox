@@ -71,11 +71,11 @@ type volCallbacks struct {
 // CmdMigrate creates a new home volume, copies old files on top, updates state.
 func CmdMigrate(
 	ctx context.Context,
-	k state.Key, volumeName, imageTag, archivePath, currentDigest string,
+	k state.Key, volumeName string, info image.ImageInfo, currentDigest string,
 	rmOld, dryRun bool,
 	ui termio.UI,
 ) error {
-	return volumeOp(ctx, k, volumeName, imageTag, archivePath, currentDigest, rmOld, dryRun, volCallbacks{
+	return volumeOp(ctx, k, volumeName, info, currentDigest, rmOld, dryRun, volCallbacks{
 		dryRun: func(oldVolume string) string {
 			return fmt.Sprintf(
 				"dry-run: Would create volume %q, copy files from %q",
@@ -85,7 +85,7 @@ func CmdMigrate(
 		},
 		main: func(oldVolume, newVolumeName string) error {
 			if err := NewManager(ui).CopyVolume(
-				ctx, msb.Get(), k, oldVolume, newVolumeName, imageTag, archivePath, ui,
+				ctx, msb.Get(), k, oldVolume, newVolumeName, info, ui,
 			); err != nil {
 				return err
 			}
@@ -98,11 +98,11 @@ func CmdMigrate(
 // CmdReset creates a new home volume from image only, no copy.
 func CmdReset(
 	ctx context.Context,
-	k state.Key, volumeName, imageTag, archivePath, currentDigest string,
+	k state.Key, volumeName string, info image.ImageInfo, currentDigest string,
 	rmOld, dryRun bool,
 	ui termio.UI,
 ) error {
-	return volumeOp(ctx, k, volumeName, imageTag, archivePath, currentDigest, rmOld, dryRun, volCallbacks{
+	return volumeOp(ctx, k, volumeName, info, currentDigest, rmOld, dryRun, volCallbacks{
 		dryRun: func(oldVolume string) string {
 			return fmt.Sprintf(
 				"dry-run: Would create fresh volume %q, remove %q",
@@ -120,11 +120,11 @@ func CmdReset(
 // CmdEdit creates a new volume alongside the old for manual transfer.
 func CmdEdit(
 	ctx context.Context,
-	k state.Key, volumeName, imageTag, archivePath, currentDigest string,
+	k state.Key, volumeName string, info image.ImageInfo, currentDigest string,
 	rmOld, dryRun bool,
 	ui termio.UI,
 ) error {
-	return volumeOp(ctx, k, volumeName, imageTag, archivePath, currentDigest, rmOld, dryRun, volCallbacks{
+	return volumeOp(ctx, k, volumeName, info, currentDigest, rmOld, dryRun, volCallbacks{
 		dryRun: func(oldVolume string) string {
 			return fmt.Sprintf(
 				"dry-run: Would create volume %q alongside %q for manual transfer",
@@ -134,9 +134,11 @@ func CmdEdit(
 		},
 		main: func(oldVolume, newVolumeName string) error {
 			client := msb.Get()
-			if err := image.EnsureLoaded(ctx, client, archivePath, imageTag, ui); err != nil {
+			stop, err := image.EnsureAvailable(ctx, client, info, ui)
+			if err != nil {
 				return fmt.Errorf("load runner image: %w", err)
 			}
+			defer stop()
 			spin := ui.Spinner("Starting interactive session with both volumes")
 			editSandboxName := naming.TaskPrefix + k.Slug + "-" + k.Agent + "-" + strconv.FormatInt(
 				time.Now().UnixNano(),
@@ -145,12 +147,13 @@ func CmdEdit(
 			editOldMount := msbSdk.Mount.Named(oldVolume, msbSdk.MountOptions{})
 			editNewMount := msbSdk.Mount.Named(newVolumeName, msbSdk.MountOptions{})
 			editSb, editErr := client.CreateSandbox(ctx, editSandboxName,
-				msbSdk.WithImage(imageTag),
-				msbSdk.WithMounts(map[string]msbSdk.MountConfig{
-					srcMount: editOldMount,
-					dstMount: editNewMount,
-				}),
-				msbSdk.WithReplace(),
+				append(image.SandboxImageOptions(info),
+					msbSdk.WithMounts(map[string]msbSdk.MountConfig{
+						srcMount: editOldMount,
+						dstMount: editNewMount,
+					}),
+					msbSdk.WithReplace(),
+				)...,
 			)
 			if editErr != nil {
 				return fmt.Errorf("create edit sandbox: %w", editErr)
@@ -179,7 +182,7 @@ func CmdEdit(
 // volumeOp is the shared implementation for migrate, reset, and edit operations.
 func volumeOp(
 	ctx context.Context,
-	k state.Key, volumeName, imageTag, archivePath, currentDigest string,
+	k state.Key, volumeName string, info image.ImageInfo, currentDigest string,
 	rmOld, dryRun bool,
 	cbs volCallbacks,
 	ui termio.UI,
@@ -220,7 +223,7 @@ func volumeOp(
 	}
 
 	vm := NewManager(ui)
-	if err := vm.PrefillVolume(ctx, client, k, newVol.Name(), imageTag, archivePath, ui); err != nil {
+	if err := vm.PrefillVolume(ctx, client, k, newVol.Name(), info, ui); err != nil {
 		return fmt.Errorf("prefill new volume: %w", err)
 	}
 

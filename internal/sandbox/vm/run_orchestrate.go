@@ -126,7 +126,7 @@ func PrepareSandbox(
 		vm,
 		k,
 		opts,
-		imageInfo.Tag, imageInfo.ArchivePath, imageInfo.Digest,
+		imageInfo,
 		homeVol,
 		vs,
 		cfs,
@@ -235,7 +235,7 @@ func resolveHomeVolume(
 	dryRunVM bool,
 	ui termio.UI,
 ) (string, state.HomeState, error) {
-	return vm.ResolveHomeVolume(ctx, client, k, info.Digest, info.Tag, info.ArchivePath, dryRunVM, ui)
+	return vm.ResolveHomeVolume(ctx, client, k, info, dryRunVM, ui)
 }
 
 // persistConfigHashes records the desired env/secret/network/mount

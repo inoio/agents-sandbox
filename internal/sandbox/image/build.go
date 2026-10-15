@@ -460,20 +460,6 @@ func logBuildDecision(
 	)
 }
 
-// EnsureLoaded makes an archive-backed runner image available to microsandbox.
-// It is a thin wrapper over EnsureAvailable that discards the registry
-// keep-alive, which archive delivery does not use; it exists only for the moby
-// callers that still pass an archive path and is retired when they thread
-// ImageInfo directly.
-func EnsureLoaded(ctx context.Context, mclient msb.Client, archivePath, imageRef string, ui termio.UI) error {
-	stop, err := EnsureAvailable(ctx, mclient, ImageInfo{Tag: imageRef, ArchivePath: archivePath}, ui)
-	if err != nil {
-		return err
-	}
-	stop()
-	return nil
-}
-
 // EnsureImage builds/inspects the runner Docker image and returns an ImageInfo
 // describing its tag, digest, and ENV map.
 func EnsureImage(

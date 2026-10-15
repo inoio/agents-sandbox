@@ -45,22 +45,25 @@ func NewManager(ui termio.UI) *Manager {
 func (vm *Manager) PrefillVolume(
 	ctx context.Context,
 	client msb.Client,
-	k state.Key, volumeName, imageTag, archivePath string,
+	k state.Key, volumeName string, info image.ImageInfo,
 	ui termio.UI,
 ) error {
-	if err := image.EnsureLoaded(ctx, client, archivePath, imageTag, ui); err != nil {
+	stop, err := image.EnsureAvailable(ctx, client, info, ui)
+	if err != nil {
 		return fmt.Errorf("load runner image: %w", err)
 	}
+	defer stop()
 	prefillName := naming.TaskPrefix + k.Slug + "-" + k.Agent + "-" + strconv.FormatInt(time.Now().UnixNano(), 10)
 	mountConfig := msbSdk.Mount.Named(volumeName, msbSdk.MountOptions{})
 
 	spin := ui.Spinner("Preparing home volume")
 	sb, err := client.CreateSandbox(ctx, prefillName,
-		msbSdk.WithImage(imageTag),
-		msbSdk.WithMounts(map[string]msbSdk.MountConfig{
-			"/mnt/home": mountConfig,
-		}),
-		msbSdk.WithReplace(),
+		append(image.SandboxImageOptions(info),
+			msbSdk.WithMounts(map[string]msbSdk.MountConfig{
+				"/mnt/home": mountConfig,
+			}),
+			msbSdk.WithReplace(),
+		)...,
 	)
 	if err != nil {
 		spin.StopError(err)
@@ -100,7 +103,7 @@ func (vm *Manager) PrefillVolume(
 func (vm *Manager) ApplyHomeAction(
 	ctx context.Context,
 	client msb.Client,
-	k state.Key, oldVolume, imageTag, archivePath, currentDigest string,
+	k state.Key, oldVolume string, info image.ImageInfo, currentDigest string,
 	action VolumeAction,
 	opts options.RunOptions,
 	ui termio.UI,
@@ -133,13 +136,13 @@ func (vm *Manager) ApplyHomeAction(
 	}
 	newName := newVol.Name()
 
-	if err := vm.PrefillVolume(ctx, client, k, newName, imageTag, archivePath, ui); err != nil {
+	if err := vm.PrefillVolume(ctx, client, k, newName, info, ui); err != nil {
 		vm.cleanupVolume(ctx, client, newName, ui)
 		return "", err
 	}
 
 	if action == ActionMigrate {
-		if err := vm.CopyVolume(ctx, client, k, oldVolume, newName, imageTag, archivePath, ui); err != nil {
+		if err := vm.CopyVolume(ctx, client, k, oldVolume, newName, info, ui); err != nil {
 			vm.cleanupVolume(ctx, client, newName, ui)
 			return "", err
 		}
@@ -166,20 +169,23 @@ func (vm *Manager) cleanupVolume(ctx context.Context, client msb.Client, name st
 func (vm *Manager) CopyVolume(
 	ctx context.Context,
 	client msb.Client,
-	k state.Key, oldVolume, newVolume, imageTag, archivePath string,
+	k state.Key, oldVolume, newVolume string, info image.ImageInfo,
 	ui termio.UI,
 ) error {
-	if err := image.EnsureLoaded(ctx, client, archivePath, imageTag, ui); err != nil {
+	stop, err := image.EnsureAvailable(ctx, client, info, ui)
+	if err != nil {
 		return fmt.Errorf("load runner image: %w", err)
 	}
+	defer stop()
 	copySbName := naming.TaskPrefix + k.Slug + "-" + k.Agent + "-" + strconv.FormatInt(time.Now().UnixNano(), 10)
 	copySb, err := client.CreateSandbox(ctx, copySbName,
-		msbSdk.WithImage(imageTag),
-		msbSdk.WithMounts(map[string]msbSdk.MountConfig{
-			srcMount: msbSdk.Mount.Named(oldVolume, msbSdk.MountOptions{}),
-			dstMount: msbSdk.Mount.Named(newVolume, msbSdk.MountOptions{}),
-		}),
-		msbSdk.WithReplace(),
+		append(image.SandboxImageOptions(info),
+			msbSdk.WithMounts(map[string]msbSdk.MountConfig{
+				srcMount: msbSdk.Mount.Named(oldVolume, msbSdk.MountOptions{}),
+				dstMount: msbSdk.Mount.Named(newVolume, msbSdk.MountOptions{}),
+			}),
+			msbSdk.WithReplace(),
+		)...,
 	)
 	if err != nil {
 		return fmt.Errorf("create copy sandbox: %w", err)

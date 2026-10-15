@@ -8,6 +8,7 @@ import (
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 
 	"github.com/inoio/agents-sandbox/internal/configpaths"
+	"github.com/inoio/agents-sandbox/internal/sandbox/image"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
 	"github.com/inoio/agents-sandbox/internal/sandbox/options"
 	"github.com/inoio/agents-sandbox/internal/sandbox/reprovision"
@@ -95,9 +96,7 @@ func TestDecideReconfigDetachErrorVerbose(t *testing.T) {
 		vm,
 		state.Key{Slug: "testproj", Agent: "opencode"},
 		options.RunOptions{},
-		"img:tag",
-		"",
-		"sha256:same",
+		image.ImageInfo{Tag: "img:tag", Digest: "sha256:same"},
 		"vol",
 		persisted,
 		cfs,

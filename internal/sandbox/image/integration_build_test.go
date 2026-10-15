@@ -257,9 +257,11 @@ func TestBuildRunnerImageInBuilderVM(t *testing.T) {
 	if _, err := os.Stat(archivePath); err != nil {
 		t.Fatalf("expected the build to produce an archive at %s: %v", archivePath, err)
 	}
-	if err := EnsureLoaded(ctx, msb.Get(), archivePath, tag, ui); err != nil {
-		t.Fatalf("EnsureLoaded: %v", err)
+	stop, err := EnsureAvailable(ctx, msb.Get(), ImageInfo{Tag: tag, ArchivePath: archivePath}, ui)
+	if err != nil {
+		t.Fatalf("EnsureAvailable: %v", err)
 	}
+	stop()
 
 	inspect, err := msb.Get().ImageInspect(ctx, tag)
 	if err != nil {
@@ -537,9 +539,11 @@ func buildImageForRun(t *testing.T, a agent.Agent, project []byte, docker bool, 
 	t.Cleanup(func() { _ = os.Remove(archivePath) })
 
 	ui := integrationUI(t)
-	if err := EnsureLoaded(ctx, msb.Get(), archivePath, tag, ui); err != nil {
-		t.Fatalf("EnsureLoaded: %v", err)
+	stop, err := EnsureAvailable(ctx, msb.Get(), ImageInfo{Tag: tag, ArchivePath: archivePath}, ui)
+	if err != nil {
+		t.Fatalf("EnsureAvailable: %v", err)
 	}
+	stop()
 	t.Cleanup(func() { _ = msb.Get().ImageRemove(context.Background(), tag, true) })
 	return tag
 }

@@ -8,6 +8,7 @@ import (
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 
 	"github.com/inoio/agents-sandbox/internal/configpaths"
+	"github.com/inoio/agents-sandbox/internal/sandbox/image"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
 	"github.com/inoio/agents-sandbox/internal/sandbox/options"
 	"github.com/inoio/agents-sandbox/internal/sandbox/reprovision"
@@ -58,9 +59,7 @@ func TestDecideReconfigHomeQuit(t *testing.T) {
 		vm,
 		state.Key{Slug: "testproj", Agent: "opencode"},
 		options.RunOptions{},
-		"img:new",
-		"",
-		"sha256:new",
+		image.ImageInfo{Tag: "img:new", Digest: "sha256:new"},
 		"vol",
 		persisted,
 		cfs,
