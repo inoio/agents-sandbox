@@ -266,6 +266,7 @@ func writeRegistryConfig(path string, cfg registryConfig) error {
 }
 
 func readRegistryConfig(path string) (registryConfig, error) {
+	//nolint:gosec // G703: path is the config this binary wrote for its own daemon child
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return registryConfig{}, fmt.Errorf("read builder registry config: %w", err)

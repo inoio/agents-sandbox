@@ -146,7 +146,10 @@ func TestEnsureAvailableVerboseReportsArchiveLoad(t *testing.T) {
 		ImageGetFn: func(context.Context, string) error { return errors.New("not cached") },
 	}
 	stop, err := EnsureAvailable(
-		context.Background(), msbClient, ImageInfo{Tag: "agents-sandbox/runner-p:opencode", ArchivePath: newArchiveFile(t)}, ui,
+		context.Background(),
+		msbClient,
+		ImageInfo{Tag: "agents-sandbox/runner-p:opencode", ArchivePath: newArchiveFile(t)},
+		ui,
 	)
 	if err != nil {
 		t.Fatalf("EnsureAvailable: %v", err)

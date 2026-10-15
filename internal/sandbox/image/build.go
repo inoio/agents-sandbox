@@ -370,7 +370,15 @@ func EnsureImageWithClient(
 
 	if needsBuild && buildOpts.DryRun {
 		ui.Verbosef("dry-run: would build runner image %s", rTag)
-		return ImageInfo{Tag: rTag, Digest: "", Env: nil, ArchivePath: ""}, nil
+		return ImageInfo{
+			Tag:              rTag,
+			Ref:              ref,
+			RegistryInsecure: insecure,
+			Refresh:          false,
+			Digest:           "",
+			Env:              nil,
+			ArchivePath:      "",
+		}, nil
 	}
 
 	var info ImageInfo
@@ -391,7 +399,15 @@ func EnsureImageWithClient(
 		if inspectErr != nil {
 			return ImageInfo{}, fmt.Errorf("cannot inspect cached image: %w", inspectErr)
 		}
-		info = ImageInfo{Tag: rTag, Ref: ref, RegistryInsecure: insecure, Digest: inspect.Digest, Env: parseImageEnv(inspect.Env)}
+		info = ImageInfo{
+			Tag:              rTag,
+			Ref:              ref,
+			RegistryInsecure: insecure,
+			Refresh:          false,
+			Digest:           inspect.Digest,
+			Env:              parseImageEnv(inspect.Env),
+			ArchivePath:      "",
+		}
 	}
 	ui.Verbosef("image %s (digest %s)", rTag, info.Digest)
 	return info, nil

@@ -500,7 +500,10 @@ func TestEnsureAvailableLoadsArchiveForTag(t *testing.T) {
 		ImageGetFn: func(context.Context, string) error { return errors.New("not cached") },
 	}
 	stop, err := EnsureAvailable(
-		context.Background(), mclient, ImageInfo{Tag: "agents-sandbox/runner-p:opencode", ArchivePath: archivePath}, &termio.Mock{},
+		context.Background(),
+		mclient,
+		ImageInfo{Tag: "agents-sandbox/runner-p:opencode", ArchivePath: archivePath},
+		&termio.Mock{},
 	)
 	if err != nil {
 		t.Fatalf("EnsureAvailable: %v", err)
@@ -538,7 +541,10 @@ func TestEnsureAvailableReloadsFreshArchiveWhenCached(t *testing.T) {
 		ImageGetFn: func(context.Context, string) error { return nil },
 	}
 	stop, err := EnsureAvailable(
-		context.Background(), mclient, ImageInfo{Tag: "agents-sandbox/runner-p:opencode", ArchivePath: archivePath}, &termio.Mock{},
+		context.Background(),
+		mclient,
+		ImageInfo{Tag: "agents-sandbox/runner-p:opencode", ArchivePath: archivePath},
+		&termio.Mock{},
 	)
 	if err != nil {
 		t.Fatalf("EnsureAvailable: %v", err)
