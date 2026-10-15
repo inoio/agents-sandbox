@@ -1,9 +1,11 @@
 # Runner image delivery via registry pull — design
 
 Date: 2026-10-14
-Status: implemented on `opencode/buildkit-builder-vm`. Live KVM validation in progress:
-the push/pull round-trip works, but the **build-time** hypothesis did not hold — the
-builder's per-layer materialization is unchanged (see "Measured").
+Status: implemented on `opencode/buildkit-builder-vm`, **branch parked (2026-10-15)**.
+Live KVM validation the push/pull round-trip works, but the **build-time** hypothesis
+did not hold — the builder's per-layer materialization is unchanged (see "Measured").
+The whole Docker-free-builder branch was measured against `main` and parked on
+build-time cost (issue #15).
 
 ## Intent
 
@@ -232,12 +234,12 @@ full-image `msb.Image.Load`, and layer dedupe on **pull**. Those live outside
 `Image.Load`) is the measurement that decides the net benefit. See
 `.operator/guides/builder-build-performance-followup.md`.
 
-## Remaining
+## Remaining (deferred — branch parked)
 
-- Live msb/KVM validation on the host: finish the cold build + push + pull, the
-  one-layer rebuild **pull** side (only the changed layer served to the project
-  VM), and `prune`.
-- Measure end-to-end `run`: `CreateSandbox` pull cost vs the retired
-  `Image.Load`, to confirm the architectural win is worth it.
+- The one-layer rebuild **pull** side (only the changed layer served to the project
+  VM) and `prune` remain unvalidated live.
+- End-to-end `run`: `CreateSandbox` pull cost vs the retired `Image.Load` — the
+  measurement that would decide whether the architectural win is worth it; still
+  unmeasured.
 - moby registry-push (phase 2, deferred; the archive route stays).
 - Reading identity/`Env` from the registry instead of msb's cache on reuse (D10).
