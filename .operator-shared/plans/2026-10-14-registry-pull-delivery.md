@@ -1,5 +1,7 @@
 # Registry-Pull Delivery Implementation Plan
 
+**Status:** implemented on `opencode/buildkit-builder-vm` (Tasks 1–7); live msb/KVM validation pending on the host.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Deliver the runner image to microsandbox by pushing it to the embedded registry during the build and pulling it by reference at VM creation, retiring the OCI-archive round-trip for the msb backend.

@@ -1,7 +1,7 @@
 # Runner image delivery via registry pull — design
 
 Date: 2026-10-14
-Status: draft for approval
+Status: implemented on `opencode/buildkit-builder-vm` (live KVM validation pending)
 
 ## Intent
 
@@ -152,10 +152,12 @@ the cached ref**: after re-pushing a new manifest to the same tag, a plain
 stale content".
 
 Whenever the identity gate decided to build, the delivery step must make msb
-pick up the new manifest: either drop msb's cached ref (`Image.Remove(...,force)`)
-before creating the VM, or create that VM with `PullPolicyAlways`. Prefer the
-remove-then-`IfMissing` route (explicit, and layers still dedupe). On a pure
-cache hit (no build) the msb-cached ref is valid and `IfMissing` is correct.
+pick up the new manifest. **Shipped:** a build sets `ImageInfo.Refresh`, and
+`image.SandboxImageOptions` then creates the VM with `WithPullPolicy(Always)`,
+forcing msb to re-resolve the ref. The `Image.Remove(...,force)`-then-`IfMissing`
+route was rejected because a stopped or running sandbox may still reference the
+cached ref. On a pure cache hit (no build) `Refresh` is false and `IfMissing` is
+correct.
 
 ### D9. Keep the registry alive across the pull
 
@@ -193,19 +195,26 @@ old O3.
 - **O2 (moby backend) — resolved: registry-pull is msb-only for now.** D7
   stands: moby keeps the archive path; archive retirement is backend-scoped.
 
-## What's left to the builder
+## Shipped shape
 
-- Choose the exact BuildKit exporter attribute set and confirm the registry
-  image export HEAD-skips blobs the cache export already pushed (measure).
-- Shape the registry seam: `cacheregistry` lives under `internal/sandbox/builder`
-  but the pull and keep-alive sites are `vm`/`volume`, which import `image`,
-  not `builder`. Expose the ensure + pull-ref + keep-alive through the `image`
-  package (or move `cacheregistry`) so no vm→builder dependency is introduced.
-- Thread the pull ref through `ImageInfo` and the `ensureLoaded`/`WithImage`
-  call sites; decide the `ImageInfo` field shape (qualified `Ref` vs bare `Tag`
-  for labels/prune).
-- Integration tests: registry-push on build, pull on VM create, a one-layer
-  change serving only the changed layer (the spike made a test), and the D8
-  invalidation (a re-pushed tag is picked up without `--force`).
-- Docs/spec/CHANGELOG updates and the `builder-backends` spec's delivery
-  clauses.
+- Solve exports via `type=image`, `push=true`, `oci-mediatypes=true`, zstd, name
+  = `Endpoint.PushRef` (guest authority); no OCI archive for msb.
+- `builder.ImagePullRef`/`HoldRegistry` are exposed through the `image` package
+  (`imagePullRef`/`holdRegistry` seams, `EnsureAvailable`, `SandboxImageOptions`),
+  so `vm`/`volume` never import `builder` directly.
+- `ImageInfo` gained `Ref`, `RegistryInsecure`, `Refresh`; `ImageRef()` prefers
+  `Ref`; labels and prune keep using the bare `Tag`.
+- `naming.IsRunnerImageRef` tolerates the registry authority so `image list` and
+  `prune` still match registry-qualified refs; prune drops cache and runner-image
+  repos together (D11).
+- Test hermeticity: every test binary that reaches `image.EnsureImage` installs
+  the offline delivery seam and dispatches the hidden registry command (see
+  Constraints); this prevents the re-exec'd daemon child from re-running the
+  suite.
+
+## Remaining
+
+- Live msb/KVM validation on the host: cold build + push + pull, a one-layer
+  rebuild serving only the changed layer, and `prune`.
+- moby registry-push (phase 2, deferred; the archive route stays).
+- Reading identity/`Env` from the registry instead of msb's cache on reuse (D10).
