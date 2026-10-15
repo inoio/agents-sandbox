@@ -117,19 +117,32 @@ isolation for the host daemon and is intentionally presented as a fallback.
 - Backends are selected at the **`Builder` interface** seam
   (`builder.Get()`), the highest point. The buildkit-specific `backend` interface
   stays internal to the buildkit path.
-- The msb path keeps the existing buildkit client (solve → OCI export → cache),
-  gaining a registry-backed cache source and builder-VM reuse (persisted port).
+- The msb path keeps the buildkit client but delivers the runner image through
+  the **embedded registry** (see
+  [registry-pull delivery](registry-pull-delivery.md)): its solve **pushes the
+  image to the registry** (`type=image`, `push=true`, guest-authority name)
+  instead of exporting an OCI archive, and the project VM is created from the
+  host-dial pull ref (`WithImage(ref)` + `WithRegistryInsecure()` +
+  `WithPullPolicy(Always)` after a build, so a same-tag re-push is not served
+  stale). It also keeps the registry-backed cache and builder-VM reuse
+  (persisted port).
 - The moby path is a second `Builder` implementation that does **not** speak
   buildkit; it builds via the Docker Engine API and returns a `docker save`
-  archive that the shared `EnsureLoaded` path loads into the microsandbox image
-  store (the same delivery path the buildkit OCI archive uses).
-- The image load is **by path, not streamed through a reader**:
+  archive. The archive route is now **moby-only**: `image.EnsureAvailable` loads
+  it into the microsandbox image store; msb neither produces nor loads one.
+- Archive loads are **by path, not streamed through a reader**:
   `msb.Client.ImageLoad(ctx, ref, archivePath)` hands the builder's `ArchivePath`
   straight to `msb.Image.Load`. It previously took an `io.Reader` and spooled a
   second full copy of the (multi-GB) archive to a temp file plus an fsync before
-  loading; both backends already produce a file, so the spool was pure overhead.
-  msb exposes no registry pull (only `Image.Load` from a tar, `Get`, `Remove`,
-  `Prune`, `Save`), so loading the exported archive is the only delivery route.
+  loading; the moby backend already produces a file, so the spool was pure
+  overhead.
+- Registry auth is **anonymous read, token write**: the loopback-only embedded
+  registry allows unauthenticated `GET`/`HEAD` (pulls and BuildKit
+  blob-existence checks) and requires the per-user bearer token for mutating
+  methods. `prune` drops every `agents-sandbox/`-prefixed repository — buildkit
+  cache *and* runner-image repos together — because distribution's blob store is
+  global across repositories, so a partial preserve would orphan referenced
+  blobs.
 - Selection reads config/env at construction so callers and tests can choose a
   backend without package-level mutable state (matching the current approach).
 
@@ -326,11 +339,12 @@ isolation for the host daemon and is intentionally presented as a fallback.
   import and graph traversal and lets BuildKit share layer compression between the
   two exports. The cost is that a full cache hit now also exports the cache (cheap:
   the registry already holds the blobs, so only the manifest is re-pushed).
-- **Compression**: both the OCI image archive (`msbBackend.Export`) and the
-  registry cache export use `compression=zstd` (`builderCompression`,
-  `oci-mediatypes=true` for the image) instead of BuildKit's default gzip. On large
-  images the in-VM `[internal] exporting to oci image format` vertex dominates a
-  rebuild (measured ~1m30s→~61s for the heavy dev image), and that cost is
+- **Compression**: both the image export (`msbBackend.Export`, a registry push
+  since the registry-pull redesign) and the registry cache export use
+  `compression=zstd` (`builderCompression`, `oci-mediatypes=true` for the image)
+  instead of BuildKit's default gzip. On large images the in-VM image-export
+  vertex dominates a rebuild (measured ~1m30s→~61s for the heavy dev image), and
+  that cost is
   compression CPU + streaming the whole tar through the microVM's published port.
   The measured cache-push delta (~8s) against the full-image stream (~61s) indicates
   the export is **transfer-bound**. Env overrides for A/B measurement:
@@ -352,7 +366,7 @@ isolation for the host daemon and is intentionally presented as a fallback.
   Dockerfile step or a buildkit-internal vertex, with its cached flag, and the image
   layer logs them all plus the cumulative step and internal totals. This exists
   because a solve's time is often **not** in the Dockerfile steps: `[internal]`
-  vertices (layer export to the OCI archive, registry cache import/export) can
+  vertices (image export/push, registry cache import/export) can
   dominate, and a **cached** step can be slow because BuildKit materializes its layer
   inside the vertex window. The "solve minus cumulative" figure is the residual.
 
@@ -395,10 +409,10 @@ isolation for the host daemon and is intentionally presented as a fallback.
 - Restores the pre-BuildKit path: tar the build context (Dockerfile plus any
   assets), `ImageBuild` with `Tags`, `Remove`, `NoCache`, and the assembled
   `BuildArgs`, drain the streamed build output for errors, then `ImageSave` to a
-  host archive returned as the build result's `ArchivePath`. The shared
-  `EnsureLoaded` path then loads that archive into the microsandbox image store
-  via `msb.Client.ImageLoad` — the same delivery route the buildkit backend uses,
-  so `builder` itself does not depend on an `msb.Client`.
+  host archive returned as the build result's `ArchivePath`. `image.EnsureAvailable`
+  then loads that archive into the microsandbox image store via
+  `msb.Client.ImageLoad` — the archive route is now moby-only, and `builder`
+  itself does not depend on an `msb.Client`.
 - Depends on the Docker Engine API client library only — a Go dependency, no
   command execution and no TCP network path (it talks to the daemon socket).
 - Its layer cache is the daemon's; agents-sandbox does not manage it. `NoCache`
@@ -433,14 +447,19 @@ isolation for the host daemon and is intentionally presented as a fallback.
   the shared daemon starts on demand, is idempotent for a second client, idle-reaps,
   rejects unauthenticated requests, and restarts on a stale endpoint/token. Prior
   art: `internal/sandbox/builder/vm_test.go`, `tuning_test.go`.
-- **The daemon spawner is test-binary aware only at the consumer.** `Ensure`
+- **The daemon spawner is test-binary aware at every consumer.** `Ensure`
   re-execs `os.Executable()`, which under `go test` is the *test* binary, not the
-  agents-sandbox CLI; a test binary that triggers a real build (`internal/sandbox/image`)
-  must therefore dispatch the hidden `__builder-registry` command in its
-  `TestMain` (via `cacheregistry.ServeCommandArgs`) or the child re-runs the whole
-  suite and the daemon never becomes ready.   `TestTestBinaryServesRegistryDaemon`
-  in `internal/sandbox/image` guards this by re-execing itself as the daemon and
-  asserting `/v2/` answers. The msb integration tier also runs packages serially
+  agents-sandbox CLI. A test binary that triggers a spawn must therefore dispatch
+  the hidden `__builder-registry` command from its `TestMain` via
+  `cacheregistry.RunIfDaemonInvocation()`, or the re-exec'd child re-runs the
+  whole suite and spawns again — a fork bomb that exhausts host memory. Unit
+  suites must additionally stay offline by installing
+  `image.InstallOfflineImageDelivery()` (stubs `imagePullRef`/`holdRegistry`), so
+  a resolve never spawns at all; the tagged integration tier omits it to drive the
+  real seam. The guards live in the `TestMain`s of `image`, `vm`, `volume`,
+  `cmd/agents-sandbox`, and the registry owners `builder` and
+  `builder/cacheregistry`; `TestTestBinaryServesRegistryDaemon` (integration) and
+  `TestUnitSuiteDeliversOffline` guard them. The msb integration tier also runs packages serially
   (`-p 1`): the builder VM is a user-global singleton with a fixed name while each
   test package isolates its own state dir, so parallel packages race to
   stop/recreate it (`... was replaced (expected identity ...)`).
@@ -455,7 +474,7 @@ isolation for the host daemon and is intentionally presented as a fallback.
   reaped builder.
 - **moby backend** is unit-tested with the engine client stubbed: builds invoke
   `ImageBuild` with the expected options and return an `ImageSave` archive, which
-  the shared `EnsureLoaded` path loads into a mocked microsandbox client. Prior
+  `image.EnsureAvailable` loads into a mocked microsandbox client. Prior
   art: the pre-removal `internal/sandbox/docker` mocks/tests and the current
   `builder` test fakes.
 - **Builder-VM reuse**: a unit test covers port-record write/read and the

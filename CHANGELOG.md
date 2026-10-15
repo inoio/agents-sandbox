@@ -60,6 +60,11 @@ command reports the bare version (e.g. `0.1.0`).
 
 ### Changed
 
+- Runner image: the `msb` backend now delivers the built runner image by **registry pull** instead of streaming an OCI
+  archive to the host. The solve pushes the image to the same embedded registry that holds the BuildKit cache, and the
+  project VM is created from the registry reference (`WithImage` + insecure + a forced re-resolve after a build, so a
+  rebuilt same-tag image is not served stale). A one-layer rebuild therefore transfers only the changed layer to the
+  project VM instead of the whole image. The archive/`ImageLoad` route remains for the `moby` backend only.
 - Runner image: the builder's BuildKit automatic GC budget is raised from the 2 GiB default to 50 GiB
   (`--oci-worker-gc-keepstorage 50000,50000,50000`, MB) so multi-GB image layers are not evicted continuously during a
   build; it aligns with the 50 GB worker prune bound. The embedded cache registry also enables its in-memory

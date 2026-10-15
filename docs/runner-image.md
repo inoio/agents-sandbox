@@ -13,8 +13,9 @@ Projects can extend the image with their own tooling.
 
 By default the build runs entirely inside a microsandbox VM, so no host Docker runtime is needed. The builder VM's
 BuildKit layer cache is kept in an OCI registry embedded in the agents-sandbox binary (started on demand and idle-reaped),
-and the builder VM is reused across builds and shared by parallel builds. See [Builder backends](#builder-backends) for
-the opt-in Docker alternative.
+and the `msb` backend also delivers the built runner image through that registry — the project VM pulls it by reference,
+so a one-layer rebuild fetches only the changed layer. The builder VM is reused across builds and shared by parallel
+builds. See [Builder backends](#builder-backends) for the opt-in Docker alternative.
 
 ## Home directory
 
@@ -27,9 +28,10 @@ current image). In non-interactive mode the existing home volume is kept and you
 action is applied automatically and the old volume is always kept. The state file is only updated once the action has
 actually executed. `volume migrate`, `volume reset` and `volume edit` remain available for manual management.
 
-When a rebuilt image uses the same runner-image tag, agents-sandbox refreshes the microsandbox cache by loading the new
-image directly under that tag. It does not remove the old cached manifest first, because a stopped project VM can
-still reference it. Unused image data is reclaimed later by image pruning.
+When a rebuilt image uses the same runner-image tag, agents-sandbox makes microsandbox pick up the new image at VM
+creation: the `msb` backend re-resolves the registry reference (so the freshly pushed manifest is fetched instead of a
+stale same-tag cache hit), and the `moby` backend loads the new archive. It does not remove the old cached manifest
+first, because a stopped project VM can still reference it. Unused image data is reclaimed later by image pruning.
 
 ## One image per project
 
@@ -222,12 +224,14 @@ skips the upgrade check. The deprecated `--opencode-version` alias remains `buil
 
 ## Builder backends
 
-The runner image is built by one of two backends, both of which load the resulting image into the microsandbox cache:
+The runner image is built by one of two backends, which deliver the image to microsandbox differently:
 
 - **`msb` (default)** — `buildkitd` runs inside a shared, reused microsandbox VM driven by a host-side BuildKit client.
   It needs only the tool itself (plus the microsandbox runtime/KVM), isolates the Dockerfile `RUN` steps in the microVM,
-  and keeps its layer cache in an embedded per-user OCI registry (`type=registry`, `mode=max`). The builder VM is reused
-  across invocations and shared by concurrent builds, discovered through a persisted port record.
+  and keeps its layer cache in an embedded per-user OCI registry (`type=registry`, `mode=max`). The solve **pushes the
+  runner image to that same registry**, and the project VM is created from the registry reference, so a one-layer rebuild
+  pulls only the changed layer. The builder VM is reused across invocations and shared by concurrent builds, discovered
+  through a persisted port record.
 - **`moby` (alternative)** — builds via the Docker Engine API on your host daemon (`ImageBuild` → `ImageSave`), then
   loads the saved archive into the microsandbox cache. It has no build isolation and requires a reachable Docker daemon.
 
@@ -300,12 +304,12 @@ Docker-in-Docker), so the verbose line names the changed input — for example `
 A reuse logs `reusing runner image …: content identity unchanged`; an image without these identity labels (built by an
 older version) is reported as a generic content change.
 
-### Fresh-archive load
+### Fresh-image delivery
 
-When a build produces a new archive, `EnsureLoaded` always loads it into the microsandbox cache — the runner tag is
-stable across rebuilds, so a cached same-tag image may hold stale content. Only a reuse (no archive) skips the load, and
-then only when the image is already present; a missing image with no archive is an error. At verbose level the load
-reports that it is loading from the build archive.
+Every build delivers a fresh image under the stable runner tag (which is why a cached same-tag image must not be served
+stale). The `msb` backend re-resolves the registry reference with `PullPolicy(Always)`, so microsandbox fetches the newly
+pushed manifest; the `moby` backend loads the build archive into the microsandbox cache. A reuse (no build) needs no
+refresh and only verifies the image is present; a missing image with no rebuild is an error.
 
 ## Image Lifecycle
 
