@@ -42,7 +42,7 @@ func PruneImages(
 	keptImageRefs := referencedImages(pruneState.ToKeep)
 	for _, imageHandle := range handles {
 		ref := imageHandle.Reference()
-		if !hasPrefix(ref, naming.ImagePrefix) {
+		if !naming.IsRunnerImageRef(ref) {
 			continue
 		}
 		imageArtifact := naming.ArtifactFor(ref)

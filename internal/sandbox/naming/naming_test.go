@@ -38,6 +38,20 @@ func TestArtifactFor_Dispatch(t *testing.T) {
 	}
 }
 
+func TestIsRunnerImageRefToleratesRegistryAuthority(t *testing.T) {
+	for _, ref := range []string{
+		"agents-sandbox/runner-p:opencode-latest",
+		"127.0.0.1:5000/agents-sandbox/runner-p:opencode-latest",
+	} {
+		if !IsRunnerImageRef(ref) {
+			t.Fatalf("IsRunnerImageRef(%q) = false", ref)
+		}
+	}
+	if IsRunnerImageRef("agents-sandbox/agents-sandbox-runner-p-amd64:cache") {
+		t.Fatal("cache repo must not match a runner image")
+	}
+}
+
 func TestArtifactFor_SinglePartSlugs(t *testing.T) {
 	cases := []struct {
 		in     string
@@ -112,6 +126,7 @@ func TestParseImageTag(t *testing.T) {
 		{"agents-sandbox/runner-myproject:opencode-latest", "myproject", "", "opencode"},
 		{"agents-sandbox/runner-myproject:pi-latest", "myproject", "", "pi"},
 		{"agents-sandbox/runner-myproject:claude-code-latest", "myproject", "", "claude-code"},
+		{"127.0.0.1:5000/agents-sandbox/runner-myproject:opencode-latest", "myproject", "", "opencode"},
 		{"other-image/myproject:tag", "", "", ""},
 	}
 	for _, c := range cases {
@@ -205,6 +220,7 @@ func TestArtifactFor(t *testing.T) {
 	}{
 		{"agents-sandbox-vm-agents-sandbox-1mjusbm3wikhb0", "agents-sandbox-1mjusbm3wikhb0", ""},
 		{"agents-sandbox/runner-myproject:xYz1234AbCdEfGh", "myproject", "xYz1234AbCdEfGh"},
+		{"127.0.0.1:5000/agents-sandbox/runner-myproject:xYz1234AbCdEfGh", "myproject", "xYz1234AbCdEfGh"},
 		{
 			"agents-sandbox-home-myproject-aB3cDe4fGhIjKl-xYz1234AbCdEfGh",
 			"myproject-aB3cDe4fGhIjKl",

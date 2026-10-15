@@ -3,7 +3,6 @@ package image
 import (
 	"context"
 	"fmt"
-	"strings"
 
 	"github.com/inoio/agents-sandbox/internal/humanize"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
@@ -39,7 +38,7 @@ func ListImages(ctx context.Context) ([]Info, error) {
 	var result []Info
 	for _, h := range handles {
 		ref := h.Reference()
-		if strings.HasPrefix(ref, naming.ImagePrefix) {
+		if naming.IsRunnerImageRef(ref) {
 			result = append(result, Info{
 				Reference: ref,
 				Digest:    h.ManifestDigest(),

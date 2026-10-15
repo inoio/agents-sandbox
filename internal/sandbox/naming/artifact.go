@@ -48,10 +48,11 @@ func findHashSuffix(name string) int {
 //	"agents-sandbox/runner-myproject"
 //	→ slug="myproject", digest="", agent=""
 func ParseImageTag(name string) ArtifactInfo {
-	if !strings.HasPrefix(name, ImagePrefix) {
+	if !IsRunnerImageRef(name) {
 		return ArtifactInfo{}
 	}
-	afterPrefix := name[len(ImagePrefix):]
+	suffix := runnerImageSuffix(name)
+	afterPrefix := suffix[len(ImagePrefix):]
 	before, after, ok := strings.CutLast(afterPrefix, ":")
 	if !ok {
 		return ArtifactInfo{Slug: afterPrefix, Digest: "", Agent: ""}
@@ -162,7 +163,7 @@ func isHomeTimestamp(s string) bool {
 // ArtifactFor dispatches to the appropriate parser based on the name prefix.
 func ArtifactFor(name string) ArtifactInfo {
 	switch {
-	case strings.HasPrefix(name, ImagePrefix):
+	case IsRunnerImageRef(name):
 		return ParseImageTag(name)
 	case strings.HasPrefix(name, TaskPrefix):
 		remainder := name[len(TaskPrefix):]

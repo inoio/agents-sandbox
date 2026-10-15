@@ -58,6 +58,27 @@ func TestListImagesFiltersByImagePrefix(t *testing.T) {
 	}
 }
 
+func TestListImagesIncludesRegistryQualifiedRefs(t *testing.T) {
+	mockClient := &msb.MockMsbClient{
+		Images: []msb.ImageHandle{
+			msb.MockImageHandle{
+				Reference_:      "127.0.0.1:5000/agents-sandbox/runner-proj:opencode-latest",
+				ManifestDigest_: "sha256:q",
+			},
+			msb.MockImageHandle{Reference_: "python:3.12", ManifestDigest_: "sha256:p"},
+		},
+	}
+	msb.WithMsbMock(t, mockClient)
+
+	result, err := ListImages(context.Background())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(result) != 1 || result[0].Reference != "127.0.0.1:5000/agents-sandbox/runner-proj:opencode-latest" {
+		t.Fatalf("result = %+v, want the registry-qualified runner image only", result)
+	}
+}
+
 func TestListImagesReturnsPrefixOnly_NoPrefixedImages(t *testing.T) {
 	mockClient := &msb.MockMsbClient{
 		Images: []msb.ImageHandle{

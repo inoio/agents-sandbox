@@ -680,16 +680,18 @@ func TestMsbPruneCacheAlsoPrunesRegistry(t *testing.T) {
 	t.Cleanup(func() { ensureCacheRegistry = restoreEnsure })
 
 	var (
-		prunedEndpoint cacheregistry.Endpoint
-		pruneCalls     int
-		matchedManaged bool
-		matchedOther   bool
+		prunedEndpoint   cacheregistry.Endpoint
+		pruneCalls       int
+		matchedCacheRepo bool
+		matchedImageRepo bool
+		matchedOther     bool
 	)
 	restorePrune := pruneCacheRegistry
 	pruneCacheRegistry = func(_ context.Context, got cacheregistry.Endpoint, match func(string) bool) error {
 		pruneCalls++
 		prunedEndpoint = got
-		matchedManaged = match("agents-sandbox/runner-project-opencode-amd64:cache")
+		matchedCacheRepo = match("agents-sandbox/runner-project-opencode-amd64:cache")
+		matchedImageRepo = match("agents-sandbox/runner-project:opencode-latest")
 		matchedOther = match("library/nginx")
 		return nil
 	}
@@ -716,7 +718,10 @@ func TestMsbPruneCacheAlsoPrunesRegistry(t *testing.T) {
 	if prunedEndpoint != endpoint {
 		t.Errorf("registry prune endpoint = %+v, want %+v", prunedEndpoint, endpoint)
 	}
-	if !matchedManaged || matchedOther {
-		t.Errorf("registry prune predicate: agents-sandbox=%t other=%t, want true/false", matchedManaged, matchedOther)
+	if !matchedCacheRepo || !matchedImageRepo || matchedOther {
+		t.Errorf(
+			"registry prune predicate: cache=%t image=%t other=%t, want true/true/false",
+			matchedCacheRepo, matchedImageRepo, matchedOther,
+		)
 	}
 }

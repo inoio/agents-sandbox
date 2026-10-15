@@ -56,6 +56,29 @@ func TestPruneImages(t *testing.T) {
 		}
 	})
 
+	t.Run("prunes registry-qualified surplus refs of a live slug", func(t *testing.T) {
+		configpaths.WithMockConfigPaths(t)
+		client := &msb.MockMsbClient{
+			Images: []msb.ImageHandle{
+				img("127.0.0.1:5000/agents-sandbox/runner-active-1mjusbm3wikhb0:opencode-latest", old),
+				img("127.0.0.1:5000/agents-sandbox/runner-active-1mjusbm3wikhb0:digestOld", older),
+			},
+		}
+		msb.WithMsbMock(t, client)
+		ui := &termio.Mock{}
+		r, err := PruneImages(context.Background(), live("active-1mjusbm3wikhb0"), false, ui)
+		if err != nil {
+			t.Fatalf("PruneImages: %v", err)
+		}
+		if r.MSBImagesPruned != 1 {
+			t.Errorf("MSBImagesPruned = %d, want 1 (registry-qualified digestOld)", r.MSBImagesPruned)
+		}
+		if len(client.RemovedImages) != 1 ||
+			client.RemovedImages[0].Ref != "127.0.0.1:5000/agents-sandbox/runner-active-1mjusbm3wikhb0:digestOld" {
+			t.Errorf("RemovedImages = %v, want only the registry-qualified digestOld", client.RemovedImages)
+		}
+	})
+
 	t.Run("reclaims all images of a VM-less slug", func(t *testing.T) {
 		configpaths.WithMockConfigPaths(t)
 		client := &msb.MockMsbClient{
