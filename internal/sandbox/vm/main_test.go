@@ -6,12 +6,20 @@ import (
 
 	"github.com/inoio/agents-sandbox/internal/agent"
 	"github.com/inoio/agents-sandbox/internal/sandbox/builder"
+	"github.com/inoio/agents-sandbox/internal/sandbox/builder/cacheregistry"
+	"github.com/inoio/agents-sandbox/internal/sandbox/image"
 	"github.com/inoio/agents-sandbox/internal/sandbox/state"
 
 	termio "github.com/inoio/agents-sandbox/internal/testutil/mocks"
 )
 
 func TestMain(m *testing.M) {
+	// Serve the embedded registry daemon if this test binary was re-exec'd as
+	// it, instead of re-running the suite.
+	cacheregistry.RunIfDaemonInvocation()
+	// Keep delivery offline: resolving a pull ref would otherwise spawn the
+	// registry daemon (and re-run the suite under `go test`).
+	image.InstallOfflineImageDelivery()
 	// Image builds go through the BuildKit builder; install a deterministic
 	// in-process builder so PrepareSandbox tests never reach a real builder VM.
 	builder.Get = func() builder.Builder {

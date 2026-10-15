@@ -63,6 +63,14 @@ dedupes layers across tags (a tag sharing two layers with a cached tag fetched
   embedded registry authenticates with a static bearer token.
 - Layers: gzip is the safe intersection (the spike pulled gzip OCI fine);
   zstd layer read support by msb is unverified and avoided on this path.
+- Test hermeticity: `cacheregistry.Ensure` spawns the daemon by re-exec'ing
+  `os.Executable()`, which under `go test` is the *test binary*. Every test
+  binary that reaches `image.EnsureImage` must therefore install the offline
+  delivery seam (`image.InstallOfflineImageDelivery`) and dispatch the hidden
+  `__builder-registry` command (`cacheregistry.RunIfDaemonInvocation`) from its
+  `TestMain`; the registry-owner packages (`builder`, `builder/cacheregistry`)
+  need at least the dispatch. Without this a spawn re-runs the whole suite and
+  fork-bombs the host.
 
 ## Decisions
 

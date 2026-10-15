@@ -67,6 +67,17 @@ var (
 	imagePullRef = builder.ImagePullRef
 )
 
+// InstallOfflineImageDelivery keeps a unit-test binary hermetic: resolving a
+// pull ref or holding the registry would otherwise spawn the embedded registry
+// daemon and, under `go test`, re-run the whole suite. Every package whose
+// tests reach EnsureImage must call this from TestMain. A test tier that drives
+// the real registry (integration) must not call it, and may override the seams
+// per test instead.
+func InstallOfflineImageDelivery() {
+	imagePullRef = func(context.Context, string) (string, bool, error) { return "", false, nil }
+	holdRegistry = func(context.Context) (func(), error) { return func() {}, nil }
+}
+
 // resolveImageRef returns the reference microsandbox will use for rTag and
 // whether it is pulled from the insecure embedded registry. It returns an empty
 // ref for archive backends.

@@ -2,6 +2,7 @@ package image
 
 import (
 	"context"
+	"os"
 	"testing"
 
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
@@ -10,9 +11,28 @@ import (
 	"github.com/inoio/agents-sandbox/internal/termio"
 )
 
+// TestUnitSuiteDeliversOffline guards the hermetic unit seam: TestMain installs
+// the offline delivery, so resolving a pull ref must not reach the real spawner
+// (which under `go test` re-execs this binary and re-runs the suite). A
+// regression here is what turns the unit suite into a fork bomb.
+func TestUnitSuiteDeliversOffline(t *testing.T) {
+	if os.Getenv(integrationEnv) != "" {
+		t.Skip("integration tier drives the real registry seam")
+	}
+	ref, ok, err := resolveImageRef(context.Background(), "agents-sandbox/runner-p:opencode-latest")
+	if err != nil || ok || ref != "" {
+		t.Fatalf("resolveImageRef = (%q, %v, %v), want empty/offline", ref, ok, err)
+	}
+}
+
 func TestEnsureAvailableLoadsArchive(t *testing.T) {
 	m := &msb.MockMsbClient{}
-	stop, err := EnsureAvailable(context.Background(), m, ImageInfo{Tag: "t", ArchivePath: "/tmp/a.tar"}, &termio.Mock{})
+	stop, err := EnsureAvailable(
+		context.Background(),
+		m,
+		ImageInfo{Tag: "t", ArchivePath: "/tmp/a.tar"},
+		&termio.Mock{},
+	)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -31,7 +51,12 @@ func TestEnsureAvailableHoldsRegistryForPull(t *testing.T) {
 		return func() { stopped = true }, nil
 	}
 	m := &msb.MockMsbClient{}
-	stop, err := EnsureAvailable(context.Background(), m, ImageInfo{Tag: "bare", Ref: "127.0.0.1:5000/bare"}, &termio.Mock{})
+	stop, err := EnsureAvailable(
+		context.Background(),
+		m,
+		ImageInfo{Tag: "bare", Ref: "127.0.0.1:5000/bare"},
+		&termio.Mock{},
+	)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -62,7 +87,9 @@ func TestImageRefPrefersRegistryRef(t *testing.T) {
 }
 
 func TestSandboxImageOptionsRefresh(t *testing.T) {
-	opts := SandboxImageOptions(ImageInfo{Tag: "bare", Ref: "127.0.0.1:5000/bare", RegistryInsecure: true, Refresh: true})
+	opts := SandboxImageOptions(
+		ImageInfo{Tag: "bare", Ref: "127.0.0.1:5000/bare", RegistryInsecure: true, Refresh: true},
+	)
 	cfg := &msbSdk.SandboxConfig{}
 	for _, o := range opts {
 		o(cfg)

@@ -31,6 +31,24 @@ const (
 // CommandName is the hidden CLI command the daemon is re-exec'd as.
 const CommandName = "__builder-registry"
 
+// RunIfDaemonInvocation serves the embedded registry daemon when this process
+// was re-exec'd as the hidden CommandName child (the way Ensure spawns it) and
+// then exits; otherwise it returns without side effects. A test binary calls it
+// at the top of TestMain, because under `go test` os.Executable() is the test
+// binary: without the dispatch a re-exec'd child re-runs the whole test suite,
+// spawning more children each time. The real CLI dispatches the same command
+// through Cobra instead.
+func RunIfDaemonInvocation() {
+	if len(os.Args) < 2 || os.Args[1] != CommandName {
+		return
+	}
+	if err := ServeCommandArgs(context.Background(), os.Args[2:]); err != nil {
+		fmt.Fprintln(os.Stderr, "builder registry daemon:", err)
+		os.Exit(1)
+	}
+	os.Exit(0)
+}
+
 // endpointRecord is the on-disk pointer to the running daemon. Pid is advisory:
 // liveness is confirmed by a /v2/ health probe, not by the pid alone.
 type endpointRecord struct {
