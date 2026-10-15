@@ -1,7 +1,9 @@
 # Runner image delivery via registry pull — design
 
 Date: 2026-10-14
-Status: implemented on `opencode/buildkit-builder-vm` (live KVM validation pending)
+Status: implemented on `opencode/buildkit-builder-vm`. Live KVM validation in progress:
+the push/pull round-trip works, but the **build-time** hypothesis did not hold — the
+builder's per-layer materialization is unchanged (see "Measured").
 
 ## Intent
 
@@ -28,7 +30,8 @@ dedupes layers across tags (a tag sharing two layers with a cached tag fetched
 ## Goals
 
 - A one-layer runner-image rebuild delivers only the changed layer to the
-  project VM; the full-image stream leaves the hot path.
+  project VM; the full-image *stream* leaves the hot path. (The full-image
+  *materialization* in the builder does not — see "Measured".)
 - `internal/sandbox/builder`'s image `Export` (OCI archive) and
   `msb.Image.Load` are removed; the archive plumbing (`BuildResult.ArchivePath`,
   temp archives, `EnsureLoaded`, `removeBuildArchive`) is retired.
@@ -212,9 +215,29 @@ old O3.
   Constraints); this prevents the re-exec'd daemon child from re-running the
   suite.
 
+## Measured (2026-10-15, host KVM)
+
+The push works, but the build-time premise is falsified. The solve's
+`[internal] exporting to image` vertex (the registry push) is **invariant to how
+many layers changed**: 1m14.3s cold (all 15 steps) vs 1m21.6s on a one-layer
+agent-version bump. BuildKit materializes + compresses every layer of the result
+to compute its compressed digest before the registry HEAD check, so HEAD-skipping
+removes only the blob PUT — and bytes were never the bottleneck. The host OCI
+archive is gone (`export≈300ms`), but the dominant per-layer materialization
+remains; net build-time change ≈ zero.
+
+The wins are therefore architectural, not in the solve: no host temp archive, no
+full-image `msb.Image.Load`, and layer dedupe on **pull**. Those live outside
+`Build timings` — end-to-end `run` (the `CreateSandbox` pull replacing
+`Image.Load`) is the measurement that decides the net benefit. See
+`.operator/guides/builder-build-performance-followup.md`.
+
 ## Remaining
 
-- Live msb/KVM validation on the host: cold build + push + pull, a one-layer
-  rebuild serving only the changed layer, and `prune`.
+- Live msb/KVM validation on the host: finish the cold build + push + pull, the
+  one-layer rebuild **pull** side (only the changed layer served to the project
+  VM), and `prune`.
+- Measure end-to-end `run`: `CreateSandbox` pull cost vs the retired
+  `Image.Load`, to confirm the architectural win is worth it.
 - moby registry-push (phase 2, deferred; the archive route stays).
 - Reading identity/`Env` from the registry instead of msb's cache on reuse (D10).
