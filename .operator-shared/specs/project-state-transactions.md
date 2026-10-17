@@ -176,8 +176,9 @@ one process.
 ### `--dry-run` guard
 
 Keep `determineAgentVersion` as the single branch that skips `resolveBuildVersion` and the legacy fold, and
-`prepareHomeVolume` as the single branch that skips the migration offer; add explicit documentation that these two are
-the only dry-run gates. No new mechanism.
+`prepareHomeVolume` as the single branch that skips the migration offer; document the known `--dry-run` gates:
+`determineAgentVersion` and `prepareHomeVolume`, plus `volume.ApplyHomeAction` (skips the migrate/reset action) and
+`session.Run`/`session.Shell` (skip the attach). No new mechanism.
 
 ### API after this change
 
@@ -227,8 +228,9 @@ the only dry-run gates. No new mechanism.
 
 ## Resolved: `--dry-run` scope
 
-`--dry-run` purity is **documentation-only here (option A)**. Finding 7 is out of scope: this change documents
-`determineAgentVersion` and `prepareHomeVolume` as the two existing dry-run gates and adds no commit-suppression. Making
-`--dry-run` genuinely side-effect-free (it can still build an image, create a home volume, and write state, because
-`prepareSandbox` runs before the dry-run early-return in `session/run.go`) is tracked in
+`--dry-run` purity is **documentation-only here (option A)**. Finding 7 is out of scope: this change documents the known
+`--dry-run` gates — `determineAgentVersion`, `prepareHomeVolume`, `volume.ApplyHomeAction`, and
+`session.Run`/`session.Shell` — and adds no commit-suppression. Making `--dry-run` genuinely side-effect-free (it can
+still build an image, create a home volume, and write state, because `prepareSandbox` runs before the dry-run
+early-return in `session/run.go`) is tracked in
 [issue #228](https://github.com/inoio/agents-sandbox/issues/228).

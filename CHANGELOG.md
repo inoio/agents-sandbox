@@ -174,9 +174,10 @@ command reports the bare version (e.g. `0.1.0`).
   upgrade write restoring a stale `home_volume` after a volume op committed a new one).
 - Internal: state writes are now structurally correct — one locked transaction per document (`WithHomeState`,
   `WithRootState`) holds the lock across read → mutate → write, raw lock-free writers are no longer exported, removal
-  takes the lock, and a same-process double-lock fails fast instead of self-deadlocking. No user-facing behavior change,
-  except that a reconfig that cannot persist its new home volume now surfaces the error instead of warning and
-  continuing, so persisted state and the VM cannot diverge.
+  takes the lock, and a same-process double-lock fails fast instead of self-deadlocking. Two failures that were
+  previously warned-and-continued now surface as errors, so persisted state can no longer silently diverge from the VM:
+  a reconfig that cannot persist its new home volume, and `volume migrate`/`volume reset` whose final state write fails
+  (it previously reported success without persisting the new home volume).
 - Internal: project-VM reconfiguration now replaces the two-step `Stop` + `Remove` with the SDK's single atomic,
   identity-safe `Destroy` on the `SandboxHandle` seam (#162).
 - Runner image: the node/agent/docker install stages now build on a tool-owned `agents-sandbox-toolbase`
