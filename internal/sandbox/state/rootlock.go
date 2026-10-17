@@ -29,7 +29,7 @@ func rootLockPath() string {
 	return filepath.Join(locksDir(), "root.lock")
 }
 
-// LockRootState takes the host-only advisory lock that serializes every
+// lockRootState takes the host-only advisory lock that serializes every
 // RootState read-modify-write across processes. The flock auto-releases on
 // process exit, so a crashed holder never pins the lock. The returned function
 // releases the lock.
@@ -38,7 +38,7 @@ func rootLockPath() string {
 // returns ok=false and a nil release when another process holds it.
 //
 //nolint:nonamedreturns // the documented (release, ok, err) signature is the contract
-func LockRootState(blocking bool) (release func(), ok bool, err error) {
+func lockRootState(blocking bool) (release func(), ok bool, err error) {
 	path := rootLockPath()
 	if mkdirErr := mkdirRootLock(filepath.Dir(path), 0o700); mkdirErr != nil {
 		return nil, false, fmt.Errorf("create lock dir: %w", mkdirErr)

@@ -44,7 +44,7 @@ func TestImageRemove(t *testing.T) {
 		cmd, _ := setupCommandFixtures(t, "image", "remove", "--yes", ref)
 		m := &msb.MockMsbClient{}
 		msb.WithMsbMock(t, m)
-		if err := state.WriteState(
+		if err := seedHomeState(
 			state.Key{Slug: "proj-aBc1234D", Agent: "opencode"},
 			state.HomeState{},
 		); err != nil {
@@ -64,7 +64,7 @@ func TestImageRemove(t *testing.T) {
 		cmd, _ := setupCommandFixtures(t, "image", "remove", "--force", "--yes", ref)
 		m := &msb.MockMsbClient{}
 		msb.WithMsbMock(t, m)
-		if err := state.WriteState(
+		if err := seedHomeState(
 			state.Key{Slug: "proj-aBc1234D", Agent: "opencode"},
 			state.HomeState{},
 		); err != nil {
@@ -97,7 +97,7 @@ func TestImageRemove(t *testing.T) {
 		cmd, ui := setupCommandFixtures(t, "image", "remove", ref)
 		m := &msb.MockMsbClient{}
 		msb.WithMsbMock(t, m)
-		if err := state.WriteState(
+		if err := seedHomeState(
 			state.Key{Slug: "proj-aBc1234D", Agent: "opencode"},
 			state.HomeState{},
 		); err != nil {
@@ -154,7 +154,7 @@ func TestImageRemoveOwnershipAndShorthand(t *testing.T) {
 		cmd, _ := setupCommandFixtures(t, "image", "remove", "-f", "--yes", ref)
 		m := &msb.MockMsbClient{}
 		msb.WithMsbMock(t, m)
-		if err := state.WriteState(
+		if err := seedHomeState(
 			state.Key{Slug: "proj-aBc1234D", Agent: "opencode"},
 			state.HomeState{},
 		); err != nil {

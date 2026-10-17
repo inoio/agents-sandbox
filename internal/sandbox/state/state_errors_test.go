@@ -35,7 +35,7 @@ func TestWriteState_MkdirAllError(t *testing.T) {
 	// A file where the slug dir should live makes MkdirAll fail.
 	testutil.WritePath(t, filepath.Join(stateRoot(), k.Slug), "not a directory")
 
-	if err := WriteState(k, HomeState{HomeVolume: "vol"}); err == nil {
+	if err := writeState(k, HomeState{HomeVolume: "vol"}); err == nil {
 		t.Fatal("expected error when the state dir cannot be created")
 	}
 }
@@ -50,7 +50,7 @@ func TestWriteState_RenameErrorCleansTemp(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := WriteState(k, HomeState{HomeVolume: "vol"}); err == nil {
+	if err := writeState(k, HomeState{HomeVolume: "vol"}); err == nil {
 		t.Fatal("expected error when the state file cannot be renamed")
 	}
 

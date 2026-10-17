@@ -25,10 +25,10 @@ func TestHomeVolumeReferencesScansBothLayouts(t *testing.T) {
 	perAgent := Key{Slug: "proj-aBc1234D", Agent: "opencode"}
 	legacy := Key{Slug: "legacy-aBc1234D"}
 	vol := "agents-sandbox-home-proj-aBc1234D-opencode-20260812T123456"
-	if err := WriteState(perAgent, HomeState{HomeVolume: vol}); err != nil {
+	if err := writeState(perAgent, HomeState{HomeVolume: vol}); err != nil {
 		t.Fatalf("write per-agent state: %v", err)
 	}
-	if err := WriteState(legacy, HomeState{HomeVolume: vol}); err != nil {
+	if err := writeState(legacy, HomeState{HomeVolume: vol}); err != nil {
 		t.Fatalf("write legacy state: %v", err)
 	}
 
@@ -47,7 +47,7 @@ func TestHomeVolumeReferencesScansBothLayouts(t *testing.T) {
 
 func TestHomeVolumeReferencesIgnoresRootState(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
-	if err := WriteRootState(RootState{Migrations: map[string]Migration{
+	if err := writeRootState(RootState{Migrations: map[string]Migration{
 		"runtime_home": {Status: MigrationCompleted},
 	}}); err != nil {
 		t.Fatalf("write root state: %v", err)
@@ -121,7 +121,7 @@ func TestHomeVolumeReferencesErrorsOnCorruptStateFile(t *testing.T) {
 func TestImageReferencesScansPerAgentStates(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	key := Key{Slug: "proj-aBc1234D", Agent: "opencode"}
-	if err := WriteState(key, HomeState{ImageDigest: "sha256:abc"}); err != nil {
+	if err := writeState(key, HomeState{ImageDigest: "sha256:abc"}); err != nil {
 		t.Fatalf("write per-agent state: %v", err)
 	}
 
@@ -139,7 +139,7 @@ func TestImageReferencesScansPerAgentStates(t *testing.T) {
 func TestImageReferencesIgnoresLegacyAgentlessState(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	legacy := Key{Slug: "legacy-aBc1234D"}
-	if err := WriteState(legacy, HomeState{HomeVolume: "vol"}); err != nil {
+	if err := writeState(legacy, HomeState{HomeVolume: "vol"}); err != nil {
 		t.Fatalf("write legacy state: %v", err)
 	}
 

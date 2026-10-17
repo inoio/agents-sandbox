@@ -59,5 +59,5 @@ func homeStateTxn(k Key, fn func(cur *HomeState, exists bool) (write bool, err e
 
 // writeCurrentHomeState persists the transaction's current document.
 func writeCurrentHomeState(k Key, cur *HomeState) error {
-	return WriteState(k, *cur)
+	return writeState(k, *cur)
 }

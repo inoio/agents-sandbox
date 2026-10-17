@@ -25,7 +25,7 @@ func (t *RootTxn) Exists() bool { return t.exists }
 
 // Commit atomically writes State() to disk. It is repeatable, so a long campaign
 // can checkpoint its progress after each unit of work.
-func (t *RootTxn) Commit() error { return WriteRootState(*t.state) }
+func (t *RootTxn) Commit() error { return writeRootState(*t.state) }
 
 // WithRootState holds the host-only root-state lock across read -> fn, handing fn
 // a RootTxn. It is the single locked transaction primitive for the
@@ -41,7 +41,7 @@ func (t *RootTxn) Commit() error { return WriteRootState(*t.state) }
 //
 //nolint:nonamedreturns // the documented (ok, err) signature is the contract
 func WithRootState(blocking bool, fn func(*RootTxn) error) (ok bool, err error) {
-	release, ok, err := LockRootState(blocking)
+	release, ok, err := lockRootState(blocking)
 	if err != nil || !ok {
 		return ok, err
 	}

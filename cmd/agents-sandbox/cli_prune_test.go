@@ -211,13 +211,13 @@ func TestPrune(t *testing.T) {
 		for _, flags := range pruneAgeFlags {
 			t.Run(strings.Join(flags, " "), func(t *testing.T) {
 				runPruneTest(t, flags, func() {
-					if err := state.WriteState(
+					if err := seedHomeState(
 						state.Key{Slug: "activeproject-1mjusbm3wikhb0", Agent: "opencode"},
 						state.HomeState{
 							HomeVolume: "agents-sandbox-home-activeproject-1mjusbm3wikhb0-abc123",
 						},
 					); err != nil {
-						t.Fatalf("WriteState: %v", err)
+						t.Fatalf("seedHomeState: %v", err)
 					}
 
 					m := &sandboxmsb.MockMsbClient{}

@@ -179,12 +179,12 @@ func TestResolveHomeVolumeExistingStateKeepsFingerprints(t *testing.T) {
 	stored := state.BuildNetworkState(
 		network.Policy{Profile: network.ProfilePublic, EgressAllow: []string{"example.com"}},
 	)
-	if err := state.WriteState(k, state.HomeState{
+	if err := seedHomeState(k, state.HomeState{
 		HomeVolume:   "home-vol",
 		ImageDigest:  "sha256:abc",
 		NetworkState: stored,
 	}); err != nil {
-		t.Fatalf("WriteState: %v", err)
+		t.Fatalf("seedHomeState: %v", err)
 	}
 
 	desired := state.Fingerprints{

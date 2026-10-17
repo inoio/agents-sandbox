@@ -53,11 +53,11 @@ func TestPruneVolumes(t *testing.T) {
 	t.Run("removes state when last volume for slug is removed", func(t *testing.T) {
 		configpaths.WithMockConfigPaths(t)
 		slug := "stale-1mjusbm3wikhb0"
-		if err := state.WriteState(
+		if err := seedHomeState(
 			state.Key{Slug: slug, Agent: ""},
 			state.HomeState{HomeVolume: "agents-sandbox-home-stale-1mjusbm3wikhb0-20260806T143022"},
 		); err != nil {
-			t.Fatalf("WriteState: %v", err)
+			t.Fatalf("seedHomeState: %v", err)
 		}
 		client := &msb.MockMsbClient{
 			Volumes: []msb.VolumeHandle{home("agents-sandbox-home-stale-1mjusbm3wikhb0-20260806T143022")},
@@ -78,11 +78,11 @@ func TestPruneVolumes(t *testing.T) {
 	t.Run("keeps state when a volume for slug remains", func(t *testing.T) {
 		configpaths.WithMockConfigPaths(t)
 		slug := "stale-1mjusbm3wikhb0"
-		if err := state.WriteState(
+		if err := seedHomeState(
 			state.Key{Slug: slug, Agent: ""},
 			state.HomeState{HomeVolume: "agents-sandbox-home-stale-1mjusbm3wikhb0-20260806T143022"},
 		); err != nil {
-			t.Fatalf("WriteState: %v", err)
+			t.Fatalf("seedHomeState: %v", err)
 		}
 		client := &msb.MockMsbClient{
 			Volumes: []msb.VolumeHandle{

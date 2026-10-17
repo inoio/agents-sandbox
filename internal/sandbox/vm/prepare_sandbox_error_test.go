@@ -36,7 +36,7 @@ func TestPrepareSandboxImageError(t *testing.T) {
 // without attempting to build the image.
 func TestPrepareSandboxVersionResolutionError(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
-	state.WriteState(
+	seedHomeState(
 		state.Key{Slug: git.ProjectSlug(), Agent: "opencode"},
 		state.HomeState{AgentVersion: "1.0.0", AgentSource: agentSourceTool},
 	)

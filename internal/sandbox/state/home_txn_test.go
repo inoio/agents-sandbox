@@ -75,8 +75,8 @@ func TestWithHomeStateCallbackErrorDoesNotWrite(t *testing.T) {
 func TestWithHomeStatePresentExistsTrue(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	k := testKey()
-	if err := WriteState(k, HomeState{HomeVolume: "vol-1", AgentVersion: "1.2.3"}); err != nil {
-		t.Fatalf("WriteState: %v", err)
+	if err := writeState(k, HomeState{HomeVolume: "vol-1", AgentVersion: "1.2.3"}); err != nil {
+		t.Fatalf("writeState: %v", err)
 	}
 	if err := WithHomeState(k, func(hs *HomeState, exists bool) (bool, error) {
 		if !exists {
@@ -141,8 +141,8 @@ func TestRecoverHomeStateRepairsMissing(t *testing.T) {
 func TestRecoverHomeStatePresentExistsTrue(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	k := testKey()
-	if err := WriteState(k, HomeState{HomeVolume: "old", AgentVersion: "1.2.3"}); err != nil {
-		t.Fatalf("WriteState: %v", err)
+	if err := writeState(k, HomeState{HomeVolume: "old", AgentVersion: "1.2.3"}); err != nil {
+		t.Fatalf("writeState: %v", err)
 	}
 	if err := RecoverHomeState(k, func(hs *HomeState, exists bool) (bool, error) {
 		if !exists {

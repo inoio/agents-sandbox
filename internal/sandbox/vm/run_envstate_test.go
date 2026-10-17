@@ -77,7 +77,7 @@ func TestPersistEnvSecrets_MergesExistingState(t *testing.T) {
 	slug := "mergeproj"
 
 	// Write existing state with HomeVolume and ImageDigest
-	state.WriteState(state.Key{Slug: slug, Agent: "opencode"}, state.HomeState{
+	seedHomeState(state.Key{Slug: slug, Agent: "opencode"}, state.HomeState{
 		HomeVolume:  "existing-vol",
 		ImageDigest: "sha256:existing",
 	})
@@ -118,7 +118,7 @@ func TestPersistEnvSecrets_OverwritesExistingState(t *testing.T) {
 		EnvState:    state.EnvState{Hash: "sha256:olddata", Names: nil},
 		SecretState: state.SecretState{},
 	}
-	state.WriteState(state.Key{Slug: slug, Agent: "opencode"}, oldState)
+	seedHomeState(state.Key{Slug: slug, Agent: "opencode"}, oldState)
 
 	envSt := state.EnvState{Hash: "newhash", Names: []string{"K"}}
 	secSt := state.SecretState{Hash: "sh", Names: []string{"S"}}
@@ -608,7 +608,7 @@ func TestPersistEnvSecrets_ZeroStateOverwritesOnlyFields(t *testing.T) {
 
 	slug := "overwriteproj"
 
-	state.WriteState(state.Key{Slug: slug, Agent: "opencode"}, state.HomeState{
+	seedHomeState(state.Key{Slug: slug, Agent: "opencode"}, state.HomeState{
 		HomeVolume:  "vol",
 		ImageDigest: "sha256:img",
 		EnvState:    state.EnvState{Hash: "old-env", Names: []string{"OLD"}},
@@ -652,7 +652,7 @@ func TestDecideReconfig_PersistedSecretsMatchDesired(t *testing.T) {
 	desiredEnv := envsecret.MergeEnvMaps(envsecret.BuildEnvMap(filepath.Join(userDir, configpaths.EnvFileName)))
 	envHash := state.EnvContentHash(desiredEnv)
 
-	state.WriteState(state.Key{Slug: "myproj5", Agent: "opencode"}, state.HomeState{
+	seedHomeState(state.Key{Slug: "myproj5", Agent: "opencode"}, state.HomeState{
 		HomeVolume:  "vol",
 		ImageDigest: "sha256:img",
 		EnvState:    state.EnvState{Hash: envHash, Names: []string{"K"}},
@@ -793,7 +793,7 @@ func TestDecideReconfig_HomePromptAskedWhenRebuildConfirmed(t *testing.T) {
 		ImageDigest: "sha256:old",
 	}
 	slug := git.ProjectSlug()
-	state.WriteState(state.Key{Slug: slug, Agent: "opencode"}, persisted)
+	seedHomeState(state.Key{Slug: slug, Agent: "opencode"}, persisted)
 
 	cfs, err := reprovision.LoadConfigFilesForHost(opencodeAgent(t), t.TempDir(), reprovision.VMHomeDir, ui, true)
 	if err != nil {

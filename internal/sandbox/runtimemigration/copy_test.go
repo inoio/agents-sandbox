@@ -364,7 +364,7 @@ func TestCopyVolumesResumesFromCopying(t *testing.T) {
 	addVolumeDir(t, legacy, done)
 	addVolumeDir(t, legacy, partial)
 	// A prior campaign copied "done" then crashed; "partial" is present but unrecorded.
-	if err := state.WriteRootState(state.RootState{Migrations: map[string]state.Migration{
+	if err := seedRootState(state.RootState{Migrations: map[string]state.Migration{
 		MigrationName: {Status: state.MigrationCopying, Copied: []string{done}},
 	}}); err != nil {
 		t.Fatalf("seed: %v", err)
@@ -494,7 +494,7 @@ func TestCopyVolumesTerminalIsNoOp(t *testing.T) {
 	legacy := installLegacyHome(t)
 	addVolumeDir(t, legacy, naming.HomePrefix+"legacy")
 	for _, status := range []state.MigrationStatus{state.MigrationCompleted, state.MigrationDismissed} {
-		if err := state.WriteRootState(state.RootState{Migrations: map[string]state.Migration{
+		if err := seedRootState(state.RootState{Migrations: map[string]state.Migration{
 			MigrationName: {Status: status},
 		}}); err != nil {
 			t.Fatalf("seed %q: %v", status, err)
@@ -516,7 +516,7 @@ func TestCopyVolumesTerminalIsNoOp(t *testing.T) {
 func TestCopyVolumesResumeListingErrorAborts(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	makeLegacyVolumesUnlistable(t, installLegacyHome(t))
-	if err := state.WriteRootState(state.RootState{Migrations: map[string]state.Migration{
+	if err := seedRootState(state.RootState{Migrations: map[string]state.Migration{
 		MigrationName: {Status: state.MigrationCopying},
 	}}); err != nil {
 		t.Fatalf("seed: %v", err)
@@ -536,7 +536,7 @@ func TestCopyVolumesCopiedSaveErrorAborts(t *testing.T) {
 	legacy := installLegacyHome(t)
 	name := naming.HomePrefix + "legacy"
 	addVolumeDir(t, legacy, name)
-	if err := state.WriteRootState(state.RootState{Migrations: map[string]state.Migration{
+	if err := seedRootState(state.RootState{Migrations: map[string]state.Migration{
 		MigrationName: {Status: state.MigrationCopying},
 	}}); err != nil {
 		t.Fatalf("seed: %v", err)
@@ -561,7 +561,7 @@ func TestCopyVolumesExclusionSaveErrorAborts(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	legacy := installLegacyHome(t)
 	addVolumeDir(t, legacy, naming.HomePrefix+"legacy")
-	if err := state.WriteRootState(state.RootState{Migrations: map[string]state.Migration{
+	if err := seedRootState(state.RootState{Migrations: map[string]state.Migration{
 		MigrationName: {Status: state.MigrationCopying},
 	}}); err != nil {
 		t.Fatalf("seed: %v", err)

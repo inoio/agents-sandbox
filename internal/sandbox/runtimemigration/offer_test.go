@@ -97,10 +97,10 @@ func TestOfferDismissedDoesNotPrompt(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	legacy := installLegacyHome(t)
 	addVolumeDir(t, legacy, naming.HomePrefix+"legacy")
-	if err := state.WriteRootState(state.RootState{
+	if err := seedRootState(state.RootState{
 		Migrations: map[string]state.Migration{MigrationName: {Status: state.MigrationDismissed}},
 	}); err != nil {
-		t.Fatalf("WriteRootState: %v", err)
+		t.Fatalf("seedRootState: %v", err)
 	}
 
 	var prompted bool
@@ -125,7 +125,7 @@ func TestOfferTerminalMigrationDoesNotPrompt(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	legacy := installLegacyHome(t)
 	addVolumeDir(t, legacy, naming.HomePrefix+"legacy")
-	if err := state.WriteRootState(state.RootState{Migrations: map[string]state.Migration{
+	if err := seedRootState(state.RootState{Migrations: map[string]state.Migration{
 		MigrationName: {Status: state.MigrationCompleted},
 	}}); err != nil {
 		t.Fatalf("seed: %v", err)
@@ -149,7 +149,7 @@ func TestOfferFinalizesOpenCampaignWithNothingLeft(t *testing.T) {
 	name := naming.HomePrefix + "done"
 	addVolumeDir(t, legacy, name)
 	// Campaign copied everything, then crashed before writing completed.
-	if err := state.WriteRootState(state.RootState{Migrations: map[string]state.Migration{
+	if err := seedRootState(state.RootState{Migrations: map[string]state.Migration{
 		MigrationName: {Status: state.MigrationCopying, Copied: []string{name}},
 	}}); err != nil {
 		t.Fatalf("seed: %v", err)
@@ -189,7 +189,7 @@ func TestOfferStartFreshIsNotLostToACompletedCampaign(t *testing.T) {
 		if m, _ := root.Migration(MigrationName); m.Status != "" {
 			t.Fatalf("precondition: status = %q, want pending", m.Status)
 		}
-		if err := state.WriteRootState(state.RootState{Migrations: map[string]state.Migration{
+		if err := seedRootState(state.RootState{Migrations: map[string]state.Migration{
 			MigrationName: {Status: state.MigrationCompleted},
 		}}); err != nil {
 			t.Fatalf("concurrent completion: %v", err)
@@ -445,7 +445,7 @@ func makeLegacyVolumesUnlistable(t *testing.T, legacy string) {
 func seedPartialDestination(t *testing.T, legacy, name string) {
 	t.Helper()
 	addVolumeDir(t, legacy, name)
-	if err := state.WriteRootState(state.RootState{Migrations: map[string]state.Migration{
+	if err := seedRootState(state.RootState{Migrations: map[string]state.Migration{
 		MigrationName: {Status: state.MigrationCopying},
 	}}); err != nil {
 		t.Fatalf("seed copying migration: %v", err)
@@ -519,7 +519,7 @@ func TestOfferStartFreshRemovalFailureAborts(t *testing.T) {
 // never clobbers a terminal write another session already made.
 func TestFinalizeCompletedCampaignTerminalIsNoOp(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
-	if err := state.WriteRootState(state.RootState{Migrations: map[string]state.Migration{
+	if err := seedRootState(state.RootState{Migrations: map[string]state.Migration{
 		MigrationName: {Status: state.MigrationCompleted},
 	}}); err != nil {
 		t.Fatalf("seed: %v", err)
@@ -660,7 +660,7 @@ func TestOfferCopyingListingErrorBlocks(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	legacy := installLegacyHome(t)
 	makeLegacyVolumesUnlistable(t, legacy)
-	if err := state.WriteRootState(state.RootState{Migrations: map[string]state.Migration{
+	if err := seedRootState(state.RootState{Migrations: map[string]state.Migration{
 		MigrationName: {Status: state.MigrationCopying},
 	}}); err != nil {
 		t.Fatalf("seed: %v", err)

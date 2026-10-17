@@ -99,7 +99,7 @@ func TestRemoveSandboxForceDeclinedConfirmationDoesNotStop(t *testing.T) {
 func TestRemoveSandboxForceKeepsState(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	key := state.Key{Slug: "proj-1mjusbm3wikhb0", Agent: "opencode"}
-	if err := state.WriteState(
+	if err := seedHomeState(
 		key,
 		state.HomeState{HomeVolume: "agents-sandbox-home-proj-1mjusbm3wikhb0-opencode-20260812T123456"},
 	); err != nil {
@@ -128,7 +128,7 @@ func TestRemoveSandboxForceKeepsState(t *testing.T) {
 func TestRemoveSandboxWithoutForceKeepsState(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	key := state.Key{Slug: "proj-1mjusbm3wikhb0", Agent: "opencode"}
-	if err := state.WriteState(key, state.HomeState{}); err != nil {
+	if err := seedHomeState(key, state.HomeState{}); err != nil {
 		t.Fatalf("seed state: %v", err)
 	}
 	handle := &msb.MockSandboxHandle{

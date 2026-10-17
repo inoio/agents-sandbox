@@ -43,10 +43,10 @@ func TestReadRootState_MissingFileReturnsZero(t *testing.T) {
 
 func TestMigrationRegistryRoundTrip(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
-	if err := WriteRootState(RootState{Migrations: map[string]Migration{
+	if err := writeRootState(RootState{Migrations: map[string]Migration{
 		"runtime_home": {Status: MigrationCopying, Copied: []string{"a"}, Excluded: []string{"b"}},
 	}}); err != nil {
-		t.Fatalf("WriteRootState: %v", err)
+		t.Fatalf("writeRootState: %v", err)
 	}
 	got, err := ReadRootState()
 	if err != nil {
@@ -60,10 +60,10 @@ func TestMigrationRegistryRoundTrip(t *testing.T) {
 
 func TestMigrationWireKeys(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
-	if err := WriteRootState(RootState{Migrations: map[string]Migration{
+	if err := writeRootState(RootState{Migrations: map[string]Migration{
 		"runtime_home": {Status: MigrationCompleted},
 	}}); err != nil {
-		t.Fatalf("WriteRootState: %v", err)
+		t.Fatalf("writeRootState: %v", err)
 	}
 	data, err := os.ReadFile(rootStateFile())
 	if err != nil {
@@ -98,17 +98,18 @@ func TestSetMigrationInitializesRegistry(t *testing.T) {
 	}
 }
 
-func TestUpdateRootStatePreservesOtherMigrations(t *testing.T) {
+func TestWithRootStatePreservesOtherMigrations(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
-	if err := WriteRootState(RootState{Migrations: map[string]Migration{
+	if err := writeRootState(RootState{Migrations: map[string]Migration{
 		"other": {Status: MigrationCompleted},
 	}}); err != nil {
 		t.Fatalf("seed: %v", err)
 	}
-	if err := UpdateRootState(func(s *RootState) {
-		s.SetMigration("runtime_home", Migration{Status: MigrationDismissed})
+	if _, err := WithRootState(true, func(tx *RootTxn) error {
+		tx.State().SetMigration("runtime_home", Migration{Status: MigrationDismissed})
+		return tx.Commit()
 	}); err != nil {
-		t.Fatalf("UpdateRootState: %v", err)
+		t.Fatalf("WithRootState: %v", err)
 	}
 	got, _ := ReadRootState()
 	if got.Migrations["other"].Status != MigrationCompleted {
@@ -158,13 +159,13 @@ func TestWriteRootState_MarshalError(t *testing.T) {
 	marshalRootState = func(any) ([]byte, error) { return nil, wantErr }
 	t.Cleanup(func() { marshalRootState = orig })
 
-	if err := WriteRootState(
+	if err := writeRootState(
 		RootState{Migrations: map[string]Migration{"runtime_home": {Status: MigrationDismissed}}},
 	); !errors.Is(
 		err,
 		wantErr,
 	) {
-		t.Fatalf("WriteRootState() error = %v, want %v", err, wantErr)
+		t.Fatalf("writeRootState() error = %v, want %v", err, wantErr)
 	}
 }
 
@@ -179,10 +180,10 @@ func TestWriteRootState_MkdirAllError(t *testing.T) {
 	}
 	testutil.WritePath(t, root, "not a directory")
 
-	if err := WriteRootState(
+	if err := writeRootState(
 		RootState{Migrations: map[string]Migration{"runtime_home": {Status: MigrationDismissed}}},
 	); err == nil {
-		t.Fatal("WriteRootState() error = nil, want MkdirAll failure")
+		t.Fatal("writeRootState() error = nil, want MkdirAll failure")
 	}
 }
 
@@ -196,10 +197,10 @@ func TestWriteRootState_RenameErrorCleansTemp(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := WriteRootState(
+	if err := writeRootState(
 		RootState{Migrations: map[string]Migration{"runtime_home": {Status: MigrationDismissed}}},
 	); err == nil {
-		t.Fatal("WriteRootState() error = nil, want rename failure")
+		t.Fatal("writeRootState() error = nil, want rename failure")
 	}
 	assertNoRootStateTempFiles(t)
 }
@@ -217,7 +218,7 @@ func TestWriteRootState_ConcurrentWritesDoNotCollide(t *testing.T) {
 	errs := make(chan error, writers)
 	for range writers {
 		wg.Go(func() {
-			errs <- WriteRootState(RootState{Migrations: map[string]Migration{"runtime_home": {Status: MigrationDismissed}}})
+			errs <- writeRootState(RootState{Migrations: map[string]Migration{"runtime_home": {Status: MigrationDismissed}}})
 		})
 	}
 	wg.Wait()
@@ -225,7 +226,7 @@ func TestWriteRootState_ConcurrentWritesDoNotCollide(t *testing.T) {
 
 	for err := range errs {
 		if err != nil {
-			t.Errorf("concurrent WriteRootState() error = %v", err)
+			t.Errorf("concurrent writeRootState() error = %v", err)
 		}
 	}
 	if _, err := ReadRootState(); err != nil {
@@ -233,33 +234,12 @@ func TestWriteRootState_ConcurrentWritesDoNotCollide(t *testing.T) {
 	}
 }
 
-// TestUpdateRootState_ReadError covers the read failure propagating out of
-// UpdateRootState: a corrupt state file makes the read fail before mutate runs.
-func TestUpdateRootState_ReadError(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
-
-	if err := os.MkdirAll(stateRoot(), 0o700); err != nil {
-		t.Fatalf("create state root: %v", err)
-	}
-	if err := os.WriteFile(rootStateFile(), []byte("runtime_home_migration: [unterminated"), 0o600); err != nil {
-		t.Fatalf("write corrupt root state: %v", err)
-	}
-
-	mutated := false
-	if err := UpdateRootState(func(*RootState) { mutated = true }); err == nil {
-		t.Fatal("UpdateRootState() error = nil, want a read error")
-	}
-	if mutated {
-		t.Error("UpdateRootState ran mutate despite the read failure")
-	}
-}
-
 func TestRootStateAgentCheckRoundTrip(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
-	if err := WriteRootState(RootState{Agents: map[string]AgentCheckState{
+	if err := writeRootState(RootState{Agents: map[string]AgentCheckState{
 		"opencode": {LastChecked: time.Unix(100, 0).UTC(), LatestVersion: "2.0.0"},
 	}}); err != nil {
-		t.Fatalf("WriteRootState: %v", err)
+		t.Fatalf("writeRootState: %v", err)
 	}
 	got, err := ReadRootState()
 	if err != nil {
@@ -297,10 +277,10 @@ func TestAgentCheckDueForCheck(t *testing.T) {
 
 func TestRootStateAgentCheckWireKeys(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
-	if err := WriteRootState(RootState{Agents: map[string]AgentCheckState{
+	if err := writeRootState(RootState{Agents: map[string]AgentCheckState{
 		"opencode": {LastChecked: time.Unix(100, 0).UTC(), LatestVersion: "2.0.0"},
 	}}); err != nil {
-		t.Fatalf("WriteRootState: %v", err)
+		t.Fatalf("writeRootState: %v", err)
 	}
 	data, err := os.ReadFile(rootStateFile())
 	if err != nil {

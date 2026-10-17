@@ -134,8 +134,8 @@ func TestHomeWritersPreserveUnrelatedFields(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			configpaths.WithMockConfigPaths(t)
 			k := state.Key{Slug: "proj", Agent: "opencode"}
-			if err := state.WriteState(k, seed()); err != nil {
-				t.Fatalf("seed WriteState: %v", err)
+			if err := seedHomeState(k, seed()); err != nil {
+				t.Fatalf("seed seedHomeState: %v", err)
 			}
 			tc.run(t, k)
 			got, err := state.ReadState(k)

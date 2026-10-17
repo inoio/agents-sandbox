@@ -17,7 +17,7 @@ import (
 func TestRemoveVolumesRefusesReferenced(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	name := "agents-sandbox-home-proj-aBc1234D-opencode-20260812T123456"
-	if err := state.WriteState(
+	if err := seedHomeState(
 		state.Key{Slug: "proj-aBc1234D", Agent: "opencode"},
 		state.HomeState{HomeVolume: name},
 	); err != nil {
@@ -41,7 +41,7 @@ func TestRemoveVolumesRefusesReferenced(t *testing.T) {
 func TestRemoveVolumesForceBypassesReference(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	name := "agents-sandbox-home-proj-aBc1234D-opencode-20260812T123456"
-	if err := state.WriteState(
+	if err := seedHomeState(
 		state.Key{Slug: "proj-aBc1234D", Agent: "opencode"},
 		state.HomeState{HomeVolume: name},
 	); err != nil {

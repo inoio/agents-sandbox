@@ -68,7 +68,7 @@ func TestPrepareSandboxDryRunVM(t *testing.T) {
 	}
 	msb.WithMsbMock(t, mock)
 
-	state.WriteState(
+	seedHomeState(
 		state.Key{Slug: slug, Agent: "opencode"},
 		state.HomeState{
 			HomeVolume:   "home-vol",
@@ -155,7 +155,7 @@ func TestPrepareSandboxDryRunVMLaunchSubdirectory(t *testing.T) {
 	}
 	msb.WithMsbMock(t, mock)
 
-	state.WriteState(
+	seedHomeState(
 		state.Key{Slug: slug, Agent: "opencode"},
 		state.HomeState{
 			HomeVolume:   "home-vol",
@@ -227,7 +227,7 @@ func TestPrepareSandboxVolumeError(t *testing.T) {
 	}
 	msb.WithMsbMock(t, mock)
 
-	state.WriteState(
+	seedHomeState(
 		state.Key{Slug: git.ProjectSlug(), Agent: "opencode"},
 		state.HomeState{AgentVersion: "1.5.0", AgentSource: agentSourceTool},
 	)
@@ -289,7 +289,7 @@ func TestPrepareSandboxEnsureVMError(t *testing.T) {
 	}
 	msb.WithMsbMock(t, mock)
 
-	state.WriteState(
+	seedHomeState(
 		state.Key{Slug: slug, Agent: "opencode"},
 		state.HomeState{
 			HomeVolume:   "home-vol",
@@ -361,7 +361,7 @@ func TestPrepareSandboxSetUpError(t *testing.T) {
 	mock.SetGotSandbox(sh)
 	msb.WithMsbMock(t, mock)
 
-	state.WriteState(
+	seedHomeState(
 		state.Key{Slug: slug, Agent: "opencode"},
 		state.HomeState{
 			HomeVolume:   "home-vol",

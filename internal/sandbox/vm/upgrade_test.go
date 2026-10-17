@@ -38,8 +38,8 @@ func seedAgentState(t *testing.T, k state.Key, version, source string) {
 	}
 	hs.AgentVersion = version
 	hs.AgentSource = source
-	if err := state.WriteState(k, *hs); err != nil {
-		t.Fatalf("WriteState: %v", err)
+	if err := seedHomeState(k, *hs); err != nil {
+		t.Fatalf("seedHomeState: %v", err)
 	}
 }
 
@@ -238,8 +238,8 @@ func TestResolveOpenCodeVersionRecoversBaselineFromExistingImage(t *testing.T) {
 	k := state.Key{Slug: "proj", Agent: "opencode"}
 	// An existing state without a recorded baseline (as after the updater.yaml
 	// migration), and an image that carries the baseline.
-	if err := state.WriteState(k, state.HomeState{HomeVolume: "vol-1"}); err != nil {
-		t.Fatalf("WriteState: %v", err)
+	if err := seedHomeState(k, state.HomeState{HomeVolume: "vol-1"}); err != nil {
+		t.Fatalf("seedHomeState: %v", err)
 	}
 	withExistingAgentVersion(t)
 
@@ -289,8 +289,8 @@ func TestResolveOpenCodeVersionRecoversBaselineFromExistingImage(t *testing.T) {
 func TestPersistOfferedVersionMarksExistingState(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	k := state.Key{Slug: "proj", Agent: "opencode"}
-	if err := state.WriteState(k, state.HomeState{HomeVolume: "vol"}); err != nil {
-		t.Fatalf("WriteState: %v", err)
+	if err := seedHomeState(k, state.HomeState{HomeVolume: "vol"}); err != nil {
+		t.Fatalf("seedHomeState: %v", err)
 	}
 
 	persistOfferedVersion(k, "2.0.0", &termio.Mock{})
@@ -318,8 +318,8 @@ func TestPersistOfferedVersionSkipsMissingState(t *testing.T) {
 func TestPersistOfferedVersionNoVersionIsNoop(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	k := state.Key{Slug: "proj", Agent: "opencode"}
-	if err := state.WriteState(k, state.HomeState{HomeVolume: "vol"}); err != nil {
-		t.Fatalf("WriteState: %v", err)
+	if err := seedHomeState(k, state.HomeState{HomeVolume: "vol"}); err != nil {
+		t.Fatalf("seedHomeState: %v", err)
 	}
 
 	persistOfferedVersion(k, "", &termio.Mock{})
@@ -372,8 +372,8 @@ func TestDeferredOfferedPersistedAfterStateRecreated(t *testing.T) {
 	}
 
 	// Home resolution recreates the state, then the deferred mark is recorded.
-	if err := state.ReplaceHomeState(k, state.HomeState{HomeVolume: "vol"}); err != nil {
-		t.Fatalf("ReplaceHomeState: %v", err)
+	if err := seedHomeState(k, state.HomeState{HomeVolume: "vol"}); err != nil {
+		t.Fatalf("seedHomeState: %v", err)
 	}
 	persistOfferedVersion(k, offered, &termio.Mock{})
 
@@ -552,10 +552,10 @@ func TestResolveOpenCodeVersionSkipsCheckWhenCheckedToday(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	k := state.Key{Slug: "proj", Agent: "opencode"}
 	seedAgentState(t, k, "1.0.0", agentSourceTool)
-	if err := state.WriteRootState(state.RootState{Agents: map[string]state.AgentCheckState{
+	if err := seedRootState(state.RootState{Agents: map[string]state.AgentCheckState{
 		"opencode": {LastChecked: now(), LatestVersion: "2.0.0"},
 	}}); err != nil {
-		t.Fatalf("WriteRootState: %v", err)
+		t.Fatalf("seedRootState: %v", err)
 	}
 
 	origLatest := agentLatestVersion
@@ -593,10 +593,10 @@ func TestResolveOpenCodeVersionDoesNotReOfferVersion(t *testing.T) {
 		t.Fatal(err)
 	}
 	hs.OfferedVersions = []string{"2.0.0"}
-	if err := state.WriteState(k, *hs); err != nil {
+	if err := seedHomeState(k, *hs); err != nil {
 		t.Fatal(err)
 	}
-	if err := state.WriteRootState(state.RootState{Agents: map[string]state.AgentCheckState{
+	if err := seedRootState(state.RootState{Agents: map[string]state.AgentCheckState{
 		"opencode": {LastChecked: now().Add(-25 * time.Hour), LatestVersion: "2.0.0"},
 	}}); err != nil {
 		t.Fatal(err)
@@ -752,7 +752,7 @@ func TestResolveOpenCodeVersionInteractiveQuit(t *testing.T) {
 func TestResolveBuildVersionPromptNamesThisProjectsVersion(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	// latest known version cached globally; this project's image baseline is 1.0.0
-	if err := state.WriteRootState(state.RootState{Agents: map[string]state.AgentCheckState{
+	if err := seedRootState(state.RootState{Agents: map[string]state.AgentCheckState{
 		"opencode": {LastChecked: now().Add(-time.Hour), LatestVersion: "2.0.0"},
 	}}); err != nil {
 		t.Fatal(err)
@@ -823,22 +823,22 @@ func TestPendingUpgradeLockHeldDefers(t *testing.T) {
 	k := state.Key{Slug: "proj", Agent: "opencode"}
 	seedAgentState(t, k, "1.0.0", agentSourceTool)
 
-	release, ok, err := state.LockRootState(true)
+	ok, err := state.WithRootState(true, func(*state.RootTxn) error {
+		ui := &termio.Mock{
+			IsInteractiveResult: true,
+			SelectFn: func(_ string, _ []termio.Choice, _ string) (string, error) {
+				t.Error("must not prompt while the root-state lock is held")
+				return "r", nil
+			},
+		}
+		latest, offer := pendingUpgrade(context.Background(), opencodeAgent(t), k, ui, "1.0.0")
+		if offer || latest != "" {
+			t.Errorf("pendingUpgrade = (%q, %v), want no offer with a held lock", latest, offer)
+		}
+		return nil
+	})
 	if err != nil || !ok {
-		t.Fatalf("LockRootState(blocking) = ok %v, err %v", ok, err)
-	}
-	defer release()
-
-	ui := &termio.Mock{
-		IsInteractiveResult: true,
-		SelectFn: func(_ string, _ []termio.Choice, _ string) (string, error) {
-			t.Error("must not prompt while the root-state lock is held")
-			return "r", nil
-		},
-	}
-	latest, offer := pendingUpgrade(context.Background(), opencodeAgent(t), k, ui, "1.0.0")
-	if offer || latest != "" {
-		t.Errorf("pendingUpgrade = (%q, %v), want no offer with a held lock", latest, offer)
+		t.Fatalf("WithRootState(blocking) = ok %v, err %v", ok, err)
 	}
 }
 
@@ -853,10 +853,10 @@ func TestPendingUpgradeSuppressedWhenAlreadyOffered(t *testing.T) {
 		t.Fatal(err)
 	}
 	hs.MarkOffered("2.0.0")
-	if err := state.WriteState(k, *hs); err != nil {
+	if err := seedHomeState(k, *hs); err != nil {
 		t.Fatal(err)
 	}
-	if err := state.WriteRootState(state.RootState{Agents: map[string]state.AgentCheckState{
+	if err := seedRootState(state.RootState{Agents: map[string]state.AgentCheckState{
 		"opencode": {LastChecked: now().Add(-time.Hour), LatestVersion: "2.0.0"},
 	}}); err != nil {
 		t.Fatal(err)
@@ -889,13 +889,13 @@ func TestPendingUpgradeOfferedWritePreservesFingerprints(t *testing.T) {
 		EnvState:     state.EnvState{Hash: "e"},
 		SecretState:  state.SecretState{Hash: "s"},
 	}
-	if err := state.WriteState(k, seed); err != nil {
-		t.Fatalf("WriteState: %v", err)
+	if err := seedHomeState(k, seed); err != nil {
+		t.Fatalf("seedHomeState: %v", err)
 	}
-	if err := state.WriteRootState(state.RootState{Agents: map[string]state.AgentCheckState{
+	if err := seedRootState(state.RootState{Agents: map[string]state.AgentCheckState{
 		"opencode": {LastChecked: now(), LatestVersion: "2.0.0"},
 	}}); err != nil {
-		t.Fatalf("WriteRootState: %v", err)
+		t.Fatalf("seedRootState: %v", err)
 	}
 
 	origLatest := agentLatestVersion
@@ -1007,7 +1007,7 @@ func TestPendingUpgradeRootStateReadErrorDoesNotClobber(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	k := state.Key{Slug: "proj", Agent: "opencode"}
 	seedAgentState(t, k, "1.0.0", agentSourceTool)
-	if err := state.WriteRootState(state.RootState{
+	if err := seedRootState(state.RootState{
 		Migrations: map[string]state.Migration{
 			"runtime_home": {Status: state.MigrationDismissed},
 		},
@@ -1052,7 +1052,7 @@ func TestPendingUpgradeWarnsOnRootStateWriteError(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	k := state.Key{Slug: "proj", Agent: "opencode"}
 	seedAgentState(t, k, "1.0.0", agentSourceTool)
-	if err := state.WriteRootState(state.RootState{Agents: map[string]state.AgentCheckState{
+	if err := seedRootState(state.RootState{Agents: map[string]state.AgentCheckState{
 		"opencode": {LastChecked: now().Add(-25 * time.Hour), LatestVersion: "1.0.0"},
 	}}); err != nil {
 		t.Fatal(err)
@@ -1106,7 +1106,7 @@ func TestPendingUpgradeNoOfferWhenLatestEmpty(t *testing.T) {
 func TestPendingUpgradeWarnsOnProjectStateReadError(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	k := state.Key{Slug: "proj", Agent: "opencode"}
-	if err := state.WriteRootState(state.RootState{Agents: map[string]state.AgentCheckState{
+	if err := seedRootState(state.RootState{Agents: map[string]state.AgentCheckState{
 		"opencode": {LastChecked: now(), LatestVersion: "2.0.0"},
 	}}); err != nil {
 		t.Fatal(err)
@@ -1136,7 +1136,7 @@ func TestPendingUpgradeWarnsOnProjectStateReadError(t *testing.T) {
 func TestPendingUpgradeOffersWhenProjectStateMissing(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	k := state.Key{Slug: "proj", Agent: "opencode"}
-	if err := state.WriteRootState(state.RootState{Agents: map[string]state.AgentCheckState{
+	if err := seedRootState(state.RootState{Agents: map[string]state.AgentCheckState{
 		"opencode": {LastChecked: now(), LatestVersion: "2.0.0"},
 	}}); err != nil {
 		t.Fatal(err)
@@ -1161,7 +1161,7 @@ func TestPendingUpgradeWarnsOnProjectStateWriteError(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	k := state.Key{Slug: "proj", Agent: "opencode"}
 	seedAgentState(t, k, "1.0.0", agentSourceTool)
-	if err := state.WriteRootState(state.RootState{Agents: map[string]state.AgentCheckState{
+	if err := seedRootState(state.RootState{Agents: map[string]state.AgentCheckState{
 		"opencode": {LastChecked: now(), LatestVersion: "2.0.0"},
 	}}); err != nil {
 		t.Fatal(err)

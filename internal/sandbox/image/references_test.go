@@ -17,7 +17,7 @@ import (
 func TestInUseImageReferencesUnionsProjectStatesAndKeptSandboxes(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	projectKey := state.Key{Slug: "proj-aBc1234D", Agent: "opencode"}
-	if err := state.WriteState(projectKey, state.HomeState{ImageDigest: "sha256:abc"}); err != nil {
+	if err := seedHomeState(projectKey, state.HomeState{ImageDigest: "sha256:abc"}); err != nil {
 		t.Fatalf("write project state: %v", err)
 	}
 	pinnedKey := state.Key{Slug: "live-1mjusbm3wikhb0", Agent: "opencode"}
@@ -43,7 +43,7 @@ func TestInUseImageReferencesUnionsProjectStatesAndKeptSandboxes(t *testing.T) {
 func TestInUseImageReferencesDeduplicatesProjectAndSandbox(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	key := state.Key{Slug: "proj-1mjusbm3wikhb0", Agent: "opencode"}
-	if err := state.WriteState(key, state.HomeState{}); err != nil {
+	if err := seedHomeState(key, state.HomeState{}); err != nil {
 		t.Fatalf("write project state: %v", err)
 	}
 	same := &msb.MockSandboxHandle{

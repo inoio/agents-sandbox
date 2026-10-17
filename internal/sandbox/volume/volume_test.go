@@ -226,7 +226,7 @@ func TestResolveHomeAction_ActionQuitReturnsQuit(t *testing.T) {
 func TestRecordHomeImage_UpdatesDigestInState(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 
-	state.WriteState(state.Key{Slug: "myproj", Agent: "opencode"}, state.HomeState{
+	seedHomeState(state.Key{Slug: "myproj", Agent: "opencode"}, state.HomeState{
 		HomeVolume:  "agents-sandbox-home-myproj-20260806T143022",
 		ImageDigest: "sha256:old",
 	})
@@ -274,7 +274,7 @@ func TestApplyHomeActionAbortsWhenHomeVolumeChangedConcurrently(t *testing.T) {
 
 	key := state.Key{Slug: "myproj", Agent: "opencode"}
 	oldVol := "agents-sandbox-home-myproj-old"
-	state.WriteState(key, state.HomeState{HomeVolume: oldVol, ImageDigest: "sha256:old"})
+	seedHomeState(key, state.HomeState{HomeVolume: oldVol, ImageDigest: "sha256:old"})
 
 	mock := &msb.MockMsbClient{}
 	mock.CreateSandboxFn = func(_ context.Context, _ string, _ ...msbSdk.SandboxOption) (msb.Sandbox, error) {
@@ -367,7 +367,7 @@ func TestApplyHomeAction_ExecutesAndKeepsOld(t *testing.T) {
 
 			slug := "myproj"
 			oldVol := "agents-sandbox-home-myproj-old"
-			state.WriteState(
+			seedHomeState(
 				state.Key{Slug: slug, Agent: "opencode"},
 				state.HomeState{HomeVolume: oldVol, ImageDigest: "sha256:old"},
 			)
@@ -422,7 +422,7 @@ func TestApplyHomeAction_Reset_DryRun_NoWrites(t *testing.T) {
 
 	slug := "myproj"
 	oldVol := "agents-sandbox-home-myproj-old"
-	state.WriteState(
+	seedHomeState(
 		state.Key{Slug: slug, Agent: "opencode"},
 		state.HomeState{HomeVolume: oldVol, ImageDigest: "sha256:old"},
 	)
@@ -473,7 +473,7 @@ func TestApplyHomeAction_Migrate_DryRunVM_NoStateWrite(t *testing.T) {
 
 	slug := "myproj"
 	oldVol := "agents-sandbox-home-myproj-old"
-	state.WriteState(
+	seedHomeState(
 		state.Key{Slug: slug, Agent: "opencode"},
 		state.HomeState{HomeVolume: oldVol, ImageDigest: "sha256:old"},
 	)
@@ -519,7 +519,7 @@ func TestApplyHomeAction_Migrate_CopyFails_RemovesNewVolume(t *testing.T) {
 
 	slug := "myproj"
 	oldVol := "agents-sandbox-home-myproj-old"
-	state.WriteState(
+	seedHomeState(
 		state.Key{Slug: slug, Agent: "opencode"},
 		state.HomeState{HomeVolume: oldVol, ImageDigest: "sha256:old"},
 	)
@@ -630,7 +630,7 @@ func TestResolveHomeVolume_FoundInState(t *testing.T) {
 		return msb.MockVolumeHandle{Name_: name}, nil
 	}
 
-	state.WriteState(state.Key{Slug: "myproj", Agent: "opencode"}, state.HomeState{
+	seedHomeState(state.Key{Slug: "myproj", Agent: "opencode"}, state.HomeState{
 		HomeVolume:  "agents-sandbox-home-myproj-20260806T143022",
 		ImageDigest: "sha256:abc",
 	})
@@ -746,7 +746,7 @@ func TestResolveHomeVolume_VolumeNotFoundInSandbox(t *testing.T) {
 		return msb.MockVolumeHandle{Name_: name}, nil
 	}
 
-	state.WriteState(state.Key{Slug: "orphanproj", Agent: "opencode"}, state.HomeState{
+	seedHomeState(state.Key{Slug: "orphanproj", Agent: "opencode"}, state.HomeState{
 		HomeVolume:  "agents-sandbox-home-orphanproj-20260806T143022",
 		ImageDigest: "sha256:abc",
 	})
@@ -882,7 +882,7 @@ func TestResolveHomeVolume_RecoversWhenRecordedVolumeGone(t *testing.T) {
 	const recorded = "agents-sandbox-home-drifted-20250101T000000"
 	const recovered = "agents-sandbox-home-drifted-20260101T000000"
 	key := state.Key{Slug: "drifted", Agent: "opencode"}
-	state.WriteState(key, state.HomeState{HomeVolume: recorded, ImageDigest: "sha256:old"})
+	seedHomeState(key, state.HomeState{HomeVolume: recorded, ImageDigest: "sha256:old"})
 
 	mock := &msb.MockMsbClient{}
 	mock.GetVolumeFn = func(_ context.Context, name string) (msb.VolumeHandle, error) {
@@ -975,7 +975,7 @@ func TestResolveHomeVolume_StateWinsOverRecoveredVolume(t *testing.T) {
 	const stateVol = "agents-sandbox-home-precedence-20250101T000000"
 	const liveVol = "agents-sandbox-home-precedence-20260101T000000"
 	key := state.Key{Slug: "precedence", Agent: "opencode"}
-	state.WriteState(key, state.HomeState{HomeVolume: stateVol, ImageDigest: "sha256:abc"})
+	seedHomeState(key, state.HomeState{HomeVolume: stateVol, ImageDigest: "sha256:abc"})
 
 	mock := &msb.MockMsbClient{}
 	mock.GetVolumeFn = func(_ context.Context, name string) (msb.VolumeHandle, error) {
@@ -1019,7 +1019,7 @@ func TestResolveHomeVolume_RecoveryPreservesFingerprints(t *testing.T) {
 	const recorded = "agents-sandbox-home-fp-20250101T000000"
 	const recovered = "agents-sandbox-home-fp-20260101T000000"
 	key := state.Key{Slug: "fp", Agent: "opencode"}
-	state.WriteState(key, state.HomeState{
+	seedHomeState(key, state.HomeState{
 		HomeVolume:      recorded,
 		ImageDigest:     "sha256:old",
 		AgentVersion:    "1.2.3",
@@ -1326,7 +1326,7 @@ func TestApplyHomeAction_Reset_Success(t *testing.T) {
 
 	slug := "myproj"
 	oldVol := "agents-sandbox-home-myproj-old"
-	state.WriteState(
+	seedHomeState(
 		state.Key{Slug: slug, Agent: "opencode"},
 		state.HomeState{HomeVolume: oldVol, ImageDigest: "sha256:old"},
 	)
@@ -1374,7 +1374,7 @@ func TestApplyHomeAction_PreservesFingerprints(t *testing.T) {
 
 	slug := "myproj"
 	oldVol := "agents-sandbox-home-myproj-old"
-	state.WriteState(
+	seedHomeState(
 		state.Key{Slug: slug, Agent: "opencode"},
 		state.HomeState{
 			HomeVolume:      oldVol,
@@ -1429,7 +1429,7 @@ func TestApplyHomeAction_PrefillFails_RemovesVolume(t *testing.T) {
 
 	slug := "myproj"
 	oldVol := "agents-sandbox-home-myproj-old"
-	state.WriteState(
+	seedHomeState(
 		state.Key{Slug: slug, Agent: "opencode"},
 		state.HomeState{HomeVolume: oldVol, ImageDigest: "sha256:old"},
 	)

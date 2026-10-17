@@ -102,7 +102,7 @@ func TestSandboxRemove(t *testing.T) {
 		m.SetGotSandbox(handle)
 		cmd, _ := setupCommandFixtures(t, "sandbox", "remove", "--force", "--yes", name)
 		msb.WithMsbMock(t, m)
-		if err := state.WriteState(key, state.HomeState{}); err != nil {
+		if err := seedHomeState(key, state.HomeState{}); err != nil {
 			t.Fatalf("seed state: %v", err)
 		}
 		if err := cmd.Execute(); err != nil {

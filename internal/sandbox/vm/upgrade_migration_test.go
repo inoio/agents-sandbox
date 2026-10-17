@@ -32,7 +32,7 @@ func TestMigrateLegacyUpdaterStateFoldsLastCheckedAndDeletes(t *testing.T) {
 
 func TestMigrateLegacyUpdaterStatePresentValueWins(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
-	if err := state.WriteRootState(state.RootState{Agents: map[string]state.AgentCheckState{
+	if err := seedRootState(state.RootState{Agents: map[string]state.AgentCheckState{
 		"opencode": {LastChecked: time.Unix(5000, 0).UTC()},
 	}}); err != nil {
 		t.Fatal(err)
@@ -71,12 +71,13 @@ func TestMigrateLegacyUpdaterStateSkippedWhenLockHeld(t *testing.T) {
 	); err != nil {
 		t.Fatal(err)
 	}
-	release, ok, err := state.LockRootState(true)
+	ok, err := state.WithRootState(true, func(*state.RootTxn) error {
+		migrateLegacyUpdaterState(&termio.Mock{})
+		return nil
+	})
 	if err != nil || !ok {
 		t.Fatalf("lock: ok=%v err=%v", ok, err)
 	}
-	defer release()
-	migrateLegacyUpdaterState(&termio.Mock{})
 	if _, err := os.Stat(legacyUpdaterStatePath()); err != nil {
 		t.Fatal("updater.yaml must survive when the lock is held")
 	}

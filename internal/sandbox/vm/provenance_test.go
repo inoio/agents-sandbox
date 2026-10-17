@@ -58,7 +58,7 @@ func TestRecordImageProvenanceSkipsVersionForUserAgent(t *testing.T) {
 func TestRecordImageProvenanceSkipsWhenFileAbsent(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	k := state.Key{Slug: "proj", Agent: "opencode"}
-	if err := state.WriteState(k, state.NewHomeState("vol", "digest")); err != nil {
+	if err := seedHomeState(k, state.NewHomeState("vol", "digest")); err != nil {
 		t.Fatal(err)
 	}
 	fs := msb.NewTestFS(nil, nil)
@@ -82,7 +82,7 @@ func TestRecordImageProvenancePreservesExistingFields(t *testing.T) {
 	existing := state.NewHomeState("home-vol", "digest")
 	existing.OfferedVersions = []string{"0.4.0"}
 	existing.EnvState = state.EnvState{Hash: "envhash"}
-	if err := state.WriteState(k, existing); err != nil {
+	if err := seedHomeState(k, existing); err != nil {
 		t.Fatal(err)
 	}
 
@@ -121,7 +121,7 @@ func TestCurrentAgentSource(t *testing.T) {
 	if got := currentAgentSource(k); got != "" {
 		t.Errorf("currentAgentSource() = %q, want empty", got)
 	}
-	if err := state.WriteState(k, state.HomeState{AgentSource: agentSourceUser}); err != nil {
+	if err := seedHomeState(k, state.HomeState{AgentSource: agentSourceUser}); err != nil {
 		t.Fatal(err)
 	}
 	if got := currentAgentSource(k); got != agentSourceUser {

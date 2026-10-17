@@ -27,10 +27,10 @@ func TestLockRegistryFailsFastOnDoubleHold(t *testing.T) {
 func TestRemoveHomeStateFailsFastWhileHomeLockHeld(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	k := testKey()
-	if err := WriteState(k, HomeState{HomeVolume: "vol"}); err != nil {
+	if err := writeState(k, HomeState{HomeVolume: "vol"}); err != nil {
 		t.Fatal(err)
 	}
-	release, _, err := LockHomeState(k, true)
+	release, _, err := lockHomeState(k, true)
 	if err != nil {
 		t.Fatalf("hold: %v", err)
 	}
@@ -47,19 +47,19 @@ func TestLockHomeStateFailsFastOnSameProcessDoubleHold(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	k := testKey()
 
-	release, ok, err := LockHomeState(k, true)
+	release, ok, err := lockHomeState(k, true)
 	if err != nil || !ok {
 		t.Fatalf("first lock: ok=%v err=%v", ok, err)
 	}
 
-	_, _, err = LockHomeState(k, true)
+	_, _, err = lockHomeState(k, true)
 	if err == nil || !strings.Contains(err.Error(), "already held") {
 		t.Fatalf("second blocking lock = %v, want an already-held error", err)
 	}
 
 	release()
 
-	again, ok, err := LockHomeState(k, true)
+	again, ok, err := lockHomeState(k, true)
 	if err != nil || !ok {
 		t.Fatalf("reacquire after release: ok=%v err=%v", ok, err)
 	}
@@ -69,19 +69,19 @@ func TestLockHomeStateFailsFastOnSameProcessDoubleHold(t *testing.T) {
 func TestLockRootStateFailsFastOnSameProcessDoubleHold(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 
-	release, ok, err := LockRootState(true)
+	release, ok, err := lockRootState(true)
 	if err != nil || !ok {
 		t.Fatalf("first lock: ok=%v err=%v", ok, err)
 	}
 
-	_, _, err = LockRootState(true)
+	_, _, err = lockRootState(true)
 	if err == nil || !strings.Contains(err.Error(), "already held") {
 		t.Fatalf("second blocking lock = %v, want an already-held error", err)
 	}
 
 	release()
 
-	again, ok, err := LockRootState(true)
+	again, ok, err := lockRootState(true)
 	if err != nil || !ok {
 		t.Fatalf("reacquire after release: ok=%v err=%v", ok, err)
 	}
@@ -92,13 +92,13 @@ func TestLockHomeStateNonBlockingDoesNotRegisterHeldPath(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	k := testKey()
 
-	release, ok, err := LockHomeState(k, true)
+	release, ok, err := lockHomeState(k, true)
 	if err != nil || !ok {
 		t.Fatalf("first lock: ok=%v err=%v", ok, err)
 	}
 	defer release()
 
-	second, ok2, err2 := LockHomeState(k, false)
+	second, ok2, err2 := lockHomeState(k, false)
 	if err2 != nil {
 		t.Fatalf("second lock error: %v", err2)
 	}
@@ -114,14 +114,14 @@ func TestLockRootStateFlockErrorReleasesRegistry(t *testing.T) {
 	flockRootLock = func(*os.File, bool) error { return wantErr }
 	t.Cleanup(func() { flockRootLock = orig })
 
-	if _, _, err := LockRootState(true); !errors.Is(err, wantErr) {
-		t.Fatalf("LockRootState() error = %v, want %v", err, wantErr)
+	if _, _, err := lockRootState(true); !errors.Is(err, wantErr) {
+		t.Fatalf("lockRootState() error = %v, want %v", err, wantErr)
 	}
 
 	// The failed acquire must not leave the path registered, or a retry that
 	// actually succeeds would then fail fast on a stale registration.
 	flockRootLock = orig
-	release, ok, err := LockRootState(true)
+	release, ok, err := lockRootState(true)
 	if err != nil || !ok {
 		t.Fatalf("retry after flock failure: ok=%v err=%v", ok, err)
 	}

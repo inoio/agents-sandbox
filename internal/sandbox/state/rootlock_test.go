@@ -10,12 +10,12 @@ import (
 
 func TestLockRootStateNonBlockingSkipsWhenHeld(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
-	release, ok, err := LockRootState(true)
+	release, ok, err := lockRootState(true)
 	if err != nil || !ok {
 		t.Fatalf("first lock: ok=%v err=%v", ok, err)
 	}
 	defer release()
-	second, ok2, err2 := LockRootState(false)
+	second, ok2, err2 := lockRootState(false)
 	if err2 != nil {
 		t.Fatalf("second lock error: %v", err2)
 	}
@@ -26,12 +26,12 @@ func TestLockRootStateNonBlockingSkipsWhenHeld(t *testing.T) {
 
 func TestLockRootStateReleasesForReacquire(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
-	release, ok, err := LockRootState(false)
+	release, ok, err := lockRootState(false)
 	if err != nil || !ok {
 		t.Fatalf("acquire: ok=%v err=%v", ok, err)
 	}
 	release()
-	again, ok, err := LockRootState(false)
+	again, ok, err := lockRootState(false)
 	if err != nil || !ok {
 		t.Fatalf("reacquire: ok=%v err=%v", ok, err)
 	}
@@ -45,8 +45,8 @@ func TestLockRootStateMkdirError(t *testing.T) {
 	mkdirRootLock = func(string, os.FileMode) error { return wantErr }
 	t.Cleanup(func() { mkdirRootLock = orig })
 
-	if _, _, err := LockRootState(true); !errors.Is(err, wantErr) {
-		t.Fatalf("LockRootState() error = %v, want %v", err, wantErr)
+	if _, _, err := lockRootState(true); !errors.Is(err, wantErr) {
+		t.Fatalf("lockRootState() error = %v, want %v", err, wantErr)
 	}
 }
 
@@ -57,8 +57,8 @@ func TestLockRootStateOpenError(t *testing.T) {
 	openRootLock = func(string, int, os.FileMode) (*os.File, error) { return nil, wantErr }
 	t.Cleanup(func() { openRootLock = orig })
 
-	if _, _, err := LockRootState(true); !errors.Is(err, wantErr) {
-		t.Fatalf("LockRootState() error = %v, want %v", err, wantErr)
+	if _, _, err := lockRootState(true); !errors.Is(err, wantErr) {
+		t.Fatalf("lockRootState() error = %v, want %v", err, wantErr)
 	}
 }
 
@@ -69,7 +69,7 @@ func TestLockRootStateFlockError(t *testing.T) {
 	flockRootLock = func(*os.File, bool) error { return wantErr }
 	t.Cleanup(func() { flockRootLock = orig })
 
-	if _, _, err := LockRootState(true); !errors.Is(err, wantErr) {
-		t.Fatalf("LockRootState() error = %v, want %v", err, wantErr)
+	if _, _, err := lockRootState(true); !errors.Is(err, wantErr) {
+		t.Fatalf("lockRootState() error = %v, want %v", err, wantErr)
 	}
 }

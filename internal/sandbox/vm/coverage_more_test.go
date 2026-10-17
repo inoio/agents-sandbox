@@ -129,7 +129,7 @@ func TestRecordImageProvenancePersistError(t *testing.T) {
 	// Persist an initial state first so the subsequent ReadState call succeeds,
 	// then make the state directory read-only so the atomic write fails while
 	// loading still works.
-	if err := state.WriteState(k, state.NewHomeState("vol", "digest")); err != nil {
+	if err := seedHomeState(k, state.NewHomeState("vol", "digest")); err != nil {
 		t.Fatal(err)
 	}
 	dir := state.KeyDir(k)

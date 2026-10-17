@@ -85,7 +85,7 @@ func TestPrepareSandboxReusesStoredOpenCodeVersion(t *testing.T) {
 	mock.SetGotSandbox(sh)
 	msb.WithMsbMock(t, mock)
 
-	state.WriteState(
+	seedHomeState(
 		state.Key{Slug: slug, Agent: "opencode"},
 		state.HomeState{
 			HomeVolume:   "home-vol",
@@ -174,7 +174,7 @@ func TestPrepareSandboxUpgradeRebuildsImage(t *testing.T) {
 	mock.SetGotSandbox(sh)
 	msb.WithMsbMock(t, mock)
 
-	state.WriteState(
+	seedHomeState(
 		state.Key{Slug: slug, Agent: "opencode"},
 		state.HomeState{
 			HomeVolume:   "home-vol",
@@ -275,7 +275,7 @@ func TestPrepareSandboxLoadsHomeYamlOnce(t *testing.T) {
 
 	// Seed home state so ResolveHomeVolume reuses the existing volume and
 	// digest matches (no image-change home-volume prompt).
-	state.WriteState(
+	seedHomeState(
 		state.Key{Slug: slug, Agent: "opencode"},
 		state.HomeState{
 			HomeVolume:   "home-vol",
@@ -378,7 +378,7 @@ func TestPrepareSandboxRunsStartupHook(t *testing.T) {
 	mock.SetGotSandbox(sh)
 	msb.WithMsbMock(t, mock)
 
-	state.WriteState(
+	seedHomeState(
 		state.Key{Slug: slug, Agent: "opencode"},
 		state.HomeState{
 			HomeVolume:   "home-vol",
@@ -462,7 +462,7 @@ func TestPrepareSandboxInvokesRuntimeHomeMigrationOffer(t *testing.T) {
 	mock.SetGotSandbox(sh)
 	msb.WithMsbMock(t, mock)
 
-	state.WriteState(
+	seedHomeState(
 		state.Key{Slug: slug, Agent: "opencode"},
 		state.HomeState{
 			HomeVolume:   "home-vol",
@@ -539,7 +539,7 @@ func TestPrepareSandboxBlocksOnPendingRuntimeHomeMigration(t *testing.T) {
 	}
 	msb.WithMsbMock(t, mock)
 
-	state.WriteState(
+	seedHomeState(
 		state.Key{Slug: git.ProjectSlug(), Agent: "opencode"},
 		state.HomeState{AgentVersion: "1.5.0", AgentSource: agentSourceTool},
 	)
@@ -618,7 +618,7 @@ func TestPrepareSandboxRuntimeHomeMigrationStateErrorIsNonFatal(t *testing.T) {
 	mock.SetGotSandbox(sh)
 	msb.WithMsbMock(t, mock)
 
-	state.WriteState(
+	seedHomeState(
 		state.Key{Slug: slug, Agent: "opencode"},
 		state.HomeState{
 			HomeVolume:   "home-vol",
@@ -770,13 +770,13 @@ func TestPrepareSandboxPersistsMountFingerprintOnVMCreation(t *testing.T) {
 	}
 	msb.WithMsbMock(t, mock)
 
-	if err := state.WriteState(state.Key{Slug: slug, Agent: "opencode"}, state.HomeState{
+	if err := seedHomeState(state.Key{Slug: slug, Agent: "opencode"}, state.HomeState{
 		HomeVolume:   "home-vol",
 		ImageDigest:  "sha256:abc123",
 		AgentVersion: "1.5.0",
 		AgentSource:  agentSourceTool,
 	}); err != nil {
-		t.Fatalf("WriteState: %v", err)
+		t.Fatalf("seedHomeState: %v", err)
 	}
 
 	origDaemon := SetDaemonShellFunc(func(_ context.Context, _ msb.Sandbox, command string) (string, int, error) {

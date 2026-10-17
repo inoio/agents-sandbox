@@ -33,8 +33,8 @@ func TestPrepareHomeVolumeDryRunSkipsRuntimeHomeMigrationOffer(t *testing.T) {
 	})
 
 	k := state.Key{Slug: "slug", Agent: "opencode"}
-	if err := state.WriteState(k, state.HomeState{HomeVolume: "home-vol", ImageDigest: "sha256:abc123"}); err != nil {
-		t.Fatalf("WriteState: %v", err)
+	if err := seedHomeState(k, state.HomeState{HomeVolume: "home-vol", ImageDigest: "sha256:abc123"}); err != nil {
+		t.Fatalf("seedHomeState: %v", err)
 	}
 
 	var offered bool
@@ -73,8 +73,8 @@ func TestPrepareHomeVolumeDryRunVMStillOffers(t *testing.T) {
 	})
 
 	k := state.Key{Slug: "slug", Agent: "opencode"}
-	if err := state.WriteState(k, state.HomeState{HomeVolume: "home-vol", ImageDigest: "sha256:abc123"}); err != nil {
-		t.Fatalf("WriteState: %v", err)
+	if err := seedHomeState(k, state.HomeState{HomeVolume: "home-vol", ImageDigest: "sha256:abc123"}); err != nil {
+		t.Fatalf("seedHomeState: %v", err)
 	}
 
 	var offered bool

@@ -24,12 +24,12 @@ func TestNetworkFingerprintSurvivesStateRoundTrip(t *testing.T) {
 		EgressAllow: []string{"api.example.com", "*.example.com"},
 		DNSServers:  []string{"1.1.1.1"},
 	}
-	if err := WriteState(k, HomeState{
+	if err := writeState(k, HomeState{
 		HomeVolume:   "vol",
 		ImageDigest:  "sha256:abc",
 		NetworkState: BuildNetworkState(policy),
 	}); err != nil {
-		t.Fatalf("WriteState: %v", err)
+		t.Fatalf("writeState: %v", err)
 	}
 
 	st, err := ReadState(k)
@@ -72,12 +72,12 @@ func TestWriteAndReadState(t *testing.T) {
 	k := Key{Slug: "myproj-aBc1234D", Agent: "opencode"}
 	digest := "sha256:deadbeef1234"
 
-	err := WriteState(k, HomeState{
+	err := writeState(k, HomeState{
 		HomeVolume:  "agents-sandbox-home-myproj-20260806T143022",
 		ImageDigest: digest,
 	})
 	if err != nil {
-		t.Fatalf("WriteState: %v", err)
+		t.Fatalf("writeState: %v", err)
 	}
 
 	result, err := ReadState(k)
@@ -101,9 +101,9 @@ func TestWriteStateCreatesDirectory(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	k := Key{Slug: "newproj-a", Agent: "opencode"}
 
-	err := WriteState(k, HomeState{HomeVolume: "vol", ImageDigest: "d1"})
+	err := writeState(k, HomeState{HomeVolume: "vol", ImageDigest: "d1"})
 	if err != nil {
-		t.Fatalf("WriteState: %v", err)
+		t.Fatalf("writeState: %v", err)
 	}
 
 	dir := filepath.Join(configpaths.Get().UserStateDir(), k.Slug, k.Agent)
@@ -169,7 +169,7 @@ func TestRemoveHomeState(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	k := Key{Slug: "myproj", Agent: "opencode"}
 
-	WriteState(k, HomeState{HomeVolume: "vol", ImageDigest: "d1"})
+	writeState(k, HomeState{HomeVolume: "vol", ImageDigest: "d1"})
 
 	statePath := filepath.Join(configpaths.Get().UserStateDir(), k.Slug, k.Agent, "state.yaml")
 	if _, err := os.Stat(statePath); os.IsNotExist(err) {
@@ -235,7 +235,7 @@ func TestRemoveHomeState_LegacyMissing(t *testing.T) {
 func TestRemoveHomeStateRemovesStateButKeepsLock(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	k := testKey()
-	if err := WriteState(k, HomeState{HomeVolume: "vol"}); err != nil {
+	if err := writeState(k, HomeState{HomeVolume: "vol"}); err != nil {
 		t.Fatal(err)
 	}
 	if err := RemoveHomeState(k); err != nil {
@@ -266,8 +266,8 @@ func TestWriteAndReadState_EnvSecretRoundTrip(t *testing.T) {
 		},
 	}
 
-	if err := WriteState(k, input); err != nil {
-		t.Fatalf("WriteState: %v", err)
+	if err := writeState(k, input); err != nil {
+		t.Fatalf("writeState: %v", err)
 	}
 
 	result, err := ReadState(k)
@@ -303,12 +303,12 @@ func TestHomeState_ZeroEnvSecretOmitted(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	k := Key{Slug: "emptyproj", Agent: "opencode"}
 
-	err := WriteState(k, HomeState{
+	err := writeState(k, HomeState{
 		HomeVolume:  "vol",
 		ImageDigest: "d1",
 	})
 	if err != nil {
-		t.Fatalf("WriteState: %v", err)
+		t.Fatalf("writeState: %v", err)
 	}
 
 	data, err := os.ReadFile(filepath.Join(configpaths.Get().UserStateDir(), k.Slug, k.Agent, "state.yaml"))
@@ -337,8 +337,8 @@ func TestWriteAndReadState_MountRoundTrip(t *testing.T) {
 			Names: []string{"/home/dev/.m2"},
 		},
 	}
-	if err := WriteState(k, input); err != nil {
-		t.Fatalf("WriteState: %v", err)
+	if err := writeState(k, input); err != nil {
+		t.Fatalf("writeState: %v", err)
 	}
 
 	result, err := ReadState(k)
@@ -356,12 +356,12 @@ func TestWriteAndReadState_MountRoundTrip(t *testing.T) {
 func TestHomeStateUpgradeFieldsRoundTrip(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	k := Key{Slug: "proj", Agent: "opencode"}
-	if err := WriteState(k, HomeState{
+	if err := writeState(k, HomeState{
 		HomeVolume: "vol", ImageDigest: "d1",
 		AgentVersion: "1.2.3", AgentSource: "tool", DockerSource: "user",
 		OfferedVersions: []string{"2.0.0"},
 	}); err != nil {
-		t.Fatalf("WriteState: %v", err)
+		t.Fatalf("writeState: %v", err)
 	}
 	got, err := ReadState(k)
 	if err != nil {
@@ -391,8 +391,8 @@ func TestStateKeyScopesDir(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	root := configpaths.Get().UserStateDir()
 	k := Key{Slug: "proj-aBc1234D", Agent: "pi"}
-	if err := WriteState(k, HomeState{HomeVolume: "vol", ImageDigest: "d1"}); err != nil {
-		t.Fatalf("WriteState: %v", err)
+	if err := writeState(k, HomeState{HomeVolume: "vol", ImageDigest: "d1"}); err != nil {
+		t.Fatalf("writeState: %v", err)
 	}
 	// State lands under <root>/<slug>/<agent>/, not <root>/<slug>/.
 	if _, err := os.Stat(filepath.Join(root, "proj-aBc1234D", "pi", "state.yaml")); err != nil {

@@ -74,7 +74,7 @@ func TestVolumeOps_DryRun(t *testing.T) {
 			_, ui := setupVolumeOpsFixtures(t)
 
 			slug := "testproj-aBc1234D"
-			state.WriteState(
+			seedHomeState(
 				state.Key{Slug: slug, Agent: "opencode"},
 				state.HomeState{HomeVolume: "old-vol", ImageDigest: "sha256:abc"},
 			)
@@ -100,7 +100,7 @@ func TestCmdReset_Success(t *testing.T) {
 
 	slug := "testproj-aBc1234D"
 	oldVol := "agents-sandbox-home-" + slug + "-old"
-	state.WriteState(
+	seedHomeState(
 		state.Key{Slug: slug, Agent: "opencode"},
 		state.HomeState{HomeVolume: oldVol, ImageDigest: "sha256:old"},
 	)
@@ -144,7 +144,7 @@ func TestVolumeOp_RecordsCurrentImageDigest(t *testing.T) {
 
 	slug := "testproj-aBc1234D"
 	oldVol := "agents-sandbox-home-" + slug + "-old"
-	state.WriteState(
+	seedHomeState(
 		state.Key{Slug: slug, Agent: "opencode"},
 		state.HomeState{HomeVolume: oldVol, ImageDigest: "sha256:old"},
 	)
@@ -189,8 +189,8 @@ func TestVolumeOp_PreservesEnvSecretFingerprints(t *testing.T) {
 		EnvState:        state.EnvState{Hash: "envhash", Names: []string{"FOO"}},
 		SecretState:     state.SecretState{Hash: "sechash", Names: []string{"TOKEN"}},
 	}
-	if err := state.WriteState(state.Key{Slug: slug, Agent: "opencode"}, oldState); err != nil {
-		t.Fatalf("WriteState: %v", err)
+	if err := seedHomeState(state.Key{Slug: slug, Agent: "opencode"}, oldState); err != nil {
+		t.Fatalf("seedHomeState: %v", err)
 	}
 
 	err := CmdReset(
@@ -245,7 +245,7 @@ func TestVolumeOp_CreateVolumeFails(t *testing.T) {
 	mock, ui := setupVolumeOpsFixtures(t)
 
 	slug := "testproj-aBc1234D"
-	state.WriteState(
+	seedHomeState(
 		state.Key{Slug: slug, Agent: "opencode"},
 		state.HomeState{HomeVolume: "old-vol", ImageDigest: "sha256:abc"},
 	)
@@ -273,7 +273,7 @@ func TestCmdReset_WithExplicitOldVolume(t *testing.T) {
 	_, ui := setupVolumeOpsFixtures(t)
 
 	slug := "testproj-aBc1234D"
-	state.WriteState(
+	seedHomeState(
 		state.Key{Slug: slug, Agent: "opencode"},
 		state.HomeState{HomeVolume: "from-state-vol", ImageDigest: "sha256:abc"},
 	)
@@ -304,7 +304,7 @@ func TestVolumeOp_ActiveVM_ReturnsError(t *testing.T) {
 	mock, ui := setupVolumeOpsFixtures(t)
 
 	slug := "testproj-aBc1234D"
-	state.WriteState(
+	seedHomeState(
 		state.Key{Slug: slug, Agent: "opencode"},
 		state.HomeState{HomeVolume: "old-vol", ImageDigest: "sha256:abc"},
 	)
@@ -332,7 +332,7 @@ func TestVolumeOp_MainFails_RemovesNewVolume(t *testing.T) {
 	mock, ui := setupVolumeOpsFixtures(t)
 
 	slug := "testproj-aBc1234D"
-	state.WriteState(
+	seedHomeState(
 		state.Key{Slug: slug, Agent: "opencode"},
 		state.HomeState{HomeVolume: "old-vol", ImageDigest: "sha256:abc"},
 	)
@@ -383,7 +383,7 @@ func TestCmdEdit_DryRun(t *testing.T) {
 	_, ui := setupVolumeOpsFixtures(t)
 
 	slug := "testproj-aBc1234D"
-	state.WriteState(
+	seedHomeState(
 		state.Key{Slug: slug, Agent: "opencode"},
 		state.HomeState{HomeVolume: "old-vol", ImageDigest: "sha256:abc"},
 	)
@@ -415,7 +415,7 @@ func TestCmdEdit_MainPath(t *testing.T) {
 	mock, ui := setupVolumeOpsFixtures(t)
 
 	slug := "testproj-aBc1234D"
-	state.WriteState(
+	seedHomeState(
 		state.Key{Slug: slug, Agent: "opencode"},
 		state.HomeState{HomeVolume: "old-vol", ImageDigest: "sha256:abc"},
 	)
@@ -450,7 +450,7 @@ func TestCmdEdit_MainFails_RemovesVolume(t *testing.T) {
 	mock, ui := setupVolumeOpsFixtures(t)
 
 	slug := "testproj-aBc1234D"
-	state.WriteState(
+	seedHomeState(
 		state.Key{Slug: slug, Agent: "opencode"},
 		state.HomeState{HomeVolume: "old-vol", ImageDigest: "sha256:abc"},
 	)
@@ -504,7 +504,7 @@ func TestCmdEdit_AttachError_Warns(t *testing.T) {
 	mock, ui := setupVolumeOpsFixtures(t)
 
 	slug := "testproj-aBc1234D"
-	state.WriteState(
+	seedHomeState(
 		state.Key{Slug: slug, Agent: "opencode"},
 		state.HomeState{HomeVolume: "old-vol", ImageDigest: "sha256:abc"},
 	)
@@ -551,7 +551,7 @@ func TestVolumeOpAbortsWhenHomeVolumeChangedConcurrently(t *testing.T) {
 	mock, ui := setupVolumeOpsFixtures(t)
 
 	key := state.Key{Slug: "testproj-aBc1234D", Agent: "opencode"}
-	state.WriteState(key, state.HomeState{HomeVolume: "vol-1", ImageDigest: "sha256:old"})
+	seedHomeState(key, state.HomeState{HomeVolume: "vol-1", ImageDigest: "sha256:old"})
 
 	var createdVol string
 	mock.CreateVolumeFn = func(_ context.Context, name string, _ ...msbSdk.VolumeOption) (msb.VolumeHandle, error) {
@@ -609,7 +609,7 @@ func TestCmdMigrate_NonDryRun_Success(t *testing.T) {
 	mock, ui := setupVolumeOpsFixtures(t)
 
 	slug := "testproj-aBc1234D"
-	state.WriteState(
+	seedHomeState(
 		state.Key{Slug: slug, Agent: "opencode"},
 		state.HomeState{HomeVolume: "old-vol", ImageDigest: "sha256:old"},
 	)
@@ -671,7 +671,7 @@ func TestCmdReset_RemOldVolume(t *testing.T) {
 
 	slug := "testproj-aBc1234D"
 	oldVol := "agents-sandbox-home-" + slug + "-old"
-	state.WriteState(
+	seedHomeState(
 		state.Key{Slug: slug, Agent: "opencode"},
 		state.HomeState{HomeVolume: oldVol, ImageDigest: "sha256:old"},
 	)
@@ -711,7 +711,7 @@ func TestVolumeOp_ExplicitOldVolume(t *testing.T) {
 	mock, ui := setupVolumeOpsFixtures(t)
 
 	slug := "testproj-aBc1234D"
-	state.WriteState(
+	seedHomeState(
 		state.Key{Slug: slug, Agent: "opencode"},
 		state.HomeState{HomeVolume: "state-vol", ImageDigest: "sha256:abc"},
 	)
@@ -747,7 +747,7 @@ func TestResolveHomeVolume_VolumeNotFound_Warns(t *testing.T) {
 	docker.WithNoopDockerMock(t)
 
 	slug := "myproj"
-	state.WriteState(
+	seedHomeState(
 		state.Key{Slug: slug, Agent: "opencode"},
 		state.HomeState{HomeVolume: "agents-sandbox-home-myproj-old", ImageDigest: "sha256:abc"},
 	)
@@ -792,7 +792,7 @@ func TestResolveHomeVolume_MissingRecordedVolumeStartsFresh(t *testing.T) {
 
 	key := state.Key{Slug: "stalehome", Agent: "opencode"}
 	const recordedVolume = "agents-sandbox-home-stalehome-legacy"
-	state.WriteState(key, state.HomeState{
+	seedHomeState(key, state.HomeState{
 		HomeVolume:  recordedVolume,
 		ImageDigest: "sha256:legacy",
 	})

@@ -110,7 +110,7 @@ func TestVolumeOp_ReadStateCorruptError(t *testing.T) {
 func TestVolumeOp_NoVolumeToOperate(t *testing.T) {
 	_, ui := setupVolumeOpsFixtures(t)
 	slug := "novolproj"
-	state.WriteState(state.Key{Slug: slug, Agent: "opencode"}, state.HomeState{})
+	seedHomeState(state.Key{Slug: slug, Agent: "opencode"}, state.HomeState{})
 
 	err := CmdReset(
 		context.Background(),
@@ -129,7 +129,7 @@ func TestVolumeOp_NoVolumeToOperate(t *testing.T) {
 func TestVolumeOp_PrefillFails(t *testing.T) {
 	mock, ui := setupVolumeOpsFixtures(t)
 	slug := "testproj-aBc1234D"
-	state.WriteState(
+	seedHomeState(
 		state.Key{Slug: slug, Agent: "opencode"},
 		state.HomeState{HomeVolume: "old-vol", ImageDigest: "sha256:abc"},
 	)
@@ -152,7 +152,7 @@ func TestVolumeOp_PrefillFails(t *testing.T) {
 func TestVolumeOp_MainFails_CleanupVolumeFailsWarns(t *testing.T) {
 	mock, ui := setupVolumeOpsFixtures(t)
 	slug := "testproj-aBc1234D"
-	state.WriteState(
+	seedHomeState(
 		state.Key{Slug: slug, Agent: "opencode"},
 		state.HomeState{HomeVolume: "old-vol", ImageDigest: "sha256:abc"},
 	)
@@ -198,7 +198,7 @@ func TestVolumeOp_MainFails_CleanupVolumeFailsWarns(t *testing.T) {
 func TestVolumeOp_WriteStateFails_ReturnsError(t *testing.T) {
 	mock, ui := setupVolumeOpsFixtures(t)
 	slug := "testproj-aBc1234D"
-	state.WriteState(
+	seedHomeState(
 		state.Key{Slug: slug, Agent: "opencode"},
 		state.HomeState{HomeVolume: "old-vol", ImageDigest: "sha256:old"},
 	)
@@ -249,7 +249,7 @@ func TestVolumeOp_RemoveOldFails_Warns(t *testing.T) {
 	mock, ui := setupVolumeOpsFixtures(t)
 	slug := "testproj-aBc1234D"
 	oldVol := "agents-sandbox-home-" + slug + "-old"
-	state.WriteState(
+	seedHomeState(
 		state.Key{Slug: slug, Agent: "opencode"},
 		state.HomeState{HomeVolume: oldVol, ImageDigest: "sha256:old"},
 	)
@@ -295,7 +295,7 @@ func TestCmdEdit_LoadImageFails(t *testing.T) {
 	docker.WithDefaultErrorDockerMock(t)
 
 	slug := "testproj-aBc1234D"
-	state.WriteState(
+	seedHomeState(
 		state.Key{Slug: slug, Agent: "opencode"},
 		state.HomeState{HomeVolume: "old-vol", ImageDigest: "sha256:abc"},
 	)
@@ -370,7 +370,7 @@ func TestCopyVolume_DestroyFailureWarns(t *testing.T) {
 func TestCmdEdit_DestroyFailureWarns(t *testing.T) {
 	mock, ui := setupVolumeOpsFixtures(t)
 	slug := "testproj-aBc1234D"
-	state.WriteState(
+	seedHomeState(
 		state.Key{Slug: slug, Agent: "opencode"},
 		state.HomeState{HomeVolume: "old-vol", ImageDigest: "sha256:abc"},
 	)
@@ -469,7 +469,7 @@ func TestRecordHomeImage_WriteStateFails(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 
 	slug := "writefail-rh"
-	state.WriteState(
+	seedHomeState(
 		state.Key{Slug: slug, Agent: "opencode"},
 		state.HomeState{HomeVolume: "vol", ImageDigest: "sha256:old"},
 	)
@@ -602,7 +602,7 @@ func TestApplyHomeAction_WriteStateFails_ReturnsError(t *testing.T) {
 	docker.WithNoopDockerMock(t)
 
 	slug := "writefail-apply"
-	state.WriteState(
+	seedHomeState(
 		state.Key{Slug: slug, Agent: "opencode"},
 		state.HomeState{HomeVolume: "old-vol", ImageDigest: "sha256:old"},
 	)
@@ -660,7 +660,7 @@ func TestCmdEdit_LoadImageFailsInMain(t *testing.T) {
 	mock, ui := setupVolumeOpsFixtures(t)
 
 	slug := "testproj-aBc1234D"
-	state.WriteState(
+	seedHomeState(
 		state.Key{Slug: slug, Agent: "opencode"},
 		state.HomeState{HomeVolume: "old-vol", ImageDigest: "sha256:abc"},
 	)

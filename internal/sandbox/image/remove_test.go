@@ -20,7 +20,7 @@ import (
 func TestRemoveImagesRefusesReferenced(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	key := state.Key{Slug: "proj-aBc1234D", Agent: "opencode"}
-	if err := state.WriteState(key, state.HomeState{}); err != nil {
+	if err := seedHomeState(key, state.HomeState{}); err != nil {
 		t.Fatalf("seed state: %v", err)
 	}
 	ref := naming.RunnerImageRef(key.Slug, key.Agent)
@@ -62,7 +62,7 @@ func TestRemoveImagesRefusesImageHeldByLiveSandbox(t *testing.T) {
 func TestRemoveImagesForceSkipsGuard(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	key := state.Key{Slug: "proj-aBc1234D", Agent: "opencode"}
-	if err := state.WriteState(key, state.HomeState{}); err != nil {
+	if err := seedHomeState(key, state.HomeState{}); err != nil {
 		t.Fatalf("seed state: %v", err)
 	}
 	ref := naming.RunnerImageRef(key.Slug, key.Agent)

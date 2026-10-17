@@ -10,7 +10,7 @@ import (
 
 func TestWithRootStateNonBlockingDefersWhenHeld(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
-	held, ok, err := LockRootState(true)
+	held, ok, err := lockRootState(true)
 	if err != nil || !ok {
 		t.Fatalf("hold: ok=%v err=%v", ok, err)
 	}
@@ -52,7 +52,7 @@ func TestWithRootStateMissingIsNotExisting(t *testing.T) {
 
 func TestWithRootStatePresentExistsTrue(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
-	if err := WriteRootState(RootState{Agents: map[string]AgentCheckState{
+	if err := writeRootState(RootState{Agents: map[string]AgentCheckState{
 		"opencode": {LatestVersion: "1.0.0"},
 	}}); err != nil {
 		t.Fatalf("seed: %v", err)

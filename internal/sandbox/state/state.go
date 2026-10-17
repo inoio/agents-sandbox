@@ -157,8 +157,9 @@ func ReadState(k Key) (*HomeState, error) {
 	return &state, nil
 }
 
-// WriteState atomically writes the state to disk.
-func WriteState(k Key, state HomeState) error {
+// writeState atomically writes the state to disk. Unexported so every mutation
+// flows through WithHomeState or RecoverHomeState.
+func writeState(k Key, state HomeState) error {
 	data, err := yaml.Marshal(state)
 	if err != nil {
 		return fmt.Errorf("marshal state: %w", err)

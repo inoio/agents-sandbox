@@ -41,7 +41,7 @@ func TestVolumeRemove(t *testing.T) {
 		cmd, _ := setupCommandFixtures(t, "volume", "remove", removeTestVolume)
 		m := &msb.MockMsbClient{}
 		msb.WithMsbMock(t, m)
-		if err := state.WriteState(
+		if err := seedHomeState(
 			state.Key{Slug: "proj-aBc1234D", Agent: "opencode"},
 			state.HomeState{HomeVolume: removeTestVolume},
 		); err != nil {
@@ -60,7 +60,7 @@ func TestVolumeRemove(t *testing.T) {
 		cmd, _ := setupCommandFixtures(t, "volume", "remove", "--force", "--yes", removeTestVolume)
 		m := &msb.MockMsbClient{}
 		msb.WithMsbMock(t, m)
-		if err := state.WriteState(
+		if err := seedHomeState(
 			state.Key{Slug: "proj-aBc1234D", Agent: "opencode"},
 			state.HomeState{HomeVolume: removeTestVolume},
 		); err != nil {
@@ -91,7 +91,7 @@ func TestVolumeRemove(t *testing.T) {
 		cmd, ui := setupCommandFixtures(t, "volume", "remove", removeTestVolume)
 		m := &msb.MockMsbClient{}
 		msb.WithMsbMock(t, m)
-		if err := state.WriteState(
+		if err := seedHomeState(
 			state.Key{Slug: "proj-aBc1234D", Agent: "opencode"},
 			state.HomeState{HomeVolume: removeTestVolume},
 		); err != nil {
@@ -110,7 +110,7 @@ func TestVolumeRemove(t *testing.T) {
 		cmd, _ := setupCommandFixtures(t, "volume", "remove", "-f", "--yes", removeTestVolume)
 		m := &msb.MockMsbClient{}
 		msb.WithMsbMock(t, m)
-		if err := state.WriteState(
+		if err := seedHomeState(
 			state.Key{Slug: "proj-aBc1234D", Agent: "opencode"},
 			state.HomeState{HomeVolume: removeTestVolume},
 		); err != nil {

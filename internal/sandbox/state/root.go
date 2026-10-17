@@ -125,8 +125,9 @@ func ReadRootState() (*RootState, error) {
 	return &state, nil
 }
 
-// WriteRootState atomically writes the launcher-global state to disk.
-func WriteRootState(s RootState) error {
+// writeRootState atomically writes the launcher-global state to disk. Unexported
+// so every root-state mutation flows through WithRootState.
+func writeRootState(s RootState) error {
 	data, err := marshalRootState(s)
 	if err != nil {
 		return fmt.Errorf("marshal root state: %w", err)
@@ -135,19 +136,4 @@ func WriteRootState(s RootState) error {
 		return fmt.Errorf("write root state: %w", err)
 	}
 	return nil
-}
-
-// UpdateRootState reads the launcher-global state (a missing file yields a zero
-// RootState), applies mutate, and writes it back atomically. It is a
-// read-modify-write so a writer preserves entries it does not touch.
-//
-// It is lock-free: callers must hold the shared host-only root-state lock
-// (LockRootState) for the whole read-modify-write.
-func UpdateRootState(mutate func(*RootState)) error {
-	s, err := ReadRootState()
-	if err != nil {
-		return err
-	}
-	mutate(s)
-	return WriteRootState(*s)
 }
