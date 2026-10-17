@@ -77,27 +77,9 @@ func TestRemoveHomeStateRemovesStateButKeepsLock(t *testing.T) {
 	}
 }
 
-func TestRemoveHomeStateRefusesWhileHomeLockHeld(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
-	k := testKey()
-	if err := WriteState(k, HomeState{HomeVolume: "vol"}); err != nil {
-		t.Fatal(err)
-	}
-	release, _, err := LockHomeState(k, true)
-	if err != nil {
-		t.Fatalf("hold: %v", err)
-	}
-	defer release()
-	if err := RemoveHomeState(k); err == nil {
-		t.Fatal("RemoveHomeState proceeded while the home lock was held")
-	}
-	if _, rerr := ReadState(k); rerr != nil {
-		t.Fatalf("state must survive the refused removal: %v", rerr)
-	}
-}
 ```
 
-(Cross-process blocking serialization is the lock's own contract; a same-process test would trip Task 2's reentrancy guard, so this asserts the guard's fail-fast instead.)
+`RemoveHomeState` takes the **blocking** home lock (`withHomeLock`), like every other mutation. Its same-process fail-fast assertion lives in Task 2, where the reentrancy guard exists.
 
 - [ ] **Step 2: Run tests to verify they fail**
 
@@ -149,6 +131,25 @@ func TestLockRegistryFailsFastOnDoubleHold(t *testing.T) {
 		t.Fatalf("re-hold after release: %v", err)
 	}
 	releaseLockPath("/tmp/x.lock")
+}
+
+func TestRemoveHomeStateFailsFastWhileHomeLockHeld(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	k := testKey()
+	if err := WriteState(k, HomeState{HomeVolume: "vol"}); err != nil {
+		t.Fatal(err)
+	}
+	release, _, err := LockHomeState(k, true)
+	if err != nil {
+		t.Fatalf("hold: %v", err)
+	}
+	defer release()
+	if err := RemoveHomeState(k); err == nil {
+		t.Fatal("RemoveHomeState proceeded while the blocking home lock was held")
+	}
+	if _, rerr := ReadState(k); rerr != nil {
+		t.Fatalf("state must survive the refused removal: %v", rerr)
+	}
 }
 ```
 
