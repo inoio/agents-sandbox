@@ -293,26 +293,12 @@ func TestStopOrKillProjectVMRejectsUnsafeStatuses(t *testing.T) {
 	}
 }
 
-// TestSaveUpgradeStateRenameError covers the atomic-rename failure branch where
-// the destination already exists as a directory.
-func TestSaveUpgradeStateRenameError(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
-	if err := os.MkdirAll(upgradeStatePath(), 0o700); err != nil {
-		t.Fatal(err)
-	}
-	if err := saveUpgradeState(upgradeState{}); err == nil {
-		t.Fatal("expected error when the rename destination is a directory")
-	}
-}
-
-// TestCurrentAgentSourceLoadError covers the branch where the updater state
+// TestCurrentAgentSourceLoadError covers the branch where the project state
 // cannot be read: an empty source is returned.
 func TestCurrentAgentSourceLoadError(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
-	if err := os.MkdirAll(upgradeStatePath(), 0o700); err != nil {
-		t.Fatal(err)
-	}
-	if got := currentAgentSource(opencodeAgent(t)); got != "" {
+	withFailingStateDir(t)
+	k := state.Key{Slug: "proj", Agent: "opencode"}
+	if got := currentAgentSource(k); got != "" {
 		t.Errorf("currentAgentSource() = %q, want empty on load error", got)
 	}
 }

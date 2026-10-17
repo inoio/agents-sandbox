@@ -79,28 +79,20 @@ func TestKeyDirFlockPath(t *testing.T) {
 	}
 }
 
-// TestCurrentUpgradeVersionIgnoresCorruptFile covers the load-error branch of
-// currentUpgradeVersion (a corrupt state file must yield "").
-func TestCurrentUpgradeVersionIgnoresCorruptFile(t *testing.T) {
+// TestCurrentAgentVersionIgnoresCorruptFile covers the read-error branch of
+// currentAgentVersion (a corrupt project state file must yield "").
+func TestCurrentAgentVersionIgnoresCorruptFile(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
-	path := filepath.Join(configpaths.Get().UserStateDir(), "updater.yaml")
-	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+	k := state.Key{Slug: "proj", Agent: "opencode"}
+	sdir := filepath.Join(configpaths.Get().UserStateDir(), k.Slug, k.Agent)
+	if err := os.MkdirAll(sdir, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(path, []byte("::: not yaml :::"), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(sdir, "state.yaml"), []byte("::: not yaml :::"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if got := currentUpgradeVersion(opencodeAgent(t)); got != "" {
-		t.Errorf("currentUpgradeVersion() = %q, want empty for corrupt file", got)
-	}
-}
-
-// TestSaveUpgradeStateMkdirError covers the MkdirAll error path in
-// saveUpgradeState (state directory cannot be created).
-func TestSaveUpgradeStateMkdirError(t *testing.T) {
-	withFailingStateDir(t)
-	if err := saveUpgradeState(upgradeState{CurrentVersion: "1.0.0"}); err == nil {
-		t.Error("expected error when the state directory cannot be created")
+	if got := currentAgentVersion(k); got != "" {
+		t.Errorf("currentAgentVersion() = %q, want empty for corrupt file", got)
 	}
 }
 

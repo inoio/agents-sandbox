@@ -117,13 +117,14 @@ func TestRecordImageProvenancePreservesExistingFields(t *testing.T) {
 
 func TestCurrentAgentSource(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
-	if got := currentAgentSource(opencodeAgent(t)); got != "" {
+	k := state.Key{Slug: "proj", Agent: "opencode"}
+	if got := currentAgentSource(k); got != "" {
 		t.Errorf("currentAgentSource() = %q, want empty", got)
 	}
-	if err := saveUpgradeState(upgradeState{AgentSource: agentSourceUser}); err != nil {
+	if err := state.WriteState(k, state.HomeState{AgentSource: agentSourceUser}); err != nil {
 		t.Fatal(err)
 	}
-	if got := currentAgentSource(opencodeAgent(t)); got != agentSourceUser {
+	if got := currentAgentSource(k); got != agentSourceUser {
 		t.Errorf("currentAgentSource() = %q, want user", got)
 	}
 }

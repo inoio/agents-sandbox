@@ -7,6 +7,7 @@ import (
 
 	"github.com/inoio/agents-sandbox/internal/agent"
 	"github.com/inoio/agents-sandbox/internal/sandbox/options"
+	"github.com/inoio/agents-sandbox/internal/sandbox/state"
 	"github.com/inoio/agents-sandbox/internal/termio"
 )
 
@@ -36,8 +37,12 @@ var agentLatestVersion = func(ctx context.Context, a agent.Agent) (string, error
 // Otherwise the update check runs first and may offer to rebuild with a newer
 // release, deciding the final version up front. A forced rebuild (--rebuild) only
 // bypasses the cache; it does not suppress the update check.
+//
+// The current version comes from this project's per-(slug, agent) HomeState, so
+// the prompt can only ever name this project's version, never another project's.
 func resolveBuildVersion(
 	ctx context.Context,
+	k state.Key,
 	a agent.Agent,
 	ui termio.UI,
 	opts options.RunOptions,
@@ -46,8 +51,8 @@ func resolveBuildVersion(
 	// change its version, so never check or offer an upgrade, and ignore any pin.
 	// If no version was recorded, leave it empty so the image build can resolve a
 	// real version if the current base image does not provide the agent.
-	if currentAgentSource(a) == agentSourceUser {
-		return currentUpgradeVersion(a), false, nil
+	if currentAgentSource(k) == agentSourceUser {
+		return currentAgentVersion(k), false, nil
 	}
 
 	// An explicitly pinned version is authoritative: never prompt for an upgrade.
@@ -58,17 +63,17 @@ func resolveBuildVersion(
 	// Without an upgrade checker there is nothing to check against; reuse the
 	// recorded version so the image identity stays stable.
 	if _, ok := agent.AsUpgradeChecker(a); !ok {
-		return currentUpgradeVersion(a), false, nil
+		return currentAgentVersion(k), false, nil
 	}
 
-	current := currentUpgradeVersion(a)
+	current := currentAgentVersion(k)
 	if current == "" {
 		// No recorded baseline (e.g., first run): resolve latest at build time
 		// rather than prompting against an unknown version.
 		return "", false, nil
 	}
 
-	latest, offer := pendingUpgrade(ctx, ui, a, current)
+	latest, offer := pendingUpgrade(ctx, a, k, ui, current)
 	if !offer {
 		return current, false, nil
 	}
@@ -97,7 +102,7 @@ func promptUpgrade(ui termio.UI, a agent.Agent, current, latest string) (string,
 		return current, nil
 	}
 
-	prompt := fmt.Sprintf("Rebuild the runner image with %s %s?", a.Name(), latest)
+	prompt := fmt.Sprintf("Rebuild the runner image with %s %s (currently %s)?", a.Name(), latest, current)
 	choices := []termio.Choice{
 		{Label: "Rebuild", Key: "r", Description: "Rebuild the image with " + a.Name() + " " + latest},
 		{Label: "Keep", Key: "k", Description: "Keep the current image, don't remind again"},
@@ -118,66 +123,101 @@ func promptUpgrade(ui termio.UI, a agent.Agent, current, latest string) (string,
 }
 
 // pendingUpgrade resolves whether a newer version is available and should be
-// offered for rebuild, enforcing the once-per-day and once-per-version gates
-// against the given current version. It returns the candidate version and
-// whether the user should be prompted. The once-per-day window and offered set
-// are persisted on every successful check; an offline or failed check never
-// fails the session and leaves the window open.
-func pendingUpgrade(ctx context.Context, ui termio.UI, a agent.Agent, currentVersion string) (string, bool) {
-	state := loadOrFreshUpgradeState(ui)
-	entry := state.Agents[a.Name()]
-	if !entry.dueForCheck(now()) {
+// offered for rebuild. The network check and its cached latest version are
+// machine-global (RootState), while the once-per-version offered gate is
+// per-project (HomeState), so the prompt never names another project's version.
+//
+// The whole step is serialized under the host-only root-state lock: a held lock
+// (e.g. an in-flight runtime-home copy campaign) defers the upgrade step to the
+// next run rather than racing it. An offline or failed check never fails the
+// session and leaves the once-per-day window open.
+func pendingUpgrade(
+	ctx context.Context,
+	a agent.Agent,
+	k state.Key,
+	ui termio.UI,
+	currentVersion string,
+) (string, bool) {
+	release, ok, err := state.LockRootState(false)
+	if err != nil || !ok {
+		return "", false
+	}
+	defer release()
+
+	checker, hasChecker := agent.AsUpgradeChecker(a)
+
+	root, readErr := state.ReadRootState()
+	if readErr != nil {
+		ui.Warnf("could not read upgrade check state: %v (checking anyway)", readErr)
+		root = &state.RootState{}
+	}
+	entry := root.AgentCheck(a.Name())
+	if hasChecker && entry.DueForCheck(now()) {
+		latest, latestErr := agentLatestVersion(ctx, a)
+		if latestErr != nil {
+			// Offline or unreachable: never fail the session, and leave the
+			// once-per-day window open so the next online run retries.
+			ui.Warnf("could not check for %s updates: %v", a.Name(), latestErr)
+			return "", false
+		}
+		// A successful check refreshes the once-per-day window regardless of
+		// whether an upgrade is available.
+		entry.LastChecked = now()
+		entry.LatestVersion = latest
+		root.SetAgentCheck(a.Name(), entry)
+		if writeErr := state.WriteRootState(*root); writeErr != nil {
+			ui.Warnf("could not persist upgrade check state: %v (continuing)", writeErr)
+		}
+	}
+
+	if !hasChecker {
+		return "", false
+	}
+	latest := entry.LatestVersion
+	if latest == "" {
+		return "", false
+	}
+	newer, newerErr := checker.NewerThan(latest, currentVersion)
+	if newerErr != nil || !newer {
+		// An unparsable version never fails the session.
 		return "", false
 	}
 
-	checker, ok := agent.AsUpgradeChecker(a)
-	if !ok {
+	hs, hsErr := state.ReadState(k)
+	if hsErr != nil {
+		if !errors.Is(hsErr, state.ErrStateNotFound) {
+			ui.Warnf("could not read project state: %v (continuing)", hsErr)
+			return "", false
+		}
+		hs = &state.HomeState{}
+	}
+	if hs.Offered(latest) {
 		return "", false
 	}
 
-	latest, err := agentLatestVersion(ctx, a)
-	if err != nil {
-		// Offline or unreachable: never fail the session, and leave the
-		// once-per-day window open so the next online run retries.
-		ui.Warnf("could not check for %s updates: %v", a.Name(), err)
-		return "", false
+	hs.MarkOffered(latest)
+	if writeErr := state.WriteState(k, *hs); writeErr != nil {
+		ui.Warnf("could not persist project state: %v (continuing)", writeErr)
 	}
-
-	// A successful check refreshes the once-per-day window regardless of
-	// whether an upgrade is available.
-	entry.LastChecked = now()
-	newer, err := checker.NewerThan(latest, currentVersion)
-	if err != nil {
-		// An unparsable version never fails the session; leave the window open.
-		return "", false
-	}
-	if !newer || entry.offered(latest) {
-		state.Agents[a.Name()] = entry
-		persistUpgradeState(ui, state)
-		return "", false
-	}
-
-	entry.markOffered(latest)
-	state.Agents[a.Name()] = entry
-	persistUpgradeState(ui, state)
 	return latest, true
 }
 
-// loadOrFreshUpgradeState loads the updater state, falling back to a fresh
-// state on any read error so bookkeeping never blocks a session.
-func loadOrFreshUpgradeState(ui termio.UI) upgradeState {
-	state, err := loadUpgradeState()
+// currentAgentVersion returns the agent version recorded for this project's
+// image, or "" when none has been recorded or the state cannot be read.
+func currentAgentVersion(k state.Key) string {
+	hs, err := state.ReadState(k)
 	if err != nil {
-		ui.Warnf("could not read updater state: %v (checking anyway)", err)
-		return upgradeState{}
+		return ""
 	}
-	return state
+	return hs.AgentVersion
 }
 
-// persistUpgradeState best-effort writes the updater state, warning on failure
-// without ever failing the session.
-func persistUpgradeState(ui termio.UI, state upgradeState) {
-	if err := saveUpgradeState(state); err != nil {
-		ui.Warnf("could not persist updater state: %v", err)
+// currentAgentSource returns the agent-source recorded for this project's
+// image, or "" when none has been recorded or the state cannot be read.
+func currentAgentSource(k state.Key) string {
+	hs, err := state.ReadState(k)
+	if err != nil {
+		return ""
 	}
+	return hs.AgentSource
 }

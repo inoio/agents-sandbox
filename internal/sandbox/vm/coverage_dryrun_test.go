@@ -33,9 +33,6 @@ func TestPrepareSandboxDryRunVM(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	t.Chdir(testutil.InitRepo(t))
 
-	if err := saveUpgradeState(upgradeState{CurrentVersion: "1.5.0"}); err != nil {
-		t.Fatalf("saveUpgradeState: %v", err)
-	}
 	sandboximage.WithMockAgentVersionResolver(t, func(_ context.Context, _ agent.Agent, req string) (string, error) {
 		return req, nil
 	})
@@ -73,7 +70,12 @@ func TestPrepareSandboxDryRunVM(t *testing.T) {
 
 	state.WriteState(
 		state.Key{Slug: slug, Agent: "opencode"},
-		state.HomeState{HomeVolume: "home-vol", ImageDigest: "sha256:abc123"},
+		state.HomeState{
+			HomeVolume:   "home-vol",
+			ImageDigest:  "sha256:abc123",
+			AgentVersion: "1.5.0",
+			AgentSource:  agentSourceTool,
+		},
 	)
 
 	origDaemon := SetDaemonShellFunc(func(_ context.Context, _ msb.Sandbox, command string) (string, int, error) {
@@ -111,9 +113,6 @@ func TestPrepareSandboxDryRunVM(t *testing.T) {
 func TestPrepareSandboxDryRunVMLaunchSubdirectory(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 
-	if err := saveUpgradeState(upgradeState{CurrentVersion: "1.5.0"}); err != nil {
-		t.Fatalf("saveUpgradeState: %v", err)
-	}
 	sandboximage.WithMockAgentVersionResolver(t, func(_ context.Context, _ agent.Agent, req string) (string, error) {
 		return req, nil
 	})
@@ -158,7 +157,12 @@ func TestPrepareSandboxDryRunVMLaunchSubdirectory(t *testing.T) {
 
 	state.WriteState(
 		state.Key{Slug: slug, Agent: "opencode"},
-		state.HomeState{HomeVolume: "home-vol", ImageDigest: "sha256:abc123"},
+		state.HomeState{
+			HomeVolume:   "home-vol",
+			ImageDigest:  "sha256:abc123",
+			AgentVersion: "1.5.0",
+			AgentSource:  agentSourceTool,
+		},
 	)
 
 	origDaemon := SetDaemonShellFunc(func(_ context.Context, _ msb.Sandbox, command string) (string, int, error) {
@@ -187,9 +191,6 @@ func TestPrepareSandboxDryRunVMLaunchSubdirectory(t *testing.T) {
 func TestPrepareSandboxVolumeError(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 
-	if err := saveUpgradeState(upgradeState{CurrentVersion: "1.5.0"}); err != nil {
-		t.Fatalf("saveUpgradeState: %v", err)
-	}
 	sandboximage.WithMockAgentVersionResolver(t, func(_ context.Context, _ agent.Agent, req string) (string, error) {
 		return req, nil
 	})
@@ -226,6 +227,11 @@ func TestPrepareSandboxVolumeError(t *testing.T) {
 	}
 	msb.WithMsbMock(t, mock)
 
+	state.WriteState(
+		state.Key{Slug: git.ProjectSlug(), Agent: "opencode"},
+		state.HomeState{AgentVersion: "1.5.0", AgentSource: agentSourceTool},
+	)
+
 	origDaemon := SetDaemonShellFunc(func(_ context.Context, _ msb.Sandbox, command string) (string, int, error) {
 		if command == opencodeProvider(t).DaemonHealthCmd() {
 			return `{"healthy":true,"version":"test"}`, 0, nil
@@ -245,9 +251,6 @@ func TestPrepareSandboxVolumeError(t *testing.T) {
 func TestPrepareSandboxEnsureVMError(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 
-	if err := saveUpgradeState(upgradeState{CurrentVersion: "1.5.0"}); err != nil {
-		t.Fatalf("saveUpgradeState: %v", err)
-	}
 	sandboximage.WithMockAgentVersionResolver(t, func(_ context.Context, _ agent.Agent, req string) (string, error) {
 		return req, nil
 	})
@@ -288,7 +291,12 @@ func TestPrepareSandboxEnsureVMError(t *testing.T) {
 
 	state.WriteState(
 		state.Key{Slug: slug, Agent: "opencode"},
-		state.HomeState{HomeVolume: "home-vol", ImageDigest: "sha256:abc123"},
+		state.HomeState{
+			HomeVolume:   "home-vol",
+			ImageDigest:  "sha256:abc123",
+			AgentVersion: "1.5.0",
+			AgentSource:  agentSourceTool,
+		},
 	)
 
 	origDaemon := SetDaemonShellFunc(func(_ context.Context, _ msb.Sandbox, command string) (string, int, error) {
@@ -310,9 +318,6 @@ func TestPrepareSandboxEnsureVMError(t *testing.T) {
 func TestPrepareSandboxSetUpError(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 
-	if err := saveUpgradeState(upgradeState{CurrentVersion: "1.5.0"}); err != nil {
-		t.Fatalf("saveUpgradeState: %v", err)
-	}
 	sandboximage.WithMockAgentVersionResolver(t, func(_ context.Context, _ agent.Agent, req string) (string, error) {
 		return req, nil
 	})
@@ -358,7 +363,12 @@ func TestPrepareSandboxSetUpError(t *testing.T) {
 
 	state.WriteState(
 		state.Key{Slug: slug, Agent: "opencode"},
-		state.HomeState{HomeVolume: "home-vol", ImageDigest: "sha256:abc123"},
+		state.HomeState{
+			HomeVolume:   "home-vol",
+			ImageDigest:  "sha256:abc123",
+			AgentVersion: "1.5.0",
+			AgentSource:  agentSourceTool,
+		},
 	)
 
 	origDaemon := SetDaemonShellFunc(func(_ context.Context, _ msb.Sandbox, command string) (string, int, error) {
