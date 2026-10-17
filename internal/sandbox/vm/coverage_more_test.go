@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -18,6 +19,7 @@ import (
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
 	"github.com/inoio/agents-sandbox/internal/sandbox/network"
 	"github.com/inoio/agents-sandbox/internal/sandbox/options"
+	"github.com/inoio/agents-sandbox/internal/sandbox/state"
 	"github.com/inoio/agents-sandbox/internal/termio"
 	"github.com/inoio/agents-sandbox/internal/testutil"
 )
@@ -55,59 +57,57 @@ func TestListSandboxesError(t *testing.T) {
 	}
 }
 
-// TestRecordToolAgentVersionNotProvider covers the branch where the agent does
-// not implement VersionProvider: the entry is returned unchanged.
-func TestRecordToolAgentVersionNotProvider(t *testing.T) {
-	entry := agentUpgradeState{CurrentVersion: "1.0.0"}
-	got := recordToolAgentVersion(context.Background(), &fakeAgent{}, &msb.MockSandbox{}, &termio.Mock{}, entry)
-	if got.CurrentVersion != "1.0.0" {
-		t.Errorf("expected entry unchanged, got %+v", got)
+// TestDetectToolAgentVersionNotProvider covers the branch where the agent does
+// not implement VersionProvider: no version is detected.
+func TestDetectToolAgentVersionNotProvider(t *testing.T) {
+	version, ok := detectToolAgentVersion(context.Background(), &fakeAgent{}, &msb.MockSandbox{}, &termio.Mock{})
+	if ok || version != "" {
+		t.Errorf("expected no detection, got (%q, %v)", version, ok)
 	}
 }
 
-// TestRecordToolAgentVersionShellError covers the branch where detecting the
-// agent version via Shell fails: a warning is emitted and the entry is returned
-// unchanged.
-func TestRecordToolAgentVersionShellError(t *testing.T) {
+// TestDetectToolAgentVersionShellError covers the branch where detecting the
+// agent version via Shell fails: a warning is emitted and no version is
+// detected.
+func TestDetectToolAgentVersionShellError(t *testing.T) {
 	ui := &termio.Mock{}
 	sb := &msb.MockSandbox{ShellErr: errors.New("shell failed")}
-	entry := agentUpgradeState{CurrentVersion: "1.0.0"}
-	got := recordToolAgentVersion(context.Background(), opencodeAgent(t), sb, ui, entry)
-	if got.CurrentVersion != "1.0.0" {
-		t.Errorf("expected entry unchanged on shell error, got %+v", got)
+	version, ok := detectToolAgentVersion(context.Background(), opencodeAgent(t), sb, ui)
+	if ok || version != "" {
+		t.Errorf("expected no detection on shell error, got (%q, %v)", version, ok)
 	}
 	if !contains(joinStrings(ui.WarnCalls), "could not detect agent version") {
 		t.Errorf("expected a warning about the failed version detection, got %v", ui.WarnCalls)
 	}
 }
 
-// TestRecordToolAgentVersionParseError covers the branch where the agent
-// version output cannot be parsed: a warning is emitted and the entry is
-// returned unchanged.
-func TestRecordToolAgentVersionParseError(t *testing.T) {
+// TestDetectToolAgentVersionParseError covers the branch where the agent
+// version output cannot be parsed: a warning is emitted and no version is
+// detected.
+func TestDetectToolAgentVersionParseError(t *testing.T) {
 	ui := &termio.Mock{}
 	sb := &msb.MockSandbox{
 		ShellOut: map[string]msb.ShellResult{
 			"opencode --version": msb.NewTestResult(true, 0, "not a version string", "", nil),
 		},
 	}
-	entry := agentUpgradeState{CurrentVersion: "1.0.0"}
-	got := recordToolAgentVersion(context.Background(), opencodeAgent(t), sb, ui, entry)
-	if got.CurrentVersion != "1.0.0" {
-		t.Errorf("expected entry unchanged on parse error, got %+v", got)
+	version, ok := detectToolAgentVersion(context.Background(), opencodeAgent(t), sb, ui)
+	if ok || version != "" {
+		t.Errorf("expected no detection on parse error, got (%q, %v)", version, ok)
 	}
 	if !contains(joinStrings(ui.WarnCalls), "could not parse agent version") {
 		t.Errorf("expected a warning about the parse failure, got %v", ui.WarnCalls)
 	}
 }
 
-// TestRecordImageProvenanceLoadError covers the branch where the updater state
+// TestRecordImageProvenanceLoadError covers the branch where the project state
 // cannot be read: a warning is emitted and recording is skipped.
 func TestRecordImageProvenanceLoadError(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
-	// Make upgradeStatePath resolve to a directory so os.ReadFile fails with a
-	// non-not-exist error, forcing loadUpgradeState to return an error.
-	if err := os.MkdirAll(upgradeStatePath(), 0o700); err != nil {
+	k := state.Key{Slug: "proj", Agent: "opencode"}
+	// Make the state file resolve to a directory so os.ReadFile fails with a
+	// non-not-exist error, forcing ReadState to return an error.
+	if err := os.MkdirAll(filepath.Join(state.KeyDir(k), "state.yaml"), 0o700); err != nil {
 		t.Fatal(err)
 	}
 	fs := msb.NewTestFS(map[string][]byte{
@@ -115,23 +115,24 @@ func TestRecordImageProvenanceLoadError(t *testing.T) {
 	}, nil)
 	ui := &termio.Mock{}
 	sb := &msb.MockSandbox{FSValue_: fs}
-	recordImageProvenance(context.Background(), opencodeAgent(t), sb, ui)
-	if !contains(joinStrings(ui.WarnCalls), "could not read updater state") {
-		t.Errorf("expected a warning about the unreadable updater state, got %v", ui.WarnCalls)
+	recordImageProvenance(context.Background(), k, opencodeAgent(t), sb, ui)
+	if !contains(joinStrings(ui.WarnCalls), "could not read project state") {
+		t.Errorf("expected a warning about the unreadable project state, got %v", ui.WarnCalls)
 	}
 }
 
 // TestRecordImageProvenancePersistError covers the branch where persisting the
-// updater state fails after a successful read: a warning is emitted.
+// project state fails after a successful read: a warning is emitted.
 func TestRecordImageProvenancePersistError(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
-	// Persist an initial state first so the subsequent loadUpgradeState call
-	// succeeds, then make the state directory read-only so the atomic write in
-	// saveUpgradeState fails while loading still works.
-	if err := saveUpgradeState(upgradeState{}); err != nil {
+	k := state.Key{Slug: "proj", Agent: "opencode"}
+	// Persist an initial state first so the subsequent ReadState call succeeds,
+	// then make the state directory read-only so the atomic write fails while
+	// loading still works.
+	if err := state.WriteState(k, state.NewHomeState("vol", "digest")); err != nil {
 		t.Fatal(err)
 	}
-	dir := configpaths.Get().UserStateDir()
+	dir := state.KeyDir(k)
 	if err := os.Chmod(dir, 0o555); err != nil {
 		t.Skipf("cannot chmod state dir: %v", err)
 	}
@@ -142,8 +143,8 @@ func TestRecordImageProvenancePersistError(t *testing.T) {
 	}, nil)
 	ui := &termio.Mock{}
 	sb := &msb.MockSandbox{FSValue_: fs}
-	recordImageProvenance(context.Background(), opencodeAgent(t), sb, ui)
-	if !contains(joinStrings(ui.WarnCalls), "could not persist updater state") {
+	recordImageProvenance(context.Background(), k, opencodeAgent(t), sb, ui)
+	if !contains(joinStrings(ui.WarnCalls), "could not persist project state") {
 		t.Errorf("expected a warning about the failed persist, got %v", ui.WarnCalls)
 	}
 }

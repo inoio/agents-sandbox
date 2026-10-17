@@ -184,7 +184,7 @@ func PrepareSandbox(
 		ui.Infof("VM lifecycle skipped (--dry-run-vm)")
 		sandboxTarget = guestCWD
 	} else {
-		sandboxTarget, sandboxErr = setUpSandbox(ctx, sb, opts, cfs, ui, restart, boot, guestCWD)
+		sandboxTarget, sandboxErr = setUpSandbox(ctx, k, sb, opts, cfs, ui, restart, boot, guestCWD)
 		if sandboxErr != nil {
 			return nil, sandboxErr
 		}

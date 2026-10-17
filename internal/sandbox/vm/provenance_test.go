@@ -6,6 +6,7 @@ import (
 
 	"github.com/inoio/agents-sandbox/internal/configpaths"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
+	"github.com/inoio/agents-sandbox/internal/sandbox/state"
 	"github.com/inoio/agents-sandbox/internal/termio"
 )
 
@@ -21,21 +22,15 @@ func TestRecordImageProvenanceDetectsToolAgentVersion(t *testing.T) {
 			"opencode --version": msb.NewTestResult(true, 0, "0.5.0\n", "", nil),
 		},
 	}
-	recordImageProvenance(context.Background(), opencodeAgent(t), sb, &termio.Mock{})
+	k := state.Key{Slug: "proj", Agent: "opencode"}
+	recordImageProvenance(context.Background(), k, opencodeAgent(t), sb, &termio.Mock{})
 
-	state, err := loadUpgradeState()
+	hs, err := state.ReadState(k)
 	if err != nil {
-		t.Fatalf("loadUpgradeState: %v", err)
+		t.Fatalf("ReadState: %v", err)
 	}
-	oc := state.Agents["opencode"]
-	if oc.AgentSource != agentSourceTool {
-		t.Errorf("AgentSource = %q, want tool", oc.AgentSource)
-	}
-	if oc.DockerSource != agentSourceUser {
-		t.Errorf("DockerSource = %q, want user", oc.DockerSource)
-	}
-	if oc.CurrentVersion != "0.5.0" {
-		t.Errorf("CurrentVersion = %q, want 0.5.0", oc.CurrentVersion)
+	if hs.AgentSource != agentSourceTool || hs.DockerSource != agentSourceUser || hs.AgentVersion != "0.5.0" {
+		t.Fatalf("provenance = %+v", hs)
 	}
 }
 
@@ -45,33 +40,78 @@ func TestRecordImageProvenanceSkipsVersionForUserAgent(t *testing.T) {
 		"/etc/agents-sandbox/agent-source": []byte("user\n"),
 	}, nil)
 	sb := &msb.MockSandbox{FSValue_: fs}
-	recordImageProvenance(context.Background(), opencodeAgent(t), sb, &termio.Mock{})
+	k := state.Key{Slug: "proj", Agent: "opencode"}
+	recordImageProvenance(context.Background(), k, opencodeAgent(t), sb, &termio.Mock{})
 
-	state, err := loadUpgradeState()
+	hs, err := state.ReadState(k)
 	if err != nil {
-		t.Fatalf("loadUpgradeState: %v", err)
+		t.Fatalf("ReadState: %v", err)
 	}
-	oc := state.Agents["opencode"]
-	if oc.AgentSource != agentSourceUser {
-		t.Errorf("AgentSource = %q, want user", oc.AgentSource)
+	if hs.AgentSource != agentSourceUser {
+		t.Errorf("AgentSource = %q, want user", hs.AgentSource)
 	}
-	if oc.CurrentVersion != "" {
-		t.Errorf("CurrentVersion = %q, want empty for a user-provided agent", oc.CurrentVersion)
+	if hs.AgentVersion != "" {
+		t.Errorf("AgentVersion = %q, want empty for a user-provided agent", hs.AgentVersion)
 	}
 }
 
 func TestRecordImageProvenanceSkipsWhenFileAbsent(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
-	fs := msb.NewTestFS(nil, nil)
-	recordImageProvenance(context.Background(), opencodeAgent(t), &msb.MockSandbox{FSValue_: fs}, &termio.Mock{})
-
-	state, err := loadUpgradeState()
-	if err != nil {
-		t.Fatalf("loadUpgradeState: %v", err)
+	k := state.Key{Slug: "proj", Agent: "opencode"}
+	if err := state.WriteState(k, state.NewHomeState("vol", "digest")); err != nil {
+		t.Fatal(err)
 	}
-	oc := state.Agents["opencode"]
-	if oc.AgentSource != "" || oc.CurrentVersion != "" {
-		t.Errorf("expected empty provenance for an image without the files, got %+v", oc)
+	fs := msb.NewTestFS(nil, nil)
+	recordImageProvenance(context.Background(), k, opencodeAgent(t), &msb.MockSandbox{FSValue_: fs}, &termio.Mock{})
+
+	hs, err := state.ReadState(k)
+	if err != nil {
+		t.Fatalf("ReadState: %v", err)
+	}
+	if hs.AgentSource != "" || hs.AgentVersion != "" {
+		t.Errorf("expected empty provenance for an image without the files, got %+v", hs)
+	}
+}
+
+// TestRecordImageProvenancePreservesExistingFields verifies the write is a
+// read-modify-write: the project's fingerprints and already-offered versions
+// survive a provenance update.
+func TestRecordImageProvenancePreservesExistingFields(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	k := state.Key{Slug: "proj", Agent: "opencode"}
+	existing := state.NewHomeState("home-vol", "digest")
+	existing.OfferedVersions = []string{"0.4.0"}
+	existing.EnvState = state.EnvState{Hash: "envhash"}
+	if err := state.WriteState(k, existing); err != nil {
+		t.Fatal(err)
+	}
+
+	fs := msb.NewTestFS(map[string][]byte{
+		"/etc/agents-sandbox/agent-source": []byte("tool\n"),
+	}, nil)
+	sb := &msb.MockSandbox{
+		FSValue_: fs,
+		ShellOut: map[string]msb.ShellResult{
+			"opencode --version": msb.NewTestResult(true, 0, "0.5.0\n", "", nil),
+		},
+	}
+	recordImageProvenance(context.Background(), k, opencodeAgent(t), sb, &termio.Mock{})
+
+	hs, err := state.ReadState(k)
+	if err != nil {
+		t.Fatalf("ReadState: %v", err)
+	}
+	if hs.HomeVolume != "home-vol" || hs.ImageDigest != "digest" {
+		t.Errorf("home/digest not preserved: %+v", hs)
+	}
+	if len(hs.OfferedVersions) != 1 || hs.OfferedVersions[0] != "0.4.0" {
+		t.Errorf("offered versions not preserved: %+v", hs.OfferedVersions)
+	}
+	if hs.EnvState.Hash != "envhash" {
+		t.Errorf("env fingerprint not preserved: %+v", hs.EnvState)
+	}
+	if hs.AgentSource != agentSourceTool || hs.AgentVersion != "0.5.0" {
+		t.Errorf("provenance not recorded: %+v", hs)
 	}
 }
 

@@ -16,6 +16,7 @@ func TestSetUpSandboxRejectsUnknownAgent(t *testing.T) {
 	opts := options.RunOptions{Agent: "does-not-exist"}
 	if _, err := setUpSandbox(
 		context.Background(),
+		testVMKey(),
 		nil,
 		opts,
 		nil,

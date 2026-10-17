@@ -211,6 +211,7 @@ func setUpSandboxProvisionsConfig(t *testing.T, provisionMsg string) {
 	}
 	target, err := setUpSandbox(
 		context.Background(),
+		testVMKey(),
 		sb,
 		options.RunOptions{},
 		cfs,
@@ -300,7 +301,7 @@ func TestSetUpSandboxRestartsDaemonsOnReuseDecision(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 
 	// setUpSandbox's signature is
-	//   (ctx, sb, opts, cfs, ui, restart, boot, guestCWD).
+	//   (ctx, k, sb, opts, cfs, ui, restart, boot, guestCWD).
 	// Pass restart=true to force the daemon-restart path on a reused VM.
 	commands = commands[:0]
 	cfs, err := reprovision.LoadConfigFilesForHost(opencodeAgent(t), t.TempDir(), reprovision.VMHomeDir, &ui, true)
@@ -308,7 +309,7 @@ func TestSetUpSandboxRestartsDaemonsOnReuseDecision(t *testing.T) {
 		t.Fatalf("LoadConfigFiles: %v", err)
 	}
 	target, err := setUpSandbox(
-		context.Background(), sb, options.RunOptions{},
+		context.Background(), testVMKey(), sb, options.RunOptions{},
 		cfs, &ui, true, vmBootStarted, mounts.WorkspaceMountPath,
 	)
 	if err != nil {
@@ -356,6 +357,7 @@ func TestSetUpSandboxSkipsRestartOnProvisionError(t *testing.T) {
 	cfs := &reprovision.ConfigFiles{HasSnippets: true, Merged: []byte("{}")}
 	target, err := setUpSandbox(
 		context.Background(),
+		testVMKey(),
 		sb,
 		options.RunOptions{},
 		cfs,
@@ -414,6 +416,7 @@ func TestSetUpSandboxProvisionsUpdatedConfigOnKeep(t *testing.T) {
 	}
 	_, err = setUpSandbox(
 		context.Background(),
+		testVMKey(),
 		sb,
 		options.RunOptions{},
 		cfs,
@@ -468,6 +471,7 @@ func TestSetUpSandboxRunsHooksOnlyOnBoot(t *testing.T) {
 			sb.AttachUser = ""
 			_, err := setUpSandbox(
 				context.Background(),
+				testVMKey(),
 				sb,
 				options.RunOptions{},
 				cfs,
@@ -517,7 +521,15 @@ func TestSetUpSandboxProvisionsMirrorOnly(t *testing.T) {
 		},
 	}
 	if _, err := setUpSandbox(
-		context.Background(), sb, options.RunOptions{}, cfs, ui, false, vmBootStarted, mounts.WorkspaceMountPath,
+		context.Background(),
+		testVMKey(),
+		sb,
+		options.RunOptions{},
+		cfs,
+		ui,
+		false,
+		vmBootStarted,
+		mounts.WorkspaceMountPath,
 	); err != nil {
 		t.Fatalf("setUpSandbox: %v", err)
 	}

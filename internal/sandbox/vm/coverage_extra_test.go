@@ -260,6 +260,7 @@ func TestSetUpSandboxProvisionError(t *testing.T) {
 	cfs := &reprovision.ConfigFiles{HasSnippets: true, Merged: []byte("{}")}
 	if _, err := setUpSandbox(
 		context.Background(),
+		testVMKey(),
 		sb,
 		options.RunOptions{},
 		cfs,
