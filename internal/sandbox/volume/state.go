@@ -35,12 +35,12 @@ func (vm *Manager) ResolveHomeVolume(
 		if !errors.Is(err, state.ErrStateNotFound) {
 			ui.Warnf("could not read state file for project %q: %v", k.Slug, err)
 		}
-		return vm.recoverOrCreateHome(ctx, client, k, info, dryRunVM, fingerprints, recoveredVolume, nil, ui)
+		return vm.recoverOrCreateHome(ctx, client, k, info, dryRunVM, fingerprints, recoveredVolume, ui)
 	}
 
 	if _, err := client.GetVolume(ctx, st.HomeVolume); err != nil {
 		ui.Warnf("existing home volume %q not found, creating fresh", st.HomeVolume)
-		return vm.recoverOrCreateHome(ctx, client, k, info, dryRunVM, fingerprints, recoveredVolume, st, ui)
+		return vm.recoverOrCreateHome(ctx, client, k, info, dryRunVM, fingerprints, recoveredVolume, ui)
 	}
 
 	return st.HomeVolume, *st, nil
@@ -51,10 +51,11 @@ func (vm *Manager) ResolveHomeVolume(
 // not duplicated and the previous one orphaned. It falls back to a fresh
 // prefill when no surviving volume can be confirmed.
 //
-// prior is the still-readable state when one exists (the recorded volume was
-// gone) so its env/secret/network/mount fingerprints can be carried forward;
-// they describe the live VM, not the home volume, and dropping them would
-// trigger a spurious rebuild (see specs/reconfig-decision.md).
+// The rebuild runs through RecoverHomeState, the only wholesale writer: it
+// repairs a missing or unparsable document, and a still-readable prior
+// document (recorded volume gone) is carried forward so its fingerprints, which
+// describe the live VM rather than the home volume, survive and dropping them
+// does not trigger a spurious rebuild (see specs/reconfig-decision.md).
 func (vm *Manager) recoverOrCreateHome(
 	ctx context.Context,
 	client msb.Client,
@@ -63,7 +64,6 @@ func (vm *Manager) recoverOrCreateHome(
 	dryRunVM bool,
 	fingerprints state.Fingerprints,
 	recoveredVolume string,
-	prior *state.HomeState,
 	ui termio.UI,
 ) (string, state.HomeState, error) {
 	recovered, ok := confirmedRecoveredVolume(ctx, client, recoveredVolume)
@@ -76,14 +76,24 @@ func (vm *Manager) recoverOrCreateHome(
 		k.Slug,
 		recovered,
 	)
-	hs := recoveredHomeState(recovered, info, prior, fingerprints)
-	// Replace wholesale: this recovery path must repair a malformed state file
-	// (which ResolveHomeVolume routes here), so it cannot merge via a read that
-	// would fail on the same broken document.
-	if err := state.ReplaceHomeState(k, hs); err != nil {
+	hs := recoveredHomeState(recovered, info, nil, fingerprints)
+	if err := state.RecoverHomeState(k, func(cur *state.HomeState, exists bool) (bool, error) {
+		hs = recoveredHomeState(recovered, info, priorOrNil(cur, exists), fingerprints)
+		*cur = hs
+		return true, nil
+	}); err != nil {
 		ui.Warnf("failed to write state file: %v", err)
 	}
 	return recovered, hs, nil
+}
+
+// priorOrNil returns the readable prior document for carry-forward, or nil when
+// recovery is rebuilding from scratch.
+func priorOrNil(cur *state.HomeState, exists bool) *state.HomeState {
+	if !exists {
+		return nil
+	}
+	return cur
 }
 
 // confirmedRecoveredVolume returns the candidate volume when it is non-empty and
@@ -152,9 +162,13 @@ func (vm *Manager) EnsureNewHome(
 	}
 
 	hs := fingerprints.Apply(state.NewHomeState(volName, info.Digest))
-	// Replace wholesale: a fresh home volume's state is authoritative, and the
-	// path is also reached to repair a malformed state file.
-	if err := state.ReplaceHomeState(k, hs); err != nil {
+	// Replace wholesale through the recovery transaction: a fresh home volume's
+	// state is authoritative, and the path is also reached to repair a malformed
+	// state file.
+	if err := state.RecoverHomeState(k, func(cur *state.HomeState, _ bool) (bool, error) {
+		*cur = hs
+		return true, nil
+	}); err != nil {
 		ui.Warnf("failed to write state file: %v", err)
 	}
 	return volName, hs, nil

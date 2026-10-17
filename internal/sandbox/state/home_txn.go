@@ -19,18 +19,30 @@ import (
 // (compare-and-set guard). A non-nil error or write=false writes nothing.
 func WithHomeState(k Key, fn func(cur *HomeState, exists bool) (write bool, err error)) error {
 	return withHomeLock(k, func() error {
-		return homeStateTxn(k, fn)
+		return homeStateTxn(k, fn, false)
 	})
 }
 
-// homeStateTxn is the read -> fn -> conditional write body of WithHomeState,
-// run by its caller while the home lock is held. Recovery (RecoverHomeState)
-// reuses it with repair semantics.
-func homeStateTxn(k Key, fn func(cur *HomeState, exists bool) (write bool, err error)) error {
+// RecoverHomeState is WithHomeState with repair semantics: a missing OR
+// ErrStateUnparsable document hands fn exists=false and a zero HomeState, so
+// recovery can rebuild and repair it. It is the only transaction that may
+// discard an unparsable document; any other read error is returned and fn is
+// never called.
+func RecoverHomeState(k Key, fn func(cur *HomeState, exists bool) (write bool, err error)) error {
+	return withHomeLock(k, func() error {
+		return homeStateTxn(k, fn, true)
+	})
+}
+
+// homeStateTxn is the read -> fn -> conditional write body of WithHomeState and
+// RecoverHomeState, run by its caller while the home lock is held. repair widens
+// the repairable read errors from "missing only" to "missing or unparsable".
+func homeStateTxn(k Key, fn func(cur *HomeState, exists bool) (write bool, err error), repair bool) error {
 	cur, err := ReadState(k)
 	exists := true
 	if err != nil {
-		if !errors.Is(err, ErrStateNotFound) {
+		repairable := errors.Is(err, ErrStateNotFound) || (repair && errors.Is(err, ErrStateUnparsable))
+		if !repairable {
 			return fmt.Errorf("read state for transaction: %w", err)
 		}
 		cur, exists = new(HomeState), false

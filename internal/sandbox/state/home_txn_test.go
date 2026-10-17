@@ -96,6 +96,115 @@ func TestWithHomeStatePresentExistsTrue(t *testing.T) {
 	}
 }
 
+func TestRecoverHomeStateRepairsCorrupt(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	k := testKey()
+	if err := os.MkdirAll(KeyDir(k), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(stateFile(k), []byte("{ corrupt: [\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := RecoverHomeState(k, func(hs *HomeState, exists bool) (bool, error) {
+		if exists {
+			t.Fatal("exists = true, want false")
+		}
+		hs.HomeVolume = "recovered"
+		return true, nil
+	}); err != nil {
+		t.Fatalf("RecoverHomeState: %v", err)
+	}
+	got, err := ReadState(k)
+	if err != nil || got.HomeVolume != "recovered" {
+		t.Fatalf("state = %+v err=%v, want repaired volume", got, err)
+	}
+}
+
+func TestRecoverHomeStateRepairsMissing(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	k := testKey()
+	if err := RecoverHomeState(k, func(hs *HomeState, exists bool) (bool, error) {
+		if exists {
+			t.Fatal("exists = true, want false")
+		}
+		hs.HomeVolume = "fresh"
+		return true, nil
+	}); err != nil {
+		t.Fatalf("RecoverHomeState: %v", err)
+	}
+	got, err := ReadState(k)
+	if err != nil || got.HomeVolume != "fresh" {
+		t.Fatalf("state = %+v err=%v, want fresh volume", got, err)
+	}
+}
+
+func TestRecoverHomeStatePresentExistsTrue(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	k := testKey()
+	if err := WriteState(k, HomeState{HomeVolume: "old", AgentVersion: "1.2.3"}); err != nil {
+		t.Fatalf("WriteState: %v", err)
+	}
+	if err := RecoverHomeState(k, func(hs *HomeState, exists bool) (bool, error) {
+		if !exists {
+			t.Fatal("exists = false, want true for a readable prior state")
+		}
+		hs.HomeVolume = "recovered"
+		return true, nil
+	}); err != nil {
+		t.Fatalf("RecoverHomeState: %v", err)
+	}
+	got, err := ReadState(k)
+	if err != nil {
+		t.Fatalf("ReadState: %v", err)
+	}
+	if got.HomeVolume != "recovered" || got.AgentVersion != "1.2.3" {
+		t.Fatalf("state = %+v, want recovered volume with prior fields preserved", got)
+	}
+}
+
+func TestRecoverHomeStateReadErrorReturns(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	k := testKey()
+	if err := os.MkdirAll(stateFile(k), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	called := false
+	err := RecoverHomeState(k, func(*HomeState, bool) (bool, error) { called = true; return true, nil })
+	if err == nil {
+		t.Fatal("err = nil, want a read error for an unreadable (non-repair) document")
+	}
+	if errors.Is(err, ErrStateUnparsable) {
+		t.Fatalf("err = %v, must not claim the document is simply unparsable", err)
+	}
+	if called {
+		t.Fatal("fn called on a non-repairable read error")
+	}
+}
+
+func TestRecoverHomeStateNoWriteIsNoop(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	k := testKey()
+	if err := RecoverHomeState(k, func(*HomeState, bool) (bool, error) { return false, nil }); err != nil {
+		t.Fatalf("RecoverHomeState: %v", err)
+	}
+	if _, err := ReadState(k); !errors.Is(err, ErrStateNotFound) {
+		t.Fatalf("read = %v, want ErrStateNotFound", err)
+	}
+}
+
+func TestRecoverHomeStateCallbackErrorDoesNotWrite(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	k := testKey()
+	wantErr := errors.New("boom")
+	err := RecoverHomeState(k, func(*HomeState, bool) (bool, error) { return true, wantErr })
+	if !errors.Is(err, wantErr) {
+		t.Fatalf("err = %v, want %v", err, wantErr)
+	}
+	if _, rerr := ReadState(k); !errors.Is(rerr, ErrStateNotFound) {
+		t.Fatalf("read = %v, want ErrStateNotFound", rerr)
+	}
+}
+
 func TestReadStateCorruptIsUnparsable(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	k := testKey()

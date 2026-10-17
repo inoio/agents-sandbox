@@ -108,6 +108,61 @@ func TestResolveHomeVolumeRepairsCorruptState(t *testing.T) {
 	}
 }
 
+// TestResolveHomeVolumeRepairCorruptSeedsFingerprintsAndClearsUpgradeFields pins
+// the lost/corrupt recovery contract: the repaired state is seeded with the
+// desired config fingerprints (never fingerprint-less beside a live VM) and its
+// upgrade fields are left empty, self-healed on boot by recordImageProvenance;
+// offered_versions loss is the accepted cost.
+func TestResolveHomeVolumeRepairCorruptSeedsFingerprintsAndClearsUpgradeFields(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+
+	client := &msb.MockMsbClient{
+		GetVolumeFn: func(_ context.Context, name string) (msb.VolumeHandle, error) {
+			return msb.MockVolumeHandle{Name_: name}, nil
+		},
+	}
+	ui := &termio.Mock{}
+	k := state.Key{Slug: "corruptseed", Agent: "opencode"}
+	if err := os.MkdirAll(state.KeyDir(k), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(state.KeyDir(k), "state.yaml"), []byte("{ corrupt: [\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	desired := state.Fingerprints{
+		Network: state.BuildNetworkState(network.Policy{Profile: network.ProfileNone}),
+		Mount:   state.BuildMountState(mounts.Mounts{"/host/data": {Source: "/host/data"}}),
+	}
+	_, hs, err := NewManager(ui).ResolveHomeVolume(
+		context.Background(),
+		client,
+		k,
+		image.ImageInfo{Tag: "img:tag", Digest: "sha256:digest"},
+		true,
+		desired,
+		"home-recovered",
+		ui,
+	)
+	if err != nil {
+		t.Fatalf("ResolveHomeVolume: %v", err)
+	}
+	if !reflect.DeepEqual(hs.NetworkState, desired.Network) || !reflect.DeepEqual(hs.MountState, desired.Mount) {
+		t.Errorf("repaired state not seeded: got %+v, want %+v", hs, desired)
+	}
+	if hs.AgentVersion != "" || hs.AgentSource != "" || hs.DockerSource != "" || len(hs.OfferedVersions) != 0 {
+		t.Errorf("upgrade fields must be left empty on a corrupt-state repair: %+v", hs)
+	}
+
+	onDisk, err := state.ReadState(k)
+	if err != nil {
+		t.Fatalf("ReadState after recovery = %v, want the corrupt state repaired", err)
+	}
+	if !reflect.DeepEqual(onDisk.NetworkState, desired.Network) {
+		t.Errorf("persisted state not seeded: got %+v, want %+v", onDisk, desired)
+	}
+}
+
 // TestResolveHomeVolumeExistingStateKeepsFingerprints pins that the existing
 // path is not reseeded: a stored fingerprint (possibly stale) must survive so
 // the reconfig decision can detect a real change.
