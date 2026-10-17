@@ -105,16 +105,11 @@ func PrepareSandbox(
 	if !ok {
 		return nil, fmt.Errorf("unknown agent %q", opts.Agent)
 	}
-
-	// Decide the agent version to bake before touching the image. Without an
-	// explicit pin, this checks for (and may offer) an upgrade up front, so a
-	// normal run never rebuilds the image twice (once for the current version,
-	// once for an upgrade). When unpinned and nothing newer is chosen, the
-	// version already baked into the runner image is reused instead of
-	// re-resolving "latest" from the network on every run; re-resolving would
-	// change the version build arg (and thus the image identity), causing
-	// sporadic rebuilds and fresh loads into microsandbox.
-	agentVersion, shallUpgrade, err := resolveBuildVersion(ctx, a, ui, opts)
+	k := state.Key{Slug: projectSlug, Agent: a.Name()}
+	// Decide the agent version to bake before touching the image: this may offer
+	// an upgrade up front, so a normal run never rebuilds the image twice. See
+	// resolveBuildVersion for the decision rules.
+	agentVersion, shallUpgrade, offeredVersion, err := determineAgentVersion(ctx, k, a, ui, opts)
 	if err != nil {
 		return nil, err
 	}
@@ -123,7 +118,7 @@ func PrepareSandbox(
 		ctx,
 		a,
 		projectSlug,
-		buildOptions(opts, agentVersion, opts.Rebuild, currentAgentSource(a) == agentSourceUser),
+		buildOptions(opts, agentVersion, opts.Rebuild, currentAgentSource(k) == agentSourceUser),
 		ui,
 	)
 	if err != nil {
@@ -135,7 +130,6 @@ func PrepareSandbox(
 
 	ui.Verbosef("Using image '%s' (digest=%s)", imageInfo.Tag, imageInfo.Digest)
 
-	k := state.Key{Slug: projectSlug, Agent: a.Name()}
 	// Compute the desired config fingerprints once: they seed a fresh home
 	// volume's state (issue #183) and are what persistConfigHashes records.
 	fingerprints := desiredFingerprints(opts, ui)
@@ -143,6 +137,9 @@ func PrepareSandbox(
 	if err != nil {
 		return nil, err
 	}
+	// The home volume is resolved (state exists), so a deferred offered mark can
+	// now be recorded.
+	persistOfferedVersion(k, offeredVersion, ui)
 
 	// Load the merged agent config and home files exactly once per startup;
 	// the result is shared by the reconfig decision and the provisioning step.
@@ -184,7 +181,7 @@ func PrepareSandbox(
 		ui.Infof("VM lifecycle skipped (--dry-run-vm)")
 		sandboxTarget = guestCWD
 	} else {
-		sandboxTarget, sandboxErr = setUpSandbox(ctx, sb, opts, cfs, ui, restart, boot, guestCWD)
+		sandboxTarget, sandboxErr = setUpSandbox(ctx, k, sb, opts, cfs, ui, restart, boot, guestCWD)
 		if sandboxErr != nil {
 			return nil, sandboxErr
 		}
@@ -200,6 +197,29 @@ func PrepareSandbox(
 		guestCWD:      guestCWD,
 		serveHostPort: opts.ServeHostPort,
 	}, nil
+}
+
+// determineAgentVersion decides the agent version for the run. A side-effect-free
+// --dry-run never prompts or hits the network: it uses the explicit pin, falling
+// back to this project's recorded version. Otherwise the full upgrade decision
+// runs.
+func determineAgentVersion(
+	ctx context.Context,
+	k state.Key,
+	a agent.Agent,
+	ui termio.UI,
+	opts options.RunOptions,
+) (string, bool, string, error) {
+	if opts.DryRun {
+		ui.Verbosef("dry-run: would resolve build version")
+		version := opts.AgentVersion
+		if version == "" {
+			version = currentAgentVersion(k)
+		}
+		return version, false, "", nil
+	}
+	migrateLegacyUpdaterState(ui)
+	return resolveBuildVersion(ctx, k, a, ui, opts)
 }
 
 func buildOptions(opts options.RunOptions, agentVersion string, force, userProvided bool) image.BuildOptions {
@@ -311,6 +331,20 @@ func prepareHomeVolume(
 	}
 	ui.Verbosef("home volume: %s", homeVol)
 	return client, vm, homeVol, vs, nil
+}
+
+// persistOfferedVersion records that the given release's upgrade prompt has been
+// shown, once the home volume is resolved. pendingUpgrade records it directly
+// when a state file already exists; this deferred record covers the case where
+// the state was recreated by home resolution in this same run, so a "don't
+// remind again" choice still sticks.
+func persistOfferedVersion(k state.Key, version string, ui termio.UI) {
+	if version == "" {
+		return
+	}
+	if _, err := state.UpdateExistingHomeState(k, func(hs *state.HomeState) { hs.MarkOffered(version) }); err != nil {
+		ui.Warnf("could not persist project state: %v (continuing)", err)
+	}
 }
 
 // liveHomeVolume returns the home volume currently mounted by the project VM,

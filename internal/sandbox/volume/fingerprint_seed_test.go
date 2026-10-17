@@ -2,6 +2,8 @@ package volume
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"reflect"
 	"testing"
 
@@ -57,6 +59,52 @@ func TestEnsureNewHomeSeedsFingerprints(t *testing.T) {
 	if !reflect.DeepEqual(onDisk.NetworkState, desired.Network) ||
 		!reflect.DeepEqual(onDisk.MountState, desired.Mount) {
 		t.Errorf("persisted state not seeded: got %+v, want %+v", onDisk, desired)
+	}
+}
+
+// TestResolveHomeVolumeRepairsCorruptState pins that a malformed state file is
+// replaced by recovery: ResolveHomeVolume routes it to the recovered volume,
+// and the rewrite must not fail on the same broken document it is replacing.
+func TestResolveHomeVolumeRepairsCorruptState(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+
+	client := &msb.MockMsbClient{
+		GetVolumeFn: func(_ context.Context, name string) (msb.VolumeHandle, error) {
+			return msb.MockVolumeHandle{Name_: name}, nil
+		},
+	}
+	ui := &termio.Mock{}
+	k := state.Key{Slug: "corruptproj", Agent: "opencode"}
+	if err := os.MkdirAll(state.KeyDir(k), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(state.KeyDir(k), "state.yaml"), []byte("{ corrupt: [\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	volName, hs, err := NewManager(ui).ResolveHomeVolume(
+		context.Background(),
+		client,
+		k,
+		image.ImageInfo{Tag: "img:tag", Digest: "sha256:digest"},
+		true,
+		state.Fingerprints{},
+		"home-recovered",
+		ui,
+	)
+	if err != nil {
+		t.Fatalf("ResolveHomeVolume: %v", err)
+	}
+	if volName != "home-recovered" || hs.HomeVolume != "home-recovered" {
+		t.Fatalf("recovered volume = %q / state home = %q, want home-recovered", volName, hs.HomeVolume)
+	}
+
+	onDisk, err := state.ReadState(k)
+	if err != nil {
+		t.Fatalf("ReadState after recovery = %v, want the corrupt state repaired", err)
+	}
+	if onDisk.HomeVolume != "home-recovered" {
+		t.Errorf("persisted HomeVolume = %q, want home-recovered", onDisk.HomeVolume)
 	}
 }
 

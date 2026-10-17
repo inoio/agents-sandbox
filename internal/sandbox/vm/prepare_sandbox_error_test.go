@@ -7,8 +7,10 @@ import (
 
 	"github.com/inoio/agents-sandbox/internal/agent"
 	"github.com/inoio/agents-sandbox/internal/configpaths"
+	"github.com/inoio/agents-sandbox/internal/git"
 	sandboximage "github.com/inoio/agents-sandbox/internal/sandbox/image"
 	"github.com/inoio/agents-sandbox/internal/sandbox/options"
+	"github.com/inoio/agents-sandbox/internal/sandbox/state"
 	"github.com/inoio/agents-sandbox/internal/termio"
 )
 
@@ -34,9 +36,10 @@ func TestPrepareSandboxImageError(t *testing.T) {
 // without attempting to build the image.
 func TestPrepareSandboxVersionResolutionError(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
-	if err := saveUpgradeState(upgradeState{CurrentVersion: "1.0.0"}); err != nil {
-		t.Fatalf("saveUpgradeState: %v", err)
-	}
+	state.WriteState(
+		state.Key{Slug: git.ProjectSlug(), Agent: "opencode"},
+		state.HomeState{AgentVersion: "1.0.0", AgentSource: agentSourceTool},
+	)
 	origUpgradeInfo := agentLatestVersion
 	agentLatestVersion = func(_ context.Context, _ agent.Agent) (string, error) { return "2.0.0", nil }
 	t.Cleanup(func() { agentLatestVersion = origUpgradeInfo })

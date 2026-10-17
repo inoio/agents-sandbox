@@ -466,19 +466,12 @@ func TestCopyVolumesExcludesCopyTreeFailureAndCompletes(t *testing.T) {
 }
 
 // TestCopyVolumesLockFailureAborts pins that a failure to acquire the migration
-// lock aborts the campaign. A regular file occupying $MSB_HOME/.agents-sandbox
-// makes the lock directory creation fail.
+// lock aborts the campaign. A directory occupying the root-state lock path
+// makes the lock open fail.
 func TestCopyVolumesLockFailureAborts(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	installLegacyHome(t)
-
-	privateHome := runtime.PrivateHome()
-	if err := os.MkdirAll(privateHome, 0o750); err != nil {
-		t.Fatalf("mkdir private home: %v", err)
-	}
-	if err := os.WriteFile(filepath.Join(privateHome, ".agents-sandbox"), []byte("x"), 0o600); err != nil {
-		t.Fatalf("block lock dir: %v", err)
-	}
+	blockRootLock(t)
 
 	ui := termio.NewTestMock(t)
 	if err := CopyVolumes(context.Background(), &msb.MockMsbClient{}, &ui); err == nil {

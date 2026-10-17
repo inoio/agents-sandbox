@@ -77,7 +77,10 @@ func (vm *Manager) recoverOrCreateHome(
 		recovered,
 	)
 	hs := recoveredHomeState(recovered, info, prior, fingerprints)
-	if err := state.WriteState(k, hs); err != nil {
+	// Replace wholesale: this recovery path must repair a malformed state file
+	// (which ResolveHomeVolume routes here), so it cannot merge via a read that
+	// would fail on the same broken document.
+	if err := state.ReplaceHomeState(k, hs); err != nil {
 		ui.Warnf("failed to write state file: %v", err)
 	}
 	return recovered, hs, nil
@@ -111,6 +114,10 @@ func recoveredHomeState(
 		hs.SecretState = prior.SecretState
 		hs.NetworkState = prior.NetworkState
 		hs.MountState = prior.MountState
+		hs.AgentVersion = prior.AgentVersion
+		hs.AgentSource = prior.AgentSource
+		hs.DockerSource = prior.DockerSource
+		hs.OfferedVersions = prior.OfferedVersions
 		return hs
 	}
 	return fingerprints.Apply(hs)
@@ -145,7 +152,9 @@ func (vm *Manager) EnsureNewHome(
 	}
 
 	hs := fingerprints.Apply(state.NewHomeState(volName, info.Digest))
-	if err := state.WriteState(k, hs); err != nil {
+	// Replace wholesale: a fresh home volume's state is authoritative, and the
+	// path is also reached to repair a malformed state file.
+	if err := state.ReplaceHomeState(k, hs); err != nil {
 		ui.Warnf("failed to write state file: %v", err)
 	}
 	return volName, hs, nil
@@ -156,15 +165,13 @@ func (vm *Manager) EnsureNewHome(
 // image-change prompt so subsequent runs no longer detect a mismatch and do
 // not re-prompt. Missing state is a no-op.
 func (vm *Manager) RecordHomeImage(k state.Key, currentDigest string, ui termio.UI) error {
-	st, err := state.ReadState(k)
-	if err != nil {
+	if _, err := state.ReadState(k); err != nil {
 		if errors.Is(err, state.ErrStateNotFound) {
 			return nil
 		}
 		return err
 	}
-	st.ImageDigest = currentDigest
-	if err := state.WriteState(k, *st); err != nil {
+	if err := state.UpdateHomeState(k, func(cur *state.HomeState) { cur.ImageDigest = currentDigest }); err != nil {
 		ui.Warnf("failed to write state file: %v", err)
 		return err
 	}

@@ -203,7 +203,11 @@ agents-sandbox build          # uses the latest release
 
 **How to upgrade:** Rebuild the runner image with `agents-sandbox build`, or pass `--agent-version <version>` to pin a
 release. On `run`/`shell`, when a newer agent release exists than the version baked into the image, the launcher offers to
-rebuild the image (interactive) or prints a notice advising `agents-sandbox build` (non-interactive). `--rebuild` forces a clean
+rebuild the image (interactive) or prints a notice advising `agents-sandbox build` (non-interactive). The prompt names both
+the available release and the version currently baked into this project's image, so you can tell exactly what a rebuild
+would change. When no version has been recorded for the project yet (for example after upgrading agents-sandbox), the
+launcher reads it once from the project's existing image, so an unpinned run still asks before changing the image and an
+offline check keeps the existing image instead of rebuilding. `--rebuild` forces a clean
 rebuild but still offers the upgrade; it only bypasses the build cache, it does not pin the version. When `agent-source=user`, the
 tool never checks for upgrades.
 

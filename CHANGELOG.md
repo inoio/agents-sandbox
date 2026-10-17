@@ -86,6 +86,10 @@ command reports the bare version (e.g. `0.1.0`).
 
 ### Fixed
 
+- Agent upgrade: a project that already has a runner image but no recorded agent version (e.g. the first run after the
+  `updater.yaml` migration) no longer silently rebuilds to the latest release on an unpinned `run`/`shell`, and no longer
+  fails offline. The baseline is recovered from the existing image's `agent-version` label so the normal upgrade prompt
+  fires and the existing image is reused when the check is offline (#225).
 - `/workspace` bind mount: guest `rwx` permission bits now mirror onto the real host files (`host-permissions=mirror`),
   so an in-VM operation that rewrites a tracked executable (e.g. `git checkout`/`reset`/`stash`) no longer silently drops
   the executable bit on the host while the VM reports a clean tree. Ownership and setuid/setgid are never propagated, and
@@ -157,6 +161,17 @@ command reports the bare version (e.g. `0.1.0`).
 
 ### Changed
 
+- Upgrade prompt: the agent-upgrade offer on `run`/`shell` now names both the available release and the version
+  currently baked into this project's image (e.g. `Upgrade opencode 1.0.0 → 2.0.0`), and the "current" version is read
+  from this project's own state so it can never name another project's version. Upgrade checks are now scoped by
+  application: machine-global network facts (check cadence and cached latest version) live in the launcher's root
+  `state.yaml`, while image facts (current version, sources, offered set) live in each project's per-agent state. The
+  legacy global `updater.yaml` is retired, folding its check cadence into the root state (#225). When no version is
+  recorded yet (the first run after that migration), the baseline is recovered once from the existing image's
+  `agent-version` label so the prompt still fires.
+- State: every per-project `state.yaml` read-modify-write now serializes on a single host-only lock per `(slug, agent)`,
+  so a volume operation and a concurrent upgrade/provenance write can no longer clobber each other's fields (e.g. an
+  upgrade write restoring a stale `home_volume` after a volume op committed a new one).
 - Internal: project-VM reconfiguration now replaces the two-step `Stop` + `Remove` with the SDK's single atomic,
   identity-safe `Destroy` on the `SandboxHandle` seam (#162).
 - Runner image: the node/agent/docker install stages now build on a tool-owned `agents-sandbox-toolbase`

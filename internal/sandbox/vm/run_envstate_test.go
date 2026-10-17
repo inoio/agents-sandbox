@@ -297,8 +297,8 @@ func TestPersistEnvSecrets_ReadFailsReturnsError(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error for corrupted YAML, got nil")
 	}
-	if !errIsContains(err, "read state for persistence") {
-		t.Errorf("expected error containing 'read state for persistence', got: %v", err)
+	if !errIsContains(err, "read state for update") {
+		t.Errorf("expected error containing 'read state for update', got: %v", err)
 	}
 }
 
@@ -978,7 +978,7 @@ func TestPersistMountStateCorruptState(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected an error for a corrupt state file")
 	}
-	if !strings.Contains(err.Error(), "read state for mount persistence") {
-		t.Errorf("error = %v, want it to mention mount persistence", err)
+	if !strings.Contains(err.Error(), "read state for update") {
+		t.Errorf("error = %v, want it to mention a state read failure", err)
 	}
 }

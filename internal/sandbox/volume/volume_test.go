@@ -971,12 +971,16 @@ func TestResolveHomeVolume_RecoveryPreservesFingerprints(t *testing.T) {
 	const recovered = "agents-sandbox-home-fp-20260101T000000"
 	key := state.Key{Slug: "fp", Agent: "opencode"}
 	state.WriteState(key, state.HomeState{
-		HomeVolume:   recorded,
-		ImageDigest:  "sha256:old",
-		EnvState:     state.EnvState{Hash: "envhash", Names: []string{"A"}},
-		SecretState:  state.SecretState{Hash: "secrethash", Names: []string{"B"}},
-		NetworkState: state.NetworkState{Hash: "nethash", Names: []string{"example.com"}},
-		MountState:   state.MountState{Hash: "mountHash", Names: []string{"/x"}},
+		HomeVolume:      recorded,
+		ImageDigest:     "sha256:old",
+		AgentVersion:    "1.2.3",
+		AgentSource:     "tool",
+		DockerSource:    "user",
+		OfferedVersions: []string{"2.0.0"},
+		EnvState:        state.EnvState{Hash: "envhash", Names: []string{"A"}},
+		SecretState:     state.SecretState{Hash: "secrethash", Names: []string{"B"}},
+		NetworkState:    state.NetworkState{Hash: "nethash", Names: []string{"example.com"}},
+		MountState:      state.MountState{Hash: "mountHash", Names: []string{"/x"}},
 	})
 
 	mock := &msb.MockMsbClient{}
@@ -1013,6 +1017,10 @@ func TestResolveHomeVolume_RecoveryPreservesFingerprints(t *testing.T) {
 	if hs.EnvState.Hash != "envhash" || hs.NetworkState.Hash != "nethash" ||
 		hs.SecretState.Hash != "secrethash" || hs.MountState.Hash != "mountHash" {
 		t.Errorf("fingerprints not preserved: %+v", hs)
+	}
+	if hs.AgentVersion != "1.2.3" || hs.AgentSource != "tool" || hs.DockerSource != "user" ||
+		len(hs.OfferedVersions) != 1 || hs.OfferedVersions[0] != "2.0.0" {
+		t.Errorf("upgrade fields not preserved: %+v", hs)
 	}
 	if hs.ImageDigest != "sha256:new" {
 		t.Errorf("digest = %q, want %q", hs.ImageDigest, "sha256:new")
@@ -1320,12 +1328,16 @@ func TestApplyHomeAction_PreservesFingerprints(t *testing.T) {
 	state.WriteState(
 		state.Key{Slug: slug, Agent: "opencode"},
 		state.HomeState{
-			HomeVolume:   oldVol,
-			ImageDigest:  "sha256:old",
-			EnvState:     state.EnvState{Hash: "envhash", Names: []string{"FOO"}},
-			SecretState:  state.SecretState{Hash: "sechash", Names: []string{"TOKEN"}},
-			NetworkState: state.NetworkState{Hash: "nethash", Names: []string{"none"}},
-			MountState:   state.MountState{Hash: "mounthash", Names: []string{"/mnt/x"}},
+			HomeVolume:      oldVol,
+			ImageDigest:     "sha256:old",
+			AgentVersion:    "1.2.3",
+			AgentSource:     "tool",
+			DockerSource:    "user",
+			OfferedVersions: []string{"2.0.0"},
+			EnvState:        state.EnvState{Hash: "envhash", Names: []string{"FOO"}},
+			SecretState:     state.SecretState{Hash: "sechash", Names: []string{"TOKEN"}},
+			NetworkState:    state.NetworkState{Hash: "nethash", Names: []string{"none"}},
+			MountState:      state.MountState{Hash: "mounthash", Names: []string{"/mnt/x"}},
 		},
 	)
 
@@ -1352,6 +1364,10 @@ func TestApplyHomeAction_PreservesFingerprints(t *testing.T) {
 	if st.EnvState.Hash != "envhash" || st.SecretState.Hash != "sechash" ||
 		st.NetworkState.Hash != "nethash" || st.MountState.Hash != "mounthash" {
 		t.Errorf("fingerprints not preserved after home action: %+v", st)
+	}
+	if st.AgentVersion != "1.2.3" || st.AgentSource != "tool" || st.DockerSource != "user" ||
+		len(st.OfferedVersions) != 1 || st.OfferedVersions[0] != "2.0.0" {
+		t.Errorf("upgrade fields not preserved after home action: %+v", st)
 	}
 	if st.ImageDigest != "sha256:new" {
 		t.Errorf("state ImageDigest = %q, want %q", st.ImageDigest, "sha256:new")

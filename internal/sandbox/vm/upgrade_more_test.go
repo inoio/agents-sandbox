@@ -3,12 +3,12 @@ package vm
 import (
 	"context"
 	"errors"
-	"os"
 	"testing"
 
 	"github.com/inoio/agents-sandbox/internal/agent"
 	"github.com/inoio/agents-sandbox/internal/configpaths"
 	"github.com/inoio/agents-sandbox/internal/sandbox/options"
+	"github.com/inoio/agents-sandbox/internal/sandbox/state"
 	"github.com/inoio/agents-sandbox/internal/termio"
 )
 
@@ -17,9 +17,8 @@ import (
 // errors is propagated.
 func TestResolveOpenCodeVersionInteractiveSelectError(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
-	if err := saveUpgradeState(upgradeState{CurrentVersion: "1.0.0"}); err != nil {
-		t.Fatalf("saveUpgradeState: %v", err)
-	}
+	k := state.Key{Slug: "proj", Agent: "opencode"}
+	seedAgentState(t, k, "1.0.0", agentSourceTool)
 	origLatest := agentLatestVersion
 	defer func() { agentLatestVersion = origLatest }()
 	agentLatestVersion = func(_ context.Context, _ agent.Agent) (string, error) { return "2.0.0", nil }
@@ -31,7 +30,7 @@ func TestResolveOpenCodeVersionInteractiveSelectError(t *testing.T) {
 		},
 	}
 
-	_, _, err := resolveBuildVersion(context.Background(), opencodeAgent(t), ui, options.RunOptions{})
+	_, _, _, err := resolveBuildVersion(context.Background(), k, opencodeAgent(t), ui, options.RunOptions{})
 	if err == nil {
 		t.Fatal("expected error when the interactive selection fails")
 	}
@@ -42,9 +41,8 @@ func TestResolveOpenCodeVersionInteractiveSelectError(t *testing.T) {
 // version.
 func TestResolveOpenCodeVersionInteractiveDefaultChoice(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
-	if err := saveUpgradeState(upgradeState{CurrentVersion: "1.0.0"}); err != nil {
-		t.Fatalf("saveUpgradeState: %v", err)
-	}
+	k := state.Key{Slug: "proj", Agent: "opencode"}
+	seedAgentState(t, k, "1.0.0", agentSourceTool)
 	origLatest := agentLatestVersion
 	defer func() { agentLatestVersion = origLatest }()
 	agentLatestVersion = func(_ context.Context, _ agent.Agent) (string, error) { return "2.0.0", nil }
@@ -56,7 +54,7 @@ func TestResolveOpenCodeVersionInteractiveDefaultChoice(t *testing.T) {
 		},
 	}
 
-	got, upgraded, err := resolveBuildVersion(context.Background(), opencodeAgent(t), ui, options.RunOptions{})
+	got, upgraded, _, err := resolveBuildVersion(context.Background(), k, opencodeAgent(t), ui, options.RunOptions{})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -72,9 +70,8 @@ func TestResolveOpenCodeVersionInteractiveDefaultChoice(t *testing.T) {
 // the current version is kept.
 func TestResolveOpenCodeVersionInteractiveKeep(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
-	if err := saveUpgradeState(upgradeState{CurrentVersion: "1.0.0"}); err != nil {
-		t.Fatalf("saveUpgradeState: %v", err)
-	}
+	k := state.Key{Slug: "proj", Agent: "opencode"}
+	seedAgentState(t, k, "1.0.0", agentSourceTool)
 	origLatest := agentLatestVersion
 	defer func() { agentLatestVersion = origLatest }()
 	agentLatestVersion = func(_ context.Context, _ agent.Agent) (string, error) { return "2.0.0", nil }
@@ -86,7 +83,7 @@ func TestResolveOpenCodeVersionInteractiveKeep(t *testing.T) {
 		},
 	}
 
-	got, upgraded, err := resolveBuildVersion(context.Background(), opencodeAgent(t), ui, options.RunOptions{})
+	got, upgraded, _, err := resolveBuildVersion(context.Background(), k, opencodeAgent(t), ui, options.RunOptions{})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -119,35 +116,20 @@ func TestFindWorktreeDirMalformedEntry(t *testing.T) {
 	}
 }
 
-// TestSaveUpgradeStateWriteError covers the WriteFile failure branch of
-// saveUpgradeState. The state directory is made read-only so creating the
-// temp file fails after MkdirAll succeeds.
-func TestSaveUpgradeStateWriteError(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
-	dir := configpaths.Get().UserStateDir()
-	if err := os.Chmod(dir, 0o555); err != nil {
-		t.Skipf("cannot chmod state dir: %v", err)
-	}
-	t.Cleanup(func() { _ = os.Chmod(dir, 0o700) })
-
-	if err := saveUpgradeState(upgradeState{CurrentVersion: "1.0.0"}); err == nil {
-		t.Error("expected error when writing the updater state file fails")
-	}
-}
-
 // TestResolveBuildVersionWithoutUpgradeChecker covers the fallback branch of
 // resolveBuildVersion: an agent with no upgrade checker reuses the recorded
 // version without prompting.
 func TestResolveBuildVersionWithoutUpgradeChecker(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
-	if err := saveUpgradeState(upgradeState{
-		Agents: map[string]agentUpgradeState{
-			"fake": {CurrentVersion: "1.5.0"},
-		},
-	}); err != nil {
-		t.Fatalf("saveUpgradeState: %v", err)
-	}
-	got, upgraded, err := resolveBuildVersion(context.Background(), &fakeAgent{}, &termio.Mock{}, options.RunOptions{})
+	k := state.Key{Slug: "proj", Agent: "fake"}
+	seedAgentState(t, k, "1.5.0", agentSourceTool)
+	got, upgraded, _, err := resolveBuildVersion(
+		context.Background(),
+		k,
+		&fakeAgent{},
+		&termio.Mock{},
+		options.RunOptions{},
+	)
 	if err != nil {
 		t.Fatalf("resolveBuildVersion: %v", err)
 	}
@@ -163,7 +145,8 @@ func TestResolveBuildVersionWithoutUpgradeChecker(t *testing.T) {
 // pendingUpgrade: it never offers an upgrade for an agent lacking a checker.
 func TestPendingUpgradeWithoutUpgradeChecker(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
-	latest, offer := pendingUpgrade(context.Background(), &termio.Mock{}, &fakeAgent{}, "1.0.0")
+	k := state.Key{Slug: "proj", Agent: "fake"}
+	latest, offer := pendingUpgrade(context.Background(), &fakeAgent{}, k, &termio.Mock{}, "1.0.0")
 	if offer {
 		t.Errorf("expected no upgrade offer for an agent without a checker, got latest=%q", latest)
 	}

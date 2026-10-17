@@ -36,9 +36,22 @@ func TestPersistNetworkStateReadError(t *testing.T) {
 	}
 }
 
-// TestCurrentUpgradeVersionReadError covers the load-error branch of
-// currentUpgradeVersion: an unreadable state file yields "".
-func TestCurrentUpgradeVersionReadError(t *testing.T) {
+// failingStateDirConfigPaths overrides only the state directory, delegating
+// every other path to the (nil) embedded interface. It is used to force
+// read/write errors on the per-project state file by pointing UserStateDir at a
+// regular file, so the parent "directory" cannot be created or read.
+type failingStateDirConfigPaths struct {
+	configpaths.ConfigPaths
+
+	stateDir string
+}
+
+func (f failingStateDirConfigPaths) UserStateDir() string { return f.stateDir }
+
+// withFailingStateDir installs a ConfigPaths whose UserStateDir is a regular
+// file, so any attempt to read or write <stateDir>/... fails.
+func withFailingStateDir(t *testing.T) {
+	t.Helper()
 	dir := t.TempDir()
 	stateFile := filepath.Join(dir, "userstate")
 	if err := os.WriteFile(stateFile, []byte("not-a-dir"), 0o600); err != nil {
@@ -49,9 +62,15 @@ func TestCurrentUpgradeVersionReadError(t *testing.T) {
 		return failingStateDirConfigPaths{stateDir: stateFile}
 	}
 	t.Cleanup(func() { configpaths.Get = orig })
+}
 
-	if got := currentUpgradeVersion(opencodeAgent(t)); got != "" {
-		t.Errorf("currentUpgradeVersion() = %q, want empty when the state cannot be read", got)
+// TestCurrentAgentVersionReadError covers the read-error branch of
+// currentAgentVersion: an unreadable state file yields "".
+func TestCurrentAgentVersionReadError(t *testing.T) {
+	withFailingStateDir(t)
+	k := state.Key{Slug: "proj", Agent: "opencode"}
+	if got := currentAgentVersion(k); got != "" {
+		t.Errorf("currentAgentVersion() = %q, want empty when the state cannot be read", got)
 	}
 }
 
