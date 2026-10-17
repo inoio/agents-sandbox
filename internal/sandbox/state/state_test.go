@@ -336,6 +336,40 @@ func TestWriteAndReadState_MountRoundTrip(t *testing.T) {
 	}
 }
 
+func TestHomeStateUpgradeFieldsRoundTrip(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	k := Key{Slug: "proj", Agent: "opencode"}
+	if err := WriteState(k, HomeState{
+		HomeVolume: "vol", ImageDigest: "d1",
+		AgentVersion: "1.2.3", AgentSource: "tool", DockerSource: "user",
+		OfferedVersions: []string{"2.0.0"},
+	}); err != nil {
+		t.Fatalf("WriteState: %v", err)
+	}
+	got, err := ReadState(k)
+	if err != nil {
+		t.Fatalf("ReadState: %v", err)
+	}
+	if got.AgentVersion != "1.2.3" || got.AgentSource != "tool" || got.DockerSource != "user" {
+		t.Fatalf("upgrade fields = %+v", got)
+	}
+	if !got.Offered("2.0.0") || got.Offered("3.0.0") {
+		t.Fatalf("OfferedVersions = %v", got.OfferedVersions)
+	}
+}
+
+func TestHomeStateMarkOffered(t *testing.T) {
+	var hs HomeState
+	hs.MarkOffered("2.0.0")
+	hs.MarkOffered("2.0.0")
+	if !hs.Offered("2.0.0") {
+		t.Error("expected 2.0.0 offered")
+	}
+	if len(hs.OfferedVersions) != 1 {
+		t.Errorf("MarkOffered must not duplicate, got %v", hs.OfferedVersions)
+	}
+}
+
 func TestStateKeyScopesDir(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	root := configpaths.Get().UserStateDir()

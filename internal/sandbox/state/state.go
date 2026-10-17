@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 
 	"github.com/inoio/agents-sandbox/internal/atomicwrite"
 	"github.com/inoio/agents-sandbox/internal/configpaths"
@@ -60,12 +61,30 @@ type MountState = FingerprintState
 //
 //exhaustruct:ignore
 type HomeState struct {
-	HomeVolume   string       `yaml:"home_volume"`
-	ImageDigest  string       `yaml:"image_digest"`
-	EnvState     EnvState     `yaml:"env_state,omitempty"`
-	SecretState  SecretState  `yaml:"secret_state,omitempty"`
-	NetworkState NetworkState `yaml:"network_state,omitempty"`
-	MountState   MountState   `yaml:"mount_state,omitempty"`
+	HomeVolume      string       `yaml:"home_volume"`
+	ImageDigest     string       `yaml:"image_digest"`
+	AgentVersion    string       `yaml:"agent_version,omitempty"`
+	AgentSource     string       `yaml:"agent_source,omitempty"`
+	DockerSource    string       `yaml:"docker_source,omitempty"`
+	OfferedVersions []string     `yaml:"offered_versions,omitempty"`
+	EnvState        EnvState     `yaml:"env_state,omitempty"`
+	SecretState     SecretState  `yaml:"secret_state,omitempty"`
+	NetworkState    NetworkState `yaml:"network_state,omitempty"`
+	MountState      MountState   `yaml:"mount_state,omitempty"`
+}
+
+// Offered reports whether the version has already had its rebuild prompt shown
+// for this project's image.
+func (s *HomeState) Offered(v string) bool {
+	return slices.Contains(s.OfferedVersions, v)
+}
+
+// MarkOffered records that v's rebuild prompt has been shown for this project's
+// image, so it is not offered again.
+func (s *HomeState) MarkOffered(v string) {
+	if !s.Offered(v) {
+		s.OfferedVersions = append(s.OfferedVersions, v)
+	}
 }
 
 // NewHomeState returns a HomeState with a zeroed EnvState/SecretState, ready
