@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -279,6 +280,47 @@ func TestResolveOpenCodeVersionInteractiveRebuild(t *testing.T) {
 	}
 	if !upgraded {
 		t.Error("expected upgraded=true after choosing to rebuild")
+	}
+}
+
+func TestResolveOpenCodeVersionInteractivePromptShowsCurrentVersion(t *testing.T) {
+	origLatest := agentLatestVersion
+	defer func() { agentLatestVersion = origLatest }()
+	agentLatestVersion = func(_ context.Context, _ agent.Agent) (string, error) { return "2.0.0", nil }
+
+	configpaths.WithMockConfigPaths(t)
+	if err := saveUpgradeState(upgradeState{CurrentVersion: "1.0.0"}); err != nil {
+		t.Fatalf("saveUpgradeState: %v", err)
+	}
+	opts := options.RunOptions{}
+
+	var prompt string
+	var choices []termio.Choice
+	ui := &termio.Mock{
+		IsInteractiveResult: true,
+		SelectFn: func(p string, c []termio.Choice, _ string) (string, error) {
+			prompt, choices = p, c
+			return "k", nil
+		},
+	}
+
+	if _, _, err := resolveBuildVersion(context.Background(), opencodeAgent(t), ui, opts); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	for _, want := range []string{"1.0.0", "2.0.0"} {
+		if !strings.Contains(prompt, want) {
+			t.Errorf("prompt %q must name version %s", prompt, want)
+		}
+	}
+	rebuild := slices.IndexFunc(choices, func(c termio.Choice) bool { return c.Key == "r" })
+	if rebuild < 0 {
+		t.Fatal("expected a Rebuild choice")
+	}
+	for _, want := range []string{"1.0.0", "2.0.0"} {
+		if !strings.Contains(choices[rebuild].Description, want) {
+			t.Errorf("Rebuild description %q must name version %s", choices[rebuild].Description, want)
+		}
 	}
 }
 
