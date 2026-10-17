@@ -57,13 +57,20 @@ func migrateLegacyUpdaterState(ui termio.UI) {
 
 	ok, err := state.WithRootState(false, func(tx *state.RootTxn) error {
 		root := tx.State()
+		folded := false
 		for name, agent := range legacy.Agents {
 			if agent.LastChecked.IsZero() {
 				continue
 			}
 			if root.AgentCheck(name).LastChecked.IsZero() {
 				root.SetAgentCheck(name, state.AgentCheckState{LastChecked: agent.LastChecked})
+				folded = true
 			}
+		}
+		if !folded {
+			// A legacy file that folds nothing must not create or rewrite the
+			// root document; the file is still removed below.
+			return nil
 		}
 		return tx.Commit()
 	})

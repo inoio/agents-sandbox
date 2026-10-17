@@ -3,6 +3,7 @@ package vm
 import (
 	"os"
 	"path/filepath"
+	"reflect"
 	"testing"
 	"time"
 
@@ -115,6 +116,44 @@ func TestMigrateLegacyUpdaterStateSkipsZeroLastChecked(t *testing.T) {
 	root, _ := state.ReadRootState()
 	if !root.AgentCheck("opencode").LastChecked.IsZero() {
 		t.Fatal("a zero last_checked must not seed a check state")
+	}
+	// Folding nothing must not create the root document.
+	if _, err := os.Stat(filepath.Join(configpaths.Get().UserStateDir(), "state.yaml")); !os.IsNotExist(err) {
+		t.Fatal("a fold-less migration must not write the root state")
+	}
+}
+
+// TestMigrateLegacyUpdaterStateNoOpPreservesRootDocument ensures the fold-less
+// no-op guard leaves an existing root document byte-for-byte untouched rather
+// than rewriting it.
+func TestMigrateLegacyUpdaterStateNoOpPreservesRootDocument(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	if err := seedRootState(state.RootState{Agents: map[string]state.AgentCheckState{
+		"opencode": {LastChecked: time.Unix(5000, 0).UTC()},
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	before, err := state.ReadRootState()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(
+		legacyUpdaterStatePath(),
+		[]byte("agents:\n  opencode:\n    last_checked: 2020-01-01T00:00:00Z\n"),
+		0o600,
+	); err != nil {
+		t.Fatal(err)
+	}
+	migrateLegacyUpdaterState(&termio.Mock{})
+	after, err := state.ReadRootState()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(*before, *after) {
+		t.Fatalf("fold-less migration changed the root document:\n before %+v\n after  %+v", *before, *after)
+	}
+	if _, err := os.Stat(legacyUpdaterStatePath()); !os.IsNotExist(err) {
+		t.Fatal("updater.yaml must still be deleted")
 	}
 }
 

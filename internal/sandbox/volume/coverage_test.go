@@ -186,7 +186,7 @@ func TestVolumeOp_MainFails_CleanupVolumeFailsWarns(t *testing.T) {
 	}
 	var warned bool
 	for _, c := range ui.WarnCalls {
-		if strings.Contains(c, "failed to clean up") {
+		if strings.Contains(c, "failed to remove new volume") {
 			warned = true
 		}
 	}

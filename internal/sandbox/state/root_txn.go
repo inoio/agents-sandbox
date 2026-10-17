@@ -11,6 +11,10 @@ var statRootStateFile = os.Stat
 
 // RootTxn is the lock-protected, mutable handle for the launcher-global
 // RootState produced by WithRootState.
+//
+// A RootTxn is valid only for the duration of its WithRootState closure: the
+// root lock is released when the closure returns, so the handle must not be
+// retained, read, or Commit()ed afterwards.
 type RootTxn struct {
 	state  *RootState
 	exists bool

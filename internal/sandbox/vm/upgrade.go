@@ -204,11 +204,13 @@ func pendingUpgrade(
 }
 
 // checkAgentUpgrade runs the machine-global network check under the host-only
-// root transaction and returns this agent's cached check state. The bool is
-// false when the check could not run — the lock was held, the root state was
-// unreadable, or the network check failed — and the caller must then defer the
-// upgrade step. A root-state write failure is warned and does not suppress the
-// offer: the freshly fetched version is still used this run.
+// root transaction and returns this agent's cached check state. When no checker
+// is available there is nothing to check, so it returns the zero state and
+// false. Otherwise the bool is false when the check could not run — the lock was
+// held, the root state was unreadable, or the network check failed — and the
+// caller must then defer the upgrade step. A root-state write failure is warned
+// and does not suppress the offer: the freshly fetched version is still used
+// this run.
 func checkAgentUpgrade(
 	ctx context.Context,
 	a agent.Agent,
@@ -246,9 +248,10 @@ func checkAgentUpgrade(
 		return nil
 	})
 	if err != nil {
-		// Never persist over an unreadable root state: a zero-value rewrite would
+		// The error is either a lock-acquisition failure or an unreadable root
+		// state. Either way, never persist over it: a zero-value rewrite would
 		// discard the migrations registry and every other agent's cached check.
-		ui.Warnf("could not read upgrade check state: %v (skipping check)", err)
+		ui.Warnf("could not read upgrade check state (root lock/read failed): %v (skipping check)", err)
 		return state.AgentCheckState{}, false
 	}
 	if !ok || checkFailed {

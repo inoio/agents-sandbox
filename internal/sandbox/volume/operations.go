@@ -234,9 +234,7 @@ func volumeOp(
 	if err := cbs.main(oldVolume, newVolumeName); err != nil {
 		cleanupCtx, cancel := context.WithTimeout(context.Background(), options.SandboxStopTimeout)
 		defer cancel()
-		if rmErr := client.RemoveVolume(cleanupCtx, newVolumeName); rmErr != nil {
-			ui.Warnf("failed to clean up new volume %q after error: %v", newVolumeName, rmErr)
-		}
+		vm.cleanupVolume(cleanupCtx, client, newVolumeName, ui)
 		return err
 	}
 
