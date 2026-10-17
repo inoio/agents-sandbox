@@ -530,6 +530,39 @@ func TestResolveBuildVersionPromptNamesThisProjectsVersion(t *testing.T) {
 	}
 }
 
+// TestPromptUpgradeNamesBothVersions pins the PR #225 wording: the prompt and
+// the Rebuild choice both name the available release and this project's current
+// version, so the user can tell exactly what a rebuild would change.
+func TestPromptUpgradeNamesBothVersions(t *testing.T) {
+	var prompt string
+	var choices []termio.Choice
+	ui := &termio.Mock{
+		IsInteractiveResult: true,
+		SelectFn: func(p string, c []termio.Choice, _ string) (string, error) {
+			prompt, choices = p, c
+			return "k", nil
+		},
+	}
+	if _, err := promptUpgrade(ui, opencodeAgent(t), "1.0.0", "2.0.0"); err != nil {
+		t.Fatalf("promptUpgrade: %v", err)
+	}
+	for _, want := range []string{"1.0.0", "2.0.0"} {
+		if !strings.Contains(prompt, want) {
+			t.Errorf("prompt %q must name %s", prompt, want)
+		}
+	}
+	rebuild := slices.IndexFunc(choices, func(c termio.Choice) bool { return c.Key == "r" })
+	if rebuild < 0 {
+		t.Fatalf("Rebuild choice missing from %+v", choices)
+	}
+	description := choices[rebuild].Description
+	for _, want := range []string{"1.0.0", "2.0.0"} {
+		if !strings.Contains(description, want) {
+			t.Errorf("Rebuild description %q must name %s", description, want)
+		}
+	}
+}
+
 // TestPendingUpgradeLockHeldDefers pins that a held root-state lock (e.g. an
 // in-flight runtime-home copy campaign) defers the whole upgrade step to the
 // next run instead of racing the other writer.
