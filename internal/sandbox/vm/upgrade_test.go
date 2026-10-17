@@ -3,6 +3,8 @@ package vm
 import (
 	"context"
 	"errors"
+	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -584,5 +586,212 @@ func TestPendingUpgradeSuppressedWhenAlreadyOffered(t *testing.T) {
 	)
 	if offer || latest != "" {
 		t.Errorf("pendingUpgrade = (%q, %v), want no offer for an already-offered version", latest, offer)
+	}
+}
+
+// TestDetermineAgentVersionDryRunPrefersPin pins the --dry-run contract: an
+// explicit pin wins, resolveBuildVersion is not consulted (agentLatestVersion is
+// never called), and the dry-run verbose is emitted.
+func TestDetermineAgentVersionDryRunPrefersPin(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	k := state.Key{Slug: "proj", Agent: "opencode"}
+	seedAgentState(t, k, "1.0.0", agentSourceTool)
+
+	origLatest := agentLatestVersion
+	agentLatestVersion = func(_ context.Context, _ agent.Agent) (string, error) {
+		t.Error("agentLatestVersion must not be called under --dry-run")
+		return "2.0.0", nil
+	}
+	t.Cleanup(func() { agentLatestVersion = origLatest })
+
+	ui := &termio.Mock{}
+	got, upgrade, err := determineAgentVersion(
+		context.Background(),
+		k,
+		opencodeAgent(t),
+		ui,
+		options.RunOptions{DryRun: true, AgentVersion: "3.0.0"},
+	)
+	if err != nil {
+		t.Fatalf("determineAgentVersion: %v", err)
+	}
+	if got != "3.0.0" || upgrade {
+		t.Errorf("determineAgentVersion = (%q, %v), want (3.0.0, false)", got, upgrade)
+	}
+	if !slices.Contains(ui.VerboseCalls, "dry-run: would resolve build version") {
+		t.Errorf("expected dry-run verbose, got %v", ui.VerboseCalls)
+	}
+}
+
+// TestDetermineAgentVersionDryRunFallsBackToRecordedVersion pins the --dry-run
+// fallback: without a pin the recorded project version is used, no prompt fires,
+// and the network is never touched.
+func TestDetermineAgentVersionDryRunFallsBackToRecordedVersion(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	k := state.Key{Slug: "proj", Agent: "opencode"}
+	seedAgentState(t, k, "1.0.0", agentSourceTool)
+
+	origLatest := agentLatestVersion
+	agentLatestVersion = func(_ context.Context, _ agent.Agent) (string, error) {
+		t.Error("agentLatestVersion must not be called under --dry-run")
+		return "2.0.0", nil
+	}
+	t.Cleanup(func() { agentLatestVersion = origLatest })
+
+	ui := &termio.Mock{
+		IsInteractiveResult: true,
+		SelectFn: func(_ string, _ []termio.Choice, _ string) (string, error) {
+			t.Error("--dry-run must not prompt")
+			return "", nil
+		},
+	}
+	got, upgrade, err := determineAgentVersion(
+		context.Background(),
+		k,
+		opencodeAgent(t),
+		ui,
+		options.RunOptions{DryRun: true},
+	)
+	if err != nil {
+		t.Fatalf("determineAgentVersion: %v", err)
+	}
+	if got != "1.0.0" || upgrade {
+		t.Errorf("determineAgentVersion = (%q, %v), want (1.0.0, false)", got, upgrade)
+	}
+	if !slices.Contains(ui.VerboseCalls, "dry-run: would resolve build version") {
+		t.Errorf("expected dry-run verbose, got %v", ui.VerboseCalls)
+	}
+}
+
+// TestPendingUpgradeWarnsOnRootStateReadAndWriteError covers both root-state I/O
+// failures: a directory at the root state file path makes ReadRootState fail
+// (warn + treat as zero) and the subsequent WriteRootState fail (warn). The
+// offer still proceeds from the freshly fetched latest version.
+func TestPendingUpgradeWarnsOnRootStateReadAndWriteError(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	k := state.Key{Slug: "proj", Agent: "opencode"}
+	seedAgentState(t, k, "1.0.0", agentSourceTool)
+
+	rootStatePath := filepath.Join(configpaths.Get().UserStateDir(), "state.yaml")
+	if err := os.MkdirAll(rootStatePath, 0o700); err != nil {
+		t.Fatal(err)
+	}
+
+	origLatest := agentLatestVersion
+	agentLatestVersion = func(_ context.Context, _ agent.Agent) (string, error) { return "2.0.0", nil }
+	t.Cleanup(func() { agentLatestVersion = origLatest })
+
+	ui := &termio.Mock{}
+	latest, offer := pendingUpgrade(context.Background(), opencodeAgent(t), k, ui, "1.0.0")
+	if !offer || latest != "2.0.0" {
+		t.Fatalf("pendingUpgrade = (%q, %v), want (2.0.0, true)", latest, offer)
+	}
+	joined := strings.Join(ui.WarnCalls, " ")
+	for _, want := range []string{"could not read upgrade check state", "could not persist upgrade check state"} {
+		if !strings.Contains(joined, want) {
+			t.Errorf("expected warning %q, got %q", want, joined)
+		}
+	}
+}
+
+// TestPendingUpgradeNoOfferWhenLatestEmpty covers the empty-cached-latest arm:
+// a successful check that yields no version never offers.
+func TestPendingUpgradeNoOfferWhenLatestEmpty(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	k := state.Key{Slug: "proj", Agent: "opencode"}
+	seedAgentState(t, k, "1.0.0", agentSourceTool)
+
+	origLatest := agentLatestVersion
+	agentLatestVersion = func(_ context.Context, _ agent.Agent) (string, error) { return "", nil }
+	t.Cleanup(func() { agentLatestVersion = origLatest })
+
+	latest, offer := pendingUpgrade(context.Background(), opencodeAgent(t), k, &termio.Mock{}, "1.0.0")
+	if offer || latest != "" {
+		t.Errorf("pendingUpgrade = (%q, %v), want no offer for an empty latest", latest, offer)
+	}
+}
+
+// TestPendingUpgradeWarnsOnProjectStateReadError covers the non-not-found
+// HomeState read error: a directory at the project state file path makes
+// ReadState fail, so the step warns and offers nothing.
+func TestPendingUpgradeWarnsOnProjectStateReadError(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	k := state.Key{Slug: "proj", Agent: "opencode"}
+	if err := state.WriteRootState(state.RootState{Agents: map[string]state.AgentCheckState{
+		"opencode": {LastChecked: now(), LatestVersion: "2.0.0"},
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(
+		filepath.Join(configpaths.Get().UserStateDir(), k.Slug, k.Agent, "state.yaml"),
+		0o700,
+	); err != nil {
+		t.Fatal(err)
+	}
+
+	ui := &termio.Mock{}
+	latest, offer := pendingUpgrade(context.Background(), opencodeAgent(t), k, ui, "1.0.0")
+	if offer || latest != "" {
+		t.Errorf("pendingUpgrade = (%q, %v), want no offer on a project-state read error", latest, offer)
+	}
+	if !strings.Contains(strings.Join(ui.WarnCalls, " "), "could not read project state") {
+		t.Errorf("expected a project-state read warning, got %v", ui.WarnCalls)
+	}
+}
+
+// TestPendingUpgradeOffersWhenProjectStateMissing covers the ErrStateNotFound
+// arm: with no project state file the offered set is empty, so the version is
+// offered and persisted into a fresh HomeState.
+func TestPendingUpgradeOffersWhenProjectStateMissing(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	k := state.Key{Slug: "proj", Agent: "opencode"}
+	if err := state.WriteRootState(state.RootState{Agents: map[string]state.AgentCheckState{
+		"opencode": {LastChecked: now(), LatestVersion: "2.0.0"},
+	}}); err != nil {
+		t.Fatal(err)
+	}
+
+	latest, offer := pendingUpgrade(context.Background(), opencodeAgent(t), k, &termio.Mock{}, "1.0.0")
+	if !offer || latest != "2.0.0" {
+		t.Fatalf("pendingUpgrade = (%q, %v), want (2.0.0, true)", latest, offer)
+	}
+	hs, err := state.ReadState(k)
+	if err != nil {
+		t.Fatalf("ReadState: %v", err)
+	}
+	if !hs.Offered("2.0.0") {
+		t.Errorf("offered not persisted to a fresh HomeState: %+v", hs)
+	}
+}
+
+// TestPendingUpgradeWarnsOnProjectStateWriteError covers the HomeState write
+// failure: the key directory is read-only, so ReadState succeeds but WriteState
+// cannot create its temp file. The step still returns the offer.
+func TestPendingUpgradeWarnsOnProjectStateWriteError(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("running as root: a read-only directory does not block writes")
+	}
+	configpaths.WithMockConfigPaths(t)
+	k := state.Key{Slug: "proj", Agent: "opencode"}
+	seedAgentState(t, k, "1.0.0", agentSourceTool)
+	if err := state.WriteRootState(state.RootState{Agents: map[string]state.AgentCheckState{
+		"opencode": {LastChecked: now(), LatestVersion: "2.0.0"},
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	keyDir := state.KeyDir(k)
+	if err := os.Chmod(keyDir, 0o555); err != nil {
+		t.Skipf("cannot chmod key dir: %v", err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(keyDir, 0o700) })
+
+	ui := &termio.Mock{}
+	latest, offer := pendingUpgrade(context.Background(), opencodeAgent(t), k, ui, "1.0.0")
+	if !offer || latest != "2.0.0" {
+		t.Fatalf("pendingUpgrade = (%q, %v), want (2.0.0, true)", latest, offer)
+	}
+	joined := strings.Join(ui.WarnCalls, " ")
+	if !strings.Contains(joined, "could not persist project state") {
+		t.Errorf("expected a project-state persist warning, got %q", joined)
 	}
 }
