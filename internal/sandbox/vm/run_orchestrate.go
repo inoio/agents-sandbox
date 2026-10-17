@@ -215,6 +215,7 @@ func determineAgentVersion(
 		}
 		return version, false, nil
 	}
+	migrateLegacyUpdaterState(ui)
 	return resolveBuildVersion(ctx, k, a, ui, opts)
 }
 
