@@ -18,6 +18,15 @@ import (
 	"github.com/inoio/agents-sandbox/internal/termio"
 )
 
+// withExistingAgentVersion makes the project's existing runner image report the
+// given baked agent version.
+func withExistingAgentVersion(t *testing.T, version string) {
+	t.Helper()
+	orig := existingAgentVersion
+	existingAgentVersion = func(_ context.Context, _, _ string) (string, bool) { return version, true }
+	t.Cleanup(func() { existingAgentVersion = orig })
+}
+
 // seedAgentState writes the agent version/source into this project's HomeState,
 // preserving any other fields already present.
 func seedAgentState(t *testing.T, k state.Key, version, source string) {
@@ -216,6 +225,76 @@ func TestResolveOpenCodeVersionNoBaseline(t *testing.T) {
 	}
 	if latestCalled {
 		t.Error("agentLatestVersion should NOT have been called without a baseline")
+	}
+}
+
+func TestResolveOpenCodeVersionRecoversBaselineFromExistingImage(t *testing.T) {
+	origLatest := agentLatestVersion
+	defer func() { agentLatestVersion = origLatest }()
+	agentLatestVersion = func(_ context.Context, _ agent.Agent) (string, error) { return "2.0.0", nil }
+
+	configpaths.WithMockConfigPaths(t)
+	k := state.Key{Slug: "proj", Agent: "opencode"}
+	// No recorded baseline (as after the updater.yaml migration), but the
+	// project's existing image carries it.
+	withExistingAgentVersion(t, "1.0.0")
+
+	var prompt string
+	ui := &termio.Mock{
+		IsInteractiveResult: true,
+		SelectFn: func(p string, _ []termio.Choice, _ string) (string, error) {
+			prompt = p
+			return "k", nil
+		},
+	}
+
+	got, upgraded, err := resolveBuildVersion(context.Background(), k, opencodeAgent(t), ui, options.RunOptions{})
+	if err != nil {
+		t.Fatalf("resolveBuildVersion: %v", err)
+	}
+	if got != "1.0.0" {
+		t.Errorf("resolveBuildVersion = %q, want recovered baseline 1.0.0", got)
+	}
+	if upgraded {
+		t.Error("expected upgraded=false for a keep choice")
+	}
+	for _, want := range []string{"1.0.0", "2.0.0"} {
+		if !strings.Contains(prompt, want) {
+			t.Errorf("prompt %q must name both the recovered baseline and the available version (%s)", prompt, want)
+		}
+	}
+
+	hs, err := state.ReadState(k)
+	if err != nil {
+		t.Fatalf("ReadState: %v", err)
+	}
+	if hs.AgentVersion != "1.0.0" {
+		t.Errorf("recorded agent_version = %q, want recovered 1.0.0 persisted", hs.AgentVersion)
+	}
+}
+
+func TestResolveOpenCodeVersionRecoveredBaselineReusedOffline(t *testing.T) {
+	origLatest := agentLatestVersion
+	defer func() { agentLatestVersion = origLatest }()
+	agentLatestVersion = func(_ context.Context, _ agent.Agent) (string, error) {
+		return "", errors.New("offline")
+	}
+
+	configpaths.WithMockConfigPaths(t)
+	k := state.Key{Slug: "proj", Agent: "opencode"}
+	withExistingAgentVersion(t, "1.0.0")
+
+	got, upgraded, err := resolveBuildVersion(
+		context.Background(), k, opencodeAgent(t), &termio.Mock{}, options.RunOptions{},
+	)
+	if err != nil {
+		t.Fatalf("resolveBuildVersion: %v", err)
+	}
+	if got != "1.0.0" {
+		t.Errorf("resolveBuildVersion = %q, want recovered baseline 1.0.0 so the existing image is reused", got)
+	}
+	if upgraded {
+		t.Error("expected upgraded=false when the check is offline")
 	}
 }
 

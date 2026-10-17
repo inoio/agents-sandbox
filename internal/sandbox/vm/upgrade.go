@@ -6,6 +6,7 @@ import (
 	"fmt"
 
 	"github.com/inoio/agents-sandbox/internal/agent"
+	"github.com/inoio/agents-sandbox/internal/sandbox/image"
 	"github.com/inoio/agents-sandbox/internal/sandbox/options"
 	"github.com/inoio/agents-sandbox/internal/sandbox/state"
 	"github.com/inoio/agents-sandbox/internal/termio"
@@ -25,6 +26,11 @@ var agentLatestVersion = func(ctx context.Context, a agent.Agent) (string, error
 	return checker.LatestVersion(ctx)
 }
 
+// existingAgentVersion reports the agent release baked into a project's existing
+// runner image, read from its identity label. A package seam so tests do not
+// touch a real docker daemon.
+var existingAgentVersion = image.ExistingAgentVersion
+
 // resolveBuildVersion decides the agent version to bake into the runner
 // image before the image is built, so a normal run never builds twice (once
 // for the current version and once for an upgrade). It returns the target
@@ -40,6 +46,8 @@ var agentLatestVersion = func(ctx context.Context, a agent.Agent) (string, error
 //
 // The current version comes from this project's per-(slug, agent) HomeState, so
 // the prompt can only ever name this project's version, never another project's.
+// When the HomeState has no recorded baseline, it is recovered from this
+// project's existing image label (see recoverAgentVersion).
 func resolveBuildVersion(
 	ctx context.Context,
 	k state.Key,
@@ -68,8 +76,12 @@ func resolveBuildVersion(
 
 	current := currentAgentVersion(k)
 	if current == "" {
-		// No recorded baseline (e.g., first run): resolve latest at build time
-		// rather than prompting against an unknown version.
+		current = recoverAgentVersion(ctx, k, ui)
+	}
+	if current == "" {
+		// No recorded baseline and no existing image to recover one from (e.g.,
+		// first run): resolve latest at build time rather than prompting against
+		// an unknown version.
 		return "", false, nil
 	}
 
@@ -193,14 +205,13 @@ func pendingUpgrade(
 			ui.Warnf("could not read project state: %v (continuing)", hsErr)
 			return "", false
 		}
-		hs = &state.HomeState{}
+		hs = nil
 	}
-	if hs.Offered(latest) {
+	if hs != nil && hs.Offered(latest) {
 		return "", false
 	}
 
-	hs.MarkOffered(latest)
-	if writeErr := state.WriteState(k, *hs); writeErr != nil {
+	if writeErr := state.UpdateHomeState(k, func(hs *state.HomeState) { hs.MarkOffered(latest) }); writeErr != nil {
 		ui.Warnf("could not persist project state: %v (continuing)", writeErr)
 	}
 	return latest, true
@@ -224,4 +235,24 @@ func currentAgentSource(k state.Key) string {
 		return ""
 	}
 	return hs.AgentSource
+}
+
+// recoverAgentVersion recovers a project's upgrade baseline from its existing
+// runner image when the recorded HomeState has none, and records it. This is the
+// run after the updater.yaml migration dropped the machine-global
+// current_version: without recovery the first unpinned run would resolve the
+// latest release and silently rebuild the image (and fail offline); recovering
+// the version restores the prompt-and-reuse behavior. It returns "" when no
+// image or no release label exists, so a genuine first run still resolves at
+// build time. Recording is best-effort and local: a failure only costs a
+// re-inspection next run.
+func recoverAgentVersion(ctx context.Context, k state.Key, ui termio.UI) string {
+	version, ok := existingAgentVersion(ctx, k.Slug, k.Agent)
+	if !ok {
+		return ""
+	}
+	if err := state.UpdateHomeState(k, func(hs *state.HomeState) { hs.AgentVersion = version }); err != nil {
+		ui.Verbosef("could not record recovered agent version: %v", err)
+	}
+	return version
 }
