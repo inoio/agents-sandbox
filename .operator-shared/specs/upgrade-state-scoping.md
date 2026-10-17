@@ -103,8 +103,11 @@ To close that gap, `resolveBuildVersion` recovers the baseline from the project'
 `image.ExistingAgentVersion(ctx, slug, agent)` reads the local runner image's
 `org.agents-sandbox.identity.agent-version` label (a `docker inspect`, no network) and returns the release, or nothing
 for an absent image, a pre-label image, or a non-release sentinel (`none` / `user-provided`). When it returns a
-version, `recoverAgentVersion` records it to `HomeState.agent_version` (under the home lock) and the normal check/prompt
-runs against it. A genuine first run (no image, no label) still returns `""` and resolves at build time.
+version, `recoverAgentVersion` records it to `HomeState.agent_version` and the normal check/prompt runs against it. The
+record is written only when a state file already exists (via `state.UpdateExistingHomeState`), because recovery runs
+before home resolution: creating a state here would leave a fingerprint-less partial state that the home-recovery step
+would adopt as a `prior` and copy empty fingerprints forward, spuriously detecting a config change (#183). A genuine
+first run (no image, no label) still returns `""` and resolves at build time.
 
 The label is a *recovery fallback only*: `HomeState.agent_version` remains the single source of truth once recorded.
 This does not resurrect the rejected "read the current version from the image label on every run" design; it only
@@ -123,13 +126,23 @@ hold the lock; this avoids the non-reentrant double-lock that a lock-inside-`Upd
 ### HomeState write serialization
 
 Every per-project `HomeState` read-modify-write is serialized by a single host-only flock per `(slug, agent)`
-(`state.LockHomeState`, at `<slug>/<agent>/home.lock`), exposed through `state.UpdateHomeState(k, mutate)`, which holds
-the lock across the read, the mutation, and the write. This PR adds two HomeState writers (the upgrade offered set and
+(`state.LockHomeState`, at `<slug>/<agent>/home.lock`). This PR adds two HomeState writers (the upgrade offered set and
 `recordImageProvenance`) to a file the volume operations already read-modify-write, so without the lock a concurrent
 volume op could be clobbered — e.g. an upgrade write restoring an old `home_volume` after a volume op committed a new
 one, which with `--rm-old` points at a deleted volume. The lock makes each writer re-read under mutual exclusion, so no
-writer loses another's field. `UpdateHomeState` mutates the freshly-read state and preserves fields the caller does not
-touch; a present-but-unreadable file returns an error without writing.
+writer loses another's field.
+
+`state` exposes three locked writers, chosen by intent:
+
+- `UpdateHomeState(k, mutate)` — create-on-missing, for merge writers that run after home resolution (volume operations,
+  fingerprint persistence, `recordImageProvenance`). It mutates the freshly-read state, preserving fields the caller
+  does not touch; a present-but-unreadable file returns an error without writing.
+- `UpdateExistingHomeState(k, mutate)` — writes only when a state file already exists, for the pre-home-resolution
+  writers (baseline recovery, the offered set). It never creates a state, so those writers cannot leave a
+  fingerprint-less partial state that home recovery would adopt as a `prior` (#183).
+- `ReplaceHomeState(k, hs)` — lock plus a blind write, for recovery paths that rebuild a lost or malformed state
+  (`volume.Manager.recoverOrCreateHome`, `EnsureNewHome`). These must *replace* the document, so they cannot read it
+  first (a corrupt file would fail the read and leave the state broken).
 
 Lock ordering is **root lock (if held) → home lock**. `pendingUpgrade` holds the root lock across its step and then
 takes the home lock for the offered-set write; no holder of a home lock acquires the root lock (the volume operations
@@ -178,6 +191,12 @@ The presence of `<root>/updater.yaml` is the trigger. No user choice, no `migrat
 - **Serialized HomeState writes.** Every `HomeState` read-modify-write holds the per-`(slug, agent)` home lock, so
   concurrent writers (volume operations, upgrade bookkeeping, fingerprint persistence) cannot lose each other's fields.
   Lock order is root → home; the home lock is never taken twice on one path (flock is not reentrant).
+- **No partial state before home resolution.** Writers that run before the home volume is resolved (baseline recovery,
+  the offered set) never create a state, so a state that exists at home resolution is never fingerprint-less by
+  construction.
+- **Recovery repairs malformed state.** The home-recovery paths replace the state file wholesale under the lock, so a
+  corrupt `state.yaml` is rewritten rather than left broken (which would repeat recovery and keep volume commands unable
+  to read the home).
 - **Serialized RootState writes.** Every `RootState` read-modify-write holds the shared host-only flock;
   `state.UpdateRootState` stays lock-free and requires the caller to hold it. `runtimemigration` and the upgrade path
   share the one lock, so neither can clobber the other's map.
@@ -193,8 +212,11 @@ The presence of `<root>/updater.yaml` is the trigger. No user choice, no `migrat
   rebuild.
 - A genuine first run (no existing image): no label to recover, so `current == ""` and no prompt fires; the build
   resolves the latest release, and boot writes the baseline.
-- A project whose `state.yaml` was lost but whose image still exists: the baseline is recovered from the image label
-  (and, if the image is gone too, recovery/boot repopulates it).
+- A project whose `state.yaml` was lost but whose image still exists: the baseline is recovered from the image label for
+  this run but not persisted (no state file to update), so no partial state is created; home recovery then writes the
+  state and a later run re-recovers the baseline to persist it.
+- A malformed (unparseable) `state.yaml`: home resolution routes it to recovery, which replaces the file via
+  `ReplaceHomeState`, so the launch continues and the next run reads a healthy state.
 - Legacy `updater.yaml` present but global `last_checked` already set: no fold, file deleted.
 - A freshly folded `last_checked` intentionally defers the first check: if the legacy timestamp is recent, the first
   post-migration run is not due, so no network fetch happens, `latest_version` stays empty, and no prompt fires until
