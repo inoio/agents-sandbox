@@ -65,6 +65,7 @@ func runStartupHooks(ctx context.Context, sb msb.Sandbox, hooks []homeconfig.Hoo
 
 func setUpSandbox(
 	ctx context.Context,
+	k state.Key,
 	sb msb.Sandbox,
 	opts options.RunOptions,
 	cfs *reprovision.ConfigFiles,
@@ -96,7 +97,7 @@ func setUpSandbox(
 
 	// Record image provenance and the agent version baseline on a fresh boot.
 	if boot.booted() {
-		recordImageProvenance(ctx, a, sb, ui)
+		recordImageProvenance(ctx, k, a, sb, ui)
 	}
 
 	if restart {

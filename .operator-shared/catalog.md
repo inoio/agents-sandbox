@@ -65,6 +65,9 @@
 - `workspace-bind-permissions.md`
   - Description: Contract for the `/workspace` bind's host-permission policy: it sets `host-permissions=mirror` so guest rwx bits reach the real host inode (keeping host git trees consistent, fixing silent exec-bit loss), while ownership/setuid are never propagated and configured mounts keep the `private` default; records the migration caveat (existing VMs keep `private` until recreated; a `cfg.Volumes` comparison never fires).
   - Read If: Changing the `/workspace` bind options in `buildMounts`, diagnosing host-vs-VM permission/exec-bit divergence or dirty host git trees, or deciding whether a mount-permission change needs a VM-recreate fingerprint.
+- `upgrade-state-scoping.md`
+  - Description: Design/contract for scoping agent upgrade and provenance state by application: machine-global `RootState.agents` (network cadence `last_checked` + cached `latest_version`) vs per-(slug, agent) `HomeState` (`agent_version`, `agent_source`, `docker_source`, `offered_versions`), so the upgrade prompt can never name another project's version (PR #225 finding). Retires the global `updater.yaml` via a non-interactive, legacy-file-triggered fold of `last_checked` into the root state (no registry entry, present values win).
+  - Read If: Changing the agent upgrade prompt, `resolveBuildVersion`/`pendingUpgrade`/`recordImageProvenance`, the updater/upgrade state model, or the legacy `updater.yaml` migration.
 
 ### `plans/` - TDD implementation plans
 
@@ -110,3 +113,6 @@
 - `2026-10-15-custom-base-toolbase.md`
   - Description: TDD plan for #143: introduce a tool-owned `agents-sandbox-toolbase` (`debian:trixie-slim` + `curl`/`ca-certificates`/`tar`) as the parent of the node/agent/docker stages, rewire them off the user's base, remove the now-dead `command -v` install probes, drop `curl`/`tar` from the docker runtime-prerequisite check, and cover a custom base without `curl`/`tar` in integration. Implemented on `issue-143-custom-base-toolbase`.
   - Read If: Implementing or reviewing #143 / the tool-base decoupling.
+- `2026-10-17-upgrade-state-scoping.md`
+  - Description: 9-task TDD plan for `specs/upgrade-state-scoping.md`: `RootState.Agents`/`AgentCheckState` (Task 1), shared host-only `LockRootState` adopted by `runtimemigration` (Task 2), `HomeState` upgrade fields + offered helpers (Task 3), preservation through `volumeOp`/`ApplyHomeAction`/`recoveredHomeState` (Task 4), provenance into `HomeState` (Task 5), the RootState+HomeState upgrade flow with the `--dry-run` skip (Task 6), the legacy `updater.yaml` fold/delete (Task 7), PR #225 prompt wording + docs (Task 8), whole-branch `make check` (Task 9).
+  - Read If: Implementing or reviewing the scoping of agent upgrade/provenance state, the `updater.yaml` migration, or the shared root-state lock.

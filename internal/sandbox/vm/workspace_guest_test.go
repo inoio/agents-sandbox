@@ -90,6 +90,7 @@ func TestSetUpSandboxReturnsGuestCWD(t *testing.T) {
 	}
 	target, err := setUpSandbox(
 		context.Background(),
+		testVMKey(),
 		sb,
 		options.RunOptions{},
 		cfs,

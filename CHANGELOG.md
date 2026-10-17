@@ -80,11 +80,9 @@ command reports the bare version (e.g. `0.1.0`).
   (`configpaths.MSBHome()`), so they no longer depend on `MSB_HOME` having been applied first; `MSB_HOME` still governs
   the FFI cache and non-setup SDK operations. `configpaths.MSBHome` is the single source of truth and
   `runtime.PrivateHome` delegates to it. #160.
-
-### Changed
-
-- Runner image: the interactive agent-upgrade prompt now names both the available release and the version currently baked
-  into the image, so the choice to rebuild or keep the current version is informed.
+- Internal: add a regression test asserting every deprecated alias in the deprecation register still resolves and emits
+  exactly one warning — the CLI flags `--dind`, `--opencode-version`, `--age`/`-a`, and `sandbox list --names`, plus the
+  `OPENCODE_SANDBOX_` env prefix, `AGENTS_SANDBOX_DIND`, and the `dind` config key (#202).
 
 ### Fixed
 
@@ -159,6 +157,12 @@ command reports the bare version (e.g. `0.1.0`).
 
 ### Changed
 
+- Upgrade prompt: the agent-upgrade offer on `run`/`shell` now names both the available release and the version
+  currently baked into this project's image (e.g. `Upgrade opencode 1.0.0 → 2.0.0`), and the "current" version is read
+  from this project's own state so it can never name another project's version. Upgrade checks are now scoped by
+  application: machine-global network facts (check cadence and cached latest version) live in the launcher's root
+  `state.yaml`, while image facts (current version, sources, offered set) live in each project's per-agent state. The
+  legacy global `updater.yaml` is retired, folding its check cadence into the root state (#225).
 - Internal: project-VM reconfiguration now replaces the two-step `Stop` + `Remove` with the SDK's single atomic,
   identity-safe `Destroy` on the `SandboxHandle` seam (#162).
 - Runner image: the node/agent/docker install stages now build on a tool-owned `agents-sandbox-toolbase`

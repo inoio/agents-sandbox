@@ -214,20 +214,13 @@ func TestOfferStartFreshIsNotLostToACompletedCampaign(t *testing.T) {
 
 // TestOfferStartFreshLockFailureSurfaces pins that a migration-lock acquisition
 // failure on the start-fresh path surfaces as an Offer error rather than a
-// silent no-op. A regular file occupying $MSB_HOME/.agents-sandbox makes the
-// lock directory creation fail.
+// silent no-op. A directory occupying the root-state lock path makes the lock
+// open fail.
 func TestOfferStartFreshLockFailureSurfaces(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	legacy := installLegacyHome(t)
 	addVolumeDir(t, legacy, naming.HomePrefix+"legacy")
-
-	privateHome := runtime.PrivateHome()
-	if err := os.MkdirAll(privateHome, 0o750); err != nil {
-		t.Fatalf("mkdir private home: %v", err)
-	}
-	if err := os.WriteFile(filepath.Join(privateHome, ".agents-sandbox"), []byte("x"), 0o600); err != nil {
-		t.Fatalf("block lock dir: %v", err)
-	}
+	blockRootLock(t)
 
 	var prompted bool
 	ui := interactiveUI(choiceFresh, &prompted)

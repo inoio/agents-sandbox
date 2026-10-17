@@ -2,10 +2,12 @@ package vm
 
 import (
 	"context"
+	"errors"
 	"strings"
 
 	"github.com/inoio/agents-sandbox/internal/agent"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
+	"github.com/inoio/agents-sandbox/internal/sandbox/state"
 	"github.com/inoio/agents-sandbox/internal/termio"
 
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
@@ -24,9 +26,11 @@ const (
 )
 
 // recordImageProvenance reads the image's install-provenance files on first
-// boot and, for a tool-installed agent, detects and records its version as the
-// upgrade baseline. Failures are logged, never fatal.
-func recordImageProvenance(ctx context.Context, a agent.Agent, sb msb.Sandbox, ui termio.UI) {
+// boot and writes them into the project's HomeState, detecting and recording
+// the installed agent version as the upgrade baseline for a tool-installed
+// agent. It is a read-modify-write so the project's fingerprints and offered
+// set survive. Failures are logged, never fatal.
+func recordImageProvenance(ctx context.Context, k state.Key, a agent.Agent, sb msb.Sandbox, ui termio.UI) {
 	agentSource, err := sb.FS().ReadString(ctx, agentSourcePath)
 	if err != nil {
 		ui.Verbosef("no agent-source file in image (pre-provenance image); skipping")
@@ -37,52 +41,45 @@ func recordImageProvenance(ctx context.Context, a agent.Agent, sb msb.Sandbox, u
 	dockerSource, _ := sb.FS().ReadString(ctx, dockerSourcePath)
 	dockerSource = strings.TrimSpace(dockerSource)
 
-	state, err := loadUpgradeState()
+	hs, err := state.ReadState(k)
 	if err != nil {
-		ui.Warnf("could not read updater state: %v (continuing)", err)
-		return
+		if !errors.Is(err, state.ErrStateNotFound) {
+			ui.Warnf("could not read project state: %v (continuing)", err)
+			return
+		}
+		hs = &state.HomeState{}
 	}
-	if state.Agents == nil {
-		state.Agents = map[string]agentUpgradeState{}
-	}
-	entry := state.Agents[a.Name()]
-	entry.AgentSource = agentSource
-	entry.DockerSource = dockerSource
-	if agentSource == agentSourceTool {
-		// recordToolAgentVersion writes entry.CurrentVersion
-		entry = recordToolAgentVersion(ctx, a, sb, ui, entry)
-	}
-	state.Agents[a.Name()] = entry
 
-	if persistErr := saveUpgradeState(state); persistErr != nil {
-		ui.Warnf("could not persist updater state: %v (continuing)", persistErr)
+	hs.AgentSource = agentSource
+	hs.DockerSource = dockerSource
+	if agentSource == agentSourceTool {
+		if version, ok := detectToolAgentVersion(ctx, a, sb, ui); ok {
+			hs.AgentVersion = version
+		}
+	}
+
+	if writeErr := state.WriteState(k, *hs); writeErr != nil {
+		ui.Warnf("could not persist project state: %v (continuing)", writeErr)
 	}
 }
 
-// recordToolAgentVersion detects the installed agent version via the agent's
-// VersionProvider and records it as the upgrade baseline. Failures are logged,
-// never fatal.
-func recordToolAgentVersion(
-	ctx context.Context,
-	a agent.Agent,
-	sb msb.Sandbox,
-	ui termio.UI,
-	entry agentUpgradeState,
-) agentUpgradeState {
+// detectToolAgentVersion detects the installed agent version via the agent's
+// VersionProvider. The bool reports success; on failure the caller keeps any
+// previously recorded version. Failures are logged, never fatal.
+func detectToolAgentVersion(ctx context.Context, a agent.Agent, sb msb.Sandbox, ui termio.UI) (string, bool) {
 	provider, ok := agent.AsVersionProvider(a)
 	if !ok {
-		return entry
+		return "", false
 	}
 	out, runErr := sb.Shell(ctx, provider.VersionCmd(), msbSdk.WithExecUser(DefaultSandboxUser))
 	if runErr != nil {
 		ui.Warnf("could not detect agent version: %v (continuing)", runErr)
-		return entry
+		return "", false
 	}
 	version, parseErr := provider.ParseVersion(out.Stdout())
 	if parseErr != nil {
 		ui.Warnf("could not parse agent version: %v (continuing)", parseErr)
-		return entry
+		return "", false
 	}
-	entry.CurrentVersion = version
-	return entry
+	return version, true
 }

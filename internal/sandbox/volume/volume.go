@@ -150,16 +150,22 @@ func (vm *Manager) ApplyHomeAction(
 	}
 
 	newState := state.NewHomeState(newName, info.Digest)
-	// Preserve the env/secret/network/mount fingerprints from the previous
-	// state: a home action changes the home volume data, not the env/secrets/
-	// network/mounts baked into the VM, so discarding them would trigger a
-	// false VM rebuild on the next startup (see EnvChanged/SecretsChanged/
-	// NetworkChanged/MountsChanged treating empty state as "changed").
+	// Preserve the env/secret/network/mount fingerprints and the upgrade state
+	// from the previous state: a home action changes the home volume data, not
+	// the env/secrets/network/mounts baked into the VM or the image the upgrade
+	// state was recorded against, so discarding them would trigger a false VM
+	// rebuild or re-fire the upgrade prompt on the next startup (see
+	// EnvChanged/SecretsChanged/NetworkChanged/MountsChanged treating empty
+	// state as "changed").
 	if prior, err := state.ReadState(k); err == nil {
 		newState.EnvState = prior.EnvState
 		newState.SecretState = prior.SecretState
 		newState.NetworkState = prior.NetworkState
 		newState.MountState = prior.MountState
+		newState.AgentVersion = prior.AgentVersion
+		newState.AgentSource = prior.AgentSource
+		newState.DockerSource = prior.DockerSource
+		newState.OfferedVersions = prior.OfferedVersions
 	}
 	if err := state.WriteState(k, newState); err != nil {
 		ui.Warnf("failed to write state file: %v", err)

@@ -180,10 +180,14 @@ func TestVolumeOp_PreservesEnvSecretFingerprints(t *testing.T) {
 	slug := "testproj-aBc1234D"
 	oldVol := "agents-sandbox-home-" + slug + "-old"
 	oldState := state.HomeState{
-		HomeVolume:  oldVol,
-		ImageDigest: "sha256:old",
-		EnvState:    state.EnvState{Hash: "envhash", Names: []string{"FOO"}},
-		SecretState: state.SecretState{Hash: "sechash", Names: []string{"TOKEN"}},
+		HomeVolume:      oldVol,
+		ImageDigest:     "sha256:old",
+		AgentVersion:    "1.2.3",
+		AgentSource:     "tool",
+		DockerSource:    "user",
+		OfferedVersions: []string{"2.0.0"},
+		EnvState:        state.EnvState{Hash: "envhash", Names: []string{"FOO"}},
+		SecretState:     state.SecretState{Hash: "sechash", Names: []string{"TOKEN"}},
 	}
 	if err := state.WriteState(state.Key{Slug: slug, Agent: "opencode"}, oldState); err != nil {
 		t.Fatalf("WriteState: %v", err)
@@ -211,6 +215,10 @@ func TestVolumeOp_PreservesEnvSecretFingerprints(t *testing.T) {
 	}
 	if st.SecretState.Hash != "sechash" || len(st.SecretState.Names) != 1 || st.SecretState.Names[0] != "TOKEN" {
 		t.Errorf("SecretState not preserved after volume op: %+v", st.SecretState)
+	}
+	if st.AgentVersion != "1.2.3" || st.AgentSource != "tool" || st.DockerSource != "user" ||
+		len(st.OfferedVersions) != 1 || st.OfferedVersions[0] != "2.0.0" {
+		t.Errorf("upgrade fields not preserved after volume op: %+v", st)
 	}
 }
 

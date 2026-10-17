@@ -71,8 +71,10 @@ never a patch.
 - The `Deprecated` changelog entries and the register above are kept in sync in
   the same PR that introduces or removes a deprecation.
 - Every deprecation has a regression test asserting it still resolves with lower
-  precedence and emits one warning (see #202). A deprecation without a test is
-  incomplete.
+  precedence and emits one warning. `cmd/agents-sandbox/cli_deprecations_test.go`
+  (#202) covers the flag/env/config aliases and asserts the warning fires exactly
+  once; the image-reference aliases are silent by design and are covered by the
+  image-package tests. A deprecation without a test is incomplete.
 - The docs "Deprecations" page (issue #205) is updated from the register by hand
   (small, curated) and checked by `make check`'s docs linkcheck.
 

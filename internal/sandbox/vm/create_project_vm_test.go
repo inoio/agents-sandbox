@@ -85,6 +85,7 @@ func TestSetUpSandboxDockerdError(t *testing.T) {
 	cfs := &reprovision.ConfigFiles{}
 	_, err := setUpSandbox(
 		context.Background(),
+		testVMKey(),
 		sb,
 		options.RunOptions{},
 		cfs,
@@ -119,6 +120,7 @@ func TestSetUpSandboxEnsureDaemonError(t *testing.T) {
 	cfs := &reprovision.ConfigFiles{}
 	_, err := setUpSandbox(
 		context.Background(),
+		testVMKey(),
 		sb,
 		options.RunOptions{},
 		cfs,
@@ -153,6 +155,7 @@ func TestSetUpSandboxProvisionWarn(t *testing.T) {
 	cfs := &reprovision.ConfigFiles{HasSnippets: true, Merged: []byte(`{"model":"x"}`)}
 	_, err := setUpSandbox(
 		context.Background(),
+		testVMKey(),
 		sb,
 		options.RunOptions{},
 		cfs,
