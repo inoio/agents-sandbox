@@ -90,6 +90,26 @@ Under `--dry-run` (`opts.DryRun`, which implies `--dry-run-vm`), `resolveBuildVe
 and emits a verbose `dry-run: would resolve build version`. This keeps `--dry-run` side-effect-free, matching the
 home-migration offer gate; the legacy fold below is likewise skipped under `--dry-run`.
 
+### Baseline recovery (image-label fallback)
+
+Migration drops the global `current_version`, so a pre-existing project has no `HomeState.agent_version` on its first
+run after the upgrade. The run decision happens *before* the boot that `recordImageProvenance` could record it, so
+without recovery `current == ""` and the build resolves the latest release: the existing image is silently rebuilt to
+latest (no prompt), and offline the launch fails before it can reuse the image. Both are regressions from the
+pre-change behavior, where the non-empty global version made the prompt fire and let the existing image be reused
+offline.
+
+To close that gap, `resolveBuildVersion` recovers the baseline from the project's own existing image before giving up:
+`image.ExistingAgentVersion(ctx, slug, agent)` reads the local runner image's
+`org.agents-sandbox.identity.agent-version` label (a `docker inspect`, no network) and returns the release, or nothing
+for an absent image, a pre-label image, or a non-release sentinel (`none` / `user-provided`). When it returns a
+version, `recoverAgentVersion` records it to `HomeState.agent_version` (under the home lock) and the normal check/prompt
+runs against it. A genuine first run (no image, no label) still returns `""` and resolves at build time.
+
+The label is a *recovery fallback only*: `HomeState.agent_version` remains the single source of truth once recorded.
+This does not resurrect the rejected "read the current version from the image label on every run" design; it only
+bridges the gap left by dropping the global version.
+
 ### RootState writer serialization
 
 `RootState` now has two independent writers: `runtimemigration` (the `migrations` map) and the upgrade path (the
@@ -100,12 +120,28 @@ this run (no check, no fold), retrying next run. `state.UpdateRootState` stays l
 hold the lock; this avoids the non-reentrant double-lock that a lock-inside-`UpdateRootState` design would cause for
 `runtimemigration` (flock is not reentrant).
 
+### HomeState write serialization
+
+Every per-project `HomeState` read-modify-write is serialized by a single host-only flock per `(slug, agent)`
+(`state.LockHomeState`, at `<slug>/<agent>/home.lock`), exposed through `state.UpdateHomeState(k, mutate)`, which holds
+the lock across the read, the mutation, and the write. This PR adds two HomeState writers (the upgrade offered set and
+`recordImageProvenance`) to a file the volume operations already read-modify-write, so without the lock a concurrent
+volume op could be clobbered — e.g. an upgrade write restoring an old `home_volume` after a volume op committed a new
+one, which with `--rm-old` points at a deleted volume. The lock makes each writer re-read under mutual exclusion, so no
+writer loses another's field. `UpdateHomeState` mutates the freshly-read state and preserves fields the caller does not
+touch; a present-but-unreadable file returns an error without writing.
+
+Lock ordering is **root lock (if held) → home lock**. `pendingUpgrade` holds the root lock across its step and then
+takes the home lock for the offered-set write; no holder of a home lock acquires the root lock (the volume operations
+do not touch `RootState`), so the order cannot cycle. flock is not reentrant, so no single call path may take the same
+key's home lock twice.
+
 ### Provenance (`vm.recordImageProvenance`)
 
 `setUpSandbox` threads the project `state.Key` into `recordImageProvenance` (the caller already holds `k`). On boot it
 reads `HomeState(k)`, sets `agent_source`/`docker_source`, and for a tool-installed agent detects the installed version
-via the agent's `VersionProvider` and writes it to `agent_version`. It is a read-modify-write so fingerprints and the
-offered set survive. Warnings remain non-fatal.
+via the agent's `VersionProvider` and writes it to `agent_version`. It is a read-modify-write (now via
+`state.UpdateHomeState`) so fingerprints and the offered set survive. Warnings remain non-fatal.
 
 ## Migration (non-interactive, legacy-file-triggered, no registry entry)
 
@@ -134,8 +170,14 @@ The presence of `<root>/updater.yaml` is the trigger. No user choice, no `migrat
   too: `volume.operations.volumeOp`, `volume.Manager.ApplyHomeAction`, and `volume.Manager.recoveredHomeState` (#219,
   when a prior state exists). A volume op or a recovered volume does not change the image, so dropping the fields would
   falsely reset the baseline and the offered set.
+- **No silent rebuild; offline reuse.** A project with an existing runner image never silently rebuilds to the latest
+  release: when no baseline is recorded it is recovered from the image label so the normal prompt fires, and an offline
+  check reuses the existing image (the recovered, non-empty `current` short-circuits release resolution).
 - **Migration never loses the cadence.** `last_checked` is folded only when unset; the legacy file is deleted only
   after a successful root-state write.
+- **Serialized HomeState writes.** Every `HomeState` read-modify-write holds the per-`(slug, agent)` home lock, so
+  concurrent writers (volume operations, upgrade bookkeeping, fingerprint persistence) cannot lose each other's fields.
+  Lock order is root → home; the home lock is never taken twice on one path (flock is not reentrant).
 - **Serialized RootState writes.** Every `RootState` read-modify-write holds the shared host-only flock;
   `state.UpdateRootState` stays lock-free and requires the caller to hold it. `runtimemigration` and the upgrade path
   share the one lock, so neither can clobber the other's map.
@@ -146,9 +188,13 @@ The presence of `<root>/updater.yaml` is the trigger. No user choice, no `migrat
 
 ## Edge cases
 
-- First run after the change: `HomeState` has no `agent_version`, so `current == ""` and no prompt fires (same as
-  today); boot writes it.
-- A project whose `state.yaml` was lost: no baseline that run, so no prompt; recovery/boot repopulates it.
+- First run after the change for a *pre-existing* project: `HomeState` has no `agent_version`, but the existing image
+  carries the label, so `current` is recovered, the normal prompt fires, and the baseline is persisted. No silent
+  rebuild.
+- A genuine first run (no existing image): no label to recover, so `current == ""` and no prompt fires; the build
+  resolves the latest release, and boot writes the baseline.
+- A project whose `state.yaml` was lost but whose image still exists: the baseline is recovered from the image label
+  (and, if the image is gone too, recovery/boot repopulates it).
 - Legacy `updater.yaml` present but global `last_checked` already set: no fold, file deleted.
 - A freshly folded `last_checked` intentionally defers the first check: if the legacy timestamp is recent, the first
   post-migration run is not due, so no network fetch happens, `latest_version` stays empty, and no prompt fires until
@@ -166,7 +212,8 @@ The presence of `<root>/updater.yaml` is the trigger. No user choice, no `migrat
 - No project identity data (origin URL, workspace path, recency) is introduced.
 - No `migrations` registry entry; the legacy file itself is the trigger.
 - No `sandbox create`/`run` prompt-order change; the prompt still fires before the image is built.
-- Reading the version from the image label instead of state is rejected; state is the chosen source of truth.
+- Reading the version from the image label is not the source of truth; `HomeState.agent_version` remains the baseline.
+  The label is read only as a one-time recovery fallback when no baseline is recorded (see Baseline recovery).
 - `config harden`, `upgrade.json`, and launcher self-upgrade are untouched.
 
 ## Docs and changelog
