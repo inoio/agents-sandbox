@@ -77,8 +77,10 @@ document that exists; no new project-level file is introduced (see Non-goals).
 5. Read `HomeState(k)`; if its `offered_versions` already contains `latest`, no offer.
 6. Append `latest` to the `HomeState` `offered_versions`, persist, and return the offer.
 
-The prompt (`promptUpgrade`, unchanged wording) then names both `latest` and this project's `current`. Because that
-`current` is read from the project's own file, it cannot name another project's version.
+The prompt (`promptUpgrade`) then names both `latest` and this project's `current` (PR #225 wording: the prompt reads
+`"Rebuild the runner image with <agent> <latest>? (current image has <current>)"` and the Rebuild choice reads
+`"Upgrade <agent> <current> → <latest>"`). Because that `current` is read from the project's own file, it cannot name
+another project's version.
 
 Under `--dry-run` (`opts.DryRun`, which implies `--dry-run-vm`), `resolveBuildVersion` is not called at all:
 `PrepareSandbox` uses the project's recorded `HomeState.agent_version` as the build arg (no network check, no prompt)
