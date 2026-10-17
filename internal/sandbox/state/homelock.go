@@ -60,6 +60,16 @@ func LockHomeState(k Key, blocking bool) (release func(), ok bool, err error) {
 	return func() { _ = f.Close() }, true, nil
 }
 
+// withHomeLock runs fn while holding the blocking home lock.
+func withHomeLock(k Key, fn func() error) error {
+	release, _, err := LockHomeState(k, true)
+	if err != nil {
+		return err
+	}
+	defer release()
+	return fn()
+}
+
 // UpdateHomeState applies mutate to the project's HomeState and writes the
 // result, serializing the read-modify-write under the home lock so concurrent
 // writers cannot clobber each other's fields (e.g. a volume operation changing
@@ -67,19 +77,49 @@ func LockHomeState(k Key, blocking bool) (release func(), ok bool, err error) {
 // starts from the zero HomeState. A present-but-unreadable file is returned as
 // an error without writing, so an unreadable document is never clobbered.
 func UpdateHomeState(k Key, mutate func(*HomeState)) error {
-	release, _, err := LockHomeState(k, true)
-	if err != nil {
-		return err
-	}
-	defer release()
-
-	hs, err := ReadState(k)
-	if err != nil {
-		if !errors.Is(err, ErrStateNotFound) {
-			return fmt.Errorf("read state for update: %w", err)
+	return withHomeLock(k, func() error {
+		hs, err := ReadState(k)
+		if err != nil {
+			if !errors.Is(err, ErrStateNotFound) {
+				return fmt.Errorf("read state for update: %w", err)
+			}
+			hs = new(HomeState)
 		}
-		hs = new(HomeState)
-	}
-	mutate(hs)
-	return WriteState(k, *hs)
+		mutate(hs)
+		return WriteState(k, *hs)
+	})
+}
+
+// UpdateExistingHomeState applies mutate and writes only when the project's
+// state file already exists, returning updated=false and writing nothing when
+// it is absent. Writers that run before home resolution use it so they never
+// create a fingerprint-less partial state that would poison later home recovery
+// (#183). A present-but-unreadable file returns an error without writing.
+func UpdateExistingHomeState(k Key, mutate func(*HomeState)) (bool, error) {
+	updated := false
+	err := withHomeLock(k, func() error {
+		hs, readErr := ReadState(k)
+		if readErr != nil {
+			if errors.Is(readErr, ErrStateNotFound) {
+				return nil
+			}
+			return fmt.Errorf("read state for update: %w", readErr)
+		}
+		mutate(hs)
+		if writeErr := WriteState(k, *hs); writeErr != nil {
+			return writeErr
+		}
+		updated = true
+		return nil
+	})
+	return updated, err
+}
+
+// ReplaceHomeState writes hs as the project's HomeState under the home lock,
+// overwriting any existing document, including an unreadable or corrupt one.
+// Recovery paths that rebuild a lost or malformed state use it so a broken file
+// is repaired rather than left in place; every other writer merges through
+// UpdateHomeState or UpdateExistingHomeState.
+func ReplaceHomeState(k Key, hs HomeState) error {
+	return withHomeLock(k, func() error { return WriteState(k, hs) })
 }

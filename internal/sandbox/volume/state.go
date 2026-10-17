@@ -77,7 +77,10 @@ func (vm *Manager) recoverOrCreateHome(
 		recovered,
 	)
 	hs := recoveredHomeState(recovered, info, prior, fingerprints)
-	if err := state.UpdateHomeState(k, func(cur *state.HomeState) { *cur = hs }); err != nil {
+	// Replace wholesale: this recovery path must repair a malformed state file
+	// (which ResolveHomeVolume routes here), so it cannot merge via a read that
+	// would fail on the same broken document.
+	if err := state.ReplaceHomeState(k, hs); err != nil {
 		ui.Warnf("failed to write state file: %v", err)
 	}
 	return recovered, hs, nil
@@ -149,7 +152,9 @@ func (vm *Manager) EnsureNewHome(
 	}
 
 	hs := fingerprints.Apply(state.NewHomeState(volName, info.Digest))
-	if err := state.UpdateHomeState(k, func(cur *state.HomeState) { *cur = hs }); err != nil {
+	// Replace wholesale: a fresh home volume's state is authoritative, and the
+	// path is also reached to repair a malformed state file.
+	if err := state.ReplaceHomeState(k, hs); err != nil {
 		ui.Warnf("failed to write state file: %v", err)
 	}
 	return volName, hs, nil

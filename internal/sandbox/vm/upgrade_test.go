@@ -19,11 +19,11 @@ import (
 )
 
 // withExistingAgentVersion makes the project's existing runner image report the
-// given baked agent version.
-func withExistingAgentVersion(t *testing.T, version string) {
+// fixture baseline version.
+func withExistingAgentVersion(t *testing.T) {
 	t.Helper()
 	orig := existingAgentVersion
-	existingAgentVersion = func(_ context.Context, _, _ string) (string, bool) { return version, true }
+	existingAgentVersion = func(_ context.Context, _, _ string) (string, bool) { return "1.0.0", true }
 	t.Cleanup(func() { existingAgentVersion = orig })
 }
 
@@ -235,9 +235,12 @@ func TestResolveOpenCodeVersionRecoversBaselineFromExistingImage(t *testing.T) {
 
 	configpaths.WithMockConfigPaths(t)
 	k := state.Key{Slug: "proj", Agent: "opencode"}
-	// No recorded baseline (as after the updater.yaml migration), but the
-	// project's existing image carries it.
-	withExistingAgentVersion(t, "1.0.0")
+	// An existing state without a recorded baseline (as after the updater.yaml
+	// migration), and an image that carries the baseline.
+	if err := state.WriteState(k, state.HomeState{HomeVolume: "vol-1"}); err != nil {
+		t.Fatalf("WriteState: %v", err)
+	}
+	withExistingAgentVersion(t)
 
 	var prompt string
 	ui := &termio.Mock{
@@ -273,6 +276,35 @@ func TestResolveOpenCodeVersionRecoversBaselineFromExistingImage(t *testing.T) {
 	}
 }
 
+func TestResolveOpenCodeVersionRecoveryDoesNotCreatePartialState(t *testing.T) {
+	origLatest := agentLatestVersion
+	defer func() { agentLatestVersion = origLatest }()
+	agentLatestVersion = func(_ context.Context, _ agent.Agent) (string, error) { return "2.0.0", nil }
+
+	configpaths.WithMockConfigPaths(t)
+	k := state.Key{Slug: "proj", Agent: "opencode"}
+	// No state file at all, but the image carries a baseline. Recovery must use
+	// it without creating a fingerprint-less partial state that would poison
+	// home recovery (#183).
+	withExistingAgentVersion(t)
+
+	got, upgraded, err := resolveBuildVersion(
+		context.Background(), k, opencodeAgent(t), &termio.Mock{}, options.RunOptions{},
+	)
+	if err != nil {
+		t.Fatalf("resolveBuildVersion: %v", err)
+	}
+	if got != "1.0.0" {
+		t.Errorf("resolveBuildVersion = %q, want recovered 1.0.0", got)
+	}
+	if upgraded {
+		t.Error("expected upgraded=false for a non-interactive keep")
+	}
+	if _, err := state.ReadState(k); !errors.Is(err, state.ErrStateNotFound) {
+		t.Fatalf("ReadState error = %v, want ErrStateNotFound (no partial state written)", err)
+	}
+}
+
 func TestResolveOpenCodeVersionRecoveredBaselineReusedOffline(t *testing.T) {
 	origLatest := agentLatestVersion
 	defer func() { agentLatestVersion = origLatest }()
@@ -282,7 +314,7 @@ func TestResolveOpenCodeVersionRecoveredBaselineReusedOffline(t *testing.T) {
 
 	configpaths.WithMockConfigPaths(t)
 	k := state.Key{Slug: "proj", Agent: "opencode"}
-	withExistingAgentVersion(t, "1.0.0")
+	withExistingAgentVersion(t)
 
 	got, upgraded, err := resolveBuildVersion(
 		context.Background(), k, opencodeAgent(t), &termio.Mock{}, options.RunOptions{},
@@ -305,7 +337,7 @@ func TestResolveOpenCodeVersionRecoveryPersistFailureStillUsesVersion(t *testing
 
 	configpaths.WithMockConfigPaths(t)
 	k := state.Key{Slug: "proj", Agent: "opencode"}
-	withExistingAgentVersion(t, "1.0.0")
+	withExistingAgentVersion(t)
 	// A directory at the state path makes every state read/write fail, so the
 	// recovery write cannot be recorded and the project state is unreadable.
 	if err := os.MkdirAll(filepath.Join(state.KeyDir(k), "state.yaml"), 0o700); err != nil {
@@ -935,7 +967,9 @@ func TestPendingUpgradeWarnsOnProjectStateReadError(t *testing.T) {
 
 // TestPendingUpgradeOffersWhenProjectStateMissing covers the ErrStateNotFound
 // arm: with no project state file the offered set is empty, so the version is
-// offered and persisted into a fresh HomeState.
+// offered, but it is not persisted: creating a state here (before home
+// resolution) would leave a fingerprint-less partial state that poisons home
+// recovery (#183).
 func TestPendingUpgradeOffersWhenProjectStateMissing(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	k := state.Key{Slug: "proj", Agent: "opencode"}
@@ -949,12 +983,8 @@ func TestPendingUpgradeOffersWhenProjectStateMissing(t *testing.T) {
 	if !offer || latest != "2.0.0" {
 		t.Fatalf("pendingUpgrade = (%q, %v), want (2.0.0, true)", latest, offer)
 	}
-	hs, err := state.ReadState(k)
-	if err != nil {
-		t.Fatalf("ReadState: %v", err)
-	}
-	if !hs.Offered("2.0.0") {
-		t.Errorf("offered not persisted to a fresh HomeState: %+v", hs)
+	if _, err := state.ReadState(k); !errors.Is(err, state.ErrStateNotFound) {
+		t.Fatalf("ReadState error = %v, want ErrStateNotFound (no partial state written)", err)
 	}
 }
 

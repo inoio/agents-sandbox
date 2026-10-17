@@ -66,6 +66,106 @@ func TestUpdateHomeStateReadErrorDoesNotWrite(t *testing.T) {
 	}
 }
 
+func TestUpdateExistingHomeStateSkipsMissingState(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	k := testKey()
+
+	updated, err := UpdateExistingHomeState(k, func(hs *HomeState) { hs.AgentVersion = "1.0.0" })
+	if err != nil {
+		t.Fatalf("UpdateExistingHomeState: %v", err)
+	}
+	if updated {
+		t.Fatal("updated = true, want false for a missing state file")
+	}
+	if _, err := ReadState(k); !errors.Is(err, ErrStateNotFound) {
+		t.Fatalf("ReadState error = %v, want ErrStateNotFound (no partial state written)", err)
+	}
+}
+
+func TestUpdateExistingHomeStateUpdatesPresentState(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	k := testKey()
+	if err := WriteState(k, HomeState{HomeVolume: "vol-1"}); err != nil {
+		t.Fatalf("WriteState: %v", err)
+	}
+
+	updated, err := UpdateExistingHomeState(k, func(hs *HomeState) { hs.AgentVersion = "1.0.0" })
+	if err != nil {
+		t.Fatalf("UpdateExistingHomeState: %v", err)
+	}
+	if !updated {
+		t.Fatal("updated = false, want true for a present state file")
+	}
+	got, err := ReadState(k)
+	if err != nil {
+		t.Fatalf("ReadState: %v", err)
+	}
+	if got.HomeVolume != "vol-1" || got.AgentVersion != "1.0.0" {
+		t.Fatalf("state = %+v, want vol-1 and agent version 1.0.0", got)
+	}
+}
+
+func TestUpdateExistingHomeStateReadError(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	k := testKey()
+	if err := os.MkdirAll(stateFile(k), 0o700); err != nil {
+		t.Fatalf("mkdir state path: %v", err)
+	}
+
+	if _, err := UpdateExistingHomeState(k, func(*HomeState) {}); err == nil {
+		t.Fatal("UpdateExistingHomeState() error = nil, want read error")
+	}
+}
+
+func TestUpdateExistingHomeStateWriteError(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("running as root: a read-only directory does not block writes")
+	}
+	configpaths.WithMockConfigPaths(t)
+	k := testKey()
+	if err := WriteState(k, HomeState{HomeVolume: "vol-1"}); err != nil {
+		t.Fatalf("WriteState: %v", err)
+	}
+	// Create the lock file first so the subsequent lock succeeds on an existing
+	// file and the failure lands on the state write, not the lock open.
+	release, _, err := LockHomeState(k, true)
+	if err != nil {
+		t.Fatalf("LockHomeState: %v", err)
+	}
+	release()
+	keyDir := KeyDir(k)
+	if err := os.Chmod(keyDir, 0o555); err != nil {
+		t.Skipf("cannot chmod key dir: %v", err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(keyDir, 0o700) })
+
+	if _, err := UpdateExistingHomeState(k, func(hs *HomeState) { hs.AgentVersion = "1.0.0" }); err == nil {
+		t.Fatal("UpdateExistingHomeState() error = nil, want write error")
+	}
+}
+
+func TestReplaceHomeStateOverwritesCorruptState(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	k := testKey()
+	if err := os.MkdirAll(KeyDir(k), 0o700); err != nil {
+		t.Fatalf("mkdir state dir: %v", err)
+	}
+	if err := os.WriteFile(stateFile(k), []byte("{ corrupt: [\n"), 0o600); err != nil {
+		t.Fatalf("write corrupt state: %v", err)
+	}
+
+	if err := ReplaceHomeState(k, HomeState{HomeVolume: "recovered"}); err != nil {
+		t.Fatalf("ReplaceHomeState: %v", err)
+	}
+	got, err := ReadState(k)
+	if err != nil {
+		t.Fatalf("ReadState after replace: %v", err)
+	}
+	if got.HomeVolume != "recovered" {
+		t.Fatalf("HomeVolume = %q, want recovered", got.HomeVolume)
+	}
+}
+
 func TestUpdateHomeStateLockErrorReturnsError(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	wantErr := errors.New("mkdir boom")

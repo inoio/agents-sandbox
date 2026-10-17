@@ -211,7 +211,13 @@ func pendingUpgrade(
 		return "", false
 	}
 
-	if writeErr := state.UpdateHomeState(k, func(hs *state.HomeState) { hs.MarkOffered(latest) }); writeErr != nil {
+	// Update an existing state only: this runs before home resolution, so
+	// creating a state here would leave a fingerprint-less partial state that
+	// poisons that step's recovery (#183).
+	if _, writeErr := state.UpdateExistingHomeState(
+		k,
+		func(hs *state.HomeState) { hs.MarkOffered(latest) },
+	); writeErr != nil {
 		ui.Warnf("could not persist project state: %v (continuing)", writeErr)
 	}
 	return latest, true
@@ -244,14 +250,19 @@ func currentAgentSource(k state.Key) string {
 // latest release and silently rebuild the image (and fail offline); recovering
 // the version restores the prompt-and-reuse behavior. It returns "" when no
 // image or no release label exists, so a genuine first run still resolves at
-// build time. Recording is best-effort and local: a failure only costs a
-// re-inspection next run.
+// build time.
+//
+// The version is recorded only when a state file already exists. This runs
+// before home resolution, so creating a state here would leave a
+// fingerprint-less partial state that the home-recovery step would treat as a
+// prior state and copy empty fingerprints forward, spuriously detecting a
+// config change (#183). A failure only costs a re-inspection next run.
 func recoverAgentVersion(ctx context.Context, k state.Key, ui termio.UI) string {
 	version, ok := existingAgentVersion(ctx, k.Slug, k.Agent)
 	if !ok {
 		return ""
 	}
-	if err := state.UpdateHomeState(k, func(hs *state.HomeState) { hs.AgentVersion = version }); err != nil {
+	if _, err := state.UpdateExistingHomeState(k, func(hs *state.HomeState) { hs.AgentVersion = version }); err != nil {
 		ui.Verbosef("could not record recovered agent version: %v", err)
 	}
 	return version
