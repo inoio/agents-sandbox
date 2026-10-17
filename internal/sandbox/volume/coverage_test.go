@@ -195,7 +195,7 @@ func TestVolumeOp_MainFails_CleanupVolumeFailsWarns(t *testing.T) {
 	}
 }
 
-func TestVolumeOp_WriteStateFails_Warns(t *testing.T) {
+func TestVolumeOp_WriteStateFails_ReturnsError(t *testing.T) {
 	mock, ui := setupVolumeOpsFixtures(t)
 	slug := "testproj-aBc1234D"
 	state.WriteState(
@@ -230,17 +230,11 @@ func TestVolumeOp_WriteStateFails_Warns(t *testing.T) {
 		false,
 		ui,
 	)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+	if err == nil {
+		t.Fatal("expected a state-write error, got nil")
 	}
-	var warned bool
-	for _, c := range ui.WarnCalls {
-		if strings.Contains(c, "failed to write state file") {
-			warned = true
-		}
-	}
-	if !warned {
-		t.Errorf("expected write-state warning, got: %v", ui.WarnCalls)
+	if !strings.Contains(err.Error(), "write state") {
+		t.Errorf("unexpected error: %v", err)
 	}
 }
 
@@ -596,7 +590,7 @@ func TestApplyHomeAction_CreateVolumeFails(t *testing.T) {
 	}
 }
 
-func TestApplyHomeAction_WriteStateFails_Warns(t *testing.T) {
+func TestApplyHomeAction_WriteStateFails_ReturnsError(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	docker.WithNoopDockerMock(t)
 
@@ -617,10 +611,12 @@ func TestApplyHomeAction_WriteStateFails_Warns(t *testing.T) {
 	t.Cleanup(func() { _ = os.Chmod(sdir, 0o700) })
 
 	mock := &msb.MockMsbClient{}
+	var createdVol string
 	mock.CreateSandboxFn = func(_ context.Context, _ string, _ ...msbSdk.SandboxOption) (msb.Sandbox, error) {
 		return msb.NewMockSandbox(msb.SandboxOpts{}), nil
 	}
 	mock.CreateVolumeFn = func(_ context.Context, name string, _ ...msbSdk.VolumeOption) (msb.VolumeHandle, error) {
+		createdVol = name
 		return &msb.MockVolumeHandle{Name_: name}, nil
 	}
 
@@ -636,17 +632,20 @@ func TestApplyHomeAction_WriteStateFails_Warns(t *testing.T) {
 		options.RunOptions{},
 		ui,
 	)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+	if err == nil {
+		t.Fatal("expected a state-write error, got nil")
 	}
-	var warned bool
-	for _, c := range ui.WarnCalls {
-		if strings.Contains(c, "failed to write state file") {
-			warned = true
+	if !strings.Contains(err.Error(), "write state") {
+		t.Errorf("unexpected error: %v", err)
+	}
+	var cleanedUp bool
+	for _, v := range mock.RemovedVolumes {
+		if v == createdVol {
+			cleanedUp = true
 		}
 	}
-	if !warned {
-		t.Errorf("expected write-state warning, got: %v", ui.WarnCalls)
+	if !cleanedUp {
+		t.Errorf("expected uncommitted volume %q to be cleaned up; removed=%v", createdVol, mock.RemovedVolumes)
 	}
 }
 

@@ -542,6 +542,60 @@ func TestCmdEdit_AttachError_Warns(t *testing.T) {
 	}
 }
 
+// TestVolumeOpAbortsWhenHomeVolumeChangedConcurrently pins the compare-and-set
+// guard: volumeOp snapshots the home volume, does its msb I/O outside the home
+// lock, then commits under the lock. If another writer changed home_volume in
+// the meantime, volumeOp must fail with a concurrent-change error and leave the
+// other writer's value in place instead of clobbering it.
+func TestVolumeOpAbortsWhenHomeVolumeChangedConcurrently(t *testing.T) {
+	mock, ui := setupVolumeOpsFixtures(t)
+
+	key := state.Key{Slug: "testproj-aBc1234D", Agent: "opencode"}
+	state.WriteState(key, state.HomeState{HomeVolume: "vol-1", ImageDigest: "sha256:old"})
+
+	var createdVol string
+	mock.CreateVolumeFn = func(_ context.Context, name string, _ ...msbSdk.VolumeOption) (msb.VolumeHandle, error) {
+		createdVol = name
+		return &msb.MockVolumeHandle{Name_: name}, nil
+	}
+
+	err := volumeOp(
+		context.Background(), key, "",
+		image.ImageInfo{Tag: "img-tag", Digest: "sha256:new"},
+		false, false,
+		volCallbacks{
+			dryRun: func(string) string { return "" },
+			main: func(oldVolume, _ string) error {
+				if oldVolume != "vol-1" {
+					t.Fatalf("snapshot home volume = %q, want vol-1", oldVolume)
+				}
+				return state.WithHomeState(key, func(cur *state.HomeState, _ bool) (bool, error) {
+					cur.HomeVolume = "vol-2"
+					return true, nil
+				})
+			},
+		},
+		ui,
+	)
+	if err == nil {
+		t.Fatal("expected a concurrent-change error, got nil")
+	}
+	if !strings.Contains(err.Error(), "home volume changed concurrently") {
+		t.Errorf("unexpected error: %v", err)
+	}
+
+	st, err := state.ReadState(key)
+	if err != nil {
+		t.Fatalf("ReadState: %v", err)
+	}
+	if st.HomeVolume != "vol-2" {
+		t.Errorf("HomeVolume = %q, want vol-2 (concurrent writer must not be clobbered)", st.HomeVolume)
+	}
+	if createdVol == "" {
+		t.Fatal("expected the new volume to have been created before the CAS failure")
+	}
+}
+
 func TestCmdMigrate_NonDryRun_Success(t *testing.T) {
 	mock, ui := setupVolumeOpsFixtures(t)
 

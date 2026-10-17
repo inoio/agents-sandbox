@@ -265,6 +265,55 @@ func TestRecordHomeImage_MissingStateIsNoop(t *testing.T) {
 	}
 }
 
+// TestApplyHomeActionAbortsWhenHomeVolumeChangedConcurrently pins the same
+// compare-and-set guard for the run-time home action: after its msb I/O it
+// commits under the home lock only if home_volume is still the resolved one.
+func TestApplyHomeActionAbortsWhenHomeVolumeChangedConcurrently(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	docker.WithNoopDockerMock(t)
+
+	key := state.Key{Slug: "myproj", Agent: "opencode"}
+	oldVol := "agents-sandbox-home-myproj-old"
+	state.WriteState(key, state.HomeState{HomeVolume: oldVol, ImageDigest: "sha256:old"})
+
+	mock := &msb.MockMsbClient{}
+	mock.CreateSandboxFn = func(_ context.Context, _ string, _ ...msbSdk.SandboxOption) (msb.Sandbox, error) {
+		if err := state.WithHomeState(key, func(cur *state.HomeState, _ bool) (bool, error) {
+			cur.HomeVolume = "agents-sandbox-home-myproj-other"
+			return true, nil
+		}); err != nil {
+			t.Fatalf("concurrent write: %v", err)
+		}
+		return msb.NewMockSandbox(msb.SandboxOpts{}), nil
+	}
+	vm := NewManager(&termio.Mock{})
+
+	_, err := vm.ApplyHomeAction(
+		context.Background(),
+		mock,
+		key,
+		oldVol,
+		image.ImageInfo{Tag: "img-tag", Digest: "sha256:new"},
+		ActionReset,
+		options.RunOptions{},
+		&termio.Mock{},
+	)
+	if err == nil {
+		t.Fatal("expected a concurrent-change error, got nil")
+	}
+	if !strings.Contains(err.Error(), "home volume changed concurrently") {
+		t.Errorf("unexpected error: %v", err)
+	}
+
+	st, err := state.ReadState(key)
+	if err != nil {
+		t.Fatalf("ReadState: %v", err)
+	}
+	if st.HomeVolume != "agents-sandbox-home-myproj-other" {
+		t.Errorf("HomeVolume = %q, want the concurrent writer's value", st.HomeVolume)
+	}
+}
+
 func TestApplyHomeAction_KeepReturnsOldVolume(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 
@@ -868,10 +917,10 @@ func TestResolveHomeVolume_RecoversWhenRecordedVolumeGone(t *testing.T) {
 	}
 }
 
-// TestResolveHomeVolume_RecoveryWriteStateFails covers the branch where the
-// recovered state cannot be persisted (e.g. a directory sits at the state
-// path): the volume is still returned and a warning is emitted.
-func TestResolveHomeVolume_RecoveryWriteStateFails(t *testing.T) {
+// TestResolveHomeVolume_RecoveryStateFails covers the branch where the recovery
+// transaction cannot run (e.g. a directory sits at the state path, so the state
+// read fails): the volume is still returned and a warning is emitted.
+func TestResolveHomeVolume_RecoveryStateFails(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 
 	const recovered = "agents-sandbox-home-writefail-20260101T000000"
@@ -912,8 +961,8 @@ func TestResolveHomeVolume_RecoveryWriteStateFails(t *testing.T) {
 	if volName != recovered {
 		t.Errorf("volume = %q, want recovered %q", volName, recovered)
 	}
-	if !strings.Contains(strings.Join(ui.WarnCalls, " "), "failed to write state file") {
-		t.Errorf("expected a write-state warning, got %v", ui.WarnCalls)
+	if !strings.Contains(strings.Join(ui.WarnCalls, " "), "failed to recover state file") {
+		t.Errorf("expected a state-recovery warning, got %v", ui.WarnCalls)
 	}
 }
 

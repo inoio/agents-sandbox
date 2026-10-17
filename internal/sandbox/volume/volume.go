@@ -154,13 +154,24 @@ func (vm *Manager) ApplyHomeAction(
 	// action does not affect: dropping them would trigger a false VM rebuild or
 	// re-fire the upgrade prompt on the next startup (see
 	// EnvChanged/SecretsChanged/NetworkChanged/MountsChanged treating empty
-	// state as "changed"). The update re-reads and writes under the home lock so
-	// a concurrent writer cannot be clobbered.
-	if err := state.UpdateHomeState(k, func(cur *state.HomeState) {
+	// state as "changed"). The write runs under the home lock but is guarded by a
+	// compare-and-set on the resolved home volume, since the msb I/O above ran
+	// without the lock: if another writer changed home_volume in the meantime,
+	// abort and drop the new volume rather than clobber it.
+	if err := state.WithHomeState(k, func(cur *state.HomeState, _ bool) (bool, error) {
+		if cur.HomeVolume != oldVolume {
+			return false, fmt.Errorf(
+				"home volume changed concurrently (want %q, have %q)",
+				oldVolume,
+				cur.HomeVolume,
+			)
+		}
 		cur.HomeVolume = newName
 		cur.ImageDigest = info.Digest
+		return true, nil
 	}); err != nil {
-		ui.Warnf("failed to write state file: %v", err)
+		vm.cleanupVolume(ctx, client, newName, ui)
+		return "", err
 	}
 	ui.Infof("%s to new home volume %q (old %q kept)", label, newName, oldVolume)
 	return newName, nil

@@ -76,15 +76,23 @@ func (vm *Manager) recoverOrCreateHome(
 		k.Slug,
 		recovered,
 	)
-	hs := recoveredHomeState(recovered, info, nil, fingerprints)
+	var recoveredState state.HomeState
+	callbackRan := false
 	if err := state.RecoverHomeState(k, func(cur *state.HomeState, exists bool) (bool, error) {
-		hs = recoveredHomeState(recovered, info, priorOrNil(cur, exists), fingerprints)
-		*cur = hs
+		callbackRan = true
+		recoveredState = recoveredHomeState(recovered, info, priorOrNil(cur, exists), fingerprints)
+		*cur = recoveredState
 		return true, nil
 	}); err != nil {
-		ui.Warnf("failed to write state file: %v", err)
+		ui.Warnf("failed to recover state file: %v", err)
 	}
-	return recovered, hs, nil
+	if !callbackRan {
+		// The transaction failed before it could run the callback (lock or read
+		// failure): still return a usable state rebuilt from the recovered
+		// volume alone, without prior carry-forward.
+		recoveredState = recoveredHomeState(recovered, info, nil, fingerprints)
+	}
+	return recovered, recoveredState, nil
 }
 
 // priorOrNil returns the readable prior document for carry-forward, or nil when
@@ -179,13 +187,13 @@ func (vm *Manager) EnsureNewHome(
 // image-change prompt so subsequent runs no longer detect a mismatch and do
 // not re-prompt. Missing state is a no-op.
 func (vm *Manager) RecordHomeImage(k state.Key, currentDigest string, ui termio.UI) error {
-	if _, err := state.ReadState(k); err != nil {
-		if errors.Is(err, state.ErrStateNotFound) {
-			return nil
+	if err := state.WithHomeState(k, func(cur *state.HomeState, exists bool) (bool, error) {
+		if !exists {
+			return false, nil
 		}
-		return err
-	}
-	if err := state.UpdateHomeState(k, func(cur *state.HomeState) { cur.ImageDigest = currentDigest }); err != nil {
+		cur.ImageDigest = currentDigest
+		return true, nil
+	}); err != nil {
 		ui.Warnf("failed to write state file: %v", err)
 		return err
 	}
