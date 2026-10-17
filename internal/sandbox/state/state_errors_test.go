@@ -1,6 +1,7 @@
 package state
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
@@ -63,7 +64,7 @@ func TestWriteState_RenameErrorCleansTemp(t *testing.T) {
 	}
 }
 
-func TestRemoveState_LegacyRemoveError(t *testing.T) {
+func TestRemoveHomeState_LegacyRemoveError(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	slug := "legacyerrproj"
 
@@ -74,7 +75,19 @@ func TestRemoveState_LegacyRemoveError(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := RemoveState(Key{Slug: slug, Agent: ""}); err == nil {
+	if err := RemoveHomeState(Key{Slug: slug, Agent: ""}); err == nil {
 		t.Fatal("expected error when the legacy state file cannot be removed")
+	}
+}
+
+func TestRemoveHomeStateLockError(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	wantErr := errors.New("mkdir boom")
+	orig := mkdirHomeLock
+	mkdirHomeLock = func(string, os.FileMode) error { return wantErr }
+	t.Cleanup(func() { mkdirHomeLock = orig })
+
+	if err := RemoveHomeState(Key{Slug: "proj", Agent: "opencode"}); !errors.Is(err, wantErr) {
+		t.Fatalf("RemoveHomeState() error = %v, want %v", err, wantErr)
 	}
 }

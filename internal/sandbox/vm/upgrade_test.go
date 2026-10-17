@@ -1007,7 +1007,10 @@ func TestPendingUpgradeWarnsOnRootStateWriteError(t *testing.T) {
 		t.Fatal(err)
 	}
 	stateDir := configpaths.Get().UserStateDir()
-	if err := os.WriteFile(filepath.Join(stateDir, "root.lock"), nil, 0o600); err != nil {
+	if err := os.MkdirAll(filepath.Join(stateDir, "locks"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(stateDir, "locks", "root.lock"), nil, 0o600); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.Chmod(stateDir, 0o500); err != nil {

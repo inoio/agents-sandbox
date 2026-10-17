@@ -13,7 +13,7 @@ import (
 // LockRootState's open fails.
 func blockRootLock(t *testing.T) {
 	t.Helper()
-	if err := os.MkdirAll(filepath.Join(configpaths.Get().UserStateDir(), "root.lock"), 0o700); err != nil {
+	if err := os.MkdirAll(filepath.Join(configpaths.Get().UserStateDir(), "locks", "root.lock"), 0o700); err != nil {
 		t.Fatalf("block root lock: %v", err)
 	}
 }

@@ -23,6 +23,13 @@ func stateRoot() string {
 	return configpaths.Get().UserStateDir()
 }
 
+// locksDir is the never-deleted tree holding every lock file. Lock files live
+// outside the removable per-key state directory so removing a key's state can
+// never delete the lock a concurrent writer holds (or resurrect removed state).
+func locksDir() string {
+	return filepath.Join(stateRoot(), "locks")
+}
+
 // KeyDir returns the state directory for a project/agent key.
 func KeyDir(k Key) string {
 	return filepath.Join(stateRoot(), k.Slug, k.Agent)
@@ -155,10 +162,21 @@ func WriteState(k Key, state HomeState) error {
 	return nil
 }
 
-// RemoveState removes the state file and its per-agent directory. Legacy
-// agent-less keys remove only the legacy state file so per-project claims and
-// other agents' state survive.
-func RemoveState(k Key) error {
+// RemoveHomeState removes the state file and its per-agent directory, taking
+// the home lock so a concurrent writer cannot resurrect the removed state. The
+// lock is acquired non-blockingly: if another holder has it, removal fails
+// closed rather than waiting. Lock files under locksDir are never removed.
+// Legacy agent-less keys remove only the legacy state file so per-project
+// claims and other agents' state survive.
+func RemoveHomeState(k Key) error {
+	release, ok, err := LockHomeState(k, false)
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return fmt.Errorf("home lock for %s/%s is held", k.Slug, k.Agent)
+	}
+	defer release()
 	if k.Agent != "" {
 		return os.RemoveAll(KeyDir(k))
 	}

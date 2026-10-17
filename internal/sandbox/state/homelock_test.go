@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -284,11 +285,23 @@ func TestLockHomeStateFlockError(t *testing.T) {
 	}
 }
 
-func TestKeyDirHomeLockPath(t *testing.T) {
+func TestHomeLockPathLivesUnderLocksDir(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	k := testKey()
-	want := filepath.Join(KeyDir(k), "home.lock")
+	want := filepath.Join(configpaths.Get().UserStateDir(), "locks", k.Slug, k.Agent+".lock")
 	if got := homeLockPath(k); got != want {
-		t.Fatalf("homeLockPath() = %q, want %q", got, want)
+		t.Fatalf("homeLockPath = %q, want %q", got, want)
+	}
+	if strings.HasPrefix(homeLockPath(k), KeyDir(k)) {
+		t.Fatalf("home lock must not live in the removable key dir")
+	}
+}
+
+func TestHomeLockPathLegacyHasNoAgent(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	k := Key{Slug: "proj"}
+	want := filepath.Join(configpaths.Get().UserStateDir(), "locks", k.Slug, "legacy.lock")
+	if got := homeLockPath(k); got != want {
+		t.Fatalf("homeLockPath = %q, want %q", got, want)
 	}
 }

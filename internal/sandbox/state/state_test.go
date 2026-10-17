@@ -165,7 +165,7 @@ func TestFingerprintsApply(t *testing.T) {
 	}
 }
 
-func TestRemoveState(t *testing.T) {
+func TestRemoveHomeState(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	k := Key{Slug: "myproj", Agent: "opencode"}
 
@@ -173,10 +173,10 @@ func TestRemoveState(t *testing.T) {
 
 	statePath := filepath.Join(configpaths.Get().UserStateDir(), k.Slug, k.Agent, "state.yaml")
 	if _, err := os.Stat(statePath); os.IsNotExist(err) {
-		t.Fatal("state file should exist before RemoveState")
+		t.Fatal("state file should exist before RemoveHomeState")
 	}
 
-	RemoveState(k)
+	RemoveHomeState(k)
 
 	if _, err := os.Stat(statePath); !os.IsNotExist(err) {
 		t.Errorf("state file should be removed, but still exists")
@@ -187,7 +187,7 @@ func TestRemoveState(t *testing.T) {
 	}
 }
 
-func TestRemoveState_LegacySlugOnly(t *testing.T) {
+func TestRemoveHomeState_LegacySlugOnly(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	slug := "legacyproj"
 
@@ -208,8 +208,8 @@ func TestRemoveState_LegacySlugOnly(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := RemoveState(Key{Slug: slug, Agent: ""}); err != nil {
-		t.Fatalf("RemoveState legacy: %v", err)
+	if err := RemoveHomeState(Key{Slug: slug, Agent: ""}); err != nil {
+		t.Fatalf("RemoveHomeState legacy: %v", err)
 	}
 
 	// Legacy state file removed, sibling state and claims survive.
@@ -224,11 +224,47 @@ func TestRemoveState_LegacySlugOnly(t *testing.T) {
 	}
 }
 
-func TestRemoveState_LegacyMissing(t *testing.T) {
+func TestRemoveHomeState_LegacyMissing(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	k := Key{Slug: "missingproj", Agent: ""}
-	if err := RemoveState(k); err != nil {
-		t.Fatalf("RemoveState on missing legacy state should be a no-op, got: %v", err)
+	if err := RemoveHomeState(k); err != nil {
+		t.Fatalf("RemoveHomeState on missing legacy state should be a no-op, got: %v", err)
+	}
+}
+
+func TestRemoveHomeStateRemovesStateButKeepsLock(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	k := testKey()
+	if err := WriteState(k, HomeState{HomeVolume: "vol"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := RemoveHomeState(k); err != nil {
+		t.Fatalf("RemoveHomeState: %v", err)
+	}
+	if _, err := ReadState(k); !errors.Is(err, ErrStateNotFound) {
+		t.Fatalf("state still present: %v", err)
+	}
+	if _, err := os.Stat(homeLockPath(k)); err != nil {
+		t.Fatalf("lock file must survive removal: %v", err)
+	}
+}
+
+func TestRemoveHomeStateRefusesWhileHomeLockHeld(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	k := testKey()
+	if err := WriteState(k, HomeState{HomeVolume: "vol"}); err != nil {
+		t.Fatal(err)
+	}
+	release, _, err := LockHomeState(k, true)
+	if err != nil {
+		t.Fatalf("hold: %v", err)
+	}
+	defer release()
+	if err := RemoveHomeState(k); err == nil {
+		t.Fatal("RemoveHomeState proceeded while the home lock was held")
+	}
+	if _, rerr := ReadState(k); rerr != nil {
+		t.Fatalf("state must survive the refused removal: %v", rerr)
 	}
 }
 

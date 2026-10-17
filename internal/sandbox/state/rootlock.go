@@ -23,6 +23,12 @@ var flockRootLock = func(f *os.File, blocking bool) error {
 	return FlockExclusiveNB(f)
 }
 
+// rootLockPath returns the host-only root-state lock file path, under the
+// never-deleted locksDir.
+func rootLockPath() string {
+	return filepath.Join(locksDir(), "root.lock")
+}
+
 // LockRootState takes the host-only advisory lock that serializes every
 // RootState read-modify-write across processes. The flock auto-releases on
 // process exit, so a crashed holder never pins the lock. The returned function
@@ -33,10 +39,10 @@ var flockRootLock = func(f *os.File, blocking bool) error {
 //
 //nolint:nonamedreturns // the documented (release, ok, err) signature is the contract
 func LockRootState(blocking bool) (release func(), ok bool, err error) {
-	if mkdirErr := mkdirRootLock(stateRoot(), 0o700); mkdirErr != nil {
+	if mkdirErr := mkdirRootLock(filepath.Dir(rootLockPath()), 0o700); mkdirErr != nil {
 		return nil, false, fmt.Errorf("create state root: %w", mkdirErr)
 	}
-	path := filepath.Join(stateRoot(), "root.lock")
+	path := rootLockPath()
 	f, err := openRootLock(path, os.O_CREATE|os.O_RDWR, 0o600)
 	if err != nil {
 		return nil, false, fmt.Errorf("open root lock: %w", err)

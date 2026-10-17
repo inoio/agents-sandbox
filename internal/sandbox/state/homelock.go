@@ -25,9 +25,14 @@ var flockHomeLock = func(f *os.File, blocking bool) error {
 	return FlockExclusiveNB(f)
 }
 
-// homeLockPath returns the per-(slug, agent) home-state lock file path.
+// homeLockPath returns the per-(slug, agent) home-state lock file path. Lock
+// files live under the never-deleted locksDir, not the removable key directory.
 func homeLockPath(k Key) string {
-	return filepath.Join(KeyDir(k), "home.lock")
+	name := k.Agent + ".lock"
+	if k.Agent == "" {
+		name = "legacy.lock"
+	}
+	return filepath.Join(locksDir(), k.Slug, name)
 }
 
 // LockHomeState takes the per-(slug, agent) advisory lock that serializes every
@@ -42,9 +47,9 @@ func homeLockPath(k Key) string {
 //
 //nolint:nonamedreturns // the documented (release, ok, err) signature is the contract
 func LockHomeState(k Key, blocking bool) (release func(), ok bool, err error) {
-	dir := KeyDir(k)
+	dir := filepath.Dir(homeLockPath(k))
 	if mkdirErr := mkdirHomeLock(dir, 0o700); mkdirErr != nil {
-		return nil, false, fmt.Errorf("create state dir: %w", mkdirErr)
+		return nil, false, fmt.Errorf("create lock dir: %w", mkdirErr)
 	}
 	f, err := openHomeLock(homeLockPath(k), os.O_CREATE|os.O_RDWR, 0o600)
 	if err != nil {

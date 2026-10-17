@@ -104,7 +104,7 @@ func removeStateForGoneKeys(ui termio.UI, removed, exists map[state.Key]int) {
 		if count < exists[key] {
 			continue
 		}
-		if err := state.RemoveState(key); err != nil {
+		if err := state.RemoveHomeState(key); err != nil {
 			ui.Warnf("failed to remove state file for key (slug %s, agent %s): %v", key.Slug, key.Agent, err)
 		}
 	}
