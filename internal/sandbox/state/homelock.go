@@ -47,22 +47,40 @@ func homeLockPath(k Key) string {
 //
 //nolint:nonamedreturns // the documented (release, ok, err) signature is the contract
 func LockHomeState(k Key, blocking bool) (release func(), ok bool, err error) {
-	dir := filepath.Dir(homeLockPath(k))
+	path := homeLockPath(k)
+	dir := filepath.Dir(path)
 	if mkdirErr := mkdirHomeLock(dir, 0o700); mkdirErr != nil {
 		return nil, false, fmt.Errorf("create lock dir: %w", mkdirErr)
 	}
-	f, err := openHomeLock(homeLockPath(k), os.O_CREATE|os.O_RDWR, 0o600)
+	if blocking {
+		if holdErr := holdLockPath(path); holdErr != nil {
+			return nil, false, holdErr
+		}
+	}
+	f, err := openHomeLock(path, os.O_CREATE|os.O_RDWR, 0o600)
 	if err != nil {
+		if blocking {
+			releaseLockPath(path)
+		}
 		return nil, false, fmt.Errorf("open home lock: %w", err)
 	}
 	if err := flockHomeLock(f, blocking); err != nil {
 		_ = f.Close()
+		if blocking {
+			releaseLockPath(path)
+		}
 		if !blocking && isLockContention(err) {
 			return nil, false, nil
 		}
 		return nil, false, fmt.Errorf("flock home lock: %w", err)
 	}
-	return func() { _ = f.Close() }, true, nil
+	release = func() {
+		_ = f.Close()
+		if blocking {
+			releaseLockPath(path)
+		}
+	}
+	return release, true, nil
 }
 
 // withHomeLock runs fn while holding the blocking home lock.

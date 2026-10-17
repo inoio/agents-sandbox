@@ -179,7 +179,7 @@ func TestUpdateHomeStateLockErrorReturnsError(t *testing.T) {
 	}
 }
 
-func TestUpdateHomeStateSerializesWriters(t *testing.T) {
+func TestUpdateHomeStateFailsFastWhileHomeLockHeld(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	k := testKey()
 
@@ -187,30 +187,22 @@ func TestUpdateHomeStateSerializesWriters(t *testing.T) {
 	if err != nil || !ok {
 		t.Fatalf("hold home lock: ok=%v err=%v", ok, err)
 	}
+	defer release()
 
+	// A same-process blocking re-acquire from another goroutine cannot wait for
+	// the lock (flock is not reentrant), so it must fail fast instead of hanging.
 	done := make(chan error, 1)
-	started := make(chan struct{})
 	go func() {
-		close(started)
 		done <- UpdateHomeState(k, func(hs *HomeState) { hs.HomeVolume = "vol-1" })
 	}()
-	<-started
-
-	select {
-	case <-done:
-		t.Fatal("UpdateHomeState completed while the home lock was held")
-	case <-time.After(100 * time.Millisecond):
-	}
-
-	release()
 
 	select {
 	case err := <-done:
-		if err != nil {
-			t.Fatalf("UpdateHomeState: %v", err)
+		if err == nil || !strings.Contains(err.Error(), "already held") {
+			t.Fatalf("UpdateHomeState() error = %v, want an already-held error", err)
 		}
 	case <-time.After(2 * time.Second):
-		t.Fatal("UpdateHomeState did not complete after the lock was released")
+		t.Fatal("UpdateHomeState hung while the home lock was held")
 	}
 }
 

@@ -39,20 +39,37 @@ func rootLockPath() string {
 //
 //nolint:nonamedreturns // the documented (release, ok, err) signature is the contract
 func LockRootState(blocking bool) (release func(), ok bool, err error) {
-	if mkdirErr := mkdirRootLock(filepath.Dir(rootLockPath()), 0o700); mkdirErr != nil {
-		return nil, false, fmt.Errorf("create state root: %w", mkdirErr)
-	}
 	path := rootLockPath()
+	if mkdirErr := mkdirRootLock(filepath.Dir(path), 0o700); mkdirErr != nil {
+		return nil, false, fmt.Errorf("create lock dir: %w", mkdirErr)
+	}
+	if blocking {
+		if holdErr := holdLockPath(path); holdErr != nil {
+			return nil, false, holdErr
+		}
+	}
 	f, err := openRootLock(path, os.O_CREATE|os.O_RDWR, 0o600)
 	if err != nil {
+		if blocking {
+			releaseLockPath(path)
+		}
 		return nil, false, fmt.Errorf("open root lock: %w", err)
 	}
 	if err := flockRootLock(f, blocking); err != nil {
 		_ = f.Close()
+		if blocking {
+			releaseLockPath(path)
+		}
 		if !blocking && isLockContention(err) {
 			return nil, false, nil
 		}
 		return nil, false, fmt.Errorf("flock root lock: %w", err)
 	}
-	return func() { _ = f.Close() }, true, nil
+	release = func() {
+		_ = f.Close()
+		if blocking {
+			releaseLockPath(path)
+		}
+	}
+	return release, true, nil
 }

@@ -18,29 +18,38 @@ func blockRootLock(t *testing.T) {
 	}
 }
 
-func TestAcquireMigrationLockBlocksSecondHolder(t *testing.T) {
+func TestAcquireMigrationLockFailsFastOnSameProcessDoubleHold(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	release, err := acquireMigrationLock()
 	if err != nil {
 		t.Fatalf("acquireMigrationLock: %v", err)
 	}
-	done := make(chan struct{})
+
+	// The root lock is not reentrant: a same-process second acquire cannot wait
+	// for it, so it must fail fast instead of hanging.
+	done := make(chan error, 1)
 	go func() {
-		r, _ := acquireMigrationLock()
+		r, err := acquireMigrationLock()
 		if r != nil {
 			r()
 		}
-		close(done)
+		done <- err
 	}()
 	select {
-	case <-done:
-		t.Fatal("second acquire returned while the first held the lock")
-	case <-time.After(200 * time.Millisecond):
-	}
-	release()
-	select {
-	case <-done:
+	case err := <-done:
+		if err == nil {
+			t.Fatal("second acquire succeeded while the first held the lock")
+		}
 	case <-time.After(2 * time.Second):
-		t.Fatal("second acquire did not proceed after release")
+		t.Fatal("second acquire hung while the first held the lock")
 	}
+
+	release()
+
+	// A released lock is reacquirable.
+	again, err := acquireMigrationLock()
+	if err != nil {
+		t.Fatalf("reacquire after release: %v", err)
+	}
+	again()
 }
