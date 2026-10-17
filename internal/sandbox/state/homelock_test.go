@@ -66,6 +66,18 @@ func TestUpdateHomeStateReadErrorDoesNotWrite(t *testing.T) {
 	}
 }
 
+func TestUpdateHomeStateLockErrorReturnsError(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	wantErr := errors.New("mkdir boom")
+	orig := mkdirHomeLock
+	mkdirHomeLock = func(string, os.FileMode) error { return wantErr }
+	t.Cleanup(func() { mkdirHomeLock = orig })
+
+	if err := UpdateHomeState(testKey(), func(*HomeState) {}); !errors.Is(err, wantErr) {
+		t.Fatalf("UpdateHomeState() error = %v, want %v", err, wantErr)
+	}
+}
+
 func TestUpdateHomeStateSerializesWriters(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	k := testKey()

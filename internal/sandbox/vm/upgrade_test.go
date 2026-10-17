@@ -298,6 +298,36 @@ func TestResolveOpenCodeVersionRecoveredBaselineReusedOffline(t *testing.T) {
 	}
 }
 
+func TestResolveOpenCodeVersionRecoveryPersistFailureStillUsesVersion(t *testing.T) {
+	origLatest := agentLatestVersion
+	defer func() { agentLatestVersion = origLatest }()
+	agentLatestVersion = func(_ context.Context, _ agent.Agent) (string, error) { return "2.0.0", nil }
+
+	configpaths.WithMockConfigPaths(t)
+	k := state.Key{Slug: "proj", Agent: "opencode"}
+	withExistingAgentVersion(t, "1.0.0")
+	// A directory at the state path makes every state read/write fail, so the
+	// recovery write cannot be recorded and the project state is unreadable.
+	if err := os.MkdirAll(filepath.Join(state.KeyDir(k), "state.yaml"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+
+	ui := &termio.Mock{}
+	got, upgraded, err := resolveBuildVersion(context.Background(), k, opencodeAgent(t), ui, options.RunOptions{})
+	if err != nil {
+		t.Fatalf("resolveBuildVersion: %v", err)
+	}
+	if got != "1.0.0" {
+		t.Errorf("resolveBuildVersion = %q, want recovered 1.0.0 even when persistence fails", got)
+	}
+	if upgraded {
+		t.Error("expected upgraded=false")
+	}
+	if !contains(joinStrings(ui.VerboseCalls), "could not record recovered agent version") {
+		t.Errorf("expected a verbose note about the failed recovery write, got %v", ui.VerboseCalls)
+	}
+}
+
 func TestResolveOpenCodeVersionNoNewerVersion(t *testing.T) {
 	origLatest := agentLatestVersion
 	defer func() { agentLatestVersion = origLatest }()
