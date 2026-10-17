@@ -108,6 +108,12 @@ Because `fn` mutates the *current* document in place, a writer that touches only
 concurrency half of finding 3 is gone by construction. `RecoverHomeState` is the sole wholesale/repair entry, so
 "recovery is the only wholesale writer" is enforced at the API, not by convention.
 
+`EnsureNewHome` intentionally writes a fresh fingerprint-seeded state with no upgrade carry-forward: it runs only when a
+readable state's recorded volume is gone **and** no live volume can be recovered, so there is no prior home to preserve.
+The resulting `agent_version` loss self-heals via `recordImageProvenance` on the next boot, and `offered_versions` loss is
+the same accepted at-most-one-extra-prompt cost as total loss. Finding 4's `EnsureNewHome` clause is therefore
+intentional, not a regression.
+
 ### Lock boundary for multi-step flows
 
 The home lock is **never held across external msb I/O** (volume creation, prefill, or a whole-home copy, which can take
