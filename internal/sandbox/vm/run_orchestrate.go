@@ -106,6 +106,12 @@ func PrepareSandbox(
 		return nil, fmt.Errorf("unknown agent %q", opts.Agent)
 	}
 	k := state.Key{Slug: projectSlug, Agent: a.Name()}
+	// determineAgentVersion and prepareHomeVolume are the only --dry-run gates
+	// (they skip the upgrade check/legacy fold and the migration offer); every
+	// other step still runs under --dry-run. Making --dry-run genuinely
+	// side-effect-free is tracked in issue #228. See
+	// .operator-shared/specs/project-state-transactions.md.
+	//
 	// Decide the agent version to bake before touching the image: this may offer
 	// an upgrade up front, so a normal run never rebuilds the image twice. See
 	// resolveBuildVersion for the decision rules.

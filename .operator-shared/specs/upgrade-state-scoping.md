@@ -128,6 +128,11 @@ hold the lock; this avoids the non-reentrant double-lock that a lock-inside-`Upd
 
 ### HomeState write serialization
 
+> **Superseded.** The `UpdateHomeState` / `UpdateExistingHomeState` / `ReplaceHomeState` trio and `LockHomeState`
+> described in this section are replaced by the transaction API (`WithHomeState` / `RecoverHomeState`) in
+> [`project-state-transactions.md`](project-state-transactions.md). The serialization intent below still holds; read that
+> spec for the current contract.
+
 Every per-project `HomeState` read-modify-write is serialized by a single host-only flock per `(slug, agent)`
 (`state.LockHomeState`, at `<slug>/<agent>/home.lock`). This PR adds two HomeState writers (the upgrade offered set and
 `recordImageProvenance`) to a file the volume operations already read-modify-write, so without the lock a concurrent

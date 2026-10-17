@@ -126,7 +126,7 @@ command reports the bare version (e.g. `0.1.0`).
   Defense-in-depth for the shared-VM-name collision (#144).
 - State: launcher-global `state.yaml` (the legacy-migration dismissal lives here) is now written through a uniquely named
   temp file, so two concurrent sessions choosing "Start fresh" no longer collide on one shared temp name and abort a
-  session. All persistent state/config writers (`state.WriteState`, `state.WriteRootState`, `vm.saveUpgradeState`,
+  session. All persistent state/config writers (the launcher's project/root state writers, `vm.saveUpgradeState`, and
   `upgrade.saveState`) now share one atomic-write helper (`internal/atomicwrite`).
 - Runtime: the legacy home-volume copy is now crash-safe and concurrency-safe. Completion is recorded host-side in the
   `migrations.runtime_home` state (never a file inside the guest-writable volume), and the copy campaign holds a
@@ -172,6 +172,11 @@ command reports the bare version (e.g. `0.1.0`).
 - State: every per-project `state.yaml` read-modify-write now serializes on a single host-only lock per `(slug, agent)`,
   so a volume operation and a concurrent upgrade/provenance write can no longer clobber each other's fields (e.g. an
   upgrade write restoring a stale `home_volume` after a volume op committed a new one).
+- Internal: state writes are now structurally correct — one locked transaction per document (`WithHomeState`,
+  `WithRootState`) holds the lock across read → mutate → write, raw lock-free writers are no longer exported, removal
+  takes the lock, and a same-process double-lock fails fast instead of self-deadlocking. No user-facing behavior change,
+  except that a reconfig that cannot persist its new home volume now surfaces the error instead of warning and
+  continuing, so persisted state and the VM cannot diverge.
 - Internal: project-VM reconfiguration now replaces the two-step `Stop` + `Remove` with the SDK's single atomic,
   identity-safe `Destroy` on the `SandboxHandle` seam (#162).
 - Runner image: the node/agent/docker install stages now build on a tool-owned `agents-sandbox-toolbase`

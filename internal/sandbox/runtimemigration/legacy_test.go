@@ -232,7 +232,7 @@ func TestNecessaryVolumesCopyingFailsClosedOnUnlistableLegacyHome(t *testing.T) 
 }
 
 // blockRootLock occupies the shared root-state lock path with a directory so
-// LockRootState's open fails. It pins that a campaign and the dismissal paths
+// lockRootState's open fails. It pins that a campaign and the dismissal paths
 // surface a lock-acquisition failure rather than a silent no-op.
 func blockRootLock(t *testing.T) {
 	t.Helper()
