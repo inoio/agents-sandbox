@@ -77,7 +77,7 @@ func TestRemoveHomeStateRemovesStateButKeepsLock(t *testing.T) {
 	}
 }
 
-func TestRemoveHomeStateSerializesWithWriter(t *testing.T) {
+func TestRemoveHomeStateRefusesWhileHomeLockHeld(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	k := testKey()
 	if err := WriteState(k, HomeState{HomeVolume: "vol"}); err != nil {
@@ -87,20 +87,17 @@ func TestRemoveHomeStateSerializesWithWriter(t *testing.T) {
 	if err != nil {
 		t.Fatalf("hold: %v", err)
 	}
-	done := make(chan error, 1)
-	go func() { done <- RemoveHomeState(k) }()
-	select {
-	case <-done:
-		release()
-		t.Fatal("RemoveHomeState completed while the lock was held")
-	case <-time.After(50 * time.Millisecond):
+	defer release()
+	if err := RemoveHomeState(k); err == nil {
+		t.Fatal("RemoveHomeState proceeded while the home lock was held")
 	}
-	release()
-	if err := <-done; err != nil {
-		t.Fatalf("RemoveHomeState after release: %v", err)
+	if _, rerr := ReadState(k); rerr != nil {
+		t.Fatalf("state must survive the refused removal: %v", rerr)
 	}
 }
 ```
+
+(Cross-process blocking serialization is the lock's own contract; a same-process test would trip Task 2's reentrancy guard, so this asserts the guard's fail-fast instead.)
 
 - [ ] **Step 2: Run tests to verify they fail**
 
@@ -162,7 +159,7 @@ Expected: FAIL (undefined).
 
 - [ ] **Step 3: Implement**
 
-Back `lockregistry.go` with a `sync.Mutex` + `map[string]bool`. In `LockHomeState`/`LockRootState`, after computing `path` and *before* `flock`, call `holdLockPath(path)`; on error return it. On any failure path after holding, `releaseLockPath(path)`. Defer `releaseLockPath(path)` alongside the file close in the returned release func. Add a test that taking `LockHomeState` twice in one process returns the already-held error (not a hang) and that a released lock is reacquirable.
+Back `lockregistry.go` with a `sync.Mutex` + `map[string]bool`. **The guard applies to blocking acquires only** — a non-blocking self-acquire must keep returning `ok=false` (existing `TestLock*StateNonBlockingSkipsWhenHeld` rely on it, and it cannot deadlock). In `LockHomeState`/`LockRootState`: when `blocking` is true, after computing `path` and *before* `flock`, call `holdLockPath(path)`; on error return it. On any failure path after holding, `releaseLockPath(path)`; defer `releaseLockPath(path)` alongside the file close in the returned release func. When `blocking` is false, do **not** touch the registry. Add (a) a test that holding `LockHomeState(k, true)` then calling it again in the same process returns the already-held error (not a hang), and that a released lock is reacquirable; and (b) a test that `LockHomeState(k, false)` while the same process holds the blocking lock still returns `ok=false, err=nil`.
 
 - [ ] **Step 4: Run tests to verify they pass**
 
@@ -437,6 +434,8 @@ func TestPendingUpgradeOfferedWritePreservesFingerprints(t *testing.T) {
 }
 
 // Property guard: every vm writer preserves every field it does not own.
+// Use the actual struct fields from internal/sandbox/state/state.go; the
+// literals below are illustrative.
 func TestHomeWritersPreserveUnrelatedFields(t *testing.T) {
 	seed := HomeState{
 		HomeVolume: "vol", ImageDigest: "d",
