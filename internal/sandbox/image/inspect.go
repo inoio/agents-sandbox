@@ -29,6 +29,25 @@ func inspectRunnerImage(ctx context.Context, rTag string) runnerImageState {
 	}
 }
 
+// ExistingAgentVersion reports the agent release baked into an existing runner
+// image for the project, read from its identity label. It is a local, no-network
+// probe used to recover the upgrade baseline when the project's recorded
+// agent_version is missing (e.g. the run after the updater.yaml migration
+// dropped the global current_version). It returns false when the image is
+// absent, predates the label, or carries a non-release sentinel
+// (none / user-provided).
+func ExistingAgentVersion(ctx context.Context, projectSlug, agentName string) (string, bool) {
+	state := inspectRunnerImage(ctx, runnerTag(projectSlug, agentName))
+	if !state.Present {
+		return "", false
+	}
+	version := state.Labels[agentVersionLabelKey]
+	if version == "" || version == identityNone || version == userProvidedImageIdentity {
+		return "", false
+	}
+	return version, true
+}
+
 // buildDecision decides whether the runner image must be rebuilt, and when it
 // must, the reasons. A forced build short-circuits so no image inspect is made.
 func buildDecision(
