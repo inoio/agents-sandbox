@@ -594,6 +594,15 @@ func TestVolumeOpAbortsWhenHomeVolumeChangedConcurrently(t *testing.T) {
 	if createdVol == "" {
 		t.Fatal("expected the new volume to have been created before the CAS failure")
 	}
+	var cleanedUp bool
+	for _, v := range mock.RemovedVolumes {
+		if v == createdVol {
+			cleanedUp = true
+		}
+	}
+	if !cleanedUp {
+		t.Errorf("expected uncommitted volume %q to be cleaned up; removed=%v", createdVol, mock.RemovedVolumes)
+	}
 }
 
 func TestCmdMigrate_NonDryRun_Success(t *testing.T) {

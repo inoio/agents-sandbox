@@ -248,7 +248,8 @@ func volumeOp(
 	// state as "changed"). The write runs under the home lock but is guarded by a
 	// compare-and-set on the snapshot home volume, since the msb I/O above ran
 	// without the lock: if another writer changed home_volume in the meantime,
-	// abort rather than clobber it.
+	// abort rather than clobber it. A failed commit leaves the new volume
+	// uncommitted and unreferenced, so drop it rather than orphan it.
 	expectedVolume := st.HomeVolume
 	if err := state.WithHomeState(k, func(cur *state.HomeState, _ bool) (bool, error) {
 		if cur.HomeVolume != expectedVolume {
@@ -262,6 +263,7 @@ func volumeOp(
 		cur.ImageDigest = info.Digest
 		return true, nil
 	}); err != nil {
+		vm.cleanupVolume(ctx, client, newVolumeName, ui)
 		return err
 	}
 

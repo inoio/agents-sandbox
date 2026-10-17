@@ -236,6 +236,13 @@ func TestVolumeOp_WriteStateFails_ReturnsError(t *testing.T) {
 	if !strings.Contains(err.Error(), "write state") {
 		t.Errorf("unexpected error: %v", err)
 	}
+	st, readErr := state.ReadState(state.Key{Slug: slug, Agent: "opencode"})
+	if readErr != nil {
+		t.Fatalf("ReadState: %v", readErr)
+	}
+	if st.HomeVolume != "old-vol" {
+		t.Errorf("HomeVolume = %q, want the uncommitted write to leave old-vol in place", st.HomeVolume)
+	}
 }
 
 func TestVolumeOp_RemoveOldFails_Warns(t *testing.T) {
@@ -485,12 +492,12 @@ func TestRecordHomeImage_WriteStateFails(t *testing.T) {
 	}
 	var warned bool
 	for _, c := range ui.WarnCalls {
-		if strings.Contains(c, "failed to write state file") {
+		if strings.Contains(c, "failed to update state file") {
 			warned = true
 		}
 	}
 	if !warned {
-		t.Errorf("expected write-state warning, got: %v", ui.WarnCalls)
+		t.Errorf("expected update-state warning, got: %v", ui.WarnCalls)
 	}
 }
 

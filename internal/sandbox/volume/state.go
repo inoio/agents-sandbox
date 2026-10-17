@@ -194,7 +194,7 @@ func (vm *Manager) RecordHomeImage(k state.Key, currentDigest string, ui termio.
 		cur.ImageDigest = currentDigest
 		return true, nil
 	}); err != nil {
-		ui.Warnf("failed to write state file: %v", err)
+		ui.Warnf("failed to update state file: %v", err)
 		return err
 	}
 	return nil
