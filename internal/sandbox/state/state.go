@@ -128,12 +128,19 @@ func stateFile(k Key) string {
 	return slugPath(k, "state.yaml")
 }
 
-// ErrStateNotFound is returned by readState when no state file exists yet.
+// ErrStateNotFound is returned by ReadState when no state file exists yet.
 var ErrStateNotFound = errors.New("state file not found")
+
+// ErrStateUnparsable wraps a YAML parse failure in ReadState, classifying a
+// corrupt document distinctly from a missing one. WithHomeState returns it
+// without writing so an unknown document is never clobbered; only recovery
+// (RecoverHomeState) may discard an unparsable document.
+var ErrStateUnparsable = errors.New("state file is unparsable")
 
 // ReadState loads and parses the state file.
 // Returns ErrStateNotFound with a nil state if no file exists.
-// Returns an error for parse failures or non-"not found" I/O errors.
+// Returns ErrStateUnparsable-wrapped error for parse failures and a plain error
+// for non-"not found" I/O errors.
 func ReadState(k Key) (*HomeState, error) {
 	path := stateFile(k)
 	data, err := os.ReadFile(path)
@@ -145,7 +152,7 @@ func ReadState(k Key) (*HomeState, error) {
 	}
 	var state HomeState
 	if err := yaml.Unmarshal(data, &state); err != nil {
-		return nil, fmt.Errorf("parse state file %s: %w", path, err)
+		return nil, fmt.Errorf("parse state file %s: %w: %w", path, ErrStateUnparsable, err)
 	}
 	return &state, nil
 }
