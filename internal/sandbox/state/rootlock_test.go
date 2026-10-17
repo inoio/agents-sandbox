@@ -1,6 +1,8 @@
 package state
 
 import (
+	"errors"
+	"os"
 	"testing"
 
 	"github.com/inoio/agents-sandbox/internal/configpaths"
@@ -34,4 +36,40 @@ func TestLockRootStateReleasesForReacquire(t *testing.T) {
 		t.Fatalf("reacquire: ok=%v err=%v", ok, err)
 	}
 	again()
+}
+
+func TestLockRootStateMkdirError(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	wantErr := errors.New("mkdir boom")
+	orig := mkdirRootLock
+	mkdirRootLock = func(string, os.FileMode) error { return wantErr }
+	t.Cleanup(func() { mkdirRootLock = orig })
+
+	if _, _, err := LockRootState(true); !errors.Is(err, wantErr) {
+		t.Fatalf("LockRootState() error = %v, want %v", err, wantErr)
+	}
+}
+
+func TestLockRootStateOpenError(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	wantErr := errors.New("open boom")
+	orig := openRootLock
+	openRootLock = func(string, int, os.FileMode) (*os.File, error) { return nil, wantErr }
+	t.Cleanup(func() { openRootLock = orig })
+
+	if _, _, err := LockRootState(true); !errors.Is(err, wantErr) {
+		t.Fatalf("LockRootState() error = %v, want %v", err, wantErr)
+	}
+}
+
+func TestLockRootStateFlockError(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	wantErr := errors.New("flock boom")
+	orig := flockRootLock
+	flockRootLock = func(*os.File, bool) error { return wantErr }
+	t.Cleanup(func() { flockRootLock = orig })
+
+	if _, _, err := LockRootState(true); !errors.Is(err, wantErr) {
+		t.Fatalf("LockRootState() error = %v, want %v", err, wantErr)
+	}
 }

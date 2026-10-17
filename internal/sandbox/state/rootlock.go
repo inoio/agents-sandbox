@@ -6,6 +6,23 @@ import (
 	"path/filepath"
 )
 
+// Seams over the lock's I/O so tests can exercise failures a real file cannot
+// trigger. Production keeps the real functions.
+
+var (
+	mkdirRootLock = os.MkdirAll
+	openRootLock  = os.OpenFile
+)
+
+// flockRootLock takes an exclusive advisory lock, non-blocking when blocking is
+// false. It is a seam so tests can exercise the flock failure path.
+var flockRootLock = func(f *os.File, blocking bool) error {
+	if blocking {
+		return FlockExclusive(f)
+	}
+	return FlockExclusiveNB(f)
+}
+
 // LockRootState takes the host-only advisory lock that serializes every
 // RootState read-modify-write across processes. The flock auto-releases on
 // process exit, so a crashed holder never pins the lock. The returned function
@@ -16,19 +33,15 @@ import (
 //
 //nolint:nonamedreturns // the documented (release, ok, err) signature is the contract
 func LockRootState(blocking bool) (release func(), ok bool, err error) {
-	if mkdirErr := os.MkdirAll(stateRoot(), 0o700); mkdirErr != nil {
+	if mkdirErr := mkdirRootLock(stateRoot(), 0o700); mkdirErr != nil {
 		return nil, false, fmt.Errorf("create state root: %w", mkdirErr)
 	}
 	path := filepath.Join(stateRoot(), "root.lock")
-	f, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0o600)
+	f, err := openRootLock(path, os.O_CREATE|os.O_RDWR, 0o600)
 	if err != nil {
 		return nil, false, fmt.Errorf("open root lock: %w", err)
 	}
-	flock := FlockExclusive
-	if !blocking {
-		flock = FlockExclusiveNB
-	}
-	if err := flock(f); err != nil {
+	if err := flockRootLock(f, blocking); err != nil {
 		_ = f.Close()
 		if !blocking && isLockContention(err) {
 			return nil, false, nil
