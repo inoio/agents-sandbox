@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"sync"
 	"testing"
+	"time"
 
 	"gopkg.in/yaml.v3"
 
@@ -250,6 +251,83 @@ func TestUpdateRootState_ReadError(t *testing.T) {
 	}
 	if mutated {
 		t.Error("UpdateRootState ran mutate despite the read failure")
+	}
+}
+
+func TestRootStateAgentCheckRoundTrip(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	if err := WriteRootState(RootState{Agents: map[string]AgentCheckState{
+		"opencode": {LastChecked: time.Unix(100, 0).UTC(), LatestVersion: "2.0.0"},
+	}}); err != nil {
+		t.Fatalf("WriteRootState: %v", err)
+	}
+	got, err := ReadRootState()
+	if err != nil {
+		t.Fatalf("ReadRootState: %v", err)
+	}
+	c := got.AgentCheck("opencode")
+	if c.LatestVersion != "2.0.0" || c.LastChecked.Unix() != 100 {
+		t.Fatalf("AgentCheck = %+v", c)
+	}
+}
+
+func TestRootStateAgentCheckMissingIsZero(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	got, _ := ReadRootState()
+	if c := got.AgentCheck("opencode"); !c.LastChecked.IsZero() || c.LatestVersion != "" {
+		t.Fatalf("missing AgentCheck = %+v, want zero", c)
+	}
+}
+
+func TestAgentCheckDueForCheck(t *testing.T) {
+	now := time.Unix(1000, 0)
+	if !(AgentCheckState{}).DueForCheck(now) {
+		t.Error("zero LastChecked must be due")
+	}
+	if (AgentCheckState{LastChecked: now.Add(-AgentCheckInterval + time.Minute)}).DueForCheck(now) {
+		t.Error("recent check must not be due")
+	}
+	if !(AgentCheckState{LastChecked: now.Add(-AgentCheckInterval)}).DueForCheck(now) {
+		t.Error("check at the interval boundary must be due")
+	}
+}
+
+func TestRootStateAgentCheckWireKeys(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	if err := WriteRootState(RootState{Agents: map[string]AgentCheckState{
+		"opencode": {LastChecked: time.Unix(100, 0).UTC(), LatestVersion: "2.0.0"},
+	}}); err != nil {
+		t.Fatalf("WriteRootState: %v", err)
+	}
+	data, err := os.ReadFile(rootStateFile())
+	if err != nil {
+		t.Fatalf("read root state: %v", err)
+	}
+	var raw map[string]any
+	if err := yaml.Unmarshal(data, &raw); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	agents, ok := raw["agents"].(map[string]any)
+	if !ok {
+		t.Fatalf("agents = %v, want a mapping", raw["agents"])
+	}
+	entry, ok := agents["opencode"].(map[string]any)
+	if !ok {
+		t.Fatalf("opencode entry = %v, want a mapping", agents["opencode"])
+	}
+	if entry["latest_version"] != "2.0.0" {
+		t.Errorf("latest_version = %v, want 2.0.0", entry["latest_version"])
+	}
+	if _, ok := entry["last_checked"]; !ok {
+		t.Error("last_checked key missing")
+	}
+}
+
+func TestSetAgentCheckInitializesRegistry(t *testing.T) {
+	var s RootState
+	s.SetAgentCheck("opencode", AgentCheckState{LatestVersion: "2.0.0"})
+	if s.Agents["opencode"].LatestVersion != "2.0.0" {
+		t.Fatalf("Agents = %+v", s.Agents)
 	}
 }
 

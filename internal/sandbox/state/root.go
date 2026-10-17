@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/inoio/agents-sandbox/internal/atomicwrite"
 
@@ -15,7 +16,8 @@ import (
 //
 //exhaustruct:ignore
 type RootState struct {
-	Migrations map[string]Migration `yaml:"migrations,omitempty"`
+	Migrations map[string]Migration       `yaml:"migrations,omitempty"`
+	Agents     map[string]AgentCheckState `yaml:"agents,omitempty"`
 }
 
 // MigrationStatus is the terminal or in-flight state of a one-time migration.
@@ -61,6 +63,40 @@ func (s *RootState) SetMigration(name string, m Migration) {
 		s.Migrations = map[string]Migration{}
 	}
 	s.Migrations[name] = m
+}
+
+// AgentCheckInterval is the minimum time between network upgrade checks for an
+// agent, shared machine-wide.
+const AgentCheckInterval = 24 * time.Hour
+
+// AgentCheckState is the machine-global network-check state for one agent,
+// keyed by agent name. It caches the last check time and the latest version
+// observed, so the upgrade prompt never names another project's version.
+//
+//exhaustruct:ignore
+type AgentCheckState struct {
+	LastChecked   time.Time `yaml:"last_checked"`
+	LatestVersion string    `yaml:"latest_version"`
+}
+
+// DueForCheck reports whether the network check is due at time t: never checked
+// or at least AgentCheckInterval since the last check.
+func (c AgentCheckState) DueForCheck(t time.Time) bool {
+	return c.LastChecked.IsZero() || t.Sub(c.LastChecked) >= AgentCheckInterval
+}
+
+// AgentCheck returns the named agent's check state. A missing entry is the zero
+// AgentCheckState, whose zero LastChecked is always due.
+func (s *RootState) AgentCheck(name string) AgentCheckState {
+	return s.Agents[name]
+}
+
+// SetAgentCheck records an agent check state, initializing the registry if nil.
+func (s *RootState) SetAgentCheck(name string, c AgentCheckState) {
+	if s.Agents == nil {
+		s.Agents = map[string]AgentCheckState{}
+	}
+	s.Agents[name] = c
 }
 
 func rootStateFile() string {
