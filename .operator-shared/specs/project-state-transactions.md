@@ -215,11 +215,15 @@ Keep `determineAgentVersion` as the single branch that skips `resolveBuildVersio
 - CAS guard: a volume flow whose snapshot precondition no longer holds fails with a "state changed concurrently" error
   and writes nothing.
 - `RemoveHomeState` under lock: a prune racing a writer cannot resurrect pruned state.
+- Same-process lock tests assert the reentrancy fail-fast; true cross-process *blocking* waiting is flock's contract and
+  is not directly tested in-process (a subprocess test is a possible future addition).
 - `make check` (fmt, lint, test, docs linkcheck) green; `make compile-all` green.
 
 ## Docs and changelog
 
-- `CHANGELOG.md` `[Unreleased]`: internal state-handling hardening; no user-facing behavior change.
+- `CHANGELOG.md` `[Unreleased]`: internal state-handling hardening. Two intended user-facing behavior changes: a reconfig
+  and `volume migrate`/`volume reset` whose final state write fails now surface an error instead of reporting success
+  without persisting (so persisted state and the VM cannot diverge).
 - No `docs/` page change expected (internal); update the neighbor spec `upgrade-state-scoping.md` if its
   writer-serialization clause is superseded.
 
