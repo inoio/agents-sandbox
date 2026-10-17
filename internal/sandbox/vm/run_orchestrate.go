@@ -109,7 +109,7 @@ func PrepareSandbox(
 	// Decide the agent version to bake before touching the image: this may offer
 	// an upgrade up front, so a normal run never rebuilds the image twice. See
 	// resolveBuildVersion for the decision rules.
-	agentVersion, shallUpgrade, err := determineAgentVersion(ctx, k, a, ui, opts)
+	agentVersion, shallUpgrade, offeredVersion, err := determineAgentVersion(ctx, k, a, ui, opts)
 	if err != nil {
 		return nil, err
 	}
@@ -137,6 +137,9 @@ func PrepareSandbox(
 	if err != nil {
 		return nil, err
 	}
+	// The home volume is resolved (state exists), so a deferred offered mark can
+	// now be recorded.
+	persistOfferedVersion(k, offeredVersion, ui)
 
 	// Load the merged agent config and home files exactly once per startup;
 	// the result is shared by the reconfig decision and the provisioning step.
@@ -206,14 +209,14 @@ func determineAgentVersion(
 	a agent.Agent,
 	ui termio.UI,
 	opts options.RunOptions,
-) (string, bool, error) {
+) (string, bool, string, error) {
 	if opts.DryRun {
 		ui.Verbosef("dry-run: would resolve build version")
 		version := opts.AgentVersion
 		if version == "" {
 			version = currentAgentVersion(k)
 		}
-		return version, false, nil
+		return version, false, "", nil
 	}
 	migrateLegacyUpdaterState(ui)
 	return resolveBuildVersion(ctx, k, a, ui, opts)
@@ -328,6 +331,20 @@ func prepareHomeVolume(
 	}
 	ui.Verbosef("home volume: %s", homeVol)
 	return client, vm, homeVol, vs, nil
+}
+
+// persistOfferedVersion records that the given release's upgrade prompt has been
+// shown, once the home volume is resolved. pendingUpgrade records it directly
+// when a state file already exists; this deferred record covers the case where
+// the state was recreated by home resolution in this same run, so a "don't
+// remind again" choice still sticks.
+func persistOfferedVersion(k state.Key, version string, ui termio.UI) {
+	if version == "" {
+		return
+	}
+	if _, err := state.UpdateExistingHomeState(k, func(hs *state.HomeState) { hs.MarkOffered(version) }); err != nil {
+		ui.Warnf("could not persist project state: %v (continuing)", err)
+	}
 }
 
 // liveHomeVolume returns the home volume currently mounted by the project VM,

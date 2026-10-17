@@ -30,7 +30,7 @@ func TestResolveOpenCodeVersionInteractiveSelectError(t *testing.T) {
 		},
 	}
 
-	_, _, err := resolveBuildVersion(context.Background(), k, opencodeAgent(t), ui, options.RunOptions{})
+	_, _, _, err := resolveBuildVersion(context.Background(), k, opencodeAgent(t), ui, options.RunOptions{})
 	if err == nil {
 		t.Fatal("expected error when the interactive selection fails")
 	}
@@ -54,7 +54,7 @@ func TestResolveOpenCodeVersionInteractiveDefaultChoice(t *testing.T) {
 		},
 	}
 
-	got, upgraded, err := resolveBuildVersion(context.Background(), k, opencodeAgent(t), ui, options.RunOptions{})
+	got, upgraded, _, err := resolveBuildVersion(context.Background(), k, opencodeAgent(t), ui, options.RunOptions{})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -83,7 +83,7 @@ func TestResolveOpenCodeVersionInteractiveKeep(t *testing.T) {
 		},
 	}
 
-	got, upgraded, err := resolveBuildVersion(context.Background(), k, opencodeAgent(t), ui, options.RunOptions{})
+	got, upgraded, _, err := resolveBuildVersion(context.Background(), k, opencodeAgent(t), ui, options.RunOptions{})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -123,7 +123,7 @@ func TestResolveBuildVersionWithoutUpgradeChecker(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	k := state.Key{Slug: "proj", Agent: "fake"}
 	seedAgentState(t, k, "1.5.0", agentSourceTool)
-	got, upgraded, err := resolveBuildVersion(
+	got, upgraded, _, err := resolveBuildVersion(
 		context.Background(),
 		k,
 		&fakeAgent{},

@@ -34,7 +34,8 @@ var existingAgentVersion = image.ExistingAgentVersion
 // resolveBuildVersion decides the agent version to bake into the runner
 // image before the image is built, so a normal run never builds twice (once
 // for the current version and once for an upgrade). It returns the target
-// version and whether that version is a freshly chosen upgrade.
+// version, whether that version is a freshly chosen upgrade, and the release
+// whose prompt was shown this run (empty when none was offered).
 //
 // A user-provided agent wins over an explicit pin: the tool does not own such an
 // agent, so a rebuild would not change its version and any pin is ignored. An
@@ -48,30 +49,36 @@ var existingAgentVersion = image.ExistingAgentVersion
 // the prompt can only ever name this project's version, never another project's.
 // When the HomeState has no recorded baseline, it is recovered from this
 // project's existing image label (see recoverAgentVersion).
+//
+// The offered release is returned because the offered set must be persisted
+// after the home volume is resolved: pendingUpgrade can only record it when a
+// state file already exists, and a state lost before this run is recreated
+// later in PrepareSandbox. Without the deferred record, a "don't remind again"
+// choice would be forgotten for that project.
 func resolveBuildVersion(
 	ctx context.Context,
 	k state.Key,
 	a agent.Agent,
 	ui termio.UI,
 	opts options.RunOptions,
-) (string, bool, error) {
+) (string, bool, string, error) {
 	// A user-provided agent is not owned by the tool: a rebuild would not
 	// change its version, so never check or offer an upgrade, and ignore any pin.
 	// If no version was recorded, leave it empty so the image build can resolve a
 	// real version if the current base image does not provide the agent.
 	if currentAgentSource(k) == agentSourceUser {
-		return currentAgentVersion(k), false, nil
+		return currentAgentVersion(k), false, "", nil
 	}
 
 	// An explicitly pinned version is authoritative: never prompt for an upgrade.
 	if opts.AgentVersion != "" {
-		return opts.AgentVersion, false, nil
+		return opts.AgentVersion, false, "", nil
 	}
 
 	// Without an upgrade checker there is nothing to check against; reuse the
 	// recorded version so the image identity stays stable.
 	if _, ok := agent.AsUpgradeChecker(a); !ok {
-		return currentAgentVersion(k), false, nil
+		return currentAgentVersion(k), false, "", nil
 	}
 
 	current := currentAgentVersion(k)
@@ -82,22 +89,22 @@ func resolveBuildVersion(
 		// No recorded baseline and no existing image to recover one from (e.g.,
 		// first run): resolve latest at build time rather than prompting against
 		// an unknown version.
-		return "", false, nil
+		return "", false, "", nil
 	}
 
 	latest, offer := pendingUpgrade(ctx, a, k, ui, current)
 	if !offer {
-		return current, false, nil
+		return current, false, "", nil
 	}
 
-	chosen, err := promptUpgrade(ui, a, current, latest)
-	if err != nil {
-		return "", false, err
+	chosen, promptErr := promptUpgrade(ui, a, current, latest)
+	if promptErr != nil {
+		return "", false, "", promptErr
 	}
 	if chosen == latest {
-		return latest, true, nil
+		return latest, true, latest, nil
 	}
-	return current, false, nil
+	return current, false, latest, nil
 }
 
 // promptUpgrade offers to rebuild the runner image with a newer release. It

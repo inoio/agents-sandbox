@@ -55,7 +55,7 @@ func TestResolveBuildVersionSkipsCheckForUserAgentSource(t *testing.T) {
 	}
 	t.Cleanup(func() { agentLatestVersion = origLatest })
 
-	got, upgraded, err := resolveBuildVersion(
+	got, upgraded, _, err := resolveBuildVersion(
 		context.Background(),
 		k,
 		opencodeAgent(t),
@@ -89,7 +89,7 @@ func TestResolveBuildVersionUserAgentEmptyVersionLeavesResolutionToImageBuild(t 
 	}
 	t.Cleanup(func() { agentLatestVersion = origLatest })
 
-	got, upgraded, err := resolveBuildVersion(
+	got, upgraded, _, err := resolveBuildVersion(
 		context.Background(),
 		k,
 		opencodeAgent(t),
@@ -124,7 +124,7 @@ func TestResolveOpenCodeVersionPinnedSkipsUpdateCheck(t *testing.T) {
 	opts := options.RunOptions{AgentVersion: "2.0.0"}
 	ui := &termio.Mock{}
 
-	got, upgraded, err := resolveBuildVersion(context.Background(), k, opencodeAgent(t), ui, opts)
+	got, upgraded, _, err := resolveBuildVersion(context.Background(), k, opencodeAgent(t), ui, opts)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -154,7 +154,7 @@ func TestResolveOpenCodeVersionRebuildStillChecksUpdate(t *testing.T) {
 	opts := options.RunOptions{Rebuild: true}
 	ui := &termio.Mock{}
 
-	got, upgraded, err := resolveBuildVersion(context.Background(), k, opencodeAgent(t), ui, opts)
+	got, upgraded, _, err := resolveBuildVersion(context.Background(), k, opencodeAgent(t), ui, opts)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -184,7 +184,7 @@ func TestResolveOpenCodeVersionUserProvidedWinsOverPin(t *testing.T) {
 	opts := options.RunOptions{AgentVersion: "9.9.9"}
 	ui := &termio.Mock{}
 
-	got, upgraded, err := resolveBuildVersion(context.Background(), k, opencodeAgent(t), ui, opts)
+	got, upgraded, _, err := resolveBuildVersion(context.Background(), k, opencodeAgent(t), ui, opts)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -213,7 +213,7 @@ func TestResolveOpenCodeVersionNoBaseline(t *testing.T) {
 	opts := options.RunOptions{}
 	ui := &termio.Mock{}
 
-	got, upgraded, err := resolveBuildVersion(context.Background(), k, opencodeAgent(t), ui, opts)
+	got, upgraded, _, err := resolveBuildVersion(context.Background(), k, opencodeAgent(t), ui, opts)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -251,7 +251,13 @@ func TestResolveOpenCodeVersionRecoversBaselineFromExistingImage(t *testing.T) {
 		},
 	}
 
-	got, upgraded, err := resolveBuildVersion(context.Background(), k, opencodeAgent(t), ui, options.RunOptions{})
+	got, upgraded, offered, err := resolveBuildVersion(
+		context.Background(),
+		k,
+		opencodeAgent(t),
+		ui,
+		options.RunOptions{},
+	)
 	if err != nil {
 		t.Fatalf("resolveBuildVersion: %v", err)
 	}
@@ -260,6 +266,9 @@ func TestResolveOpenCodeVersionRecoversBaselineFromExistingImage(t *testing.T) {
 	}
 	if upgraded {
 		t.Error("expected upgraded=false for a keep choice")
+	}
+	if offered != "2.0.0" {
+		t.Errorf("offered = %q, want the shown release 2.0.0 returned for deferred persistence", offered)
 	}
 	for _, want := range []string{"1.0.0", "2.0.0"} {
 		if !strings.Contains(prompt, want) {
@@ -276,6 +285,106 @@ func TestResolveOpenCodeVersionRecoversBaselineFromExistingImage(t *testing.T) {
 	}
 }
 
+func TestPersistOfferedVersionMarksExistingState(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	k := state.Key{Slug: "proj", Agent: "opencode"}
+	if err := state.WriteState(k, state.HomeState{HomeVolume: "vol"}); err != nil {
+		t.Fatalf("WriteState: %v", err)
+	}
+
+	persistOfferedVersion(k, "2.0.0", &termio.Mock{})
+
+	hs, err := state.ReadState(k)
+	if err != nil {
+		t.Fatalf("ReadState: %v", err)
+	}
+	if !hs.Offered("2.0.0") {
+		t.Errorf("offered set not recorded: %+v", hs.OfferedVersions)
+	}
+}
+
+func TestPersistOfferedVersionSkipsMissingState(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	k := state.Key{Slug: "proj", Agent: "opencode"}
+
+	persistOfferedVersion(k, "2.0.0", &termio.Mock{})
+
+	if _, err := state.ReadState(k); !errors.Is(err, state.ErrStateNotFound) {
+		t.Fatalf("ReadState error = %v, want ErrStateNotFound (no state created)", err)
+	}
+}
+
+func TestPersistOfferedVersionNoVersionIsNoop(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	k := state.Key{Slug: "proj", Agent: "opencode"}
+	if err := state.WriteState(k, state.HomeState{HomeVolume: "vol"}); err != nil {
+		t.Fatalf("WriteState: %v", err)
+	}
+
+	persistOfferedVersion(k, "", &termio.Mock{})
+
+	hs, err := state.ReadState(k)
+	if err != nil {
+		t.Fatalf("ReadState: %v", err)
+	}
+	if len(hs.OfferedVersions) != 0 {
+		t.Errorf("expected no offered versions, got %v", hs.OfferedVersions)
+	}
+}
+
+func TestPersistOfferedVersionWarnsOnError(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	k := state.Key{Slug: "proj", Agent: "opencode"}
+	if err := os.MkdirAll(filepath.Join(state.KeyDir(k), "state.yaml"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+
+	ui := &termio.Mock{}
+	persistOfferedVersion(k, "2.0.0", ui)
+
+	if !contains(joinStrings(ui.WarnCalls), "could not persist project state") {
+		t.Errorf("expected a persist warning, got %v", ui.WarnCalls)
+	}
+}
+
+// TestDeferredOfferedPersistedAfterStateRecreated is the regression test for the
+// "don't remind again" choice being forgotten when the project state was
+// missing: the offered release returned by resolveBuildVersion is persisted
+// after home resolution recreates the state.
+func TestDeferredOfferedPersistedAfterStateRecreated(t *testing.T) {
+	origLatest := agentLatestVersion
+	defer func() { agentLatestVersion = origLatest }()
+	agentLatestVersion = func(_ context.Context, _ agent.Agent) (string, error) { return "2.0.0", nil }
+
+	configpaths.WithMockConfigPaths(t)
+	k := state.Key{Slug: "proj", Agent: "opencode"}
+	withExistingAgentVersion(t)
+
+	_, _, offered, err := resolveBuildVersion(
+		context.Background(), k, opencodeAgent(t), &termio.Mock{}, options.RunOptions{},
+	)
+	if err != nil {
+		t.Fatalf("resolveBuildVersion: %v", err)
+	}
+	if offered != "2.0.0" {
+		t.Fatalf("offered = %q, want 2.0.0", offered)
+	}
+
+	// Home resolution recreates the state, then the deferred mark is recorded.
+	if err := state.ReplaceHomeState(k, state.HomeState{HomeVolume: "vol"}); err != nil {
+		t.Fatalf("ReplaceHomeState: %v", err)
+	}
+	persistOfferedVersion(k, offered, &termio.Mock{})
+
+	hs, err := state.ReadState(k)
+	if err != nil {
+		t.Fatalf("ReadState: %v", err)
+	}
+	if !hs.Offered("2.0.0") {
+		t.Errorf("offered set not persisted after state recreation: %v", hs.OfferedVersions)
+	}
+}
+
 func TestResolveOpenCodeVersionRecoveryDoesNotCreatePartialState(t *testing.T) {
 	origLatest := agentLatestVersion
 	defer func() { agentLatestVersion = origLatest }()
@@ -288,7 +397,7 @@ func TestResolveOpenCodeVersionRecoveryDoesNotCreatePartialState(t *testing.T) {
 	// home recovery (#183).
 	withExistingAgentVersion(t)
 
-	got, upgraded, err := resolveBuildVersion(
+	got, upgraded, _, err := resolveBuildVersion(
 		context.Background(), k, opencodeAgent(t), &termio.Mock{}, options.RunOptions{},
 	)
 	if err != nil {
@@ -316,7 +425,7 @@ func TestResolveOpenCodeVersionRecoveredBaselineReusedOffline(t *testing.T) {
 	k := state.Key{Slug: "proj", Agent: "opencode"}
 	withExistingAgentVersion(t)
 
-	got, upgraded, err := resolveBuildVersion(
+	got, upgraded, _, err := resolveBuildVersion(
 		context.Background(), k, opencodeAgent(t), &termio.Mock{}, options.RunOptions{},
 	)
 	if err != nil {
@@ -345,7 +454,7 @@ func TestResolveOpenCodeVersionRecoveryPersistFailureStillUsesVersion(t *testing
 	}
 
 	ui := &termio.Mock{}
-	got, upgraded, err := resolveBuildVersion(context.Background(), k, opencodeAgent(t), ui, options.RunOptions{})
+	got, upgraded, _, err := resolveBuildVersion(context.Background(), k, opencodeAgent(t), ui, options.RunOptions{})
 	if err != nil {
 		t.Fatalf("resolveBuildVersion: %v", err)
 	}
@@ -371,7 +480,7 @@ func TestResolveOpenCodeVersionNoNewerVersion(t *testing.T) {
 	opts := options.RunOptions{}
 	ui := &termio.Mock{}
 
-	got, upgraded, err := resolveBuildVersion(context.Background(), k, opencodeAgent(t), ui, opts)
+	got, upgraded, _, err := resolveBuildVersion(context.Background(), k, opencodeAgent(t), ui, opts)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -394,7 +503,7 @@ func TestResolveOpenCodeVersionNonInteractiveLogsUpgradeAvailable(t *testing.T) 
 	opts := options.RunOptions{}
 	ui := &termio.Mock{IsInteractiveResult: false}
 
-	got, upgraded, err := resolveBuildVersion(context.Background(), k, opencodeAgent(t), ui, opts)
+	got, upgraded, _, err := resolveBuildVersion(context.Background(), k, opencodeAgent(t), ui, opts)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -426,7 +535,7 @@ func TestResolveOpenCodeVersionInteractiveRebuild(t *testing.T) {
 		},
 	}
 
-	got, upgraded, err := resolveBuildVersion(context.Background(), k, opencodeAgent(t), ui, opts)
+	got, upgraded, _, err := resolveBuildVersion(context.Background(), k, opencodeAgent(t), ui, opts)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -459,7 +568,7 @@ func TestResolveOpenCodeVersionSkipsCheckWhenCheckedToday(t *testing.T) {
 	opts := options.RunOptions{}
 	ui := &termio.Mock{IsInteractiveResult: false}
 
-	got, upgraded, err := resolveBuildVersion(context.Background(), k, opencodeAgent(t), ui, opts)
+	got, upgraded, _, err := resolveBuildVersion(context.Background(), k, opencodeAgent(t), ui, opts)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -499,7 +608,7 @@ func TestResolveOpenCodeVersionDoesNotReOfferVersion(t *testing.T) {
 	opts := options.RunOptions{}
 	ui := &termio.Mock{IsInteractiveResult: true}
 
-	got, upgraded, err := resolveBuildVersion(context.Background(), k, opencodeAgent(t), ui, opts)
+	got, upgraded, _, err := resolveBuildVersion(context.Background(), k, opencodeAgent(t), ui, opts)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -523,7 +632,7 @@ func TestResolveOpenCodeVersionRecordsOfferedBeforePrompt(t *testing.T) {
 	opts := options.RunOptions{}
 	ui := &termio.Mock{IsInteractiveResult: true}
 
-	if _, _, err := resolveBuildVersion(context.Background(), k, opencodeAgent(t), ui, opts); err != nil {
+	if _, _, _, err := resolveBuildVersion(context.Background(), k, opencodeAgent(t), ui, opts); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
@@ -559,7 +668,7 @@ func TestResolveOpenCodeVersionUnparsableLatestKeepsCurrent(t *testing.T) {
 	opts := options.RunOptions{}
 	ui := &termio.Mock{IsInteractiveResult: true}
 
-	got, upgraded, err := resolveBuildVersion(context.Background(), k, opencodeAgent(t), ui, opts)
+	got, upgraded, _, err := resolveBuildVersion(context.Background(), k, opencodeAgent(t), ui, opts)
 	if err != nil {
 		t.Fatalf("unparsable latest version must not fail the session, got: %v", err)
 	}
@@ -585,7 +694,7 @@ func TestResolveOpenCodeVersionOfflineDoesNotUpdateLastChecked(t *testing.T) {
 	opts := options.RunOptions{}
 	ui := &termio.Mock{IsInteractiveResult: true}
 
-	got, upgraded, err := resolveBuildVersion(context.Background(), k, opencodeAgent(t), ui, opts)
+	got, upgraded, _, err := resolveBuildVersion(context.Background(), k, opencodeAgent(t), ui, opts)
 	if err != nil {
 		t.Fatalf("offline check must not fail the session, got: %v", err)
 	}
@@ -629,7 +738,7 @@ func TestResolveOpenCodeVersionInteractiveQuit(t *testing.T) {
 		},
 	}
 
-	_, _, err := resolveBuildVersion(context.Background(), k, opencodeAgent(t), ui, opts)
+	_, _, _, err := resolveBuildVersion(context.Background(), k, opencodeAgent(t), ui, opts)
 	if !errors.Is(err, errUpgradeQuit) {
 		t.Fatalf("expected errUpgradeQuit, got %v", err)
 	}
@@ -658,7 +767,7 @@ func TestResolveBuildVersionPromptNamesThisProjectsVersion(t *testing.T) {
 			return "k", nil
 		},
 	}
-	if _, _, err := resolveBuildVersion(
+	if _, _, _, err := resolveBuildVersion(
 		context.Background(),
 		k,
 		opencodeAgent(t),
@@ -780,7 +889,7 @@ func TestDetermineAgentVersionDryRunPrefersPin(t *testing.T) {
 	t.Cleanup(func() { agentLatestVersion = origLatest })
 
 	ui := &termio.Mock{}
-	got, upgrade, err := determineAgentVersion(
+	got, upgrade, _, err := determineAgentVersion(
 		context.Background(),
 		k,
 		opencodeAgent(t),
@@ -820,7 +929,7 @@ func TestDetermineAgentVersionDryRunFallsBackToRecordedVersion(t *testing.T) {
 			return "", nil
 		},
 	}
-	got, upgrade, err := determineAgentVersion(
+	got, upgrade, _, err := determineAgentVersion(
 		context.Background(),
 		k,
 		opencodeAgent(t),

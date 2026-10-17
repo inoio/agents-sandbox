@@ -78,7 +78,10 @@ document that exists; no new project-level file is introduced (see Non-goals).
 4. `latest := cached latest_version`; if empty, no offer.
 5. Compare `NewerThan(latest, current)`. If not newer, no offer.
 6. Read `HomeState(k)`; if its `offered_versions` already contains `latest`, no offer.
-7. Append `latest` to the `HomeState` `offered_versions`, persist, and return the offer.
+7. Append `latest` to the `HomeState` `offered_versions` (an update-only write; no state is created) and return the
+   offer. Because this runs before home resolution, `resolveBuildVersion` also returns the offered release so
+   `PrepareSandbox` can record it again after home resolution recreates a missing state; otherwise a "don't remind
+   again" choice would be forgotten for a project whose state file was lost.
 
 The prompt (`promptUpgrade`) then names both `latest` and this project's `current` (PR #225 wording: the prompt reads
 `"Rebuild the runner image with <agent> <latest>? (current image has <current>)"` and the Rebuild choice reads
