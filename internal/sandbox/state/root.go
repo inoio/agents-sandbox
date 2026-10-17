@@ -140,6 +140,9 @@ func WriteRootState(s RootState) error {
 // UpdateRootState reads the launcher-global state (a missing file yields a zero
 // RootState), applies mutate, and writes it back atomically. It is a
 // read-modify-write so a writer preserves entries it does not touch.
+//
+// It is lock-free: callers must hold the shared host-only root-state lock
+// (LockRootState) for the whole read-modify-write.
 func UpdateRootState(mutate func(*RootState)) error {
 	s, err := ReadRootState()
 	if err != nil {

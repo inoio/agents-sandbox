@@ -69,13 +69,16 @@ document that exists; no new project-level file is introduced (see Non-goals).
 
 `pendingUpgrade(ctx, a, k, ui, current)`:
 
-1. Read the global `AgentCheckState` for `a`.
-2. If `dueForCheck(now)`: call the agent's `LatestVersion`. On error, warn and return no offer (the window stays open).
+1. Read the global root state. On a read error, warn and return no offer and do **not** persist: an unreadable document
+   (e.g. a corrupt `state.yaml`) must never be overwritten, so the `migrations` registry and every other agent's cached
+   check survive.
+2. Read the global `AgentCheckState` for `a`.
+3. If `dueForCheck(now)`: call the agent's `LatestVersion`. On error, warn and return no offer (the window stays open).
    On success, set `last_checked = now` and `latest_version = latest`, and persist the root state.
-3. `latest := cached latest_version`; if empty, no offer.
-4. Compare `NewerThan(latest, current)`. If not newer, no offer.
-5. Read `HomeState(k)`; if its `offered_versions` already contains `latest`, no offer.
-6. Append `latest` to the `HomeState` `offered_versions`, persist, and return the offer.
+4. `latest := cached latest_version`; if empty, no offer.
+5. Compare `NewerThan(latest, current)`. If not newer, no offer.
+6. Read `HomeState(k)`; if its `offered_versions` already contains `latest`, no offer.
+7. Append `latest` to the `HomeState` `offered_versions`, persist, and return the offer.
 
 The prompt (`promptUpgrade`) then names both `latest` and this project's `current` (PR #225 wording: the prompt reads
 `"Rebuild the runner image with <agent> <latest>? (current image has <current>)"` and the Rebuild choice reads
@@ -136,6 +139,8 @@ The presence of `<root>/updater.yaml` is the trigger. No user choice, no `migrat
 - **Serialized RootState writes.** Every `RootState` read-modify-write holds the shared host-only flock;
   `state.UpdateRootState` stays lock-free and requires the caller to hold it. `runtimemigration` and the upgrade path
   share the one lock, so neither can clobber the other's map.
+- **A RootState read failure never writes.** A `RootState` read error must warn and return no offer without persisting,
+  never overwrite the file with a zero-value document that would discard the `migrations` registry.
 - **`--dry-run` is side-effect-free.** Under it there is no upgrade network check, no state persistence, and no legacy
   fold; `resolveBuildVersion` is replaced by a verbose "would resolve build version" message.
 

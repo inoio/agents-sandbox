@@ -273,7 +273,10 @@ func TestRootStateAgentCheckRoundTrip(t *testing.T) {
 
 func TestRootStateAgentCheckMissingIsZero(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
-	got, _ := ReadRootState()
+	got, err := ReadRootState()
+	if err != nil {
+		t.Fatalf("ReadRootState: %v", err)
+	}
 	if c := got.AgentCheck("opencode"); !c.LastChecked.IsZero() || c.LatestVersion != "" {
 		t.Fatalf("missing AgentCheck = %+v, want zero", c)
 	}

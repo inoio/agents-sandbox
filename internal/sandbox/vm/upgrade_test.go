@@ -1,6 +1,7 @@
 package vm
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"os"
@@ -696,19 +697,73 @@ func TestDetermineAgentVersionDryRunFallsBackToRecordedVersion(t *testing.T) {
 	}
 }
 
-// TestPendingUpgradeWarnsOnRootStateReadAndWriteError covers both root-state I/O
-// failures: a directory at the root state file path makes ReadRootState fail
-// (warn + treat as zero) and the subsequent WriteRootState fail (warn). The
-// offer still proceeds from the freshly fetched latest version.
-func TestPendingUpgradeWarnsOnRootStateReadAndWriteError(t *testing.T) {
+// TestPendingUpgradeRootStateReadErrorDoesNotClobber is the regression for the
+// clobber bug: an unreadable root state (which holds the migrations registry and
+// every other agent's cached check) must never be overwritten by the upgrade
+// check. On a read error the step warns, returns no offer, and leaves the file
+// byte-for-byte unchanged.
+func TestPendingUpgradeRootStateReadErrorDoesNotClobber(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	k := state.Key{Slug: "proj", Agent: "opencode"}
 	seedAgentState(t, k, "1.0.0", agentSourceTool)
-
-	rootStatePath := filepath.Join(configpaths.Get().UserStateDir(), "state.yaml")
-	if err := os.MkdirAll(rootStatePath, 0o700); err != nil {
+	if err := state.WriteRootState(state.RootState{
+		Migrations: map[string]state.Migration{
+			"runtime_home": {Status: state.MigrationDismissed},
+		},
+	}); err != nil {
 		t.Fatal(err)
 	}
+	rootStatePath := filepath.Join(configpaths.Get().UserStateDir(), "state.yaml")
+	corrupt := []byte("not: valid: yaml: [")
+	if err := os.WriteFile(rootStatePath, corrupt, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	origLatest := agentLatestVersion
+	agentLatestVersion = func(_ context.Context, _ agent.Agent) (string, error) { return "2.0.0", nil }
+	t.Cleanup(func() { agentLatestVersion = origLatest })
+
+	ui := &termio.Mock{}
+	latest, offer := pendingUpgrade(context.Background(), opencodeAgent(t), k, ui, "1.0.0")
+	if offer || latest != "" {
+		t.Errorf("pendingUpgrade = (%q, %v), want no offer on a root-state read error", latest, offer)
+	}
+	if !strings.Contains(strings.Join(ui.WarnCalls, " "), "could not read upgrade check state") {
+		t.Errorf("expected a root-state read warning, got %v", ui.WarnCalls)
+	}
+	got, err := os.ReadFile(rootStatePath)
+	if err != nil {
+		t.Fatalf("ReadFile: %v", err)
+	}
+	if !bytes.Equal(got, corrupt) {
+		t.Errorf("root state was rewritten on a read error: got %q, want %q", got, corrupt)
+	}
+}
+
+// TestPendingUpgradeWarnsOnRootStateWriteError covers the root-state write
+// failure: the state directory is read-only, so ReadRootState succeeds but
+// WriteRootState cannot create its temp file. The step warns and the offer
+// still proceeds from the freshly fetched latest version.
+func TestPendingUpgradeWarnsOnRootStateWriteError(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("running as root: a read-only directory does not block writes")
+	}
+	configpaths.WithMockConfigPaths(t)
+	k := state.Key{Slug: "proj", Agent: "opencode"}
+	seedAgentState(t, k, "1.0.0", agentSourceTool)
+	if err := state.WriteRootState(state.RootState{Agents: map[string]state.AgentCheckState{
+		"opencode": {LastChecked: now().Add(-25 * time.Hour), LatestVersion: "1.0.0"},
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	stateDir := configpaths.Get().UserStateDir()
+	if err := os.WriteFile(filepath.Join(stateDir, "root.lock"), nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(stateDir, 0o500); err != nil {
+		t.Skipf("cannot chmod state dir: %v", err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(stateDir, 0o700) })
 
 	origLatest := agentLatestVersion
 	agentLatestVersion = func(_ context.Context, _ agent.Agent) (string, error) { return "2.0.0", nil }
@@ -719,11 +774,8 @@ func TestPendingUpgradeWarnsOnRootStateReadAndWriteError(t *testing.T) {
 	if !offer || latest != "2.0.0" {
 		t.Fatalf("pendingUpgrade = (%q, %v), want (2.0.0, true)", latest, offer)
 	}
-	joined := strings.Join(ui.WarnCalls, " ")
-	for _, want := range []string{"could not read upgrade check state", "could not persist upgrade check state"} {
-		if !strings.Contains(joined, want) {
-			t.Errorf("expected warning %q, got %q", want, joined)
-		}
+	if !strings.Contains(strings.Join(ui.WarnCalls, " "), "could not persist upgrade check state") {
+		t.Errorf("expected a root-state persist warning, got %v", ui.WarnCalls)
 	}
 }
 

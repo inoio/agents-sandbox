@@ -129,8 +129,10 @@ func promptUpgrade(ui termio.UI, a agent.Agent, current, latest string) (string,
 //
 // The whole step is serialized under the host-only root-state lock: a held lock
 // (e.g. an in-flight runtime-home copy campaign) defers the upgrade step to the
-// next run rather than racing it. An offline or failed check never fails the
-// session and leaves the once-per-day window open.
+// next run rather than racing it. A root-state read error warns and returns no
+// offer without writing, so an unreadable document is never clobbered. An
+// offline or failed check never fails the session and leaves the once-per-day
+// window open.
 func pendingUpgrade(
 	ctx context.Context,
 	a agent.Agent,
@@ -148,8 +150,10 @@ func pendingUpgrade(
 
 	root, readErr := state.ReadRootState()
 	if readErr != nil {
-		ui.Warnf("could not read upgrade check state: %v (checking anyway)", readErr)
-		root = &state.RootState{}
+		// Never persist over an unreadable root state: a zero-value rewrite would
+		// discard the migrations registry and every other agent's cached check.
+		ui.Warnf("could not read upgrade check state: %v (skipping check)", readErr)
+		return "", false
 	}
 	entry := root.AgentCheck(a.Name())
 	if hasChecker && entry.DueForCheck(now()) {

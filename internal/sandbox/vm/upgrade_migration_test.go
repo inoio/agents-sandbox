@@ -166,6 +166,9 @@ func TestMigrateLegacyUpdaterStateLockErrorIsNonFatal(t *testing.T) {
 }
 
 func TestMigrateLegacyUpdaterStateWriteErrorIsNonFatal(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("running as root: a read-only directory does not block writes")
+	}
 	configpaths.WithMockConfigPaths(t)
 	stateDir := configpaths.Get().UserStateDir()
 	if err := os.WriteFile(filepath.Join(stateDir, "root.lock"), nil, 0o600); err != nil {
