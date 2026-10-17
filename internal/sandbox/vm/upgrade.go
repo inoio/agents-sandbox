@@ -146,12 +146,12 @@ func promptUpgrade(ui termio.UI, a agent.Agent, current, latest string) (string,
 // machine-global (RootState), while the once-per-version offered gate is
 // per-project (HomeState), so the prompt never names another project's version.
 //
-// The whole step is serialized under the host-only root-state lock: a held lock
-// (e.g. an in-flight runtime-home copy campaign) defers the upgrade step to the
-// next run rather than racing it. A root-state read error warns and returns no
-// offer without writing, so an unreadable document is never clobbered. An
-// offline or failed check never fails the session and leaves the once-per-day
-// window open.
+// The two documents are written in two separate transactions, never nested: the
+// host-only root lock is held only for the network-check bookkeeping (see
+// checkAgentUpgrade), then released before the home transaction records the
+// offered mark. A held root lock (e.g. an in-flight runtime-home copy campaign)
+// defers the whole step to the next run rather than racing it. An offline or
+// failed check never fails the session and leaves the once-per-day window open.
 func pendingUpgrade(
 	ctx context.Context,
 	a agent.Agent,
@@ -159,41 +159,10 @@ func pendingUpgrade(
 	ui termio.UI,
 	currentVersion string,
 ) (string, bool) {
-	release, ok, err := state.LockRootState(false)
-	if err != nil || !ok {
-		return "", false
-	}
-	defer release()
-
 	checker, hasChecker := agent.AsUpgradeChecker(a)
 
-	root, readErr := state.ReadRootState()
-	if readErr != nil {
-		// Never persist over an unreadable root state: a zero-value rewrite would
-		// discard the migrations registry and every other agent's cached check.
-		ui.Warnf("could not read upgrade check state: %v (skipping check)", readErr)
-		return "", false
-	}
-	entry := root.AgentCheck(a.Name())
-	if hasChecker && entry.DueForCheck(now()) {
-		latest, latestErr := agentLatestVersion(ctx, a)
-		if latestErr != nil {
-			// Offline or unreachable: never fail the session, and leave the
-			// once-per-day window open so the next online run retries.
-			ui.Warnf("could not check for %s updates: %v", a.Name(), latestErr)
-			return "", false
-		}
-		// A successful check refreshes the once-per-day window regardless of
-		// whether an upgrade is available.
-		entry.LastChecked = now()
-		entry.LatestVersion = latest
-		root.SetAgentCheck(a.Name(), entry)
-		if writeErr := state.WriteRootState(*root); writeErr != nil {
-			ui.Warnf("could not persist upgrade check state: %v (continuing)", writeErr)
-		}
-	}
-
-	if !hasChecker {
+	entry, checked := checkAgentUpgrade(ctx, a, hasChecker, ui)
+	if !checked || !hasChecker {
 		return "", false
 	}
 	latest := entry.LatestVersion
@@ -218,16 +187,74 @@ func pendingUpgrade(
 		return "", false
 	}
 
-	// Update an existing state only: this runs before home resolution, so
-	// creating a state here would leave a fingerprint-less partial state that
-	// poisons that step's recovery (#183).
-	if _, writeErr := state.UpdateExistingHomeState(
-		k,
-		func(hs *state.HomeState) { hs.MarkOffered(latest) },
-	); writeErr != nil {
+	// Record the offered mark in a separate home transaction, never nested
+	// inside the root lock. Update an existing state only: this runs before home
+	// resolution, so creating a state here would leave a fingerprint-less
+	// partial state that poisons that step's recovery (#183).
+	if writeErr := state.WithHomeState(k, func(hs *state.HomeState, exists bool) (bool, error) {
+		if !exists {
+			return false, nil
+		}
+		hs.MarkOffered(latest)
+		return true, nil
+	}); writeErr != nil {
 		ui.Warnf("could not persist project state: %v (continuing)", writeErr)
 	}
 	return latest, true
+}
+
+// checkAgentUpgrade runs the machine-global network check under the host-only
+// root transaction and returns this agent's cached check state. The bool is
+// false when the check could not run — the lock was held, the root state was
+// unreadable, or the network check failed — and the caller must then defer the
+// upgrade step. A root-state write failure is warned and does not suppress the
+// offer: the freshly fetched version is still used this run.
+func checkAgentUpgrade(
+	ctx context.Context,
+	a agent.Agent,
+	hasChecker bool,
+	ui termio.UI,
+) (state.AgentCheckState, bool) {
+	var (
+		entry       state.AgentCheckState
+		checkFailed bool
+	)
+	ok, err := state.WithRootState(false, func(txn *state.RootTxn) error {
+		root := txn.State()
+		entry = root.AgentCheck(a.Name())
+		if !hasChecker || !entry.DueForCheck(now()) {
+			// Nothing to refresh: reuse the cached entry (if any). Not due, so no
+			// write and no need to checkpoint.
+			return nil
+		}
+		latest, latestErr := agentLatestVersion(ctx, a)
+		if latestErr != nil {
+			// Offline or unreachable: never fail the session, and leave the
+			// once-per-day window open so the next online run retries.
+			ui.Warnf("could not check for %s updates: %v", a.Name(), latestErr)
+			checkFailed = true
+			return nil
+		}
+		// A successful check refreshes the once-per-day window regardless of
+		// whether an upgrade is available.
+		entry.LastChecked = now()
+		entry.LatestVersion = latest
+		root.SetAgentCheck(a.Name(), entry)
+		if commitErr := txn.Commit(); commitErr != nil {
+			ui.Warnf("could not persist upgrade check state: %v (continuing)", commitErr)
+		}
+		return nil
+	})
+	if err != nil {
+		// Never persist over an unreadable root state: a zero-value rewrite would
+		// discard the migrations registry and every other agent's cached check.
+		ui.Warnf("could not read upgrade check state: %v (skipping check)", err)
+		return state.AgentCheckState{}, false
+	}
+	if !ok || checkFailed {
+		return state.AgentCheckState{}, false
+	}
+	return entry, true
 }
 
 // currentAgentVersion returns the agent version recorded for this project's
@@ -269,7 +296,13 @@ func recoverAgentVersion(ctx context.Context, k state.Key, ui termio.UI) string 
 	if !ok {
 		return ""
 	}
-	if _, err := state.UpdateExistingHomeState(k, func(hs *state.HomeState) { hs.AgentVersion = version }); err != nil {
+	if err := state.WithHomeState(k, func(hs *state.HomeState, exists bool) (bool, error) {
+		if !exists {
+			return false, nil
+		}
+		hs.AgentVersion = version
+		return true, nil
+	}); err != nil {
 		ui.Verbosef("could not record recovered agent version: %v", err)
 	}
 	return version

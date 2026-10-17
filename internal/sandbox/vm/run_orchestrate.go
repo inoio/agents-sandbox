@@ -342,7 +342,13 @@ func persistOfferedVersion(k state.Key, version string, ui termio.UI) {
 	if version == "" {
 		return
 	}
-	if _, err := state.UpdateExistingHomeState(k, func(hs *state.HomeState) { hs.MarkOffered(version) }); err != nil {
+	if err := state.WithHomeState(k, func(hs *state.HomeState, exists bool) (bool, error) {
+		if !exists {
+			return false, nil
+		}
+		hs.MarkOffered(version)
+		return true, nil
+	}); err != nil {
 		ui.Warnf("could not persist project state: %v (continuing)", err)
 	}
 }

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"reflect"
 	"slices"
 	"strings"
 	"testing"
@@ -870,6 +871,56 @@ func TestPendingUpgradeSuppressedWhenAlreadyOffered(t *testing.T) {
 	)
 	if offer || latest != "" {
 		t.Errorf("pendingUpgrade = (%q, %v), want no offer for an already-offered version", latest, offer)
+	}
+}
+
+// TestPendingUpgradeOfferedWritePreservesFingerprints is the property guard for
+// pendingUpgrade's offered mark: recording the offered version must merge into
+// the existing HomeState, never replace it, so the project's env/secret
+// fingerprints survive.
+func TestPendingUpgradeOfferedWritePreservesFingerprints(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	k := state.Key{Slug: "proj", Agent: "opencode"}
+	seed := state.HomeState{
+		HomeVolume:   "vol",
+		ImageDigest:  "d",
+		AgentVersion: "1.0.0",
+		AgentSource:  agentSourceTool,
+		EnvState:     state.EnvState{Hash: "e"},
+		SecretState:  state.SecretState{Hash: "s"},
+	}
+	if err := state.WriteState(k, seed); err != nil {
+		t.Fatalf("WriteState: %v", err)
+	}
+	if err := state.WriteRootState(state.RootState{Agents: map[string]state.AgentCheckState{
+		"opencode": {LastChecked: now(), LatestVersion: "2.0.0"},
+	}}); err != nil {
+		t.Fatalf("WriteRootState: %v", err)
+	}
+
+	origLatest := agentLatestVersion
+	agentLatestVersion = func(_ context.Context, _ agent.Agent) (string, error) {
+		t.Error("agentLatestVersion must not be called when the check is not due")
+		return "", nil
+	}
+	t.Cleanup(func() { agentLatestVersion = origLatest })
+
+	latest, offer := pendingUpgrade(context.Background(), opencodeAgent(t), k, &termio.Mock{}, "1.0.0")
+	if !offer || latest != "2.0.0" {
+		t.Fatalf("pendingUpgrade = (%q, %v), want (2.0.0, true)", latest, offer)
+	}
+
+	got, err := state.ReadState(k)
+	if err != nil {
+		t.Fatalf("ReadState: %v", err)
+	}
+	if got.EnvState.Hash != "e" || got.SecretState.Hash != "s" {
+		t.Errorf("fingerprints not preserved: %+v", got)
+	}
+	want := seed
+	want.MarkOffered("2.0.0")
+	if !reflect.DeepEqual(*got, want) {
+		t.Errorf("offered write changed unrelated fields:\n got %+v\nwant %+v", *got, want)
 	}
 }
 

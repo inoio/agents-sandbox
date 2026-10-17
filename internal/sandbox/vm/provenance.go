@@ -45,12 +45,13 @@ func recordImageProvenance(ctx context.Context, k state.Key, a agent.Agent, sb m
 		detectedVersion, hasVersion = detectToolAgentVersion(ctx, a, sb, ui)
 	}
 
-	if writeErr := state.UpdateHomeState(k, func(hs *state.HomeState) {
+	if writeErr := state.WithHomeState(k, func(hs *state.HomeState, _ bool) (bool, error) {
 		hs.AgentSource = agentSource
 		hs.DockerSource = dockerSource
 		if hasVersion {
 			hs.AgentVersion = detectedVersion
 		}
+		return true, nil
 	}); writeErr != nil {
 		ui.Warnf("could not persist project state: %v (continuing)", writeErr)
 	}
