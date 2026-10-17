@@ -149,58 +149,39 @@ func presentLegacyTargetsFor() ([]string, error) {
 	return presentLegacyTargets(legacyHome, runtime.PrivateHome())
 }
 
-// withMigrationLock runs fn while holding the host-only migration lock, so a
-// terminal write cannot race an in-flight copy campaign's own writes. It must
-// only wrap state writes made outside CopyVolumes: CopyVolumes already holds the
-// lock, and flock is not reentrant.
-func withMigrationLock(fn func() error) error {
-	release, err := acquireMigrationLock()
-	if err != nil {
-		return err
-	}
-	defer release()
-	return fn()
-}
-
 // finalizeCompletedCampaign closes out an open campaign that has nothing left to
 // copy (it crashed after copying everything but before recording completion). It
-// re-reads state under the lock and only writes completed while the entry is
+// re-reads state under the root lock and only writes completed while the entry is
 // still copying, so it never clobbers a concurrent terminal write.
 func finalizeCompletedCampaign(ui termio.UI) error {
-	return withMigrationLock(func() error {
-		root, err := state.ReadRootState()
-		if err != nil {
-			return err
-		}
-		m, _ := root.Migration(MigrationName)
+	_, err := state.WithRootState(true, func(tx *state.RootTxn) error {
+		m, _ := tx.State().Migration(MigrationName)
 		if m.Status != state.MigrationCopying {
 			return nil
 		}
-		return finalizeMigration(m, ui)
+		return finalizeMigration(tx, m, ui)
 	})
+	return err
 }
 
-// dismissMigration records the permanent opt-out under the lock, re-reading first
-// so a concurrent campaign's terminal write (completed or dismissed) is not
+// dismissMigration records the permanent opt-out under the root lock, re-reading
+// first so a concurrent campaign's terminal write (completed or dismissed) is not
 // overwritten. It first removes every unclear private volume: recording the
 // dismissal while a usable partial remains would let the home resolver adopt an
 // incomplete home under a permanent opt-out. Volumes that were copied or kept at
 // the user's choice are preserved. A cleanup failure aborts the dismissal.
 func dismissMigration(ctx context.Context, client msb.Client) error {
-	return withMigrationLock(func() error {
-		root, err := state.ReadRootState()
-		if err != nil {
-			return err
-		}
-		m, _ := root.Migration(MigrationName)
+	_, err := state.WithRootState(true, func(tx *state.RootTxn) error {
+		m, _ := tx.State().Migration(MigrationName)
 		if m.Status == state.MigrationCompleted || m.Status == state.MigrationDismissed {
 			return nil
 		}
 		if err := removeUnclearDestinations(ctx, client, m); err != nil {
 			return err
 		}
-		return saveMigration(state.Migration{Status: state.MigrationDismissed})
+		return saveMigration(tx, state.Migration{Status: state.MigrationDismissed})
 	})
+	return err
 }
 
 // removeUnclearDestinations removes every present private volume under a legacy

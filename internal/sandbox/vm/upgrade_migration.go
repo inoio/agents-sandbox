@@ -41,7 +41,8 @@ func legacyUpdaterStatePath() string {
 // updater.yaml into the root state and deletes the file. It is non-interactive
 // and preserves any cadence already present in the root state. Missing,
 // empty, or corrupt files fold nothing but are still removed. A contended root
-// lock or a failed write leaves the file in place so the migration retries.
+// lock (typically a copy campaign holding it) or a failed write leaves the file
+// in place so the migration retries.
 func migrateLegacyUpdaterState(ui termio.UI) {
 	path := legacyUpdaterStatePath()
 	data, err := os.ReadFile(path)
@@ -54,33 +55,23 @@ func migrateLegacyUpdaterState(ui termio.UI) {
 
 	legacy := parseLegacyUpdaterState(data)
 
-	release, ok, err := state.LockRootState(false)
+	ok, err := state.WithRootState(false, func(tx *state.RootTxn) error {
+		root := tx.State()
+		for name, agent := range legacy.Agents {
+			if agent.LastChecked.IsZero() {
+				continue
+			}
+			if root.AgentCheck(name).LastChecked.IsZero() {
+				root.SetAgentCheck(name, state.AgentCheckState{LastChecked: agent.LastChecked})
+			}
+		}
+		return tx.Commit()
+	})
 	if err != nil {
-		ui.Warnf("locking root state for legacy updater migration: %v (continuing)", err)
+		ui.Warnf("updating root state for legacy updater migration: %v (continuing)", err)
 		return
 	}
 	if !ok {
-		return
-	}
-	defer release()
-
-	root, err := state.ReadRootState()
-	if err != nil {
-		ui.Warnf("reading root state for legacy updater migration: %v (continuing)", err)
-		return
-	}
-
-	for name, agent := range legacy.Agents {
-		if agent.LastChecked.IsZero() {
-			continue
-		}
-		if root.AgentCheck(name).LastChecked.IsZero() {
-			root.SetAgentCheck(name, state.AgentCheckState{LastChecked: agent.LastChecked})
-		}
-	}
-
-	if err := state.WriteRootState(*root); err != nil {
-		ui.Warnf("writing root state for legacy updater migration: %v (continuing)", err)
 		return
 	}
 	_ = os.Remove(path)

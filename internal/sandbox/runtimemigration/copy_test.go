@@ -595,15 +595,24 @@ func TestCopyVolumesStateWriteFailureAborts(t *testing.T) {
 	}
 }
 
-// blockRootState makes the root state write fail while leaving it readable, by
-// removing write permission from the state directory: the atomic write's temp
-// file cannot be created. A missing state file still reads as the zero state.
+// blockRootState makes the root state write fail while leaving it readable and
+// the lock acquirable, by removing write permission from the state directory:
+// the atomic write's temp file cannot be created. The lock dir and file are
+// pre-created so the campaign reaches its state writes rather than failing at
+// the lock; a missing state file still reads as the zero state.
 func blockRootState(t *testing.T) {
 	t.Helper()
 	if os.Geteuid() == 0 {
 		t.Skip("running as root: a read-only directory does not block writes")
 	}
 	dir := configpaths.Get().UserStateDir()
+	locks := filepath.Join(dir, "locks")
+	if err := os.MkdirAll(locks, 0o700); err != nil {
+		t.Fatalf("create locks dir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(locks, "root.lock"), nil, 0o600); err != nil {
+		t.Fatalf("create root lock: %v", err)
+	}
 	if err := os.Chmod(dir, 0o500); err != nil {
 		t.Fatalf("block root state dir: %v", err)
 	}

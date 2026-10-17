@@ -781,7 +781,9 @@ func TestFinalizeMigrationWarnsExcluded(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	ui := termio.NewTestMock(t)
 	m := state.Migration{Status: state.MigrationCopying, Excluded: []string{naming.HomePrefix + "bad"}}
-	if err := finalizeMigration(m, &ui); err != nil {
+	if _, err := state.WithRootState(true, func(tx *state.RootTxn) error {
+		return finalizeMigration(tx, m, &ui)
+	}); err != nil {
 		t.Fatalf("finalizeMigration: %v", err)
 	}
 	if len(ui.WarnCalls) != 1 {

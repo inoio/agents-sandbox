@@ -231,6 +231,16 @@ func TestNecessaryVolumesCopyingFailsClosedOnUnlistableLegacyHome(t *testing.T) 
 	}
 }
 
+// blockRootLock occupies the shared root-state lock path with a directory so
+// LockRootState's open fails. It pins that a campaign and the dismissal paths
+// surface a lock-acquisition failure rather than a silent no-op.
+func blockRootLock(t *testing.T) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Join(configpaths.Get().UserStateDir(), "locks", "root.lock"), 0o700); err != nil {
+		t.Fatalf("block root lock: %v", err)
+	}
+}
+
 // installLegacyHome points runtime.LegacyHome() at a fresh legacy home under the
 // mocked config-paths home, whose .microsandbox is created with an empty volumes
 // directory. It returns the resolved legacy home.
