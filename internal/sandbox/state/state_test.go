@@ -249,25 +249,6 @@ func TestRemoveHomeStateRemovesStateButKeepsLock(t *testing.T) {
 	}
 }
 
-func TestRemoveHomeStateRefusesWhileHomeLockHeld(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
-	k := testKey()
-	if err := WriteState(k, HomeState{HomeVolume: "vol"}); err != nil {
-		t.Fatal(err)
-	}
-	release, _, err := LockHomeState(k, true)
-	if err != nil {
-		t.Fatalf("hold: %v", err)
-	}
-	defer release()
-	if err := RemoveHomeState(k); err == nil {
-		t.Fatal("RemoveHomeState proceeded while the home lock was held")
-	}
-	if _, rerr := ReadState(k); rerr != nil {
-		t.Fatalf("state must survive the refused removal: %v", rerr)
-	}
-}
-
 func TestWriteAndReadState_EnvSecretRoundTrip(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	k := Key{Slug: "myproj-abc123", Agent: "opencode"}
