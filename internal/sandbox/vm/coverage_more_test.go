@@ -116,7 +116,7 @@ func TestRecordImageProvenanceLoadError(t *testing.T) {
 	ui := &termio.Mock{}
 	sb := &msb.MockSandbox{FSValue_: fs}
 	recordImageProvenance(context.Background(), k, opencodeAgent(t), sb, ui)
-	if !contains(joinStrings(ui.WarnCalls), "could not read project state") {
+	if !contains(joinStrings(ui.WarnCalls), "read state for update") {
 		t.Errorf("expected a warning about the unreadable project state, got %v", ui.WarnCalls)
 	}
 }

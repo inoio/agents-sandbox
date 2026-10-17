@@ -240,23 +240,17 @@ func volumeOp(
 		return err
 	}
 
-	// Preserve the env/secret/network/mount fingerprints and the upgrade state
-	// from the previous state: a volume operation changes the home volume data,
-	// not the env/secrets/network/mounts baked into the VM or the image the
-	// upgrade state was recorded against, so discarding them would trigger a
-	// false VM rebuild or re-fire the upgrade prompt on the next startup (see
+	// Change only the home volume identity and digest, keeping every other field
+	// (env/secret/network/mount fingerprints and the upgrade state) that a volume
+	// operation does not affect: dropping them would trigger a false VM rebuild
+	// or re-fire the upgrade prompt on the next startup (see
 	// EnvChanged/SecretsChanged/NetworkChanged/MountsChanged treating empty
-	// state as "changed").
-	newState := state.NewHomeState(newVolumeName, info.Digest)
-	newState.EnvState = st.EnvState
-	newState.SecretState = st.SecretState
-	newState.NetworkState = st.NetworkState
-	newState.MountState = st.MountState
-	newState.AgentVersion = st.AgentVersion
-	newState.AgentSource = st.AgentSource
-	newState.DockerSource = st.DockerSource
-	newState.OfferedVersions = st.OfferedVersions
-	if err := state.WriteState(k, newState); err != nil {
+	// state as "changed"). The update re-reads and writes under the home lock so
+	// a concurrent writer cannot be clobbered.
+	if err := state.UpdateHomeState(k, func(cur *state.HomeState) {
+		cur.HomeVolume = newVolumeName
+		cur.ImageDigest = info.Digest
+	}); err != nil {
 		ui.Warnf("failed to write state file: %v", err)
 	}
 

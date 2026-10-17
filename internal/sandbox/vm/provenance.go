@@ -2,7 +2,6 @@ package vm
 
 import (
 	"context"
-	"errors"
 	"strings"
 
 	"github.com/inoio/agents-sandbox/internal/agent"
@@ -41,24 +40,18 @@ func recordImageProvenance(ctx context.Context, k state.Key, a agent.Agent, sb m
 	dockerSource, _ := sb.FS().ReadString(ctx, dockerSourcePath)
 	dockerSource = strings.TrimSpace(dockerSource)
 
-	hs, err := state.ReadState(k)
-	if err != nil {
-		if !errors.Is(err, state.ErrStateNotFound) {
-			ui.Warnf("could not read project state: %v (continuing)", err)
-			return
-		}
-		hs = &state.HomeState{}
-	}
-
-	hs.AgentSource = agentSource
-	hs.DockerSource = dockerSource
+	detectedVersion, hasVersion := "", false
 	if agentSource == agentSourceTool {
-		if version, ok := detectToolAgentVersion(ctx, a, sb, ui); ok {
-			hs.AgentVersion = version
-		}
+		detectedVersion, hasVersion = detectToolAgentVersion(ctx, a, sb, ui)
 	}
 
-	if writeErr := state.WriteState(k, *hs); writeErr != nil {
+	if writeErr := state.UpdateHomeState(k, func(hs *state.HomeState) {
+		hs.AgentSource = agentSource
+		hs.DockerSource = dockerSource
+		if hasVersion {
+			hs.AgentVersion = detectedVersion
+		}
+	}); writeErr != nil {
 		ui.Warnf("could not persist project state: %v (continuing)", writeErr)
 	}
 }

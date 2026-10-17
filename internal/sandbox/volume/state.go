@@ -77,7 +77,7 @@ func (vm *Manager) recoverOrCreateHome(
 		recovered,
 	)
 	hs := recoveredHomeState(recovered, info, prior, fingerprints)
-	if err := state.WriteState(k, hs); err != nil {
+	if err := state.UpdateHomeState(k, func(cur *state.HomeState) { *cur = hs }); err != nil {
 		ui.Warnf("failed to write state file: %v", err)
 	}
 	return recovered, hs, nil
@@ -149,7 +149,7 @@ func (vm *Manager) EnsureNewHome(
 	}
 
 	hs := fingerprints.Apply(state.NewHomeState(volName, info.Digest))
-	if err := state.WriteState(k, hs); err != nil {
+	if err := state.UpdateHomeState(k, func(cur *state.HomeState) { *cur = hs }); err != nil {
 		ui.Warnf("failed to write state file: %v", err)
 	}
 	return volName, hs, nil
@@ -160,15 +160,13 @@ func (vm *Manager) EnsureNewHome(
 // image-change prompt so subsequent runs no longer detect a mismatch and do
 // not re-prompt. Missing state is a no-op.
 func (vm *Manager) RecordHomeImage(k state.Key, currentDigest string, ui termio.UI) error {
-	st, err := state.ReadState(k)
-	if err != nil {
+	if _, err := state.ReadState(k); err != nil {
 		if errors.Is(err, state.ErrStateNotFound) {
 			return nil
 		}
 		return err
 	}
-	st.ImageDigest = currentDigest
-	if err := state.WriteState(k, *st); err != nil {
+	if err := state.UpdateHomeState(k, func(cur *state.HomeState) { cur.ImageDigest = currentDigest }); err != nil {
 		ui.Warnf("failed to write state file: %v", err)
 		return err
 	}
