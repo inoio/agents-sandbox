@@ -111,6 +111,10 @@ func recoveredHomeState(
 		hs.SecretState = prior.SecretState
 		hs.NetworkState = prior.NetworkState
 		hs.MountState = prior.MountState
+		hs.AgentVersion = prior.AgentVersion
+		hs.AgentSource = prior.AgentSource
+		hs.DockerSource = prior.DockerSource
+		hs.OfferedVersions = prior.OfferedVersions
 		return hs
 	}
 	return fingerprints.Apply(hs)
