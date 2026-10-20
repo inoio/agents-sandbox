@@ -20,14 +20,15 @@ by default and host agent config is no longer copied into the VM by default.
 
 Sorted roughly by GitHub stars. The order is not a ranking.
 
-| Tool | Stars | Boundary | Platforms | Egress default | Secrets | Workspace default | Coding agents | License |
-| --- | ---: | --- | --- | --- | --- | --- | --- | --- |
-| [NVIDIA OpenShell](#nvidia-openshell) | ~14k | Container + Landlock/seccomp; microVM opt-in (experimental) | Linux; macOS via Docker Desktop; WSL 2 (experimental) | Deny; L7 policy | Placeholder; supervisor injects | Inside the sandbox; host mounts opt-in | Claude Code, Copilot CLI, OpenCode; Codex with custom policy | Apache-2.0 |
-| [smolvm](#smolvm) | ~6.5k | libkrun microVM | Linux, macOS, Windows | Off; host allowlist | Placeholder; host substitutes headers | n/a (runtime) | None built in | Apache-2.0 |
-| [sandbox-runtime](#anthropic-sandbox-runtime-and-claude-code) | ~5.4k | Process (Seatbelt, bubblewrap + seccomp) | Linux, macOS; Windows alpha | Deny; domain proxy | No injection by default | Host directory; sensitive files protected | Claude Code; any CLI via `srt` | Apache-2.0 |
-| [nono](#nono) | ~4.3k | Process (Landlock, Seatbelt) | Linux, macOS, WSL 2 | Deny; proxy allowlist | Phantom token; proxy injects | Host directory, policy-scoped | Claude Code, Codex, Pi, Copilot, OpenCode, more | Apache-2.0 |
-| [container-use](#dagger-container-use) | ~4k | Container per agent (not a security boundary) | Where Dagger runs | Not documented | Not documented | Container + Git branch per agent | Any MCP-capable agent | Apache-2.0 |
-| [Docker Sandboxes](#docker-sandboxes) | n/a | MicroVM | macOS (Apple Silicon), Windows 11, Linux with KVM | TCP per rule; UDP off | Proxy injects AI-service keys | Host directory read-write; `--clone` optional | Claude Code, Codex, Copilot, Gemini, OpenCode, more | Proprietary; account required |
+| Tool | Stars | Boundary | Platforms | Egress default | Secrets                                              | Workspace default | Coding agents | License |
+| --- | ---: | --- | --- | --- |------------------------------------------------------| --- | --- | --- |
+| [NVIDIA OpenShell](#nvidia-openshell) | ~14k | Container + Landlock/seccomp; microVM opt-in (experimental) | Linux; macOS via Docker Desktop; WSL 2 (experimental) | Deny; L7 policy | Placeholder; supervisor injects                      | Inside the sandbox; host mounts opt-in | Claude Code, Copilot CLI, OpenCode; Codex with custom policy | Apache-2.0 |
+| [Sandcastle](#sandcastle) | ~8k | Docker/Podman container (host kernel); hosted Vercel microVM | Linux, macOS, Windows via local runtimes | Runtime default locally; Vercel allows all by default | Exposed as plain environment variables               | Host checkout read-write by default; branch/worktree strategies | Claude Code, Pi, Codex, Cursor, OpenCode, Copilot | MIT |
+| [smolvm](#smolvm) | ~6.5k | libkrun microVM | Linux, macOS, Windows | Off; host allowlist | Placeholder; host substitutes headers                | n/a (runtime) | None built in | Apache-2.0 |
+| [sandbox-runtime](#anthropic-sandbox-runtime-and-claude-code) | ~5.4k | Process (Seatbelt, bubblewrap + seccomp) | Linux, macOS; Windows alpha | Deny; domain proxy | No injection by default                              | Host directory; sensitive files protected | Claude Code; any CLI via `srt` | Apache-2.0 |
+| [nono](#nono) | ~4.3k | Process (Landlock, Seatbelt) | Linux, macOS, WSL 2 | Deny; proxy allowlist | Phantom token; proxy injects                         | Host directory, policy-scoped | Claude Code, Codex, Pi, Copilot, OpenCode, more | Apache-2.0 |
+| [container-use](#dagger-container-use) | ~4k | Container per agent (not a security boundary) | Where Dagger runs | Not documented | Not documented                                       | Container + Git branch per agent | Any MCP-capable agent | Apache-2.0 |
+| [Docker Sandboxes](#docker-sandboxes) | n/a | MicroVM | macOS (Apple Silicon), Windows 11, Linux with KVM | TCP per rule; UDP off | Proxy injects AI-service keys                        | Host directory read-write; `--clone` optional | Claude Code, Codex, Copilot, Gemini, OpenCode, more | Proprietary; account required |
 | **[agents-sandbox](#agents-sandbox)** | ~21 | libkrun microVM (microsandbox) | Linux (KVM), macOS (Apple Silicon) | Deny; profiles and allow rules | Placeholder for `env.secret`; host config not copied | Host directory read-write; `--worktree` for opencode/opencode2 | opencode, opencode2, pi, Claude Code | GPL-3.0 |
 
 Docker Sandboxes has no public repository, so there's no star count. It is
@@ -52,29 +53,35 @@ compromise. A microVM puts a guest kernel in between.
 
 - If that matters to you, you're down to agents-sandbox, Docker Sandboxes,
   OpenShell with its experimental microVM driver, or smolvm or microsandbox if
-  you build the agent integration yourself.
+  you build the agent integration yourself. Sandcastle's local Docker and
+  Podman providers use containers; its Vercel microVM provider is hosted and
+  out of scope here.
 - If you mainly want to stop accidents and obvious exfiltration, a process
   sandbox (sandbox-runtime, nono) is lighter: instant start, no image, no
   RAM reserved per VM.
 
 **2. Which platform?**
 
-- Windows: Docker Sandboxes, smolvm, nono and OpenShell via WSL 2, or the
-  sandbox-runtime alpha. agents-sandbox doesn't run on Windows.
+- Windows: Sandcastle via Docker or Podman, Docker Sandboxes, smolvm, nono and
+  OpenShell via WSL 2, or the sandbox-runtime alpha. agents-sandbox doesn't run
+  on Windows.
 - Intel Macs: agents-sandbox and Docker Sandboxes need Apple Silicon.
 
 **3. Which agent?**
 Check the agents column in the overview. agents-sandbox ships profiles for
 opencode, opencode2, pi and Claude Code. For Codex, Copilot or Gemini, look at
-Docker Sandboxes, nono or OpenShell. Without a profile you can still run any
-CLI in most of these tools, but you set up config and credentials yourself.
+Sandcastle, Docker Sandboxes, nono or OpenShell. Without a profile you can
+still run any CLI in most of these tools, but you set up config and credentials
+yourself.
 
 **4. How do credentials get to the agent?**
 The useful question is not "does the agent see the token" but "where can the
 token be used".
 
 - agents-sandbox, smolvm, Docker Sandboxes, OpenShell and nono give the agent
-  a placeholder and insert the real value on the way out.
+  a placeholder and insert the real value on the way out. Sandcastle passes
+  configured environment values to the agent as ordinary environment
+  variables.
 - agents-sandbox and smolvm bind a secret to hosts. Docker Sandboxes does this
   for supported AI services.
 - OpenShell and nono go further: a credential can be limited to a binary or
@@ -91,18 +98,22 @@ editor config that later run on your host, outside any sandbox.
   container-use (container plus branch per agent).
 - Opt-in: Docker Sandboxes with `--clone`, agents-sandbox with `--worktree`
   (opencode and opencode2 only).
+- Sandcastle offers direct checkout access by default plus branch and worktree
+  strategies to keep agent changes separate.
 - sandbox-runtime keeps the checkout writable but protects `.git/hooks/`,
   `.git/config`, shell and IDE config.
 
 **6. Open source, no account, no telemetry?**
 That rules out Docker Sandboxes. OpenShell sends telemetry until you turn it
-off.
+off. Sandcastle's local Docker and Podman providers need no Sandcastle account;
+its hosted Vercel provider requires the Vercel service and authentication.
 
 **7. How much do you want to run?**
 agents-sandbox, nono, smolvm and sandbox-runtime are a single CLI. Docker
-Sandboxes needs Docker's tooling and a login. OpenShell brings a gateway,
-supervisor, images and policies, which pays off when you manage many agents
-or need audit logs.
+Sandboxes needs Docker's tooling and a login. Sandcastle adds a TypeScript
+orchestration layer and a local container runtime. OpenShell brings a gateway,
+supervisor, images and policies, which pays off when you manage many agents or
+need audit logs.
 
 ### Typical situations
 
@@ -113,6 +124,7 @@ or need audit logs.
 | Guest kernel, open source, no account; opencode, pi or Claude Code | agents-sandbox | MicroVM per project, egress denied, host-bound secrets, works on your checkout | Checkout writable by default; network rules are host-level only; Linux and Apple Silicon only |
 | Guest kernel, many agents, Windows, closed source is fine | Docker Sandboxes | Broadest agent list, `--clone`, Docker-in-VM | Account, telemetry, Docker's terms; credential injection only for AI services |
 | Team or platform, central policy and audit | OpenShell | Per-binary L7 rules, policy prover, audit events | Operational overhead; default is a container, microVM driver is experimental |
+| Scriptable agent workflows, parallel branches and broad agent support | Sandcastle | TypeScript orchestration with Docker/Podman and worktree strategies | Local providers use shared-kernel containers; env secrets are visible to the agent |
 | Building sandboxing into your own tool | smolvm or microsandbox | Runtimes with network policy and credential placeholders; smolvm adds branching and Windows, microsandbox has SDKs | No agent integration |
 | Several agents in parallel, each on its own branch | container-use | Reviewable branch per agent | Not a security boundary; combine with a real sandbox if that matters |
 
@@ -308,6 +320,42 @@ Sources (checked 3 October 2026):
 [supported agents](https://docs.nvidia.com/openshell/latest/about/supported-agents),
 [support matrix](https://docs.nvidia.com/openshell/latest/about/support-matrix).
 
+## Sandcastle
+
+[Sandcastle](https://github.com/mattpocock/sandcastle) is a TypeScript library
+and CLI for running coding agents through configurable sandbox providers. Its
+local Docker and Podman providers use containers; the Vercel provider uses
+hosted Firecracker microVMs, which are outside this page's local-tools scope.
+
+- **Agents and workflow:** built-in providers for Claude Code, Pi, Codex,
+  Cursor, OpenCode and Copilot. `run()` and reusable sandboxes support
+  sequential or parallel agent tasks; branch strategies can use the checkout
+  directly, a temporary worktree or a named branch.
+- **Network and credentials:** local providers use the container runtime's
+  default network and pass configured environment values into the agent. There
+  is no built-in deny-by-default egress policy or generic host-side secret
+  broker. Vercel has separate network-policy and credential-brokering features.
+- **Workspace:** Docker and Podman bind-mount the repository read-write by
+  default. Worktree strategies can keep changes on a separate branch, but the
+  worktree is still on the host. Vercel synchronizes repository content to and
+  from the hosted sandbox instead of bind-mounting it.
+- **Platforms and license:** local providers work with Docker or Podman on
+  Linux, macOS and Windows; MIT. Hosted Vercel use requires its service and
+  authentication.
+
+**Compared with agents-sandbox:** Sandcastle offers broader agent support and
+more flexible orchestration and branch workflows. Its local providers use a
+shared host kernel and do not provide agents-sandbox's default-deny egress or
+host-bound secret placeholders. The Vercel provider offers a guest-kernel
+boundary, but is hosted rather than a local alternative.
+
+Sources (checked 3 October 2026; repository snapshot near that date):
+[README](https://github.com/mattpocock/sandcastle/blob/62307ab65ad9f8414f7a4893d96328a0353b0c3f/README.md),
+[Docker provider](https://github.com/mattpocock/sandcastle/blob/62307ab65ad9f8414f7a4893d96328a0353b0c3f/src/sandboxes/docker.ts),
+[Podman provider](https://github.com/mattpocock/sandcastle/blob/62307ab65ad9f8414f7a4893d96328a0353b0c3f/src/sandboxes/podman.ts),
+[Vercel provider](https://github.com/mattpocock/sandcastle/blob/62307ab65ad9f8414f7a4893d96328a0353b0c3f/src/sandboxes/vercel.ts),
+[license](https://github.com/mattpocock/sandcastle/blob/62307ab65ad9f8414f7a4893d96328a0353b0c3f/LICENSE).
+
 ## smolvm
 
 [smolvm](https://github.com/smol-machines/smolvm) runs OCI images as microVMs
@@ -496,7 +544,7 @@ away, or do you have to build the integration yourself?
 
 | | Process (host kernel) | Container (host kernel) | MicroVM (guest kernel) |
 | --- | --- | --- | --- |
-| **Ready for coding agents** | Claude Code sandbox mode, nono, Codex/Gemini CLI sandboxes | OpenShell default, container-use | **agents-sandbox**, Docker Sandboxes, OpenShell microVM driver, CelestoAI/SmolVM, matchlock |
+| **Ready for coding agents** | Claude Code sandbox mode, nono, Codex/Gemini CLI sandboxes | OpenShell default, container-use, Sandcastle (local providers) | **agents-sandbox**, Docker Sandboxes, OpenShell microVM driver, CelestoAI/SmolVM, matchlock |
 | **Runtime or building block** | sandbox-runtime (`srt`) | Docker, Podman, gVisor | microsandbox, smolvm, Apple container, Kata Containers |
 
 agents-sandbox sits in the top-right cell. Docker Sandboxes is the mature,
