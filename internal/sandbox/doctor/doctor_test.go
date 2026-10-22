@@ -30,6 +30,9 @@ func TestCheckMsbEnsureInstalledErrorSurfacesErrorWithoutInstallHint(t *testing.
 	if !strings.Contains(err.Error(), "mock") {
 		t.Errorf("expected error to contain the underlying error, got %q", err.Error())
 	}
+	if !errors.Is(err, errMockedEnsureInstalled) {
+		t.Errorf("expected error to preserve the ensureInstalled cause for errors.Is, got %v", err)
+	}
 	if strings.Contains(err.Error(), "Install microsandbox") ||
 		strings.Contains(err.Error(), "github.com/microsandbox") {
 		t.Errorf("expected no 'install msb' instruction, got %q", err.Error())
@@ -183,6 +186,9 @@ func TestCollectChecksMsbInfoNamesPrivateHome(t *testing.T) {
 	for _, err := range errs {
 		if strings.Contains(err.Error(), "binary missing") || strings.Contains(err.Error(), "msb") {
 			t.Fatalf("expected no msb error, got %v", err)
+		}
+		if strings.Contains(err.Error(), "mocked docker") {
+			t.Fatalf("expected the successful docker mock to report no docker failure, got %v", err)
 		}
 	}
 	home := runtime.PrivateHome()
