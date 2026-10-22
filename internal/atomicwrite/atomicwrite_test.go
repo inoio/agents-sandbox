@@ -94,8 +94,17 @@ func TestWriteFileMkdirAllError(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := WriteFile(filepath.Join(blocked, "state.yaml"), []byte("x")); err == nil {
+	path := filepath.Join(blocked, "state.yaml")
+	err := WriteFile(path, []byte("x"))
+	if err == nil {
 		t.Fatal("WriteFile() error = nil, want MkdirAll failure")
+	}
+	var pathErr *os.PathError
+	if !errors.As(err, &pathErr) || pathErr.Op != "mkdir" {
+		t.Errorf("WriteFile() error = %v, want a wrapped *os.PathError from creating the parent directory", err)
+	}
+	if _, statErr := os.Stat(path); statErr == nil {
+		t.Errorf("destination %s exists, want the write to have failed before touching it", path)
 	}
 }
 
@@ -111,8 +120,17 @@ func TestWriteFileCreateTempError(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = os.Chmod(dir, 0o700) })
 
-	if err := WriteFile(filepath.Join(dir, "state.yaml"), []byte("x")); err == nil {
+	path := filepath.Join(dir, "state.yaml")
+	err := WriteFile(path, []byte("x"))
+	if err == nil {
 		t.Fatal("WriteFile() error = nil, want CreateTemp failure")
+	}
+	var pathErr *os.PathError
+	if !errors.As(err, &pathErr) || pathErr.Op != "open" {
+		t.Errorf("WriteFile() error = %v, want a wrapped *os.PathError from opening the temp file", err)
+	}
+	if _, statErr := os.Stat(path); !errors.Is(statErr, os.ErrNotExist) {
+		t.Errorf("destination stat error = %v, want the write to have failed before touching it", statErr)
 	}
 }
 
@@ -150,7 +168,8 @@ func TestWriteFileCloseError(t *testing.T) {
 }
 
 // TestWriteFileRenameError covers the rename failure (a directory occupies the
-// destination) and pins that the temp file is cleaned up.
+// destination) and pins that the temp file is cleaned up. The *os.LinkError is
+// asserted through the returned error so the wrap is load-bearing.
 func TestWriteFileRenameError(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "state.yaml")
@@ -158,8 +177,12 @@ func TestWriteFileRenameError(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := WriteFile(path, []byte("x")); err == nil {
+	err := WriteFile(path, []byte("x"))
+	if err == nil {
 		t.Fatal("WriteFile() error = nil, want rename failure")
+	}
+	if _, ok := errors.AsType[*os.LinkError](err); !ok {
+		t.Errorf("WriteFile() error = %v, want the rename's *os.LinkError reachable", err)
 	}
 	assertNoTempFiles(t, dir)
 }

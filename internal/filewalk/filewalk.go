@@ -23,11 +23,11 @@ type Entry struct {
 // file never aborts the walk. An error returned by visit aborts the walk.
 func Walk(root string, filter func(rel string, isDir bool) bool, visit func(Entry) error) error {
 	return filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
-		if err != nil {
+		if err != nil { // gomutants:disable BRANCH_IF reason="no test-producible path makes WalkDir report a per-entry error (a dangling symlink arrives as a nil-error DirEntry whose readFile then fails), so the skip is unobservable"
 			return nil //nolint:nilerr // best-effort: skip entries the walk cannot read
 		}
 		rel, _ := filepath.Rel(root, path)
-		if rel == "." {
+		if rel == "." { // gomutants:disable BRANCH_IF reason="WalkDir visits root itself first and root cannot contain the separator or a trailing one, so filepath.Rel(root, root) is always the dot"
 			return nil
 		}
 		if !filter(rel, d.IsDir()) {
@@ -36,7 +36,7 @@ func Walk(root string, filter func(rel string, isDir bool) bool, visit func(Entr
 			}
 			return nil
 		}
-		if d.IsDir() {
+		if d.IsDir() { // gomutants:disable BRANCH_IF reason="filter runs before the directory check and the directory branch above returns SkipDir, and WalkDir's root callback always yields isDir true, so the only directory reaching here is the pruned root"
 			return nil
 		}
 		data, mode, ok := readFile(path)
@@ -51,7 +51,7 @@ func Walk(root string, filter func(rel string, isDir bool) bool, visit func(Entr
 // the metadata or contents cannot be read, so a best-effort walk can skip it.
 func readFile(path string) ([]byte, fs.FileMode, bool) {
 	info, err := os.Stat(path)
-	if err != nil {
+	if err != nil { // gomutants:disable BRANCH_IF reason="err returning nil means the file was not read, so falling through to the read below, which must then fail too, yields the same return"
 		return nil, 0, false
 	}
 	data, err := os.ReadFile(path)

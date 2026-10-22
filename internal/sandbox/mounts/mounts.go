@@ -62,6 +62,7 @@ func DecodeMounts(raw any) (Mounts, error) {
 		DecodeHook: stringToBindMountHook(),
 		Result:     &mounts,
 	})
+	// gomutants:disable-next-line BRANCH_IF reason="NewDecoder only fails on a DecoderConfig this function builds statically: a non-pointer Result (ours is &mounts, addressable) or a hook that cannot compile (ours is a func value). No input reaches this branch; the guard keeps decoder non-nil for Decode."
 	if err != nil {
 		return nil, err
 	}
@@ -160,6 +161,7 @@ func resolveMountSource(source string) (string, error) {
 		return "", err
 	}
 	info, err := os.Stat(resolved)
+	// gomutants:disable-next-line BRANCH_IF reason="EvalSymlinks already proved resolved exists and holds no symlinks, so os.Stat on it cannot fail short of a concurrent filesystem change; no input reaches this branch, and dropping the guard would panic on info.IsDir()."
 	if err != nil {
 		return "", err
 	}

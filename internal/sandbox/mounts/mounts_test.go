@@ -1,9 +1,12 @@
 package mounts
 
 import (
+	"errors"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -78,6 +81,11 @@ func TestDecodeMountsNil(t *testing.T) {
 	got, err := DecodeMounts(nil)
 	if err != nil {
 		t.Fatalf("DecodeMounts: %v", err)
+	}
+	// The nil input must short-circuit to an allocated (non-nil) map, matching
+	// every other return path: mapstructure always populates a fresh map.
+	if got == nil {
+		t.Fatal("DecodeMounts(nil) = nil map, want an allocated empty map")
 	}
 	if len(got) != 0 {
 		t.Errorf("DecodeMounts(nil) = %+v, want empty", got)
@@ -160,6 +168,61 @@ func TestResolveBindMountsExpandsBareTilde(t *testing.T) {
 	}
 }
 
+// TestResolveBindMountsWrapsSourceError guards the wrapping of a source
+// resolution failure: the cause must stay reachable through errors.Is so a
+// caller can classify a missing host directory. Formatting it with %v would
+// preserve the text but sever the chain.
+func TestResolveBindMountsWrapsSourceError(t *testing.T) {
+	missing := filepath.Join(t.TempDir(), "does-not-exist")
+
+	_, err := ResolveBindMounts(Mounts{"/home/dev/.m2": {Source: missing}})
+	if err == nil {
+		t.Fatal("expected an error for a missing source")
+	}
+	if !errors.Is(err, fs.ErrNotExist) {
+		t.Errorf("error %v does not wrap fs.ErrNotExist", err)
+	}
+	if !strings.Contains(err.Error(), "/home/dev/.m2") {
+		t.Errorf("error %q does not name the mount target", err)
+	}
+}
+
+// TestResolveBindMountsReportsSymlinkSourceError guards that the failed
+// canonicalization is what surfaces: EvalSymlinks reports the symlink's
+// *target* as the missing path, while a later os.Stat on the unresolved source
+// would report the link itself.
+func TestResolveBindMountsReportsSymlinkSourceError(t *testing.T) {
+	dir := t.TempDir()
+	target := filepath.Join(dir, "nothing")
+	link := filepath.Join(dir, "link")
+	if err := os.Symlink(target, link); err != nil {
+		t.Skipf("symlinks not supported: %v", err)
+	}
+
+	_, err := ResolveBindMounts(Mounts{"/home/dev/.m2": {Source: link}})
+	if err == nil {
+		t.Fatal("expected an error for a dangling symlink source")
+	}
+	if !strings.Contains(err.Error(), target) {
+		t.Errorf("error %q does not name the symlink target %q", err, target)
+	}
+}
+
+// TestResolveBindMountsRejectsRelativeSourceThatExists guards the absolute-path
+// requirement itself. A relative source that exists resolves fine, so only the
+// explicit check turns it into an error.
+func TestResolveBindMountsRejectsRelativeSourceThatExists(t *testing.T) {
+	t.Chdir(t.TempDir())
+
+	_, err := ResolveBindMounts(Mounts{"/home/dev/.m2": {Source: "."}})
+	if err == nil {
+		t.Fatal("expected a relative source to be rejected even when it exists")
+	}
+	if !strings.Contains(err.Error(), "must be absolute") {
+		t.Errorf("error %q does not explain the absolute-path requirement", err)
+	}
+}
+
 func TestResolveBindMountsKeepsReadonly(t *testing.T) {
 	got, err := ResolveBindMounts(Mounts{
 		"/home/dev/ref": {Source: t.TempDir(), Readonly: true},
@@ -194,25 +257,33 @@ func TestResolveBindMountsRejectsInvalid(t *testing.T) {
 	cases := []struct {
 		name   string
 		mounts Mounts
+		// wantErr pins the diagnostic of a branch that a later check would
+		// otherwise mask: an empty source and a relative source both end in
+		// the absolute-path error if their own branch is removed.
+		wantErr string
 	}{
-		{"reserved workspace", Mounts{"/workspace": {Source: dir}}},
-		{"reserved tmp", Mounts{"/tmp": {Source: dir}}},
-		{"reserved home", Mounts{"/home/dev": {Source: dir}}},
-		{"ancestor of home", Mounts{"/home": {Source: dir}}},
-		{"root target", Mounts{"/": {Source: dir}}},
-		{"nested in workspace", Mounts{"/workspace/vendor": {Source: dir}}},
-		{"nested in tmp", Mounts{"/tmp/cache": {Source: dir}}},
-		{"relative target", Mounts{"home/dev/.m2": {Source: dir}}},
-		{"empty source", Mounts{"/home/dev/.m2": {Source: ""}}},
-		{"relative source", Mounts{"/home/dev/.m2": {Source: "relative/path"}}},
-		{"missing source", Mounts{"/home/dev/.m2": {Source: filepath.Join(dir, "nope")}}},
-		{"source is a file", Mounts{"/home/dev/.m2": {Source: file}}},
-		{"duplicate target", Mounts{"/home/dev/.m2": {Source: dir}, "/home/dev/./.m2": {Source: dir}}},
+		{"reserved workspace", Mounts{"/workspace": {Source: dir}}, ""},
+		{"reserved tmp", Mounts{"/tmp": {Source: dir}}, ""},
+		{"reserved home", Mounts{"/home/dev": {Source: dir}}, ""},
+		{"ancestor of home", Mounts{"/home": {Source: dir}}, ""},
+		{"root target", Mounts{"/": {Source: dir}}, ""},
+		{"nested in workspace", Mounts{"/workspace/vendor": {Source: dir}}, ""},
+		{"nested in tmp", Mounts{"/tmp/cache": {Source: dir}}, ""},
+		{"relative target", Mounts{"home/dev/.m2": {Source: dir}}, ""},
+		{"empty source", Mounts{"/home/dev/.m2": {Source: ""}}, "source must not be empty"},
+		{"relative source", Mounts{"/home/dev/.m2": {Source: "relative/path"}}, "must be absolute or start with ~/"},
+		{"missing source", Mounts{"/home/dev/.m2": {Source: filepath.Join(dir, "nope")}}, ""},
+		{"source is a file", Mounts{"/home/dev/.m2": {Source: file}}, ""},
+		{"duplicate target", Mounts{"/home/dev/.m2": {Source: dir}, "/home/dev/./.m2": {Source: dir}}, ""},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			if _, err := ResolveBindMounts(tc.mounts); err == nil {
+			_, err := ResolveBindMounts(tc.mounts)
+			if err == nil {
 				t.Fatal("expected an error")
+			}
+			if tc.wantErr != "" && !strings.Contains(err.Error(), tc.wantErr) {
+				t.Errorf("error %q does not contain %q", err, tc.wantErr)
 			}
 		})
 	}
@@ -273,13 +344,19 @@ func TestMountTargetsSorted(t *testing.T) {
 }
 
 // TestResolveBindMountsHomeDirUnresolvable covers the branch where the host
-// home directory cannot be determined, so `~/` cannot be expanded.
+// home directory cannot be determined, so `~/` cannot be expanded. The error
+// must come from the home lookup: if that branch is removed, the unexpanded
+// relative path is rejected later with the absolute-path message instead.
 func TestResolveBindMountsHomeDirUnresolvable(t *testing.T) {
 	t.Setenv("HOME", "")
 
-	if _, err := ResolveBindMounts(Mounts{
+	_, err := ResolveBindMounts(Mounts{
 		"/home/dev/.m2": {Source: "~/.m2"},
-	}); err == nil {
+	})
+	if err == nil {
 		t.Fatal("expected an error when the home directory cannot be resolved")
+	}
+	if !strings.Contains(err.Error(), "HOME") {
+		t.Errorf("error %q does not report the unresolvable home directory", err)
 	}
 }

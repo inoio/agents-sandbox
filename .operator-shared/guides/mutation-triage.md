@@ -52,6 +52,17 @@ This is the field guide for doing it. It was distilled from the first full sweep
   `os.Stdout` for an `os.Pipe` write end around the call, restore `os.Stdout` and close the write end *before* any
   `t.Errorf` (the test framework's own output goes to stdout too), then assert the read end contains the error's path —
   the mutated branch prints nothing, or `<nil>` when the condition is negated.
+- **`// gomutants:disable` is same-line-scoped, so a standalone comment above a statement records nothing.** gomutants
+  parses a bare `disable` as `directiveSameLine` and matches it against mutants on *the comment's own line*
+  (`internal/discover/directives.go` in v0.7.1); the only other forms are `disable-next-line`, `disable-func`, and
+  `disable-regexp`. Place the directive **same-line** on the guarded statement — `if err != nil { // gomutants:disable
+  BRANCH_IF reason="…"` — or use `disable-next-line` on the line directly above it (blank lines and other comments are
+  skipped, so it binds to the next code line). A `BRANCH_IF` reports its line at the body's `{`, i.e. the `if` line, not
+  the body line. A mis-placed directive is a **silent no-op**: after adding one, re-run the tool and confirm the
+  package's `mutants_lived` drops and its suppressed count rises.
+- **`tb.Fatalf`/`t.Helper()` inside a test-support helper are structurally unfalsifiable.** `Fatalf` calls
+  `runtime.Goexit()` in the helper and `Helper` is stack-trace metadata only, so no assertion inside the test binary can
+  observe their removal. Record them; do not invent a production seam to make them killable.
 
 ## Operational
 
