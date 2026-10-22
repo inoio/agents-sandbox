@@ -1,6 +1,7 @@
 package network
 
 import (
+	"strings"
 	"testing"
 
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
@@ -239,6 +240,43 @@ func TestFingerprintDistinguishesConfigs(t *testing.T) {
 	if allow.Fingerprint() == deny.Fingerprint() {
 		t.Fatal("allow vs deny lists must have different fingerprints")
 	}
+
+	// Every list entry must reach the digest: a list that stops contributing
+	// silently lets an allow/deny change go undetected across runs.
+	base := Policy{Profile: ProfileNone}
+	withAllow := Policy{Profile: ProfileNone, EgressAllow: []string{"a.example.com"}}
+	if base.Fingerprint() == withAllow.Fingerprint() {
+		t.Fatal("adding an egress-allow entry must change the fingerprint")
+	}
+	withDeny := Policy{Profile: ProfileNone, EgressDeny: []string{"a.example.com"}}
+	if base.Fingerprint() == withDeny.Fingerprint() {
+		t.Fatal("adding an egress-deny entry must change the fingerprint")
+	}
+	// An entry must be listed under its own kind: a shared destination in
+	// allow and in deny are different policies and must not collide.
+	if withAllow.Fingerprint() != (Policy{Profile: ProfileNone, EgressAllow: []string{"a.example.com"}}).Fingerprint() {
+		t.Fatal("fingerprint must be stable for the same policy")
+	}
+}
+
+func TestFingerprintCountsEveryEntry(t *testing.T) {
+	one := Policy{Profile: ProfileNone, EgressAllow: []string{"a.example.com"}, EgressDeny: []string{"b.example.com"}}
+	twoAllowed := Policy{
+		Profile:     ProfileNone,
+		EgressAllow: []string{"a.example.com", "c.example.com"},
+		EgressDeny:  []string{"b.example.com"},
+	}
+	if one.Fingerprint() == twoAllowed.Fingerprint() {
+		t.Fatal("a second egress-allow entry must change the fingerprint")
+	}
+	twoDenied := Policy{
+		Profile:     ProfileNone,
+		EgressAllow: []string{"a.example.com"},
+		EgressDeny:  []string{"b.example.com", "c.example.com"},
+	}
+	if one.Fingerprint() == twoDenied.Fingerprint() {
+		t.Fatal("a second egress-deny entry must change the fingerprint")
+	}
 }
 
 func TestProfileString(t *testing.T) {
@@ -256,6 +294,10 @@ func TestNormalizeDNSServers(t *testing.T) {
 		in      []string
 		want    []string
 		wantErr bool
+		// errContains pins which rejection fired: several inputs would also
+		// be rejected by a later check, so err != nil alone cannot tell the
+		// "not an IP or host:port" branch from the "missing host" fall-through.
+		errContains string
 	}{
 		{
 			name: "bare IPv4 gets :53",
@@ -282,11 +324,17 @@ func TestNormalizeDNSServers(t *testing.T) {
 			in:   []string{" 1.1.1.1 "},
 			want: []string{"1.1.1.1:53"},
 		},
-		{name: "empty entry rejected", in: []string{"1.1.1.1", ""}, wantErr: true},
-		{name: "host without port rejected", in: []string{"1.1.1.1:"}, wantErr: true},
-		{name: "empty host rejected", in: []string{":53"}, wantErr: true},
-		{name: "bare hostname rejected", in: []string{"dns.example.com"}, wantErr: true},
-		{name: "garbage rejected", in: []string{"not a dns server"}, wantErr: true},
+		{
+			name:        "empty entry rejected",
+			in:          []string{"1.1.1.1", ""},
+			wantErr:     true,
+			errContains: "empty DNS server entry",
+		},
+		{name: "host without port rejected", in: []string{"1.1.1.1:"}, wantErr: true, errContains: "missing port"},
+		{name: "empty host rejected", in: []string{":53"}, wantErr: true, errContains: "missing host"},
+		{name: "bare hostname rejected", in: []string{"dns.example.com"}, wantErr: true, errContains: "must be an IP"},
+		{name: "garbage rejected", in: []string{"not a dns server"}, wantErr: true, errContains: "must be an IP"},
+		{name: "too many colons rejected", in: []string{"1.1.1.1:53:54"}, wantErr: true, errContains: "must be an IP"},
 		{name: "nil input yields empty", in: nil, want: []string{}},
 	}
 	for _, tc := range cases {
@@ -295,6 +343,9 @@ func TestNormalizeDNSServers(t *testing.T) {
 			if tc.wantErr {
 				if err == nil {
 					t.Fatalf("NormalizeDNSServers(%v) expected error, got %v", tc.in, got)
+				}
+				if tc.errContains != "" && !strings.Contains(err.Error(), tc.errContains) {
+					t.Fatalf("NormalizeDNSServers(%v) error = %q, want it to contain %q", tc.in, err, tc.errContains)
 				}
 				return
 			}
@@ -394,11 +445,23 @@ func TestPolicyEmpty(t *testing.T) {
 	if !(Policy{}).Empty() {
 		t.Error("zero Policy should be empty")
 	}
-	if (Policy{Profile: ProfilePublic}).Empty() {
-		t.Error("Policy with a profile should not be empty")
+	// Each list must be able to make the policy non-empty on its own; a
+	// single maskable field would let a policy silently read as unset.
+	nonEmpty := []struct {
+		name   string
+		policy Policy
+	}{
+		{"profile", Policy{Profile: ProfilePublic}},
+		{"egress-allow", Policy{EgressAllow: []string{"api.example.com"}}},
+		{"egress-deny", Policy{EgressDeny: []string{"tracker.example.com"}}},
+		{"dns-servers", Policy{DNSServers: []string{"1.1.1.1"}}},
 	}
-	if (Policy{DNSServers: []string{"1.1.1.1"}}).Empty() {
-		t.Error("Policy with only DNSServers should not be empty")
+	for _, tc := range nonEmpty {
+		t.Run(tc.name, func(t *testing.T) {
+			if tc.policy.Empty() {
+				t.Errorf("Policy with only %s set should not be empty", tc.name)
+			}
+		})
 	}
 }
 
