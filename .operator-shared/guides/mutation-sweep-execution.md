@@ -62,13 +62,25 @@ The source data is the **37 JSON reports attached to `#268`**, treated as an imm
   worker that runs `go test ./pkg/...` while a peer is mid-edit sees the peer's broken intermediate state and reports
   phantom failures (observed in the spike). Either serialize workers within a package — parallelize across packages
   instead — or have each worker re-run at the end and treat mid-run failures as noise.
+- **Across packages they still interfere: the module build and the gomutants cache are shared.** The first real turn
+  (14 packages, one `implementer-small` per package) hit this hard: one peer's broken in-flight edit
+  (`filewalk.go:63: undefined: data`) broke every other worker's `go test` and coverage build, because a changed
+  dependency recompiles for all of them; `.gomutants-cache.json` is a single file too. One worker also wandered off its
+  unit into another package and reverted that worker's edits. **Run units serially** (one worker; commit each handback,
+  then start the next) or give each worker **its own worktree**; do not fan a dozen out in one checkout.
+- **A worker's step budget bounds the unit.** The per-survivor evidence loop (hand-apply → run the named test → revert)
+  is expensive, and in the first real turn almost every worker exhausted its step budget, several mid-investigation with
+  nothing landed. Size a unit to what one worker closes in a session — a file-cluster of **≲10 survivors** — and keep
+  the analysis (mutant-type grouping, reachability) inside the same budget, not ahead of it.
 - The **package is the verification unit** (see *Verification*), which is coarser than the worker unit. A turn's
   breadth — how many packages it targets — is the main cost knob: verification re-sweeps every touched package, so a
   turn that spreads across all 35 pays for all 35. Prefer concentrating a turn in fewer packages.
 - Inside a unit, survivors are ordered **by mutant type**, using `guides/mutation-triage.md` as the playbook: a worker
   that closes ten `ERRORF_WRAP`s back to back applies `errors.Is`/`errors.AsType` once instead of re-deriving it.
-- **Max unit size is discovered in the first turn.** A package is not a unit: in `internal/sandbox/vm`, 109 of 310
-  survivors sit in `vm_lifecycle.go` and 61 in `reconfig.go`.
+- **Max unit size is discovered in the first turns.** A package is not a unit: in `internal/sandbox/vm`, 109 of 310
+  survivors sit in `vm_lifecycle.go` and 61 in `reconfig.go`. The first real turn fixed the working figure: **one
+  file-cluster of ≲10 survivors per worker** (e.g. `internal/sandbox/doctor`'s eight, all in `testmock.go`, closed
+  cleanly; `internal/sysinfo`'s sixteen did not).
 - **Durable progress** is the `#268` body's "Survivors by package" table, rewritten once per turn; a per-turn comment
   carries the detail. The in-turn queue, per-unit cursors, and worker dispositions live in a gitignored working file so
   that compaction or a fresh session loses nothing.
