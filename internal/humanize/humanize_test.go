@@ -1,6 +1,7 @@
 package humanize
 
 import (
+	"math"
 	"testing"
 	"time"
 )
@@ -20,6 +21,8 @@ func TestFormatBytes(t *testing.T) {
 		{1024 * 1024 * 1024, "1 GiB"},
 		{3 * 1024 * 1024 * 1024, "3 GiB"},
 		{2254857830, "2.1 GiB"},
+		{1 << 50, "1024 TiB"},
+		{math.MaxUint64, "16777216 TiB"},
 	}
 	for _, tc := range cases {
 		if got := FormatBytes(tc.in); got != tc.want {
