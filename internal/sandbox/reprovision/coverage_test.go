@@ -116,14 +116,17 @@ func TestAgentConfigEqualMissingVMConfig(t *testing.T) {
 	}
 }
 
-// TestJsonEqualParseError verifies that jsonEqual returns false when either
-// side is not valid JSON.
-func TestJsonEqualParseError(t *testing.T) {
-	if jsonEqual([]byte(`{"a":1}`), []byte(`not-json`)) {
+// TestConfigEqualParseError verifies that configEqual returns false when either
+// side cannot be parsed in the format the target file implies.
+func TestConfigEqualParseError(t *testing.T) {
+	if configEqual("/x.json", []byte(`{"a":1}`), []byte(`not-json`)) {
 		t.Error("expected false when the VM side is invalid JSON")
 	}
-	if jsonEqual([]byte(`not-json`), []byte(`{"a":1}`)) {
+	if configEqual("/x.json", []byte(`not-json`), []byte(`{"a":1}`)) {
 		t.Error("expected false when the desired side is invalid JSON")
+	}
+	if configEqual("/x.yaml", []byte("a: 1\n"), []byte("a: [\n")) {
+		t.Error("expected false when the VM side is invalid YAML")
 	}
 }
 

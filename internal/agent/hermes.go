@@ -34,7 +34,7 @@ const hermesLauncherShim = `printf '%s\n' ` +
 	`'mkdir -p "$home"' ` +
 	`'for d in tools cache installs; do [ -e "$home/$d" ] || ln -s "` + hermesBuildHome + `/$d" "$home/$d"; done' ` +
 	`'exec /opt/agents-sandbox/hermes/.hermes/bin/hermes "$@"' ` +
-	`> /opt/agents-sandbox/bin/hermes && chmod 755 /opt/agents-sandbox/bin/hermes && `
+	`> /opt/agents-sandbox/bin/hermes && chmod 755 /opt/agents-sandbox/bin/hermes`
 
 type hermesProfile struct{}
 
@@ -48,21 +48,20 @@ func (hermesProfile) ImageSpec() ImageSpec {
 		// release tag and provisions a Python/Node tool store, then writes a
 		// launcher carrying absolute interpreter paths. Checkout and store
 		// therefore live under toolDir, outside /home/dev, which the sandbox
-		// home volume covers at runtime — and they are owned by the runner's dev
-		// user (uid 1000), because Hermes keeps its dependency ledger and
-		// bytecode markers there and refuses a checkout owned by another user.
-		// --non-interactive skips the setup wizard and the gateway service
-		// install, and the browser/computer-use tools are dropped because the
-		// runner image carries no desktop stack for them. libatomic1 is
-		// pre-installed: the installer's package manager would otherwise reach
-		// for apt through sudo, which the tool base does not have.
+		// home volume covers at runtime; RuntimeOwnedPaths hands them to the
+		// runner's dev user afterwards, because Hermes keeps its dependency
+		// ledger and bytecode markers there. --non-interactive skips the setup
+		// wizard and the gateway service install, and the browser/computer-use
+		// tools are dropped because the runner image carries no desktop stack for
+		// them. libatomic1 is pre-installed: the installer's package manager
+		// would otherwise reach for apt through sudo, which the tool base does
+		// not have.
 		AgentEnv: map[string]string{"HERMES_HOME": hermesGuestHome},
 		InstallCommand: `apt-get update && apt-get install -y --no-install-recommends git libatomic1 && rm -rf /var/lib/apt/lists/* && ` +
 			`curl -fsSL https://hermes-agent.nousresearch.com/install.sh -o /tmp/hermes-install.sh && ` +
 			`bash /tmp/hermes-install.sh --commit "v$HERMES_VERSION" --dir /opt/agents-sandbox/hermes ` +
 			`--hermes-home ` + hermesBuildHome + ` --non-interactive --skip-browser --skip-computer-use && ` +
-			hermesLauncherShim +
-			`chown -R 1000:1000 /opt/agents-sandbox/hermes ` + hermesBuildHome,
+			hermesLauncherShim,
 		// The agent stage installs no node: Hermes' installer provisions the
 		// node build its TUI and web products need into its own tool store.
 		RequiresNode: false,
@@ -91,8 +90,15 @@ func (hermesProfile) ProvisionRules() []ProvisionRule {
 
 func (hermesProfile) AttachCommand(_ string, args []string) string {
 	parts := []string{"hermes"}
-	parts = append(parts, args...)
+	parts = append(parts, shellQuoteArgs(args)...)
 	return strings.Join(parts, " ")
+}
+
+// RuntimeOwnedPaths hands the checkout and the tool store to the runner's dev
+// user: Hermes writes its dependency ledger, bytecode markers, and product
+// caches there at runtime, and git rejects a checkout owned by another user.
+func (hermesProfile) RuntimeOwnedPaths() []string {
+	return []string{"/opt/agents-sandbox/hermes", hermesBuildHome}
 }
 
 func (hermesProfile) VersionCmd() string { return "hermes --version" }

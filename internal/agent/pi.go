@@ -48,7 +48,7 @@ func (piProfile) ProvisionRules() []ProvisionRule {
 
 func (piProfile) AttachCommand(_ string, args []string) string {
 	parts := []string{"pi"}
-	parts = append(parts, args...)
+	parts = append(parts, shellQuoteArgs(args)...)
 	return strings.Join(parts, " ")
 }
 

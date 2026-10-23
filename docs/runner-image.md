@@ -292,8 +292,9 @@ ship self-contained binaries or provision their own runtime — `opencode` and `
 `/opt/agents-sandbox/bin`. `hermes` is the one whose installer needs more than a binary copy: it clones the pinned
 release tag into `/opt/agents-sandbox/hermes` and provisions its own Python (and Node, for the TUI/web product build)
 into `/opt/agents-sandbox/hermes-home`, so the tool stage needs no node of its own. That tree lives outside `/home/dev`
-— which the sandbox home volume covers at runtime — and is owned by the runner's `dev` user (uid 1000), because Hermes
-keeps its dependency ledger and bytecode markers there. The launcher the stage publishes is therefore a small shim: it
+— which the sandbox home volume covers at runtime — and the runner hands it to its `dev` user after copying it in
+(`RuntimeOwner`: a `chown -R "$USER_UID:$USER_GID"` block emitted for agents that write into their own installation),
+so it belongs to whatever host uid the launcher pinned. The launcher the stage publishes is therefore a small shim: it
 keeps user state in `$HERMES_HOME` (`/home/dev/.hermes`, so config, sessions, and memories persist on the home volume)
 and links the tool store, uv cache, and dependency environments from the image into it, so a fresh home volume starts
 Hermes without reinstalling its dependencies. All five resolve their latest version for an unpinned build — opencode

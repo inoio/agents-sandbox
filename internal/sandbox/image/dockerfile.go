@@ -448,11 +448,29 @@ func runnerStage(a agent.Agent, baseAlias, body string, docker, dockerInjected b
 	parts = append(parts,
 		fmt.Sprintf("COPY --from=%s %s %s\n", agentStageAlias, toolDir, toolDir),
 		agentAdoptionBlock(a),
+		agentOwnershipBlock(a),
 		agentImageConfigBlock(a),
 		finalizationBlock(),
 		guestToolsBlock(a),
 	)
 	return joinBlocks(parts...)
+}
+
+// agentOwnershipBlock hands the agent's self-written tool-tree paths to the
+// runtime user. It runs as root after the tool tree is copied in and before the
+// image switches to the dev user, and it uses the same USER_UID/USER_GID build
+// args that created that user, so ownership follows any host uid the launcher
+// pins. Agents that never write into their installation emit nothing.
+func agentOwnershipBlock(a agent.Agent) string {
+	owner, ok := agent.AsRuntimeOwner(a)
+	if !ok {
+		return ""
+	}
+	paths := owner.RuntimeOwnedPaths()
+	if len(paths) == 0 {
+		return ""
+	}
+	return fmt.Sprintf("USER root\nRUN chown -R \"$USER_UID:$USER_GID\" %s\n", strings.Join(paths, " "))
 }
 
 // injectDockerBlock replaces the first docker marker line in body with the

@@ -56,7 +56,7 @@ func TestPIAttachCommand(t *testing.T) {
 		t.Fatal("pi should implement AttachRunner")
 	}
 	got := runner.AttachCommand("/workspace", []string{"--model", "claude"})
-	want := "pi --model claude"
+	want := "pi '--model' 'claude'"
 	if got != want {
 		t.Errorf("AttachCommand = %q, want %q", got, want)
 	}

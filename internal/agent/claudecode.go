@@ -45,7 +45,7 @@ func (claudeCodeProfile) ProvisionRules() []ProvisionRule {
 
 func (claudeCodeProfile) AttachCommand(_ string, args []string) string {
 	parts := []string{"claude"}
-	parts = append(parts, args...)
+	parts = append(parts, shellQuoteArgs(args)...)
 	return strings.Join(parts, " ")
 }
 

@@ -45,16 +45,19 @@ func TestHermesImageSpec(t *testing.T) {
 		t.Errorf("InstallCommand = %q, want a non-interactive install (no setup wizard)", spec.InstallCommand)
 	}
 	// The store must stay outside /home/dev, which the sandbox home volume
-	// covers at runtime, and must belong to the runtime user.
+	// covers at runtime; ownership is handed to the runtime user by the
+	// renderer's RuntimeOwner block, not by the install command.
 	for _, want := range []string{
 		"--hermes-home /opt/agents-sandbox/hermes-home",
-		"chown -R 1000:1000 /opt/agents-sandbox/hermes /opt/agents-sandbox/hermes-home",
 		"> /opt/agents-sandbox/bin/hermes",
 		`ln -s "/opt/agents-sandbox/hermes-home/$d" "$home/$d"`,
 	} {
 		if !strings.Contains(spec.InstallCommand, want) {
 			t.Errorf("InstallCommand = %q, want it to contain %q", spec.InstallCommand, want)
 		}
+	}
+	if strings.Contains(spec.InstallCommand, "chown") {
+		t.Errorf("InstallCommand = %q must not chown (the runner does, with the host uid)", spec.InstallCommand)
 	}
 	if got := spec.AgentEnv["HERMES_HOME"]; got != "/home/dev/.hermes" {
 		t.Errorf("AgentEnv[HERMES_HOME] = %q, want /home/dev/.hermes", got)
@@ -71,9 +74,34 @@ func TestHermesAttachCommand(t *testing.T) {
 		t.Fatal("hermes should implement AttachRunner")
 	}
 	got := runner.AttachCommand("/workspace", []string{"--continue"})
-	want := "hermes --continue"
+	want := "hermes '--continue'"
 	if got != want {
 		t.Errorf("AttachCommand = %q, want %q", got, want)
+	}
+}
+
+// TestHermesAttachCommandQuotesForwardedArgs guards the quoting of forwarded
+// arguments: the launcher joins them into one command line that the guest shell
+// splits again, so an argument with spaces must stay one word.
+func TestHermesAttachCommandQuotesForwardedArgs(t *testing.T) {
+	a, _ := agent.Lookup("hermes")
+	runner, _ := agent.AsAttachRunner(a)
+	got := runner.AttachCommand("/workspace", []string{"chat", "-q", "explain this function"})
+	want := "hermes 'chat' '-q' 'explain this function'"
+	if got != want {
+		t.Errorf("AttachCommand = %q, want %q", got, want)
+	}
+}
+
+func TestHermesRuntimeOwnedPaths(t *testing.T) {
+	a, _ := agent.Lookup("hermes")
+	owner, ok := agent.AsRuntimeOwner(a)
+	if !ok {
+		t.Fatal("hermes should implement RuntimeOwner")
+	}
+	want := []string{"/opt/agents-sandbox/hermes", "/opt/agents-sandbox/hermes-home"}
+	if got := owner.RuntimeOwnedPaths(); !slices.Equal(got, want) {
+		t.Errorf("RuntimeOwnedPaths = %v, want %v", got, want)
 	}
 }
 

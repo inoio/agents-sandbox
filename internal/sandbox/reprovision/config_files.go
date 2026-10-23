@@ -14,6 +14,8 @@ import (
 	"sort"
 	"strings"
 
+	"gopkg.in/yaml.v3"
+
 	"github.com/inoio/agents-sandbox/internal/agent"
 	config "github.com/inoio/agents-sandbox/internal/configmerge"
 	"github.com/inoio/agents-sandbox/internal/sandbox/mounts"
@@ -642,7 +644,7 @@ func AgentConfigEqual(cf *ConfigFiles, vmData map[string][]byte) bool {
 		if !ok {
 			return false
 		}
-		if !jsonEqual(cf.Merged, vm) {
+		if !configEqual(cf.MergedPath, cf.Merged, vm) {
 			return false
 		}
 	}
@@ -655,13 +657,34 @@ func AgentConfigEqual(cf *ConfigFiles, vmData map[string][]byte) bool {
 	return true
 }
 
-func jsonEqual(a, b []byte) bool {
-	va, err1 := parseJSON(a)
-	vb, err2 := parseJSON(b)
+// configEqual reports whether two config documents are semantically equal,
+// parsing them the way the agent reads the file at targetPath: YAML for a YAML
+// config path, JSON otherwise. Comparing a YAML merged config through the JSON
+// parser would always report a change, since the parser rejects it — and the
+// caller treats "changed" as "restart the agent", which Hermes has no server
+// for.
+func configEqual(targetPath string, a, b []byte) bool {
+	va, err1 := parseConfig(targetPath, a)
+	vb, err2 := parseConfig(targetPath, b)
 	if err1 != nil || err2 != nil {
 		return false
 	}
 	return reflect.DeepEqual(va, vb)
+}
+
+// parseConfig unmarshals a config document for deep equality comparison, using
+// the format its destination file implies.
+func parseConfig(targetPath string, data []byte) (any, error) {
+	switch strings.ToLower(filepath.Ext(targetPath)) {
+	case ".yaml", ".yml":
+		var v any
+		if err := yaml.Unmarshal(data, &v); err != nil {
+			return nil, err
+		}
+		return v, nil
+	default:
+		return parseJSON(data)
+	}
 }
 
 // parseJSON unmarshals data into map[string]any for deep equality comparison.
