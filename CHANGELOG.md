@@ -10,6 +10,20 @@ command reports the bare version (e.g. `0.1.0`).
 
 ### Added
 
+- Agents: a built-in `hermes` profile (Hermes Agent). It installs through the official installer at the pinned
+  `--agent-version` release tag (`v$HERMES_VERSION`), which clones the checkout and provisions its own Python and Node
+  tool store under `/opt/agents-sandbox/hermes-home` (outside the `/home/dev` home volume), and publishes a launcher shim
+  into `/opt/agents-sandbox/bin` that keeps user state in `$HERMES_HOME` (`/home/dev/.hermes`) while linking the tool
+  store, uv cache, and dependency environments from the image, so a fresh home volume starts without reinstalling
+  dependencies. It runs interactively like `pi` and `claude-code`, so `--worktree` and `--serve-only` are rejected;
+  snippet config merge reads `config*.yaml` from the `hermes/` launcher config dirs and writes
+  `~/.hermes/config.yaml`, the host drop-in copies only `~/.hermes/config.yaml` (never `.env`), and unpinned
+  builds resolve the latest release from its GitHub releases endpoint. Merged configs whose target file is YAML are now
+  written and compared as YAML instead of JSON.
+- Runner image: a `RuntimeOwner` capability lets an agent declare tool-tree paths that the runner hands to its `dev`
+  user (`chown -R "$USER_UID:$USER_GID"` after the tool tree is copied, before the image switches to `USER dev`). Only
+  `hermes` declares paths: it writes its dependency ledger and bytecode markers into its own installation and git
+  rejects a checkout owned by another user. Using the build args keeps the ownership correct for any host uid.
 - Runtime: on the first interactive `run`/`shell`, agents-sandbox offers once to copy legacy
   `~/.microsandbox/volumes/agents-sandbox-home-*` volumes into its private runtime home. The choice is mandatory. You can copy,
   start fresh/dismiss, or quit. Choice is tracked in a `migrations.runtime_home` entry in the launcher's root `state.yaml`
@@ -90,6 +104,10 @@ command reports the bare version (e.g. `0.1.0`).
 
 ### Changed
 
+- Agents: forwarded arguments are shell-quoted before they are joined into an agent's attach command. The launcher
+  receives them already split by the host shell and the guest shell splits the joined line again, so an argument
+  containing spaces (`agents-sandbox run -- chat -q "explain this function"`) used to reach the agent as several words.
+  All five profiles share the quoting, so the change applies to every agent.
 - Network: the default egress profile is now `public`, so a fresh sandbox reaches the internet (agent APIs, package
   registries) with no configuration — a first run no longer has an unreachable agent (#279). The allowlist-only `none`
   profile is unchanged and available explicitly, and any sandbox with no configured profile is recreated with the new

@@ -55,7 +55,7 @@ func TestBuildMergedPatternFilter(t *testing.T) {
 	testutil.WriteFile(t, dir, "opencode-a.json", `{"a":1}`)
 	testutil.WriteFile(t, dir, "opencode-b.json", `{"b":2}`)
 	testutil.WriteFile(t, dir, "ignored.json", `{"x":9}`) // must not merge (name doesn't match)
-	data, sources, has, err := BuildMerged("opencode*.json*", dir, "")
+	data, sources, has, err := BuildMerged("/home/user/config.json", "opencode*.json*", dir, "")
 	if err != nil || !has {
 		t.Fatalf("BuildMerged: has=%v err=%v", has, err)
 	}
@@ -77,7 +77,7 @@ func TestBuildMergedPatternFilter(t *testing.T) {
 func TestBuildMergedYAML(t *testing.T) {
 	dir := t.TempDir()
 	testutil.WriteFile(t, dir, "pi-settings.yaml", "theme: dark\nprovider: anthropic\n")
-	data, _, has, err := BuildMerged("pi-*.{json,yaml}", dir, "")
+	data, _, has, err := BuildMerged("/home/user/config.json", "pi-*.{json,yaml}", dir, "")
 	if err != nil || !has {
 		t.Fatalf("BuildMerged yaml: has=%v err=%v", has, err)
 	}
@@ -90,6 +90,50 @@ func TestBuildMergedYAML(t *testing.T) {
 	}
 }
 
+func TestBuildMergedYAMLTargetEmitsYAML(t *testing.T) {
+	dir := t.TempDir()
+	testutil.WriteFile(t, dir, "config-model.yaml", "model: opus\n")
+	testutil.WriteFile(t, dir, "config-tools.yaml", "tools:\n  web: true\n")
+	data, _, has, err := BuildMerged("/home/dev/.hermes/config.yaml", "config*.yaml", dir, "")
+	if err != nil || !has {
+		t.Fatalf("BuildMerged: has=%v err=%v", has, err)
+	}
+	// A YAML config path must yield YAML, not a JSON document wearing a .yaml
+	// name: the merged file is both the agent's input and user-editable.
+	if strings.HasPrefix(strings.TrimSpace(string(data)), "{") {
+		t.Fatalf("merged config for a .yaml target is JSON:\n%s", data)
+	}
+	want := "model: opus\ntools:\n    web: true\n"
+	if string(data) != want {
+		t.Errorf("merged YAML = %q, want %q", data, want)
+	}
+}
+
+func TestBuildMergedYMLTargetEmitsYAML(t *testing.T) {
+	dir := t.TempDir()
+	testutil.WriteFile(t, dir, "config-settings.yml", "model: opus\n")
+	data, _, has, err := BuildMerged("/home/dev/.hermes/config.yml", "config*.yml", dir, "")
+	if err != nil || !has {
+		t.Fatalf("BuildMerged: has=%v err=%v", has, err)
+	}
+	if string(data) != "model: opus\n" {
+		t.Errorf("merged YAML = %q, want %q", data, "model: opus\n")
+	}
+}
+
+func TestBuildMergedJSONTargetStaysJSON(t *testing.T) {
+	dir := t.TempDir()
+	testutil.WriteFile(t, dir, "opencode-a.json", `{"a":1}`)
+	data, _, has, err := BuildMerged("/home/dev/.config/opencode/opencode.jsonc", "opencode*.json*", dir, "")
+	if err != nil || !has {
+		t.Fatalf("BuildMerged: has=%v err=%v", has, err)
+	}
+	want := "{\n  \"a\": 1\n}\n"
+	if string(data) != want {
+		t.Errorf("merged JSON = %q, want %q", data, want)
+	}
+}
+
 func TestBuildMergedSourcesInMergeOrder(t *testing.T) {
 	user := t.TempDir()
 	proj := t.TempDir()
@@ -97,7 +141,7 @@ func TestBuildMergedSourcesInMergeOrder(t *testing.T) {
 	writeSnippet(t, user, "opencode-01-user.json", `{"a": 2}`)
 	writeSnippet(t, proj, "opencode-proj.json", `{"b": 3}`)
 
-	_, sources, has, err := BuildMerged("opencode*.json*", user, proj)
+	_, sources, has, err := BuildMerged("/home/user/config.json", "opencode*.json*", user, proj)
 	if err != nil || !has {
 		t.Fatalf("BuildMerged: has=%v err=%v", has, err)
 	}
@@ -117,7 +161,7 @@ func TestBuildMergedSourcesInMergeOrder(t *testing.T) {
 }
 
 func TestBuildMergedNoSnippets(t *testing.T) {
-	data, sources, has, err := BuildMerged("opencode*.json*", t.TempDir(), t.TempDir())
+	data, sources, has, err := BuildMerged("/home/user/config.json", "opencode*.json*", t.TempDir(), t.TempDir())
 	if err != nil {
 		t.Fatalf("BuildMerged: %v", err)
 	}
@@ -136,7 +180,7 @@ func TestBuildMergedEmitsMergedJSON(t *testing.T) {
 	user := t.TempDir()
 	writeSnippet(t, user, "opencode-x.json5", `{"model": "x", "instructions": "be brief"}`)
 
-	data, sources, has, err := BuildMerged("opencode*.json*", user, "")
+	data, sources, has, err := BuildMerged("/home/user/config.json", "opencode*.json*", user, "")
 	if err != nil {
 		t.Fatalf("BuildMerged: %v", err)
 	}
@@ -162,7 +206,7 @@ func TestBuildMergedDeterministic(t *testing.T) {
 
 	var first []byte
 	for range 5 {
-		data, _, has, err := BuildMerged("opencode*.json*", user, "")
+		data, _, has, err := BuildMerged("/home/user/config.json", "opencode*.json*", user, "")
 		if err != nil || !has {
 			t.Fatalf("BuildMerged: has=%v err=%v", has, err)
 		}
@@ -187,7 +231,7 @@ func TestBuildMergedUsesCallerPattern(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "pi-model.yaml"), []byte("model: x\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	data, sources, has, err := BuildMerged("pi-*.{json,yaml}", "", dir)
+	data, sources, has, err := BuildMerged("/home/user/config.json", "pi-*.{json,yaml}", "", dir)
 	if err != nil {
 		t.Fatalf("BuildMerged: %v", err)
 	}
@@ -215,7 +259,7 @@ func TestBuildMergedSkipsUnparsableSnippet(t *testing.T) {
 	writeSnippet(t, dir, "opencode-bad.json5", "{ this is not valid json5")
 	writeSnippet(t, dir, "opencode-good.json", `{"ok": true}`)
 
-	data, sources, has, err := BuildMerged("opencode*.json*", dir, "")
+	data, sources, has, err := BuildMerged("/home/user/config.json", "opencode*.json*", dir, "")
 	if err != nil || !has {
 		t.Fatalf("BuildMerged: has=%v err=%v", has, err)
 	}

@@ -36,6 +36,7 @@ func builtinRegistry() map[string]Agent {
 		opencode2Profile{opencodeConfig: opencodeConfig{}},
 		claudeCodeProfile{},
 		piProfile{},
+		hermesProfile{},
 	}
 	registry := make(map[string]Agent, len(profiles))
 	for _, a := range profiles {

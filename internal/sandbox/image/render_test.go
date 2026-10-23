@@ -360,11 +360,59 @@ func TestRenderDockerfileChecksGuestRuntimeTools(t *testing.T) {
 // TestRenderDockerfileNoGuestToolsForDaemonlessAgents guards that agents which
 // run no daemon in the VM declare no guest tools, so no check is emitted.
 func TestRenderDockerfileNoGuestToolsForDaemonlessAgents(t *testing.T) {
-	for _, name := range []string{"pi", "claude-code"} {
+	for _, name := range []string{"pi", "claude-code", "hermes"} {
 		a, _ := agent.Lookup(name)
 		final := finalStage(t, mustRender(t, a, nil, false))
 		if strings.Contains(final, "agent runtime tool missing") {
 			t.Errorf("%s runs no daemon and must not emit a guest-tool check; got:\n%s", name, final)
+		}
+	}
+}
+
+// TestRenderDockerfileChownsAgentToolTree guards the ownership handover: an
+// agent that writes into its own installation at runtime (hermes) declares the
+// paths, and the runner chowns them to the dev user it just created — with the
+// USER_UID/USER_GID build args, so a host uid other than the 1000 default still
+// owns the tree. The chown must run before the image switches to USER dev.
+func TestRenderDockerfileChownsAgentToolTree(t *testing.T) {
+	a, _ := agent.Lookup("hermes")
+	final := finalStage(t, mustRender(t, a, nil, false))
+
+	wantChown := `chown -R "$USER_UID:$USER_GID" /opt/agents-sandbox/hermes /opt/agents-sandbox/hermes-home`
+	chownIdx := strings.Index(final, wantChown)
+	if chownIdx < 0 {
+		t.Fatalf("the final stage must chown the agent's tool tree to the runtime user; got:\n%s", final)
+	}
+	devIdx := strings.LastIndex(final, "USER dev")
+	if devIdx < 0 || chownIdx > devIdx {
+		t.Errorf("the chown must run before the image switches to USER dev; got:\n%s", final)
+	}
+}
+
+// emptyRuntimeOwner declares the RuntimeOwner capability with no paths,
+// covering agentOwnershipBlock's empty-list guard: an agent that declares the
+// capability but names nothing must emit no chown.
+type emptyRuntimeOwner struct{ agent.Agent }
+
+func (emptyRuntimeOwner) Name() string                { return "stub" }
+func (emptyRuntimeOwner) RuntimeOwnedPaths() []string { return nil }
+
+func TestRenderDockerfileNoChownForEmptyOwnedPaths(t *testing.T) {
+	stub := emptyRuntimeOwner{Agent: agentOpencode(t)}
+	final := finalStage(t, mustRender(t, stub, nil, false))
+	if strings.Contains(final, "chown -R") {
+		t.Errorf("an empty RuntimeOwnedPaths list must emit no chown; got:\n%s", final)
+	}
+}
+
+// TestRenderDockerfileNoChownForStatelessAgents guards that an agent which never
+// writes into its installation emits no chown block.
+func TestRenderDockerfileNoChownForStatelessAgents(t *testing.T) {
+	for _, name := range []string{"opencode", "pi", "claude-code"} {
+		a, _ := agent.Lookup(name)
+		final := finalStage(t, mustRender(t, a, nil, false))
+		if strings.Contains(final, "chown -R") {
+			t.Errorf("%s must not emit a tool-tree chown; got:\n%s", name, final)
 		}
 	}
 }

@@ -1,6 +1,6 @@
 ---
 title: Switch from your existing agent
-description: "Run your existing Claude Code, opencode, opencode2 or pi setup inside an agents-sandbox microVM without writing any config."
+description: "Run your existing Claude Code, opencode, opencode2, pi or hermes setup inside an agents-sandbox microVM without writing any config."
 layout: default
 parent: Get started
 nav_order: 30

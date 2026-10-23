@@ -53,7 +53,7 @@ func TestClaudeCodeAttachCommand(t *testing.T) {
 		t.Fatal("claude-code should implement AttachRunner")
 	}
 	got := runner.AttachCommand("/workspace", []string{"--dangerously-skip-permissions"})
-	want := "claude --dangerously-skip-permissions"
+	want := "claude '--dangerously-skip-permissions'"
 	if got != want {
 		t.Errorf("AttachCommand = %q, want %q", got, want)
 	}

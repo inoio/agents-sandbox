@@ -1,13 +1,13 @@
 ---
 title: agents-sandbox
-title_category: Sandbox for Claude Code, opencode, opencode2 & pi in a microVM
+title_category: Sandbox for Claude Code, opencode, opencode2, pi & hermes in a microVM
 layout: home
 nav_order: 0
 ---
 
 # agents-sandbox
 
-agents-sandbox runs coding agents — [opencode](https://opencode.ai), [opencode2](https://opencode.ai), [pi](https://pi.dev), and [Claude Code](https://claude.com/product/claude-code) — inside a dedicated [microsandbox](https://microsandbox.dev/) VM for each project, instead of directly on your machine, with your project mounted at `/workspace`.
+agents-sandbox runs coding agents — [opencode](https://opencode.ai), [opencode2](https://opencode.ai), [pi](https://pi.dev), [Claude Code](https://claude.com/product/claude-code), and [Hermes Agent](https://hermes-agent.nousresearch.com/) — inside a dedicated [microsandbox](https://microsandbox.dev/) VM for each project, instead of directly on your machine, with your project mounted at `/workspace`.
 
 It provisions its own microsandbox runtime and allows keeping secrets on the host: credentials supplied through `env.secret` reach the VM only as placeholders that the proxy substitutes for the hosts you allow.
 

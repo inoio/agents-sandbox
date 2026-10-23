@@ -183,6 +183,25 @@ type VersionProvider interface {
 // AsVersionProvider returns the agent's VersionProvider, if it implements one.
 func AsVersionProvider(a Agent) (VersionProvider, bool) { p, ok := a.(VersionProvider); return p, ok }
 
+// RuntimeOwner declares the tool-tree paths inside the runner image that must
+// belong to the runtime user. Ownership matters for agents that write into
+// their own installation at runtime: Hermes keeps a dependency ledger and
+// bytecode markers in its checkout and rejects a git checkout owned by another
+// user, so a tree left owned by the build's root is unusable for the dev user.
+// The renderer chowns the declared paths to the image's USER_UID/USER_GID after
+// copying the tool tree in, which keeps the install correct for whatever host
+// uid the launcher pins. Agents that never write into their installation do not
+// implement it.
+type RuntimeOwner interface {
+	RuntimeOwnedPaths() []string
+}
+
+// AsRuntimeOwner returns the agent's RuntimeOwner, if it implements one.
+func AsRuntimeOwner(a Agent) (RuntimeOwner, bool) {
+	p, ok := a.(RuntimeOwner)
+	return p, ok
+}
+
 // StreamEvent is a decoded daemon event: its type, the session it belongs to,
 // and that session's parent (non-empty for a subagent session).
 type StreamEvent struct {

@@ -242,7 +242,7 @@ func (opencode2Profile) AttachCommand(target string, args []string) string {
 	// v2 takes the working directory as a positional argument; it has no --dir
 	// flag (which the launcher passed until it learned v2's CLI shape).
 	parts := []string{"opencode2", "--server", "http://127.0.0.1:4096", shellQuote(target)}
-	parts = append(parts, args...)
+	parts = append(parts, shellQuoteArgs(args)...)
 	return strings.Join(parts, " ")
 }
 

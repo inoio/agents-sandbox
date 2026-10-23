@@ -632,6 +632,34 @@ func TestLoadConfigFilesPIMergedConfig(t *testing.T) {
 	}
 }
 
+// TestLoadConfigFilesHermesMergedConfig verifies that a hermes snippet is
+// merged into the hermes config path as YAML: hermes reads (and users edit)
+// that file as YAML, so a JSON document wearing a .yaml name would be wrong.
+func TestLoadConfigFilesHermesMergedConfig(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	cp := configpaths.Get()
+	vmHome := t.TempDir()
+
+	a, _ := agent.Lookup("hermes")
+	testutil.WriteFile(t, cp.ProjectAgentConfigDir(a), "config-model.yaml", "model: opus\n")
+
+	ui := termio.NewTestMock(t)
+	cf, err := LoadConfigFilesForHost(a, t.TempDir(), vmHome, &ui, true)
+	if err != nil {
+		t.Fatalf("LoadConfigFilesForHost: %v", err)
+	}
+	if !cf.HasSnippets {
+		t.Fatal("expected HasSnippets=true for a hermes config snippet")
+	}
+	wantMerged := filepath.Join(vmHome, ".hermes", "config.yaml")
+	if cf.MergedPath != wantMerged {
+		t.Errorf("MergedPath = %q, want %q", cf.MergedPath, wantMerged)
+	}
+	if got := string(cf.Merged); got != "model: opus\n" {
+		t.Errorf("Merged = %q, want %q (YAML, not JSON)", got, "model: opus\n")
+	}
+}
+
 // TestLoadConfigFilesRejectsReservedMergedPath verifies that a home target
 // colliding with the agent's merged-config path is rejected.
 func TestLoadConfigFilesRejectsReservedMergedPath(t *testing.T) {

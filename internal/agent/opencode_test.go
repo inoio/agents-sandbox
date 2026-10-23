@@ -20,7 +20,7 @@ func TestOpencodeAttachCommand(t *testing.T) {
 		t.Fatal("opencode should implement AttachRunner")
 	}
 	got := cmd.AttachCommand("/workspace", []string{"--print-logs"})
-	want := "opencode attach http://127.0.0.1:4096 --dir '/workspace' --print-logs"
+	want := "opencode attach http://127.0.0.1:4096 --dir '/workspace' '--print-logs'"
 	if got != want {
 		t.Errorf("AttachCommand = %q, want %q", got, want)
 	}

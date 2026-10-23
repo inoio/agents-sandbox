@@ -10,7 +10,7 @@ nav_order: 60
 
 agents-sandbox is agent-aware. A `--agent <name>` flag on `run`, `shell`, `build`, `volume`, `stop`, and `kill`
 selects the coding-agent profile to run, build, provision, or manage. The agent can also be selected via the `agent`
-config key or the `AGENTS_SANDBOX_AGENT` environment variable. Four agents ship as built-in profiles:
+config key or the `AGENTS_SANDBOX_AGENT` environment variable. Five agents ship as built-in profiles:
 
 - **`opencode`** (default) — daemon-based, with serve/attach, worktree sessions, and GitHub-release upgrade checks.
 - **`opencode2`** — opencode 2 (beta), installed from its upstream installer (`https://opencode.ai/v2/install`); the
@@ -21,8 +21,10 @@ config key or the `AGENTS_SANDBOX_AGENT` environment variable. Four agents ship 
   config path and host drop-in stay `~/.config/opencode/` (v2 reads the same files as v1).
 - **`pi`** — the pi coding agent, run interactively; upgrade checks via `pi.dev`.
 - **`claude-code`** — Anthropic's Claude Code, run interactively; upgrade checks via the npm registry.
+- **`hermes`** — Hermes Agent, installed from its official installer at a pinned release tag and run interactively;
+  upgrade checks via its GitHub releases.
 
-`--worktree` and `--serve-only` are rejected for pi and claude-code (they have no daemon); they run through the
+`--worktree` and `--serve-only` are rejected for pi, claude-code and hermes (they have no daemon); they run through the
 interactive TUI instead. Passing an unsupported `--agent` name reports the valid names in its error message.
 
 > **Note:** opencode2 server auth — v2's `serve` requires HTTP basic auth on every `/api/*` route and would otherwise generate a
@@ -61,11 +63,13 @@ user and project directories, and written to the agent's VM config path:
   from its own `opencode2/` config dirs instead of the shared `opencode/` dirs.
 - **pi** — snippets match `settings*.json*` in the `pi/` subdir; merged to `/home/dev/.pi/agent/settings.json`.
 - **claude-code** — snippets match `settings*.json*` in the `claude/` subdir; merged to `/home/dev/.claude/settings.json`.
+- **hermes** — snippets match `config*.yaml` in the `hermes/` subdir; merged to `/home/dev/.hermes/config.yaml`.
 
 Matching files are parsed and **deep-merged** into one config document. The user directory is merged first, then the
 project directory; within each directory files are merged in alphabetical order, so later files override earlier ones.
 Snippet parsing supports JSON, JSONC, JSON5, and YAML (agents whose pattern includes YAML extensions, e.g. a pattern
-like `pi-*.{json,yaml}`). The built-in patterns match JSON-family extensions.
+like `pi-*.{json,yaml}`). The built-in patterns match JSON-family extensions, except hermes' `config*.yaml`, whose merged
+output is written as YAML because the agent reads (and users edit) that file as YAML.
 
 If no snippet files exist, no merged config is produced.
 
@@ -119,6 +123,8 @@ The drop-in copy is scoped to the agent's settings and, for opencode, its creden
 - **opencode2** — same drop-in copy as `opencode` (`~/.config/opencode/**` and `~/.local/share/opencode/auth.json`).
 - **pi** — `~/.pi/agent/settings.json`.
 - **claude-code** — `~/.claude/settings.json` (runtime state and the machine-managed `.credentials.json` are not copied).
+- **hermes** — `~/.hermes/config.yaml` (the rest of `~/.hermes` — `state.db`, `sessions/`, `memories/`, `skills/` — is
+  runtime state and is not copied; credentials in `~/.hermes/.env` are never copied).
 
 Precedence: the merged snippet config and any `home:` mappings override the drop-in copy for the same VM path.
 
@@ -153,12 +159,15 @@ To opt out, exclude `auth.json` from the drop-in copy by placing a `home:` entry
 host secrets in any other way; the env-secret mechanism is the supported channel for secrets you do not want on disk in
 the VM.
 
-For pi and claude-code, the drop-in copy does not include credential files; authenticate them with env secrets instead:
+For pi, claude-code and hermes, the drop-in copy does not include credential files; authenticate them with env secrets instead:
 
 - **pi** — per-provider env vars, e.g. `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GEMINI_API_KEY` (see pi's docs for the
   full list). Put them in an `env.secret` / `env.secret.yaml` file.
 - **claude-code** — `ANTHROPIC_AUTH_TOKEN`, `ANTHROPIC_API_KEY`, or `CLAUDE_CODE_OAUTH_TOKEN`. Claude's
   `.credentials.json` is machine-managed and not hand-provisioned, so env vars are the supported channel here.
+- **hermes** — the provider key hermes is configured to use (`OPENAI_API_KEY`, `ANTHROPIC_API_KEY`,
+  `OPENROUTER_API_KEY`, …). Hermes reads `.env` from its home, which the sandbox does not provision, so supply the key
+  through `env.secret` and reference it in a `config*.yaml` snippet or `hermes model`.
 - **opencode** — `OPENCODE_API_KEY`.
 
 ## Example: permissions

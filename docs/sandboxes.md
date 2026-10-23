@@ -232,8 +232,8 @@ Home volumes are pruned when:
 
 ## Idle timeout: when a sandbox stops
 
-opencode is the only agent that waits for its sessions to finish before the sandbox stops; opencode2, pi, and Claude
-Code skip that wait and stop as soon as the idle timeout expires. The idle timeout is `auto-stop-timeout`, which
+opencode is the only agent that waits for its sessions to finish before the sandbox stops; opencode2, pi, Claude
+Code, and hermes skip that wait and stop as soon as the idle timeout expires. The idle timeout is `auto-stop-timeout`, which
 defaults to 10 seconds.
 
 When the last client detaches, the sandbox is not stopped immediately. The launcher first evaluates

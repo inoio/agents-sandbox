@@ -9,7 +9,7 @@ nav_order: 70
 # Notifications
 
 agents-sandbox can alert you when the agent session status changes (input needed, done, error) via desktop and/or
-audio notifications. The `opencode` and `opencode2` agents expose a session event stream; `pi` and `claude-code` do not,
+audio notifications. The `opencode` and `opencode2` agents expose a session event stream; `pi`, `claude-code`, and `hermes` do not,
 so the notify config is ignored for them. Only top-level sessions notify: a subagent (child) session carries a
 `parentID` and is skipped.
 

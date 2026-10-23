@@ -88,7 +88,7 @@ select the coding-agent to run, provision, or manage. This is also available as 
 `--agent-version` pins the version agents-sandbox installs into the runner image; it does not replace an agent already
 provided by a custom base or project Dockerfile.
 
-Four agents ship as built-in profiles:
+Five agents ship as built-in profiles:
 
 - **`opencode`** (default) — a daemon-based agent with serve/attach, worktree sessions, and GitHub-release upgrade checks.
 - **`opencode2`** — opencode 2 (beta), installed from its native installer; daemon-based with serve/attach, worktree
@@ -99,6 +99,8 @@ Four agents ship as built-in profiles:
   needs node), run interactively, with upgrade checks via `pi.dev`.
 - **`claude-code`** — Anthropic's Claude Code, installed from its native installer, run interactively, with upgrade
   checks via the npm registry.
+- **`hermes`** — [Hermes Agent](https://hermes-agent.nousresearch.com/), installed from its official installer at a
+  pinned release tag, run interactively, with upgrade checks via its GitHub releases.
 
 ## Documentation
 

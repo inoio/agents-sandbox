@@ -12,7 +12,7 @@ Run the agent in its own git worktree, created inside the sandbox, so your host 
 By default, agents-sandbox runs in the current directory (`/workspace`). To start an isolated development session in its own worktree, use `--worktree <name>[:<base>]` (`-w`). This creates an isolated git worktree **inside the VM**, leaving the host repository untouched.
 
 > **Note:** Requires a daemon-based agent. Worktrees are created through the agent daemon's worktree API, so `--worktree` only
-> works with daemon-based agents (opencode, opencode2); it is rejected for `pi` and `claude-code`, which run through the
+> works with daemon-based agents (opencode, opencode2); it is rejected for `pi`, `claude-code`, and `hermes`, which run through the
 > interactive TUI instead.
 
 ## Basic usage
