@@ -389,6 +389,22 @@ func TestRenderDockerfileChownsAgentToolTree(t *testing.T) {
 	}
 }
 
+// emptyRuntimeOwner declares the RuntimeOwner capability with no paths,
+// covering agentOwnershipBlock's empty-list guard: an agent that declares the
+// capability but names nothing must emit no chown.
+type emptyRuntimeOwner struct{ agent.Agent }
+
+func (emptyRuntimeOwner) Name() string                { return "stub" }
+func (emptyRuntimeOwner) RuntimeOwnedPaths() []string { return nil }
+
+func TestRenderDockerfileNoChownForEmptyOwnedPaths(t *testing.T) {
+	stub := emptyRuntimeOwner{Agent: agentOpencode(t)}
+	final := finalStage(t, mustRender(t, stub, nil, false))
+	if strings.Contains(final, "chown -R") {
+		t.Errorf("an empty RuntimeOwnedPaths list must emit no chown; got:\n%s", final)
+	}
+}
+
 // TestRenderDockerfileNoChownForStatelessAgents guards that an agent which never
 // writes into its installation emits no chown block.
 func TestRenderDockerfileNoChownForStatelessAgents(t *testing.T) {
