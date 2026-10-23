@@ -143,8 +143,9 @@ stages with fixed parents, merged into the final stage with `COPY` **after** the
   `debian:trixie-slim` plus `curl`, `ca-certificates`, and `tar`. It is **not** part of the runner's lineage, so your base
   needs none of those binaries and the tool layers cache across bases.
 - **`agents-sandbox-node`** *(only for agents that need node)* — installs Node.js into `/opt/agents-sandbox`. It is emitted
-  only when the selected agent requires node (today only `pi`, an npm-installed node bundle); `opencode`, `opencode2`, and
-  `claude-code` install native binaries and their images contain no node/npm.
+  only when the selected agent requires node (today only `pi`, an npm-installed node bundle); `opencode`, `opencode2`,
+  `claude-code`, and `hermes` install native binaries or provision their own runtime, and their images carry no
+  tool-installed node.
 - **`agents-sandbox-agent`** *(conditional)* — installs the selected agent into `/opt/agents-sandbox`. It starts from the
   node stage when one was emitted, otherwise from the tool base, and creates `/opt/agents-sandbox/bin` itself. npm agents
   (`pi`) install with `npm install -g --prefix /opt/agents-sandbox <pkg>@$VERSION`; the rest copy the binary produced by
@@ -197,7 +198,7 @@ base must meet these requirements:
 - **For the daemon agents (`opencode`, `opencode2`)**: the in-VM tools the launcher uses — `curl`, `nohup`, and `pkill`.
   `curl` reaches the daemon (the health probe, session and worktree calls, and notifications), `nohup`/`pkill` start and
   stop it. These are checked after your Dockerfile body runs, so they may be installed in the body or an earlier stage;
-  if one is missing, the build fails and names the tool. `pi` and `claude-code` run no daemon and need none.
+  if one is missing, the build fails and names the tool. `pi`, `claude-code`, and `hermes` run no daemon and need none.
 - The recommended CLI tools listed here are documented for your convenience, not as requirements — as a custom base you install
   your own.
 - A base that already provides docker, node, or the agent is left alone (idempotency), and a pre-created `dev` user is
@@ -282,17 +283,24 @@ copy (the runner's `PATH` prefers base binaries). The pinned node stays on the v
 the v26 tarballs gained a hard `libatomic.so.1` runtime dependency the managed base does not provide, while v24 has no
 such dependency on either target architecture, so a custom base needs no extra library to run the tool-installed node.
 
-Four agents are built in: `opencode` (default), `opencode2` (the opencode 2 beta), `pi`, and `claude-code`. Only `pi`
-needs node: its published package is an npm-installed `#!/usr/bin/env node` bundle, so it installs through
-`npm install -g --prefix /opt/agents-sandbox @earendil-works/pi-coding-agent@$PI_VERSION`. The other three ship
-self-contained native binaries and install through their upstream installers — `opencode` and `opencode2` via
-`https://opencode.ai/install` and `https://opencode.ai/v2/install`, `claude-code` via `https://claude.ai/install.sh` —
-copying the binary into `/opt/agents-sandbox/bin`; their images contain no node/npm. All four resolve their latest
-version for an unpinned build — opencode via its GitHub releases endpoint, opencode2 via the opencode update API
-(`/update/api/latest/cli/npm`, the installer's own source), pi via `pi.dev`, and claude-code via the npm registry's
-`latest` dist-tag — as a host-side HTTP query, never
-inside the image. JS-based LSP servers are expected to run on the agent's embedded JS runtime (Bun) or on node that a
-project installs in its own Dockerfile.
+Five agents are built in: `opencode` (default), `opencode2` (the opencode 2 beta), `pi`, `claude-code`, and `hermes`.
+Only `pi` needs node from the tool stages: its published package is an npm-installed `#!/usr/bin/env node` bundle, so it
+installs through `npm install -g --prefix /opt/agents-sandbox @earendil-works/pi-coding-agent@$PI_VERSION`. The others
+ship self-contained binaries or provision their own runtime — `opencode` and `opencode2` via
+`https://opencode.ai/install` and `https://opencode.ai/v2/install`, `claude-code` via `https://claude.ai/install.sh`,
+`hermes` via `https://hermes-agent.nousresearch.com/install.sh` — publishing their launcher into
+`/opt/agents-sandbox/bin`. `hermes` is the one whose installer needs more than a binary copy: it clones the pinned
+release tag into `/opt/agents-sandbox/hermes` and provisions its own Python (and Node, for the TUI/web product build)
+into `/opt/agents-sandbox/hermes-home`, so the tool stage needs no node of its own. That tree lives outside `/home/dev`
+— which the sandbox home volume covers at runtime — and is owned by the runner's `dev` user (uid 1000), because Hermes
+keeps its dependency ledger and bytecode markers there. The launcher the stage publishes is therefore a small shim: it
+keeps user state in `$HERMES_HOME` (`/home/dev/.hermes`, so config, sessions, and memories persist on the home volume)
+and links the tool store, uv cache, and dependency environments from the image into it, so a fresh home volume starts
+Hermes without reinstalling its dependencies. All five resolve their latest version for an unpinned build — opencode
+and hermes via the GitHub releases endpoint, opencode2 via the opencode update API (`/update/api/latest/cli/npm`, the
+installer's own source), pi via `pi.dev`, and claude-code via the npm registry's `latest` dist-tag — as a host-side HTTP
+query, never inside the image. JS-based LSP servers are expected to run on the agent's embedded JS runtime (Bun) or on
+node that a project installs in its own Dockerfile.
 
 ## Labels and provenance
 

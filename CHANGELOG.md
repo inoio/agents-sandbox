@@ -10,6 +10,16 @@ command reports the bare version (e.g. `0.1.0`).
 
 ### Added
 
+- Agents: a built-in `hermes` profile (Hermes Agent). It installs through the official installer at the pinned
+  `--agent-version` release tag (`v$HERMES_VERSION`), which clones the checkout and provisions its own Python and Node
+  tool store under `/opt/agents-sandbox/hermes-home` (outside the `/home/dev` home volume, owned by the `dev` user), and
+  publishes a launcher shim into `/opt/agents-sandbox/bin` that keeps user state in `$HERMES_HOME` (`/home/dev/.hermes`)
+  while linking the tool store, uv cache, and dependency environments from the image, so a fresh home volume starts
+  without reinstalling dependencies. It runs interactively like `pi` and `claude-code`, so `--worktree` and
+  `--serve-only` are rejected; snippet config merge reads `config*.yaml` from the `hermes/` launcher config dirs and
+  writes `~/.hermes/config.yaml`, the host drop-in copies only `~/.hermes/config.yaml` (never `.env`), and unpinned
+  builds resolve the latest release from its GitHub releases endpoint. Merged configs whose target file is YAML are now
+  written as YAML instead of JSON.
 - Runtime: on the first interactive `run`/`shell`, agents-sandbox offers once to copy legacy
   `~/.microsandbox/volumes/agents-sandbox-home-*` volumes into its private runtime home. The choice is mandatory. You can copy,
   start fresh/dismiss, or quit. Choice is tracked in a `migrations.runtime_home` entry in the launcher's root `state.yaml`

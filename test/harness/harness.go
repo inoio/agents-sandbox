@@ -87,6 +87,9 @@ var harnessSpecs = map[string]harnessSpec{
 	// egress, and its renderer keeps the terminal's normal buffer, so the
 	// alternate screen never announces that its UI is up.
 	"claude-code": {QuitKey: []byte{ctrlC}, Network: publicNetwork, KeepsNormalBuffer: true},
+	// hermes greets with a banner and its own model/provider state before the
+	// prompt, so it needs egress like claude-code; Ctrl-D leaves its prompt.
+	"hermes": {QuitKey: []byte{ctrlD}, Network: publicNetwork, KeepsNormalBuffer: false},
 	// opencode's editor owns Ctrl-C, so its TUI leaves on Ctrl-D.
 	"opencode":  {QuitKey: []byte{ctrlD}, Network: "", KeepsNormalBuffer: false},
 	"opencode2": {QuitKey: []byte{ctrlD}, Network: "", KeepsNormalBuffer: false},

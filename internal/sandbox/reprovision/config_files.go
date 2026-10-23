@@ -449,7 +449,9 @@ func configFileFamilyPaths(mergedPath string, names []string) []string {
 // ConfigMerger, so a non-merger agent produces no merged config.
 func buildMergedConfig(a agent.Agent, vmHome string, src ConfigSource) (string, []byte, []string, bool, error) {
 	if cm, ok := agent.AsConfigMerger(a); ok {
+		target := cm.VMConfigPath(vmHome)
 		merged, sources, hasSnippets, err := config.BuildMerged(
+			target,
 			cm.SnippetPattern(),
 			src.UserDir,
 			src.ProjectDir,
@@ -457,7 +459,7 @@ func buildMergedConfig(a agent.Agent, vmHome string, src ConfigSource) (string, 
 		if err != nil {
 			return "", nil, nil, false, fmt.Errorf("merge agent config: %w", err)
 		}
-		return cm.VMConfigPath(vmHome), merged, sources, hasSnippets, nil
+		return target, merged, sources, hasSnippets, nil
 	}
 	return "", nil, nil, false, nil
 }

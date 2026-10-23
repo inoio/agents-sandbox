@@ -133,20 +133,40 @@ func parseConfigFile(name string, data []byte, cfg *map[string]any) error {
 }
 
 // BuildMerged merges all snippet files matching pattern under userDir and
-// projectDir into a single config document (JSON output). It returns the
-// marshaled bytes, the ordered list of snippet files that were merged, a
-// boolean reporting whether any snippet existed, and an error. When no snippet
-// exists the returned bytes and source list are nil and the boolean is false.
-func BuildMerged(pattern string, userDir, projectDir string) ([]byte, []string, bool, error) {
+// projectDir into a single config document serialized in the format targetPath
+// implies: YAML for a .yaml/.yml config path, JSON otherwise. Agents whose
+// config file is YAML (hermes) must not be handed a JSON document with a .yaml
+// name, since the file is both the agent's input and something users edit. It
+// returns the marshaled bytes, the ordered list of snippet files that were
+// merged, a boolean reporting whether any snippet existed, and an error. When no
+// snippet exists the returned bytes and source list are nil and the boolean is
+// false.
+func BuildMerged(targetPath, pattern, userDir, projectDir string) ([]byte, []string, bool, error) {
 	merged, sources := scanSnippets([]string{userDir, projectDir}, pattern)
 	if len(sources) == 0 {
 		return nil, nil, false, nil
 	}
-	data, err := json.MarshalIndent(merged, "", "  ")
+	data, err := marshalConfig(targetPath, merged)
 	if err != nil {
 		return nil, nil, false, err
 	}
-	return append(data, '\n'), sources, true, nil
+	return data, sources, true, nil
+}
+
+// marshalConfig serializes a merged config the way the agent at targetPath reads
+// it: YAML for a YAML config file, indented JSON (which JSON5 and JSONC readers
+// both accept) otherwise.
+func marshalConfig(targetPath string, merged map[string]any) ([]byte, error) {
+	switch strings.ToLower(filepath.Ext(targetPath)) {
+	case ".yaml", ".yml":
+		return yaml.Marshal(merged)
+	default:
+		data, err := json.MarshalIndent(merged, "", "  ")
+		if err != nil {
+			return nil, err
+		}
+		return append(data, '\n'), nil
+	}
 }
 
 // MirrorEntry is one verbatim file the config-dir mirror provisions: its host
