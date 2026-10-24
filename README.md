@@ -71,10 +71,9 @@ Use agents-sandbox when you already use a supported coding agent and want:
 ## Quick start
 
 Install agents-sandbox using the [Get started guide](https://inoio.github.io/agents-sandbox/get-started.html), then
-check the host prerequisites and start the configured agent:
+start the configured agent:
 
 ```console
-agents-sandbox doctor
 agents-sandbox
 ```
 
@@ -108,7 +107,7 @@ There's dedicated documentation per topic. You can also browse the documentation
 |-----------------------------------------------|------------------------------------------------------------------------------------------|
 | [Why?](https://inoio.github.io/agents-sandbox/introduction.html)                 | Motivation, isolation boundary, shared data, and limitations.                            |
 | [How it works](https://inoio.github.io/agents-sandbox/how-it-works.html)         | Architecture: host to VM, `/workspace`, home volume, secrets, and multi-client attach.   |
-| [Get started](https://inoio.github.io/agents-sandbox/get-started.html)         | Installation, prerequisites, and first run.                                              |
+| [Get started](https://inoio.github.io/agents-sandbox/get-started.html)         | Installation, system requirements, and first run.                                        |
 | [Switch from your existing agent](https://inoio.github.io/agents-sandbox/switch.html) | Use agents-sandbox with your existing agent config and credentials (host-config drop-in). |
 | [Manage config in the sandbox](https://inoio.github.io/agents-sandbox/manage-config.html) | Declarative, self-contained config: secrets, provisioning, agent snippets.            |
 | [Commands](https://inoio.github.io/agents-sandbox/commands.html)                 | Complete CLI reference                                                                   |

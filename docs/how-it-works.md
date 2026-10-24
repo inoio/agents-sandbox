@@ -1,6 +1,6 @@
 ---
 title: Architecture & Concepts
-description: "Architecture of agents-sandbox: image build, home volumes, microsandbox VM creation and how agents attach."
+description: "Architecture of agents-sandbox: image build, home volumes, the microsandbox runtime, and how agents attach."
 layout: default
 parent: Concepts
 nav_order: 20

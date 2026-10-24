@@ -92,6 +92,9 @@
 - `guided-onboarding.md`
   - Description: Design contract for first-run onboarding: credential kinds (static vs login; never placeholder-migrate refreshable OAuth), host determination, derived onboarding state, always-explicit `Guide` outcomes, the tiered setup wizard, and `config harden`.
   - Read If: Working on config migration, first-run guidance, credential/auth handling, network egress derivation, the setup wizard, or `config harden`.
+- `first-run-guidance.md`
+  - Description: Contract for guiding a fresh install to a working sandbox: the Get started flow keeps system requirements and the `doctor` verification in Installation and `doctor` off the running pages, and a failing prerequisite check prints a copy-pasteable, platform-specific fix plus a link to its matching troubleshooting anchor.
+  - Read If: Changing the Get started docs, `installation.md`, `tutorial.md`, or the README quick start; changing `internal/sandbox/doctor` output, the prerequisite checks, or the `troubleshooting.html` anchors doctor links to.
 - `termio-ui-backends.md`
   - Description: Contract for termio's UI backends: huh confined to modal prompts (spinners/tables/log output stay hand-rolled), the `termio.UI` mockability seam, the prompt switch, and the accessibility/non-TTY invariant.
   - Read If: Changing interactive prompts or spinners, scoping a UI library (huh, bubbletea, ...), or reasoning about mockability, non-TTY/accessibility, or concurrent-output behavior.
@@ -167,12 +170,6 @@
 - `2026-10-22-artifact-naming.md`
   - Description: 7-task TDD plan for `specs/artifact-naming.md`: the prefix-free and legacy name/reference constructors, the dual-scheme parsers, project VMs, task sandboxes, home volumes, the `ImageInfo` Docker-tag/msb-ref split, image discovery/reference scans, and the legacy foreign scan.
   - Read If: Implementing the prefix-free artifact naming change.
-- `2026-10-22-docs-styleguide-and-pilot.md`
-  - Description: Phased plan (3 tasks) for documentation quality: write the contributor-facing `STYLEGUIDE.md` (voice, one-kind-per-page, the three ordering rules — explain-before-you-name, lead-with-applicability, order-by-universality — plus terminology, formatting, page template, review checklist) and rewrite `docs/sandboxes.md` as the reference implementation. Records the "agent" (not "harness") terminology decision, the no-prior-knowledge audience, and the deferred rollout (nav regroup, remaining page rewrites, tutorial, correctness fixes, dedup, terminology lint).
-  - Read If: Writing or reviewing agents-sandbox user documentation, applying or changing the documentation styleguide, or resuming the docs-quality rollout.
-- `2026-10-22-docs-rollout.md`
-  - Description: Executed plan for the documentation-styleguide rollout (`docs/rollout`): navigation regroup into six user-need sections, the seven page rewrites, styleguide passes over the rest, prune/home-volume de-duplication, a first-run tutorial, and the `ci/check-docs.sh` terminology lint. Records the nav design decisions (Upgrading to Guides, Introduction to Concepts, Worktree Sessions to Recipes) and the execution deviations.
-  - Read If: Reviewing or resuming the documentation-quality rollout, or changing the docs navigation, the terminology lint, or the tutorial.
 - `2026-10-10-buildkit-builder-vm.md`
   - Description: TDD plan for `specs/buildkit-builder-vm.md` (#15): the `internal/sandbox/builder` package, BuildKit deps, rewiring `image`, VM creation, cache pruning, and removing `internal/sandbox/docker` + `doctor.CheckDocker`. Not yet implemented.
   - Read If: Resuming the (unimplemented) BuildKit builder plan.

@@ -1,6 +1,6 @@
 ---
 title: Configuration
-description: "Configure agents-sandbox through config files and environment variables: secrets, networking, host mounts, home provisioning and agents."
+description: "Configure agents-sandbox through config files and environment variables: secrets, networking, mounts, agents, notifications, and self-upgrade."
 layout: default
 nav_order: 40
 has_children: true

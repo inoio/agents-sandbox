@@ -1,6 +1,6 @@
 ---
 title: Commands
-description: "Reference of all agents-sandbox subcommands, aliases and flags."
+description: "Reference for every agents-sandbox subcommand, its aliases, its flags, and the global options shared by all commands."
 layout: default
 parent: Reference
 nav_order: 10
@@ -599,10 +599,9 @@ agents-sandbox tree
 
 ### doctor
 
-Check prerequisites (Docker, KVM, Git) and ensure the private microsandbox
-runtime is provisioned, then exit. The runtime is the one pinned by the linked
-SDK and lives under agents-sandbox's own data directory, so there is no
-`msb`-version comparison or recovery prompt.
+Check the host prerequisites — Docker and the platform's VM support (KVM on Linux, Apple Silicon on macOS) — and
+ensure the private microsandbox runtime is provisioned, then exit. Run automatically before `run` and `shell`; a
+failing check prints the command that fixes it and links to the matching troubleshooting section.
 
 ```console
 agents-sandbox doctor

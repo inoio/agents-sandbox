@@ -18,6 +18,15 @@ var (
 	collectChecksFunc = collectChecks
 )
 
+// docsBaseURL is the published documentation site that doctor links failures to.
+const docsBaseURL = "https://inoio.github.io/agents-sandbox"
+
+// troubleshootingURL returns the troubleshooting-page section for a resolved
+// problem, so a failing check ends with where to read the fix.
+func troubleshootingURL(anchor string) string {
+	return docsBaseURL + "/troubleshooting.html#" + anchor
+}
+
 // CheckDocker reports whether the docker binary is on PATH.
 func CheckDocker(ctx context.Context) error {
 	return checkDockerFunc(ctx)
@@ -69,9 +78,8 @@ func realCheckDocker(ctx context.Context) error {
 	_, err := docker.Get().Ping(ctx, client.PingOptions{})
 	if err != nil {
 		return fmt.Errorf(
-			"docker API unreachable: %w; ensure Docker Desktop or colima is running, "+
-				"then check DOCKER_HOST and the active docker context (docker context ls)",
-			err,
+			"docker API unreachable: %w\n%s",
+			err, dockerRemedyHint(),
 		)
 	}
 	return nil
@@ -83,7 +91,10 @@ func realCheckDocker(ctx context.Context) error {
 // missing binary is not a user defect.
 func checkMsb(ctx context.Context) ([]string, error) {
 	if err := ensureMsbInstalled(ctx); err != nil {
-		return nil, fmt.Errorf("msb runtime setup failed: %w", err)
+		return nil, fmt.Errorf(
+			"msb runtime setup failed: %w\n  Docs: %s",
+			err, troubleshootingURL("microsandbox-runtime"),
+		)
 	}
 	home := runtime.PrivateHome()
 	return []string{fmt.Sprintf("msb runtime installed at %s", filepath.Join(home, "bin"))}, nil

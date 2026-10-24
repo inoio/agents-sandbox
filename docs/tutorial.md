@@ -1,9 +1,9 @@
 ---
 title: Your first sandbox
-description: "Take an agent from install to a running sandbox: install agents-sandbox, check your system, run an agent, and see what appears."
+description: "Take an agent from install to a running sandbox: install agents-sandbox, run an agent, and see what appears."
 layout: default
 parent: Get started
-nav_order: 50
+nav_order: 25
 ---
 
 # Your first sandbox
@@ -13,18 +13,6 @@ By the end of this page you have a coding agent running inside a sandbox, with y
 ## Install agents-sandbox
 
 Install it with Homebrew, or download a release binary. [Installation]({% link install/installation.md %}) covers both.
-
-## Check your system
-
-Run the doctor:
-
-```console
-agents-sandbox doctor
-```
-
-It checks each host prerequisite — Docker, the microsandbox runtime, and KVM on Linux — and prints a line per check. A
-clean run exits without errors. If a check fails, see [Prerequisites]({% link install/prerequisites.md %}) and
-[Troubleshooting]({% link troubleshooting.md %}).
 
 ## Run an agent
 
@@ -44,7 +32,7 @@ The agent's own interface opens inside the sandbox. The project is mounted at `/
 as your host checkout, so edits the agent makes are visible on the host.
 
 Detach with the agent's own exit key (for example `Ctrl-D`). The sandbox keeps running and stops on its own when idle;
-to stop it now, run `agents-sandbox stop`, passing the same `--agent` value you started with (for example
+to stop it instantly, run `agents-sandbox stop`, passing the same `--agent` value you started with (for example
 `agents-sandbox stop --agent pi`).
 
 Next, make the sandbox the home for your real setup:

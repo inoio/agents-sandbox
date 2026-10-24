@@ -7,13 +7,17 @@ nav_order: 0
 
 # agents-sandbox
 
-agents-sandbox runs coding agents — [opencode](https://opencode.ai), [opencode2](https://opencode.ai), [pi](https://pi.dev), and [Claude Code](https://claude.com/product/claude-code) — inside a dedicated [microsandbox](https://microsandbox.dev/) VM for each project, instead of directly on your machine, with your project mounted at `/workspace`.
+agents-sandbox runs coding agents — [opencode](https://opencode.ai), [opencode2](https://opencode.ai), [pi](https://pi.dev), and [Claude Code](https://claude.com/product/claude-code) — inside a dedicated [microsandbox](https://microsandbox.dev/) [Virtual Machine](https://en.wikipedia.org/wiki/Virtual_machine) for each project, instead of directly on your machine, with your project mounted at `/workspace`.
 
-It provisions its own microsandbox runtime and allows keeping secrets on the host: credentials supplied through `env.secret` reach the VM only as placeholders that the proxy substitutes for the hosts you allow.
+## Isolation features
+
+* Best same-machine isolation boundary: Run your agent inside a virtual machine, with fully separate OS/linux kernel.
+* Keep secrets on the host: Supply credentials through secret files (in env file or yaml format). They reach the sandbox VM only as placeholders that agents-sandbox substitutes on-host for the hosts you allow.
+* Manage the agent's network access: Set access profiles, fine-tune down to host level with allow-/denylists.
 
 ## Comparison
 
-The table compares local execution models, not hosted services. Bubblewrap/Seatbelt and Docker are policy-dependent building
+This comparison covers local execution models only, not hosted services. Bubblewrap/Seatbelt and Docker are policy-dependent building
 blocks, so the entries summarize their usual mechanisms rather than assigning a security score.
 
 | Category | Direct host execution | Bubblewrap / Seatbelt                                       | Docker containers                                           | Docker Sandboxes                                                   | agents-sandbox                                                  |
@@ -30,7 +34,7 @@ Sources: [bubblewrap](https://github.com/containers/bubblewrap#sandbox-security)
 
 Legend for the first four rows: ✅ = stronger isolation or host-side handling; ⚠️ = policy-dependent or deliberately shared; ❌ = no isolation in that category. The platform and access rows are descriptive.
 
-## Start here
+## How to start using agents-sandbox
 
 - If you already have a supported agent configured, start with **[Switch from your existing agent]({% link switch.md %})**.
 - If you want reproducible configuration and explicit credential handling, start with **[Manage config in the sandbox]({% link manage-config.md %})**.

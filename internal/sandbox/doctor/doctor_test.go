@@ -34,6 +34,9 @@ func TestCheckMsbEnsureInstalledErrorSurfacesErrorWithoutInstallHint(t *testing.
 		strings.Contains(err.Error(), "github.com/microsandbox") {
 		t.Errorf("expected no 'install msb' instruction, got %q", err.Error())
 	}
+	if !strings.Contains(err.Error(), "troubleshooting.html#microsandbox-runtime") {
+		t.Errorf("expected the msb failure to link its troubleshooting section, got %q", err.Error())
+	}
 }
 
 func TestCheckMsbReportsPrivateHomeBinPathWithoutPathHints(t *testing.T) {
@@ -140,6 +143,12 @@ func TestRealCheckDockerPingUnreachable(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "boom") {
 		t.Errorf("expected error to wrap the underlying ping failure, got %q", err.Error())
+	}
+	if !strings.Contains(err.Error(), "docker info") {
+		t.Errorf("expected a copy-pasteable verification command, got %q", err.Error())
+	}
+	if !strings.Contains(err.Error(), "troubleshooting.html#docker-not-running") {
+		t.Errorf("expected the docker failure to link its troubleshooting section, got %q", err.Error())
 	}
 }
 
