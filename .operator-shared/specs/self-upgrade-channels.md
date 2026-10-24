@@ -1,6 +1,6 @@
 ---
 description: Design for extending the launcher's self-upgrade with release channels - an `upgrade.channel` setting (`stable` default, `canary` for opted-in testers) where canary means "the newest release eligible for that channel" (a final release or a `canary`-identified prerelease), a tag-addressed download replacing the `/latest` URL, no downgrade path (leaving canary is "get the next release", with a documented manual reinstall as the immediate escape), an undocumented dev-only lever that lifts the `dev`-build short-circuit so a locally built binary can drive the real check/install, and the in-scope release-CI change that must classify a `v*-canary.N` tag as a GitHub prerelease and skip the Homebrew bump.
-read_if: Implementing or reviewing self-upgrade release channels (`upgrade.channel`), canary resolution and eligibility, the tag-pinned release download, the undocumented dev-build upgrade lever, or the release CI's prerelease classification.
+read_if: Implementing or reviewing self-upgrade release channels (`upgrade.channel`), canary resolution and eligibility, the tag-pinned release download, the undocumented dev-build upgrade lever, or the release CI's prerelease classification and the docs workflow's prerelease guard (`.github/workflows/pages.yml`).
 ---
 
 # Self-upgrade release channels
@@ -172,6 +172,13 @@ The `release` job already resolves `BARE_VERSION=${GITHUB_REF_NAME#v}` and bakes
 the canary report its own version and therefore be comparable — no change needed there. The release skill's step-8
 `gh release edit … --prerelease` becomes redundant for prereleases but stays harmless.
 
+Docs publishing falls out of the same classification. `.github/workflows/pages.yml` triggers on `release: published`, on
+`v*` tag pushes, and on manual dispatch, so a canary tag would otherwise build and deploy the Pages site, stamping the
+canary version into the footer. Its `classify` job resolves the tag (release tag, dispatch input, tag ref, else the
+newest final release tag) and sets a `prerelease` output by the same semver-prerelease-part rule; the `build`/`deploy`
+job runs only when that output is not `true`. The guard is unconditional — a manually dispatched prerelease tag is
+blocked too — because the Pages site is the stable-facing surface.
+
 Two constraints fall out of the design and belong to the publishing side:
 
 - Canary numbers must increase monotonically per version, and a published canary tag must never be re-pushed. The check
@@ -196,6 +203,8 @@ Two constraints fall out of the design and belong to the publishing side:
   for it exists.
 - **The published Release is a prerelease.** A `v*-canary.N` tag must produce a GitHub prerelease and must not bump the
   Homebrew formula, because `/releases/latest` is the stable channel's only source of truth.
+- **The docs site is published only from a final release.** A prerelease tag never builds or deploys Pages, under any
+  trigger (including manual dispatch), because the site is the stable-facing surface.
 - **The installed artifact is the resolved version.** The download is addressed by the tag resolution chose, not by
   `/latest`.
 - **The channel is configuration, not state.** Nothing about the channel is persisted; `LauncherState` keeps

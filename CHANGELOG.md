@@ -340,6 +340,8 @@ command reports the bare version (e.g. `0.1.0`).
 - Release CI: a `v*-canary.N` tag is now published as a GitHub prerelease and no longer bumps the Homebrew formula, so a
   canary is never served by `/releases/latest` to stable installs. The self-upgrade download is addressed by the
   resolved release tag instead of `/latest`, so a prerelease can be installed.
+- Release CI: the docs site is no longer built or deployed from a prerelease. A `v*-canary.N` tag no longer triggers a
+  Pages build, so a canary cannot overwrite the stable docs and stamp its version into the footer.
 
 ## [0.5.0] - 2026-10-03
 
