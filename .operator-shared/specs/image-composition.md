@@ -198,10 +198,14 @@ The old build-time `daemon.json` overwrite is removed; the build-time invariant 
   trailing whitespace is trimmed (CRLF is handled), and blank lines, comments, continuation lines (honoring a
   leading `# escape=` directive), and heredoc bodies are skipped. Only `RUN`/`COPY`/`ADD`/`ONBUILD` may declare a
   heredoc; the operator is recognised per whitespace/quoted token with BuildKit's `^(\d*)<<(-?)\s*([^<]*)$`, so
-  `$((1<<2))`, a quoted operator (`"<<EOF"`), and a glued operator (`cat<<EOF`) are not heredocs. Continued lines are
-  joined with the continuation escape dropped, and a delimiter word is unquoted the way BuildKit's shell lexer does — a
-  quote inside a differently quoted run stays literal (`<<'E"OF'` names `E"OF`) — so neither a delimiter glued to a
-  continuation escape nor such inner quoting hides a later stage.
+  `$((1<<2))`, a quoted operator (`"<<EOF"`), and a glued operator (`cat<<EOF`) are not heredocs. Words are split the
+  way BuildKit's heredoc scan does, with quotes and escapes kept raw and a backslash as the escape token regardless of a
+  `# escape=` directive: inside a double-quoted run a backslash escapes only `"`, `$`, or `\`, so an escaped quote does
+  not close the run and cannot expose a phantom delimiter (`"a \" <<EOF"` declares nothing), while outside quotes an
+  escaped quote stays literal. An unterminated quote yields no heredocs, mirroring BuildKit's lexer error that its
+  heredoc caller ignores. Continued lines are joined with the continuation escape dropped, and a delimiter word is
+  unquoted the way BuildKit's shell lexer does — a quote inside a differently quoted run stays literal (`<<'E"OF'`
+  names `E"OF`) — so neither a delimiter glued to a continuation escape nor such inner quoting hides a later stage.
 
 ## Integration-test cache
 
