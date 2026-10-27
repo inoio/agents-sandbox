@@ -134,37 +134,89 @@ func heredocBodyEnds(line string, d heredocDelimiter) bool {
 	return line == d.name
 }
 
-// instructionWords splits an instruction into whitespace-separated words,
-// keeping quotes and any spaces inside a quoted run, so "<<'PY DOC'" stays one
-// word.
+// instructionWords splits an instruction into whitespace-separated words the way
+// BuildKit's heredoc scan does: quotes and escapes are kept raw, so a quoted run
+// (including any spaces) stays one word and an escaped quote does not close it.
+// The escape token is a backslash, matching BuildKit, whose heredoc word split
+// always uses one regardless of a "# escape=" directive.
 func instructionWords(text string) []string {
 	var words []string
 	var current strings.Builder
-	var quote byte
-	for i := range len(text) {
-		c := text[i]
-		switch {
-		case quote != 0:
-			current.WriteByte(c)
-			if c == quote {
-				quote = 0
-			}
-		case c == '\'' || c == '"':
-			quote = c
-			current.WriteByte(c)
-		case c == ' ' || c == '\t' || c == '\n' || c == '\r':
+	for i := 0; i < len(text); {
+		switch text[i] {
+		case ' ', '\t', '\n', '\r':
 			if current.Len() > 0 {
 				words = append(words, current.String())
 				current.Reset()
 			}
+			i++
+		case '\'':
+			run, ok := scanSingleQuoted(text[i:])
+			if !ok {
+				return nil // BuildKit's lexer errors here; its caller then finds no heredoc
+			}
+			current.WriteString(text[i : i+run])
+			i += run
+		case '"':
+			run, ok := scanDoubleQuoted(text[i:])
+			if !ok {
+				return nil
+			}
+			current.WriteString(text[i : i+run])
+			i += run
+		case '\\':
+			// Outside quotes the escape token keeps the next byte raw, so an
+			// escaped quote does not start a quoted run.
+			current.WriteByte('\\')
+			i++
+			if i < len(text) {
+				current.WriteByte(text[i])
+				i++
+			}
 		default:
-			current.WriteByte(c)
+			current.WriteByte(text[i])
+			i++
 		}
 	}
 	if current.Len() > 0 {
 		words = append(words, current.String())
 	}
 	return words
+}
+
+// scanSingleQuoted returns the length of the single-quoted run starting at
+// text[0] ("'"), through its closing quote. A single-quoted shell string has no
+// escapes, so the closing quote is the next one; when there is none, ok is false.
+func scanSingleQuoted(text string) (int, bool) {
+	for i := 1; i < len(text); i++ {
+		if text[i] == '\'' {
+			return i + 1, true
+		}
+	}
+	return 0, false
+}
+
+// scanDoubleQuoted returns the length of the double-quoted run starting at
+// text[0] (`"`), through its closing quote; when there is none, ok is false.
+// Inside the run a backslash escapes only a double quote, a dollar sign, or
+// another backslash, so an escaped quote does not close the run — the same rule
+// as BuildKit's shell lexer.
+func scanDoubleQuoted(text string) (int, bool) {
+	for i := 1; i < len(text); {
+		switch text[i] {
+		case '"':
+			return i + 1, true
+		case '\\':
+			if i+1 < len(text) && isDoublyEscapeable(text[i+1]) {
+				i += 2
+			} else {
+				i++
+			}
+		default:
+			i++
+		}
+	}
+	return 0, false
 }
 
 // escapeToken returns the escape and line-continuation token for the Dockerfile.

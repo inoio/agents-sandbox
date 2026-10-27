@@ -104,6 +104,19 @@ func TestInstructionLineIndicesLiteralQuoteInDelimiter(t *testing.T) {
 	}
 }
 
+func TestInstructionLineIndicesEscapedQuoteDoesNotHideStages(t *testing.T) {
+	// An escaped quote inside a double-quoted RUN argument must not open a
+	// phantom heredoc that swallows the later stage (#376 review).
+	got := instructionIndexes(t,
+		"FROM debian:trixie-slim\n"+
+			"RUN echo \"a \\\" <<EOF\"\n"+
+			"FROM alpine\n")
+	want := []int{0, 1, 2}
+	if !slices.Equal(got, want) {
+		t.Fatalf("instruction starts = %v, want %v", got, want)
+	}
+}
+
 func TestInstructionLineIndicesEscapeDirectiveSwitchesContinuation(t *testing.T) {
 	got := instructionIndexes(t,
 		"# escape=`\n"+
@@ -196,13 +209,24 @@ func TestHeredocDelimiters(t *testing.T) {
 		{"RUN cat <<E\\OF", []heredocDelimiter{{name: "EOF"}}},     // an unquoted escape is consumed
 		{"RUN cat <<\"A\\\"B\"", []heredocDelimiter{{name: `A"B`}}},
 		{"RUN cat <<\"A\\$B\"", []heredocDelimiter{{name: "A$B"}}},
-		{"RUN cat <<EOF\\", []heredocDelimiter{{name: "EOF"}}}, // a trailing escape is dropped
+		{"RUN cat <<\"A\\B\"", []heredocDelimiter{{name: `A\B`}}}, // a backslash before any other byte is literal
+		{"RUN cat <<EOF\\", []heredocDelimiter{{name: "EOF"}}},    // a trailing escape is dropped
 		{"RUN echo $((1<<2))", nil},
 		{"RUN echo hi", nil},
-		{"RUN cat<<EOF", nil},       // matches BuildKit: the operator must start the word
-		{"RUN echo \"<<EOF\"", nil}, // a quoted operator is not a heredoc
-		{"RUN echo << bar", nil},    // a spaced operator has an empty delimiter name
-		{"FROM <<EOF", nil},         // only RUN/COPY/ADD/ONBUILD may contain a heredoc
+		{
+			"RUN cat<<EOF",
+			nil,
+		}, // matches BuildKit: the operator must start the word
+		{"RUN echo \"<<EOF\"", nil},                                  // a quoted operator is not a heredoc
+		{"RUN echo \"a \\\" <<EOF\"", nil},                           // an escaped quote keeps the run open; no heredoc
+		{"RUN echo a\\\"b <<EOF", []heredocDelimiter{{name: "EOF"}}}, // outside quotes the operator is seen
+		{
+			"RUN python3 - <<'PY",
+			nil,
+		}, // an unterminated quote yields no heredoc, as BuildKit's lexer errors
+		{"RUN echo \"a", nil},    // likewise for a double quote
+		{"RUN echo << bar", nil}, // a spaced operator has an empty delimiter name
+		{"FROM <<EOF", nil},      // only RUN/COPY/ADD/ONBUILD may contain a heredoc
 	}
 	for _, tc := range cases {
 		got := heredocDelimiters(tc.line)
