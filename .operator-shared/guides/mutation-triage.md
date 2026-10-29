@@ -1,5 +1,5 @@
 ---
-description: How to close gomutants survivors in this repo — the recurring mutant types, the assertion that kills each, the equivalent/near-equivalent traps (including false "returns nil on error" equivalence claims, unparameterized clamp bounds, yaml.v3's partial decode, map-iteration randomization, seam call-counting, a guard whose error is re-derived downstream, and a blocking-flock seam), and the record-with-a-reason fallback; grown across the full sweeps of internal/agent, internal/filewalk, internal/sandbox/vm, internal/termio, the turn-2 packages, and the #333 adoption-lock PR sweep.
+description: How to close gomutants survivors in this repo — the recurring mutant types, the assertion that kills each, the equivalent/near-equivalent traps (including false "returns nil on error" equivalence claims, unparameterized clamp bounds, yaml.v3's partial decode, map-iteration randomization, seam call-counting, a guard whose error is re-derived downstream, a blocking-flock seam, a negative "drop" sentinel, and a wall-clock budget constant), and the record-with-a-reason fallback.
 read_if: Triaging LIVED mutants from a `make mutation` sweep, or deciding whether to strengthen a test or record a `// gomutants:disable` reason.
 ---
 
@@ -237,6 +237,15 @@ This is the field guide for doing it. It was distilled from the first full sweep
   second open file description and calls the seam from a goroutine with `blocking=true` sees an immediate contention
   error under the mutant and a block-then-success under the original. The "must not have returned" window costs
   nothing and cannot be flaky: the correct code cannot return while the lock is held.
+- **A "drop the rune" sentinel is equivalent under any negative value — record it.** `strings.Map`'s contract drops the
+  rune for *any* negative mapping result, so `markerText`'s `return -1` mutated to `return -2` changes nothing; a
+  `// gomutants:disable-next-line INTEGER_INCREMENT reason="strings.Map drops the rune for any negative mapping"` closes
+  it. Confirm the stdlib's documented tolerance before assuming a sentinel's exact value is load-bearing.
+- **A wall-clock budget constant is observable as an exact value; pin it with a literal test.** `heavyweightReadyTimeout`'s
+  `120` mutated to `119`/`121` and its `*` to `/` (integer constant division makes the Duration `0`, silently disabling
+  the ceiling) all survived a test that compared the spec field *to the constant itself*; a test asserting
+  `heavyweightReadyTimeout != 120*time.Second` — a literal expected value in the test file, as for
+  `autoPruneDefaultThreshold` — kills the whole family.
 
 ## Operational
 

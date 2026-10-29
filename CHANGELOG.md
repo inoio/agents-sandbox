@@ -29,6 +29,12 @@ command reports the bare version (e.g. `0.1.0`).
   `dev` user (`chown -R dev:dev` after the tool tree is copied in, before the image switches to `USER dev`). Only
   `hermes` declares paths: it writes its dependency ledger and bytecode markers into its own installation at runtime and
   git rejects a checkout owned by another user.
+- Runner image: an `ImageSpec.RuntimeLibs` field lets an agent declare the shared libraries its provisioned runtime links.
+  The runner resolves each with `ldconfig` in the final stage (after your Dockerfile body, glibc-only), locating `ldconfig`
+  from `PATH` and the standard sbin directories so a base that narrows `PATH` still verifies it, and fails the build naming
+  the library, so a custom base that lacks one fails at build time instead of when the agent launches. Only `hermes`
+  declares one — `libatomic.so.1`, linked by its provisioned Node.js on glibc — and the embedded managed base now installs
+  `libatomic1`, which the discarded agent stage could not supply.
 - CI: `main` merges through a **merge queue**. A queued PR is built on top of the current `main` plus the pull requests
   ahead of it, and the required checks — `lint`, `test`, `race`, `deadcode` — run on that combined tree before it
   merges, so two independently-green PRs can no longer combine into a broken `main`. `race` and `deadcode` are now

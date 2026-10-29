@@ -27,6 +27,7 @@ func (piProfile) ImageSpec() ImageSpec {
 		// node at install and runtime; it is the only agent that does.
 		RequiresNode:   true,
 		OwnedToolPaths: nil,
+		RuntimeLibs:    nil,
 	}
 }
 

@@ -67,6 +67,9 @@ func TestHermesImageSpec(t *testing.T) {
 	if spec.RequiresNode {
 		t.Error("RequiresNode = true, want false (hermes provisions its own node for the TUI build)")
 	}
+	if got, want := spec.RuntimeLibs, []string{"libatomic.so.1"}; !slices.Equal(got, want) {
+		t.Errorf("RuntimeLibs = %v, want %v", got, want)
+	}
 }
 
 func TestHermesAttachCommand(t *testing.T) {

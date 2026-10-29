@@ -21,6 +21,15 @@ type ImageSpec struct {
 	// it switches to `USER dev`. Agents that never write into their
 	// installation leave it nil.
 	OwnedToolPaths []string
+	// RuntimeLibs are shared libraries the agent's provisioned runtime links at
+	// run time. The runner copies only the agent's tool tree into the project's
+	// base, so a system library the runtime links is absent unless the base
+	// provides it (Hermes's managed Node.js links libatomic.so.1 on glibc). The
+	// renderer verifies each in the final stage and fails the build naming it, so
+	// a custom base that lacks one fails at build time instead of when the agent
+	// launches. The check is glibc-only; musl bases are skipped. Agents that need
+	// none leave it nil.
+	RuntimeLibs []string
 }
 
 // versionArgFor derives the Docker build ARG name for an agent from its name,

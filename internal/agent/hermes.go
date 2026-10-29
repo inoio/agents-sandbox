@@ -82,6 +82,13 @@ func (hermesProfile) ImageSpec() ImageSpec {
 		// node build its TUI and web products need into its own tool store.
 		RequiresNode:   false,
 		OwnedToolPaths: []string{hermesCheckout, hermesBuildHome},
+		// The managed Node.js Hermes provisions links libatomic.so.1 on glibc,
+		// and the runner copies only the tool tree from the agent stage (which
+		// installed libatomic1 for the installer's own package manager), so the
+		// runner's base must carry the library too. The managed base installs
+		// libatomic1; a custom base is verified at build time and fails naming
+		// the library if absent.
+		RuntimeLibs: []string{"libatomic.so.1"},
 	}
 }
 

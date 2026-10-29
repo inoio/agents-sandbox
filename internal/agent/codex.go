@@ -33,6 +33,7 @@ func (codexProfile) ImageSpec() ImageSpec {
 			`ln -s ../codex/bin/codex /opt/agents-sandbox/bin/codex`,
 		RequiresNode:   false,
 		OwnedToolPaths: nil,
+		RuntimeLibs:    nil,
 	}
 }
 

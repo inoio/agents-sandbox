@@ -208,6 +208,16 @@ in the same final stage. Today that is `curl`: the host opener replays a browser
 (#273). Because the opener is on by default, this check runs for every agent, including the daemonless ones, so a custom
 base without `curl` fails the image build naming the tool instead of failing at login time.
 
+The agent's **runtime shared libraries** are declared per agent (`ImageSpec.RuntimeLibs`) and rendered into the same final
+stage after the user body. They exist because the agent's runtime is installed in the agent stage on the tool base while
+the runner copies only the tool tree into the project's base, so a system library the runtime links is absent unless the
+base provides it: `hermes` declares `libatomic.so.1`, which its provisioned Node.js links on glibc and which the embedded
+managed block's `libatomic1` supplies. Unlike the tool check, the library check is glibc-only (the requirement is a glibc
+one), so a musl base is skipped rather than failed, and it resolves the library through `ldconfig` — located from `PATH`
+and then the standard sbin directories, so a base that narrows `PATH` to `/usr/bin` still verifies an installed library
+rather than reporting it missing — so a base that installs it in the body is accepted. It fails the build naming the
+library, so a custom base that runs `hermes` must provide it — the same custom-base contract as the node pin above.
+
 ## Naming: `docker` (renamed from `dind`)
 
 The capability installs and runs the Docker engine inside the microsandbox VM, which is not literal Docker-in-Docker, so
