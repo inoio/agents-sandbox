@@ -262,13 +262,17 @@ func TestRenderDockerfileMissingRuntimeLibFailsBuild(t *testing.T) {
 }
 
 // TestRenderDockerfileNodeAgentNodeRuns is the regression guard for #132: a
-// node-dependent agent installed onto the managed base must leave a working
-// node/npm. The managed base does not install libatomic1, so a node tarball with
-// a hard DT_NEEDED on libatomic.so.1 builds (for a native agent like opencode)
-// but cannot start, and the npm agent's install RUN then fails the whole build.
-// The pinned node must therefore be a release without that dependency; here we
-// build pi (the only agent that needs node, an npm-installed node bundle) on the
-// managed base and run node/npm in the resulting image.
+// node-dependent agent must leave a working node/npm. A node tarball with a hard
+// DT_NEEDED on libatomic.so.1 builds (for a native agent like opencode) but cannot
+// start, and the npm agent's install RUN then fails the whole build. The pinned
+// node must therefore be a release without that dependency; here we build pi (the
+// only agent that needs node, an npm-installed node bundle) and run node/npm in
+// the resulting image.
+//
+// The managed base carries libatomic1 for hermes, so it no longer exposes that
+// dependency. The libatomic-free custom base is what keeps the guard meaningful:
+// it follows the documented contract that a custom base needs no extra library to
+// run the tool-installed node, and the test first proves the library is absent.
 //
 // TestRenderDockerfileBuilds only builds opencode, a native Bun binary that does
 // not exercise node at all, which is why it did not catch #132.
@@ -283,16 +287,48 @@ func TestRenderDockerfileNodeAgentNodeRuns(t *testing.T) {
 	}
 	version := integrationAgentVersion(t, a)
 
-	tag := "agents-sandbox/it-npm-agent-node"
-	t.Cleanup(func() { removeTestImage(tag) })
+	bases := []struct {
+		name           string
+		project        []byte
+		lacksLibatomic bool
+	}{
+		{"managed", nil, false},
+		{"custom-libatomic-free", []byte(
+			"FROM debian:trixie-slim\n" +
+				"RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl && " +
+				"rm -rf /var/lib/apt/lists/*\n"), true},
+	}
+	for _, base := range bases {
+		t.Run(base.name, func(t *testing.T) {
+			tag := "agents-sandbox/it-npm-agent-node-" + base.name
+			t.Cleanup(func() { removeTestImage(tag) })
 
-	buildDockerfileTag(t, a, renderBytes(t, a, nil, dockerOff), version, false, tag)
+			buildDockerfileTag(t, a, renderBytesVersion(t, a, version, base.project, dockerOff), version, false, tag)
 
-	for _, command := range []string{"node --version", "npm --version"} {
-		out, err := exec.Command("docker", "run", "--rm", tag, "bash", "-lc", command).CombinedOutput()
-		if err != nil {
-			t.Errorf("%q failed in the built image: %v\n%s", command, err, out)
-		}
+			if base.lacksLibatomic {
+				requireLibraryAbsent(t, tag, "libatomic.so.1")
+			}
+			for _, command := range []string{"node --version", "npm --version"} {
+				out, err := exec.Command("docker", "run", "--rm", tag, "bash", "-lc", command).CombinedOutput()
+				if err != nil {
+					t.Errorf("%q failed in the built image: %v\n%s", command, err, out)
+				}
+			}
+		})
+	}
+}
+
+// requireLibraryAbsent fails the test when the image's dynamic linker cache
+// lists library, so a guard that depends on its absence cannot silently pass
+// against a base that provides it.
+func requireLibraryAbsent(t *testing.T, tag, library string) {
+	t.Helper()
+	out, err := exec.Command("docker", "run", "--rm", tag, "/usr/sbin/ldconfig", "-p").CombinedOutput()
+	if err != nil {
+		t.Fatalf("listing the linker cache failed: %v\n%s", err, out)
+	}
+	if strings.Contains(string(out), library) {
+		t.Fatalf("the base must not provide %s for this guard to be meaningful:\n%s", library, out)
 	}
 }
 

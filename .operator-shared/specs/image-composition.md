@@ -115,18 +115,20 @@ The node stage exists to install/run npm-based agents.
   the install `RUN`, and is still folded into the `dockerfile-id`. Agent version discovery stays a host-side HTTP query
   (npm registry / pi.dev); it never runs in the image.
 - Keep the pin **below v25**; it sits on the **v24 LTS line (`v24.22.1`)**. Node v25 and v26 official tarballs carry a
-  hard `DT_NEEDED` on `libatomic.so.1`, which the managed base (and most custom bases) does not provide, so on the managed
-  base the npm agent's install `RUN` (which invokes `node` via npm's shebang) failed the build, and a native-agent image
+  hard `DT_NEEDED` on `libatomic.so.1`, which most custom bases do not provide (the managed base did not either before it
+  gained `libatomic1` for hermes), so on such a base the npm agent's install `RUN` (which invokes `node` via npm's shebang) failed the build, and a native-agent image
   left a `node`/`npx` that could not start ([#132](https://github.com/inoio/agents-sandbox/issues/132)). v24 has no
   libatomic dependency on x86_64 or arm64. There is **no solution yet for custom bases** that need node >= 25. Every npm
   agent satisfies v24 (`pi` `>=22.19.0`, `claude-code` `>=22.0.0`; `opencode2` unconstrained) — the earlier `v22.14.0`
   pin failed only because it was below pi's `>=22.19.0`.
-- Regression guard: `TestRenderDockerfileNodeAgentNodeRuns` (integration) builds an npm agent on the managed base and runs
-  `node --version`/`npm --version` in the image, and `TestRenderDockerfileBuildsEveryAgent` (integration) builds and runs
+- Regression guard: `TestRenderDockerfileNodeAgentNodeRuns` (integration) builds an npm agent on the managed base and on
+  a libatomic-free custom base (`debian:trixie-slim`, whose lack of `libatomic.so.1` the test asserts first) and runs
+  `node --version`/`npm --version` in each image; the custom case is the one that guards the pin now that the managed base
+  carries `libatomic1`, and `TestRenderDockerfileBuildsEveryAgent` (integration) builds and runs
   every profile — including the npm agent `pi`, whose version probe executes its node bundle — on the managed and a custom
   non-Debian base; a suite that built only the native `opencode` could not catch a broken node. A future pin that
-  reintroduces libatomic must add `libatomic1` to the embedded base (a documented custom-base requirement) or the test
-  fails.
+  reintroduces libatomic fails the libatomic-free case; accepting it would make `libatomic` a documented custom-base
+  requirement for every node agent, not only hermes.
 - Direction: don't depend on node where possible, for image size/build speed
   ([#133](https://github.com/inoio/agents-sandbox/issues/133)). opencode v1, opencode2, and claude-code each ship a native
   installer (`curl | bash`) needing no node at install or runtime; **pi still needs node** (its installer calls

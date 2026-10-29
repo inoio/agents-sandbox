@@ -340,8 +340,9 @@ selected agent into `/opt/agents-sandbox`. Both build on the tool base, so they 
 base already provides node, the agent, or `dockerd` is resolved after the user body by the `/etc/agents-sandbox/agent-source`
 and `/etc/agents-sandbox/docker-source` provenance files (`tool` | `user`), and a base-provided binary wins over the tool's
 copy (the runner's `PATH` prefers base binaries). The pinned node stays on the v24 line:
-the v26 tarballs gained a hard `libatomic.so.1` runtime dependency the managed base does not provide, while v24 has no
-such dependency on either target architecture, so a custom base needs no extra library to run the tool-installed node.
+the v26 tarballs gained a hard `libatomic.so.1` runtime dependency, while v24 has no such dependency on either target
+architecture, so a custom base needs no extra library to run the tool-installed node. (The managed base carries
+`libatomic1` anyway, for `hermes`.)
 
 Six agents are built in: `opencode`, `opencode2` (default, the opencode 2 beta), `pi`, `claude-code`, `codex`, and
 `hermes`. Only `pi` needs node: its published package is an npm-installed `#!/usr/bin/env node` bundle, so it installs
