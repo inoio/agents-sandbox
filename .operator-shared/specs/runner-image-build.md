@@ -59,7 +59,9 @@ may still reference it. The build/load split is deliberate:
 
 Pruning keeps a candidate reference while a kept VM holds it, while its `(slug, agent)` key is the one the current
 `run`/`shell` is about to use, or while it parses an agent and was used within the prune age; a pruned key's refs, an
-agent-less ref, and an aged-out variant are reclaimed, so a `build` followed by a `run` reimports nothing. The full
+agent-less ref, and an aged-out variant are reclaimed, so a `build` followed by a `run` reimports nothing. The native
+image-data prune (`Image.Prune`, which reclaims data no sandbox references) runs only when the invocation retains
+nothing, so a `run`/`shell`'s startup auto-prune defers it and never discards the image it is about to load. The full
 retention contract is `specs/image-ref-content-addressing.md`.
 
 ## Version selection

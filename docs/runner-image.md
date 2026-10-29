@@ -120,7 +120,9 @@ Pruning retains any image a kept VM still references, the image the current `run
 project's runner-image variants that were used within the prune age. It reclaims the rest — a pruned key's refs,
 aged-out variants, pre-redesign digest refs no sandbox uses, and orphaned surplus images. It also runs microsandbox's
 native image-data prune so manifests and layers orphaned by a runner-image refresh are reclaimed after no VM references
-them. See [Commands]({% link commands.md %}) for details on the prune command.
+them; because that native prune reclaims any image no sandbox references, a `run`/`shell`'s startup auto-prune defers it
+to keep the image it is about to load, and only an explicit `image prune` runs it. See
+[Commands]({% link commands.md %}) for details on the prune command.
 
 agents-sandbox also auto-prunes all resources that are ephemeral, unused or haven't been in use for more than 30 days by
 default. Cached runner images and home volumes are only pruned once they are older than the threshold, so a recently

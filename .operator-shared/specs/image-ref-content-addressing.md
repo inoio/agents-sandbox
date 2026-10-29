@@ -1,5 +1,5 @@
 ---
-description: Contract for keying the microsandbox runner-image cache by image content instead of a constant name/reference, so a project's image variants (docker on/off, agent bumps, body edits) coexist in msb and toggling reimports nothing; the Docker tag stays stable, ParseImageTag round-trips the content suffix, and prune retains a ref held by a kept VM, the current invocation's own key, or any agent ref used within the age, and reclaims a pruned key's refs and aged-out variants.
+description: Contract for keying the microsandbox runner-image cache by image content instead of a constant name/reference, so a project's image variants (docker on/off, agent bumps, body edits) coexist in msb and toggling reimports nothing; the Docker tag stays stable, ParseImageTag round-trips the content suffix, and prune retains a ref held by a kept VM, the current invocation's own key, or any agent ref used within the age, and reclaims a pruned key's refs and aged-out variants, while the native image-data prune runs only when the invocation retains nothing.
 read_if: Changing the msb runner-image reference (`naming.RunnerImageRef`, `naming.ImageIdentity`, `ParseImageTag`), `image.ImageInfo.Identity`, `image.EnsureImageWithClient`/`EnsureLoaded` and the load decision, `state.ImageReferences`, `pruning.PruneImages`/`keepImage` image retention, or diagnosing an unexpected `loading image ... into microsandbox` on a `run`/`shell`.
 ---
 
@@ -117,6 +117,12 @@ ref survives while it is within the age. Only a `ToPrune` key (its stale VM is b
 agent-less ref, and an aged-out variant are surplus. `PruneImages` parses each listed reference once and passes the
 resulting `ArtifactInfo` into `keepImage`, so a reference read back from the microsandbox cache is never parsed twice.
 
+The native microsandbox image-data prune (`Image.Prune`) is a second, independent reclaimer: it removes cached image
+data that **no sandbox references** and has no retention parameter, so it cannot honor `RetainKeys` at all. `PruneImages`
+therefore invokes it only when the invocation retains nothing. A `run`/`shell`'s startup auto-prune passes its own key,
+so it skips the native prune and defers that reclamation to the next explicit `prune` — otherwise the native sweep would
+discard the image the run is about to load, which `keepImage`'s ref-level retention cannot prevent.
+
 The `-latest` suffix test in the current `keepImage` must be dropped (keeping on the parsed agent alone): a content ref
 does not end in `-latest`, and ownership already implies the per-agent tag. This clause is already the shape on `main`
 (forward-port note).
@@ -162,7 +168,8 @@ does not end in `-latest`, and ownership already implies the per-agent tag. This
 - `asb run` (no `--docker`), then `asb run --docker`, then `asb run` again: each variant is imported into msb at most
   once; the second and third runs import nothing (`--verbose` shows no `loading image ... into microsandbox`).
 - `asb build`, then the first `asb run`: the image is imported once (by the build); the run reuses it and imports
-  nothing. The run's startup auto-prune must not reclaim the image the project is about to use.
+  nothing. The run's startup auto-prune must not reclaim the image the project is about to use — neither its ref
+  (`keepImage`) nor its image data (the native `Image.Prune`, which is deferred to an explicit `prune`).
 - Same for an agent-version bump and back, and for a project-Dockerfile edit and back.
 - An existing 0.6.0 install (cached under `<slug>:<agent>-latest`) and a pre-0.6 install (cached under the prefixed ref)
   each keep their cache when the content matches — no reimport on upgrade, and no VM recreate while the image digest is

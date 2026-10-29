@@ -72,7 +72,12 @@ func PruneImages(
 			Digest:   digest,
 		})
 	}
-	if !dryRun {
+	// The native prune reclaims cached image data that no sandbox references: it
+	// cannot honor RetainKeys, so it would discard the very image a retaining
+	// invocation (a `run`/`shell`, pre-loading) is about to use. Defer it to a
+	// later prune that retains nothing — an explicit `prune`, or a run whose
+	// identity could not be resolved.
+	if !dryRun && len(pruneState.RetainKeys) == 0 {
 		if _, err := msb.Get().ImagePrune(ctx); err != nil {
 			ui.Warnf("failed to prune unused msb image data: %v", err)
 		}

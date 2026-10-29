@@ -274,6 +274,7 @@ func TestPruneRetainsCurrentRunKeyImage(t *testing.T) {
 	const slug = "proj-1mjusbm3wikhb0"
 	key := state.Key{Slug: slug, Agent: "opencode"}
 	ref := "agents-sandbox/runner-" + slug + ":opencode-latest"
+	nativePruned := false
 	client := &msb.MockMsbClient{
 		Sandboxes: []msb.SandboxHandle{
 			&msb.MockSandboxHandle{
@@ -286,6 +287,10 @@ func TestPruneRetainsCurrentRunKeyImage(t *testing.T) {
 		Images: []msb.ImageHandle{
 			&msb.MockImageHandle{Reference_: ref, CreatedAt_: time.Now().Add(-48 * time.Hour)},
 		},
+		ImagePruneFn: func(context.Context) (*msbSdk.ImagePruneReport, error) {
+			nativePruned = true
+			return &msbSdk.ImagePruneReport{}, nil
+		},
 	}
 	msb.WithMsbMock(t, client)
 	docker.WithNoopDockerMock(t)
@@ -296,6 +301,9 @@ func TestPruneRetainsCurrentRunKeyImage(t *testing.T) {
 	}
 	if len(client.RemovedImages) != 0 {
 		t.Errorf("RemovedImages = %v, want none (the current run's key is retained)", client.RemovedImages)
+	}
+	if nativePruned {
+		t.Error("the native image-data prune must be deferred while the run protects a key")
 	}
 }
 

@@ -479,6 +479,43 @@ func TestPruneImagesRunsNativePruneAfterReferenceCleanup(t *testing.T) {
 	})
 }
 
+// TestPruneImagesSkipsNativePruneWhenRetaining pins the run-path guard: the
+// native Image.Prune reclaims cached image data that no sandbox references, so
+// it cannot honor RetainKeys. A prune that retains keys — a `run`/`shell`
+// protecting the image it is about to load — must therefore not run it; the
+// deferred data is reclaimed by a later prune that retains nothing.
+func TestPruneImagesSkipsNativePruneWhenRetaining(t *testing.T) {
+	key := state.Key{Slug: "proj-1mjusbm3wikhb0", Agent: "opencode"}
+	removed := false
+	pruned := false
+	client := &msb.MockMsbClient{
+		Images: []msb.ImageHandle{
+			&msb.MockImageHandle{Reference_: "proj-1mjusbm3wikhb0:opencode.9f2c1a7b4d6e0f31"},
+		},
+		ImageRemoveFn: func(_ context.Context, _ string, _ bool) error {
+			removed = true
+			return nil
+		},
+		ImagePruneFn: func(context.Context) (*msbSdk.ImagePruneReport, error) {
+			pruned = true
+			return &msbSdk.ImagePruneReport{ManifestsRemoved: 1}, nil
+		},
+	}
+	msb.WithMsbMock(t, client)
+	docker.WithNoopDockerMock(t)
+
+	pruneState := PruneState{RetainKeys: map[state.Key]struct{}{key: {}}}
+	if _, err := PruneImages(context.Background(), pruneState, false, &termio.Mock{}); err != nil {
+		t.Fatalf("PruneImages: %v", err)
+	}
+	if removed {
+		t.Error("a ref whose key the invocation retains must not be removed")
+	}
+	if pruned {
+		t.Error("native Image.Prune must not run when the invocation retains image keys")
+	}
+}
+
 // TestKeepImagePerAgent verifies that image retention is keyed per (slug, agent).
 func TestKeepImagePerAgent(t *testing.T) {
 	// The per-agent tag for a kept (slug, opencode) is kept while it is recent,
