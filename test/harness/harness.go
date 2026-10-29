@@ -9,6 +9,8 @@ package harness
 
 import (
 	"bytes"
+	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 	"time"
@@ -53,6 +55,10 @@ const (
 	// dataDirName is the XDG data directory isolatedEnv puts under the root; the
 	// private microsandbox home is nested inside it.
 	dataDirName = "data"
+
+	// homeDirName is the isolated HOME directory under the root; the child's
+	// home files (including a seeded harness config) live beneath it.
+	homeDirName = "home"
 )
 
 // isolatedEnvKeep lists the inherited variables the child may keep: the
@@ -87,22 +93,32 @@ const (
 var harnessSpecs = map[string]harnessSpec{
 	// claude-code checks in with its API before it draws anything, so it needs
 	// egress, and its renderer keeps the terminal's normal buffer, so the
-	// alternate screen never announces that its UI is up.
-	"claude-code": {QuitKey: []byte{ctrlC}, Network: publicNetwork, KeepsNormalBuffer: true},
+	// alternate screen never announces that its UI is up. Its startup splash
+	// prints the product name, which readies the subtest.
+	"claude-code": {
+		QuitKey:           []byte{ctrlC},
+		Network:           publicNetwork,
+		KeepsNormalBuffer: true,
+		ReadyMarker:       claudeCodeReadyMarker,
+	},
 	// codex quits on Ctrl-C and may reach its API at startup, so it gets
 	// egress like claude-code; its TUI uses the alternate screen.
 	"codex": {QuitKey: []byte{ctrlC}, Network: publicNetwork, KeepsNormalBuffer: false},
-	// hermes greets with a banner and its own model/provider state before the
-	// prompt, so it needs egress like claude-code; its classic CLI keeps the
-	// terminal's normal buffer, so the alternate screen never announces that its
-	// UI is up; Ctrl-D leaves its prompt. Its runner image carries a whole
-	// Python/Node tool store, so loading it into microsandbox outlasts the
-	// shared settled budget.
+	// hermes' classic CLI keeps the terminal's normal buffer, so the alternate
+	// screen never announces that its UI is up. The subtest seeds a home config
+	// that makes a dummy, loopback provider count as configured, so hermes starts
+	// the classic CLI REPL instead of stopping at its first-run setup guard (which
+	// always exits 1 without a real provider); Ctrl-D then leaves the REPL with
+	// exit 0. The seeded endpoint is loopback, so it runs under the default
+	// `--network none`; the startup banner is the readiness marker. Its runner
+	// image carries a whole Python/Node tool store, so its startup is the slowest
+	// of the harnesses.
 	"hermes": {
 		QuitKey:           []byte{ctrlD},
-		Network:           publicNetwork,
 		KeepsNormalBuffer: true,
-		ReadyTimeout:      heavyweightSettledReadyTimeout,
+		ReadyMarker:       hermesReadyMarker,
+		ReadyTimeout:      heavyweightReadyTimeout,
+		SeedHomeFiles:     map[string]string{hermesConfigPath: hermesSmokeConfig},
 	},
 	// opencode's editor owns Ctrl-C, so its TUI leaves on Ctrl-D.
 	"opencode":  {QuitKey: []byte{ctrlD}, Network: "", KeepsNormalBuffer: false},
@@ -125,20 +141,64 @@ type harnessSpec struct {
 	// terminal's normal buffer instead of the alternate screen, so the
 	// alternate-screen marker cannot announce that its UI is up.
 	KeepsNormalBuffer bool
-	// ReadyTimeout overrides the settled readiness wait for a
-	// KeepsNormalBuffer harness; zero uses the shared default. It is ignored
-	// for an alternate-screen harness, whose readiness is the alternate-screen
-	// marker rather than a wall clock.
+	// ReadyMarker, when set, is an output substring that announces a
+	// normal-buffer harness's UI is up — the readiness signal waitSettled
+	// replaces for a harness whose CLI prints a stable startup line (hermes'
+	// banner). It takes precedence over KeepsNormalBuffer's settle.
+	ReadyMarker string
+	// ReadyTimeout overrides the readiness wait for a KeepsNormalBuffer
+	// harness; zero uses the shared default. It bounds either the marker wait
+	// or the settle. It is ignored for an alternate-screen harness, whose
+	// readiness is the alternate-screen marker rather than a wall clock.
 	ReadyTimeout time.Duration
+	// SeedHomeFiles maps a home-relative path to its content, written under the
+	// isolated HOME (<root>/home) before the run so the launcher provisions it
+	// into the VM. It is how a harness that needs host-side configuration (a
+	// provider block, a settled opt-in) starts headful without credentials.
+	SeedHomeFiles map[string]string
 }
 
-// heavyweightSettledReadyTimeout is the settled readiness wait for a
-// KeepsNormalBuffer harness whose runner image takes much longer to load into
-// microsandbox than the lightweight agents the shared budget was measured on
-// (hermes carries a whole Python/Node tool store). The settled wait is a
-// wall-clock fallback, not a rendered-screen signal, so too small a budget
-// fails the subtest while the launcher is still loading the image.
-const heavyweightSettledReadyTimeout = 120 * time.Second
+// heavyweightReadyTimeout bounds the readiness wait for a KeepsNormalBuffer
+// harness whose startup is much slower than the lightweight agents the shared
+// budget was measured on: hermes carries a whole Python/Node tool store. It is a
+// ceiling, not a sleep — hermes' banner marker ends the wait as soon as the CLI
+// is up — so a slow cold start fails the subtest only when it genuinely hangs.
+const heavyweightReadyTimeout = 120 * time.Second
+
+// hermesReadyMarker is the startup line hermes' classic CLI prints before it
+// accepts input (show_banner: "Hermes Agent v<version> (<date>)"). It is stable
+// across releases, unlike the version itself.
+const hermesReadyMarker = "Hermes Agent v"
+
+// claudeCodeReadyMarker is the product name claude-code's startup splash prints
+// before its prompt is live. Its renderer keeps the normal buffer and emits no
+// alternate-screen sequence, so without a marker its subtest would wait out the
+// whole settle.
+const claudeCodeReadyMarker = "Claude Code"
+
+// hermesConfigPath is hermes' config file, home-relative, provisioned into the
+// guest from the host's ~/.hermes/config.yaml.
+const hermesConfigPath = ".hermes/config.yaml"
+
+// hermesSmokeConfig makes hermes start its interactive REPL without a real
+// credential: the model block's custom, loopback base_url (and dummy api_key)
+// satisfies hermes' "any provider configured" check, so the classic CLI starts
+// instead of the first-run setup guard, which exits 1 with no provider. The
+// endpoint is a closed loopback port, so no request leaves the VM; the deeper
+// model keys only matter once a message is submitted. The telemetry block
+// settles the shared-metrics opt-in so hermes does not show that prompt before
+// the REPL (offer_version must match hermes' current OFFER_VERSION).
+const hermesSmokeConfig = `model:
+  provider: custom
+  default: local-model
+  base_url: http://127.0.0.1:9/v1
+  api_key: dummy
+telemetry:
+  shared_metrics:
+    enabled: false
+    send: false
+    offer_version: 2
+`
 
 // readyTimeout returns the readiness wait for this harness: its per-harness
 // override when set, otherwise fallback.
@@ -173,13 +233,29 @@ func isolatedEnv(root string, inherited []string) []string {
 	}
 	env = append(env, envTerm+"="+usableTerm(inheritedByName[envTerm]))
 	return append(env,
-		"HOME="+filepath.Join(root, "home"),
+		"HOME="+filepath.Join(root, homeDirName),
 		"XDG_CONFIG_HOME="+filepath.Join(root, "config"),
 		"XDG_DATA_HOME="+filepath.Join(root, dataDirName),
 		"XDG_STATE_HOME="+filepath.Join(root, "state"),
 		"XDG_CACHE_HOME="+filepath.Join(root, "cache"),
 		"TMPDIR="+filepath.Join(root, "tmp"),
 	)
+}
+
+// seedHomeFiles writes each home-relative file under root's isolated HOME
+// (<root>/home/<rel>), creating parent directories, so the launcher provisions
+// it into the VM (see harnessSpec.SeedHomeFiles).
+func seedHomeFiles(root string, files map[string]string) error {
+	for rel, content := range files {
+		path := filepath.Join(root, homeDirName, rel)
+		if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
+			return fmt.Errorf("create parent for %s: %w", rel, err)
+		}
+		if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+			return fmt.Errorf("write %s: %w", rel, err)
+		}
+	}
+	return nil
 }
 
 // usableTerm returns the TERM to run the child under: the inherited value

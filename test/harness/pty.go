@@ -252,6 +252,57 @@ func (s *ptySession) waitSettled(settle time.Duration) error {
 	}
 }
 
+// markerText normalizes text for marker matching: escape sequences are removed,
+// then every whitespace character, so a marker can be written with the spaces a
+// human sees while still matching output whose spaces are rendered as cursor
+// moves. It is deliberately lossy — two lines collapse together — which is safe
+// because the tap-until-exit quit loop tolerates a marker seen a little early.
+func markerText(s string) string {
+	return strings.Map(func(r rune) rune {
+		switch r {
+		case ' ', '\t', '\n', '\r', '\v', '\f':
+			return -1
+		}
+		return r
+	}, stripANSI([]byte(s)))
+}
+
+// waitForMarker blocks until the child's output contains marker while the child
+// is still alive, or the child exits, or timeout elapses. It is the readiness
+// signal for a normal-buffer harness whose CLI prints a stable startup line: it
+// ends as soon as that line appears, where waitSettled always waits out the full
+// budget. timeout is a ceiling, not the expected wait.
+//
+// The match runs on markerText of both sides: escape sequences removed, then all
+// whitespace. A diff-painting TUI (claude-code's Ink) both interleaves escape
+// sequences and renders spaces by moving the cursor, so "Welcome to Claude Code"
+// arrives as "Welcome\e[1Cto\e[1CClaude\e[1CCode" and neither a raw nor an
+// ANSI-only match would find it.
+func (s *ptySession) waitForMarker(marker string, timeout time.Duration) error {
+	needle := markerText(marker)
+	deadline := time.Now().Add(timeout)
+	for {
+		if strings.Contains(markerText(string(s.output())), needle) && !s.hasExited() {
+			return nil
+		}
+		if s.hasExited() {
+			s.drainOutput(ptyDrainGrace)
+			return fmt.Errorf(
+				"no readiness marker %q before the process exited (%s); output: %s",
+				marker, s.exitStatus(), s.outputTail())
+		}
+		if !time.Now().Before(deadline) {
+			return fmt.Errorf(
+				"no readiness marker %q within %s (process still running); output: %s",
+				marker, timeout, s.outputTail())
+		}
+		select {
+		case <-time.After(ptyPollInterval):
+		case <-s.waitDone:
+		}
+	}
+}
+
 // waitExit blocks until the child exits and returns its exit code. A process
 // that exited successfully yields 0; one killed by a signal, -1. Only a wait
 // that does not complete within the timeout (or fails outright) is an error.

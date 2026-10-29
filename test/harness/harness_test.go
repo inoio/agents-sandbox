@@ -1,6 +1,7 @@
 package harness
 
 import (
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -50,20 +51,102 @@ func TestReadyTimeoutPrefersThePerHarnessOverride(t *testing.T) {
 	}
 }
 
-// TestHermesUsesTheHeavyweightReadyBudget pins that hermes, whose runner image
-// carries a full Python/Node tool store, extends the settled wait instead of
-// failing the subtest while the launcher is still loading the image.
-func TestHermesUsesTheHeavyweightReadyBudget(t *testing.T) {
+// TestHermesSeedsAConfiguredHomeAndMarker pins how the smoke test reaches
+// hermes' interactive REPL without a real credential: it seeds a home config
+// that makes hermes consider a dummy, loopback provider configured and settles
+// its shared-metrics offer, and it waits for the CLI's startup banner instead of
+// a fixed settle. Without the seed hermes stops at its first-run setup guard and
+// exits 1; the banner is a stronger readiness signal than the wall-clock settle.
+func TestHermesSeedsAConfiguredHomeAndMarker(t *testing.T) {
 	spec, ok := harnessSpecs["hermes"]
 	if !ok {
 		t.Fatal("hermes has no smoke-test spec")
 	}
-	if spec.ReadyTimeout != heavyweightSettledReadyTimeout {
-		t.Errorf("hermes ReadyTimeout = %s, want %s", spec.ReadyTimeout, heavyweightSettledReadyTimeout)
+	if !spec.KeepsNormalBuffer {
+		t.Error("hermes KeepsNormalBuffer = false; its classic CLI renders in the normal buffer")
+	}
+	if spec.ReadyMarker == "" {
+		t.Error("hermes ReadyMarker is empty; the classic CLI emits no alternate-screen marker to wait for")
+	}
+	if spec.ReadyTimeout != heavyweightReadyTimeout {
+		t.Errorf("hermes ReadyTimeout = %s, want %s", spec.ReadyTimeout, heavyweightReadyTimeout)
+	}
+	if spec.Network != "" {
+		t.Errorf("hermes Network = %q, want the default `none` (the seeded provider is loopback)", spec.Network)
+	}
+	cfg, ok := spec.SeedHomeFiles[hermesConfigPath]
+	if !ok {
+		t.Fatalf("hermes SeedHomeFiles missing %s", hermesConfigPath)
+	}
+	for _, want := range []string{"model:", "base_url:", "telemetry:", "shared_metrics:", "offer_version:"} {
+		if !strings.Contains(cfg, want) {
+			t.Errorf("hermes seeded config missing %q:\n%s", want, cfg)
+		}
+	}
+}
+
+// TestClaudeCodeReadiesOnAMarker pins that claude-code's normal-buffer renderer
+// also readies on a startup marker, rather than its subtest waiting out the
+// whole settle.
+func TestClaudeCodeReadiesOnAMarker(t *testing.T) {
+	spec, ok := harnessSpecs["claude-code"]
+	if !ok {
+		t.Fatal("claude-code has no smoke-test spec")
 	}
 	if !spec.KeepsNormalBuffer {
-		t.Error("hermes KeepsNormalBuffer = false; the heavy budget is the normal-buffer readiness wait")
+		t.Error("claude-code KeepsNormalBuffer = false; its renderer keeps the normal buffer")
 	}
+	if spec.ReadyMarker == "" {
+		t.Error("claude-code ReadyMarker is empty; its subtest would wait out the settle")
+	}
+}
+
+// TestSeedHomeFiles pins that seeds are written under the isolated HOME
+// (<root>/home/...) with parents created, so the launcher provisions them into
+// the VM.
+func TestSeedHomeFiles(t *testing.T) {
+	root := t.TempDir()
+	files := map[string]string{
+		hermesConfigPath: "model: {}\n",
+		".config/x":      "y",
+	}
+	if err := seedHomeFiles(root, files); err != nil {
+		t.Fatalf("seedHomeFiles: %v", err)
+	}
+	for rel, want := range files {
+		got, err := os.ReadFile(filepath.Join(root, homeDirName, rel))
+		if err != nil {
+			t.Fatalf("read %s: %v", rel, err)
+		}
+		if string(got) != want {
+			t.Errorf("%s = %q, want %q", rel, got, want)
+		}
+	}
+}
+
+// TestSeedHomeFilesReportsFailures pins both failure surfaces: a parent that
+// cannot be created, and a target that cannot be written.
+func TestSeedHomeFilesReportsFailures(t *testing.T) {
+	t.Run("parent cannot be created", func(t *testing.T) {
+		root := t.TempDir()
+		// A file where the seed's parent directory must go makes MkdirAll fail.
+		if err := os.WriteFile(filepath.Join(root, homeDirName), []byte("x"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if err := seedHomeFiles(root, map[string]string{hermesConfigPath: "y"}); err == nil {
+			t.Fatal("seedHomeFiles = nil, want an error when a parent cannot be created")
+		}
+	})
+	t.Run("target cannot be written", func(t *testing.T) {
+		root := t.TempDir()
+		// A directory at the target path makes the file write fail.
+		if err := os.MkdirAll(filepath.Join(root, homeDirName, ".hermes", "config.yaml"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := seedHomeFiles(root, map[string]string{hermesConfigPath: "y"}); err == nil {
+			t.Fatal("seedHomeFiles = nil, want an error when the target cannot be written")
+		}
+	})
 }
 
 // TestSawDaemonTimeout pins that the shared marker helper fires on the

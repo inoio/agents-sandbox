@@ -97,6 +97,80 @@ func TestPTYWaitForTUITimesOutWhileProcessRuns(t *testing.T) {
 	}
 }
 
+// TestPTYWaitForMarkerReturnsOnceTheMarkerAppears pins the readiness signal for
+// a normal-buffer harness that prints a stable startup line (hermes' banner):
+// the wait ends when that line appears, not after a fixed settle.
+func TestPTYWaitForMarkerReturnsOnceTheMarkerAppears(t *testing.T) {
+	ses := mustStartUnderPTY(t, "", nil, "/bin/sh", "-c", "printf 'Hermes Agent v1.2.3'; sleep 30")
+	defer ses.close()
+
+	start := time.Now()
+	if err := ses.waitForMarker("Hermes Agent v", 5*time.Second); err != nil {
+		t.Fatalf("waitForMarker: %v", err)
+	}
+	if elapsed := time.Since(start); elapsed > 2*time.Second {
+		t.Errorf("waitForMarker took %v, want it to return as soon as the marker appeared", elapsed)
+	}
+}
+
+// TestMarkerTextCollapsesWhitespaceAndANSI pins the marker normalization: escape
+// sequences and every whitespace character go, so a marker matches output whose
+// spaces were rendered as cursor moves.
+func TestMarkerTextCollapsesWhitespaceAndANSI(t *testing.T) {
+	got := markerText("Welcome\033[1Cto\033[1CClaude\033[1CCode\n")
+	if want := "WelcometoClaudeCode"; got != want {
+		t.Errorf("markerText = %q, want %q", got, want)
+	}
+}
+
+// TestPTYWaitForMarkerIgnoresRenderingArtifacts pins that the marker match
+// tolerates a diff-painting TUI's output: escape sequences interleaved in the
+// text and spaces rendered as cursor moves (claude-code's Ink), so a
+// spaces-in marker matches though the line arrives space-less.
+func TestPTYWaitForMarkerIgnoresRenderingArtifacts(t *testing.T) {
+	ses := mustStartUnderPTY(t, "", nil, "/bin/sh", "-c",
+		`printf 'Wel\033[0mcome\033[1Cto\033[1CClaude\033[1CCode'; sleep 30`)
+	defer ses.close()
+
+	if err := ses.waitForMarker("Welcome to Claude Code", 5*time.Second); err != nil {
+		t.Fatalf("waitForMarker with rendering artifacts: %v", err)
+	}
+}
+
+// TestPTYWaitForMarkerTimesOutWhileProcessRuns pins the timeout report: the
+// error names the missing marker and the output seen, not the alternate screen.
+func TestPTYWaitForMarkerTimesOutWhileProcessRuns(t *testing.T) {
+	ses := mustStartUnderPTY(t, "", nil, "/bin/sh", "-c", "sleep 30")
+	defer ses.close()
+
+	err := ses.waitForMarker("never-seen", 200*time.Millisecond)
+	if err == nil {
+		t.Fatal("waitForMarker = nil, want a timeout error")
+	}
+	if !strings.Contains(err.Error(), "readiness marker") || !strings.Contains(err.Error(), "never-seen") {
+		t.Errorf("waitForMarker error %q, want it to name the missing readiness marker", err)
+	}
+}
+
+// TestPTYWaitForMarkerReportsChildExit pins that a child stopping before its
+// marker fails the wait at once, naming its exit and the output seen.
+func TestPTYWaitForMarkerReportsChildExit(t *testing.T) {
+	ses := mustStartUnderPTY(t, "", nil, "/bin/sh", "-c", "echo launcher output; exit 3")
+	defer ses.close()
+
+	start := time.Now()
+	err := ses.waitForMarker("never-seen", 30*time.Second)
+	if err == nil {
+		t.Fatal("waitForMarker = nil, want an error for a child that exited before its marker")
+	}
+	if !strings.Contains(err.Error(), "exit code 3") || !strings.Contains(err.Error(), "launcher output") {
+		t.Errorf("waitForMarker error %q, want it to name the exit and the output seen", err)
+	}
+	if elapsed := time.Since(start); elapsed > 5*time.Second {
+		t.Errorf("waitForMarker took %v, want an immediate report of the exit", elapsed)
+	}
+}
+
 // TestPTYWaitSettledReturnsOnceTheChildOutlastsTheSettle pins the readiness
 // signal for a harness whose TUI keeps the terminal's normal buffer: it is the
 // settle, because no marker announces that such a harness has drawn its UI.
