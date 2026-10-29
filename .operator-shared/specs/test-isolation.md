@@ -82,6 +82,14 @@ This is also why the unit and integration suites build with `-tags microsandbox_
 `guides/test-runtime-cost.md`): the tag drops the SDK's ~36 MB embedded library from every test binary, and
 because the tests reach the SDK only through seams, no `MICROSANDBOX_FFI_PATH` is needed.
 
+An `msb`-tagged test keeps the embedded library **and** provisions its own runtime home. `internal/sandbox/msb`'s
+`TestMain` points `MSB_HOME` at a fresh temp home, and each real-client test resolves the SDK-pinned runtime there
+before its first SDK call (`ensureIsolatedRuntime`). The runtime install is lazy — it runs on the first test, not in
+`TestMain` — so `compile-all`'s `-run=^$` stays inert. Without this the SDK resolves its default `~/.microsandbox`,
+where a runtime left by a pre-decoupling agents-sandbox install fails sandbox creation with the native library's
+"no tested sandbox launch contract for runtime <v>" after an SDK bump; the launcher repairs only its own private home
+(`runtime-home-decoupling.md`).
+
 ## Host-home redirect
 
 `configpaths.WithMockConfigPaths(t)` roots a `mockConfigPaths` in `t.TempDir()` **and** redirects `$HOME` into
@@ -99,6 +107,18 @@ on where the suite runs. The helper fails fast if the pinned temp dir still reso
 sits inside a bare checkout). A test that needs a specific layout chdirs into its own fixture after the call, as the
 bare-checkout tests do. This is why `configpaths`' project-path accessor tests assert the relative base without
 pinning the CWD themselves, and it closes the incident below.
+
+## Deliberate real-state reads
+
+The `integration`-tagged image tests (`internal/sandbox/image/render_integration_test.go`) are the one sanctioned
+exception to "tests never read real host state". They resolve the agent release to bake from the launcher's real root
+state — `RootState.updates.agents[<agent>].latest_version`, the release the upgrade prompt offers — through
+`configpaths.WithRealConfigPaths(t)`, so a machine that has used the agent bakes a recent real release with no network
+dependency and no hard-coded version that goes stale. When the cache is empty (a fresh CI runner) the test resolves the
+release once through `agent.LatestVersion` and records it in the real root state, preserving `last_checked` so it does
+not suppress the developer's own upgrade check; the rest of the suite then reuses it. The read/record helpers are
+`cachedAgentVersion` and `recordCachedAgentVersion` (`agent_version_cache_test.go`,
+`render_integration_test.go`).
 
 ## Seam overrides and suite idempotence
 

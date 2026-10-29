@@ -382,11 +382,103 @@ func TestRenderDockerfileChecksGuestRuntimeTools(t *testing.T) {
 // TestRenderDockerfileNoGuestToolsForDaemonlessAgents guards that agents which
 // run no daemon in the VM declare no guest tools, so no check is emitted.
 func TestRenderDockerfileNoGuestToolsForDaemonlessAgents(t *testing.T) {
-	for _, name := range []string{"pi", "claude-code", "codex"} {
+	for _, name := range []string{"pi", "claude-code", "codex", "hermes"} {
 		a, _ := agent.Lookup(name)
 		final := finalStage(t, mustRender(t, a, nil, dockerOff))
 		if strings.Contains(final, "agent runtime tool missing") {
 			t.Errorf("%s runs no daemon and must not emit a guest-tool check; got:\n%s", name, final)
+		}
+	}
+}
+
+// TestRenderDockerfileChecksAgentRuntimeLibs guards the custom-base contract for
+// an agent whose provisioned runtime links a system library: hermes's managed
+// Node.js needs libatomic.so.1, so the final stage must verify it after the user
+// body, glibc-only, and an agent that declares no library must emit no check.
+// The check resolves ldconfig from PATH and the standard sbin locations, so a
+// base that narrows PATH to /usr/bin still verifies the library.
+func TestRenderDockerfileChecksAgentRuntimeLibs(t *testing.T) {
+	hermes, _ := agent.Lookup("hermes")
+	final := finalStage(t, mustRender(t, hermes, nil, dockerOff))
+
+	if !strings.Contains(final, "agent runtime library missing") {
+		t.Fatalf("the final stage must verify hermes's runtime library; got:\n%s", final)
+	}
+	for _, want := range []string{
+		"for lib in libatomic.so.1;",
+		`"$ldconfig_bin" -p`,
+		"command -v ldconfig",
+		"/sbin/ldconfig",
+		"/usr/sbin/ldconfig",
+		"getconf GNU_LIBC_VERSION",
+	} {
+		if !strings.Contains(final, want) {
+			t.Errorf("the runtime-library check must contain %q; got:\n%s", want, final)
+		}
+	}
+
+	opencode, _ := agent.Lookup("opencode")
+	other := finalStage(t, mustRender(t, opencode, nil, dockerOff))
+	if strings.Contains(other, "agent runtime library missing") {
+		t.Errorf("opencode declares no runtime library, so no check is expected; got:\n%s", other)
+	}
+}
+
+// TestRenderDockerfileManagedBaseInstallsLibatomic pins the managed base's
+// provisioned packages: hermes's managed Node.js links libatomic.so.1 on glibc,
+// and the agent stage that installs libatomic1 is discarded, so the embedded
+// managed base must install it for the runner image to carry it.
+func TestRenderDockerfileManagedBaseInstallsLibatomic(t *testing.T) {
+	if !strings.Contains(string(embeddedBaseToolsBlock), "libatomic1") {
+		t.Errorf("the managed base must install libatomic1; got:\n%s", embeddedBaseToolsBlock)
+	}
+}
+
+// TestRenderDockerfileChownsAgentToolTree guards the ownership handover: an
+// agent that writes into its own installation at runtime (hermes) declares the
+// paths, and the runner chowns them to the dev user it just created. The chown
+// must run before the image switches to USER dev.
+func TestRenderDockerfileChownsAgentToolTree(t *testing.T) {
+	a, _ := agent.Lookup("hermes")
+	final := finalStage(t, mustRender(t, a, nil, dockerOff))
+
+	wantChown := `chown -R dev:$(id -g dev) /opt/agents-sandbox/hermes /opt/agents-sandbox/hermes-home`
+	chownIdx := strings.Index(final, wantChown)
+	if chownIdx < 0 {
+		t.Fatalf("the final stage must chown the agent's tool tree to the runtime user; got:\n%s", final)
+	}
+	devIdx := strings.LastIndex(final, "USER dev")
+	if devIdx < 0 || chownIdx > devIdx {
+		t.Errorf("the chown must run before the image switches to USER dev; got:\n%s", final)
+	}
+}
+
+// emptyOwnedPathsAgent carries a non-nil but empty OwnedToolPaths slice,
+// covering agentOwnershipBlock's empty-list guard: an agent that names no paths
+// must emit no chown.
+type emptyOwnedPathsAgent struct{ agent.Agent }
+
+func (emptyOwnedPathsAgent) Name() string { return "stub" }
+func (emptyOwnedPathsAgent) ImageSpec() agent.ImageSpec {
+	return agent.ImageSpec{OwnedToolPaths: []string{}}
+}
+
+func TestRenderDockerfileNoChownForEmptyOwnedPaths(t *testing.T) {
+	stub := emptyOwnedPathsAgent{Agent: agentOpencode(t)}
+	final := finalStage(t, mustRender(t, stub, nil, dockerOff))
+	if strings.Contains(final, "chown -R") {
+		t.Errorf("an empty OwnedToolPaths list must emit no chown; got:\n%s", final)
+	}
+}
+
+// TestRenderDockerfileNoChownForStatelessAgents guards that an agent which never
+// writes into its installation emits no chown block.
+func TestRenderDockerfileNoChownForStatelessAgents(t *testing.T) {
+	for _, name := range []string{"opencode", "pi", "claude-code", "codex"} {
+		a, _ := agent.Lookup(name)
+		final := finalStage(t, mustRender(t, a, nil, dockerOff))
+		if strings.Contains(final, "chown -R") {
+			t.Errorf("%s must not emit a tool-tree chown; got:\n%s", name, final)
 		}
 	}
 }

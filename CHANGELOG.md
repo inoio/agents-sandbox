@@ -15,7 +15,26 @@ command reports the bare version (e.g. `0.1.0`).
   parse error names the command. See `docs/commands.md` (#332).
 - State files carry a `schema:` version. A version of agents-sandbox refuses to change a state file written by a newer
   version, instead of erasing fields it does not know on its next write (#337).
-
+- Agents: a built-in `hermes` profile (Hermes Agent). It installs through the official installer at the pinned
+  `--agent-version` release tag (`v$HERMES_VERSION`), which clones the checkout and provisions its own Python and Node
+  tool store under `/opt/agents-sandbox/hermes-home` (outside the `/home/dev` home volume), and publishes a launcher shim
+  into `/opt/agents-sandbox/bin` that keeps user state in `$HERMES_HOME` (`/home/dev/.hermes`) while linking the tool
+  store, uv cache, and dependency environments from the image, so a fresh home volume starts without reinstalling
+  dependencies. It runs interactively like `pi` and `claude-code`, so `--worktree` and `--serve-only` are rejected;
+  snippet config merge reads `config*.yaml` from the `hermes/` launcher config dirs and writes
+  `~/.hermes/config.yaml`, the host drop-in copies only `~/.hermes/config.yaml` (never `.env`), and unpinned
+  builds resolve the latest release from its GitHub releases endpoint. Merged configs whose target file is YAML are now
+  written and compared as YAML instead of JSON.
+- Runner image: an `ImageSpec.OwnedToolPaths` field lets an agent declare tool-tree paths that the runner hands to its
+  `dev` user (`chown -R dev:dev` after the tool tree is copied in, before the image switches to `USER dev`). Only
+  `hermes` declares paths: it writes its dependency ledger and bytecode markers into its own installation at runtime and
+  git rejects a checkout owned by another user.
+- Runner image: an `ImageSpec.RuntimeLibs` field lets an agent declare the shared libraries its provisioned runtime links.
+  The runner resolves each with `ldconfig` in the final stage (after your Dockerfile body, glibc-only), locating `ldconfig`
+  from `PATH` and the standard sbin directories so a base that narrows `PATH` still verifies it, and fails the build naming
+  the library, so a custom base that lacks one fails at build time instead of when the agent launches. Only `hermes`
+  declares one — `libatomic.so.1`, linked by its provisioned Node.js on glibc — and the embedded managed base now installs
+  `libatomic1`, which the discarded agent stage could not supply.
 - CI: `main` merges through a **merge queue**. A queued PR is built on top of the current `main` plus the pull requests
   ahead of it, and the required checks — `lint`, `test`, `race`, `deadcode` — run on that combined tree before it
   merges, so two independently-green PRs can no longer combine into a broken `main`. `race` and `deadcode` are now
@@ -81,6 +100,14 @@ command reports the bare version (e.g. `0.1.0`).
 - Docs: the roadmap now lists the `priority:medium` label alongside `priority:critical`/`high`/`low`, matching the
   issue tracker.
 - Maintenance: updated the microsandbox Go SDK and managed `msb` runtime to v0.7.11.
+- Internal: the `msb`-tagged real-client tests provision their own isolated microsandbox home with the SDK-pinned runtime
+  instead of resolving the developer's `~/.microsandbox`, so an SDK bump can no longer fail them on a runtime there.
+  The harness smoke suite readies a normal-buffer harness on a startup marker: `hermes` on its CLI's banner line and
+  `claude-code` on its splash, and seeds `hermes` a dummy, loopback provider config so it starts its REPL instead of
+  its first-run setup guard (which exits `1`), keeping its per-harness readiness ceiling and running under the default
+  `--network none`. The `integration` image tests resolve the agent release from the launcher's cached upgrade state,
+  falling back to the
+  agent's latest-release check only when the cache is empty.
 - Internal: `dockerd` and the agent `serve` daemon now run as microsandbox runtime-owned detached jobs
   (`ExecDetached`), replacing shell-backgrounded `nohup` processes, logfile polling, and `pkill` start/stop plumbing.
   Readiness stays health-probe based, a crashed job reports its exit code plus a log tail, and a stale job is killed by
@@ -171,6 +198,15 @@ command reports the bare version (e.g. `0.1.0`).
   private runtime home is absent or broken, a failed runtime install is now reported as `msb runtime setup failed: …`
   with its troubleshooting link while the KVM and Docker checks still run, instead of aborting the command with a raw
   `install msb runtime: …` error before any check ran (#423).
+- Runner images: the auto-prune a `run`/`shell` runs at startup no longer reclaims the project's own cached image. A
+  project with no running VM — a fresh `build`, or one whose VM was removed — had its image reclaimed and reimported on
+  the next `run` (a multi-minute reimport for a large image like `hermes`). Two reclaimers did it: the launcher's
+  ref-level prune, and microsandbox's native image-data prune (`Image.Prune`, which removes any image no sandbox
+  references). A VM-less project's image now survives while it is within the prune age, the current command's own
+  project key is always retained, and a retaining invocation skips the native prune — it runs only on an explicit
+  `prune` (#290).
+- `opencode2` now reports its installed version (`opencode2 --version`), so its `agent_version` baseline is recorded on
+  boot and reconciled from the runner image's label like every other profile, instead of staying empty.
 - Networking: a user `egress-deny` carve-out now takes precedence over the profile allow rules. microsandbox matches the
   first applicable rule, and the deny entries were emitted after the profile's broad allow, so under `public`,
   `private`, or `host` (and the default) an `egress-deny` entry silently blocked nothing. The generated rule order is now

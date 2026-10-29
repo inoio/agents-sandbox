@@ -63,7 +63,7 @@ Arguments after `--` are forwarded to the agent. Arguments before `--` that don'
 | `--workspace-quota` | — | `16G` | Guest-write quota for the `/workspace` bind mount (e.g. `32G`), bounding writes on top of the host repo. Applied at VM creation; a change triggers recreation. An invalid value is rejected with an error. |
 | `--dry-run-vm` | —     | `false`  | Skip the VM lifecycle but prepare everything else. A project without a home volume gets none: creating it needs a VM, so the first run with a VM creates it. |
 | `--serve-only` | `-s`  | `false`  | Start the agent server published on host loopback at a dynamically allocated host port (no in-VM TUI); press `Ctrl-D` to exit, or send `SIGINT`/`SIGTERM` when stdin is not a terminal. The printed `http://127.0.0.1:<port>` URL is authoritative — use it (rather than assuming a fixed port) to connect from clients like Opencode Desktop. Set `OPENCODE_SERVER_PASSWORD` for basic auth (opencode); opencode2's server requires the baked credential `opencode:opencode` (username:password). |
-| `--agent`      | —     | `opencode2` | Coding-agent profile to run: `opencode`, `opencode2` (default), `pi`, `claude-code`, or `codex`.                                                                |
+| `--agent`      | —     | `opencode2` | Coding-agent profile to run: `opencode`, `opencode2` (default), `pi`, `claude-code`, `codex`, or `hermes`.                                                      |
 | `--notify`     | —     | `off`     | Notify on session status: `on`, `off`, `desktop`, or `audio` (bare `--notify` = `on`). Overridable via `AGENTS_SANDBOX_NOTIFY`. Only applies to the `opencode` and `opencode2` agents (the only agents with a session event stream). |
 | `--open-links` | —    | `true`   | Open links from the VM (`xdg-open`) in the host's browser; `--open-links=false` turns it off. Overridable via `AGENTS_SANDBOX_OPEN_LINKS`. See [Opening links]({% link configuration/opening-links.md %}). |
 | `--docker`     | —     | `false`  | Bake the Docker engine into the runner image; overrides the project Dockerfile's declaration in both directions (`--dind` is a deprecated alias)                                                               |
@@ -110,7 +110,7 @@ agents-sandbox build --agent-version 0.5.0  # pin a specific agent version
 |----------------------|-------|----------|-----------------------------------------------------------------|
 | `--rebuild`          | `-r`  | `false`  | Force a clean rebuild that pulls the latest base image          |
 | `--dry-run`          | `-n`  | `false`  | Dry run without building or installing the microsandbox runtime |
-| `--agent`            | —     | `opencode2` | Coding-agent profile to build: `opencode`, `opencode2` (default), `pi`, `claude-code`, or `codex`. |
+| `--agent`            | —     | `opencode2` | Coding-agent profile to build: `opencode`, `opencode2` (default), `pi`, `claude-code`, `codex`, or `hermes`. |
 | `--agent-version`    | —     | `""`     | Pin the version agents-sandbox installs into the image (default: latest). Ignored for a user-provided agent |
 | `--docker`           | —     | `false`  | Bake the Docker engine into the runner image; overrides the project Dockerfile's declaration in both directions (`--dind` is a deprecated alias) |
 
@@ -133,7 +133,7 @@ agents-sandbox build dockerfile --agent claude-code
 
 | Flag              | Short | Default    | Purpose                                                     |
 |-------------------|-------|------------|-------------------------------------------------------------|
-| `--agent`         | —     | `opencode2` | Coding-agent profile to build: `opencode`, `opencode2`, `pi`, `claude-code`, or `codex`. |
+| `--agent`         | —     | `opencode2` | Coding-agent profile to build: `opencode`, `opencode2`, `pi`, `claude-code`, `codex`, or `hermes`. |
 | `--agent-version` | —     | `""`       | Pin the agent version rendered into the preview (default: no pinned default) |
 | `--docker`        | —     | `false`    | Bake the Docker engine into the runner image; overrides the project Dockerfile's declaration in both directions (`--dind` is a deprecated alias) |
 
@@ -418,7 +418,7 @@ agents-sandbox config agent --agent pi
 
 | Flag       | Short | Default    | Purpose                                                                 |
 |------------|-------|------------|-------------------------------------------------------------------------|
-| `--agent`  | —     | `opencode2` | Coding-agent profile to inspect: `opencode`, `opencode2` (default), `pi`, `claude-code`, or `codex`. |
+| `--agent`  | —     | `opencode2` | Coding-agent profile to inspect: `opencode`, `opencode2` (default), `pi`, `claude-code`, `codex`, or `hermes`. |
 
 The agent is resolved from the `--agent` flag, then the positional `[name]`, then the configured agent, then `opencode2`. Passing both `--agent` and a positional `[name]` (conflicting values) returns an "ambiguous" error.
 

@@ -31,7 +31,9 @@ func (codexProfile) ImageSpec() ImageSpec {
 			`curl -fsSL "https://github.com/openai/codex/releases/download/rust-v${CODEX_VERSION}/codex-package-$(uname -m)-unknown-linux-musl.tar.gz" | ` +
 			`tar -xz -C /opt/agents-sandbox/codex && ` +
 			`ln -s ../codex/bin/codex /opt/agents-sandbox/bin/codex`,
-		RequiresNode: false,
+		RequiresNode:   false,
+		OwnedToolPaths: nil,
+		RuntimeLibs:    nil,
 	}
 }
 

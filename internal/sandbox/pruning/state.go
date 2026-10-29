@@ -13,28 +13,33 @@ import (
 // the private runtime home. ToPrune holds the project/agent keys whose project
 // VM is being reclaimed (a stale, stopped VM) with its handle; ToKeep holds the
 // keys that have a live, kept project VM. A key in neither set has no project VM
-// at all, so its cached artifacts (e.g. runner images, unrecorded home volumes)
-// are dangling and can be reclaimed. Tasks holds the transient task sandboxes to
-// reclaim; they are deliberately kept out of the key maps so a leftover task can
-// never mark its still-active project as stale.
+// at all, so its cached artifacts (e.g. its home volume) are dangling and can be
+// reclaimed. RetainKeys holds the keys the current invocation is about to use
+// (a `run`/`shell` passes its own project key): their runner images are never
+// reclaimed regardless of VM liveness or age, so a run never destroys the image
+// it is about to import. Tasks holds the transient task sandboxes to reclaim;
+// they are deliberately kept out of the key maps so a leftover task can never
+// mark its still-active project as stale.
 //
 // Age is the staleness threshold the snapshot was built with, reused by image
-// retention as the window in which a live project's cached image variant counts
-// as reusable. A zero Age disables recency retention, so callers must build the
+// retention as the window in which a project's cached image variant counts as
+// reusable. A zero Age disables recency retention, so callers must build the
 // state via buildPruneState rather than constructing a PruneState literal.
 type PruneState struct {
-	Age     time.Duration
-	ToPrune map[state.Key]msb.SandboxHandle
-	ToKeep  map[state.Key]msb.SandboxHandle
-	Tasks   []msb.SandboxHandle
+	Age        time.Duration
+	ToPrune    map[state.Key]msb.SandboxHandle
+	ToKeep     map[state.Key]msb.SandboxHandle
+	RetainKeys map[state.Key]struct{}
+	Tasks      []msb.SandboxHandle
 }
 
 func buildPruneState(ctx context.Context, age time.Duration) (PruneState, error) {
 	result := PruneState{
-		Age:     age,
-		ToPrune: map[state.Key]msb.SandboxHandle{},
-		ToKeep:  map[state.Key]msb.SandboxHandle{},
-		Tasks:   nil,
+		Age:        age,
+		ToPrune:    map[state.Key]msb.SandboxHandle{},
+		ToKeep:     map[state.Key]msb.SandboxHandle{},
+		RetainKeys: nil,
+		Tasks:      nil,
 	}
 	handles, err := msb.Get().ListSandboxes(ctx, nil)
 	if err != nil {
@@ -62,6 +67,19 @@ func buildPruneState(ctx context.Context, age time.Duration) (PruneState, error)
 		result.ToKeep[key] = h
 	}
 	return result, nil
+}
+
+// keySet indexes keys for membership tests, returning nil for none so a caller
+// can assign it straight into PruneState.RetainKeys.
+func keySet(keys []state.Key) map[state.Key]struct{} {
+	if len(keys) == 0 {
+		return nil
+	}
+	set := make(map[state.Key]struct{}, len(keys))
+	for _, key := range keys {
+		set[key] = struct{}{}
+	}
+	return set
 }
 
 // noteIdentity resolves a sandbox's project key and kind, reading its labels

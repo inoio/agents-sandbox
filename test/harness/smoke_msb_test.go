@@ -33,7 +33,8 @@ const (
 	// settledReadyTimeout bounds the readiness wait for a harness whose TUI
 	// keeps the terminal's normal buffer, where no marker announces that its UI
 	// is up. It covers the launcher's image load and VM start — about 14s on a
-	// cold host when the image prebuild has already run — with margin.
+	// cold host when the image prebuild has already run — with margin. A harness
+	// whose runner image loads far slower overrides it (see harnessSpec.ReadyTimeout).
 	settledReadyTimeout = 25 * time.Second
 	// prepareTimeout bounds the one-off launcher build and the per-harness
 	// runner-image prebuild every subtest shares.
@@ -92,6 +93,9 @@ func TestHarnessSmoke(t *testing.T) {
 			network = networkNone
 		}
 		t.Run(name, func(t *testing.T) {
+			if err := seedHomeFiles(root, spec.SeedHomeFiles); err != nil {
+				t.Fatalf("seed %s home files: %v", name, err)
+			}
 			ses := mustStartUnderPTY(
 				t, projectDir(root, name),
 				isolatedEnv(root, os.Environ()),
@@ -138,13 +142,17 @@ func quit(ses *ptySession, spec harnessSpec) (int, error) {
 	}
 }
 
-// waitReady blocks until the harness can be driven with its quit key. A
-// harness that takes over the alternate screen announces its UI is up; one that
-// keeps the terminal's normal buffer has no such marker, so it is given the
+// waitReady blocks until the harness can be driven with its quit key. A harness
+// with a readiness marker announces its UI as soon as that line is printed; one
+// that takes over the alternate screen announces it with the screen; one that
+// keeps the terminal's normal buffer and has neither marker is given the
 // launcher's start-up time instead.
 func waitReady(ses *ptySession, spec harnessSpec) error {
+	if spec.ReadyMarker != "" {
+		return ses.waitForMarker(spec.ReadyMarker, spec.readyTimeout(settledReadyTimeout))
+	}
 	if spec.KeepsNormalBuffer {
-		return ses.waitSettled(settledReadyTimeout)
+		return ses.waitSettled(spec.readyTimeout(settledReadyTimeout))
 	}
 	return ses.waitForTUI(tuiReadyTimeout)
 }

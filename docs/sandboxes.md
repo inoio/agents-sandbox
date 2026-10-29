@@ -75,15 +75,15 @@ Pruning removes:
 - Stale sandboxes (not active in the age threshold) and everything they reference; task sandboxes count into the
   sandbox total. A stale sandbox's home volumes and images are reclaimed based on the snapshot taken at prune time,
   even if the sandbox's own removal fails.
-- Dangling runner images of projects whose sandbox is gone (for example, after `kill --force`, or a prune whose image
-  removal failed). The prune snapshot tracks which slugs have a live sandbox, so it can tell a live project apart from
-  a sandbox-less one and reclaim the latter's cached images.
-- Surplus msb images of a project that still has a sandbox. Retained are the runner-image variants a kept sandbox
-  currently references and the ones the project used within the age threshold (a stopped-not-yet-stale sandbox may still
-  point at a pre-redesign digest ref); every other ref (orphaned content, aged-out variants, old digest refs no sandbox
-  uses) is reclaimed. Only runner images are considered — a reference whose parsed slug does not embed the launcher's
-  14-character hash (a manually loaded single-segment image, or a registry image) is left untouched, the same ownership
-  boundary `image list` and `image remove` enforce.
+- Runner images of projects whose sandbox is gone, once they age out of the threshold (for example, after `kill --force`,
+  or a prune whose image removal failed). A project keeps its cached image while it is within the age even with no
+  running sandbox, so a `build` followed by a `run` reuses the built image instead of reimporting it; the auto-prune a
+  `run`/`shell` starts with never reclaims the image it is about to use. Retained are the variants a kept sandbox
+  currently references, the current invocation's own project key, and the ones the project used within the age threshold
+  (a stopped-not-yet-stale sandbox may still point at a pre-redesign digest ref); every other ref (a pruned key's,
+  orphaned content, aged-out variants, old digest refs no sandbox uses) is reclaimed. Only runner images are considered —
+  a reference whose parsed slug does not embed the launcher's 14-character hash (a manually loaded single-segment image,
+  or a registry image) is left untouched, the same ownership boundary `image list` and `image remove` enforce.
 - Dangling Docker images: after a rebuild the previous runner image is no longer referenced by any tag and is reclaimed
   by a scoped Docker image prune. Tagged images (base images and the current `:latest` runner) are left untouched.
 - Unused runtime RAM: the published branch/snapshot memory backings that no live VM holds and that are older than the
@@ -94,7 +94,8 @@ Pruning removes:
 Age is applied when deciding which sandboxes are stale, and that decision is shared across sandboxes and home volumes:
 a project whose sandbox has activity in the age threshold is left alone entirely. Home volumes are reclaimed only when
 the project's sandbox is actually pruned (never for a merely sandbox-less project, since they hold user data), while
-runner images of a sandbox-less project are reclaimed because they can always be rebuilt.
+runner images of a sandbox-less project are reclaimed once they age out — they can always be rebuilt, but a recent build
+is kept so the next run reuses it instead of reimporting it.
 
 Auto-pruning runs before run commands (for example, `agents-sandbox`, `agents-sandbox run`, `agents-sandbox sandbox run`)
 via `sync.Once`. It uses a fixed default threshold of 30 days unless `auto-prune-age` is set in config.
@@ -243,8 +244,8 @@ Home volumes are pruned when:
 
 ## Idle timeout: when a sandbox stops
 
-opencode is the only agent that waits for its sessions to finish before the sandbox stops; opencode2, pi, and Claude
-Code skip that wait and stop as soon as the idle timeout expires. The idle timeout is `auto-stop-timeout`, which
+opencode is the only agent that waits for its sessions to finish before the sandbox stops; opencode2, pi, Claude
+Code, codex, and hermes skip that wait and stop as soon as the idle timeout expires. The idle timeout is `auto-stop-timeout`, which
 defaults to 10 seconds.
 
 When the last client detaches, the sandbox is not stopped immediately. The launcher first evaluates

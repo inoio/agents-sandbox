@@ -5,6 +5,7 @@ import "testing"
 func TestVersionProviderForBuiltIns(t *testing.T) {
 	for name, wantCmd := range map[string]string{
 		"opencode":    "opencode --version",
+		"opencode2":   "opencode2 --version",
 		"pi":          "pi --version",
 		"claude-code": "claude --version",
 	} {
@@ -23,7 +24,7 @@ func TestVersionProviderForBuiltIns(t *testing.T) {
 }
 
 func TestVersionProvidersParseVersion(t *testing.T) {
-	for _, name := range []string{"opencode", "pi", "claude-code"} {
+	for _, name := range []string{"opencode", "opencode2", "pi", "claude-code"} {
 		a, ok := Lookup(name)
 		if !ok {
 			t.Fatalf("agent %q not registered", name)

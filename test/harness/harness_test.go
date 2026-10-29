@@ -1,9 +1,13 @@
 package harness
 
 import (
+	"errors"
+	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
+	"time"
 
 	"github.com/inoio/agents-sandbox/internal/agent"
 )
@@ -32,6 +36,178 @@ func TestHarnessSpecsQuitKeyNonEmpty(t *testing.T) {
 		if len(spec.QuitKey) == 0 {
 			t.Errorf("harness %q has no key for the smoke test to press", name)
 		}
+	}
+}
+
+// TestReadyTimeoutPrefersThePerHarnessOverride pins the readiness-budget
+// selection: a spec that names an override uses it, and one that leaves it
+// unset falls back to the shared default.
+func TestReadyTimeoutPrefersThePerHarnessOverride(t *testing.T) {
+	const fallback = 25 * time.Second
+
+	if got := (harnessSpec{ReadyTimeout: 90 * time.Second}).readyTimeout(fallback); got != 90*time.Second {
+		t.Errorf("readyTimeout() = %s, want the override 90s", got)
+	}
+	if got := (harnessSpec{}).readyTimeout(fallback); got != fallback {
+		t.Errorf("readyTimeout() = %s, want the fallback %s", got, fallback)
+	}
+	// The smallest positive override must win over the fallback: a
+	// truthiness test (`> 1`) would drop it.
+	if got := (harnessSpec{ReadyTimeout: time.Nanosecond}).readyTimeout(fallback); got != time.Nanosecond {
+		t.Errorf("readyTimeout() = %s, want the nanosecond override", got)
+	}
+}
+
+// TestHeavyweightReadyTimeoutIsTheDocumentedCeiling pins the readiness ceiling
+// hermes' slower startup is given: it is a wall-clock budget, so its value is
+// the contract (a smaller one would fail a slow cold start).
+func TestHeavyweightReadyTimeoutIsTheDocumentedCeiling(t *testing.T) {
+	if heavyweightReadyTimeout != 120*time.Second {
+		t.Errorf("heavyweightReadyTimeout = %s, want 120s", heavyweightReadyTimeout)
+	}
+}
+
+// TestHermesSeedsAConfiguredHomeAndMarker pins how the smoke test reaches
+// hermes' interactive REPL without a real credential: it seeds a home config
+// that makes hermes consider a dummy, loopback provider configured and settles
+// its shared-metrics offer, and it waits for the CLI's startup banner instead of
+// a fixed settle. Without the seed hermes stops at its first-run setup guard and
+// exits 1; the banner is a stronger readiness signal than the wall-clock settle.
+func TestHermesSeedsAConfiguredHomeAndMarker(t *testing.T) {
+	spec, ok := harnessSpecs["hermes"]
+	if !ok {
+		t.Fatal("hermes has no smoke-test spec")
+	}
+	if !spec.KeepsNormalBuffer {
+		t.Error("hermes KeepsNormalBuffer = false; its classic CLI renders in the normal buffer")
+	}
+	if spec.ReadyMarker == "" {
+		t.Error("hermes ReadyMarker is empty; the classic CLI emits no alternate-screen marker to wait for")
+	}
+	if spec.ReadyTimeout != heavyweightReadyTimeout {
+		t.Errorf("hermes ReadyTimeout = %s, want %s", spec.ReadyTimeout, heavyweightReadyTimeout)
+	}
+	if spec.Network != "" {
+		t.Errorf("hermes Network = %q, want the default `none` (the seeded provider is loopback)", spec.Network)
+	}
+	cfg, ok := spec.SeedHomeFiles[hermesConfigPath]
+	if !ok {
+		t.Fatalf("hermes SeedHomeFiles missing %s", hermesConfigPath)
+	}
+	for _, want := range []string{"model:", "base_url:", "telemetry:", "shared_metrics:", "offer_version:"} {
+		if !strings.Contains(cfg, want) {
+			t.Errorf("hermes seeded config missing %q:\n%s", want, cfg)
+		}
+	}
+}
+
+// TestClaudeCodeReadiesOnAMarker pins that claude-code's normal-buffer renderer
+// also readies on a startup marker, rather than its subtest waiting out the
+// whole settle.
+func TestClaudeCodeReadiesOnAMarker(t *testing.T) {
+	spec, ok := harnessSpecs["claude-code"]
+	if !ok {
+		t.Fatal("claude-code has no smoke-test spec")
+	}
+	if !spec.KeepsNormalBuffer {
+		t.Error("claude-code KeepsNormalBuffer = false; its renderer keeps the normal buffer")
+	}
+	if spec.ReadyMarker == "" {
+		t.Error("claude-code ReadyMarker is empty; its subtest would wait out the settle")
+	}
+}
+
+// TestSeedHomeFiles pins that seeds are written under the isolated HOME
+// (<root>/home/...) with parents created, so the launcher provisions them into
+// the VM.
+func TestSeedHomeFiles(t *testing.T) {
+	root := t.TempDir()
+	files := map[string]string{
+		hermesConfigPath: "model: {}\n",
+		".config/x":      "y",
+	}
+	if err := seedHomeFiles(root, files); err != nil {
+		t.Fatalf("seedHomeFiles: %v", err)
+	}
+	for rel, want := range files {
+		got, err := os.ReadFile(filepath.Join(root, homeDirName, rel))
+		if err != nil {
+			t.Fatalf("read %s: %v", rel, err)
+		}
+		if string(got) != want {
+			t.Errorf("%s = %q, want %q", rel, got, want)
+		}
+	}
+}
+
+// TestSeedHomeFilesReportsFailures pins both failure surfaces: a parent that
+// cannot be created, and a target that cannot be written. Each error names the
+// seed it was writing and preserves the filesystem cause, so the smoke test
+// reports why provisioning failed rather than a bare message.
+func TestSeedHomeFilesReportsFailures(t *testing.T) {
+	t.Run("parent cannot be created", func(t *testing.T) {
+		root := t.TempDir()
+		// A file where the seed's parent directory must go makes MkdirAll fail.
+		if err := os.WriteFile(filepath.Join(root, homeDirName), []byte("x"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		err := seedHomeFiles(root, map[string]string{hermesConfigPath: "y"})
+		if err == nil {
+			t.Fatal("seedHomeFiles = nil, want an error when a parent cannot be created")
+		}
+		if !strings.Contains(err.Error(), "create parent for .hermes") {
+			t.Errorf("seedHomeFiles error %q, want it to name the parent it could not create", err)
+		}
+		if !errors.Is(err, syscall.ENOTDIR) {
+			t.Errorf("seedHomeFiles error %q, want it to wrap the filesystem cause ENOTDIR", err)
+		}
+	})
+	t.Run("target cannot be written", func(t *testing.T) {
+		root := t.TempDir()
+		// A directory at the target path makes the file write fail.
+		if err := os.MkdirAll(filepath.Join(root, homeDirName, ".hermes", "config.yaml"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		err := seedHomeFiles(root, map[string]string{hermesConfigPath: "y"})
+		if err == nil {
+			t.Fatal("seedHomeFiles = nil, want an error when the target cannot be written")
+		}
+		if !strings.Contains(err.Error(), "write .hermes/config.yaml") {
+			t.Errorf("seedHomeFiles error %q, want it to name the file it could not write", err)
+		}
+		if !errors.Is(err, syscall.EISDIR) {
+			t.Errorf("seedHomeFiles error %q, want it to wrap the filesystem cause EISDIR", err)
+		}
+	})
+}
+
+// TestSeedHomeFilesUsesPrivateModes pins the modes the seed writes with through
+// the filesystem seams, so the assertion does not depend on the process umask:
+// the seeded parent directory is group-traversable but not world-readable, and
+// the file is owner-only.
+func TestSeedHomeFilesUsesPrivateModes(t *testing.T) {
+	root := t.TempDir()
+
+	var dirMode, fileMode os.FileMode
+	originalMkdirAll, originalWriteFile := mkdirAll, writeFile
+	t.Cleanup(func() { mkdirAll, writeFile = originalMkdirAll, originalWriteFile })
+	mkdirAll = func(path string, perm os.FileMode) error {
+		dirMode = perm
+		return os.MkdirAll(path, perm)
+	}
+	writeFile = func(name string, data []byte, perm os.FileMode) error {
+		fileMode = perm
+		return os.WriteFile(name, data, perm)
+	}
+
+	if err := seedHomeFiles(root, map[string]string{hermesConfigPath: "model: {}\n"}); err != nil {
+		t.Fatalf("seedHomeFiles: %v", err)
+	}
+	if dirMode != 0o750 {
+		t.Errorf("seed parent mode = %#o, want 0o750", dirMode)
+	}
+	if fileMode != 0o600 {
+		t.Errorf("seed file mode = %#o, want 0o600", fileMode)
 	}
 }
 

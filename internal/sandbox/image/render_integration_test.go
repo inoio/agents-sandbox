@@ -11,16 +11,54 @@ import (
 	"github.com/moby/moby/client"
 
 	"github.com/inoio/agents-sandbox/internal/agent"
+	"github.com/inoio/agents-sandbox/internal/configpaths"
 	"github.com/inoio/agents-sandbox/internal/sandbox/docker"
 	"github.com/inoio/agents-sandbox/internal/sandbox/options"
+	"github.com/inoio/agents-sandbox/internal/sandbox/state"
 )
 
-// TestRenderDockerfileBuilds builds a real image for every Dockerfile
-// composition case in RenderDockerfile, covering the matrix of:
-//
-//	{no project Dockerfile, managed baseRef, custom base} x {docker, no docker}
-//
-// plus the docker marker injection cases. These run real docker builds and are
+// integrationAgentVersion returns the release the integration image builds
+// should bake. It prefers the launcher's real upgrade cache (the machine-global
+// latest release the upgrade prompt offers), so a machine that has used the
+// agent needs no network. When the cache is empty — a fresh CI runner — it
+// resolves the release once through the agent's own latest-release check and
+// records it in the real root state, so the rest of the suite reuses it.
+func integrationAgentVersion(t *testing.T, a agent.Agent) string {
+	t.Helper()
+	configpaths.WithRealConfigPaths(t)
+
+	if version, cached := cachedAgentVersion(a); cached {
+		return version
+	}
+
+	version, err := agent.LatestVersion(context.Background(), a)
+	if err != nil {
+		t.Fatalf("resolve %s version: %v", a.Name(), err)
+	}
+	recordCachedAgentVersion(t, a, version)
+	return version
+}
+
+// recordCachedAgentVersion stores version as the agent's cached latest release so
+// a later integration test does not resolve it again. It preserves the existing
+// last_checked, so it does not suppress the developer's own upgrade check. A
+// write failure only logs: the test has its version either way.
+func recordCachedAgentVersion(t *testing.T, a agent.Agent, version string) {
+	t.Helper()
+	if _, err := state.WithRootState(true, func(tx *state.RootTxn) error {
+		check := tx.State().AgentCheck(a.Name())
+		check.LatestVersion = version
+		tx.State().SetAgentCheck(a.Name(), check)
+		return tx.Commit()
+	}); err != nil {
+		t.Logf("could not cache the %s release %q in the launcher root state: %v", a.Name(), version, err)
+	}
+}
+
+// TestRenderDockerfileBuilds builds a real image for the Dockerfile composition
+// cases TestRenderDockerfileBuildsEveryAgent does not cover: the
+// docker-enablement surface (config, marker, and the implied base-ref/dind
+// forms) and a custom tar-less base (#143). These run real docker builds and are
 // excluded from the main suite via the `integration` build tag; run with
 // `make test-integration`. They require a working docker daemon and network
 // access (base image pulls and the node/docker/agent installs baked into the
@@ -41,17 +79,13 @@ func TestRenderDockerfileBuilds(t *testing.T) {
 		t.Fatal("opencode agent not registered")
 	}
 
-	version, err := resolveAgentVersion(context.Background(), a, "")
-	if err != nil {
-		t.Fatalf("resolve agent version: %v", err)
-	}
+	version := integrationAgentVersion(t, a)
 
 	cases := []struct {
 		name              string
 		projectDockerfile []byte
 		docker            options.DockerSetting
 	}{
-		{"no-dockerfile", nil, dockerOff},
 		{"no-dockerfile-docker", nil, dockerOn},
 		{"managed-base", []byte("FROM agents-sandbox/runner-base:latest\nRUN echo managed\n"), dockerOff},
 		{
@@ -64,12 +98,6 @@ func TestRenderDockerfileBuilds(t *testing.T) {
 			[]byte("FROM agents-sandbox/runner-base-dind:latest\nRUN echo managed\n"),
 			dockerOff,
 		},
-		// The daemon agent's only checked guest runtime tool is curl; Fedora's
-		// base already ships curl and tar (procps is over-installed, no longer
-		// a requirement since the job owns daemon start/stop).
-		{"custom-base-fedora", []byte(
-			"FROM fedora:latest\n" +
-				"RUN dnf install -y curl tar procps-ng && dnf clean all\n"), dockerOff},
 		// #143: the image build's downloads run on the tool base, so a custom
 		// base needs no tar; curl is installed only because the daemon agent's
 		// in-VM runtime tool (curl) is checked at build time.
@@ -97,6 +125,61 @@ func TestRenderDockerfileBuilds(t *testing.T) {
 	}
 }
 
+// TestRenderDockerfileBuildsEveryAgent builds and runs every registered agent
+// profile on the launcher's managed base (a nil project Dockerfile; the sibling
+// test's `managed-base` case is the explicit runner-base ref instead) and on a
+// custom non-Debian base. The agent stage always builds on the Debian tool base,
+// so the custom base exercises the final-stage merge and the agent's *runtime*,
+// not its install: running the version probe in the built image catches a broken
+// binary. A base that supports hermes must provide libatomic.so.1 (the runner's
+// runtime-library check enforces it), so the custom base installs it; the
+// managed base carries it too.
+func TestRenderDockerfileBuildsEveryAgent(t *testing.T) {
+	origGet := docker.Get
+	docker.Get = docker.RealClient
+	t.Cleanup(func() { docker.Get = origGet })
+
+	bases := []struct {
+		name    string
+		project []byte
+	}{
+		{"managed", nil},
+		// Hermes's managed Node.js links libatomic.so.1 on glibc, so a custom base
+		// that runs hermes must provide it (the runner's build check fails naming
+		// it otherwise); the expected-failure guard proves that failure.
+		{"custom-fedora", []byte(
+			"FROM fedora:latest\n" +
+				"RUN dnf install -y curl libatomic && dnf clean all\n")},
+	}
+
+	for _, name := range agent.Names() {
+		a, ok := agent.Lookup(name)
+		if !ok {
+			t.Fatalf("agent %q not registered", name)
+		}
+		version := integrationAgentVersion(t, a)
+		for _, base := range bases {
+			t.Run(name+"/"+base.name, func(t *testing.T) {
+				tag := "agents-sandbox/it-all-" + sanitizeTag(name) + "-" + base.name
+				t.Cleanup(func() { removeTestImage(tag) })
+
+				buildDockerfileTag(
+					t,
+					a,
+					renderBytesVersion(t, a, version, base.project, dockerOff),
+					version,
+					false,
+					tag,
+				)
+
+				if got := imageAgentVersion(t, tag, a); got != version {
+					t.Errorf("%s on %s: built image reports agent version %q, want %q", name, base.name, got, version)
+				}
+			})
+		}
+	}
+}
+
 // TestRenderDockerfileMissingGuestToolFailsBuild is the expected-failure guard
 // for the in-VM runtime tool check: a custom base lacking a required tool must
 // fail the build naming the tool, not build successfully and then fail at the
@@ -110,10 +193,7 @@ func TestRenderDockerfileMissingGuestToolFailsBuild(t *testing.T) {
 	if !ok {
 		t.Fatal("opencode agent not registered")
 	}
-	version, err := resolveAgentVersion(context.Background(), a, "")
-	if err != nil {
-		t.Fatalf("resolve agent version: %v", err)
-	}
+	version := integrationAgentVersion(t, a)
 
 	ctx := context.Background()
 	if _, err := docker.Get().Ping(ctx, client.PingOptions{}); err != nil {
@@ -139,14 +219,60 @@ func TestRenderDockerfileMissingGuestToolFailsBuild(t *testing.T) {
 	}
 }
 
+// TestRenderDockerfileMissingRuntimeLibFailsBuild is the expected-failure guard
+// for the agent runtime-library check: a custom base lacking the shared library
+// an agent's provisioned runtime links — hermes's managed Node.js needs
+// libatomic.so.1 on glibc — must fail the build naming the library, not build
+// successfully and then fail when the agent launches.
+func TestRenderDockerfileMissingRuntimeLibFailsBuild(t *testing.T) {
+	origGet := docker.Get
+	docker.Get = docker.RealClient
+	t.Cleanup(func() { docker.Get = origGet })
+
+	a, ok := agent.Lookup("hermes")
+	if !ok {
+		t.Fatal("hermes agent not registered")
+	}
+	version := integrationAgentVersion(t, a)
+
+	ctx := context.Background()
+	if _, err := docker.Get().Ping(ctx, client.PingOptions{}); err != nil {
+		t.Skipf("docker daemon not available: %v", err)
+	}
+
+	// debian:trixie-slim ships no libatomic.so.1, so the runner's library check
+	// must stop the build. The hermes install in the agent stage runs first, so
+	// this build is slow.
+	tag := "agents-sandbox/it-missing-runtime-lib"
+	t.Cleanup(func() { removeTestImage(tag) })
+
+	var lines []string
+	buildErr := buildImage(
+		ctx, a,
+		renderBytesVersion(t, a, version, []byte("FROM debian:trixie-slim\n"), dockerOff),
+		tag, false, version, "", "", false, imageIdentity{},
+		func(s string) { lines = append(lines, s) },
+	)
+	if buildErr == nil {
+		t.Fatal("the build must fail when the base lacks the agent's runtime library")
+	}
+	if out := strings.Join(lines, "\n"); !strings.Contains(out, "agent runtime library missing: libatomic.so.1") {
+		t.Errorf("the failed build must name the missing library; output:\n%s", out)
+	}
+}
+
 // TestRenderDockerfileNodeAgentNodeRuns is the regression guard for #132: a
-// node-dependent agent installed onto the managed base must leave a working
-// node/npm. The managed base does not install libatomic1, so a node tarball with
-// a hard DT_NEEDED on libatomic.so.1 builds (for a native agent like opencode)
-// but cannot start, and the npm agent's install RUN then fails the whole build.
-// The pinned node must therefore be a release without that dependency; here we
-// build pi (the only agent that needs node, an npm-installed node bundle) on the
-// managed base and run node/npm in the resulting image.
+// node-dependent agent must leave a working node/npm. A node tarball with a hard
+// DT_NEEDED on libatomic.so.1 builds (for a native agent like opencode) but cannot
+// start, and the npm agent's install RUN then fails the whole build. The pinned
+// node must therefore be a release without that dependency; here we build pi (the
+// only agent that needs node, an npm-installed node bundle) and run node/npm in
+// the resulting image.
+//
+// The managed base carries libatomic1 for hermes, so it no longer exposes that
+// dependency. The libatomic-free custom base is what keeps the guard meaningful:
+// it follows the documented contract that a custom base needs no extra library to
+// run the tool-installed node, and the test first proves the library is absent.
 //
 // TestRenderDockerfileBuilds only builds opencode, a native Bun binary that does
 // not exercise node at all, which is why it did not catch #132.
@@ -159,21 +285,50 @@ func TestRenderDockerfileNodeAgentNodeRuns(t *testing.T) {
 	if !ok {
 		t.Fatal("pi agent not registered")
 	}
-	version, err := resolveAgentVersion(context.Background(), a, "")
-	if err != nil {
-		t.Fatalf("resolve agent version: %v", err)
+	version := integrationAgentVersion(t, a)
+
+	bases := []struct {
+		name           string
+		project        []byte
+		lacksLibatomic bool
+	}{
+		{"managed", nil, false},
+		{"custom-libatomic-free", []byte(
+			"FROM debian:trixie-slim\n" +
+				"RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl && " +
+				"rm -rf /var/lib/apt/lists/*\n"), true},
 	}
+	for _, base := range bases {
+		t.Run(base.name, func(t *testing.T) {
+			tag := "agents-sandbox/it-npm-agent-node-" + base.name
+			t.Cleanup(func() { removeTestImage(tag) })
 
-	tag := "agents-sandbox/it-npm-agent-node"
-	t.Cleanup(func() { removeTestImage(tag) })
+			buildDockerfileTag(t, a, renderBytesVersion(t, a, version, base.project, dockerOff), version, false, tag)
 
-	buildDockerfileTag(t, a, renderBytes(t, a, nil, dockerOff), version, false, tag)
+			if base.lacksLibatomic {
+				requireLibraryAbsent(t, tag, "libatomic.so.1")
+			}
+			for _, command := range []string{"node --version", "npm --version"} {
+				out, err := exec.Command("docker", "run", "--rm", tag, "bash", "-lc", command).CombinedOutput()
+				if err != nil {
+					t.Errorf("%q failed in the built image: %v\n%s", command, err, out)
+				}
+			}
+		})
+	}
+}
 
-	for _, command := range []string{"node --version", "npm --version"} {
-		out, err := exec.Command("docker", "run", "--rm", tag, "bash", "-lc", command).CombinedOutput()
-		if err != nil {
-			t.Errorf("%q failed in the built image: %v\n%s", command, err, out)
-		}
+// requireLibraryAbsent fails the test when the image's dynamic linker cache
+// lists library, so a guard that depends on its absence cannot silently pass
+// against a base that provides it.
+func requireLibraryAbsent(t *testing.T, tag, library string) {
+	t.Helper()
+	out, err := exec.Command("docker", "run", "--rm", tag, "/usr/sbin/ldconfig", "-p").CombinedOutput()
+	if err != nil {
+		t.Fatalf("listing the linker cache failed: %v\n%s", err, out)
+	}
+	if strings.Contains(string(out), library) {
+		t.Fatalf("the base must not provide %s for this guard to be meaningful:\n%s", library, out)
 	}
 }
 
@@ -192,10 +347,7 @@ func TestRenderDockerfileToolLayersStayCached(t *testing.T) {
 	if !ok {
 		t.Fatal("pi agent not registered")
 	}
-	version, err := resolveAgentVersion(context.Background(), a, "")
-	if err != nil {
-		t.Fatalf("resolve agent version: %v", err)
-	}
+	version := integrationAgentVersion(t, a)
 
 	base := []byte(
 		"FROM fedora:latest\n" +
@@ -402,10 +554,7 @@ func TestRenderDockerfileLoginShellHasImagePath(t *testing.T) {
 	t.Cleanup(func() { docker.Get = origGet })
 
 	a, _ := agent.Lookup("opencode")
-	version, err := resolveAgentVersion(context.Background(), a, "")
-	if err != nil {
-		t.Fatalf("resolve agent version: %v", err)
-	}
+	version := integrationAgentVersion(t, a)
 	project := []byte("FROM agents-sandbox/runner-base:latest\nENV PATH=\"/opt/my-tools:${PATH}\"\n")
 
 	tag := "agents-sandbox/it-login-path"
@@ -441,10 +590,7 @@ func TestRenderDockerfileTrustHelperRunsInImage(t *testing.T) {
 	if !ok {
 		t.Fatal("opencode agent not registered")
 	}
-	version, err := resolveAgentVersion(context.Background(), a, "")
-	if err != nil {
-		t.Fatalf("resolve agent version: %v", err)
-	}
+	version := integrationAgentVersion(t, a)
 
 	tag := "agents-sandbox/it-trust-helper"
 	t.Cleanup(func() { removeTestImage(tag) })

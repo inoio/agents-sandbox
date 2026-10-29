@@ -1,6 +1,6 @@
 ---
 description: Contract for how the per-project runner Dockerfile is composed into per-tool multistage stages so tool-owned layers (apt tools, node, agent, docker) cache independently of the user body, the base, and each other; includes when the node stage is emitted (agent node dependency), the native vs npm agent install methods, and the `dind` → `docker` rename with deprecated aliases.
-read_if: Changing RenderDockerfile/stage composition, image layer caching, which agents need node, agent install methods (native installer vs npm), the dind/docker switch or marker, the Dockerfile-content docker enablement, its explicit-config precedence and the shared docker/dind source precedence (`viperconfig.EffectiveDockerSource`), the unified dockerfile diagnostics, custom-base handling, the node pin/libatomic dependency (node-removal direction), tool install paths (/opt/agents-sandbox), login-shell PATH handling (AGENTS_SANDBOX_IMAGE_PATH, the /etc/profile.d merge script), or the dockerd vfs storage driver.
+read_if: Changing RenderDockerfile/stage composition, image layer caching, which agents need node, agent install methods (native installer vs npm), the `ImageSpec.OwnedToolPaths` ownership handover or `agentOwnershipBlock`, the dind/docker switch or marker, the Dockerfile-content docker enablement, its explicit-config precedence and the shared docker/dind source precedence (`viperconfig.EffectiveDockerSource`), the unified dockerfile diagnostics, custom-base handling, the node pin/libatomic dependency (node-removal direction), tool install paths (/opt/agents-sandbox), login-shell PATH handling (AGENTS_SANDBOX_IMAGE_PATH, the /etc/profile.d merge script), or the dockerd vfs storage driver.
 ---
 
 # Runner image composition and tool-layer caching
@@ -43,6 +43,15 @@ The tool stages build on the tool-owned `agents-sandbox-toolbase` (a pinned `deb
 `ca-certificates`, and `tar`), not on the user's base, so a custom base needs neither `curl` nor `tar` inside the image
 and the tool layers cache across bases. The tool base is never part of the runner's lineage; the runner still builds on
 `agents-sandbox-base` (the managed block or the custom base).
+
+**Tool-tree ownership handover.** A `COPY --from=agents-sandbox-agent /opt/agents-sandbox` preserves the source stage's
+root ownership. An agent whose install self-writes at runtime (Hermes keeps its dependency ledger and bytecode markers in
+its checkout) declares the affected paths in `ImageSpec.OwnedToolPaths`; the runner emits `agentOwnershipBlock` — a
+`USER root` + `RUN chown -R dev:$(id -g dev) <paths>` — after the `COPY` and before `finalizationBlock` switches to
+`USER dev`. It resolves the group from the `dev` user's own entry rather than assuming a `dev` group or the
+`USER_UID`/`USER_GID` build args: `devUserBlock` skips creation entirely when a custom base already provides `dev`
+(which need not come with a `dev` group, so `dev:dev` would fail the build), and `groupadd -f` can leave the `dev` group
+on a GID other than a pinned host GID. Agents that declare no paths emit nothing.
 
 ### Pinned versions are rendered into the content
 
@@ -106,16 +115,20 @@ The node stage exists to install/run npm-based agents.
   the install `RUN`, and is still folded into the `dockerfile-id`. Agent version discovery stays a host-side HTTP query
   (npm registry / pi.dev); it never runs in the image.
 - Keep the pin **below v25**; it sits on the **v24 LTS line (`v24.22.1`)**. Node v25 and v26 official tarballs carry a
-  hard `DT_NEEDED` on `libatomic.so.1`, which the managed base (and most custom bases) does not provide, so on the managed
-  base the npm agent's install `RUN` (which invokes `node` via npm's shebang) failed the build, and a native-agent image
+  hard `DT_NEEDED` on `libatomic.so.1`, which most custom bases do not provide (the managed base did not either before it
+  gained `libatomic1` for hermes), so on such a base the npm agent's install `RUN` (which invokes `node` via npm's shebang) failed the build, and a native-agent image
   left a `node`/`npx` that could not start ([#132](https://github.com/inoio/agents-sandbox/issues/132)). v24 has no
   libatomic dependency on x86_64 or arm64. There is **no solution yet for custom bases** that need node >= 25. Every npm
   agent satisfies v24 (`pi` `>=22.19.0`, `claude-code` `>=22.0.0`; `opencode2` unconstrained) — the earlier `v22.14.0`
   pin failed only because it was below pi's `>=22.19.0`.
-- Regression guard: `TestRenderDockerfileNodeAgentNodeRuns` (integration) builds an npm agent on the managed base and runs
-  `node --version`/`npm --version` in the image; `TestRenderDockerfileBuilds` builds only the native `opencode`, so it
-  cannot catch a broken node. A future pin that reintroduces libatomic must add `libatomic1` to the embedded base (a
-  documented custom-base requirement) or the test fails.
+- Regression guard: `TestRenderDockerfileNodeAgentNodeRuns` (integration) builds an npm agent on the managed base and on
+  a libatomic-free custom base (`debian:trixie-slim`, whose lack of `libatomic.so.1` the test asserts first) and runs
+  `node --version`/`npm --version` in each image; the custom case is the one that guards the pin now that the managed base
+  carries `libatomic1`, and `TestRenderDockerfileBuildsEveryAgent` (integration) builds and runs
+  every profile — including the npm agent `pi`, whose version probe executes its node bundle — on the managed and a custom
+  non-Debian base; a suite that built only the native `opencode` could not catch a broken node. A future pin that
+  reintroduces libatomic fails the libatomic-free case; accepting it would make `libatomic` a documented custom-base
+  requirement for every node agent, not only hermes.
 - Direction: don't depend on node where possible, for image size/build speed
   ([#133](https://github.com/inoio/agents-sandbox/issues/133)). opencode v1, opencode2, and claude-code each ship a native
   installer (`curl | bash`) needing no node at install or runtime; **pi still needs node** (its installer calls
@@ -196,6 +209,16 @@ On top of the agent's tools, the launcher declares its own in-VM tools (`launche
 in the same final stage. Today that is `curl`: the host opener replays a browser-login callback inside the VM with it
 (#273). Because the opener is on by default, this check runs for every agent, including the daemonless ones, so a custom
 base without `curl` fails the image build naming the tool instead of failing at login time.
+
+The agent's **runtime shared libraries** are declared per agent (`ImageSpec.RuntimeLibs`) and rendered into the same final
+stage after the user body. They exist because the agent's runtime is installed in the agent stage on the tool base while
+the runner copies only the tool tree into the project's base, so a system library the runtime links is absent unless the
+base provides it: `hermes` declares `libatomic.so.1`, which its provisioned Node.js links on glibc and which the embedded
+managed block's `libatomic1` supplies. Unlike the tool check, the library check is glibc-only (the requirement is a glibc
+one), so a musl base is skipped rather than failed, and it resolves the library through `ldconfig` — located from `PATH`
+and then the standard sbin directories, so a base that narrows `PATH` to `/usr/bin` still verifies an installed library
+rather than reporting it missing — so a base that installs it in the body is accepted. It fails the build naming the
+library, so a custom base that runs `hermes` must provide it — the same custom-base contract as the node pin above.
 
 ## Naming: `docker` (renamed from `dind`)
 

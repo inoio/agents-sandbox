@@ -23,11 +23,10 @@ Two symptoms follow:
   image still carries a real-release label at that moment; otherwise the run builds and boots without writing it back,
   and the `build`/`run` paths never fill it either.
 
-`opencode2` is the profile where this always bites: it has no `agent.VersionProvider`, so `detectToolAgentVersion`
-returns no version and `recordImageProvenance` never writes `agent_version` for it. Its baseline is written only by
-recovery, while a fresh or repaired state deliberately leaves the field empty (`volume.EnsureNewHome`,
-`volume.recoveredHomeState`) on the assumption of a boot self-heal that opencode2 cannot perform. `opencode`, `pi`,
-and `claude-code` implement `VersionProvider` and are unaffected on that axis.
+Every built-in profile implements `agent.VersionProvider`, so `detectToolAgentVersion` returns a version and
+`recordImageProvenance` writes `agent_version` on boot. The failure this contract guards against is a profile without
+one: its baseline is written only by recovery, while a fresh or repaired state deliberately leaves the field empty
+(`volume.EnsureNewHome`, `volume.recoveredHomeState`) on the assumption of a boot self-heal it cannot perform.
 
 ## Contract
 
@@ -76,8 +75,8 @@ and `claude-code` implement `VersionProvider` and are unaffected on that axis.
 ### Boot provenance
 
 - `recordImageProvenance` remains a boot-time reconciler, but it must not be the only writer for any profile. Every
-  tool-managed profile needs a version source: a `VersionProvider` (in-VM detection) or the image label. `opencode2`
-  needs one of these so the "left empty on a fresh/repaired state, self-healed on boot" assumption holds for it.
+  built-in profile implements `agent.VersionProvider` (in-VM detection) alongside the image label, so the "left empty on
+  a fresh/repaired state, self-healed on boot" assumption holds for all of them.
 
 ## Invariants
 
@@ -112,4 +111,5 @@ and `claude-code` implement `VersionProvider` and are unaffected on that axis.
 - `run --agent-version V` followed by an unpinned `run`: the image stays on V.
 - Delete `agent_version` with the image present, then run: the field is rewritten to the image's release.
 - `build --agent-version V` followed by `run`: no downgrade.
-- `opencode`, `pi`, and `claude-code` keep their current behavior; no extra network request.
+- Every built-in profile (`opencode`, `opencode2`, `pi`, `claude-code`, `codex`, `hermes`) records its baseline on boot;
+  recording adds an in-VM `--version` exec, never a network request.
