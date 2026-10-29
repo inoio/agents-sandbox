@@ -1,15 +1,18 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"os"
 	"os/exec"
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/inoio/agents-sandbox/internal/configpaths"
 	sandboxmsb "github.com/inoio/agents-sandbox/internal/sandbox/msb"
+	"github.com/inoio/agents-sandbox/internal/sandbox/state"
 	"github.com/inoio/agents-sandbox/internal/termio"
 )
 
@@ -107,6 +110,33 @@ func TestAutoPruneOutToVerboseRedirect(t *testing.T) {
 		if ui.VerboseCalls[i] != want[i] {
 			t.Errorf("VerboseCalls[%d] = %q; want %q", i, ui.VerboseCalls[i], want[i])
 		}
+	}
+}
+
+// TestRunInvokesStartupAutoPrune pins that a run reaches the startup prune and
+// passes its dry-run state through, so a real run still reclaims stale
+// sandboxes while a preview only reports what it would do.
+func TestRunInvokesStartupAutoPrune(t *testing.T) {
+	initTestProjectDir(t)
+
+	var called, gotDryRun bool
+	original := autoPrune
+	autoPrune = func(_ context.Context, _ time.Duration, dryRun bool, _ termio.UI, _ ...state.Key) {
+		called = true
+		gotDryRun = dryRun
+	}
+	t.Cleanup(func() { autoPrune = original })
+
+	mock := &sandboxmsb.MockMsbClient{}
+	root, _ := setupRunMocks(t, mock, &sandboxmsb.MockSandbox{}, "run", "--dry-run")
+	if err := root.Execute(); err != nil {
+		t.Fatalf("run --dry-run: %v", err)
+	}
+	if !called {
+		t.Fatal("run --dry-run did not invoke the startup auto-prune")
+	}
+	if !gotDryRun {
+		t.Error("autoPrune dryRun = false, want true for --dry-run")
 	}
 }
 

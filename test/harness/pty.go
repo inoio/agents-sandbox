@@ -261,6 +261,7 @@ func markerText(s string) string {
 	return strings.Map(func(r rune) rune {
 		switch r {
 		case ' ', '\t', '\n', '\r', '\v', '\f':
+			// gomutants:disable-next-line INTEGER_INCREMENT reason="strings.Map drops the rune for any negative mapping, so -1 and -2 are indistinguishable"
 			return -1
 		}
 		return r

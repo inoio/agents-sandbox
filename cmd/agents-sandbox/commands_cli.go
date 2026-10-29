@@ -29,6 +29,11 @@ import (
 
 const minUsagePadding = 25
 
+// autoPrune is the startup-prune seam: a variable so a test can assert the run
+// path invokes the prune without consuming the pruning package's process-wide
+// once (which other run tests in this binary may already have used).
+var autoPrune = pruning.AutoPrune
+
 func buildRunCmd(ui termio.UI) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   cmdRun,
@@ -146,7 +151,7 @@ func runFunc(ui termio.UI) func(cmd *cobra.Command, args []string) error {
 			}
 		}
 		if r != nil {
-			pruning.AutoPrune(
+			autoPrune(
 				cmd.Context(),
 				r.AutoPruneAge(),
 				isDryRun,

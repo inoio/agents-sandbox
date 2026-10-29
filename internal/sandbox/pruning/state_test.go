@@ -310,3 +310,24 @@ func TestNoteIdentityFallsBackOnConfigError(t *testing.T) {
 		t.Errorf("noteIdentity() = %+v, want the name-derived %+v", got, want)
 	}
 }
+
+// TestKeySetReturnsNilForNoKeys pins keySet's nil-for-empty contract: a caller
+// assigns the result straight into PruneState.RetainKeys, where nil is the
+// "retain nothing" signal, so an empty input must not yield an empty map.
+func TestKeySetReturnsNilForNoKeys(t *testing.T) {
+	if got := keySet(nil); got != nil {
+		t.Errorf("keySet(nil) = %v, want nil", got)
+	}
+	if got := keySet([]state.Key{}); got != nil {
+		t.Errorf("keySet(empty) = %v, want nil", got)
+	}
+
+	keys := []state.Key{{Slug: "slug-1", Agent: "opencode"}}
+	got := keySet(keys)
+	if len(got) != 1 {
+		t.Fatalf("keySet(%v) has %d entries, want 1", keys, len(got))
+	}
+	if _, ok := got[keys[0]]; !ok {
+		t.Errorf("keySet(%v) = %v, want it to index the key", keys, got)
+	}
+}
