@@ -10,6 +10,20 @@ command reports the bare version (e.g. `0.1.0`).
 
 ### Added
 
+- Agents: a built-in `hermes` profile (Hermes Agent). It installs through the official installer at the pinned
+  `--agent-version` release tag (`v$HERMES_VERSION`), which clones the checkout and provisions its own Python and Node
+  tool store under `/opt/agents-sandbox/hermes-home` (outside the `/home/dev` home volume), and publishes a launcher shim
+  into `/opt/agents-sandbox/bin` that keeps user state in `$HERMES_HOME` (`/home/dev/.hermes`) while linking the tool
+  store, uv cache, and dependency environments from the image, so a fresh home volume starts without reinstalling
+  dependencies. It runs interactively like `pi` and `claude-code`, so `--worktree` and `--serve-only` are rejected;
+  snippet config merge reads `config*.yaml` from the `hermes/` launcher config dirs and writes
+  `~/.hermes/config.yaml`, the host drop-in copies only `~/.hermes/config.yaml` (never `.env`), and unpinned
+  builds resolve the latest release from its GitHub releases endpoint. Merged configs whose target file is YAML are now
+  written and compared as YAML instead of JSON.
+- Runner image: an `ImageSpec.OwnedToolPaths` field lets an agent declare tool-tree paths that the runner hands to its
+  `dev` user (`chown -R dev:dev` after the tool tree is copied in, before the image switches to `USER dev`). Only
+  `hermes` declares paths: it writes its dependency ledger and bytecode markers into its own installation at runtime and
+  git rejects a checkout owned by another user.
 - CI: `main` merges through a **merge queue**. A queued PR is built on top of the current `main` plus the pull requests
   ahead of it, and the required checks — `lint`, `test`, `race`, `deadcode` — run on that combined tree before it
   merges, so two independently-green PRs can no longer combine into a broken `main`. `race` and `deadcode` are now

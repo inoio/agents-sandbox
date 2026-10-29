@@ -11,16 +11,16 @@ import (
 	"github.com/inoio/agents-sandbox/internal/termio"
 )
 
-// configEqual reports whether the desired state matches the VM state. The
-// merged opencode.json is compared semantically; home files byte-for-byte.
-func configEqual(cf *ConfigFiles, vmData map[string][]byte) bool {
+// desiredStateMatches reports whether the desired merged config and home files
+// match the VM state. The merged config is compared semantically in the format
+// its path implies; home files byte-for-byte.
+func desiredStateMatches(cf *ConfigFiles, vmData map[string][]byte) bool {
 	if cf.HasSnippets {
-		ocPath := opencodeMergedPath
-		vm, ok := vmData[ocPath]
+		vm, ok := vmData[cf.MergedPath]
 		if !ok {
 			return false
 		}
-		if !config.DocumentsEqual(ocPath, cf.Merged, vm) {
+		if !config.DocumentsEqual(cf.MergedPath, cf.Merged, vm) {
 			return false
 		}
 	}
@@ -37,6 +37,7 @@ func TestConfigEqualHomeFileByteMatch(t *testing.T) {
 	cf := &ConfigFiles{
 		HasSnippets: true,
 		Merged:      []byte(`{"model":"x"}`),
+		MergedPath:  opencodeMergedPath,
 		HomeFiles: map[string][]byte{
 			"/home/dev/.gitconfig": []byte("user.name=X\n"),
 		},
@@ -46,7 +47,7 @@ func TestConfigEqualHomeFileByteMatch(t *testing.T) {
 		opencodeMergedPath:     []byte(`{"model":"x"}`),
 		"/home/dev/.gitconfig": []byte("user.name=X\n"),
 	}
-	if !configEqual(cf, vmData) {
+	if !desiredStateMatches(cf, vmData) {
 		t.Error("expected equality for matching opencode.json and home file")
 	}
 }
@@ -55,6 +56,7 @@ func TestConfigEqualHomeFileMismatch(t *testing.T) {
 	cf := &ConfigFiles{
 		HasSnippets: true,
 		Merged:      []byte(`{"model":"x"}`),
+		MergedPath:  opencodeMergedPath,
 		HomeFiles: map[string][]byte{
 			"/home/dev/.gitconfig": []byte("user.name=X\n"),
 		},
@@ -64,7 +66,7 @@ func TestConfigEqualHomeFileMismatch(t *testing.T) {
 		opencodeMergedPath:     []byte(`{"model":"x"}`),
 		"/home/dev/.gitconfig": []byte("user.name=Y\n"),
 	}
-	if configEqual(cf, vmData) {
+	if desiredStateMatches(cf, vmData) {
 		t.Error("expected mismatch for differing home file content")
 	}
 }
@@ -100,6 +102,30 @@ func TestAgentConfigEqualDetectsConfigChange(t *testing.T) {
 	}
 	if AgentConfigEqual(cf, vmData) {
 		t.Error("expected mismatch when the opencode config differs")
+	}
+}
+
+// TestAgentConfigEqualYAMLTargetComparesSemantically verifies that a merged
+// config destined for a YAML file is compared as YAML: parsing it as JSON fails,
+// which used to read as "always changed" and would report a config change on
+// every attach for hermes.
+func TestAgentConfigEqualYAMLTargetComparesSemantically(t *testing.T) {
+	hermesPath := "/home/dev/.hermes/config.yaml"
+	cf := &ConfigFiles{
+		HasSnippets: true,
+		Merged:      []byte("model: opus\ntools:\n    web: true\n"),
+		MergedPath:  hermesPath,
+		HomeFiles:   map[string][]byte{},
+	}
+
+	same := map[string][]byte{hermesPath: []byte("model: opus\ntools: {web: true}\n")}
+	if !AgentConfigEqual(cf, same) {
+		t.Error("expected YAML config equality for semantically identical documents")
+	}
+
+	changed := map[string][]byte{hermesPath: []byte("model: sonnet\ntools:\n    web: true\n")}
+	if AgentConfigEqual(cf, changed) {
+		t.Error("expected mismatch when the YAML config value differs")
 	}
 }
 

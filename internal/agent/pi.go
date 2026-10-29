@@ -25,7 +25,8 @@ func (piProfile) ImageSpec() ImageSpec {
 		InstallCommand: "npm install -g --ignore-scripts --prefix /opt/agents-sandbox @earendil-works/pi-coding-agent@$PI_VERSION",
 		// The published package is a #!/usr/bin/env node bundle, so pi needs
 		// node at install and runtime; it is the only agent that does.
-		RequiresNode: true,
+		RequiresNode:   true,
+		OwnedToolPaths: nil,
 	}
 }
 

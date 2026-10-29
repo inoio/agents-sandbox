@@ -23,6 +23,7 @@ func (claudeCodeProfile) ImageSpec() ImageSpec {
 		AgentEnv:       map[string]string{"DISABLE_AUTOUPDATER": "1"},
 		InstallCommand: `curl -fsSL https://claude.ai/install.sh | bash -s -- "$CLAUDE_CODE_VERSION" && cp -L /root/.local/bin/claude /opt/agents-sandbox/bin/claude`,
 		RequiresNode:   false,
+		OwnedToolPaths: nil,
 	}
 }
 

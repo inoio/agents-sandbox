@@ -77,6 +77,7 @@ func (opencode2Profile) ImageSpec() ImageSpec {
 		},
 		InstallCommand: `curl -fsSL https://opencode.ai/v2/install | bash -s -- --version "$OPENCODE2_VERSION" && cp /root/.opencode/bin/opencode /opt/agents-sandbox/bin/opencode2`,
 		RequiresNode:   false,
+		OwnedToolPaths: nil,
 	}
 }
 

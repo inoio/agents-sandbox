@@ -10,7 +10,7 @@ nav_order: 60
 
 agents-sandbox is agent-aware. A `--agent <name>` flag on `run`, `shell`, `build`, `volume`, `stop`, and `kill`
 selects the coding-agent profile to run, build, provision, or manage. The agent can also be selected via the `agent`
-config key or the `AGENTS_SANDBOX_AGENT` environment variable. Five agents ship as built-in profiles:
+config key or the `AGENTS_SANDBOX_AGENT` environment variable. Six agents ship as built-in profiles:
 
 - **`opencode`** — daemon-based, with serve/attach, worktree sessions, and GitHub-release upgrade checks.
 - **`opencode2`** (default) — opencode 2 (beta), installed from its upstream installer (`https://opencode.ai/v2/install`); the
@@ -26,8 +26,10 @@ config key or the `AGENTS_SANDBOX_AGENT` environment variable. Five agents ship 
   (`sandbox_mode = "danger-full-access"`), because the VM already isolates it. This overrides `sandbox_mode` in `config.toml`; to choose another mode, pass it as an agent
   argument, e.g. `agents-sandbox --agent codex -- --sandbox workspace-write`. Codex still asks for approval according
   to its `approval_policy`.
+- **`hermes`** — Hermes Agent, installed from its official installer at a pinned release tag and run interactively;
+  upgrade checks via its GitHub releases.
 
-`--worktree` and `--serve-only` are rejected for pi, claude-code, and codex (they have no daemon); they run through the
+`--worktree` and `--serve-only` are rejected for pi, claude-code, codex, and hermes (they have no daemon); they run through the
 interactive TUI instead. Passing an unsupported `--agent` name reports the valid names in its error message.
 
 > **Note:** opencode2 server auth — v2's `serve` requires HTTP basic auth on every `/api/*` route and would otherwise generate a
@@ -68,12 +70,14 @@ user and project directories, and written to the agent's VM config path:
 - **claude-code** — snippets match `settings*.json*` in the `claude/` subdir; merged to `/home/dev/.claude/settings.json`.
 - **codex** — snippets match `config*.toml` in the `codex/` subdir (e.g. `config-model.toml`); merged to
   `/home/dev/.codex/config.toml`, written as TOML.
+- **hermes** — snippets match `config*.yaml` in the `hermes/` subdir; merged to `/home/dev/.hermes/config.yaml`,
+  written as YAML.
 
 Matching files are parsed and **deep-merged** into one config document. The user directory is merged first, then the
 project directory; within each directory files are merged in alphabetical order, so later files override earlier ones.
 Snippet parsing supports JSON, JSONC, JSON5, YAML, and TOML, chosen by file extension (YAML only applies to agents whose
 pattern includes YAML extensions, e.g. a pattern like `pi-*.{json,yaml}`). The merged config is written as TOML when the
-agent's VM config path ends in `.toml` (codex) and as JSON otherwise.
+agent's VM config path ends in `.toml` (codex), as YAML when it ends in `.yaml`/`.yml` (hermes), and as JSON otherwise.
 
 If no snippet files exist, no merged config is produced.
 
@@ -128,6 +132,8 @@ The drop-in copy is scoped to the agent's settings and, for opencode, its creden
 - **pi** — `~/.pi/agent/settings.json`.
 - **claude-code** — `~/.claude/settings.json` (runtime state and the machine-managed `.credentials.json` are not copied).
 - **codex** — `~/.codex/config.toml` (sessions, logs, and the `auth.json` login cache are not copied).
+- **hermes** — `~/.hermes/config.yaml` (the rest of `~/.hermes` — `state.db`, `sessions/`, `memories/`, `skills/` — is
+  runtime state and is not copied; credentials in `~/.hermes/.env` are never copied).
 
 Precedence: the merged snippet config and any `home:` mappings override the drop-in copy for the same VM path.
 
@@ -162,8 +168,8 @@ To opt out, exclude `auth.json` from the drop-in copy by placing a `home:` entry
 host secrets in any other way; the env-secret mechanism is the supported channel for secrets you do not want on disk in
 the VM.
 
-For pi, claude-code, and codex, the drop-in copy does not include credential files. pi and claude-code authenticate with
-env secrets instead; codex logs in inside the VM:
+For pi, claude-code, codex, and hermes, the drop-in copy does not include credential files. pi, claude-code, and hermes
+authenticate with env secrets instead; codex logs in inside the VM:
 
 - **pi** — per-provider env vars, e.g. `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GEMINI_API_KEY` (see pi's docs for the
   full list). Put them in an `env.secret` / `env.secret.yaml` file.
@@ -172,6 +178,9 @@ env secrets instead; codex logs in inside the VM:
 - **codex** — the interactive Codex CLI reads its login from `~/.codex/auth.json`, not from an env var, so you log in
   once inside the VM (see [Codex login](#codex-login)). The host `auth.json` is not copied because a ChatGPT login
   rotates its refresh token, and a second copy using it would sign the host out.
+- **hermes** — the provider key Hermes is configured to use (`OPENAI_API_KEY`, `ANTHROPIC_API_KEY`,
+  `OPENROUTER_API_KEY`, …), supplied through `env.secret`. Hermes reads the process environment, so nothing needs to be
+  written into its `.env`.
 - **opencode** — `OPENCODE_API_KEY`.
 
 ### Codex login

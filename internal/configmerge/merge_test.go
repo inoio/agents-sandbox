@@ -91,6 +91,50 @@ func TestBuildMergedYAML(t *testing.T) {
 	}
 }
 
+func TestBuildMergedYAMLTargetEmitsYAML(t *testing.T) {
+	dir := t.TempDir()
+	testutil.WriteFile(t, dir, "config-model.yaml", "model: opus\n")
+	testutil.WriteFile(t, dir, "config-tools.yaml", "tools:\n  web: true\n")
+	merged, err := BuildMerged("/home/dev/.hermes/config.yaml", "config*.yaml", dir, "")
+	if err != nil || !merged.HasSnippets {
+		t.Fatalf("BuildMerged: has=%v err=%v", merged.HasSnippets, err)
+	}
+	// A YAML config path must yield YAML, not a JSON document wearing a .yaml
+	// name: the merged file is both the agent's input and user-editable.
+	if strings.HasPrefix(strings.TrimSpace(string(merged.Content)), "{") {
+		t.Fatalf("merged config for a .yaml target is JSON:\n%s", merged.Content)
+	}
+	want := "model: opus\ntools:\n    web: true\n"
+	if string(merged.Content) != want {
+		t.Errorf("merged YAML = %q, want %q", merged.Content, want)
+	}
+}
+
+func TestBuildMergedYMLTargetEmitsYAML(t *testing.T) {
+	dir := t.TempDir()
+	testutil.WriteFile(t, dir, "config-settings.yml", "model: opus\n")
+	merged, err := BuildMerged("/home/dev/.hermes/config.yml", "config*.yml", dir, "")
+	if err != nil || !merged.HasSnippets {
+		t.Fatalf("BuildMerged: has=%v err=%v", merged.HasSnippets, err)
+	}
+	if string(merged.Content) != "model: opus\n" {
+		t.Errorf("merged YAML = %q, want %q", merged.Content, "model: opus\n")
+	}
+}
+
+func TestBuildMergedJSONTargetStaysJSON(t *testing.T) {
+	dir := t.TempDir()
+	testutil.WriteFile(t, dir, "opencode-a.json", `{"a":1}`)
+	merged, err := BuildMerged("/home/dev/.config/opencode/opencode.jsonc", "opencode*.json*", dir, "")
+	if err != nil || !merged.HasSnippets {
+		t.Fatalf("BuildMerged: has=%v err=%v", merged.HasSnippets, err)
+	}
+	want := "{\n  \"a\": 1\n}\n"
+	if string(merged.Content) != want {
+		t.Errorf("merged JSON = %q, want %q", merged.Content, want)
+	}
+}
+
 func TestBuildMergedSourcesInMergeOrder(t *testing.T) {
 	user := t.TempDir()
 	proj := t.TempDir()

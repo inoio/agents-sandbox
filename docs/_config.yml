@@ -1,7 +1,7 @@
 title: agents-sandbox
-tagline: Sandbox for Claude Code, Codex, opencode, opencode2 & pi in a microVM
+tagline: Sandbox for Claude Code, Codex, opencode, opencode2, pi & hermes in a microVM
 description: >-
-  Sandbox for AI coding agents: run Claude Code, Codex, opencode, opencode2 or pi in an isolated microVM on Linux or macOS, with your
+  Sandbox for AI coding agents: run Claude Code, Codex, opencode, opencode2, pi or hermes in an isolated microVM on Linux or macOS, with your
   project mounted and secrets kept on the host.
 
 # Absolute URLs for canonical links, sitemap and structured data.
