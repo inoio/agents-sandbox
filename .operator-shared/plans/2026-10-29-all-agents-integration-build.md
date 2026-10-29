@@ -279,3 +279,21 @@ git commit -m "docs(brain): hermes records its CI coverage posture"
 - **Type consistency:** `imageAgentVersion`, `buildDockerfileTag`, `renderBytesVersion`, `sanitizeTag`, `removeTestImage`, `resolveAgentVersion` all referenced with their existing signatures; `VersionCmd`/`ParseVersion` match the `VersionProvider` interface.
 - **Review Focus:** each line is pinned by the task named in the section.
 - **Proportion:** the plan carries decisions (which cases to delete, where the libatomic fix goes), not the diff.
+
+---
+
+## Outcome
+
+Executed; deviations from the steps above, recorded so the plan is not followed literally later:
+
+- **Task 3 kept `TestRenderDockerfileNodeAgentNodeRuns`.** Task 3 Step 2 said to delete it; it was **kept** — its explicit
+  `node --version`/`npm --version` probe complements the all-agents run rather than duplicating it. Only the two
+  composition cases (`no-dockerfile`, `custom-base-fedora`) were removed, and `image-composition.md` now cites both
+  guards.
+- **Task 4 not triggered.** `hermes/managed` passes the run probe, and `debian:trixie-slim` carries no `libatomic.so.1`
+  (verified directly), so no `libatomic1` was added to the managed base and the libatomic risk is recorded as not
+  reproduced in `hermes-agent.md`.
+- **The custom non-Debian base installs only `curl`, not `libatomic`.** `fedora:latest` ships no `libatomic.so.1` either,
+  and neither base should supply it: the run probe is the guard for a runtime library the discarded agent stage installed.
+- **All twelve subtests pass** (six profiles × managed/custom base): the `opencode`/`opencode2` legs in the VM, the
+  rest on a host.

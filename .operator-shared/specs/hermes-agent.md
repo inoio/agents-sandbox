@@ -97,8 +97,9 @@ Hermes's config home is **not** XDG: it is `HERMES_HOME` (default `/home/dev/.he
 - `ReadyTimeout: heavyweightSettledReadyTimeout` — the runner image carries a whole Python/Node tool store, so loading
   it into microsandbox outlasts the shared 25s settled budget (`harness-smoke-tests.md`).
 - CI coverage: `TestRenderDockerfileBuildsEveryAgent` (integration) builds the runner image and runs `hermes --version`
-  on the managed and a custom non-Debian base, so hermes's install and its provisioned Python/Node runtime are exercised
-  on every code-changing PR. The classic-CLI REPL is exercised end-to-end only by this `msb` smoke, which is host-only.
+  on the managed and a custom non-Debian base. The `integration` job is opt-in — the `run-integration` PR label, plus every
+  code-affecting `main` push and release tag — not one of the required PR checks (`ci-job-gating.md`), so hermes's install
+  and its provisioned Python/Node runtime are exercised there and end-to-end by this host-only `msb` smoke.
 
 ## Scope decisions
 
