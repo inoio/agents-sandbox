@@ -71,6 +71,9 @@ func TestHermesSeedsAConfiguredHomeAndMarker(t *testing.T) {
 	if spec.ReadyTimeout != heavyweightReadyTimeout {
 		t.Errorf("hermes ReadyTimeout = %s, want %s", spec.ReadyTimeout, heavyweightReadyTimeout)
 	}
+	if spec.Network != "" {
+		t.Errorf("hermes Network = %q, want the default `none` (the seeded provider is loopback)", spec.Network)
+	}
 	cfg, ok := spec.SeedHomeFiles[hermesConfigPath]
 	if !ok {
 		t.Fatalf("hermes SeedHomeFiles missing %s", hermesConfigPath)

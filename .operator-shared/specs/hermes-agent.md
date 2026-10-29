@@ -101,8 +101,8 @@ Hermes's config home is **not** XDG: it is `HERMES_HOME` (default `/home/dev/.he
 - `SeedHomeFiles: {".hermes/config.yaml": …}` — a home config naming a dummy, loopback `custom` provider (and settling
   the shared-metrics offer) so hermes starts its classic CLI REPL. With no provider it stops at its first-run setup
   guard (`_first_run_setup_guard`), which always exits `1`; the seeded provider is what lets Ctrl-D exit `0`.
-- `Network: public` — kept from the first measured run; the seeded provider endpoint is loopback, so egress is not what
-  carries hermes to the REPL, and dropping it to `none` remains to be measured.
+- `Network: none` (the default) — the seeded provider endpoint is loopback, so hermes needs no egress to reach the
+  REPL.
 - `QuitKey: Ctrl-D`.
 - CI coverage: `TestRenderDockerfileBuildsEveryAgent` (integration) builds the runner image and runs `hermes --version`
   on the managed and a custom non-Debian base. The `integration` job is opt-in — the `run-integration` PR label, plus every

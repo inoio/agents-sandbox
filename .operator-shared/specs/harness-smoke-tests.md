@@ -140,10 +140,9 @@ build behind a `sync.Once`, then the isolated-env docker preflight, then the per
 behind its own `sync.Once`, then the harnesses.
 
 **Network.** A harness runs with `--network none` (the secure default) unless the table overrides it, and `claude-code`
-and `hermes` do, with `public`. Offline `claude-code` exits `1` (`ECONNREFUSED api.anthropic.com`): it checks in with
-its API before drawing anything. `hermes` reaches its REPL through its seeded loopback provider, so egress is not what
-carries it there; `public` is kept from the first measured run and dropping it to `none` remains to be measured. The
-other four render identically with and without egress.
+does, with `public`: offline it exits `1` (`ECONNREFUSED api.anthropic.com`), because it checks in with its API before
+drawing anything. `hermes` runs under the default `none` — its seeded provider endpoint is loopback, so it needs no
+egress to reach its REPL. The other four render identically with and without egress.
 
 **Preflight.** Skip, never fail, when the environment cannot run the suite: `/dev/kvm` missing on Linux, a
 non-Linux/non-darwin platform, or an unreachable docker daemon. The platform/KVM check runs before anything

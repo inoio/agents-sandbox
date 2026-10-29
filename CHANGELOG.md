@@ -88,7 +88,8 @@ command reports the bare version (e.g. `0.1.0`).
   instead of resolving the developer's `~/.microsandbox`, so an SDK bump can no longer fail them on a runtime there.
   The harness smoke suite readies `hermes` on its CLI's banner line and seeds a dummy, loopback provider config so it
   starts its REPL instead of its first-run setup guard (which exits `1`), keeping the per-harness readiness ceiling for
-  its slow start — a lightweight agent still readies on the alternate screen or the shared settled wait. The
+  its slow start and running under the default `--network none` — a lightweight agent still readies on the alternate
+  screen or the shared settled wait. The
   `integration` image tests resolve the agent release from the launcher's cached upgrade state, falling back to the
   agent's latest-release check only when the cache is empty.
 - Internal: `dockerd` and the agent `serve` daemon now run as microsandbox runtime-owned detached jobs

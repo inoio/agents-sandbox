@@ -103,12 +103,12 @@ var harnessSpecs = map[string]harnessSpec{
 	// that makes a dummy, loopback provider count as configured, so hermes starts
 	// the classic CLI REPL instead of stopping at its first-run setup guard (which
 	// always exits 1 without a real provider); Ctrl-D then leaves the REPL with
-	// exit 0. The startup banner is the readiness marker. Its runner image carries
-	// a whole Python/Node tool store, so its startup is the slowest of the
-	// harnesses.
+	// exit 0. The seeded endpoint is loopback, so it runs under the default
+	// `--network none`; the startup banner is the readiness marker. Its runner
+	// image carries a whole Python/Node tool store, so its startup is the slowest
+	// of the harnesses.
 	"hermes": {
 		QuitKey:           []byte{ctrlD},
-		Network:           publicNetwork,
 		KeepsNormalBuffer: true,
 		ReadyMarker:       hermesReadyMarker,
 		ReadyTimeout:      heavyweightReadyTimeout,
