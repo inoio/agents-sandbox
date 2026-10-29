@@ -85,6 +85,22 @@ func TestHermesSeedsAConfiguredHomeAndMarker(t *testing.T) {
 	}
 }
 
+// TestClaudeCodeReadiesOnAMarker pins that claude-code's normal-buffer renderer
+// also readies on a startup marker, rather than its subtest waiting out the
+// whole settle.
+func TestClaudeCodeReadiesOnAMarker(t *testing.T) {
+	spec, ok := harnessSpecs["claude-code"]
+	if !ok {
+		t.Fatal("claude-code has no smoke-test spec")
+	}
+	if !spec.KeepsNormalBuffer {
+		t.Error("claude-code KeepsNormalBuffer = false; its renderer keeps the normal buffer")
+	}
+	if spec.ReadyMarker == "" {
+		t.Error("claude-code ReadyMarker is empty; its subtest would wait out the settle")
+	}
+}
+
 // TestSeedHomeFiles pins that seeds are written under the isolated HOME
 // (<root>/home/...) with parents created, so the launcher provisions them into
 // the VM.

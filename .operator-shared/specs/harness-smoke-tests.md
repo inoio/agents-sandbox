@@ -48,16 +48,17 @@ renders a connection-error screen still passes. Daemon health itself is covered 
 `ensureDaemon` before any TUI, so a broken daemon fails the TUI-wait or assertion 3.
 
 **Readiness.** The alternate screen is the strong signal: it means the harness's own UI has taken over the terminal.
-It is not universal; two other signals cover the harnesses that never emit `ESC [ ? 1049 h`.
+Two other signals cover the harnesses that never emit `ESC [ ? 1049 h`.
 
 **A ready marker.** A normal-buffer harness whose CLI prints a stable startup line declares it in `ReadyMarker`, and
-its subtest ends the readiness wait as soon as that line appears. `hermes` does: its classic CLI prints
-`Hermes Agent v<version> (<date>)` (`show_banner`) before it accepts input, so the spec waits for `Hermes Agent v`.
-The line is version-independent; the version itself is not pinned.
+its subtest ends the readiness wait as soon as that line appears. The match ignores escape sequences, so a
+diff-painting TUI (claude-code's Ink) still matches when one interrupts the run of characters being matched. Both
+normal-buffer harnesses use one: `hermes` prints `Hermes Agent v<version> (<date>)` (`show_banner`) before it accepts
+input, so the spec waits for `Hermes Agent v`, and `claude-code`'s startup splash prints its product name. The markers
+are version-independent; the versions themselves are not pinned.
 
-**A wall-clock settle.** `claude-code`'s renderer keeps the terminal's normal buffer — it saves and restores the cursor
-with `ESC 7`/`ESC 8` and never emits `ESC [ ? 1049 h` — and prints no stable marker, so its subtest waits out the
-launcher instead. Two measurements shape that wait:
+**A wall-clock settle (fallback).** A normal-buffer harness with no marker would wait out the launcher instead; two
+measurements shape that wait, kept as the fallback for a future harness whose CLI prints nothing stable.
 
 - **quiet output does not mean the harness has rendered.** The launcher loads an image and starts a VM before the
   harness runs, printing nothing for seconds at a time while it does, so a quiescence-based fallback fires on
@@ -67,11 +68,11 @@ launcher instead. Two measurements shape that wait:
   window is not what makes a quit unreliable, though: the presses that get ignored are made seconds *after* the attach
   is live and the harness is already painting, so the loss is on the harness's side — see "Press until it goes" below.
 
-Once the image prebuild has run, the harness's UI comes up about 14s after launch, so the settled wait is 25s. A
-harness whose startup is much slower overrides that budget with `ReadyTimeout`: `hermes` carries a whole Python/Node
-tool store, so its spec sets `heavyweightReadyTimeout` (120s). The override is a ceiling on either wait (marker or
-settle), not a sleep — hermes' banner marker ends its wait as soon as the CLI is up — and applies only to a
-`KeepsNormalBuffer` harness; an alternate-screen harness is bounded by the TUI marker wait (180s) instead.
+Once the image prebuild has run, the harness's UI comes up about 14s after launch, so the settled fallback is 25s. A
+harness whose startup is much slower raises the ceiling with `ReadyTimeout`: `hermes` carries a whole Python/Node tool
+store, so its spec sets `heavyweightReadyTimeout` (120s). The override bounds either wait (marker or settle), not a
+sleep — hermes' banner marker ends its wait as soon as the CLI is up. An alternate-screen harness is bounded by the TUI
+marker wait (180s) instead.
 
 **Harness table completeness.** A single table maps harness name to the key the smoke test taps, an optional network
 override, a `KeepsNormalBuffer` flag, an optional readiness marker, an optional readiness-timeout ceiling, and optional
@@ -83,7 +84,7 @@ coverage.
 | --- | --- | --- |
 | `opencode`, `opencode2` | `0x04` (Ctrl-D) | their documented `app_exit`; they leave once a tap lands after the TUI has finished coming up |
 | `pi` | `0x04` (Ctrl-D) | documented `app.exit`; leaves on the first tap |
-| `claude-code` | `0x03` (Ctrl-C) | repeated presses leave it — its screen announces "Press Ctrl-C again to exit", and three is what a user found |
+| `claude-code` | `0x03` (Ctrl-C) | repeated presses leave it — its screen announces "Press Ctrl-C again to exit", and three is what a user found; readied on its startup-splash marker |
 | `hermes` | `0x04` (Ctrl-D) | its classic CLI's REPL exits on Ctrl-D; readied on its banner marker and seeded (below) so it starts the REPL instead of its first-run setup guard |
 
 **Seeded home files.** A harness whose host-side state decides whether its CLI starts headful declares `SeedHomeFiles`,
@@ -167,10 +168,11 @@ sandbox sweep stays separate because it needs the binary and a reachable docker 
 
 ## Risks and open items
 
-- `claude-code`'s settled readiness asserts that its process outlasted the launcher's start-up, not that its UI was
-  drawn, unlike the alternate-screen harnesses. Its exit is also the least like a single documented keybinding — a
-  repeated Ctrl-C on a first-run screen — so a change to its onboarding is the likeliest cause of a failed subtest, and
-  the log then shows the screen it was stuck on.
+- `claude-code`'s startup-splash marker is a broad product-name match, the weakest of the readiness signals: if a
+  release stops printing it (or prints it only after the login screen it shows first), the subtest fails with the
+  screen it stopped on and the marker needs a measured replacement. Its exit is also the least like a single
+  documented keybinding — a repeated Ctrl-C on a first-run screen — so a change to its onboarding is the likeliest
+  cause of a failed subtest.
 - `hermes`'s seeded config couples the subtest to two upstream contracts: its `provider`/`base_url` config shape
   (whether a bare custom provider still counts as configured) and its shared-metrics `offer_version` (a bump re-asks
   the prompt before the REPL). A change to either fails the subtest with the screen hermes stopped on, and the fix is to

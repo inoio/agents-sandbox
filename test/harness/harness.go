@@ -93,8 +93,14 @@ const (
 var harnessSpecs = map[string]harnessSpec{
 	// claude-code checks in with its API before it draws anything, so it needs
 	// egress, and its renderer keeps the terminal's normal buffer, so the
-	// alternate screen never announces that its UI is up.
-	"claude-code": {QuitKey: []byte{ctrlC}, Network: publicNetwork, KeepsNormalBuffer: true},
+	// alternate screen never announces that its UI is up. Its startup splash
+	// prints the product name, which readies the subtest.
+	"claude-code": {
+		QuitKey:           []byte{ctrlC},
+		Network:           publicNetwork,
+		KeepsNormalBuffer: true,
+		ReadyMarker:       claudeCodeReadyMarker,
+	},
 	// codex quits on Ctrl-C and may reach its API at startup, so it gets
 	// egress like claude-code; its TUI uses the alternate screen.
 	"codex": {QuitKey: []byte{ctrlC}, Network: publicNetwork, KeepsNormalBuffer: false},
@@ -163,6 +169,12 @@ const heavyweightReadyTimeout = 120 * time.Second
 // accepts input (show_banner: "Hermes Agent v<version> (<date>)"). It is stable
 // across releases, unlike the version itself.
 const hermesReadyMarker = "Hermes Agent v"
+
+// claudeCodeReadyMarker is the product name claude-code's startup splash prints
+// before its prompt is live. Its renderer keeps the normal buffer and emits no
+// alternate-screen sequence, so without a marker its subtest would wait out the
+// whole settle.
+const claudeCodeReadyMarker = "Claude Code"
 
 // hermesConfigPath is hermes' config file, home-relative, provisioned into the
 // guest from the host's ~/.hermes/config.yaml.

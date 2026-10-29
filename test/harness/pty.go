@@ -257,10 +257,14 @@ func (s *ptySession) waitSettled(settle time.Duration) error {
 // signal for a normal-buffer harness whose CLI prints a stable startup line: it
 // ends as soon as that line appears, where waitSettled always waits out the full
 // budget. timeout is a ceiling, not the expected wait.
+//
+// The match runs on the ANSI-stripped output so a marker rendered by a
+// diff-painting TUI (claude-code's Ink) still matches when escape sequences
+// interrupt the run of characters it is looking for.
 func (s *ptySession) waitForMarker(marker string, timeout time.Duration) error {
 	deadline := time.Now().Add(timeout)
 	for {
-		if bytes.Contains(s.output(), []byte(marker)) && !s.hasExited() {
+		if strings.Contains(stripANSI(s.output()), marker) && !s.hasExited() {
 			return nil
 		}
 		if s.hasExited() {

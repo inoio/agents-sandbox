@@ -113,6 +113,18 @@ func TestPTYWaitForMarkerReturnsOnceTheMarkerAppears(t *testing.T) {
 	}
 }
 
+// TestPTYWaitForMarkerMatchesThroughANSI pins that the marker match ignores
+// escape sequences: a diff-painting TUI (claude-code's Ink) can interrupt the
+// run of characters a marker is looking for.
+func TestPTYWaitForMarkerMatchesThroughANSI(t *testing.T) {
+	ses := mustStartUnderPTY(t, "", nil, "/bin/sh", "-c", `printf 'Cla\033[0mude Code v1'; sleep 30`)
+	defer ses.close()
+
+	if err := ses.waitForMarker("Claude Code", 5*time.Second); err != nil {
+		t.Fatalf("waitForMarker through ANSI: %v", err)
+	}
+}
+
 // TestPTYWaitForMarkerTimesOutWhileProcessRuns pins the timeout report: the
 // error names the missing marker and the output seen, not the alternate screen.
 func TestPTYWaitForMarkerTimesOutWhileProcessRuns(t *testing.T) {
