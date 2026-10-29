@@ -245,18 +245,27 @@ func isolatedEnv(root string, inherited []string) []string {
 // seedHomeFiles writes each home-relative file under root's isolated HOME
 // (<root>/home/<rel>), creating parent directories, so the launcher provisions
 // it into the VM (see harnessSpec.SeedHomeFiles).
+//
+// It writes through mkdirAll and writeFile, seams a test can replace to assert
+// the seed's private modes without depending on the process umask.
 func seedHomeFiles(root string, files map[string]string) error {
 	for rel, content := range files {
 		path := filepath.Join(root, homeDirName, rel)
-		if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
+		if err := mkdirAll(filepath.Dir(path), 0o750); err != nil {
 			return fmt.Errorf("create parent for %s: %w", rel, err)
 		}
-		if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+		if err := writeFile(path, []byte(content), 0o600); err != nil {
 			return fmt.Errorf("write %s: %w", rel, err)
 		}
 	}
 	return nil
 }
+
+// mkdirAll and writeFile are the filesystem seams seedHomeFiles writes through.
+var (
+	mkdirAll  = os.MkdirAll
+	writeFile = os.WriteFile
+)
 
 // usableTerm returns the TERM to run the child under: the inherited value
 // unless it is absent, empty, or "dumb", in which case the harness is given a
