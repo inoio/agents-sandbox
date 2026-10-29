@@ -21,5 +21,9 @@ func TestMain(m *testing.M) {
 	// doctor.InstallFailFast()
 	InstallFailFastGet()
 	opener.InstallFailFast()
+	// Point the msb-tagged tests at an isolated microsandbox home; a no-op in
+	// the untagged build (see runtime_isolation_msb_test.go).
+	removeIsolatedRuntimeHome := installIsolatedRuntimeHome()
 	m.Run()
+	removeIsolatedRuntimeHome()
 }

@@ -17,6 +17,7 @@ import (
 
 // TestRealClientVolumeLifecycle round-trips a volume against the real runtime.
 func TestRealClientVolumeLifecycle(t *testing.T) {
+	ensureIsolatedRuntime(t)
 	client := &realMsbClient{}
 	ctx := context.Background()
 	name := "agents-sandbox-msb-test-" + strconv.FormatInt(time.Now().UnixNano(), 10)
@@ -48,6 +49,7 @@ func TestRealClientVolumeLifecycle(t *testing.T) {
 // TestRealClientListsSandboxesAndImages drives the real list adapters against
 // the host runtime.
 func TestRealClientListsSandboxesAndImages(t *testing.T) {
+	ensureIsolatedRuntime(t)
 	client := &realMsbClient{}
 	ctx := context.Background()
 

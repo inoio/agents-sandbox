@@ -11,6 +11,7 @@ import (
 	"bytes"
 	"path/filepath"
 	"strings"
+	"time"
 )
 
 // daemonTimeoutMarker is what the launcher prints when its daemon health probe
@@ -94,8 +95,15 @@ var harnessSpecs = map[string]harnessSpec{
 	// hermes greets with a banner and its own model/provider state before the
 	// prompt, so it needs egress like claude-code; its classic CLI keeps the
 	// terminal's normal buffer, so the alternate screen never announces that its
-	// UI is up; Ctrl-D leaves its prompt.
-	"hermes": {QuitKey: []byte{ctrlD}, Network: publicNetwork, KeepsNormalBuffer: true},
+	// UI is up; Ctrl-D leaves its prompt. Its runner image carries a whole
+	// Python/Node tool store, so loading it into microsandbox outlasts the
+	// shared settled budget.
+	"hermes": {
+		QuitKey:           []byte{ctrlD},
+		Network:           publicNetwork,
+		KeepsNormalBuffer: true,
+		ReadyTimeout:      heavyweightSettledReadyTimeout,
+	},
 	// opencode's editor owns Ctrl-C, so its TUI leaves on Ctrl-D.
 	"opencode":  {QuitKey: []byte{ctrlD}, Network: "", KeepsNormalBuffer: false},
 	"opencode2": {QuitKey: []byte{ctrlD}, Network: "", KeepsNormalBuffer: false},
@@ -103,6 +111,8 @@ var harnessSpecs = map[string]harnessSpec{
 }
 
 // harnessSpec describes how to drive one harness to its TUI and out of it.
+//
+//exhaustruct:ignore
 type harnessSpec struct {
 	// QuitKey leaves the harness's full-screen TUI. The smoke test taps it
 	// until the process goes, because a harness can paint its TUI seconds
@@ -115,6 +125,28 @@ type harnessSpec struct {
 	// terminal's normal buffer instead of the alternate screen, so the
 	// alternate-screen marker cannot announce that its UI is up.
 	KeepsNormalBuffer bool
+	// ReadyTimeout overrides the settled readiness wait for a
+	// KeepsNormalBuffer harness; zero uses the shared default. It is ignored
+	// for an alternate-screen harness, whose readiness is the alternate-screen
+	// marker rather than a wall clock.
+	ReadyTimeout time.Duration
+}
+
+// heavyweightSettledReadyTimeout is the settled readiness wait for a
+// KeepsNormalBuffer harness whose runner image takes much longer to load into
+// microsandbox than the lightweight agents the shared budget was measured on
+// (hermes carries a whole Python/Node tool store). The settled wait is a
+// wall-clock fallback, not a rendered-screen signal, so too small a budget
+// fails the subtest while the launcher is still loading the image.
+const heavyweightSettledReadyTimeout = 120 * time.Second
+
+// readyTimeout returns the readiness wait for this harness: its per-harness
+// override when set, otherwise fallback.
+func (s harnessSpec) readyTimeout(fallback time.Duration) time.Duration {
+	if s.ReadyTimeout > 0 {
+		return s.ReadyTimeout
+	}
+	return fallback
 }
 
 // isolatedEnv builds the child environment from inherited: it keeps only the

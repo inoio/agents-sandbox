@@ -60,18 +60,23 @@ measurements shape that wait:
   window is not what makes a quit unreliable, though: the presses that get ignored are made seconds *after* the attach
   is live and the harness is already painting, so the loss is on the harness's side — see "Press until it goes" below.
 
-Once the image prebuild has run, the harness's UI comes up about 14s after launch, so the settled wait is 25s.
+Once the image prebuild has run, the harness's UI comes up about 14s after launch, so the settled wait is 25s. A
+harness whose runner image is much larger overrides that budget: `hermes` carries a whole Python/Node tool store, so
+loading it into microsandbox outlasts the shared 25s, and its spec sets `ReadyTimeout`
+(`heavyweightSettledReadyTimeout`, 120s). The override applies only to a `KeepsNormalBuffer` harness; an
+alternate-screen harness is bounded by the TUI marker wait instead.
 
 **Harness table completeness.** A single table maps harness name to the key the smoke test taps, an optional network
-override, and a `KeepsNormalBuffer` flag. Fast untagged unit tests assert the table's key set equals `agent.Names()` and
-that every entry names a key, so a newly registered harness fails `make test` until it is added — a harness cannot be
-added without smoke coverage.
+override, a `KeepsNormalBuffer` flag, and an optional readiness-timeout override. Fast untagged unit tests assert the
+table's key set equals `agent.Names()` and that every entry names a key, so a newly registered harness fails `make test`
+until it is added — a harness cannot be added without smoke coverage.
 
 | harness | key | how it ends |
 | --- | --- | --- |
 | `opencode`, `opencode2` | `0x04` (Ctrl-D) | their documented `app_exit`; they leave once a tap lands after the TUI has finished coming up |
 | `pi` | `0x04` (Ctrl-D) | documented `app.exit`; leaves on the first tap |
 | `claude-code` | `0x03` (Ctrl-C) | repeated presses leave it — its screen announces "Press Ctrl-C again to exit", and three is what a user found |
+| `hermes` | `0x04` (Ctrl-D) | its classic CLI's prompt exits on Ctrl-D; a normal-buffer harness with the heavyweight readiness budget |
 
 **Tap until it goes, then assert the exit.** `quit` taps the harness's key every `quitPressInterval` (400ms) until the
 process exits, for at most `quitTimeout` (15s), then asserts exit code 0. A fixed sequence is wrong for two measured
@@ -118,10 +123,10 @@ cannot run it skip before paying: the platform/`/dev/kvm` preflight first, then 
 build behind a `sync.Once`, then the isolated-env docker preflight, then the per-harness image prebuild
 behind its own `sync.Once`, then the harnesses.
 
-**Network.** A harness runs with `--network none` (the secure default) unless the table overrides it, and only
-`claude-code` does, with `public`: it checks in with its API before drawing anything, so offline it exits `1`
-(`ECONNREFUSED api.anthropic.com`) without reaching any screen. The other three render identically with and without
-egress.
+**Network.** A harness runs with `--network none` (the secure default) unless the table overrides it, and `claude-code`
+and `hermes` do, with `public`: both reach their provider before drawing anything, so offline `claude-code` exits `1`
+(`ECONNREFUSED api.anthropic.com`) and `hermes` does not reach its REPL. The other four render identically with and
+without egress.
 
 **Preflight.** Skip, never fail, when the environment cannot run the suite: `/dev/kvm` missing on Linux, a
 non-Linux/non-darwin platform, or an unreachable docker daemon. The platform/KVM check runs before anything
@@ -151,5 +156,5 @@ sandbox sweep stays separate because it needs the binary and a reachable docker 
   the log then shows the screen it was stuck on.
 - The quit tap is a bound, not a diagnosis: a harness that starts ignoring its key fails after `quitTimeout` of taps
   rather than reporting why.
-- Four harnesses mean four runner-image builds on a cold home; the image prebuild pays for them before any
+- Six harnesses mean six runner-image builds on a cold home; the image prebuild pays for them before any
   harness's TUI window opens, and the host-only placement absorbs the cost.

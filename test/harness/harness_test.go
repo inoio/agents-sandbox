@@ -4,6 +4,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/inoio/agents-sandbox/internal/agent"
 )
@@ -32,6 +33,36 @@ func TestHarnessSpecsQuitKeyNonEmpty(t *testing.T) {
 		if len(spec.QuitKey) == 0 {
 			t.Errorf("harness %q has no key for the smoke test to press", name)
 		}
+	}
+}
+
+// TestReadyTimeoutPrefersThePerHarnessOverride pins the readiness-budget
+// selection: a spec that names an override uses it, and one that leaves it
+// unset falls back to the shared default.
+func TestReadyTimeoutPrefersThePerHarnessOverride(t *testing.T) {
+	const fallback = 25 * time.Second
+
+	if got := (harnessSpec{ReadyTimeout: 90 * time.Second}).readyTimeout(fallback); got != 90*time.Second {
+		t.Errorf("readyTimeout() = %s, want the override 90s", got)
+	}
+	if got := (harnessSpec{}).readyTimeout(fallback); got != fallback {
+		t.Errorf("readyTimeout() = %s, want the fallback %s", got, fallback)
+	}
+}
+
+// TestHermesUsesTheHeavyweightReadyBudget pins that hermes, whose runner image
+// carries a full Python/Node tool store, extends the settled wait instead of
+// failing the subtest while the launcher is still loading the image.
+func TestHermesUsesTheHeavyweightReadyBudget(t *testing.T) {
+	spec, ok := harnessSpecs["hermes"]
+	if !ok {
+		t.Fatal("hermes has no smoke-test spec")
+	}
+	if spec.ReadyTimeout != heavyweightSettledReadyTimeout {
+		t.Errorf("hermes ReadyTimeout = %s, want %s", spec.ReadyTimeout, heavyweightSettledReadyTimeout)
+	}
+	if !spec.KeepsNormalBuffer {
+		t.Error("hermes KeepsNormalBuffer = false; the heavy budget is the normal-buffer readiness wait")
 	}
 }
 

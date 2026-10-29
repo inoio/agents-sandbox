@@ -94,6 +94,12 @@ command reports the bare version (e.g. `0.1.0`).
 - Docs: the roadmap now lists the `priority:medium` label alongside `priority:critical`/`high`/`low`, matching the
   issue tracker.
 - Maintenance: updated the microsandbox Go SDK and managed `msb` runtime to v0.7.11.
+- Internal: the `msb`-tagged real-client tests provision their own isolated microsandbox home with the SDK-pinned runtime
+  instead of resolving the developer's `~/.microsandbox`, so an SDK bump can no longer fail them on a runtime there.
+  The harness smoke suite's readiness wait is now per-harness: `hermes`, whose runner image carries a full Python/Node
+  tool store, extends it so a slow image load no longer fails the subtest. The `integration` image tests resolve the
+  agent release from the launcher's cached upgrade state, falling back to the agent's latest-release check only when the
+  cache is empty.
 - Internal: `dockerd` and the agent `serve` daemon now run as microsandbox runtime-owned detached jobs
   (`ExecDetached`), replacing shell-backgrounded `nohup` processes, logfile polling, and `pkill` start/stop plumbing.
   Readiness stays health-probe based, a crashed job reports its exit code plus a log tail, and a stale job is killed by
