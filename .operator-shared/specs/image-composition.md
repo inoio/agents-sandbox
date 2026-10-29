@@ -122,9 +122,11 @@ The node stage exists to install/run npm-based agents.
   agent satisfies v24 (`pi` `>=22.19.0`, `claude-code` `>=22.0.0`; `opencode2` unconstrained) — the earlier `v22.14.0`
   pin failed only because it was below pi's `>=22.19.0`.
 - Regression guard: `TestRenderDockerfileNodeAgentNodeRuns` (integration) builds an npm agent on the managed base and runs
-  `node --version`/`npm --version` in the image; `TestRenderDockerfileBuilds` builds only the native `opencode`, so it
-  cannot catch a broken node. A future pin that reintroduces libatomic must add `libatomic1` to the embedded base (a
-  documented custom-base requirement) or the test fails.
+  `node --version`/`npm --version` in the image, and `TestRenderDockerfileBuildsEveryAgent` (integration) builds and runs
+  every profile — including the npm agent `pi`, whose version probe executes its node bundle — on the managed and a custom
+  non-Debian base; a suite that built only the native `opencode` could not catch a broken node. A future pin that
+  reintroduces libatomic must add `libatomic1` to the embedded base (a documented custom-base requirement) or the test
+  fails.
 - Direction: don't depend on node where possible, for image size/build speed
   ([#133](https://github.com/inoio/agents-sandbox/issues/133)). opencode v1, opencode2, and claude-code each ship a native
   installer (`curl | bash`) needing no node at install or runtime; **pi still needs node** (its installer calls
