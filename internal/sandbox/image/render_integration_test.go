@@ -55,12 +55,10 @@ func recordCachedAgentVersion(t *testing.T, a agent.Agent, version string) {
 	}
 }
 
-// TestRenderDockerfileBuilds builds a real image for every Dockerfile
-// composition case in RenderDockerfile, covering the matrix of:
-//
-//	{no project Dockerfile, managed baseRef, custom base} x {docker, no docker}
-//
-// plus the docker marker injection cases. These run real docker builds and are
+// TestRenderDockerfileBuilds builds a real image for the Dockerfile composition
+// cases TestRenderDockerfileBuildsEveryAgent does not cover: the
+// docker-enablement surface (config, marker, and the implied base-ref/dind
+// forms) and a custom tar-less base (#143). These run real docker builds and are
 // excluded from the main suite via the `integration` build tag; run with
 // `make test-integration`. They require a working docker daemon and network
 // access (base image pulls and the node/docker/agent installs baked into the
@@ -88,7 +86,6 @@ func TestRenderDockerfileBuilds(t *testing.T) {
 		projectDockerfile []byte
 		docker            options.DockerSetting
 	}{
-		{"no-dockerfile", nil, dockerOff},
 		{"no-dockerfile-docker", nil, dockerOn},
 		{"managed-base", []byte("FROM agents-sandbox/runner-base:latest\nRUN echo managed\n"), dockerOff},
 		{
@@ -101,12 +98,6 @@ func TestRenderDockerfileBuilds(t *testing.T) {
 			[]byte("FROM agents-sandbox/runner-base-dind:latest\nRUN echo managed\n"),
 			dockerOff,
 		},
-		// The daemon agent's only checked guest runtime tool is curl; Fedora's
-		// base already ships curl and tar (procps is over-installed, no longer
-		// a requirement since the job owns daemon start/stop).
-		{"custom-base-fedora", []byte(
-			"FROM fedora:latest\n" +
-				"RUN dnf install -y curl tar procps-ng && dnf clean all\n"), dockerOff},
 		// #143: the image build's downloads run on the tool base, so a custom
 		// base needs no tar; curl is installed only because the daemon agent's
 		// in-VM runtime tool (curl) is checked at build time.
@@ -131,6 +122,57 @@ func TestRenderDockerfileBuilds(t *testing.T) {
 			rendered := renderBytesVersion(t, a, version, tc.projectDockerfile, tc.docker)
 			buildDockerfile(t, a, rendered, version, tc.docker.Enabled)
 		})
+	}
+}
+
+// TestRenderDockerfileBuildsEveryAgent builds and runs every registered agent
+// profile on the launcher's managed base (a nil project Dockerfile; the sibling
+// test's `managed-base` case is the explicit runner-base ref instead) and on a
+// custom non-Debian base. The agent stage always builds on the Debian tool base,
+// so the custom base exercises the final-stage merge and the agent's *runtime*,
+// not its install: running the version probe in the built image is what catches
+// a broken binary or a runtime library the discarded agent stage installed.
+// Neither base provides libatomic.so.1, so hermes's libatomic1 is guarded on both.
+func TestRenderDockerfileBuildsEveryAgent(t *testing.T) {
+	origGet := docker.Get
+	docker.Get = docker.RealClient
+	t.Cleanup(func() { docker.Get = origGet })
+
+	bases := []struct {
+		name    string
+		project []byte
+	}{
+		{"managed", nil},
+		{"custom-fedora", []byte(
+			"FROM fedora:latest\n" +
+				"RUN dnf install -y curl && dnf clean all\n")},
+	}
+
+	for _, name := range agent.Names() {
+		a, ok := agent.Lookup(name)
+		if !ok {
+			t.Fatalf("agent %q not registered", name)
+		}
+		version := integrationAgentVersion(t, a)
+		for _, base := range bases {
+			t.Run(name+"/"+base.name, func(t *testing.T) {
+				tag := "agents-sandbox/it-all-" + sanitizeTag(name) + "-" + base.name
+				t.Cleanup(func() { removeTestImage(tag) })
+
+				buildDockerfileTag(
+					t,
+					a,
+					renderBytesVersion(t, a, version, base.project, dockerOff),
+					version,
+					false,
+					tag,
+				)
+
+				if got := imageAgentVersion(t, tag, a); got != version {
+					t.Errorf("%s on %s: built image reports agent version %q, want %q", name, base.name, got, version)
+				}
+			})
+		}
 	}
 }
 

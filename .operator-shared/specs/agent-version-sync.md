@@ -111,5 +111,5 @@ one: its baseline is written only by recovery, while a fresh or repaired state d
 - `run --agent-version V` followed by an unpinned `run`: the image stays on V.
 - Delete `agent_version` with the image present, then run: the field is rewritten to the image's release.
 - `build --agent-version V` followed by `run`: no downgrade.
-- `opencode`, `opencode2`, `pi`, and `claude-code` record their baseline on boot like every profile; recording adds an
-  in-VM `--version` exec, never a network request.
+- Every built-in profile (`opencode`, `opencode2`, `pi`, `claude-code`, `codex`, `hermes`) records its baseline on boot;
+  recording adds an in-VM `--version` exec, never a network request.

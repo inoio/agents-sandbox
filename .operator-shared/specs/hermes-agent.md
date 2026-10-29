@@ -96,6 +96,10 @@ Hermes's config home is **not** XDG: it is `HERMES_HOME` (default `/home/dev/.he
 - `QuitKey: Ctrl-D`.
 - `ReadyTimeout: heavyweightSettledReadyTimeout` — the runner image carries a whole Python/Node tool store, so loading
   it into microsandbox outlasts the shared 25s settled budget (`harness-smoke-tests.md`).
+- CI coverage: `TestRenderDockerfileBuildsEveryAgent` (integration) builds the runner image and runs `hermes --version`
+  on the managed and a custom non-Debian base. The `integration` job is opt-in — the `run-integration` PR label, plus every
+  code-affecting `main` push and release tag — not one of the required PR checks (`ci-job-gating.md`), so hermes's install
+  and its provisioned Python/Node runtime are exercised there and end-to-end by this host-only `msb` smoke.
 
 ## Scope decisions
 
@@ -120,11 +124,13 @@ Hermes's config home is **not** XDG: it is `HERMES_HOME` (default `/home/dev/.he
   empty and the launcher attempts a network sync. The install places the prepared runtime in the baked store and links
   it into the home. Verification is **manual and documented**, not an automated gate: a `--network none` boot must reach
   the REPL with a clean `hermes doctor`.
-- **Runtime availability of the installer's apt packages.** The agent stage installs `git` and `libatomic1`, but the
-  runner copies only the tool tree from that stage, so those packages are not present in the runner image. They are
-  needed at build time by the installer; whether Hermes' provisioned tool store needs `libatomic.so.1` again at runtime
-  is **unverified** and must be checked by a real image build + boot before it is relied on. If it is needed, it must be
-  installed into the runner stage or the tool tree, not the discarded agent stage.
+- **Runtime availability of the installer's apt packages — not reproduced.** The agent stage installs `git` and
+  `libatomic1`, but the runner copies only the tool tree from that stage, so both are absent from the runner image.
+  `TestRenderDockerfileBuildsEveryAgent` (integration) builds the runner image for every profile on the managed and a
+  custom non-Debian base and runs `hermes --version` in the built image; `hermes/managed` passes, so the CLI starts
+  without `libatomic.so.1` from the discarded stage and the concern did not materialize. The probe covers process startup
+  and version reporting, not every runtime path; if a failure naming `libatomic.so.1` appears, the package belongs in the
+  runner stage or the tool tree, not the discarded agent stage.
 - **Installed-version suffix:** pinning a ref that is not exactly a release tag yields `X.Y.Z+<n>.g<sha>`. The parser
   keeps that suffix (the shared semver-token extraction does not reduce it); comparison is unaffected because semver
   ignores build metadata.

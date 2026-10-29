@@ -32,6 +32,23 @@ func TestOpencode2LookupAndName(t *testing.T) {
 	}
 }
 
+func TestOpencode2Version(t *testing.T) {
+	a, _ := agent.Lookup("opencode2")
+	provider, ok := agent.AsVersionProvider(a)
+	if !ok {
+		t.Fatal("opencode2 should implement VersionProvider")
+	}
+	if got := provider.VersionCmd(); got != "opencode2 --version" {
+		t.Errorf("VersionCmd = %q, want opencode2 --version", got)
+	}
+	// The real output is "opencode vX.Y.Z"; the parser takes the first semver, so
+	// it must skip the leading product name and the v prefix.
+	got, err := provider.ParseVersion("opencode v2.2.1\n")
+	if err != nil || got != "2.2.1" {
+		t.Errorf("ParseVersion = %q, %v, want 2.2.1", got, err)
+	}
+}
+
 func TestOpencode2ConfigDirName(t *testing.T) {
 	a, _ := agent.Lookup("opencode2")
 	if a.ConfigDirName() != "opencode2" {
