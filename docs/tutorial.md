@@ -24,7 +24,7 @@ agents-sandbox
 ```
 
 The first run builds the runner image and creates the sandbox; later runs reuse it. To start a specific agent, pass
-`--agent`: `agents-sandbox --agent pi`, `agents-sandbox --agent opencode`, `agents-sandbox --agent claude-code`, or `agents-sandbox --agent codex`.
+`--agent`: `agents-sandbox --agent pi`, `agents-sandbox --agent opencode`, `agents-sandbox --agent claude-code`, `agents-sandbox --agent codex`, or `agents-sandbox --agent hermes`.
 
 ## What you see
 

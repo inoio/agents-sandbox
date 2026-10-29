@@ -1,6 +1,6 @@
 ---
 title: Why?
-description: "Why run coding agents like Claude Code, Codex, opencode, opencode2 or pi in a microVM: a separate guest kernel instead of a shared-kernel container."
+description: "Why run coding agents like Claude Code, Codex, opencode, opencode2, pi or hermes in a microVM: a separate guest kernel instead of a shared-kernel container or process sandbox."
 layout: default
 parent: Concepts
 nav_order: 10

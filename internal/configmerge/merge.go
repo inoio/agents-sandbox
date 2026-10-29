@@ -1,7 +1,8 @@
 // Package configmerge merges agent configuration snippet files matching a
 // caller-supplied glob pattern into a single config document consumed by the
-// sandbox, written as TOML for a .toml config path and as JSON otherwise. It is agent-agnostic: the snippet pattern and config path come
-// from the agent.
+// sandbox, written as YAML for a .yaml/.yml config path, as TOML for a .toml
+// path, and as JSON otherwise. It is agent-agnostic: the snippet pattern and
+// config path come from the agent.
 package configmerge
 
 import (
@@ -137,23 +138,42 @@ func scanSnippets(dirs []string, pattern string) (map[string]any, []string) {
 	return merged, sources
 }
 
-// parseConfigFile unmarshals config data into cfg, choosing a parser based on
-// the file extension: .yaml/.yml use YAML, .toml uses TOML, everything else
-// uses JSON5.
-func parseConfigFile(name string, data []byte, cfg *map[string]any) error {
-	switch strings.ToLower(filepath.Ext(name)) {
-	case ".yaml", ".yml":
-		return yaml.Unmarshal(data, cfg)
+// configFormat is the serialization format a config path implies.
+type configFormat int
+
+const (
+	configJSON configFormat = iota
+	configTOML
+	configYAML
+)
+
+// configFormatFor classifies a config path by extension: .toml is TOML,
+// .yaml/.yml is YAML, everything else (.json, .jsonc, .json5) is the JSON
+// family. It is the single source of the extension-to-format mapping, shared by
+// parsing and marshaling.
+func configFormatFor(configPath string) configFormat {
+	switch strings.ToLower(filepath.Ext(configPath)) {
 	case ".toml":
-		return toml.Unmarshal(data, cfg)
+		return configTOML
+	case ".yaml", ".yml":
+		return configYAML
 	default:
-		return json5.Unmarshal(data, cfg)
+		// gomutants:disable-next-line RETURN_ZERO reason="configJSON is the zero value of configFormat, so RETURN_ZERO compiles to the identical constant"
+		return configJSON
 	}
 }
 
-// isTOMLPath reports whether configPath names a TOML config file.
-func isTOMLPath(configPath string) bool {
-	return strings.EqualFold(filepath.Ext(configPath), ".toml")
+// parseConfigFile unmarshals config data into cfg in the format its extension
+// implies.
+func parseConfigFile(name string, data []byte, cfg *map[string]any) error {
+	format := configFormatFor(name)
+	if format == configTOML {
+		return toml.Unmarshal(data, cfg)
+	}
+	if format == configYAML {
+		return yaml.Unmarshal(data, cfg)
+	}
+	return json5.Unmarshal(data, cfg)
 }
 
 // MergedConfig is the outcome of merging snippet files: the marshaled config
@@ -166,8 +186,8 @@ type MergedConfig struct {
 }
 
 // BuildMerged merges all snippet files matching pattern under userDir and
-// projectDir into a single config document for configPath: TOML when
-// configPath ends in .toml, indented JSON otherwise.
+// projectDir into a single config document for configPath: YAML when configPath
+// ends in .yaml/.yml, TOML when it ends in .toml, indented JSON otherwise.
 func BuildMerged(configPath, pattern, userDir, projectDir string) (MergedConfig, error) {
 	merged, sources := scanSnippets([]string{userDir, projectDir}, pattern)
 	if len(sources) == 0 {
@@ -180,11 +200,24 @@ func BuildMerged(configPath, pattern, userDir, projectDir string) (MergedConfig,
 	return MergedConfig{Content: data, Sources: sources, HasSnippets: true}, nil
 }
 
-// marshalConfig encodes merged in the format configPath calls for.
+// marshalConfig encodes merged in the format configPath calls for: YAML for a
+// .yaml/.yml path, TOML for a .toml path, indented JSON otherwise. A YAML
+// config file (hermes' config.yaml) is both the agent's input and something
+// users edit, so it is never handed a JSON document under a .yaml name.
 func marshalConfig(configPath string, merged map[string]any) ([]byte, error) {
-	if isTOMLPath(configPath) {
+	format := configFormatFor(configPath)
+	if format == configTOML {
 		return toml.Marshal(merged)
 	}
+	if format == configYAML {
+		return yaml.Marshal(merged)
+	}
+	return marshalJSONConfig(merged)
+}
+
+// marshalJSONConfig encodes merged as indented JSON, which both JSON5 and JSONC
+// readers accept.
+func marshalJSONConfig(merged map[string]any) ([]byte, error) {
 	data, err := json.MarshalIndent(merged, "", "  ")
 	if err != nil {
 		return nil, err

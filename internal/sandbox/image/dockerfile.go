@@ -624,12 +624,29 @@ func runnerStage(a agent.Agent, baseAlias, body string, docker, dockerInjected b
 	parts = append(parts,
 		fmt.Sprintf("COPY --from=%s %s %s\n", agentStageAlias, toolDir, toolDir),
 		agentAdoptionBlock(a),
+		agentOwnershipBlock(a),
 		agentImageConfigBlock(a),
 		finalizationBlock(),
 		guestToolsBlock(a),
 		launcherToolsBlock(),
 	)
 	return joinBlocks(parts...)
+}
+
+// agentOwnershipBlock hands the agent's self-written tool-tree paths to the
+// runtime user. It runs as root after the tool tree is copied in and before the
+// image switches to the dev user. The group is resolved at build time from the
+// dev user's own entry (`id -g dev`), not assumed to be a `dev` group nor taken
+// from the USER_UID/USER_GID build args: devUserBlock skips creation entirely
+// when a custom base already provides a `dev` user, which need not come with a
+// `dev` group, and groupadd -f may leave the dev group on a GID other than a
+// pinned host GID. Agents that declare no owned paths emit nothing.
+func agentOwnershipBlock(a agent.Agent) string {
+	paths := a.ImageSpec().OwnedToolPaths
+	if len(paths) == 0 {
+		return ""
+	}
+	return fmt.Sprintf("USER root\nRUN chown -R dev:$(id -g dev) %s\n", strings.Join(paths, " "))
 }
 
 // injectDockerBlock replaces the first top-level docker marker line in body
