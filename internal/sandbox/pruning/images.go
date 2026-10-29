@@ -20,14 +20,16 @@ type ImageReport struct {
 	Details            []StaleEntry
 }
 
-// PruneImages prunes MSB runner-image references that a live project no longer
+// PruneImages prunes MSB runner-image references that the launcher no longer
 // needs, then asks microsandbox to reclaim unreferenced image data. Retained are
-// the refs a kept sandbox still holds and a live project's cached variants used
-// within the prune age, plus host-side dangling Docker images. Ownership is
-// positional (see ListImages) and applies the same name-shape predicate as list
-// and remove: a reference is a runner image only when its parsed slug embeds the
-// launcher's 14-character slug hash (naming.IsRunnerImageRef). A manually loaded
-// single-segment image in the private runtime home is foreign and never removed.
+// the refs a kept sandbox still holds, the keys the current invocation is about
+// to use, and any agent ref used within the prune age; a pruned key's refs, an
+// agent-less ref, and an aged-out ref are reclaimed, plus host-side dangling
+// Docker images. Ownership is positional (see ListImages) and applies the same
+// name-shape predicate as list and remove: a reference is a runner image only
+// when its parsed slug embeds the launcher's 14-character slug hash
+// (naming.IsRunnerImageRef). A manually loaded single-segment image in the
+// private runtime home is foreign and never removed.
 func PruneImages(
 	ctx context.Context,
 	pruneState PruneState,
@@ -79,14 +81,15 @@ func PruneImages(
 	return report, nil
 }
 
-// keepImage reports whether an msb image reference of a live slug should be
-// retained. artifact must be the parse of imageHandle's reference (the caller
-// parses each listed reference once and passes it in, so a reference read back
-// from the microsandbox cache is never parsed twice). A ref a kept sandbox still
-// holds is always retained. Otherwise the ref is a cached variant of the
-// project's runner image: it survives while its (slug, agent) key is live and it
-// was used within the prune age. Everything else — a dead key's refs, an
-// aged-out variant, an agent-less digest ref — is surplus.
+// keepImage reports whether an msb image reference should be retained. artifact
+// must be the parse of imageHandle's reference (the caller parses each listed
+// reference once and passes it in, so a reference read back from the microsandbox
+// cache is never parsed twice). A ref a kept sandbox still holds is always
+// retained, as is one whose key the current invocation is about to use (the
+// run's own project, so a run never reclaims the image it is about to import).
+// Otherwise the ref survives while it parses an agent and was used within the
+// prune age; a ref whose key is being pruned, an agent-less ref, and an aged-out
+// one are surplus.
 func keepImage(
 	imageHandle msb.ImageHandle,
 	artifact naming.ArtifactInfo,
@@ -97,8 +100,8 @@ func keepImage(
 		return true
 	}
 	key := state.Key{Slug: artifact.Slug, Agent: artifact.Agent}
-	if _, live := pruneState.ToKeep[key]; !live {
-		return false
+	if _, retain := pruneState.RetainKeys[key]; retain {
+		return true
 	}
 	if _, pruned := pruneState.ToPrune[key]; pruned {
 		return false

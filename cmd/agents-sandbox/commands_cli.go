@@ -13,8 +13,10 @@ import (
 	"github.com/spf13/cobra"
 	"golang.org/x/term"
 
+	"github.com/inoio/agents-sandbox/internal/git"
 	"github.com/inoio/agents-sandbox/internal/runoptions"
 	"github.com/inoio/agents-sandbox/internal/sandbox/pruning"
+	"github.com/inoio/agents-sandbox/internal/sandbox/state"
 	"github.com/inoio/agents-sandbox/internal/upgrade"
 	launcherconfig "github.com/inoio/agents-sandbox/internal/viperconfig"
 
@@ -144,10 +146,36 @@ func runFunc(ui termio.UI) func(cmd *cobra.Command, args []string) error {
 			}
 		}
 		if r != nil {
-			pruning.AutoPrune(cmd.Context(), r.AutoPruneAge(), isDryRun, &autoPruneOutToVerboseRedirect{UI: ui})
+			pruning.AutoPrune(
+				cmd.Context(),
+				r.AutoPruneAge(),
+				isDryRun,
+				&autoPruneOutToVerboseRedirect{UI: ui},
+				currentRunImageKeys(opts.Agent)...,
+			)
 		}
 		return session.Run(ctx, opts, mode, ui)
 	}
+}
+
+// currentRunImageKeys returns the runner-image keys the current run may reuse, so
+// its own startup auto-prune never reclaims the image it is about to import: the
+// prebuild's image on a project with no VM yet, or one whose stale VM the same
+// prune sweeps away. The runner image is keyed by the checkout slug; a
+// pre-migration project's images still live under its legacy repo slugs, so both
+// are returned. It is best-effort: when identity cannot be resolved the run fails
+// later with the real error, and the prune simply retains nothing.
+func currentRunImageKeys(agentName string) []state.Key {
+	identity, err := git.ResolveIdentity(".")
+	if err != nil {
+		return nil
+	}
+	slugs := append([]string{identity.CheckoutSlug}, identity.LegacyRepoSlugs...)
+	keys := make([]state.Key, 0, len(slugs))
+	for _, slug := range slugs {
+		keys = append(keys, state.Key{Slug: slug, Agent: agentName})
+	}
+	return keys
 }
 
 var upgradeCheck = upgrade.Check

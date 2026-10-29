@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
+	"github.com/inoio/agents-sandbox/internal/sandbox/state"
 	"github.com/inoio/agents-sandbox/internal/termio"
 )
 
@@ -17,11 +18,21 @@ type MsbClient = msb.Client
 //
 // The keep-set comes from the snapshot taken before pruning runs, so a stale VM's
 // home volumes and images are reclaimed even if the VM's own removal fails.
-func Prune(ctx context.Context, threshold time.Duration, dryRun bool, ui termio.UI) (*StaleReport, error) {
+// retain names the keys the current invocation is about to use (a `run`/`shell`
+// passes its own project key): their images survive regardless of VM liveness or
+// age, so a run's startup prune never reclaims the image it is about to import.
+func Prune(
+	ctx context.Context,
+	threshold time.Duration,
+	dryRun bool,
+	ui termio.UI,
+	retain ...state.Key,
+) (*StaleReport, error) {
 	pruneState, err := buildPruneState(ctx, threshold)
 	if err != nil {
 		return nil, err
 	}
+	pruneState.RetainKeys = keySet(retain)
 	vmReport, vmErr := PruneSandboxes(ctx, pruneState, dryRun, ui)
 	volReport, volErr := PruneVolumes(ctx, pruneState, dryRun, ui)
 	imgReport, imgErr := PruneImages(ctx, pruneState, dryRun, ui)

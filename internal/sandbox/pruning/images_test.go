@@ -341,6 +341,40 @@ func TestPruneImagesKeepsLiveProjectImageWithLeftoverTask(t *testing.T) {
 	}
 }
 
+// TestPruneImagesKeepsRecentImageOfVmLessProject is the build-then-run
+// regression: a prebuild loads a project's runner image while it still has no
+// VM, and the run's own startup prune must not reclaim it. Both the content ref
+// and the legacy prefixed tag survive while within the prune age.
+func TestPruneImagesKeepsRecentImageOfVmLessProject(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	const slug = "built-1mjusbm3wikhb0"
+	client := &msb.MockMsbClient{
+		Images: []msb.ImageHandle{
+			&msb.MockImageHandle{
+				Reference_: "agents-sandbox/runner-" + slug + ":opencode-latest",
+				CreatedAt_: time.Now(),
+			},
+			&msb.MockImageHandle{Reference_: slug + ":opencode.9f2c1a7b4d6e0f31", CreatedAt_: time.Now()},
+		},
+	}
+	msb.WithMsbMock(t, client)
+	docker.WithNoopDockerMock(t)
+	pruneState, err := buildPruneState(context.Background(), 30*24*time.Hour)
+	if err != nil {
+		t.Fatalf("buildPruneState: %v", err)
+	}
+	r, err := PruneImages(context.Background(), pruneState, false, &termio.Mock{})
+	if err != nil {
+		t.Fatalf("PruneImages: %v", err)
+	}
+	if r.MSBImagesPruned != 0 {
+		t.Errorf("MSBImagesPruned = %d, want 0 (a recent VM-less project's image must survive)", r.MSBImagesPruned)
+	}
+	if len(client.RemovedImages) != 0 {
+		t.Errorf("RemovedImages = %v, want none", client.RemovedImages)
+	}
+}
+
 func TestRenderImageReport(t *testing.T) {
 	ui := &termio.Mock{}
 	RenderImageReport(ui, ImageReport{
@@ -531,17 +565,52 @@ func TestKeepImageDropsAgedVariantOfLiveKey(t *testing.T) {
 	}
 }
 
-// TestKeepImageDropsRefsOfDeadKey covers a dangling key: absent from both ToKeep
-// and ToPrune (its project VM vanished outside the prune flow), so even a
-// freshly imported ref is reclaimed.
-func TestKeepImageDropsRefsOfDeadKey(t *testing.T) {
+// TestKeepImageKeepsRecentRefOfVmLessKey pins the retention rule that lets a
+// build be reused by the next run: a project with no VM is not "dead" for its
+// images, so a ref used within the prune age survives the run's own startup
+// prune instead of being reclaimed and reimported.
+func TestKeepImageKeepsRecentRefOfVmLessKey(t *testing.T) {
+	pruneState := PruneState{Age: time.Hour}
+	handle := &msb.MockImageHandle{
+		Reference_:  "built-1mjusbm3wikhb0:opencode.9f2c1a7b4d6e0f31",
+		LastUsedAt_: time.Now(),
+	}
+	if !keepImageFor(handle, pruneState, nil) {
+		t.Error("expected a recent ref of a VM-less key to be kept")
+	}
+}
+
+// TestKeepImageDropsAgedRefOfVmLessKey bounds the same rule: a VM-less key's ref
+// is still reclaimed once it ages out, so a retired project's images do not
+// linger past the prune window.
+func TestKeepImageDropsAgedRefOfVmLessKey(t *testing.T) {
 	pruneState := PruneState{Age: time.Hour}
 	handle := &msb.MockImageHandle{
 		Reference_:  "gone-1mjusbm3wikhb0:opencode.9f2c1a7b4d6e0f31",
-		LastUsedAt_: time.Now(),
+		LastUsedAt_: time.Now().Add(-48 * time.Hour),
 	}
 	if keepImageFor(handle, pruneState, nil) {
-		t.Error("expected a ref of a dead key to be pruned even when fresh")
+		t.Error("expected an aged ref of a VM-less key to be pruned")
+	}
+}
+
+// TestKeepImageRetainsCurrentRunKey pins the current-run exemption: the key the
+// invocation is about to use keeps its image even when its project VM is being
+// pruned in the same pass and the image has aged out, so a run never destroys
+// the image it is about to import.
+func TestKeepImageRetainsCurrentRunKey(t *testing.T) {
+	key := state.Key{Slug: "proj-1mjusbm3wikhb0", Agent: "opencode"}
+	pruneState := PruneState{
+		Age:        time.Hour,
+		ToPrune:    map[state.Key]msb.SandboxHandle{key: &msb.MockSandboxHandle{}},
+		RetainKeys: map[state.Key]struct{}{key: {}},
+	}
+	handle := &msb.MockImageHandle{
+		Reference_:  "agents-sandbox/runner-proj-1mjusbm3wikhb0:opencode-latest",
+		LastUsedAt_: time.Now().Add(-48 * time.Hour),
+	}
+	if !keepImageFor(handle, pruneState, nil) {
+		t.Error("a key retained by the current run must keep its image")
 	}
 }
 

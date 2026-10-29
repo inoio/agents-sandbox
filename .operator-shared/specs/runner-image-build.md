@@ -57,9 +57,10 @@ matches, the Docker image is loaded under `info.Ref`; a load never removes a cac
 may still reference it. The build/load split is deliberate:
 `run`/`shell` build eagerly via `EnsureImage` but load lazily, only when a VM is actually created or recreated.
 
-Pruning keeps a candidate reference while a kept VM holds it, or its `(slug, agent)` is a live project key and the image
-was used within the prune age; a retired project's refs and an aged-out variant are reclaimed. The full retention
-contract is `specs/image-ref-content-addressing.md`.
+Pruning keeps a candidate reference while a kept VM holds it, while its `(slug, agent)` key is the one the current
+`run`/`shell` is about to use, or while it parses an agent and was used within the prune age; a pruned key's refs, an
+agent-less ref, and an aged-out variant are reclaimed, so a `build` followed by a `run` reimports nothing. The full
+retention contract is `specs/image-ref-content-addressing.md`.
 
 ## Version selection
 

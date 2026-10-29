@@ -266,6 +266,39 @@ func TestPruneAggregateParity(t *testing.T) {
 	}
 }
 
+// TestPruneRetainsCurrentRunKeyImage pins the current-run exemption end to end:
+// a run passes the key it is about to use, and that key's image survives even
+// though its stale project VM is pruned in the same invocation.
+func TestPruneRetainsCurrentRunKeyImage(t *testing.T) {
+	cp.WithMockConfigPaths(t)
+	const slug = "proj-1mjusbm3wikhb0"
+	key := state.Key{Slug: slug, Agent: "opencode"}
+	ref := "agents-sandbox/runner-" + slug + ":opencode-latest"
+	client := &msb.MockMsbClient{
+		Sandboxes: []msb.SandboxHandle{
+			&msb.MockSandboxHandle{
+				Name_:      "agents-sandbox-vm-" + slug + "-opencode",
+				Status_:    msbSdk.SandboxStatusStopped,
+				UpdatedAt_: time.Now().Add(-48 * time.Hour),
+				Image_:     ref,
+			},
+		},
+		Images: []msb.ImageHandle{
+			&msb.MockImageHandle{Reference_: ref, CreatedAt_: time.Now().Add(-48 * time.Hour)},
+		},
+	}
+	msb.WithMsbMock(t, client)
+	docker.WithNoopDockerMock(t)
+	testUI := termio.NewTestMock(t)
+
+	if _, err := Prune(context.Background(), time.Hour, false, &testUI, key); err != nil {
+		t.Fatalf("Prune: %v", err)
+	}
+	if len(client.RemovedImages) != 0 {
+		t.Errorf("RemovedImages = %v, want none (the current run's key is retained)", client.RemovedImages)
+	}
+}
+
 func TestPrune_BuildStateError(t *testing.T) {
 	client := &msb.MockMsbClient{
 		ListSandboxesFn: func(context.Context, map[string]string) ([]msb.SandboxHandle, error) {
