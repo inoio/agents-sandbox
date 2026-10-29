@@ -31,6 +31,7 @@ func (opencodeProfile) ImageSpec() ImageSpec {
 		InstallCommand: `curl -fsSL https://opencode.ai/install | bash -s -- --version "$OPENCODE_VERSION" && cp /root/.opencode/bin/opencode /opt/agents-sandbox/bin`,
 		RequiresNode:   false,
 		OwnedToolPaths: nil,
+		RuntimeLibs:    nil,
 	}
 }
 

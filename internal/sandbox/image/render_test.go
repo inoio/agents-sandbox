@@ -390,6 +390,44 @@ func TestRenderDockerfileNoGuestToolsForDaemonlessAgents(t *testing.T) {
 	}
 }
 
+// TestRenderDockerfileChecksAgentRuntimeLibs guards the custom-base contract for
+// an agent whose provisioned runtime links a system library: hermes's managed
+// Node.js needs libatomic.so.1, so the final stage must verify it after the user
+// body, glibc-only, and an agent that declares no library must emit no check.
+func TestRenderDockerfileChecksAgentRuntimeLibs(t *testing.T) {
+	hermes, _ := agent.Lookup("hermes")
+	final := finalStage(t, mustRender(t, hermes, nil, dockerOff))
+
+	if !strings.Contains(final, "agent runtime library missing") {
+		t.Fatalf("the final stage must verify hermes's runtime library; got:\n%s", final)
+	}
+	for _, want := range []string{
+		"for lib in libatomic.so.1;",
+		"ldconfig -p",
+		"getconf GNU_LIBC_VERSION",
+	} {
+		if !strings.Contains(final, want) {
+			t.Errorf("the runtime-library check must contain %q; got:\n%s", want, final)
+		}
+	}
+
+	opencode, _ := agent.Lookup("opencode")
+	other := finalStage(t, mustRender(t, opencode, nil, dockerOff))
+	if strings.Contains(other, "agent runtime library missing") {
+		t.Errorf("opencode declares no runtime library, so no check is expected; got:\n%s", other)
+	}
+}
+
+// TestRenderDockerfileManagedBaseInstallsLibatomic pins the managed base's
+// provisioned packages: hermes's managed Node.js links libatomic.so.1 on glibc,
+// and the agent stage that installs libatomic1 is discarded, so the embedded
+// managed base must install it for the runner image to carry it.
+func TestRenderDockerfileManagedBaseInstallsLibatomic(t *testing.T) {
+	if !strings.Contains(string(embeddedBaseToolsBlock), "libatomic1") {
+		t.Errorf("the managed base must install libatomic1; got:\n%s", embeddedBaseToolsBlock)
+	}
+}
+
 // TestRenderDockerfileChownsAgentToolTree guards the ownership handover: an
 // agent that writes into its own installation at runtime (hermes) declares the
 // paths, and the runner chowns them to the dev user it just created. The chown

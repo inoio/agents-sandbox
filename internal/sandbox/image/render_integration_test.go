@@ -130,9 +130,10 @@ func TestRenderDockerfileBuilds(t *testing.T) {
 // test's `managed-base` case is the explicit runner-base ref instead) and on a
 // custom non-Debian base. The agent stage always builds on the Debian tool base,
 // so the custom base exercises the final-stage merge and the agent's *runtime*,
-// not its install: running the version probe in the built image is what catches
-// a broken binary or a runtime library the discarded agent stage installed.
-// Neither base provides libatomic.so.1, so hermes's libatomic1 is guarded on both.
+// not its install: running the version probe in the built image catches a broken
+// binary. A base that supports hermes must provide libatomic.so.1 (the runner's
+// runtime-library check enforces it), so the custom base installs it; the
+// managed base carries it too.
 func TestRenderDockerfileBuildsEveryAgent(t *testing.T) {
 	origGet := docker.Get
 	docker.Get = docker.RealClient
@@ -143,9 +144,12 @@ func TestRenderDockerfileBuildsEveryAgent(t *testing.T) {
 		project []byte
 	}{
 		{"managed", nil},
+		// Hermes's managed Node.js links libatomic.so.1 on glibc, so a custom base
+		// that runs hermes must provide it (the runner's build check fails naming
+		// it otherwise); the expected-failure guard proves that failure.
 		{"custom-fedora", []byte(
 			"FROM fedora:latest\n" +
-				"RUN dnf install -y curl && dnf clean all\n")},
+				"RUN dnf install -y curl libatomic && dnf clean all\n")},
 	}
 
 	for _, name := range agent.Names() {
@@ -212,6 +216,48 @@ func TestRenderDockerfileMissingGuestToolFailsBuild(t *testing.T) {
 	}
 	if out := strings.Join(lines, "\n"); !strings.Contains(out, "agent runtime tool missing: curl") {
 		t.Errorf("the failed build must name the missing tool; output:\n%s", out)
+	}
+}
+
+// TestRenderDockerfileMissingRuntimeLibFailsBuild is the expected-failure guard
+// for the agent runtime-library check: a custom base lacking the shared library
+// an agent's provisioned runtime links — hermes's managed Node.js needs
+// libatomic.so.1 on glibc — must fail the build naming the library, not build
+// successfully and then fail when the agent launches.
+func TestRenderDockerfileMissingRuntimeLibFailsBuild(t *testing.T) {
+	origGet := docker.Get
+	docker.Get = docker.RealClient
+	t.Cleanup(func() { docker.Get = origGet })
+
+	a, ok := agent.Lookup("hermes")
+	if !ok {
+		t.Fatal("hermes agent not registered")
+	}
+	version := integrationAgentVersion(t, a)
+
+	ctx := context.Background()
+	if _, err := docker.Get().Ping(ctx, client.PingOptions{}); err != nil {
+		t.Skipf("docker daemon not available: %v", err)
+	}
+
+	// debian:trixie-slim ships no libatomic.so.1, so the runner's library check
+	// must stop the build. The hermes install in the agent stage runs first, so
+	// this build is slow.
+	tag := "agents-sandbox/it-missing-runtime-lib"
+	t.Cleanup(func() { removeTestImage(tag) })
+
+	var lines []string
+	buildErr := buildImage(
+		ctx, a,
+		renderBytesVersion(t, a, version, []byte("FROM debian:trixie-slim\n"), dockerOff),
+		tag, false, version, "", "", false, imageIdentity{},
+		func(s string) { lines = append(lines, s) },
+	)
+	if buildErr == nil {
+		t.Fatal("the build must fail when the base lacks the agent's runtime library")
+	}
+	if out := strings.Join(lines, "\n"); !strings.Contains(out, "agent runtime library missing: libatomic.so.1") {
+		t.Errorf("the failed build must name the missing library; output:\n%s", out)
 	}
 }
 

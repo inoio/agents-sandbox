@@ -604,6 +604,7 @@ func runnerStage(a agent.Agent, baseAlias, body string, docker, dockerInjected b
 		agentImageConfigBlock(a),
 		finalizationBlock(),
 		guestToolsBlock(a),
+		runtimeLibsBlock(a),
 		launcherToolsBlock(),
 	)
 	return joinBlocks(parts...)
@@ -730,6 +731,29 @@ func guestToolCheck(tools []string, missing, reason string) string {
         { echo "error: %s: $p (%s)" >&2; exit 1; }; \
     done
 `, strings.Join(tools, " "), missing, reason)
+}
+
+// runtimeLibsBlock verifies that the shared libraries an agent's provisioned
+// runtime links are resolvable in the final image, failing the build naming the
+// library otherwise. It is the shared-library counterpart of guestToolsBlock:
+// the agent's runtime is installed in the agent stage on the tool base, while
+// the runner copies only the tool tree into the project's base, so a system
+// library the runtime links is absent unless the base provides it. It runs after
+// the body, so a base that installs the library in the body is accepted, and it
+// is glibc-only because the requirement is a glibc one, so a musl base is
+// skipped rather than failed. Agents that declare no libraries emit nothing.
+func runtimeLibsBlock(a agent.Agent) string {
+	libs := a.ImageSpec().RuntimeLibs
+	if len(libs) == 0 {
+		return ""
+	}
+	return fmt.Sprintf(`RUN set -e; if getconf GNU_LIBC_VERSION >/dev/null 2>&1; then \
+      for lib in %s; do \
+        ldconfig -p 2>/dev/null | grep -q "$lib" || \
+          { echo "error: agent runtime library missing: $lib (required by %s; the base image must provide it)" >&2; exit 1; }; \
+      done; \
+    fi
+`, strings.Join(libs, " "), a.Name())
 }
 
 // agentImageConfigBlock renders the sorted ENV lines for the agent's ImageSpec
