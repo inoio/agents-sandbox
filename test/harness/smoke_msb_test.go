@@ -93,6 +93,9 @@ func TestHarnessSmoke(t *testing.T) {
 			network = networkNone
 		}
 		t.Run(name, func(t *testing.T) {
+			if err := seedHomeFiles(root, spec.SeedHomeFiles); err != nil {
+				t.Fatalf("seed %s home files: %v", name, err)
+			}
 			ses := mustStartUnderPTY(
 				t, projectDir(root, name),
 				isolatedEnv(root, os.Environ()),
@@ -139,11 +142,15 @@ func quit(ses *ptySession, spec harnessSpec) (int, error) {
 	}
 }
 
-// waitReady blocks until the harness can be driven with its quit key. A
-// harness that takes over the alternate screen announces its UI is up; one that
-// keeps the terminal's normal buffer has no such marker, so it is given the
+// waitReady blocks until the harness can be driven with its quit key. A harness
+// with a readiness marker announces its UI as soon as that line is printed; one
+// that takes over the alternate screen announces it with the screen; one that
+// keeps the terminal's normal buffer and has neither marker is given the
 // launcher's start-up time instead.
 func waitReady(ses *ptySession, spec harnessSpec) error {
+	if spec.ReadyMarker != "" {
+		return ses.waitForMarker(spec.ReadyMarker, spec.readyTimeout(settledReadyTimeout))
+	}
 	if spec.KeepsNormalBuffer {
 		return ses.waitSettled(spec.readyTimeout(settledReadyTimeout))
 	}

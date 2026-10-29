@@ -92,12 +92,18 @@ Hermes's config home is **not** XDG: it is `HERMES_HOME` (default `/home/dev/.he
 
 `test/harness` carries a `hermes` entry (the suite asserts its key set equals `agent.Names()`):
 
-- `KeepsNormalBuffer: true` — Hermes' classic CLI renders into the terminal's normal buffer, so the smoke test watches
-  for output rather than the alternate-screen marker.
-- `Network: public` — Hermes reaches its provider before the prompt; an air-gapped run would not reach the REPL.
+- `KeepsNormalBuffer: true` — hermes' classic CLI renders into the terminal's normal buffer, so the smoke test watches
+  for an output marker rather than the alternate-screen sequence.
+- `ReadyMarker: "Hermes Agent v"` — the classic CLI's startup banner (`show_banner`), printed before it accepts input,
+  readies the subtest; the version itself is not pinned.
+- `ReadyTimeout: heavyweightReadyTimeout` — a ceiling on the readiness wait (not a sleep); the runner image carries a
+  whole Python/Node tool store, so hermes' startup is the slowest (`harness-smoke-tests.md`).
+- `SeedHomeFiles: {".hermes/config.yaml": …}` — a home config naming a dummy, loopback `custom` provider (and settling
+  the shared-metrics offer) so hermes starts its classic CLI REPL. With no provider it stops at its first-run setup
+  guard (`_first_run_setup_guard`), which always exits `1`; the seeded provider is what lets Ctrl-D exit `0`.
+- `Network: public` — kept from the first measured run; the seeded provider endpoint is loopback, so egress is not what
+  carries hermes to the REPL, and dropping it to `none` remains to be measured.
 - `QuitKey: Ctrl-D`.
-- `ReadyTimeout: heavyweightSettledReadyTimeout` — the runner image carries a whole Python/Node tool store, so loading
-  it into microsandbox outlasts the shared 25s settled budget (`harness-smoke-tests.md`).
 - CI coverage: `TestRenderDockerfileBuildsEveryAgent` (integration) builds the runner image and runs `hermes --version`
   on the managed and a custom non-Debian base. The `integration` job is opt-in — the `run-integration` PR label, plus every
   code-affecting `main` push and release tag — not one of the required PR checks (`ci-job-gating.md`), so hermes's install

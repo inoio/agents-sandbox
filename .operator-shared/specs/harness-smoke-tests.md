@@ -1,7 +1,7 @@
 ---
-description: Contract for the `msb`-tagged harness smoke tests that start every registered harness to its TUI in a real microsandbox VM, and the isolation that keeps them off the developer's existing agents-sandbox state.
+description: Contract for the `msb`-tagged harness smoke tests that start every registered harness to its TUI in a real microsandbox VM (readiness by alternate-screen marker, a startup-line marker, or a settled wait; optional seeded home files), and the isolation that keeps them off the developer's existing agents-sandbox state.
 read_if: Adding or changing the harness smoke tests, the `msb` build tag or `make test-msb`, the harness quit-press
-  table, or when a harness's TUI startup or quit behavior changes.
+  table, the readiness signals or seeded home files, or when a harness's TUI startup or quit behavior changes.
 ---
 
 # Harness smoke tests
@@ -48,9 +48,16 @@ renders a connection-error screen still passes. Daemon health itself is covered 
 `ensureDaemon` before any TUI, so a broken daemon fails the TUI-wait or assertion 3.
 
 **Readiness.** The alternate screen is the strong signal: it means the harness's own UI has taken over the terminal.
-It is not universal. `claude-code`'s renderer keeps the terminal's normal buffer — it saves and restores the cursor
-with `ESC 7`/`ESC 8` and never emits `ESC [ ? 1049 h` — so its subtest waits out the launcher instead. Two
-measurements shape that wait:
+It is not universal; two other signals cover the harnesses that never emit `ESC [ ? 1049 h`.
+
+**A ready marker.** A normal-buffer harness whose CLI prints a stable startup line declares it in `ReadyMarker`, and
+its subtest ends the readiness wait as soon as that line appears. `hermes` does: its classic CLI prints
+`Hermes Agent v<version> (<date>)` (`show_banner`) before it accepts input, so the spec waits for `Hermes Agent v`.
+The line is version-independent; the version itself is not pinned.
+
+**A wall-clock settle.** `claude-code`'s renderer keeps the terminal's normal buffer — it saves and restores the cursor
+with `ESC 7`/`ESC 8` and never emits `ESC [ ? 1049 h` — and prints no stable marker, so its subtest waits out the
+launcher instead. Two measurements shape that wait:
 
 - **quiet output does not mean the harness has rendered.** The launcher loads an image and starts a VM before the
   harness runs, printing nothing for seconds at a time while it does, so a quiescence-based fallback fires on
@@ -61,22 +68,31 @@ measurements shape that wait:
   is live and the harness is already painting, so the loss is on the harness's side — see "Press until it goes" below.
 
 Once the image prebuild has run, the harness's UI comes up about 14s after launch, so the settled wait is 25s. A
-harness whose runner image is much larger overrides that budget: `hermes` carries a whole Python/Node tool store, so
-loading it into microsandbox outlasts the shared 25s, and its spec sets `ReadyTimeout`
-(`heavyweightSettledReadyTimeout`, 120s). The override applies only to a `KeepsNormalBuffer` harness; an
-alternate-screen harness is bounded by the TUI marker wait instead.
+harness whose startup is much slower overrides that budget with `ReadyTimeout`: `hermes` carries a whole Python/Node
+tool store, so its spec sets `heavyweightReadyTimeout` (120s). The override is a ceiling on either wait (marker or
+settle), not a sleep — hermes' banner marker ends its wait as soon as the CLI is up — and applies only to a
+`KeepsNormalBuffer` harness; an alternate-screen harness is bounded by the TUI marker wait (180s) instead.
 
 **Harness table completeness.** A single table maps harness name to the key the smoke test taps, an optional network
-override, a `KeepsNormalBuffer` flag, and an optional readiness-timeout override. Fast untagged unit tests assert the
-table's key set equals `agent.Names()` and that every entry names a key, so a newly registered harness fails `make test`
-until it is added — a harness cannot be added without smoke coverage.
+override, a `KeepsNormalBuffer` flag, an optional readiness marker, an optional readiness-timeout ceiling, and optional
+seeded home files. Fast untagged unit tests assert the table's key set equals `agent.Names()` and that every entry names
+a key, so a newly registered harness fails `make test` until it is added — a harness cannot be added without smoke
+coverage.
 
 | harness | key | how it ends |
 | --- | --- | --- |
 | `opencode`, `opencode2` | `0x04` (Ctrl-D) | their documented `app_exit`; they leave once a tap lands after the TUI has finished coming up |
 | `pi` | `0x04` (Ctrl-D) | documented `app.exit`; leaves on the first tap |
 | `claude-code` | `0x03` (Ctrl-C) | repeated presses leave it — its screen announces "Press Ctrl-C again to exit", and three is what a user found |
-| `hermes` | `0x04` (Ctrl-D) | its classic CLI's prompt exits on Ctrl-D; a normal-buffer harness with the heavyweight readiness budget |
+| `hermes` | `0x04` (Ctrl-D) | its classic CLI's REPL exits on Ctrl-D; readied on its banner marker and seeded (below) so it starts the REPL instead of its first-run setup guard |
+
+**Seeded home files.** A harness whose host-side state decides whether its CLI starts headful declares `SeedHomeFiles`,
+a map of home-relative path to content written under the isolated HOME (`<root>/home`) before the run; the launcher
+provisions it into the VM the way it provisions a real `~/.hermes/config.yaml`. `hermes` needs it: with no provider its
+classic CLI stops at a first-run setup guard that always exits `1` (`_first_run_setup_guard`), so no quit key could
+leave it `0`. The seed makes a dummy, loopback provider count as configured (and settles the shared-metrics offer) so
+hermes reaches its REPL, where Ctrl-D exits `0`. The seed is a config, not a credential: the endpoint is a closed
+loopback port and no request leaves the VM before a message is submitted.
 
 **Tap until it goes, then assert the exit.** `quit` taps the harness's key every `quitPressInterval` (400ms) until the
 process exits, for at most `quitTimeout` (15s), then asserts exit code 0. A fixed sequence is wrong for two measured
@@ -124,9 +140,10 @@ build behind a `sync.Once`, then the isolated-env docker preflight, then the per
 behind its own `sync.Once`, then the harnesses.
 
 **Network.** A harness runs with `--network none` (the secure default) unless the table overrides it, and `claude-code`
-and `hermes` do, with `public`: both reach their provider before drawing anything, so offline `claude-code` exits `1`
-(`ECONNREFUSED api.anthropic.com`) and `hermes` does not reach its REPL. The other four render identically with and
-without egress.
+and `hermes` do, with `public`. Offline `claude-code` exits `1` (`ECONNREFUSED api.anthropic.com`): it checks in with
+its API before drawing anything. `hermes` reaches its REPL through its seeded loopback provider, so egress is not what
+carries it there; `public` is kept from the first measured run and dropping it to `none` remains to be measured. The
+other four render identically with and without egress.
 
 **Preflight.** Skip, never fail, when the environment cannot run the suite: `/dev/kvm` missing on Linux, a
 non-Linux/non-darwin platform, or an unreachable docker daemon. The platform/KVM check runs before anything
@@ -143,7 +160,8 @@ sandbox sweep stays separate because it needs the binary and a reachable docker 
 ## Non-goals
 
 - TUI content or behaviour beyond reaching the full-screen TUI and leaving it on its quit key.
-- Credentials, authenticated sessions, or harness network egress.
+- Credentials, authenticated sessions, or harness network egress. A `SeedHomeFiles` config may name a dummy, loopback
+  provider so a CLI reaches its REPL; it is not a usable credential and sends nothing off the VM.
 - Replacing the mocked `internal/sandbox/vm` tests.
 - Agent version resolution, the upgrade prompt, or the image build.
 - Running on every PR (needs KVM, docker, network — host-only today) and a dedicated CI job.
@@ -154,6 +172,10 @@ sandbox sweep stays separate because it needs the binary and a reachable docker 
   drawn, unlike the alternate-screen harnesses. Its exit is also the least like a single documented keybinding — a
   repeated Ctrl-C on a first-run screen — so a change to its onboarding is the likeliest cause of a failed subtest, and
   the log then shows the screen it was stuck on.
+- `hermes`'s seeded config couples the subtest to two upstream contracts: its `provider`/`base_url` config shape
+  (whether a bare custom provider still counts as configured) and its shared-metrics `offer_version` (a bump re-asks
+  the prompt before the REPL). A change to either fails the subtest with the screen hermes stopped on, and the fix is to
+  update the seed, not the harness.
 - The quit tap is a bound, not a diagnosis: a harness that starts ignoring its key fails after `quitTimeout` of taps
   rather than reporting why.
 - Six harnesses mean six runner-image builds on a cold home; the image prebuild pays for them before any

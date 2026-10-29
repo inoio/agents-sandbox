@@ -252,6 +252,35 @@ func (s *ptySession) waitSettled(settle time.Duration) error {
 	}
 }
 
+// waitForMarker blocks until the child's output contains marker while the child
+// is still alive, or the child exits, or timeout elapses. It is the readiness
+// signal for a normal-buffer harness whose CLI prints a stable startup line: it
+// ends as soon as that line appears, where waitSettled always waits out the full
+// budget. timeout is a ceiling, not the expected wait.
+func (s *ptySession) waitForMarker(marker string, timeout time.Duration) error {
+	deadline := time.Now().Add(timeout)
+	for {
+		if bytes.Contains(s.output(), []byte(marker)) && !s.hasExited() {
+			return nil
+		}
+		if s.hasExited() {
+			s.drainOutput(ptyDrainGrace)
+			return fmt.Errorf(
+				"no readiness marker %q before the process exited (%s); output: %s",
+				marker, s.exitStatus(), s.outputTail())
+		}
+		if !time.Now().Before(deadline) {
+			return fmt.Errorf(
+				"no readiness marker %q within %s (process still running); output: %s",
+				marker, timeout, s.outputTail())
+		}
+		select {
+		case <-time.After(ptyPollInterval):
+		case <-s.waitDone:
+		}
+	}
+}
+
 // waitExit blocks until the child exits and returns its exit code. A process
 // that exited successfully yields 0; one killed by a signal, -1. Only a wait
 // that does not complete within the timeout (or fails outright) is an error.
