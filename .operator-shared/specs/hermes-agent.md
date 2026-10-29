@@ -39,7 +39,9 @@ home volume must boot without network.
   --non-interactive --skip-browser --skip-computer-use`. No dedicated Python tool stage is needed: the agent stage
   installs `git` (the installer clones the release tag) and `libatomic1` (a native dependency the installer's package
   manager would otherwise fetch through sudo, which the tool base does not have), and Hermes provisions everything else
-  itself.
+  itself. `libatomic1` is also required in the *runner* image (Hermes's provisioned Node.js links `libatomic.so.1` on
+  glibc), which the agent stage cannot supply; `ImageSpec.RuntimeLibs` declares it so the runner's managed base installs
+  it and a custom base is checked at build time.
 - **Launcher shim:** the installer's published launcher is replaced by a small shim at `/opt/agents-sandbox/bin/hermes`
   that keeps user state in `$HERMES_HOME` (default `/home/dev/.hermes`) and symlinks `tools`, `cache`, and `installs`
   back to the baked store when absent, so a fresh home volume starts Hermes without reinstalling its dependencies.
@@ -124,13 +126,15 @@ Hermes's config home is **not** XDG: it is `HERMES_HOME` (default `/home/dev/.he
   empty and the launcher attempts a network sync. The install places the prepared runtime in the baked store and links
   it into the home. Verification is **manual and documented**, not an automated gate: a `--network none` boot must reach
   the REPL with a clean `hermes doctor`.
-- **Runtime availability of the installer's apt packages — not reproduced.** The agent stage installs `git` and
-  `libatomic1`, but the runner copies only the tool tree from that stage, so both are absent from the runner image.
-  `TestRenderDockerfileBuildsEveryAgent` (integration) builds the runner image for every profile on the managed and a
-  custom non-Debian base and runs `hermes --version` in the built image; `hermes/managed` passes, so the CLI starts
-  without `libatomic.so.1` from the discarded stage and the concern did not materialize. The probe covers process startup
-  and version reporting, not every runtime path; if a failure naming `libatomic.so.1` appears, the package belongs in the
-  runner stage or the tool tree, not the discarded agent stage.
+- **Runtime availability of the installer's apt packages — resolved.** The agent stage installs `git` and `libatomic1`,
+  but the runner copies only the tool tree from that stage, so both are absent from the runner image. That matters for
+  `libatomic.so.1`: Hermes's own docs record that the managed Node.js links it on glibc, and minimal Debian/Ubuntu/RHEL
+  images do not ship it. A `hermes --version` probe does not exercise Node, so it could not have caught this. The runner
+  therefore guarantees the library instead of probing for it: the embedded managed base installs `libatomic1`, and
+  `ImageSpec.RuntimeLibs` makes `runtimeLibsBlock` verify `libatomic.so.1` in the final stage, so a custom base without it
+  fails the image build naming the library (`TestRenderDockerfileMissingRuntimeLibFailsBuild`) rather than failing when
+  Hermes launches Node. A custom base must provide it (`libatomic1` on Debian/Ubuntu, `libatomic` on Fedora/RHEL) — the
+  same custom-base contract as pi's node pin.
 - **Installed-version suffix:** pinning a ref that is not exactly a release tag yields `X.Y.Z+<n>.g<sha>`. The parser
   keeps that suffix (the shared semver-token extraction does not reduce it); comparison is unaffected because semver
   ignores build metadata.

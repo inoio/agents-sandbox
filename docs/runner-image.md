@@ -223,6 +223,10 @@ base must meet these requirements:
   base needs `curl` even when the agent runs no daemon (the daemon agents' `curl` requirement covers the same tool). It
   is checked after your Dockerfile body runs, and a missing `curl` fails the build naming the tool. See
   [Opening links]({% link configuration/opening-links.md %}#logging-in-to-an-agent).
+- **For `hermes`**: the shared library `libatomic.so.1`. Hermes's provisioned Node.js links it on glibc, and the agent
+  stage that installs it is discarded, so the base must provide it — `libatomic1` on Debian/Ubuntu, `libatomic` on
+  Fedora/RHEL. It is resolved with `ldconfig` after your Dockerfile body runs, so it may be installed in the body, and a
+  missing library fails the build naming it. The check is skipped on musl bases.
 - The recommended CLI tools listed here are documented for your convenience, not as requirements — as a custom base you install
   your own.
 - A base that already provides docker, node, or the agent is left alone (idempotency), and a pre-created `dev` user is
