@@ -126,11 +126,13 @@ func TestRenderDockerfileBuilds(t *testing.T) {
 }
 
 // TestRenderDockerfileBuildsEveryAgent builds and runs every registered agent
-// profile on the managed base and on a custom non-Debian base. The agent stage
-// always builds on the Debian tool base, so the custom base exercises the
-// final-stage merge and the agent's *runtime*, not its install: running the
-// version probe in the built image is what catches a runtime library the
-// discarded agent stage installed (hermes's libatomic1) or a broken binary.
+// profile on the launcher's managed base (a nil project Dockerfile; the sibling
+// test's `managed-base` case is the explicit runner-base ref instead) and on a
+// custom non-Debian base. The agent stage always builds on the Debian tool base,
+// so the custom base exercises the final-stage merge and the agent's *runtime*,
+// not its install: running the version probe in the built image is what catches
+// a broken binary or a runtime library the discarded agent stage installed.
+// Neither base provides libatomic.so.1, so hermes's libatomic1 is guarded on both.
 func TestRenderDockerfileBuildsEveryAgent(t *testing.T) {
 	origGet := docker.Get
 	docker.Get = docker.RealClient
@@ -143,7 +145,7 @@ func TestRenderDockerfileBuildsEveryAgent(t *testing.T) {
 		{"managed", nil},
 		{"custom-fedora", []byte(
 			"FROM fedora:latest\n" +
-				"RUN dnf install -y curl libatomic && dnf clean all\n")},
+				"RUN dnf install -y curl && dnf clean all\n")},
 	}
 
 	for _, name := range agent.Names() {
