@@ -2,8 +2,10 @@ package agent
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 )
 
@@ -30,16 +32,37 @@ func TestHermesLatestVersionStripsTagPrefix(t *testing.T) {
 	}
 }
 
-func TestHermesLatestVersionEmptyTag(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"tag_name":""}`))
-	}))
-	t.Cleanup(srv.Close)
-	t.Cleanup(overrideHermesLatestURL(srv.URL))
+// TestHermesLatestVersionRejectsMalformedTags covers every tag the version
+// parser must refuse: an empty tag, a tag without the "v" prefix, and a bare
+// "v" carrying no digits. A tag that is found but strips to an empty version
+// exercises the guard's second operand, while one that is not found exercises
+// the first, so neither operand can be dropped undetected.
+func TestHermesLatestVersionRejectsMalformedTags(t *testing.T) {
+	cases := []struct {
+		name string
+		tag  string
+	}{
+		{"empty tag", ""},
+		{"no v prefix", "0.22.5"},
+		{"bare v", "v"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				_, _ = fmt.Fprintf(w, `{"tag_name":%q}`, c.tag)
+			}))
+			t.Cleanup(srv.Close)
+			t.Cleanup(overrideHermesLatestURL(srv.URL))
 
-	if _, err := latestHermesVersion(context.Background()); err == nil {
-		t.Fatal("expected error for an empty tag")
+			_, err := latestHermesVersion(context.Background())
+			if err == nil {
+				t.Fatalf("expected error for tag %q", c.tag)
+			}
+			if !strings.Contains(err.Error(), "unexpected tag") {
+				t.Errorf("error = %v, want it to name the unexpected tag", err)
+			}
+		})
 	}
 }
 
@@ -50,8 +73,14 @@ func TestHermesLatestVersionNon200(t *testing.T) {
 	t.Cleanup(srv.Close)
 	t.Cleanup(overrideHermesLatestURL(srv.URL))
 
-	if _, err := latestHermesVersion(context.Background()); err == nil {
+	_, err := latestHermesVersion(context.Background())
+	if err == nil {
 		t.Fatal("expected error on non-200 response")
+	}
+	// The transport error must propagate unchanged, not be replaced by the
+	// tag-validation error a dropped guard would fall through to.
+	if !strings.Contains(err.Error(), "unexpected status") {
+		t.Errorf("error = %v, want the non-200 transport error", err)
 	}
 }
 
@@ -62,7 +91,11 @@ func TestHermesLatestVersionDecodeError(t *testing.T) {
 	t.Cleanup(srv.Close)
 	t.Cleanup(overrideHermesLatestURL(srv.URL))
 
-	if _, err := latestHermesVersion(context.Background()); err == nil {
+	_, err := latestHermesVersion(context.Background())
+	if err == nil {
 		t.Fatal("expected error on undecodable response")
+	}
+	if !strings.Contains(err.Error(), "decode latest hermes release") {
+		t.Errorf("error = %v, want the decode transport error", err)
 	}
 }

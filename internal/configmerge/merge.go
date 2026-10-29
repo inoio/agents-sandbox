@@ -158,6 +158,7 @@ func configFormatFor(configPath string) configFormat {
 	case ".yaml", ".yml":
 		return configYAML
 	default:
+		// gomutants:disable-next-line RETURN_ZERO reason="configJSON is the zero value of configFormat, so RETURN_ZERO compiles to the identical constant"
 		return configJSON
 	}
 }
@@ -165,16 +166,14 @@ func configFormatFor(configPath string) configFormat {
 // parseConfigFile unmarshals config data into cfg in the format its extension
 // implies.
 func parseConfigFile(name string, data []byte, cfg *map[string]any) error {
-	switch configFormatFor(name) {
-	case configTOML:
+	format := configFormatFor(name)
+	if format == configTOML {
 		return toml.Unmarshal(data, cfg)
-	case configYAML:
-		return yaml.Unmarshal(data, cfg)
-	case configJSON:
-		return json5.Unmarshal(data, cfg)
-	default:
-		return json5.Unmarshal(data, cfg)
 	}
+	if format == configYAML {
+		return yaml.Unmarshal(data, cfg)
+	}
+	return json5.Unmarshal(data, cfg)
 }
 
 // MergedConfig is the outcome of merging snippet files: the marshaled config
@@ -206,16 +205,14 @@ func BuildMerged(configPath, pattern, userDir, projectDir string) (MergedConfig,
 // config file (hermes' config.yaml) is both the agent's input and something
 // users edit, so it is never handed a JSON document under a .yaml name.
 func marshalConfig(configPath string, merged map[string]any) ([]byte, error) {
-	switch configFormatFor(configPath) {
-	case configTOML:
+	format := configFormatFor(configPath)
+	if format == configTOML {
 		return toml.Marshal(merged)
-	case configYAML:
-		return yaml.Marshal(merged)
-	case configJSON:
-		return marshalJSONConfig(merged)
-	default:
-		return marshalJSONConfig(merged)
 	}
+	if format == configYAML {
+		return yaml.Marshal(merged)
+	}
+	return marshalJSONConfig(merged)
 }
 
 // marshalJSONConfig encodes merged as indented JSON, which both JSON5 and JSONC
