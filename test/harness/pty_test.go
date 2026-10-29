@@ -113,15 +113,27 @@ func TestPTYWaitForMarkerReturnsOnceTheMarkerAppears(t *testing.T) {
 	}
 }
 
-// TestPTYWaitForMarkerMatchesThroughANSI pins that the marker match ignores
-// escape sequences: a diff-painting TUI (claude-code's Ink) can interrupt the
-// run of characters a marker is looking for.
-func TestPTYWaitForMarkerMatchesThroughANSI(t *testing.T) {
-	ses := mustStartUnderPTY(t, "", nil, "/bin/sh", "-c", `printf 'Cla\033[0mude Code v1'; sleep 30`)
+// TestMarkerTextCollapsesWhitespaceAndANSI pins the marker normalization: escape
+// sequences and every whitespace character go, so a marker matches output whose
+// spaces were rendered as cursor moves.
+func TestMarkerTextCollapsesWhitespaceAndANSI(t *testing.T) {
+	got := markerText("Welcome\033[1Cto\033[1CClaude\033[1CCode\n")
+	if want := "WelcometoClaudeCode"; got != want {
+		t.Errorf("markerText = %q, want %q", got, want)
+	}
+}
+
+// TestPTYWaitForMarkerIgnoresRenderingArtifacts pins that the marker match
+// tolerates a diff-painting TUI's output: escape sequences interleaved in the
+// text and spaces rendered as cursor moves (claude-code's Ink), so a
+// spaces-in marker matches though the line arrives space-less.
+func TestPTYWaitForMarkerIgnoresRenderingArtifacts(t *testing.T) {
+	ses := mustStartUnderPTY(t, "", nil, "/bin/sh", "-c",
+		`printf 'Wel\033[0mcome\033[1Cto\033[1CClaude\033[1CCode'; sleep 30`)
 	defer ses.close()
 
-	if err := ses.waitForMarker("Claude Code", 5*time.Second); err != nil {
-		t.Fatalf("waitForMarker through ANSI: %v", err)
+	if err := ses.waitForMarker("Welcome to Claude Code", 5*time.Second); err != nil {
+		t.Fatalf("waitForMarker with rendering artifacts: %v", err)
 	}
 }
 

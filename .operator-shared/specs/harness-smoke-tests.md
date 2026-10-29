@@ -51,11 +51,12 @@ renders a connection-error screen still passes. Daemon health itself is covered 
 Two other signals cover the harnesses that never emit `ESC [ ? 1049 h`.
 
 **A ready marker.** A normal-buffer harness whose CLI prints a stable startup line declares it in `ReadyMarker`, and
-its subtest ends the readiness wait as soon as that line appears. The match ignores escape sequences, so a
-diff-painting TUI (claude-code's Ink) still matches when one interrupts the run of characters being matched. Both
-normal-buffer harnesses use one: `hermes` prints `Hermes Agent v<version> (<date>)` (`show_banner`) before it accepts
-input, so the spec waits for `Hermes Agent v`, and `claude-code`'s startup splash prints its product name. The markers
-are version-independent; the versions themselves are not pinned.
+its subtest ends the readiness wait as soon as that line appears. The match ignores escape sequences and whitespace, so
+a diff-painting TUI (claude-code's Ink) still matches when it interleaves escapes or renders spaces as cursor moves
+(`Welcome to Claude Code` arrives space-less). Both normal-buffer harnesses use one: `hermes` prints
+`Hermes Agent v<version> (<date>)` (`show_banner`) before it accepts input, so the spec waits for `Hermes Agent v`, and
+`claude-code`'s startup splash prints its product name. The markers are version-independent; the versions themselves
+are not pinned.
 
 **A wall-clock settle (fallback).** A normal-buffer harness with no marker would wait out the launcher instead; two
 measurements shape that wait, kept as the fallback for a future harness whose CLI prints nothing stable.
