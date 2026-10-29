@@ -134,6 +134,55 @@ func TestRenderDockerfileBuilds(t *testing.T) {
 	}
 }
 
+// TestRenderDockerfileBuildsEveryAgent builds and runs every registered agent
+// profile on the managed base and on a custom non-Debian base. The agent stage
+// always builds on the Debian tool base, so the custom base exercises the
+// final-stage merge and the agent's *runtime*, not its install: running the
+// version probe in the built image is what catches a runtime library the
+// discarded agent stage installed (hermes's libatomic1) or a broken binary.
+func TestRenderDockerfileBuildsEveryAgent(t *testing.T) {
+	origGet := docker.Get
+	docker.Get = docker.RealClient
+	t.Cleanup(func() { docker.Get = origGet })
+
+	bases := []struct {
+		name    string
+		project []byte
+	}{
+		{"managed", nil},
+		{"custom-fedora", []byte(
+			"FROM fedora:latest\n" +
+				"RUN dnf install -y curl libatomic && dnf clean all\n")},
+	}
+
+	for _, name := range agent.Names() {
+		a, ok := agent.Lookup(name)
+		if !ok {
+			t.Fatalf("agent %q not registered", name)
+		}
+		version := integrationAgentVersion(t, a)
+		for _, base := range bases {
+			t.Run(name+"/"+base.name, func(t *testing.T) {
+				tag := "agents-sandbox/it-all-" + sanitizeTag(name) + "-" + base.name
+				t.Cleanup(func() { removeTestImage(tag) })
+
+				buildDockerfileTag(
+					t,
+					a,
+					renderBytesVersion(t, a, version, base.project, dockerOff),
+					version,
+					false,
+					tag,
+				)
+
+				if got := imageAgentVersion(t, tag, a); got != version {
+					t.Errorf("%s on %s: built image reports agent version %q, want %q", name, base.name, got, version)
+				}
+			})
+		}
+	}
+}
+
 // TestRenderDockerfileMissingGuestToolFailsBuild is the expected-failure guard
 // for the in-VM runtime tool check: a custom base lacking a required tool must
 // fail the build naming the tool, not build successfully and then fail at the
