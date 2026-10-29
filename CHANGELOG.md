@@ -134,6 +134,8 @@ command reports the bare version (e.g. `0.1.0`).
 
 ### Fixed
 
+- `opencode2` now reports its installed version (`opencode2 --version`), so its `agent_version` baseline is recorded on
+  boot and reconciled from the runner image's label like every other profile, instead of staying empty.
 - Networking: a user `egress-deny` carve-out now takes precedence over the profile allow rules. microsandbox matches the
   first applicable rule, and the deny entries were emitted after the profile's broad allow, so under `public`,
   `private`, or `host` (and the default) an `egress-deny` entry silently blocked nothing. The generated rule order is now
