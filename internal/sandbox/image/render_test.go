@@ -398,7 +398,7 @@ func TestRenderDockerfileChownsAgentToolTree(t *testing.T) {
 	a, _ := agent.Lookup("hermes")
 	final := finalStage(t, mustRender(t, a, nil, dockerOff))
 
-	wantChown := `chown -R dev:dev /opt/agents-sandbox/hermes /opt/agents-sandbox/hermes-home`
+	wantChown := `chown -R dev:$(id -g dev) /opt/agents-sandbox/hermes /opt/agents-sandbox/hermes-home`
 	chownIdx := strings.Index(final, wantChown)
 	if chownIdx < 0 {
 		t.Fatalf("the final stage must chown the agent's tool tree to the runtime user; got:\n%s", final)
