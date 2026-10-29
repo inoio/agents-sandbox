@@ -742,18 +742,29 @@ func guestToolCheck(tools []string, missing, reason string) string {
 // the body, so a base that installs the library in the body is accepted, and it
 // is glibc-only because the requirement is a glibc one, so a musl base is
 // skipped rather than failed. Agents that declare no libraries emit nothing.
+//
+// It resolves ldconfig from PATH first and then the standard sbin locations,
+// because a custom base may narrow PATH to /usr/bin while ldconfig lives in
+// /sbin; a missing ldconfig is reported as such rather than as a missing
+// library.
 func runtimeLibsBlock(a agent.Agent) string {
 	libs := a.ImageSpec().RuntimeLibs
 	if len(libs) == 0 {
 		return ""
 	}
 	return fmt.Sprintf(`RUN set -e; if getconf GNU_LIBC_VERSION >/dev/null 2>&1; then \
+      ldconfig_bin="$(command -v ldconfig 2>/dev/null || true)"; \
+      for candidate in /sbin/ldconfig /usr/sbin/ldconfig; do \
+        [ -n "$ldconfig_bin" ] && break; \
+        [ -x "$candidate" ] && ldconfig_bin="$candidate"; \
+      done; \
+      [ -n "$ldconfig_bin" ] || { echo "error: cannot resolve ldconfig to verify the agent runtime library (required by %s; install libc-bin in the base image)" >&2; exit 1; }; \
       for lib in %s; do \
-        ldconfig -p 2>/dev/null | grep -q "$lib" || \
+        "$ldconfig_bin" -p 2>/dev/null | grep -q "$lib" || \
           { echo "error: agent runtime library missing: $lib (required by %s; the base image must provide it)" >&2; exit 1; }; \
       done; \
     fi
-`, strings.Join(libs, " "), a.Name())
+`, a.Name(), strings.Join(libs, " "), a.Name())
 }
 
 // agentImageConfigBlock renders the sorted ENV lines for the agent's ImageSpec

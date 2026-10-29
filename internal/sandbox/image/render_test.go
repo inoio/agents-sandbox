@@ -394,6 +394,8 @@ func TestRenderDockerfileNoGuestToolsForDaemonlessAgents(t *testing.T) {
 // an agent whose provisioned runtime links a system library: hermes's managed
 // Node.js needs libatomic.so.1, so the final stage must verify it after the user
 // body, glibc-only, and an agent that declares no library must emit no check.
+// The check resolves ldconfig from PATH and the standard sbin locations, so a
+// base that narrows PATH to /usr/bin still verifies the library.
 func TestRenderDockerfileChecksAgentRuntimeLibs(t *testing.T) {
 	hermes, _ := agent.Lookup("hermes")
 	final := finalStage(t, mustRender(t, hermes, nil, dockerOff))
@@ -403,7 +405,10 @@ func TestRenderDockerfileChecksAgentRuntimeLibs(t *testing.T) {
 	}
 	for _, want := range []string{
 		"for lib in libatomic.so.1;",
-		"ldconfig -p",
+		`"$ldconfig_bin" -p`,
+		"command -v ldconfig",
+		"/sbin/ldconfig",
+		"/usr/sbin/ldconfig",
 		"getconf GNU_LIBC_VERSION",
 	} {
 		if !strings.Contains(final, want) {
