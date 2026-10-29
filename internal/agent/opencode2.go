@@ -232,6 +232,15 @@ func (opencode2Profile) NewerThan(a, b string) (bool, error) {
 	return newerOpenCode2Than(a, b)
 }
 
+// VersionCmd and ParseVersion let the launcher read the version baked into the
+// runner image, so opencode2's agent_version baseline is recorded on boot like
+// the other profiles'. Without them the baseline stayed empty and a build could
+// silently push the image back to the recorded release.
+func (opencode2Profile) VersionCmd() string { return "opencode2 --version" }
+func (opencode2Profile) ParseVersion(stdout string) (string, error) {
+	return extractSemverFromOutput(stdout)
+}
+
 func (opencode2Profile) AttachCommand(target string, args []string) string {
 	// v2 takes the working directory as a positional argument; it has no --dir
 	// flag (which the launcher passed until it learned v2's CLI shape).
