@@ -190,6 +190,13 @@ command reports the bare version (e.g. `0.1.0`).
   private runtime home is absent or broken, a failed runtime install is now reported as `msb runtime setup failed: …`
   with its troubleshooting link while the KVM and Docker checks still run, instead of aborting the command with a raw
   `install msb runtime: …` error before any check ran (#423).
+- Runner images: the auto-prune a `run`/`shell` runs at startup no longer reclaims the project's own cached image. A
+  project with no running VM — a fresh `build`, or one whose VM was removed — had its image reclaimed and reimported on
+  the next `run` (a multi-minute reimport for a large image like `hermes`). Two reclaimers did it: the launcher's
+  ref-level prune, and microsandbox's native image-data prune (`Image.Prune`, which removes any image no sandbox
+  references). A VM-less project's image now survives while it is within the prune age, the current command's own
+  project key is always retained, and a retaining invocation skips the native prune — it runs only on an explicit
+  `prune` (#290).
 - `opencode2` now reports its installed version (`opencode2 --version`), so its `agent_version` baseline is recorded on
   boot and reconciled from the runner image's label like every other profile, instead of staying empty.
 - Networking: a user `egress-deny` carve-out now takes precedence over the profile allow rules. microsandbox matches the

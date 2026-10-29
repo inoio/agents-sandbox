@@ -1,5 +1,5 @@
 ---
-description: Contract for keying the microsandbox runner-image cache by image content instead of a constant name/reference, so a project's image variants (docker on/off, agent bumps, body edits) coexist in msb and toggling reimports nothing; the Docker tag stays stable, ParseImageTag round-trips the content suffix, and prune retains a live project's variants by age and reclaims a pruned project's.
+description: Contract for keying the microsandbox runner-image cache by image content instead of a constant name/reference, so a project's image variants (docker on/off, agent bumps, body edits) coexist in msb and toggling reimports nothing; the Docker tag stays stable, ParseImageTag round-trips the content suffix, and prune retains a ref held by a kept VM, the current invocation's own key, or any agent ref used within the age, and reclaims a pruned key's refs and aged-out variants, while the native image-data prune runs only when the invocation retains nothing.
 read_if: Changing the msb runner-image reference (`naming.RunnerImageRef`, `naming.ImageIdentity`, `ParseImageTag`), `image.ImageInfo.Identity`, `image.EnsureImageWithClient`/`EnsureLoaded` and the load decision, `state.ImageReferences`, `pruning.PruneImages`/`keepImage` image retention, or diagnosing an unexpected `loading image ... into microsandbox` on a `run`/`shell`.
 ---
 
@@ -104,18 +104,24 @@ ref). It need not enumerate every content ref: the in-use guard unions it with t
 `pruning.keepImage` retains an msb image reference when **any** holds:
 
 - A kept sandbox references it (`keptImageRefs`, the in-use content) — always, regardless of age.
-- Its parsed `(slug, agent)` key is in `pruneState.ToKeep` (the project is live) **and** the image was used within the
-  prune age. Use the image handle's `LastUsedAt()` (fall back to `CreatedAt()` when it is the zero time). The age is the
-  same threshold the prune invocation already resolves; carry it into `PruneImages` (add an `Age` field to `PruneState`,
-  which `buildPruneState` already receives).
+- Its parsed `(slug, agent)` key is in `pruneState.RetainKeys` — the key the current invocation is about to use. A
+  `run`/`shell` passes its own project key, so the auto-prune that runs at its start never reclaims the image it is
+  about to import.
+- Its parsed `(slug, agent)` key is not in `ToPrune`, it parses an agent, and the image was used within the prune age.
+  Use the image handle's `LastUsedAt()` (fall back to `CreatedAt()` when it is the zero time). The age is the same
+  threshold the prune invocation already resolves (`PruneState.Age`).
 
-`PruneImages` parses each listed reference once and passes the resulting `ArtifactInfo` into `keepImage`, so a
-reference read back from the microsandbox cache is never parsed twice.
+VM liveness (`ToKeep`) deliberately no longer gates image retention. A project with no VM is not yet retired: a `build`
+loads its image before any VM exists, and the run that follows must reuse it rather than reimport it, so a VM-less key's
+ref survives while it is within the age. Only a `ToPrune` key (its stale VM is being reclaimed in this pass), an
+agent-less ref, and an aged-out variant are surplus. `PruneImages` parses each listed reference once and passes the
+resulting `ArtifactInfo` into `keepImage`, so a reference read back from the microsandbox cache is never parsed twice.
 
-A pruned/dead key's references (in `ToPrune`, or in neither set) are removed as today. This bounds a live project's cached
-variants to those used within the window while keeping the ones a toggling user actually reuses, and reclaims a retired
-project's images outright. The current build's ref is fresh by construction, and a live VM's ref is protected by the first
-rule, so neither ages out from under a running VM.
+The native microsandbox image-data prune (`Image.Prune`) is a second, independent reclaimer: it removes cached image
+data that **no sandbox references** and has no retention parameter, so it cannot honor `RetainKeys` at all. `PruneImages`
+therefore invokes it only when the invocation retains nothing. A `run`/`shell`'s startup auto-prune passes its own key,
+so it skips the native prune and defers that reclamation to the next explicit `prune` — otherwise the native sweep would
+discard the image the run is about to load, which `keepImage`'s ref-level retention cannot prevent.
 
 The `-latest` suffix test in the current `keepImage` must be dropped (keeping on the parsed agent alone): a content ref
 does not end in `-latest`, and ownership already implies the per-agent tag. This clause is already the shape on `main`
@@ -161,12 +167,15 @@ does not end in `-latest`, and ownership already implies the per-agent tag. This
 
 - `asb run` (no `--docker`), then `asb run --docker`, then `asb run` again: each variant is imported into msb at most
   once; the second and third runs import nothing (`--verbose` shows no `loading image ... into microsandbox`).
+- `asb build`, then the first `asb run`: the image is imported once (by the build); the run reuses it and imports
+  nothing. The run's startup auto-prune must not reclaim the image the project is about to use — neither its ref
+  (`keepImage`) nor its image data (the native `Image.Prune`, which is deferred to an explicit `prune`).
 - Same for an agent-version bump and back, and for a project-Dockerfile edit and back.
 - An existing 0.6.0 install (cached under `<slug>:<agent>-latest`) and a pre-0.6 install (cached under the prefixed ref)
   each keep their cache when the content matches — no reimport on upgrade, and no VM recreate while the image digest is
   unchanged (`reconfig.sameImageRef` tolerates the content spelling).
 - `image list` shows every content ref; `image remove <content-ref>` refuses while a kept sandbox holds it and otherwise
-  removes it; `image prune` keeps a live project's recent variants and removes a retired project's refs and aged-out
-  variants (dry-run reports the same).
+  removes it; `image prune` keeps a project's recent variants (with or without a running VM) and removes a pruned key's
+  refs and aged-out variants (dry-run reports the same).
 - `ParseImageTag`/`SandboxIdentity` round-trip a content ref to the same `(slug, agent)` `state.Key` (fuzz coverage).
 - `make check` green; `CHANGELOG.md` Unreleased line; docs updated where they describe the runner-image cache.
