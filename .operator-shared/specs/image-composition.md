@@ -47,9 +47,11 @@ and the tool layers cache across bases. The tool base is never part of the runne
 **Tool-tree ownership handover.** A `COPY --from=agents-sandbox-agent /opt/agents-sandbox` preserves the source stage's
 root ownership. An agent whose install self-writes at runtime (Hermes keeps its dependency ledger and bytecode markers in
 its checkout) declares the affected paths in `ImageSpec.OwnedToolPaths`; the runner emits `agentOwnershipBlock` — a
-`USER root` + `RUN chown -R dev:dev <paths>` — after the `COPY` and before `finalizationBlock` switches to `USER dev`. It
-chowns by name rather than the `USER_UID`/`USER_GID` build args, because `devUserBlock`'s `groupadd -f` can leave the
-`dev` group on a GID other than a pinned host GID. Agents that declare no paths emit nothing.
+`USER root` + `RUN chown -R dev:$(id -g dev) <paths>` — after the `COPY` and before `finalizationBlock` switches to
+`USER dev`. It resolves the group from the `dev` user's own entry rather than assuming a `dev` group or the
+`USER_UID`/`USER_GID` build args: `devUserBlock` skips creation entirely when a custom base already provides `dev`
+(which need not come with a `dev` group, so `dev:dev` would fail the build), and `groupadd -f` can leave the `dev` group
+on a GID other than a pinned host GID. Agents that declare no paths emit nothing.
 
 ### Pinned versions are rendered into the content
 
