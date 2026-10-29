@@ -33,7 +33,8 @@ const (
 	// settledReadyTimeout bounds the readiness wait for a harness whose TUI
 	// keeps the terminal's normal buffer, where no marker announces that its UI
 	// is up. It covers the launcher's image load and VM start — about 14s on a
-	// cold host when the image prebuild has already run — with margin.
+	// cold host when the image prebuild has already run — with margin. A harness
+	// whose runner image loads far slower overrides it (see harnessSpec.ReadyTimeout).
 	settledReadyTimeout = 25 * time.Second
 	// prepareTimeout bounds the one-off launcher build and the per-harness
 	// runner-image prebuild every subtest shares.
@@ -144,7 +145,7 @@ func quit(ses *ptySession, spec harnessSpec) (int, error) {
 // launcher's start-up time instead.
 func waitReady(ses *ptySession, spec harnessSpec) error {
 	if spec.KeepsNormalBuffer {
-		return ses.waitSettled(settledReadyTimeout)
+		return ses.waitSettled(spec.readyTimeout(settledReadyTimeout))
 	}
 	return ses.waitForTUI(tuiReadyTimeout)
 }

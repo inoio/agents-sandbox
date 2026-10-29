@@ -94,6 +94,8 @@ Hermes's config home is **not** XDG: it is `HERMES_HOME` (default `/home/dev/.he
   for output rather than the alternate-screen marker.
 - `Network: public` — Hermes reaches its provider before the prompt; an air-gapped run would not reach the REPL.
 - `QuitKey: Ctrl-D`.
+- `ReadyTimeout: heavyweightSettledReadyTimeout` — the runner image carries a whole Python/Node tool store, so loading
+  it into microsandbox outlasts the shared 25s settled budget (`harness-smoke-tests.md`).
 
 ## Scope decisions
 

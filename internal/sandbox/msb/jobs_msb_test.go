@@ -21,6 +21,7 @@ import (
 // a working KVM host plus network access to pull the base image — the same
 // host-only tier as the other real-client tests in this package.
 func TestJobsRoundTrip(t *testing.T) {
+	ensureIsolatedRuntime(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
 	defer cancel()
 

@@ -11,9 +11,49 @@ import (
 	"github.com/moby/moby/client"
 
 	"github.com/inoio/agents-sandbox/internal/agent"
+	"github.com/inoio/agents-sandbox/internal/configpaths"
 	"github.com/inoio/agents-sandbox/internal/sandbox/docker"
 	"github.com/inoio/agents-sandbox/internal/sandbox/options"
+	"github.com/inoio/agents-sandbox/internal/sandbox/state"
 )
+
+// integrationAgentVersion returns the release the integration image builds
+// should bake. It prefers the launcher's real upgrade cache (the machine-global
+// latest release the upgrade prompt offers), so a machine that has used the
+// agent needs no network. When the cache is empty — a fresh CI runner — it
+// resolves the release once through the agent's own latest-release check and
+// records it in the real root state, so the rest of the suite reuses it.
+func integrationAgentVersion(t *testing.T, a agent.Agent) string {
+	t.Helper()
+	configpaths.WithRealConfigPaths(t)
+
+	if version, cached := cachedAgentVersion(a); cached {
+		return version
+	}
+
+	version, err := agent.LatestVersion(context.Background(), a)
+	if err != nil {
+		t.Fatalf("resolve %s version: %v", a.Name(), err)
+	}
+	recordCachedAgentVersion(t, a, version)
+	return version
+}
+
+// recordCachedAgentVersion stores version as the agent's cached latest release so
+// a later integration test does not resolve it again. It preserves the existing
+// last_checked, so it does not suppress the developer's own upgrade check. A
+// write failure only logs: the test has its version either way.
+func recordCachedAgentVersion(t *testing.T, a agent.Agent, version string) {
+	t.Helper()
+	if _, err := state.WithRootState(true, func(tx *state.RootTxn) error {
+		check := tx.State().AgentCheck(a.Name())
+		check.LatestVersion = version
+		tx.State().SetAgentCheck(a.Name(), check)
+		return tx.Commit()
+	}); err != nil {
+		t.Logf("could not cache the %s release %q in the launcher root state: %v", a.Name(), version, err)
+	}
+}
 
 // TestRenderDockerfileBuilds builds a real image for every Dockerfile
 // composition case in RenderDockerfile, covering the matrix of:
@@ -41,10 +81,7 @@ func TestRenderDockerfileBuilds(t *testing.T) {
 		t.Fatal("opencode agent not registered")
 	}
 
-	version, err := resolveAgentVersion(context.Background(), a, "")
-	if err != nil {
-		t.Fatalf("resolve agent version: %v", err)
-	}
+	version := integrationAgentVersion(t, a)
 
 	cases := []struct {
 		name              string
@@ -110,10 +147,7 @@ func TestRenderDockerfileMissingGuestToolFailsBuild(t *testing.T) {
 	if !ok {
 		t.Fatal("opencode agent not registered")
 	}
-	version, err := resolveAgentVersion(context.Background(), a, "")
-	if err != nil {
-		t.Fatalf("resolve agent version: %v", err)
-	}
+	version := integrationAgentVersion(t, a)
 
 	ctx := context.Background()
 	if _, err := docker.Get().Ping(ctx, client.PingOptions{}); err != nil {
@@ -159,10 +193,7 @@ func TestRenderDockerfileNodeAgentNodeRuns(t *testing.T) {
 	if !ok {
 		t.Fatal("pi agent not registered")
 	}
-	version, err := resolveAgentVersion(context.Background(), a, "")
-	if err != nil {
-		t.Fatalf("resolve agent version: %v", err)
-	}
+	version := integrationAgentVersion(t, a)
 
 	tag := "agents-sandbox/it-npm-agent-node"
 	t.Cleanup(func() { removeTestImage(tag) })
@@ -192,10 +223,7 @@ func TestRenderDockerfileToolLayersStayCached(t *testing.T) {
 	if !ok {
 		t.Fatal("pi agent not registered")
 	}
-	version, err := resolveAgentVersion(context.Background(), a, "")
-	if err != nil {
-		t.Fatalf("resolve agent version: %v", err)
-	}
+	version := integrationAgentVersion(t, a)
 
 	base := []byte(
 		"FROM fedora:latest\n" +
@@ -402,10 +430,7 @@ func TestRenderDockerfileLoginShellHasImagePath(t *testing.T) {
 	t.Cleanup(func() { docker.Get = origGet })
 
 	a, _ := agent.Lookup("opencode")
-	version, err := resolveAgentVersion(context.Background(), a, "")
-	if err != nil {
-		t.Fatalf("resolve agent version: %v", err)
-	}
+	version := integrationAgentVersion(t, a)
 	project := []byte("FROM agents-sandbox/runner-base:latest\nENV PATH=\"/opt/my-tools:${PATH}\"\n")
 
 	tag := "agents-sandbox/it-login-path"
@@ -441,10 +466,7 @@ func TestRenderDockerfileTrustHelperRunsInImage(t *testing.T) {
 	if !ok {
 		t.Fatal("opencode agent not registered")
 	}
-	version, err := resolveAgentVersion(context.Background(), a, "")
-	if err != nil {
-		t.Fatalf("resolve agent version: %v", err)
-	}
+	version := integrationAgentVersion(t, a)
 
 	tag := "agents-sandbox/it-trust-helper"
 	t.Cleanup(func() { removeTestImage(tag) })
