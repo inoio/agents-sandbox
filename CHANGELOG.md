@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Version tags use a `v` prefix (e.g. `v0.1.0`); the `version`
 command reports the bare version (e.g. `0.1.0`).
 
+This file is assembled at release time from the fragment files in `changelog.d/`; add entries there,
+not here. The `[Unreleased]` section below holds only entries from before the fragment workflow and is
+emptied at the next release.
+
 ## [Unreleased]
 
 ### Added
@@ -69,10 +73,6 @@ command reports the bare version (e.g. `0.1.0`).
   skipped because a live sandbox holds them and the bytes it reclaimed. Byte counts the runtime cannot measure render as
   unknown (`-` in the human output, `null` in `--format json`), never `0`. The runtime-memory phase honors `--dry-run`
   through the runtime's own preview flag (#156).
-- Maintainers: `.operator-shared/specs/lifecycle.md` documents the `run`/`shell` lifecycle as named stages (`preflight`
-  through `attach`), the single authority for each value that crosses stages, the liveness rule the prune applies per
-  artifact kind, the `--dry-run`/`--dry-run-vm`/serve-only mode model, and the invariants a stage change must keep
-  (#449).
 
 ### Changed
 
@@ -115,8 +115,9 @@ command reports the bare version (e.g. `0.1.0`).
 - Internal: `dockerd` and the agent `serve` daemon now run as microsandbox runtime-owned detached jobs
   (`ExecDetached`), replacing shell-backgrounded `nohup` processes, logfile polling, and `pkill` start/stop plumbing.
   Readiness stays health-probe based, a crashed job reports its exit code plus a log tail, and a stale job is killed by
-  command match before a restart. Re-landed after microsandbox v0.7.11 stopped a detached job from keeping the VM from
-  idling (#146).
+  command match before a restart (scoped to the current runtime generation, so jobs left by an earlier boot are no
+  longer reported as kill failures). Re-landed after microsandbox v0.7.11 stopped a detached job from keeping the VM
+  from idling (#146).
 - Internal: `make bootstrap` now guarantees the zig it manages is at the pinned version with the macOS cross-compile
   stubs baked in and the `~/.local/bin/zig` link ensured, and reports instead of silently succeeding when `PATH`
   resolves zig to an installation elsewhere (it is left untouched). A managed install that is not on `PATH` is no
@@ -161,9 +162,6 @@ command reports the bare version (e.g. `0.1.0`).
 
 ### Fixed
 
-- `shell` now runs the same startup stages as `run`: it auto-prunes stale VMs, home volumes and runner images at
-  startup (retaining the image it is about to use), as the `auto-prune-age` docs already stated, and `shell --dry-run`
-  skips the prerequisite check (`doctor`), so it no longer installs the microsandbox runtime (#452).
 - A bare repository cloned as `<name>.git` (no `.git` entry of its own) is now recognized as a bare checkout instead
   of a non-repo folder, so launching from its root uses the same origin-derived identity — state, VM, home volume — as
   the worktrees inside it. Its previous path-keyed state is adopted (#433).

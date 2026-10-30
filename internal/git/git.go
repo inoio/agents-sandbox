@@ -5,6 +5,7 @@ import (
 	"math/big"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"github.com/go-git/go-git/v5/config"
@@ -71,7 +72,12 @@ func originURL(root string) string {
 // repository object, so the config file is read directly. Callers treat a
 // missing or unparseable config as "unknown" rather than failing.
 func readRepoConfig(gitDir string) (*config.Config, error) {
-	f, err := os.Open(filepath.Join(gitDir, "config"))
+	return readRepoConfigFile(filepath.Join(gitDir, "config"))
+}
+
+// readRepoConfigFile parses a single git config file.
+func readRepoConfigFile(path string) (*config.Config, error) {
+	f, err := os.Open(path)
 	if err != nil {
 		return nil, err
 	}
@@ -80,10 +86,50 @@ func readRepoConfig(gitDir string) (*config.Config, error) {
 }
 
 // isBare reports whether gitDir (a repository's shared git directory) is a bare
-// repository, read from its config's core.bare. A missing or unreadable config
-// means "not bare": that is today's behavior for an unrecognized repo.
+// repository. core.bare is read from the shared config and, when
+// extensions.worktreeConfig is enabled, from the main worktree's
+// config.worktree: git moves core.bare there once the extension is set (for
+// example when a worktree uses sparse-checkout), so the shared config alone
+// would read a bare repo as non-bare. Git reads config.worktree files only when
+// the extension is enabled, so a file left behind after it is turned off must
+// not count. A missing or unreadable config means "not bare": that is today's
+// behavior for an unrecognized repo.
 func isBare(gitDir string) bool {
-	cfg, err := readRepoConfig(gitDir)
+	shared, err := readRepoConfig(gitDir)
+	if err != nil {
+		return false
+	}
+	if shared.Core.IsBare {
+		return true
+	}
+	return worktreeConfigEnabled(shared) && configIsBare(gitDir, "config.worktree")
+}
+
+// worktreeConfigEnabled reports whether the shared config enables
+// extensions.worktreeConfig, the switch that makes git read per-worktree
+// config.worktree files.
+func worktreeConfigEnabled(cfg *config.Config) bool {
+	return gitConfigBool(cfg.Raw.Section("extensions").Option("worktreeConfig"))
+}
+
+// gitConfigBool parses a git boolean the way git does: true/yes/on
+// (case-insensitive) are true, and an integer is true unless it is zero. Every
+// other value — false/no/off, the empty value, or anything git would reject —
+// is false, which is also what strconv.Atoi yields for a non-integer.
+func gitConfigBool(value string) bool {
+	switch strings.ToLower(value) {
+	case "true", "yes", "on":
+		return true
+	}
+	integer, _ := strconv.Atoi(value)
+	return integer != 0
+}
+
+// configIsBare reports whether the named config file in gitDir sets core.bare. A
+// missing or unreadable file is not an error: it simply does not claim the repo
+// is bare.
+func configIsBare(gitDir, name string) bool {
+	cfg, err := readRepoConfigFile(filepath.Join(gitDir, name))
 	if err != nil {
 		return false
 	}
