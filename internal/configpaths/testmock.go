@@ -6,8 +6,6 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
-
-	"github.com/inoio/agents-sandbox/internal/agent"
 )
 
 type mockConfigPaths struct {
@@ -71,6 +69,18 @@ func WithRealConfigPaths(t *testing.T) {
 	t.Chdir(pinProjectCWD(t.TempDir()))
 }
 
+// WithBareCheckoutLocator installs locator for the test and restores the
+// previous one on cleanup. Tests that exercise bare-checkout resolution through
+// the real resolver pass git.BareCheckoutRoots, as the composition root does.
+func WithBareCheckoutLocator(t *testing.T, locator BareCheckoutLocator) {
+	t.Helper() // gomutants:disable STATEMENT_REMOVE reason="t.Helper only affects the stack trace a failing test reports, so removing it cannot change observable test behaviour"
+	bareCheckoutMutex.Lock()
+	previous := bareCheckoutLocator
+	bareCheckoutMutex.Unlock()
+	UseBareCheckoutLocator(locator)
+	t.Cleanup(func() { UseBareCheckoutLocator(previous) })
+}
+
 // pinProjectCWD returns dir when the resolver reads it as the relative project
 // base, panicking otherwise — i.e. when dir sits inside a bare checkout and
 // resolves to that checkout's bare root, so the pin could not isolate the base.
@@ -92,22 +102,10 @@ func ensureMockConfigDirectory(path string) string {
 	return path
 }
 
-// MustDir returns dir, panicking on err. Test support: the agent config-dir
-// accessors only fail for an invalid profile — a programming error a test
-// cannot meaningfully recover from — so call sites stay terse.
-func MustDir(dir string, err error) string {
-	if err != nil {
-		panic(err)
-	}
-	return dir
-}
-
-// MustDirs is MustDir for the candidate accessors.
-func MustDirs(dirs []string, err error) []string {
-	if err != nil {
-		panic(err)
-	}
-	return dirs
+// CreateDir creates dir like a mock directory and returns it. Test support:
+// tests write agent config into the agent's config dir under the mock tree.
+func CreateDir(dir string) string {
+	return ensureMockConfigDirectory(dir)
 }
 
 func (m *mockConfigPaths) UserConfigDir() string {
@@ -130,27 +128,11 @@ func (m *mockConfigPaths) UserDataDir() string {
 	return ensureMockConfigDirectory(filepath.Join(m.baseDir, "userdata"))
 }
 
-func (m *mockConfigPaths) UserAgentConfigDir(a agent.Agent) (string, error) {
-	name, err := validConfigDirName(a.Name(), a.ConfigDirName())
-	if err != nil {
-		return "", err
-	}
-	return ensureMockConfigDirectory(filepath.Join(m.UserConfigDir(), name)), nil
-}
-
 func (m *mockConfigPaths) UserHomeDir() (string, error) {
 	if m.homeErr != nil {
 		return "", m.homeErr
 	}
 	return ensureMockConfigDirectory(filepath.Join(m.baseDir, "home")), nil
-}
-
-func (m *mockConfigPaths) UserAgentConfigDirCandidates(a agent.Agent) ([]string, error) {
-	return agentConfigDirCandidates(filepath.Join(m.baseDir, "userconfig"), a)
-}
-
-func (m *mockConfigPaths) ProjectAgentConfigDirCandidates(a agent.Agent) ([]string, error) {
-	return agentConfigDirCandidates(filepath.Join(m.baseDir, "projectconfig"), a)
 }
 
 func (m *mockConfigPaths) ProjectConfigDir() string {
@@ -167,14 +149,6 @@ func (m *mockConfigPaths) UserEnvFile() string {
 
 func (m *mockConfigPaths) UserEnvSecretFile() string {
 	return filepath.Join(m.UserConfigDir(), envSecretFileName)
-}
-
-func (m *mockConfigPaths) ProjectAgentConfigDir(a agent.Agent) (string, error) {
-	name, err := validConfigDirName(a.Name(), a.ConfigDirName())
-	if err != nil {
-		return "", err
-	}
-	return ensureMockConfigDirectory(filepath.Join(m.ProjectConfigDir(), name)), nil
 }
 
 func (m *mockConfigPaths) ProjectEnvFile() string {
@@ -221,36 +195,16 @@ func (f *failFastConfigPaths) UserCacheDir() string { f.mustMock(); return "" }
 func (f *failFastConfigPaths) UserStateDir() string { f.mustMock(); return "" }
 func (f *failFastConfigPaths) UserDataDir() string  { f.mustMock(); return "" }
 
-func (f *failFastConfigPaths) UserAgentConfigDir(_ agent.Agent) (string, error) {
-	f.mustMock()
-	return "", nil
-}
-
-func (f *failFastConfigPaths) UserAgentConfigDirCandidates(_ agent.Agent) ([]string, error) {
-	f.mustMock()
-	return nil, nil
-}
-
 func (f *failFastConfigPaths) ProjectConfigDirAbs() string {
 	f.mustMock()
 	return ""
 }
 
-func (f *failFastConfigPaths) ProjectAgentConfigDirCandidates(_ agent.Agent) ([]string, error) {
-	f.mustMock()
-	return nil, nil
-}
-
 func (f *failFastConfigPaths) UserHomeDir() (string, error) { f.mustMock(); return "", nil }
 
-func (f *failFastConfigPaths) UserEnvFile() string       { f.mustMock(); return "" }
-func (f *failFastConfigPaths) UserEnvSecretFile() string { f.mustMock(); return "" }
-func (f *failFastConfigPaths) ProjectConfigDir() string  { f.mustMock(); return "" }
-func (f *failFastConfigPaths) ProjectAgentConfigDir(_ agent.Agent) (string, error) {
-	f.mustMock()
-	return "", nil
-}
-
+func (f *failFastConfigPaths) UserEnvFile() string          { f.mustMock(); return "" }
+func (f *failFastConfigPaths) UserEnvSecretFile() string    { f.mustMock(); return "" }
+func (f *failFastConfigPaths) ProjectConfigDir() string     { f.mustMock(); return "" }
 func (f *failFastConfigPaths) ProjectEnvFile() string       { f.mustMock(); return "" }
 func (f *failFastConfigPaths) ProjectEnvSecretFile() string { f.mustMock(); return "" }
 func (f *failFastConfigPaths) ProjectEnvSecretYAMLFile() string {

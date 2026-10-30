@@ -38,8 +38,18 @@ func setupBareCheckoutFixtures(t *testing.T, args ...string) (*cobra.Command, *t
 	// Override the command fixture's mock paths with the real resolver; cleanup
 	// runs LIFO, so the mock (and then the fail-fast default) is restored.
 	configpaths.WithRealConfigPaths(t)
+	useMainBareCheckoutLocator(t)
 	t.Chdir(filepath.Join(root, "main"))
 	return cmd, ui, root
+}
+
+// useMainBareCheckoutLocator installs the bare-checkout locator exactly as main
+// does, so these tests also prove main's wiring, and restores the previous
+// locator on cleanup.
+func useMainBareCheckoutLocator(t *testing.T) {
+	t.Helper()
+	configpaths.WithBareCheckoutLocator(t, func(string) (string, string, bool) { return "", "", false })
+	installBareCheckoutLocator()
 }
 
 // TestBuildDockerfileCommandReadsBareRoot asserts that a bare checkout launched
@@ -147,6 +157,7 @@ func setupBareCheckoutCommandFixtures(t *testing.T, args ...string) (*cobra.Comm
 	t.Setenv("XDG_CACHE_HOME", t.TempDir())
 	// Override the command fixture's mock paths with the real resolver.
 	configpaths.WithRealConfigPaths(t)
+	useMainBareCheckoutLocator(t)
 	// The bare root itself records the legacy identity (a worktree inside it does
 	// not), so the config-resolution tests run from the bare root.
 	t.Chdir(root)

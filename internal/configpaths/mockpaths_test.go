@@ -4,10 +4,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
-	"slices"
 	"testing"
-
-	"github.com/inoio/agents-sandbox/internal/agent"
 )
 
 // TestMockConfigPaths exercises the WithMockConfigPaths helper that other
@@ -18,7 +15,6 @@ func TestMockConfigPaths(t *testing.T) {
 	cfgPaths := Get()
 	m := Get().(*mockConfigPaths)
 	base := m.baseDir
-	a, _ := agent.Lookup("opencode")
 
 	if got := cfgPaths.UserConfigDir(); got != filepath.Join(base, "userconfig") {
 		t.Errorf("UserConfigDir() = %q, want %q", got, filepath.Join(base, "userconfig"))
@@ -36,17 +32,6 @@ func TestMockConfigPaths(t *testing.T) {
 	if got := cfgPaths.UserStateDir(); got != filepath.Join(base, "userstate") {
 		t.Errorf("UserStateDir() = %q, want %q", got, filepath.Join(base, "userstate"))
 	}
-	userAgentDir, err := cfgPaths.UserAgentConfigDir(a)
-	if err != nil {
-		t.Fatalf("UserAgentConfigDir() error = %v", err)
-	}
-	if userAgentDir != filepath.Join(base, "userconfig", a.ConfigDirName()) {
-		t.Errorf(
-			"UserAgentConfigDir() = %q, want %q",
-			userAgentDir,
-			filepath.Join(base, "userconfig", a.ConfigDirName()),
-		)
-	}
 	home, err := cfgPaths.UserHomeDir()
 	if err != nil {
 		t.Fatalf("UserHomeDir() error = %v", err)
@@ -62,17 +47,6 @@ func TestMockConfigPaths(t *testing.T) {
 	}
 	if got := cfgPaths.ProjectConfigDir(); got != filepath.Join(base, "projectconfig") {
 		t.Errorf("ProjectConfigDir() = %q, want %q", got, filepath.Join(base, "projectconfig"))
-	}
-	projectAgentDir, err := cfgPaths.ProjectAgentConfigDir(a)
-	if err != nil {
-		t.Fatalf("ProjectAgentConfigDir() error = %v", err)
-	}
-	if projectAgentDir != filepath.Join(base, "projectconfig", a.ConfigDirName()) {
-		t.Errorf(
-			"ProjectAgentConfigDir() = %q, want %q",
-			projectAgentDir,
-			filepath.Join(base, "projectconfig", a.ConfigDirName()),
-		)
 	}
 	if got := cfgPaths.UserEnvFile(); got != filepath.Join(base, "userconfig", envFileName) {
 		t.Errorf("UserEnvFile() = %q, want %q", got, filepath.Join(base, "userconfig", envFileName))
@@ -101,46 +75,6 @@ func TestMockConfigPaths(t *testing.T) {
 	}
 	if got := cfgPaths.IgnoredWorktreeConfigDir(); got != "" {
 		t.Errorf("IgnoredWorktreeConfigDir() = %q, want empty; the mock cannot express a bare base", got)
-	}
-}
-
-func TestMockAgentConfigDirCandidates(t *testing.T) {
-	WithMockConfigPaths(t)
-	base := Get().(*mockConfigPaths).baseDir
-	oc, _ := agent.Lookup("opencode")
-	oc2, _ := agent.Lookup("opencode2")
-
-	openCodeUser, err := Get().UserAgentConfigDirCandidates(oc)
-	if err != nil {
-		t.Fatalf("UserAgentConfigDirCandidates error = %v", err)
-	}
-	if !slices.Equal(
-		openCodeUser,
-		[]string{filepath.Join(base, "userconfig", "opencode")},
-	) {
-		t.Errorf("opencode user candidates = %v", openCodeUser)
-	}
-	want := []string{filepath.Join(base, "userconfig", "opencode2"), filepath.Join(base, "userconfig", "opencode")}
-	openCode2User, err := Get().UserAgentConfigDirCandidates(oc2)
-	if err != nil {
-		t.Fatalf("UserAgentConfigDirCandidates error = %v", err)
-	}
-	if !slices.Equal(openCode2User, want) {
-		t.Errorf("opencode2 user candidates = %v, want %v", openCode2User, want)
-	}
-	wantProject := []string{
-		filepath.Join(base, "projectconfig", "opencode2"),
-		filepath.Join(base, "projectconfig", "opencode"),
-	}
-	openCode2Project, err := Get().ProjectAgentConfigDirCandidates(oc2)
-	if err != nil {
-		t.Fatalf("ProjectAgentConfigDirCandidates error = %v", err)
-	}
-	if !slices.Equal(openCode2Project, wantProject) {
-		t.Errorf("opencode2 project candidates = %v, want %v", openCode2Project, wantProject)
-	}
-	if _, err := os.Stat(filepath.Join(base, "userconfig", "opencode2")); !os.IsNotExist(err) {
-		t.Errorf("candidate methods must not create dirs; stat err = %v", err)
 	}
 }
 
