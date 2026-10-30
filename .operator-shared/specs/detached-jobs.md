@@ -1,5 +1,5 @@
 ---
-description: Contract for running dockerd and the agent serve daemon as microsandbox runtime-owned detached jobs (ExecDetached/Job) instead of shell-backgrounded nohup processes; health-probe readiness with Job.Inspect crash detection and Job.Logs on failure, no shell fallback, command-line marker identity for kill-by-label rediscovery, and the v0.7.11 idle fix that made re-landing safe.
+description: Contract for running dockerd and the agent serve daemon as microsandbox runtime-owned detached jobs (ExecDetached/Job) instead of shell-backgrounded nohup processes; health-probe readiness with Job.Inspect crash detection and Job.Logs on failure, no shell fallback, command-line marker identity for current-generation kill rediscovery that tolerates a job left by an earlier boot, the running-container idle-stop warning, and the v0.7.11 idle fix that made re-landing safe.
 read_if: Working on the VM's dockerd/agent-serve startup, readiness, or restart in internal/sandbox/vm, the msb detached-job seam, the agent DaemonProvider daemon command, or the VM idle timeout.
 ---
 
@@ -24,10 +24,16 @@ read_if: Working on the VM's dockerd/agent-serve startup, readiness, or restart 
   (re)starting, any live job belonging to the helper is killed first. The jobs ABI exposes no labels — `JobInfo` carries
   only the id, the recorded command, and the process state — so identity is embedded in the command line: a helper
   launches as `env AGENTS_SANDBOX_DETACHED_JOB=<dockerd|agent-daemon> <binary> <args…>` (`env` execs the helper, so the
-  process, exit code, and logs stay the helper's), and rediscovery matches the marker at `JobInfo.Command[0:2]`
-  (`ListJobs(WithAllJobs)` → `GetJob(id)` → `Kill`). Identity independent of the helper's arguments is what makes a
-  helper left behind by an older launcher killable after a flag/log-format change; matching the full binary+args missed
-  it and the fresh helper then raced it for the socket/port, surfacing as "exited before becoming ready" (#343).
+  process, exit code, and logs stay the helper's), and rediscovery matches the marker at `JobInfo.Command[0:2]` (the
+  default `ListJobs` → `GetJob(id)` → `Kill`). Listing is the default, not `WithAllJobs`: the default returns only the
+  current runtime generation's **active** jobs, while `WithAllJobs` also returns retained **terminal** records — finished
+  jobs, including ones an earlier boot left behind, whose owning runtime is gone — which can never be killed and so only
+  flood every restart with spurious failures. A `Job.Kill` the runtime answers with `job_not_running` is the desired end
+  state, not a failure: the job already finished, or it belongs to an earlier runtime generation (the SDK reports the
+  boot-id mismatch with that same code), and that case is logged as an already-stopped note. Identity independent of the
+  helper's arguments is what makes a helper left behind by an older launcher killable after a flag/log-format change;
+  matching the full binary+args missed it and the fresh helper then raced it for the socket/port, surfacing as "exited
+  before becoming ready" (#343).
 - **Transition: marker-less helpers.** A helper started by a launcher that predates the marker carries none, so it is
   matched by the helper's binary instead — the shape every earlier launcher produced, and safe because released
   launchers only ever ran dockerd and the agent daemon as detached jobs (interactive sessions are attached, not jobs).
@@ -38,7 +44,9 @@ read_if: Working on the VM's dockerd/agent-serve startup, readiness, or restart 
   `(slug, agent)` (`specs/artifact-naming.md`), so a VM hosts exactly one agent's serve daemon and the agent-independent
   `agent-daemon` marker cannot target another agent's helper; `killJobs` only ever lists that VM's jobs.
 - **No persisted job state.** Jobs die with the VM, so a stopped/restarted VM re-launches both on the next boot. There
-  are no job IDs in `state.yaml` and no cross-boot rediscovery.
+  are no job IDs in `state.yaml` and no cross-boot rediscovery: an earlier generation's job survives only as a terminal
+  record in the runtime's store, cannot be removed through the SDK, and is ignored rather than reaped — which is why kill
+  rediscovery stays on the default `ListJobs`.
 - **Rollout from a pre-jobs runtime.** A VM still running from before the jobs change holds `nohup`-started processes the
   job matcher cannot see (they are not jobs, so no marker or binary matches them); a config-change restart against such
   a live VM cannot kill them, so the fresh job fails to bind (`:4096`/the socket) and surfaces a structured failure or
@@ -68,6 +76,16 @@ read_if: Working on the VM's dockerd/agent-serve startup, readiness, or restart 
   (`RelayIdleState`). A detached job's *existence* does not reset the idle timer, while new job output still does. The
   launcher therefore needs no idle-exempt marker or flag: it just launches the jobs.
 - Verify on a KVM host: a quiet dockerd job lets the VM idle-stop; a busy job keeps it alive.
+- **The idle stop also stops running containers.** A container the user left running under `--docker` is stopped with the
+  VM; its definition survives in the guest's Docker state, so `docker start` resumes it after the next connect. This is
+  the accepted cost of the idle fix, not a keepalive. The launcher makes it non-surprising by warning on the last-client
+  detach when `docker ps -q` lists containers. The probe runs on every last-client detach rather than being gated on the
+  resolved docker option: a project Dockerfile can enable docker in the image (a final-stage marker or a managed docker
+  base, `specs/image-composition.md`) with no config, so the config value cannot decide whether the VM can hold
+  containers. It self-guards instead — a VM without docker fails the command, and a docker API error is equally silent,
+  so both contribute nothing; only a held sandbox is skipped. The probe uses its own short-lived context rather than the
+  caller's: on the serve-only exit path the caller's context is already canceled, and the SDK aborts `Shell` on a canceled
+  context, which would silently drop the warning.
 - **Open risk in the sibling keepalive paths, verify in the same pass.** `keepVMAlive` (session reaper), `runServeOnly`,
   and `waitQuiescent` start a *silent* attached `sleep` exec session to hold the VM, on the stated assumption that
   `active_exec_sessions > 0` suppresses the idle timer. v0.7.11 changed exactly that aggregate, so if the monitor now
@@ -78,7 +96,8 @@ read_if: Working on the VM's dockerd/agent-serve startup, readiness, or restart 
 
 - Unit tests drive the seam through the msb mocks (`MockSandbox`/`MockJob`) and assert the marker match (including a
   stale helper whose recorded arguments predate the current release, and a marker-less one), the kill, crash, and
-  timeout branches, and both callers' marked launch shape.
+  timeout branches, the already-stopped tolerance, the current-generation listing (no `WithAllJobs`), and the
+  running-container warning, and both callers' marked launch shape.
 - `TestJobsRoundTrip` (`internal/sandbox/msb/jobs_msb_test.go`, `msb` tag) exercises the real adapters
   against a live VM, including the marked launch shape the matcher depends on (`JobInfo.Command` recorded verbatim,
   `env` assignment included). Live dockerd/daemon and the idle behaviour above are manual: a KVM host with a runner image

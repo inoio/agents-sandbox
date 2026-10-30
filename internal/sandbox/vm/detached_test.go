@@ -3,6 +3,7 @@ package vm
 import (
 	"context"
 	"errors"
+	"fmt"
 	"slices"
 	"strings"
 	"testing"
@@ -13,6 +14,77 @@ import (
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
 	"github.com/inoio/agents-sandbox/internal/termio"
 )
+
+func TestJobAlreadyStopped(t *testing.T) {
+	tests := []struct {
+		name string
+		err  error
+		want bool
+	}{
+		{"nil", nil, false},
+		{"plain error", errors.New("kill boom"), false},
+		{"other job error code", &msbSdk.JobError{Code: "input_busy"}, false},
+		{"job_not_running", &msbSdk.JobError{Code: "job_not_running"}, true},
+		{"wrapped job_not_running", fmt.Errorf("kill: %w", &msbSdk.JobError{Code: "job_not_running"}), true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := jobAlreadyStopped(tt.err); got != tt.want {
+				t.Errorf("jobAlreadyStopped(%v) = %v, want %v", tt.err, got, tt.want)
+			}
+		})
+	}
+}
+
+// TestKillJobsDoesNotRequestAllJobs pins discovery to the current runtime
+// generation: WithAllJobs also returns retained terminal records — jobs that
+// already finished, including ones an earlier boot left behind — which cannot be
+// killed and only produce spurious failures on every restart.
+func TestKillJobsDoesNotRequestAllJobs(t *testing.T) {
+	var gotOpts []msbSdk.JobListOption
+	sb := &msb.MockSandbox{
+		ListJobsFn: func(_ context.Context, opts ...msbSdk.JobListOption) ([]msbSdk.JobInfo, error) {
+			gotOpts = opts
+			return nil, nil
+		},
+	}
+	killJobs(context.Background(), sb, dockerdHelper(), &termio.Mock{})
+	if len(gotOpts) != 0 {
+		t.Errorf(
+			"ListJobs opts = %d, want 0 (discovery must stay scoped to the current runtime generation)",
+			len(gotOpts),
+		)
+	}
+}
+
+// TestKillJobsTreatsAlreadyStoppedAsSuccess verifies a job the runtime reports as
+// not running (for example one left behind by an earlier runtime generation)
+// reaches the desired end state without being logged as a failure.
+func TestKillJobsTreatsAlreadyStoppedAsSuccess(t *testing.T) {
+	ui := termio.NewTestMock(t)
+	stopped := &msb.MockJob{
+		ID_:     "stopped",
+		KillErr: &msbSdk.JobError{Code: "job_not_running", Message: "job belongs to an earlier runtime generation"},
+	}
+	sb := &msb.MockSandbox{
+		Jobs: []msbSdk.JobInfo{{ID: "stopped", Command: []string{"dockerd"}}},
+		GetJobFn: func(context.Context, string) (msb.Job, error) {
+			return stopped, nil
+		},
+	}
+	killJobs(context.Background(), sb, dockerdHelper(), &ui)
+
+	joined := strings.Join(ui.VerboseCalls, "\n")
+	if strings.Contains(joined, "killing job") {
+		t.Errorf("an already-stopped job must not be reported as a kill failure: %v", ui.VerboseCalls)
+	}
+	if !strings.Contains(joined, "already stopped") {
+		t.Errorf("expected an already-stopped note, got %v", ui.VerboseCalls)
+	}
+	if !stopped.DidClose {
+		t.Error("already-stopped job handle must still be closed")
+	}
+}
 
 func TestJobExited(t *testing.T) {
 	if got, exited := jobExited(nil); exited || got != 0 {
