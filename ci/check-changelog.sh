@@ -7,15 +7,32 @@
 #
 # - Shape (always): every file in changelog.d/ is named <slug>.<type>.md with a
 #   known type; the ignored names are skipped.
+# - Presence (--changed FILE): when FILE lists one changed path per line (as
+#   `git diff --name-only` emits), a changeset that touches code must include a
+#   changelog.d/*.md fragment. The code rule mirrors .github/workflows/ci.yml's
+#   `changes` job; keep the two in sync.
 #
-# Usage: ci/check-changelog.sh [ROOT]
+# Usage: ci/check-changelog.sh [ROOT] [--changed FILE]
 #   ROOT defaults to the repository root; the test harness passes a fixture root.
 #
 # Exit status is non-zero when any violation is found.
 
 set -euo pipefail
 
-ROOT="${1:-}"
+ROOT=""
+CHANGED_FILE=""
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --changed)
+      CHANGED_FILE="$2"
+      shift 2
+      ;;
+    *)
+      ROOT="$1"
+      shift
+      ;;
+  esac
+done
 ROOT="${ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
 
 CHANGELOG_DIR="$ROOT/changelog.d"
@@ -46,6 +63,26 @@ check_shape() {
 }
 
 check_shape
+
+# A changeset that touches code must carry a fragment. The exempt pattern mirrors
+# the `.changes` gate in .github/workflows/ci.yml (docs, the operator brain, the
+# Homebrew formula, issue templates, any *.md, and .gitignore).
+check_presence() {
+  local line code=0 fragment=0
+  while IFS= read -r line; do
+    [[ -n "$line" ]] || continue
+    if [[ ! "$line" =~ ^(docs/|\.operator-shared/|Formula/|\.github/ISSUE_TEMPLATE/) ]] \
+      && [[ ! "$line" =~ \.md$ ]] \
+      && [[ "$line" != ".gitignore" ]]; then
+      code=1
+    fi
+    [[ "$line" =~ ^changelog\.d/.*\.md$ ]] && fragment=1
+  done <"$CHANGED_FILE"
+  if [[ "$code" -eq 1 && "$fragment" -eq 0 ]]; then
+    report "code changed but no changelog.d/<slug>.<type>.md fragment was added"
+  fi
+}
+[[ -n "$CHANGED_FILE" ]] && check_presence
 
 if [[ "$violations" -gt 0 ]]; then
   printf 'changelog: %d violation(s) found\n' "$violations"

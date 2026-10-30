@@ -75,5 +75,63 @@ d="$(new_fixture README.md .gitkeep)"
 expect "ignored names" 0 "" "$d"
 rm -rf "$d"
 
+# expect_presence <name> <want-status> <want-substring> <fixture-dir> <changed path...>
+# Writes the changed paths (as `git diff --name-only` emits them) to a file and
+# runs the checker's presence mode.
+expect_presence() {
+  local name="$1" want_status="$2" want_msg="$3" dir="$4"
+  shift 4
+  local changed out status
+  changed="$(mktemp)"
+  printf '%s\n' "$@" >"$changed"
+  out="$(bash "$CHECK" "$dir" --changed "$changed" 2>&1)" && status=0 || status=$?
+  rm -f "$changed"
+  if [[ "$status" != "$want_status" ]]; then
+    printf 'FAIL %s: exit %s, want %s\n%s\n' "$name" "$status" "$want_status" "$out"
+    fail=$((fail + 1))
+    return
+  fi
+  if [[ -n "$want_msg" && "$out" != *"$want_msg"* ]]; then
+    printf 'FAIL %s: output missing %q\n%s\n' "$name" "$want_msg" "$out"
+    fail=$((fail + 1))
+    return
+  fi
+  printf 'ok   %s\n' "$name"
+  pass=$((pass + 1))
+}
+
+# A code change with no fragment is rejected.
+d="$(new_fixture)"
+expect_presence "code, no fragment" 1 "no changelog.d" "$d" "internal/foo/foo.go"
+rm -rf "$d"
+
+# A code change with a fragment is accepted.
+d="$(new_fixture 432.added.md)"
+expect_presence "code, with fragment" 0 "" "$d" "internal/foo/foo.go" "changelog.d/432.added.md"
+rm -rf "$d"
+
+# Docs-only, markdown-only, and gate-file-only changes need no fragment.
+d="$(new_fixture)"
+expect_presence "docs only" 0 "" "$d" "docs/commands.md"
+rm -rf "$d"
+
+d="$(new_fixture)"
+expect_presence "markdown only" 0 "" "$d" "README.md"
+rm -rf "$d"
+
+d="$(new_fixture)"
+expect_presence "gitignore only" 0 "" "$d" ".gitignore"
+rm -rf "$d"
+
+# The release PR (CHANGELOG.md plus fragment deletion, all .md) needs no fragment.
+d="$(new_fixture)"
+expect_presence "release PR, all markdown" 0 "" "$d" "CHANGELOG.md" "changelog.d/432.added.md"
+rm -rf "$d"
+
+# A workflow/script change is code and needs a fragment.
+d="$(new_fixture)"
+expect_presence "workflow change" 1 "no changelog.d" "$d" ".github/workflows/ci.yml"
+rm -rf "$d"
+
 printf '\n%d passed, %d failed\n' "$pass" "$fail"
 [[ "$fail" -eq 0 ]]
