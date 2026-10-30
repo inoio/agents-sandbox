@@ -106,16 +106,19 @@ would-be name and an in-memory, fingerprint-seeded state, so the first run with 
 (#429). A concurrent first run that loses the state commit adopts the winner's volume and removes its own (#431). See
 `home-volume-recovery.md`, `project-state-transactions.md`, `runtime-home-decoupling.md`.
 
-**`plan-reconfig`.** Compares the desired fingerprints and image with the persisted ones and the live VM to decide
-recreate vs daemon restart vs nothing (`resolveReconfigDecision`), then applies the resulting home-volume action
-(keep/migrate/reset) separately (`applyReconfigHomeAction`). Guarantees `ensure-vm` a decision whose home volume is
-final. Under `--dry-run-vm` a migrate or reset action is left uncommitted. See `reconfig-decision.md`.
+**`plan-reconfig`.** Reads the live VM once (`readLiveProjectVM`: lookup, persisted config, agent config files),
+compares the desired fingerprints and image with the persisted ones and those facts to decide recreate vs daemon restart
+vs nothing (`resolveReconfigDecision`), then applies the resulting home-volume action (keep/migrate/reset) separately
+(`applyReconfigHomeAction`). Guarantees `ensure-vm` a decision whose home volume is final, and the VM handle the
+decision was read from (`reconfigPlan.existingVM`). Under `--dry-run-vm` a migrate or reset action is left uncommitted.
+See `reconfig-decision.md`.
 
-**`ensure-vm`.** Creates, starts, recreates or reconnects the project VM. Creation and recreation take the per-project
-`ensure-vm.lock`; starting or reconnecting to an existing VM takes the lock-free fast path (`resolveExistingVM`). A
-creation first loads the runner image into msb unless it is cached with matching content (`createProjectVM` →
-`image.EnsureLoaded`), then persists the fingerprints (`persistConfigHashes`). Returns the boot kind. Skipped under
-`--dry-run-vm` (no VM, nil sandbox). See `reconfig-decision.md`, `sandbox-identity.md`, `vm-idle-timeout-default.md`.
+**`ensure-vm`.** Creates, starts, recreates or reconnects the project VM, using the handle `plan-reconfig` read instead
+of looking the VM up again. Creation and recreation take the per-project `ensure-vm.lock`; starting or reconnecting to
+an existing VM takes the lock-free fast path (`resolveExistingVM`). A creation first loads the runner image into msb
+unless it is cached with matching content (`createProjectVM` → `image.EnsureLoaded`), then persists the fingerprints
+(`persistConfigHashes`). Returns the boot kind. Skipped under `--dry-run-vm` (no VM, nil sandbox). See
+`reconfig-decision.md`, `sandbox-identity.md`, `vm-idle-timeout-default.md`.
 
 **`setup-sandbox`.** Provisions the agent config files, records boot provenance on a fresh boot
 (`recordImageProvenance`), runs startup hooks, starts dockerd and the agent daemon (or restarts the daemon when the

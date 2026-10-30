@@ -11,7 +11,6 @@ import (
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 
 	"github.com/inoio/agents-sandbox/internal/configpaths"
-	"github.com/inoio/agents-sandbox/internal/sandbox/envsecret"
 	"github.com/inoio/agents-sandbox/internal/sandbox/image"
 	"github.com/inoio/agents-sandbox/internal/sandbox/mounts"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
@@ -275,7 +274,7 @@ func TestRestartDaemonsNoProvider(t *testing.T) {
 // TestEnsureProjectVMSkipVM covers the skip-VM early-return branch.
 func TestEnsureProjectVMSkipVM(t *testing.T) {
 	ui := termio.NewTestMock(t)
-	sb, boot, err := ensureProjectVM(
+	sb, boot, err := lookUpAndEnsureProjectVM(
 		context.Background(),
 		options.RunOptions{},
 		image.ImageInfo{DockerTag: "img:tag", Ref: "img:tag"},
@@ -284,7 +283,6 @@ func TestEnsureProjectVMSkipVM(t *testing.T) {
 		testVMKey(),
 		testVMKey().Slug,
 		true,
-		envsecret.EnvSecrets{},
 		&ui,
 	)
 	if err != nil {
@@ -307,7 +305,7 @@ func TestEnsureProjectVMGetSandboxFatalError(t *testing.T) {
 	client.SetGetSandboxErr(errors.New("boom"))
 	msb.WithMsbMock(t, client)
 
-	_, _, err := ensureProjectVM(
+	_, _, err := lookUpAndEnsureProjectVM(
 		context.Background(),
 		options.RunOptions{Agent: "opencode"},
 		image.ImageInfo{DockerTag: "img:tag", Ref: "img:tag"},
@@ -316,7 +314,6 @@ func TestEnsureProjectVMGetSandboxFatalError(t *testing.T) {
 		testVMKey(),
 		testVMKey().Slug,
 		false,
-		envsecret.EnvSecrets{},
 		&ui,
 	)
 	if err == nil {

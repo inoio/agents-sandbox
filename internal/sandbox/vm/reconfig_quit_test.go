@@ -8,7 +8,6 @@ import (
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 
 	"github.com/inoio/agents-sandbox/internal/configpaths"
-	"github.com/inoio/agents-sandbox/internal/sandbox/envsecret"
 	"github.com/inoio/agents-sandbox/internal/sandbox/image"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
 	"github.com/inoio/agents-sandbox/internal/sandbox/options"
@@ -55,7 +54,7 @@ func TestApplyReconfigHomeActionQuit(t *testing.T) {
 	if err != nil {
 		t.Fatalf("LoadConfigFiles: %v", err)
 	}
-	decision, err := resolveReconfigDecision(
+	decision, err := readAndResolveReconfigDecision(
 		context.Background(),
 		mock,
 		vm,
@@ -65,7 +64,6 @@ func TestApplyReconfigHomeActionQuit(t *testing.T) {
 		"vol",
 		persisted,
 		cfs,
-		envsecret.EnvSecrets{},
 		ui,
 	)
 	if err != nil {
