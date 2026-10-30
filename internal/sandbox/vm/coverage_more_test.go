@@ -33,7 +33,7 @@ func TestProvisionHostConfig(t *testing.T) {
 		opts options.RunOptions
 		want bool
 	}{
-		{name: "nil enables by default", opts: options.RunOptions{Agent: "opencode"}, want: true},
+		{name: "nil disables by default", opts: options.RunOptions{}, want: false},
 		{name: "explicit true", opts: options.RunOptions{ProvisionHostConfig: &truePtr}, want: true},
 		{name: "explicit false", opts: options.RunOptions{ProvisionHostConfig: &falsePtr}, want: false},
 	}

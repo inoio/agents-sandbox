@@ -83,8 +83,8 @@ func NewResolver(cmd *cobra.Command, slug string) (*Resolver, error) {
 		bindConfigFlags(v, cmd)
 	}
 
-	// Non-flag defaults: host config provisioning is on unless opted out.
-	v.SetDefault(keyProvisionHostConfig, true)
+	// Non-flag defaults: host config provisioning is off unless opted in.
+	v.SetDefault(keyProvisionHostConfig, false)
 
 	if err := validate(v); err != nil {
 		return nil, err
@@ -124,7 +124,16 @@ func NewResolver(cmd *cobra.Command, slug string) (*Resolver, error) {
 	docker, dockerSource, dockerLegacy := resolveDockerAlias(v, cmd, cfg.Docker)
 	cfg.Docker = docker
 	cfg.dockerSource = dockerSource
-	return &Resolver{cfg: cfg, legacyEnv: legacyEnvVarsInUse(), dockerLegacy: dockerLegacy}, nil
+	higherScope, err := higherScopeKeys(cmd, slug)
+	if err != nil {
+		return nil, err
+	}
+	return &Resolver{
+		cfg:          cfg,
+		legacyEnv:    legacyEnvVarsInUse(),
+		dockerLegacy: dockerLegacy,
+		higherScope:  higherScope,
+	}, nil
 }
 
 // resolveDockerAlias folds the deprecated dind alias into the docker setting
@@ -222,7 +231,7 @@ func dockerLegacySource(v *viper.Viper) string {
 //
 //deadcode:ignore reason="construction seam for cmd tests; see doc comment"
 func NewResolverWithConfig(cfg Config) *Resolver {
-	return &Resolver{cfg: cfg, legacyEnv: nil, dockerLegacy: ""}
+	return &Resolver{cfg: cfg, legacyEnv: nil, dockerLegacy: "", higherScope: map[string]bool{}}
 }
 
 func mergeDir(v *viper.Viper, dir string) error {

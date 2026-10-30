@@ -13,8 +13,12 @@ import (
 	"github.com/spf13/cobra"
 	"golang.org/x/term"
 
+	"github.com/inoio/agents-sandbox/internal/agent"
+	"github.com/inoio/agents-sandbox/internal/configmigration"
+	"github.com/inoio/agents-sandbox/internal/configwizard"
 	"github.com/inoio/agents-sandbox/internal/git"
 	"github.com/inoio/agents-sandbox/internal/runoptions"
+	"github.com/inoio/agents-sandbox/internal/sandbox/options"
 	"github.com/inoio/agents-sandbox/internal/sandbox/pruning"
 	"github.com/inoio/agents-sandbox/internal/sandbox/state"
 	"github.com/inoio/agents-sandbox/internal/upgrade"
@@ -123,7 +127,10 @@ func rpad(s string, padding int) string {
 	return s + strings.Repeat(" ", padding-len(s))
 }
 
-func runFunc(ui termio.UI) func(cmd *cobra.Command, args []string) error {
+//nolint:gocognit // run orchestration keeps preflight, migration, and session flow together
+func runFunc(
+	ui termio.UI,
+) func(cmd *cobra.Command, args []string) error {
 	return func(cmd *cobra.Command, args []string) error {
 		r := resolverFromContext(cmd.Context())
 		opts, err := runoptions.Build(r.Config(), cmd, ui)
@@ -142,13 +149,29 @@ func runFunc(ui termio.UI) func(cmd *cobra.Command, args []string) error {
 			if !doctor.CheckAll(cmd.Context(), ui) {
 				return errors.New("preflight failed")
 			}
-			exit, err := checkForUpgrade(ctx, r, ui)
-			if err != nil {
-				return err
+			exit, upgradeErr := checkForUpgrade(ctx, r, ui)
+			if upgradeErr != nil {
+				return upgradeErr
 			}
 			if exit {
 				return nil
 			}
+		}
+		if !isDryRun {
+			if wizardErr := runConfigWizardFn(r, ui); wizardErr != nil {
+				return wizardErr
+			}
+			opts, _, err = refreshRunOptionsAfterMigrationFn(cmd, args, ui)
+			if err != nil {
+				return err
+			}
+		}
+		if migrationErr := guideConfigMigrationFn(opts, ui, isDryRun); migrationErr != nil {
+			return handleMigrationError(migrationErr)
+		}
+		opts, r, err = refreshRunOptionsAfterMigrationFn(cmd, args, ui)
+		if err != nil {
+			return err
 		}
 		if r != nil {
 			autoPrune(
@@ -161,6 +184,69 @@ func runFunc(ui termio.UI) func(cmd *cobra.Command, args []string) error {
 		}
 		return session.Run(ctx, opts, mode, ui)
 	}
+}
+
+//nolint:gochecknoglobals // test seam for the first-run setup wizard
+var runConfigWizardFn = runConfigWizard
+
+// runConfigWizard runs the essentials-tier setup wizard on first launch so the
+// agent and network posture are chosen before credential migration.
+func runConfigWizard(r *launcherconfig.Resolver, ui termio.UI) error {
+	return configwizard.Run(r, ui, configwizard.Selection{FirstRun: true, Tier: 0})
+}
+
+//nolint:gochecknoglobals // test seam for post-migration resolver refresh
+var refreshRunOptionsAfterMigrationFn = refreshRunOptionsAfterMigration
+
+// refreshRunOptionsAfterMigration reloads launcher configuration after the
+// first-run migration may have written new network, home, or agent settings.
+// Rebuilding through the resolver preserves normal flag-over-config precedence.
+func refreshRunOptionsAfterMigration(
+	cmd *cobra.Command,
+	args []string,
+	ui termio.UI,
+) (options.RunOptions, *launcherconfig.Resolver, error) {
+	identity, err := git.ResolveIdentity(".")
+	if err != nil {
+		return options.RunOptions{}, nil, fmt.Errorf("resolve project identity: %w", err)
+	}
+	resolver, err := launcherconfig.NewResolver(cmd, effectiveConfigSlug(identity))
+	if err != nil {
+		return options.RunOptions{}, nil, err
+	}
+	cmd.SetContext(context.WithValue(cmd.Context(), (*launcherConfigKey)(nil), resolver))
+	runOptions, err := runoptions.Build(resolver.Config(), cmd, ui)
+	if err != nil {
+		return options.RunOptions{}, nil, err
+	}
+	runOptions.Args = args
+	return runOptions, resolver, nil
+}
+
+func handleMigrationError(err error) error {
+	if errors.Is(err, configmigration.ErrRerunRequired) || errors.Is(err, configmigration.ErrStartDeferred) {
+		return &sandbox.ExitError{Code: 0}
+	}
+	return err
+}
+
+//nolint:gochecknoglobals // test seam for the credential migration guide
+var guideConfigMigrationFn = guideConfigMigration
+
+func guideConfigMigration(opts options.RunOptions, ui termio.UI, dryRun bool) error {
+	if dryRun {
+		return nil
+	}
+	a, ok := agent.Lookup(opts.Agent)
+	if !ok {
+		return fmt.Errorf("unknown agent %q", opts.Agent)
+	}
+	hostHome, err := migrationHomeDir()
+	if err != nil {
+		return fmt.Errorf("resolve host home: %w", err)
+	}
+	provisionHostConfig := opts.ProvisionHostConfig != nil && *opts.ProvisionHostConfig
+	return configmigration.Guide(a, hostHome, opts.Network, provisionHostConfig, ui)
 }
 
 // currentRunImageKeys returns the runner-image keys the current run may reuse, so
@@ -183,6 +269,7 @@ func currentRunImageKeys(agentName string) []state.Key {
 	return keys
 }
 
+//nolint:gochecknoglobals // test seam for the otherwise hard-to-reach upgrade check
 var upgradeCheck = upgrade.Check
 
 // upgradeAnyVersionEnv is the undocumented lever that lets a locally built dev

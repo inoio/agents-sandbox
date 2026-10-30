@@ -44,16 +44,10 @@ Legend for the first four rows: ✅ = stronger isolation or host-side handling; 
 | VM kernel and root filesystem  | Separate from the host, using the microsandbox VM boundary.                                                                                                                                                  |
 | Agent home                | Stored in a persistent `/home/dev` volume scoped to the project and agent. Recreating the VM does not remove this volume unless you reset or prune it.                                                       |
 | `/workspace`              | The host project directory, mounted read-write in a normal session. Some agents allow you to optionally use a  [worktree-session](https://inoio.github.io/agents-sandbox/branch-sessions.html) for a VM-internal worktree instead. |
-| Other host files          | Not visible unless they are copied, provisioned with `home:`, or exposed through an explicit host mount.                                                                                                     |
+| Other host files          | Not visible unless they are copied, provisioned with `home:`, or exposed through an explicit host mount. The opt-in [host-config drop-in](https://inoio.github.io/agents-sandbox/provision-host-config.html) (`provision-host-config: true`) copies native agent files, possibly including credentials, into the VM.                                                                                                     |
 | Network                   | Egress uses the `public` profile by default; the composable `private` and `host` profiles extend it, and the allowlist-only `none` profile replaces it, with allow/deny rules refining either. `none` is deny-by-default egress, not a complete air gap.                                                              |
 | Links                     | A link the agent opens in the VM is handed to the attached launcher through the home volume and opened in the host's browser, if its scheme is allowlisted (`http`, `https`, `mailto`, editor/app links; never `file:`). While a browser login is open, the launcher listens on its callback port on the host's loopback and passes the callback into the VM. Turn it off with `open-links: false`; see [Opening links](https://inoio.github.io/agents-sandbox/configuration/opening-links.html). |
 | Raw credentials           | `env.secret` and `env.secret.yaml` keep the real value on the host and expose a placeholder to the guest. This is separate from ordinary file provisioning. |
-
-> **Credential warning:** The convenience setup copies the active agent's host configuration into the VM by default. For
-> opencode, that can include `~/.local/share/opencode/auth.json`. If credentials must not be stored in the VM, set
-> `provision-host-config: false`, use the secret mechanism, and keep credentials out of `/workspace`, `home:`, `env`, and
-> writable mounts. See the [Secrets](https://inoio.github.io/agents-sandbox/configuration/secrets.html) and [Agent configuration](https://inoio.github.io/agents-sandbox/configuration/agent.html)
-> documentation.
 
 ## Why this model?
 
@@ -78,8 +72,10 @@ start the configured agent:
 agents-sandbox
 ```
 
-The default path uses the agent configuration already present on the host. For a self-contained setup with explicit secret
-handling, start with [Manage config in the sandbox](https://inoio.github.io/agents-sandbox/manage-config.html) instead.
+If the selected agent already has native configuration on the host, the first interactive start offers a safe config
+migration: credentials are replaced with microsandbox placeholders, and the raw values stay in the host-side
+`env.secret.yaml`. See [Manage config in the sandbox](https://inoio.github.io/agents-sandbox/manage-config.html) for the migration, the manual configuration
+alternative, secrets, and file provisioning.
 
 ## Agent selection
 
@@ -116,7 +112,7 @@ There's dedicated documentation per topic. You can also browse the documentation
 | [Switch from your existing agent](https://inoio.github.io/agents-sandbox/switch.html) | Use agents-sandbox with your existing agent config and credentials (host-config drop-in). |
 | [Manage config in the sandbox](https://inoio.github.io/agents-sandbox/manage-config.html) | Declarative, self-contained config: secrets, provisioning, agent snippets.            |
 | [Commands](https://inoio.github.io/agents-sandbox/commands.html)                 | Complete CLI reference                                                                   |
-| [Configuration](https://inoio.github.io/agents-sandbox/configuration/)         | Split into subpages: Configuration files & Environment variables, secrets, networking, host mounts, home provisioning & startup hooks, agent configuration, notifications, self-upgrade |
+| [Configuration Details](https://inoio.github.io/agents-sandbox/configuration/) | Configuration files & Environment variables, secrets, networking, host mounts, home provisioning & startup hooks, agent configuration, notifications, self-upgrade |
 | [Runner Image](https://inoio.github.io/agents-sandbox/runner-image.html)         | Base image, custom tooling                                                               |
 | [Worktree Sessions](https://inoio.github.io/agents-sandbox/branch-sessions.html) | Isolated worktree sessions for per-feature development                                   |
 | [Recipes](https://inoio.github.io/agents-sandbox/recipes.html)                   | Hands-on workflows                                  |

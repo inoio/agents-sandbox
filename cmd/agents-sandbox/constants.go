@@ -37,6 +37,7 @@ const (
 	cmdMigrate    = "migrate"
 	cmdReset      = "reset"
 	cmdEdit       = "edit"
+	cmdWizard     = "wizard"
 	cmdRemove     = "remove"
 	cmdInspect    = "inspect"
 	cmdCompact    = "compact"
@@ -44,6 +45,7 @@ const (
 	cmdRepair     = "repair"
 
 	flagRemove = "rm"
+	flagTier   = "tier"
 
 	flagRebuild        = runoptions.FlagRebuild
 	flagCpus           = "cpus"

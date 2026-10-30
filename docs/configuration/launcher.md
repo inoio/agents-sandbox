@@ -11,6 +11,9 @@ nav_order: 10
 agents-sandbox supports configuration at two levels: user-level defaults and project-level overrides. Both can set CLI
 flags and environment variables. This page covers where config lives, the config-file fields, and how values are resolved.
 
+On first run an interactive [setup wizard]({% link configuration/wizard.md %}) walks you through the essentials and
+writes them to your user-level config file; `agents-sandbox config wizard` re-runs it on demand.
+
 ## User-level defaults
 
 Place files under `~/.config/agents-sandbox/` to set defaults for all projects:
@@ -98,7 +101,7 @@ Configuration is resolved in this order (later entries override earlier ones):
 | `network.dns-servers`           | `--dns`                  | `AGENTS_SANDBOX_NETWORK_DNS_SERVERS`                            | DNS upstream resolvers: bare IP (auto-appends `:53`) or `host:port` (see [Networking]({% link configuration/networking.md %}))                                                                                                                                 |
 | `mounts`                        | —                        | —                                                               | Additional host directories mounted into the VM (config-file only; see [Host mounts]({% link configuration/mounts.md %}))                                                                                                                               |
 | `agent`                         | `--agent`                | `AGENTS_SANDBOX_AGENT`                                          | Agent profile name to run, build, and provision (default `opencode2`, see [Agent configuration]({% link configuration/agent.md %}))                                                                                                        |
-| `provision-host-config`         | —                        | `AGENTS_SANDBOX_PROVISION_HOST_CONFIG`                          | Copy the agent's host config + credentials into the VM by default (default: true; set false to opt out, see [Default drop-in provisioning]({% link configuration/agent.md %}#default-drop-in-provisioning))                                               |
+| `provision-host-config`         | —                        | `AGENTS_SANDBOX_PROVISION_HOST_CONFIG`                          | Copy selected native agent files into the VM when enabled (default: false; see [Unsafe host-config drop-in]({% link provision-host-config.md %}) and [Agent configuration]({% link configuration/agent.md %}#host-config-drop-in-provisioning)) |
 | `open-links`                    | `--open-links`           | `AGENTS_SANDBOX_OPEN_LINKS`                                     | Open links from the VM (`xdg-open`) in the host's browser (default: true; set false to turn it off, see [Opening links]({% link configuration/opening-links.md %}))                                                                                     |
 | `docker`                        | `--docker`               | `AGENTS_SANDBOX_DOCKER`                                         | Append the Docker engine block to the runner image; overrides the project Dockerfile's declaration in both directions (explicit config > Dockerfile content > off; `dind` is a deprecated alias)                                                                                                             |
 | `upgrade.mode`                   | —                        | `AGENTS_SANDBOX_UPGRADE_MODE`                                   | How to handle a newer release when one is found: `prompt`, `notify`, `auto`, or `auto-exit` (default `prompt`, see [Self-upgrade]({% link configuration/self-upgrade.md %}))                                                            |
@@ -124,6 +127,7 @@ configuration to `AGENTS_SANDBOX_`.
 
 Action toggles (`--rebuild`, `--dry-run`, `--force`, ...) are CLI-only and cannot be set via
 config file or env var.
+
 
 Example `~/.config/agents-sandbox/config.yaml`:
 
@@ -186,7 +190,7 @@ session. The change type determines the mechanism used to apply the new settings
 | `memory`          | Live Modify    | Applied live via SDK Modify (hotplug)                                                                    |
 | `env`             | VM recreate    | microsandbox cannot apply env live or on a daemon restart, so the VM is rebuilt; env is baked in at creation |
 | `secrets`         | VM recreate    | microsandbox cannot apply secrets live or on a daemon restart, so the VM is rebuilt; secrets are baked in at creation |
-| `agent config` | Daemon restart | Files are always copied into the VM (provisioning); the agent daemon is restarted in-place to pick them up   |
+| `agent config` | Daemon restart | Config snippets and mirror files are provisioned into the VM; the agent daemon is restarted in-place to pick them up |
 | `tmp-size`        | VM recreate    | VM is stopped, removed, and rebuilt with new tmpfs size. Home volume is preserved.                       |
 | `disk-size`       | VM recreate    | VM is stopped, removed, and rebuilt with new disk size. Home volume is preserved.                        |
 | `workspace-quota` | VM recreate    | VM is stopped, removed, and rebuilt with new workspace write quota. Home volume is preserved.            |
@@ -197,8 +201,9 @@ session. The change type determines the mechanism used to apply the new settings
 
 When **no other client** is attached, config changes apply immediately.
 
-Agent/home config files are provisioned into the VM on every startup, so a change is picked up by the next daemon start
-even when the current daemon is kept running. Only the `agent config` change prompts for a daemon restart;
+Agent snippets, mirror files, and `home:` mappings are provisioned into the VM on every startup, so a change is picked up by
+the next daemon start even when the current daemon is kept running. Native host-config drop-in files are also
+provisioned on startup only when `provision-host-config: true`. Only the `agent config` change prompts for a daemon restart;
 `home:` file changes are applied on the next startup without any prompt, since they do not require the daemon to restart.
 
 #### Parallel Sessions

@@ -120,6 +120,7 @@ type UI interface {
 	IsInteractive() bool
 	Select(prompt string, choices []Choice, defaultKey string) (string, error)
 	Input(prompt, defaultValue string) (string, error)
+	SecretInput(prompt string) (string, error)
 	Confirm(prompt string, defaultYes bool) (bool, error)
 	// Acknowledge prints a one-time notice unconditionally — never gated by the
 	// level or --quiet; when interactive it waits for Enter, and when

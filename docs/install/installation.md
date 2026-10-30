@@ -96,6 +96,18 @@ mv agents-sandbox ~/.local/bin # or any other directory in your PATH
 
 Then set `upgrade.channel: canary` (or `AGENTS_SANDBOX_UPGRADE_CHANNEL=canary`) so later upgrades follow the canary line — see [self-upgrade]({% link configuration/self-upgrade.md %}).
 
+## Next steps
+
+Verify the host setup, then start agents-sandbox:
+
+```console
+agents-sandbox doctor
+agents-sandbox
+```
+
+If the selected agent already has native configuration, the first interactive start offers a safe migration before the VM starts.
+See [Manage config in the sandbox]({% link manage-config.md %}) for migration, manual configuration, secrets, and file provisioning.
+
 Once installed, continue with one of the two onboarding paths:
 
 - [Switch from your existing agent]({% link switch.md %}) — bring your existing agent config and credentials into the sandbox.

@@ -21,7 +21,8 @@ describes that flow and how a project's identity and state are laid out.
 3. **VM creation or reuse** — Creates a new project VM on first boot; subsequent runs connect to the existing VM (or
    restart it if it stopped).
 4. **Provisioning** — Merges your agent's config snippets into a single config in the VM home (e.g. `opencode.jsonc`),
-   provisions `home:` mappings, and syncs them into the VM.
+   provisions config-directory mirrors and `home:` mappings, and optionally copies the native host-agent config when
+   `provision-host-config: true` ([unsafe host-config drop-in]({% link provision-host-config.md %})).
 5. **Agent** — Runs the agent's attach command (e.g. `opencode attach`) inside the VM, forwarding any arguments after
    `--` to the AI agent.
    While the agent runs, links it opens are handed to your host's browser

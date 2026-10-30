@@ -32,6 +32,8 @@ type Mock struct {
 	VerboseCalls      []string
 	OutCalls          []string
 	PrintCalls        []string
+	SelectCalls       []string
+	InputCalls        []string
 	SpinnerCalls      []string
 	SpinnerStops      int
 	SpinnerStopErrors []error
@@ -48,8 +50,9 @@ type Mock struct {
 	ConfirmErr          error
 	AcknowledgeErr      error
 
-	SelectFn func(prompt string, choices []Choice, defaultKey string) (string, error)
-	InputFn  func(prompt, defaultValue string) (string, error)
+	SelectFn      func(prompt string, choices []Choice, defaultKey string) (string, error)
+	InputFn       func(prompt, defaultValue string) (string, error)
+	SecretInputFn func(prompt string) (string, error)
 }
 
 type mockSpinner struct{ owner *Mock }
@@ -210,6 +213,7 @@ func (m *Mock) IsInteractive() bool {
 
 func (m *Mock) Select(prompt string, choices []Choice, defaultKey string) (string, error) {
 	m.mu.Lock()
+	m.SelectCalls = append(m.SelectCalls, prompt)
 	selectFn := m.SelectFn
 	m.mu.Unlock()
 	if selectFn != nil {
@@ -220,12 +224,23 @@ func (m *Mock) Select(prompt string, choices []Choice, defaultKey string) (strin
 
 func (m *Mock) Input(prompt, defaultValue string) (string, error) {
 	m.mu.Lock()
+	m.InputCalls = append(m.InputCalls, prompt)
 	inputFn := m.InputFn
 	m.mu.Unlock()
 	if inputFn != nil {
 		return inputFn(prompt, defaultValue)
 	}
 	return defaultValue, nil
+}
+
+func (m *Mock) SecretInput(prompt string) (string, error) {
+	m.mu.Lock()
+	secretInputFn := m.SecretInputFn
+	m.mu.Unlock()
+	if secretInputFn != nil {
+		return secretInputFn(prompt)
+	}
+	return "", nil
 }
 
 func (m *Mock) Confirm(prompt string, defaultYes bool) (bool, error) {

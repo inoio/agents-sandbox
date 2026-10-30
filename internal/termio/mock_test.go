@@ -97,6 +97,19 @@ func TestMockPromptDefaults(t *testing.T) {
 	}
 }
 
+func TestMockRecordsPrompts(t *testing.T) {
+	m := &Mock{}
+	_, _ = m.Select("pick one", []Choice{{Key: "a"}}, "a")
+	_, _ = m.Input("type value", "default")
+
+	if len(m.SelectCalls) != 1 || m.SelectCalls[0] != "pick one" {
+		t.Errorf("SelectCalls = %v, want [pick one]", m.SelectCalls)
+	}
+	if len(m.InputCalls) != 1 || m.InputCalls[0] != "type value" {
+		t.Errorf("InputCalls = %v, want [type value]", m.InputCalls)
+	}
+}
+
 func TestMockConfirmRecordsPromptAndReturnsConfigured(t *testing.T) {
 	m := &Mock{IsInteractiveResult: true, ConfirmResult: true}
 	got, err := m.Confirm("Remove it?", false)
@@ -190,8 +203,9 @@ func TestMockAcknowledgeRecordsAndReturnsError(t *testing.T) {
 
 func TestMockPromptFnsOverrideDefaults(t *testing.T) {
 	m := &Mock{
-		SelectFn: func(string, []Choice, string) (string, error) { return "x", nil },
-		InputFn:  func(string, string) (string, error) { return "y", nil },
+		SelectFn:      func(string, []Choice, string) (string, error) { return "x", nil },
+		InputFn:       func(string, string) (string, error) { return "y", nil },
+		SecretInputFn: func(string) (string, error) { return "secret", nil },
 	}
 
 	got, _ := m.Select("", nil, "a")
@@ -201,5 +215,17 @@ func TestMockPromptFnsOverrideDefaults(t *testing.T) {
 	value, _ := m.Input("", "default")
 	if value != "y" {
 		t.Errorf("expected input override y, got %q", value)
+	}
+	secret, _ := m.SecretInput("")
+	if secret != "secret" {
+		t.Errorf("expected secret input override, got %q", secret)
+	}
+}
+
+func TestMockSecretInputDefault(t *testing.T) {
+	var m Mock
+	secret, err := m.SecretInput("secret")
+	if err != nil || secret != "" {
+		t.Fatalf("default secret input = %q, %v", secret, err)
 	}
 }

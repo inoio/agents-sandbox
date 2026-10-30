@@ -153,6 +153,51 @@ func TestResolverEnvPrecedenceOverConfig(t *testing.T) {
 	}
 }
 
+func TestResolverProvisionHostConfigDefaultsFalse(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+
+	r, err := NewResolver(nil, "")
+	if err != nil {
+		t.Fatalf("NewResolver: %v", err)
+	}
+	if r.ProvisionHostConfig() {
+		t.Error("ProvisionHostConfig() = true; want false by default")
+	}
+}
+
+func TestResolverProvisionHostConfigConfigAndEnv(t *testing.T) {
+	cases := []struct {
+		name   string
+		config bool
+		env    string
+		want   bool
+	}{
+		{name: "config true", config: true, want: true},
+		{name: "config false", config: false, want: false},
+		{name: "env true overrides config false", config: false, env: "true", want: true},
+		{name: "env false overrides config true", config: true, env: "false", want: false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			configpaths.WithMockConfigPaths(t)
+			testutil.WriteYAML(t, configpaths.Get().UserConfigDir(), "config.yaml", map[string]any{
+				"provision-host-config": tc.config,
+			})
+			if tc.env != "" {
+				t.Setenv("OPENCODE_SANDBOX_PROVISION_HOST_CONFIG", tc.env)
+			}
+
+			r, err := NewResolver(nil, "")
+			if err != nil {
+				t.Fatalf("NewResolver: %v", err)
+			}
+			if got := r.ProvisionHostConfig(); got != tc.want {
+				t.Errorf("ProvisionHostConfig() = %v; want %v", got, tc.want)
+			}
+		})
+	}
+}
+
 func TestResolverConfigNoFlag(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	cp := configpaths.Get()
@@ -164,6 +209,95 @@ func TestResolverConfigNoFlag(t *testing.T) {
 	}
 	if r.cfg.CPUs != 3 {
 		t.Errorf("CPUs = %d; want 3", r.cfg.CPUs)
+	}
+}
+
+func TestKeySetAboveUserConfig(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	testutil.WriteFile(t, configpaths.Get().ProjectConfigDir(), "config.yaml", "cpus: 8\nnetwork:\n  profile: public\n")
+	r, err := NewResolver(nil, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !r.KeySetAboveUserConfig("cpus") {
+		t.Error("project cpus not reported above user scope")
+	}
+	if !r.KeySetAboveUserConfig("network.profile") {
+		t.Error("project network.profile not reported above user scope")
+	}
+	if r.KeySetAboveUserConfig("memory") {
+		t.Error("unset memory reported above user scope")
+	}
+}
+
+func TestKeySetAboveUserConfigPerSlug(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	cp := configpaths.Get()
+	if err := os.MkdirAll(filepath.Join(cp.UserConfigDir(), "myslug"), 0o755); err != nil {
+		t.Fatalf("mkdir per-slug: %v", err)
+	}
+	testutil.WriteYAML(t, filepath.Join(cp.UserConfigDir(), "myslug"), "config.yaml", map[string]any{"cpus": 3})
+
+	r, err := NewResolver(nil, "myslug")
+	if err != nil {
+		t.Fatalf("NewResolver: %v", err)
+	}
+	if !r.KeySetAboveUserConfig("cpus") {
+		t.Error("per-slug cpus not reported above user scope")
+	}
+}
+
+func TestKeySetAboveUserConfigIgnoresUserConfig(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	cp := configpaths.Get()
+	testutil.WriteYAML(t, cp.UserConfigDir(), "config.yaml", map[string]any{"cpus": 2})
+
+	r, err := NewResolver(nil, "")
+	if err != nil {
+		t.Fatalf("NewResolver: %v", err)
+	}
+	if r.KeySetAboveUserConfig("cpus") {
+		t.Error("user-scope cpus must not be reported above user scope")
+	}
+}
+
+func TestKeySetAboveUserConfigEnv(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	t.Setenv("OPENCODE_SANDBOX_NETWORK_PROFILE", "public")
+
+	r, err := NewResolver(nil, "")
+	if err != nil {
+		t.Fatalf("NewResolver: %v", err)
+	}
+	if !r.KeySetAboveUserConfig("network.profile") {
+		t.Error("env network.profile not reported above user scope")
+	}
+	if r.KeySetAboveUserConfig("memory") {
+		t.Error("unset memory reported above user scope")
+	}
+}
+
+func TestKeySetAboveUserConfigFlags(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	root := &cobra.Command{Use: "root"}
+	root.PersistentFlags().Uint8("cpus", 0, "")
+	root.PersistentFlags().String("network", "", "")
+	if err := root.ParseFlags([]string{"--cpus", "6", "--network", "public"}); err != nil {
+		t.Fatalf("ParseFlags: %v", err)
+	}
+
+	r, err := NewResolver(root, "")
+	if err != nil {
+		t.Fatalf("NewResolver: %v", err)
+	}
+	if !r.KeySetAboveUserConfig("cpus") {
+		t.Error("explicit --cpus not reported above user scope")
+	}
+	if !r.KeySetAboveUserConfig("network.profile") {
+		t.Error("explicit --network not reported for network.profile")
+	}
+	if r.KeySetAboveUserConfig("memory") {
+		t.Error("unset memory reported above user scope")
 	}
 }
 

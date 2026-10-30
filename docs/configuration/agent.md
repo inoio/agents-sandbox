@@ -121,24 +121,26 @@ The mirror is **always active**, independent of `provision-host-config`. Stale m
 are left in place in the VM. Run `agents-sandbox config agent` to list the mirror files, each shown as its host source
 path → VM path. Previously non-pattern files in `<agent>/` were silently ignored; they are now mirrored verbatim.
 
-## Default drop-in provisioning
+## Host-config drop-in provisioning
 
-Beyond the snippet merge, when running the launcher now **copies the active agent's config + credential files from the
-host into the VM by default**, driven by a per-agent gitignore-style include-list manifest (provision rules). This means
-your normal agent setup (e.g. an existing opencode config) works without extra configuration.
+This section is the technical reference for the per-agent provision rules. The rules are only evaluated when
+`provision-host-config: true`; the setting is disabled by default. For when to use this opt-in, how to enable it, and its security
+tradeoff, see [Unsafe host-config drop-in]({% link provision-host-config.md %}).
 
-The drop-in copy is scoped to the agent's settings and, for opencode, its credential file. Runtime state is not copied:
+The drop-in copy is limited to these native paths; files outside them are not copied:
 
 - **opencode** — `~/.config/opencode/**` (excluding `node_modules/`, `package*.json`, and `.gitignore`) plus
   `~/.local/share/opencode/auth.json`.
 - **opencode2** — same drop-in copy as `opencode` (`~/.config/opencode/**` and `~/.local/share/opencode/auth.json`).
-- **pi** — `~/.pi/agent/settings.json`.
-- **claude-code** — `~/.claude/settings.json` (runtime state and the machine-managed `.credentials.json` are not copied).
+- **pi** — files under `~/.pi/agent/` except `auth.json` and `models.json`.
+- **claude-code** — `~/.claude/settings.json`; the host's machine-managed `.credentials.json` is not copied. A user can
+  either log in inside the persistent sandbox home or use secret-backed environment credentials.
 - **codex** — `~/.codex/config.toml` (sessions, logs, and the `auth.json` login cache are not copied).
 - **hermes** — `~/.hermes/config.yaml` (the rest of `~/.hermes` — `state.db`, `sessions/`, `memories/`, `skills/` — is
   runtime state and is not copied; credentials in `~/.hermes/.env` are never copied).
 
-Precedence: the merged snippet config and any `home:` mappings override the drop-in copy for the same VM path.
+Precedence is, from strongest to weakest: `home:` mappings, merged snippet config, the verbatim config-directory mirror, and the
+host-config drop-in.
 
 When snippets exist, the drop-in copy of the config-file family is skipped entirely (see [Config snippet merge](#config-snippet-merge)) so host config
 cannot override the merged snippets. Non-config files — e.g. plugins, custom commands, themes — are still copied.
@@ -148,28 +150,41 @@ user or project snippet directories (see [Config snippet merge](#config-snippet-
 agent's pattern exists, it wins over the host config for the merged config path. To stop the native-config drop-in
 entirely so only the snippet merge and `home:` mappings apply, set `provision-host-config: false`.
 
-To turn off the drop-in copy altogether (config **and** credentials), set `provision-host-config: false` in the launcher
-config:
+When disabled, no host-config files are copied; snippet merging, the mirror, and `home:` mappings remain active. Because the VM
+home is persistent, files copied by an earlier drop-in can remain. On start, copies that still match the host file are removed;
+files that differ, such as an `auth.json` written by a login inside the VM, are kept until you delete them or reset the home
+volume.
 
-```yaml
-provision-host-config: false
-```
+### Credential boundaries
 
-This skips the whole host-config copy (for opencode: `~/.config/opencode/**` and `auth.json`), while the snippet merge
-and `home:` mappings keep working. On the next run, previously drop-in-copied config and credential files are removed
-from existing home volumes so they cannot linger.
+> **Security note:** when host-config drop-in provisioning is enabled, the OpenCode `auth.json` credential file is copied into
+> the VM. To deliver credentials exclusively through the env-secret mechanism (which never writes them into the VM, see
+> [Secrets]({% link configuration/secrets.md %})), leave host-config provisioning disabled. The env-secret channel remains
+> fully supported and unchanged; this does not replace it.
 
-### Authentication: file copy vs. env-secret
+If the drop-in is enabled, exclude OpenCode's `auth.json` by placing a `home:` entry that overrides the provisioned path (see
+[Home provisioning & startup hooks]({% link configuration/home-provisioning.md %})), or remove the credential file from the host
+before running. The launcher does not inject host secrets in any other way; the env-secret mechanism is the supported channel for
+secrets you do not want on disk in the VM.
 
-> **Warning:** because of the drop-in provisioning, the opencode `auth.json` credential file is now copied
-> into the VM by default. If you prefer to deliver credentials exclusively through the env-secret mechanism (which never
-> writes them into the VM, see [Secrets]({% link configuration/secrets.md %})), you can opt out of the credential file copy. The env-secret channel
-> remains fully supported and unchanged; this does not replace it.
+Pi's `auth.json` and `models.json` are excluded from the drop-in. Copies of these files left in the sandbox home by an earlier
+drop-in are removed on start when they still match the host file; files created inside the VM, such as by a Pi login, are
+kept. Claude Code's host `.credentials.json`, `~/.claude.json`, and
+operating-system keychain state are also excluded; use Claude Code's normal login inside the persistent sandbox home or the secret
+mechanism instead. See [Secrets]({% link configuration/secrets.md %}) for the supported secret formats and agent-specific
+authentication details.
 
-To opt out, exclude `auth.json` from the drop-in copy by placing a `home:` entry that overrides the provisioned path
-(see [Home provisioning & startup hooks]({% link configuration/home-provisioning.md %})), or remove the credential file from the host before running. The launcher does not inject
-host secrets in any other way; the env-secret mechanism is the supported channel for secrets you do not want on disk in
-the VM.
+### Migration and credential kinds
+
+Safe migration (the default, and what first-run guidance offers) classifies native credentials into two kinds:
+
+- **Static** API keys and tokens (`type: "api"` / `"api_key"`, `"wellknown"`, bearer tokens) **are migrated**: the
+  generated file carries a microsandbox placeholder, the raw value stays in the host `env.secret.yaml`, and the
+  destination host is added to the network allowlist.
+- **Login** credentials — refreshable OAuth (`type: "oauth"`) and machine-bound login state such as Claude Code's
+  `.credentials.json`, `~/.claude.json`, or OS keychain — are **never copied**. Migration omits them from the generated
+  files, allows the login hosts, and you authenticate inside the persistent sandbox home. Claude Code is the login-only
+  case: it declares no migratable credential file and pre-allows its login hosts.
 
 For pi, claude-code, codex, and hermes, the drop-in copy does not include credential files. pi, claude-code, and hermes
 authenticate with env secrets instead; codex logs in inside the VM:
@@ -185,6 +200,10 @@ authenticate with env secrets instead; codex logs in inside the VM:
   `OPENROUTER_API_KEY`, …), supplied through `env.secret`. Hermes reads the process environment, so nothing needs to be
   written into its `.env`.
 - **opencode** — `OPENCODE_API_KEY`.
+
+This is independent of `provision-host-config`: the unsafe drop-in copies whole files (including raw `auth.json`
+credentials), whereas migration only ever exports static secrets through the placeholder mechanism. See
+[Secrets]({% link configuration/secrets.md %}) and [Manage config in the sandbox]({% link manage-config.md %}) for details.
 
 ### Codex login
 

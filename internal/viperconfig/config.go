@@ -86,6 +86,11 @@ type Resolver struct {
 	// dockerLegacy names the deprecated dind source in effect (empty when the
 	// canonical docker setting is used). The CLI surfaces it once.
 	dockerLegacy string
+	// higherScope records the config keys set above the generic user config
+	// (per-slug user config, project config, env, or flags), which onboarding
+	// uses to avoid re-asking a value the user already set at a more specific
+	// scope.
+	higherScope map[string]bool
 }
 
 // ConfigLayer is one launcher-config source. The three file layers carry the

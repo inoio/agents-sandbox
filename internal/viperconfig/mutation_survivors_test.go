@@ -92,19 +92,6 @@ func TestResolverUpgradeIntervalOneNanosecond(t *testing.T) {
 	}
 }
 
-// Host-config provisioning defaults to on with no configuration at all.
-func TestResolverProvisionHostConfigDefaultsOn(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
-
-	r, err := NewResolver(nil, "")
-	if err != nil {
-		t.Fatalf("NewResolver: %v", err)
-	}
-	if !r.ProvisionHostConfig() {
-		t.Error("ProvisionHostConfig() = false, want the default true")
-	}
-}
-
 // With no docker source at all, neither docker nor a legacy dind alias is
 // reported.
 func TestResolveDockerAliasWithoutAnySource(t *testing.T) {

@@ -65,7 +65,7 @@ type RunOptions struct {
 	// rebuild. Empty means resolve the latest at build time.
 	AgentVersion string
 	// ProvisionHostConfig controls whether the agent's host config files are
-	// copied into the VM (drop-in provisioning). A nil value enables it
+	// copied into the VM (drop-in provisioning). A nil value disables it
 	// (default); cmd resolves the launcher config and sets it explicitly.
 	ProvisionHostConfig *bool
 	// OpenLinks starts the host side of the in-VM xdg-open shim for the

@@ -407,7 +407,7 @@ agents-sandbox cfg
 
 #### config agent [name]
 
-Show the merged snippet config, the verbatim config-dir mirror files, and the host files drop-in-provisioned into the VM for an agent (default: the configured agent, `opencode2`).
+Show the merged snippet config, the verbatim config-dir mirror files, and the host files provisioned into the VM for an agent (default: the configured agent, `opencode2`). The output includes the resolved `provision-host-config` setting; native host files are copied only when it is `true`.
 
 ```console
 agents-sandbox config agent opencode
@@ -430,7 +430,7 @@ config dir: user="/home/me/.config/agents-sandbox/opencode2"  project="/work/rep
 
 A dir that does not exist is marked `(missing)`, e.g. `user="/home/me/.config/agents-sandbox/opencode2" (missing)`. The trailing label is `primary` when the agent's own namespace is used, or `legacy fallback "<dir>"` when the agent is reading a shared legacy namespace (see [agent configuration]({% link configuration/agent.md %})). These are host launcher-config dirs; the guest agent config path is always `~/.config/opencode` regardless.
 
-Each host file is listed as `merged` (its VM path is the merged config path or part of the removed config-file family) or `not merged` (copied verbatim). Verbatim mirror files are listed as their host source path → VM path.
+Each host-file candidate is listed as `merged` (its VM path is the merged config path or part of the removed config-file family) or `not merged` (copied verbatim when provisioning is enabled). Verbatim mirror files are listed as their host source path → VM path.
 
 #### config paths
 
@@ -466,6 +466,55 @@ List the resolved home-file mappings from the config `home:` key (VM target path
 ```console
 agents-sandbox config home
 ```
+
+#### config migrate [name]
+
+Safely migrate supported native agent configuration without starting a VM. OpenCode, OpenCode 2, Pi, and Claude Code are
+supported. Static credential values are replaced with microsandbox placeholders and raw values are written to the user-level
+secret file; refreshable OAuth logins are not copied and are authenticated inside the sandbox instead; native agent files are
+not modified. For Claude Code, only portable `settings.json` values are migrated; credentials in `.credentials.json`, the OS
+keychain, or runtime state are never copied.
+
+The agent is selected by the positional `name` or `--agent` (both must match if given), otherwise by the configured `agent`.
+
+Before writing, the command reviews generated files, asks for the destination of unknown provider hosts, asks for confirmation
+of inferred network egress hosts, and warns about auth fields that are not recognized automatically. After success it prints
+generated paths and the generated non-secret file contents.
+
+The command refuses to run while managed files from an earlier migration exist, so it never overwrites them. A migration that
+was dismissed at the first start can still be applied with this command. See
+[Manage config in the sandbox]({% link manage-config.md %}#start-from-existing-agent-config) for the generated files,
+limitations, and how to migrate again.
+
+```console
+agents-sandbox config migrate
+agents-sandbox config migrate pi
+agents-sandbox config migrate --agent opencode2
+```
+
+**Flags:**
+
+| Flag      | Short | Default                         | Purpose                         |
+|-----------|-------|---------------------------------|---------------------------------|
+| `--agent` | —     | configured `agent` (`opencode`) | Coding-agent profile to migrate |
+
+#### config wizard
+
+Interactively set launcher configuration in your user-level config file, preserving comments and key order. With no
+flag it asks every tier that still has unanswered questions; `--tier=N` asks exactly one tier (1 = essentials, 2 =
+resources, 3 = runtime, 4 = integrations). Non-interactive runs skip the wizard. Runs automatically on the first
+interactive `run`/`shell` (tiers 1–3 only). See [Setup wizard]({% link configuration/wizard.md %}).
+
+```console
+agents-sandbox config wizard
+agents-sandbox config wizard --tier=4
+```
+
+**Flags:**
+
+| Flag     | Short | Default | Purpose                                                        |
+|----------|-------|---------|----------------------------------------------------------------|
+| `--tier` | —     | `0`     | Tier to ask (1–4); `0` asks all unanswered tiers               |
 
 ---
 
