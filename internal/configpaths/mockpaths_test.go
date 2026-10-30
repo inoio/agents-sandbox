@@ -128,3 +128,14 @@ func TestWithMockConfigPathsHomeErrorRestoresGet(t *testing.T) {
 		)
 	}
 }
+
+func TestCreateDirCreatesAndReturnsTheDirectory(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "userconfig", "opencode")
+
+	if got := CreateDir(dir); got != dir {
+		t.Errorf("CreateDir() = %q, want %q", got, dir)
+	}
+	if info, err := os.Stat(dir); err != nil || !info.IsDir() {
+		t.Errorf("CreateDir did not create %q (stat err = %v)", dir, err)
+	}
+}
