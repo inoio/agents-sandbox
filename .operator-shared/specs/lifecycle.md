@@ -71,19 +71,21 @@ Prevents a stale `agent_version` cache from selecting a release older than the i
 may intentionally select an older release. See `agent-version-sync.md`, `upgrade-state-scoping.md`.
 
 **`ensure-image`.** Builds or reuses the runner Docker image (`image.EnsureImage`) and returns `ImageInfo` carrying the
-Docker tag, the content-addressed msb ref, the digest and the baked agent version. It does not load the image into msb:
-the stage that first needs it there loads it under that ref (`image.EnsureLoaded`), skipping the load when the cached
-content already matches. Guarantees a Docker image whose content every later stage refers to by the same ref. See
+Docker tag, the content-addressed msb ref, the digest and the baked agent version. The build stamps the resolved
+release as the image's `agent-version` label, the version authority. It does not load the image into msb: the stage
+that first needs it there loads it under that ref (`image.EnsureLoaded`), skipping the load when the cached content
+already matches. Guarantees a Docker image whose content every later stage refers to by the same ref. See
 `runner-image-build.md`, `image-ref-content-addressing.md`, `image-composition.md`.
 
 **`ensure-home`.** Offers the opt-in legacy runtime-home copy, then resolves the project's home volume: state, else the
 live VM's mounted volume, else a freshly created and prefilled one with a fingerprint-seeded state
 (`volume.Manager.ResolveHomeVolume`); prefilling a fresh volume loads the runner image into msb for a throwaway task
-sandbox. Once state exists it records the deferred offered-upgrade mark and the baked agent version
-(`persistOfferedVersion`, `persistAgentVersion`). Guarantees a `HomeState` that names the volume the VM will
-mount. Under `--dry-run-vm` a project without a home creates no volume and writes no state: it carries the would-be
-name and an in-memory, fingerprint-seeded state, so the first run with a VM creates and prefills the volume (#429). A
-concurrent first run that loses the state commit adopts the winner's volume and removes its own (#431). See
+sandbox. Once state exists it records the deferred offered-upgrade mark and copies the baked agent version from
+`ImageInfo` into the `agent_version` cache as the writer of record (`persistOfferedVersion`, `persistAgentVersion`),
+independent of whether the profile can report its version in the VM. Guarantees a `HomeState` that names the volume
+the VM will mount. Under `--dry-run-vm` a project without a home creates no volume and writes no state: it carries the
+would-be name and an in-memory, fingerprint-seeded state, so the first run with a VM creates and prefills the volume
+(#429). A concurrent first run that loses the state commit adopts the winner's volume and removes its own (#431). See
 `home-volume-recovery.md`, `project-state-transactions.md`, `runtime-home-decoupling.md`.
 
 **`plan-reconfig`.** Compares the desired fingerprints and image with the persisted ones and the live VM to decide
@@ -119,7 +121,10 @@ Each value has one writer of record. A reader never re-derives it from a second 
   follows it. Writer of record: the image-ensuring path — `ensure-image` surfaces `ImageInfo.AgentVersion` and
   `ensure-home` persists it once state exists; `build` writes it through `image.Build`. `resolve-version`'s
   reconciliation and boot provenance in `setup-sandbox` only copy the label into the cache and are never the only
-  writer. (`agent-version-sync.md`)
+  writer. Every registered profile, `hermes` included, has the same three sources and none has a distinct one: an
+  `UpgradeChecker` resolves the release, `ImageSpec.VersionArg` bakes it into the label, and a `VersionProvider`
+  reports it in the VM at boot. `internal/agent/version_sources_test.go` fails for a profile that lacks one.
+  (`agent-version-sync.md`)
 - **Runner image ref.** Content-addressed; the authority is the Docker image ID, which equals the msb config digest.
   Writer: `ensure-image`. The Docker tag is a stable name, never an identity. (`image-ref-content-addressing.md`)
 - **Home volume.** Authority: `HomeState.home_volume`; when state is lost, the live VM's mounted volume. Writer:
