@@ -78,12 +78,26 @@ func reapOnLastClient(
 // It is the probe for warnRunningContainers.
 const runningContainersProbeCmd = "docker ps -q"
 
+// containerProbeTimeout bounds the best-effort container probe. The probe runs
+// on the last-client detach, where the triggering context is often already
+// canceled (serve-only exits by canceling it), so the probe needs its own
+// deadline rather than the caller's.
+const containerProbeTimeout = 5 * time.Second
+
 // warnRunningContainers warns that the sandbox's idle stop will also stop any
 // containers the user left running, so their fate is not a surprise. It is
 // best-effort: a VM without docker, a failing probe, or a docker API error
 // contributes nothing.
+//
+// The probe derives its own short-lived context from ctx instead of using ctx
+// directly: on the serve-only exit path ctx is already canceled by the time the
+// reaper runs, and the SDK aborts Shell on a canceled context, which would
+// silently suppress the warning. WithoutCancel keeps ctx's values but drops its
+// cancellation, and the timeout bounds the probe.
 func warnRunningContainers(ctx context.Context, sb msb.Sandbox, ui termio.UI) {
-	out, err := sb.Shell(ctx, runningContainersProbeCmd)
+	probeCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), containerProbeTimeout)
+	defer cancel()
+	out, err := sb.Shell(probeCtx, runningContainersProbeCmd)
 	if err != nil || out == nil || !out.Success() {
 		return
 	}

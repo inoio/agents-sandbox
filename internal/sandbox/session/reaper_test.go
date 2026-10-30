@@ -834,6 +834,76 @@ func TestWarnRunningContainersShellErrorWithPartialResultDoesNotWarn(t *testing.
 	}
 }
 
+// canceledContextSandbox models the real SDK's Shell, which aborts on a canceled
+// context (exec.go/ffi.go: `case <-ctx.Done(): return ctx.Err()`). A plain
+// MockSandbox ignores ctx, so it cannot reproduce the serve-only exit path where
+// the reaper's context is already canceled.
+type canceledContextSandbox struct {
+	msb.Sandbox
+}
+
+func (s canceledContextSandbox) Shell(
+	ctx context.Context,
+	command string,
+	opts ...msbSdk.ExecOption,
+) (msb.ShellResult, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	return s.Sandbox.Shell(ctx, command, opts...)
+}
+
+// TestWarnRunningContainers_CanceledContextStillWarns pins the serve-only exit
+// path: the triggering context is canceled by the time the probe runs, and a
+// probe that used it directly (as the SDK aborts on cancellation) would silently
+// drop the warning. The probe must run on its own non-canceled context.
+func TestWarnRunningContainers_CanceledContextStillWarns(t *testing.T) {
+	ui := &termio.Mock{}
+	sb := canceledContextSandbox{Sandbox: msb.NewMockSandbox(msb.SandboxOpts{
+		ShellOut: map[string]msb.ShellResult{
+			runningContainersProbeCmd: msb.NewTestResult(true, 0, "abc123\n", "", nil),
+		},
+	})}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	warnRunningContainers(ctx, sb, ui)
+	if len(ui.WarnCalls) == 0 || !strings.Contains(ui.WarnCalls[0], "container") {
+		t.Errorf("probe must survive a canceled context, got warnings %v", ui.WarnCalls)
+	}
+}
+
+// TestReapOnLastClient_CanceledContextStillWarns covers the same serve-only exit
+// through the reaper's entry point: a canceled context must not suppress the
+// running-container warning on the last-client detach.
+func TestReapOnLastClient_CanceledContextStillWarns(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+
+	sb := canceledContextSandbox{Sandbox: msb.NewMockSandbox(msb.SandboxOpts{
+		ShellOut: map[string]msb.ShellResult{
+			runningContainersProbeCmd: msb.NewTestResult(true, 0, "abc123\n", "", nil),
+		},
+	})}
+	ui := &termio.Mock{}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	err := reapOnLastClient(
+		ctx,
+		opencodeAgent(t),
+		state.Key{Slug: "canceledprobe", Agent: "opencode"},
+		sb,
+		options.ReapPolicy{AutoStopOnActiveSessions: true, WarnRunningContainers: true},
+		ui,
+	)
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+	if len(ui.WarnCalls) == 0 || !strings.Contains(ui.WarnCalls[0], "container") {
+		t.Errorf("expected a running-container warning despite the canceled context, got %v", ui.WarnCalls)
+	}
+}
+
 // TestReapOnLastClient_WarnsWhenContainersRunning verifies the warning fires on
 // the last-client detach when docker is in use and containers are still up. It
 // uses auto-stop mode, where the reaper returns immediately, so the warning must

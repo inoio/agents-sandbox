@@ -80,7 +80,9 @@ read_if: Working on the VM's dockerd/agent-serve startup, readiness, or restart 
   VM; its definition survives in the guest's Docker state, so `docker start` resumes it after the next connect. This is
   the accepted cost of the idle fix, not a keepalive. The launcher makes it non-surprising by warning on the last-client
   detach when `docker ps -q` lists containers (`ReapPolicy.WarnRunningContainers`, set from the resolved docker option
-  including the deprecated `--dind` fold); the probe is skipped when docker is off or when no sandbox is held.
+  including the deprecated `--dind` fold); the probe is skipped when docker is off or when no sandbox is held. The probe
+  uses its own short-lived context rather than the caller's: on the serve-only exit path the caller's context is already
+  canceled, and the SDK aborts `Shell` on a canceled context, which would silently drop the warning.
 - **Open risk in the sibling keepalive paths, verify in the same pass.** `keepVMAlive` (session reaper), `runServeOnly`,
   and `waitQuiescent` start a *silent* attached `sleep` exec session to hold the VM, on the stated assumption that
   `active_exec_sessions > 0` suppresses the idle timer. v0.7.11 changed exactly that aggregate, so if the monitor now
