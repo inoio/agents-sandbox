@@ -105,6 +105,7 @@ read_if: Navigating the codebase.
 - `Dockerfile` — Dev environment image (go, msb, docker, etc.).
 - `config.yaml`, `*.sh`, `opencode/` — Dev VM provisioning/scripts.
 
-### `.agents/` — Repo engineering skills (untracked tooling)
+### `.agents/skills/` — Repo engineering skills
 
-- `skills/` — Matt Pocock engineering skills (ask-matt, code-review, tdd, brainstorming, etc.); directory-only.
+- `release/` — The release runbook (tracked): `SKILL.md`'s release flow, `RELEASE-NOTES.md`, and `NON-GO-DEPS.md` (the pinned non-Go tool versions).
+- Everything else — local-only engineering skills (ask-matt, code-review, tdd, ...); untracked tooling, not shipped with the repo.
