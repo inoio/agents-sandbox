@@ -707,6 +707,42 @@ func TestLoadConfigFilesHermesMergedConfig(t *testing.T) {
 	}
 }
 
+// TestLoadConfigFilesOhMyPiMergedConfig verifies that oh-my-pi snippets merge
+// into ~/.omp/agent/config.yml as YAML and that both names omp reads, config.yml
+// and its config.yaml fallback, are removed from the VM, so a stale copy of
+// either cannot shadow the merged config.
+func TestLoadConfigFilesOhMyPiMergedConfig(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	cp := configpaths.Get()
+	vmHome := t.TempDir()
+
+	a, _ := agent.Lookup("oh-my-pi")
+	testutil.WriteFile(
+		t,
+		configpaths.MustDir(cp.ProjectAgentConfigDir(a)),
+		"config-startup.yaml",
+		"startup:\n  quiet: true\n",
+	)
+
+	ui := termio.NewTestMock(t)
+	cf, err := LoadConfigFilesForHost(a, t.TempDir(), vmHome, &ui, true)
+	if err != nil {
+		t.Fatalf("LoadConfigFilesForHost: %v", err)
+	}
+	wantMerged := filepath.Join(vmHome, ".omp", "agent", "config.yml")
+	if !cf.HasSnippets || cf.MergedPath != wantMerged {
+		t.Fatalf("HasSnippets=%v MergedPath=%q, want true and %q", cf.HasSnippets, cf.MergedPath, wantMerged)
+	}
+	if got, want := string(cf.Merged), "startup:\n    quiet: true\n"; got != want {
+		t.Errorf("Merged = %q, want %q (YAML, not JSON)", got, want)
+	}
+	for _, name := range []string{"config.yml", "config.yaml"} {
+		if path := filepath.Join(vmHome, ".omp", "agent", name); !slices.Contains(cf.Remove, path) {
+			t.Errorf("Remove = %v, want to include %s", cf.Remove, path)
+		}
+	}
+}
+
 // TestLoadConfigFilesRejectsReservedMergedPath verifies that a home target
 // colliding with the agent's merged-config path is rejected.
 func TestLoadConfigFilesRejectsReservedMergedPath(t *testing.T) {

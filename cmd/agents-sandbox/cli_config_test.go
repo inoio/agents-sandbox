@@ -175,6 +175,29 @@ func TestConfigAgentCodexPrintsMergedTOML(t *testing.T) {
 	}
 }
 
+// TestConfigAgentOhMyPiMergesBothYAMLExtensions verifies that oh-my-pi
+// snippets under either YAML extension merge into one YAML document.
+func TestConfigAgentOhMyPiMergesBothYAMLExtensions(t *testing.T) {
+	cmd, ui := setupCommandFixtures(t, "config", "agent", "oh-my-pi")
+	a, _ := agent.Lookup("oh-my-pi")
+	dir := configpaths.MustDir(configpaths.Get().UserAgentConfigDir(a))
+	testutil.WriteFile(t, dir, "config-model.yml", "modelRoles:\n  default: anthropic/claude\n")
+	testutil.WriteFile(t, dir, "config-startup.yaml", "startup:\n  quiet: true\n")
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("config agent oh-my-pi: %v", err)
+	}
+	joined := strings.Join(ui.OutCalls, "\n")
+	for _, want := range []string{
+		"config-model.yml", "config-startup.yaml", "merged agent config:",
+		"default: anthropic/claude", "quiet: true",
+	} {
+		if !strings.Contains(joined, want) {
+			t.Errorf("output missing %q, got:\n%s", want, joined)
+		}
+	}
+}
+
 func TestConfigAgentAmbiguousFlagAndPositional(t *testing.T) {
 	cmd, _ := setupCommandFixtures(t, "config", "agent", "--agent", "pi", "claude-code")
 	err := cmd.Execute()
