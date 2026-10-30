@@ -161,9 +161,6 @@ command reports the bare version (e.g. `0.1.0`).
 
 ### Fixed
 
-- `shell` now runs the same startup stages as `run`: it auto-prunes stale VMs, home volumes and runner images at
-  startup (retaining the image it is about to use), as the `auto-prune-age` docs already stated, and `shell --dry-run`
-  skips the prerequisite check (`doctor`), so it no longer installs the microsandbox runtime (#452).
 - A bare repository cloned as `<name>.git` (no `.git` entry of its own) is now recognized as a bare checkout instead
   of a non-repo folder, so launching from its root uses the same origin-derived identity — state, VM, home volume — as
   the worktrees inside it. Its previous path-keyed state is adopted (#433).
