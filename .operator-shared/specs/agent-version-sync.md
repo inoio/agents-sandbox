@@ -76,7 +76,9 @@ one: its baseline is written only by recovery, while a fresh or repaired state d
 
 - `recordImageProvenance` remains a boot-time reconciler, but it must not be the only writer for any profile. Every
   built-in profile implements `agent.VersionProvider` (in-VM detection) alongside the image label, so the "left empty on
-  a fresh/repaired state, self-healed on boot" assumption holds for all of them.
+  a fresh/repaired state, self-healed on boot" assumption holds for all of them. `TestRegisteredAgentsHaveVersionSources`
+  (`internal/agent/version_sources_test.go`) iterates the registry and fails for a profile without an `UpgradeChecker`,
+  an `ImageSpec.VersionArg` or a `VersionProvider` (#453).
 
 ## Invariants
 
