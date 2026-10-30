@@ -778,6 +778,45 @@ func TestBuildAgentOpencode2(t *testing.T) {
 	}
 }
 
+func TestBuildNoticesExperimentalAgents(t *testing.T) {
+	cases := []struct {
+		agent string
+		want  bool
+	}{
+		{"pi", true},
+		{"claude-code", true},
+		{"codex", true},
+		{"hermes", true},
+		{"opencode", false},
+		{"opencode2", false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.agent, func(t *testing.T) {
+			cmd := newRunCommand()
+			if err := cmd.Flags().Set(FlagAgent, tc.agent); err != nil {
+				t.Fatalf("set agent: %v", err)
+			}
+			ui := &termio.Mock{}
+			var r *viperconfig.Resolver
+			if _, err := Build(r.Config(), cmd, ui); err != nil {
+				t.Fatalf("Build: %v", err)
+			}
+			got := slices.ContainsFunc(ui.InfoCalls, func(m string) bool {
+				return strings.Contains(m, "experimental")
+			})
+			if got != tc.want {
+				t.Errorf(
+					"experimental notice for %q = %v, want %v (InfoCalls=%q)",
+					tc.agent,
+					got,
+					tc.want,
+					ui.InfoCalls,
+				)
+			}
+		})
+	}
+}
+
 func TestBuildAcceptsWorktreeAndServeOnlyForOpencode2(t *testing.T) {
 	cmd := newRunCommand()
 	if err := cmd.Flags().Set(FlagAgent, "opencode2"); err != nil {

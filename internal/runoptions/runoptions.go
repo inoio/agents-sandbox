@@ -74,6 +74,10 @@ func Build(cfg *viperconfig.Config, cmd *cobra.Command, ui termio.UI) (options.R
 		return options.RunOptions{}, err
 	}
 
+	if a, ok := agent.Lookup(opts.Agent); ok && a.Experimental() {
+		ui.Infof("%s is experimental — not well tested with agents-sandbox", a.Name())
+	}
+
 	if err = resolveNotify(cfg, cmd, ui, &opts); err != nil {
 		return options.RunOptions{}, err
 	}

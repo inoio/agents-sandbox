@@ -590,8 +590,21 @@ func TestRunDryRunAgentCodex(t *testing.T) {
 	if err := root.Execute(); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if len(ui.InfoCalls) == 0 || strings.TrimSpace(ui.InfoCalls[0]) != "dry-run: agent version 0.164.0" {
+	var pinnedVersion, experimental bool
+	for _, line := range ui.InfoCalls {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "dry-run: agent version 0.164.0" {
+			pinnedVersion = true
+		}
+		if strings.Contains(trimmed, "experimental") {
+			experimental = true
+		}
+	}
+	if !pinnedVersion {
 		t.Errorf("expected pinned codex version line; got: %v", ui.InfoCalls)
+	}
+	if !experimental {
+		t.Errorf("expected an experimental notice for codex; got: %v", ui.InfoCalls)
 	}
 	if len(mock.CreatedSandboxCalls) != 0 {
 		t.Errorf("--dry-run created %d sandbox(es), want 0", len(mock.CreatedSandboxCalls))

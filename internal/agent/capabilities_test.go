@@ -17,6 +17,7 @@ type stubUpgradeAgent struct {
 }
 
 func (stubUpgradeAgent) Name() string               { return "stub-upgrade" }
+func (stubUpgradeAgent) Experimental() bool         { return false }
 func (stubUpgradeAgent) ConfigDirName() string      { return "stub-upgrade" }
 func (stubUpgradeAgent) ImageSpec() agent.ImageSpec { return agent.ImageSpec{} }
 func (s stubUpgradeAgent) LatestVersion(context.Context) (string, error) {
@@ -28,6 +29,7 @@ func (stubUpgradeAgent) NewerThan(_, _ string) (bool, error) { return false, nil
 type stubPlainAgent struct{}
 
 func (stubPlainAgent) Name() string               { return "stub-plain" }
+func (stubPlainAgent) Experimental() bool         { return false }
 func (stubPlainAgent) ConfigDirName() string      { return "stub-plain" }
 func (stubPlainAgent) ImageSpec() agent.ImageSpec { return agent.ImageSpec{} }
 

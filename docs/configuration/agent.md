@@ -29,6 +29,10 @@ config key or the `AGENTS_SANDBOX_AGENT` environment variable. Six agents ship a
 - **`hermes`** — Hermes Agent, installed from its official installer at a pinned release tag and run interactively;
   upgrade checks via its GitHub releases.
 
+> **Experimental agents:** `opencode` and `opencode2` are the tested default agents. Every other built-in
+> profile (`pi`, `claude-code`, `codex`, `hermes`) is **experimental** — not well tested with agents-sandbox.
+> The launcher prints a notice when an experimental agent is selected.
+
 `--worktree` and `--serve-only` are rejected for pi, claude-code, codex, and hermes (they have no daemon); they run through the
 interactive TUI instead. Passing an unsupported `--agent` name reports the valid names in its error message.
 
@@ -251,3 +255,27 @@ project). Place a snippet in your project, e.g. `.agents-sandbox/opencode/permis
 > **Warning:** these rules are advisory for opencode's own Q&A tools. The `bash` tool executes arbitrary commands inside
 > the VM and can read any file regardless of these deny rules, so they are not a security boundary — keep secrets out of
 > the VM or rely on the [secret mechanism]({% link configuration/secrets.md %}) instead.
+
+## Capability support matrix
+
+Every agent attaches interactively in the VM and supports config snippet merge, host-config drop-in, and
+version/upgrade checks. Beyond that base, coverage differs by agent:
+
+- ✅ **Supported** — agents-sandbox implements it for this agent.
+- ◐ **Supportable** — the agent exposes a surface agents-sandbox could use, but does not implement yet.
+- ✖ **Unsupported** — the agent has no such surface.
+
+| Capability | `opencode` | `opencode2` | `pi` | `claude-code` | `codex` | `hermes` |
+|---|---|---|---|---|---|---|
+| Interactive attach | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| Config snippet merge | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| Host-config drop-in | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| Version + upgrade check | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| Serve/attach daemon | ✅ | ✅ | ✖ | ✖ | ◐ | ◐ |
+| Worktree sessions | ✅ | ✅ | ✖ | ✖ | ✖ | ✖ |
+| Notify event stream | ✅ | ✅ | ✖ | ✖ | ◐ | ◐ |
+| Session quiescence | ✅ | ✖ | ✖ | ✖ | ✖ | ✖ |
+
+The ◐ entries name an upstream surface agents-sandbox has not wired up: `codex app-server` (a JSON-RPC daemon with a
+turn/item event stream) for Codex, and `hermes serve` / `hermes chat --format stream-json` for Hermes.
+
