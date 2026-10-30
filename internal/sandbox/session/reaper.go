@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/inoio/agents-sandbox/internal/agent"
@@ -55,6 +56,9 @@ func reapOnLastClient(
 	if state.CountActiveClients(k) > 0 {
 		return nil
 	}
+	if policy.WarnRunningContainers && sb != nil {
+		warnRunningContainers(ctx, sb, ui)
+	}
 	if policy.AutoStopOnActiveSessions {
 		ui.Verbosef("auto-stop-on-active-sessions: not waiting; idle timeout will stop VM")
 		return nil
@@ -68,6 +72,34 @@ func reapOnLastClient(
 		return nil
 	}
 	return waitQuiescent(ctx, k, sb, provider, policy.MaxSessionRetries, ui)
+}
+
+// runningContainersProbeCmd lists the IDs of running containers, one per line.
+// It is the probe for warnRunningContainers.
+const runningContainersProbeCmd = "docker ps -q"
+
+// warnRunningContainers warns that the sandbox's idle stop will also stop any
+// containers the user left running, so their fate is not a surprise. It is
+// best-effort: a VM without docker, a failing probe, or a docker API error
+// contributes nothing.
+func warnRunningContainers(ctx context.Context, sb msb.Sandbox, ui termio.UI) {
+	out, err := sb.Shell(ctx, runningContainersProbeCmd)
+	if err != nil || out == nil || !out.Success() {
+		return
+	}
+	running := 0
+	for line := range strings.SplitSeq(out.Stdout(), "\n") {
+		if strings.TrimSpace(line) != "" {
+			running++
+		}
+	}
+	if running > 0 {
+		ui.Warnf(
+			"%d running container(s) will be stopped when the sandbox idles; "+
+				"restart them with 'docker start' after the next connect",
+			running,
+		)
+	}
 }
 
 // waitQuiescent keeps the VM alive (keeper exec) and polls the provider's

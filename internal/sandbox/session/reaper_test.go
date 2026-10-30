@@ -3,6 +3,7 @@ package session
 import (
 	"context"
 	"errors"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -760,6 +761,188 @@ func TestPendingQuestionSessionIDsShellError(t *testing.T) {
 		"curl -sf http://127.0.0.1:4096/question",
 	); err == nil {
 		t.Error("pendingQuestionSessionIDs() with Shell error should return error")
+	}
+}
+
+// TestWarnRunningContainers covers the container probe: it warns only when the
+// command succeeds and reports at least one running container.
+func TestWarnRunningContainers(t *testing.T) {
+	tests := []struct {
+		name     string
+		out      msb.ShellResult
+		shellErr error
+		wantWarn bool
+	}{
+		{"containers", msb.NewTestResult(true, 0, "id1\nid2\n", "", nil), nil, true},
+		{"none", msb.NewTestResult(true, 0, "", "", nil), nil, false},
+		{"blank lines", msb.NewTestResult(true, 0, "\n  \n", "", nil), nil, false},
+		// A failed probe that still printed a container id must not warn: the
+		// exit status, not the output alone, decides.
+		{"probe failure with output", msb.NewTestResult(false, 1, "id1\n", "cannot connect", nil), nil, false},
+		{"nil result", nil, nil, false},
+		{"shell error", nil, errors.New("boom"), false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ui := &termio.Mock{}
+			sb := msb.NewMockSandbox(msb.SandboxOpts{
+				ShellOut: map[string]msb.ShellResult{runningContainersProbeCmd: tt.out},
+				ShellErr: tt.shellErr,
+			})
+			warnRunningContainers(context.Background(), sb, ui)
+			if got := len(ui.WarnCalls) > 0; got != tt.wantWarn {
+				t.Errorf("warn = %v (calls %v), want %v", got, ui.WarnCalls, tt.wantWarn)
+			}
+			if tt.wantWarn && !strings.Contains(ui.WarnCalls[0], "2") {
+				t.Errorf("warning must carry the container count, got %q", ui.WarnCalls[0])
+			}
+		})
+	}
+}
+
+// errWithResultSandbox returns output alongside a Shell error, modeling a client
+// that produced a partial result before failing. A plain MockSandbox cannot: it
+// returns either a result or an error, never both.
+type errWithResultSandbox struct {
+	*msb.MockSandbox
+
+	out msb.ShellResult
+	err error
+}
+
+func (s errWithResultSandbox) Shell(
+	context.Context,
+	string,
+	...msbSdk.ExecOption,
+) (msb.ShellResult, error) {
+	return s.out, s.err
+}
+
+// TestWarnRunningContainersShellErrorWithPartialResultDoesNotWarn pins the error
+// guard: an error from Shell must short-circuit before any output is counted,
+// even when a result is also returned.
+func TestWarnRunningContainersShellErrorWithPartialResultDoesNotWarn(t *testing.T) {
+	ui := &termio.Mock{}
+	sb := errWithResultSandbox{
+		MockSandbox: &msb.MockSandbox{},
+		out:         msb.NewTestResult(true, 0, "id1\n", "", nil),
+		err:         errors.New("partial failure"),
+	}
+	warnRunningContainers(context.Background(), sb, ui)
+	if len(ui.WarnCalls) != 0 {
+		t.Errorf("a Shell error must not warn even with a partial result, got %v", ui.WarnCalls)
+	}
+}
+
+// TestReapOnLastClient_WarnsWhenContainersRunning verifies the warning fires on
+// the last-client detach when docker is in use and containers are still up. It
+// uses auto-stop mode, where the reaper returns immediately, so the warning must
+// precede that return.
+func TestReapOnLastClient_WarnsWhenContainersRunning(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+
+	sb := msb.NewMockSandbox(msb.SandboxOpts{
+		ShellOut: map[string]msb.ShellResult{
+			runningContainersProbeCmd: msb.NewTestResult(true, 0, "abc123\n", "", nil),
+		},
+	})
+	ui := &termio.Mock{}
+
+	err := reapOnLastClient(
+		context.Background(),
+		opencodeAgent(t),
+		state.Key{Slug: "dockerwarnproj", Agent: "opencode"},
+		sb,
+		options.ReapPolicy{AutoStopOnActiveSessions: true, WarnRunningContainers: true},
+		ui,
+	)
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+	if len(ui.WarnCalls) == 0 || !strings.Contains(ui.WarnCalls[0], "container") {
+		t.Errorf("expected a running-container warning, got %v", ui.WarnCalls)
+	}
+}
+
+// TestReapOnLastClient_WarnsWhenContainersRunningWithoutAutoStop covers the
+// holding path: the warning is independent of auto-stop mode, so it fires before
+// the quiescence wait begins.
+func TestReapOnLastClient_WarnsWhenContainersRunningWithoutAutoStop(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+
+	sb := msb.NewMockSandbox(msb.SandboxOpts{
+		ShellOut: map[string]msb.ShellResult{
+			runningContainersProbeCmd: msb.NewTestResult(true, 0, "abc123\n", "", nil),
+		},
+	})
+	ui := &termio.Mock{}
+
+	// noSessionStatusAgent returns before the quiescence wait, so the test does
+	// not need a session-status stub; the warning runs before that branch.
+	err := reapOnLastClient(
+		context.Background(),
+		noSessionStatusAgent{},
+		state.Key{Slug: "dockerwarnholdproj", Agent: "opencode"},
+		sb,
+		options.ReapPolicy{WarnRunningContainers: true},
+		ui,
+	)
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+	if len(ui.WarnCalls) == 0 || !strings.Contains(ui.WarnCalls[0], "container") {
+		t.Errorf("expected a running-container warning, got %v", ui.WarnCalls)
+	}
+}
+
+// TestReapOnLastClient_NoContainerProbeWhenDockerDisabled verifies the probe is
+// skipped entirely (no guest exec, no warning) when docker is not in use.
+func TestReapOnLastClient_NoContainerProbeWhenDockerDisabled(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+
+	var shellCalls []string
+	sb := &msb.MockSandbox{Name_: "test-vm", ShellCalls: &shellCalls}
+	ui := &termio.Mock{}
+
+	err := reapOnLastClient(
+		context.Background(),
+		opencodeAgent(t),
+		state.Key{Slug: "nodockerproj", Agent: "opencode"},
+		sb,
+		options.ReapPolicy{AutoStopOnActiveSessions: true},
+		ui,
+	)
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+	if slices.Contains(shellCalls, runningContainersProbeCmd) {
+		t.Errorf("docker probe must be skipped when docker is disabled: %v", shellCalls)
+	}
+	if len(ui.WarnCalls) != 0 {
+		t.Errorf("expected no warnings, got %v", ui.WarnCalls)
+	}
+}
+
+// TestReapOnLastClient_NoContainerProbeWhenSandboxNil verifies the warning is
+// skipped when there is no sandbox to probe, so a nil held sandbox cannot panic.
+func TestReapOnLastClient_NoContainerProbeWhenSandboxNil(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+
+	ui := &termio.Mock{}
+
+	err := reapOnLastClient(
+		context.Background(),
+		opencodeAgent(t),
+		state.Key{Slug: "nilsandboxproj", Agent: "opencode"},
+		nil,
+		options.ReapPolicy{AutoStopOnActiveSessions: true, WarnRunningContainers: true},
+		ui,
+	)
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+	if len(ui.WarnCalls) != 0 {
+		t.Errorf("expected no warnings without a sandbox, got %v", ui.WarnCalls)
 	}
 }
 

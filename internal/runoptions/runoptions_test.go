@@ -398,6 +398,9 @@ func TestBuildPropagatesDocker(t *testing.T) {
 	if !opts.Docker.Enabled {
 		t.Error("opts.Docker.Enabled = false, want true from resolver")
 	}
+	if !opts.ReapPolicy.WarnRunningContainers {
+		t.Error("opts.ReapPolicy.WarnRunningContainers = false, want true when docker is enabled")
+	}
 }
 
 // A user config `docker: false` is an explicit source: the setting must reach the
@@ -429,6 +432,9 @@ func TestBuildDeprecatedDindFlag(t *testing.T) {
 	if !opts.Docker.Enabled {
 		t.Error("opts.Docker.Enabled = false, want true from the deprecated --dind flag")
 	}
+	if !opts.ReapPolicy.WarnRunningContainers {
+		t.Error("opts.ReapPolicy.WarnRunningContainers = false, want the --dind fold reflected")
+	}
 }
 
 func TestBuildDockerFlagWinsOverDind(t *testing.T) {
@@ -445,6 +451,9 @@ func TestBuildDockerFlagWinsOverDind(t *testing.T) {
 	}
 	if opts.Docker.Enabled {
 		t.Error("opts.Docker.Enabled = true, want --docker to win over --dind")
+	}
+	if opts.ReapPolicy.WarnRunningContainers {
+		t.Error("opts.ReapPolicy.WarnRunningContainers = true, want it to follow the winning --docker=false")
 	}
 }
 

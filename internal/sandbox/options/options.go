@@ -146,6 +146,11 @@ type ReapPolicy struct {
 	// MaxSessionRetries caps how long to tolerate a session stuck in retry before
 	// stopping the wait. 0 means use the package default (10).
 	MaxSessionRetries int
+	// WarnRunningContainers warns on the last-client detach when the VM has
+	// running Docker containers, which the idle stop will also stop. It is set
+	// only when the runner image has the Docker engine, so the probe is skipped
+	// on VMs that cannot have containers.
+	WarnRunningContainers bool
 }
 
 // NewReapPolicy builds a ReapPolicy. A non-positive maxSessionRetries uses
@@ -157,6 +162,7 @@ func NewReapPolicy(autoStopOnActiveSessions bool, maxSessionRetries int) ReapPol
 	return ReapPolicy{
 		AutoStopOnActiveSessions: autoStopOnActiveSessions,
 		MaxSessionRetries:        maxSessionRetries,
+		WarnRunningContainers:    false,
 	}
 }
 
