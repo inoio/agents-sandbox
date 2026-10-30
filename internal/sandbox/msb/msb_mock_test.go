@@ -59,15 +59,15 @@ func TestMockSandboxDetach(t *testing.T) {
 
 	type contextKey struct{}
 	ctx := context.WithValue(context.Background(), contextKey{}, "caller")
-	var seen context.Context
+	var seenCallerValue any
 	sb := &MockSandbox{DetachErr: detachErr, DetachFn: func(ctx context.Context) error {
-		seen = ctx
+		seenCallerValue = ctx.Value(contextKey{})
 		return nil
 	}}
 	if err := sb.Detach(ctx); err != nil {
 		t.Errorf("Detach() with DetachFn = %v, want DetachFn's nil", err)
 	}
-	if seen == nil || seen.Value(contextKey{}) != "caller" {
+	if seenCallerValue != "caller" {
 		t.Error("DetachFn did not receive the caller's context")
 	}
 }
