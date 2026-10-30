@@ -78,12 +78,12 @@ func TestPrepareSandboxTraceEndsAtTheFailingStage(t *testing.T) {
 func TestEnsureVMStageFailureSkipsFingerprints(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	lookupErr := errors.New("lookup boom")
-	msb.WithMsbMock(t, (&msb.MockMsbClient{}).SetGetSandboxErr(lookupErr))
+	home := preparedHome{client: (&msb.MockMsbClient{}).SetGetSandboxErr(lookupErr)}
 	k := state.Key{Slug: "proj-1mjusbm3wikhb0", Agent: "opencode"}
 	ui := termio.NewTestMock(t)
 
 	sb, _, err := ensureVMStage(
-		context.Background(), sessionIdentity{key: k}, sandboximage.ImageInfo{}, preparedHome{}, "home-vol", false,
+		context.Background(), sessionIdentity{key: k}, sandboximage.ImageInfo{}, home, "home-vol", false,
 		options.RunOptions{}, &ui,
 	)
 	if !errors.Is(err, lookupErr) {

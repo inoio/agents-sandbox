@@ -233,9 +233,7 @@ func TestStopProjectVMUsesClient(t *testing.T) {
 		Name_:   "agents-sandbox-vm-test",
 		Status_: msbSdk.SandboxStatusRunning,
 	})
-	oldGet := msb.Get
-	msb.Get = func() msb.Client { return client }
-	defer func() { msb.Get = oldGet }()
+	resolutions := msb.WithCountingMsbMock(t, client)
 
 	// CheckoutSlug depends on the current directory, so use a temp repo.
 	tmpRepo := testutil.InitRepo(t)
@@ -243,6 +241,9 @@ func TestStopProjectVMUsesClient(t *testing.T) {
 
 	if err := StopProjectVM(context.Background(), false, false, ui, "opencode"); err != nil {
 		t.Fatalf("StopProjectVM failed: %v", err)
+	}
+	if *resolutions != 1 {
+		t.Errorf("msb.Get resolved %d times, want once per StopProjectVM", *resolutions)
 	}
 }
 
@@ -268,6 +269,7 @@ func TestEnsureProjectVM_CreatePath(t *testing.T) {
 
 	sb, created, err := ensureProjectVM(
 		context.Background(),
+		client,
 		options.RunOptions{Memory: "1G", TmpSize: "512M"},
 		image.ImageInfo{DockerTag: "agents-sandbox/runner-test:latest", Ref: "agents-sandbox/runner-test:latest"},
 		"test-home-vol",
@@ -322,6 +324,7 @@ func TestEnsureProjectVMAppliesLabels(t *testing.T) {
 
 	sb, created, err := ensureProjectVM(
 		context.Background(),
+		client,
 		options.RunOptions{Memory: "1G", TmpSize: "512M"},
 		image.ImageInfo{DockerTag: "agents-sandbox/runner-test:latest", Ref: "agents-sandbox/runner-test:latest"},
 		"test-home-vol",
@@ -360,6 +363,7 @@ func TestEnsureProjectVM_ReconnectPath(t *testing.T) {
 
 	sb, created, err := ensureProjectVM(
 		context.Background(),
+		client,
 		options.RunOptions{Memory: "1G", TmpSize: "512M"},
 		image.ImageInfo{DockerTag: "agents-sandbox/runner-test:latest", Ref: "agents-sandbox/runner-test:latest"},
 		"test-home-vol",
@@ -410,6 +414,7 @@ func TestEnsureProjectVM_ConnectOutcomeIsInfo(t *testing.T) {
 
 	if _, _, err := ensureProjectVM(
 		context.Background(),
+		client,
 		options.RunOptions{Memory: "1G", TmpSize: "512M"},
 		image.ImageInfo{DockerTag: "agents-sandbox/runner-test:latest", Ref: "agents-sandbox/runner-test:latest"},
 		"test-home-vol",
@@ -441,6 +446,7 @@ func TestEnsureProjectVM_StartOutcomeIsInfo(t *testing.T) {
 
 	if _, _, err := ensureProjectVM(
 		context.Background(),
+		client,
 		options.RunOptions{Memory: "1G", TmpSize: "512M"},
 		image.ImageInfo{DockerTag: "agents-sandbox/runner-test:latest", Ref: "agents-sandbox/runner-test:latest"},
 		"test-home-vol",
@@ -476,6 +482,7 @@ func TestEnsureProjectVM_CreateOutcomeIsInfo(t *testing.T) {
 
 	if _, _, err := ensureProjectVM(
 		context.Background(),
+		client,
 		options.RunOptions{Memory: "1G", TmpSize: "512M"},
 		image.ImageInfo{DockerTag: "agents-sandbox/runner-test:latest", Ref: "agents-sandbox/runner-test:latest"},
 		"test-home-vol",
@@ -513,6 +520,7 @@ func TestEnsureProjectVM_ReconnectWhenImageUnchanged(t *testing.T) {
 
 	sb, created, err := ensureProjectVM(
 		context.Background(),
+		client,
 		options.RunOptions{Memory: "1G", TmpSize: "512M"},
 		image.ImageInfo{DockerTag: "agents-sandbox/runner-test:abc123", Ref: "agents-sandbox/runner-test:abc123"},
 		"test-home-vol",
@@ -672,6 +680,7 @@ func TestEnsureProjectVM_NoReplacementWhenExistingImageUnknown(t *testing.T) {
 
 	sb, created, err := ensureProjectVM(
 		context.Background(),
+		client,
 		options.RunOptions{Memory: "1G", TmpSize: "512M"},
 		image.ImageInfo{DockerTag: "agents-sandbox/runner-test:newDigest", Ref: "agents-sandbox/runner-test:newDigest"},
 		"test-home-vol",
@@ -725,6 +734,7 @@ func TestEnsureProjectVMRecreatesWhenFlagged(t *testing.T) {
 	opts := options.RunOptions{ReapPolicy: options.ReapPolicy{}, Recreate: true, CPUs: 1, Memory: "2G"}
 	sb, created, err := ensureProjectVM(
 		context.Background(),
+		client,
 		opts,
 		image.ImageInfo{DockerTag: "new:tag", Ref: "new:tag"},
 		"homevol",
@@ -772,6 +782,7 @@ func TestEnsureProjectVMReusesWhenNotFlagged(t *testing.T) {
 
 	sb, created, err := ensureProjectVM(
 		context.Background(),
+		client,
 		options.RunOptions{Agent: "opencode"},
 		image.ImageInfo{DockerTag: "old:tag", Ref: "old:tag"},
 		"homevol",
@@ -844,15 +855,16 @@ func TestKillProjectVMUsesClient(t *testing.T) {
 		Name_:   "agents-sandbox-vm-test",
 		Status_: msbSdk.SandboxStatusRunning,
 	})
-	oldGet := msb.Get
-	msb.Get = func() msb.Client { return client }
-	defer func() { msb.Get = oldGet }()
+	resolutions := msb.WithCountingMsbMock(t, client)
 
 	tmpRepo := testutil.InitRepo(t)
 	t.Chdir(tmpRepo)
 
 	if err := KillProjectVM(context.Background(), false, false, ui, "opencode"); err != nil {
 		t.Fatalf("KillProjectVM failed: %v", err)
+	}
+	if *resolutions != 1 {
+		t.Errorf("msb.Get resolved %d times, want once per KillProjectVM", *resolutions)
 	}
 }
 

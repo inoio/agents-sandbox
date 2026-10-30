@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
 	"github.com/inoio/agents-sandbox/internal/sandbox/options"
 	"github.com/inoio/agents-sandbox/internal/termio"
 )
@@ -13,7 +14,7 @@ import (
 func TestResolveSessionIdentityErrorsWhenIdentityUnresolvable(t *testing.T) {
 	ui := termio.NewTestMock(t)
 	_, _, _, err := resolveSessionIdentity(
-		context.Background(), unresolvableIdentityDir(t), "opencode", false, &ui,
+		context.Background(), &msb.MockMsbClient{}, unresolvableIdentityDir(t), "opencode", false, &ui,
 	)
 	if err == nil {
 		t.Fatal("resolveSessionIdentity succeeded with an unresolvable identity, want an error")

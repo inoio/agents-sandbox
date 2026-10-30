@@ -733,6 +733,7 @@ func EnsureImage(
 // handling are the caller's concern.
 func Build(
 	ctx context.Context,
+	client msb.Client,
 	a agent.Agent,
 	projectSlug string,
 	buildOpts BuildOptions,
@@ -743,7 +744,7 @@ func Build(
 	if err != nil {
 		return ImageInfo{}, err
 	}
-	return EnsureLoaded(ctx, msb.Get(), info, ui)
+	return EnsureLoaded(ctx, client, info, ui)
 }
 
 // baseImageRef returns the image reference the rendered Dockerfile's final stage

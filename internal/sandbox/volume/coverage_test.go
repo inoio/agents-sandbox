@@ -24,7 +24,7 @@ func TestCheckForActiveVMs_ListSandboxesError(t *testing.T) {
 	mock, _ := setupVolumeOpsFixtures(t)
 	mock.ListSandboxesErr = errors.New("boom")
 
-	err := checkForActiveVMs(context.Background(), state.Key{Slug: "someproj", Agent: "opencode"})
+	err := checkForActiveVMs(context.Background(), mock, state.Key{Slug: "someproj", Agent: "opencode"})
 	if err == nil || !strings.Contains(err.Error(), "list sandboxes") {
 		t.Fatalf("expected list sandboxes error, got: %v", err)
 	}
@@ -36,7 +36,11 @@ func TestCheckForActiveVMs_IgnoresNonVMSandboxes(t *testing.T) {
 		&msb.MockSandboxHandle{Name_: "agents-sandbox-task-someproj", Status_: msbSdk.SandboxStatusRunning},
 	}
 
-	if err := checkForActiveVMs(context.Background(), state.Key{Slug: "someproj", Agent: "opencode"}); err != nil {
+	if err := checkForActiveVMs(
+		context.Background(),
+		mock,
+		state.Key{Slug: "someproj", Agent: "opencode"},
+	); err != nil {
 		t.Fatalf("expected no error for non-VM sandbox, got: %v", err)
 	}
 }
@@ -47,7 +51,7 @@ func TestCheckForActiveVMs_MatchesPrefixFreeProjectVM(t *testing.T) {
 		&msb.MockSandboxHandle{Name_: "someproj-1mjusbm3wikhb0-opencode", Status_: msbSdk.SandboxStatusRunning},
 	}
 
-	err := checkForActiveVMs(context.Background(), state.Key{Slug: "someproj-1mjusbm3wikhb0", Agent: "opencode"})
+	err := checkForActiveVMs(context.Background(), mock, state.Key{Slug: "someproj-1mjusbm3wikhb0", Agent: "opencode"})
 	if err == nil {
 		t.Fatal("expected a running prefix-free project VM to block volume operations")
 	}
@@ -64,6 +68,7 @@ func TestCheckForActiveVMs_IgnoresPrefixFreeTaskSandbox(t *testing.T) {
 
 	if err := checkForActiveVMs(
 		context.Background(),
+		mock,
 		state.Key{Slug: "someproj-1mjusbm3wikhb0", Agent: "opencode"},
 	); err != nil {
 		t.Fatalf("a prefix-free task sandbox must not block volume operations, got: %v", err)
@@ -87,6 +92,7 @@ func TestCheckForActiveVMs_UsesLabelsForTaskSandbox(t *testing.T) {
 
 	if err := checkForActiveVMs(
 		context.Background(),
+		mock,
 		state.Key{Slug: "someproj-1mjusbm3wikhb0", Agent: "opencode"},
 	); err != nil {
 		t.Fatalf("a label-identified task sandbox must not block volume operations, got: %v", err)
@@ -99,7 +105,11 @@ func TestCheckForActiveVMs_OtherSlugVMIsIgnored(t *testing.T) {
 		&msb.MockSandboxHandle{Name_: "agents-sandbox-vm-otherproj", Status_: msbSdk.SandboxStatusRunning},
 	}
 
-	if err := checkForActiveVMs(context.Background(), state.Key{Slug: "someproj", Agent: "opencode"}); err != nil {
+	if err := checkForActiveVMs(
+		context.Background(),
+		mock,
+		state.Key{Slug: "someproj", Agent: "opencode"},
+	); err != nil {
 		t.Fatalf("expected no error for a VM of another slug, got: %v", err)
 	}
 }
@@ -110,7 +120,11 @@ func TestCheckForActiveVMs_InactiveVMSameSlugIsIgnored(t *testing.T) {
 		&msb.MockSandboxHandle{Name_: "agents-sandbox-vm-someproj", Status_: msbSdk.SandboxStatusStopped},
 	}
 
-	if err := checkForActiveVMs(context.Background(), state.Key{Slug: "someproj", Agent: "opencode"}); err != nil {
+	if err := checkForActiveVMs(
+		context.Background(),
+		mock,
+		state.Key{Slug: "someproj", Agent: "opencode"},
+	); err != nil {
 		t.Fatalf("expected no error for an inactive VM, got: %v", err)
 	}
 }
@@ -121,7 +135,11 @@ func TestCheckForActiveVMs_StartingVMSameSlugIsBlocked(t *testing.T) {
 		&msb.MockSandboxHandle{Name_: "agents-sandbox-vm-someproj", Status_: msbSdk.SandboxStatusStarting},
 	}
 
-	if err := checkForActiveVMs(context.Background(), state.Key{Slug: "someproj", Agent: "opencode"}); err == nil {
+	if err := checkForActiveVMs(
+		context.Background(),
+		mock,
+		state.Key{Slug: "someproj", Agent: "opencode"},
+	); err == nil {
 		t.Fatal("expected a starting VM to block volume operations")
 	}
 }
@@ -132,7 +150,11 @@ func TestCheckForActiveVMs_UnknownVMSameSlugIsBlocked(t *testing.T) {
 		&msb.MockSandboxHandle{Name_: "agents-sandbox-vm-someproj", Status_: msbSdk.SandboxStatus("future-status")},
 	}
 
-	if err := checkForActiveVMs(context.Background(), state.Key{Slug: "someproj", Agent: "opencode"}); err == nil {
+	if err := checkForActiveVMs(
+		context.Background(),
+		mock,
+		state.Key{Slug: "someproj", Agent: "opencode"},
+	); err == nil {
 		t.Fatal("expected an unknown VM status to block volume operations")
 	}
 }

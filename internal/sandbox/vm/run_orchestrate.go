@@ -121,6 +121,7 @@ func PrepareSandbox(
 	skipVM bool,
 	ui termio.UI,
 ) (*Session, error) {
+	client := msb.Get()
 	var (
 		session       sessionIdentity
 		version       versionDecision
@@ -134,7 +135,7 @@ func PrepareSandbox(
 	stages := []lifecycle.Stage{
 		{ID: lifecycle.ResolveIdentity, Run: func() error {
 			var err error
-			session, err = resolveIdentityStage(ctx, opts.Agent, skipVM, ui)
+			session, err = resolveIdentityStage(ctx, client, opts.Agent, skipVM, ui)
 			if err != nil {
 				return err
 			}
@@ -153,7 +154,7 @@ func PrepareSandbox(
 		}},
 		{ID: lifecycle.EnsureHome, Run: func() error {
 			var err error
-			home, err = ensureHomeStage(ctx, session.key, imageInfo, version.offeredVersion, skipVM, opts, ui)
+			home, err = ensureHomeStage(ctx, client, session.key, imageInfo, version.offeredVersion, skipVM, opts, ui)
 			return err
 		}},
 		{ID: lifecycle.PlanReconfig, Run: func() error {
@@ -208,6 +209,7 @@ type sessionIdentity struct {
 // identity first, and derives the effective key and the guest start directory.
 func resolveIdentityStage(
 	ctx context.Context,
+	client msb.Client,
 	agentName string,
 	skipVM bool,
 	ui termio.UI,
@@ -216,7 +218,7 @@ func resolveIdentityStage(
 	if err != nil {
 		return sessionIdentity{}, err
 	}
-	a, identity, adoption, err := resolveSessionIdentity(ctx, cwd, agentName, skipVM, ui)
+	a, identity, adoption, err := resolveSessionIdentity(ctx, client, cwd, agentName, skipVM, ui)
 	if err != nil {
 		return sessionIdentity{}, err
 	}
@@ -305,6 +307,7 @@ type preparedHome struct {
 // offered-upgrade mark and the baked agent version.
 func ensureHomeStage(
 	ctx context.Context,
+	client msb.Client,
 	k state.Key,
 	imageInfo image.ImageInfo,
 	offeredVersion string,
@@ -313,7 +316,7 @@ func ensureHomeStage(
 	ui termio.UI,
 ) (preparedHome, error) {
 	env, fingerprints := loadEnvFingerprints(opts, ui)
-	client, volumes, homeVolume, homeState, err := prepareHomeVolume(ctx, k, imageInfo, skipVM, fingerprints, ui)
+	volumes, homeVolume, homeState, err := prepareHomeVolume(ctx, client, k, imageInfo, skipVM, fingerprints, ui)
 	if err != nil {
 		return preparedHome{}, err
 	}
@@ -384,8 +387,17 @@ func ensureVMStage(
 	ui termio.UI,
 ) (msb.Sandbox, vmBoot, error) {
 	sb, boot, err := ensureProjectVM(
-		ctx, opts, imageInfo, homeVolume, session.identity.BindRoot, session.key, session.identity.RepoSlug, skipVM,
-		home.env, ui,
+		ctx,
+		home.client,
+		opts,
+		imageInfo,
+		homeVolume,
+		session.identity.BindRoot,
+		session.key,
+		session.identity.RepoSlug,
+		skipVM,
+		home.env,
+		ui,
 	)
 	if err != nil {
 		// gomutants:disable-next-line RETURN_ZERO reason="ensureProjectVM returns vmBootConnected (the vmBoot zero value, the first iota constant) on every error path, so a RETURN_ZERO replacement of boot is the identical constant"
@@ -435,6 +447,7 @@ func setupSandboxStage(
 // the adoption value.
 func resolveSessionIdentity(
 	ctx context.Context,
+	client msb.Client,
 	cwd, agentName string,
 	skipVM bool,
 	ui termio.UI,
@@ -447,7 +460,7 @@ func resolveSessionIdentity(
 	if err != nil {
 		return nil, git.Identity{}, IdentityAdoption{}, err
 	}
-	adoption, err := AdoptLegacyIdentity(ctx, msb.Get(), identity, a.Name(), !skipVM, ui)
+	adoption, err := AdoptLegacyIdentity(ctx, client, identity, a.Name(), !skipVM, ui)
 	if err != nil {
 		return nil, git.Identity{}, IdentityAdoption{}, err
 	}
@@ -526,8 +539,8 @@ func resolveServeHostPort(opts options.RunOptions, planned int) int {
 }
 
 // prepareHomeVolume offers the opt-in legacy home-volume copy, then resolves the
-// project's home volume and its state. It returns the msb client and volume
-// manager for the caller's subsequent reconfig/VM steps.
+// project's home volume and its state. It returns the volume manager for the
+// caller's subsequent reconfig/VM steps.
 //
 // A home volume preserved by a VM-only identity adoption (#144) is not passed
 // here: adoption records it in the checkout state's RecoveredHomeVolume, which
@@ -535,20 +548,20 @@ func resolveServeHostPort(opts options.RunOptions, planned int) int {
 // the adoption result or any step that fails before home resolution.
 func prepareHomeVolume(
 	ctx context.Context,
+	client msb.Client,
 	k state.Key,
 	imageInfo image.ImageInfo,
 	skipVM bool,
 	fingerprints state.Fingerprints,
 	ui termio.UI,
-) (msb.Client, *volume.Manager, string, state.HomeState, error) {
-	client := msb.Get()
+) (*volume.Manager, string, state.HomeState, error) {
 	if err := offerRuntimeHomeMigration(ctx, client, ui); err != nil {
 		// A pending migration is a deliberate block, not an offer failure:
 		// return it as-is so the user sees the guidance, not a wrapper.
 		if errors.Is(err, runtimemigration.ErrMigrationPending) {
-			return nil, nil, "", state.HomeState{}, err
+			return nil, "", state.HomeState{}, err
 		}
-		return nil, nil, "", state.HomeState{}, fmt.Errorf("runtime home migration offer failed: %w", err)
+		return nil, "", state.HomeState{}, fmt.Errorf("runtime home migration offer failed: %w", err)
 	}
 
 	vm := volume.NewManager(ui)
@@ -557,10 +570,10 @@ func prepareHomeVolume(
 		ctx, client, k, imageInfo, skipVM, fingerprints, recovered, ui,
 	)
 	if err != nil {
-		return nil, nil, "", state.HomeState{}, fmt.Errorf("volume setup failed: %w", err)
+		return nil, "", state.HomeState{}, fmt.Errorf("volume setup failed: %w", err)
 	}
 	ui.Verbosef("home volume: %s", homeVol)
-	return client, vm, homeVol, vs, nil
+	return vm, homeVol, vs, nil
 }
 
 // persistAgentVersion records the release baked into the runner image as this

@@ -97,6 +97,7 @@ var acquireProjectVMLock = func(k state.Key) (func(), error) {
 // first-boot race and the recreate destroy between concurrent invocations.
 func ensureProjectVM(
 	ctx context.Context,
+	client msb.Client,
 	opts options.RunOptions,
 	info image.ImageInfo, homeVol, repoPath string,
 	k state.Key,
@@ -109,8 +110,6 @@ func ensureProjectVM(
 		ui.Verbosef("dry-run: VM lifecycle skipped")
 		return nil, vmBootConnected, nil
 	}
-
-	client := msb.Get()
 
 	name := projectVMName(k)
 
