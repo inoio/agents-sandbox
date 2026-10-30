@@ -584,6 +584,7 @@ func TestApplyReportsWriteErrors(t *testing.T) {
 }
 
 func TestReviewRejectsNilPlan(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
 	ui := termio.NewTestMock(t)
 	if err := Review(nil, &ui); err == nil {
 		t.Error("Review(nil) succeeded, want an error")
@@ -1040,6 +1041,7 @@ func TestGuideSurfacesWarningsWhenNothingToMigrate(t *testing.T) {
 }
 
 func TestGuideReviewHandoffSurfacesReviewWarnings(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
 	ui := termio.NewTestMock(t)
 	ui.IsInteractiveResult = true
 	offered := recordOfferedChoices(&ui, guideStartChoice)

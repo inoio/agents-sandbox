@@ -1258,6 +1258,7 @@ func TestBuildLauncherConfigFormatsAndConflicts(t *testing.T) {
 }
 
 func TestApplyErrorBranches(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
 	ui := termio.NewTestMock(t)
 	if err := Apply(nil, &ui); err == nil {
 		t.Fatal("expected nil plan error")
@@ -1878,6 +1879,7 @@ func TestBuildRejectsUnsupportedAndUnreadableSources(t *testing.T) {
 }
 
 func TestApplyWriteFailureBranches(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
 	parent := filepath.Join(t.TempDir(), "parent")
 	if err := os.WriteFile(parent, []byte("file"), 0o600); err != nil {
 		t.Fatal(err)
@@ -2432,6 +2434,7 @@ func TestApplyWritesRetryableManifestAndSkipsIdenticalOutputs(t *testing.T) {
 }
 
 func TestReviewRejectsUnsupportedFieldsNonInteractive(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
 	plan := &Plan{ReviewWarnings: []string{"review required: auth field openai.custom"}}
 	ui := termio.NewTestMock(t)
 	if err := Review(plan, &ui); err == nil || !strings.Contains(err.Error(), "interactive review") {
@@ -2440,6 +2443,7 @@ func TestReviewRejectsUnsupportedFieldsNonInteractive(t *testing.T) {
 }
 
 func TestReviewAddsInteractiveSecretHostToVMNetworkAllowlist(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
 	plan := &Plan{
 		ConfigPath: "config.yaml",
 		ConfigData: []byte("network:\n  egress-allow:\n    - api.githubcopilot.com\n"),
@@ -2474,6 +2478,7 @@ func TestReviewAddsInteractiveSecretHostToVMNetworkAllowlist(t *testing.T) {
 }
 
 func TestReviewPrintsFinalConfigAfterVMNetworkConfirmation(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
 	plan := &Plan{
 		ConfigPath: "config.yaml",
 		ConfigData: []byte("network:\n  egress-allow:\n    - existing.test\n"),

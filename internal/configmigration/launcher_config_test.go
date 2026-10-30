@@ -124,6 +124,7 @@ func TestEnableNativeProvisioningPreservesYAMLCommentsAndOrder(t *testing.T) {
 }
 
 func TestReviewWarnsThatJSONLauncherConfigLosesComments(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
 	plan := &Plan{
 		ConfigPath: "/home/user/.config/agents-sandbox/config.jsonc",
 		ConfigData: []byte("{}\n"),
@@ -139,6 +140,7 @@ func TestReviewWarnsThatJSONLauncherConfigLosesComments(t *testing.T) {
 }
 
 func TestReviewDoesNotWarnAboutCommentsForYAMLLauncherConfig(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
 	plan := &Plan{
 		ConfigPath: "/home/user/.config/agents-sandbox/config.yaml",
 		ConfigData: []byte("{}\n"),
