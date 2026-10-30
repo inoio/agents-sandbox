@@ -1,7 +1,7 @@
 /agents-sandbox*
 /.idea/
-/.agents-sandbox/
-!/.agents-sandbox/Dockerfile
+/.agents-sandbox/env.secret
+/.agents-sandbox/env.secret.yaml
 version.env
 *.test
 coverage.out
