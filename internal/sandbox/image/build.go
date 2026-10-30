@@ -537,10 +537,14 @@ func imageRefCandidates(info ImageInfo) []string {
 // into the image content identity, and whether release resolution is deferred.
 // A user-provided agent with no recorded version defers resolution: the identity
 // uses the user-provided marker and no release is resolved until a rebuild needs
-// one.
+// one. An unknown version under NoRebuild defers too: a reused image never
+// needs the release, and looking it up needs the network.
 func initialBuildVersions(buildOpts BuildOptions) (string, string, bool) {
 	if buildOpts.UserProvided && buildOpts.AgentVersion == "" {
 		return "", userProvidedImageIdentity, true
+	}
+	if buildOpts.NoRebuild && buildOpts.AgentVersion == "" {
+		return "", "", true
 	}
 	return buildOpts.AgentVersion, buildOpts.AgentVersion, false
 }

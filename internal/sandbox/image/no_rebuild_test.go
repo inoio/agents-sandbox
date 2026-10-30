@@ -3,12 +3,16 @@ package image
 import (
 	"context"
 	"errors"
+	"io"
 	"slices"
 	"strings"
 	"testing"
 
+	dockerspec "github.com/moby/docker-image-spec/specs-go/v1"
 	"github.com/moby/moby/client"
 
+	"github.com/inoio/agents-sandbox/internal/agent"
+	"github.com/inoio/agents-sandbox/internal/configpaths"
 	"github.com/inoio/agents-sandbox/internal/sandbox/docker"
 	"github.com/inoio/agents-sandbox/internal/termio"
 )
@@ -103,5 +107,52 @@ func TestLogBuildDecisionReuseWithoutChangesStaysVerbose(t *testing.T) {
 		return strings.Contains(call, "content identity unchanged")
 	}) {
 		t.Errorf("VerboseCalls = %v, want the unchanged-identity line", ui.VerboseCalls)
+	}
+}
+
+// TestEnsureImageNoRebuildReusesUnlabeledImageOffline pins that --no-rebuild
+// reuses an image without an agent-version label without looking up the latest
+// release: the lookup needs the network, and a reused image never uses it.
+func TestEnsureImageNoRebuildReusesUnlabeledImageOffline(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	WithMockAgentVersionResolver(t, func(context.Context, agent.Agent, string) (string, error) {
+		return "", errors.New("offline")
+	})
+	docker.WithDockerMock(t, &docker.MockDockerClient{
+		ImageInspectFn: func(context.Context, string, ...client.ImageInspectOption) (client.ImageInspectResult, error) {
+			return client.ImageInspectResult{
+				ID:     "sha256:existing",
+				Config: &dockerspec.DockerOCIImageConfig{Labels: map[string]string{dockerfileIDLabelKey: "legacy"}},
+			}, nil
+		},
+		ImageBuildFn: func(context.Context, io.Reader, client.ImageBuildOptions) (client.ImageBuildResult, error) {
+			t.Fatal("--no-rebuild must not build a present image")
+			return client.ImageBuildResult{}, nil
+		},
+	})
+
+	info, err := EnsureImage(
+		context.Background(),
+		agentOpencode(t),
+		"proj",
+		BuildOptions{NoRebuild: true},
+		&termio.Mock{},
+	)
+	if err != nil {
+		t.Fatalf("EnsureImage: %v", err)
+	}
+	if info.Digest != "sha256:existing" {
+		t.Errorf("Digest = %q, want the existing image", info.Digest)
+	}
+}
+
+func TestLogBuildDecisionNamesSingleSkippedRebuildReason(t *testing.T) {
+	ui := &termio.Mock{}
+
+	logBuildDecision(ui, "runner:tag", false, []string{"base image updated"}, "opencode", "1.2.3", "")
+
+	want := "reusing runner image runner:tag despite changes (--no-rebuild): base image updated"
+	if !slices.Contains(ui.InfoCalls, want) {
+		t.Errorf("InfoCalls = %v, want %q", ui.InfoCalls, want)
 	}
 }
