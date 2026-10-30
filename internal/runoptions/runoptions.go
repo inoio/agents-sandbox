@@ -99,11 +99,6 @@ func Build(cfg *viperconfig.Config, cmd *cobra.Command, ui termio.UI) (options.R
 
 	opts.Docker = ResolveDockerSetting(cmd, cfg)
 
-	// Carry the resolved docker option (including the deprecated --dind alias
-	// folded in by ResolveDockerSetting) into the reap policy, so the last-client
-	// warning about running containers only probes VMs that can have them.
-	opts.ReapPolicy.WarnRunningContainers = opts.Docker.Enabled
-
 	if err := resolveNetwork(cfg, cmd, &opts); err != nil {
 		return options.RunOptions{}, err
 	}

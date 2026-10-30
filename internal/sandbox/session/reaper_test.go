@@ -893,7 +893,7 @@ func TestReapOnLastClient_CanceledContextStillWarns(t *testing.T) {
 		opencodeAgent(t),
 		state.Key{Slug: "canceledprobe", Agent: "opencode"},
 		sb,
-		options.ReapPolicy{AutoStopOnActiveSessions: true, WarnRunningContainers: true},
+		options.ReapPolicy{AutoStopOnActiveSessions: true},
 		ui,
 	)
 	if err != nil {
@@ -923,7 +923,7 @@ func TestReapOnLastClient_WarnsWhenContainersRunning(t *testing.T) {
 		opencodeAgent(t),
 		state.Key{Slug: "dockerwarnproj", Agent: "opencode"},
 		sb,
-		options.ReapPolicy{AutoStopOnActiveSessions: true, WarnRunningContainers: true},
+		options.ReapPolicy{AutoStopOnActiveSessions: true},
 		ui,
 	)
 	if err != nil {
@@ -954,7 +954,7 @@ func TestReapOnLastClient_WarnsWhenContainersRunningWithoutAutoStop(t *testing.T
 		noSessionStatusAgent{},
 		state.Key{Slug: "dockerwarnholdproj", Agent: "opencode"},
 		sb,
-		options.ReapPolicy{WarnRunningContainers: true},
+		options.ReapPolicy{},
 		ui,
 	)
 	if err != nil {
@@ -965,9 +965,12 @@ func TestReapOnLastClient_WarnsWhenContainersRunningWithoutAutoStop(t *testing.T
 	}
 }
 
-// TestReapOnLastClient_NoContainerProbeWhenDockerDisabled verifies the probe is
-// skipped entirely (no guest exec, no warning) when docker is not in use.
-func TestReapOnLastClient_NoContainerProbeWhenDockerDisabled(t *testing.T) {
+// TestReapOnLastClient_ProbesRegardlessOfDockerSetting verifies the probe runs
+// even though nothing in the policy names docker: a project Dockerfile can
+// enable docker in the image (a final-stage marker or a managed docker base), so
+// the config/flag setting cannot decide whether the VM can hold containers. The
+// probe self-guards, so a docker-less VM's failure warns nothing.
+func TestReapOnLastClient_ProbesRegardlessOfDockerSetting(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 
 	var shellCalls []string
@@ -985,11 +988,11 @@ func TestReapOnLastClient_NoContainerProbeWhenDockerDisabled(t *testing.T) {
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
-	if slices.Contains(shellCalls, runningContainersProbeCmd) {
-		t.Errorf("docker probe must be skipped when docker is disabled: %v", shellCalls)
+	if !slices.Contains(shellCalls, runningContainersProbeCmd) {
+		t.Errorf("probe must run regardless of the docker setting, got shell calls %v", shellCalls)
 	}
 	if len(ui.WarnCalls) != 0 {
-		t.Errorf("expected no warnings, got %v", ui.WarnCalls)
+		t.Errorf("an empty/failed probe must not warn, got %v", ui.WarnCalls)
 	}
 }
 
@@ -1005,7 +1008,7 @@ func TestReapOnLastClient_NoContainerProbeWhenSandboxNil(t *testing.T) {
 		opencodeAgent(t),
 		state.Key{Slug: "nilsandboxproj", Agent: "opencode"},
 		nil,
-		options.ReapPolicy{AutoStopOnActiveSessions: true, WarnRunningContainers: true},
+		options.ReapPolicy{AutoStopOnActiveSessions: true},
 		ui,
 	)
 	if err != nil {

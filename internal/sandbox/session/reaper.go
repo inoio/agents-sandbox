@@ -41,10 +41,12 @@ type QuestionRequest struct {
 }
 
 // reapOnLastClient runs after a client detaches. If this was not the last client it
-// is a no-op. If it was, per policy it either returns immediately (auto-stop-on-active
-// mode, so the idle timeout stops the VM) or holds the VM until sessions quiesce.
-// An agent whose daemon does not expose the v1 session-status endpoints skips the
-// quiescence wait, so the idle timeout stops the VM as in auto-stop mode.
+// is a no-op. If it was, it first warns (best-effort) when the VM still has
+// running containers, which the idle stop will stop; then per policy it either
+// returns immediately (auto-stop-on-active mode, so the idle timeout stops the
+// VM) or holds the VM until sessions quiesce. An agent whose daemon does not
+// expose the v1 session-status endpoints skips the quiescence wait, so the idle
+// timeout stops the VM as in auto-stop mode.
 func reapOnLastClient(
 	ctx context.Context,
 	a agent.Agent,
@@ -56,7 +58,7 @@ func reapOnLastClient(
 	if state.CountActiveClients(k) > 0 {
 		return nil
 	}
-	if policy.WarnRunningContainers && sb != nil {
+	if sb != nil {
 		warnRunningContainers(ctx, sb, ui)
 	}
 	if policy.AutoStopOnActiveSessions {
@@ -85,9 +87,14 @@ const runningContainersProbeCmd = "docker ps -q"
 const containerProbeTimeout = 5 * time.Second
 
 // warnRunningContainers warns that the sandbox's idle stop will also stop any
-// containers the user left running, so their fate is not a surprise. It is
-// best-effort: a VM without docker, a failing probe, or a docker API error
-// contributes nothing.
+// containers the user left running, so their fate is not a surprise.
+//
+// It runs on every last-client detach regardless of the docker setting: a
+// project Dockerfile can enable docker in the image (a final-stage marker or a
+// managed docker base) without any config, so the config value cannot decide
+// whether the VM can hold containers. The probe self-guards instead — a VM
+// without docker answers the command with a failure, and a docker API error is
+// equally silent, so either contributes nothing.
 //
 // The probe derives its own short-lived context from ctx instead of using ctx
 // directly: on the serve-only exit path ctx is already canceled by the time the

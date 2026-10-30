@@ -555,12 +555,9 @@ func TestRunServeOnlyWarnsAboutContainersAfterCancel(t *testing.T) {
 	done := make(chan error, 1)
 	go func() {
 		done <- Run(ctx, options.RunOptions{
-			Agent:     "opencode",
-			ServeOnly: true,
-			ReapPolicy: options.ReapPolicy{
-				AutoStopOnActiveSessions: true,
-				WarnRunningContainers:    true,
-			},
+			Agent:      "opencode",
+			ServeOnly:  true,
+			ReapPolicy: options.ReapPolicy{AutoStopOnActiveSessions: true},
 		}, options.ModeRun, ui)
 	}()
 	cancel()

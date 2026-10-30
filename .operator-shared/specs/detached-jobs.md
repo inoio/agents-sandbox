@@ -79,10 +79,13 @@ read_if: Working on the VM's dockerd/agent-serve startup, readiness, or restart 
 - **The idle stop also stops running containers.** A container the user left running under `--docker` is stopped with the
   VM; its definition survives in the guest's Docker state, so `docker start` resumes it after the next connect. This is
   the accepted cost of the idle fix, not a keepalive. The launcher makes it non-surprising by warning on the last-client
-  detach when `docker ps -q` lists containers (`ReapPolicy.WarnRunningContainers`, set from the resolved docker option
-  including the deprecated `--dind` fold); the probe is skipped when docker is off or when no sandbox is held. The probe
-  uses its own short-lived context rather than the caller's: on the serve-only exit path the caller's context is already
-  canceled, and the SDK aborts `Shell` on a canceled context, which would silently drop the warning.
+  detach when `docker ps -q` lists containers. The probe runs on every last-client detach rather than being gated on the
+  resolved docker option: a project Dockerfile can enable docker in the image (a final-stage marker or a managed docker
+  base, `specs/image-composition.md`) with no config, so the config value cannot decide whether the VM can hold
+  containers. It self-guards instead — a VM without docker fails the command, and a docker API error is equally silent,
+  so both contribute nothing; only a held sandbox is skipped. The probe uses its own short-lived context rather than the
+  caller's: on the serve-only exit path the caller's context is already canceled, and the SDK aborts `Shell` on a canceled
+  context, which would silently drop the warning.
 - **Open risk in the sibling keepalive paths, verify in the same pass.** `keepVMAlive` (session reaper), `runServeOnly`,
   and `waitQuiescent` start a *silent* attached `sleep` exec session to hold the VM, on the stated assumption that
   `active_exec_sessions > 0` suppresses the idle timer. v0.7.11 changed exactly that aggregate, so if the monitor now

@@ -262,10 +262,10 @@ rather than working; a `busy` session blocked without such a question (and with 
 rather than interrupted, and it blocks the stop. A graceful stop keeps the sandbox and its home volume, so the next run
 restarts in under a second. To clean up a stale sandbox, stop it manually or let `prune` reclaim it.
 
-The idle stop tears down everything inside the sandbox, including Docker containers. A container you started with
-`--docker` is stopped with the VM; its definition survives in the sandbox's Docker state, so `docker start` brings it
-back after the next connect. When the last client detaches with containers still running, the launcher warns you so the
-stop is not a surprise. Raise `auto-stop-timeout` if you want the sandbox to stay up longer between runs.
+The idle stop tears down everything inside the sandbox, including Docker containers. A container running in a
+Docker-enabled sandbox is stopped with the VM; its definition survives in the sandbox's Docker state, so `docker start`
+brings it back after the next connect. When the last client detaches with containers still running, the launcher warns
+you so the stop is not a surprise. Raise `auto-stop-timeout` if you want the sandbox to stay up longer between runs.
 
 Set all three fields in launcher config:
 
