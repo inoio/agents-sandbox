@@ -122,8 +122,10 @@ Each value has one writer of record. A reader never re-derives it from a second 
 - **Agent version.** Authority: the runner image's `agent-version` label. `HomeState.agent_version` is a cache that
   follows it. Writer of record: the image-ensuring path — `ensure-image` surfaces `ImageInfo.AgentVersion` and
   `ensure-home` persists it once state exists; `build` writes it through `image.Build`. `resolve-version`'s
-  reconciliation and boot provenance in `setup-sandbox` only copy the label into the cache and are never the only
-  writer. (`agent-version-sync.md`)
+  reconciliation copies the label into the cache and is never the only writer. Boot provenance in `setup-sandbox` is a
+  separate source, not label recovery: on a fresh boot `recordImageProvenance` records the agent and docker sources and,
+  for a tool-provided agent, detects the running agent's version via its `VersionCmd()` and writes that detected value
+  to the cache. (`agent-version-sync.md`)
 - **Runner image ref.** Content-addressed; the authority is the Docker image ID, which equals the msb config digest.
   Writer: `ensure-image`. The Docker tag is a stable name, never an identity. (`image-ref-content-addressing.md`)
 - **Home volume.** Authority: `HomeState.home_volume`; when state is lost, the live VM's mounted volume. Writer:
