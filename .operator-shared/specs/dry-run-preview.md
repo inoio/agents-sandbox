@@ -116,8 +116,8 @@ plus the session line) so it is asserted as data in unit tests and as the render
   `runoptions.ResolveMode(cmd).Previews()` and, instead of `PrepareRuntime`, only applies the private `MSB_HOME`
   (`runtime.ApplyPreviewHome`, inspect/install skipped). A fresh host thus renders the plan with no download and no
   runtime install, while the preview's read-only msb inspection (volumes, sandboxes) still resolves against the
-  private home rather than the user's `~/.microsandbox`. `shell --dry-run` is unaffected: the root preflight installs
-  nothing, and shell's own `doctor.CheckAll` preflight is what may still install the runtime.
+  private home rather than the user's `~/.microsandbox`. `shell --dry-run` behaves the same: like `run`, it skips the
+  `doctor.CheckAll` preflight on a preview (`cmd.runStartupStages`), so it installs nothing either.
 
 ### Test seam
 

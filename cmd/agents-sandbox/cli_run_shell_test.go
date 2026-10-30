@@ -378,6 +378,24 @@ func TestRunShellPreflightFailure(t *testing.T) {
 	}
 }
 
+// TestRunShellPreviewSkipsPreflight pins that a --dry-run preview of run and
+// shell alike skips the doctor preflight, which may install the microsandbox
+// runtime: a failing preflight must not abort the preview.
+func TestRunShellPreviewSkipsPreflight(t *testing.T) {
+	for _, command := range []string{cmdRun, cmdShell} {
+		t.Run(command, func(t *testing.T) {
+			initTestProjectDir(t)
+			mock := &sandboxmsb.MockMsbClient{}
+			root, _ := setupRunMocks(t, mock, &sandboxmsb.MockSandbox{}, command, "--dry-run")
+			doctor.MockedCheckAll(t, false)
+
+			if err := root.Execute(); err != nil {
+				t.Fatalf("%s --dry-run with a failing preflight: %v", command, err)
+			}
+		})
+	}
+}
+
 func TestRunShellRunNonZeroExit(t *testing.T) {
 	initTestProjectDir(t)
 	mock := &sandboxmsb.MockMsbClient{}

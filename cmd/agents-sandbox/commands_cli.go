@@ -15,6 +15,7 @@ import (
 
 	"github.com/inoio/agents-sandbox/internal/git"
 	"github.com/inoio/agents-sandbox/internal/runoptions"
+	"github.com/inoio/agents-sandbox/internal/sandbox/options"
 	"github.com/inoio/agents-sandbox/internal/sandbox/pruning"
 	"github.com/inoio/agents-sandbox/internal/sandbox/state"
 	"github.com/inoio/agents-sandbox/internal/upgrade"
@@ -137,30 +138,48 @@ func runFunc(ui termio.UI) func(cmd *cobra.Command, args []string) error {
 			ctx, _ = serveOnlyContext(ctx)
 		}
 		mode := runoptions.ResolveMode(cmd)
-		isDryRun := mode.Previews()
-		if !isDryRun {
-			if !doctor.CheckAll(cmd.Context(), ui) {
-				return errors.New("preflight failed")
-			}
-			exit, err := checkForUpgrade(ctx, r, ui)
-			if err != nil {
-				return err
-			}
-			if exit {
-				return nil
-			}
-		}
-		if r != nil {
-			autoPrune(
-				cmd.Context(),
-				r.AutoPruneAge(),
-				isDryRun,
-				&autoPruneOutToVerboseRedirect{UI: ui},
-				currentRunImageKeys(opts.Agent)...,
-			)
+		exit, err := runStartupStages(ctx, cmd, mode, opts.Agent, ui)
+		if err != nil || exit {
+			return err
 		}
 		return session.Run(ctx, opts, mode, ui)
 	}
+}
+
+// runStartupStages runs the stages run and shell share before the session: the
+// doctor preflight and the self-upgrade check (both skipped on a preview), then
+// the startup auto-prune (report-only on a preview), which retains the current
+// invocation's runner-image keys. It reports exit when an upgrade was performed
+// and the command must stop. upgradeCtx is the context the upgrade check runs
+// under (run's serve-only context, so an interrupt cancels it).
+func runStartupStages(
+	upgradeCtx context.Context,
+	cmd *cobra.Command,
+	mode options.Mode,
+	agentName string,
+	ui termio.UI,
+) (bool, error) {
+	r := resolverFromContext(cmd.Context())
+	isDryRun := mode.Previews()
+	if !isDryRun {
+		if !doctor.CheckAll(cmd.Context(), ui) {
+			return false, errors.New("preflight failed")
+		}
+		exit, err := checkForUpgrade(upgradeCtx, r, ui)
+		if err != nil || exit {
+			return exit, err
+		}
+	}
+	if r != nil {
+		autoPrune(
+			cmd.Context(),
+			r.AutoPruneAge(),
+			isDryRun,
+			&autoPruneOutToVerboseRedirect{UI: ui},
+			currentRunImageKeys(agentName)...,
+		)
+	}
+	return false, nil
 }
 
 // currentRunImageKeys returns the runner-image keys the current run may reuse, so
@@ -263,21 +282,13 @@ func buildShellCmd(ui termio.UI) *cobra.Command {
 			annotationAlsoAs: "sandbox shell",
 		},
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			if !doctor.CheckAll(cmd.Context(), ui) {
-				return errors.New("preflight failed")
-			}
-			mode := runoptions.ResolveMode(cmd)
-			if !mode.Previews() {
-				exit, err := checkForUpgrade(cmd.Context(), resolverFromContext(cmd.Context()), ui)
-				if err != nil {
-					return err
-				}
-				if exit {
-					return nil
-				}
-			}
 			opts, err := runoptions.Build(resolverFromContext(cmd.Context()).Config(), cmd, ui)
 			if err != nil {
+				return err
+			}
+			mode := runoptions.ResolveMode(cmd)
+			exit, err := runStartupStages(cmd.Context(), cmd, mode, opts.Agent, ui)
+			if err != nil || exit {
 				return err
 			}
 			return session.Shell(cmd.Context(), opts, mode, ui)

@@ -47,8 +47,8 @@ files (`loadEnvFingerprints`, after `ensure-image`; consumed by `ensure-home`'s 
 
 **`preflight`.** The root `PersistentPreRunE` installs or inspects the private msb runtime (`msbruntime.PrepareRuntime`;
 a preview only applies the private `MSB_HOME`), then `doctor.CheckAll` verifies host prerequisites and fails the run on
-a missing one. Guarantees every later stage a usable runtime and Docker. `run` skips `doctor.CheckAll` under
-`--dry-run`; `shell` runs it in every mode.
+a missing one. Guarantees every later stage a usable runtime and Docker. `run` and `shell` skip `doctor.CheckAll`
+under `--dry-run`. Stages 1–3 are one helper both commands share (`cmd.runStartupStages`).
 
 **`upgrade-check`.** Offers, performs or announces a launcher self-upgrade (`self-upgrade-channels.md`); an
 upgrade-and-exit ends the invocation here. Skipped under `--dry-run` for both `run` and `shell`.
@@ -56,8 +56,7 @@ upgrade-and-exit ends the invocation here. Skipped under `--dry-run` for both `r
 **`prune`.** Reclaims stale VMs, home volumes and runner images once per process under the liveness rules below,
 passing the current invocation's keys as `RetainKeys`. It runs before `resolve-identity`, so it pre-resolves those keys
 itself (`currentRunImageKeys`: the checkout slug plus the legacy repo slugs, best effort, nothing retained on failure);
-`resolve-identity` stays the authority for the key the rest of the run uses. Under `--dry-run` it only reports. `shell`
-has no prune stage.
+`resolve-identity` stays the authority for the key the rest of the run uses. Under `--dry-run` it only reports.
 
 **`resolve-identity`.** Looks up the agent, resolves the workspace identity (`git.ResolveIdentity`: bind root, repo
 slug, checkout slug) and adopts a legacy origin-keyed identity (`AdoptLegacyIdentity`) before any artifact is touched,
@@ -176,9 +175,9 @@ retired and always retains `RetainKeys`, and the native prune is skipped while a
 
 | Stage              | `run`                | `run --dry-run`               | `run --dry-run-vm`                    | `shell`           |
 |--------------------|----------------------|-------------------------------|---------------------------------------|-------------------|
-| `preflight`        | yes                  | runtime home only, no doctor  | yes                                   | yes, every mode   |
-| `upgrade-check`    | yes                  | skipped                       | yes                                   | skipped on preview |
-| `prune`            | yes                  | report only                   | yes                                   | absent            |
+| `preflight`        | yes                  | runtime home only, no doctor  | yes                                   | as `run`          |
+| `upgrade-check`    | yes                  | skipped                       | yes                                   | as `run`          |
+| `prune`            | yes                  | report only                   | yes                                   | as `run`          |
 | `resolve-identity` | yes                  | read-only adoption            | read-only adoption                    | as `run`          |
 | `resolve-version`  | yes                  | read-only (no upgrade check)  | yes                                   | as `run`          |
 | `ensure-image`     | yes                  | build decision only           | yes (builds)                          | as `run`          |
