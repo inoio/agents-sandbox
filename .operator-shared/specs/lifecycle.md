@@ -65,8 +65,11 @@ so every later stage keys on the effective checkout slug. Under `--dry-run-vm` t
 keeps resolving against the legacy location. See `checkout-identity.md`, `bare-worktree-layout.md`.
 
 **`resolve-version`.** Decides the agent release to bake: an explicit pin, else the release the existing image's label
-reports, else the `agent_version` cache, then the upgrade prompt, which may raise it. Folds legacy updater state. Its
-only `HomeState` writes copy the authority into the cache (a stale or empty `agent_version` is rewritten from the
+reports, else the `agent_version` cache, then the upgrade prompt, which may raise it. A user-provided agent is the one
+exception: the tool does not own it, so `resolveBuildVersion` returns its recorded version before the pin, skipping
+label recovery and the upgrade prompt (empty when nothing is recorded, leaving resolution to the build). The
+`--dry-run` preview (`previewAgentVersion`) follows the same precedence. Folds legacy updater state. Its only
+`HomeState` writes copy the authority into the cache (a stale or empty `agent_version` is rewritten from the
 label) and mark an offered upgrade when state already exists.
 Prevents a stale `agent_version` cache from selecting a release older than the image already holds; an explicit pin
 may intentionally select an older release. See `agent-version-sync.md`, `upgrade-state-scoping.md`.
