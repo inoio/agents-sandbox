@@ -1,0 +1,5 @@
+interface:
+  display_name: "Release"
+  short_description: "Cut an agents-sandbox release: changelog, version, notes, tag"
+policy:
+  allow_implicit_invocation: false

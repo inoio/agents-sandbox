@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/inoio/agents-sandbox/internal/agent"
@@ -40,10 +41,12 @@ type QuestionRequest struct {
 }
 
 // reapOnLastClient runs after a client detaches. If this was not the last client it
-// is a no-op. If it was, per policy it either returns immediately (auto-stop-on-active
-// mode, so the idle timeout stops the VM) or holds the VM until sessions quiesce.
-// An agent whose daemon does not expose the v1 session-status endpoints skips the
-// quiescence wait, so the idle timeout stops the VM as in auto-stop mode.
+// is a no-op. If it was, it first warns (best-effort) when the VM still has
+// running containers, which the idle stop will stop; then per policy it either
+// returns immediately (auto-stop-on-active mode, so the idle timeout stops the
+// VM) or holds the VM until sessions quiesce. An agent whose daemon does not
+// expose the v1 session-status endpoints skips the quiescence wait, so the idle
+// timeout stops the VM as in auto-stop mode.
 func reapOnLastClient(
 	ctx context.Context,
 	a agent.Agent,
@@ -54,6 +57,9 @@ func reapOnLastClient(
 ) error {
 	if state.CountActiveClients(k) > 0 {
 		return nil
+	}
+	if sb != nil {
+		warnRunningContainers(ctx, sb, ui)
 	}
 	if policy.AutoStopOnActiveSessions {
 		ui.Verbosef("auto-stop-on-active-sessions: not waiting; idle timeout will stop VM")
@@ -68,6 +74,53 @@ func reapOnLastClient(
 		return nil
 	}
 	return waitQuiescent(ctx, k, sb, provider, policy.MaxSessionRetries, ui)
+}
+
+// runningContainersProbeCmd lists the IDs of running containers, one per line.
+// It is the probe for warnRunningContainers.
+const runningContainersProbeCmd = "docker ps -q"
+
+// containerProbeTimeout bounds the best-effort container probe. The probe runs
+// on the last-client detach, where the triggering context is often already
+// canceled (serve-only exits by canceling it), so the probe needs its own
+// deadline rather than the caller's.
+const containerProbeTimeout = 5 * time.Second
+
+// warnRunningContainers warns that the sandbox's idle stop will also stop any
+// containers the user left running, so their fate is not a surprise.
+//
+// It runs on every last-client detach regardless of the docker setting: a
+// project Dockerfile can enable docker in the image (a final-stage marker or a
+// managed docker base) without any config, so the config value cannot decide
+// whether the VM can hold containers. The probe self-guards instead — a VM
+// without docker answers the command with a failure, and a docker API error is
+// equally silent, so either contributes nothing.
+//
+// The probe derives its own short-lived context from ctx instead of using ctx
+// directly: on the serve-only exit path ctx is already canceled by the time the
+// reaper runs, and the SDK aborts Shell on a canceled context, which would
+// silently suppress the warning. WithoutCancel keeps ctx's values but drops its
+// cancellation, and the timeout bounds the probe.
+func warnRunningContainers(ctx context.Context, sb msb.Sandbox, ui termio.UI) {
+	probeCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), containerProbeTimeout)
+	defer cancel()
+	out, err := sb.Shell(probeCtx, runningContainersProbeCmd)
+	if err != nil || out == nil || !out.Success() {
+		return
+	}
+	running := 0
+	for line := range strings.SplitSeq(out.Stdout(), "\n") {
+		if strings.TrimSpace(line) != "" {
+			running++
+		}
+	}
+	if running > 0 {
+		ui.Warnf(
+			"%d running container(s) will be stopped when the sandbox idles; "+
+				"restart them with 'docker start' after the next connect",
+			running,
+		)
+	}
 }
 
 // waitQuiescent keeps the VM alive (keeper exec) and polls the provider's

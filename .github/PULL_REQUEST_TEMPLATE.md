@@ -8,4 +8,5 @@
 
 - [ ] `make check` passes (fmt, lint, test)
 - [ ] Tests added/updated
+- [ ] Added a `changelog.d/` fragment (skip if docs-only or test-only)
 - [ ] `README.md` and `docs/` kept in sync with any behavior change

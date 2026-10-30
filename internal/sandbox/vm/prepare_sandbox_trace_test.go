@@ -96,3 +96,33 @@ func TestEnsureVMStageFailureSkipsFingerprints(t *testing.T) {
 		t.Error("a failed ensure-vm persisted state")
 	}
 }
+
+// TestPrepareSandboxVMStageFailureStopsAtEnsureVM pins the ensure-vm error path
+// through the ordered runner: a failing per-project flock acquisition fails
+// ensure-vm, so the trace ends there — setup-sandbox is never reached — and the
+// error propagates to the caller.
+func TestPrepareSandboxVMStageFailureStopsAtEnsureVM(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	clone := newOriginClone(t)
+	installPrepareSandboxDockerMock(t)
+	installPrepareSandboxDaemonMock(t)
+	ui := termio.NewTestMock(t)
+	t.Chdir(clone)
+	installPrepareSandboxMSBMock(t)
+
+	lockErr := errors.New("flock boom")
+	origLock := acquireProjectVMLock
+	acquireProjectVMLock = func(state.Key) (func(), error) { return nil, lockErr }
+	t.Cleanup(func() { acquireProjectVMLock = origLock })
+
+	trace := &lifecycle.Trace{}
+	_, err := PrepareSandbox(context.Background(), options.RunOptions{Agent: "opencode", Trace: trace}, false, &ui)
+	if !errors.Is(err, lockErr) {
+		t.Fatalf("PrepareSandbox error = %v, want %v", err, lockErr)
+	}
+	owned := vmOwnedStages(t)
+	want := owned[:len(owned)-1] // resolve-identity .. ensure-vm, without setup-sandbox
+	if got := trace.Stages(); !slices.Equal(got, want) {
+		t.Errorf("trace = %v, want %v (ends at the failing ensure-vm)", got, want)
+	}
+}

@@ -1,4 +1,8 @@
-FROM agents-sandbox/runner-base-docker:latest
+FROM debian:forky-slim
+
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends bsdmainutils ca-certificates curl dnsutils git iptables ripgrep fd-find file gawk iproute2 iputils-ping jq less lz4 man-db moreutils net-tools netcat-openbsd parallel procps psmisc python3 recode rsync socat tar tree unzip uuid wget xz-utils yq zip zstd \
+    && rm -rf /var/lib/apt/lists/*
 
 # default versions, keep in sync with versions in Makefile
 ARG GO_VERSION=1.27.3
@@ -19,7 +23,7 @@ RUN GOBIN=/usr/local/bin go install gotest.tools/gotestsum@v${GOTESTSUM_VERSION}
 # build-essential for CGO, shellcheck for shell script linting, default-jre for the PlantUML jar
 # (the full JRE, not -headless: PlantUML renders fonts and needs libharfbuzz/libfontmanager)
 RUN apt-get update && \
-    apt-get install -y --no-install-recommends build-essential bundler shellcheck default-jre fd-find && \
+    apt-get install -y --no-install-recommends build-essential bundler shellcheck default-jre && \
     rm -rf /var/lib/apt/lists/*
 
 # zig (tarball and install dir are architecture-specific; a stable symlink keeps PATH fixed)
@@ -100,3 +104,6 @@ RUN mkdir -p /usr/local/plantuml \
       'exec "$JAVA" -jar "$PLANTUML_JAR" "$@"\n' \
       > /usr/local/bin/plantuml \
  && chmod +x /usr/local/bin/plantuml
+
+# agents-sandbox:docker
+
