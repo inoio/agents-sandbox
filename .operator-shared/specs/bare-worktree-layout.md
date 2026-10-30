@@ -186,10 +186,10 @@ directly.
 
 - `worktree.useRelativePaths true` (git ≥ 2.48) so each worktree's `.git` pointer file survives the host→VM path
   remap. Set it in the bare repo's config.
-- `core.bare` is read from the shared `config` and from the bare root's `config.worktree`, so it may live in either.
-  Git moves it into `config.worktree` once `extensions.worktreeConfig` is set (as a sparse worktree does); with the
-  extension on, a `core.bare` left in the shared `config` instead makes every linked worktree inherit bare-ness and
-  refuse worktree operations.
+- `core.bare` is read from the shared `config` and, when `extensions.worktreeConfig` is enabled, from the bare root's
+  `config.worktree`, so it may live in either. Git moves it into `config.worktree` once the extension is set (as a
+  sparse worktree does) and ignores the file while the extension is off; with the extension on, a `core.bare` left in
+  the shared `config` instead makes every linked worktree inherit bare-ness and refuse worktree operations.
 
 ### Rules and reserved names
 

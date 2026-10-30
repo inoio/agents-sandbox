@@ -19,7 +19,7 @@ func TestIsBareReadsWorktreeConfig(t *testing.T) {
 	}
 	if err := os.WriteFile(
 		filepath.Join(gitDir, "config"),
-		[]byte("[core]\n\trepositoryformatversion = 1\n"),
+		[]byte("[core]\n\trepositoryformatversion = 1\n[extensions]\n\tworktreeConfig = true\n"),
 		0o644,
 	); err != nil {
 		t.Fatalf("WriteFile(config): %v", err)
@@ -34,6 +34,34 @@ func TestIsBareReadsWorktreeConfig(t *testing.T) {
 
 	if !isBare(gitDir) {
 		t.Errorf("isBare(%q) = false, want true when core.bare is in config.worktree", gitDir)
+	}
+}
+
+// TestIsBareIgnoresWorktreeConfigWithoutExtension pins that a config.worktree is
+// not consulted unless extensions.worktreeConfig is enabled: git itself ignores
+// the file then, so a leftover with core.bare must not make isBare report bare.
+func TestIsBareIgnoresWorktreeConfigWithoutExtension(t *testing.T) {
+	gitDir := filepath.Join(mustResolvePath(t, t.TempDir()), ".git")
+	if err := os.MkdirAll(gitDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll(%s): %v", gitDir, err)
+	}
+	if err := os.WriteFile(
+		filepath.Join(gitDir, "config"),
+		[]byte("[core]\n\trepositoryformatversion = 1\n"),
+		0o644,
+	); err != nil {
+		t.Fatalf("WriteFile(config): %v", err)
+	}
+	if err := os.WriteFile(
+		filepath.Join(gitDir, "config.worktree"),
+		[]byte("[core]\n\tbare = true\n"),
+		0o644,
+	); err != nil {
+		t.Fatalf("WriteFile(config.worktree): %v", err)
+	}
+
+	if isBare(gitDir) {
+		t.Errorf("isBare(%q) = true, want false when extensions.worktreeConfig is disabled", gitDir)
 	}
 }
 
@@ -53,7 +81,7 @@ func TestResolveIdentityBareFromWorktreeConfig(t *testing.T) {
 	// worktree's config.worktree.
 	if err := os.WriteFile(
 		filepath.Join(gitDir, "config"),
-		[]byte("[core]\n\trepositoryformatversion = 1\n"),
+		[]byte("[core]\n\trepositoryformatversion = 1\n[extensions]\n\tworktreeConfig = true\n"),
 		0o644,
 	); err != nil {
 		t.Fatalf("WriteFile(config): %v", err)

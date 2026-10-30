@@ -89,6 +89,7 @@ git --git-dir=.git branch agents-sandbox-config main
 git --git-dir=.git worktree add config agents-sandbox-config
 git -C config sparse-checkout set --no-cone '/.agents-sandbox/'
 
+mkdir -p .agents-sandbox
 ln -s ../config/.agents-sandbox/Dockerfile      .agents-sandbox/Dockerfile
 ln -s ../config/.agents-sandbox/config.yaml     .agents-sandbox/config.yaml
 ln -s ../config/.agents-sandbox/github-auth.sh  .agents-sandbox/github-auth.sh

@@ -87,6 +87,7 @@ git --git-dir=.git branch agents-sandbox-config main
 git --git-dir=.git worktree add config agents-sandbox-config
 git -C config sparse-checkout set --no-cone '/.agents-sandbox/'
 
+mkdir -p .agents-sandbox
 ln -s ../config/.agents-sandbox/Dockerfile      .agents-sandbox/Dockerfile
 ln -s ../config/.agents-sandbox/config.yaml     .agents-sandbox/config.yaml
 ln -s ../config/.agents-sandbox/github-auth.sh  .agents-sandbox/github-auth.sh
@@ -123,8 +124,13 @@ agents-sandbox
 - Project config is read from the **bare root**, next to `.git` — not from the worktree you launched from. A
   `.agents-sandbox/` inside a worktree is ignored, and agents-sandbox warns and names it. With the config tracked on
   `main`, every worktree carries one, so that warning is expected.
-- A worktree that lives *outside* its checkout is **not supported**: agents-sandbox keeps its current behavior and warns
-  that the shared git dir is not reachable inside the VM. Keep worktrees inside the checkout.
+- A worktree that lives *outside* its checkout runs as its own checkout: agents-sandbox binds the worktree directory and
+  gives it its own project VM and home volume rather than sharing the checkout's. The checkout's shared git dir sits outside
+  that bind, so agents-sandbox also mounts it read-write at the same path inside the VM, where the worktree's `.git`
+  file points. The sandbox can therefore write to the whole shared git dir, including the refs of every other worktree.
+  If that mount is impossible — the `.git` file records a relative path (`worktree.useRelativePaths`), or the path lies
+  under `/home/dev`, `/workspace`, or `/tmp` — agents-sandbox warns, and git commands inside the VM fail to resolve the
+  repository.
 
 Your IDE can attach to the stable checkout, to any worktree, or hop between them; that is a local choice and does not
 change the layout.
@@ -151,3 +157,5 @@ its home volume.
   with the agent starting in the subdirectory you launched from) and where project config is read from (the bare root
   next to `.git`, not the worktree). A `.agents-sandbox/` inside a launched worktree is ignored, with a warning naming
   it.
+- A bare clone into a directory named `<name>.git` (instead of `.git` inside the project dir) is recognized as a bare
+  checkout too: the `<name>.git` directory is the bare root and binds at `/workspace`.

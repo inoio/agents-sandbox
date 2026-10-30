@@ -85,14 +85,30 @@ func readRepoConfigFile(path string) (*config.Config, error) {
 }
 
 // isBare reports whether gitDir (a repository's shared git directory) is a bare
-// repository. core.bare is read from the shared config and, when present, from
-// the main worktree's config.worktree: git moves core.bare there once
-// extensions.worktreeConfig is set (for example when a worktree uses
-// sparse-checkout), so the shared config alone would read a bare repo as
-// non-bare. A missing or unreadable config means "not bare": that is today's
+// repository. core.bare is read from the shared config and, when
+// extensions.worktreeConfig is enabled, from the main worktree's
+// config.worktree: git moves core.bare there once the extension is set (for
+// example when a worktree uses sparse-checkout), so the shared config alone
+// would read a bare repo as non-bare. Git reads config.worktree files only when
+// the extension is enabled, so a file left behind after it is turned off must
+// not count. A missing or unreadable config means "not bare": that is today's
 // behavior for an unrecognized repo.
 func isBare(gitDir string) bool {
-	return configIsBare(gitDir, "config") || configIsBare(gitDir, "config.worktree")
+	shared, err := readRepoConfig(gitDir)
+	if err != nil {
+		return false
+	}
+	if shared.Core.IsBare {
+		return true
+	}
+	return worktreeConfigEnabled(shared) && configIsBare(gitDir, "config.worktree")
+}
+
+// worktreeConfigEnabled reports whether the shared config enables
+// extensions.worktreeConfig, the switch that makes git read per-worktree
+// config.worktree files.
+func worktreeConfigEnabled(cfg *config.Config) bool {
+	return strings.EqualFold(cfg.Raw.Section("extensions").Option("worktreeConfig"), "true")
 }
 
 // configIsBare reports whether the named config file in gitDir sets core.bare. A
