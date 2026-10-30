@@ -71,6 +71,32 @@ jobs:
             echo "code=false" >> "$GITHUB_OUTPUT"
           fi
 
+  # Required check. It always runs — a gated required check reports Success
+  # without running — and decides the changelog presence rule from the diff.
+  # The base computation mirrors the `changes` job above.
+  changelog:
+    name: changelog
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - name: Compute changed files
+        run: |
+          set -euo pipefail
+          if [ '${{ github.event_name }}' = 'pull_request' ]; then
+            git fetch --no-tags origin "refs/heads/${{ github.base_ref }}:refs/remotes/origin/${{ github.base_ref }}"
+            base=$(git merge-base "origin/${{ github.base_ref }}" '${{ github.sha }}')
+          elif [ '${{ github.event_name }}' = 'merge_group' ]; then
+            base='${{ github.event.merge_group.base_sha }}'
+          else
+            base='${{ github.event.before }}'
+            if ! git cat-file -e "${base}^{commit}" 2>/dev/null; then base='HEAD^'; fi
+          fi
+          git diff --name-only "$base" '${{ github.sha }}' > /tmp/changed.txt || true
+      - name: Check fragments
+        run: ci/check-changelog.sh . --changed /tmp/changed.txt
+
   lint:
     name: lint
     runs-on: ubuntu-latest

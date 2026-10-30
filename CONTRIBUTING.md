@@ -154,13 +154,13 @@ If you change a CLI command or flag, update the relevant docs in the same PR.
 ### Merging
 
 `main` merges through a **merge queue**. Once a PR is approved and its required checks (`lint`, `test`, `race`,
-`deadcode`) pass, add it to the queue (a maintainer can, and anyone with write access can in the PR's merge box). The
+`deadcode`, `changelog`) pass, add it to the queue (a maintainer can, and anyone with write access can in the PR's merge box). The
 queue builds your branch on top of the current `main` **plus the PRs ahead of you**, re-runs the required checks on that
 combined tree, and merges it only if they pass. This is what stops two independently-green PRs from breaking `main`
 together, without anyone hand-rebasing before merging.
 
 If a required check fails on that combined build, the queue drops your PR and leaves the reason on the timeline; fix it
-and re-add the PR. `race` and `deadcode` are required and always run — a gated required check would report success
+and re-add the PR. `race`, `deadcode`, and `changelog` are required and always run — a gated required check would report success
 without running — so a docs-only change runs them too. The `integration` suites are not in the queue: they still run on
 `main` after the merge (and on releases).
 
