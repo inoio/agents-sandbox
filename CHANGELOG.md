@@ -10,14 +10,6 @@ command reports the bare version (e.g. `0.1.0`).
 
 ### Added
 
-- Config: added an interactive tiered setup wizard. On the first interactive `run`/`shell` it asks the essentials,
-  resource, and runtime tiers (agent when unset, network profile, resources, and runtime defaults) before credential
-  migration; `config wizard [--tier=N]` asks one tier or every unanswered tier on demand. Answers are written to the
-  user-level config file preserving comments and key order, related resource/integration questions collapse behind one
-  confirmation, an "enough questions — use defaults for the rest" option exits early, values already fixed at a more
-  specific scope are skipped and reported, and answered/first-run state is remembered so the wizard never nags.
-- Config: added `config migrate` and first-run guidance for safely migrating supported OpenCode, Pi and Claude Code configuration with
-  microsandbox secret placeholders while keeping native host-config provisioning disabled. Reworked documentation to reflect the changes.
 - Internal: add `make test-integration` — docker-build integration tests (tagged `integration`, excluded from the main
   suite) that build a real image for every `RenderDockerfile` composition case (no project Dockerfile, managed base, and
   custom Fedora base, each with and without dind). Wired into CI as a selective job (main/release/manual).
@@ -30,18 +22,6 @@ command reports the bare version (e.g. `0.1.0`).
 
 ### Changed
 
-- Security: `provision-host-config` now defaults to `false`, so native agent config and credential files are not copied into the
-  VM unless explicitly enabled. Set it to `true` to retain the previous host-config drop-in behavior.
-- Config: refreshable OAuth credentials are no longer placeholder-migrated. They are classified as **Login** and routed to an
-  in-sandbox login in the persistent home (their login hosts are allowed); only static API keys and tokens are migrated to
-  `env.secret.yaml`. Claude Code's keychain/`.credentials.json` state is the login-only case.
-- Config: first-run guidance is now always explicit — migrate, login hand-off, host-first hand-off, or review hand-off — and
-  never silently no-ops when config is missing or unmigratable. Egress-deny rules that would shadow a required host are surfaced
-  interactively at review, with choices to skip the host, remove the deny rule, use the public posture, or abort.
-- Config: a login hand-off is remembered as `login-pending` and verified on the next interactive start (ask whether the
-  in-sandbox login worked; "No" re-enters the login hand-off, "Not yet" shows a quiet reminder). A manual setup is remembered
-  and not re-prompted until the native config changes, and an explicit `config migrate` always re-enters onboarding for a
-  deferred or pending configuration: it applies migratable configuration and records the pending login for a login-only one.
 - Internal: the dev user block is now inserted after the embedded base tools (or after the final `FROM` for a custom base)
   instead of as the first instruction of the final stage. A host UID/GID change no longer invalidates the cached base tools
   layer.
