@@ -2,14 +2,12 @@ package pruning
 
 import (
 	"context"
-	"time"
 
 	"github.com/moby/moby/client"
 
 	"github.com/inoio/agents-sandbox/internal/sandbox/docker"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
 	"github.com/inoio/agents-sandbox/internal/sandbox/naming"
-	"github.com/inoio/agents-sandbox/internal/sandbox/state"
 	"github.com/inoio/agents-sandbox/internal/termio"
 )
 
@@ -76,12 +74,7 @@ func PruneImages(
 			Digest:   digest,
 		})
 	}
-	// The native prune reclaims cached image data that no sandbox references: it
-	// cannot honor RetainKeys, so it would discard the very image a retaining
-	// invocation (a `run`/`shell`, pre-loading) is about to use. Defer it to a
-	// later prune that retains nothing — an explicit `prune`, or a run whose
-	// identity could not be resolved.
-	if !dryRun && len(pruneState.RetainKeys) == 0 {
+	if !dryRun && pruneState.allowsNativeImagePrune() {
 		nativeReport, err := msb.Get().ImagePrune(ctx)
 		if err != nil {
 			ui.Warnf("failed to prune unused msb image data: %v", err)
@@ -92,63 +85,6 @@ func PruneImages(
 	}
 	report.DockerImagesPruned = pruneDockerImages(ctx, dryRun, ui)
 	return report, nil
-}
-
-// keepImage reports whether an msb image reference should be retained. artifact
-// must be the parse of imageHandle's reference (the caller parses each listed
-// reference once and passes it in, so a reference read back from the microsandbox
-// cache is never parsed twice). A ref a kept sandbox still holds is always
-// retained, as is one whose key the current invocation is about to use (the
-// run's own project, so a run never reclaims the image it is about to import).
-// Otherwise the ref survives while it parses an agent and was used within the
-// prune age; a ref whose key is being pruned, an agent-less ref, and an aged-out
-// one are surplus.
-func keepImage(
-	imageHandle msb.ImageHandle,
-	artifact naming.ArtifactInfo,
-	pruneState PruneState,
-	keptImageRefs map[string]struct{},
-) bool {
-	if _, used := keptImageRefs[imageHandle.Reference()]; used {
-		return true
-	}
-	key := state.Key{Slug: artifact.Slug, Agent: artifact.Agent}
-	if _, retain := pruneState.RetainKeys[key]; retain {
-		return true
-	}
-	if _, pruned := pruneState.ToPrune[key]; pruned {
-		return false
-	}
-	return artifact.Agent != "" && imageWithinAge(imageHandle, pruneState.Age)
-}
-
-// imageWithinAge reports whether an image was used within the prune age, falling
-// back to its creation time when it was never used. A zero age disables the
-// recency rule and a zero timestamp counts as not-within-age.
-func imageWithinAge(imageHandle msb.ImageHandle, age time.Duration) bool {
-	if age <= 0 {
-		return false
-	}
-	used := imageHandle.LastUsedAt()
-	if used.IsZero() {
-		used = imageHandle.CreatedAt()
-	}
-	// gomutants:disable-next-line CONDITIONALS_BOUNDARY reason="the boundary is an exact nanosecond equality between time.Since and the age, with no injectable clock to hit it; < and <= agree on every reachable input"
-	return time.Since(used) < age
-}
-
-// referencedImages collects the image references that kept sandboxes currently
-// point at. An image still in use by a kept sandbox must not be removed, even
-// when it is a digest ref rather than a per-agent "-latest" tag (pre-redesign
-// VMs), since msb rejects removal of an image its database still references.
-func referencedImages(kept map[state.Key]msb.SandboxHandle) map[string]struct{} {
-	result := make(map[string]struct{}, len(kept))
-	for _, handle := range kept {
-		if ref := handle.Image(); ref != "" {
-			result[ref] = struct{}{}
-		}
-	}
-	return result
 }
 
 // pruneDockerImages removes dangling (untagged) docker images created by us; skipped on dry-run.

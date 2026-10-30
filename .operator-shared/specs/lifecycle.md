@@ -137,9 +137,12 @@ in this pass. Recent use does not save an artifact whose key's VM is reclaimed (
 conditions do. A project with no VM is **not yet retired** — a `build` loads its image before any VM exists, and a VM
 create can fail after its home volume exists.
 
-`pruning.buildPruneState` classifies project VMs once: `ToPrune` (stopped and older than the age), `ToKeep` (every
-other project VM), and neither (no VM). `RetainKeys` holds the current invocation's keys. Each artifact kind applies
-the principle as follows:
+`internal/sandbox/pruning/liveness.go` is the only implementation of these rules (`prunable`, `retires`, `keepImage`,
+`allowsNativeImagePrune`); a change to what counts as live goes there. The key-unaware runtime memory sweep
+(`PruneStorage`) is the one age-only exception. `pruning.buildPruneState` builds every input once: it classifies
+project VMs into `ToPrune` (stopped and older than the age; their keys are retired in this pass, `PruneState.retires`),
+`ToKeep` (every other project VM) and neither (no VM), and records the current invocation's keys as `RetainKeys`. Each
+artifact kind applies the principle as follows:
 
 | Artifact     | Reclaimed when                                                                                       | Retained by                                                                     |
 |--------------|-------------------------------------------------------------------------------------------------------|----------------------------------------------------------------------------------|

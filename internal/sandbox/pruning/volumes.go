@@ -82,7 +82,7 @@ func pruneHomeVolumes(
 			continue
 		}
 		key := state.Key{Slug: volumeArtifact.Slug, Agent: volumeArtifact.Agent}
-		if _, found := pruneState.ToPrune[key]; !found {
+		if !pruneState.retires(key) {
 			continue
 		}
 		if len(references[name]) > 0 {
