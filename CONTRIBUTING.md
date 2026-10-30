@@ -147,9 +147,10 @@ If you change a CLI command or flag, update the relevant docs in the same PR.
 1. Open an issue first if the change is non-trivial, so the approach can be discussed.
 2. Create a focused branch with a descriptive name.
 3. Make your changes, following the testing and formatting rules above.
-4. Run `make check` and make sure it passes.
-5. Open a pull request and fill out the template.
-6. Address review feedback; keep the commit history clean.
+4. Add a `changelog.d/` fragment for any change that touches code (see [Changelog & versioning](#changelog--versioning)).
+5. Run `make check` and make sure it passes.
+6. Open a pull request and fill out the template.
+7. Address review feedback; keep the commit history clean.
 
 ### Merging
 
@@ -168,8 +169,12 @@ without running — so a docs-only change runs them too. The `integration` suite
 
 - The project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Release tags are `vMAJOR.MINOR.PATCH`
   (e.g. `v0.1.0`); releases and the `version` command use the bare version (e.g. `0.1.0`).
-- Keep `CHANGELOG.md` current. When you make a user-visible change, add an item under the
-  `[Unreleased]` section.
+- Add a changelog **fragment**, don't edit `CHANGELOG.md`. For any user-visible change, create
+  `changelog.d/<slug>.<type>.md`: `<slug>` is the issue number (or the PR number when there is no issue) and `<type>`
+  one of `added`, `changed`, `deprecated`, `docs`, `fixed`. The file holds one bullet's text, without the leading
+  `- `, wrapped like the rest of the changelog. A change spanning two sections uses two files. The required
+  `changelog` check enforces a fragment for code changes; a docs-only change needs none. `CHANGELOG.md` is assembled
+  from the fragments at release time, so no two pull requests touch it. See `changelog.d/README.md`.
 
 ## Security
 
