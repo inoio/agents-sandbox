@@ -53,7 +53,10 @@ recorded, and a stage the invocation never reaches is absent (`attach` needs a V
 `prune`: its read-only variants of `resolve-identity` through `ensure-home` (`vm.PreviewSandbox`) are not stages of the
 trace. The trace starts in `cmd.runStartupStages`: the root `PersistentPreRunE`'s runtime preparation, the first half of
 `preflight`, runs before the trace exists, so a failure there leaves the trace empty. A nil trace records nothing. The
-trace is test instrumentation: nothing reads it at run time.
+trace is test instrumentation: nothing reads it at run time. `cmd`'s `TestRunShellRecordTheLifecycleTrace` asserts the
+trace of `run` and `shell` in every mode against `lifecycle.Order()` (the mutating path through `attach`,
+`--dry-run-vm` without it, a preview up to `prune`); `vm`'s `TestPrepareSandboxSkipVMRecordsStagesInOrder` asserts the
+vm-owned part.
 
 ## Stages
 
@@ -187,6 +190,8 @@ The current invocation's own stale VM is reclaimed on purpose: project VMs are e
 while what the run actually reuses — its runner image (retained by key) and its home volume (retained by its state
 reference) — survives. The two landed fixes satisfy the principle: the image prune no longer treats a VM-less key as
 retired and always retains `RetainKeys`, and the native prune is skipped while anything is retained.
+`TestBuildThenRunKeepsTheBuiltImage` (`cmd`) pins it end to end: a `run` after a `build`, with the project's only VM
+stale, keeps the built image and does not reimport it, and fails when the run passes no keys.
 
 ## Mode model
 

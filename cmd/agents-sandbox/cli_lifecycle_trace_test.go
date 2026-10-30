@@ -25,25 +25,38 @@ func captureLifecycleTrace(t *testing.T) *lifecycle.Trace {
 	return trace
 }
 
-// TestRunShellPreviewRecordsStartupStages pins the cmd-owned stages and the
-// trace seam: a --dry-run preview of run and shell reaches preflight,
-// upgrade-check and prune in order (the first two do no work on a preview, the
-// prune only reports) and then renders the preview without entering the
-// vm-owned stages.
-func TestRunShellPreviewRecordsStartupStages(t *testing.T) {
+// TestRunShellRecordTheLifecycleTrace pins the ordered stage trace per command
+// and mode against lifecycle.Order(): the mutating path reaches every stage
+// through attach, --dry-run-vm stops before attach, and a --dry-run preview
+// stops after the startup stages. Reordering, adding or removing a stage
+// anywhere in cmd, vm or session fails a case here.
+func TestRunShellRecordTheLifecycleTrace(t *testing.T) {
+	order := lifecycle.Order()
+	startup := order[:slices.Index(order, lifecycle.Prune)+1]
+	beforeAttach := order[:slices.Index(order, lifecycle.Attach)]
 	for _, command := range []string{cmdRun, cmdShell} {
-		t.Run(command, func(t *testing.T) {
-			initTestProjectDir(t)
-			trace := captureLifecycleTrace(t)
-			root, _ := setupRunMocks(t, &sandboxmsb.MockMsbClient{}, &sandboxmsb.MockSandbox{}, command, "--dry-run")
-			if err := root.Execute(); err != nil {
-				t.Fatalf("%s --dry-run: %v", command, err)
-			}
-			want := []lifecycle.StageID{lifecycle.Preflight, lifecycle.UpgradeCheck, lifecycle.Prune}
-			if got := trace.Stages(); !slices.Equal(got, want) {
-				t.Errorf("trace = %v, want %v", got, want)
-			}
-		})
+		for _, tc := range []struct {
+			mode string
+			flag []string
+			want []lifecycle.StageID
+		}{
+			{mode: "run", want: order},
+			{mode: "dry-run-vm", flag: []string{"--dry-run-vm"}, want: beforeAttach},
+			{mode: "dry-run", flag: []string{"--dry-run"}, want: startup},
+		} {
+			t.Run(command+"/"+tc.mode, func(t *testing.T) {
+				initTestProjectDir(t)
+				trace := captureLifecycleTrace(t)
+				args := append([]string{command}, tc.flag...)
+				root, _ := setupRunMocks(t, &sandboxmsb.MockMsbClient{}, &sandboxmsb.MockSandbox{}, args...)
+				if err := root.Execute(); err != nil {
+					t.Fatalf("%v: %v", args, err)
+				}
+				if got := trace.Stages(); !slices.Equal(got, tc.want) {
+					t.Errorf("trace = %v, want %v", got, tc.want)
+				}
+			})
+		}
 	}
 }
 
